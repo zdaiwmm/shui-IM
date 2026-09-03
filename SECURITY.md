@@ -55,6 +55,8 @@ An endpoint compromise, malicious browser extension, screen recorder, operating-
 ## Deployment requirements
 
 - Terminate only modern HTTPS and proxy WebSocket upgrades correctly. Never expose this service over plaintext Internet HTTP.
+- The canonical production origin is `https://ai.shui.click`. Keep WebAuthn bound to the exact `ai.shui.click` RP ID, keep API and WebSocket traffic same-origin, and retain control of both its DNS and certificate renewal. Do not broaden the RP ID to `shui.click` or add wildcard CORS for migration convenience.
+- The retired `chat.mijiu.cloud` origin must not serve application JavaScript. Keep its DNS and certificate under control and return only a no-script redirect or a static retirement response so an old WebAuthn/IndexedDB origin cannot become a dangling takeover target.
 - Do not add third-party analytics, tag managers, remote scripts, error collectors, or session replay.
 - Keep `data/` on a private persistent volume with restrictive filesystem permissions.
 - Run the included online backup worker, replicate completed snapshots to an independent failure domain with versioning/deletion protection, alert on backup age/capacity, and perform timed restore drills. See `OPERATIONS.md`.

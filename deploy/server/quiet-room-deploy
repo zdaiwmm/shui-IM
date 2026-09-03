@@ -11,7 +11,10 @@ readonly SHARED_ENV="$APP_ROOT/shared/production.env"
 readonly PROJECT=quiet-room
 readonly DATA_VOLUME=quiet-room_quiet-room-data
 readonly LOCAL_HEALTH_URL=http://127.0.0.1:8080/api/health
-readonly PUBLIC_HEALTH_URL=https://chat.mijiu.cloud/api/health
+readonly PUBLIC_HOST=ai.shui.click
+readonly PUBLIC_ORIGIN="https://$PUBLIC_HOST"
+readonly PUBLIC_HEALTH_URL="$PUBLIC_ORIGIN/api/health"
+readonly PUBLIC_WEBSOCKET_URL="wss://$PUBLIC_HOST/ws"
 readonly GIT_SSH_COMMAND_VALUE='ssh -o BatchMode=yes -o IdentitiesOnly=yes -i /home/deploy/.ssh/github_shui_im'
 readonly RELEASE_RETENTION_COUNT="${QUIET_ROOM_RELEASE_RETENTION_COUNT:-5}"
 readonly PREDEPLOY_BACKUP_RETENTION_COUNT="${QUIET_ROOM_PREDEPLOY_BACKUP_RETENTION_COUNT:-14}"
@@ -103,6 +106,37 @@ wait_for_health() {
   local attempt
   for attempt in $(seq 1 30); do
     if curl --fail --silent --show-error --max-time 3 "$LOCAL_HEALTH_URL" | grep -q '"ok":true'; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+wait_for_public_health() {
+  local attempts="${1:-10}"
+  local attempt
+  for attempt in $(seq 1 "$attempts"); do
+    if curl --fail --silent --show-error --max-time 5 "$PUBLIC_HEALTH_URL" | grep -q '"ok":true'; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+probe_public_websocket() {
+  docker run --rm --network host \
+    --env "QUIET_ROOM_PUBLIC_ORIGIN=$PUBLIC_ORIGIN" \
+    --env "QUIET_ROOM_PUBLIC_WEBSOCKET_URL=$PUBLIC_WEBSOCKET_URL" \
+    "$new_image" node --input-type=module -e \
+    "import WebSocket from 'ws'; let opened=false; const w=new WebSocket(process.env.QUIET_ROOM_PUBLIC_WEBSOCKET_URL,{headers:{Origin:process.env.QUIET_ROOM_PUBLIC_ORIGIN}}); const t=setTimeout(()=>process.exit(2),5000); w.on('open',()=>{opened=true;w.close()}); w.on('close',()=>{clearTimeout(t);process.exit(opened?0:3)}); w.on('error',()=>process.exit(1));"
+}
+
+wait_for_public_websocket() {
+  local attempt
+  for attempt in $(seq 1 5); do
+    if probe_public_websocket; then
       return 0
     fi
     sleep 2
@@ -364,6 +398,13 @@ if [[ -n "$running_container_listing" && ( -z "$previous_image" || ! -f "$previo
   exit 66
 fi
 
+# Refuse to begin downtime when DNS/TLS/reverse-proxy routing for the canonical
+# origin is already broken. The same probe is retried after cutover below.
+if ! wait_for_public_health 3; then
+  printf 'Refusing cutover: canonical public health check is unavailable: %s\n' "$PUBLIC_HEALTH_URL" >&2
+  exit 69
+fi
+
 cutover_started=1
 stop_project_containers
 ensure_data_volume_quiescent
@@ -382,10 +423,8 @@ QUIET_ROOM_IMAGE="$new_image" docker compose \
   up --detach --no-build --remove-orphans
 
 wait_for_health
-curl --fail --silent --show-error --max-time 5 "$PUBLIC_HEALTH_URL" | grep -q '"ok":true'
-
-docker run --rm --network host "$new_image" node --input-type=module -e \
-  "import WebSocket from 'ws'; const w=new WebSocket('wss://chat.mijiu.cloud/ws',{headers:{Origin:'https://chat.mijiu.cloud'}}); const t=setTimeout(()=>process.exit(2),5000); w.on('open',()=>w.close()); w.on('close',()=>{clearTimeout(t);process.exit(0)}); w.on('error',()=>process.exit(1));"
+wait_for_public_health 10
+wait_for_public_websocket
 
 ln -sfn "$release_dir" "$APP_ROOT/current"
 printf '%s\n' "$REQUESTED_SHA" > "$STATE_DIR/current-sha"

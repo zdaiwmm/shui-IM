@@ -165,7 +165,7 @@ MLS 层的图片消息判断比通用 crypto 层更宽松，缺少 key/iv 的 ba
 
 ### 13. 反向代理后应用层 IP 限流会退化成全局桶（已修复）
 
-位置：`server/index.mjs:170`、`deploy/nginx-chat.mijiu.cloud.conf:1-35`。
+位置：`server/index.mjs:170`、`deploy/nginx-ai.shui.click.conf:1-54`。
 
 应用用 `request.socket.remoteAddress` 作为键；部署在 Nginx 后时通常看到的都是代理地址。Nginx 自己有按客户端地址限流，因此不是完全无防护，但应用层“纵深防御”会变成所有用户共享一个桶，一名滥用者可能让其他用户被限流。
 

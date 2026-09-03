@@ -6,6 +6,9 @@ import { describe, expect, it } from 'vitest';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const DEPLOY_SCRIPT = path.join(PROJECT_ROOT, 'deploy/server/quiet-room-deploy');
+const LOCAL_DEPLOY_SCRIPT = path.join(PROJECT_ROOT, 'scripts/deploy-production.sh');
+const NGINX_CONFIG = path.join(PROJECT_ROOT, 'deploy/nginx-ai.shui.click.conf');
+const NGINX_BOOTSTRAP_CONFIG = path.join(PROJECT_ROOT, 'deploy/nginx-ai.shui.click-bootstrap.conf');
 
 describe('production deployment rollback safety contract', () => {
   it('has valid Bash syntax', () => {
@@ -70,5 +73,61 @@ describe('production deployment rollback safety contract', () => {
     expect(startNew).toBeGreaterThan(restoreRequired);
     expect(source).toContain('Predeploy backup retained at: %s');
     expect(source).toContain('Failed-cutover data retained at: %s');
+  });
+
+  it('pins all deployment probes to the canonical ai.shui.click origin', async () => {
+    const [source, localSource] = await Promise.all([
+      readFile(DEPLOY_SCRIPT, 'utf8'),
+      readFile(LOCAL_DEPLOY_SCRIPT, 'utf8'),
+    ]);
+
+    expect(source).toContain('readonly PUBLIC_HOST=ai.shui.click');
+    expect(source).toContain('readonly PUBLIC_ORIGIN="https://$PUBLIC_HOST"');
+    expect(source).toContain('readonly PUBLIC_WEBSOCKET_URL="wss://$PUBLIC_HOST/ws"');
+    expect(source).not.toContain('chat.mijiu.cloud');
+    expect(localSource).toContain('https://ai.shui.click');
+    expect(localSource).not.toContain('chat.mijiu.cloud');
+  });
+
+  it('checks the canonical route before downtime and retries public probes after cutover', async () => {
+    const source = await readFile(DEPLOY_SCRIPT, 'utf8');
+    const preflight = source.indexOf('if ! wait_for_public_health 3');
+    const cutover = source.indexOf('cutover_started=1\nstop_project_containers');
+    const startNew = source.indexOf('data_restore_required=1\nQUIET_ROOM_IMAGE="$new_image"');
+    const publicHealth = source.indexOf('wait_for_public_health 10', startNew);
+    const publicWebSocket = source.indexOf('wait_for_public_websocket', publicHealth);
+    const publishRelease = source.indexOf('ln -sfn "$release_dir" "$APP_ROOT/current"');
+
+    expect(preflight).toBeGreaterThan(-1);
+    expect(preflight).toBeLessThan(cutover);
+    expect(publicHealth).toBeGreaterThan(startNew);
+    expect(publicWebSocket).toBeGreaterThan(publicHealth);
+    expect(publishRelease).toBeGreaterThan(publicWebSocket);
+    expect(source).toContain('for attempt in $(seq 1 5)');
+    expect(source).toContain('let opened=false');
+    expect(source).toContain('process.exit(opened?0:3)');
+  });
+
+  it('serves the app only on the new origin and keeps ACME bootstrap fail-closed', async () => {
+    const [nginx, bootstrap] = await Promise.all([
+      readFile(NGINX_CONFIG, 'utf8'),
+      readFile(NGINX_BOOTSTRAP_CONFIG, 'utf8'),
+    ]);
+    const retiredOrigin = nginx.slice(nginx.indexOf('# Keep control of the retired origin'));
+
+    expect(nginx).toContain('server_name ai.shui.click;');
+    expect(nginx).toContain('ssl_certificate /etc/letsencrypt/live/ai.shui.click/fullchain.pem;');
+    expect(nginx).toContain('server_name ai.shui.click chat.mijiu.cloud;');
+    expect(retiredOrigin).toContain('server_name chat.mijiu.cloud;');
+    expect(retiredOrigin).toContain('return 308 https://ai.shui.click$request_uri;');
+    expect(retiredOrigin).toContain("Content-Security-Policy \"default-src 'none'");
+    expect(retiredOrigin).toContain('Referrer-Policy "no-referrer"');
+    expect(retiredOrigin).not.toContain('proxy_pass');
+    expect(nginx).not.toContain('Access-Control-Allow-Origin');
+
+    expect(bootstrap).toContain('server_name ai.shui.click;');
+    expect(bootstrap).toContain('location ^~ /.well-known/acme-challenge/');
+    expect(bootstrap).toContain('return 503;');
+    expect(bootstrap).not.toContain('proxy_pass');
   });
 });

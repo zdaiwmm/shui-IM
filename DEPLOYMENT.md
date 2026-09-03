@@ -1,8 +1,18 @@
 # Deployment workflow
 
-The production site is `https://chat.mijiu.cloud`. Production deployments are
-immutable Git-commit deployments from the private `zdaiwmm/shui-IM` repository.
-Only commits contained in `main` are accepted by the server.
+The canonical production site is `https://ai.shui.click`. The retired
+`https://chat.mijiu.cloud` origin must not serve application JavaScript; the
+checked-in Nginx configuration keeps control of it only to return a direct
+redirect to the canonical origin. Production deployments are immutable
+Git-commit deployments from the private `zdaiwmm/shui-IM` repository. Only
+commits contained in `main` are accepted by the server.
+
+WebAuthn credentials, IndexedDB, Service Workers, push subscriptions, and PWA
+installations are origin-scoped. A credential created on `chat.mijiu.cloud`
+cannot unlock a vault on `ai.shui.click`. Do not weaken this boundary by using
+`shui.click` as a parent RP ID, adding permissive CORS, or attempting to copy
+vault data through server-side plaintext. A canonical-domain replacement is a
+deliberate fresh-origin cutover.
 
 ## Normal deployment
 
@@ -29,6 +39,76 @@ export QUIET_ROOM_SERVER_KEY='/path/to/production-key'
 export QUIET_ROOM_GITHUB_KEY='/path/to/read-only-github-key'
 npm run deploy:production
 ```
+
+## First-time `ai.shui.click` provisioning
+
+The canonical origin must be healthy before installing a deployment helper
+that probes it. Perform this one-time infrastructure cutover before the normal
+application deployment:
+
+1. Confirm the `ai.shui.click` A record resolves to the production IPv4 address
+   and that public TCP ports 80 and 443 are allowed.
+2. Inspect the actual Nginx include and enabled-site paths with `nginx -T`.
+   Back up the currently loaded site file under
+   `/opt/quiet-room/deploy-state/nginx-backups/` before changing it.
+3. Install `deploy/nginx-ai.shui.click-bootstrap.conf` as a temporary enabled
+   HTTP-only vhost. It may coexist with the old full vhost because it defines no
+   shared rate-limit zones. Create the ACME webroot and test it from an external
+   network:
+
+   ```bash
+   sudo install -d -o root -g root -m 0755 \
+     /var/lib/letsencrypt/.well-known/acme-challenge
+   sudo nginx -t
+   sudo systemctl reload nginx
+   ```
+
+4. Issue a separate certificate lineage. Do not expand or overwrite the old
+   certificate, because keeping independent lineages makes rollback possible:
+
+   ```bash
+   sudo certbot certonly \
+     --webroot \
+     --webroot-path /var/lib/letsencrypt \
+     --cert-name ai.shui.click \
+     -d ai.shui.click
+   sudo openssl x509 \
+     -in /etc/letsencrypt/live/ai.shui.click/fullchain.pem \
+     -noout -subject -issuer -dates -ext subjectAltName
+   ```
+
+5. In one change, disable the bootstrap and old full site, then enable
+   `deploy/nginx-ai.shui.click.conf`. The old and new full configs both define
+   the same named rate-limit zones and must never be loaded together. Run
+   `nginx -t` before reload; restore the backup without reloading if validation
+   fails.
+6. Before deploying new application code, verify that the currently running
+   image is already reachable through the new reverse proxy:
+
+   ```bash
+   curl --fail --silent --show-error \
+     --connect-timeout 5 --max-time 10 \
+     https://ai.shui.click/api/health
+   ```
+
+   Also complete a real WebSocket upgrade with URL
+   `wss://ai.shui.click/ws` and `Origin: https://ai.shui.click`.
+7. Install the reviewed root-owned `deploy/server/quiet-room-deploy` helper by
+   the separate atomic process below, then run the normal application
+   deployment. Its pre-cutover probe deliberately refuses downtime if the new
+   DNS/TLS/reverse-proxy path is unavailable.
+8. After the release, verify certificate renewal without changing live
+   certificates:
+
+   ```bash
+   sudo certbot renew --dry-run
+   sudo systemctl list-timers --all | grep -i certbot
+   ```
+
+The final Nginx configuration sends the retired origin to the canonical origin
+without serving the old app. Continue controlling the old DNS name and its TLS
+certificate so it cannot become a dangling, takeover-prone origin. Do not send
+`Clear-Site-Data`; old local vault destruction is unnecessary for the cutover.
 
 GitHub runs the locked dependency install, production build, unit/integration
 tests, and browser tests in the **CI** workflow. GitHub has no production SSH

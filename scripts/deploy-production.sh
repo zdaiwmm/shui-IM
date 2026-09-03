@@ -28,7 +28,7 @@ remote_sha="$(git rev-parse origin/main)"
   exit 65
 }
 
-printf 'About to deploy %s to https://chat.mijiu.cloud\n' "$local_sha"
+printf 'About to deploy %s to https://ai.shui.click\n' "$local_sha"
 read -r -p 'Type DEPLOY to continue: ' confirmation
 [[ "$confirmation" == DEPLOY ]] || {
   printf 'Deployment cancelled.\n'

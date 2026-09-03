@@ -2,6 +2,10 @@
 
 Quiet Room is a mobile-first, two-person encrypted chat with independently keyed multi-device access. There are no accounts. The page opens as an empty white surface; holding the bottom-right corner for one second reveals the local unlock flow. Text, reply relationships, message type, image metadata, and original image bytes are encrypted in the browser before they reach the service.
 
+The canonical production origin is `https://ai.shui.click`. Passkeys and local
+history are intentionally bound to that exact origin; the retired
+`chat.mijiu.cloud` origin is not a compatible local-vault namespace.
+
 The implementation includes:
 
 - one-time participant invitation, followed by independently authorized multi-device access for each participant;
@@ -27,7 +31,7 @@ The implementation includes:
 
 Read [SECURITY.md](./SECURITY.md), [OPERATIONS.md](./OPERATIONS.md), and [PRODUCTION_SECURITY_GATE.md](./PRODUCTION_SECURITY_GATE.md) before deployment. New rooms use RFC 9420 MLS, but the browser library declares that it has not undergone a formal security audit, and a web client cannot fully defend itself if its hosting server actively replaces the delivered JavaScript. The public high-security release gate is therefore not yet cleared.
 
-Production releases are commit-pinned, manually triggered from a trusted computer, backed up before cutover, health checked, and automatically rolled back on failure. See [DEPLOYMENT.md](./DEPLOYMENT.md) for the GitHub CI and direct-SSH workflow.
+Production releases are commit-pinned, manually triggered from a trusted computer, backed up before cutover, health checked, and automatically rolled back on failure. See [DEPLOYMENT.md](./DEPLOYMENT.md) for the GitHub CI, direct-SSH workflow, and one-time canonical-domain provisioning sequence.
 
 ## Requirements
 

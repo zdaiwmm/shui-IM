@@ -53,6 +53,8 @@ Permission is requested only after the user selects the notification control. A 
 ## Release and incident basics
 
 - Serve only through HTTPS with HSTS. Preserve `/ws` upgrades and cap bodies slightly above the encrypted 2 MiB chunk size.
+- Treat `ai.shui.click` DNS control, its exact WebAuthn RP ID, and automatic TLS renewal as key-material-grade dependencies. Alert before certificate expiry, and never replace the exact-origin checks with a parent-domain RP ID or wildcard cross-origin access.
+- Keep the retired `chat.mijiu.cloud` hostname controlled but do not serve application JavaScript from it. Its redirect/retirement vhost and certificate are part of the origin-takeover defense, not an application compatibility promise.
 - Do not add analytics, tag managers, remote fonts/scripts, session replay, or plaintext error reporting.
 - Pin dependencies with `package-lock.json`, run `npm ci`, `npm run check:full`, dependency review, container scanning, and an isolated restore drill before release.
 - Retain minimal reverse-proxy logs. Never log authorization headers, URLs containing invite fragments, WebSocket frames, request bodies, push endpoints, or recovery data.
