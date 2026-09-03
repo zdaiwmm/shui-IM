@@ -1,5 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createStore } from '../server/storage.mjs';
@@ -19,6 +21,61 @@ function bundle(deviceId: string) {
 }
 
 describe('server ciphertext storage', () => {
+  it('migrates the previous two-device schema without losing device authentication', async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-migration-'));
+    directories.push(dataDir);
+    const database = new DatabaseSync(path.join(dataDir, 'quiet-room.sqlite'));
+    database.exec(`
+      CREATE TABLE rooms (
+        room_id TEXT PRIMARY KEY, access_hash BLOB NOT NULL, next_seq INTEGER NOT NULL DEFAULT 0,
+        next_receipt_seq INTEGER NOT NULL DEFAULT 0, message_count INTEGER NOT NULL DEFAULT 0,
+        message_bytes INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, sealed_at TEXT,
+        mls_welcome TEXT, protocol TEXT NOT NULL DEFAULT 'legacy-v1'
+      );
+      CREATE TABLE members (
+        room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE, device_id TEXT NOT NULL,
+        role TEXT NOT NULL, encryption_jwk TEXT NOT NULL, signing_jwk TEXT NOT NULL,
+        mls_key_package TEXT, join_proof TEXT, created_at TEXT NOT NULL,
+        PRIMARY KEY(room_id, device_id), UNIQUE(room_id, role)
+      );
+      CREATE TABLE receipts (
+        room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE, receipt_seq INTEGER NOT NULL,
+        client_msg_id TEXT NOT NULL, message_seq INTEGER NOT NULL, receiver_id TEXT NOT NULL,
+        receipt TEXT NOT NULL, accepted_at TEXT NOT NULL, PRIMARY KEY(room_id, receipt_seq),
+        UNIQUE(room_id, client_msg_id)
+      );
+    `);
+    const roomId = crypto.randomUUID();
+    const creatorId = crypto.randomUUID();
+    const token = 'z'.repeat(43);
+    const createdAt = new Date().toISOString();
+    database.prepare('INSERT INTO rooms(room_id, access_hash, created_at, protocol) VALUES (?, ?, ?, ?)')
+      .run(roomId, createHash('sha256').update(token).digest(), createdAt, 'legacy-v1');
+    database.prepare(`INSERT INTO members(
+      room_id, device_id, role, encryption_jwk, signing_jwk, mls_key_package, join_proof, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      roomId,
+      creatorId,
+      'creator',
+      JSON.stringify(bundle(creatorId).encryptionKey),
+      JSON.stringify(bundle(creatorId).signingKey),
+      null,
+      null,
+      createdAt,
+    );
+    database.close();
+
+    const store = await createStore({ dataDir });
+    expect(store.roomState(roomId).members[0]).toMatchObject({
+      deviceId: creatorId,
+      status: 'active',
+      deviceName: '已迁移设备',
+      joinSeq: 0,
+    });
+    expect(store.authenticatedDevice(roomId, token, creatorId)?.deviceId).toBe(creatorId);
+    store.close();
+  });
+
   it('authenticates capabilities, seals membership, and assigns idempotent order', async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-store-'));
     directories.push(dataDir);
@@ -30,6 +87,9 @@ describe('server ciphertext storage', () => {
 
     expect(store.authenticate(roomId, accessToken)).toBe(true);
     expect(store.authenticate(roomId, 'b'.repeat(43))).toBe(false);
+    expect(store.updateMemberCapabilities(roomId, creatorId, ['image-album-v1', 'image-album-v1'])).toMatchObject({
+      capabilities: ['image-album-v1'],
+    });
     const state = store.joinRoom(roomId, bundle(joinerId), 'proof');
     expect(state.members).toHaveLength(2);
     const idempotentJoin = store.joinRoom(roomId, bundle(joinerId), 'proof');
@@ -132,6 +192,111 @@ describe('server ciphertext storage', () => {
     expect(store.roomState(orphan.roomId)).toBeNull();
     expect(store.roomState(sealed.roomId)?.members).toHaveLength(2);
     expect(() => store.deleteRoom(sealed.roomId, 'b'.repeat(43))).toThrow('ROOM_SEALED');
+    store.close();
+  });
+
+  it('activates linked devices at an explicit history boundary with their own token', async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-devices-'));
+    directories.push(dataDir);
+    const store = await createStore({ dataDir });
+    const creatorId = crypto.randomUUID();
+    const joinerId = crypto.randomUUID();
+    const linkedId = crypto.randomUUID();
+    const creatorToken = 'a'.repeat(43);
+    const inviteToken = 'b'.repeat(43);
+    const joinerToken = 'c'.repeat(43);
+    const linkedToken = 'd'.repeat(43);
+    const withMls = (deviceId: string) => ({ ...bundle(deviceId), mlsKeyPackage: 'A'.repeat(64) });
+    const { roomId } = store.createRoom(withMls(creatorId), creatorToken, inviteToken, 'Mac', ['mls-multidevice-v1']);
+    store.joinRoom(roomId, withMls(joinerId), 'proof', joinerToken, 'iPhone', ['mls-multidevice-v1']);
+    const beforeLinkId = crypto.randomUUID();
+    store.insertMessage(roomId, { clientMsgId: beforeLinkId, senderId: creatorId, ciphertext: 'before-link' });
+
+    const linkId = crypto.randomUUID();
+    const secret = 'e'.repeat(43);
+    store.createDeviceLink(roomId, creatorId, linkId, secret, new Date(Date.now() + 60_000).toISOString());
+    store.claimDeviceLink(linkId, secret, withMls(linkedId), linkedToken, 'Windows 电脑', ['mls-multidevice-v1']);
+    const secondPendingLinkId = crypto.randomUUID();
+    const secondPendingSecret = 'f'.repeat(43);
+    store.createDeviceLink(roomId, creatorId, secondPendingLinkId, secondPendingSecret, new Date(Date.now() + 60_000).toISOString());
+    store.claimDeviceLink(
+      secondPendingLinkId,
+      secondPendingSecret,
+      withMls(crypto.randomUUID()),
+      'g'.repeat(43),
+      'Tablet',
+      ['mls-multidevice-v1'],
+    );
+    expect(() => store.createDeviceLink(
+      roomId,
+      creatorId,
+      crypto.randomUUID(),
+      'h'.repeat(43),
+      new Date(Date.now() + 60_000).toISOString(),
+    )).toThrow('DEVICE_LIMIT');
+    const target = store.roomState(roomId).members.find((member: { deviceId: string }) => member.deviceId === linkedId);
+    expect(target.status).toBe('pending');
+
+    store.saveMlsEvent(roomId, {
+      v: 1,
+      protocol: 'mls-rfc9420',
+      roomId,
+      eventId: crypto.randomUUID(),
+      previousEventSeq: 0,
+      action: 'add',
+      senderId: creatorId,
+      targetId: linkedId,
+      target,
+      commit: 'opaque-commit',
+      welcome: 'opaque-welcome',
+      signature: 'opaque-signature',
+    });
+    const active = store.getMember(roomId, linkedId);
+    expect(active).toMatchObject({ status: 'active', joinSeq: 1 });
+    expect(store.authenticatedDevice(roomId, linkedToken, linkedId)?.deviceId).toBe(linkedId);
+
+    const afterLinkId = crypto.randomUUID();
+    store.insertMessage(roomId, { clientMsgId: afterLinkId, senderId: joinerId, ciphertext: 'after-link' });
+    expect(store.messagesAfter(roomId, 0, 500, linkedId).map((message: { seq: number }) => message.seq)).toEqual([2]);
+    store.insertReceipt(roomId, {
+      v: 1,
+      roomId,
+      clientMsgId: beforeLinkId,
+      seq: 1,
+      receiverId: joinerId,
+      receivedAt: new Date().toISOString(),
+      signature: 'old-message-receipt',
+    });
+    store.insertReceipt(roomId, {
+      v: 1,
+      roomId,
+      clientMsgId: afterLinkId,
+      seq: 2,
+      receiverId: creatorId,
+      receivedAt: new Date().toISOString(),
+      signature: 'new-message-receipt',
+    });
+    const linkedReceipts = store.receiptsAfter(roomId, 0, 500, linkedId);
+    expect(linkedReceipts[0]).toMatchObject({ receiptSeq: 1, skipped: true });
+    expect(linkedReceipts[0]).not.toHaveProperty('receipt');
+    expect(linkedReceipts[1]).toMatchObject({ receiptSeq: 2, receipt: { clientMsgId: afterLinkId } });
+
+    store.saveMlsEvent(roomId, {
+      v: 1,
+      protocol: 'mls-rfc9420',
+      roomId,
+      eventId: crypto.randomUUID(),
+      previousEventSeq: 1,
+      action: 'remove',
+      senderId: creatorId,
+      targetId: linkedId,
+      commit: 'opaque-remove-commit',
+      signature: 'opaque-signature',
+    });
+    expect(store.getMember(roomId, linkedId)).toMatchObject({ status: 'revoked' });
+    expect(store.authenticatedDevice(roomId, linkedToken, linkedId)).toBeNull();
+    expect(store.cleanupExpiredDeviceLinks(new Date(Date.now() + 120_000).toISOString())).toBe(1);
+    expect(store.roomState(roomId).members.filter((member: { status: string }) => member.status === 'pending')).toHaveLength(0);
     store.close();
   });
 });

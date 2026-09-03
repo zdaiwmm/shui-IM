@@ -8,6 +8,14 @@ export type PublicBundle = {
 export type RoomMember = PublicBundle & {
   role: 'creator' | 'joiner';
   joinProof: string | null;
+  deviceName?: string;
+  status?: 'pending' | 'active' | 'revoked';
+  addedBy?: string | null;
+  joinSeq?: number;
+  joinReceiptSeq?: number;
+  lastSeenAt?: string;
+  revokedAt?: string | null;
+  capabilities?: string[];
   createdAt?: string;
 };
 
@@ -32,17 +40,52 @@ export type MlsWelcomeEnvelope = {
   signature: string;
 };
 
+export type MlsMembershipEnvelope = {
+  v: 1;
+  protocol: 'mls-rfc9420';
+  roomId: string;
+  eventId: string;
+  previousEventSeq: number;
+  action: 'add' | 'remove';
+  senderId: string;
+  targetId: string;
+  target?: RoomMember;
+  commit: string;
+  welcome?: string;
+  signature: string;
+};
+
+export type ServerMlsMembershipEvent = {
+  eventSeq: number;
+  event: MlsMembershipEnvelope;
+  acceptedAt: string;
+};
+
 export type MlsVaultState = {
   protocol: 'mls-rfc9420';
   phase: 'awaiting-peer' | 'awaiting-welcome' | 'active';
   groupState?: string;
   pendingWelcome?: MlsWelcomeEnvelope;
+  lastEventSeq?: number;
+  pendingMembership?: {
+    event: MlsMembershipEnvelope;
+    nextGroupState: string;
+  };
+};
+
+export type PendingDeviceLink = {
+  linkId: string;
+  secret: string;
+  expiresAt: string;
+  createdAt: string;
 };
 
 export type Vault = {
-  v: 1 | 2;
+  v: 1 | 2 | 3;
   roomId: string;
   accessToken: string;
+  /** Initial one-time invitation credential. Removed after the second participant joins. */
+  inviteToken?: string;
   role: 'creator' | 'joiner';
   pairingSecret: string;
   creatorFingerprint: string;
@@ -50,12 +93,14 @@ export type Vault = {
   members: RoomMember[];
   lastSeq: number;
   lastReceiptSeq?: number;
-  pairingState?: 'joining' | 'ready';
+  pairingState?: 'joining' | 'linking' | 'ready';
   recoveryExportedAt?: string;
   historyUnavailableBeforeSeq?: number;
   createdAt: string;
   protocol?: 'legacy-v1' | 'mls-rfc9420';
   mls?: MlsVaultState;
+  pendingDeviceLinks?: PendingDeviceLink[];
+  pendingDeviceLinkId?: string;
 };
 
 export type VaultKdf = {
@@ -87,9 +132,10 @@ export type PlatformCredentialRecord = {
 };
 
 export type StoredPlatformVault = {
-  v: 2;
+  /** Version 2 combines a gesture with PRF output. Version 3 uses PRF only. */
+  v: 2 | 3;
   unlockMethod: 'platform';
-  kdf: VaultKdf;
+  kdf?: VaultKdf;
   platform: PlatformCredentialRecord;
   wrappedKey: {
     iv: string;
@@ -102,7 +148,7 @@ export type StoredPlatformVault = {
 };
 
 export type StoredRecoveryVault = {
-  v: 2;
+  v: 2 | 3;
   unlockMethod: 'recovery';
   exportedAt: string;
   payload: StoredPlatformVault['payload'];
@@ -120,11 +166,20 @@ export type RecoveryExport = {
   recoveryCode: string;
 };
 
+export type ReplyReference = {
+  clientMsgId: string;
+  serverSeq: number;
+  senderId: string;
+  kind: 'text' | 'image';
+  preview: string;
+};
+
 export type TextPayload = {
-  v: 1;
+  v: 1 | 2;
   kind: 'text';
   text: string;
   sentAt: string;
+  replyTo?: ReplyReference;
 };
 
 export type ImageManifest = {
@@ -142,10 +197,11 @@ export type ImageManifest = {
 };
 
 export type ImagePayload = {
-  v: 1;
+  v: 1 | 2;
   kind: 'image';
   image: ImageManifest;
   sentAt: string;
+  replyTo?: ReplyReference;
 };
 
 export type GalleryImagePayload = {
@@ -155,7 +211,23 @@ export type GalleryImagePayload = {
   sentAt: string;
 };
 
-export type MessagePayload = TextPayload | ImagePayload | GalleryImagePayload;
+export type ImageAlbumPayload =
+  | {
+      v: 1;
+      kind: 'image-album';
+      images: ImageManifest[];
+      sentAt: string;
+      replyTo?: never;
+    }
+  | {
+      v: 2;
+      kind: 'image-album';
+      images: ImageManifest[];
+      sentAt: string;
+      replyTo: ReplyReference;
+    };
+
+export type MessagePayload = TextPayload | ImagePayload | GalleryImagePayload | ImageAlbumPayload;
 
 export type RecipientWrap = {
   deviceId: string;
@@ -217,9 +289,11 @@ export type DeliveryReceipt = {
 
 export type ServerReceipt = {
   receiptSeq: number;
-  receipt: DeliveryReceipt;
   acceptedAt: string;
-};
+} & (
+  | { receipt: DeliveryReceipt; skipped?: false }
+  | { skipped: true; receipt?: never }
+);
 
 export type OutboxItem = {
   clientMsgId: string;
@@ -228,7 +302,7 @@ export type OutboxItem = {
   envelope?: MessageEnvelope;
 };
 
-export type ImageUploadPlan = {
+export type LegacyImageUploadPlan = {
   v: 1;
   blobId: string;
   key: string;
@@ -241,6 +315,13 @@ export type ImageUploadPlan = {
   lastModified: number;
 };
 
+export type ImageUploadPlanV2 = Omit<LegacyImageUploadPlan, 'v'> & {
+  v: 2;
+  plaintextSha256: string;
+};
+
+export type ImageUploadPlan = LegacyImageUploadPlan | ImageUploadPlanV2;
+
 export type RoomState = {
   roomId: string;
   nextSeq: number;
@@ -249,4 +330,6 @@ export type RoomState = {
   protocol: 'legacy-v1' | 'mls-rfc9420';
   members: RoomMember[];
   mlsWelcome?: MlsWelcomeEnvelope | null;
+  nextMlsEventSeq?: number;
+  mlsEvents?: ServerMlsMembershipEvent[];
 };

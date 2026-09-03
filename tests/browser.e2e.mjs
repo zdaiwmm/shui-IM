@@ -5,8 +5,6 @@ import { chromium } from 'playwright';
 import { createServer as createViteServer } from 'vite';
 import { startServer } from '../server/index.mjs';
 
-const gestureA = [0, 1, 4, 7, 8, 5];
-const gestureB = [2, 1, 4, 7, 6, 3];
 const visualQaDirectory = process.argv[2];
 
 function invariant(condition, message) {
@@ -29,52 +27,13 @@ async function holdCover(page) {
   await page.mouse.up();
 }
 
-async function pointCenters(page, pattern) {
-  const centers = [];
-  for (const point of pattern) {
-    const box = await page.locator(`.gesture-point[data-point="${point}"]`).boundingBox();
-    invariant(box, `Gesture point ${point} is missing`);
-    centers.push({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
-  }
-  return centers;
-}
-
-async function drawMouse(page, pattern) {
-  const points = await pointCenters(page, pattern);
-  await page.mouse.move(points[0].x, points[0].y);
-  await page.mouse.down();
-  for (const point of points.slice(1)) await page.mouse.move(point.x, point.y, { steps: 3 });
-  await page.mouse.up();
-}
-
-async function drawTouch(page, pattern) {
-  const points = await pointCenters(page, pattern);
-  const cdp = await page.context().newCDPSession(page);
-  await cdp.send('Input.dispatchTouchEvent', {
-    type: 'touchStart',
-    touchPoints: [{ ...points[0], id: 1, radiusX: 4, radiusY: 4, force: 1 }],
-  });
-  for (const point of points.slice(1)) {
-    await cdp.send('Input.dispatchTouchEvent', {
-      type: 'touchMove',
-      touchPoints: [{ ...point, id: 1, radiusX: 4, radiusY: 4, force: 1 }],
-    });
-  }
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  await cdp.detach();
-}
-
-async function setGesture(page, pattern, touch = false) {
-  const draw = touch ? drawTouch : drawMouse;
-  await draw(page, pattern);
-  await draw(page, pattern);
+async function setPasskey(page) {
   await page.locator('[data-device-verify]').click();
 }
 
-async function unlock(page, pattern) {
+async function unlock(page) {
   await holdCover(page);
-  await page.locator('.gesture-pad').waitFor();
-  await drawMouse(page, pattern);
+  await page.locator('#passkey-unlock').click();
 }
 
 async function enableDeviceVault(page, backupEligible = false) {
@@ -135,29 +94,7 @@ try {
   await creator.goto(baseUrl);
   await holdCover(creator);
   await creator.locator('#create-room').click();
-  const setupLayout = await creator.evaluate(() => {
-    const gateway = document.querySelector('.gateway-gesture');
-    if (!gateway) return null;
-    const visibleChildren = [...gateway.children]
-      .map((child) => child.getBoundingClientRect())
-      .filter((rect) => rect.height > 0);
-    const contentTop = Math.min(...visibleChildren.map((rect) => rect.top));
-    const contentBottom = Math.max(...visibleChildren.map((rect) => rect.bottom));
-    const pad = gateway.querySelector('.gesture-pad')?.getBoundingClientRect();
-    const liveSegment = gateway.querySelector('.gesture-trace line');
-    return {
-      pageOverflow: document.documentElement.scrollHeight > innerHeight,
-      contentOverflow: contentTop < 0 || contentBottom > innerHeight,
-      balanceDelta: Math.abs(contentTop - (innerHeight - contentBottom)),
-      horizontalCenterDelta: pad ? Math.abs((pad.left + pad.right) / 2 - innerWidth / 2) : Number.POSITIVE_INFINITY,
-      liveSegmentHidden: liveSegment?.getAttribute('visibility') === 'hidden',
-    };
-  });
-  invariant(setupLayout && !setupLayout.pageOverflow && !setupLayout.contentOverflow, 'Gesture setup does not fit in one mobile viewport');
-  invariant(setupLayout.balanceDelta < 32, 'Gesture setup is not vertically centered');
-  invariant(setupLayout.horizontalCenterDelta < 1, 'Gesture pad is not horizontally centered');
-  invariant(setupLayout.liveSegmentHidden, 'Gesture trace rendered a stray point before interaction');
-  invariant(await creator.locator('.gesture-actions').count() === 0, 'Gesture screen still shows redundant clear/complete actions');
+  invariant(await creator.locator('.gesture-pad').count() === 0, 'A new vault still asks for a gesture');
   await creator.evaluate(() => {
     const originalCreate = navigator.credentials.create.bind(navigator.credentials);
     let failOnce = true;
@@ -173,12 +110,9 @@ try {
       },
     });
   });
-  await drawMouse(creator, gestureA);
-  await drawMouse(creator, gestureA);
   await creator.locator('[data-device-verify]').click();
-  await creator.getByText('操作未完成，可以直接重试。', { exact: true }).waitFor();
+  await creator.locator('.form-error:not(:empty)').waitFor();
   invariant(await creator.locator('.cover-trigger').count() === 0, 'Passkey prompt blur unexpectedly activated the privacy curtain');
-  invariant(await creator.locator('.gesture-host').isHidden(), 'A cancelled passkey prompt forced the gesture to be redrawn');
   await creator.locator('[data-device-verify]').click();
   await creator.locator('.pairing-screen').waitFor({ timeout: 15_000 }).catch(async (error) => {
     const visibleError = await creator.locator('.form-error').textContent().catch(() => '');
@@ -188,7 +122,7 @@ try {
 
   await joiner.goto(invite);
   await holdCover(joiner);
-  await setGesture(joiner, gestureB);
+  await setPasskey(joiner);
   await Promise.all([
     creator.locator('.chat-shell').waitFor({ timeout: 15_000 }),
     joiner.locator('.chat-shell').waitFor({ timeout: 15_000 }),
@@ -198,12 +132,18 @@ try {
   const joinerUsesSyncablePasskey = await joiner.evaluate(async () => {
     const { readStoredVault } = await import('/src/lib/vault.ts');
     const stored = await readStoredVault();
-    return stored?.v === 2 && stored.platform.backupEligible;
+    return stored?.v === 3 && stored.platform.backupEligible;
   });
   invariant(joinerUsesSyncablePasskey === true, 'A Chrome-style syncable passkey was not accepted');
   invariant(await creator.locator('#open-gallery').count() === 1, 'Creator cannot see the gallery entry');
   invariant(await joiner.locator('#open-gallery').count() === 0, 'Invited member can see the creator-only gallery entry');
   invariant(await creator.locator('#gallery-count').count() === 0, 'Gallery entry still renders a numeric badge');
+  await Promise.all([
+    creator.locator('#self-presence strong').filter({ hasText: /^在线$/ }).waitFor({ timeout: 5000 }),
+    creator.locator('#peer-presence strong').filter({ hasText: /^在线$/ }).waitFor({ timeout: 5000 }),
+    joiner.locator('#self-presence strong').filter({ hasText: /^在线$/ }).waitFor({ timeout: 5000 }),
+    joiner.locator('#peer-presence strong').filter({ hasText: /^在线$/ }).waitFor({ timeout: 5000 }),
+  ]);
   await creator.waitForTimeout(280);
   const composerLayout = await creator.evaluate(() => {
     const composer = document.querySelector('.composer')?.getBoundingClientRect();
@@ -244,7 +184,7 @@ try {
   );
   await creator.locator('.more-menu summary').click();
   await creator.locator('.message-list').click({ position: { x: 8, y: 8 } });
-  await creator.waitForTimeout(180);
+  await creator.waitForTimeout(280);
   invariant(!await creator.locator('.more-menu').evaluate((menu) => menu.hasAttribute('open')), 'Safety menu did not dismiss after an outside click');
 
   const startedAt = Date.now();
@@ -256,6 +196,17 @@ try {
   const deliveryMs = Date.now() - startedAt;
   invariant(deliveryMs < 3000, 'Local real-time delivery exceeded the acceptance budget');
 
+  const replySource = joiner.locator('.message.incoming').filter({ hasText: 'browser-e2e-live' });
+  await replySource.dispatchEvent('pointerdown', { pointerType: 'touch', button: 0, clientX: 40, clientY: 180 });
+  await joiner.waitForTimeout(520);
+  await joiner.getByRole('menuitem', { name: '回复' }).click();
+  await joiner.locator('#reply-draft').waitFor({ state: 'visible' });
+  await joiner.locator('#message-input').fill('browser-e2e-reply');
+  await joiner.locator('#composer').evaluate((form) => form.requestSubmit());
+  const receivedReply = creator.locator('.message.incoming').filter({ hasText: 'browser-e2e-reply' });
+  await receivedReply.waitFor({ timeout: 5000 });
+  invariant(await receivedReply.locator('.message-reply-quote').textContent().then((value) => value?.includes('browser-e2e-live')), 'Encrypted reply did not retain its local quote');
+
   await creator.evaluate(() => {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
     document.dispatchEvent(new Event('visibilitychange'));
@@ -265,21 +216,13 @@ try {
   invariant(await creator.getByText('browser-e2e-live', { exact: true }).count() === 0, 'Blur left plaintext visible');
   await creator.waitForTimeout(200);
   invariant(await creator.locator('.cover-trigger').count() === 1, 'Focus restored the session without authentication');
-  await holdCover(creator);
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    await drawMouse(creator, [0, 1, 2, 5]);
-    await creator.getByText('请重新绘制手势。', { exact: true }).waitFor({ timeout: 10_000 });
-  }
-  await drawMouse(creator, gestureA);
-  await creator.getByText(/尝试次数过多/).waitFor({ timeout: 3000 });
-  await creator.waitForTimeout(1100);
-  await drawMouse(creator, gestureA);
+  await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
 
   await creator.locator('#message-input').fill('browser-e2e-outbox');
   await creator.locator('#composer').evaluate((form) => form.requestSubmit());
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
-  await unlock(creator, gestureA);
+  await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
   await joiner.getByText('browser-e2e-outbox', { exact: true }).waitFor({ timeout: 5000 });
   invariant(await joiner.getByText('browser-e2e-outbox', { exact: true }).count() === 1, 'Outbox replay duplicated a message');
@@ -297,15 +240,25 @@ try {
   invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Gallery button dismissed the composer keyboard focus');
   const retainedFocusImageIndex = await creator.locator('.message.outgoing .image-preview').count();
   await creator.locator('#image-input').setInputFiles({ ...image, name: 'keyboard-retained.svg' });
-  await creator.locator('.message.outgoing .image-preview').nth(retainedFocusImageIndex).waitFor({ timeout: 10_000 });
+  await creator.locator('.message.outgoing .image-preview').nth(retainedFocusImageIndex).locator('img').waitFor({ timeout: 10_000 });
   invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Selecting an image dismissed the composer keyboard focus');
+  await creator.locator('.message-list').click({ position: { x: 8, y: 8 } });
+  invariant(await creator.evaluate(() => document.activeElement?.id !== 'message-input'), 'Tapping outside the composer did not dismiss keyboard focus');
   await creator.locator('#emoji-button').click();
   await creator.locator('.emoji-picker.is-visible').waitFor();
+  invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Opening the emoji picker did not synchronously focus the composer');
   await creator.waitForTimeout(240);
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'emoji-mobile.png') });
+  const firstEmoji = await creator.locator('[data-emoji]').first().textContent();
   await creator.locator('[data-emoji]').first().click();
-  invariant(await creator.locator('#message-input').inputValue() === '😄', 'Emoji picker did not insert the selected emoji');
+  invariant(await creator.locator('#message-input').inputValue() === firstEmoji, 'Emoji picker did not insert the selected emoji');
   invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Emoji selection dismissed the composer keyboard focus');
+  await creator.locator('.favorite-expression').first().click();
+  await creator.locator('[data-expression-tab="favorites"]').click();
+  invariant(await creator.locator('#expression-content [data-emoji]').count() >= 1, 'A favorited emoji did not appear in the encrypted local favorites tab');
+  await creator.locator('[data-expression-tab="meme"]').click();
+  await creator.locator('.meme-option img').first().waitFor();
+  invariant(await creator.locator('.meme-option').count() >= 8, 'The bundled meme library is unexpectedly small');
   await creator.locator('#message-input').fill('');
   await creator.locator('#emoji-button').click();
   const detachedInput = await creator.locator('#image-input').elementHandle();
@@ -318,14 +271,59 @@ try {
   invariant(await creator.locator('.cover-trigger').count() === 0, 'Image picker blur covered the chat');
   await detachedInput.setInputFiles(image);
   await Promise.all([
-    creator.locator('.message.outgoing .image-preview').nth(directImageCreatorIndex).waitFor({ timeout: 10_000 }),
-    joiner.locator('.message.incoming .image-preview').nth(directImageJoinerIndex).waitFor({ timeout: 10_000 }),
+    creator.locator('.message.outgoing .image-preview').nth(directImageCreatorIndex).locator('img').waitFor({ timeout: 10_000 }),
+    joiner.locator('.message.incoming .image-preview').nth(directImageJoinerIndex).locator('img').waitFor({ timeout: 10_000 }),
   ]);
+  await creator.locator('.message.outgoing .image-preview').nth(directImageCreatorIndex).click();
+  await creator.locator('.image-viewer.is-visible .viewer-stage img').waitFor({ timeout: 10_000 });
+  await creator.locator('[data-viewer-close]').click();
+  await creator.locator('.image-viewer').waitFor({ state: 'detached' });
+
+  const albumCreatorMessagesBefore = await creator.locator('.message.outgoing').count();
+  const albumJoinerMessagesBefore = await joiner.locator('.message.incoming').count();
+  await creator.locator('#image-input').setInputFiles([
+    { ...image, name: 'album-one.svg' },
+    { ...image, name: 'album-two.svg' },
+    { ...image, name: 'album-three.svg' },
+  ]);
+  const creatorAlbum = creator.locator('.message.outgoing .image-album').last();
+  const joinerAlbum = joiner.locator('.message.incoming .image-album').last();
+  await Promise.all([
+    creatorAlbum.locator('.album-cell[data-image-state="loaded"]').nth(2).waitFor({ state: 'attached', timeout: 15_000 }),
+    joinerAlbum.locator('.album-cell[data-image-state="loaded"]').nth(2).waitFor({ state: 'attached', timeout: 15_000 }),
+  ]);
+  const albumLayout = await creatorAlbum.locator('.album-cell').evaluateAll((cells) => cells.map((cell) => {
+    const bounds = cell.getBoundingClientRect();
+    return { width: bounds.width, height: bounds.height, display: getComputedStyle(cell).display };
+  }));
+  invariant(albumLayout.every(({ width, height, display }) => width > 0 && height > 0 && display !== 'none'), `Album cells are not all visible: ${JSON.stringify(albumLayout)}`);
+  invariant(await creator.locator('.message.outgoing').count() === albumCreatorMessagesBefore + 1, 'Multi-image selection was split into more than one outgoing message');
+  invariant(await joiner.locator('.message.incoming').count() === albumJoinerMessagesBefore + 1, 'Multi-image selection was split for the receiver');
+  invariant(await creatorAlbum.locator('.album-cell').count() === 3, 'Three selected images did not render as one three-cell album');
+  await creatorAlbum.locator('.album-cell').nth(1).click();
+  await creator.locator('[data-viewer-counter]').getByText('2 / 3', { exact: true }).waitFor();
+  const viewerStage = creator.locator('.viewer-stage');
+  await viewerStage.dispatchEvent('pointerdown', { pointerType: 'touch', button: 0, clientX: 300, clientY: 400 });
+  await viewerStage.dispatchEvent('pointerup', { pointerType: 'touch', button: 0, clientX: 100, clientY: 400 });
+  await creator.locator('[data-viewer-counter]').getByText('3 / 3', { exact: true }).waitFor();
+  await creator.locator('[data-viewer-close]').click();
+  await creator.locator('.image-viewer').waitFor({ state: 'detached' });
 
   const imageCount = await joiner.locator('.message.incoming .image-preview').count();
   const creatorChatImageCount = await creator.locator('.message.outgoing .image-preview').count();
+  const chatAnchorBeforeGallery = await creator.locator('#message-list').evaluate((list) => {
+    list.scrollTop = Math.max(0, list.scrollHeight - list.clientHeight - 160);
+    const listTop = list.getBoundingClientRect().top;
+    const visible = [...list.querySelectorAll('.message[data-client-msg-id]')]
+      .find((message) => message.getBoundingClientRect().bottom > listTop);
+    return {
+      id: visible?.getAttribute('data-client-msg-id') ?? '',
+      offset: visible ? visible.getBoundingClientRect().top - listTop : 0,
+    };
+  });
   await creator.locator('#open-gallery').click();
   await creator.locator('.gallery-shell').waitFor();
+  await joiner.locator('#peer-presence strong').filter({ hasText: /^离线$/ }).waitFor({ timeout: 5000 });
   const galleryInput = await creator.locator('#gallery-image-input').elementHandle();
   invariant(galleryInput, 'Gallery upload input is missing');
   await beginSyntheticFilePicker(galleryInput);
@@ -343,11 +341,11 @@ try {
   await galleryOnlyTile.locator('img').waitFor({ timeout: 10_000 });
   invariant(await galleryOnlyTile.getAttribute('data-thumbnail-state') === 'loaded', 'Visible gallery thumbnail did not decrypt and render');
   await galleryOnlyTile.click();
-  await creator.locator('.detail-stage img').waitFor({ timeout: 10_000 });
-  await creator.locator('#detail-back').click();
-  await creator.locator('.gallery-shell').waitFor();
+  await creator.locator('.image-viewer.is-visible .viewer-stage img').waitFor({ timeout: 10_000 });
+  await creator.locator('[data-viewer-close]').click();
+  await creator.locator('.image-viewer').waitFor({ state: 'detached' });
   await creator.locator('.gallery-tile img').first().waitFor({ timeout: 10_000 });
-  await creator.waitForTimeout(280);
+  await creator.waitForTimeout(420);
   await creator.unroute('**/chunks/**');
   if (visualQaDirectory) {
     await mkdir(visualQaDirectory, { recursive: true });
@@ -358,7 +356,21 @@ try {
   }
   await creator.locator('#gallery-back').click();
   await creator.locator('.chat-shell').waitFor();
-  await creator.waitForTimeout(280);
+  await joiner.locator('#peer-presence strong').filter({ hasText: /^在线$/ }).waitFor({ timeout: 5000 });
+  await creator.waitForTimeout(420);
+  const chatAnchorAfterGallery = await creator.locator('#message-list').evaluate((list) => {
+    const listTop = list.getBoundingClientRect().top;
+    const visible = [...list.querySelectorAll('.message[data-client-msg-id]')]
+      .find((message) => message.getBoundingClientRect().bottom > listTop);
+    return {
+      id: visible?.getAttribute('data-client-msg-id') ?? '',
+      offset: visible ? visible.getBoundingClientRect().top - listTop : 0,
+    };
+  });
+  invariant(
+    chatAnchorAfterGallery.id === chatAnchorBeforeGallery.id && Math.abs(chatAnchorAfterGallery.offset - chatAnchorBeforeGallery.offset) <= 3,
+    `Returning from the gallery lost the previous chat position: ${JSON.stringify({ chatAnchorBeforeGallery, chatAnchorAfterGallery })}`,
+  );
   if (visualQaDirectory) {
     await creator.screenshot({ path: path.join(visualQaDirectory, 'chat-mobile.png') });
     await creator.setViewportSize({ width: 1200, height: 900 });
@@ -380,14 +392,14 @@ try {
   await cancelledInput.evaluate((input) => input.dispatchEvent(new Event('cancel')));
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
   await creator.locator('.cover-trigger').waitFor();
-  await unlock(creator, gestureA);
+  await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
 
   const discardedInput = await creator.locator('#image-input').elementHandle();
   await beginSyntheticFilePicker(discardedInput);
   await creator.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
   await creator.locator('.cover-trigger').waitFor();
-  await unlock(creator, gestureA);
+  await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
   await creator.waitForTimeout(800);
   invariant(await joiner.locator('.message.incoming .image-preview').count() === imageCount, 'pagehide bypassed the privacy curtain exception');
@@ -402,7 +414,7 @@ try {
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
   await creator.locator('.cover-trigger').waitFor();
   await creator.unroute('**/chunks/**');
-  await unlock(creator, gestureA);
+  await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
   await creator.locator('.upload-reminder').waitFor({ timeout: 5000 });
   await creator.locator('#image-input').setInputFiles(resumableImage);
@@ -428,13 +440,16 @@ try {
   await recovery.locator('#recovery-file').setInputFiles(recoveryPath);
   await recovery.locator('textarea[name="recovery-code"]').fill(recoveryCode);
   await recovery.locator('#recovery-code-form').evaluate((form) => form.requestSubmit());
-  await recovery.locator('.gesture-pad').waitFor();
-  await setGesture(recovery, gestureA);
+  await setPasskey(recovery);
   await recovery.locator('.chat-shell').waitFor({ timeout: 15_000 }).catch(async (error) => {
     throw new Error(`Recovery did not reopen: ${await recovery.locator('body').innerText()}`, { cause: error });
   });
   invariant(await recovery.locator('.fatal-screen').count() === 0, 'MLS recovery replayed an unavailable sender ratchet');
-  await recovery.locator('#peer-status[data-state="connected"]').waitFor({ timeout: 15_000 });
+  await Promise.all([
+    recovery.locator('.peer-summary[data-state="ready"]').waitFor({ timeout: 15_000 }),
+    recovery.locator('#self-presence[data-state="online"]').waitFor({ timeout: 15_000 }),
+    recovery.locator('#peer-presence[data-state="online"]').waitFor({ timeout: 15_000 }),
+  ]);
   await joiner.locator('#message-input').fill('browser-e2e-after-recovery');
   await joiner.locator('#composer').evaluate((form) => form.requestSubmit());
   await recovery.getByText('browser-e2e-after-recovery', { exact: true }).waitFor({ timeout: 5000 });
@@ -491,22 +506,21 @@ try {
   await legacy.locator('input[name="password"]').fill('legacy-password-for-migration');
   await legacy.locator('#unlock-form').evaluate((form) => form.requestSubmit());
   await legacy.getByText('绑定这台设备').waitFor({ timeout: 15_000 });
-  await setGesture(legacy, gestureA);
+  await setPasskey(legacy);
   await legacy.locator('.pairing-screen').waitFor({ timeout: 15_000 });
   await legacy.evaluate(() => window.dispatchEvent(new Event('blur')));
-  await unlock(legacy, gestureA);
+  await unlock(legacy);
   await legacy.locator('.pairing-screen').waitFor({ timeout: 15_000 });
-  const migratedLocalData = await legacy.evaluate(async (pattern) => {
-    const gestureModule = await import('/src/lib/gesture.ts');
+  const migratedLocalData = await legacy.evaluate(async () => {
     const vaultModule = await import('/src/lib/vault.ts');
     const stored = await vaultModule.readStoredVault();
-    const session = await vaultModule.unlockVault(gestureModule.gestureSecret(pattern));
+    const session = await vaultModule.unlockVault();
     return {
       unlockMethod: stored?.unlockMethod,
       history: (await vaultModule.loadHistory(session)).map((message) => message.payload.text),
       outbox: (await vaultModule.loadOutbox(session)).map((item) => item.payload.text),
     };
-  }, gestureA);
+  });
   invariant(migratedLocalData.unlockMethod === 'platform', 'Legacy vault did not persist the passkey method');
   invariant(migratedLocalData.history.includes('legacy-local-history'), 'Legacy history was not re-encrypted during migration');
   invariant(migratedLocalData.outbox.includes('legacy-local-outbox'), 'Legacy outbox was not re-encrypted during migration');
@@ -547,19 +561,26 @@ try {
       headerOffset: shell && header ? Math.abs(header.top - shell.top) : Number.POSITIVE_INFINITY,
       composerOffset: shell && composer ? Math.abs(composer.bottom - shell.bottom) : Number.POSITIVE_INFINITY,
       messageOverflow: messageList ? getComputedStyle(messageList).overflowY : 'missing',
+      headerBackground: header ? getComputedStyle(document.querySelector('.chat-header')).backgroundColor : 'missing',
+      composerBackground: composer ? getComputedStyle(document.querySelector('.composer')).backgroundColor : 'missing',
       viewport: document.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? '',
       faintTextContrast: contrast(rgb('--ink-faint'), rgb('--paper-pure')),
       strongLineContrast: contrast(rgb('--line-strong'), rgb('--paper-pure')),
       undersized: [...document.querySelectorAll('button, summary, .image-picker, .gallery-upload-button')]
         .map((element) => {
           const rect = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
           return {
             element: `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''}${[...element.classList].map((name) => `.${name}`).join('')}`,
             width: rect.width,
             height: rect.height,
+            interactive: style.display !== 'none'
+              && style.visibility !== 'hidden'
+              && Number.parseFloat(style.opacity) > 0
+              && style.pointerEvents !== 'none',
           };
         })
-        .filter((item) => item.width > 0 && item.height > 0 && (item.width < 44 || item.height < 44)),
+        .filter((item) => item.interactive && item.width > 0 && item.height > 0 && (item.width < 44 || item.height < 44)),
     };
   });
   invariant(!accessibility.overflow, 'Mobile layout has horizontal overflow');
@@ -569,7 +590,10 @@ try {
   invariant(accessibility.composerFieldOutline === 'none', 'Composer field retained the second focus outline');
   invariant(accessibility.headerOffset < 1 && accessibility.composerOffset < 1, 'Chat header or composer is not fixed to the shell');
   invariant(accessibility.messageOverflow === 'auto', 'Messages are not the dedicated vertical scroll region');
+  invariant(accessibility.headerBackground === 'rgba(0, 0, 0, 0)', `Chat header is not transparent: ${accessibility.headerBackground}`);
+  invariant(accessibility.composerBackground === 'rgba(0, 0, 0, 0)', `Composer bar is not transparent: ${accessibility.composerBackground}`);
   invariant(accessibility.viewport.includes('user-scalable=no') && accessibility.viewport.includes('maximum-scale=1'), 'Browser zoom is not disabled');
+  invariant(await creator.evaluate(() => !document.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))), 'Browser double-click zoom event was not prevented');
   invariant(accessibility.faintTextContrast >= 4.5, `Faint text contrast is ${accessibility.faintTextContrast}`);
   invariant(accessibility.strongLineContrast >= 3, `Control boundary contrast is ${accessibility.strongLineContrast}`);
   invariant(accessibility.undersized.length === 0, `A visible control is smaller than 44 by 44 CSS pixels: ${JSON.stringify(accessibility.undersized)}`);

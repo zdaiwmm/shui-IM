@@ -79,6 +79,41 @@ describe('message encryption protocol', () => {
     await expect(decryptMessage(joinerVault, envelope)).resolves.toEqual(payload);
   });
 
+  it('encrypts multiple image manifests as one opaque album message', async () => {
+    const { creatorVault, joinerVault } = await pairedVaults();
+    const manifest = (name: string) => ({
+      v: 1 as const,
+      blobId: crypto.randomUUID(),
+      key: randomBase64Url(32),
+      ivPrefix: randomBase64Url(8),
+      chunkSize: 2 * 1024 * 1024,
+      chunkCount: 1,
+      originalSize: 12,
+      originalName: name,
+      mimeType: 'image/png',
+      lastModified: 1_700_000_000_000,
+      sha256: 'a'.repeat(64),
+    });
+    const payload: MessagePayload = {
+      v: 2,
+      kind: 'image-album',
+      images: [manifest('first.png'), manifest('second.png')],
+      sentAt: new Date().toISOString(),
+      replyTo: {
+        clientMsgId: crypto.randomUUID(),
+        serverSeq: 8,
+        senderId: joinerVault.identity.publicBundle.deviceId,
+        kind: 'image',
+        preview: '图片',
+      },
+    };
+    const envelope = await encryptMessage(creatorVault, payload);
+
+    expect(JSON.stringify(envelope)).not.toContain('first.png');
+    expect(JSON.stringify(envelope)).not.toContain('second.png');
+    await expect(decryptMessage(joinerVault, envelope)).resolves.toEqual(payload);
+  });
+
   it('fails closed when ciphertext is modified', async () => {
     const { creatorVault, joinerVault } = await pairedVaults();
     const envelope = await encryptMessage(creatorVault, {
@@ -127,7 +162,12 @@ describe('original image encryption', () => {
       savePlan: async (plan) => { savedPlan = plan; },
     });
 
-    expect(savedPlan).toMatchObject({ blobId: manifest.blobId, originalSize: file.size });
+    expect(savedPlan).toMatchObject({
+      v: 2,
+      blobId: manifest.blobId,
+      originalSize: file.size,
+      plaintextSha256: manifest.sha256,
+    });
     expect(Buffer.from(chunks.get(0)!).equals(Buffer.from(original.slice(0, chunks.get(0)!.byteLength)))).toBe(false);
     const restored = await decryptImageFile(manifest, async (_blobId, index) => chunks.get(index)!);
     expect(Buffer.from(await restored.arrayBuffer()).equals(Buffer.from(original))).toBe(true);
@@ -166,7 +206,73 @@ describe('original image encryption', () => {
 
     expect(resumedUploads).toEqual([1]);
     expect(manifest.blobId).toBe(plan?.blobId);
+    expect(plan?.v).toBe(2);
+    if (plan?.v === 2) {
+      expect(manifest.key).toBe(plan.key);
+      expect(manifest.ivPrefix).toBe(plan.ivPrefix);
+      expect(manifest.sha256).toBe(plan.plaintextSha256);
+    }
     const restored = await decryptImageFile(manifest, async (_blobId, index) => chunks.get(index)!);
     expect(Buffer.from(await restored.arrayBuffer()).equals(Buffer.from(original))).toBe(true);
+  });
+
+  it('does not reuse an upload key or IV when matching metadata hides different bytes', async () => {
+    const metadata = { type: 'image/png', lastModified: 1_700_000_000_002 };
+    const original = new File([new Uint8Array([1, 2, 3, 4])], 'same.png', metadata);
+    const replacement = new File([new Uint8Array([4, 3, 2, 1])], 'same.png', metadata);
+    let plan: ImageUploadPlan | undefined;
+
+    await expect(encryptImageFile(original, {
+      reserve: async () => undefined,
+      status: async () => ({ uploadedIndexes: [], completed: false }),
+      upload: async () => { throw new Error('network interruption'); },
+      complete: async () => undefined,
+      savePlan: async (value) => { plan = value; },
+    })).rejects.toThrow('network interruption');
+
+    let touchedRemote = false;
+    await expect(encryptImageFile(replacement, {
+      reserve: async () => { touchedRemote = true; },
+      status: async () => {
+        touchedRemote = true;
+        return { uploadedIndexes: [], completed: false };
+      },
+      upload: async () => { touchedRemote = true; },
+      complete: async () => { touchedRemote = true; },
+      savePlan: async () => { touchedRemote = true; },
+    }, plan)).rejects.toThrow('内容与待续传文件不一致');
+    expect(touchedRemote).toBe(false);
+  });
+
+  it('refuses to reuse a legacy upload plan that has no plaintext hash binding', async () => {
+    const file = new File([new Uint8Array([1, 2, 3, 4])], 'legacy.png', {
+      type: 'image/png',
+      lastModified: 1_700_000_000_003,
+    });
+    const legacyPlan: ImageUploadPlan = {
+      v: 1,
+      blobId: crypto.randomUUID(),
+      key: randomBase64Url(32),
+      ivPrefix: randomBase64Url(8),
+      chunkCount: 1,
+      encryptedSize: file.size + 16,
+      originalSize: file.size,
+      originalName: file.name,
+      mimeType: file.type,
+      lastModified: file.lastModified,
+    };
+    let touchedRemote = false;
+
+    await expect(encryptImageFile(file, {
+      reserve: async () => { touchedRemote = true; },
+      status: async () => {
+        touchedRemote = true;
+        return { uploadedIndexes: [], completed: false };
+      },
+      upload: async () => { touchedRemote = true; },
+      complete: async () => { touchedRemote = true; },
+      savePlan: async () => { touchedRemote = true; },
+    }, legacyPlan)).rejects.toThrow('旧版图片续传计划缺少内容校验');
+    expect(touchedRemote).toBe(false);
   });
 });

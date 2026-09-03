@@ -93,6 +93,11 @@ else
 fi
 
 cutover_started=0
+data_restore_required=0
+backup_ready=0
+backup_name=''
+backup_path=''
+failed_cutover_backup_path=''
 
 wait_for_health() {
   local attempt
@@ -103,6 +108,150 @@ wait_for_health() {
     sleep 2
   done
   return 1
+}
+
+project_container_ids() {
+  docker ps --quiet --filter "label=com.docker.compose.project=$PROJECT"
+}
+
+all_project_container_ids() {
+  docker ps --all --quiet --filter "label=com.docker.compose.project=$PROJECT"
+}
+
+stop_project_containers() {
+  local listing
+  local remaining
+  local -a containers=()
+
+  # Include exited/restarting containers so an unless-stopped restart policy
+  # cannot bring a failed new process back while its volume is being archived.
+  listing="$(all_project_container_ids)" || return 1
+  while IFS= read -r container; do
+    [[ -n "$container" ]] && containers+=("$container")
+  done <<< "$listing"
+
+  if (( ${#containers[@]} > 0 )); then
+    # docker stop sends SIGTERM first, allowing SQLite to checkpoint and close,
+    # and marks the unless-stopped containers as explicitly stopped.
+    if ! docker stop "${containers[@]}"; then
+      printf 'WARNING: docker stop returned an error; verifying container state.\n' >&2
+    fi
+  fi
+
+  remaining="$(project_container_ids)" || return 1
+  if [[ -n "$remaining" ]]; then
+    printf 'Project containers are still running after stop: %s\n' "$remaining" >&2
+    return 1
+  fi
+}
+
+ensure_data_volume_quiescent() {
+  local users
+  users="$(docker ps --quiet --filter "volume=$DATA_VOLUME")" || return 1
+  if [[ -n "$users" ]]; then
+    printf 'Refusing cold-data operation; running containers still mount %s: %s\n' \
+      "$DATA_VOLUME" "$users" >&2
+    return 1
+  fi
+}
+
+validate_data_archive() {
+  local archive_path="$1"
+  local member
+  local normalized
+
+  if [[ ! -f "$archive_path" || ! -s "$archive_path" ]]; then
+    printf 'Data archive is missing or empty: %s\n' "$archive_path" >&2
+    return 1
+  fi
+  tar -tzf "$archive_path" >/dev/null || {
+    printf 'Data archive failed gzip/tar verification: %s\n' "$archive_path" >&2
+    return 1
+  }
+
+  # The archive is generated from the application volume, but reject unsafe
+  # member paths again before any root-owned extraction into that volume.
+  while IFS= read -r member; do
+    normalized="${member#./}"
+    if [[ "$normalized" == /* || "$normalized" == '..' || "$normalized" == ../* ||
+      "$normalized" == */../* || "$normalized" == */.. ]]; then
+      printf 'Data archive contains an unsafe member path: %s\n' "$member" >&2
+      return 1
+    fi
+  done < <(tar -tzf "$archive_path")
+}
+
+create_data_archive() {
+  local image="$1"
+  local archive_name="$2"
+  local archive_path="$BACKUP_DIR/$archive_name"
+
+  ensure_data_volume_quiescent || return 1
+  if [[ ! "$archive_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    printf 'Unsafe data archive name: %s\n' "$archive_name" >&2
+    return 1
+  fi
+  if [[ -e "$archive_path" ]]; then
+    printf 'Refusing to overwrite data archive: %s\n' "$archive_path" >&2
+    return 1
+  fi
+
+  printf 'Creating cold data archive: %s\n' "$archive_path" >&2
+  docker run --rm --user 0 \
+    --volume "$DATA_VOLUME:/data:ro" \
+    --volume "$BACKUP_DIR:/backup" \
+    --env "ARCHIVE_NAME=$archive_name" \
+    "$image" \
+    sh -ceu '
+      umask 077
+      case "$ARCHIVE_NAME" in
+        ""|*[!A-Za-z0-9._-]*) exit 64 ;;
+      esac
+      partial="/backup/.${ARCHIVE_NAME}.partial"
+      final="/backup/${ARCHIVE_NAME}"
+      cleanup() { rm -f -- "$partial"; }
+      trap cleanup EXIT HUP INT TERM
+      test ! -e "$final"
+      rm -f -- "$partial"
+      tar -czf "$partial" -C /data .
+      tar -tzf "$partial" >/dev/null
+      mv -- "$partial" "$final"
+      trap - EXIT HUP INT TERM
+    '
+
+  validate_data_archive "$archive_path"
+  printf 'Verified cold data archive: %s\n' "$archive_path" >&2
+}
+
+restore_data_archive() {
+  local image="$1"
+  local archive_path="$2"
+  local archive_name="${archive_path##*/}"
+
+  ensure_data_volume_quiescent || return 1
+  validate_data_archive "$archive_path" || return 1
+  if [[ "$archive_path" != "$BACKUP_DIR/$archive_name" || ! "$archive_name" =~ ^[A-Za-z0-9._-]+$ ]]; then
+    printf 'Refusing to restore an archive outside the predeploy directory: %s\n' "$archive_path" >&2
+    return 1
+  fi
+
+  printf 'Restoring predeploy data archive: %s\n' "$archive_path" >&2
+  docker run --rm --user 0 \
+    --volume "$DATA_VOLUME:/data" \
+    --volume "$BACKUP_DIR:/backup:ro" \
+    --env "ARCHIVE_NAME=$archive_name" \
+    "$image" \
+    sh -ceu '
+      case "$ARCHIVE_NAME" in
+        ""|*[!A-Za-z0-9._-]*) exit 64 ;;
+      esac
+      archive="/backup/${ARCHIVE_NAME}"
+      test -s "$archive"
+      tar -tzf "$archive" >/dev/null
+      find /data -mindepth 1 -maxdepth 1 -exec rm -rf -- {} \;
+      tar -xzf "$archive" -C /data
+    '
+  printf 'Restored predeploy data archive: %s\n' "$archive_path" >&2
 }
 
 prune_successful_deployments() {
@@ -139,46 +288,93 @@ prune_successful_deployments() {
 
 rollback() {
   local exit_code="$1"
+  local rollback_image="${previous_image:-$new_image}"
+  local failed_cutover_backup_name
+  local restored_backup_path='not-required'
   trap - ERR
-  set +e
-  printf 'Deployment failed; restoring the previous container image.\n' >&2
-  QUIET_ROOM_IMAGE="$new_image" docker compose \
+
+  rollback_fail_closed() {
+    local reason="$1"
+    printf 'ROLLBACK_FAILED original_exit=%s reason=%s\n' "$exit_code" "$reason" >&2
+    [[ -f "$backup_path" ]] && printf 'Predeploy backup retained at: %s\n' "$backup_path" >&2
+    [[ -n "$failed_cutover_backup_path" && -f "$failed_cutover_backup_path" ]] &&
+      printf 'Failed-cutover data retained at: %s\n' "$failed_cutover_backup_path" >&2
+    printf 'No further automatic changes will be attempted; verify container state and recover manually.\n' >&2
+    exit 70
+  }
+
+  printf 'Deployment failed; beginning data-safe rollback (original exit %s).\n' "$exit_code" >&2
+  if ! stop_project_containers; then
+    rollback_fail_closed 'could-not-stop-new-containers'
+  fi
+  if ! ensure_data_volume_quiescent; then
+    rollback_fail_closed 'data-volume-still-has-running-users'
+  fi
+
+  if (( data_restore_required )); then
+    if (( ! backup_ready )) || [[ -z "$backup_path" ]]; then
+      rollback_fail_closed 'verified-predeploy-backup-is-missing'
+    fi
+
+    # The new version may have migrated SQLite or accepted writes before a
+    # later public/WSS health check failed. Preserve that exact stopped state
+    # before replacing the volume with the predeploy cold backup. If this
+    # preservation step fails, keep the service down rather than lose data.
+    failed_cutover_backup_name="failed-cutover-$stamp-$short_sha.tar.gz"
+    if ! create_data_archive "$rollback_image" "$failed_cutover_backup_name"; then
+      rollback_fail_closed 'could-not-preserve-failed-cutover-data'
+    fi
+    failed_cutover_backup_path="$BACKUP_DIR/$failed_cutover_backup_name"
+    if ! restore_data_archive "$rollback_image" "$backup_path"; then
+      rollback_fail_closed 'could-not-restore-predeploy-backup'
+    fi
+    restored_backup_path="$backup_path"
+  fi
+
+  if [[ -z "$previous_image" || ! -f "$previous_compose" ]]; then
+    rollback_fail_closed 'previous-release-is-unavailable'
+  fi
+  if ! QUIET_ROOM_IMAGE="$previous_image" docker compose \
     --project-name "$PROJECT" \
     --env-file "$SHARED_ENV" \
-    --file "$release_dir/compose.yaml" \
-    stop
-  if [[ -n "$previous_image" && -f "$previous_compose" ]]; then
-    QUIET_ROOM_IMAGE="$previous_image" docker compose \
-      --project-name "$PROJECT" \
-      --env-file "$SHARED_ENV" \
-      --file "$previous_compose" \
-      up --detach --no-build --remove-orphans
-    wait_for_health || printf 'WARNING: rollback container did not become healthy.\n' >&2
-  else
-    printf 'WARNING: no previous image was available for automatic rollback.\n' >&2
+    --file "$previous_compose" \
+    up --detach --no-build --remove-orphans; then
+    if ! stop_project_containers; then
+      rollback_fail_closed 'could-not-stop-partial-previous-release'
+    fi
+    rollback_fail_closed 'could-not-start-previous-release'
   fi
+  if ! wait_for_health; then
+    if ! stop_project_containers; then
+      rollback_fail_closed 'could-not-stop-unhealthy-previous-release'
+    fi
+    rollback_fail_closed 'previous-release-did-not-become-healthy'
+  fi
+
+  printf 'ROLLBACK_OK original_exit=%s restored_backup=%s failed_cutover_backup=%s\n' \
+    "$exit_code" "$restored_backup_path" "${failed_cutover_backup_path:-not-created}" >&2
   exit "$exit_code"
 }
 
 trap 'exit_code=$?; if (( cutover_started )); then rollback "$exit_code"; else exit "$exit_code"; fi' ERR
 
-mapfile -t running_containers < <(
-  docker ps --quiet --filter "label=com.docker.compose.project=$PROJECT"
-)
-
-cutover_started=1
-if (( ${#running_containers[@]} > 0 )); then
-  docker stop "${running_containers[@]}"
+running_container_listing="$(project_container_ids)"
+if [[ -n "$running_container_listing" && ( -z "$previous_image" || ! -f "$previous_compose" ) ]]; then
+  printf 'Refusing cutover: running production containers have no recoverable previous release.\n' >&2
+  exit 66
 fi
 
-backup_name="data-$stamp-$short_sha.tar.gz"
-backup_image="${previous_image:-$new_image}"
-docker run --rm --user 0 \
-  --volume "$DATA_VOLUME:/data:ro" \
-  --volume "$BACKUP_DIR:/backup" \
-  "$backup_image" \
-  sh -c "tar -czf '/backup/$backup_name' -C /data ."
+cutover_started=1
+stop_project_containers
+ensure_data_volume_quiescent
 
+backup_name="data-$stamp-$short_sha.tar.gz"
+backup_path="$BACKUP_DIR/$backup_name"
+backup_image="${previous_image:-$new_image}"
+create_data_archive "$backup_image" "$backup_name"
+backup_ready=1
+
+data_restore_required=1
 QUIET_ROOM_IMAGE="$new_image" docker compose \
   --project-name "$PROJECT" \
   --env-file "$SHARED_ENV" \
@@ -196,6 +392,7 @@ printf '%s\n' "$REQUESTED_SHA" > "$STATE_DIR/current-sha"
 printf '%s\n' "$stamp" > "$STATE_DIR/deployed-at"
 docker image tag "$new_image" quiet-room-app:production
 
+data_restore_required=0
 cutover_started=0
 trap - ERR
 

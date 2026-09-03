@@ -22,7 +22,7 @@ import type {
 } from './types';
 
 const DB_NAME = 'quiet-room';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const PLATFORM_PAYLOAD_AAD = encoder.encode('quiet-room-vault-payload-v2');
@@ -48,7 +48,19 @@ type StoredLocalRecord = {
   ciphertext: string;
 };
 
-type LocalStore = 'outbox' | 'receiptOutbox' | 'uploads';
+type LocalStore = 'outbox' | 'receiptOutbox' | 'uploads' | 'preferences';
+
+export type ChatScrollAnchor = {
+  clientMsgId: string;
+  seq: number;
+  offset: number;
+  pinnedToBottom: boolean;
+};
+
+export type UiPreferences = {
+  chatAnchor?: ChatScrollAnchor;
+  favoriteExpressions: string[];
+};
 
 type UnlockThrottle = {
   failures: number;
@@ -69,7 +81,7 @@ function openDatabase(): Promise<IDBDatabase> {
         const history = request.transaction!.objectStore('history');
         if (!history.indexNames.contains('roomSeq')) history.createIndex('roomSeq', ['roomId', 'seq'], { unique: false });
       }
-      for (const storeName of ['outbox', 'receiptOutbox', 'uploads'] as const) {
+      for (const storeName of ['outbox', 'receiptOutbox', 'uploads', 'preferences'] as const) {
         if (!database.objectStoreNames.contains(storeName)) {
           const store = database.createObjectStore(storeName, { keyPath: 'id' });
           store.createIndex('roomId', 'roomId', { unique: false });
@@ -148,7 +160,8 @@ function validatePlatformStoredVault(value: unknown): value is StoredPlatformVau
   if (!value || typeof value !== 'object') return false;
   const stored = value as StoredPlatformVault;
   return Boolean(
-    stored.v === 2 && stored.unlockMethod === 'platform' && validateKdf(stored.kdf) &&
+    (stored.v === 2 || stored.v === 3) && stored.unlockMethod === 'platform' &&
+    (stored.v === 3 || validateKdf(stored.kdf)) &&
     validatePlatformRecord(stored.platform) &&
     isBoundedBase64(stored.wrappedKey?.iv, 16, 128) &&
     isBoundedBase64(stored.wrappedKey?.ciphertext, 48, 256) &&
@@ -161,7 +174,7 @@ function validateRecoveryStoredVault(value: unknown): value is StoredRecoveryVau
   if (!value || typeof value !== 'object') return false;
   const stored = value as StoredRecoveryVault;
   return Boolean(
-    stored.v === 2 && stored.unlockMethod === 'recovery' &&
+    (stored.v === 2 || stored.v === 3) && stored.unlockMethod === 'recovery' &&
     typeof stored.exportedAt === 'string' && Number.isFinite(Date.parse(stored.exportedAt)) &&
     isBoundedBase64(stored.payload?.iv, 16, 128) &&
     isBoundedBase64(stored.payload?.ciphertext) &&
@@ -221,8 +234,29 @@ async function derivePlatformKek(
   return key;
 }
 
-function wrapperAad(platform: PlatformCredentialRecord): Uint8Array<ArrayBuffer> {
-  return encoder.encode(`quiet-room-master-key-v2:${platform.credentialId}`);
+async function derivePasskeyKek(
+  prfOutput: Uint8Array<ArrayBuffer>,
+  platform: PlatformCredentialRecord,
+): Promise<CryptoKey> {
+  const material = await crypto.subtle.importKey('raw', prfOutput, 'HKDF', false, ['deriveKey']);
+  const key = await crypto.subtle.deriveKey(
+    {
+      name: 'HKDF',
+      hash: 'SHA-256',
+      salt: fromBase64Url(platform.prfSalt),
+      info: encoder.encode(`quiet-room-platform-kek-v3:${platform.credentialId}`),
+    },
+    material,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+  prfOutput.fill(0);
+  return key;
+}
+
+function wrapperAad(platform: PlatformCredentialRecord, version: 2 | 3): Uint8Array<ArrayBuffer> {
+  return encoder.encode(`quiet-room-master-key-v${version}:${platform.credentialId}`);
 }
 
 async function encryptPayload(vault: Vault, key: CryptoKey): Promise<StoredPlatformVault['payload']> {
@@ -230,7 +264,7 @@ async function encryptPayload(vault: Vault, key: CryptoKey): Promise<StoredPlatf
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv, additionalData: PLATFORM_PAYLOAD_AAD, tagLength: 128 },
     key,
-    encoder.encode(JSON.stringify({ ...vault, v: 2 })),
+    encoder.encode(JSON.stringify({ ...vault, v: 3 })),
   );
   return { iv: toBase64Url(iv), ciphertext: toBase64Url(ciphertext) };
 }
@@ -247,7 +281,7 @@ async function decryptPayload(payload: StoredPlatformVault['payload'], key: Cryp
     fromBase64Url(payload.ciphertext),
   );
   const vault = JSON.parse(decoder.decode(plaintext)) as Vault;
-  if ((vault.v !== 1 && vault.v !== 2) || !vault.roomId || !vault.identity?.publicBundle?.deviceId) {
+  if ((vault.v !== 1 && vault.v !== 2 && vault.v !== 3) || !vault.roomId || !vault.identity?.publicBundle?.deviceId) {
     throw new Error('INVALID_VAULT');
   }
   return vault;
@@ -260,7 +294,7 @@ async function wrapMasterKey(
 ): Promise<StoredPlatformVault['wrappedKey']> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv, additionalData: wrapperAad(platform), tagLength: 128 },
+    { name: 'AES-GCM', iv, additionalData: wrapperAad(platform, 3), tagLength: 128 },
     kek,
     masterBytes,
   );
@@ -272,7 +306,7 @@ async function unwrapMasterKey(stored: StoredPlatformVault, kek: CryptoKey): Pro
     {
       name: 'AES-GCM',
       iv: fromBase64Url(stored.wrappedKey.iv),
-      additionalData: wrapperAad(stored.platform),
+      additionalData: wrapperAad(stored.platform, stored.v),
       tagLength: 128,
     },
     kek,
@@ -333,12 +367,12 @@ export async function downloadVaultDiagnostic(): Promise<void> {
 
 export async function createVault(
   vault: Vault,
-  gestureSecret: string,
-  unlockMethod: 'password' | 'gesture' = 'gesture',
+  legacySecret = '',
+  unlockMethod: 'password' | 'platform' = 'platform',
   preparedPlatformCredential?: PlatformCredentialResult,
 ): Promise<VaultSession> {
   if (unlockMethod === 'password') {
-    const { bytes, kdf } = await deriveGestureBytes(gestureSecret);
+    const { bytes, kdf } = await deriveGestureBytes(legacySecret);
     const key = await importMasterKey(bytes);
     bytes.fill(0);
     const stored = await encryptLegacyVault(vault, key, kdf, 'password');
@@ -346,17 +380,13 @@ export async function createVault(
     await clearUnlockThrottle();
     return { vault, key, stored };
   }
-  const [{ bytes: gestureBytes, kdf }, platformResult] = await Promise.all([
-    deriveGestureBytes(gestureSecret),
-    preparedPlatformCredential ?? createPlatformCredential(),
-  ]);
-  const kek = await derivePlatformKek(platformResult.prfOutput, gestureBytes);
+  const platformResult = preparedPlatformCredential ?? await createPlatformCredential();
+  const kek = await derivePasskeyKek(platformResult.prfOutput, platformResult.record);
   const masterBytes = crypto.getRandomValues(new Uint8Array(32));
   const key = await importMasterKey(masterBytes);
   const stored: StoredPlatformVault = {
-    v: 2,
+    v: 3,
     unlockMethod: 'platform',
-    kdf,
     platform: platformResult.record,
     wrappedKey: await wrapMasterKey(masterBytes, kek, platformResult.record),
     payload: await encryptPayload(vault, key),
@@ -364,7 +394,7 @@ export async function createVault(
   masterBytes.fill(0);
   await transaction('vault', 'readwrite', (store) => store.put(stored, 'current'));
   await clearUnlockThrottle();
-  vault.v = 2;
+  vault.v = 3;
   return { vault, key, stored };
 }
 
@@ -396,7 +426,7 @@ async function enforceUnlockThrottle(): Promise<void> {
   if (waitMs > 0) throw new Error(`尝试次数过多，请 ${Math.ceil(waitMs / 1000)} 秒后重试`);
 }
 
-export async function unlockVault(secret: string): Promise<VaultSession> {
+export async function unlockVault(secret = ''): Promise<VaultSession> {
   const stored = await readStoredVault();
   if (!stored) throw new Error('本机没有可解锁的会话');
   if (stored.unlockMethod === 'recovery') throw new Error('恢复包需要先输入独立恢复码');
@@ -421,20 +451,40 @@ export async function unlockVault(secret: string): Promise<VaultSession> {
       if (vault.v !== 1 || !vault.roomId || !vault.identity?.publicBundle?.deviceId) throw new Error('INVALID_VAULT');
       unlocked = { vault, key, stored };
     } else {
-      const { bytes: gestureBytes } = await deriveGestureBytes(secret, stored.kdf);
       const prfOutput = await unlockPlatformCredential(stored.platform);
-      const kek = await derivePlatformKek(prfOutput, gestureBytes);
+      const migrationPrfOutput = stored.v === 2 ? prfOutput.slice() : null;
+      if (stored.v === 2 && !stored.kdf) throw new Error('INVALID_VAULT');
+      const kek = stored.v === 2
+        ? await derivePlatformKek(prfOutput, (await deriveGestureBytes(secret, stored.kdf!)).bytes)
+        : await derivePasskeyKek(prfOutput, stored.platform);
       const masterBytes = await unwrapMasterKey(stored, kek);
       const key = await importMasterKey(masterBytes);
+      const vault = await decryptPayload(stored.payload, key);
+      if (stored.v === 2 && migrationPrfOutput) {
+        const nextKek = await derivePasskeyKek(migrationPrfOutput, stored.platform);
+        vault.v = 3;
+        const migrated: StoredPlatformVault = {
+          v: 3,
+          unlockMethod: 'platform',
+          platform: stored.platform,
+          wrappedKey: await wrapMasterKey(masterBytes, nextKek, stored.platform),
+          payload: await encryptPayload(vault, key),
+        };
+        await transaction('vault', 'readwrite', (store) => store.put(migrated, 'current'));
+        unlocked = { vault, key, stored: migrated };
+      } else {
+        unlocked = { vault, key, stored };
+      }
       masterBytes.fill(0);
-      unlocked = { vault: await decryptPayload(stored.payload, key), key, stored };
     }
     await clearUnlockThrottle();
     return unlocked;
   } catch (error) {
     if (isUserCancellation(error)) throw new Error('未完成设备安全验证');
     await recordUnlockFailure().catch(() => undefined);
-    throw new Error(stored.v === 2
+    throw new Error(stored.v === 3
+      ? '设备安全验证未通过，或本机保险库已经损坏'
+      : stored.v === 2
       ? '手势、设备安全凭据不正确，或本机保险库已经损坏'
       : stored.unlockMethod === 'gesture'
         ? '手势不正确，或本机保险库已经损坏'
@@ -458,28 +508,36 @@ export async function saveVault(session: VaultSession): Promise<void> {
 }
 
 async function reencryptAllLocalData(session: VaultSession, migratedSession: VaultSession): Promise<void> {
-  const [history, outbox, pendingReceipts, uploadPlans] = await Promise.all([
+  const [history, outbox, pendingReceipts, uploadPlans, preferences] = await Promise.all([
     loadHistory(session),
     loadOutbox(session),
     loadPendingReceipts(session),
     loadUploadPlans(session),
+    loadUiPreferences(session),
   ]);
-  const [historyRecords, outboxRecords, receiptRecords, uploadRecords] = await Promise.all([
+  const [historyRecords, outboxRecords, receiptRecords, uploadRecords, preferenceRecord] = await Promise.all([
     Promise.all(history.map((message) => encryptHistoryRecord(migratedSession, message))),
     Promise.all(outbox.map((item) => encryptLocalRecord(migratedSession, 'outbox', item.clientMsgId, item))),
     Promise.all(pendingReceipts.map((receipt) =>
       encryptLocalRecord(migratedSession, 'receiptOutbox', receipt.clientMsgId, receipt))),
     Promise.all(uploadPlans.map((plan) => encryptLocalRecord(migratedSession, 'uploads', plan.blobId, plan))),
+    encryptLocalRecord(
+      migratedSession,
+      'preferences',
+      `ui:${migratedSession.vault.identity.publicBundle.deviceId}`,
+      preferences,
+    ),
   ]);
 
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const tx = database.transaction(['vault', 'history', 'outbox', 'receiptOutbox', 'uploads'], 'readwrite');
+    const tx = database.transaction(['vault', 'history', 'outbox', 'receiptOutbox', 'uploads', 'preferences'], 'readwrite');
     tx.objectStore('vault').put(migratedSession.stored, 'current');
     for (const record of historyRecords) tx.objectStore('history').put(record);
     for (const record of outboxRecords) tx.objectStore('outbox').put(record);
     for (const record of receiptRecords) tx.objectStore('receiptOutbox').put(record);
     for (const record of uploadRecords) tx.objectStore('uploads').put(record);
+    tx.objectStore('preferences').put(preferenceRecord);
     tx.oncomplete = () => {
       database.close();
       resolve();
@@ -494,22 +552,18 @@ async function reencryptAllLocalData(session: VaultSession, migratedSession: Vau
 
 export async function migrateVaultToPlatform(
   session: VaultSession,
-  gestureSecret: string,
+  _legacySecret = '',
   preparedPlatformCredential?: PlatformCredentialResult,
 ): Promise<void> {
   if (session.stored.v !== 1) return;
-  const [{ bytes: gestureBytes, kdf }, platformResult] = await Promise.all([
-    deriveGestureBytes(gestureSecret),
-    preparedPlatformCredential ?? createPlatformCredential(),
-  ]);
-  const kek = await derivePlatformKek(platformResult.prfOutput, gestureBytes);
+  const platformResult = preparedPlatformCredential ?? await createPlatformCredential();
+  const kek = await derivePasskeyKek(platformResult.prfOutput, platformResult.record);
   const masterBytes = crypto.getRandomValues(new Uint8Array(32));
   const key = await importMasterKey(masterBytes);
-  session.vault.v = 2;
+  session.vault.v = 3;
   const stored: StoredPlatformVault = {
-    v: 2,
+    v: 3,
     unlockMethod: 'platform',
-    kdf,
     platform: platformResult.record,
     wrappedKey: await wrapMasterKey(masterBytes, kek, platformResult.record),
     payload: await encryptPayload(session.vault, key),
@@ -521,8 +575,6 @@ export async function migrateVaultToPlatform(
   session.stored = stored;
   await clearUnlockThrottle();
 }
-
-export const migrateVaultToGesture = migrateVaultToPlatform;
 
 async function recoveryKek(codeBytes: Uint8Array<ArrayBuffer>, salt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
   const material = await crypto.subtle.importKey('raw', codeBytes, 'HKDF', false, ['deriveKey']);
@@ -551,7 +603,7 @@ function parseRecoveryCode(value: string): Uint8Array<ArrayBuffer> {
 }
 
 export async function downloadRecoveryPackage(session: VaultSession): Promise<RecoveryExport> {
-  if (session.stored.v !== 2 || session.stored.unlockMethod !== 'platform') {
+  if ((session.stored.v !== 2 && session.stored.v !== 3) || session.stored.unlockMethod !== 'platform') {
     throw new Error('请先完成设备保险库升级');
   }
   const exportedAt = new Date().toISOString();
@@ -565,7 +617,7 @@ export async function downloadRecoveryPackage(session: VaultSession): Promise<Re
     {
       name: 'AES-GCM',
       iv,
-      additionalData: encoder.encode(`quiet-room-recovery-v2:${exportedAt}`),
+      additionalData: encoder.encode(`quiet-room-recovery-v3:${exportedAt}`),
       tagLength: 128,
     },
     kek,
@@ -574,7 +626,7 @@ export async function downloadRecoveryPackage(session: VaultSession): Promise<Re
   masterBytes.fill(0);
   const body = JSON.stringify({
     format: 'quiet-room-recovery',
-    version: 2,
+    version: 3,
     exportedAt,
     payload: session.stored.payload,
     recovery: {
@@ -595,9 +647,9 @@ export async function importRecoveryPackage(file: File): Promise<void> {
   if (!parsed || typeof parsed !== 'object') throw new Error('恢复包格式不正确');
   const record = parsed as Record<string, unknown>;
   if (record.format !== 'quiet-room-recovery') throw new Error('这不是有效的 Quiet Room 恢复包');
-  if (record.version === 2) {
+  if (record.version === 2 || record.version === 3) {
     const stored: StoredRecoveryVault = {
-      v: 2,
+      v: record.version,
       unlockMethod: 'recovery',
       exportedAt: String(record.exportedAt ?? ''),
       payload: record.payload as StoredRecoveryVault['payload'],
@@ -622,7 +674,7 @@ export async function unlockRecoveryVault(recoveryCode: string): Promise<VaultSe
       {
         name: 'AES-GCM',
         iv: fromBase64Url(stored.recovery.iv),
-        additionalData: encoder.encode(`quiet-room-recovery-v2:${stored.exportedAt}`),
+        additionalData: encoder.encode(`quiet-room-recovery-v${stored.v}:${stored.exportedAt}`),
         tagLength: 128,
       },
       kek,
@@ -644,21 +696,17 @@ export async function unlockRecoveryVault(recoveryCode: string): Promise<VaultSe
 
 export async function bindRecoveredVaultToPlatform(
   session: VaultSession,
-  gestureSecret: string,
+  _legacySecret = '',
   preparedPlatformCredential?: PlatformCredentialResult,
 ): Promise<void> {
   if (session.stored.unlockMethod !== 'recovery') throw new Error('当前保险库不需要重新绑定');
-  const [{ bytes: gestureBytes, kdf }, platformResult] = await Promise.all([
-    deriveGestureBytes(gestureSecret),
-    preparedPlatformCredential ?? createPlatformCredential(),
-  ]);
-  const kek = await derivePlatformKek(platformResult.prfOutput, gestureBytes);
+  const platformResult = preparedPlatformCredential ?? await createPlatformCredential();
+  const kek = await derivePasskeyKek(platformResult.prfOutput, platformResult.record);
   const masterBytes = new Uint8Array(await crypto.subtle.exportKey('raw', session.key));
-  session.vault.v = 2;
+  session.vault.v = 3;
   const stored: StoredPlatformVault = {
-    v: 2,
+    v: 3,
     unlockMethod: 'platform',
-    kdf,
     platform: platformResult.record,
     wrappedKey: await wrapMasterKey(masterBytes, kek, platformResult.record),
     payload: await encryptPayload(session.vault, session.key),
@@ -726,6 +774,43 @@ export async function loadHistoryPage(
     tx.oncomplete = () => {
       database.close();
       resolve(collected.sort((left, right) => left.seq - right.seq));
+    };
+  });
+  return decryptHistoryRecords(session, records);
+}
+
+export async function loadHistoryPageAfter(
+  session: VaultSession,
+  { limit = 200, afterSeq = 0 }: { limit?: number; afterSeq?: number } = {},
+): Promise<DecryptedMessage[]> {
+  const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 1000);
+  if (Number.isSafeInteger(afterSeq) && afterSeq >= Number.MAX_SAFE_INTEGER) return [];
+  const lower = Number.isSafeInteger(afterSeq) && afterSeq >= 0
+    ? afterSeq + 1
+    : 1;
+  const database = await openDatabase();
+  const records = await new Promise<StoredHistory[]>((resolve, reject) => {
+    const tx = database.transaction('history', 'readonly');
+    const index = tx.objectStore('history').index('roomSeq');
+    const request = index.openCursor(
+      IDBKeyRange.bound(
+        [session.vault.roomId, lower],
+        [session.vault.roomId, Number.MAX_SAFE_INTEGER],
+      ),
+      'next',
+    );
+    const collected: StoredHistory[] = [];
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor || collected.length >= boundedLimit) return;
+      collected.push(cursor.value as StoredHistory);
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => {
+      database.close();
+      resolve(collected);
     };
   });
   return decryptHistoryRecords(session, records);
@@ -819,6 +904,50 @@ async function deleteLocalRecord(session: VaultSession, storeName: LocalStore, i
   await transaction(storeName, 'readwrite', (store) => store.delete(`${session.vault.roomId}:${id}`));
 }
 
+function normalizeUiPreferences(value: unknown): UiPreferences {
+  const source = value && typeof value === 'object' ? value as Partial<UiPreferences> : {};
+  const favorites = Array.isArray(source.favoriteExpressions)
+    ? [...new Set(source.favoriteExpressions.filter((item): item is string =>
+      typeof item === 'string' && item.length > 0 && item.length <= 128,
+    ))].slice(0, 200)
+    : [];
+  const candidate = source.chatAnchor;
+  const chatAnchor = candidate &&
+    typeof candidate.clientMsgId === 'string' && candidate.clientMsgId.length > 0 && candidate.clientMsgId.length <= 128 &&
+    Number.isSafeInteger(candidate.seq) && candidate.seq >= 0 &&
+    Number.isFinite(candidate.offset) && Math.abs(candidate.offset) <= 100_000 &&
+    typeof candidate.pinnedToBottom === 'boolean'
+    ? {
+        clientMsgId: candidate.clientMsgId,
+        seq: candidate.seq,
+        offset: candidate.offset,
+        pinnedToBottom: candidate.pinnedToBottom,
+      }
+    : undefined;
+  return { ...(chatAnchor ? { chatAnchor } : {}), favoriteExpressions: favorites };
+}
+
+function uiPreferenceId(session: VaultSession): string {
+  return `ui:${session.vault.identity.publicBundle.deviceId}`;
+}
+
+export async function loadUiPreferences(session: VaultSession): Promise<UiPreferences> {
+  const id = uiPreferenceId(session);
+  const record = await transaction<StoredLocalRecord | undefined>('preferences', 'readonly', (store) =>
+    store.get(`${session.vault.roomId}:${id}`),
+  );
+  if (!record) return { favoriteExpressions: [] };
+  try {
+    return normalizeUiPreferences(await decryptLocalRecord<unknown>(session, 'preferences', record));
+  } catch {
+    return { favoriteExpressions: [] };
+  }
+}
+
+export function saveUiPreferences(session: VaultSession, preferences: UiPreferences): Promise<void> {
+  return putLocalRecord(session, 'preferences', uiPreferenceId(session), normalizeUiPreferences(preferences));
+}
+
 export function saveOutboxItem(session: VaultSession, item: OutboxItem): Promise<void> {
   return putLocalRecord(session, 'outbox', item.clientMsgId, item);
 }
@@ -828,7 +957,7 @@ async function commitMlsVaultAndRecords(
   nextGroupState: string,
   records: { outbox?: OutboxItem; history?: DecryptedMessage; pendingReceipt?: DeliveryReceipt },
 ): Promise<void> {
-  if (session.stored.v !== 2 || session.stored.unlockMethod !== 'platform' || !session.vault.mls) {
+  if ((session.stored.v !== 2 && session.stored.v !== 3) || session.stored.unlockMethod !== 'platform' || !session.vault.mls) {
     throw new Error('MLS 状态只能写入通行密钥保险库');
   }
   const nextVault = structuredClone(session.vault);

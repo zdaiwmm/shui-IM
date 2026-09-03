@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateEnvelopeShape, validateMlsWelcomeShape } from '../server/protocol.mjs';
+import { validateEnvelopeShape, validateMlsMembershipShape, validateMlsWelcomeShape } from '../server/protocol.mjs';
 
 describe('opaque production protocol shapes', () => {
   it('accepts bounded MLS ciphertext and rejects plaintext-shaped fields', () => {
@@ -30,5 +30,37 @@ describe('opaque production protocol shapes', () => {
     };
     expect(validateMlsWelcomeShape(welcome, roomId)).toBe(true);
     expect(validateMlsWelcomeShape({ ...welcome, recipientId: welcome.senderId }, roomId)).toBe(false);
+  });
+
+  it('requires a signed MLS commit and welcome for an added device', () => {
+    const roomId = crypto.randomUUID();
+    const senderId = crypto.randomUUID();
+    const targetId = crypto.randomUUID();
+    const target = {
+      deviceId: targetId,
+      encryptionKey: { kty: 'EC', crv: 'P-256', x: 'A'.repeat(43), y: 'B'.repeat(43), key_ops: [] },
+      signingKey: { kty: 'EC', crv: 'P-256', x: 'C'.repeat(43), y: 'D'.repeat(43), key_ops: ['verify'] },
+      mlsKeyPackage: 'E'.repeat(64),
+      role: 'creator',
+      status: 'pending',
+      addedBy: senderId,
+    };
+    const event = {
+      v: 1,
+      protocol: 'mls-rfc9420',
+      roomId,
+      eventId: crypto.randomUUID(),
+      previousEventSeq: 0,
+      action: 'add',
+      senderId,
+      targetId,
+      target,
+      commit: 'F'.repeat(96),
+      welcome: 'G'.repeat(128),
+      signature: 'H'.repeat(64),
+    };
+    expect(validateMlsMembershipShape(event, roomId)).toBe(true);
+    expect(validateMlsMembershipShape({ ...event, welcome: undefined }, roomId)).toBe(false);
+    expect(validateMlsMembershipShape({ ...event, targetId: crypto.randomUUID() }, roomId)).toBe(false);
   });
 });

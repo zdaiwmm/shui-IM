@@ -2,10 +2,14 @@ import { fromBase64Url } from './base64';
 import type { MessagePayload } from './types';
 
 export const MAX_MESSAGE_TEXT_LENGTH = 4000;
+export const MAX_REPLY_PREVIEW_LENGTH = 160;
 export const MAX_IMAGE_NAME_LENGTH = 1024;
 export const MAX_IMAGE_MIME_LENGTH = 255;
 export const MAX_IMAGE_BYTES = 256 * 1024 * 1024;
 export const IMAGE_CHUNK_SIZE = 2 * 1024 * 1024;
+export const MIN_IMAGE_ALBUM_ITEMS = 2;
+export const MAX_IMAGE_ALBUM_ITEMS = 9;
+export const MAX_IMAGE_ALBUM_BYTES = MAX_IMAGE_BYTES;
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256 = /^[0-9a-f]{64}$/i;
@@ -40,6 +44,7 @@ export function isImageManifest(value: unknown): boolean {
     image.chunkSize === IMAGE_CHUNK_SIZE &&
     typeof chunkCount === 'number' && Number.isSafeInteger(chunkCount) && chunkCount >= 1 && chunkCount <= 128 &&
     typeof originalSize === 'number' && Number.isSafeInteger(originalSize) && originalSize >= 1 && originalSize <= MAX_IMAGE_BYTES &&
+    chunkCount === Math.ceil(originalSize / IMAGE_CHUNK_SIZE) &&
     typeof image.originalName === 'string' && image.originalName.length <= MAX_IMAGE_NAME_LENGTH &&
     !/[\u0000-\u001f\u007f]/.test(image.originalName) &&
     typeof image.mimeType === 'string' && image.mimeType.length > 0 && image.mimeType.length <= MAX_IMAGE_MIME_LENGTH &&
@@ -49,19 +54,56 @@ export function isImageManifest(value: unknown): boolean {
   );
 }
 
+function isReplyReference(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const reply = value as Record<string, unknown>;
+  return hasOnlyKeys(reply, ['clientMsgId', 'serverSeq', 'senderId', 'kind', 'preview']) &&
+    typeof reply.clientMsgId === 'string' && UUID_V4.test(reply.clientMsgId) &&
+    typeof reply.serverSeq === 'number' && Number.isSafeInteger(reply.serverSeq) && reply.serverSeq > 0 &&
+    typeof reply.senderId === 'string' && UUID_V4.test(reply.senderId) &&
+    (reply.kind === 'text' || reply.kind === 'image') &&
+    typeof reply.preview === 'string' && reply.preview.length > 0 && [...reply.preview].length <= MAX_REPLY_PREVIEW_LENGTH &&
+    !/[\u0000-\u001f\u007f]/.test(reply.preview);
+}
+
 export function isMessagePayload(value: unknown): value is MessagePayload {
   if (!value || typeof value !== 'object') return false;
   const payload = value as Record<string, unknown>;
   if (
-    payload.v !== 1 ||
+    (payload.v !== 1 && payload.v !== 2) ||
     typeof payload.sentAt !== 'string' ||
     payload.sentAt.length > 64 ||
     !Number.isFinite(Date.parse(payload.sentAt))
   ) return false;
   if (payload.kind === 'text') {
-    return hasOnlyKeys(payload, ['v', 'kind', 'text', 'sentAt']) &&
-      typeof payload.text === 'string' && payload.text.length <= MAX_MESSAGE_TEXT_LENGTH;
+    if (typeof payload.text !== 'string' || payload.text.length > MAX_MESSAGE_TEXT_LENGTH) return false;
+    if (payload.v === 1) return hasOnlyKeys(payload, ['v', 'kind', 'text', 'sentAt']);
+    if (!hasOnlyKeys(payload, ['v', 'kind', 'text', 'sentAt', 'replyTo'])) return false;
+    return isReplyReference(payload.replyTo);
   }
+  if (payload.kind === 'image') {
+    if (!isImageManifest(payload.image)) return false;
+    if (payload.v === 1) return hasOnlyKeys(payload, ['v', 'kind', 'image', 'sentAt']);
+    return hasOnlyKeys(payload, ['v', 'kind', 'image', 'sentAt', 'replyTo']) && isReplyReference(payload.replyTo);
+  }
+  if (payload.kind === 'image-album') {
+    if (
+      !Array.isArray(payload.images) ||
+      payload.images.length < MIN_IMAGE_ALBUM_ITEMS ||
+      payload.images.length > MAX_IMAGE_ALBUM_ITEMS
+    ) return false;
+    const blobIds = new Set<string>();
+    let totalOriginalBytes = 0;
+    for (const image of payload.images) {
+      if (!isImageManifest(image) || blobIds.has(image.blobId)) return false;
+      blobIds.add(image.blobId);
+      totalOriginalBytes += image.originalSize;
+      if (totalOriginalBytes > MAX_IMAGE_ALBUM_BYTES) return false;
+    }
+    if (payload.v === 1) return hasOnlyKeys(payload, ['v', 'kind', 'images', 'sentAt']);
+    return hasOnlyKeys(payload, ['v', 'kind', 'images', 'sentAt', 'replyTo']) && isReplyReference(payload.replyTo);
+  }
+  if (payload.v !== 1) return false;
   return hasOnlyKeys(payload, ['v', 'kind', 'image', 'sentAt']) &&
-    (payload.kind === 'image' || payload.kind === 'gallery-image') && isImageManifest(payload.image);
+    payload.kind === 'gallery-image' && isImageManifest(payload.image);
 }

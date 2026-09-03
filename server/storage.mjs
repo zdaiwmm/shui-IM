@@ -42,6 +42,7 @@ export async function createStore({
       created_at TEXT NOT NULL,
       sealed_at TEXT,
       mls_welcome TEXT,
+      next_mls_event_seq INTEGER NOT NULL DEFAULT 0,
       protocol TEXT NOT NULL DEFAULT 'legacy-v1' CHECK(protocol IN ('legacy-v1', 'mls-rfc9420'))
     );
 
@@ -53,9 +54,17 @@ export async function createStore({
       signing_jwk TEXT NOT NULL,
       mls_key_package TEXT,
       join_proof TEXT,
+      access_hash BLOB NOT NULL,
+      device_name TEXT NOT NULL DEFAULT '未命名设备',
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('pending', 'active', 'revoked')),
+      added_by TEXT,
+      join_seq INTEGER NOT NULL DEFAULT 0,
+      join_receipt_seq INTEGER NOT NULL DEFAULT 0,
+      last_seen_at TEXT,
+      revoked_at TEXT,
+      capabilities TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL,
-      PRIMARY KEY(room_id, device_id),
-      UNIQUE(room_id, role)
+      PRIMARY KEY(room_id, device_id)
     );
 
     CREATE TABLE IF NOT EXISTS messages (
@@ -78,7 +87,7 @@ export async function createStore({
       receipt TEXT NOT NULL,
       accepted_at TEXT NOT NULL,
       PRIMARY KEY(room_id, receipt_seq),
-      UNIQUE(room_id, client_msg_id)
+      UNIQUE(room_id, client_msg_id, receiver_id)
     );
 
     CREATE TABLE IF NOT EXISTS blobs (
@@ -115,6 +124,33 @@ export async function createStore({
       UNIQUE(endpoint),
       FOREIGN KEY(room_id, device_id) REFERENCES members(room_id, device_id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS device_links (
+      link_id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+      authorizer_id TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('creator', 'joiner')),
+      secret_hash BLOB NOT NULL,
+      expires_at TEXT NOT NULL,
+      claimed_device_id TEXT,
+      created_at TEXT NOT NULL,
+      claimed_at TEXT,
+      used_at TEXT,
+      FOREIGN KEY(room_id, authorizer_id) REFERENCES members(room_id, device_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS mls_events (
+      room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+      event_seq INTEGER NOT NULL,
+      event_id TEXT NOT NULL,
+      sender_device_id TEXT NOT NULL,
+      target_device_id TEXT NOT NULL,
+      action TEXT NOT NULL CHECK(action IN ('add', 'remove')),
+      envelope TEXT NOT NULL,
+      accepted_at TEXT NOT NULL,
+      PRIMARY KEY(room_id, event_seq),
+      UNIQUE(room_id, event_id)
+    );
   `);
 
   if (!hasColumn(db, 'rooms', 'next_receipt_seq')) {
@@ -132,12 +168,69 @@ export async function createStore({
   if (!hasColumn(db, 'rooms', 'message_bytes')) {
     db.exec('ALTER TABLE rooms ADD COLUMN message_bytes INTEGER NOT NULL DEFAULT 0');
   }
+  if (!hasColumn(db, 'rooms', 'next_mls_event_seq')) {
+    db.exec('ALTER TABLE rooms ADD COLUMN next_mls_event_seq INTEGER NOT NULL DEFAULT 0');
+  }
   db.exec(`UPDATE rooms SET
     message_count = (SELECT COUNT(*) FROM messages WHERE messages.room_id = rooms.room_id),
     message_bytes = (SELECT COALESCE(SUM(LENGTH(CAST(envelope AS BLOB))), 0) FROM messages WHERE messages.room_id = rooms.room_id)
     WHERE message_count = 0 AND message_bytes = 0`);
   if (!hasColumn(db, 'members', 'mls_key_package')) {
     db.exec('ALTER TABLE members ADD COLUMN mls_key_package TEXT');
+  }
+  if (!hasColumn(db, 'members', 'status')) {
+    db.exec('PRAGMA foreign_keys = OFF');
+    db.exec(`BEGIN IMMEDIATE;
+      CREATE TABLE members_v2 (
+        room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('creator', 'joiner')),
+        encryption_jwk TEXT NOT NULL,
+        signing_jwk TEXT NOT NULL,
+        mls_key_package TEXT,
+        join_proof TEXT,
+        access_hash BLOB NOT NULL,
+        device_name TEXT NOT NULL DEFAULT '已迁移设备',
+        status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('pending', 'active', 'revoked')),
+        added_by TEXT,
+        join_seq INTEGER NOT NULL DEFAULT 0,
+        join_receipt_seq INTEGER NOT NULL DEFAULT 0,
+        last_seen_at TEXT,
+        revoked_at TEXT,
+        capabilities TEXT NOT NULL DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        PRIMARY KEY(room_id, device_id)
+      );
+      INSERT INTO members_v2(
+        room_id, device_id, role, encryption_jwk, signing_jwk, mls_key_package, join_proof,
+        access_hash, device_name, status, join_seq, join_receipt_seq, created_at
+      )
+      SELECT members.room_id, device_id, role, encryption_jwk, signing_jwk, mls_key_package, join_proof,
+        rooms.access_hash, '已迁移设备', 'active', 0, 0, members.created_at
+      FROM members JOIN rooms ON rooms.room_id = members.room_id;
+      DROP TABLE members;
+      ALTER TABLE members_v2 RENAME TO members;
+      COMMIT;`);
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+  const receiptsSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'receipts'").get()?.sql ?? '';
+  if (!receiptsSchema.includes('UNIQUE(room_id, client_msg_id, receiver_id)')) {
+    db.exec(`BEGIN IMMEDIATE;
+      CREATE TABLE receipts_v2 (
+        room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+        receipt_seq INTEGER NOT NULL,
+        client_msg_id TEXT NOT NULL,
+        message_seq INTEGER NOT NULL,
+        receiver_id TEXT NOT NULL,
+        receipt TEXT NOT NULL,
+        accepted_at TEXT NOT NULL,
+        PRIMARY KEY(room_id, receipt_seq),
+        UNIQUE(room_id, client_msg_id, receiver_id)
+      );
+      INSERT INTO receipts_v2 SELECT * FROM receipts;
+      DROP TABLE receipts;
+      ALTER TABLE receipts_v2 RENAME TO receipts;
+      COMMIT;`);
   }
   if (!hasColumn(db, 'blobs', 'expected_bytes')) {
     db.exec('ALTER TABLE blobs ADD COLUMN expected_bytes INTEGER NOT NULL DEFAULT 0');
@@ -153,15 +246,25 @@ export async function createStore({
   const statements = {
     insertRoom: db.prepare('INSERT INTO rooms(room_id, access_hash, created_at, protocol) VALUES (?, ?, ?, ?)'),
     insertMember: db.prepare(`INSERT INTO members(
-      room_id, device_id, role, encryption_jwk, signing_jwk, mls_key_package, join_proof, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
-    room: db.prepare(`SELECT room_id, access_hash, next_seq, next_receipt_seq, message_count, message_bytes, created_at, sealed_at, mls_welcome, protocol
+      room_id, device_id, role, encryption_jwk, signing_jwk, mls_key_package, join_proof, access_hash,
+      device_name, status, added_by, join_seq, join_receipt_seq, capabilities, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+    room: db.prepare(`SELECT room_id, access_hash, next_seq, next_receipt_seq, next_mls_event_seq,
+      message_count, message_bytes, created_at, sealed_at, mls_welcome, protocol
       FROM rooms WHERE room_id = ?`),
-    members: db.prepare(`SELECT device_id, role, encryption_jwk, signing_jwk, mls_key_package, join_proof, created_at
-      FROM members WHERE room_id = ? ORDER BY role`),
-    member: db.prepare(`SELECT device_id, role, encryption_jwk, signing_jwk, mls_key_package, join_proof, created_at
+    members: db.prepare(`SELECT device_id, role, encryption_jwk, signing_jwk, mls_key_package, join_proof,
+      device_name, status, added_by, join_seq, join_receipt_seq, last_seen_at, revoked_at, capabilities, created_at
+      FROM members WHERE room_id = ? ORDER BY role, created_at, device_id`),
+    member: db.prepare(`SELECT device_id, role, encryption_jwk, signing_jwk, mls_key_package, join_proof,
+      device_name, status, added_by, join_seq, join_receipt_seq, last_seen_at, revoked_at, capabilities, created_at
       FROM members WHERE room_id = ? AND device_id = ?`),
-    memberCount: db.prepare('SELECT COUNT(*) AS count FROM members WHERE room_id = ?'),
+    memberCount: db.prepare("SELECT COUNT(*) AS count FROM members WHERE room_id = ? AND status = 'active'"),
+    memberCountForRole: db.prepare("SELECT COUNT(*) AS count FROM members WHERE room_id = ? AND role = ? AND status = 'active'"),
+    memberReservationCountForRole: db.prepare("SELECT COUNT(*) AS count FROM members WHERE room_id = ? AND role = ? AND status IN ('pending', 'active')"),
+    memberByToken: db.prepare("SELECT device_id FROM members WHERE room_id = ? AND access_hash = ? AND status = 'active'"),
+    memberByIdAndToken: db.prepare("SELECT device_id FROM members WHERE room_id = ? AND device_id = ? AND access_hash = ? AND status = 'active'"),
+    touchMember: db.prepare("UPDATE members SET last_seen_at = ? WHERE room_id = ? AND device_id = ? AND status = 'active'"),
+    updateMemberCapabilities: db.prepare("UPDATE members SET capabilities = ? WHERE room_id = ? AND device_id = ? AND status = 'active'"),
     sealRoom: db.prepare('UPDATE rooms SET sealed_at = ? WHERE room_id = ?'),
     messageByClientId: db.prepare(`SELECT server_seq, sender_device_id, accepted_at, envelope FROM messages
       WHERE room_id = ? AND client_msg_id = ?`),
@@ -173,17 +276,17 @@ export async function createStore({
       room_id, server_seq, client_msg_id, sender_device_id, envelope, accepted_at
     ) VALUES (?, ?, ?, ?, ?, ?)`),
     messagesAfter: db.prepare(`SELECT server_seq, envelope, accepted_at FROM messages
-      WHERE room_id = ? AND server_seq > ? ORDER BY server_seq LIMIT ?`),
+      WHERE room_id = ? AND server_seq > ? AND server_seq > ? ORDER BY server_seq LIMIT ?`),
     roomMessageUsage: db.prepare('SELECT message_count AS count, message_bytes AS bytes FROM rooms WHERE room_id = ?'),
     receiptByClientId: db.prepare(`SELECT receipt_seq, receipt, accepted_at FROM receipts
-      WHERE room_id = ? AND client_msg_id = ?`),
+      WHERE room_id = ? AND client_msg_id = ? AND receiver_id = ?`),
     nextReceiptSeq: db.prepare(`UPDATE rooms SET next_receipt_seq = next_receipt_seq + 1
       WHERE room_id = ? RETURNING next_receipt_seq`),
     insertReceipt: db.prepare(`INSERT INTO receipts(
       room_id, receipt_seq, client_msg_id, message_seq, receiver_id, receipt, accepted_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?)`),
-    receiptsAfter: db.prepare(`SELECT receipt_seq, receipt, accepted_at FROM receipts
-      WHERE room_id = ? AND receipt_seq > ? ORDER BY receipt_seq LIMIT ?`),
+    receiptsAfter: db.prepare(`SELECT receipt_seq, message_seq, receipt, accepted_at FROM receipts
+      WHERE room_id = ? AND receipt_seq > ? AND receipt_seq > ? ORDER BY receipt_seq LIMIT ?`),
     insertBlob: db.prepare(`INSERT INTO blobs(
       room_id, blob_id, chunk_count, expected_bytes, received_bytes, created_at, updated_at
     ) VALUES (?, ?, ?, ?, 0, ?, ?)`),
@@ -222,6 +325,34 @@ export async function createStore({
     deletePushSubscription: db.prepare('DELETE FROM push_subscriptions WHERE room_id = ? AND device_id = ?'),
     deletePushSubscriptionByEndpoint: db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?'),
     saveMlsWelcome: db.prepare('UPDATE rooms SET mls_welcome = ? WHERE room_id = ? AND mls_welcome IS NULL'),
+    insertDeviceLink: db.prepare(`INSERT INTO device_links(
+      link_id, room_id, authorizer_id, role, secret_hash, expires_at, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)`),
+    deviceLink: db.prepare(`SELECT link_id, room_id, authorizer_id, role, secret_hash, expires_at,
+      claimed_device_id, created_at, claimed_at, used_at FROM device_links WHERE link_id = ?`),
+    deviceLinksForRoom: db.prepare(`SELECT link_id, room_id, authorizer_id, role, expires_at,
+      claimed_device_id, created_at, claimed_at, used_at FROM device_links
+      WHERE room_id = ? AND authorizer_id = ? ORDER BY created_at DESC LIMIT 12`),
+    expiredDeviceLinks: db.prepare(`SELECT link_id, room_id, authorizer_id, claimed_device_id FROM device_links
+      WHERE used_at IS NULL AND expires_at <= ?`),
+    deletePendingLinkedMember: db.prepare(`DELETE FROM members
+      WHERE room_id = ? AND device_id = ? AND added_by = ? AND status = 'pending'`),
+    deleteDeviceLink: db.prepare('DELETE FROM device_links WHERE link_id = ? AND used_at IS NULL'),
+    claimDeviceLink: db.prepare(`UPDATE device_links SET claimed_device_id = ?, claimed_at = ?
+      WHERE link_id = ? AND claimed_device_id IS NULL AND used_at IS NULL`),
+    useDeviceLink: db.prepare('UPDATE device_links SET used_at = ? WHERE link_id = ? AND used_at IS NULL'),
+    nextMlsEventSeq: db.prepare(`UPDATE rooms SET next_mls_event_seq = next_mls_event_seq + 1
+      WHERE room_id = ? AND next_mls_event_seq = ? RETURNING next_mls_event_seq`),
+    mlsEventById: db.prepare('SELECT event_seq, envelope, accepted_at FROM mls_events WHERE room_id = ? AND event_id = ?'),
+    insertMlsEvent: db.prepare(`INSERT INTO mls_events(
+      room_id, event_seq, event_id, sender_device_id, target_device_id, action, envelope, accepted_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
+    mlsEventsAfter: db.prepare(`SELECT event_seq, envelope, accepted_at FROM mls_events
+      WHERE room_id = ? AND event_seq > ? ORDER BY event_seq`),
+    activateMember: db.prepare(`UPDATE members SET status = 'active', join_seq = ?, join_receipt_seq = ?
+      WHERE room_id = ? AND device_id = ? AND status = 'pending'`),
+    revokeMember: db.prepare(`UPDATE members SET status = 'revoked', revoked_at = ?
+      WHERE room_id = ? AND device_id = ? AND status = 'active'`),
   };
 
   const blobLocks = new Map();
@@ -245,12 +376,24 @@ export async function createStore({
       signingKey: JSON.parse(row.signing_jwk),
       ...(row.mls_key_package ? { mlsKeyPackage: row.mls_key_package } : {}),
       joinProof: row.join_proof,
+      deviceName: row.device_name,
+      status: row.status,
+      addedBy: row.added_by,
+      joinSeq: row.join_seq,
+      joinReceiptSeq: row.join_receipt_seq,
+      lastSeenAt: row.last_seen_at,
+      revokedAt: row.revoked_at,
+      capabilities: JSON.parse(row.capabilities || '[]'),
       createdAt: row.created_at,
     };
   }
 
-  function authenticate(roomId, token) {
-    if (typeof token !== 'string' || token.length < 32 || token.length > 512) return false;
+  function validToken(token) {
+    return typeof token === 'string' && token.length >= 32 && token.length <= 512;
+  }
+
+  function authenticateInvite(roomId, token) {
+    if (!validToken(token)) return false;
     const room = statements.room.get(roomId);
     if (!room) return false;
     const expected = Buffer.from(room.access_hash);
@@ -258,13 +401,41 @@ export async function createStore({
     return expected.length === actual.length && timingSafeEqual(expected, actual);
   }
 
-  function createRoom(creatorBundle, accessToken) {
+  function authenticatedDevice(roomId, token, expectedDeviceId) {
+    if (!validToken(token)) return null;
+    const digest = hashToken(token);
+    const row = expectedDeviceId
+      ? statements.memberByIdAndToken.get(roomId, expectedDeviceId, digest)
+      : statements.memberByToken.get(roomId, digest);
+    if (!row) return null;
+    statements.touchMember.run(nowIso(), roomId, row.device_id);
+    return getMember(roomId, row.device_id);
+  }
+
+  function updateMemberCapabilities(roomId, deviceId, capabilities) {
+    const normalized = [...new Set(capabilities)];
+    const result = statements.updateMemberCapabilities.run(JSON.stringify(normalized), roomId, deviceId);
+    if (result.changes !== 1) throw new Error('MEMBER_NOT_FOUND');
+    return getMember(roomId, deviceId);
+  }
+
+  function authenticate(roomId, token) {
+    return Boolean(authenticatedDevice(roomId, token) || authenticateInvite(roomId, token));
+  }
+
+  function deviceTokenHash(token, fallback) {
+    if (token === undefined || token === null) return Buffer.from(fallback);
+    if (!validToken(token)) throw new Error('INVALID_DEVICE_TOKEN');
+    return hashToken(token);
+  }
+
+  function createRoom(creatorBundle, accessToken, inviteToken = accessToken, deviceName = '此设备', capabilities = []) {
     const roomId = randomUUID();
     const createdAt = nowIso();
     const protocol = creatorBundle.mlsKeyPackage ? 'mls-rfc9420' : 'legacy-v1';
     db.exec('BEGIN IMMEDIATE');
     try {
-      statements.insertRoom.run(roomId, hashToken(accessToken), createdAt, protocol);
+      statements.insertRoom.run(roomId, hashToken(inviteToken), createdAt, protocol);
       statements.insertMember.run(
         roomId,
         creatorBundle.deviceId,
@@ -273,6 +444,13 @@ export async function createStore({
         JSON.stringify(creatorBundle.signingKey),
         creatorBundle.mlsKeyPackage ?? null,
         null,
+        hashToken(accessToken),
+        deviceName,
+        'active',
+        null,
+        0,
+        0,
+        JSON.stringify(capabilities),
         createdAt,
       );
       db.exec('COMMIT');
@@ -287,7 +465,7 @@ export async function createStore({
     db.exec('BEGIN IMMEDIATE');
     try {
       const room = statements.room.get(roomId);
-      if (!room || !authenticate(roomId, accessToken)) throw new Error('UNAUTHORIZED');
+      if (!room || !authenticatedDevice(roomId, accessToken)) throw new Error('UNAUTHORIZED');
       const { count } = statements.memberCount.get(roomId);
       if (count > 1 || room.sealed_at) throw new Error('ROOM_SEALED');
       const deleted = db.prepare('DELETE FROM rooms WHERE room_id = ?').run(roomId).changes > 0;
@@ -299,7 +477,7 @@ export async function createStore({
     }
   }
 
-  function joinRoom(roomId, bundle, proof) {
+  function joinRoom(roomId, bundle, proof, accessToken, deviceName = '此设备', capabilities = []) {
     const createdAt = nowIso();
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -327,6 +505,13 @@ export async function createStore({
         JSON.stringify(bundle.signingKey),
         bundle.mlsKeyPackage ?? null,
         proof,
+        deviceTokenHash(accessToken, room.access_hash),
+        deviceName,
+        'active',
+        null,
+        0,
+        0,
+        JSON.stringify(capabilities),
         createdAt,
       );
       statements.sealRoom.run(createdAt, roomId);
@@ -345,11 +530,17 @@ export async function createStore({
       roomId,
       nextSeq: room.next_seq,
       nextReceiptSeq: room.next_receipt_seq,
+      nextMlsEventSeq: room.next_mls_event_seq,
       createdAt: room.created_at,
       sealedAt: room.sealed_at,
       protocol: room.protocol,
       mlsWelcome: room.mls_welcome ? JSON.parse(room.mls_welcome) : null,
       members: statements.members.all(roomId).map(memberRow),
+      mlsEvents: statements.mlsEventsAfter.all(roomId, 0).map((event) => ({
+        eventSeq: event.event_seq,
+        event: JSON.parse(event.envelope),
+        acceptedAt: event.accepted_at,
+      })),
     };
   }
 
@@ -363,6 +554,224 @@ export async function createStore({
     }
     statements.saveMlsWelcome.run(serialized, roomId);
     return roomState(roomId);
+  }
+
+  function publicDeviceLink(row) {
+    if (!row) return null;
+    return {
+      linkId: row.link_id,
+      roomId: row.room_id,
+      authorizerId: row.authorizer_id,
+      role: row.role,
+      expiresAt: row.expires_at,
+      claimedDeviceId: row.claimed_device_id,
+      createdAt: row.created_at,
+      claimedAt: row.claimed_at,
+      usedAt: row.used_at,
+    };
+  }
+
+  function verifyDeviceLinkSecret(row, secret) {
+    if (!row || !validToken(secret)) return false;
+    const expected = Buffer.from(row.secret_hash);
+    const actual = hashToken(secret);
+    return expected.length === actual.length && timingSafeEqual(expected, actual);
+  }
+
+  function createDeviceLink(roomId, authorizerId, linkId, secret, expiresAt) {
+    cleanupExpiredDeviceLinks(nowIso());
+    const room = statements.room.get(roomId);
+    const authorizer = getMember(roomId, authorizerId);
+    if (!room || room.protocol !== 'mls-rfc9420') throw new Error('PROTOCOL_MISMATCH');
+    if (!authorizer || authorizer.status !== 'active') throw new Error('UNAUTHORIZED');
+    if (statements.memberReservationCountForRole.get(roomId, authorizer.role).count >= 3) throw new Error('DEVICE_LIMIT');
+    const expires = Date.parse(expiresAt);
+    if (!Number.isFinite(expires) || expires <= Date.now() || expires > Date.now() + 15 * 60_000) {
+      throw new Error('INVALID_DEVICE_LINK');
+    }
+    statements.insertDeviceLink.run(linkId, roomId, authorizerId, authorizer.role, hashToken(secret), expiresAt, nowIso());
+    return publicDeviceLink(statements.deviceLink.get(linkId));
+  }
+
+  function claimDeviceLink(linkId, secret, bundle, accessToken, deviceName, capabilities = []) {
+    cleanupExpiredDeviceLinks(nowIso());
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const link = statements.deviceLink.get(linkId);
+      if (!verifyDeviceLinkSecret(link, secret) || link.used_at || Date.parse(link.expires_at) <= Date.now()) {
+        throw new Error('INVALID_DEVICE_LINK');
+      }
+      if (link.claimed_device_id) {
+        if (link.claimed_device_id !== bundle.deviceId) throw new Error('DEVICE_LINK_CLAIMED');
+        const existing = getMember(link.room_id, bundle.deviceId);
+        if (!existing || canonicalStringify({
+          deviceId: existing.deviceId,
+          encryptionKey: existing.encryptionKey,
+          signingKey: existing.signingKey,
+          mlsKeyPackage: existing.mlsKeyPackage,
+        }) !== canonicalStringify(bundle)) throw new Error('DEVICE_LINK_CLAIMED');
+        db.exec('COMMIT');
+        return { link: publicDeviceLink(link), state: roomState(link.room_id) };
+      }
+      if (statements.memberReservationCountForRole.get(link.room_id, link.role).count >= 3) throw new Error('DEVICE_LIMIT');
+      if (statements.member.get(link.room_id, bundle.deviceId)) throw new Error('DEVICE_LINK_CLAIMED');
+      if (!bundle.mlsKeyPackage) throw new Error('PROTOCOL_MISMATCH');
+      const createdAt = nowIso();
+      statements.insertMember.run(
+        link.room_id,
+        bundle.deviceId,
+        link.role,
+        JSON.stringify(bundle.encryptionKey),
+        JSON.stringify(bundle.signingKey),
+        bundle.mlsKeyPackage ?? null,
+        null,
+        hashToken(accessToken),
+        deviceName,
+        'pending',
+        link.authorizer_id,
+        0,
+        0,
+        JSON.stringify(capabilities),
+        createdAt,
+      );
+      if (statements.claimDeviceLink.run(bundle.deviceId, createdAt, linkId).changes !== 1) {
+        throw new Error('DEVICE_LINK_CLAIMED');
+      }
+      db.exec('COMMIT');
+      return { link: publicDeviceLink(statements.deviceLink.get(linkId)), state: roomState(link.room_id) };
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  function deviceLinkStatus(linkId, secret) {
+    const link = statements.deviceLink.get(linkId);
+    if (!verifyDeviceLinkSecret(link, secret)) throw new Error('INVALID_DEVICE_LINK');
+    return { link: publicDeviceLink(link), state: roomState(link.room_id) };
+  }
+
+  function deviceLinksForRoom(roomId, authorizerId) {
+    cleanupExpiredDeviceLinks(nowIso());
+    return statements.deviceLinksForRoom.all(roomId, authorizerId).map(publicDeviceLink);
+  }
+
+  function cleanupExpiredDeviceLinks(cutoffIso = nowIso()) {
+    const expired = statements.expiredDeviceLinks.all(cutoffIso);
+    if (expired.length === 0) return 0;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      let removed = 0;
+      for (const link of expired) {
+        if (link.claimed_device_id) {
+          statements.deletePendingLinkedMember.run(
+            link.room_id,
+            link.claimed_device_id,
+            link.authorizer_id,
+          );
+        }
+        removed += statements.deleteDeviceLink.run(link.link_id).changes;
+      }
+      db.exec('COMMIT');
+      return removed;
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  function saveMlsEvent(roomId, envelope) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const duplicate = statements.mlsEventById.get(roomId, envelope.eventId);
+      if (duplicate) {
+        if (duplicate.envelope !== JSON.stringify(envelope)) throw new Error('MLS_EVENT_CONFLICT');
+        db.exec('COMMIT');
+        return {
+          eventSeq: duplicate.event_seq,
+          event: JSON.parse(duplicate.envelope),
+          acceptedAt: duplicate.accepted_at,
+          duplicate: true,
+        };
+      }
+      const room = statements.room.get(roomId);
+      const sender = getMember(roomId, envelope.senderId);
+      const target = getMember(roomId, envelope.targetId);
+      if (!room || room.protocol !== 'mls-rfc9420') throw new Error('PROTOCOL_MISMATCH');
+      if (!sender || sender.status !== 'active') throw new Error('UNAUTHORIZED');
+      if (envelope.previousEventSeq !== room.next_mls_event_seq) throw new Error('MLS_EVENT_STALE');
+      if (envelope.action === 'add') {
+        if (!target || target.status !== 'pending' || target.addedBy !== sender.deviceId || !envelope.target) {
+          throw new Error('INVALID_MLS_EVENT');
+        }
+        const expected = canonicalStringify({
+          deviceId: target.deviceId,
+          encryptionKey: target.encryptionKey,
+          signingKey: target.signingKey,
+          mlsKeyPackage: target.mlsKeyPackage,
+          role: target.role,
+          joinProof: target.joinProof,
+          deviceName: target.deviceName,
+          status: target.status,
+          addedBy: target.addedBy,
+          joinSeq: target.joinSeq,
+          joinReceiptSeq: target.joinReceiptSeq,
+          lastSeenAt: target.lastSeenAt,
+          revokedAt: target.revokedAt,
+          capabilities: target.capabilities,
+          createdAt: target.createdAt,
+        });
+        if (canonicalStringify(envelope.target) !== expected || !envelope.welcome) throw new Error('INVALID_MLS_EVENT');
+        if (statements.memberCountForRole.get(roomId, target.role).count >= 3) throw new Error('DEVICE_LIMIT');
+      } else {
+        if (
+          !target || target.status !== 'active' || target.deviceId === sender.deviceId ||
+          target.role !== sender.role || envelope.target || envelope.welcome
+        ) {
+          throw new Error('INVALID_MLS_EVENT');
+        }
+        if (statements.memberCountForRole.get(roomId, target.role).count <= 1) throw new Error('LAST_ROLE_DEVICE');
+      }
+      const advanced = statements.nextMlsEventSeq.get(roomId, envelope.previousEventSeq);
+      if (!advanced) throw new Error('MLS_EVENT_STALE');
+      const acceptedAt = nowIso();
+      statements.insertMlsEvent.run(
+        roomId,
+        advanced.next_mls_event_seq,
+        envelope.eventId,
+        envelope.senderId,
+        envelope.targetId,
+        envelope.action,
+        JSON.stringify(envelope),
+        acceptedAt,
+      );
+      if (envelope.action === 'add') {
+        if (statements.activateMember.run(room.next_seq, room.next_receipt_seq, roomId, envelope.targetId).changes !== 1) {
+          throw new Error('INVALID_MLS_EVENT');
+        }
+        const link = db.prepare('SELECT link_id FROM device_links WHERE room_id = ? AND claimed_device_id = ? AND used_at IS NULL')
+          .get(roomId, envelope.targetId);
+        if (link) statements.useDeviceLink.run(acceptedAt, link.link_id);
+      } else {
+        if (statements.revokeMember.run(acceptedAt, roomId, envelope.targetId).changes !== 1) {
+          throw new Error('INVALID_MLS_EVENT');
+        }
+        statements.deletePushSubscription.run(roomId, envelope.targetId);
+      }
+      db.exec('COMMIT');
+      return { eventSeq: advanced.next_mls_event_seq, event: envelope, acceptedAt, duplicate: false };
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  function mlsEventsAfter(roomId, afterEventSeq) {
+    return statements.mlsEventsAfter.all(roomId, afterEventSeq).map((event) => ({
+      eventSeq: event.event_seq,
+      event: JSON.parse(event.envelope),
+      acceptedAt: event.accepted_at,
+    }));
   }
 
   function getMember(roomId, deviceId) {
@@ -382,7 +791,7 @@ export async function createStore({
   }
 
   function savePushSubscription(roomId, deviceId, subscription) {
-    if (!statements.member.get(roomId, deviceId)) throw new Error('MEMBER_NOT_FOUND');
+    if (getMember(roomId, deviceId)?.status !== 'active') throw new Error('MEMBER_NOT_FOUND');
     const now = nowIso();
     statements.upsertPushSubscription.run(
       roomId,
@@ -455,8 +864,9 @@ export async function createStore({
     }
   }
 
-  function messagesAfter(roomId, afterSeq, limit = 500) {
-    return statements.messagesAfter.all(roomId, afterSeq, Math.min(Math.max(limit, 1), 500)).map((row) => ({
+  function messagesAfter(roomId, afterSeq, limit = 500, deviceId) {
+    const joinSeq = deviceId ? getMember(roomId, deviceId)?.joinSeq ?? Number.MAX_SAFE_INTEGER : 0;
+    return statements.messagesAfter.all(roomId, afterSeq, joinSeq, Math.min(Math.max(limit, 1), 500)).map((row) => ({
       seq: row.server_seq,
       envelope: JSON.parse(row.envelope),
       acceptedAt: row.accepted_at,
@@ -467,10 +877,19 @@ export async function createStore({
     db.exec('BEGIN IMMEDIATE');
     try {
       const message = statements.messageBySeq.get(roomId, receipt.seq);
-      if (!message || message.client_msg_id !== receipt.clientMsgId || message.sender_device_id === receipt.receiverId) {
+      const sender = message ? getMember(roomId, message.sender_device_id) : null;
+      const receiver = getMember(roomId, receipt.receiverId);
+      if (
+        !message ||
+        message.client_msg_id !== receipt.clientMsgId ||
+        !sender ||
+        !receiver ||
+        receiver.status !== 'active' ||
+        sender.role === receiver.role
+      ) {
         throw new Error('INVALID_RECEIPT');
       }
-      const existing = statements.receiptByClientId.get(roomId, receipt.clientMsgId);
+      const existing = statements.receiptByClientId.get(roomId, receipt.clientMsgId, receipt.receiverId);
       if (existing) {
         if (existing.receipt !== JSON.stringify(receipt)) throw new Error('RECEIPT_CONFLICT');
         db.exec('COMMIT');
@@ -500,12 +919,14 @@ export async function createStore({
     }
   }
 
-  function receiptsAfter(roomId, afterReceiptSeq, limit = 500) {
-    return statements.receiptsAfter.all(roomId, afterReceiptSeq, Math.min(Math.max(limit, 1), 500)).map((row) => ({
-      receiptSeq: row.receipt_seq,
-      receipt: JSON.parse(row.receipt),
-      acceptedAt: row.accepted_at,
-    }));
+  function receiptsAfter(roomId, afterReceiptSeq, limit = 500, deviceId) {
+    const member = deviceId ? getMember(roomId, deviceId) : null;
+    const joinReceiptSeq = deviceId ? member?.joinReceiptSeq ?? Number.MAX_SAFE_INTEGER : 0;
+    const joinSeq = member?.joinSeq ?? 0;
+    return statements.receiptsAfter.all(roomId, afterReceiptSeq, joinReceiptSeq, Math.min(Math.max(limit, 1), 500)).map((row) =>
+      deviceId && row.message_seq <= joinSeq
+        ? { receiptSeq: row.receipt_seq, skipped: true, acceptedAt: row.accepted_at }
+        : { receiptSeq: row.receipt_seq, receipt: JSON.parse(row.receipt), acceptedAt: row.accepted_at });
   }
 
   function createBlob(roomId, blobId, chunkCount, expectedBytes) {
@@ -651,12 +1072,17 @@ export async function createStore({
 
   return {
     authenticate,
+    authenticateInvite,
+    authenticatedDevice,
+    updateMemberCapabilities,
     blobStatus,
     cleanupExpiredBlobs,
+    cleanupExpiredDeviceLinks,
     cleanupOrphanRooms,
     completeBlob,
     createBlob,
     createRoom,
+    createDeviceLink,
     deleteRoom,
     getBlobChunk,
     getMember,
@@ -665,13 +1091,18 @@ export async function createStore({
     insertMessage,
     insertReceipt,
     joinRoom,
+    claimDeviceLink,
+    deviceLinkStatus,
+    deviceLinksForRoom,
     messagesAfter,
+    mlsEventsAfter,
     putBlobChunk,
     pushSubscriptionsForRoom,
     receiptsAfter,
     roomState,
     savePushSubscription,
     saveMlsWelcome,
+    saveMlsEvent,
     deletePushSubscription,
     deletePushSubscriptionByEndpoint,
     close: () => db.close(),

@@ -1,4 +1,28 @@
-import type { DeliveryReceipt, MessageEnvelope, MlsWelcomeEnvelope, RoomState, ServerMessage, ServerReceipt } from './types';
+import type {
+  DeliveryReceipt,
+  MessageEnvelope,
+  MlsMembershipEnvelope,
+  MlsWelcomeEnvelope,
+  PublicBundle,
+  RoomState,
+  ServerMessage,
+  ServerMlsMembershipEvent,
+  ServerReceipt,
+} from './types';
+
+export type DeviceLinkRecord = {
+  linkId: string;
+  roomId: string;
+  authorizerId: string;
+  role: 'creator' | 'joiner';
+  expiresAt: string;
+  claimedDeviceId: string | null;
+  createdAt: string;
+  claimedAt: string | null;
+  usedAt: string | null;
+};
+
+export type DeviceLinkState = { link: DeviceLinkRecord; state: RoomState };
 
 export class ApiError extends Error {
   constructor(
@@ -39,11 +63,14 @@ async function authorizedFetch(path: string, accessToken: string, init: RequestI
 export async function createRoom(
   creatorBundle: unknown,
   accessToken: string,
+  inviteToken = accessToken,
+  deviceName = '此设备',
+  capabilities: string[] = [],
 ): Promise<{ roomId: string; createdAt: string; protocol: 'legacy-v1' | 'mls-rfc9420' }> {
   const response = await fetch('/api/rooms', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ creatorBundle, accessToken }),
+    body: JSON.stringify({ creatorBundle, accessToken, inviteToken, deviceName, capabilities }),
   });
   if (!response.ok) throw await responseError(response);
   return response.json();
@@ -63,11 +90,85 @@ export async function joinRoom(
   accessToken: string,
   bundle: unknown,
   proof: string,
+  deviceAccessToken?: string,
+  deviceName = '此设备',
+  capabilities: string[] = [],
 ): Promise<RoomState> {
   const response = await authorizedFetch(`/api/rooms/${roomId}/join`, accessToken, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ bundle, proof }),
+    body: JSON.stringify({ bundle, proof, deviceAccessToken, deviceName, capabilities }),
+  });
+  return response.json();
+}
+
+export async function createDeviceLink(
+  roomId: string,
+  accessToken: string,
+  authorizerId: string,
+  linkId: string,
+  secret: string,
+  expiresAt: string,
+): Promise<DeviceLinkRecord> {
+  const response = await authorizedFetch(`/api/rooms/${roomId}/device-links`, accessToken, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ authorizerId, linkId, secret, expiresAt }),
+  });
+  return response.json();
+}
+
+export async function listDeviceLinks(
+  roomId: string,
+  accessToken: string,
+): Promise<{ links: DeviceLinkRecord[]; state: RoomState }> {
+  const response = await authorizedFetch(`/api/rooms/${roomId}/device-links`, accessToken);
+  return response.json();
+}
+
+export async function claimDeviceLink(
+  linkId: string,
+  secret: string,
+  bundle: PublicBundle,
+  deviceAccessToken: string,
+  deviceName: string,
+  capabilities: string[],
+): Promise<DeviceLinkState> {
+  const response = await fetch(`/api/device-links/${linkId}/claim`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret, bundle, deviceAccessToken, deviceName, capabilities }),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json();
+}
+
+export async function getDeviceLinkStatus(
+  linkId: string,
+  secret: string,
+  deviceAccessToken?: string,
+): Promise<DeviceLinkState> {
+  const response = await fetch(`/api/device-links/${linkId}/status`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(deviceAccessToken ? { Authorization: `Bearer ${deviceAccessToken}` } : {}),
+    },
+    body: JSON.stringify({ secret }),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json();
+}
+
+export async function publishMlsMembership(
+  roomId: string,
+  accessToken: string,
+  event: MlsMembershipEnvelope,
+): Promise<{ event: ServerMlsMembershipEvent; state: RoomState }> {
+  const response = await authorizedFetch(`/api/rooms/${roomId}/mls-events`, accessToken, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event }),
   });
   return response.json();
 }
@@ -144,8 +245,22 @@ export async function fetchBlobChunk(
 
 type AsyncSocketHandler = void | Promise<void>;
 
+export type RoomPresence = {
+  creator: boolean;
+  joiner: boolean;
+};
+
+function isRoomPresence(value: unknown): value is RoomPresence {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const roles = value as Record<string, unknown>;
+  return Object.keys(roles).length === 2 &&
+    typeof roles.creator === 'boolean' &&
+    typeof roles.joiner === 'boolean';
+}
+
 type SocketHandlers = {
   connection: (state: 'connecting' | 'connected' | 'disconnected') => void;
+  presence: (roles: RoomPresence) => void;
   ready: (state: RoomState) => AsyncSocketHandler;
   membership: (state: RoomState) => AsyncSocketHandler;
   message: (message: ServerMessage) => AsyncSocketHandler;
@@ -154,7 +269,7 @@ type SocketHandlers = {
   receiptSync: (receipts: ServerReceipt[]) => AsyncSocketHandler;
   ack: (clientMsgId: string, seq: number) => void;
   receiptAck: (clientMsgId: string, receiptSeq: number) => void;
-  error: (message: string, code?: string) => void;
+  error: (message: string, code?: string, clientMsgId?: string) => AsyncSocketHandler;
 };
 
 export class RoomSocket {
@@ -165,6 +280,9 @@ export class RoomSocket {
   private heartbeatTimer: number | null = null;
   private lastPongAt = 0;
   private membershipBarrier: Promise<void> = Promise.resolve();
+  private desiredPresenceView: 'chat' | 'away' = 'away';
+  private authenticated = false;
+  private lastSentPresenceView: 'chat' | 'away' | null = null;
 
   constructor(
     private readonly roomId: string,
@@ -172,6 +290,8 @@ export class RoomSocket {
     private readonly afterSeq: () => number,
     private readonly afterReceiptSeq: () => number,
     private readonly handlers: SocketHandlers,
+    private readonly deviceId = '',
+    private readonly capabilities?: readonly string[],
   ) {}
 
   connect(): void {
@@ -180,10 +300,14 @@ export class RoomSocket {
     const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
     this.socket = new WebSocket(`${scheme}//${location.host}/ws`);
     this.socket.addEventListener('open', () => {
+      this.authenticated = false;
+      this.lastSentPresenceView = null;
       this.socket?.send(JSON.stringify({
         type: 'auth',
         roomId: this.roomId,
         accessToken: this.accessToken,
+        deviceId: this.deviceId,
+        ...(this.capabilities ? { capabilities: this.capabilities } : {}),
         afterSeq: this.afterSeq(),
         afterReceiptSeq: this.afterReceiptSeq(),
       }));
@@ -191,6 +315,8 @@ export class RoomSocket {
     this.socket.addEventListener('message', (event) => this.handleFrame(String(event.data)));
     this.socket.addEventListener('close', () => {
       this.stopHeartbeat();
+      this.authenticated = false;
+      this.lastSentPresenceView = null;
       this.socket = null;
       this.handlers.connection('disconnected');
       if (!this.closed) this.scheduleReconnect();
@@ -204,10 +330,15 @@ export class RoomSocket {
       if (frame.type === 'ready') {
         this.retry = 0;
         this.startHeartbeat();
+        this.authenticated = true;
         this.handlers.connection('connected');
+        this.flushChatPresence();
         this.queueMembershipUpdate(() => this.handlers.ready(frame.state as RoomState));
       } else if (frame.type === 'membership') {
         this.queueMembershipUpdate(() => this.handlers.membership(frame.state as RoomState));
+      } else if (frame.type === 'presence') {
+        if (!isRoomPresence(frame.roles)) throw new Error('Invalid presence frame');
+        this.handlers.presence(frame.roles);
       } else if (frame.type === 'message') {
         this.runAfterMembershipUpdate(() => this.handlers.message(frame as unknown as ServerMessage & { type: string }));
       } else if (frame.type === 'sync') {
@@ -223,10 +354,14 @@ export class RoomSocket {
       } else if (frame.type === 'pong') {
         this.lastPongAt = Date.now();
       } else if (frame.type === 'error') {
-        this.handlers.error(String(frame.message ?? '实时连接发生错误'), String(frame.code ?? 'SOCKET_ERROR'));
+        this.runAfterMembershipUpdate(() => this.handlers.error(
+          String(frame.message ?? '实时连接发生错误'),
+          String(frame.code ?? 'SOCKET_ERROR'),
+          typeof frame.clientMsgId === 'string' ? frame.clientMsgId : undefined,
+        ));
       }
     } catch {
-      this.handlers.error('收到无法识别的实时数据', 'INVALID_SERVER_FRAME');
+      this.runAfterMembershipUpdate(() => this.handlers.error('收到无法识别的实时数据', 'INVALID_SERVER_FRAME'));
     }
   }
 
@@ -263,6 +398,21 @@ export class RoomSocket {
       this.reconnectTimer = null;
       this.connect();
     }, delay);
+  }
+
+  setChatPresence(inChat: boolean): void {
+    this.desiredPresenceView = inChat ? 'chat' : 'away';
+    this.flushChatPresence();
+  }
+
+  private flushChatPresence(): void {
+    if (
+      !this.authenticated ||
+      this.socket?.readyState !== WebSocket.OPEN ||
+      this.lastSentPresenceView === this.desiredPresenceView
+    ) return;
+    this.socket.send(JSON.stringify({ type: 'presence', view: this.desiredPresenceView }));
+    this.lastSentPresenceView = this.desiredPresenceView;
   }
 
   sendEnvelope(envelope: MessageEnvelope): void {
@@ -306,6 +456,8 @@ export class RoomSocket {
   }
 
   close(): void {
+    this.desiredPresenceView = 'away';
+    this.flushChatPresence();
     this.closed = true;
     this.stopHeartbeat();
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);

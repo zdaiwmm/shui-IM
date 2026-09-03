@@ -10,7 +10,7 @@
   "lang": "zh-CN",
   "dir": "ltr",
   "background_color": "#f4f6fa",
-  "theme_color": "#f4f6fa",
+  "theme_color": "transparent",
   "icons": [
     {
       "src": "/icon.svg",

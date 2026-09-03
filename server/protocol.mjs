@@ -1,3 +1,5 @@
+import { decodeMlsMessage } from 'ts-mls';
+
 const encoder = new TextEncoder();
 
 export function canonicalStringify(value) {
@@ -87,6 +89,68 @@ export function validateMlsWelcomeShape(envelope, expectedRoomId) {
     typeof envelope.signature === 'string' &&
     envelope.signature.length > 0 && envelope.signature.length <= 512
   );
+}
+
+export function validateMlsMembershipShape(envelope, expectedRoomId) {
+  if (!envelope || envelope.v !== 1 || envelope.protocol !== 'mls-rfc9420' || envelope.roomId !== expectedRoomId) {
+    return false;
+  }
+  if (
+    !isUuid(envelope.eventId) ||
+    !Number.isSafeInteger(envelope.previousEventSeq) ||
+    envelope.previousEventSeq < 0 ||
+    !['add', 'remove'].includes(envelope.action) ||
+    !isUuid(envelope.senderId) ||
+    !isUuid(envelope.targetId) ||
+    envelope.senderId === envelope.targetId ||
+    typeof envelope.commit !== 'string' ||
+    envelope.commit.length < 32 ||
+    envelope.commit.length > 256 * 1024 ||
+    !/^[A-Za-z0-9_-]+$/.test(envelope.commit) ||
+    typeof envelope.signature !== 'string' ||
+    envelope.signature.length < 1 ||
+    envelope.signature.length > 512
+  ) return false;
+  if (envelope.action === 'add') {
+    return validatePublicBundle(envelope.target) &&
+      envelope.target.deviceId === envelope.targetId &&
+      ['creator', 'joiner'].includes(envelope.target.role) &&
+      envelope.target.status === 'pending' &&
+      envelope.target.addedBy === envelope.senderId &&
+      typeof envelope.welcome === 'string' &&
+      envelope.welcome.length >= 64 &&
+      envelope.welcome.length <= 256 * 1024 &&
+      /^[A-Za-z0-9_-]+$/.test(envelope.welcome);
+  }
+  return envelope.target === undefined && envelope.welcome === undefined;
+}
+
+function safeEpoch(value) {
+  return typeof value === 'bigint' && value >= 0n && value <= BigInt(Number.MAX_SAFE_INTEGER)
+    ? Number(value)
+    : null;
+}
+
+export function mlsPrivateMessageEpoch(ciphertext) {
+  try {
+    const bytes = fromBase64Url(ciphertext);
+    const decoded = decodeMlsMessage(bytes, 0);
+    if (!decoded || decoded[1] !== bytes.length || decoded[0].wireformat !== 'mls_private_message') return null;
+    return safeEpoch(decoded[0].privateMessage.epoch);
+  } catch {
+    return null;
+  }
+}
+
+export function mlsPublicMessageEpoch(commit) {
+  try {
+    const bytes = fromBase64Url(commit);
+    const decoded = decodeMlsMessage(bytes, 0);
+    if (!decoded || decoded[1] !== bytes.length || decoded[0].wireformat !== 'mls_public_message') return null;
+    return safeEpoch(decoded[0].publicMessage.content.epoch);
+  } catch {
+    return null;
+  }
 }
 
 export function validateReceiptShape(receipt, expectedRoomId) {

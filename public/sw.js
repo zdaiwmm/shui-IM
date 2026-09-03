@@ -1,9 +1,12 @@
-const CACHE = 'quiet-room-shell-v3';
+const CACHE = 'quiet-room-shell-v4';
 const SHELL = ['/', '/manifest.webmanifest', '/icon.svg'];
 
 function isCacheableAsset(url) {
   return url.origin === self.location.origin && (
     url.pathname.startsWith('/assets/') ||
+    url.pathname.startsWith('/memes/') ||
+    url.pathname.startsWith('/stickers/') ||
+    url.pathname.startsWith('/expressions/') ||
     url.pathname === '/icon.svg' ||
     url.pathname === '/manifest.webmanifest'
   );

@@ -46,25 +46,27 @@ describe('background wake-up integration', () => {
       await rm(dataDir, { recursive: true, force: true });
     });
     const baseUrl = `http://127.0.0.1:${server.port}`;
-    const accessToken = randomBase64Url(32);
+    const creatorToken = randomBase64Url(32);
+    const inviteToken = randomBase64Url(32);
+    const joinerToken = randomBase64Url(32);
     const pairingSecret = randomBase64Url(32);
     const [creatorIdentity, joinerIdentity] = await Promise.all([generateIdentity(), generateIdentity()]);
     const room = await jsonRequest(`${baseUrl}/api/rooms`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ creatorBundle: creatorIdentity.publicBundle, accessToken }),
+      body: JSON.stringify({ creatorBundle: creatorIdentity.publicBundle, accessToken: creatorToken, inviteToken }),
     });
     const proof = await createJoinProof(pairingSecret, joinerIdentity.publicBundle);
     const state = await jsonRequest(`${baseUrl}/api/rooms/${room.roomId}/join`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ bundle: joinerIdentity.publicBundle, proof }),
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${inviteToken}` },
+      body: JSON.stringify({ bundle: joinerIdentity.publicBundle, proof, deviceAccessToken: joinerToken }),
     });
     const members = state.members as RoomMember[];
     const vault: Vault = {
       v: 1,
       roomId: room.roomId,
-      accessToken,
+      accessToken: creatorToken,
       role: 'creator',
       pairingSecret,
       creatorFingerprint: 'unused',
@@ -75,10 +77,10 @@ describe('background wake-up integration', () => {
       protocol: 'legacy-v1',
     };
     const endpoint = 'https://push.example.test/subscription/joiner';
-    const joinerVault: Vault = { ...vault, role: 'joiner', identity: joinerIdentity };
+    const joinerVault: Vault = { ...vault, accessToken: joinerToken, role: 'joiner', identity: joinerIdentity };
     const forgedRegistration = await fetch(`${baseUrl}/api/rooms/${room.roomId}/push/${joinerIdentity.publicBundle.deviceId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${joinerToken}` },
       body: JSON.stringify({ subscription: {
         endpoint,
         keys: { p256dh: 'A'.repeat(43), auth: 'B'.repeat(22) },
@@ -90,7 +92,7 @@ describe('background wake-up integration', () => {
     expect(forgedRegistration.status).toBe(400);
     await jsonRequest(`${baseUrl}/api/rooms/${room.roomId}/push/${joinerIdentity.publicBundle.deviceId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${joinerToken}` },
       body: JSON.stringify({ subscription: {
         endpoint,
         keys: { p256dh: 'A'.repeat(43), auth: 'B'.repeat(22) },
@@ -108,7 +110,10 @@ describe('background wake-up integration', () => {
       socket.once('open', resolve);
       socket.once('error', reject);
     });
-    socket.send(JSON.stringify({ type: 'auth', roomId: room.roomId, accessToken, afterSeq: 0, afterReceiptSeq: 0 }));
+    socket.send(JSON.stringify({
+      type: 'auth', roomId: room.roomId, accessToken: creatorToken,
+      deviceId: creatorIdentity.publicBundle.deviceId, afterSeq: 0, afterReceiptSeq: 0,
+    }));
     await new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Timed out waiting for ready')), 3000);
       socket.on('message', (raw) => {

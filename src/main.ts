@@ -4,10 +4,22 @@ import { QuietRoomApp } from './app';
 const colorScheme = window.matchMedia('(prefers-color-scheme: dark)');
 const syncSystemChrome = () => {
   const theme = document.querySelector<HTMLMetaElement>('#system-chrome-color');
-  if (theme) theme.content = colorScheme.matches ? '#292c34' : '#f4f6fa';
+  // Browser-owned toolbars cannot be forced transparent. This standards-based
+  // hint lets supporting browsers blend their chrome with the edge-to-edge app,
+  // while the page background remains the fallback for browsers that ignore it.
+  if (theme) theme.content = 'transparent';
+  document.documentElement.dataset.colorScheme = colorScheme.matches ? 'dark' : 'light';
 };
 syncSystemChrome();
 colorScheme.addEventListener('change', syncSystemChrome);
+
+// Keep zooming inside purpose-built media viewers instead of allowing a
+// double tap/click to scale the whole browser page. The viewport declaration
+// and touch-action CSS provide the mobile path; this covers emitted dblclicks.
+document.addEventListener('dblclick', (event) => event.preventDefault(), {
+  capture: true,
+  passive: false,
+});
 
 const root = document.querySelector<HTMLElement>('#app');
 if (!root) throw new Error('Application root is missing');

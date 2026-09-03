@@ -2,7 +2,7 @@ import { createSHA256 } from 'hash-wasm';
 import { canonicalStringify } from './canonical';
 import { fromBase64Url, toBase64Url } from './base64';
 import { IMAGE_CHUNK_SIZE, isImageManifest, MAX_IMAGE_BYTES } from './message-payload';
-import type { ImageManifest, ImageUploadPlan } from './types';
+import type { ImageManifest, ImageUploadPlan, ImageUploadPlanV2 } from './types';
 
 export { IMAGE_CHUNK_SIZE, MAX_IMAGE_BYTES } from './message-payload';
 const encoder = new TextEncoder();
@@ -24,6 +24,18 @@ function chunkAad(blobId: string, index: number, chunkCount: number, originalSiz
   }));
 }
 
+async function hashFile(file: File, signal?: AbortSignal): Promise<string> {
+  const hash = await createSHA256();
+  hash.init();
+  for (let offset = 0; offset < file.size; offset += IMAGE_CHUNK_SIZE) {
+    signal?.throwIfAborted();
+    const end = Math.min(offset + IMAGE_CHUNK_SIZE, file.size);
+    hash.update(new Uint8Array(await file.slice(offset, end).arrayBuffer()));
+  }
+  signal?.throwIfAborted();
+  return hash.digest('hex');
+}
+
 export async function encryptImageFile(
   file: File,
   callbacks: {
@@ -42,20 +54,29 @@ export async function encryptImageFile(
   if (file.size === 0) throw new Error('图片文件为空');
   if (file.size > MAX_IMAGE_BYTES) throw new Error('图片不能超过 256 MB');
   const chunkCount = Math.ceil(file.size / IMAGE_CHUNK_SIZE);
-  const matchesExisting = Boolean(
-    existingPlan &&
-      existingPlan.v === 1 &&
+  if (existingPlan?.v === 1) {
+    throw new Error('旧版图片续传计划缺少内容校验，不能安全复用');
+  }
+  const plaintextSha256 = await hashFile(file, callbacks.signal);
+  if (existingPlan) {
+    const matchesMetadata =
       existingPlan.originalSize === file.size &&
       existingPlan.originalName === file.name &&
       existingPlan.mimeType === file.type &&
       existingPlan.lastModified === file.lastModified &&
       existingPlan.chunkCount === chunkCount &&
-      existingPlan.encryptedSize === file.size + 16 * chunkCount,
-  );
-  if (existingPlan && !matchesExisting) throw new Error('所选图片与待续传文件不一致');
+      existingPlan.encryptedSize === file.size + 16 * chunkCount;
+    if (!matchesMetadata) throw new Error('所选图片与待续传文件不一致');
+    if (!/^[0-9a-f]{64}$/i.test(existingPlan.plaintextSha256)) {
+      throw new Error('图片续传内容校验已损坏');
+    }
+    if (existingPlan.plaintextSha256 !== plaintextSha256) {
+      throw new Error('所选图片内容与待续传文件不一致');
+    }
+  }
 
-  const plan: ImageUploadPlan = existingPlan ?? {
-    v: 1,
+  const plan: ImageUploadPlanV2 = existingPlan ?? {
+    v: 2,
     blobId: crypto.randomUUID(),
     key: toBase64Url(crypto.getRandomValues(new Uint8Array(32))),
     ivPrefix: toBase64Url(crypto.getRandomValues(new Uint8Array(8))),
@@ -65,15 +86,13 @@ export async function encryptImageFile(
     originalName: file.name,
     mimeType: file.type,
     lastModified: file.lastModified,
+    plaintextSha256,
   };
   const keyBytes = fromBase64Url(plan.key);
   if (keyBytes.length !== 32) throw new Error('图片续传密钥已损坏');
   const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'AES-GCM' }, false, ['encrypt']);
   const ivPrefix = fromBase64Url(plan.ivPrefix);
   if (ivPrefix.length !== 8) throw new Error('图片续传参数已损坏');
-  const hash = await createSHA256();
-  hash.init();
-
   await callbacks.savePlan(plan);
   callbacks.signal?.throwIfAborted();
   await callbacks.reserve(plan.blobId, chunkCount, plan.encryptedSize);
@@ -85,7 +104,6 @@ export async function encryptImageFile(
     const start = index * IMAGE_CHUNK_SIZE;
     const end = Math.min(start + IMAGE_CHUNK_SIZE, file.size);
     const plaintext = new Uint8Array(await file.slice(start, end).arrayBuffer());
-    hash.update(plaintext);
     if (!uploaded.has(index)) {
       const ciphertext = await crypto.subtle.encrypt(
         {
@@ -115,7 +133,7 @@ export async function encryptImageFile(
     originalName: file.name,
     mimeType: file.type,
     lastModified: file.lastModified,
-    sha256: hash.digest('hex'),
+    sha256: plaintextSha256,
   };
 }
 

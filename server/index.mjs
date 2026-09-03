@@ -7,7 +7,10 @@ import { createStore } from './storage.mjs';
 import { createPushService, validatePushAuthorization, validatePushSubscription } from './push.mjs';
 import {
   isUuid,
+  mlsPrivateMessageEpoch,
+  mlsPublicMessageEpoch,
   validateEnvelopeShape,
+  validateMlsMembershipShape,
   validateMlsWelcomeShape,
   validatePublicBundle,
   validateReceiptShape,
@@ -112,6 +115,15 @@ function normalizeError(error) {
     ['MESSAGE_QUOTA', [507, '会话消息存储配额已用尽']],
     ['MLS_WELCOME_CONFLICT', [409, 'MLS 会话欢迎消息与已保存内容冲突']],
     ['PROTOCOL_MISMATCH', [409, '加入设备不支持该会话的加密协议']],
+    ['INVALID_DEVICE_TOKEN', [400, '设备访问凭证格式不正确']],
+    ['INVALID_DEVICE_LINK', [400, '设备链接无效或已经过期']],
+    ['DEVICE_LINK_CLAIMED', [409, '设备链接已经被另一台设备使用']],
+    ['DEVICE_LIMIT', [409, '每位参与者最多使用三台设备']],
+    ['MLS_EVENT_CONFLICT', [409, 'MLS 设备变更与已记录内容冲突']],
+    ['MLS_EVENT_STALE', [409, 'MLS 设备状态已更新，请刷新后重试']],
+    ['MLS_EPOCH_STALE', [409, '加密设备状态已更新，消息正在使用新密钥重新加密']],
+    ['INVALID_MLS_EVENT', [400, 'MLS 设备变更与待处理设备不匹配']],
+    ['LAST_ROLE_DEVICE', [409, '不能移除该参与者的最后一台设备']],
   ]);
   const [status, message] = known.get(code) ?? [500, '服务器暂时无法处理请求'];
   return [status, message, code];
@@ -126,7 +138,30 @@ function publicState(state) {
     protocol: state.protocol,
     members: state.members,
     mlsWelcome: state.mlsWelcome,
+    nextMlsEventSeq: state.nextMlsEventSeq,
+    mlsEvents: state.mlsEvents,
   };
+}
+
+function validCapabilities(capabilities) {
+  return Array.isArray(capabilities) && capabilities.length <= 12 &&
+    capabilities.every((value) => typeof value === 'string' && /^[a-z0-9-]{1,40}$/.test(value));
+}
+
+function validDeviceMetadata(name, capabilities) {
+  return typeof name === 'string' && name.trim().length >= 1 && name.trim().length <= 40 &&
+    validCapabilities(capabilities);
+}
+
+function validPresenceFrame(message) {
+  return Boolean(
+    message &&
+    typeof message === 'object' &&
+    !Array.isArray(message) &&
+    Object.keys(message).length === 2 &&
+    message.type === 'presence' &&
+    (message.view === 'chat' || message.view === 'away'),
+  );
 }
 
 export async function startServer(options = {}) {
@@ -150,11 +185,13 @@ export async function startServer(options = {}) {
     subject: options.vapidSubject,
   });
   const clientsByRoom = new Map();
+  const socketSessions = new WeakMap();
   const rateLimits = new Map();
   const incompleteBlobTtlMs = numericOption(options.incompleteBlobTtlMs ?? process.env.INCOMPLETE_BLOB_TTL_MS, 24 * 60 * 60 * 1000);
   const orphanRoomTtlMs = numericOption(options.orphanRoomTtlMs ?? process.env.ORPHAN_ROOM_TTL_MS, 24 * 60 * 60 * 1000);
   const maxConnectionsPerRoom = numericOption(options.maxConnectionsPerRoom ?? process.env.MAX_CONNECTIONS_PER_ROOM, 8);
   const maxConnectionsTotal = numericOption(options.maxConnectionsTotal ?? process.env.MAX_CONNECTIONS_TOTAL, 1000);
+  const webSocketHeartbeatMs = numericOption(options.webSocketHeartbeatMs ?? process.env.WEBSOCKET_HEARTBEAT_MS, 30_000);
   const trustedProxyAddresses = new Set(
     String(options.trustedProxyAddresses ?? process.env.TRUSTED_PROXY_ADDRESSES ?? '')
       .split(',')
@@ -196,17 +233,46 @@ export async function startServer(options = {}) {
     if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value));
   }
 
-  function broadcast(roomId, value) {
-    for (const socket of clientsByRoom.get(roomId) ?? []) send(socket, value);
+  function broadcast(roomId, value, project = null) {
+    for (const socket of clientsByRoom.get(roomId) ?? []) {
+      const session = socketSessions.get(socket);
+      const member = session ? store.getMember(roomId, session.deviceId) : null;
+      if (!session || member?.status !== 'active') {
+        socket.close(4403, 'Device no longer active');
+        continue;
+      }
+      send(socket, project ? project(member) : value);
+    }
   }
 
-  function registerSocket(roomId, socket) {
-    const clients = clientsByRoom.get(roomId) ?? new Set();
+  function presenceForRoom(roomId) {
+    const roles = { creator: false, joiner: false };
+    for (const socket of clientsByRoom.get(roomId) ?? []) {
+      const session = socketSessions.get(socket);
+      if (!session || session.view !== 'chat' || socket.readyState !== WebSocket.OPEN) continue;
+      const member = store.getMember(roomId, session.deviceId);
+      if (member?.status === 'active' && member.role === session.role) roles[session.role] = true;
+    }
+    return roles;
+  }
+
+  function presenceFrame(roomId) {
+    return { type: 'presence', roles: presenceForRoom(roomId) };
+  }
+
+  function broadcastPresence(roomId) {
+    broadcast(roomId, presenceFrame(roomId));
+  }
+
+  function registerSocket(session, socket) {
+    const clients = clientsByRoom.get(session.roomId) ?? new Set();
     clients.add(socket);
-    clientsByRoom.set(roomId, clients);
+    socketSessions.set(socket, session);
+    clientsByRoom.set(session.roomId, clients);
     socket.once('close', () => {
       clients.delete(socket);
-      if (clients.size === 0) clientsByRoom.delete(roomId);
+      if (clients.size === 0) clientsByRoom.delete(session.roomId);
+      broadcastPresence(session.roomId);
     });
   }
 
@@ -247,12 +313,21 @@ export async function startServer(options = {}) {
           !validatePublicBundle(body.creatorBundle) ||
           typeof body.accessToken !== 'string' ||
           body.accessToken.length < 32 ||
-          body.accessToken.length > 512
+          body.accessToken.length > 512 ||
+          (body.inviteToken !== undefined && (typeof body.inviteToken !== 'string' || body.inviteToken.length < 32 || body.inviteToken.length > 512)) ||
+          ((body.deviceName !== undefined || body.capabilities !== undefined) &&
+            !validDeviceMetadata(body.deviceName ?? '此设备', body.capabilities ?? []))
         ) {
           json(request, response, 400, { error: 'INVALID_ROOM_REQUEST' });
           return;
         }
-        const room = store.createRoom(body.creatorBundle, body.accessToken);
+        const room = store.createRoom(
+          body.creatorBundle,
+          body.accessToken,
+          body.inviteToken ?? body.accessToken,
+          body.deviceName ?? '此设备',
+          body.capabilities ?? [],
+        );
         json(request, response, 201, room);
         return;
       }
@@ -269,11 +344,16 @@ export async function startServer(options = {}) {
       }
       if (request.method === 'GET' && roomMatch) {
         const roomId = roomMatch[1];
-        if (!isUuid(roomId) || !store.authenticate(roomId, bearerToken(request))) {
+        const token = bearerToken(request);
+        const state = isUuid(roomId) ? store.roomState(roomId) : null;
+        const authorized = state && (
+          store.authenticatedDevice(roomId, token) ||
+          (!state.sealedAt && store.authenticateInvite(roomId, token))
+        );
+        if (!authorized) {
           json(request, response, 401, { error: 'UNAUTHORIZED' });
           return;
         }
-        const state = store.roomState(roomId);
         json(request, response, 200, publicState(state));
         return;
       }
@@ -281,7 +361,7 @@ export async function startServer(options = {}) {
       const joinMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/join$`));
       if (request.method === 'POST' && joinMatch) {
         const roomId = joinMatch[1];
-        if (!isUuid(roomId) || !store.authenticate(roomId, bearerToken(request))) {
+        if (!isUuid(roomId) || !store.authenticateInvite(roomId, bearerToken(request))) {
           json(request, response, 401, { error: 'UNAUTHORIZED' });
           return;
         }
@@ -291,20 +371,155 @@ export async function startServer(options = {}) {
           return;
         }
         const body = await readJson(request);
-        if (!validatePublicBundle(body.bundle) || typeof body.proof !== 'string' || body.proof.length > 512) {
+        if (
+          !validatePublicBundle(body.bundle) ||
+          typeof body.proof !== 'string' || body.proof.length > 512 ||
+          (body.deviceAccessToken !== undefined && (
+            typeof body.deviceAccessToken !== 'string' || body.deviceAccessToken.length < 32 || body.deviceAccessToken.length > 512
+          )) ||
+          !validDeviceMetadata(body.deviceName ?? '此设备', body.capabilities ?? [])
+        ) {
           json(request, response, 400, { error: 'INVALID_JOIN_REQUEST' });
           return;
         }
-        const state = store.joinRoom(roomId, body.bundle, body.proof);
+        const state = store.joinRoom(
+          roomId,
+          body.bundle,
+          body.proof,
+          body.deviceAccessToken,
+          body.deviceName ?? '此设备',
+          body.capabilities ?? [],
+        );
         broadcast(roomId, { type: 'membership', state: publicState(state) });
+        broadcastPresence(roomId);
         json(request, response, 201, publicState(state));
+        return;
+      }
+
+      const deviceLinksMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/device-links$`));
+      if (deviceLinksMatch && (request.method === 'GET' || request.method === 'POST')) {
+        const roomId = deviceLinksMatch[1];
+        const device = store.authenticatedDevice(roomId, bearerToken(request));
+        if (!device) {
+          json(request, response, 401, { error: 'UNAUTHORIZED' });
+          return;
+        }
+        if (request.method === 'GET') {
+          json(request, response, 200, {
+            links: store.deviceLinksForRoom(roomId, device.deviceId),
+            state: publicState(store.roomState(roomId)),
+          });
+          return;
+        }
+        if (!allowRequest(request, `device-link:${roomId}`, 12)) {
+          response.setHeader('Retry-After', '60');
+          json(request, response, 429, { error: '请求过于频繁', code: 'RATE_LIMITED' });
+          return;
+        }
+        const body = await readJson(request);
+        if (
+          !isUuid(body.linkId) ||
+          body.authorizerId !== device.deviceId ||
+          typeof body.secret !== 'string' || body.secret.length < 32 || body.secret.length > 512 ||
+          typeof body.expiresAt !== 'string'
+        ) {
+          json(request, response, 400, { error: 'INVALID_DEVICE_LINK' });
+          return;
+        }
+        json(request, response, 201, store.createDeviceLink(
+          roomId,
+          device.deviceId,
+          body.linkId,
+          body.secret,
+          body.expiresAt,
+        ));
+        return;
+      }
+
+      const claimDeviceLinkMatch = pathname.match(new RegExp(`^/api/device-links/(${ID_PATTERN})/claim$`));
+      if (request.method === 'POST' && claimDeviceLinkMatch) {
+        if (!allowRequest(request, `claim-device-link:${claimDeviceLinkMatch[1]}`, 20)) {
+          response.setHeader('Retry-After', '60');
+          json(request, response, 429, { error: '请求过于频繁', code: 'RATE_LIMITED' });
+          return;
+        }
+        const body = await readJson(request);
+        if (
+          typeof body.secret !== 'string' || body.secret.length < 32 || body.secret.length > 512 ||
+          !validatePublicBundle(body.bundle) ||
+          !body.bundle.mlsKeyPackage ||
+          typeof body.deviceAccessToken !== 'string' || body.deviceAccessToken.length < 32 || body.deviceAccessToken.length > 512 ||
+          !validDeviceMetadata(body.deviceName, body.capabilities ?? [])
+        ) {
+          json(request, response, 400, { error: 'INVALID_DEVICE_LINK' });
+          return;
+        }
+        const claimed = store.claimDeviceLink(
+          claimDeviceLinkMatch[1],
+          body.secret,
+          body.bundle,
+          body.deviceAccessToken,
+          body.deviceName.trim(),
+          body.capabilities ?? [],
+        );
+        broadcast(claimed.link.roomId, { type: 'membership', state: publicState(claimed.state) });
+        broadcastPresence(claimed.link.roomId);
+        json(request, response, 201, { link: claimed.link, state: publicState(claimed.state) });
+        return;
+      }
+
+      const deviceLinkStatusMatch = pathname.match(new RegExp(`^/api/device-links/(${ID_PATTERN})/status$`));
+      if (request.method === 'POST' && deviceLinkStatusMatch) {
+        const body = await readJson(request);
+        const result = store.deviceLinkStatus(deviceLinkStatusMatch[1], body.secret);
+        if (
+          result.link.usedAt &&
+          (!result.link.claimedDeviceId || !store.authenticatedDevice(
+            result.link.roomId,
+            bearerToken(request),
+            result.link.claimedDeviceId,
+          ))
+        ) {
+          json(request, response, 401, { error: 'UNAUTHORIZED' });
+          return;
+        }
+        json(request, response, 200, { link: result.link, state: publicState(result.state) });
+        return;
+      }
+
+      const mlsEventsMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/mls-events$`));
+      if (mlsEventsMatch && request.method === 'PUT') {
+        const roomId = mlsEventsMatch[1];
+        const device = store.authenticatedDevice(roomId, bearerToken(request));
+        if (!device) {
+          json(request, response, 401, { error: 'UNAUTHORIZED' });
+          return;
+        }
+        const body = await readJson(request);
+        const envelope = body.event;
+        if (
+          !validateMlsMembershipShape(envelope, roomId) ||
+          envelope.senderId !== device.deviceId ||
+          !(await verifyEnvelopeSignature(envelope, device.signingKey)) ||
+          mlsPublicMessageEpoch(envelope.commit) !== envelope.previousEventSeq + 1
+        ) {
+          json(request, response, 400, { error: 'INVALID_MLS_EVENT' });
+          return;
+        }
+        const storedEvent = store.saveMlsEvent(roomId, envelope);
+        const state = publicState(store.roomState(roomId));
+        if (!storedEvent.duplicate) {
+          broadcast(roomId, { type: 'membership', state });
+          broadcastPresence(roomId);
+        }
+        json(request, response, 200, { event: storedEvent, state });
         return;
       }
 
       const pushMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/push/(${ID_PATTERN})$`));
       if (pushMatch && (request.method === 'PUT' || request.method === 'DELETE')) {
         const [, roomId, deviceId] = pushMatch;
-        if (!store.authenticate(roomId, bearerToken(request))) {
+        if (!store.authenticatedDevice(roomId, bearerToken(request), deviceId)) {
           json(request, response, 401, { error: 'UNAUTHORIZED' });
           return;
         }
@@ -357,7 +572,8 @@ export async function startServer(options = {}) {
       const mlsWelcomeMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/mls-welcome$`));
       if (request.method === 'PUT' && mlsWelcomeMatch) {
         const roomId = mlsWelcomeMatch[1];
-        if (!store.authenticate(roomId, bearerToken(request))) {
+        const authenticated = store.authenticatedDevice(roomId, bearerToken(request));
+        if (!authenticated) {
           json(request, response, 401, { error: 'UNAUTHORIZED' });
           return;
         }
@@ -371,6 +587,7 @@ export async function startServer(options = {}) {
         const recipient = validateMlsWelcomeShape(envelope, roomId) && store.getMember(roomId, envelope.recipientId);
         if (
           !sender || sender.role !== 'creator' ||
+          sender.deviceId !== authenticated.deviceId ||
           !recipient || recipient.role !== 'joiner' ||
           !(await verifyEnvelopeSignature(envelope, sender.signingKey))
         ) {
@@ -379,6 +596,7 @@ export async function startServer(options = {}) {
         }
         const state = store.saveMlsWelcome(roomId, envelope);
         broadcast(roomId, { type: 'membership', state: publicState(state) });
+        broadcastPresence(roomId);
         json(request, response, 200, publicState(state));
         return;
       }
@@ -386,7 +604,7 @@ export async function startServer(options = {}) {
       const reserveBlobMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/blobs$`));
       if (request.method === 'POST' && reserveBlobMatch) {
         const roomId = reserveBlobMatch[1];
-        if (!store.authenticate(roomId, bearerToken(request))) {
+        if (!store.authenticatedDevice(roomId, bearerToken(request))) {
           json(request, response, 401, { error: 'UNAUTHORIZED' });
           return;
         }
@@ -416,7 +634,7 @@ export async function startServer(options = {}) {
       const blobStatusMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/blobs/(${ID_PATTERN})$`));
       if (request.method === 'GET' && blobStatusMatch) {
         const [, roomId, blobId] = blobStatusMatch;
-        if (!store.authenticate(roomId, bearerToken(request))) {
+        if (!store.authenticatedDevice(roomId, bearerToken(request))) {
           json(request, response, 401, { error: 'UNAUTHORIZED' });
           return;
         }
@@ -427,7 +645,7 @@ export async function startServer(options = {}) {
       const blobChunkMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/blobs/(${ID_PATTERN})/chunks/(\\d+)$`));
       if (blobChunkMatch && (request.method === 'PUT' || request.method === 'GET')) {
         const [, roomId, blobId, rawIndex] = blobChunkMatch;
-        if (!store.authenticate(roomId, bearerToken(request))) {
+        if (!store.authenticatedDevice(roomId, bearerToken(request))) {
           json(request, response, 401, { error: 'UNAUTHORIZED' });
           return;
         }
@@ -461,7 +679,7 @@ export async function startServer(options = {}) {
       const completeBlobMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/blobs/(${ID_PATTERN})/complete$`));
       if (request.method === 'POST' && completeBlobMatch) {
         const [, roomId, blobId] = completeBlobMatch;
-        if (!store.authenticate(roomId, bearerToken(request))) {
+        if (!store.authenticatedDevice(roomId, bearerToken(request))) {
           json(request, response, 401, { error: 'UNAUTHORIZED' });
           return;
         }
@@ -527,6 +745,8 @@ export async function startServer(options = {}) {
     let processing = Promise.resolve();
     let frameWindowStartedAt = Date.now();
     let frameCount = 0;
+    socket.isAlive = true;
+    socket.on('pong', () => { socket.isAlive = true; });
     const authTimeout = setTimeout(() => socket.close(4401, 'Authentication required'), 5000);
 
     socket.on('message', (raw) => {
@@ -544,17 +764,26 @@ export async function startServer(options = {}) {
         try {
           const message = JSON.parse(raw.toString());
           if (!session) {
-            if (message.type !== 'auth' || !isUuid(message.roomId) || !store.authenticate(message.roomId, message.accessToken)) {
+            const hasValidCapabilities = message.type === 'auth' &&
+              (message.capabilities === undefined || validCapabilities(message.capabilities));
+            const device = message.type === 'auth' && isUuid(message.roomId) && isUuid(message.deviceId) && hasValidCapabilities
+              ? store.authenticatedDevice(message.roomId, message.accessToken, message.deviceId)
+              : null;
+            if (!device) {
               socket.close(4401, 'Authentication failed');
               return;
             }
             clearTimeout(authTimeout);
-            session = { roomId: message.roomId };
+            const offeredCapabilities = Array.isArray(message.capabilities) ? message.capabilities : null;
+            const capabilitiesChanged = offeredCapabilities !== null &&
+              JSON.stringify(device.capabilities ?? []) !== JSON.stringify([...new Set(offeredCapabilities)]);
+            if (capabilitiesChanged) store.updateMemberCapabilities(message.roomId, device.deviceId, offeredCapabilities);
+            session = { roomId: message.roomId, deviceId: device.deviceId, role: device.role, view: 'away' };
             if ((clientsByRoom.get(session.roomId)?.size ?? 0) >= maxConnectionsPerRoom) {
               socket.close(4429, 'Room connection limit exceeded');
               return;
             }
-            registerSocket(session.roomId, socket);
+            registerSocket(session, socket);
             const state = store.roomState(session.roomId);
             send(socket, { type: 'ready', state: publicState(state) });
             send(socket, {
@@ -562,6 +791,8 @@ export async function startServer(options = {}) {
               messages: store.messagesAfter(
                 session.roomId,
                 Number.isSafeInteger(message.afterSeq) && message.afterSeq >= 0 ? message.afterSeq : 0,
+                500,
+                session.deviceId,
               ),
             });
             send(socket, {
@@ -569,13 +800,29 @@ export async function startServer(options = {}) {
               receipts: store.receiptsAfter(
                 session.roomId,
                 Number.isSafeInteger(message.afterReceiptSeq) && message.afterReceiptSeq >= 0 ? message.afterReceiptSeq : 0,
+                500,
+                session.deviceId,
               ),
             });
+            send(socket, presenceFrame(session.roomId));
+            if (capabilitiesChanged) broadcast(session.roomId, { type: 'membership', state: publicState(state) });
             return;
           }
 
           if (message.type === 'ping') {
             send(socket, { type: 'pong', at: Date.now() });
+            return;
+          }
+
+          if (message.type === 'presence') {
+            if (!validPresenceFrame(message)) {
+              send(socket, { type: 'error', code: 'INVALID_PRESENCE', message: '聊天页面状态格式不正确' });
+              return;
+            }
+            if (session.view !== message.view) {
+              session.view = message.view;
+              broadcastPresence(session.roomId);
+            }
             return;
           }
 
@@ -585,6 +832,8 @@ export async function startServer(options = {}) {
               messages: store.messagesAfter(
                 session.roomId,
                 Number.isSafeInteger(message.afterSeq) && message.afterSeq >= 0 ? message.afterSeq : 0,
+                500,
+                session.deviceId,
               ),
             });
             return;
@@ -596,13 +845,15 @@ export async function startServer(options = {}) {
               receipts: store.receiptsAfter(
                 session.roomId,
                 Number.isSafeInteger(message.afterReceiptSeq) && message.afterReceiptSeq >= 0 ? message.afterReceiptSeq : 0,
+                500,
+                session.deviceId,
               ),
             });
             return;
           }
 
           if (message.type === 'receipt') {
-            if (!validateReceiptShape(message.receipt, session.roomId)) {
+            if (!validateReceiptShape(message.receipt, session.roomId) || message.receipt.receiverId !== session.deviceId) {
               send(socket, { type: 'error', code: 'INVALID_RECEIPT', message: '送达回执格式不正确' });
               return;
             }
@@ -618,12 +869,21 @@ export async function startServer(options = {}) {
               receiptSeq: storedReceipt.receiptSeq,
             });
             if (!storedReceipt.duplicate) {
-              broadcast(session.roomId, {
+              const frame = {
                 type: 'receipt',
                 receiptSeq: storedReceipt.receiptSeq,
                 receipt: storedReceipt.receipt,
                 acceptedAt: storedReceipt.acceptedAt,
-              });
+              };
+              broadcast(session.roomId, frame, (member) =>
+                storedReceipt.receipt.seq <= (member.joinSeq ?? 0)
+                  ? {
+                      type: 'receipt',
+                      receiptSeq: storedReceipt.receiptSeq,
+                      skipped: true,
+                      acceptedAt: storedReceipt.acceptedAt,
+                    }
+                  : frame);
             }
             return;
           }
@@ -633,17 +893,43 @@ export async function startServer(options = {}) {
             return;
           }
           const sender = store.getMember(session.roomId, message.envelope.senderId);
-          const memberIds = store.roomState(session.roomId).members.map((member) => member.deviceId).sort();
+          const memberIds = store.roomState(session.roomId).members
+            .filter((member) => member.status === 'active')
+            .map((member) => member.deviceId)
+            .sort();
           const recipientIds = message.envelope.v === 1
             ? message.envelope.recipients.map((recipient) => recipient.deviceId).sort()
             : memberIds;
-          if (canonicalPair(memberIds) !== canonicalPair(recipientIds)) {
+          if (JSON.stringify(memberIds) !== JSON.stringify(recipientIds)) {
             send(socket, { type: 'error', code: 'INVALID_RECIPIENTS', message: '消息收件人与会话成员不一致' });
             return;
           }
-          if (!sender || !(await verifyEnvelopeSignature(message.envelope, sender.signingKey))) {
+          if (!sender || sender.status !== 'active' || sender.deviceId !== session.deviceId || !(await verifyEnvelopeSignature(message.envelope, sender.signingKey))) {
             send(socket, { type: 'error', code: 'INVALID_SIGNATURE', message: '消息签名验证失败' });
             return;
+          }
+          if (message.envelope.v === 2) {
+            const state = store.roomState(session.roomId);
+            const messageEpoch = mlsPrivateMessageEpoch(message.envelope.ciphertext);
+            if (messageEpoch === null) {
+              send(socket, {
+                type: 'error',
+                code: 'INVALID_MESSAGE',
+                clientMsgId: message.envelope.clientMsgId,
+                message: 'MLS 密文格式不正确',
+              });
+              return;
+            }
+            if (messageEpoch !== state.nextMlsEventSeq + 1) {
+              send(socket, { type: 'membership', state: publicState(state) });
+              send(socket, {
+                type: 'error',
+                code: 'MLS_EPOCH_STALE',
+                clientMsgId: message.envelope.clientMsgId,
+                message: '加密设备状态已更新，消息正在使用新密钥重新加密',
+              });
+              return;
+            }
           }
           const stored = store.insertMessage(session.roomId, message.envelope);
           send(socket, { type: 'ack', clientMsgId: message.envelope.clientMsgId, seq: stored.seq });
@@ -671,12 +957,29 @@ export async function startServer(options = {}) {
     httpServer.once('error', reject);
     httpServer.listen(port, host, resolve);
   });
+  const webSocketHeartbeatTimer = setInterval(() => {
+    for (const socket of webSocketServer.clients) {
+      if (socket.readyState !== WebSocket.OPEN) continue;
+      if (socket.isAlive === false) {
+        socket.terminate();
+        continue;
+      }
+      socket.isAlive = false;
+      socket.ping();
+    }
+  }, webSocketHeartbeatMs);
+  webSocketHeartbeatTimer.unref?.();
   const address = httpServer.address();
   const resolvedPort = typeof address === 'object' && address ? address.port : port;
   if (!options.quiet) console.log(`Quiet Room listening on http://${host}:${resolvedPort}`);
 
   const cleanupTimer = setInterval(() => {
     const cutoff = new Date(Date.now() - incompleteBlobTtlMs).toISOString();
+    try {
+      store.cleanupExpiredDeviceLinks();
+    } catch (error) {
+      console.error('Expired device-link cleanup failed:', error instanceof Error ? error.message : 'unknown');
+    }
     void store.cleanupExpiredBlobs(cutoff).catch((error) => {
       console.error('Incomplete blob cleanup failed:', error instanceof Error ? error.message : 'unknown');
     });
@@ -695,6 +998,7 @@ export async function startServer(options = {}) {
     store,
     close: async () => {
       clearInterval(cleanupTimer);
+      clearInterval(webSocketHeartbeatTimer);
       for (const clients of clientsByRoom.values()) {
         for (const socket of clients) socket.close(1001, 'Server shutting down');
       }
