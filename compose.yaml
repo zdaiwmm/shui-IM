@@ -33,6 +33,8 @@ services:
   quiet-room-backup:
     <<: *quiet-room-image
     restart: unless-stopped
+    healthcheck:
+      disable: true
     depends_on:
       quiet-room:
         condition: service_healthy
