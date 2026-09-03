@@ -3,6 +3,7 @@ import { constants as fsConstants } from 'node:fs';
 import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
+import { canonicalStringify } from './protocol.mjs';
 
 function nowIso() {
   return new Date().toISOString();
@@ -36,6 +37,8 @@ export async function createStore({
       access_hash BLOB NOT NULL,
       next_seq INTEGER NOT NULL DEFAULT 0,
       next_receipt_seq INTEGER NOT NULL DEFAULT 0,
+      message_count INTEGER NOT NULL DEFAULT 0,
+      message_bytes INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       sealed_at TEXT,
       mls_welcome TEXT,
@@ -123,6 +126,16 @@ export async function createStore({
   if (!hasColumn(db, 'rooms', 'protocol')) {
     db.exec("ALTER TABLE rooms ADD COLUMN protocol TEXT NOT NULL DEFAULT 'legacy-v1'");
   }
+  if (!hasColumn(db, 'rooms', 'message_count')) {
+    db.exec('ALTER TABLE rooms ADD COLUMN message_count INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!hasColumn(db, 'rooms', 'message_bytes')) {
+    db.exec('ALTER TABLE rooms ADD COLUMN message_bytes INTEGER NOT NULL DEFAULT 0');
+  }
+  db.exec(`UPDATE rooms SET
+    message_count = (SELECT COUNT(*) FROM messages WHERE messages.room_id = rooms.room_id),
+    message_bytes = (SELECT COALESCE(SUM(LENGTH(CAST(envelope AS BLOB))), 0) FROM messages WHERE messages.room_id = rooms.room_id)
+    WHERE message_count = 0 AND message_bytes = 0`);
   if (!hasColumn(db, 'members', 'mls_key_package')) {
     db.exec('ALTER TABLE members ADD COLUMN mls_key_package TEXT');
   }
@@ -142,7 +155,7 @@ export async function createStore({
     insertMember: db.prepare(`INSERT INTO members(
       room_id, device_id, role, encryption_jwk, signing_jwk, mls_key_package, join_proof, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
-    room: db.prepare(`SELECT room_id, access_hash, next_seq, next_receipt_seq, created_at, sealed_at, mls_welcome, protocol
+    room: db.prepare(`SELECT room_id, access_hash, next_seq, next_receipt_seq, message_count, message_bytes, created_at, sealed_at, mls_welcome, protocol
       FROM rooms WHERE room_id = ?`),
     members: db.prepare(`SELECT device_id, role, encryption_jwk, signing_jwk, mls_key_package, join_proof, created_at
       FROM members WHERE room_id = ? ORDER BY role`),
@@ -155,13 +168,13 @@ export async function createStore({
     messageBySeq: db.prepare(`SELECT server_seq, client_msg_id, sender_device_id, accepted_at, envelope FROM messages
       WHERE room_id = ? AND server_seq = ?`),
     nextSeq: db.prepare('UPDATE rooms SET next_seq = next_seq + 1 WHERE room_id = ? RETURNING next_seq'),
+    incrementMessageUsage: db.prepare('UPDATE rooms SET message_count = message_count + 1, message_bytes = message_bytes + ? WHERE room_id = ?'),
     insertMessage: db.prepare(`INSERT INTO messages(
       room_id, server_seq, client_msg_id, sender_device_id, envelope, accepted_at
     ) VALUES (?, ?, ?, ?, ?, ?)`),
     messagesAfter: db.prepare(`SELECT server_seq, envelope, accepted_at FROM messages
       WHERE room_id = ? AND server_seq > ? ORDER BY server_seq LIMIT ?`),
-    roomMessageUsage: db.prepare(`SELECT COUNT(*) AS count, COALESCE(SUM(LENGTH(CAST(envelope AS BLOB))), 0) AS bytes
-      FROM messages WHERE room_id = ?`),
+    roomMessageUsage: db.prepare('SELECT message_count AS count, message_bytes AS bytes FROM rooms WHERE room_id = ?'),
     receiptByClientId: db.prepare(`SELECT receipt_seq, receipt, accepted_at FROM receipts
       WHERE room_id = ? AND client_msg_id = ?`),
     nextReceiptSeq: db.prepare(`UPDATE rooms SET next_receipt_seq = next_receipt_seq + 1
@@ -192,6 +205,9 @@ export async function createStore({
       updated_at = ? WHERE room_id = ? AND blob_id = ?`),
     completeBlob: db.prepare('UPDATE blobs SET completed = 1, updated_at = ? WHERE room_id = ? AND blob_id = ?'),
     expiredBlobs: db.prepare('SELECT room_id, blob_id FROM blobs WHERE completed = 0 AND updated_at < ?'),
+    orphanRooms: db.prepare(`SELECT rooms.room_id FROM rooms
+      WHERE rooms.sealed_at IS NULL AND rooms.created_at < ?
+      AND (SELECT COUNT(*) FROM members WHERE members.room_id = rooms.room_id) = 1`),
     deleteBlob: db.prepare('DELETE FROM blobs WHERE room_id = ? AND blob_id = ?'),
     upsertPushSubscription: db.prepare(`INSERT INTO push_subscriptions(
       room_id, device_id, endpoint, p256dh, auth, created_at, updated_at
@@ -261,6 +277,22 @@ export async function createStore({
       );
       db.exec('COMMIT');
       return { roomId, createdAt, protocol };
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  function deleteRoom(roomId, accessToken) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const room = statements.room.get(roomId);
+      if (!room || !authenticate(roomId, accessToken)) throw new Error('UNAUTHORIZED');
+      const { count } = statements.memberCount.get(roomId);
+      if (count > 1 || room.sealed_at) throw new Error('ROOM_SEALED');
+      const deleted = db.prepare('DELETE FROM rooms WHERE room_id = ?').run(roomId).changes > 0;
+      db.exec('COMMIT');
+      return { deleted };
     } catch (error) {
       db.exec('ROLLBACK');
       throw error;
@@ -387,6 +419,9 @@ export async function createStore({
       const existing = statements.messageByClientId.get(roomId, envelope.clientMsgId);
       if (existing) {
         if (existing.sender_device_id !== envelope.senderId) throw new Error('MESSAGE_CONFLICT');
+        if (canonicalStringify(JSON.parse(existing.envelope)) !== canonicalStringify(envelope)) {
+          throw new Error('MESSAGE_CONFLICT');
+        }
         db.exec('COMMIT');
         return {
           seq: existing.server_seq,
@@ -411,6 +446,7 @@ export async function createStore({
         serializedEnvelope,
         acceptedAt,
       );
+      statements.incrementMessageUsage.run(envelopeBytes, roomId);
       db.exec('COMMIT');
       return { seq, acceptedAt, envelope, duplicate: false };
     } catch (error) {
@@ -579,6 +615,22 @@ export async function createStore({
     return removed;
   }
 
+  function cleanupOrphanRooms(cutoffIso) {
+    const rooms = statements.orphanRooms.all(cutoffIso);
+    let removed = 0;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const room of rooms) {
+        removed += db.prepare('DELETE FROM rooms WHERE room_id = ? AND sealed_at IS NULL').run(room.room_id).changes;
+      }
+      db.exec('COMMIT');
+      return removed;
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
   async function healthCheck() {
     const result = { database: false, storage: false };
     try {
@@ -601,9 +653,11 @@ export async function createStore({
     authenticate,
     blobStatus,
     cleanupExpiredBlobs,
+    cleanupOrphanRooms,
     completeBlob,
     createBlob,
     createRoom,
+    deleteRoom,
     getBlobChunk,
     getMember,
     getMessage,

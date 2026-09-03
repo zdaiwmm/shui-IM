@@ -39,6 +39,7 @@ describe('server ciphertext storage', () => {
     const firstId = crypto.randomUUID();
     const first = store.insertMessage(roomId, { clientMsgId: firstId, senderId: creatorId, ciphertext: 'opaque-1' });
     const duplicate = store.insertMessage(roomId, { clientMsgId: firstId, senderId: creatorId, ciphertext: 'opaque-1' });
+    expect(() => store.insertMessage(roomId, { clientMsgId: firstId, senderId: creatorId, ciphertext: 'tampered' })).toThrow('MESSAGE_CONFLICT');
     const second = store.insertMessage(roomId, { clientMsgId: crypto.randomUUID(), senderId: joinerId, ciphertext: 'opaque-2' });
 
     expect(first.seq).toBe(1);
@@ -114,6 +115,23 @@ describe('server ciphertext storage', () => {
     await expect(store.cleanupExpiredBlobs(new Date(Date.now() + 1000).toISOString())).resolves.toBe(1);
     expect(() => store.blobStatus(roomId, blobId)).toThrow('INVALID_BLOB');
     expect(() => store.createBlob(roomId, crypto.randomUUID(), 1, 81)).toThrow('BLOB_QUOTA');
+    store.close();
+  });
+
+  it('reclaims unclaimed rooms without touching sealed rooms', async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-orphan-'));
+    directories.push(dataDir);
+    const store = await createStore({ dataDir });
+    const creatorId = crypto.randomUUID();
+    const accessToken = 'a'.repeat(43);
+    const orphan = store.createRoom(bundle(creatorId), accessToken);
+    const sealed = store.createRoom(bundle(crypto.randomUUID()), 'b'.repeat(43));
+    store.joinRoom(sealed.roomId, bundle(crypto.randomUUID()), 'proof');
+
+    expect(store.cleanupOrphanRooms(new Date(Date.now() + 1_000).toISOString())).toBe(1);
+    expect(store.roomState(orphan.roomId)).toBeNull();
+    expect(store.roomState(sealed.roomId)?.members).toHaveLength(2);
+    expect(() => store.deleteRoom(sealed.roomId, 'b'.repeat(43))).toThrow('ROOM_SEALED');
     store.close();
   });
 });

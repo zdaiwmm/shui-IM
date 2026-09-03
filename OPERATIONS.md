@@ -40,6 +40,14 @@ Store `VAPID_PRIVATE_KEY` in the deployment secret manager, configure a real sec
 
 The server sends a Web Push request with no payload and excludes the sending device. The service worker creates a generic local notification only after the push arrives. The push provider can still observe the subscription endpoint, source service, timing, and traffic volume; it does not receive room ID, device ID, sender, message kind, text, attachment metadata, or unread count from the notification request.
 
+Push subscriptions are accepted only for the provider hosts in
+`PUSH_ALLOWED_HOSTS` (the Compose default covers FCM, Mozilla, Apple, and
+Windows endpoints). Keep this allowlist explicit when adding a provider. At
+wake time the server requires HTTPS, resolves every address, and rejects
+loopback, private, link-local, reserved, multicast, and other non-public
+targets. This is defense in depth; production egress should also be restricted
+with a firewall or outbound proxy.
+
 Permission is requested only after the user selects the notification control. A push is only a wake-up hint: it is not a delivery receipt, does not unlock the vault, and must never promote a message to “delivered.” iOS requires an installed home-screen web app for Web Push.
 
 ## Release and incident basics
@@ -48,6 +56,10 @@ Permission is requested only after the user selects the notification control. A 
 - Do not add analytics, tag managers, remote fonts/scripts, session replay, or plaintext error reporting.
 - Pin dependencies with `package-lock.json`, run `npm ci`, `npm run check:full`, dependency review, container scanning, and an isolated restore drill before release.
 - Retain minimal reverse-proxy logs. Never log authorization headers, URLs containing invite fragments, WebSocket frames, request bodies, push endpoints, or recovery data.
+- If a reverse proxy is used, configure `TRUSTED_PROXY_ADDRESSES` with its exact
+  source addresses. Only then will the application use the first
+  `X-Forwarded-For` address for its own rate-limit buckets; untrusted forwarding
+  headers are ignored.
 - Treat a client release compromise as a key-compromise incident. Stop serving the release, preserve forensic artifacts, notify users out of band, and require creation of new rooms from a clean signed release.
 - Legacy rooms use the original static-recipient envelope and do not gain forward secrecy automatically. Users must create a new room to obtain MLS.
 

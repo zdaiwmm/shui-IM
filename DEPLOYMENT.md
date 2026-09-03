@@ -19,6 +19,17 @@ Only commits contained in `main` are accepted by the server.
 
 6. Review the exact commit shown by the script and type `DEPLOY` to continue.
 
+The deployment command intentionally requires these environment variables; host,
+user, and private-key paths are not embedded in the repository:
+
+```bash
+export QUIET_ROOM_SERVER_HOST='your-production-host'
+export QUIET_ROOM_SERVER_USER='your-deploy-user'
+export QUIET_ROOM_SERVER_KEY='/path/to/production-key'
+export QUIET_ROOM_GITHUB_KEY='/path/to/read-only-github-key'
+npm run deploy:production
+```
+
 GitHub runs the locked dependency install, production build, unit/integration
 tests, and browser tests in the **CI** workflow. GitHub has no production SSH
 private key and no login or root capability on the Alibaba Cloud server. Passing
@@ -68,6 +79,10 @@ lost.
 The existing named volume `quiet-room_quiet-room-data` remains the production
 data source. Neither a Git checkout nor an image rebuild contains message data.
 
-No automatic pruning is performed for Git releases, images, or pre-deployment
-backups. Review disk usage periodically and remove old material only after a
-verified recovery point exists.
+The deployment helper prunes only the oldest known Git worktrees
+and `data-*.tar.gz` pre-deployment archives after a successful cutover, keeping
+five releases and fourteen rollback archives by default. Continuous/off-host
+backups and the active `current` release are never touched. Override the
+positive-integer retention counts with `QUIET_ROOM_RELEASE_RETENTION_COUNT` or
+`QUIET_ROOM_PREDEPLOY_BACKUP_RETENTION_COUNT` in the server environment; keep
+at least one rollback point and monitor disk capacity separately.

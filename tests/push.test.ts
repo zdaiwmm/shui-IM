@@ -22,11 +22,15 @@ function bundle(deviceId: string) {
 describe('privacy-preserving push subscriptions', () => {
   it('accepts only bounded HTTPS Web Push subscriptions', () => {
     const valid = {
-      endpoint: 'https://push.example.test/subscription/opaque',
+      endpoint: 'https://fcm.googleapis.com/subscription/opaque',
       keys: { p256dh: 'A'.repeat(43), auth: 'B'.repeat(22) },
     };
     expect(validatePushSubscription(valid)).toBe(true);
     expect(validatePushSubscription({ ...valid, endpoint: 'http://push.example.test/subscription' })).toBe(false);
+    expect(validatePushSubscription({ ...valid, endpoint: 'https://127.0.0.1/subscription' })).toBe(false);
+    expect(validatePushSubscription({ ...valid, endpoint: 'https://192.0.2.1/subscription' })).toBe(false);
+    expect(validatePushSubscription({ ...valid, endpoint: 'https://[::1]/subscription' })).toBe(false);
+    expect(validatePushSubscription({ ...valid, endpoint: 'https://evil.example/subscription' })).toBe(false);
     expect(validatePushSubscription({ ...valid, keys: { ...valid.keys, auth: 'not base64+' } })).toBe(false);
   });
 
@@ -39,7 +43,7 @@ describe('privacy-preserving push subscriptions', () => {
     const { roomId } = store.createRoom(bundle(creatorId), 'a'.repeat(43));
     store.joinRoom(roomId, bundle(joinerId), 'proof');
     const subscription = {
-      endpoint: 'https://push.example.test/subscription/one',
+      endpoint: 'https://fcm.googleapis.com/subscription/one',
       keys: { p256dh: 'A'.repeat(43), auth: 'B'.repeat(22) },
     };
     store.savePushSubscription(roomId, joinerId, subscription);

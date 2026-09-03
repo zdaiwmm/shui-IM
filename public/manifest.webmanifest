@@ -5,6 +5,10 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "orientation": "portrait",
+  "lang": "zh-CN",
+  "dir": "ltr",
   "background_color": "#f8f7f4",
   "theme_color": "#f8f7f4",
   "icons": [

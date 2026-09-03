@@ -51,18 +51,34 @@ function prfBytes(credential: PublicKeyCredential): Uint8Array<ArrayBuffer> | nu
 function authenticatorFlags(response: AuthenticatorAttestationResponse): number {
   const modern = response as AuthenticatorAttestationResponse & { getAuthenticatorData?: () => ArrayBuffer };
   if (typeof modern.getAuthenticatorData !== 'function') {
-    throw new Error('浏览器无法证明凭据是设备绑定的，请升级浏览器或使用硬件安全密钥');
+    throw new Error('浏览器无法读取通行密钥的安全属性，请升级浏览器或使用硬件安全密钥');
   }
   const data = new Uint8Array(modern.getAuthenticatorData());
   if (data.length < 33) throw new Error('设备凭据返回的数据不完整');
   return data[32]!;
 }
 
+function assertionFlags(response: AuthenticatorAssertionResponse): number {
+  const data = new Uint8Array(response.authenticatorData);
+  if (data.length < 33) throw new Error('通行密钥返回的数据不完整');
+  return data[32]!;
+}
+
+function requireUserVerification(flags: number): void {
+  // UP (bit 0) and UV (bit 2) are required by the request. Do not trust a
+  // browser that returns a PRF value without proving user verification.
+  if ((flags & 0x01) === 0 || (flags & 0x04) === 0) {
+    throw new Error('通行密钥没有完成用户验证');
+  }
+}
+
 async function evaluatePrf(record: PlatformCredentialRecord): Promise<Uint8Array<ArrayBuffer>> {
+  const rpId = record.rpId ?? location.hostname;
+  if (rpId !== location.hostname) throw new Error(`此保险库绑定到 ${rpId}，当前域名无法使用原设备凭据`);
   const assertion = await navigator.credentials.get({
     publicKey: {
       challenge: randomBytes(32),
-      rpId: location.hostname,
+      rpId,
       allowCredentials: [{
         type: 'public-key',
         id: fromBase64Url(record.credentialId),
@@ -73,12 +89,20 @@ async function evaluatePrf(record: PlatformCredentialRecord): Promise<Uint8Array
       extensions: { prf: { eval: { first: fromBase64Url(record.prfSalt) } } },
     },
   } as PrfCredentialRequestOptions);
-  if (!(assertion instanceof PublicKeyCredential) || assertion.type !== 'public-key') {
-    throw new Error('设备安全验证没有返回有效凭据');
+  if (
+    !(assertion instanceof PublicKeyCredential) ||
+    assertion.type !== 'public-key' ||
+    !(assertion.response instanceof AuthenticatorAssertionResponse)
+  ) {
+    throw new Error('通行密钥验证没有返回有效凭据');
   }
   if (toBase64Url(assertion.rawId) !== record.credentialId) throw new Error('设备安全凭据不匹配');
+  const flags = assertionFlags(assertion.response);
+  requireUserVerification(flags);
+  const backupEligible = Boolean(flags & 0x08);
+  if (backupEligible !== record.backupEligible) throw new Error('通行密钥属性发生异常变化');
   const output = prfBytes(assertion);
-  if (!output) throw new Error('设备安全凭据不支持保险库密钥派生');
+  if (!output) throw new Error('该通行密钥不支持保险库密钥派生');
   return output;
 }
 
@@ -86,10 +110,12 @@ export function platformVaultSupported(): boolean {
   return Boolean(window.isSecureContext && window.PublicKeyCredential && navigator.credentials);
 }
 
-export async function createPlatformCredential(): Promise<{
+export type PlatformCredentialResult = {
   record: PlatformCredentialRecord;
   prfOutput: Uint8Array<ArrayBuffer>;
-}> {
+};
+
+export async function createPlatformCredential(): Promise<PlatformCredentialResult> {
   requireWebAuthn();
   const prfSalt = randomBytes(32);
   const credential = await navigator.credentials.create({
@@ -106,7 +132,8 @@ export async function createPlatformCredential(): Promise<{
         { type: 'public-key', alg: -8 },
       ],
       authenticatorSelection: {
-        residentKey: 'preferred',
+        residentKey: 'required',
+        requireResidentKey: true,
         userVerification: 'required',
       },
       timeout: 60_000,
@@ -118,20 +145,20 @@ export async function createPlatformCredential(): Promise<{
     throw new Error('没有创建有效的设备安全凭据');
   }
   const flags = authenticatorFlags(credential.response);
+  requireUserVerification(flags);
   const backupEligible = Boolean(flags & 0x08);
-  if (backupEligible) {
-    throw new Error('该凭据可能同步到其他设备。高安全模式需要不可同步的设备凭据或硬件安全密钥');
-  }
   if (extensionResults(credential).prf?.enabled !== true) {
-    throw new Error('该安全设备不支持 WebAuthn PRF，无法绑定保险库密钥');
+    throw new Error('该通行密钥不支持 WebAuthn PRF，无法保护本机保险库');
   }
   const response = credential.response;
   const record: PlatformCredentialRecord = {
     credentialId: toBase64Url(credential.rawId),
+    rpId: location.hostname,
+    origin: location.origin,
     prfSalt: toBase64Url(prfSalt),
     transports: (response.getTransports?.() ?? []) as AuthenticatorTransport[],
     authenticatorAttachment: credential.authenticatorAttachment as AuthenticatorAttachment | null,
-    backupEligible: false,
+    backupEligible,
     createdAt: new Date().toISOString(),
   };
   const output = prfBytes(credential) ?? await evaluatePrf(record);
@@ -141,12 +168,12 @@ export async function createPlatformCredential(): Promise<{
 
 export async function unlockPlatformCredential(record: PlatformCredentialRecord): Promise<Uint8Array<ArrayBuffer>> {
   requireWebAuthn();
-  if (record.backupEligible !== false) throw new Error('保险库凭据不满足严格设备绑定要求');
   return evaluatePrf(record);
 }
 
 export function platformCredentialLabel(record: PlatformCredentialRecord): string {
   if (record.authenticatorAttachment === 'cross-platform') return '硬件安全密钥';
-  if (record.authenticatorAttachment === 'platform') return '本机生物识别或设备密码';
-  return '设备安全凭据';
+  if (record.backupEligible) return '可同步通行密钥';
+  if (record.authenticatorAttachment === 'platform') return '本机通行密钥';
+  return '通行密钥';
 }

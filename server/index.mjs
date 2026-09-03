@@ -152,8 +152,23 @@ export async function startServer(options = {}) {
   const clientsByRoom = new Map();
   const rateLimits = new Map();
   const incompleteBlobTtlMs = numericOption(options.incompleteBlobTtlMs ?? process.env.INCOMPLETE_BLOB_TTL_MS, 24 * 60 * 60 * 1000);
+  const orphanRoomTtlMs = numericOption(options.orphanRoomTtlMs ?? process.env.ORPHAN_ROOM_TTL_MS, 24 * 60 * 60 * 1000);
   const maxConnectionsPerRoom = numericOption(options.maxConnectionsPerRoom ?? process.env.MAX_CONNECTIONS_PER_ROOM, 8);
   const maxConnectionsTotal = numericOption(options.maxConnectionsTotal ?? process.env.MAX_CONNECTIONS_TOTAL, 1000);
+  const trustedProxyAddresses = new Set(
+    String(options.trustedProxyAddresses ?? process.env.TRUSTED_PROXY_ADDRESSES ?? '')
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+
+  function clientAddress(request) {
+    const socketAddress = request.socket.remoteAddress ?? 'unknown';
+    if (!trustedProxyAddresses.has(socketAddress)) return socketAddress;
+    const forwarded = request.headers['x-forwarded-for'];
+    const firstForwarded = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0];
+    return firstForwarded?.trim() || socketAddress;
+  }
 
   function allowRequest(request, bucket, limit, windowMs = 60_000) {
     const now = Date.now();
@@ -167,7 +182,7 @@ export async function startServer(options = {}) {
         rateLimits.delete(oldestKey);
       }
     }
-    const key = `${request.socket.remoteAddress ?? 'unknown'}:${bucket}`;
+    const key = `${clientAddress(request)}:${bucket}`;
     const current = rateLimits.get(key);
     if (!current || current.resetAt <= now) {
       rateLimits.set(key, { count: 1, resetAt: now + windowMs });
@@ -243,6 +258,15 @@ export async function startServer(options = {}) {
       }
 
       const roomMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})$`));
+      if (request.method === 'DELETE' && roomMatch) {
+        const roomId = roomMatch[1];
+        if (!isUuid(roomId)) {
+          json(request, response, 400, { error: 'INVALID_ROOM_ID' });
+          return;
+        }
+        json(request, response, 200, store.deleteRoom(roomId, bearerToken(request)));
+        return;
+      }
       if (request.method === 'GET' && roomMatch) {
         const roomId = roomMatch[1];
         if (!isUuid(roomId) || !store.authenticate(roomId, bearerToken(request))) {
@@ -313,7 +337,7 @@ export async function startServer(options = {}) {
           return;
         }
         if (
-          !validatePushSubscription(body.subscription) ||
+          !validatePushSubscription(body.subscription, { allowedHosts: pushService.allowedHosts }) ||
           !validatePushAuthorization(
             body.authorization,
             roomId,
@@ -656,6 +680,12 @@ export async function startServer(options = {}) {
     void store.cleanupExpiredBlobs(cutoff).catch((error) => {
       console.error('Incomplete blob cleanup failed:', error instanceof Error ? error.message : 'unknown');
     });
+    const orphanCutoff = new Date(Date.now() - orphanRoomTtlMs).toISOString();
+    try {
+      store.cleanupOrphanRooms(orphanCutoff);
+    } catch (error) {
+      console.error('Orphan room cleanup failed:', error instanceof Error ? error.message : 'unknown');
+    }
   }, Math.min(incompleteBlobTtlMs, 60 * 60 * 1000));
   cleanupTimer.unref?.();
 

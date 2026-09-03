@@ -5,7 +5,7 @@ Quiet Room is a mobile-first, two-person encrypted chat. There are no accounts. 
 The implementation includes:
 
 - one-time invitation and permanent two-device room sealing;
-- device-bound vault encryption combining an Argon2id-hardened gesture with WebAuthn PRF user verification, plus one-time legacy migration;
+- passkey-protected vault encryption combining an Argon2id-hardened gesture with WebAuthn PRF user verification, plus one-time legacy migration;
 - RFC 9420 MLS forward secrecy for new rooms, authenticated key-package binding, opaque signed welcome messages, and atomic ratchet persistence;
 - heartbeat-monitored WebSocket delivery with transactional per-room sequence numbers;
 - encrypted persistent outbox, stable message IDs, idempotent retries, and incremental reconnect synchronization;
@@ -26,7 +26,7 @@ Production releases are commit-pinned, manually triggered from a trusted compute
 ## Requirements
 
 - Node.js 24 or later. The server uses the built-in `node:sqlite` module.
-- A modern browser with Web Crypto, IndexedDB, WebSocket, WebAssembly, PWA support, WebAuthn PRF, and a non-syncable platform credential or compatible hardware security key.
+- A modern browser with Web Crypto, IndexedDB, WebSocket, WebAssembly, PWA support, and a WebAuthn PRF-capable passkey or hardware security key.
 - HTTPS for every non-local deployment.
 
 ## Local development
@@ -100,7 +100,7 @@ Terminate TLS with a valid public certificate. Do not bypass certificate warning
 
 1. Both people open the same site and see a white screen.
 2. The creator holds the bottom-right corner for one second and selects **创建会话**.
-3. The creator draws the same local unlock gesture twice and completes device user verification. Strict mode refuses a passkey that the authenticator marks as syncable. The creator then shares the invitation QR code or full invitation link through a trusted channel. A gesture needs at least four points; six or more are recommended.
+3. The creator draws the same local unlock gesture twice, selects **设置通行密钥**, and completes browser user verification. Both syncable passkeys and single-device credentials are accepted. The creator then shares the invitation QR code or full invitation link through a trusted channel. A gesture needs at least four points; six or more are recommended.
 4. The second person opens the invite, holds the bottom-right corner, sets a different local gesture, completes device verification, and joins. The creator publishes a signed opaque MLS welcome; neither side enables the composer before MLS setup completes.
 5. The room seals after the second device. Compare the **设备安全码** shown in the top-right menu on both devices.
 6. Each person exports a recovery package, separately records the one-time displayed recovery code, and stores them in different locations.
@@ -121,11 +121,11 @@ The browser reads the selected file bytes directly. It does not use Canvas, resi
 
 The server never creates thumbnails and does not know that a message contains an image. The creator-only gallery decrypts message manifests locally, then downloads and decrypts originals when needed. It contains both chat images and images the creator uploads directly from the gallery; direct gallery uploads do not create chat bubbles. The invited participant has no gallery entry or gallery route, while chat images remain visible in the conversation. The first version limits one image to 256 MiB and 128 encrypted 2 MiB chunks. Upload reservations and completed chunk indexes are persisted, so selecting the same file after an interruption resumes without changing the blob ID, key, or IV prefix.
 
-Opening the system image picker can blur or hide the browser. While a user-initiated chat or gallery image picker is active, Quiet Room ignores only those picker-generated blur/hidden events so the current screen remains visible and a confirmed file can proceed directly to encrypted upload. Selection, cancellation, or a bounded timeout removes the exception. `pagehide`, explicit lock, idle timeout, and later unrelated blur/background events still activate the white privacy curtain and clear the decrypted session.
+Opening the system image picker can blur or hide the browser. While a user-initiated chat or gallery image picker is active, Quiet Room ignores only those picker-generated blur/hidden events so the current screen remains visible and a confirmed file can proceed directly to encrypted upload. Selection, cancellation, or a bounded timeout removes the exception. A user-initiated passkey prompt receives the same narrow treatment only before a decrypted session is opened, and the exception ends as soon as the WebAuthn operation settles. `pagehide`, explicit lock, idle timeout, and later unrelated blur/background events still activate the white privacy curtain and clear the decrypted session.
 
 ## Recovery and loss
 
-The version-2 recovery JSON contains the encrypted vault payload and a master key wrapped for a separately displayed random 256-bit recovery code. It contains neither the gesture nor the recovery code. Import requires both parts, then creates a new non-syncable WebAuthn credential and a new gesture binding on the target device.
+The version-2 recovery JSON contains the encrypted vault payload and a master key wrapped for a separately displayed random 256-bit recovery code. It contains neither the gesture nor the recovery code. Import requires both parts, then creates a new passkey and gesture binding on the target device.
 
 The recovery package is a vault/ratchet checkpoint, not a backup of the encrypted IndexedDB history store. A restored device resumes after the checkpoint and can receive later peer messages, but prior locally rendered history is not copied to the new device. Export a fresh package after security-state changes and never run the original and restored copies concurrently.
 
@@ -133,13 +133,13 @@ Vaults created before the gesture release remain accessible. They are identified
 
 If both the local IndexedDB vault and recovery package are lost, the server cannot reset the gesture or decrypt the history. That is an intended consequence of the server having no content keys.
 
-A gesture is more convenient than a strong password, not inherently stronger. The minimum four-point pattern is a usability floor; use six or more non-obvious points. Argon2id hardens the gesture, while the WebAuthn PRF output makes the normal vault key device-bound. Online unlock attempts are delayed exponentially after repeated failures. The exported recovery path intentionally bypasses the original device and is protected by a separate 256-bit random code, so protect both recovery parts as private-key material and store them separately.
+A gesture is more convenient than a strong password, not inherently stronger. The minimum four-point pattern is a usability floor; use six or more non-obvious points. Argon2id hardens the gesture, while WebAuthn PRF output adds a second secret held by the registered authenticator. A syncable passkey can be available on another device in the same passkey ecosystem; use a compatible single-device authenticator or hardware security key when strict physical-device binding is required. Online unlock attempts are delayed exponentially after repeated failures. The exported recovery path intentionally bypasses the original authenticator and is protected by a separate 256-bit random code, so protect both recovery parts as private-key material and store them separately.
 
 ## Resource and operations controls
 
-The server enforces request and WebSocket frame rates, per-room connection limits, message-count/message-byte quotas, a 256 MiB per-image limit, per-room/global blob reservations, and a maximum number of incomplete uploads. Incomplete uploads are garbage-collected after 24 hours by default. `/api/health` verifies both SQLite access and data-directory readability/writability.
+The server enforces request and WebSocket frame rates, per-room connection limits, message-count/message-byte quotas, a 256 MiB per-image limit, per-room/global blob reservations, and a maximum number of incomplete uploads. Incomplete uploads and unclaimed one-member rooms are garbage-collected after 24 hours by default. `/api/health` verifies both SQLite access and data-directory readability/writability.
 
-The defaults can be tuned with `MAX_BLOB_BYTES`, `MAX_ROOM_STORAGE_BYTES`, `MAX_TOTAL_STORAGE_BYTES`, `MAX_INCOMPLETE_BLOBS`, `MAX_MESSAGES_PER_ROOM`, `MAX_ROOM_MESSAGE_BYTES`, `MAX_CONNECTIONS_PER_ROOM`, `MAX_CONNECTIONS_TOTAL`, and `INCOMPLETE_BLOB_TTL_MS`.
+The defaults can be tuned with `MAX_BLOB_BYTES`, `MAX_ROOM_STORAGE_BYTES`, `MAX_TOTAL_STORAGE_BYTES`, `MAX_INCOMPLETE_BLOBS`, `MAX_MESSAGES_PER_ROOM`, `MAX_ROOM_MESSAGE_BYTES`, `MAX_CONNECTIONS_PER_ROOM`, `MAX_CONNECTIONS_TOTAL`, `INCOMPLETE_BLOB_TTL_MS`, and `ORPHAN_ROOM_TTL_MS`. When deployed behind a reverse proxy, set `TRUSTED_PROXY_ADDRESSES` to the proxy's exact source addresses before enabling client-IP forwarding. `PUSH_ALLOWED_HOSTS` is an explicit comma-separated allowlist for Web Push provider hostnames; leave it empty to reject all subscriptions when push is not configured.
 
 ## Commands
 

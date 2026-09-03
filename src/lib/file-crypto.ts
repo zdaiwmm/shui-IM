@@ -1,10 +1,10 @@
 import { createSHA256 } from 'hash-wasm';
 import { canonicalStringify } from './canonical';
 import { fromBase64Url, toBase64Url } from './base64';
+import { IMAGE_CHUNK_SIZE, isImageManifest, MAX_IMAGE_BYTES } from './message-payload';
 import type { ImageManifest, ImageUploadPlan } from './types';
 
-export const IMAGE_CHUNK_SIZE = 2 * 1024 * 1024;
-export const MAX_IMAGE_BYTES = 256 * 1024 * 1024;
+export { IMAGE_CHUNK_SIZE, MAX_IMAGE_BYTES } from './message-payload';
 const encoder = new TextEncoder();
 
 function chunkIv(prefix: Uint8Array<ArrayBuffer>, index: number): Uint8Array<ArrayBuffer> {
@@ -126,17 +126,7 @@ export async function decryptImageFile(
   signal?: AbortSignal,
 ): Promise<Blob> {
   signal?.throwIfAborted();
-  if (
-    manifest.v !== 1 ||
-    manifest.chunkSize !== IMAGE_CHUNK_SIZE ||
-    !Number.isSafeInteger(manifest.chunkCount) ||
-    manifest.chunkCount < 1 ||
-    manifest.chunkCount > 128 ||
-    !Number.isSafeInteger(manifest.originalSize) ||
-    manifest.originalSize < 1 ||
-    manifest.originalSize > MAX_IMAGE_BYTES ||
-    !/^[0-9a-f]{64}$/i.test(manifest.sha256)
-  ) {
+  if (!isImageManifest(manifest)) {
     throw new Error('图片清单不受支持');
   }
   const key = await crypto.subtle.importKey('raw', fromBase64Url(manifest.key), { name: 'AES-GCM' }, false, ['decrypt']);

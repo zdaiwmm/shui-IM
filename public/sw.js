@@ -1,5 +1,13 @@
-const CACHE = 'quiet-room-shell-v2';
+const CACHE = 'quiet-room-shell-v3';
 const SHELL = ['/', '/manifest.webmanifest', '/icon.svg'];
+
+function isCacheableAsset(url) {
+  return url.origin === self.location.origin && (
+    url.pathname.startsWith('/assets/') ||
+    url.pathname === '/icon.svg' ||
+    url.pathname === '/manifest.webmanifest'
+  );
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)));
@@ -32,9 +40,10 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  if (!isCacheableAsset(requestUrl)) return;
   event.respondWith(
     caches.match(event.request).then((cached) => cached || fetch(event.request).then((response) => {
-      if (response.ok && requestUrl.origin === self.location.origin) {
+      if (response.ok) {
         const copy = response.clone();
         caches.open(CACHE).then((cache) => cache.put(event.request, copy));
       }

@@ -1,5 +1,5 @@
 :root {
-  color-scheme: light;
+  color-scheme: light dark;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -23,6 +23,30 @@
   --focus: #0066cc;
   --shadow: 0 18px 50px rgb(0 0 0 / 0.12);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: oklch(21% 0.012 105);
+    --paper-pure: oklch(25% 0.012 105);
+    --surface: oklch(29% 0.014 105);
+    --surface-raised: oklch(26% 0.012 105);
+    --ink: oklch(93% 0.012 105);
+    --ink-muted: oklch(75% 0.016 105);
+    --ink-faint: oklch(66% 0.014 105);
+    --line: oklch(38% 0.018 105);
+    --line-strong: oklch(58% 0.022 105);
+    --accent: oklch(70% 0.14 245);
+    --accent-hover: oklch(76% 0.14 245);
+    --accent-soft: oklch(31% 0.045 245);
+    --incoming: oklch(31% 0.014 105);
+    --outgoing: oklch(51% 0.16 245);
+    --on-accent: oklch(98% 0.01 105);
+    --danger: oklch(72% 0.14 28);
+    --danger-soft: oklch(31% 0.04 28);
+    --focus: oklch(78% 0.14 245);
+    --shadow: 0 18px 50px rgb(0 0 0 / 0.32);
+  }
 }
 
 * {
@@ -145,6 +169,27 @@ button:disabled {
   flex-direction: column;
 }
 
+.gateway-gesture {
+  justify-content: center;
+  padding-top: max(20px, env(safe-area-inset-top));
+  padding-bottom: max(20px, var(--safe-bottom));
+}
+
+.gateway-gesture .gateway-heading {
+  text-align: center;
+}
+
+.gateway-gesture .gateway-heading h1 {
+  font-size: 1.65rem;
+  line-height: 1.15;
+}
+
+.gateway-gesture .gateway-heading > p:last-child {
+  margin: 8px auto 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
 .gateway-mark {
   width: 48px;
   height: 48px;
@@ -231,6 +276,11 @@ button:disabled {
   border-color: color-mix(in oklch, var(--line-strong) 65%, var(--accent));
 }
 
+.gateway-form input[aria-invalid="true"],
+.gateway-form textarea[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
 .field-hint,
 .privacy-note,
 .menu-footnote {
@@ -269,6 +319,46 @@ button:disabled {
   transform: scale(0.985);
 }
 
+.secondary-button {
+  min-height: 50px;
+  padding: 0 20px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--surface-raised);
+  color: var(--ink);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.secondary-button:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.file-button {
+  display: grid;
+  place-items: center;
+  text-align: center;
+}
+
+.file-button input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.corrupt-vault-panel {
+  display: grid;
+  gap: 12px;
+  margin-top: 34px;
+}
+
+.corrupt-vault-panel .form-error {
+  margin: 0;
+}
+
 .privacy-note {
   max-width: 44ch;
   margin-top: auto;
@@ -293,12 +383,25 @@ button:disabled {
   margin-top: 30px;
 }
 
+.gateway-gesture .gesture-block {
+  gap: 8px;
+  margin-top: 20px;
+}
+
 .gesture-instruction {
   min-height: 2.9em;
   margin: 0;
   color: var(--ink-muted);
   font-size: 0.82rem;
   line-height: 1.45;
+  text-align: center;
+}
+
+.gesture-count {
+  min-height: 1.3em;
+  margin: 0;
+  color: var(--ink-faint);
+  font-size: 0.72rem;
   text-align: center;
 }
 
@@ -311,6 +414,10 @@ button:disabled {
   grid-template-columns: repeat(3, 1fr);
   touch-action: none;
   user-select: none;
+}
+
+.gateway-gesture .gesture-pad {
+  width: min(68vw, 260px, calc(100dvh - 300px));
 }
 
 .gesture-trace {
@@ -347,6 +454,11 @@ button:disabled {
   cursor: crosshair;
 }
 
+.gateway-gesture .gesture-point {
+  width: 64px;
+  height: 64px;
+}
+
 .gesture-point span {
   width: 18px;
   height: 18px;
@@ -377,6 +489,20 @@ button:disabled {
   font-size: 0.78rem;
   font-weight: 650;
   cursor: pointer;
+}
+
+.credential-step {
+  width: min(100%, 300px);
+  justify-self: center;
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.gateway-gesture .form-error {
+  min-height: 2.4em;
+  margin: 0;
+  text-align: center;
 }
 
 .text-button {
@@ -554,6 +680,12 @@ button:disabled {
 .image-picker:hover {
   background: var(--surface);
   color: var(--ink);
+}
+
+.icon-button:disabled,
+.image-picker.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .chat-shell {
@@ -1086,6 +1218,13 @@ button:disabled {
   cursor: pointer;
 }
 
+.gallery-tile > svg {
+  width: 32px;
+  height: 32px;
+  margin: 0 auto 6px;
+  color: var(--ink-faint);
+}
+
 .gallery-tile img {
   width: 100%;
   height: 100%;
@@ -1183,6 +1322,26 @@ button:disabled {
 
   .gallery-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-height: 640px) {
+  .gateway-gesture {
+    padding-top: max(12px, env(safe-area-inset-top));
+    padding-bottom: max(12px, var(--safe-bottom));
+  }
+
+  .gateway-gesture .gesture-block {
+    margin-top: 12px;
+  }
+
+  .gateway-gesture .gesture-pad {
+    width: min(58vw, 210px, calc(100dvh - 280px));
+  }
+
+  .gateway-gesture .gesture-point {
+    width: 52px;
+    height: 52px;
   }
 }
 

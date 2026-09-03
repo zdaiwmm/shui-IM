@@ -13,10 +13,17 @@ readonly DATA_VOLUME=quiet-room_quiet-room-data
 readonly LOCAL_HEALTH_URL=http://127.0.0.1:8080/api/health
 readonly PUBLIC_HEALTH_URL=https://chat.mijiu.cloud/api/health
 readonly GIT_SSH_COMMAND_VALUE='ssh -o BatchMode=yes -o IdentitiesOnly=yes -i /home/deploy/.ssh/github_shui_im'
+readonly RELEASE_RETENTION_COUNT="${QUIET_ROOM_RELEASE_RETENTION_COUNT:-5}"
+readonly PREDEPLOY_BACKUP_RETENTION_COUNT="${QUIET_ROOM_PREDEPLOY_BACKUP_RETENTION_COUNT:-14}"
 
 readonly REQUESTED_SHA="${1:-}"
 if [[ ! "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
   printf 'A lowercase 40-character Git commit is required.\n' >&2
+  exit 64
+fi
+
+if ! [[ "$RELEASE_RETENTION_COUNT" =~ ^[1-9][0-9]*$ ]] || ! [[ "$PREDEPLOY_BACKUP_RETENTION_COUNT" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'Retention counts must be positive integers.\n' >&2
   exit 64
 fi
 
@@ -98,6 +105,38 @@ wait_for_health() {
   return 1
 }
 
+prune_successful_deployments() {
+  local current_release
+  current_release="$(readlink -f "$APP_ROOT/current" 2>/dev/null || true)"
+
+  # Only remove release directories that are known Git worktrees. Keep the
+  # current target plus the newest configured number of releases for rollback.
+  mapfile -t old_releases < <(
+    find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' |
+      sort -nr |
+      tail -n +$((RELEASE_RETENTION_COUNT + 1)) |
+      cut -d' ' -f2-
+  )
+  for release in "${old_releases[@]}"; do
+    [[ -n "$release" && "$release" != "$current_release" ]] || continue
+    runuser -u deploy -- git --git-dir="$REPOSITORY" worktree remove --force "$release" ||
+      printf 'WARNING: could not prune release %s\n' "$release" >&2
+  done
+
+  # Pre-deploy archives are ciphertext-only rollback points. Retain a bounded
+  # number by mtime and never touch continuous/off-host backups.
+  mapfile -t old_backups < <(
+    find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type f -name 'data-*.tar.gz' -printf '%T@ %p\n' |
+      sort -nr |
+      tail -n +$((PREDEPLOY_BACKUP_RETENTION_COUNT + 1)) |
+      cut -d' ' -f2-
+  )
+  for backup in "${old_backups[@]}"; do
+    [[ -n "$backup" ]] || continue
+    rm -f -- "$backup"
+  done
+}
+
 rollback() {
   local exit_code="$1"
   trap - ERR
@@ -159,6 +198,8 @@ docker image tag "$new_image" quiet-room-app:production
 
 cutover_started=0
 trap - ERR
+
+prune_successful_deployments || printf 'WARNING: release/backup pruning failed; retain current deployment.\n' >&2
 
 printf 'DEPLOY_OK sha=%s release=%s backup=%s\n' \
   "$REQUESTED_SHA" "$release_dir" "$BACKUP_DIR/$backup_name"

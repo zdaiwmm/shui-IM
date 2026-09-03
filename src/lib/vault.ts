@@ -1,6 +1,10 @@
 import { argon2id } from 'hash-wasm';
 import { fromBase64Url, toBase64Url } from './base64';
-import { createPlatformCredential, unlockPlatformCredential } from './platform-vault';
+import {
+  createPlatformCredential,
+  unlockPlatformCredential,
+  type PlatformCredentialResult,
+} from './platform-vault';
 import type {
   DecryptedMessage,
   DeliveryReceipt,
@@ -17,7 +21,7 @@ import type {
 } from './types';
 
 const DB_NAME = 'quiet-room';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const PLATFORM_PAYLOAD_AAD = encoder.encode('quiet-room-vault-payload-v2');
@@ -59,6 +63,10 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!database.objectStoreNames.contains('history')) {
         const history = database.createObjectStore('history', { keyPath: 'id' });
         history.createIndex('roomId', 'roomId', { unique: false });
+        history.createIndex('roomSeq', ['roomId', 'seq'], { unique: false });
+      } else {
+        const history = request.transaction!.objectStore('history');
+        if (!history.indexNames.contains('roomSeq')) history.createIndex('roomSeq', ['roomId', 'seq'], { unique: false });
       }
       for (const storeName of ['outbox', 'receiptOutbox', 'uploads'] as const) {
         if (!database.objectStoreNames.contains(storeName)) {
@@ -112,11 +120,13 @@ function validatePlatformRecord(value: unknown): value is PlatformCredentialReco
   const record = value as PlatformCredentialRecord;
   return Boolean(
     isBoundedBase64(record.credentialId, 16, 2048) &&
+    (record.rpId === undefined || (typeof record.rpId === 'string' && record.rpId.length >= 1 && record.rpId.length <= 253)) &&
+    (record.origin === undefined || (typeof record.origin === 'string' && record.origin.length >= 1 && record.origin.length <= 2048)) &&
     isBoundedBase64(record.prfSalt, 20, 128) &&
     Array.isArray(record.transports) && record.transports.length <= 8 &&
     record.transports.every((transport) => typeof transport === 'string' && transport.length <= 32) &&
     (record.authenticatorAttachment === null || record.authenticatorAttachment === 'platform' || record.authenticatorAttachment === 'cross-platform') &&
-    record.backupEligible === false &&
+    typeof record.backupEligible === 'boolean' &&
     typeof record.createdAt === 'string' && Number.isFinite(Date.parse(record.createdAt))
   );
 }
@@ -287,7 +297,10 @@ async function encryptLegacyVault(
 }
 
 export async function hasStoredVault(): Promise<boolean> {
-  return Boolean(await transaction('vault', 'readonly', (store) => store.get('current')));
+  // Presence, not truthiness, matters here: a truncated/invalid record may be
+  // a falsy value and must still reach the recovery/diagnostic screen instead
+  // of being mistaken for a first-run vault.
+  return (await transaction('vault', 'readonly', (store) => store.get('current'))) !== undefined;
 }
 
 export async function readStoredVault(): Promise<StoredVault | null> {
@@ -299,10 +312,31 @@ export async function deleteCurrentVault(): Promise<void> {
   await transaction('vault', 'readwrite', (store) => store.delete('current'));
 }
 
+export async function downloadVaultDiagnostic(): Promise<void> {
+  const value: unknown = await transaction('vault', 'readonly', (store) => store.get('current'));
+  const record = value && typeof value === 'object' ? value as Record<string, unknown> : null;
+  const diagnostic = {
+    format: 'quiet-room-vault-diagnostic',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    stored: value !== undefined,
+    schemaVersion: typeof record?.v === 'number' ? record.v : null,
+    unlockMethod: typeof record?.unlockMethod === 'string' ? record.unlockMethod : null,
+    valid: validateStoredVault(value),
+  };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(diagnostic, null, 2)], { type: 'application/json' }));
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = `quiet-room-vault-diagnostic-${new Date().toISOString().slice(0, 10)}.json`;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export async function createVault(
   vault: Vault,
   gestureSecret: string,
   unlockMethod: 'password' | 'gesture' = 'gesture',
+  preparedPlatformCredential?: PlatformCredentialResult,
 ): Promise<VaultSession> {
   if (unlockMethod === 'password') {
     const { bytes, kdf } = await deriveGestureBytes(gestureSecret);
@@ -315,7 +349,7 @@ export async function createVault(
   }
   const [{ bytes: gestureBytes, kdf }, platformResult] = await Promise.all([
     deriveGestureBytes(gestureSecret),
-    createPlatformCredential(),
+    preparedPlatformCredential ?? createPlatformCredential(),
   ]);
   const kek = await derivePlatformKek(platformResult.prfOutput, gestureBytes);
   const masterBytes = crypto.getRandomValues(new Uint8Array(32));
@@ -459,11 +493,15 @@ async function reencryptAllLocalData(session: VaultSession, migratedSession: Vau
   });
 }
 
-export async function migrateVaultToPlatform(session: VaultSession, gestureSecret: string): Promise<void> {
+export async function migrateVaultToPlatform(
+  session: VaultSession,
+  gestureSecret: string,
+  preparedPlatformCredential?: PlatformCredentialResult,
+): Promise<void> {
   if (session.stored.v !== 1) return;
   const [{ bytes: gestureBytes, kdf }, platformResult] = await Promise.all([
     deriveGestureBytes(gestureSecret),
-    createPlatformCredential(),
+    preparedPlatformCredential ?? createPlatformCredential(),
   ]);
   const kek = await derivePlatformKek(platformResult.prfOutput, gestureBytes);
   const masterBytes = crypto.getRandomValues(new Uint8Array(32));
@@ -607,11 +645,15 @@ export async function unlockRecoveryVault(recoveryCode: string): Promise<VaultSe
   }
 }
 
-export async function bindRecoveredVaultToPlatform(session: VaultSession, gestureSecret: string): Promise<void> {
+export async function bindRecoveredVaultToPlatform(
+  session: VaultSession,
+  gestureSecret: string,
+  preparedPlatformCredential?: PlatformCredentialResult,
+): Promise<void> {
   if (session.stored.unlockMethod !== 'recovery') throw new Error('当前保险库不需要重新绑定');
   const [{ bytes: gestureBytes, kdf }, platformResult] = await Promise.all([
     deriveGestureBytes(gestureSecret),
-    createPlatformCredential(),
+    preparedPlatformCredential ?? createPlatformCredential(),
   ]);
   const kek = await derivePlatformKek(platformResult.prfOutput, gestureBytes);
   const masterBytes = new Uint8Array(await crypto.subtle.exportKey('raw', session.key));
@@ -656,8 +698,45 @@ export async function loadHistory(session: VaultSession): Promise<DecryptedMessa
   const records = await transaction<StoredHistory[]>('history', 'readonly', (store) =>
     store.index('roomId').getAll(IDBKeyRange.only(session.vault.roomId)),
   );
+  return decryptHistoryRecords(session, records.sort((left, right) => left.seq - right.seq));
+}
+
+export async function loadHistoryPage(
+  session: VaultSession,
+  { limit = 200, beforeSeq }: { limit?: number; beforeSeq?: number } = {},
+): Promise<DecryptedMessage[]> {
+  const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 1000);
+  const database = await openDatabase();
+  const records = await new Promise<StoredHistory[]>((resolve, reject) => {
+    const tx = database.transaction('history', 'readonly');
+    const index = tx.objectStore('history').index('roomSeq');
+    const upper = typeof beforeSeq === 'number' && Number.isSafeInteger(beforeSeq)
+      ? beforeSeq - 1
+      : Number.MAX_SAFE_INTEGER;
+    const request = index.openCursor(
+      IDBKeyRange.bound([session.vault.roomId, 0], [session.vault.roomId, upper]),
+      'prev',
+    );
+    const collected: StoredHistory[] = [];
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor || collected.length >= boundedLimit) return;
+      collected.push(cursor.value as StoredHistory);
+      cursor.continue();
+    };
+    request.onerror = () => reject(request.error);
+    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => {
+      database.close();
+      resolve(collected.sort((left, right) => left.seq - right.seq));
+    };
+  });
+  return decryptHistoryRecords(session, records);
+}
+
+async function decryptHistoryRecords(session: VaultSession, records: StoredHistory[]): Promise<DecryptedMessage[]> {
   const messages: DecryptedMessage[] = [];
-  for (const record of records.sort((left, right) => left.seq - right.seq)) {
+  for (const record of records) {
     try {
       const additionalData = encoder.encode(`quiet-room-history-v1:${record.roomId}:${record.seq}`);
       const plaintext = await crypto.subtle.decrypt(
@@ -753,7 +832,7 @@ async function commitMlsVaultAndRecords(
   records: { outbox?: OutboxItem; history?: DecryptedMessage; pendingReceipt?: DeliveryReceipt },
 ): Promise<void> {
   if (session.stored.v !== 2 || session.stored.unlockMethod !== 'platform' || !session.vault.mls) {
-    throw new Error('MLS 状态只能写入设备绑定保险库');
+    throw new Error('MLS 状态只能写入通行密钥保险库');
   }
   const nextVault = structuredClone(session.vault);
   if (!nextVault.mls) throw new Error('MLS 本机状态不存在');

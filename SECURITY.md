@@ -14,8 +14,8 @@ Quiet Room is a two-device encrypted chat. The browser encrypts message and imag
 - After a recipient verifies, decrypts, and persists a message, it signs a receipt that binds the room ID, message ID, server sequence, receiver device ID, and receipt time. Only that receipt promotes the sender UI from server-stored to peer-delivered.
 - Images are encrypted in 2 MiB AES-256-GCM chunks. A unique eight-byte random prefix plus a four-byte chunk counter forms each nonce. The authenticated data binds the blob ID, index, total chunk count, and original size.
 - The encrypted image manifest contains the file key and SHA-256 digest. A receiver accepts a reconstructed image only when its exact byte length and digest match.
-- A random 256-bit AES-GCM master key encrypts the local vault, history, outgoing-message queue, pending-receipt queue, and upload-resume plans. A key-encryption key is derived with HKDF-SHA-256 from WebAuthn PRF output and Argon2id-hardened gesture bytes, then wraps the master key. Strict mode rejects WebAuthn credentials carrying the backup-eligible flag. Gesture paths, PRF output, and derived keys are not persisted.
-- Recovery wraps the master key to a separate random 256-bit recovery code and stores only the encrypted wrapper beside the encrypted vault payload. Recovery creates a new device-bound wrapper before the conversation opens.
+- A random 256-bit AES-GCM master key encrypts the local vault, history, outgoing-message queue, pending-receipt queue, and upload-resume plans. A key-encryption key is derived with HKDF-SHA-256 from WebAuthn PRF output and Argon2id-hardened gesture bytes, then wraps the master key. Both single-device and syncable passkeys are accepted; the immutable backup-eligibility flag is recorded and checked on later assertions. Gesture paths, PRF output, and derived keys are not persisted.
+- Recovery wraps the master key to a separate random 256-bit recovery code and stores only the encrypted wrapper beside the encrypted vault payload. Recovery creates a new passkey-and-gesture wrapper before the conversation opens.
 
 ## What this protects
 
@@ -25,7 +25,7 @@ Quiet Room is a two-device encrypted chat. The browser encrypts message and imag
 - Client message IDs make retries idempotent. Transactional room sequence numbers define the display order.
 - An outgoing payload is encrypted into IndexedDB before its first network send. Reconnect and acknowledgement-loss retries retain the same client message ID, while a server uniqueness constraint prevents duplicate commits.
 - A failed or interrupted join is retried with the same locally persisted device identity, so a committed server join cannot strand the second slot merely because the response was lost.
-- Losing page visibility, window focus, or the page itself immediately replaces rendered content with the white privacy curtain, closes the socket, aborts file transfers, revokes object URLs, and releases in-memory application references to the decrypted session.
+- Outside a user-initiated image picker, losing page visibility or window focus immediately replaces rendered content with the white privacy curtain, closes the socket, aborts file transfers, revokes object URLs, and releases in-memory application references to the decrypted session. A passkey prompt may suppress its own blur or hidden event only before the decrypted session is opened. `pagehide` always locks.
 
 ## Explicit limitations
 
@@ -33,7 +33,7 @@ New rooms use the standardized RFC 9420 MLS protocol, but the selected browser-c
 
 Per-message MLS secret-tree advancement provides forward secrecy for deleted generations. Full post-compromise recovery requires authenticated epoch updates after the attacker loses endpoint access, clean endpoints, and an audited incident procedure; that complete mechanism is not implemented or claimed here.
 
-A gesture has a much smaller practical search space than a strong random password. Argon2id and exponential delays after consecutive local failures raise attack cost, but they do not make a short gesture high entropy. Normal unlocking also requires the non-syncable WebAuthn credential. Recovery is instead protected by its independent random 256-bit code. Four points is the minimum accepted pattern and six or more non-obvious points are recommended. Gesture convenience must not be described as stronger security.
+A gesture has a much smaller practical search space than a strong random password. Argon2id and exponential delays after consecutive local failures raise attack cost, but they do not make a short gesture high entropy. Normal unlocking also requires the registered PRF-capable passkey. A syncable passkey is not strictly bound to one physical device, so deployments requiring that property must mandate a compatible single-device authenticator or hardware security key. Recovery is instead protected by its independent random 256-bit code. Four points is the minimum accepted pattern and six or more non-obvious points are recommended. Gesture convenience must not be described as stronger security.
 
 A fully malicious server can replace the JavaScript it serves and attempt to steal plaintext or keys on a later visit. CSP, pinned dependencies, HTTPS, and a separate static release channel reduce this risk but do not eliminate it. Strong protection from an actively malicious hosting server requires a signed client distributed from a separate trust root.
 

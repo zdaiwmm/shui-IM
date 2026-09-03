@@ -38,6 +38,7 @@ export class GesturePad {
   private readonly path: SVGPolylineElement;
   private readonly livePath: SVGLineElement;
   private readonly points: HTMLButtonElement[];
+  private readonly countStatus: HTMLElement;
   private readonly controller = new AbortController();
   private pattern: number[] = [];
   private drawing = false;
@@ -56,18 +57,20 @@ export class GesturePad {
           <line></line>
         </svg>
         ${Array.from({ length: 9 }, (_, index) => `
-          <button type="button" class="gesture-point" data-point="${index}" aria-label="点 ${index + 1}"><span></span></button>
+          <button type="button" class="gesture-point" data-point="${index}" aria-label="点 ${index + 1}" aria-pressed="false"><span></span></button>
         `).join('')}
       </div>
+      <p class="gesture-count" role="status" aria-live="polite">尚未选择点</p>
       <div class="gesture-actions">
-        <button type="button" data-gesture-clear>重新绘制</button>
-        <button type="button" data-gesture-complete>完成手势</button>
+        <button type="button" data-gesture-clear>清除</button>
+        <button type="button" data-gesture-complete>完成</button>
       </div>
     `;
     this.pad = host.querySelector<HTMLElement>('.gesture-pad')!;
     this.path = host.querySelector<SVGPolylineElement>('polyline')!;
     this.livePath = host.querySelector<SVGLineElement>('line')!;
     this.points = [...host.querySelectorAll<HTMLButtonElement>('.gesture-point')];
+    this.countStatus = host.querySelector<HTMLElement>('.gesture-count')!;
     const signal = this.controller.signal;
 
     this.pad.addEventListener('pointerdown', (event) => this.handlePointerDown(event), { signal });
@@ -170,7 +173,12 @@ export class GesturePad {
   private render(): void {
     const centers = this.pattern.map((point) => this.pointCenter(point));
     this.path.setAttribute('points', centers.map(({ x, y }) => `${x},${y}`).join(' '));
-    this.points.forEach((point, index) => point.classList.toggle('is-active', this.pattern.includes(index)));
+    this.points.forEach((point, index) => {
+      const active = this.pattern.includes(index);
+      point.classList.toggle('is-active', active);
+      point.setAttribute('aria-pressed', String(active));
+    });
+    this.countStatus.textContent = this.pattern.length > 0 ? `已选择 ${this.pattern.length} 个点` : '尚未选择点';
     const last = centers.at(-1);
     if (this.drawing && last && this.pointerPosition) {
       this.livePath.removeAttribute('visibility');

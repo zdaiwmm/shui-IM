@@ -3,6 +3,7 @@ import {
   ApiError,
   completeBlob,
   createRoom,
+  deleteRoom,
   fetchBlobChunk,
   getBlobStatus,
   getRoomState,
@@ -38,6 +39,10 @@ import {
   disableBackgroundNotifications,
   enableBackgroundNotifications,
 } from './lib/push';
+import {
+  createPlatformCredential,
+  type PlatformCredentialResult,
+} from './lib/platform-vault';
 import type {
   DecryptedMessage,
   DeliveryReceipt,
@@ -56,13 +61,15 @@ import {
   commitMlsReceive,
   commitMlsSend,
   deleteOutboxItem,
+  deleteCurrentVault,
+  downloadVaultDiagnostic,
   deletePendingReceipt,
   deleteUploadPlan,
   downloadRecoveryPackage,
   hasStoredVault,
   importRecoveryPackage,
   bindRecoveredVaultToPlatform,
-  loadHistory,
+  loadHistoryPage,
   loadOutbox,
   loadPendingReceipts,
   loadUploadPlans,
@@ -86,7 +93,8 @@ type Invite = {
   creatorFingerprint: string;
 };
 
-type CachedImage = { blob: Blob; url: string };
+type CachedImage = { blob: Blob; url: string; bytes: number; lastUsedAt: number };
+const MAX_IMAGE_CACHE_BYTES = 96 * 1024 * 1024;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -176,6 +184,7 @@ export class QuietRoomApp {
   private receiptQueue = new Map<number, ServerReceipt>();
   private uploadPlans: ImageUploadPlan[] = [];
   private imageCache = new Map<string, CachedImage>();
+  private imageCacheBytes = 0;
   private connectionState: 'connecting' | 'connected' | 'disconnected' = 'disconnected';
   private draining = false;
   private receiptDraining = false;
@@ -185,6 +194,7 @@ export class QuietRoomApp {
   private sending = new Set<string>();
   private retryTimers = new Map<string, number>();
   private retryCounts = new Map<string, number>();
+  private renderedMessages = new Map<string, { signature: string; element: HTMLElement }>();
   private gesturePad: GesturePad | null = null;
   private privacyCovered = true;
   private runtimeAbort: AbortController | null = null;
@@ -194,16 +204,23 @@ export class QuietRoomApp {
   private imagePickerResetTimer: number | null = null;
   private deferredImageUpload: { file: File; destination: 'chat' | 'gallery' } | null = null;
   private unlocking = false;
+  private deviceVerificationActive = false;
   private galleryObserver: IntersectionObserver | null = null;
+  private historyHasMore = false;
+  private historyLoading = false;
 
   constructor(private readonly root: HTMLElement) {
     document.addEventListener('pointerdown', () => this.resetIdleLock(), { capture: true, passive: true });
     document.addEventListener('keydown', () => this.resetIdleLock(), { capture: true });
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && !this.imagePickerActive) this.lockNow({ preserveFilePicker: this.filePickerActive });
+      if (document.hidden && !this.imagePickerActive && !this.deviceVerificationActive) {
+        this.lockNow({ preserveFilePicker: this.filePickerActive });
+      }
     });
     window.addEventListener('blur', () => {
-      if (!this.imagePickerActive) this.lockNow({ preserveFilePicker: this.filePickerActive });
+      if (!this.imagePickerActive && !this.deviceVerificationActive) {
+        this.lockNow({ preserveFilePicker: this.filePickerActive });
+      }
     });
     window.addEventListener('pagehide', () => {
       this.finishImagePicker();
@@ -258,28 +275,36 @@ export class QuietRoomApp {
     document.body.className = 'app-mode';
     const hasVault = await hasStoredVault();
     if (this.privacyCovered) return;
-    if (hasVault) void this.renderUnlock();
+    if (hasVault) {
+      const stored = await readStoredVault();
+      if (!stored) this.renderCorruptVault();
+      else void this.renderUnlock();
+    }
     else this.renderFirstRun(inviteFromHash());
   }
 
-  private gatewayTemplate(title: string, subtitle: string, content: string): void {
+  private gatewayTemplate(title: string, subtitle: string, content: string, compact = false): void {
     this.root.innerHTML = `
-      <section class="gateway">
-        <div class="gateway-mark" aria-hidden="true">${icons.lock}</div>
+      <section class="gateway${compact ? ' gateway-gesture' : ''}">
+        ${compact ? '' : `<div class="gateway-mark" aria-hidden="true">${icons.lock}</div>`}
         <div class="gateway-heading">
-          <p class="eyebrow">Quiet Room</p>
+          ${compact ? '' : '<p class="eyebrow">Quiet Room</p>'}
           <h1>${title}</h1>
           <p>${subtitle}</p>
         </div>
         ${content}
-        <p class="privacy-note">解锁凭据和解密密钥只在这台设备上使用，服务器无法代为找回。</p>
+        ${compact ? '' : '<p class="privacy-note">解锁手势和解密密钥不会发送到服务器，丢失后无法代为找回。</p>'}
       </section>
     `;
   }
 
   private async renderUnlock(): Promise<void> {
     const stored = await readStoredVault();
-    if (this.privacyCovered || !stored) return;
+    if (this.privacyCovered) return;
+    if (!stored) {
+      this.renderCorruptVault();
+      return;
+    }
     if (stored.unlockMethod === 'recovery') {
       this.renderRecoveryUnlock();
       return;
@@ -311,7 +336,7 @@ export class QuietRoomApp {
           secret = '';
           if (this.privacyCovered) return;
           this.session = unlocked;
-            this.renderPlatformMigration();
+          this.renderPlatformMigration();
         } catch (cause) {
           secret = '';
           if (!this.privacyCovered) {
@@ -325,13 +350,13 @@ export class QuietRoomApp {
     } else {
       const platformBound = stored.v === 2;
       this.gatewayTemplate('回到会话', platformBound
-        ? '绘制本机手势，然后使用生物识别、设备密码或硬件安全密钥解锁。'
-        : '绘制旧版本机手势。解锁后需要绑定设备安全凭据。', `
-        ${this.gestureSetupMarkup('连接至少 4 个点，建议使用 6 个或更多点。')}
+        ? '绘制本机解锁手势。'
+        : '绘制旧版手势，随后绑定通行密钥。', `
+        ${this.gestureSetupMarkup('连接至少 4 个点。')}
         <div class="gateway-secondary">
           <button class="text-button" id="back-to-cover" type="button">返回白屏</button>
         </div>
-      `);
+      `, true);
       const error = this.root.querySelector<HTMLElement>('.form-error')!;
       const instruction = this.root.querySelector<HTMLElement>('.gesture-instruction')!;
       this.mountGesturePad((pattern) => {
@@ -348,7 +373,7 @@ export class QuietRoomApp {
         instruction.textContent = '正在验证手势…';
         void (async () => {
           try {
-            const unlocked = await unlockVault(secret);
+            const unlocked = await this.withDeviceVerification(() => unlockVault(secret));
             secret = '';
             if (this.privacyCovered) return;
             this.session = unlocked;
@@ -367,6 +392,42 @@ export class QuietRoomApp {
       }, '解锁手势');
     }
     this.root.querySelector('#back-to-cover')?.addEventListener('click', () => this.lockNow());
+  }
+
+  private renderCorruptVault(): void {
+    this.gatewayTemplate('本机数据需要恢复', '检测到本地保险库存在，但格式已经损坏或无法识别。不要直接清除浏览器数据。', `
+      <div class="corrupt-vault-panel">
+        <p class="form-error" role="alert">请先尝试导入之前导出的恢复包；诊断文件不包含解密密钥或消息明文。</p>
+        <label class="primary-button file-button">导入恢复包<input id="corrupt-recovery-file" type="file" accept="application/json,.json" /></label>
+        <button class="secondary-button" id="download-vault-diagnostic" type="button">下载诊断信息</button>
+        <button class="text-button" id="clear-corrupt-vault" type="button">确认清除损坏的本机数据</button>
+      </div>
+      <div class="gateway-secondary"><button class="text-button" id="corrupt-vault-lock" type="button">返回白屏</button></div>
+    `);
+    const input = this.root.querySelector<HTMLInputElement>('#corrupt-recovery-file');
+    input?.addEventListener('change', async (event) => {
+      const file = (event.currentTarget as HTMLInputElement).files?.[0];
+      if (!file) return;
+      try {
+        await importRecoveryPackage(file);
+        if (!this.privacyCovered) void this.renderUnlock();
+      } catch (cause) {
+        this.showFormError(cause);
+      }
+    });
+    this.root.querySelector('#download-vault-diagnostic')?.addEventListener('click', () => {
+      void downloadVaultDiagnostic().catch((cause) => this.showFormError(cause));
+    });
+    this.root.querySelector('#clear-corrupt-vault')?.addEventListener('click', async () => {
+      if (!window.confirm('确认清除损坏的本机数据？只有在你已经尝试恢复或确定不再需要它时才继续。')) return;
+      try {
+        await deleteCurrentVault();
+        if (!this.privacyCovered) this.renderFirstRun(null);
+      } catch (cause) {
+        this.showFormError(cause);
+      }
+    });
+    this.root.querySelector('#corrupt-vault-lock')?.addEventListener('click', () => this.lockNow());
   }
 
   private renderRecoveryUnlock(): void {
@@ -412,8 +473,12 @@ export class QuietRoomApp {
   private gestureSetupMarkup(instruction: string): string {
     return `
       <div class="gesture-block">
-        <p class="gesture-instruction">${instruction}</p>
+        <p class="gesture-instruction" role="status">${instruction}</p>
         <div class="gesture-host"></div>
+        <div class="credential-step" hidden>
+          <button class="primary-button" type="button" data-device-verify>设置通行密钥</button>
+          <button class="text-button" type="button" data-gesture-reset>修改手势</button>
+        </div>
         <p class="form-error" role="alert"></p>
       </div>
     `;
@@ -426,10 +491,19 @@ export class QuietRoomApp {
     this.gesturePad = new GesturePad(host, onComplete, label);
   }
 
-  private mountGestureSetup(onConfirmed: (secret: string) => Promise<void>, busyLabel: string): void {
+  private mountGestureSetup(
+    onConfirmed: (secret: string, platformResult: PlatformCredentialResult) => Promise<void>,
+    busyLabel: string,
+  ): void {
     const instruction = this.root.querySelector<HTMLElement>('.gesture-instruction')!;
     const error = this.root.querySelector<HTMLElement>('.form-error')!;
+    const host = this.root.querySelector<HTMLElement>('.gesture-host')!;
+    const credentialStep = this.root.querySelector<HTMLElement>('.credential-step')!;
+    const verifyButton = credentialStep.querySelector<HTMLButtonElement>('[data-device-verify]')!;
+    const resetButton = credentialStep.querySelector<HTMLButtonElement>('[data-gesture-reset]')!;
     let firstSecret = '';
+    let confirmedSecret = '';
+    let preparedPlatformCredential: PlatformCredentialResult | null = null;
     let busy = false;
     this.mountGesturePad((pattern) => {
       if (busy) return;
@@ -456,58 +530,91 @@ export class QuietRoomApp {
         return;
       }
       firstSecret = '';
-      busy = true;
-      instruction.textContent = busyLabel;
-      void onConfirmed(secret).finally(() => {
-        secret = '';
-        busy = false;
-      });
+      confirmedSecret = secret;
+      secret = '';
+      host.hidden = true;
+      credentialStep.hidden = false;
+      instruction.textContent = '手势已确认';
+      verifyButton.focus();
     }, '设置手势');
+
+    resetButton.addEventListener('click', () => {
+      if (busy) return;
+      firstSecret = '';
+      confirmedSecret = '';
+      error.textContent = '';
+      credentialStep.hidden = true;
+      host.hidden = false;
+      instruction.textContent = '绘制两次相同手势。';
+      this.gesturePad?.clear();
+    });
+
+    verifyButton.addEventListener('click', () => {
+      if (busy || !confirmedSecret) return;
+      busy = true;
+      error.textContent = '';
+      instruction.textContent = preparedPlatformCredential ? busyLabel : '正在打开通行密钥…';
+      setBusy(verifyButton, true, preparedPlatformCredential ? '正在重试…' : '正在验证…');
+      void (async () => {
+        try {
+          preparedPlatformCredential ??= await this.withDeviceVerification(() => createPlatformCredential());
+          if (!this.root.contains(credentialStep)) return;
+          instruction.textContent = busyLabel;
+          await onConfirmed(confirmedSecret, preparedPlatformCredential);
+          confirmedSecret = '';
+        } catch (cause) {
+          if (!this.root.contains(credentialStep)) return;
+          error.textContent = cause instanceof Error ? cause.message : '通行密钥设置失败';
+          instruction.textContent = '操作未完成，可以直接重试。';
+          if (preparedPlatformCredential) verifyButton.dataset.label = '重试';
+        } finally {
+          busy = false;
+          if (this.root.contains(credentialStep)) setBusy(verifyButton, false);
+        }
+      })();
+    });
+  }
+
+  private async withDeviceVerification<T>(operation: () => Promise<T>): Promise<T> {
+    // A passkey prompt is allowed to suppress its own blur only before a
+    // decrypted session exists. Migration/recovery binding already holds one,
+    // so those prompts must retain the normal fail-closed lock behavior.
+    if (this.session) return operation();
+    this.deviceVerificationActive = true;
+    try {
+      return await operation();
+    } finally {
+      this.deviceVerificationActive = false;
+    }
   }
 
   private renderPlatformMigration(): void {
     if (!this.session) return;
-    this.gatewayTemplate('绑定这台设备', '旧保险库已解锁。设置手势后，浏览器会要求生物识别、设备密码或硬件安全密钥确认。', `
-      ${this.gestureSetupMarkup('绘制新手势。至少连接 4 个点，建议 6 个或更多点。')}
+    this.gatewayTemplate('绑定这台设备', '绘制两次相同手势。', `
+      ${this.gestureSetupMarkup('至少连接 4 个点。')}
       <button class="text-button gateway-back" id="migration-lock" type="button">取消并锁定</button>
-    `);
-    this.mountGestureSetup(async (secret) => {
+    `, true);
+    this.mountGestureSetup(async (secret, platformResult) => {
       const session = this.session;
       if (!session) return;
-      try {
-        await migrateVaultToPlatform(session, secret);
-        if (!this.privacyCovered && this.session === session) await this.openSession();
-      } catch (cause) {
-        if (!this.privacyCovered) {
-          this.root.querySelector<HTMLElement>('.form-error')!.textContent = cause instanceof Error
-            ? cause.message
-            : '设备绑定失败';
-        }
-      }
-    }, '请完成设备安全验证…');
+      await migrateVaultToPlatform(session, secret, platformResult);
+      if (!this.privacyCovered && this.session === session) await this.openSession();
+    }, '正在绑定…');
     this.root.querySelector('#migration-lock')?.addEventListener('click', () => this.lockNow());
   }
 
   private renderRecoveredVaultBinding(): void {
     if (!this.session) return;
-    this.gatewayTemplate('重新绑定设备', '恢复码已验证。设置新的本机手势，并用设备安全凭据保护保险库密钥。', `
-      ${this.gestureSetupMarkup('绘制新手势。至少连接 4 个点，建议 6 个或更多点。')}
+    this.gatewayTemplate('重新绑定设备', '绘制两次相同手势。', `
+      ${this.gestureSetupMarkup('至少连接 4 个点。')}
       <button class="text-button gateway-back" id="recovery-lock" type="button">取消并锁定</button>
-    `);
-    this.mountGestureSetup(async (secret) => {
+    `, true);
+    this.mountGestureSetup(async (secret, platformResult) => {
       const session = this.session;
       if (!session) return;
-      try {
-        await bindRecoveredVaultToPlatform(session, secret);
-        if (!this.privacyCovered && this.session === session) await this.openSession();
-      } catch (cause) {
-        if (!this.privacyCovered) {
-          this.root.querySelector<HTMLElement>('.form-error')!.textContent = cause instanceof Error
-            ? cause.message
-            : '重新绑定设备失败';
-        }
-      }
-    }, '请完成设备安全验证…');
+      await bindRecoveredVaultToPlatform(session, secret, platformResult);
+      if (!this.privacyCovered && this.session === session) await this.openSession();
+    }, '正在绑定…');
     this.root.querySelector('#recovery-lock')?.addEventListener('click', () => this.lockNow());
   }
 
@@ -553,25 +660,25 @@ export class QuietRoomApp {
   }
 
   private renderCreate(): void {
-    this.gatewayTemplate('创建会话', '设置本机手势后，用设备安全凭据保护保险库密钥。', `
-      ${this.gestureSetupMarkup('绘制新手势。至少连接 4 个点，建议 6 个或更多点。')}
+    this.gatewayTemplate('创建会话', '绘制两次相同手势。', `
+      ${this.gestureSetupMarkup('至少连接 4 个点。')}
       <button class="text-button gateway-back" type="button">返回</button>
-    `);
+    `, true);
     this.mountGestureSetup(
-      (secret) => this.handleCreate(secret),
-      '请完成设备安全验证…',
+      (secret, platformResult) => this.handleCreate(secret, platformResult),
+      '正在创建会话…',
     );
     this.root.querySelector('.gateway-back')?.addEventListener('click', () => this.renderFirstRun(null));
   }
 
-  private async handleCreate(secret: string): Promise<void> {
-    const error = this.root.querySelector<HTMLElement>('.form-error')!;
-    error.textContent = '';
+  private async handleCreate(secret: string, platformResult: PlatformCredentialResult): Promise<void> {
+    let room: { roomId: string; createdAt: string; protocol: 'legacy-v1' | 'mls-rfc9420' } | null = null;
+    let vaultCreated = false;
+    const accessToken = randomBase64Url(32);
     try {
       const identity = await generateIdentity();
-      const accessToken = randomBase64Url(32);
       const pairingSecret = randomBase64Url(32);
-      const room = await createRoom(identity.publicBundle, accessToken);
+      room = await createRoom(identity.publicBundle, accessToken);
       if (room.protocol !== 'mls-rfc9420') {
         throw new SecurityViolation('服务器未按 MLS 协议创建会话，已拒绝继续');
       }
@@ -599,20 +706,30 @@ export class QuietRoomApp {
       };
       vault.mls = await createCreatorMlsState(room.roomId, identity, [creator]);
       identity.mlsPrivatePackage = undefined;
-      const createdSession = await createVault(vault, secret, 'gesture');
-      if (this.privacyCovered) return;
+      const createdSession = await createVault(vault, secret, 'gesture', platformResult);
+      vaultCreated = true;
+      if (this.privacyCovered) {
+        await deleteRoom(room.roomId, accessToken).catch(() => undefined);
+        return;
+      }
       this.session = createdSession;
       await this.openSession();
     } catch (cause) {
-      if (!this.privacyCovered) error.textContent = cause instanceof Error ? cause.message : '创建失败';
+      // Once the vault is durable, preserve the room so a transient local/network
+      // failure can be retried instead of deleting a valid session on the server.
+      if (room && !vaultCreated) {
+        const persisted = await readStoredVault().catch(() => null);
+        if (!persisted) await deleteRoom(room.roomId, accessToken).catch(() => undefined);
+      }
+      throw cause;
     }
   }
 
   private renderPasteInvite(): void {
     this.gatewayTemplate('使用邀请加入', '粘贴完整邀请链接。邀请中的密钥片段不会作为 HTTP 参数发送。', `
       <form class="gateway-form" id="paste-form">
-        <label>邀请链接<textarea name="invite" rows="4" inputmode="url" required autofocus></textarea></label>
-        <p class="form-error" role="alert"></p>
+        <label for="invite-input">邀请链接<textarea id="invite-input" name="invite" rows="4" inputmode="url" required aria-describedby="invite-error" autofocus></textarea></label>
+        <p class="form-error" id="invite-error" role="alert"></p>
         <button class="primary-button" type="submit">继续</button>
       </form>
       <button class="text-button gateway-back" type="button">返回</button>
@@ -622,29 +739,35 @@ export class QuietRoomApp {
       event.preventDefault();
       const invite = inviteFromText(String(new FormData(form).get('invite') ?? ''));
       if (!invite) {
-        form.querySelector<HTMLElement>('.form-error')!.textContent = '邀请链接无法识别';
+        const input = form.querySelector<HTMLTextAreaElement>('#invite-input')!;
+        input.setAttribute('aria-invalid', 'true');
+        form.querySelector<HTMLElement>('#invite-error')!.textContent = '邀请链接无法识别';
+        input.focus();
         return;
       }
+      form.querySelector<HTMLTextAreaElement>('#invite-input')?.removeAttribute('aria-invalid');
       this.renderJoin(invite);
     });
     this.root.querySelector('.gateway-back')?.addEventListener('click', () => this.renderFirstRun(null));
   }
 
   private renderJoin(invite: Invite): void {
-    this.gatewayTemplate('加入私密会话', '设置本机手势后，用设备安全凭据保护保险库密钥。该邀请仅允许绑定一台新设备。', `
-      ${this.gestureSetupMarkup('绘制新手势。至少连接 4 个点，建议 6 个或更多点。')}
+    this.gatewayTemplate('加入会话', '绘制两次相同手势。', `
+      ${this.gestureSetupMarkup('至少连接 4 个点。')}
       <button class="text-button gateway-back" type="button">返回</button>
-    `);
+    `, true);
     this.mountGestureSetup(
-      (secret) => this.handleJoin(secret, invite),
-      '请完成设备安全验证…',
+      (secret, platformResult) => this.handleJoin(secret, invite, platformResult),
+      '正在加入会话…',
     );
     this.root.querySelector('.gateway-back')?.addEventListener('click', () => this.renderFirstRun(null));
   }
 
-  private async handleJoin(secret: string, invite: Invite): Promise<void> {
-    const error = this.root.querySelector<HTMLElement>('.form-error')!;
-    error.textContent = '';
+  private async handleJoin(
+    secret: string,
+    invite: Invite,
+    platformResult: PlatformCredentialResult,
+  ): Promise<void> {
     try {
       const initialState = await getRoomState(invite.roomId, invite.accessToken);
       if (this.privacyCovered) return;
@@ -686,7 +809,7 @@ export class QuietRoomApp {
           : {}),
       };
       if (initialState.protocol === 'legacy-v1') identity.mlsPrivatePackage = undefined;
-      const createdSession = await createVault(vault, secret, 'gesture');
+      const createdSession = await createVault(vault, secret, 'gesture', platformResult);
       if (this.privacyCovered) return;
       this.session = createdSession;
       history.replaceState(null, '', `${location.pathname}${location.search}`);
@@ -699,7 +822,7 @@ export class QuietRoomApp {
         this.renderPendingJoin(cause);
         return;
       }
-      if (!this.privacyCovered) error.textContent = cause instanceof Error ? cause.message : '无法加入会话';
+      throw cause;
     }
   }
 
@@ -710,7 +833,7 @@ export class QuietRoomApp {
     this.runtimeAbort?.abort();
     this.runtimeAbort = new AbortController();
     this.resetIdleLock();
-    const cached = await loadHistory(session);
+    const cached = await loadHistoryPage(session, { limit: 200 });
     if (!this.isRuntimeActive(epoch, session)) return;
     this.messages = new Map(cached.map((message) => [message.seq, {
       ...message,
@@ -718,9 +841,10 @@ export class QuietRoomApp {
         ? (message.senderId === session.vault.identity.publicBundle.deviceId ? 'stored' : 'delivered')
         : message.status,
     }]));
+    this.historyHasMore = cached.length >= 200 && cached.length > 0 && Math.min(...cached.map((message) => message.seq)) > 1;
     let contiguousSeq = session.vault.historyUnavailableBeforeSeq ?? 0;
     while (this.messages.has(contiguousSeq + 1)) contiguousSeq += 1;
-    session.vault.lastSeq = contiguousSeq;
+    session.vault.lastSeq = Math.max(session.vault.lastSeq, contiguousSeq);
     session.vault.lastReceiptSeq ??= 0;
     const [outbox, pendingReceipts, uploadPlans] = await Promise.all([
       loadOutbox(session),
@@ -1062,7 +1186,7 @@ export class QuietRoomApp {
           }
           expected += 1;
         } catch (cause) {
-          let durableSeq = 0;
+          let durableSeq = session.vault.historyUnavailableBeforeSeq ?? 0;
           while (this.messages.has(durableSeq + 1)) durableSeq += 1;
           session.vault.lastSeq = durableSeq;
           if (!this.isRuntimeActive(epoch, session)) return;
@@ -1241,9 +1365,9 @@ export class QuietRoomApp {
         <div class="notice" id="notice" role="status" hidden></div>
         <section class="message-list" id="message-list" aria-label="聊天消息"></section>
         <form class="composer" id="composer">
-          <label class="image-picker icon-button" aria-label="发送原图">
+          <label class="image-picker icon-button${cryptoReady ? '' : ' is-disabled'}" aria-label="发送原图" title="发送原图">
             ${icons.image}
-            <input id="image-input" type="file" accept="image/*" />
+            <input id="image-input" type="file" accept="image/*" ${cryptoReady ? '' : 'disabled'} />
           </label>
           <label class="composer-field"><span class="sr-only">输入消息</span><textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '输入消息' : '正在建立安全会话…'}" enterkeyhint="send" ${cryptoReady ? '' : 'disabled'}></textarea></label>
           <button class="send-button" type="submit" aria-label="发送消息" ${cryptoReady ? '' : 'disabled'}>${icons.send}</button>
@@ -1252,6 +1376,10 @@ export class QuietRoomApp {
       </section>
     `;
     this.root.querySelector('#composer')?.addEventListener('submit', (event) => void this.handleSendText(event));
+    this.root.querySelector('#message-list')?.addEventListener('scroll', (event) => {
+      const list = event.currentTarget as HTMLElement;
+      if (list.scrollTop < 80) void this.loadOlderHistory(list);
+    }, { passive: true });
     const textarea = this.root.querySelector<HTMLTextAreaElement>('#message-input')!;
     textarea.addEventListener('input', () => {
       textarea.style.height = 'auto';
@@ -1329,18 +1457,27 @@ export class QuietRoomApp {
       input.value = '';
       input.style.height = 'auto';
     }
-    await this.enqueuePayload(payload);
+    try {
+      await this.enqueuePayload(payload);
+    } catch (cause) {
+      this.showNotice(cause instanceof Error ? cause.message : '消息未能安全保存', 'error');
+      return;
+    }
     if (this.connectionState !== 'connected') this.showNotice('消息已加密保存在本机，连接恢复后会自动发送');
   }
 
   private enqueuePayload(payload: MessagePayload, existingClientMsgId?: string): Promise<void> {
-    this.sendChain = this.sendChain.then(() => this.sendPayload(payload, existingClientMsgId));
-    return this.sendChain;
+    const operation = this.sendChain.catch(() => undefined).then(() => this.sendPayload(payload, existingClientMsgId));
+    this.sendChain = operation.catch(() => undefined);
+    return operation;
   }
 
   private async sendPayload(payload: MessagePayload, existingClientMsgId?: string): Promise<void> {
     const session = this.session;
     if (!session || this.privacyCovered) return;
+    if (session.vault.protocol === 'mls-rfc9420' && session.vault.mls?.phase !== 'active') {
+      throw new Error('安全会话尚未建立完成，内容不会上传或发送');
+    }
     const epoch = this.runtimeEpoch;
     const clientMsgId = existingClientMsgId ?? crypto.randomUUID();
     const outboxItem: OutboxItem = {
@@ -1358,7 +1495,7 @@ export class QuietRoomApp {
       }
     } catch (cause) {
       this.operationalError(cause, '消息未能写入本机加密待发箱，因此没有发送');
-      return;
+      throw cause;
     }
     if (!this.isRuntimeActive(epoch, session)) return;
     this.outbox.set(clientMsgId, outboxItem);
@@ -1494,6 +1631,10 @@ export class QuietRoomApp {
   private async processImageFile(file: File, destination: 'chat' | 'gallery' = 'chat'): Promise<void> {
     const session = this.session;
     if (!session || this.privacyCovered) return;
+    if (session.vault.protocol === 'mls-rfc9420' && session.vault.mls?.phase !== 'active') {
+      this.showNotice('安全会话尚未建立完成，图片不会上传', 'error');
+      return;
+    }
     if (destination === 'gallery' && session.vault.role !== 'creator') {
       this.showNotice('只有会话创建者可以向相册上传图片', 'error');
       return;
@@ -1613,17 +1754,60 @@ export class QuietRoomApp {
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!list || !this.session) return;
     const nearBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 120;
-    list.replaceChildren();
     const messages = this.orderedMessages();
     if (messages.length === 0) {
       const empty = document.createElement('div');
       empty.className = 'empty-conversation';
-      empty.innerHTML = '<p>会话已经准备好</p><span>文字和原图都会在这台设备上加密后再发送。</span>';
-      list.append(empty);
+      const title = document.createElement('p');
+      title.textContent = '会话已经准备好';
+      const detail = document.createElement('span');
+      detail.textContent = '文字和原图都会在这台设备上加密后再发送。';
+      empty.append(title, detail);
+      this.renderedMessages.clear();
+      list.replaceChildren(empty);
     } else {
-      for (const message of messages) list.append(this.createMessageElement(message));
+      const currentKeys = new Set<string>();
+      const fragment = document.createDocumentFragment();
+      for (const message of messages) {
+        const key = message.clientMsgId;
+        currentKeys.add(key);
+        const signature = `${message.status}:${JSON.stringify(message.payload)}:${message.acceptedAt}`;
+        const cached = this.renderedMessages.get(key);
+        const element = cached?.signature === signature ? cached.element : this.createMessageElement(message);
+        this.renderedMessages.set(key, { signature, element });
+        fragment.append(element);
+      }
+      for (const key of this.renderedMessages.keys()) {
+        if (!currentKeys.has(key)) this.renderedMessages.delete(key);
+      }
+      list.replaceChildren(fragment);
     }
     if (nearBottom || messages.length <= 1) requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
+  }
+
+  private async loadOlderHistory(list: HTMLElement): Promise<void> {
+    const session = this.session;
+    if (!session || this.privacyCovered || !this.historyHasMore || this.historyLoading) return;
+    if (this.messages.size === 0) {
+      this.historyHasMore = false;
+      return;
+    }
+    const firstSeq = Math.min(...this.messages.keys());
+    if (!Number.isFinite(firstSeq) || firstSeq <= 1) {
+      this.historyHasMore = false;
+      return;
+    }
+    this.historyLoading = true;
+    const previousHeight = list.scrollHeight;
+    try {
+      const older = await loadHistoryPage(session, { limit: 200, beforeSeq: firstSeq });
+      if (older.length < 200) this.historyHasMore = false;
+      for (const message of older) this.messages.set(message.seq, message);
+      this.renderMessages();
+      requestAnimationFrame(() => { list.scrollTop += list.scrollHeight - previousHeight; });
+    } finally {
+      this.historyLoading = false;
+    }
   }
 
   private createMessageElement(message: DecryptedMessage): HTMLElement {
@@ -1687,16 +1871,18 @@ export class QuietRoomApp {
 
   private showRecoveryCode(recoveryCode: string): void {
     this.root.querySelector('.recovery-code-sheet')?.remove();
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const sheet = document.createElement('section');
     sheet.className = 'recovery-code-sheet';
     sheet.setAttribute('role', 'dialog');
     sheet.setAttribute('aria-modal', 'true');
     sheet.setAttribute('aria-labelledby', 'recovery-code-title');
+    sheet.setAttribute('aria-describedby', 'recovery-code-description');
     sheet.innerHTML = `
       <div class="recovery-code-panel">
         <p class="eyebrow">一次性显示</p>
         <h2 id="recovery-code-title">单独保存恢复码</h2>
-        <p>刚下载的恢复文件无法单独解锁。请把下面的恢复码保存在不同的位置；关闭后无法再次查看，只能重新导出一组。</p>
+        <p id="recovery-code-description">刚下载的恢复文件无法单独解锁。请把下面的恢复码保存在不同的位置；关闭后无法再次查看，只能重新导出一组。</p>
         <code></code>
         <div class="recovery-code-actions">
           <button class="secondary-button" type="button" data-copy-code>复制恢复码</button>
@@ -1709,8 +1895,29 @@ export class QuietRoomApp {
     const close = () => {
       recoveryCode = '';
       sheet.remove();
+      previouslyFocused?.focus();
       this.showNotice('恢复文件和恢复码已生成，请分开保存');
     };
+    sheet.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        close();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = [...sheet.querySelectorAll<HTMLElement>('button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])')]
+        .filter((element) => !element.hasAttribute('disabled'));
+      if (focusable.length === 0) return;
+      const first = focusable[0]!;
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
     sheet.querySelector('[data-copy-code]')?.addEventListener('click', async (event) => {
       const button = event.currentTarget as HTMLButtonElement;
       try {
@@ -1758,7 +1965,10 @@ export class QuietRoomApp {
 
   private async loadImage(manifest: ImageManifest): Promise<CachedImage> {
     const existing = this.imageCache.get(manifest.blobId);
-    if (existing) return existing;
+    if (existing) {
+      existing.lastUsedAt = Date.now();
+      return existing;
+    }
     const session = this.session;
     if (!session || this.privacyCovered) throw new Error('会话已锁定');
     const epoch = this.runtimeEpoch;
@@ -1771,8 +1981,16 @@ export class QuietRoomApp {
       signal,
     );
     if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
-    const cached = { blob, url: URL.createObjectURL(blob) };
+    while (this.imageCacheBytes + blob.size > MAX_IMAGE_CACHE_BYTES && this.imageCache.size > 0) {
+      const oldest = [...this.imageCache.entries()].sort(([, left], [, right]) => left.lastUsedAt - right.lastUsedAt)[0];
+      if (!oldest) break;
+      URL.revokeObjectURL(oldest[1].url);
+      this.imageCacheBytes -= oldest[1].bytes;
+      this.imageCache.delete(oldest[0]);
+    }
+    const cached = { blob, url: URL.createObjectURL(blob), bytes: blob.size, lastUsedAt: Date.now() };
     this.imageCache.set(manifest.blobId, cached);
+    this.imageCacheBytes += cached.bytes;
     return cached;
   }
 
@@ -1812,18 +2030,6 @@ export class QuietRoomApp {
       grid.innerHTML = '<div class="gallery-empty"><p>还没有图片</p><span>聊天中的原图和从这里上传的图片都会出现在这里。</span></div>';
       return;
     }
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        const button = entry.target as HTMLButtonElement;
-        observer.unobserve(button);
-        const message = images.find((item) => item.clientMsgId === button.dataset.clientMsgId);
-        if (message && (message.payload.kind === 'image' || message.payload.kind === 'gallery-image')) {
-          void this.populateGalleryTile(button, message.payload.image);
-        }
-      }
-    }, { root: grid, rootMargin: '160px' });
-    this.galleryObserver = observer;
     for (const message of images) {
       if (message.payload.kind !== 'image' && message.payload.kind !== 'gallery-image') continue;
       const manifest = message.payload.image;
@@ -1832,24 +2038,9 @@ export class QuietRoomApp {
       button.className = 'gallery-tile';
       button.dataset.clientMsgId = message.clientMsgId;
       button.setAttribute('aria-label', `查看原图 ${manifest.originalName}`);
-      button.innerHTML = `<span class="tile-loading">正在解密</span><time>${timeLabel(message.payload.sentAt)}</time>`;
+      button.innerHTML = `${icons.image}<span class="tile-loading">打开原图</span><time>${timeLabel(message.payload.sentAt)}</time>`;
       button.addEventListener('click', () => void this.renderImageDetail(manifest));
       grid.append(button);
-      observer.observe(button);
-    }
-  }
-
-  private async populateGalleryTile(button: HTMLButtonElement, manifest: ImageManifest): Promise<void> {
-    try {
-      const cached = await this.loadImage(manifest);
-      const image = document.createElement('img');
-      image.src = cached.url;
-      image.alt = '';
-      button.prepend(image);
-      button.querySelector('.tile-loading')?.remove();
-    } catch {
-      const loading = button.querySelector<HTMLElement>('.tile-loading');
-      if (loading) loading.textContent = '无法载入';
     }
   }
 
@@ -2019,11 +2210,16 @@ export class QuietRoomApp {
     this.retryTimers.clear();
     this.retryCounts.clear();
     this.sending.clear();
+    this.renderedMessages.clear();
+    this.historyHasMore = false;
+    this.historyLoading = false;
     this.draining = false;
     this.receiptDraining = false;
     this.unlocking = false;
+    this.deviceVerificationActive = false;
     for (const cached of this.imageCache.values()) URL.revokeObjectURL(cached.url);
     this.imageCache.clear();
+    this.imageCacheBytes = 0;
     this.connectionState = 'disconnected';
     if (this.idleTimer !== null) window.clearTimeout(this.idleTimer);
     this.idleTimer = null;

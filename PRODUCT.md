@@ -44,10 +44,11 @@ Do not resemble a neon cyber-security dashboard, hacker terminal, crypto trading
 
 ## Local Unlock and Privacy Curtain
 
-- New vaults use a 3 by 3 gesture drawn twice during setup and once during unlock. Four points is the minimum and six or more are recommended. The gesture is a convenience tradeoff, not a claim of stronger security than a strong password.
+- New vaults use a 3 by 3 gesture drawn twice during setup and once during unlock, plus a WebAuthn PRF-capable passkey. Four points is the minimum and six or more are recommended. The gesture is a convenience tradeoff, not a claim of stronger security than a strong password.
+- Both single-device and syncable passkeys are accepted. Backup eligibility is recorded at registration and verified on later assertions; it informs the security properties of the credential but does not make a valid credential fail setup.
 - Legacy password vaults remain accessible and are re-encrypted under a confirmed gesture with a fresh salt immediately after one successful legacy unlock.
 - `visibilitychange` to hidden, window blur, `pagehide`, explicit lock, and idle timeout invoke the same idempotent lock behavior. Visible plaintext, sockets, object URLs, transfers, and decrypted session references are cleared immediately. Returning to the foreground never restores the conversation automatically.
-- The one scoped exception is a user-initiated image picker opened from chat or the creator gallery: picker-generated blur or hidden events do not lock the active session, so confirming an image can continue directly into encrypted upload. The exception ends on selection, cancellation, or a bounded timeout. It never overrides `pagehide`, explicit lock, idle timeout, or a later unrelated blur/background event.
+- Two user-initiated system surfaces may temporarily suppress their own blur or hidden events: the image picker and a passkey prompt. The image-picker exception ends on selection, cancellation, or a bounded timeout. Passkey prompts occur only before a decrypted session is opened and end when the WebAuthn operation settles. Neither exception overrides `pagehide`, explicit lock, idle timeout, or a later unrelated blur/background event.
 
 ## Accessibility & Inclusion
 

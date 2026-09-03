@@ -9,6 +9,15 @@ services:
   quiet-room:
     <<: *quiet-room-image
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    mem_limit: 768m
     environment:
       HOST: 0.0.0.0
       PORT: 8080
@@ -22,6 +31,9 @@ services:
       MAX_CONNECTIONS_PER_ROOM: 8
       MAX_CONNECTIONS_TOTAL: 1000
       INCOMPLETE_BLOB_TTL_MS: 86400000
+      ORPHAN_ROOM_TTL_MS: 86400000
+      TRUSTED_PROXY_ADDRESSES: ${TRUSTED_PROXY_ADDRESSES:-127.0.0.1,::1}
+      PUSH_ALLOWED_HOSTS: ${PUSH_ALLOWED_HOSTS:-fcm.googleapis.com,android.googleapis.com,updates.push.services.mozilla.com,push.services.mozilla.com,web.push.apple.com,*.push.apple.com,*.notify.windows.com}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:security@example.invalid}
@@ -33,6 +45,15 @@ services:
   quiet-room-backup:
     <<: *quiet-room-image
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
     healthcheck:
       disable: true
     depends_on:

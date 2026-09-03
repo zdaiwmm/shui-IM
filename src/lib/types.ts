@@ -76,10 +76,13 @@ export type LegacyStoredVault = {
 
 export type PlatformCredentialRecord = {
   credentialId: string;
+  /** The RP ID used at registration. Optional only for pre-migration vaults. */
+  rpId?: string;
+  origin?: string;
   prfSalt: string;
   transports: AuthenticatorTransport[];
   authenticatorAttachment: AuthenticatorAttachment | null;
-  backupEligible: false;
+  backupEligible: boolean;
   createdAt: string;
 };
 

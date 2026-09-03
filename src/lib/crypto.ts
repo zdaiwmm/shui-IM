@@ -1,6 +1,7 @@
 import { fromBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
 import { generateMlsKeyMaterial } from './mls';
+import { isMessagePayload } from './message-payload';
 import type {
   DeliveryReceipt,
   MessageEnvelope,
@@ -238,31 +239,6 @@ export async function encryptMessage(vault: Vault, payload: MessagePayload, clie
   return { ...unsigned, signature: toBase64Url(signature) };
 }
 
-function isPayload(value: unknown): value is MessagePayload {
-  if (!value || typeof value !== 'object') return false;
-  const payload = value as Record<string, unknown>;
-  if (payload.v !== 1 || typeof payload.sentAt !== 'string' || !Number.isFinite(Date.parse(payload.sentAt))) return false;
-  if (payload.kind === 'text') return typeof payload.text === 'string' && payload.text.length <= 4000;
-  if ((payload.kind === 'image' || payload.kind === 'gallery-image') && payload.image && typeof payload.image === 'object') {
-    const image = payload.image as Record<string, unknown>;
-    return Boolean(
-      image.v === 1 &&
-        typeof image.blobId === 'string' &&
-        /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(image.blobId) &&
-        typeof image.key === 'string' && image.key.length >= 42 && image.key.length <= 64 &&
-        typeof image.ivPrefix === 'string' && image.ivPrefix.length >= 10 && image.ivPrefix.length <= 24 &&
-        image.chunkSize === 2 * 1024 * 1024 &&
-        Number.isSafeInteger(image.chunkCount) && Number(image.chunkCount) >= 1 && Number(image.chunkCount) <= 128 &&
-        Number.isSafeInteger(image.originalSize) && Number(image.originalSize) >= 1 && Number(image.originalSize) <= 256 * 1024 * 1024 &&
-        typeof image.originalName === 'string' && image.originalName.length <= 1024 &&
-        typeof image.mimeType === 'string' && image.mimeType.length <= 255 &&
-        Number.isFinite(image.lastModified) &&
-        typeof image.sha256 === 'string' && /^[0-9a-f]{64}$/i.test(image.sha256)
-    );
-  }
-  return false;
-}
-
 export async function decryptMessage(vault: Vault, envelope: MessageEnvelope): Promise<MessagePayload> {
   if (envelope.v !== 1 || envelope.roomId !== vault.roomId) throw new Error('消息协议或会话不匹配');
   const sender = vault.members.find((member) => member.deviceId === envelope.senderId);
@@ -307,6 +283,6 @@ export async function decryptMessage(vault: Vault, envelope: MessageEnvelope): P
     fromBase64Url(envelope.content.ciphertext),
   );
   const payload: unknown = JSON.parse(decoder.decode(plaintext));
-  if (!isPayload(payload)) throw new Error('消息明文格式不正确');
+  if (!isMessagePayload(payload)) throw new Error('消息明文格式不正确');
   return payload;
 }

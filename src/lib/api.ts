@@ -49,6 +49,10 @@ export async function createRoom(
   return response.json();
 }
 
+export async function deleteRoom(roomId: string, accessToken: string): Promise<void> {
+  await authorizedFetch(`/api/rooms/${roomId}`, accessToken, { method: 'DELETE' });
+}
+
 export async function getRoomState(roomId: string, accessToken: string): Promise<RoomState> {
   const response = await authorizedFetch(`/api/rooms/${roomId}`, accessToken);
   return response.json();
@@ -227,8 +231,17 @@ export class RoomSocket {
   }
 
   private queueMembershipUpdate(operation: () => AsyncSocketHandler): void {
-    this.membershipBarrier = this.membershipBarrier.then(operation);
-    void this.membershipBarrier.catch((cause) => this.reportHandlerFailure(cause));
+    this.membershipBarrier = this.membershipBarrier
+      .then(
+        () => operation(),
+        (cause) => {
+          this.reportHandlerFailure(cause);
+          return operation();
+        },
+      )
+      .catch((cause) => {
+        this.reportHandlerFailure(cause);
+      });
   }
 
   private runAfterMembershipUpdate(operation: () => AsyncSocketHandler): void {

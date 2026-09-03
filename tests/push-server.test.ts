@@ -34,6 +34,7 @@ describe('background wake-up integration', () => {
       pushService: {
         enabled: true,
         publicKey: 'test-public-key',
+        allowedHosts: ['push.example.test'],
         async wake(subscription: unknown) {
           wakes.push(subscription);
           return { delivered: true };

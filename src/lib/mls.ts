@@ -29,6 +29,7 @@ import {
 } from 'ts-mls';
 import { fromBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
+import { isMessagePayload } from './message-payload';
 import type {
   MessagePayload,
   MlsMessageEnvelope,
@@ -172,24 +173,6 @@ function encodeState(state: ClientState): string {
 
 function clearConsumed(consumed: Uint8Array[]): void {
   consumed.forEach(zeroOutUint8Array);
-}
-
-function isMessagePayload(value: unknown): value is MessagePayload {
-  if (!value || typeof value !== 'object') return false;
-  const payload = value as Record<string, unknown>;
-  if (payload.v !== 1 || typeof payload.sentAt !== 'string' || !Number.isFinite(Date.parse(payload.sentAt))) return false;
-  if (payload.kind === 'text') return typeof payload.text === 'string' && payload.text.length <= 4000;
-  if ((payload.kind !== 'image' && payload.kind !== 'gallery-image') || !payload.image || typeof payload.image !== 'object') return false;
-  const image = payload.image as Record<string, unknown>;
-  return Boolean(
-    image.v === 1 &&
-    typeof image.blobId === 'string' && /^[0-9a-f-]{36}$/i.test(image.blobId) &&
-    typeof image.key === 'string' &&
-    typeof image.ivPrefix === 'string' &&
-    Number.isSafeInteger(image.chunkCount) && Number(image.chunkCount) >= 1 && Number(image.chunkCount) <= 128 &&
-    Number.isSafeInteger(image.originalSize) && Number(image.originalSize) >= 1 &&
-    typeof image.sha256 === 'string' && /^[0-9a-f]{64}$/i.test(image.sha256)
-  );
 }
 
 export async function generateMlsKeyMaterial(

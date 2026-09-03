@@ -2,10 +2,10 @@
 set -Eeuo pipefail
 
 readonly ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly SERVER_HOST="${QUIET_ROOM_SERVER_HOST:-8.148.73.100}"
-readonly SERVER_USER="${QUIET_ROOM_SERVER_USER:-admin}"
-readonly SERVER_KEY="${QUIET_ROOM_SERVER_KEY:-$HOME/.ssh/id_ed25519_shui_im_server}"
-readonly GITHUB_KEY="${QUIET_ROOM_GITHUB_KEY:-$HOME/.ssh/id_ed25519_shui_im}"
+readonly SERVER_HOST="${QUIET_ROOM_SERVER_HOST:?Set QUIET_ROOM_SERVER_HOST before deploying}"
+readonly SERVER_USER="${QUIET_ROOM_SERVER_USER:?Set QUIET_ROOM_SERVER_USER before deploying}"
+readonly SERVER_KEY="${QUIET_ROOM_SERVER_KEY:?Set QUIET_ROOM_SERVER_KEY before deploying}"
+readonly GITHUB_KEY="${QUIET_ROOM_GITHUB_KEY:?Set QUIET_ROOM_GITHUB_KEY before deploying}"
 
 cd "$ROOT_DIR"
 
@@ -41,4 +41,3 @@ ssh \
   -i "$SERVER_KEY" \
   "$SERVER_USER@$SERVER_HOST" \
   sudo -n /usr/local/sbin/quiet-room-deploy "$local_sha"
-

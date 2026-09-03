@@ -68,6 +68,7 @@ async function setGesture(page, pattern, touch = false) {
   const draw = touch ? drawTouch : drawMouse;
   await draw(page, pattern);
   await draw(page, pattern);
+  await page.locator('[data-device-verify]').click();
 }
 
 async function unlock(page, pattern) {
@@ -76,7 +77,7 @@ async function unlock(page, pattern) {
   await drawMouse(page, pattern);
 }
 
-async function enableDeviceVault(page) {
+async function enableDeviceVault(page, backupEligible = false) {
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('WebAuthn.enable');
   await cdp.send('WebAuthn.addVirtualAuthenticator', {
@@ -89,8 +90,8 @@ async function enableDeviceVault(page) {
       hasPrf: true,
       automaticPresenceSimulation: true,
       isUserVerified: true,
-      defaultBackupEligibility: false,
-      defaultBackupState: false,
+      defaultBackupEligibility: backupEligible,
+      defaultBackupState: backupEligible,
     },
   });
 }
@@ -129,12 +130,49 @@ try {
   const joinerContext = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
   const creator = await creatorContext.newPage();
   const joiner = await joinerContext.newPage();
-  await Promise.all([enableDeviceVault(creator), enableDeviceVault(joiner)]);
+  await Promise.all([enableDeviceVault(creator), enableDeviceVault(joiner, true)]);
 
   await creator.goto(baseUrl);
   await holdCover(creator);
   await creator.locator('#create-room').click();
-  await setGesture(creator, gestureA);
+  const setupLayout = await creator.evaluate(() => {
+    const gateway = document.querySelector('.gateway-gesture');
+    if (!gateway) return null;
+    const visibleChildren = [...gateway.children]
+      .map((child) => child.getBoundingClientRect())
+      .filter((rect) => rect.height > 0);
+    const contentTop = Math.min(...visibleChildren.map((rect) => rect.top));
+    const contentBottom = Math.max(...visibleChildren.map((rect) => rect.bottom));
+    return {
+      pageOverflow: document.documentElement.scrollHeight > innerHeight,
+      contentOverflow: contentTop < 0 || contentBottom > innerHeight,
+      balanceDelta: Math.abs(contentTop - (innerHeight - contentBottom)),
+    };
+  });
+  invariant(setupLayout && !setupLayout.pageOverflow && !setupLayout.contentOverflow, 'Gesture setup does not fit in one mobile viewport');
+  invariant(setupLayout.balanceDelta < 32, 'Gesture setup is not vertically centered');
+  await creator.evaluate(() => {
+    const originalCreate = navigator.credentials.create.bind(navigator.credentials);
+    let failOnce = true;
+    Object.defineProperty(navigator.credentials, 'create', {
+      configurable: true,
+      value: (options) => {
+        window.dispatchEvent(new Event('blur'));
+        if (failOnce) {
+          failOnce = false;
+          return Promise.reject(new DOMException('simulated cancellation', 'NotAllowedError'));
+        }
+        return originalCreate(options);
+      },
+    });
+  });
+  await drawMouse(creator, gestureA);
+  await drawMouse(creator, gestureA);
+  await creator.locator('[data-device-verify]').click();
+  await creator.getByText('操作未完成，可以直接重试。', { exact: true }).waitFor();
+  invariant(await creator.locator('.cover-trigger').count() === 0, 'Passkey prompt blur unexpectedly activated the privacy curtain');
+  invariant(await creator.locator('.gesture-host').isHidden(), 'A cancelled passkey prompt forced the gesture to be redrawn');
+  await creator.locator('[data-device-verify]').click();
   await creator.locator('.pairing-screen').waitFor({ timeout: 15_000 }).catch(async (error) => {
     const visibleError = await creator.locator('.form-error').textContent().catch(() => '');
     throw new Error(`Creator setup did not finish: ${visibleError || await creator.locator('body').innerText()}`, { cause: error });
@@ -150,6 +188,12 @@ try {
   ]).catch(async (error) => {
     throw new Error(`Pairing did not finish. Creator: ${await creator.locator('body').innerText()} Joiner: ${await joiner.locator('body').innerText()}`, { cause: error });
   });
+  const joinerUsesSyncablePasskey = await joiner.evaluate(async () => {
+    const { readStoredVault } = await import('/src/lib/vault.ts');
+    const stored = await readStoredVault();
+    return stored?.v === 2 && stored.platform.backupEligible;
+  });
+  invariant(joinerUsesSyncablePasskey === true, 'A Chrome-style syncable passkey was not accepted');
   invariant(await creator.locator('#open-gallery').count() === 1, 'Creator cannot see the gallery entry');
   invariant(await joiner.locator('#open-gallery').count() === 0, 'Invited member can see the creator-only gallery entry');
 
@@ -219,8 +263,14 @@ try {
   await galleryInput.setInputFiles({ ...image, name: 'gallery-only.svg' });
   await creator.locator('.gallery-upload-progress').waitFor({ state: 'visible' });
   invariant(await creator.locator('.cover-trigger').count() === 0, 'Gallery upload activated the privacy curtain');
-  await creator.locator('button[aria-label="查看原图 gallery-only.svg"]').waitFor({ timeout: 10_000 });
-  await creator.locator('.gallery-tile img').nth(1).waitFor({ timeout: 10_000 });
+  const galleryOnlyTile = creator.locator('button[aria-label="查看原图 gallery-only.svg"]');
+  await galleryOnlyTile.waitFor({ timeout: 10_000 });
+  // Gallery tiles stay metadata-only until the user asks to view an original;
+  // this prevents a large gallery from eagerly decrypting every image.
+  await galleryOnlyTile.click();
+  await creator.locator('.detail-stage img').waitFor({ timeout: 10_000 });
+  await creator.locator('#detail-back').click();
+  await creator.locator('.gallery-shell').waitFor();
   await creator.unroute('**/chunks/**');
   if (visualQaDirectory) {
     await mkdir(visualQaDirectory, { recursive: true });
@@ -377,7 +427,7 @@ try {
       outbox: (await vaultModule.loadOutbox(session)).map((item) => item.payload.text),
     };
   }, gestureA);
-  invariant(migratedLocalData.unlockMethod === 'platform', 'Legacy vault did not persist the device-bound method');
+  invariant(migratedLocalData.unlockMethod === 'platform', 'Legacy vault did not persist the passkey method');
   invariant(migratedLocalData.history.includes('legacy-local-history'), 'Legacy history was not re-encrypted during migration');
   invariant(migratedLocalData.outbox.includes('legacy-local-outbox'), 'Legacy outbox was not re-encrypted during migration');
 
