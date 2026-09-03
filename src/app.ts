@@ -26,6 +26,7 @@ import {
   verifyJoinProof,
 } from './lib/crypto';
 import { decryptImageFile, encryptImageFile, MAX_IMAGE_BYTES } from './lib/file-crypto';
+import { downloadBlob } from './lib/download';
 import { gestureSecret, GesturePad, RECOMMENDED_GESTURE_POINTS } from './lib/gesture';
 import {
   createCreatorMlsState,
@@ -115,7 +116,14 @@ const icons = {
   lock: '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
   download: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M5 21h14"/></svg>',
   bell: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>',
+  smile: '<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 14.5c1 1.3 2.3 2 4 2s3-.7 4-2"/><path d="M9 9.5h.01M15 9.5h.01"/></svg>',
 };
+
+const composerEmojis = [
+  '😄', '😂', '🥰', '😍', '😎', '🤔', '🥹', '😭',
+  '😡', '👍', '👏', '🙌', '🙏', '❤️', '🎉', '✨',
+  '🔥', '💯', '🌙', '🌹', '🫶', '🫡', '🤗', '😘',
+] as const;
 
 function formPassword(form: HTMLFormElement): string {
   return String(new FormData(form).get('password') ?? '');
@@ -210,6 +218,11 @@ export class QuietRoomApp {
   private historyLoading = false;
   private fileExportActive = false;
   private fileExportResetTimer: number | null = null;
+  private restoreComposerFocusAfterPicker = false;
+  private keepComposerKeyboard = false;
+  private noticeTimer: number | null = null;
+  private noticeRemovalTimer: number | null = null;
+  private pageTransitionTimer: number | null = null;
 
   constructor(private readonly root: HTMLElement) {
     const preventZoom = (event: Event) => event.preventDefault();
@@ -231,15 +244,24 @@ export class QuietRoomApp {
     document.addEventListener('pointerdown', () => this.resetIdleLock(), { capture: true, passive: true });
     document.addEventListener('pointerdown', (event) => {
       const menu = this.root.querySelector<HTMLDetailsElement>('.more-menu[open]');
-      if (menu && event.target instanceof Node && !menu.contains(event.target)) menu.open = false;
+      if (menu && event.target instanceof Node && !menu.contains(event.target)) this.closeMoreMenu(menu);
+      const picker = this.root.querySelector<HTMLElement>('.emoji-picker.is-visible');
+      const composer = this.root.querySelector<HTMLElement>('#composer');
+      if (picker && composer && event.target instanceof Node && !composer.contains(event.target)) this.setEmojiPickerOpen(false);
     }, { capture: true, passive: true });
     document.addEventListener('keydown', (event) => {
       this.resetIdleLock();
       if (event.key !== 'Escape') return;
+      const emojiPicker = this.root.querySelector<HTMLElement>('.emoji-picker.is-visible');
+      if (emojiPicker) {
+        event.preventDefault();
+        this.setEmojiPickerOpen(false);
+        this.root.querySelector<HTMLButtonElement>('#emoji-button')?.focus();
+        return;
+      }
       const menu = this.root.querySelector<HTMLDetailsElement>('.more-menu[open]');
       if (!menu) return;
-      menu.open = false;
-      menu.querySelector<HTMLElement>('summary')?.focus();
+      this.closeMoreMenu(menu, true);
     }, { capture: true });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && !this.imagePickerActive && !this.deviceVerificationActive && !this.fileExportActive) {
@@ -1225,7 +1247,6 @@ export class QuietRoomApp {
         }
       }
       this.renderMessages();
-      this.updateGalleryCount();
       if (requestMore || [...this.serverQueue.keys()].some((seq) => seq > session.vault.lastSeq + 1)) {
         this.socket?.requestSync(session.vault.lastSeq);
       }
@@ -1349,15 +1370,13 @@ export class QuietRoomApp {
     this.root.innerHTML = `
       <section class="chat-shell">
         <header class="chat-header">
-          <div class="peer-summary">
-            <span class="peer-avatar" aria-hidden="true">${icons.lock}</span>
-            <div><h1>私密会话</h1><p id="peer-status">正在确认连接…</p></div>
+          <div class="peer-summary" role="status" aria-live="polite">
+            <span class="connection-orb" aria-hidden="true"></span>
+            <span id="peer-status">连接中</span>
           </div>
           <nav class="header-actions" aria-label="会话操作">
             ${this.session.vault.role === 'creator' ? `
-              <button class="icon-button gallery-button" id="open-gallery" type="button" aria-label="查看相册">
-                ${icons.image}<span id="gallery-count" class="badge" hidden></span>
-              </button>
+              <button class="icon-button gallery-button" id="open-gallery" type="button" aria-label="查看相册">${icons.image}</button>
             ` : ''}
             <details class="more-menu">
               <summary class="icon-button" aria-label="更多操作">${icons.more}</summary>
@@ -1395,11 +1414,18 @@ export class QuietRoomApp {
         <div class="notice" id="notice" role="status" hidden></div>
         <section class="message-list" id="message-list" aria-label="聊天消息"></section>
         <form class="composer" id="composer">
-          <label class="image-picker icon-button${cryptoReady ? '' : ' is-disabled'}" aria-label="发送原图" title="发送原图">
-            ${icons.image}
-            <input id="image-input" type="file" accept="image/*" ${cryptoReady ? '' : 'disabled'} />
-          </label>
-          <label class="composer-field"><span class="sr-only">输入消息</span><textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '输入消息' : '正在建立安全会话…'}" enterkeyhint="send" ${cryptoReady ? '' : 'disabled'}></textarea></label>
+          <div class="emoji-picker" id="emoji-picker" role="dialog" aria-label="选择表情" hidden>
+            <div class="emoji-grid">
+              ${composerEmojis.map((emoji) => `<button type="button" data-emoji="${emoji}" aria-label="插入 ${emoji}">${emoji}</button>`).join('')}
+            </div>
+          </div>
+          <button class="image-picker icon-button${cryptoReady ? '' : ' is-disabled'}" id="open-image-picker" type="button" aria-label="发送原图" title="发送原图" ${cryptoReady ? '' : 'disabled'}>${icons.image}</button>
+          <input id="image-input" type="file" accept="image/*" ${cryptoReady ? '' : 'disabled'} hidden />
+          <div class="composer-field">
+            <label class="sr-only" for="message-input">输入消息</label>
+            <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '输入消息' : '正在建立安全会话…'}" enterkeyhint="send" ${cryptoReady ? '' : 'disabled'}></textarea>
+            <button class="emoji-button" id="emoji-button" type="button" aria-label="选择表情" aria-controls="emoji-picker" aria-expanded="false" ${cryptoReady ? '' : 'disabled'}>${icons.smile}</button>
+          </div>
           <button class="send-button" type="submit" aria-label="发送消息" ${cryptoReady ? '' : 'disabled'}>${icons.send}</button>
           <div class="upload-progress" id="upload-progress" hidden><span></span><output></output></div>
         </form>
@@ -1422,17 +1448,99 @@ export class QuietRoomApp {
       }
     });
     const imageInput = this.root.querySelector<HTMLInputElement>('#image-input');
-    this.mountImagePicker(imageInput, 'chat');
-    this.root.querySelector('#open-gallery')?.addEventListener('click', () => this.renderGallery());
+    const sendButton = this.root.querySelector<HTMLButtonElement>('.send-button');
+    sendButton?.addEventListener('pointerdown', (event) => this.retainComposerKeyboard(event, textarea));
+    this.mountEmojiPicker(textarea);
+    this.mountImagePicker(imageInput, 'chat', this.root.querySelector<HTMLButtonElement>('#open-image-picker'));
+    this.root.querySelector('#open-gallery')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderGallery()));
     this.root.querySelector('#export-recovery')?.addEventListener('click', () => void this.exportRecovery());
     this.root.querySelector('#reminder-export')?.addEventListener('click', () => void this.exportRecovery());
     this.root.querySelector('#lock-room')?.addEventListener('click', () => this.lockNow());
     this.root.querySelector('#toggle-notifications')?.addEventListener('click', () => void this.toggleBackgroundNotifications());
+    const moreMenu = this.root.querySelector<HTMLDetailsElement>('.more-menu');
+    moreMenu?.querySelector('summary')?.addEventListener('click', (event) => {
+      if (!moreMenu.open) return;
+      event.preventDefault();
+      this.closeMoreMenu(moreMenu);
+    });
     this.renderMessages();
-    this.updateGalleryCount();
     this.updatePeerStatus();
     void this.updateSafetyCode();
     void this.updateBackgroundNotificationControl();
+  }
+
+  private retainComposerKeyboard(event: PointerEvent, textarea: HTMLTextAreaElement): void {
+    if (document.activeElement !== textarea) return;
+    this.keepComposerKeyboard = true;
+    event.preventDefault();
+  }
+
+  private restoreComposerFocus(): void {
+    const textarea = this.root.querySelector<HTMLTextAreaElement>('#message-input');
+    if (!textarea || textarea.disabled || this.privacyCovered) return;
+    this.keepComposerKeyboard = false;
+    textarea.focus({ preventScroll: true });
+    const caret = textarea.value.length;
+    textarea.setSelectionRange(caret, caret);
+  }
+
+  private mountEmojiPicker(textarea: HTMLTextAreaElement): void {
+    const button = this.root.querySelector<HTMLButtonElement>('#emoji-button');
+    const picker = this.root.querySelector<HTMLElement>('#emoji-picker');
+    if (!button || !picker) return;
+    button.addEventListener('pointerdown', (event) => this.retainComposerKeyboard(event, textarea));
+    button.addEventListener('click', () => this.setEmojiPickerOpen(!picker.classList.contains('is-visible')));
+    picker.addEventListener('pointerdown', (event) => {
+      if (document.activeElement === textarea || this.keepComposerKeyboard) event.preventDefault();
+    });
+    picker.addEventListener('click', (event) => {
+      const target = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('[data-emoji]') : null;
+      const emoji = target?.dataset.emoji;
+      if (!emoji) return;
+      const start = textarea.selectionStart ?? textarea.value.length;
+      const end = textarea.selectionEnd ?? start;
+      if (textarea.value.length - (end - start) + emoji.length > textarea.maxLength) return;
+      textarea.setRangeText(emoji, start, end, 'end');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      this.restoreComposerFocus();
+    });
+  }
+
+  private setEmojiPickerOpen(open: boolean): void {
+    const picker = this.root.querySelector<HTMLElement>('#emoji-picker');
+    const button = this.root.querySelector<HTMLButtonElement>('#emoji-button');
+    if (!picker || !button) return;
+    button.setAttribute('aria-expanded', String(open));
+    button.classList.toggle('is-active', open);
+    if (open) {
+      picker.hidden = false;
+      requestAnimationFrame(() => picker.classList.add('is-visible'));
+      return;
+    }
+    picker.classList.remove('is-visible');
+    window.setTimeout(() => {
+      if (!picker.classList.contains('is-visible')) picker.hidden = true;
+    }, 220);
+  }
+
+  private closeMoreMenu(menu: HTMLDetailsElement, restoreFocus = false): void {
+    if (menu.classList.contains('is-closing')) return;
+    menu.classList.add('is-closing');
+    window.setTimeout(() => {
+      menu.open = false;
+      menu.classList.remove('is-closing');
+      if (restoreFocus) menu.querySelector<HTMLElement>('summary')?.focus();
+    }, 160);
+  }
+
+  private transitionPage(direction: 'forward' | 'backward', render: () => void): void {
+    if (this.pageTransitionTimer !== null) window.clearTimeout(this.pageTransitionTimer);
+    this.root.dataset.pageTransition = direction;
+    render();
+    this.pageTransitionTimer = window.setTimeout(() => {
+      delete this.root.dataset.pageTransition;
+      this.pageTransitionTimer = null;
+    }, 280);
   }
 
   private async updateBackgroundNotificationControl(): Promise<void> {
@@ -1481,11 +1589,16 @@ export class QuietRoomApp {
     if (!this.session) return;
     const input = this.root.querySelector<HTMLTextAreaElement>('#message-input');
     const text = input?.value.trim() ?? '';
-    if (!text) return;
+    const retainKeyboard = Boolean(input && (document.activeElement === input || this.keepComposerKeyboard));
+    if (!text) {
+      if (retainKeyboard) this.restoreComposerFocus();
+      return;
+    }
     const payload: MessagePayload = { v: 1, kind: 'text', text, sentAt: new Date().toISOString() };
     if (input) {
       input.value = '';
       input.style.height = 'auto';
+      if (retainKeyboard) this.restoreComposerFocus();
     }
     try {
       await this.enqueuePayload(payload);
@@ -1614,20 +1727,42 @@ export class QuietRoomApp {
     }
   }
 
-  private beginImagePicker(): void {
+  private beginImagePicker(restoreComposerFocus = false): void {
     this.imagePickerActive = true;
+    this.restoreComposerFocusAfterPicker = restoreComposerFocus;
     if (this.imagePickerResetTimer !== null) window.clearTimeout(this.imagePickerResetTimer);
     this.imagePickerResetTimer = window.setTimeout(() => this.finishImagePicker(), 5 * 60_000);
   }
 
-  private finishImagePicker(): void {
+  private finishImagePicker(restoreFocus = true): void {
     this.imagePickerActive = false;
     if (this.imagePickerResetTimer !== null) window.clearTimeout(this.imagePickerResetTimer);
     this.imagePickerResetTimer = null;
+    if (restoreFocus && this.restoreComposerFocusAfterPicker) {
+      this.restoreComposerFocusAfterPicker = false;
+      requestAnimationFrame(() => this.restoreComposerFocus());
+    }
   }
 
-  private mountImagePicker(input: HTMLInputElement | null, destination: 'chat' | 'gallery'): void {
-    input?.addEventListener('click', () => this.beginImagePicker());
+  private mountImagePicker(
+    input: HTMLInputElement | null,
+    destination: 'chat' | 'gallery',
+    trigger?: HTMLButtonElement | null,
+  ): void {
+    if (trigger) {
+      trigger.addEventListener('pointerdown', (event) => {
+        const textarea = this.root.querySelector<HTMLTextAreaElement>('#message-input');
+        if (destination === 'chat' && textarea) this.retainComposerKeyboard(event, textarea);
+      });
+      trigger.addEventListener('click', () => {
+        if (!input || input.disabled) return;
+        this.beginImagePicker(destination === 'chat' && this.keepComposerKeyboard);
+        input.click();
+      });
+    }
+    input?.addEventListener('click', () => {
+      if (!this.imagePickerActive) this.beginImagePicker();
+    });
     input?.addEventListener('cancel', () => {
       this.finishImagePicker();
       this.deferredImageUpload = null;
@@ -1639,7 +1774,7 @@ export class QuietRoomApp {
     const input = event.currentTarget as HTMLInputElement;
     const file = input.files?.[0];
     input.value = '';
-    this.finishImagePicker();
+    this.finishImagePicker(!file);
     if (!file) {
       this.deferredImageUpload = null;
       return;
@@ -1648,7 +1783,18 @@ export class QuietRoomApp {
       this.deferredImageUpload = { file, destination };
       return;
     }
-    await this.processImageFile(file, destination);
+    if (destination === 'chat' && this.restoreComposerFocusAfterPicker) {
+      this.restoreComposerFocusAfterPicker = false;
+      requestAnimationFrame(() => this.restoreComposerFocus());
+    }
+    try {
+      await this.processImageFile(file, destination);
+    } finally {
+      if (destination === 'chat' && this.restoreComposerFocusAfterPicker) {
+        this.restoreComposerFocusAfterPicker = false;
+        requestAnimationFrame(() => this.restoreComposerFocus());
+      }
+    }
   }
 
   private async resumeDeferredImage(): Promise<void> {
@@ -1679,8 +1825,11 @@ export class QuietRoomApp {
     const progress = this.root.querySelector<HTMLElement>('#upload-progress');
     const bar = progress?.querySelector<HTMLElement>('span');
     const output = progress?.querySelector<HTMLOutputElement>('output');
+    const uploadControlSelector = destination === 'gallery'
+      ? 'button, textarea, input'
+      : '#open-image-picker, #image-input';
     uploadScope?.classList.add('is-uploading');
-    uploadScope?.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement | HTMLInputElement>('button, textarea, input').forEach((control) => {
+    uploadScope?.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement | HTMLInputElement>(uploadControlSelector).forEach((control) => {
       control.disabled = true;
     });
     if (progress) progress.hidden = false;
@@ -1732,7 +1881,7 @@ export class QuietRoomApp {
     } finally {
       if (!this.isRuntimeActive(epoch, session)) return;
       uploadScope?.classList.remove('is-uploading');
-      uploadScope?.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement | HTMLInputElement>('button, textarea, input').forEach((control) => {
+      uploadScope?.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement | HTMLInputElement>(uploadControlSelector).forEach((control) => {
         control.disabled = false;
       });
       if (progress) progress.hidden = true;
@@ -2061,19 +2210,21 @@ export class QuietRoomApp {
       <section class="gallery-shell">
         <header class="subpage-header gallery-header">
           <button class="icon-button" id="gallery-back" type="button" aria-label="返回聊天">${icons.back}</button>
-          <div><h1>相册</h1><p id="gallery-total">${images.length} 张原图</p></div>
-          <label class="icon-button gallery-upload-button${cryptoReady ? '' : ' is-disabled'}" aria-label="上传图片到相册" title="上传图片到相册">
-            ${icons.upload}
-            <input id="gallery-image-input" type="file" accept="image/*" ${cryptoReady ? '' : 'disabled'} />
-          </label>
+          <div><h1>相册</h1><p id="gallery-total">${images.length > 0 ? `${images.length} 张` : '原图'}</p></div>
+          <button class="icon-button gallery-upload-button${cryptoReady ? '' : ' is-disabled'}" id="open-gallery-image-picker" type="button" aria-label="上传图片到相册" title="上传图片到相册" ${cryptoReady ? '' : 'disabled'}>${icons.upload}</button>
+          <input id="gallery-image-input" type="file" accept="image/*" ${cryptoReady ? '' : 'disabled'} hidden />
         </header>
         <div class="notice gallery-notice" id="notice" role="status" hidden></div>
         <div class="upload-progress gallery-upload-progress" id="upload-progress" hidden><span></span><output></output></div>
         <div class="gallery-grid" id="gallery-grid"></div>
       </section>
     `;
-    this.root.querySelector('#gallery-back')?.addEventListener('click', () => this.renderChat());
-    this.mountImagePicker(this.root.querySelector<HTMLInputElement>('#gallery-image-input'), 'gallery');
+    this.root.querySelector('#gallery-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderChat()));
+    this.mountImagePicker(
+      this.root.querySelector<HTMLInputElement>('#gallery-image-input'),
+      'gallery',
+      this.root.querySelector<HTMLButtonElement>('#open-gallery-image-picker'),
+    );
     const grid = this.root.querySelector<HTMLElement>('#gallery-grid')!;
     if (images.length === 0) {
       grid.innerHTML = '<div class="gallery-empty"><p>还没有图片</p><span>聊天中的原图和从这里上传的图片都会出现在这里。</span></div>';
@@ -2088,7 +2239,7 @@ export class QuietRoomApp {
       button.dataset.clientMsgId = message.clientMsgId;
       button.setAttribute('aria-label', `查看原图 ${manifest.originalName}`);
       button.innerHTML = `${icons.image}<span class="tile-loading">打开原图</span><time>${timeLabel(message.payload.sentAt)}</time>`;
-      button.addEventListener('click', () => void this.renderImageDetail(manifest));
+      button.addEventListener('click', () => this.transitionPage('forward', () => void this.renderImageDetail(manifest)));
       grid.append(button);
     }
     this.mountGalleryThumbnails(grid, images);
@@ -2159,11 +2310,12 @@ export class QuietRoomApp {
           <div><h1 id="detail-name"></h1><p>${this.fileSize(manifest.originalSize)}</p></div>
           <button class="icon-button" id="download-image" type="button" aria-label="下载原图">${icons.download}</button>
         </header>
+        <div class="notice detail-notice" id="notice" role="status" hidden></div>
         <div class="detail-stage"><p id="detail-loading">正在下载并校验原图…</p></div>
       </section>
     `;
     this.root.querySelector<HTMLElement>('#detail-name')!.textContent = manifest.originalName || '原图';
-    this.root.querySelector('#detail-back')?.addEventListener('click', () => this.renderGallery());
+    this.root.querySelector('#detail-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderGallery()));
     try {
       const cached = await this.loadImage(manifest);
       if (!this.isRuntimeActive(epoch, session)) return;
@@ -2172,10 +2324,11 @@ export class QuietRoomApp {
       image.alt = manifest.originalName || '原图';
       this.root.querySelector('.detail-stage')?.replaceChildren(image);
       this.root.querySelector('#download-image')?.addEventListener('click', () => {
-        const anchor = document.createElement('a');
-        anchor.href = cached.url;
-        anchor.download = manifest.originalName || 'image';
-        anchor.click();
+        this.beginFileExport();
+        void downloadBlob(cached.blob, manifest.originalName || 'image').catch((cause) => {
+          this.finishFileExport();
+          this.operationalError(cause, '原图保存失败');
+        });
       });
     } catch (cause) {
       if (!this.isRuntimeActive(epoch, session)) return;
@@ -2197,8 +2350,8 @@ export class QuietRoomApp {
     if (!status || !this.session) return;
     const paired = this.session.vault.members.length === 2;
     const mlsPending = this.session.vault.protocol === 'mls-rfc9420' && this.session.vault.mls?.phase !== 'active';
-    status.textContent = !paired
-      ? '等待另一台设备'
+    const detail = !paired
+      ? '等待另一台设备加入'
       : mlsPending
         ? '正在建立前向保密会话…'
       : this.connectionState === 'connected'
@@ -2208,17 +2361,19 @@ export class QuietRoomApp {
         : this.connectionState === 'connecting'
           ? '正在恢复实时连接…'
           : '离线 · 新消息会在本机排队';
+    status.textContent = !paired
+      ? '待配对'
+      : mlsPending
+        ? '加密中'
+        : this.connectionState === 'connected'
+          ? '在线'
+          : this.connectionState === 'connecting'
+            ? '连接中'
+            : '离线';
+    status.setAttribute('aria-label', detail);
+    status.title = detail;
     status.dataset.state = this.connectionState;
-  }
-
-  private updateGalleryCount(): void {
-    const badge = this.root.querySelector<HTMLElement>('#gallery-count');
-    if (!badge) return;
-    const count = [...this.messages.values(), ...this.pending.values()]
-      .filter((message) => message.payload.kind === 'image' || message.payload.kind === 'gallery-image')
-      .length;
-    badge.textContent = String(count);
-    badge.hidden = count === 0;
+    status.parentElement?.setAttribute('data-state', this.connectionState);
   }
 
   private async updateSafetyCode(): Promise<void> {
@@ -2234,11 +2389,23 @@ export class QuietRoomApp {
   private showNotice(message: string, tone: 'error' | 'info' = 'info'): void {
     const notice = this.root.querySelector<HTMLElement>('#notice');
     if (!notice) return;
+    if (this.noticeTimer !== null) window.clearTimeout(this.noticeTimer);
+    if (this.noticeRemovalTimer !== null) window.clearTimeout(this.noticeRemovalTimer);
     notice.hidden = false;
     notice.dataset.tone = tone;
     notice.textContent = message;
-    window.setTimeout(() => {
-      if (notice.textContent === message) notice.hidden = true;
+    notice.classList.remove('is-visible', 'is-leaving');
+    requestAnimationFrame(() => notice.classList.add('is-visible'));
+    this.noticeTimer = window.setTimeout(() => {
+      if (notice.textContent !== message) return;
+      notice.classList.remove('is-visible');
+      notice.classList.add('is-leaving');
+      this.noticeRemovalTimer = window.setTimeout(() => {
+        if (notice.textContent === message && !notice.classList.contains('is-visible')) notice.hidden = true;
+        notice.classList.remove('is-leaving');
+        this.noticeRemovalTimer = null;
+      }, 220);
+      this.noticeTimer = null;
     }, 5000);
   }
 
@@ -2312,6 +2479,15 @@ export class QuietRoomApp {
     this.renderedMessages.clear();
     this.historyHasMore = false;
     this.historyLoading = false;
+    if (this.noticeTimer !== null) window.clearTimeout(this.noticeTimer);
+    if (this.noticeRemovalTimer !== null) window.clearTimeout(this.noticeRemovalTimer);
+    if (this.pageTransitionTimer !== null) window.clearTimeout(this.pageTransitionTimer);
+    this.noticeTimer = null;
+    this.noticeRemovalTimer = null;
+    this.pageTransitionTimer = null;
+    delete this.root.dataset.pageTransition;
+    this.restoreComposerFocusAfterPicker = false;
+    this.keepComposerKeyboard = false;
     this.finishFileExport();
     this.draining = false;
     this.receiptDraining = false;

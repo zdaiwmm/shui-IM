@@ -157,6 +157,7 @@ try {
   invariant(setupLayout.balanceDelta < 32, 'Gesture setup is not vertically centered');
   invariant(setupLayout.horizontalCenterDelta < 1, 'Gesture pad is not horizontally centered');
   invariant(setupLayout.liveSegmentHidden, 'Gesture trace rendered a stray point before interaction');
+  invariant(await creator.locator('.gesture-actions').count() === 0, 'Gesture screen still shows redundant clear/complete actions');
   await creator.evaluate(() => {
     const originalCreate = navigator.credentials.create.bind(navigator.credentials);
     let failOnce = true;
@@ -202,13 +203,54 @@ try {
   invariant(joinerUsesSyncablePasskey === true, 'A Chrome-style syncable passkey was not accepted');
   invariant(await creator.locator('#open-gallery').count() === 1, 'Creator cannot see the gallery entry');
   invariant(await joiner.locator('#open-gallery').count() === 0, 'Invited member can see the creator-only gallery entry');
+  invariant(await creator.locator('#gallery-count').count() === 0, 'Gallery entry still renders a numeric badge');
+  await creator.waitForTimeout(280);
+  const composerLayout = await creator.evaluate(() => {
+    const composer = document.querySelector('.composer')?.getBoundingClientRect();
+    const input = document.querySelector('#message-input')?.getBoundingClientRect();
+    return {
+      composerVisible: Boolean(composer && composer.height >= 44 && composer.bottom <= innerHeight + 1),
+      inputVisible: Boolean(input && input.width > 0 && input.height >= 42 && input.bottom <= innerHeight + 1),
+      composer: composer ? { top: composer.top, bottom: composer.bottom, width: composer.width, height: composer.height } : null,
+      input: input ? { top: input.top, bottom: input.bottom, width: input.width, height: input.height } : null,
+      innerHeight,
+      chromeColor: document.querySelector('#system-chrome-color')?.getAttribute('content'),
+    };
+  });
+  invariant(composerLayout.composerVisible && composerLayout.inputVisible, `Bottom chat composer is clipped or missing: ${JSON.stringify(composerLayout)}`);
+  invariant(Boolean(composerLayout.chromeColor), 'System browser chrome color is not synchronized');
+  const keyboardViewportLayout = await creator.evaluate(async () => {
+    document.documentElement.style.setProperty('--app-top', '40px');
+    document.documentElement.style.setProperty('--app-height', '460px');
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const app = document.querySelector('#app')?.getBoundingClientRect();
+    const composer = document.querySelector('.composer')?.getBoundingClientRect();
+    const input = document.querySelector('#message-input')?.getBoundingClientRect();
+    const result = {
+      appBottom: app?.bottom,
+      composerBottom: composer?.bottom,
+      inputBottom: input?.bottom,
+      composerHeight: composer?.height,
+    };
+    document.documentElement.style.setProperty('--app-top', '0px');
+    document.documentElement.style.setProperty('--app-height', `${innerHeight}px`);
+    return result;
+  });
+  invariant(
+    Math.abs((keyboardViewportLayout.composerBottom ?? 0) - 500) < 1
+      && (keyboardViewportLayout.inputBottom ?? 501) <= 500
+      && (keyboardViewportLayout.composerHeight ?? 0) >= 44,
+    `Composer did not follow the simulated iOS keyboard viewport: ${JSON.stringify(keyboardViewportLayout)}`,
+  );
   await creator.locator('.more-menu summary').click();
   await creator.locator('.message-list').click({ position: { x: 8, y: 8 } });
+  await creator.waitForTimeout(180);
   invariant(!await creator.locator('.more-menu').evaluate((menu) => menu.hasAttribute('open')), 'Safety menu did not dismiss after an outside click');
 
   const startedAt = Date.now();
   await creator.locator('#message-input').fill('browser-e2e-live');
-  await creator.locator('#composer').evaluate((form) => form.requestSubmit());
+  await creator.locator('.send-button').click();
+  invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Send button dismissed the composer keyboard focus');
   await joiner.getByText('browser-e2e-live', { exact: true }).waitFor({ timeout: 3000 });
   await creator.getByText(/对端已安全接收/).waitFor({ timeout: 3000 });
   const deliveryMs = Date.now() - startedAt;
@@ -247,14 +289,38 @@ try {
     mimeType: 'image/svg+xml',
     buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240"><rect width="320" height="240" fill="#0a84ff"/><circle cx="160" cy="120" r="54" fill="#ffffff"/></svg>'),
   };
+  await creator.locator('#message-input').focus();
+  await creator.locator('#image-input').evaluate((element) => {
+    element.addEventListener('click', (event) => event.preventDefault(), { capture: true, once: true });
+  });
+  await creator.locator('#open-image-picker').click();
+  invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Gallery button dismissed the composer keyboard focus');
+  const retainedFocusImageIndex = await creator.locator('.message.outgoing .image-preview').count();
+  await creator.locator('#image-input').setInputFiles({ ...image, name: 'keyboard-retained.svg' });
+  await creator.locator('.message.outgoing .image-preview').nth(retainedFocusImageIndex).waitFor({ timeout: 10_000 });
+  invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Selecting an image dismissed the composer keyboard focus');
+  await creator.locator('#emoji-button').click();
+  await creator.locator('.emoji-picker.is-visible').waitFor();
+  await creator.waitForTimeout(240);
+  if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'emoji-mobile.png') });
+  await creator.locator('[data-emoji]').first().click();
+  invariant(await creator.locator('#message-input').inputValue() === '😄', 'Emoji picker did not insert the selected emoji');
+  invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Emoji selection dismissed the composer keyboard focus');
+  await creator.locator('#message-input').fill('');
+  await creator.locator('#emoji-button').click();
   const detachedInput = await creator.locator('#image-input').elementHandle();
   invariant(detachedInput, 'Image input is missing');
+  const directImageCreatorIndex = await creator.locator('.message.outgoing .image-preview').count();
+  const directImageJoinerIndex = await joiner.locator('.message.incoming .image-preview').count();
   await beginSyntheticFilePicker(detachedInput);
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
   invariant(await creator.locator('.chat-shell').count() === 1, 'Image picker blur unexpectedly activated the privacy curtain');
   invariant(await creator.locator('.cover-trigger').count() === 0, 'Image picker blur covered the chat');
   await detachedInput.setInputFiles(image);
-  await joiner.locator('.message.incoming .image-preview').waitFor({ timeout: 10_000 });
+  await Promise.all([
+    creator.locator('.message.outgoing .image-preview').nth(directImageCreatorIndex).waitFor({ timeout: 10_000 }),
+    joiner.locator('.message.incoming .image-preview').nth(directImageJoinerIndex).waitFor({ timeout: 10_000 }),
+  ]);
 
   const imageCount = await joiner.locator('.message.incoming .image-preview').count();
   const creatorChatImageCount = await creator.locator('.message.outgoing .image-preview').count();
@@ -280,6 +346,8 @@ try {
   await creator.locator('.detail-stage img').waitFor({ timeout: 10_000 });
   await creator.locator('#detail-back').click();
   await creator.locator('.gallery-shell').waitFor();
+  await creator.locator('.gallery-tile img').first().waitFor({ timeout: 10_000 });
+  await creator.waitForTimeout(280);
   await creator.unroute('**/chunks/**');
   if (visualQaDirectory) {
     await mkdir(visualQaDirectory, { recursive: true });
@@ -290,6 +358,7 @@ try {
   }
   await creator.locator('#gallery-back').click();
   await creator.locator('.chat-shell').waitFor();
+  await creator.waitForTimeout(280);
   if (visualQaDirectory) {
     await creator.screenshot({ path: path.join(visualQaDirectory, 'chat-mobile.png') });
     await creator.setViewportSize({ width: 1200, height: 900 });
@@ -340,10 +409,12 @@ try {
   await joiner.locator('.message.incoming .image-preview').nth(imageCount).waitFor({ timeout: 15_000 });
 
   await creator.locator('.more-menu summary').click();
+  const recoveryUrlBeforeDownload = creator.url();
   const recoveryDownloadPromise = creator.waitForEvent('download');
   await creator.locator('#export-recovery').click();
   const recoveryPath = await (await recoveryDownloadPromise).path();
   invariant(recoveryPath, 'Recovery package download did not produce a file');
+  invariant(creator.url() === recoveryUrlBeforeDownload, 'Recovery download navigated away from the app');
   const recoveryCode = await creator.locator('.recovery-code-panel code').textContent();
   invariant(recoveryCode?.startsWith('QR2-'), 'Recovery code was not shown separately from the package');
   await creator.locator('[data-close-code]').click();

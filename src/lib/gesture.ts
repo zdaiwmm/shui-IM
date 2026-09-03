@@ -61,10 +61,6 @@ export class GesturePad {
         `).join('')}
       </div>
       <p class="gesture-count" role="status" aria-live="polite">尚未选择点</p>
-      <div class="gesture-actions">
-        <button type="button" data-gesture-clear>清除</button>
-        <button type="button" data-gesture-complete>完成</button>
-      </div>
     `;
     this.pad = host.querySelector<HTMLElement>('.gesture-pad')!;
     this.path = host.querySelector<SVGPolylineElement>('polyline')!;
@@ -77,6 +73,15 @@ export class GesturePad {
     this.pad.addEventListener('pointermove', (event) => this.handlePointerMove(event), { signal });
     this.pad.addEventListener('pointerup', (event) => this.handlePointerUp(event), { signal });
     this.pad.addEventListener('pointercancel', () => this.clear(), { signal });
+    this.pad.addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      this.clear();
+    }, { signal });
+    this.pad.addEventListener('focusout', (event) => {
+      if (event.relatedTarget instanceof Node && this.pad.contains(event.relatedTarget)) return;
+      if (this.pattern.length > 0) this.finish();
+    }, { signal });
     for (const point of this.points) {
       point.addEventListener('click', (event) => {
         if (event.detail !== 0) return;
@@ -84,8 +89,6 @@ export class GesturePad {
         this.addPoint(Number(point.dataset.point));
       }, { signal });
     }
-    host.querySelector('[data-gesture-clear]')?.addEventListener('click', () => this.clear(), { signal });
-    host.querySelector('[data-gesture-complete]')?.addEventListener('click', () => this.finish(), { signal });
     // SVG lines default to (0, 0). Hide the live segment before the first
     // pointer interaction so it cannot render as a stray accent-colored dot.
     this.render();

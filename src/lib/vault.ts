@@ -1,5 +1,6 @@
 import { argon2id } from 'hash-wasm';
 import { fromBase64Url, toBase64Url } from './base64';
+import { downloadBlob } from './download';
 import {
   createPlatformCredential,
   unlockPlatformCredential,
@@ -324,12 +325,10 @@ export async function downloadVaultDiagnostic(): Promise<void> {
     unlockMethod: typeof record?.unlockMethod === 'string' ? record.unlockMethod : null,
     valid: validateStoredVault(value),
   };
-  const url = URL.createObjectURL(new Blob([JSON.stringify(diagnostic, null, 2)], { type: 'application/json' }));
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = `quiet-room-vault-diagnostic-${new Date().toISOString().slice(0, 10)}.json`;
-  anchor.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  await downloadBlob(
+    new Blob([JSON.stringify(diagnostic, null, 2)], { type: 'application/json' }),
+    `quiet-room-vault-diagnostic-${new Date().toISOString().slice(0, 10)}.json`,
+  );
 }
 
 export async function createVault(
@@ -584,12 +583,10 @@ export async function downloadRecoveryPackage(session: VaultSession): Promise<Re
       ciphertext: toBase64Url(ciphertext),
     },
   }, null, 2);
-  const url = URL.createObjectURL(new Blob([body], { type: 'application/json' }));
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = `quiet-room-recovery-${new Date().toISOString().slice(0, 10)}.json`;
-  anchor.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  await downloadBlob(
+    new Blob([body], { type: 'application/json' }),
+    `quiet-room-recovery-${new Date().toISOString().slice(0, 10)}.json`,
+  );
   return { exportedAt, recoveryCode: displayCode };
 }
 

@@ -1,6 +1,14 @@
 import './styles.css';
 import { QuietRoomApp } from './app';
 
+const colorScheme = window.matchMedia('(prefers-color-scheme: dark)');
+const syncSystemChrome = () => {
+  const theme = document.querySelector<HTMLMetaElement>('#system-chrome-color');
+  if (theme) theme.content = colorScheme.matches ? '#292c34' : '#f4f6fa';
+};
+syncSystemChrome();
+colorScheme.addEventListener('change', syncSystemChrome);
+
 const root = document.querySelector<HTMLElement>('#app');
 if (!root) throw new Error('Application root is missing');
 
