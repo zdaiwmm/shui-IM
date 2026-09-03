@@ -86,6 +86,9 @@ export class GesturePad {
     }
     host.querySelector('[data-gesture-clear]')?.addEventListener('click', () => this.clear(), { signal });
     host.querySelector('[data-gesture-complete]')?.addEventListener('click', () => this.finish(), { signal });
+    // SVG lines default to (0, 0). Hide the live segment before the first
+    // pointer interaction so it cannot render as a stray accent-colored dot.
+    this.render();
   }
 
   destroy(): void {

@@ -208,20 +208,50 @@ export class QuietRoomApp {
   private galleryObserver: IntersectionObserver | null = null;
   private historyHasMore = false;
   private historyLoading = false;
+  private fileExportActive = false;
+  private fileExportResetTimer: number | null = null;
 
   constructor(private readonly root: HTMLElement) {
+    const preventZoom = (event: Event) => event.preventDefault();
+    const syncVisualViewport = () => {
+      const viewport = window.visualViewport;
+      document.documentElement.style.setProperty('--app-height', `${Math.round(viewport?.height ?? window.innerHeight)}px`);
+      document.documentElement.style.setProperty('--app-top', `${Math.round(viewport?.offsetTop ?? 0)}px`);
+    };
+    syncVisualViewport();
+    window.visualViewport?.addEventListener('resize', syncVisualViewport, { passive: true });
+    window.visualViewport?.addEventListener('scroll', syncVisualViewport, { passive: true });
+    window.addEventListener('resize', syncVisualViewport, { passive: true });
+    document.addEventListener('gesturestart', preventZoom, { passive: false });
+    document.addEventListener('gesturechange', preventZoom, { passive: false });
+    document.addEventListener('gestureend', preventZoom, { passive: false });
+    document.addEventListener('wheel', (event) => {
+      if (event.ctrlKey || event.metaKey) event.preventDefault();
+    }, { passive: false });
     document.addEventListener('pointerdown', () => this.resetIdleLock(), { capture: true, passive: true });
-    document.addEventListener('keydown', () => this.resetIdleLock(), { capture: true });
+    document.addEventListener('pointerdown', (event) => {
+      const menu = this.root.querySelector<HTMLDetailsElement>('.more-menu[open]');
+      if (menu && event.target instanceof Node && !menu.contains(event.target)) menu.open = false;
+    }, { capture: true, passive: true });
+    document.addEventListener('keydown', (event) => {
+      this.resetIdleLock();
+      if (event.key !== 'Escape') return;
+      const menu = this.root.querySelector<HTMLDetailsElement>('.more-menu[open]');
+      if (!menu) return;
+      menu.open = false;
+      menu.querySelector<HTMLElement>('summary')?.focus();
+    }, { capture: true });
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && !this.imagePickerActive && !this.deviceVerificationActive) {
+      if (document.hidden && !this.imagePickerActive && !this.deviceVerificationActive && !this.fileExportActive) {
         this.lockNow({ preserveFilePicker: this.filePickerActive });
       }
     });
     window.addEventListener('blur', () => {
-      if (!this.imagePickerActive && !this.deviceVerificationActive) {
+      if (!this.imagePickerActive && !this.deviceVerificationActive && !this.fileExportActive) {
         this.lockNow({ preserveFilePicker: this.filePickerActive });
       }
     });
+    window.addEventListener('focus', () => this.finishFileExport());
     window.addEventListener('pagehide', () => {
       this.finishImagePicker();
       this.lockNow({ preserveFilePicker: false });
@@ -1320,7 +1350,7 @@ export class QuietRoomApp {
       <section class="chat-shell">
         <header class="chat-header">
           <div class="peer-summary">
-            <span class="peer-avatar" aria-hidden="true">二</span>
+            <span class="peer-avatar" aria-hidden="true">${icons.lock}</span>
             <div><h1>私密会话</h1><p id="peer-status">正在确认连接…</p></div>
           </div>
           <nav class="header-actions" aria-label="会话操作">
@@ -1798,6 +1828,7 @@ export class QuietRoomApp {
       return;
     }
     this.historyLoading = true;
+    list.dataset.historyLoading = 'true';
     const previousHeight = list.scrollHeight;
     try {
       const older = await loadHistoryPage(session, { limit: 200, beforeSeq: firstSeq });
@@ -1807,6 +1838,7 @@ export class QuietRoomApp {
       requestAnimationFrame(() => { list.scrollTop += list.scrollHeight - previousHeight; });
     } finally {
       this.historyLoading = false;
+      delete list.dataset.historyLoading;
     }
   }
 
@@ -1857,6 +1889,7 @@ export class QuietRoomApp {
     if (!session || this.privacyCovered) return;
     const epoch = this.runtimeEpoch;
     try {
+      this.beginFileExport();
       const recovery = await downloadRecoveryPackage(session);
       if (!this.isRuntimeActive(epoch, session)) return;
       session.vault.recoveryExportedAt = recovery.exportedAt;
@@ -1865,8 +1898,23 @@ export class QuietRoomApp {
       this.showRecoveryCode(recovery.recoveryCode);
       this.root.querySelector('.recovery-reminder')?.remove();
     } catch (cause) {
+      this.finishFileExport();
       this.operationalError(cause, '恢复包导出失败');
     }
+  }
+
+  private beginFileExport(): void {
+    this.fileExportActive = true;
+    if (this.fileExportResetTimer !== null) window.clearTimeout(this.fileExportResetTimer);
+    // Safari can briefly blur the page while handing a generated file to the
+    // download surface. Bound the exception tightly so later blurs still lock.
+    this.fileExportResetTimer = window.setTimeout(() => this.finishFileExport(), 1800);
+  }
+
+  private finishFileExport(): void {
+    this.fileExportActive = false;
+    if (this.fileExportResetTimer !== null) window.clearTimeout(this.fileExportResetTimer);
+    this.fileExportResetTimer = null;
   }
 
   private showRecoveryCode(recoveryCode: string): void {
@@ -1894,6 +1942,7 @@ export class QuietRoomApp {
     this.root.append(sheet);
     const close = () => {
       recoveryCode = '';
+      this.finishFileExport();
       sheet.remove();
       previouslyFocused?.focus();
       this.showNotice('恢复文件和恢复码已生成，请分开保存');
@@ -2042,6 +2091,56 @@ export class QuietRoomApp {
       button.addEventListener('click', () => void this.renderImageDetail(manifest));
       grid.append(button);
     }
+    this.mountGalleryThumbnails(grid, images);
+  }
+
+  private mountGalleryThumbnails(grid: HTMLElement, messages: DecryptedMessage[]): void {
+    const session = this.session;
+    if (!session) return;
+    const epoch = this.runtimeEpoch;
+    const manifests = new Map<string, ImageManifest>();
+    for (const message of messages) {
+      if (message.payload.kind === 'image' || message.payload.kind === 'gallery-image') {
+        manifests.set(message.clientMsgId, message.payload.image);
+      }
+    }
+    const loadThumbnail = async (tile: HTMLButtonElement) => {
+      const manifest = manifests.get(tile.dataset.clientMsgId ?? '');
+      if (!manifest || tile.dataset.thumbnailState === 'loading' || tile.dataset.thumbnailState === 'loaded') return;
+      tile.dataset.thumbnailState = 'loading';
+      tile.querySelector<HTMLElement>('.tile-loading')!.textContent = '正在载入…';
+      try {
+        const cached = await this.loadImage(manifest);
+        if (!this.isRuntimeActive(epoch, session) || !tile.isConnected) return;
+        const image = document.createElement('img');
+        image.src = cached.url;
+        image.alt = manifest.originalName || '相册图片';
+        image.decoding = 'async';
+        const time = tile.querySelector('time');
+        tile.replaceChildren(image);
+        if (time) tile.append(time);
+        tile.dataset.thumbnailState = 'loaded';
+      } catch (cause) {
+        if (!this.isRuntimeActive(epoch, session) || !tile.isConnected) return;
+        tile.dataset.thumbnailState = 'error';
+        const label = tile.querySelector<HTMLElement>('.tile-loading');
+        if (label) label.textContent = cause instanceof Error ? cause.message : '载入失败，点按重试';
+      }
+    };
+
+    if (!('IntersectionObserver' in window)) {
+      grid.querySelectorAll<HTMLButtonElement>('.gallery-tile').forEach((tile) => void loadThumbnail(tile));
+      return;
+    }
+    this.galleryObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const tile = entry.target as HTMLButtonElement;
+        this.galleryObserver?.unobserve(tile);
+        void loadThumbnail(tile);
+      }
+    }, { root: grid, rootMargin: '240px 0px', threshold: 0.01 });
+    grid.querySelectorAll<HTMLButtonElement>('.gallery-tile').forEach((tile) => this.galleryObserver?.observe(tile));
   }
 
   private async renderImageDetail(manifest: ImageManifest): Promise<void> {
@@ -2213,6 +2312,7 @@ export class QuietRoomApp {
     this.renderedMessages.clear();
     this.historyHasMore = false;
     this.historyLoading = false;
+    this.finishFileExport();
     this.draining = false;
     this.receiptDraining = false;
     this.unlocking = false;

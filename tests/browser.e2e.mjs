@@ -143,14 +143,20 @@ try {
       .filter((rect) => rect.height > 0);
     const contentTop = Math.min(...visibleChildren.map((rect) => rect.top));
     const contentBottom = Math.max(...visibleChildren.map((rect) => rect.bottom));
+    const pad = gateway.querySelector('.gesture-pad')?.getBoundingClientRect();
+    const liveSegment = gateway.querySelector('.gesture-trace line');
     return {
       pageOverflow: document.documentElement.scrollHeight > innerHeight,
       contentOverflow: contentTop < 0 || contentBottom > innerHeight,
       balanceDelta: Math.abs(contentTop - (innerHeight - contentBottom)),
+      horizontalCenterDelta: pad ? Math.abs((pad.left + pad.right) / 2 - innerWidth / 2) : Number.POSITIVE_INFINITY,
+      liveSegmentHidden: liveSegment?.getAttribute('visibility') === 'hidden',
     };
   });
   invariant(setupLayout && !setupLayout.pageOverflow && !setupLayout.contentOverflow, 'Gesture setup does not fit in one mobile viewport');
   invariant(setupLayout.balanceDelta < 32, 'Gesture setup is not vertically centered');
+  invariant(setupLayout.horizontalCenterDelta < 1, 'Gesture pad is not horizontally centered');
+  invariant(setupLayout.liveSegmentHidden, 'Gesture trace rendered a stray point before interaction');
   await creator.evaluate(() => {
     const originalCreate = navigator.credentials.create.bind(navigator.credentials);
     let failOnce = true;
@@ -196,6 +202,9 @@ try {
   invariant(joinerUsesSyncablePasskey === true, 'A Chrome-style syncable passkey was not accepted');
   invariant(await creator.locator('#open-gallery').count() === 1, 'Creator cannot see the gallery entry');
   invariant(await joiner.locator('#open-gallery').count() === 0, 'Invited member can see the creator-only gallery entry');
+  await creator.locator('.more-menu summary').click();
+  await creator.locator('.message-list').click({ position: { x: 8, y: 8 } });
+  invariant(!await creator.locator('.more-menu').evaluate((menu) => menu.hasAttribute('open')), 'Safety menu did not dismiss after an outside click');
 
   const startedAt = Date.now();
   await creator.locator('#message-input').fill('browser-e2e-live');
@@ -265,8 +274,8 @@ try {
   invariant(await creator.locator('.cover-trigger').count() === 0, 'Gallery upload activated the privacy curtain');
   const galleryOnlyTile = creator.locator('button[aria-label="查看原图 gallery-only.svg"]');
   await galleryOnlyTile.waitFor({ timeout: 10_000 });
-  // Gallery tiles stay metadata-only until the user asks to view an original;
-  // this prevents a large gallery from eagerly decrypting every image.
+  await galleryOnlyTile.locator('img').waitFor({ timeout: 10_000 });
+  invariant(await galleryOnlyTile.getAttribute('data-thumbnail-state') === 'loaded', 'Visible gallery thumbnail did not decrypt and render');
   await galleryOnlyTile.click();
   await creator.locator('.detail-stage img').waitFor({ timeout: 10_000 });
   await creator.locator('#detail-back').click();
@@ -434,6 +443,11 @@ try {
   const accessibility = await recovery.evaluate(() => {
     const textarea = document.querySelector('#message-input');
     textarea?.focus();
+    const shell = document.querySelector('.chat-shell')?.getBoundingClientRect();
+    const header = document.querySelector('.chat-header')?.getBoundingClientRect();
+    const composer = document.querySelector('.composer')?.getBoundingClientRect();
+    const messageList = document.querySelector('.message-list');
+    const composerField = document.querySelector('.composer-field');
     const canvas = document.createElement('canvas');
     canvas.width = 1;
     canvas.height = 1;
@@ -455,19 +469,39 @@ try {
     };
     return {
       overflow: document.documentElement.scrollWidth > innerWidth,
+      verticalOverflow: document.documentElement.scrollHeight > innerHeight,
       outline: textarea ? getComputedStyle(textarea).outlineStyle : 'missing',
+      outlineColor: textarea ? getComputedStyle(textarea).outlineColor : 'missing',
+      composerFieldOutline: composerField ? getComputedStyle(composerField).outlineStyle : 'missing',
+      headerOffset: shell && header ? Math.abs(header.top - shell.top) : Number.POSITIVE_INFINITY,
+      composerOffset: shell && composer ? Math.abs(composer.bottom - shell.bottom) : Number.POSITIVE_INFINITY,
+      messageOverflow: messageList ? getComputedStyle(messageList).overflowY : 'missing',
+      viewport: document.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? '',
       faintTextContrast: contrast(rgb('--ink-faint'), rgb('--paper-pure')),
       strongLineContrast: contrast(rgb('--line-strong'), rgb('--paper-pure')),
       undersized: [...document.querySelectorAll('button, summary, .image-picker, .gallery-upload-button')]
-        .map((element) => element.getBoundingClientRect())
-        .filter((rect) => rect.width > 0 && rect.height > 0 && (rect.width < 44 || rect.height < 44)).length,
+        .map((element) => {
+          const rect = element.getBoundingClientRect();
+          return {
+            element: `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''}${[...element.classList].map((name) => `.${name}`).join('')}`,
+            width: rect.width,
+            height: rect.height,
+          };
+        })
+        .filter((item) => item.width > 0 && item.height > 0 && (item.width < 44 || item.height < 44)),
     };
   });
   invariant(!accessibility.overflow, 'Mobile layout has horizontal overflow');
+  invariant(!accessibility.verticalOverflow, 'The document scrolls instead of the message region');
   invariant(accessibility.outline !== 'none', 'Composer focus is not visible');
+  invariant(accessibility.outlineColor === 'rgba(0, 0, 0, 0)', `Composer textarea retained a colored focus outline: ${accessibility.outlineColor}`);
+  invariant(accessibility.composerFieldOutline === 'none', 'Composer field retained the second focus outline');
+  invariant(accessibility.headerOffset < 1 && accessibility.composerOffset < 1, 'Chat header or composer is not fixed to the shell');
+  invariant(accessibility.messageOverflow === 'auto', 'Messages are not the dedicated vertical scroll region');
+  invariant(accessibility.viewport.includes('user-scalable=no') && accessibility.viewport.includes('maximum-scale=1'), 'Browser zoom is not disabled');
   invariant(accessibility.faintTextContrast >= 4.5, `Faint text contrast is ${accessibility.faintTextContrast}`);
   invariant(accessibility.strongLineContrast >= 3, `Control boundary contrast is ${accessibility.strongLineContrast}`);
-  invariant(accessibility.undersized === 0, 'A visible control is smaller than 44 by 44 CSS pixels');
+  invariant(accessibility.undersized.length === 0, `A visible control is smaller than 44 by 44 CSS pixels: ${JSON.stringify(accessibility.undersized)}`);
 
   await Promise.all([creatorContext.close(), joinerContext.close(), recoveryContext.close(), legacyContext.close()]);
   process.stdout.write(`Browser E2E passed; local signed delivery ${deliveryMs} ms.\n`);
