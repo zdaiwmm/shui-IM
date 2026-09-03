@@ -1,2 +1,0 @@
-deploy ALL=(root) NOPASSWD: /usr/local/sbin/quiet-room-deploy *
-

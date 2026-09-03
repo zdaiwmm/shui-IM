@@ -21,7 +21,7 @@ The implementation includes:
 
 Read [SECURITY.md](./SECURITY.md), [OPERATIONS.md](./OPERATIONS.md), and [PRODUCTION_SECURITY_GATE.md](./PRODUCTION_SECURITY_GATE.md) before deployment. New rooms use RFC 9420 MLS, but the browser library declares that it has not undergone a formal security audit, and a web client cannot fully defend itself if its hosting server actively replaces the delivered JavaScript. The public high-security release gate is therefore not yet cleared.
 
-Production releases are commit-pinned, manually triggered, backed up before cutover, health checked, and automatically rolled back on failure. See [DEPLOYMENT.md](./DEPLOYMENT.md) for the GitHub Actions and direct-SSH workflow.
+Production releases are commit-pinned, manually triggered from a trusted computer, backed up before cutover, health checked, and automatically rolled back on failure. See [DEPLOYMENT.md](./DEPLOYMENT.md) for the GitHub CI and direct-SSH workflow.
 
 ## Requirements
 
