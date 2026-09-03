@@ -13,6 +13,13 @@ function invariant(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+async function beginSyntheticFilePicker(input) {
+  await input.evaluate((element) => {
+    element.addEventListener('click', (event) => event.preventDefault(), { capture: true, once: true });
+    element.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+  });
+}
+
 async function holdCover(page) {
   const box = await page.locator('.cover-trigger').boundingBox();
   invariant(box, 'Privacy-curtain trigger is missing');
@@ -113,7 +120,9 @@ try {
   browser = await chromium.launch(
     process.env.CHROME_PATH
       ? { headless: true, executablePath: process.env.CHROME_PATH }
-      : { headless: true, channel: 'chrome' },
+      : process.env.CI
+        ? { headless: true }
+        : { headless: true, channel: 'chrome' },
   );
 
   const creatorContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -187,7 +196,7 @@ try {
   };
   const detachedInput = await creator.locator('#image-input').elementHandle();
   invariant(detachedInput, 'Image input is missing');
-  await detachedInput.evaluate((input) => input.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  await beginSyntheticFilePicker(detachedInput);
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
   invariant(await creator.locator('.chat-shell').count() === 1, 'Image picker blur unexpectedly activated the privacy curtain');
   invariant(await creator.locator('.cover-trigger').count() === 0, 'Image picker blur covered the chat');
@@ -200,7 +209,7 @@ try {
   await creator.locator('.gallery-shell').waitFor();
   const galleryInput = await creator.locator('#gallery-image-input').elementHandle();
   invariant(galleryInput, 'Gallery upload input is missing');
-  await galleryInput.evaluate((input) => input.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  await beginSyntheticFilePicker(galleryInput);
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
   invariant(await creator.locator('.gallery-shell').count() === 1, 'Gallery image picker blur unexpectedly activated the privacy curtain');
   await creator.route('**/chunks/**', async (route) => {
@@ -239,17 +248,15 @@ try {
   );
 
   const cancelledInput = await creator.locator('#image-input').elementHandle();
-  await cancelledInput.evaluate((input) => {
-    input.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    input.dispatchEvent(new Event('cancel'));
-  });
+  await beginSyntheticFilePicker(cancelledInput);
+  await cancelledInput.evaluate((input) => input.dispatchEvent(new Event('cancel')));
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
   await creator.locator('.cover-trigger').waitFor();
   await unlock(creator, gestureA);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
 
   const discardedInput = await creator.locator('#image-input').elementHandle();
-  await discardedInput.evaluate((input) => input.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  await beginSyntheticFilePicker(discardedInput);
   await creator.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
   await creator.locator('.cover-trigger').waitFor();
   await unlock(creator, gestureA);
