@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly ORIGINAL_COMMAND="${SSH_ORIGINAL_COMMAND:-}"
+
+if [[ ! "$ORIGINAL_COMMAND" =~ ^deploy[[:space:]]([0-9a-f]{40})$ ]]; then
+  printf 'Only "deploy <40-character-main-commit>" is permitted.\n' >&2
+  exit 64
+fi
+
+exec sudo -n /usr/local/sbin/quiet-room-deploy "${BASH_REMATCH[1]}"
+

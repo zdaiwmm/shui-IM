@@ -1,0 +1,50 @@
+x-quiet-room-image: &quiet-room-image
+  image: ${QUIET_ROOM_IMAGE:-quiet-room:local}
+  build:
+    context: .
+    args:
+      NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org}
+
+services:
+  quiet-room:
+    <<: *quiet-room-image
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      DATA_DIR: /app/data
+      MAX_BLOB_BYTES: 268437504
+      MAX_ROOM_STORAGE_BYTES: 1073741824
+      MAX_TOTAL_STORAGE_BYTES: 10737418240
+      MAX_INCOMPLETE_BLOBS: 4
+      MAX_MESSAGES_PER_ROOM: 100000
+      MAX_ROOM_MESSAGE_BYTES: 536870912
+      MAX_CONNECTIONS_PER_ROOM: 8
+      MAX_CONNECTIONS_TOTAL: 1000
+      INCOMPLETE_BLOB_TTL_MS: 86400000
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:security@example.invalid}
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - quiet-room-data:/app/data
+
+  quiet-room-backup:
+    <<: *quiet-room-image
+    restart: unless-stopped
+    depends_on:
+      quiet-room:
+        condition: service_healthy
+    command: ["node", "scripts/backup-loop.mjs"]
+    environment:
+      DATA_DIR: /app/data
+      BACKUP_DIR: /app/backups
+      BACKUP_INTERVAL_MS: ${BACKUP_INTERVAL_MS:-86400000}
+      BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-14}
+    volumes:
+      - quiet-room-data:/app/data:ro
+      - ${QUIET_ROOM_BACKUP_DIR:-./backups}:/app/backups
+
+volumes:
+  quiet-room-data:

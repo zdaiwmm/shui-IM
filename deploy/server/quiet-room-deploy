@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 027
+
+readonly APP_ROOT=/opt/quiet-room
+readonly REPOSITORY="$APP_ROOT/repository.git"
+readonly RELEASES="$APP_ROOT/git-releases"
+readonly STATE_DIR="$APP_ROOT/deploy-state"
+readonly BACKUP_DIR="$APP_ROOT/backups/predeploy"
+readonly SHARED_ENV="$APP_ROOT/shared/production.env"
+readonly PROJECT=quiet-room
+readonly DATA_VOLUME=quiet-room_quiet-room-data
+readonly LOCAL_HEALTH_URL=http://127.0.0.1:8080/api/health
+readonly PUBLIC_HEALTH_URL=https://chat.mijiu.cloud/api/health
+readonly GIT_SSH_COMMAND_VALUE='ssh -o BatchMode=yes -o IdentitiesOnly=yes -i /home/deploy/.ssh/github_shui_im'
+
+readonly REQUESTED_SHA="${1:-}"
+if [[ ! "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+  printf 'A lowercase 40-character Git commit is required.\n' >&2
+  exit 64
+fi
+
+exec 9>/run/lock/quiet-room-deploy.lock
+if ! flock -n 9; then
+  printf 'Another Quiet Room deployment is already running.\n' >&2
+  exit 75
+fi
+
+for required in docker git runuser curl tar flock; do
+  command -v "$required" >/dev/null || {
+    printf 'Missing required command: %s\n' "$required" >&2
+    exit 69
+  }
+done
+
+[[ -d "$REPOSITORY" ]] || {
+  printf 'Missing deployment repository: %s\n' "$REPOSITORY" >&2
+  exit 66
+}
+
+[[ -f "$SHARED_ENV" ]] || {
+  printf 'Missing production environment file: %s\n' "$SHARED_ENV" >&2
+  exit 66
+}
+
+install -d -o deploy -g deploy -m 0750 "$RELEASES"
+install -d -m 0750 "$STATE_DIR" "$BACKUP_DIR"
+
+runuser -u deploy -- env GIT_SSH_COMMAND="$GIT_SSH_COMMAND_VALUE" \
+  git --git-dir="$REPOSITORY" fetch --prune origin refs/heads/main:refs/heads/main
+
+resolved_sha="$(runuser -u deploy -- git --git-dir="$REPOSITORY" rev-parse "$REQUESTED_SHA^{commit}")"
+if [[ "$resolved_sha" != "$REQUESTED_SHA" ]]; then
+  printf 'The requested object is not the exact commit supplied.\n' >&2
+  exit 65
+fi
+
+if ! runuser -u deploy -- git --git-dir="$REPOSITORY" merge-base --is-ancestor "$REQUESTED_SHA" refs/heads/main; then
+  printf 'Refusing to deploy a commit that is not on origin/main.\n' >&2
+  exit 65
+fi
+
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+short_sha="${REQUESTED_SHA:0:12}"
+release_dir="$RELEASES/$stamp-$short_sha"
+new_image="quiet-room-app:$REQUESTED_SHA"
+
+if [[ -e "$release_dir" ]]; then
+  printf 'Release directory already exists: %s\n' "$release_dir" >&2
+  exit 73
+fi
+
+runuser -u deploy -- git --git-dir="$REPOSITORY" worktree add --detach "$release_dir" "$REQUESTED_SHA"
+
+docker build \
+  --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
+  --tag "$new_image" \
+  "$release_dir"
+
+previous_image="$(docker inspect quiet-room-quiet-room-1 --format '{{.Config.Image}}' 2>/dev/null || true)"
+previous_release="$(readlink -f "$APP_ROOT/current" 2>/dev/null || true)"
+if [[ -n "$previous_release" && -f "$previous_release/compose.yaml" ]]; then
+  previous_compose="$previous_release/compose.yaml"
+else
+  previous_compose="$APP_ROOT/compose.yaml"
+fi
+
+cutover_started=0
+
+wait_for_health() {
+  local attempt
+  for attempt in $(seq 1 30); do
+    if curl --fail --silent --show-error --max-time 3 "$LOCAL_HEALTH_URL" | grep -q '"ok":true'; then
+      return 0
+    fi
+    sleep 2
+  done
+  return 1
+}
+
+rollback() {
+  local exit_code="$1"
+  trap - ERR
+  set +e
+  printf 'Deployment failed; restoring the previous container image.\n' >&2
+  QUIET_ROOM_IMAGE="$new_image" docker compose \
+    --project-name "$PROJECT" \
+    --env-file "$SHARED_ENV" \
+    --file "$release_dir/compose.yaml" \
+    stop
+  if [[ -n "$previous_image" && -f "$previous_compose" ]]; then
+    QUIET_ROOM_IMAGE="$previous_image" docker compose \
+      --project-name "$PROJECT" \
+      --env-file "$SHARED_ENV" \
+      --file "$previous_compose" \
+      up --detach --no-build --remove-orphans
+    wait_for_health || printf 'WARNING: rollback container did not become healthy.\n' >&2
+  else
+    printf 'WARNING: no previous image was available for automatic rollback.\n' >&2
+  fi
+  exit "$exit_code"
+}
+
+trap 'exit_code=$?; if (( cutover_started )); then rollback "$exit_code"; else exit "$exit_code"; fi' ERR
+
+mapfile -t running_containers < <(
+  docker ps --quiet --filter "label=com.docker.compose.project=$PROJECT"
+)
+
+cutover_started=1
+if (( ${#running_containers[@]} > 0 )); then
+  docker stop "${running_containers[@]}"
+fi
+
+backup_name="data-$stamp-$short_sha.tar.gz"
+backup_image="${previous_image:-$new_image}"
+docker run --rm --user 0 \
+  --volume "$DATA_VOLUME:/data:ro" \
+  --volume "$BACKUP_DIR:/backup" \
+  "$backup_image" \
+  sh -c "tar -czf '/backup/$backup_name' -C /data ."
+
+QUIET_ROOM_IMAGE="$new_image" docker compose \
+  --project-name "$PROJECT" \
+  --env-file "$SHARED_ENV" \
+  --file "$release_dir/compose.yaml" \
+  up --detach --no-build --remove-orphans
+
+wait_for_health
+curl --fail --silent --show-error --max-time 5 "$PUBLIC_HEALTH_URL" | grep -q '"ok":true'
+
+docker run --rm --network host "$new_image" node --input-type=module -e \
+  "import WebSocket from 'ws'; const w=new WebSocket('wss://chat.mijiu.cloud/ws',{headers:{Origin:'https://chat.mijiu.cloud'}}); const t=setTimeout(()=>process.exit(2),5000); w.on('open',()=>w.close()); w.on('close',()=>{clearTimeout(t);process.exit(0)}); w.on('error',()=>process.exit(1));"
+
+ln -sfn "$release_dir" "$APP_ROOT/current"
+printf '%s\n' "$REQUESTED_SHA" > "$STATE_DIR/current-sha"
+printf '%s\n' "$stamp" > "$STATE_DIR/deployed-at"
+docker image tag "$new_image" quiet-room-app:production
+
+cutover_started=0
+trap - ERR
+
+printf 'DEPLOY_OK sha=%s release=%s backup=%s\n' \
+  "$REQUESTED_SHA" "$release_dir" "$BACKUP_DIR/$backup_name"
