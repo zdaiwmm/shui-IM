@@ -53,4 +53,4 @@ jobs:
 
       # Still required for a green run. Keep registry outages from hiding test results.
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high --fetch-timeout=30000 --fetch-retries=2
+        run: node scripts/audit-production.mjs

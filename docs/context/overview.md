@@ -37,6 +37,7 @@
 - `npm run test:browser`：串行运行 `package.json` 中列出的真实浏览器脚本。
 - `npm run check:full`：运行 `check`，然后运行浏览器套件。
 - `npm run test:calls`：通话专项入口。除了部分 Vitest 用例，还包括 `call-native.e2e.mjs`、`call-view.e2e.mjs`。它们在 CI 中独立运行；本地 `check:full` 后仍需补跑该入口。
+- `node scripts/audit-production.mjs`：使用 npm 官方源审计生产依赖；仅对明确的临时接口故障最多尝试三次。high/critical 漏洞、无效报告和接口持续不可用均阻断 CI。
 
 两个容易误判的细节：
 
