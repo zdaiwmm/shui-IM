@@ -1,3 +1,5 @@
+import type { LocalBackupState, RecoverySource } from './backup-types';
+
 export type PublicBundle = {
   deviceId: string;
   encryptionKey: JsonWebKey;
@@ -114,6 +116,10 @@ export type Vault = {
     checkpointEventSeq: number;
   };
   recoveryExportedAt?: string;
+  /** Device-local secrets. Never include in a recovery checkpoint or API request. */
+  backup?: LocalBackupState;
+  /** Only carried through an explicitly decrypted device recovery. */
+  recoverySource?: RecoverySource;
   historyUnavailableBeforeSeq?: number;
   createdAt: string;
   protocol?: 'legacy-v1' | 'mls-rfc9420';

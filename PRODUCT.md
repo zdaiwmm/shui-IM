@@ -6,7 +6,7 @@ product
 
 ## Users
 
-Two trusted people use the product from mobile or desktop browsers and installed PWAs. Each person may authorize up to three independently keyed devices. They need a quiet private channel for exchanging text and original-quality images without creating accounts. They expect the interface to stay concealed until intentionally unlocked, and they accept that losing both the local vault and recovery package makes history unrecoverable.
+Two trusted people use the product from mobile or desktop browsers and installed PWAs. Each person may authorize up to three independently keyed devices. They need a quiet private channel for exchanging text and original-quality images without creating accounts. They expect the interface to stay concealed until intentionally unlocked, and they accept that losing both the usable local vault and recovery code makes history unrecoverable.
 
 ## Product Purpose
 
@@ -121,12 +121,15 @@ Do not resemble a neon cyber-security dashboard, hacker terminal, crypto trading
 
 ## Recovery Setup
 
-- An unconfirmed recovery setup appears as a compact pinned-message reminder below the chat header. Dismissing it records an encrypted per-device preference; exporting remains available in the menu.
-- Preparing recovery immediately displays the independent recovery code. The user saves the encrypted package, then confirms both parts have been stored separately before the vault records completed recovery setup. Download initiation alone does not count as completion.
-
-- MLS recovery uses the old package only to prove ownership and authorize a fresh device identity. Another active, trusted device must be online to commit the replacement; every other active device must support the recovery protocol. The original device is temporarily fenced during the request and permanently revoked when replacement succeeds.
-- Recovery starts at a new message/receipt boundary. It does not import old IndexedDB history or reuse checkpoint sending keys. The replacement receives new messages, and must save a new recovery package and code. A pending request expires after at most 15 minutes; an expired request releases the original device and must be restarted.
-- Full local history remains available through bounded paging: a reply can find its exact older local message outside the currently loaded page, and the creator gallery offers earlier locally saved media separately from the chat window.
+- Unlocked, online MLS devices automatically back up their recovery checkpoint and local history as ciphertext. Backup status, retry, local recovery-code viewing and optional history restore live in “备份与恢复”; manual recovery-file import/export controls are removed.
+- A reminder can be dismissed through an encrypted local preference. It directs users to save their QR3 code separately; only the current device stores that code, encrypted in its vault. Viewing it requires fresh passkey verification and closes the active conversation first. The code screen locks after one minute or privacy teardown.
+- A QR3 code locates the corresponding server backup and decrypts it locally. The server and administrator never receive the code or decryption keys. Forgotten code plus lost devices has no administrator bypass.
+- MLS recovery proves the original identity but creates a fresh device, token and leaf. Another trusted active device must be online; all active devices need protocol support. Pending recovery fences the original for at most 15 minutes; success permanently revokes it.
+- After replacement, rotate the code immediately. Persist the exact new encrypted wrapper and all retained archive keys locally before upload. Atomically retire the old online entry only when the new wrapper and archive transfer are stored. Failed or ambiguous uploads retry the same request; expose the new code as active only after confirmation.
+- Recovery opens at a new message/receipt boundary without loading old history or reusing an old sending ratchet. Users explicitly request historical chat or creator gallery restore and enter the current new code again. Gallery-only restore must not create old chat bubbles or reply previews. Normal linked devices receive no archive secrets.
+- Historical attachments still depend on retained original ciphertext and download only when viewed/saved. Codes and copied old backups can still decrypt offline after rotation; no remote destruction is promised. Foreground-only backups can lag the latest message.
+- Old QR2 files require migration from a still-usable original device or trusted legacy recovery flow before switching to QR3. The current UI has no legacy file-import entry. See [RECOVERY_BACKUPS.md](./RECOVERY_BACKUPS.md) for migration limits, scope separation and failure behavior.
+- Full local history remains available through bounded paging. Room-based administration on `sao.shui.click` uses a strong administrator password plus TOTP and exposes metadata only. Clearing a whole room requires fresh factors and exact room-ID confirmation; administrator credentials never recover user content.
 
 ## Accessibility & Inclusion
 

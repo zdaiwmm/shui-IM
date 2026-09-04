@@ -4,6 +4,8 @@ import { downloadBlob } from './download';
 import { generateIdentity } from './crypto';
 import { createRecoveryRequest } from './mls';
 import { isMessagePayload } from './message-payload';
+import type { CloudRecoveryBundle } from './backup-types';
+import { parseCloudRecoveryCode } from './backup-crypto';
 import {
   createPlatformCredential,
   unlockPlatformCredential,
@@ -25,7 +27,7 @@ import type {
 } from './types';
 
 const DB_NAME = 'quiet-room';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const PLATFORM_PAYLOAD_AAD = encoder.encode('quiet-room-vault-payload-v2');
@@ -141,6 +143,11 @@ function openDatabase(): Promise<IDBDatabase> {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const database = request.result;
+      if (!database.objectStoreNames.contains('restoredGallery')) {
+        const gallery = database.createObjectStore('restoredGallery', { keyPath: 'id' });
+        gallery.createIndex('roomId', 'roomId', { unique: false });
+        gallery.createIndex('roomSeq', ['roomId', 'seq'], { unique: false });
+      }
       if (!database.objectStoreNames.contains('vault')) database.createObjectStore('vault');
       if (!database.objectStoreNames.contains('history')) {
         const history = database.createObjectStore('history', { keyPath: 'id' });
@@ -164,7 +171,7 @@ function openDatabase(): Promise<IDBDatabase> {
 }
 
 async function transaction<T>(
-  storeName: 'vault' | 'history' | 'security' | LocalStore,
+  storeName: 'vault' | 'history' | 'restoredGallery' | 'security' | LocalStore,
   mode: IDBTransactionMode,
   action: (store: IDBObjectStore) => IDBRequest<T>,
   expectedVault?: StoredVault,
@@ -767,11 +774,14 @@ async function prepareRecoveryPackageLocked(session: VaultSession, mutation: Vau
     masterBytes,
   );
   masterBytes.fill(0);
+  const exportVault = structuredClone(session.vault);
+  delete exportVault.backup;
+  delete exportVault.recoverySource;
   const body = JSON.stringify({
     format: 'quiet-room-recovery',
     version: 3,
     exportedAt,
-    payload: session.stored.payload,
+    payload: await encryptPayload(exportVault, session.key),
     recovery: {
       salt: toBase64Url(salt),
       iv: toBase64Url(iv),
@@ -817,12 +827,91 @@ export async function unlockRecoveryVault(recoveryCode: string): Promise<VaultSe
   return withVaultLifecycle(() => unlockRecoveryVaultLocked(recoveryCode));
 }
 
+/** Install only a locally authenticated cloud checkpoint. Never install old MLS sender state as an active device. */
+export async function installCloudRecovery(bundle: CloudRecoveryBundle, recoveryBytes: Uint8Array<ArrayBuffer>, expected: StoredVault | null, signal: AbortSignal): Promise<VaultSession> {
+  return withVaultLifecycle(async () => {
+    signal.throwIfAborted();
+    if (!sameStoredVault(await readStoredVaultUnlocked(), expected)) throw staleVaultError();
+    const vault = structuredClone(bundle.checkpoint);
+    delete vault.backup;
+    vault.recoverySource = { backupId: bundle.backupId, archives: structuredClone(bundle.archives) };
+    const masterBytes = crypto.getRandomValues(new Uint8Array(32));
+    const key = await importMasterKey(masterBytes);
+    const salt = crypto.getRandomValues(new Uint8Array(32));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const exportedAt = new Date().toISOString();
+    try {
+      const kek = await recoveryKek(recoveryBytes, salt);
+      const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv,
+        additionalData: encoder.encode(`quiet-room-recovery-v3:${exportedAt}`), tagLength: 128 }, kek, masterBytes);
+      const stored: StoredRecoveryVault = { v: 3, unlockMethod: 'recovery', exportedAt,
+        payload: await encryptPayload(vault, key), recovery: { salt: toBase64Url(salt), iv: toBase64Url(iv), ciphertext: toBase64Url(ciphertext) } };
+      signal.throwIfAborted();
+      const database = await openDatabase();
+      await new Promise<void>((resolve, reject) => {
+        const tx = database.transaction('vault', 'readwrite');
+        const current = tx.objectStore('vault').get('current');
+        current.onsuccess = () => {
+          const actual = validateStoredVault(current.result) ? current.result : null;
+          if (signal.aborted || !sameStoredVault(actual, expected)) { tx.abort(); return; }
+          tx.objectStore('vault').put(stored, 'current');
+        };
+        const abort = () => { try { tx.abort(); } catch { /* settled */ } };
+        signal.addEventListener('abort', abort, { once: true });
+        const release = () => { signal.removeEventListener('abort', abort); database.close(); };
+        tx.oncomplete = () => { release(); resolve(); };
+        tx.onabort = () => { release(); reject(signal.reason ?? tx.error ?? staleVaultError()); };
+        tx.onerror = () => reject(tx.error);
+      });
+      return { vault, key, stored };
+    } finally { masterBytes.fill(0); recoveryBytes.fill(0); }
+  });
+}
+
+/** Imported content never advances MLS, network cursors, receipts, or an ordinary linked device's access. */
+export async function importArchivedMessages(session: VaultSession, messages: DecryptedMessage[], scope: 'chat' | 'gallery', signal?: AbortSignal): Promise<number> {
+  return withVaultMutation(session, async () => {
+    signal?.throwIfAborted();
+    const storeName = scope === 'gallery' ? 'restoredGallery' : 'history';
+    const records: StoredHistory[] = [];
+    for (const message of messages) {
+      if (!Number.isSafeInteger(message.seq) || message.seq < 1 || !isMessagePayload(message.payload) ||
+          typeof message.clientMsgId !== 'string' || typeof message.senderId !== 'string' || typeof message.acceptedAt !== 'string') throw new Error('历史备份记录不正确');
+      const galleryOnly = message.payload.kind === 'gallery-image' || message.payload.kind === 'gallery-file';
+      if (scope === 'chat' && galleryOnly) continue;
+      if (scope === 'gallery' && !['image', 'image-album', 'gallery-image', 'gallery-file'].includes(message.payload.kind)) continue;
+      const previous = await transaction<StoredHistory | undefined>(storeName, 'readonly', store => store.get(`${session.vault.roomId}:${message.seq}`));
+      if (previous) {
+        const old = (await decryptHistoryRecords(session, [previous]))[0];
+        if (!old || old.clientMsgId !== message.clientMsgId || old.senderId !== message.senderId || JSON.stringify(old.payload) !== JSON.stringify(message.payload)) throw new Error('历史记录与本机数据冲突');
+        continue;
+      }
+      records.push(await encryptHistoryRecord(session, message));
+    }
+    signal?.throwIfAborted();
+    const database = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const tx = database.transaction(['vault', storeName], 'readwrite');
+      const current = tx.objectStore('vault').get('current');
+      current.onsuccess = () => { if (!sameStoredVault(current.result, session.stored) || signal?.aborted) tx.abort(); };
+      for (const record of records) tx.objectStore(storeName).put(record);
+      const abort = () => { try { tx.abort(); } catch { /* already complete */ } };
+      signal?.addEventListener('abort', abort, { once: true });
+      const release = () => { signal?.removeEventListener('abort', abort); database.close(); };
+      tx.oncomplete = () => { release(); resolve(); };
+      tx.onabort = () => { release(); reject(signal?.reason ?? tx.error ?? staleVaultError()); };
+      tx.onerror = () => reject(tx.error);
+    });
+    return records.length;
+  });
+}
+
 async function unlockRecoveryVaultLocked(recoveryCode: string): Promise<VaultSession> {
   const stored = await readStoredVaultUnlocked();
   if (!stored || stored.unlockMethod !== 'recovery') throw new Error('本机没有等待恢复的保险库');
   await enforceUnlockThrottle();
   try {
-    const codeBytes = parseRecoveryCode(recoveryCode);
+    const codeBytes = recoveryCode.trim().startsWith('QR3-') ? parseCloudRecoveryCode(recoveryCode).secret : parseRecoveryCode(recoveryCode);
     const kek = await recoveryKek(codeBytes, fromBase64Url(stored.recovery.salt));
     const plaintext = await crypto.subtle.decrypt(
       {
@@ -1074,10 +1163,7 @@ export async function loadMediaHistoryPage(
   if (upper < 1) return { messages: [], beforeSeq: null, hasMore: false };
   const database = await openDatabase();
   const records = await new Promise<StoredHistory[]>((resolve, reject) => {
-    const tx = database.transaction('history', 'readonly');
-    const request = tx.objectStore('history').index('roomSeq').openCursor(
-      IDBKeyRange.bound([session.vault.roomId, 1], [session.vault.roomId, upper]), 'prev',
-    );
+    const tx = database.transaction(['history', 'restoredGallery'], 'readonly');
     const collected: StoredHistory[] = [];
     const abort = () => { try { tx.abort(); } catch { /* The readonly transaction has already finished. */ } };
     const release = () => {
@@ -1086,15 +1172,20 @@ export async function loadMediaHistoryPage(
     };
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) abort();
-    request.onsuccess = () => {
-      const cursor = request.result;
-      if (!cursor || collected.length > boundedLimit) return;
-      collected.push(cursor.value as StoredHistory);
-      cursor.continue();
-    };
+    for (const name of ['history', 'restoredGallery']) {
+      const request = tx.objectStore(name).index('roomSeq').openCursor(
+        IDBKeyRange.bound([session.vault.roomId, 1], [session.vault.roomId, upper]), 'prev');
+      let count = 0;
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor || count++ > boundedLimit) return;
+        collected.push(cursor.value as StoredHistory);
+        cursor.continue();
+      };
+    }
     tx.onabort = () => { release(); reject(signal?.reason ?? tx.error ?? new DOMException('History scan aborted', 'AbortError')); };
     tx.onerror = () => { release(); reject(tx.error); };
-    tx.oncomplete = () => { release(); resolve(collected); };
+    tx.oncomplete = () => { release(); resolve([...new Map(collected.map(record => [record.seq, record])).values()].sort((a, b) => b.seq - a.seq)); };
   });
   signal?.throwIfAborted();
   const page = records.slice(0, boundedLimit);
@@ -1320,7 +1411,7 @@ export async function finishVaultRecovery(session: VaultSession, nextVault: Vaul
   const nextStored: StoredPlatformVault = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const stores = ['vault', 'history', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
+    const stores = ['vault', 'history', 'restoredGallery', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
     const tx = database.transaction(stores, 'readwrite');
     putCurrentVault(tx, nextStored, session.stored);
     for (const name of stores.slice(1)) {

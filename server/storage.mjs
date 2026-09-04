@@ -4,6 +4,7 @@ import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { canonicalStringify, isCanonicalUtcTimestamp } from './protocol.mjs';
+import { createCloudBackups } from './cloud-backups.mjs';
 
 function nowIso() {
   return new Date().toISOString();
@@ -287,6 +288,7 @@ export async function createStore({
   }
   db.exec("UPDATE blobs SET updated_at = created_at WHERE updated_at = ''");
 
+  const cloudBackups = createCloudBackups(db, { authenticatedDevice });
   const statements = {
     insertRoom: db.prepare('INSERT INTO rooms(room_id, access_hash, created_at, protocol) VALUES (?, ?, ?, ?)'),
     insertMember: db.prepare(`INSERT INTO members(
@@ -1237,13 +1239,23 @@ export async function createStore({
     return removed;
   }
 
+  async function cleanupDeletedRooms() {
+    for (const roomId of cloudBackups.pendingCleanup()) {
+      // The room row is already gone, fencing new writers. Drain writes that
+      // had passed authentication before the delete, then remove originals.
+      await Promise.allSettled([...blobLocks.entries()].filter(([key]) => key.startsWith(`${roomId}:`)).map(([, promise]) => promise));
+      await rm(path.join(blobDir, roomId), { recursive: true, force: true });
+      cloudBackups.finishCleanup(roomId);
+    }
+  }
+
   function cleanupOrphanRooms(cutoffIso) {
     const rooms = statements.orphanRooms.all(cutoffIso);
     let removed = 0;
     db.exec('BEGIN IMMEDIATE');
     try {
       for (const room of rooms) {
-        removed += db.prepare('DELETE FROM rooms WHERE room_id = ? AND sealed_at IS NULL').run(room.room_id).changes;
+        removed += db.prepare('DELETE FROM rooms WHERE room_id = ? AND sealed_at IS NULL AND NOT EXISTS (SELECT 1 FROM recovery_backups WHERE room_id = rooms.room_id)').run(room.room_id).changes;
       }
       db.exec('COMMIT');
       return removed;
@@ -1272,6 +1284,8 @@ export async function createStore({
   }
 
   return {
+    cloudBackups,
+    cleanupDeletedRooms,
     authenticate,
     authenticateInvite,
     authenticatedDevice,
