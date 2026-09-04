@@ -196,6 +196,9 @@ describe('HTTP and WebSocket integration', () => {
       joinerClient.waitFor((frame) => frame.type === 'presence'),
     ]);
     expect(creatorLeft.every((frame) => !frame.roles.creator && frame.roles.joiner)).toBe(true);
+    expect(creatorLeft[0].lastSeen.creator).toBeGreaterThan(Date.now() - 5000);
+    expect(creatorLeft[0].lastSeen.joiner).toBeNull();
+    expect(creatorLeft[1].lastSeen.creator).toBe(creatorLeft[0].lastSeen.creator);
 
     const secretText = 'SERVER_MUST_NEVER_SEE_THIS_PLAINTEXT';
     const firstEnvelope = await encryptMessage(creatorVault, {

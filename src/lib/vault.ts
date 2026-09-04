@@ -59,7 +59,7 @@ export type ChatScrollAnchor = {
 
 export type UiPreferences = {
   chatAnchor?: ChatScrollAnchor;
-  favoriteExpressions: string[];
+  recoveryReminderDismissed?: boolean;
 };
 
 type UnlockThrottle = {
@@ -602,7 +602,9 @@ function parseRecoveryCode(value: string): Uint8Array<ArrayBuffer> {
   return bytes;
 }
 
-export async function downloadRecoveryPackage(session: VaultSession): Promise<RecoveryExport> {
+export type PreparedRecoveryExport = RecoveryExport & { blob: Blob; filename: string };
+
+export async function prepareRecoveryPackage(session: VaultSession): Promise<PreparedRecoveryExport> {
   if ((session.stored.v !== 2 && session.stored.v !== 3) || session.stored.unlockMethod !== 'platform') {
     throw new Error('请先完成设备保险库升级');
   }
@@ -635,11 +637,14 @@ export async function downloadRecoveryPackage(session: VaultSession): Promise<Re
       ciphertext: toBase64Url(ciphertext),
     },
   }, null, 2);
-  await downloadBlob(
-    new Blob([body], { type: 'application/json' }),
-    `quiet-room-recovery-${new Date().toISOString().slice(0, 10)}.json`,
-  );
-  return { exportedAt, recoveryCode: displayCode };
+  // Preparing a package must not open an OS save surface. The caller displays
+  // the independent code before the user explicitly starts the file download.
+  return {
+    exportedAt,
+    recoveryCode: displayCode,
+    blob: new Blob([body], { type: 'application/json' }),
+    filename: `quiet-room-recovery-${exportedAt.slice(0, 10)}.json`,
+  };
 }
 
 export async function importRecoveryPackage(file: File): Promise<void> {
@@ -906,11 +911,6 @@ async function deleteLocalRecord(session: VaultSession, storeName: LocalStore, i
 
 function normalizeUiPreferences(value: unknown): UiPreferences {
   const source = value && typeof value === 'object' ? value as Partial<UiPreferences> : {};
-  const favorites = Array.isArray(source.favoriteExpressions)
-    ? [...new Set(source.favoriteExpressions.filter((item): item is string =>
-      typeof item === 'string' && item.length > 0 && item.length <= 128,
-    ))].slice(0, 200)
-    : [];
   const candidate = source.chatAnchor;
   const chatAnchor = candidate &&
     typeof candidate.clientMsgId === 'string' && candidate.clientMsgId.length > 0 && candidate.clientMsgId.length <= 128 &&
@@ -924,7 +924,7 @@ function normalizeUiPreferences(value: unknown): UiPreferences {
         pinnedToBottom: candidate.pinnedToBottom,
       }
     : undefined;
-  return { ...(chatAnchor ? { chatAnchor } : {}), favoriteExpressions: favorites };
+  return { ...(chatAnchor ? { chatAnchor } : {}), recoveryReminderDismissed: source.recoveryReminderDismissed === true };
 }
 
 function uiPreferenceId(session: VaultSession): string {
@@ -936,11 +936,11 @@ export async function loadUiPreferences(session: VaultSession): Promise<UiPrefer
   const record = await transaction<StoredLocalRecord | undefined>('preferences', 'readonly', (store) =>
     store.get(`${session.vault.roomId}:${id}`),
   );
-  if (!record) return { favoriteExpressions: [] };
+  if (!record) return {};
   try {
     return normalizeUiPreferences(await decryptLocalRecord<unknown>(session, 'preferences', record));
   } catch {
-    return { favoriteExpressions: [] };
+    return {};
   }
 }
 

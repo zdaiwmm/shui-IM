@@ -1,0 +1,197 @@
+/* Message content uses the app menu; only the selection sheet opts back in. */
+.message,
+.message-bubble,
+.message-bubble p,
+.message-bubble img {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.message-actions {
+  min-width: 156px;
+  max-width: calc(100vw - 16px);
+  color: var(--ink);
+}
+
+.message-actions > button {
+  width: 100%;
+  color: inherit;
+  text-align: left;
+}
+
+.message-actions > button + button {
+  border-top: 1px solid var(--glass-border);
+  border-radius: 0;
+}
+
+.message-copy-sheet {
+  inset: 0;
+  z-index: 110;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  padding: max(20px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 0;
+  background: oklch(15% 0.015 255 / 0.3);
+  box-shadow: none;
+  transform: none;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.message-copy-panel {
+  width: min(100%, 480px);
+  max-height: 100%;
+  overflow: auto;
+  padding: 24px;
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  background: var(--glass-strong);
+  box-shadow: var(--shadow);
+}
+
+.message-copy-panel h2 {
+  margin: 0 0 10px;
+  font-size: 1.2rem;
+  line-height: 1.3;
+}
+
+.message-copy-panel p {
+  margin: 0 0 16px;
+  color: var(--ink-muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.message-copy-panel textarea {
+  display: block;
+  width: 100%;
+  height: min(40dvh, 320px);
+  min-height: 120px;
+  padding: 14px;
+  resize: none;
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  background: var(--glass);
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  user-select: text;
+  touch-action: auto;
+}
+
+.message-copy-panel .message-copy-feedback {
+  min-height: 1.5em;
+  margin: 8px 0;
+}
+
+.message-copy-buttons {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.message-copy-buttons button {
+  min-height: 44px;
+  justify-content: center;
+  color: var(--ink-muted);
+}
+
+.message-copy-buttons [data-copy-selection] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* The photo stage spans the viewport; controls float above it, as in Photos. */
+#app > .image-viewer,
+.image-viewer {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  background: transparent;
+  transform: none;
+  touch-action: none;
+  transition: opacity 300ms ease-out;
+}
+
+.image-viewer::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: #080a0e;
+  opacity: var(--viewer-backdrop-opacity, 1);
+  transition: opacity 240ms ease-out;
+}
+
+.image-viewer .viewer-stage {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.image-viewer .viewer-stage > img {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  object-fit: contain;
+  animation: none;
+  transform-origin: center;
+  transition: transform 240ms cubic-bezier(.2, .8, .2, 1);
+  will-change: transform;
+}
+
+.image-viewer .viewer-header {
+  padding-bottom: 26px;
+  background: linear-gradient(to bottom, oklch(6% 0.01 255 / 0.58), transparent);
+}
+
+.image-viewer .viewer-header,
+.image-viewer .viewer-nav {
+  transition: opacity 180ms ease-out;
+}
+
+.image-viewer.is-dragging::before,
+.image-viewer.is-dragging .viewer-stage > img {
+  transition: none;
+}
+
+.image-viewer.is-dragging .viewer-header,
+.image-viewer.is-dragging .viewer-nav,
+.image-viewer.is-closing .viewer-header,
+.image-viewer.is-closing .viewer-nav {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.image-viewer.is-closing {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-actions,
+  .image-viewer,
+  .image-viewer::before,
+  .image-viewer .viewer-stage > img,
+  .image-viewer .viewer-header,
+  .image-viewer .viewer-nav {
+    transition: none;
+  }
+}

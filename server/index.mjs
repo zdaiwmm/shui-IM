@@ -256,8 +256,19 @@ export async function startServer(options = {}) {
     return roles;
   }
 
+  // Only the latest transition per role is kept in process memory. Restarting
+  // the service intentionally clears this behavioral metadata.
+  const presenceHistory = new Map();
   function presenceFrame(roomId) {
-    return { type: 'presence', roles: presenceForRoom(roomId) };
+    const roles = presenceForRoom(roomId);
+    const previous = presenceHistory.get(roomId);
+    const lastSeen = { ...(previous?.lastSeen ?? { creator: null, joiner: null }) };
+    for (const role of ['creator', 'joiner']) {
+      if (previous?.roles[role] && !roles[role]) lastSeen[role] = Date.now();
+    }
+    presenceHistory.set(roomId, { roles, lastSeen });
+    if (presenceHistory.size > 10_000) presenceHistory.delete(presenceHistory.keys().next().value);
+    return { type: 'presence', roles, lastSeen };
   }
 
   function broadcastPresence(roomId) {

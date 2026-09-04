@@ -260,7 +260,7 @@ function isRoomPresence(value: unknown): value is RoomPresence {
 
 type SocketHandlers = {
   connection: (state: 'connecting' | 'connected' | 'disconnected') => void;
-  presence: (roles: RoomPresence) => void;
+  presence: (roles: RoomPresence, lastSeen: { creator: number | null; joiner: number | null }) => void;
   ready: (state: RoomState) => AsyncSocketHandler;
   membership: (state: RoomState) => AsyncSocketHandler;
   message: (message: ServerMessage) => AsyncSocketHandler;
@@ -338,7 +338,12 @@ export class RoomSocket {
         this.queueMembershipUpdate(() => this.handlers.membership(frame.state as RoomState));
       } else if (frame.type === 'presence') {
         if (!isRoomPresence(frame.roles)) throw new Error('Invalid presence frame');
-        this.handlers.presence(frame.roles);
+        const rawLastSeen = frame.lastSeen as Record<string, unknown> | undefined;
+        const timestamp = (role: string) => {
+          const value = rawLastSeen?.[role];
+          return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= Date.now() + 60_000 ? value : null;
+        };
+        this.handlers.presence(frame.roles, { creator: timestamp('creator'), joiner: timestamp('joiner') });
       } else if (frame.type === 'message') {
         this.runAfterMembershipUpdate(() => this.handlers.message(frame as unknown as ServerMessage & { type: string }));
       } else if (frame.type === 'sync') {

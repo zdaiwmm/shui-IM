@@ -76,7 +76,7 @@ import {
   downloadVaultDiagnostic,
   deletePendingReceipt,
   deleteUploadPlan,
-  downloadRecoveryPackage,
+  prepareRecoveryPackage,
   hasStoredVault,
   importRecoveryPackage,
   bindRecoveredVaultToPlatform,
@@ -99,6 +99,7 @@ import {
   type VaultSession,
   type ChatScrollAnchor,
   type UiPreferences,
+  type PreparedRecoveryExport,
 } from './lib/vault';
 
 type Invite = {
@@ -146,48 +147,10 @@ const icons = {
   lock: '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
   download: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M5 21h14"/></svg>',
   bell: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>',
-  smile: '<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 14.5c1 1.3 2.3 2 4 2s3-.7 4-2"/><path d="M9 9.5h.01M15 9.5h.01"/></svg>',
   reply: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 17-5-5 5-5"/><path d="M4 12h9a7 7 0 0 1 7 7"/></svg>',
   close: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg>',
 };
 
-const composerEmojiGroups = [
-  {
-    label: '常用',
-    emojis: ['😀', '😃', '😄', '😁', '😆', '😂', '🤣', '🥹', '😊', '🙂', '🙃', '😉', '😌', '😍', '🥰', '😘', '😋', '😎', '🤩', '🤓', '🧐'],
-  },
-  {
-    label: '心情',
-    emojis: ['🤔', '🫡', '🤗', '🤭', '🫢', '🫣', '😶', '😐', '😑', '🙄', '😏', '😒', '😔', '🥺', '😭', '😤', '😡', '🤯', '😳', '🥶'],
-  },
-  {
-    label: '手势',
-    emojis: ['👍', '👎', '👌', '✌️', '🤞', '🫰', '🤟', '🤘', '🤙', '👈', '👉', '👆', '👇', '☝️', '👏', '🙌', '🫶', '🙏', '💪', '🤝'],
-  },
-  {
-    label: '爱心',
-    emojis: ['❤️', '🩷', '🧡', '💛', '💚', '🩵', '💙', '💜', '🤎', '🖤', '🩶', '🤍', '💔', '❤️‍🔥', '💕', '💞', '💓', '💗', '💖', '💘'],
-  },
-  {
-    label: '生活',
-    emojis: ['🎉', '✨', '🔥', '💯', '🌙', '☀️', '🌹', '🌈', '⭐', '🍀', '☕', '🍻', '🎂', '🎁', '🎵', '📷', '💡', '✅', '❗', '🚀'],
-  },
-] as const;
-
-const composerEmojis: readonly string[] = composerEmojiGroups.flatMap((group) => [...group.emojis]);
-
-const memeLibrary = [
-  { id: 'laughing', code: '1F923', label: '笑到打滚' },
-  { id: 'thinking', code: '1F914', label: '让我想想' },
-  { id: 'cool', code: '1F60E', label: '稳了' },
-  { id: 'crying', code: '1F62D', label: '真的会谢' },
-  { id: 'screaming', code: '1F631', label: '震惊' },
-  { id: 'eyeroll', code: '1F644', label: '无语' },
-  { id: 'salute', code: '1FAE1', label: '收到' },
-  { id: 'melting', code: '1FAE0', label: '我融化了' },
-] as const;
-
-type ExpressionTab = 'emoji' | 'meme' | 'favorites';
 type GalleryAsset = { manifest: ImageManifest; clientMsgId: string; sentAt: string; assetIndex: number };
 
 function formPassword(form: HTMLFormElement): string {
@@ -351,10 +314,12 @@ export class QuietRoomApp {
   private pageTransitionTimer: number | null = null;
   private preferenceSaveTimer: number | null = null;
   private preferenceSaveChain: Promise<void> = Promise.resolve();
-  private uiPreferences: UiPreferences = { favoriteExpressions: [] };
+  private uiPreferences: UiPreferences = {};
   private restoreChatAnchorOnNextRender = true;
-  private expressionTab: ExpressionTab = 'emoji';
   private galleryScrollTop = 0;
+  private chatLayoutObserver: ResizeObserver | null = null;
+  private presenceRefreshTimer: number | null = null;
+  private roleLastSeen: { creator: number | null; joiner: number | null } = { creator: null, joiner: null };
   private viewerKeyHandler: ((event: KeyboardEvent) => void) | null = null;
   private viewerReturnFocus: HTMLElement | null = null;
   private viewerPreviousSurface: 'away' | 'chat' = 'away';
@@ -386,9 +351,7 @@ export class QuietRoomApp {
     document.addEventListener('pointerdown', (event) => {
       const menu = this.root.querySelector<HTMLDetailsElement>('.more-menu[open]');
       if (menu && event.target instanceof Node && !menu.contains(event.target)) this.closeMoreMenu(menu);
-      const picker = this.root.querySelector<HTMLElement>('.emoji-picker.is-visible');
       const composer = this.root.querySelector<HTMLElement>('#composer');
-      if (picker && composer && event.target instanceof Node && !composer.contains(event.target)) this.setEmojiPickerOpen(false);
       const textarea = this.root.querySelector<HTMLTextAreaElement>('#message-input');
       if (
         textarea && document.activeElement === textarea && composer &&
@@ -417,13 +380,6 @@ export class QuietRoomApp {
         event.preventDefault();
         this.replyTarget = null;
         this.renderReplyDraft();
-        return;
-      }
-      const emojiPicker = this.root.querySelector<HTMLElement>('.emoji-picker.is-visible');
-      if (emojiPicker) {
-        event.preventDefault();
-        this.setEmojiPickerOpen(false);
-        this.root.querySelector<HTMLButtonElement>('#emoji-button')?.focus();
         return;
       }
       const menu = this.root.querySelector<HTMLDetailsElement>('.more-menu[open]');
@@ -615,8 +571,10 @@ export class QuietRoomApp {
       }, '解锁手势');
     } else {
       this.gatewayTemplate('回到会话', '使用本机通行密钥或生物识别解锁。', `
-        <button class="primary-button" id="passkey-unlock" type="button">使用通行密钥解锁</button>
-        <p class="form-error" role="alert"></p>
+        <div class="credential-only-step credential-unlock-step">
+          <button class="primary-button" id="passkey-unlock" type="button">使用通行密钥解锁</button>
+          <p class="form-error" role="alert"></p>
+        </div>
         <div class="gateway-secondary">
           <button class="text-button" id="back-to-cover" type="button">返回白屏</button>
         </div>
@@ -765,6 +723,7 @@ export class QuietRoomApp {
       void (async () => {
         try {
           preparedPlatformCredential ??= await this.withDeviceVerification(() => createPlatformCredential());
+          setBusy(verifyButton, true, busyLabel);
           await onConfirmed(preparedPlatformCredential);
         } catch (cause) {
           if (!verifyButton.isConnected) return;
@@ -1208,7 +1167,7 @@ export class QuietRoomApp {
     this.runtimeAbort = new AbortController();
     this.resetIdleLock();
     await this.preferenceSaveChain.catch(() => undefined);
-    this.uiPreferences = await loadUiPreferences(session).catch(() => ({ favoriteExpressions: [] }));
+    this.uiPreferences = await loadUiPreferences(session).catch(() => ({}));
     const anchor = this.uiPreferences.chatAnchor;
     const beforeSeq = anchor && !anchor.pinnedToBottom
       ? Math.min(Number.MAX_SAFE_INTEGER, anchor.seq + 101)
@@ -1459,9 +1418,10 @@ export class QuietRoomApp {
           if (state !== 'connected') this.rolePresence = null;
           this.updateConnectionStatus();
         },
-        presence: (roles) => {
+        presence: (roles, lastSeen) => {
           if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
           this.rolePresence = roles;
+          this.roleLastSeen = lastSeen;
           this.updatePeerStatus();
         },
         ready: (state) => {
@@ -1836,11 +1796,9 @@ export class QuietRoomApp {
     this.root.innerHTML = `
       <section class="chat-shell">
         <header class="chat-header">
-          <div class="peer-summary" role="status" aria-live="polite">
-            <span class="presence-stack">
-              <span class="presence-row" id="self-presence"><i class="presence-dot" aria-hidden="true"></i><span>我</span><strong>同步中</strong></span>
-              <span class="presence-row" id="peer-presence"><i class="presence-dot" aria-hidden="true"></i><span>对方</span><strong>同步中</strong></span>
-            </span>
+          <div class="self-summary presence-row" id="self-presence" role="status" aria-live="polite"><span>我</span><i class="presence-dot" aria-hidden="true"></i><strong>同步中</strong></div>
+          <div class="peer-summary presence-row" id="peer-presence" role="status" aria-live="polite">
+            <span class="peer-name">对方<i class="presence-dot" aria-hidden="true"></i></span><strong>同步中</strong>
           </div>
           <nav class="header-actions" aria-label="会话操作">
             ${this.session.vault.role === 'creator' ? `
@@ -1868,10 +1826,10 @@ export class QuietRoomApp {
               <div><strong>正在建立前向保密会话</strong><span>MLS 欢迎消息完成验证前不会发送任何内容。</span></div>
             </aside>
           `}
-          ${this.session.vault.recoveryExportedAt ? '' : `
+          ${this.session.vault.recoveryExportedAt || this.uiPreferences.recoveryReminderDismissed ? '' : `
             <aside class="recovery-reminder">
-              <div><strong>先保存恢复包</strong><span>通行密钥不可用或清除浏览器数据后，服务器无法找回密钥。</span></div>
-              <button type="button" id="reminder-export">立即导出</button>
+              <button type="button" id="reminder-export" class="pinned-recovery-content"><strong>保存恢复包与恢复码</strong><span>点此保存，以便通行密钥不可用时恢复会话</span></button>
+              <button type="button" id="dismiss-recovery" aria-label="关闭恢复提醒">${icons.close}</button>
             </aside>
           `}
           ${this.uploadPlans.length > 0 ? `
@@ -1887,26 +1845,18 @@ export class QuietRoomApp {
             <div><strong>回复对方</strong><span></span></div>
             <button type="button" aria-label="取消回复">${icons.close}</button>
           </div>
-          <div class="emoji-picker" id="emoji-picker" role="dialog" aria-label="选择表情" hidden>
-            <nav class="expression-tabs" aria-label="表情分类">
-              <button type="button" data-expression-tab="emoji">表情</button>
-              <button type="button" data-expression-tab="meme">梗图</button>
-              <button type="button" data-expression-tab="favorites">收藏</button>
-            </nav>
-            <div class="expression-content" id="expression-content"></div>
-          </div>
           <button class="image-picker icon-button${cryptoReady ? '' : ' is-disabled'}" id="open-image-picker" type="button" aria-label="发送原图" title="发送原图" ${cryptoReady ? '' : 'disabled'}>${icons.image}</button>
           <input id="image-input" type="file" accept="image/*" multiple ${cryptoReady ? '' : 'disabled'} hidden />
           <div class="composer-field">
             <label class="sr-only" for="message-input">输入消息</label>
             <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '输入消息' : '正在建立安全会话…'}" enterkeyhint="send" ${cryptoReady ? '' : 'disabled'}></textarea>
-            <button class="emoji-button" id="emoji-button" type="button" aria-label="选择表情" aria-controls="emoji-picker" aria-expanded="false" ${cryptoReady ? '' : 'disabled'}>${icons.smile}</button>
           </div>
           <button class="send-button" type="submit" aria-label="发送消息" ${cryptoReady ? '' : 'disabled'}>${icons.send}</button>
           <div class="upload-progress" id="upload-progress" hidden><span></span><output></output></div>
         </form>
       </section>
     `;
+    this.mountChatLayout();
     this.root.querySelector('#composer')?.addEventListener('submit', (event) => void this.handleSendText(event));
     this.root.querySelector('#message-list')?.addEventListener('scroll', (event) => {
       const list = event.currentTarget as HTMLElement;
@@ -1931,11 +1881,15 @@ export class QuietRoomApp {
     const imageInput = this.root.querySelector<HTMLInputElement>('#image-input');
     const sendButton = this.root.querySelector<HTMLButtonElement>('.send-button');
     sendButton?.addEventListener('pointerdown', (event) => this.retainComposerKeyboard(event, textarea));
-    this.mountEmojiPicker(textarea);
     this.mountImagePicker(imageInput, 'chat', this.root.querySelector<HTMLButtonElement>('#open-image-picker'));
     this.root.querySelector('#open-gallery')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderGallery()));
     this.root.querySelector('#export-recovery')?.addEventListener('click', () => void this.exportRecovery());
     this.root.querySelector('#reminder-export')?.addEventListener('click', () => void this.exportRecovery());
+    this.root.querySelector('#dismiss-recovery')?.addEventListener('click', () => {
+      this.uiPreferences.recoveryReminderDismissed = true;
+      this.flushUiPreferencesSave();
+      this.root.querySelector('.recovery-reminder')?.remove();
+    });
     this.root.querySelector('#lock-room')?.addEventListener('click', () => this.lockNow());
     this.root.querySelector('#manage-devices')?.addEventListener('click', () => this.transitionPage('forward', () => void this.renderDeviceManager()));
     this.root.querySelector('#toggle-notifications')?.addEventListener('click', () => void this.toggleBackgroundNotifications());
@@ -1955,6 +1909,28 @@ export class QuietRoomApp {
     this.updatePeerStatus();
     void this.updateSafetyCode();
     void this.updateBackgroundNotificationControl();
+  }
+
+  private mountChatLayout(): void {
+    this.chatLayoutObserver?.disconnect();
+    const shell = this.root.querySelector<HTMLElement>('.chat-shell')!;
+    const list = shell.querySelector<HTMLElement>('#message-list')!;
+    const header = shell.querySelector<HTMLElement>('.chat-header')!;
+    const notices = shell.querySelector<HTMLElement>('.system-notices')!;
+    const composer = shell.querySelector<HTMLElement>('.composer')!;
+    const sync = () => {
+      if (!shell.isConnected) return;
+      const anchor = this.captureChatAnchor();
+      shell.style.setProperty('--chat-header-height', `${header.offsetHeight}px`);
+      shell.style.setProperty('--chat-top-space', `${header.offsetHeight + notices.offsetHeight + 14}px`);
+      shell.style.setProperty('--chat-bottom-space', `${composer.offsetHeight + 16}px`);
+      if (anchor) this.restoreChatAnchor(list, anchor);
+    };
+    sync();
+    this.chatLayoutObserver = new ResizeObserver(sync);
+    for (const element of [header, notices, composer]) this.chatLayoutObserver.observe(element);
+    if (this.presenceRefreshTimer !== null) window.clearInterval(this.presenceRefreshTimer);
+    this.presenceRefreshTimer = window.setInterval(() => this.updatePeerStatus(), 30_000);
   }
 
   private retainComposerKeyboard(event: PointerEvent, textarea: HTMLTextAreaElement): void {
@@ -1981,202 +1957,6 @@ export class QuietRoomApp {
       Math.min(selection.end, textarea.value.length),
     );
     this.composerSelection = null;
-  }
-
-  private mountEmojiPicker(textarea: HTMLTextAreaElement): void {
-    const button = this.root.querySelector<HTMLButtonElement>('#emoji-button');
-    const picker = this.root.querySelector<HTMLElement>('#emoji-picker');
-    if (!button || !picker) return;
-    this.renderExpressionPickerContents();
-    button.addEventListener('pointerdown', (event) => this.retainComposerKeyboard(event, textarea));
-    button.addEventListener('click', () => {
-      const opening = !picker.classList.contains('is-visible');
-      if (opening) {
-        this.composerSelection = {
-          start: textarea.selectionStart ?? textarea.value.length,
-          end: textarea.selectionEnd ?? textarea.value.length,
-        };
-        textarea.focus({ preventScroll: true });
-      }
-      this.setEmojiPickerOpen(opening);
-    });
-    picker.addEventListener('pointerdown', (event) => {
-      if (document.activeElement === textarea || this.keepComposerKeyboard) event.preventDefault();
-    });
-    picker.addEventListener('click', (event) => {
-      const element = event.target instanceof Element ? event.target : null;
-      const tab = element?.closest<HTMLButtonElement>('[data-expression-tab]')?.dataset.expressionTab as ExpressionTab | undefined;
-      if (tab && ['emoji', 'meme', 'favorites'].includes(tab)) {
-        this.expressionTab = tab;
-        this.renderExpressionPickerContents();
-        this.restoreComposerFocus();
-        return;
-      }
-      const favoriteKey = element?.closest<HTMLButtonElement>('[data-favorite-key]')?.dataset.favoriteKey;
-      if (favoriteKey) {
-        this.toggleFavoriteExpression(favoriteKey);
-        this.renderExpressionPickerContents();
-        this.restoreComposerFocus();
-        return;
-      }
-      const memeId = element?.closest<HTMLButtonElement>('[data-meme-id]')?.dataset.memeId;
-      if (memeId) {
-        void this.sendMeme(memeId);
-        return;
-      }
-      const target = element?.closest<HTMLButtonElement>('[data-emoji]');
-      const emoji = target?.dataset.emoji;
-      if (!emoji) return;
-      const start = textarea.selectionStart ?? textarea.value.length;
-      const end = textarea.selectionEnd ?? start;
-      if (textarea.value.length - (end - start) + emoji.length > textarea.maxLength) return;
-      textarea.setRangeText(emoji, start, end, 'end');
-      textarea.dispatchEvent(new Event('input', { bubbles: true }));
-      this.composerSelection = {
-        start: textarea.selectionStart ?? textarea.value.length,
-        end: textarea.selectionEnd ?? textarea.value.length,
-      };
-      this.restoreComposerFocus();
-    });
-  }
-
-  private renderExpressionPickerContents(): void {
-    const content = this.root.querySelector<HTMLElement>('#expression-content');
-    if (!content) return;
-    this.root.querySelectorAll<HTMLButtonElement>('[data-expression-tab]').forEach((button) => {
-      const active = button.dataset.expressionTab === this.expressionTab;
-      button.classList.toggle('is-active', active);
-      button.setAttribute('aria-selected', String(active));
-    });
-    content.replaceChildren();
-
-    const appendFavoriteButton = (container: HTMLElement, key: string) => {
-      const favorite = document.createElement('button');
-      favorite.type = 'button';
-      favorite.className = 'favorite-expression';
-      favorite.dataset.favoriteKey = key;
-      const selected = this.uiPreferences.favoriteExpressions.includes(key);
-      favorite.setAttribute('aria-label', selected ? '取消收藏' : '收藏表情');
-      favorite.setAttribute('aria-pressed', String(selected));
-      favorite.textContent = selected ? '★' : '☆';
-      container.append(favorite);
-    };
-
-    const appendEmoji = (emoji: string, parent: HTMLElement) => {
-      const item = document.createElement('span');
-      item.className = 'expression-item';
-      const insert = document.createElement('button');
-      insert.type = 'button';
-      insert.className = 'emoji-option';
-      insert.dataset.emoji = emoji;
-      insert.setAttribute('aria-label', `插入 ${emoji}`);
-      insert.textContent = emoji;
-      item.append(insert);
-      appendFavoriteButton(item, `emoji:${emoji}`);
-      parent.append(item);
-    };
-
-    const appendMeme = (meme: (typeof memeLibrary)[number], parent: HTMLElement) => {
-      const item = document.createElement('article');
-      item.className = 'meme-option';
-      const send = document.createElement('button');
-      send.type = 'button';
-      send.dataset.memeId = meme.id;
-      send.setAttribute('aria-label', `发送梗图：${meme.label}`);
-      const image = document.createElement('img');
-      image.src = `/memes/openmoji-17.0.0/${meme.code}.svg`;
-      image.alt = '';
-      image.loading = 'lazy';
-      const label = document.createElement('span');
-      label.textContent = meme.label;
-      send.append(image, label);
-      item.append(send);
-      appendFavoriteButton(item, `meme:${meme.id}`);
-      parent.append(item);
-    };
-
-    if (this.expressionTab === 'emoji') {
-      for (const group of composerEmojiGroups) {
-        const section = document.createElement('section');
-        section.className = 'emoji-section';
-        const heading = document.createElement('h3');
-        heading.textContent = group.label;
-        const grid = document.createElement('div');
-        grid.className = 'emoji-grid';
-        for (const emoji of group.emojis) appendEmoji(emoji, grid);
-        section.append(heading, grid);
-        content.append(section);
-      }
-      return;
-    }
-
-    const grid = document.createElement('div');
-    grid.className = 'meme-grid';
-    const favorites = new Set(this.uiPreferences.favoriteExpressions);
-    if (this.expressionTab === 'meme') {
-      for (const meme of memeLibrary) appendMeme(meme, grid);
-    } else {
-      for (const key of favorites) {
-        if (key.startsWith('emoji:')) appendEmoji(key.slice(6), grid);
-        if (key.startsWith('meme:')) {
-          const meme = memeLibrary.find((item) => item.id === key.slice(5));
-          if (meme) appendMeme(meme, grid);
-        }
-      }
-      if (grid.childElementCount === 0) {
-        const empty = document.createElement('p');
-        empty.className = 'expression-empty';
-        empty.textContent = '点按 ☆ 收藏常用表情和梗图。收藏只加密保存在本机。';
-        content.append(empty);
-        return;
-      }
-    }
-    content.append(grid);
-  }
-
-  private toggleFavoriteExpression(key: string): void {
-    if (!/^(emoji|meme):.{1,120}$/u.test(key)) return;
-    const favorites = new Set(this.uiPreferences.favoriteExpressions);
-    if (favorites.has(key)) favorites.delete(key);
-    else if (favorites.size < 200) favorites.add(key);
-    this.uiPreferences.favoriteExpressions = [...favorites];
-    this.scheduleUiPreferencesSave();
-  }
-
-  private async sendMeme(id: string): Promise<void> {
-    const meme = memeLibrary.find((item) => item.id === id);
-    if (!meme || !this.session || this.privacyCovered) return;
-    try {
-      const response = await fetch(`/memes/openmoji-17.0.0/${meme.code}.svg`, { signal: this.runtimeAbort?.signal });
-      if (!response.ok) throw new Error('梗图资源不可用');
-      const blob = await response.blob();
-      const file = new File([blob], `quiet-room-meme-${meme.id}.svg`, {
-        type: 'image/svg+xml',
-        lastModified: 1_776_902_400_000,
-      });
-      await this.processImageFiles([file], 'chat');
-      this.restoreComposerFocus();
-    } catch (cause) {
-      if (cause instanceof DOMException && cause.name === 'AbortError') return;
-      this.showNotice(cause instanceof Error ? cause.message : '梗图发送失败', 'error');
-    }
-  }
-
-  private setEmojiPickerOpen(open: boolean): void {
-    const picker = this.root.querySelector<HTMLElement>('#emoji-picker');
-    const button = this.root.querySelector<HTMLButtonElement>('#emoji-button');
-    if (!picker || !button) return;
-    button.setAttribute('aria-expanded', String(open));
-    button.classList.toggle('is-active', open);
-    if (open) {
-      picker.hidden = false;
-      requestAnimationFrame(() => picker.classList.add('is-visible'));
-      return;
-    }
-    picker.classList.remove('is-visible');
-    window.setTimeout(() => {
-      if (!picker.classList.contains('is-visible')) picker.hidden = true;
-    }, 280);
   }
 
   private closeMoreMenu(menu: HTMLDetailsElement, restoreFocus = false): void {
@@ -2488,19 +2268,17 @@ export class QuietRoomApp {
   }
 
   private restoreChatAnchor(list: HTMLElement, anchor: ChatScrollAnchor | null | undefined): void {
-    requestAnimationFrame(() => {
-      if (!list.isConnected) return;
-      if (!anchor || anchor.pinnedToBottom) {
-        list.scrollTop = list.scrollHeight;
-        return;
-      }
-      const target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(anchor.clientMsgId)}"]`);
-      if (!target) {
-        list.scrollTop = list.scrollHeight;
-        return;
-      }
-      list.scrollTop += target.getBoundingClientRect().top - list.getBoundingClientRect().top - anchor.offset;
-    });
+    if (!list.isConnected) return;
+    if (!anchor || anchor.pinnedToBottom) {
+      list.scrollTop = list.scrollHeight;
+      return;
+    }
+    const target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(anchor.clientMsgId)}"]`);
+    if (!target) {
+      list.scrollTop = list.scrollHeight;
+      return;
+    }
+    list.scrollTop += target.getBoundingClientRect().top - list.getBoundingClientRect().top - anchor.offset;
   }
 
   private scheduleUiPreferencesSave(): void {
@@ -3103,7 +2881,6 @@ export class QuietRoomApp {
   private beginReply(message: DecryptedMessage): void {
     if (this.isOwnMessage(message) || !Number.isSafeInteger(message.seq) || message.seq < 1) return;
     this.replyTarget = message;
-    this.setEmojiPickerOpen(false);
     this.closeMessageActions();
     this.renderReplyDraft();
     this.restoreComposerFocus();
@@ -3116,9 +2893,10 @@ export class QuietRoomApp {
   }
 
   private mountMessageActions(article: HTMLElement, message: DecryptedMessage): void {
-    const own = this.isOwnMessage(message);
-    const favoriteKey = this.favoriteKeyForMessage(message);
-    if (own && !favoriteKey) return;
+    article.addEventListener('selectstart', (event) => event.preventDefault());
+    article.addEventListener('dragstart', (event) => event.preventDefault());
+    article.addEventListener('contextmenu', (event) => event.preventDefault());
+    if (this.isOwnMessage(message) && message.payload.kind !== 'text') return;
     const open = () => this.openMessageActions(article, message);
     article.addEventListener('pointerdown', (event) => {
       const excludedButton = event.target instanceof Element
@@ -3127,12 +2905,14 @@ export class QuietRoomApp {
       if (event.button !== 0 || event.pointerType === 'mouse' || excludedButton) return;
       this.cancelMessageHold();
       this.messageHoldStart = { x: event.clientX, y: event.clientY };
+      // Match the usual native touch-and-hold cadence without letting Safari
+      // select message text underneath the custom menu.
       this.messageHoldTimer = window.setTimeout(() => {
         this.messageHoldTimer = null;
         this.suppressMediaClickUntil = Date.now() + 650;
-        navigator.vibrate?.(18);
+        if (typeof navigator.vibrate === 'function') navigator.vibrate(18);
         open();
-      }, 480);
+      }, 500);
     });
     article.addEventListener('pointermove', (event) => {
       const start = this.messageHoldStart;
@@ -3143,6 +2923,7 @@ export class QuietRoomApp {
     }
     article.addEventListener('contextmenu', (event) => {
       event.preventDefault();
+      this.cancelMessageHold();
       open();
     });
     article.addEventListener('keydown', (event) => {
@@ -3151,8 +2932,7 @@ export class QuietRoomApp {
         open();
       }
     });
-    const quickReply = article.querySelector<HTMLButtonElement>('.message-quick-reply');
-    quickReply?.addEventListener('click', open);
+    article.querySelector<HTMLButtonElement>('.message-quick-reply')?.addEventListener('click', open);
   }
 
   private openMessageActions(article: HTMLElement, message: DecryptedMessage): void {
@@ -3161,53 +2941,142 @@ export class QuietRoomApp {
     actions.className = 'message-actions';
     actions.setAttribute('role', 'menu');
     actions.setAttribute('aria-label', '消息操作');
+    actions.dataset.sourceId = message.clientMsgId;
     const actionButtons: HTMLButtonElement[] = [];
+    const addAction = (action: string, label: string, icon: string, handler: () => void) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.dataset.messageAction = action;
+      button.setAttribute('role', 'menuitem');
+      button.innerHTML = `${icon}<span>${label}</span>`;
+      button.addEventListener('click', handler);
+      actions.append(button);
+      actionButtons.push(button);
+    };
     if (!this.isOwnMessage(message)) {
-      const reply = document.createElement('button');
-      reply.type = 'button';
-      reply.setAttribute('role', 'menuitem');
-      reply.innerHTML = `${icons.reply}<span>回复</span>`;
-      reply.addEventListener('click', () => this.beginReply(message));
-      actions.append(reply);
-      actionButtons.push(reply);
+      addAction('reply', '回复', icons.reply, () => this.beginReply(message));
     }
-    const favoriteKey = this.favoriteKeyForMessage(message);
-    if (favoriteKey) {
-      const favorite = document.createElement('button');
-      favorite.type = 'button';
-      favorite.setAttribute('role', 'menuitem');
-      const selected = this.uiPreferences.favoriteExpressions.includes(favoriteKey);
-      favorite.innerHTML = `<span aria-hidden="true">${selected ? '★' : '☆'}</span><span>${selected ? '取消收藏' : '收藏表情'}</span>`;
-      favorite.addEventListener('click', () => {
-        this.toggleFavoriteExpression(favoriteKey);
-        this.renderExpressionPickerContents();
-        this.closeMessageActions();
+    if (message.payload.kind === 'text') {
+      const text = message.payload.text;
+      addAction('copy', '复制', '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>', () => {
+        void this.copyMessageText(text, message);
       });
-      actions.append(favorite);
-      actionButtons.push(favorite);
+      addAction('select', '选择文字', '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5h8M12 5v14M9 19h6M4 3v18M20 3v18"/></svg>', () => this.openMessageTextSelection(message));
     }
-    const rect = article.getBoundingClientRect();
-    const x = Math.max(8, Math.min(rect.left, window.innerWidth - 144));
-    const y = rect.bottom + 58 < window.innerHeight ? rect.bottom + 6 : Math.max(8, rect.top - 52);
+    if (!actionButtons.length) return;
+    this.root.append(actions);
+    const rect = article.querySelector('.message-bubble')?.getBoundingClientRect() ?? article.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const left = viewport?.offsetLeft ?? 0;
+    const top = viewport?.offsetTop ?? 0;
+    const width = viewport?.width ?? window.innerWidth;
+    const height = viewport?.height ?? window.innerHeight;
+    const menuRect = actions.getBoundingClientRect();
+    const x = Math.max(left + 8, Math.min(rect.left, left + width - menuRect.width - 8));
+    const below = rect.bottom + 6;
+    const y = below + menuRect.height < top + height - 8
+      ? below
+      : Math.max(top + 8, Math.min(rect.top - menuRect.height - 6, top + height - menuRect.height - 8));
     actions.style.setProperty('--message-action-x', `${Math.round(x)}px`);
     actions.style.setProperty('--message-action-y', `${Math.round(y)}px`);
-    actions.dataset.sourceId = message.clientMsgId;
-    this.root.append(actions);
+    actions.addEventListener('keydown', (event) => {
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End', 'Tab'].includes(event.key)) return;
+      event.preventDefault();
+      const index = actionButtons.indexOf(document.activeElement as HTMLButtonElement);
+      const step = event.key === 'ArrowUp' || (event.key === 'Tab' && event.shiftKey) ? -1 : 1;
+      const target = event.key === 'Home' ? 0 : event.key === 'End' ? actionButtons.length - 1
+        : (index + step + actionButtons.length) % actionButtons.length;
+      actionButtons[target]?.focus({ preventScroll: true });
+    });
     requestAnimationFrame(() => {
+      if (!actions.isConnected) return;
       actions.classList.add('is-visible');
       actionButtons[0]?.focus({ preventScroll: true });
     });
   }
 
-  private favoriteKeyForMessage(message: DecryptedMessage): string | null {
-    if (message.payload.kind === 'text') {
-      const value = message.payload.text.trim();
-      return composerEmojis.includes(value) ? `emoji:${value}` : null;
+  private async copyMessageText(text: string, message: DecryptedMessage): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      this.closeMessageActions(true);
+      this.showNotice('已复制');
+    } catch {
+      this.openMessageTextSelection(message);
+      this.showNotice('请选中文字后复制');
     }
-    if (message.payload.kind !== 'image') return null;
-    const match = /^quiet-room-meme-([a-z0-9-]+)\.svg$/i.exec(message.payload.image.originalName);
-    if (!match || !memeLibrary.some((item) => item.id === match[1])) return null;
-    return `meme:${match[1]}`;
+  }
+
+  private openMessageTextSelection(message: DecryptedMessage): void {
+    if (message.payload.kind !== 'text') return;
+    this.closeMessageActions();
+    const sheet = document.createElement('section');
+    sheet.className = 'message-actions message-copy-sheet';
+    sheet.dataset.sourceId = message.clientMsgId;
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-modal', 'true');
+    sheet.setAttribute('aria-labelledby', 'message-copy-title');
+    sheet.innerHTML = `
+      <div class="message-copy-panel">
+        <h2 id="message-copy-title">选择文字</h2>
+        <p id="message-copy-hint">拖动选择范围，复制你需要的部分。</p>
+        <textarea readonly aria-label="选择要复制的消息文字" aria-describedby="message-copy-hint" spellcheck="false"></textarea>
+        <p class="message-copy-feedback" role="status" aria-live="polite"></p>
+        <div class="message-copy-buttons">
+          <button type="button" data-copy-cancel>取消</button>
+          <button type="button" data-copy-selection>复制所选文字</button>
+        </div>
+      </div>
+    `;
+    const textarea = sheet.querySelector<HTMLTextAreaElement>('textarea')!;
+    textarea.value = message.payload.text;
+    const feedback = sheet.querySelector<HTMLElement>('.message-copy-feedback')!;
+    sheet.addEventListener('click', (event) => {
+      if (event.target === sheet) this.closeMessageActions(true);
+    });
+    sheet.querySelector('[data-copy-cancel]')?.addEventListener('click', () => this.closeMessageActions(true));
+    sheet.querySelector('[data-copy-selection]')?.addEventListener('click', async () => {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      if (start === end) {
+        feedback.textContent = '请先选中要复制的文字';
+        textarea.focus({ preventScroll: true });
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(textarea.value.slice(start, end));
+        this.closeMessageActions(true);
+        this.showNotice('已复制所选文字');
+      } catch {
+        textarea.focus({ preventScroll: true });
+        textarea.setSelectionRange(start, end);
+        if (document.execCommand('copy')) {
+          this.closeMessageActions(true);
+          this.showNotice('已复制所选文字');
+        } else {
+          feedback.textContent = '请使用文字选择菜单中的「复制」';
+        }
+      }
+    });
+    sheet.addEventListener('keydown', (event) => {
+      if (event.key !== 'Tab') return;
+      const focusable = [...sheet.querySelectorAll<HTMLElement>('textarea, button')];
+      const first = focusable[0]!;
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
+    this.root.append(sheet);
+    requestAnimationFrame(() => {
+      if (!sheet.isConnected) return;
+      sheet.classList.add('is-visible');
+      textarea.focus({ preventScroll: true });
+      textarea.select();
+    });
   }
 
   private closeMessageActions(restoreFocus = false): void {
@@ -3272,14 +3141,8 @@ export class QuietRoomApp {
     }
     this.mountChatImageObserver(list);
     if (scroll === 'bottom' || messages.length <= 1) {
-      requestAnimationFrame(() => {
-        if (!list.isConnected) return;
-        list.scrollTo({
-          top: list.scrollHeight,
-          behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-        });
-        this.captureChatAnchor(true);
-      });
+      list.scrollTop = list.scrollHeight;
+      this.captureChatAnchor(true);
     } else {
       this.restoreChatAnchor(list, anchor);
     }
@@ -3350,9 +3213,9 @@ export class QuietRoomApp {
     const article = document.createElement('article');
     article.className = `message ${own ? 'outgoing' : 'incoming'} is-${message.status}`;
     article.dataset.clientMsgId = message.clientMsgId;
-    if (!own || this.favoriteKeyForMessage(message)) {
+    if (!own || message.payload.kind === 'text') {
       article.tabIndex = 0;
-      article.setAttribute('aria-label', own ? '可长按收藏这条表情消息' : '对方消息，可长按或打开快捷菜单回复');
+      article.setAttribute('aria-label', own ? '我的消息，可长按复制文字' : '对方消息，可长按回复或复制文字');
     }
     const bubble = document.createElement('div');
     bubble.className = 'message-bubble';
@@ -3432,20 +3295,19 @@ export class QuietRoomApp {
 
   private async exportRecovery(): Promise<void> {
     const session = this.session;
-    if (!session || this.privacyCovered) return;
+    if (!session || this.privacyCovered || this.root.querySelector('.recovery-code-sheet')) return;
+    const triggers = [...this.root.querySelectorAll<HTMLButtonElement>('#export-recovery, #reminder-export')];
+    if (triggers.some((button) => button.disabled)) return;
+    triggers.forEach((button) => { button.disabled = true; });
     const epoch = this.runtimeEpoch;
     try {
-      this.beginFileExport();
-      const recovery = await downloadRecoveryPackage(session);
+      const recovery = await prepareRecoveryPackage(session);
       if (!this.isRuntimeActive(epoch, session)) return;
-      session.vault.recoveryExportedAt = recovery.exportedAt;
-      await saveVault(session);
-      if (!this.isRuntimeActive(epoch, session)) return;
-      this.showRecoveryCode(recovery.recoveryCode);
-      this.root.querySelector('.recovery-reminder')?.remove();
+      this.showRecoveryCode(recovery, session, epoch);
     } catch (cause) {
-      this.finishFileExport();
-      this.operationalError(cause, '恢复包导出失败');
+      if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '恢复包生成失败');
+    } finally {
+      triggers.forEach((button) => { button.disabled = false; });
     }
   }
 
@@ -3463,7 +3325,7 @@ export class QuietRoomApp {
     this.fileExportResetTimer = null;
   }
 
-  private showRecoveryCode(recoveryCode: string): void {
+  private showRecoveryCode(recovery: PreparedRecoveryExport, session: VaultSession, epoch: number): void {
     this.root.querySelector('.recovery-code-sheet')?.remove();
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const sheet = document.createElement('section');
@@ -3474,24 +3336,34 @@ export class QuietRoomApp {
     sheet.setAttribute('aria-describedby', 'recovery-code-description');
     sheet.innerHTML = `
       <div class="recovery-code-panel">
-        <p class="eyebrow">一次性显示</p>
-        <h2 id="recovery-code-title">单独保存恢复码</h2>
-        <p id="recovery-code-description">刚下载的恢复文件无法单独解锁。请把下面的恢复码保存在不同的位置；关闭后无法再次查看，只能重新导出一组。</p>
+        <p class="eyebrow">恢复包</p>
+        <h2 id="recovery-code-title">文件与恢复码，分开保存</h2>
+        <p id="recovery-code-description">恢复时两者缺一不可。先把恢复码另存到密码管理器或纸上，再保存加密恢复文件。此恢复码关闭后无法再次查看。</p>
         <code></code>
         <div class="recovery-code-actions">
           <button class="secondary-button" type="button" data-copy-code>复制恢复码</button>
-          <button class="primary-button" type="button" data-close-code>我已分开保存</button>
+          <button class="secondary-button" type="button" data-save-recovery>保存恢复文件</button>
         </div>
+        <p class="recovery-save-status" role="status">保存文件后，请确认文件和恢复码都已妥善保管。</p>
+        <p class="form-error" role="alert"></p>
+        <button class="primary-button recovery-confirm" type="button" data-close-code disabled>我已分开保存</button>
+        <button class="text-button recovery-cancel" type="button" data-cancel-code>稍后保存</button>
       </div>
     `;
-    sheet.querySelector('code')!.textContent = recoveryCode;
+    sheet.querySelector('code')!.textContent = recovery.recoveryCode;
     this.root.append(sheet);
-    const close = () => {
-      recoveryCode = '';
+    const confirmButton = sheet.querySelector<HTMLButtonElement>('[data-close-code]')!;
+    const error = sheet.querySelector<HTMLElement>('.form-error')!;
+    let fileDownloadStarted = false;
+    let confirming = false;
+    const close = (confirmed = false) => {
+      if (confirming) return;
+      recovery.recoveryCode = '';
+      sheet.querySelector('code')!.textContent = '';
       this.finishFileExport();
       sheet.remove();
-      previouslyFocused?.focus();
-      this.showNotice('恢复文件和恢复码已生成，请分开保存');
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+      this.showNotice(confirmed ? '已确认保存恢复文件和恢复码' : '尚未确认保存，可从菜单重新导出恢复包');
     };
     sheet.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
@@ -3516,14 +3388,55 @@ export class QuietRoomApp {
     sheet.querySelector('[data-copy-code]')?.addEventListener('click', async (event) => {
       const button = event.currentTarget as HTMLButtonElement;
       try {
-        await navigator.clipboard.writeText(recoveryCode);
+        await navigator.clipboard.writeText(recovery.recoveryCode);
         button.textContent = '已复制';
       } catch {
         button.textContent = '复制失败，请手动记录';
       }
     });
-    sheet.querySelector('[data-close-code]')?.addEventListener('click', close);
-    sheet.querySelector<HTMLButtonElement>('[data-close-code]')?.focus();
+    sheet.querySelector('[data-save-recovery]')?.addEventListener('click', async (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      error.textContent = '';
+      setBusy(button, true, '正在保存…');
+      try {
+        this.beginFileExport();
+        // Keep the code visible before saving. A native share sheet can stay
+        // open past the brief file-export privacy exception on iOS.
+        await downloadBlob(recovery.blob, recovery.filename, { preferShare: false });
+        if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected) return;
+        fileDownloadStarted = true;
+        confirmButton.disabled = false;
+        sheet.querySelector<HTMLElement>('.recovery-save-status')!.textContent = '文件已开始下载。检查保存位置后，再确认文件和恢复码已分开保存。';
+      } catch (cause) {
+        this.finishFileExport();
+        if (sheet.isConnected) error.textContent = cause instanceof Error ? cause.message : '文件保存失败，请重试';
+      } finally {
+        if (button.isConnected) setBusy(button, false);
+      }
+    });
+    confirmButton.addEventListener('click', async () => {
+      if (!fileDownloadStarted || confirming || !this.isRuntimeActive(epoch, session)) return;
+      confirming = true;
+      error.textContent = '';
+      setBusy(confirmButton, true, '正在确认…');
+      const previousExportedAt = session.vault.recoveryExportedAt;
+      try {
+        session.vault.recoveryExportedAt = recovery.exportedAt;
+        await saveVault(session);
+        if (!this.isRuntimeActive(epoch, session)) return;
+        this.root.querySelector('.recovery-reminder')?.remove();
+        confirming = false;
+        close(true);
+      } catch (cause) {
+        session.vault.recoveryExportedAt = previousExportedAt;
+        if (sheet.isConnected) error.textContent = cause instanceof Error ? cause.message : '保存确认失败，请重试';
+      } finally {
+        confirming = false;
+        if (confirmButton.isConnected) setBusy(confirmButton, false);
+      }
+    });
+    sheet.querySelector('[data-cancel-code]')?.addEventListener('click', () => close());
+    sheet.querySelector<HTMLButtonElement>('[data-copy-code]')?.focus();
   }
 
   private createImagePreview(manifest: ImageManifest, album: ImageManifest[], index: number): HTMLButtonElement {
@@ -3535,7 +3448,7 @@ export class QuietRoomApp {
     button.setAttribute('aria-label', manifest.originalName ? `放大查看 ${manifest.originalName}` : '放大查看聊天图片');
     button.innerHTML = `${icons.image}<span>正在载入缩略图…</span><small>${this.fileSize(manifest.originalSize)}</small>`;
     const cached = this.imageCache.get(manifest.blobId);
-    if (cached) this.renderImageIntoButton(button, manifest, cached);
+    if (cached) queueMicrotask(() => { if (button.isConnected) void this.hydrateImagePreview(button, manifest); });
     button.addEventListener('click', () => {
       if (Date.now() < this.suppressMediaClickUntil) return;
       if (button.dataset.imageState === 'error') {
@@ -3547,15 +3460,22 @@ export class QuietRoomApp {
     return button;
   }
 
-  private renderImageIntoButton(button: HTMLButtonElement, manifest: ImageManifest, cached: CachedImage): void {
+  private async renderImageIntoButton(button: HTMLButtonElement, manifest: ImageManifest, cached: CachedImage): Promise<void> {
     const image = document.createElement('img');
     image.src = cached.url;
     image.alt = manifest.originalName || '聊天图片';
-    image.decoding = 'async';
     image.draggable = false;
-    if (/^quiet-room-meme-/i.test(manifest.originalName)) button.classList.add('is-sticker');
+    // Resolve intrinsic dimensions before replacing the placeholder. Capture
+    // the user's current anchor after decoding, as they may scroll meanwhile.
+    await image.decode();
+    if (!button.isConnected || this.privacyCovered) return;
+    image.width = image.naturalWidth;
+    image.height = image.naturalHeight;
+    const anchor = this.captureChatAnchor();
     button.replaceChildren(image);
     button.dataset.imageState = 'loaded';
+    const list = this.root.querySelector<HTMLElement>('#message-list');
+    if (list && anchor) this.restoreChatAnchor(list, anchor);
   }
 
   private async hydrateImagePreview(button: HTMLButtonElement, manifest: ImageManifest): Promise<void> {
@@ -3566,13 +3486,7 @@ export class QuietRoomApp {
     try {
       const cached = await this.loadImage(manifest);
       if (!button.isConnected || this.privacyCovered) return;
-      const anchor = this.captureChatAnchor(false);
-      this.renderImageIntoButton(button, manifest, cached);
-      if (anchor && !anchor.pinnedToBottom) this.restoreChatAnchor(this.root.querySelector<HTMLElement>('#message-list')!, anchor);
-      else if (anchor?.pinnedToBottom) requestAnimationFrame(() => {
-        const list = this.root.querySelector<HTMLElement>('#message-list');
-        if (list) list.scrollTop = list.scrollHeight;
-      });
+      await this.renderImageIntoButton(button, manifest, cached);
     } catch (cause) {
       if (!button.isConnected || cause instanceof DOMException && cause.name === 'AbortError') return;
       button.dataset.imageState = 'error';
@@ -3648,9 +3562,12 @@ export class QuietRoomApp {
   private openImageViewer(manifests: ImageManifest[], startIndex = 0, returnFocus?: HTMLElement): void {
     if (manifests.length === 0 || this.privacyCovered) return;
     this.closeImageViewer(true);
+    this.closeMessageActions();
     this.viewerPreviousSurface = this.activeSurface;
     this.setActiveSurface('away');
     this.viewerReturnFocus = returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    const origin = returnFocus?.querySelector('img')?.getBoundingClientRect() ?? returnFocus?.getBoundingClientRect();
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const viewer = document.createElement('section');
     viewer.className = 'image-viewer';
     viewer.setAttribute('role', 'dialog');
@@ -3669,26 +3586,51 @@ export class QuietRoomApp {
     this.root.append(viewer);
     let current = Math.max(0, Math.min(startIndex, manifests.length - 1));
     let renderToken = 0;
+    let opening = true;
     const stage = viewer.querySelector<HTMLElement>('.viewer-stage')!;
     const previous = viewer.querySelector<HTMLButtonElement>('.viewer-previous')!;
     const next = viewer.querySelector<HTMLButtonElement>('.viewer-next')!;
-    const render = async (index: number) => {
+    const reveal = (image: HTMLImageElement, direction: number) => {
+      const animate = () => {
+        if (!viewer.isConnected || !image.isConnected) return;
+        if (!reducedMotion) {
+          if (opening && origin && origin.width > 0 && origin.height > 0) {
+            const bounds = stage.getBoundingClientRect();
+            const fit = Math.min(bounds.width / image.naturalWidth, bounds.height / image.naturalHeight);
+            const imageWidth = image.naturalWidth * fit;
+            const imageHeight = image.naturalHeight * fit;
+            const scale = Math.min(origin.width / imageWidth, origin.height / imageHeight);
+            const x = origin.left + origin.width / 2 - bounds.left - bounds.width / 2;
+            const y = origin.top + origin.height / 2 - bounds.top - bounds.height / 2;
+            image.animate([
+              { transform: `translate3d(${x}px, ${y}px, 0) scale(${scale})`, opacity: 0.7 },
+              { transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1 },
+            ], { duration: 360, easing: 'cubic-bezier(.2,.8,.2,1)' });
+          } else {
+            image.animate([
+              { transform: `translate3d(${direction * 48}px, 0, 0) scale(${opening ? 0.94 : 1})`, opacity: 0 },
+              { transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1 },
+            ], { duration: opening ? 300 : 220, easing: 'ease-out' });
+          }
+        }
+        opening = false;
+      };
+      if (image.complete && image.naturalWidth > 0) requestAnimationFrame(animate);
+      else image.addEventListener('load', animate, { once: true });
+    };
+    const render = async (index: number, direction = 0) => {
       current = (index + manifests.length) % manifests.length;
       const token = ++renderToken;
       const manifest = manifests[current]!;
       stage.dataset.blobId = manifest.blobId;
+      viewer.classList.remove('is-dragging');
+      viewer.style.removeProperty('--viewer-backdrop-opacity');
       viewer.querySelector<HTMLElement>('[data-viewer-name]')!.textContent = manifest.originalName || '原图';
       viewer.querySelector<HTMLElement>('[data-viewer-counter]')!.textContent = manifests.length > 1 ? `${current + 1} / ${manifests.length}` : this.fileSize(manifest.originalSize);
       previous.hidden = manifests.length < 2;
       next.hidden = manifests.length < 2;
       const cached = this.imageCache.get(manifest.blobId);
-      if (cached) {
-        const image = document.createElement('img');
-        image.src = cached.url;
-        image.alt = manifest.originalName || `第 ${current + 1} 张图片`;
-        image.draggable = false;
-        stage.replaceChildren(image);
-      } else {
+      if (!cached) {
         const loading = document.createElement('p');
         loading.className = 'viewer-loading';
         loading.textContent = '正在下载、解密并校验原图…';
@@ -3696,12 +3638,13 @@ export class QuietRoomApp {
       }
       try {
         const loaded = cached ?? await this.loadImage(manifest);
-        if (!viewer.isConnected || token !== renderToken) return;
+        if (!viewer.isConnected || viewer.classList.contains('is-closing') || token !== renderToken) return;
         const image = document.createElement('img');
         image.src = loaded.url;
         image.alt = manifest.originalName || `第 ${current + 1} 张图片`;
         image.draggable = false;
         stage.replaceChildren(image);
+        reveal(image, direction);
         const adjacent = manifests[(current + 1) % manifests.length];
         if (adjacent && adjacent !== manifest && !(navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData) {
           void this.loadImage(adjacent).catch(() => undefined);
@@ -3716,8 +3659,8 @@ export class QuietRoomApp {
         stage.replaceChildren(error);
       }
     };
-    previous.addEventListener('click', () => void render(current - 1));
-    next.addEventListener('click', () => void render(current + 1));
+    previous.addEventListener('click', () => void render(current - 1, -1));
+    next.addEventListener('click', () => void render(current + 1, 1));
     viewer.querySelector('[data-viewer-close]')?.addEventListener('click', () => this.closeImageViewer());
     viewer.querySelector('[data-viewer-download]')?.addEventListener('click', async () => {
       try {
@@ -3730,30 +3673,85 @@ export class QuietRoomApp {
         this.operationalError(cause, '原图保存失败');
       }
     });
-    let touchStartX: number | null = null;
+    let gesture: { id: number; x: number; y: number; startAt: number; axis: 'x' | 'y' | null } | null = null;
+    const resetDrag = () => {
+      gesture = null;
+      viewer.classList.remove('is-dragging');
+      viewer.style.removeProperty('--viewer-backdrop-opacity');
+      const image = stage.querySelector('img');
+      if (image) image.style.transform = '';
+    };
     stage.addEventListener('pointerdown', (event) => {
-      if (event.pointerType !== 'mouse') touchStartX = event.clientX;
+      if (event.button !== 0 || gesture || viewer.classList.contains('is-closing')) return;
+      if (event.target instanceof Element && event.target.closest('button')) return;
+      gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, startAt: performance.now(), axis: null };
+      if (stage.hasPointerCapture(event.pointerId)) return;
+      try { stage.setPointerCapture(event.pointerId); } catch { /* Synthetic pointers have no capture target. */ }
+    });
+    stage.addEventListener('pointermove', (event) => {
+      if (!gesture || event.pointerId !== gesture.id) return;
+      const x = event.clientX - gesture.x;
+      const y = event.clientY - gesture.y;
+      if (!gesture.axis && Math.hypot(x, y) > 8) gesture.axis = Math.abs(y) > Math.abs(x) ? 'y' : 'x';
+      if (!gesture.axis) return;
+      event.preventDefault();
+      const image = stage.querySelector('img');
+      if (!image) return;
+      image.getAnimations().forEach((animation) => animation.cancel());
+      viewer.classList.add('is-dragging');
+      if (gesture.axis === 'y') {
+        const progress = Math.min(Math.abs(y) / Math.max(stage.clientHeight * 0.6, 1), 1);
+        image.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${1 - progress * 0.38})`;
+        viewer.style.setProperty('--viewer-backdrop-opacity', String(1 - progress * 0.9));
+      } else if (manifests.length > 1) {
+        image.style.transform = `translate3d(${x}px, 0, 0)`;
+      }
     });
     stage.addEventListener('pointerup', (event) => {
-      if (touchStartX === null) return;
-      const distance = event.clientX - touchStartX;
-      touchStartX = null;
-      if (Math.abs(distance) < 44 || manifests.length < 2) return;
-      void render(current + (distance < 0 ? 1 : -1));
+      if (!gesture || event.pointerId !== gesture.id) return;
+      const x = event.clientX - gesture.x;
+      const y = event.clientY - gesture.y;
+      const elapsed = Math.max(performance.now() - gesture.startAt, 1);
+      const axis = gesture.axis ?? (Math.hypot(x, y) > 8 ? (Math.abs(y) > Math.abs(x) ? 'y' : 'x') : null);
+      gesture = null;
+      if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
+      if (axis === 'y' && (Math.abs(y) >= 60 || (Math.abs(y) > 24 && Math.abs(y) / elapsed > 0.45))) {
+        this.closeImageViewer();
+      } else if (axis === 'x' && Math.abs(x) >= 44 && manifests.length > 1) {
+        const direction = x < 0 ? 1 : -1;
+        void render(current + direction, direction);
+      } else {
+        resetDrag();
+      }
     });
+    stage.addEventListener('pointercancel', resetDrag);
+    stage.addEventListener('lostpointercapture', () => { if (gesture) resetDrag(); });
+    stage.addEventListener('contextmenu', (event) => event.preventDefault());
     this.viewerKeyHandler = (event: KeyboardEvent) => {
-      if (!viewer.isConnected) return;
+      if (!viewer.isConnected || viewer.classList.contains('is-closing')) return;
       if (event.key === 'ArrowLeft' && manifests.length > 1) {
         event.preventDefault();
-        void render(current - 1);
+        void render(current - 1, -1);
       }
       if (event.key === 'ArrowRight' && manifests.length > 1) {
         event.preventDefault();
-        void render(current + 1);
+        void render(current + 1, 1);
+      }
+      if (event.key === 'Tab') {
+        const buttons = [...viewer.querySelectorAll<HTMLButtonElement>('button:not([hidden])')];
+        const first = buttons[0];
+        const last = buttons.at(-1);
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
       }
     };
     document.addEventListener('keydown', this.viewerKeyHandler);
-    requestAnimationFrame(() => viewer.classList.add('is-visible'));
+    requestAnimationFrame(() => { if (viewer.isConnected) viewer.classList.add('is-visible'); });
     viewer.querySelector<HTMLButtonElement>('[data-viewer-close]')?.focus({ preventScroll: true });
     void render(current);
   }
@@ -3762,21 +3760,51 @@ export class QuietRoomApp {
     const viewer = this.root.querySelector<HTMLElement>('.image-viewer');
     if (this.viewerKeyHandler) document.removeEventListener('keydown', this.viewerKeyHandler);
     this.viewerKeyHandler = null;
-    if (!viewer) return;
+    if (!viewer || (!immediate && viewer.classList.contains('is-closing'))) return;
+    const previousSurface = this.viewerPreviousSurface;
+    const returnFocus = this.viewerReturnFocus;
+    this.viewerReturnFocus = null;
     const finish = () => {
+      if (!viewer.isConnected) return;
       viewer.remove();
-      this.setActiveSurface(this.viewerPreviousSurface);
-      const returnFocus = this.viewerReturnFocus;
-      this.viewerReturnFocus = null;
+      if (this.privacyCovered || this.root.querySelector('.image-viewer')) return;
+      this.setActiveSurface(previousSurface);
       if (!immediate && returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
     };
     if (immediate || matchMedia('(prefers-reduced-motion: reduce)').matches) {
       finish();
       return;
     }
-    viewer.classList.remove('is-visible');
+    const image = viewer.querySelector<HTMLImageElement>('.viewer-stage > img');
+    if (image) {
+      const startTransform = getComputedStyle(image).transform;
+      image.getAnimations().forEach((animation) => animation.cancel());
+      const blobId = viewer.querySelector<HTMLElement>('.viewer-stage')?.dataset.blobId;
+      const thumbnail = blobId
+        ? this.root.querySelector<HTMLElement>(`.image-preview[data-blob-id="${CSS.escape(blobId)}"]`)
+        : returnFocus;
+      const target = thumbnail?.getBoundingClientRect();
+      const bounds = image.getBoundingClientRect();
+      const stage = viewer.querySelector<HTMLElement>('.viewer-stage')!;
+      const frame = stage.getBoundingClientRect();
+      let endTransform = 'translate3d(0, 64px, 0) scale(0.82)';
+      if (target && target.width > 0 && target.height > 0 && target.bottom > 0 && target.top < window.innerHeight) {
+        const fit = Math.min(frame.width / image.naturalWidth, frame.height / image.naturalHeight);
+        const scale = Math.min(target.width / (image.naturalWidth * fit), target.height / (image.naturalHeight * fit));
+        const x = target.left + target.width / 2 - frame.left - frame.width / 2;
+        const y = target.top + target.height / 2 - frame.top - frame.height / 2;
+        endTransform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
+      }
+      if (bounds.width > 0) {
+        image.animate([
+          { transform: startTransform === 'none' ? 'translate3d(0,0,0) scale(1)' : startTransform, opacity: 1 },
+          { transform: endTransform, opacity: 0 },
+        ], { duration: 300, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' });
+      }
+    }
+    viewer.classList.remove('is-visible', 'is-dragging');
     viewer.classList.add('is-closing');
-    window.setTimeout(finish, 340);
+    window.setTimeout(finish, 320);
   }
 
   private renderGallery(): void {
@@ -3959,10 +3987,18 @@ export class QuietRoomApp {
     const selfRole = this.session.vault.role;
     const peerRole = selfRole === 'creator' ? 'joiner' : 'creator';
     const snapshotAvailable = this.connectionState === 'connected' && this.rolePresence !== null;
+    const lastSeenText = (timestamp: number | null) => {
+      if (!timestamp) return '最近上线时间未知';
+      const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
+      if (minutes < 1) return '刚刚在线';
+      if (minutes < 60) return `${minutes} 分钟前在线`;
+      if (minutes < 1440) return `${Math.floor(minutes / 60)} 小时前在线`;
+      return `${Math.floor(minutes / 1440)} 天前在线`;
+    };
     const update = (row: HTMLElement, value: boolean | null) => {
       const state = value === null ? 'syncing' : value ? 'online' : 'offline';
       row.dataset.state = state;
-      row.querySelector<HTMLElement>('strong')!.textContent = value === null ? '同步中' : value ? '在线' : '离线';
+      row.querySelector<HTMLElement>('strong')!.textContent = value === null ? '同步中' : value ? '在线' : row === peerRow ? lastSeenText(this.roleLastSeen[peerRole]) : '离线';
     };
     const selfOnline = snapshotAvailable ? this.rolePresence![selfRole] : null;
     const peerOnline = snapshotAvailable ? this.rolePresence![peerRole] : null;
@@ -3977,7 +4013,7 @@ export class QuietRoomApp {
     const detail = `${paired ? '' : '等待另一位参与者加入；'}我：${selfOnline === null ? '同步中' : selfOnline ? '在线' : '离线'}；对方：${peerOnline === null ? '同步中' : peerOnline ? '在线' : '离线'}。${transport}；${crypto}`;
     summary.setAttribute('aria-label', detail);
     summary.title = detail;
-    summary.dataset.state = snapshotAvailable ? 'ready' : 'syncing';
+    summary.dataset.connectionState = snapshotAvailable ? 'ready' : 'syncing';
   }
 
   private async updateSafetyCode(): Promise<void> {
@@ -4123,10 +4159,14 @@ export class QuietRoomApp {
     this.imageCacheBytes = 0;
     this.connectionState = 'disconnected';
     this.rolePresence = null;
+    this.roleLastSeen = { creator: null, joiner: null };
+    this.chatLayoutObserver?.disconnect();
+    this.chatLayoutObserver = null;
+    if (this.presenceRefreshTimer !== null) window.clearInterval(this.presenceRefreshTimer);
+    this.presenceRefreshTimer = null;
     this.activeSurface = 'away';
-    this.uiPreferences = { favoriteExpressions: [] };
+    this.uiPreferences = {};
     this.restoreChatAnchorOnNextRender = true;
-    this.expressionTab = 'emoji';
     this.galleryScrollTop = 0;
     if (this.idleTimer !== null) window.clearTimeout(this.idleTimer);
     this.idleTimer = null;

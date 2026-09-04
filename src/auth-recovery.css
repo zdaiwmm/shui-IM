@@ -1,0 +1,110 @@
+/* Authentication screens keep stable rows even when platform verification fails. */
+.gateway {
+  padding-top: clamp(48px, 10svh, 96px);
+}
+
+.gateway > .gateway-heading {
+  flex: 0 0 auto;
+}
+
+.credential-only-step {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  margin-top: 32px;
+  flex: 0 0 auto;
+}
+
+.gateway .field-hint,
+.gateway .form-error {
+  margin: 0;
+}
+
+.gateway .form-error {
+  min-height: 2.9em;
+  overflow-wrap: anywhere;
+}
+
+.credential-only-step > .primary-button,
+.gateway-form > .primary-button {
+  width: 100%;
+  min-height: 52px;
+  height: auto;
+  padding: 14px 20px;
+  line-height: 1.45;
+}
+
+.credential-only-step > .field-hint {
+  color: var(--ink-muted);
+  font-size: 0.875rem;
+  line-height: 1.65;
+}
+
+.credential-only-step + .gateway-secondary,
+.credential-only-step + .gateway-back {
+  margin-top: 8px;
+}
+
+.gateway > .privacy-note {
+  flex-shrink: 0;
+  margin-bottom: 0;
+  padding-top: 40px;
+}
+
+.recovery-code-sheet {
+  position: fixed;
+  padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+}
+
+.recovery-code-panel {
+  max-height: 100%;
+  padding: clamp(20px, 5vw, 28px);
+  animation: none;
+}
+
+.recovery-code-panel h2 {
+  line-height: 1.35;
+}
+
+.recovery-code-actions > button,
+.recovery-confirm {
+  min-height: 50px;
+  padding: 12px 14px;
+  line-height: 1.45;
+}
+
+.recovery-code-panel > .recovery-save-status {
+  margin: 16px 0 0;
+  font-size: 0.8rem;
+}
+
+.recovery-code-panel > .form-error {
+  min-height: 1.45em;
+  margin: 10px 0;
+  color: var(--danger);
+}
+
+.recovery-confirm,
+.recovery-cancel {
+  width: 100%;
+}
+
+.recovery-confirm:disabled {
+  opacity: 0.45;
+  cursor: default;
+  box-shadow: none;
+}
+
+.recovery-cancel {
+  margin-top: 6px;
+}
+
+@media (max-height: 640px) {
+  .gateway {
+    padding-top: max(28px, env(safe-area-inset-top));
+  }
+
+  .gateway-mark {
+    margin-bottom: 24px;
+  }
+}

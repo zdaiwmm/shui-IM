@@ -15,14 +15,18 @@ function isAppleTouchDevice(): boolean {
  * WebKit may otherwise render a blob in the current tab when it ignores the
  * download attribute. "Save to Files" remains available from that sheet.
  */
-export async function downloadBlob(blob: Blob, filename: string): Promise<void> {
+export async function downloadBlob(
+  blob: Blob,
+  filename: string,
+  options: { preferShare?: boolean } = {},
+): Promise<void> {
   const safeFilename = filename.trim() || 'download';
   const file = new File([blob], safeFilename, {
     type: blob.type || 'application/octet-stream',
     lastModified: Date.now(),
   });
   const shareNavigator = navigator as FileShareNavigator;
-  const canShareFile = isAppleTouchDevice()
+  const canShareFile = options.preferShare !== false && isAppleTouchDevice()
     && shareNavigator.userActivation?.isActive !== false
     && typeof shareNavigator.share === 'function'
     && shareNavigator.canShare?.({ files: [file] }) === true;
@@ -43,6 +47,9 @@ export async function downloadBlob(blob: Blob, filename: string): Promise<void> 
   anchor.href = url;
   anchor.download = safeFilename;
   anchor.rel = 'noopener';
+  // Keep the original page (and the separately displayed recovery code) intact
+  // if Safari previews a file instead of honoring the download attribute.
+  anchor.target = '_blank';
   anchor.style.display = 'none';
   document.body.append(anchor);
   anchor.click();
