@@ -15,7 +15,7 @@ afterEach(async () => { for (const directory of directories.splice(0)) await rm(
 describe('browser regression groups', () => {
   it('partitions every existing browser entry exactly once and preserves full-suite order', async () => {
     const expected = [
-      'browser', 'frontend-lifecycle', 'desktop-privacy', 'desktop-session-flow',
+      'browser', 'frontend-lifecycle', 'chat-bottom-control', 'message-timeline', 'desktop-privacy', 'desktop-session-flow',
       'vault-resume', 'system-surfaces', 'file-flow', 'file-outbox', 'file-interactions',
       'unread-counter', 'reaction-history', 'vault-lifecycle', 'voice-lifecycle',
       'cloud-backup-lifecycle', 'backup-admin-ui',
@@ -24,7 +24,7 @@ describe('browser regression groups', () => {
     const all = selectBrowserScripts();
     expect(all).toEqual(expected);
     expect([...selectBrowserScripts('1'), ...selectBrowserScripts('2')]).toEqual(all);
-    expect(new Set(all).size).toBe(19);
+    expect(new Set(all).size).toBe(21);
     expect(Object.keys(browserGroups)).toEqual(['1', '2']);
     expect(selectBrowserScripts('1')).toEqual(['tests/browser.e2e.mjs']);
     const main = await readFile(path.join(root, 'tests/browser.e2e.mjs'), 'utf8');
@@ -66,8 +66,8 @@ describe('browser regression groups', () => {
       active--;
     } });
     expect(seen).toEqual(selectBrowserScripts());
-    expect(log.mock.calls.filter(([line]) => line.startsWith('[browser] PASS'))).toHaveLength(19);
-    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 1.90s; 19 passed, 0 failed, 0 not run.');
+    expect(log.mock.calls.filter(([line]) => line.startsWith('[browser] PASS'))).toHaveLength(21);
+    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 2.10s; 21 passed, 0 failed, 0 not run.');
   });
 
   it('stops a failing group, preserves its failure and explicitly reports scripts that did not run', async () => {
@@ -76,7 +76,7 @@ describe('browser regression groups', () => {
     const log = vi.fn();
     await expect(runBrowserTests({ group: '2', run, log, now: () => 0 })).rejects.toBe(failure);
     expect(run.mock.calls.map(([script]) => script)).toEqual(selectBrowserScripts('2').slice(0, 2));
-    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 0.00s; 1 passed, 1 failed, 16 not run.');
+    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 0.00s; 1 passed, 1 failed, 18 not run.');
   });
 
   it('does not start another script after cancellation', async () => {

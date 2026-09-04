@@ -136,6 +136,8 @@ For new rooms, the client advances the RFC 9420 MLS application-message ratchet 
 
 The UI uses three concise states with full descriptions exposed to assistive technology. **等待发送** (等待服务器) means only the encrypted local outbox is durable. **单柄对勾 / 已发送** (服务器已保存) means the server committed the signed ciphertext. **双柄对勾 / 已送达** (对端已安全接收) appears only after the other enrolled device decrypts the message, persists local history, and returns an ECDSA-signed receipt. A server cannot forge that final state without the peer signing key.
 
+Time and receipt information appear inside the bottom-right of each message bubble. A centered date separator appears once per locally loaded calendar date, derived from the message's original `sentAt` in the device's local timezone, without changing server order or unread semantics. Earlier-history pagination relocates the separator and preserves the reading anchor. The down-arrow control remains attached above the composer, appears according to the newest message/control edge comparison, and scrolls back to the latest message with distance-sensitive motion while preserving keyboard focus.
+
 This defines a deterministic server-acceptance order. It does not claim to know which person physically tapped Send first when two devices send concurrently over networks with different latency.
 
 ## Original photo, video, and file behavior

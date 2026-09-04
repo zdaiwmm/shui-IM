@@ -10,8 +10,7 @@
 
 .message.is-selecting-text,
 .message.is-selecting-text .message-bubble,
-.message.is-selecting-text .message-text,
-.message.is-selecting-text .message-bubble > p {
+.message.is-selecting-text .message-text {
   -webkit-touch-callout: default;
   -webkit-user-select: text;
   user-select: text;

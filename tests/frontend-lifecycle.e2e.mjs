@@ -180,7 +180,7 @@ try {
     const manifests = Array.from({ length: 15 }, (_, index) => ({
       v: 1, blobId: `cold-anchor-${index}`, originalName: `cold-anchor-${index}.svg`, originalSize: blob.size, mimeType: blob.type,
     }));
-    const messages = () => new Map(manifests.map((image, index) => [index + 1, message(index + 1, { v: 1, kind: 'image', image, sentAt: '2026-09-04T01:00:00.000Z' })]));
+    const messages = (count = manifests.length) => new Map(manifests.slice(0, count).map((image, index) => [index + 1, message(index + 1, { v: 1, kind: 'image', image, sentAt: '2026-09-04T01:00:00.000Z' })]));
     const warm = () => {
       for (const manifest of manifests) {
         app.cacheLocalImage(manifest, blob);
@@ -204,10 +204,10 @@ try {
     await settleLayout();
     const saved = structuredClone(app.captureChatAnchor());
     if (saved.clientMsgId !== 'message-8' || Math.abs(saved.offset + 196) > 2) throw Error(`Tall-image anchor fixture did not reach the expected offset: ${JSON.stringify({ saved, scrollY, height: document.documentElement.scrollHeight })}`);
-    const reopenCold = () => {
+    const reopenCold = (count = manifests.length) => {
       app.lockNow();
       if (app.imageCache.size) throw Error('Lock retained decrypted image cache');
-      fresh(); app.messages = messages(); app.uiPreferences = { chatAnchor: structuredClone(saved) };
+      fresh(); app.messages = messages(count); app.uiPreferences = { chatAnchor: structuredClone(saved) };
       app.restoreChatAnchorOnNextRender = true; app.renderChat();
       return document.querySelector('#message-list');
     };
@@ -221,6 +221,32 @@ try {
     await settleLayout();
     const restored = structuredClone(app.captureChatAnchor());
     if (!sameAnchor(restored, saved) || app.chatRestoreAnchor) throw Error(`Decoded images lost the restored anchor: ${JSON.stringify({ saved, restored })}`);
+
+    // Two cold rows below message 8 cannot provide enough scrollable space
+    // for its deep saved offset until those rows decode too.
+    list = reopenCold(10); await settleLayout(); warm();
+    let tailWasClamped = false;
+    for (const [index, button] of [...list.querySelectorAll('.image-preview')].entries()) {
+      const manifest = manifests.find(item => item.blobId === button.dataset.blobId);
+      await app.renderImageIntoButton(button, manifest, app.imageCache.get(manifest.blobId));
+      if (index === 7) {
+        const offset = list.querySelector('[data-client-msg-id="message-8"]').getBoundingClientRect().top;
+        tailWasClamped = Math.abs(offset - saved.offset) > 2;
+        if (!tailWasClamped || !sameAnchor(app.chatRestoreAnchor, saved)) throw Error('A temporarily clamped tail discarded its intended restore anchor');
+      }
+    }
+    await settleLayout();
+    if (!sameAnchor(app.captureChatAnchor(), saved) || app.chatRestoreAnchor) throw Error('Decoding the trailing rows did not finish the exact saved offset');
+
+    // With only one final row, even the fully decoded tail cannot reach that
+    // offset. Earlier offscreen pending media must not stall restoration.
+    list = reopenCold(9); await settleLayout(); warm();
+    for (const button of [...list.querySelectorAll('.image-preview')].slice(7)) {
+      const manifest = manifests.find(item => item.blobId === button.dataset.blobId);
+      await app.renderImageIntoButton(button, manifest, app.imageCache.get(manifest.blobId));
+    }
+    await settleLayout();
+    if (app.chatRestoreAnchor || list.querySelectorAll('.image-preview[data-image-state="pending"]').length !== 7) throw Error('Earlier pending media kept an unreachable tail anchor suspended');
 
     list = reopenCold(); await settleLayout();
     list.dispatchEvent(new WheelEvent('wheel', { deltaY: 60, bubbles: true }));
@@ -239,7 +265,7 @@ try {
     const afterUserScroll = structuredClone(app.captureChatAnchor());
     if (!sameAnchor(afterUserScroll, userAnchor)) throw Error(`Late image decode overrode user scrolling: ${JSON.stringify({ userAnchor, afterUserScroll })}`);
     app.lockNow();
-    return { saved, restored, userScrollPreserved: true, lockClearsCache: true };
+    return { saved, restored, tailWasClamped, stableShortTailReleased: true, userScrollPreserved: true, lockClearsCache: true };
   });
 
   results.sendDraftDurability = await page.evaluate(async () => {
@@ -1057,7 +1083,7 @@ try {
       }
       if (app.chatPinnedToBottom && eventTarget === viewport) {
         const latestGap = composer.top - list.lastElementChild.getBoundingClientRect().bottom;
-        if (Math.abs(latestGap - 16) > 2) throw Error(`Messages lagged keyboard dispatch frame: ${JSON.stringify({ height, offsetTop, latestGap })}`);
+        if (Math.abs(latestGap - 64) > 2) throw Error(`Messages lagged keyboard dispatch frame: ${JSON.stringify({ height, offsetTop, latestGap })}`);
       }
     };
     try {
@@ -1065,7 +1091,7 @@ try {
       for (const [height, top] of [[720, 40], [620, 100], [520, 180], [430, 260]]) {
         position(height, top); await settle();
         const latestGap = document.querySelector('#composer').getBoundingClientRect().top - list.lastElementChild.getBoundingClientRect().bottom;
-        if (Math.abs(latestGap - 16) > 2) throw Error(`Keyboard panning left a ${latestGap}px gap above the composer`);
+        if (Math.abs(latestGap - 64) > 2) throw Error(`Keyboard panning left a ${latestGap}px gap above the composer`);
       }
       if (document.documentElement.dataset.keyboardOpen !== 'true') throw Error('Shrinking innerHeight hid the keyboard state');
       input.blur();
@@ -1126,7 +1152,7 @@ try {
         viewport.dispatchEvent(new Event('resize'));
         const composer = document.querySelector('#composer').getBoundingClientRect();
         const gap = composer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
-        if (Math.abs(composer.bottom - height) > 1 || Math.abs(gap - 16) > 2) throw Error(`Keyboard after collapsed toolbar misplaced content: ${JSON.stringify({ height, bottom: composer.bottom, gap })}`);
+        if (Math.abs(composer.bottom - height) > 1 || Math.abs(gap - 64) > 2) throw Error(`Keyboard after collapsed toolbar misplaced content: ${JSON.stringify({ height, bottom: composer.bottom, gap })}`);
         await frame();
       }
       return { staleLayoutFrames: samples, subsequentKeyboardFrames: 3 };
@@ -1166,7 +1192,7 @@ try {
       // a native scroll gap. A fresh composer tap must restore prior follow.
       input.focus({ preventScroll: true }); resize(420);
       const gap = document.querySelector('#composer').getBoundingClientRect().top - list.lastElementChild.getBoundingClientRect().bottom;
-      if (!app.chatPinnedToBottom || Math.abs(gap - 16) > 2) throw Error(`Reopening the keyboard retained stale history intent: gap=${gap}`);
+      if (!app.chatPinnedToBottom || Math.abs(gap - 64) > 2) throw Error(`Reopening the keyboard retained stale history intent: gap=${gap}`);
       await settle();
       await dismissFromMessage();
       list.dispatchEvent(new WheelEvent('wheel', { deltaY: -12, bubbles: true }));
@@ -1206,7 +1232,7 @@ try {
       viewport.dispatchEvent(new Event('resize'));
       const composer = document.querySelector('#composer').getBoundingClientRect();
       const gap = composer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
-      if (!app.chatPinnedToBottom || Math.abs(gap - 16) > 2) throw Error(`Native focus scroll lost the latest message: gap=${gap}`);
+      if (!app.chatPinnedToBottom || Math.abs(gap - 64) > 2) throw Error(`Native focus scroll lost the latest message: gap=${gap}`);
       // A delayed native adjustment can also arrive after the final resize.
       // With no further viewport changes, follow still needs to recover it.
       window.scrollBy(0, -96);
@@ -1214,7 +1240,7 @@ try {
       for (let i = 0; i < 4; i++) await frame();
       const settledGap = document.querySelector('#composer').getBoundingClientRect().top
         - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
-      if (!app.chatPinnedToBottom || Math.abs(settledGap - 16) > 2) throw Error(`Native scroll after the final keyboard resize lost follow: gap=${settledGap}`);
+      if (!app.chatPinnedToBottom || Math.abs(settledGap - 64) > 2) throw Error(`Native scroll after the final keyboard resize lost follow: gap=${settledGap}`);
       return { scrollBeforeResize: true, scrollAfterFinalResize: true, bottomFollowRetained: true, latestGap: gap, settledGap };
     } finally {
       delete viewport.height; delete viewport.offsetTop;
@@ -1254,7 +1280,7 @@ try {
       const composer = document.querySelector('#composer').getBoundingClientRect();
       const latest = document.querySelector('[data-client-msg-id="message-71"]').getBoundingClientRect();
       const gap = composer.top - latest.bottom;
-      if (Math.abs(gap - 16) > 2 || !app.chatPinnedToBottom) throw Error(`A deferred send scroll left the latest message under the composer: ${JSON.stringify({ gap, attempts, ignored, pinned: app.chatPinnedToBottom })}`);
+      if (Math.abs(gap - 64) > 2 || !app.chatPinnedToBottom) throw Error(`A deferred send scroll left the latest message under the composer: ${JSON.stringify({ gap, attempts, ignored, pinned: app.chatPinnedToBottom })}`);
       app.messages.set(71, { ...app.messages.get(71), status: 'stored' }); app.renderMessages();
       await frame();
       if (!app.captureChatAnchor().pinnedToBottom) throw Error('Send acknowledgement lost recovered bottom follow');
@@ -1262,7 +1288,7 @@ try {
       for (let i = 0; i < 4; i++) await frame();
       const lateScrollGap = document.querySelector('#composer').getBoundingClientRect().top
         - document.querySelector('[data-client-msg-id="message-71"]').getBoundingClientRect().bottom;
-      if (!app.chatPinnedToBottom || Math.abs(lateScrollGap - 16) > 2) throw Error(`Native scroll overrode an already completed send alignment: gap=${lateScrollGap}`);
+      if (!app.chatPinnedToBottom || Math.abs(lateScrollGap - 64) > 2) throw Error(`Native scroll overrode an already completed send alignment: gap=${lateScrollGap}`);
       return { ignoredAttempts: ignored, totalAttempts: attempts, latestGap: gap, lateScrollGap, ackFollowRetained: true };
     } finally {
       window.scrollTo = scrollTo; app.enqueuePayload = enqueue;
@@ -1285,7 +1311,7 @@ try {
         const check = height => {
           const composer = document.querySelector('#composer').getBoundingClientRect();
           const gap = composer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
-          if (Math.abs(composer.bottom - height) > 1 || Math.abs(gap - 16) > 2) throw Error(`Short history did not follow the keyboard: ${JSON.stringify({ count, height, composerBottom: composer.bottom, gap })}`);
+          if (Math.abs(composer.bottom - height) > 1 || Math.abs(gap - 64) > 2) throw Error(`Short history did not follow the keyboard: ${JSON.stringify({ count, height, composerBottom: composer.bottom, gap })}`);
           return { count, height, gap };
         };
         check(layoutHeight);

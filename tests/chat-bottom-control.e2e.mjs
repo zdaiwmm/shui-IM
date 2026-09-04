@@ -1,0 +1,339 @@
+import assert from 'node:assert/strict';
+import { chromium, webkit } from 'playwright';
+import { createServer } from 'vite';
+
+const server = await createServer({
+  configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error',
+  server: { host: '127.0.0.1', port: 0, hmr: false },
+  plugins: [{ name: 'chat-bottom-fixture', configureServer(vite) {
+    vite.middlewares.use('/__chat_bottom', (_request, response) => {
+      response.setHeader('Content-Type', 'text/html');
+      response.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="app"></div></body></html>');
+    });
+  } }],
+});
+let browser;
+const results = {};
+try {
+  await server.listen();
+  browser = process.env.QUIET_ROOM_TEST_BROWSER === 'webkit' ? await webkit.launch()
+    : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 },
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
+  const errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(`http://localhost:${server.httpServer.address().port}/__chat_bottom`);
+  await page.evaluate(async () => {
+    await import('/src/styles.css'); await import('/src/chat-layout.css'); await import('/src/gallery.css');
+    await import('/src/chat-interactions.css'); await import('/src/cover.css'); await import('/src/voice-messages.css'); await import('/src/call.css');
+    const { QuietRoomApp } = await import('/src/app.ts');
+    const { createVault, saveHistoryMessage } = await import('/src/lib/vault.ts');
+    const member = { deviceId: 'bottom-own', role: 'creator', status: 'active' };
+    const session = await createVault({ v: 1, roomId: 'bottom-regression', accessToken: 'test', role: 'creator', protocol: 'legacy-v1', lastSeq: 200,
+      members: [member, { deviceId: 'bottom-peer', role: 'joiner', status: 'active' }], identity: { publicBundle: member } }, 'bottom-regression-password', 'password');
+    const app = new QuietRoomApp(document.querySelector('#app'));
+    app.updateSafetyCode = async () => {}; app.updateBackgroundNotificationControl = async () => {};
+    app.mountChatImageObserver = () => {}; app.mountGalleryThumbnails = () => {};
+    const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const fresh = async (count = 80) => {
+      app.session = session; app.privacyCovered = false; app.runtimeEpoch += 1; app.runtimeAbort = new AbortController();
+      app.uiPreferences = { recoveryReminderDismissed: true }; app.restoreChatAnchorOnNextRender = false;
+      app.historyHasNewer = false; app.historyHasMore = false; app.historyLoading = false; app.historyForwardCursor = count;
+      app.messages = new Map(Array.from({ length: count }, (_, index) => [index + 1, {
+        seq: index + 1, clientMsgId: `bottom-${index + 1}`, senderId: 'bottom-peer', status: 'delivered', acceptedAt: '2026-09-04T01:00:00.000Z',
+        payload: { v: 1, kind: 'text', text: `聊天消息 ${index + 1}`, sentAt: '2026-09-04T01:00:00.000Z' },
+      }]));
+      app.pending = new Map(); app.reactionHistory = new Map(); app.renderChat(); app.renderMessages({ scroll: 'bottom' }); await settle();
+    };
+    const up = async distance => {
+      document.querySelector('#message-list').dispatchEvent(new WheelEvent('wheel', { deltaY: -distance, bubbles: true }));
+      window.scrollTo(0, app.chatBottomScrollTop() - distance); app.updateChatBottomControl(); await settle();
+    };
+    const button = () => document.querySelector('#chat-bottom-control');
+    const visible = () => button().classList.contains('is-visible');
+    const assertGap = () => {
+      const composer = document.querySelector('#composer').getBoundingClientRect(); const rect = button().getBoundingClientRect();
+      if (Math.abs(composer.top - rect.bottom - 8) > 0.6 || Math.abs(rect.height - 44) > 0.6) throw Error(`Button lost its composer gap: ${JSON.stringify({ composer: composer.top, bottom: rect.bottom, height: rect.height })}`);
+    };
+    window.bottomFixture = { app, session, saveHistoryMessage, fresh, settle, up, button, visible, assertGap }; await fresh();
+  });
+
+  results.strictThreshold = await page.evaluate(async () => {
+    const { app, up, settle, button, visible, assertGap } = window.bottomFixture;
+    assertGap(); if (visible()) throw Error('Latest message above the button still showed the control');
+    const latest = app.renderedMessageOrder.at(-1);
+    const start = latest.getBoundingClientRect().bottom - button().getBoundingClientRect().top;
+    if (Math.abs(start + 12) > 1) throw Error(`Bottom clearance was not 12px: ${start}`);
+    await up(11); if (visible()) throw Error('Button appeared before latest message crossed its top edge');
+    await up(13); if (!visible() || button().getAttribute('aria-hidden') !== 'false' || button().tabIndex !== 0) throw Error('Button did not appear immediately after latest message crossed its top edge');
+    const fade = getComputedStyle(button());
+    if (!fade.transitionProperty.includes('opacity') || !fade.transitionDuration.includes('0.18s')) throw Error('Button lost its opacity transition');
+    await up(11); if (visible() || button().tabIndex !== -1) throw Error('Returning across the threshold left the button active');
+    // Observe async content changes even when neither scrolling nor viewport
+    // events fire. This covers both the final message and earlier media.
+    latest.style.paddingBottom = '30px'; await settle();
+    if (!visible()) throw Error('Last-message growth did not refresh visibility');
+    latest.style.paddingBottom = ''; await settle();
+    if (visible()) throw Error('Last-message shrink did not hide the control');
+    const earlier = app.renderedMessageOrder.at(-2); earlier.style.paddingBottom = '30px'; await settle();
+    if (!visible()) throw Error('Earlier content growth left the last-message threshold stale');
+    earlier.style.paddingBottom = ''; await settle();
+    if (visible()) throw Error('Earlier content shrink left the control visible');
+    return { clearance: 12, visibleAfterCrossing: true, fadeMs: 180, asynchronousContent: true };
+  });
+
+  results.lockedComposerGap = await page.evaluate(async () => {
+    const { app, up, settle, assertGap } = window.bottomFixture; await up(400);
+    const viewport = window.visualViewport;
+    const saved = Object.fromEntries(['height', 'offsetTop'].map(key => [key, Object.getOwnPropertyDescriptor(viewport, key)]));
+    try {
+      for (const [height, offsetTop] of [[780, 0], [810, 0], [610, 50], [430, 180]]) {
+        Object.defineProperty(viewport, 'height', { configurable: true, value: height });
+        Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: offsetTop });
+        viewport.dispatchEvent(new Event('resize')); assertGap(); await settle(); assertGap();
+      }
+      const input = document.querySelector('#message-input'); input.value = '多行输入\n'.repeat(6); input.dispatchEvent(new Event('input'));
+      await settle(); assertGap();
+    } finally {
+      for (const key of Object.keys(saved)) { if (saved[key]) Object.defineProperty(viewport, key, saved[key]); else delete viewport[key]; }
+      viewport.dispatchEvent(new Event('resize')); app.scrollChatToBottom(); await settle();
+    }
+    return { toolbarFrames: 4, multilineComposer: true, gap: 8 };
+  });
+
+  // An actual pointer click must retain the focused textarea and selection.
+  await page.locator('#message-input').fill('键盘和选择位置保留');
+  await page.evaluate(async () => {
+    const input = document.querySelector('#message-input'); input.focus({ preventScroll: true }); input.setSelectionRange(2, 5);
+    await window.bottomFixture.up(180);
+  });
+  await page.locator('#chat-bottom-control').click();
+  await page.waitForFunction(() => !document.querySelector('#chat-bottom-control').dataset.scrolling);
+  results.keyboardPreserved = await page.evaluate(() => {
+    const { app, button, visible, assertGap } = window.bottomFixture; const input = document.querySelector('#message-input');
+    if (document.activeElement !== input || input.selectionStart !== 2 || input.selectionEnd !== 5) throw Error('Return to bottom dismissed the keyboard or changed selection');
+    if (Math.abs(window.scrollY - app.chatBottomScrollTop()) > 2 || !app.chatPinnedToBottom || visible()) throw Error('Click did not finish at the latest message');
+    assertGap(); if (button().dataset.scrolling) throw Error('Completed scroll retained animation state');
+    return { focus: true, selection: [2, 5], finishedPinned: true };
+  });
+
+  results.distanceMotion = await page.evaluate(async () => {
+    const { app, up, button } = window.bottomFixture;
+    const animate = async distance => {
+      await up(distance); const start = window.scrollY; const target = app.chatBottomScrollTop(); const begun = performance.now();
+      button().click();
+      if (window.scrollY !== start) throw Error('Click jumped synchronously before animation');
+      const frames = [];
+      await new Promise((resolve, reject) => {
+        const step = () => {
+          frames.push({ elapsed: performance.now() - begun, y: window.scrollY });
+          if (frames.length > 200) return reject(Error('Return animation did not finish'));
+          if (button().dataset.scrolling) requestAnimationFrame(step); else resolve();
+        }; requestAnimationFrame(step);
+      });
+      if (!frames.some(frame => frame.y > start + 1 && frame.y < target - 2)) throw Error('Scroll had no intermediate positions');
+      if (frames.some((frame, index) => index && frame.y < frames[index - 1].y - 1)) throw Error('Return animation moved backwards');
+      if (Math.abs(window.scrollY - target) > 2) throw Error('Return animation missed its target');
+      return { distance: target - start, duration: frames.at(-1).elapsed, frames: frames.length };
+    };
+    const short = await animate(140); const long = await animate(2200);
+    if (short.duration < 260 || long.duration > 1200 || long.distance / long.duration <= short.distance / short.duration * 3) throw Error(`Distance-based motion was not deliberate at short range and faster at long range: ${JSON.stringify({ short, long })}`);
+    return { short, long };
+  });
+
+  results.cancellation = await page.evaluate(async () => {
+    const { app, up, settle, button, visible } = window.bottomFixture;
+    await up(1800); button().click(); await settle();
+    document.querySelector('#message-list').dispatchEvent(new WheelEvent('wheel', { deltaY: -80, bubbles: true }));
+    window.scrollBy(0, -40); const stopped = window.scrollY; await settle(); await settle();
+    if (button().dataset.scrolling || window.scrollY !== stopped || app.chatPinnedToBottom) throw Error('User upward scroll did not cancel automatic movement');
+    button().click(); await settle(); app.setActiveSurface('away'); const away = window.scrollY;
+    if (button().dataset.scrolling || visible()) throw Error('Leaving chat retained the return control');
+    await settle(); if (window.scrollY !== away) throw Error('Leaving chat retained a scrolling frame');
+    app.setActiveSurface('chat'); await settle(); if (!visible()) throw Error('Returning to the same chat failed to restore control visibility');
+    button().click(); await settle(); const stale = button(); app.lockNow(); await settle();
+    const lockedY = window.scrollY; stale.click(); await settle();
+    if (!app.privacyCovered || document.querySelector('#chat-bottom-control') || window.scrollY !== lockedY) throw Error('Lock left an active or stale return control');
+    return { userScroll: true, away: true, sameDomResume: true, lock: true, staleClick: true };
+  });
+
+  await page.setViewportSize({ width: 320, height: 740 });
+  results.lateCachedMediaLayout = await page.evaluate(async () => {
+    const { app, fresh, settle, visible } = window.bottomFixture;
+    document.documentElement.style.setProperty('font-size', '20px', 'important');
+    try {
+      await fresh(4);
+      const blob = new Blob(['<svg xmlns="http://www.w3.org/2000/svg" width="600" height="360"><rect width="600" height="360" fill="navy"/></svg>'], { type: 'image/svg+xml' });
+      const manifest = { v: 1, blobId: 'bottom-late-image', originalName: 'synthetic.svg', originalSize: blob.size, mimeType: blob.type };
+      app.cacheLocalImage(manifest, blob); Object.assign(app.imageCache.get(manifest.blobId), { width: 600, height: 360 });
+      for (const seq of [1, 4]) {
+        const message = app.messages.get(seq); message.payload = { v: 1, kind: 'image', image: manifest, sentAt: message.payload.sentAt };
+      }
+      app.messages.get(4).status = 'failed'; app.renderMessages({ scroll: 'bottom' });
+      await Promise.all([...document.querySelectorAll('#message-list img')].map(image => image.decode())); await settle();
+      const gap = document.querySelector('#composer').getBoundingClientRect().top - app.renderedMessageOrder.at(-1).getBoundingClientRect().bottom;
+      if (Math.abs(gap - 64) > 2 || visible() || !app.chatPinnedToBottom) throw Error(`Late cached image layout lost bottom alignment: ${JSON.stringify({ gap, visible: visible(), pinned: app.chatPinnedToBottom })}`);
+      return { width: 320, font: 20, decodedImages: 2, finalGap: gap, buttonHidden: true };
+    } finally { document.documentElement.style.removeProperty('font-size'); }
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  // Fill real encrypted local history; restoring an old reading position
+  // initially mounts only 80 records, while the latest is on a third page.
+  await page.evaluate(async () => {
+    const fixture = window.bottomFixture; const { app, session, saveHistoryMessage, fresh, up } = fixture;
+    await fresh(620); session.vault.lastSeq = 620;
+    const records = [...app.messages.values()];
+    for (let offset = 0; offset < records.length; offset += 40) await Promise.all(records.slice(offset, offset + 40).map(record => saveHistoryMessage(session, record)));
+    fixture.restoreMiddle = async (distance = 400) => { await fresh(80); await up(distance); app.historyHasNewer = true; app.historyForwardCursor = 80; app.updateChatBottomControl(); await fixture.settle(); };
+    fixture.blockNextDecrypt = () => {
+      const decrypt = crypto.subtle.decrypt.bind(crypto.subtle); let blocked = false;
+      Object.defineProperty(crypto.subtle, 'decrypt', { configurable: true, value: async (...args) => {
+        if (!blocked) { blocked = true; await new Promise(resolve => { fixture.releaseDecrypt = resolve; }); }
+        return decrypt(...args);
+      } });
+      fixture.restoreDecrypt = () => Object.defineProperty(crypto.subtle, 'decrypt', { configurable: true, value: decrypt });
+    };
+    await fixture.restoreMiddle(); fixture.blockNextDecrypt();
+    const originalLoad = app.loadNewerHistory; fixture.pageCursors = [];
+    app.loadNewerHistory = function (...args) { if (app.historyHasNewer && !app.historyLoading) fixture.pageCursors.push(app.historyForwardCursor); fixture.pendingPage = originalLoad.apply(this, args); return fixture.pendingPage; };
+    fixture.restoreLoad = () => { app.loadNewerHistory = originalLoad; };
+    // The button must cooperate with a normal page read already in progress.
+    fixture.pendingPage = app.loadNewerHistory(document.querySelector('#message-list'));
+    const input = document.querySelector('#message-input'); input.value = '分页期间保留键盘'; input.focus({ preventScroll: true }); input.setSelectionRange(1, 3);
+    fixture.button().click();
+  });
+  await page.waitForFunction(() => Boolean(window.bottomFixture.releaseDecrypt));
+  await page.evaluate(() => { window.bottomFixture.restoreDecrypt(); window.bottomFixture.releaseDecrypt(); });
+  await page.waitForFunction(() => !document.querySelector('#chat-bottom-control').dataset.scrolling);
+  results.paginatedLatest = await page.evaluate(() => {
+    const { app, button, visible, pageCursors, restoreLoad } = window.bottomFixture; restoreLoad();
+    const input = document.querySelector('#message-input');
+    if (JSON.stringify(pageCursors) !== '[80,280,480]' || app.historyHasNewer || app.historyForwardCursor !== 620 || app.renderedMessageOrder.at(-1).dataset.clientMsgId !== 'bottom-620') throw Error(`Return stopped on an intermediate history page: ${JSON.stringify({ pageCursors, cursor: app.historyForwardCursor })}`);
+    if (Math.abs(window.scrollY - app.chatBottomScrollTop()) > 2 || visible() || button().hasAttribute('aria-busy')) throw Error('Paginated return did not finish at true latest');
+    if (document.activeElement !== input || input.selectionStart !== 1 || input.selectionEnd !== 3) throw Error('Paginated return lost keyboard focus or selection');
+    return { pageCursors, latest: 620, reusedExistingLoad: true, keyboard: true };
+  });
+
+  results.cancelledHistory = {};
+  for (const action of ['scroll', 'away', 'lock']) {
+    await page.evaluate(async () => {
+      const f = window.bottomFixture; await f.restoreMiddle(); f.releaseDecrypt = undefined; f.blockNextDecrypt();
+      const original = f.app.loadNewerHistory;
+      f.app.loadNewerHistory = function (...args) { f.pendingPage = original.apply(this, args); return f.pendingPage; };
+      f.restoreLoad = () => { f.app.loadNewerHistory = original; }; f.button().click();
+    });
+    await page.waitForFunction(() => Boolean(window.bottomFixture.releaseDecrypt));
+    results.cancelledHistory[action] = await page.evaluate(async action => {
+      const f = window.bottomFixture; const { app, settle, button } = f;
+      if (action === 'scroll') { document.querySelector('#message-list').dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true })); window.scrollBy(0, -40); }
+      else if (action === 'away') app.setActiveSurface('away');
+      else app.lockNow();
+      const stopped = window.scrollY;
+      f.restoreDecrypt(); f.releaseDecrypt(); await f.pendingPage; f.restoreLoad(); await settle();
+      if (app.messages.size !== (action === 'lock' ? 0 : 80) || app.messages.has(81) || (button()?.dataset.scrolling)) throw Error(`Cancelled ${action} accepted a stale history page`);
+      if (action !== 'lock' && window.scrollY !== stopped) throw Error(`Cancelled ${action} resumed scrolling after decrypt`);
+      return { stalePageIgnored: true, laterMovement: false };
+    }, action);
+  }
+
+  await page.evaluate(async () => {
+    const f = window.bottomFixture; await f.restoreMiddle(0);
+    if (!f.visible()) throw Error('Unloaded newer history hid the return/retry entry at the mounted page bottom');
+    const transaction = IDBDatabase.prototype.transaction;
+    IDBDatabase.prototype.transaction = function (...args) {
+      if (args[0] === 'history' && args[1] === 'readonly') throw new DOMException('Synthetic history database failure', 'UnknownError');
+      return transaction.apply(this, args);
+    };
+    f.restoreHistoryFault = () => { IDBDatabase.prototype.transaction = transaction; }; f.button().click();
+  });
+  await page.waitForFunction(() => !document.querySelector('#chat-bottom-control').dataset.scrolling);
+  await page.evaluate(() => {
+    const f = window.bottomFixture;
+    if (!f.app.historyHasNewer || f.app.historyForwardCursor !== 80 || f.app.messages.size !== 80) throw Error('Failed history read was mistaken for completed history');
+    if (!f.visible()) throw Error('Failed history read lost its retry button at the mounted page bottom');
+    f.restoreHistoryFault(); f.button().click();
+  });
+  await page.waitForFunction(() => !document.querySelector('#chat-bottom-control').dataset.scrolling);
+  results.historyReadRetry = await page.evaluate(() => {
+    const { app } = window.bottomFixture;
+    if (app.historyHasNewer || app.historyForwardCursor !== 620 || Math.abs(window.scrollY - app.chatBottomScrollTop()) > 2) throw Error('History read retry failed to reach latest');
+    return { failurePreservedCursor: true, retryReachedLatest: 620 };
+  });
+
+  await page.evaluate(async () => {
+    const { app, fresh, up, button, settle } = window.bottomFixture; await fresh(80);
+    const source = app.messages.get(60);
+    source.payload = { ...source.payload, v: 2, replyTo: { clientMsgId: 'bottom-20', serverSeq: 20, senderId: 'bottom-peer', kind: 'text', preview: '聊天消息 20' } };
+    app.renderMessages({ scroll: 'bottom' }); await up(1400);
+    document.querySelector('[data-client-msg-id="bottom-60"] .message-reply-quote').focus({ preventScroll: true });
+    button().click(); await settle();
+    if (!button().dataset.scrolling) throw Error('Reply competition fixture had no running bottom animation');
+  });
+  // Native keyboard activation has no pointerdown to cancel the old motion.
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => {
+    const target = document.querySelector('[data-client-msg-id="bottom-20"]');
+    const rect = target.getBoundingClientRect();
+    return !document.querySelector('#chat-bottom-control').dataset.scrolling && target.classList.contains('is-highlighted') && rect.top >= 0 && rect.bottom <= innerHeight;
+  });
+  results.replySupersedesBottom = await page.evaluate(() => {
+    const { app } = window.bottomFixture;
+    if (app.chatPinnedToBottom || app.chatBottomGap() < 500) throw Error('Bottom animation overrode the keyboard-activated reply');
+    return { nativeKeyboardActivation: true, bottomMotionCancelled: true };
+  });
+
+  await page.evaluate(async () => {
+    const f = window.bottomFixture; await f.fresh(620);
+    f.app.messages = new Map([...f.app.messages].filter(([seq]) => seq > 540)); f.app.renderMessages({ scroll: 'bottom' }); await f.up(400);
+    f.releaseDecrypt = undefined; f.blockNextDecrypt(); f.pendingReply = f.app.jumpToReplyTarget('bottom-1', 1);
+  });
+  await page.waitForFunction(() => Boolean(window.bottomFixture.releaseDecrypt));
+  await page.evaluate(async () => {
+    const f = window.bottomFixture; f.button().click(); f.restoreDecrypt(); f.releaseDecrypt(); await f.pendingReply;
+  });
+  await page.waitForFunction(() => !document.querySelector('#chat-bottom-control').dataset.scrolling);
+  results.bottomSupersedesReply = await page.evaluate(() => {
+    const { app } = window.bottomFixture;
+    if (app.messages.has(1) || document.querySelector('.message.is-highlighted') || Math.abs(window.scrollY - app.chatBottomScrollTop()) > 2) throw Error('A delayed reply lookup overrode the newer return-to-bottom intent');
+    return { delayedLookupIgnored: true, latestPositionRetained: true };
+  });
+
+  await page.evaluate(async () => {
+    const { up, button } = window.bottomFixture; await up(200); button().focus({ preventScroll: true }); button().click();
+  });
+  await page.waitForFunction(() => !document.querySelector('#chat-bottom-control').dataset.scrolling);
+  results.hiddenButtonFocus = await page.evaluate(() => {
+    const { app, button } = window.bottomFixture;
+    if (document.activeElement !== app.renderedMessageOrder.at(-1) || button().getAttribute('aria-hidden') !== 'true' || Math.abs(window.scrollY - app.chatBottomScrollTop()) > 2) throw Error('Hidden return control retained keyboard focus or focus transfer moved the page');
+    return { movedToLatestArticle: true, noKeyboardOpened: true, noExtraScroll: true };
+  });
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  results.reducedMotionAndBoundedReads = await page.evaluate(async () => {
+    const { app, fresh, up, button, visible } = window.bottomFixture; await fresh(5000); await up(2400);
+    const original = Element.prototype.getBoundingClientRect; let messageReads = 0; let buttonReads = 0;
+    Element.prototype.getBoundingClientRect = function () {
+      if (this.classList.contains('message')) messageReads++;
+      if (this.id === 'chat-bottom-control') buttonReads++;
+      return original.call(this);
+    };
+    try {
+      app.updateChatBottomControl();
+      for (let index = 0; index < 20; index++) app.chatBottomControl.update(false);
+    } finally { Element.prototype.getBoundingClientRect = original; }
+    if (messageReads !== 1 || buttonReads !== 1) throw Error(`Visibility work scaled with history or idle frames: ${JSON.stringify({ messageReads, buttonReads })}`);
+    button().click();
+    if (button().dataset.scrolling || Math.abs(window.scrollY - app.chatBottomScrollTop()) > 2 || visible()) throw Error('Reduced motion did not move directly to latest message');
+    if (getComputedStyle(button()).transitionProperty !== 'none') throw Error('Reduced motion retained the fade');
+    await fresh(0); if (visible()) throw Error('Empty conversation displayed return control');
+    await fresh(1);
+    const shortGap = document.querySelector('#composer').getBoundingClientRect().top - app.renderedMessageOrder.at(-1).getBoundingClientRect().bottom;
+    if (visible() || Math.abs(shortGap - 64) > 2) throw Error(`Short conversation lost its final bottom spacing: ${shortGap}`);
+    return { historyCount: 5000, messageBoundsReads: messageReads, buttonBoundsReads: buttonReads, idleFrames: 20, instantReducedMotion: true, emptyAndShort: true };
+  });
+  assert.deepEqual(errors, []);
+  console.log(JSON.stringify({ browser: process.env.QUIET_ROOM_TEST_BROWSER ?? 'chromium', ...results }, null, 2));
+} finally {
+  await browser?.close(); await server.close();
+}
