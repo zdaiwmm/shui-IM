@@ -20,11 +20,7 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
   };
   const start = async (page, kind) => {
     await ready(page);
-    if (kind === 'audio') {
-      const menu = page.locator('.more-menu');
-      if (!(await menu.evaluate((element) => element.open))) await menu.locator('summary').click();
-      await page.locator('#start-audio-call').click();
-    } else await page.locator('#start-video-call').click();
+    await page.locator(`.chat-header #start-${kind}-call`).click();
     await phase(page, 'outgoing').waitFor();
   };
   const connect = async (caller, callee, kind) => {

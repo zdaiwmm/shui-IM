@@ -46,6 +46,10 @@ export const voiceIcons = {
   stop: '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></svg>',
   remove: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M9 6V3h6v3M7 6l1 15h8l1-15M10 10v7m4-7v7"/></svg>',
   send: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6" stroke-width="2.4"/></svg>',
+  paperPlane: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m21 3-6.5 18-4-7.5L3 9.5 21 3Zm-10.5 10.5L21 3" stroke-width="1.8"/></svg>',
+  lock: '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="6" y="10" width="12" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
+  chevronUp: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></svg>',
+  chevronLeft: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg>',
 };
 
 export function waveformMarkup(waveform: number[]): string {

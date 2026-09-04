@@ -481,7 +481,12 @@ try {
     creator.locator('.message.outgoing .image-preview').nth(directImageCreatorIndex).locator('img').waitFor({ timeout: 10_000 }),
     joiner.locator('.message.incoming .image-preview').nth(directImageJoinerIndex).locator('img').waitFor({ timeout: 10_000 }),
   ]);
-  await creator.locator('.message.outgoing .image-preview').nth(directImageCreatorIndex).click();
+  const directImagePreview = creator.locator('.message.outgoing .image-preview').nth(directImageCreatorIndex);
+  invariant(await directImagePreview.getAttribute('data-revealed') === 'false', 'A newly sent chat photo is visible before its first tap');
+  await directImagePreview.click();
+  invariant(await directImagePreview.getAttribute('data-revealed') === 'true', 'The first chat photo tap did not reveal its thumbnail');
+  invariant(await creator.locator('.image-viewer').count() === 0, 'The first chat photo tap opened the viewer');
+  await directImagePreview.click();
   await creator.locator('.image-viewer.is-visible .viewer-stage img').waitFor({ timeout: 10_000 });
   await creator.locator('.viewer-stage img').evaluate(async (image) => {
     await Promise.all(image.getAnimations().map((animation) => animation.finished));
@@ -502,6 +507,7 @@ try {
   invariant(dragState.dragging && /scale\(0\./.test(dragState.transform), `Photo did not shrink during a dismiss drag: ${JSON.stringify(dragState)}`);
   await dragStage.dispatchEvent('pointerup', { pointerType: 'touch', isPrimary: true, pointerId: 4, button: 0, clientX: 210, clientY: 500 });
   await creator.locator('.image-viewer').waitFor({ state: 'detached' });
+  invariant(await directImagePreview.getAttribute('data-revealed') === 'false', 'Dismissing the photo with a downward drag left its chat thumbnail revealed');
 
   const albumCreatorMessagesBefore = await creator.locator('.message.outgoing').count();
   const albumJoinerMessagesBefore = await joiner.locator('.message.incoming').count();
@@ -524,6 +530,9 @@ try {
   invariant(await creator.locator('.message.outgoing').count() === albumCreatorMessagesBefore + 1, 'Multi-image selection was split into more than one outgoing message');
   invariant(await joiner.locator('.message.incoming').count() === albumJoinerMessagesBefore + 1, 'Multi-image selection was split for the receiver');
   invariant(await creatorAlbum.locator('.album-cell').count() === 3, 'Three selected images did not render as one three-cell album');
+  invariant(await creatorAlbum.locator('.album-cell').evaluateAll(cells => cells.every(cell => cell.dataset.revealed === 'false')), 'A new chat album contains a revealed thumbnail');
+  await creatorAlbum.locator('.album-cell').nth(1).click();
+  invariant(await creator.locator('.image-viewer').count() === 0, 'The first album cell tap opened the viewer');
   await creatorAlbum.locator('.album-cell').nth(1).click();
   await creator.locator('[data-viewer-counter]').getByText('2 / 3', { exact: true }).waitFor();
   const viewerStage = creator.locator('.viewer-stage');
@@ -560,6 +569,9 @@ try {
   const imageCount = await joiner.locator('.message.incoming .image-preview').count();
   const creatorChatImageCount = await creator.locator('.message.outgoing .image-preview').count();
   const chatAnchorBeforeGallery = await creator.locator('#message-list').evaluate((list) => {
+    // This is a deliberate history-reading gesture, not a native focus scroll
+    // racing the just-completed send. Cancel bottom follow before positioning.
+    list.dispatchEvent(new WheelEvent('wheel', { deltaY: -160, bubbles: true }));
     window.scrollTo(0, document.documentElement.scrollHeight - innerHeight - 160);
     const listTop = window.visualViewport?.offsetTop ?? 0;
     const visible = [...list.querySelectorAll('.message[data-client-msg-id]')]

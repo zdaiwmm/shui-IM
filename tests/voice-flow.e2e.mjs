@@ -68,6 +68,24 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   await reply.waitFor();
   assert.match(await reply.locator('.message-reply-quote').innerText(), /语音/);
 
+  // Holding the live composer trigger and releasing it must use the same real
+  // encrypted attachment/outbox path and produce exactly one peer message.
+  const beforeHold = await creator.locator('.voice-player').count();
+  const beforePeerHold = await joiner.locator('.message.incoming .voice-player').count();
+  const microphone = await creator.locator('#record-voice').boundingBox();
+  assert(microphone, 'Microphone trigger must be visible for held recording');
+  await creator.mouse.move(microphone.x + microphone.width / 2, microphone.y + microphone.height / 2);
+  await creator.mouse.down();
+  await creator.locator('.voice-recorder[data-mode="hold"][data-state="recording"]').waitFor();
+  await creator.waitForTimeout(850);
+  await creator.mouse.up();
+  await creator.locator('.voice-recorder').waitFor({ state: 'hidden' });
+  await creator.locator('.message.outgoing:has(.voice-player).is-delivered').nth(beforeHold).waitFor();
+  await joiner.locator('.message.incoming .voice-player').nth(beforePeerHold).waitFor();
+  assert.equal(await creator.locator('.voice-player').count(), beforeHold + 1);
+  assert.equal(await joiner.locator('.message.incoming .voice-player').count(), beforePeerHold + 1);
+  assert(await creator.evaluate(() => window.__voiceTracks.every(track => track.readyState === 'ended')), 'Hold release must stop every microphone track');
+
   const beforeCancel = await creator.locator('.voice-player').count();
   await start(); await creator.waitForTimeout(600);
   await creator.getByRole('button', { name: '取消录音', exact: true }).click();
@@ -82,7 +100,7 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   assert(await creator.getByRole('button', { name: '继续录音', exact: true }).isDisabled());
   await creator.unroute('**/api/rooms/*/blobs');
   await creator.getByRole('button', { name: '发送语音', exact: true }).click();
-  await creator.locator('.message.outgoing:has(.voice-player).is-delivered').nth(1).waitFor();
+  await creator.locator('.message.outgoing:has(.voice-player).is-delivered').nth(beforeCancel).waitFor();
   assert.equal(await creator.locator('.voice-player').count(), beforeCancel + 1);
 
   // Re-locking tears down active playback and recording, including tracks and
@@ -128,5 +146,5 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   await creator.evaluate(() => { navigator.mediaDevices.getUserMedia = window.__voiceWrappedGetUserMedia; });
   creator.off('pageerror', onError); joiner.off('pageerror', onError);
   assert.deepEqual(errors, []);
-  process.stdout.write('Voice E2E passed: record, pause, resume, preview, encrypted delivery, playback, seek, reply, cancel, upload retry, history and privacy cleanup.\n');
+  process.stdout.write('Voice E2E passed: record, pause, resume, preview, held-release encrypted delivery, playback, seek, reply, cancel, upload retry, history and privacy cleanup.\n');
 }

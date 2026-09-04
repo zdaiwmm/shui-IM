@@ -1,5 +1,13 @@
 # Quiet Room P0/P1 修复与验收计划
 
+## 功能整合与发布候选验证（2026-09-04，独立固定快照）
+
+- `codex/release-media-voice-20260904` 从 main `f6b02e07e0ea520fa7a3f25446a853e3215556a8` 整合已结束的键盘、视频相册、图片隐私和语音交互任务；共 43 个来源文件以逐文件 SHA-256 固定，保留 CI 提速流程，浏览器完整入口扩为 19 项（两组 1／18）。
+- 发布前审查发现语音手势闭包在锁定后仍引用旧聊天容器，`cleanupRuntime()` 现销毁绑定并置空。新增回归验证旧按钮已经脱离页面、旧监听不再触发录音、重新进入后新按钮仅绑定并启动一次；普通取消录音不销毁当前聊天绑定。
+- 本地构建与 43 个测试文件的 311 项单元/集成通过；完整浏览器命令首次通过前 18 项，在最后语音专项的鼠标录音步骤超时。诊断证明实际音频仅 460ms，低于产品 500ms 门槛，产品正确保留草稿；将合成录制等待从 650ms 增至 1000ms 后，语音专项完整通过，最短时长和发送保护未改。最终本地证据为 19 项浏览器分段覆盖通过，不记作单次 `check:full` 全程成功。
+- `npm run test:calls:e2e` 原生媒体和通话界面专项通过；浏览器入口全集与冻结来源清单一致，10 项 runner 单测、文档和差异格式检查通过。新的固定发布入口只读预检通过，生产仍为 `6753d010d822ef5cb90b2b3d2582d9fd1f7805c6`，维护标记不存在。
+- 以上只代表本地固定快照。精确 PR/main CI 和生产部署须另行取证；真实 iPhone/Android 键盘、录音手感、原生播放器及公网通话矩阵仍未验证。下面各节保留开发阶段的历史范围与证据。
+
 ## CI 与发布提速验证（2026-09-04，独立工作树）
 
 - 文档轻量路径仅接受明确白名单；代码、配置、未知路径、空变更、无法比较历史与手动 CI 都必须进入完整验证。覆盖修改、删除、重命名的原/新路径及 PR/main 比较范围。
@@ -10,8 +18,21 @@
 - GitHub 并行实际耗时、生产发布计时及服务器 helper 安装须在相应环境独立取证，不能由本地运行推断通过。
 - 本地验证：`npm run check` 通过构建、42 个测试文件共 285 项单元/集成；新 `npm run test:browser` 完整入口通过 15 个脚本（105.76 秒），`npm run test:calls:e2e` 通过两项浏览器专项。`actionlint`、文档检查与差异格式检查通过；发布验证使用合成命令和隔离数据，没有调用真实生产发布程序。
 
+## 视频预览与保险箱相册（2026-09-04 21:17，本地工作树）
+
+- 聊天视频复用 `file` 负载，呈现本机生成的静态预览图和播放按钮；点击进入页面满屏播放器并请求自动播放。验证真实可解码视频的预览像素、原字节一致、原生控制、长按不误播放、关闭与来电接管停止播放。格式或自动播放不受浏览器支持时保留原文件下载或再次播放入口。
+- 保险箱“图片”分类改为“相册”，包含照片、聊天视频及直接上传的 `gallery-file` 视频；普通聊天文件继续不进入保险箱。视频同样首次显露、再次播放，切换分类保留当次显露，离开后恢复模糊。
+- `tests/video-media.test.ts` 覆盖 MIME / 扩展名分类；`tests/video-flow.e2e.mjs` 使用浏览器合成录像、真实附件加密和本机历史，覆盖预览、播放、相册、下载、锁定 URL 清理、迟到读取隔离及相册独立恢复。`tests/cloud-backup-lifecycle.e2e.mjs` 补充媒体导入、普通文件排除、合并分页与去重；单独恢复相册不产生旧聊天或回复目标。
+- 本地通过：最终 `npm run build`；266 项单元/集成测试；视频专项与除主流程外的全部 `test:browser` 脚本（分段运行）；`npm run test:calls`（56 项及原生 DTLS / 通话界面）。390px 聊天视频、满屏播放器和默认模糊相册截图已检查，修复了取零秒画面可能生成黑色封面的问题。
+- 完整门禁尚未通过：`npm run check:full` 首次在 `browser.e2e.mjs:415` 解锁模拟取消等待超时；原主流程复跑通过该点及语音/通话流程，但在 `browser.e2e.mjs:640` 从保险箱返回聊天的阅读位置断言失败。共享工作树同时有视口/滚动跟随修复，尚不能把该问题确定归于视频改动，也不能把分段通过写成 `check:full` 通过。文件脚本的旧空计数等待失败后，按共享目录中已更新的断言复跑通过。
+- 未验证：真实 iPhone / Android、Safari 原生播放器与实际视频格式矩阵、CI、生产部署。自动化使用合成媒体，不替代真机验收。
+
 ## 键盘定位与保险箱交互（2026-09-04，工作树）
 
+- 补充反复反馈的四类场景：可视高度超过旧布局高度的工具栏收缩、键盘开合当帧同时检查输入栏和最后气泡、1／3 条短历史在 focus／blur 后没有 resize 事件仍逐帧跟随、原生焦点滚动先于或晚于最后一帧视口变化。发送首帧滚动被忽略以及先成功后又被原生滚动覆盖均须补齐，消息与输入栏保留 16px 间距；上行手势立即取消追随，纯视口平移不强制文档滚动。
+- 连续“点消息区收起→再次点输入框弹起”保留点按前的触底意图，下一次聚焦恢复跟随；不能为了让测试通过而在两次点击之间人为滚到底。若实际向上阅读 12px，再次聚焦必须保留旧消息位置，不能使用上次点按意图重新拉底。
+- 语音和视频通话入口在头部相邻、各为 44px 触控区，更多菜单不重复提供语音入口；保险箱两个分类实际扫描为空后计数元素为空且隐藏。桌面调整窗口大小后仍能停留在指定阅读位置，不能由移动端焦点保护拉回底部。
+- 2026-09-04 21:23（Asia/Shanghai），共享开发工作树最后一次 `npm run check` 通过构建与 266 项单元/集成；`npm run test:calls` 通过 56 项及原生 DTLS、通话 UI。键盘／前端生命周期专项在 Chrome 和 WebKit 通过，包括真实点击顺序的重复开合；桌面隐私、恢复、系统选择器、文件、未读、回应、保险库和语音生命周期回归分段通过。浏览器主流程最终复跑返回 `Browser E2E passed`，覆盖相册返回阅读位置与发送后追随。早期 `check:full` 的重新解锁／相册等待超时未在最后主流程复现；补全了“向上阅读”的手势模拟，避免将测试直接改滚动位置误当原生焦点位移。空分类仍等待文字 `0` 的旧文件回归断言也已改为隐藏空计数并通过。证据为各入口分段通过，没有把它记作单次 `check:full` 全程成功；目录同时存在其他功能开发，不等于冻结提交、CI、真机或生产验证。
 - 聊天触底后聚焦输入框、键盘连续收起、仅页面滚动事件以及可视区平移均须保持标题栏贴顶、输入栏贴住可视区底边；控件坐标没有额外缓动。向上阅读历史仍取消追随最新消息。自动模拟不等于 iPhone Safari 原生键盘逐帧同步验收。
 - 工具栏收缩时，上下栏仅更新自身位移，必要底部留白直接应用于列表，避免通过动态继承变量重算所有消息。验证同帧重复滚动只进行一次锚点／已读／分页工作、较早历史的已读可见范围查找有界，且锁定清除新增 DOM 缓存与待执行滚动任务。性能计数区分几何读取、样式重算和布局，不把桌面合成测试换算为 iPhone 实际帧率。
 - 320px、390px 和桌面下检查状态胶囊居中、与两侧按钮同为 44px 高，以及右侧两个按钮的间距。浅色、深色与放大字体检查玻璃材质、长状态省略和文字可读性。
@@ -73,8 +94,8 @@
 9. 成员变更后服务端拒绝旧 MLS 纪元密文；客户端处理完整成员事件链后以同一 `clientMsgId` 和当前纪元重新加密待发内容。
 10. 回复引用、被回复者、类型和通用非内容标签均在 MLS 载荷内；可见摘要只从本机加密历史生成，服务端不能从消息信封区分普通消息与回复，新设备也不能通过新回复取得加入前正文。
 11. 选择数量不限九张；聊天按原顺序分组，每组最多 9 张且原图合计不超过 256 MiB，每组各有一个 `clientMsgId`、加密待发箱项、服务器序号和气泡。单图组使用单图载荷；相册内 `blobId` 唯一，非法 manifest 或超限载荷仍整条拒绝。验证 12 张按 9+3 发送及字节上限分组。
-12. 可视区附近图片自动下载、校验、解密并内联显示；聊天、相册和查看器在同一次解锁期间复用已验证缓存。初次载入使用安静占位与无障碍状态，失败保留重试；锁定清空解密缓存和对象 URL。
-13. 点按单图或相册任一格从正确索引打开 overlay；前后按钮、触摸横划、键盘方向键、计数、当前原图下载和关闭焦点恢复一致，切页不得重排聊天或产生新消息。
+12. 可视区附近图片自动下载、校验、解密为默认模糊的内联缩略图，覆盖聊天单图、相册格和视频预览；首次点击只显露当前图，再次点击打开。聊天、相册和查看器在同一次解锁期间复用已验证缓存。相册初次载入及缓存解码阶段使用整格柔光骨架与无障碍状态，减少动态效果时静态展示，失败保留重试；锁定清空解密缓存和对象 URL。
+13. 点按已显露的单图或相册格从正确索引打开 overlay；前后按钮、触摸横划、键盘方向键、计数、当前原图下载和关闭焦点恢复一致，切页不得重排聊天或产生新消息。聊天向下拖拽或查看器下拉关闭后隐藏全部聊天缩略图；隐私遮盖层同步清除显露状态并关闭查看器，包括移动端短暂失焦后快速恢复、缓存重建和迟到解码。拖拽后的合成点击不得再次显露。
 
 本机安全目标：
 
@@ -232,10 +253,15 @@ npm run check:full
 执行结果与发布状态记录于 `audit/2026-09-04-fixes/report.md`。这里列出覆盖范围，不代表真实 iOS 平台或生产服务器已经完成验证。
 ## Voice-message regression
 
+- 2026-09-04 21:39（Asia/Shanghai），语音交互工作树最终 `npm run check:full` **完整通过**：构建、266 项单元/集成、`test:browser` 中全部脚本，包括新增原生触摸手势专项与双设备 MLS 长按发送。首轮沙箱执行因本机端口 `EPERM` 被阻，获得测试所需权限后运行；第一次可监听端口的完整入口在 `browser.e2e.mjs:946` 旧密码迁移输入框等待超时，后续完整入口复跑通过该步骤和所有后续脚本。没有因该超时修改迁移逻辑或放宽断言。
+- 独立 `voice-gestures.e2e.mjs` 最终版本通过，18 张截图覆盖 320/390/1280px × 浅/深色 × 长按/锁定/暂停；检查终态并确认所有可见按钮至少 44px，无视口外溢。减少动态效果断言要求录音器内运行中动画为 0，已通过。截图使用合成消息与 Chrome 合成麦克风；[390px 三态截图](./audit/2026-09-04-voice/README.md) 已人工检查。真实 iPhone Safari、系统原生权限弹窗、CI 和生产未验证。
+
 - `tests/voice.test.ts`: strict voice manifests/reply validation, duration and waveform bounds, portable PCM WAV encoding, exact audio bytes after decryption, resumable ciphertext, modified digest/chunk rejection, and cancellation.
 - `tests/server.test.ts`: production permits only same-origin microphone access and local Blob media playback while keeping camera disabled.
 - `tests/browser.e2e.mjs` includes `tests/voice-flow.e2e.mjs`, using Chrome's **fake microphone**, never a physical microphone. Covers pause/continue/preview, encrypted MLS delivery and receipts between two independent devices, playback/seeking, replies, discard, upload failure/retry, reload of local history, microphone denial, and late permission results after lock.
 - `tests/voice-lifecycle.e2e.mjs`: old-device capability gate, prompt cancellation/timeout, stale permission ownership, hidden-prompt lock, single-source playback, receipt updates preserving playback, late download/send cleanup, and the five-minute review-before-send limit.
+- `tests/voice-gestures.e2e.mjs`: actual browser recorder with synthetic microphone and native touch/mouse input. Covers hold-release send once, immediate left cancellation, upward release-to-lock, pause/preview/resume, direct locked send, ordinary release during pending permission, tap/keyboard access, interrupted/limit review, and privacy teardown. Includes the regression where a touch release synthesizes a click on the newly revealed Send button after hardware interruption. Screenshots and geometry checks cover three states at 320/390/1280px in light/dark themes and reduced motion. Run `node tests/voice-gestures.e2e.mjs <output-directory>` for captures.
+- The paired-device `verifyVoiceFlow` additionally holds and releases the actual composer trigger, then verifies exactly one real MLS audio message and peer delivery receipt. The standalone gesture test replaces only the finished-draft transport callback; it does not claim encrypted transport coverage on its own.
 - Run `node tests/browser.e2e.mjs audit-screenshots/voice` for 320/390px recording controls, incoming/outgoing voice bubbles, dark-mode and desktop captures. Inspect these images as well as assertions.
 - Manual release check on physical iPhone Safari / installed PWA and Android Chrome: first-time microphone prompt, repeated pause/resume, headset removal/interruption, background/lock while recording or playing, recording limit, and phone-to-desktop playback. Desktop Chrome automation does not certify mobile OS permission or microphone behavior.
 
@@ -269,3 +295,13 @@ npm run check:full
 - 合并集成后再次通过 `npm run check:full`（241 项及完整浏览器套件）与 `npm run test:calls`（56 项及原生 DTLS/通话 UI）。恢复表单统一“保险箱”命名后重新构建并单独通过 `backup-admin-ui.e2e.mjs`。
 - [PR #5 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33874161493) 与[精确主干 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33874534302) 均通过。应用 `6753d010d822ef5cb90b2b3d2582d9fd1f7805c6` 已部署，固定入口成功后独立核验版本、健康、首页及脚本/样式产物、Service Worker、合成未知备份的未认证请求；结果见 [发布记录](RELEASING.md#本次线上发布记录)。未在生产读取真实恢复材料或执行真实会话清理。
 - 自动测试与生产回读不等于真机通过；尚需真实 iPhone/Android/通行密钥矩阵、真实 Google Authenticator 扫码、`sao.shui.click` 后台 DNS/TLS/维护门与容器管理员配置挂载验收、灾备恢复及独立审计。生产 `admin-enabled=0`，上述后台测试仅证明本地/CI 合成场景。管理员清理应以合成会话验收，不使用真实用户数据。
+
+
+## 2026-09-04 备份间距、相册骨架与聊天图片隐私
+
+- 工作树变更：备份设置页统一标题／段落／按钮／说明间距，320／390 像素恢复操作均能滚动到达；相册整格柔光骨架保留到完整校验和解码完成，支持减少动态效果及失败重试。
+- 聊天单图、相册格和视频静态预览默认模糊；首次点击显露、第二次打开，显露按消息和附件分别记录。下拉聊天或下拉关闭查看器后全部隐藏；隐私遮盖层同步清空显露并关闭查看器。
+- 最终通过 `npm run build`；`tests/chat-image-privacy.e2e.mjs` 在 Chrome 与 WebKit 通过，覆盖 pointercancel 后 touchmove、拖拽合成点击、长按抑制过期后的松手、重复 manifest 新消息、回执重建、延迟解码、快速 blur/focus、锁定重入和原始字节一致。WebKit 使用既有 `PLAYWRIGHT_BROWSERS_PATH=/private/tmp/quiet-room-playwright` 与 `QUIET_ROOM_TEST_BROWSER=webkit`。
+- `tests/gallery-loading.e2e.mjs`、`tests/backup-admin-ui.e2e.mjs`、`tests/cloud-backup-lifecycle.e2e.mjs` 最终单独通过；已有视频专项通过。相册检查 320／390／1280 像素、备份检查 320／390／1440 像素与明暗主题，已目检手机和桌面截图。
+- `npm run check:full` 的较早工作树快照通过构建、266 项单元／集成及主浏览器流程；未取得最终共享工作树一次整套通过的结论。首次浏览器执行在恢复备份模块导入时中断，独立复查通过；随后新增长按测试错误等待零高度外层菜单，已改为等待实际反应条并在 Chrome／WebKit 通过；再一次完整入口被并行语音手势开发中的类型错误阻断，后续最终构建通过。未将这些分段证据等同于最终整套通过。
+- 新增两个图片专项已纳入 `npm run test:browser`。没有运行 CI、生产发布或真实手机验收，WebKit 自动化不等于 iPhone 真机通过。

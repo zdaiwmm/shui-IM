@@ -19,19 +19,23 @@ describe('browser regression groups', () => {
       'vault-resume', 'system-surfaces', 'file-flow', 'file-outbox', 'file-interactions',
       'unread-counter', 'reaction-history', 'vault-lifecycle', 'voice-lifecycle',
       'cloud-backup-lifecycle', 'backup-admin-ui',
+      'chat-image-privacy', 'gallery-loading', 'video-flow', 'voice-gestures',
     ].map(name => `tests/${name}.e2e.mjs`);
     const all = selectBrowserScripts();
     expect(all).toEqual(expected);
     expect([...selectBrowserScripts('1'), ...selectBrowserScripts('2')]).toEqual(all);
-    expect(new Set(all).size).toBe(15);
+    expect(new Set(all).size).toBe(19);
     expect(Object.keys(browserGroups)).toEqual(['1', '2']);
     expect(selectBrowserScripts('1')).toEqual(['tests/browser.e2e.mjs']);
-    for (const script of all) expect(existsSync(path.join(root, script))).toBe(true);
     const main = await readFile(path.join(root, 'tests/browser.e2e.mjs'), 'utf8');
     expect(main).toContain("from './voice-flow.e2e.mjs'");
     expect(main).toContain("from './call-flow.e2e.mjs'");
     expect(main).toContain('await verifyVoiceFlow(');
     expect(main).toContain('await verifyCallFlow(');
+  });
+
+  it('includes an existing file for every configured browser entry', () => {
+    for (const script of selectBrowserScripts()) expect(existsSync(path.join(root, script))).toBe(true);
   });
 
   it('accepts the documented list and group forms while rejecting empty, unknown and repeated arguments', () => {
@@ -62,8 +66,8 @@ describe('browser regression groups', () => {
       active--;
     } });
     expect(seen).toEqual(selectBrowserScripts());
-    expect(log.mock.calls.filter(([line]) => line.startsWith('[browser] PASS'))).toHaveLength(15);
-    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 1.50s; 15 passed, 0 failed, 0 not run.');
+    expect(log.mock.calls.filter(([line]) => line.startsWith('[browser] PASS'))).toHaveLength(19);
+    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 1.90s; 19 passed, 0 failed, 0 not run.');
   });
 
   it('stops a failing group, preserves its failure and explicitly reports scripts that did not run', async () => {
@@ -72,7 +76,7 @@ describe('browser regression groups', () => {
     const log = vi.fn();
     await expect(runBrowserTests({ group: '2', run, log, now: () => 0 })).rejects.toBe(failure);
     expect(run.mock.calls.map(([script]) => script)).toEqual(selectBrowserScripts('2').slice(0, 2));
-    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 0.00s; 1 passed, 1 failed, 12 not run.');
+    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 0.00s; 1 passed, 1 failed, 16 not run.');
   });
 
   it('does not start another script after cancellation', async () => {

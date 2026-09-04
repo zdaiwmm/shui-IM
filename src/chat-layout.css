@@ -133,6 +133,7 @@ body:has(.chat-shell) {
 #dismiss-recovery svg { display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 .message-list {
   position: relative;
+  justify-content: flex-end;
   min-height: 100svh;
   overflow: visible;
   padding-top: var(--chat-top-space);

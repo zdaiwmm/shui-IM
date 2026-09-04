@@ -101,6 +101,111 @@
   transform: scale(1.16);
 }
 
+/* Keep the entire tile occupied until verified media has also decoded. The
+   highlight is decorative; the adjacent status remains available to readers. */
+.gallery-skeleton {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: color-mix(in oklch, var(--surface) 84%, var(--line));
+  pointer-events: none;
+}
+
+.gallery-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 20%, color-mix(in oklch, var(--ink) 9%, transparent) 50%, transparent 80%);
+  transform: translateX(-100%);
+  animation: gallery-loading-glow 1800ms ease-in-out infinite;
+}
+
+.gallery-tile[aria-busy="false"] > .gallery-skeleton {
+  display: none;
+}
+
+.gallery-tile > .tile-loading:not(.sr-only) {
+  max-width: 100%;
+  padding: 12px;
+  color: var(--ink-muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+@keyframes gallery-loading-glow {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gallery-skeleton::after {
+    animation: none;
+    transform: none;
+  }
+}
+
+.video-preview {
+  position: relative;
+  cursor: pointer;
+}
+
+.image-preview.video-preview[data-poster-unavailable="true"] {
+  width: 220px;
+  min-height: 140px;
+  background: var(--surface);
+}
+
+.video-preview > .video-play {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid oklch(96% 0.006 255 / 0.55);
+  border-radius: 50%;
+  background: oklch(18% 0.01 255 / 0.7);
+  color: oklch(97% 0.006 255);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.video-play > svg { width: 24px; height: 24px; fill: currentColor; }
+
+.image-preview.video-preview:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.image-viewer.video-viewer .viewer-stage {
+  padding: calc(76px + env(safe-area-inset-top, 0px)) 0 max(12px, env(safe-area-inset-bottom, 0px));
+}
+
+.image-viewer .viewer-stage > video {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  object-fit: contain;
+  touch-action: manipulation;
+}
+
+.viewer-video-feedback {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: max-content;
+  max-width: calc(100% - 40px);
+  min-height: 48px;
+  padding: 12px 18px;
+  border-radius: 12px;
+  background: oklch(20% 0.01 255 / 0.94);
+  color: oklch(96% 0.006 255);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
 .viewer-metadata {
   display: flex;
   flex-wrap: wrap;

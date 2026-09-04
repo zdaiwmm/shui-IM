@@ -4,6 +4,7 @@ import { downloadBlob } from './download';
 import { generateIdentity } from './crypto';
 import { createRecoveryRequest } from './mls';
 import { isMessagePayload } from './message-payload';
+import { isGalleryMediaPayload } from './video-media';
 import type { CloudRecoveryBundle } from './backup-types';
 import { parseCloudRecoveryCode } from './backup-crypto';
 import {
@@ -879,7 +880,7 @@ export async function importArchivedMessages(session: VaultSession, messages: De
           typeof message.clientMsgId !== 'string' || typeof message.senderId !== 'string' || typeof message.acceptedAt !== 'string') throw new Error('历史备份记录不正确');
       const galleryOnly = message.payload.kind === 'gallery-image' || message.payload.kind === 'gallery-file';
       if (scope === 'chat' && galleryOnly) continue;
-      if (scope === 'gallery' && !['image', 'image-album', 'gallery-image', 'gallery-file'].includes(message.payload.kind)) continue;
+      if (scope === 'gallery' && !isGalleryMediaPayload(message.payload)) continue;
       const previous = await transaction<StoredHistory | undefined>(storeName, 'readonly', store => store.get(`${session.vault.roomId}:${message.seq}`));
       if (previous) {
         const old = (await decryptHistoryRecords(session, [previous]))[0];
@@ -1191,7 +1192,7 @@ export async function loadMediaHistoryPage(
   const page = records.slice(0, boundedLimit);
   const messages = await decryptHistoryRecords(session, page, signal);
   return {
-    messages: messages.filter((message) => ['image', 'image-album', 'gallery-image', 'gallery-file'].includes(message.payload.kind)),
+    messages: messages.filter((message) => isGalleryMediaPayload(message.payload)),
     beforeSeq: page.at(-1)?.seq ?? null,
     hasMore: records.length > boundedLimit,
   };

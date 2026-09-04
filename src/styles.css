@@ -1504,6 +1504,17 @@ button:disabled {
   object-fit: contain;
 }
 
+/* Apply before decoded/cached media enters the DOM. Concealment is immediate,
+   including when a privacy curtain appears and quickly returns to chat. */
+.image-preview[data-revealed="false"] img {
+  filter: blur(22px);
+  transform: scale(1.16);
+}
+
+.image-preview[data-revealed="false"] {
+  cursor: pointer;
+}
+
 .image-preview button,
 .image-preview:not([data-image-state="loaded"]) {
   width: 180px;

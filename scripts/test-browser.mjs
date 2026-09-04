@@ -25,6 +25,10 @@ export const browserGroups = Object.freeze({
     'tests/voice-lifecycle.e2e.mjs',
     'tests/cloud-backup-lifecycle.e2e.mjs',
     'tests/backup-admin-ui.e2e.mjs',
+    'tests/chat-image-privacy.e2e.mjs',
+    'tests/gallery-loading.e2e.mjs',
+    'tests/video-flow.e2e.mjs',
+    'tests/voice-gestures.e2e.mjs',
   ]),
 });
 

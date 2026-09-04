@@ -56,13 +56,80 @@ try {
     document.body.className = 'app-mode'; app.renderBackupSettings(); window.fixtureApp = app;
     return room.roomId;
   });
-  const snapshot = async (page, name) => {
+  const snapshot = async (page, name, fullPage = true) => {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, `${name}: horizontal overflow`);
-    if (screenshots) await page.screenshot({ path: path.join(screenshots, `${name}.png`), fullPage: true });
+    if (screenshots) {
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      await page.screenshot({ path: path.join(screenshots, `${name}.png`), fullPage, animations: 'disabled' });
+    }
   };
-  await snapshot(page, 'backup-mobile');
+  const assertBackupSpacing = async (name) => {
+    // The app scrolls inside #app. Wait for its viewport resize listener before
+    // measuring, and capture the real viewport instead of the outer document.
+    await page.waitForFunction(() => Math.abs(document.querySelector('#app').clientHeight - (visualViewport?.height ?? innerHeight)) <= 1);
+    const geometry = await page.locator('.backup-page').evaluate(main => {
+      const rect = element => element.getBoundingClientRect();
+      const groups = [...main.querySelectorAll('.backup-heading, section, form')].map(group => {
+        const children = [...group.children].filter(child => rect(child).height > 0);
+        return children.slice(1).map((child, index) => rect(child).top - rect(children[index]).bottom);
+      });
+      const bounds = rect(main);
+      return {
+        gaps: groups.flat(),
+        buttonHeights: [...main.querySelectorAll('button')].map(button => rect(button).height),
+        controlsFit: [...main.querySelectorAll('button, input')].every(control => {
+          const box = rect(control);
+          return box.left >= bounds.left && box.right <= bounds.right;
+        }),
+      };
+    });
+    assert(geometry.gaps.every(gap => gap >= 12 && gap <= 24), `${name}: text, controls and hints need clear, consistent gaps (${geometry.gaps})`);
+    assert(geometry.buttonHeights.every(height => height >= 44), `${name}: buttons retain usable touch targets`);
+    assert(geometry.controlsFit, `${name}: controls stay inside the page`);
+    await snapshot(page, name, false);
+  };
+  const assertBackupBottomReachable = async (name) => {
+    const geometry = await page.locator('#app').evaluate(scroller => {
+      scroller.scrollTop = scroller.scrollHeight;
+      const buttons = [...scroller.querySelectorAll('.backup-actions > button')].map(button => button.getBoundingClientRect());
+      return {
+        atBottom: Math.abs(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop) <= 1,
+        controlsVisible: buttons.every(box => box.top >= 0 && box.bottom <= innerHeight),
+      };
+    });
+    assert(geometry.atBottom, `${name}: the settings page can scroll to its bottom`);
+    assert(geometry.controlsVisible, `${name}: both restore buttons are fully visible at the bottom`);
+    await snapshot(page, name, false);
+    await page.locator('#app').evaluate(scroller => { scroller.scrollTop = 0; });
+  };
+  await assertBackupSpacing('backup-mobile');
+  await page.setViewportSize({ width: 320, height: 740 });
+  await assertBackupSpacing('backup-small-mobile');
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.evaluate(() => { document.documentElement.dataset.colorScheme = 'dark'; });
+  await assertBackupSpacing('backup-desktop-dark');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await assertBackupSpacing('backup-mobile-dark');
+  await assertBackupBottomReachable('backup-mobile-dark-bottom');
+  await page.setViewportSize({ width: 320, height: 740 });
+  await assertBackupSpacing('backup-small-mobile-dark');
+  await assertBackupBottomReachable('backup-small-mobile-dark-bottom');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.evaluate(() => { document.documentElement.dataset.colorScheme = 'light'; });
   await page.getByRole('button', { name: '恢复保险箱', exact: true }).click();
-  await snapshot(page, 'restore-gallery-mobile');
+  await assertBackupSpacing('restore-gallery-mobile');
+  await page.setViewportSize({ width: 320, height: 740 });
+  await assertBackupSpacing('restore-gallery-small-mobile');
+  const restoreSubmit = page.getByRole('button', { name: '验证并恢复保险箱', exact: true });
+  await restoreSubmit.scrollIntoViewIfNeeded();
+  assert.equal(await restoreSubmit.evaluate(button => {
+    const box = button.getBoundingClientRect();
+    return box.top >= 0 && box.bottom <= innerHeight;
+  }), true, 'small mobile: restore action remains reachable by scrolling');
+  await snapshot(page, 'restore-gallery-small-mobile-bottom', false);
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.locator('#view-local-recovery').click();
   await page.locator('#verify-recovery-passkey').click();
   await page.locator('.local-recovery-code').waitFor();
@@ -92,7 +159,7 @@ try {
   await admin.getByRole('heading', { name: '登录会话管理' }).waitFor();
   assert.equal((await admin.request.get(`http://localhost:${port}/admin-api/rooms`)).status(), 401);
   assert.deepEqual(errors, []);
-  console.log('Backup/admin browser UI passed: fresh-passkey view, scoped restore form, real admin login, room/device/backup detail, deletion confirmation, logout and mobile overflow.');
+  console.log('Backup/admin browser UI passed: desktop/mobile backup spacing, usable touch targets, fresh-passkey view, scoped restore form, real admin login, room/device/backup detail, deletion confirmation, logout and mobile overflow.');
 } finally {
   await browser?.close(); await vite?.close(); await service?.close(); await rm(directory, { recursive: true, force: true });
 }

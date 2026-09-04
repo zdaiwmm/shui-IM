@@ -79,7 +79,8 @@
 /* The privacy curtain always wins, including during synchronous lock cleanup. */
 html.privacy-obscured .call-view { visibility: hidden; pointer-events: none; }
 body.call-active { overflow: hidden; }
-#start-video-call { grid-column: 1; justify-self: start; color: var(--ink); pointer-events: auto; }
+.call-actions { grid-column: 1; justify-self: start; display: flex; align-items: center; gap: 8px; pointer-events: auto; }
+.call-actions .icon-button { flex-shrink: 0; color: var(--ink); }
 
 @keyframes call-ringing {
   0%, 100% { box-shadow: 0 0 0 0 oklch(88% 0.006 255 / .025); }

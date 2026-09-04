@@ -129,7 +129,53 @@ try {
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
   assert.equal(await page.locator('.local-recovery-code').count(), 0);
   assert.equal(await page.evaluate(() => window.fixtureApp.session === null && window.fixtureApp.retainedSession === null), true);
+  const mediaRestore = await page.evaluate(async () => {
+    const v = await import('/src/lib/vault.ts');
+    const { generateIdentity } = await import('/src/lib/crypto.ts');
+    const { randomBase64Url } = await import('/src/lib/base64.ts');
+    const identity = await generateIdentity();
+    const session = await v.createVault({ v: 1, roomId: crypto.randomUUID(), role: 'creator', accessToken: 'media-restore-fixture',
+      identity, members: [{ ...identity.publicBundle, role: 'creator', status: 'active', joinProof: null }], lastSeq: 0,
+      createdAt: new Date().toISOString(), protocol: 'legacy-v1' }, 'video-restore-regression', 'password');
+    const sentAt = '2026-09-04T00:00:00.000Z';
+    const manifest = (originalName, mimeType) => ({ v: 1, blobId: crypto.randomUUID(), key: randomBase64Url(32), ivPrefix: randomBase64Url(8),
+      chunkSize: 2097152, chunkCount: 1, originalSize: 10, originalName, mimeType, lastModified: 1, sha256: 'a'.repeat(64) });
+    const image = manifest('photo.png', 'image/png');
+    const video = manifest('clip.mp4', 'video/mp4');
+    const file = manifest('report.pdf', 'application/pdf');
+    const payloads = [
+      { kind: 'image', image }, { kind: 'file', file: video }, { kind: 'file', file },
+      { kind: 'gallery-file', file: video }, { kind: 'gallery-file', file },
+      { kind: 'text', text: 'ordinary history' }, { kind: 'file', file: manifest('camera.MOV', '') },
+    ];
+    const records = payloads.map((payload, index) => ({ seq: index + 1, clientMsgId: crypto.randomUUID(),
+      senderId: identity.publicBundle.deviceId, payload: { v: 1, sentAt, ...payload }, acceptedAt: sentAt, status: 'stored' }));
+    const imported = await v.importArchivedMessages(session, records, 'gallery');
+    const duplicateImport = await v.importArchivedMessages(session, records, 'gallery');
+    const chatRemainsEmpty = (await v.loadHistoryPage(session)).length === 0;
+    const noReplyTarget = await v.loadHistoryMessage(session, 2) === null;
+    // Merge the gallery-only restore with ordinary encrypted chat pages. The
+    // same video in both stores must appear once, while skipped text/files must
+    // still advance the bounded scan to older media.
+    for (const index of [1, 2, 5]) await v.saveHistoryMessage(session, records[index]);
+    const sequences = [];
+    let beforeSeq;
+    let pageCount = 0;
+    let bounded = true;
+    do {
+      const page = await v.loadMediaHistoryPage(session, { beforeSeq, limit: 2 });
+      bounded &&= page.messages.length <= 2 && (beforeSeq === undefined || page.beforeSeq < beforeSeq);
+      sequences.push(...page.messages.map(message => message.seq));
+      if (++pageCount > 7) throw new Error('Media pagination did not advance');
+      if (!page.hasMore) break;
+      beforeSeq = page.beforeSeq;
+    } while (true);
+    return { imported, duplicateImport, chatRemainsEmpty, noReplyTarget, sequences, bounded, pageCount };
+  });
+  assert.deepEqual(mediaRestore, { imported: 5, duplicateImport: 0, chatRemainsEmpty: true, noReplyTarget: true,
+    sequences: [7, 5, 4, 2, 1], bounded: true, pageCount: 4 });
   console.log('Cloud backup lifecycle passed: durable lost-response retry, stable code, no secret persistence/upload, abort fencing, pending-recovery resume and fresh-passkey reveal cleanup.');
+  console.log('Media restore passed: legacy file videos retained, ordinary chat files excluded, no chat/reply history from gallery restore, bounded merged pagination and duplicate suppression.');
 } finally {
   await browser?.close(); await vite?.close(); await service?.close(); await rm(dataDir, { recursive: true, force: true });
 }
