@@ -190,8 +190,15 @@ try {
     };
     const settleLayout = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const sameAnchor = (actual, expected) => actual?.clientMsgId === expected.clientMsgId && Math.abs(actual.offset - expected.offset) <= 2 && !actual.pinnedToBottom;
-    warm(); app.messages = messages(); app.renderChat(); await settleLayout();
+    warm(); app.messages = messages(); app.renderChat();
     let list = document.querySelector('#message-list');
+    // Cached dimensions do not mean the newly mounted <img> has decoded.
+    // Establish an actually warm baseline before saving a position that the
+    // later, deliberately cold placeholder phase must preserve.
+    const warmImages = [...list.querySelectorAll('.image-preview img')];
+    await Promise.all(warmImages.map(image => image.decode()));
+    if (warmImages.length !== manifests.length || warmImages.some(image => image.naturalWidth !== 300 || image.naturalHeight !== 400)) throw Error('Warm-image anchor fixture did not decode its complete baseline');
+    await settleLayout();
     const target = list.querySelector('[data-client-msg-id="message-8"]');
     window.scrollBy(0, target.getBoundingClientRect().top + 196);
     await settleLayout();
