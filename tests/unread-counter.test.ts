@@ -65,13 +65,13 @@ describe('unread counter lifecycle', () => {
     expect(JSON.stringify(counter)).not.toContain('private-key-must-not-be-retained');
   });
 
-  it('registers with the initial history boundary and preserves the existing cursor on later unlocks', async () => {
+  it('registers without treating downloaded history as read and preserves the server cursor on later unlocks', async () => {
     const counter = new UnreadCounter(vi.fn());
     fetchMock.mockResolvedValueOnce(reply(0));
     await counter.configure(vault);
     const options = fetchMock.mock.calls[0]![1];
     const body = JSON.parse(options.body);
-    expect(body).toEqual({ token: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/), readSeq: 12 });
+    expect(body).toEqual({ token: expect.stringMatching(/^[A-Za-z0-9_-]{43}$/) });
     expect(options.headers.Authorization).toBe(`Bearer ${vault.accessToken}`);
     const saved = JSON.parse(stored.get(key)!);
     expect(saved).toEqual({ roomId, deviceId, token: body.token, count: 0 });
@@ -81,14 +81,43 @@ describe('unread counter lifecycle', () => {
     expect(JSON.stringify(counter)).not.toContain(vault.accessToken);
   });
 
-  it('retries an unconfirmed initial registration with its history boundary', async () => {
+  it('keeps the count-only token across a failed registration and retries without acknowledging newly synced messages', async () => {
     const counter = new UnreadCounter(vi.fn());
     fetchMock.mockRejectedValueOnce(new TypeError('offline'));
     await expect(counter.configure(vault)).rejects.toThrow();
-    expect(stored.has(key)).toBe(false);
+    const saved = JSON.parse(stored.get(key)!);
+    expect(saved).toEqual({ roomId, deviceId, token: expect.any(String), count: 0 });
     fetchMock.mockResolvedValueOnce(reply(0));
-    await counter.configure(vault);
-    expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).toMatchObject({ readSeq: 12 });
+    await counter.configure({ ...vault, lastSeq: 20 });
+    expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).toEqual({ token: saved.token });
+  });
+
+  it('recovers a committed registration after lock cancels its response, including after reload', async () => {
+    const counter = new UnreadCounter(vi.fn());
+    const controller = new AbortController();
+    const pending = deferred<Response>();
+    fetchMock.mockReturnValueOnce(pending.promise);
+    const registration = counter.configure(vault, controller.signal);
+    const sent = JSON.parse(fetchMock.mock.calls[0]![1].body);
+    controller.abort();
+    pending.resolve(reply(4));
+    await registration;
+    expect(counter.count).toBe(0);
+    const reloaded = new UnreadCounter(vi.fn());
+    fetchMock.mockResolvedValueOnce(reply(4));
+    await reloaded.refresh();
+    expect(reloaded.count).toBe(4);
+    expect(fetchMock.mock.calls[1]![1]).toMatchObject({ headers: { Authorization: `Bearer ${sent.token}` } });
+    expect(fetchMock.mock.calls[1]![1].method).toBeUndefined();
+    expect(JSON.stringify(reloaded)).not.toContain(vault.accessToken);
+  });
+
+  it('does not replace a usable observer when configuration starts with an aborted signal', async () => {
+    const { counter } = await configured();
+    await counter.configure(otherVault, AbortSignal.abort());
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(counter.count).toBe(3);
+    expect(JSON.parse(stored.get(key)!)).toEqual(observer);
   });
 
   it('can retry configuration from visible or online ticks without retaining vault credentials or duplicating pending requests', async () => {

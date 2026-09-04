@@ -38,7 +38,7 @@ function boundedBase64(value: unknown, byteLength: number): value is string {
   }
 }
 
-function isAttachmentManifest(value: unknown, kind: 'image' | 'audio'): boolean {
+function isAttachmentManifest(value: unknown, kind: 'image' | 'audio' | 'file'): boolean {
   if (!value || typeof value !== 'object') return false;
   const image = value as Record<string, unknown>;
   const chunkCount = image.chunkCount;
@@ -56,8 +56,10 @@ function isAttachmentManifest(value: unknown, kind: 'image' | 'audio'): boolean 
     chunkCount === Math.ceil(originalSize / IMAGE_CHUNK_SIZE) &&
     typeof image.originalName === 'string' && image.originalName.length <= MAX_IMAGE_NAME_LENGTH &&
     !/[\u0000-\u001f\u007f]/.test(image.originalName) &&
-    typeof image.mimeType === 'string' && image.mimeType.length > 0 && image.mimeType.length <= MAX_IMAGE_MIME_LENGTH &&
-    (kind === 'image' ? image.mimeType.startsWith('image/') : isAudioMimeType(image.mimeType) && originalSize <= MAX_AUDIO_BYTES) &&
+    typeof image.mimeType === 'string' && image.mimeType.length <= MAX_IMAGE_MIME_LENGTH &&
+    (kind === 'file'
+      ? !/[\u0000-\u001f\u007f]/.test(image.mimeType)
+      : image.mimeType.length > 0 && (kind === 'image' ? image.mimeType.startsWith('image/') : isAudioMimeType(image.mimeType) && originalSize <= MAX_AUDIO_BYTES)) &&
     typeof lastModified === 'number' && Number.isSafeInteger(lastModified) && lastModified >= 0 &&
     typeof image.sha256 === 'string' && SHA256.test(image.sha256),
   );
@@ -71,6 +73,10 @@ export function isAudioManifest(value: unknown): boolean {
   return isAttachmentManifest(value, 'audio');
 }
 
+export function isFileManifest(value: unknown): boolean {
+  return isAttachmentManifest(value, 'file');
+}
+
 function isReplyReference(value: unknown): boolean {
   if (!value || typeof value !== 'object') return false;
   const reply = value as Record<string, unknown>;
@@ -78,7 +84,7 @@ function isReplyReference(value: unknown): boolean {
     typeof reply.clientMsgId === 'string' && UUID_V4.test(reply.clientMsgId) &&
     typeof reply.serverSeq === 'number' && Number.isSafeInteger(reply.serverSeq) && reply.serverSeq > 0 &&
     typeof reply.senderId === 'string' && UUID_V4.test(reply.senderId) &&
-    (reply.kind === 'text' || reply.kind === 'image' || reply.kind === 'audio') &&
+    (reply.kind === 'text' || reply.kind === 'image' || reply.kind === 'audio' || reply.kind === 'file') &&
     typeof reply.preview === 'string' && reply.preview.length > 0 && [...reply.preview].length <= MAX_REPLY_PREVIEW_LENGTH &&
     !/[\u0000-\u001f\u007f]/.test(reply.preview);
 }
@@ -114,6 +120,11 @@ export function isMessagePayload(value: unknown): value is MessagePayload {
     if (payload.v === 1) return hasOnlyKeys(payload, ['v', 'kind', 'image', 'sentAt']);
     return hasOnlyKeys(payload, ['v', 'kind', 'image', 'sentAt', 'replyTo']) && isReplyReference(payload.replyTo);
   }
+  if (payload.kind === 'file') {
+    if (!isFileManifest(payload.file)) return false;
+    if (payload.v === 1) return hasOnlyKeys(payload, ['v', 'kind', 'file', 'sentAt']);
+    return hasOnlyKeys(payload, ['v', 'kind', 'file', 'sentAt', 'replyTo']) && isReplyReference(payload.replyTo);
+  }
   if (payload.kind === 'audio') {
     if (!isAudioManifest(payload.audio) ||
       typeof payload.durationMs !== 'number' || !Number.isSafeInteger(payload.durationMs) ||
@@ -143,6 +154,9 @@ export function isMessagePayload(value: unknown): value is MessagePayload {
     return hasOnlyKeys(payload, ['v', 'kind', 'images', 'sentAt', 'replyTo']) && isReplyReference(payload.replyTo);
   }
   if (payload.v !== 1) return false;
+  if (payload.kind === 'gallery-file') {
+    return hasOnlyKeys(payload, ['v', 'kind', 'file', 'sentAt']) && isFileManifest(payload.file);
+  }
   return hasOnlyKeys(payload, ['v', 'kind', 'image', 'sentAt']) &&
     payload.kind === 'gallery-image' && isImageManifest(payload.image);
 }

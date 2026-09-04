@@ -20,6 +20,9 @@ APP_ROOT="$AUDIT_TEST_DIR"; STATE_DIR="$AUDIT_TEST_DIR"; BACKUP_DIR="$AUDIT_TEST
 PUBLIC_HEALTH_URL=https://ai.shui.click/api/health
 previous_image=old; new_image=new; previous_compose="$AUDIT_TEST_DIR/previous.yaml"
 release_dir="$AUDIT_TEST_DIR/new"; PROJECT=quiet-room; SHARED_ENV=unused
+CALLS_STATE="$AUDIT_TEST_DIR/calls-enabled"; calls_enabled=0
+new_compose_args=(--project-name "$PROJECT" --env-file "$SHARED_ENV" --file "$release_dir/compose.yaml")
+previous_compose_args=(--project-name "$PROJECT" --env-file "$SHARED_ENV" --file "$previous_compose")
 REQUESTED_SHA=0123456789012345678901234567890123456789; stamp=test; short_sha=012345678901
 cutover_started=0; data_restore_required=0; backup_ready=0; backup_name=''; backup_path=''; failed_cutover_backup_path=''
 current_image=old

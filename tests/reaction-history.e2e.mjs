@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 
-const server = await createServer({ configFile: false, root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0 } });
+const server = await createServer({ configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0, hmr: false } });
 server.middlewares.use('/__reaction_history', (_request, response) => {
   response.setHeader('Content-Type', 'text/html');
   response.end('<!doctype html><title>Encrypted reaction history regression</title>');
@@ -117,7 +117,7 @@ try {
     app.session = session; app.privacyCovered = false;
     app.updateSafetyCode = async () => {};
     app.updateBackgroundNotificationControl = async () => {};
-    app.connectSocket = () => {};
+    app.connectSocket = async () => {};
     app.unreadCounter.configure = async () => {};
     await app.openSession();
     const result = {

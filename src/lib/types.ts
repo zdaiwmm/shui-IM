@@ -189,7 +189,7 @@ export type ReplyReference = {
   clientMsgId: string;
   serverSeq: number;
   senderId: string;
-  kind: 'text' | 'image' | 'audio';
+  kind: 'text' | 'image' | 'audio' | 'file';
   preview: string;
 };
 
@@ -213,6 +213,24 @@ export type ImageManifest = {
   mimeType: string;
   lastModified: number;
   sha256: string;
+};
+
+/** Any local file uses the same encrypted, integrity-checked chunk transport. */
+export type FileManifest = ImageManifest;
+
+export type FilePayload = {
+  v: 1 | 2;
+  kind: 'file';
+  file: FileManifest;
+  sentAt: string;
+  replyTo?: ReplyReference;
+};
+
+export type GalleryFilePayload = {
+  v: 1;
+  kind: 'gallery-file';
+  file: FileManifest;
+  sentAt: string;
 };
 
 export type ImagePayload = {
@@ -275,7 +293,7 @@ export type ReactionPayload = {
   emoji: ReactionEmoji | null;
 };
 
-export type MessagePayload = TextPayload | ImagePayload | GalleryImagePayload | ImageAlbumPayload | AudioPayload | ReactionPayload;
+export type MessagePayload = TextPayload | ImagePayload | GalleryImagePayload | ImageAlbumPayload | AudioPayload | FilePayload | GalleryFilePayload | ReactionPayload;
 
 export type RecipientWrap = {
   deviceId: string;

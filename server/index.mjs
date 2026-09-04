@@ -4,8 +4,10 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createStore } from './storage.mjs';
+import { callIceConfiguration, createCallService } from './calls.mjs';
 import { createPushService, validatePushAuthorization, validatePushSubscription } from './push.mjs';
 import {
+  canonicalStringify,
   isUuid,
   mlsPrivateMessageEpoch,
   mlsPublicMessageEpoch,
@@ -58,7 +60,7 @@ function applySecurityHeaders(request, response) {
   ].join('; '));
   response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   response.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
-  response.setHeader('Permissions-Policy', 'camera=(), microphone=(self), geolocation=(), payment=(), usb=()');
+  response.setHeader('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=(), payment=(), usb=()');
   response.setHeader('Referrer-Policy', 'no-referrer');
   response.setHeader('X-Content-Type-Options', 'nosniff');
   response.setHeader('X-Frame-Options', 'DENY');
@@ -99,6 +101,7 @@ function bearerToken(request) {
 function normalizeError(error) {
   const code = error instanceof Error ? error.message : 'INTERNAL_ERROR';
   const known = new Map([
+    ['CALL_CONFIG_INVALID', [503, '通话网络配置暂不可用']],
     ['BODY_TOO_LARGE', [413, '上传内容过大']],
     ['INVALID_JSON', [400, '请求格式不正确']],
     ['ROOM_NOT_FOUND', [404, '会话不存在']],
@@ -173,6 +176,26 @@ function validPresenceFrame(message) {
   );
 }
 
+function callIdentityMatchesDevice(proof, roomId, device) {
+  if (!proof || typeof proof !== 'object' || Array.isArray(proof) ||
+      JSON.stringify(Object.keys(proof).sort()) !== JSON.stringify(['deviceId', 'protocol', 'publicBundle', 'role', 'roomId', 'signature']) ||
+      JSON.stringify(proof).length > 96 * 1024 ||
+      proof.protocol !== 'quiet-room-call-identity-v1' || proof.roomId !== roomId || !isUuid(proof.roomId) ||
+      proof.deviceId !== device.deviceId || !isUuid(proof.deviceId) ||
+      !['creator', 'joiner'].includes(proof.role) || proof.role !== device.role ||
+      !validatePublicBundle(proof.publicBundle) ||
+      typeof proof.signature !== 'string' || !/^[A-Za-z0-9_-]{86}$/.test(proof.signature)) return false;
+  const signature = Buffer.from(proof.signature, 'base64url');
+  if (signature.length !== 64 || signature.toString('base64url') !== proof.signature) return false;
+  const expectedBundle = {
+    deviceId: device.deviceId,
+    encryptionKey: device.encryptionKey,
+    signingKey: device.signingKey,
+    ...(device.mlsKeyPackage ? { mlsKeyPackage: device.mlsKeyPackage } : {}),
+  };
+  return canonicalStringify(proof.publicBundle) === canonicalStringify(expectedBundle);
+}
+
 export async function startServer(options = {}) {
   const port = Number(options.port ?? process.env.PORT ?? 8787);
   const host = options.host ?? process.env.HOST ?? '127.0.0.1';
@@ -214,6 +237,21 @@ export async function startServer(options = {}) {
     return device;
   }
 
+  function callIdentitiesForRoom(roomId) {
+    const identities = new Map();
+    for (const socket of clientsByRoom.get(roomId) ?? []) {
+      if (socket.readyState !== WebSocket.OPEN) continue;
+      const session = socketSessions.get(socket);
+      if (!session?.callIdentity) continue;
+      const member = store.getMember(roomId, session.deviceId);
+      if (member?.status !== 'active' || store.deviceRecoveryPending(roomId, session.deviceId) ||
+          !callIdentityMatchesDevice(session.callIdentity, roomId, member)) continue;
+      // One immutable attestation per active device, even with multiple tabs.
+      identities.set(member.deviceId, session.callIdentity);
+    }
+    return [...identities.values()].slice(0, 6);
+  }
+
   function clientAddress(request) {
     const socketAddress = request.socket.remoteAddress ?? 'unknown';
     if (!trustedProxyAddresses.has(socketAddress)) return socketAddress;
@@ -248,7 +286,12 @@ export async function startServer(options = {}) {
     if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value));
   }
 
+  const callService = createCallService({
+    store, clientsByRoom, socketSessions, send, isOpen: (socket) => socket.readyState === WebSocket.OPEN,
+  });
+
   function broadcast(roomId, value, project = null) {
+    if (value.type === 'membership') callService.sweep();
     for (const socket of clientsByRoom.get(roomId) ?? []) {
       const session = socketSessions.get(socket);
       const member = session ? store.getMember(roomId, session.deviceId) : null;
@@ -296,6 +339,8 @@ export async function startServer(options = {}) {
     socketSessions.set(socket, session);
     clientsByRoom.set(session.roomId, clients);
     socket.once('close', () => {
+      callService.disconnect(socket);
+      delete session.callIdentity;
       clients.delete(socket);
       if (clients.size === 0) clientsByRoom.delete(session.roomId);
       broadcastPresence(session.roomId);
@@ -422,6 +467,18 @@ export async function startServer(options = {}) {
         return;
       }
 
+      const callConfigMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/call-config$`));
+      if (callConfigMatch && request.method === 'GET') {
+        const roomId = callConfigMatch[1];
+        requireActiveDevice(request, roomId);
+        if (!allowRequest(request, `call-config:${roomId}`, 30)) {
+          json(request, response, 429, { error: '通话请求过于频繁', code: 'RATE_LIMITED' });
+          return;
+        }
+        json(request, response, 200, { ...callIceConfiguration(options), callIdentities: callIdentitiesForRoom(roomId) });
+        return;
+      }
+
       const deviceLinksMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/device-links$`));
       if (deviceLinksMatch && (request.method === 'GET' || request.method === 'POST')) {
         const roomId = deviceLinksMatch[1];
@@ -530,6 +587,7 @@ export async function startServer(options = {}) {
           return;
         }
         const state = store.createRecoveryRequest(roomId, proof, body.accessToken, body.deviceName.trim(), body.capabilities);
+        callService.sweep();
         // Fence old sockets before broadcasting the pending replacement. Every
         // subsequent write is checked again at the durable store boundary.
         for (const socket of clientsByRoom.get(roomId) ?? []) {
@@ -872,12 +930,28 @@ export async function startServer(options = {}) {
               socket.close(4401, 'Authentication failed');
               return;
             }
+            if (message.callIdentity !== undefined) {
+              if (!callIdentityMatchesDevice(message.callIdentity, message.roomId, device) ||
+                  !(await verifyEnvelopeSignature(message.callIdentity, device.signingKey))) {
+                socket.close(4401, 'Invalid call identity');
+                return;
+              }
+              // Signature verification yields: a device may be revoked/replaced
+              // or its transport closed before its attestation is registered.
+              const current = store.authenticatedDevice(message.roomId, message.accessToken, message.deviceId);
+              if (socket.readyState !== WebSocket.OPEN || !current ||
+                  !callIdentityMatchesDevice(message.callIdentity, message.roomId, current)) {
+                socket.close(4401, 'Authentication failed');
+                return;
+              }
+            }
             clearTimeout(authTimeout);
             const offeredCapabilities = Array.isArray(message.capabilities) ? message.capabilities : null;
             const capabilitiesChanged = offeredCapabilities !== null &&
               JSON.stringify(device.capabilities ?? []) !== JSON.stringify([...new Set(offeredCapabilities)]);
             if (capabilitiesChanged) store.updateMemberCapabilities(message.roomId, device.deviceId, offeredCapabilities);
-            session = { roomId: message.roomId, deviceId: device.deviceId, role: device.role, view: 'away' };
+            session = { roomId: message.roomId, deviceId: device.deviceId, role: device.role, view: 'away',
+              ...(message.callIdentity ? { callIdentity: message.callIdentity } : {}) };
             if ((clientsByRoom.get(session.roomId)?.size ?? 0) >= maxConnectionsPerRoom) {
               socket.close(4429, 'Room connection limit exceeded');
               return;
@@ -910,6 +984,11 @@ export async function startServer(options = {}) {
 
           if (store.getMember(session.roomId, session.deviceId)?.status !== 'active' || store.deviceRecoveryPending(session.roomId, session.deviceId)) {
             socket.close(4403, 'Device no longer active');
+            return;
+          }
+
+          if (message.type === 'call') {
+            await callService.handle(socket, session, message);
             return;
           }
 
@@ -1107,6 +1186,7 @@ export async function startServer(options = {}) {
     close: async () => {
       clearInterval(cleanupTimer);
       clearInterval(webSocketHeartbeatTimer);
+      callService.close();
       for (const clients of clientsByRoom.values()) {
         for (const socket of clients) socket.close(1001, 'Server shutting down');
       }

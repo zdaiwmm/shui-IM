@@ -10,6 +10,8 @@ import type {
   ServerMlsMembershipEvent,
   ServerReceipt,
 } from './types';
+import type { CallEnvelope, CallIceConfiguration, CallServerEvent } from './call-types';
+import type { CallIdentityAttestation } from './call-membership';
 
 export type DeviceLinkRecord = {
   linkId: string;
@@ -83,6 +85,11 @@ export async function deleteRoom(roomId: string, accessToken: string): Promise<v
 
 export async function getRoomState(roomId: string, accessToken: string): Promise<RoomState> {
   const response = await authorizedFetch(`/api/rooms/${roomId}`, accessToken);
+  return response.json();
+}
+
+export async function getCallConfiguration(roomId: string, accessToken: string, signal?: AbortSignal): Promise<CallIceConfiguration> {
+  const response = await authorizedFetch(`/api/rooms/${roomId}/call-config`, accessToken, { signal, cache: 'no-store' });
   return response.json();
 }
 
@@ -290,6 +297,8 @@ function isRoomPresence(value: unknown): value is RoomPresence {
 }
 
 type SocketHandlers = {
+  call?: (envelope: CallEnvelope) => AsyncSocketHandler;
+  callState?: (event: CallServerEvent) => AsyncSocketHandler;
   connection: (state: 'connecting' | 'connected' | 'disconnected') => void;
   presence: (roles: RoomPresence, lastSeen: { creator: number | null; joiner: number | null }) => void;
   ready: (state: RoomState) => AsyncSocketHandler;
@@ -323,6 +332,7 @@ export class RoomSocket {
     private readonly handlers: SocketHandlers,
     private readonly deviceId = '',
     private readonly capabilities?: readonly string[],
+    private readonly callIdentity?: CallIdentityAttestation,
   ) {}
 
   connect(): void {
@@ -339,6 +349,7 @@ export class RoomSocket {
         accessToken: this.accessToken,
         deviceId: this.deviceId,
         ...(this.capabilities ? { capabilities: this.capabilities } : {}),
+        ...(this.callIdentity ? { callIdentity: this.callIdentity } : {}),
         afterSeq: this.afterSeq(),
         afterReceiptSeq: this.afterReceiptSeq(),
       }));
@@ -389,6 +400,10 @@ export class RoomSocket {
         this.handlers.receiptAck(String(frame.clientMsgId), Number(frame.receiptSeq));
       } else if (frame.type === 'pong') {
         this.lastPongAt = Date.now();
+      } else if (frame.type === 'call') {
+        this.runAfterMembershipUpdate(() => this.handlers.call?.(frame.envelope as CallEnvelope));
+      } else if (frame.type === 'call-state') {
+        this.runAfterMembershipUpdate(() => this.handlers.callState?.(frame as CallServerEvent));
       } else if (frame.type === 'error') {
         this.runAfterMembershipUpdate(() => this.handlers.error(
           String(frame.message ?? '实时连接发生错误'),
@@ -439,6 +454,12 @@ export class RoomSocket {
   setChatPresence(inChat: boolean): void {
     this.desiredPresenceView = inChat ? 'chat' : 'away';
     this.flushChatPresence();
+  }
+
+  sendCall(envelope: CallEnvelope): void {
+    if (!this.authenticated || this.socket?.readyState !== WebSocket.OPEN) throw new Error('通话连接已断开');
+    if (this.socket.bufferedAmount > 512 * 1024) throw new Error('网络拥堵，请稍后重试');
+    this.socket.send(JSON.stringify({ type: 'call', envelope }));
   }
 
   private flushChatPresence(): void {

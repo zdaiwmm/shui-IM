@@ -5,6 +5,7 @@ import { chromium } from 'playwright';
 import { createServer as createViteServer } from 'vite';
 import { startServer } from '../server/index.mjs';
 import { verifyVoiceFlow } from './voice-flow.e2e.mjs';
+import { verifyCallFlow } from './call-flow.e2e.mjs';
 
 const visualQaDirectory = process.argv[2];
 
@@ -170,8 +171,8 @@ try {
         : { headless: true, channel: 'chrome', args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] },
   );
 
-  const creatorContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
-  const joinerContext = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  const creatorContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
+  const joinerContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 }, hasTouch: true });
   const creator = await creatorContext.newPage();
   const joiner = await joinerContext.newPage();
   await Promise.all([enableDeviceVault(creator), enableDeviceVault(joiner, true)]);
@@ -245,18 +246,19 @@ try {
   await assertStablePage(creator, 'Chat page');
   await Promise.all([
     creator.locator('#self-presence strong').filter({ hasText: /^在线$/ }).waitFor({ timeout: 5000 }),
-    creator.locator('#peer-presence strong').filter({ hasText: /^在线$/ }).waitFor({ timeout: 5000 }),
+    creator.locator('.peer-status').filter({ hasText: /^在线$/ }).waitFor({ timeout: 5000 }),
     joiner.locator('#self-presence strong').filter({ hasText: /^在线$/ }).waitFor({ timeout: 5000 }),
-    joiner.locator('#peer-presence strong').filter({ hasText: /^在线$/ }).waitFor({ timeout: 5000 }),
+    joiner.locator('.peer-status').filter({ hasText: /^在线$/ }).waitFor({ timeout: 5000 }),
   ]);
   const presenceLayout = await creator.evaluate(() => {
     const header = document.querySelector('.chat-header').getBoundingClientRect();
     const self = document.querySelector('#self-presence').getBoundingClientRect();
     const peer = document.querySelector('#peer-presence').getBoundingClientRect();
-    return { selfRight: self.right, peerLeft: peer.left, peerCenter: (peer.left + peer.right) / 2, headerCenter: (header.left + header.right) / 2 };
+    const summary = document.querySelector('.peer-summary').getBoundingClientRect();
+    return { selfRight: self.right, peerLeft: peer.left, peerCenter: (summary.left + summary.right) / 2, headerCenter: (header.left + header.right) / 2 };
   });
   invariant(presenceLayout.selfRight <= presenceLayout.peerLeft + 1, `Self presence is not on the left: ${JSON.stringify(presenceLayout)}`);
-  invariant(Math.abs(presenceLayout.peerCenter - presenceLayout.headerCenter) <= 3, `Peer presence is not centered: ${JSON.stringify(presenceLayout)}`);
+  invariant(Math.abs(presenceLayout.peerCenter - presenceLayout.headerCenter) <= 3, `Combined presence is not centered: ${JSON.stringify(presenceLayout)}`);
   invariant(await creator.locator('#dismiss-recovery svg').evaluate((icon) => getComputedStyle(icon).stroke !== 'none'), 'Pinned recovery reminder close icon is invisible');
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-pinned-mobile.png') });
   await creator.locator('#dismiss-recovery').click();
@@ -420,6 +422,7 @@ try {
   invariant(await joiner.getByText('browser-e2e-outbox', { exact: true }).count() === 1, 'Outbox replay duplicated a message');
 
   await verifyVoiceFlow({ creator, joiner, unlock, visualQaDirectory });
+  await verifyCallFlow({ creator, joiner, unlock, visualQaDirectory });
 
   const image = {
     name: 'picker.svg',
@@ -564,8 +567,10 @@ try {
   await creator.locator('#open-gallery').click();
   await creator.locator('.gallery-shell').waitFor();
   await assertStablePage(creator, 'Gallery page');
+  invariant(await creator.locator('#gallery-tab-images').getAttribute('aria-selected') === 'true', 'Gallery does not default to its images tab');
+  invariant(await creator.locator('.gallery-file:visible').count() === 0, 'Gallery files are visible in the default images tab');
   await joiner.locator('#peer-presence[data-state="offline"]').waitFor({ timeout: 5000 });
-  invariant(/刚刚|前/.test(await joiner.locator('#peer-presence strong').textContent()), 'Offline peer does not show time since last online');
+  invariant(/刚刚|前/.test(await joiner.locator('.peer-status').textContent()), 'Offline peer does not show time since last online');
   const galleryInput = await creator.locator('#gallery-image-input').elementHandle();
   invariant(galleryInput, 'Gallery upload input is missing');
   invariant(await galleryInput.evaluate((input) => input.multiple), 'Gallery upload does not permit multiple selection');
@@ -613,7 +618,7 @@ try {
   await creator.locator('#gallery-back').click();
   await creator.locator('.chat-shell').waitFor();
   await assertStablePage(creator, 'Chat return');
-  await joiner.locator('#peer-presence strong').filter({ hasText: /^在线$/ }).waitFor({ timeout: 5000 });
+  await joiner.locator('.peer-status').filter({ hasText: /^在线$/ }).waitFor({ timeout: 5000 });
   await creator.waitForTimeout(420);
   const chatAnchorAfterGallery = await creator.locator('#message-list').evaluate((list) => {
     const listTop = window.visualViewport?.offsetTop ?? 0;
@@ -698,6 +703,64 @@ try {
   await creator.locator('#image-input').setInputFiles(resumableImage);
   await joiner.locator('.message.incoming .image-preview').nth(imageCount).waitFor({ timeout: 15_000 });
 
+  // Files use the same real MLS, authenticated blob storage and peer download
+  // path as images, while gallery-only files remain absent from both chats.
+  const documentFile = {
+    name: '双端原文验证.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('%PDF-1.7\nQuiet Room encrypted file transfer\n%%EOF\n'),
+  };
+  invariant(!await creator.locator('#image-input').getAttribute('accept'), 'Chat file picker still filters out documents');
+  await creator.waitForFunction(() => !document.querySelector('#image-input')?.disabled);
+  await creator.locator('#image-input').setInputFiles(documentFile);
+  const peerDocument = joiner.locator('.message.incoming .file-attachment').filter({ hasText: documentFile.name });
+  await peerDocument.waitFor({ timeout: 15_000 });
+  await creator.locator('.message.outgoing.is-delivered').filter({ hasText: documentFile.name }).waitFor({ timeout: 15_000 });
+  invariant(await peerDocument.locator('.file-attachment-meta').textContent(), 'Received document has no file metadata');
+  const peerFileDownloadPromise = joiner.waitForEvent('download');
+  await peerDocument.click();
+  const peerFileDownload = await peerFileDownloadPromise;
+  invariant(peerFileDownload.suggestedFilename() === documentFile.name, 'Peer download changed the original filename');
+  const peerFileStream = await peerFileDownload.createReadStream();
+  invariant(peerFileStream, 'Peer document download has no readable stream');
+  const peerFileParts = [];
+  for await (const chunk of peerFileStream) peerFileParts.push(chunk);
+  invariant(Buffer.concat(peerFileParts).equals(documentFile.buffer), 'Document bytes changed during encryption, transfer or peer decryption');
+
+  const creatorFileCount = await creator.locator('.message .file-attachment').count();
+  const peerFileCount = await joiner.locator('.message .file-attachment').count();
+  await creator.locator('#open-gallery').click();
+  await creator.locator('.gallery-shell').waitFor();
+  invariant(await creator.locator('#gallery-tab-images').getAttribute('aria-selected') === 'true', 'Reopening the gallery does not select images');
+  invariant(!await creator.locator('#gallery-image-input').getAttribute('accept'), 'Gallery picker still filters out documents');
+  await creator.locator('#gallery-image-input').setInputFiles({ ...documentFile, name: '仅相册保存.pdf' });
+  await creator.locator('.gallery-file').filter({ hasText: '仅相册保存.pdf' }).waitFor({ timeout: 15_000 });
+  invariant(await creator.locator('#gallery-tab-files').getAttribute('aria-selected') === 'true', 'Document upload did not reveal its file result');
+  invariant(await creator.locator('.gallery-tile:visible').count() === 0, 'The files tab contains image tiles');
+  await creator.locator('#gallery-tab-images').click();
+  await creator.locator('.gallery-tile').first().waitFor();
+  invariant(await creator.locator('.gallery-file:visible').count() === 0, 'Switching to images left files visible');
+  await creator.locator('#gallery-tab-files').click();
+  await creator.locator('.gallery-file').filter({ hasText: '仅相册保存.pdf' }).waitFor();
+  await creator.waitForFunction(() => !document.querySelector('#gallery-back')?.disabled);
+  await creator.locator('#gallery-back').click();
+  await creator.locator('.chat-shell').waitFor();
+  await creator.locator('#open-gallery').click();
+  await creator.locator('.gallery-shell').waitFor();
+  invariant(await creator.locator('#gallery-tab-images').getAttribute('aria-selected') === 'true', 'Returning from files to chat then reopening the gallery did not reset to images');
+  invariant(await creator.locator('.gallery-file:visible').count() === 0, 'Reopened images tab retained visible files');
+  await creator.locator('#gallery-back').click();
+  await creator.locator('.chat-shell').waitFor();
+  await creator.locator('#message-input').fill('browser-e2e-after-gallery-file');
+  await creator.locator('#composer').evaluate(form => form.requestSubmit());
+  // The subsequent delivered message is an ordering barrier: the peer has
+  // processed the preceding encrypted gallery event before this assertion.
+  await joiner.getByText('browser-e2e-after-gallery-file', { exact: true }).waitFor({ timeout: 15_000 });
+  invariant(await creator.locator('.message .file-attachment').count() === creatorFileCount, 'Gallery document leaked into creator chat');
+  invariant(await joiner.locator('.message .file-attachment').count() === peerFileCount, 'Gallery document leaked into peer chat');
+  invariant(await creator.locator('.message').filter({ hasText: '仅相册保存.pdf' }).count() === 0, 'Creator chat exposes the private gallery filename');
+  invariant(await joiner.locator('.message').filter({ hasText: '仅相册保存.pdf' }).count() === 0, 'Peer chat exposes the private gallery filename');
+
   await creator.locator('.more-menu summary').click();
   const recoveryUrlBeforeDownload = creator.url();
   await creator.locator('#export-recovery').click();
@@ -752,7 +815,7 @@ try {
   await creator.locator('.cover-trigger').waitFor();
   await blurOutsidePage(joiner);
   await joiner.locator('.cover-trigger').waitFor();
-  const recoveryContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const recoveryContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
   const recovery = await recoveryContext.newPage();
   await enableDeviceVault(recovery);
   await recovery.goto(baseUrl);
@@ -797,7 +860,7 @@ try {
   await recovery.locator('#composer').evaluate((form) => form.requestSubmit());
   await joiner.getByText('browser-e2e-fresh-identity-send', { exact: true }).waitFor({ timeout: 5000 });
 
-  const legacyContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const legacyContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
   const legacy = await legacyContext.newPage();
   await enableDeviceVault(legacy);
   await legacy.goto(baseUrl);

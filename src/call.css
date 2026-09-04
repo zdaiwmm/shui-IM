@@ -1,0 +1,163 @@
+/* Faces occupy the screen; controls stay legible over unpredictable live video. */
+.call-view {
+  --call-ink: oklch(98% 0.004 255);
+  --call-secondary: oklch(84% 0.008 255);
+  --call-surface: oklch(18% 0.009 255);
+  --call-viewport-height: 100dvh;
+  --call-viewport-top: 0px;
+  position: fixed;
+  z-index: 10000;
+  inset: var(--call-viewport-top) 0 auto;
+  width: 100%;
+  height: var(--call-viewport-height);
+  min-height: 260px;
+  overflow: hidden;
+  isolation: isolate;
+  color: var(--call-ink);
+  background: var(--call-surface);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-align: center;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.call-view [hidden], .call-view[hidden] { display: none !important; }
+.call-view *, .call-view *::before, .call-view *::after { box-sizing: border-box; }
+.call-view button { font: inherit; cursor: pointer; -webkit-appearance: none; appearance: none; touch-action: manipulation; }
+.call-view svg { display: block; width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.call-backdrop, .call-remote-video, .call-background-video, .call-video-shade { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.call-backdrop { overflow: hidden; background: radial-gradient(ellipse at 48% 22%, oklch(32% 0.015 250), oklch(17% 0.009 255) 74%); }
+.call-background-video { object-fit: cover; filter: blur(35px) brightness(.45) saturate(.65); transform: scale(1.16); }
+.call-remote-video { object-fit: cover; opacity: 0; }
+.call-has-remote-video .call-remote-video { opacity: 1; }
+.call-video-shade { background: linear-gradient(to bottom, oklch(10% 0.006 255 / .42), transparent 38%, transparent 55%, oklch(10% 0.006 255 / .5)); }
+.call-identity { position: absolute; top: max(90px, calc(env(safe-area-inset-top) + 12%)); left: 24px; right: 24px; display: flex; align-items: center; flex-direction: column; }
+.call-avatar { display: grid; place-items: center; width: 116px; height: 116px; margin-bottom: 29px; border-radius: 50%; background: oklch(74% 0.01 255 / .16); color: oklch(82% 0.008 255); box-shadow: inset 0 1px 0 oklch(96% 0.005 255 / .07); }
+.call-avatar svg { width: 66px; height: 66px; stroke-width: 1.25; }
+.call-type { margin: 0 0 8px; color: var(--call-secondary); font-size: .875rem; font-weight: 400; line-height: 1.4; letter-spacing: .08em; }
+.call-peer-name { max-width: min(100%, 560px); margin: 0; color: var(--call-ink); font-size: 2.625rem; font-weight: 500; line-height: 1.2; letter-spacing: -.04em; overflow-wrap: anywhere; }
+.call-status { max-width: 34ch; min-height: 1.5em; margin: 13px 0 0; color: var(--call-secondary); font-size: 1rem; font-weight: 400; line-height: 1.5; overflow-wrap: anywhere; }
+.call-timer { margin-top: 7px; color: var(--call-secondary); font-size: .9375rem; line-height: 1.4; font-variant-numeric: tabular-nums; letter-spacing: .025em; }
+.call-has-remote-video .call-identity { top: calc(env(safe-area-inset-top) + 27px); left: 26px; right: auto; align-items: flex-start; max-width: calc(100% - 170px); text-align: left; text-shadow: 0 1px 10px oklch(10% 0.005 255 / .4); }
+.call-has-remote-video .call-peer-name { font-size: 1.625rem; }
+.call-has-remote-video .call-type { display: none; }
+.call-has-remote-video .call-status { margin-top: 4px; font-size: .8125rem; color: var(--call-ink); }
+.call-has-remote-video .call-timer { margin-top: 2px; font-size: .8125rem; color: var(--call-ink); }
+.call-local-preview { position: absolute; top: calc(env(safe-area-inset-top) + 20px); right: max(18px, env(safe-area-inset-right)); width: 112px; height: 160px; overflow: hidden; border: 1px solid oklch(96% 0.005 255 / .18); border-radius: 22px; background: oklch(25% 0.008 255); box-shadow: 0 6px 24px oklch(10% 0.005 255 / .27); }
+.call-local-video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.call-local-mirrored .call-local-video { transform: scaleX(-1); }
+.call-preview-name, .call-preview-muted { position: absolute; bottom: 8px; display: grid; place-items: center; height: 24px; padding: 0 8px; border-radius: 9px; background: oklch(15% 0.006 255 / .5); color: var(--call-ink); font-size: .6875rem; line-height: 1; }
+.call-preview-name { left: 8px; }
+.call-preview-muted { right: 8px; padding: 0 5px; }
+.call-preview-muted svg { width: 14px; height: 14px; }
+.call-bottom { position: absolute; bottom: max(30px, calc(env(safe-area-inset-bottom) + 20px)); left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right)); display: flex; flex-direction: column; align-items: center; gap: 18px; }
+.call-toolbar { display: flex; justify-content: center; gap: 12px; max-width: 100%; padding: 16px 20px 13px; border: 1px solid oklch(94% 0.006 255 / .11); border-radius: 34px; background: oklch(20% 0.01 255 / .62); box-shadow: 0 12px 36px oklch(10% 0.006 255 / .12), inset 0 1px 0 oklch(96% 0.005 255 / .05); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); }
+.call-control { display: flex; align-items: center; flex-direction: column; gap: 9px; min-width: 54px; margin: 0; padding: 0; border: 0; border-radius: 25px; color: var(--call-ink); background: transparent; }
+.call-control-disc { display: grid; place-items: center; width: 58px; height: 58px; border-radius: 50%; color: var(--call-ink); background: oklch(79% 0.008 255 / .2); transition: background-color 160ms ease-out, color 160ms ease-out, transform 160ms cubic-bezier(.22, 1, .36, 1); }
+.call-control-label { color: var(--call-ink); font-size: .6875rem; line-height: 1.3; white-space: nowrap; }
+.call-mic[aria-pressed='true'] .call-control-disc, .call-camera[aria-pressed='false'] .call-control-disc { color: oklch(25% 0.01 255); background: oklch(97% 0.006 255); }
+.call-hangup .call-control-disc, .call-decline .call-control-disc { color: oklch(98% 0.003 25); background: oklch(61% 0.22 27); }
+.call-answer .call-control-disc { color: oklch(98% 0.004 145); background: oklch(61% 0.185 147); }
+.call-hangup svg, .call-decline svg { width: 30px; height: 30px; }
+.call-control:disabled { cursor: default; }
+.call-control:disabled .call-control-disc { opacity: .4; }
+.call-control:disabled .call-control-label { color: oklch(74% 0.008 255); }
+.call-control:not(:disabled):active .call-control-disc { transform: scale(.92); }
+.call-view button:focus-visible { outline: 3px solid oklch(96% 0.007 255); outline-offset: 6px; }
+.call-incoming { display: flex; align-items: center; justify-content: space-between; width: min(280px, 100%); padding: 4px 8px 10px; }
+.call-incoming .call-control { gap: 13px; }
+.call-incoming .call-control-disc { width: 76px; height: 76px; }
+.call-incoming .call-control-label { font-size: .875rem; }
+.call-incoming svg { width: 32px; height: 32px; }
+.call-view[data-phase='incoming'] .call-avatar { animation: call-ringing 2.4s ease-out infinite; }
+.call-remote-hint { margin: 0; padding: 8px 13px; border-radius: 16px; color: var(--call-ink); background: oklch(15% 0.008 255 / .7); font-size: .8125rem; line-height: 1.4; }
+.call-playback { display: inline-flex; justify-content: center; align-items: center; gap: 10px; min-height: 48px; padding: 11px 20px; border: 1px solid oklch(94% 0.006 255 / .2); border-radius: 24px; background: oklch(29% 0.01 255 / .94); color: var(--call-ink); font-size: .875rem; }
+.call-playback svg { width: 20px; height: 20px; }
+.call-ended { padding-bottom: 10px; }
+.call-dismiss { min-width: 190px; min-height: 52px; padding: 14px 28px; border: 1px solid oklch(94% 0.006 255 / .14); border-radius: 26px; background: oklch(78% 0.008 255 / .17); color: var(--call-ink); font-size: .9375rem; }
+.call-view[data-phase='ended'] .call-status { max-width: 30ch; }
+/* The privacy curtain always wins, including during synchronous lock cleanup. */
+html.privacy-obscured .call-view { visibility: hidden; pointer-events: none; }
+body.call-active { overflow: hidden; }
+#start-video-call { grid-column: 1; justify-self: start; color: var(--ink); pointer-events: auto; }
+
+@keyframes call-ringing {
+  0%, 100% { box-shadow: 0 0 0 0 oklch(88% 0.006 255 / .025); }
+  50% { box-shadow: 0 0 0 12px oklch(88% 0.006 255 / .06); }
+}
+
+@media (hover: hover) {
+  .call-control:not(:disabled):hover .call-control-disc { filter: brightness(1.14); }
+  .call-playback:hover, .call-dismiss:hover { background: oklch(42% 0.01 255 / .9); }
+}
+
+@media (min-width: 700px) {
+  .call-identity { top: 16%; }
+  .call-avatar { width: 138px; height: 138px; margin-bottom: 34px; }
+  .call-avatar svg { width: 76px; height: 76px; }
+  .call-peer-name { font-size: 3rem; }
+  .call-local-preview { top: calc(env(safe-area-inset-top) + 28px); right: max(28px, env(safe-area-inset-right)); width: 180px; height: 246px; border-radius: 24px; }
+  .call-has-remote-video .call-identity { top: calc(env(safe-area-inset-top) + 32px); left: 34px; max-width: calc(100% - 250px); }
+  .call-bottom { bottom: max(36px, calc(env(safe-area-inset-bottom) + 24px)); }
+  .call-toolbar { gap: 22px; padding-inline: 28px; }
+  .call-control-disc { width: 62px; height: 62px; }
+  .call-control-label { font-size: .75rem; }
+  .call-incoming { width: 320px; }
+}
+
+@media (max-width: 360px) {
+  .call-toolbar { gap: 10px; padding: 14px 13px 12px; border-radius: 30px; }
+  .call-control { min-width: 50px; }
+  .call-control-disc { width: 50px; height: 50px; }
+  .call-local-preview { width: 92px; height: 132px; right: 14px; border-radius: 18px; }
+  .call-has-remote-video .call-identity { left: 18px; max-width: calc(100% - 136px); }
+  .call-avatar { width: 100px; height: 100px; margin-bottom: 23px; }
+  .call-peer-name { font-size: 2.375rem; }
+}
+
+@media (max-height: 600px) and (orientation: portrait) {
+  .call-identity { top: max(48px, calc(env(safe-area-inset-top) + 7%)); }
+  .call-avatar { width: 80px; height: 80px; margin-bottom: 20px; }
+  .call-avatar svg { width: 46px; height: 46px; }
+  .call-status { margin-top: 9px; }
+  .call-bottom { bottom: max(18px, env(safe-area-inset-bottom)); gap: 10px; }
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .call-identity { top: max(30px, env(safe-area-inset-top)); left: 10%; right: 10%; }
+  .call-avatar { width: 62px; height: 62px; margin-bottom: 12px; }
+  .call-avatar svg { width: 38px; height: 38px; }
+  .call-peer-name { font-size: 2rem; }
+  .call-type { margin-bottom: 5px; font-size: .75rem; }
+  .call-status { margin-top: 7px; font-size: .875rem; }
+  .call-timer { margin-top: 3px; font-size: .8125rem; }
+  .call-local-preview { top: 16px; right: max(20px, env(safe-area-inset-right)); width: 96px; height: 130px; border-radius: 18px; }
+  .call-bottom { bottom: max(14px, env(safe-area-inset-bottom)); gap: 8px; }
+  .call-toolbar { gap: 16px; padding: 10px 18px; border-radius: 28px; }
+  .call-control-disc { width: 48px; height: 48px; }
+  .call-control { gap: 5px; }
+  .call-control-label { font-size: .625rem; }
+  .call-incoming { width: 280px; padding-bottom: 0; }
+  .call-incoming .call-control-disc { width: 58px; height: 58px; }
+  .call-incoming .call-control { gap: 7px; }
+  .call-incoming .call-control-label { font-size: .75rem; }
+  .call-playback { min-height: 44px; padding-block: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .call-view *, .call-view *::before, .call-view *::after { animation: none !important; transition: none !important; }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .call-toolbar { background: oklch(22% 0.009 255); -webkit-backdrop-filter: none; backdrop-filter: none; border-color: oklch(64% 0.008 255); }
+  .call-preview-name, .call-preview-muted, .call-remote-hint { background: oklch(18% 0.009 255); }
+  .call-control-label, .call-status, .call-type, .call-timer { color: var(--call-ink); }
+  .call-control-disc { background: oklch(44% 0.01 255); }
+}
+
+@media (forced-colors: active) {
+  .call-view { border: 1px solid CanvasText; }
+  .call-control-disc, .call-dismiss, .call-playback { border: 1px solid ButtonText; }
+  .call-view button:focus-visible { outline-color: Highlight; }
+  .call-control:disabled .call-control-disc { color: GrayText; }
+}

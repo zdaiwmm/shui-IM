@@ -34,7 +34,9 @@ export function reduceMessageReactions(
   const events = new Map<string, { message: DecryptedMessage & { payload: ReactionPayload }; index: number }>();
   messages.forEach((message, index) => {
     if (message.payload.kind !== 'reaction') {
-      if (message.payload.kind !== 'gallery-image' && isConfirmed(message)) targets.set(message.seq, message);
+      if (message.payload.kind !== 'gallery-image' && message.payload.kind !== 'gallery-file' && isConfirmed(message)) {
+        targets.set(message.seq, message);
+      }
       return;
     }
     if (message.status === 'failed' || (!isConfirmed(message) && message.status !== 'pending')) return;
