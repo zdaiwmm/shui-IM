@@ -189,10 +189,16 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
     await ready(creator);
 
     // An unanswered native permission request may resolve after the app locks; its tracks must be discarded.
+    await creator.bringToFront();
     await creator.evaluate(() => { window.__callFlow.deferNext = true; });
     await start(creator, 'audio');
     await creator.waitForFunction(() => typeof window.__callFlow.resolvePermission === 'function');
     await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
+    assert.equal(await creator.locator('.cover-trigger').count(), 0, 'The owned foreground call permission prompt must not lock the app');
+    await creator.evaluate(() => {
+      window.dispatchEvent(new Event('focus'));
+      window.dispatchEvent(new Event('blur'));
+    });
     await creator.locator('.cover-trigger').waitFor();
     await creator.evaluate(async () => {
       const state = window.__callFlow;

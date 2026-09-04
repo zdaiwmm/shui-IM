@@ -3,12 +3,16 @@
 }
 
 .gallery-header {
+  position: fixed;
+  inset: 0 max(0px, calc((100% - 880px) / 2)) auto;
+  translate: 0 var(--app-top);
   grid-template-columns: 44px minmax(0, 1fr) 96px;
   grid-template-rows: minmax(44px, 1fr);
   align-items: center;
   gap: 8px;
   min-height: var(--gallery-header-height);
   padding: max(8px, env(safe-area-inset-top, 0px)) 12px 10px;
+  padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right));
 }
 
 .gallery-header::before {

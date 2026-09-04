@@ -27,8 +27,10 @@
   --accent-hover: oklch(55% 0.216 255);
   --accent-soft: oklch(92.5% 0.042 255);
   --incoming: oklch(91.8% 0.009 255 / 0.94);
-  --outgoing: oklch(54.5% 0.216 255);
+  --outgoing: oklch(52.5% 0.216 255);
   --on-accent: oklch(99% 0.004 255);
+  --message-time: oklch(49% 0.008 255);
+  --message-time-outgoing: oklch(94% 0.006 255);
   --danger: oklch(48% 0.15 28);
   --danger-soft: oklch(94% 0.03 28);
   --focus: oklch(60.5% 0.216 255);
@@ -61,8 +63,9 @@
     --accent-hover: oklch(75% 0.16 250);
     --accent-soft: oklch(34% 0.052 250);
     --incoming: oklch(32% 0.016 255 / 0.96);
-    --outgoing: oklch(54% 0.18 250);
+    --outgoing: oklch(52% 0.18 250);
     --on-accent: oklch(98% 0.006 255);
+    --message-time: oklch(74% 0.008 255);
     --danger: oklch(72% 0.14 28);
     --danger-soft: oklch(31% 0.04 28);
     --focus: oklch(74% 0.16 250);
@@ -153,35 +156,28 @@ textarea {
 button {
   color: inherit;
   touch-action: manipulation;
-  transition: transform 180ms var(--motion-out), opacity 180ms ease-out, background-color 180ms ease-out, border-color 180ms ease-out, color 180ms ease-out, box-shadow 180ms ease-out;
+  transition: transform 120ms var(--motion-out), opacity 120ms ease-out, background-color 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out;
 }
 
 button:not(:disabled):active,
 summary:active,
 label[role="button"]:active {
   transform: scale(0.96);
+  transition-duration: 60ms;
 }
 
-/* Opacity gives navigation continuity without moving page geometry or anchors. */
-#app > section:not(.cover):not(.image-viewer),
-#app > main {
-  animation: page-reveal 180ms ease-out;
+/* Page shells, backgrounds and fixed headers never fade to an empty frame.
+   New content owns its blend so asynchronous recovery routes participate too. */
+#app > .chat-shell > .message-list,
+#app > .gallery-shell > .gallery-grid,
+#app > .device-shell > .device-content,
+#app > .backup-page > :not(header),
+#app > .gateway > :not(.gateway-heading) {
+  animation: content-reveal 160ms cubic-bezier(.22, 1, .36, 1);
 }
-
-#app[data-page-transition="leaving"] > section:not(.cover):not(.image-viewer),
-#app[data-page-transition="leaving"] > main {
-  animation: page-conceal 120ms ease-in forwards;
-  pointer-events: none;
-}
-
-@keyframes page-reveal {
-  from { opacity: 0; }
+@keyframes content-reveal {
+  from { opacity: .76; }
   to { opacity: 1; }
-}
-
-@keyframes page-conceal {
-  from { opacity: 1; }
-  to { opacity: 0; }
 }
 
 button:focus-visible,
@@ -229,8 +225,8 @@ button:disabled {
   position: fixed;
   right: max(4px, env(safe-area-inset-right));
   bottom: max(4px, env(safe-area-inset-bottom));
-  width: 64px;
-  height: 64px;
+  width: 80px;
+  height: 80px;
   padding: 0;
   border: 0;
   border-radius: 24px;
@@ -242,8 +238,9 @@ button:disabled {
 .cover-trigger::after {
   content: "";
   position: absolute;
-  right: 20px;
-  bottom: 20px;
+  left: var(--cover-press-x, 50%);
+  top: var(--cover-press-y, 50%);
+  margin: -3px;
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -256,6 +253,16 @@ button:disabled {
 .cover-trigger.is-holding::after {
   opacity: 0.16;
   transform: scale(1.5);
+}
+
+.cover-trigger.is-opening::after {
+  transition: none;
+  animation: cover-corner-reveal 180ms ease-out both;
+}
+
+@keyframes cover-corner-reveal {
+  from { opacity: .18; transform: scale(1.5); }
+  to { opacity: 0; transform: scale(10); }
 }
 
 .gateway {
@@ -417,7 +424,7 @@ button:disabled {
   font-weight: 700;
   cursor: pointer;
   box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.28), 0 5px 16px color-mix(in oklch, var(--accent) 24%, transparent);
-  transition: background 180ms ease-out, transform 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms ease-out;
+  transition: background 120ms ease-out, transform 120ms var(--motion-out);
 }
 
 .primary-button:hover {
@@ -771,7 +778,7 @@ button:disabled {
   color: var(--ink-muted);
   cursor: pointer;
   list-style: none;
-  transition: color 180ms ease-out, background 180ms ease-out, border-color 180ms ease-out, transform 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  transition: color 120ms ease-out, background 120ms ease-out, border-color 120ms ease-out, transform 120ms var(--motion-out);
 }
 
 .icon-button:hover,
@@ -1451,8 +1458,31 @@ button:disabled {
   text-align: right;
 }
 
-.message-meta time { white-space: nowrap; }
+.message-meta time { white-space: nowrap; color: var(--message-time); }
 .outgoing .message-meta { color: var(--on-accent); }
+.outgoing .message-meta time { color: var(--message-time-outgoing); }
+
+/* Reserve only the tail of the final text line. The real metadata remains a
+   separate node so receipt updates never replace message text or selection. */
+.message:not(.is-failed) .text-bubble > .message-text::after {
+  content: '';
+  display: inline-block;
+  width: calc(5ch + .7rem);
+  height: 1px;
+  font-size: .6875rem;
+  font-variant-numeric: tabular-nums;
+}
+.message.outgoing:not(.is-failed) .text-bubble > .message-text::after {
+  width: calc(5ch + 1.45em + 3px + .7rem);
+}
+.message:not(.is-failed) .text-bubble > .message-meta {
+  position: absolute;
+  right: 12px;
+  bottom: 6px;
+  margin: 0;
+  flex-wrap: nowrap;
+  pointer-events: none;
+}
 .message-delivery, .message-pending { display: inline-flex; flex: none; align-items: center; color: inherit; }
 .message-delivery svg, .message-pending svg {
   width: 1.45em;
@@ -1475,10 +1505,6 @@ button:disabled {
   font-size: inherit;
   font-weight: 700;
   cursor: pointer;
-}
-
-.message.is-pending {
-  opacity: 0.7;
 }
 
 .message.is-failed .message-meta {
@@ -1525,6 +1551,7 @@ button:disabled {
   color: var(--media-foreground);
   pointer-events: none;
 }
+.message-bubble.image-bubble > .message-meta time { color: inherit; }
 
 /* Failed media keeps its retry action in flow, with an unclipped 44px target. */
 .message.is-failed .image-bubble > .message-meta {
@@ -1579,6 +1606,16 @@ button:disabled {
 .image-preview[data-revealed="false"] {
   cursor: pointer;
 }
+
+/* A deliberate media pull moves the bubble without changing the message row,
+   its reading anchor or its verified thumbnail dimensions. */
+.message-bubble.is-media-pulling {
+  transform: translate3d(0, var(--media-pull-offset, 0px), 0);
+  transition: none;
+  will-change: transform;
+}
+.message-bubble.is-media-pulling,
+.message-bubble.is-media-returning { z-index: 2; }
 
 .image-preview button,
 .image-preview:not([data-image-state="loaded"]) {
@@ -1837,7 +1874,7 @@ button:disabled {
   border-radius: 24px;
   background: var(--glass);
   box-shadow: var(--glass-shadow);
-  transition: border-color 180ms ease-out, background 180ms ease-out, box-shadow 180ms ease-out;
+  transition: border-color 120ms ease-out, background 120ms ease-out;
   -webkit-backdrop-filter: blur(34px) saturate(195%);
   backdrop-filter: blur(34px) saturate(195%);
 }
@@ -1890,7 +1927,7 @@ button:disabled {
   color: var(--on-accent);
   cursor: pointer;
   box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.34), 0 5px 15px color-mix(in oklch, var(--accent) 24%, transparent);
-  transition: background 180ms ease-out, transform 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms ease-out;
+  transition: background 120ms ease-out, transform 120ms var(--motion-out);
   -webkit-backdrop-filter: blur(34px) saturate(190%);
   backdrop-filter: blur(34px) saturate(190%);
 }
@@ -2939,7 +2976,7 @@ button:disabled {
   *::before,
   *::after {
     scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0s !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }

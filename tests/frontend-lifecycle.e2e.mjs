@@ -1039,6 +1039,8 @@ try {
       textarea.focus({ preventScroll: true });
       const beforeGesture = { focused: document.activeElement?.id, connected: textarea.isConnected, disabled: textarea.disabled, visibility: getComputedStyle(textarea).visibility, obscured: document.documentElement.classList.contains('privacy-obscured'), inert: !!textarea.closest('[inert]') };
       list.lastElementChild.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
+      if (document.activeElement !== textarea) throw Error('History pointerdown prematurely blurred the keyboard');
+      list.lastElementChild.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'touch', bubbles: true }));
       const gestureStart = { beforeGesture, pinned: app.chatPinnedToBottom, intent: app.chatScrollIntent, focused: document.activeElement?.id, keyboard: document.documentElement.dataset.keyboardOpen };
       corrections = 0;
       delete viewport.height; viewport.dispatchEvent(new Event('resize')); await settle();
@@ -1108,7 +1110,9 @@ try {
       position(430, 275, window); await settle();
       if (getComputedStyle(list).paddingBottom !== padding || corrections) throw Error('Window-only panning resized or scrolled history');
       list.lastElementChild.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
-      if (document.activeElement === input || app.chatPinnedToBottom) throw Error('History gesture retained focus or bottom follow');
+      if (document.activeElement !== input) throw Error('History pointerdown prematurely blurred the keyboard');
+      list.lastElementChild.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'touch', bubbles: true }));
+      if (document.activeElement === input || app.chatPinnedToBottom) throw Error('History release retained focus or bottom follow');
       for (const [height, top] of [[500.25, 210], [610.5, 180], [720.75, 70], [layoutHeight, 280]]) {
         position(height, top); await settle();
       }
@@ -1121,6 +1125,183 @@ try {
       else delete window.innerHeight;
       delete viewport.height; delete viewport.offsetTop;
       viewport.dispatchEvent(new Event('resize')); await settle();
+    }
+  });
+
+  results.keyboardGestureAndMotion = await page.evaluate(async () => {
+    const { app, fresh, message } = window.regression; fresh();
+    app.messages = new Map(Array.from({ length: 70 }, (_, i) => [i + 1, message(i + 1)]));
+    app.renderMessages({ scroll: 'bottom' });
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    const settled = async () => {
+      for (let index = 0; index < 60; index++) {
+        await frame();
+        if (!composer.dataset.viewportMotion && Number(getComputedStyle(composer).opacity) === 1) return;
+      }
+      throw Error('Composer failed to reappear after stable geometry');
+    };
+    const viewport = window.visualViewport;
+    const layoutHeight = document.documentElement.clientHeight;
+    const composer = document.querySelector('#composer');
+    const header = document.querySelector('.chat-header');
+    const input = document.querySelector('#message-input');
+    const list = document.querySelector('#message-list');
+    const target = list.lastElementChild;
+    const touch = (type, positions) => {
+      const event = new Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'touches', { value: positions.map(clientY => ({ clientY })) });
+      target.dispatchEvent(event); return event;
+    };
+    const position = (height, top) => {
+      Object.defineProperty(viewport, 'height', { configurable: true, value: height });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: top });
+      viewport.dispatchEvent(new Event('resize'));
+      const headerStyle = getComputedStyle(header);
+      if (Math.abs(header.getBoundingClientRect().top - top) > 1 || headerStyle.opacity !== '1'
+        || header.getAnimations().some(animation => animation.playState === 'running')) throw Error('Keyboard frame moved or faded the screen-anchored title');
+      if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '0') throw Error(`Intermediate keyboard geometry remained visible: ${JSON.stringify({ state: composer.dataset.viewportMotion, opacity: getComputedStyle(composer).opacity })}`);
+      if (Math.abs(composer.getBoundingClientRect().bottom - height - top) > 1) throw Error('Hidden composer geometry lagged a viewport frame');
+    };
+    try {
+      await settled();
+      input.value = '保留这份草稿'; input.setSelectionRange(2, 4); input.dispatchEvent(new Event('input'));
+      input.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
+      if (!composer.dataset.viewportMotion) throw Error('Keyboard opening was not concealed before its first geometry frame');
+      input.focus({ preventScroll: true });
+      for (const [height, top] of [[680, 40], [540, 100], [420, 180]]) { position(height, top); await frame(); }
+      await settled();
+      const gap = composer.getBoundingClientRect().top - target.getBoundingClientRect().bottom;
+      const buttonGap = composer.getBoundingClientRect().top - document.querySelector('#chat-bottom-control').getBoundingClientRect().bottom;
+      if (Math.abs(gap - 64) > 2 || Math.abs(buttonGap - 8) > 1) throw Error('Settled keyboard spacing changed');
+      const scrollY = window.scrollY;
+      const pointer = new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerType: 'touch' });
+      target.dispatchEvent(pointer);
+      touch('touchstart', [400]);
+      for (const y of [450, 340, 500]) {
+        const event = touch('touchmove', [y]);
+        await frame();
+        if (!event.defaultPrevented || document.activeElement !== input || window.scrollY !== scrollY
+          || Math.abs(header.getBoundingClientRect().top - 180) > 1) throw Error('Keyboard-open finger movement scrolled history, blurred the draft, or displaced the title');
+      }
+      for (let index = 0; index < 8; index++) await frame();
+      if (!composer.dataset.viewportMotion || !pointer.defaultPrevented || getComputedStyle(list).touchAction !== 'none') throw Error('Held keyboard gesture did not retain exclusive scroll ownership');
+      target.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch' }));
+      if (document.activeElement !== input) throw Error('Pointer release blurred before the remaining touch ended');
+      touch('touchend', []);
+      if (document.activeElement === input || list.dataset.keyboardGesture) throw Error('Final release did not dismiss the keyboard');
+      for (const [height, top] of [[540, 100], [680, 40], [layoutHeight, 0]]) { position(height, top); await frame(); }
+      await settled();
+      if (input.value !== '保留这份草稿' || app.uiPreferences.composerDraft !== input.value) throw Error('Keyboard gesture changed the draft');
+      const anchor = app.captureChatAnchor();
+      list.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -24 })); window.scrollBy(0, -24); await frame();
+      if (!composer.dataset.viewportMotion || getComputedStyle(header).opacity !== '1') throw Error('Manual list movement did not fade only the composer');
+      await settled();
+      if (app.captureChatAnchor().pinnedToBottom || !anchor.clientMsgId) throw Error('Manual scrolling lost the reading intent');
+      app.setActiveSurface('away');
+      if (composer.dataset.viewportMotion !== 'positioning') throw Error('Leaving chat did not cancel motion synchronously');
+      app.setActiveSurface('chat'); await settled();
+      return { keyboardFrames: 6, blockedFingerDirections: 'both', blur: 'last touch release', draft: 'preserved', latestGap: gap, buttonGap, idleReveal: '80ms then opacity only', sameDomReturn: true };
+    } finally {
+      delete viewport.height; delete viewport.offsetTop;
+      input.blur(); viewport.dispatchEvent(new Event('resize')); await frame();
+    }
+  });
+
+  results.galleryKeyboardHeader = await page.evaluate(async () => {
+    const { app, fresh } = window.regression; fresh();
+    app.renderGallery();
+    const viewport = window.visualViewport;
+    const header = document.querySelector('.gallery-header');
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    const samples = [];
+    // Reproduce a transient native focus scroll even though this page normally
+    // contains an inner gallery scroller and has no document scroll range.
+    const scrollRange = document.createElement('div');
+    scrollRange.style.height = '1600px'; document.body.append(scrollRange);
+    const scrollStyles = [document.documentElement, document.body].flatMap(element => ['height', 'overflow'].map(property => ({ element, property, value: element.style.getPropertyValue(property) })));
+    for (const { element, property } of scrollStyles) element.style.setProperty(property, property === 'height' ? 'auto' : 'visible');
+    try {
+      for (const [height, top] of [[700, 40], [520, 180], [420, 260], [620, 80], [844, 0]]) {
+        Object.defineProperty(viewport, 'height', { configurable: true, value: height });
+        Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: top });
+        viewport.dispatchEvent(new Event('resize'));
+        window.scrollBy(0, 18); window.dispatchEvent(new Event('scroll'));
+        const rect = header.getBoundingClientRect();
+        if (window.scrollY < 1) throw Error('Gallery native-scroll fixture did not move the document');
+        if (Math.abs(rect.top - top) > 1 || getComputedStyle(header).opacity !== '1') throw Error(`Gallery title left its screen anchor: ${JSON.stringify({ height, top, headerTop: rect.top, scrollY: window.scrollY })}`);
+        samples.push(rect.top - top); await frame();
+      }
+      return { visibleTopOffsets: samples, position: getComputedStyle(header).position };
+    } finally {
+      scrollRange.remove(); window.scrollTo(0, 0);
+      for (const { element, property, value } of scrollStyles) {
+        if (value) element.style.setProperty(property, value); else element.style.removeProperty(property);
+      }
+      delete viewport.height; delete viewport.offsetTop; viewport.dispatchEvent(new Event('resize'));
+    }
+  });
+
+  results.galleryContinuousHeader = await page.evaluate(async () => {
+    const { app, fresh, root } = window.regression; fresh();
+    app.renderGallery();
+    const viewport = window.visualViewport;
+    const header = document.querySelector('.gallery-header');
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    await frame(); await frame();
+    const originalQuery = Element.prototype.querySelector;
+    const originalBounds = Element.prototype.getBoundingClientRect;
+    let samplerQueries = 0; let unrelatedQueries = 0; let messageReads = 0;
+    try {
+      Element.prototype.querySelector = function (...args) {
+        const stack = new Error().stack ?? '';
+        if (/syncVisualViewport|sampleViewport|finishViewportSync/.test(stack)) samplerQueries++;
+        else unrelatedQueries++;
+        return originalQuery.apply(this, args);
+      };
+      Element.prototype.getBoundingClientRect = function (...args) {
+        if (this.classList?.contains('message')) messageReads++;
+        return originalBounds.apply(this, args);
+      };
+      const samples = [];
+      // Do not dispatch resize/scroll: only the persistent cheap sampler can
+      // see these five native toolbar/keyboard frames.
+      for (const [height, top] of [[730, 30], [610, 100], [470, 200], [590, 120], [844, 0]]) {
+        Object.defineProperty(viewport, 'height', { configurable: true, value: height });
+        Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: top });
+        await frame();
+        const visibleTop = header.getBoundingClientRect().top - top;
+        if (Math.abs(visibleTop) > 1) throw Error(`Eventless gallery frame moved its title: ${JSON.stringify({ height, top, visibleTop })}`);
+        samples.push(visibleTop);
+      }
+      // The assertions themselves make five bounds reads, but the sampler
+      // performs no selector traversal and never measures chat rows.
+      if (samplerQueries !== 0 || messageReads !== 0) throw Error(`Gallery sampling touched page contents: ${JSON.stringify({ samplerQueries, unrelatedQueries, messageReads })}`);
+      Element.prototype.querySelector = originalQuery;
+      Element.prototype.getBoundingClientRect = originalBounds;
+
+      const viewer = document.createElement('section'); viewer.className = 'image-viewer'; root.append(viewer);
+      app.viewerPreviousSurface = 'away'; app.setActiveSurface('away');
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 620 });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 100 });
+      const stoppedTop = header.getBoundingClientRect().top;
+      await frame(); await frame();
+      if (header.getBoundingClientRect().top !== stoppedTop) throw Error('Viewer retained the gallery viewport sampler');
+      app.closeImageViewer(true);
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 560 });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 160 });
+      await frame();
+      if (Math.abs(header.getBoundingClientRect().top - 160) > 1) throw Error('Gallery return did not resume eventless sampling');
+
+      app.lockNow();
+      let reads = 0; let height = 520;
+      Object.defineProperty(viewport, 'height', { configurable: true, get() { reads++; return height; } });
+      height = 480; reads = 0; await frame(); await frame();
+      if (reads) throw Error(`Privacy lock retained ${reads} viewport samples`);
+      return { eventlessFrames: samples, selectorQueries: samplerQueries, unrelatedQueries, messageBoundsReads: messageReads, viewerStopped: true, sameDomReturn: true, lockReads: reads };
+    } finally {
+      Element.prototype.querySelector = originalQuery;
+      Element.prototype.getBoundingClientRect = originalBounds;
+      delete viewport.height; delete viewport.offsetTop;
     }
   });
 
@@ -1181,7 +1362,9 @@ try {
     };
     const dismissFromMessage = async () => {
       list.lastElementChild.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
-      if (document.activeElement === input || app.chatPinnedToBottom) throw Error('Message tap failed to dismiss the keyboard and yield follow');
+      if (document.activeElement !== input) throw Error('Message pointerdown prematurely blurred the keyboard');
+      list.lastElementChild.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'touch', bubbles: true }));
+      if (document.activeElement === input || app.chatPinnedToBottom) throw Error('Message release failed to dismiss the keyboard and yield follow');
       resize(layoutHeight); await settle();
       dismissalGaps.push(app.chatBottomGap());
     };

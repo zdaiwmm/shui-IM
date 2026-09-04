@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
 
 const server = await createServer({
@@ -16,12 +16,21 @@ const server = await createServer({
 let browser;
 try {
   await server.listen();
-  browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
+  browser = process.env.QUIET_ROOM_TEST_BROWSER === 'webkit' ? await webkit.launch()
+    : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   const page = await browser.newPage({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__system_surfaces`);
   const results = await page.evaluate(async () => {
+    await import('/src/styles.css');
+    await import('/src/chat-layout.css');
+    await import('/src/gallery.css');
+    await import('/src/auth-recovery.css');
+    await import('/src/chat-interactions.css');
+    await import('/src/cover.css');
+    await import('/src/voice-messages.css');
+    await import('/src/call.css');
     const { QuietRoomApp } = await import('/src/app.ts');
     const vault = await import('/src/lib/vault.ts');
     const root = document.querySelector('#app');
@@ -41,6 +50,7 @@ try {
     Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => focused });
     const blur = () => { focused = false; window.dispatchEvent(new Event('blur')); };
     const focus = () => { focused = true; window.dispatchEvent(new Event('focus')); };
+    const externalDeparture = () => { blur(); focus(); blur(); };
     const hidden = value => {
       Object.defineProperty(document, 'hidden', { configurable: true, get: () => value });
       document.dispatchEvent(new Event('visibilitychange'));
@@ -85,6 +95,33 @@ try {
     check(!app.privacyCovered, 'Ordinary transient blur unexpectedly locked');
     blur(); await new Promise(resolve => setTimeout(resolve, 300)); covered('Ordinary sustained blur'); focus();
 
+    // Navigation changes the destination synchronously and never fades fixed
+    // headers or the whole page to an empty background. Repeated transitions
+    // must cancel the old animation without delaying the next action.
+    let navigationFrames = 0;
+    await fresh();
+    for (let turn = 0; turn < 4; turn++) {
+      const gallery = turn % 2 === 0;
+      app.transitionPage(gallery ? 'forward' : 'backward', () => gallery ? app.renderGallery() : app.renderChat());
+      const shell = root.querySelector(gallery ? '.gallery-shell' : '.chat-shell');
+      check(shell && root.dataset.pageTransition !== 'leaving', 'Navigation still waits for an empty exit phase');
+      check(getComputedStyle(shell.querySelector(gallery ? '#gallery-grid' : '#message-list')).animationName === 'content-reveal', 'New navigation content has no arrival blend');
+      for (let frame = 0; frame < 4; frame++) {
+        await new Promise(requestAnimationFrame);
+        const header = shell.querySelector('header');
+        check(getComputedStyle(shell).opacity === '1' && getComputedStyle(header).opacity === '1', 'Navigation faded its fixed header or entire shell');
+        navigationFrames++;
+      }
+    }
+
+    // Recovery pages can be mounted after awaited storage/authentication work,
+    // outside transitionPage. Their new content owns the same blend.
+    app.renderBackupSettings();
+    check(getComputedStyle(root.querySelector('.backup-page > section')).animationName === 'content-reveal', 'Direct backup mount skipped its content fade');
+    check(getComputedStyle(root.querySelector('.backup-heading')).animationName === 'none', 'Backup heading participated in the page fade');
+    app.gatewayTemplate('合成验证', '合成状态', '<button>合成操作</button>');
+    check(getComputedStyle(root.querySelector('.gateway > button')).animationName === 'content-reveal', 'Direct verification mount skipped its content fade');
+
     // A delayed navigation must never restore private DOM after locking.
     await fresh();
     app.transitionPage('forward', () => app.renderGallery());
@@ -105,7 +142,25 @@ try {
       for (const order of ['focus-before-change', 'change-before-focus']) {
         await fresh(destination);
         const input = beginPicker(destination);
-        blur(); covered(`${destination} picker blur`);
+        blur();
+        check(!app.privacyCovered && !document.documentElement.classList.contains('privacy-obscured'), `${destination}: foreground native chooser locked or obscured chat`);
+        check(!!app.session && input.isConnected, `${destination}: foreground chooser lost its owner`);
+        if (order === 'focus-before-change') focus();
+        await select(input);
+        if (order === 'change-before-focus') {
+          check(processed.length === 0, `${destination}: upload started before native focus returned`);
+          focus();
+          await Promise.resolve(); await Promise.resolve();
+        }
+        check(!app.privacyCovered && processed.length === 1 && processed[0].files.length === 12 && processed[0].destination === destination,
+          `${destination}: foreground chooser did not continue exactly once without authentication (${order})`);
+        check(!app.nativeHandoff && !app.deferredImageUpload, `${destination}: completed chooser kept a reusable exemption or selection`);
+        pickerResults.push({ destination, order, selected: 12, foregroundReturnWithoutLock: true });
+      }
+      for (const order of ['focus-before-change', 'change-before-focus']) {
+        await fresh(destination);
+        const input = beginPicker(destination);
+        externalDeparture(); covered(`${destination} picker second departure`);
         check(input.isConnected && input.hidden, `${destination}: active picker input was detached or exposed`);
         hidden(true); covered(`${destination} picker hidden`); hidden(false);
         if (order === 'focus-before-change') focus();
@@ -131,7 +186,7 @@ try {
       for (const alreadyCovered of [false, true]) {
         await fresh(destination);
         const stale = beginPicker(destination);
-        if (alreadyCovered) blur();
+        if (alreadyCovered) externalDeparture();
         app.lockNow();
         await select(stale);
         focus(); covered(`${destination} explicit lock`);
@@ -140,13 +195,13 @@ try {
 
       await fresh(destination);
       const oldPicker = beginPicker(destination);
-      blur();
+      externalDeparture();
       await open(destination);
       const currentPicker = beginPicker(destination);
       check(currentPicker !== oldPicker && app.imagePickerInput === currentPicker, `${destination}: newer picker did not acquire ownership`);
       oldPicker.dispatchEvent(new Event('cancel'));
       check(app.imagePickerActive && app.imagePickerInput === currentPicker, `${destination}: stale cancel canceled the newer picker`);
-      blur(); covered(`${destination} newer picker blur`);
+      externalDeparture(); covered(`${destination} newer picker departure`);
       await select(currentPicker, 2);
       check(app.deferredImageUpload?.files.length === 2 && processed.length === 0, `${destination}: newer picker selection was lost after stale cancel`);
       focus();
@@ -159,7 +214,7 @@ try {
         const originalRoomId = session.vault.roomId;
         const originalDeviceId = session.vault.identity.publicBundle.deviceId;
         const ownedPicker = beginPicker(destination);
-        blur();
+        externalDeparture();
         await select(ownedPicker, 2);
         check(app.deferredImageUpload?.roomId === originalRoomId && app.deferredImageUpload.deviceId === originalDeviceId, `${destination}: deferred selection lost its session ownership`);
         try {
@@ -179,6 +234,25 @@ try {
       const direct = beginPicker(destination);
       await select(direct);
       check(processed.length === 1 && processed[0].files.length === 12, `${destination}: selection without focus loss was truncated`);
+
+      await fresh(destination);
+      const canceledForeground = beginPicker(destination);
+      blur(); canceledForeground.dispatchEvent(new Event('cancel')); focus();
+      check(!app.privacyCovered && !app.nativeHandoff && !app.imagePickerActive && processed.length === 0, `${destination}: foreground cancellation locked or left an upload`);
+
+      await fresh(destination);
+      beginPicker(destination);
+      // Missing blur/cancel must not leave an exception after focus returns.
+      focus(); blur(); covered(`${destination} focus without blur consumed handoff`); focus();
+
+      await fresh(destination);
+      beginPicker(destination); blur(); blur();
+      covered(`${destination} repeated departure without focus`); focus();
+
+      await fresh(destination);
+      beginPicker(destination);
+      app.nativeHandoff.deadline = performance.now() - 1;
+      blur(); covered(`${destination} expired handoff`); focus();
     }
 
     for (const event of ['blur', 'hidden']) {
@@ -232,15 +306,39 @@ try {
     app.beginVoiceRecording();
     const recorder = app.voiceRecorder;
     check(app.microphonePromptActive && recorder, 'Microphone permission was not pending');
-    blur(); covered('Microphone prompt blur'); focus(); covered('Microphone prompt return');
+    blur();
+    check(!app.privacyCovered && !recorder.signal.aborted && app.microphonePromptActive, 'Foreground microphone permission discarded its recorder');
+    focus(); blur(); covered('Microphone second departure'); focus(); covered('Microphone prompt return after departure');
     check(recorder.signal.aborted && !app.voiceRecorder, 'Locked microphone prompt retained its recorder');
     let stopped = 0;
     grant({ getTracks: () => [{ stop: () => stopped++ }] });
     await Promise.resolve(); await Promise.resolve();
     check(stopped === 1, 'Late microphone grant retained an active track');
 
-    // Authentication is the only bounded exception: it is needed before any
-    // conversation is opened, and focus returning must not invoke another lock.
+    for (const departure of ['hidden', 'pagehide', 'freeze']) {
+      await fresh(); app.setMediaPermission('camera', true); blur();
+      check(!app.privacyCovered, 'Foreground camera prompt locked immediately');
+      if (departure === 'hidden') hidden(true);
+      else if (departure === 'pagehide') window.dispatchEvent(new Event('pagehide'));
+      else document.dispatchEvent(new Event('freeze'));
+      covered(`Camera prompt ${departure}`);
+      check(!app.nativeHandoff && !app.callPermissionActive, `${departure}: permission exemption survived cleanup`);
+      hidden(false); focus();
+      covered(`Camera prompt ${departure} return`);
+    }
+    await fresh(); app.setMediaPermission('camera', true); blur();
+    app.setMediaPermission('camera', false);
+    check(!app.privacyCovered, 'Camera completion before focus did not get its bounded return edge');
+    focus(); blur();
+    check(document.documentElement.classList.contains('privacy-obscured'), 'Completed camera handoff suppressed a later privacy curtain');
+    await new Promise(resolve => setTimeout(resolve, 300));
+    covered('Camera completion cannot exempt another departure'); focus();
+    await fresh(); app.setMediaPermission('camera', true); blur(); app.setMediaPermission('camera', false);
+    await new Promise(resolve => setTimeout(resolve, 300));
+    covered('Settled permission without foreground return'); focus();
+
+    // Gateway authentication alone can span hidden visibility. Foreground
+    // picker/media handoffs above never exempt background lifecycle events.
     await fresh(); app.session = null; root.innerHTML = '<section class="gateway"></section>';
     let verify;
     const verification = app.withDeviceVerification(() => new Promise(resolve => { verify = resolve; }));
@@ -256,7 +354,7 @@ try {
 
     app.lockNow();
     delete document.hidden; delete document.hasFocus;
-    return { ordinaryBlurDebounced: true, pickerResults, canceledSelectionsCleared: true, explicitLockDiscardsLateSelections: true, galleryMultiple: true, chatAboveNine: true, exportsLock: true, stalePickerCancelIgnored: true, deferredSelectionsStayInOriginalSession: true, pendingSystemSurfacesLock: true, decodedPreviewsReuseCache: true, lockingClearsImageCache: true, microphoneLocksAndStopsLateGrant: true, gatewayVerificationCompletes: true };
+    return { ordinaryBlurDebounced: true, navigationFrames, immediateNavigationWithoutBlankFrame: true, pickerResults, canceledSelectionsCleared: true, explicitLockDiscardsLateSelections: true, galleryMultiple: true, chatAboveNine: true, exportsLock: true, stalePickerCancelIgnored: true, deferredSelectionsStayInOriginalSession: true, pendingSystemSurfacesLock: true, decodedPreviewsReuseCache: true, lockingClearsImageCache: true, foregroundPermissionSurvives: true, backgroundPermissionStopsLateGrant: true, permissionReturnAndExpiryBounded: true, gatewayVerificationCompletes: true };
   });
   assert.deepEqual(errors, []);
   console.log(JSON.stringify(results, null, 2));

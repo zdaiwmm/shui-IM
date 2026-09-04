@@ -332,7 +332,10 @@ try {
         input.addEventListener('click', event => event.preventDefault());
         f.root.querySelector(destination === 'gallery' ? '#open-gallery-image-picker' : '#open-image-picker').click();
         f.blur();
-        f.check(f.app.privacyCovered && input.isConnected && input.hidden, 'Picker blur did not preserve a hidden selection input');
+        f.check(!f.app.privacyCovered && input.isConnected && input.hidden, 'Owned foreground picker blur locked or detached its selection input');
+        f.focus();
+        f.blur();
+        f.check(f.app.privacyCovered && input.isConnected && input.hidden, 'A later departure did not preserve a hidden selection input behind the cover');
         if (order === 'focus-before-change') f.focus();
         const transfer = new DataTransfer();
         f.fixtures().slice(1).forEach(file => transfer.items.add(file));

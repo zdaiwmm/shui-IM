@@ -31,7 +31,13 @@ export function bindVoiceRecordGesture(
   // Touch browsers can retarget the compatibility click to a control revealed
   // underneath the finger (for example, Send after an interrupted recording).
   // Consume that release click, then allow the next deliberate pointer press.
-  composer.addEventListener('pointerdown', () => { suppressPointerClick = false; }, { capture: true, signal: binding.signal });
+  composer.addEventListener('pointerdown', () => {
+    suppressPointerClick = false;
+    // Restoring focus after a touch recording must not inherit a keyboard ring
+    // from Safari's programmatic-focus heuristic. Keyboard input restores it.
+    composer.dataset.voiceInput = 'pointer';
+  }, { capture: true, signal: binding.signal });
+  window.addEventListener('keydown', () => { delete composer.dataset.voiceInput; }, { capture: true, signal: binding.signal });
   composer.addEventListener('click', event => {
     if (!suppressPointerClick || event.detail === 0) return;
     suppressPointerClick = false;
@@ -95,9 +101,12 @@ export function bindVoiceRecordGesture(
   button.addEventListener('click', event => {
     event.preventDefault();
     // Keyboard and assistive activation have no preceding pointer gesture.
-    if (event.detail === 0 && !gesture && !button.disabled) begin('locked');
+    if (event.detail === 0 && !gesture && !button.disabled) {
+      delete composer.dataset.voiceInput;
+      begin('locked');
+    }
   }, { signal: binding.signal });
   button.addEventListener('contextmenu', event => event.preventDefault(), { signal: binding.signal });
 
-  return { cancel, destroy: () => { cancel(); binding.abort(); } };
+  return { cancel, destroy: () => { cancel(); binding.abort(); delete composer.dataset.voiceInput; } };
 }

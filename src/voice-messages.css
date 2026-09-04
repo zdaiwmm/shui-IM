@@ -13,6 +13,10 @@
   transition: transform 180ms var(--motion-out), color 180ms ease;
 }
 .voice-record-button.is-pressing { transform: scale(1.14); color: var(--accent); }
+/* Pointer focus restoration is silent; keyboard/assistive activation keeps
+   the application's focus-visible outline. */
+.composer[data-voice-input="pointer"] :is(.voice-record-button, .voice-recorder button):focus { outline: none; }
+.voice-record-button, .voice-recorder button { -webkit-tap-highlight-color: transparent; }
 .voice-recorder {
   --voice-drag-x: 0px;
   --voice-cancel-progress: 0;
@@ -45,6 +49,7 @@
 .voice-recording-time, .voice-time, .voice-preview-time { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .voice-recording-time { font-size: 0.9375rem; }
 .voice-recording-state { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.voice-submit-label { color: var(--ink-muted); font-size: .875rem; line-height: 1.5; text-align: center; }
 .voice-slide-hint {
   display: flex;
   align-items: center;
@@ -142,6 +147,7 @@
 .voice-recording-hint { position: absolute; right: 104px; bottom: 56px; max-width: calc(100% - 104px); margin: 0; padding: 8px 12px; border: 1px solid var(--glass-border); border-radius: 14px; background: var(--surface-raised); color: var(--ink-muted); font-size: .75rem; line-height: 1.5; box-shadow: var(--glass-shadow); }
 .voice-recording-hint:empty { display: none; }
 .voice-recorder:is([data-state="paused"], [data-state="processing"], [data-state="sending"]) .voice-recording-hint { right: 60px; max-width: calc(100% - 60px); }
+.voice-recorder[data-submitting="true"] .voice-recording-bar { left: 0; padding: 0 16px; justify-content: center; }
 @keyframes voice-orb-out {
   from { transform: translate3d(var(--voice-drag-x), 0, 0) scale(1); opacity: 1; }
   to { transform: translate3d(0, 0, 0) scale(.46); opacity: 0; }
