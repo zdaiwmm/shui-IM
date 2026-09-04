@@ -352,6 +352,7 @@ try {
   await creator.locator('.gallery-tile img').first().waitFor();
   await capture('gallery', ['mobile', 'small', 'desktop', 'landscape', 'dark', 'large']);
   await creator.locator('.gallery-tile').first().click();
+  await creator.locator('.gallery-tile').first().click();
   await creator.locator('.image-viewer.is-visible .viewer-stage img').waitFor();
   await creator.locator('.image-viewer').evaluate(async viewer => {
     await viewer.querySelector('img').decode();

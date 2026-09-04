@@ -75,11 +75,6 @@
   box-shadow: 0 14px 38px oklch(12% 0.015 255 / 0.16);
 }
 
-.message.is-action-source .message-quick-reply,
-.message.is-selecting-text .message-quick-reply {
-  visibility: hidden;
-}
-
 .message-actions-backdrop {
   position: fixed;
   inset: 0;
@@ -375,7 +370,7 @@
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  :root { --glass: var(--paper-pure); --glass-strong: var(--paper-pure); }
+  :root { --glass: var(--paper-pure); --glass-strong: var(--paper-pure); --glass-control: var(--paper-pure); --glass-panel: var(--paper-pure); --glass-filter: none; --glass-sheen: none; }
 }
 
 /* The photo stage spans the viewport; controls float above it, as in Photos. */

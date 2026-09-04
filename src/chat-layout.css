@@ -21,7 +21,7 @@ body:has(.chat-shell) {
 .chat-shell {
   display: block;
   height: auto;
-  min-height: var(--app-height);
+  min-height: 100svh;
   overflow: visible;
   --chat-header-height: 72px;
   --chat-top-space: 146px;
@@ -29,7 +29,8 @@ body:has(.chat-shell) {
 }
 .chat-header {
   position: fixed;
-  inset: var(--app-top) max(0px, calc((100% - 880px) / 2)) auto;
+  inset: 0 max(0px, calc((100% - 880px) / 2)) auto;
+  translate: 0 var(--app-top);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   gap: 8px;
@@ -49,21 +50,22 @@ body:has(.chat-shell) {
 .peer-summary {
   grid-column: 2;
   justify-self: center;
-  width: clamp(100px, calc(100vw - 214px), 240px);
-  max-width: 240px;
+  width: clamp(88px, calc(100vw - 232px), 160px);
+  max-width: 160px;
   min-width: 0;
-  min-height: 50px;
-  padding: 6px 9px;
+  height: 44px;
+  min-height: 44px;
+  padding: 4px 8px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 4px;
+  gap: 3px;
   line-height: 1.2;
 }
-.presence-heading { display: flex; align-items: center; justify-content: center; gap: 14px; }
-.presence-heading .presence-row { gap: 6px; color: var(--ink); font-size: 0.88rem; font-weight: 650; }
-.peer-summary > .peer-status { flex: none; width: 100%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 0.75rem; font-weight: 500; }
-.header-actions { grid-column: 3; justify-self: end; gap: 5px; }
+.presence-heading { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.presence-heading .presence-row { gap: 4px; color: var(--ink); font-size: 0.8125rem; font-weight: 650; }
+.peer-summary > .peer-status { flex: none; width: 100%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 0.6875rem; font-weight: 500; }
+.header-actions { grid-column: 3; justify-self: end; gap: 8px; }
 /* Each bounded control samples the conversation directly. The edge wash above
    has no filter, so it cannot flatten the backdrop before the glass sees it. */
 .chat-header .icon-button,
@@ -77,18 +79,22 @@ body:has(.chat-shell) {
   backdrop-filter: var(--glass-filter);
   box-shadow: var(--glass-shadow);
 }
+.composer-field:has(textarea:focus) {
+  background-color: var(--glass);
+  border-color: color-mix(in oklch, var(--accent) 22%, var(--glass-border));
+}
 .chat-shell > .notice {
   position: fixed;
-  top: auto;
-  top: calc(var(--app-top) + var(--app-height) - var(--chat-bottom-space));
+  top: 0;
   bottom: auto;
-  translate: 0 -100%;
+  translate: 0 calc(var(--app-top) + var(--app-height) - var(--chat-bottom-space) - 100%);
   transform-origin: bottom center;
 }
 .chat-shell > .notice.is-visible { transform: none; }
 .system-notices {
   position: fixed;
-  inset: calc(var(--app-top) + var(--chat-header-height)) max(10px, calc((100% - 860px) / 2)) auto;
+  inset: var(--chat-header-height) max(10px, calc((100% - 860px) / 2)) auto;
+  translate: 0 var(--app-top);
   z-index: 7;
   display: grid;
   gap: 6px;
@@ -102,8 +108,9 @@ body:has(.chat-shell) {
   border-radius: 28px;
   background: var(--glass-strong);
   box-shadow: var(--glass-shadow);
-  -webkit-backdrop-filter: blur(22px) saturate(150%);
-  backdrop-filter: blur(22px) saturate(150%);
+  background-image: var(--glass-sheen);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
 }
 .recovery-reminder .pinned-recovery-content {
   position: relative;
@@ -126,7 +133,7 @@ body:has(.chat-shell) {
 #dismiss-recovery svg { display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 .message-list {
   position: relative;
-  min-height: var(--app-height);
+  min-height: 100svh;
   overflow: visible;
   padding-top: var(--chat-top-space);
   padding-bottom: calc(var(--chat-bottom-space) + var(--keyboard-space, 0px));
@@ -136,8 +143,11 @@ body:has(.chat-shell) {
 .message-list > * { flex-shrink: 0; }
 .composer {
   position: fixed;
-  inset: calc(var(--app-top) + var(--app-height)) max(0px, calc((100% - 880px) / 2)) auto;
-  translate: 0 -100%;
+  inset: 0 max(0px, calc((100% - 880px) / 2)) auto;
+  /* The fixed bar is at most 880px wide; viewport-wide padding would
+     consume its input as a desktop window grows. Keep a 680px control row. */
+  padding-inline: max(12px, calc((min(100vw, 880px) - 680px) / 2));
+  translate: 0 calc(var(--app-top) + var(--app-height) - 100%);
   z-index: 6;
   flex-wrap: wrap;
 }
@@ -157,10 +167,13 @@ html[data-keyboard-open='true'] .composer {
   position: static;
   flex: 0 0 100%;
   order: -1;
+  background-image: var(--glass-sheen);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
 }
 .upload-progress { flex: 0 0 100%; }
 @media (max-width: 360px) {
-  .chat-header { padding-inline: 8px; gap: 5px; }
-  .header-actions { gap: 3px; }
-  .presence-heading { gap: 10px; }
+  .chat-header { padding-inline: 8px; }
+  .presence-heading { gap: 8px; }
+  .presence-heading .presence-row { font-size: 0.75rem; }
 }

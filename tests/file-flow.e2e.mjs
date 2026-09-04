@@ -41,6 +41,7 @@ try {
   await page.evaluate(async () => {
     await import('/src/styles.css');
     await import('/src/chat-layout.css');
+    await import('/src/gallery.css');
     await import('/src/auth-recovery.css');
     await import('/src/chat-interactions.css');
     await import('/src/cover.css');
@@ -242,6 +243,8 @@ try {
   };
   await page.evaluate(() => window.fileFlow.fresh('gallery'));
   await assertGalleryTab('images', { images: 0, files: 0 });
+  await page.waitForFunction(() => document.querySelector('[data-gallery-count="images"]')?.textContent === '0');
+  assert.equal(await page.locator('[data-gallery-count="files"]').textContent(), '—', 'Unqueried file category incorrectly claims zero files');
   await page.evaluate(() => { const f = window.fileFlow; f.choose('gallery', f.fixtures()); });
   await page.waitForFunction(() => window.fileFlow.sent.length === 3 && !window.fileFlow.app.imageBatchUploading);
   results.gallery = await page.evaluate(() => {
