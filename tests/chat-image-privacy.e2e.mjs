@@ -132,17 +132,22 @@ try {
       // Supply the same read-only touch coordinates to the mounted listeners.
       const finger = (x, y) => ({ identifier: 9, target: element, clientX: x, clientY: y });
       const sendTouch = (type, touches, changedTouches) => {
-        const event = new Event(type, { bubbles: true });
+        const event = new Event(type, { bubbles: true, cancelable: true });
         Object.defineProperties(event, { touches: { value: touches }, changedTouches: { value: changedTouches } });
         element.dispatchEvent(event);
+        return event.defaultPrevented;
       };
       element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', pointerId: 9, isPrimary: true, button: 0, clientX: 120, clientY: 200 }));
       sendTouch('touchstart', [finger(120, 200)], [finger(120, 200)]);
       // Native document scrolling cancels pointer events while touch events
       // continue, so concealment must survive this real mobile event order.
       element.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerType: 'touch', pointerId: 9, isPrimary: true, clientX: 120, clientY: 200 }));
-      sendTouch('touchmove', [finger(120 + dx, 200 + dy)], [finger(120 + dx, 200 + dy)]);
+      const scrollReserved = sendTouch('touchmove', [finger(120 + dx, 200 + dy)], [finger(120 + dx, 200 + dy)]);
+      const clearDuringTouch = element.dataset.revealed === 'true' && getComputedStyle(element.querySelector('img')).filter === 'none';
+      const displaced = new DOMMatrix(getComputedStyle(element.closest('.message-bubble')).transform).f;
       sendTouch('touchend', [], [finger(120 + dx, 200 + dy)]);
+      if (followingClick) element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      return { scrollReserved, clearDuringTouch, displaced };
     } else {
       for (const [type, x, y] of [['pointerdown', 120, 200], ['pointermove', 120 + dx, 200 + dy], ['pointerup', 120 + dx, 200 + dy]]) {
         element.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: 'touch', pointerId: 9, isPrimary: true, button: 0, clientX: x, clientY: y }));
@@ -198,6 +203,48 @@ try {
   await page.locator('[data-viewer-close]').click();
   await page.locator('.image-viewer').waitFor({ state: 'detached' });
   await assertVisibility(4, 1, 'Ordinary viewer return');
+  const pullFeedback = await first.evaluate(async element => {
+    const bubble = element.closest('.message-bubble');
+    const row = element.closest('.message');
+    const before = bubble.getBoundingClientRect();
+    const rowBefore = row.getBoundingClientRect();
+    const fire = (type, y) => element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 61, isPrimary: true, button: 0, clientX: 120, clientY: y }));
+    fire('pointerdown', 200); fire('pointermove', 260);
+    const firstPull = bubble.getBoundingClientRect().top - before.top;
+    const clearDuringPull = element.dataset.revealed === 'true' && getComputedStyle(element.querySelector('img')).filter === 'none';
+    fire('pointermove', 380);
+    const longerPull = bubble.getBoundingClientRect().top - before.top;
+    const stillClear = element.dataset.revealed === 'true';
+    const stableRow = row.getBoundingClientRect().height === rowBefore.height && row.getBoundingClientRect().top === rowBefore.top;
+    fire('pointerup', 380);
+    const hiddenOnRelease = [...document.querySelectorAll('.message .image-preview')].every(preview => preview.dataset.revealed === 'false');
+    const returnsSmoothly = bubble.getAnimations().some(animation => animation.effect.getKeyframes().some(frame => frame.transform?.includes('translate3d')));
+    await Promise.all(bubble.getAnimations().map(animation => animation.finished));
+    return { firstPull, longerPull, clearDuringPull, stillClear, stableRow, hiddenOnRelease, returnsSmoothly, reset: getComputedStyle(bubble).transform === 'none' };
+  });
+  assert(pullFeedback.firstPull > 10 && pullFeedback.firstPull < 60 && pullFeedback.longerPull > pullFeedback.firstPull && pullFeedback.longerPull < 180, 'The media pull did not visibly follow with damping');
+  assert((pullFeedback.longerPull - pullFeedback.firstPull) / 120 < pullFeedback.firstPull / 60, 'Longer media pulls did not increase resistance');
+  assert.deepEqual(Object.fromEntries(Object.entries(pullFeedback).filter(([key]) => !['firstPull', 'longerPull'].includes(key))), { clearDuringPull: true, stillClear: true, stableRow: true, hiddenOnRelease: true, returnsSmoothly: true, reset: true }, 'Pulling concealed media before release, changed layout or did not return cleanly');
+  await waitForClicks(); await first.click();
+  const cancelledPull = await first.evaluate(element => {
+    const bubble = element.closest('.message-bubble');
+    for (const [type, y] of [['pointerdown', 200], ['pointermove', 270], ['pointercancel', 270]]) element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 62, isPrimary: true, button: 0, clientX: 120, clientY: y }));
+    return { hidden: element.dataset.revealed === 'false', reset: getComputedStyle(bubble).transform === 'none', animations: bubble.getAnimations().length };
+  });
+  assert.deepEqual(cancelledPull, { hidden: true, reset: true, animations: 0 }, 'Cancelled media drag did not immediately conceal and release motion');
+  await waitForClicks(); await first.click();
+  const keyboardPriority = await first.evaluate(element => {
+    const previous = document.documentElement.dataset.keyboardOpen;
+    document.documentElement.dataset.keyboardOpen = 'true';
+    element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch', pointerId: 63, isPrimary: true, button: 0, clientX: 120, clientY: 200 }));
+    // Even if keyboard dismissal clears its geometry before release, this
+    // gesture remains owned by the keyboard and must not hide an image.
+    document.documentElement.dataset.keyboardOpen = 'false';
+    for (const type of ['pointermove', 'pointerup']) element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 63, isPrimary: true, button: 0, clientX: 120, clientY: 280 }));
+    if (previous === undefined) delete document.documentElement.dataset.keyboardOpen; else document.documentElement.dataset.keyboardOpen = previous;
+    return { clear: element.dataset.revealed === 'true', reset: getComputedStyle(element.closest('.message-bubble')).transform === 'none' };
+  });
+  assert.deepEqual(keyboardPriority, { clear: true, reset: true }, 'A keyboard-owned downward gesture also dragged or concealed the media');
   await page.locator('.image-album .image-preview').first().click();
   await assertVisibility(4, 2, 'Album cell reveal');
   assert.equal(await page.locator('.image-viewer').count(), 0, 'First album cell tap opened a viewer');
@@ -214,7 +261,8 @@ try {
   await waitForClicks();
   await first.click();
   await previews.nth(1).click();
-  await drag(previews.nth(1), { touch: true, followingClick: true });
+  const touchFeedback = await drag(previews.nth(1), { touch: true, followingClick: true });
+  assert(touchFeedback.scrollReserved && touchFeedback.clearDuringTouch && touchFeedback.displaced > 10 && touchFeedback.displaced < 60, 'The touch-owned pull concealed before release or failed to move the clear thumbnail with damping');
   await assertVisibility(4, 0, 'Touch pull and synthesized click');
   await waitForClicks();
 
@@ -250,19 +298,23 @@ try {
   await delayed.click();
   const transient = await page.evaluate(() => {
     const f = window.chatPrivacy;
+    const element = [...document.querySelectorAll('.message .image-preview')].find(preview => preview.dataset.revealed === 'true');
+    const bubble = element.closest('.message-bubble');
+    for (const [type, y] of [['pointerdown', 200], ['pointermove', 280]]) element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 64, isPrimary: true, button: 0, clientX: 120, clientY: y }));
     window.dispatchEvent(new Event('blur'));
     const buttons = [...document.querySelectorAll('.message .image-preview')];
     const immediatelyHidden = buttons.length === 5 && buttons.every(button => button.dataset.revealed === 'false'
       && (!button.querySelector('img') || getComputedStyle(button.querySelector('img')).filter.includes('blur(')));
     const curtainVisible = getComputedStyle(document.querySelector('.privacy-curtain')).visibility === 'visible';
     window.dispatchEvent(new Event('focus'));
-    return { immediatelyHidden, curtainVisible, unlockedAfterFocus: !f.app.privacyCovered };
+    element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch', pointerId: 64, isPrimary: true, button: 0, clientX: 120, clientY: 280 }));
+    return { immediatelyHidden, curtainVisible, unlockedAfterFocus: !f.app.privacyCovered, gestureReleased: getComputedStyle(bubble).transform === 'none' && bubble.getAnimations().length === 0 };
   });
-  assert.deepEqual(transient, { immediatelyHidden: true, curtainVisible: true, unlockedAfterFocus: true }, 'Transient privacy cover did not conceal thumbnails synchronously');
+  assert.deepEqual(transient, { immediatelyHidden: true, curtainVisible: true, unlockedAfterFocus: true, gestureReleased: true }, 'Transient privacy cover did not conceal thumbnails and release active pull motion synchronously');
   await assertVisibility(5, 0, 'Rapid foreground restoration');
   await page.waitForTimeout(300);
   await assertVisibility(5, 0, 'After blur debounce');
-  await delayed.click();
+  await waitForClicks(); await delayed.click();
   await delayed.click();
   await page.locator('.image-viewer.is-visible .viewer-stage img').waitFor();
   const coveredViewer = await page.evaluate(() => {
@@ -347,12 +399,12 @@ try {
     const before = image.style.transform;
     app.cleanupRuntime();
     image.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 195, clientY: 422 }));
-    return { cleanupReleased: app.viewerGestureCleanup === null, detached: !stage.isConnected, staleGestureIgnored: image.style.transform === before };
+    return { cleanupReleased: app.viewerGestureCleanup === null && app.chatImageConcealGesture === null, detached: !stage.isConnected, staleGestureIgnored: image.style.transform === before };
   });
   assert.deepEqual(directCleanup, { cleanupReleased: true, detached: true, staleGestureIgnored: true }, 'Direct runtime teardown retained a viewer gesture closure');
   await page.evaluate(() => window.chatPrivacy.app.lockNow());
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ browser: browserName, defaultHidden: true, longHoldReleaseHidden: true, revealThenView: true, albumCells: true, pointerAndTouchPull: true, dragClickSuppressed: true, cachedRebuildHidden: true, reusedManifestIsolated: true, revealedReceiptRebuildPreserved: true, delayedDecodeHidden: true, viewerPullHidden: true, synchronousCoverHidden: true, rapidFocusHidden: true, lockAndReentryHidden: true, originalBytesPreserved: true }, null, 2));
+  console.log(JSON.stringify({ browser: browserName, defaultHidden: true, longHoldReleaseHidden: true, revealThenView: true, albumCells: true, pointerAndTouchPull: true, dampedClearPullUntilRelease: true, cancelledPullReleased: true, keyboardGesturePriority: true, dragClickSuppressed: true, cachedRebuildHidden: true, reusedManifestIsolated: true, revealedReceiptRebuildPreserved: true, delayedDecodeHidden: true, viewerPullHidden: true, synchronousCoverHidden: true, rapidFocusHidden: true, lockAndReentryHidden: true, originalBytesPreserved: true }, null, 2));
 } finally {
   await browser?.close();
   await server.close();

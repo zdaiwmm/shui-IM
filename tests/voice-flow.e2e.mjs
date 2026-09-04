@@ -125,7 +125,9 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   await creator.locator('#record-voice').click();
   await creator.locator('.voice-recorder[data-state="requesting"]').waitFor();
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
-  assert.equal(await creator.locator('.cover-trigger').count(), 1, 'Permission prompt blur must cover the conversation');
+  assert.equal(await creator.locator('.cover-trigger').count(), 0, 'The first visible native permission blur must retain its requesting UI');
+  await creator.evaluate(() => { window.dispatchEvent(new Event('focus')); window.dispatchEvent(new Event('blur')); });
+  assert.equal(await creator.locator('.cover-trigger').count(), 1, 'A later unrelated blur must cover the conversation');
   await creator.evaluate(async () => {
     window.dispatchEvent(new Event('pagehide'));
     const stream = await window.__voiceGetUserMedia({ audio: true });

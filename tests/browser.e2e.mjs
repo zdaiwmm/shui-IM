@@ -93,6 +93,9 @@ async function holdCover(page) {
   await page.mouse.down();
   await page.waitForTimeout(1100);
   await page.mouse.up();
+  // Pointer entry includes the deliberate 180 ms completion ring. Wait for
+  // the cover to be replaced before measuring the arrived page.
+  await page.locator('.cover-trigger').waitFor({ state: 'detached' });
 }
 
 async function setPasskey(page) {
@@ -452,12 +455,16 @@ try {
   invariant(Buffer.from(pastedBytes).equals(image.buffer), 'Clipboard image changed during encryption, transfer or decryption');
   invariant(await creator.locator('#message-input').inputValue() === '图片粘贴时保留的草稿', 'Image paste erased an unsent text draft');
   await creator.locator('#message-input').fill('');
+  await creator.bringToFront();
   await creator.locator('#message-input').focus();
   await creator.locator('#image-input').evaluate((element) => {
     element.addEventListener('click', (event) => event.preventDefault(), { capture: true, once: true });
   });
   await creator.locator('#open-image-picker').click();
   invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Gallery button dismissed the composer keyboard focus');
+  await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
+  invariant(await creator.locator('.chat-shell').count() === 1 && !await creator.evaluate(() => document.documentElement.classList.contains('privacy-obscured')), 'Owned foreground picker blur covered the conversation');
+  await creator.evaluate(() => window.dispatchEvent(new Event('focus')));
   const retainedFocusImageIndex = await creator.locator('.message.outgoing .image-preview').count();
   await creator.locator('#image-input').setInputFiles({ ...image, name: 'keyboard-retained.svg' });
   await creator.locator('.message.outgoing .image-preview').nth(retainedFocusImageIndex).locator('img').waitFor({ timeout: 10_000 });
@@ -470,9 +477,13 @@ try {
   const directImageCreatorIndex = await creator.locator('.message.outgoing .image-preview').count();
   const directImageJoinerIndex = await joiner.locator('.message.incoming .image-preview').count();
   await beginSyntheticFilePicker(detachedInput);
-  await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await creator.evaluate(() => {
+    window.dispatchEvent(new Event('blur'));
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new Event('blur'));
+  });
   await creator.locator('.cover-trigger').waitFor();
-  invariant(await creator.locator('.chat-shell').count() === 0, 'Image picker blur left the chat exposed');
+  invariant(await creator.locator('.chat-shell').count() === 0, 'A second browser departure during image selection left the chat exposed');
   await detachedInput.setInputFiles(image);
   await creator.evaluate(() => window.dispatchEvent(new Event('focus')));
   await creator.waitForTimeout(100);
@@ -595,9 +606,13 @@ try {
   invariant(galleryInput, 'Gallery upload input is missing');
   invariant(await galleryInput.evaluate((input) => input.multiple), 'Gallery upload does not permit multiple selection');
   await beginSyntheticFilePicker(galleryInput);
-  await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await creator.evaluate(() => {
+    window.dispatchEvent(new Event('blur'));
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new Event('blur'));
+  });
   await creator.locator('.cover-trigger').waitFor();
-  invariant(await creator.locator('.gallery-shell').count() === 0, 'Gallery picker blur left private photos exposed');
+  invariant(await creator.locator('.gallery-shell').count() === 0, 'A second browser departure during gallery selection left private photos exposed');
   let galleryUploadRequests = 0;
   await creator.route('**/chunks/**', async (route) => {
     if (route.request().method() === 'PUT') galleryUploadRequests++;

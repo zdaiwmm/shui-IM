@@ -105,7 +105,19 @@ try {
   await page.locator('#message-input').fill('键盘和选择位置保留');
   await page.evaluate(async () => {
     const input = document.querySelector('#message-input'); input.focus({ preventScroll: true }); input.setSelectionRange(2, 5);
+    Object.defineProperty(visualViewport, 'height', { configurable: true, value: 430 });
+    Object.defineProperty(visualViewport, 'offsetTop', { configurable: true, value: 180 });
+    visualViewport.dispatchEvent(new Event('resize'));
     await window.bottomFixture.up(180);
+    window.bottomMotionFrames = [];
+    document.querySelector('#chat-bottom-control').addEventListener('pointerdown', () => {
+      const sample = () => {
+        const button = document.querySelector('#chat-bottom-control');
+        window.bottomMotionFrames.push({ focused: document.activeElement === input, concealed: !!document.querySelector('#composer').dataset.viewportMotion });
+        if (button.dataset.scrolling || window.bottomMotionFrames.length < 2) requestAnimationFrame(sample);
+      };
+      requestAnimationFrame(sample);
+    }, { once: true });
   });
   await page.locator('#chat-bottom-control').click();
   await page.waitForFunction(() => !document.querySelector('#chat-bottom-control').dataset.scrolling);
@@ -113,8 +125,10 @@ try {
     const { app, button, visible, assertGap } = window.bottomFixture; const input = document.querySelector('#message-input');
     if (document.activeElement !== input || input.selectionStart !== 2 || input.selectionEnd !== 5) throw Error('Return to bottom dismissed the keyboard or changed selection');
     if (Math.abs(window.scrollY - app.chatBottomScrollTop()) > 2 || !app.chatPinnedToBottom || visible()) throw Error('Click did not finish at the latest message');
+    if (window.bottomMotionFrames.length < 3 || window.bottomMotionFrames.some(frame => !frame.focused || frame.concealed)) throw Error(`Programmatic return animation hid the composer or surrendered keyboard focus: ${JSON.stringify(window.bottomMotionFrames)}`);
     assertGap(); if (button().dataset.scrolling) throw Error('Completed scroll retained animation state');
-    return { focus: true, selection: [2, 5], finishedPinned: true };
+    delete visualViewport.height; delete visualViewport.offsetTop; visualViewport.dispatchEvent(new Event('resize'));
+    return { focus: true, selection: [2, 5], finishedPinned: true, visibleComposerFrames: window.bottomMotionFrames.length };
   });
 
   results.distanceMotion = await page.evaluate(async () => {

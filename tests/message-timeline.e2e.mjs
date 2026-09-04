@@ -91,6 +91,19 @@ async function initializeTimeline() {
       item.payload = { v: 1, kind: 'image', image, sentAt };
       return item;
     });
+    if (kind === 'text-edges') {
+      const values = [
+        '👍🏽',
+        'https://example.invalid/ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/abcdefghijklmnopqrstuvwxyz0123456789',
+        '明天见 👨‍👩‍👧‍👦，一路顺风 ✈️',
+        'هذه رسالة لاختبار التفاف النص وموضع الوقت ✓',
+        '保留末尾主动换行\n',
+      ];
+      const messages = values.map((text, index) => message(21 + index, text, sentAt, index !== 3));
+      messages.push({ ...message(26, '发送失败仍能点按重试。', sentAt, true), status: 'failed' });
+      messages.push({ ...message(27, '等', sentAt, true), status: 'pending' });
+      return messages;
+    }
     if (kind === 'text') {
       const target = message(1, '好', sentAt, true);
       const long = message(2, '这是一条合成的长消息，用于检查文字换行后，时间和送达标记仍然在气泡内。ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 不应遮挡最后一行正文。');
@@ -230,6 +243,7 @@ try {
     const article = document.querySelector('[data-client-msg-id="timeline-short"]');
     const bubble = article.querySelector('.message-bubble');
     const initial = bubble.getBoundingClientRect();
+    if (getComputedStyle(article).opacity !== '1') throw Error('The waiting bubble is faded and will flash when its receipt arrives');
     const meta = bubble.querySelector('.message-meta');
     if (!meta.querySelector('.message-pending svg') || meta.querySelector('.message-pending .sr-only')?.textContent !== '等待发送' || !meta.getAttribute('aria-label')?.includes('已保存在本机，等待发送到服务器') || meta.querySelector('.message-delivery')) throw Error('Pending clock lost its waiting semantics or appeared as a success receipt');
     app.pending.delete(pending.clientMsgId);
@@ -316,7 +330,7 @@ try {
     // Existing controls can still be finishing a theme-color transition when
     // emulateMedia changes. Capture settled colors, never an intermediate mix.
     await page.waitForTimeout(220);
-    for (const kind of ['text', 'attachments', 'extremes']) {
+    for (const kind of ['text', 'text-edges', 'attachments', 'extremes']) {
       const geometry = await page.evaluate(async ({ kind, name, font }) => {
         const { app, fresh, show, specimens } = window.timeline; fresh();
         await show(specimens(kind));
@@ -333,6 +347,18 @@ try {
           if (Math.abs(latestGap - 64) > 2) issues.push(`pinned latest message lost its 64px composer gap: ${JSON.stringify(scrollState)}`);
         } else issues.push(`show(bottom) lost bottom following without user scrolling: ${JSON.stringify(scrollState)}`);
         const bodyColor = getComputedStyle(document.body).color;
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 1;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        const luminance = (...layers) => {
+          context.clearRect(0, 0, 1, 1);
+          for (const color of ['white', ...layers]) { context.fillStyle = color; context.fillRect(0, 0, 1, 1); }
+          const rgb = [...context.getImageData(0, 0, 1, 1).data].slice(0, 3).map(value => {
+            const component = value / 255;
+            return component <= .04045 ? component / 12.92 : ((component + .055) / 1.055) ** 2.4;
+          });
+          return rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722;
+        };
         for (const article of document.querySelectorAll('#message-list > article.message')) {
           const id = article.dataset.clientMsgId;
           const bubble = article.querySelector(':scope > .message-bubble');
@@ -358,6 +384,33 @@ try {
               if (Math.abs(imageBox.height - expectedHeight) > Math.max(.04, expectedHeight * .015) || imageBox.left < preview.left - 1 || imageBox.right > preview.right + 1 || imageBox.top < preview.top - 1 || imageBox.bottom > preview.bottom + 1) issues.push(`${id}: extreme original aspect ratio was distorted or clipped`);
               if (preview.height < 64 || b.width < Math.min(font * 11, article.getBoundingClientRect().width) - 1) issues.push(`${id}: extreme media has no safe space for metadata`);
             }
+          } else if (content && !article.classList.contains('is-failed')) {
+            const range = document.createRange();
+            range.selectNodeContents(content);
+            const lines = [...range.getClientRects()].filter(rect => rect.width > 0 && rect.height > 0);
+            for (const line of lines) {
+              if (line.left < m.right - 1 && line.right > m.left + 1 && line.top < m.bottom - 1 && line.bottom > m.top + 1) issues.push(`${id}: metadata overlaps real text glyphs`);
+              if (line.top < m.bottom - 1 && line.bottom > m.top + 1 && m.left - line.right < font * .5) issues.push(`${id}: metadata lacks space after the final text glyphs`);
+            }
+            const lastLine = lines.at(-1);
+            const textStyle = getComputedStyle(content);
+            if (lastLine && !content.textContent.endsWith('\n')) {
+              const requiredTail = parseFloat(getComputedStyle(content, '::after').width);
+              // Unlike overflow tolerances, "fits" must not grant an extra
+              // pixel: WebKit can correctly wrap a tail that is <1px too wide.
+              const fits = lastLine.right + requiredTail <= content.getBoundingClientRect().right;
+              if (fits && (m.top >= lastLine.bottom || m.bottom < lastLine.top)) issues.push(`${id}: metadata forced an extra row despite room beside the last line ${JSON.stringify({ lastLine: lastLine.toJSON(), tail: requiredTail, content: content.getBoundingClientRect().toJSON() })}`);
+              // Glyph rectangles do not include the line box or ::after. The
+              // metadata sits slightly below its baseline, so allow one full
+              // line box plus that sub-line offset; two inserted rows still
+              // exceed 1.6 line-heights in both Chromium font stacks.
+              if (m.bottom - lastLine.bottom > parseFloat(textStyle.lineHeight) * 1.6) issues.push(`${id}: metadata inserted more than one necessary line`);
+            }
+            if (id === 'timeline-1' || id === 'timeline-21') {
+              if (content.getBoundingClientRect().height > parseFloat(textStyle.lineHeight) + 1) issues.push(`${id}: short text or emoji does not share one line with metadata`);
+            }
+            const quote = bubble.querySelector('.message-reply-quote');
+            if (quote && quote.getBoundingClientRect().bottom > content.getBoundingClientRect().top + 1) issues.push(`${id}: reply preview overlaps the text body`);
           } else {
             for (const content of [...bubble.children].filter(child => child !== meta)) {
               if (content.getBoundingClientRect().bottom > m.top + 1) issues.push(`${id}: metadata overlaps ${content.className}`);
@@ -368,7 +421,18 @@ try {
             const r = retry.getBoundingClientRect();
             if (r.width < 44 || r.height < 44 || r.left < b.left - 1 || r.right > b.right + 1 || r.bottom > b.bottom + 1 || style.pointerEvents === 'none') issues.push(`${id}: retry target is clipped, too small, or disabled`);
           }
-          boxes.push({ id, bubble: { x: b.x, y: b.y, width: b.width, height: b.height }, meta: { x: m.x, y: m.y, width: m.width, height: m.height }, mediaOverlay, colors: { bubble: getComputedStyle(bubble).backgroundColor, content: getComputedStyle(bubble.querySelector('.message-text') ?? bubble).color, metadata: style.color } });
+          let timeContrast = null;
+          if (content) {
+            if (getComputedStyle(article).opacity !== '1') issues.push(`${id}: pending state fades the entire message instead of using its waiting clock`);
+            const timeColor = getComputedStyle(meta.querySelector('time')).color;
+            const textColor = getComputedStyle(content).color;
+            if (timeColor === textColor) issues.push(`${id}: time did not become visually secondary to message text`);
+            const foreground = luminance(timeColor);
+            const background = luminance(getComputedStyle(document.body).backgroundColor, getComputedStyle(bubble).backgroundColor);
+            timeContrast = (Math.max(foreground, background) + .05) / (Math.min(foreground, background) + .05);
+            if (timeContrast < 4.5) issues.push(`${id}: small timestamp contrast fell below 4.5:1 (${timeContrast})`);
+          }
+          boxes.push({ id, bubble: { x: b.x, y: b.y, width: b.width, height: b.height }, meta: { x: m.x, y: m.y, width: m.width, height: m.height }, mediaOverlay, timeContrast, colors: { bubble: getComputedStyle(bubble).backgroundColor, content: getComputedStyle(bubble.querySelector('.message-text') ?? bubble).color, metadata: style.color } });
         }
         if (document.documentElement.scrollWidth > innerWidth + 1) issues.push('horizontal page overflow');
         if (issues.length) throw Error(`${name}/${kind}: ${issues.join('; ')}; geometry=${JSON.stringify(boxes)}`);

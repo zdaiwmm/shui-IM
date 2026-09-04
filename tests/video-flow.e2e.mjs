@@ -225,6 +225,19 @@ try {
   await chatPreview.click();
   assert.equal(await chatPreview.getAttribute('data-revealed'), 'true', 'First chat video click did not reveal its poster');
   assert.equal(await page.locator('.image-viewer').count(), 0, 'First chat video click played a still-hidden video');
+  const videoPull = await chatPreview.evaluate(async element => {
+    const bubble = element.closest('.message-bubble');
+    const fire = (type, y) => element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 91, isPrimary: true, button: 0, clientX: 120, clientY: y }));
+    fire('pointerdown', 240); fire('pointermove', 330);
+    const clearAndMoving = element.dataset.revealed === 'true' && getComputedStyle(element.querySelector('img')).filter === 'none' && new DOMMatrix(getComputedStyle(bubble).transform).f > 20;
+    fire('pointerup', 330);
+    const hiddenOnRelease = element.dataset.revealed === 'false';
+    await Promise.all(bubble.getAnimations().map(animation => animation.finished));
+    return { clearAndMoving, hiddenOnRelease, reset: getComputedStyle(bubble).transform === 'none' };
+  });
+  assert.deepEqual(videoPull, { clearAndMoving: true, hiddenOnRelease: true, reset: true }, 'Video poster did not share the image pull privacy behavior');
+  await page.waitForFunction(() => Date.now() >= window.videoFlow.app.suppressMediaClickUntil);
+  await chatPreview.click();
   await chatPreview.click();
   await awaitPlayingVideo();
   await page.waitForFunction(() => document.fullscreenElement === document.querySelector('.viewer-stage video'));

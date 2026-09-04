@@ -53,6 +53,7 @@ export class VoiceRecorder {
       <div class="voice-recording-bar">
         <div class="voice-recording-info"><span class="voice-recording-dot" aria-hidden="true"></span><time class="voice-recording-time">0:00,00</time></div>
         <span class="voice-slide-hint" aria-hidden="true">${voiceIcons.chevronLeft}<span>滑动以取消</span></span>
+        <span class="voice-submit-label" aria-hidden="true"></span>
         <button type="button" class="voice-cancel" aria-label="取消录音">取消</button>
         <div class="voice-draft-timeline">
           <div class="voice-recording-wave voice-waveform" aria-hidden="true">${waveformMarkup(Array(48).fill(0))}</div>
@@ -339,7 +340,9 @@ export class VoiceRecorder {
     if (this.signal.aborted) return;
     if (this.state === 'recording') { this.pause(true); return; }
     if (this.state !== 'paused' || this.durationMs < MIN_AUDIO_DURATION_MS) return;
+    const restoreSendFocus = this.host.contains(document.activeElement);
     this.preview.pause();
+    this.sendMotion?.cancel(); this.sendMotion = null;
     this.sendAttempted = true;
     this.state = 'sending'; this.message = '正在加密并上传，完成后进入待发箱'; this.update();
     try {
@@ -349,6 +352,7 @@ export class VoiceRecorder {
       this.state = 'paused';
       this.message = `${cause instanceof Error ? cause.message : '语音发送失败'}。录音已保留，可再次发送`;
       this.update();
+      if (restoreSendFocus) this.host.querySelector<HTMLButtonElement>('.voice-send')?.focus({ preventScroll: true });
     }
   }
 
@@ -356,6 +360,9 @@ export class VoiceRecorder {
     if (this.signal.aborted) return;
     this.host.dataset.state = this.state;
     this.host.dataset.mode = this.mode;
+    const submitting = this.state === 'sending' || (this.state === 'processing' && this.sendAfterProcessing);
+    this.host.dataset.submitting = String(submitting);
+    this.host.setAttribute('aria-busy', String(submitting));
     const labels: Record<State, string> = { requesting: '等待麦克风权限', recording: '正在录音', processing: '正在处理录音', paused: '录音已暂停', sending: '正在发送语音' };
     const status = this.host.querySelector<HTMLElement>('.voice-recording-state')!;
     if (status.textContent !== labels[this.state]) status.textContent = labels[this.state];
@@ -371,14 +378,17 @@ export class VoiceRecorder {
     const progress = this.durationMs ? this.preview.currentTime * 1000 / this.durationMs : 0;
     this.waveBars.forEach((bar, index) => bar.classList.toggle('is-played', index / 48 < progress));
     const holding = this.mode === 'hold' && ['requesting', 'recording'].includes(this.state);
-    const drafting = ['processing', 'paused', 'sending'].includes(this.state);
-    this.host.querySelector<HTMLElement>('.voice-recording-info')!.hidden = drafting;
+    const drafting = ['processing', 'paused'].includes(this.state) && !submitting;
+    this.host.querySelector<HTMLElement>('.voice-recording-info')!.hidden = drafting || submitting;
     this.host.querySelector<HTMLElement>('.voice-slide-hint')!.hidden = !holding;
     this.host.querySelector<HTMLElement>('.voice-hold-orb')!.hidden = !holding;
     this.host.querySelector<HTMLElement>('.voice-draft-timeline')!.hidden = !drafting;
-    this.host.querySelector<HTMLElement>('.voice-cancel')!.hidden = holding || drafting;
+    this.host.querySelector<HTMLElement>('.voice-cancel')!.hidden = holding || drafting || submitting;
+    const submitLabel = this.host.querySelector<HTMLElement>('.voice-submit-label')!;
+    submitLabel.hidden = !submitting;
+    submitLabel.textContent = submitting ? this.state === 'sending' ? '正在发送语音…' : '正在处理录音…' : '';
     const toggle = this.host.querySelector<HTMLButtonElement>('.voice-toggle')!;
-    toggle.hidden = holding || this.state === 'requesting';
+    toggle.hidden = holding || this.state === 'requesting' || submitting;
     toggle.disabled = this.sendAttempted || !['recording', 'paused'].includes(this.state) || this.durationMs >= MAX_AUDIO_DURATION_MS;
     const toggleIcon = this.state === 'recording' ? voiceIcons.pause : voiceIcons.mic;
     if (this.renderedToggleIcon !== toggleIcon) { toggle.innerHTML = toggleIcon; this.renderedToggleIcon = toggleIcon; }
@@ -394,14 +404,14 @@ export class VoiceRecorder {
     this.host.querySelector('.voice-preview-time')!.textContent = voiceTime(!this.preview.paused ? this.preview.currentTime * 1000 : this.durationMs);
     play.setAttribute('aria-label', this.preview.paused ? '试听录音' : '暂停试听');
     const send = this.host.querySelector<HTMLButtonElement>('.voice-send')!;
-    send.hidden = holding || this.state === 'requesting';
+    send.hidden = holding || this.state === 'requesting' || submitting;
     send.disabled = this.state === 'recording' ? elapsed < MIN_AUDIO_DURATION_MS : this.state !== 'paused' || this.durationMs < MIN_AUDIO_DURATION_MS;
     const sendIcon = drafting ? voiceIcons.paperPlane : voiceIcons.send;
     if (this.renderedSendIcon !== sendIcon) { send.innerHTML = sendIcon; this.renderedSendIcon = sendIcon; }
     const discard = this.host.querySelector<HTMLButtonElement>('.voice-discard')!;
     discard.hidden = !drafting;
     discard.disabled = this.state === 'sending';
-    const hint = this.message || (this.state === 'requesting' ? '请允许麦克风访问' : this.state === 'processing' ? '正在处理录音…'
+    const hint = submitting ? '' : this.message || (this.state === 'requesting' ? '请允许麦克风访问' : this.state === 'processing' ? '正在处理录音…'
       : this.state === 'paused' && this.durationMs < MIN_AUDIO_DURATION_MS ? '录音太短，请继续录制至少半秒' : '');
     const hintElement = this.host.querySelector<HTMLElement>('.voice-recording-hint')!;
     hintElement.hidden = !hint;
