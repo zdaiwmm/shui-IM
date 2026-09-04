@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { describe, expect, it, vi } from 'vitest';
 import { randomBase64Url } from '../src/lib/base64';
 import { decryptFileAttachment, encryptFileAttachment, encryptImageFile } from '../src/lib/file-crypto';
@@ -113,7 +114,11 @@ describe('generic file encryption', () => {
     expect(manifest).toMatchObject({ blobId: plan.blobId, key: plan.key, ivPrefix: plan.ivPrefix });
     expect(plan.v === 2 && plan.plaintextSha256).toBe(manifest.sha256);
     expect(transport.callbacks.reserve).toHaveBeenLastCalledWith(manifest.blobId, 2, file.size + 32);
-    expect(new Uint8Array(await (await decryptFileAttachment(manifest, transport.fetch)).arrayBuffer())).toEqual(bytes);
+    const restored = Buffer.from(await (await decryptFileAttachment(manifest, transport.fetch)).arrayBuffer());
+    expect(restored.byteLength).toBe(bytes.byteLength);
+    // Compare every byte natively; generic deep equality walks over two million
+    // indexed properties and can exhaust the CI timeout before reporting success.
+    expect(restored.equals(bytes), 'Resumed download must preserve every original byte').toBe(true);
   });
 
   it('rejects changed file bytes, metadata, and damaged or legacy resume plans before touching remote state', async () => {
