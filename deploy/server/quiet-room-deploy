@@ -10,6 +10,8 @@ readonly BACKUP_DIR="$APP_ROOT/backups/predeploy"
 readonly SHARED_ENV="$APP_ROOT/shared/production.env"
 readonly CALLS_ENV="$APP_ROOT/shared/calls.env"
 readonly CALLS_STATE="$STATE_DIR/calls-enabled"
+readonly ADMIN_ENV="$APP_ROOT/shared/admin.env"
+readonly ADMIN_STATE="$STATE_DIR/admin-enabled"
 readonly MAINTENANCE_DIR=/var/lib/quiet-room-deploy
 readonly MAINTENANCE_FILE="$MAINTENANCE_DIR/maintenance"
 readonly PROJECT=quiet-room
@@ -146,6 +148,40 @@ elif [[ -n "$existing_turn" || ( -f "$CALLS_STATE" && "$(<"$CALLS_STATE")" == 1 
   exit 66
 fi
 
+# Administration credentials live outside the rollback data volume. Its
+# opt-in is durable across releases, just like calling; never source admin.env.
+admin_enabled=0
+previous_admin_enabled=0
+if [[ -f "$ADMIN_STATE" && "$(<"$ADMIN_STATE")" == 1 ]]; then previous_admin_enabled=1; fi
+if [[ -e "$ADMIN_ENV" || -L "$ADMIN_ENV" ]]; then
+  admin_shared_mode="$(stat -c '%a' "$APP_ROOT/shared")"
+  if [[ -L "$APP_ROOT/shared" || "$(stat -c '%u' "$APP_ROOT/shared")" != 0 || ! "$admin_shared_mode" =~ ^[0-7]{3,4}$ ]] ||
+      (( (8#$admin_shared_mode & 022) != 0 )); then
+    printf 'Admin settings directory must be root-owned and not group/other writable.\n' >&2
+    exit 66
+  fi
+  if [[ ! -f "$ADMIN_ENV" || -L "$ADMIN_ENV" || "$(stat -c '%u:%a' "$ADMIN_ENV")" != '0:600' ]]; then
+    printf 'Admin environment must be a root-owned mode-0600 regular file.\n' >&2
+    exit 66
+  fi
+  if [[ ! -f "$release_dir/compose.admin.yaml" ]]; then
+    printf 'Administration is enabled; requested release lacks compose.admin.yaml. Refusing cutover.\n' >&2
+    exit 66
+  fi
+  admin_enabled=1
+  new_compose_args+=(--env-file "$ADMIN_ENV" --file "$release_dir/compose.admin.yaml")
+  if (( previous_admin_enabled )); then
+    if [[ ! -f "${previous_compose%/*}/compose.admin.yaml" ]]; then
+      printf 'Cannot preserve administration during rollback: previous overlay is missing.\n' >&2
+      exit 66
+    fi
+    previous_compose_args+=(--env-file "$ADMIN_ENV" --file "${previous_compose%/*}/compose.admin.yaml")
+  fi
+elif (( previous_admin_enabled )); then
+  printf 'Administration was enabled but its persistent environment file is missing; refusing cutover.\n' >&2
+  exit 66
+fi
+
 # Resolve both graphs before maintenance. --quiet avoids printing interpolated
 # TURN secrets. Download the separately reviewed TURN image before downtime.
 QUIET_ROOM_IMAGE="$new_image" docker compose "${new_compose_args[@]}" config --quiet
@@ -205,6 +241,14 @@ probe_public_maintenance() {
       return 1
     fi
   done
+  if (( admin_enabled || previous_admin_enabled )); then
+    status="$(curl --silent --show-error --connect-timeout 3 --max-time 5 \
+      --output /dev/null --write-out '%{http_code}' https://sao.shui.click/admin-api/rooms)" || return 1
+    if [[ "$status" != 503 ]]; then
+      printf 'Admin traffic gate is ineffective: HTTP %s\n' "$status" >&2
+      return 1
+    fi
+  fi
 }
 
 probe_local_websocket() {
@@ -537,6 +581,7 @@ ln -sfn "$release_dir" "$APP_ROOT/current"
 printf '%s\n' "$REQUESTED_SHA" > "$STATE_DIR/current-sha"
 printf '%s\n' "$stamp" > "$STATE_DIR/deployed-at"
 printf '%s\n' "$calls_enabled" > "$CALLS_STATE"
+printf '%s\n' "$admin_enabled" > "$ADMIN_STATE"
 docker image tag "$new_image" quiet-room-app:production
 open_business_traffic
 if ! wait_for_public_websocket; then

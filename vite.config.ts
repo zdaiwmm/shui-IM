@@ -13,6 +13,7 @@ export default defineConfig({
     },
   },
   build: {
+    rollupOptions: { input: { app: 'index.html', admin: 'admin.html' } },
     target: 'es2022',
     sourcemap: false,
   },

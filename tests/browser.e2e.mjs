@@ -762,44 +762,25 @@ try {
   invariant(await joiner.locator('.message').filter({ hasText: '仅相册保存.pdf' }).count() === 0, 'Peer chat exposes the private gallery filename');
 
   await creator.locator('.more-menu summary').click();
-  const recoveryUrlBeforeDownload = creator.url();
-  await creator.locator('#export-recovery').click();
-  invariant(await creator.locator('[data-close-code]').isDisabled(), 'Recovery was confirmable before saving its file');
-  await creator.keyboard.press('Escape');
-  await creator.locator('.recovery-code-sheet').waitFor({ state: 'detached' });
-  const prematurelyExportedAt = await creator.evaluate(async () => {
-    const { unlockVault } = await import('/src/lib/vault.ts');
-    return (await unlockVault()).vault.recoveryExportedAt;
-  });
-  invariant(!prematurelyExportedAt, 'Cancelling recovery setup incorrectly marked the backup as saved');
-  await creator.waitForFunction(() => !document.querySelector('.more-menu')?.classList.contains('is-closing'));
-  if (!await creator.locator('.more-menu').evaluate((menu) => menu.hasAttribute('open'))) {
-    await creator.locator('.more-menu summary').click();
-  }
-  await creator.locator('#export-recovery').click();
-  const recoveryCode = await creator.locator('.recovery-code-panel code').textContent();
-  invariant(recoveryCode?.startsWith('QR2-'), 'Recovery code was not shown before saving its package');
+  await creator.locator('#backup-settings').click();
+  await creator.locator('#backup-retry').click();
+  await creator.waitForFunction(() => document.querySelector('#backup-status')?.textContent?.startsWith('上次备份：'));
+  invariant(await creator.locator('#export-recovery').count() === 0, 'Manual recovery export remains exposed');
+  await creator.locator('#view-local-recovery').click();
+  invariant(await creator.locator('.local-recovery-code').count() === 0, 'Recovery code appeared without fresh passkey verification');
+  await creator.locator('#verify-recovery-passkey').click();
+  await creator.locator('.local-recovery-code').waitFor();
+  const recoveryCode = await creator.locator('.local-recovery-code').textContent();
+  invariant(recoveryCode?.startsWith('QR3-'), 'Local recovery code was not displayed after verification');
+  const codeIsEncrypted = await creator.evaluate(async code => {
+    const { readStoredVault } = await import('/src/lib/vault.ts');
+    return !JSON.stringify(await readStoredVault()).includes(code);
+  }, recoveryCode);
+  invariant(codeIsEncrypted, 'Local durable vault leaked the recovery code');
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-code-mobile.png') });
-  const recoveryDownloadPromise = creator.waitForEvent('download');
-  await creator.locator('[data-save-recovery]').click();
-  const recoveryPath = await (await recoveryDownloadPromise).path();
-  invariant(recoveryPath, 'Recovery package download did not produce a file');
-  invariant(creator.url() === recoveryUrlBeforeDownload, 'Recovery download navigated away from the app');
-  const recoveryPackageText = await (await import('node:fs/promises')).readFile(recoveryPath, 'utf8');
-  invariant(!recoveryPackageText.includes(recoveryCode), 'The recovery file leaked its independent recovery code');
-  await creator.locator('[data-close-code]').click();
-  await creator.locator('.recovery-code-sheet').waitFor({ state: 'detached' });
-  invariant(await creator.locator('.recovery-reminder').count() === 0, 'Confirmed recovery reminder did not disappear');
-  await blurOutsidePage(creator);
-  await creator.locator('.cover-trigger').waitFor();
-  await unlock(creator);
-  await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
-  const confirmedExportedAt = await creator.evaluate(async () => {
-    const { unlockVault } = await import('/src/lib/vault.ts');
-    return (await unlockVault()).vault.recoveryExportedAt;
-  });
-  invariant(Boolean(confirmedExportedAt), 'Recovery confirmation did not persist after locking and unlocking');
-  invariant(await creator.locator('.recovery-reminder').count() === 0, 'Recovery reminder returned after a confirmed export');
+  await creator.locator('#hide-local-recovery').click();
+  await creator.locator('#backup-back').click();
+  await creator.locator('.chat-shell').waitFor();
   const sourceIdentity = await creator.evaluate(async () => {
     const { unlockVault } = await import('/src/lib/vault.ts');
     return (await unlockVault()).vault.identity.publicBundle.deviceId;
@@ -820,9 +801,9 @@ try {
   await enableDeviceVault(recovery);
   await recovery.goto(baseUrl);
   await holdCover(recovery);
-  await recovery.locator('#recovery-file').setInputFiles(recoveryPath);
-  await recovery.locator('textarea[name="recovery-code"]').fill(recoveryCode);
-  await recovery.locator('#recovery-code-form').evaluate((form) => form.requestSubmit());
+  await recovery.locator('#restore-cloud').click();
+  await recovery.locator('#cloud-recovery-form input[name="code"]').fill(recoveryCode);
+  await recovery.locator('#cloud-recovery-form').evaluate((form) => form.requestSubmit());
   await recovery.evaluate(() => {
     const create = navigator.credentials.create.bind(navigator.credentials);
     Object.defineProperty(navigator.credentials, 'create', { configurable: true, value: async (options) => {
@@ -836,6 +817,17 @@ try {
   invariant(await recovery.locator('#composer').count() === 0, 'An old sender checkpoint became writable before fresh membership authorization');
   await unlock(joiner);
   await joiner.locator('.chat-shell').waitFor({ timeout: 15_000 });
+  await recovery.locator('#confirm-new-recovery').waitFor({ timeout: 20_000 }).catch(async error => {
+    throw new Error(`Recovery rotation did not finish: ${await recovery.locator('body').innerText()}`, { cause: error });
+  });
+  const newRecoveryCode = await recovery.locator('.local-recovery-code').textContent();
+  invariant(newRecoveryCode?.startsWith('QR3-') && newRecoveryCode !== recoveryCode, 'Recovery did not rotate its code');
+  const oldCodeRetired = await recovery.evaluate(async code => {
+    const { fetchRecoveryBundle } = await import('/src/lib/cloud-backup.ts');
+    try { await fetchRecoveryBundle(code, new AbortController().signal); return false; } catch { return true; }
+  }, recoveryCode);
+  invariant(oldCodeRetired, 'Old recovery code still retrieves the online backup');
+  await recovery.locator('#confirm-new-recovery').click();
   await recovery.locator('.chat-shell').waitFor({ timeout: 15_000 }).catch(async (error) => {
     throw new Error(`Recovery did not reopen: ${await recovery.locator('body').innerText()}`, { cause: error });
   });
@@ -859,6 +851,28 @@ try {
   await recovery.locator('#message-input').fill('browser-e2e-fresh-identity-send');
   await recovery.locator('#composer').evaluate((form) => form.requestSubmit());
   await joiner.getByText('browser-e2e-fresh-identity-send', { exact: true }).waitFor({ timeout: 5000 });
+
+  await recovery.locator('.more-menu summary').click();
+  await recovery.locator('#backup-settings').click();
+  await recovery.locator('[data-restore="gallery"]').click();
+  await recovery.locator('#history-restore-form input').fill(newRecoveryCode);
+  await recovery.locator('#history-restore-form form').evaluate(form => form.requestSubmit());
+  await recovery.waitForFunction(() => document.querySelector('#history-restore-form [role=status]')?.textContent?.startsWith('恢复完成'));
+  const galleryIsolation = await recovery.evaluate(async () => {
+    const v = await import('/src/lib/vault.ts'); const session = await v.unlockVault();
+    return { chat: (await v.loadHistory(session)).some(m => m.payload.text === 'browser-e2e-after-gallery-file'),
+      gallery: (await v.loadMediaHistoryPage(session)).messages.length };
+  });
+  invariant(!galleryIsolation.chat && galleryIsolation.gallery > 0, 'Gallery-only recovery exposed old chat or failed to restore media');
+  await recovery.locator('[data-restore="chat"]').click();
+  await recovery.locator('#history-restore-form input').fill(recoveryCode);
+  await recovery.locator('#history-restore-form form').evaluate(form => form.requestSubmit());
+  await recovery.getByText(/^请使用本设备当前的恢复码/).waitFor();
+  await recovery.locator('#history-restore-form input').fill(newRecoveryCode);
+  await recovery.locator('#history-restore-form form').evaluate(form => form.requestSubmit());
+  await recovery.waitForFunction(() => document.querySelector('#history-restore-form [role=status]')?.textContent?.startsWith('恢复完成'));
+  await recovery.locator('#backup-back').click();
+  await recovery.getByText('browser-e2e-after-gallery-file', { exact: true }).waitFor();
 
   const legacyContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
   const legacy = await legacyContext.newPage();

@@ -21,6 +21,8 @@
 | 消息格式、签名和协议校验 | `SECURITY.md`、`PRODUCT.md` | `src/lib/types.ts`、`src/lib/message-payload.ts`、`src/lib/crypto.ts`、`server/protocol.mjs` | `tests/crypto.test.ts`、`tests/message-payload.test.ts`、`tests/protocol.test.ts`、`tests/room-protocol.test.ts` |
 | MLS、多设备、成员变更与历史边界 | `SECURITY.md`、`PRODUCTION_SECURITY_GATE.md` | `src/lib/mls.ts`、`src/lib/vault.ts`、`server/storage.mjs` | `tests/mls.test.ts`、`tests/storage.test.ts`、`tests/upgrade-safety.test.ts` |
 | 通行密钥、本机保险库、恢复、待发箱 | `SECURITY.md`、`README.md` | `src/lib/platform-vault.ts`、`src/lib/vault.ts` | `tests/recovery.test.ts`、`tests/recovery-server.test.ts`、`tests/vault-lifecycle.e2e.mjs`、`tests/vault-resume.e2e.mjs` |
+| 自动恢复备份、新码轮换、显式历史恢复 | `RECOVERY_BACKUPS.md`、`SECURITY.md` | `src/lib/backup-crypto.ts`、`src/lib/cloud-backup.ts`、`src/lib/vault.ts`、`server/cloud-backups.mjs` | `tests/cloud-backups.test.ts`、`tests/cloud-backup-lifecycle.e2e.mjs`、`tests/browser.e2e.mjs` |
+| 会话管理后台 | `RECOVERY_BACKUPS.md`、`DEPLOYMENT.md` | `src/admin.ts`、`server/admin.mjs`、`server/admin-auth.mjs`、`scripts/admin-setup.mjs`、`compose.admin.yaml` | `tests/admin.test.ts`、`tests/backup-admin-ui.e2e.mjs`、`tests/deploy-admin.test.ts` |
 | API、WebSocket、服务端资源控制 | `README.md`、`SECURITY.md` | `src/lib/api.ts`、`server/index.mjs`、`server/storage.mjs`、`server/protocol.mjs` | `tests/api.test.ts`、`tests/server.test.ts`、`tests/storage.test.ts` |
 | 图片、普通文件和创建者相册 | `PRODUCT.md`、`README.md`、`TEST_PLAN.md` | `src/lib/file-crypto.ts`、`src/lib/image-batches.ts`、`src/app.ts` | `tests/file-attachments.test.ts`、`tests/image-batches.test.ts`、`tests/file-flow.e2e.mjs`、`tests/file-outbox.e2e.mjs`、`tests/file-interactions.e2e.mjs` |
 | 语音留言 | `PRODUCT.md`、`README.md` | `src/lib/voice-recorder.ts`、`src/lib/voice-audio.ts`、`src/lib/voice-player.ts` | `tests/voice.test.ts`、`tests/voice-lifecycle.e2e.mjs`、`tests/voice-flow.e2e.mjs` |
@@ -53,6 +55,7 @@
 - [SECURITY.md](../../SECURITY.md)：威胁模型、保护范围、限制和部署安全要求。
 - [PRODUCTION_SECURITY_GATE.md](../../PRODUCTION_SECURITY_GATE.md)：公开高安全声明的阻塞门槛与禁止表述。
 - [TEST_PLAN.md](../../TEST_PLAN.md)：验收矩阵、覆盖范围、人工验证要求和带日期的测试记录。
+- [RECOVERY_BACKUPS.md](../../RECOVERY_BACKUPS.md)：恢复码定位、加密归档、轮换、恢复边界与后台管理。
 - [RELEASING.md](../../RELEASING.md)：唯一日常发布入口、授权前提和最近一次发布记录。
 - [DEPLOYMENT.md](../../DEPLOYMENT.md)：部署架构、首次配置、可选通话覆盖和服务器布局。
 - [OPERATIONS.md](../../OPERATIONS.md)：备份、证书、推送、恢复演练和事故处理。
