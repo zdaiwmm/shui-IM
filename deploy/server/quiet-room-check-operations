@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+readonly CERTIFICATE="${QUIET_ROOM_CERTIFICATE:-/etc/letsencrypt/live/ai.shui.click/fullchain.pem}"
+readonly RENEWAL_CONFIG="${QUIET_ROOM_RENEWAL_CONFIG:-/etc/letsencrypt/renewal/ai.shui.click.conf}"
+readonly CERTBOT_TIMER="${QUIET_ROOM_CERTBOT_TIMER:-certbot.timer}"
+readonly OPS_STATE="${QUIET_ROOM_OPS_STATE_DIR:-/var/lib/quiet-room-deploy}"
+readonly MAX_BACKUP_AGE="${QUIET_ROOM_MAX_OFFSITE_AGE_SECONDS:-129600}"
+[[ "$MAX_BACKUP_AGE" =~ ^[1-9][0-9]*$ ]] || exit 64
+failed=0
+
+if ! openssl x509 -checkend 2592000 -noout -in "$CERTIFICATE" >/dev/null 2>&1; then
+  printf 'TLS_CERTIFICATE_MISSING_OR_EXPIRES_WITHIN_30_DAYS\n' >&2
+  failed=1
+fi
+if [[ ! -f "$RENEWAL_CONFIG" ]] || { grep -Eq '^authenticator[[:space:]]*=[[:space:]]*manual' "$RENEWAL_CONFIG" && ! grep -Eq '^manual_auth_hook[[:space:]]*=[[:space:]]*[^[:space:]]' "$RENEWAL_CONFIG"; }; then
+  printf 'TLS_UNATTENDED_RENEWAL_NOT_CONFIGURED\n' >&2
+  failed=1
+fi
+if ! systemctl is-enabled --quiet "$CERTBOT_TIMER" || ! systemctl is-active --quiet "$CERTBOT_TIMER"; then
+  printf 'TLS_RENEWAL_TIMER_NOT_ENABLED_OR_ACTIVE\n' >&2
+  failed=1
+fi
+receipt="$(cat "$OPS_STATE/offsite-verified-at" 2>/dev/null || true)"
+now="$(date +%s)"
+if ! [[ "$receipt" =~ ^[0-9]+$ ]] || (( receipt > now || now - receipt > MAX_BACKUP_AGE )); then
+  printf 'OFFSITE_BACKUP_MISSING_OR_STALE\n' >&2
+  failed=1
+fi
+if (( failed )); then exit 1; fi
+printf 'OPERATIONS_CHECK_OK\n'

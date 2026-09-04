@@ -27,17 +27,18 @@ describe('online disaster-recovery backup', () => {
     const backupRoot = path.join(root, 'backups');
     const restoreDir = path.join(root, 'restore');
     const store = await createStore({ dataDir });
-    const { roomId } = store.createRoom(bundle(crypto.randomUUID()), 'a'.repeat(43));
+    const creatorId = crypto.randomUUID();
+    const { roomId } = store.createRoom(bundle(creatorId), 'a'.repeat(43));
 
     const completeBlobId = crypto.randomUUID();
     const completeBytes = crypto.getRandomValues(new Uint8Array(81));
-    store.createBlob(roomId, completeBlobId, 1, completeBytes.length);
-    await store.putBlobChunk(roomId, completeBlobId, 0, completeBytes);
-    await store.completeBlob(roomId, completeBlobId);
+    store.createBlob(roomId, completeBlobId, 1, completeBytes.length, creatorId);
+    await store.putBlobChunk(roomId, completeBlobId, 0, completeBytes, creatorId);
+    await store.completeBlob(roomId, completeBlobId, creatorId);
 
     const incompleteBlobId = crypto.randomUUID();
-    store.createBlob(roomId, incompleteBlobId, 2, 100);
-    await store.putBlobChunk(roomId, incompleteBlobId, 0, new Uint8Array(50));
+    store.createBlob(roomId, incompleteBlobId, 2, 100, creatorId);
+    await store.putBlobChunk(roomId, incompleteBlobId, 0, new Uint8Array(50), creatorId);
 
     const created = await createConsistentBackup({ dataDir, backupRoot, now: new Date('2026-09-03T12:00:00.000Z') });
     expect(created).toMatchObject({ verified: true, counts: { rooms: 1, blobs: 1 }, blobBytes: 81 });

@@ -29,6 +29,15 @@ deliberate fresh-origin cutover.
 
 6. Review the exact commit shown by the script and type `DEPLOY` to continue.
 
+Before the first release using the traffic gate, separately install the reviewed
+Nginx configuration and root-owned deployment helper. Source synchronization
+alone does not update either installed file. The helper creates a persistent,
+root-owned marker at `/var/lib/quiet-room-deploy/maintenance`, verifies public
+`/api/rooms`, a general API path, and `/ws` all return 503, and verifies the exact
+health endpoint remains healthy before it stops any container. A missing or
+unreadable gate aborts the release before data changes. Keep the marker directory
+mode 0755 so Nginx can stat it; it contains no credentials.
+
 The deployment command intentionally requires these environment variables; host,
 user, and private-key paths are not embedded in the repository:
 
@@ -146,12 +155,26 @@ The server independently verifies that the requested 40-character commit is
 contained in `origin/main`, serializes deployments with a file lock, builds an
 image before downtime begins, takes a cold ciphertext-data backup, switches the
 Compose project, checks local and public health, verifies the public WebSocket
-upgrade, and performs a data-aware rollback if cutover fails. A rollback first
-stops every new project container. Because the new version may already have
-migrated SQLite or accepted a write before a later health check fails, the
-helper preserves that stopped failed-cutover volume in a separate
-`failed-cutover-*.tar.gz` archive, restores the verified predeploy cold archive,
-and only then starts the previous image. The paths of both archives are printed
+upgrade, and performs a data-aware rollback only while public business traffic
+remains gated. The marker is installed before old containers stop; stopping them
+closes existing WebSockets before the cold backup. New HTTP business traffic
+and WebSocket upgrades receive 503 throughout startup validation. The exact
+health endpoint remains available, and an internal WebSocket probe checks the
+new application while public traffic is blocked.
+
+A rollback first stops every new project container, preserves possible schema
+migrations in a separate `failed-cutover-*.tar.gz` archive, restores the verified
+predeploy cold archive, and only then starts the previous image. The gate stays
+closed until the restored service and public health route pass checks. Because
+no client can receive new message ACKs during this validation window, restoring
+the archive does not retract an acknowledged cutover-window message.
+
+After all gated checks pass, the helper disables automatic database rollback
+**before** publishing release metadata and opening traffic. The final public WSS
+check then runs against the open service. If that check fails, the helper exits
+with `POST_OPEN_CHECK_FAILED` and retains the current database; investigate the
+route or roll application code forward without restoring an older data snapshot.
+Once traffic has opened, new accepted messages must remain in the live database. The paths of both archives are printed
 in the deployment log. Before every cold archive or restore, the helper also
 fails if any running container still has the named data volume mounted; it does
 not assume that stopping only the expected Compose services made the volume

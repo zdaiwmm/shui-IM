@@ -1,4 +1,4 @@
-const CACHE = 'quiet-room-shell-v5';
+const CACHE = 'quiet-room-shell-v6';
 const SHELL = ['/', '/manifest.webmanifest', '/icon.svg'];
 
 function isCacheableAsset(url) {
@@ -28,15 +28,22 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (event.request.mode === 'navigate') {
-    event.respondWith(
-      fetch(event.request)
-        .then((response) => {
+    event.respondWith((async () => {
+      try {
+        const response = await fetch(event.request);
+        const isHtml = /^text\/html(?:;|$)/i.test(response.headers.get('content-type') ?? '');
+        if (response.ok && isHtml && !response.redirected) {
           const copy = response.clone();
-          caches.open(CACHE).then((cache) => cache.put('/', copy));
+          event.waitUntil(caches.open(CACHE).then((cache) => cache.put('/', copy)).catch(() => {}));
           return response;
-        })
-        .catch(() => caches.match('/')),
-    );
+        }
+        // A deployment's 503 page or proxy error must not replace a working
+        // offline shell. Keep local unlock available while the service recovers.
+        return await caches.match('/') ?? response;
+      } catch {
+        return await caches.match('/') ?? Response.error();
+      }
+    })());
     return;
   }
 
@@ -45,7 +52,7 @@ self.addEventListener('fetch', (event) => {
     caches.match(event.request).then((cached) => cached || fetch(event.request).then((response) => {
       if (response.ok) {
         const copy = response.clone();
-        caches.open(CACHE).then((cache) => cache.put(event.request, copy));
+        event.waitUntil(caches.open(CACHE).then((cache) => cache.put(event.request, copy)).catch(() => {}));
       }
       return response;
     })),

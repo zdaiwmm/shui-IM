@@ -1,0 +1,12 @@
+[Unit]
+Description=Check Quiet Room TLS renewal readiness and verified offsite backup freshness
+
+[Service]
+Type=oneshot
+EnvironmentFile=-/etc/quiet-room/operations.env
+ExecStart=/usr/local/sbin/quiet-room-check-operations
+User=root
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true

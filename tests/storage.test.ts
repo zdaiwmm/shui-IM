@@ -44,6 +44,13 @@ describe('server ciphertext storage', () => {
         receipt TEXT NOT NULL, accepted_at TEXT NOT NULL, PRIMARY KEY(room_id, receipt_seq),
         UNIQUE(room_id, client_msg_id)
       );
+      CREATE TABLE mls_events (
+        room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+        event_seq INTEGER NOT NULL, event_id TEXT NOT NULL, sender_device_id TEXT NOT NULL,
+        target_device_id TEXT NOT NULL, action TEXT NOT NULL CHECK(action IN ('add', 'remove')),
+        envelope TEXT NOT NULL, accepted_at TEXT NOT NULL,
+        PRIMARY KEY(room_id, event_seq), UNIQUE(room_id, event_id)
+      );
     `);
     const roomId = crypto.randomUUID();
     const creatorId = crypto.randomUUID();
@@ -63,6 +70,8 @@ describe('server ciphertext storage', () => {
       null,
       createdAt,
     );
+    database.prepare('INSERT INTO mls_events VALUES (?, 1, ?, ?, ?, ?, ?, ?)')
+      .run(roomId, crypto.randomUUID(), creatorId, crypto.randomUUID(), 'add', '{"action":"add"}', createdAt);
     database.close();
 
     const store = await createStore({ dataDir });
@@ -73,6 +82,11 @@ describe('server ciphertext storage', () => {
       joinSeq: 0,
     });
     expect(store.authenticatedDevice(roomId, token, creatorId)?.deviceId).toBe(creatorId);
+    expect(store.roomState(roomId).mlsEvents).toMatchObject([{ eventSeq: 1, event: { action: 'add' } }]);
+    const migrated = new DatabaseSync(path.join(dataDir, 'quiet-room.sqlite'));
+    expect(() => migrated.prepare('INSERT INTO mls_events VALUES (?, 2, ?, ?, ?, ?, ?, ?)')
+      .run(roomId, crypto.randomUUID(), creatorId, crypto.randomUUID(), 'replace', '{"action":"replace"}', createdAt)).not.toThrow();
+    migrated.close();
     store.close();
   });
 
@@ -129,22 +143,23 @@ describe('server ciphertext storage', () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-blob-'));
     directories.push(dataDir);
     const store = await createStore({ dataDir });
-    const { roomId } = store.createRoom(bundle(crypto.randomUUID()), 'a'.repeat(43));
+    const creatorId = crypto.randomUUID();
+    const { roomId } = store.createRoom(bundle(creatorId), 'a'.repeat(43));
     const blobId = crypto.randomUUID();
     const chunk0 = crypto.getRandomValues(new Uint8Array(64));
     const chunk1 = crypto.getRandomValues(new Uint8Array(37));
-    store.createBlob(roomId, blobId, 2, chunk0.length + chunk1.length);
-    await store.putBlobChunk(roomId, blobId, 0, chunk0);
+    store.createBlob(roomId, blobId, 2, chunk0.length + chunk1.length, creatorId);
+    await store.putBlobChunk(roomId, blobId, 0, chunk0, creatorId);
     expect(store.blobStatus(roomId, blobId)).toMatchObject({
       uploadedIndexes: [0],
       receivedBytes: chunk0.length,
       completed: false,
     });
-    store.createBlob(roomId, blobId, 2, chunk0.length + chunk1.length);
-    await store.putBlobChunk(roomId, blobId, 0, chunk0);
+    store.createBlob(roomId, blobId, 2, chunk0.length + chunk1.length, creatorId);
+    await store.putBlobChunk(roomId, blobId, 0, chunk0, creatorId);
     await expect(store.getBlobChunk(roomId, blobId, 0)).rejects.toThrow('INVALID_BLOB');
-    await store.putBlobChunk(roomId, blobId, 1, chunk1);
-    await store.completeBlob(roomId, blobId);
+    await store.putBlobChunk(roomId, blobId, 1, chunk1, creatorId);
+    await store.completeBlob(roomId, blobId, creatorId);
     expect(new Uint8Array(await store.getBlobChunk(roomId, blobId, 0))).toEqual(chunk0);
     expect(new Uint8Array(await store.getBlobChunk(roomId, blobId, 1))).toEqual(chunk1);
     await expect(store.healthCheck()).resolves.toMatchObject({ ok: true, database: true, storage: true });
@@ -162,19 +177,20 @@ describe('server ciphertext storage', () => {
       maxIncompleteBlobsPerRoom: 1,
       maxMessagesPerRoom: 1,
     });
-    const { roomId } = store.createRoom(bundle(crypto.randomUUID()), 'a'.repeat(43));
-    store.insertMessage(roomId, { clientMsgId: crypto.randomUUID(), senderId: crypto.randomUUID(), ciphertext: 'opaque' });
+    const senderId = crypto.randomUUID();
+    const { roomId } = store.createRoom(bundle(senderId), 'a'.repeat(43));
+    store.insertMessage(roomId, { clientMsgId: crypto.randomUUID(), senderId, ciphertext: 'opaque' });
     expect(() => store.insertMessage(roomId, {
       clientMsgId: crypto.randomUUID(),
-      senderId: crypto.randomUUID(),
+      senderId,
       ciphertext: 'opaque',
     })).toThrow('MESSAGE_QUOTA');
     const blobId = crypto.randomUUID();
-    store.createBlob(roomId, blobId, 1, 64);
-    expect(() => store.createBlob(roomId, crypto.randomUUID(), 1, 40)).toThrow('TOO_MANY_UPLOADS');
+    store.createBlob(roomId, blobId, 1, 64, senderId);
+    expect(() => store.createBlob(roomId, crypto.randomUUID(), 1, 40, senderId)).toThrow('TOO_MANY_UPLOADS');
     await expect(store.cleanupExpiredBlobs(new Date(Date.now() + 1000).toISOString())).resolves.toBe(1);
     expect(() => store.blobStatus(roomId, blobId)).toThrow('INVALID_BLOB');
-    expect(() => store.createBlob(roomId, crypto.randomUUID(), 1, 81)).toThrow('BLOB_QUOTA');
+    expect(() => store.createBlob(roomId, crypto.randomUUID(), 1, 81, senderId)).toThrow('BLOB_QUOTA');
     store.close();
   });
 

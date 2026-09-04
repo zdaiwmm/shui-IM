@@ -4,6 +4,7 @@ import type {
   MlsMembershipEnvelope,
   MlsWelcomeEnvelope,
   PublicBundle,
+  RecoveryRequest,
   RoomState,
   ServerMessage,
   ServerMlsMembershipEvent,
@@ -85,6 +86,34 @@ export async function getRoomState(roomId: string, accessToken: string): Promise
   return response.json();
 }
 
+export async function requestRecovery(
+  roomId: string,
+  request: RecoveryRequest,
+  accessToken: string,
+  deviceName: string,
+  capabilities: string[],
+  signal?: AbortSignal,
+): Promise<{ state: RoomState }> {
+  const response = await fetch(`/api/rooms/${roomId}/recovery`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ request, accessToken, deviceName, capabilities }),
+    signal,
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json();
+}
+
+export async function recoveryStatus(
+  roomId: string,
+  requestId: string,
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<{ state: RoomState }> {
+  const response = await authorizedFetch(`/api/rooms/${roomId}/recovery/${requestId}`, accessToken, { signal });
+  return response.json();
+}
+
 export async function joinRoom(
   roomId: string,
   accessToken: string,
@@ -109,11 +138,13 @@ export async function createDeviceLink(
   linkId: string,
   secret: string,
   expiresAt: string,
+  signal?: AbortSignal,
 ): Promise<DeviceLinkRecord> {
   const response = await authorizedFetch(`/api/rooms/${roomId}/device-links`, accessToken, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ authorizerId, linkId, secret, expiresAt }),
+    signal,
   });
   return response.json();
 }

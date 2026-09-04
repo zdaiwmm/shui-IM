@@ -76,3 +76,77 @@ See [PRODUCTION_SECURITY_GATE.md](./PRODUCTION_SECURITY_GATE.md) for the conditi
 - Ordinary restart restored system responsiveness. Nginx initially failed with port-binding conflicts while Certbot also attempted startup; `nginx -t` passed and starting Nginx after that activity restored service. Review startup ordering before the next planned reboot. Failures for other hosted domains' renewal jobs were observed but their configurations were not changed.
 - Public SSH remained unavailable from the operator after the cloud firewall was restricted to the approved single address. The release used authenticated Alibaba Cloud Workbench access. Do not reopen SSH globally without a deliberate access-control decision.
 - Post-release checks confirmed the exact running commit, healthy application/backup containers, trusted TLS for the exact hostname, HTTP 200 health/home/service-worker responses, service-worker cache version `quiet-room-shell-v4`, and a real WSS upgrade. Foreign-origin WSS requests are rejected by destroying the upstream socket; Nginx consequently reports 502 rather than an application 403. These smoke checks do not replace on-device biometric or multi-device business regression testing.
+
+
+## Prepared operational automation (2026-09-04)
+
+The repository now includes `quiet-room-backup-export`,
+`quiet-room-check-operations`, a Certbot deploy hook, and systemd service/timer
+files under `deploy/`. They have local syntax and behavioral coverage. **They
+are not automatically installed by an application deployment; no cloud remote,
+DNS credentials, retention policy, or certificate renewal state is changed by
+committing these files.** The historical manual-certificate warning above
+remains active until a real unattended renewal dry run succeeds.
+
+For independent backup export:
+
+1. Provision a dedicated remote in another failure domain with provider
+   versioning/deletion protection and a least-privilege credential. Configure
+   the host's rclone remote in a root-readable file outside the repository.
+2. Create `/etc/quiet-room/backup-export.env` with mode 0600. Set
+   `QUIET_ROOM_BACKUP_DIR` to the actual completed snapshot directory,
+   `QUIET_ROOM_BACKUP_REMOTE` to the provisioned named remote and prefix, and
+   `RCLONE_CONFIG` to that host-only configuration file. Example variable shapes
+   are `QUIET_ROOM_BACKUP_REMOTE=offsite:private-bucket/quiet-room` and
+   `RCLONE_CONFIG=/etc/quiet-room/rclone.conf`; replace them with the actual
+   approved destination. No destination is embedded in source.
+3. Install the reviewed export/check scripts as root-owned executables under
+   `/usr/local/sbin/`, create `/var/lib/quiet-room-deploy` with mode 0755, and
+   install the corresponding service/timer files under `/etc/systemd/system/`.
+4. Run `systemctl daemon-reload`, then run the export service once and inspect its
+   status and remote snapshot. Only after it succeeds, enable
+   `quiet-room-backup-export.timer` and `quiet-room-operations-check.timer` with
+   `systemctl enable --now`. The exporter needs Docker and rclone installed on
+   the host; it does not add them to the application container.
+5. Connect service failures to the existing operations alert destination. The
+   check runs every six hours and exits nonzero if the certificate expires
+   within 30 days, unattended renewal is not configured, its timer is inactive,
+   or no verified remote copy was recorded within 36 hours. A failed systemd
+   unit is observable state, not a claim that an external notification was sent.
+
+Export verifies the local SQLite/chunk manifest and rejects stale snapshots
+before upload. It copies only to a named remote with `--immutable --checksum`,
+then downloads and compares the remote bytes. It writes the freshness receipt
+only after all stages succeed. It never uses a destructive sync/delete command
+and never mounts the live data volume. Remote versioning/immutability must still
+be enforced by the storage provider. See the official [rclone check
+semantics](https://rclone.org/commands/rclone_check/) and [immutable copy
+option](https://rclone.org/docs/#immutable).
+
+For certificate renewal, first select an unattended authenticator that actually
+works for the installed certificate: a verified HTTP-01 webroot path or a
+least-privilege DNS authentication hook. Install
+`deploy/certbot/quiet-room-reload-nginx` under
+`/etc/letsencrypt/renewal-hooks/deploy/` only after reviewing the host's Nginx
+service; the hook tests configuration and reloads Nginx after successful
+renewal. It does not by itself automate manual DNS-01 validation. Run
+`certbot renew --cert-name ai.shui.click --dry-run`, record the successful CA
+validation, and confirm the actual Certbot timer is enabled and active. If the
+host uses a different timer name, set `QUIET_ROOM_CERTBOT_TIMER` in
+`/etc/quiet-room/operations.env`. This follows the official [Certbot renewal and
+hook workflow](https://eff-certbot.readthedocs.io/en/stable/using.html#renewing-certificates).
+
+## Cutover write boundary and shared-IP connections
+
+The current Nginx template allows 32 `/ws` connections from a shared IP, supporting
+six participant devices plus reconnect overlap; authenticated room/device and
+global application caps still apply. Install and test the actual Nginx config
+before treating this repository limit as production behavior.
+
+During a deploy, the root-owned maintenance marker blocks public business APIs
+and new WebSockets before old containers stop. Validation runs while the gate
+is closed. Before reopening it, the helper permanently ends automatic database
+rollback for that release. A post-open WSS failure retains all current data and
+reports `POST_OPEN_CHECK_FAILED`; do not manually restore the old archive over
+messages clients may already have acknowledged. A marker left after an
+interruption survives reboot and requires inspection before another deployment.

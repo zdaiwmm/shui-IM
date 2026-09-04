@@ -14,6 +14,7 @@ import {
   validateMlsWelcomeShape,
   validatePublicBundle,
   validateReceiptShape,
+  validateRecoveryRequestShape,
   verifyEnvelopeSignature,
   verifyReceiptSignature,
 } from './protocol.mjs';
@@ -124,6 +125,11 @@ function normalizeError(error) {
     ['MLS_EPOCH_STALE', [409, '加密设备状态已更新，消息正在使用新密钥重新加密']],
     ['INVALID_MLS_EVENT', [400, 'MLS 设备变更与待处理设备不匹配']],
     ['LAST_ROLE_DEVICE', [409, '不能移除该参与者的最后一台设备']],
+    ['INVALID_RECOVERY_REQUEST', [400, '恢复请求无效，或原设备已被替换']],
+    ['UNAUTHORIZED', [401, '设备凭证无效或已停用']],
+    ['RECOVERY_ALREADY_PENDING', [409, '该设备已有恢复请求，请完成或等待过期后重试']],
+    ['RECOVERY_REQUIRES_UPGRADE', [409, '请先让其它已授权设备打开最新版，再重试恢复']],
+    ['RECOVERY_EXPIRED', [410, '恢复请求已过期，请重新导入恢复包']],
   ]);
   const [status, message] = known.get(code) ?? [500, '服务器暂时无法处理请求'];
   return [status, message, code];
@@ -140,6 +146,7 @@ function publicState(state) {
     mlsWelcome: state.mlsWelcome,
     nextMlsEventSeq: state.nextMlsEventSeq,
     mlsEvents: state.mlsEvents,
+    recoveryRequests: state.recoveryRequests,
   };
 }
 
@@ -199,6 +206,12 @@ export async function startServer(options = {}) {
       .filter(Boolean),
   );
 
+  function requireActiveDevice(request, roomId, deviceId) {
+    const device = store.authenticatedDevice(roomId, bearerToken(request), deviceId);
+    if (!device) throw new Error('UNAUTHORIZED');
+    return device;
+  }
+
   function clientAddress(request) {
     const socketAddress = request.socket.remoteAddress ?? 'unknown';
     if (!trustedProxyAddresses.has(socketAddress)) return socketAddress;
@@ -237,7 +250,7 @@ export async function startServer(options = {}) {
     for (const socket of clientsByRoom.get(roomId) ?? []) {
       const session = socketSessions.get(socket);
       const member = session ? store.getMember(roomId, session.deviceId) : null;
-      if (!session || member?.status !== 'active') {
+      if (!session || member?.status !== 'active' || store.deviceRecoveryPending(roomId, session.deviceId)) {
         socket.close(4403, 'Device no longer active');
         continue;
       }
@@ -251,7 +264,7 @@ export async function startServer(options = {}) {
       const session = socketSessions.get(socket);
       if (!session || session.view !== 'chat' || socket.readyState !== WebSocket.OPEN) continue;
       const member = store.getMember(roomId, session.deviceId);
-      if (member?.status === 'active' && member.role === session.role) roles[session.role] = true;
+      if (member?.status === 'active' && member.role === session.role && !store.deviceRecoveryPending(roomId, session.deviceId)) roles[session.role] = true;
     }
     return roles;
   }
@@ -437,6 +450,7 @@ export async function startServer(options = {}) {
           json(request, response, 400, { error: 'INVALID_DEVICE_LINK' });
           return;
         }
+        requireActiveDevice(request, roomId, device.deviceId);
         json(request, response, 201, store.createDeviceLink(
           roomId,
           device.deviceId,
@@ -498,6 +512,39 @@ export async function startServer(options = {}) {
         return;
       }
 
+      const recoveryMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/recovery$`));
+      if (recoveryMatch && request.method === 'POST') {
+        const roomId = recoveryMatch[1];
+        if (!allowRequest(request, 'recover-device', 10)) {
+          json(request, response, 429, { error: '恢复请求过于频繁', code: 'RATE_LIMITED' });
+          return;
+        }
+        const body = await readJson(request);
+        const proof = body.request;
+        const source = validateRecoveryRequestShape(proof, roomId) && store.getMember(roomId, proof.sourceDeviceId);
+        if (!source || !validCapabilities(body.capabilities) || typeof body.deviceName !== 'string' ||
+          !body.deviceName.trim() || body.deviceName.length > 80 || !(await verifyEnvelopeSignature(proof, source.signingKey))) {
+          json(request, response, 400, { error: '恢复凭证验证失败', code: 'INVALID_RECOVERY_REQUEST' });
+          return;
+        }
+        const state = store.createRecoveryRequest(roomId, proof, body.accessToken, body.deviceName.trim(), body.capabilities);
+        // Fence old sockets before broadcasting the pending replacement. Every
+        // subsequent write is checked again at the durable store boundary.
+        for (const socket of clientsByRoom.get(roomId) ?? []) {
+          if (socketSessions.get(socket)?.deviceId === proof.sourceDeviceId) socket.terminate();
+        }
+        broadcast(roomId, { type: 'membership', state: publicState(state) });
+        broadcastPresence(roomId);
+        json(request, response, 200, { state: publicState(state) });
+        return;
+      }
+      const recoveryStatusMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/recovery/(${ID_PATTERN})$`));
+      if (recoveryStatusMatch && request.method === 'GET') {
+        const [, roomId, requestId] = recoveryStatusMatch;
+        json(request, response, 200, { state: publicState(store.recoveryStatus(roomId, requestId, bearerToken(request))) });
+        return;
+      }
+
       const mlsEventsMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/mls-events$`));
       if (mlsEventsMatch && request.method === 'PUT') {
         const roomId = mlsEventsMatch[1];
@@ -517,6 +564,7 @@ export async function startServer(options = {}) {
           json(request, response, 400, { error: 'INVALID_MLS_EVENT' });
           return;
         }
+        requireActiveDevice(request, roomId, device.deviceId);
         const storedEvent = store.saveMlsEvent(roomId, envelope);
         const state = publicState(store.roomState(roomId));
         if (!storedEvent.duplicate) {
@@ -549,6 +597,7 @@ export async function startServer(options = {}) {
             json(request, response, 400, { error: 'INVALID_PUSH_AUTHORIZATION' });
             return;
           }
+          requireActiveDevice(request, roomId, deviceId);
           store.deletePushSubscription(roomId, deviceId);
           json(request, response, 200, { removed: true });
           return;
@@ -576,6 +625,7 @@ export async function startServer(options = {}) {
           json(request, response, 400, { error: 'INVALID_PUSH_SUBSCRIPTION' });
           return;
         }
+        requireActiveDevice(request, roomId, deviceId);
         json(request, response, 200, store.savePushSubscription(roomId, deviceId, body.subscription));
         return;
       }
@@ -605,6 +655,7 @@ export async function startServer(options = {}) {
           json(request, response, 400, { error: 'INVALID_MLS_WELCOME' });
           return;
         }
+        requireActiveDevice(request, roomId, authenticated.deviceId);
         const state = store.saveMlsWelcome(roomId, envelope);
         broadcast(roomId, { type: 'membership', state: publicState(state) });
         broadcastPresence(roomId);
@@ -637,7 +688,8 @@ export async function startServer(options = {}) {
           json(request, response, 400, { error: 'INVALID_BLOB_REQUEST' });
           return;
         }
-        const blob = store.createBlob(roomId, body.blobId, body.chunkCount, body.encryptedSize);
+        const actor = requireActiveDevice(request, roomId);
+        const blob = store.createBlob(roomId, body.blobId, body.chunkCount, body.encryptedSize, actor.deviceId);
         json(request, response, 201, blob);
         return;
       }
@@ -672,10 +724,12 @@ export async function startServer(options = {}) {
             return;
           }
           const bytes = await readBody(request, MAX_CHUNK_BYTES);
-          await store.putBlobChunk(roomId, blobId, index, bytes);
+          const actor = requireActiveDevice(request, roomId);
+          await store.putBlobChunk(roomId, blobId, index, bytes, actor.deviceId);
           json(request, response, 200, { stored: true, index });
         } else {
           const bytes = await store.getBlobChunk(roomId, blobId, index);
+          requireActiveDevice(request, roomId);
           applySecurityHeaders(request, response);
           response.writeHead(200, {
             'Content-Type': 'application/octet-stream',
@@ -694,7 +748,8 @@ export async function startServer(options = {}) {
           json(request, response, 401, { error: 'UNAUTHORIZED' });
           return;
         }
-        const completed = await store.completeBlob(roomId, blobId);
+        const actor = requireActiveDevice(request, roomId);
+        const completed = await store.completeBlob(roomId, blobId, actor.deviceId);
         json(request, response, 200, completed);
         return;
       }
@@ -734,7 +789,13 @@ export async function startServer(options = {}) {
 
   const webSocketServer = new WebSocketServer({ noServer: true, maxPayload: MAX_JSON_BYTES });
   httpServer.on('upgrade', (request, socket, head) => {
-    const url = new URL(request.url ?? '/', 'http://localhost');
+    let url;
+    try {
+      url = new URL(request.url ?? '/', 'http://localhost');
+    } catch {
+      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+      return;
+    }
     const origin = request.headers.origin;
     const expectedHost = request.headers.host;
     const originAllowed = !origin || (() => {
@@ -817,6 +878,11 @@ export async function startServer(options = {}) {
             });
             send(socket, presenceFrame(session.roomId));
             if (capabilitiesChanged) broadcast(session.roomId, { type: 'membership', state: publicState(state) });
+            return;
+          }
+
+          if (store.getMember(session.roomId, session.deviceId)?.status !== 'active' || store.deviceRecoveryPending(session.roomId, session.deviceId)) {
+            socket.close(4403, 'Device no longer active');
             return;
           }
 
@@ -988,6 +1054,7 @@ export async function startServer(options = {}) {
     const cutoff = new Date(Date.now() - incompleteBlobTtlMs).toISOString();
     try {
       store.cleanupExpiredDeviceLinks();
+      store.cleanupExpiredRecoveryRequests();
     } catch (error) {
       console.error('Expired device-link cleanup failed:', error instanceof Error ? error.message : 'unknown');
     }

@@ -8,6 +8,8 @@ readonly RELEASES="$APP_ROOT/git-releases"
 readonly STATE_DIR="$APP_ROOT/deploy-state"
 readonly BACKUP_DIR="$APP_ROOT/backups/predeploy"
 readonly SHARED_ENV="$APP_ROOT/shared/production.env"
+readonly MAINTENANCE_DIR=/var/lib/quiet-room-deploy
+readonly MAINTENANCE_FILE="$MAINTENANCE_DIR/maintenance"
 readonly PROJECT=quiet-room
 readonly DATA_VOLUME=quiet-room_quiet-room-data
 readonly LOCAL_HEALTH_URL=http://127.0.0.1:8080/api/health
@@ -53,8 +55,16 @@ done
   exit 66
 }
 
+[[ ! -e "$MAINTENANCE_FILE" ]] || {
+  printf 'An earlier deployment left the business-traffic gate closed. Inspect it before retrying.\n' >&2
+  exit 75
+}
+
 install -d -o deploy -g deploy -m 0750 "$RELEASES"
 install -d -m 0750 "$STATE_DIR" "$BACKUP_DIR"
+# Nginx workers must be able to stat this root-owned, persistent marker.
+# Keep it separate from the private deployment-state directory.
+install -d -o root -g root -m 0755 "$MAINTENANCE_DIR"
 
 runuser -u deploy -- env GIT_SSH_COMMAND="$GIT_SSH_COMMAND_VALUE" \
   git --git-dir="$REPOSITORY" fetch --prune origin refs/heads/main:refs/heads/main
@@ -123,6 +133,35 @@ wait_for_public_health() {
     sleep 2
   done
   return 1
+}
+
+close_business_traffic() {
+  printf '%s\n' "$REQUESTED_SHA" > "$MAINTENANCE_FILE"
+  chmod 0644 "$MAINTENANCE_FILE"
+}
+
+open_business_traffic() {
+  rm -- "$MAINTENANCE_FILE"
+}
+
+probe_public_maintenance() {
+  local route status
+  for route in /api/rooms /api/rooms/__deployment_probe__ /ws; do
+    status="$(curl --silent --show-error --connect-timeout 3 --max-time 5 \
+      --output /dev/null --write-out '%{http_code}' "$PUBLIC_ORIGIN$route")" || return 1
+    if [[ "$status" != 503 ]]; then
+      printf 'Business-traffic gate is ineffective for %s: HTTP %s\n' "$route" "$status" >&2
+      return 1
+    fi
+  done
+}
+
+probe_local_websocket() {
+  docker run --rm --network host \
+    --env "QUIET_ROOM_PUBLIC_ORIGIN=$PUBLIC_ORIGIN" \
+    --env "QUIET_ROOM_PUBLIC_HOST=$PUBLIC_HOST" \
+    "$new_image" node --input-type=module -e \
+    "import WebSocket from 'ws'; let opened=false; const w=new WebSocket('ws://127.0.0.1:8080/ws',{headers:{Origin:process.env.QUIET_ROOM_PUBLIC_ORIGIN,Host:process.env.QUIET_ROOM_PUBLIC_HOST}}); const t=setTimeout(()=>process.exit(2),5000); w.on('open',()=>{opened=true;w.close()}); w.on('close',()=>{clearTimeout(t);process.exit(opened?0:3)}); w.on('error',()=>process.exit(1));"
 }
 
 probe_public_websocket() {
@@ -350,10 +389,9 @@ rollback() {
       rollback_fail_closed 'verified-predeploy-backup-is-missing'
     fi
 
-    # The new version may have migrated SQLite or accepted writes before a
-    # later public/WSS health check failed. Preserve that exact stopped state
-    # before replacing the volume with the predeploy cold backup. If this
-    # preservation step fails, keep the service down rather than lose data.
+    # Public business traffic has remained gated since before the cold backup.
+    # Preserve possible migrations for diagnosis; no new client ACK can have
+    # been issued against this rollback-eligible database through the proxy.
     failed_cutover_backup_name="failed-cutover-$stamp-$short_sha.tar.gz"
     if ! create_data_archive "$rollback_image" "$failed_cutover_backup_name"; then
       rollback_fail_closed 'could-not-preserve-failed-cutover-data'
@@ -385,6 +423,13 @@ rollback() {
     rollback_fail_closed 'previous-release-did-not-become-healthy'
   fi
 
+  if ! wait_for_public_health 3 || ! probe_public_maintenance; then
+    rollback_fail_closed 'previous-release-public-route-or-traffic-gate-failed'
+  fi
+  if ! open_business_traffic; then
+    rollback_fail_closed 'could-not-reopen-previous-release'
+  fi
+
   printf 'ROLLBACK_OK original_exit=%s restored_backup=%s failed_cutover_backup=%s\n' \
     "$exit_code" "$restored_backup_path" "${failed_cutover_backup_path:-not-created}" >&2
   exit "$exit_code"
@@ -402,6 +447,15 @@ fi
 # origin is already broken. The same probe is retried after cutover below.
 if ! wait_for_public_health 3; then
   printf 'Refusing cutover: canonical public health check is unavailable: %s\n' "$PUBLIC_HEALTH_URL" >&2
+  exit 69
+fi
+
+# Validate the installed proxy, not merely the checked-in Nginx file. Nothing
+# has stopped or changed data yet, so a missing gate aborts without downtime.
+close_business_traffic
+if ! probe_public_maintenance || ! wait_for_public_health 3; then
+  open_business_traffic
+  printf 'Refusing cutover: install and validate the Nginx traffic gate first.\n' >&2
   exit 69
 fi
 
@@ -424,16 +478,25 @@ QUIET_ROOM_IMAGE="$new_image" docker compose \
 
 wait_for_health
 wait_for_public_health 10
-wait_for_public_websocket
+probe_local_websocket
+probe_public_maintenance
+
+# The validation window is over. From this point forward a failure must retain
+# the current database: clients may receive ACKs as soon as the gate is opened.
+# Metadata publication failures leave the gate closed for manual recovery.
+data_restore_required=0
+cutover_started=0
+trap - ERR
 
 ln -sfn "$release_dir" "$APP_ROOT/current"
 printf '%s\n' "$REQUESTED_SHA" > "$STATE_DIR/current-sha"
 printf '%s\n' "$stamp" > "$STATE_DIR/deployed-at"
 docker image tag "$new_image" quiet-room-app:production
-
-data_restore_required=0
-cutover_started=0
-trap - ERR
+open_business_traffic
+if ! wait_for_public_websocket; then
+  printf 'POST_OPEN_CHECK_FAILED sha=%s; current database retained; automatic data rollback is disabled.\n' "$REQUESTED_SHA" >&2
+  exit 70
+fi
 
 prune_successful_deployments || printf 'WARNING: release/backup pruning failed; retain current deployment.\n' >&2
 

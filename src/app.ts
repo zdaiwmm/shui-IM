@@ -1,4 +1,5 @@
 import QRCode from 'qrcode';
+import { closeDialog, mountDialog } from './lib/dialog';
 import {
   ApiError,
   completeBlob,
@@ -14,6 +15,8 @@ import {
   listDeviceLinks,
   publishMlsMembership,
   publishMlsWelcome,
+  requestRecovery,
+  recoveryStatus,
   reserveBlob,
   RoomSocket,
   uploadBlobChunk,
@@ -43,6 +46,8 @@ import {
   prepareCreatorWelcome,
   prepareMlsMembership,
   processMlsMembership,
+  prepareMlsRecoveryReplacement,
+  verifyRecoveryMembershipChain,
 } from './lib/mls';
 import {
   backgroundNotificationStatus,
@@ -82,6 +87,8 @@ import {
   bindRecoveredVaultToPlatform,
   loadHistoryPage,
   loadHistoryPageAfter,
+  loadHistoryMessage,
+  loadMediaHistoryPage,
   loadOutbox,
   loadPendingReceipts,
   loadUploadPlans,
@@ -94,12 +101,15 @@ import {
   saveUploadPlan,
   saveUiPreferences,
   saveVault,
+  withVaultMutation,
+  finishVaultRecovery,
   unlockRecoveryVault,
   unlockVault,
   type VaultSession,
   type ChatScrollAnchor,
   type UiPreferences,
   type PreparedRecoveryExport,
+  type VaultMutation,
 } from './lib/vault';
 
 type Invite = {
@@ -123,7 +133,7 @@ type DeviceInvite = {
   expiresAt: string;
 };
 
-const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1'];
+const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'recovery-replace-v1'];
 
 type CachedImage = { blob: Blob; url: string; bytes: number; lastUsedAt: number };
 const MAX_IMAGE_CACHE_BYTES = 96 * 1024 * 1024;
@@ -287,7 +297,9 @@ export class QuietRoomApp {
   private sending = new Set<string>();
   private retryTimers = new Map<string, number>();
   private retryCounts = new Map<string, number>();
-  private renderedMessages = new Map<string, { signature: string; element: HTMLElement }>();
+  private renderedMessages = new Map<string, { payload: MessagePayload; status: DecryptedMessage['status']; acceptedAt: string; element: HTMLElement }>();
+  private renderedMessageOrder: HTMLElement[] = [];
+  private renderedMessageSeq = new Map<string, number>();
   private gesturePad: GesturePad | null = null;
   private privacyCovered = true;
   private runtimeAbort: AbortController | null = null;
@@ -298,6 +310,7 @@ export class QuietRoomApp {
   private deferredImageUpload: { files: File[]; destination: 'chat' | 'gallery' } | null = null;
   private unlocking = false;
   private deviceVerificationActive = false;
+  private deviceVerificationToken: symbol | null = null;
   private galleryObserver: IntersectionObserver | null = null;
   private chatImageObserver: IntersectionObserver | null = null;
   private historyHasMore = false;
@@ -306,6 +319,7 @@ export class QuietRoomApp {
   private historyLoading = false;
   private fileExportActive = false;
   private fileExportResetTimer: number | null = null;
+  private fileExportBlurred = false;
   private restoreComposerFocusAfterPicker = false;
   private keepComposerKeyboard = false;
   private composerSelection: { start: number; end: number } | null = null;
@@ -319,6 +333,7 @@ export class QuietRoomApp {
   private galleryScrollTop = 0;
   private chatLayoutObserver: ResizeObserver | null = null;
   private presenceRefreshTimer: number | null = null;
+  private recoveryPollTimer: number | null = null;
   private roleLastSeen: { creator: number | null; joiner: number | null } = { creator: null, joiner: null };
   private viewerKeyHandler: ((event: KeyboardEvent) => void) | null = null;
   private viewerReturnFocus: HTMLElement | null = null;
@@ -328,6 +343,7 @@ export class QuietRoomApp {
   private messageHoldStart: { x: number; y: number } | null = null;
   private suppressMediaClickUntil = 0;
   private messageHighlightTimer: number | null = null;
+  private replyJumpVersion = 0;
 
   constructor(private readonly root: HTMLElement) {
     const preventZoom = (event: Event) => event.preventDefault();
@@ -335,6 +351,12 @@ export class QuietRoomApp {
       const viewport = window.visualViewport;
       document.documentElement.style.setProperty('--app-height', `${Math.round(viewport?.height ?? window.innerHeight)}px`);
       document.documentElement.style.setProperty('--app-top', `${Math.round(viewport?.offsetTop ?? 0)}px`);
+      const actions = this.root.querySelector<HTMLElement>('.message-actions:not(.message-copy-sheet):not(.is-closing)');
+      if (actions) {
+        const source = this.root.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(actions.dataset.sourceId ?? '')}"]`);
+        if (source) this.positionMessageActions(actions, source);
+        else this.closeMessageActions(false, false);
+      }
     };
     syncVisualViewport();
     window.visualViewport?.addEventListener('resize', syncVisualViewport, { passive: true });
@@ -387,16 +409,21 @@ export class QuietRoomApp {
       this.closeMoreMenu(menu, true);
     }, { capture: true });
     document.addEventListener('visibilitychange', () => {
+      if (document.hidden && this.fileExportActive) this.fileExportBlurred = true;
       if (document.hidden && !this.imagePickerActive && !this.deviceVerificationActive && !this.fileExportActive) {
         this.lockNow({ preserveFilePicker: this.filePickerActive });
       }
     });
     window.addEventListener('blur', () => {
+      if (this.fileExportActive) this.fileExportBlurred = true;
       if (!this.imagePickerActive && !this.deviceVerificationActive && !this.fileExportActive) {
         this.lockNow({ preserveFilePicker: this.filePickerActive });
       }
     });
-    window.addEventListener('focus', () => this.finishFileExport());
+    window.addEventListener('focus', () => {
+      this.fileExportBlurred = false;
+      this.finishFileExport();
+    });
     window.addEventListener('pagehide', () => {
       this.finishImagePicker();
       this.lockNow({ preserveFilePicker: false });
@@ -717,36 +744,58 @@ export class QuietRoomApp {
     let busy = false;
     verifyButton.addEventListener('click', () => {
       if (busy) return;
+      const epoch = this.runtimeEpoch;
+      const session = this.session;
+      const active = () => verifyButton.isConnected && !this.privacyCovered && this.runtimeEpoch === epoch && this.session === session;
       busy = true;
       error.textContent = '';
       setBusy(verifyButton, true, preparedPlatformCredential ? '正在重试…' : '正在验证…');
       void (async () => {
         try {
           preparedPlatformCredential ??= await this.withDeviceVerification(() => createPlatformCredential());
+          if (!active()) return;
           setBusy(verifyButton, true, busyLabel);
           await onConfirmed(preparedPlatformCredential);
         } catch (cause) {
-          if (!verifyButton.isConnected) return;
+          if (!active()) return;
           error.textContent = cause instanceof Error ? cause.message : '通行密钥设置失败';
           if (preparedPlatformCredential) verifyButton.dataset.label = '重试';
         } finally {
           busy = false;
-          if (verifyButton.isConnected) setBusy(verifyButton, false);
+          if (active()) setBusy(verifyButton, false);
         }
       })();
     });
   }
 
   private async withDeviceVerification<T>(operation: () => Promise<T>): Promise<T> {
-    // A passkey prompt is allowed to suppress its own blur only before a
-    // decrypted session exists. Migration/recovery binding already holds one,
-    // so those prompts must retain the normal fail-closed lock behavior.
-    if (this.session) return operation();
+    // Recovery/migration have decrypted key material but have not opened a
+    // conversation or socket. Their native prompt needs the same bounded
+    // protection as first-time enrollment. Never exempt an open conversation.
+    if (this.session && (!this.root.querySelector('.gateway') || this.socket)) return operation();
+    const epoch = this.runtimeEpoch;
+    const token = Symbol('device-verification');
+    this.deviceVerificationToken = token;
     this.deviceVerificationActive = true;
-    try {
-      return await operation();
-    } finally {
+    const timer = window.setTimeout(() => {
+      if (this.deviceVerificationToken !== token) return;
+      this.deviceVerificationToken = null;
       this.deviceVerificationActive = false;
+      this.lockNow({ preserveFilePicker: false });
+    }, 65_000);
+    try {
+      const result = await operation();
+      if (this.deviceVerificationToken !== token || this.runtimeEpoch !== epoch || this.privacyCovered) {
+        throw new DOMException('设备验证流程已经结束', 'AbortError');
+      }
+      return result;
+    } finally {
+      window.clearTimeout(timer);
+      if (this.deviceVerificationToken === token) {
+        this.deviceVerificationToken = null;
+        this.deviceVerificationActive = false;
+        if (document.hidden) this.lockNow({ preserveFilePicker: false });
+      }
     }
   }
 
@@ -834,12 +883,16 @@ export class QuietRoomApp {
   }
 
   private async handleCreate(platformResult: PlatformCredentialResult): Promise<void> {
+    const epoch = this.runtimeEpoch;
+    const initialSession = this.session;
+    const active = () => !this.privacyCovered && this.runtimeEpoch === epoch && this.session === initialSession;
     let room: { roomId: string; createdAt: string; protocol: 'legacy-v1' | 'mls-rfc9420' } | null = null;
     let vaultCreated = false;
     const accessToken = randomBase64Url(32);
     const inviteToken = randomBase64Url(32);
     try {
       const identity = await generateIdentity();
+      if (!active()) return;
       const pairingSecret = randomBase64Url(32);
       room = await createRoom(
         identity.publicBundle,
@@ -882,12 +935,9 @@ export class QuietRoomApp {
       };
       vault.mls = await createCreatorMlsState(room.roomId, identity, [creator]);
       identity.mlsPrivatePackage = undefined;
-      const createdSession = await createVault(vault, '', 'platform', platformResult);
+      const createdSession = await createVault(vault, '', 'platform', platformResult, active);
       vaultCreated = true;
-      if (this.privacyCovered) {
-        await deleteRoom(room.roomId, accessToken).catch(() => undefined);
-        return;
-      }
+      if (!active()) return;
       this.session = createdSession;
       await this.openSession();
     } catch (cause) {
@@ -897,6 +947,7 @@ export class QuietRoomApp {
         const persisted = await readStoredVault().catch(() => null);
         if (!persisted) await deleteRoom(room.roomId, accessToken).catch(() => undefined);
       }
+      if (!active()) return;
       throw cause;
     }
   }
@@ -943,9 +994,12 @@ export class QuietRoomApp {
     invite: Invite,
     platformResult: PlatformCredentialResult,
   ): Promise<void> {
+    const epoch = this.runtimeEpoch;
+    const initialSession = this.session;
+    const active = () => !this.privacyCovered && this.runtimeEpoch === epoch && this.session === initialSession;
     try {
       const initialState = await getRoomState(invite.roomId, invite.accessToken);
-      if (this.privacyCovered) return;
+      if (!active()) return;
       const creator = initialState.members.find((member) => member.role === 'creator');
       if (!creator || await bundleFingerprint(memberBundle(creator)) !== invite.creatorFingerprint) {
         throw new Error('创建者身份与邀请不一致，已拒绝加入');
@@ -992,14 +1046,15 @@ export class QuietRoomApp {
           : {}),
       };
       if (initialState.protocol === 'legacy-v1') identity.mlsPrivatePackage = undefined;
-      const createdSession = await createVault(vault, '', 'platform', platformResult);
-      if (this.privacyCovered) return;
+      const createdSession = await createVault(vault, '', 'platform', platformResult, active);
+      if (!active()) return;
       this.session = createdSession;
       history.replaceState(null, '', `${location.pathname}${location.search}`);
       await this.completePendingJoin();
-      if (this.privacyCovered) return;
+      if (!this.isRuntimeActive(epoch, createdSession)) return;
       await this.openSession();
     } catch (cause) {
+      if (this.privacyCovered || this.runtimeEpoch !== epoch) return;
       if (this.session?.vault.pairingState === 'joining') {
         history.replaceState(null, '', `${location.pathname}${location.search}`);
         this.renderPendingJoin(cause);
@@ -1029,7 +1084,11 @@ export class QuietRoomApp {
     invite: DeviceInvite,
     platformResult: PlatformCredentialResult,
   ): Promise<void> {
+    const epoch = this.runtimeEpoch;
+    const initialSession = this.session;
+    const active = () => !this.privacyCovered && this.runtimeEpoch === epoch && this.session === initialSession;
     const status = await getDeviceLinkStatus(invite.linkId, invite.secret);
+    if (!active()) return;
     if (Date.parse(invite.expiresAt) <= Date.now() || status.link.usedAt || status.link.claimedDeviceId) {
       throw new Error('这个设备链接已经失效或已被使用');
     }
@@ -1084,15 +1143,17 @@ export class QuietRoomApp {
       pendingDeviceLinks: [{ linkId: invite.linkId, secret: invite.secret, expiresAt: invite.expiresAt, createdAt }],
       pendingDeviceLinkId: invite.linkId,
     };
-    const createdSession = await createVault(vault, '', 'platform', platformResult);
-    if (this.privacyCovered) return;
+    const createdSession = await createVault(vault, '', 'platform', platformResult, active);
+    if (!active()) return;
     this.session = createdSession;
     history.replaceState(null, '', `${location.pathname}${location.search}`);
     try {
       await this.completePendingDeviceLink();
+      if (!this.isRuntimeActive(epoch, createdSession)) return;
       if (createdSession.vault.pairingState === 'ready') await this.openSession();
       else await this.renderPendingDeviceLink();
     } catch (cause) {
+      if (!this.isRuntimeActive(epoch, createdSession)) return;
       await this.renderPendingDeviceLink(cause);
     }
   }
@@ -1100,9 +1161,11 @@ export class QuietRoomApp {
   private async completePendingDeviceLink(): Promise<void> {
     const session = this.session;
     if (!session || session.vault.pairingState !== 'linking') return;
+    const epoch = this.runtimeEpoch;
     const pending = session.vault.pendingDeviceLinks?.find((item) => item.linkId === session.vault.pendingDeviceLinkId);
     if (!pending) throw new SecurityViolation('本机设备链接凭据缺失');
     let result = await getDeviceLinkStatus(pending.linkId, pending.secret, session.vault.accessToken);
+    if (!this.isRuntimeActive(epoch, session)) return;
     let own = result.state.members.find((member) => member.deviceId === session.vault.identity.publicBundle.deviceId);
     if (!own) {
       result = await claimDeviceLink(
@@ -1113,30 +1176,37 @@ export class QuietRoomApp {
         defaultDeviceName(),
         CLIENT_CAPABILITIES,
       );
+      if (!this.isRuntimeActive(epoch, session)) return;
       own = result.state.members.find((member) => member.deviceId === session.vault.identity.publicBundle.deviceId);
     }
     if (!own || canonicalStringify(memberBundle(own)) !== canonicalStringify(session.vault.identity.publicBundle)) {
       throw new SecurityViolation('服务器返回的新设备身份与本机密钥不一致');
     }
-    await this.applyRoomStateQueued(result.state);
-    own = session.vault.members.find((member) => member.deviceId === session.vault.identity.publicBundle.deviceId);
-    if (own?.status !== 'active' || session.vault.mls?.phase !== 'active') return;
-    session.vault.historyUnavailableBeforeSeq = own.joinSeq ?? result.state.nextSeq;
-    session.vault.lastSeq = Math.max(session.vault.lastSeq, session.vault.historyUnavailableBeforeSeq);
-    session.vault.lastReceiptSeq = Math.max(session.vault.lastReceiptSeq ?? 0, own.joinReceiptSeq ?? 0);
-    session.vault.pairingState = 'ready';
-    session.vault.pendingDeviceLinks = undefined;
-    session.vault.pendingDeviceLinkId = undefined;
-    await saveVault(session);
+    await withVaultMutation(session, async (mutation) => {
+      if (!this.isRuntimeActive(epoch, session)) return;
+      await this.applyRoomState(result.state, mutation);
+      if (!this.isRuntimeActive(epoch, session)) return;
+      own = session.vault.members.find((member) => member.deviceId === session.vault.identity.publicBundle.deviceId);
+      if (own?.status !== 'active' || session.vault.mls?.phase !== 'active') return;
+      session.vault.historyUnavailableBeforeSeq = own.joinSeq ?? result.state.nextSeq;
+      session.vault.lastSeq = Math.max(session.vault.lastSeq, session.vault.historyUnavailableBeforeSeq);
+      session.vault.lastReceiptSeq = Math.max(session.vault.lastReceiptSeq ?? 0, own.joinReceiptSeq ?? 0);
+      session.vault.pairingState = 'ready';
+      session.vault.pendingDeviceLinks = undefined;
+      session.vault.pendingDeviceLinkId = undefined;
+      await saveVault(session, mutation);
+    });
   }
 
   private async renderPendingDeviceLink(cause?: unknown): Promise<void> {
     const session = this.session;
-    if (!session) return;
+    const epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered) return;
     const pending = session.vault.pendingDeviceLinks?.find((item) => item.linkId === session.vault.pendingDeviceLinkId);
     const own = session.vault.members.find((member) => member.deviceId === session.vault.identity.publicBundle.deviceId);
     const authorizer = session.vault.members.find((member) => member.deviceId === own?.addedBy);
     const code = pending && own && authorizer ? await deviceLinkSafetyCode(pending.linkId, authorizer, own) : '无法计算';
+    if (!this.isRuntimeActive(epoch, session)) return;
     this.gatewayTemplate('等待已有设备批准', '两台设备显示相同安全码时，才可以在已有设备上允许加入。', `
       <div class="device-safety-code" aria-label="设备安全码">${code}</div>
       <p class="form-error" role="alert"></p>
@@ -1150,13 +1220,152 @@ export class QuietRoomApp {
       setBusy(button, true, '正在检查…');
       try {
         await this.completePendingDeviceLink();
+        if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
         if (session.vault.pairingState === 'ready') await this.openSession();
         else await this.renderPendingDeviceLink();
       } catch (retryCause) {
-        await this.renderPendingDeviceLink(retryCause);
+        if (this.isRuntimeActive(epoch, session) && button.isConnected) await this.renderPendingDeviceLink(retryCause);
       }
     });
     this.root.querySelector('#pending-device-lock')?.addEventListener('click', () => this.lockNow());
+  }
+
+  private async completePendingRecovery(): Promise<void> {
+    const session = this.session;
+    const pending = session?.vault.pendingRecovery;
+    if (!session || !pending || session.vault.pairingState !== 'recovering') return;
+    const epoch = this.runtimeEpoch;
+    const signal = this.runtimeAbort?.signal;
+    let result: { state: RoomState };
+    try {
+      result = await recoveryStatus(session.vault.roomId, pending.request.requestId, session.vault.accessToken, signal);
+    } catch (cause) {
+      if (!this.isRuntimeActive(epoch, session)) return;
+      if (cause instanceof ApiError && cause.status >= 500) throw cause;
+      result = await requestRecovery(session.vault.roomId, pending.request, session.vault.accessToken,
+        defaultDeviceName(), CLIENT_CAPABILITIES, signal);
+    }
+    if (!this.isRuntimeActive(epoch, session)) return;
+    await withVaultMutation(session, async (mutation) => {
+      if (!this.isRuntimeActive(epoch, session) || !session.vault.pendingRecovery) return;
+      await verifyRecoveryMembershipChain(session.vault, result.state);
+      const ownEvent = result.state.mlsEvents?.find(({ event }) => event.action === 'replace' &&
+        event.targetId === session.vault.identity.publicBundle.deviceId &&
+        event.recoveryRequest?.requestId === pending.request.requestId);
+      if (!ownEvent) return;
+      if (canonicalStringify(ownEvent.event.recoveryRequest) !== canonicalStringify(pending.request)) {
+        throw new SecurityViolation('恢复授权与本机保存的请求不一致');
+      }
+      const own = result.state.members.find((member) => member.deviceId === session.vault.identity.publicBundle.deviceId);
+      if (!own || own.status !== 'active' || !Number.isSafeInteger(own.joinSeq) || !Number.isSafeInteger(own.joinReceiptSeq)) {
+        throw new SecurityViolation('恢复设备尚未获得有效的加入边界');
+      }
+      const nextVault: Vault = {
+        ...session.vault,
+        identity: structuredClone(session.vault.identity),
+        members: result.state.members,
+        mls: { protocol: 'mls-rfc9420', phase: 'awaiting-welcome', lastEventSeq: ownEvent.eventSeq - 1 },
+      };
+      nextVault.mls = await joinMlsMembership(nextVault, ownEvent.event, ownEvent.eventSeq);
+      for (const subsequent of [...(result.state.mlsEvents ?? [])].sort((a, b) => a.eventSeq - b.eventSeq)) {
+        if (subsequent.eventSeq <= ownEvent.eventSeq) continue;
+        nextVault.mls.groupState = await processMlsMembership(nextVault, subsequent.event, subsequent.eventSeq);
+        nextVault.mls.lastEventSeq = subsequent.eventSeq;
+      }
+      nextVault.identity.mlsPrivatePackage = undefined;
+      nextVault.lastSeq = own.joinSeq!;
+      nextVault.lastReceiptSeq = own.joinReceiptSeq!;
+      nextVault.historyUnavailableBeforeSeq = own.joinSeq!;
+      nextVault.pairingState = 'ready';
+      nextVault.pendingRecovery = undefined;
+      nextVault.recoveryExportedAt = undefined;
+      nextVault.pairingSecret = '';
+      nextVault.inviteToken = undefined;
+      if (this.isRuntimeActive(epoch, session)) await finishVaultRecovery(session, nextVault, mutation);
+    });
+  }
+
+  private renderPendingRecovery(cause?: unknown): void {
+    const session = this.session;
+    if (!session || this.privacyCovered) return;
+    const epoch = this.runtimeEpoch;
+    this.gatewayTemplate('等待安全恢复', '请让对方或另一台已授权设备打开会话。在线设备会验证恢复包授权，并为本机建立全新的加密身份。', `
+      <div class="credential-only-step">
+        <p class="field-hint">恢复成功后可收发新消息，旧聊天记录不会转移。原设备将退出；请重新保存新设备的恢复包，旧包将失效。</p>
+        <p class="form-error" id="recovery-wait-error" role="status"></p>
+        <button class="primary-button" id="retry-recovery" type="button">检查恢复进度</button>
+        <button class="text-button" id="restart-recovery" type="button">重新导入恢复包</button>
+        <button class="text-button" id="pending-recovery-lock" type="button">锁定并返回白屏</button>
+      </div>
+    `);
+    const error = this.root.querySelector<HTMLElement>('#recovery-wait-error')!;
+    error.textContent = cause instanceof Error ? cause.message : '等待另一台已授权设备在线…';
+    const check = async () => {
+      if (!this.isRuntimeActive(epoch, session)) return;
+      if (this.recoveryPollTimer !== null) window.clearTimeout(this.recoveryPollTimer);
+      this.recoveryPollTimer = null;
+      const button = this.root.querySelector<HTMLButtonElement>('#retry-recovery');
+      if (!button || button.disabled) return;
+      setBusy(button, true, '正在检查…');
+      try {
+        await this.completePendingRecovery();
+        if (!this.isRuntimeActive(epoch, session)) return;
+        if (session.vault.pairingState !== 'recovering') {
+          await this.openSession();
+          this.showNotice('已使用新的加密身份恢复，请保存新的恢复包');
+          return;
+        }
+      } catch (nextCause) {
+        if (this.isRuntimeActive(epoch, session) && error.isConnected) error.textContent = nextCause instanceof Error ? nextCause.message : '恢复状态暂时不可用';
+      } finally {
+        if (button.isConnected) setBusy(button, false);
+      }
+      if (this.isRuntimeActive(epoch, session) && session.vault.pairingState === 'recovering') {
+        this.recoveryPollTimer = window.setTimeout(() => void check(), 3000);
+      }
+    };
+    this.root.querySelector('#retry-recovery')?.addEventListener('click', () => void check());
+    this.root.querySelector('#pending-recovery-lock')?.addEventListener('click', () => this.lockNow());
+    this.root.querySelector('#restart-recovery')?.addEventListener('click', async () => {
+      await deleteCurrentVault();
+      if (this.isRuntimeActive(epoch, session)) this.lockNow();
+    });
+    this.recoveryPollTimer = window.setTimeout(() => void check(), 1500);
+  }
+
+  private async completeAuthorizedRecoveries(state: RoomState): Promise<void> {
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (!session || session.vault.mls?.phase !== 'active') return;
+    for (const request of state.recoveryRequests ?? []) {
+      if (request.sourceDeviceId === session.vault.identity.publicBundle.deviceId ||
+        request.replacement.deviceId === session.vault.identity.publicBundle.deviceId) continue;
+      const target = state.members.find((member) => member.deviceId === request.replacement.deviceId);
+      if (!target || target.status !== 'pending') continue;
+      try {
+        await withVaultMutation(session, async (mutation) => {
+          if (!this.isRuntimeActive(epoch, session) || !session.vault.mls) return;
+          let pending = session.vault.mls.pendingMembership;
+          if (pending && (pending.event.action !== 'replace' || pending.event.recoveryRequest?.requestId !== request.requestId)) return;
+          if (!pending) {
+            pending = await prepareMlsRecoveryReplacement(session.vault, request, target);
+            session.vault.mls.pendingMembership = pending;
+            await saveVault(session, mutation);
+          }
+          const result = await publishMlsMembership(session.vault.roomId, session.vault.accessToken, pending.event);
+          if (this.isRuntimeActive(epoch, session)) await this.applyRoomState(result.state, mutation);
+        });
+      } catch (cause) {
+        if (!this.isRuntimeActive(epoch, session)) return;
+        if (cause instanceof ApiError && !cause.retryable) {
+          await withVaultMutation(session, async (mutation) => {
+            if (!this.isRuntimeActive(epoch, session) || !session.vault.mls) return;
+            session.vault.mls.pendingMembership = undefined;
+            await saveVault(session, mutation);
+          });
+        } else throw cause;
+      }
+    }
   }
 
   private async openSession(): Promise<void> {
@@ -1166,6 +1375,19 @@ export class QuietRoomApp {
     this.runtimeAbort?.abort();
     this.runtimeAbort = new AbortController();
     this.resetIdleLock();
+    if (session.vault.pairingState === 'recovering') {
+      try {
+        await this.completePendingRecovery();
+      } catch (cause) {
+        if (this.isRuntimeActive(epoch, session)) this.renderPendingRecovery(cause);
+        return;
+      }
+      if (!this.isRuntimeActive(epoch, session)) return;
+      if (session.vault.pairingState === 'recovering') {
+        this.renderPendingRecovery();
+        return;
+      }
+    }
     await this.preferenceSaveChain.catch(() => undefined);
     this.uiPreferences = await loadUiPreferences(session).catch(() => ({}));
     const anchor = this.uiPreferences.chatAnchor;
@@ -1187,8 +1409,6 @@ export class QuietRoomApp {
     this.historyHasNewer = this.historyForwardCursor < session.vault.lastSeq;
     let contiguousSeq = session.vault.historyUnavailableBeforeSeq ?? 0;
     while (this.messages.has(contiguousSeq + 1)) contiguousSeq += 1;
-    session.vault.lastSeq = Math.max(session.vault.lastSeq, contiguousSeq);
-    session.vault.lastReceiptSeq ??= 0;
     const [outbox, pendingReceipts, uploadPlans] = await Promise.all([
       loadOutbox(session),
       loadPendingReceipts(session),
@@ -1207,23 +1427,30 @@ export class QuietRoomApp {
     this.pendingReceipts = new Map(pendingReceipts.map((receipt) => [receipt.clientMsgId, receipt]));
     this.uploadPlans = uploadPlans;
     this.restoreChatAnchorOnNextRender = true;
-    await saveVault(session);
+    await withVaultMutation(session, async (mutation) => {
+      if (!this.isRuntimeActive(epoch, session)) return;
+      session.vault.lastSeq = Math.max(session.vault.lastSeq, contiguousSeq);
+      session.vault.lastReceiptSeq ??= 0;
+      await saveVault(session, mutation);
+    });
     if (!this.isRuntimeActive(epoch, session)) return;
     if (session.vault.pairingState === 'joining') {
       try {
         await this.completePendingJoin();
       } catch (cause) {
-        this.renderPendingJoin(cause);
+        if (this.isRuntimeActive(epoch, session)) this.renderPendingJoin(cause);
         return;
       }
     }
+    if (!this.isRuntimeActive(epoch, session)) return;
     if (session.vault.pairingState === 'linking') {
       try {
         await this.completePendingDeviceLink();
       } catch (cause) {
-        await this.renderPendingDeviceLink(cause);
+        if (this.isRuntimeActive(epoch, session)) await this.renderPendingDeviceLink(cause);
         return;
       }
+      if (!this.isRuntimeActive(epoch, session)) return;
       if (session.vault.pairingState === 'linking') {
         await this.renderPendingDeviceLink();
         return;
@@ -1255,14 +1482,20 @@ export class QuietRoomApp {
       CLIENT_CAPABILITIES,
     );
     if (!this.isRuntimeActive(epoch, session)) return;
-    await this.applyRoomStateQueued(state);
-    if (!this.isRuntimeActive(epoch, session)) return;
-    session.vault.pairingState = 'ready';
-    session.vault.inviteToken = undefined;
-    await saveVault(session);
+    await withVaultMutation(session, async (mutation) => {
+      if (!this.isRuntimeActive(epoch, session)) return;
+      await this.applyRoomState(state, mutation);
+      if (!this.isRuntimeActive(epoch, session)) return;
+      session.vault.pairingState = 'ready';
+      session.vault.inviteToken = undefined;
+      await saveVault(session, mutation);
+    });
   }
 
   private renderPendingJoin(cause?: unknown): void {
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered) return;
     this.setActiveSurface('away');
     document.body.className = 'app-mode';
     this.gatewayTemplate('正在完成设备绑定', '本机密钥已经安全保存。网络恢复后可使用同一身份继续，不会占用新的名额。', `
@@ -1272,7 +1505,8 @@ export class QuietRoomApp {
         <button class="text-button" id="pending-lock" type="button">锁定并返回白屏</button>
       </div>
     `);
-    this.root.querySelector<HTMLElement>('#pending-join-error')!.textContent = cause instanceof Error
+    const error = this.root.querySelector<HTMLElement>('#pending-join-error')!;
+    error.textContent = cause instanceof Error
       ? cause.message
       : '绑定尚未完成';
     this.root.querySelector('#retry-join')?.addEventListener('click', async (event) => {
@@ -1280,9 +1514,11 @@ export class QuietRoomApp {
       setBusy(button, true, '正在重试…');
       try {
         await this.completePendingJoin();
+        if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
         await this.openSession();
       } catch (retryCause) {
-        this.root.querySelector<HTMLElement>('#pending-join-error')!.textContent = retryCause instanceof Error
+        if (!this.isRuntimeActive(epoch, session) || !error.isConnected) return;
+        error.textContent = retryCause instanceof Error
           ? retryCause.message
           : '绑定失败，请检查网络后重试';
         setBusy(button, false);
@@ -1296,13 +1532,15 @@ export class QuietRoomApp {
     const epoch = this.runtimeEpoch;
     const operation = this.membershipChain.catch(() => undefined).then(async () => {
       if (!session || !this.isRuntimeActive(epoch, session)) return;
-      await this.applyRoomState(state);
+      await withVaultMutation(session, async (mutation) => {
+        if (this.isRuntimeActive(epoch, session)) await this.applyRoomState(state, mutation);
+      });
     });
     this.membershipChain = operation.catch(() => undefined);
     return operation;
   }
 
-  private async applyRoomState(state: RoomState): Promise<void> {
+  private async applyRoomState(state: RoomState, mutation: VaultMutation): Promise<void> {
     const session = this.session;
     if (!session || state.roomId !== session.vault.roomId) throw new SecurityViolation('会话状态不匹配');
     const localProtocol = session.vault.protocol ?? 'legacy-v1';
@@ -1382,7 +1620,13 @@ export class QuietRoomApp {
         }
         session.vault.mls.lastEventSeq = serverEvent.eventSeq;
         if (serverEvent.event.action === 'add') trustedDeviceIds.add(serverEvent.event.targetId);
-        else trustedDeviceIds.delete(serverEvent.event.targetId);
+        else if (serverEvent.event.action === 'replace') {
+          if (!serverEvent.event.replacedDeviceId || !trustedDeviceIds.has(serverEvent.event.replacedDeviceId)) {
+            throw new SecurityViolation('恢复替换的原设备不在可信成员中');
+          }
+          trustedDeviceIds.delete(serverEvent.event.replacedDeviceId);
+          trustedDeviceIds.add(serverEvent.event.targetId);
+        } else trustedDeviceIds.delete(serverEvent.event.targetId);
       }
       if ((state.nextMlsEventSeq ?? 0) !== (session.vault.mls.lastEventSeq ?? 0)) {
         throw new SecurityViolation('服务器未提供完整的 MLS 设备变更记录');
@@ -1394,7 +1638,7 @@ export class QuietRoomApp {
       session.vault.inviteToken = undefined;
       session.vault.pairingSecret = '';
     }
-    await saveVault(session);
+    await saveVault(session, mutation);
   }
 
   private isRuntimeActive(epoch: number, session: VaultSession): boolean {
@@ -1500,6 +1744,8 @@ export class QuietRoomApp {
       if (!this.isRuntimeActive(epoch, session)) return;
       await this.ensureMlsReady(state);
       if (!this.isRuntimeActive(epoch, session)) return;
+      await this.completeAuthorizedRecoveries(state);
+      if (!this.isRuntimeActive(epoch, session)) return;
       const mlsBecameReady = !mlsWasReady && session.vault.mls?.phase === 'active';
       const activeRoleCount = new Set(state.members.filter((member) => member.status === undefined || member.status === 'active').map((member) => member.role)).size;
       if ((before < 2 && activeRoleCount === 2) || mlsBecameReady) {
@@ -1520,6 +1766,15 @@ export class QuietRoomApp {
 
   private async ensureMlsReady(state: RoomState): Promise<void> {
     const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (!session) return;
+    await withVaultMutation(session, async (mutation) => {
+      if (this.isRuntimeActive(epoch, session)) await this.ensureMlsReadyLocked(state, mutation);
+    });
+  }
+
+  private async ensureMlsReadyLocked(state: RoomState, mutation: VaultMutation): Promise<void> {
+    const session = this.session;
     if (!session || session.vault.protocol !== 'mls-rfc9420' || !session.vault.mls) return;
     if (session.vault.role === 'creator') {
       if (state.mlsWelcome) {
@@ -1529,13 +1784,13 @@ export class QuietRoomApp {
         }
         if (pending) {
           session.vault.mls = { ...session.vault.mls, pendingWelcome: undefined };
-          await saveVault(session);
+          await saveVault(session, mutation);
         }
         return;
       }
       if (new Set(state.members.filter((member) => member.status === undefined || member.status === 'active').map((member) => member.role)).size < 2) return;
       session.vault.mls = await prepareCreatorWelcome(session.vault);
-      await saveVault(session);
+      await saveVault(session, mutation);
       const pending = session.vault.mls.pendingWelcome;
       if (!pending) throw new Error('MLS 欢迎消息没有持久化');
       const published = await publishMlsWelcome(session.vault.roomId, session.vault.accessToken, pending);
@@ -1543,17 +1798,27 @@ export class QuietRoomApp {
         throw new SecurityViolation('服务器没有确认相同的 MLS 欢迎消息');
       }
       session.vault.mls = { ...session.vault.mls, pendingWelcome: undefined };
-      await saveVault(session);
+      await saveVault(session, mutation);
       return;
     }
     if (session.vault.mls.phase === 'active') return;
     if (!state.mlsWelcome) return;
     session.vault.mls = await joinMlsGroup(session.vault, state.mlsWelcome);
     session.vault.identity.mlsPrivatePackage = undefined;
-    await saveVault(session);
+    await saveVault(session, mutation);
   }
 
   private async drainServerQueue(requestMore = false): Promise<void> {
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered) return;
+    await withVaultMutation(session, async (mutation) => {
+      if (this.isRuntimeActive(epoch, session)) await this.drainServerQueueLocked(requestMore, mutation);
+    });
+    if (this.isRuntimeActive(epoch, session)) await this.drainReceiptQueue();
+  }
+
+  private async drainServerQueueLocked(requestMore: boolean, mutation: VaultMutation): Promise<void> {
     const session = this.session;
     if (this.draining || !session || this.privacyCovered) return;
     const epoch = this.runtimeEpoch;
@@ -1606,21 +1871,21 @@ export class QuietRoomApp {
           if (!ownRole) {
             receipt = await createDeliveryReceipt(session.vault, serverMessage);
             if (!this.isRuntimeActive(epoch, session)) return;
-            if (!nextMlsGroupState) await savePendingReceipt(session, receipt);
+            if (!nextMlsGroupState) await savePendingReceipt(session, receipt, mutation);
           }
           const previousSeq = session.vault.lastSeq;
           session.vault.lastSeq = message.seq;
           if (nextMlsGroupState) {
             try {
-              await commitMlsReceive(session, message, nextMlsGroupState, receipt ?? undefined);
+              await commitMlsReceive(session, message, nextMlsGroupState, receipt ?? undefined, mutation);
             } catch (cause) {
               session.vault.lastSeq = previousSeq;
               throw cause;
             }
           } else {
-            await saveHistoryMessage(session, message);
+            await saveHistoryMessage(session, message, mutation);
             try {
-              await saveVault(session);
+              await saveVault(session, mutation);
             } catch (cause) {
               session.vault.lastSeq = previousSeq;
               throw cause;
@@ -1628,7 +1893,7 @@ export class QuietRoomApp {
           }
           if (ownDevice) {
             this.clearRetry(message.clientMsgId);
-            await deleteOutboxItem(session, message.clientMsgId);
+            await deleteOutboxItem(session, message.clientMsgId, mutation);
           }
           if (!this.isRuntimeActive(epoch, session)) return;
           this.messages.set(message.seq, message);
@@ -1656,13 +1921,21 @@ export class QuietRoomApp {
       if (requestMore || [...this.serverQueue.keys()].some((seq) => seq > session.vault.lastSeq + 1)) {
         this.socket?.requestSync(session.vault.lastSeq);
       }
-      await this.drainReceiptQueue();
     } finally {
       if (this.runtimeEpoch === epoch) this.draining = false;
     }
   }
 
   private async drainReceiptQueue(requestMore = false): Promise<void> {
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered) return;
+    await withVaultMutation(session, async (mutation) => {
+      if (this.isRuntimeActive(epoch, session)) await this.drainReceiptQueueLocked(requestMore, mutation);
+    });
+  }
+
+  private async drainReceiptQueueLocked(requestMore: boolean, mutation: VaultMutation): Promise<void> {
     const session = this.session;
     if (!session || this.privacyCovered || this.receiptDraining) return;
     const epoch = this.runtimeEpoch;
@@ -1675,12 +1948,14 @@ export class QuietRoomApp {
           const previousReceiptSeq = session.vault.lastReceiptSeq ?? 0;
           session.vault.lastReceiptSeq = expected;
           try {
-            await saveVault(session);
+            await saveVault(session, mutation);
           } catch (cause) {
             session.vault.lastReceiptSeq = previousReceiptSeq;
+            if (!this.isRuntimeActive(epoch, session)) return;
             this.operationalError(cause);
             return;
           }
+          if (!this.isRuntimeActive(epoch, session)) return;
           this.receiptQueue.delete(expected);
           expected += 1;
           continue;
@@ -1705,17 +1980,18 @@ export class QuietRoomApp {
         try {
           if (this.isOwnMessage(message)) {
             message.status = 'delivered';
-            await saveHistoryMessage(session, message);
+            await saveHistoryMessage(session, message, mutation);
           }
           if (!this.isRuntimeActive(epoch, session)) return;
           const previousReceiptSeq = session.vault.lastReceiptSeq ?? 0;
           session.vault.lastReceiptSeq = expected;
           try {
-            await saveVault(session);
+            await saveVault(session, mutation);
           } catch (cause) {
             session.vault.lastReceiptSeq = previousReceiptSeq;
             throw cause;
           }
+          if (!this.isRuntimeActive(epoch, session)) return;
           this.receiptQueue.delete(expected);
           expected += 1;
         } catch (cause) {
@@ -1723,6 +1999,7 @@ export class QuietRoomApp {
           return;
         }
       }
+      if (!this.isRuntimeActive(epoch, session)) return;
       this.renderMessages();
       if (requestMore || [...this.receiptQueue.keys()].some((seq) => seq > (session.vault.lastReceiptSeq ?? 0) + 1)) {
         this.socket?.requestReceiptSync(session.vault.lastReceiptSeq ?? 0);
@@ -1770,15 +2047,25 @@ export class QuietRoomApp {
       errorCorrectionLevel: 'M',
     });
     this.root.querySelector('#copy-invite')?.addEventListener('click', async (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
+      const session = this.session;
+      const epoch = this.runtimeEpoch;
+      if (!session || this.privacyCovered) return;
       try {
         await navigator.clipboard.writeText(inviteUrl);
       } catch {
+        if (!this.isRuntimeActive(epoch, session) || !input.isConnected) return;
         input.select();
-        document.execCommand('copy');
+        if (!document.execCommand('copy')) {
+          button.textContent = '请选择链接后复制';
+          return;
+        }
       }
-      const button = event.currentTarget as HTMLButtonElement;
+      if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
       button.textContent = '已复制';
-      window.setTimeout(() => { button.textContent = '复制邀请链接'; }, 1600);
+      window.setTimeout(() => {
+        if (this.isRuntimeActive(epoch, session) && button.isConnected) button.textContent = '复制邀请链接';
+      }, 1600);
     });
     this.root.querySelector('#pairing-lock')?.addEventListener('click', () => this.lockNow());
     this.updateConnectionStatus();
@@ -1808,14 +2095,14 @@ export class QuietRoomApp {
               <summary class="icon-button" aria-label="更多操作">${icons.more}</summary>
               <div class="menu-panel">
                 <p class="menu-title">本机安全</p>
-                <p class="protocol-label">${this.session.vault.protocol === 'mls-rfc9420' ? 'RFC 9420 MLS · 前向保密' : '旧版静态会话密钥 · 建议重建会话'}</p>
+                <p class="protocol-label">${this.session.vault.protocol === 'mls-rfc9420' ? '端到端加密' : '旧版会话，建议重新建立'}</p>
                 <p class="safety-label">设备安全码</p>
                 <code class="safety-code" id="safety-code">正在计算…</code>
                 <button id="manage-devices" type="button">${icons.lock}<span>设备管理</span></button>
                 <button id="toggle-notifications" type="button">${icons.bell}<span>后台通知：正在检查…</span></button>
                 <button id="export-recovery" type="button">${icons.download}<span>导出加密恢复包</span></button>
                 <button id="lock-room" type="button">${icons.lock}<span>立即锁定</span></button>
-                <p class="menu-footnote">每台设备使用独立密钥；新设备不会获得加入前的消息密钥。</p>
+                <p class="menu-footnote">新设备只能查看加入后的消息。</p>
               </div>
             </details>
           </nav>
@@ -1823,7 +2110,7 @@ export class QuietRoomApp {
         <div class="system-notices" aria-label="本机安全提醒">
           ${cryptoReady ? '' : `
             <aside class="crypto-reminder">
-              <div><strong>正在建立前向保密会话</strong><span>MLS 欢迎消息完成验证前不会发送任何内容。</span></div>
+              <div><strong>正在建立安全会话</strong><span>验证完成后即可发送消息。</span></div>
             </aside>
           `}
           ${this.session.vault.recoveryExportedAt || this.uiPreferences.recoveryReminderDismissed ? '' : `
@@ -1860,6 +2147,7 @@ export class QuietRoomApp {
     this.root.querySelector('#composer')?.addEventListener('submit', (event) => void this.handleSendText(event));
     this.root.querySelector('#message-list')?.addEventListener('scroll', (event) => {
       const list = event.currentTarget as HTMLElement;
+      if (this.root.querySelector('.message-actions:not(.message-copy-sheet):not(.is-closing)')) this.closeMessageActions(false, false);
       if (list.scrollTop < 80) void this.loadOlderHistory(list);
       if (list.scrollHeight - list.scrollTop - list.clientHeight < 80) void this.loadNewerHistory(list);
       this.captureChatAnchor(true);
@@ -1965,8 +2253,8 @@ export class QuietRoomApp {
     window.setTimeout(() => {
       menu.open = false;
       menu.classList.remove('is-closing');
-      if (restoreFocus) menu.querySelector<HTMLElement>('summary')?.focus();
-    }, 240);
+      if (restoreFocus && menu.isConnected && !this.privacyCovered) menu.querySelector<HTMLElement>('summary')?.focus({ preventScroll: true });
+    }, matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 160);
   }
 
   private async renderDeviceManager(): Promise<void> {
@@ -1982,7 +2270,7 @@ export class QuietRoomApp {
         </header>
         <div class="notice device-notice" id="notice" role="status" hidden></div>
         <main class="device-content">
-          <aside class="device-security-note"><strong>端到端加密不会降级</strong><span>批准设备会生成 MLS Add 提交并轮换群组密钥；移除设备会生成 MLS Remove 提交。服务器只保存公钥、密文和加入边界。</span></aside>
+          <aside class="device-security-note"><strong>你来决定哪些设备可以加入</strong><span>新设备只能查看加入后的消息。移除设备后，它将无法接收新消息。</span></aside>
           <div class="device-loading">正在验证设备状态…</div>
         </main>
       </section>
@@ -2101,7 +2389,8 @@ export class QuietRoomApp {
 
   private async startDeviceLink(button: HTMLButtonElement): Promise<void> {
     const session = this.session;
-    if (!session) return;
+    const epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered) return;
     setBusy(button, true, '正在生成…');
     try {
       const own = session.vault.members.find((member) => member.deviceId === session.vault.identity.publicBundle.deviceId);
@@ -2118,13 +2407,19 @@ export class QuietRoomApp {
         linkId,
         secret,
         expiresAt,
+        this.runtimeAbort?.signal,
       );
+      if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
       const pending = { linkId, secret, expiresAt, createdAt };
-      session.vault.pendingDeviceLinks = [
-        ...(session.vault.pendingDeviceLinks ?? []).filter((item) => Date.parse(item.expiresAt) > Date.now()),
-        pending,
-      ];
-      await saveVault(session);
+      await withVaultMutation(session, async (mutation) => {
+        if (!this.isRuntimeActive(epoch, session)) return;
+        session.vault.pendingDeviceLinks = [
+          ...(session.vault.pendingDeviceLinks ?? []).filter((item) => Date.parse(item.expiresAt) > Date.now()),
+          pending,
+        ];
+        await saveVault(session, mutation);
+      });
+      if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
       const invite: DeviceInvite = {
         v: 1,
         kind: 'device-link',
@@ -2137,15 +2432,17 @@ export class QuietRoomApp {
         creatorFingerprint: await bundleFingerprint(memberBundle(creator)),
         expiresAt,
       };
-      await this.showDeviceInvite(invite);
+      if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
+      await this.showDeviceInvite(invite, session, epoch, button);
     } catch (cause) {
-      this.operationalError(cause, '设备链接生成失败');
+      if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '设备链接生成失败');
     } finally {
       if (button.isConnected) setBusy(button, false);
     }
   }
 
-  private async showDeviceInvite(invite: DeviceInvite): Promise<void> {
+  private async showDeviceInvite(invite: DeviceInvite, session = this.session, epoch = this.runtimeEpoch, returnFocus?: HTMLElement): Promise<void> {
+    if (!session || !this.isRuntimeActive(epoch, session)) return;
     const url = makeDeviceInviteUrl(invite);
     const sheet = document.createElement('section');
     sheet.className = 'device-link-sheet';
@@ -2165,27 +2462,36 @@ export class QuietRoomApp {
     const input = sheet.querySelector<HTMLInputElement>('input')!;
     input.value = url;
     this.root.append(sheet);
-    await QRCode.toCanvas(sheet.querySelector('canvas'), url, {
-      width: 232,
-      margin: 1,
-      color: { dark: '#2f4037', light: '#f5f3ee' },
-      errorCorrectionLevel: 'M',
+    const dialog = mountDialog(sheet, {
+      isActive: () => this.isRuntimeActive(epoch, session),
+      signal: this.runtimeAbort?.signal,
+      returnFocus,
+      initialFocus: sheet.querySelector<HTMLButtonElement>('[data-close]'),
     });
-    const close = () => sheet.remove();
-    sheet.querySelector('[data-close]')?.addEventListener('click', close);
+    sheet.querySelector('[data-close]')?.addEventListener('click', () => dialog.close());
+    sheet.addEventListener('click', (event) => { if (event.target === sheet) dialog.close(); });
     sheet.querySelector('[data-copy]')?.addEventListener('click', async (event) => {
+      const button = event.currentTarget as HTMLButtonElement;
       try {
         await navigator.clipboard.writeText(url);
-        (event.currentTarget as HTMLButtonElement).textContent = '已复制';
+        if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected) return;
+        button.textContent = '已复制';
       } catch {
+        if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected) return;
         input.select();
-        document.execCommand('copy');
+        button.textContent = document.execCommand('copy') ? '已复制' : '请选择链接后复制';
       }
     });
-    sheet.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') close();
-    });
-    sheet.querySelector<HTMLButtonElement>('[data-close]')?.focus();
+    try {
+      await QRCode.toCanvas(sheet.querySelector('canvas'), url, {
+        width: 232,
+        margin: 1,
+        color: { dark: '#2f4037', light: '#f5f3ee' },
+        errorCorrectionLevel: 'M',
+      });
+    } catch {
+      if (this.isRuntimeActive(epoch, session) && sheet.isConnected) this.showNotice('二维码暂时无法生成，可以复制设备链接');
+    }
   }
 
   private async changeMlsMembership(
@@ -2195,25 +2501,33 @@ export class QuietRoomApp {
   ): Promise<void> {
     const session = this.session;
     if (!session?.vault.mls) return;
+    const epoch = this.runtimeEpoch;
     setBusy(button, true, action === 'add' ? '正在安全加入…' : '正在移除…');
     try {
-      let pending = session.vault.mls.pendingMembership;
-      if (pending && (pending.event.action !== action || pending.event.targetId !== target.deviceId)) {
-        throw new Error('另一个设备变更尚待服务器确认，请先刷新');
-      }
-      if (!pending) {
-        pending = await prepareMlsMembership(session.vault, action, target);
-        session.vault.mls.pendingMembership = pending;
-        await saveVault(session);
-      }
-      const result = await publishMlsMembership(session.vault.roomId, session.vault.accessToken, pending.event);
-      await this.applyRoomStateQueued(result.state);
+      await withVaultMutation(session, async (mutation) => {
+        if (!this.isRuntimeActive(epoch, session) || !session.vault.mls) return;
+        let pending = session.vault.mls.pendingMembership;
+        if (pending && (pending.event.action !== action || pending.event.targetId !== target.deviceId)) {
+          throw new Error('另一个设备变更尚待服务器确认，请先刷新');
+        }
+        if (!pending) {
+          pending = await prepareMlsMembership(session.vault, action, target);
+          session.vault.mls.pendingMembership = pending;
+          await saveVault(session, mutation);
+        }
+        const result = await publishMlsMembership(session.vault.roomId, session.vault.accessToken, pending.event);
+        if (this.isRuntimeActive(epoch, session)) await this.applyRoomState(result.state, mutation);
+      });
+      if (!this.isRuntimeActive(epoch, session)) return;
       this.showNotice(action === 'add' ? '新设备已加入；群组密钥已轮换' : '设备已移除；之后的新消息密钥已轮换');
       await this.renderDeviceManager();
     } catch (cause) {
-      if (cause instanceof ApiError && !cause.retryable && session.vault.mls.pendingMembership) {
-        session.vault.mls.pendingMembership = undefined;
-        await saveVault(session).catch(() => undefined);
+      if (cause instanceof ApiError && !cause.retryable) {
+        await withVaultMutation(session, async (mutation) => {
+          if (!this.isRuntimeActive(epoch, session) || !session.vault.mls) return;
+          session.vault.mls.pendingMembership = undefined;
+          await saveVault(session, mutation);
+        }).catch(() => undefined);
       }
       this.operationalError(cause, action === 'add' ? '设备加入失败' : '设备移除失败');
       if (button.isConnected) setBusy(button, false);
@@ -2231,7 +2545,7 @@ export class QuietRoomApp {
     this.pageTransitionTimer = window.setTimeout(() => {
       delete this.root.dataset.pageTransition;
       this.pageTransitionTimer = null;
-    }, 420);
+    }, 200);
   }
 
   private setActiveSurface(surface: 'away' | 'chat'): void {
@@ -2243,18 +2557,27 @@ export class QuietRoomApp {
   private captureChatAnchor(persist = false, preservePosition = false): ChatScrollAnchor | null {
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!list) return this.uiPreferences.chatAnchor ?? null;
-    const articles = [...list.querySelectorAll<HTMLElement>('.message[data-client-msg-id]')];
+    const articles = this.renderedMessageOrder[0]?.parentElement === list
+      ? this.renderedMessageOrder
+      : [...list.querySelectorAll<HTMLElement>('.message[data-client-msg-id]')];
     if (articles.length === 0) return null;
     const pinnedToBottom = !preservePosition && list.scrollHeight - list.scrollTop - list.clientHeight <= 48;
     const listTop = list.getBoundingClientRect().top;
-    const visible = pinnedToBottom
-      ? articles.at(-1)!
-      : articles.find((article) => article.getBoundingClientRect().bottom > listTop) ?? articles[0]!;
+    // Message rows are laid out monotonically. Avoid reading every older row
+    // (and sorting every payload) on each touch-scroll event.
+    let low = 0;
+    let high = articles.length - 1;
+    while (!pinnedToBottom && low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (articles[middle]!.getBoundingClientRect().bottom > listTop) high = middle;
+      else low = middle + 1;
+    }
+    const visible = pinnedToBottom ? articles.at(-1)! : articles[low]!;
     const clientMsgId = visible.dataset.clientMsgId ?? '';
-    const message = this.orderedMessages().find((item) => item.clientMsgId === clientMsgId);
-    if (!message || !clientMsgId) return null;
-    const seq = Number.isSafeInteger(message.seq) && message.seq < Number.MAX_SAFE_INTEGER
-      ? message.seq
+    const messageSeq = this.renderedMessageSeq.get(clientMsgId);
+    if (messageSeq === undefined || !clientMsgId) return null;
+    const seq = Number.isSafeInteger(messageSeq) && messageSeq < Number.MAX_SAFE_INTEGER
+      ? messageSeq
       : this.session?.vault.lastSeq ?? 0;
     const anchor: ChatScrollAnchor = {
       clientMsgId,
@@ -2342,7 +2665,9 @@ export class QuietRoomApp {
 
   private async handleSendText(event: Event): Promise<void> {
     event.preventDefault();
-    if (!this.session) return;
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered) return;
     const input = this.root.querySelector<HTMLTextAreaElement>('#message-input');
     const text = input?.value.trim() ?? '';
     const retainKeyboard = Boolean(input && (document.activeElement === input || this.keepComposerKeyboard));
@@ -2367,12 +2692,14 @@ export class QuietRoomApp {
     }
     try {
       await this.enqueuePayload(payload);
+      if (!this.isRuntimeActive(epoch, session)) return;
       if (this.replyTarget?.clientMsgId === replyTarget?.clientMsgId) {
         this.replyTarget = null;
         this.renderReplyDraft();
       }
     } catch (cause) {
-      if (input && !input.value) {
+      if (!this.isRuntimeActive(epoch, session)) return;
+      if (input?.isConnected && !input.value) {
         input.value = text;
         input.dispatchEvent(new Event('input'));
       }
@@ -2383,12 +2710,26 @@ export class QuietRoomApp {
   }
 
   private enqueuePayload(payload: MessagePayload, existingClientMsgId?: string): Promise<void> {
-    const operation = this.sendChain.catch(() => undefined).then(() => this.sendPayload(payload, existingClientMsgId));
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    const operation = this.sendChain.catch(() => undefined).then(() => {
+      if (!session || !this.isRuntimeActive(epoch, session)) return;
+      return this.sendPayload(payload, existingClientMsgId);
+    });
     this.sendChain = operation.catch(() => undefined);
     return operation;
   }
 
   private async sendPayload(payload: MessagePayload, existingClientMsgId?: string): Promise<void> {
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered) return;
+    await withVaultMutation(session, async (mutation) => {
+      if (this.isRuntimeActive(epoch, session)) await this.sendPayloadLocked(payload, existingClientMsgId, mutation);
+    });
+  }
+
+  private async sendPayloadLocked(payload: MessagePayload, existingClientMsgId: string | undefined, mutation: VaultMutation): Promise<void> {
     const session = this.session;
     if (!session || this.privacyCovered) return;
     if (session.vault.protocol === 'mls-rfc9420' && session.vault.mls?.phase !== 'active') {
@@ -2405,9 +2746,9 @@ export class QuietRoomApp {
       if (session.vault.protocol === 'mls-rfc9420') {
         const encrypted = await encryptMlsApplication(session.vault, payload, clientMsgId);
         outboxItem.envelope = encrypted.envelope;
-        await commitMlsSend(session, outboxItem, encrypted.nextGroupState);
+        await commitMlsSend(session, outboxItem, encrypted.nextGroupState, mutation);
       } else {
-        await saveOutboxItem(session, outboxItem);
+        await saveOutboxItem(session, outboxItem, mutation);
       }
     } catch (cause) {
       this.operationalError(cause, '消息未能写入本机加密待发箱，因此没有发送');
@@ -2457,13 +2798,24 @@ export class QuietRoomApp {
 
   private async reencryptOutboxItem(clientMsgId: string): Promise<void> {
     const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered) return;
+    await withVaultMutation(session, async (mutation) => {
+      if (this.isRuntimeActive(epoch, session)) await this.reencryptOutboxItemLocked(clientMsgId, mutation);
+    });
+  }
+
+  private async reencryptOutboxItemLocked(clientMsgId: string, mutation: VaultMutation): Promise<void> {
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
     const item = this.outbox.get(clientMsgId);
     if (!session || !item || session.vault.protocol !== 'mls-rfc9420') return;
     this.clearRetry(clientMsgId);
     const encrypted = await encryptMlsApplication(session.vault, item.payload, clientMsgId);
-    item.envelope = encrypted.envelope;
-    await commitMlsSend(session, item, encrypted.nextGroupState);
-    this.outbox.set(clientMsgId, item);
+    const nextItem: OutboxItem = { ...item, envelope: encrypted.envelope };
+    await commitMlsSend(session, nextItem, encrypted.nextGroupState, mutation);
+    if (!this.isRuntimeActive(epoch, session)) return;
+    this.outbox.set(clientMsgId, nextItem);
     const pending = this.pending.get(clientMsgId);
     if (pending) pending.status = 'pending';
     this.showNotice('设备列表刚刚更新，待发消息已使用新密钥重新加密');
@@ -2506,11 +2858,15 @@ export class QuietRoomApp {
   }
 
   private async acknowledgeReceipt(clientMsgId: string): Promise<void> {
-    if (!this.session || !this.pendingReceipts.has(clientMsgId)) return;
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (!session || !this.pendingReceipts.has(clientMsgId)) return;
     try {
-      await deletePendingReceipt(this.session, clientMsgId);
+      await deletePendingReceipt(session, clientMsgId);
+      if (!this.isRuntimeActive(epoch, session)) return;
       this.pendingReceipts.delete(clientMsgId);
     } catch (cause) {
+      if (!this.isRuntimeActive(epoch, session)) return;
       this.operationalError(cause, '送达回执已被服务器确认，但本机队列清理失败');
     }
   }
@@ -2805,11 +3161,15 @@ export class QuietRoomApp {
         reject(signal.reason);
         return;
       }
-      const timer = window.setTimeout(resolve, milliseconds);
-      signal?.addEventListener('abort', () => {
+      const abort = () => {
         window.clearTimeout(timer);
-        reject(signal.reason);
-      }, { once: true });
+        reject(signal?.reason);
+      };
+      const timer = window.setTimeout(() => {
+        signal?.removeEventListener('abort', abort);
+        resolve();
+      }, milliseconds);
+      signal?.addEventListener('abort', abort, { once: true });
     });
   }
 
@@ -2849,9 +3209,9 @@ export class QuietRoomApp {
   }
 
   private localReplyPreview(reference: ReplyReference): string {
-    const target = this.orderedMessages().find((message) => message.clientMsgId === reference.clientMsgId);
-    if (target) return this.replyPreviewForMessage(target);
-    return reference.kind === 'text' ? '历史文字消息（本机无记录）' : '历史图片（本机无记录）';
+    const target = this.messages.get(reference.serverSeq);
+    if (target?.clientMsgId === reference.clientMsgId) return this.replyPreviewForMessage(target);
+    return reference.kind === 'text' ? '较早的文字消息 · 点按查看' : '较早的图片 · 点按查看';
   }
 
   private replyReference(message: DecryptedMessage): ReplyReference {
@@ -2936,7 +3296,8 @@ export class QuietRoomApp {
   }
 
   private openMessageActions(article: HTMLElement, message: DecryptedMessage): void {
-    this.closeMessageActions();
+    if (!this.session || this.privacyCovered || !article.isConnected) return;
+    this.closeMessageActions(false, false);
     const actions = document.createElement('div');
     actions.className = 'message-actions';
     actions.setAttribute('role', 'menu');
@@ -2965,6 +3326,24 @@ export class QuietRoomApp {
     }
     if (!actionButtons.length) return;
     this.root.append(actions);
+    this.positionMessageActions(actions, article);
+    actions.addEventListener('keydown', (event) => {
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End', 'Tab'].includes(event.key)) return;
+      event.preventDefault();
+      const index = actionButtons.indexOf(document.activeElement as HTMLButtonElement);
+      const step = event.key === 'ArrowUp' || (event.key === 'Tab' && event.shiftKey) ? -1 : 1;
+      const target = event.key === 'Home' ? 0 : event.key === 'End' ? actionButtons.length - 1
+        : (index + step + actionButtons.length) % actionButtons.length;
+      actionButtons[target]?.focus({ preventScroll: true });
+    });
+    requestAnimationFrame(() => {
+      if (!actions.isConnected || this.privacyCovered) return;
+      actions.classList.add('is-visible');
+      actionButtons[0]?.focus({ preventScroll: true });
+    });
+  }
+
+  private positionMessageActions(actions: HTMLElement, article: HTMLElement): void {
     const rect = article.querySelector('.message-bubble')?.getBoundingClientRect() ?? article.getBoundingClientRect();
     const viewport = window.visualViewport;
     const left = viewport?.offsetLeft ?? 0;
@@ -2979,36 +3358,33 @@ export class QuietRoomApp {
       : Math.max(top + 8, Math.min(rect.top - menuRect.height - 6, top + height - menuRect.height - 8));
     actions.style.setProperty('--message-action-x', `${Math.round(x)}px`);
     actions.style.setProperty('--message-action-y', `${Math.round(y)}px`);
-    actions.addEventListener('keydown', (event) => {
-      if (!['ArrowDown', 'ArrowUp', 'Home', 'End', 'Tab'].includes(event.key)) return;
-      event.preventDefault();
-      const index = actionButtons.indexOf(document.activeElement as HTMLButtonElement);
-      const step = event.key === 'ArrowUp' || (event.key === 'Tab' && event.shiftKey) ? -1 : 1;
-      const target = event.key === 'Home' ? 0 : event.key === 'End' ? actionButtons.length - 1
-        : (index + step + actionButtons.length) % actionButtons.length;
-      actionButtons[target]?.focus({ preventScroll: true });
-    });
-    requestAnimationFrame(() => {
-      if (!actions.isConnected) return;
-      actions.classList.add('is-visible');
-      actionButtons[0]?.focus({ preventScroll: true });
-    });
   }
 
   private async copyMessageText(text: string, message: DecryptedMessage): Promise<void> {
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (!session || !this.isRuntimeActive(epoch, session)) return;
+    const source = this.root.querySelector<HTMLElement>('.message-actions:not(.is-closing)');
+    if (source && source.dataset.sourceId !== message.clientMsgId) return;
+    const isCurrent = () => this.isRuntimeActive(epoch, session)
+      && this.root.querySelector('.message-actions:not(.is-closing)') === source;
     try {
       await navigator.clipboard.writeText(text);
+      if (!isCurrent()) return;
       this.closeMessageActions(true);
       this.showNotice('已复制');
     } catch {
+      if (!isCurrent()) return;
       this.openMessageTextSelection(message);
       this.showNotice('请选中文字后复制');
     }
   }
 
   private openMessageTextSelection(message: DecryptedMessage): void {
-    if (message.payload.kind !== 'text') return;
-    this.closeMessageActions();
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered || message.payload.kind !== 'text') return;
+    this.closeMessageActions(false, false);
     const sheet = document.createElement('section');
     sheet.className = 'message-actions message-copy-sheet';
     sheet.dataset.sourceId = message.clientMsgId;
@@ -3029,6 +3405,10 @@ export class QuietRoomApp {
     `;
     const textarea = sheet.querySelector<HTMLTextAreaElement>('textarea')!;
     textarea.value = message.payload.text;
+    // Initialize once before the sheet becomes interactive. Deferring select()
+    // to the first frame can overwrite a range the user has already adjusted.
+    textarea.setSelectionRange(0, textarea.value.length);
+    textarea.rows = Math.min(10, Math.max(3, message.payload.text.split('\n').reduce((lines, line) => lines + Math.max(1, Math.ceil([...line].length / 28)), 0)));
     const feedback = sheet.querySelector<HTMLElement>('.message-copy-feedback')!;
     sheet.addEventListener('click', (event) => {
       if (event.target === sheet) this.closeMessageActions(true);
@@ -3044,9 +3424,11 @@ export class QuietRoomApp {
       }
       try {
         await navigator.clipboard.writeText(textarea.value.slice(start, end));
+        if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected || sheet.classList.contains('is-closing')) return;
         this.closeMessageActions(true);
         this.showNotice('已复制所选文字');
       } catch {
+        if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected || sheet.classList.contains('is-closing')) return;
         textarea.focus({ preventScroll: true });
         textarea.setSelectionRange(start, end);
         if (document.execCommand('copy')) {
@@ -3057,43 +3439,59 @@ export class QuietRoomApp {
         }
       }
     });
-    sheet.addEventListener('keydown', (event) => {
-      if (event.key !== 'Tab') return;
-      const focusable = [...sheet.querySelectorAll<HTMLElement>('textarea, button')];
-      const first = focusable[0]!;
-      const last = focusable.at(-1)!;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    });
     this.root.append(sheet);
-    requestAnimationFrame(() => {
-      if (!sheet.isConnected) return;
-      sheet.classList.add('is-visible');
-      textarea.focus({ preventScroll: true });
-      textarea.select();
+    mountDialog(sheet, {
+      isActive: () => this.isRuntimeActive(epoch, session),
+      signal: this.runtimeAbort?.signal,
+      initialFocus: textarea,
+      returnFocus: this.root.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(message.clientMsgId)}"]`),
     });
   }
 
-  private closeMessageActions(restoreFocus = false): void {
+  private closeMessageActions(restoreFocus = false, animate = true): void {
     this.cancelMessageHold();
     const actions = this.root.querySelector<HTMLElement>('.message-actions');
     if (!actions) return;
+    if (closeDialog(actions, { animate, restoreFocus })) return;
     const sourceId = actions.dataset.sourceId;
-    actions.remove();
+    actions.classList.remove('is-visible');
+    actions.classList.add('is-closing');
+    actions.inert = true;
+    if (animate && !this.privacyCovered && !matchMedia('(prefers-reduced-motion: reduce)').matches) window.setTimeout(() => actions.remove(), 160);
+    else actions.remove();
     if (restoreFocus && sourceId) {
-      this.root.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(sourceId)}"]`)?.focus({ preventScroll: true });
+      if (!this.privacyCovered) this.root.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(sourceId)}"]`)?.focus({ preventScroll: true });
     }
   }
 
-  private jumpToReplyTarget(clientMsgId: string): void {
-    const target = this.root.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(clientMsgId)}"]`);
+  private async jumpToReplyTarget(clientMsgId: string, seq?: number): Promise<void> {
+    const jumpVersion = ++this.replyJumpVersion;
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    const list = this.root.querySelector<HTMLElement>('#message-list');
+    if (!session || this.privacyCovered || !list) return;
+    let target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(clientMsgId)}"]`);
+    if (!target && seq !== undefined) {
+      try {
+        const signal = this.runtimeAbort?.signal;
+        const saved = await loadHistoryMessage(session, seq, signal);
+        if (!this.isRuntimeActive(epoch, session) || !list.isConnected || this.replyJumpVersion !== jumpVersion) return;
+        if (saved?.clientMsgId === clientMsgId && saved.payload.kind !== 'gallery-image') {
+          const nearby = await loadHistoryPage(session, { limit: 200, beforeSeq: Math.min(seq + 101, Number.MAX_SAFE_INTEGER), signal });
+          if (!this.isRuntimeActive(epoch, session) || !list.isConnected || this.replyJumpVersion !== jumpVersion) return;
+          for (const message of nearby) this.messages.set(message.seq, message);
+          this.messages.set(saved.seq, saved);
+          if (saved.seq > 1) this.historyHasMore = true;
+          this.renderMessages({ scroll: 'position' });
+          target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(clientMsgId)}"]`);
+        }
+      } catch (cause) {
+        if (this.isRuntimeActive(epoch, session) && list.isConnected && this.replyJumpVersion === jumpVersion) this.operationalError(cause, '原消息暂时无法读取，请重试');
+        return;
+      }
+    }
     if (!target) {
-      this.showNotice('原消息不在这台设备的本地记录中');
+      this.showNotice('这台设备未保存可读取的原消息');
       return;
     }
     target.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
@@ -3121,23 +3519,47 @@ export class QuietRoomApp {
       detail.textContent = '文字和原图都会在这台设备上加密后再发送。';
       empty.append(title, detail);
       this.renderedMessages.clear();
+      this.renderedMessageOrder = [];
+      this.renderedMessageSeq.clear();
       list.replaceChildren(empty);
     } else {
       const currentKeys = new Set<string>();
-      const fragment = document.createDocumentFragment();
+      const elements: HTMLElement[] = [];
+      const sequences = new Map<string, number>();
       for (const message of messages) {
         const key = message.clientMsgId;
         currentKeys.add(key);
-        const signature = `${message.status}:${JSON.stringify(message.payload)}:${message.acceptedAt}`;
         const cached = this.renderedMessages.get(key);
-        const element = cached?.signature === signature ? cached.element : this.createMessageElement(message);
-        this.renderedMessages.set(key, { signature, element });
-        fragment.append(element);
+        // Payloads are immutable after decryption/enqueue. Compare their
+        // identity and mutable delivery metadata without serializing history.
+        const unchanged = cached?.payload === message.payload && cached.status === message.status && cached.acceptedAt === message.acceptedAt;
+        const element = unchanged ? cached.element : this.createMessageElement(message);
+        if (cached && !unchanged && cached.element.parentElement === list) {
+          const hadFocus = cached.element.contains(document.activeElement);
+          cached.element.replaceWith(element);
+          if (hadFocus) element.focus({ preventScroll: true });
+        }
+        this.renderedMessages.set(key, { payload: message.payload, status: message.status, acceptedAt: message.acceptedAt, element });
+        sequences.set(key, message.seq);
+        elements.push(element);
       }
       for (const key of this.renderedMessages.keys()) {
         if (!currentKeys.has(key)) this.renderedMessages.delete(key);
       }
-      list.replaceChildren(fragment);
+      // Keep unchanged nodes in place so focus, image decode state, selection
+      // and compositing survive incoming messages and delivery receipts.
+      let next = list.firstElementChild;
+      for (const element of elements) {
+        if (element === next) next = next.nextElementSibling;
+        else list.insertBefore(element, next);
+      }
+      while (next) {
+        const stale = next;
+        next = next.nextElementSibling;
+        stale.remove();
+      }
+      this.renderedMessageOrder = elements;
+      this.renderedMessageSeq = sequences;
     }
     this.mountChatImageObserver(list);
     if (scroll === 'bottom' || messages.length <= 1) {
@@ -3151,7 +3573,8 @@ export class QuietRoomApp {
 
   private async loadOlderHistory(list: HTMLElement): Promise<void> {
     const session = this.session;
-    if (!session || this.privacyCovered || !this.historyHasMore || this.historyLoading) return;
+    const epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered || !list.isConnected || !this.historyHasMore || this.historyLoading) return;
     if (this.messages.size === 0) {
       this.historyHasMore = false;
       return;
@@ -3164,26 +3587,32 @@ export class QuietRoomApp {
     this.historyLoading = true;
     list.dataset.historyLoading = 'true';
     try {
-      const older = await loadHistoryPage(session, { limit: 200, beforeSeq: firstSeq });
+      const older = await loadHistoryPage(session, { limit: 200, beforeSeq: firstSeq, signal: this.runtimeAbort?.signal });
+      if (!this.isRuntimeActive(epoch, session) || !list.isConnected) return;
       if (older.length < 200) this.historyHasMore = false;
       for (const message of older) this.messages.set(message.seq, message);
       this.renderMessages({ scroll: 'preserve' });
+    } catch (cause) {
+      if (this.isRuntimeActive(epoch, session) && list.isConnected) this.operationalError(cause, '较早的消息暂时无法读取，请重试');
     } finally {
-      this.historyLoading = false;
+      if (this.isRuntimeActive(epoch, session)) this.historyLoading = false;
       delete list.dataset.historyLoading;
     }
   }
 
   private async loadNewerHistory(list: HTMLElement): Promise<void> {
     const session = this.session;
-    if (!session || this.privacyCovered || !this.historyHasNewer || this.historyLoading) return;
+    const epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered || !list.isConnected || !this.historyHasNewer || this.historyLoading) return;
     this.historyLoading = true;
     list.dataset.historyLoading = 'true';
     try {
       const newer = await loadHistoryPageAfter(session, {
         limit: 200,
         afterSeq: this.historyForwardCursor,
+        signal: this.runtimeAbort?.signal,
       });
+      if (!this.isRuntimeActive(epoch, session) || !list.isConnected) return;
       if (newer.length === 0) {
         this.historyHasNewer = false;
         return;
@@ -3202,8 +3631,10 @@ export class QuietRoomApp {
       );
       this.historyHasNewer = this.historyForwardCursor < session.vault.lastSeq;
       this.renderMessages({ scroll: 'position' });
+    } catch (cause) {
+      if (this.isRuntimeActive(epoch, session) && list.isConnected) this.operationalError(cause, '后续消息暂时无法读取，请重试');
     } finally {
-      this.historyLoading = false;
+      if (this.isRuntimeActive(epoch, session)) this.historyLoading = false;
       delete list.dataset.historyLoading;
     }
   }
@@ -3230,7 +3661,8 @@ export class QuietRoomApp {
       preview.textContent = this.localReplyPreview(message.payload.replyTo);
       quote.append(label, preview);
       const targetId = message.payload.replyTo.clientMsgId;
-      quote.addEventListener('click', () => this.jumpToReplyTarget(targetId));
+      const targetSeq = message.payload.replyTo.serverSeq;
+      quote.addEventListener('click', () => void this.jumpToReplyTarget(targetId, targetSeq));
       bubble.append(quote);
     }
     if (message.payload.kind === 'text') {
@@ -3260,14 +3692,20 @@ export class QuietRoomApp {
     meta.className = 'message-meta';
     const status = own
       ? message.status === 'pending'
-        ? ' · 等待服务器'
+        ? ' · 等待发送'
         : message.status === 'stored' || message.status === 'sent'
-          ? ' · 服务器已保存'
+          ? ' · 已保存'
           : message.status === 'delivered'
-            ? ' · 对端已安全接收'
+            ? ' · 已送达'
             : ' · 发送失败'
       : '';
     meta.append(document.createTextNode(`${timeLabel(message.payload.sentAt)}${status}`));
+    if (own) {
+      meta.title = message.status === 'delivered' ? '对方至少一台设备已验证并保存这条消息'
+        : message.status === 'stored' || message.status === 'sent' ? '服务器已保存加密消息，等待对方接收'
+          : message.status === 'pending' ? '已保存在本机，等待发送到服务器' : '发送失败，可以重试';
+      meta.setAttribute('aria-label', `${timeLabel(message.payload.sentAt)}，${meta.title}`);
+    }
     if (own && message.status === 'failed') {
       const retry = document.createElement('button');
       retry.type = 'button';
@@ -3313,20 +3751,28 @@ export class QuietRoomApp {
 
   private beginFileExport(): void {
     this.fileExportActive = true;
+    this.fileExportBlurred = false;
     if (this.fileExportResetTimer !== null) window.clearTimeout(this.fileExportResetTimer);
     // Safari can briefly blur the page while handing a generated file to the
     // download surface. Bound the exception tightly so later blurs still lock.
-    this.fileExportResetTimer = window.setTimeout(() => this.finishFileExport(), 1800);
+    this.fileExportResetTimer = window.setTimeout(() => this.finishFileExport(true), 1800);
   }
 
-  private finishFileExport(): void {
+  private finishFileExport(recheckPrivacy = true): void {
+    const shouldCover = recheckPrivacy && this.fileExportBlurred && (document.hidden || !document.hasFocus());
     this.fileExportActive = false;
+    this.fileExportBlurred = false;
     if (this.fileExportResetTimer !== null) window.clearTimeout(this.fileExportResetTimer);
     this.fileExportResetTimer = null;
+    if (shouldCover) this.lockNow({ preserveFilePicker: this.filePickerActive });
   }
 
   private showRecoveryCode(recovery: PreparedRecoveryExport, session: VaultSession, epoch: number): void {
-    this.root.querySelector('.recovery-code-sheet')?.remove();
+    if (!this.isRuntimeActive(epoch, session)) return;
+    const previousSheet = this.root.querySelector<HTMLElement>('.recovery-code-sheet');
+    if (previousSheet) {
+      if (!closeDialog(previousSheet, { animate: false, restoreFocus: false })) previousSheet.remove();
+    }
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const sheet = document.createElement('section');
     sheet.className = 'recovery-code-sheet';
@@ -3338,7 +3784,8 @@ export class QuietRoomApp {
       <div class="recovery-code-panel">
         <p class="eyebrow">恢复包</p>
         <h2 id="recovery-code-title">文件与恢复码，分开保存</h2>
-        <p id="recovery-code-description">恢复时两者缺一不可。先把恢复码另存到密码管理器或纸上，再保存加密恢复文件。此恢复码关闭后无法再次查看。</p>
+        <p id="recovery-code-description">恢复文件和恢复码缺一不可，请分开保存。关闭后无法再次查看这份恢复码。</p>
+        ${session.vault.protocol === 'mls-rfc9420' ? '<p class="recovery-boundary">恢复时需要另一台已授权设备在线。恢复后只接收新消息，原设备及旧恢复包将停用。</p>' : ''}
         <code></code>
         <div class="recovery-code-actions">
           <button class="secondary-button" type="button" data-copy-code>复制恢复码</button>
@@ -3356,41 +3803,39 @@ export class QuietRoomApp {
     const error = sheet.querySelector<HTMLElement>('.form-error')!;
     let fileDownloadStarted = false;
     let confirming = false;
+    const dialog = mountDialog(sheet, {
+      isActive: () => this.isRuntimeActive(epoch, session),
+      signal: this.runtimeAbort?.signal,
+      returnFocus: previouslyFocused,
+      initialFocus: sheet.querySelector<HTMLButtonElement>('[data-copy-code]'),
+      beforeClose: () => !confirming,
+      onClose: () => {
+        recovery.recoveryCode = '';
+        sheet.querySelector('code')!.textContent = '';
+        this.finishFileExport();
+      },
+    });
     const close = (confirmed = false) => {
       if (confirming) return;
-      recovery.recoveryCode = '';
-      sheet.querySelector('code')!.textContent = '';
-      this.finishFileExport();
-      sheet.remove();
-      if (previouslyFocused?.isConnected) previouslyFocused.focus();
-      this.showNotice(confirmed ? '已确认保存恢复文件和恢复码' : '尚未确认保存，可从菜单重新导出恢复包');
+      dialog.close();
+      if (this.isRuntimeActive(epoch, session)) this.showNotice(confirmed ? '恢复文件和恢复码已保存' : '可随时从菜单保存恢复包');
     };
     sheet.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') {
         event.preventDefault();
+        event.stopImmediatePropagation();
         close();
         return;
-      }
-      if (event.key !== 'Tab') return;
-      const focusable = [...sheet.querySelectorAll<HTMLElement>('button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])')]
-        .filter((element) => !element.hasAttribute('disabled'));
-      if (focusable.length === 0) return;
-      const first = focusable[0]!;
-      const last = focusable.at(-1)!;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
       }
     });
     sheet.querySelector('[data-copy-code]')?.addEventListener('click', async (event) => {
       const button = event.currentTarget as HTMLButtonElement;
       try {
         await navigator.clipboard.writeText(recovery.recoveryCode);
+        if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected) return;
         button.textContent = '已复制';
       } catch {
+        if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected) return;
         button.textContent = '复制失败，请手动记录';
       }
     });
@@ -3419,16 +3864,23 @@ export class QuietRoomApp {
       confirming = true;
       error.textContent = '';
       setBusy(confirmButton, true, '正在确认…');
-      const previousExportedAt = session.vault.recoveryExportedAt;
       try {
-        session.vault.recoveryExportedAt = recovery.exportedAt;
-        await saveVault(session);
+        await withVaultMutation(session, async (mutation) => {
+          if (!this.isRuntimeActive(epoch, session)) return;
+          const previousExportedAt = session.vault.recoveryExportedAt;
+          session.vault.recoveryExportedAt = recovery.exportedAt;
+          try {
+            await saveVault(session, mutation);
+          } catch (cause) {
+            session.vault.recoveryExportedAt = previousExportedAt;
+            throw cause;
+          }
+        });
         if (!this.isRuntimeActive(epoch, session)) return;
         this.root.querySelector('.recovery-reminder')?.remove();
         confirming = false;
         close(true);
       } catch (cause) {
-        session.vault.recoveryExportedAt = previousExportedAt;
         if (sheet.isConnected) error.textContent = cause instanceof Error ? cause.message : '保存确认失败，请重试';
       } finally {
         confirming = false;
@@ -3810,6 +4262,8 @@ export class QuietRoomApp {
   private renderGallery(): void {
     const session = this.session;
     if (!session || this.privacyCovered) return;
+    const epoch = this.runtimeEpoch;
+    const signal = this.runtimeAbort?.signal;
     this.setActiveSurface('away');
     if (session.vault.role !== 'creator') {
       this.renderChat();
@@ -3817,30 +4271,15 @@ export class QuietRoomApp {
       return;
     }
     const cryptoReady = session.vault.protocol !== 'mls-rfc9420' || session.vault.mls?.phase === 'active';
-    const assets: GalleryAsset[] = [...this.messages.values(), ...this.pending.values()]
-      .filter((message) => ['image', 'image-album', 'gallery-image'].includes(message.payload.kind))
-      .sort((left, right) => right.acceptedAt.localeCompare(left.acceptedAt))
-      .flatMap((message): GalleryAsset[] => {
-        if (message.payload.kind === 'image-album') {
-          return message.payload.images.map((manifest, assetIndex) => ({
-            manifest,
-            clientMsgId: message.clientMsgId,
-            sentAt: message.payload.sentAt,
-            assetIndex,
-          }));
-        }
-        if (message.payload.kind === 'image' || message.payload.kind === 'gallery-image') {
-          return [{ manifest: message.payload.image, clientMsgId: message.clientMsgId, sentAt: message.payload.sentAt, assetIndex: 0 }];
-        }
-        return [];
-      });
+    const assets: GalleryAsset[] = [];
+    const assetKeys = new Set<string>();
     this.galleryObserver?.disconnect();
     this.galleryObserver = null;
     this.root.innerHTML = `
       <section class="gallery-shell">
         <header class="subpage-header gallery-header">
           <button class="icon-button" id="gallery-back" type="button" aria-label="返回聊天">${icons.back}</button>
-          <div><h1>相册</h1><p id="gallery-total">${assets.length > 0 ? `${assets.length} 张` : '原图'}</p></div>
+          <div><h1>相册</h1><p id="gallery-total">原图</p></div>
           <button class="icon-button gallery-upload-button${cryptoReady ? '' : ' is-disabled'}" id="open-gallery-image-picker" type="button" aria-label="上传图片到相册" title="上传图片到相册" ${cryptoReady ? '' : 'disabled'}>${icons.upload}</button>
           <input id="gallery-image-input" type="file" accept="image/*" ${cryptoReady ? '' : 'disabled'} hidden />
         </header>
@@ -3856,28 +4295,86 @@ export class QuietRoomApp {
       this.root.querySelector<HTMLButtonElement>('#open-gallery-image-picker'),
     );
     const grid = this.root.querySelector<HTMLElement>('#gallery-grid')!;
-    if (assets.length === 0) {
-      grid.innerHTML = '<div class="gallery-empty"><p>还没有图片</p><span>聊天中的原图和从这里上传的图片都会出现在这里。</span></div>';
-      return;
-    }
-    const manifests = assets.map((asset) => asset.manifest);
-    for (const [index, asset] of assets.entries()) {
-      const manifest = asset.manifest;
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'gallery-tile';
-      button.dataset.galleryIndex = String(index);
-      button.dataset.blobId = manifest.blobId;
-      button.setAttribute('aria-label', `查看原图 ${manifest.originalName}`);
-      button.innerHTML = `${icons.image}<span class="tile-loading">正在载入…</span><time>${timeLabel(asset.sentAt)}</time>`;
-      button.addEventListener('click', () => {
-        this.galleryScrollTop = grid.scrollTop;
-        this.openImageViewer(manifests, index, button);
-      });
-      grid.append(button);
-    }
-    this.mountGalleryThumbnails(grid, assets);
-    requestAnimationFrame(() => { grid.scrollTop = this.galleryScrollTop; });
+    const footer = document.createElement('div');
+    footer.className = 'gallery-pagination';
+    footer.innerHTML = '<p role="status" class="gallery-scan-status">正在查找图片…</p><button class="secondary-button" type="button" data-gallery-load-more>加载更早图片</button>';
+    const more = footer.querySelector<HTMLButtonElement>('button')!;
+    const status = footer.querySelector<HTMLElement>('[role="status"]')!;
+    grid.append(footer);
+    const addMessages = (messages: DecryptedMessage[]) => {
+      for (const message of messages) {
+        const manifests = message.payload.kind === 'image-album' ? message.payload.images
+          : message.payload.kind === 'text' ? [] : [message.payload.image];
+        for (const [assetIndex, manifest] of manifests.entries()) {
+          const key = `${message.clientMsgId}:${assetIndex}`;
+          if (assetKeys.has(key)) continue;
+          assetKeys.add(key);
+          const index = assets.length;
+          assets.push({ manifest, clientMsgId: message.clientMsgId, sentAt: message.payload.sentAt, assetIndex });
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.className = 'gallery-tile';
+          button.dataset.galleryIndex = String(index);
+          button.dataset.blobId = manifest.blobId;
+          button.setAttribute('aria-label', `查看原图 ${manifest.originalName}`);
+          button.innerHTML = `${icons.image}<span class="tile-loading">正在载入…</span><time>${timeLabel(message.payload.sentAt)}</time>`;
+          button.addEventListener('click', () => {
+            this.galleryScrollTop = grid.scrollTop;
+            this.openImageViewer(assets.map((asset) => asset.manifest), index, button);
+          });
+          grid.insertBefore(button, footer);
+        }
+      }
+      this.root.querySelector<HTMLElement>('#gallery-total')!.textContent = assets.length ? `${assets.length} 张` : '原图';
+      this.mountGalleryThumbnails(grid, assets);
+    };
+    addMessages([...this.pending.values()].sort((left, right) => right.acceptedAt.localeCompare(left.acceptedAt)));
+    let beforeSeq: number | undefined;
+    let hasMore = true;
+    let loading = false;
+    let initial = true;
+    const loadMore = async () => {
+      if (loading || !hasMore || !this.isRuntimeActive(epoch, session) || !grid.isConnected) return;
+      loading = true;
+      more.disabled = true;
+      status.textContent = '正在查找图片…';
+      const startedWith = assets.length;
+      try {
+        // Skip text-only batches without exposing plaintext media metadata in
+        // IndexedDB or coupling the album to the chat's current history page.
+        do {
+          const page = await loadMediaHistoryPage(session, { beforeSeq, signal });
+          if (!this.isRuntimeActive(epoch, session) || !grid.isConnected) return;
+          beforeSeq = page.beforeSeq ?? undefined;
+          hasMore = page.hasMore;
+          addMessages(page.messages);
+          if (hasMore && assets.length - startedWith < 36) await this.abortableDelay(0, signal);
+        } while (hasMore && assets.length - startedWith < 36);
+        status.textContent = hasMore ? '' : assets.length ? '已显示本机保存的全部图片' : '聊天中的原图和从这里上传的图片都会出现在这里。';
+        if (!hasMore && !assets.length) {
+          const empty = document.createElement('p');
+          empty.className = 'gallery-empty';
+          empty.textContent = '还没有图片';
+          grid.insertBefore(empty, footer);
+        }
+        more.hidden = !hasMore;
+        if (initial) {
+          grid.scrollTop = this.galleryScrollTop;
+          initial = false;
+        }
+      } catch (cause) {
+        if (this.isRuntimeActive(epoch, session) && grid.isConnected) {
+          status.textContent = '图片记录暂时无法读取';
+          more.textContent = '重试';
+          this.operationalError(cause, '相册读取失败');
+        }
+      } finally {
+        loading = false;
+        if (grid.isConnected) more.disabled = false;
+      }
+    };
+    more.addEventListener('click', () => void loadMore());
+    void loadMore();
   }
 
   private mountGalleryThumbnails(grid: HTMLElement, assets: GalleryAsset[]): void {
@@ -3913,6 +4410,7 @@ export class QuietRoomApp {
       grid.querySelectorAll<HTMLButtonElement>('.gallery-tile').forEach((tile) => void loadThumbnail(tile));
       return;
     }
+    this.galleryObserver?.disconnect();
     this.galleryObserver = new IntersectionObserver((entries) => {
       for (const entry of entries) {
         if (!entry.isIntersecting) continue;
@@ -4125,6 +4623,8 @@ export class QuietRoomApp {
     this.retryCounts.clear();
     this.sending.clear();
     this.renderedMessages.clear();
+    this.renderedMessageOrder = [];
+    this.renderedMessageSeq.clear();
     this.replyTarget = null;
     this.cancelMessageHold();
     if (this.messageHighlightTimer !== null) window.clearTimeout(this.messageHighlightTimer);
@@ -4147,11 +4647,12 @@ export class QuietRoomApp {
     this.restoreComposerFocusAfterPicker = false;
     this.keepComposerKeyboard = false;
     this.composerSelection = null;
-    this.finishFileExport();
+    this.finishFileExport(false);
     this.draining = false;
     this.receiptDraining = false;
     this.unlocking = false;
     this.deviceVerificationActive = false;
+    this.deviceVerificationToken = null;
     for (const cached of this.imageCache.values()) URL.revokeObjectURL(cached.url);
     this.imageCache.clear();
     this.imageLoadPromises.clear();
@@ -4164,6 +4665,8 @@ export class QuietRoomApp {
     this.chatLayoutObserver = null;
     if (this.presenceRefreshTimer !== null) window.clearInterval(this.presenceRefreshTimer);
     this.presenceRefreshTimer = null;
+    if (this.recoveryPollTimer !== null) window.clearTimeout(this.recoveryPollTimer);
+    this.recoveryPollTimer = null;
     this.activeSurface = 'away';
     this.uiPreferences = {};
     this.restoreChatAnchorOnNextRender = true;

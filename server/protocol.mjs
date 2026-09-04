@@ -99,7 +99,7 @@ export function validateMlsMembershipShape(envelope, expectedRoomId) {
     !isUuid(envelope.eventId) ||
     !Number.isSafeInteger(envelope.previousEventSeq) ||
     envelope.previousEventSeq < 0 ||
-    !['add', 'remove'].includes(envelope.action) ||
+    !['add', 'remove', 'replace'].includes(envelope.action) ||
     !isUuid(envelope.senderId) ||
     !isUuid(envelope.targetId) ||
     envelope.senderId === envelope.targetId ||
@@ -111,6 +111,23 @@ export function validateMlsMembershipShape(envelope, expectedRoomId) {
     envelope.signature.length < 1 ||
     envelope.signature.length > 512
   ) return false;
+  if (envelope.action === 'replace') {
+    return validateRecoveryRequestShape(envelope.recoveryRequest, expectedRoomId) &&
+      isUuid(envelope.replacedDeviceId) &&
+      envelope.replacedDeviceId !== envelope.senderId &&
+      envelope.replacedDeviceId === envelope.recoveryRequest.sourceDeviceId &&
+      canonicalStringify(envelope.recoveryRequest.replacement) === canonicalStringify({
+        deviceId: envelope.target?.deviceId, encryptionKey: envelope.target?.encryptionKey,
+        signingKey: envelope.target?.signingKey, mlsKeyPackage: envelope.target?.mlsKeyPackage,
+      }) &&
+      validatePublicBundle(envelope.target) &&
+      envelope.target.deviceId === envelope.targetId && envelope.target.status === 'pending' &&
+      envelope.target.addedBy === envelope.replacedDeviceId &&
+      ['creator', 'joiner'].includes(envelope.target.role) &&
+      typeof envelope.welcome === 'string' && envelope.welcome.length >= 64 &&
+      envelope.welcome.length <= 256 * 1024 && /^[A-Za-z0-9_-]+$/.test(envelope.welcome);
+  }
+  if (envelope.replacedDeviceId !== undefined || envelope.recoveryRequest !== undefined) return false;
   if (envelope.action === 'add') {
     return validatePublicBundle(envelope.target) &&
       envelope.target.deviceId === envelope.targetId &&
@@ -123,6 +140,21 @@ export function validateMlsMembershipShape(envelope, expectedRoomId) {
       /^[A-Za-z0-9_-]+$/.test(envelope.welcome);
   }
   return envelope.target === undefined && envelope.welcome === undefined;
+}
+
+export function validateRecoveryRequestShape(request, expectedRoomId) {
+  return Boolean(request && request.v === 1 && request.protocol === 'mls-rfc9420' &&
+    request.roomId === expectedRoomId && isUuid(request.requestId) && isUuid(request.sourceDeviceId) &&
+    validatePublicBundle(request.replacement) && request.replacement.mlsKeyPackage &&
+    request.sourceDeviceId !== request.replacement.deviceId &&
+    typeof request.tokenHash === 'string' && /^[A-Za-z0-9_-]{43}$/.test(request.tokenHash) &&
+    isCanonicalUtcTimestamp(request.expiresAt) &&
+    typeof request.signature === 'string' && /^[A-Za-z0-9_-]{1,512}$/.test(request.signature));
+}
+
+export function isCanonicalUtcTimestamp(value) {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) &&
+    Number.isFinite(Date.parse(value)) && new Date(value).toISOString() === value;
 }
 
 function safeEpoch(value) {

@@ -1,0 +1,15 @@
+[Unit]
+Description=Verify and export Quiet Room ciphertext backup to independent storage
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/quiet-room/backup-export.env
+ExecStart=/usr/local/sbin/quiet-room-backup-export
+User=root
+UMask=0077
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/quiet-room-deploy

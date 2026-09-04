@@ -14,6 +14,12 @@
   color: var(--ink);
 }
 
+.message-actions:not(.message-copy-sheet) {
+  max-height: calc(var(--app-height, 100dvh) - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .message-actions > button {
   width: 100%;
   color: inherit;
@@ -50,7 +56,7 @@
   padding: 24px;
   border: 1px solid var(--glass-border);
   border-radius: 24px;
-  background: var(--glass-strong);
+  background: var(--glass-panel);
   box-shadow: var(--shadow);
 }
 
@@ -70,7 +76,8 @@
 .message-copy-panel textarea {
   display: block;
   width: 100%;
-  height: min(40dvh, 320px);
+  height: auto;
+  max-height: min(40dvh, 320px);
   min-height: 120px;
   padding: 14px;
   resize: none;
@@ -85,6 +92,28 @@
   -webkit-user-select: text;
   user-select: text;
   touch-action: auto;
+}
+
+/* Shared lifecycle: normal dialogs ease in/out; privacy aborts remove at once. */
+.dialog-surface {
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+}
+.dialog-surface.is-visible { opacity: 1; }
+.dialog-surface.is-closing { opacity: 0; pointer-events: none; }
+.dialog-surface > .recovery-code-panel,
+.dialog-surface > .device-link-panel,
+.dialog-surface > .message-copy-panel {
+  transform: translateY(6px) scale(0.99);
+  transition: transform 180ms cubic-bezier(.2, .8, .2, 1);
+}
+.dialog-surface.is-visible > .recovery-code-panel,
+.dialog-surface.is-visible > .device-link-panel,
+.dialog-surface.is-visible > .message-copy-panel { transform: none; }
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root { --glass: var(--paper-pure); --glass-strong: var(--paper-pure); --glass-control: var(--paper-pure); --glass-panel: var(--paper-pure); }
+  .chat-header::before, .composer::before, .gallery-header::before { background: var(--paper); }
 }
 
 .message-copy-panel .message-copy-feedback {

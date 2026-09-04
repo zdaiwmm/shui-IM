@@ -46,12 +46,26 @@ export type MlsMembershipEnvelope = {
   roomId: string;
   eventId: string;
   previousEventSeq: number;
-  action: 'add' | 'remove';
+  action: 'add' | 'remove' | 'replace';
   senderId: string;
   targetId: string;
   target?: RoomMember;
+  replacedDeviceId?: string;
+  recoveryRequest?: RecoveryRequest;
   commit: string;
   welcome?: string;
+  signature: string;
+};
+
+export type RecoveryRequest = {
+  v: 1;
+  protocol: 'mls-rfc9420';
+  roomId: string;
+  requestId: string;
+  sourceDeviceId: string;
+  replacement: PublicBundle;
+  tokenHash: string;
+  expiresAt: string;
   signature: string;
 };
 
@@ -93,7 +107,12 @@ export type Vault = {
   members: RoomMember[];
   lastSeq: number;
   lastReceiptSeq?: number;
-  pairingState?: 'joining' | 'linking' | 'ready';
+  pairingState?: 'joining' | 'linking' | 'recovering' | 'ready';
+  pendingRecovery?: {
+    request: RecoveryRequest;
+    checkpointMembers: RoomMember[];
+    checkpointEventSeq: number;
+  };
   recoveryExportedAt?: string;
   historyUnavailableBeforeSeq?: number;
   createdAt: string;
@@ -332,4 +351,5 @@ export type RoomState = {
   mlsWelcome?: MlsWelcomeEnvelope | null;
   nextMlsEventSeq?: number;
   mlsEvents?: ServerMlsMembershipEvent[];
+  recoveryRequests?: RecoveryRequest[];
 };

@@ -40,6 +40,8 @@ import type {
   PrivateIdentity,
   PublicBundle,
   RoomMember,
+  RecoveryRequest,
+  RoomState,
   Vault,
 } from './types';
 
@@ -205,7 +207,7 @@ async function verifyMembershipEnvelope(vault: Vault, envelope: MlsMembershipEnv
     envelope.roomId !== vault.roomId ||
     !Number.isSafeInteger(envelope.previousEventSeq) ||
     envelope.previousEventSeq < 0 ||
-    !['add', 'remove'].includes(envelope.action)
+    !['add', 'remove', 'replace'].includes(envelope.action)
   ) throw new Error('MLS 设备变更格式不正确');
   const sender = vault.members.find((member) => member.deviceId === envelope.senderId);
   // `vault.members` may already reflect the latest server snapshot while an
@@ -218,6 +220,125 @@ async function verifyMembershipEnvelope(vault: Vault, envelope: MlsMembershipEnv
     throw new Error('MLS 设备变更签名验证失败');
   }
   return sender;
+}
+
+export async function createRecoveryRequest(
+  vault: Vault,
+  replacement: PublicBundle,
+  newAccessToken: string,
+): Promise<RecoveryRequest> {
+  const unsigned: Omit<RecoveryRequest, 'signature'> = {
+    v: 1,
+    protocol: 'mls-rfc9420',
+    roomId: vault.roomId,
+    requestId: crypto.randomUUID(),
+    sourceDeviceId: vault.identity.publicBundle.deviceId,
+    replacement,
+    tokenHash: toBase64Url(await crypto.subtle.digest('SHA-256', encoder.encode(newAccessToken))),
+    expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+  };
+  return { ...unsigned, signature: await signEcdsa(vault.identity.signingPrivateKey, unsigned) };
+}
+
+export async function verifyRecoveryRequest(vault: Pick<Vault, 'roomId' | 'members'>, request: RecoveryRequest): Promise<void> {
+  const source = vault.members.find((member) => member.deviceId === request?.sourceDeviceId);
+  if (!source || request.v !== 1 || request.protocol !== 'mls-rfc9420' || request.roomId !== vault.roomId ||
+    !request.replacement?.mlsKeyPackage || request.sourceDeviceId === request.replacement.deviceId ||
+    !Number.isFinite(Date.parse(request.expiresAt))) throw new Error('恢复授权与会话身份不匹配');
+  const { signature, ...unsigned } = request;
+  if (!await verifyEcdsa(source.signingKey, signature, unsigned)) throw new Error('恢复授权签名验证失败');
+}
+
+function verifyReplacementTarget(envelope: MlsMembershipEnvelope, members: RoomMember[]): void {
+  const request = envelope.recoveryRequest;
+  const source = members.find((member) => member.deviceId === envelope.replacedDeviceId);
+  if (!request || !source || !envelope.target || envelope.targetId !== request.replacement.deviceId ||
+    source.deviceId !== request.sourceDeviceId || envelope.senderId === source.deviceId ||
+    source.role !== envelope.target.role || envelope.target.addedBy !== source.deviceId ||
+    canonicalStringify(memberBundleForMls(envelope.target)) !== canonicalStringify(request.replacement)) {
+    throw new Error('恢复替换目标与已签名授权不一致');
+  }
+}
+
+/** Authenticate identity changes from the backup without reusing its old MLS secrets. */
+export async function verifyRecoveryMembershipChain(vault: Vault, state: RoomState): Promise<void> {
+  const checkpoint = vault.pendingRecovery;
+  if (!checkpoint || state.roomId !== vault.roomId) throw new Error('本机恢复检查点不存在');
+  const trusted = new Map(checkpoint.checkpointMembers
+    .filter((member) => member.status === undefined || member.status === 'active')
+    .map((member) => [member.deviceId, member]));
+  let sequence = checkpoint.checkpointEventSeq;
+  for (const { eventSeq, event } of [...(state.mlsEvents ?? [])].sort((a, b) => a.eventSeq - b.eventSeq)) {
+    if (eventSeq <= sequence) continue;
+    if (eventSeq !== sequence + 1 || event.previousEventSeq !== sequence || !trusted.has(event.senderId)) {
+      throw new Error('恢复成员签名链不连续');
+    }
+    const members = [...trusted.values()];
+    await verifyMembershipEnvelope({ ...vault, members }, event);
+    const sender = trusted.get(event.senderId)!;
+    if (event.action === 'add') {
+      if (!event.target || event.target.deviceId !== event.targetId || event.target.role !== sender.role ||
+        event.target.addedBy !== sender.deviceId || trusted.has(event.targetId)) throw new Error('恢复成员加入授权不正确');
+      trusted.set(event.targetId, event.target);
+    } else if (event.action === 'remove') {
+      if (trusted.get(event.targetId)?.role !== sender.role || event.targetId === sender.deviceId) throw new Error('恢复成员移除授权不正确');
+      trusted.delete(event.targetId);
+    } else {
+      verifyReplacementTarget(event, members);
+      await verifyRecoveryRequest({ roomId: vault.roomId, members }, event.recoveryRequest!);
+      trusted.delete(event.replacedDeviceId!);
+      trusted.set(event.targetId, event.target!);
+    }
+    sequence = eventSeq;
+  }
+  if (sequence !== (state.nextMlsEventSeq ?? 0)) throw new Error('恢复成员签名链不完整');
+  if (state.members.filter((item) => item.status === 'active').length !== trusted.size) {
+    throw new Error('服务器恢复成员列表缺少已授权成员');
+  }
+  for (const member of state.members.filter((item) => item.status === 'active')) {
+    const authenticated = trusted.get(member.deviceId);
+    if (!authenticated || authenticated.role !== member.role ||
+      canonicalStringify(memberBundleForMls(authenticated)) !== canonicalStringify(memberBundleForMls(member))) {
+      throw new Error('服务器恢复成员身份未经签名链授权');
+    }
+  }
+}
+
+export async function prepareMlsRecoveryReplacement(
+  vault: Vault,
+  request: RecoveryRequest,
+  target: RoomMember,
+): Promise<{ event: MlsMembershipEnvelope; nextGroupState: string }> {
+  if (vault.mls?.phase !== 'active' || !vault.mls.groupState) throw new Error('当前设备尚未建立安全会话');
+  if (Date.parse(request.expiresAt) <= Date.now()) throw new Error('恢复授权已过期');
+  await verifyRecoveryRequest(vault, request);
+  const state = decodeState(vault.mls.groupState, vault.members);
+  const removed = leafIndexForDevice(state, request.sourceDeviceId);
+  if (removed === null || request.sourceDeviceId === vault.identity.publicBundle.deviceId || !target.mlsKeyPackage) {
+    throw new Error('需要另一台在线设备完成安全恢复');
+  }
+  const result = await createCommit({ state, cipherSuite: await cipherSuite() }, {
+    extraProposals: [
+      { proposalType: 'remove', remove: { removed } },
+      { proposalType: 'add', add: { keyPackage: decodeKeyPackage(target.mlsKeyPackage) } },
+    ],
+    ratchetTreeExtension: true,
+    wireAsPublicMessage: true,
+  });
+  try {
+    if (!result.welcome || result.commit.wireformat !== 'mls_public_message') throw new Error('恢复替换未生成有效欢迎消息');
+    const unsigned: Omit<MlsMembershipEnvelope, 'signature'> = {
+      v: 1, protocol: 'mls-rfc9420', roomId: vault.roomId, eventId: crypto.randomUUID(),
+      previousEventSeq: vault.mls.lastEventSeq ?? 0, action: 'replace',
+      senderId: vault.identity.publicBundle.deviceId, targetId: target.deviceId, target,
+      replacedDeviceId: request.sourceDeviceId, recoveryRequest: request,
+      commit: toBase64Url(encodeMlsMessage(result.commit)),
+      welcome: toBase64Url(encodeMlsMessage({ welcome: result.welcome, wireformat: 'mls_welcome', version: 'mls10' })),
+    };
+    const event = { ...unsigned, signature: await signEcdsa(vault.identity.signingPrivateKey, unsigned) };
+    verifyReplacementTarget(event, vault.members);
+    return { event, nextGroupState: encodeState(result.newState) };
+  } finally { clearConsumed(result.consumed); }
 }
 
 export async function generateMlsKeyMaterial(
@@ -410,6 +531,10 @@ export async function processMlsMembership(
   eventSeq: number,
 ): Promise<string> {
   await verifyMembershipEnvelope(vault, envelope);
+  if (envelope.action === 'replace') {
+    verifyReplacementTarget(envelope, vault.members);
+    await verifyRecoveryRequest(vault, envelope.recoveryRequest!);
+  }
   if (eventSeq !== (vault.mls?.lastEventSeq ?? 0) + 1 || envelope.previousEventSeq !== eventSeq - 1) {
     throw new Error('MLS 设备变更顺序不连续');
   }
@@ -426,11 +551,18 @@ export async function processMlsMembership(
     emptyPskIndex,
     await cipherSuite(),
     (incoming) => {
-      if (incoming.kind !== 'commit' || incoming.proposals.length !== 1) return 'reject';
+      if (incoming.kind !== 'commit' || incoming.proposals.length !== (envelope.action === 'replace' ? 2 : 1)) return 'reject';
       if (incoming.senderLeafIndex === undefined || deviceIdAtLeaf(state, incoming.senderLeafIndex) !== envelope.senderId) {
         return 'reject';
       }
       const proposal = incoming.proposals[0]?.proposal;
+      if (envelope.action === 'replace') {
+        const add = incoming.proposals[1]?.proposal;
+        if (proposal?.proposalType !== 'remove' || add?.proposalType !== 'add' ||
+          deviceIdAtLeaf(state, proposal.remove.removed) !== envelope.replacedDeviceId || !envelope.target) return 'reject';
+        const encoded = toBase64Url(encodeMlsMessage({ keyPackage: add.add.keyPackage, wireformat: 'mls_key_package', version: 'mls10' }));
+        return encoded === envelope.target.mlsKeyPackage ? 'accept' : 'reject';
+      }
       if (envelope.action === 'add') {
         if (proposal?.proposalType !== 'add' || !envelope.target || envelope.target.deviceId !== envelope.targetId) return 'reject';
         return parseCredential(proposal.add.keyPackage.leafNode.credential)?.deviceId === envelope.targetId ? 'accept' : 'reject';
@@ -453,12 +585,16 @@ export async function joinMlsMembership(
   eventSeq: number,
 ): Promise<MlsVaultState> {
   await verifyMembershipEnvelope(vault, envelope);
+  if (envelope.action === 'replace') {
+    verifyReplacementTarget(envelope, vault.members);
+    await verifyRecoveryRequest(vault, envelope.recoveryRequest!);
+  }
   if (eventSeq !== (vault.mls?.lastEventSeq ?? 0) + 1 || envelope.previousEventSeq !== eventSeq - 1) {
     throw new Error('MLS 新设备加入事件顺序不连续');
   }
   const own = vault.identity.publicBundle;
   if (
-    envelope.action !== 'add' ||
+    (envelope.action !== 'add' && envelope.action !== 'replace') ||
     envelope.targetId !== own.deviceId ||
     !envelope.target ||
     canonicalStringify(memberBundleForMls(envelope.target)) !== canonicalStringify(own) ||

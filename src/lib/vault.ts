@@ -1,6 +1,8 @@
 import { argon2id } from 'hash-wasm';
 import { fromBase64Url, toBase64Url } from './base64';
 import { downloadBlob } from './download';
+import { generateIdentity } from './crypto';
+import { createRecoveryRequest } from './mls';
 import {
   createPlatformCredential,
   unlockPlatformCredential,
@@ -32,6 +34,71 @@ export type VaultSession = {
   key: CryptoKey;
   stored: StoredVault;
 };
+
+/** A lease for one complete read/derive/write operation, never for a DB put alone. */
+export type VaultMutation = { readonly session: VaultSession; readonly id: symbol };
+let vaultLifecycle: Promise<unknown> = Promise.resolve();
+let activeVaultMutation: VaultMutation | undefined;
+
+// All rooms occupy one physical IDB record. Hold this lock across snapshot reads,
+// crypto and commits, including unlock and replacement, and share it across tabs.
+function withVaultLifecycle<T>(operation: () => Promise<T>): Promise<T> {
+  const next = vaultLifecycle.catch(() => undefined).then(async () =>
+    typeof navigator !== 'undefined' && navigator.locks
+      ? navigator.locks.request('quiet-room:vault:current', operation)
+      : operation());
+  vaultLifecycle = next;
+  return next;
+}
+
+function sameStoredVault(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function staleVaultError(): Error {
+  return new Error('本机会话已在其它窗口或设备流程中更新，请锁定后重新解锁');
+}
+
+function putCurrentVault(tx: IDBTransaction, next: StoredVault, expected?: StoredVault): void {
+  const store = tx.objectStore('vault');
+  if (!expected) { store.put(next, 'current'); return; }
+  const request = store.get('current');
+  request.onsuccess = () => {
+    if (!sameStoredVault(request.result, expected)) { tx.abort(); return; }
+    store.put(next, 'current');
+  };
+}
+
+async function installStoredVault(next: StoredVault, expected?: StoredVault): Promise<void> {
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction('vault', 'readwrite');
+    putCurrentVault(tx, next, expected);
+    tx.oncomplete = () => { database.close(); resolve(); };
+    tx.onabort = () => { database.close(); reject(tx.error ?? staleVaultError()); };
+    tx.onerror = () => reject(tx.error ?? new Error('保险库写入失败'));
+  });
+}
+
+export async function withVaultMutation<T>(
+  session: VaultSession,
+  operation: (mutation: VaultMutation) => Promise<T>,
+): Promise<T> {
+  return withVaultLifecycle(async () => {
+    if (!sameStoredVault(await readStoredVaultUnlocked(), session.stored)) throw staleVaultError();
+    const mutation: VaultMutation = { session, id: Symbol('vault-mutation') };
+    activeVaultMutation = mutation;
+    try {
+      return await operation(mutation);
+    } finally {
+      activeVaultMutation = undefined;
+    }
+  });
+}
+
+function ownsVaultMutation(session: VaultSession, mutation?: VaultMutation): boolean {
+  return Boolean(mutation && mutation.session === session && activeVaultMutation === mutation);
+}
 
 type StoredHistory = {
   id: string;
@@ -98,13 +165,18 @@ async function transaction<T>(
   storeName: 'vault' | 'history' | 'security' | LocalStore,
   mode: IDBTransactionMode,
   action: (store: IDBObjectStore) => IDBRequest<T>,
+  expectedVault?: StoredVault,
 ): Promise<T> {
   const database = await openDatabase();
   return new Promise((resolve, reject) => {
-    const tx = database.transaction(storeName, mode);
+    const tx = database.transaction(expectedVault ? [storeName, 'vault'] : storeName, mode);
+    if (expectedVault) {
+      const current = tx.objectStore('vault').get('current');
+      current.onsuccess = () => { if (!sameStoredVault(current.result, expectedVault)) tx.abort(); };
+    }
     const request = action(tx.objectStore(storeName));
     request.onerror = () => reject(request.error);
-    tx.onabort = () => reject(tx.error);
+    tx.onabort = () => { database.close(); reject(tx.error ?? staleVaultError()); };
     tx.oncomplete = () => {
       resolve(request.result);
       database.close();
@@ -339,12 +411,16 @@ export async function hasStoredVault(): Promise<boolean> {
 }
 
 export async function readStoredVault(): Promise<StoredVault | null> {
+  return withVaultLifecycle(readStoredVaultUnlocked);
+}
+
+async function readStoredVaultUnlocked(): Promise<StoredVault | null> {
   const value: unknown = await transaction('vault', 'readonly', (store) => store.get('current'));
   return validateStoredVault(value) ? value : null;
 }
 
 export async function deleteCurrentVault(): Promise<void> {
-  await transaction('vault', 'readwrite', (store) => store.delete('current'));
+  await withVaultLifecycle(() => transaction('vault', 'readwrite', (store) => store.delete('current')));
 }
 
 export async function downloadVaultDiagnostic(): Promise<void> {
@@ -370,13 +446,27 @@ export async function createVault(
   legacySecret = '',
   unlockMethod: 'password' | 'platform' = 'platform',
   preparedPlatformCredential?: PlatformCredentialResult,
+  isActive: () => boolean = () => true,
 ): Promise<VaultSession> {
+  return withVaultLifecycle(() => createVaultLocked(vault, legacySecret, unlockMethod, preparedPlatformCredential, isActive));
+}
+
+async function createVaultLocked(
+  vault: Vault,
+  legacySecret = '',
+  unlockMethod: 'password' | 'platform' = 'platform',
+  preparedPlatformCredential?: PlatformCredentialResult,
+  isActive: () => boolean = () => true,
+  expected?: StoredVault,
+): Promise<VaultSession> {
+  if (!isActive()) throw new DOMException('保险库创建流程已经结束', 'AbortError');
   if (unlockMethod === 'password') {
     const { bytes, kdf } = await deriveGestureBytes(legacySecret);
     const key = await importMasterKey(bytes);
     bytes.fill(0);
     const stored = await encryptLegacyVault(vault, key, kdf, 'password');
-    await transaction('vault', 'readwrite', (store) => store.put(stored, 'current'));
+    if (!isActive()) throw new DOMException('保险库创建流程已经结束', 'AbortError');
+    await installStoredVault(stored, expected);
     await clearUnlockThrottle();
     return { vault, key, stored };
   }
@@ -392,7 +482,8 @@ export async function createVault(
     payload: await encryptPayload(vault, key),
   };
   masterBytes.fill(0);
-  await transaction('vault', 'readwrite', (store) => store.put(stored, 'current'));
+  if (!isActive()) throw new DOMException('保险库创建流程已经结束', 'AbortError');
+  await installStoredVault(stored, expected);
   await clearUnlockThrottle();
   vault.v = 3;
   return { vault, key, stored };
@@ -427,7 +518,11 @@ async function enforceUnlockThrottle(): Promise<void> {
 }
 
 export async function unlockVault(secret = ''): Promise<VaultSession> {
-  const stored = await readStoredVault();
+  return withVaultLifecycle(() => unlockVaultLocked(secret));
+}
+
+async function unlockVaultLocked(secret: string): Promise<VaultSession> {
+  const stored = await readStoredVaultUnlocked();
   if (!stored) throw new Error('本机没有可解锁的会话');
   if (stored.unlockMethod === 'recovery') throw new Error('恢复包需要先输入独立恢复码');
   await enforceUnlockThrottle();
@@ -470,7 +565,7 @@ export async function unlockVault(secret = ''): Promise<VaultSession> {
           wrappedKey: await wrapMasterKey(masterBytes, nextKek, stored.platform),
           payload: await encryptPayload(vault, key),
         };
-        await transaction('vault', 'readwrite', (store) => store.put(migrated, 'current'));
+        await installStoredVault(migrated, stored);
         unlocked = { vault, key, stored: migrated };
       } else {
         unlocked = { vault, key, stored };
@@ -492,19 +587,22 @@ export async function unlockVault(secret = ''): Promise<VaultSession> {
   }
 }
 
-export async function saveVault(session: VaultSession): Promise<void> {
+export async function saveVault(session: VaultSession, mutation?: VaultMutation): Promise<void> {
+  if (!ownsVaultMutation(session, mutation)) return withVaultMutation(session, (lease) => saveVault(session, lease));
   if (session.stored.unlockMethod === 'recovery') throw new Error('恢复保险库尚未绑定到本设备');
+  let nextStored: StoredVault;
   if (session.stored.v === 1) {
-    session.stored = await encryptLegacyVault(
+    nextStored = await encryptLegacyVault(
       session.vault,
       session.key,
       session.stored.kdf,
       session.stored.unlockMethod ?? 'password',
     );
   } else {
-    session.stored = { ...session.stored, payload: await encryptPayload(session.vault, session.key) };
+    nextStored = { ...session.stored, payload: await encryptPayload(session.vault, session.key) };
   }
-  await transaction('vault', 'readwrite', (store) => store.put(session.stored, 'current'));
+  await installStoredVault(nextStored, session.stored);
+  session.stored = nextStored;
 }
 
 async function reencryptAllLocalData(session: VaultSession, migratedSession: VaultSession): Promise<void> {
@@ -532,7 +630,7 @@ async function reencryptAllLocalData(session: VaultSession, migratedSession: Vau
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const tx = database.transaction(['vault', 'history', 'outbox', 'receiptOutbox', 'uploads', 'preferences'], 'readwrite');
-    tx.objectStore('vault').put(migratedSession.stored, 'current');
+    putCurrentVault(tx, migratedSession.stored, session.stored);
     for (const record of historyRecords) tx.objectStore('history').put(record);
     for (const record of outboxRecords) tx.objectStore('outbox').put(record);
     for (const record of receiptRecords) tx.objectStore('receiptOutbox').put(record);
@@ -553,6 +651,13 @@ async function reencryptAllLocalData(session: VaultSession, migratedSession: Vau
 export async function migrateVaultToPlatform(
   session: VaultSession,
   _legacySecret = '',
+  preparedPlatformCredential?: PlatformCredentialResult,
+): Promise<void> {
+  return withVaultMutation(session, () => migrateVaultToPlatformLocked(session, preparedPlatformCredential));
+}
+
+async function migrateVaultToPlatformLocked(
+  session: VaultSession,
   preparedPlatformCredential?: PlatformCredentialResult,
 ): Promise<void> {
   if (session.stored.v !== 1) return;
@@ -605,9 +710,14 @@ function parseRecoveryCode(value: string): Uint8Array<ArrayBuffer> {
 export type PreparedRecoveryExport = RecoveryExport & { blob: Blob; filename: string };
 
 export async function prepareRecoveryPackage(session: VaultSession): Promise<PreparedRecoveryExport> {
+  return withVaultMutation(session, (mutation) => prepareRecoveryPackageLocked(session, mutation));
+}
+
+async function prepareRecoveryPackageLocked(session: VaultSession, mutation: VaultMutation): Promise<PreparedRecoveryExport> {
   if ((session.stored.v !== 2 && session.stored.v !== 3) || session.stored.unlockMethod !== 'platform') {
     throw new Error('请先完成设备保险库升级');
   }
+  await saveVault(session, mutation);
   const exportedAt = new Date().toISOString();
   const recoveryCodeBytes = crypto.getRandomValues(new Uint8Array(32));
   const displayCode = formatRecoveryCode(recoveryCodeBytes.slice());
@@ -648,6 +758,10 @@ export async function prepareRecoveryPackage(session: VaultSession): Promise<Pre
 }
 
 export async function importRecoveryPackage(file: File): Promise<void> {
+  return withVaultLifecycle(() => importRecoveryPackageLocked(file));
+}
+
+async function importRecoveryPackageLocked(file: File): Promise<void> {
   const parsed: unknown = JSON.parse(await file.text());
   if (!parsed || typeof parsed !== 'object') throw new Error('恢复包格式不正确');
   const record = parsed as Record<string, unknown>;
@@ -669,7 +783,11 @@ export async function importRecoveryPackage(file: File): Promise<void> {
 }
 
 export async function unlockRecoveryVault(recoveryCode: string): Promise<VaultSession> {
-  const stored = await readStoredVault();
+  return withVaultLifecycle(() => unlockRecoveryVaultLocked(recoveryCode));
+}
+
+async function unlockRecoveryVaultLocked(recoveryCode: string): Promise<VaultSession> {
+  const stored = await readStoredVaultUnlocked();
   if (!stored || stored.unlockMethod !== 'recovery') throw new Error('本机没有等待恢复的保险库');
   await enforceUnlockThrottle();
   try {
@@ -704,8 +822,46 @@ export async function bindRecoveredVaultToPlatform(
   _legacySecret = '',
   preparedPlatformCredential?: PlatformCredentialResult,
 ): Promise<void> {
+  return withVaultMutation(session, () => bindRecoveredVaultToPlatformLocked(session, preparedPlatformCredential));
+}
+
+async function bindRecoveredVaultToPlatformLocked(
+  session: VaultSession,
+  preparedPlatformCredential?: PlatformCredentialResult,
+): Promise<void> {
   if (session.stored.unlockMethod !== 'recovery') throw new Error('当前保险库不需要重新绑定');
   const platformResult = preparedPlatformCredential ?? await createPlatformCredential();
+  if (session.vault.protocol === 'mls-rfc9420') {
+    // A checkpoint cannot know all later sends, pending ciphertext, or the
+    // private path created by a later self-commit. Never reuse its MLS sender.
+    const checkpoint = session.vault;
+    const identity = await generateIdentity();
+    const accessToken = toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+    const request = await createRecoveryRequest(checkpoint, identity.publicBundle, accessToken);
+    const nextVault: Vault = {
+      ...checkpoint,
+      identity,
+      accessToken,
+      pairingState: 'recovering',
+      mls: { protocol: 'mls-rfc9420', phase: 'awaiting-welcome' },
+      pendingRecovery: {
+        request,
+        checkpointMembers: structuredClone(checkpoint.members),
+        checkpointEventSeq: checkpoint.mls?.lastEventSeq ?? 0,
+      },
+      pendingDeviceLinks: undefined,
+      pendingDeviceLinkId: undefined,
+      recoveryExportedAt: undefined,
+      lastSeq: 0,
+      lastReceiptSeq: 0,
+      historyUnavailableBeforeSeq: 0,
+    };
+    const replacement = await createVaultLocked(nextVault, '', 'platform', platformResult, () => true, session.stored);
+    session.vault = replacement.vault;
+    session.key = replacement.key;
+    session.stored = replacement.stored;
+    return;
+  }
   const kek = await derivePasskeyKek(platformResult.prfOutput, platformResult.record);
   const masterBytes = new Uint8Array(await crypto.subtle.exportKey('raw', session.key));
   session.vault.v = 3;
@@ -717,7 +873,7 @@ export async function bindRecoveredVaultToPlatform(
     payload: await encryptPayload(session.vault, session.key),
   };
   masterBytes.fill(0);
-  await transaction('vault', 'readwrite', (store) => store.put(stored, 'current'));
+  await installStoredVault(stored, session.stored);
   session.stored = stored;
   await clearUnlockThrottle();
 }
@@ -739,9 +895,10 @@ async function encryptHistoryRecord(session: VaultSession, message: DecryptedMes
   };
 }
 
-export async function saveHistoryMessage(session: VaultSession, message: DecryptedMessage): Promise<void> {
+export async function saveHistoryMessage(session: VaultSession, message: DecryptedMessage, mutation?: VaultMutation): Promise<void> {
+  if (!ownsVaultMutation(session, mutation)) return withVaultMutation(session, (lease) => saveHistoryMessage(session, message, lease));
   const record = await encryptHistoryRecord(session, message);
-  await transaction('history', 'readwrite', (store) => store.put(record));
+  await transaction('history', 'readwrite', (store) => store.put(record), session.stored);
 }
 
 export async function loadHistory(session: VaultSession): Promise<DecryptedMessage[]> {
@@ -753,8 +910,9 @@ export async function loadHistory(session: VaultSession): Promise<DecryptedMessa
 
 export async function loadHistoryPage(
   session: VaultSession,
-  { limit = 200, beforeSeq }: { limit?: number; beforeSeq?: number } = {},
+  { limit = 200, beforeSeq, signal }: { limit?: number; beforeSeq?: number; signal?: AbortSignal } = {},
 ): Promise<DecryptedMessage[]> {
+  signal?.throwIfAborted();
   const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 1000);
   const database = await openDatabase();
   const records = await new Promise<StoredHistory[]>((resolve, reject) => {
@@ -781,13 +939,14 @@ export async function loadHistoryPage(
       resolve(collected.sort((left, right) => left.seq - right.seq));
     };
   });
-  return decryptHistoryRecords(session, records);
+  return decryptHistoryRecords(session, records, signal);
 }
 
 export async function loadHistoryPageAfter(
   session: VaultSession,
-  { limit = 200, afterSeq = 0 }: { limit?: number; afterSeq?: number } = {},
+  { limit = 200, afterSeq = 0, signal }: { limit?: number; afterSeq?: number; signal?: AbortSignal } = {},
 ): Promise<DecryptedMessage[]> {
+  signal?.throwIfAborted();
   const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 1000);
   if (Number.isSafeInteger(afterSeq) && afterSeq >= Number.MAX_SAFE_INTEGER) return [];
   const lower = Number.isSafeInteger(afterSeq) && afterSeq >= 0
@@ -818,12 +977,68 @@ export async function loadHistoryPageAfter(
       resolve(collected);
     };
   });
-  return decryptHistoryRecords(session, records);
+  return decryptHistoryRecords(session, records, signal);
 }
 
-async function decryptHistoryRecords(session: VaultSession, records: StoredHistory[]): Promise<DecryptedMessage[]> {
+/** Read an exact local sequence without confusing a paged-out row with missing history. */
+export async function loadHistoryMessage(session: VaultSession, seq: number, signal?: AbortSignal): Promise<DecryptedMessage | null> {
+  if (!Number.isSafeInteger(seq) || seq < 1) return null;
+  signal?.throwIfAborted();
+  const record = await transaction<StoredHistory | undefined>('history', 'readonly', (store) =>
+    store.get(`${session.vault.roomId}:${seq}`),
+  );
+  signal?.throwIfAborted();
+  if (!record || record.roomId !== session.vault.roomId || record.seq !== seq) return null;
+  return (await decryptHistoryRecords(session, [record], signal))[0] ?? null;
+}
+
+/** Media type stays encrypted. Scan a bounded page and retain only media payloads. */
+export async function loadMediaHistoryPage(
+  session: VaultSession,
+  { beforeSeq, limit = 200, signal }: { beforeSeq?: number; limit?: number; signal?: AbortSignal } = {},
+): Promise<{ messages: DecryptedMessage[]; beforeSeq: number | null; hasMore: boolean }> {
+  signal?.throwIfAborted();
+  const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 200);
+  const upper = beforeSeq === undefined ? Number.MAX_SAFE_INTEGER : beforeSeq - 1;
+  if (upper < 1) return { messages: [], beforeSeq: null, hasMore: false };
+  const database = await openDatabase();
+  const records = await new Promise<StoredHistory[]>((resolve, reject) => {
+    const tx = database.transaction('history', 'readonly');
+    const request = tx.objectStore('history').index('roomSeq').openCursor(
+      IDBKeyRange.bound([session.vault.roomId, 1], [session.vault.roomId, upper]), 'prev',
+    );
+    const collected: StoredHistory[] = [];
+    const abort = () => { try { tx.abort(); } catch { /* The readonly transaction has already finished. */ } };
+    const release = () => {
+      signal?.removeEventListener('abort', abort);
+      database.close();
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor || collected.length > boundedLimit) return;
+      collected.push(cursor.value as StoredHistory);
+      cursor.continue();
+    };
+    tx.onabort = () => { release(); reject(signal?.reason ?? tx.error ?? new DOMException('History scan aborted', 'AbortError')); };
+    tx.onerror = () => { release(); reject(tx.error); };
+    tx.oncomplete = () => { release(); resolve(collected); };
+  });
+  signal?.throwIfAborted();
+  const page = records.slice(0, boundedLimit);
+  const messages = await decryptHistoryRecords(session, page, signal);
+  return {
+    messages: messages.filter((message) => message.payload.kind !== 'text'),
+    beforeSeq: page.at(-1)?.seq ?? null,
+    hasMore: records.length > boundedLimit,
+  };
+}
+
+async function decryptHistoryRecords(session: VaultSession, records: StoredHistory[], signal?: AbortSignal): Promise<DecryptedMessage[]> {
   const messages: DecryptedMessage[] = [];
   for (const record of records) {
+    signal?.throwIfAborted();
     try {
       const additionalData = encoder.encode(`quiet-room-history-v1:${record.roomId}:${record.seq}`);
       const plaintext = await crypto.subtle.decrypt(
@@ -836,6 +1051,7 @@ async function decryptHistoryRecords(session: VaultSession, records: StoredHisto
       // A corrupt cache row is ignored; signed ciphertext can be fetched again when the protocol permits it.
     }
   }
+  signal?.throwIfAborted();
   return messages;
 }
 
@@ -885,9 +1101,11 @@ async function putLocalRecord(
   storeName: LocalStore,
   id: string,
   value: unknown,
+  mutation?: VaultMutation,
 ): Promise<void> {
+  if (!ownsVaultMutation(session, mutation)) return withVaultMutation(session, (lease) => putLocalRecord(session, storeName, id, value, lease));
   const record = await encryptLocalRecord(session, storeName, id, value);
-  await transaction(storeName, 'readwrite', (store) => store.put(record));
+  await transaction(storeName, 'readwrite', (store) => store.put(record), session.stored);
 }
 
 async function loadLocalRecords<T>(session: VaultSession, storeName: LocalStore): Promise<T[]> {
@@ -905,8 +1123,9 @@ async function loadLocalRecords<T>(session: VaultSession, storeName: LocalStore)
   return values;
 }
 
-async function deleteLocalRecord(session: VaultSession, storeName: LocalStore, id: string): Promise<void> {
-  await transaction(storeName, 'readwrite', (store) => store.delete(`${session.vault.roomId}:${id}`));
+async function deleteLocalRecord(session: VaultSession, storeName: LocalStore, id: string, mutation?: VaultMutation): Promise<void> {
+  if (!ownsVaultMutation(session, mutation)) return withVaultMutation(session, (lease) => deleteLocalRecord(session, storeName, id, lease));
+  await transaction(storeName, 'readwrite', (store) => store.delete(`${session.vault.roomId}:${id}`), session.stored);
 }
 
 function normalizeUiPreferences(value: unknown): UiPreferences {
@@ -948,15 +1167,17 @@ export function saveUiPreferences(session: VaultSession, preferences: UiPreferen
   return putLocalRecord(session, 'preferences', uiPreferenceId(session), normalizeUiPreferences(preferences));
 }
 
-export function saveOutboxItem(session: VaultSession, item: OutboxItem): Promise<void> {
-  return putLocalRecord(session, 'outbox', item.clientMsgId, item);
+export function saveOutboxItem(session: VaultSession, item: OutboxItem, mutation?: VaultMutation): Promise<void> {
+  return putLocalRecord(session, 'outbox', item.clientMsgId, item, mutation);
 }
 
 async function commitMlsVaultAndRecords(
   session: VaultSession,
   nextGroupState: string,
   records: { outbox?: OutboxItem; history?: DecryptedMessage; pendingReceipt?: DeliveryReceipt },
+  mutation?: VaultMutation,
 ): Promise<void> {
+  if (!ownsVaultMutation(session, mutation)) throw new Error('MLS 状态变更必须在完整保险库事务中执行');
   if ((session.stored.v !== 2 && session.stored.v !== 3) || session.stored.unlockMethod !== 'platform' || !session.vault.mls) {
     throw new Error('MLS 状态只能写入通行密钥保险库');
   }
@@ -983,7 +1204,7 @@ async function commitMlsVaultAndRecords(
       ...(receiptRecord ? ['receiptOutbox'] : []),
     ];
     const tx = database.transaction(stores, 'readwrite');
-    tx.objectStore('vault').put(nextStored, 'current');
+    putCurrentVault(tx, nextStored, session.stored);
     if (outboxRecord) tx.objectStore('outbox').put(outboxRecord);
     if (historyRecord) tx.objectStore('history').put(historyRecord);
     if (receiptRecord) tx.objectStore('receiptOutbox').put(receiptRecord);
@@ -1005,8 +1226,9 @@ export function commitMlsSend(
   session: VaultSession,
   item: OutboxItem,
   nextGroupState: string,
+  mutation?: VaultMutation,
 ): Promise<void> {
-  return commitMlsVaultAndRecords(session, nextGroupState, { outbox: item });
+  return commitMlsVaultAndRecords(session, nextGroupState, { outbox: item }, mutation);
 }
 
 export function commitMlsReceive(
@@ -1014,20 +1236,48 @@ export function commitMlsReceive(
   message: DecryptedMessage,
   nextGroupState: string,
   pendingReceipt?: DeliveryReceipt,
+  mutation?: VaultMutation,
 ): Promise<void> {
-  return commitMlsVaultAndRecords(session, nextGroupState, { history: message, pendingReceipt });
+  return commitMlsVaultAndRecords(session, nextGroupState, { history: message, pendingReceipt }, mutation);
+}
+
+/** Replace the old room cache and install the new identity's authenticated join boundary atomically. */
+export async function finishVaultRecovery(session: VaultSession, nextVault: Vault, mutation: VaultMutation): Promise<void> {
+  if (!ownsVaultMutation(session, mutation) || session.stored.unlockMethod !== 'platform' || !session.vault.pendingRecovery) {
+    throw new Error('恢复完成操作没有有效的保险库事务');
+  }
+  const nextStored: StoredPlatformVault = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const stores = ['vault', 'history', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
+    const tx = database.transaction(stores, 'readwrite');
+    putCurrentVault(tx, nextStored, session.stored);
+    for (const name of stores.slice(1)) {
+      const store = tx.objectStore(name);
+      const request = store.index('roomId').openKeyCursor(IDBKeyRange.only(nextVault.roomId));
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        store.delete(cursor.primaryKey);
+        cursor.continue();
+      };
+    }
+    tx.oncomplete = () => { database.close(); session.vault = nextVault; session.stored = nextStored; resolve(); };
+    tx.onabort = () => { database.close(); reject(tx.error ?? new Error('恢复本机事务失败')); };
+    tx.onerror = () => reject(tx.error ?? new Error('恢复本机事务失败'));
+  });
 }
 
 export function loadOutbox(session: VaultSession): Promise<OutboxItem[]> {
   return loadLocalRecords<OutboxItem>(session, 'outbox');
 }
 
-export function deleteOutboxItem(session: VaultSession, clientMsgId: string): Promise<void> {
-  return deleteLocalRecord(session, 'outbox', clientMsgId);
+export function deleteOutboxItem(session: VaultSession, clientMsgId: string, mutation?: VaultMutation): Promise<void> {
+  return deleteLocalRecord(session, 'outbox', clientMsgId, mutation);
 }
 
-export function savePendingReceipt(session: VaultSession, receipt: DeliveryReceipt): Promise<void> {
-  return putLocalRecord(session, 'receiptOutbox', receipt.clientMsgId, receipt);
+export function savePendingReceipt(session: VaultSession, receipt: DeliveryReceipt, mutation?: VaultMutation): Promise<void> {
+  return putLocalRecord(session, 'receiptOutbox', receipt.clientMsgId, receipt, mutation);
 }
 
 export function loadPendingReceipts(session: VaultSession): Promise<DeliveryReceipt[]> {

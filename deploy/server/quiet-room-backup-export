@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+readonly BACKUP_ROOT="${QUIET_ROOM_BACKUP_DIR:-/opt/quiet-room/backups/continuous}"
+readonly REMOTE="${QUIET_ROOM_BACKUP_REMOTE:?Configure a dedicated rclone remote in /etc/quiet-room/backup-export.env}"
+readonly IMAGE="${QUIET_ROOM_BACKUP_IMAGE:-quiet-room-app:production}"
+readonly OPS_STATE="${QUIET_ROOM_OPS_STATE_DIR:-/var/lib/quiet-room-deploy}"
+readonly MAX_SNAPSHOT_AGE="${QUIET_ROOM_MAX_SNAPSHOT_AGE_SECONDS:-129600}"
+
+[[ "$REMOTE" =~ ^[A-Za-z0-9_-]+:[^[:space:]]+$ ]] || {
+  printf 'Backup destination must be a named rclone remote, not a local directory.\n' >&2
+  exit 64
+}
+[[ "$MAX_SNAPSHOT_AGE" =~ ^[1-9][0-9]*$ ]] || exit 64
+for required in docker rclone find sort; do command -v "$required" >/dev/null; done
+
+latest="$(find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -type d -name 'quiet-room-*' -print | sort | tail -n 1)"
+[[ -n "$latest" && -f "$latest/manifest.json" ]] || {
+  printf 'No completed backup is available to export.\n' >&2
+  exit 66
+}
+name="${latest##*/}"
+[[ "$name" =~ ^quiet-room-[0-9TZ:.+-]+$ ]] || exit 64
+
+# Validate SQLite, ciphertext chunks and manifest before any upload. Docker
+# receives only the backup directory, never the live data volume or TLS keys.
+docker run --rm --volume "$BACKUP_ROOT:/backup:ro" \
+  --env "BACKUP_PATH=/backup/$name" --env "MAX_SNAPSHOT_AGE=$MAX_SNAPSHOT_AGE" "$IMAGE" \
+  node --input-type=module -e \
+  "import {verifyBackup} from './server/backup.mjs'; const result=await verifyBackup(process.env.BACKUP_PATH); const age=(Date.now()-Date.parse(result.createdAt))/1000; if(!Number.isFinite(age)||age<0||age>Number(process.env.MAX_SNAPSHOT_AGE)) throw new Error('Local backup is stale or has an invalid creation time');" >/dev/null
+rclone copy "$latest" "${REMOTE%/}/$name" --immutable --checksum
+# Download-and-compare confirms the remote bytes, even without provider hashes.
+rclone check "$latest" "${REMOTE%/}/$name" --download --one-way
+
+install -d -m 0755 "$OPS_STATE"
+receipt="$OPS_STATE/.offsite-verified-at.$$"
+trap 'rm -f -- "$receipt"' EXIT
+printf '%s\n' "$(date +%s)" > "$receipt"
+mv -- "$receipt" "$OPS_STATE/offsite-verified-at"
+printf 'OFFSITE_BACKUP_VERIFIED backup=%s\n' "$name"

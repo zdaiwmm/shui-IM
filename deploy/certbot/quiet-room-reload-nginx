@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+# Install as a Certbot deploy hook; it runs only after successful renewal.
+nginx -t
+systemctl reload nginx

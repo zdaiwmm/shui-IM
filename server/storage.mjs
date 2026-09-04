@@ -3,7 +3,7 @@ import { constants as fsConstants } from 'node:fs';
 import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
-import { canonicalStringify } from './protocol.mjs';
+import { canonicalStringify, isCanonicalUtcTimestamp } from './protocol.mjs';
 
 function nowIso() {
   return new Date().toISOString();
@@ -145,13 +145,44 @@ export async function createStore({
       event_id TEXT NOT NULL,
       sender_device_id TEXT NOT NULL,
       target_device_id TEXT NOT NULL,
-      action TEXT NOT NULL CHECK(action IN ('add', 'remove')),
+      action TEXT NOT NULL CHECK(action IN ('add', 'remove', 'replace')),
       envelope TEXT NOT NULL,
       accepted_at TEXT NOT NULL,
       PRIMARY KEY(room_id, event_seq),
       UNIQUE(room_id, event_id)
     );
+
+    CREATE TABLE IF NOT EXISTS recovery_requests (
+      room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+      request_id TEXT NOT NULL,
+      source_device_id TEXT NOT NULL,
+      replacement_device_id TEXT NOT NULL,
+      token_hash BLOB NOT NULL,
+      request TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'completed', 'expired')),
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(room_id, request_id)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS one_pending_recovery ON recovery_requests(room_id, source_device_id) WHERE status = 'pending';
+    CREATE UNIQUE INDEX IF NOT EXISTS one_room_recovery ON recovery_requests(room_id) WHERE status = 'pending';
   `);
+
+  const eventsSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mls_events'").get()?.sql ?? '';
+  if (!eventsSchema.includes("'replace'")) {
+    db.exec(`BEGIN IMMEDIATE;
+      ALTER TABLE mls_events RENAME TO mls_events_before_recovery;
+      CREATE TABLE mls_events (
+        room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+        event_seq INTEGER NOT NULL, event_id TEXT NOT NULL, sender_device_id TEXT NOT NULL,
+        target_device_id TEXT NOT NULL, action TEXT NOT NULL CHECK(action IN ('add', 'remove', 'replace')),
+        envelope TEXT NOT NULL, accepted_at TEXT NOT NULL,
+        PRIMARY KEY(room_id, event_seq), UNIQUE(room_id, event_id)
+      );
+      INSERT INTO mls_events SELECT * FROM mls_events_before_recovery;
+      DROP TABLE mls_events_before_recovery;
+      COMMIT;`);
+  }
 
   if (!hasColumn(db, 'rooms', 'next_receipt_seq')) {
     db.exec('ALTER TABLE rooms ADD COLUMN next_receipt_seq INTEGER NOT NULL DEFAULT 0');
@@ -407,12 +438,13 @@ export async function createStore({
     const row = expectedDeviceId
       ? statements.memberByIdAndToken.get(roomId, expectedDeviceId, digest)
       : statements.memberByToken.get(roomId, digest);
-    if (!row) return null;
+    if (!row || deviceRecoveryPending(roomId, row.device_id)) return null;
     statements.touchMember.run(nowIso(), roomId, row.device_id);
     return getMember(roomId, row.device_id);
   }
 
   function updateMemberCapabilities(roomId, deviceId, capabilities) {
+    assertDeviceActive(roomId, deviceId);
     const normalized = [...new Set(capabilities)];
     const result = statements.updateMemberCapabilities.run(JSON.stringify(normalized), roomId, deviceId);
     if (result.changes !== 1) throw new Error('MEMBER_NOT_FOUND');
@@ -536,6 +568,8 @@ export async function createStore({
       protocol: room.protocol,
       mlsWelcome: room.mls_welcome ? JSON.parse(room.mls_welcome) : null,
       members: statements.members.all(roomId).map(memberRow),
+      recoveryRequests: db.prepare("SELECT request FROM recovery_requests WHERE room_id = ? AND status = 'pending' AND expires_at > ?")
+        .all(roomId, nowIso()).map((row) => JSON.parse(row.request)),
       mlsEvents: statements.mlsEventsAfter.all(roomId, 0).map((event) => ({
         eventSeq: event.event_seq,
         event: JSON.parse(event.envelope),
@@ -545,6 +579,7 @@ export async function createStore({
   }
 
   function saveMlsWelcome(roomId, envelope) {
+    assertDeviceActive(roomId, envelope.senderId);
     const room = statements.room.get(roomId);
     if (!room) throw new Error('ROOM_NOT_FOUND');
     const serialized = JSON.stringify(envelope);
@@ -579,11 +614,12 @@ export async function createStore({
   }
 
   function createDeviceLink(roomId, authorizerId, linkId, secret, expiresAt) {
+    cleanupExpiredRecoveryRequests();
     cleanupExpiredDeviceLinks(nowIso());
     const room = statements.room.get(roomId);
     const authorizer = getMember(roomId, authorizerId);
     if (!room || room.protocol !== 'mls-rfc9420') throw new Error('PROTOCOL_MISMATCH');
-    if (!authorizer || authorizer.status !== 'active') throw new Error('UNAUTHORIZED');
+    assertDeviceActive(roomId, authorizerId);
     if (statements.memberReservationCountForRole.get(roomId, authorizer.role).count >= 3) throw new Error('DEVICE_LIMIT');
     const expires = Date.parse(expiresAt);
     if (!Number.isFinite(expires) || expires <= Date.now() || expires > Date.now() + 15 * 60_000) {
@@ -594,6 +630,7 @@ export async function createStore({
   }
 
   function claimDeviceLink(linkId, secret, bundle, accessToken, deviceName, capabilities = []) {
+    cleanupExpiredRecoveryRequests();
     cleanupExpiredDeviceLinks(nowIso());
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -601,6 +638,7 @@ export async function createStore({
       if (!verifyDeviceLinkSecret(link, secret) || link.used_at || Date.parse(link.expires_at) <= Date.now()) {
         throw new Error('INVALID_DEVICE_LINK');
       }
+      assertDeviceActive(link.room_id, link.authorizer_id);
       if (link.claimed_device_id) {
         if (link.claimed_device_id !== bundle.deviceId) throw new Error('DEVICE_LINK_CLAIMED');
         const existing = getMember(link.room_id, bundle.deviceId);
@@ -648,6 +686,7 @@ export async function createStore({
   function deviceLinkStatus(linkId, secret) {
     const link = statements.deviceLink.get(linkId);
     if (!verifyDeviceLinkSecret(link, secret)) throw new Error('INVALID_DEVICE_LINK');
+    if (!link.used_at) assertDeviceActive(link.room_id, link.authorizer_id);
     return { link: publicDeviceLink(link), state: roomState(link.room_id) };
   }
 
@@ -683,6 +722,7 @@ export async function createStore({
   function saveMlsEvent(roomId, envelope) {
     db.exec('BEGIN IMMEDIATE');
     try {
+      assertDeviceActive(roomId, envelope.senderId);
       const duplicate = statements.mlsEventById.get(roomId, envelope.eventId);
       if (duplicate) {
         if (duplicate.envelope !== JSON.stringify(envelope)) throw new Error('MLS_EVENT_CONFLICT');
@@ -698,7 +738,7 @@ export async function createStore({
       const sender = getMember(roomId, envelope.senderId);
       const target = getMember(roomId, envelope.targetId);
       if (!room || room.protocol !== 'mls-rfc9420') throw new Error('PROTOCOL_MISMATCH');
-      if (!sender || sender.status !== 'active') throw new Error('UNAUTHORIZED');
+      if (!sender || sender.status !== 'active' || deviceRecoveryPending(roomId, sender.deviceId)) throw new Error('UNAUTHORIZED');
       if (envelope.previousEventSeq !== room.next_mls_event_seq) throw new Error('MLS_EVENT_STALE');
       if (envelope.action === 'add') {
         if (!target || target.status !== 'pending' || target.addedBy !== sender.deviceId || !envelope.target) {
@@ -723,6 +763,21 @@ export async function createStore({
         });
         if (canonicalStringify(envelope.target) !== expected || !envelope.welcome) throw new Error('INVALID_MLS_EVENT');
         if (statements.memberCountForRole.get(roomId, target.role).count >= 3) throw new Error('DEVICE_LIMIT');
+      } else if (envelope.action === 'replace') {
+        const pending = db.prepare("SELECT * FROM recovery_requests WHERE room_id = ? AND request_id = ? AND status = 'pending' AND expires_at > ?")
+          .get(roomId, envelope.recoveryRequest?.requestId ?? '', nowIso());
+        const source = getMember(roomId, envelope.replacedDeviceId);
+        if (!pending || pending.source_device_id !== source?.deviceId || source.status !== 'active' ||
+          pending.replacement_device_id !== target?.deviceId || target.status !== 'pending' ||
+          target.role !== source.role || target.addedBy !== source.deviceId || source.deviceId === sender.deviceId ||
+          canonicalStringify(JSON.parse(pending.request)) !== canonicalStringify(envelope.recoveryRequest) ||
+          canonicalStringify(target) !== canonicalStringify(envelope.target) || !envelope.welcome) {
+          throw new Error('INVALID_RECOVERY_REQUEST');
+        }
+        if (statements.members.all(roomId).map(memberRow).some((member) =>
+          member.status === 'active' && member.deviceId !== source.deviceId && !member.capabilities.includes('recovery-replace-v1'))) {
+          throw new Error('RECOVERY_REQUIRES_UPGRADE');
+        }
       } else {
         if (
           !target || target.status !== 'active' || target.deviceId === sender.deviceId ||
@@ -745,9 +800,15 @@ export async function createStore({
         JSON.stringify(envelope),
         acceptedAt,
       );
-      if (envelope.action === 'add') {
+      if (envelope.action === 'add' || envelope.action === 'replace') {
         if (statements.activateMember.run(room.next_seq, room.next_receipt_seq, roomId, envelope.targetId).changes !== 1) {
           throw new Error('INVALID_MLS_EVENT');
+        }
+        if (envelope.action === 'replace') {
+          if (statements.revokeMember.run(acceptedAt, roomId, envelope.replacedDeviceId).changes !== 1) throw new Error('INVALID_RECOVERY_REQUEST');
+          statements.deletePushSubscription.run(roomId, envelope.replacedDeviceId);
+          db.prepare("UPDATE recovery_requests SET status = 'completed' WHERE room_id = ? AND request_id = ?")
+            .run(roomId, envelope.recoveryRequest.requestId);
         }
         const link = db.prepare('SELECT link_id FROM device_links WHERE room_id = ? AND claimed_device_id = ? AND used_at IS NULL')
           .get(roomId, envelope.targetId);
@@ -774,6 +835,79 @@ export async function createStore({
     }));
   }
 
+  function deviceRecoveryPending(roomId, deviceId) {
+    return Boolean(db.prepare("SELECT 1 FROM recovery_requests WHERE room_id = ? AND source_device_id = ? AND status = 'pending' AND expires_at > ?")
+      .get(roomId, deviceId, nowIso()));
+  }
+
+  function assertDeviceActive(roomId, deviceId) {
+    if (!deviceId || getMember(roomId, deviceId)?.status !== 'active' || deviceRecoveryPending(roomId, deviceId)) {
+      throw new Error('UNAUTHORIZED');
+    }
+  }
+
+  function cleanupExpiredRecoveryRequests() {
+    const expired = db.prepare("SELECT room_id, request_id, source_device_id, replacement_device_id FROM recovery_requests WHERE status = 'pending' AND expires_at <= ?").all(nowIso());
+    if (!expired.length) return;
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      for (const row of expired) {
+        statements.deletePendingLinkedMember.run(row.room_id, row.replacement_device_id, row.source_device_id);
+        db.prepare("UPDATE recovery_requests SET status = 'expired' WHERE room_id = ? AND request_id = ?").run(row.room_id, row.request_id);
+      }
+      db.exec('COMMIT');
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+  }
+
+  // Called only after the HTTP boundary verifies the old identity's signature.
+  // The signed request binds the fresh identity, token hash, expiry, and room.
+  function createRecoveryRequest(roomId, request, accessToken, deviceName, capabilities) {
+    cleanupExpiredRecoveryRequests();
+    if (!validToken(accessToken) || hashToken(accessToken).toString('base64url') !== request.tokenHash) throw new Error('INVALID_RECOVERY_REQUEST');
+    const serialized = canonicalStringify(request);
+    const previous = db.prepare('SELECT * FROM recovery_requests WHERE room_id = ? AND request_id = ?').get(roomId, request.requestId);
+    if (previous) {
+      if (previous.request !== serialized || previous.status === 'expired') throw new Error('INVALID_RECOVERY_REQUEST');
+      if (previous.status === 'completed' && !authenticatedDevice(roomId, accessToken, previous.replacement_device_id)) throw new Error('UNAUTHORIZED');
+      return roomState(roomId);
+    }
+    const expires = Date.parse(request.expiresAt);
+    if (!isCanonicalUtcTimestamp(request.expiresAt) || expires <= Date.now() || expires > Date.now() + 15 * 60_000) throw new Error('INVALID_RECOVERY_REQUEST');
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const room = statements.room.get(roomId);
+      const source = getMember(roomId, request.sourceDeviceId);
+      if (!room || room.protocol !== 'mls-rfc9420' || !room.mls_welcome || !source || source.status !== 'active') throw new Error('INVALID_RECOVERY_REQUEST');
+      if (db.prepare("SELECT 1 FROM recovery_requests WHERE room_id = ? AND status = 'pending'").get(roomId)) throw new Error('RECOVERY_ALREADY_PENDING');
+      const helpers = statements.members.all(roomId).map(memberRow).filter((member) => member.status === 'active' && member.deviceId !== source.deviceId);
+      if (!helpers.length || helpers.some((member) => !member.capabilities.includes('recovery-replace-v1')) || !capabilities.includes('recovery-replace-v1')) {
+        throw new Error('RECOVERY_REQUIRES_UPGRADE');
+      }
+      if (statements.member.get(roomId, request.replacement.deviceId)) throw new Error('INVALID_RECOVERY_REQUEST');
+      const createdAt = nowIso();
+      const bundle = request.replacement;
+      statements.insertMember.run(roomId, bundle.deviceId, source.role, JSON.stringify(bundle.encryptionKey),
+        JSON.stringify(bundle.signingKey), bundle.mlsKeyPackage, null, hashToken(accessToken), deviceName,
+        'pending', source.deviceId, 0, 0, JSON.stringify(capabilities), createdAt);
+      db.prepare(`INSERT INTO recovery_requests(room_id, request_id, source_device_id, replacement_device_id,
+        token_hash, request, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(roomId, request.requestId, source.deviceId, bundle.deviceId, hashToken(accessToken), serialized, request.expiresAt, createdAt);
+      db.exec('COMMIT');
+      return roomState(roomId);
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+  }
+
+  function recoveryStatus(roomId, requestId, token) {
+    cleanupExpiredRecoveryRequests();
+    const row = db.prepare('SELECT * FROM recovery_requests WHERE room_id = ? AND request_id = ?').get(roomId, requestId);
+    if (!row || !validToken(token)) throw new Error('UNAUTHORIZED');
+    const digest = hashToken(token);
+    if (!timingSafeEqual(Buffer.from(row.token_hash), digest)) throw new Error('UNAUTHORIZED');
+    if (row.status === 'expired') throw new Error('RECOVERY_EXPIRED');
+    if (row.status === 'completed' && !authenticatedDevice(roomId, token, row.replacement_device_id)) throw new Error('UNAUTHORIZED');
+    return roomState(roomId);
+  }
+
   function getMember(roomId, deviceId) {
     return memberRow(statements.member.get(roomId, deviceId));
   }
@@ -792,6 +926,7 @@ export async function createStore({
 
   function savePushSubscription(roomId, deviceId, subscription) {
     if (getMember(roomId, deviceId)?.status !== 'active') throw new Error('MEMBER_NOT_FOUND');
+    assertDeviceActive(roomId, deviceId);
     const now = nowIso();
     statements.upsertPushSubscription.run(
       roomId,
@@ -815,6 +950,7 @@ export async function createStore({
   }
 
   function deletePushSubscription(roomId, deviceId) {
+    assertDeviceActive(roomId, deviceId);
     return statements.deletePushSubscription.run(roomId, deviceId).changes > 0;
   }
 
@@ -825,6 +961,7 @@ export async function createStore({
   function insertMessage(roomId, envelope) {
     db.exec('BEGIN IMMEDIATE');
     try {
+      if (getMember(roomId, envelope.senderId)?.status !== 'active' || deviceRecoveryPending(roomId, envelope.senderId)) throw new Error('UNAUTHORIZED');
       const existing = statements.messageByClientId.get(roomId, envelope.clientMsgId);
       if (existing) {
         if (existing.sender_device_id !== envelope.senderId) throw new Error('MESSAGE_CONFLICT');
@@ -885,6 +1022,7 @@ export async function createStore({
         !sender ||
         !receiver ||
         receiver.status !== 'active' ||
+        deviceRecoveryPending(roomId, receiver.deviceId) ||
         sender.role === receiver.role
       ) {
         throw new Error('INVALID_RECEIPT');
@@ -929,7 +1067,8 @@ export async function createStore({
         : { receiptSeq: row.receipt_seq, receipt: JSON.parse(row.receipt), acceptedAt: row.accepted_at });
   }
 
-  function createBlob(roomId, blobId, chunkCount, expectedBytes) {
+  function createBlob(roomId, blobId, chunkCount, expectedBytes, actorId) {
+    assertDeviceActive(roomId, actorId);
     const existing = statements.blob.get(roomId, blobId);
     if (existing) {
       if (existing.chunk_count !== chunkCount || existing.expected_bytes !== expectedBytes) throw new Error('BLOB_CONFLICT');
@@ -963,14 +1102,16 @@ export async function createStore({
     };
   }
 
-  async function putBlobChunk(roomId, blobId, index, bytes) {
+  async function putBlobChunk(roomId, blobId, index, bytes, actorId) {
     return withBlobLock(roomId, blobId, async () => {
+      assertDeviceActive(roomId, actorId);
       const blob = statements.blob.get(roomId, blobId);
       if (!blob || blob.completed || index < 0 || index >= blob.chunk_count || bytes.length < 17) {
         throw new Error('INVALID_BLOB');
       }
       const targetDir = path.join(blobDir, roomId, blobId);
       await mkdir(targetDir, { recursive: true });
+      assertDeviceActive(roomId, actorId);
       const target = path.join(targetDir, `${String(index).padStart(8, '0')}.bin`);
       let alreadyExists = false;
       await writeFile(target, bytes, { flag: 'wx' }).catch(async (error) => {
@@ -979,6 +1120,15 @@ export async function createStore({
         const existing = await readFile(target);
         if (!Buffer.from(existing).equals(Buffer.from(bytes))) throw new Error('CHUNK_CONFLICT');
       });
+
+      // A recovery request may fence this actor while filesystem I/O yields.
+      // Discard only bytes created by this attempt; never remove an existing
+      // immutable chunk or acknowledge a fenced actor's write.
+      try { assertDeviceActive(roomId, actorId); }
+      catch (error) {
+        if (!alreadyExists) await rm(target, { force: true });
+        throw error;
+      }
 
       const storedChunk = statements.blobChunk.get(roomId, blobId, index);
       if (storedChunk && storedChunk.byte_length !== bytes.length) throw new Error('CHUNK_CONFLICT');
@@ -994,8 +1144,9 @@ export async function createStore({
     });
   }
 
-  async function completeBlob(roomId, blobId) {
+  async function completeBlob(roomId, blobId, actorId) {
     return withBlobLock(roomId, blobId, async () => {
+      assertDeviceActive(roomId, actorId);
       const blob = statements.blob.get(roomId, blobId);
       if (!blob) throw new Error('INVALID_BLOB');
       if (blob.completed) return blobStatus(roomId, blobId);
@@ -1010,6 +1161,7 @@ export async function createStore({
           throw new Error('BLOB_INCOMPLETE');
         }
       }
+      assertDeviceActive(roomId, actorId);
       statements.completeBlob.run(nowIso(), roomId, blobId);
       return blobStatus(roomId, blobId);
     });
@@ -1074,6 +1226,10 @@ export async function createStore({
     authenticate,
     authenticateInvite,
     authenticatedDevice,
+    deviceRecoveryPending,
+    createRecoveryRequest,
+    recoveryStatus,
+    cleanupExpiredRecoveryRequests,
     updateMemberCapabilities,
     blobStatus,
     cleanupExpiredBlobs,

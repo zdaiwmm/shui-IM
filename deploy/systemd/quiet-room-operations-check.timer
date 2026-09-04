@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Quiet Room operational dependencies every six hours
+
+[Timer]
+OnBootSec=5m
+OnUnitActiveSec=6h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -89,7 +89,7 @@ describe('production deployment rollback safety contract', () => {
     expect(localSource).not.toContain('chat.mijiu.cloud');
   });
 
-  it('checks the canonical route before downtime and retries public probes after cutover', async () => {
+  it('validates gated traffic before downtime and disables data rollback before reopening traffic', async () => {
     const source = await readFile(DEPLOY_SCRIPT, 'utf8');
     const preflight = source.indexOf('if ! wait_for_public_health 3');
     const cutover = source.indexOf('cutover_started=1\nstop_project_containers');
@@ -97,12 +97,19 @@ describe('production deployment rollback safety contract', () => {
     const publicHealth = source.indexOf('wait_for_public_health 10', startNew);
     const publicWebSocket = source.indexOf('wait_for_public_websocket', publicHealth);
     const publishRelease = source.indexOf('ln -sfn "$release_dir" "$APP_ROOT/current"');
+    const disableRollback = source.indexOf('data_restore_required=0\ncutover_started=0\ntrap - ERR', publicHealth);
+    const openTraffic = source.indexOf('\nopen_business_traffic\n', publishRelease);
 
     expect(preflight).toBeGreaterThan(-1);
     expect(preflight).toBeLessThan(cutover);
     expect(publicHealth).toBeGreaterThan(startNew);
     expect(publicWebSocket).toBeGreaterThan(publicHealth);
-    expect(publishRelease).toBeGreaterThan(publicWebSocket);
+    expect(source.indexOf('if ! probe_public_maintenance || ! wait_for_public_health 3')).toBeLessThan(cutover);
+    expect(disableRollback).toBeGreaterThan(publicHealth);
+    expect(publishRelease).toBeGreaterThan(disableRollback);
+    expect(openTraffic).toBeGreaterThan(publishRelease);
+    expect(publicWebSocket).toBeGreaterThan(openTraffic);
+    expect(source).toContain('POST_OPEN_CHECK_FAILED');
     expect(source).toContain('for attempt in $(seq 1 5)');
     expect(source).toContain('let opened=false');
     expect(source).toContain('process.exit(opened?0:3)');
@@ -124,6 +131,9 @@ describe('production deployment rollback safety contract', () => {
     expect(retiredOrigin).toContain('Referrer-Policy "no-referrer"');
     expect(retiredOrigin).not.toContain('proxy_pass');
     expect(nginx).not.toContain('Access-Control-Allow-Origin');
+    expect(nginx).toContain('location = /api/health');
+    expect(nginx.match(/if \(-f \/var\/lib\/quiet-room-deploy\/maintenance\) \{ return 503; \}/g)).toHaveLength(3);
+    expect(nginx).toContain('limit_conn quiet_room_connections 32;');
 
     expect(bootstrap).toContain('server_name ai.shui.click;');
     expect(bootstrap).toContain('location ^~ /.well-known/acme-challenge/');

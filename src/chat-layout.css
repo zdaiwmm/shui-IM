@@ -21,7 +21,7 @@
   position: absolute;
   pointer-events: none;
   z-index: -1;
-  background: linear-gradient(to bottom, color-mix(in oklch, var(--chrome-tint) 80%, transparent), color-mix(in oklch, var(--chrome-tint) 36%, transparent) 65%, transparent);
+  background: linear-gradient(to bottom, color-mix(in oklch, var(--chrome-tint) 62%, transparent), color-mix(in oklch, var(--chrome-tint) 20%, transparent) 65%, transparent);
   -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   -webkit-mask-image: linear-gradient(to bottom, black 40%, transparent);
@@ -43,7 +43,8 @@
   backdrop-filter: blur(20px);
   pointer-events: auto;
 }
-.self-summary > strong { grid-column: 1 / -1; margin: 0; text-align: left; font-size: 0.62rem; }
+.self-summary { font-size: 0.75rem; }
+.self-summary > strong { grid-column: 1 / -1; margin: 0; text-align: left; font-size: 0.75rem; }
 .peer-summary {
   justify-self: center;
   width: 100%;
@@ -58,8 +59,26 @@
   line-height: 1.2;
 }
 .peer-summary .peer-name { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 1rem; color: var(--ink); font-weight: 700; }
-.peer-summary > strong { flex: none; width: 100%; margin: 0; text-align: center; font-size: 0.7rem; font-weight: 500; }
+.peer-summary > strong { flex: none; width: 100%; margin: 0; text-align: center; font-size: 0.75rem; font-weight: 500; }
 .header-actions { justify-self: end; gap: 5px; }
+/* One blur at the scrolling edge, instead of nested filters on every control. */
+.chat-header .icon-button,
+.chat-header .more-menu > summary,
+.chat-header .self-summary,
+.chat-header .peer-summary,
+.composer .composer-field,
+.composer .icon-button,
+.composer .send-button {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: inset 0 1px 0 var(--glass-border), 0 3px 12px oklch(24% 0.02 255 / 0.06);
+}
+.chat-shell > .notice {
+  top: auto;
+  bottom: var(--chat-bottom-space);
+  transform-origin: bottom center;
+}
+.chat-shell > .notice.is-visible { transform: none; }
 .system-notices {
   position: absolute;
   inset: var(--chat-header-height) 10px auto;

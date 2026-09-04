@@ -30,9 +30,9 @@ Do not resemble a neon cyber-security dashboard, hacker terminal, crypto trading
 
 ## Delivery Semantics
 
-- **等待服务器**: the payload is durably encrypted in the local outbox but has not yet been observed in the server sequence.
-- **服务器已保存**: the signed ciphertext has a committed server sequence and can be recovered by reconnect synchronization.
-- **对端已安全接收**: at least one active device owned by the other participant verified, decrypted, and durably stored the message, then signed a receipt bound to that exact message ID and sequence.
+- **等待发送** (accessible description: 等待服务器): the payload is durably encrypted in the local outbox but has not yet been observed in the server sequence.
+- **已保存** (accessible description: 服务器已保存): the signed ciphertext has a committed server sequence and can be recovered by reconnect synchronization.
+- **已送达** (accessible description: 对端已安全接收): at least one active device owned by the other participant verified, decrypted, and durably stored the message, then signed a receipt bound to that exact message ID and sequence.
 - Retries always reuse the original client message ID. After any disconnect, both message and receipt streams resume from the last locally durable contiguous sequence.
 - A disconnected network cannot deliver instantly. The product must preserve the message locally, state the offline condition accurately, and converge automatically after connectivity returns.
 
@@ -77,12 +77,16 @@ Do not resemble a neon cyber-security dashboard, hacker terminal, crypto trading
 - Both single-device and syncable passkeys are accepted. Backup eligibility is recorded at registration and verified on later assertions; it informs the security properties of the credential but does not make a valid credential fail setup.
 - Legacy password vaults migrate to passkey-only version 3 after one successful password unlock. Existing version-2 gesture vaults require the old gesture once because it is part of the old key derivation, then are immediately rewrapped as passkey-only version 3.
 - `visibilitychange` to hidden, window blur, `pagehide`, explicit lock, and idle timeout invoke the same idempotent lock behavior. Visible plaintext, sockets, object URLs, transfers, and decrypted session references are cleared immediately. Returning to the foreground never restores the conversation automatically.
-- Two user-initiated system surfaces may temporarily suppress their own blur or hidden events: the image picker and a passkey prompt. The image-picker exception ends on selection, cancellation, or a bounded timeout. Passkey prompts occur only before a decrypted session is opened and end when the WebAuthn operation settles. Neither exception overrides `pagehide`, explicit lock, idle timeout, or a later unrelated blur/background event.
+- Two user-initiated system surfaces may temporarily suppress their own blur or hidden events: the image picker and a passkey prompt. The image-picker exception ends on selection, cancellation, or a bounded timeout. Passkey prompts are exempt only on the authentication gateway before a conversation or socket opens, including recovery and migration gateways that hold imported key material. The exception ends when WebAuthn settles or after 65 seconds; settling while hidden locks immediately. Neither exception overrides `pagehide`, explicit lock, idle timeout, or a later unrelated blur/background event.
 
 ## Recovery Setup
 
 - An unconfirmed recovery setup appears as a compact pinned-message reminder below the chat header. Dismissing it records an encrypted per-device preference; exporting remains available in the menu.
 - Preparing recovery immediately displays the independent recovery code. The user saves the encrypted package, then confirms both parts have been stored separately before the vault records completed recovery setup. Download initiation alone does not count as completion.
+
+- MLS recovery uses the old package only to prove ownership and authorize a fresh device identity. Another active, trusted device must be online to commit the replacement; every other active device must support the recovery protocol. The original device is temporarily fenced during the request and permanently revoked when replacement succeeds.
+- Recovery starts at a new message/receipt boundary. It does not import old IndexedDB history or reuse checkpoint sending keys. The replacement receives new messages, and must save a new recovery package and code. A pending request expires after at most 15 minutes; an expired request releases the original device and must be restarted.
+- Full local history remains available through bounded paging: a reply can find its exact older local message outside the currently loaded page, and the creator gallery offers earlier locally saved media separately from the chat window.
 
 ## Accessibility & Inclusion
 

@@ -281,7 +281,7 @@ try {
   await creator.locator('.send-button').click();
   invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Send button dismissed the composer keyboard focus');
   await joiner.getByText('browser-e2e-live', { exact: true }).waitFor({ timeout: 3000 });
-  await creator.getByText(/对端已安全接收/).waitFor({ timeout: 3000 });
+  await creator.locator('.message.outgoing.is-delivered').filter({ hasText: 'browser-e2e-live' }).waitFor({ timeout: 3000 });
   const deliveryMs = Date.now() - startedAt;
   invariant(deliveryMs < 3000, 'Local real-time delivery exceeded the acceptance budget');
 
@@ -320,6 +320,20 @@ try {
   const receivedReply = creator.locator('.message.incoming').filter({ hasText: 'browser-e2e-reply' });
   await receivedReply.waitFor({ timeout: 5000 });
   invariant(await receivedReply.locator('.message-reply-quote').textContent().then((value) => value?.includes('browser-e2e-live')), 'Encrypted reply did not retain its local quote');
+  await Promise.all([creator, joiner].map((page, side) => page.evaluate((side) => {
+    const input = document.querySelector('#message-input');
+    const form = document.querySelector('#composer');
+    for (let index = 0; index < 10; index++) {
+      input.value = `browser-e2e-concurrent-${side}-${index}`;
+      form.requestSubmit();
+    }
+  }, side)));
+  for (const page of [creator, joiner]) {
+    for (let side = 0; side < 2; side++) for (let index = 0; index < 10; index++) {
+      await page.getByText(`browser-e2e-concurrent-${side}-${index}`, { exact: true }).waitFor({ timeout: 10_000 });
+    }
+    invariant(await page.locator('.fatal-screen').count() === 0, 'Concurrent send/receive lost an MLS ratchet');
+  }
 
   await creator.evaluate(() => {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
@@ -599,8 +613,21 @@ try {
   });
   invariant(Boolean(confirmedExportedAt), 'Recovery confirmation did not persist after locking and unlocking');
   invariant(await creator.locator('.recovery-reminder').count() === 0, 'Recovery reminder returned after a confirmed export');
+  const sourceIdentity = await creator.evaluate(async () => {
+    const { unlockVault } = await import('/src/lib/vault.ts');
+    return (await unlockVault()).vault.identity.publicBundle.deviceId;
+  });
+  // The backup is now deliberately older than both sender and receiver state.
+  await creator.locator('#message-input').fill('browser-e2e-source-after-checkpoint');
+  await creator.locator('#composer').evaluate((form) => form.requestSubmit());
+  await joiner.getByText('browser-e2e-source-after-checkpoint', { exact: true }).waitFor({ timeout: 5000 });
+  await joiner.locator('#message-input').fill('browser-e2e-peer-after-checkpoint');
+  await joiner.locator('#composer').evaluate((form) => form.requestSubmit());
+  await creator.getByText('browser-e2e-peer-after-checkpoint', { exact: true }).waitFor({ timeout: 5000 });
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
   await creator.locator('.cover-trigger').waitFor();
+  await joiner.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await joiner.locator('.cover-trigger').waitFor();
   const recoveryContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const recovery = await recoveryContext.newPage();
   await enableDeviceVault(recovery);
@@ -609,11 +636,30 @@ try {
   await recovery.locator('#recovery-file').setInputFiles(recoveryPath);
   await recovery.locator('textarea[name="recovery-code"]').fill(recoveryCode);
   await recovery.locator('#recovery-code-form').evaluate((form) => form.requestSubmit());
+  await recovery.evaluate(() => {
+    const create = navigator.credentials.create.bind(navigator.credentials);
+    Object.defineProperty(navigator.credentials, 'create', { configurable: true, value: async (options) => {
+      window.dispatchEvent(new Event('blur'));
+      return create(options);
+    } });
+  });
   await setPasskey(recovery);
+  await recovery.getByRole('heading', { name: '等待安全恢复' }).waitFor({ timeout: 15_000 });
+  invariant(await recovery.locator('#composer').count() === 0, 'An old sender checkpoint became writable before fresh membership authorization');
+  await unlock(joiner);
+  await joiner.locator('.chat-shell').waitFor({ timeout: 15_000 });
   await recovery.locator('.chat-shell').waitFor({ timeout: 15_000 }).catch(async (error) => {
     throw new Error(`Recovery did not reopen: ${await recovery.locator('body').innerText()}`, { cause: error });
   });
   invariant(await recovery.locator('.fatal-screen').count() === 0, 'MLS recovery replayed an unavailable sender ratchet');
+  const restoredIdentity = await recovery.evaluate(async () => {
+    const { unlockVault } = await import('/src/lib/vault.ts');
+    const { vault } = await unlockVault();
+    return { id: vault.identity.publicBundle.deviceId, pending: Boolean(vault.pendingRecovery), exportedAt: vault.recoveryExportedAt, boundary: vault.historyUnavailableBeforeSeq };
+  });
+  invariant(restoredIdentity.id !== sourceIdentity && !restoredIdentity.pending, 'Recovery reused the checkpoint identity or did not finish replacement');
+  invariant(restoredIdentity.boundary > 0 && !restoredIdentity.exportedAt, 'Fresh recovery failed to establish a history boundary and require a new backup');
+  invariant(await recovery.getByText('browser-e2e-source-after-checkpoint', { exact: true }).count() === 0, 'Recovery claimed unavailable old local history');
   await Promise.all([
     recovery.locator('.peer-summary[data-connection-state="ready"]').waitFor({ timeout: 15_000 }),
     recovery.locator('#self-presence[data-state="online"]').waitFor({ timeout: 15_000 }),
@@ -622,6 +668,9 @@ try {
   await joiner.locator('#message-input').fill('browser-e2e-after-recovery');
   await joiner.locator('#composer').evaluate((form) => form.requestSubmit());
   await recovery.getByText('browser-e2e-after-recovery', { exact: true }).waitFor({ timeout: 5000 });
+  await recovery.locator('#message-input').fill('browser-e2e-fresh-identity-send');
+  await recovery.locator('#composer').evaluate((form) => form.requestSubmit());
+  await joiner.getByText('browser-e2e-fresh-identity-send', { exact: true }).waitFor({ timeout: 5000 });
 
   const legacyContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const legacy = await legacyContext.newPage();
@@ -675,6 +724,13 @@ try {
   await legacy.locator('input[name="password"]').fill('legacy-password-for-migration');
   await legacy.locator('#unlock-form').evaluate((form) => form.requestSubmit());
   await legacy.getByText('绑定这台设备').waitFor({ timeout: 15_000 });
+  await legacy.evaluate(() => {
+    const create = navigator.credentials.create.bind(navigator.credentials);
+    Object.defineProperty(navigator.credentials, 'create', { configurable: true, value: async (options) => {
+      window.dispatchEvent(new Event('blur'));
+      return create(options);
+    } });
+  });
   await setPasskey(legacy);
   await legacy.locator('.pairing-screen').waitFor({ timeout: 15_000 });
   await legacy.evaluate(() => window.dispatchEvent(new Event('blur')));
