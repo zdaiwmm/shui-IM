@@ -12,6 +12,8 @@ export const browserGroups = Object.freeze({
   '1': Object.freeze(['tests/browser.e2e.mjs']),
   '2': Object.freeze([
     'tests/frontend-lifecycle.e2e.mjs',
+    'tests/chat-bottom-control.e2e.mjs',
+    'tests/message-timeline.e2e.mjs',
     'tests/desktop-privacy.e2e.mjs',
     'tests/desktop-session-flow.e2e.mjs',
     'tests/vault-resume.e2e.mjs',

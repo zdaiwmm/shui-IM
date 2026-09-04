@@ -6,7 +6,7 @@ html:has(.chat-shell) {
   overflow-anchor: none;
   scrollbar-width: none;
   scroll-padding-top: var(--chat-top-space, 146px);
-  scroll-padding-bottom: var(--chat-bottom-space, 84px);
+  scroll-padding-bottom: var(--chat-bottom-space, 132px);
 }
 body:has(.chat-shell) {
   height: auto;
@@ -25,7 +25,7 @@ body:has(.chat-shell) {
   overflow: visible;
   --chat-header-height: 72px;
   --chat-top-space: 146px;
-  --chat-bottom-space: calc(84px + var(--safe-bottom));
+  --chat-bottom-space: calc(132px + var(--safe-bottom));
 }
 .chat-header {
   position: fixed;
@@ -147,12 +147,15 @@ body:has(.chat-shell) {
 .chat-shell .message-bubble.image-bubble { max-width: min(288px, 100%); }
 .chat-shell .image-preview { max-width: min(288px, 100%); }
 .chat-shell .image-preview img { max-height: min(42svh, 320px); }
+/* Very narrow portraits and panoramas still need room for their receipt and
+   a usable target. Letterbox the original pixels without distorting them. */
+.chat-shell .message-bubble.image-bubble:has(> .image-preview) { min-width: min(11rem, 100%); }
+.chat-shell .message-bubble.image-bubble > .image-preview[data-image-state='loaded'] { min-width: min(11rem, 100%); min-height: 64px; }
 .chat-shell .image-album { width: min(288px, calc(100vw - 88px)); max-width: 100%; }
 .chat-shell .image-album .image-preview { max-width: 100%; }
 .chat-shell .image-album .image-preview img { max-height: none; }
 /* Acknowledgement changes the receipt, not the opacity of the full message. */
 .chat-shell .message.is-pending { opacity: 1; }
-.chat-shell .message.is-pending .message-meta { color: var(--ink-muted); }
 .composer {
   position: fixed;
   inset: 0 max(0px, calc((100% - 880px) / 2)) auto;
@@ -164,6 +167,32 @@ body:has(.chat-shell) {
   flex-wrap: wrap;
 }
 .chat-header, .composer, .system-notices { will-change: translate; }
+.chat-bottom-control {
+  position: absolute;
+  right: max(12px, calc((min(100vw, 880px) - 680px) / 2));
+  bottom: calc(100% + 8px);
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--glass-border);
+  border-radius: 50%;
+  color: var(--ink);
+  background: var(--glass-sheen), var(--glass-strong);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  cursor: pointer;
+  transition: opacity 180ms ease, visibility 0s linear 180ms;
+}
+.chat-bottom-control.is-visible { opacity: 1; visibility: visible; pointer-events: auto; transition-delay: 0s; }
+.chat-bottom-control:not(:disabled):active { transform: none; }
+.chat-bottom-control svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+@media (prefers-reduced-motion: reduce) { .chat-bottom-control { transition: none; } }
 /* Inert dialog backgrounds must not keep scrolling under the overlay. */
 html:has(.chat-shell[inert]) { overflow: hidden; }
 .composer::before {

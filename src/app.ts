@@ -38,6 +38,8 @@ import { decryptAudioFile, encryptAudioFile, decryptImageFile, encryptImageFile,
 import { VoiceRecorder } from './lib/voice-recorder';
 import { bindVoiceRecordGesture } from './lib/voice-gesture';
 import { bindImageViewerGestures } from './lib/image-viewer-gestures';
+import { CHAT_LATEST_GAP, mountChatBottomControl } from './lib/chat-bottom-control';
+import { messageLocalDay } from './lib/message-date';
 import { VoicePlayback, VoicePlayer } from './lib/voice-player';
 import { CallController } from './lib/call-controller';
 import { CallView } from './lib/call-view';
@@ -347,6 +349,7 @@ export class QuietRoomApp {
   private chatResumeBottomOnFocus = false;
   private chatScrollFrame: number | null = null;
   private chatMessageAnimations = new Set<Animation>();
+  private chatBottomControl: ReturnType<typeof mountChatBottomControl> | null = null;
   private syncViewport: () => void = () => {};
   private trackChatViewport: (follow?: boolean) => void = () => {};
   private syncChatLayout: () => void = () => {};
@@ -369,6 +372,7 @@ export class QuietRoomApp {
   private retryCounts = new Map<string, number>();
   private renderedMessages = new Map<string, { payload: MessagePayload; status: DecryptedMessage['status']; acceptedAt: string; element: HTMLElement }>();
   private renderedMessageOrder: HTMLElement[] = [];
+  private renderedMessageDates = new Map<string, HTMLElement>();
   private renderedMessageSeq = new Map<string, number>();
   private gesturePad: GesturePad | null = null;
   private privacyCovered = true;
@@ -544,6 +548,7 @@ export class QuietRoomApp {
         if (widthChanged || keyboardChanged) this.syncChatLayout();
         if (resized && followBottom) this.scrollChatToBottom();
         if (resized) this.trackChatViewport(followBottom && !this.desktopBrowser);
+        this.updateChatBottomControl();
       }
       viewportWidthChanged ||= widthChanged;
       if (viewportFrame === null) viewportFrame = requestAnimationFrame(finishViewportSync);
@@ -554,6 +559,7 @@ export class QuietRoomApp {
       if (this.privacyCovered || this.activeSurface !== 'chat' || !this.chatLayoutElements?.shell.isConnected) return;
       syncVisualViewport();
       if (this.chatBottomFollowPending && this.chatScrollIntent !== 'up') this.alignChatBottom();
+      this.chatBottomControl?.update(false);
       if (performance.now() >= trackingUntil) {
         this.chatBottomFollowPending = false;
         this.chatViewportFollowUntil = 0;
@@ -572,6 +578,7 @@ export class QuietRoomApp {
       if (trackingFrame === null) trackingFrame = requestAnimationFrame(sampleViewport);
     };
     this.cancelViewportWork = () => {
+      this.chatBottomControl?.cancel();
       this.cancelChatMessageMotion();
       if (viewportFrame !== null) cancelAnimationFrame(viewportFrame);
       if (trackingFrame !== null) cancelAnimationFrame(trackingFrame);
@@ -2588,6 +2595,7 @@ export class QuietRoomApp {
     // detached loading element whose old hydration callback has already ended.
     this.renderedMessages.clear();
     this.renderedMessageOrder = [];
+    this.renderedMessageDates.clear();
     this.renderedMessageSeq.clear();
     document.body.className = 'app-mode';
     this.root.innerHTML = `
@@ -2643,6 +2651,7 @@ export class QuietRoomApp {
         <div class="notice" id="notice" role="status" hidden></div>
         <section class="message-list" id="message-list" aria-label="聊天消息"></section>
         <form class="composer" id="composer" autocomplete="off">
+          <button class="chat-bottom-control" id="chat-bottom-control" type="button" aria-label="回到最新消息" aria-hidden="true" tabindex="-1"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></button>
           <div class="reply-draft" id="reply-draft" hidden>
             <div><strong>回复对方</strong><span></span></div>
             <button type="button" aria-label="取消回复">${icons.close}</button>
@@ -2665,6 +2674,7 @@ export class QuietRoomApp {
     const list = this.root.querySelector<HTMLElement>('#message-list')!;
     this.mountChatImageConcealGesture(list);
     const scrollIntent = (direction: 'up' | 'down') => {
+      this.chatBottomControl?.cancel();
       this.cancelChatMessageMotion();
       this.chatResumeBottomOnFocus = false;
       this.chatRestoreAnchor = null;
@@ -2741,6 +2751,7 @@ export class QuietRoomApp {
     this.root.querySelector('#start-audio-call')?.addEventListener('click', () => void this.startCall('audio'));
     const sendButton = this.root.querySelector<HTMLButtonElement>('.send-button');
     sendButton?.addEventListener('pointerdown', (event) => this.retainComposerKeyboard(event, textarea));
+    this.root.querySelector('#chat-bottom-control')?.addEventListener('pointerdown', event => this.retainComposerKeyboard(event as PointerEvent, textarea));
     this.mountImagePicker(imageInput, 'chat', this.root.querySelector<HTMLButtonElement>('#open-image-picker'));
     this.root.querySelector('#open-gallery')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderGallery()));
     this.root.querySelector('#backup-settings')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderBackupSettings()));
@@ -2775,6 +2786,7 @@ export class QuietRoomApp {
 
   private mountChatLayout(): void {
     this.cancelViewportWork();
+    this.chatBottomControl?.destroy();
     this.chatLayoutObserver?.disconnect();
     const shell = this.root.querySelector<HTMLElement>('.chat-shell')!;
     const list = shell.querySelector<HTMLElement>('#message-list')!;
@@ -2783,6 +2795,32 @@ export class QuietRoomApp {
     const composer = shell.querySelector<HTMLElement>('.composer')!;
     const notice = shell.querySelector<HTMLElement>('#notice')!;
     this.chatLayoutElements = { shell, list, header, composer, notices, notice };
+    this.chatBottomControl = mountChatBottomControl({
+      button: composer.querySelector<HTMLButtonElement>('#chat-bottom-control')!,
+      list,
+      latest: () => this.renderedMessageOrder.at(-1),
+      hasNewer: () => this.historyHasNewer,
+      targetScrollTop: () => this.chatBottomScrollTop(),
+      active: () => !this.privacyCovered && this.activeSurface === 'chat' && shell.isConnected,
+      begin: () => {
+        this.replyJumpVersion += 1;
+        this.cancelChatMessageMotion();
+        this.chatRestoreAnchor = null;
+        this.chatScrollIntent = null;
+        this.chatPinnedToBottom = false;
+        this.chatBottomFollowPending = false;
+        this.chatViewportFollowUntil = 0;
+        this.chatResumeBottomOnFocus = false;
+      },
+      prepare: signal => this.historyHasNewer ? this.prepareChatBottomScroll(list, signal) : undefined,
+      resized: () => {
+        // A queued size notification must not undo a newer document scroll
+        // before its ordinary scroll bookkeeping has run.
+        if (this.chatPinnedToBottom && this.chatScrollIntent !== 'up' && !this.chatBottomControl?.scrolling
+          && Math.abs(window.scrollY - this.chatLastScrollY) <= 1) this.alignChatBottom();
+      },
+      complete: () => { this.scrollChatToBottom(); this.captureChatAnchor(true); },
+    });
     this.chatLayoutGeneration += 1;
     let previousMeasurements = '';
     const sync = () => {
@@ -2794,14 +2832,16 @@ export class QuietRoomApp {
       const anchor = this.captureChatAnchor();
       shell.style.setProperty('--chat-header-height', `${header.offsetHeight}px`);
       shell.style.setProperty('--chat-top-space', `${header.offsetHeight + notices.offsetHeight + 14}px`);
-      shell.style.setProperty('--chat-bottom-space', `${composer.offsetHeight + 16}px`);
+      shell.style.setProperty('--chat-bottom-space', `${composer.offsetHeight + CHAT_LATEST_GAP}px`);
       document.documentElement.style.setProperty('--chat-top-space', `${header.offsetHeight + notices.offsetHeight + 14}px`);
-      document.documentElement.style.setProperty('--chat-bottom-space', `${composer.offsetHeight + 16}px`);
+      document.documentElement.style.setProperty('--chat-bottom-space', `${composer.offsetHeight + CHAT_LATEST_GAP}px`);
       if (pinned) this.scrollChatToBottom();
       else if (anchor) this.restoreChatAnchor(list, anchor);
+      this.updateChatBottomControl();
     };
     this.syncChatLayout = sync;
     this.syncViewport();
+    this.updateChatBottomControl();
     sync();
     this.trackChatViewport();
     this.chatLayoutObserver = new ResizeObserver(sync);
@@ -3197,6 +3237,7 @@ export class QuietRoomApp {
     this.activeSurface = surface;
     this.socket?.setChatPresence(surface === 'chat');
     this.syncViewport();
+    this.updateChatBottomControl();
     // Viewer dismissal reuses the same chat DOM and viewport geometry. Resume
     // sampling explicitly even when syncViewport has no resize work to do.
     if (surface === 'chat') this.trackChatViewport();
@@ -3220,8 +3261,10 @@ export class QuietRoomApp {
         this.chatBottomFollowPending = true;
         this.trackChatViewport();
       }
+      // Content growth alone is not a reader leaving the bottom. Preserve
+      // that intent until ResizeObserver aligns the settled message geometry.
       this.chatPinnedToBottom = !this.chatRestoreAnchor && this.chatScrollIntent !== 'up'
-        && (gap <= 2 || this.chatBottomFollowPending || (this.chatPinnedToBottom && performance.now() < this.chatViewportFollowUntil));
+        && (gap <= 2 || this.chatBottomFollowPending || (this.chatPinnedToBottom && (!documentMoved || performance.now() < this.chatViewportFollowUntil)));
       const actions = this.root.querySelector<HTMLElement>('.message-actions:not(.is-closing)');
       // Native scrolling can notify after the menu was opened at its final
       // position. Only movement since that opening makes the menu stale.
@@ -3230,6 +3273,7 @@ export class QuietRoomApp {
       if (gap < 80) void this.loadNewerHistory(list);
       this.captureChatAnchor(true, false, gap);
       this.markVisibleMessagesRead();
+      this.updateChatBottomControl();
     });
   }
 
@@ -3298,14 +3342,43 @@ export class QuietRoomApp {
     if (!chat?.shell.isConnected || !latest?.isConnected) return 0;
     // Use the message and composer edges, not document extent: the latter can
     // include a short-history minimum height or a stale Safari layout viewport.
-    return Math.max(0, window.scrollY + latest.getBoundingClientRect().bottom - chat.composer.getBoundingClientRect().top + 16);
+    return Math.max(0, window.scrollY + latest.getBoundingClientRect().bottom - chat.composer.getBoundingClientRect().top + CHAT_LATEST_GAP);
   }
 
   private scrollChatToBottom(): void {
+    this.chatBottomControl?.cancel();
     this.chatScrollIntent = null;
     this.chatPinnedToBottom = true;
     this.alignChatBottom();
     if (this.chatBottomFollowPending) this.trackChatViewport();
+  }
+
+  private updateChatBottomControl(): void {
+    this.chatBottomControl?.update();
+  }
+
+  private async prepareChatBottomScroll(list: HTMLElement, signal: AbortSignal): Promise<boolean> {
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    const active = () => Boolean(session && this.isRuntimeActive(epoch, session) && list.isConnected && this.activeSurface === 'chat' && !signal.aborted);
+    while (active() && this.historyHasNewer) {
+      // Cooperate with a page already requested by ordinary scrolling. Abort
+      // wakes this wait even if privacy/backgrounding stops animation frames.
+      while (active() && this.historyLoading) {
+        await new Promise<void>(resolve => {
+          const finish = () => { cancelAnimationFrame(frame); signal.removeEventListener('abort', finish); resolve(); };
+          const frame = requestAnimationFrame(finish);
+          signal.addEventListener('abort', finish, { once: true });
+        });
+      }
+      if (!active()) return false;
+      const cursor = this.historyForwardCursor;
+      await this.loadNewerHistory(list, signal);
+      if (!active()) return false;
+      // A failed read leaves the cursor and availability intact for retry.
+      if (this.historyHasNewer && this.historyForwardCursor <= cursor) return false;
+    }
+    return active();
   }
 
   private alignChatBottom(): void {
@@ -3322,7 +3395,17 @@ export class QuietRoomApp {
     if (!anchor) return;
     const target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(anchor.clientMsgId)}"]`);
     if (target) this.restoreChatAnchor(list, anchor);
-    if (!target || !target.querySelector('.image-preview:not([data-image-state="loaded"]):not([data-image-state="error"])')) {
+    const unfinishedMedia = '.image-preview:not([data-image-state="loaded"]):not([data-image-state="error"])';
+    if (target && !target.querySelector(unfinishedMedia)
+      && Math.abs(target.getBoundingClientRect().top - this.chatViewportTop - anchor.offset) > 2) {
+      // A short cold tail can clamp scrollTo before the requested offset.
+      // Only later media can add the missing room below this anchor; earlier
+      // offscreen media must not keep an impossible restore pending forever.
+      for (let later = target.nextElementSibling; later; later = later.nextElementSibling) {
+        if (later.querySelector(unfinishedMedia)) return;
+      }
+    }
+    if (!target || !target.querySelector(unfinishedMedia)) {
       this.chatRestoreAnchor = null;
       this.captureChatAnchor(true);
     }
@@ -4502,6 +4585,14 @@ export class QuietRoomApp {
     const epoch = this.runtimeEpoch;
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!session || this.privacyCovered || !list) return;
+    this.chatBottomControl?.cancel();
+    this.cancelChatMessageMotion();
+    this.chatRestoreAnchor = null;
+    this.chatScrollIntent = 'up';
+    this.chatPinnedToBottom = false;
+    this.chatBottomFollowPending = false;
+    this.chatViewportFollowUntil = 0;
+    this.chatResumeBottomOnFocus = false;
     let target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(clientMsgId)}"]`);
     if (!target && seq !== undefined) {
       try {
@@ -4558,11 +4649,15 @@ export class QuietRoomApp {
       empty.append(title, detail);
       this.renderedMessages.clear();
       this.renderedMessageOrder = [];
+      this.renderedMessageDates.clear();
       this.renderedMessageSeq.clear();
       list.replaceChildren(empty);
     } else {
       const currentKeys = new Set<string>();
       const elements: HTMLElement[] = [];
+      const timeline: HTMLElement[] = [];
+      const dateKeys = new Set<string>();
+      const currentYear = new Date().getFullYear();
       const sequences = new Map<string, number>();
       for (const message of messages) {
         const key = message.clientMsgId;
@@ -4604,14 +4699,37 @@ export class QuietRoomApp {
         this.renderedMessages.set(key, { payload: message.payload, status: message.status, acceptedAt: message.acceptedAt, element });
         sequences.set(key, message.seq);
         elements.push(element);
+        const day = messageLocalDay(message.payload.sentAt, currentYear);
+        if (day && !dateKeys.has(day.key)) {
+          dateKeys.add(day.key);
+          let separator = this.renderedMessageDates.get(day.key);
+          if (!separator) {
+            separator = document.createElement('div');
+            separator.className = 'message-date';
+            separator.dataset.dateKey = day.key;
+            separator.setAttribute('role', 'heading');
+            separator.setAttribute('aria-level', '3');
+            const time = document.createElement('time');
+            time.dateTime = day.key;
+            separator.append(time);
+            this.renderedMessageDates.set(day.key, separator);
+          }
+          separator.setAttribute('aria-label', day.description);
+          if (separator.firstChild!.textContent !== day.label) separator.firstChild!.textContent = day.label;
+          timeline.push(separator);
+        }
+        timeline.push(element);
       }
       for (const key of this.renderedMessages.keys()) {
         if (!currentKeys.has(key)) this.renderedMessages.delete(key);
       }
+      for (const key of this.renderedMessageDates.keys()) {
+        if (!dateKeys.has(key)) this.renderedMessageDates.delete(key);
+      }
       // Keep unchanged nodes in place so focus, image decode state, selection
       // and compositing survive incoming messages and delivery receipts.
       let next = list.firstElementChild;
-      for (const element of elements) {
+      for (const element of timeline) {
         if (element === next) next = next.nextElementSibling;
         else list.insertBefore(element, next);
       }
@@ -4641,6 +4759,7 @@ export class QuietRoomApp {
     if (followSend && previousLatestTop !== null && previousLatest?.isConnected) {
       this.animateChatMessageShift(previousLatestTop - previousLatest.getBoundingClientRect().top);
     }
+    this.updateChatBottomControl();
   }
 
   private cancelChatMessageMotion(): void {
@@ -4655,12 +4774,14 @@ export class QuietRoomApp {
     // Scroll and anchors are committed once. Animate only visible content
     // inside each row, so fixed bars and all geometry used by unread/scroll
     // bookkeeping stay in their final positions throughout the transition.
-    for (let index = this.renderedMessageOrder.length - 1; index >= 0; index--) {
-      const row = this.renderedMessageOrder[index]!;
+    for (let row = this.chatLayoutElements?.list.lastElementChild; row; row = row.previousElementSibling) {
       const rect = row.getBoundingClientRect();
       if (rect.bottom < this.chatViewportTop - offset) break;
       if (rect.top > this.chatViewportTop + this.chatViewportHeight) continue;
-      for (const content of row.children) {
+      // A newly introduced day belongs to the same visual movement as its
+      // messages. It remains outside message/sequence bookkeeping.
+      const contents = row.classList.contains('message-date') ? [row] : row.children;
+      for (const content of contents) {
         if (!(content instanceof HTMLElement)) continue;
         const animation = content.animate(
           [{ translate: `0 ${offset}px` }, { translate: '0 0' }],
@@ -4701,7 +4822,7 @@ export class QuietRoomApp {
     }
   }
 
-  private async loadNewerHistory(list: HTMLElement): Promise<void> {
+  private async loadNewerHistory(list: HTMLElement, scrollSignal?: AbortSignal): Promise<void> {
     const session = this.session;
     const epoch = this.runtimeEpoch;
     if (!session || this.privacyCovered || !list.isConnected || !this.historyHasNewer || this.historyLoading) return;
@@ -4711,9 +4832,9 @@ export class QuietRoomApp {
       const newer = await loadHistoryPageAfter(session, {
         limit: 200,
         afterSeq: this.historyForwardCursor,
-        signal: this.runtimeAbort?.signal,
+        signal: scrollSignal && this.runtimeAbort ? AbortSignal.any([scrollSignal, this.runtimeAbort.signal]) : scrollSignal ?? this.runtimeAbort?.signal,
       });
-      if (!this.isRuntimeActive(epoch, session) || !list.isConnected) return;
+      if (!this.isRuntimeActive(epoch, session) || !list.isConnected || scrollSignal?.aborted) return;
       if (newer.length === 0) {
         this.historyHasNewer = false;
         return;
@@ -4733,7 +4854,7 @@ export class QuietRoomApp {
       this.historyHasNewer = this.historyForwardCursor < session.vault.lastSeq;
       this.renderMessages({ scroll: 'position' });
     } catch (cause) {
-      if (this.isRuntimeActive(epoch, session) && list.isConnected) this.operationalError(cause, '后续消息暂时无法读取，请重试');
+      if (this.isRuntimeActive(epoch, session) && list.isConnected && !scrollSignal?.aborted) this.operationalError(cause, '后续消息暂时无法读取，请重试');
     } finally {
       if (this.isRuntimeActive(epoch, session)) this.historyLoading = false;
       delete list.dataset.historyLoading;
@@ -4811,14 +4932,15 @@ export class QuietRoomApp {
       bubble.classList.add('image-bubble');
       bubble.append(this.createImagePreview(message.payload.image, [message.payload.image], 0, message.clientMsgId));
     }
-    article.append(bubble, this.createMessageMeta(message));
+    bubble.append(this.createMessageMeta(message));
+    article.append(bubble);
     this.mountMessageActions(article, message);
     return article;
   }
 
   private createMessageMeta(message: DecryptedMessage): HTMLElement {
     const own = this.isOwnMessage(message);
-    const meta = document.createElement('p');
+    const meta = document.createElement('div');
     meta.className = 'message-meta';
     const status = own
       ? message.status === 'pending'
@@ -4829,7 +4951,10 @@ export class QuietRoomApp {
             ? '已送达'
             : ' · 发送失败'
       : '';
-    meta.append(document.createTextNode(timeLabel(message.payload.sentAt)));
+    const time = document.createElement('time');
+    time.dateTime = message.payload.sentAt;
+    time.textContent = timeLabel(message.payload.sentAt);
+    meta.append(time);
     if (own && (message.status === 'stored' || message.status === 'sent' || message.status === 'delivered')) {
       const delivery = document.createElement('span');
       delivery.className = 'message-delivery';
@@ -4842,6 +4967,15 @@ export class QuietRoomApp {
       label.textContent = status;
       delivery.append(label);
       meta.append(delivery);
+    } else if (own && message.status === 'pending') {
+      const waiting = document.createElement('span');
+      waiting.className = 'message-pending';
+      waiting.innerHTML = '<svg aria-hidden="true" viewBox="0 0 22 16"><circle cx="11" cy="8" r="6"/><path d="M11 4.5V8l2.5 1.5"/></svg>';
+      const label = document.createElement('span');
+      label.className = 'sr-only';
+      label.textContent = '等待发送';
+      waiting.append(label);
+      meta.append(waiting);
     } else if (status) meta.append(document.createTextNode(status));
     if (own) {
       meta.title = message.status === 'delivered' ? '对方至少一台设备已验证并保存这条消息'
@@ -6354,6 +6488,7 @@ export class QuietRoomApp {
     this.sending.clear();
     this.renderedMessages.clear();
     this.renderedMessageOrder = [];
+    this.renderedMessageDates.clear();
     this.renderedMessageSeq.clear();
     this.replyTarget = null;
     this.cancelMessageHold();
@@ -6398,6 +6533,8 @@ export class QuietRoomApp {
     this.roleLastSeen = { creator: null, joiner: null };
     this.chatLayoutObserver?.disconnect();
     this.chatLayoutObserver = null;
+    this.chatBottomControl?.destroy();
+    this.chatBottomControl = null;
     this.chatLayoutElements = null;
     this.syncChatLayout = () => {};
     this.cancelViewportWork();
