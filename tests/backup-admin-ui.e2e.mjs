@@ -83,7 +83,7 @@ try {
         }),
       };
     });
-    assert(geometry.gaps.every(gap => gap >= 12 && gap <= 24), `${name}: text, controls and hints need clear, consistent gaps (${geometry.gaps})`);
+    assert(geometry.gaps.every(gap => gap >= 8 && gap <= 24), `${name}: text, controls and hints need clear, consistent gaps (${geometry.gaps})`);
     assert(geometry.buttonHeights.every(height => height >= 44), `${name}: buttons retain usable touch targets`);
     assert(geometry.controlsFit, `${name}: controls stay inside the page`);
     await snapshot(page, name, false);
@@ -103,6 +103,7 @@ try {
     await page.locator('#app').evaluate(scroller => { scroller.scrollTop = 0; });
   };
   await assertBackupSpacing('backup-mobile');
+  assert.equal(await page.locator('#app').evaluate(element => element.scrollHeight <= element.clientHeight + 1), true, 'standard mobile: backup overview fits in one screen');
   await page.setViewportSize({ width: 320, height: 740 });
   await assertBackupSpacing('backup-small-mobile');
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -136,6 +137,27 @@ try {
   // Never retain even synthetic code pixels in published visual evidence.
   await page.locator('.local-recovery-code').evaluate(element => { element.textContent = 'QR3-示意恢复码，请在自己的设备上验证后查看'; });
   await snapshot(page, 'local-code-mobile');
+  await page.evaluate(async () => {
+    const app = window.fixtureApp;
+    app.lockNow();
+    app.privacyCovered = false;
+    document.body.className = 'app-mode';
+    const get = navigator.credentials.get.bind(navigator.credentials);
+    Object.defineProperty(navigator.credentials, 'get', { configurable: true, value: options => {
+      Object.defineProperty(navigator.credentials, 'get', { configurable: true, value: get });
+      return Promise.reject(new DOMException('验证已取消，请重试', 'NotAllowedError'));
+    } });
+    await app.renderUnlock();
+  });
+  await page.locator('.gateway-unlock .form-error:not(:empty)').waitFor();
+  assert.equal(await page.locator('.gateway-unlock button').count(), 1, 'unlock contains only the requested passkey action');
+  assert.equal(await page.locator('.gateway-unlock .gateway-heading, .gateway-unlock .gateway-mark, .gateway-unlock .privacy-note').count(), 0, 'unlock decorations are removed');
+  assert.equal(await page.locator('#passkey-unlock').evaluate(button => {
+    const box = button.getBoundingClientRect();
+    const error = document.querySelector('.gateway-unlock .form-error').getBoundingClientRect();
+    return innerHeight - box.bottom >= 20 && innerHeight - box.bottom <= 32 && error.bottom <= box.top - 8;
+  }), true, 'unlock button stays at the bottom and a retry error cannot overlap it');
+  await snapshot(page, 'unlock-minimal-error-mobile', false);
   const admin = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = []; admin.on('pageerror', error => errors.push(error.message));
   await admin.goto(`http://localhost:${port}`);

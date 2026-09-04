@@ -4,8 +4,8 @@ import { encodeVoiceWav, MAX_VOICE_SAMPLES, VOICE_SAMPLE_RATE, voiceIcons, voice
 export type VoiceDraft = { file: File; durationMs: number; waveform: number[]; clientMsgId: string };
 type State = 'requesting' | 'recording' | 'processing' | 'paused' | 'sending';
 type Mode = 'hold' | 'locked';
-const CANCEL_DISTANCE = 96;
-const LOCK_DISTANCE = 80;
+const CANCEL_DISTANCE = 156;
+const CANCEL_MOTION_MS = 360;
 
 export class VoiceRecorder {
   readonly signal: AbortSignal;
@@ -31,7 +31,6 @@ export class VoiceRecorder {
   private sendAttempted = false;
   private starting = false;
   private holdReleased = false;
-  private lockReady = false;
   private sendAfterProcessing = false;
   private waveform: number[] | null = null;
   private readonly waveBars: HTMLElement[];
@@ -40,6 +39,8 @@ export class VoiceRecorder {
   private renderedPreviewIcon = '';
   private renderedSendIcon = '';
   private sendMotion: Animation | null = null;
+  private holdEntryMotion: Animation | null = null;
+  private cancelMotionTimer: number | null = null;
 
   constructor(private readonly host: HTMLElement, private readonly callbacks: {
     permission: (active: boolean) => void;
@@ -61,7 +62,6 @@ export class VoiceRecorder {
       <span class="voice-recording-state" role="status" aria-live="polite"></span>
       <button type="button" class="voice-control voice-discard" aria-label="取消录音">${voiceIcons.remove}</button>
       <button type="button" class="voice-control voice-toggle" aria-label="暂停录音">${voiceIcons.pause}</button>
-      <div class="voice-lock-guide" aria-hidden="true">${voiceIcons.lock}${voiceIcons.chevronUp}</div>
       <div class="voice-hold-orb" aria-hidden="true">${voiceIcons.mic}</div>
       <button type="button" class="voice-control voice-send" aria-label="发送语音">${voiceIcons.send}</button>
       <p class="voice-recording-hint" role="status" aria-live="polite"></p>`;
@@ -79,53 +79,70 @@ export class VoiceRecorder {
     this.update();
   }
 
-  moveHold(deltaX: number, deltaY: number): void {
+  animateHoldFrom(origin: DOMRect): void {
+    if (this.signal.aborted || this.mode !== 'hold' || this.reducedMotion) return;
+    const orb = this.host.querySelector<HTMLElement>('.voice-hold-orb');
+    if (!orb || typeof orb.animate !== 'function') return;
+    const destination = orb.getBoundingClientRect();
+    if (!destination.width) return;
+    const x = origin.x + origin.width / 2 - destination.x - destination.width / 2;
+    const y = origin.y + origin.height / 2 - destination.y - destination.height / 2;
+    this.holdEntryMotion?.cancel();
+    const motion = orb.animate([
+      { translate: `${x}px ${y}px`, scale: String(origin.width / destination.width), opacity: 0.75 },
+      { translate: '0px 0px', scale: '1', opacity: 1 },
+    ], { duration: 340, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
+    this.holdEntryMotion = motion;
+    motion.onfinish = () => { if (this.holdEntryMotion === motion) this.holdEntryMotion = null; };
+  }
+
+  moveHold(deltaX: number): void {
     if (this.signal.aborted || this.mode !== 'hold' || this.holdReleased || !['requesting', 'recording'].includes(this.state)) return;
     const left = Math.max(0, -deltaX);
-    const up = Math.max(0, -deltaY);
-    if (left >= CANCEL_DISTANCE && left > up) {
-      this.host.dataset.gesture = 'cancel-ready';
-      this.cancel();
-      return;
-    }
-    this.lockReady = up >= LOCK_DISTANCE && up > left;
-    this.host.dataset.gesture = this.lockReady ? 'lock-ready' : 'hold';
-    this.host.style.setProperty('--voice-drag-x', `${Math.max(-CANCEL_DISTANCE, Math.min(16, deltaX))}px`);
-    this.host.style.setProperty('--voice-drag-y', `${Math.max(-LOCK_DISTANCE, Math.min(16, deltaY))}px`);
-    this.host.style.setProperty('--voice-lock-progress', String(Math.min(1, up / LOCK_DISTANCE)));
+    // A logarithmic response keeps moving as the finger travels farther,
+    // without the abrupt hard stop of a clamped transform. Only X participates.
+    const resistance = deltaX < 0 ? 76 : 18;
+    const drag = Math.sign(deltaX) * resistance * Math.log1p(Math.abs(deltaX) / resistance);
+    this.host.style.setProperty('--voice-drag-x', `${drag}px`);
     this.host.style.setProperty('--voice-cancel-progress', String(Math.min(1, left / CANCEL_DISTANCE)));
+    if (left >= CANCEL_DISTANCE) this.cancel(true);
   }
 
   releaseHold(cancelled = false): void {
     if (this.signal.aborted || this.mode !== 'hold' || this.holdReleased) return;
     this.holdReleased = true;
     if (cancelled) { this.cancel(); return; }
-    if (this.lockReady) {
-      const dragX = this.host.style.getPropertyValue('--voice-drag-x') || '0px';
-      const dragY = this.host.style.getPropertyValue('--voice-drag-y') || '0px';
-      this.mode = 'locked';
-      this.resetDrag();
-      this.update();
-      if (this.state === 'recording') this.animateSend(`translate3d(${dragX}, ${dragY}, 0)`);
-      return;
-    }
-    // Releasing an ordinary hold without explicitly locking must not begin
-    // recording after a late grant. Privacy teardown still applies to locked
+    // Releasing a hold must not begin recording after a late grant.
+    // Privacy teardown still applies to hands-free
     // requests when a native permission prompt takes focus.
     if (this.state === 'requesting') { this.cancel(); return; }
     if (this.state === 'recording') this.pause(true);
   }
 
   private resetDrag(): void {
-    this.lockReady = false;
     this.host.dataset.gesture = 'hold';
-    for (const axis of ['x', 'y']) this.host.style.setProperty(`--voice-drag-${axis}`, '0px');
-    for (const kind of ['lock', 'cancel']) this.host.style.setProperty(`--voice-${kind}-progress`, '0');
+    this.host.style.setProperty('--voice-drag-x', '0px');
+    this.host.style.setProperty('--voice-cancel-progress', '0');
   }
 
-  private cancel(): void {
+  private cancel(animate = false): void {
     if (this.signal.aborted || this.state === 'sending') return;
+    const animateExit = animate && this.host.isConnected && !this.reducedMotion;
+    const dragX = this.host.style.getPropertyValue('--voice-drag-x');
+    // Capture and plaintext end synchronously. The optional retiring shapes
+    // contain no duration, waveform, recording, or actionable controls.
     this.destroy();
+    if (animateExit) {
+      this.host.dataset.gesture = 'cancelling';
+      this.host.style.setProperty('--voice-drag-x', dragX);
+      this.host.innerHTML = `<div class="voice-cancel-bar" aria-hidden="true"></div><div class="voice-cancel-orb" aria-hidden="true">${voiceIcons.mic}</div>`;
+      this.cancelMotionTimer = window.setTimeout(() => {
+        this.cancelMotionTimer = null;
+        this.host.replaceChildren();
+        this.callbacks.cancel();
+      }, CANCEL_MOTION_MS);
+      return;
+    }
     this.callbacks.cancel();
   }
 
@@ -358,7 +375,6 @@ export class VoiceRecorder {
     this.host.querySelector<HTMLElement>('.voice-recording-info')!.hidden = drafting;
     this.host.querySelector<HTMLElement>('.voice-slide-hint')!.hidden = !holding;
     this.host.querySelector<HTMLElement>('.voice-hold-orb')!.hidden = !holding;
-    this.host.querySelector<HTMLElement>('.voice-lock-guide')!.hidden = !holding;
     this.host.querySelector<HTMLElement>('.voice-draft-timeline')!.hidden = !drafting;
     this.host.querySelector<HTMLElement>('.voice-cancel')!.hidden = holding || drafting;
     const toggle = this.host.querySelector<HTMLButtonElement>('.voice-toggle')!;
@@ -419,9 +435,14 @@ export class VoiceRecorder {
   }
 
   destroy(): void {
+    // Teardown must also remove an already-aborted cancellation animation.
+    if (this.cancelMotionTimer !== null) window.clearTimeout(this.cancelMotionTimer);
+    this.cancelMotionTimer = null;
+    this.host.replaceChildren();
     if (this.signal.aborted) return;
     this.abort.abort(); this.endPermission(); this.stopTimer();
     this.sendMotion?.cancel(); this.sendMotion = null;
+    this.holdEntryMotion?.cancel(); this.holdEntryMotion = null;
     if (this.recorder) {
       this.recorder.ondataavailable = null; this.recorder.onstop = null; this.recorder.onerror = null;
       if (this.recorder.state !== 'inactive') this.recorder.stop();
@@ -432,6 +453,5 @@ export class VoiceRecorder {
     this.samples = new Float32Array(0); this.chunks = []; this.liveLevels = []; this.draft = null; this.waveform = null;
     this.sendAfterProcessing = false;
     this.recorder = null; this.stream = null; this.context = null; this.analyser = null;
-    this.host.replaceChildren();
   }
 }

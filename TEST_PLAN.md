@@ -1,5 +1,13 @@
 # Quiet Room P0/P1 修复与验收计划
 
+## 移动端交互修整最终本地验证（2026-09-04 23:45，未提交候选）
+
+- 候选位于 `codex/mobile-interaction-polish`，从 `ee81624666323973f343ea5afc571989342d3a2a` 开始；记录时 HEAD 仍为该起点，新增应用变更尚未提交。范围包括本次 24 项交互反馈，以及回归中发现的旧滚动帧误关菜单、图片手势清理和迟到全屏请求清理。需求映射见[本轮交互验收](./audit/2026-09-04-interactions/README.md)。
+- 最终应用工作树的 `npm run check:full` **一次全程通过**：TypeScript／构建、43 个测试文件共 311 项单元／集成，以及全部 19／19 个浏览器入口；浏览器入口汇总耗时 148.51 秒。主浏览器流程包含双设备语音与通话流程，不将独立手势测试冒充加密传输验证。
+- `npm run test:calls:e2e` 两项专项通过，覆盖原生媒体与通话界面；最终 `QUIET_ROOM_TEST_BROWSER=webkit node tests/frontend-lifecycle.e2e.mjs` 完整通过。
+- 最终 `tests/ui-audit.e2e.mjs` 巡检生成 64 张截图，记录到的浏览器错误为 0。语音专项另验证连续水平阻尼、放大中间帧、取消前即时采集清理、无上滑锁定及减少动态效果；图片／视频回归覆盖缩放平移、原生全屏优先、回退和迟到结果清理。
+- 此处证据级别为**最终应用工作树本地自动验证通过**，不代表目标提交已产生、GitHub PR／main CI 通过、合并或生产部署。真实 iPhone Safari 工具栏／键盘合成、系统权限与播放器手势、真实跨网络通话和 Mac 锁屏后的持续运行尚未进行人工验收；下方带日期记录保留其原有基线和结论。
+
 ## 功能整合与发布候选验证（2026-09-04，独立固定快照）
 
 - `codex/release-media-voice-20260904` 从 main `f6b02e07e0ea520fa7a3f25446a853e3215556a8` 整合已结束的键盘、视频相册、图片隐私和语音交互任务；共 43 个来源文件以逐文件 SHA-256 固定，保留 CI 提速流程，浏览器完整入口扩为 19 项（两组 1／18）。
@@ -260,7 +268,7 @@ npm run check:full
 - `tests/server.test.ts`: production permits only same-origin microphone access and local Blob media playback while keeping camera disabled.
 - `tests/browser.e2e.mjs` includes `tests/voice-flow.e2e.mjs`, using Chrome's **fake microphone**, never a physical microphone. Covers pause/continue/preview, encrypted MLS delivery and receipts between two independent devices, playback/seeking, replies, discard, upload failure/retry, reload of local history, microphone denial, and late permission results after lock.
 - `tests/voice-lifecycle.e2e.mjs`: old-device capability gate, prompt cancellation/timeout, stale permission ownership, hidden-prompt lock, single-source playback, receipt updates preserving playback, late download/send cleanup, and the five-minute review-before-send limit.
-- `tests/voice-gestures.e2e.mjs`: actual browser recorder with synthetic microphone and native touch/mouse input. Covers hold-release send once, immediate left cancellation, upward release-to-lock, pause/preview/resume, direct locked send, ordinary release during pending permission, tap/keyboard access, interrupted/limit review, and privacy teardown. Includes the regression where a touch release synthesizes a click on the newly revealed Send button after hardware interruption. Screenshots and geometry checks cover three states at 320/390/1280px in light/dark themes and reduced motion. Run `node tests/voice-gestures.e2e.mjs <output-directory>` for captures.
+- `tests/voice-gestures.e2e.mjs`: actual browser recorder with synthetic microphone and native touch/mouse input. Covers hold-release send once, longer left cancellation with progressive horizontal resistance, no vertical drag or upward lock, immediate capture/draft cleanup before the rightward cancellation animation, pause/preview/resume, direct hands-free send, ordinary release during pending permission, tap/keyboard access, interrupted/limit review, and privacy teardown during cancellation. Includes the regression where a touch release synthesizes a click on the newly revealed Send button after hardware interruption. Screenshots and geometry checks cover three states at 320/390/1280px in light/dark themes and reduced motion. Run `node tests/voice-gestures.e2e.mjs <output-directory>` for captures.
 - The paired-device `verifyVoiceFlow` additionally holds and releases the actual composer trigger, then verifies exactly one real MLS audio message and peer delivery receipt. The standalone gesture test replaces only the finished-draft transport callback; it does not claim encrypted transport coverage on its own.
 - Run `node tests/browser.e2e.mjs audit-screenshots/voice` for 320/390px recording controls, incoming/outgoing voice bubbles, dark-mode and desktop captures. Inspect these images as well as assertions.
 - Manual release check on physical iPhone Safari / installed PWA and Android Chrome: first-time microphone prompt, repeated pause/resume, headset removal/interruption, background/lock while recording or playing, recording limit, and phone-to-desktop playback. Desktop Chrome automation does not certify mobile OS permission or microphone behavior.

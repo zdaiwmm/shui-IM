@@ -37,6 +37,7 @@ import {
 import { decryptAudioFile, encryptAudioFile, decryptImageFile, encryptImageFile, encryptFileAttachment, decryptFileAttachment, MAX_IMAGE_BYTES } from './lib/file-crypto';
 import { VoiceRecorder } from './lib/voice-recorder';
 import { bindVoiceRecordGesture } from './lib/voice-gesture';
+import { bindImageViewerGestures } from './lib/image-viewer-gestures';
 import { VoicePlayback, VoicePlayer } from './lib/voice-player';
 import { CallController } from './lib/call-controller';
 import { CallView } from './lib/call-view';
@@ -345,6 +346,7 @@ export class QuietRoomApp {
   private chatLastScrollY = 0;
   private chatResumeBottomOnFocus = false;
   private chatScrollFrame: number | null = null;
+  private chatMessageAnimations = new Set<Animation>();
   private syncViewport: () => void = () => {};
   private trackChatViewport: (follow?: boolean) => void = () => {};
   private syncChatLayout: () => void = () => {};
@@ -412,6 +414,7 @@ export class QuietRoomApp {
   private backupError = '';
   private roleLastSeen: { creator: number | null; joiner: number | null } = { creator: null, joiner: null };
   private viewerMediaCleanup: (() => void) | null = null;
+  private viewerGestureCleanup: (() => void) | null = null;
   private viewerKeyHandler: ((event: KeyboardEvent) => void) | null = null;
   private viewerReturnFocus: HTMLElement | null = null;
   private viewerPreviousSurface: 'away' | 'chat' = 'away';
@@ -456,7 +459,9 @@ export class QuietRoomApp {
     };
     window.setInterval(refreshUnread, 15_000);
     window.addEventListener('online', refreshUnread);
-    const preventZoom = (event: Event) => event.preventDefault();
+    const isNativeVideo = (event: Event) => event.target instanceof HTMLVideoElement
+      || document.fullscreenElement instanceof HTMLVideoElement;
+    const preventZoom = (event: Event) => { if (!isNativeVideo(event)) event.preventDefault(); };
     let viewportFrame: number | null = null;
     let trackingFrame: number | null = null;
     let trackingUntil = 0;
@@ -507,7 +512,8 @@ export class QuietRoomApp {
         if (style.getPropertyValue(property) !== value) style.setProperty(property, value);
       };
       const keyboardOpen = String(keyboardSpace > 120);
-      if (document.documentElement.dataset.keyboardOpen !== keyboardOpen) document.documentElement.dataset.keyboardOpen = keyboardOpen;
+      const keyboardChanged = document.documentElement.dataset.keyboardOpen !== keyboardOpen;
+      if (keyboardChanged) document.documentElement.dataset.keyboardOpen = keyboardOpen;
       // Keep frame-by-frame position updates local to the four floating
       // controls. Inherited root variables invalidate every historical row.
       if (chat) {
@@ -533,7 +539,9 @@ export class QuietRoomApp {
       if (chat) {
         // Apply safe-area/composer-height changes before aligning messages,
         // in the same event as the controls instead of a later animation frame.
-        this.syncChatLayout();
+        // ResizeObserver owns actual control-size changes. Geometry-only
+        // toolbar frames should not force three control layout measurements.
+        if (widthChanged || keyboardChanged) this.syncChatLayout();
         if (resized && followBottom) this.scrollChatToBottom();
         if (resized) this.trackChatViewport(followBottom && !this.desktopBrowser);
       }
@@ -546,23 +554,25 @@ export class QuietRoomApp {
       if (this.privacyCovered || this.activeSurface !== 'chat' || !this.chatLayoutElements?.shell.isConnected) return;
       syncVisualViewport();
       if (this.chatBottomFollowPending && this.chatScrollIntent !== 'up') this.alignChatBottom();
-      if (performance.now() < trackingUntil) {
-        if (trackingFrame === null) trackingFrame = requestAnimationFrame(sampleViewport);
-      }
-      else {
+      if (performance.now() >= trackingUntil) {
         this.chatBottomFollowPending = false;
         this.chatViewportFollowUntil = 0;
       }
+      // Safari can withhold viewport events during native toolbar movement.
+      // Keep this cheap geometry sample alive while chat is visible; unchanged
+      // samples return before reading messages or writing any styles.
+      if (trackingFrame === null) trackingFrame = requestAnimationFrame(sampleViewport);
     };
     this.trackChatViewport = (follow = false) => {
       if (this.privacyCovered || this.activeSurface !== 'chat' || !this.chatLayoutElements?.shell.isConnected) return;
-      // WebKit can expose geometry a frame after its event, or omit intermediate
-      // events. Sample only around interactions, never for the whole session.
+      // Following browser focus scrolls is bounded. Position sampling itself
+      // continues until chat is left or privacy teardown cancels this frame.
       trackingUntil = performance.now() + 900;
       if (follow) this.chatViewportFollowUntil = trackingUntil;
       if (trackingFrame === null) trackingFrame = requestAnimationFrame(sampleViewport);
     };
     this.cancelViewportWork = () => {
+      this.cancelChatMessageMotion();
       if (viewportFrame !== null) cancelAnimationFrame(viewportFrame);
       if (trackingFrame !== null) cancelAnimationFrame(trackingFrame);
       viewportFrame = null;
@@ -591,8 +601,16 @@ export class QuietRoomApp {
       if (!(event.target instanceof Element && event.target.closest('.is-selecting-text'))) preventZoom(event);
     }, { capture: true, passive: false });
     document.addEventListener('wheel', (event) => {
-      if (event.ctrlKey || event.metaKey) event.preventDefault();
+      if ((event.ctrlKey || event.metaKey) && !isNativeVideo(event)) event.preventDefault();
     }, { passive: false });
+    // App surfaces own their long-press actions. Explicit text selection is
+    // still available from the message menu; an incidental hold opens no OS menu.
+    document.addEventListener('contextmenu', event => {
+      if (!(event.target instanceof Element && event.target.closest('.is-selecting-text'))) event.preventDefault();
+    }, { capture: true });
+    document.addEventListener('selectstart', event => {
+      if (!(event.target instanceof Element && event.target.closest('input, textarea, .is-selecting-text'))) event.preventDefault();
+    }, { capture: true });
     const recordActivity = (event: Event) => {
       if (!this.desktopBrowser && event.type !== 'pointerdown' && event.type !== 'keydown') return;
       // A delayed background timer must not let the first input renew an expired session.
@@ -983,15 +1001,12 @@ export class QuietRoomApp {
         })();
       }, '解锁手势');
     } else {
-      this.gatewayTemplate('回到会话', '使用本机通行密钥或生物识别解锁。', `
+      this.root.innerHTML = `<section class="gateway gateway-unlock" aria-label="解锁会话">
         <div class="credential-only-step credential-unlock-step">
           <button class="primary-button" id="passkey-unlock" type="button">使用通行密钥解锁</button>
           <p class="form-error" role="alert"></p>
         </div>
-        <div class="gateway-secondary">
-          <button class="text-button" id="back-to-cover" type="button">返回白屏</button>
-        </div>
-      `);
+      </section>`;
       const button = this.root.querySelector<HTMLButtonElement>('#passkey-unlock')!;
       const error = this.root.querySelector<HTMLElement>('.form-error')!;
       button.addEventListener('click', () => {
@@ -1028,7 +1043,7 @@ export class QuietRoomApp {
       </div>
       <div class="gateway-secondary"><button class="text-button" id="corrupt-vault-lock" type="button">返回白屏</button></div>
     `);
-    this.root.querySelector('#corrupt-cloud-recovery')?.addEventListener('click', () => this.renderCloudRecovery());
+    this.root.querySelector('#corrupt-cloud-recovery')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderCloudRecovery()));
     this.root.querySelector('#download-vault-diagnostic')?.addEventListener('click', () => {
       this.beginFileExport();
       void this.withSystemSurface(() => downloadVaultDiagnostic()).catch((cause) => this.showFormError(cause));
@@ -1252,9 +1267,9 @@ export class QuietRoomApp {
       </div>
       <p class="form-error" role="alert"></p>
     `);
-    this.root.querySelector('#create-room')?.addEventListener('click', () => this.renderCreate());
-    this.root.querySelector('#join-room')?.addEventListener('click', () => this.renderPasteInvite());
-    this.root.querySelector('#restore-cloud')?.addEventListener('click', () => this.renderCloudRecovery());
+    this.root.querySelector('#create-room')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderCreate()));
+    this.root.querySelector('#join-room')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderPasteInvite()));
+    this.root.querySelector('#restore-cloud')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderCloudRecovery()));
   }
 
   private renderCreate(): void {
@@ -1266,7 +1281,7 @@ export class QuietRoomApp {
       (platformResult) => this.handleCreate(platformResult),
       '正在创建会话…',
     );
-    this.root.querySelector('.gateway-back')?.addEventListener('click', () => this.renderFirstRun(null));
+    this.root.querySelector('.gateway-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderFirstRun(null)));
   }
 
   private async handleCreate(platformResult: PlatformCredentialResult): Promise<void> {
@@ -1360,9 +1375,9 @@ export class QuietRoomApp {
         return;
       }
       form.querySelector<HTMLTextAreaElement>('#invite-input')?.removeAttribute('aria-invalid');
-      this.renderJoin(invite);
+      this.transitionPage('forward', () => this.renderJoin(invite));
     });
-    this.root.querySelector('.gateway-back')?.addEventListener('click', () => this.renderFirstRun(null));
+    this.root.querySelector('.gateway-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderFirstRun(null)));
   }
 
   private renderJoin(invite: Invite): void {
@@ -1374,7 +1389,7 @@ export class QuietRoomApp {
       (platformResult) => this.handleJoin(invite, platformResult),
       '正在加入会话…',
     );
-    this.root.querySelector('.gateway-back')?.addEventListener('click', () => this.renderFirstRun(null));
+    this.root.querySelector('.gateway-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderFirstRun(null)));
   }
 
   private async handleJoin(
@@ -2601,9 +2616,7 @@ export class QuietRoomApp {
                 <p class="safety-label">设备安全码</p>
                 <code class="safety-code" id="safety-code">正在计算…</code>
                 <button id="manage-devices" type="button">${icons.lock}<span>设备管理</span></button>
-                <button id="toggle-notifications" type="button">${icons.bell}<span>后台通知：正在检查…</span></button>
                 <button id="backup-settings" type="button">${icons.download}<span>备份与恢复</span></button>
-                <button id="lock-room" type="button">${icons.lock}<span>立即锁定</span></button>
                 <p class="menu-footnote">新设备只能查看加入后的消息。</p>
               </div>
             </details>
@@ -2640,7 +2653,7 @@ export class QuietRoomApp {
             <label class="sr-only" for="message-input">输入消息</label>
             <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '输入消息' : '正在建立安全会话…'}" autocomplete="off" enterkeyhint="send" ${cryptoReady ? '' : 'disabled'}></textarea>
           </div>
-          <button class="icon-button voice-record-button" id="record-voice" type="button" aria-label="录制语音消息" aria-description="长按录音，松手发送；左滑取消，上滑松手锁定。点按可免手持录音。" title="长按录音，松手发送" ${cryptoReady ? '' : 'disabled'}>${voiceIcons.mic}</button>
+          <button class="icon-button voice-record-button" id="record-voice" type="button" aria-label="录制语音消息" aria-description="长按录音，松手发送；向左滑动可取消。点按可免手持录音。" title="长按录音，松手发送" ${cryptoReady ? '' : 'disabled'}>${voiceIcons.mic}</button>
           <button class="send-button" type="submit" aria-label="发送消息" ${cryptoReady ? '' : 'disabled'} hidden>${icons.send}</button>
           <section class="voice-recorder" aria-label="录制语音消息" hidden></section>
           <div class="upload-progress" id="upload-progress" hidden><span></span><output></output></div>
@@ -2652,6 +2665,7 @@ export class QuietRoomApp {
     const list = this.root.querySelector<HTMLElement>('#message-list')!;
     this.mountChatImageConcealGesture(list);
     const scrollIntent = (direction: 'up' | 'down') => {
+      this.cancelChatMessageMotion();
       this.chatResumeBottomOnFocus = false;
       this.chatRestoreAnchor = null;
       this.chatScrollIntent = direction;
@@ -2729,16 +2743,14 @@ export class QuietRoomApp {
     sendButton?.addEventListener('pointerdown', (event) => this.retainComposerKeyboard(event, textarea));
     this.mountImagePicker(imageInput, 'chat', this.root.querySelector<HTMLButtonElement>('#open-image-picker'));
     this.root.querySelector('#open-gallery')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderGallery()));
-    this.root.querySelector('#backup-settings')?.addEventListener('click', () => this.renderBackupSettings());
-    this.root.querySelector('#reminder-export')?.addEventListener('click', () => this.renderBackupSettings());
+    this.root.querySelector('#backup-settings')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderBackupSettings()));
+    this.root.querySelector('#reminder-export')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderBackupSettings()));
     this.root.querySelector('#dismiss-recovery')?.addEventListener('click', () => {
       this.uiPreferences.recoveryReminderDismissed = true;
       this.flushUiPreferencesSave();
       this.root.querySelector('.recovery-reminder')?.remove();
     });
-    this.root.querySelector('#lock-room')?.addEventListener('click', () => this.lockNow());
     this.root.querySelector('#manage-devices')?.addEventListener('click', () => this.transitionPage('forward', () => void this.renderDeviceManager()));
-    this.root.querySelector('#toggle-notifications')?.addEventListener('click', () => void this.toggleBackgroundNotifications());
     this.root.querySelector('#reply-draft button')?.addEventListener('click', () => {
       this.replyTarget = null;
       this.renderReplyDraft();
@@ -2791,6 +2803,7 @@ export class QuietRoomApp {
     this.syncChatLayout = sync;
     this.syncViewport();
     sync();
+    this.trackChatViewport();
     this.chatLayoutObserver = new ResizeObserver(sync);
     // Observe controls, not the document-height shell: changing message padding
     // also resizes that shell and creates a ResizeObserver feedback loop in WebKit.
@@ -3113,19 +3126,35 @@ export class QuietRoomApp {
   }
 
   private transitionPage(direction: 'forward' | 'backward', render: () => void): void {
+    if (this.privacyCovered || this.root.dataset.pageTransition === 'leaving') return;
     this.closeImageViewer(true);
     this.clearMessageTextSelection();
+    this.closeMessageActions(false, false);
+    this.closeVoiceRecorder();
+    this.voicePlayback.stop();
     if (this.root.querySelector('#message-list')) {
       this.captureChatAnchor(true);
       this.restoreChatAnchorOnNextRender = true;
     }
     if (this.pageTransitionTimer !== null) window.clearTimeout(this.pageTransitionTimer);
-    this.root.dataset.pageTransition = direction;
-    render();
-    this.pageTransitionTimer = window.setTimeout(() => {
-      delete this.root.dataset.pageTransition;
+    const epoch = this.runtimeEpoch;
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const enter = () => {
       this.pageTransitionTimer = null;
-    }, 200);
+      if (this.privacyCovered || this.runtimeEpoch !== epoch) return;
+      delete this.root.dataset.pageTransition;
+      render();
+      this.root.dataset.pageTransition = direction;
+      this.pageTransitionTimer = window.setTimeout(() => {
+        delete this.root.dataset.pageTransition;
+        this.pageTransitionTimer = null;
+      }, reduced ? 0 : 180);
+    };
+    if (reduced) enter();
+    else {
+      this.root.dataset.pageTransition = 'leaving';
+      this.pageTransitionTimer = window.setTimeout(enter, 120);
+    }
   }
 
   private markVisibleMessagesRead(): void {
@@ -3168,6 +3197,9 @@ export class QuietRoomApp {
     this.activeSurface = surface;
     this.socket?.setChatPresence(surface === 'chat');
     this.syncViewport();
+    // Viewer dismissal reuses the same chat DOM and viewport geometry. Resume
+    // sampling explicitly even when syncViewport has no resize work to do.
+    if (surface === 'chat') this.trackChatViewport();
   }
 
   private scheduleChatScroll(): void {
@@ -3190,7 +3222,10 @@ export class QuietRoomApp {
       }
       this.chatPinnedToBottom = !this.chatRestoreAnchor && this.chatScrollIntent !== 'up'
         && (gap <= 2 || this.chatBottomFollowPending || (this.chatPinnedToBottom && performance.now() < this.chatViewportFollowUntil));
-      if (this.root.querySelector('.message-actions:not(.is-closing)')) this.closeMessageActions(false, false);
+      const actions = this.root.querySelector<HTMLElement>('.message-actions:not(.is-closing)');
+      // Native scrolling can notify after the menu was opened at its final
+      // position. Only movement since that opening makes the menu stale.
+      if (actions && Math.abs(window.scrollY - Number(actions.dataset.openScrollY)) > 1) this.closeMessageActions(false, false);
       if (window.scrollY < 80) void this.loadOlderHistory(list);
       if (gap < 80) void this.loadNewerHistory(list);
       this.captureChatAnchor(true, false, gap);
@@ -3470,7 +3505,7 @@ export class QuietRoomApp {
       status: 'pending',
     };
     this.pending.set(clientMsgId, pending);
-    this.renderMessages({ scroll: payload.kind === 'reaction' ? 'preserve' : 'bottom' });
+    this.renderMessages({ scroll: payload.kind === 'reaction' ? 'preserve' : 'send' });
     if (payload.kind !== 'reaction') this.trackChatViewport(!this.desktopBrowser);
     await this.attemptSend(clientMsgId);
   }
@@ -4209,6 +4244,7 @@ export class QuietRoomApp {
     actions.setAttribute('role', 'menu');
     actions.setAttribute('aria-label', '消息操作');
     actions.dataset.sourceId = message.clientMsgId;
+    actions.dataset.openScrollY = String(window.scrollY);
     const actionButtons: HTMLButtonElement[] = [];
     const confirmed = message.seq > 0 && message.seq < Number.MAX_SAFE_INTEGER;
     if (confirmed) {
@@ -4499,13 +4535,17 @@ export class QuietRoomApp {
     }, 1400);
   }
 
-  private renderMessages({ scroll = 'preserve' }: { scroll?: 'preserve' | 'position' | 'bottom' | 'restore' } = {}): void {
+  private renderMessages({ scroll = 'preserve' }: { scroll?: 'preserve' | 'position' | 'bottom' | 'send' | 'restore' } = {}): void {
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!list || !this.session) return;
+    const followSend = scroll === 'send';
+    const previousLatest = followSend ? this.renderedMessageOrder.at(-1) : null;
+    const previousLatestTop = previousLatest?.isConnected ? previousLatest.querySelector('.message-bubble')?.getBoundingClientRect().top ?? null : null;
+    if (followSend) this.cancelChatMessageMotion();
     const anchor = scroll === 'restore'
       ? this.uiPreferences.chatAnchor
       : this.captureChatAnchor(false, scroll === 'position');
-    if (scroll === 'bottom' || scroll === 'position') this.chatRestoreAnchor = null;
+    if (scroll === 'bottom' || followSend || scroll === 'position') this.chatRestoreAnchor = null;
     else if (scroll === 'restore') this.chatRestoreAnchor = anchor && !anchor.pinnedToBottom ? anchor : null;
     const messages = this.orderedMessages();
     if (messages.length === 0) {
@@ -4535,21 +4575,28 @@ export class QuietRoomApp {
         const selecting = this.selectedMessageId === key && cached?.payload.kind === 'text'
           && message.payload.kind === 'text' && cached.payload.text === message.payload.text;
         const unchanged = cached?.payload === message.payload && cached.status === message.status && cached.acceptedAt === message.acceptedAt;
-        const element = selecting || unchanged ? cached!.element : this.createMessageElement(message);
-        if (selecting && !unchanged) {
-          const updated = this.createMessageElement(message);
-          element.querySelector('.message-meta')?.replaceWith(updated.querySelector('.message-meta')!);
+        // Legacy confirmation decrypts a fresh but equivalent payload. Compare
+        // that changed object only; unchanged history retains the fast path.
+        const samePayload = cached?.payload === message.payload || Boolean(cached && canonicalStringify(cached.payload) === canonicalStringify(message.payload));
+        const keepContent = Boolean(cached && (selecting || samePayload));
+        const element = keepContent ? cached!.element : this.createMessageElement(message);
+        if (keepContent && !unchanged) {
+          // A delivery receipt updates decoration only. Preserve decoded media,
+          // in-flight downloads, playback, focus and any send-motion layer.
+          const meta = element.querySelector<HTMLElement>('.message-meta');
+          const updated = this.createMessageMeta(message);
+          if (meta) {
+            meta.replaceChildren(...updated.childNodes);
+            for (const attribute of ['title', 'aria-label']) {
+              const value = updated.getAttribute(attribute);
+              if (value === null) meta.removeAttribute(attribute);
+              else meta.setAttribute(attribute, value);
+            }
+          }
           element.classList.remove(`is-${cached!.status}`);
           element.classList.add(`is-${message.status}`);
         }
-        // A receipt changes delivery metadata, not the voice source. Keep its
-        // live player and seek position instead of interrupting playback.
-        if (cached && !unchanged && !selecting && cached.payload === message.payload) {
-          if (cached.element.classList.contains('is-action-source')) element.classList.add('is-action-source');
-          const voice = cached.element.querySelector('.voice-player');
-          if (voice) element.querySelector('.voice-player')?.replaceWith(voice);
-        }
-        if (cached && !unchanged && !selecting && cached.element.parentElement === list) {
+        if (cached && !keepContent && cached.element.parentElement === list) {
           const hadFocus = cached.element.contains(document.activeElement);
           cached.element.replaceWith(element);
           if (hadFocus) element.focus({ preventScroll: true });
@@ -4579,7 +4626,7 @@ export class QuietRoomApp {
     this.renderMessageReactions();
     this.mountChatImageObserver(list);
     this.voicePlayback.prune();
-    if (scroll === 'bottom' || !anchor) {
+    if (scroll === 'bottom' || followSend || !anchor) {
       this.chatPinnedToBottom = true;
       this.scrollChatToBottom();
       this.captureChatAnchor(true);
@@ -4591,6 +4638,38 @@ export class QuietRoomApp {
       && (this.chatBottomFollowPending || this.chatBottomGap() <= 2);
     this.restoreChatAnchorOnNextRender = false;
     this.markVisibleMessagesRead();
+    if (followSend && previousLatestTop !== null && previousLatest?.isConnected) {
+      this.animateChatMessageShift(previousLatestTop - previousLatest.getBoundingClientRect().top);
+    }
+  }
+
+  private cancelChatMessageMotion(): void {
+    for (const animation of this.chatMessageAnimations) animation.cancel();
+    this.chatMessageAnimations.clear();
+  }
+
+  private animateChatMessageShift(distance: number): void {
+    this.cancelChatMessageMotion();
+    if (distance < 1 || matchMedia('(prefers-reduced-motion: reduce)').matches || this.chatBottomFollowPending) return;
+    const offset = Math.min(distance, 280, this.chatViewportHeight * 0.45);
+    // Scroll and anchors are committed once. Animate only visible content
+    // inside each row, so fixed bars and all geometry used by unread/scroll
+    // bookkeeping stay in their final positions throughout the transition.
+    for (let index = this.renderedMessageOrder.length - 1; index >= 0; index--) {
+      const row = this.renderedMessageOrder[index]!;
+      const rect = row.getBoundingClientRect();
+      if (rect.bottom < this.chatViewportTop - offset) break;
+      if (rect.top > this.chatViewportTop + this.chatViewportHeight) continue;
+      for (const content of row.children) {
+        if (!(content instanceof HTMLElement)) continue;
+        const animation = content.animate(
+          [{ translate: `0 ${offset}px` }, { translate: '0 0' }],
+          { duration: 300, easing: 'cubic-bezier(0.22, 0.68, 0.22, 1)' },
+        );
+        this.chatMessageAnimations.add(animation);
+        animation.finished.then(() => this.chatMessageAnimations.delete(animation), () => this.chatMessageAnimations.delete(animation));
+      }
+    }
   }
 
   private async loadOlderHistory(list: HTMLElement): Promise<void> {
@@ -4732,6 +4811,13 @@ export class QuietRoomApp {
       bubble.classList.add('image-bubble');
       bubble.append(this.createImagePreview(message.payload.image, [message.payload.image], 0, message.clientMsgId));
     }
+    article.append(bubble, this.createMessageMeta(message));
+    this.mountMessageActions(article, message);
+    return article;
+  }
+
+  private createMessageMeta(message: DecryptedMessage): HTMLElement {
+    const own = this.isOwnMessage(message);
     const meta = document.createElement('p');
     meta.className = 'message-meta';
     const status = own
@@ -4775,9 +4861,7 @@ export class QuietRoomApp {
       });
       meta.append(' · ', retry);
     }
-    article.append(bubble, meta);
-    this.mountMessageActions(article, message);
-    return article;
+    return meta;
   }
 
   private createFileAttachment(manifest: FileManifest): HTMLButtonElement {
@@ -4935,16 +5019,16 @@ export class QuietRoomApp {
       <button class="text-button" id="backup-back" type="button">返回会话</button>
       <header class="backup-heading">
         <h1>备份与恢复</h1>
-        <p>备份在本机加密后自动保存到服务器。恢复码只由你保管，管理员无法找回。</p>
+        <p>备份先在本机加密。恢复码请单独保存，管理员无法找回。</p>
       </header>
       <section><h2>自动备份</h2><p id="backup-status" role="status"></p>
         <button class="secondary-button" id="backup-retry" type="button">立即备份</button>
-        <p class="field-hint">备份在页面解锁、联网时进行。离开或锁定后暂停，下次解锁继续。</p>
+        <p class="field-hint">解锁并联网时自动备份，锁定后暂停。</p>
       </section>
-      <section><h2>本设备恢复码</h2><p>忘记保存位置时，可再次验证通行密钥，在本机查看。</p>
+      <section><h2>本设备恢复码</h2><p>再次验证通行密钥后，即可在本机查看。</p>
         <button class="secondary-button" id="view-local-recovery" data-backup-ready type="button" disabled>查看本设备恢复码</button>
       </section>
-      <section><h2>恢复历史内容</h2><p>恢复设备不会自动载入旧消息和保险箱。按需选择，再输入本设备当前的恢复码。</p>
+      <section><h2>恢复历史内容</h2><p>旧内容需主动恢复。选择范围后，输入本设备当前恢复码。</p>
         <div class="backup-actions"><button class="secondary-button" data-restore="chat" data-backup-ready type="button" disabled>恢复历史消息</button>
         ${session.vault.role === 'creator' ? '<button class="secondary-button" data-restore="gallery" data-backup-ready type="button" disabled>恢复保险箱</button>' : ''}</div>
         <div id="history-restore-form"></div>
@@ -4957,7 +5041,7 @@ export class QuietRoomApp {
     this.root.querySelector('#backup-back')?.addEventListener('click', async () => {
       cancelRestore();
       this.runtimeAbort?.signal.removeEventListener('abort', cancelRestore);
-      if (historyChanged) await this.openSession(); else this.renderChat();
+      this.transitionPage('backward', () => { if (historyChanged) void this.openSession(); else this.renderChat(); });
     });
     this.root.querySelector('#backup-retry')?.addEventListener('click', () => void this.runAutomaticBackup());
     this.root.querySelector('#view-local-recovery')?.addEventListener('click', () => this.verifyLocalRecoveryCode());
@@ -5131,11 +5215,19 @@ export class QuietRoomApp {
     this.viewerMediaCleanup = null;
   }
 
-  private renderViewerVideo(stage: HTMLElement, cached: CachedImage, manifest: ImageManifest): void {
+  private renderViewerVideo(stage: HTMLElement, cached: CachedImage, manifest: ImageManifest, requestNative: boolean): void {
     const video = document.createElement('video');
+    const nativeVideo = video as HTMLVideoElement & {
+      webkitEnterFullscreen?: () => void;
+      webkitExitFullscreen?: () => void;
+      webkitDisplayingFullscreen?: boolean;
+    };
+    const viewer = stage.closest<HTMLElement>('.image-viewer')!;
     video.controls = true;
     video.autoplay = true;
-    video.playsInline = true;
+    // iPhone may enter its system player as part of play() while its metadata
+    // is still loading. Do not force that playback back into an inline player.
+    video.playsInline = !requestNative || typeof nativeVideo.webkitEnterFullscreen !== 'function';
     video.preload = 'auto';
     video.disablePictureInPicture = true;
     video.disableRemotePlayback = true;
@@ -5148,9 +5240,28 @@ export class QuietRoomApp {
     feedback.hidden = true;
     const events = new AbortController();
     let active = true;
+    let nativeEntered = false;
+    let nativePendingTimer: number | null = null;
     const live = () => active && !this.privacyCovered && video.isConnected;
+    const revealFallback = () => {
+      if (!live() || nativeEntered) return;
+      delete viewer.dataset.nativeVideo;
+      video.playsInline = true;
+    };
+    const nativeBegan = () => {
+      if (!live()) return;
+      nativeEntered = true;
+      viewer.dataset.nativeVideo = 'active';
+      if (nativePendingTimer !== null) window.clearTimeout(nativePendingTimer);
+    };
+    const nativeEnded = () => {
+      if (!live() || !nativeEntered) return;
+      // Returning from Done / Escape goes directly to the originating surface.
+      this.closeImageViewer(true);
+    };
     const showError = () => {
       if (!live()) return;
+      revealFallback();
       feedback.textContent = '此浏览器无法播放该视频，可下载原文件';
       feedback.disabled = true;
       feedback.hidden = false;
@@ -5161,18 +5272,59 @@ export class QuietRoomApp {
       void video.play().catch(cause => {
         if (!live()) return;
         if (cause instanceof DOMException && cause.name === 'NotAllowedError') {
+          revealFallback();
           feedback.textContent = '点按播放视频';
           feedback.disabled = false;
           feedback.hidden = false;
         } else if (!(cause instanceof DOMException && cause.name === 'AbortError')) showError();
       });
     };
+    const requestNativePlayer = () => {
+      if (!live() || nativeEntered) return;
+      viewer.dataset.nativeVideo = 'pending';
+      if (nativePendingTimer !== null) window.clearTimeout(nativePendingTimer);
+      nativePendingTimer = window.setTimeout(revealFallback, 1200);
+      try {
+        // These calls must stay in the original thumbnail click stack when the
+        // original is already verified. Awaiting play()/metadata loses the
+        // activation required by browsers for entering full screen.
+        if (typeof nativeVideo.webkitEnterFullscreen === 'function') {
+          nativeVideo.webkitEnterFullscreen();
+        } else if (typeof video.requestFullscreen === 'function' && document.fullscreenEnabled) {
+          void video.requestFullscreen().then(() => {
+            // A closing/locked viewer may outlive the native request briefly.
+            // Its event listeners are already removed, so undo a late entry.
+            if (!live() && document.fullscreenElement === video) void document.exitFullscreen().catch(() => undefined);
+          }, revealFallback);
+        } else revealFallback();
+      } catch {
+        // Safari can require loaded metadata. play() without playsinline may
+        // already open its system player; retry its API once after metadata.
+        if (video.readyState === 0 && typeof nativeVideo.webkitEnterFullscreen === 'function') {
+          video.addEventListener('loadedmetadata', () => {
+            if (!live() || nativeEntered) return;
+            try { nativeVideo.webkitEnterFullscreen!(); } catch { revealFallback(); }
+          }, { once: true, signal: events.signal });
+        } else revealFallback();
+      }
+    };
+    video.addEventListener('webkitbeginfullscreen', nativeBegan, { signal: events.signal });
+    video.addEventListener('webkitendfullscreen', nativeEnded, { signal: events.signal });
+    document.addEventListener('fullscreenchange', () => {
+      if (document.fullscreenElement === video) nativeBegan();
+      else if (nativeEntered) nativeEnded();
+    }, { signal: events.signal });
     video.addEventListener('error', showError, { signal: events.signal });
     video.addEventListener('playing', () => { feedback.hidden = true; }, { signal: events.signal });
-    feedback.addEventListener('click', play, { signal: events.signal });
+    feedback.addEventListener('click', () => { requestNativePlayer(); play(); }, { signal: events.signal });
     this.viewerMediaCleanup = () => {
       active = false;
       events.abort();
+      if (nativePendingTimer !== null) window.clearTimeout(nativePendingTimer);
+      if (document.fullscreenElement === video) void document.exitFullscreen().catch(() => undefined);
+      if (nativeVideo.webkitDisplayingFullscreen) {
+        try { nativeVideo.webkitExitFullscreen?.(); } catch { /* Source removal still stops playback. */ }
+      }
       video.pause();
       video.removeAttribute('src');
       video.removeAttribute('poster');
@@ -5180,6 +5332,9 @@ export class QuietRoomApp {
     };
     stage.replaceChildren(video, feedback);
     video.src = cached.url;
+    if (requestNative) {
+      requestNativePlayer();
+    }
     play();
   }
 
@@ -5428,7 +5583,6 @@ export class QuietRoomApp {
     this.viewerPreviousSurface = this.activeSurface;
     this.setActiveSurface('away');
     this.viewerReturnFocus = returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
-    const origin = returnFocus?.querySelector('img')?.getBoundingClientRect() ?? returnFocus?.getBoundingClientRect();
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const viewer = document.createElement('section');
     viewer.className = 'image-viewer';
@@ -5448,44 +5602,29 @@ export class QuietRoomApp {
     this.root.append(viewer);
     let current = Math.max(0, Math.min(startIndex, manifests.length - 1));
     let renderToken = 0;
-    let opening = true;
     const stage = viewer.querySelector<HTMLElement>('.viewer-stage')!;
     const previous = viewer.querySelector<HTMLButtonElement>('.viewer-previous')!;
     const next = viewer.querySelector<HTMLButtonElement>('.viewer-next')!;
-    const reveal = (image: HTMLImageElement, direction: number) => {
-      const animate = () => {
-        if (!viewer.isConnected || !image.isConnected) return;
-        if (!reducedMotion) {
-          if (opening && origin && origin.width > 0 && origin.height > 0) {
-            const bounds = stage.getBoundingClientRect();
-            const fit = Math.min(bounds.width / image.naturalWidth, bounds.height / image.naturalHeight);
-            const imageWidth = image.naturalWidth * fit;
-            const imageHeight = image.naturalHeight * fit;
-            const scale = Math.min(origin.width / imageWidth, origin.height / imageHeight);
-            const x = origin.left + origin.width / 2 - bounds.left - bounds.width / 2;
-            const y = origin.top + origin.height / 2 - bounds.top - bounds.height / 2;
-            image.animate([
-              { transform: `translate3d(${x}px, ${y}px, 0) scale(${scale})`, opacity: 0.7 },
-              { transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1 },
-            ], { duration: 360, easing: 'cubic-bezier(.2,.8,.2,1)' });
-          } else {
-            image.animate([
-              { transform: `translate3d(${direction * 48}px, 0, 0) scale(${opening ? 0.94 : 1})`, opacity: 0 },
-              { transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1 },
-            ], { duration: opening ? 300 : 220, easing: 'ease-out' });
-          }
-        }
-        opening = false;
-      };
-      if (image.complete && image.naturalWidth > 0) requestAnimationFrame(animate);
-      else image.addEventListener('load', animate, { once: true });
+    const gestures = bindImageViewerGestures({
+      stage, viewer, itemCount: manifests.length,
+      dismiss: downward => {
+        if (downward && this.viewerPreviousSurface === 'chat') this.concealChatImages();
+        this.closeImageViewer();
+      },
+      page: direction => { void render(current + direction); },
+    });
+    this.viewerGestureCleanup = gestures.destroy;
+    const reveal = (image: HTMLImageElement) => {
+      if (!reducedMotion) image.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 200, easing: 'ease-out' });
     };
-    const render = async (index: number, direction = 0) => {
+    const render = async (index: number) => {
       current = (index + manifests.length) % manifests.length;
       const token = ++renderToken;
       const manifest = manifests[current]!;
       const video = isVideoFile(manifest);
       this.stopViewerMedia();
+      gestures.reset();
+      delete viewer.dataset.nativeVideo;
       viewer.classList.toggle('video-viewer', video);
       viewer.setAttribute('aria-label', video ? '视频播放器' : '图片查看器');
       viewer.querySelector('[data-viewer-download]')!.setAttribute('aria-label', video ? '下载当前视频' : '下载当前原图');
@@ -5520,8 +5659,7 @@ export class QuietRoomApp {
         const loaded = cached ?? await this.loadImage(manifest);
         if (!viewer.isConnected || viewer.classList.contains('is-closing') || token !== renderToken) return;
         if (video) {
-          this.renderViewerVideo(stage, loaded, manifest);
-          opening = false;
+          this.renderViewerVideo(stage, loaded, manifest, Boolean(cached));
           return;
         }
         const image = document.createElement('img');
@@ -5529,7 +5667,7 @@ export class QuietRoomApp {
         image.alt = manifest.originalName || `第 ${current + 1} 张图片`;
         image.draggable = false;
         stage.replaceChildren(image);
-        reveal(image, direction);
+        reveal(image);
         const adjacent = manifests[(current + 1) % manifests.length];
         if (adjacent && !isVideoFile(adjacent) && adjacent !== manifest && !(navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData) {
           void this.loadImage(adjacent).catch(() => undefined);
@@ -5544,8 +5682,8 @@ export class QuietRoomApp {
         stage.replaceChildren(error);
       }
     };
-    previous.addEventListener('click', () => void render(current - 1, -1));
-    next.addEventListener('click', () => void render(current + 1, 1));
+    previous.addEventListener('click', () => void render(current - 1));
+    next.addEventListener('click', () => void render(current + 1));
     viewer.querySelector('[data-viewer-close]')?.addEventListener('click', () => this.closeImageViewer());
     viewer.querySelector('[data-viewer-download]')?.addEventListener('click', async () => {
       try {
@@ -5560,70 +5698,16 @@ export class QuietRoomApp {
         this.operationalError(cause, '原图保存失败');
       }
     });
-    let gesture: { id: number; x: number; y: number; startAt: number; axis: 'x' | 'y' | null } | null = null;
-    const resetDrag = () => {
-      gesture = null;
-      viewer.classList.remove('is-dragging');
-      viewer.style.removeProperty('--viewer-backdrop-opacity');
-      const image = stage.querySelector('img');
-      if (image) image.style.transform = '';
-    };
-    stage.addEventListener('pointerdown', (event) => {
-      if (event.button !== 0 || gesture || viewer.classList.contains('is-closing')) return;
-      if (event.target instanceof Element && event.target.closest('button, video')) return;
-      gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, startAt: performance.now(), axis: null };
-      if (stage.hasPointerCapture(event.pointerId)) return;
-      try { stage.setPointerCapture(event.pointerId); } catch { /* Synthetic pointers have no capture target. */ }
-    });
-    stage.addEventListener('pointermove', (event) => {
-      if (!gesture || event.pointerId !== gesture.id) return;
-      const x = event.clientX - gesture.x;
-      const y = event.clientY - gesture.y;
-      if (!gesture.axis && Math.hypot(x, y) > 8) gesture.axis = Math.abs(y) > Math.abs(x) ? 'y' : 'x';
-      if (!gesture.axis) return;
-      event.preventDefault();
-      const image = stage.querySelector('img');
-      if (!image) return;
-      image.getAnimations().forEach((animation) => animation.cancel());
-      viewer.classList.add('is-dragging');
-      if (gesture.axis === 'y') {
-        const progress = Math.min(Math.abs(y) / Math.max(stage.clientHeight * 0.6, 1), 1);
-        image.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${1 - progress * 0.38})`;
-        viewer.style.setProperty('--viewer-backdrop-opacity', String(1 - progress * 0.9));
-      } else if (manifests.length > 1) {
-        image.style.transform = `translate3d(${x}px, 0, 0)`;
-      }
-    });
-    stage.addEventListener('pointerup', (event) => {
-      if (!gesture || event.pointerId !== gesture.id) return;
-      const x = event.clientX - gesture.x;
-      const y = event.clientY - gesture.y;
-      const elapsed = Math.max(performance.now() - gesture.startAt, 1);
-      const axis = gesture.axis ?? (Math.hypot(x, y) > 8 ? (Math.abs(y) > Math.abs(x) ? 'y' : 'x') : null);
-      gesture = null;
-      if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
-      if (axis === 'y' && (Math.abs(y) >= 60 || (Math.abs(y) > 24 && Math.abs(y) / elapsed > 0.45))) {
-        if (y > 0 && this.viewerPreviousSurface === 'chat') this.concealChatImages();
-        this.closeImageViewer();
-      } else if (axis === 'x' && Math.abs(x) >= 44 && manifests.length > 1) {
-        const direction = x < 0 ? 1 : -1;
-        void render(current + direction, direction);
-      } else {
-        resetDrag();
-      }
-    });
-    stage.addEventListener('pointercancel', resetDrag);
-    stage.addEventListener('lostpointercapture', () => { if (gesture) resetDrag(); });
     stage.addEventListener('contextmenu', (event) => event.preventDefault());
     this.viewerKeyHandler = (event: KeyboardEvent) => {
       if (!viewer.isConnected || viewer.classList.contains('is-closing')) return;
       if (event.key === 'ArrowLeft' && !(event.target instanceof HTMLVideoElement) && manifests.length > 1) {
         event.preventDefault();
-        void render(current - 1, -1);
+        void render(current - 1);
       }
       if (event.key === 'ArrowRight' && !(event.target instanceof HTMLVideoElement) && manifests.length > 1) {
         event.preventDefault();
-        void render(current + 1, 1);
+        void render(current + 1);
       }
       if (event.key === 'Tab') {
         const buttons = [...viewer.querySelectorAll<HTMLElement>('button:not([hidden]), video[controls]')];
@@ -5648,6 +5732,8 @@ export class QuietRoomApp {
     const viewer = this.root.querySelector<HTMLElement>('.image-viewer');
     if (this.viewerKeyHandler) document.removeEventListener('keydown', this.viewerKeyHandler);
     this.viewerKeyHandler = null;
+    this.viewerGestureCleanup?.();
+    this.viewerGestureCleanup = null;
     if (!viewer || (!immediate && viewer.classList.contains('is-closing'))) return;
     this.stopViewerMedia();
     const previousSurface = this.viewerPreviousSurface;
@@ -5664,36 +5750,9 @@ export class QuietRoomApp {
       finish();
       return;
     }
-    const image = viewer.querySelector<HTMLImageElement>('.viewer-stage > img');
-    if (image) {
-      const startTransform = getComputedStyle(image).transform;
-      image.getAnimations().forEach((animation) => animation.cancel());
-      const blobId = viewer.querySelector<HTMLElement>('.viewer-stage')?.dataset.blobId;
-      const thumbnail = blobId
-        ? this.root.querySelector<HTMLElement>(`.image-preview[data-blob-id="${CSS.escape(blobId)}"]`)
-        : returnFocus;
-      const target = thumbnail?.getBoundingClientRect();
-      const bounds = image.getBoundingClientRect();
-      const stage = viewer.querySelector<HTMLElement>('.viewer-stage')!;
-      const frame = stage.getBoundingClientRect();
-      let endTransform = 'translate3d(0, 64px, 0) scale(0.82)';
-      if (target && target.width > 0 && target.height > 0 && target.bottom > 0 && target.top < window.innerHeight) {
-        const fit = Math.min(frame.width / image.naturalWidth, frame.height / image.naturalHeight);
-        const scale = Math.min(target.width / (image.naturalWidth * fit), target.height / (image.naturalHeight * fit));
-        const x = target.left + target.width / 2 - frame.left - frame.width / 2;
-        const y = target.top + target.height / 2 - frame.top - frame.height / 2;
-        endTransform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
-      }
-      if (bounds.width > 0) {
-        image.animate([
-          { transform: startTransform === 'none' ? 'translate3d(0,0,0) scale(1)' : startTransform, opacity: 1 },
-          { transform: endTransform, opacity: 0 },
-        ], { duration: 300, easing: 'cubic-bezier(.4,0,.2,1)', fill: 'forwards' });
-      }
-    }
     viewer.classList.remove('is-visible', 'is-dragging');
     viewer.classList.add('is-closing');
-    window.setTimeout(finish, 320);
+    window.setTimeout(finish, 220);
   }
 
   private renderGallery(tab: GalleryTab = 'images'): void {
@@ -5720,13 +5779,17 @@ export class QuietRoomApp {
     let fileCount = 0;
     this.galleryObserver?.disconnect();
     this.galleryObserver = null;
+    // Keep the segment control mounted across category changes so its capsule
+    // can finish one continuous translation without a header layout reset.
+    const retainedTabs = this.root.querySelector<HTMLElement>('.gallery-tabs');
+    retainedTabs?.remove();
     this.root.innerHTML = `
       <section class="gallery-shell" aria-label="保险箱">
         <header class="subpage-header gallery-header" aria-label="保险箱操作">
           <button class="icon-button" id="gallery-back" type="button" aria-label="返回聊天">${icons.back}</button>
-          <div class="gallery-tabs" role="tablist" aria-label="保险箱分类">
-            <button class="gallery-tab" id="gallery-tab-images" type="button" role="tab" aria-controls="gallery-grid" aria-selected="${!filesTab}" tabindex="${filesTab ? -1 : 0}"><span>相册</span><span class="gallery-tab-count" aria-hidden="true" data-gallery-count="images">—</span></button>
-            <button class="gallery-tab" id="gallery-tab-files" type="button" role="tab" aria-controls="gallery-grid" aria-selected="${filesTab}" tabindex="${filesTab ? 0 : -1}"><span>文件</span><span class="gallery-tab-count" aria-hidden="true" data-gallery-count="files">—</span></button>
+          <div class="gallery-tabs" role="tablist" aria-label="保险箱分类" data-active-tab="${tab}">
+            <button class="gallery-tab" id="gallery-tab-images" type="button" role="tab" aria-controls="gallery-grid" aria-selected="${!filesTab}" tabindex="${filesTab ? -1 : 0}"><span>相册</span><span class="gallery-tab-count" aria-hidden="true" data-gallery-count="images" hidden></span></button>
+            <button class="gallery-tab" id="gallery-tab-files" type="button" role="tab" aria-controls="gallery-grid" aria-selected="${filesTab}" tabindex="${filesTab ? 0 : -1}"><span>文件</span><span class="gallery-tab-count" aria-hidden="true" data-gallery-count="files" hidden></span></button>
           </div>
           <nav class="gallery-header-actions" aria-label="保险箱操作">
             ${filesTab ? '' : `<button class="icon-button gallery-visibility-button" id="gallery-toggle-visibility" type="button" aria-label="显示全部" title="显示全部" aria-controls="gallery-grid" disabled>${icons.eye}</button>`}
@@ -5739,6 +5802,21 @@ export class QuietRoomApp {
         <div class="gallery-grid${filesTab ? ' gallery-file-list' : ''}" id="gallery-grid" role="tabpanel" aria-labelledby="gallery-tab-${tab}" tabindex="0"></div>
       </section>
     `;
+    if (retainedTabs) {
+      this.root.querySelector('.gallery-tabs')!.replaceWith(retainedTabs);
+      this.root.querySelector<HTMLElement>('.gallery-shell')!.style.animation = 'none';
+    }
+    const tabs = this.root.querySelector<HTMLElement>('.gallery-tabs')!;
+    tabs.dataset.activeTab = tab;
+    for (const kind of ['images', 'files'] as const) {
+      const button = tabs.querySelector<HTMLButtonElement>(`#gallery-tab-${kind}`)!;
+      button.setAttribute('aria-selected', String(kind === tab));
+      button.tabIndex = kind === tab ? 0 : -1;
+      // Upload rerenders can move these controls out of the old upload scope
+      // before its finally block re-enables them. The batch guard still blocks
+      // switching until the current upload finishes.
+      button.disabled = false;
+    }
     this.root.querySelector('#gallery-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderChat()));
     this.mountImagePicker(
       this.root.querySelector<HTMLInputElement>('#gallery-image-input'),
@@ -5746,6 +5824,9 @@ export class QuietRoomApp {
       this.root.querySelector<HTMLButtonElement>('#open-gallery-image-picker'),
     );
     const grid = this.root.querySelector<HTMLElement>('#gallery-grid')!;
+    if (retainedTabs && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      grid.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: 'ease-out' });
+    }
     const updateCounts = () => {
       for (const kind of ['images', 'files'] as const) {
         const count = this.galleryKnownCounts[kind];
@@ -5754,12 +5835,12 @@ export class QuietRoomApp {
         const label = button.querySelector<HTMLElement>('[data-gallery-count]')!;
         const value = count?.keys.size ?? 0;
         const pending = count && !count.complete && value === 0;
-        const empty = count?.complete && value === 0;
         const compactValue = value >= 10_000 ? `${Math.floor(value / 1000) / 10}万`
           : value >= 1000 ? `${Math.floor(value / 100) / 10}千` : String(value);
-        label.hidden = Boolean(empty);
-        label.textContent = empty ? '' : !count ? '—' : pending ? '…'
-          : `${compactValue}${count.complete ? '' : '+'}`;
+        // A pending or empty category has no visual placeholder. Its loading
+        // distinction remains in the accessible description below.
+        label.hidden = value === 0;
+        label.textContent = value === 0 ? '' : `${compactValue}${count?.complete ? '' : '+'}`;
         const description = !count ? '数量尚未加载' : pending ? '正在加载数量'
           : `已加载 ${value}${kind === 'images' ? ' 项照片和视频' : ' 个文件'}${count.complete ? '' : '，还有更早记录待加载'}`;
         button.setAttribute('aria-label', `${categoryName}，${description}`);
@@ -5781,8 +5862,16 @@ export class QuietRoomApp {
     };
     const updateTileVisibility = (button: HTMLButtonElement, key: string, manifest: ImageManifest) => {
       const revealed = this.galleryRevealedAssets.has(key);
+      const changed = button.dataset.revealed !== undefined && button.dataset.revealed !== String(revealed);
       button.dataset.revealed = String(revealed);
       button.setAttribute('aria-label', `${isVideoFile(manifest) ? revealed ? '播放视频' : '显示视频' : revealed ? '查看原图' : '显示图片'} ${manifest.originalName}`);
+      const image = button.querySelector('img');
+      // Conceal immediately, then fade the concealed result in. This never
+      // leaves a clear outgoing frame during hide or privacy teardown.
+      if (changed && image && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        image.getAnimations().forEach(animation => animation.cancel());
+        image.animate([{ opacity: 0.2 }, { opacity: 1 }], { duration: 220, easing: 'ease-in-out' });
+      }
     };
     visibilityButton?.addEventListener('click', () => {
       if (!this.isRuntimeActive(epoch, session) || !grid.isConnected) return;
@@ -5798,16 +5887,34 @@ export class QuietRoomApp {
       }
       updateVisibilityButton();
     });
+    let switchTimer: number | null = null;
     const switchTab = (next: GalleryTab) => {
-      if (next === tab || !this.isRuntimeActive(epoch, session) || !grid.isConnected || this.imageBatchUploading) return;
+      if (!this.isRuntimeActive(epoch, session) || !grid.isConnected || this.imageBatchUploading) return;
+      if (switchTimer !== null) window.clearTimeout(switchTimer);
+      tabs.dataset.activeTab = next;
+      for (const kind of ['images', 'files'] as const) {
+        const button = tabs.querySelector<HTMLButtonElement>(`#gallery-tab-${kind}`)!;
+        button.setAttribute('aria-selected', String(kind === next));
+        button.tabIndex = kind === next ? 0 : -1;
+      }
+      grid.getAnimations().forEach(animation => animation.cancel());
+      if (next === tab) return;
       this.galleryScrollTop[tab] = grid.scrollTop;
-      this.renderGallery(next);
-      this.root.querySelector<HTMLButtonElement>(`#gallery-tab-${next}`)?.focus({ preventScroll: true });
+      const finish = () => {
+        if (!this.isRuntimeActive(epoch, session) || !grid.isConnected) return;
+        this.renderGallery(next);
+        this.root.querySelector<HTMLButtonElement>(`#gallery-tab-${next}`)?.focus({ preventScroll: true });
+      };
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) finish();
+      else {
+        grid.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 100, easing: 'ease-in', fill: 'forwards' });
+        switchTimer = window.setTimeout(finish, 100);
+      }
     };
     for (const next of ['images', 'files'] as const) {
       const button = this.root.querySelector<HTMLButtonElement>(`#gallery-tab-${next}`)!;
-      button.addEventListener('click', () => switchTab(next));
-      button.addEventListener('keydown', event => {
+      button.onclick = () => switchTab(next);
+      button.onkeydown = event => {
         let target: GalleryTab;
         if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') target = next === 'images' ? 'files' : 'images';
         else if (event.key === 'Home') target = 'images';
@@ -5815,7 +5922,7 @@ export class QuietRoomApp {
         else return;
         event.preventDefault();
         switchTab(target);
-      });
+      };
     }
     const footer = document.createElement('div');
     footer.className = 'gallery-pagination';
@@ -6184,6 +6291,8 @@ export class QuietRoomApp {
   }
 
   private cleanupRuntime(preserveFilePicker = false): void {
+    this.viewerGestureCleanup?.();
+    this.viewerGestureCleanup = null;
     if (this.backupTimer !== null) window.clearInterval(this.backupTimer);
     this.backupTimer = null;
     this.backupRun = null;

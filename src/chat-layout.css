@@ -142,6 +142,17 @@ body:has(.chat-shell) {
   scroll-padding-bottom: var(--chat-bottom-space);
 }
 .message-list > * { flex-shrink: 0; }
+/* Native toolbar animation changes dvh on every frame. Media uses a stable
+   small-viewport bound so its decoded geometry never breathes while scrolling. */
+.chat-shell .message-bubble.image-bubble { max-width: min(288px, 100%); }
+.chat-shell .image-preview { max-width: min(288px, 100%); }
+.chat-shell .image-preview img { max-height: min(42svh, 320px); }
+.chat-shell .image-album { width: min(288px, calc(100vw - 88px)); max-width: 100%; }
+.chat-shell .image-album .image-preview { max-width: 100%; }
+.chat-shell .image-album .image-preview img { max-height: none; }
+/* Acknowledgement changes the receipt, not the opacity of the full message. */
+.chat-shell .message.is-pending { opacity: 1; }
+.chat-shell .message.is-pending .message-meta { color: var(--ink-muted); }
 .composer {
   position: fixed;
   inset: 0 max(0px, calc((100% - 880px) / 2)) auto;
@@ -152,6 +163,7 @@ body:has(.chat-shell) {
   z-index: 6;
   flex-wrap: wrap;
 }
+.chat-header, .composer, .system-notices { will-change: translate; }
 /* Inert dialog backgrounds must not keep scrolling under the overlay. */
 html:has(.chat-shell[inert]) { overflow: hidden; }
 .composer::before {

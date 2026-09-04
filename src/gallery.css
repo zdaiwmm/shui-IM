@@ -1,12 +1,14 @@
 .gallery-shell {
-  --gallery-header-height: calc(max(10px, env(safe-area-inset-top, 0px)) + 52px);
+  --gallery-header-height: max(72px, calc(env(safe-area-inset-top, 0px) + 54px));
 }
 
 .gallery-header {
   grid-template-columns: 44px minmax(0, 1fr) 96px;
-  grid-template-rows: 44px;
+  grid-template-rows: minmax(44px, 1fr);
+  align-items: center;
   gap: 8px;
-  padding-bottom: 8px;
+  min-height: var(--gallery-header-height);
+  padding: max(8px, env(safe-area-inset-top, 0px)) 12px 10px;
 }
 
 .gallery-header::before {
@@ -16,6 +18,8 @@
 }
 
 .gallery-header > .gallery-tabs {
+  position: relative;
+  isolation: isolate;
   grid-column: 2;
   grid-row: 1;
   justify-self: center;
@@ -33,6 +37,21 @@
   backdrop-filter: var(--glass-filter);
 }
 
+.gallery-tabs::before {
+  content: '';
+  position: absolute;
+  inset: 3px auto 3px 3px;
+  width: calc(50% - 3px);
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--paper-pure) 88%, transparent);
+  transform: translateX(0);
+  transition: transform 280ms cubic-bezier(.22, .72, .2, 1);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.gallery-tabs[data-active-tab="files"]::before { transform: translateX(100%); }
+
 .gallery-tab {
   min-width: 0;
   min-height: 44px;
@@ -46,13 +65,13 @@
   border-radius: 999px;
   color: var(--ink-muted);
   font-size: 0.9rem;
-  font-weight: 500;
+  font-weight: 600;
   white-space: nowrap;
 }
 
 .gallery-tab[aria-selected="true"] {
   border-color: transparent;
-  background: color-mix(in oklch, var(--paper-pure) 88%, transparent);
+  background: transparent;
   background-clip: padding-box;
   color: var(--ink);
   font-weight: 600;
@@ -94,11 +113,22 @@
   outline-offset: -3px;
 }
 
-/* Concealment changes immediately; cached images and late thumbnail decodes
-   inherit the tile's visit-scoped state without an unblurred animation frame. */
+/* The crop stays identical during reveal. Concealment changes immediately;
+   user-triggered reveals only animate opacity, never the media dimensions. */
+.gallery-tile img { transform: scale(1.04); }
 .gallery-tile[data-revealed="false"] img {
   filter: blur(22px);
-  transform: scale(1.16);
+}
+
+.image-preview img,
+.image-preview[data-revealed="false"] img {
+  transform: none;
+}
+
+.image-preview:not(:disabled):active,
+.gallery-tile:not(:disabled):active,
+.gallery-tab:not(:disabled):active {
+  transform: none;
 }
 
 /* Keep the entire tile occupied until verified media has also decoded. The
@@ -138,11 +168,38 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .gallery-tabs::before { transition: none; }
   .gallery-skeleton::after {
     animation: none;
     transform: none;
   }
 }
+
+/* Photos enter at their final size. Paging and dismissal use opacity only,
+   while pointer transforms belong exclusively to the image zoom/pan gesture. */
+#app > .image-viewer.is-visible,
+#app > .image-viewer.is-closing {
+  transform: none;
+  transition: opacity 220ms ease-in-out;
+}
+
+.image-viewer .viewer-stage { touch-action: none; }
+.image-viewer:not(.video-viewer) .viewer-stage > img {
+  animation: none;
+  transition: none;
+  touch-action: none;
+  transform-origin: center;
+}
+.image-viewer .viewer-stage[data-zoomed="true"] > img { cursor: grab; }
+.image-viewer .viewer-stage[data-zoomed="true"]:active > img { cursor: grabbing; }
+
+.image-viewer[data-native-video] { background: transparent; }
+.image-viewer[data-native-video]::before { opacity: 0; }
+.image-viewer[data-native-video] .viewer-header,
+.image-viewer[data-native-video] .viewer-nav { visibility: hidden; }
+.image-viewer[data-native-video="pending"] video { opacity: 0; }
+.image-viewer video:fullscreen { opacity: 1; background: oklch(8% 0.005 255); touch-action: auto; }
+.image-viewer video::-webkit-media-controls { touch-action: auto; }
 
 .video-preview {
   position: relative;
@@ -187,8 +244,10 @@
   height: 100%;
   min-height: 0;
   object-fit: contain;
-  touch-action: manipulation;
+  touch-action: auto;
 }
+
+.image-viewer.video-viewer .viewer-stage { touch-action: auto; }
 
 .viewer-video-feedback {
   position: absolute;
@@ -234,7 +293,7 @@
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
-  .gallery-tab[aria-selected="true"] {
+  .gallery-tabs::before {
     background: var(--paper-pure);
     outline: 1px solid var(--ink-muted);
     outline-offset: -1px;

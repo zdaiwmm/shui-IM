@@ -24,7 +24,7 @@ colorScheme.addEventListener('change', syncSystemChrome);
 // double tap/click to scale the whole browser page. The viewport declaration
 // and touch-action CSS provide the mobile path; this covers emitted dblclicks.
 document.addEventListener('dblclick', (event) => {
-  if (!(event.target instanceof Element && event.target.closest('.is-selecting-text'))) event.preventDefault();
+  if (!(event.target instanceof Element && event.target.closest('.is-selecting-text, video'))) event.preventDefault();
 }, {
   capture: true,
   passive: false,

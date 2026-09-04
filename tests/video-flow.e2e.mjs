@@ -172,6 +172,12 @@ try {
     });
     assert.deepEqual(released, { paused: true, src: null, connected: false, mediaObject: null }, `${reason}: the detached video retained playback resources`);
   };
+  const closePlayer = async () => {
+    if (await page.evaluate(() => Boolean(document.fullscreenElement))) {
+      await page.evaluate(() => document.exitFullscreen());
+    } else await page.locator('[data-viewer-close]').click();
+    await page.locator('.image-viewer').waitFor({ state: 'detached' });
+  };
   const readDownload = async locator => {
     const waiting = page.waitForEvent('download');
     await locator.click();
@@ -221,6 +227,8 @@ try {
   assert.equal(await page.locator('.image-viewer').count(), 0, 'First chat video click played a still-hidden video');
   await chatPreview.click();
   await awaitPlayingVideo();
+  await page.waitForFunction(() => document.fullscreenElement === document.querySelector('.viewer-stage video'));
+  assert.equal(await page.locator('[data-viewer-close]').isVisible(), false, 'A custom viewer header appeared before the native full-screen player');
   const player = await rememberPlayer();
   assert.deepEqual(player, { controls: true, autoplay: true, playsInline: true, width: 320, height: 180 }, 'Video did not open as an accessible, automatically playing viewer');
   const viewerBounds = await page.locator('.image-viewer').evaluate(viewer => {
@@ -230,9 +238,82 @@ try {
   assert.deepEqual(viewerBounds, { fixed: true, fillsViewport: true }, 'Playing the video did not maximize the viewing surface');
   await capture('video-viewer-390');
   const readsBeforeClose = await page.evaluate(() => window.videoFlow.requests.reads);
-  await page.locator('[data-viewer-close]').click();
+  await closePlayer();
+  await assertPlayerReleased('Native full-screen exit');
+
+  // A denied native request keeps a playable native-controls fallback, without
+  // exporting or re-fetching the already integrity-checked original.
+  await page.evaluate(() => {
+    window.videoFlow.nativeFullscreen = HTMLVideoElement.prototype.requestFullscreen;
+    window.videoFlow.nativeAttempts = 0;
+    HTMLVideoElement.prototype.requestFullscreen = function () {
+      window.videoFlow.nativeAttempts++;
+      return Promise.reject(new DOMException('Synthetic full-screen denial', 'NotAllowedError'));
+    };
+  });
+  await chatPreview.click();
+  await awaitPlayingVideo();
+  await page.locator('.image-viewer:not([data-native-video]) [data-viewer-close]').waitFor();
+  assert.equal(await page.evaluate(() => window.videoFlow.nativeAttempts), 1, 'Opening the fallback did not first request the native player');
+  await rememberPlayer();
+  await closePlayer();
+  await assertPlayerReleased('Rejected full-screen fallback close');
+  await page.evaluate(() => { HTMLVideoElement.prototype.requestFullscreen = window.videoFlow.nativeFullscreen; });
+
+  // The Safari-only entry point takes precedence over element fullscreen. This
+  // validates the event/cleanup contract, not an iPhone system UI simulation.
+  await page.evaluate(() => {
+    const f = window.videoFlow;
+    f.webkitAttempts = 0;
+    HTMLVideoElement.prototype.webkitEnterFullscreen = function () {
+      f.webkitAttempts++;
+      this.webkitDisplayingFullscreen = true;
+      this.dispatchEvent(new Event('webkitbeginfullscreen'));
+    };
+    HTMLVideoElement.prototype.webkitExitFullscreen = function () {
+      this.webkitDisplayingFullscreen = false;
+      this.dispatchEvent(new Event('webkitendfullscreen'));
+    };
+  });
+  await chatPreview.click();
+  await awaitPlayingVideo();
+  await rememberPlayer();
+  assert.equal(await page.evaluate(() => window.videoFlow.webkitAttempts), 1, 'Safari video did not directly request its system player');
+  assert.equal(await page.locator('.viewer-stage video').getAttribute('playsinline'), null, 'Safari was forced to show an inline player first');
+  await page.evaluate(() => document.querySelector('.viewer-stage video').webkitExitFullscreen());
   await page.locator('.image-viewer').waitFor({ state: 'detached' });
-  await assertPlayerReleased('Close');
+  await assertPlayerReleased('Safari system player Done');
+  await page.evaluate(() => {
+    delete HTMLVideoElement.prototype.webkitEnterFullscreen;
+    delete HTMLVideoElement.prototype.webkitExitFullscreen;
+  });
+
+  // Fullscreen completion can arrive after Escape has begun closing the DOM.
+  // Emulate that native timing explicitly and require the late entry to exit.
+  await page.evaluate(() => {
+    const f = window.videoFlow;
+    f.nativeExit = document.exitFullscreen;
+    f.lateFullscreen = null;
+    f.lateExitCount = 0;
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => f.lateFullscreen });
+    document.exitFullscreen = () => { f.lateFullscreen = null; f.lateExitCount++; return Promise.resolve(); };
+    HTMLVideoElement.prototype.requestFullscreen = function () {
+      return new Promise(resolve => { f.resolveLateNative = () => { f.lateFullscreen = this; resolve(); }; });
+    };
+  });
+  await chatPreview.click();
+  await awaitPlayingVideo();
+  await rememberPlayer();
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => window.videoFlow.resolveLateNative());
+  await page.waitForFunction(() => window.videoFlow.lateExitCount === 1 && document.fullscreenElement === null);
+  await page.locator('.image-viewer').waitFor({ state: 'detached' });
+  await assertPlayerReleased('Late native full-screen entry after Escape');
+  await page.evaluate(() => {
+    delete document.fullscreenElement;
+    document.exitFullscreen = window.videoFlow.nativeExit;
+    HTMLVideoElement.prototype.requestFullscreen = window.videoFlow.nativeFullscreen;
+  });
   await chatPreview.click();
   await awaitPlayingVideo();
   assert.equal(await page.evaluate(() => window.videoFlow.requests.reads), readsBeforeClose, 'Reopening a video failed to reuse the verified original cache');
@@ -280,8 +361,7 @@ try {
   await awaitPlayingVideo();
   await rememberPlayer();
   assert.equal(await page.locator('[data-viewer-time]').getAttribute('datetime'), '2026-09-04T10:00:00.000Z', 'Video viewer lost the message/upload timestamp');
-  await page.locator('[data-viewer-close]').click();
-  await page.locator('.image-viewer').waitFor({ state: 'detached' });
+  await closePlayer();
   await assertPlayerReleased('Album close');
   assert.equal(await safeVideo.getAttribute('data-revealed'), 'true', 'Closing the viewer reset this visit’s reveal state');
   await page.locator('#gallery-tab-files').click();

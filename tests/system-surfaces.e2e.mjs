@@ -66,6 +66,9 @@ try {
       input.addEventListener('click', event => event.preventDefault());
       root.querySelector(destination === 'chat' ? '#open-image-picker' : '#open-gallery-image-picker').click();
       check(app.imagePickerActive, `${destination}: picker was not registered`);
+      check(!app.privacyCovered && !!root.querySelector(destination === 'chat' ? '.chat-shell' : '.gallery-shell'), `${destination}: clicking upload covered the page before window departure`);
+      input.dispatchEvent(new FocusEvent('blur', { bubbles: false }));
+      check(!app.privacyCovered && !document.documentElement.classList.contains('privacy-obscured'), `${destination}: a control blur was confused with a browser departure`);
       return input;
     };
     const select = async (input, count = 12) => {
@@ -81,6 +84,21 @@ try {
     await new Promise(resolve => setTimeout(resolve, 300));
     check(!app.privacyCovered, 'Ordinary transient blur unexpectedly locked');
     blur(); await new Promise(resolve => setTimeout(resolve, 300)); covered('Ordinary sustained blur'); focus();
+
+    // A delayed navigation must never restore private DOM after locking.
+    await fresh();
+    app.transitionPage('forward', () => app.renderGallery());
+    app.lockNow();
+    await new Promise(resolve => setTimeout(resolve, 350));
+    covered('Lock during a page fade');
+
+    await fresh();
+    check(!root.querySelector('#toggle-notifications, #lock-room'), 'Removed local-safety actions are still visible');
+    for (const target of [document.body, root.querySelector('.chat-header'), root.querySelector('#message-input')]) {
+      const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      target.dispatchEvent(menu);
+      check(menu.defaultPrevented, 'An incidental long press can open the native context menu');
+    }
 
     const pickerResults = [];
     for (const destination of ['chat', 'gallery']) {

@@ -1,4 +1,27 @@
 /* Authentication screens keep stable rows even when platform verification fails. */
+.gateway.gateway-unlock {
+  min-height: 100%;
+  padding: 20px 24px max(24px, env(safe-area-inset-bottom));
+  justify-content: flex-end;
+}
+
+.gateway-unlock .credential-unlock-step {
+  position: relative;
+  margin: 0;
+  padding-top: 64px;
+}
+
+.gateway-unlock .form-error {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% - 52px);
+  left: 0;
+}
+
+.gateway-unlock .form-error:empty {
+  display: none;
+}
+
 .gateway {
   padding-top: clamp(48px, 10svh, 96px);
 }
