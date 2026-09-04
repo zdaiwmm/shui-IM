@@ -400,7 +400,11 @@ try {
               // pixel: WebKit can correctly wrap a tail that is <1px too wide.
               const fits = lastLine.right + requiredTail <= content.getBoundingClientRect().right;
               if (fits && (m.top >= lastLine.bottom || m.bottom < lastLine.top)) issues.push(`${id}: metadata forced an extra row despite room beside the last line ${JSON.stringify({ lastLine: lastLine.toJSON(), tail: requiredTail, content: content.getBoundingClientRect().toJSON() })}`);
-              if (m.bottom - lastLine.bottom > parseFloat(textStyle.lineHeight) + 5) issues.push(`${id}: metadata inserted more than one necessary line`);
+              // Glyph rectangles do not include the line box or ::after. The
+              // metadata sits slightly below its baseline, so allow one full
+              // line box plus that sub-line offset; two inserted rows still
+              // exceed 1.6 line-heights in both Chromium font stacks.
+              if (m.bottom - lastLine.bottom > parseFloat(textStyle.lineHeight) * 1.6) issues.push(`${id}: metadata inserted more than one necessary line`);
             }
             if (id === 'timeline-1' || id === 'timeline-21') {
               if (content.getBoundingClientRect().height > parseFloat(textStyle.lineHeight) + 1) issues.push(`${id}: short text or emoji does not share one line with metadata`);
