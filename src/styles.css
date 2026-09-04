@@ -32,15 +32,15 @@
   --danger: oklch(48% 0.15 28);
   --danger-soft: oklch(94% 0.03 28);
   --focus: oklch(60.5% 0.216 255);
-  --glass: oklch(99% 0.008 255 / 0.22);
-  --glass-strong: oklch(99% 0.006 255 / 0.46);
-  --glass-control: oklch(98% 0.009 255 / 0.4);
-  --glass-panel: oklch(99% 0.006 255 / 0.62);
+  --glass: oklch(96% 0.006 255 / 0.24);
+  --glass-strong: oklch(96% 0.006 255 / 0.38);
+  --glass-control: oklch(94% 0.008 255 / 0.32);
+  --glass-panel: oklch(96% 0.006 255 / 0.44);
   --media-foreground: oklch(99% 0.004 255);
-  --glass-border: oklch(98.5% 0.006 255 / 0.78);
-  --glass-filter: blur(16px) saturate(170%) contrast(104%);
-  --glass-sheen: linear-gradient(180deg, oklch(99.5% 0.004 255 / 0.18), oklch(99% 0.004 255 / 0.02));
-  --glass-shadow: 0 3px 12px oklch(28% 0.03 255 / 0.1);
+  --glass-border: oklch(99% 0.004 255 / 0.58);
+  --glass-filter: blur(22px) saturate(112%);
+  --glass-sheen: linear-gradient(160deg, oklch(99.5% 0.004 255 / 0.2), oklch(99% 0.004 255 / 0.025) 42%, oklch(48% 0.01 255 / 0.035));
+  --glass-shadow: inset 0 0.5px 0 oklch(99% 0.004 255 / 0.52), inset 0 -0.5px 0 oklch(35% 0.012 255 / 0.16), 0 2px 8px oklch(28% 0.02 255 / 0.08);
   --shadow: 0 20px 60px oklch(25% 0.025 255 / 0.17);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -66,13 +66,13 @@
     --danger: oklch(72% 0.14 28);
     --danger-soft: oklch(31% 0.04 28);
     --focus: oklch(74% 0.16 250);
-    --glass: oklch(30% 0.018 255 / 0.28);
-    --glass-strong: oklch(32% 0.016 255 / 0.48);
-    --glass-control: oklch(38% 0.018 255 / 0.4);
-    --glass-panel: oklch(28% 0.016 255 / 0.72);
-    --glass-border: oklch(88% 0.012 255 / 0.26);
-    --glass-sheen: linear-gradient(180deg, oklch(94% 0.006 255 / 0.07), oklch(88% 0.01 255 / 0.01));
-    --glass-shadow: 0 4px 16px oklch(8% 0.02 255 / 0.26);
+    --glass: oklch(28% 0.01 255 / 0.32);
+    --glass-strong: oklch(28% 0.01 255 / 0.46);
+    --glass-control: oklch(40% 0.012 255 / 0.32);
+    --glass-panel: oklch(26% 0.01 255 / 0.56);
+    --glass-border: oklch(88% 0.008 255 / 0.2);
+    --glass-sheen: linear-gradient(160deg, oklch(94% 0.006 255 / 0.1), oklch(88% 0.006 255 / 0.015) 42%, oklch(10% 0.008 255 / 0.06));
+    --glass-shadow: inset 0 0.5px 0 oklch(94% 0.006 255 / 0.2), inset 0 -0.5px 0 oklch(8% 0.008 255 / 0.35), 0 3px 12px oklch(8% 0.012 255 / 0.22);
     --shadow: 0 24px 64px oklch(5% 0.02 255 / 0.54);
   }
 }
@@ -1033,10 +1033,10 @@ button:disabled {
   padding: 10px;
   border: 1px solid var(--glass-border);
   border-radius: 22px;
-  background: var(--glass-strong);
-  box-shadow: var(--shadow), inset 0 1px 0 var(--glass-border);
-  -webkit-backdrop-filter: blur(20px) saturate(145%);
-  backdrop-filter: blur(20px) saturate(145%);
+  background: var(--glass-sheen), var(--glass-panel);
+  box-shadow: var(--glass-shadow), var(--shadow);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
   transform-origin: top right;
   animation: glass-menu-in var(--motion-menu-in) var(--motion-out) both;
 }
@@ -1356,27 +1356,6 @@ button:disabled {
   white-space: nowrap;
 }
 
-.message-quick-reply {
-  position: absolute;
-  top: 50%;
-  left: calc(100% + 6px);
-  width: 44px;
-  height: 44px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 1px solid var(--glass-border);
-  border-radius: 50%;
-  background: var(--glass-strong);
-  box-shadow: var(--glass-shadow);
-  color: var(--ink-muted);
-  opacity: 0;
-  transform: translateY(-50%) scale(0.9);
-  pointer-events: none;
-  cursor: pointer;
-}
-
-.message-quick-reply svg,
 .message-actions svg,
 .reply-draft svg {
   width: 18px;
@@ -1386,13 +1365,6 @@ button:disabled {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.8;
-}
-
-.message.incoming:hover .message-quick-reply,
-.message-quick-reply:focus-visible {
-  opacity: 1;
-  transform: translateY(-50%) scale(1);
-  pointer-events: auto;
 }
 
 .message.is-highlighted .message-bubble {
@@ -2856,12 +2828,6 @@ button:disabled {
 
   .viewer-footer,
   .viewer-thumbnails {
-    display: none;
-  }
-}
-
-@media (hover: none), (pointer: coarse) {
-  .message-quick-reply {
     display: none;
   }
 }

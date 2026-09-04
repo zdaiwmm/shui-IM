@@ -28,9 +28,10 @@ try {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__frontend_regression`);
-  await page.evaluate(async () => {
+  const initializeRegression = async () => {
     await import('/src/styles.css');
     await import('/src/chat-layout.css');
+    await import('/src/gallery.css');
     await import('/src/chat-interactions.css');
     await import('/src/cover.css');
     await import('/src/voice-messages.css');
@@ -50,7 +51,8 @@ try {
     };
     window.regression = { app, root, session, vault, message, fresh };
     fresh();
-  });
+  };
+  await page.evaluate(initializeRegression);
 
   results.composerRecovery = await page.evaluate(async () => {
     const { app, fresh, session, vault, message } = window.regression;
@@ -454,6 +456,9 @@ try {
     return { oldReferenceLoaded: true };
   });
   await page.locator('[data-gallery-load-more]:not(:disabled)').waitFor();
+  const initialSafeImages = await page.locator('.gallery-tile').count();
+  assert.equal(await page.locator('[data-gallery-count="images"]').textContent(), `${initialSafeImages}+`, 'Partial safe count does not disclose remaining local history');
+  await page.locator('#gallery-toggle-visibility').click();
   let pages = 0;
   while (await page.locator('[data-gallery-load-more]').isVisible()) {
     await page.locator('[data-gallery-load-more]').click();
@@ -463,6 +468,8 @@ try {
   results.gallery = { images: await page.locator('.gallery-tile').count(), olderImage: await page.locator('.gallery-tile[data-blob-id="photo-10"]').count(), pages };
   assert.equal(results.gallery.images, 62);
   assert.equal(results.gallery.olderImage, 1);
+  assert.equal(await page.locator('[data-gallery-count="images"]').textContent(), '62', 'Completed safe pagination did not show its loaded count');
+  assert.equal(await page.locator('.gallery-tile[data-revealed="true"]').count(), initialSafeImages, 'Loading older safe images automatically revealed them');
   results.gallerySpacing = await page.evaluate(() => {
     const grid = document.querySelector('.gallery-grid'); grid.scrollTop = grid.scrollHeight;
     const tile = [...grid.querySelectorAll('.gallery-tile')].at(-1).getBoundingClientRect();
@@ -472,6 +479,20 @@ try {
     return { gap, squareTiles: true };
   });
   if (visualQaDirectory) await page.screenshot({ path: path.join(visualQaDirectory, 'gallery-bottom-spacing.png') });
+
+  await page.locator('#gallery-toggle-visibility').click();
+  assert.equal(await page.locator('.gallery-tile[data-revealed="true"]').count(), 62);
+  await page.locator('#gallery-tab-files').click();
+  await page.locator('#gallery-tab-images').click();
+  await page.locator('[data-gallery-load-more]:not(:disabled)').waitFor();
+  assert.equal(await page.locator('#gallery-toggle-visibility').getAttribute('aria-label'), '隐藏全部');
+  await page.locator('#gallery-toggle-visibility').click();
+  while (await page.locator('[data-gallery-load-more]').isVisible()) {
+    await page.locator('[data-gallery-load-more]').click();
+    await page.waitForFunction(() => !document.querySelector('[data-gallery-load-more]')?.disabled);
+  }
+  assert.equal(await page.locator('.gallery-tile[data-revealed="true"]').count(), 0, 'Hide all left an older unmounted safe page revealed');
+  results.galleryPrivacyPagination = { newlyLoadedHidden: true, hideAllIncludesUnmountedPages: true };
 
   // Delay the first historical lookup, then jump to another visible reference.
   // Finishing the older lookup may not move focus/scroll to an obsolete intent.
@@ -639,6 +660,110 @@ try {
     return { rows: 5001, unchangedNodesRemoved: removed, newNodesAdded: added, anchorBoundsReads: boundsReads, focusPreserved: true, initialMs: Math.round(initialMs), appendMs: Math.round(updateMs) };
   });
 
+  results.scrollWork = await page.evaluate(async () => {
+    const { app, fresh, message } = window.regression; fresh();
+    app.messages = new Map(Array.from({ length: 5000 }, (_, i) => [i + 1, message(i + 1)]));
+    app.renderMessages({ scroll: 'bottom' });
+    const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await settle();
+    const getRect = HTMLElement.prototype.getBoundingClientRect;
+    const captureAnchor = app.captureChatAnchor;
+    const markVisible = app.markVisibleMessagesRead;
+    const markRead = app.unreadCounter.markRead;
+    const viewport = window.visualViewport;
+    let boundsReads = 0; let anchorCalls = 0; let readCalls = 0;
+    const acknowledged = [];
+    app.unreadCounter.markRead = async (_vault, seq) => { acknowledged.push(seq); };
+    const samples = [];
+    try {
+      for (const fraction of [0.1, 0.5, 0.9]) {
+        window.scrollTo(0, (document.documentElement.scrollHeight - innerHeight) * fraction);
+        await settle();
+        const top = document.querySelector('.chat-header').getBoundingClientRect().bottom;
+        const bottom = document.querySelector('#composer').getBoundingClientRect().top;
+        const visible = app.renderedMessageOrder.filter(row => {
+          const rect = getRect.call(row); return rect.top < bottom && rect.bottom > top;
+        });
+        const expected = Math.max(...visible.map(row => app.renderedMessageSeq.get(row.dataset.clientMsgId)));
+        boundsReads = 0; anchorCalls = 0; readCalls = 0; acknowledged.length = 0;
+        HTMLElement.prototype.getBoundingClientRect = function () {
+          if (this.classList.contains('message')) boundsReads++;
+          return getRect.call(this);
+        };
+        app.captureChatAnchor = function (...args) { anchorCalls++; return captureAnchor.apply(this, args); };
+        app.markVisibleMessagesRead = function (...args) { readCalls++; return markVisible.apply(this, args); };
+        for (let i = 0; i < 12; i++) window.dispatchEvent(new Event('scroll'));
+        if (boundsReads || anchorCalls || readCalls) throw Error('Scroll events synchronously measured history');
+        await settle();
+        if (anchorCalls !== 1 || readCalls !== 1) throw Error(`One frame repeated scroll bookkeeping: ${anchorCalls}/${readCalls}`);
+        if (boundsReads > 48) throw Error(`Reading ${fraction * 100}% of history measured ${boundsReads} rows`);
+        if (acknowledged.length !== 1 || acknowledged[0] !== expected) throw Error('Optimized read search acknowledged a message outside the visible chat area');
+        samples.push({ historyPosition: fraction, events: 12, anchorCalls, readCalls, messageBoundsReads: boundsReads });
+        HTMLElement.prototype.getBoundingClientRect = getRect;
+        app.captureChatAnchor = captureAnchor; app.markVisibleMessagesRead = markVisible;
+      }
+      const rootStyle = document.documentElement.getAttribute('style');
+      let rootStyleWrites = 0;
+      const rootObserver = new MutationObserver(records => { rootStyleWrites += records.length; });
+      rootObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
+      try {
+        // A collapsing Safari toolbar reveals 60px over consecutive frames.
+        // Each frame must position the composer immediately, without an
+        // inherited viewport variable invalidating all 5000 message styles.
+        for (const inset of [72, 60, 48, 36, 24, 12]) {
+          const height = document.documentElement.clientHeight - inset;
+          Object.defineProperty(viewport, 'height', { configurable: true, value: height });
+          Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 0 });
+          viewport.dispatchEvent(new Event('resize'));
+          window.dispatchEvent(new Event('scroll'));
+          if (Math.abs(document.querySelector('#composer').getBoundingClientRect().bottom - height) > 1) throw Error('Composer trailed a toolbar animation frame');
+          if (document.querySelector('#message-list').style.getPropertyValue('--keyboard-space')) throw Error('Viewport spacing still inherits through the message history');
+          await settle();
+        }
+        rootStyleWrites += rootObserver.takeRecords().length;
+        if (rootStyleWrites || document.documentElement.getAttribute('style') !== rootStyle) throw Error('Toolbar animation rewrote inherited root viewport styles');
+      } finally { rootObserver.disconnect(); }
+      return { rows: 5000, samples, toolbarFrames: 6, rootStyleWrites };
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = getRect;
+      app.captureChatAnchor = captureAnchor; app.markVisibleMessagesRead = markVisible;
+      app.unreadCounter.markRead = markRead;
+      delete viewport.height; delete viewport.offsetTop;
+      viewport.dispatchEvent(new Event('resize')); await settle();
+    }
+  });
+
+  results.queuedViewportLock = await page.evaluate(async () => {
+    const { app, fresh, message } = window.regression; fresh();
+    app.messages = new Map(Array.from({ length: 50 }, (_, i) => [i + 1, message(i + 1)]));
+    app.renderMessages({ scroll: 'bottom' });
+    const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await settle();
+    const viewport = window.visualViewport;
+    const cancelFrame = window.cancelAnimationFrame;
+    const scrollBottom = app.scrollChatToBottom;
+    const markVisible = app.markVisibleMessagesRead;
+    let cancelledFrames = 0; let lateWork = 0; let locked = false;
+    window.cancelAnimationFrame = id => { cancelledFrames++; cancelFrame.call(window, id); };
+    app.scrollChatToBottom = function (...args) { if (locked) lateWork++; return scrollBottom.apply(this, args); };
+    app.markVisibleMessagesRead = function (...args) { if (locked) lateWork++; return markVisible.apply(this, args); };
+    try {
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
+      viewport.dispatchEvent(new Event('resize'));
+      window.dispatchEvent(new Event('scroll'));
+      app.lockNow(); locked = true;
+      if (app.chatLayoutElements !== null || app.chatScrollFrame !== null) throw Error('Lock retained cached chat elements or scheduled scrolling');
+      if (cancelledFrames < 2) throw Error('Lock did not cancel both queued viewport and scroll frames');
+      await settle();
+      if (lateWork) throw Error('Queued viewport work survived privacy teardown');
+      return { cachedChatReleased: true, queuedFramesCancelled: cancelledFrames, lateWork: 0 };
+    } finally {
+      window.cancelAnimationFrame = cancelFrame;
+      app.scrollChatToBottom = scrollBottom; app.markVisibleMessagesRead = markVisible;
+      delete viewport.height; viewport.dispatchEvent(new Event('resize')); await settle();
+    }
+  });
+
   results.documentScroll = await page.evaluate(async () => {
     const { app, fresh, message, session } = window.regression; fresh();
     app.uiPreferences.recoveryReminderDismissed = true; app.renderChat();
@@ -751,6 +876,67 @@ try {
     return { smallUpwardScroll: 'preserved', panScrollCorrections: 0, keyboardInnerGap: composer.bottom - input.bottom, ackAndComposerGrowth: 'anchor preserved' };
   });
 
+  results.keyboardEventFrames = await page.evaluate(async () => {
+    const { app, fresh, message } = window.regression; fresh();
+    app.messages = new Map(Array.from({ length: 70 }, (_, i) => [i + 1, message(i + 1)]));
+    app.renderMessages({ scroll: 'bottom' });
+    const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await settle();
+    const viewport = window.visualViewport;
+    const list = document.querySelector('#message-list');
+    const input = document.querySelector('#message-input');
+    const layoutHeight = document.documentElement.clientHeight;
+    const innerHeightDescriptor = Object.getOwnPropertyDescriptor(window, 'innerHeight');
+    const scrollTo = window.scrollTo; const scrollBy = window.scrollBy;
+    let corrections = 0;
+    const position = (height, offsetTop, eventTarget = viewport) => {
+      Object.defineProperty(viewport, 'height', { configurable: true, value: height });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: offsetTop });
+      // Safari's innerHeight and its fixed-position layout viewport can differ.
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
+      eventTarget.dispatchEvent(new Event(eventTarget === window ? 'scroll' : 'resize'));
+      // Focus/panning can interleave a native document scroll before rAF.
+      if (eventTarget === viewport) window.dispatchEvent(new Event('scroll'));
+      const top = Math.max(0, Math.min(offsetTop, layoutHeight - height));
+      const header = document.querySelector('.chat-header').getBoundingClientRect();
+      const composer = document.querySelector('#composer').getBoundingClientRect();
+      // Check on the dispatch frame: a later correction still visibly trails
+      // the keyboard when it moves through several frames.
+      if (Math.abs(header.top - top) > 1 || Math.abs(composer.bottom - top - height) > 1) {
+        throw Error(`Controls lagged keyboard frame: ${JSON.stringify({ height, offsetTop, top: header.top, bottom: composer.bottom })}`);
+      }
+    };
+    try {
+      input.focus({ preventScroll: true });
+      for (const [height, top] of [[720, 40], [620, 100], [520, 180], [430, 260]]) {
+        position(height, top); await settle();
+        const latestGap = document.querySelector('#composer').getBoundingClientRect().top - list.lastElementChild.getBoundingClientRect().bottom;
+        if (Math.abs(latestGap - 16) > 2) throw Error(`Keyboard panning left a ${latestGap}px gap above the composer`);
+      }
+      if (document.documentElement.dataset.keyboardOpen !== 'true') throw Error('Shrinking innerHeight hid the keyboard state');
+      const padding = getComputedStyle(list).paddingBottom;
+      window.scrollTo = (...args) => { corrections++; scrollTo.apply(window, args); };
+      window.scrollBy = (...args) => { corrections++; scrollBy.apply(window, args); };
+      // WebKit can send window scroll before visualViewport scroll.
+      position(430, 275, window); await settle();
+      if (getComputedStyle(list).paddingBottom !== padding || corrections) throw Error('Window-only panning resized or scrolled history');
+      list.lastElementChild.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
+      if (document.activeElement === input || app.chatPinnedToBottom) throw Error('History gesture retained focus or bottom follow');
+      for (const [height, top] of [[500.25, 210], [610.5, 180], [720.75, 70], [layoutHeight, 280]]) {
+        position(height, top); await settle();
+      }
+      if (corrections || app.chatPinnedToBottom) throw Error('Keyboard dismissal pulled the reader to the bottom');
+      if (document.documentElement.dataset.keyboardOpen !== 'false') throw Error('Dismissed keyboard retained its safe-area mode');
+      return { openingFrames: 4, dismissalFrames: 4, synchronousBounds: true, windowOnlyPan: true, differingInnerHeight: true, staleDismissalOffset: 'clamped', forcedScrollsAfterGesture: corrections };
+    } finally {
+      window.scrollTo = scrollTo; window.scrollBy = scrollBy;
+      if (innerHeightDescriptor) Object.defineProperty(window, 'innerHeight', innerHeightDescriptor);
+      else delete window.innerHeight;
+      delete viewport.height; delete viewport.offsetTop;
+      viewport.dispatchEvent(new Event('resize')); await settle();
+    }
+  });
+
   results.singleTallMessage = await page.evaluate(async () => {
     const { app, fresh, message } = window.regression; fresh();
     const source = message(1, { v: 1, kind: 'text', text: '一条很长的聊天消息，需要向上阅读。\n'.repeat(80), sentAt: '2026-09-04T01:00:00.000Z' });
@@ -810,6 +996,70 @@ try {
       await page.screenshot({ path: path.join(visualQaDirectory, `chat-glass-${scheme}-390.png`) });
     }
   }
+  // A wide mobile-emulated page does not exercise desktop scrolling. Use the
+  // engine's real desktop user agent and pointer model in a separate context.
+  const desktopPage = await browser.newPage({ viewport: { width: 1024, height: 768 } });
+  desktopPage.on('pageerror', error => errors.push(error.message));
+  try {
+    await desktopPage.goto(`http://localhost:${server.httpServer.address().port}/__frontend_regression`);
+    await desktopPage.evaluate(initializeRegression);
+    await desktopPage.evaluate(() => {
+      const { app, message } = window.regression;
+      if (!app.desktopBrowser || /iPhone|iPad|Android/.test(navigator.userAgent)) throw Error('Desktop regression still uses a mobile browser identity');
+      app.messages = new Map(Array.from({ length: 120 }, (_, i) => [i + 1, message(i + 1)]));
+      app.renderMessages({ scroll: 'bottom' });
+    });
+    const samples = [];
+    for (const [width, height] of [[1024, 768], [1280, 900], [1440, 960], [1920, 1080]]) {
+      await desktopPage.setViewportSize({ width, height });
+      const positions = await desktopPage.evaluate(async () => {
+        const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        await settle();
+        const samples = [];
+        for (const fraction of [0, 0.5, 1]) {
+          window.scrollTo(0, (document.documentElement.scrollHeight - innerHeight) * fraction);
+          await settle();
+          const header = document.querySelector('.chat-header');
+          const composer = document.querySelector('#composer');
+          const headerBounds = header.getBoundingClientRect();
+          const composerBounds = composer.getBoundingClientRect();
+          const input = document.querySelector('#message-input').getBoundingClientRect();
+          if (getComputedStyle(header).position !== 'fixed' || getComputedStyle(composer).position !== 'fixed') throw Error('Desktop controls no longer use fixed positioning');
+          if (Math.abs(headerBounds.top) > 1 || Math.abs(composerBounds.bottom - innerHeight) > 1) throw Error('Document scrolling moved a desktop bar away from the window edge');
+          if (headerBounds.width > 881 || composerBounds.width > 881 || Math.abs(headerBounds.left - composerBounds.left) > 1 || Math.abs(headerBounds.right - composerBounds.right) > 1) throw Error('Desktop bars escaped their shared 880px conversation width');
+          if (input.width < 560 || document.documentElement.scrollWidth > innerWidth) throw Error('Desktop composer shrank or overflowed as the browser grew wider');
+          samples.push({ fraction, scrollY, firstMessageTop: document.querySelector('.message').getBoundingClientRect().top, headerTop: headerBounds.top, composerBottom: composerBounds.bottom, inputWidth: input.width, barWidth: composerBounds.width });
+        }
+        if (samples[2].scrollY <= samples[0].scrollY || samples[2].firstMessageTop >= samples[0].firstMessageTop) throw Error('Desktop fixture never scrolled its message content');
+        return samples;
+      });
+      await desktopPage.mouse.move(width / 2, height / 2);
+      for (const deltaY of [-620, 240]) {
+        const before = await desktopPage.evaluate(() => scrollY);
+        const framesPromise = desktopPage.evaluate(() => new Promise(resolve => {
+          const frames = [];
+          const sample = () => {
+            frames.push({ scrollY, top: document.querySelector('.chat-header').getBoundingClientRect().top, bottom: document.querySelector('#composer').getBoundingClientRect().bottom });
+            if (frames.length === 16) resolve(frames);
+            else requestAnimationFrame(sample);
+          };
+          requestAnimationFrame(sample);
+        }));
+        await desktopPage.mouse.wheel(0, deltaY);
+        const frames = await framesPromise;
+        if (Math.abs(frames.at(-1).scrollY - before) < 100) throw Error('Desktop wheel did not move the actual document');
+        if (frames.some(frame => Math.abs(frame.top) > 1 || Math.abs(frame.bottom - height) > 1)) throw Error('Desktop bars moved during an actual wheel frame');
+      }
+      await desktopPage.locator('.message.incoming').last().hover();
+      if (await desktopPage.locator('.message-quick-reply').count()) throw Error('Hovering a desktop message restored the removed quick-reply control');
+      samples.push({ width, height, positions, wheelFrames: 32, hoverQuickReply: false });
+    }
+    await desktopPage.locator('.message.incoming').last().click({ button: 'right' });
+    await desktopPage.locator('[data-message-action="reply"]').click();
+    await desktopPage.locator('#reply-draft').waitFor({ state: 'visible' });
+    assert.equal(await desktopPage.evaluate(() => window.regression.app.replyTarget?.clientMsgId), 'message-120');
+    results.desktopDocumentScroll = { desktopIdentity: true, samples, contextMenuReply: true };
+  } finally { await desktopPage.close(); }
   assert.deepEqual(errors, []);
   console.log(JSON.stringify(results, null, 2));
 } finally {

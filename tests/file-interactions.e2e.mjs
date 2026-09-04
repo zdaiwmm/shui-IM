@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 
 // Use the real message/card listeners and attachment decryption. Only the
 // opaque chunk service is replaced so touch gestures need no paired devices.
 const server = await createServer({ configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0, hmr: false } });
+const visualQaDirectory = process.argv[2];
 server.middlewares.use('/__file_interactions', (_request, response) => {
   response.setHeader('Content-Type', 'text/html');
   response.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="app"></div></body></html>');
@@ -23,6 +26,7 @@ try {
   await page.evaluate(async () => {
     await import('/src/styles.css');
     await import('/src/chat-layout.css');
+    await import('/src/gallery.css');
     await import('/src/chat-interactions.css');
     // The always-mounted privacy curtain must use the production fixed/hidden
     // styles; an unstyled curtain changes document height and chat scroll offsets.
@@ -147,6 +151,195 @@ try {
   assert.equal(await page.evaluate(() => window.fileInteractions.requests.reads), readsBeforeGalleryHold, 'Holding a gallery file fetched bytes before a click');
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Gallery file overflows the mobile viewport');
   results.galleryHasNoMessageMenu = true;
+
+  // Exercise concealment with both the verified cache and real asynchronous
+  // image decryption. Presentation state must not alter the original bytes.
+  await page.evaluate(async () => {
+    const { app, gallery } = window.fileInteractions;
+    const { QuietRoomApp } = await import('/src/app.ts');
+    const { encryptImageFile } = await import('/src/lib/file-crypto.ts');
+    app.mountGalleryThumbnails = QuietRoomApp.prototype.mountGalleryThumbnails.bind(app);
+    const session = app.session;
+    const records = [gallery];
+    const chunks = new Map();
+    const gate = { blobId: null, release: null, waiting: false };
+    const previousFetch = window.fetch.bind(window);
+    window.fetch = async (input, init = {}) => {
+      const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+      const match = url.pathname.match(/\/blobs\/([^/]+)\/chunks\/(\d+)$/);
+      const bytes = match && chunks.get(`${match[1]}:${match[2]}`);
+      if (!bytes) return previousFetch(input, init);
+      if (match[1] === gate.blobId) {
+        gate.waiting = true;
+        await new Promise(resolve => { gate.release = resolve; });
+      }
+      init.signal?.throwIfAborted();
+      return new Response(bytes);
+    };
+    const addImage = async ({ cache = false, delayed = false } = {}) => {
+      const number = records.length;
+      const colors = ['#586d81', '#aa8064', '#718b7b', '#807791', '#8f685b', '#627d98'];
+      const file = new File([`<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><rect width="300" height="300" fill="${colors[(number - 1) % colors.length]}"/><circle cx="230" cy="64" r="33" fill="#ebe2c6"/><path d="M0 270 80 90 160 220 220 140 300 300H0" fill="#c4c9bb"/><path d="M0 300 50 220 150 280 210 210 300 290V300" fill="#354d53"/></svg>`], `保险箱图片-${number}.svg`, { type: 'image/svg+xml', lastModified: number });
+      const manifest = await encryptImageFile(file, {
+        reserve: async () => {}, status: async () => ({ uploadedIndexes: [], completed: false }),
+        upload: async (blobId, index, bytes) => { chunks.set(`${blobId}:${index}`, bytes); },
+        complete: async () => {}, savePlan: async () => {},
+      });
+      const record = { ...gallery, seq: number + 3, clientMsgId: crypto.randomUUID(), payload: { v: 1, kind: 'gallery-image', image: manifest, sentAt: new Date(Date.parse(gallery.payload.sentAt) + number * 60_000).toISOString() } };
+      records.push(record);
+      if (cache) app.cacheLocalImage(manifest, file);
+      if (delayed) { gate.blobId = manifest.blobId; gate.waiting = false; gate.release = null; }
+      app.pending.set(record.clientMsgId, record);
+      return manifest.blobId;
+    };
+    for (let number = 0; number < 6; number++) await addImage({ cache: number === 0 });
+    window.galleryPrivacy = { app, records, gate, addImage, reopen: () => {
+      app.session = session; app.privacyCovered = false; app.runtimeEpoch++; app.runtimeAbort = new AbortController();
+      app.pending = new Map(records.map(record => [record.clientMsgId, record]));
+      app.renderGallery();
+    } };
+    app.renderGallery();
+  });
+  const assertVisibility = async (total, revealed, reason) => {
+    await page.waitForFunction(({ total, revealed }) => {
+      const tiles = [...document.querySelectorAll('.gallery-tile')];
+      return tiles.length === total && tiles.filter(tile => tile.dataset.revealed === 'true').length === revealed;
+    }, { total, revealed });
+    const wrongFilters = await page.locator('.gallery-tile img').evaluateAll(images => images.filter(image => {
+      const hidden = image.closest('.gallery-tile').dataset.revealed === 'false';
+      return hidden ? !getComputedStyle(image).filter.includes('blur(') : getComputedStyle(image).filter !== 'none';
+    }).length);
+    assert.equal(wrongFilters, 0, `${reason}: rendered blur differs from explicit reveal state`);
+    assert.equal(await page.locator('#gallery-toggle-visibility').getAttribute('aria-label'), total > 0 && total === revealed ? '隐藏全部' : '显示全部', `${reason}: bulk action label is incorrect`);
+  };
+  await page.waitForFunction(() => document.querySelectorAll('.gallery-tile img').length === 6);
+  await assertVisibility(6, 0, 'Initial entry with cached images');
+  assert.equal(await page.locator('.gallery-header > .gallery-tabs').count(), 1, 'Segmented tabs are not in the header row');
+  assert.equal(await page.locator('.gallery-header h1, .gallery-title, .gallery-tile time').count(), 0, 'Safe retained the removed title or thumbnail timestamps');
+  assert.equal((await page.locator('#gallery-toggle-visibility').textContent()).trim(), '', 'Safe visibility action still has visible text');
+  assert.equal(await page.locator('#gallery-toggle-visibility > svg').count(), 1, 'Safe visibility action is missing its eye icon');
+  assert.equal(await page.locator('.gallery-tile').first().evaluate(tile => getComputedStyle(tile, '::before').content), 'none', 'Safe thumbnail still renders a reveal hint');
+  assert.equal(await page.locator('[data-gallery-count="images"]').textContent(), '6', 'Image tab did not count all loaded images');
+  assert.equal(await page.locator('[data-gallery-count="files"]').textContent(), '1', 'Known file count was lost when switching to images');
+  const firstTile = page.locator('.gallery-tile').first();
+  await firstTile.tap();
+  await assertVisibility(6, 1, 'First tap');
+  assert.equal(await page.locator('.image-viewer').count(), 0, 'First tap opened the viewer before revealing the thumbnail');
+  await firstTile.tap();
+  await page.locator('.image-viewer.is-visible .viewer-stage img').waitFor();
+  const imageTimes = await page.evaluate(() => window.galleryPrivacy.records.filter(record => record.payload.kind === 'gallery-image').map(record => record.payload.sentAt));
+  assert.equal(await page.locator('[data-viewer-time]').getAttribute('datetime'), imageTimes[0], 'Viewer did not show the selected image timestamp');
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await page.locator('[data-viewer-time]').getAttribute('datetime'), imageTimes[1], 'Viewer timestamp did not follow the current image index');
+  await page.keyboard.press('ArrowLeft');
+  if (visualQaDirectory) {
+    await mkdir(visualQaDirectory, { recursive: true });
+    await page.locator('.viewer-stage img').evaluate(async image => {
+      await image.decode();
+      await new Promise(requestAnimationFrame);
+      await new Promise(requestAnimationFrame);
+    });
+    await page.screenshot({ path: path.join(visualQaDirectory, 'safe-viewer-time-390.png'), animations: 'disabled' });
+  }
+  await page.locator('[data-viewer-close]').tap();
+  await page.locator('.image-viewer').waitFor({ state: 'detached' });
+  await assertVisibility(6, 1, 'Viewer return');
+  await page.locator('#gallery-tab-files').tap();
+  assert.equal(await page.locator('#gallery-toggle-visibility').count(), 0, 'Image visibility action appeared on files');
+  await page.locator('#gallery-tab-images').tap();
+  await assertVisibility(6, 1, 'Tab roundtrip');
+  await page.locator('#gallery-toggle-visibility').tap();
+  await assertVisibility(6, 6, 'Show all');
+  await page.evaluate(() => window.galleryPrivacy.app.renderGallery());
+  await assertVisibility(6, 6, 'Same-visit refresh');
+  await page.evaluate(async () => { const f = window.galleryPrivacy; await f.addImage({ delayed: true }); f.app.renderGallery(); });
+  await page.waitForFunction(() => window.galleryPrivacy.gate.waiting);
+  await assertVisibility(7, 6, 'New image after show all');
+  await page.locator('#gallery-toggle-visibility').tap();
+  await assertVisibility(7, 7, 'Show all while decoding');
+  await page.locator('#gallery-toggle-visibility').tap();
+  await page.evaluate(() => { const gate = window.galleryPrivacy.gate; gate.blobId = null; gate.release(); });
+  await page.waitForFunction(() => document.querySelectorAll('.gallery-tile img').length === 7);
+  await assertVisibility(7, 0, 'Hide all before delayed decode completes');
+  if (visualQaDirectory) {
+    await mkdir(visualQaDirectory, { recursive: true });
+    const assertToolbarGeometry = async label => {
+      const geometry = await page.evaluate(() => {
+        const rect = element => { const r = element.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right }; };
+        return { tabs: rect(document.querySelector('.gallery-tabs')), buttons: [...document.querySelectorAll('.gallery-header button')].map(rect), overflow: document.documentElement.scrollWidth > innerWidth,
+          labelsOverflow: [...document.querySelectorAll('.gallery-tab > span')].some(span => {
+            const parent = span.parentElement.getBoundingClientRect(); const bounds = span.getBoundingClientRect();
+            return bounds.left < parent.left || bounds.right > parent.right;
+          }) };
+      });
+      assert.equal(geometry.tabs.height, 44, `${label}: segmented tabs do not match 44px controls`);
+      assert(geometry.buttons.every(button => button.height === 44 && button.width >= 44 && Math.abs(button.y - geometry.tabs.y) < 1), `${label}: toolbar targets are undersized or not aligned`);
+      assert(geometry.buttons.every((button, index) => index === 0 || button.x >= geometry.buttons[index - 1].right - 1), `${label}: toolbar buttons overlap`);
+      assert(!geometry.overflow && !geometry.labelsOverflow, `${label}: toolbar text or viewport overflows`);
+    };
+    for (const width of [316, 320, 390, 1280]) {
+      await page.setViewportSize({ width, height: 844 });
+      await assertToolbarGeometry(`${width}px images`);
+      await page.screenshot({ path: path.join(visualQaDirectory, `safe-hidden-${width}.png`), animations: 'disabled' });
+      await page.locator('#gallery-tab-files').click();
+      await assertToolbarGeometry(`${width}px files`);
+      await page.screenshot({ path: path.join(visualQaDirectory, `safe-files-${width}.png`), animations: 'disabled' });
+      await page.locator('#gallery-tab-images').click();
+    }
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.emulateMedia({ colorScheme: 'dark' });
+      await assertToolbarGeometry(`${width}px dark`);
+      await page.screenshot({ path: path.join(visualQaDirectory, `safe-hidden-${width}-dark.png`), animations: 'disabled' });
+    }
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.setViewportSize({ width: 316, height: 844 });
+    await page.evaluate(() => document.documentElement.style.fontSize = '125%');
+    await assertToolbarGeometry('316px 125% font');
+    await page.screenshot({ path: path.join(visualQaDirectory, 'safe-hidden-316-large-text.png'), animations: 'disabled' });
+    await page.evaluate(() => {
+      const f = window.galleryPrivacy;
+      f.previousCounts = f.app.galleryKnownCounts;
+      f.app.galleryKnownCounts = Object.fromEntries(['images', 'files'].map((kind, index) => {
+        const keys = new Set(f.previousCounts[kind]?.keys);
+        while (keys.size < (index ? 12345 : 9999)) keys.add(`previously-loaded-${kind}-${keys.size}`);
+        return [kind, { keys, complete: false }];
+      }));
+      f.app.renderGallery();
+    });
+    await assertToolbarGeometry('316px 125% font and large prior counts');
+    assert((await page.locator('#gallery-tab-images').getAttribute('aria-label')).includes('已加载 9999 张图片'), 'Compact count lost its precise accessible label');
+    await page.screenshot({ path: path.join(visualQaDirectory, 'safe-counts-316-large-text.png'), animations: 'disabled' });
+    await page.evaluate(() => { const f = window.galleryPrivacy; f.app.galleryKnownCounts = f.previousCounts; f.app.renderGallery(); });
+    await page.evaluate(() => document.documentElement.style.removeProperty('font-size'));
+    await page.setViewportSize({ width: 390, height: 844 });
+    await firstTile.tap();
+    await page.screenshot({ path: path.join(visualQaDirectory, 'safe-one-revealed-390.png'), animations: 'disabled' });
+  }
+  await page.locator('#gallery-toggle-visibility').tap();
+  await page.locator('#gallery-back').tap();
+  await page.locator('#open-gallery').tap();
+  await assertVisibility(7, 0, 'Leave and reenter');
+  await page.evaluate(async () => {
+    const f = window.galleryPrivacy;
+    await f.addImage({ delayed: true }); f.app.renderGallery();
+    f.detachedTile = document.querySelector('.gallery-tile');
+    f.detachedToggle = document.querySelector('#gallery-toggle-visibility');
+  });
+  await page.waitForFunction(() => window.galleryPrivacy.gate.waiting);
+  await firstTile.tap();
+  await page.evaluate(() => {
+    const f = window.galleryPrivacy;
+    f.app.lockNow(); f.detachedTile.click(); f.detachedToggle.click();
+    f.gate.blobId = null; f.gate.release();
+  });
+  assert.equal(await page.evaluate(() => window.galleryPrivacy.app.galleryRevealedAssets.size), 0, 'Detached controls restored reveal state after locking');
+  await page.waitForFunction(() => window.galleryPrivacy.app.imageLoadPromises.size === 0);
+  assert.equal(await page.locator('.gallery-shell, .image-viewer').count(), 0, 'Delayed decrypt restored private content after locking');
+  await page.evaluate(() => window.galleryPrivacy.reopen());
+  await page.waitForFunction(() => document.querySelectorAll('.gallery-tile img').length === 8);
+  await assertVisibility(8, 0, 'Unlock reentry');
+  results.safePrivacy = { cachedImagesHidden: true, revealThenView: true, tabAndViewerStatePreserved: true, newImagesHidden: true, hideDuringDecode: true, leaveAndLockReset: true, staleControlsBlocked: true, countsRetained: true, viewerTimeFollowsIndex: true };
 
   await page.evaluate(() => window.fileInteractions.app.lockNow());
   assert.deepEqual(errors, []);

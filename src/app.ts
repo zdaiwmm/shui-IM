@@ -167,6 +167,9 @@ const icons = {
   phone: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m7 3 3 5-3 3a15 15 0 0 0 6 6l3-3 5 3c1 5-3 5-5 4A24 24 0 0 1 3 8C2 5 3 2 7 3Z"/></svg>',
   back: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>',
   image: '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="m21 15-5-5L5 20"/></svg>',
+  safe: '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="12" cy="12" r="4"/><path d="M12 8v2m0 4v2m-4-4h2m4 0h2M6 8v2m0 4v2"/></svg>',
+  eye: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>',
+  eyeOff: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m3 3 18 18M10.5 5.1A12 12 0 0 1 12 5c6.5 0 10 7 10 7a20 20 0 0 1-3.2 4.1M6.1 6.1A20 20 0 0 0 2 12s3.5 7 10 7a11 11 0 0 0 5.2-1.3M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>',
   file: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6M8 13h8M8 17h5"/></svg>',
   upload: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 16V4"/><path d="m8 8 4-4 4 4"/><path d="M5 20h14"/></svg>',
   more: '<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></svg>',
@@ -333,6 +336,20 @@ export class QuietRoomApp {
   private blurLockTimer: number | null = null;
   private sendingTextDrafts = new Set<string>();
   private chatPinnedToBottom = true;
+  private chatViewportTop = 0;
+  private chatViewportHeight = 0;
+  private chatScrollFrame: number | null = null;
+  private syncViewport: () => void = () => {};
+  private cancelViewportWork: () => void = () => {};
+  private chatLayoutGeneration = 0;
+  private chatLayoutElements: {
+    shell: HTMLElement;
+    list: HTMLElement;
+    header: HTMLElement;
+    composer: HTMLElement;
+    notices: HTMLElement;
+    notice: HTMLElement;
+  } | null = null;
   private chatScrollIntent: 'up' | 'down' | null = null;
   private chatRestoreAnchor: ChatScrollAnchor | null = null;
   private sendChain: Promise<void> = Promise.resolve();
@@ -376,6 +393,8 @@ export class QuietRoomApp {
   private uiPreferences: UiPreferences = {};
   private restoreChatAnchorOnNextRender = true;
   private galleryScrollTop: Record<GalleryTab, number> = { images: 0, files: 0 };
+  private galleryRevealedAssets = new Set<string>();
+  private galleryKnownCounts: Partial<Record<GalleryTab, { keys: Set<string>; complete: boolean }>> = {};
   private chatLayoutObserver: ResizeObserver | null = null;
   private presenceRefreshTimer: number | null = null;
   private recoveryPollTimer: number | null = null;
@@ -427,32 +446,27 @@ export class QuietRoomApp {
     let viewportFrame: number | null = null;
     let previousViewportHeight = 0;
     let previousLayoutHeight = 0;
-    const syncVisualViewport = () => {
+    let previousViewportTop = -1;
+    let previousViewportWidth = 0;
+    let previousChatGeneration = -1;
+    let viewportResized = false;
+    let viewportWidthChanged = false;
+    let viewportBottomFollow = false;
+    const finishViewportSync = () => {
       viewportFrame = null;
-      const pinned = this.chatPinnedToBottom;
-      const viewport = window.visualViewport;
-      const layoutHeight = window.innerHeight;
-      const viewportHeight = Math.round(viewport?.height ?? layoutHeight);
-      // Clamp rubber-band offsets. Panning is positioning, not a change in
-      // keyboard height, and must never resize the scrollable document.
-      const viewportTop = Math.max(0, Math.min(Math.round(viewport?.offsetTop ?? 0), layoutHeight - viewportHeight));
-      const style = document.documentElement.style;
-      const resized = previousViewportHeight !== viewportHeight || previousLayoutHeight !== layoutHeight;
-      style.setProperty('--app-height', `${viewportHeight}px`);
-      style.setProperty('--app-top', `${viewportTop}px`);
-      if (resized) {
-        style.setProperty('--keyboard-space', `${Math.max(0, layoutHeight - viewportHeight - viewportTop)}px`);
-        document.documentElement.dataset.keyboardOpen = String(layoutHeight - viewportHeight > 120);
-        previousViewportHeight = viewportHeight;
-        previousLayoutHeight = layoutHeight;
-      }
+      const resized = viewportResized;
+      const followBottom = viewportBottomFollow;
+      const reflowSelection = viewportWidthChanged;
+      viewportResized = false;
+      viewportWidthChanged = false;
+      viewportBottomFollow = false;
       const selection = this.root.querySelector<HTMLTextAreaElement>('.message-text-selection');
-      if (selection) {
+      if (selection && reflowSelection) {
         selection.style.height = '0px';
         selection.style.height = `${selection.scrollHeight}px`;
       }
       const list = this.root.querySelector<HTMLElement>('#message-list');
-      if (resized && pinned && this.chatScrollIntent !== 'up' && list) this.scrollChatToBottom();
+      if (resized && followBottom && this.chatScrollIntent !== 'up' && list) this.scrollChatToBottom();
       const actions = this.root.querySelector<HTMLElement>('.message-actions:not(.is-closing)');
       if (actions) {
         const source = this.root.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(actions.dataset.sourceId ?? '')}"]`);
@@ -460,22 +474,75 @@ export class QuietRoomApp {
         else this.closeMessageActions(false, false);
       }
     };
-    syncVisualViewport();
-    const scheduleViewportSync = () => {
-      if (viewportFrame === null) viewportFrame = requestAnimationFrame(syncVisualViewport);
+    const syncVisualViewport = () => {
+      const viewport = window.visualViewport;
+      // Fixed controls and document scrolling use the layout viewport. Safari
+      // can report a keyboard-sized innerHeight while that viewport stays tall.
+      const layoutHeight = document.documentElement.clientHeight || window.innerHeight;
+      const viewportHeight = Math.max(1, Math.min(viewport?.height ?? window.innerHeight, layoutHeight));
+      const viewportWidth = viewport?.width ?? window.innerWidth;
+      const keyboardSpace = Math.max(0, layoutHeight - viewportHeight);
+      // Discard rubber-band and stale dismissal offsets once the full viewport
+      // is visible. Panning never contributes to the document's keyboard space.
+      const viewportTop = Math.max(0, Math.min(viewport?.offsetTop ?? 0, keyboardSpace));
+      this.chatViewportTop = viewportTop;
+      this.chatViewportHeight = viewportHeight;
+      const chat = this.activeSurface === 'chat' && this.chatLayoutElements?.shell.isConnected ? this.chatLayoutElements : null;
+      const chatGeneration = chat ? this.chatLayoutGeneration : 0;
+      const resized = previousViewportHeight !== viewportHeight || previousLayoutHeight !== layoutHeight;
+      const widthChanged = previousViewportWidth !== viewportWidth;
+      if (!resized && !widthChanged && previousViewportTop === viewportTop && previousChatGeneration === chatGeneration) return;
+      const setStyle = (style: CSSStyleDeclaration, property: string, value: string) => {
+        if (style.getPropertyValue(property) !== value) style.setProperty(property, value);
+      };
+      // Keep frame-by-frame position updates local to the four floating
+      // controls. Inherited root variables invalidate every historical row.
+      if (chat) {
+        setStyle(chat.header.style, 'translate', `0 ${viewportTop}px`);
+        setStyle(chat.composer.style, 'translate', `0 calc(${viewportTop + viewportHeight}px - 100%)`);
+        setStyle(chat.notices.style, 'translate', `0 ${viewportTop}px`);
+        setStyle(chat.notice.style, 'translate', `0 calc(${viewportTop + viewportHeight}px - var(--chat-bottom-space) - 100%)`);
+        setStyle(chat.list.style, 'padding-bottom', `calc(var(--chat-bottom-space) + ${keyboardSpace}px)`);
+        const openMenu = chat.header.querySelector<HTMLDetailsElement>('.more-menu[open]');
+        if (openMenu) setStyle(openMenu.style, '--app-height', `${viewportHeight}px`);
+      } else {
+        setStyle(document.documentElement.style, '--app-height', `${viewportHeight}px`);
+        setStyle(document.documentElement.style, '--app-top', `${viewportTop}px`);
+      }
+      const keyboardOpen = String(keyboardSpace > 120);
+      if (document.documentElement.dataset.keyboardOpen !== keyboardOpen) document.documentElement.dataset.keyboardOpen = keyboardOpen;
+      if (resized) {
+        viewportResized = true;
+        // Native focus scrolling can run before the coalesced layout work.
+        // Preserve existing follow intent, unless a history gesture cancels it.
+        viewportBottomFollow ||= this.chatPinnedToBottom;
+      }
+      previousViewportHeight = viewportHeight;
+      previousLayoutHeight = layoutHeight;
+      previousViewportTop = viewportTop;
+      previousViewportWidth = viewportWidth;
+      previousChatGeneration = chatGeneration;
+      viewportWidthChanged ||= widthChanged;
+      if (viewportFrame === null) viewportFrame = requestAnimationFrame(finishViewportSync);
     };
-    window.visualViewport?.addEventListener('resize', scheduleViewportSync, { passive: true });
-    window.visualViewport?.addEventListener('scroll', scheduleViewportSync, { passive: true });
-    window.addEventListener('resize', scheduleViewportSync, { passive: true });
+    this.syncViewport = syncVisualViewport;
+    this.cancelViewportWork = () => {
+      if (viewportFrame !== null) cancelAnimationFrame(viewportFrame);
+      viewportFrame = null;
+      viewportResized = false;
+      viewportWidthChanged = false;
+      viewportBottomFollow = false;
+    };
+    syncVisualViewport();
+    window.visualViewport?.addEventListener('resize', syncVisualViewport, { passive: true });
+    window.visualViewport?.addEventListener('scroll', syncVisualViewport, { passive: true });
+    window.visualViewport?.addEventListener('scrollend', syncVisualViewport, { passive: true });
+    window.addEventListener('resize', syncVisualViewport, { passive: true });
     window.addEventListener('scroll', () => {
-      const list = this.root.querySelector<HTMLElement>('#message-list');
-      if (!list || this.privacyCovered || this.activeSurface !== 'chat') return;
-      this.chatPinnedToBottom = !this.chatRestoreAnchor && this.chatScrollIntent !== 'up' && this.chatBottomGap() <= 2;
-      if (this.root.querySelector('.message-actions:not(.is-closing)')) this.closeMessageActions(false, false);
-      if (window.scrollY < 80) void this.loadOlderHistory(list);
-      if (this.chatBottomGap() < 80) void this.loadNewerHistory(list);
-      this.captureChatAnchor(true);
-      this.markVisibleMessagesRead();
+      // WebKit may defer visualViewport.scroll until a gesture ends, while
+      // window.scroll already exposes the new viewport position.
+      syncVisualViewport();
+      this.scheduleChatScroll();
     }, { passive: true });
     document.addEventListener('gesturestart', preventZoom, { passive: false });
     document.addEventListener('gesturechange', preventZoom, { passive: false });
@@ -2449,6 +2516,7 @@ export class QuietRoomApp {
 
   private renderChat(): void {
     if (!this.session) return;
+    this.galleryRevealedAssets.clear();
     this.clearMessageTextSelection();
     this.closeVoiceRecorder();
     this.voicePlayback.stop();
@@ -2477,7 +2545,7 @@ export class QuietRoomApp {
           </div>
           <nav class="header-actions" aria-label="会话操作">
             ${this.session.vault.role === 'creator' ? `
-              <button class="icon-button gallery-button" id="open-gallery" type="button" aria-label="查看相册">${icons.image}</button>
+              <button class="icon-button gallery-button" id="open-gallery" type="button" aria-label="查看保险箱" title="保险箱">${icons.safe}</button>
             ` : ''}
             <details class="more-menu">
               <summary class="icon-button" aria-label="更多操作">${icons.more}</summary>
@@ -2603,6 +2671,9 @@ export class QuietRoomApp {
       this.restoreComposerFocus();
     });
     const moreMenu = this.root.querySelector<HTMLDetailsElement>('.more-menu');
+    moreMenu?.addEventListener('toggle', () => {
+      if (moreMenu.open) moreMenu.style.setProperty('--app-height', `${this.chatViewportHeight}px`);
+    });
     moreMenu?.querySelector('summary')?.addEventListener('click', (event) => {
       if (!moreMenu.open) return;
       event.preventDefault();
@@ -2623,6 +2694,10 @@ export class QuietRoomApp {
     const header = shell.querySelector<HTMLElement>('.chat-header')!;
     const notices = shell.querySelector<HTMLElement>('.system-notices')!;
     const composer = shell.querySelector<HTMLElement>('.composer')!;
+    const notice = shell.querySelector<HTMLElement>('#notice')!;
+    this.chatLayoutElements = { shell, list, header, composer, notices, notice };
+    this.chatLayoutGeneration += 1;
+    this.syncViewport();
     let previousMeasurements = '';
     const sync = () => {
       if (!shell.isConnected) return;
@@ -2983,8 +3058,17 @@ export class QuietRoomApp {
       || this.activeSurface !== 'chat' || this.callView || !list || this.chatRestoreAnchor) return;
     const top = this.root.querySelector('.chat-header')?.getBoundingClientRect().bottom ?? list.getBoundingClientRect().top;
     const bottom = this.root.querySelector('#composer')?.getBoundingClientRect().top ?? list.getBoundingClientRect().bottom;
+    // Rows are in document order. Jump over newer, below-screen history before
+    // testing intersection; reading an old page must not measure every row.
+    let low = 0;
+    let high = this.renderedMessageOrder.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (this.renderedMessageOrder[middle]!.getBoundingClientRect().top < bottom) low = middle + 1;
+      else high = middle;
+    }
     let seq = 0;
-    for (let index = this.renderedMessageOrder.length - 1; index >= 0; index--) {
+    for (let index = low - 1; index >= 0; index--) {
       const article = this.renderedMessageOrder[index]!;
       const rect = article.getBoundingClientRect();
       if (rect.bottom < top) break;
@@ -3004,9 +3088,26 @@ export class QuietRoomApp {
     if (surface === 'chat' && this.activeSurface !== 'chat') this.rolePresence = null;
     this.activeSurface = surface;
     this.socket?.setChatPresence(surface === 'chat');
+    this.syncViewport();
   }
 
-  private captureChatAnchor(persist = false, preservePosition = false): ChatScrollAnchor | null {
+  private scheduleChatScroll(): void {
+    if (this.chatScrollFrame !== null || this.privacyCovered || this.activeSurface !== 'chat') return;
+    this.chatScrollFrame = requestAnimationFrame(() => {
+      this.chatScrollFrame = null;
+      const list = this.chatLayoutElements?.list;
+      if (!list?.isConnected || this.privacyCovered || this.activeSurface !== 'chat') return;
+      const gap = this.chatBottomGap();
+      this.chatPinnedToBottom = !this.chatRestoreAnchor && this.chatScrollIntent !== 'up' && gap <= 2;
+      if (this.root.querySelector('.message-actions:not(.is-closing)')) this.closeMessageActions(false, false);
+      if (window.scrollY < 80) void this.loadOlderHistory(list);
+      if (gap < 80) void this.loadNewerHistory(list);
+      this.captureChatAnchor(true, false, gap);
+      this.markVisibleMessagesRead();
+    });
+  }
+
+  private captureChatAnchor(persist = false, preservePosition = false, knownBottomGap?: number): ChatScrollAnchor | null {
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!list) return this.uiPreferences.chatAnchor ?? null;
     // A tall photo can temporarily become a short placeholder after unlock.
@@ -3016,8 +3117,8 @@ export class QuietRoomApp {
       ? this.renderedMessageOrder
       : [...list.querySelectorAll<HTMLElement>('.message[data-client-msg-id]')];
     if (articles.length === 0) return null;
-    const pinnedToBottom = !preservePosition && this.chatPinnedToBottom && this.chatScrollIntent !== 'up' && this.chatBottomGap() <= 48;
-    const listTop = window.visualViewport?.offsetTop ?? 0;
+    const pinnedToBottom = !preservePosition && this.chatPinnedToBottom && this.chatScrollIntent !== 'up' && (knownBottomGap ?? this.chatBottomGap()) <= 48;
+    const listTop = this.chatViewportTop;
     // Message rows are laid out monotonically. Avoid reading every older row
     // (and sorting every payload) on each touch-scroll event.
     let low = 0;
@@ -3056,18 +3157,25 @@ export class QuietRoomApp {
       this.scrollChatToBottom();
       return;
     }
-    const delta = target.getBoundingClientRect().top - (window.visualViewport?.offsetTop ?? 0) - anchor.offset;
+    const delta = target.getBoundingClientRect().top - this.chatViewportTop - anchor.offset;
     if (Math.abs(delta) > 1) window.scrollBy(0, delta);
   }
 
   private chatBottomGap(): number {
-    return Math.max(0, (document.scrollingElement ?? document.documentElement).scrollHeight - window.scrollY - window.innerHeight);
+    return Math.max(0, this.chatBottomScrollTop() - window.scrollY);
+  }
+
+  private chatBottomScrollTop(): number {
+    // Reserve the full keyboard occlusion independently of viewport panning,
+    // then align the last message with the actual visible composer edge.
+    return Math.max(0, (document.scrollingElement ?? document.documentElement).scrollHeight - document.documentElement.clientHeight - this.chatViewportTop);
   }
 
   private scrollChatToBottom(): void {
     this.chatScrollIntent = null;
     this.chatPinnedToBottom = true;
-    if (this.chatBottomGap() > 1) window.scrollTo(0, (document.scrollingElement ?? document.documentElement).scrollHeight);
+    const bottom = this.chatBottomScrollTop();
+    if (Math.abs(window.scrollY - bottom) > 1) window.scrollTo(0, bottom);
   }
 
   private finishChatAnchorRestore(list: HTMLElement): void {
@@ -3621,7 +3729,7 @@ export class QuietRoomApp {
       return false;
     }
     if (destination === 'gallery' && session.vault.role !== 'creator') {
-      this.showNotice('只有会话创建者可以向相册上传文件', 'error');
+      this.showNotice('只有会话创建者可以向保险箱上传文件', 'error');
       return false;
     }
     const epoch = this.runtimeEpoch;
@@ -3973,7 +4081,6 @@ export class QuietRoomApp {
         open();
       }
     });
-    article.querySelector<HTMLButtonElement>('.message-quick-reply')?.addEventListener('click', open);
   }
 
   private openMessageActions(article: HTMLElement, message: DecryptedMessage): void {
@@ -4055,6 +4162,7 @@ export class QuietRoomApp {
   }
 
   private positionMessageActions(actions: HTMLElement, article: HTMLElement): void {
+    actions.style.setProperty('--app-height', `${this.chatViewportHeight}px`);
     const rect = article.querySelector('.message-bubble')?.getBoundingClientRect() ?? article.getBoundingClientRect();
     const viewport = window.visualViewport;
     const left = viewport?.offsetLeft ?? 0;
@@ -4551,14 +4659,6 @@ export class QuietRoomApp {
       });
       meta.append(' · ', retry);
     }
-    if (!own) {
-      const quickReply = document.createElement('button');
-      quickReply.type = 'button';
-      quickReply.className = 'message-quick-reply';
-      quickReply.setAttribute('aria-label', '回复这条消息');
-      quickReply.innerHTML = icons.reply;
-      article.append(quickReply);
-    }
     article.append(bubble, meta);
     this.mountMessageActions(article, message);
     return article;
@@ -4930,7 +5030,7 @@ export class QuietRoomApp {
     return operation;
   }
 
-  private openImageViewer(manifests: ImageManifest[], startIndex = 0, returnFocus?: HTMLElement): void {
+  private openImageViewer(manifests: ImageManifest[], startIndex = 0, returnFocus?: HTMLElement, sentAt: readonly string[] = []): void {
     if (manifests.length === 0 || this.privacyCovered) return;
     this.closeImageViewer(true);
     this.closeMessageActions();
@@ -4947,7 +5047,7 @@ export class QuietRoomApp {
     viewer.innerHTML = `
       <header class="viewer-header">
         <button class="viewer-control" type="button" data-viewer-close aria-label="关闭查看器">${icons.close}</button>
-        <div><strong data-viewer-name></strong><span data-viewer-counter></span></div>
+        <div><strong data-viewer-name></strong><div class="viewer-metadata"><span data-viewer-counter></span><time data-viewer-time title="发送或上传时间" hidden></time></div></div>
         <button class="viewer-control" type="button" data-viewer-download aria-label="下载当前原图">${icons.download}</button>
       </header>
       <div class="viewer-stage" aria-live="polite"></div>
@@ -4998,6 +5098,16 @@ export class QuietRoomApp {
       viewer.style.removeProperty('--viewer-backdrop-opacity');
       viewer.querySelector<HTMLElement>('[data-viewer-name]')!.textContent = manifest.originalName || '原图';
       viewer.querySelector<HTMLElement>('[data-viewer-counter]')!.textContent = manifests.length > 1 ? `${current + 1} / ${manifests.length}` : this.fileSize(manifest.originalSize);
+      const time = viewer.querySelector<HTMLTimeElement>('[data-viewer-time]')!;
+      const timestamp = sentAt[current];
+      const date = timestamp ? new Date(timestamp) : null;
+      const validDate = date && Number.isFinite(date.getTime());
+      time.hidden = !validDate;
+      time.dateTime = validDate ? timestamp! : '';
+      time.textContent = validDate ? new Intl.DateTimeFormat('zh-CN', {
+        year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
+      }).format(date) : '';
+      time.setAttribute('aria-label', validDate ? `发送或上传时间 ${time.textContent}` : '');
       previous.hidden = manifests.length < 2;
       next.hidden = manifests.length < 2;
       this.assertImageManifestIdentity(manifest);
@@ -5190,28 +5300,35 @@ export class QuietRoomApp {
     this.setActiveSurface('away');
     if (session.vault.role !== 'creator') {
       this.renderChat();
-      this.showNotice('相册仅对会话创建者开放', 'error');
+      this.showNotice('保险箱仅对会话创建者开放', 'error');
       return;
     }
+    // Reveals belong to this visit, never to stored preferences or the verified
+    // image cache. Tab changes and upload refreshes retain only explicit reveals.
+    if (!this.root.querySelector('.gallery-shell')) this.galleryRevealedAssets.clear();
     const cryptoReady = session.vault.protocol !== 'mls-rfc9420' || session.vault.mls?.phase === 'active';
     const filesTab = tab === 'files';
     const category = filesTab ? '文件' : '图片';
+    const knownCount = this.galleryKnownCounts[tab] ??= { keys: new Set(), complete: false };
+    knownCount.complete = false;
     const assets: GalleryAsset[] = [];
     const assetKeys = new Set<string>();
     let fileCount = 0;
     this.galleryObserver?.disconnect();
     this.galleryObserver = null;
     this.root.innerHTML = `
-      <section class="gallery-shell">
-        <header class="subpage-header gallery-header">
+      <section class="gallery-shell" aria-label="保险箱">
+        <header class="subpage-header gallery-header" aria-label="保险箱操作">
           <button class="icon-button" id="gallery-back" type="button" aria-label="返回聊天">${icons.back}</button>
-          <div><h1>相册</h1><p id="gallery-total">${filesTab ? '文件' : '原图'}</p></div>
-          <button class="icon-button gallery-upload-button${cryptoReady ? '' : ' is-disabled'}" id="open-gallery-image-picker" type="button" aria-label="上传图片或文件到相册" title="上传图片或文件到相册" ${cryptoReady ? '' : 'disabled'}>${icons.upload}</button>
-          <input id="gallery-image-input" type="file" multiple ${cryptoReady ? '' : 'disabled'} hidden />
-          <div class="gallery-tabs" role="tablist" aria-label="相册分类">
-            <button class="gallery-tab" id="gallery-tab-images" type="button" role="tab" aria-controls="gallery-grid" aria-selected="${!filesTab}" tabindex="${filesTab ? -1 : 0}">图片</button>
-            <button class="gallery-tab" id="gallery-tab-files" type="button" role="tab" aria-controls="gallery-grid" aria-selected="${filesTab}" tabindex="${filesTab ? 0 : -1}">文件</button>
+          <div class="gallery-tabs" role="tablist" aria-label="保险箱分类">
+            <button class="gallery-tab" id="gallery-tab-images" type="button" role="tab" aria-controls="gallery-grid" aria-selected="${!filesTab}" tabindex="${filesTab ? -1 : 0}"><span>图片</span><span class="gallery-tab-count" aria-hidden="true" data-gallery-count="images">—</span></button>
+            <button class="gallery-tab" id="gallery-tab-files" type="button" role="tab" aria-controls="gallery-grid" aria-selected="${filesTab}" tabindex="${filesTab ? 0 : -1}"><span>文件</span><span class="gallery-tab-count" aria-hidden="true" data-gallery-count="files">—</span></button>
           </div>
+          <nav class="gallery-header-actions" aria-label="保险箱操作">
+            ${filesTab ? '' : `<button class="icon-button gallery-visibility-button" id="gallery-toggle-visibility" type="button" aria-label="显示全部" title="显示全部" aria-controls="gallery-grid" disabled>${icons.eye}</button>`}
+            <button class="icon-button gallery-upload-button${cryptoReady ? '' : ' is-disabled'}" id="open-gallery-image-picker" type="button" aria-label="上传图片或文件到保险箱" title="上传图片或文件到保险箱" ${cryptoReady ? '' : 'disabled'}>${icons.upload}</button>
+          </nav>
+          <input id="gallery-image-input" type="file" multiple ${cryptoReady ? '' : 'disabled'} hidden />
         </header>
         <div class="notice gallery-notice" id="notice" role="status" hidden></div>
         <div class="upload-progress gallery-upload-progress" id="upload-progress" hidden><span></span><output></output></div>
@@ -5225,6 +5342,56 @@ export class QuietRoomApp {
       this.root.querySelector<HTMLButtonElement>('#open-gallery-image-picker'),
     );
     const grid = this.root.querySelector<HTMLElement>('#gallery-grid')!;
+    const updateCounts = () => {
+      for (const kind of ['images', 'files'] as const) {
+        const count = this.galleryKnownCounts[kind];
+        const categoryName = kind === 'images' ? '图片' : '文件';
+        const button = this.root.querySelector<HTMLButtonElement>(`#gallery-tab-${kind}`)!;
+        const label = button.querySelector<HTMLElement>('[data-gallery-count]')!;
+        const value = count?.keys.size ?? 0;
+        const pending = count && !count.complete && value === 0;
+        const compactValue = value >= 10_000 ? `${Math.floor(value / 1000) / 10}万`
+          : value >= 1000 ? `${Math.floor(value / 100) / 10}千` : String(value);
+        label.textContent = !count ? '—' : pending ? '…'
+          : `${compactValue}${count.complete ? '' : '+'}`;
+        const description = !count ? '数量尚未加载' : pending ? '正在加载数量'
+          : `已加载 ${value}${kind === 'images' ? ' 张图片' : ' 个文件'}${count.complete ? '' : '，还有更早记录待加载'}`;
+        button.setAttribute('aria-label', `${categoryName}，${description}`);
+        button.title = description;
+      }
+    };
+    updateCounts();
+    const visibilityButton = this.root.querySelector<HTMLButtonElement>('#gallery-toggle-visibility');
+    const allImagesRevealed = () => assets.length > 0 && assets.every(asset =>
+      this.galleryRevealedAssets.has(`${asset.clientMsgId}:${asset.assetIndex}`));
+    const updateVisibilityButton = () => {
+      if (!visibilityButton) return;
+      visibilityButton.disabled = assets.length === 0;
+      const revealed = allImagesRevealed();
+      const label = revealed ? '隐藏全部' : '显示全部';
+      visibilityButton.innerHTML = revealed ? icons.eyeOff : icons.eye;
+      visibilityButton.setAttribute('aria-label', label);
+      visibilityButton.title = label;
+    };
+    const updateTileVisibility = (button: HTMLButtonElement, key: string, manifest: ImageManifest) => {
+      const revealed = this.galleryRevealedAssets.has(key);
+      button.dataset.revealed = String(revealed);
+      button.setAttribute('aria-label', `${revealed ? '查看原图' : '显示图片'} ${manifest.originalName}`);
+    };
+    visibilityButton?.addEventListener('click', () => {
+      if (!this.isRuntimeActive(epoch, session) || !grid.isConnected) return;
+      const reveal = !allImagesRevealed();
+      // Also forget revealed older pages that are not mounted after a tab switch.
+      if (!reveal) this.galleryRevealedAssets.clear();
+      for (const button of grid.querySelectorAll<HTMLButtonElement>('.gallery-tile')) {
+        const asset = assets[Number(button.dataset.galleryIndex)];
+        if (!asset) continue;
+        const key = `${asset.clientMsgId}:${asset.assetIndex}`;
+        if (reveal) this.galleryRevealedAssets.add(key);
+        updateTileVisibility(button, key, asset.manifest);
+      }
+      updateVisibilityButton();
+    });
     const switchTab = (next: GalleryTab) => {
       if (next === tab || !this.isRuntimeActive(epoch, session) || !grid.isConnected || this.imageBatchUploading) return;
       this.galleryScrollTop[tab] = grid.scrollTop;
@@ -5257,6 +5424,7 @@ export class QuietRoomApp {
           const key = `${message.clientMsgId}:file`;
           if (assetKeys.has(key)) continue;
           assetKeys.add(key);
+          knownCount.keys.add(key);
           fileCount += 1;
           const button = this.createFileAttachment(message.payload.file);
           button.classList.add('gallery-file');
@@ -5274,6 +5442,7 @@ export class QuietRoomApp {
           const key = `${message.clientMsgId}:${assetIndex}`;
           if (assetKeys.has(key)) continue;
           assetKeys.add(key);
+          knownCount.keys.add(key);
           const index = assets.length;
           assets.push({ manifest, clientMsgId: message.clientMsgId, sentAt: message.payload.sentAt, assetIndex });
           const button = document.createElement('button');
@@ -5281,8 +5450,8 @@ export class QuietRoomApp {
           button.className = 'gallery-tile';
           button.dataset.galleryIndex = String(index);
           button.dataset.blobId = manifest.blobId;
-          button.setAttribute('aria-label', `查看原图 ${manifest.originalName}`);
-          button.innerHTML = `${icons.image}<span class="tile-loading sr-only">正在加载图片</span><time>${timeLabel(message.payload.sentAt)}</time>`;
+          updateTileVisibility(button, key, manifest);
+          button.innerHTML = `${icons.image}<span class="tile-loading sr-only">正在加载图片</span>`;
           button.setAttribute('aria-busy', 'true');
           const cached = this.imageCache.get(manifest.blobId);
           if (cached) {
@@ -5290,22 +5459,28 @@ export class QuietRoomApp {
             cached.lastUsedAt = Date.now();
             const image = document.createElement('img');
             image.src = cached.url;
-            image.alt = manifest.originalName || '相册图片';
-            const time = button.querySelector('time')!;
-            button.replaceChildren(image, time);
+            image.alt = manifest.originalName || '保险箱图片';
+            button.replaceChildren(image);
             button.dataset.thumbnailState = 'loaded';
             button.setAttribute('aria-busy', 'false');
           }
           button.addEventListener('click', () => {
+            if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
+            if (!this.galleryRevealedAssets.has(key)) {
+              this.galleryRevealedAssets.add(key);
+              updateTileVisibility(button, key, manifest);
+              updateVisibilityButton();
+              if (button.dataset.thumbnailState === 'error') this.mountGalleryThumbnails(grid, assets);
+              return;
+            }
             this.galleryScrollTop.images = grid.scrollTop;
-            this.openImageViewer(assets.map((asset) => asset.manifest), index, button);
+            this.openImageViewer(assets.map((asset) => asset.manifest), index, button, assets.map((asset) => asset.sentAt));
           });
           grid.insertBefore(button, footer);
         }
       }
-      this.root.querySelector<HTMLElement>('#gallery-total')!.textContent = filesTab
-        ? fileCount ? `${fileCount} 个文件` : '文件'
-        : assets.length ? `${assets.length} 张` : '原图';
+      updateCounts();
+      updateVisibilityButton();
       if (!filesTab) this.mountGalleryThumbnails(grid, assets);
     };
     addMessages([...this.pending.values()].sort((left, right) => right.acceptedAt.localeCompare(left.acceptedAt)));
@@ -5330,8 +5505,10 @@ export class QuietRoomApp {
           addMessages(page.messages);
           if (hasMore && assets.length + fileCount - startedWith < 36) await this.abortableDelay(0, signal);
         } while (hasMore && assets.length + fileCount - startedWith < 36);
-        status.textContent = hasMore ? '' : assets.length + fileCount ? `已显示本机保存的全部${category}`
-          : filesTab ? '从相册上传的文档、压缩包等文件会显示在这里。' : '聊天中的原图和从相册上传的图片会显示在这里。';
+        knownCount.complete = !hasMore;
+        updateCounts();
+        status.textContent = hasMore ? '' : assets.length + fileCount ? `已加载本机保存的全部${category}`
+          : filesTab ? '从保险箱上传的文档、压缩包等文件会显示在这里。' : '聊天中的原图和从保险箱上传的图片会显示在这里。';
         if (!hasMore && !assets.length && !fileCount) {
           const empty = document.createElement('p');
           empty.className = 'gallery-empty';
@@ -5345,9 +5522,9 @@ export class QuietRoomApp {
         }
       } catch (cause) {
         if (this.isRuntimeActive(epoch, session) && grid.isConnected) {
-          status.textContent = '相册记录暂时无法读取';
+          status.textContent = '保险箱记录暂时无法读取';
           more.textContent = '重试';
-          this.operationalError(cause, '相册读取失败');
+          this.operationalError(cause, '保险箱读取失败');
         }
       } finally {
         loading = false;
@@ -5375,15 +5552,13 @@ export class QuietRoomApp {
         if (!this.isRuntimeActive(epoch, session) || !tile.isConnected) return;
         const image = document.createElement('img');
         image.src = cached.url;
-        image.alt = manifest.originalName || '相册图片';
+        image.alt = manifest.originalName || '保险箱图片';
         image.decoding = 'async';
         await image.decode();
         if (!this.isRuntimeActive(epoch, session) || !tile.isConnected) return;
         cached.width = image.naturalWidth;
         cached.height = image.naturalHeight;
-        const time = tile.querySelector('time');
         tile.replaceChildren(image);
-        if (time) tile.append(time);
         tile.dataset.thumbnailState = 'loaded';
         tile.setAttribute('aria-busy', 'false');
       } catch (cause) {
@@ -5420,7 +5595,7 @@ export class QuietRoomApp {
     this.setActiveSurface('away');
     if (session.vault.role !== 'creator') {
       this.renderChat();
-      this.showNotice('相册仅对会话创建者开放', 'error');
+      this.showNotice('保险箱仅对会话创建者开放', 'error');
       return;
     }
     const epoch = this.runtimeEpoch;
@@ -5691,6 +5866,10 @@ export class QuietRoomApp {
     this.roleLastSeen = { creator: null, joiner: null };
     this.chatLayoutObserver?.disconnect();
     this.chatLayoutObserver = null;
+    this.chatLayoutElements = null;
+    this.cancelViewportWork();
+    if (this.chatScrollFrame !== null) cancelAnimationFrame(this.chatScrollFrame);
+    this.chatScrollFrame = null;
     if (this.presenceRefreshTimer !== null) window.clearInterval(this.presenceRefreshTimer);
     this.presenceRefreshTimer = null;
     if (this.recoveryPollTimer !== null) window.clearTimeout(this.recoveryPollTimer);
@@ -5700,6 +5879,8 @@ export class QuietRoomApp {
     this.chatRestoreAnchor = null;
     this.restoreChatAnchorOnNextRender = true;
     this.galleryScrollTop = { images: 0, files: 0 };
+    this.galleryRevealedAssets.clear();
+    this.galleryKnownCounts = {};
     if (this.idleTimer !== null) window.clearTimeout(this.idleTimer);
     this.idleTimer = null;
     this.idleDeadline = 0;

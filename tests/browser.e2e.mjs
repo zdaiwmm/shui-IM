@@ -255,10 +255,15 @@ try {
     const self = document.querySelector('#self-presence').getBoundingClientRect();
     const peer = document.querySelector('#peer-presence').getBoundingClientRect();
     const summary = document.querySelector('.peer-summary').getBoundingClientRect();
-    return { selfRight: self.right, peerLeft: peer.left, peerCenter: (summary.left + summary.right) / 2, headerCenter: (header.left + header.right) / 2 };
+    const safe = document.querySelector('#open-gallery').getBoundingClientRect();
+    const more = document.querySelector('.more-menu > summary').getBoundingClientRect();
+    return { selfRight: self.right, peerLeft: peer.left, peerCenter: (summary.left + summary.right) / 2, headerCenter: (header.left + header.right) / 2,
+      summaryHeight: summary.height, actionHeight: safe.height, actionGap: more.left - safe.right, statusGap: safe.left - summary.right };
   });
   invariant(presenceLayout.selfRight <= presenceLayout.peerLeft + 1, `Self presence is not on the left: ${JSON.stringify(presenceLayout)}`);
   invariant(Math.abs(presenceLayout.peerCenter - presenceLayout.headerCenter) <= 3, `Combined presence is not centered: ${JSON.stringify(presenceLayout)}`);
+  invariant(Math.abs(presenceLayout.summaryHeight - presenceLayout.actionHeight) < 1 && presenceLayout.actionGap >= 8 && presenceLayout.statusGap >= 6,
+    `Header status crowds the actions or has a different height: ${JSON.stringify(presenceLayout)}`);
   invariant(await creator.locator('#dismiss-recovery svg').evaluate((icon) => getComputedStyle(icon).stroke !== 'none'), 'Pinned recovery reminder close icon is invisible');
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-pinned-mobile.png') });
   await creator.locator('#dismiss-recovery').click();
@@ -279,21 +284,21 @@ try {
   invariant(composerLayout.composerVisible && composerLayout.inputVisible, `Bottom chat composer is clipped or missing: ${JSON.stringify(composerLayout)}`);
   invariant(Boolean(composerLayout.chromeColor), 'System browser chrome color is not synchronized');
   const keyboardViewportLayout = await creator.evaluate(async () => {
-    document.documentElement.style.setProperty('--app-top', '40px');
-    document.documentElement.style.setProperty('--app-height', '460px');
-    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const app = document.querySelector('#app')?.getBoundingClientRect();
-    const composer = document.querySelector('.composer')?.getBoundingClientRect();
-    const input = document.querySelector('#message-input')?.getBoundingClientRect();
-    const result = {
-      appBottom: app?.bottom,
-      composerBottom: composer?.bottom,
-      inputBottom: input?.bottom,
-      composerHeight: composer?.height,
-    };
-    document.documentElement.style.setProperty('--app-top', '0px');
-    document.documentElement.style.setProperty('--app-height', `${innerHeight}px`);
-    return result;
+    const viewport = window.visualViewport;
+    const settle = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 40 });
+    Object.defineProperty(viewport, 'height', { configurable: true, value: 460 });
+    try {
+      viewport.dispatchEvent(new Event('resize'));
+      await settle();
+      const composer = document.querySelector('.composer')?.getBoundingClientRect();
+      const input = document.querySelector('#message-input')?.getBoundingClientRect();
+      return { composerBottom: composer?.bottom, inputBottom: input?.bottom, composerHeight: composer?.height };
+    } finally {
+      delete viewport.offsetTop; delete viewport.height;
+      viewport.dispatchEvent(new Event('resize'));
+      await settle();
+    }
   });
   invariant(
     Math.abs((keyboardViewportLayout.composerBottom ?? 0) - 500) < 1
@@ -596,11 +601,14 @@ try {
   await creator.locator('.gallery-shell').waitFor({ timeout: 15_000 });
   await creator.locator('.gallery-upload-progress').waitFor({ state: 'visible' });
   invariant(await creator.locator('.cover-trigger').count() === 0, 'Gallery upload activated the privacy curtain');
-  const galleryOnlyTile = creator.locator('button[aria-label="查看原图 gallery-only.svg"]');
+  const galleryOnlyTile = creator.locator('.gallery-tile').filter({ has: creator.locator('img[alt="gallery-only.svg"]') });
   await galleryOnlyTile.waitFor({ timeout: 10_000 });
   await galleryOnlyTile.locator('img').waitFor({ timeout: 10_000 });
-  await creator.locator('button[aria-label="查看原图 gallery-second.svg"] img').waitFor({ timeout: 10_000 });
+  await creator.locator('.gallery-tile img[alt="gallery-second.svg"]').waitFor({ timeout: 10_000 });
   invariant(await galleryOnlyTile.getAttribute('data-thumbnail-state') === 'loaded', 'Visible gallery thumbnail did not decrypt and render');
+  invariant(await galleryOnlyTile.getAttribute('data-revealed') === 'false', 'A new safe upload is visible before an explicit reveal');
+  await galleryOnlyTile.click();
+  invariant(await creator.locator('.image-viewer').count() === 0, 'The first safe tile tap opened the viewer before revealing its thumbnail');
   await galleryOnlyTile.click();
   await creator.locator('.image-viewer.is-visible .viewer-stage img').waitFor({ timeout: 10_000 });
   await creator.locator('[data-viewer-close]').click();
