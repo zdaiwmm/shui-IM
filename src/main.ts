@@ -2,6 +2,7 @@ import './styles.css';
 import './chat-layout.css';
 import './auth-recovery.css';
 import './chat-interactions.css';
+import './voice-messages.css';
 import { QuietRoomApp } from './app';
 
 const colorScheme = window.matchMedia('(prefers-color-scheme: dark)');

@@ -33,7 +33,10 @@ import {
   verifyDeliveryReceipt,
   verifyJoinProof,
 } from './lib/crypto';
-import { decryptImageFile, encryptImageFile, MAX_IMAGE_BYTES } from './lib/file-crypto';
+import { decryptAudioFile, encryptAudioFile, decryptImageFile, encryptImageFile, MAX_IMAGE_BYTES } from './lib/file-crypto';
+import { VoiceRecorder } from './lib/voice-recorder';
+import { VoicePlayback, VoicePlayer } from './lib/voice-player';
+import { voiceIcons, voiceTime } from './lib/voice-audio';
 import { MAX_IMAGE_ALBUM_BYTES, MAX_IMAGE_ALBUM_ITEMS } from './lib/message-payload';
 import { downloadBlob } from './lib/download';
 import { gestureSecret, GesturePad } from './lib/gesture';
@@ -133,7 +136,7 @@ type DeviceInvite = {
   expiresAt: string;
 };
 
-const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'recovery-replace-v1'];
+const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'recovery-replace-v1', 'voice-message-v1'];
 
 type CachedImage = { blob: Blob; url: string; bytes: number; lastUsedAt: number };
 const MAX_IMAGE_CACHE_BYTES = 96 * 1024 * 1024;
@@ -344,6 +347,9 @@ export class QuietRoomApp {
   private suppressMediaClickUntil = 0;
   private messageHighlightTimer: number | null = null;
   private replyJumpVersion = 0;
+  private voiceRecorder: VoiceRecorder | null = null;
+  private microphonePromptActive = false;
+  private voicePlayback = new VoicePlayback();
 
   constructor(private readonly root: HTMLElement) {
     const preventZoom = (event: Event) => event.preventDefault();
@@ -388,6 +394,11 @@ export class QuietRoomApp {
     document.addEventListener('keydown', (event) => {
       this.resetIdleLock();
       if (event.key !== 'Escape') return;
+      if (this.voiceRecorder) {
+        event.preventDefault();
+        if (this.root.querySelector('.voice-recorder')?.getAttribute('data-state') !== 'sending') this.closeVoiceRecorder(true);
+        return;
+      }
       if (this.root.querySelector('.image-viewer')) {
         event.preventDefault();
         this.closeImageViewer();
@@ -416,7 +427,7 @@ export class QuietRoomApp {
     });
     window.addEventListener('blur', () => {
       if (this.fileExportActive) this.fileExportBlurred = true;
-      if (!this.imagePickerActive && !this.deviceVerificationActive && !this.fileExportActive) {
+      if (!this.imagePickerActive && !this.deviceVerificationActive && !this.fileExportActive && !this.microphonePromptActive) {
         this.lockNow({ preserveFilePicker: this.filePickerActive });
       }
     });
@@ -2073,6 +2084,8 @@ export class QuietRoomApp {
 
   private renderChat(): void {
     if (!this.session) return;
+    this.closeVoiceRecorder();
+    this.voicePlayback.stop();
     this.setActiveSurface('chat');
     const cryptoReady = this.session.vault.protocol !== 'mls-rfc9420' || this.session.vault.mls?.phase === 'active';
     this.galleryObserver?.disconnect();
@@ -2138,7 +2151,9 @@ export class QuietRoomApp {
             <label class="sr-only" for="message-input">输入消息</label>
             <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '输入消息' : '正在建立安全会话…'}" enterkeyhint="send" ${cryptoReady ? '' : 'disabled'}></textarea>
           </div>
-          <button class="send-button" type="submit" aria-label="发送消息" ${cryptoReady ? '' : 'disabled'}>${icons.send}</button>
+          <button class="icon-button voice-record-button" id="record-voice" type="button" aria-label="录制语音消息" title="录制语音消息" ${cryptoReady ? '' : 'disabled'}>${voiceIcons.mic}</button>
+          <button class="send-button" type="submit" aria-label="发送消息" ${cryptoReady ? '' : 'disabled'} hidden>${icons.send}</button>
+          <section class="voice-recorder" aria-label="录制语音消息" hidden></section>
           <div class="upload-progress" id="upload-progress" hidden><span></span><output></output></div>
         </form>
       </section>
@@ -2156,6 +2171,7 @@ export class QuietRoomApp {
     textarea.addEventListener('input', () => {
       textarea.style.height = 'auto';
       textarea.style.height = `${Math.min(textarea.scrollHeight, 128)}px`;
+      this.syncComposerMode();
     });
     textarea.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
@@ -2167,6 +2183,7 @@ export class QuietRoomApp {
       if (!this.imagePickerActive) this.keepComposerKeyboard = false;
     });
     const imageInput = this.root.querySelector<HTMLInputElement>('#image-input');
+    this.root.querySelector('#record-voice')?.addEventListener('click', () => this.beginVoiceRecording());
     const sendButton = this.root.querySelector<HTMLButtonElement>('.send-button');
     sendButton?.addEventListener('pointerdown', (event) => this.retainComposerKeyboard(event, textarea));
     this.mountImagePicker(imageInput, 'chat', this.root.querySelector<HTMLButtonElement>('#open-image-picker'));
@@ -2549,6 +2566,10 @@ export class QuietRoomApp {
   }
 
   private setActiveSurface(surface: 'away' | 'chat'): void {
+    if (surface === 'away') {
+      this.closeVoiceRecorder();
+      this.voicePlayback.stop();
+    }
     if (surface === 'chat' && this.activeSurface !== 'chat') this.rolePresence = null;
     this.activeSurface = surface;
     this.socket?.setChatPresence(surface === 'chat');
@@ -2667,7 +2688,7 @@ export class QuietRoomApp {
     event.preventDefault();
     const session = this.session;
     const epoch = this.runtimeEpoch;
-    if (!session || this.privacyCovered) return;
+    if (!session || this.privacyCovered || this.voiceRecorder) return;
     const input = this.root.querySelector<HTMLTextAreaElement>('#message-input');
     const text = input?.value.trim() ?? '';
     const retainKeyboard = Boolean(input && (document.activeElement === input || this.keepComposerKeyboard));
@@ -2688,6 +2709,7 @@ export class QuietRoomApp {
     if (input) {
       input.value = '';
       input.style.height = 'auto';
+      this.syncComposerMode();
       if (retainKeyboard) this.restoreComposerFocus();
     }
     try {
@@ -2732,6 +2754,9 @@ export class QuietRoomApp {
   private async sendPayloadLocked(payload: MessagePayload, existingClientMsgId: string | undefined, mutation: VaultMutation): Promise<void> {
     const session = this.session;
     if (!session || this.privacyCovered) return;
+    if ((payload.kind === 'audio' || (payload.kind !== 'gallery-image' && payload.replyTo?.kind === 'audio')) && !this.activeDevicesSupport('voice-message-v1')) {
+      throw new Error('请先让所有已授权设备打开一次最新版，再发送语音或回复语音');
+    }
     if (session.vault.protocol === 'mls-rfc9420' && session.vault.mls?.phase !== 'active') {
       throw new Error('安全会话尚未建立完成，内容不会上传或发送');
     }
@@ -2869,6 +2894,92 @@ export class QuietRoomApp {
       if (!this.isRuntimeActive(epoch, session)) return;
       this.operationalError(cause, '送达回执已被服务器确认，但本机队列清理失败');
     }
+  }
+
+  private syncComposerMode(): void {
+    const hasText = Boolean(this.root.querySelector<HTMLTextAreaElement>('#message-input')?.value.trim());
+    const mic = this.root.querySelector<HTMLButtonElement>('#record-voice');
+    const send = this.root.querySelector<HTMLButtonElement>('#composer > .send-button');
+    if (mic) mic.hidden = hasText;
+    if (send) send.hidden = !hasText;
+  }
+
+  private closeVoiceRecorder(restoreFocus = false): void {
+    const recorder = this.voiceRecorder;
+    this.voiceRecorder = null;
+    this.microphonePromptActive = false;
+    recorder?.destroy();
+    const host = this.root.querySelector<HTMLElement>('.voice-recorder');
+    if (host) host.hidden = true;
+    this.root.querySelector('#composer')?.classList.remove('has-voice-draft');
+    if (restoreFocus) this.root.querySelector<HTMLButtonElement>('#record-voice')?.focus({ preventScroll: true });
+  }
+
+  private beginVoiceRecording(): void {
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    const host = this.root.querySelector<HTMLElement>('.voice-recorder');
+    if (!session || this.privacyCovered || !host || this.voiceRecorder) return;
+    if (session.vault.protocol === 'mls-rfc9420' && session.vault.mls?.phase !== 'active') return;
+    if (!this.activeDevicesSupport('voice-message-v1')) {
+      this.showNotice('请先让所有已授权设备打开一次最新版，再发送语音', 'error');
+      return;
+    }
+    if (this.root.querySelector('#composer.is-uploading')) {
+      this.showNotice('请等图片上传完成后再录音');
+      return;
+    }
+    this.voicePlayback.stop();
+    this.closeMessageActions();
+    this.root.querySelector<HTMLTextAreaElement>('#message-input')?.blur();
+    this.root.querySelector('#composer')?.classList.add('has-voice-draft');
+    host.hidden = false;
+    let replyTarget: DecryptedMessage | null | undefined;
+    let payload: MessagePayload | undefined;
+    let plan: ImageUploadPlan | undefined;
+    let uploaded: ImageManifest | undefined;
+    const recorder = new VoiceRecorder(host, {
+      permission: active => {
+        if (this.voiceRecorder === recorder) this.microphonePromptActive = active;
+      },
+      cancel: () => {
+        if (this.voiceRecorder === recorder) this.closeVoiceRecorder(true);
+      },
+      fail: message => {
+        if (!this.isRuntimeActive(epoch, session) || this.voiceRecorder !== recorder) return;
+        this.closeVoiceRecorder(true); this.showNotice(message, 'error');
+      },
+      send: async (draft, draftSignal) => {
+        if (!this.isRuntimeActive(epoch, session) || this.voiceRecorder !== recorder) return;
+        if (replyTarget === undefined) replyTarget = this.replyTarget;
+        if (!this.activeDevicesSupport('voice-message-v1')) throw new Error('有设备尚未更新，请先让所有设备打开最新版');
+        const signal = AbortSignal.any([draftSignal, this.runtimeAbort!.signal]);
+        const { roomId, accessToken } = session.vault;
+        uploaded ??= await encryptAudioFile(draft.file, {
+          reserve: (blobId, count, size) => reserveBlob(roomId, accessToken, blobId, count, size, signal),
+          status: blobId => getBlobStatus(roomId, accessToken, blobId, signal),
+          upload: (blobId, index, bytes) => this.retryOperation(() => uploadBlobChunk(roomId, accessToken, blobId, index, bytes, signal), 3, signal),
+          complete: blobId => completeBlob(roomId, accessToken, blobId, signal),
+          // The unsent recording and its retry plan are memory-only and are
+          // discarded together on lock. Never persist unencrypted audio.
+          savePlan: async value => { plan = value; },
+          signal,
+        }, plan);
+        signal.throwIfAborted();
+        if (!this.isRuntimeActive(epoch, session) || this.voiceRecorder !== recorder) return;
+        payload ??= {
+          v: replyTarget ? 2 : 1, kind: 'audio', audio: uploaded,
+          durationMs: draft.durationMs, waveform: draft.waveform, sentAt: new Date().toISOString(),
+          ...(replyTarget ? { replyTo: this.replyReference(replyTarget) } : {}),
+        };
+        await this.enqueuePayload(payload, draft.clientMsgId);
+        if (!this.isRuntimeActive(epoch, session) || this.voiceRecorder !== recorder) return;
+        this.closeVoiceRecorder(true);
+        if (this.replyTarget === replyTarget) { this.replyTarget = null; this.renderReplyDraft(); }
+      },
+    });
+    this.voiceRecorder = recorder;
+    void recorder.start();
   }
 
   private beginImagePicker(restoreComposerFocus = false): void {
@@ -3204,6 +3315,7 @@ export class QuietRoomApp {
 
   private replyPreviewForMessage(message: DecryptedMessage): string {
     if (message.payload.kind === 'text') return this.replyPreview(message.payload.text);
+    if (message.payload.kind === 'audio') return `语音 · ${voiceTime(message.payload.durationMs)}`;
     if (message.payload.kind === 'image-album') return `${message.payload.images.length} 张图片`;
     return '图片';
   }
@@ -3211,7 +3323,8 @@ export class QuietRoomApp {
   private localReplyPreview(reference: ReplyReference): string {
     const target = this.messages.get(reference.serverSeq);
     if (target?.clientMsgId === reference.clientMsgId) return this.replyPreviewForMessage(target);
-    return reference.kind === 'text' ? '较早的文字消息 · 点按查看' : '较早的图片 · 点按查看';
+    return reference.kind === 'text' ? '较早的文字消息 · 点按查看'
+      : reference.kind === 'audio' ? '较早的语音 · 点按查看' : '较早的图片 · 点按查看';
   }
 
   private replyReference(message: DecryptedMessage): ReplyReference {
@@ -3219,11 +3332,11 @@ export class QuietRoomApp {
       clientMsgId: message.clientMsgId,
       serverSeq: message.seq,
       senderId: message.senderId,
-      kind: message.payload.kind === 'text' ? 'text' : 'image',
+      kind: message.payload.kind === 'text' ? 'text' : message.payload.kind === 'audio' ? 'audio' : 'image',
       // Keep the v2 wire field generic. Devices that own the referenced
       // history render a local preview; newly linked devices never receive a
       // copied excerpt from a message before their MLS join boundary.
-      preview: message.payload.kind === 'text' ? '文字消息' : '图片',
+      preview: message.payload.kind === 'text' ? '文字消息' : message.payload.kind === 'audio' ? '语音消息' : '图片',
     };
   }
 
@@ -3260,7 +3373,7 @@ export class QuietRoomApp {
     const open = () => this.openMessageActions(article, message);
     article.addEventListener('pointerdown', (event) => {
       const excludedButton = event.target instanceof Element
-        ? event.target.closest('button:not(.image-preview):not(.album-cell)')
+        ? event.target.closest('input, button:not(.image-preview):not(.album-cell)')
         : null;
       if (event.button !== 0 || event.pointerType === 'mouse' || excludedButton) return;
       this.cancelMessageHold();
@@ -3516,7 +3629,7 @@ export class QuietRoomApp {
       const title = document.createElement('p');
       title.textContent = '会话已经准备好';
       const detail = document.createElement('span');
-      detail.textContent = '文字和原图都会在这台设备上加密后再发送。';
+      detail.textContent = '文字、语音和原图都会在这台设备上加密后再发送。';
       empty.append(title, detail);
       this.renderedMessages.clear();
       this.renderedMessageOrder = [];
@@ -3534,6 +3647,12 @@ export class QuietRoomApp {
         // identity and mutable delivery metadata without serializing history.
         const unchanged = cached?.payload === message.payload && cached.status === message.status && cached.acceptedAt === message.acceptedAt;
         const element = unchanged ? cached.element : this.createMessageElement(message);
+        // A receipt changes delivery metadata, not the voice source. Keep its
+        // live player and seek position instead of interrupting playback.
+        if (cached && !unchanged && cached.payload === message.payload) {
+          const voice = cached.element.querySelector('.voice-player');
+          if (voice) element.querySelector('.voice-player')?.replaceWith(voice);
+        }
         if (cached && !unchanged && cached.element.parentElement === list) {
           const hadFocus = cached.element.contains(document.activeElement);
           cached.element.replaceWith(element);
@@ -3562,6 +3681,7 @@ export class QuietRoomApp {
       this.renderedMessageSeq = sequences;
     }
     this.mountChatImageObserver(list);
+    this.voicePlayback.prune();
     if (scroll === 'bottom' || messages.length <= 1) {
       list.scrollTop = list.scrollHeight;
       this.captureChatAnchor(true);
@@ -3669,6 +3789,22 @@ export class QuietRoomApp {
       const text = document.createElement('p');
       text.textContent = message.payload.text;
       bubble.append(text);
+    } else if (message.payload.kind === 'audio') {
+      bubble.classList.add('voice-bubble');
+      const payload = message.payload;
+      const session = this.session!;
+      const epoch = this.runtimeEpoch;
+      const player = new VoicePlayer(payload, this.voicePlayback, async (playbackSignal) => {
+        if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
+        if (this.voiceRecorder) throw new Error('请先结束录音');
+        const signal = AbortSignal.any([playbackSignal, this.runtimeAbort!.signal]);
+        const blob = await decryptAudioFile(payload.audio,
+          (blobId, index) => fetchBlobChunk(session.vault.roomId, session.vault.accessToken, blobId, index, signal), undefined, signal);
+        signal.throwIfAborted();
+        if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
+        return blob;
+      });
+      bubble.append(player.element);
     } else if (message.payload.kind === 'image-album') {
       article.classList.add('has-media');
       bubble.classList.add('image-bubble');
@@ -4304,7 +4440,7 @@ export class QuietRoomApp {
     const addMessages = (messages: DecryptedMessage[]) => {
       for (const message of messages) {
         const manifests = message.payload.kind === 'image-album' ? message.payload.images
-          : message.payload.kind === 'text' ? [] : [message.payload.image];
+          : message.payload.kind === 'text' || message.payload.kind === 'audio' ? [] : [message.payload.image];
         for (const [assetIndex, manifest] of manifests.entries()) {
           const key = `${message.clientMsgId}:${assetIndex}`;
           if (assetKeys.has(key)) continue;
@@ -4594,6 +4730,8 @@ export class QuietRoomApp {
   }
 
   private cleanupRuntime(preserveFilePicker = false): void {
+    this.closeVoiceRecorder();
+    this.voicePlayback.stop();
     this.captureChatAnchor(false);
     if (this.preferenceSaveTimer !== null) window.clearTimeout(this.preferenceSaveTimer);
     this.preferenceSaveTimer = null;

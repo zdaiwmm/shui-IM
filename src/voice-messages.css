@@ -1,0 +1,46 @@
+/* Voice controls inherit the existing chat palette in both system themes. */
+#composer > [hidden], .voice-recorder[hidden] { display: none; }
+.has-voice-draft > .composer-field,
+.has-voice-draft > .image-picker,
+.has-voice-draft > .send-button,
+.has-voice-draft > .voice-record-button { display: none; }
+.voice-record-button { flex: 0 0 44px; color: var(--ink-muted); }
+.voice-recorder {
+  flex: 1 0 100%;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: var(--surface-raised);
+  padding: 14px 14px 10px;
+}
+.voice-recording-info { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 0.8125rem; }
+.voice-recording-time, .voice-time { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.voice-recorder[data-state="recording"] .voice-recording-state { color: var(--danger); }
+.voice-recorder[data-state="recording"] .voice-recording-state::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: currentColor; margin-right: 7px; }
+.voice-waveform { display: flex; align-items: center; justify-content: space-between; gap: 2px; height: 40px; pointer-events: none; }
+.voice-waveform i { display: block; flex: 1 1 0; max-width: 4px; min-width: 1px; height: var(--level, 6%); border-radius: 4px; background: currentColor; }
+.voice-recording-wave { margin: 10px 0 6px; color: var(--ink-muted); }
+.voice-recorder[data-state="recording"] .voice-recording-wave { color: var(--danger); }
+.voice-recording-controls { display: flex; align-items: center; gap: 8px; }
+.voice-control { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 44px; width: 44px; height: 44px; padding: 10px; border: 0; border-radius: 50%; color: inherit; background: transparent; }
+.voice-control svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.voice-control:hover:not(:disabled), .voice-toggle:hover:not(:disabled) { background: color-mix(in oklch, currentColor 10%, transparent); }
+.voice-control:disabled, .voice-toggle:disabled { opacity: 0.38; cursor: default; }
+.voice-discard { color: var(--ink-muted); }
+.voice-preview { background: var(--surface); }
+.voice-toggle { min-height: 44px; padding: 8px 14px; border: 0; border-radius: 22px; background: transparent; color: var(--ink); font-size: 0.875rem; }
+.voice-send { margin-left: auto; background: var(--accent); color: var(--on-accent); }
+.voice-send:hover:not(:disabled) { background: var(--accent-hover); }
+.voice-recording-hint { margin: 8px 4px 0; color: var(--ink-muted); font-size: 0.75rem; line-height: 1.5; }
+.message-bubble.voice-bubble { min-width: 0; width: min(280px, calc(100vw - 68px)); padding: 8px 10px 8px 4px; }
+.voice-player { display: grid; grid-template-columns: 44px minmax(0, 1fr) auto; align-items: center; column-gap: 6px; }
+.voice-timeline { position: relative; min-width: 0; height: 44px; }
+.voice-timeline .voice-waveform { position: absolute; inset: 6px 0; height: 32px; gap: 2px; }
+.voice-timeline .voice-waveform i { opacity: 0.5; }
+.voice-timeline .voice-waveform .is-played { opacity: 1; }
+.voice-seek { position: absolute; inset: 0; width: 100%; height: 44px; margin: 0; opacity: 0; cursor: pointer; }
+.voice-timeline:focus-within { outline: 2px solid currentColor; outline-offset: 3px; border-radius: 4px; }
+.voice-time { font-size: 0.75rem; min-width: 3.2ch; text-align: right; }
+.voice-play-status { grid-column: 1 / -1; padding-left: 8px; font-size: 0.75rem; line-height: 1.5; }
+.voice-play-status:empty { display: none; }
+.voice-bubble .message-reply-quote { margin-left: 6px; }

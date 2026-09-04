@@ -182,3 +182,11 @@ npm run check:full
 - `ui-audit.e2e.mjs`：320px、390px、1280px、844×390 横屏、深色与 125% 字体等组合，保存几何和截图证据。正常界面动画、弹层滚动和旋转定位需与原审计截图对照。
 
 执行结果与发布状态记录于 `audit/2026-09-04-fixes/report.md`。这里列出覆盖范围，不代表真实 iOS 平台或生产服务器已经完成验证。
+## Voice-message regression
+
+- `tests/voice.test.ts`: strict voice manifests/reply validation, duration and waveform bounds, portable PCM WAV encoding, exact audio bytes after decryption, resumable ciphertext, modified digest/chunk rejection, and cancellation.
+- `tests/server.test.ts`: production permits only same-origin microphone access and local Blob media playback while keeping camera disabled.
+- `tests/browser.e2e.mjs` includes `tests/voice-flow.e2e.mjs`, using Chrome's **fake microphone**, never a physical microphone. Covers pause/continue/preview, encrypted MLS delivery and receipts between two independent devices, playback/seeking, replies, discard, upload failure/retry, reload of local history, microphone denial, and late permission results after lock.
+- `tests/voice-lifecycle.e2e.mjs`: old-device capability gate, prompt cancellation/timeout, stale permission ownership, hidden-prompt lock, single-source playback, receipt updates preserving playback, late download/send cleanup, and the five-minute review-before-send limit.
+- Run `node tests/browser.e2e.mjs audit-screenshots/voice` for 320/390px recording controls, incoming/outgoing voice bubbles, dark-mode and desktop captures. Inspect these images as well as assertions.
+- Manual release check on physical iPhone Safari / installed PWA and Android Chrome: first-time microphone prompt, repeated pause/resume, headset removal/interruption, background/lock while recording or playing, recording limit, and phone-to-desktop playback. Desktop Chrome automation does not certify mobile OS permission or microphone behavior.

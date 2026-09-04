@@ -10,6 +10,14 @@ export const IMAGE_CHUNK_SIZE = 2 * 1024 * 1024;
 export const MIN_IMAGE_ALBUM_ITEMS = 2;
 export const MAX_IMAGE_ALBUM_ITEMS = 9;
 export const MAX_IMAGE_ALBUM_BYTES = MAX_IMAGE_BYTES;
+export const MAX_AUDIO_BYTES = 16 * 1024 * 1024;
+export const MIN_AUDIO_DURATION_MS = 500;
+export const MAX_AUDIO_DURATION_MS = 5 * 60 * 1000;
+export const AUDIO_MIME_TYPES = ['audio/wav', 'audio/mp4', 'audio/mp4;codecs=mp4a.40.2', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg'] as const;
+
+export function isAudioMimeType(value: unknown): value is string {
+  return typeof value === 'string' && (AUDIO_MIME_TYPES as readonly string[]).includes(value.toLowerCase().replace(/\s/g, ''));
+}
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256 = /^[0-9a-f]{64}$/i;
@@ -29,7 +37,7 @@ function boundedBase64(value: unknown, byteLength: number): value is string {
   }
 }
 
-export function isImageManifest(value: unknown): boolean {
+function isAttachmentManifest(value: unknown, kind: 'image' | 'audio'): boolean {
   if (!value || typeof value !== 'object') return false;
   const image = value as Record<string, unknown>;
   const chunkCount = image.chunkCount;
@@ -48,10 +56,18 @@ export function isImageManifest(value: unknown): boolean {
     typeof image.originalName === 'string' && image.originalName.length <= MAX_IMAGE_NAME_LENGTH &&
     !/[\u0000-\u001f\u007f]/.test(image.originalName) &&
     typeof image.mimeType === 'string' && image.mimeType.length > 0 && image.mimeType.length <= MAX_IMAGE_MIME_LENGTH &&
-    image.mimeType.startsWith('image/') &&
+    (kind === 'image' ? image.mimeType.startsWith('image/') : isAudioMimeType(image.mimeType) && originalSize <= MAX_AUDIO_BYTES) &&
     typeof lastModified === 'number' && Number.isSafeInteger(lastModified) && lastModified >= 0 &&
     typeof image.sha256 === 'string' && SHA256.test(image.sha256),
   );
+}
+
+export function isImageManifest(value: unknown): boolean {
+  return isAttachmentManifest(value, 'image');
+}
+
+export function isAudioManifest(value: unknown): boolean {
+  return isAttachmentManifest(value, 'audio');
 }
 
 function isReplyReference(value: unknown): boolean {
@@ -61,7 +77,7 @@ function isReplyReference(value: unknown): boolean {
     typeof reply.clientMsgId === 'string' && UUID_V4.test(reply.clientMsgId) &&
     typeof reply.serverSeq === 'number' && Number.isSafeInteger(reply.serverSeq) && reply.serverSeq > 0 &&
     typeof reply.senderId === 'string' && UUID_V4.test(reply.senderId) &&
-    (reply.kind === 'text' || reply.kind === 'image') &&
+    (reply.kind === 'text' || reply.kind === 'image' || reply.kind === 'audio') &&
     typeof reply.preview === 'string' && reply.preview.length > 0 && [...reply.preview].length <= MAX_REPLY_PREVIEW_LENGTH &&
     !/[\u0000-\u001f\u007f]/.test(reply.preview);
 }
@@ -85,6 +101,17 @@ export function isMessagePayload(value: unknown): value is MessagePayload {
     if (!isImageManifest(payload.image)) return false;
     if (payload.v === 1) return hasOnlyKeys(payload, ['v', 'kind', 'image', 'sentAt']);
     return hasOnlyKeys(payload, ['v', 'kind', 'image', 'sentAt', 'replyTo']) && isReplyReference(payload.replyTo);
+  }
+  if (payload.kind === 'audio') {
+    if (!isAudioManifest(payload.audio) ||
+      typeof payload.durationMs !== 'number' || !Number.isSafeInteger(payload.durationMs) ||
+      payload.durationMs < MIN_AUDIO_DURATION_MS || payload.durationMs > MAX_AUDIO_DURATION_MS ||
+      !Array.isArray(payload.waveform) || payload.waveform.length < 1 || payload.waveform.length > 64 ||
+      !payload.waveform.every((sample) => Number.isInteger(sample) && sample >= 0 && sample <= 100)
+    ) return false;
+    const keys = ['v', 'kind', 'audio', 'durationMs', 'waveform', 'sentAt'];
+    if (payload.v === 1) return hasOnlyKeys(payload, keys);
+    return hasOnlyKeys(payload, [...keys, 'replyTo']) && isReplyReference(payload.replyTo);
   }
   if (payload.kind === 'image-album') {
     if (

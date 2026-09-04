@@ -1,7 +1,7 @@
 import { createSHA256 } from 'hash-wasm';
 import { canonicalStringify } from './canonical';
 import { fromBase64Url, toBase64Url } from './base64';
-import { IMAGE_CHUNK_SIZE, isImageManifest, MAX_IMAGE_BYTES } from './message-payload';
+import { IMAGE_CHUNK_SIZE, isImageManifest, MAX_IMAGE_BYTES, isAudioManifest, isAudioMimeType, MAX_AUDIO_BYTES } from './message-payload';
 import type { ImageManifest, ImageUploadPlan, ImageUploadPlanV2 } from './types';
 
 export { IMAGE_CHUNK_SIZE, MAX_IMAGE_BYTES } from './message-payload';
@@ -36,7 +36,7 @@ async function hashFile(file: File, signal?: AbortSignal): Promise<string> {
   return hash.digest('hex');
 }
 
-export async function encryptImageFile(
+async function encryptAttachmentFile(
   file: File,
   callbacks: {
     reserve: (blobId: string, chunkCount: number, encryptedSize: number) => Promise<void>;
@@ -48,9 +48,13 @@ export async function encryptImageFile(
     signal?: AbortSignal;
   },
   existingPlan?: ImageUploadPlan,
+  kind: 'image' | 'audio' = 'image',
 ): Promise<ImageManifest> {
   callbacks.signal?.throwIfAborted();
-  if (!file.type.startsWith('image/')) throw new Error('请选择图片文件');
+  if (kind === 'audio') {
+    if (!isAudioMimeType(file.type)) throw new Error('录音格式不受支持，请更新浏览器');
+    if (!file.size || file.size > MAX_AUDIO_BYTES) throw new Error('录音为空或超过 16 MiB，请重新录制');
+  } else if (!file.type.startsWith('image/')) throw new Error('请选择图片文件');
   if (file.size === 0) throw new Error('图片文件为空');
   if (file.size > MAX_IMAGE_BYTES) throw new Error('图片不能超过 256 MB');
   const chunkCount = Math.ceil(file.size / IMAGE_CHUNK_SIZE);
@@ -137,15 +141,26 @@ export async function encryptImageFile(
   };
 }
 
-export async function decryptImageFile(
+type UploadCallbacks = Parameters<typeof encryptAttachmentFile>[1];
+
+export function encryptImageFile(file: File, callbacks: UploadCallbacks, plan?: ImageUploadPlan): Promise<ImageManifest> {
+  return encryptAttachmentFile(file, callbacks, plan, 'image');
+}
+
+export function encryptAudioFile(file: File, callbacks: UploadCallbacks, plan?: ImageUploadPlan): Promise<ImageManifest> {
+  return encryptAttachmentFile(file, callbacks, plan, 'audio');
+}
+
+async function decryptAttachmentFile(
   manifest: ImageManifest,
   fetchChunk: (blobId: string, index: number) => Promise<ArrayBuffer>,
   progress?: (ratio: number) => void,
   signal?: AbortSignal,
+  kind: 'image' | 'audio' = 'image',
 ): Promise<Blob> {
   signal?.throwIfAborted();
-  if (!isImageManifest(manifest)) {
-    throw new Error('图片清单不受支持');
+  if (!(kind === 'image' ? isImageManifest(manifest) : isAudioManifest(manifest))) {
+    throw new Error('附件清单不受支持');
   }
   const key = await crypto.subtle.importKey('raw', fromBase64Url(manifest.key), { name: 'AES-GCM' }, false, ['decrypt']);
   const ivPrefix = fromBase64Url(manifest.ivPrefix);
@@ -159,6 +174,8 @@ export async function decryptImageFile(
     signal?.throwIfAborted();
     const ciphertext = await fetchChunk(manifest.blobId, index);
     signal?.throwIfAborted();
+    const expectedSize = Math.min(manifest.chunkSize, manifest.originalSize - index * manifest.chunkSize);
+    if (ciphertext.byteLength !== expectedSize + 16) throw new Error('附件分块长度不正确');
     const plaintext = await crypto.subtle.decrypt(
       {
         name: 'AES-GCM',
@@ -177,7 +194,17 @@ export async function decryptImageFile(
   }
 
   if (totalSize !== manifest.originalSize || hash.digest('hex') !== manifest.sha256) {
-    throw new Error('图片完整性校验失败');
+    throw new Error('附件完整性校验失败');
   }
   return new Blob(parts, { type: manifest.mimeType || 'application/octet-stream' });
+}
+
+export function decryptImageFile(manifest: ImageManifest, fetchChunk: FetchChunk, progress?: (ratio: number) => void, signal?: AbortSignal): Promise<Blob> {
+  return decryptAttachmentFile(manifest, fetchChunk, progress, signal, 'image');
+}
+
+type FetchChunk = (blobId: string, index: number) => Promise<ArrayBuffer>;
+
+export function decryptAudioFile(manifest: ImageManifest, fetchChunk: FetchChunk, progress?: (ratio: number) => void, signal?: AbortSignal): Promise<Blob> {
+  return decryptAttachmentFile(manifest, fetchChunk, progress, signal, 'audio');
 }

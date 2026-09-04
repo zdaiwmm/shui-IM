@@ -189,7 +189,7 @@ export type ReplyReference = {
   clientMsgId: string;
   serverSeq: number;
   senderId: string;
-  kind: 'text' | 'image';
+  kind: 'text' | 'image' | 'audio';
   preview: string;
 };
 
@@ -246,7 +246,20 @@ export type ImageAlbumPayload =
       replyTo: ReplyReference;
     };
 
-export type MessagePayload = TextPayload | ImagePayload | GalleryImagePayload | ImageAlbumPayload;
+/** Shares the opaque encrypted attachment transport, not the image gallery. */
+export type AudioManifest = ImageManifest;
+
+export type AudioPayload = {
+  v: 1 | 2;
+  kind: 'audio';
+  audio: AudioManifest;
+  durationMs: number;
+  waveform: number[];
+  sentAt: string;
+  replyTo?: ReplyReference;
+};
+
+export type MessagePayload = TextPayload | ImagePayload | GalleryImagePayload | ImageAlbumPayload | AudioPayload;
 
 export type RecipientWrap = {
   deviceId: string;

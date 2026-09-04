@@ -16,6 +16,7 @@ The implementation includes:
 - encrypted persistent outbox, stable message IDs, idempotent retries, and incremental reconnect synchronization;
 - signed peer delivery receipts that distinguish server persistence from actual peer receipt;
 - encrypted message replies whose target, sender, and generic type remain inside the MLS payload, while any content preview is derived only from this device's local history;
+- encrypted voice messages with recording, pause/resume, local preview, waveform playback/seeking, and privacy-bound microphone cleanup;
 - original-byte image encryption in resumable 2 MiB chunks;
 - single encrypted 2–9-image album messages, viewport-triggered local previews, and a full-screen photo viewer with paging, drag-to-dismiss, and original download;
 - encrypted per-device reading anchors and dismissible recovery reminders;
@@ -143,6 +144,46 @@ Tap an inline image or an album cell to open the full-screen overlay at that ite
 The server never creates thumbnails and does not know that a message contains an image. The creator-only gallery decrypts message manifests locally, then downloads and decrypts originals when needed. It contains both chat images and images the creator uploads directly from the gallery; direct gallery uploads do not create chat bubbles. The invited participant has no gallery entry or gallery route, while chat images remain visible in the conversation. The first version limits one image to 256 MiB and 128 encrypted 2 MiB chunks. Upload reservations and completed chunk indexes are persisted, so selecting the same file after an interruption resumes without changing the blob ID, key, or IV prefix.
 
 Opening the system image picker can blur or hide the browser. While a user-initiated chat or gallery image picker is active, Quiet Room ignores only those picker-generated blur/hidden events so the current screen remains visible and a confirmed file can proceed directly to encrypted upload. Selection, cancellation, or a bounded timeout removes the exception. A user-initiated passkey prompt receives the same narrow treatment only on the authentication gateway before a conversation or socket opens, including recovery and migration. It expires after 65 seconds and ends as soon as WebAuthn settles; settling while hidden locks immediately. `pagehide`, explicit lock, idle timeout, and later unrelated blur/background events still activate the white privacy curtain and clear the decrypted session.
+
+## Voice messages
+
+When the text field is empty, tap the microphone button to record. Pause to
+preview, continue recording, discard, or send. The paused state releases the
+microphone; continuing requests it again. A voice message can be 0.5 seconds to
+5 minutes long and is limited to 16 MiB. Reaching the limit stops recording and
+offers a preview, never an automatic send. Denied, missing, busy, or timed-out
+microphone requests have explicit recovery instructions.
+
+Recording segments are decoded and joined entirely on the endpoint into a
+portable 24 kHz mono 16-bit PCM WAV. This avoids cross-browser recorder-container
+incompatibilities and makes a resumed recording a single message. At the maximum
+duration, audio occupies about 14.4 MB before encryption; there is no server-side
+transcoding or speech-recognition service. Recorded audio bytes, duration,
+waveform, MIME type, filename, and generic reply references are encrypted. The
+existing authenticated chunk pipeline verifies the attachment length and SHA-256
+digest before exposing a local playback URL. Images retain their existing
+original-byte behavior and voice messages do not appear in the image gallery.
+
+Tap a voice bubble to download, decrypt, and play. Tap again to pause, or use its
+waveform slider to seek. Starting a different voice message releases the previous
+playback source. Voice can be replied to with the ordinary encrypted reply flow.
+All active devices must report `voice-message-v1` before sending voice or replies
+to voice; open the current version on every authorized device after upgrading.
+
+Unsent audio and its upload retry plan live only in memory. A failed upload keeps
+the same frozen draft for retry while the session remains open. Leaving chat,
+locking, backgrounding, or hiding the page stops recording/playback, cancels
+transfers, and discards that draft. After upload and durable encrypted outbox
+commit, normal idempotent reconnect delivery applies. Already-sent voice remains
+in history like text; there is no two-minute expiry, automatic transcript,
+raise-to-listen sensor feature, or background recording.
+
+Production uses `microphone=(self)` and `media-src 'self' blob:`. Recording needs
+HTTPS (or localhost) and a compatible browser. A user-initiated microphone prompt
+has a maximum 30-second **blur-only** exception so browser permission UI does not
+cancel itself. Hidden visibility, `pagehide`, manual locking, and idle timeout
+still lock immediately, including during the prompt. Late permission grants are
+discarded and their microphone tracks stopped.
 
 ## Reading position and presence
 

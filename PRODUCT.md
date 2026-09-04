@@ -48,6 +48,16 @@ Do not resemble a neon cyber-security dashboard, hacker terminal, crypto trading
 - Images in or near the visible chat viewport decrypt on the endpoint and render directly in their bubble without a second reveal tap. Once loaded, a single-image bubble fits the media dimensions without a large empty frame; albums use a compact, ordered collage.
 - Tapping a chat image or an album cell opens an overlay viewer at that exact item. The full-screen viewer fits each photo without cropping, animates from its thumbnail, and supports dragging vertically to shrink and dismiss the photo. Previous/next controls, horizontal paging, a position counter, current-original download, focus return, and reduced-motion behavior remain available.
 
+## Voice Messages
+
+- The empty text composer exposes a microphone action. Record, pause, preview, continue, discard, and send all happen inline, without navigating to a new page. Pause releases microphone access. Continuing records a new local segment and combines it into one message.
+- Voice is limited to 0.5 seconds–5 minutes and 16 MiB. Browser recording segments are converted only on-device into portable 24 kHz mono PCM WAV. Reaching the limit pauses for review and never sends automatically. Real audio amplitudes produce the waveform.
+- Audio bytes, metadata, duration, waveform, and reply references use the existing encrypted attachment and message pipeline. Playback begins only after authenticated decryption and full length/digest verification. Voice never enters the creator's image gallery.
+- Only one voice message can load or play at a time. Playback controls include play/pause, duration, an accessible waveform seek slider, and explicit loading/error/retry states. Messages are retained like ordinary chat; automatic transcription, automatic expiry, raise-to-listen, and background recording are outside this version.
+- All active devices must confirm `voice-message-v1` before sending a voice message or a reply referencing voice. This gate does not claim that capabilities are end-to-end authenticated.
+- Unsent voice drafts and upload retry plans are memory-only. Failed sends preserve a frozen draft for same-session retry. Navigating away, locking, hiding, or backgrounding stops microphone/playback and clears unsent drafts; only completed encrypted-outbox commits receive normal durable retry semantics.
+- A user-initiated microphone permission prompt suppresses only blur events for at most 30 seconds. It never suppresses hidden visibility, pagehide, explicit lock, or idle lock. Late permission grants must immediately stop their tracks and never revive a locked or cancelled recorder.
+
 ## Conversation Continuity and Interaction
 
 - Each device stores an encrypted local reading anchor containing the first relevant visible message, its viewport offset, and whether the user was pinned to the bottom. Entering chat, returning from gallery or image detail, and unlocking restore that position instead of replaying a visible scroll from the first message. Sending a new message intentionally moves the sender to the newest message.

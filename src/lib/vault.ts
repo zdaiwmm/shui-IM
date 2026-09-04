@@ -1029,7 +1029,7 @@ export async function loadMediaHistoryPage(
   const page = records.slice(0, boundedLimit);
   const messages = await decryptHistoryRecords(session, page, signal);
   return {
-    messages: messages.filter((message) => message.payload.kind !== 'text'),
+    messages: messages.filter((message) => ['image', 'image-album', 'gallery-image'].includes(message.payload.kind)),
     beforeSeq: page.at(-1)?.seq ?? null,
     hasMore: records.length > boundedLimit,
   };

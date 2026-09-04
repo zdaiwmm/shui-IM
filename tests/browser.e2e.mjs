@@ -4,6 +4,7 @@ import path from 'node:path';
 import { chromium } from 'playwright';
 import { createServer as createViteServer } from 'vite';
 import { startServer } from '../server/index.mjs';
+import { verifyVoiceFlow } from './voice-flow.e2e.mjs';
 
 const visualQaDirectory = process.argv[2];
 
@@ -138,10 +139,10 @@ try {
   const baseUrl = `http://localhost:${address.port}/`;
   browser = await chromium.launch(
     process.env.CHROME_PATH
-      ? { headless: true, executablePath: process.env.CHROME_PATH }
+      ? { headless: true, executablePath: process.env.CHROME_PATH, args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] }
       : process.env.CI
-        ? { headless: true }
-        : { headless: true, channel: 'chrome' },
+        ? { headless: true, args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] }
+        : { headless: true, channel: 'chrome', args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] },
   );
 
   const creatorContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -355,6 +356,8 @@ try {
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
   await joiner.getByText('browser-e2e-outbox', { exact: true }).waitFor({ timeout: 5000 });
   invariant(await joiner.getByText('browser-e2e-outbox', { exact: true }).count() === 1, 'Outbox replay duplicated a message');
+
+  await verifyVoiceFlow({ creator, joiner, unlock, visualQaDirectory });
 
   const image = {
     name: 'picker.svg',
