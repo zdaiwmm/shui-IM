@@ -106,6 +106,18 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-05（Asia/Shanghai）；服务器 `deployed-at=20260904T183121Z`（02:31:21 发布批次），02:32:39 独立回读完成。
+- 应用版本：`e619afb8f9f732839872815c591ea56e454f40e3`，来自 [PR #14](https://github.com/zdaiwmm/shui-IM/pull/14)。功能分支最终提交 `1fbd131264d4eb17914932c94cfabd7035f0ca83`，合并后源码树一致；发布前重新读取 GitHub main 并确认目标 SHA。用户明确要求本轮修改合并并上线。
+- [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33905364719) 与[精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33905829879) 均成功；各自通过构建、44 文件／316 项单元集成、两组共 22 个浏览器入口、原生通话、凭据扫描、生产依赖审计及 `Full application verification`／`verify` 汇总。
+- PR 首轮 [CI 33904925793](https://github.com/zdaiwmm/shui-IM/actions/runs/33904925793) 仅浏览器第 2 组失败，停止于 Linux Chromium 大字号时间线字形度量断言，没有合并或发布。日志证明气泡无重叠、无溢出且只有一次必要换行；测试原本用固定 5px 判断字形框到稍低元信息基线，跨字体栈误报“增加两行”。改用真实行高区分一行与两行，保留重叠、溢出、短消息同行和对比度断言；Chrome／WebKit 32 种布局复跑及后续两次完整 CI 均通过。
+- 本地冻结应用工作树 `npm run check:full` 全程通过（44 文件、316 项、22／22 浏览器入口，浏览器 171.28 秒），`npm run test:calls:e2e` 两项通过；WebKit 系统生命周期、视口／底部、时间线、桌面隐私、语音提交及媒体隐私专项通过。完整映射和真机边界见[验收记录](./audit/2026-09-05-mobile-continuity/README.md)与 [TEST_PLAN.md](./TEST_PLAN.md)。
+- 固定入口 `node scripts/publish.mjs --sha e619afb8f9f732839872815c591ea56e454f40e3` 从干净、同步的本地 main 创建隔离发布副本，等待并验证精确 main push CI 后执行。服务器返回 `DEPLOY_OK`，入口返回 `DEPLOY_VERIFIED`；冷备份与公开 WebSocket 验证通过。发布目录为 `/opt/quiet-room/git-releases/20260904T183121Z-e619afb8f9f7`，已验证冷备份为 `/opt/quiet-room/backups/predeploy/data-20260904T183121Z-e619afb8f9f7.tar.gz`。
+- 固定入口总耗时 348,456ms，包含约 278 秒的 main CI 等待及校验；实际隔离发布与回读 70,301ms，其中服务器发布 56 秒。服务器阶段：源码获取 5 秒、镜像构建 14 秒、停止容器 1 秒、冷备份 4 秒、启动及健康等待 31 秒、公开 WebSocket 1 秒。分项有嵌套，不重复累加。
+- 02:32:39 独立只读回读返回 `READBACK_OK`：线上 SHA、批次、发布目录一致且维护标记不存在；应用容器运行且健康，备份容器运行，两者实际 Image ID 均匹配目标镜像 `sha256:1f5a19ca7f06d12369f0dfeeed46a976106407482a109c3ddcc5e7fa299cc444`。备份容器没有健康探针，未伪称探针成功。HTTPS `ok`／`database`／`storage` 均为 true；首页、`/sw.js`、`/assets/app-B5Z_plEF.css`、`/assets/app-BOtAs6Yy.js` 和 preload 脚本与容器产物逐字节一致。检查未读取真实消息、附件或备份内容。
+- 本次回读 `admin-enabled=0`、`calls-enabled=0`；后台和 TURN 仍未启用。发布通过命令行与 SSH 完成，并以临时防休眠保持主机可用；未人为锁屏验收。真实 iPhone 键盘／工具栏／选择器／权限／播放器及手感尚未验收，证书无人值守续期、异故障域备份、外部告警和独立安全审计待办不变。
+
+## 上次线上发布记录（2026-09-05 01:20）
+
 - 日期：2026-09-05（Asia/Shanghai）；服务器 `deployed-at` 为 `20260904T172045Z`（01:20:45，发布批次时间），独立回读于 01:22:02 完成。
 - 应用版本：`718f7d2451413a1e5e67e0d56ddeee15acd9f8d6`，来自 [PR #12](https://github.com/zdaiwmm/shui-IM/pull/12)，于 01:09:14 squash 合并到 main；合并前后源码树一致，合并后重新读取 GitHub main 并确认完整目标提交。用户已明确要求本轮修改合并并上线。
 - [最终 PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33898587091) 对应 `b09701623490ad5df892217a22b4ca4dd97db5d1`；[精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33899412990) 对应上述应用提交。全部构建、311 项单元／集成、两组 21 个浏览器入口、通话专项、凭据扫描、依赖审计及完整汇总任务成功。
