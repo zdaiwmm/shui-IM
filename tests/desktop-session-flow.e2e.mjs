@@ -191,8 +191,9 @@ try {
   }
 
   trace('Checking manual lock and reload require new device verification');
-  await creator.locator('.more-menu summary').click();
-  await creator.locator('#lock-room').click();
+  // Explicit locking remains a lifecycle boundary, though the menu shortcut
+  // is intentionally absent from the streamlined local-safety UI.
+  await creator.evaluate(() => window.__desktopSessionApp.lockNow());
   const manuallyLocked = await state(creator);
   assert.equal(manuallyLocked.active, false);
   assert.equal(manuallyLocked.retained, false);

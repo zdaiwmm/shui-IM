@@ -138,6 +138,7 @@ try {
   assert.equal(await page.locator('#gallery-tab-images').getAttribute('aria-selected'), 'true', 'Gallery did not open on images');
   assert.equal(await page.locator('.gallery-file:visible').count(), 0, 'Gallery files appeared on the default images tab');
   await page.locator('#gallery-tab-files').tap();
+  await page.locator('#gallery-grid[aria-labelledby="gallery-tab-files"]').waitFor();
   assert.equal(await page.locator('#gallery-tab-files').getAttribute('aria-selected'), 'true', 'Tapping the files tab did not select it');
   assert.equal(await page.locator('.gallery-tile:visible').count(), 0, 'Gallery images appeared on the files tab');
   const galleryCard = page.locator('.gallery-file');
@@ -245,8 +246,10 @@ try {
   await page.locator('.image-viewer').waitFor({ state: 'detached' });
   await assertVisibility(6, 1, 'Viewer return');
   await page.locator('#gallery-tab-files').tap();
+  await page.locator('#gallery-grid[aria-labelledby="gallery-tab-files"]').waitFor();
   assert.equal(await page.locator('#gallery-toggle-visibility').count(), 0, 'Image visibility action appeared on files');
   await page.locator('#gallery-tab-images').tap();
+  await page.locator('#gallery-grid[aria-labelledby="gallery-tab-images"]').waitFor();
   await assertVisibility(6, 1, 'Tab roundtrip');
   await page.locator('#gallery-toggle-visibility').tap();
   await assertVisibility(6, 6, 'Show all');
@@ -282,9 +285,11 @@ try {
       await assertToolbarGeometry(`${width}px images`);
       await page.screenshot({ path: path.join(visualQaDirectory, `safe-hidden-${width}.png`), animations: 'disabled' });
       await page.locator('#gallery-tab-files').click();
+      await page.locator('#gallery-grid[aria-labelledby="gallery-tab-files"]').waitFor();
       await assertToolbarGeometry(`${width}px files`);
       await page.screenshot({ path: path.join(visualQaDirectory, `safe-files-${width}.png`), animations: 'disabled' });
       await page.locator('#gallery-tab-images').click();
+      await page.locator('#gallery-grid[aria-labelledby="gallery-tab-images"]').waitFor();
     }
     for (const width of [320, 390]) {
       await page.setViewportSize({ width, height: 844 });

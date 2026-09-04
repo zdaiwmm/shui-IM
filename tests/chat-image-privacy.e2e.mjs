@@ -173,6 +173,28 @@ try {
   assert.equal(await page.locator('.image-viewer').count(), 0, 'First thumbnail tap opened a viewer');
   await first.click();
   await page.locator('.image-viewer.is-visible .viewer-stage img').waitFor();
+  const zoomState = await page.locator('.viewer-stage').evaluate(stage => {
+    const image = stage.querySelector('img');
+    const entryTransforms = image.getAnimations().flatMap(animation => animation.effect.getKeyframes()).filter(frame => frame.transform && frame.transform !== 'none');
+    const fire = (type, id, x, y) => stage.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: id, button: 0, clientX: x, clientY: y }));
+    fire('pointerdown', 31, 120, 300);
+    fire('pointerdown', 32, 240, 300);
+    fire('pointermove', 31, 60, 300);
+    fire('pointermove', 32, 300, 300);
+    const zoomed = new DOMMatrix(getComputedStyle(image).transform).a;
+    fire('pointerup', 31, 60, 300);
+    fire('pointermove', 32, 340, 300);
+    const remainingFingerPans = new DOMMatrix(getComputedStyle(image).transform).e;
+    fire('pointerup', 32, 340, 300);
+    const remainsOpen = !stage.closest('.image-viewer').classList.contains('is-closing');
+    fire('pointerdown', 33, 200, 300);
+    fire('pointermove', 33, 270, 410);
+    fire('pointerup', 33, 270, 410);
+    const pan = new DOMMatrix(getComputedStyle(image).transform);
+    image.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 195, clientY: 422 }));
+    return { entryTransforms: entryTransforms.length, zoomed, remainsOpen, remainingFingerPans: remainingFingerPans > 15, panned: pan.e !== 0, zoomAfterPan: pan.a, reset: new DOMMatrix(getComputedStyle(image).transform).a };
+  });
+  assert.deepEqual(zoomState, { entryTransforms: 0, zoomed: 2, remainsOpen: true, remainingFingerPans: true, panned: true, zoomAfterPan: 2, reset: 1 }, 'Image pinch/pan/reset either scaled on entry, dismissed during pinch or lost its zoom');
   await page.locator('[data-viewer-close]').click();
   await page.locator('.image-viewer').waitFor({ state: 'detached' });
   await assertVisibility(4, 1, 'Ordinary viewer return');
@@ -307,12 +329,27 @@ try {
   const originalRow = page.locator(`.message[data-client-msg-id="${repeatedIds.original}"] .image-preview`);
   const repeatedRow = page.locator(`.message[data-client-msg-id="${repeatedIds.repeated}"] .image-preview`);
   await repeatedRow.locator('img').waitFor();
-  assert.equal(await page.evaluate(() => window.chatPrivacy.beforeRebuild.isConnected), false, 'Receipt fixture did not actually replace the revealed row');
+  assert.equal(await page.evaluate(() => window.chatPrivacy.beforeRebuild.isConnected), true, 'A receipt replaced the revealed media row and restarted its display');
   assert.equal(await originalRow.getAttribute('data-revealed'), 'true', 'Rebuilding the original message discarded its explicit reveal');
   assert.equal(await repeatedRow.getAttribute('data-revealed'), 'false', 'A new message inherited the reveal state of a reused attachment manifest');
   await assertVisibility(7, 1, 'Repeated manifest isolated from the original revealed message');
   await drag(originalRow, { followingClick: true });
   await assertVisibility(7, 0, 'Pull hides both messages sharing one attachment');
+  await page.evaluate(() => {
+    const f = window.chatPrivacy;
+    f.app.openImageViewer([f.records[0].payload.image]);
+  });
+  await page.locator('.viewer-stage img').waitFor();
+  const directCleanup = await page.evaluate(() => {
+    const app = window.chatPrivacy.app;
+    const stage = document.querySelector('.viewer-stage');
+    const image = stage.querySelector('img');
+    const before = image.style.transform;
+    app.cleanupRuntime();
+    image.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 195, clientY: 422 }));
+    return { cleanupReleased: app.viewerGestureCleanup === null, detached: !stage.isConnected, staleGestureIgnored: image.style.transform === before };
+  });
+  assert.deepEqual(directCleanup, { cleanupReleased: true, detached: true, staleGestureIgnored: true }, 'Direct runtime teardown retained a viewer gesture closure');
   await page.evaluate(() => window.chatPrivacy.app.lockNow());
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ browser: browserName, defaultHidden: true, longHoldReleaseHidden: true, revealThenView: true, albumCells: true, pointerAndTouchPull: true, dragClickSuppressed: true, cachedRebuildHidden: true, reusedManifestIsolated: true, revealedReceiptRebuildPreserved: true, delayedDecodeHidden: true, viewerPullHidden: true, synchronousCoverHidden: true, rapidFocusHidden: true, lockAndReentryHidden: true, originalBytesPreserved: true }, null, 2));

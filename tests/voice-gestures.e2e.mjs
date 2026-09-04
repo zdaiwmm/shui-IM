@@ -70,9 +70,14 @@ try {
   const closed = () => page.waitForFunction(() => !window.voiceGestures.app.voiceRecorder);
   const reset = async () => { await page.evaluate(() => window.voiceGestures.fresh()); await page.locator('#record-voice').waitFor({ state: 'visible' }); };
   let origin;
-  const touch = async (type, dx = 0, dy = 0) => cdp.send('Input.dispatchTouchEvent', {
-    type, touchPoints: type === 'touchEnd' || type === 'touchCancel' ? [] : [{ x: origin.x + dx, y: origin.y + dy, id: 1 }],
-  });
+  const touch = async (type, dx = 0, dy = 0) => {
+    await cdp.send('Input.dispatchTouchEvent', {
+      type, touchPoints: type === 'touchEnd' || type === 'touchCancel' ? [] : [{ x: origin.x + dx, y: origin.y + dy, id: 1 }],
+    });
+    // CDP may acknowledge a coalesced move before Chrome paints its pointer
+    // event. Inspect the rendered gesture after that frame has been delivered.
+    if (type === 'touchMove') await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  };
   const hold = async ({ permission = false } = {}) => {
     const bounds = await page.locator('#record-voice').boundingBox();
     assert(bounds, 'Microphone trigger is missing');
@@ -99,8 +104,24 @@ try {
     }
   };
 
-  // A real held touch records and releasing it sends one complete portable file.
-  await hold(); await page.waitForTimeout(750); await release(); await closed(); await stopped();
+  // A real held touch records and releasing it sends one complete portable file,
+  // including after the upward movement that used to lock the recording.
+  await page.evaluate(() => {
+    window.voiceGrowthSamples = [];
+    const deadline = performance.now() + 1600;
+    const sample = () => {
+      const orb = document.querySelector('.voice-hold-orb');
+      if (orb && !orb.hidden) window.voiceGrowthSamples.push(orb.getBoundingClientRect().width);
+      if (performance.now() < deadline) requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  await hold(); await page.waitForTimeout(750); await touch('touchMove', 0, -100);
+  assert.equal(await recorder.getAttribute('data-mode'), 'hold');
+  await release(); await closed(); await stopped();
+  const growth = await page.evaluate(() => window.voiceGrowthSamples);
+  assert(growth.some(width => width > 55 && width < 90), 'Microphone growth must render intermediate sizes instead of jumping to its final size');
+  assert(growth.at(-1) >= 95, 'Microphone growth did not settle at its full size');
   assert.equal(await sentCount(), 1, 'Release must send exactly once');
   const draft = await page.evaluate(() => window.voiceGestures.sends[0]);
   assert(draft.durationMs >= 500 && draft.size > 44 && draft.mimeType === 'audio/wav');
@@ -109,20 +130,45 @@ try {
   assert.equal(await sentCount(), 1, 'Synthesized click after hold resent or reopened the recorder');
   assert.equal(await recorder.isVisible(), false);
 
-  await hold(); await page.waitForTimeout(650); await touch('touchMove', -115, 0); await closed(); await release(); await stopped();
+  await hold(); await page.waitForTimeout(650);
+  const restingY = await page.locator('.voice-hold-orb').evaluate(orb => orb.getBoundingClientRect().y);
+  await touch('touchMove', -115, -70);
+  assert.equal(await recorder.getAttribute('data-mode'), 'hold', 'The previous cancel distance must leave room to adjust the gesture');
+  const firstDrag = await page.locator('.voice-hold-orb').evaluate(orb => ({ x: new DOMMatrixReadOnly(getComputedStyle(orb).transform).m41, y: orb.getBoundingClientRect().y }));
+  assert(Math.abs(firstDrag.y - restingY) < 0.5, 'Held microphone must stay on the same horizontal rail');
+  assert(firstDrag.x > -115 && firstDrag.x < -40, 'Held microphone should follow with resistance');
+  await touch('touchMove', -145, -20);
+  const furtherDrag = await page.locator('.voice-hold-orb').evaluate(orb => ({ x: new DOMMatrixReadOnly(getComputedStyle(orb).transform).m41, y: orb.getBoundingClientRect().y }));
+  assert(furtherDrag.x < firstDrag.x && furtherDrag.x > -145, `Resistance must keep responding instead of reaching a hard stop: ${JSON.stringify({ firstDrag, furtherDrag })}`);
+  assert(Math.abs(furtherDrag.y - restingY) < 0.5, 'Diagonal finger movement must not change the microphone height');
+  await touch('touchMove', -165, -20);
+  const cancelled = await page.evaluate(() => ({
+    aborted: window.voiceGestures.app.voiceRecorder?.signal.aborted,
+    samples: window.voiceGestures.app.voiceRecorder?.samples.length,
+    tracksStopped: window.voiceGestures.tracks.every(track => track.readyState === 'ended'),
+    retiring: document.querySelector('.voice-recorder')?.dataset.gesture,
+    controls: document.querySelector('.voice-recorder')?.querySelectorAll('button, time, .voice-waveform').length,
+  }));
+  assert.deepEqual(cancelled, { aborted: true, samples: 0, tracksStopped: true, retiring: 'cancelling', controls: 0 }, 'Cancelling must discard capture and plaintext before its visual exit');
+  const beforeRetire = await page.locator('.voice-cancel-orb').evaluate(orb => new DOMMatrixReadOnly(getComputedStyle(orb).transform).m41);
+  await page.waitForTimeout(120);
+  const duringRetire = await page.locator('.voice-cancel-orb').evaluate(orb => new DOMMatrixReadOnly(getComputedStyle(orb).transform).m41);
+  assert(duringRetire > beforeRetire, 'Cancellation should retire toward the right');
+  await closed(); await release(); await stopped();
   assert.equal(await sentCount(), 1, 'Left-slide cancellation sent a draft');
 
   await hold(); await page.waitForTimeout(650); await touch('touchCancel'); await closed(); await stopped();
   assert.equal(await sentCount(), 1, 'A cancelled pointer sent a draft');
 
-  // Crossing the lock rail arms the action; release is the only locking edge.
+  // Vertical swipes stay in hold mode and never expose the old lock rail.
   await hold(); await page.waitForTimeout(650); await touch('touchMove', 0, -100);
-  assert.equal(await recorder.getAttribute('data-gesture'), 'lock-ready');
+  assert.equal(await recorder.getAttribute('data-gesture'), 'hold');
   assert.equal(await recorder.getAttribute('data-mode'), 'hold');
-  await release();
-  assert.equal(await recorder.getAttribute('data-mode'), 'locked');
-  await recorded();
-  assert.equal(await sentCount(), 1, 'Locking sent a draft');
+  assert.equal(await recorder.locator('.voice-lock-guide').count(), 0, 'Upward lock affordance must be removed');
+  await touch('touchCancel'); await closed(); await stopped();
+  assert.equal(await sentCount(), 1, 'Pointer cancellation after vertical movement sent a draft');
+  // Tap remains a deliberate hands-free entry with pause, preview and resume.
+  await page.locator('#record-voice').tap(); await recorded(); await page.waitForTimeout(750);
   await page.getByRole('button', { name: '暂停录音', exact: true }).click(); await paused(); await stopped();
   await page.getByRole('button', { name: '试听录音', exact: true }).click();
   await page.getByRole('button', { name: '暂停试听', exact: true }).waitFor();
@@ -137,7 +183,7 @@ try {
   for (const cancel of [false, true]) {
     await page.evaluate(() => { navigator.mediaDevices.getUserMedia = () => new Promise(resolve => { window.voiceGestures.resolvePermission = resolve; }); });
     await hold({ permission: true });
-    if (cancel) await touch('touchMove', -115, 0);
+    if (cancel) await touch('touchMove', -165, 0);
     await release(); await closed();
     await page.evaluate(async () => {
       const state = window.voiceGestures;
@@ -182,6 +228,8 @@ try {
   }
 
   await hold(); await page.waitForTimeout(550);
+  await touch('touchMove', -165, 0);
+  assert.equal(await recorder.getAttribute('data-gesture'), 'cancelling');
   const teardown = await page.evaluate(() => {
     const { app } = window.voiceGestures;
     const oldButton = document.querySelector('#record-voice');
@@ -193,10 +241,10 @@ try {
       // Holding a test-only reference lets us verify listener removal without
       // relying on nondeterministic garbage collection of the detached chat.
       oldButton.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 }));
-      return { detached: !oldButton.isConnected, bindingReleased: app.voiceGesture === null, starts };
+      return { detached: !oldButton.isConnected, bindingReleased: app.voiceGesture === null, starts, retiringShapes: document.querySelectorAll('.voice-cancel-orb, .voice-cancel-bar').length };
     } finally { app.beginVoiceRecording = begin; }
   });
-  assert.deepEqual(teardown, { detached: true, bindingReleased: true, starts: 0 }, 'Privacy teardown retained the old chat gesture or its listeners');
+  assert.deepEqual(teardown, { detached: true, bindingReleased: true, starts: 0, retiringShapes: 0 }, 'Privacy teardown retained the old chat gesture, its listeners, or cancellation shapes');
   await release(); await stopped();
   assert.equal(await sentCount(), 2, 'Page teardown sent a held draft');
   assert.equal(await page.locator('.cover-trigger').count(), 1);
@@ -245,7 +293,7 @@ try {
     for (const width of [320, 390, 1280]) {
       await page.setViewportSize({ width, height: 844 }); await reset();
       const capture = async state => {
-        // Capture the settled layout after the hold-to-lock and pause FLIP
+        // Capture the settled layout after microphone inflation and pause FLIP
         // transitions; the recording-dot pulse intentionally keeps running.
         await recorder.evaluate(async host => {
           await Promise.all(host.getAnimations({ subtree: true })
@@ -256,7 +304,8 @@ try {
         if (screenshotDirectory) await page.screenshot({ path: path.join(screenshotDirectory, `voice-${state}-${colorScheme}-${width}.png`) });
       };
       await hold(); await page.waitForTimeout(700); await capture('hold');
-      await touch('touchMove', 0, -100); await release(); await recorded(); await page.waitForTimeout(200); await capture('locked');
+      await touch('touchCancel'); await closed(); await stopped();
+      await page.locator('#record-voice').tap(); await recorded(); await page.waitForTimeout(700); await capture('locked');
       await page.getByRole('button', { name: '暂停录音', exact: true }).click(); await paused(); await stopped(); await capture('paused');
       await page.getByRole('button', { name: '取消录音', exact: true }).click(); await closed();
     }
@@ -267,5 +316,5 @@ try {
   await touch('touchCancel'); await closed(); await stopped();
   assert.equal(await sentCount(), 3, 'Visual-state exercise unexpectedly sent a draft');
   assert.deepEqual(errors, []);
-  process.stdout.write('Voice gestures E2E passed: native touch/mouse hold, release send, slide cancel, pointer cancellation, release-to-lock, pause/preview/resume, live locked send, late permission discard, tap/keyboard access, interruption/limit review, privacy teardown and gesture rebinding, 320/390/1280px light/dark layouts and reduced motion.\n');
+  process.stdout.write('Voice gestures E2E passed: native touch/mouse hold, release send, longer horizontal slide cancel with continuous resistance, immediate recording discard before rightward exit, no vertical lock/drag, pointer cancellation, pause/preview/resume, live hands-free send, late permission discard, tap/keyboard access, interruption/limit review, privacy teardown during cancellation and gesture rebinding, 320/390/1280px light/dark layouts and reduced motion.\n');
 } finally { await browser?.close(); await server.close(); }

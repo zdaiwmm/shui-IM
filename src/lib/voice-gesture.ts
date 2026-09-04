@@ -56,7 +56,9 @@ export function bindVoiceRecordGesture(
       timer = null;
       held = true;
       if (!button.isConnected || button.disabled) { cancel(); return; }
+      const inflatedOrigin = button.getBoundingClientRect();
       activeRecorder = begin('hold');
+      activeRecorder?.animateHoldFrom(inflatedOrigin);
       button.classList.remove('is-pressing');
     }, 180);
 
@@ -66,7 +68,7 @@ export function bindVoiceRecordGesture(
       const dx = move.clientX - startX;
       const dy = move.clientY - startY;
       if (!held && Math.hypot(dx, dy) > 12) { cancel(); return; }
-      activeRecorder?.moveHold(dx, dy);
+      activeRecorder?.moveHold(dx);
     }, { signal, passive: false });
 
     window.addEventListener('pointerup', up => {
@@ -74,7 +76,7 @@ export function bindVoiceRecordGesture(
       up.preventDefault();
       const recorder = activeRecorder;
       // Use release coordinates too; a browser may coalesce the final move.
-      recorder?.moveHold(up.clientX - startX, up.clientY - startY);
+      recorder?.moveHold(up.clientX - startX);
       cancel();
       if (held) recorder?.releaseHold();
       else if (button.isConnected && !button.disabled && up.clientX >= bounds.left && up.clientX <= bounds.right

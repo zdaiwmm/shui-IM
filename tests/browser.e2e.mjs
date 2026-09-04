@@ -14,6 +14,9 @@ function invariant(condition, message) {
 }
 
 async function assertStablePage(page, label) {
+  // Measure the arriving page, including its opacity animation, rather than
+  // retaining the outgoing DOM during the navigation's short fade-out.
+  await page.waitForFunction(() => document.querySelector('#app')?.dataset.pageTransition !== 'leaving');
   const samples = await page.locator('#app > section').evaluate(async (section) => {
     const values = [];
     const chat = section.classList.contains('chat-shell');
@@ -53,7 +56,7 @@ async function assertCredentialLayout(page, buttonSelector) {
       height: rect.height,
       horizontalOverflow: rect.left < 0 || rect.right > innerWidth,
       hintGap: introRect ? rect.top - introRect.bottom : null,
-      errorGap: error?.textContent?.trim() && errorRect ? errorRect.top - rect.bottom : null,
+      errorGap: error?.textContent?.trim() && errorRect ? Math.max(errorRect.top - rect.bottom, rect.top - errorRect.bottom) : null,
     };
   });
   invariant(layout.height >= 44 && layout.width >= 180 && !layout.horizontalOverflow, `Passkey button is clipped or undersized: ${JSON.stringify(layout)}`);
@@ -504,7 +507,7 @@ try {
   await dragStage.dispatchEvent('pointerdown', { pointerType: 'touch', isPrimary: true, pointerId: 4, button: 0, clientX: 195, clientY: 350 });
   await dragStage.dispatchEvent('pointermove', { pointerType: 'touch', isPrimary: true, pointerId: 4, clientX: 210, clientY: 500 });
   const dragState = await creator.locator('.image-viewer').evaluate((viewer) => ({ dragging: viewer.classList.contains('is-dragging'), transform: viewer.querySelector('.viewer-stage img').style.transform }));
-  invariant(dragState.dragging && /scale\(0\./.test(dragState.transform), `Photo did not shrink during a dismiss drag: ${JSON.stringify(dragState)}`);
+  invariant(dragState.dragging && dragState.transform.includes('translate3d') && !dragState.transform.includes('scale('), `Photo did not follow the dismiss drag at a stable size: ${JSON.stringify(dragState)}`);
   await dragStage.dispatchEvent('pointerup', { pointerType: 'touch', isPrimary: true, pointerId: 4, button: 0, clientX: 210, clientY: 500 });
   await creator.locator('.image-viewer').waitFor({ state: 'detached' });
   invariant(await directImagePreview.getAttribute('data-revealed') === 'false', 'Dismissing the photo with a downward drag left its chat thumbnail revealed');

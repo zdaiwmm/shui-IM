@@ -219,6 +219,7 @@ try {
   results.lockedDownloads = { inFlight: 'cancelled', staleCard: 'ignored' };
 
   const assertGalleryTab = async (selected, { images, files, focused = false } = {}) => {
+    await page.locator(`#gallery-grid[aria-labelledby="gallery-tab-${selected}"]`).waitFor();
     const state = await page.evaluate(() => ({
       tabs: [...document.querySelectorAll('[role="tab"]')].map(tab => ({
         id: tab.id, selected: tab.getAttribute('aria-selected'), tabIndex: tab.tabIndex,
@@ -247,7 +248,8 @@ try {
     const count = document.querySelector('[data-gallery-count="images"]');
     return count?.hidden && count.textContent === '';
   });
-  assert.equal(await page.locator('[data-gallery-count="files"]').textContent(), '—', 'Unqueried file category incorrectly claims zero files');
+  assert.equal(await page.locator('[data-gallery-count="files"]').textContent(), '', 'An unknown file count displayed a placeholder instead of only the category name');
+  assert.equal(await page.locator('[data-gallery-count="files"]').isVisible(), false, 'An unknown file count occupied visible space');
   await page.evaluate(() => { const f = window.fileFlow; f.choose('gallery', f.fixtures()); });
   await page.waitForFunction(() => window.fileFlow.sent.length === 3 && !window.fileFlow.app.imageBatchUploading);
   results.gallery = await page.evaluate(() => {

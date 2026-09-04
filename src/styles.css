@@ -8,7 +8,7 @@
   --app-top: 0px;
   --motion-out: cubic-bezier(0.16, 1, 0.3, 1);
   --motion-page: 380ms;
-  --motion-menu-in: 180ms;
+  --motion-menu-in: 160ms;
   --motion-menu-out: 160ms;
   --motion-notice-in: 180ms;
   --motion-notice-out: 160ms;
@@ -79,6 +79,16 @@
 
 * {
   box-sizing: border-box;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Text entry and deliberately invoked selection retain editing/keyboard access. */
+input,
+textarea {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 html,
@@ -153,17 +163,25 @@ label[role="button"]:active {
 }
 
 /* Opacity gives navigation continuity without moving page geometry or anchors. */
-#app > section:not(.cover) {
-  animation: none;
+#app > section:not(.cover):not(.image-viewer),
+#app > main {
+  animation: page-reveal 180ms ease-out;
 }
 
-#app[data-page-transition] > section:not(.cover) {
-  animation: page-reveal 180ms ease-out both;
+#app[data-page-transition="leaving"] > section:not(.cover):not(.image-viewer),
+#app[data-page-transition="leaving"] > main {
+  animation: page-conceal 120ms ease-in forwards;
+  pointer-events: none;
 }
 
 @keyframes page-reveal {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+
+@keyframes page-conceal {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 
 button:focus-visible,
@@ -1047,13 +1065,13 @@ button:disabled {
 }
 
 @keyframes glass-menu-in {
-  from { opacity: 0; transform: translateY(-5px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes glass-menu-out {
-  from { opacity: 1; transform: translateY(0); }
-  to { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 
 .menu-title {

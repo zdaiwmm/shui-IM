@@ -55,6 +55,29 @@ try {
   };
   await page.evaluate(initializeRegression);
 
+  results.messageMenuScrollOrdering = await page.evaluate(async () => {
+    const { app, fresh, message } = window.regression; fresh();
+    app.messages = new Map(Array.from({ length: 40 }, (_, index) => [index + 1, message(index + 1)]));
+    app.renderMessages({ scroll: 'bottom' });
+    const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await settle();
+    const list = document.querySelector('#message-list');
+    list.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true }));
+    const source = document.querySelector('[data-client-msg-id="message-20"]');
+    source.scrollIntoView({ block: 'center', behavior: 'instant' });
+    window.dispatchEvent(new Event('scroll'));
+    source.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    await settle();
+    if (!document.querySelector('.message-actions.is-visible')) throw Error('A queued pre-open scroll frame dismissed the newly opened message menu');
+    window.dispatchEvent(new Event('scroll'));
+    await settle();
+    if (!document.querySelector('.message-actions.is-visible')) throw Error('A delayed scroll event without movement dismissed the message menu');
+    window.scrollBy(0, 48); window.dispatchEvent(new Event('scroll'));
+    await settle();
+    if (document.querySelector('.message-actions:not(.is-closing)')) throw Error('Actual scrolling after opening left a detached message menu visible');
+    return { preOpenScroll: 'preserved', unchangedDelayedEvent: 'preserved', laterMovement: 'dismissed' };
+  });
+
   // Confirmed empty categories have no visible number, including when the
   // other category is selected. Loading and unknown counts retain their state.
   await page.evaluate(() => window.regression.app.renderGallery());
@@ -167,8 +190,15 @@ try {
     };
     const settleLayout = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const sameAnchor = (actual, expected) => actual?.clientMsgId === expected.clientMsgId && Math.abs(actual.offset - expected.offset) <= 2 && !actual.pinnedToBottom;
-    warm(); app.messages = messages(); app.renderChat(); await settleLayout();
+    warm(); app.messages = messages(); app.renderChat();
     let list = document.querySelector('#message-list');
+    // Cached dimensions do not mean the newly mounted <img> has decoded.
+    // Establish an actually warm baseline before saving a position that the
+    // later, deliberately cold placeholder phase must preserve.
+    const warmImages = [...list.querySelectorAll('.image-preview img')];
+    await Promise.all(warmImages.map(image => image.decode()));
+    if (warmImages.length !== manifests.length || warmImages.some(image => image.naturalWidth !== 300 || image.naturalHeight !== 400)) throw Error('Warm-image anchor fixture did not decode its complete baseline');
+    await settleLayout();
     const target = list.querySelector('[data-client-msg-id="message-8"]');
     window.scrollBy(0, target.getBoundingClientRect().top + 196);
     await settleLayout();
@@ -499,6 +529,7 @@ try {
   await page.locator('#gallery-toggle-visibility').click();
   assert.equal(await page.locator('.gallery-tile[data-revealed="true"]').count(), 62);
   await page.locator('#gallery-tab-files').click();
+  await page.locator('#gallery-grid[aria-labelledby="gallery-tab-files"]').waitFor();
   await page.locator('#gallery-tab-images').click();
   await page.locator('[data-gallery-load-more]:not(:disabled)').waitFor();
   assert.equal(await page.locator('#gallery-toggle-visibility').getAttribute('aria-label'), '隐藏全部');
@@ -746,6 +777,109 @@ try {
       app.unreadCounter.markRead = markRead;
       delete viewport.height; delete viewport.offsetTop;
       viewport.dispatchEvent(new Event('resize')); await settle();
+    }
+  });
+
+  results.stableMediaReceipts = await page.evaluate(async () => {
+    const { app, fresh, message, session } = window.regression; fresh();
+    const blob = new Blob(['<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600"><rect width="900" height="1600" fill="navy"/></svg>'], { type: 'image/svg+xml' });
+    const manifest = { v: 1, blobId: 'stable-media-receipt', originalName: 'portrait.svg', originalSize: blob.size, mimeType: blob.type };
+    app.cacheLocalImage(manifest, blob);
+    const cached = app.imageCache.get(manifest.blobId); cached.width = 900; cached.height = 1600;
+    const outgoing = { ...message(1, { v: 1, kind: 'image', image: manifest, sentAt: '2026-09-04T01:00:00.000Z' }), senderId: session.vault.identity.publicBundle.deviceId, status: 'pending' };
+    app.pending.set(outgoing.clientMsgId, { ...outgoing, seq: Number.MAX_SAFE_INTEGER }); app.renderMessages({ scroll: 'bottom' });
+    const row = document.querySelector('[data-client-msg-id="message-1"]');
+    const media = row.querySelector('img'); await media.decode();
+    const preview = row.querySelector('.image-preview');
+    const initial = preview.getBoundingClientRect();
+    if (initial.width > 290 || initial.height > 322) throw Error(`Chat media remained oversized: ${initial.width} x ${initial.height}`);
+    const initialOpacity = getComputedStyle(row).opacity;
+    const viewport = visualViewport;
+    try {
+      for (const height of [780, 808, 844, 816, 788]) {
+        Object.defineProperty(viewport, 'height', { configurable: true, value: height });
+        viewport.dispatchEvent(new Event('resize'));
+        const rect = preview.getBoundingClientRect();
+        if (Math.abs(rect.width - initial.width) > 1 || Math.abs(rect.height - initial.height) > 1) throw Error('Toolbar geometry resized loaded media');
+      }
+      for (const status of ['stored', 'delivered']) {
+        app.pending.delete(outgoing.clientMsgId);
+        app.messages.set(1, { ...outgoing, payload: structuredClone(outgoing.payload), status }); app.renderMessages();
+        if (document.querySelector('[data-client-msg-id="message-1"]') !== row || row.querySelector('img') !== media) throw Error('Receipt replaced decoded media or its message row');
+        if (getComputedStyle(row).opacity !== initialOpacity || !row.classList.contains(`is-${status}`)) throw Error('Receipt flashed full-message opacity or failed to update status');
+        if (row.querySelectorAll('.message-delivery path').length !== (status === 'delivered' ? 2 : 1)) throw Error('Preserved message lost delivery decoration');
+      }
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+      if (document.querySelectorAll('.message-reaction-picker [data-reaction]').length !== 6) throw Error('Retained message actions used the unconfirmed pending sequence');
+      app.closeMessageActions(false, false);
+      return { compactBounds: { width: initial.width, height: initial.height }, toolbarSizes: 'stable', decodedNode: 'preserved through both receipts', opacity: initialOpacity };
+    } finally {
+      delete viewport.height; viewport.dispatchEvent(new Event('resize'));
+    }
+  });
+
+  results.sendMotion = await page.evaluate(async () => {
+    const { app, fresh, message, session } = window.regression; fresh();
+    app.messages = new Map(Array.from({ length: 40 }, (_, i) => [i + 1, message(i + 1)]));
+    app.renderMessages({ scroll: 'bottom' });
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    await frame(); await frame();
+    const input = document.querySelector('#message-input');
+    input.value = '发送时标题与输入栏保持稳定'; input.dispatchEvent(new Event('input'));
+    await frame(); await frame();
+    const header = document.querySelector('.chat-header'); const composer = document.querySelector('#composer');
+    const headerTop = header.getBoundingClientRect().top; const composerTop = composer.getBoundingClientRect().top;
+    const previous = document.querySelector('[data-client-msg-id="message-40"]');
+    const previousBubble = previous.querySelector('.message-bubble');
+    const previousTop = previousBubble.getBoundingClientRect().top;
+    const outgoing = { ...message(41), senderId: session.vault.identity.publicBundle.deviceId, status: 'pending' };
+    app.messages.set(41, outgoing); app.renderMessages({ scroll: 'send' });
+    input.value = ''; input.dispatchEvent(new Event('input'));
+    const animated = [...app.chatMessageAnimations];
+    if (!animated.length) throw Error('Send skipped the message translation');
+    const topAtStart = previousBubble.getBoundingClientRect().top;
+    if (Math.abs(topAtStart - previousTop) > 2) throw Error('Send snapped existing messages to their destination before animation');
+    if (animated.some(animation => !animation.effect.target.closest('.message'))) throw Error('Send motion included a fixed page control');
+    await new Promise(resolve => setTimeout(resolve, 85));
+    const topDuring = previousBubble.getBoundingClientRect().top;
+    const newest = document.querySelector('[data-client-msg-id="message-41"]');
+    app.messages.set(41, { ...outgoing, status: 'delivered' }); app.renderMessages();
+    if (document.querySelector('[data-client-msg-id="message-41"]') !== newest || !animated.some(animation => animation.playState === 'running')) throw Error('Receipt interrupted an active send animation');
+    await Promise.all(animated.map(animation => animation.finished));
+    const topAtEnd = previousBubble.getBoundingClientRect().top;
+    if (!(topAtStart > topDuring && topDuring > topAtEnd)) throw Error(`Send did not translate smoothly upward: ${topAtStart}, ${topDuring}, ${topAtEnd}`);
+    if (Math.abs(header.getBoundingClientRect().top - headerTop) > 1 || Math.abs(composer.getBoundingClientRect().top - composerTop) > 1) throw Error('Sending moved the header or single-line composer');
+    if (app.chatBottomGap() > 2) throw Error('Animated send lost the latest-message anchor');
+    app.messages.set(42, message(42)); app.renderMessages({ scroll: 'send' });
+    if (!app.chatMessageAnimations.size) throw Error('Second send did not start motion');
+    document.querySelector('#message-list').dispatchEvent(new WheelEvent('wheel', { deltaY: -12, bubbles: true }));
+    if (app.chatMessageAnimations.size || app.chatPinnedToBottom) throw Error('History gesture did not cancel send motion and follow');
+    return { duration: 300, visibleContentOnly: true, receiptPreserved: true, fixedBarsStable: true, upwardSamples: [topAtStart, topDuring, topAtEnd], gestureCancels: true };
+  });
+
+  results.continuousViewportSampling = await page.evaluate(async () => {
+    const { app, fresh, message } = window.regression; fresh();
+    app.messages.set(1, message(1)); app.renderMessages({ scroll: 'bottom' });
+    const viewport = visualViewport;
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      // No interaction or browser event starts this late native-toolbar frame.
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 780 });
+      await frame();
+      const bottom = document.querySelector('#composer').getBoundingClientRect().bottom;
+      if (Math.abs(bottom - 780) > 1) throw Error(`Input stopped sampling toolbar geometry after the previous interaction: ${bottom}`);
+      // The media viewer leaves and returns to the existing chat without a
+      // layout mount or changed viewport; dismissal must restart sampling.
+      app.setActiveSurface('away');
+      app.setActiveSurface('chat');
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 808 });
+      await frame();
+      const resumedBottom = document.querySelector('#composer').getBoundingClientRect().bottom;
+      if (Math.abs(resumedBottom - 808) > 1) throw Error(`Returning to unchanged chat geometry failed to restart sampling: ${resumedBottom}`);
+      return { sameGeometryReturn: 'sampling resumed', eventlessChangeAfterIdle: 'followed in one frame' };
+    } finally {
+      delete viewport.height; viewport.dispatchEvent(new Event('resize')); await frame();
     }
   });
 

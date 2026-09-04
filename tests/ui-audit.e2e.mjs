@@ -15,6 +15,7 @@ function invariant(condition, message) {
 }
 
 async function assertStablePage(page, label) {
+  await page.waitForFunction(() => document.querySelector('#app')?.dataset.pageTransition !== 'leaving');
   const samples = await page.locator('#app > section').evaluate(async (section) => {
     const values = [];
     const chat = section.classList.contains('chat-shell');
@@ -54,7 +55,7 @@ async function assertCredentialLayout(page, buttonSelector) {
       height: rect.height,
       horizontalOverflow: rect.left < 0 || rect.right > innerWidth,
       hintGap: introRect ? rect.top - introRect.bottom : null,
-      errorGap: error?.textContent?.trim() && errorRect ? errorRect.top - rect.bottom : null,
+      errorGap: error?.textContent?.trim() && errorRect ? Math.max(errorRect.top - rect.bottom, rect.top - errorRect.bottom) : null,
     };
   });
   invariant(layout.height >= 44 && layout.width >= 180 && !layout.horizontalOverflow, `Passkey button is clipped or undersized: ${JSON.stringify(layout)}`);
