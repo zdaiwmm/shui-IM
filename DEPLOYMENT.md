@@ -16,6 +16,13 @@ deliberate fresh-origin cutover.
 
 ## Normal deployment
 
+For the fixed, non-GUI entry point that preserves an actively edited workspace,
+use `node scripts/publish.mjs --sha <full-main-SHA>` after reviewing and merging
+the release. It waits for matching CI and runs the checks below in an isolated
+clone. See [RELEASING.md](./RELEASING.md) for the operational runbook and actual
+lock-screen/host-availability limitations. The direct entry below remains useful
+when already operating from a clean release checkout.
+
 1. Work on a feature branch or in a Codex worktree.
 2. Open a pull request and wait for the **CI** workflow to pass.
 3. Merge the reviewed change into `main`.
