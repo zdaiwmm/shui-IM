@@ -1,4 +1,4 @@
-/* Message content uses the app menu; only the selection sheet opts back in. */
+/* Long press opens the message menu; selection is enabled on the original text. */
 .message,
 .message-bubble,
 .message-bubble p,
@@ -8,90 +8,346 @@
   user-select: none;
 }
 
-.message-actions {
-  min-width: 156px;
-  max-width: calc(100vw - 16px);
-  color: var(--ink);
-}
-
-.message-actions:not(.message-copy-sheet) {
-  max-height: calc(var(--app-height, 100dvh) - 16px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-.message-actions > button {
-  width: 100%;
-  color: inherit;
-  text-align: left;
-}
-
-.message-actions > button + button {
-  border-top: 1px solid var(--glass-border);
-  border-radius: 0;
-}
-
-.message-copy-sheet {
-  inset: 0;
-  z-index: 110;
-  width: 100%;
-  max-width: none;
-  height: 100%;
-  padding: max(20px, env(safe-area-inset-top)) 16px max(20px, env(safe-area-inset-bottom));
-  display: grid;
-  place-items: center;
-  border: 0;
-  border-radius: 0;
-  background: oklch(15% 0.015 255 / 0.3);
-  box-shadow: none;
-  transform: none;
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-}
-
-.message-copy-panel {
-  width: min(100%, 480px);
-  max-height: 100%;
-  overflow: auto;
-  padding: 24px;
-  border: 1px solid var(--glass-border);
-  border-radius: 24px;
-  background: var(--glass-panel);
-  box-shadow: var(--shadow);
-}
-
-.message-copy-panel h2 {
-  margin: 0 0 10px;
-  font-size: 1.2rem;
-  line-height: 1.3;
-}
-
-.message-copy-panel p {
-  margin: 0 0 16px;
-  color: var(--ink-muted);
-  font-size: 0.84rem;
-  line-height: 1.5;
-}
-
-.message-copy-panel textarea {
-  display: block;
-  width: 100%;
-  height: auto;
-  max-height: min(40dvh, 320px);
-  min-height: 120px;
-  padding: 14px;
-  resize: none;
-  border: 1px solid var(--glass-border);
-  border-radius: 14px;
-  background: var(--glass);
-  color: var(--ink);
-  font: inherit;
-  font-size: 16px;
-  line-height: 1.6;
+.message.is-selecting-text,
+.message.is-selecting-text .message-bubble,
+.message.is-selecting-text .message-text,
+.message.is-selecting-text .message-bubble > p {
   -webkit-touch-callout: default;
   -webkit-user-select: text;
   user-select: text;
   touch-action: auto;
+}
+
+.message.is-selecting-text .message-text:focus {
+  outline: none;
+}
+
+/* Preserve the paragraph's metrics while using the browser's native selection. */
+.message-text.message-text-selection {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.94rem;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: inherit;
+  text-align: inherit;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  overflow: hidden;
+  resize: none;
+  appearance: none;
+  -webkit-appearance: none;
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  user-select: text;
+  touch-action: auto;
+  cursor: text;
+}
+
+.message.is-selecting-text .message-text::selection,
+.message.is-selecting-text .message-bubble > p::selection {
+  background: color-mix(in oklch, var(--accent) 28%, transparent);
+}
+
+/* Keep the source legible above the dimmed conversation, without moving it. */
+#app > .chat-shell:has(.message.is-action-source) {
+  isolation: auto;
+  animation: none;
+}
+
+.message.is-action-source {
+  z-index: 36;
+  opacity: 1;
+}
+
+.message.is-action-source .message-bubble {
+  box-shadow: 0 14px 38px oklch(12% 0.015 255 / 0.16);
+}
+
+.message.is-action-source .message-quick-reply,
+.message.is-selecting-text .message-quick-reply {
+  visibility: hidden;
+}
+
+.message-actions-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 35;
+  background: oklch(13% 0.01 255 / 0.22);
+  opacity: 0;
+  transition: opacity 160ms ease-out;
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  touch-action: none;
+}
+
+.message-actions-backdrop.is-visible { opacity: 1; }
+.message-actions-backdrop.is-closing { opacity: 0; pointer-events: none; }
+
+/* The two surfaces have their own placement around the selected bubble. */
+.message-actions {
+  width: min(224px, calc(100vw - 24px));
+  min-width: 0;
+  max-width: calc(100vw - 24px);
+  max-height: calc(var(--app-height, 100dvh) - 24px);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+  overflow: visible;
+  opacity: 0;
+  transform: none;
+  transition: opacity 150ms ease-out;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.message-actions.is-visible,
+.message-actions.is-closing { transform: none; }
+
+.message-actions.is-closing { pointer-events: none; }
+
+.message-action-list,
+.message-reaction-picker {
+  border: 1px solid var(--glass-border);
+  background: color-mix(in oklch, var(--paper-pure) 88%, transparent);
+  box-shadow: 0 12px 40px oklch(12% 0.015 255 / 0.17), inset 0 1px 0 var(--glass-border);
+  -webkit-backdrop-filter: blur(28px) saturate(135%);
+  backdrop-filter: blur(28px) saturate(135%);
+  transform: translateY(3px) scale(0.98);
+  transform-origin: top left;
+  transition: transform 180ms var(--motion-out);
+}
+
+.message-actions.is-visible .message-action-list,
+.message-actions.is-visible .message-reaction-picker {
+  transform: none;
+}
+
+.message-action-list {
+  width: 100%;
+  max-height: calc(var(--app-height, 100dvh) - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 0;
+  border-radius: 23px;
+}
+
+.message-action-list > button {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 19px;
+  gap: 13px;
+  border-radius: 0;
+  color: inherit;
+  font-size: 0.94rem;
+  font-weight: 400;
+  text-align: left;
+}
+
+.message-action-list > button svg {
+  width: 21px;
+  height: 21px;
+  flex: 0 0 21px;
+  stroke-width: 1.7;
+}
+
+.message-action-list > button + button {
+  border-top: 1px solid color-mix(in oklch, var(--line) 35%, transparent);
+}
+
+.message-action-list > button:hover {
+  background: color-mix(in oklch, var(--ink) 7%, transparent);
+  color: inherit;
+}
+
+.message-reaction-picker {
+  position: fixed;
+  top: var(--message-reaction-y, calc(var(--message-action-y) - 64px));
+  left: var(--message-reaction-x, var(--message-action-x));
+  display: flex;
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  min-height: 54px;
+  padding: 4px;
+  gap: 0;
+  overflow-x: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  border-radius: 30px;
+}
+
+.message-reaction-picker::-webkit-scrollbar { display: none; }
+
+.message-reaction-picker > button {
+  flex: 0 0 44px;
+  min-width: 44px;
+  width: 44px;
+  min-height: 44px;
+  height: 44px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  font-size: 1.68rem;
+  line-height: 1;
+}
+
+.message-reaction-picker > button:hover,
+.message-reaction-picker > button[aria-pressed='true'] {
+  background: color-mix(in oklch, var(--accent) 13%, transparent);
+  color: inherit;
+}
+
+.message-reaction-picker > button:focus-visible,
+.message-action-list > button:focus-visible {
+  outline-offset: -4px;
+}
+
+/* Quotes remain a small, quiet part of the message's reading flow. */
+.message-reply-quote {
+  min-height: 44px;
+  margin: 0 0 7px;
+  padding: 7px 9px;
+  gap: 3px;
+  border: 0;
+  border-radius: 7px;
+  background: color-mix(in oklch, var(--ink) 5%, transparent);
+  box-shadow: none;
+  color: var(--ink-muted);
+  line-height: 1.35;
+}
+
+.outgoing .message-reply-quote {
+  border: 0;
+  background: oklch(15% 0.012 255 / 0.12);
+  color: color-mix(in oklch, var(--on-accent) 89%, transparent);
+}
+
+.message-reply-quote strong {
+  font-size: 0.69rem;
+  font-weight: 500;
+}
+
+.message-reply-quote span {
+  font-size: 0.76rem;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+/* A 30px visual badge has a full 44px target and a small speech-bubble tail. */
+.message-bubble:has(> .message-reactions) {
+  position: relative;
+  overflow: visible;
+}
+
+.message:has(.message-reactions) {
+  margin-top: 16px;
+}
+
+.message-reactions {
+  position: absolute;
+  top: -24px;
+  right: -7px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+/* Two reactions on a one-character incoming bubble must stay inside the list. */
+.incoming .message-reactions {
+  right: auto;
+  left: max(0px, calc(100% + 7px - var(--reaction-width, 44px)));
+}
+
+.message-reaction {
+  --reaction-fill: var(--surface-raised);
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  width: 44px;
+  min-height: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink);
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif;
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.message-reaction::before {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  z-index: -1;
+  border: 1px solid color-mix(in oklch, var(--line) 55%, transparent);
+  border-radius: 50%;
+  background: var(--reaction-fill);
+  box-shadow: 0 1px 3px oklch(12% 0.01 255 / 0.1);
+}
+
+.message-reaction::after {
+  content: '';
+  position: absolute;
+  bottom: 5px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  z-index: -1;
+  border-radius: 50%;
+  background: var(--reaction-fill);
+  box-shadow: 5px 6px 0 -2px var(--reaction-fill);
+}
+
+.message-reaction[data-own='true'] {
+  --reaction-fill: oklch(70% 0.17 148);
+}
+
+.message-reaction[data-own='true']::before {
+  border-color: transparent;
+}
+
+.message-reaction:hover::before {
+  border-color: var(--accent);
+}
+
+.message-reaction:disabled {
+  opacity: 0.6;
+}
+
+@media (prefers-color-scheme: dark) {
+  .message-actions-backdrop { background: oklch(7% 0.01 255 / 0.42); }
+  .message-action-list,
+  .message-reaction-picker { background: color-mix(in oklch, var(--surface-raised) 92%, transparent); }
+  .message-reaction[data-own='true'] { --reaction-fill: oklch(61% 0.15 148); }
+  .outgoing .message-reply-quote { background: oklch(10% 0.012 255 / 0.16); }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .message-action-list,
+  .message-reaction-picker { background: var(--paper-pure); }
+  .message-actions-backdrop { -webkit-backdrop-filter: none; backdrop-filter: none; }
 }
 
 /* Shared lifecycle: normal dialogs ease in/out; privacy aborts remove at once. */
@@ -112,31 +368,12 @@
 .dialog-surface.is-visible > .message-copy-panel { transform: none; }
 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-  :root { --glass: var(--paper-pure); --glass-strong: var(--paper-pure); --glass-control: var(--paper-pure); --glass-panel: var(--paper-pure); }
+  :root { --glass: var(--paper-pure); --glass-strong: var(--paper-pure); --glass-control: var(--paper-pure); --glass-panel: var(--paper-pure); --glass-filter: none; --glass-sheen: none; }
   .chat-header::before, .composer::before, .gallery-header::before { background: var(--paper); }
 }
 
-.message-copy-panel .message-copy-feedback {
-  min-height: 1.5em;
-  margin: 8px 0;
-}
-
-.message-copy-buttons {
-  display: flex;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.message-copy-buttons button {
-  min-height: 44px;
-  justify-content: center;
-  color: var(--ink-muted);
-}
-
-.message-copy-buttons [data-copy-selection] {
-  background: var(--accent);
-  color: var(--on-accent);
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root { --glass: var(--paper-pure); --glass-strong: var(--paper-pure); }
 }
 
 /* The photo stage spans the viewport; controls float above it, as in Photos. */
@@ -216,6 +453,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .message-actions,
+  .message-actions-backdrop,
+  .message-action-list,
+  .message-reaction-picker,
   .image-viewer,
   .image-viewer::before,
   .image-viewer .viewer-stage > img,

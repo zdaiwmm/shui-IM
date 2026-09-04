@@ -2,6 +2,7 @@ import './styles.css';
 import './chat-layout.css';
 import './auth-recovery.css';
 import './chat-interactions.css';
+import './cover.css';
 import './voice-messages.css';
 import { QuietRoomApp } from './app';
 
@@ -20,7 +21,9 @@ colorScheme.addEventListener('change', syncSystemChrome);
 // Keep zooming inside purpose-built media viewers instead of allowing a
 // double tap/click to scale the whole browser page. The viewport declaration
 // and touch-action CSS provide the mobile path; this covers emitted dblclicks.
-document.addEventListener('dblclick', (event) => event.preventDefault(), {
+document.addEventListener('dblclick', (event) => {
+  if (!(event.target instanceof Element && event.target.closest('.is-selecting-text'))) event.preventDefault();
+}, {
   capture: true,
   passive: false,
 });

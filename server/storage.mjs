@@ -74,6 +74,7 @@ export async function createStore({
       sender_device_id TEXT NOT NULL,
       envelope TEXT NOT NULL,
       accepted_at TEXT NOT NULL,
+      count_unread INTEGER NOT NULL DEFAULT 1,
       PRIMARY KEY(room_id, server_seq),
       UNIQUE(room_id, client_msg_id)
     );
@@ -122,6 +123,15 @@ export async function createStore({
       updated_at TEXT NOT NULL,
       PRIMARY KEY(room_id, device_id),
       UNIQUE(endpoint),
+      FOREIGN KEY(room_id, device_id) REFERENCES members(room_id, device_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS unread_observers (
+      room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+      device_id TEXT NOT NULL,
+      token_hash BLOB NOT NULL,
+      read_seq INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY(room_id, device_id),
       FOREIGN KEY(room_id, device_id) REFERENCES members(room_id, device_id) ON DELETE CASCADE
     );
 
@@ -186,6 +196,9 @@ export async function createStore({
 
   if (!hasColumn(db, 'rooms', 'next_receipt_seq')) {
     db.exec('ALTER TABLE rooms ADD COLUMN next_receipt_seq INTEGER NOT NULL DEFAULT 0');
+  }
+  if (!hasColumn(db, 'messages', 'count_unread')) {
+    db.exec('ALTER TABLE messages ADD COLUMN count_unread INTEGER NOT NULL DEFAULT 1');
   }
   if (!hasColumn(db, 'rooms', 'mls_welcome')) {
     db.exec('ALTER TABLE rooms ADD COLUMN mls_welcome TEXT');
@@ -304,8 +317,8 @@ export async function createStore({
     nextSeq: db.prepare('UPDATE rooms SET next_seq = next_seq + 1 WHERE room_id = ? RETURNING next_seq'),
     incrementMessageUsage: db.prepare('UPDATE rooms SET message_count = message_count + 1, message_bytes = message_bytes + ? WHERE room_id = ?'),
     insertMessage: db.prepare(`INSERT INTO messages(
-      room_id, server_seq, client_msg_id, sender_device_id, envelope, accepted_at
-    ) VALUES (?, ?, ?, ?, ?, ?)`),
+      room_id, server_seq, client_msg_id, sender_device_id, envelope, accepted_at, count_unread
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)`),
     messagesAfter: db.prepare(`SELECT server_seq, envelope, accepted_at FROM messages
       WHERE room_id = ? AND server_seq > ? AND server_seq > ? ORDER BY server_seq LIMIT ?`),
     roomMessageUsage: db.prepare('SELECT message_count AS count, message_bytes AS bytes FROM rooms WHERE room_id = ?'),
@@ -355,6 +368,13 @@ export async function createStore({
       FROM push_subscriptions WHERE room_id = ? AND device_id <> ? ORDER BY device_id`),
     deletePushSubscription: db.prepare('DELETE FROM push_subscriptions WHERE room_id = ? AND device_id = ?'),
     deletePushSubscriptionByEndpoint: db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?'),
+    unreadObserver: db.prepare('SELECT token_hash, read_seq FROM unread_observers WHERE room_id = ? AND device_id = ?'),
+    upsertUnreadObserver: db.prepare(`INSERT INTO unread_observers(room_id, device_id, token_hash, read_seq)
+      VALUES (?, ?, ?, ?) ON CONFLICT(room_id, device_id) DO UPDATE SET
+      token_hash = excluded.token_hash, read_seq = MAX(unread_observers.read_seq, excluded.read_seq)`),
+    unreadCount: db.prepare(`SELECT COUNT(*) AS count FROM messages
+      JOIN members AS sender ON sender.room_id = messages.room_id AND sender.device_id = messages.sender_device_id
+      WHERE messages.room_id = ? AND messages.server_seq > ? AND messages.count_unread = 1 AND sender.role <> ?`),
     saveMlsWelcome: db.prepare('UPDATE rooms SET mls_welcome = ? WHERE room_id = ? AND mls_welcome IS NULL'),
     insertDeviceLink: db.prepare(`INSERT INTO device_links(
       link_id, room_id, authorizer_id, role, secret_hash, expires_at, created_at
@@ -958,7 +978,35 @@ export async function createStore({
     return statements.deletePushSubscriptionByEndpoint.run(endpoint).changes > 0;
   }
 
-  function insertMessage(roomId, envelope) {
+  function saveUnreadObserver(roomId, deviceId, { token, readSeq } = {}) {
+    assertDeviceActive(roomId, deviceId);
+    const member = getMember(roomId, deviceId);
+    const room = statements.room.get(roomId);
+    const previous = statements.unreadObserver.get(roomId, deviceId);
+    if ((token !== undefined && (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43,128}$/.test(token))) ||
+      (readSeq !== undefined && (!Number.isSafeInteger(readSeq) || readSeq < 0)) ||
+      (!previous && token === undefined)) throw new Error('INVALID_UNREAD_OBSERVER');
+    const digest = token === undefined ? previous.token_hash : hashToken(token);
+    // A count-only credential must never be an existing room or device key.
+    if (Buffer.from(room.access_hash).equals(Buffer.from(digest)) || db.prepare('SELECT 1 FROM members WHERE access_hash = ?').get(digest)) {
+      throw new Error('INVALID_UNREAD_OBSERVER');
+    }
+    const cursor = Math.max(member.joinSeq ?? 0, Math.min(readSeq ?? previous?.read_seq ?? 0, room.next_seq));
+    statements.upsertUnreadObserver.run(roomId, deviceId, digest, cursor);
+    return { count: statements.unreadCount.get(roomId, Math.max(cursor, previous?.read_seq ?? 0), member.role).count };
+  }
+
+  function unreadCount(roomId, deviceId, token) {
+    if (typeof token !== 'string' || !/^[A-Za-z0-9_-]{43,128}$/.test(token)) throw new Error('UNAUTHORIZED');
+    assertDeviceActive(roomId, deviceId);
+    const observer = statements.unreadObserver.get(roomId, deviceId);
+    if (!observer || !timingSafeEqual(Buffer.from(observer.token_hash), hashToken(token))) throw new Error('UNAUTHORIZED');
+    const member = getMember(roomId, deviceId);
+    return { count: statements.unreadCount.get(roomId, Math.max(observer.read_seq, member.joinSeq ?? 0), member.role).count };
+  }
+
+  function insertMessage(roomId, envelope, countUnread = true) {
+    if (typeof countUnread !== 'boolean') throw new Error('INVALID_MESSAGE');
     db.exec('BEGIN IMMEDIATE');
     try {
       if (getMember(roomId, envelope.senderId)?.status !== 'active' || deviceRecoveryPending(roomId, envelope.senderId)) throw new Error('UNAUTHORIZED');
@@ -991,6 +1039,7 @@ export async function createStore({
         envelope.senderId,
         serializedEnvelope,
         acceptedAt,
+        countUnread ? 1 : 0,
       );
       statements.incrementMessageUsage.run(envelopeBytes, roomId);
       db.exec('COMMIT');
@@ -1257,6 +1306,8 @@ export async function createStore({
     receiptsAfter,
     roomState,
     savePushSubscription,
+    saveUnreadObserver,
+    unreadCount,
     saveMlsWelcome,
     saveMlsEvent,
     deletePushSubscription,

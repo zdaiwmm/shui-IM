@@ -118,6 +118,7 @@ function normalizeError(error) {
     ['MLS_WELCOME_CONFLICT', [409, 'MLS 会话欢迎消息与已保存内容冲突']],
     ['PROTOCOL_MISMATCH', [409, '加入设备不支持该会话的加密协议']],
     ['INVALID_DEVICE_TOKEN', [400, '设备访问凭证格式不正确']],
+    ['INVALID_UNREAD_OBSERVER', [400, '未读计数请求格式不正确']],
     ['INVALID_DEVICE_LINK', [400, '设备链接无效或已经过期']],
     ['DEVICE_LINK_CLAIMED', [409, '设备链接已经被另一台设备使用']],
     ['DEVICE_LIMIT', [409, '每位参与者最多使用三台设备']],
@@ -576,6 +577,31 @@ export async function startServer(options = {}) {
         return;
       }
 
+      const unreadMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/unread/(${ID_PATTERN})$`));
+      if (unreadMatch && (request.method === 'GET' || request.method === 'POST')) {
+        const [, roomId, deviceId] = unreadMatch;
+        if (!allowRequest(request, `unread:${request.method}:${roomId}:${deviceId}`, 240)) {
+          response.setHeader('Retry-After', '60');
+          json(request, response, 429, { error: '请求过于频繁', code: 'RATE_LIMITED' });
+          return;
+        }
+        if (request.method === 'GET') {
+          // This route deliberately does not accept a normal device credential.
+          json(request, response, 200, store.unreadCount(roomId, deviceId, bearerToken(request)));
+          return;
+        }
+        requireActiveDevice(request, roomId, deviceId);
+        const body = await readJson(request);
+        if (!body || typeof body !== 'object' || Array.isArray(body) ||
+          Object.keys(body).some((key) => key !== 'token' && key !== 'readSeq') ||
+          (body.token === undefined && body.readSeq === undefined)) throw new Error('INVALID_UNREAD_OBSERVER');
+        // Recheck after reading a potentially slow body: recovery can revoke
+        // the device while the request is still arriving.
+        requireActiveDevice(request, roomId, deviceId);
+        json(request, response, 200, store.saveUnreadObserver(roomId, deviceId, body));
+        return;
+      }
+
       const pushMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/push/(${ID_PATTERN})$`));
       if (pushMatch && (request.method === 'PUT' || request.method === 'DELETE')) {
         const [, roomId, deviceId] = pushMatch;
@@ -966,7 +992,8 @@ export async function startServer(options = {}) {
             return;
           }
 
-          if (message.type !== 'send' || !validateEnvelopeShape(message.envelope, session.roomId)) {
+          if (message.type !== 'send' || !validateEnvelopeShape(message.envelope, session.roomId) ||
+            (message.countUnread !== undefined && typeof message.countUnread !== 'boolean')) {
             send(socket, { type: 'error', code: 'INVALID_MESSAGE', message: '消息格式不正确' });
             return;
           }
@@ -1009,7 +1036,9 @@ export async function startServer(options = {}) {
               return;
             }
           }
-          const stored = store.insertMessage(session.roomId, message.envelope);
+          // This authenticated transport hint conveys countability only; it is
+          // never used to validate or interpret the end-to-end encrypted payload.
+          const stored = store.insertMessage(session.roomId, message.envelope, message.countUnread ?? true);
           send(socket, { type: 'ack', clientMsgId: message.envelope.clientMsgId, seq: stored.seq });
           if (!stored.duplicate) {
             broadcast(session.roomId, {

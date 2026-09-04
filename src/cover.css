@@ -1,0 +1,100 @@
+/* The cover uses the quiet typography and spacing of a browser failure page. */
+.cover,
+.privacy-curtain {
+  color: var(--ink-muted);
+  background: var(--paper-pure);
+}
+
+.cover-error {
+  position: absolute;
+  top: max(96px, 24vh);
+  left: 50%;
+  width: min(480px, calc(100% - 64px));
+  transform: translateX(-50%);
+  text-align: left;
+}
+
+.cover-error-icon {
+  display: block;
+  width: 42px;
+  height: 48px;
+  margin-bottom: 24px;
+  color: var(--ink-faint);
+}
+
+.cover-error-icon svg,
+svg.cover-error-icon {
+  width: 42px;
+  height: 48px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.cover-error h1 {
+  margin: 0 0 18px;
+  color: var(--ink);
+  font-size: 1.4rem;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.cover-error-details {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.cover-error-details p { margin: 0 0 8px; }
+.cover-error-details ul { margin: 8px 0 0; padding-left: 20px; }
+
+.cover-error-code {
+  display: block;
+  margin: 18px 0 0;
+  color: var(--ink-faint);
+  font-family: ui-monospace, 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
+  font-size: 0.71rem;
+  font-weight: 400;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.cover-error-code code,
+.cover-unread {
+  font: inherit;
+  letter-spacing: inherit;
+}
+
+.cover-unread {
+  color: color-mix(in oklch, var(--ink-faint) 76%, var(--accent));
+}
+
+/* Always mounted outside #app so focus loss does not wait for a UI teardown. */
+.privacy-curtain {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  visibility: hidden;
+  pointer-events: none;
+  contain: layout paint;
+  transition: none;
+  animation: none;
+}
+
+html.privacy-obscured #app { visibility: hidden; }
+
+html.privacy-obscured .privacy-curtain {
+  visibility: visible;
+  pointer-events: auto;
+}
+
+/* Browser zoom and landscape layouts still leave the gesture corner clear. */
+@media (max-height: 480px) {
+  .cover-error { top: 40px; }
+  .cover-error-icon { width: 30px; height: 34px; margin-bottom: 12px; }
+  .cover-error h1 { margin-bottom: 10px; }
+  .cover-error-code { margin-top: 10px; }
+}

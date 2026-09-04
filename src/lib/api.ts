@@ -451,9 +451,9 @@ export class RoomSocket {
     this.lastSentPresenceView = this.desiredPresenceView;
   }
 
-  sendEnvelope(envelope: MessageEnvelope): void {
+  sendEnvelope(envelope: MessageEnvelope, countUnread = true): void {
     if (this.socket?.readyState !== WebSocket.OPEN) throw new Error('实时连接尚未恢复');
-    this.socket.send(JSON.stringify({ type: 'send', envelope }));
+    this.socket.send(JSON.stringify({ type: 'send', envelope, countUnread }));
   }
 
   sendReceipt(receipt: DeliveryReceipt): void {

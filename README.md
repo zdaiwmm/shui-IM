@@ -1,6 +1,6 @@
 # Quiet Room
 
-Quiet Room is a mobile-first, two-person encrypted chat with independently keyed multi-device access. There are no accounts. The page opens as an empty white surface; holding the bottom-right corner for one second reveals the local unlock flow. Text, reply relationships, message type, image metadata, and original image bytes are encrypted in the browser before they reach the service.
+Quiet Room is a mobile-first, two-person encrypted chat with independently keyed multi-device access. There are no accounts. The page opens as a browser-load-failure cover; holding the blank bottom-right corner for one second reveals the local unlock flow. Text, reply relationships, reactions, exact message type, image metadata, and original image bytes are encrypted in the browser before they reach the service. A restricted count-only credential updates the cover's unread number without opening the vault.
 
 The canonical production origin is `https://ai.shui.click`. Passkeys and local
 history are intentionally bound to that exact origin; the retired
@@ -9,23 +9,24 @@ history are intentionally bound to that exact origin; the retired
 The implementation includes:
 
 - one-time participant invitation, followed by independently authorized multi-device access for each participant;
-- passkey-only local vault unlock using WebAuthn PRF output and system user verification, plus one-time migration for legacy password/gesture vaults;
+- passkey-only local vault unlock using WebAuthn PRF output, automatic system verification when entering unlock, and one-time migration for legacy password/gesture vaults;
 - RFC 9420 MLS forward secrecy for new rooms, authenticated key-package binding, signed Add/Remove commits, opaque welcome messages, and atomic ratchet persistence;
 - device management with independent device identities and tokens, six-digit out-of-band approval codes, a three-device-per-participant limit, revocation, and server-enforced history boundaries;
 - heartbeat-monitored WebSocket delivery with transactional per-room sequence numbers;
 - encrypted persistent outbox, stable message IDs, idempotent retries, and incremental reconnect synchronization;
 - signed peer delivery receipts that distinguish server persistence from actual peer receipt;
 - encrypted message replies whose target, sender, and generic type remain inside the MLS payload, while any content preview is derived only from this device's local history;
+- encrypted emoji reactions with message-corner badges, a compact long-press action menu, and native text selection inside the original bubble;
 - encrypted voice messages with recording, pause/resume, local preview, waveform playback/seeking, and privacy-bound microphone cleanup;
 - original-byte image encryption in resumable 2 MiB chunks;
-- single encrypted 2–9-image album messages, viewport-triggered local previews, and a full-screen photo viewer with paging, drag-to-dismiss, and original download;
-- encrypted per-device reading anchors and dismissible recovery reminders;
+- image selection without a nine-image cap, ordered encrypted message groups, gallery multi-upload, quiet local previews, and a full-screen viewer with paging, drag-to-dismiss, and original download;
+- encrypted per-device unsent text drafts, reading anchors, and dismissible recovery reminders;
 - role-aggregated chat-page presence that is independent from WebSocket connection state;
-- mobile-keyboard-aware layout, stable page transitions, photo motion, translucent gradient in-page bars, and page-level double-tap zoom suppression;
+- native document chat scrolling behind Safari chrome, keyboard-aware floating glass controls, stable reading anchors, photo motion, and page-level double-tap zoom suppression;
 - two-part local recovery using an encrypted package plus an independently stored 256-bit recovery code, followed by new-device rebinding;
 - opt-in payload-free Web Push wake-ups that reveal no sender, room, message type, content, attachment metadata, or count in the push request;
 - online WAL-consistent backup, completed-blob snapshotting, per-file checksums, verification, scheduled retention, and guarded restore tooling;
-- responsive PWA shell, strict production security headers, and immediate privacy locking on blur, backgrounding, or page hide;
+- responsive PWA shell, strict production security headers, synchronous concealment on every blur, immediate privacy locking on native-surface focus loss/backgrounding/page hide, and a 250 ms teardown debounce for ordinary window blur;
 - SQLite ciphertext metadata storage and filesystem ciphertext blob storage;
 - production container files and automated crypto/storage/WebSocket tests.
 
@@ -108,7 +109,7 @@ Terminate TLS with a valid public certificate. Do not bypass certificate warning
 
 ## First conversation
 
-1. Both people open the same site and see a white screen.
+1. Both people open the same site and see a browser-load-failure cover.
 2. The creator holds the bottom-right corner for one second and selects **创建会话**.
 3. The creator selects **设置通行密钥** and completes system biometric or device-password verification. Both syncable passkeys and single-device credentials are accepted. The creator then shares the invitation QR code or full invitation link through a trusted channel.
 4. The second person opens the invite, holds the bottom-right corner, creates a passkey-protected local vault, and joins. The creator publishes a signed opaque MLS welcome; neither side enables the composer before MLS setup completes.
@@ -129,7 +130,7 @@ To reply, long-press an incoming message, open its context menu, or use the visi
 
 For new rooms, the client advances the RFC 9420 MLS application-message ratchet and commits the resulting ciphertext, updated encrypted ratchet state, and encrypted outbox item in one IndexedDB transaction before network transmission. Retries reuse exactly that ciphertext and one stable UUID. Incoming ratchet state, decrypted local history, and the pending signed receipt are also committed together. After signature verification, the service atomically increments the room sequence and stores only the opaque envelope. It acknowledges only committed messages and broadcasts them with that sequence. Clients render confirmed messages by sequence and request everything after their last contiguous sequence following a reconnect. The server uniqueness constraint makes repeated sends converge to one stored message.
 
-The UI uses three concise states with full descriptions exposed to assistive technology. **等待发送** (等待服务器) means only the encrypted local outbox is durable. **已保存** (服务器已保存) means the server committed the signed ciphertext. **已送达** (对端已安全接收) appears only after the other enrolled device decrypts the message, persists local history, and returns an ECDSA-signed receipt. A server cannot forge that final state without the peer signing key.
+The UI uses three concise states with full descriptions exposed to assistive technology. **等待发送** (等待服务器) means only the encrypted local outbox is durable. **单柄对勾 / 已发送** (服务器已保存) means the server committed the signed ciphertext. **双柄对勾 / 已送达** (对端已安全接收) appears only after the other enrolled device decrypts the message, persists local history, and returns an ECDSA-signed receipt. A server cannot forge that final state without the peer signing key.
 
 This defines a deterministic server-acceptance order. It does not claim to know which person physically tapped Send first when two devices send concurrently over networks with different latency.
 
@@ -137,13 +138,15 @@ This defines a deterministic server-acceptance order. It does not claim to know 
 
 The browser reads the selected file bytes directly. It does not use Canvas, resize, recompress, remove EXIF, or change the encoding. The encrypted manifest stores the original name, MIME type, length, and SHA-256 digest. After download and decryption, the client rejects the result unless the byte length and digest match the upload.
 
-Selecting one image creates an ordinary encrypted image message. Selecting 2–9 images creates one `image-album` payload with ordered, unique manifests, one encrypted outbox item, one server sequence, and one collage bubble instead of separate messages. Each original still uses its own resumable encrypted chunks and integrity check; the aggregate original size of one album message is capped at 256 MiB to bound receiver memory pressure. Sending an album requires every active device to have reported `image-album-v1` after opening the current version, so an old client is never sent an unknown encrypted payload. Visible and near-visible chat media is downloaded, verified, and decrypted locally into an inline preview automatically; the service neither generates nor receives a plaintext thumbnail. The media bubble fits the loaded image or compact album grid rather than reserving a large empty text-bubble frame.
+Focus the chat composer and use **Cmd+V / Ctrl+V** or the native Paste action to send an image held in the clipboard. The browser must expose actual image data: copied HTML or a URL alone is not fetched as an image. Pasted files use the same encrypted original-byte upload path, keep the current text draft, and follow the same limits and compatibility checks as the image picker. Text-only paste works normally.
+
+There is no nine-image limit on a selection. Chat groups originals in selected order into messages containing at most nine images and 256 MiB of original bytes each. A one-image group creates an ordinary image message; a larger group creates one `image-album` payload, encrypted outbox item, server sequence, and collage bubble. Each original keeps its own resumable encrypted chunks and integrity check. Sending an album requires every active device to have reported `image-album-v1` after opening the current version. Visible and near-visible media is verified and decrypted locally into inline previews; the service neither generates nor receives a plaintext thumbnail. Chat, gallery, and viewer reuse verified images during the unlocked session and use quiet loading placeholders. Locking clears decrypted caches and revokes their object URLs.
 
 Tap an inline image or an album cell to open the full-screen overlay at that item. Albums can be paged by touch, previous/next controls, or arrow keys, show the current position, and allow the current verified original to be downloaded. Dragging vertically shrinks the photo and releasing dismisses the viewer. Closing the overlay restores focus and the prior surface state; reduced-motion preferences bypass decorative transitions.
 
-The server never creates thumbnails and does not know that a message contains an image. The creator-only gallery decrypts message manifests locally, then downloads and decrypts originals when needed. It contains both chat images and images the creator uploads directly from the gallery; direct gallery uploads do not create chat bubbles. The invited participant has no gallery entry or gallery route, while chat images remain visible in the conversation. The first version limits one image to 256 MiB and 128 encrypted 2 MiB chunks. Upload reservations and completed chunk indexes are persisted, so selecting the same file after an interruption resumes without changing the blob ID, key, or IV prefix.
+The server never creates thumbnails and does not know that a message contains an image. The creator-only gallery decrypts message manifests locally, then downloads and decrypts originals when needed. It contains chat images and supports selecting multiple originals for direct upload, processed in order as individual gallery-only images without chat bubbles. The invited participant has no gallery entry or gallery route, while chat images remain visible in the conversation. One image is limited to 256 MiB and 128 encrypted 2 MiB chunks. Upload reservations and completed chunk indexes are persisted, so selecting the same file after an interruption resumes without changing the blob ID, key, or IV prefix.
 
-Opening the system image picker can blur or hide the browser. While a user-initiated chat or gallery image picker is active, Quiet Room ignores only those picker-generated blur/hidden events so the current screen remains visible and a confirmed file can proceed directly to encrypted upload. Selection, cancellation, or a bounded timeout removes the exception. A user-initiated passkey prompt receives the same narrow treatment only on the authentication gateway before a conversation or socket opens, including recovery and migration. It expires after 65 seconds and ends as soon as WebAuthn settles; settling while hidden locks immediately. `pagehide`, explicit lock, idle timeout, and later unrelated blur/background events still activate the white privacy curtain and clear the decrypted session.
+Native image pickers, exports, microphone prompts, clipboard prompts, and confirmation dialogs immediately activate the white privacy curtain if they take browser focus. Hidden visibility also locks immediately; ordinary window blur uses a 250 ms debounce. Returning focus never unlocks. A chooser's input remains hidden and selected files stay in memory until the same room and device unlock, then continue to the original chat or gallery destination. Cancellation, explicit lock, and `pagehide` discard pending selections. Only a passkey prompt on the authentication gateway, including recovery and migration, has a bounded exception before a conversation or socket opens: WebAuthn settlement or 65 seconds ends it, and settlement while hidden locks. `pagehide`, explicit lock, and idle timeout always take precedence.
 
 ## Voice messages
 
@@ -179,19 +182,19 @@ in history like text; there is no two-minute expiry, automatic transcript,
 raise-to-listen sensor feature, or background recording.
 
 Production uses `microphone=(self)` and `media-src 'self' blob:`. Recording needs
-HTTPS (or localhost) and a compatible browser. A user-initiated microphone prompt
-has a maximum 30-second **blur-only** exception so browser permission UI does not
-cancel itself. Hidden visibility, `pagehide`, manual locking, and idle timeout
-still lock immediately, including during the prompt. Late permission grants are
-discarded and their microphone tracks stopped.
+HTTPS (or localhost) and a compatible browser. Microphone requests time out after
+30 seconds. Focus loss during permission UI locks immediately, as do hidden
+visibility, `pagehide`, manual locking, and idle timeout. Late permission grants
+are discarded and their microphone tracks stopped; recording can be started
+again after unlocking.
 
 ## Reading position and presence
 
-Quiet Room encrypts a per-device chat reading anchor in IndexedDB with the same local-record protection used for other vault-owned state. Returning from the gallery or viewer, or reopening an unlocked conversation, restores the anchored message and viewport offset instead of visibly scrolling from the beginning. An anchor that was already at the bottom stays at the bottom, and sending a new message deliberately positions the sender at the latest message.
+Quiet Room encrypts a per-device chat reading anchor in IndexedDB with the same local-record protection used for other vault-owned state. Returning from the gallery or viewer, or reopening an unlocked conversation, restores the anchored message and viewport offset instead of visibly scrolling from the beginning. An anchor that was already at the bottom stays at the bottom; sending keeps the newest message above the composer as its height or the keyboard changes. Unsent text is automatically saved as an encrypted local draft and restored after unlock. A successful send clears the submitted draft only after durable outbox storage and preserves any newer input.
 
-If the composer is focused, opening the image picker does not intentionally dismiss the keyboard, and focus is restored after selection. Tapping outside the composer dismisses the keyboard. The layout follows `VisualViewport` changes so the input remains above the mobile soft keyboard. Page-level double-tap/gesture zoom is disabled, while image enlargement remains available through the purpose-built overlay viewer.
+If the composer is focused, opening the image picker preserves keyboard intent while the page remains unlocked; native focus loss takes precedence and shows the privacy curtain. Tapping outside the composer dismisses the keyboard. The layout follows `VisualViewport` changes so the input remains above the mobile soft keyboard. Page-level double-tap/gesture zoom is disabled, while image enlargement remains available through the purpose-built overlay viewer.
 
-Messages scroll beneath the chat header and composer, with translucent gradient masks keeping the controls readable. Page navigation keeps layout positions stable; viewer, menu, and local-security notice transitions honor `prefers-reduced-motion`. A normal website cannot force Safari or Chrome's native bottom toolbar to be transparent: the transparent `theme-color`, edge-to-edge viewport, and installed-PWA manifest are best-effort integration hints, and browser-owned chrome may remain opaque.
+Messages use native document scrolling beneath the visual-viewport header and composer, allowing Safari to composite real conversation content behind its chrome. Individual controls use bounded blur, directional highlights and a crisp rim; reduced transparency and increased contrast use opaque surfaces. Keyboard space and encrypted reading anchors preserve the current position. Page navigation keeps layout positions stable; viewer, menu, and local-security notice transitions honor `prefers-reduced-motion`. A normal website cannot force Safari or Chrome's native bottom toolbar to be transparent: the transparent `theme-color`, edge-to-edge viewport, and installed-PWA manifest are best-effort integration hints, and browser-owned chrome may remain opaque.
 
 The two online labels describe chat-page presence, not raw WebSocket connectivity. Each authenticated socket starts `away` and reports `chat` only while its device is on the chat surface; a participant role is online when any active device for that role reports `chat`. Moving to gallery, image viewer, or device management reports `away` without tearing down the socket. The client remembers the desired state and replays it after authentication on reconnect, while socket close, member changes, and ping/pong timeout remove stale presence. Presence exists only in server memory and is role-aggregated before broadcast. It is server-visible behavioral metadata and an advisory UI hint—not an end-to-end-verifiable identity, attention, or safety signal.
 

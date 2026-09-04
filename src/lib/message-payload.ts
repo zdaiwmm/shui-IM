@@ -1,4 +1,5 @@
 import { fromBase64Url } from './base64';
+import { isReactionEmoji } from './reactions';
 import type { MessagePayload } from './types';
 
 export const MAX_MESSAGE_TEXT_LENGTH = 4000;
@@ -91,6 +92,17 @@ export function isMessagePayload(value: unknown): value is MessagePayload {
     payload.sentAt.length > 64 ||
     !Number.isFinite(Date.parse(payload.sentAt))
   ) return false;
+  if (payload.kind === 'reaction') {
+    if (payload.v !== 1 || !hasOnlyKeys(payload, ['v', 'kind', 'sentAt', 'target', 'emoji']) ||
+      (payload.emoji !== null && !isReactionEmoji(payload.emoji)) ||
+      !payload.target || typeof payload.target !== 'object'
+    ) return false;
+    const target = payload.target as Record<string, unknown>;
+    return hasOnlyKeys(target, ['clientMsgId', 'serverSeq', 'senderId']) &&
+      typeof target.clientMsgId === 'string' && UUID_V4.test(target.clientMsgId) &&
+      typeof target.serverSeq === 'number' && Number.isSafeInteger(target.serverSeq) && target.serverSeq > 0 &&
+      typeof target.senderId === 'string' && UUID_V4.test(target.senderId);
+  }
   if (payload.kind === 'text') {
     if (typeof payload.text !== 'string' || payload.text.length > MAX_MESSAGE_TEXT_LENGTH) return false;
     if (payload.v === 1) return hasOnlyKeys(payload, ['v', 'kind', 'text', 'sentAt']);

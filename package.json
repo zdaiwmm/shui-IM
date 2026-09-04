@@ -11,7 +11,7 @@
     "build": "tsc --noEmit && vite build",
     "start": "node server/index.mjs",
     "test": "vitest run",
-    "test:browser": "node tests/browser.e2e.mjs && node tests/frontend-lifecycle.e2e.mjs && node tests/vault-lifecycle.e2e.mjs && node tests/voice-lifecycle.e2e.mjs",
+    "test:browser": "node tests/browser.e2e.mjs && node tests/frontend-lifecycle.e2e.mjs && node tests/system-surfaces.e2e.mjs && node tests/unread-counter.e2e.mjs && node tests/reaction-history.e2e.mjs && node tests/vault-lifecycle.e2e.mjs && node tests/voice-lifecycle.e2e.mjs",
     "test:watch": "vitest",
     "check": "npm run build && npm run test",
     "check:full": "npm run check && npm run test:browser",

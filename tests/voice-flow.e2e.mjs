@@ -89,12 +89,12 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   // Blob URLs; historical voice remains after a normal authenticated unlock.
   await creator.locator('.voice-player').first().getByRole('button', { name: '播放语音', exact: true }).click();
   await creator.locator('.voice-player').first().getByRole('button', { name: '暂停语音', exact: true }).waitFor();
-  await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await creator.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   await creator.locator('.cover-trigger').waitFor();
   await unlock(creator); await creator.locator('.chat-shell').waitFor();
   assert.equal(await creator.locator('.voice-player').count(), beforeCancel + 1);
   await start();
-  await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await creator.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   await creator.locator('.cover-trigger').waitFor();
   assert(await creator.evaluate(() => window.__voiceTracks.every(track => track.readyState === 'ended')));
   await unlock(creator); await creator.locator('.chat-shell').waitFor();
@@ -107,7 +107,7 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   await creator.locator('#record-voice').click();
   await creator.locator('.voice-recorder[data-state="requesting"]').waitFor();
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
-  assert.equal(await creator.locator('.cover-trigger').count(), 0, 'Permission prompt blur must not cancel the request');
+  assert.equal(await creator.locator('.cover-trigger').count(), 1, 'Permission prompt blur must cover the conversation');
   await creator.evaluate(async () => {
     window.dispatchEvent(new Event('pagehide'));
     const stream = await window.__voiceGetUserMedia({ audio: true });

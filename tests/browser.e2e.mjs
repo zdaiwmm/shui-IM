@@ -15,17 +15,27 @@ function invariant(condition, message) {
 async function assertStablePage(page, label) {
   const samples = await page.locator('#app > section').evaluate(async (section) => {
     const values = [];
+    const chat = section.classList.contains('chat-shell');
+    const anchor = chat ? [...section.querySelectorAll('.message')].find(row => row.getBoundingClientRect().bottom > (visualViewport?.offsetTop ?? 0))?.dataset.clientMsgId : null;
     const start = performance.now();
     do {
-      const bounds = section.getBoundingClientRect();
-      values.push({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
+      // Document height may change as offscreen media decodes. Measure the
+      // fixed controls and the visible reading anchor, not the moving document.
+      const bounds = (chat ? section.querySelector('.chat-header') : section).getBoundingClientRect();
+      const sample = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+      if (chat) {
+        const composer = section.querySelector('#composer').getBoundingClientRect();
+        sample.composerY = composer.y; sample.composerHeight = composer.height;
+        if (anchor) sample.anchorY = section.querySelector(`[data-client-msg-id="${CSS.escape(anchor)}"]`).getBoundingClientRect().top;
+      }
+      values.push(sample);
       await new Promise((resolve) => requestAnimationFrame(resolve));
     } while (performance.now() - start < 580);
     return values;
   });
-  for (const axis of ['x', 'y', 'width', 'height']) {
+  for (const axis of Object.keys(samples[0])) {
     const values = samples.map((sample) => sample[axis]);
-    invariant(Math.max(...values) - Math.min(...values) < 1, `${label} shifted on ${axis} during entry: ${JSON.stringify(samples)}`);
+    invariant(Math.max(...values) - Math.min(...values) < (axis === 'anchorY' ? 3 : 1), `${label} shifted on ${axis} during entry: ${JSON.stringify(samples)}`);
   }
 }
 
@@ -57,6 +67,21 @@ async function beginSyntheticFilePicker(input) {
   });
 }
 
+async function blurOutsidePage(page) {
+  await page.evaluate(async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(document, 'hasFocus');
+    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => false });
+    try {
+      window.dispatchEvent(new Event('blur'));
+      await new Promise((resolve) => setTimeout(resolve, 320));
+    } finally {
+      if (descriptor) Object.defineProperty(document, 'hasFocus', descriptor);
+      else delete document.hasFocus;
+    }
+  });
+  await page.locator('.cover-trigger').waitFor();
+}
+
 async function holdCover(page) {
   const box = await page.locator('.cover-trigger').boundingBox();
   invariant(box, 'Privacy-curtain trigger is missing');
@@ -71,8 +96,6 @@ async function setPasskey(page) {
 }
 
 async function unlock(page, exerciseError = false) {
-  await holdCover(page);
-  await assertCredentialLayout(page, '#passkey-unlock');
   if (exerciseError) {
     await page.evaluate(() => {
       const get = navigator.credentials.get.bind(navigator.credentials);
@@ -88,12 +111,14 @@ async function unlock(page, exerciseError = false) {
         },
       });
     });
-    await page.locator('#passkey-unlock').click();
+  }
+  await holdCover(page);
+  if (exerciseError) {
     await page.locator('.form-error:not(:empty)').waitFor();
     await assertCredentialLayout(page, '#passkey-unlock');
     if (visualQaDirectory) await page.screenshot({ path: path.join(visualQaDirectory, 'unlock-error-mobile.png') });
+    await page.locator('#passkey-unlock').click();
   }
-  await page.locator('#passkey-unlock').click();
 }
 
 async function enableDeviceVault(page, backupEligible = false) {
@@ -174,13 +199,15 @@ try {
     let failOnce = true;
     Object.defineProperty(navigator.credentials, 'create', {
       configurable: true,
-      value: (options) => {
+      value: async (options) => {
         window.dispatchEvent(new Event('blur'));
-        if (failOnce) {
-          failOnce = false;
-          return Promise.reject(new DOMException('simulated cancellation', 'NotAllowedError'));
-        }
-        return originalCreate(options);
+        try {
+          if (failOnce) {
+            failOnce = false;
+            throw new DOMException('simulated cancellation', 'NotAllowedError');
+          }
+          return await originalCreate(options);
+        } finally { window.dispatchEvent(new Event('focus')); }
       },
     });
   });
@@ -286,7 +313,8 @@ try {
   const deliveryMs = Date.now() - startedAt;
   invariant(deliveryMs < 3000, 'Local real-time delivery exceeded the acceptance budget');
 
-  const replySource = joiner.locator('.message.incoming').filter({ hasText: 'browser-e2e-live' });
+  const replySourceId = await joiner.locator('.message.incoming').filter({ hasText: 'browser-e2e-live' }).getAttribute('data-client-msg-id');
+  const replySource = joiner.locator(`.message.incoming[data-client-msg-id="${replySourceId}"]`);
   const messageSelection = await replySource.evaluate((article) => ({
     userSelect: getComputedStyle(article).userSelect,
     callout: getComputedStyle(article).getPropertyValue('-webkit-touch-callout'),
@@ -296,22 +324,52 @@ try {
   await joiner.waitForTimeout(220);
   invariant(await joiner.locator('.message-actions').count() === 0, 'Message actions opened before the long-press threshold');
   await joiner.waitForTimeout(320);
+  invariant(await joiner.locator('.message-reaction-picker button[data-reaction]').count() === 6, 'Long press did not expose the six quick message reactions');
+  invariant(await joiner.locator('.message-action-list [data-message-action]').count() === 3, 'Incoming text action menu is missing copy, select, or reply');
+  const actionGeometry = await joiner.locator('.message-action-list, .message-reaction-picker').evaluateAll(elements => elements.map(element => {
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height, viewportWidth: innerWidth, viewportHeight: innerHeight };
+  }));
+  invariant(actionGeometry.every(rect => rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.top >= 0 && rect.right <= rect.viewportWidth && rect.bottom <= rect.viewportHeight), `Long-press actions extend outside the mobile viewport: ${JSON.stringify(actionGeometry)}`);
   await joiner.getByRole('menuitem', { name: '选择文字', exact: true }).click();
-  const copyText = joiner.locator('.message-copy-sheet textarea[aria-label="选择要复制的消息文字"]');
+  const copyText = replySource.locator('textarea.message-text.message-text-selection[aria-label="选择消息文字"]');
   await copyText.waitFor();
-  invariant(await copyText.inputValue() === 'browser-e2e-live', 'Selective copy sheet did not expose the correct message');
+  invariant(await joiner.locator('.message-copy-sheet, .message-actions').count() === 0, 'Selecting message text opened a popup instead of using its original bubble');
+  invariant(await copyText.inputValue() === 'browser-e2e-live', 'Inline selection did not expose the correct message');
+  invariant(await copyText.evaluate(textarea => textarea.readOnly && textarea.inputMode === 'none' && document.activeElement === textarea && textarea.selectionStart === 0 && textarea.selectionEnd === textarea.value.length), 'Inline message text was not immediately ready for native selection');
   await copyText.evaluate((textarea) => {
     textarea.focus();
     textarea.setSelectionRange(8, 11);
-    window.__copiedMessageText = null;
-    Object.defineProperty(navigator.clipboard, 'writeText', {
-      configurable: true,
-      value: async (text) => { window.__copiedMessageText = text; },
-    });
   });
-  await joiner.locator('[data-copy-selection]').click();
-  invariant(await joiner.evaluate(() => window.__copiedMessageText) === 'e2e', 'Selective copy did not copy exactly the highlighted range');
-  await joiner.locator('.message-copy-sheet').waitFor({ state: 'detached' });
+  await joiner.waitForTimeout(60);
+  invariant(await copyText.evaluate(textarea => textarea.value.slice(textarea.selectionStart, textarea.selectionEnd)) === 'e2e', 'Native selection did not retain exactly the highlighted range');
+  await joiner.keyboard.press('Escape');
+  await copyText.waitFor({ state: 'detached' });
+  invariant(await replySource.locator('p.message-text').textContent() === 'browser-e2e-live', 'Closing native selection changed the message text');
+
+  const creatorSource = creator.locator('.message.outgoing').filter({ hasText: 'browser-e2e-live' });
+  const initialMessageCounts = await Promise.all([creator, joiner].map(page => page.locator('.message').count()));
+  const openReactionMenu = async () => {
+    await joiner.locator('.message-actions').waitFor({ state: 'detached' });
+    await replySource.dispatchEvent('pointerdown', { pointerType: 'touch', button: 0, clientX: 40, clientY: 180 });
+    await joiner.locator('.message-reaction-picker').waitFor();
+  };
+  await openReactionMenu();
+  await joiner.locator('.message-reaction-picker [data-reaction="❤️"]').click();
+  await Promise.all([creatorSource, replySource].map(source => source.locator('.message-reaction').filter({ hasText: '❤️' }).waitFor({ timeout: 5000 })));
+  invariant(await creatorSource.locator('.message-reaction').getAttribute('data-own') === 'false', 'Received reaction was attributed to the wrong participant');
+  invariant(await replySource.locator('.message-reaction').getAttribute('data-own') === 'true', 'Local reaction was attributed to the wrong participant');
+  await replySource.locator('.message-reaction').click();
+  const selectedHeart = joiner.locator('.message-reaction-picker [data-reaction="❤️"]');
+  invariant(await selectedHeart.getAttribute('aria-pressed') === 'true' && (await selectedHeart.getAttribute('aria-label')).includes('取消'), 'Existing reaction is not exposed as a cancellation action');
+  await selectedHeart.click();
+  await Promise.all([creatorSource, replySource].map(source => source.locator('.message-reaction').waitFor({ state: 'detached', timeout: 5000 })));
+  await openReactionMenu();
+  await joiner.locator('.message-reaction-picker [data-reaction="👍"]').click();
+  await Promise.all([creatorSource, replySource].map(source => source.locator('.message-reaction').filter({ hasText: '👍' }).waitFor({ timeout: 5000 })));
+  const finalMessageCounts = await Promise.all([creator, joiner].map(page => page.locator('.message').count()));
+  invariant(JSON.stringify(finalMessageCounts) === JSON.stringify(initialMessageCounts), 'Reaction events appeared as extra chat messages');
+
   await replySource.dispatchEvent('pointerdown', { pointerType: 'touch', button: 0, clientX: 40, clientY: 180 });
   await joiner.waitForTimeout(520);
   await joiner.getByRole('menuitem', { name: '回复' }).click();
@@ -340,6 +398,8 @@ try {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
     document.dispatchEvent(new Event('visibilitychange'));
     delete document.hidden;
+    document.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('focus'));
   });
   await creator.locator('.cover-trigger').waitFor();
   invariant(await creator.getByText('browser-e2e-live', { exact: true }).count() === 0, 'Blur left plaintext visible');
@@ -348,10 +408,12 @@ try {
   await unlock(creator, true);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
   invariant(await creator.locator('.recovery-reminder').count() === 0, 'Dismissed recovery reminder returned after unlocking');
+  await creatorSource.locator('.message-reaction').filter({ hasText: '👍' }).waitFor({ timeout: 5000 });
+  invariant(await creatorSource.locator('.message-reaction').count() === 1, 'Restoring the encrypted session lost, duplicated, or resurrected a removed reaction');
 
   await creator.locator('#message-input').fill('browser-e2e-outbox');
   await creator.locator('#composer').evaluate((form) => form.requestSubmit());
-  await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await blurOutsidePage(creator);
   await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
   await joiner.getByText('browser-e2e-outbox', { exact: true }).waitFor({ timeout: 5000 });
@@ -364,6 +426,21 @@ try {
     mimeType: 'image/svg+xml',
     buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="320" height="240"><rect width="320" height="240" fill="#0a84ff"/><circle cx="160" cy="120" r="54" fill="#ffffff"/></svg>'),
   };
+  // Exercise a paste payload through real MLS encryption, blob storage and
+  // peer decryption. The existing draft must survive an image-only send.
+  const pastedIndex = await joiner.locator('.message.incoming .image-preview').count();
+  await creator.locator('#message-input').fill('图片粘贴时保留的草稿');
+  await creator.locator('#message-input').evaluate((input, bytes) => {
+    const data = new DataTransfer();
+    data.items.add(new File([new Uint8Array(bytes)], 'clipboard-original.svg', { type: 'image/svg+xml' }));
+    input.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  }, [...image.buffer]);
+  const pastedImage = joiner.locator('.message.incoming .image-preview').nth(pastedIndex).locator('img');
+  await pastedImage.waitFor({ timeout: 10_000 });
+  const pastedBytes = await pastedImage.evaluate(async img => [...new Uint8Array(await (await fetch(img.src)).arrayBuffer())]);
+  invariant(Buffer.from(pastedBytes).equals(image.buffer), 'Clipboard image changed during encryption, transfer or decryption');
+  invariant(await creator.locator('#message-input').inputValue() === '图片粘贴时保留的草稿', 'Image paste erased an unsent text draft');
+  await creator.locator('#message-input').fill('');
   await creator.locator('#message-input').focus();
   await creator.locator('#image-input').evaluate((element) => {
     element.addEventListener('click', (event) => event.preventDefault(), { capture: true, once: true });
@@ -383,9 +460,15 @@ try {
   const directImageJoinerIndex = await joiner.locator('.message.incoming .image-preview').count();
   await beginSyntheticFilePicker(detachedInput);
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
-  invariant(await creator.locator('.chat-shell').count() === 1, 'Image picker blur unexpectedly activated the privacy curtain');
-  invariant(await creator.locator('.cover-trigger').count() === 0, 'Image picker blur covered the chat');
+  await creator.locator('.cover-trigger').waitFor();
+  invariant(await creator.locator('.chat-shell').count() === 0, 'Image picker blur left the chat exposed');
   await detachedInput.setInputFiles(image);
+  await creator.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await creator.waitForTimeout(100);
+  invariant(await creator.locator('.cover-trigger').count() === 1, 'Selecting an image reopened chat before authentication');
+  invariant(await joiner.locator('.message.incoming .image-preview').count() === directImageJoinerIndex, 'A pending image was sent before authentication');
+  await unlock(creator);
+  await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
   await Promise.all([
     creator.locator('.message.outgoing .image-preview').nth(directImageCreatorIndex).locator('img').waitFor({ timeout: 10_000 }),
     joiner.locator('.message.incoming .image-preview').nth(directImageJoinerIndex).locator('img').waitFor({ timeout: 10_000 }),
@@ -442,11 +525,35 @@ try {
   await creator.locator('[data-viewer-close]').click();
   await creator.locator('.image-viewer').waitFor({ state: 'detached' });
 
+  const largeSelection = Array.from({ length: 12 }, (_, index) => ({ ...image, name: `large-selection-${index + 1}.svg` }));
+  const largeCreatorMessagesBefore = await creator.locator('.message.outgoing').count();
+  const largeJoinerMessagesBefore = await joiner.locator('.message.incoming').count();
+  await creator.locator('#image-input').setInputFiles(largeSelection);
+  for (const [page, direction, previousCount] of [
+    [creator, 'outgoing', largeCreatorMessagesBefore],
+    [joiner, 'incoming', largeJoinerMessagesBefore],
+  ]) {
+    await page.waitForFunction(({ direction, previousCount }) =>
+      document.querySelectorAll(`.message.${direction}`).length === previousCount + 2,
+    { direction, previousCount }, { timeout: 15_000 });
+    const sentNames = [];
+    for (const [offset, count] of [9, 3].entries()) {
+      const batch = page.locator(`.message.${direction}`).nth(previousCount + offset);
+      await batch.evaluate(element => element.scrollIntoView({ block: 'center', behavior: 'instant' }));
+      await batch.locator('.album-cell[data-image-state="loaded"]').nth(count - 1).waitFor({ state: 'attached', timeout: 15_000 });
+      sentNames.push(...await batch.locator('.album-cell img').evaluateAll(images => images.map(image => image.alt)));
+    }
+    invariant(JSON.stringify(sentNames) === JSON.stringify(largeSelection.map(file => file.name)), `More than nine selected images were lost or reordered: ${JSON.stringify(sentNames)}`);
+    const batchSizes = await page.locator(`.message.${direction}`).evaluateAll((messages, previousCount) =>
+      messages.slice(previousCount).map((message) => message.querySelectorAll('.album-cell').length), previousCount);
+    invariant(JSON.stringify(batchSizes) === JSON.stringify([9, 3]), `Twelve selected images were not sent in supported album batches: ${JSON.stringify(batchSizes)}`);
+  }
+
   const imageCount = await joiner.locator('.message.incoming .image-preview').count();
   const creatorChatImageCount = await creator.locator('.message.outgoing .image-preview').count();
   const chatAnchorBeforeGallery = await creator.locator('#message-list').evaluate((list) => {
-    list.scrollTop = Math.max(0, list.scrollHeight - list.clientHeight - 160);
-    const listTop = list.getBoundingClientRect().top;
+    window.scrollTo(0, document.documentElement.scrollHeight - innerHeight - 160);
+    const listTop = window.visualViewport?.offsetTop ?? 0;
     const visible = [...list.querySelectorAll('.message[data-client-msg-id]')]
       .find((message) => message.getBoundingClientRect().bottom > listTop);
     return {
@@ -461,19 +568,33 @@ try {
   invariant(/刚刚|前/.test(await joiner.locator('#peer-presence strong').textContent()), 'Offline peer does not show time since last online');
   const galleryInput = await creator.locator('#gallery-image-input').elementHandle();
   invariant(galleryInput, 'Gallery upload input is missing');
+  invariant(await galleryInput.evaluate((input) => input.multiple), 'Gallery upload does not permit multiple selection');
   await beginSyntheticFilePicker(galleryInput);
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
-  invariant(await creator.locator('.gallery-shell').count() === 1, 'Gallery image picker blur unexpectedly activated the privacy curtain');
+  await creator.locator('.cover-trigger').waitFor();
+  invariant(await creator.locator('.gallery-shell').count() === 0, 'Gallery picker blur left private photos exposed');
+  let galleryUploadRequests = 0;
   await creator.route('**/chunks/**', async (route) => {
+    if (route.request().method() === 'PUT') galleryUploadRequests++;
     await new Promise((resolve) => setTimeout(resolve, 500));
     await route.continue().catch(() => undefined);
   });
-  await galleryInput.setInputFiles({ ...image, name: 'gallery-only.svg' });
+  await galleryInput.setInputFiles([
+    { ...image, name: 'gallery-only.svg' },
+    { ...image, name: 'gallery-second.svg' },
+  ]);
+  await creator.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await creator.waitForTimeout(100);
+  invariant(await creator.locator('.cover-trigger').count() === 1, 'Gallery selection reopened private photos before authentication');
+  invariant(galleryUploadRequests === 0, 'Gallery images uploaded before authentication');
+  await unlock(creator);
+  await creator.locator('.gallery-shell').waitFor({ timeout: 15_000 });
   await creator.locator('.gallery-upload-progress').waitFor({ state: 'visible' });
   invariant(await creator.locator('.cover-trigger').count() === 0, 'Gallery upload activated the privacy curtain');
   const galleryOnlyTile = creator.locator('button[aria-label="查看原图 gallery-only.svg"]');
   await galleryOnlyTile.waitFor({ timeout: 10_000 });
   await galleryOnlyTile.locator('img').waitFor({ timeout: 10_000 });
+  await creator.locator('button[aria-label="查看原图 gallery-second.svg"] img').waitFor({ timeout: 10_000 });
   invariant(await galleryOnlyTile.getAttribute('data-thumbnail-state') === 'loaded', 'Visible gallery thumbnail did not decrypt and render');
   await galleryOnlyTile.click();
   await creator.locator('.image-viewer.is-visible .viewer-stage img').waitFor({ timeout: 10_000 });
@@ -495,7 +616,7 @@ try {
   await joiner.locator('#peer-presence strong').filter({ hasText: /^在线$/ }).waitFor({ timeout: 5000 });
   await creator.waitForTimeout(420);
   const chatAnchorAfterGallery = await creator.locator('#message-list').evaluate((list) => {
-    const listTop = list.getBoundingClientRect().top;
+    const listTop = window.visualViewport?.offsetTop ?? 0;
     const visible = [...list.querySelectorAll('.message[data-client-msg-id]')]
       .find((message) => message.getBoundingClientRect().bottom > listTop);
     return {
@@ -525,16 +646,16 @@ try {
     await joiner.locator('.message.incoming .image-preview').count() === imageCount,
     'A gallery-only upload leaked into the invited member chat stream',
   );
-  await creator.locator('#message-list').evaluate((list) => { list.scrollTop = 0; });
+  await creator.locator('#message-list').evaluate((list) => { window.scrollTo(0, 0); });
   await creator.locator('#message-input').fill(`browser-e2e-scroll-bottom\n${'Latest message must remain visible after an acknowledgement.\n'.repeat(8)}`);
   await creator.locator('#composer').evaluate((form) => form.requestSubmit());
   await joiner.getByText(/browser-e2e-scroll-bottom/).waitFor({ timeout: 5000 });
   await creator.waitForFunction(() => {
     const list = document.querySelector('#message-list');
-    return list && list.scrollHeight - list.scrollTop - list.clientHeight <= 2;
+    return list && document.documentElement.scrollHeight - window.scrollY - window.innerHeight <= 2;
   }, null, { timeout: 5000 });
   await creator.waitForTimeout(250);
-  invariant(await creator.locator('#message-list').evaluate((list) => list.scrollHeight - list.scrollTop - list.clientHeight <= 2), 'An ACK or late image render pulled the sender away from the latest message');
+  invariant(await creator.locator('#message-list').evaluate((list) => document.documentElement.scrollHeight - window.scrollY - window.innerHeight <= 2), 'An ACK or late image render pulled the sender away from the latest message');
   await creator.locator('.more-menu summary').click();
   await creator.locator('#manage-devices').click();
   await creator.locator('.device-shell').waitFor();
@@ -547,7 +668,7 @@ try {
   const cancelledInput = await creator.locator('#image-input').elementHandle();
   await beginSyntheticFilePicker(cancelledInput);
   await cancelledInput.evaluate((input) => input.dispatchEvent(new Event('cancel')));
-  await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await blurOutsidePage(creator);
   await creator.locator('.cover-trigger').waitFor();
   await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
@@ -568,7 +689,7 @@ try {
   });
   await creator.locator('#image-input').setInputFiles(resumableImage);
   await creator.waitForTimeout(80);
-  await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await blurOutsidePage(creator);
   await creator.locator('.cover-trigger').waitFor();
   await creator.unroute('**/chunks/**');
   await unlock(creator);
@@ -606,7 +727,7 @@ try {
   await creator.locator('[data-close-code]').click();
   await creator.locator('.recovery-code-sheet').waitFor({ state: 'detached' });
   invariant(await creator.locator('.recovery-reminder').count() === 0, 'Confirmed recovery reminder did not disappear');
-  await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await blurOutsidePage(creator);
   await creator.locator('.cover-trigger').waitFor();
   await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
@@ -627,9 +748,9 @@ try {
   await joiner.locator('#message-input').fill('browser-e2e-peer-after-checkpoint');
   await joiner.locator('#composer').evaluate((form) => form.requestSubmit());
   await creator.getByText('browser-e2e-peer-after-checkpoint', { exact: true }).waitFor({ timeout: 5000 });
-  await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await blurOutsidePage(creator);
   await creator.locator('.cover-trigger').waitFor();
-  await joiner.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await blurOutsidePage(joiner);
   await joiner.locator('.cover-trigger').waitFor();
   const recoveryContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const recovery = await recoveryContext.newPage();
@@ -643,7 +764,8 @@ try {
     const create = navigator.credentials.create.bind(navigator.credentials);
     Object.defineProperty(navigator.credentials, 'create', { configurable: true, value: async (options) => {
       window.dispatchEvent(new Event('blur'));
-      return create(options);
+      try { return await create(options); }
+      finally { window.dispatchEvent(new Event('focus')); }
     } });
   });
   await setPasskey(recovery);
@@ -731,12 +853,13 @@ try {
     const create = navigator.credentials.create.bind(navigator.credentials);
     Object.defineProperty(navigator.credentials, 'create', { configurable: true, value: async (options) => {
       window.dispatchEvent(new Event('blur'));
-      return create(options);
+      try { return await create(options); }
+      finally { window.dispatchEvent(new Event('focus')); }
     } });
   });
   await setPasskey(legacy);
   await legacy.locator('.pairing-screen').waitFor({ timeout: 15_000 });
-  await legacy.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await blurOutsidePage(legacy);
   await unlock(legacy);
   await legacy.locator('.pairing-screen').waitFor({ timeout: 15_000 });
   const migratedLocalData = await legacy.evaluate(async () => {
@@ -786,8 +909,9 @@ try {
       outline: textarea ? getComputedStyle(textarea).outlineStyle : 'missing',
       outlineColor: textarea ? getComputedStyle(textarea).outlineColor : 'missing',
       composerFieldOutline: composerField ? getComputedStyle(composerField).outlineStyle : 'missing',
-      headerOffset: shell && header ? Math.abs(header.top - shell.top) : Number.POSITIVE_INFINITY,
-      composerOffset: shell && composer ? Math.abs(composer.bottom - shell.bottom) : Number.POSITIVE_INFINITY,
+      headerOffset: header ? Math.abs(header.top - (visualViewport?.offsetTop ?? 0)) : Number.POSITIVE_INFINITY,
+      composerOffset: composer ? Math.abs(composer.bottom - ((visualViewport?.offsetTop ?? 0) + (visualViewport?.height ?? innerHeight))) : Number.POSITIVE_INFINITY,
+      documentOverflow: getComputedStyle(document.documentElement).overflowY,
       messageOverflow: messageList ? getComputedStyle(messageList).overflowY : 'missing',
       headerBackground: header ? getComputedStyle(document.querySelector('.chat-header')).backgroundColor : 'missing',
       composerBackground: composer ? getComputedStyle(document.querySelector('.composer')).backgroundColor : 'missing',
@@ -816,12 +940,12 @@ try {
     };
   });
   invariant(!accessibility.overflow, 'Mobile layout has horizontal overflow');
-  invariant(!accessibility.verticalOverflow, 'The document scrolls instead of the message region');
+  invariant(accessibility.documentOverflow === 'auto', 'The document cannot scroll behind Safari chrome');
   invariant(accessibility.outline !== 'none', 'Composer focus is not visible');
   invariant(accessibility.outlineColor === 'rgba(0, 0, 0, 0)', `Composer textarea retained a colored focus outline: ${accessibility.outlineColor}`);
   invariant(accessibility.composerFieldOutline === 'none', 'Composer field retained the second focus outline');
-  invariant(accessibility.headerOffset < 1 && accessibility.composerOffset < 1, 'Chat header or composer is not fixed to the shell');
-  invariant(accessibility.messageOverflow === 'auto', 'Messages are not the dedicated vertical scroll region');
+  invariant(accessibility.headerOffset < 1 && accessibility.composerOffset < 1, 'Chat header or composer is not fixed to the visual viewport');
+  invariant(accessibility.messageOverflow === 'visible', 'Messages are clipped in a nested scroll region');
   invariant(accessibility.headerBackground === 'rgba(0, 0, 0, 0)', `Chat header is not transparent: ${accessibility.headerBackground}`);
   invariant(accessibility.composerBackground === 'rgba(0, 0, 0, 0)', `Composer bar is not transparent: ${accessibility.composerBackground}`);
   invariant(accessibility.headerGradient.includes('linear-gradient') && accessibility.composerGradient.includes('linear-gradient'), `Chat bars do not have translucent gradient masks: ${JSON.stringify(accessibility)}`);

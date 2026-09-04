@@ -10,6 +10,7 @@ import {
   MIN_IMAGE_ALBUM_ITEMS,
   MAX_MESSAGE_TEXT_LENGTH,
 } from '../src/lib/message-payload';
+import { REACTION_EMOJIS } from '../src/lib/reactions';
 
 function imageManifest() {
   return {
@@ -70,6 +71,32 @@ describe('shared encrypted message payload validation', () => {
       sentAt: reply.sentAt,
       replyTo: { ...reply.replyTo, kind: 'image', preview: '图片' },
     })).toBe(true);
+  });
+
+  it('accepts bounded encrypted reaction changes and removal, and rejects untrusted target metadata', () => {
+    const reaction = {
+      v: 1,
+      kind: 'reaction',
+      sentAt: new Date().toISOString(),
+      target: { clientMsgId: crypto.randomUUID(), serverSeq: 12, senderId: crypto.randomUUID() },
+      emoji: '❤️',
+    };
+    for (const emoji of [...REACTION_EMOJIS, null]) expect(isMessagePayload({ ...reaction, emoji })).toBe(true);
+    for (const emoji of ['', '❤', '❤️'.repeat(500), '<img src=x>', 1, undefined]) {
+      expect(isMessagePayload({ ...reaction, emoji })).toBe(false);
+    }
+    for (const serverSeq of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '12']) {
+      expect(isMessagePayload({ ...reaction, target: { ...reaction.target, serverSeq } })).toBe(false);
+    }
+    for (const key of ['clientMsgId', 'senderId']) {
+      expect(isMessagePayload({ ...reaction, target: { ...reaction.target, [key]: 'not-a-v4-uuid' } })).toBe(false);
+    }
+    expect(isMessagePayload({ ...reaction, target: { ...reaction.target, preview: 'leaked text' } })).toBe(false);
+    expect(isMessagePayload({ ...reaction, target: null })).toBe(false);
+    expect(isMessagePayload({ ...reaction, v: 2 })).toBe(false);
+    expect(isMessagePayload({ ...reaction, sentAt: 'not-a-date' })).toBe(false);
+    expect(isMessagePayload({ ...reaction, debug: true })).toBe(false);
+    expect(isMessagePayload({ ...reaction, replyTo: reaction.target })).toBe(false);
   });
 
   it('accepts one encrypted album message containing two through nine unique image manifests', () => {

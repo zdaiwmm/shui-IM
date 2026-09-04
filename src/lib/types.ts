@@ -259,7 +259,23 @@ export type AudioPayload = {
   replyTo?: ReplyReference;
 };
 
-export type MessagePayload = TextPayload | ImagePayload | GalleryImagePayload | ImageAlbumPayload | AudioPayload;
+export type ReactionEmoji = '❤️' | '👍' | '👎' | '😂' | '‼️' | '❓';
+
+/** Encrypted event; one current reaction per participant, even across linked devices. */
+export type ReactionPayload = {
+  v: 1;
+  kind: 'reaction';
+  sentAt: string;
+  target: {
+    clientMsgId: string;
+    serverSeq: number;
+    senderId: string;
+  };
+  /** Null removes the participant's current reaction. */
+  emoji: ReactionEmoji | null;
+};
+
+export type MessagePayload = TextPayload | ImagePayload | GalleryImagePayload | ImageAlbumPayload | AudioPayload | ReactionPayload;
 
 export type RecipientWrap = {
   deviceId: string;

@@ -37,7 +37,9 @@ import { decryptAudioFile, encryptAudioFile, decryptImageFile, encryptImageFile,
 import { VoiceRecorder } from './lib/voice-recorder';
 import { VoicePlayback, VoicePlayer } from './lib/voice-player';
 import { voiceIcons, voiceTime } from './lib/voice-audio';
-import { MAX_IMAGE_ALBUM_BYTES, MAX_IMAGE_ALBUM_ITEMS } from './lib/message-payload';
+import { UnreadCounter } from './lib/unread-counter';
+import { REACTION_EMOJIS, reduceMessageReactions } from './lib/reactions';
+import { batchImageFiles } from './lib/image-batches';
 import { downloadBlob } from './lib/download';
 import { gestureSecret, GesturePad } from './lib/gesture';
 import {
@@ -67,6 +69,7 @@ import type {
   ImageManifest,
   ImageUploadPlan,
   MessagePayload,
+  ReactionEmoji,
   OutboxItem,
   ReplyReference,
   RoomMember,
@@ -91,6 +94,7 @@ import {
   loadHistoryPage,
   loadHistoryPageAfter,
   loadHistoryMessage,
+  loadReactionHistory,
   loadMediaHistoryPage,
   loadOutbox,
   loadPendingReceipts,
@@ -136,9 +140,9 @@ type DeviceInvite = {
   expiresAt: string;
 };
 
-const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'recovery-replace-v1', 'voice-message-v1'];
+const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1'];
 
-type CachedImage = { blob: Blob; url: string; bytes: number; lastUsedAt: number };
+type CachedImage = { blob: Blob; url: string; bytes: number; lastUsedAt: number; width?: number; height?: number };
 const MAX_IMAGE_CACHE_BYTES = 96 * 1024 * 1024;
 
 const encoder = new TextEncoder();
@@ -276,6 +280,10 @@ export class QuietRoomApp {
   private session: VaultSession | null = null;
   private socket: RoomSocket | null = null;
   private messages = new Map<number, DecryptedMessage>();
+  private reactionHistory = new Map<number, DecryptedMessage>();
+  private selectedMessageId: string | null = null;
+  private privacyCurtain: HTMLElement;
+  private unreadCounter: UnreadCounter;
   private pending = new Map<string, DecryptedMessage>();
   private outbox = new Map<string, OutboxItem>();
   private pendingReceipts = new Map<string, DeliveryReceipt>();
@@ -295,6 +303,10 @@ export class QuietRoomApp {
   private receiptDraining = false;
   private coverTimer: number | null = null;
   private idleTimer: number | null = null;
+  private blurLockTimer: number | null = null;
+  private sendingTextDrafts = new Set<string>();
+  private chatPinnedToBottom = true;
+  private chatRestoreAnchor: ChatScrollAnchor | null = null;
   private sendChain: Promise<void> = Promise.resolve();
   private membershipChain: Promise<void> = Promise.resolve();
   private sending = new Set<string>();
@@ -309,10 +321,13 @@ export class QuietRoomApp {
   private runtimeEpoch = 0;
   private filePickerActive = false;
   private imagePickerActive = false;
+  private imagePickerInput: HTMLInputElement | null = null;
+  private imageBatchUploading = false;
   private imagePickerResetTimer: number | null = null;
-  private deferredImageUpload: { files: File[]; destination: 'chat' | 'gallery' } | null = null;
+  private deferredImageUpload: { roomId: string; deviceId: string; files: File[]; destination: 'chat' | 'gallery' } | null = null;
   private unlocking = false;
   private deviceVerificationActive = false;
+  private systemSurfaceTokens = new Set<symbol>();
   private deviceVerificationToken: symbol | null = null;
   private galleryObserver: IntersectionObserver | null = null;
   private chatImageObserver: IntersectionObserver | null = null;
@@ -322,7 +337,6 @@ export class QuietRoomApp {
   private historyLoading = false;
   private fileExportActive = false;
   private fileExportResetTimer: number | null = null;
-  private fileExportBlurred = false;
   private restoreComposerFocusAfterPicker = false;
   private keepComposerKeyboard = false;
   private composerSelection: { start: number; end: number } | null = null;
@@ -352,12 +366,49 @@ export class QuietRoomApp {
   private voicePlayback = new VoicePlayback();
 
   constructor(private readonly root: HTMLElement) {
+    this.unreadCounter = new UnreadCounter(count => {
+      document.querySelectorAll<HTMLElement>('.cover-unread').forEach(label => { label.textContent = String(count); });
+    });
+    this.privacyCurtain = document.createElement('div');
+    this.privacyCurtain.className = 'privacy-curtain';
+    this.privacyCurtain.setAttribute('aria-hidden', 'true');
+    this.privacyCurtain.innerHTML = this.coverErrorMarkup();
+    document.body.append(this.privacyCurtain);
+    const refreshUnread = () => {
+      if (document.hidden) return;
+      if (this.privacyCovered) void this.unreadCounter.refresh();
+      else {
+        const session = this.session;
+        const epoch = this.runtimeEpoch;
+        if (!session || (session.vault.pairingState && session.vault.pairingState !== 'ready')) return;
+        void this.unreadCounter.ensureConfigured(session.vault, this.runtimeAbort?.signal).then(ready => {
+          if (!ready || !this.isRuntimeActive(epoch, session)) return;
+          if (this.activeSurface === 'chat') this.markVisibleMessagesRead();
+          else void this.unreadCounter.refresh();
+        });
+      }
+    };
+    window.setInterval(refreshUnread, 15_000);
+    window.addEventListener('online', refreshUnread);
     const preventZoom = (event: Event) => event.preventDefault();
     const syncVisualViewport = () => {
+      const pinned = this.chatPinnedToBottom;
       const viewport = window.visualViewport;
-      document.documentElement.style.setProperty('--app-height', `${Math.round(viewport?.height ?? window.innerHeight)}px`);
-      document.documentElement.style.setProperty('--app-top', `${Math.round(viewport?.offsetTop ?? 0)}px`);
-      const actions = this.root.querySelector<HTMLElement>('.message-actions:not(.message-copy-sheet):not(.is-closing)');
+      const height = `${Math.round(viewport?.height ?? window.innerHeight)}px`;
+      const top = `${Math.round(viewport?.offsetTop ?? 0)}px`;
+      const style = document.documentElement.style;
+      const resized = style.getPropertyValue('--app-height') !== height || style.getPropertyValue('--app-top') !== top;
+      style.setProperty('--app-height', height);
+      style.setProperty('--app-top', top);
+      style.setProperty('--keyboard-space', `${Math.max(0, Math.round(window.innerHeight - (viewport?.height ?? window.innerHeight) - (viewport?.offsetTop ?? 0)))}px`);
+      const selection = this.root.querySelector<HTMLTextAreaElement>('.message-text-selection');
+      if (selection) {
+        selection.style.height = '0px';
+        selection.style.height = `${selection.scrollHeight}px`;
+      }
+      const list = this.root.querySelector<HTMLElement>('#message-list');
+      if (resized && pinned && list) this.scrollChatToBottom();
+      const actions = this.root.querySelector<HTMLElement>('.message-actions:not(.is-closing)');
       if (actions) {
         const source = this.root.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(actions.dataset.sourceId ?? '')}"]`);
         if (source) this.positionMessageActions(actions, source);
@@ -368,10 +419,22 @@ export class QuietRoomApp {
     window.visualViewport?.addEventListener('resize', syncVisualViewport, { passive: true });
     window.visualViewport?.addEventListener('scroll', syncVisualViewport, { passive: true });
     window.addEventListener('resize', syncVisualViewport, { passive: true });
+    window.addEventListener('scroll', () => {
+      const list = this.root.querySelector<HTMLElement>('#message-list');
+      if (!list || this.privacyCovered || this.activeSurface !== 'chat') return;
+      this.chatPinnedToBottom = !this.chatRestoreAnchor && this.chatBottomGap() <= 48;
+      if (this.root.querySelector('.message-actions:not(.is-closing)')) this.closeMessageActions(false, false);
+      if (window.scrollY < 80) void this.loadOlderHistory(list);
+      if (this.chatBottomGap() < 80) void this.loadNewerHistory(list);
+      this.captureChatAnchor(true);
+      this.markVisibleMessagesRead();
+    }, { passive: true });
     document.addEventListener('gesturestart', preventZoom, { passive: false });
     document.addEventListener('gesturechange', preventZoom, { passive: false });
     document.addEventListener('gestureend', preventZoom, { passive: false });
-    document.addEventListener('dblclick', preventZoom, { capture: true, passive: false });
+    document.addEventListener('dblclick', event => {
+      if (!(event.target instanceof Element && event.target.closest('.is-selecting-text'))) preventZoom(event);
+    }, { capture: true, passive: false });
     document.addEventListener('wheel', (event) => {
       if (event.ctrlKey || event.metaKey) event.preventDefault();
     }, { passive: false });
@@ -388,12 +451,15 @@ export class QuietRoomApp {
         this.keepComposerKeyboard = false;
         textarea.blur();
       }
+      const selecting = this.selectedMessageId && this.root.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(this.selectedMessageId)}"]`);
+      if (selecting && event.target instanceof Node && !selecting.contains(event.target)) this.clearMessageTextSelection();
       const messageActions = this.root.querySelector<HTMLElement>('.message-actions');
       if (messageActions && event.target instanceof Node && !messageActions.contains(event.target)) this.closeMessageActions();
     }, { capture: true, passive: true });
     document.addEventListener('keydown', (event) => {
       this.resetIdleLock();
       if (event.key !== 'Escape') return;
+      if (this.selectedMessageId) { event.preventDefault(); this.clearMessageTextSelection(); return; }
       if (this.voiceRecorder) {
         event.preventDefault();
         if (this.root.querySelector('.voice-recorder')?.getAttribute('data-state') !== 'sending') this.closeVoiceRecorder(true);
@@ -420,41 +486,90 @@ export class QuietRoomApp {
       this.closeMoreMenu(menu, true);
     }, { capture: true });
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden && this.fileExportActive) this.fileExportBlurred = true;
-      if (document.hidden && !this.imagePickerActive && !this.deviceVerificationActive && !this.fileExportActive) {
-        this.lockNow({ preserveFilePicker: this.filePickerActive });
+      if (document.hidden) this.obscurePrivacySurface();
+      else { this.revealPrivacySurface(); refreshUnread(); }
+      if (document.hidden && !this.deviceVerificationActive) {
+        this.lockNow({ preserveFilePicker: this.filePickerActive || this.imagePickerActive });
       }
-    });
-    window.addEventListener('blur', () => {
-      if (this.fileExportActive) this.fileExportBlurred = true;
-      if (!this.imagePickerActive && !this.deviceVerificationActive && !this.fileExportActive && !this.microphonePromptActive) {
-        this.lockNow({ preserveFilePicker: this.filePickerActive });
+    }, { capture: true });
+    window.addEventListener('blur', event => {
+      // Capture must not confuse an input/button losing focus with the
+      // browser window leaving the foreground.
+      if (event.target !== window) return;
+      this.obscurePrivacySurface();
+      if (this.deviceVerificationActive) return;
+      // Native sheets are an actual departure from the private surface. Keep
+      // their pending file selection, but never the unlocked conversation.
+      if (this.imagePickerActive || this.filePickerActive || this.fileExportActive || this.microphonePromptActive || this.systemSurfaceTokens.size > 0) {
+        this.lockNow({ preserveFilePicker: this.filePickerActive || this.imagePickerActive });
+        return;
       }
-    });
-    window.addEventListener('focus', () => {
-      this.fileExportBlurred = false;
+      if (this.blurLockTimer !== null) window.clearTimeout(this.blurLockTimer);
+      this.blurLockTimer = window.setTimeout(() => {
+        this.blurLockTimer = null;
+        if (!document.hasFocus() && !this.deviceVerificationActive) this.lockNow();
+        else if (!document.hidden) this.revealPrivacySurface();
+      }, 250);
+    }, { capture: true });
+    window.addEventListener('focus', event => {
+      if (event.target !== window) return;
+      if (this.blurLockTimer !== null) window.clearTimeout(this.blurLockTimer);
+      this.blurLockTimer = null;
       this.finishFileExport();
-    });
+      this.revealPrivacySurface();
+      refreshUnread();
+    }, { capture: true });
+    document.addEventListener('freeze', () => this.lockNow(), { capture: true });
+    window.addEventListener('pageshow', event => {
+      if (event.persisted) this.lockNow();
+      refreshUnread();
+    }, { capture: true });
     window.addEventListener('pagehide', () => {
       this.finishImagePicker();
       this.lockNow({ preserveFilePicker: false });
-    });
+    }, { capture: true });
   }
 
   async start(): Promise<void> {
     this.renderCover();
+    void this.unreadCounter.refresh();
+  }
+
+  private coverErrorMarkup(): string {
+    return `<div class="cover-error">
+      <svg class="cover-error-icon" aria-hidden="true" viewBox="0 0 48 48"><path d="M10 5h19l9 9v29H10zM29 5v10h9M17 25h2m10 0h2M18 35l5-3 6 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
+      <h1>无法访问此网站</h1>
+      <p>连接已意外关闭。</p>
+      <div class="cover-error-details">请试试以下办法：<ul><li>检查网络连接</li><li>检查代理服务器和防火墙</li></ul></div>
+      <code class="cover-error-code">ERR_CONNECTION_CLOSED <span class="cover-unread">${this.unreadCounter.count}</span></code>
+    </div>`;
+  }
+
+  private obscurePrivacySurface(): void {
+    document.documentElement.classList.add('privacy-obscured');
+  }
+
+  private revealPrivacySurface(): void {
+    if (!document.hidden) document.documentElement.classList.remove('privacy-obscured');
   }
 
   private renderCover(preserveFilePicker = false): void {
+    this.obscurePrivacySurface();
+    const picker = preserveFilePicker ? this.imagePickerInput : null;
+    // Keep the same input connected while the native chooser owns it.
+    if (picker) document.body.append(picker);
     this.setActiveSurface('away');
     this.cleanupRuntime(preserveFilePicker);
     this.privacyCovered = true;
     document.body.className = 'cover-mode';
     this.root.innerHTML = `
-      <section class="cover" aria-label="已隐藏的私密空间">
+      <section class="cover" aria-label="页面加载失败">
+        ${this.coverErrorMarkup()}
         <button class="cover-trigger" type="button" aria-label="长按一秒打开私密空间"></button>
       </section>
     `;
+    this.revealPrivacySurface();
+    if (!document.hidden) void this.unreadCounter.refresh();
     const trigger = this.root.querySelector<HTMLButtonElement>('.cover-trigger')!;
     const begin = () => {
       this.cancelCoverTimer();
@@ -638,6 +753,7 @@ export class QuietRoomApp {
           }
         })();
       });
+      button.click();
     }
     this.root.querySelector('#back-to-cover')?.addEventListener('click', () => this.lockNow());
   }
@@ -664,12 +780,14 @@ export class QuietRoomApp {
       }
     });
     this.root.querySelector('#download-vault-diagnostic')?.addEventListener('click', () => {
-      void downloadVaultDiagnostic().catch((cause) => this.showFormError(cause));
+      this.beginFileExport();
+      void this.withSystemSurface(() => downloadVaultDiagnostic()).catch((cause) => this.showFormError(cause));
     });
     this.root.querySelector('#clear-corrupt-vault')?.addEventListener('click', async () => {
-      if (!window.confirm('确认清除损坏的本机数据？只有在你已经尝试恢复或确定不再需要它时才继续。')) return;
+      if (!this.confirmSystemAction('确认清除损坏的本机数据？只有在你已经尝试恢复或确定不再需要它时才继续。')) return;
       try {
         await deleteCurrentVault();
+        this.unreadCounter.clear();
         if (!this.privacyCovered) this.renderFirstRun(null);
       } catch (cause) {
         this.showFormError(cause);
@@ -779,6 +897,28 @@ export class QuietRoomApp {
     });
   }
 
+  private async withSystemSurface<T>(operation: () => Promise<T>): Promise<T> {
+    const token = Symbol('system-surface');
+    this.systemSurfaceTokens.add(token);
+    try {
+      return await operation();
+    } finally {
+      this.systemSurfaceTokens.delete(token);
+    }
+  }
+
+  private confirmSystemAction(message: string): boolean {
+    const epoch = this.runtimeEpoch;
+    const token = Symbol('system-confirmation');
+    this.systemSurfaceTokens.add(token);
+    try {
+      const confirmed = window.confirm(message);
+      return confirmed && this.runtimeEpoch === epoch && !this.privacyCovered;
+    } finally {
+      this.systemSurfaceTokens.delete(token);
+    }
+  }
+
   private async withDeviceVerification<T>(operation: () => Promise<T>): Promise<T> {
     // Recovery/migration have decrypted key material but have not opened a
     // conversation or socket. Their native prompt needs the same bounded
@@ -806,6 +946,7 @@ export class QuietRoomApp {
         this.deviceVerificationToken = null;
         this.deviceVerificationActive = false;
         if (document.hidden) this.lockNow({ preserveFilePicker: false });
+        else if (document.hasFocus()) this.revealPrivacySurface();
       }
     }
   }
@@ -1339,6 +1480,7 @@ export class QuietRoomApp {
     this.root.querySelector('#pending-recovery-lock')?.addEventListener('click', () => this.lockNow());
     this.root.querySelector('#restart-recovery')?.addEventListener('click', async () => {
       await deleteCurrentVault();
+      this.unreadCounter.clear();
       if (this.isRuntimeActive(epoch, session)) this.lockNow();
     });
     this.recoveryPollTimer = window.setTimeout(() => void check(), 1500);
@@ -1400,20 +1542,35 @@ export class QuietRoomApp {
       }
     }
     await this.preferenceSaveChain.catch(() => undefined);
-    this.uiPreferences = await loadUiPreferences(session).catch(() => ({}));
+    if (!this.isRuntimeActive(epoch, session)) return;
+    const preferences = await loadUiPreferences(session).catch(() => ({}));
+    if (!this.isRuntimeActive(epoch, session)) return;
+    this.uiPreferences = preferences;
     const anchor = this.uiPreferences.chatAnchor;
     const beforeSeq = anchor && !anchor.pinnedToBottom
       ? Math.min(Number.MAX_SAFE_INTEGER, anchor.seq + 101)
       : undefined;
-    const cached = await loadHistoryPage(session, { limit: 200, ...(beforeSeq ? { beforeSeq } : {}) });
+    const initialPage = await loadHistoryPage(session, { limit: 200, ...(beforeSeq ? { beforeSeq } : {}), signal: this.runtimeAbort.signal });
     if (!this.isRuntimeActive(epoch, session)) return;
+    const pages = [initialPage];
+    let page = initialPage;
+    let historyHasMore = page.length >= 200 && Math.min(...page.map(message => message.seq)) > 1;
+    // Reaction/gallery events share the encrypted stream. An all-hidden tail
+    // has no scrollbar, so fill backwards until there is a chat row to show.
+    while (historyHasMore && !page.some(message => message.payload.kind !== 'gallery-image' && message.payload.kind !== 'reaction')) {
+      page = await loadHistoryPage(session, { limit: 200, beforeSeq: Math.min(...page.map(message => message.seq)), signal: this.runtimeAbort.signal });
+      if (!this.isRuntimeActive(epoch, session)) return;
+      pages.unshift(page);
+      historyHasMore = page.length >= 200 && Math.min(...page.map(message => message.seq)) > 1;
+    }
+    const cached = pages.flat();
     this.messages = new Map(cached.map((message) => [message.seq, {
       ...message,
       status: message.status === 'sent'
         ? (message.senderId === session.vault.identity.publicBundle.deviceId ? 'stored' : 'delivered')
         : message.status,
     }]));
-    this.historyHasMore = cached.length >= 200 && cached.length > 0 && Math.min(...cached.map((message) => message.seq)) > 1;
+    this.historyHasMore = historyHasMore;
     this.historyForwardCursor = cached.length > 0
       ? Math.max(...cached.map((message) => message.seq))
       : session.vault.historyUnavailableBeforeSeq ?? 0;
@@ -1471,7 +1628,19 @@ export class QuietRoomApp {
     const activeRoles = new Set(session.vault.members.filter((member) => member.status !== 'pending' && member.status !== 'revoked').map((member) => member.role));
     if (activeRoles.size < 2) this.renderInviteWait();
     else this.renderChat();
+    void this.unreadCounter.configure(session.vault, this.runtimeAbort.signal).then(() => {
+      if (this.isRuntimeActive(epoch, session)) this.markVisibleMessagesRead();
+    }).catch(() => undefined);
     this.connectSocket();
+    // Replies and reactions may refer to a message outside the initial 200-row
+    // window. Rebuild only the encrypted reaction history without delaying chat.
+    void loadReactionHistory(session, { signal: this.runtimeAbort.signal }).then(reactions => {
+      if (!this.isRuntimeActive(epoch, session)) return;
+      this.reactionHistory = new Map(reactions.map(message => [message.seq, message]));
+      this.renderMessages();
+    }).catch(cause => {
+      if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '部分历史表情回应暂时无法读取');
+    });
     if (activeRoles.size === 2) void this.resumeDeferredImage();
   }
 
@@ -2063,7 +2232,7 @@ export class QuietRoomApp {
       const epoch = this.runtimeEpoch;
       if (!session || this.privacyCovered) return;
       try {
-        await navigator.clipboard.writeText(inviteUrl);
+        await this.withSystemSurface(() => navigator.clipboard.writeText(inviteUrl));
       } catch {
         if (!this.isRuntimeActive(epoch, session) || !input.isConnected) return;
         input.select();
@@ -2084,6 +2253,7 @@ export class QuietRoomApp {
 
   private renderChat(): void {
     if (!this.session) return;
+    this.clearMessageTextSelection();
     this.closeVoiceRecorder();
     this.voicePlayback.stop();
     this.setActiveSurface('chat');
@@ -2092,6 +2262,11 @@ export class QuietRoomApp {
     this.galleryObserver = null;
     this.chatImageObserver?.disconnect();
     this.chatImageObserver = null;
+    // A new page must rebuild previews from the current cache, not retain a
+    // detached loading element whose old hydration callback has already ended.
+    this.renderedMessages.clear();
+    this.renderedMessageOrder = [];
+    this.renderedMessageSeq.clear();
     document.body.className = 'app-mode';
     this.root.innerHTML = `
       <section class="chat-shell">
@@ -2160,19 +2335,21 @@ export class QuietRoomApp {
     `;
     this.mountChatLayout();
     this.root.querySelector('#composer')?.addEventListener('submit', (event) => void this.handleSendText(event));
-    this.root.querySelector('#message-list')?.addEventListener('scroll', (event) => {
-      const list = event.currentTarget as HTMLElement;
-      if (this.root.querySelector('.message-actions:not(.message-copy-sheet):not(.is-closing)')) this.closeMessageActions(false, false);
-      if (list.scrollTop < 80) void this.loadOlderHistory(list);
-      if (list.scrollHeight - list.scrollTop - list.clientHeight < 80) void this.loadNewerHistory(list);
-      this.captureChatAnchor(true);
-    }, { passive: true });
+    for (const type of ['wheel', 'touchmove', 'pointerdown', 'keydown']) {
+      this.root.querySelector('#message-list')?.addEventListener(type, () => { this.chatRestoreAnchor = null; }, { passive: true });
+    }
     const textarea = this.root.querySelector<HTMLTextAreaElement>('#message-input')!;
+    textarea.addEventListener('paste', event => this.handleComposerPaste(event));
     textarea.addEventListener('input', () => {
       textarea.style.height = 'auto';
       textarea.style.height = `${Math.min(textarea.scrollHeight, 128)}px`;
+      this.uiPreferences.composerDraft = textarea.value;
+      this.scheduleUiPreferencesSave();
       this.syncComposerMode();
     });
+    textarea.value = this.uiPreferences.composerDraft ?? '';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 128)}px`;
+    this.syncComposerMode();
     textarea.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
         event.preventDefault();
@@ -2225,14 +2402,20 @@ export class QuietRoomApp {
     const composer = shell.querySelector<HTMLElement>('.composer')!;
     const sync = () => {
       if (!shell.isConnected) return;
+      const pinned = this.chatPinnedToBottom;
       const anchor = this.captureChatAnchor();
       shell.style.setProperty('--chat-header-height', `${header.offsetHeight}px`);
       shell.style.setProperty('--chat-top-space', `${header.offsetHeight + notices.offsetHeight + 14}px`);
       shell.style.setProperty('--chat-bottom-space', `${composer.offsetHeight + 16}px`);
-      if (anchor) this.restoreChatAnchor(list, anchor);
+      document.documentElement.style.setProperty('--chat-top-space', `${header.offsetHeight + notices.offsetHeight + 14}px`);
+      document.documentElement.style.setProperty('--chat-bottom-space', `${composer.offsetHeight + 16}px`);
+      if (pinned) this.scrollChatToBottom();
+      else if (anchor) this.restoreChatAnchor(list, anchor);
     };
     sync();
     this.chatLayoutObserver = new ResizeObserver(sync);
+    // Observe controls, not the document-height shell: changing message padding
+    // also resizes that shell and creates a ResizeObserver feedback loop in WebKit.
     for (const element of [header, notices, composer]) this.chatLayoutObserver.observe(element);
     if (this.presenceRefreshTimer !== null) window.clearInterval(this.presenceRefreshTimer);
     this.presenceRefreshTimer = window.setInterval(() => this.updatePeerStatus(), 30_000);
@@ -2362,7 +2545,7 @@ export class QuietRoomApp {
           remove.className = 'danger-button compact-button';
           remove.textContent = '移除';
           remove.addEventListener('click', () => {
-            if (window.confirm(`移除“${member.deviceName ?? '这台设备'}”？它将无法解密之后的新消息。`)) {
+            if (this.confirmSystemAction(`移除“${member.deviceName ?? '这台设备'}”？它将无法解密之后的新消息。`)) {
               void this.changeMlsMembership('remove', member, remove);
             }
           });
@@ -2490,7 +2673,7 @@ export class QuietRoomApp {
     sheet.querySelector('[data-copy]')?.addEventListener('click', async (event) => {
       const button = event.currentTarget as HTMLButtonElement;
       try {
-        await navigator.clipboard.writeText(url);
+        await this.withSystemSurface(() => navigator.clipboard.writeText(url));
         if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected) return;
         button.textContent = '已复制';
       } catch {
@@ -2552,6 +2735,7 @@ export class QuietRoomApp {
   }
 
   private transitionPage(direction: 'forward' | 'backward', render: () => void): void {
+    this.clearMessageTextSelection();
     if (this.root.querySelector('#message-list')) {
       this.captureChatAnchor(true);
       this.restoreChatAnchorOnNextRender = true;
@@ -2563,6 +2747,26 @@ export class QuietRoomApp {
       delete this.root.dataset.pageTransition;
       this.pageTransitionTimer = null;
     }, 200);
+  }
+
+  private markVisibleMessagesRead(): void {
+    const session = this.session;
+    const list = this.root.querySelector<HTMLElement>('#message-list');
+    if (!session || this.privacyCovered || document.hidden || document.documentElement.classList.contains('privacy-obscured')
+      || this.activeSurface !== 'chat' || !list || this.chatRestoreAnchor) return;
+    const top = this.root.querySelector('.chat-header')?.getBoundingClientRect().bottom ?? list.getBoundingClientRect().top;
+    const bottom = this.root.querySelector('#composer')?.getBoundingClientRect().top ?? list.getBoundingClientRect().bottom;
+    let seq = 0;
+    for (let index = this.renderedMessageOrder.length - 1; index >= 0; index--) {
+      const article = this.renderedMessageOrder[index]!;
+      const rect = article.getBoundingClientRect();
+      if (rect.bottom < top) break;
+      if (rect.top < bottom && rect.bottom > top) {
+        const candidate = this.renderedMessageSeq.get(article.dataset.clientMsgId ?? '') ?? 0;
+        if (candidate < Number.MAX_SAFE_INTEGER) seq = Math.max(seq, candidate);
+      }
+    }
+    if (seq > 0) void this.unreadCounter.markRead(session.vault, seq, this.runtimeAbort?.signal);
   }
 
   private setActiveSurface(surface: 'away' | 'chat'): void {
@@ -2578,12 +2782,15 @@ export class QuietRoomApp {
   private captureChatAnchor(persist = false, preservePosition = false): ChatScrollAnchor | null {
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!list) return this.uiPreferences.chatAnchor ?? null;
+    // A tall photo can temporarily become a short placeholder after unlock.
+    // Keep its saved position until it decodes, instead of switching to the next row.
+    if (this.chatRestoreAnchor) return this.chatRestoreAnchor;
     const articles = this.renderedMessageOrder[0]?.parentElement === list
       ? this.renderedMessageOrder
       : [...list.querySelectorAll<HTMLElement>('.message[data-client-msg-id]')];
     if (articles.length === 0) return null;
-    const pinnedToBottom = !preservePosition && list.scrollHeight - list.scrollTop - list.clientHeight <= 48;
-    const listTop = list.getBoundingClientRect().top;
+    const pinnedToBottom = !preservePosition && this.chatBottomGap() <= 48;
+    const listTop = window.visualViewport?.offsetTop ?? 0;
     // Message rows are laid out monotonically. Avoid reading every older row
     // (and sorting every payload) on each touch-scroll event.
     let low = 0;
@@ -2614,15 +2821,34 @@ export class QuietRoomApp {
   private restoreChatAnchor(list: HTMLElement, anchor: ChatScrollAnchor | null | undefined): void {
     if (!list.isConnected) return;
     if (!anchor || anchor.pinnedToBottom) {
-      list.scrollTop = list.scrollHeight;
+      this.scrollChatToBottom();
       return;
     }
     const target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(anchor.clientMsgId)}"]`);
     if (!target) {
-      list.scrollTop = list.scrollHeight;
+      this.scrollChatToBottom();
       return;
     }
-    list.scrollTop += target.getBoundingClientRect().top - list.getBoundingClientRect().top - anchor.offset;
+    window.scrollBy(0, target.getBoundingClientRect().top - (window.visualViewport?.offsetTop ?? 0) - anchor.offset);
+  }
+
+  private chatBottomGap(): number {
+    return Math.max(0, document.documentElement.scrollHeight - window.scrollY - window.innerHeight);
+  }
+
+  private scrollChatToBottom(): void {
+    window.scrollTo(0, document.documentElement.scrollHeight);
+  }
+
+  private finishChatAnchorRestore(list: HTMLElement): void {
+    const anchor = this.chatRestoreAnchor;
+    if (!anchor) return;
+    const target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(anchor.clientMsgId)}"]`);
+    if (target) this.restoreChatAnchor(list, anchor);
+    if (!target || !target.querySelector('.image-preview:not([data-image-state="loaded"]):not([data-image-state="error"])')) {
+      this.chatRestoreAnchor = null;
+      this.captureChatAnchor(true);
+    }
   }
 
   private scheduleUiPreferencesSave(): void {
@@ -2690,7 +2916,9 @@ export class QuietRoomApp {
     const epoch = this.runtimeEpoch;
     if (!session || this.privacyCovered || this.voiceRecorder) return;
     const input = this.root.querySelector<HTMLTextAreaElement>('#message-input');
-    const text = input?.value.trim() ?? '';
+    const originalDraft = input?.value ?? '';
+    if (this.sendingTextDrafts.has(originalDraft)) return;
+    const text = originalDraft.trim();
     const retainKeyboard = Boolean(input && (document.activeElement === input || this.keepComposerKeyboard));
     if (!text) {
       if (retainKeyboard) this.restoreComposerFocus();
@@ -2706,15 +2934,16 @@ export class QuietRoomApp {
           replyTo: this.replyReference(replyTarget),
         }
       : { v: 1, kind: 'text', text, sentAt: new Date().toISOString() };
-    if (input) {
-      input.value = '';
-      input.style.height = 'auto';
-      this.syncComposerMode();
-      if (retainKeyboard) this.restoreComposerFocus();
-    }
+    this.sendingTextDrafts.add(originalDraft);
     try {
       await this.enqueuePayload(payload);
       if (!this.isRuntimeActive(epoch, session)) return;
+      if (input?.isConnected && input.value === originalDraft) {
+        input.value = '';
+        input.dispatchEvent(new Event('input'));
+        this.flushUiPreferencesSave();
+        if (retainKeyboard) this.restoreComposerFocus();
+      }
       if (this.replyTarget?.clientMsgId === replyTarget?.clientMsgId) {
         this.replyTarget = null;
         this.renderReplyDraft();
@@ -2727,6 +2956,8 @@ export class QuietRoomApp {
       }
       this.showNotice(cause instanceof Error ? cause.message : '消息未能安全保存', 'error');
       return;
+    } finally {
+      if (this.isRuntimeActive(epoch, session)) this.sendingTextDrafts.delete(originalDraft);
     }
     if (this.connectionState !== 'connected') this.showNotice('消息已加密保存在本机，连接恢复后会自动发送');
   }
@@ -2754,7 +2985,10 @@ export class QuietRoomApp {
   private async sendPayloadLocked(payload: MessagePayload, existingClientMsgId: string | undefined, mutation: VaultMutation): Promise<void> {
     const session = this.session;
     if (!session || this.privacyCovered) return;
-    if ((payload.kind === 'audio' || (payload.kind !== 'gallery-image' && payload.replyTo?.kind === 'audio')) && !this.activeDevicesSupport('voice-message-v1')) {
+    if (payload.kind === 'reaction' && !this.activeDevicesSupport('message-reactions-v1')) {
+      throw new Error('请先让所有已授权设备打开最新版，再使用表情回应');
+    }
+    if ((payload.kind === 'audio' || ('replyTo' in payload && payload.replyTo?.kind === 'audio')) && !this.activeDevicesSupport('voice-message-v1')) {
       throw new Error('请先让所有已授权设备打开一次最新版，再发送语音或回复语音');
     }
     if (session.vault.protocol === 'mls-rfc9420' && session.vault.mls?.phase !== 'active') {
@@ -2790,7 +3024,7 @@ export class QuietRoomApp {
       status: 'pending',
     };
     this.pending.set(clientMsgId, pending);
-    this.renderMessages({ scroll: 'bottom' });
+    this.renderMessages({ scroll: payload.kind === 'reaction' ? 'preserve' : 'bottom' });
     await this.attemptSend(clientMsgId);
   }
 
@@ -2807,7 +3041,7 @@ export class QuietRoomApp {
     try {
       const envelope = item.envelope ?? await encryptMessage(session.vault, item.payload, clientMsgId);
       if (!this.isRuntimeActive(epoch, session)) return;
-      this.socket?.sendEnvelope(envelope);
+      this.socket?.sendEnvelope(envelope, item.payload.kind !== 'gallery-image' && item.payload.kind !== 'reaction');
       this.scheduleRetry(clientMsgId);
     } catch (cause) {
       if (!this.isRuntimeActive(epoch, session)) return;
@@ -2991,6 +3225,8 @@ export class QuietRoomApp {
 
   private finishImagePicker(restoreFocus = true): void {
     this.imagePickerActive = false;
+    if (this.imagePickerInput && !this.root.contains(this.imagePickerInput)) this.imagePickerInput.remove();
+    this.imagePickerInput = null;
     if (this.imagePickerResetTimer !== null) window.clearTimeout(this.imagePickerResetTimer);
     this.imagePickerResetTimer = null;
     if (restoreFocus && this.restoreComposerFocusAfterPicker) {
@@ -3004,6 +3240,10 @@ export class QuietRoomApp {
     destination: 'chat' | 'gallery',
     trigger?: HTMLButtonElement | null,
   ): void {
+    if (input && this.session) {
+      input.dataset.roomId = this.session.vault.roomId;
+      input.dataset.deviceId = this.session.vault.identity.publicBundle.deviceId;
+    }
     if (trigger) {
       trigger.addEventListener('pointerdown', (event) => {
         const textarea = this.root.querySelector<HTMLTextAreaElement>('#message-input');
@@ -3011,14 +3251,19 @@ export class QuietRoomApp {
       });
       trigger.addEventListener('click', () => {
         if (!input || input.disabled) return;
+        if (this.imagePickerInput && this.imagePickerInput !== input) this.finishImagePicker(false);
         this.beginImagePicker(destination === 'chat' && this.keepComposerKeyboard);
         input.click();
       });
     }
     input?.addEventListener('click', () => {
+      if (!this.root.contains(input)) return;
+      if (this.imagePickerInput && this.imagePickerInput !== input) this.finishImagePicker(false);
+      this.imagePickerInput = input;
       if (!this.imagePickerActive) this.beginImagePicker();
     });
     input?.addEventListener('cancel', () => {
+      if (input !== this.imagePickerInput) return;
       this.finishImagePicker();
       this.deferredImageUpload = null;
     });
@@ -3027,6 +3272,7 @@ export class QuietRoomApp {
 
   private async handleSendImage(event: Event, destination: 'chat' | 'gallery'): Promise<void> {
     const input = event.currentTarget as HTMLInputElement;
+    if (!this.root.contains(input) && input !== this.imagePickerInput) return;
     const selected = [...(input.files ?? [])];
     input.value = '';
     if (destination === 'chat' && this.restoreComposerFocusAfterPicker) {
@@ -3038,19 +3284,18 @@ export class QuietRoomApp {
       this.deferredImageUpload = null;
       return;
     }
-    if (destination === 'chat' && selected.length > MAX_IMAGE_ALBUM_ITEMS) {
-      this.showNotice(`一次最多发送 ${MAX_IMAGE_ALBUM_ITEMS} 张图片`, 'error');
-      return;
-    }
-    const files = destination === 'gallery' ? selected.slice(0, 1) : selected;
+    const files = selected;
     if (!this.session || this.privacyCovered) {
-      this.deferredImageUpload = { files, destination };
+      this.deferredImageUpload = { files, destination, roomId: input.dataset.roomId ?? '', deviceId: input.dataset.deviceId ?? '' };
       return;
     }
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (input.dataset.roomId !== session.vault.roomId || input.dataset.deviceId !== session.vault.identity.publicBundle.deviceId) return;
     try {
       await this.processImageFiles(files, destination);
     } finally {
-      if (destination === 'chat' && this.restoreComposerFocusAfterPicker) {
+      if (this.isRuntimeActive(epoch, session) && destination === 'chat' && this.restoreComposerFocusAfterPicker) {
         this.restoreComposerFocusAfterPicker = false;
         this.restoreComposerFocus();
       }
@@ -3059,47 +3304,86 @@ export class QuietRoomApp {
 
   private async resumeDeferredImage(): Promise<void> {
     if (!this.deferredImageUpload || !this.session || this.privacyCovered) return;
-    const { files, destination } = this.deferredImageUpload;
+    const { files, destination, roomId, deviceId } = this.deferredImageUpload;
     this.deferredImageUpload = null;
+    if (this.session.vault.roomId !== roomId || this.session.vault.identity.publicBundle.deviceId !== deviceId) return;
+    if (destination === 'gallery') {
+      this.restoreChatAnchorOnNextRender = true;
+      this.renderGallery();
+    }
     await this.processImageFiles(files, destination);
+  }
+
+  private handleComposerPaste(event: ClipboardEvent): void {
+    const input = event.currentTarget;
+    const data = event.clipboardData;
+    if (!(input instanceof HTMLTextAreaElement) || !data) return;
+    // Use the user-initiated paste payload. No asynchronous clipboard read or
+    // permission prompt, and no fetching remote URLs from copied HTML.
+    let files = [...data.files].filter(file => file.type.startsWith('image/'));
+    if (!files.length) files = [...data.items]
+      .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+      .flatMap(item => { const file = item.getAsFile(); return file ? [file] : []; });
+    if (!files.length) return;
+    event.preventDefault();
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered || input.disabled || !input.isConnected ||
+      document.documentElement.classList.contains('privacy-obscured')) return;
+    if (this.imageBatchUploading) {
+      this.showNotice('图片正在上传，请完成后再次粘贴');
+      return;
+    }
+    // Images take precedence over accompanying HTML/text, while the existing
+    // text draft and selection remain untouched. Reuse original-byte batching.
+    void this.processImageFiles(files, 'chat').catch(cause => {
+      if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '粘贴的图片未能发送，请重新粘贴重试');
+    });
   }
 
   private async processImageFiles(files: File[], destination: 'chat' | 'gallery' = 'chat'): Promise<void> {
     const session = this.session;
-    if (!session || this.privacyCovered || files.length === 0) return;
-    if (destination === 'chat' && files.length > MAX_IMAGE_ALBUM_ITEMS) {
-      this.showNotice(`一次最多发送 ${MAX_IMAGE_ALBUM_ITEMS} 张图片`, 'error');
+    const epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered || this.imageBatchUploading || files.length === 0) return;
+    if (files.some(file => file.size === 0 || file.size > MAX_IMAGE_BYTES || !file.type.startsWith('image/'))) {
+      this.showNotice('请选择非空图片，单张原图不能超过 256 MiB', 'error');
       return;
     }
+    this.imageBatchUploading = true;
+    try {
+      for (const batch of batchImageFiles(files, destination)) {
+        if (!this.isRuntimeActive(epoch, session)) return;
+        if (!await this.processImageBatch(batch, destination)) return;
+      }
+    } finally {
+      if (this.isRuntimeActive(epoch, session)) this.imageBatchUploading = false;
+    }
+  }
+
+  private async processImageBatch(files: File[], destination: 'chat' | 'gallery'): Promise<boolean> {
+    const session = this.session;
+    if (!session || this.privacyCovered || files.length === 0) return false;
     if (destination === 'chat' && files.length > 1 && !this.activeDevicesSupport('image-album-v1')) {
       this.showNotice('有活跃设备尚未确认支持多图相册；请先将所有设备升级并至少打开一次最新版', 'error');
-      return;
+      return false;
     }
     if (session.vault.protocol === 'mls-rfc9420' && session.vault.mls?.phase !== 'active') {
       this.showNotice('安全会话尚未建立完成，图片不会上传', 'error');
-      return;
+      return false;
     }
     if (destination === 'gallery' && session.vault.role !== 'creator') {
       this.showNotice('只有会话创建者可以向相册上传图片', 'error');
-      return;
+      return false;
     }
     const epoch = this.runtimeEpoch;
     const signal = this.runtimeAbort?.signal;
     if (files.some((file) => file.size > MAX_IMAGE_BYTES)) {
       this.showNotice('首版单张原图上限为 256 MiB', 'error');
-      return;
-    }
-    if (
-      destination === 'chat' &&
-      files.length > 1 &&
-      files.reduce((sum, file) => sum + file.size, 0) > MAX_IMAGE_ALBUM_BYTES
-    ) {
-      this.showNotice('一条相册消息的原图总量不能超过 256 MiB', 'error');
-      return;
+      return false;
     }
     if (files.some((file) => file.size === 0 || !file.type.startsWith('image/'))) {
       this.showNotice('只能发送非空图片文件', 'error');
-      return;
+      return false;
     }
     const uploadScope = this.root.querySelector<HTMLElement>(destination === 'gallery' ? '.gallery-shell' : '#composer');
     const progress = this.root.querySelector<HTMLElement>('#upload-progress');
@@ -3130,6 +3414,7 @@ export class QuietRoomApp {
         );
         for (const legacy of matchingPlans.filter((plan) => plan.v === 1)) {
           await deleteUploadPlan(session, legacy.blobId);
+          if (!this.isRuntimeActive(epoch, session)) return false;
           this.uploadPlans = this.uploadPlans.filter((plan) => plan.blobId !== legacy.blobId);
         }
         const uploadCallbacks: Parameters<typeof encryptImageFile>[1] = {
@@ -3170,7 +3455,7 @@ export class QuietRoomApp {
           }
         }
         manifest ??= await encryptImageFile(file, uploadCallbacks);
-        if (!this.isRuntimeActive(epoch, session)) return;
+        if (!this.isRuntimeActive(epoch, session)) return false;
         manifests.push(manifest);
         usedUploadPlanIds.add(manifest.blobId);
         this.cacheLocalImage(manifest, file);
@@ -3187,21 +3472,25 @@ export class QuietRoomApp {
             ? { v: 2, kind: 'image', image: manifests[0]!, sentAt, replyTo: this.replyReference(replyTarget) }
             : { v: 1, kind: 'image', image: manifests[0]!, sentAt };
       await this.enqueuePayload(payload, clientMsgId);
+      if (!this.isRuntimeActive(epoch, session)) return false;
       if (this.replyTarget?.clientMsgId === replyTarget?.clientMsgId) {
         this.replyTarget = null;
         this.renderReplyDraft();
       }
       for (const manifest of manifests) {
         await deleteUploadPlan(session, manifest.blobId);
+        if (!this.isRuntimeActive(epoch, session)) return false;
         this.uploadPlans = this.uploadPlans.filter((plan) => plan.blobId !== manifest.blobId);
       }
       if (destination === 'gallery' && this.root.querySelector('.gallery-shell')) this.renderGallery();
+      return true;
     } catch (cause) {
-      if (signal?.aborted || !this.isRuntimeActive(epoch, session)) return;
+      if (signal?.aborted || !this.isRuntimeActive(epoch, session)) return false;
       const suffix = this.uploadPlans.length > 0 ? '。重新选择同一原图可从已完成分块继续' : '';
       this.showNotice(`${cause instanceof Error ? cause.message : '原图上传失败'}${suffix}`, 'error');
+      return false;
     } finally {
-      if (!this.isRuntimeActive(epoch, session)) return;
+      if (!this.isRuntimeActive(epoch, session)) return false;
       uploadScope?.classList.remove('is-uploading');
       uploadScope?.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement | HTMLInputElement>(uploadControlSelector).forEach((control) => {
         control.disabled = false;
@@ -3286,10 +3575,10 @@ export class QuietRoomApp {
 
   private orderedMessages(): DecryptedMessage[] {
     const confirmed = [...this.messages.values()]
-      .filter((message) => message.payload.kind !== 'gallery-image')
+      .filter((message) => message.payload.kind !== 'gallery-image' && message.payload.kind !== 'reaction')
       .sort((left, right) => left.seq - right.seq);
     const pending = [...this.pending.values()]
-      .filter((message) => message.payload.kind !== 'gallery-image')
+      .filter((message) => message.payload.kind !== 'gallery-image' && message.payload.kind !== 'reaction')
       .sort((left, right) => left.acceptedAt.localeCompare(right.acceptedAt));
     return [...confirmed, ...pending];
   }
@@ -3317,6 +3606,7 @@ export class QuietRoomApp {
     if (message.payload.kind === 'text') return this.replyPreview(message.payload.text);
     if (message.payload.kind === 'audio') return `语音 · ${voiceTime(message.payload.durationMs)}`;
     if (message.payload.kind === 'image-album') return `${message.payload.images.length} 张图片`;
+    if (message.payload.kind === 'reaction') return '表情回应';
     return '图片';
   }
 
@@ -3366,12 +3656,13 @@ export class QuietRoomApp {
   }
 
   private mountMessageActions(article: HTMLElement, message: DecryptedMessage): void {
-    article.addEventListener('selectstart', (event) => event.preventDefault());
-    article.addEventListener('dragstart', (event) => event.preventDefault());
-    article.addEventListener('contextmenu', (event) => event.preventDefault());
-    if (this.isOwnMessage(message) && message.payload.kind !== 'text') return;
-    const open = () => this.openMessageActions(article, message);
+    article.addEventListener('selectstart', event => { if (!article.classList.contains('is-selecting-text')) event.preventDefault(); });
+    article.addEventListener('dragstart', event => { if (!article.classList.contains('is-selecting-text')) event.preventDefault(); });
+    article.addEventListener('contextmenu', event => { if (!article.classList.contains('is-selecting-text')) event.preventDefault(); });
+    const open = () => this.openMessageActions(article,
+      this.messages.get(this.renderedMessageSeq.get(message.clientMsgId) ?? 0) ?? this.pending.get(message.clientMsgId) ?? message);
     article.addEventListener('pointerdown', (event) => {
+      if (article.classList.contains('is-selecting-text')) return;
       const excludedButton = event.target instanceof Element
         ? event.target.closest('input, button:not(.image-preview):not(.album-cell)')
         : null;
@@ -3395,11 +3686,13 @@ export class QuietRoomApp {
       article.addEventListener(eventName, () => this.cancelMessageHold());
     }
     article.addEventListener('contextmenu', (event) => {
+      if (article.classList.contains('is-selecting-text')) return;
       event.preventDefault();
       this.cancelMessageHold();
       open();
     });
     article.addEventListener('keydown', (event) => {
+      if (article.classList.contains('is-selecting-text')) return;
       if ((event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') {
         event.preventDefault();
         open();
@@ -3410,13 +3703,42 @@ export class QuietRoomApp {
 
   private openMessageActions(article: HTMLElement, message: DecryptedMessage): void {
     if (!this.session || this.privacyCovered || !article.isConnected) return;
+    this.clearMessageTextSelection();
     this.closeMessageActions(false, false);
+    const backdrop = document.createElement('div');
+    backdrop.className = 'message-actions-backdrop';
+    backdrop.setAttribute('aria-hidden', 'true');
+    backdrop.addEventListener('click', () => this.closeMessageActions());
+    article.classList.add('is-action-source');
     const actions = document.createElement('div');
     actions.className = 'message-actions';
     actions.setAttribute('role', 'menu');
     actions.setAttribute('aria-label', '消息操作');
     actions.dataset.sourceId = message.clientMsgId;
     const actionButtons: HTMLButtonElement[] = [];
+    const confirmed = message.seq > 0 && message.seq < Number.MAX_SAFE_INTEGER;
+    if (confirmed) {
+      const picker = document.createElement('div');
+      picker.className = 'message-reaction-picker';
+      picker.setAttribute('role', 'group');
+      picker.setAttribute('aria-label', '快速表情回应');
+      const mine = this.messageReactions().get(message.clientMsgId)?.find(reaction => reaction.role === this.session!.vault.role);
+      for (const emoji of REACTION_EMOJIS) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.reaction = emoji;
+        button.setAttribute('role', 'menuitem');
+        button.setAttribute('aria-label', `${mine?.emoji === emoji ? '取消' : '回应'} ${emoji}`);
+        button.setAttribute('aria-pressed', String(mine?.emoji === emoji));
+        button.textContent = emoji;
+        button.addEventListener('click', () => void this.sendReaction(message, mine?.emoji === emoji ? null : emoji));
+        picker.append(button);
+        actionButtons.push(button);
+      }
+      actions.append(picker);
+    }
+    const list = document.createElement('div');
+    list.className = 'message-action-list';
     const addAction = (action: string, label: string, icon: string, handler: () => void) => {
       const button = document.createElement('button');
       button.type = 'button';
@@ -3424,34 +3746,31 @@ export class QuietRoomApp {
       button.setAttribute('role', 'menuitem');
       button.innerHTML = `${icon}<span>${label}</span>`;
       button.addEventListener('click', handler);
-      actions.append(button);
+      list.append(button);
       actionButtons.push(button);
     };
-    if (!this.isOwnMessage(message)) {
-      addAction('reply', '回复', icons.reply, () => this.beginReply(message));
-    }
     if (message.payload.kind === 'text') {
       const text = message.payload.text;
-      addAction('copy', '复制', '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>', () => {
-        void this.copyMessageText(text, message);
-      });
+      addAction('copy', '拷贝', '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>', () => void this.copyMessageText(text, message));
       addAction('select', '选择文字', '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5h8M12 5v14M9 19h6M4 3v18M20 3v18"/></svg>', () => this.openMessageTextSelection(message));
     }
-    if (!actionButtons.length) return;
-    this.root.append(actions);
+    if (!this.isOwnMessage(message)) addAction('reply', '回复', icons.reply, () => this.beginReply(message));
+    if (list.childElementCount) actions.append(list);
+    if (!actionButtons.length) { article.classList.remove('is-action-source'); return; }
+    this.root.append(backdrop, actions);
     this.positionMessageActions(actions, article);
-    actions.addEventListener('keydown', (event) => {
-      if (!['ArrowDown', 'ArrowUp', 'Home', 'End', 'Tab'].includes(event.key)) return;
+    actions.addEventListener('keydown', event => {
+      if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Tab'].includes(event.key)) return;
       event.preventDefault();
       const index = actionButtons.indexOf(document.activeElement as HTMLButtonElement);
-      const step = event.key === 'ArrowUp' || (event.key === 'Tab' && event.shiftKey) ? -1 : 1;
-      const target = event.key === 'Home' ? 0 : event.key === 'End' ? actionButtons.length - 1
-        : (index + step + actionButtons.length) % actionButtons.length;
+      const step = ['ArrowUp', 'ArrowLeft'].includes(event.key) || (event.key === 'Tab' && event.shiftKey) ? -1 : 1;
+      const target = event.key === 'Home' ? 0 : event.key === 'End' ? actionButtons.length - 1 : (index + step + actionButtons.length) % actionButtons.length;
       actionButtons[target]?.focus({ preventScroll: true });
     });
     requestAnimationFrame(() => {
       if (!actions.isConnected || this.privacyCovered) return;
       actions.classList.add('is-visible');
+      backdrop.classList.add('is-visible');
       actionButtons[0]?.focus({ preventScroll: true });
     });
   }
@@ -3463,14 +3782,87 @@ export class QuietRoomApp {
     const top = viewport?.offsetTop ?? 0;
     const width = viewport?.width ?? window.innerWidth;
     const height = viewport?.height ?? window.innerHeight;
-    const menuRect = actions.getBoundingClientRect();
-    const x = Math.max(left + 8, Math.min(rect.left, left + width - menuRect.width - 8));
-    const below = rect.bottom + 6;
-    const y = below + menuRect.height < top + height - 8
-      ? below
-      : Math.max(top + 8, Math.min(rect.top - menuRect.height - 6, top + height - menuRect.height - 8));
+    const list = actions.querySelector<HTMLElement>('.message-action-list');
+    const picker = actions.querySelector<HTMLElement>('.message-reaction-picker');
+    const menuWidth = list?.offsetWidth ?? 212;
+    const pickerHeight = picker?.offsetHeight ?? 0;
+    if (list) list.style.maxHeight = `${Math.max(48, height - pickerHeight - 32)}px`;
+    const menuHeight = list?.offsetHeight ?? 0;
+    const x = Math.max(left + 12, Math.min(rect.left, left + width - menuWidth - 12));
+    const below = rect.bottom + 12;
+    const above = rect.top - pickerHeight - 12;
+    let y = below;
+    let pickerY = above;
+    if (above >= top + 8 && below + menuHeight <= top + height - 8) {
+      // Keep the selected bubble between its reaction bar and action list.
+    } else if (rect.top - menuHeight - pickerHeight - 32 >= top + 8) {
+      y = rect.top - menuHeight - 12;
+      pickerY = y - pickerHeight - 8;
+    } else if (below + pickerHeight + menuHeight + 8 <= top + height - 8) {
+      pickerY = below;
+      y = below + pickerHeight + 8;
+    } else {
+      // Tall messages leave no free edge. Keep both controls accessible in a
+      // single stack instead of independently clamping them into one another.
+      pickerY = top + 8;
+      y = picker ? pickerY + pickerHeight + 8 : top + 8;
+    }
     actions.style.setProperty('--message-action-x', `${Math.round(x)}px`);
     actions.style.setProperty('--message-action-y', `${Math.round(y)}px`);
+    if (picker) {
+      const pickerX = Math.max(left + 8, Math.min(rect.left, left + width - picker.offsetWidth - 8));
+      actions.style.setProperty('--message-reaction-x', `${Math.round(pickerX)}px`);
+      actions.style.setProperty('--message-reaction-y', `${Math.round(pickerY)}px`);
+    }
+  }
+
+  private messageReactions() {
+    const members = new Map(this.session?.vault.members.map(member => [member.deviceId, member.role]) ?? []);
+    return reduceMessageReactions([...this.reactionHistory.values(), ...this.messages.values(), ...this.pending.values()], members);
+  }
+
+  private async sendReaction(message: DecryptedMessage, emoji: ReactionEmoji | null): Promise<void> {
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered || message.seq <= 0 || message.seq >= Number.MAX_SAFE_INTEGER) return;
+    if (!this.activeDevicesSupport('message-reactions-v1')) {
+      this.closeMessageActions();
+      this.showNotice('请先让所有已授权设备打开最新版，再使用表情回应');
+      return;
+    }
+    this.closeMessageActions();
+    try {
+      await this.enqueuePayload({ v: 1, kind: 'reaction', target: { clientMsgId: message.clientMsgId, serverSeq: message.seq, senderId: message.senderId }, emoji, sentAt: new Date().toISOString() });
+    } catch (cause) {
+      if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '表情回应未能保存');
+    }
+  }
+
+  private renderMessageReactions(): void {
+    const reactions = this.messageReactions();
+    for (const article of this.renderedMessageOrder) {
+      article.querySelector('.message-reactions')?.remove();
+      const badges = reactions.get(article.dataset.clientMsgId ?? '');
+      if (!badges?.length) continue;
+      const group = document.createElement('div');
+      group.className = 'message-reactions';
+      group.style.setProperty('--reaction-width', `${badges.length * 44}px`);
+      for (const reaction of badges) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'message-reaction';
+        button.dataset.own = String(reaction.role === this.session?.vault.role);
+        button.dataset.pending = String(reaction.pending);
+        button.setAttribute('aria-label', `${reaction.role === this.session?.vault.role ? '我' : '对方'}回应了 ${reaction.emoji}${reaction.pending ? '，等待发送' : ''}`);
+        button.textContent = reaction.emoji;
+        button.addEventListener('click', () => {
+          const message = this.messages.get(this.renderedMessageSeq.get(article.dataset.clientMsgId ?? '') ?? 0);
+          if (message) this.openMessageActions(article, message);
+        });
+        group.append(button);
+      }
+      article.querySelector('.message-bubble')?.append(group);
+    }
   }
 
   private async copyMessageText(text: string, message: DecryptedMessage): Promise<void> {
@@ -3482,7 +3874,7 @@ export class QuietRoomApp {
     const isCurrent = () => this.isRuntimeActive(epoch, session)
       && this.root.querySelector('.message-actions:not(.is-closing)') === source;
     try {
-      await navigator.clipboard.writeText(text);
+      await this.withSystemSurface(() => navigator.clipboard.writeText(text));
       if (!isCurrent()) return;
       this.closeMessageActions(true);
       this.showNotice('已复制');
@@ -3494,75 +3886,50 @@ export class QuietRoomApp {
   }
 
   private openMessageTextSelection(message: DecryptedMessage): void {
-    const session = this.session;
-    const epoch = this.runtimeEpoch;
-    if (!session || this.privacyCovered || message.payload.kind !== 'text') return;
+    if (!this.session || this.privacyCovered || message.payload.kind !== 'text') return;
+    this.clearMessageTextSelection();
     this.closeMessageActions(false, false);
-    const sheet = document.createElement('section');
-    sheet.className = 'message-actions message-copy-sheet';
-    sheet.dataset.sourceId = message.clientMsgId;
-    sheet.setAttribute('role', 'dialog');
-    sheet.setAttribute('aria-modal', 'true');
-    sheet.setAttribute('aria-labelledby', 'message-copy-title');
-    sheet.innerHTML = `
-      <div class="message-copy-panel">
-        <h2 id="message-copy-title">选择文字</h2>
-        <p id="message-copy-hint">拖动选择范围，复制你需要的部分。</p>
-        <textarea readonly aria-label="选择要复制的消息文字" aria-describedby="message-copy-hint" spellcheck="false"></textarea>
-        <p class="message-copy-feedback" role="status" aria-live="polite"></p>
-        <div class="message-copy-buttons">
-          <button type="button" data-copy-cancel>取消</button>
-          <button type="button" data-copy-selection>复制所选文字</button>
-        </div>
-      </div>
-    `;
-    const textarea = sheet.querySelector<HTMLTextAreaElement>('textarea')!;
-    textarea.value = message.payload.text;
-    // Initialize once before the sheet becomes interactive. Deferring select()
-    // to the first frame can overwrite a range the user has already adjusted.
-    textarea.setSelectionRange(0, textarea.value.length);
-    textarea.rows = Math.min(10, Math.max(3, message.payload.text.split('\n').reduce((lines, line) => lines + Math.max(1, Math.ceil([...line].length / 28)), 0)));
-    const feedback = sheet.querySelector<HTMLElement>('.message-copy-feedback')!;
-    sheet.addEventListener('click', (event) => {
-      if (event.target === sheet) this.closeMessageActions(true);
-    });
-    sheet.querySelector('[data-copy-cancel]')?.addEventListener('click', () => this.closeMessageActions(true));
-    sheet.querySelector('[data-copy-selection]')?.addEventListener('click', async () => {
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      if (start === end) {
-        feedback.textContent = '请先选中要复制的文字';
-        textarea.focus({ preventScroll: true });
-        return;
-      }
-      try {
-        await navigator.clipboard.writeText(textarea.value.slice(start, end));
-        if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected || sheet.classList.contains('is-closing')) return;
-        this.closeMessageActions(true);
-        this.showNotice('已复制所选文字');
-      } catch {
-        if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected || sheet.classList.contains('is-closing')) return;
-        textarea.focus({ preventScroll: true });
-        textarea.setSelectionRange(start, end);
-        if (document.execCommand('copy')) {
-          this.closeMessageActions(true);
-          this.showNotice('已复制所选文字');
-        } else {
-          feedback.textContent = '请使用文字选择菜单中的「复制」';
-        }
-      }
-    });
-    this.root.append(sheet);
-    mountDialog(sheet, {
-      isActive: () => this.isRuntimeActive(epoch, session),
-      signal: this.runtimeAbort?.signal,
-      initialFocus: textarea,
-      returnFocus: this.root.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(message.clientMsgId)}"]`),
-    });
+    const article = this.root.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(message.clientMsgId)}"]`);
+    const text = article?.querySelector<HTMLElement>('.message-text');
+    if (!article || !text) return;
+    const bounds = text.getBoundingClientRect();
+    const selection = document.createElement('textarea');
+    selection.className = 'message-text message-text-selection';
+    selection.value = message.payload.text;
+    selection.readOnly = true;
+    selection.spellcheck = false;
+    selection.inputMode = 'none';
+    selection.setAttribute('aria-label', '选择消息文字');
+    selection.style.width = `${bounds.width}px`;
+    selection.style.height = `${bounds.height}px`;
+    article.classList.add('is-selecting-text');
+    this.selectedMessageId = message.clientMsgId;
+    text.replaceWith(selection);
+    // Keep native selection in the original bubble and in the user's gesture.
+    // WebKit owns the handles and whether its system edit menu is presented.
+    selection.focus({ preventScroll: true });
+    selection.select();
+  }
+
+  private clearMessageTextSelection(): void {
+    if (!this.selectedMessageId) return;
+    const article = this.root.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(this.selectedMessageId)}"]`);
+    const selected = article?.querySelector<HTMLTextAreaElement>('.message-text-selection');
+    if (selected) {
+      const text = document.createElement('p');
+      text.className = 'message-text';
+      text.textContent = selected.value;
+      selected.replaceWith(text);
+    }
+    article?.classList.remove('is-selecting-text');
+    this.selectedMessageId = null;
+    window.getSelection()?.removeAllRanges();
   }
 
   private closeMessageActions(restoreFocus = false, animate = true): void {
     this.cancelMessageHold();
+    this.root.querySelectorAll('.message-actions-backdrop').forEach(element => element.remove());
+    this.root.querySelectorAll('.is-action-source').forEach(element => element.classList.remove('is-action-source'));
     const actions = this.root.querySelector<HTMLElement>('.message-actions');
     if (!actions) return;
     if (closeDialog(actions, { animate, restoreFocus })) return;
@@ -3622,6 +3989,8 @@ export class QuietRoomApp {
     const anchor = scroll === 'restore'
       ? this.uiPreferences.chatAnchor
       : this.captureChatAnchor(false, scroll === 'position');
+    if (scroll === 'bottom' || scroll === 'position') this.chatRestoreAnchor = null;
+    else if (scroll === 'restore') this.chatRestoreAnchor = anchor && !anchor.pinnedToBottom ? anchor : null;
     const messages = this.orderedMessages();
     if (messages.length === 0) {
       const empty = document.createElement('div');
@@ -3645,15 +4014,26 @@ export class QuietRoomApp {
         const cached = this.renderedMessages.get(key);
         // Payloads are immutable after decryption/enqueue. Compare their
         // identity and mutable delivery metadata without serializing history.
+        // Keep the native selection mounted while independently refreshing its
+        // delivery decoration. Legacy confirmation can decrypt a fresh payload.
+        const selecting = this.selectedMessageId === key && cached?.payload.kind === 'text'
+          && message.payload.kind === 'text' && cached.payload.text === message.payload.text;
         const unchanged = cached?.payload === message.payload && cached.status === message.status && cached.acceptedAt === message.acceptedAt;
-        const element = unchanged ? cached.element : this.createMessageElement(message);
+        const element = selecting || unchanged ? cached!.element : this.createMessageElement(message);
+        if (selecting && !unchanged) {
+          const updated = this.createMessageElement(message);
+          element.querySelector('.message-meta')?.replaceWith(updated.querySelector('.message-meta')!);
+          element.classList.remove(`is-${cached!.status}`);
+          element.classList.add(`is-${message.status}`);
+        }
         // A receipt changes delivery metadata, not the voice source. Keep its
         // live player and seek position instead of interrupting playback.
-        if (cached && !unchanged && cached.payload === message.payload) {
+        if (cached && !unchanged && !selecting && cached.payload === message.payload) {
+          if (cached.element.classList.contains('is-action-source')) element.classList.add('is-action-source');
           const voice = cached.element.querySelector('.voice-player');
           if (voice) element.querySelector('.voice-player')?.replaceWith(voice);
         }
-        if (cached && !unchanged && cached.element.parentElement === list) {
+        if (cached && !unchanged && !selecting && cached.element.parentElement === list) {
           const hadFocus = cached.element.contains(document.activeElement);
           cached.element.replaceWith(element);
           if (hadFocus) element.focus({ preventScroll: true });
@@ -3680,15 +4060,20 @@ export class QuietRoomApp {
       this.renderedMessageOrder = elements;
       this.renderedMessageSeq = sequences;
     }
+    this.renderMessageReactions();
     this.mountChatImageObserver(list);
     this.voicePlayback.prune();
     if (scroll === 'bottom' || messages.length <= 1) {
-      list.scrollTop = list.scrollHeight;
+      this.chatPinnedToBottom = true;
+      this.scrollChatToBottom();
       this.captureChatAnchor(true);
     } else {
       this.restoreChatAnchor(list, anchor);
     }
+    this.finishChatAnchorRestore(list);
+    this.chatPinnedToBottom = !this.chatRestoreAnchor && this.chatBottomGap() <= 48;
     this.restoreChatAnchorOnNextRender = false;
+    this.markVisibleMessagesRead();
   }
 
   private async loadOlderHistory(list: HTMLElement): Promise<void> {
@@ -3764,13 +4149,11 @@ export class QuietRoomApp {
     const article = document.createElement('article');
     article.className = `message ${own ? 'outgoing' : 'incoming'} is-${message.status}`;
     article.dataset.clientMsgId = message.clientMsgId;
-    if (!own || message.payload.kind === 'text') {
-      article.tabIndex = 0;
-      article.setAttribute('aria-label', own ? '我的消息，可长按复制文字' : '对方消息，可长按回复或复制文字');
-    }
+    article.tabIndex = 0;
+    article.setAttribute('aria-label', own ? '我的消息，可长按回应或复制文字' : '对方消息，可长按回应、回复或复制文字');
     const bubble = document.createElement('div');
     bubble.className = 'message-bubble';
-    if (message.payload.kind !== 'gallery-image' && message.payload.replyTo) {
+    if ('replyTo' in message.payload && message.payload.replyTo) {
       const quote = document.createElement('button');
       quote.type = 'button';
       quote.className = 'message-reply-quote';
@@ -3787,6 +4170,7 @@ export class QuietRoomApp {
     }
     if (message.payload.kind === 'text') {
       const text = document.createElement('p');
+      text.className = 'message-text';
       text.textContent = message.payload.text;
       bubble.append(text);
     } else if (message.payload.kind === 'audio') {
@@ -3819,7 +4203,7 @@ export class QuietRoomApp {
         album.append(preview);
       }
       bubble.append(album);
-    } else {
+    } else if (message.payload.kind === 'image' || message.payload.kind === 'gallery-image') {
       article.classList.add('has-media');
       bubble.classList.add('image-bubble');
       bubble.append(this.createImagePreview(message.payload.image, [message.payload.image], 0));
@@ -3830,12 +4214,25 @@ export class QuietRoomApp {
       ? message.status === 'pending'
         ? ' · 等待发送'
         : message.status === 'stored' || message.status === 'sent'
-          ? ' · 已保存'
+          ? '已发送'
           : message.status === 'delivered'
-            ? ' · 已送达'
+            ? '已送达'
             : ' · 发送失败'
       : '';
-    meta.append(document.createTextNode(`${timeLabel(message.payload.sentAt)}${status}`));
+    meta.append(document.createTextNode(timeLabel(message.payload.sentAt)));
+    if (own && (message.status === 'stored' || message.status === 'sent' || message.status === 'delivered')) {
+      const delivery = document.createElement('span');
+      delivery.className = 'message-delivery';
+      delivery.dataset.state = message.status === 'delivered' ? 'delivered' : 'sent';
+      // One complete check; delivery adds only the second rising arm, matching
+      // the compact Telegram receipt rather than placing two glyphs side by side.
+      delivery.innerHTML = `<svg aria-hidden="true" viewBox="0 0 22 16"><path d="m2 8 4 4L16 2"/>${message.status === 'delivered' ? '<path d="m10 12 10-10"/>' : ''}</svg>`;
+      const label = document.createElement('span');
+      label.className = 'sr-only';
+      label.textContent = status;
+      delivery.append(label);
+      meta.append(delivery);
+    } else if (status) meta.append(document.createTextNode(status));
     if (own) {
       meta.title = message.status === 'delivered' ? '对方至少一台设备已验证并保存这条消息'
         : message.status === 'stored' || message.status === 'sent' ? '服务器已保存加密消息，等待对方接收'
@@ -3887,20 +4284,15 @@ export class QuietRoomApp {
 
   private beginFileExport(): void {
     this.fileExportActive = true;
-    this.fileExportBlurred = false;
     if (this.fileExportResetTimer !== null) window.clearTimeout(this.fileExportResetTimer);
-    // Safari can briefly blur the page while handing a generated file to the
-    // download surface. Bound the exception tightly so later blurs still lock.
-    this.fileExportResetTimer = window.setTimeout(() => this.finishFileExport(true), 1800);
+    // Identify the native handoff so even a brief blur covers the page.
+    this.fileExportResetTimer = window.setTimeout(() => this.finishFileExport(), 1800);
   }
 
-  private finishFileExport(recheckPrivacy = true): void {
-    const shouldCover = recheckPrivacy && this.fileExportBlurred && (document.hidden || !document.hasFocus());
+  private finishFileExport(): void {
     this.fileExportActive = false;
-    this.fileExportBlurred = false;
     if (this.fileExportResetTimer !== null) window.clearTimeout(this.fileExportResetTimer);
     this.fileExportResetTimer = null;
-    if (shouldCover) this.lockNow({ preserveFilePicker: this.filePickerActive });
   }
 
   private showRecoveryCode(recovery: PreparedRecoveryExport, session: VaultSession, epoch: number): void {
@@ -3967,7 +4359,7 @@ export class QuietRoomApp {
     sheet.querySelector('[data-copy-code]')?.addEventListener('click', async (event) => {
       const button = event.currentTarget as HTMLButtonElement;
       try {
-        await navigator.clipboard.writeText(recovery.recoveryCode);
+        await this.withSystemSurface(() => navigator.clipboard.writeText(recovery.recoveryCode));
         if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected) return;
         button.textContent = '已复制';
       } catch {
@@ -3981,9 +4373,9 @@ export class QuietRoomApp {
       setBusy(button, true, '正在保存…');
       try {
         this.beginFileExport();
-        // Keep the code visible before saving. A native share sheet can stay
-        // open past the brief file-export privacy exception on iOS.
-        await downloadBlob(recovery.blob, recovery.filename, { preferShare: false });
+        // A native handoff may lock the page; a late result cannot confirm
+        // recovery setup in a different unlocked session.
+        await this.withSystemSurface(() => downloadBlob(recovery.blob, recovery.filename, { preferShare: false }));
         if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected) return;
         fileDownloadStarted = true;
         confirmButton.disabled = false;
@@ -4034,9 +4426,24 @@ export class QuietRoomApp {
     button.dataset.blobId = manifest.blobId;
     button.dataset.imageState = 'pending';
     button.setAttribute('aria-label', manifest.originalName ? `放大查看 ${manifest.originalName}` : '放大查看聊天图片');
-    button.innerHTML = `${icons.image}<span>正在载入缩略图…</span><small>${this.fileSize(manifest.originalSize)}</small>`;
+    button.setAttribute('aria-busy', 'true');
+    button.innerHTML = `${icons.image}<span class="sr-only">正在加载图片</span>`;
     const cached = this.imageCache.get(manifest.blobId);
-    if (cached) queueMicrotask(() => { if (button.isConnected) void this.hydrateImagePreview(button, manifest); });
+    if (cached) {
+      this.assertImageManifestIdentity(manifest);
+      cached.lastUsedAt = Date.now();
+      if (cached.width && cached.height) {
+        const image = document.createElement('img');
+        image.src = cached.url;
+        image.alt = manifest.originalName || '聊天图片';
+        image.draggable = false;
+        image.width = cached.width;
+        image.height = cached.height;
+        button.replaceChildren(image);
+        button.dataset.imageState = 'loaded';
+        button.setAttribute('aria-busy', 'false');
+      } else queueMicrotask(() => { if (button.isConnected) void this.hydrateImagePreview(button, manifest); });
+    }
     button.addEventListener('click', () => {
       if (Date.now() < this.suppressMediaClickUntil) return;
       if (button.dataset.imageState === 'error') {
@@ -4057,20 +4464,23 @@ export class QuietRoomApp {
     // the user's current anchor after decoding, as they may scroll meanwhile.
     await image.decode();
     if (!button.isConnected || this.privacyCovered) return;
-    image.width = image.naturalWidth;
-    image.height = image.naturalHeight;
+    cached.width = image.width = image.naturalWidth;
+    cached.height = image.height = image.naturalHeight;
     const anchor = this.captureChatAnchor();
     button.replaceChildren(image);
     button.dataset.imageState = 'loaded';
+    button.setAttribute('aria-busy', 'false');
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (list && anchor) this.restoreChatAnchor(list, anchor);
+    if (list) this.finishChatAnchorRestore(list);
   }
 
   private async hydrateImagePreview(button: HTMLButtonElement, manifest: ImageManifest): Promise<void> {
     if (button.dataset.imageState === 'loading' || button.dataset.imageState === 'loaded') return;
     button.dataset.imageState = 'loading';
     const label = button.querySelector<HTMLElement>('span');
-    if (label) label.textContent = '正在本地解密…';
+    button.setAttribute('aria-busy', 'true');
+    if (label) { label.className = 'sr-only'; label.textContent = '正在加载图片'; }
     try {
       const cached = await this.loadImage(manifest);
       if (!button.isConnected || this.privacyCovered) return;
@@ -4078,9 +4488,12 @@ export class QuietRoomApp {
     } catch (cause) {
       if (!button.isConnected || cause instanceof DOMException && cause.name === 'AbortError') return;
       button.dataset.imageState = 'error';
+      button.setAttribute('aria-busy', 'false');
       const error = document.createElement('span');
       error.textContent = cause instanceof Error ? `${cause.message}，点按重试` : '载入失败，点按重试';
       button.replaceChildren(error);
+      const list = this.root.querySelector<HTMLElement>('#message-list');
+      if (list) this.finishChatAnchorRestore(list);
     }
   }
 
@@ -4100,6 +4513,13 @@ export class QuietRoomApp {
       }
       if (manifest) void this.hydrateImagePreview(button, manifest);
     };
+    // The saved row may be above the viewport while it is still a short
+    // placeholder; explicitly load it so restoring cannot wait indefinitely.
+    if (this.chatRestoreAnchor) {
+      for (const button of pending) {
+        if (button.closest<HTMLElement>('.message')?.dataset.clientMsgId === this.chatRestoreAnchor.clientMsgId) load(button);
+      }
+    }
     if (!('IntersectionObserver' in window)) {
       pending.forEach(load);
       return;
@@ -4111,7 +4531,7 @@ export class QuietRoomApp {
         this.chatImageObserver?.unobserve(button);
         load(button);
       }
-    }, { root: list, rootMargin: '75% 0px', threshold: 0.01 });
+    }, { root: null, rootMargin: '75% 0px', threshold: 0.01 });
     pending.forEach((button) => this.chatImageObserver?.observe(button));
   }
 
@@ -4142,7 +4562,9 @@ export class QuietRoomApp {
       const cached = this.imageCache.get(manifest.blobId);
       if (!cached) throw new Error('图片缓存失败');
       return cached;
-    }).finally(() => this.imageLoadPromises.delete(manifest.blobId));
+    }).finally(() => {
+      if (this.imageLoadPromises.get(manifest.blobId) === operation) this.imageLoadPromises.delete(manifest.blobId);
+    });
     this.imageLoadPromises.set(manifest.blobId, operation);
     return operation;
   }
@@ -4217,11 +4639,13 @@ export class QuietRoomApp {
       viewer.querySelector<HTMLElement>('[data-viewer-counter]')!.textContent = manifests.length > 1 ? `${current + 1} / ${manifests.length}` : this.fileSize(manifest.originalSize);
       previous.hidden = manifests.length < 2;
       next.hidden = manifests.length < 2;
+      this.assertImageManifestIdentity(manifest);
       const cached = this.imageCache.get(manifest.blobId);
       if (!cached) {
         const loading = document.createElement('p');
         loading.className = 'viewer-loading';
-        loading.textContent = '正在下载、解密并校验原图…';
+        loading.setAttribute('role', 'status');
+        loading.innerHTML = `${icons.image}<span class="sr-only">正在加载图片</span>`;
         stage.replaceChildren(loading);
       }
       try {
@@ -4255,7 +4679,9 @@ export class QuietRoomApp {
         this.beginFileExport();
         const manifest = manifests[current]!;
         const cached = await this.loadImage(manifest);
-        await downloadBlob(cached.blob, manifest.originalName || 'image');
+        if (!viewer.isConnected || this.privacyCovered) return;
+        this.beginFileExport();
+        await this.withSystemSurface(() => downloadBlob(cached.blob, manifest.originalName || 'image'));
       } catch (cause) {
         this.finishFileExport();
         this.operationalError(cause, '原图保存失败');
@@ -4417,7 +4843,7 @@ export class QuietRoomApp {
           <button class="icon-button" id="gallery-back" type="button" aria-label="返回聊天">${icons.back}</button>
           <div><h1>相册</h1><p id="gallery-total">原图</p></div>
           <button class="icon-button gallery-upload-button${cryptoReady ? '' : ' is-disabled'}" id="open-gallery-image-picker" type="button" aria-label="上传图片到相册" title="上传图片到相册" ${cryptoReady ? '' : 'disabled'}>${icons.upload}</button>
-          <input id="gallery-image-input" type="file" accept="image/*" ${cryptoReady ? '' : 'disabled'} hidden />
+          <input id="gallery-image-input" type="file" accept="image/*" multiple ${cryptoReady ? '' : 'disabled'} hidden />
         </header>
         <div class="notice gallery-notice" id="notice" role="status" hidden></div>
         <div class="upload-progress gallery-upload-progress" id="upload-progress" hidden><span></span><output></output></div>
@@ -4440,7 +4866,7 @@ export class QuietRoomApp {
     const addMessages = (messages: DecryptedMessage[]) => {
       for (const message of messages) {
         const manifests = message.payload.kind === 'image-album' ? message.payload.images
-          : message.payload.kind === 'text' || message.payload.kind === 'audio' ? [] : [message.payload.image];
+          : message.payload.kind === 'text' || message.payload.kind === 'audio' || message.payload.kind === 'reaction' ? [] : [message.payload.image];
         for (const [assetIndex, manifest] of manifests.entries()) {
           const key = `${message.clientMsgId}:${assetIndex}`;
           if (assetKeys.has(key)) continue;
@@ -4453,7 +4879,20 @@ export class QuietRoomApp {
           button.dataset.galleryIndex = String(index);
           button.dataset.blobId = manifest.blobId;
           button.setAttribute('aria-label', `查看原图 ${manifest.originalName}`);
-          button.innerHTML = `${icons.image}<span class="tile-loading">正在载入…</span><time>${timeLabel(message.payload.sentAt)}</time>`;
+          button.innerHTML = `${icons.image}<span class="tile-loading sr-only">正在加载图片</span><time>${timeLabel(message.payload.sentAt)}</time>`;
+          button.setAttribute('aria-busy', 'true');
+          const cached = this.imageCache.get(manifest.blobId);
+          if (cached) {
+            this.assertImageManifestIdentity(manifest);
+            cached.lastUsedAt = Date.now();
+            const image = document.createElement('img');
+            image.src = cached.url;
+            image.alt = manifest.originalName || '相册图片';
+            const time = button.querySelector('time')!;
+            button.replaceChildren(image, time);
+            button.dataset.thumbnailState = 'loaded';
+            button.setAttribute('aria-busy', 'false');
+          }
           button.addEventListener('click', () => {
             this.galleryScrollTop = grid.scrollTop;
             this.openImageViewer(assets.map((asset) => asset.manifest), index, button);
@@ -4522,7 +4961,9 @@ export class QuietRoomApp {
       const manifest = Number.isSafeInteger(index) ? assets[index]?.manifest : undefined;
       if (!manifest || tile.dataset.thumbnailState === 'loading' || tile.dataset.thumbnailState === 'loaded') return;
       tile.dataset.thumbnailState = 'loading';
-      tile.querySelector<HTMLElement>('.tile-loading')!.textContent = '正在载入…';
+      tile.setAttribute('aria-busy', 'true');
+      const loading = tile.querySelector<HTMLElement>('.tile-loading');
+      if (loading) { loading.classList.add('sr-only'); loading.textContent = '正在加载图片'; }
       try {
         const cached = await this.loadImage(manifest);
         if (!this.isRuntimeActive(epoch, session) || !tile.isConnected) return;
@@ -4530,15 +4971,24 @@ export class QuietRoomApp {
         image.src = cached.url;
         image.alt = manifest.originalName || '相册图片';
         image.decoding = 'async';
+        await image.decode();
+        if (!this.isRuntimeActive(epoch, session) || !tile.isConnected) return;
+        cached.width = image.naturalWidth;
+        cached.height = image.naturalHeight;
         const time = tile.querySelector('time');
         tile.replaceChildren(image);
         if (time) tile.append(time);
         tile.dataset.thumbnailState = 'loaded';
+        tile.setAttribute('aria-busy', 'false');
       } catch (cause) {
         if (!this.isRuntimeActive(epoch, session) || !tile.isConnected) return;
         tile.dataset.thumbnailState = 'error';
+        tile.setAttribute('aria-busy', 'false');
         const label = tile.querySelector<HTMLElement>('.tile-loading');
-        if (label) label.textContent = cause instanceof Error ? cause.message : '载入失败，点按重试';
+        if (label) {
+          label.classList.remove('sr-only');
+          label.textContent = cause instanceof Error ? cause.message : '载入失败，点按重试';
+        }
       }
     };
 
@@ -4576,7 +5026,7 @@ export class QuietRoomApp {
           <button class="icon-button" id="download-image" type="button" aria-label="下载原图">${icons.download}</button>
         </header>
         <div class="notice detail-notice" id="notice" role="status" hidden></div>
-        <div class="detail-stage"><p id="detail-loading">正在下载并校验原图…</p></div>
+        <div class="detail-stage"><p id="detail-loading" class="quiet-image-placeholder" role="status">${icons.image}<span class="sr-only">正在加载图片</span></p></div>
       </section>
     `;
     this.root.querySelector<HTMLElement>('#detail-name')!.textContent = manifest.originalName || '原图';
@@ -4590,7 +5040,7 @@ export class QuietRoomApp {
       this.root.querySelector('.detail-stage')?.replaceChildren(image);
       this.root.querySelector('#download-image')?.addEventListener('click', () => {
         this.beginFileExport();
-        void downloadBlob(cached.blob, manifest.originalName || 'image').catch((cause) => {
+        void this.withSystemSurface(() => downloadBlob(cached.blob, manifest.originalName || 'image')).catch((cause) => {
           this.finishFileExport();
           this.operationalError(cause, '原图保存失败');
         });
@@ -4733,6 +5183,15 @@ export class QuietRoomApp {
     this.closeVoiceRecorder();
     this.voicePlayback.stop();
     this.captureChatAnchor(false);
+    const composer = this.root.querySelector<HTMLTextAreaElement>('#message-input');
+    if (composer) {
+      this.uiPreferences.composerDraft = composer.value;
+      composer.value = '';
+    }
+    this.sendingTextDrafts.clear();
+    this.imageBatchUploading = false;
+    if (this.blurLockTimer !== null) window.clearTimeout(this.blurLockTimer);
+    this.blurLockTimer = null;
     if (this.preferenceSaveTimer !== null) window.clearTimeout(this.preferenceSaveTimer);
     this.preferenceSaveTimer = null;
     this.flushUiPreferencesSave();
@@ -4750,6 +5209,8 @@ export class QuietRoomApp {
     this.socket = null;
     this.session = null;
     this.messages.clear();
+    this.reactionHistory.clear();
+    this.clearMessageTextSelection();
     this.pending.clear();
     this.outbox.clear();
     this.pendingReceipts.clear();
@@ -4785,12 +5246,13 @@ export class QuietRoomApp {
     this.restoreComposerFocusAfterPicker = false;
     this.keepComposerKeyboard = false;
     this.composerSelection = null;
-    this.finishFileExport(false);
+    this.finishFileExport();
     this.draining = false;
     this.receiptDraining = false;
     this.unlocking = false;
     this.deviceVerificationActive = false;
     this.deviceVerificationToken = null;
+    this.systemSurfaceTokens.clear();
     for (const cached of this.imageCache.values()) URL.revokeObjectURL(cached.url);
     this.imageCache.clear();
     this.imageLoadPromises.clear();
@@ -4807,6 +5269,7 @@ export class QuietRoomApp {
     this.recoveryPollTimer = null;
     this.activeSurface = 'away';
     this.uiPreferences = {};
+    this.chatRestoreAnchor = null;
     this.restoreChatAnchorOnNextRender = true;
     this.galleryScrollTop = 0;
     if (this.idleTimer !== null) window.clearTimeout(this.idleTimer);

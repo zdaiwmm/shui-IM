@@ -1,13 +1,35 @@
-/* Messages scroll edge to edge underneath the application-owned chrome. */
+/* Give Safari real document content to composite behind its native chrome.
+   Clipping an inner scroller to visualViewport leaves only a flat body tint. */
+html:has(.chat-shell) {
+  height: auto;
+  overflow: auto;
+  overflow-anchor: none;
+  scrollbar-width: none;
+  scroll-padding-top: var(--chat-top-space, 146px);
+  scroll-padding-bottom: var(--chat-bottom-space, 84px);
+}
+body:has(.chat-shell) {
+  height: auto;
+  overflow: visible;
+}
+.app-mode #app:has(.chat-shell) {
+  position: relative;
+  top: 0;
+  height: auto;
+  overflow: visible;
+}
 .chat-shell {
   display: block;
+  height: auto;
+  min-height: var(--app-height);
+  overflow: visible;
   --chat-header-height: 72px;
   --chat-top-space: 146px;
   --chat-bottom-space: calc(84px + var(--safe-bottom));
 }
 .chat-header {
-  position: absolute;
-  inset: 0 0 auto;
+  position: fixed;
+  inset: var(--app-top) max(0px, calc((100% - 880px) / 2)) auto;
   display: grid;
   grid-template-columns: minmax(64px, 1fr) minmax(96px, 1.5fr) minmax(64px, 1fr);
   gap: 8px;
@@ -21,11 +43,7 @@
   position: absolute;
   pointer-events: none;
   z-index: -1;
-  background: linear-gradient(to bottom, color-mix(in oklch, var(--chrome-tint) 62%, transparent), color-mix(in oklch, var(--chrome-tint) 20%, transparent) 65%, transparent);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
-  -webkit-mask-image: linear-gradient(to bottom, black 40%, transparent);
-  mask-image: linear-gradient(to bottom, black 40%, transparent);
+  background: linear-gradient(to bottom, color-mix(in oklch, var(--chrome-tint) 18%, transparent), transparent);
 }
 .chat-header::before { inset: 0 0 -28px; }
 .self-summary {
@@ -61,7 +79,8 @@
 .peer-summary .peer-name { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 1rem; color: var(--ink); font-weight: 700; }
 .peer-summary > strong { flex: none; width: 100%; margin: 0; text-align: center; font-size: 0.75rem; font-weight: 500; }
 .header-actions { justify-self: end; gap: 5px; }
-/* One blur at the scrolling edge, instead of nested filters on every control. */
+/* Each bounded control samples the conversation directly. The edge wash above
+   has no filter, so it cannot flatten the backdrop before the glass sees it. */
 .chat-header .icon-button,
 .chat-header .more-menu > summary,
 .chat-header .self-summary,
@@ -69,19 +88,23 @@
 .composer .composer-field,
 .composer .icon-button,
 .composer .send-button {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  box-shadow: inset 0 1px 0 var(--glass-border), 0 3px 12px oklch(24% 0.02 255 / 0.06);
+  background-image: var(--glass-sheen);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  box-shadow: var(--glass-shadow);
 }
 .chat-shell > .notice {
+  position: fixed;
   top: auto;
-  bottom: var(--chat-bottom-space);
+  top: calc(var(--app-top) + var(--app-height) - var(--chat-bottom-space));
+  bottom: auto;
+  translate: 0 -100%;
   transform-origin: bottom center;
 }
 .chat-shell > .notice.is-visible { transform: none; }
 .system-notices {
-  position: absolute;
-  inset: var(--chat-header-height) 10px auto;
+  position: fixed;
+  inset: calc(var(--app-top) + var(--chat-header-height)) max(10px, calc((100% - 860px) / 2)) auto;
   z-index: 7;
   display: grid;
   gap: 6px;
@@ -118,21 +141,24 @@
 .recovery-reminder #dismiss-recovery { width: 44px; min-width: 44px; height: 44px; padding: 11px; border: 0; border-radius: 50%; background: transparent; color: var(--ink-muted); }
 #dismiss-recovery svg { display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 .message-list {
-  position: absolute;
-  inset: 0;
+  position: relative;
+  min-height: var(--app-height);
+  overflow: visible;
   padding-top: var(--chat-top-space);
-  padding-bottom: var(--chat-bottom-space);
+  padding-bottom: calc(var(--chat-bottom-space) + var(--keyboard-space, 0px));
   scroll-padding-top: var(--chat-top-space);
   scroll-padding-bottom: var(--chat-bottom-space);
 }
 .message-list > * { flex-shrink: 0; }
 .composer {
-  position: absolute;
-  inset: auto 0 0;
+  position: fixed;
+  inset: calc(var(--app-top) + var(--app-height)) max(0px, calc((100% - 880px) / 2)) auto;
+  translate: 0 -100%;
   z-index: 6;
-  isolation: isolate;
   flex-wrap: wrap;
 }
+/* Inert dialog backgrounds must not keep scrolling under the overlay. */
+html:has(.chat-shell[inert]) { overflow: hidden; }
 .composer::before {
   inset: -32px 0 0;
   transform: rotate(180deg);

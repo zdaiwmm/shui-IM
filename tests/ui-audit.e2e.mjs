@@ -17,17 +17,27 @@ function invariant(condition, message) {
 async function assertStablePage(page, label) {
   const samples = await page.locator('#app > section').evaluate(async (section) => {
     const values = [];
+    const chat = section.classList.contains('chat-shell');
+    const anchor = chat ? [...section.querySelectorAll('.message')].find(row => row.getBoundingClientRect().bottom > (visualViewport?.offsetTop ?? 0))?.dataset.clientMsgId : null;
     const start = performance.now();
     do {
-      const bounds = section.getBoundingClientRect();
-      values.push({ x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height });
+      // Document height may change as offscreen media decodes. Measure the
+      // fixed controls and the visible reading anchor, not the moving document.
+      const bounds = (chat ? section.querySelector('.chat-header') : section).getBoundingClientRect();
+      const sample = { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+      if (chat) {
+        const composer = section.querySelector('#composer').getBoundingClientRect();
+        sample.composerY = composer.y; sample.composerHeight = composer.height;
+        if (anchor) sample.anchorY = section.querySelector(`[data-client-msg-id="${CSS.escape(anchor)}"]`).getBoundingClientRect().top;
+      }
+      values.push(sample);
       await new Promise((resolve) => requestAnimationFrame(resolve));
     } while (performance.now() - start < 580);
     return values;
   });
-  for (const axis of ['x', 'y', 'width', 'height']) {
+  for (const axis of Object.keys(samples[0])) {
     const values = samples.map((sample) => sample[axis]);
-    invariant(Math.max(...values) - Math.min(...values) < 1, `${label} shifted on ${axis} during entry: ${JSON.stringify(samples)}`);
+    invariant(Math.max(...values) - Math.min(...values) < (axis === 'anchorY' ? 3 : 1), `${label} shifted on ${axis} during entry: ${JSON.stringify(samples)}`);
   }
 }
 
@@ -185,10 +195,11 @@ try {
     await creator.evaluate(font => document.documentElement.style.fontSize = font, value.font);
     await creator.waitForTimeout(120);
   }
-  async function capture(name, settings = ['mobile']) {
+  async function capture(name, settings = ['mobile'], prepare) {
     if (process.argv.includes('--privacy-repro')) return;
     for (const setting of settings) {
       await variant(setting);
+      if (prepare) await prepare(setting);
       const filename = `${String(++step).padStart(2, '0')}-${name}-${setting}.png`;
       const result = await creator.evaluate(() => {
         const box = element => {
@@ -198,10 +209,10 @@ try {
         const selector = element => `${element.tagName.toLowerCase()}${element.id ? '#' + element.id : ''}${typeof element.className === 'string' ? '.' + element.className.trim().replaceAll(' ', '.') : ''}`;
         const visible = element => { const r = element.getBoundingClientRect(); return r.width > 0 && r.height > 0 && element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }); };
         const controls = [...document.querySelectorAll('button,summary,input:not([type=file]),textarea,[role=dialog]')].filter(visible).map(element => ({ selector: selector(element), label: element.getAttribute('aria-label') ?? element.textContent?.slice(0, 90), box: box(element), fontSize: getComputedStyle(element).fontSize, disabled: element.hasAttribute('disabled'), inert: Boolean(element.closest('[inert]')) }));
-        const layers = [...document.querySelectorAll('.chat-header,.composer,.peer-summary,.menu-panel,.message-actions,.recovery-reminder,.recovery-code-sheet,.recovery-code-panel,.message-copy-sheet,.message-copy-panel,.device-link-sheet,.device-link-panel,.gallery-header,.gallery-tile time,.viewer-stage,.image-viewer')].filter(visible).map(element => { const style = getComputedStyle(element); const before = getComputedStyle(element, '::before'); return { selector: selector(element), box: box(element), color: style.color, background: style.background, backdrop: style.backdropFilter, mask: style.maskImage, pseudoBackground: before.background, pseudoBackdrop: before.backdropFilter, pseudoMask: before.maskImage, overflow: style.overflow, animation: style.animation, transition: style.transition }; });
+        const layers = [...document.querySelectorAll('.chat-header,.composer,.peer-summary,.menu-panel,.message-actions,.message-action-list,.message-reaction-picker,.message.is-action-source,.message-text-selection,.recovery-reminder,.recovery-code-sheet,.recovery-code-panel,.device-link-sheet,.device-link-panel,.gallery-header,.gallery-tile time,.viewer-stage,.image-viewer')].filter(visible).map(element => { const style = getComputedStyle(element); const before = getComputedStyle(element, '::before'); return { selector: selector(element), box: box(element), color: style.color, background: style.background, backdrop: style.backdropFilter, mask: style.maskImage, pseudoBackground: before.background, pseudoBackdrop: before.backdropFilter, pseudoMask: before.maskImage, overflow: style.overflow, animation: style.animation, transition: style.transition }; });
         const rootStyle = getComputedStyle(document.documentElement);
         const tokens = Object.fromEntries(['--ink','--ink-muted','--ink-faint','--paper','--paper-pure','--glass','--glass-strong','--accent'].map(name => [name, rootStyle.getPropertyValue(name)]));
-        const nodes = [...document.querySelectorAll('.gateway-heading h1,.gateway-heading > p:last-child,.credential-only-step,.form-error,.privacy-note,.menu-security,.device-security-note,.device-toolbar,.device-card,.message-copy-buttons,.recovery-code-actions')].filter(visible).map(element => ({ selector: selector(element), text: element.textContent?.slice(0, 300), box: box(element), font: getComputedStyle(element).fontSize, lineHeight: getComputedStyle(element).lineHeight }));
+        const nodes = [...document.querySelectorAll('.gateway-heading h1,.gateway-heading > p:last-child,.credential-only-step,.form-error,.privacy-note,.menu-security,.device-security-note,.device-toolbar,.device-card,.message-text-selection,.recovery-code-actions')].filter(visible).map(element => ({ selector: selector(element), text: (element instanceof HTMLTextAreaElement ? element.value : element.textContent)?.slice(0, 300), box: box(element), font: getComputedStyle(element).fontSize, lineHeight: getComputedStyle(element).lineHeight }));
         return { viewport: { width: innerWidth, height: innerHeight, fontSize: rootStyle.fontSize, dark: matchMedia('(prefers-color-scheme:dark)').matches }, documentSize: { width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight }, app: box(document.querySelector('#app')), controls, layers, tokens, nodes, animations: window.__auditAnimations ?? [], active: selector(document.activeElement), text: document.body.innerText.slice(0, 3000) };
       });
       await creator.screenshot({ path: path.join(visualQaDirectory, filename) });
@@ -248,10 +259,12 @@ try {
     await creator.evaluate(() => window.__rejectAuditCopy(new Error('Document is not focused')));
     await creator.waitForTimeout(100);
     const after = await creator.locator('body').innerText();
-    const canary = await creator.locator('.message-copy-sheet textarea').inputValue().catch(() => null);
+    const leakedInlineSelection = await creator.locator('.message-text-selection').count();
+    const canary = leakedInlineSelection ? await creator.locator('.message-text-selection').first().inputValue() : null;
     await creator.screenshot({ path: path.join(visualQaDirectory, 'clipboard-after-lock.png') });
-    await writeFile(path.join(auditDirectory, 'clipboard-privacy.json'), JSON.stringify({ before, after, canary, covered: await creator.locator('.cover-trigger').count(), leakedCopySheet: await creator.locator('.message-copy-sheet').count() }, null, 2));
-    process.stdout.write(`Clipboard privacy reproduction: ${JSON.stringify({ covered: await creator.locator('.cover-trigger').count(), leakedCopySheet: await creator.locator('.message-copy-sheet').count(), canary })}\n`);
+    await writeFile(path.join(auditDirectory, 'clipboard-privacy.json'), JSON.stringify({ before, after, canary, covered: await creator.locator('.cover-trigger').count(), leakedInlineSelection }, null, 2));
+    process.stdout.write(`Clipboard privacy reproduction: ${JSON.stringify({ covered: await creator.locator('.cover-trigger').count(), leakedInlineSelection, canary })}\n`);
+    invariant(leakedInlineSelection === 0 && !after.includes('audit-secret-canary'), 'Clipboard fallback revealed message selection after locking');
     throw new Error('AUDIT_REPRO_COMPLETE');
   }
   await capture('chat-empty-pinned', ['mobile', 'small', 'landscape', 'dark']);
@@ -284,7 +297,7 @@ try {
   ].map(({ name, width, height, sky, ground, rise }) => ({ name, mimeType: 'image/svg+xml', buffer: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="${sky}"/><circle cx="${width * .72}" cy="${height * .26}" r="${width * .09}" fill="#fff1be"/><path d="M0 ${rise} Q${width * .4} ${rise - 130} ${width} ${rise + 20} V${height} H0Z" fill="${ground}"/></svg>`) }));
   await creator.locator('#image-input').setInputFiles(fixtures);
   await creator.locator('.image-preview img').nth(3).waitFor({ timeout: 15000 });
-  await creator.locator('#message-list').evaluate(list => list.scrollTop = list.scrollHeight - list.clientHeight - 160);
+  await creator.locator('#message-list').evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight - innerHeight - 160));
   await capture('chat-messages', ['mobile', 'small', 'desktop', 'landscape', 'dark', 'large']);
   await menu();
   await capture('chat-menu', ['mobile', 'small', 'landscape', 'dark', 'large']);
@@ -299,10 +312,33 @@ try {
   await source.dispatchEvent('contextmenu');
   await creator.locator('.message-actions.is-visible').waitFor();
   await capture('message-menu', ['mobile', 'small', 'landscape']);
-  await creator.getByRole('menuitem', { name: '选择文字', exact: true }).click();
-  await creator.locator('.message-copy-sheet').waitFor();
-  await capture('select-copy', ['mobile', 'small', 'landscape', 'dark', 'large']);
-  await creator.locator('[data-copy-cancel]').click();
+  // Re-enter native inline selection after each viewport/font change so the
+  // selected textarea uses the paragraph's metrics for that exact variant.
+  await capture('select-text-inline', ['mobile', 'small', 'landscape', 'dark', 'large'], async (setting) => {
+    await creator.keyboard.press('Escape');
+    await source.scrollIntoViewIfNeeded();
+    await source.dispatchEvent('contextmenu');
+    await creator.locator('.message-actions.is-visible').waitFor();
+    const before = await source.locator('.message-text').boundingBox();
+    await creator.getByRole('menuitem', { name: '选择文字', exact: true }).click();
+    const selection = creator.locator('.message.is-selecting-text .message-bubble > .message-text-selection');
+    await selection.waitFor();
+    const after = await selection.boundingBox();
+    const state = await selection.evaluate(element => ({
+      value: element.value,
+      readOnly: element.readOnly,
+      selected: element.selectionEnd - element.selectionStart,
+      focused: document.activeElement === element,
+    }));
+    invariant(state.value === messages[4] && state.readOnly && state.selected === state.value.length && state.focused,
+      `${setting} did not select the original message inline: ${JSON.stringify(state)}`);
+    invariant(before && after && ['x', 'y', 'width', 'height'].every(axis => Math.abs(before[axis] - after[axis]) < 1),
+      `${setting} inline selection shifted the message text: ${JSON.stringify({ before, after })}`);
+    invariant(await creator.locator('[role=dialog], .message-actions, .message-actions-backdrop').count() === 0,
+      `${setting} inline selection left an app dialog or message menu open`);
+  });
+  await creator.keyboard.press('Escape');
+  await creator.locator('.message-text-selection').waitFor({ state: 'detached' });
   await menu();
   await creator.locator('#manage-devices').click();
   await creator.locator('.device-card').first().waitFor();

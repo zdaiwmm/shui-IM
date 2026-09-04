@@ -3,6 +3,7 @@ import { fromBase64Url, toBase64Url } from './base64';
 import { downloadBlob } from './download';
 import { generateIdentity } from './crypto';
 import { createRecoveryRequest } from './mls';
+import { isMessagePayload } from './message-payload';
 import {
   createPlatformCredential,
   unlockPlatformCredential,
@@ -125,6 +126,7 @@ export type ChatScrollAnchor = {
 };
 
 export type UiPreferences = {
+  composerDraft?: string;
   chatAnchor?: ChatScrollAnchor;
   recoveryReminderDismissed?: boolean;
 };
@@ -946,6 +948,13 @@ export async function loadHistoryPageAfter(
   session: VaultSession,
   { limit = 200, afterSeq = 0, signal }: { limit?: number; afterSeq?: number; signal?: AbortSignal } = {},
 ): Promise<DecryptedMessage[]> {
+  return decryptHistoryRecords(session, await loadHistoryRecordsAfter(session, { limit, afterSeq, signal }), signal);
+}
+
+async function loadHistoryRecordsAfter(
+  session: VaultSession,
+  { limit, afterSeq, signal }: { limit: number; afterSeq: number; signal?: AbortSignal },
+): Promise<StoredHistory[]> {
   signal?.throwIfAborted();
   const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 1000);
   if (Number.isSafeInteger(afterSeq) && afterSeq >= Number.MAX_SAFE_INTEGER) return [];
@@ -964,20 +973,53 @@ export async function loadHistoryPageAfter(
       'next',
     );
     const collected: StoredHistory[] = [];
+    const abort = () => { try { tx.abort(); } catch { /* The readonly transaction has already finished. */ } };
+    const release = () => {
+      signal?.removeEventListener('abort', abort);
+      database.close();
+    };
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) abort();
     request.onsuccess = () => {
       const cursor = request.result;
       if (!cursor || collected.length >= boundedLimit) return;
       collected.push(cursor.value as StoredHistory);
       cursor.continue();
     };
-    request.onerror = () => reject(request.error);
-    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => { release(); reject(signal?.reason ?? tx.error ?? new DOMException('History scan aborted', 'AbortError')); };
+    tx.onerror = () => { release(); reject(tx.error); };
     tx.oncomplete = () => {
-      database.close();
+      release();
       resolve(collected);
     };
   });
-  return decryptHistoryRecords(session, records, signal);
+  signal?.throwIfAborted();
+  return records;
+}
+
+/**
+ * Rebuild reactions beyond the visible history page without a plaintext index.
+ * Only reaction events survive each 200-row batch. Raw sequence progress lets a
+ * corrupt cache page be skipped without hiding valid reactions in later pages.
+ */
+export async function loadReactionHistory(
+  session: VaultSession,
+  { signal }: { signal?: AbortSignal } = {},
+): Promise<DecryptedMessage[]> {
+  const reactions: DecryptedMessage[] = [];
+  let afterSeq = 0;
+  const limit = 200;
+  for (;;) {
+    signal?.throwIfAborted();
+    const records = await loadHistoryRecordsAfter(session, { limit, afterSeq, signal });
+    if (!records.length) return reactions;
+    const page = await decryptHistoryRecords(session, records, signal);
+    for (const message of page) {
+      if (message?.payload?.kind === 'reaction' && isMessagePayload(message.payload)) reactions.push(message);
+    }
+    afterSeq = records.at(-1)!.seq;
+    if (records.length < limit) return reactions;
+  }
 }
 
 /** Read an exact local sequence without confusing a paged-out row with missing history. */
@@ -1143,7 +1185,7 @@ function normalizeUiPreferences(value: unknown): UiPreferences {
         pinnedToBottom: candidate.pinnedToBottom,
       }
     : undefined;
-  return { ...(chatAnchor ? { chatAnchor } : {}), recoveryReminderDismissed: source.recoveryReminderDismissed === true };
+  return { composerDraft: typeof source.composerDraft === 'string' ? source.composerDraft.slice(0, 4000) : '', ...(chatAnchor ? { chatAnchor } : {}), recoveryReminderDismissed: source.recoveryReminderDismissed === true };
 }
 
 function uiPreferenceId(session: VaultSession): string {
