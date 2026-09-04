@@ -18,9 +18,10 @@ TMPDIR=/private/tmp node scripts/publish.mjs --sha <40位提交号>
 2026-09-04 已复现：默认临时目录经过 `/var/folders` 别名时，隔离副本中
 `scripts/release.mjs` 的入口判断将参数路径与 `import.meta.url` 的
 `/private/var/folders` 真实路径直接比较，可能未执行发布主体便以 0 退出。
-单次指定 `TMPDIR=/private/tmp` 已通过本次真实发布验证；它只选择临时副本位置，
+早期发布通过单次指定 `TMPDIR=/private/tmp` 避开该问题；它只选择临时副本位置，
 不更换发布入口或修改源码中的发布门槛。当前修复另有目录／文件符号链接入口、
-无网络合成发布和缺少成功回执的自动回归；它们不代表新版发布入口已经用于生产。
+无网络合成发布和缺少成功回执的自动回归。2026-09-04 的 `b299824` 发布已使用
+默认临时目录完成真实路径规范化、隔离发布和成功回执验证，见[本次线上发布记录](#本次线上发布记录)。
 
 该入口依次执行：只读预检 → 核对 GitHub main → 等待该提交完整 CI 成功 →
 新建独立浅克隆发布副本（仅 main，`--depth 1`）→ 再次核对提交 →
@@ -64,14 +65,16 @@ gh run list --repo zdaiwmm/shui-IM --workflow ci.yml --branch main --event workf
 禁止恢复旧数据的要求保持原样。
 
 服务器计时只有在经独立审阅、按 `DEPLOYMENT.md` 安装新版 root helper 后才生效。
-普通代码推送或应用发布不会自动更新它；本次修改没有产生服务器计时实测或生产提速结论。
+2026-09-04 已独立安装并用于 `b299824` 发布，取得下述首次分段实测；普通代码推送
+或应用发布仍不会自动更新它。该次耗时不是与旧生产流程的同条件对照，不据此宣称生产
+提速百分比。
 
 ## 已完成的一次性配置
 
 - GitHub CLI 已安装；账户已授权，凭据由系统钥匙串保存，不写入代码。
 - `.deploy.local.json` 保存生产地址、用户名和专用 SSH 密钥路径；已排除出 Git。
 - 生产 SSH 已验证可从当前国内出口直连，仅放行获批的单地址，不开放全网。
-- 2026-09-04 已按 `DEPLOYMENT.md` 独立审阅并原子更新 root 发布程序，当前版本包含可选通话中继及后台持久 Compose 覆盖支持；精确提交、摘要和旧副本路径见[本次线上发布记录](#本次线上发布记录)。普通应用发布不会自动替换它，后续发布仍需核对安装版本。
+- 2026-09-04 已按 `DEPLOYMENT.md` 独立审阅并原子更新 root 发布程序，当前版本包含可选通话中继、后台持久 Compose 覆盖及分段计时支持；精确提交、摘要和旧副本路径见[本次线上发布记录](#本次线上发布记录)。普通应用发布不会自动替换它，后续发布仍需核对安装版本。
 - 日常诊断入口：`npm run deploy:doctor`，仅读取状态。
 
 ## Mac 锁屏与手机远程
@@ -103,6 +106,22 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-04；服务器 `deployed-at` 为 `20260904T140919Z`（Asia/Shanghai 22:09:19），独立回读于 22:11:28 完成。该服务器字段是发布批次时间；实际入口耗时见下文。
+- 用户确认的完整应用版本：`b299824888811477f1ed31d223c1ce02be2af4c7`，为 [PR #8](https://github.com/zdaiwmm/shui-IM/pull/8) 合并后的 `main`，包含 [PR #7](https://github.com/zdaiwmm/shui-IM/pull/7) 的 CI／发布提速改动。本地 `main` 已同步此应用版本，整合前快照保留；后续发布记录的文档提交不代表应用再次部署。
+- [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33880450265) 与[精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33880822033) 均通过构建、311 项单元/集成、全部 19 个浏览器脚本、原生通话媒体和界面、凭据扫描、生产依赖审计及 `Full application verification`／`verify` 汇总门。发布前固定入口再次核对精确 SHA 的最新 run、attempt 和完整应用 job。
+- 本地固定快照构建、311 项单元/集成、19 项浏览器分段覆盖及两项通话浏览器专项通过。首轮完整浏览器命令的最后一项因合成录音实际仅 460ms、低于 500ms 产品门槛而超时；增加测试录制余量后专项通过，产品发送门槛未改变。此证据不写成单次本地 `check:full` 全程成功；详情见 `TEST_PLAN.md`。
+- 本次新增：聊天视频本机静态预览与播放、保险箱照片／视频相册、聊天媒体默认模糊及下拉／隐私遮罩重置、备份页间距与相册柔光加载、键盘／工具栏同步与发送追随，以及长按松手发送、左滑取消、上滑锁定、暂停试听和续录。发布前另修复锁定后旧语音手势绑定继续引用聊天 DOM 的问题，并验证解绑与重新进入。原始附件校验、设备历史边界及既有自动恢复备份能力保留。
+- 本次通过 `node scripts/publish.mjs --sha b299824888811477f1ed31d223c1ce02be2af4c7` 发布，未设置临时目录覆盖。服务器返回 `DEPLOY_OK`，固定入口回读返回 `DEPLOY_VERIFIED`；隔离副本 `/private/var/folders/kx/xvfkgvzn5cb2t23mnc9518kr0000gn/T/quiet-room-publish-vfUQ9O` 内 `.git/quiet-room-verified-sha` 与目标完整 SHA 一致。
+- 独立回读：`current-sha`、批次和发布目录一致，维护标记不存在；应用容器运行且健康，备份容器运行。两容器完整镜像标签均为本次 SHA，实际 `.Image` 均与目标镜像 `.Id` `sha256:4756be34b681ea165861496d8a5ca72b866a8e3540f9132666e91e158f389c30` 一致，未仅依赖标签文本判断。
+- 公网 HTTPS 健康返回 `ok: true`、`database: true`、`storage: true`；首页、`/sw.js` 及首页引用的 `/assets/app-kseOHrus.js`、`/assets/modulepreload-polyfill-B5Qt9EMX.js`、`/assets/app-R1rQoMOZ.css` 均正常返回，且与运行中应用容器的 `dist` 逐字节一致。WebSocket 检查证据来自发布程序的成功验证。本次未读取真实消息、附件或备份内容。
+- 发布前已独立审阅并原子安装本次 SHA 中的 root helper，仅增加分段计时；语法、`root:root`、0755 和 SHA-256 `d95bbe225f593732d68bd555228c8ebf1cad29420988d9c40fb681cbfbaf78fe` 均通过，发布后再次回读一致。旧摘要为 `de6890784d837ce6dbb25304421d0536ee6893e4fa3aeda703f95472547dd807`，旧文件保存在 `/opt/quiet-room/deploy-state/helper-before-b299824888811477f1ed31d223c1ce02be2af4c7/quiet-room-deploy`；安装事务持有同一发布锁并在相同文件系统原子替换，普通发布不自更新 helper。
+- 发布目录：`/opt/quiet-room/git-releases/20260904T140919Z-b29982488881`。
+- 已验证冷备份：`/opt/quiet-room/backups/predeploy/data-20260904T140919Z-b29982488881.tar.gz`。
+- 本次固定发布入口实测 **92,582ms（约 93 秒）**，其中入口预检 5,697ms、精确 CI 校验／等待 4,040ms、浅克隆 7,262ms，隔离副本发布及回读 74,457ms。服务器 helper 总计约 **61 秒**：源码获取 5 秒、构建 17 秒、停止容器 1 秒、冷备份 4 秒、启动及等待健康 32 秒、公开 WebSocket 验证 1 秒。服务器计时精度为 1 秒；分项有嵌套且还包含其他阶段，不重复累加。CI 在调用前已成功，这不是开发、审核、CI 运行、helper 安装及后续独立回读的总用时，也不是与旧流程的同条件生产提速对照。
+- `admin-enabled=0`、`calls-enabled=0`，后台与 TURN 的既有未启用状态不变。真实 iPhone/Android 通行密钥和恢复、Safari 键盘／录音手感／视频格式、公网通话与切网仍未验收；证书自动续期、异故障域备份、外部告警及独立审计待办未改变。
+
+## 上次线上发布记录（2026-09-04 20:51）
+
 - 日期：2026-09-04；服务器 `deployed-at` 为 `20260904T125135Z`（Asia/Shanghai 20:51:35），独立回查证据记录于 20:55。
 - 应用版本：`6753d010d822ef5cb90b2b3d2582d9fd1f7805c6`，为 [PR #5](https://github.com/zdaiwmm/shui-IM/pull/5) 合并后的完整 `main` 提交。功能提交 `16b69c802f59558a754c1466508a07d54a51024e` 经集成提交 `9e4df1b512c5fdba51d59612ff5e2d9f3302be2b` 合入，保留上次聊天和保险箱变更。
 - [PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33874161493) 与[精确 main 提交 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33874534302) 均通过构建、单元/集成、浏览器及通话专项、凭据扫描和官方 npm 生产依赖审计。精确 main CI 的验证任务于 `2026-09-04T12:50:41Z` 成功结束。
@@ -116,7 +135,7 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 - 后台代码随版本部署，但 `admin-enabled=0`，`sao.shui.click` 管理入口未启用。未配置管理员文件/环境、该域名的独立证书和 Nginx 站点，服务器解析器也未取得该域名地址；仍需完成 DNS/TLS、密码与真实 Google Authenticator 绑定和后台验收。主站自动备份不依赖后台启用，服务器不托管恢复码。
 - `calls-enabled=0`，TURN 仍未启用。真实 iPhone/Android 通行密钥与恢复、iPhone Safari 键盘／工具栏和滑动、公网通话与切网仍未验收。证书自动续期、异地备份与独立审计的既有待办未改变。后续仅发布记录的文档提交不代表应用再次部署。
 
-## 上次线上发布记录（2026-09-04 20:17）
+## 历史线上发布记录（2026-09-04 20:17）
 
 - 日期：2026-09-04；服务器 `deployed-at` 为 `20260904T121727Z`（Asia/Shanghai 20:17:27），独立回查证据记录于 20:19。
 - 应用版本：`22f752e1bf711c3d4b9c57abcc03eacdff027c61`，为 [PR #3](https://github.com/zdaiwmm/shui-IM/pull/3) 合并后的完整 `main` 提交。
