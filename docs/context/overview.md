@@ -31,6 +31,7 @@
 | 回应、未读计数和 presence | `PRODUCT.md`、`SECURITY.md` | `src/lib/reactions.ts`、`src/lib/unread-counter.ts`、`src/lib/api.ts`、`server/index.mjs`、`server/storage.mjs` | `tests/reactions.test.ts`、`tests/reaction-history.e2e.mjs`、`tests/unread-counter.test.ts`、`tests/unread-server.test.ts`、`tests/unread-counter.e2e.mjs` |
 | Web Push | `OPERATIONS.md`、`SECURITY.md` | `src/lib/push.ts`、`server/push.mjs`、`public/sw.js` | `tests/push.test.ts`、`tests/push-server.test.ts` |
 | 构建、发布、备份与运维 | `RELEASING.md`、`DEPLOYMENT.md`、`OPERATIONS.md`、`PRODUCTION_SECURITY_GATE.md` | `scripts/`、`deploy/`、`.github/workflows/ci.yml` | `tests/deploy-*.test.ts`、`tests/release.test.ts`、`tests/publish.test.ts`、`tests/backup.test.ts`、`tests/operations-*.test.ts` |
+| 发布后生产事实与上下文治理 | `RELEASING.md`、`docs/context/maintenance.md`、[D-021](./decisions.md#d-021生产回读后对账知识库语义变化继续审阅) | 现有证据入口为 `scripts/publish.mjs`、`scripts/release.mjs`；格式检查为 `scripts/check-docs.mjs`，结构化回读/自动对账入口尚待实现 | `tests/publish.test.ts`、`tests/release-entry.test.ts`、`tests/ci-docs.test.ts`、`tests/ci-scope.test.ts` |
 
 ## 测试命令的准确含义
 
