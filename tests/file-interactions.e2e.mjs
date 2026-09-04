@@ -308,7 +308,7 @@ try {
       f.app.renderGallery();
     });
     await assertToolbarGeometry('316px 125% font and large prior counts');
-    assert((await page.locator('#gallery-tab-images').getAttribute('aria-label')).includes('已加载 9999 张图片'), 'Compact count lost its precise accessible label');
+    assert((await page.locator('#gallery-tab-images').getAttribute('aria-label')).includes('已加载 9999 项照片和视频'), 'Compact count lost its precise accessible label');
     await page.screenshot({ path: path.join(visualQaDirectory, 'safe-counts-316-large-text.png'), animations: 'disabled' });
     await page.evaluate(() => { const f = window.galleryPrivacy; f.app.galleryKnownCounts = f.previousCounts; f.app.renderGallery(); });
     await page.evaluate(() => document.documentElement.style.removeProperty('font-size'));

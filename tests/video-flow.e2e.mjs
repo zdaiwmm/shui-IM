@@ -1,0 +1,353 @@
+import assert from 'node:assert/strict';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
+import { chromium } from 'playwright';
+import { createServer } from 'vite';
+
+// Use real encrypted attachment bytes, encrypted local history and the mounted
+// chat/gallery listeners. Only the opaque chunk service and unrelated account
+// controls are replaced. MLS transport is covered by the paired-device suite.
+const server = await createServer({ configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0, hmr: false } });
+const visualQaDirectory = process.argv[2];
+server.middlewares.use('/__video_flow', (_request, response) => {
+  response.setHeader('Content-Type', 'text/html');
+  response.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="app"></div></body></html>');
+});
+
+let browser;
+try {
+  await server.listen();
+  browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true, acceptDownloads: true });
+  const errors = [];
+  let downloadCount = 0;
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('download', () => downloadCount++);
+  await page.goto(`http://localhost:${server.httpServer.address().port}/__video_flow`);
+  const ids = await page.evaluate(async () => {
+    await import('/src/styles.css');
+    await import('/src/chat-layout.css');
+    await import('/src/gallery.css');
+    await import('/src/chat-interactions.css');
+    await import('/src/cover.css');
+    await import('/src/call.css');
+    const { QuietRoomApp } = await import('/src/app.ts');
+    const vault = await import('/src/lib/vault.ts');
+    const { encryptFileAttachment, encryptImageFile } = await import('/src/lib/file-crypto.ts');
+    const root = document.querySelector('#app');
+    const app = new QuietRoomApp(root);
+    const capabilities = ['image-album-v1', 'file-message-v1', 'reply-v2', 'message-reactions-v1'];
+    const own = { deviceId: crypto.randomUUID(), role: 'creator', status: 'active', capabilities };
+    const peer = { deviceId: crypto.randomUUID(), role: 'joiner', status: 'active', capabilities };
+    const session = await vault.createVault({
+      v: 1, roomId: crypto.randomUUID(), accessToken: 'video-flow-test', role: 'creator', protocol: 'legacy-v1',
+      lastSeq: 5, members: [own, peer], identity: { publicBundle: own },
+    }, 'video-flow-passphrase', 'password');
+    app.updateSafetyCode = async () => {};
+    app.updateBackgroundNotificationControl = async () => {};
+    app.flushUiPreferencesSave = () => {};
+    app.unreadCounter.markRead = async () => {};
+    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+
+    // A genuine browser-generated, decodable video with no external fixture,
+    // camera, microphone, production content or codec-tool dependency.
+    const canvas = document.createElement('canvas');
+    canvas.width = 320; canvas.height = 180;
+    const context = canvas.getContext('2d');
+    const draw = frame => {
+      context.fillStyle = '#7295a2'; context.fillRect(0, 0, 320, 180);
+      context.fillStyle = '#f4d89a'; context.beginPath(); context.arc(248, 40, 19, 0, Math.PI * 2); context.fill();
+      context.fillStyle = '#455f65'; context.beginPath(); context.moveTo(0, 154); context.lineTo(92, 54); context.lineTo(196, 162); context.lineTo(270, 94); context.lineTo(320, 153); context.lineTo(320, 180); context.lineTo(0, 180); context.fill();
+      context.fillStyle = '#a6bbb0'; context.fillRect(0, 150, 320, 30);
+      context.fillStyle = '#f2efdc'; context.fillRect(18 + frame * 3, 163, 30, 3);
+    };
+    draw(0);
+    const mediaStream = canvas.captureStream(20);
+    const mimeType = ['video/webm;codecs=vp8', 'video/webm;codecs=vp9', 'video/webm'].find(type => MediaRecorder.isTypeSupported(type));
+    if (!mimeType) throw Error('This browser cannot generate the video regression fixture');
+    const chunks = [];
+    const recorder = new MediaRecorder(mediaStream, { mimeType });
+    const recorded = new Promise((resolve, reject) => {
+      recorder.addEventListener('dataavailable', event => { if (event.data.size) chunks.push(event.data); });
+      recorder.addEventListener('stop', () => resolve(new Blob(chunks, { type: 'video/webm' })), { once: true });
+      recorder.addEventListener('error', event => reject(event.error ?? Error('Fixture recording failed')), { once: true });
+    });
+    recorder.start();
+    for (let frame = 0; frame < 30; frame++) {
+      draw(frame);
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    recorder.stop();
+    const videoBlob = await recorded;
+    mediaStream.getTracks().forEach(track => track.stop());
+    if (!videoBlob.size) throw Error('Video fixture contains no original bytes');
+
+    const encryptedChunks = new Map();
+    const originals = new Map();
+    const encrypt = async (file, image = false) => {
+      const manifest = await (image ? encryptImageFile : encryptFileAttachment)(file, {
+        reserve: async () => {}, status: async () => ({ uploadedIndexes: [], completed: false }),
+        upload: async (blobId, index, bytes) => { encryptedChunks.set(`${blobId}:${index}`, bytes.slice()); },
+        complete: async () => {}, savePlan: async () => {},
+      });
+      originals.set(manifest.blobId, file);
+      return manifest;
+    };
+    const photo = await encrypt(new File(['<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><path fill="#9caf9b" d="M0 0h320v180H0z"/><circle fill="#eadbb7" cx="248" cy="42" r="20"/><path fill="#526c61" d="M0 180 105 40 240 180Z"/></svg>'], '照片.svg', { type: 'image/svg+xml', lastModified: 1 }), true);
+    const chatVideo = await encrypt(new File([videoBlob], '聊天视频.webm', { type: 'video/webm', lastModified: 2 }));
+    const chatDocument = await encrypt(new File(['%PDF-1.7\nvideo regression ordinary file\n%%EOF'], '普通文件.pdf', { type: 'application/pdf', lastModified: 3 }));
+    const galleryVideo = await encrypt(new File([videoBlob], '保险箱视频.webm', { type: '', lastModified: 4 }));
+    const galleryDocument = await encrypt(new File(['%PDF-1.7\nvideo regression gallery file\n%%EOF'], '保险箱文档.pdf', { type: 'application/pdf', lastModified: 5 }));
+    const restoredVideo = await encrypt(new File([videoBlob], '单独恢复的视频.webm', { type: 'video/webm', lastModified: 6 }));
+    const delayedVideo = await encrypt(new File([videoBlob], '迟到的视频.webm', { type: 'video/webm', lastModified: 7 }));
+    const sentAt = '2026-09-04T10:00:00.000Z';
+    const message = (seq, kind, manifest, senderId = own.deviceId) => ({
+      seq, clientMsgId: crypto.randomUUID(), senderId,
+      payload: { v: 1, kind, [kind === 'image' ? 'image' : 'file']: manifest, sentAt },
+      acceptedAt: sentAt, status: 'delivered',
+    });
+    const records = [message(1, 'image', photo), message(2, 'file', chatVideo, peer.deviceId), message(3, 'file', chatDocument), message(4, 'gallery-file', galleryVideo), message(5, 'gallery-file', galleryDocument)];
+    const restored = message(30, 'file', restoredVideo, peer.deviceId);
+    const delayed = message(31, 'file', delayedVideo, peer.deviceId);
+    for (const record of records) await vault.saveHistoryMessage(session, record);
+
+    const requests = { reads: 0 };
+    const readGate = { blobId: null, waiting: false, release: null };
+    const realFetch = window.fetch.bind(window);
+    window.fetch = async (input, init = {}) => {
+      const url = new URL(typeof input === 'string' ? input : input.url, location.href);
+      const match = url.pathname.match(/\/blobs\/([^/]+)\/chunks\/(\d+)$/);
+      const encrypted = match && encryptedChunks.get(`${match[1]}:${match[2]}`);
+      if (!encrypted) return realFetch(input, init);
+      requests.reads++;
+      if (match[1] === readGate.blobId) {
+        readGate.waiting = true;
+        await new Promise(resolve => { readGate.release = resolve; });
+      }
+      init.signal?.throwIfAborted();
+      return new Response(encrypted);
+    };
+    const createdUrls = new Set();
+    const revokedUrls = new Set();
+    const createUrl = URL.createObjectURL.bind(URL);
+    const revokeUrl = URL.revokeObjectURL.bind(URL);
+    // Document export URLs intentionally have their own delayed browser cleanup;
+    // this assertion tracks image/video originals and derived posters only.
+    URL.createObjectURL = blob => { const url = createUrl(blob); if (/^(?:image|video)\//.test(blob.type)) createdUrls.add(url); return url; };
+    URL.revokeObjectURL = url => { revokedUrls.add(url); revokeUrl(url); };
+    const reopen = async (destination = 'chat') => {
+      app.session = session; app.privacyCovered = false; app.runtimeEpoch++; app.runtimeAbort = new AbortController();
+      app.pending = new Map();
+      app.messages = new Map((await vault.loadHistoryPage(session)).map(record => [record.seq, record]));
+      app.uiPreferences = {}; app.restoreChatAnchorOnNextRender = false;
+      if (destination === 'gallery') app.renderGallery(); else app.renderChat();
+    };
+    window.videoFlow = { app, root, session, vault, originals, records, restored, delayed, requests, readGate, createdUrls, revokedUrls, reopen, manifests: { photo, chatVideo, chatDocument, galleryVideo, galleryDocument, restoredVideo, delayedVideo } };
+    await reopen();
+    return Object.fromEntries(Object.entries(window.videoFlow.manifests).map(([name, manifest]) => [name, manifest.blobId]));
+  });
+
+  const capture = async name => {
+    if (!visualQaDirectory) return;
+    await mkdir(visualQaDirectory, { recursive: true });
+    await page.screenshot({ path: path.join(visualQaDirectory, `${name}.png`), fullPage: true, animations: 'disabled' });
+  };
+  const awaitPlayingVideo = async () => {
+    await page.waitForFunction(() => {
+      const video = document.querySelector('.image-viewer.is-visible .viewer-stage video');
+      return video && video.readyState >= 2 && video.videoWidth > 0 && video.currentTime > 0.05 && !video.paused;
+    });
+    return page.locator('.image-viewer .viewer-stage video');
+  };
+  const rememberPlayer = async () => page.evaluate(() => {
+    window.videoFlow.previousPlayer = document.querySelector('.image-viewer .viewer-stage video');
+    const video = window.videoFlow.previousPlayer;
+    return { controls: video.controls, autoplay: video.autoplay, playsInline: video.playsInline, width: video.videoWidth, height: video.videoHeight };
+  });
+  const assertPlayerReleased = async reason => {
+    const released = await page.evaluate(() => {
+      const video = window.videoFlow.previousPlayer;
+      return { paused: video.paused, src: video.getAttribute('src'), connected: video.isConnected, mediaObject: video.srcObject };
+    });
+    assert.deepEqual(released, { paused: true, src: null, connected: false, mediaObject: null }, `${reason}: the detached video retained playback resources`);
+  };
+  const readDownload = async locator => {
+    const waiting = page.waitForEvent('download');
+    await locator.click();
+    const download = await waiting;
+    const stream = await download.createReadStream();
+    assert(stream, 'Download did not expose its original bytes');
+    const chunks = [];
+    for await (const chunk of stream) chunks.push(chunk);
+    return { name: download.suggestedFilename(), bytes: Buffer.concat(chunks) };
+  };
+
+  const chatPreview = page.locator(`.message .image-preview.video-preview[data-blob-id="${ids.chatVideo}"]`);
+  await chatPreview.locator('img').waitFor();
+  await chatPreview.locator('img').evaluate(image => image.decode());
+  assert.equal(await chatPreview.getAttribute('data-revealed'), 'false', 'Chat video poster was visible before an explicit reveal');
+  assert(await chatPreview.locator('img').evaluate(image => getComputedStyle(image).filter.includes('blur(')), 'Chat video poster did not use the default thumbnail blur');
+  assert.equal(await chatPreview.locator('.video-play').count(), 1, 'Chat video has no visible play affordance');
+  assert.equal(await page.locator('.message video').count(), 0, 'Chat preview started an inline video player before a click');
+  assert.equal(await page.locator('.message').count(), 3, 'Gallery-only items leaked into chat');
+  assert.equal(downloadCount, 0, 'Loading a video preview downloaded an exported file');
+  const originalVerification = await page.evaluate(async () => {
+    const f = window.videoFlow;
+    const manifest = f.manifests.chatVideo;
+    const cached = f.app.imageCache.get(manifest.blobId);
+    const original = new Uint8Array(await f.originals.get(manifest.blobId).arrayBuffer());
+    const restored = new Uint8Array(await cached.blob.arrayBuffer());
+    const preview = document.querySelector(`.video-preview[data-blob-id="${manifest.blobId}"] img`);
+    const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 180;
+    const context = canvas.getContext('2d'); context.drawImage(preview, 0, 0, 320, 180);
+    const [red, green, blue] = context.getImageData(16, 16, 1, 1).data;
+    return { identical: original.length === restored.length && original.every((byte, index) => byte === restored[index]), poster: Boolean(cached.posterUrl), originalAndPosterDiffer: cached.url !== cached.posterUrl, visibleFrame: red > 40 && green > 40 && blue > 40 };
+  });
+  assert.deepEqual(originalVerification, { identical: true, poster: true, originalAndPosterDiffer: true, visibleFrame: true }, 'Video poster generation changed the original bytes or failed to capture a visible frame');
+  await capture('video-chat-390');
+  await chatPreview.dispatchEvent('pointerdown', { button: 0, pointerType: 'touch', clientX: 120, clientY: 260 });
+  await page.locator('.message-actions.is-visible').waitFor();
+  await chatPreview.evaluate(element => {
+    element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, pointerType: 'touch' }));
+    element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
+  assert.equal(await page.locator('.image-viewer').count(), 0, 'Releasing a long press accidentally played the chat video');
+  assert.equal(downloadCount, 0, 'Long-pressing the video exported a file');
+  await page.evaluate(() => window.videoFlow.app.closeMessageActions(true, false));
+  await page.waitForFunction(() => Date.now() >= window.videoFlow.app.suppressMediaClickUntil);
+  await chatPreview.click();
+  assert.equal(await chatPreview.getAttribute('data-revealed'), 'true', 'First chat video click did not reveal its poster');
+  assert.equal(await page.locator('.image-viewer').count(), 0, 'First chat video click played a still-hidden video');
+  await chatPreview.click();
+  await awaitPlayingVideo();
+  const player = await rememberPlayer();
+  assert.deepEqual(player, { controls: true, autoplay: true, playsInline: true, width: 320, height: 180 }, 'Video did not open as an accessible, automatically playing viewer');
+  const viewerBounds = await page.locator('.image-viewer').evaluate(viewer => {
+    const rect = viewer.getBoundingClientRect();
+    return { fixed: getComputedStyle(viewer).position === 'fixed', fillsViewport: rect.left <= 1 && rect.top <= 1 && rect.right >= innerWidth - 1 && rect.bottom >= innerHeight - 1 };
+  });
+  assert.deepEqual(viewerBounds, { fixed: true, fillsViewport: true }, 'Playing the video did not maximize the viewing surface');
+  await capture('video-viewer-390');
+  const readsBeforeClose = await page.evaluate(() => window.videoFlow.requests.reads);
+  await page.locator('[data-viewer-close]').click();
+  await page.locator('.image-viewer').waitFor({ state: 'detached' });
+  await assertPlayerReleased('Close');
+  await chatPreview.click();
+  await awaitPlayingVideo();
+  assert.equal(await page.evaluate(() => window.videoFlow.requests.reads), readsBeforeClose, 'Reopening a video failed to reuse the verified original cache');
+  await rememberPlayer();
+  await page.evaluate(() => {
+    window.videoFlow.app.updateCallView({ phase: 'incoming', callId: 'video-flow-incoming', kind: 'video', peerName: '对方', localStream: null, remoteStream: null, micMuted: false, cameraEnabled: false, remoteVideoEnabled: false, remoteMuted: false, facingMode: 'user', startedAt: null, statusText: '邀请你视频通话', quality: 'good', canSwitchCamera: false });
+  });
+  await page.locator('.call-answer').waitFor();
+  await assertPlayerReleased('Incoming call');
+  assert.equal(await page.locator('.image-viewer').count(), 0, 'Incoming call left the attachment player behind it');
+  await page.evaluate(() => window.videoFlow.app.updateCallView({ phase: 'idle' }));
+  await chatPreview.click();
+  await awaitPlayingVideo();
+  await rememberPlayer();
+  await page.evaluate(() => window.videoFlow.app.lockNow());
+  await assertPlayerReleased('Lock');
+  const locked = await page.evaluate(() => {
+    const f = window.videoFlow;
+    return { covered: f.app.privacyCovered, cacheSize: f.app.imageCache.size, inFlightLoads: f.app.imageLoadPromises.size, mediaNodes: f.root.querySelectorAll('.image-viewer, .image-preview, video').length, allUrlsRevoked: [...f.createdUrls].every(url => f.revokedUrls.has(url)) };
+  });
+  assert.deepEqual(locked, { covered: true, cacheSize: 0, inFlightLoads: 0, mediaNodes: 0, allUrlsRevoked: true }, 'Lock retained video content, a poster URL or a decrypted original URL');
+
+  await page.evaluate(() => window.videoFlow.reopen());
+  const ordinary = await readDownload(page.locator(`.message .file-attachment[data-blob-id="${ids.chatDocument}"]`));
+  assert.equal(ordinary.name, '普通文件.pdf');
+  assert.equal(ordinary.bytes.toString(), '%PDF-1.7\nvideo regression ordinary file\n%%EOF');
+  assert.equal(await page.locator('.image-viewer').count(), 0, 'An ordinary document opened a media preview');
+
+  // Clear the currently mounted message page: the gallery must discover chat
+  // videos through encrypted local media history, not just live chat memory.
+  await page.evaluate(() => { window.videoFlow.app.messages.clear(); });
+  await page.locator('#open-gallery').click();
+  await page.waitForFunction(() => document.querySelectorAll('.gallery-tile').length === 3 && [...document.querySelectorAll('.gallery-tile img')].every(image => image.complete && image.naturalWidth > 0) && document.querySelectorAll('.gallery-tile img').length === 3);
+  assert.equal((await page.locator('#gallery-tab-images > span').first().textContent()).trim(), '相册', 'The safe media category was not renamed to 相册');
+  assert.equal(await page.locator('[data-gallery-count="images"]').textContent(), '3', 'Album did not count both photos and videos');
+  assert.equal(await page.locator('.gallery-tile .video-play').count(), 2, 'Chat videos or gallery-only videos are missing from the album');
+  assert.equal(await page.locator('.gallery-file').count(), 0, 'File cards appeared on the album tab');
+  assert(await page.locator('.gallery-tile').evaluateAll(tiles => tiles.every(tile => tile.dataset.revealed === 'false' && getComputedStyle(tile.querySelector('img')).filter.includes('blur('))), 'A photo or video bypassed the default safe blur');
+  await capture('video-album-hidden-390');
+  const safeVideo = page.locator(`.gallery-tile[data-blob-id="${ids.galleryVideo}"]`);
+  await safeVideo.click();
+  assert.equal(await safeVideo.getAttribute('data-revealed'), 'true', 'First album click did not reveal the video poster');
+  assert.equal(await page.locator('.image-viewer').count(), 0, 'First album click played a still-hidden video');
+  await safeVideo.click();
+  await awaitPlayingVideo();
+  await rememberPlayer();
+  assert.equal(await page.locator('[data-viewer-time]').getAttribute('datetime'), '2026-09-04T10:00:00.000Z', 'Video viewer lost the message/upload timestamp');
+  await page.locator('[data-viewer-close]').click();
+  await page.locator('.image-viewer').waitFor({ state: 'detached' });
+  await assertPlayerReleased('Album close');
+  assert.equal(await safeVideo.getAttribute('data-revealed'), 'true', 'Closing the viewer reset this visit’s reveal state');
+  await page.locator('#gallery-tab-files').click();
+  await page.waitForFunction(() => document.querySelectorAll('.gallery-file').length === 1);
+  assert.equal(await page.locator('.gallery-tile').count(), 0, 'Videos appeared in the file category');
+  assert.equal(await page.locator('[data-gallery-count="files"]').textContent(), '1', 'Video was still counted as a generic gallery file');
+  const galleryFile = await readDownload(page.locator('.gallery-file'));
+  assert.equal(galleryFile.name, '保险箱文档.pdf');
+  assert.equal(galleryFile.bytes.toString(), '%PDF-1.7\nvideo regression gallery file\n%%EOF');
+  await page.locator('#gallery-tab-images').click();
+  await safeVideo.waitFor();
+  assert.equal(await safeVideo.getAttribute('data-revealed'), 'true', 'Switching categories reset this visit’s video reveal');
+  await page.locator('#gallery-back').click();
+  await page.locator('#open-gallery').click();
+  await safeVideo.waitFor();
+  assert.equal(await safeVideo.getAttribute('data-revealed'), 'false', 'Reentering the safe exposed a previously revealed video');
+
+  // The restored-gallery store is intentionally separate from chat. Verify a
+  // restored former chat video renders in the album without creating a local
+  // chat/reply source or altering the device’s synchronization boundary.
+  const restoredState = await page.evaluate(async () => {
+    const f = window.videoFlow;
+    const lastSeq = f.session.vault.lastSeq;
+    const imported = await f.vault.importArchivedMessages(f.session, [f.restored], 'gallery');
+    const chatRecord = await f.vault.loadHistoryMessage(f.session, f.restored.seq);
+    f.app.renderGallery();
+    return { imported, absentFromChat: chatRecord === null, cursorUnchanged: f.session.vault.lastSeq === lastSeq };
+  });
+  assert.deepEqual(restoredState, { imported: 1, absentFromChat: true, cursorUnchanged: true }, 'Independent video album restore violated the chat-history boundary');
+  const restoredTile = page.locator(`.gallery-tile[data-blob-id="${ids.restoredVideo}"]`);
+  await restoredTile.locator('img').waitFor();
+  await restoredTile.locator('img').evaluate(image => image.decode());
+  assert.equal(await page.locator('.gallery-tile').count(), 4, 'Restored chat video did not appear in the album');
+  assert.equal(await restoredTile.getAttribute('data-revealed'), 'false', 'Restored video started revealed');
+  await page.evaluate(() => window.videoFlow.reopen());
+  assert.equal(await page.locator('.message').count(), 3, 'Restored album video became a chat message');
+  assert.equal(await page.locator(`.message [data-blob-id="${ids.restoredVideo}"]`).count(), 0, 'Restored video preview leaked into chat');
+
+  // A late chunk response must not repopulate either original or poster caches
+  // after locking, even if the old preview element remains referenced by an
+  // in-flight callback.
+  await page.evaluate(() => {
+    const f = window.videoFlow;
+    f.app.lockNow();
+    f.app.session = f.session; f.app.privacyCovered = false; f.app.runtimeEpoch++; f.app.runtimeAbort = new AbortController();
+    f.app.pending = new Map(); f.app.messages = new Map([[f.delayed.seq, f.delayed]]);
+    f.app.uiPreferences = {}; f.app.restoreChatAnchorOnNextRender = false;
+    f.readGate.blobId = f.manifests.delayedVideo.blobId;
+    f.app.renderChat();
+  });
+  await page.waitForFunction(() => window.videoFlow.readGate.waiting);
+  await page.evaluate(() => {
+    const f = window.videoFlow;
+    f.app.lockNow();
+    f.readGate.release();
+  });
+  await page.waitForFunction(() => window.videoFlow.app.imageLoadPromises.size === 0);
+  await page.waitForTimeout(150);
+  const lateState = await page.evaluate(() => {
+    const f = window.videoFlow;
+    return { covered: f.app.privacyCovered, cacheSize: f.app.imageCache.size, mediaNodes: f.root.querySelectorAll('img, video, .image-viewer').length, unreleasedUrls: [...f.createdUrls].filter(url => !f.revokedUrls.has(url)).length };
+  });
+  assert.deepEqual(lateState, { covered: true, cacheSize: 0, mediaNodes: 0, unreleasedUrls: 0 }, 'Late video decryption recreated visible content or retained an object URL after lock');
+  assert.deepEqual(errors, [], `Video regression raised browser errors: ${errors.join('; ')}`);
+  console.log(JSON.stringify({ videoPreview: 'verified original with local poster and play button', viewer: { autoplay: true, maximized: true, longPressDoesNotPlay: true, closeReleasesMedia: true, incomingCallStopsPlayback: true }, safe: { label: '相册', photosAndVideos: true, firstClickReveals: true, secondClickPlays: true, genericFilesExcluded: true }, restore: 'album-only video stays outside chat history', ordinaryDownloads: 2, lifecycle: { lockRevokesOriginalAndPoster: true, lateLoadCannotRepopulateCache: true } }, null, 2));
+} finally {
+  await browser?.close();
+  await server.close();
+}

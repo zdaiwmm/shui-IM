@@ -35,6 +35,7 @@ try {
     await import('/src/chat-interactions.css');
     await import('/src/cover.css');
     await import('/src/voice-messages.css');
+    await import('/src/call.css');
     const { QuietRoomApp } = await import('/src/app.ts');
     const vault = await import('/src/lib/vault.ts');
     const root = document.querySelector('#app');
@@ -53,6 +54,20 @@ try {
     fresh();
   };
   await page.evaluate(initializeRegression);
+
+  // Confirmed empty categories have no visible number, including when the
+  // other category is selected. Loading and unknown counts retain their state.
+  await page.evaluate(() => window.regression.app.renderGallery());
+  await page.waitForFunction(() => window.regression.app.galleryKnownCounts.images?.complete);
+  await page.locator('#gallery-tab-files').click();
+  await page.waitForFunction(() => window.regression.app.galleryKnownCounts.files?.complete);
+  results.emptyGalleryCounts = await page.evaluate(() => {
+    for (const kind of ['images', 'files']) {
+      const label = document.querySelector(`[data-gallery-count="${kind}"]`);
+      if (!label.hidden || label.textContent !== '' || getComputedStyle(label).display !== 'none') throw Error(`Empty ${kind} tab still displayed a count`);
+    }
+    return { images: 'hidden', files: 'hidden' };
+  });
 
   results.composerRecovery = await page.evaluate(async () => {
     const { app, fresh, session, vault, message } = window.regression;
@@ -78,7 +93,8 @@ try {
     const list = document.querySelector('#message-list');
     if (document.documentElement.scrollHeight - window.scrollY - window.innerHeight > 2) throw Error('Composer resize lost bottom position');
     const last = list.querySelector('.message:last-child').getBoundingClientRect();
-    if (last.bottom > document.querySelector('#composer').getBoundingClientRect().top) throw Error('Latest message is covered by composer');
+    const composer = document.querySelector('#composer').getBoundingClientRect();
+    if (last.bottom > composer.top) throw Error(`Latest message is covered by composer: ${JSON.stringify({ lastBottom: last.bottom, composerTop: composer.top, composerHeight: composer.height, padding: getComputedStyle(list).paddingBottom, scrollY, scrollHeight: document.documentElement.scrollHeight, pinned: app.chatPinnedToBottom })}`);
     return { transientBlur: 'visible', encryptedDraft: 'restored', latestMessage: 'above composer' };
   });
 
@@ -905,6 +921,10 @@ try {
       if (Math.abs(header.top - top) > 1 || Math.abs(composer.bottom - top - height) > 1) {
         throw Error(`Controls lagged keyboard frame: ${JSON.stringify({ height, offsetTop, top: header.top, bottom: composer.bottom })}`);
       }
+      if (app.chatPinnedToBottom && eventTarget === viewport) {
+        const latestGap = composer.top - list.lastElementChild.getBoundingClientRect().bottom;
+        if (Math.abs(latestGap - 16) > 2) throw Error(`Messages lagged keyboard dispatch frame: ${JSON.stringify({ height, offsetTop, latestGap })}`);
+      }
     };
     try {
       input.focus({ preventScroll: true });
@@ -914,6 +934,13 @@ try {
         if (Math.abs(latestGap - 16) > 2) throw Error(`Keyboard panning left a ${latestGap}px gap above the composer`);
       }
       if (document.documentElement.dataset.keyboardOpen !== 'true') throw Error('Shrinking innerHeight hid the keyboard state');
+      input.blur();
+      for (const [height, top] of [[500.25, 210], [610.5, 180], [720.75, 70], [layoutHeight, 0]]) {
+        position(height, top); await settle();
+        if (!app.chatPinnedToBottom) throw Error('Ordinary keyboard dismissal lost bottom follow');
+      }
+      input.focus({ preventScroll: true });
+      position(430, 260); await settle();
       const padding = getComputedStyle(list).paddingBottom;
       window.scrollTo = (...args) => { corrections++; scrollTo.apply(window, args); };
       window.scrollBy = (...args) => { corrections++; scrollBy.apply(window, args); };
@@ -927,7 +954,7 @@ try {
       }
       if (corrections || app.chatPinnedToBottom) throw Error('Keyboard dismissal pulled the reader to the bottom');
       if (document.documentElement.dataset.keyboardOpen !== 'false') throw Error('Dismissed keyboard retained its safe-area mode');
-      return { openingFrames: 4, dismissalFrames: 4, synchronousBounds: true, windowOnlyPan: true, differingInnerHeight: true, staleDismissalOffset: 'clamped', forcedScrollsAfterGesture: corrections };
+      return { openingFrames: 5, pinnedDismissalFrames: 4, gestureDismissalFrames: 4, synchronousBounds: 'controls and latest message', windowOnlyPan: true, differingInnerHeight: true, staleDismissalOffset: 'clamped', forcedScrollsAfterGesture: corrections };
     } finally {
       window.scrollTo = scrollTo; window.scrollBy = scrollBy;
       if (innerHeightDescriptor) Object.defineProperty(window, 'innerHeight', innerHeightDescriptor);
@@ -936,6 +963,237 @@ try {
       viewport.dispatchEvent(new Event('resize')); await settle();
     }
   });
+
+  results.toolbarExpansion = await page.evaluate(async () => {
+    const { app, fresh, message } = window.regression; fresh();
+    app.messages = new Map(Array.from({ length: 70 }, (_, i) => [i + 1, message(i + 1)]));
+    app.renderMessages({ scroll: 'bottom' });
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    await frame(); await frame();
+    const viewport = window.visualViewport;
+    const layoutHeight = document.documentElement.clientHeight;
+    const input = document.querySelector('#message-input');
+    const samples = [];
+    try {
+      // Safari can keep the old layout metrics while its shrinking URL bar
+      // reveals more of the page. The visible height is allowed to exceed them.
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 0 });
+      for (const height of [layoutHeight + 20, layoutHeight + 40, layoutHeight + 60, layoutHeight + 80]) {
+        Object.defineProperty(viewport, 'height', { configurable: true, value: height });
+        viewport.dispatchEvent(new Event('resize'));
+        const bottom = document.querySelector('#composer').getBoundingClientRect().bottom;
+        if (Math.abs(bottom - height) > 1) throw Error(`Stale layout height clipped toolbar expansion: ${JSON.stringify({ height, clientHeight: document.documentElement.clientHeight, bottom })}`);
+        samples.push({ height, bottom });
+        await frame();
+      }
+      input.focus({ preventScroll: true });
+      for (const height of [700, 560, 420]) {
+        Object.defineProperty(viewport, 'height', { configurable: true, value: height });
+        viewport.dispatchEvent(new Event('resize'));
+        const composer = document.querySelector('#composer').getBoundingClientRect();
+        const gap = composer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
+        if (Math.abs(composer.bottom - height) > 1 || Math.abs(gap - 16) > 2) throw Error(`Keyboard after collapsed toolbar misplaced content: ${JSON.stringify({ height, bottom: composer.bottom, gap })}`);
+        await frame();
+      }
+      return { staleLayoutFrames: samples, subsequentKeyboardFrames: 3 };
+    } finally {
+      delete viewport.height; delete viewport.offsetTop;
+      input.blur(); viewport.dispatchEvent(new Event('resize')); await frame(); await frame();
+    }
+  });
+
+  results.repeatedKeyboardFocus = await page.evaluate(async () => {
+    const { app, fresh, message } = window.regression; fresh();
+    app.messages = new Map(Array.from({ length: 70 }, (_, i) => [i + 1, message(i + 1)]));
+    app.renderMessages({ scroll: 'bottom' });
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    const settle = async () => { await frame(); await frame(); };
+    await settle();
+    const viewport = window.visualViewport;
+    const layoutHeight = document.documentElement.clientHeight;
+    const input = document.querySelector('#message-input');
+    const list = document.querySelector('#message-list');
+    const dismissalGaps = [];
+    const resize = height => {
+      Object.defineProperty(viewport, 'height', { configurable: true, value: height });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 0 });
+      viewport.dispatchEvent(new Event('resize'));
+    };
+    const dismissFromMessage = async () => {
+      list.lastElementChild.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
+      if (document.activeElement === input || app.chatPinnedToBottom) throw Error('Message tap failed to dismiss the keyboard and yield follow');
+      resize(layoutHeight); await settle();
+      dismissalGaps.push(app.chatBottomGap());
+    };
+    try {
+      input.focus({ preventScroll: true }); resize(420); await settle();
+      await dismissFromMessage();
+      // Closing from a message leaves an upward gesture intent and may leave
+      // a native scroll gap. A fresh composer tap must restore prior follow.
+      input.focus({ preventScroll: true }); resize(420);
+      const gap = document.querySelector('#composer').getBoundingClientRect().top - list.lastElementChild.getBoundingClientRect().bottom;
+      if (!app.chatPinnedToBottom || Math.abs(gap - 16) > 2) throw Error(`Reopening the keyboard retained stale history intent: gap=${gap}`);
+      await settle();
+      await dismissFromMessage();
+      list.dispatchEvent(new WheelEvent('wheel', { deltaY: -12, bubbles: true }));
+      window.scrollBy(0, -12); await settle();
+      const before = window.scrollY;
+      const anchor = structuredClone(app.captureChatAnchor());
+      if (app.chatBottomGap() <= 2) throw Error('Upward-history fixture did not move away from the actual bottom');
+      input.focus({ preventScroll: true }); resize(420); await settle();
+      const after = app.captureChatAnchor();
+      if (app.chatPinnedToBottom || Math.abs(window.scrollY - before) > 1
+        || after.clientMsgId !== anchor.clientMsgId || Math.abs(after.offset - anchor.offset) > 1) throw Error('Reopening the keyboard pulled a reader away from a 12px upward scroll');
+      return { messageTapDismissalThenFocus: 'bottom follow restored', dismissalGaps, latestGap: gap, upwardReadingThenFocus: 'position preserved' };
+    } finally {
+      delete viewport.height; delete viewport.offsetTop;
+      input.blur(); viewport.dispatchEvent(new Event('resize')); await settle();
+    }
+  });
+
+  results.nativeFocusScroll = await page.evaluate(async () => {
+    const { app, fresh, message } = window.regression; fresh();
+    app.messages = new Map(Array.from({ length: 70 }, (_, i) => [i + 1, message(i + 1)]));
+    app.renderMessages({ scroll: 'bottom' });
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    await frame(); await frame();
+    const viewport = window.visualViewport;
+    const input = document.querySelector('#message-input');
+    try {
+      input.focus({ preventScroll: true });
+      // Reproduce a browser focus scroll reaching the app before keyboard
+      // viewport metrics, without any user's history-reading gesture.
+      window.scrollBy(0, -96);
+      window.dispatchEvent(new Event('scroll'));
+      await frame();
+      if (!app.chatPinnedToBottom) throw Error('Native focus scroll cleared follow before the keyboard resize arrived');
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 100 });
+      viewport.dispatchEvent(new Event('resize'));
+      const composer = document.querySelector('#composer').getBoundingClientRect();
+      const gap = composer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
+      if (!app.chatPinnedToBottom || Math.abs(gap - 16) > 2) throw Error(`Native focus scroll lost the latest message: gap=${gap}`);
+      // A delayed native adjustment can also arrive after the final resize.
+      // With no further viewport changes, follow still needs to recover it.
+      window.scrollBy(0, -96);
+      window.dispatchEvent(new Event('scroll'));
+      for (let i = 0; i < 4; i++) await frame();
+      const settledGap = document.querySelector('#composer').getBoundingClientRect().top
+        - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
+      if (!app.chatPinnedToBottom || Math.abs(settledGap - 16) > 2) throw Error(`Native scroll after the final keyboard resize lost follow: gap=${settledGap}`);
+      return { scrollBeforeResize: true, scrollAfterFinalResize: true, bottomFollowRetained: true, latestGap: gap, settledGap };
+    } finally {
+      delete viewport.height; delete viewport.offsetTop;
+      input.blur(); viewport.dispatchEvent(new Event('resize')); await frame(); await frame();
+    }
+  });
+
+  results.sendDeferredScroll = await page.evaluate(async () => {
+    const { app, fresh, message, session } = window.regression; fresh();
+    app.messages = new Map(Array.from({ length: 70 }, (_, i) => [i + 1, message(i + 1)]));
+    app.renderMessages({ scroll: 'bottom' });
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    await frame(); await frame();
+    const scrollTo = window.scrollTo;
+    const enqueue = app.enqueuePayload;
+    const input = document.querySelector('#message-input');
+    let blocked = true; let attempts = 0; let ignored = 0;
+    try {
+      input.value = '发送后显示在输入栏之上'; input.dispatchEvent(new Event('input'));
+      await frame(); await frame();
+      window.scrollTo = (...args) => {
+        attempts++;
+        if (blocked) { ignored++; return; }
+        scrollTo.apply(window, args);
+      };
+      app.enqueuePayload = async payload => {
+        app.messages.set(71, { ...message(71, payload), senderId: session.vault.identity.publicBundle.deviceId, status: 'pending' });
+        app.renderMessages({ scroll: 'bottom' });
+      };
+      // A native keyboard animation can ignore page scrolling until the next
+      // frame even though the new message and the cleared draft already exist.
+      requestAnimationFrame(() => { blocked = false; });
+      await app.handleSendText(new Event('submit'));
+      if (!ignored) throw Error('Deferred-scroll fixture never intercepted a scroll attempt');
+      if (!app.chatPinnedToBottom) throw Error('An ignored send scroll discarded bottom-follow intent');
+      for (let i = 0; i < 4; i++) await frame();
+      const composer = document.querySelector('#composer').getBoundingClientRect();
+      const latest = document.querySelector('[data-client-msg-id="message-71"]').getBoundingClientRect();
+      const gap = composer.top - latest.bottom;
+      if (Math.abs(gap - 16) > 2 || !app.chatPinnedToBottom) throw Error(`A deferred send scroll left the latest message under the composer: ${JSON.stringify({ gap, attempts, ignored, pinned: app.chatPinnedToBottom })}`);
+      app.messages.set(71, { ...app.messages.get(71), status: 'stored' }); app.renderMessages();
+      await frame();
+      if (!app.captureChatAnchor().pinnedToBottom) throw Error('Send acknowledgement lost recovered bottom follow');
+      window.scrollBy(0, -96); window.dispatchEvent(new Event('scroll'));
+      for (let i = 0; i < 4; i++) await frame();
+      const lateScrollGap = document.querySelector('#composer').getBoundingClientRect().top
+        - document.querySelector('[data-client-msg-id="message-71"]').getBoundingClientRect().bottom;
+      if (!app.chatPinnedToBottom || Math.abs(lateScrollGap - 16) > 2) throw Error(`Native scroll overrode an already completed send alignment: gap=${lateScrollGap}`);
+      return { ignoredAttempts: ignored, totalAttempts: attempts, latestGap: gap, lateScrollGap, ackFollowRetained: true };
+    } finally {
+      window.scrollTo = scrollTo; app.enqueuePayload = enqueue;
+    }
+  });
+
+  results.shortHistoryKeyboardFrames = await page.evaluate(async () => {
+    const { app, fresh, message } = window.regression;
+    const viewport = window.visualViewport;
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    const layoutHeight = document.documentElement.clientHeight;
+    const samples = [];
+    try {
+      for (const count of [1, 3]) {
+        app.lockNow(); fresh();
+        app.messages = new Map(Array.from({ length: count }, (_, i) => [i + 1, message(i + 1)]));
+        app.renderMessages({ scroll: 'bottom' });
+        await frame(); await frame();
+        const input = document.querySelector('#message-input');
+        const check = height => {
+          const composer = document.querySelector('#composer').getBoundingClientRect();
+          const gap = composer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
+          if (Math.abs(composer.bottom - height) > 1 || Math.abs(gap - 16) > 2) throw Error(`Short history did not follow the keyboard: ${JSON.stringify({ count, height, composerBottom: composer.bottom, gap })}`);
+          return { count, height, gap };
+        };
+        check(layoutHeight);
+        input.focus({ preventScroll: true });
+        for (const height of [700, 560, 420]) {
+          Object.defineProperty(viewport, 'height', { configurable: true, value: height });
+          Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 0 });
+          // Some native frames change viewport geometry without dispatching a
+          // resize event. Focus starts frame sampling through that transition.
+          await frame();
+          samples.push(check(height));
+        }
+        input.blur();
+        for (const height of [560, 700, layoutHeight]) {
+          Object.defineProperty(viewport, 'height', { configurable: true, value: height });
+          await frame();
+          samples.push(check(height));
+        }
+        if (!app.chatPinnedToBottom) throw Error('Short-history keyboard sampling discarded bottom follow');
+      }
+      return { histories: [1, 3], eventlessOpeningFrames: 6, eventlessDismissalFrames: 6, samples };
+    } finally {
+      delete viewport.height; delete viewport.offsetTop;
+      viewport.dispatchEvent(new Event('resize')); await frame(); await frame();
+    }
+  });
+  if (visualQaDirectory) {
+    await page.screenshot({ path: path.join(visualQaDirectory, 'chat-short-history-keyboard-closed-390.png') });
+    await page.evaluate(async () => {
+      document.querySelector('#message-input').focus({ preventScroll: true });
+      Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 420 });
+      Object.defineProperty(window.visualViewport, 'offsetTop', { configurable: true, value: 0 });
+      await new Promise(resolve => requestAnimationFrame(resolve));
+    });
+    await page.screenshot({ path: path.join(visualQaDirectory, 'chat-short-history-keyboard-open-390.png') });
+    await page.evaluate(async () => {
+      document.querySelector('#message-input').blur();
+      delete window.visualViewport.height; delete window.visualViewport.offsetTop;
+      window.visualViewport.dispatchEvent(new Event('resize'));
+      await new Promise(resolve => requestAnimationFrame(resolve));
+    });
+  }
 
   results.singleTallMessage = await page.evaluate(async () => {
     const { app, fresh, message } = window.regression; fresh();
@@ -1017,7 +1275,8 @@ try {
         await settle();
         const samples = [];
         for (const fraction of [0, 0.5, 1]) {
-          window.scrollTo(0, (document.documentElement.scrollHeight - innerHeight) * fraction);
+          const target = (document.documentElement.scrollHeight - innerHeight) * fraction;
+          window.scrollTo(0, target);
           await settle();
           const header = document.querySelector('.chat-header');
           const composer = document.querySelector('#composer');
@@ -1028,6 +1287,7 @@ try {
           if (Math.abs(headerBounds.top) > 1 || Math.abs(composerBounds.bottom - innerHeight) > 1) throw Error('Document scrolling moved a desktop bar away from the window edge');
           if (headerBounds.width > 881 || composerBounds.width > 881 || Math.abs(headerBounds.left - composerBounds.left) > 1 || Math.abs(headerBounds.right - composerBounds.right) > 1) throw Error('Desktop bars escaped their shared 880px conversation width');
           if (input.width < 560 || document.documentElement.scrollWidth > innerWidth) throw Error('Desktop composer shrank or overflowed as the browser grew wider');
+          if (Math.abs(window.scrollY - target) > 2) throw Error(`Desktop scroll position was pulled away from its target: ${JSON.stringify({ fraction, target, scrollY })}`);
           samples.push({ fraction, scrollY, firstMessageTop: document.querySelector('.message').getBoundingClientRect().top, headerTop: headerBounds.top, composerBottom: composerBounds.bottom, inputWidth: input.width, barWidth: composerBounds.width });
         }
         if (samples[2].scrollY <= samples[0].scrollY || samples[2].firstMessageTop >= samples[0].firstMessageTop) throw Error('Desktop fixture never scrolled its message content');

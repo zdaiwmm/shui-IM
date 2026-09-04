@@ -243,7 +243,10 @@ try {
   };
   await page.evaluate(() => window.fileFlow.fresh('gallery'));
   await assertGalleryTab('images', { images: 0, files: 0 });
-  await page.waitForFunction(() => document.querySelector('[data-gallery-count="images"]')?.textContent === '0');
+  await page.waitForFunction(() => {
+    const count = document.querySelector('[data-gallery-count="images"]');
+    return count?.hidden && count.textContent === '';
+  });
   assert.equal(await page.locator('[data-gallery-count="files"]').textContent(), '—', 'Unqueried file category incorrectly claims zero files');
   await page.evaluate(() => { const f = window.fileFlow; f.choose('gallery', f.fixtures()); });
   await page.waitForFunction(() => window.fileFlow.sent.length === 3 && !window.fileFlow.app.imageBatchUploading);
