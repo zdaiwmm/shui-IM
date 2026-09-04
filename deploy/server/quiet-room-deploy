@@ -8,6 +8,8 @@ readonly RELEASES="$APP_ROOT/git-releases"
 readonly STATE_DIR="$APP_ROOT/deploy-state"
 readonly BACKUP_DIR="$APP_ROOT/backups/predeploy"
 readonly SHARED_ENV="$APP_ROOT/shared/production.env"
+readonly CALLS_ENV="$APP_ROOT/shared/calls.env"
+readonly CALLS_STATE="$STATE_DIR/calls-enabled"
 readonly MAINTENANCE_DIR=/var/lib/quiet-room-deploy
 readonly MAINTENANCE_FILE="$MAINTENANCE_DIR/maintenance"
 readonly PROJECT=quiet-room
@@ -38,7 +40,7 @@ if ! flock -n 9; then
   exit 75
 fi
 
-for required in docker git runuser curl tar flock; do
+for required in docker git runuser curl tar flock stat; do
   command -v "$required" >/dev/null || {
     printf 'Missing required command: %s\n' "$required" >&2
     exit 69
@@ -103,6 +105,55 @@ if [[ -n "$previous_release" && -f "$previous_release/compose.yaml" ]]; then
   previous_compose="$previous_release/compose.yaml"
 else
   previous_compose="$APP_ROOT/compose.yaml"
+fi
+
+# Calling is a persistent, administrator-controlled deployment choice, not a
+# transient local --profile flag. Never source a credentials file as shell code.
+new_compose_args=(--project-name "$PROJECT" --env-file "$SHARED_ENV" --file "$release_dir/compose.yaml")
+previous_compose_args=(--project-name "$PROJECT" --env-file "$SHARED_ENV" --file "$previous_compose")
+calls_enabled=0
+previous_calls_enabled=0
+existing_turn="$(docker ps --all --quiet --filter "label=com.docker.compose.project=$PROJECT" --filter 'label=com.docker.compose.service=quiet-room-turn')"
+if [[ -n "$existing_turn" || ( -f "$CALLS_STATE" && "$(<"$CALLS_STATE")" == 1 ) ]]; then
+  previous_calls_enabled=1
+fi
+if [[ -e "$CALLS_ENV" || -L "$CALLS_ENV" ]]; then
+  shared_mode="$(stat -c '%a' "$APP_ROOT/shared")"
+  if [[ -L "$APP_ROOT/shared" || "$(stat -c '%u' "$APP_ROOT/shared")" != 0 || ! "$shared_mode" =~ ^[0-7]{3,4}$ ]] ||
+      (( (8#$shared_mode & 022) != 0 )); then
+    printf 'Calling settings directory must be root-owned and not group/other writable.\n' >&2
+    exit 66
+  fi
+  if [[ ! -f "$CALLS_ENV" || -L "$CALLS_ENV" || "$(stat -c '%u:%a' "$CALLS_ENV")" != '0:600' ]]; then
+    printf 'Calling environment must be a root-owned mode-0600 regular file: %s\n' "$CALLS_ENV" >&2
+    exit 66
+  fi
+  if [[ ! -f "$release_dir/compose.calls.yaml" ]]; then
+    printf 'Calling is enabled; requested release lacks compose.calls.yaml. Refusing cutover.\n' >&2
+    exit 66
+  fi
+  calls_enabled=1
+  new_compose_args+=(--env-file "$CALLS_ENV" --file "$release_dir/compose.calls.yaml" --profile calls)
+  if (( previous_calls_enabled )); then
+    if [[ ! -f "${previous_compose%/*}/compose.calls.yaml" ]]; then
+      printf 'Cannot preserve previously enabled calling during rollback: previous overlay is missing.\n' >&2
+      exit 66
+    fi
+    previous_compose_args+=(--env-file "$CALLS_ENV" --file "${previous_compose%/*}/compose.calls.yaml" --profile calls)
+  fi
+elif [[ -n "$existing_turn" || ( -f "$CALLS_STATE" && "$(<"$CALLS_STATE")" == 1 ) ]]; then
+  printf 'Calling was enabled but its persistent environment file is missing; refusing to remove TURN.\n' >&2
+  exit 66
+fi
+
+# Resolve both graphs before maintenance. --quiet avoids printing interpolated
+# TURN secrets. Download the separately reviewed TURN image before downtime.
+QUIET_ROOM_IMAGE="$new_image" docker compose "${new_compose_args[@]}" config --quiet
+if [[ -f "$previous_compose" ]]; then
+  QUIET_ROOM_IMAGE="${previous_image:-$new_image}" docker compose "${previous_compose_args[@]}" config --quiet
+fi
+if (( calls_enabled )); then
+  QUIET_ROOM_IMAGE="$new_image" docker compose "${new_compose_args[@]}" pull quiet-room-turn
 fi
 
 cutover_started=0
@@ -406,10 +457,7 @@ rollback() {
   if [[ -z "$previous_image" || ! -f "$previous_compose" ]]; then
     rollback_fail_closed 'previous-release-is-unavailable'
   fi
-  if ! QUIET_ROOM_IMAGE="$previous_image" docker compose \
-    --project-name "$PROJECT" \
-    --env-file "$SHARED_ENV" \
-    --file "$previous_compose" \
+  if ! QUIET_ROOM_IMAGE="$previous_image" docker compose "${previous_compose_args[@]}" \
     up --detach --no-build --remove-orphans; then
     if ! stop_project_containers; then
       rollback_fail_closed 'could-not-stop-partial-previous-release'
@@ -470,10 +518,7 @@ create_data_archive "$backup_image" "$backup_name"
 backup_ready=1
 
 data_restore_required=1
-QUIET_ROOM_IMAGE="$new_image" docker compose \
-  --project-name "$PROJECT" \
-  --env-file "$SHARED_ENV" \
-  --file "$release_dir/compose.yaml" \
+QUIET_ROOM_IMAGE="$new_image" docker compose "${new_compose_args[@]}" \
   up --detach --no-build --remove-orphans
 
 wait_for_health
@@ -491,6 +536,7 @@ trap - ERR
 ln -sfn "$release_dir" "$APP_ROOT/current"
 printf '%s\n' "$REQUESTED_SHA" > "$STATE_DIR/current-sha"
 printf '%s\n' "$stamp" > "$STATE_DIR/deployed-at"
+printf '%s\n' "$calls_enabled" > "$CALLS_STATE"
 docker image tag "$new_image" quiet-room-app:production
 open_business_traffic
 if ! wait_for_public_websocket; then

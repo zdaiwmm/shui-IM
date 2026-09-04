@@ -31,7 +31,7 @@ body:has(.chat-shell) {
   position: fixed;
   inset: var(--app-top) max(0px, calc((100% - 880px) / 2)) auto;
   display: grid;
-  grid-template-columns: minmax(64px, 1fr) minmax(96px, 1.5fr) minmax(64px, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   gap: 8px;
   min-height: 72px;
   padding: max(8px, env(safe-area-inset-top)) 12px 10px;
@@ -46,26 +46,10 @@ body:has(.chat-shell) {
   background: linear-gradient(to bottom, color-mix(in oklch, var(--chrome-tint) 18%, transparent), transparent);
 }
 .chat-header::before { inset: 0 0 -28px; }
-.self-summary {
-  justify-self: start;
-  display: grid;
-  grid-template-columns: auto 6px;
-  column-gap: 5px;
-  row-gap: 4px;
-  padding: 7px 10px;
-  min-height: 44px;
-  border: 1px solid var(--glass-border);
-  border-radius: 22px;
-  background: var(--glass);
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
-  pointer-events: auto;
-}
-.self-summary { font-size: 0.75rem; }
-.self-summary > strong { grid-column: 1 / -1; margin: 0; text-align: left; font-size: 0.75rem; }
 .peer-summary {
+  grid-column: 2;
   justify-self: center;
-  width: 100%;
+  width: clamp(100px, calc(100vw - 214px), 240px);
   max-width: 240px;
   min-width: 0;
   min-height: 50px;
@@ -76,14 +60,14 @@ body:has(.chat-shell) {
   gap: 4px;
   line-height: 1.2;
 }
-.peer-summary .peer-name { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 1rem; color: var(--ink); font-weight: 700; }
-.peer-summary > strong { flex: none; width: 100%; margin: 0; text-align: center; font-size: 0.75rem; font-weight: 500; }
-.header-actions { justify-self: end; gap: 5px; }
+.presence-heading { display: flex; align-items: center; justify-content: center; gap: 14px; }
+.presence-heading .presence-row { gap: 6px; color: var(--ink); font-size: 0.88rem; font-weight: 650; }
+.peer-summary > .peer-status { flex: none; width: 100%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 0.75rem; font-weight: 500; }
+.header-actions { grid-column: 3; justify-self: end; gap: 5px; }
 /* Each bounded control samples the conversation directly. The edge wash above
    has no filter, so it cannot flatten the backdrop before the glass sees it. */
 .chat-header .icon-button,
 .chat-header .more-menu > summary,
-.chat-header .self-summary,
 .chat-header .peer-summary,
 .composer .composer-field,
 .composer .icon-button,
@@ -117,7 +101,7 @@ body:has(.chat-shell) {
   border: 1px solid var(--glass-border);
   border-radius: 28px;
   background: var(--glass-strong);
-  box-shadow: inset 0 1px 0 var(--glass-border);
+  box-shadow: var(--glass-shadow);
   -webkit-backdrop-filter: blur(22px) saturate(150%);
   backdrop-filter: blur(22px) saturate(150%);
 }
@@ -164,6 +148,11 @@ html:has(.chat-shell[inert]) { overflow: hidden; }
   transform: rotate(180deg);
 }
 .composer textarea { padding-right: 15px; }
+/* The home-indicator safe area is already inside the docked keyboard. */
+html[data-keyboard-open='true'] .composer {
+  min-height: 60px;
+  padding-bottom: 8px;
+}
 .reply-draft {
   position: static;
   flex: 0 0 100%;
@@ -171,7 +160,7 @@ html:has(.chat-shell[inert]) { overflow: hidden; }
 }
 .upload-progress { flex: 0 0 100%; }
 @media (max-width: 360px) {
-  .chat-header { padding-inline: 8px; gap: 5px; grid-template-columns: minmax(91px, 1fr) minmax(88px, 1.4fr) minmax(91px, 1fr); }
+  .chat-header { padding-inline: 8px; gap: 5px; }
   .header-actions { gap: 3px; }
-  .self-summary { padding-inline: 7px; }
+  .presence-heading { gap: 10px; }
 }

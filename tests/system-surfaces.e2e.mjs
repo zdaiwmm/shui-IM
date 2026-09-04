@@ -2,16 +2,22 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 
-const server = await createServer({ configFile: false, root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0 } });
-server.middlewares.use('/__system_surfaces', (_request, response) => {
-  response.setHeader('Content-Type', 'text/html');
-  response.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="app"></div></body></html>');
+const server = await createServer({
+  configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error',
+  server: { host: '127.0.0.1', port: 0, hmr: false },
+  plugins: [{ name: 'system-surfaces-fixture', configureServer(vite) {
+    // Serve the isolated fixture before the SPA fallback can boot a second app.
+    vite.middlewares.use('/__system_surfaces', (_request, response) => {
+      response.setHeader('Content-Type', 'text/html');
+      response.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="app"></div></body></html>');
+    });
+  } }],
 });
 let browser;
 try {
   await server.listen();
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__system_surfaces`);

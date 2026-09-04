@@ -118,4 +118,40 @@ describe('message reaction replay', () => {
       expect(reduceMessageReactions([{ ...target, status }, valid], memberRoles).size).toBe(0);
     }
   });
+
+  it('allows reactions to chat files and excludes gallery-only attachments', () => {
+    const original = textMessage();
+    const attachment = {
+      v: 1 as const,
+      blobId: crypto.randomUUID(),
+      key: 'test-key',
+      ivPrefix: 'test-iv',
+      chunkSize: 2 * 1024 * 1024,
+      chunkCount: 1,
+      originalSize: 1,
+      originalName: 'document.pdf',
+      mimeType: 'application/pdf',
+      lastModified: 0,
+      sha256: '0'.repeat(64),
+    };
+    const chatFile: DecryptedMessage = {
+      ...original,
+      payload: { v: 1, kind: 'file', file: attachment, sentAt },
+    };
+    const chatReaction = reaction(chatFile, 2, joinerDevice, '👍');
+    expect(reduceMessageReactions([chatFile, chatReaction], memberRoles).get(chatFile.clientMsgId)?.[0])
+      .toMatchObject({ role: 'joiner', emoji: '👍' });
+
+    const galleryFile: DecryptedMessage = {
+      ...original,
+      payload: { v: 1, kind: 'gallery-file', file: attachment, sentAt },
+    };
+    const galleryImage: DecryptedMessage = {
+      ...original,
+      payload: { v: 1, kind: 'gallery-image', image: { ...attachment, originalName: 'photo.png', mimeType: 'image/png' }, sentAt },
+    };
+    for (const target of [galleryFile, galleryImage]) {
+      expect(reduceMessageReactions([target, reaction(target, 2, joinerDevice, '👍')], memberRoles).size).toBe(0);
+    }
+  });
 });

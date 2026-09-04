@@ -1,5 +1,8 @@
 # Quiet Room
 
+项目接手、当前状态和决策导航见 [`AGENTS.md`](./AGENTS.md) 与
+[`docs/context/`](./docs/context/)。新会话先读轻量入口，再按任务读取本页及专门文档。
+
 Quiet Room is a mobile-first, two-person encrypted chat with independently keyed multi-device access. There are no accounts. The page opens as a browser-load-failure cover; holding the blank bottom-right corner for one second reveals the local unlock flow. Text, reply relationships, reactions, exact message type, image metadata, and original image bytes are encrypted in the browser before they reach the service. A restricted count-only credential updates the cover's unread number without opening the vault.
 
 The canonical production origin is `https://ai.shui.click`. Passkeys and local
@@ -26,7 +29,7 @@ The implementation includes:
 - two-part local recovery using an encrypted package plus an independently stored 256-bit recovery code, followed by new-device rebinding;
 - opt-in payload-free Web Push wake-ups that reveal no sender, room, message type, content, attachment metadata, or count in the push request;
 - online WAL-consistent backup, completed-blob snapshotting, per-file checksums, verification, scheduled retention, and guarded restore tooling;
-- responsive PWA shell, strict production security headers, synchronous concealment on every blur, immediate privacy locking on native-surface focus loss/backgrounding/page hide, and a 250 ms teardown debounce for ordinary window blur;
+- responsive PWA shell, strict production security headers, synchronous concealment on every blur, desktop-only in-memory resume with a 30-minute idle limit and F-key entry, and strict mobile/PWA and native-surface locking;
 - SQLite ciphertext metadata storage and filesystem ciphertext blob storage;
 - production container files and automated crypto/storage/WebSocket tests.
 
@@ -138,6 +141,10 @@ This defines a deterministic server-acceptance order. It does not claim to know 
 
 The browser reads the selected file bytes directly. It does not use Canvas, resize, recompress, remove EXIF, or change the encoding. The encrypted manifest stores the original name, MIME type, length, and SHA-256 digest. After download and decryption, the client rejects the result unless the byte length and digest match the upload.
 
+Both local file pickers accept arbitrary formats, including PDF, office documents, archives, audio/video files, and unknown MIME types. Nonempty files up to 256 MiB retain their exact bytes through the same encrypted, resumable transport. Chat sends each non-image as a downloadable file message; mixed selections preserve order and keep consecutive images in their existing album groups. Files uploaded directly from the creator gallery appear as downloadable gallery entries and remain outside both chat streams. Arbitrary file contents are not rendered inside the app. Sending files, gallery files, and replies to files requires every active device to advertise `file-message-v1`, including when retrying an existing encrypted outbox item.
+
+The creator gallery separates images and files into 图片 and 文件 tabs. Opening the gallery defaults to 图片; the file list appears only in 文件. Each tab has its own count, empty state, and earlier-history loading. Upload completion opens the category containing the newly uploaded item.
+
 Focus the chat composer and use **Cmd+V / Ctrl+V** or the native Paste action to send an image held in the clipboard. The browser must expose actual image data: copied HTML or a URL alone is not fetched as an image. Pasted files use the same encrypted original-byte upload path, keep the current text draft, and follow the same limits and compatibility checks as the image picker. Text-only paste works normally.
 
 There is no nine-image limit on a selection. Chat groups originals in selected order into messages containing at most nine images and 256 MiB of original bytes each. A one-image group creates an ordinary image message; a larger group creates one `image-album` payload, encrypted outbox item, server sequence, and collage bubble. Each original keeps its own resumable encrypted chunks and integrity check. Sending an album requires every active device to have reported `image-album-v1` after opening the current version. Visible and near-visible media is verified and decrypted locally into inline previews; the service neither generates nor receives a plaintext thumbnail. Chat, gallery, and viewer reuse verified images during the unlocked session and use quiet loading placeholders. Locking clears decrypted caches and revokes their object URLs.
@@ -146,7 +153,21 @@ Tap an inline image or an album cell to open the full-screen overlay at that ite
 
 The server never creates thumbnails and does not know that a message contains an image. The creator-only gallery decrypts message manifests locally, then downloads and decrypts originals when needed. It contains chat images and supports selecting multiple originals for direct upload, processed in order as individual gallery-only images without chat bubbles. The invited participant has no gallery entry or gallery route, while chat images remain visible in the conversation. One image is limited to 256 MiB and 128 encrypted 2 MiB chunks. Upload reservations and completed chunk indexes are persisted, so selecting the same file after an interruption resumes without changing the blob ID, key, or IV prefix.
 
-Native image pickers, exports, microphone prompts, clipboard prompts, and confirmation dialogs immediately activate the white privacy curtain if they take browser focus. Hidden visibility also locks immediately; ordinary window blur uses a 250 ms debounce. Returning focus never unlocks. A chooser's input remains hidden and selected files stay in memory until the same room and device unlock, then continue to the original chat or gallery destination. Cancellation, explicit lock, and `pagehide` discard pending selections. Only a passkey prompt on the authentication gateway, including recovery and migration, has a bounded exception before a conversation or socket opens: WebAuthn settlement or 65 seconds ends it, and settlement while hidden locks. `pagehide`, explicit lock, and idle timeout always take precedence.
+Native image pickers, exports, microphone prompts, clipboard prompts, and confirmation dialogs immediately activate the white privacy curtain if they take browser focus. Mobile/tablet browsers and installed PWAs lock immediately on hidden visibility and use a 250 ms teardown debounce for ordinary blur. Ordinary desktop browsers instead show the cover and clear rendered history, media, transfers and sockets while retaining the unlocked session only in memory. Within 30 minutes of the last active in-app interaction, hold the bottom-right corner for one second or hold unmodified **F for two seconds** to resume without another device prompt. Cover activity and foreground return do not extend this deadline; expiry is checked before accepting new input and resuming even if background timers were suspended. Returning focus never opens the conversation by itself. Refresh, page close, freeze/BFCache restoration, explicit lock and expiry discard the retained session. Resuming reloads the authenticated saved vault; a changed or deleted vault falls back to verification. This convenience mode keeps decryption capability in page memory longer without adding key or plaintext persistence. A chooser's input remains hidden and selected files stay in memory until the same room and device unlock, then continue to the original chat or gallery destination. Cancellation, explicit lock, and `pagehide` discard pending selections. Only a passkey prompt on the authentication gateway, including recovery and migration, has a bounded exception before a conversation or socket opens: WebAuthn settlement or 65 seconds ends it, and settlement while hidden locks. `pagehide`, explicit lock, and idle timeout always take precedence.
+
+## Real-time calls
+
+The chat header starts a video call; the More menu starts an audio call. The
+FaceTime-style foreground interface supports answering, declining, muting,
+camera switching and upgrading audio to video. Media uses browser-to-browser
+WebRTC encryption, with optional self-hosted TURN relay. Calls require locally
+verified MLS membership and device-signed identity attestations before media
+negotiation; signaling is separately encrypted and signed. Covering or locking
+the page stops capture, and there is no server recording or background calling.
+
+See [CALLS.md](CALLS.md) for behavior, encryption boundaries, server sizing,
+deployment configuration and verification. TURN is an optional deployment and
+is not automatically enabled by building the application.
 
 ## Voice messages
 

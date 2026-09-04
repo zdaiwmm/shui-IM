@@ -4,10 +4,16 @@ import path from 'node:path';
 import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
 
-const server = await createServer({ configFile: false, root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0 } });
-server.middlewares.use('/__frontend_regression', (_request, response) => {
-  response.setHeader('Content-Type', 'text/html');
-  response.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="app"></div></body></html>');
+const server = await createServer({
+  configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error',
+  server: { host: '127.0.0.1', port: 0, hmr: false },
+  plugins: [{ name: 'frontend-lifecycle-fixture', configureServer(vite) {
+    // Serve the isolated fixture before the SPA fallback can boot a second app.
+    vite.middlewares.use('/__frontend_regression', (_request, response) => {
+      response.setHeader('Content-Type', 'text/html');
+      response.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="app"></div></body></html>');
+    });
+  } }],
 });
 let browser;
 const results = process.env.QUIET_ROOM_TEST_TRACE ? new Proxy({}, {
@@ -18,7 +24,7 @@ try {
   await server.listen();
   browser = process.env.QUIET_ROOM_TEST_BROWSER === 'webkit' ? await webkit.launch()
     : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const page = await browser.newPage({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__frontend_regression`);
@@ -457,6 +463,15 @@ try {
   results.gallery = { images: await page.locator('.gallery-tile').count(), olderImage: await page.locator('.gallery-tile[data-blob-id="photo-10"]').count(), pages };
   assert.equal(results.gallery.images, 62);
   assert.equal(results.gallery.olderImage, 1);
+  results.gallerySpacing = await page.evaluate(() => {
+    const grid = document.querySelector('.gallery-grid'); grid.scrollTop = grid.scrollHeight;
+    const tile = [...grid.querySelectorAll('.gallery-tile')].at(-1).getBoundingClientRect();
+    const label = grid.querySelector('.gallery-scan-status').getBoundingClientRect();
+    const gap = label.top - tile.bottom;
+    if (gap < 35 || Math.abs(tile.width - tile.height) > 1) throw Error(`Gallery compressed rows into the footer: gap=${gap}`);
+    return { gap, squareTiles: true };
+  });
+  if (visualQaDirectory) await page.screenshot({ path: path.join(visualQaDirectory, 'gallery-bottom-spacing.png') });
 
   // Delay the first historical lookup, then jump to another visible reference.
   // Finishing the older lookup may not move focus/scroll to an obsolete intent.
@@ -664,11 +679,134 @@ try {
     }
     return { scroller: 'document', headerFixed: true, scrollPreserved: true, dialogScrollLock: true, keyboardViewport: 'composer and latest message remain visible' };
   });
+
+  results.viewportPanStability = await page.evaluate(async () => {
+    const { app, fresh, message } = window.regression; fresh();
+    app.messages = new Map(Array.from({ length: 60 }, (_, i) => [i + 1, message(i + 1)]));
+    app.renderMessages({ scroll: 'bottom' });
+    const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await settle();
+    const viewport = window.visualViewport;
+    const list = document.querySelector('#message-list');
+    const style = document.documentElement.style;
+    style.setProperty('--safe-bottom', '34px');
+    Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
+    Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 24 });
+    viewport.dispatchEvent(new Event('resize')); await settle();
+    const composer = document.querySelector('#composer').getBoundingClientRect();
+    const input = document.querySelector('#message-input').getBoundingClientRect();
+    if (Math.abs(composer.bottom - 444) > 1 || composer.bottom - input.bottom > 10) throw Error('Keyboard retained an extra safe-area gap below the input');
+    const padding = getComputedStyle(list).paddingBottom;
+    const scrollTo = window.scrollTo; const scrollBy = window.scrollBy;
+    let corrections = 0;
+    window.scrollTo = (...args) => { corrections++; scrollTo.apply(window, args); };
+    window.scrollBy = (...args) => { corrections++; scrollBy.apply(window, args); };
+    try {
+      // A viewport pan, even while pinned, must not change document extent or
+      // force-scroll. This used to feed Safari's pan back into itself.
+      for (const top of [30, 18, 24]) {
+        Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: top });
+        viewport.dispatchEvent(new Event('scroll')); await settle();
+        if (getComputedStyle(list).paddingBottom !== padding) throw Error('Viewport pan changed document padding');
+      }
+      if (corrections) throw Error(`Offset-only panning forced ${corrections} scrolls`);
+      list.dispatchEvent(new WheelEvent('wheel', { deltaY: -12, bubbles: true }));
+      scrollBy.call(window, 0, -12); await settle();
+      if (app.chatPinnedToBottom || app.captureChatAnchor().pinnedToBottom) throw Error('A small upward scroll was still pinned');
+      const before = window.scrollY;
+      for (const top of [32, 20, 24]) {
+        Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: top });
+        viewport.dispatchEvent(new Event('scroll')); await settle();
+      }
+      if (window.scrollY !== before || corrections) throw Error('Viewport panning pulled the reader back to the bottom');
+      app.messages.set(60, { ...app.messages.get(60), status: 'stored' });
+      app.renderMessages(); await settle();
+      if (Math.abs(window.scrollY - before) > 1 || app.captureChatAnchor().pinnedToBottom) throw Error('Receipt update re-pinned a small upward scroll');
+      const anchor = structuredClone(app.captureChatAnchor());
+      const textarea = document.querySelector('#message-input');
+      textarea.value = '多行草稿\n'.repeat(5); textarea.dispatchEvent(new Event('input')); await settle();
+      if (app.captureChatAnchor().clientMsgId !== anchor.clientMsgId || Math.abs(app.captureChatAnchor().offset - anchor.offset) > 1) throw Error('Composer growth moved an unpinned reader');
+      corrections = 0;
+      delete viewport.height; delete viewport.offsetTop;
+      viewport.dispatchEvent(new Event('resize')); await settle();
+      if (app.chatPinnedToBottom || corrections) throw Error('Keyboard dismissal forced bottom-follow after upward intent');
+      scrollTo.call(window, 0, document.documentElement.scrollHeight); await settle();
+      list.dispatchEvent(new WheelEvent('wheel', { deltaY: 12, bubbles: true }));
+      if (!app.captureChatAnchor().pinnedToBottom) throw Error('Downward intent at the clamped bottom did not resume follow');
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
+      viewport.dispatchEvent(new Event('resize')); await settle();
+      textarea.focus({ preventScroll: true });
+      const beforeGesture = { focused: document.activeElement?.id, connected: textarea.isConnected, disabled: textarea.disabled, visibility: getComputedStyle(textarea).visibility, obscured: document.documentElement.classList.contains('privacy-obscured'), inert: !!textarea.closest('[inert]') };
+      list.lastElementChild.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
+      const gestureStart = { beforeGesture, pinned: app.chatPinnedToBottom, intent: app.chatScrollIntent, focused: document.activeElement?.id, keyboard: document.documentElement.dataset.keyboardOpen };
+      corrections = 0;
+      delete viewport.height; viewport.dispatchEvent(new Event('resize')); await settle();
+      if (app.chatPinnedToBottom || corrections) throw Error(`Keyboard blur before touchmove stole the gesture position: ${JSON.stringify({ gestureStart, pinned: app.chatPinnedToBottom, intent: app.chatScrollIntent, corrections })}`);
+    } finally {
+      window.scrollTo = scrollTo; window.scrollBy = scrollBy;
+      delete viewport.height; delete viewport.offsetTop;
+      style.removeProperty('--safe-bottom');
+      viewport.dispatchEvent(new Event('resize')); await settle();
+    }
+    return { smallUpwardScroll: 'preserved', panScrollCorrections: 0, keyboardInnerGap: composer.bottom - input.bottom, ackAndComposerGrowth: 'anchor preserved' };
+  });
+
+  results.singleTallMessage = await page.evaluate(async () => {
+    const { app, fresh, message } = window.regression; fresh();
+    const source = message(1, { v: 1, kind: 'text', text: '一条很长的聊天消息，需要向上阅读。\n'.repeat(80), sentAt: '2026-09-04T01:00:00.000Z' });
+    app.messages.set(1, source); app.renderMessages({ scroll: 'bottom' });
+    const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await settle();
+    document.querySelector('#message-list').dispatchEvent(new WheelEvent('wheel', { deltaY: -20, bubbles: true }));
+    window.scrollBy(0, -20); await settle();
+    const before = window.scrollY;
+    app.messages.set(1, { ...source, status: 'stored' }); app.renderMessages(); await settle();
+    if (Math.abs(window.scrollY - before) > 1 || app.chatPinnedToBottom) throw Error('A single tall message snapped to bottom on receipt');
+    return { smallUpwardScrollOnAck: 'preserved' };
+  });
+
+  results.reactionPresentation = await page.evaluate(async () => {
+    const { app, fresh, message, session } = window.regression; fresh();
+    app.messages = new Map(Array.from({ length: 20 }, (_, i) => [i + 1, message(i + 1)]));
+    app.renderMessages({ scroll: 'bottom' });
+    const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await settle();
+    const source = app.messages.get(19);
+    const article = document.querySelector('[data-client-msg-id="message-19"]');
+    app.openMessageActions(article, source); await settle();
+    const menu = document.querySelector('.message-actions');
+    if (document.activeElement !== menu || menu.querySelector('[data-reaction]:focus-visible')) throw Error('Opening the menu highlighted the first emoji');
+    menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }));
+    if (document.activeElement !== menu.querySelector('[data-reaction]')) throw Error('Keyboard navigation no longer reaches reactions');
+    app.closeMessageActions();
+    const backdrop = document.querySelector('.message-actions-backdrop');
+    if (!backdrop?.classList.contains('is-closing') || !article.classList.contains('is-action-source')) throw Error('Closing abruptly removed the dimmed background or source');
+    const reaction = { ...message(21), senderId: session.vault.identity.publicBundle.deviceId, payload: { v: 1, kind: 'reaction', target: { clientMsgId: source.clientMsgId, serverSeq: source.seq, senderId: source.senderId }, emoji: '❤️', sentAt: source.payload.sentAt }, status: 'pending' };
+    app.messages.set(21, reaction); app.renderMessages();
+    const badge = article.querySelector('.message-reaction');
+    const observer = new MutationObserver(() => {}); observer.observe(article, { childList: true, subtree: true });
+    app.messages.set(21, { ...reaction, status: 'stored' }); app.renderMessages();
+    const detached = observer.takeRecords().some(record => record.removedNodes.length); observer.disconnect();
+    if (detached || article.querySelector('.message-reaction') !== badge) throw Error('Reaction confirmation remounted its badge');
+    await new Promise(resolve => setTimeout(resolve, 180));
+    if (backdrop.isConnected || article.classList.contains('is-action-source')) throw Error('Reaction close left an overlay behind');
+    return { initialEmojiFocus: false, keyboardNavigation: true, smoothBackdropClose: true, badgeRetainedOnAck: true };
+  });
   if (visualQaDirectory) {
+    await page.evaluate(() => {
+      const { app, fresh, message, session } = window.regression; fresh();
+      app.uiPreferences.recoveryReminderDismissed = true; app.renderChat();
+      app.connectionState = 'connected'; app.rolePresence = { creator: true, joiner: true }; app.updatePeerStatus();
+      const texts = ['今天路上的风景很好看。', '照片收到了，等会儿一起看。', '好呀，我刚到家。', '我好开心', '我也是，早点休息哦'];
+      const own = session.vault.identity.publicBundle.deviceId;
+      app.messages = new Map(texts.map((text, i) => [i + 1, { ...message(i + 1, { v: 1, kind: 'text', text, sentAt: '2026-09-04T07:17:00.000Z' }), senderId: i % 2 ? own : 'regression-peer' }]));
+      app.messages.set(6, { ...message(6, { v: 1, kind: 'text', text: '我也是，今天真的很开心。', sentAt: '2026-09-04T07:18:00.000Z', replyTo: { clientMsgId: 'message-4', serverSeq: 4, senderId: own, kind: 'text', preview: '我好开心' } }), senderId: own });
+      app.renderMessages({ scroll: 'bottom' });
+    });
     for (const scheme of ['light', 'dark']) {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.emulateMedia({ colorScheme: scheme });
-      await page.evaluate(() => window.scrollBy(0, -100));
+      await page.waitForTimeout(220);
       await page.screenshot({ path: path.join(visualQaDirectory, `chat-glass-${scheme}-390.png`) });
     }
   }

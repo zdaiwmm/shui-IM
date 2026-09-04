@@ -14,7 +14,6 @@ export class UnreadCounter {
   private refreshingVersion: number | null = null;
   private configuringVersion: number | null = null;
   private registered = false;
-  private observerConfirmed = false;
   private readSeq = -1;
   private readPending = false;
   private pendingReadSeq = -1;
@@ -26,7 +25,6 @@ export class UnreadCounter {
         && typeof value.deviceId === 'string' && /^[0-9a-f-]{36}$/i.test(value.deviceId)
         && typeof value.token === 'string' && /^[A-Za-z0-9_-]{43,128}$/.test(value.token) && validCount(value.count)) {
         this.state = { roomId: value.roomId, deviceId: value.deviceId, token: value.token, count: value.count };
-        this.observerConfirmed = true;
         localStorage.setItem(STORAGE_KEY, JSON.stringify(this.state));
       }
     } catch { /* An unavailable local store does not prevent unlock. */ }
@@ -58,15 +56,18 @@ export class UnreadCounter {
   }
 
   async configure(vault: Vault, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) return;
     const deviceId = vault.identity.publicBundle.deviceId;
     const existing = this.state?.roomId === vault.roomId && this.state.deviceId === deviceId;
     const state = existing ? this.state! : { roomId: vault.roomId, deviceId, token: randomBase64Url(32), count: 0 };
     this.state = state;
     if (!existing) {
-      this.observerConfirmed = false;
       try { localStorage.removeItem(STORAGE_KEY); } catch { /* Best effort removal of the previous room's observer. */ }
       this.changed(0);
     }
+    // The server can commit registration even if lock or a network failure hides
+    // its response. Keep the count-only token so a locked reload can still poll.
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* Memory remains usable. */ }
     const version = ++this.version;
     this.configuringVersion = version;
     this.registered = false;
@@ -80,7 +81,9 @@ export class UnreadCounter {
       const response = await fetch(this.path(state), {
         method: 'POST', cache: 'no-store', signal: requestSignal,
         headers: { Authorization: `Bearer ${vault.accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: state.token, ...(!this.observerConfirmed ? { readSeq: vault.lastSeq } : {}) }),
+        // lastSeq tracks downloaded ciphertext, not visible chat. Registration
+        // must preserve the server cursor (or its device join boundary).
+        body: JSON.stringify({ token: state.token }),
       });
       if (version !== this.version || requestSignal.aborted) return;
       if (response.status === 401) this.clear();
@@ -89,7 +92,6 @@ export class UnreadCounter {
       if (version !== this.version || requestSignal.aborted) return;
       if (!validCount(result.count)) throw new Error('未读状态暂时无法同步');
       this.registered = true;
-      this.observerConfirmed = true;
       this.apply(result.count, state, version, request);
     } finally {
       if (this.configuringVersion === version) this.configuringVersion = null;
@@ -147,7 +149,6 @@ export class UnreadCounter {
     this.version++;
     this.state = null;
     this.registered = false;
-    this.observerConfirmed = false;
     this.readPending = false;
     this.pendingReadSeq = -1;
     this.readSeq = -1;

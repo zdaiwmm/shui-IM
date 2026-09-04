@@ -119,12 +119,13 @@
 .message-actions.is-closing { transform: none; }
 
 .message-actions.is-closing { pointer-events: none; }
+.message-actions:focus { outline: none; }
 
 .message-action-list,
 .message-reaction-picker {
   border: 1px solid var(--glass-border);
   background: color-mix(in oklch, var(--paper-pure) 88%, transparent);
-  box-shadow: 0 12px 40px oklch(12% 0.015 255 / 0.17), inset 0 1px 0 var(--glass-border);
+  box-shadow: 0 12px 40px oklch(12% 0.015 255 / 0.17);
   -webkit-backdrop-filter: blur(28px) saturate(135%);
   backdrop-filter: blur(28px) saturate(135%);
   transform: translateY(3px) scale(0.98);
@@ -222,11 +223,12 @@
 .message-reply-quote {
   min-height: 44px;
   margin: 0 0 7px;
-  padding: 7px 9px;
+  padding: 2px 0 2px 10px;
   gap: 3px;
   border: 0;
-  border-radius: 7px;
-  background: color-mix(in oklch, var(--ink) 5%, transparent);
+  border-inline-start: 2px solid color-mix(in oklch, currentColor 45%, transparent);
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
   color: var(--ink-muted);
   line-height: 1.35;
@@ -234,7 +236,8 @@
 
 .outgoing .message-reply-quote {
   border: 0;
-  background: oklch(15% 0.012 255 / 0.12);
+  border-inline-start: 2px solid color-mix(in oklch, currentColor 55%, transparent);
+  background: transparent;
   color: color-mix(in oklch, var(--on-accent) 89%, transparent);
 }
 
@@ -341,7 +344,6 @@
   .message-action-list,
   .message-reaction-picker { background: color-mix(in oklch, var(--surface-raised) 92%, transparent); }
   .message-reaction[data-own='true'] { --reaction-fill: oklch(61% 0.15 148); }
-  .outgoing .message-reply-quote { background: oklch(10% 0.012 255 / 0.16); }
 }
 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {

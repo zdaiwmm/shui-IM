@@ -11,7 +11,7 @@
     "build": "tsc --noEmit && vite build",
     "start": "node server/index.mjs",
     "test": "vitest run",
-    "test:browser": "node tests/browser.e2e.mjs && node tests/frontend-lifecycle.e2e.mjs && node tests/system-surfaces.e2e.mjs && node tests/unread-counter.e2e.mjs && node tests/reaction-history.e2e.mjs && node tests/vault-lifecycle.e2e.mjs && node tests/voice-lifecycle.e2e.mjs",
+    "test:browser": "node tests/browser.e2e.mjs && node tests/frontend-lifecycle.e2e.mjs && node tests/desktop-privacy.e2e.mjs && node tests/desktop-session-flow.e2e.mjs && node tests/vault-resume.e2e.mjs && node tests/system-surfaces.e2e.mjs && node tests/file-flow.e2e.mjs && node tests/file-outbox.e2e.mjs && node tests/file-interactions.e2e.mjs && node tests/unread-counter.e2e.mjs && node tests/reaction-history.e2e.mjs && node tests/vault-lifecycle.e2e.mjs && node tests/voice-lifecycle.e2e.mjs",
     "test:watch": "vitest",
     "check": "npm run build && npm run test",
     "check:full": "npm run check && npm run test:browser",
@@ -21,7 +21,8 @@
     "backup:daemon": "node scripts/backup-loop.mjs",
     "push:keys": "node scripts/generate-vapid-keys.mjs",
     "deploy:production": "bash scripts/deploy-production.sh",
-    "deploy:doctor": "bash scripts/deploy-production.sh --doctor"
+    "deploy:doctor": "bash scripts/deploy-production.sh --doctor",
+    "test:calls": "vitest run tests/call-crypto.test.ts tests/call-membership.test.ts tests/call-controller.test.ts tests/call-server.test.ts && node tests/call-native.e2e.mjs && node tests/call-view.e2e.mjs"
   },
   "dependencies": {
     "@noble/ciphers": "2.1.1",

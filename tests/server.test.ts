@@ -95,7 +95,7 @@ describe('HTTP and WebSocket integration', () => {
     expect(shell.headers.get('content-security-policy')).toContain(`ws://127.0.0.1:${server.port}`);
     expect(shell.headers.get('content-security-policy')).toContain("media-src 'self' blob:");
     expect(shell.headers.get('permissions-policy')).toContain('microphone=(self)');
-    expect(shell.headers.get('permissions-policy')).toContain('camera=()');
+    expect(shell.headers.get('permissions-policy')).toContain('camera=(self)');
     await expect(request(`${baseUrl}/api/health`)).resolves.toMatchObject({ ok: true, database: true, storage: true });
     const creatorToken = randomBase64Url(32);
     const inviteToken = randomBase64Url(32);

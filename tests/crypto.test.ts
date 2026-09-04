@@ -114,6 +114,43 @@ describe('message encryption protocol', () => {
     await expect(decryptMessage(joinerVault, envelope)).resolves.toEqual(payload);
   });
 
+  it('keeps chat and gallery files opaque and decryptable across both enrolled devices', async () => {
+    const { creatorVault, joinerVault } = await pairedVaults();
+    const file = {
+      v: 1 as const,
+      blobId: crypto.randomUUID(),
+      key: randomBase64Url(32),
+      ivPrefix: randomBase64Url(8),
+      chunkSize: 2 * 1024 * 1024,
+      chunkCount: 1,
+      originalSize: 12,
+      originalName: 'private-report.pdf',
+      mimeType: 'application/pdf',
+      lastModified: 1_700_000_000_000,
+      sha256: 'a'.repeat(64),
+    };
+    const sentAt = new Date().toISOString();
+    const payloads: MessagePayload[] = [
+      { v: 1, kind: 'file', file, sentAt },
+      { v: 1, kind: 'gallery-file', file: { ...file, mimeType: '' }, sentAt },
+      {
+        v: 2, kind: 'file', file, sentAt,
+        replyTo: {
+          clientMsgId: crypto.randomUUID(), serverSeq: 8,
+          senderId: joinerVault.identity.publicBundle.deviceId,
+          kind: 'file', preview: '文件：private-report.pdf',
+        },
+      },
+    ];
+    for (const payload of payloads) {
+      const envelope = await encryptMessage(creatorVault, payload);
+      expect(JSON.stringify(envelope)).not.toContain(file.originalName);
+      expect(JSON.stringify(envelope)).not.toContain(file.mimeType);
+      await expect(decryptMessage(creatorVault, envelope)).resolves.toEqual(payload);
+      await expect(decryptMessage(joinerVault, envelope)).resolves.toEqual(payload);
+    }
+  });
+
   it('fails closed when ciphertext is modified', async () => {
     const { creatorVault, joinerVault } = await pairedVaults();
     const envelope = await encryptMessage(creatorVault, {

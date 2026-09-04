@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 
-const server = await createServer({ configFile: false, root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0 } });
+const server = await createServer({ configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0, hmr: false } });
 server.middlewares.use('/__voice_lifecycle', (_request, response) => {
   response.setHeader('Content-Type', 'text/html');
   response.end('<!doctype html><html><body><div id="app"></div></body></html>');

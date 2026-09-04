@@ -4,15 +4,32 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import WebSocket from 'ws';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { startServer } from '../server/index.mjs';
 import { createStore } from '../server/storage.mjs';
 import { randomBase64Url } from '../src/lib/base64';
 import { encryptMessage, generateIdentity } from '../src/lib/crypto';
+import { UnreadCounter } from '../src/lib/unread-counter';
 import type { Vault } from '../src/lib/types';
 
 const cleanups: Array<() => Promise<void>> = [];
-afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
+afterEach(async () => {
+  vi.unstubAllGlobals();
+  for (const cleanup of cleanups.splice(0)) await cleanup();
+});
+
+function counterClient(base: string) {
+  const stored = new Map<string, string>();
+  const request = globalThis.fetch;
+  vi.stubGlobal('localStorage', {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => { stored.set(key, value); },
+    removeItem: (key: string) => { stored.delete(key); },
+  });
+  const fetchMock = vi.fn((input: string | URL | Request, init?: RequestInit) => request(new URL(String(input), base), init));
+  vi.stubGlobal('fetch', fetchMock);
+  return { stored, fetchMock, counter: new UnreadCounter(vi.fn()) };
+}
 
 async function setup() {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-unread-'));
@@ -55,6 +72,58 @@ function nextFrame(socket: WebSocket, type: string): Promise<any> {
 }
 
 describe('restricted unread observer', () => {
+  it('counts unseen synced messages when initial registration is retried after an offline failure', async () => {
+    const { server, vault, base, envelope } = await setup();
+    const { counter, fetchMock } = counterClient(base);
+    fetchMock.mockRejectedValueOnce(new TypeError('offline'));
+    expect(await counter.ensureConfigured(vault)).toBe(false);
+    server.store.insertMessage(vault.roomId, await envelope());
+    const latest = server.store.insertMessage(vault.roomId, await envelope());
+    // Transport may download these rows while a gallery or history anchor is open.
+    vault.lastSeq = latest.seq;
+    expect(await counter.ensureConfigured(vault)).toBe(true);
+    expect(counter.count).toBe(2);
+    await counter.markRead(vault, latest.seq);
+    expect(counter.count).toBe(0);
+  });
+
+  it('preserves the server read cursor when local observer storage is missing and its token is replaced', async () => {
+    const { server, vault, base, observerToken, post, get, envelope } = await setup();
+    const read = server.store.insertMessage(vault.roomId, await envelope());
+    expect(await (await post({ token: observerToken, readSeq: read.seq })).json()).toEqual({ count: 0 });
+    server.store.insertMessage(vault.roomId, await envelope());
+    vault.lastSeq = server.store.insertMessage(vault.roomId, await envelope()).seq;
+    const { counter } = counterClient(base);
+    await counter.configure(vault);
+    expect(counter.count).toBe(2);
+    expect((await get()).status).toBe(401);
+    await counter.refresh();
+    expect(counter.count).toBe(2);
+  });
+
+  it('recovers the count after the server commits registration but its response is lost and the locked page reloads', async () => {
+    const { server, vault, base, envelope } = await setup();
+    const { counter, stored, fetchMock } = counterClient(base);
+    const send = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementationOnce(async (input, init) => {
+      const response = await send(input, init);
+      expect(response.status).toBe(200);
+      throw new TypeError('connection closed after commit');
+    });
+    expect(await counter.ensureConfigured(vault)).toBe(false);
+    const latest = server.store.insertMessage(vault.roomId, await envelope());
+    const reloaded = new UnreadCounter(vi.fn());
+    fetchMock.mockClear();
+    await reloaded.refresh();
+    expect(reloaded.count).toBe(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]![1]?.method).toBeUndefined();
+    expect(JSON.stringify([...stored.values()])).not.toContain(vault.accessToken);
+    // A locked observer still cannot acknowledge messages with the device API.
+    await reloaded.markRead(vault, latest.seq);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('counts authenticated chat sends once and excludes non-counting transport hints and the same role', async () => {
     const { server, vault, peer, observerToken, post, get, envelope } = await setup();
     expect((await post({ token: observerToken })).status).toBe(200);

@@ -20,6 +20,31 @@ Quiet Room is a two-person, multi-device encrypted chat. Each participant may au
 - A random 256-bit AES-GCM master key encrypts the local vault, history, outgoing-message queue, pending-receipt queue, upload-resume plans, reading anchor, unsent text draft, and recovery-reminder preferences. Version-3 vaults derive the key-encryption key with HKDF-SHA-256 from WebAuthn PRF output after authenticator user verification, then wrap the master key. Both single-device and syncable passkeys are accepted; the immutable backup-eligibility flag is recorded and checked on later assertions. PRF output and derived keys are not persisted.
 - Recovery wraps the master key to a separate random 256-bit recovery code and stores only the encrypted wrapper beside the encrypted vault payload. Recovery creates a new passkey-only wrapper before the conversation opens. Legacy password and gesture-based vault formats remain read-only migration inputs.
 
+## Real-time call construction
+
+Two-person calls use browser-to-browser DTLS-SRTP, including when coturn relays
+the encrypted packets. There is no media decoding, transcoding or recording on
+the application server. SDP fingerprints and ICE candidates are carried inside
+separately encrypted AES-256-GCM signaling envelopes, derived with domain-separated
+P-256 ECDH/HKDF-SHA-256 and signed in full with the device ECDSA identity. Strict
+recipient/room binding, expiry, replay checks and membership fencing apply.
+
+Before creating a peer connection, requesting call media or publishing local
+SDP, the client verifies the actual local MLS tree and a device-signed attestation
+of the complete public bundle and role. The attestation signing key must match
+the MLS-bound device identity; an unverified server roster or server-supplied
+verified-device list is insufficient. Signed membership history also pins prior
+identities. This attestation is required again for answering and refreshing ICE.
+
+Signaling derives from long-term device ECDH keys and does not claim forward
+secrecy after device-key compromise. Media keys use a separate ephemeral DTLS
+exchange. The server observes routing and call timing; TURN sees traffic and
+address metadata, while direct peers may learn each other's public IP. TURN has
+short-lived authenticated credentials rather than an anonymous relay. Background
+or privacy teardown stops capture even if the desktop vault remains temporarily
+unlocked in memory. Calls do not remove the endpoint, malicious-served-JavaScript
+or independent-audit limitations below. See `CALLS.md` for operational details.
+
 ## What this protects
 
 - Database, filesystem, object-volume, and backup disclosure does not reveal message or image contents without an endpoint key.
@@ -30,10 +55,12 @@ Quiet Room is a two-person, multi-device encrypted chat. Each participant may au
 - An outgoing payload is encrypted into IndexedDB before its first network send. Reconnect and acknowledgement-loss retries retain the same client message ID, while a server uniqueness constraint prevents duplicate commits.
 - A failed or interrupted join is retried with the same locally persisted device identity, so a committed server join cannot strand the second slot merely because the response was lost.
 - Inline thumbnails are not server-generated derivatives. The endpoint downloads ciphertext when media is needed, verifies and decrypts the original locally, and exposes it through a revocable object URL. Chat, gallery, and viewer reuse this cache during the unlocked session; quiet loading placeholders do not change verification requirements. Closing the viewer removes its overlay; locking and runtime teardown revoke object URLs and clear decrypted caches.
-- Every blur and hidden-visibility event synchronously shows an already-mounted opaque curtain, before runtime teardown and without waiting for an animation frame. Hidden visibility, pagehide, freeze, persisted pageshow, and focus loss during native picker, export, microphone, clipboard, or confirmation surfaces also close the socket, abort transfers, and clear decrypted session references immediately. Ordinary blur defers teardown for 250 ms; quick focus recovery cancels only that pending teardown. Foreground return never unlocks a locked session. Gateway WebAuthn prompts alone have a bounded teardown exemption before a conversation or socket opens, including recovery and migration; pagehide, explicit lock, and idle lock always take precedence.
+- Every blur and hidden-visibility event synchronously shows an already-mounted opaque curtain before runtime teardown. Ordinary desktop browsers clear rendered history, sockets, transfers and media but may retain an unlocked vault session only in page memory until 30 minutes after the last active in-app interaction. Cover activity, foreground return and remote call updates never extend this deadline. A deliberate one-second corner hold or two-second F hold rechecks both wall-clock and monotonic deadlines, validates the unchanged durable vault, and decrypts a fresh snapshot with the retained key. Changed/deleted vaults require normal verification. This extends the window of endpoint decryption capability; it adds no key or plaintext persistence and is not authentication.
+- Mobile/tablet browsers and installed PWAs retain immediate hidden-visibility locking and the 250 ms ordinary-blur teardown debounce. Their normal idle limit remains 10 minutes; an active foreground call suspends that mobile idle timer, ending or leaving the call restores the normal policy. Desktop calls remain subject to the 30-minute real inactivity deadline.
+- On all clients, pagehide, freeze, persisted pageshow, explicit lock, idle expiry and focus loss during native picker/export/microphone/camera/clipboard/confirmation surfaces discard retained sessions, stop capture, close sockets and clear decrypted runtime references. Foreground return never unlocks by itself. Gateway WebAuthn prompts alone have a bounded teardown exemption before a conversation or socket opens, including recovery and migration; pagehide, explicit lock and idle lock always take precedence.
 - Reaction targets and emoji/removal values use strict encrypted payloads and the existing signed message/outbox protocol. Badges require an exact locally available confirmed target ID, sequence, and sender. Events merge in server order, with one latest reaction per participant role. Reopening scans encrypted history in bounded batches without persisting a plaintext reaction index. All active devices must advertise support before sending this payload.
 
-The cover's unread number uses a separate random 256-bit observer token. Local storage holds only this token, room/device IDs, and the last confirmed count; the server stores only its hash. The observer can GET a count and cannot read ciphertext, attachments, room state, open a socket, or advance the read cursor. Registration and read updates require the normal active device credential, and device removal/recovery fences the observer too. The server additionally persists a monotonic per-device read cursor and the sender's authenticated `countUnread` hint. The hint excludes gallery and reaction events and is not signed inside MLS; neither it nor the resulting count proves content type, reading, or delivery. It reveals countability and reading metadata to the service. Old clients omit the hint and their events default to countable. Initial enrollment treats the current durable receive cursor as already read; subsequent updates use visible chat messages.
+The cover's unread number uses a separate random 256-bit observer token. Local storage holds only this token, room/device IDs, and the last confirmed count; the server stores only its hash. The observer can GET a count and cannot read ciphertext, attachments, room state, open a socket, or advance the read cursor. Registration and read updates require the normal active device credential, and device removal/recovery fences the observer too. The server additionally persists a monotonic per-device read cursor and the sender's authenticated `countUnread` hint. The hint excludes gallery and reaction events and is not signed inside MLS; neither it nor the resulting count proves content type, reading, or delivery. It reveals countability and reading metadata to the service. Old clients omit the hint and their events default to countable. Initial enrollment does not promote the durable receive cursor to a read cursor: downloading ciphertext is not visible reading. Registration retries preserve the server read cursor; only messages actually visible in an active chat advance it.
 - Image-picker lock preserves only the hidden chooser and pending selected files in memory, bound to the originating room and device, until successful unlock permits uploading. Cancellation, explicit lock, and `pagehide` discard them. This exception does not preserve an unlocked session or permit background uploads. Unsent text is restored from encrypted local preferences after unlock.
 
 ## Explicit limitations

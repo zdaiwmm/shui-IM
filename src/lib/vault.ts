@@ -523,6 +523,35 @@ export async function unlockVault(secret = ''): Promise<VaultSession> {
   return withVaultLifecycle(() => unlockVaultLocked(secret));
 }
 
+/** Resume an in-memory capability only from its unchanged, authenticated durable snapshot. */
+export async function resumeVaultSession(session: VaultSession): Promise<VaultSession> {
+  return withVaultLifecycle(async () => {
+    const stored = await readStoredVaultUnlocked();
+    if (!stored || !sameStoredVault(stored, session.stored)) throw staleVaultError();
+    if (stored.unlockMethod === 'recovery') throw new Error('恢复保险库尚未绑定到本设备');
+    let vault: Vault;
+    if (stored.v === 1) {
+      const plaintext = await crypto.subtle.decrypt(
+        {
+          name: 'AES-GCM',
+          iv: fromBase64Url(stored.iv),
+          additionalData: encoder.encode('quiet-room-vault-v1'),
+          tagLength: 128,
+        },
+        session.key,
+        fromBase64Url(stored.ciphertext),
+      );
+      vault = JSON.parse(decoder.decode(plaintext)) as Vault;
+      if (vault.v !== 1 || !vault.roomId || !vault.identity?.publicBundle?.deviceId) throw new Error('INVALID_VAULT');
+    } else {
+      vault = await decryptPayload(stored.payload, session.key);
+    }
+    // Pending operations may have changed the old object before failing to
+    // commit. Never let those partial in-memory changes become resumed state.
+    return { vault, key: session.key, stored };
+  });
+}
+
 async function unlockVaultLocked(secret: string): Promise<VaultSession> {
   const stored = await readStoredVaultUnlocked();
   if (!stored) throw new Error('本机没有可解锁的会话');
@@ -1071,7 +1100,7 @@ export async function loadMediaHistoryPage(
   const page = records.slice(0, boundedLimit);
   const messages = await decryptHistoryRecords(session, page, signal);
   return {
-    messages: messages.filter((message) => ['image', 'image-album', 'gallery-image'].includes(message.payload.kind)),
+    messages: messages.filter((message) => ['image', 'image-album', 'gallery-image', 'gallery-file'].includes(message.payload.kind)),
     beforeSeq: page.at(-1)?.seq ?? null,
     hasMore: records.length > boundedLimit,
   };

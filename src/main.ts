@@ -4,6 +4,7 @@ import './auth-recovery.css';
 import './chat-interactions.css';
 import './cover.css';
 import './voice-messages.css';
+import './call.css';
 import { QuietRoomApp } from './app';
 
 const colorScheme = window.matchMedia('(prefers-color-scheme: dark)');

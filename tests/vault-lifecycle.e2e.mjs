@@ -11,7 +11,7 @@ let server;
 let browser;
 let page;
 beforeAll(async () => {
-  server = await createServer({ configFile: false, root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0 } });
+  server = await createServer({ configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0, hmr: false } });
   server.middlewares.use('/__vault_regression', (_req, res) => { res.setHeader('Content-Type', 'text/html'); res.end('<!doctype html><title>Vault regression</title>'); });
   await server.listen();
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });

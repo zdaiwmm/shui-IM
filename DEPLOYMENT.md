@@ -93,6 +93,80 @@ export QUIET_ROOM_GITHUB_KEY='/path/to/read-only-github-key'
 npm run deploy:production
 ```
 
+## Optional voice/video calling in production
+
+Production STUN/TURN configuration and the coturn overlay are enabled by an
+administrator-owned persistent file: `/opt/quiet-room/shared/calls.env`. Its
+absence leaves the base Compose deployment unchanged. The new application still
+offers direct WebRTC calls when both devices advertise support; absent STUN/TURN
+configuration does not disable that entry point or guarantee cross-network calls. Once present, the updated deployment helper always includes
+`compose.calls.yaml`, the `calls` profile, and this second environment file for
+the application and TURN service. The local release command and exact-SHA
+confirmation stay the same; do not pass a one-off Compose flag from a laptop.
+
+The old helper uses only `compose.yaml` and `--remove-orphans`; it would remove a
+TURN service started manually in the same Compose project and omit the call
+settings on the next release. Install the reviewed root-owned helper using the
+separate procedure below **before** enabling calling. A normal application
+release does not install or replace that privileged helper.
+
+Prepare the following as a separate, reviewed administrator operation:
+
+1. Start from `.env.calls.example`, replace every placeholder and select a
+   reviewed `coturn/coturn` image digest for repeatable production releases. Use the same random `TURN_SECRET`
+   for the application and TURN. Keep all other settings in `production.env`;
+   `calls.env` is passed after it and should contain only calling settings.
+2. Set `TURN_TLS_DIR=/opt/quiet-room/shared/turn-tls`, even if TLS is initially
+   disabled, and prepare that persistent directory. If `TURN_TLS_ENABLED=true`,
+   provide readable `fullchain.pem` and `privkey.pem` there. A path inside an
+   immutable release is unsuitable: a later release or pruning can lose it.
+3. Verify TURN DNS/public IPv4 routing, 3478 UDP/TCP and the configured relay UDP
+   range in both firewalls. If using TLS, also verify 5349/TCP and the certificate
+   hostname. The example deliberately leaves website HTTPS port 443 available.
+   The shared TLS key must be readable by the selected TURN image's runtime UID
+   while remaining inaccessible to unrelated users.
+4. Install the completed settings as a regular, non-symlink file owned by
+   `root:root` with mode `0600` at `/opt/quiet-room/shared/calls.env`. Never commit
+   this file, put secrets in command arguments, or print `docker compose config`
+   without `--quiet`. Ensure the shared directory is not writable by the deploy
+   user. No shell script sources the environment file.
+5. Deploy the reviewed application commit using the existing command:
+
+   ```bash
+   npm run deploy:production -- --sha <full-40-character-main-commit>
+   ```
+
+Before closing the business-traffic gate, the helper validates both new and
+rollback Compose graphs with `config --quiet`, downloads the configured TURN
+image, and refuses missing overlays or unsafe/missing calling settings. After a
+successful cutover it records the enabled state in
+`/opt/quiet-room/deploy-state/calls-enabled`. Normal later releases therefore
+retain the overlay, credentials source and profile without extra local flags.
+An unexpectedly missing `calls.env` aborts before downtime if that state or an
+existing TURN container indicates calling was enabled; it does not silently
+remove TURN. An intentional disable is a separate operator change to reconcile
+the TURN container, persistent settings and marker under the deployment lock,
+not deletion of the credentials file before a routine release.
+
+Calling uses the same Compose project as chat. Deployments stop both services,
+so active calls end; there is no promise to preserve calls across a release.
+Rollback preserves the previous calling mode. On the first enable, if the
+previous release was chat-only, a failed cutover restores chat-only service.
+After calling was previously enabled, rollback requires the previous release's
+calling overlay and retains it. The TURN image setting, runtime credentials and certificates are
+shared operator configuration and are not rolled back with a Git commit; do not
+combine secret rotation or certificate changes with an application cutover.
+
+These preparations do not prove real media connectivity. The existing release
+health checks cover HTTP/WebSocket service health, and Compose validation only
+checks configuration structure. Before treating calling as production-ready,
+verify the TURN container remains running, obtain authenticated call config
+without exposing its credentials, and complete a forced-relay call between the
+two intended devices on different networks. Include a long call and a network
+switch. The local development environment used for this change has no Docker,
+so the checked-in TURN image/configuration still needs this server-side check.
+See `CALLS.md` for application behavior and the call acceptance checklist.
+
 ## First-time `ai.shui.click` provisioning
 
 The canonical origin must be healthy before installing a deployment helper
@@ -262,6 +336,8 @@ lost.
 ├── git-releases/            # detached immutable worktrees
 ├── current -> git-releases/…
 ├── shared/production.env    # production-only settings, never committed
+├── shared/calls.env         # optional root:root 0600 calling settings
+├── shared/turn-tls/         # persistent optional TURN certificate/key
 ├── deploy-state/            # current commit and deployment time
 └── backups/
     ├── predeploy/            # cold backup before each cutover
