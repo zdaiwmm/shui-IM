@@ -106,6 +106,22 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-05（Asia/Shanghai）；服务器 `deployed-at` 为 `20260904T172045Z`（01:20:45，发布批次时间），独立回读于 01:22:02 完成。
+- 应用版本：`718f7d2451413a1e5e67e0d56ddeee15acd9f8d6`，来自 [PR #12](https://github.com/zdaiwmm/shui-IM/pull/12)，于 01:09:14 squash 合并到 main；合并前后源码树一致，合并后重新读取 GitHub main 并确认完整目标提交。用户已明确要求本轮修改合并并上线。
+- [最终 PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33898587091) 对应 `b09701623490ad5df892217a22b4ca4dd97db5d1`；[精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33899412990) 对应上述应用提交。全部构建、311 项单元／集成、两组 21 个浏览器入口、通话专项、凭据扫描、依赖审计及完整汇总任务成功。
+- 最终应用代码本地 `npm run check:full` 全程通过（43 个测试文件、311 项、21／21 浏览器入口，浏览器汇总 163.92 秒），两项通话专项及最终 WebKit 生命周期／回到底部／时间线均通过。两引擎各 24 种布局、共 50 张合成截图，关键明暗／大字号／极端媒体／历史按钮已目检，新时间线浏览器错误为 0。首次本地回归暴露冷图恢复偏移，随后发现 WebKit 尺寸观察反馈；修正应用并补充回归后重新通过，未放宽位置断言或过滤错误。详细证据见 [TEST_PLAN.md](TEST_PLAN.md)。
+- 发布前两次尝试均止于只读 CI 门禁，没有切换生产：首次尚无精确 main run；等待期间手动触发的 [run 33899335682](https://github.com/zdaiwmm/shui-IM/actions/runs/33899335682) 命中旧测试样例，随后被延迟启动的上述自动 push run 按既有并发规则取消。手动全历史扫描的两项 `generic-api-key` 已通过历史源码在内存中解码逐字节核实：`tests/admin.test.ts`（历史提交 `16b69c802f59558a754c1466508a07d54a51024e`）为 [RFC 6238 Appendix B 公开测试向量](https://www.rfc-editor.org/rfc/rfc6238#appendix-B)，`tests/upgrade-safety.test.ts`（历史提交 `bebcc1090206c1df752000f1092fd2840bb217f9`）为 [RFC 6455 §1.3 公开握手样例](https://www.rfc-editor.org/rfc/rfc6455#section-1.3)。未修改扫描规则、增加豁免或改写历史；手动全历史扫描仍可能报告这些样例。本次最终入口按原门禁验证最新自动 push 的同一 SHA、attempt 及完整应用 job 全部成功，没有回退选择旧绿色运行。
+- 固定入口 `node scripts/publish.mjs --sha 718f7d2451413a1e5e67e0d56ddeee15acd9f8d6` 使用默认临时目录完成隔离发布，服务器返回 `DEPLOY_OK`，本地返回 `DEPLOY_VERIFIED`。隔离副本 `/private/var/folders/kx/xvfkgvzn5cb2t23mnc9518kr0000gn/T/quiet-room-publish-VOEPxI` 内 `.git/quiet-room-verified-sha` 与目标完整 SHA 相同。切换前冷备份已校验，维护门与放行后数据保留规则保持原契约。
+- 01:22:02 独立回读确认 SHA、发布目录与批次一致，维护标记消失；应用容器运行且健康，备份容器运行，两者实际 Image ID 均为 `sha256:ab2cd6ada1a28a694d40874581bc96a0e899cdc2120a82bba8b3845baacaccf0` 并匹配目标镜像。备份容器没有健康探针，未伪称探针成功。HTTPS `ok`／`database`／`storage` 全为 true，首页、`/sw.js`、`/assets/app-Du49i6Zl.css`、`/assets/app-x_7XInK8.js` 与首页引用的 preload 脚本均和运行中产物逐字节匹配；前后部署及容器身份一致。公开 WebSocket 验证来自固定发布程序。
+- 本次实际回读 `admin-enabled=0`、`calls-enabled=0`；后台与 TURN 仍未启用。发布目录：`/opt/quiet-room/git-releases/20260904T172045Z-718f7d245141`。已验证冷备份：`/opt/quiet-room/backups/predeploy/data-20260904T172045Z-718f7d245141.tar.gz`。
+- 成功入口总耗时 86,813ms，其中预检 5,315ms、核对 main 1,092ms、CI 核验 4,189ms、浅克隆 7,598ms、隔离发布及回读 68,613ms。服务器阶段 55 秒：拉取源码 4 秒、构建镜像 14 秒、冷备份 4 秒、启动容器及健康等待 31 秒。分项有嵌套，不重复累加；不包含前两次门禁中止，也不作为同条件提速对照。
+- 本次范围：气泡内时间／等宽回执、居中本地日期、随输入栏固定间距的回到最新消息按钮，及相关冷图锚点和 WebKit 观察反馈修复；保留上一批次的 24 项交互改进。按钮按真正末条阈值显隐，已知存在更新历史时继续提供分页入口；短距离缓行，保留键盘，主动手势／导航／隐私清理可中断。加密、原始附件校验、设备历史边界、恢复与部署流程未变。
+- 服务器 root helper 沿用此前已安装版本，本次未升级。发布通过 Node／Git／GitHub CLI／SSH 完成，期间临时防止自动休眠；未进行人为锁屏状态端到端测试。真实 iPhone Safari 工具栏、键盘、原生权限和播放器手势、跨网络通话及既有运维／审计待办仍需独立验收。随后知识库文档提交不代表应用重新部署。
+
+<a id="release-20260905-0003"></a>
+
+## 历史线上发布记录（2026-09-05 00:03）
+
 - 日期：2026-09-05（Asia/Shanghai）；服务器 `deployed-at` 为 `20260904T160356Z`（00:03:56）。
 - 应用版本：`0e6812b571eea2980130a59bd98c876936be1f11`，来自 [PR #10](https://github.com/zdaiwmm/shui-IM/pull/10)，于 00:00:02 squash 合并到 main；合并后重新读取 GitHub main 并确认完整目标提交。用户已明确要求本轮修改合并并上线。
 - [最终 PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33892320363) 对应 `61b15ad619a2122251b36e6b9711e37d4dee32f5`；[精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33892662497) 对应上述应用提交。全部构建、311 项单元／集成、两组 19 个浏览器入口、通话专项、凭据扫描、依赖审计及完整汇总任务成功。
