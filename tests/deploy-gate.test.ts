@@ -21,6 +21,7 @@ PUBLIC_HEALTH_URL=https://ai.shui.click/api/health
 previous_image=old; new_image=new; previous_compose="$AUDIT_TEST_DIR/previous.yaml"
 release_dir="$AUDIT_TEST_DIR/new"; PROJECT=quiet-room; SHARED_ENV=unused
 CALLS_STATE="$AUDIT_TEST_DIR/calls-enabled"; calls_enabled=0
+ADMIN_STATE="$AUDIT_TEST_DIR/admin-enabled"; admin_enabled=0
 new_compose_args=(--project-name "$PROJECT" --env-file "$SHARED_ENV" --file "$release_dir/compose.yaml")
 previous_compose_args=(--project-name "$PROJECT" --env-file "$SHARED_ENV" --file "$previous_compose")
 REQUESTED_SHA=0123456789012345678901234567890123456789; stamp=test; short_sha=012345678901

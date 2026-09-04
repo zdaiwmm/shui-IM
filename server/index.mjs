@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createStore } from './storage.mjs';
+import { createAdminConsole } from './admin.mjs';
 import { callIceConfiguration, createCallService } from './calls.mjs';
 import { createPushService, validatePushAuthorization, validatePushSubscription } from './push.mjs';
 import {
@@ -134,7 +135,7 @@ function normalizeError(error) {
     ['UNAUTHORIZED', [401, '设备凭证无效或已停用']],
     ['RECOVERY_ALREADY_PENDING', [409, '该设备已有恢复请求，请完成或等待过期后重试']],
     ['RECOVERY_REQUIRES_UPGRADE', [409, '请先让其它已授权设备打开最新版，再重试恢复']],
-    ['RECOVERY_EXPIRED', [410, '恢复请求已过期，请重新导入恢复包']],
+    ['RECOVERY_EXPIRED', [410, '恢复请求已过期，请重新输入恢复码获取备份']],
   ]);
   const [status, message] = known.get(code) ?? [500, '服务器暂时无法处理请求'];
   return [status, message, code];
@@ -357,10 +358,50 @@ export async function startServer(options = {}) {
     }));
   }
 
+  const adminOrigin = options.adminOrigin ?? process.env.ADMIN_ORIGIN ?? 'https://sao.shui.click';
+  const admin = await createAdminConsole({ config: options.adminConfig, configFile: options.adminConfigFile ?? process.env.ADMIN_CONFIG_FILE,
+    origin: adminOrigin, data: store.cloudBackups, json, readJson, headers: applySecurityHeaders, staticDir,
+    onDelete: async roomId => {
+      for (const socket of clientsByRoom.get(roomId) ?? []) socket.close(4403, 'Room removed');
+      callService.sweep();
+      presenceHistory.delete(roomId);
+      await store.cleanupDeletedRooms();
+    } });
+  await store.cleanupDeletedRooms();
+
   const httpServer = createHttpServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://localhost');
       const pathname = decodeURIComponent(url.pathname);
+      if (await admin(request, response, pathname)) return;
+
+      const backupWrite = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/backup$`));
+      const archiveWrite = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/archives/([A-Za-z0-9_-]{43})/([A-Za-z0-9_-]{43})$`));
+      const backupRead = pathname.match(/^\/api\/recovery-backups\/([A-Za-z0-9_-]{22})$/);
+      const archiveRead = pathname.match(/^\/api\/history-archives\/([A-Za-z0-9_-]{43})\/([A-Za-z0-9_-]{43})$/);
+      if ((request.method === 'PUT' && (backupWrite || archiveWrite)) || (request.method === 'GET' && (backupRead || archiveRead))) {
+        if (!allowRequest(request, 'cloud-backups', 120)) { json(request, response, 429, { error: '备份请求过于频繁', code: 'RATE_LIMITED' }); return; }
+        try {
+          const token = bearerToken(request);
+          let result;
+          if (backupWrite || archiveWrite) {
+            const roomId = (backupWrite ?? archiveWrite)[1];
+            requireActiveDevice(request, roomId);
+            const body = JSON.parse((await readBody(request, 2 * 1024 * 1024)).toString('utf8'));
+            result = backupWrite ? store.cloudBackups.save(roomId, token, body)
+              : store.cloudBackups.putPart(roomId, token, archiveWrite[2], archiveWrite[3], body);
+          } else result = backupRead ? store.cloudBackups.fetch(backupRead[1], token)
+            : store.cloudBackups.getPart(archiveRead[1], archiveRead[2], token);
+          json(request, response, 200, result);
+        } catch (error) {
+          const code = error instanceof Error ? error.message : '';
+          if (/^(INVALID_BACKUP|BACKUP_|UNAUTHORIZED)/.test(code) || error instanceof SyntaxError) {
+            const status = code === 'BACKUP_UNAVAILABLE' || code === 'UNAUTHORIZED' ? 401 : code.includes('CONFLICT') ? 409 : code === 'BACKUP_QUOTA' ? 413 : 400;
+            json(request, response, status, { error: status === 401 ? '备份不存在、已停用或凭据不正确' : '备份保存失败，请重试', code });
+          } else throw error;
+        }
+        return;
+      }
 
       if (request.method === 'GET' && pathname === '/api/health') {
         const health = await store.healthCheck();
@@ -890,7 +931,7 @@ export async function startServer(options = {}) {
         return false;
       }
     })();
-    if (url.pathname !== '/ws' || !originAllowed || webSocketServer.clients.size >= maxConnectionsTotal) {
+    if (request.headers.host === new URL(adminOrigin).host || url.pathname !== '/ws' || !originAllowed || webSocketServer.clients.size >= maxConnectionsTotal) {
       socket.destroy();
       return;
     }
@@ -1160,6 +1201,7 @@ export async function startServer(options = {}) {
   if (!options.quiet) console.log(`Quiet Room listening on http://${host}:${resolvedPort}`);
 
   const cleanupTimer = setInterval(() => {
+    void store.cleanupDeletedRooms().catch(() => console.error('Deleted room file cleanup pending'));
     const cutoff = new Date(Date.now() - incompleteBlobTtlMs).toISOString();
     try {
       store.cleanupExpiredDeviceLinks();

@@ -93,9 +93,7 @@ import {
   downloadVaultDiagnostic,
   deletePendingReceipt,
   deleteUploadPlan,
-  prepareRecoveryPackage,
   hasStoredVault,
-  importRecoveryPackage,
   bindRecoveredVaultToPlatform,
   loadHistoryPage,
   loadHistoryPageAfter,
@@ -122,9 +120,10 @@ import {
   type VaultSession,
   type ChatScrollAnchor,
   type UiPreferences,
-  type PreparedRecoveryExport,
   type VaultMutation,
 } from './lib/vault';
+import { recoverFromCloud, restoreCloudHistory, syncCloudBackup } from './lib/cloud-backup';
+import './backup.css';
 
 type Invite = {
   v: 1;
@@ -398,6 +397,9 @@ export class QuietRoomApp {
   private chatLayoutObserver: ResizeObserver | null = null;
   private presenceRefreshTimer: number | null = null;
   private recoveryPollTimer: number | null = null;
+  private backupTimer: number | null = null;
+  private backupRun: Promise<void> | null = null;
+  private backupError = '';
   private roleLastSeen: { creator: number | null; joiner: number | null } = { creator: null, joiner: null };
   private viewerKeyHandler: ((event: KeyboardEvent) => void) | null = null;
   private viewerReturnFocus: HTMLElement | null = null;
@@ -976,24 +978,14 @@ export class QuietRoomApp {
   private renderCorruptVault(): void {
     this.gatewayTemplate('本机数据需要恢复', '检测到本地保险库存在，但格式已经损坏或无法识别。不要直接清除浏览器数据。', `
       <div class="corrupt-vault-panel">
-        <p class="form-error" role="alert">请先尝试导入之前导出的恢复包；诊断文件不包含解密密钥或消息明文。</p>
-        <label class="primary-button file-button">导入恢复包<input id="corrupt-recovery-file" type="file" accept="application/json,.json" /></label>
+        <p class="form-error" role="alert">可使用恢复码读取自动备份；诊断文件不包含解密密钥或消息明文。</p>
+        <button class="primary-button" id="corrupt-cloud-recovery" type="button">使用恢复码恢复</button>
         <button class="secondary-button" id="download-vault-diagnostic" type="button">下载诊断信息</button>
         <button class="text-button" id="clear-corrupt-vault" type="button">确认清除损坏的本机数据</button>
       </div>
       <div class="gateway-secondary"><button class="text-button" id="corrupt-vault-lock" type="button">返回白屏</button></div>
     `);
-    const input = this.root.querySelector<HTMLInputElement>('#corrupt-recovery-file');
-    input?.addEventListener('change', async (event) => {
-      const file = (event.currentTarget as HTMLInputElement).files?.[0];
-      if (!file) return;
-      try {
-        await importRecoveryPackage(file);
-        if (!this.privacyCovered) void this.renderUnlock();
-      } catch (cause) {
-        this.showFormError(cause);
-      }
-    });
+    this.root.querySelector('#corrupt-cloud-recovery')?.addEventListener('click', () => this.renderCloudRecovery());
     this.root.querySelector('#download-vault-diagnostic')?.addEventListener('click', () => {
       this.beginFileExport();
       void this.withSystemSurface(() => downloadVaultDiagnostic()).catch((cause) => this.showFormError(cause));
@@ -1012,9 +1004,9 @@ export class QuietRoomApp {
   }
 
   private renderRecoveryUnlock(): void {
-    this.gatewayTemplate('恢复加密保险库', '输入导出时单独显示的恢复码。恢复文件和恢复码缺一不可。', `
+    this.gatewayTemplate('恢复加密保险库', '输入这次恢复使用的恢复码，继续完成本设备绑定。', `
       <form class="gateway-form" id="recovery-code-form">
-        <label>恢复码<textarea name="recovery-code" rows="3" autocomplete="off" spellcheck="false" required autofocus placeholder="QR2-…"></textarea></label>
+        <label>恢复码<textarea name="recovery-code" rows="3" autocomplete="off" spellcheck="false" required autofocus placeholder="QR3-…"></textarea></label>
         <p class="field-hint">恢复码不会发送到服务器。验证成功后，需要把保险库重新绑定到这台设备。</p>
         <p class="form-error" role="alert"></p>
         <button class="primary-button" type="submit">验证恢复码</button>
@@ -1211,30 +1203,15 @@ export class QuietRoomApp {
           <span><strong>使用邀请加入</strong><small>粘贴另一台设备发来的邀请链接</small></span>
           <span aria-hidden="true">→</span>
         </button>
-        <label class="choice-row file-choice">
-          <span><strong>导入恢复包</strong><small>恢复之前导出的本机加密保险库</small></span>
-          <span aria-hidden="true">↑</span>
-          <input id="recovery-file" type="file" accept="application/json,.json" />
-        </label>
+        <button class="choice-row" id="restore-cloud" type="button">
+          <span><strong>恢复已有会话</strong><small>使用恢复码读取自动加密备份</small></span><span aria-hidden="true">→</span>
+        </button>
       </div>
       <p class="form-error" role="alert"></p>
     `);
     this.root.querySelector('#create-room')?.addEventListener('click', () => this.renderCreate());
     this.root.querySelector('#join-room')?.addEventListener('click', () => this.renderPasteInvite());
-    const recoveryInput = this.root.querySelector<HTMLInputElement>('#recovery-file');
-    recoveryInput?.addEventListener('click', () => { this.filePickerActive = true; });
-    recoveryInput?.addEventListener('cancel', () => { this.filePickerActive = false; });
-    recoveryInput?.addEventListener('change', async (event) => {
-      const file = (event.currentTarget as HTMLInputElement).files?.[0];
-      this.filePickerActive = false;
-      if (!file) return;
-      try {
-        await importRecoveryPackage(file);
-        if (!this.privacyCovered) void this.renderUnlock();
-      } catch (cause) {
-        if (!this.privacyCovered) this.showFormError(cause);
-      }
-    });
+    this.root.querySelector('#restore-cloud')?.addEventListener('click', () => this.renderCloudRecovery());
   }
 
   private renderCreate(): void {
@@ -1658,14 +1635,16 @@ export class QuietRoomApp {
     const epoch = this.runtimeEpoch;
     this.gatewayTemplate('等待安全恢复', '请让对方或另一台已授权设备打开会话。在线设备会验证恢复包授权，并为本机建立全新的加密身份。', `
       <div class="credential-only-step">
-        <p class="field-hint">恢复成功后可收发新消息，旧聊天记录不会转移。原设备将退出；请重新保存新设备的恢复包，旧包将失效。</p>
+        <p class="field-hint">恢复成功后会生成新恢复码。历史消息和保险箱需要使用新码主动恢复，原设备将退出。</p>
         <p class="form-error" id="recovery-wait-error" role="status"></p>
         <button class="primary-button" id="retry-recovery" type="button">检查恢复进度</button>
-        <button class="text-button" id="restart-recovery" type="button">重新导入恢复包</button>
+        <button class="text-button" id="restart-recovery" type="button" disabled>请求过期后重新读取备份</button>
         <button class="text-button" id="pending-recovery-lock" type="button">锁定并返回白屏</button>
       </div>
     `);
     const error = this.root.querySelector<HTMLElement>('#recovery-wait-error')!;
+    const restart = this.root.querySelector<HTMLButtonElement>('#restart-recovery')!;
+    restart.disabled = !(cause instanceof ApiError && cause.code === 'RECOVERY_EXPIRED');
     error.textContent = cause instanceof Error ? cause.message : '等待另一台已授权设备在线…';
     const check = async () => {
       if (!this.isRuntimeActive(epoch, session)) return;
@@ -1679,11 +1658,14 @@ export class QuietRoomApp {
         if (!this.isRuntimeActive(epoch, session)) return;
         if (session.vault.pairingState !== 'recovering') {
           await this.openSession();
-          this.showNotice('已使用新的加密身份恢复，请保存新的恢复包');
+          this.showNotice('设备身份已恢复，请完成新恢复码保护');
           return;
         }
       } catch (nextCause) {
-        if (this.isRuntimeActive(epoch, session) && error.isConnected) error.textContent = nextCause instanceof Error ? nextCause.message : '恢复状态暂时不可用';
+        if (this.isRuntimeActive(epoch, session) && error.isConnected) {
+          error.textContent = nextCause instanceof Error ? nextCause.message : '恢复状态暂时不可用';
+          restart.disabled = !(nextCause instanceof ApiError && nextCause.code === 'RECOVERY_EXPIRED');
+        }
       } finally {
         if (button.isConnected) setBusy(button, false);
       }
@@ -1693,10 +1675,23 @@ export class QuietRoomApp {
     };
     this.root.querySelector('#retry-recovery')?.addEventListener('click', () => void check());
     this.root.querySelector('#pending-recovery-lock')?.addEventListener('click', () => this.lockNow());
-    this.root.querySelector('#restart-recovery')?.addEventListener('click', async () => {
-      await deleteCurrentVault();
-      this.unreadCounter.clear();
-      if (this.isRuntimeActive(epoch, session)) this.lockNow();
+    restart.addEventListener('click', async () => {
+      if (restart.disabled || !this.isRuntimeActive(epoch, session)) return;
+      restart.disabled = true;
+      try {
+        // A lost success response must not discard the only replacement key.
+        await this.completePendingRecovery();
+        if (this.isRuntimeActive(epoch, session)) await this.openSession();
+      } catch (retryCause) {
+        if (!this.isRuntimeActive(epoch, session)) return;
+        if (retryCause instanceof ApiError && retryCause.code === 'RECOVERY_EXPIRED') {
+          await deleteCurrentVault();
+          this.unreadCounter.clear();
+          if (this.isRuntimeActive(epoch, session)) this.lockNow();
+        } else if (error.isConnected) {
+          error.textContent = retryCause instanceof Error ? retryCause.message : '暂时无法确认恢复状态，请保留本机数据后重试';
+        }
+      }
     });
     this.recoveryPollTimer = window.setTimeout(() => void check(), 1500);
   }
@@ -1755,6 +1750,10 @@ export class QuietRoomApp {
         this.renderPendingRecovery();
         return;
       }
+    }
+    if (session.vault.recoverySource || session.vault.backup?.newCodePending) {
+      this.renderRecoveryRotation();
+      return;
     }
     const configureUnread = () => {
       if (!this.isRuntimeActive(epoch, session) || (session.vault.pairingState && session.vault.pairingState !== 'ready')) return;
@@ -1866,6 +1865,7 @@ export class QuietRoomApp {
       if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '部分历史表情回应暂时无法读取');
     });
     if (activeRoles.size === 2) void this.resumeDeferredImage();
+    this.startAutomaticBackup();
   }
 
   private async completePendingJoin(): Promise<void> {
@@ -2557,7 +2557,7 @@ export class QuietRoomApp {
                 <code class="safety-code" id="safety-code">正在计算…</code>
                 <button id="manage-devices" type="button">${icons.lock}<span>设备管理</span></button>
                 <button id="toggle-notifications" type="button">${icons.bell}<span>后台通知：正在检查…</span></button>
-                <button id="export-recovery" type="button">${icons.download}<span>导出加密恢复包</span></button>
+                <button id="backup-settings" type="button">${icons.download}<span>备份与恢复</span></button>
                 <button id="lock-room" type="button">${icons.lock}<span>立即锁定</span></button>
                 <p class="menu-footnote">新设备只能查看加入后的消息。</p>
               </div>
@@ -2570,9 +2570,9 @@ export class QuietRoomApp {
               <div><strong>正在建立安全会话</strong><span>验证完成后即可发送消息。</span></div>
             </aside>
           `}
-          ${this.session.vault.recoveryExportedAt || this.uiPreferences.recoveryReminderDismissed ? '' : `
+          ${this.uiPreferences.recoveryReminderDismissed ? '' : `
             <aside class="recovery-reminder">
-              <button type="button" id="reminder-export" class="pinned-recovery-content"><strong>保存恢复包与恢复码</strong><span>点此保存，以便通行密钥不可用时恢复会话</span></button>
+              <button type="button" id="reminder-export" class="pinned-recovery-content"><strong>自动备份与恢复码</strong><span>查看备份状态，保存本设备恢复码</span></button>
               <button type="button" id="dismiss-recovery" aria-label="关闭恢复提醒">${icons.close}</button>
             </aside>
           `}
@@ -2655,8 +2655,8 @@ export class QuietRoomApp {
     sendButton?.addEventListener('pointerdown', (event) => this.retainComposerKeyboard(event, textarea));
     this.mountImagePicker(imageInput, 'chat', this.root.querySelector<HTMLButtonElement>('#open-image-picker'));
     this.root.querySelector('#open-gallery')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderGallery()));
-    this.root.querySelector('#export-recovery')?.addEventListener('click', () => void this.exportRecovery());
-    this.root.querySelector('#reminder-export')?.addEventListener('click', () => void this.exportRecovery());
+    this.root.querySelector('#backup-settings')?.addEventListener('click', () => this.renderBackupSettings());
+    this.root.querySelector('#reminder-export')?.addEventListener('click', () => this.renderBackupSettings());
     this.root.querySelector('#dismiss-recovery')?.addEventListener('click', () => {
       this.uiPreferences.recoveryReminderDismissed = true;
       this.flushUiPreferencesSave();
@@ -4725,22 +4725,240 @@ export class QuietRoomApp {
     return button;
   }
 
-  private async exportRecovery(): Promise<void> {
+  private renderRecoveryRotation(): void {
     const session = this.session;
-    if (!session || this.privacyCovered || this.root.querySelector('.recovery-code-sheet')) return;
-    const triggers = [...this.root.querySelectorAll<HTMLButtonElement>('#export-recovery, #reminder-export')];
-    if (triggers.some((button) => button.disabled)) return;
-    triggers.forEach((button) => { button.disabled = true; });
+    if (!session || this.privacyCovered) return;
     const epoch = this.runtimeEpoch;
-    try {
-      const recovery = await prepareRecoveryPackage(session);
+    this.gatewayTemplate('更新恢复保护', '正在用新恢复码保护会话和历史备份。此步骤不会读取历史消息或保险箱。', `
+      <p class="form-error" role="status"></p><button class="primary-button" id="retry-recovery-rotation" type="button">完成更新</button>
+      <button class="text-button" id="lock-recovery-rotation" type="button">锁定，稍后继续</button>`);
+    const button = this.root.querySelector<HTMLButtonElement>('#retry-recovery-rotation')!;
+    const error = this.root.querySelector<HTMLElement>('[role=status]')!;
+    this.root.querySelector('#lock-recovery-rotation')?.addEventListener('click', () => this.lockNow());
+    const complete = async () => {
+      if (button.disabled) return;
+      setBusy(button, true, '正在保存新的恢复保护…');
+      try {
+        await syncCloudBackup(session, this.runtimeAbort!.signal);
+        if (!button.isConnected || !this.isRuntimeActive(epoch, session)) return;
+        const backup = session.vault.backup;
+        if (!backup?.syncedAt || backup.replaces || session.vault.recoverySource) throw new Error('新恢复保护尚未保存成功');
+        this.gatewayTemplate('请保存新的恢复码', '设备已恢复。以后恢复历史消息和保险箱，请使用这份新码。旧码已停止在线取件。', `
+          <code class="local-recovery-code"></code><p class="field-hint">恢复码已在本机加密保管，也请单独保存一份。历史内容尚未载入。</p>
+          <button class="primary-button" id="confirm-new-recovery" type="button">我已保存，进入会话</button>
+          <button class="text-button" id="lock-new-recovery" type="button">锁定</button><p class="form-error" role="alert"></p>`);
+        const codeNode = this.root.querySelector<HTMLElement>('code')!;
+        codeNode.textContent = backup.code;
+        const timer = window.setTimeout(() => { if (codeNode.isConnected) this.lockNow(); }, 60_000);
+        this.runtimeAbort!.signal.addEventListener('abort', () => { window.clearTimeout(timer); codeNode.textContent = ''; }, { once: true });
+        this.root.querySelector('#lock-new-recovery')?.addEventListener('click', () => this.lockNow());
+        this.root.querySelector('#confirm-new-recovery')?.addEventListener('click', async () => {
+          try {
+            await withVaultMutation(session, async mutation => {
+              if (!this.isRuntimeActive(epoch, session)) return;
+              session.vault.backup!.newCodePending = false;
+              try { await saveVault(session, mutation); } catch (cause) { session.vault.backup!.newCodePending = true; throw cause; }
+            });
+            window.clearTimeout(timer); codeNode.textContent = '';
+            if (this.isRuntimeActive(epoch, session)) await this.openSession();
+          } catch (cause) { if (codeNode.isConnected) this.showFormError(cause); }
+        });
+      } catch (cause) {
+        if (button.isConnected && this.isRuntimeActive(epoch, session)) error.textContent = cause instanceof Error ? cause.message : '恢复保护更新未完成，请重试';
+      } finally { if (button.isConnected) setBusy(button, false); }
+    };
+    button.addEventListener('click', () => void complete());
+    void complete();
+  }
+
+  private startAutomaticBackup(): void {
+    if (this.backupTimer !== null) window.clearInterval(this.backupTimer);
+    this.backupTimer = window.setInterval(() => void this.runAutomaticBackup(), 15_000);
+    void this.runAutomaticBackup();
+  }
+
+  private runAutomaticBackup(): Promise<void> {
+    if (this.backupRun) return this.backupRun;
+    const session = this.session;
+    const signal = this.runtimeAbort?.signal;
+    if (!session || !signal || this.privacyCovered || document.hidden) return Promise.resolve();
+    const epoch = this.runtimeEpoch;
+    const run = syncCloudBackup(session, signal).then(() => {
+      if (this.isRuntimeActive(epoch, session)) this.backupError = '';
+    }).catch(cause => {
+      if (this.isRuntimeActive(epoch, session)) this.backupError = cause instanceof Error ? cause.message : '自动备份暂未完成';
+    }).finally(() => {
+      if (this.backupRun === run) this.backupRun = null;
+      if (this.isRuntimeActive(epoch, session)) this.updateBackupStatus();
+    });
+    this.backupRun = run;
+    this.updateBackupStatus();
+    return run;
+  }
+
+  private updateBackupStatus(): void {
+    const status = this.root.querySelector<HTMLElement>('#backup-status');
+    if (!status || !this.session) return;
+    const backup = this.session.vault.backup;
+    status.textContent = this.backupError || (this.backupRun ? '正在加密并备份…' : backup?.syncedAt
+      ? `上次备份：${new Date(backup.syncedAt).toLocaleString()}。已保存 ${backup.archives.reduce((total, archive) => total + archive.parts.reduce((sum, part) => sum + part.count, 0), 0)} 条历史记录。`
+      : '尚未完成首次备份，联网并保持页面解锁后会自动重试。');
+    const ready = Boolean(backup?.syncedAt && !backup.replaces && !this.session.vault.recoverySource);
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-backup-ready]')) button.disabled = !ready;
+  }
+
+  private renderBackupSettings(): void {
+    const session = this.session;
+    if (!session || this.privacyCovered) return;
+    this.captureChatAnchor(false);
+    this.closeVoiceRecorder();
+    this.voicePlayback.stop();
+    this.setActiveSurface('away');
+    const epoch = this.runtimeEpoch;
+    this.root.innerHTML = `<main class="backup-page">
+      <button class="text-button" id="backup-back" type="button">返回会话</button>
+      <h1>备份与恢复</h1>
+      <p>备份在本机加密后自动保存到服务器。恢复码只由你保管，管理员无法找回。</p>
+      <section><h2>自动备份</h2><p id="backup-status" role="status"></p>
+        <button class="secondary-button" id="backup-retry" type="button">立即备份</button>
+        <p class="field-hint">备份在页面解锁、联网时进行。离开或锁定后暂停，下次解锁继续。</p>
+      </section>
+      <section><h2>本设备恢复码</h2><p>忘记保存位置时，可再次验证通行密钥，在本机查看。</p>
+        <button class="secondary-button" id="view-local-recovery" data-backup-ready type="button" disabled>查看本设备恢复码</button>
+      </section>
+      <section><h2>恢复历史内容</h2><p>恢复设备不会自动载入旧消息和保险箱。按需选择，再输入本设备当前的恢复码。</p>
+        <div class="backup-actions"><button class="secondary-button" data-restore="chat" data-backup-ready type="button" disabled>恢复历史消息</button>
+        ${session.vault.role === 'creator' ? '<button class="secondary-button" data-restore="gallery" data-backup-ready type="button" disabled>恢复保险箱</button>' : ''}</div>
+        <div id="history-restore-form"></div>
+      </section>
+    </main>`;
+    let restoreOperation: AbortController | undefined;
+    let historyChanged = false;
+    const cancelRestore = () => restoreOperation?.abort();
+    this.runtimeAbort!.signal.addEventListener('abort', cancelRestore, { once: true });
+    this.root.querySelector('#backup-back')?.addEventListener('click', async () => {
+      cancelRestore();
+      this.runtimeAbort?.signal.removeEventListener('abort', cancelRestore);
+      if (historyChanged) await this.openSession(); else this.renderChat();
+    });
+    this.root.querySelector('#backup-retry')?.addEventListener('click', () => void this.runAutomaticBackup());
+    this.root.querySelector('#view-local-recovery')?.addEventListener('click', () => this.verifyLocalRecoveryCode());
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-restore]')) button.addEventListener('click', () => {
       if (!this.isRuntimeActive(epoch, session)) return;
-      this.showRecoveryCode(recovery, session, epoch);
-    } catch (cause) {
-      if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '恢复包生成失败');
-    } finally {
-      triggers.forEach((button) => { button.disabled = false; });
-    }
+      cancelRestore();
+      const scope = button.dataset.restore === 'gallery' ? 'gallery' : 'chat';
+      const host = this.root.querySelector<HTMLElement>('#history-restore-form')!;
+      host.innerHTML = `<form><label>本设备当前恢复码<input name="code" type="password" autocomplete="off" spellcheck="false" required placeholder="QR3-…" /></label>
+        <p class="field-hint">${scope === 'chat' ? '仅恢复历史消息。' : '仅恢复保险箱，不把旧消息加入聊天列表。'}图片原件在你查看时才下载解密。</p>
+        <button class="primary-button" type="submit">验证并恢复${scope === 'chat' ? '历史消息' : '保险箱'}</button><p role="status"></p></form>`;
+      const form = host.querySelector('form')!;
+      const input = form.querySelector('input')!;
+      input.focus();
+      form.addEventListener('submit', async event => {
+        event.preventDefault();
+        const submit = form.querySelector<HTMLButtonElement>('button')!;
+        if (submit.disabled || !this.isRuntimeActive(epoch, session)) return;
+        let code = input.value.trim(); input.value = '';
+        const status = form.querySelector<HTMLElement>('[role=status]')!;
+        setBusy(submit, true, '正在恢复…');
+        const operation = new AbortController();
+        restoreOperation = operation;
+        try {
+          const count = await restoreCloudHistory(session, code, scope, operation.signal, count => {
+            if (count > 0) historyChanged = true;
+            if (form.isConnected && this.isRuntimeActive(epoch, session)) status.textContent = `已恢复 ${count} 条记录…`;
+          });
+          code = '';
+          if (!form.isConnected || !this.isRuntimeActive(epoch, session)) return;
+          status.textContent = `恢复完成，新增 ${count} 条记录。返回会话后即可查看。`;
+          historyChanged = historyChanged || count > 0;
+        } catch (cause) {
+          if (form.isConnected && this.isRuntimeActive(epoch, session)) status.textContent = `${cause instanceof Error ? cause.message : '恢复未完成'}。已通过验证的记录会保留，可安全重试。`;
+        } finally { code = ''; if (restoreOperation === operation) restoreOperation = undefined; if (submit.isConnected) setBusy(submit, false); }
+      });
+    });
+    this.updateBackupStatus();
+  }
+
+  private verifyLocalRecoveryCode(): void {
+    const original = this.session;
+    if (!original || this.privacyCovered) return;
+    const roomId = original.vault.roomId;
+    const deviceId = original.vault.identity.publicBundle.deviceId;
+    this.lockNow();
+    this.privacyCovered = false;
+    document.body.className = 'app-mode';
+    this.gatewayTemplate('查看本设备恢复码', '请再次验证通行密钥。恢复码只在这台设备上解密显示。', `
+      <button class="primary-button" id="verify-recovery-passkey" type="button">验证通行密钥</button>
+      <p class="form-error" role="alert"></p><button class="text-button" id="cancel-recovery-view" type="button">取消并锁定</button>`);
+    const button = this.root.querySelector<HTMLButtonElement>('#verify-recovery-passkey')!;
+    const error = this.root.querySelector<HTMLElement>('.form-error')!;
+    const epoch = this.runtimeEpoch;
+    this.root.querySelector('#cancel-recovery-view')?.addEventListener('click', () => this.lockNow());
+    button.addEventListener('click', async () => {
+      if (button.disabled) return;
+      setBusy(button, true, '正在验证…');
+      try {
+        const unlocked = await this.withDeviceVerification(() => unlockVault());
+        if (!button.isConnected || this.privacyCovered || this.runtimeEpoch !== epoch) return;
+        if (unlocked.vault.roomId !== roomId || unlocked.vault.identity.publicBundle.deviceId !== deviceId) throw new Error('本设备会话已变化，请重新进入');
+        const backup = unlocked.vault.backup;
+        if (!backup?.syncedAt || backup.replaces || unlocked.vault.recoverySource) throw new Error('新恢复码还未完成备份，请先联网完成更新');
+        this.session = unlocked;
+        this.runtimeAbort = new AbortController();
+        this.resetIdleLock();
+        this.gatewayTemplate('本设备恢复码', '请单独保存。恢复码不会发送到服务器，此页面将在一分钟后锁定。', `
+          <code class="local-recovery-code"></code><button class="secondary-button" id="copy-local-recovery" type="button">复制恢复码</button>
+          <button class="primary-button" id="hide-local-recovery" type="button">隐藏并返回</button><p class="field-hint" role="status"></p>`);
+        const codeNode = this.root.querySelector<HTMLElement>('.local-recovery-code')!;
+        codeNode.textContent = backup.code;
+        const timer = window.setTimeout(() => { if (codeNode.isConnected) this.lockNow(); }, 60_000);
+        this.runtimeAbort.signal.addEventListener('abort', () => { window.clearTimeout(timer); codeNode.textContent = ''; }, { once: true });
+        this.root.querySelector('#copy-local-recovery')?.addEventListener('click', async () => {
+          try {
+            await this.withSystemSurface(() => navigator.clipboard.writeText(codeNode.textContent ?? ''));
+            if (codeNode.isConnected) this.root.querySelector<HTMLElement>('[role=status]')!.textContent = '已复制到系统剪贴板，请妥善保管。';
+          } catch { if (codeNode.isConnected) this.root.querySelector<HTMLElement>('[role=status]')!.textContent = '复制失败，请手动保存。'; }
+        });
+        this.root.querySelector('#hide-local-recovery')?.addEventListener('click', async () => {
+          window.clearTimeout(timer); codeNode.textContent = '';
+          await this.openSession();
+          if (this.isRuntimeActive(epoch, unlocked)) this.renderBackupSettings();
+        });
+      } catch (cause) {
+        if (button.isConnected && !this.privacyCovered) error.textContent = cause instanceof Error ? cause.message : '验证未完成';
+      } finally { if (button.isConnected) setBusy(button, false); }
+    });
+  }
+
+  private renderCloudRecovery(): void {
+    this.gatewayTemplate('恢复已有会话', '输入恢复码，自动取得服务器上的加密备份并在本机解密。', `
+      <form id="cloud-recovery-form" class="gateway-form"><label>恢复码<input name="code" type="password" autocomplete="off" spellcheck="false" required placeholder="QR3-…" /></label>
+      <p class="field-hint">设备恢复需要另一台已授权设备在线。历史消息和保险箱将在恢复后由你主动选择读取。</p>
+      <p class="form-error" role="alert"></p><button class="primary-button" type="submit">验证并恢复设备</button></form>
+      <button class="text-button" id="cloud-recovery-cancel" type="button">取消并锁定</button>`);
+    const form = this.root.querySelector<HTMLFormElement>('#cloud-recovery-form')!;
+    const epoch = this.runtimeEpoch;
+    const controller = new AbortController();
+    this.runtimeAbort?.abort();
+    this.runtimeAbort = controller;
+    this.root.querySelector('#cloud-recovery-cancel')?.addEventListener('click', () => this.lockNow());
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const button = form.querySelector<HTMLButtonElement>('button')!;
+      if (button.disabled) return;
+      let code = String(new FormData(form).get('code') ?? '').trim(); form.reset();
+      setBusy(button, true, '正在读取加密备份…');
+      try {
+        const unlocked = await recoverFromCloud(code, controller.signal);
+        code = '';
+        if (!form.isConnected || this.privacyCovered || epoch !== this.runtimeEpoch) return;
+        this.session = unlocked;
+        this.renderRecoveredVaultBinding();
+      } catch (cause) {
+        if (form.isConnected && !this.privacyCovered) form.querySelector<HTMLElement>('.form-error')!.textContent = cause instanceof Error ? cause.message : '恢复失败';
+      } finally { code = ''; if (button.isConnected) setBusy(button, false); }
+    });
   }
 
   private beginFileExport(): void {
@@ -4754,130 +4972,6 @@ export class QuietRoomApp {
     this.fileExportActive = false;
     if (this.fileExportResetTimer !== null) window.clearTimeout(this.fileExportResetTimer);
     this.fileExportResetTimer = null;
-  }
-
-  private showRecoveryCode(recovery: PreparedRecoveryExport, session: VaultSession, epoch: number): void {
-    if (!this.isRuntimeActive(epoch, session)) return;
-    const previousSheet = this.root.querySelector<HTMLElement>('.recovery-code-sheet');
-    if (previousSheet) {
-      if (!closeDialog(previousSheet, { animate: false, restoreFocus: false })) previousSheet.remove();
-    }
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const sheet = document.createElement('section');
-    sheet.className = 'recovery-code-sheet';
-    sheet.setAttribute('role', 'dialog');
-    sheet.setAttribute('aria-modal', 'true');
-    sheet.setAttribute('aria-labelledby', 'recovery-code-title');
-    sheet.setAttribute('aria-describedby', 'recovery-code-description');
-    sheet.innerHTML = `
-      <div class="recovery-code-panel">
-        <p class="eyebrow">恢复包</p>
-        <h2 id="recovery-code-title">文件与恢复码，分开保存</h2>
-        <p id="recovery-code-description">恢复文件和恢复码缺一不可，请分开保存。关闭后无法再次查看这份恢复码。</p>
-        ${session.vault.protocol === 'mls-rfc9420' ? '<p class="recovery-boundary">恢复时需要另一台已授权设备在线。恢复后只接收新消息，原设备及旧恢复包将停用。</p>' : ''}
-        <code></code>
-        <div class="recovery-code-actions">
-          <button class="secondary-button" type="button" data-copy-code>复制恢复码</button>
-          <button class="secondary-button" type="button" data-save-recovery>保存恢复文件</button>
-        </div>
-        <p class="recovery-save-status" role="status">保存文件后，请确认文件和恢复码都已妥善保管。</p>
-        <p class="form-error" role="alert"></p>
-        <button class="primary-button recovery-confirm" type="button" data-close-code disabled>我已分开保存</button>
-        <button class="text-button recovery-cancel" type="button" data-cancel-code>稍后保存</button>
-      </div>
-    `;
-    sheet.querySelector('code')!.textContent = recovery.recoveryCode;
-    this.root.append(sheet);
-    const confirmButton = sheet.querySelector<HTMLButtonElement>('[data-close-code]')!;
-    const error = sheet.querySelector<HTMLElement>('.form-error')!;
-    let fileDownloadStarted = false;
-    let confirming = false;
-    const dialog = mountDialog(sheet, {
-      isActive: () => this.isRuntimeActive(epoch, session),
-      signal: this.runtimeAbort?.signal,
-      returnFocus: previouslyFocused,
-      initialFocus: sheet.querySelector<HTMLButtonElement>('[data-copy-code]'),
-      beforeClose: () => !confirming,
-      onClose: () => {
-        recovery.recoveryCode = '';
-        sheet.querySelector('code')!.textContent = '';
-        this.finishFileExport();
-      },
-    });
-    const close = (confirmed = false) => {
-      if (confirming) return;
-      dialog.close();
-      if (this.isRuntimeActive(epoch, session)) this.showNotice(confirmed ? '恢复文件和恢复码已保存' : '可随时从菜单保存恢复包');
-    };
-    sheet.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-        close();
-        return;
-      }
-    });
-    sheet.querySelector('[data-copy-code]')?.addEventListener('click', async (event) => {
-      const button = event.currentTarget as HTMLButtonElement;
-      try {
-        await this.withSystemSurface(() => navigator.clipboard.writeText(recovery.recoveryCode));
-        if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected) return;
-        button.textContent = '已复制';
-      } catch {
-        if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected) return;
-        button.textContent = '复制失败，请手动记录';
-      }
-    });
-    sheet.querySelector('[data-save-recovery]')?.addEventListener('click', async (event) => {
-      const button = event.currentTarget as HTMLButtonElement;
-      error.textContent = '';
-      setBusy(button, true, '正在保存…');
-      try {
-        this.beginFileExport();
-        // A native handoff may lock the page; a late result cannot confirm
-        // recovery setup in a different unlocked session.
-        await this.withSystemSurface(() => downloadBlob(recovery.blob, recovery.filename, { preferShare: false }));
-        if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected) return;
-        fileDownloadStarted = true;
-        confirmButton.disabled = false;
-        sheet.querySelector<HTMLElement>('.recovery-save-status')!.textContent = '文件已开始下载。检查保存位置后，再确认文件和恢复码已分开保存。';
-      } catch (cause) {
-        this.finishFileExport();
-        if (sheet.isConnected) error.textContent = cause instanceof Error ? cause.message : '文件保存失败，请重试';
-      } finally {
-        if (button.isConnected) setBusy(button, false);
-      }
-    });
-    confirmButton.addEventListener('click', async () => {
-      if (!fileDownloadStarted || confirming || !this.isRuntimeActive(epoch, session)) return;
-      confirming = true;
-      error.textContent = '';
-      setBusy(confirmButton, true, '正在确认…');
-      try {
-        await withVaultMutation(session, async (mutation) => {
-          if (!this.isRuntimeActive(epoch, session)) return;
-          const previousExportedAt = session.vault.recoveryExportedAt;
-          session.vault.recoveryExportedAt = recovery.exportedAt;
-          try {
-            await saveVault(session, mutation);
-          } catch (cause) {
-            session.vault.recoveryExportedAt = previousExportedAt;
-            throw cause;
-          }
-        });
-        if (!this.isRuntimeActive(epoch, session)) return;
-        this.root.querySelector('.recovery-reminder')?.remove();
-        confirming = false;
-        close(true);
-      } catch (cause) {
-        if (sheet.isConnected) error.textContent = cause instanceof Error ? cause.message : '保存确认失败，请重试';
-      } finally {
-        confirming = false;
-        if (confirmButton.isConnected) setBusy(confirmButton, false);
-      }
-    });
-    sheet.querySelector('[data-cancel-code]')?.addEventListener('click', () => close());
-    sheet.querySelector<HTMLButtonElement>('[data-copy-code]')?.focus();
   }
 
   private createImagePreview(manifest: ImageManifest, album: ImageManifest[], index: number): HTMLButtonElement {
@@ -5771,6 +5865,10 @@ export class QuietRoomApp {
   }
 
   private cleanupRuntime(preserveFilePicker = false): void {
+    if (this.backupTimer !== null) window.clearInterval(this.backupTimer);
+    this.backupTimer = null;
+    this.backupRun = null;
+    this.backupError = '';
     this.retainedSession = null;
     this.idleDeadline = 0;
     this.idleMonotonicDeadline = 0;

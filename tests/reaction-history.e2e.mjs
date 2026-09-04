@@ -47,7 +47,7 @@ try {
       };
     }));
     const database = await new Promise((resolve, reject) => {
-      const request = indexedDB.open('quiet-room', 5);
+      const request = indexedDB.open('quiet-room');
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });

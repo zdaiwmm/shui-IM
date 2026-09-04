@@ -161,3 +161,13 @@ interruption survives reboot and requires inspection before another deployment.
 - Certificate expiry was re-read as **2026-12-02 22:54:18 UTC**. Certbot 1.22.0 still has manual DNS authentication configured for this domain. A dry-run with webroot and explicit `--preferred-challenges http-01` reached CA validation but failed with HTTP **403**. No production certificate or renewal authentication was replaced. Automated DNS validation remains to be configured with appropriate existing credentials; merely having an active timer is insufficient.
 - No configured offsite destination, verified offsite receipt, or rclone executable was found in the inspected deployment configuration. The export timer remains disabled until the destination/runtime is configured and a real export plus download comparison succeeds. No destination, credential, or successful cloud copy has been invented.
 - An actual operations-check run reports `TLS_UNATTENDED_RENEWAL_NOT_CONFIGURED` and `OFFSITE_BACKUP_MISSING_OR_STALE`. These are unresolved external configuration requirements, not a failure of the deployed application. The six-hour timer records failures in systemd/journal; external notification delivery must be integrated with the operator's monitoring service.
+
+## 自动恢复备份与后台运维
+
+客户端的恢复包和历史归档以密文存放在主 SQLite 中，既有在线快照及冷备份会包含这些表；历史附件仍依赖已完成密文块。客户端仅在前台解锁联网时同步，所以服务器快照新鲜不等于每台设备的最新消息已备份。恢复演练需同时验证 QR3 取件、本地完整性、可信设备协助替换、新码轮换、主动历史/相册恢复及原件可用性，使用合成会话。协议详见 [RECOVERY_BACKUPS.md](./RECOVERY_BACKUPS.md)。
+
+存在恢复备份的未配对会话不会按普通无用邀请自动过期。后台按会话查看设备、时间和大小；不要只按消息数为零就删除。清理要求完整会话号及新的密码/TOTP 验证，删除在线会话和恢复材料并清理附件。附件删除中断由持久队列重试；独立快照与设备副本不会被远程删除。审计记录仅保留删除动作、会话号和时间，不记录管理员表单或恢复材料。现场运行应对元数据记录采取适当访问及保留策略。
+
+`sao.shui.click` 后台默认关闭，配置步骤见 `DEPLOYMENT.md`。管理员配置在聊天数据卷之外，只读挂载给应用，需独立安全保管并保持服务器时钟准确。后台密码哈希与 TOTP 种子不具备用户内容解密能力。备份工作人员仍不得记录 Authorization、请求正文、恢复码、凭据二维码或归档读取令牌。发布维护门必须同时覆盖普通应用和后台写入，不能让管理员在可回滚的验证窗口修改数据库。
+
+数据快照可能包含历史恢复包装和旧取件哈希。恢复旧服务器快照会恢复当时的权限/版本状态，不应把在线轮换当作不可回滚的全局吊销；在受信任维护中评估快照时点、客户端更新与需重新建立的恢复保护，不能静默对外宣称旧码永远无法再次使用。

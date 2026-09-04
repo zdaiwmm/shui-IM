@@ -301,10 +301,10 @@ try {
   await capture('chat-messages', ['mobile', 'small', 'desktop', 'landscape', 'dark', 'large']);
   await menu();
   await capture('chat-menu', ['mobile', 'small', 'landscape', 'dark', 'large']);
-  await creator.locator('#export-recovery').click();
-  await creator.locator('.recovery-code-panel').waitFor();
+  await creator.locator('#backup-settings').click();
+  await creator.locator('.backup-page').waitFor();
   await capture('recovery', ['mobile', 'small', 'landscape', 'dark', 'large']);
-  await creator.locator('[data-cancel-code]').click();
+  await creator.locator('#backup-back').click();
   await creator.keyboard.press('Escape');
   await creator.waitForTimeout(300);
   const source = creator.locator('.message.incoming').filter({ hasText: messages[4] });

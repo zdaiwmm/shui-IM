@@ -1,0 +1,13 @@
+# Optional persistent admin console; never put this credential in the data volume.
+services:
+  quiet-room:
+    environment:
+      ADMIN_ORIGIN: https://sao.shui.click
+      ADMIN_CONFIG_FILE: /run/quiet-room-admin.json
+    volumes:
+      - type: bind
+        source: ${QUIET_ROOM_ADMIN_CONFIG:?Set the protected absolute administrator config path}
+        target: /run/quiet-room-admin.json
+        read_only: true
+        bind:
+          create_host_path: false

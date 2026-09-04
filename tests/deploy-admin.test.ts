@@ -9,7 +9,7 @@ type Mode = 'disabled' | 'enabled' | 'first-enable' | 'missing-settings' | 'miss
 // Run the real Compose selection/preflight block against isolated files and
 // command stand-ins. Never invokes Docker, SSH, root helpers, or production.
 async function simulate(mode: Mode) {
-  const directory = await mkdtemp(path.join(tmpdir(), 'quiet-call-deployment-'));
+  const directory = await mkdtemp(path.join(tmpdir(), 'quiet-admin-deployment-'));
   try {
     const source = await readFile(new URL('../deploy/server/quiet-room-deploy', import.meta.url), 'utf8');
     const start = source.indexOf('# Calling is a persistent, administrator-controlled deployment choice');
@@ -18,10 +18,10 @@ async function simulate(mode: Mode) {
     expect(end).toBeGreaterThan(start);
     for (const name of ['new', 'old', 'shared', 'state']) await mkdir(path.join(directory, name));
     for (const name of ['new/compose.yaml', 'old/compose.yaml']) await writeFile(path.join(directory, name), 'services: {}\n');
-    if (mode !== 'missing-overlay') await writeFile(path.join(directory, 'new/compose.calls.yaml'), 'services: {}\n');
-    if (mode !== 'first-enable' && mode !== 'missing-previous-overlay') await writeFile(path.join(directory, 'old/compose.calls.yaml'), 'services: {}\n');
-    if (mode !== 'disabled' && mode !== 'missing-settings') await writeFile(path.join(directory, 'shared/calls.env'), 'TURN_SECRET=test-only-never-print-this-value\n');
-    if (['enabled', 'missing-settings', 'missing-overlay', 'missing-previous-overlay'].includes(mode)) await writeFile(path.join(directory, 'state/calls-enabled'), '1\n');
+    if (mode !== 'missing-overlay') await writeFile(path.join(directory, 'new/compose.admin.yaml'), 'services: {}\n');
+    if (mode !== 'first-enable' && mode !== 'missing-previous-overlay') await writeFile(path.join(directory, 'old/compose.admin.yaml'), 'services: {}\n');
+    if (mode !== 'disabled' && mode !== 'missing-settings') await writeFile(path.join(directory, 'shared/admin.env'), 'TURN_SECRET=test-only-never-print-this-value\n');
+    if (['enabled', 'missing-settings', 'missing-overlay', 'missing-previous-overlay'].includes(mode)) await writeFile(path.join(directory, 'state/admin-enabled'), '1\n');
     const harness = `set -Eeuo pipefail
 cd "$CALL_DEPLOY_TEST_DIR"
 APP_ROOT="$CALL_DEPLOY_TEST_DIR"; PROJECT=quiet-room
@@ -40,13 +40,13 @@ stat() {
 docker() {
   printf '%s\\n' "$*" >> trace
   if [[ "$1" == ps ]]; then
-    if [[ "$CALL_DEPLOY_TEST_MODE" == enabled || "$CALL_DEPLOY_TEST_MODE" == missing-settings ]]; then printf 'existing-turn\\n'; fi
+    if [[ "$CALL_DEPLOY_TEST_MODE" == enabled || "$CALL_DEPLOY_TEST_MODE" == missing-settings ]]; then :; fi
   fi
   return 0
 }
 ${source.slice(start, end)}
-printf '%s\\n' "$calls_enabled" > enabled
-printf '%s\\n' "$previous_calls_enabled" > previous-enabled
+printf '%s\\n' "$admin_enabled" > enabled
+printf '%s\\n' "$previous_admin_enabled" > previous-enabled
 printf '%s\\n' "\${new_compose_args[@]}" > new-args
 printf '%s\\n' "\${previous_compose_args[@]}" > old-args
 `;
@@ -56,30 +56,30 @@ printf '%s\\n' "\${previous_compose_args[@]}" > old-args
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
-describe('persistent optional calling deployment', () => {
-  it('keeps a regular chat release free of TURN profiles and credentials', async () => {
+describe('persistent optional administrator deployment', () => {
+  it('keeps administration disabled without persistent settings', async () => {
     const result = await simulate('disabled');
     expect(result.status).toBe(0);
     expect(result.enabled).toBe('0');
-    expect(result.newArgs).not.toContain('calls.env');
+    expect(result.newArgs).not.toContain('admin.env');
     expect(result.newArgs).not.toContain('--profile');
     expect(result.trace.match(/config --quiet/g)).toHaveLength(2);
     expect(result.trace).not.toContain('pull quiet-room-turn');
   });
 
-  it('retains the persistent environment and profile for both new release and rollback', async () => {
+  it('retains the persistent environment and overlay for both new release and rollback', async () => {
     const result = await simulate('enabled');
     expect(result.status).toBe(0);
     expect(result.enabled).toBe('1');
     expect(result.previousEnabled).toBe('1');
     for (const args of [result.newArgs, result.oldArgs]) {
       expect(args).toContain('/shared/production.env');
-      expect(args).toContain('/shared/calls.env');
-      expect(args.indexOf('/shared/calls.env')).toBeGreaterThan(args.indexOf('/shared/production.env'));
-      expect(args).toContain('compose.calls.yaml');
-      expect(args).toContain('--profile\ncalls');
+      expect(args).toContain('/shared/admin.env');
+      expect(args.indexOf('/shared/admin.env')).toBeGreaterThan(args.indexOf('/shared/production.env'));
+      expect(args).toContain('compose.admin.yaml');
+      expect(args).not.toContain('--profile');
     }
-    expect(result.trace).toContain('pull quiet-room-turn');
+    expect(result.trace).not.toContain('pull quiet-room-turn');
     expect(result.trace).not.toContain('test-only-never-print-this-value');
     expect(result.trace).not.toContain(' up ');
   });
@@ -87,9 +87,9 @@ describe('persistent optional calling deployment', () => {
   it('restores a chat-only previous release on a failed first enable', async () => {
     const result = await simulate('first-enable');
     expect(result.status).toBe(0);
-    expect(result.newArgs).toContain('compose.calls.yaml');
+    expect(result.newArgs).toContain('compose.admin.yaml');
     expect(result.previousEnabled).toBe('0');
-    expect(result.oldArgs).not.toContain('calls.env');
+    expect(result.oldArgs).not.toContain('admin.env');
     expect(result.oldArgs).not.toContain('--profile');
   });
 
