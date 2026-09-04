@@ -20,7 +20,8 @@
     "backup:restore": "node scripts/restore-backup.mjs",
     "backup:daemon": "node scripts/backup-loop.mjs",
     "push:keys": "node scripts/generate-vapid-keys.mjs",
-    "deploy:production": "bash scripts/deploy-production.sh"
+    "deploy:production": "bash scripts/deploy-production.sh",
+    "deploy:doctor": "bash scripts/deploy-production.sh --doctor"
   },
   "dependencies": {
     "@noble/ciphers": "2.1.1",

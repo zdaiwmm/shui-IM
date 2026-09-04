@@ -1,0 +1,5 @@
+{
+  "serverHost": "your-production-host",
+  "serverUser": "admin",
+  "serverKey": "/absolute/path/to/production-ssh-key"
+}

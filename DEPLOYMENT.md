@@ -28,6 +28,43 @@ deliberate fresh-origin cutover.
    ```
 
 6. Review the exact commit shown by the script and type `DEPLOY` to continue.
+   For an agent executing a user-authorized release, use
+   `npm run deploy:production -- --sha <full-40-character-main-commit>`.
+   This replaces only the interactive confirmation, not any safety check.
+
+### Fixed release entry point and one-time setup
+
+Use `npm run deploy:doctor` before a release. It checks GitHub code access,
+GitHub CI read access, and SSH access to the installed production helper without
+changing production. Do not invent another release route when a check fails.
+
+Save machine-specific settings once in `.deploy.local.json`, using
+`.deploy.example.json` as the template. This file is ignored by Git; it contains
+host/user/key **paths**, never private keys or tokens. Environment settings below
+override the JSON settings. `githubKey` is optional: if absent, Git reuses its
+existing SSH configuration. SSH host verification stays strict; provision and
+verify host fingerprints separately, never disable verification to release.
+
+The fixed entry point also requires GitHub CLI (`gh`) with authenticated read
+access to this private repository's Actions. Reuse `gh`'s existing login or
+supported token environment; do not store tokens in the release config. A Git
+SSH key permits pushing code but is not a GitHub Actions API login. Browser
+login alone likewise does not authenticate `gh`. Initial CLI installation/login
+is a separate setup step, not an action silently performed by deployment.
+
+The script requires a clean local `main` matching `origin/main` and verifies the
+latest successful **CI push run for that exact main SHA**. PR CI alone is not
+sufficient. It invokes the existing root helper only after those checks, then
+reads back the live SHA. The helper retains responsibility for cold backups,
+traffic gating, health/WebSocket checks and safe rollback. No root-helper
+self-update, firewall change, automatic merge or CI bypass is introduced.
+
+If SSH times out, consult the approved source-IP restriction in `OPERATIONS.md`.
+An authenticated Workbench browser session is not a reusable CLI credential.
+Do not widen the firewall or extract browser session credentials to make a
+release pass. A trusted reachable SSH route must be established separately.
+After an ambiguous cutover disconnect, inspect the current SHA, gate and helper
+logs before retrying; the script never automatically retries the deployment.
 
 Before the first release using the traffic gate, separately install the reviewed
 Nginx configuration and root-owned deployment helper. Source synchronization
@@ -38,8 +75,8 @@ health endpoint remains healthy before it stops any container. A missing or
 unreadable gate aborts the release before data changes. Keep the marker directory
 mode 0755 so Nginx can stat it; it contains no credentials.
 
-The deployment command intentionally requires these environment variables; host,
-user, and private-key paths are not embedded in the repository:
+Alternatively configure these environment variables; host, user, and private-key
+paths are not embedded in tracked repository files:
 
 ```bash
 export QUIET_ROOM_SERVER_HOST='your-production-host'
