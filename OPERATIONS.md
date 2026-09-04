@@ -150,3 +150,14 @@ rollback for that release. A post-open WSS failure retains all current data and
 reports `POST_OPEN_CHECK_FAILED`; do not manually restore the old archive over
 messages clients may already have acknowledged. A marker left after an
 interruption survives reboot and requires inspection before another deployment.
+
+
+## Verified deployment and remaining dependencies (2026-09-04, audit fixes)
+
+- Application commit `bebcc1090206c1df752000f1092fd2840bb217f9` was pushed to GitHub and deployed through the authenticated Alibaba Cloud Workbench. The running container image matches that commit and reports healthy. The deployment helper completed its local/public HTTP and WebSocket probes, returned `DEPLOY_OK`, and removed the maintenance marker. Public health returned `{"ok":true,"database":true,"storage":true}`.
+- Release directory: `/opt/quiet-room/git-releases/20260904T025836Z-bebcc1090206`. The verified cold predeploy archive is `/opt/quiet-room/backups/predeploy/data-20260904T025836Z-bebcc1090206.tar.gz`.
+- The revised root-owned deployment helper and `/etc/nginx/conf.d/ai-shui.conf` were installed separately, after staging from that exact commit and comparing SHA-256 digests with the trusted local files. `nginx -t` passed; the helper is `root:root` mode `0755`. Previous installed copies are preserved in `/opt/quiet-room/deploy-state/pre-bebcc109/`.
+- The operations checker, offsite exporter, their systemd units, and the Certbot post-renewal Nginx reload hook are installed. `quiet-room-operations-check.timer` is enabled. The host's existing renewal timer is **`certbot-renew.timer`**, enabled and active; `/etc/quiet-room/operations.env` sets `QUIET_ROOM_CERTBOT_TIMER=certbot-renew.timer`. Do not assume the Debian-style `certbot.timer` name on this host.
+- Certificate expiry was re-read as **2026-12-02 22:54:18 UTC**. Certbot 1.22.0 still has manual DNS authentication configured for this domain. A dry-run with webroot and explicit `--preferred-challenges http-01` reached CA validation but failed with HTTP **403**. No production certificate or renewal authentication was replaced. Automated DNS validation remains to be configured with appropriate existing credentials; merely having an active timer is insufficient.
+- No configured offsite destination, verified offsite receipt, or rclone executable was found in the inspected deployment configuration. The export timer remains disabled until the destination/runtime is configured and a real export plus download comparison succeeds. No destination, credential, or successful cloud copy has been invented.
+- An actual operations-check run reports `TLS_UNATTENDED_RENEWAL_NOT_CONFIGURED` and `OFFSITE_BACKUP_MISSING_OR_STALE`. These are unresolved external configuration requirements, not a failure of the deployed application. The six-hour timer records failures in systemd/journal; external notification delivery must be integrated with the operator's monitoring service.
