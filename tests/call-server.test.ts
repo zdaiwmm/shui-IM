@@ -27,10 +27,11 @@ async function envelope(identity: PrivateIdentity, recipientId: string, roomId: 
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt']);
   const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoder.encode(JSON.stringify({ kind: 'video', description: { type: action === 'accept' ? 'answer' : 'offer', sdp: 'private-sdp-never-on-server' } })));
+  const now = Date.now();
   return signed(identity, {
     v: 1, protocol: 'quiet-room-call-v1', roomId, callId, eventId: crypto.randomUUID(),
     senderId: identity.publicBundle.deviceId, recipientId, action,
-    createdAt: Date.now(), expiresAt: Date.now() + 60_000,
+    createdAt: now, expiresAt: now + 60_000,
     iv: toBase64Url(iv), ciphertext: toBase64Url(ciphertext), ...patch,
   });
 }
@@ -70,6 +71,17 @@ async function setup(options = {}) {
 }
 
 describe('ephemeral encrypted call transport', () => {
+  it('constructs a valid maximum-TTL fixture even when clock reads advance across milliseconds', async () => {
+    const [caller, callee] = await Promise.all([generateIdentity(), generateIdentity()]);
+    let now = 1_780_000_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => now++);
+    const value = await envelope(caller, callee.publicBundle.deviceId, crypto.randomUUID(), crypto.randomUUID(), 'invite');
+    expect(value.expiresAt - value.createdAt).toBe(60_000);
+    expect(validateCallEnvelope(value, value.roomId, value.createdAt)).toBeNull();
+    expect(validateCallEnvelope(value, value.roomId, value.expiresAt)).toBe('CALL_EXPIRED');
+    expect(validateCallEnvelope({ ...value, expiresAt: value.expiresAt + 1 }, value.roomId, value.createdAt)).toBe('INVALID_CALL');
+  });
+
   it('forwards authenticated ciphertext, arbitrates acceptance and never adds media signals to history', async () => {
     const { server, roomId, caller, callee, a, b, callId, make } = await setup();
     const invite = await make('invite');
@@ -104,7 +116,9 @@ describe('ephemeral encrypted call transport', () => {
     await a.waitFor((frame) => frame.code === 'CALL_FORBIDDEN');
     a.send({ type: 'call', envelope: await make('invite', false, { roomId: crypto.randomUUID() }) });
     await a.waitFor((frame) => frame.code === 'INVALID_CALL');
-    a.send({ type: 'call', envelope: await make('invite', false, { createdAt: Date.now() - 70_000, expiresAt: Date.now() - 10_000 }) });
+    // One clock snapshot keeps the expired fixture within the valid 60s TTL.
+    const expiredAt = Date.now() - 10_000;
+    a.send({ type: 'call', envelope: await make('invite', false, { createdAt: expiredAt - 60_000, expiresAt: expiredAt }) });
     await a.waitFor((frame) => frame.code === 'CALL_EXPIRED');
     const unknown = { ...original, plaintextSdp: 'not-allowed' };
     expect(validateCallEnvelope(unknown, original.roomId)).toBe('INVALID_CALL');

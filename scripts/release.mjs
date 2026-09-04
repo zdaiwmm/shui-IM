@@ -1,11 +1,16 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
+import { createReleaseTimer, isMainModule } from './release-runtime.mjs';
+import { verifySuccessfulCI } from './release-ci.mjs';
+
+export { requireSuccessfulCI } from './release-ci.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const repo = 'zdaiwmm/shui-IM';
+const timed = createReleaseTimer('release');
 
 export function validateConfig(config) {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9.-]*$/.test(config.serverHost ?? '')) throw new Error('Missing or invalid serverHost');
@@ -16,16 +21,6 @@ export function validateConfig(config) {
     }
   }
   return config;
-}
-
-export function requireSuccessfulCI(response, sha) {
-  const runs = (response.workflow_runs ?? []).filter(run => run.head_sha === sha &&
-    run.head_branch === 'main' && run.event === 'push' && run.path === '.github/workflows/ci.yml');
-  runs.sort((a, b) => b.id - a.id);
-  if (!runs.length || runs[0].status !== 'completed' || runs[0].conclusion !== 'success') {
-    throw new Error('Latest CI push run for the exact main commit has not passed.');
-  }
-  return runs[0].html_url;
 }
 
 function command(program, args, options = {}) {
@@ -43,6 +38,8 @@ async function main() {
   const doctor = args.length === 1 && args[0] === '--doctor';
   const approved = args.length === 2 && args[0] === '--sha' && /^[0-9a-f]{40}$/.test(args[1]) ? args[1] : null;
   if (args.length && !doctor && !approved) throw new Error('Invalid arguments; use --help.');
+  const receipt = process.env.QUIET_ROOM_PUBLISH_RECEIPT;
+  if (receipt && path.resolve(receipt) !== path.join(root, '.git/quiet-room-verified-sha')) throw new Error('Invalid isolated release receipt path.');
   const configPath = path.join(root, '.deploy.local.json');
   const config = existsSync(configPath) ? JSON.parse(readFileSync(configPath, 'utf8')) : {};
   for (const [key, env] of Object.entries({ serverHost: 'QUIET_ROOM_SERVER_HOST', serverUser: 'QUIET_ROOM_SERVER_USER', serverKey: 'QUIET_ROOM_SERVER_KEY', githubKey: 'QUIET_ROOM_GITHUB_KEY' })) {
@@ -60,27 +57,29 @@ async function main() {
   }
   const git = (...params) => command('git', params, { env });
   const failures = [];
-  function check(label, fn) {
-    try { const result = fn(); console.log(`OK ${label}${result ? `: ${result}` : ''}`); }
+  function check(label, phase, fn) {
+    try { const result = timed(phase, fn); console.log(`OK ${label}${result ? `: ${result}` : ''}`); }
     catch (error) { if (!doctor) throw error; failures.push(label); console.error(`BLOCKED ${label}: ${error.message}`); }
   }
-  check('GitHub code access', () => { git('ls-remote', '--exit-code', 'origin', 'refs/heads/main'); });
-  check('GitHub CI access', () => { command('gh', ['api', `repos/${repo}/actions/workflows/ci.yml`]); });
-  check('Production connection and helper', () => command('ssh', [...ssh,
+  check('GitHub code access', 'github-code-access', () => { git('ls-remote', '--exit-code', 'origin', 'refs/heads/main'); });
+  check('GitHub CI access', 'github-ci-access', () => { command('gh', ['api', `repos/${repo}/actions/workflows/ci.yml`]); });
+  check('Production connection and helper', 'server-preflight', () => command('ssh', [...ssh,
     'sudo -n test -x /usr/local/sbin/quiet-room-deploy && sudo -n cat /opt/quiet-room/deploy-state/current-sha']));
   if (doctor) {
     console.log('Read-only: no merge, deployment, installation, or firewall change.');
     if (failures.length) throw new Error(`${failures.length} prerequisites blocked. See DEPLOYMENT.md; do not bypass checks.`);
     return;
   }
-  if (git('branch', '--show-current') !== 'main') throw new Error('Deploy only from main after PR review and merge.');
-  if (git('status', '--porcelain')) throw new Error('Working tree must be clean, including untracked files.');
-  git('fetch', 'origin', 'main');
-  const sha = git('rev-parse', 'HEAD');
-  if (sha !== git('rev-parse', 'origin/main')) throw new Error('Local main must exactly match origin/main.');
-  if (approved && approved !== sha) throw new Error('Approved SHA does not match main.');
-  const runs = JSON.parse(command('gh', ['api', `repos/${repo}/actions/workflows/ci.yml/runs?head_sha=${sha}&event=push&per_page=100`]));
-  console.log(`CI passed: ${requireSuccessfulCI(runs, sha)}`);
+  const sha = timed('verify-main', () => {
+    if (git('branch', '--show-current') !== 'main') throw new Error('Deploy only from main after PR review and merge.');
+    if (git('status', '--porcelain')) throw new Error('Working tree must be clean, including untracked files.');
+    git('fetch', 'origin', 'main');
+    const head = git('rev-parse', 'HEAD');
+    if (head !== git('rev-parse', 'origin/main')) throw new Error('Local main must exactly match origin/main.');
+    if (approved && approved !== head) throw new Error('Approved SHA does not match main.');
+    return head;
+  });
+  console.log(`CI passed: ${timed('verify-ci', () => verifySuccessfulCI(command, sha))}`);
   console.log(`Release ${sha} to https://ai.shui.click`);
   if (!approved) {
     if (!process.stdin.isTTY) throw new Error('Noninteractive release requires --sha <exact SHA>.');
@@ -90,12 +89,15 @@ async function main() {
     if (answer !== 'DEPLOY') throw new Error('Deployment cancelled.');
   }
   // Never automatically retry a cutover after an ambiguous disconnect.
-  command('ssh', [...ssh, 'sudo', '-n', '/usr/local/sbin/quiet-room-deploy', sha], { stdio: 'inherit', timeout: 0 });
-  const live = command('ssh', [...ssh, 'sudo -n cat /opt/quiet-room/deploy-state/current-sha']);
-  if (live !== sha) throw new Error('Live SHA differs after deployment. Inspect state before retrying.');
+  timed('server-deploy', () => command('ssh', [...ssh, 'sudo', '-n', '/usr/local/sbin/quiet-room-deploy', sha], { stdio: 'inherit', timeout: 0 }));
+  timed('readback', () => {
+    const live = command('ssh', [...ssh, 'sudo -n cat /opt/quiet-room/deploy-state/current-sha']);
+    if (live !== sha) throw new Error('Live SHA differs after deployment. Inspect state before retrying.');
+    if (receipt) writeFileSync(receipt, `${sha}\n`, { flag: 'wx', mode: 0o600 });
+  });
   console.log(`DEPLOY_VERIFIED sha=${sha} url=https://ai.shui.click`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main().catch(error => { console.error(`RELEASE_BLOCKED: ${error.message}`); process.exitCode = 1; });
+if (isMainModule(import.meta.url)) {
+  timed('total', main).catch(error => { console.error(`RELEASE_BLOCKED: ${error.message}`); process.exitCode = 1; });
 }

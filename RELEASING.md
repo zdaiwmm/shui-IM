@@ -8,7 +8,8 @@
 node scripts/publish.mjs --sha <40位提交号>
 ```
 
-在 Mac 上，若临时目录使用 `/var/folders` 别名并触发下述入口路径问题，使用规范临时路径运行同一入口：
+当前源码会将入口及隔离临时目录转换为真实路径，支持 Mac 的 `/var/folders`、
+`/tmp` 等目录别名。旧版入口的临时目录兼容方式仍保留，必要时使用同一固定入口：
 
 ```bash
 TMPDIR=/private/tmp node scripts/publish.mjs --sha <40位提交号>
@@ -18,15 +19,52 @@ TMPDIR=/private/tmp node scripts/publish.mjs --sha <40位提交号>
 `scripts/release.mjs` 的入口判断将参数路径与 `import.meta.url` 的
 `/private/var/folders` 真实路径直接比较，可能未执行发布主体便以 0 退出。
 单次指定 `TMPDIR=/private/tmp` 已通过本次真实发布验证；它只选择临时副本位置，
-不更换发布入口或修改源码中的发布门槛。入口路径规范化问题仍待代码修复。
+不更换发布入口或修改源码中的发布门槛。当前修复另有目录／文件符号链接入口、
+无网络合成发布和缺少成功回执的自动回归；它们不代表新版发布入口已经用于生产。
 
-该入口依次执行：只读预检 → 核对 GitHub main → 等待该提交 CI 成功 →
-新建独立临时发布副本 → 再次核对提交 → 调用已有服务器发布程序 → 回读线上提交号。
+该入口依次执行：只读预检 → 核对 GitHub main → 等待该提交完整 CI 成功 →
+新建独立浅克隆发布副本（仅 main，`--depth 1`）→ 再次核对提交 →
+调用已有服务器发布程序 → 回读线上提交号并保存隔离副本内的成功回执。
 不会把本地未提交文件复制过去，也不会切分支、stash、重置或覆盖开发工作区。
 GitHub main 在准备期间变化时停止，不擅自改发新版。
 
 本地待合并改动仍须先审阅、测试并合并；该入口只发布已合并内容，不自动合并。
 已经完成且失败的 CI 不会自动重跑，先读取失败原因再处理。
+
+## CI 与分段耗时
+
+发布等待的轮询间隔为 5 秒。发布入口和隔离副本都会检查精确 `main` SHA 的
+`.github/workflows/ci.yml`，只接受 `push` 或 `workflow_dispatch` 事件中最新的 run，
+并要求该 run 已完成且成功、同一次 attempt 的 `Full application verification`
+job 已完成且成功。查询读取所有分页；取回 job 证据后再次核对最新 run 和 attempt，
+较新的失败、取消、排队或运行中结果都不能回退到旧绿色结果。
+
+严格限定的纯文档提交可以通过轻量 CI，但这不能作为应用发布证据。若确实需要发布
+这样的精确提交，先确认 GitHub `main` 仍是用户批准的完整 SHA，再手动运行：
+
+```bash
+gh api repos/zdaiwmm/shui-IM/commits/main --jq .sha
+gh workflow run ci.yml --repo zdaiwmm/shui-IM --ref main
+gh run list --repo zdaiwmm/shui-IM --workflow ci.yml --branch main --event workflow_dispatch --limit 5 --json databaseId,headSha,status,conclusion,url
+```
+
+核对新 run 的 `headSha` 与批准版本逐字相同，并在 GitHub Actions 中确认完整 job
+成功后，仍使用本页开头的 `publish.mjs --sha <40位提交号>`。入口可等待仍在运行的
+完整 CI，但不会自动触发或重跑它。若 main 已变化，先重新审阅并取得新目标版本的
+发布授权；手工运行 CI 本身不构成发布授权。
+
+本地输出 `RELEASE_TIMING`，分别记录预检、CI 等待／校验、克隆、服务器发布和线上
+回读耗时；服务器 helper 输出 `DEPLOY_TIMING`，记录源码获取、镜像构建、Compose
+预检、维护门、停止容器、冷备份、启动、健康验证、元数据发布、公开 WebSocket
+验证、清理及必要的回滚阶段。每条计时只包含固定阶段名、成功／失败和毫秒数；服务器
+使用 Bash 内置秒计时，毫秒值精度为 1 秒，不增加命令参数或环境内容日志。
+
+失败阶段也保留耗时和原退出状态；成功回滚仍代表本次发布失败。清理失败仍按原策略
+输出警告，不撤销已验证的发布。阶段顺序、发布锁、冷备份校验、维护门和开放流量后
+禁止恢复旧数据的要求保持原样。
+
+服务器计时只有在经独立审阅、按 `DEPLOYMENT.md` 安装新版 root helper 后才生效。
+普通代码推送或应用发布不会自动更新它；本次修改没有产生服务器计时实测或生产提速结论。
 
 ## 已完成的一次性配置
 
@@ -58,7 +96,7 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 - CI 的生产依赖审计由 `node scripts/audit-production.mjs` 执行原 npm 审计，仍以 high/critical 为阻断阈值。仅对明确的临时网络或官方接口错误最多尝试三次，间隔五秒；漏洞、认证/配置错误、无效报告和重试耗尽均失败。只有 npm 返回真实、有效的成功报告才算审计通过，不使用替代漏洞库或跳过检查。
 - SSH 超时：核对生产目标和实际国内出口，不能用访问 GitHub 的代理出口代替。
 - 发布中连接断开：先检查线上 SHA、维护标记和服务器日志；不得盲目重发。
-- 进程退出码为 0，但缺少服务器 `DEPLOY_OK` 或入口 `DEPLOY_VERIFIED`：不算发布成功。先检查线上 SHA、维护标记和服务器日志；如确认遇到上述 Mac 临时路径别名问题，再使用规范临时路径运行固定入口，不因静默退出而推断已上线。
+- 进程退出码为 0，但缺少服务器 `DEPLOY_OK` 或入口 `DEPLOY_VERIFIED`：不算发布成功。新发布入口另外要求隔离副本的 `.git/quiet-room-verified-sha` 回执与批准 SHA 相同；它只在服务器调用成功且线上 SHA 回读匹配后生成，子程序静默退出会被拒绝。先检查线上 SHA、维护标记和服务器日志；不因退出码或旧回执而推断已上线，也不盲目重发。
 - 发布副本保留在工具打印的临时目录，便于诊断；不在故障时自动清理证据。
 - 服务器程序负责冷备份、临时阻断业务流量、切换、健康与 WebSocket 验证。
   开放流量后不自动恢复旧数据，避免抹掉新消息。

@@ -36,15 +36,15 @@
 - `npm run build`：TypeScript 类型检查后构建 Vite 产物。
 - `npm test`：运行 Vitest 自动发现的单元/集成测试；它不等于浏览器回归。
 - `npm run check`：依次运行 build 与 Vitest。
-- `npm run test:browser`：串行运行 `package.json` 中列出的真实浏览器脚本。
+- `npm run test:browser`：通过 `scripts/test-browser.mjs` 串行运行全部真实浏览器脚本，并输出逐脚本和总耗时。`-- --group 1` / `-- --group 2` 分别运行主流程与其余专项；CI 在两个独立执行环境中并行运行两组。
 - `npm run check:full`：运行 `check`，然后运行浏览器套件。
-- `npm run test:calls`：通话专项入口。除了部分 Vitest 用例，还包括 `call-native.e2e.mjs`、`call-view.e2e.mjs`。它们在 CI 中独立运行；本地 `check:full` 后仍需补跑该入口。
+- `npm run test:calls`：完整通话专项入口，包含部分 Vitest 用例与 `call-native.e2e.mjs`、`call-view.e2e.mjs`。`npm run test:calls:e2e` 只运行后两个浏览器专项；CI 与本地已完成 `check:full` 后使用此入口，避免重复运行已被 `npm test` 包含的通话单元测试。
 - `node scripts/audit-production.mjs`：使用 npm 官方源审计生产依赖；仅对明确的临时接口故障最多尝试三次。high/critical 漏洞、无效报告和接口持续不可用均阻断 CI。
 
 两个容易误判的细节：
 
 - `tests/browser.e2e.mjs` 会导入并执行 `verifyVoiceFlow` 和 `verifyCallFlow`，所以 `voice-flow.e2e.mjs`、`call-flow.e2e.mjs` 即使没有直接列在 `package.json` 的命令字符串中，仍属于浏览器主流程。
-- `.github/workflows/ci.yml` 声明了构建、单元/集成、浏览器测试、秘密扫描和生产依赖审计；这只描述 CI 配置，不能证明任意本地工作树或提交已经通过 CI。
+- `.github/workflows/ci.yml` 将完整验证拆为并行任务，`verify` 严格汇总必需结果；文档白名单变更使用轻量检查，其他变更和手动运行默认完整。发布必须验证精确 main 提交的最新 push／手动 CI 成功，且 `Full application verification` 成功；文档绿色结果不能作为应用发布证据。配置文件存在不能证明任意提交已经通过 CI。
 
 浏览器脚本本地默认使用 Chrome，可通过 `CHROME_PATH` 指定程序；CI 使用安装的 Chromium。若受限环境不能监听本地端口，应把它记录为环境限制，不能记作产品失败或测试通过。
 

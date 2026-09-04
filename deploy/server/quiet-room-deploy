@@ -2,6 +2,38 @@
 set -Eeuo pipefail
 umask 027
 
+# Fixed phase names and elapsed time only: never log command arguments or
+# environment values. Keep ERR/rollback handling independent of the EXIT log.
+deploy_timing_started=$SECONDS
+deploy_phase=''
+deploy_phase_started=$SECONDS
+deploy_phase_finish() {
+  local result="$1"
+  if [[ -n "$deploy_phase" ]]; then
+    printf 'DEPLOY_TIMING phase=%s result=%s duration_ms=%s\n' \
+      "$deploy_phase" "$result" "$(( (SECONDS - deploy_phase_started) * 1000 ))" >&2 || :
+    deploy_phase=''
+  fi
+}
+deploy_phase_start() {
+  deploy_phase_finish success
+  deploy_phase="$1"
+  deploy_phase_started=$SECONDS
+}
+deploy_timing_exit() {
+  local exit_code=$?
+  local result=success
+  trap - EXIT
+  if (( exit_code != 0 )); then result=failure; fi
+  deploy_phase_finish "$result"
+  printf 'DEPLOY_TIMING phase=total result=%s duration_ms=%s\n' \
+    "$result" "$(( (SECONDS - deploy_timing_started) * 1000 ))" >&2 || :
+  exit "$exit_code"
+}
+trap deploy_timing_exit EXIT
+deploy_phase_start preflight
+# End of timing setup (also exercised by isolated cutover tests).
+
 readonly APP_ROOT=/opt/quiet-room
 readonly REPOSITORY="$APP_ROOT/repository.git"
 readonly RELEASES="$APP_ROOT/git-releases"
@@ -70,6 +102,7 @@ install -d -m 0750 "$STATE_DIR" "$BACKUP_DIR"
 # Keep it separate from the private deployment-state directory.
 install -d -o root -g root -m 0755 "$MAINTENANCE_DIR"
 
+deploy_phase_start fetch-source
 runuser -u deploy -- env GIT_SSH_COMMAND="$GIT_SSH_COMMAND_VALUE" \
   git --git-dir="$REPOSITORY" fetch --prune origin refs/heads/main:refs/heads/main
 
@@ -94,13 +127,16 @@ if [[ -e "$release_dir" ]]; then
   exit 73
 fi
 
+deploy_phase_start prepare-release
 runuser -u deploy -- git --git-dir="$REPOSITORY" worktree add --detach "$release_dir" "$REQUESTED_SHA"
 
+deploy_phase_start build-image
 docker build \
   --build-arg NPM_REGISTRY=https://registry.npmmirror.com \
   --tag "$new_image" \
   "$release_dir"
 
+deploy_phase_start compose-preflight
 previous_image="$(docker inspect quiet-room-quiet-room-1 --format '{{.Config.Image}}' 2>/dev/null || true)"
 previous_release="$(readlink -f "$APP_ROOT/current" 2>/dev/null || true)"
 if [[ -n "$previous_release" && -f "$previous_release/compose.yaml" ]]; then
@@ -198,6 +234,7 @@ backup_ready=0
 backup_name=''
 backup_path=''
 failed_cutover_backup_path=''
+deploy_phase_start public-preflight
 
 wait_for_health() {
   local attempt
@@ -460,6 +497,8 @@ rollback() {
   local failed_cutover_backup_name
   local restored_backup_path='not-required'
   trap - ERR
+  deploy_phase_finish failure
+  deploy_phase_start rollback
 
   rollback_fail_closed() {
     local reason="$1"
@@ -524,6 +563,7 @@ rollback() {
 
   printf 'ROLLBACK_OK original_exit=%s restored_backup=%s failed_cutover_backup=%s\n' \
     "$exit_code" "$restored_backup_path" "${failed_cutover_backup_path:-not-created}" >&2
+  deploy_phase_finish success
   exit "$exit_code"
 }
 
@@ -544,6 +584,7 @@ fi
 
 # Validate the installed proxy, not merely the checked-in Nginx file. Nothing
 # has stopped or changed data yet, so a missing gate aborts without downtime.
+deploy_phase_start gate-traffic
 close_business_traffic
 if ! probe_public_maintenance || ! wait_for_public_health 3; then
   open_business_traffic
@@ -551,20 +592,24 @@ if ! probe_public_maintenance || ! wait_for_public_health 3; then
   exit 69
 fi
 
+deploy_phase_start stop-containers
 cutover_started=1
 stop_project_containers
 ensure_data_volume_quiescent
 
+deploy_phase_start cold-backup
 backup_name="data-$stamp-$short_sha.tar.gz"
 backup_path="$BACKUP_DIR/$backup_name"
 backup_image="${previous_image:-$new_image}"
 create_data_archive "$backup_image" "$backup_name"
 backup_ready=1
 
+deploy_phase_start start-containers
 data_restore_required=1
 QUIET_ROOM_IMAGE="$new_image" docker compose "${new_compose_args[@]}" \
   up --detach --no-build --remove-orphans
 
+deploy_phase_start validate-gated-service
 wait_for_health
 wait_for_public_health 10
 probe_local_websocket
@@ -577,6 +622,7 @@ data_restore_required=0
 cutover_started=0
 trap - ERR
 
+deploy_phase_start publish-state
 ln -sfn "$release_dir" "$APP_ROOT/current"
 printf '%s\n' "$REQUESTED_SHA" > "$STATE_DIR/current-sha"
 printf '%s\n' "$stamp" > "$STATE_DIR/deployed-at"
@@ -584,12 +630,18 @@ printf '%s\n' "$calls_enabled" > "$CALLS_STATE"
 printf '%s\n' "$admin_enabled" > "$ADMIN_STATE"
 docker image tag "$new_image" quiet-room-app:production
 open_business_traffic
+deploy_phase_start verify-public-websocket
 if ! wait_for_public_websocket; then
   printf 'POST_OPEN_CHECK_FAILED sha=%s; current database retained; automatic data rollback is disabled.\n' "$REQUESTED_SHA" >&2
   exit 70
 fi
 
-prune_successful_deployments || printf 'WARNING: release/backup pruning failed; retain current deployment.\n' >&2
+deploy_phase_start prune
+prune_successful_deployments || {
+  deploy_phase_finish failure
+  printf 'WARNING: release/backup pruning failed; retain current deployment.\n' >&2
+}
+deploy_phase_finish success
 
 printf 'DEPLOY_OK sha=%s release=%s backup=%s\n' \
   "$REQUESTED_SHA" "$release_dir" "$BACKUP_DIR/$backup_name"

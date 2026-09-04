@@ -60,8 +60,12 @@ login alone likewise does not authenticate `gh`. Initial CLI installation/login
 is a separate setup step, not an action silently performed by deployment.
 
 The script requires a clean local `main` matching `origin/main` and verifies the
-latest successful **CI push run for that exact main SHA**. PR CI alone is not
-sufficient. It invokes the existing root helper only after those checks, then
+latest **CI push or manually dispatched run for that exact main SHA**. That run
+must succeed and include a successful **Full application verification** job.
+PR CI and a green documentation-only run are insufficient. If the current main
+has only documentation checks, manually run the full CI workflow as described
+in `RELEASING.md`; the approved SHA must still match main afterward.
+It invokes the existing root helper only after those checks, then
 reads back the live SHA. The helper retains responsibility for cold backups,
 traffic gating, health/WebSocket checks and safe rollback. No root-helper
 self-update, firewall change, automatic merge or CI bypass is introduced.
@@ -238,7 +242,12 @@ certificate so it cannot become a dangling, takeover-prone origin. Do not send
 `Clear-Site-Data`; old local vault destruction is unnecessary for the cutover.
 
 GitHub runs the locked dependency install, production build, unit/integration
-tests, and browser tests in the **CI** workflow. GitHub has no production SSH
+tests, two independent browser-test groups, call browser tests, credential scan
+and production dependency audit in the **CI** workflow. Independent jobs run in
+parallel and the final `verify` job requires every expected result. Only changes
+limited to the explicit documentation allowlist use the lightweight document
+and credential checks; unknown paths, uncertain comparisons and manual runs
+require full verification. GitHub has no production SSH
 private key and no login or root capability on the Alibaba Cloud server. Passing
 CI does not publish automatically.
 
