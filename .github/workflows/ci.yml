@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # A documentation-only main commit needs this full run before release.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -15,42 +17,146 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  verify:
+  scope:
+    name: Determine verification scope
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 3
+    outputs:
+      mode: ${{ steps.scope.outputs.mode }}
     steps:
-      - name: Check out source
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
-          # Gitleaks scans the full PR commit range, including its parent.
           fetch-depth: 0
-
-      - name: Use Node.js 24
-        uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: npm
+      - name: Compare all changed paths with the documentation allowlist
+        id: scope
+        run: node scripts/ci-scope.mjs
 
-      - name: Install locked dependencies
-        run: npm ci --no-audit
+  docs:
+    name: Check documentation
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: node scripts/check-docs.mjs
 
-      - name: Check for committed secrets
-        uses: gitleaks/gitleaks-action@v2
+  secret_scan:
+    name: Check for committed secrets
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Retain the complete history, including the PR range's parent.
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and run unit/integration tests
-        run: npm run check
+  build:
+    name: Build and unit/integration tests
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit
+      - run: npm run check
 
-      - name: Install Chromium for the real-browser suite
-        run: npx playwright install --with-deps chromium
+  browser:
+    name: Browser regression group ${{ matrix.group }}
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit
+      - run: npx playwright install --with-deps chromium
+      # The backup/admin browser fixture serves dist/admin.html.
+      - run: npm run build
+      - run: npm run test:browser -- --group ${{ matrix.group }}
 
-      - name: Run real-browser end-to-end tests
-        run: npm run test:browser
+  calls:
+    name: Native call media and call views
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit
+      - run: npx playwright install --with-deps chromium
+      # The unit/integration job already runs every call unit test.
+      - run: npm run test:calls:e2e
 
-      - name: Verify native call media and call views
-        run: npm run test:calls
+  audit:
+    name: Audit production dependencies
+    needs: scope
+    if: needs.scope.outputs.mode == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit
+      - run: node scripts/audit-production.mjs
 
-      # Still required for a green run. Keep registry outages from hiding test results.
-      - name: Audit production dependencies
-        run: node scripts/audit-production.mjs
+  full_application:
+    # Fixed release evidence name. A green documentation run cannot replace it.
+    name: Full application verification
+    needs: [scope, docs, secret_scan, build, browser, calls, audit]
+    if: always() && needs.scope.outputs.mode == 'full'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Require every full verification job to succeed
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci-scope.mjs verify full
+
+  verify:
+    # Keep the existing branch-protection check name stable.
+    name: verify
+    needs: [scope, docs, secret_scan, build, browser, calls, audit, full_application]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Require the complete result for the selected scope
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci-scope.mjs verify verify

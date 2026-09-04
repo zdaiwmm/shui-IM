@@ -10,6 +10,7 @@ async function simulate(mode: 'validation-fails' | 'post-open-fails' | 'gate-mis
   const directory = await mkdtemp(path.join(tmpdir(), 'quiet-room-cutover-'));
   const source = await readFile(new URL('../deploy/server/quiet-room-deploy', import.meta.url), 'utf8');
   const flow = source.slice(source.indexOf('rollback()'));
+  const timing = source.slice(source.indexOf('deploy_timing_started='), source.indexOf('# End of timing setup'));
   try {
     await mkdir(path.join(directory, 'new'));
     await writeFile(path.join(directory, 'previous.yaml'), '');
@@ -27,6 +28,7 @@ previous_compose_args=(--project-name "$PROJECT" --env-file "$SHARED_ENV" --file
 REQUESTED_SHA=0123456789012345678901234567890123456789; stamp=test; short_sha=012345678901
 cutover_started=0; data_restore_required=0; backup_ready=0; backup_name=''; backup_path=''; failed_cutover_backup_path=''
 current_image=old
+${timing}
 trace() { printf '%s\\n' "$*" >> trace; }
 try_write() { if [[ -f maintenance ]]; then trace WRITE_BLOCKED; else printf 'new-client-ack\\n' >> database; trace WRITE_ACK; fi; }
 project_container_ids() { printf 'old-container\\n'; }
