@@ -247,7 +247,7 @@ npm run check:full
 - 真机仍需检查 Safari 版本／工具栏布局／系统降低透明度设置下的透视效果，以及系统键盘和原生剪贴板图片格式。
 
 
-## 自动备份与会话后台验收（2026-09-04，独立功能分支）
+## 自动备份与会话后台验收（2026-09-04）
 
 本节替代当前产品中的手动恢复文件验收；以上带日期历史记录只代表当时版本。完整契约见 `RECOVERY_BACKUPS.md`。
 
@@ -256,4 +256,6 @@ npm run check:full
 - `tests/admin.test.ts`：精确 Host/Origin、强密码 + TOTP、Cookie 属性、CSRF、重新验证清理、跨重启动态码防重放；`tests/deploy-admin.test.ts` 验证持久覆盖、首次启用回滚和停机前拒绝不安全配置。
 - `tests/backup-admin-ui.e2e.mjs`：真实后台登录/退出、会话设备备份详情、清理确认表单；手机备份设置、相册恢复表单、再次验证后的码页面及横向溢出检查。传入一个本地截图目录可检查画面，恢复码像素替换为明确示意内容后才保存。
 - `npm run test:calls`：单独补跑 56 项通话测试、原生 DTLS 与通话 UI 脚本。
-- 本地证据不等于 CI、生产或真机通过；尚需真实 iPhone/Android/通行密钥矩阵、真实 Google Authenticator 扫码、生产域名 TLS/维护门、容器管理员配置挂载、灾备恢复及独立审计。管理员清理应以合成会话验收，不使用真实用户数据。
+- 合并集成后再次通过 `npm run check:full`（241 项及完整浏览器套件）与 `npm run test:calls`（56 项及原生 DTLS/通话 UI）。恢复表单统一“保险箱”命名后重新构建并单独通过 `backup-admin-ui.e2e.mjs`。
+- [PR #5 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33874161493) 与[精确主干 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33874534302) 均通过。应用 `6753d010d822ef5cb90b2b3d2582d9fd1f7805c6` 已部署，固定入口成功后独立核验版本、健康、首页及脚本/样式产物、Service Worker、合成未知备份的未认证请求；结果见 [发布记录](RELEASING.md#本次线上发布记录)。未在生产读取真实恢复材料或执行真实会话清理。
+- 自动测试与生产回读不等于真机通过；尚需真实 iPhone/Android/通行密钥矩阵、真实 Google Authenticator 扫码、`sao.shui.click` 后台 DNS/TLS/维护门与容器管理员配置挂载验收、灾备恢复及独立审计。生产 `admin-enabled=0`，上述后台测试仅证明本地/CI 合成场景。管理员清理应以合成会话验收，不使用真实用户数据。
