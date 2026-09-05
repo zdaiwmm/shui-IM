@@ -66,9 +66,9 @@ try {
       return new Response(bytes);
     };
     let imageNumber = 0;
-    const makeImage = async ({ cached = false, delayed = false } = {}) => {
+    const makeImage = async ({ cached = false, delayed = false, width = 320, height = 180 } = {}) => {
       imageNumber++;
-      const file = new File([`<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><path fill="#809d97" d="M0 0h320v180H0z"/><circle fill="#eadbb7" cx="248" cy="42" r="20"/><path fill="#526c61" d="M0 180 105 40 240 180Z"/></svg>`], `聊天隐私-${imageNumber}.svg`, { type: 'image/svg+xml', lastModified: imageNumber });
+      const file = new File([`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#809d97"/><rect x="0" y="${height * .18}" width="${width}" height="${height * .29}" fill="#eadbb7"/><rect x="0" y="${height * .68}" width="${width}" height="${height * .32}" fill="#526c61"/></svg>`], `聊天隐私-${imageNumber}.svg`, { type: 'image/svg+xml', lastModified: imageNumber });
       const manifest = await encryptImageFile(file, {
         reserve: async () => {}, status: async () => ({ uploadedIndexes: [], completed: false }),
         upload: async (blobId, index, bytes) => { encryptedChunks.set(`${blobId}:${index}`, bytes); },
@@ -86,8 +86,8 @@ try {
     });
     const records = [
       record(1, { kind: 'image', image: await makeImage({ cached: true }) }),
-      record(2, { kind: 'image', image: await makeImage() }, peer.deviceId),
-      record(3, { kind: 'image-album', images: [await makeImage({ cached: true }), await makeImage()] }),
+      record(2, { kind: 'image', image: await makeImage({ width: 8, height: 1200 }) }, peer.deviceId),
+      record(3, { kind: 'image-album', images: [await makeImage({ cached: true, width: 1200, height: 8 }), await makeImage()] }),
     ];
     for (const message of records) await vault.saveHistoryMessage(session, message);
     const reopen = async () => {
@@ -117,12 +117,20 @@ try {
         && buttons.every(button => {
           const image = button.querySelector('img');
           if (!image) return true;
-          return button.dataset.revealed === 'false' ? getComputedStyle(image).filter.includes('blur(') : getComputedStyle(image).filter === 'none';
+          const backdrop = getComputedStyle(button, '::before');
+          return button.dataset.revealed === 'false'
+            ? getComputedStyle(image).filter.includes('blur(') && backdrop.backgroundImage !== 'none'
+              && backdrop.backgroundSize === 'cover' && backdrop.filter.includes('blur(') && Number(backdrop.opacity) === 1
+            : getComputedStyle(image).filter === 'none' && Number(backdrop.opacity) === 0;
         });
     }, { total, revealed });
     assert.equal(await previews.locator('img').evaluateAll(images => images.filter(image => {
       const hidden = image.closest('.image-preview').dataset.revealed === 'false';
-      return hidden ? !getComputedStyle(image).filter.includes('blur(') : getComputedStyle(image).filter !== 'none';
+      const backdrop = getComputedStyle(image.closest('.image-preview'), '::before');
+      return hidden
+        ? !getComputedStyle(image).filter.includes('blur(') || backdrop.backgroundImage === 'none'
+          || backdrop.backgroundSize !== 'cover' || !backdrop.filter.includes('blur(') || Number(backdrop.opacity) !== 1
+        : getComputedStyle(image).filter !== 'none' || Number(backdrop.opacity) !== 0;
     }).length), 0, `${reason}: thumbnail styling disagrees with its reveal state`);
   };
   const waitForClicks = () => page.waitForFunction(() => Date.now() >= window.chatPrivacy.app.suppressMediaClickUntil);
@@ -178,7 +186,7 @@ try {
   assert.equal(await page.locator('.image-viewer').count(), 0, 'First thumbnail tap opened a viewer');
   await first.click();
   await page.locator('.image-viewer.is-visible .viewer-stage img').waitFor();
-  const zoomState = await page.locator('.viewer-stage').evaluate(stage => {
+  const zoomState = await page.locator('.viewer-stage').evaluate(async stage => {
     const image = stage.querySelector('img');
     const entryTransforms = image.getAnimations().flatMap(animation => animation.effect.getKeyframes()).filter(frame => frame.transform && frame.transform !== 'none');
     const fire = (type, id, x, y) => stage.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: id, button: 0, clientX: x, clientY: y }));
@@ -197,9 +205,29 @@ try {
     fire('pointerup', 33, 270, 410);
     const pan = new DOMMatrix(getComputedStyle(image).transform);
     image.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 195, clientY: 422 }));
-    return { entryTransforms: entryTransforms.length, zoomed, remainsOpen, remainingFingerPans: remainingFingerPans > 15, panned: pan.e !== 0, zoomAfterPan: pan.a, reset: new DOMMatrix(getComputedStyle(image).transform).a };
+    const resetAnimation = image.getAnimations().find(animation => animation.effect.getKeyframes().some(frame => frame.transform));
+    const resetStartsAt = new DOMMatrix(getComputedStyle(image).transform).a;
+    const resetDuration = Number(resetAnimation?.effect.getTiming().duration ?? 0);
+    await resetAnimation?.finished.catch(() => undefined);
+    const reset = new DOMMatrix(getComputedStyle(image).transform).a;
+    image.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true, clientX: 195, clientY: 422 }));
+    const zoomAnimation = image.getAnimations().find(animation => animation.effect.getKeyframes().some(frame => frame.transform));
+    const zoomStartsAt = new DOMMatrix(getComputedStyle(image).transform).a;
+    const zoomDuration = Number(zoomAnimation?.effect.getTiming().duration ?? 0);
+    await zoomAnimation?.finished.catch(() => undefined);
+    const zoomIn = new DOMMatrix(getComputedStyle(image).transform).a;
+    return { entryTransforms: entryTransforms.length, zoomed, remainsOpen, remainingFingerPans: remainingFingerPans > 15, panned: pan.e !== 0, zoomAfterPan: pan.a, resetStartsAt, resetDuration, reset, zoomStartsAt, zoomDuration, zoomIn };
   });
-  assert.deepEqual(zoomState, { entryTransforms: 0, zoomed: 2, remainsOpen: true, remainingFingerPans: true, panned: true, zoomAfterPan: 2, reset: 1 }, 'Image pinch/pan/reset either scaled on entry, dismissed during pinch or lost its zoom');
+  assert.equal(zoomState.entryTransforms, 0, 'Viewer introduced an unrelated image scale transition on entry');
+  assert.equal(zoomState.zoomed, 2, 'Pinch did not reach the expected zoom');
+  assert.equal(zoomState.remainsOpen, true, 'Pinch unexpectedly dismissed the viewer');
+  assert.equal(zoomState.remainingFingerPans, true, 'Pinch did not hand off naturally to the remaining finger');
+  assert.equal(zoomState.panned, true, 'A zoomed image did not pan');
+  assert.equal(zoomState.zoomAfterPan, 2, 'Panning changed the image zoom');
+  assert.ok(zoomState.resetStartsAt > 1.2 && zoomState.resetDuration >= 250, `Double-click reset jumped instead of animating: ${JSON.stringify(zoomState)}`);
+  assert.ok(Math.abs(zoomState.reset - 1) < 0.01, 'Animated double-click reset did not finish at 1×');
+  assert.ok(zoomState.zoomStartsAt < 1.2 && zoomState.zoomDuration >= 250, `Double-click zoom-in jumped instead of animating: ${JSON.stringify(zoomState)}`);
+  assert.ok(zoomState.zoomIn > 2.4, 'Animated double-click zoom-in did not reach its target');
   await page.locator('[data-viewer-close]').click();
   await page.locator('.image-viewer').waitFor({ state: 'detached' });
   await assertVisibility(4, 1, 'Ordinary viewer return');

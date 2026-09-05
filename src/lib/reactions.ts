@@ -20,6 +20,25 @@ function isConfirmed(message: DecryptedMessage): boolean {
     Number.isSafeInteger(message.seq) && message.seq > 0 && message.seq < Number.MAX_SAFE_INTEGER;
 }
 
+function isOptimisticProjection(message: DecryptedMessage): boolean {
+  return message.seq === Number.MAX_SAFE_INTEGER &&
+    (message.status === 'pending' || message.status === 'stored');
+}
+
+function isConfirmedChatContent(message: DecryptedMessage): boolean {
+  if (!isConfirmed(message)) return false;
+  switch (message.payload.kind) {
+    case 'text':
+    case 'image':
+    case 'image-album':
+    case 'audio':
+    case 'file':
+      return true;
+    default:
+      return false;
+  }
+}
+
 /**
  * Projects encrypted reaction events into badges keyed by target clientMsgId.
  * Confirmed events use server order; optimistic local events follow them. A
@@ -34,12 +53,12 @@ export function reduceMessageReactions(
   const events = new Map<string, { message: DecryptedMessage & { payload: ReactionPayload }; index: number }>();
   messages.forEach((message, index) => {
     if (message.payload.kind !== 'reaction') {
-      if (message.payload.kind !== 'gallery-image' && message.payload.kind !== 'gallery-file' && isConfirmed(message)) {
-        targets.set(message.seq, message);
-      }
+      if (isConfirmedChatContent(message)) targets.set(message.seq, message);
       return;
     }
-    if (message.status === 'failed' || (!isConfirmed(message) && message.status !== 'pending')) return;
+    // ACK precedes sync: `stored` with the sentinel sequence is still the
+    // current optimistic event, not a reason to roll the badge back.
+    if (message.status === 'failed' || (!isConfirmed(message) && !isOptimisticProjection(message))) return;
     const previous = events.get(message.clientMsgId);
     if (!previous || !isConfirmed(previous.message)) {
       events.set(message.clientMsgId, { message: message as DecryptedMessage & { payload: ReactionPayload }, index });

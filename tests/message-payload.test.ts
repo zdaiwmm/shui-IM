@@ -99,6 +99,28 @@ describe('shared encrypted message payload validation', () => {
     expect(isMessagePayload({ ...reaction, replyTo: reaction.target })).toBe(false);
   });
 
+  it('accepts only a strict v1 encrypted message-delete target identity', () => {
+    const deletion = {
+      v: 1,
+      kind: 'message-delete',
+      sentAt: new Date().toISOString(),
+      target: { clientMsgId: crypto.randomUUID(), serverSeq: 12, senderId: crypto.randomUUID() },
+    };
+    expect(isMessagePayload(deletion)).toBe(true);
+    for (const serverSeq of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, '12']) {
+      expect(isMessagePayload({ ...deletion, target: { ...deletion.target, serverSeq } })).toBe(false);
+    }
+    for (const key of ['clientMsgId', 'senderId']) {
+      expect(isMessagePayload({ ...deletion, target: { ...deletion.target, [key]: 'not-a-v4-uuid' } })).toBe(false);
+    }
+    expect(isMessagePayload({ ...deletion, target: { ...deletion.target, preview: 'leaked text' } })).toBe(false);
+    expect(isMessagePayload({ ...deletion, target: null })).toBe(false);
+    expect(isMessagePayload({ ...deletion, v: 2 })).toBe(false);
+    expect(isMessagePayload({ ...deletion, sentAt: 'not-a-date' })).toBe(false);
+    expect(isMessagePayload({ ...deletion, debug: true })).toBe(false);
+    expect(isMessagePayload({ ...deletion, emoji: null })).toBe(false);
+  });
+
   it('accepts one encrypted album message containing two through nine unique image manifests', () => {
     const sentAt = new Date().toISOString();
     const minimum = Array.from({ length: MIN_IMAGE_ALBUM_ITEMS }, () => imageManifest());

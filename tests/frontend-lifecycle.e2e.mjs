@@ -45,12 +45,24 @@ try {
     const message = (seq, payload = { v: 1, kind: 'text', text: `历史消息 ${seq}`, sentAt: '2026-09-04T01:00:00.000Z' }) => ({ seq, clientMsgId: `message-${seq}`, senderId: 'regression-peer', payload, acceptedAt: '2026-09-04T01:00:00.000Z', status: 'delivered' });
     const fresh = () => {
       app.session = session; app.privacyCovered = false; app.runtimeEpoch += 1; app.runtimeAbort = new AbortController();
-      app.updateSafetyCode = async () => {}; app.updateBackgroundNotificationControl = async () => {};
+      app.updateSafetyCode = async () => {};
+      app.updateBackgroundNotificationControl = async () => {};
       app.mountChatImageObserver = () => {}; app.mountGalleryThumbnails = () => {};
-      app.messages = new Map(); app.pending = new Map(); app.reactionHistory = new Map(); app.uiPreferences = {}; app.restoreChatAnchorOnNextRender = false;
+      app.messages = new Map(); app.pending = new Map(); app.messageEventHistory = new Map(); app.uiPreferences = {}; app.uiPreferencesHydrated = true; app.restoreChatAnchorOnNextRender = false;
       app.renderChat();
     };
     window.regression = { app, root, session, vault, message, fresh };
+    // Viewport motion intentionally moves the fully transparent composer 14px
+    // below its anchored edge. Layout/scroll assertions use the untransformed
+    // edge that the bar returns to after the 280ms reveal.
+    window.composerBaseBounds = () => {
+      const element = document.querySelector('#composer');
+      const rect = element.getBoundingClientRect();
+      const transform = getComputedStyle(element).transform;
+      const y = transform === 'none' ? 0 : new DOMMatrix(transform).f;
+      return { top: rect.top - y, bottom: rect.bottom - y, left: rect.left, right: rect.right,
+        width: rect.width, height: rect.height };
+    };
     fresh();
   };
   await page.evaluate(initializeRegression);
@@ -116,7 +128,7 @@ try {
     const list = document.querySelector('#message-list');
     if (document.documentElement.scrollHeight - window.scrollY - window.innerHeight > 2) throw Error('Composer resize lost bottom position');
     const last = list.querySelector('.message:last-child').getBoundingClientRect();
-    const composer = document.querySelector('#composer').getBoundingClientRect();
+    const composer = window.composerBaseBounds();
     if (last.bottom > composer.top) throw Error(`Latest message is covered by composer: ${JSON.stringify({ lastBottom: last.bottom, composerTop: composer.top, composerHeight: composer.height, padding: getComputedStyle(list).paddingBottom, scrollY, scrollHeight: document.documentElement.scrollHeight, pinned: app.chatPinnedToBottom })}`);
     return { transientBlur: 'visible', encryptedDraft: 'restored', latestMessage: 'above composer' };
   });
@@ -388,7 +400,7 @@ try {
     finally { delete document.hidden; }
     window.dispatchEvent(new Event('focus'));
     if (!app.privacyCovered || !document.querySelector('.cover-trigger') || document.querySelector('.message, .message-text-selection')) throw Error('Returning from background exposed message content or native selection');
-    if (app.messages.size || app.pending.size || app.reactionHistory.size) throw Error('Background lock retained decrypted message state');
+    if (app.messages.size || app.pending.size || app.messageEventHistory.size) throw Error('Background lock retained decrypted message state');
     return { blurCoverage: 'same event stack', transientFocus: 'restored', backgroundReturn: 'authentication required', selection: 'cleared' };
   });
 
@@ -431,7 +443,7 @@ try {
     const { app, message, fresh } = window.regression; fresh();
     const source = message(1, { v: 1, kind: 'text', text: '好', sentAt: '2026-09-04T01:00:00.000Z' });
     app.messages = new Map([[1, source]]);
-    app.reactionHistory = new Map(['regression-own', 'regression-peer'].map((senderId, index) => {
+    app.messageEventHistory = new Map(['regression-own', 'regression-peer'].map((senderId, index) => {
       const seq = index + 2;
       return [seq, { ...message(seq), senderId, payload: { v: 1, kind: 'reaction', sentAt: source.payload.sentAt, target: { clientMsgId: source.clientMsgId, serverSeq: source.seq, senderId: source.senderId }, emoji: index ? '❤️' : '👍' } }];
     }));
@@ -653,7 +665,18 @@ try {
     const { app, fresh, session } = window.regression;
     fresh();
     const origin = document.querySelector('#open-gallery'); origin.focus();
-    await app.showDeviceInvite({ v: 1, kind: 'device-link', roomId: session.vault.roomId, linkId: 'regression-link', secret: 'test-secret', role: 'creator', authorizerId: 'regression-own', authorizerFingerprint: 'test', creatorFingerprint: 'test', expiresAt: '2026-09-04T01:10:00.000Z' }, session, app.runtimeEpoch, origin);
+    await app.showDeviceInvite({
+      v: 1,
+      kind: 'device-link',
+      roomId: crypto.randomUUID(),
+      linkId: crypto.randomUUID(),
+      secret: 's'.repeat(43),
+      role: 'creator',
+      authorizerId: crypto.randomUUID(),
+      authorizerFingerprint: 'a'.repeat(43),
+      creatorFingerprint: 'c'.repeat(43),
+      expiresAt: new Date(Date.now() + 600_000).toISOString(),
+    }, session, app.runtimeEpoch, origin);
   });
   await page.locator('.device-link-sheet.is-visible').waitFor();
   for (let index = 0; index < 7; index++) {
@@ -753,7 +776,7 @@ try {
         window.scrollTo(0, (document.documentElement.scrollHeight - innerHeight) * fraction);
         await settle();
         const top = document.querySelector('.chat-header').getBoundingClientRect().bottom;
-        const bottom = document.querySelector('#composer').getBoundingClientRect().top;
+        const bottom = window.composerBaseBounds().top;
         const visible = app.renderedMessageOrder.filter(row => {
           const rect = getRect.call(row); return rect.top < bottom && rect.bottom > top;
         });
@@ -789,14 +812,34 @@ try {
           Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 0 });
           viewport.dispatchEvent(new Event('resize'));
           window.dispatchEvent(new Event('scroll'));
-          if (Math.abs(document.querySelector('#composer').getBoundingClientRect().bottom - height) > 1) throw Error('Composer trailed a toolbar animation frame');
+          const composer = document.querySelector('#composer');
+          const concealShift = new DOMMatrix(getComputedStyle(composer).transform).f;
+          // The base edge tracks each viewport frame synchronously. Its visual
+          // box is intentionally 14px below that edge while fully transparent.
+          if (Math.abs(composer.getBoundingClientRect().bottom - concealShift - height) > 1
+            || composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '0') {
+            throw Error('Composer did not immediately conceal at the current toolbar frame');
+          }
           if (document.querySelector('#message-list').style.getPropertyValue('--keyboard-space')) throw Error('Viewport spacing still inherits through the message history');
           await settle();
+        }
+        const composer = document.querySelector('#composer');
+        const revealDeadline = performance.now() + 600;
+        while (composer.dataset.viewportMotion && performance.now() < revealDeadline) await new Promise(requestAnimationFrame);
+        const revealAnimation = composer.getAnimations().find(animation =>
+          animation.effect?.getKeyframes().some(frame => frame.opacity !== undefined || frame.transform !== undefined));
+        if (composer.dataset.viewportMotion || !revealAnimation || Number(revealAnimation.effect.getTiming().duration) !== 280) {
+          throw Error('Composer did not begin its single 280ms slide-and-fade after viewport settlement');
+        }
+        await revealAnimation.finished;
+        if (getComputedStyle(composer).opacity !== '1'
+          || Math.abs(window.composerBaseBounds().bottom - (document.documentElement.clientHeight - 12)) > 1) {
+          throw Error('Composer reveal did not finish at the settled viewport edge');
         }
         rootStyleWrites += rootObserver.takeRecords().length;
         if (rootStyleWrites || document.documentElement.getAttribute('style') !== rootStyle) throw Error('Toolbar animation rewrote inherited root viewport styles');
       } finally { rootObserver.disconnect(); }
-      return { rows: 5000, samples, toolbarFrames: 6, rootStyleWrites };
+      return { rows: 5000, samples, toolbarFrames: 6, rootStyleWrites, revealDuration: 280 };
     } finally {
       HTMLElement.prototype.getBoundingClientRect = getRect;
       app.captureChatAnchor = captureAnchor; app.markVisibleMessagesRead = markVisible;
@@ -893,8 +936,12 @@ try {
       // No interaction or browser event starts this late native-toolbar frame.
       Object.defineProperty(viewport, 'height', { configurable: true, value: 780 });
       await frame();
-      const bottom = document.querySelector('#composer').getBoundingClientRect().bottom;
-      if (Math.abs(bottom - 780) > 1) throw Error(`Input stopped sampling toolbar geometry after the previous interaction: ${bottom}`);
+      const composer = document.querySelector('#composer');
+      const bottom = composer.getBoundingClientRect().bottom;
+      const concealShift = new DOMMatrix(getComputedStyle(composer).transform).f;
+      if (Math.abs(bottom - concealShift - 780) > 1 || composer.dataset.viewportMotion !== 'positioning') {
+        throw Error(`Input stopped sampling or concealing at toolbar geometry after the previous interaction: ${bottom}`);
+      }
       // The media viewer leaves and returns to the existing chat without a
       // layout mount or changed viewport; dismissal must restart sampling.
       app.setActiveSurface('away');
@@ -902,7 +949,10 @@ try {
       Object.defineProperty(viewport, 'height', { configurable: true, value: 808 });
       await frame();
       const resumedBottom = document.querySelector('#composer').getBoundingClientRect().bottom;
-      if (Math.abs(resumedBottom - 808) > 1) throw Error(`Returning to unchanged chat geometry failed to restart sampling: ${resumedBottom}`);
+      const resumedShift = new DOMMatrix(getComputedStyle(composer).transform).f;
+      if (Math.abs(resumedBottom - resumedShift - 808) > 1 || composer.dataset.viewportMotion !== 'positioning') {
+        throw Error(`Returning to unchanged chat geometry failed to restart concealed sampling: ${resumedBottom}`);
+      }
       return { sameGeometryReturn: 'sampling resumed', eventlessChangeAfterIdle: 'followed in one frame' };
     } finally {
       delete viewport.height; viewport.dispatchEvent(new Event('resize')); await frame();
@@ -971,7 +1021,7 @@ try {
       Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
       Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 24 });
       viewport.dispatchEvent(new Event('resize')); await settle();
-      const composer = document.querySelector('#composer').getBoundingClientRect();
+      const composer = window.composerBaseBounds();
       const latest = list.lastElementChild.getBoundingClientRect();
       if (Math.abs(composer.bottom - 444) > 1 || latest.bottom > composer.top - 12) throw Error('Keyboard viewport covered the latest message or displaced the composer');
       delete viewport.height; delete viewport.offsetTop;
@@ -994,9 +1044,11 @@ try {
     Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
     Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 24 });
     viewport.dispatchEvent(new Event('resize')); await settle();
-    const composer = document.querySelector('#composer').getBoundingClientRect();
+    const composer = window.composerBaseBounds();
+    const visualComposer = document.querySelector('#composer').getBoundingClientRect();
     const input = document.querySelector('#message-input').getBoundingClientRect();
-    if (Math.abs(composer.bottom - 444) > 1 || composer.bottom - input.bottom > 10) throw Error('Keyboard retained an extra safe-area gap below the input');
+    const keyboardInnerGap = visualComposer.bottom - input.bottom;
+    if (Math.abs(composer.bottom - 444) > 1 || keyboardInnerGap > 10) throw Error('Keyboard retained an extra safe-area gap below the input');
     const padding = getComputedStyle(list).paddingBottom;
     const scrollTo = window.scrollTo; const scrollBy = window.scrollBy;
     let corrections = 0;
@@ -1051,7 +1103,7 @@ try {
       style.removeProperty('--safe-bottom');
       viewport.dispatchEvent(new Event('resize')); await settle();
     }
-    return { smallUpwardScroll: 'preserved', panScrollCorrections: 0, keyboardInnerGap: composer.bottom - input.bottom, ackAndComposerGrowth: 'anchor preserved' };
+    return { smallUpwardScroll: 'preserved', panScrollCorrections: 0, keyboardInnerGap, ackAndComposerGrowth: 'anchor preserved' };
   });
 
   results.keyboardEventFrames = await page.evaluate(async () => {
@@ -1077,14 +1129,17 @@ try {
       if (eventTarget === viewport) window.dispatchEvent(new Event('scroll'));
       const top = Math.max(0, Math.min(offsetTop, layoutHeight - height));
       const header = document.querySelector('.chat-header').getBoundingClientRect();
-      const composer = document.querySelector('#composer').getBoundingClientRect();
+      const composer = window.composerBaseBounds();
       // Check on the dispatch frame: a later correction still visibly trails
       // the keyboard when it moves through several frames.
       if (Math.abs(header.top - top) > 1 || Math.abs(composer.bottom - top - height) > 1) {
         throw Error(`Controls lagged keyboard frame: ${JSON.stringify({ height, offsetTop, top: header.top, bottom: composer.bottom })}`);
       }
       if (app.chatPinnedToBottom && eventTarget === viewport) {
-        const latestGap = composer.top - list.lastElementChild.getBoundingClientRect().bottom;
+        // The concealed toolbar's transform is decorative. Message geometry
+        // must already target the edge it will reveal to, not the invisible
+        // 14px-down animation frame.
+        const latestGap = window.composerBaseBounds().top - list.lastElementChild.getBoundingClientRect().bottom;
         if (Math.abs(latestGap - 64) > 2) throw Error(`Messages lagged keyboard dispatch frame: ${JSON.stringify({ height, offsetTop, latestGap })}`);
       }
     };
@@ -1092,7 +1147,7 @@ try {
       input.focus({ preventScroll: true });
       for (const [height, top] of [[720, 40], [620, 100], [520, 180], [430, 260]]) {
         position(height, top); await settle();
-        const latestGap = document.querySelector('#composer').getBoundingClientRect().top - list.lastElementChild.getBoundingClientRect().bottom;
+        const latestGap = window.composerBaseBounds().top - list.lastElementChild.getBoundingClientRect().bottom;
         if (Math.abs(latestGap - 64) > 2) throw Error(`Keyboard panning left a ${latestGap}px gap above the composer`);
       }
       if (document.documentElement.dataset.keyboardOpen !== 'true') throw Error('Shrinking innerHeight hid the keyboard state');
@@ -1160,19 +1215,40 @@ try {
       if (Math.abs(header.getBoundingClientRect().top - top) > 1 || headerStyle.opacity !== '1'
         || header.getAnimations().some(animation => animation.playState === 'running')) throw Error('Keyboard frame moved or faded the screen-anchored title');
       if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '0') throw Error(`Intermediate keyboard geometry remained visible: ${JSON.stringify({ state: composer.dataset.viewportMotion, opacity: getComputedStyle(composer).opacity })}`);
-      if (Math.abs(composer.getBoundingClientRect().bottom - height - top) > 1) throw Error('Hidden composer geometry lagged a viewport frame');
+      if (Math.abs(window.composerBaseBounds().bottom - height - top) > 1) throw Error('Hidden composer geometry lagged a viewport frame');
     };
     try {
       await settled();
       input.value = '保留这份草稿'; input.setSelectionRange(2, 4); input.dispatchEvent(new Event('input'));
       input.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
-      if (!composer.dataset.viewportMotion) throw Error('Keyboard opening was not concealed before its first geometry frame');
+      if (composer.dataset.viewportMotion || composer.inert || input.disabled) throw Error('Input pointerdown concealed or disabled the field before iOS could focus it');
       input.focus({ preventScroll: true });
+      if (document.activeElement !== input || !composer.dataset.viewportMotion) throw Error('Focused input did not immediately conceal the toolbar before keyboard geometry');
       for (const [height, top] of [[680, 40], [540, 100], [420, 180]]) { position(height, top); await frame(); }
       await settled();
-      const gap = composer.getBoundingClientRect().top - target.getBoundingClientRect().bottom;
-      const buttonGap = composer.getBoundingClientRect().top - document.querySelector('#chat-bottom-control').getBoundingClientRect().bottom;
-      if (Math.abs(gap - 64) > 2 || Math.abs(buttonGap - 8) > 1) throw Error('Settled keyboard spacing changed');
+      const gap = window.composerBaseBounds().top - target.getBoundingClientRect().bottom;
+      const buttonGap = window.composerBaseBounds().top - document.querySelector('#chat-bottom-control').getBoundingClientRect().bottom;
+      if (Math.abs(gap - 64) > 2 || Math.abs(buttonGap - 8) > 1) {
+        throw Error(`Settled keyboard spacing changed: ${JSON.stringify({
+          gap,
+          buttonGap,
+          composer: window.composerBaseBounds(),
+          target: target.getBoundingClientRect().toJSON(),
+          button: document.querySelector('#chat-bottom-control').getBoundingClientRect().toJSON(),
+          opacity: getComputedStyle(composer).opacity,
+          transform: getComputedStyle(composer).transform,
+          viewportMotion: composer.dataset.viewportMotion ?? null,
+          scrollY: window.scrollY,
+          innerHeight: window.innerHeight,
+          clientHeight: document.documentElement.clientHeight,
+          scrollHeight: document.documentElement.scrollHeight,
+          bodyScrollHeight: document.body.scrollHeight,
+          list: document.querySelector('#message-list').getBoundingClientRect().toJSON(),
+          listPaddingBottom: getComputedStyle(document.querySelector('#message-list')).paddingBottom,
+          listMinHeight: getComputedStyle(document.querySelector('#message-list')).minHeight,
+          keyboardOpen: document.documentElement.dataset.keyboardOpen,
+        })}`);
+      }
       const scrollY = window.scrollY;
       const pointer = new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerType: 'touch' });
       target.dispatchEvent(pointer);
@@ -1200,7 +1276,7 @@ try {
       app.setActiveSurface('away');
       if (composer.dataset.viewportMotion !== 'positioning') throw Error('Leaving chat did not cancel motion synchronously');
       app.setActiveSurface('chat'); await settled();
-      return { keyboardFrames: 6, blockedFingerDirections: 'both', blur: 'last touch release', draft: 'preserved', latestGap: gap, buttonGap, idleReveal: '80ms then opacity only', sameDomReturn: true };
+      return { keyboardFrames: 6, blockedFingerDirections: 'both', blur: 'last touch release', draft: 'preserved', latestGap: gap, buttonGap, idleReveal: '160ms settle then 280ms slide and fade', sameDomReturn: true };
     } finally {
       delete viewport.height; delete viewport.offsetTop;
       input.blur(); viewport.dispatchEvent(new Event('resize')); await frame();
@@ -1322,7 +1398,7 @@ try {
       for (const height of [layoutHeight + 20, layoutHeight + 40, layoutHeight + 60, layoutHeight + 80]) {
         Object.defineProperty(viewport, 'height', { configurable: true, value: height });
         viewport.dispatchEvent(new Event('resize'));
-        const bottom = document.querySelector('#composer').getBoundingClientRect().bottom;
+        const bottom = window.composerBaseBounds().bottom;
         if (Math.abs(bottom - height) > 1) throw Error(`Stale layout height clipped toolbar expansion: ${JSON.stringify({ height, clientHeight: document.documentElement.clientHeight, bottom })}`);
         samples.push({ height, bottom });
         await frame();
@@ -1331,7 +1407,7 @@ try {
       for (const height of [700, 560, 420]) {
         Object.defineProperty(viewport, 'height', { configurable: true, value: height });
         viewport.dispatchEvent(new Event('resize'));
-        const composer = document.querySelector('#composer').getBoundingClientRect();
+        const composer = window.composerBaseBounds();
         const gap = composer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
         if (Math.abs(composer.bottom - height) > 1 || Math.abs(gap - 64) > 2) throw Error(`Keyboard after collapsed toolbar misplaced content: ${JSON.stringify({ height, bottom: composer.bottom, gap })}`);
         await frame();
@@ -1374,7 +1450,7 @@ try {
       // Closing from a message leaves an upward gesture intent and may leave
       // a native scroll gap. A fresh composer tap must restore prior follow.
       input.focus({ preventScroll: true }); resize(420);
-      const gap = document.querySelector('#composer').getBoundingClientRect().top - list.lastElementChild.getBoundingClientRect().bottom;
+      const gap = window.composerBaseBounds().top - list.lastElementChild.getBoundingClientRect().bottom;
       if (!app.chatPinnedToBottom || Math.abs(gap - 64) > 2) throw Error(`Reopening the keyboard retained stale history intent: gap=${gap}`);
       await settle();
       await dismissFromMessage();
@@ -1413,7 +1489,7 @@ try {
       Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
       Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 100 });
       viewport.dispatchEvent(new Event('resize'));
-      const composer = document.querySelector('#composer').getBoundingClientRect();
+      const composer = window.composerBaseBounds();
       const gap = composer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
       if (!app.chatPinnedToBottom || Math.abs(gap - 64) > 2) throw Error(`Native focus scroll lost the latest message: gap=${gap}`);
       // A delayed native adjustment can also arrive after the final resize.
@@ -1421,7 +1497,7 @@ try {
       window.scrollBy(0, -96);
       window.dispatchEvent(new Event('scroll'));
       for (let i = 0; i < 4; i++) await frame();
-      const settledGap = document.querySelector('#composer').getBoundingClientRect().top
+      const settledGap = window.composerBaseBounds().top
         - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
       if (!app.chatPinnedToBottom || Math.abs(settledGap - 64) > 2) throw Error(`Native scroll after the final keyboard resize lost follow: gap=${settledGap}`);
       return { scrollBeforeResize: true, scrollAfterFinalResize: true, bottomFollowRetained: true, latestGap: gap, settledGap };
@@ -1460,7 +1536,7 @@ try {
       if (!ignored) throw Error('Deferred-scroll fixture never intercepted a scroll attempt');
       if (!app.chatPinnedToBottom) throw Error('An ignored send scroll discarded bottom-follow intent');
       for (let i = 0; i < 4; i++) await frame();
-      const composer = document.querySelector('#composer').getBoundingClientRect();
+      const composer = window.composerBaseBounds();
       const latest = document.querySelector('[data-client-msg-id="message-71"]').getBoundingClientRect();
       const gap = composer.top - latest.bottom;
       if (Math.abs(gap - 64) > 2 || !app.chatPinnedToBottom) throw Error(`A deferred send scroll left the latest message under the composer: ${JSON.stringify({ gap, attempts, ignored, pinned: app.chatPinnedToBottom })}`);
@@ -1469,7 +1545,7 @@ try {
       if (!app.captureChatAnchor().pinnedToBottom) throw Error('Send acknowledgement lost recovered bottom follow');
       window.scrollBy(0, -96); window.dispatchEvent(new Event('scroll'));
       for (let i = 0; i < 4; i++) await frame();
-      const lateScrollGap = document.querySelector('#composer').getBoundingClientRect().top
+      const lateScrollGap = window.composerBaseBounds().top
         - document.querySelector('[data-client-msg-id="message-71"]').getBoundingClientRect().bottom;
       if (!app.chatPinnedToBottom || Math.abs(lateScrollGap - 64) > 2) throw Error(`Native scroll overrode an already completed send alignment: gap=${lateScrollGap}`);
       return { ignoredAttempts: ignored, totalAttempts: attempts, latestGap: gap, lateScrollGap, ackFollowRetained: true };
@@ -1492,7 +1568,7 @@ try {
         await frame(); await frame();
         const input = document.querySelector('#message-input');
         const check = height => {
-          const composer = document.querySelector('#composer').getBoundingClientRect();
+          const composer = window.composerBaseBounds();
           const gap = composer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
           if (Math.abs(composer.bottom - height) > 1 || Math.abs(gap - 64) > 2) throw Error(`Short history did not follow the keyboard: ${JSON.stringify({ count, height, composerBottom: composer.bottom, gap })}`);
           return { count, height, gap };
@@ -1568,17 +1644,98 @@ try {
     app.closeMessageActions();
     const backdrop = document.querySelector('.message-actions-backdrop');
     if (!backdrop?.classList.contains('is-closing') || !article.classList.contains('is-action-source')) throw Error('Closing abruptly removed the dimmed background or source');
-    const reaction = { ...message(21), senderId: session.vault.identity.publicBundle.deviceId, payload: { v: 1, kind: 'reaction', target: { clientMsgId: source.clientMsgId, serverSeq: source.seq, senderId: source.senderId }, emoji: '❤️', sentAt: source.payload.sentAt }, status: 'pending' };
+    const reaction = { ...message(21), seq: Number.MAX_SAFE_INTEGER, senderId: session.vault.identity.publicBundle.deviceId, payload: { v: 1, kind: 'reaction', target: { clientMsgId: source.clientMsgId, serverSeq: source.seq, senderId: source.senderId }, emoji: '❤️', sentAt: source.payload.sentAt }, status: 'pending' };
     app.messages.set(21, reaction); app.renderMessages();
     const badge = article.querySelector('.message-reaction');
     const observer = new MutationObserver(() => {}); observer.observe(article, { childList: true, subtree: true });
-    app.messages.set(21, { ...reaction, status: 'stored' }); app.renderMessages();
+    app.messages.set(21, { ...reaction, seq: Number.MAX_SAFE_INTEGER, status: 'stored' }); app.renderMessages();
     const detached = observer.takeRecords().some(record => record.removedNodes.length); observer.disconnect();
-    if (detached || article.querySelector('.message-reaction') !== badge) throw Error('Reaction confirmation remounted its badge');
+    if (detached || article.querySelector('.message-reaction') !== badge) throw Error('Reaction ACK remounted or rolled back its badge before sync');
+    app.messages.set(21, { ...reaction, seq: 21, status: 'stored' }); app.renderMessages();
+    if (article.querySelector('.message-reaction') !== badge) throw Error('Reaction sync remounted its optimistic badge');
+
+    // Keep an earlier message as the scroll anchor, then add a reaction below
+    // it. Rows after the reacted message must start at their old visual
+    // position and ease to the new layout without being detached or jittering
+    // again during ACK and durable sync.
+    const anchored = document.querySelector('[data-client-msg-id="message-5"]');
+    const animatedSource = app.messages.get(10);
+    const animatedArticle = document.querySelector('[data-client-msg-id="message-10"]');
+    const follower = document.querySelector('[data-client-msg-id="message-11"]');
+    anchored.scrollIntoView({ block: 'start', behavior: 'instant' });
+    window.dispatchEvent(new Event('scroll'));
+    app.chatPinnedToBottom = false; app.chatScrollIntent = 'up';
+    await settle();
+    const followerContent = follower.querySelector('.message-bubble');
+    const followerTop = followerContent.getBoundingClientRect().top;
+    const flip = {
+      ...message(22), seq: Number.MAX_SAFE_INTEGER, clientMsgId: 'reaction-flip',
+      senderId: session.vault.identity.publicBundle.deviceId, status: 'pending',
+      payload: { v: 1, kind: 'reaction', target: { clientMsgId: animatedSource.clientMsgId, serverSeq: animatedSource.seq, senderId: animatedSource.senderId }, emoji: '👍', sentAt: animatedSource.payload.sentAt },
+    };
+    app.pending.set(flip.clientMsgId, flip); app.renderMessages();
+    const flipBadge = animatedArticle.querySelector('.message-reaction');
+    const flipAnimation = followerContent.getAnimations().find(animation =>
+      animation.effect?.getKeyframes().some(frame => typeof frame.translate === 'string'));
+    if (!flipBadge || !flipAnimation || Number(flipAnimation.effect.getTiming().duration) !== 300) {
+      throw Error('Reaction insertion did not create the 300ms follower FLIP animation');
+    }
+    const followerImmediateTop = followerContent.getBoundingClientRect().top;
+    const heldAtOldPosition = Math.abs(followerImmediateTop - followerTop) < 3;
+    app.pending.set(flip.clientMsgId, { ...flip, status: 'stored' }); app.renderMessages();
+    if (animatedArticle.querySelector('.message-reaction') !== flipBadge || !followerContent.getAnimations().includes(flipAnimation)) {
+      throw Error('Reaction ACK restarted the layout motion or remounted its badge');
+    }
+    app.pending.delete(flip.clientMsgId);
+    app.messageEventHistory.set(22, { ...flip, seq: 22, status: 'stored' }); app.renderMessages();
+    if (animatedArticle.querySelector('.message-reaction') !== flipBadge || !followerContent.getAnimations().includes(flipAnimation)) {
+      throw Error('Reaction durable sync restarted the layout motion or remounted its badge');
+    }
+    await flipAnimation.finished;
+    const finalTop = followerContent.getBoundingClientRect().top;
+    app.messageEventHistory.set(23, {
+      ...flip, seq: 23, clientMsgId: 'reaction-flip-remove', status: 'stored',
+      payload: { ...flip.payload, emoji: null },
+    });
+    app.renderMessages();
+    const removalAnimation = followerContent.getAnimations().find(animation =>
+      animation.effect?.getKeyframes().some(frame => typeof frame.translate === 'string'));
+    if (animatedArticle.querySelector('.message-reaction') || !removalAnimation
+      || Number(removalAnimation.effect.getTiming().duration) !== 300) {
+      throw Error('Removing the last reaction did not smoothly return following rows');
+    }
     await new Promise(resolve => setTimeout(resolve, 180));
     if (backdrop.isConnected || article.classList.contains('is-action-source')) throw Error('Reaction close left an overlay behind');
-    return { initialEmojiFocus: false, keyboardNavigation: true, smoothBackdropClose: true, badgeRetainedOnAck: true };
+    return {
+      initialEmojiFocus: false, keyboardNavigation: true, smoothBackdropClose: true,
+      badgeRetainedAcrossAckAndSync: true, followerHeldAtOldPosition: heldAtOldPosition,
+      followerImmediateDelta: followerImmediateTop - followerTop,
+      followerTravel: finalTop - followerTop, insertionDuration: 300, removalDuration: 300,
+    };
   });
+  assert.equal(results.reactionPresentation.followerHeldAtOldPosition, true,
+    `Reaction reflow jumped before its FLIP animation began: ${JSON.stringify(results.reactionPresentation)}`);
+  assert(results.reactionPresentation.followerTravel > 8, `Reaction fixture did not move the following bubble: ${JSON.stringify(results.reactionPresentation)}`);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  results.reactionReducedMotion = await page.evaluate(async () => {
+    const { app, fresh, message, session } = window.regression; fresh();
+    const source = message(1); const follower = message(2);
+    app.messages = new Map([[1, source], [2, follower]]); app.renderMessages({ scroll: 'bottom' });
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    app.pending.set('reaction-reduced', {
+      ...message(3), seq: Number.MAX_SAFE_INTEGER, clientMsgId: 'reaction-reduced', status: 'pending',
+      senderId: session.vault.identity.publicBundle.deviceId,
+      payload: { v: 1, kind: 'reaction', target: { clientMsgId: source.clientMsgId, serverSeq: source.seq, senderId: source.senderId }, emoji: '❤️', sentAt: source.payload.sentAt },
+    });
+    app.renderMessages();
+    const row = document.querySelector('[data-client-msg-id="message-2"]');
+    const animations = [...row.children].flatMap(child => child.getAnimations()).length;
+    if (!document.querySelector('[data-client-msg-id="message-1"] .message-reaction') || animations !== 0) {
+      throw Error('Reduced motion did not commit reaction layout without animation');
+    }
+    return { animations, badgeVisible: true };
+  });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   if (visualQaDirectory) {
     await page.evaluate(() => {
       const { app, fresh, message, session } = window.regression; fresh();
@@ -1624,7 +1781,7 @@ try {
           const header = document.querySelector('.chat-header');
           const composer = document.querySelector('#composer');
           const headerBounds = header.getBoundingClientRect();
-          const composerBounds = composer.getBoundingClientRect();
+          const composerBounds = window.composerBaseBounds();
           const input = document.querySelector('#message-input').getBoundingClientRect();
           if (getComputedStyle(header).position !== 'fixed' || getComputedStyle(composer).position !== 'fixed') throw Error('Desktop controls no longer use fixed positioning');
           if (Math.abs(headerBounds.top) > 1 || Math.abs(composerBounds.bottom - innerHeight) > 1) throw Error('Document scrolling moved a desktop bar away from the window edge');
@@ -1642,7 +1799,7 @@ try {
         const framesPromise = desktopPage.evaluate(() => new Promise(resolve => {
           const frames = [];
           const sample = () => {
-            frames.push({ scrollY, top: document.querySelector('.chat-header').getBoundingClientRect().top, bottom: document.querySelector('#composer').getBoundingClientRect().bottom });
+            frames.push({ scrollY, top: document.querySelector('.chat-header').getBoundingClientRect().top, bottom: window.composerBaseBounds().bottom });
             if (frames.length === 16) resolve(frames);
             else requestAnimationFrame(sample);
           };

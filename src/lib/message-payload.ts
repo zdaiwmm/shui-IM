@@ -89,6 +89,15 @@ function isReplyReference(value: unknown): boolean {
     !/[\u0000-\u001f\u007f]/.test(reply.preview);
 }
 
+export function isMessageTarget(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const target = value as Record<string, unknown>;
+  return hasOnlyKeys(target, ['clientMsgId', 'serverSeq', 'senderId']) &&
+    typeof target.clientMsgId === 'string' && UUID_V4.test(target.clientMsgId) &&
+    typeof target.serverSeq === 'number' && Number.isSafeInteger(target.serverSeq) && target.serverSeq > 0 &&
+    typeof target.senderId === 'string' && UUID_V4.test(target.senderId);
+}
+
 export function isMessagePayload(value: unknown): value is MessagePayload {
   if (!value || typeof value !== 'object') return false;
   const payload = value as Record<string, unknown>;
@@ -101,13 +110,14 @@ export function isMessagePayload(value: unknown): value is MessagePayload {
   if (payload.kind === 'reaction') {
     if (payload.v !== 1 || !hasOnlyKeys(payload, ['v', 'kind', 'sentAt', 'target', 'emoji']) ||
       (payload.emoji !== null && !isReactionEmoji(payload.emoji)) ||
-      !payload.target || typeof payload.target !== 'object'
+      !isMessageTarget(payload.target)
     ) return false;
-    const target = payload.target as Record<string, unknown>;
-    return hasOnlyKeys(target, ['clientMsgId', 'serverSeq', 'senderId']) &&
-      typeof target.clientMsgId === 'string' && UUID_V4.test(target.clientMsgId) &&
-      typeof target.serverSeq === 'number' && Number.isSafeInteger(target.serverSeq) && target.serverSeq > 0 &&
-      typeof target.senderId === 'string' && UUID_V4.test(target.senderId);
+    return true;
+  }
+  if (payload.kind === 'message-delete') {
+    return payload.v === 1 &&
+      hasOnlyKeys(payload, ['v', 'kind', 'sentAt', 'target']) &&
+      isMessageTarget(payload.target);
   }
   if (payload.kind === 'text') {
     if (typeof payload.text !== 'string' || payload.text.length > MAX_MESSAGE_TEXT_LENGTH) return false;

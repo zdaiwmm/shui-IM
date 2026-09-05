@@ -273,6 +273,11 @@ describe('server ciphertext storage', () => {
 
     const afterLinkId = crypto.randomUUID();
     store.insertMessage(roomId, { clientMsgId: afterLinkId, senderId: joinerId, ciphertext: 'after-link' });
+    expect(store.getMessageByClientId(roomId, afterLinkId)).toMatchObject({
+      seq: 2,
+      senderId: joinerId,
+      envelope: { clientMsgId: afterLinkId, senderId: joinerId, ciphertext: 'after-link' },
+    });
     expect(store.messagesAfter(roomId, 0, 500, linkedId).map((message: { seq: number }) => message.seq)).toEqual([2]);
     store.insertReceipt(roomId, {
       v: 1,

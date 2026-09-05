@@ -73,6 +73,16 @@ describe('message reaction replay', () => {
     expect(reduceMessageReactions([target, original, pendingUpdate, pendingRemoval], memberRoles).has(target.clientMsgId)).toBe(false);
   });
 
+  it('keeps an optimistic badge between socket acknowledgement and sequence sync', () => {
+    const target = textMessage();
+    const acknowledged = reaction(target, Number.MAX_SAFE_INTEGER, creatorDevice, '👍', { status: 'stored' });
+    expect(reduceMessageReactions([target, acknowledged], memberRoles).get(target.clientMsgId)?.[0]).toMatchObject({
+      clientMsgId: acknowledged.clientMsgId,
+      emoji: '👍',
+      pending: true,
+    });
+  });
+
   it('does not let an acknowledged optimistic duplicate override a later server reaction', () => {
     const target = textMessage();
     const original = reaction(target, 2, creatorDevice, '❤️');
@@ -94,7 +104,7 @@ describe('message reaction replay', () => {
       .toEqual([{ role: 'joiner', senderId: joinerDevice, emoji: '😂', clientMsgId: peer.clientMsgId, pending: false }]);
   });
 
-  it('rejects missing targets, mismatched identity triples, unknown senders, and non-chat targets', () => {
+  it('rejects missing targets, mismatched identity triples, unknown senders, and event targets', () => {
     const target = textMessage();
     const valid = reaction(target, 3, creatorDevice, '❤️');
     if (valid.payload.kind !== 'reaction') throw new Error('test fixture');
@@ -107,6 +117,16 @@ describe('message reaction replay', () => {
     }
     expect(reduceMessageReactions([valid], memberRoles).size).toBe(0);
     expect(reduceMessageReactions([valid, reaction(valid, 4, joinerDevice, '👍')], memberRoles).size).toBe(0);
+    const deletion: DecryptedMessage = {
+      ...valid,
+      payload: {
+        v: 1,
+        kind: 'message-delete',
+        sentAt,
+        target: { clientMsgId: target.clientMsgId, serverSeq: target.seq, senderId: target.senderId },
+      },
+    };
+    expect(reduceMessageReactions([deletion, reaction(deletion, 4, joinerDevice, '👍')], memberRoles).size).toBe(0);
   });
 
   it('rejects a confirmed event preceding its target and optimistic or failed targets', () => {

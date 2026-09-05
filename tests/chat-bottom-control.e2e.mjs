@@ -32,7 +32,8 @@ try {
     const session = await createVault({ v: 1, roomId: 'bottom-regression', accessToken: 'test', role: 'creator', protocol: 'legacy-v1', lastSeq: 200,
       members: [member, { deviceId: 'bottom-peer', role: 'joiner', status: 'active' }], identity: { publicBundle: member } }, 'bottom-regression-password', 'password');
     const app = new QuietRoomApp(document.querySelector('#app'));
-    app.updateSafetyCode = async () => {}; app.updateBackgroundNotificationControl = async () => {};
+    app.updateSafetyCode = async () => {};
+    app.updateBackgroundNotificationControl = async () => {};
     app.mountChatImageObserver = () => {}; app.mountGalleryThumbnails = () => {};
     const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const fresh = async (count = 80) => {
@@ -43,7 +44,7 @@ try {
         seq: index + 1, clientMsgId: `bottom-${index + 1}`, senderId: 'bottom-peer', status: 'delivered', acceptedAt: '2026-09-04T01:00:00.000Z',
         payload: { v: 1, kind: 'text', text: `聊天消息 ${index + 1}`, sentAt: '2026-09-04T01:00:00.000Z' },
       }]));
-      app.pending = new Map(); app.reactionHistory = new Map(); app.renderChat(); app.renderMessages({ scroll: 'bottom' }); await settle();
+      app.pending = new Map(); app.messageEventHistory = new Map(); app.renderChat(); app.renderMessages({ scroll: 'bottom' }); await settle();
     };
     const up = async distance => {
       document.querySelector('#message-list').dispatchEvent(new WheelEvent('wheel', { deltaY: -distance, bubbles: true }));
@@ -51,21 +52,34 @@ try {
     };
     const button = () => document.querySelector('#chat-bottom-control');
     const visible = () => button().classList.contains('is-visible');
+    const waitForComposerReveal = async () => {
+      const deadline = performance.now() + 1200;
+      while (performance.now() < deadline) {
+        const composer = document.querySelector('#composer');
+        if (!composer.dataset.viewportMotion && Number(getComputedStyle(composer).opacity) === 1) return;
+        await new Promise(resolve => requestAnimationFrame(resolve));
+      }
+      throw Error('Composer did not reveal after scrolling settled');
+    };
     const assertGap = () => {
       const composer = document.querySelector('#composer').getBoundingClientRect(); const rect = button().getBoundingClientRect();
       if (Math.abs(composer.top - rect.bottom - 8) > 0.6 || Math.abs(rect.height - 44) > 0.6) throw Error(`Button lost its composer gap: ${JSON.stringify({ composer: composer.top, bottom: rect.bottom, height: rect.height })}`);
     };
-    window.bottomFixture = { app, session, saveHistoryMessage, fresh, settle, up, button, visible, assertGap }; await fresh();
+    window.bottomFixture = { app, session, saveHistoryMessage, fresh, settle, up, button, visible, waitForComposerReveal, assertGap }; await fresh();
   });
 
   results.strictThreshold = await page.evaluate(async () => {
-    const { app, up, settle, button, visible, assertGap } = window.bottomFixture;
+    const { app, up, settle, button, visible, waitForComposerReveal, assertGap } = window.bottomFixture;
     assertGap(); if (visible()) throw Error('Latest message above the button still showed the control');
     const latest = app.renderedMessageOrder.at(-1);
     const start = latest.getBoundingClientRect().bottom - button().getBoundingClientRect().top;
     if (Math.abs(start + 12) > 1) throw Error(`Bottom clearance was not 12px: ${start}`);
     await up(11); if (visible()) throw Error('Button appeared before latest message crossed its top edge');
-    await up(13); if (!visible() || button().getAttribute('aria-hidden') !== 'false' || button().tabIndex !== 0) throw Error('Button did not appear immediately after latest message crossed its top edge');
+    await up(13);
+    const composer = document.querySelector('#composer');
+    if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '0') throw Error('Scroll motion did not immediately conceal the composer');
+    await waitForComposerReveal();
+    if (!visible() || button().getAttribute('aria-hidden') !== 'false' || button().tabIndex !== 0) throw Error('Button did not appear after scroll motion fully settled');
     const fade = getComputedStyle(button());
     if (!fade.transitionProperty.includes('opacity') || !fade.transitionDuration.includes('0.18s')) throw Error('Button lost its opacity transition');
     await up(11); if (visible() || button().tabIndex !== -1) throw Error('Returning across the threshold left the button active');

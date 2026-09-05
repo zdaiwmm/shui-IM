@@ -345,15 +345,16 @@ export class CallController {
     let finished = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let rejectPending: (error: Error) => void = () => {};
-    const release = () => {
-      if (finished) return;
+    const release = async (): Promise<boolean> => {
+      if (finished) return false;
       finished = true;
       if (timer) clearTimeout(timer);
       this.pendingPermissions.delete(cancel);
       this.permissionCount = Math.max(0, this.permissionCount - 1);
-      if (!this.permissionCount) this.options.onPermissionChange(false);
+      if (!this.permissionCount) return Boolean(await this.options.onPermissionChange(false));
+      return false;
     };
-    const cancel = () => { release(); rejectPending(new Error('通话已结束')); };
+    const cancel = () => { void release().finally(() => rejectPending(new Error('通话已结束'))); };
     this.pendingPermissions.add(cancel);
     const request = Promise.resolve().then(() => {
       if (finished || !this.valid(context)) throw new Error('通话已结束');
@@ -364,14 +365,14 @@ export class CallController {
     });
     const result = new Promise<MediaStream>((resolve, reject) => {
       rejectPending = reject;
-      timer = setTimeout(() => { release(); reject(new DOMException('等待设备授权超时，请重试', 'TimeoutError')); }, MEDIA_MS);
-      request.then((stream) => {
-        if (finished || !this.valid(context)) { stopStream(stream); release(); reject(new Error('通话已结束')); return; }
-        release();
+      timer = setTimeout(() => { void release().finally(() => reject(new DOMException('等待设备授权超时，请重试', 'TimeoutError'))); }, MEDIA_MS);
+      request.then(async (stream) => {
+        if (finished || !this.valid(context)) { stopStream(stream); await release(); reject(new Error('通话已结束')); return; }
+        const permissionInvalidated = await release();
         // The permission callback can lock/destroy the call synchronously.
-        if (!this.valid(context)) { stopStream(stream); reject(new Error('通话已结束')); return; }
+        if (permissionInvalidated || !this.valid(context)) { stopStream(stream); reject(new Error('通话已结束')); return; }
         resolve(stream);
-      }, (error: unknown) => { release(); reject(error); });
+      }, (error: unknown) => { void release().finally(() => reject(error)); });
     });
     return result;
   }

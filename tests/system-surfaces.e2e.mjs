@@ -45,16 +45,27 @@ try {
     const processed = [];
     app.processImageFiles = async (files, destination) => processed.push({ files, destination });
     const check = (value, message) => { if (!value) throw Error(message); };
+    const checkRejects = async (promise, message) => {
+      try { await promise; } catch { return; }
+      throw Error(message);
+    };
     const covered = label => check(app.privacyCovered && !!root.querySelector('.cover-trigger') && !root.querySelector('.chat-shell, .gallery-shell'), `${label}: private content remained visible`);
     let focused = true;
     Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => focused });
     const blur = () => { focused = false; window.dispatchEvent(new Event('blur')); };
     const focus = () => { focused = true; window.dispatchEvent(new Event('focus')); };
+    const loseFocusWithoutEvent = () => { focused = false; };
     const externalDeparture = () => { blur(); focus(); blur(); };
     const hidden = value => {
       Object.defineProperty(document, 'hidden', { configurable: true, get: () => value });
       document.dispatchEvent(new Event('visibilitychange'));
     };
+    // Keep the browser runner from opening a real native chooser. The product
+    // replaces the file input for every invocation, so intercept at the stable
+    // root instead of attaching the test hook to a soon-to-be-detached input.
+    root.addEventListener('click', event => {
+      if (event.target instanceof HTMLInputElement && event.target.type === 'file') event.preventDefault();
+    }, true);
     const open = async (destination = 'chat') => {
       app.session = session;
       app.privacyCovered = false;
@@ -69,12 +80,9 @@ try {
       await open(destination);
     };
     const beginPicker = destination => {
-      const input = root.querySelector(destination === 'chat' ? '#image-input' : '#gallery-image-input');
-      check(input?.multiple, `${destination}: multiple selection is disabled`);
-      // Exercise the real trigger and input listeners without opening an OS
-      // dialog that the browser test runner cannot dismiss portably.
-      input.addEventListener('click', event => event.preventDefault());
       root.querySelector(destination === 'chat' ? '#open-image-picker' : '#open-gallery-image-picker').click();
+      const input = app.imagePickerInput;
+      check(input?.multiple, `${destination}: multiple selection is disabled`);
       check(app.imagePickerActive, `${destination}: picker was not registered`);
       check(!app.privacyCovered && !!root.querySelector(destination === 'chat' ? '.chat-shell' : '.gallery-shell'), `${destination}: clicking upload covered the page before window departure`);
       input.dispatchEvent(new FocusEvent('blur', { bubbles: false }));
@@ -144,7 +152,7 @@ try {
         const input = beginPicker(destination);
         blur();
         check(!app.privacyCovered && !document.documentElement.classList.contains('privacy-obscured'), `${destination}: foreground native chooser locked or obscured chat`);
-        check(!!app.session && input.isConnected, `${destination}: foreground chooser lost its owner`);
+        check(!!app.session && input.isConnected, `${destination}: foreground chooser lost its owner (session=${Boolean(app.session)}, inputConnected=${input.isConnected}, pickerActive=${app.imagePickerActive}, handoff=${app.nativeHandoff?.kind ?? 'none'})`);
         if (order === 'focus-before-change') focus();
         await select(input);
         if (order === 'change-before-focus') {
@@ -161,19 +169,18 @@ try {
         await fresh(destination);
         const input = beginPicker(destination);
         externalDeparture(); covered(`${destination} picker second departure`);
-        check(input.isConnected && input.hidden, `${destination}: active picker input was detached or exposed`);
+        check(!input.isConnected && !app.imagePickerActive && !app.imagePickerInput, `${destination}: second departure retained the native chooser owner`);
         hidden(true); covered(`${destination} picker hidden`); hidden(false);
         if (order === 'focus-before-change') focus();
         await select(input);
         if (order === 'change-before-focus') focus();
         covered(`${destination} picker return`);
         check(processed.length === 0, `${destination}: selected images uploaded while locked`);
-        check(app.deferredImageUpload?.files.length === 12 && app.deferredImageUpload.destination === destination, `${destination}: selected images were lost or truncated`);
+        check(!app.deferredImageUpload, `${destination}: invalidated picker retained a deferred upload`);
         await open(destination);
         await app.resumeDeferredImage();
-        check(processed.length === 1 && processed[0].files.length === 12 && processed[0].destination === destination, `${destination}: selection did not resume after unlocking`);
-        check(app.deferredImageUpload === null, `${destination}: consumed selection remained queued`);
-        pickerResults.push({ destination, order, selected: 12, uploadedAfterUnlock: true });
+        check(processed.length === 0, `${destination}: a late background selection resumed after unlocking`);
+        pickerResults.push({ destination, order, lateSelectionIgnored: true, mustReselect: true });
       }
 
       await fresh(destination);
@@ -181,7 +188,7 @@ try {
       hidden(true); covered(`${destination} picker hidden without blur`); hidden(false); focus();
       canceled.dispatchEvent(new Event('cancel'));
       covered(`${destination} canceled picker return`);
-      check(!app.imagePickerActive && !app.deferredImageUpload && processed.length === 0, `${destination}: canceled picker retained an upload`);
+      check(!canceled.isConnected && !app.imagePickerActive && !app.deferredImageUpload && processed.length === 0, `${destination}: hidden picker remained mounted or retained an upload`);
 
       for (const alreadyCovered of [false, true]) {
         await fresh(destination);
@@ -196,34 +203,28 @@ try {
       await fresh(destination);
       const oldPicker = beginPicker(destination);
       externalDeparture();
+      check(!oldPicker.isConnected, `${destination}: invalidated old picker remained mounted`);
+      focus();
       await open(destination);
       const currentPicker = beginPicker(destination);
       check(currentPicker !== oldPicker && app.imagePickerInput === currentPicker, `${destination}: newer picker did not acquire ownership`);
       oldPicker.dispatchEvent(new Event('cancel'));
       check(app.imagePickerActive && app.imagePickerInput === currentPicker, `${destination}: stale cancel canceled the newer picker`);
-      externalDeparture(); covered(`${destination} newer picker departure`);
+      blur(); focus();
       await select(currentPicker, 2);
-      check(app.deferredImageUpload?.files.length === 2 && processed.length === 0, `${destination}: newer picker selection was lost after stale cancel`);
-      focus();
-      await open(destination);
-      await app.resumeDeferredImage();
-      check(processed.length === 1 && processed[0].files.length === 2, `${destination}: newer picker could not resume after stale cancel`);
+      check(processed.length === 1 && processed[0].files.length === 2 && !app.deferredImageUpload, `${destination}: newer foreground picker was affected by stale cancel`);
 
       for (const identityField of ['roomId', 'deviceId']) {
         await fresh(destination);
         const originalRoomId = session.vault.roomId;
         const originalDeviceId = session.vault.identity.publicBundle.deviceId;
         const ownedPicker = beginPicker(destination);
-        externalDeparture();
-        await select(ownedPicker, 2);
-        check(app.deferredImageUpload?.roomId === originalRoomId && app.deferredImageUpload.deviceId === originalDeviceId, `${destination}: deferred selection lost its session ownership`);
+        blur(); focus();
         try {
           if (identityField === 'roomId') session.vault.roomId = 'different-room';
           else session.vault.identity.publicBundle.deviceId = 'different-device';
-          focus();
-          await open(destination);
-          await app.resumeDeferredImage();
-          check(processed.length === 0 && app.deferredImageUpload === null, `${destination}: deferred selection crossed a changed ${identityField}`);
+          await select(ownedPicker, 2);
+          check(processed.length === 0 && app.deferredImageUpload === null, `${destination}: foreground selection crossed a changed ${identityField}`);
         } finally {
           session.vault.roomId = originalRoomId;
           session.vault.identity.publicBundle.deviceId = originalDeviceId;
@@ -241,6 +242,15 @@ try {
       check(!app.privacyCovered && !app.nativeHandoff && !app.imagePickerActive && processed.length === 0, `${destination}: foreground cancellation locked or left an upload`);
 
       await fresh(destination);
+      const strandedForeground = beginPicker(destination);
+      blur(); focus();
+      await new Promise(resolve => setTimeout(resolve, 400));
+      check(!app.privacyCovered && !strandedForeground.isConnected && !app.imagePickerActive,
+        `${destination}: focus return without change/cancel left a native chooser owner mounted`);
+      await select(strandedForeground, 2);
+      check(processed.length === 0 && !app.deferredImageUpload, `${destination}: stranded chooser delivered a late selection`);
+
+      await fresh(destination);
       beginPicker(destination);
       // Missing blur/cancel must not leave an exception after focus returns.
       focus(); blur(); covered(`${destination} focus without blur consumed handoff`); focus();
@@ -253,6 +263,38 @@ try {
       beginPicker(destination);
       app.nativeHandoff.deadline = performance.now() - 1;
       blur(); covered(`${destination} expired handoff`); focus();
+
+      await fresh(destination);
+      const expiredOnFocus = beginPicker(destination);
+      blur();
+      app.nativeHandoff.deadline = performance.now() - 1;
+      app.nativeHandoff.wallDeadline = Date.now() - 1;
+      focus();
+      covered(`${destination} suspended timer expired before focus`);
+      check(!expiredOnFocus.isConnected && !app.imagePickerActive && !app.deferredImageUpload,
+        `${destination}: focus consumed an expired chooser handoff`);
+
+      await fresh(destination);
+      const expiredOnResult = beginPicker(destination);
+      blur();
+      app.nativeHandoff.deadline = performance.now() - 1;
+      app.nativeHandoff.wallDeadline = Date.now() - 1;
+      await select(expiredOnResult, 2);
+      covered(`${destination} suspended timer expired before result`);
+      check(!expiredOnResult.isConnected && !app.imagePickerActive && !app.deferredImageUpload && processed.length === 0,
+        `${destination}: a result consumed an expired chooser handoff`);
+      focus();
+
+      await fresh(destination);
+      const missedBlur = beginPicker(destination);
+      loseFocusWithoutEvent();
+      app.nativeHandoff.deadline = performance.now() - 1;
+      app.nativeHandoff.wallDeadline = Date.now() - 1;
+      app.expireNativeHandoff(app.nativeHandoff);
+      covered(`${destination} expired chooser without blur event`);
+      check(!missedBlur.isConnected && !app.imagePickerActive,
+        `${destination}: an expired unfocused chooser without blur stayed active`);
+      focus();
     }
 
     for (const event of ['blur', 'hidden']) {
@@ -337,6 +379,14 @@ try {
     await new Promise(resolve => setTimeout(resolve, 300));
     covered('Settled permission without foreground return'); focus();
 
+    await fresh(); app.setMediaPermission('camera', true); blur();
+    app.nativeHandoff.deadline = performance.now() - 1;
+    app.nativeHandoff.wallDeadline = Date.now() - 1;
+    app.setMediaPermission('camera', false);
+    covered('Suspended permission timer expired before result');
+    check(!app.nativeHandoff && !app.callPermissionActive, 'An expired camera result retained its native handoff');
+    focus();
+
     // Gateway authentication alone can span hidden visibility. Foreground
     // picker/media handoffs above never exempt background lifecycle events.
     await fresh(); app.session = null; root.innerHTML = '<section class="gateway"></section>';
@@ -346,6 +396,38 @@ try {
     check(!app.privacyCovered && app.deviceVerificationActive, 'Gateway verification was interrupted by its own prompt');
     hidden(false); focus(); verify('verified');
     check(await verification === 'verified' && !app.deviceVerificationActive && !app.privacyCovered, 'Gateway verification did not finish normally');
+
+    await fresh(); app.session = null; root.innerHTML = '<section class="gateway"></section>';
+    let settleBeforeFocus;
+    const settledVerification = app.withDeviceVerification(() => new Promise(resolve => { settleBeforeFocus = resolve; }));
+    blur(); settleBeforeFocus('verified-after-blur');
+    await Promise.resolve(); await Promise.resolve();
+    check(document.documentElement.classList.contains('privacy-obscured') && app.deviceVerificationActive,
+      'A verification result exposed the gateway before native focus returned');
+    focus();
+    check(await settledVerification === 'verified-after-blur' && !app.deviceVerificationActive && !app.privacyCovered &&
+      !document.documentElement.classList.contains('privacy-obscured'), 'Verification settlement before focus did not use one bounded return edge');
+
+    await fresh(); app.session = null; root.innerHTML = '<section class="gateway"></section>';
+    let abandonVerification;
+    const missingFocusVerification = app.withDeviceVerification(() => new Promise(resolve => { abandonVerification = resolve; }));
+    blur(); abandonVerification('late-without-focus');
+    await checkRejects(missingFocusVerification, 'Missing focus verification unexpectedly completed');
+    covered('Verification settled without focus return');
+    focus(); covered('Verification timeout focus return');
+
+    await fresh(); app.session = null; root.innerHTML = '<section class="gateway"></section>';
+    let expiredVerificationResult;
+    const expiredVerification = app.withDeviceVerification(() => new Promise(resolve => { expiredVerificationResult = resolve; }));
+    blur();
+    app.deviceVerificationDeadline = performance.now() - 1;
+    app.deviceVerificationWallDeadline = Date.now() - 1;
+    focus();
+    covered('Suspended device-verification timer expired before focus');
+    expiredVerificationResult('expired-verification');
+    await checkRejects(expiredVerification, 'Expired verification result was accepted');
+    covered('Expired device-verification late result');
+
     await fresh();
     const conversationVerification = app.withDeviceVerification(async () => 'verified');
     check(!app.deviceVerificationActive, 'An open conversation acquired a verification exemption');
@@ -354,7 +436,7 @@ try {
 
     app.lockNow();
     delete document.hidden; delete document.hasFocus;
-    return { ordinaryBlurDebounced: true, navigationFrames, immediateNavigationWithoutBlankFrame: true, pickerResults, canceledSelectionsCleared: true, explicitLockDiscardsLateSelections: true, galleryMultiple: true, chatAboveNine: true, exportsLock: true, stalePickerCancelIgnored: true, deferredSelectionsStayInOriginalSession: true, pendingSystemSurfacesLock: true, decodedPreviewsReuseCache: true, lockingClearsImageCache: true, foregroundPermissionSurvives: true, backgroundPermissionStopsLateGrant: true, permissionReturnAndExpiryBounded: true, gatewayVerificationCompletes: true };
+    return { ordinaryBlurDebounced: true, navigationFrames, immediateNavigationWithoutBlankFrame: true, pickerResults, canceledSelectionsCleared: true, explicitLockDiscardsLateSelections: true, galleryMultiple: true, chatAboveNine: true, exportsLock: true, stalePickerCancelIgnored: true, foregroundSelectionsStayInOriginalSession: true, invalidatedSelectionsRequireReselection: true, pendingSystemSurfacesLock: true, decodedPreviewsReuseCache: true, lockingClearsImageCache: true, foregroundPermissionSurvives: true, backgroundPermissionStopsLateGrant: true, permissionReturnAndExpiryBounded: true, gatewayVerificationCompletes: true, verificationSettleBeforeFocusBounded: true, expiredVerificationRejected: true };
   });
   assert.deepEqual(errors, []);
   console.log(JSON.stringify(results, null, 2));

@@ -1,14 +1,17 @@
 import { argon2id } from 'hash-wasm';
 import { fromBase64Url, toBase64Url } from './base64';
+import { canonicalStringify } from './canonical';
 import { downloadBlob } from './download';
 import { generateIdentity } from './crypto';
 import { createRecoveryRequest } from './mls';
 import { isMessagePayload } from './message-payload';
 import { isGalleryMediaPayload } from './video-media';
+import { normalizeGalleryCurationRecords, type GalleryCurationRecord } from './gallery-curation';
 import type { CloudRecoveryBundle } from './backup-types';
 import { parseCloudRecoveryCode } from './backup-crypto';
 import {
   createPlatformCredential,
+  isPlatformVaultCancellation,
   unlockPlatformCredential,
   type PlatformCredentialResult,
 } from './platform-vault';
@@ -132,6 +135,10 @@ export type UiPreferences = {
   composerDraft?: string;
   chatAnchor?: ChatScrollAnchor;
   recoveryReminderDismissed?: boolean;
+  /** Device-local chat projection; it never mutates encrypted room history. */
+  hiddenChatMessageIds?: string[];
+  /** Device-local Safe ordering/removal projection. */
+  galleryCuration?: GalleryCurationRecord[];
 };
 
 type UnlockThrottle = {
@@ -517,10 +524,6 @@ async function clearUnlockThrottle(): Promise<void> {
   await transaction('security', 'readwrite', (store) => store.delete('unlock-throttle'));
 }
 
-function isUserCancellation(error: unknown): boolean {
-  return error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'AbortError');
-}
-
 async function enforceUnlockThrottle(): Promise<void> {
   const throttle = await readUnlockThrottle();
   const waitMs = throttle.nextAllowedAt - Date.now();
@@ -614,7 +617,7 @@ async function unlockVaultLocked(secret: string): Promise<VaultSession> {
     await clearUnlockThrottle();
     return unlocked;
   } catch (error) {
-    if (isUserCancellation(error)) throw new Error('未完成设备安全验证');
+    if (isPlatformVaultCancellation(error)) throw error;
     await recordUnlockFailure().catch(() => undefined);
     throw new Error(stored.v === 3
       ? '设备安全验证未通过，或本机保险库已经损坏'
@@ -870,24 +873,37 @@ export async function installCloudRecovery(bundle: CloudRecoveryBundle, recovery
 }
 
 /** Imported content never advances MLS, network cursors, receipts, or an ordinary linked device's access. */
-export async function importArchivedMessages(session: VaultSession, messages: DecryptedMessage[], scope: 'chat' | 'gallery', signal?: AbortSignal): Promise<number> {
+export async function importArchivedMessages(
+  session: VaultSession,
+  messages: DecryptedMessage[],
+  scope: 'chat' | 'gallery',
+  signal?: AbortSignal,
+  onCommit: (changed: boolean) => void = () => undefined,
+): Promise<number> {
   return withVaultMutation(session, async () => {
     signal?.throwIfAborted();
     const storeName = scope === 'gallery' ? 'restoredGallery' : 'history';
     const records: StoredHistory[] = [];
+    let importedContentCount = 0;
     for (const message of messages) {
       if (!Number.isSafeInteger(message.seq) || message.seq < 1 || !isMessagePayload(message.payload) ||
           typeof message.clientMsgId !== 'string' || typeof message.senderId !== 'string' || typeof message.acceptedAt !== 'string') throw new Error('历史备份记录不正确');
       const galleryOnly = message.payload.kind === 'gallery-image' || message.payload.kind === 'gallery-file';
       if (scope === 'chat' && galleryOnly) continue;
-      if (scope === 'gallery' && !isGalleryMediaPayload(message.payload)) continue;
-      const previous = await transaction<StoredHistory | undefined>(storeName, 'readonly', store => store.get(`${session.vault.roomId}:${message.seq}`));
+      const galleryProjectionEvent = message.payload.kind === 'message-delete';
+      if (scope === 'gallery' && !isGalleryMediaPayload(message.payload) && !galleryProjectionEvent) continue;
+      const [historyRecord, restoredRecord] = await Promise.all([
+        assertCompatibleHistoryRecord(session, message, 'history'),
+        assertCompatibleHistoryRecord(session, message, 'restoredGallery'),
+      ]);
+      const previous = storeName === 'history' ? historyRecord : restoredRecord;
       if (previous) {
-        const old = (await decryptHistoryRecords(session, [previous]))[0];
-        if (!old || old.clientMsgId !== message.clientMsgId || old.senderId !== message.senderId || JSON.stringify(old.payload) !== JSON.stringify(message.payload)) throw new Error('历史记录与本机数据冲突');
         continue;
       }
       records.push(await encryptHistoryRecord(session, message));
+      // Gallery recovery reports restored media, not internal projection events
+      // needed to keep a later room-wide deletion effective.
+      if (scope === 'chat' || isGalleryMediaPayload(message.payload)) importedContentCount++;
     }
     signal?.throwIfAborted();
     const database = await openDatabase();
@@ -903,7 +919,8 @@ export async function importArchivedMessages(session: VaultSession, messages: De
       tx.onabort = () => { release(); reject(signal?.reason ?? tx.error ?? staleVaultError()); };
       tx.onerror = () => reject(tx.error);
     });
-    return records.length;
+    onCommit(records.length > 0);
+    return importedContentCount;
   });
 }
 
@@ -1016,8 +1033,30 @@ async function encryptHistoryRecord(session: VaultSession, message: DecryptedMes
   };
 }
 
+function sameHistoryMessage(left: DecryptedMessage, right: DecryptedMessage): boolean {
+  return left.seq === right.seq
+    && left.clientMsgId === right.clientMsgId
+    && left.senderId === right.senderId
+    && left.acceptedAt === right.acceptedAt
+    && canonicalStringify(left.payload) === canonicalStringify(right.payload);
+}
+
+async function assertCompatibleHistoryRecord(
+  session: VaultSession,
+  message: DecryptedMessage,
+  storeName: 'history' | 'restoredGallery',
+): Promise<StoredHistory | undefined> {
+  const existing = await transaction<StoredHistory | undefined>(storeName, 'readonly', store =>
+    store.get(`${session.vault.roomId}:${message.seq}`));
+  if (!existing) return undefined;
+  const decrypted = (await decryptHistoryRecords(session, [existing], undefined, { strict: true }))[0];
+  if (!decrypted || !sameHistoryMessage(decrypted, message)) throw new Error('历史记录与本机数据冲突');
+  return existing;
+}
+
 export async function saveHistoryMessage(session: VaultSession, message: DecryptedMessage, mutation?: VaultMutation): Promise<void> {
   if (!ownsVaultMutation(session, mutation)) return withVaultMutation(session, (lease) => saveHistoryMessage(session, message, lease));
+  await assertCompatibleHistoryRecord(session, message, 'restoredGallery');
   const record = await encryptHistoryRecord(session, message);
   await transaction('history', 'readwrite', (store) => store.put(record), session.stored);
 }
@@ -1073,6 +1112,7 @@ export async function loadHistoryPageAfter(
 async function loadHistoryRecordsAfter(
   session: VaultSession,
   { limit, afterSeq, signal }: { limit: number; afterSeq: number; signal?: AbortSignal },
+  storeName: 'history' | 'restoredGallery' = 'history',
 ): Promise<StoredHistory[]> {
   signal?.throwIfAborted();
   const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 1000);
@@ -1082,8 +1122,8 @@ async function loadHistoryRecordsAfter(
     : 1;
   const database = await openDatabase();
   const records = await new Promise<StoredHistory[]>((resolve, reject) => {
-    const tx = database.transaction('history', 'readonly');
-    const index = tx.objectStore('history').index('roomSeq');
+    const tx = database.transaction(storeName, 'readonly');
+    const index = tx.objectStore(storeName).index('roomSeq');
     const request = index.openCursor(
       IDBKeyRange.bound(
         [session.vault.roomId, lower],
@@ -1117,28 +1157,71 @@ async function loadHistoryRecordsAfter(
 }
 
 /**
- * Rebuild reactions beyond the visible history page without a plaintext index.
- * Only reaction events survive each 200-row batch. Raw sequence progress lets a
- * corrupt cache page be skipped without hiding valid reactions in later pages.
+ * Rebuild timeline projection events beyond the visible history page without
+ * a plaintext index. Raw sequence progress lets a corrupt cache page be
+ * skipped without hiding valid events in later pages.
  */
-export async function loadReactionHistory(
+export async function loadMessageEventHistory(
   session: VaultSession,
   { signal }: { signal?: AbortSignal } = {},
 ): Promise<DecryptedMessage[]> {
-  const reactions: DecryptedMessage[] = [];
-  let afterSeq = 0;
+  // Restored Safe media remains isolated from chat rows, but its deletion
+  // events are part of the same projection. Prefer ordinary history when the
+  // same server sequence exists in both stores and collapse a replayed event
+  // ID before reducers see it.
+  const messagesBySequence = new Map<number, DecryptedMessage>();
+  const eventsBySequence = new Map<number, DecryptedMessage>();
+  const liveHistorySequences = new Set<number>();
   const limit = 200;
-  for (;;) {
-    signal?.throwIfAborted();
-    const records = await loadHistoryRecordsAfter(session, { limit, afterSeq, signal });
-    if (!records.length) return reactions;
-    const page = await decryptHistoryRecords(session, records, signal);
-    for (const message of page) {
-      if (message?.payload?.kind === 'reaction' && isMessagePayload(message.payload)) reactions.push(message);
+  for (const storeName of ['restoredGallery', 'history'] as const) {
+    let afterSeq = 0;
+    for (;;) {
+      signal?.throwIfAborted();
+      const records = await loadHistoryRecordsAfter(session, { limit, afterSeq, signal }, storeName);
+      if (!records.length) break;
+      const page = await decryptHistoryRecords(session, records, signal, { strict: true });
+      for (const message of page) {
+        if (storeName === 'history') liveHistorySequences.add(message.seq);
+        const existing = messagesBySequence.get(message.seq);
+        if (existing && !sameHistoryMessage(existing, message)) throw new Error('本机加密历史记录存在冲突');
+        // Ordinary history is scanned second and is the canonical copy when
+        // both stores contain the exact same restored record.
+        messagesBySequence.set(message.seq, message);
+        if ((message?.payload?.kind === 'reaction' || message?.payload?.kind === 'message-delete') && isMessagePayload(message.payload)) {
+          eventsBySequence.set(message.seq, message);
+        }
+      }
+      afterSeq = records.at(-1)!.seq;
+      if (records.length < limit) break;
     }
-    afterSeq = records.at(-1)!.seq;
-    if (records.length < limit) return reactions;
   }
+  // Every post-join server sequence is persisted locally, including hidden
+  // gallery and projection events. Detect a physically removed ciphertext row
+  // as well as AEAD corruption; otherwise lastSeq would permanently suppress
+  // refetch and a removed delete tombstone could revive its target.
+  const boundary = session.vault.historyUnavailableBeforeSeq ?? 0;
+  if (Number.isSafeInteger(session.vault.lastSeq) && session.vault.lastSeq >= boundary) {
+    const sequences = [...liveHistorySequences]
+      .filter(seq => seq > boundary && seq <= session.vault.lastSeq)
+      .sort((left, right) => left - right);
+    let expected = boundary + 1;
+    for (const seq of sequences) {
+      if (seq !== expected) throw new Error(`本机加密历史记录 ${expected} 缺失，已停止显示以避免撤回内容重新出现`);
+      expected += 1;
+    }
+    if (expected <= session.vault.lastSeq) throw new Error(`本机加密历史记录 ${expected} 缺失，已停止显示以避免撤回内容重新出现`);
+  }
+  const ordered = [...eventsBySequence.values()].sort((left, right) => left.seq - right.seq);
+  const eventsById = new Map(ordered.map((message) => [message.clientMsgId, message]));
+  return [...eventsById.values()].sort((left, right) => left.seq - right.seq);
+}
+
+/** Backward-compatible narrow reader used by reaction-specific diagnostics. */
+export async function loadReactionHistory(
+  session: VaultSession,
+  options: { signal?: AbortSignal } = {},
+): Promise<DecryptedMessage[]> {
+  return (await loadMessageEventHistory(session, options)).filter((message) => message.payload.kind === 'reaction');
 }
 
 /** Read an exact local sequence without confusing a paged-out row with missing history. */
@@ -1163,9 +1246,11 @@ export async function loadMediaHistoryPage(
   const upper = beforeSeq === undefined ? Number.MAX_SAFE_INTEGER : beforeSeq - 1;
   if (upper < 1) return { messages: [], beforeSeq: null, hasMore: false };
   const database = await openDatabase();
-  const records = await new Promise<StoredHistory[]>((resolve, reject) => {
+  type TaggedHistory = { storeName: 'history' | 'restoredGallery'; record: StoredHistory };
+  const scan = await new Promise<{ records: TaggedHistory[]; truncated: boolean }>((resolve, reject) => {
     const tx = database.transaction(['history', 'restoredGallery'], 'readonly');
-    const collected: StoredHistory[] = [];
+    const collected: TaggedHistory[] = [];
+    let truncated = false;
     const abort = () => { try { tx.abort(); } catch { /* The readonly transaction has already finished. */ } };
     const release = () => {
       signal?.removeEventListener('abort', abort);
@@ -1173,32 +1258,47 @@ export async function loadMediaHistoryPage(
     };
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) abort();
-    for (const name of ['history', 'restoredGallery']) {
+    for (const name of ['history', 'restoredGallery'] as const) {
       const request = tx.objectStore(name).index('roomSeq').openCursor(
         IDBKeyRange.bound([session.vault.roomId, 1], [session.vault.roomId, upper]), 'prev');
       let count = 0;
       request.onsuccess = () => {
         const cursor = request.result;
-        if (!cursor || count++ > boundedLimit) return;
-        collected.push(cursor.value as StoredHistory);
+        if (!cursor) return;
+        if (count >= boundedLimit + 1) { truncated = true; return; }
+        collected.push({ storeName: name, record: cursor.value as StoredHistory });
+        count += 1;
         cursor.continue();
       };
     }
     tx.onabort = () => { release(); reject(signal?.reason ?? tx.error ?? new DOMException('History scan aborted', 'AbortError')); };
     tx.onerror = () => { release(); reject(tx.error); };
-    tx.oncomplete = () => { release(); resolve([...new Map(collected.map(record => [record.seq, record])).values()].sort((a, b) => b.seq - a.seq)); };
+    tx.oncomplete = () => { release(); resolve({ records: collected, truncated }); };
   });
   signal?.throwIfAborted();
+  const decrypted = await decryptHistoryRecords(session, scan.records.map(item => item.record), signal, { strict: true });
+  const canonical = new Map<number, { storeName: TaggedHistory['storeName']; message: DecryptedMessage }>();
+  for (const [index, message] of decrypted.entries()) {
+    const storeName = scan.records[index]!.storeName;
+    const existing = canonical.get(message.seq);
+    if (existing && !sameHistoryMessage(existing.message, message)) throw new Error('本机加密历史记录存在冲突');
+    if (!existing || storeName === 'history') canonical.set(message.seq, { storeName, message });
+  }
+  const records = [...canonical.values()].sort((left, right) => right.message.seq - left.message.seq);
   const page = records.slice(0, boundedLimit);
-  const messages = await decryptHistoryRecords(session, page, signal);
   return {
-    messages: messages.filter((message) => isGalleryMediaPayload(message.payload)),
-    beforeSeq: page.at(-1)?.seq ?? null,
-    hasMore: records.length > boundedLimit,
+    messages: page.map(item => item.message).filter((message) => isGalleryMediaPayload(message.payload)),
+    beforeSeq: page.at(-1)?.message.seq ?? null,
+    hasMore: scan.truncated || records.length > boundedLimit,
   };
 }
 
-async function decryptHistoryRecords(session: VaultSession, records: StoredHistory[], signal?: AbortSignal): Promise<DecryptedMessage[]> {
+async function decryptHistoryRecords(
+  session: VaultSession,
+  records: StoredHistory[],
+  signal?: AbortSignal,
+  { strict = false }: { strict?: boolean } = {},
+): Promise<DecryptedMessage[]> {
   const messages: DecryptedMessage[] = [];
   for (const record of records) {
     signal?.throwIfAborted();
@@ -1211,7 +1311,11 @@ async function decryptHistoryRecords(session: VaultSession, records: StoredHisto
       );
       messages.push(JSON.parse(decoder.decode(plaintext)) as DecryptedMessage);
     } catch {
-      // A corrupt cache row is ignored; signed ciphertext can be fetched again when the protocol permits it.
+      if (strict) throw new Error(`本机加密历史记录 ${record.seq} 已损坏，已停止显示以避免撤回内容重新出现`);
+      // Ordinary bounded history pages may omit a damaged cache row. The
+      // strict full projection scan above still blocks every chat/Safe first
+      // frame because encrypted payload kind cannot reveal whether it was a
+      // deletion tombstone.
     }
   }
   signal?.throwIfAborted();
@@ -1291,7 +1395,10 @@ async function deleteLocalRecord(session: VaultSession, storeName: LocalStore, i
   await transaction(storeName, 'readwrite', (store) => store.delete(`${session.vault.roomId}:${id}`), session.stored);
 }
 
-function normalizeUiPreferences(value: unknown): UiPreferences {
+function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: boolean } = {}): UiPreferences {
+  if (strict && (!value || typeof value !== 'object' || Array.isArray(value))) {
+    throw new Error('本机加密偏好记录格式不正确');
+  }
   const source = value && typeof value === 'object' ? value as Partial<UiPreferences> : {};
   const candidate = source.chatAnchor;
   const chatAnchor = candidate &&
@@ -1306,7 +1413,28 @@ function normalizeUiPreferences(value: unknown): UiPreferences {
         pinnedToBottom: candidate.pinnedToBottom,
       }
     : undefined;
-  return { composerDraft: typeof source.composerDraft === 'string' ? source.composerDraft.slice(0, 4000) : '', ...(chatAnchor ? { chatAnchor } : {}), recoveryReminderDismissed: source.recoveryReminderDismissed === true };
+  const rawHidden = source.hiddenChatMessageIds;
+  const validHidden = rawHidden === undefined || (Array.isArray(rawHidden) && rawHidden.length <= 20_000 && rawHidden.every((id) =>
+    typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))
+  );
+  if (strict && !validHidden) throw new Error('本机删除偏好记录格式不正确');
+  const hiddenChatMessageIds = Array.isArray(rawHidden) && validHidden
+    ? [...new Set(rawHidden.map((id) => id.toLowerCase()))] : [];
+  let galleryCuration: GalleryCurationRecord[] = [];
+  try {
+    galleryCuration = normalizeGalleryCurationRecords(source.galleryCuration ?? []);
+  } catch (cause) {
+    if (strict) throw new Error('保险箱整理偏好记录格式不正确', { cause });
+    // A damaged optional projection must not make the encrypted draft or
+    // scroll anchor unavailable. Drop only the untrusted curation records.
+  }
+  return {
+    composerDraft: typeof source.composerDraft === 'string' ? source.composerDraft.slice(0, 4000) : '',
+    ...(chatAnchor ? { chatAnchor } : {}),
+    recoveryReminderDismissed: source.recoveryReminderDismissed === true,
+    ...(hiddenChatMessageIds.length ? { hiddenChatMessageIds } : {}),
+    ...(galleryCuration.length ? { galleryCuration } : {}),
+  };
 }
 
 function uiPreferenceId(session: VaultSession): string {
@@ -1320,9 +1448,9 @@ export async function loadUiPreferences(session: VaultSession): Promise<UiPrefer
   );
   if (!record) return {};
   try {
-    return normalizeUiPreferences(await decryptLocalRecord<unknown>(session, 'preferences', record));
-  } catch {
-    return {};
+    return normalizeUiPreferences(await decryptLocalRecord<unknown>(session, 'preferences', record), { strict: true });
+  } catch (cause) {
+    throw new Error('本机加密偏好记录已损坏，已停止显示以避免本机删除或置顶内容重新出现', { cause });
   }
 }
 
@@ -1351,6 +1479,7 @@ async function commitMlsVaultAndRecords(
     ...session.stored,
     payload: await encryptPayload(nextVault, session.key),
   };
+  if (records.history) await assertCompatibleHistoryRecord(session, records.history, 'restoredGallery');
   const outboxRecord = records.outbox
     ? await encryptLocalRecord(session, 'outbox', records.outbox.clientMsgId, records.outbox)
     : null;

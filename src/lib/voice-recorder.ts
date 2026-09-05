@@ -43,7 +43,7 @@ export class VoiceRecorder {
   private cancelMotionTimer: number | null = null;
 
   constructor(private readonly host: HTMLElement, private readonly callbacks: {
-    permission: (active: boolean) => void;
+    permission: (active: boolean) => boolean | void | Promise<boolean | void>;
     cancel: () => void;
     fail: (message: string) => void;
     send: (draft: VoiceDraft, signal: AbortSignal) => Promise<void>;
@@ -163,8 +163,12 @@ export class VoiceRecorder {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false });
       if (this.signal.aborted) { stream.getTracks().forEach(track => track.stop()); return; }
       this.stream = stream;
-      this.endPermission();
-      if (this.signal.aborted) return;
+      const permissionInvalidated = Boolean(await this.endPermission());
+      if (permissionInvalidated || this.signal.aborted) {
+        stream.getTracks().forEach(track => track.stop());
+        if (this.stream === stream) this.stream = null;
+        return;
+      }
       this.context = new AudioContext();
       void this.context.resume().catch(() => {});
       this.analyser = this.context.createAnalyser();
@@ -422,10 +426,10 @@ export class VoiceRecorder {
     return this.waveform ??= voiceWaveform(this.samples);
   }
 
-  private endPermission(): void {
+  private endPermission(): boolean | void | Promise<boolean | void> {
     if (this.permissionTimer !== null) window.clearTimeout(this.permissionTimer);
     this.permissionTimer = null;
-    this.callbacks.permission(false);
+    return this.callbacks.permission(false);
   }
 
   private stopTimer(): void {

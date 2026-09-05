@@ -21,8 +21,8 @@ describe('chat viewport motion', () => {
     expect(events).toEqual([]);
     motion.keyboard();
     tick(16, { height: 620, top: 80 }); tick(16, { height: 420, top: 180 });
-    tick(79);
-    expect(events).toEqual(['fading', 'positioning', 'positioning']);
+    tick(159);
+    expect(events).toEqual(['positioning', 'positioning', 'positioning']);
     tick(1);
     expect(events.slice(-2)).toEqual(['measure', 'reveal']);
     tick(500); expect(events.filter(event => event === 'reveal')).toHaveLength(1);
@@ -32,7 +32,7 @@ describe('chat viewport motion', () => {
     const { motion, events, tick } = fixture();
     tick(0); motion.touchStart(); motion.move(); tick(500);
     expect(events).not.toContain('reveal');
-    motion.touchEnd(); tick(50, { scrollY: 520 }); tick(50, { scrollY: 560 }); tick(79);
+    motion.touchEnd(); tick(50, { scrollY: 520 }); tick(50, { scrollY: 560 }); tick(159);
     expect(events).not.toContain('reveal');
     tick(1); expect(events.slice(-2)).toEqual(['measure', 'reveal']);
   });
@@ -46,7 +46,7 @@ describe('chat viewport motion', () => {
   it('does not classify an explicit return-to-latest animation as continued finger inertia', () => {
     const { motion, events, tick } = fixture();
     tick(0); motion.move(); tick(20, { scrollY: 400 });
-    motion.automaticScroll(); tick(50, { scrollY: 450 }); tick(30, { scrollY: 500 });
+    motion.automaticScroll(); tick(50, { scrollY: 450 }); tick(110, { scrollY: 500 });
     expect(events.slice(-2)).toEqual(['measure', 'reveal']);
     tick(16, { scrollY: 550 });
     expect(events.filter(event => event === 'reveal')).toHaveLength(1);
@@ -57,7 +57,7 @@ describe('chat viewport motion', () => {
     tick(0); motion.touchStart(); motion.move(); motion.suspend();
     expect(events.at(-1)).toBe('positioning');
     // The owner stops sampling while away/locked; no internal timer exists.
-    tick(16, { height: 600 }); tick(64);
+    tick(16, { height: 600 }); tick(144);
     expect(events.slice(-2)).toEqual(['measure', 'reveal']);
   });
 });
