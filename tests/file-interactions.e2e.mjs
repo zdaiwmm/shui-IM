@@ -243,6 +243,7 @@ try {
   const opened = page.waitForEvent('popup');
   await page.locator('.message.incoming .file-attachment').tap();
   const reader = await opened;
+  await reader.waitForURL('blob:**', { timeout: 5_000 });
   assert(reader.url().startsWith('blob:'), 'Normal tap did not hand the verified PDF to a system reader');
   await reader.close();
   assert.equal(await page.evaluate(() => window.fileInteractions.requests.reads), readsBeforeTap + 1, 'Normal tap did not read exactly one encrypted chunk');

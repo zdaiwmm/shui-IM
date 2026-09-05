@@ -860,6 +860,7 @@ try {
   const peerFileReaderPromise = joiner.waitForEvent('popup');
   await peerDocument.click();
   const peerFileReader = await peerFileReaderPromise;
+  await peerFileReader.waitForURL('blob:**', { timeout: 5_000 });
   invariant(peerFileReader.url().startsWith('blob:'), 'Readable peer document was not handed to the system reader');
   await peerFileReader.close();
   invariant((await peerDocument.locator('.file-attachment-meta').textContent())?.includes('再次打开'), 'Readable peer document did not return to its open state');
