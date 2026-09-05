@@ -103,21 +103,23 @@ try {
     check(!app.privacyCovered, 'Ordinary transient blur unexpectedly locked');
     blur(); await new Promise(resolve => setTimeout(resolve, 300)); covered('Ordinary sustained blur'); focus();
 
-    // Navigation changes the destination synchronously and never fades fixed
-    // headers or the whole page to an empty background. Repeated transitions
-    // must cancel the old animation without delaying the next action.
+    // Navigation changes the destination synchronously and keeps both painted
+    // layers during the reference iOS-style push/pop. Repeated transitions
+    // must replace the old motion without delaying the next action.
     let navigationFrames = 0;
     await fresh();
     for (let turn = 0; turn < 4; turn++) {
       const gallery = turn % 2 === 0;
       app.transitionPage(gallery ? 'forward' : 'backward', () => gallery ? app.renderGallery() : app.renderChat());
       const shell = root.querySelector(gallery ? '.gallery-shell' : '.chat-shell');
-      check(shell && root.dataset.pageTransition !== 'leaving', 'Navigation still waits for an empty exit phase');
-      check(getComputedStyle(shell.querySelector(gallery ? '#gallery-grid' : '#message-list')).animationName === 'content-reveal', 'New navigation content has no arrival blend');
+      check(shell && root.dataset.pageTransition === (gallery ? 'forward' : 'backward'), 'Navigation did not enter its requested direction');
+      check(root.querySelector('.page-transition-outgoing'), 'Navigation removed the old painted page before its push/pop');
+      const transitionName = getComputedStyle(shell).animationName;
+      check(transitionName.includes(gallery ? 'page-forward-in' : 'page-back-in'), `New navigation page has no directional transition: ${transitionName}; style=${shell.getAttribute('style')}; class=${shell.className}; root=${root.dataset.pageTransition}`);
       for (let frame = 0; frame < 4; frame++) {
         await new Promise(requestAnimationFrame);
         const header = shell.querySelector('header');
-        check(getComputedStyle(shell).opacity === '1' && getComputedStyle(header).opacity === '1', 'Navigation faded its fixed header or entire shell');
+        check(root.querySelector('.page-transition-outgoing') && getComputedStyle(header).opacity === '1', 'Navigation exposed an empty frame or faded fixed chrome');
         navigationFrames++;
       }
     }

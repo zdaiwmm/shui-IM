@@ -157,8 +157,8 @@ try {
     const chatRemainsEmpty = (await v.loadHistoryPage(session)).length === 0;
     const noReplyTarget = await v.loadHistoryMessage(session, 2) === null;
     // Merge the gallery-only restore with ordinary encrypted chat pages. The
-    // same video in both stores must appear once, while skipped text/files must
-    // still advance the bounded scan to older media.
+    // same attachment in both stores must appear once, while skipped text must
+    // still advance the bounded scan to older Safe content.
     for (const index of [1, 2, 5]) await v.saveHistoryMessage(session, records[index]);
     const sequences = [];
     let beforeSeq;
@@ -202,12 +202,12 @@ try {
       targetImport, deleteImport, targetAbsentFromChat, targetRetainedAsMedia, restoredDeleteCount, mergedDeleteCount,
       deletedProjected: projectedBeforeDuplicate.has(deletedTarget.clientMsgId) };
   });
-  assert.deepEqual(mediaRestore, { imported: 5, duplicateImport: 0, chatRemainsEmpty: true, noReplyTarget: true,
-    sequences: [7, 5, 4, 2, 1], bounded: true, pageCount: 4,
+  assert.deepEqual(mediaRestore, { imported: 6, duplicateImport: 0, chatRemainsEmpty: true, noReplyTarget: true,
+    sequences: [7, 5, 4, 3, 2, 1], bounded: true, pageCount: 4,
     targetImport: 1, deleteImport: 0, targetAbsentFromChat: true, targetRetainedAsMedia: true,
     restoredDeleteCount: 1, mergedDeleteCount: 1, deletedProjected: true });
   console.log('Cloud backup lifecycle passed: durable lost-response retry, stable code, no secret persistence/upload, abort fencing, pending-recovery resume and fresh-passkey reveal cleanup.');
-  console.log('Media restore passed: legacy file videos retained, ordinary chat files excluded, no chat/reply history from gallery restore, bounded merged pagination, duplicate suppression and restored delete projections.');
+  console.log('Media restore passed: every chat attachment projected into Safe, no chat/reply history from gallery restore, bounded merged pagination, duplicate suppression and restored delete projections.');
 } finally {
   await browser?.close(); await vite?.close(); await service?.close(); await rm(dataDir, { recursive: true, force: true });
 }

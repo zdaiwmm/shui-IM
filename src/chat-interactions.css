@@ -140,9 +140,9 @@
   z-index: 35;
   background: oklch(13% 0.01 255 / 0.22);
   opacity: 0;
-  transition: opacity 160ms ease-out;
-  -webkit-backdrop-filter: blur(2px);
-  backdrop-filter: blur(2px);
+  transition: opacity 320ms ease-out, backdrop-filter 320ms ease-out, -webkit-backdrop-filter 320ms ease-out;
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
   touch-action: none;
 }
 
@@ -164,7 +164,7 @@
   overflow: visible;
   opacity: 0;
   transform: none;
-  transition: opacity 150ms ease-out;
+  transition: opacity 320ms ease-out;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
@@ -182,9 +182,9 @@
   box-shadow: 0 12px 40px oklch(12% 0.015 255 / 0.17);
   -webkit-backdrop-filter: blur(28px) saturate(135%);
   backdrop-filter: blur(28px) saturate(135%);
-  transform: translateY(3px) scale(0.98);
-  transform-origin: top left;
-  transition: transform 180ms var(--motion-out);
+  transform: translateY(8px) scale(0.92);
+  transform-origin: var(--action-origin-x, 50%) var(--action-origin-y, 50%);
+  transition: transform 320ms var(--motion-out);
 }
 
 .message-actions.is-visible .message-action-list,
@@ -224,15 +224,16 @@
   border-top: 1px solid color-mix(in oklch, var(--line) 35%, transparent);
 }
 
-.message-action-list > button:hover {
-  background: color-mix(in oklch, var(--ink) 7%, transparent);
-  color: inherit;
+@media (hover: hover) {
+  .message-action-list > button:hover {
+    background: color-mix(in oklch, var(--ink) 7%, transparent);
+    color: inherit;
+  }
 }
 
 .message-action-list > button[data-danger='true'] { color: var(--danger); }
-.message-action-list > button[data-danger='true']:hover {
-  background: var(--danger-soft);
-  color: var(--danger);
+@media (hover: hover) {
+  .message-action-list > button[data-danger='true']:hover { background: var(--danger-soft); color: var(--danger); }
 }
 
 .gallery-actions-sheet {
@@ -243,7 +244,11 @@
   -webkit-backdrop-filter: blur(2px);
   backdrop-filter: blur(2px);
   touch-action: none;
+  opacity: 0;
+  transition: opacity 320ms ease-out, backdrop-filter 320ms ease-out, -webkit-backdrop-filter 320ms ease-out;
 }
+.gallery-actions-sheet.is-visible { opacity: 1; }
+.gallery-actions-sheet.is-closing { opacity: 0; pointer-events: none; }
 
 .gallery-actions-menu {
   position: fixed;
@@ -254,9 +259,9 @@
   background: color-mix(in oklch, var(--paper-pure) 90%, transparent);
   box-shadow: 0 12px 40px oklch(12% 0.015 255 / 0.17);
   overflow: hidden;
-  transform: translateY(4px) scale(.98);
-  transform-origin: top left;
-  transition: transform 180ms var(--motion-out);
+  transform: translateY(8px) scale(.92);
+  transform-origin: var(--action-origin-x, 50%) var(--action-origin-y, 50%);
+  transition: transform 320ms var(--motion-out);
   -webkit-backdrop-filter: blur(28px) saturate(135%);
   backdrop-filter: blur(28px) saturate(135%);
 }
@@ -277,9 +282,9 @@
   text-align: left;
 }
 .gallery-actions-menu > button + button { border-top: 1px solid color-mix(in oklch, var(--line) 35%, transparent); }
-.gallery-actions-menu > button:hover { background: color-mix(in oklch, var(--ink) 7%, transparent); }
+@media (hover: hover) { .gallery-actions-menu > button:hover { background: color-mix(in oklch, var(--ink) 7%, transparent); } }
 .gallery-actions-menu > button[data-danger='true'] { color: var(--danger); }
-.gallery-actions-menu > button[data-danger='true']:hover { background: var(--danger-soft); }
+@media (hover: hover) { .gallery-actions-menu > button[data-danger='true']:hover { background: var(--danger-soft); } }
 .gallery-actions-menu svg {
   width: 21px;
   height: 21px;
@@ -471,7 +476,7 @@
 /* Shared lifecycle: normal dialogs ease in/out; privacy aborts remove at once. */
 .dialog-surface {
   opacity: 0;
-  transition: opacity 160ms ease-out;
+  transition: opacity 320ms ease-out;
 }
 .dialog-surface.is-visible { opacity: 1; }
 .dialog-surface.is-closing { opacity: 0; pointer-events: none; }
@@ -479,7 +484,7 @@
 .dialog-surface > .device-link-panel,
 .dialog-surface > .message-copy-panel {
   transform: translateY(6px) scale(0.99);
-  transition: transform 180ms cubic-bezier(.2, .8, .2, 1);
+  transition: transform 320ms var(--motion-out);
 }
 .dialog-surface.is-visible > .recovery-code-panel,
 .dialog-surface.is-visible > .device-link-panel,

@@ -1,10 +1,10 @@
-export const REPLY_SWIPE_THRESHOLD_PX = 78;
-export const REPLY_SWIPE_MAX_OFFSET_PX = 64;
+export const REPLY_SWIPE_THRESHOLD_PX = 96;
+export const REPLY_SWIPE_MAX_OFFSET_PX = 92;
 
 /** A bounded, monotonic drag curve: the finger keeps moving while the bubble resists. */
 export function replySwipeOffset(distance: number): number {
   const raw = Math.max(0, Number.isFinite(distance) ? distance : 0);
-  return REPLY_SWIPE_MAX_OFFSET_PX * (1 - Math.exp(-raw / 48));
+  return REPLY_SWIPE_MAX_OFFSET_PX * (1 - Math.exp(-raw / 110));
 }
 
 export function bindReplySwipe(options: {

@@ -340,14 +340,19 @@ export function bindImageViewerGestures(options: ImageViewerGestureOptions): Ima
       center: { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 },
     };
   };
-  const zoom = (next: number, center: Point, animate = false, startScale = scale, startPan = pan, startCenter = center) => {
+  const zoom = (next: number, center: Point, animate = false, startScale = scale, startPan = pan, startCenter = center, resistant = false) => {
     const target = image();
     if (!target) return;
     stateMedia = target;
     const from = target.style.transform || transform();
     const bounds = stage.getBoundingClientRect();
     const origin = { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 };
-    scale = Math.max(1, Math.min(5, next));
+    const bounded = Math.max(1, Math.min(5, next));
+    scale = resistant
+      ? next < 1 ? Math.max(.84, 1 - (1 - next) * .22)
+        : next > 5 ? Math.min(5.42, 5 + (next - 5) * .14)
+          : next
+      : bounded;
     const ratio = scale / startScale;
     pan = {
       x: center.x - origin.x - (startCenter.x - origin.x - startPan.x) * ratio,
@@ -509,7 +514,7 @@ export function bindImageViewerGestures(options: ImageViewerGestureOptions): Ima
         restoreMultiSnapshot(true);
         return;
       }
-      zoom(pinch.scale * current.distance / pinch.distance, current.center, false, pinch.scale, pinch.pan, pinch.center);
+      zoom(pinch.scale * current.distance / pinch.distance, current.center, false, pinch.scale, pinch.pan, pinch.center, true);
       return;
     }
     if (!drag || drag.id !== event.pointerId) return;
@@ -586,6 +591,10 @@ export function bindImageViewerGestures(options: ImageViewerGestureOptions): Ima
       lastTap = null;
       if (multiSnapshot && media() !== multiSnapshot.media) gestureConflict = true;
       if (completedPinch && image() !== completedPinch.image) gestureConflict = true;
+      if (!gestureConflict && completedPinch && (scale < 1 || scale > 5)) {
+        scale = Math.max(1, Math.min(5, scale));
+        applyImage(completedPinch.image, true);
+      }
       if (!gestureConflict && completedPinch && pointers.size === 1 && image() === completedPinch.image) {
         const remaining = [...pointers.entries()][0]!;
         multiTouch = false;
@@ -709,10 +718,14 @@ export function bindImageViewerGestures(options: ImageViewerGestureOptions): Ima
     lastTap = null;
     cancelTransformAnimation(true);
     setContinuousTransform(true);
-    zoom(scale * Math.exp(-event.deltaY * 0.01), { x: event.clientX, y: event.clientY });
+    zoom(scale * Math.exp(-event.deltaY * 0.01), { x: event.clientX, y: event.clientY }, false, scale, pan, { x: event.clientX, y: event.clientY }, true);
     if (wheelEndTimer !== null) clearTimeout(wheelEndTimer);
     wheelEndTimer = setTimeout(() => {
       wheelEndTimer = null;
+      if (scale < 1 || scale > 5) {
+        scale = Math.max(1, Math.min(5, scale));
+        applyImage(image(), true);
+      }
       setContinuousTransform(false);
     }, 90);
   }, { passive: false, signal: events.signal });

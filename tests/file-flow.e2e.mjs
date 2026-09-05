@@ -195,13 +195,18 @@ try {
     for await (const chunk of stream) parts.push(chunk);
     return { name: download.suggestedFilename(), bytes: Buffer.concat(parts) };
   };
-  const pdf = await readDownload(page.locator('.message .file-attachment').filter({ hasText: '说明书.pdf' }));
-  assert.equal(pdf.name, '说明书.pdf');
-  assert.deepEqual(pdf.bytes, Buffer.from('%PDF-1.7\nfile-flow exact bytes\n%%EOF'));
+  const openInReader = async locator => {
+    const pending = page.waitForEvent('popup');
+    await locator.click();
+    const reader = await pending;
+    assert(reader.url().startsWith('blob:'), 'Readable file did not open through a system reader');
+    await reader.close();
+  };
+  await openInReader(page.locator('.message .file-attachment').filter({ hasText: '说明书.pdf' }));
   const binary = await readDownload(page.locator('.message .file-attachment').filter({ hasText: 'opaque.unknown' }));
   assert.equal(binary.name, 'opaque.unknown');
   assert.deepEqual(binary.bytes, Buffer.from([0, 255, 1, 128, 10, 13, 42]));
-  results.downloads = { pdf: 'exact original bytes', binary: 'exact original bytes' };
+  results.downloads = { pdf: 'verified bytes handed to system reader', binary: 'exact original bytes' };
 
   // Locking while a chunk is in flight must stop the late download; stale card
   // listeners must also be unable to start another read after the UI is gone.
@@ -266,9 +271,7 @@ try {
   });
   await assertGalleryTab('files', { images: 0, files: 2 });
   await captureFiles('gallery-files');
-  const galleryPdf = await readDownload(page.locator('.gallery-file').filter({ hasText: '说明书.pdf' }));
-  assert.equal(galleryPdf.name, '说明书.pdf');
-  assert.deepEqual(galleryPdf.bytes, pdf.bytes);
+  await openInReader(page.locator('.gallery-file').filter({ hasText: '说明书.pdf' }));
   await page.locator('#gallery-tab-images').click();
   await assertGalleryTab('images', { images: 1, files: 0 });
   await captureFiles('gallery-images');

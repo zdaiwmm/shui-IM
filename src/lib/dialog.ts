@@ -77,7 +77,7 @@ export function mountDialog(sheet: HTMLElement, options: DialogOptions) {
     if (!animate || !options.isActive() || !sheet.isConnected || matchMedia('(prefers-reduced-motion: reduce)').matches) {
       finish(restoreFocus);
     } else {
-      timer = window.setTimeout(() => finish(restoreFocus), 160);
+      timer = window.setTimeout(() => finish(restoreFocus), 320);
     }
   };
   const onAbort = () => close({ animate: false, restoreFocus: false });

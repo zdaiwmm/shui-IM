@@ -178,15 +178,12 @@ try {
     } else await page.locator('[data-viewer-close]').click();
     await page.locator('.image-viewer').waitFor({ state: 'detached' });
   };
-  const readDownload = async locator => {
-    const waiting = page.waitForEvent('download');
+  const openInReader = async locator => {
+    const waiting = page.waitForEvent('popup');
     await locator.click();
-    const download = await waiting;
-    const stream = await download.createReadStream();
-    assert(stream, 'Download did not expose its original bytes');
-    const chunks = [];
-    for await (const chunk of stream) chunks.push(chunk);
-    return { name: download.suggestedFilename(), bytes: Buffer.concat(chunks) };
+    const reader = await waiting;
+    assert(reader.url().startsWith('blob:'), 'Verified document did not open through a system reader');
+    await reader.close();
   };
 
   const chatPreview = page.locator(`.message .image-preview.video-preview[data-blob-id="${ids.chatVideo}"]`);
@@ -208,9 +205,9 @@ try {
     const canvas = document.createElement('canvas'); canvas.width = 320; canvas.height = 180;
     const context = canvas.getContext('2d'); context.drawImage(preview, 0, 0, 320, 180);
     const [red, green, blue] = context.getImageData(16, 16, 1, 1).data;
-    return { identical: original.length === restored.length && original.every((byte, index) => byte === restored[index]), poster: Boolean(cached.posterUrl), originalAndPosterDiffer: cached.url !== cached.posterUrl, visibleFrame: red > 40 && green > 40 && blue > 40 };
+    return { identical: original.length === restored.length && original.every((byte, index) => byte === restored[index]), poster: Boolean(cached.posterUrl), originalAndPosterDiffer: cached.url !== cached.posterUrl, visibleFrame: red > 40 && green > 40 && blue > 40, sampledPixel: [red, green, blue] };
   });
-  assert.deepEqual(originalVerification, { identical: true, poster: true, originalAndPosterDiffer: true, visibleFrame: true }, 'Video poster generation changed the original bytes or failed to capture a visible frame');
+  assert.deepEqual({ ...originalVerification, sampledPixel: undefined }, { identical: true, poster: true, originalAndPosterDiffer: true, visibleFrame: true, sampledPixel: undefined }, `Video poster generation changed the original bytes or failed to capture a visible frame: ${originalVerification.sampledPixel.join(',')}`);
   await capture('video-chat-390');
   await chatPreview.dispatchEvent('pointerdown', { button: 0, pointerType: 'touch', clientX: 120, clientY: 260 });
   await page.locator('.message-actions.is-visible').waitFor();
@@ -355,9 +352,7 @@ try {
   assert.deepEqual(locked, { covered: true, cacheSize: 0, inFlightLoads: 0, mediaNodes: 0, allUrlsRevoked: true }, 'Lock retained video content, a poster URL or a decrypted original URL');
 
   await page.evaluate(() => window.videoFlow.reopen());
-  const ordinary = await readDownload(page.locator(`.message .file-attachment[data-blob-id="${ids.chatDocument}"]`));
-  assert.equal(ordinary.name, '普通文件.pdf');
-  assert.equal(ordinary.bytes.toString(), '%PDF-1.7\nvideo regression ordinary file\n%%EOF');
+  await openInReader(page.locator(`.message .file-attachment[data-blob-id="${ids.chatDocument}"]`));
   assert.equal(await page.locator('.image-viewer').count(), 0, 'An ordinary document opened a media preview');
 
   // Clear the currently mounted message page: the gallery must discover chat
@@ -509,12 +504,10 @@ try {
   await closePlayer();
 
   await page.locator('#gallery-tab-files').click();
-  await page.waitForFunction(() => document.querySelectorAll('.gallery-file').length === 1);
+  await page.waitForFunction(() => document.querySelectorAll('.gallery-file').length === 2);
   assert.equal(await page.locator('.gallery-tile').count(), 0, 'Videos appeared in the file category');
-  assert.equal(await page.locator('[data-gallery-count="files"]').textContent(), '1', 'Video was still counted as a generic gallery file');
-  const galleryFile = await readDownload(page.locator('.gallery-file'));
-  assert.equal(galleryFile.name, '保险箱文档.pdf');
-  assert.equal(galleryFile.bytes.toString(), '%PDF-1.7\nvideo regression gallery file\n%%EOF');
+  assert.equal(await page.locator('[data-gallery-count="files"]').textContent(), '2', 'A chat document was not projected into Safe or a video was counted as a generic file');
+  await openInReader(page.locator('.gallery-file').filter({ hasText: '普通文件.pdf' }));
   await page.locator('#gallery-tab-images').click();
   await safeVideo.waitFor();
   assert.equal(await safeVideo.getAttribute('data-revealed'), 'true', 'Switching categories reset this visit’s video reveal');

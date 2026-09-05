@@ -160,7 +160,10 @@ export class VoiceRecorder {
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
         throw new Error('当前环境不能录音，请使用 HTTPS 和支持麦克风的新版浏览器');
       }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }, video: false });
+      // Let the OS select the complete input route. Hard channel/processing
+      // constraints can reject or retain a stale built-in route when a
+      // Bluetooth headset connects between recordings.
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       if (this.signal.aborted) { stream.getTracks().forEach(track => track.stop()); return; }
       this.stream = stream;
       const permissionInvalidated = Boolean(await this.endPermission());

@@ -240,17 +240,13 @@ try {
 
   await page.waitForFunction(() => Date.now() >= window.fileInteractions.app.suppressMediaClickUntil);
   const readsBeforeTap = await page.evaluate(() => window.fileInteractions.requests.reads);
-  const downloaded = page.waitForEvent('download');
+  const opened = page.waitForEvent('popup');
   await page.locator('.message.incoming .file-attachment').tap();
-  const download = await downloaded;
-  assert.equal(download.suggestedFilename(), '文件操作回归.pdf');
-  const stream = await download.createReadStream();
-  assert(stream, 'Normal tap produced no readable file');
-  const parts = [];
-  for await (const chunk of stream) parts.push(chunk);
-  assert.equal(Buffer.concat(parts).toString(), 'file interaction exact bytes');
+  const reader = await opened;
+  assert(reader.url().startsWith('blob:'), 'Normal tap did not hand the verified PDF to a system reader');
+  await reader.close();
   assert.equal(await page.evaluate(() => window.fileInteractions.requests.reads), readsBeforeTap + 1, 'Normal tap did not read exactly one encrypted chunk');
-  results.ordinaryTapDownloads = 1;
+  results.ordinaryTapSystemReader = 1;
 
   await page.evaluate(() => window.fileInteractions.app.renderGallery());
   assert.equal(await page.locator('#gallery-tab-images').getAttribute('aria-selected'), 'true', 'Gallery did not open on images');

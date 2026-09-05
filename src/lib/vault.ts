@@ -530,8 +530,12 @@ async function enforceUnlockThrottle(): Promise<void> {
   if (waitMs > 0) throw new Error(`尝试次数过多，请 ${Math.ceil(waitMs / 1000)} 秒后重试`);
 }
 
-export async function unlockVault(secret = ''): Promise<VaultSession> {
-  return withVaultLifecycle(() => unlockVaultLocked(secret));
+export async function unlockVault(secret = '', preparedPlatformProof?: Promise<Uint8Array<ArrayBuffer>>): Promise<VaultSession> {
+  // A UI-provided WebAuthn request starts in the trusted gesture stack, but it
+  // must settle before taking the cross-tab lifecycle lock. Otherwise a
+  // cancelled/abandoned system sheet can block a fresh verification attempt.
+  const platformProof = preparedPlatformProof ? await preparedPlatformProof : undefined;
+  return withVaultLifecycle(() => unlockVaultLocked(secret, platformProof));
 }
 
 /** Resume an in-memory capability only from its unchanged, authenticated durable snapshot. */
@@ -563,7 +567,7 @@ export async function resumeVaultSession(session: VaultSession): Promise<VaultSe
   });
 }
 
-async function unlockVaultLocked(secret: string): Promise<VaultSession> {
+async function unlockVaultLocked(secret: string, preparedPlatformProof?: Uint8Array<ArrayBuffer>): Promise<VaultSession> {
   const stored = await readStoredVaultUnlocked();
   if (!stored) throw new Error('本机没有可解锁的会话');
   if (stored.unlockMethod === 'recovery') throw new Error('恢复包需要先输入独立恢复码');
@@ -588,7 +592,9 @@ async function unlockVaultLocked(secret: string): Promise<VaultSession> {
       if (vault.v !== 1 || !vault.roomId || !vault.identity?.publicBundle?.deviceId) throw new Error('INVALID_VAULT');
       unlocked = { vault, key, stored };
     } else {
-      const prfOutput = await unlockPlatformCredential(stored.platform);
+      // UI callers prepare WebAuthn before lifecycle/IndexedDB work so Safari
+      // keeps trusted activation. Non-UI diagnostics retain the direct path.
+      const prfOutput = preparedPlatformProof ?? await unlockPlatformCredential(stored.platform);
       const migrationPrfOutput = stored.v === 2 ? prfOutput.slice() : null;
       if (stored.v === 2 && !stored.kdf) throw new Error('INVALID_VAULT');
       const kek = stored.v === 2

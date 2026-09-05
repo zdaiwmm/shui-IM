@@ -121,7 +121,7 @@
    user-triggered reveals only animate opacity, never the media dimensions. */
 .gallery-tile img { transform: scale(1.04); }
 .gallery-tile[data-revealed="false"] img {
-  filter: blur(22px);
+  filter: blur(16px);
 }
 
 .image-preview:not(:disabled):active,
@@ -192,6 +192,18 @@
   touch-action: none;
   transform-origin: center;
 }
+.image-viewer .viewer-media-layer.is-image::before {
+  content: '';
+  position: absolute;
+  inset: -7%;
+  z-index: 0;
+  background: var(--viewer-image-source) center / cover no-repeat;
+  filter: blur(18px) saturate(.82) brightness(.54);
+  opacity: .78;
+  transform: scale(1.08);
+}
+.image-viewer .viewer-media-layer.is-image { isolation: isolate; }
+.image-viewer .viewer-media-layer.is-image > img { position: relative; z-index: 1; }
 .image-viewer.is-dragging .viewer-media-layer.is-image > img,
 .image-viewer.is-paging .viewer-media-layer.is-image > img,
 .image-viewer.is-pinching .viewer-media-layer.is-image > img { transition: none; }

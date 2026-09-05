@@ -148,10 +148,10 @@ body:has(.chat-shell) {
 .chat-shell .message-bubble.image-bubble { max-width: min(288px, 100%); }
 .chat-shell .image-preview { max-width: min(288px, 100%); }
 .chat-shell .image-preview img { max-height: min(42svh, 320px); }
-/* Very narrow portraits and panoramas still need room for their receipt and
-   a usable target. Letterbox the original pixels without distorting them. */
-.chat-shell .message-bubble.image-bubble:has(> .image-preview) { min-width: min(11rem, 100%); }
-.chat-shell .message-bubble.image-bubble > .image-preview[data-image-state='loaded'] { min-width: min(11rem, 100%); min-height: 64px; }
+/* Once verified media has decoded, both wrappers shrink to the rendered
+   thumbnail instead of imposing a larger letterboxed frame. */
+.chat-shell .message-bubble.image-bubble:has(> .image-preview[data-image-state='loaded']) { min-width: 0; }
+.chat-shell .message-bubble.image-bubble > .image-preview[data-image-state='loaded'] { min-width: 0; min-height: 0; }
 .chat-shell .image-album { width: min(288px, calc(100vw - 88px)); max-width: 100%; }
 .chat-shell .image-album .image-preview { max-width: 100%; }
 .chat-shell .image-album .image-preview img { max-height: none; }

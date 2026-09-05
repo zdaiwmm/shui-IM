@@ -214,7 +214,7 @@ try {
   await page.locator('.chat-shell').waitFor();
   await page.mouse.up();
   assert.equal((await state(page)).resumed, 1, 'The existing corner hold must use the same retained-session gateway');
-  await page.clock.runFor(520);
+  await page.clock.runFor(1200);
   assert.equal(await page.locator('.cover-activation-feedback').count(), 0, 'Activation feedback must clean itself up');
   results.cornerHoldResumes = { target: 80, hold: 1000, immediateEntry: true, visibleFeedback: true, captureKeepsSmallDrift: true, releaseAfterThresholdCommits: true };
 

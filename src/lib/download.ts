@@ -56,3 +56,41 @@ export async function downloadBlob(
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
+
+const SYSTEM_READABLE_MIME_TYPES = new Set([
+  'application/pdf',
+  'application/json',
+  'text/plain',
+  'text/csv',
+  'text/markdown',
+]);
+
+/** Only inert, browser-native document types are eligible for direct viewing. */
+export function systemReadableMimeType(mimeType: string, filename: string): string | null {
+  const normalized = mimeType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+  if (SYSTEM_READABLE_MIME_TYPES.has(normalized)) return normalized;
+  if (normalized && normalized !== 'application/octet-stream') return null;
+  const extension = filename.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase();
+  return extension === 'pdf' ? 'application/pdf'
+    : extension === 'txt' ? 'text/plain'
+      : extension === 'csv' ? 'text/csv'
+        : extension === 'md' ? 'text/markdown'
+          : extension === 'json' ? 'application/json'
+            : null;
+}
+
+/** Hand verified bytes to the browser/OS reader without executing web content. */
+export async function openBlobInSystemReader(blob: Blob, filename: string, mimeType: string): Promise<void> {
+  const safeType = systemReadableMimeType(mimeType, filename);
+  if (!safeType) throw new Error('UNSUPPORTED_SYSTEM_READER_TYPE');
+  const url = URL.createObjectURL(blob.slice(0, blob.size, safeType));
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.target = '_blank';
+  anchor.rel = 'noopener noreferrer';
+  anchor.style.display = 'none';
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}

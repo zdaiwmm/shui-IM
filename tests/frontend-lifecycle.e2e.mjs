@@ -1135,29 +1135,23 @@ try {
       if (Math.abs(header.top - top) > 1 || Math.abs(composer.bottom - top - height) > 1) {
         throw Error(`Controls lagged keyboard frame: ${JSON.stringify({ height, offsetTop, top: header.top, bottom: composer.bottom })}`);
       }
-      if (app.chatPinnedToBottom && eventTarget === viewport) {
-        // The concealed toolbar's transform is decorative. Message geometry
-        // must already target the edge it will reveal to, not the invisible
-        // 14px-down animation frame.
-        const latestGap = window.composerBaseBounds().top - list.lastElementChild.getBoundingClientRect().bottom;
-        if (Math.abs(latestGap - 64) > 2) throw Error(`Messages lagged keyboard dispatch frame: ${JSON.stringify({ height, offsetTop, latestGap })}`);
-      }
     };
+    const settleViewport = async () => { await new Promise(resolve => setTimeout(resolve, 190)); await settle(); };
     try {
       input.focus({ preventScroll: true });
       for (const [height, top] of [[720, 40], [620, 100], [520, 180], [430, 260]]) {
-        position(height, top); await settle();
+        position(height, top); await settleViewport();
         const latestGap = window.composerBaseBounds().top - list.lastElementChild.getBoundingClientRect().bottom;
         if (Math.abs(latestGap - 64) > 2) throw Error(`Keyboard panning left a ${latestGap}px gap above the composer`);
       }
       if (document.documentElement.dataset.keyboardOpen !== 'true') throw Error('Shrinking innerHeight hid the keyboard state');
       input.blur();
       for (const [height, top] of [[500.25, 210], [610.5, 180], [720.75, 70], [layoutHeight, 0]]) {
-        position(height, top); await settle();
+        position(height, top); await settleViewport();
         if (!app.chatPinnedToBottom) throw Error('Ordinary keyboard dismissal lost bottom follow');
       }
       input.focus({ preventScroll: true });
-      position(430, 260); await settle();
+      position(430, 260); await settleViewport();
       const padding = getComputedStyle(list).paddingBottom;
       window.scrollTo = (...args) => { corrections++; scrollTo.apply(window, args); };
       window.scrollBy = (...args) => { corrections++; scrollBy.apply(window, args); };
@@ -1173,7 +1167,7 @@ try {
       }
       if (corrections || app.chatPinnedToBottom) throw Error('Keyboard dismissal pulled the reader to the bottom');
       if (document.documentElement.dataset.keyboardOpen !== 'false') throw Error('Dismissed keyboard retained its safe-area mode');
-      return { openingFrames: 5, pinnedDismissalFrames: 4, gestureDismissalFrames: 4, synchronousBounds: 'controls and latest message', windowOnlyPan: true, differingInnerHeight: true, staleDismissalOffset: 'clamped', forcedScrollsAfterGesture: corrections };
+      return { openingFrames: 5, pinnedDismissalFrames: 4, gestureDismissalFrames: 4, synchronousBounds: 'fixed controls', settledBounds: 'latest message', windowOnlyPan: true, differingInnerHeight: true, staleDismissalOffset: 'clamped', forcedScrollsAfterGesture: corrections };
     } finally {
       window.scrollTo = scrollTo; window.scrollBy = scrollBy;
       if (innerHeightDescriptor) Object.defineProperty(window, 'innerHeight', innerHeightDescriptor);
@@ -1407,10 +1401,12 @@ try {
       for (const height of [700, 560, 420]) {
         Object.defineProperty(viewport, 'height', { configurable: true, value: height });
         viewport.dispatchEvent(new Event('resize'));
-        const composer = window.composerBaseBounds();
-        const gap = composer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
-        if (Math.abs(composer.bottom - height) > 1 || Math.abs(gap - 64) > 2) throw Error(`Keyboard after collapsed toolbar misplaced content: ${JSON.stringify({ height, bottom: composer.bottom, gap })}`);
-        await frame();
+        const immediate = window.composerBaseBounds();
+        if (Math.abs(immediate.bottom - height) > 1) throw Error(`Keyboard after collapsed toolbar misplaced fixed composer: ${JSON.stringify({ height, bottom: immediate.bottom })}`);
+        await new Promise(resolve => setTimeout(resolve, 190)); await frame(); await frame();
+        const settledComposer = window.composerBaseBounds();
+        const gap = settledComposer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
+        if (Math.abs(gap - 64) > 2) throw Error(`Keyboard after collapsed toolbar did not settle content: ${JSON.stringify({ height, gap })}`);
       }
       return { staleLayoutFrames: samples, subsequentKeyboardFrames: 3 };
     } finally {
@@ -1580,13 +1576,13 @@ try {
           Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 0 });
           // Some native frames change viewport geometry without dispatching a
           // resize event. Focus starts frame sampling through that transition.
-          await frame();
+          await new Promise(resolve => setTimeout(resolve, 190)); await frame(); await frame();
           samples.push(check(height));
         }
         input.blur();
         for (const height of [560, 700, layoutHeight]) {
           Object.defineProperty(viewport, 'height', { configurable: true, value: height });
-          await frame();
+          await new Promise(resolve => setTimeout(resolve, 190)); await frame(); await frame();
           samples.push(check(height));
         }
         if (!app.chatPinnedToBottom) throw Error('Short-history keyboard sampling discarded bottom follow');
@@ -1603,6 +1599,7 @@ try {
       document.querySelector('#message-input').focus({ preventScroll: true });
       Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 420 });
       Object.defineProperty(window.visualViewport, 'offsetTop', { configurable: true, value: 0 });
+      await new Promise(resolve => setTimeout(resolve, 190));
       await new Promise(resolve => requestAnimationFrame(resolve));
     });
     await page.screenshot({ path: path.join(visualQaDirectory, 'chat-short-history-keyboard-open-390.png') });

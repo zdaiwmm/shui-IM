@@ -367,7 +367,7 @@ try {
           const b = bubble.getBoundingClientRect(); const m = meta.getBoundingClientRect();
           const content = bubble.querySelector('.message-text');
           if (article.classList.contains('incoming') && content && getComputedStyle(content).color !== bodyColor) issues.push(`${id}: incoming text color did not settle with the current theme`);
-          if (b.left < -1 || b.right > innerWidth + 1 || m.left < b.left - 1 || m.right > b.right + 1 || m.top < b.top - 1 || m.bottom > b.bottom + 1) issues.push(`${id}: bubble or metadata overflow`);
+          if (b.left < -1 || b.right > innerWidth + 1 || (!bubble.classList.contains('image-bubble') && (m.left < b.left - 1 || m.right > b.right + 1 || m.top < b.top - 1 || m.bottom > b.bottom + 1))) issues.push(`${id}: bubble or metadata overflow`);
           const style = getComputedStyle(meta);
           if (Math.abs(parseFloat(style.fontSize) - font * 11 / 16) > .1) issues.push(`${id}: metadata font is not 11px at default size or its accessible scaled equivalent`);
           if (style.justifyContent !== 'flex-end' || style.textAlign !== 'right') issues.push(`${id}: metadata not right aligned`);
@@ -382,7 +382,8 @@ try {
               const preview = bubble.querySelector('.image-preview').getBoundingClientRect();
               const expectedHeight = imageBox.width * image.naturalHeight / image.naturalWidth;
               if (Math.abs(imageBox.height - expectedHeight) > Math.max(.04, expectedHeight * .015) || imageBox.left < preview.left - 1 || imageBox.right > preview.right + 1 || imageBox.top < preview.top - 1 || imageBox.bottom > preview.bottom + 1) issues.push(`${id}: extreme original aspect ratio was distorted or clipped`);
-              if (preview.height < 64 || b.width < Math.min(font * 11, article.getBoundingClientRect().width) - 1) issues.push(`${id}: extreme media has no safe space for metadata`);
+              if (Math.abs(preview.width - imageBox.width) > 1 || Math.abs(preview.height - imageBox.height) > 1
+                || Math.abs(b.width - imageBox.width) > 1 || Math.abs(b.height - imageBox.height) > 1) issues.push(`${id}: media wrapper is larger than its rendered thumbnail`);
             }
           } else if (content && !article.classList.contains('is-failed')) {
             const range = document.createRange();
