@@ -96,9 +96,9 @@ try {
     };
     const photo = await encrypt(new File(['<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><path fill="#9caf9b" d="M0 0h320v180H0z"/><circle fill="#eadbb7" cx="248" cy="42" r="20"/><path fill="#526c61" d="M0 180 105 40 240 180Z"/></svg>'], '照片.svg', { type: 'image/svg+xml', lastModified: 1 }), true);
     const chatVideo = await encrypt(new File([videoBlob], '聊天视频.webm', { type: 'video/webm', lastModified: 2 }));
-    const chatDocument = await encrypt(new File(['%PDF-1.7\nvideo regression ordinary file\n%%EOF'], '普通文件.pdf', { type: 'application/pdf', lastModified: 3 }));
+    const chatDocument = await encrypt(new File(['video regression ordinary file\n'], '普通文件.txt', { type: 'text/plain', lastModified: 3 }));
     const galleryVideo = await encrypt(new File([videoBlob], '保险箱视频.webm', { type: '', lastModified: 4 }));
-    const galleryDocument = await encrypt(new File(['%PDF-1.7\nvideo regression gallery file\n%%EOF'], '保险箱文档.pdf', { type: 'application/pdf', lastModified: 5 }));
+    const galleryDocument = await encrypt(new File(['video regression gallery file\n'], '保险箱文档.txt', { type: 'text/plain', lastModified: 5 }));
     const restoredVideo = await encrypt(new File([videoBlob], '单独恢复的视频.webm', { type: 'video/webm', lastModified: 6 }));
     const delayedVideo = await encrypt(new File([videoBlob], '迟到的视频.webm', { type: 'video/webm', lastModified: 7 }));
     const sentAt = '2026-09-04T10:00:00.000Z';
@@ -508,7 +508,7 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('.gallery-file').length === 2);
   assert.equal(await page.locator('.gallery-tile').count(), 0, 'Videos appeared in the file category');
   assert.equal(await page.locator('[data-gallery-count="files"]').textContent(), '2', 'A chat document was not projected into Safe or a video was counted as a generic file');
-  await openInReader(page.locator('.gallery-file').filter({ hasText: '普通文件.pdf' }));
+  await openInReader(page.locator('.gallery-file').filter({ hasText: '普通文件.txt' }));
   await page.locator('#gallery-tab-images').click();
   await safeVideo.waitFor();
   assert.equal(await safeVideo.getAttribute('data-revealed'), 'true', 'Switching categories reset this visit’s video reveal');

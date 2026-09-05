@@ -50,7 +50,7 @@ try {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
 
     const chunks = new Map();
-    const manifest = await encryptFileAttachment(new File(['file interaction exact bytes'], '文件操作回归.pdf', { type: 'application/pdf', lastModified: 1 }), {
+    const manifest = await encryptFileAttachment(new File(['file interaction exact bytes'], '文件操作回归.txt', { type: 'text/plain', lastModified: 1 }), {
       reserve: async () => {},
       status: async () => ({ uploadedIndexes: [], completed: false }),
       upload: async (_blobId, index, bytes) => { chunks.set(index, bytes); },

@@ -843,9 +843,9 @@ try {
   // Files use the same real MLS, authenticated blob storage and peer download
   // path as images, while gallery-only files remain absent from both chats.
   const documentFile = {
-    name: '双端原文验证.pdf',
-    mimeType: 'application/pdf',
-    buffer: Buffer.from('%PDF-1.7\nQuiet Room encrypted file transfer\n%%EOF\n'),
+    name: '双端原文验证.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('Quiet Room encrypted file transfer\n'),
   };
   invariant(!await creator.locator('#image-input').getAttribute('accept'), 'Chat file picker still filters out documents');
   await creator.waitForFunction(() => !document.querySelector('#image-input')?.disabled);
