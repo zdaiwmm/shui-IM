@@ -1658,7 +1658,11 @@ try {
     // it. Rows after the reacted message must start at their old visual
     // position and ease to the new layout without being detached or jittering
     // again during ACK and durable sync.
-    const anchored = document.querySelector('[data-client-msg-id="message-5"]');
+    // Keep the source and its first follower inside the viewport across font
+    // stacks. Linux Chromium's fallback glyph metrics make six intervening
+    // rows tall enough to place message 11 just outside the animation's
+    // intentional visible-row window.
+    const anchored = document.querySelector('[data-client-msg-id="message-9"]');
     const animatedSource = app.messages.get(10);
     const animatedArticle = document.querySelector('[data-client-msg-id="message-10"]');
     const follower = document.querySelector('[data-client-msg-id="message-11"]');
