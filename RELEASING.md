@@ -142,6 +142,51 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-05（Asia/Shanghai）；服务器 `deployed-at=20260905T030000Z`（11:00:00
+  发布批次），11:06 前完成独立回读。
+- 应用版本：`98aee2aa7491564d30c9a93cc3869c5f758610a3`。主体由
+  [PR #17](https://github.com/zdaiwmm/shui-IM/pull/17) 于 10:27:30 squash 合并为
+  `694cc06a1d3a0ce2ab3ca539c2c2bcf525185aa5`；跨字体测试夹具由
+  [PR #18](https://github.com/zdaiwmm/shui-IM/pull/18) 于 10:49:49 squash 合并为最终应用
+  SHA。用户明确确认推送、合并和发布该仓库；发布前重新读取 GitHub main 并锁定完整提交。
+- [PR #17 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33938924491)、
+  [PR #18 最终完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33939464149) 与
+  [精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33940176339) 均成功。
+  最终 main run 约 4 分钟，通过构建、50 个测试文件／400 项单元集成、两组共 23 个浏览器
+  入口、原生通话、凭据扫描、生产依赖审计及 `Full application verification`／`verify` 汇总。
+- 合并 PR #17 后的 main run
+  [33939125012](https://github.com/zdaiwmm/shui-IM/actions/runs/33939125012) 仅因 Linux CJK/emoji
+  字体回退下回应气泡后续位移为 4.920654296875px、夹具固定要求大于 8px 而失败；300ms
+  FLIP、首帧零跳动、DOM 保留、最终移除和 reduced-motion 均满足。PR #18 把距离阈值改为
+  兼容字体行框且仍排除无位移的值，未修改应用代码。其首次执行又在 Playwright 安装阶段
+  长时间无进展后取消；同一提交重跑完整成功，没有用基础设施重跑掩盖测试失败。
+- 冻结候选本地 `npm run check:full` 通过 50 个 Vitest 文件、400 项测试和 23／23 个浏览器
+  入口，浏览器汇总 200.34 秒。夹具修正后定向 `node tests/frontend-lifecycle.e2e.mjs` 通过；
+  最终精确 PR/main CI 提供 Linux Chromium 全量证据。自动化不能代替真实 iPhone/Android。
+- 第一次固定入口在服务器调用前的隔离浅克隆阶段等待 120,011ms 后超时，总计 137,104ms；
+  临时目录未形成 Git 仓库，生产仍为旧 SHA。随后同协议只读 `git ls-remote` 在 5.3 秒内
+  成功，确认可安全重试。没有在结果不明或进入非只读阶段后重发。
+- 成功固定入口 `node scripts/publish.mjs --sha 98aee2aa7491564d30c9a93cc3869c5f758610a3`
+  从独立浅克隆执行；服务器返回 `DEPLOY_OK`，外层核对精确回执并返回 `DEPLOY_VERIFIED`。
+  成功入口总耗时 145,543ms：预检 6,143ms、核对 main 819ms、CI 复核 4,694ms、隔离克隆
+  61,664ms、隔离发布及入口回读 72,217ms。服务器阶段 58 秒：取源码 5 秒、构建镜像 15 秒、
+  维护门 1 秒、冷备份 5 秒、启动及健康等待 31 秒、公开 WebSocket 1 秒；分项有嵌套。
+- 发布目录为 `/opt/quiet-room/git-releases/20260905T030000Z-98aee2aa7491`，已校验冷备份为
+  `/opt/quiet-room/backups/predeploy/data-20260905T030000Z-98aee2aa7491.tar.gz`。
+- 独立只读生产回读返回 `READBACK_OK`：线上 SHA、批次和发布目录一致，维护标记不存在；
+  应用容器运行且健康，备份容器运行且没有健康探针。两者实际 Image ID 均匹配目标镜像
+  `sha256:1e7aa9cbdeac8089600581d7b7fbe5a63cf6a2a7013b7cdfe74dadfed0f06a6b`。
+  HTTPS `ok`／`database`／`storage` 全为 true；首页、`/sw.js`、
+  `/assets/app-BQYeiGmm.css`、`/assets/app-BEGaEWXm.js` 和
+  `/assets/modulepreload-polyfill-B5Qt9EMX.js` 与运行中容器产物逐字节一致，公开 WebSocket
+  独立连接成功。检查未读取真实消息、附件或备份内容。
+- 本次回读 `admin-enabled=0`、`calls-enabled=0`；后台和 TURN 仍未启用。真实 iPhone/Android
+  的键盘、浏览器工具栏、原生选择器、权限、播放器、后台恢复、手势手感、证书无人值守续期、
+  异故障域备份、外部告警和独立安全审计待办不变。耗时、token 成本原因与可执行改进见
+  [本次交付复盘](./audit/2026-09-05-mobile-ux-delivery-retrospective.md)。
+
+## 上次线上发布记录（2026-09-05 02:31）
+
 - 日期：2026-09-05（Asia/Shanghai）；服务器 `deployed-at=20260904T183121Z`（02:31:21 发布批次），02:32:39 独立回读完成。
 - 应用版本：`e619afb8f9f732839872815c591ea56e454f40e3`，来自 [PR #14](https://github.com/zdaiwmm/shui-IM/pull/14)。功能分支最终提交 `1fbd131264d4eb17914932c94cfabd7035f0ca83`，合并后源码树一致；发布前重新读取 GitHub main 并确认目标 SHA。用户明确要求本轮修改合并并上线。
 - [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33905364719) 与[精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33905829879) 均成功；各自通过构建、44 文件／316 项单元集成、两组共 22 个浏览器入口、原生通话、凭据扫描、生产依赖审计及 `Full application verification`／`verify` 汇总。

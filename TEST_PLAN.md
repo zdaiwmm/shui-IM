@@ -337,3 +337,25 @@ npm run check:full
 - `tests/gallery-loading.e2e.mjs`、`tests/backup-admin-ui.e2e.mjs`、`tests/cloud-backup-lifecycle.e2e.mjs` 最终单独通过；已有视频专项通过。相册检查 320／390／1280 像素、备份检查 320／390／1440 像素与明暗主题，已目检手机和桌面截图。
 - `npm run check:full` 的较早工作树快照通过构建、266 项单元／集成及主浏览器流程；未取得最终共享工作树一次整套通过的结论。首次浏览器执行在恢复备份模块导入时中断，独立复查通过；随后新增长按测试错误等待零高度外层菜单，已改为等待实际反应条并在 Chrome／WebKit 通过；再一次完整入口被并行语音手势开发中的类型错误阻断，后续最终构建通过。未将这些分段证据等同于最终整套通过。
 - 新增两个图片专项已纳入 `npm run test:browser`。没有运行 CI、生产发布或真实手机验收，WebKit 自动化不等于 iPhone 真机通过。
+
+## 2026-09-05 移动交互、删除与保险箱整理验收
+
+- 冻结候选 `npm run check:full` 完整通过：50 个 Vitest 文件、400 项单元/集成测试、
+  23／23 个浏览器入口；浏览器汇总 200.34 秒。新增或扩展的邀请分类、查看器手势、视频
+  切页、输入栏/键盘/选择器生命周期、回应重排、回复滑动、聊天删除、保险箱本地置顶/删除、
+  模糊填充与遮蔽恢复均纳入对应单元或真实 Chromium 浏览器测试。
+- [PR #17 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33938924491) 通过。合并后首个
+  main run 的唯一失败是回应夹具依赖 Linux 字体的固定像素位移；产品的 300ms FLIP、首帧
+  零跳动、DOM 保留与最终移除均通过。仅测试修正的
+  [PR #18 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33939464149) 和
+  [最终精确 main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33940176339) 完整通过，未修改
+  应用实现或移除交互断言。
+- 应用 `98aee2aa7491564d30c9a93cc3869c5f758610a3` 已通过固定入口发布，并取得
+  `DEPLOY_VERIFIED` 与独立 `READBACK_OK`；详细容器、镜像、公开产物和耗时证据见
+  [发布记录](RELEASING.md#本次线上发布记录)。自动化和生产回读均不等于真实手机手感。
+- 仍需真实 iPhone Safari／Chrome、安装态 PWA 和 Android Chrome 检查：后台恢复后遮蔽热区、
+  系统选择器/tips 的关闭时机、键盘连续帧、输入栏渐显、原生视频全屏、横划阻尼、双击缩放、
+  长按菜单、回应重排与触觉反馈；不得用桌面模拟视口宣称真机验收通过。
+- 本批次为何产生过多完整回归、CI 等待和发布克隆等待，以及下一批的测试漏斗和失败分类规则，
+  见[交付复盘](audit/2026-09-05-mobile-ux-delivery-retrospective.md)与
+  [知识库维护规则](docs/context/maintenance.md#大批量变更的成本控制)。
