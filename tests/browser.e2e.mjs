@@ -14,9 +14,10 @@ function invariant(condition, message) {
 }
 
 async function assertStablePage(page, label) {
-  // Measure the arriving page, including its opacity animation, rather than
-  // retaining the outgoing DOM during the navigation's short fade-out.
-  await page.waitForFunction(() => document.querySelector('#app')?.dataset.pageTransition !== 'leaving');
+  // Page navigation deliberately moves during its iOS-style push/pop. Measure
+  // geometry only after that transition settles; interaction-specific tests
+  // separately assert that both painted layers remain present throughout it.
+  await page.waitForFunction(() => !document.querySelector('#app')?.dataset.pageTransition);
   const samples = await page.locator('#app > section').evaluate(async (section) => {
     const values = [];
     const chat = section.classList.contains('chat-shell');
@@ -842,9 +843,9 @@ try {
   // Files use the same real MLS, authenticated blob storage and peer download
   // path as images, while gallery-only files remain absent from both chats.
   const documentFile = {
-    name: '双端原文验证.pdf',
-    mimeType: 'application/pdf',
-    buffer: Buffer.from('%PDF-1.7\nQuiet Room encrypted file transfer\n%%EOF\n'),
+    name: '双端原文验证.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('Quiet Room encrypted file transfer\n'),
   };
   invariant(!await creator.locator('#image-input').getAttribute('accept'), 'Chat file picker still filters out documents');
   await creator.waitForFunction(() => !document.querySelector('#image-input')?.disabled);
@@ -856,21 +857,24 @@ try {
   await peerDocument.waitFor({ timeout: 15_000 });
   await creator.locator('.message.outgoing.is-delivered').filter({ hasText: documentFile.name }).waitFor({ timeout: 15_000 });
   invariant(await peerDocument.locator('.file-attachment-meta').textContent(), 'Received document has no file metadata');
-  const peerFileDownloadPromise = joiner.waitForEvent('download');
+  const peerFileReaderPromise = joiner.waitForEvent('popup');
   await peerDocument.click();
-  const peerFileDownload = await peerFileDownloadPromise;
-  invariant(peerFileDownload.suggestedFilename() === documentFile.name, 'Peer download changed the original filename');
-  const peerFileStream = await peerFileDownload.createReadStream();
-  invariant(peerFileStream, 'Peer document download has no readable stream');
-  const peerFileParts = [];
-  for await (const chunk of peerFileStream) peerFileParts.push(chunk);
-  invariant(Buffer.concat(peerFileParts).equals(documentFile.buffer), 'Document bytes changed during encryption, transfer or peer decryption');
+  const peerFileReader = await peerFileReaderPromise;
+  await peerFileReader.waitForURL('blob:**', { timeout: 5_000 });
+  invariant(peerFileReader.url().startsWith('blob:'), 'Readable peer document was not handed to the system reader');
+  await peerFileReader.close();
+  invariant((await peerDocument.locator('.file-attachment-meta').textContent())?.includes('再次打开'), 'Readable peer document did not return to its open state');
 
-  const creatorFileCount = await creator.locator('.message .file-attachment').count();
-  const peerFileCount = await joiner.locator('.message .file-attachment').count();
+  const currentChatFiles = '#app > .chat-shell #message-list .message .file-attachment';
+  const creatorFileCount = await creator.locator(currentChatFiles).count();
+  const peerFileCount = await joiner.locator(currentChatFiles).count();
   await creator.locator('#open-gallery').click();
   await creator.locator('.gallery-shell').waitFor();
   invariant(await creator.locator('#gallery-tab-images').getAttribute('aria-selected') === 'true', 'Reopening the gallery does not select images');
+  await creator.locator('#gallery-tab-files').click();
+  await creator.locator('.gallery-file').filter({ hasText: documentFile.name }).waitFor({ timeout: 15_000 });
+  invariant(await creator.locator('.gallery-file').filter({ hasText: documentFile.name }).count() === 1, 'Chat document was not automatically stored in the creator Safe');
+  await creator.locator('#gallery-tab-images').click();
   invariant(!await creator.locator('#gallery-image-input').getAttribute('accept'), 'Gallery picker still filters out documents');
   const galleryDocumentInput = await creator.locator('#gallery-image-input').elementHandle();
   invariant(galleryDocumentInput, 'Gallery document input is missing');
@@ -886,22 +890,30 @@ try {
   await creator.locator('.gallery-file').filter({ hasText: '仅相册保存.pdf' }).waitFor();
   await creator.waitForFunction(() => !document.querySelector('#gallery-back')?.disabled);
   await creator.locator('#gallery-back').click();
-  await creator.locator('.chat-shell').waitFor();
+  await creator.locator('#app:not([data-page-transition]) > .chat-shell').waitFor();
   await creator.locator('#open-gallery').click();
   await creator.locator('.gallery-shell').waitFor();
   invariant(await creator.locator('#gallery-tab-images').getAttribute('aria-selected') === 'true', 'Returning from files to chat then reopening the gallery did not reset to images');
   invariant(await creator.locator('.gallery-file:visible').count() === 0, 'Reopened images tab retained visible files');
   await creator.locator('#gallery-back').click();
-  await creator.locator('.chat-shell').waitFor();
+  await creator.locator('#app:not([data-page-transition]) > .chat-shell').waitFor();
   await creator.locator('#message-input').fill('browser-e2e-after-gallery-file');
   await creator.locator('#composer').evaluate(form => form.requestSubmit());
   // The subsequent delivered message is an ordering barrier: the peer has
   // processed the preceding encrypted gallery event before this assertion.
   await joiner.getByText('browser-e2e-after-gallery-file', { exact: true }).waitFor({ timeout: 15_000 });
-  invariant(await creator.locator('.message .file-attachment').count() === creatorFileCount, 'Gallery document leaked into creator chat');
-  invariant(await joiner.locator('.message .file-attachment').count() === peerFileCount, 'Gallery document leaked into peer chat');
-  invariant(await creator.locator('.message').filter({ hasText: '仅相册保存.pdf' }).count() === 0, 'Creator chat exposes the private gallery filename');
-  invariant(await joiner.locator('.message').filter({ hasText: '仅相册保存.pdf' }).count() === 0, 'Peer chat exposes the private gallery filename');
+  const creatorFileCountAfter = await creator.locator(currentChatFiles).count();
+  const peerFileCountAfter = await joiner.locator(currentChatFiles).count();
+  const creatorFileState = creatorFileCountAfter === creatorFileCount ? null : await creator.evaluate(() => ({
+    activeSurface: window.__quietRoomApp?.activeSurface,
+    directChildren: [...document.querySelector('#app').children].map(node => `${node.tagName}.${node.className}`),
+    chatFiles: [...document.querySelectorAll('.chat-shell .message .file-attachment-copy strong')].map(node => node.textContent),
+    allFiles: [...document.querySelectorAll('.file-attachment-copy strong')].map(node => node.textContent),
+  }));
+  invariant(creatorFileCountAfter === creatorFileCount, `Gallery document leaked into creator chat (${creatorFileCount} -> ${creatorFileCountAfter}): ${JSON.stringify(creatorFileState)}`);
+  invariant(peerFileCountAfter === peerFileCount, `Gallery document leaked into peer chat (${peerFileCount} -> ${peerFileCountAfter})`);
+  invariant(await creator.locator('#app > .chat-shell #message-list .message').filter({ hasText: '仅相册保存.pdf' }).count() === 0, 'Creator chat exposes the private gallery filename');
+  invariant(await joiner.locator('#app > .chat-shell #message-list .message').filter({ hasText: '仅相册保存.pdf' }).count() === 0, 'Peer chat exposes the private gallery filename');
 
   await creator.locator('.more-menu summary').click();
   await creator.locator('#backup-settings').click();

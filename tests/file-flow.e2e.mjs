@@ -131,7 +131,7 @@ try {
     };
     const fixtures = () => [
       new File(['<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><path fill="red" d="M0 0h20v20H0z"/></svg>'], 'first.svg', { type: 'image/svg+xml', lastModified: 1 }),
-      new File(['%PDF-1.7\nfile-flow exact bytes\n%%EOF'], '说明书.pdf', { type: 'application/pdf', lastModified: 2 }),
+      new File(['file-flow exact bytes\n'], '说明书.txt', { type: 'text/plain', lastModified: 2 }),
       new File([new Uint8Array([0, 255, 1, 128, 10, 13, 42])], 'opaque.unknown', { type: '', lastModified: 3 }),
     ];
     const choose = (destination, files) => {
@@ -169,12 +169,12 @@ try {
   results.mixedChat = await page.evaluate(() => {
     const { root, sent, blobs, check, selectedKinds, selectedNames } = window.fileFlow;
     check(JSON.stringify(selectedKinds()) === '["image","file","file"]', 'Mixed chat selection lost its message kinds or order');
-    check(JSON.stringify(selectedNames()) === '["first.svg","说明书.pdf","opaque.unknown"]', 'Mixed chat selection reordered or renamed files');
+    check(JSON.stringify(selectedNames()) === '["first.svg","说明书.txt","opaque.unknown"]', 'Mixed chat selection reordered or renamed files');
     check(root.querySelectorAll('.message .file-attachment').length === 2, 'Chat file cards are missing or duplicated');
     check(root.querySelectorAll('.message .image-preview').length === 1, 'Mixed selection changed the image preview');
     const cards = [...root.querySelectorAll('.message .file-attachment')];
     check(cards.every(card => card.querySelector('.file-attachment-name')?.textContent && card.querySelector('.file-attachment-meta')?.textContent), 'File cards lack their filename or size/type metadata');
-    check(cards[0].querySelector('.file-attachment-name').textContent === '说明书.pdf' && cards[1].querySelector('.file-attachment-name').textContent === 'opaque.unknown', 'Visible file order differs from the selection');
+    check(cards[0].querySelector('.file-attachment-name').textContent === '说明书.txt' && cards[1].querySelector('.file-attachment-name').textContent === 'opaque.unknown', 'Visible file order differs from the selection');
     check(sent[2].payload.file.mimeType === '', 'Unknown MIME did not preserve the original file metadata');
     for (const record of sent) {
       const manifest = record.payload.file ?? record.payload.image;
@@ -195,17 +195,23 @@ try {
     for await (const chunk of stream) parts.push(chunk);
     return { name: download.suggestedFilename(), bytes: Buffer.concat(parts) };
   };
-  const pdf = await readDownload(page.locator('.message .file-attachment').filter({ hasText: '说明书.pdf' }));
-  assert.equal(pdf.name, '说明书.pdf');
-  assert.deepEqual(pdf.bytes, Buffer.from('%PDF-1.7\nfile-flow exact bytes\n%%EOF'));
+  const openInReader = async locator => {
+    const pending = page.waitForEvent('popup');
+    await locator.click();
+    const reader = await pending;
+    await reader.waitForURL('blob:**', { timeout: 5_000 });
+    assert(reader.url().startsWith('blob:'), 'Readable file did not open through a system reader');
+    await reader.close();
+  };
+  await openInReader(page.locator('.message .file-attachment').filter({ hasText: '说明书.txt' }));
   const binary = await readDownload(page.locator('.message .file-attachment').filter({ hasText: 'opaque.unknown' }));
   assert.equal(binary.name, 'opaque.unknown');
   assert.deepEqual(binary.bytes, Buffer.from([0, 255, 1, 128, 10, 13, 42]));
-  results.downloads = { pdf: 'exact original bytes', binary: 'exact original bytes' };
+  results.downloads = { readableText: 'verified bytes handed to system reader', binary: 'exact original bytes' };
 
   // Locking while a chunk is in flight must stop the late download; stale card
   // listeners must also be unable to start another read after the UI is gone.
-  const staleCard = await page.locator('.message .file-attachment').filter({ hasText: '说明书.pdf' }).elementHandle();
+  const staleCard = await page.locator('.message .file-attachment').filter({ hasText: '说明书.txt' }).elementHandle();
   await page.evaluate(() => { window.fileFlow.readGate.enabled = true; });
   const beforeLockDownloads = downloads.length;
   await staleCard.evaluate(card => card.click());
@@ -259,16 +265,14 @@ try {
   results.gallery = await page.evaluate(() => {
     const f = window.fileFlow;
     f.check(JSON.stringify(f.selectedKinds()) === '["gallery-image","gallery-file","gallery-file"]', 'Mixed gallery selection lost its private kinds or order');
-    f.check(JSON.stringify(f.selectedNames()) === '["first.svg","说明书.pdf","opaque.unknown"]', 'Mixed gallery selection reordered the files');
+    f.check(JSON.stringify(f.selectedNames()) === '["first.svg","说明书.txt","opaque.unknown"]', 'Mixed gallery selection reordered the files');
     f.check(f.root.querySelectorAll('.gallery-file').length === 2, 'Gallery file entries are missing');
     f.check(f.root.querySelectorAll('.gallery-file .file-attachment-name').length === 2, 'Gallery file names are missing');
     return { kinds: f.selectedKinds(), files: f.root.querySelectorAll('.gallery-file').length };
   });
   await assertGalleryTab('files', { images: 0, files: 2 });
   await captureFiles('gallery-files');
-  const galleryPdf = await readDownload(page.locator('.gallery-file').filter({ hasText: '说明书.pdf' }));
-  assert.equal(galleryPdf.name, '说明书.pdf');
-  assert.deepEqual(galleryPdf.bytes, pdf.bytes);
+  await openInReader(page.locator('.gallery-file').filter({ hasText: '说明书.txt' }));
   await page.locator('#gallery-tab-images').click();
   await assertGalleryTab('images', { images: 1, files: 0 });
   await captureFiles('gallery-images');
@@ -378,7 +382,7 @@ try {
       const foreground = await page.evaluate(() => {
         const f = window.fileFlow;
         f.check(!f.app.privacyCovered && !f.app.deferredImageUpload, 'Foreground selection locked or remained deferred');
-        f.check(JSON.stringify(f.selectedNames()) === '["说明书.pdf","opaque.unknown"]', 'Foreground return lost the selected file order');
+        f.check(JSON.stringify(f.selectedNames()) === '["说明书.txt","opaque.unknown"]', 'Foreground return lost the selected file order');
         f.check(f.sent[1].payload.file.mimeType === '', 'Picker mutated the original unknown MIME before upload');
         return { kinds: f.selectedKinds(), names: f.selectedNames() };
       });

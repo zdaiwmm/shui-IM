@@ -71,7 +71,7 @@ import {
 import { batchAttachmentFiles } from './lib/image-batches';
 import { isVideoFile, videoMimeType } from './lib/video-media';
 import { createVideoPoster } from './lib/video-poster';
-import { downloadBlob } from './lib/download';
+import { downloadBlob, openBlobInSystemReader, prepareSystemReader, systemReadableMimeType } from './lib/download';
 import { gestureSecret, GesturePad } from './lib/gesture';
 import {
   createCreatorMlsState,
@@ -522,9 +522,12 @@ export class QuietRoomApp {
         // in the same event as the controls instead of a later animation frame.
         // ResizeObserver owns actual control-size changes. Geometry-only
         // toolbar frames should not force three control layout measurements.
-        if (widthChanged || keyboardChanged) this.syncChatLayout();
-        if (resized && followBottom) this.scrollChatToBottom();
-        if (resized) this.trackChatViewport(followBottom && !this.desktopBrowser);
+        // Do not fight Safari's keyboard animation with document scrolling or
+        // repeated layout reads. Fixed chrome follows the visual viewport now;
+        // one bottom alignment runs after the geometry has settled.
+        if (widthChanged && !keyboardChanged) this.syncChatLayout();
+        if (keyboardChanged && followBottom) this.scrollChatToBottom();
+        if (resized) this.trackChatViewport(false);
         this.updateChatBottomControl();
       }
       viewportWidthChanged ||= widthChanged;
@@ -921,10 +924,27 @@ export class QuietRoomApp {
     feedback.setAttribute('aria-hidden', 'true');
     feedback.style.left = `${bounds.left + (Number.isFinite(x) ? x : bounds.width / 2)}px`;
     feedback.style.top = `${bounds.top + (Number.isFinite(y) ? y : bounds.height / 2)}px`;
+    for (const burst of [
+      { x: 0, y: 0, delay: 0 },
+      { x: Math.max(72, window.innerWidth * .32 - bounds.left), y: Math.min(-90, window.innerHeight * .28 - bounds.top), delay: 120 },
+      { x: Math.min(-72, window.innerWidth * .68 - bounds.right), y: Math.min(-150, window.innerHeight * .46 - bounds.top), delay: 240 },
+    ]) {
+      const firework = document.createElement('span');
+      firework.className = 'cover-firework';
+      firework.style.setProperty('--firework-x', `${burst.x}px`);
+      firework.style.setProperty('--firework-y', `${burst.y}px`);
+      firework.style.setProperty('--firework-delay', `${burst.delay}ms`);
+      for (let index = 0; index < 12; index += 1) {
+        const spark = document.createElement('i');
+        spark.style.setProperty('--spark-angle', `${index * 30}deg`);
+        firework.append(spark);
+      }
+      feedback.append(firework);
+    }
     document.body.append(feedback);
     const remove = () => feedback.remove();
-    feedback.addEventListener('animationend', remove, { once: true });
-    window.setTimeout(remove, 520);
+    feedback.addEventListener('animationend', event => { if (event.target === feedback) remove(); });
+    window.setTimeout(remove, 1200);
   }
 
   private cancelCoverTimer(): void {
@@ -1094,7 +1114,13 @@ export class QuietRoomApp {
         instruction.textContent = '正在验证手势…';
         void (async () => {
           try {
-            const unlocked = await this.withDeviceVerification(() => unlockVault(secret));
+            const platformProof = stored.v === 2
+              ? this.withDeviceVerification(() => unlockPlatformCredential(stored.platform))
+              : undefined;
+            // Attach a rejection observer immediately: vault lifecycle work
+            // can delay the eventual await while the native sheet is open.
+            void platformProof?.catch(() => undefined);
+            const unlocked = await unlockVault(secret, platformProof);
             secret = '';
             if (!current()) return;
             this.session = unlocked;
@@ -1132,7 +1158,12 @@ export class QuietRoomApp {
         setBusy(button, true, '正在验证…');
         void (async () => {
           try {
-            const unlocked = await this.withDeviceVerification(() => unlockVault());
+            // Start WebAuthn in this trusted activation stack. Starting it
+            // after IndexedDB/lock awaits is what made Safari intermittently
+            // omit the device-password sheet after a completed cover hold.
+            const platformProof = this.withDeviceVerification(() => unlockPlatformCredential(stored.platform));
+            void platformProof.catch(() => undefined);
+            const unlocked = await unlockVault('', platformProof);
             if (!current()) return;
             this.session = unlocked;
             await this.openSession();
@@ -3037,8 +3068,6 @@ export class QuietRoomApp {
               <div class="menu-panel">
                 <p class="menu-title">本机安全</p>
                 <p class="protocol-label">${this.session.vault.protocol === 'mls-rfc9420' ? '端到端加密' : '旧版会话，建议重新建立'}</p>
-                <p class="safety-label">设备安全码</p>
-                <code class="safety-code" id="safety-code">正在计算…</code>
                 <button id="manage-devices" type="button">${icons.lock}<span>设备管理</span></button>
                 <button id="backup-settings" type="button">${icons.download}<span>备份与恢复</span></button>
                 <p class="menu-footnote">新设备只能查看加入后的消息。</p>
@@ -3102,7 +3131,8 @@ export class QuietRoomApp {
         this.chatBottomFollowPending = false;
         this.chatViewportFollowUntil = 0;
       }
-      else if (this.chatBottomGap() <= 2) this.chatPinnedToBottom = true;
+      else if (this.chatBottomGap() <= 2
+        || window.scrollY >= document.documentElement.scrollHeight - window.innerHeight - 2) this.chatPinnedToBottom = true;
     };
     let touchY: number | null = null;
     list.addEventListener('touchstart', event => {
@@ -3217,10 +3247,18 @@ export class QuietRoomApp {
       this.root.querySelector('.recovery-reminder')?.remove();
     });
     this.root.querySelector('#manage-devices')?.addEventListener('click', () => this.transitionPage('forward', () => void this.renderDeviceManager()));
-    this.root.querySelector('#reply-draft button')?.addEventListener('click', () => {
+    const replyClose = this.root.querySelector<HTMLButtonElement>('#reply-draft button');
+    let replyCloseRetainsKeyboard = false;
+    replyClose?.addEventListener('pointerdown', event => {
+      replyCloseRetainsKeyboard = document.activeElement === textarea
+        || document.documentElement.dataset.keyboardOpen === 'true';
+      if (replyCloseRetainsKeyboard) this.retainComposerKeyboard(event, textarea);
+    });
+    replyClose?.addEventListener('click', () => {
       this.replyTarget = null;
       this.renderReplyDraft();
-      this.restoreComposerFocus();
+      if (replyCloseRetainsKeyboard) this.restoreComposerFocus();
+      replyCloseRetainsKeyboard = false;
     });
     const moreMenu = this.root.querySelector<HTMLDetailsElement>('.more-menu');
     moreMenu?.addEventListener('toggle', () => {
@@ -3235,7 +3273,6 @@ export class QuietRoomApp {
     this.renderReplyDraft();
     this.updatePeerStatus();
     this.updateCallControls();
-    void this.updateSafetyCode();
     void this.updateBackgroundNotificationControl();
   }
 
@@ -3391,7 +3428,7 @@ export class QuietRoomApp {
       menu.open = false;
       menu.classList.remove('is-closing');
       if (restoreFocus && menu.isConnected && !this.privacyCovered) menu.querySelector<HTMLElement>('summary')?.focus({ preventScroll: true });
-    }, matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 160);
+    }, matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 320);
   }
 
   private async renderDeviceManager(): Promise<void> {
@@ -3687,18 +3724,37 @@ export class QuietRoomApp {
       this.restoreChatAnchorOnNextRender = true;
     }
     if (this.pageTransitionTimer !== null) window.clearTimeout(this.pageTransitionTimer);
+    this.root.querySelectorAll(':scope > .page-transition-outgoing').forEach(node => node.remove());
+    this.root.querySelector(':scope > .page-transition-incoming')?.classList.remove('page-transition-incoming');
     const epoch = this.runtimeEpoch;
-    // Render in the activating event. Fading the entire old page to zero
-    // created an empty frame, delayed every button and faded fixed headers.
-    // Mounted content owns its CSS blend, including async recovery routes;
-    // fixed chrome stays opaque and navigation never waits for an exit phase.
+    const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const outgoing = !reducedMotion && this.root.firstElementChild instanceof HTMLElement
+      ? this.root.firstElementChild : null;
+    const outgoingScrollY = window.scrollY;
+    outgoing?.remove();
+    this.root.dataset.pageTransition = direction;
     render();
     if (this.privacyCovered || this.runtimeEpoch !== epoch) return;
-    this.root.dataset.pageTransition = direction;
+    const incoming = this.root.firstElementChild instanceof HTMLElement ? this.root.firstElementChild : null;
+    if (!outgoing || !incoming) {
+      delete this.root.dataset.pageTransition;
+      return;
+    }
+    const outgoingFrame = document.createElement('div');
+    outgoingFrame.className = 'page-transition-outgoing';
+    outgoingFrame.append(outgoing);
+    outgoing.setAttribute('aria-hidden', 'true');
+    outgoing.inert = true;
+    const oldList = outgoing.querySelector<HTMLElement>('.message-list');
+    if (oldList && outgoingScrollY > 0) oldList.style.setProperty('--page-scroll-offset', `${-outgoingScrollY}px`);
+    incoming.classList.add('page-transition-incoming');
+    this.root.append(outgoingFrame);
     this.pageTransitionTimer = window.setTimeout(() => {
+      outgoingFrame.remove();
+      incoming.classList.remove('page-transition-incoming');
       delete this.root.dataset.pageTransition;
       this.pageTransitionTimer = null;
-    }, 160);
+    }, 400);
   }
 
   private markVisibleMessagesRead(): void {
@@ -4933,9 +4989,11 @@ export class QuietRoomApp {
     const open = () => this.openMessageActions(article, currentMessage());
     article.addEventListener('pointerdown', (event) => {
       if (article.classList.contains('is-selecting-text')) return;
-      const excludedButton = event.target instanceof Element
-        ? event.target.closest('input, button:not(.image-preview):not(.album-cell):not(.file-attachment):not(.voice-control)')
-        : null;
+      const target = event.target instanceof Element ? event.target : null;
+      const insideVoicePlayer = Boolean(target?.closest('.voice-player'));
+      const excludedButton = target?.closest(insideVoicePlayer
+        ? 'button:not(.voice-control)'
+        : 'input, button:not(.image-preview):not(.album-cell):not(.file-attachment):not(.voice-control)');
       if (event.button !== 0 || event.pointerType === 'mouse' || excludedButton) return;
       this.cancelMessageHold();
       this.messageHoldStart = { x: event.clientX, y: event.clientY };
@@ -5146,7 +5204,9 @@ export class QuietRoomApp {
     if (confirmed && this.isOwnMessage(message)) add('delete-everyone', '为所有人删除', () => void this.deleteMessageForEveryone(message));
     add('delete-local', '仅为我删除', () => void this.deleteMessageForThisDevice(message));
     this.positionMessageActions(actions, article);
-    buttons[0]?.focus({ preventScroll: true });
+    // These are choices, not a selected answer. Keyboard navigation can move
+    // focus into either item without painting a default selected state.
+    actions.focus({ preventScroll: true });
   }
 
   private async deleteMessageForThisDevice(message: DecryptedMessage): Promise<void> {
@@ -5246,6 +5306,10 @@ export class QuietRoomApp {
     }
     actions.style.setProperty('--message-action-x', `${Math.round(x)}px`);
     actions.style.setProperty('--message-action-y', `${Math.round(y)}px`);
+    if (list) {
+      list.style.setProperty('--action-origin-x', `${Math.max(0, Math.min(menuWidth, rect.left + rect.width / 2 - x))}px`);
+      list.style.setProperty('--action-origin-y', `${Math.max(0, Math.min(menuHeight, rect.top + rect.height / 2 - y))}px`);
+    }
     if (picker) {
       const pickerX = Math.max(left + 8, Math.min(rect.left, left + width - picker.offsetWidth - 8));
       actions.style.setProperty('--message-reaction-x', `${Math.round(pickerX)}px`);
@@ -5420,7 +5484,7 @@ export class QuietRoomApp {
     actions.classList.add('is-closing');
     actions.inert = true;
     backdrops.forEach(element => { element.classList.remove('is-visible'); element.classList.add('is-closing'); });
-    if (animate && !this.privacyCovered && !matchMedia('(prefers-reduced-motion: reduce)').matches) window.setTimeout(finish, 160);
+    if (animate && !this.privacyCovered && !matchMedia('(prefers-reduced-motion: reduce)').matches) window.setTimeout(finish, 320);
     else finish();
     if (restoreFocus && sourceId) {
       if (!this.privacyCovered) this.root.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(sourceId)}"]`)?.focus({ preventScroll: true });
@@ -5929,11 +5993,13 @@ export class QuietRoomApp {
     button.dataset.fileState = 'idle';
     const filename = manifest.originalName || '未命名文件';
     const size = this.fileSize(manifest.originalSize);
-    button.setAttribute('aria-label', `下载文件 ${filename}，${size}`);
+    const readableType = systemReadableMimeType(manifest.mimeType, filename);
+    const actionLabel = readableType ? '打开文件' : '下载文件';
+    button.setAttribute('aria-label', `${actionLabel} ${filename}，${size}`);
     button.innerHTML = `${icons.file}<span class="file-attachment-copy"><strong class="file-attachment-name"></strong><span class="file-attachment-meta" aria-live="polite"></span></span><span class="file-attachment-action" aria-hidden="true">${icons.download}</span>`;
     button.querySelector<HTMLElement>('.file-attachment-name')!.textContent = filename;
     const meta = button.querySelector<HTMLElement>('.file-attachment-meta')!;
-    meta.textContent = `${size} · 下载文件`;
+    meta.textContent = `${size} · ${actionLabel}`;
     button.addEventListener('click', () => {
       if (button.dataset.galleryHoldCommitted === 'true') {
         delete button.dataset.galleryHoldCommitted;
@@ -5947,41 +6013,51 @@ export class QuietRoomApp {
       button.disabled = true;
       button.dataset.fileState = 'loading';
       button.setAttribute('aria-busy', 'true');
-      meta.textContent = `${size} · 正在下载`;
-      void (async () => {
+      meta.textContent = `${size} · 正在读取`;
+      void this.withSystemSurface(async () => {
+        // Reserve the external reader before the first await. Browser popup
+        // policies otherwise reject navigation after encrypted chunk reads.
+        const preparedReader = readableType ? prepareSystemReader() : null;
+        let readerHandedOff = false;
         try {
           this.assertImageManifestIdentity(manifest);
           const blob = await decryptFileAttachment(manifest,
             (blobId, index) => fetchBlobChunk(session.vault.roomId, session.vault.accessToken, blobId, index, signal),
             ratio => {
-              if (this.isRuntimeActive(epoch, session) && button.isConnected) meta.textContent = `${size} · 正在下载 ${Math.round(ratio * 100)}%`;
+              if (this.isRuntimeActive(epoch, session) && button.isConnected) meta.textContent = `${size} · 正在读取 ${Math.round(ratio * 100)}%`;
             }, signal);
           if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
           this.beginFileExport();
-          // Download arbitrary bytes as an inert file, including when a browser
-          // falls back from its download attribute to a new tab.
-          await this.withSystemSurface(() => downloadBlob(blob.slice(0, blob.size, 'application/octet-stream'), filename));
+          if (readableType) {
+            await openBlobInSystemReader(blob, filename, readableType, preparedReader);
+            readerHandedOff = true;
+          } else {
+            // Unsupported types remain inert downloads; the app never renders
+            // arbitrary HTML, SVG, Office macros or executable content.
+            await downloadBlob(blob.slice(0, blob.size, 'application/octet-stream'), filename);
+          }
           if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
           button.dataset.fileState = 'idle';
-          meta.textContent = `${size} · 再次下载`;
+          meta.textContent = `${size} · ${readableType ? '再次打开' : '再次下载'}`;
         } catch (cause) {
           if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
           this.finishFileExport();
           if (cause instanceof DOMException && cause.name === 'AbortError') {
             button.dataset.fileState = 'idle';
-            meta.textContent = `${size} · 下载文件`;
+            meta.textContent = `${size} · ${actionLabel}`;
           } else {
             button.dataset.fileState = 'error';
             meta.textContent = `${size} · 下载失败，点按重试`;
             this.operationalError(cause, '文件下载失败，请重试');
           }
         } finally {
+          if (!readerHandedOff && preparedReader && !preparedReader.closed) preparedReader.close();
           if (this.isRuntimeActive(epoch, session) && button.isConnected) {
             button.disabled = false;
             button.setAttribute('aria-busy', 'false');
           }
         }
-      })();
+      });
     });
     return button;
   }
@@ -6831,6 +6907,7 @@ export class QuietRoomApp {
           image.src = loaded.url;
           image.alt = manifest.originalName || `第 ${target + 1} 张图片`;
           image.draggable = false;
+          layer.style.setProperty('--viewer-image-source', `url(${JSON.stringify(loaded.url)})`);
           layer.replaceChildren(image);
           // Byte verification and object-URL creation do not guarantee that a
           // frame is decoded. Keep the incoming layer offscreen until decode
@@ -7159,6 +7236,8 @@ export class QuietRoomApp {
       const y = below + menu.offsetHeight <= top + height - 12 ? below : Math.max(top + 12, rect.top - menu.offsetHeight - 10);
       menu.style.left = `${Math.round(x)}px`;
       menu.style.top = `${Math.round(y)}px`;
+      menu.style.setProperty('--action-origin-x', `${Math.max(0, Math.min(menu.offsetWidth, rect.left + rect.width / 2 - x))}px`);
+      menu.style.setProperty('--action-origin-y', `${Math.max(0, Math.min(menu.offsetHeight, rect.top + rect.height / 2 - y))}px`);
     });
   }
 
@@ -7204,7 +7283,7 @@ export class QuietRoomApp {
     this.galleryObserver = null;
     // Keep the segment control mounted across category changes so its capsule
     // can finish one continuous translation without a header layout reset.
-    const retainedTabs = this.root.querySelector<HTMLElement>('.gallery-tabs');
+    const retainedTabs = this.root.querySelector<HTMLElement>(':scope > .gallery-shell > .gallery-header > .gallery-tabs');
     retainedTabs?.remove();
     this.root.innerHTML = `
       <section class="gallery-shell" aria-label="保险箱">
@@ -7373,7 +7452,7 @@ export class QuietRoomApp {
       }
       for (const message of messages) {
         if (deletedForEveryone.has(message.clientMsgId)) continue;
-        if (message.payload.kind === 'gallery-file' && !isVideoFile(message.payload.file)) {
+        if ((message.payload.kind === 'file' || message.payload.kind === 'gallery-file') && !isVideoFile(message.payload.file)) {
           if (!filesTab) continue;
           const key = `${message.clientMsgId}:file`;
           if (assetKeys.has(key)) continue;
@@ -7689,18 +7768,6 @@ export class QuietRoomApp {
     summary.setAttribute('aria-label', detail);
     summary.title = detail;
     summary.dataset.connectionState = snapshotAvailable ? 'ready' : 'syncing';
-  }
-
-  private async updateSafetyCode(): Promise<void> {
-    const target = this.root.querySelector<HTMLElement>('#safety-code');
-    if (!target || !this.session) return;
-    const activeMembers = this.session.vault.members.filter((member) => member.status === undefined || member.status === 'active');
-    if (new Set(activeMembers.map((member) => member.role)).size !== 2) return;
-    const fingerprints = await Promise.all(activeMembers.map((member) => bundleFingerprint(memberBundle(member))));
-    fingerprints.sort();
-    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(fingerprints.join(':'))));
-    const value = [...digest.slice(0, 12)].map((byte) => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
-    target.textContent = value.match(/.{1,4}/g)?.join(' ') ?? value;
   }
 
   private showNotice(message: string, tone: 'error' | 'info' = 'info'): void {

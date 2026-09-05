@@ -8,8 +8,8 @@
   --app-top: 0px;
   --motion-out: cubic-bezier(0.16, 1, 0.3, 1);
   --motion-page: 380ms;
-  --motion-menu-in: 160ms;
-  --motion-menu-out: 160ms;
+  --motion-menu-in: 320ms;
+  --motion-menu-out: 320ms;
   --motion-notice-in: 180ms;
   --motion-notice-out: 160ms;
   --subpage-header-height: max(72px, calc(env(safe-area-inset-top, 0px) + 54px));
@@ -29,8 +29,8 @@
   --incoming: oklch(91.8% 0.009 255 / 0.94);
   --outgoing: oklch(48% 0.2 255);
   --on-accent: oklch(99% 0.004 255);
-  --message-time: oklch(49% 0.008 255);
-  --message-time-outgoing: oklch(89% 0.008 255);
+  --message-time: oklch(49% 0.006 255);
+  --message-time-outgoing: oklch(89% 0.006 255);
   --danger: oklch(48% 0.15 28);
   --danger-soft: oklch(94% 0.03 28);
   --focus: oklch(60.5% 0.216 255);
@@ -65,7 +65,7 @@
     --incoming: oklch(32% 0.016 255 / 0.96);
     --outgoing: oklch(48% 0.18 250);
     --on-accent: oklch(98% 0.006 255);
-    --message-time: oklch(74% 0.008 255);
+    --message-time: oklch(74% 0.006 255);
     --danger: oklch(72% 0.14 28);
     --danger-soft: oklch(31% 0.04 28);
     --focus: oklch(74% 0.16 250);
@@ -166,6 +166,12 @@ label[role="button"]:active {
   transition-duration: 60ms;
 }
 
+.file-attachment:not(:disabled):active,
+.message-action-list > button:not(:disabled):active,
+.gallery-actions-menu > button:not(:disabled):active {
+  transform: none;
+}
+
 /* Page shells, backgrounds and fixed headers never fade to an empty frame.
    New content owns its blend so asynchronous recovery routes participate too. */
 #app > .chat-shell > .message-list,
@@ -179,6 +185,41 @@ label[role="button"]:active {
   from { opacity: .76; }
   to { opacity: 1; }
 }
+
+/* Navigation keeps both pages painted, like the referenced iOS push/pop:
+   the incoming page owns the foreground while the previous page recedes. */
+#app[data-page-transition] { overflow: hidden !important; }
+#app[data-page-transition] > .page-transition-incoming,
+#app[data-page-transition] > .page-transition-outgoing {
+  position: relative;
+  animation-duration: var(--motion-page);
+  animation-timing-function: cubic-bezier(.32, .72, 0, 1);
+  animation-fill-mode: both;
+  will-change: transform, opacity;
+}
+#app[data-page-transition] > .page-transition-outgoing {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 70;
+  width: 100% !important;
+  height: 100% !important;
+  pointer-events: none;
+}
+.page-transition-outgoing .message-list {
+  transform: translateY(var(--page-scroll-offset, 0));
+}
+#app[data-page-transition='forward'] > .page-transition-incoming { animation-name: page-forward-in; z-index: 71; }
+#app[data-page-transition='forward'] > .page-transition-outgoing { animation-name: page-forward-out; }
+#app[data-page-transition='backward'] > .page-transition-incoming { animation-name: page-back-in; }
+#app[data-page-transition='backward'] > .page-transition-outgoing { animation-name: page-back-out; z-index: 71; }
+@keyframes page-forward-in { from { transform: translate3d(100%, 0, 0); } to { transform: translate3d(0, 0, 0); } }
+@keyframes page-forward-out { from { transform: translate3d(0, 0, 0); opacity: 1; } to { transform: translate3d(-28%, 0, 0); opacity: .92; } }
+@keyframes page-back-in { from { transform: translate3d(-28%, 0, 0); opacity: .92; } to { transform: translate3d(0, 0, 0); opacity: 1; } }
+@keyframes page-back-out { from { transform: translate3d(0, 0, 0); } to { transform: translate3d(100%, 0, 0); } }
+
+#app[data-page-transition] > .page-transition-incoming > .message-list,
+#app[data-page-transition] > .page-transition-incoming > .gallery-grid,
+#app[data-page-transition] > .page-transition-incoming > :not(header) { animation: none; }
 
 button:focus-visible,
 summary:focus-visible,
@@ -271,22 +312,62 @@ button:disabled {
   width: 20px;
   height: 20px;
   margin: -10px;
+  pointer-events: none;
+  animation: cover-feedback-lifetime 1100ms linear both;
+}
+.cover-activation-feedback::before {
+  content: '';
+  position: absolute;
+  inset: 0;
   border: 2px solid color-mix(in oklch, var(--accent) 76%, white);
   border-radius: 50%;
   background: color-mix(in oklch, var(--accent) 18%, transparent);
   box-shadow: 0 0 0 1px oklch(100% 0 0 / 0.3), 0 0 24px color-mix(in oklch, var(--accent) 42%, transparent);
-  pointer-events: none;
-  animation: cover-activation-feedback 420ms cubic-bezier(.16, 1, .3, 1) both;
+  animation: cover-activation-feedback 900ms cubic-bezier(.16, 1, .3, 1) both;
 }
+
+@keyframes cover-feedback-lifetime { from { opacity: 1; } to { opacity: 1; } }
 
 @keyframes cover-activation-feedback {
   0% { opacity: 0.85; transform: scale(0.75); }
-  55% { opacity: 0.72; transform: scale(2.4); }
-  100% { opacity: 0; transform: scale(3.2); }
+  46% { opacity: 0.68; transform: scale(5); }
+  100% { opacity: 0; transform: scale(9); }
+}
+
+.cover-firework {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1px;
+  height: 1px;
+  translate: var(--firework-x) var(--firework-y);
+  animation: cover-firework-pop 760ms var(--motion-out) var(--firework-delay) both;
+}
+.cover-firework i {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px;
+  border-radius: 50%;
+  background: color-mix(in oklch, var(--accent) 55%, white);
+  box-shadow: 0 0 8px color-mix(in oklch, var(--accent) 58%, transparent);
+  transform: rotate(var(--spark-angle)) translateX(0) scale(.7);
+  animation: cover-firework-spark 760ms var(--motion-out) var(--firework-delay) both;
+}
+@keyframes cover-firework-pop {
+  0%, 12% { opacity: 0; }
+  25% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes cover-firework-spark {
+  from { opacity: 0; transform: rotate(var(--spark-angle)) translateX(0) scale(.6); }
+  24% { opacity: 1; }
+  to { opacity: 0; transform: rotate(var(--spark-angle)) translateX(48px) scale(.2); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cover-activation-feedback { animation-duration: 120ms; }
+  .cover-activation-feedback, .cover-activation-feedback::before { animation-duration: 120ms; }
+  .cover-firework, .cover-firework i { animation: none; }
 }
 
 .gateway {
@@ -1096,13 +1177,13 @@ button:disabled {
 }
 
 @keyframes glass-menu-in {
-  from { opacity: 0; }
+  from { opacity: 0; transform: translateY(-5px) scale(.94); }
   to { opacity: 1; }
 }
 
 @keyframes glass-menu-out {
   from { opacity: 1; }
-  to { opacity: 0; }
+  to { opacity: 0; transform: translateY(-5px) scale(.94); }
 }
 
 .menu-title {
@@ -1132,7 +1213,9 @@ button:disabled {
 
 .menu-panel button {
   width: 100%;
-  min-height: 44px;
+  /* The 320ms sheet entrance starts at .94 scale; 48px keeps the transient
+     visual/hit target above the 44px accessibility floor throughout. */
+  min-height: 48px;
   padding: 0 9px;
   display: flex;
   align-items: center;
@@ -1482,7 +1565,7 @@ button:disabled {
   text-align: right;
 }
 
-.message-meta time { white-space: nowrap; color: var(--message-time); }
+.message-meta time { white-space: nowrap; color: var(--message-time); font-weight: 400; }
 .outgoing .message-meta { color: var(--on-accent); }
 .outgoing .message-meta time { color: var(--message-time-outgoing); }
 
@@ -1556,6 +1639,8 @@ button:disabled {
 .message-bubble.image-bubble {
   width: fit-content;
   max-width: min(360px, 100%);
+  display: grid;
+  justify-items: stretch;
   padding: 0;
   border: 0;
   background: transparent;
@@ -1597,10 +1682,10 @@ button:disabled {
   place-items: center;
   overflow: hidden;
   padding: 0;
-  border: 1px solid color-mix(in oklch, var(--line) 58%, transparent);
+  border: 0;
   border-radius: 16px;
   background: var(--surface);
-  box-shadow: 0 2px 9px oklch(25% 0.02 255 / 0.055);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--line) 58%, transparent), 0 2px 9px oklch(25% 0.02 255 / 0.055);
   color: var(--ink-muted);
   cursor: zoom-in;
 }
@@ -1616,7 +1701,7 @@ button:disabled {
   background-image: var(--chat-preview-source, none);
   background-position: center;
   background-size: cover;
-  filter: blur(24px);
+  filter: blur(18px);
   opacity: 0;
   transform: scale(1.08);
   pointer-events: none;
@@ -1624,6 +1709,7 @@ button:disabled {
 
 .image-preview[data-image-state='loaded'][data-revealed='false']::before { opacity: 1; }
 .image-preview > img { position: relative; z-index: 1; }
+.message-bubble.image-bubble > .image-preview[data-image-state='loaded'] { width: 100%; }
 
 .image-preview:not([data-image-state="loaded"]) {
   width: min(180px, 100%);
@@ -1635,7 +1721,7 @@ button:disabled {
 
 .image-preview img {
   display: block;
-  width: auto;
+  width: 100%;
   height: auto;
   max-width: 100%;
   max-height: min(58dvh, 420px);
@@ -1645,7 +1731,7 @@ button:disabled {
 /* Apply before decoded/cached media enters the DOM. Concealment is immediate,
    including when a privacy curtain appears and quickly returns to chat. */
 .image-preview[data-revealed="false"] img {
-  filter: blur(22px);
+  filter: blur(16px);
   transform: scale(1.16);
 }
 
@@ -1859,7 +1945,7 @@ button:disabled {
   align-items: stretch;
   border: 1px solid var(--glass-border);
   border-radius: 24px;
-  background: var(--glass);
+  background: color-mix(in oklch, var(--paper-pure) 84%, transparent);
   box-shadow: var(--glass-shadow);
   overflow: hidden;
   transition: border-color 120ms ease-out, background 120ms ease-out, border-radius 180ms var(--motion-out);
@@ -1870,7 +1956,7 @@ button:disabled {
 .composer-input-stack:focus-within {
   outline: none;
   border-color: color-mix(in oklch, var(--accent) 34%, var(--glass-border));
-  background: var(--glass-strong);
+  background: color-mix(in oklch, var(--paper-pure) 92%, transparent);
   box-shadow: var(--glass-shadow), 0 0 0 3px color-mix(in oklch, var(--accent) 8%, transparent);
 }
 

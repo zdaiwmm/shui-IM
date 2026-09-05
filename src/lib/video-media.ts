@@ -28,8 +28,8 @@ export function isVideoFile(manifest: FileMediaMetadata): boolean {
   return videoMimeType(manifest) !== null;
 }
 
-/** The safe includes direct uploads plus photos and videos from chat history. */
+/** The creator's safe automatically projects every chat attachment. */
 export function isGalleryMediaPayload(payload: MessagePayload): boolean {
   return payload.kind === 'image' || payload.kind === 'image-album' || payload.kind === 'gallery-image' ||
-    payload.kind === 'gallery-file' || payload.kind === 'file' && isVideoFile(payload.file);
+    payload.kind === 'gallery-file' || payload.kind === 'file';
 }

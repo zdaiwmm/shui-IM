@@ -33,7 +33,7 @@ describe('video attachment classification', () => {
     expect(isVideoFile({ mimeType, originalName })).toBe(false);
   });
 
-  it('adds only video chat files to the existing safe payload categories', () => {
+  it('adds every chat attachment to the existing safe payload categories', () => {
     const image: ImageManifest = { v: 1, blobId: 'blob', key: 'key', ivPrefix: 'iv', chunkSize: 2097152,
       chunkCount: 1, originalSize: 1, originalName: 'photo.png', mimeType: 'image/png', lastModified: 1, sha256: 'hash' };
     const base = { v: 1 as const, sentAt: '2026-09-04T00:00:00.000Z' };
@@ -46,8 +46,8 @@ describe('video attachment classification', () => {
       { ...base, kind: 'file', file: { ...video, mimeType: '' } },
     ];
     for (const payload of included) expect(isGalleryMediaPayload(payload)).toBe(true);
-    expect(isGalleryMediaPayload({ ...base, kind: 'file', file: document })).toBe(false);
-    expect(isGalleryMediaPayload({ ...base, kind: 'file', file: { ...video, mimeType: 'text/html' } })).toBe(false);
+    expect(isGalleryMediaPayload({ ...base, kind: 'file', file: document })).toBe(true);
+    expect(isGalleryMediaPayload({ ...base, kind: 'file', file: { ...video, mimeType: 'text/html' } })).toBe(true);
     expect(isGalleryMediaPayload({ ...base, kind: 'text', text: 'ordinary chat' })).toBe(false);
   });
 });

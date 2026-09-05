@@ -24,10 +24,7 @@ export async function createVideoPoster(url: string, signal?: AbortSignal): Prom
       video.src = url;
     });
     signal?.throwIfAborted();
-    // Time zero may expose an undecoded/empty frame, especially for camera
-    // recordings. Seek a little into the original before capturing its poster.
-    const target = Number.isFinite(video.duration) ? Math.min(0.1, video.duration / 2) : 0.1;
-    if (target > 0) await new Promise<void>((resolve, reject) => {
+    const seekTo = (target: number) => new Promise<void>((resolve, reject) => {
       const finish = (error?: Error) => {
         window.clearTimeout(timer);
         signal?.removeEventListener('abort', aborted);
@@ -44,7 +41,6 @@ export async function createVideoPoster(url: string, signal?: AbortSignal): Prom
       video.addEventListener('error', failed, { once: true });
       try { video.currentTime = target; } catch { failed(); }
     });
-    signal?.throwIfAborted();
     if (!video.videoWidth || !video.videoHeight) throw new Error('视频没有可显示的画面');
     const scale = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight));
     const canvas = document.createElement('canvas');
@@ -52,7 +48,29 @@ export async function createVideoPoster(url: string, signal?: AbortSignal): Prom
     canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
     const context = canvas.getContext('2d');
     if (!context) throw new Error('视频预览不可用');
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    // Time zero and the first seeked event can still expose an undecoded black
+    // frame for camera/WebM recordings. Try a few bounded positions and give
+    // the decoder two paint frames before accepting a poster. A genuinely dark
+    // video remains valid after the final candidate.
+    const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+    const candidates = duration
+      ? [Math.min(0.1, duration / 2), duration / 2, Math.max(0, duration - 0.08)]
+      : [0.1];
+    const hasVisiblePixels = () => {
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      const stride = Math.max(4, Math.floor(pixels.length / 256 / 4) * 4);
+      for (let index = 0; index < pixels.length; index += stride) {
+        if (pixels[index]! > 12 || pixels[index + 1]! > 12 || pixels[index + 2]! > 12) return true;
+      }
+      return false;
+    };
+    for (const [index, target] of candidates.entries()) {
+      if (target > 0 && Math.abs(video.currentTime - target) > 0.002) await seekTo(target);
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      signal?.throwIfAborted();
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      if (hasVisiblePixels() || index === candidates.length - 1) break;
+    }
     const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(
       result => result ? resolve(result) : reject(new Error('视频预览不可用')), 'image/jpeg', 0.82));
     signal?.throwIfAborted();
