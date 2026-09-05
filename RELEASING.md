@@ -142,6 +142,39 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-05（Asia/Shanghai）；服务器 `deployed-at=20260905T054846Z`（13:48:46
+  发布批次），13:50 前完成独立回读。
+- 应用版本：`434e5203dd0fbe504a1df8d8d8807395571d6755`。由
+  [PR #20](https://github.com/zdaiwmm/shui-IM/pull/20) 于 13:43:09 squash 合并；合并前按
+  `c4d79e6e01532b3e07a8a5e854e10965f6faf570` 精确 head 锁定。用户明确确认推送、合并和发布。
+- [PR #20 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33947701146) 与
+  [精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33947937368) 均成功；通过
+  构建、50 个测试文件／400 项单元集成、两组共 23 个浏览器入口、原生通话、凭据扫描、生产
+  依赖审计及 `Full application verification`／`verify` 汇总。
+- 冻结候选最终本地 `npm run check:full` 从头通过，浏览器汇总 200.55 秒；
+  `npm run test:calls:e2e` 两项通过，WebKit 底部定位与前端生命周期专项通过。底部按钮专项在
+  Chromium/WebKit 均保持键盘、选区和固定标题，22/46 帧动画仅读取目标布局 3 次；双端主流程
+  实际长按语音播放器并完成本机删除。自动化不替代真实 iPhone/Android 验收。
+- 固定入口 `node scripts/publish.mjs --sha 434e5203dd0fbe504a1df8d8d8807395571d6755`
+  从独立浅克隆执行；服务器返回 `DEPLOY_OK`，外层核对精确回执并返回 `DEPLOY_VERIFIED`。
+  总耗时 89,531ms：预检 5,621ms、核对 main 969ms、CI 复核 4,396ms、隔离克隆 7,536ms、
+  隔离发布及入口回读 71,002ms。服务器发布总计 70,969ms，其中部署 57,644ms；取源码 4 秒、
+  构建镜像 14 秒、维护门 1 秒、停止容器 1 秒、冷备份 5 秒、启动及健康等待 31 秒、门内验证
+  1 秒，分项有嵌套。
+- 发布目录为 `/opt/quiet-room/git-releases/20260905T054846Z-434e5203dd0f`，已校验冷备份为
+  `/opt/quiet-room/backups/predeploy/data-20260905T054846Z-434e5203dd0f.tar.gz`。
+- 独立只读生产回读返回 `READBACK_OK`：线上 SHA、批次和发布目录一致，维护标记不存在；
+  应用容器运行且健康，备份容器运行且没有健康探针。两者实际 Image ID 均匹配目标镜像
+  `sha256:020481276435bfc4190322b7713877c73e4b5c34947237130ffc7c1dce5a5470`。
+  HTTPS `ok`／`database`／`storage` 全为 true；首页、`/sw.js`、
+  `/assets/app-BQYeiGmm.css`、`/assets/app-BNsCx6Ck.js` 和
+  `/assets/modulepreload-polyfill-B5Qt9EMX.js` 与运行中容器产物逐字节一致，公开 WebSocket
+  独立连接成功。检查未读取真实消息、附件或备份内容。
+- 本次回读 `admin-enabled=0`、`calls-enabled=0`；后台和 TURN 仍未启用。真实 iPhone/Android
+  键盘帧率、手势、权限、播放器与长期运维/独立审计待办不变。
+
+## 上次线上发布记录（2026-09-05 11:00）
+
 - 日期：2026-09-05（Asia/Shanghai）；服务器 `deployed-at=20260905T030000Z`（11:00:00
   发布批次），11:06 前完成独立回读。
 - 应用版本：`98aee2aa7491564d30c9a93cc3869c5f758610a3`。主体由
