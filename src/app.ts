@@ -71,7 +71,7 @@ import {
 import { batchAttachmentFiles } from './lib/image-batches';
 import { isVideoFile, videoMimeType } from './lib/video-media';
 import { createVideoPoster } from './lib/video-poster';
-import { downloadBlob, openBlobInSystemReader, systemReadableMimeType } from './lib/download';
+import { downloadBlob, openBlobInSystemReader, prepareSystemReader, systemReadableMimeType } from './lib/download';
 import { gestureSecret, GesturePad } from './lib/gesture';
 import {
   createCreatorMlsState,
@@ -6014,7 +6014,11 @@ export class QuietRoomApp {
       button.dataset.fileState = 'loading';
       button.setAttribute('aria-busy', 'true');
       meta.textContent = `${size} · 正在读取`;
-      void (async () => {
+      void this.withSystemSurface(async () => {
+        // Reserve the external reader before the first await. Browser popup
+        // policies otherwise reject navigation after encrypted chunk reads.
+        const preparedReader = readableType ? prepareSystemReader() : null;
+        let readerHandedOff = false;
         try {
           this.assertImageManifestIdentity(manifest);
           const blob = await decryptFileAttachment(manifest,
@@ -6025,11 +6029,12 @@ export class QuietRoomApp {
           if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
           this.beginFileExport();
           if (readableType) {
-            await this.withSystemSurface(() => openBlobInSystemReader(blob, filename, readableType));
+            await openBlobInSystemReader(blob, filename, readableType, preparedReader);
+            readerHandedOff = true;
           } else {
             // Unsupported types remain inert downloads; the app never renders
             // arbitrary HTML, SVG, Office macros or executable content.
-            await this.withSystemSurface(() => downloadBlob(blob.slice(0, blob.size, 'application/octet-stream'), filename));
+            await downloadBlob(blob.slice(0, blob.size, 'application/octet-stream'), filename);
           }
           if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
           button.dataset.fileState = 'idle';
@@ -6046,12 +6051,13 @@ export class QuietRoomApp {
             this.operationalError(cause, '文件下载失败，请重试');
           }
         } finally {
+          if (!readerHandedOff && preparedReader && !preparedReader.closed) preparedReader.close();
           if (this.isRuntimeActive(epoch, session) && button.isConnected) {
             button.disabled = false;
             button.setAttribute('aria-busy', 'false');
           }
         }
-      })();
+      });
     });
     return button;
   }

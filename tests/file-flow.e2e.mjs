@@ -199,6 +199,7 @@ try {
     const pending = page.waitForEvent('popup');
     await locator.click();
     const reader = await pending;
+    await reader.waitForURL('blob:**', { timeout: 5_000 });
     assert(reader.url().startsWith('blob:'), 'Readable file did not open through a system reader');
     await reader.close();
   };

@@ -182,6 +182,7 @@ try {
     const waiting = page.waitForEvent('popup');
     await locator.click();
     const reader = await waiting;
+    await reader.waitForURL('blob:**', { timeout: 5_000 });
     assert(reader.url().startsWith('blob:'), 'Verified document did not open through a system reader');
     await reader.close();
   };
