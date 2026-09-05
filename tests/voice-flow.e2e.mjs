@@ -117,6 +117,28 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   assert(await creator.evaluate(() => window.__voiceTracks.every(track => track.readyState === 'ended')));
   await unlock(creator); await creator.locator('.chat-shell').waitFor();
 
+  // Holding the voice play control opens the same destructive message menu.
+  // The synthesized click after the hold must not start playback beneath it.
+  const firstVoice = creator.locator('.message.outgoing:has(.voice-player)').first();
+  const voiceToDeleteId = await firstVoice.getAttribute('data-client-msg-id');
+  assert(voiceToDeleteId, 'Voice message has no stable deletion target');
+  const voiceToDelete = creator.locator(`.message[data-client-msg-id="${voiceToDeleteId}"]`);
+  const voiceControl = voiceToDelete.locator('.voice-control');
+  const voiceCountBeforeDelete = await creator.locator('.voice-player').count();
+  await voiceControl.dispatchEvent('pointerdown', {
+    pointerId: 91, pointerType: 'touch', isPrimary: true, button: 0, clientX: 24, clientY: 24,
+  });
+  await creator.locator('.message-actions.is-visible').waitFor({ timeout: 2500 });
+  await voiceControl.dispatchEvent('pointerup', {
+    pointerId: 91, pointerType: 'touch', isPrimary: true, button: 0, clientX: 24, clientY: 24,
+  });
+  await voiceControl.dispatchEvent('click');
+  assert.equal(await voiceControl.getAttribute('aria-label'), '播放语音', 'Voice hold started playback under the delete menu');
+  await creator.locator('.message-actions [data-message-action="delete"]').click();
+  await creator.locator('.message-actions [data-message-action="delete-local"]').click();
+  await voiceToDelete.waitFor({ state: 'detached' });
+  assert.equal(await creator.locator('.voice-player').count(), voiceCountBeforeDelete - 1, 'Deleting a voice message left its player mounted');
+
   // An unresolved permission prompt is not authorization to record after lock.
   await creator.evaluate(() => {
     window.__voiceWrappedGetUserMedia = navigator.mediaDevices.getUserMedia;

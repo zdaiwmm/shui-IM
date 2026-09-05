@@ -127,10 +127,19 @@ try {
     document.querySelector('#chat-bottom-control').addEventListener('pointerdown', () => {
       const sample = () => {
         const button = document.querySelector('#chat-bottom-control');
-        window.bottomMotionFrames.push({ focused: document.activeElement === input, concealed: !!document.querySelector('#composer').dataset.viewportMotion });
+        window.bottomMotionFrames.push({
+          focused: document.activeElement === input,
+          concealed: !!document.querySelector('#composer').dataset.viewportMotion,
+          headerTop: document.querySelector('.chat-header').getBoundingClientRect().top,
+        });
         if (button.dataset.scrolling || window.bottomMotionFrames.length < 2) requestAnimationFrame(sample);
       };
       requestAnimationFrame(sample);
+    }, { once: true });
+    document.querySelector('#chat-bottom-control').addEventListener('click', () => {
+      // Reproduce mobile engines that transfer focus despite preventDefault,
+      // after the control's own click has committed the scroll request.
+      queueMicrotask(() => input.blur());
     }, { once: true });
   });
   await page.locator('#chat-bottom-control').click();
@@ -138,17 +147,21 @@ try {
   results.keyboardPreserved = await page.evaluate(() => {
     const { app, button, visible, assertGap } = window.bottomFixture; const input = document.querySelector('#message-input');
     if (document.activeElement !== input || input.selectionStart !== 2 || input.selectionEnd !== 5) throw Error('Return to bottom dismissed the keyboard or changed selection');
-    if (Math.abs(window.scrollY - app.chatBottomScrollTop()) > 2 || !app.chatPinnedToBottom || visible()) throw Error('Click did not finish at the latest message');
+    const targetGap = Math.abs(window.scrollY - app.chatBottomScrollTop());
+    if (targetGap > 2 || !app.chatPinnedToBottom || visible()) throw Error(`Click did not finish at the latest message: ${JSON.stringify({ targetGap, pinned: app.chatPinnedToBottom, visible: visible(), scrollY: window.scrollY })}`);
     if (window.bottomMotionFrames.length < 3 || window.bottomMotionFrames.some(frame => !frame.focused || frame.concealed)) throw Error(`Programmatic return animation hid the composer or surrendered keyboard focus: ${JSON.stringify(window.bottomMotionFrames)}`);
+    if (window.bottomMotionFrames.some(frame => Math.abs(frame.headerTop - 180) > 1)) throw Error(`Return animation moved the fixed header: ${JSON.stringify(window.bottomMotionFrames)}`);
     assertGap(); if (button().dataset.scrolling) throw Error('Completed scroll retained animation state');
     delete visualViewport.height; delete visualViewport.offsetTop; visualViewport.dispatchEvent(new Event('resize'));
-    return { focus: true, selection: [2, 5], finishedPinned: true, visibleComposerFrames: window.bottomMotionFrames.length };
+    return { focus: true, selection: [2, 5], finishedPinned: true, fixedHeader: true, visibleComposerFrames: window.bottomMotionFrames.length };
   });
 
   results.distanceMotion = await page.evaluate(async () => {
     const { app, up, button } = window.bottomFixture;
     const animate = async distance => {
       await up(distance); const start = window.scrollY; const target = app.chatBottomScrollTop(); const begun = performance.now();
+      const originalTarget = app.chatBottomScrollTop; let targetReads = 0;
+      app.chatBottomScrollTop = function (...args) { targetReads++; return originalTarget.apply(this, args); };
       button().click();
       if (window.scrollY !== start) throw Error('Click jumped synchronously before animation');
       const frames = [];
@@ -159,10 +172,12 @@ try {
           if (button().dataset.scrolling) requestAnimationFrame(step); else resolve();
         }; requestAnimationFrame(step);
       });
+      app.chatBottomScrollTop = originalTarget;
       if (!frames.some(frame => frame.y > start + 1 && frame.y < target - 2)) throw Error('Scroll had no intermediate positions');
       if (frames.some((frame, index) => index && frame.y < frames[index - 1].y - 1)) throw Error('Return animation moved backwards');
       if (Math.abs(window.scrollY - target) > 2) throw Error('Return animation missed its target');
-      return { distance: target - start, duration: frames.at(-1).elapsed, frames: frames.length };
+      if (targetReads > 4) throw Error(`Return animation forced target layout on ${targetReads} frames`);
+      return { distance: target - start, duration: frames.at(-1).elapsed, frames: frames.length, targetReads };
     };
     const short = await animate(140); const long = await animate(2200);
     if (short.duration < 260 || long.duration > 1200 || long.distance / long.duration <= short.distance / short.duration * 3) throw Error(`Distance-based motion was not deliberate at short range and faster at long range: ${JSON.stringify({ short, long })}`);

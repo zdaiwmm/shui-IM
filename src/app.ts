@@ -366,6 +366,7 @@ export class QuietRoomApp {
   private fileExportResetTimer: number | null = null;
   private restoreComposerFocusAfterPicker = false;
   private keepComposerKeyboard = false;
+  private bottomControlRetainsKeyboard = false;
   private composerSelection: { start: number; end: number } | null = null;
   private noticeTimer: number | null = null;
   private noticeRemovalTimer: number | null = null;
@@ -629,6 +630,7 @@ export class QuietRoomApp {
         textarea && document.activeElement === textarea && composer &&
         event.target instanceof Node && !composer.contains(event.target) && !keyboardGesture
       ) {
+        this.bottomControlRetainsKeyboard = false;
         this.keepComposerKeyboard = false;
         textarea.blur();
       }
@@ -904,7 +906,7 @@ export class QuietRoomApp {
         this.coverHoldCommitted = true;
         if (!matchMedia('(prefers-reduced-motion: reduce)').matches) this.showCoverActivationFeedback(trigger);
         if (current()) void this.renderGateway({ trustedCoverActivation: true });
-      } else void this.renderGateway();
+      } else void this.renderGateway({ trustedCoverActivation: true });
     }, duration);
   }
 
@@ -3172,8 +3174,26 @@ export class QuietRoomApp {
       }
     });
     textarea.addEventListener('blur', () => {
-      if (!this.imagePickerActive) this.keepComposerKeyboard = false;
-      if (!this.desktopBrowser && document.documentElement.dataset.keyboardOpen === 'true') this.chatViewportMotion?.keyboard();
+      if (this.bottomControlRetainsKeyboard && !this.privacyCovered && this.activeSurface === 'chat') {
+        // A few mobile browser builds still transfer focus after a prevented
+        // pointerdown on the floating return control. Restore it before the
+        // soft keyboard begins to dismiss, retaining the exact selection.
+        queueMicrotask(() => {
+          if (!this.bottomControlRetainsKeyboard || this.privacyCovered || !textarea.isConnected) return;
+          const selection = this.composerSelection ?? {
+            start: textarea.selectionStart ?? textarea.value.length,
+            end: textarea.selectionEnd ?? textarea.value.length,
+          };
+          textarea.focus({ preventScroll: true });
+          textarea.setSelectionRange(
+            Math.min(selection.start, textarea.value.length),
+            Math.min(selection.end, textarea.value.length),
+          );
+        });
+      } else {
+        if (!this.imagePickerActive) this.keepComposerKeyboard = false;
+        if (!this.desktopBrowser && document.documentElement.dataset.keyboardOpen === 'true') this.chatViewportMotion?.keyboard();
+      }
       trackKeyboard();
     });
     const imageInput = this.root.querySelector<HTMLInputElement>('#image-input');
@@ -3183,7 +3203,10 @@ export class QuietRoomApp {
     this.root.querySelector('#start-audio-call')?.addEventListener('click', () => void this.startCall('audio'));
     const sendButton = this.root.querySelector<HTMLButtonElement>('.send-button');
     sendButton?.addEventListener('pointerdown', (event) => this.retainComposerKeyboard(event, textarea));
-    this.root.querySelector('#chat-bottom-control')?.addEventListener('pointerdown', event => this.retainComposerKeyboard(event as PointerEvent, textarea));
+    this.root.querySelector('#chat-bottom-control')?.addEventListener('pointerdown', event => {
+      this.bottomControlRetainsKeyboard = document.activeElement === textarea;
+      this.retainComposerKeyboard(event as PointerEvent, textarea);
+    });
     this.mountImagePicker(imageInput, 'chat', this.root.querySelector<HTMLButtonElement>('#open-image-picker'));
     this.root.querySelector('#open-gallery')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderGallery()));
     this.root.querySelector('#backup-settings')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderBackupSettings()));
@@ -3294,7 +3317,15 @@ export class QuietRoomApp {
         if (this.chatPinnedToBottom && this.chatScrollIntent !== 'up' && !this.chatBottomControl?.scrolling
           && Math.abs(window.scrollY - this.chatLastScrollY) <= 1) this.alignChatBottom();
       },
-      complete: () => { this.scrollChatToBottom(); this.captureChatAnchor(true); },
+      complete: () => {
+        this.scrollChatToBottom();
+        this.captureChatAnchor(true);
+        this.markVisibleMessagesRead();
+        if (this.bottomControlRetainsKeyboard) {
+          this.bottomControlRetainsKeyboard = false;
+          this.restoreComposerFocus();
+        }
+      },
     });
     this.chatLayoutGeneration += 1;
     let previousMeasurements = '';
@@ -3729,6 +3760,11 @@ export class QuietRoomApp {
       if (!list?.isConnected || this.privacyCovered || this.activeSurface !== 'chat') return;
       const documentMoved = Math.abs(window.scrollY - this.chatLastScrollY) > 1;
       this.chatLastScrollY = window.scrollY;
+      // The return control already owns this document movement and performs
+      // one final alignment/read update. Avoid measuring rows, composer and
+      // visibility on every animation frame while the keyboard compositor is
+      // active; that forced layout was the main source of scroll jank.
+      if (this.chatBottomControl?.scrolling) return;
       const gap = this.chatBottomGap();
       // Native focus scrolling can land after the final viewport event. Retry
       // that displacement too, without turning offset-only viewport pans into
@@ -4882,13 +4918,23 @@ export class QuietRoomApp {
     article.addEventListener('selectstart', event => { if (!article.classList.contains('is-selecting-text')) event.preventDefault(); });
     article.addEventListener('dragstart', event => { if (!article.classList.contains('is-selecting-text')) event.preventDefault(); });
     article.addEventListener('contextmenu', event => { if (!article.classList.contains('is-selecting-text')) event.preventDefault(); });
+    article.addEventListener('click', event => {
+      // A completed hold on the voice play control may be followed by a
+      // synthesized click. Consume only that click so opening Delete never
+      // starts playback underneath the action sheet.
+      if (Date.now() < this.suppressMediaClickUntil && event.target instanceof Element
+        && event.target.closest('.voice-player .voice-control')) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    }, { capture: true });
     const currentMessage = () => this.messages.get(this.renderedMessageSeq.get(message.clientMsgId) ?? 0)
       ?? this.pending.get(message.clientMsgId) ?? message;
     const open = () => this.openMessageActions(article, currentMessage());
     article.addEventListener('pointerdown', (event) => {
       if (article.classList.contains('is-selecting-text')) return;
       const excludedButton = event.target instanceof Element
-        ? event.target.closest('input, button:not(.image-preview):not(.album-cell):not(.file-attachment)')
+        ? event.target.closest('input, button:not(.image-preview):not(.album-cell):not(.file-attachment):not(.voice-control)')
         : null;
       if (event.button !== 0 || event.pointerType === 'mouse' || excludedButton) return;
       this.cancelMessageHold();
@@ -7828,6 +7874,7 @@ export class QuietRoomApp {
     delete this.root.dataset.pageTransition;
     this.restoreComposerFocusAfterPicker = false;
     this.keepComposerKeyboard = false;
+    this.bottomControlRetainsKeyboard = false;
     this.composerSelection = null;
     this.finishFileExport();
     this.draining = false;

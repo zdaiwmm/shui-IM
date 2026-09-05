@@ -91,9 +91,15 @@ export function mountChatBottomControl(options: BottomControlOptions) {
       if (!ready || current.signal.aborted || !options.active()) { cancel(); update(); return; }
     }
     const start = window.scrollY;
-    const distance = Math.abs(options.targetScrollTop() - start);
+    // Freeze the destination for the animation. Re-reading the latest row and
+    // composer's computed transform on every frame forces synchronous layout
+    // during document scrolling and is especially expensive while Safari is
+    // also compositing its keyboard. The completion callback performs one
+    // final alignment in case media changed size while we travelled.
+    const target = options.targetScrollTop();
+    const distance = Math.abs(target - start);
     if (matchMedia('(prefers-reduced-motion: reduce)').matches || distance < 1) {
-      window.scrollTo(0, options.targetScrollTop()); request = null; delete button.dataset.scrolling; options.complete(); update(); return;
+      window.scrollTo(0, target); request = null; delete button.dataset.scrolling; options.complete(); update(); return;
     }
     // Short travel remains deliberate; large distances cover more pixels per
     // second without stretching into a long animation.
@@ -104,8 +110,7 @@ export function mountChatBottomControl(options: BottomControlOptions) {
       if (destroyed || !options.active() || !button.isConnected) { cancel(); update(); return; }
       const progress = Math.min(1, (now - started) / duration);
       const eased = 1 - Math.pow(1 - progress, 3);
-      window.scrollTo(0, start + (options.targetScrollTop() - start) * eased);
-      update();
+      window.scrollTo(0, start + (target - start) * eased);
       if (progress < 1) frame = requestAnimationFrame(step);
       else { request = null; delete button.dataset.scrolling; options.complete(); update(); }
     };
