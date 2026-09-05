@@ -142,6 +142,42 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-05（Asia/Shanghai）；服务器 `deployed-at=20260905T100553Z`（18:05:53
+  发布批次），18:08 前完成独立回读。
+- 应用版本：`2738893b395082504603d4fb0a6360e85d4c4a3f`。由
+  [PR #22](https://github.com/zdaiwmm/shui-IM/pull/22) 于 17:59:04 squash 合并；合并前功能
+  提交为用户明确批准推送的 `f50ab003fd917d910857adb92074cc0770ed3dfa`，后续仅补充浏览器
+  时序、受信点击链路和可移植测试夹具。发布前重新读取并锁定合并后的精确 `main` SHA。
+- [PR #22 最终完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33959213106) 与
+  [精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33959422621) 均成功；通过
+  构建、51 个测试文件／402 项单元集成、两组共 23 个浏览器入口、原生通话、凭据扫描、
+  生产依赖审计及 `Full application verification`／`verify` 汇总。此前三次 PR CI 分别暴露
+  弹窗 URL 断言过早、异步解密后丢失浏览器用户激活以及 CI Chromium 没有内置 PDF 阅读器；
+  产品实现改为在受信点击中先开系统阅读器窗口，随后才解密和校验，CI 阅读器夹具改用
+  `text/plain`，PDF/JSON/文本白名单继续由单元测试覆盖，没有用应用内任意渲染器绕过边界。
+- 冻结候选最终本地 `npm run check:full` 从头通过，包含 51 个测试文件、402 项测试和
+  23／23 个浏览器入口，浏览器汇总 223.86 秒；系统阅读器、文件交互、视频与浏览器专项
+  另在本机系统 Chrome 通过。自动化不能替代真实 iPhone/Android 对键盘、蓝牙录音、手势、
+  系统验证弹窗和系统文件阅读器的验收。
+- 固定入口 `node scripts/publish.mjs --sha 2738893b395082504603d4fb0a6360e85d4c4a3f`
+  从独立浅克隆执行；服务器返回 `DEPLOY_OK`，外层核对精确回执并返回 `DEPLOY_VERIFIED`。
+  发布入口总耗时 89,010ms，其中隔离发布及入口回读 70,373ms；服务器发布总计 57 秒，
+  取源码 5 秒、构建镜像 14 秒、停止容器 1 秒、冷备份 5 秒、启动及健康等待 31 秒、门内验证
+  1 秒，分项有嵌套。
+- 发布目录为 `/opt/quiet-room/git-releases/20260905T100553Z-2738893b3950`，已校验冷备份为
+  `/opt/quiet-room/backups/predeploy/data-20260905T100553Z-2738893b3950.tar.gz`。
+- 独立只读生产回读返回 `READBACK_OK`：线上 SHA、批次和发布目录一致，维护标记不存在；
+  应用容器运行且健康，备份容器运行且没有健康探针。两者实际 Image ID 均匹配目标镜像
+  `sha256:070b2adae9261dca00d69c4e3c1220a6e140cd8d3ed7552c84cc0512a53df363`。
+  HTTPS `ok`／`database`／`storage` 全为 true；首页、`/sw.js`、
+  `/assets/app-B18y3jGk.css`、`/assets/app-CHnKAoOL.js` 和
+  `/assets/modulepreload-polyfill-B5Qt9EMX.js` 与运行中容器产物逐字节一致，公开 WebSocket
+  独立连接成功。检查未读取真实消息、附件或备份内容。
+- 本次回读 `admin-enabled=0`、`calls-enabled=0`；后台和 TURN 仍未启用。真实 iPhone/Android
+  动画手感、键盘/系统表面、蓝牙录音、系统阅读器差异与长期运维/独立审计待办不变。
+
+## 上次线上发布记录（2026-09-05 13:48）
+
 - 日期：2026-09-05（Asia/Shanghai）；服务器 `deployed-at=20260905T054846Z`（13:48:46
   发布批次），13:50 前完成独立回读。
 - 应用版本：`434e5203dd0fbe504a1df8d8d8807395571d6755`。由
