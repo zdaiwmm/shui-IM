@@ -64,7 +64,7 @@ async function initializeTimeline() {
     app.lockNow();
     app.session = session; app.privacyCovered = false;
     app.runtimeEpoch += 1; app.runtimeAbort = new AbortController();
-    app.messages = new Map(); app.pending = new Map(); app.reactionHistory = new Map();
+    app.messages = new Map(); app.pending = new Map(); app.messageEventHistory = new Map();
     app.uiPreferences = { recoveryReminderDismissed: true }; app.restoreChatAnchorOnNextRender = false;
     reads.length = 0;
     app.renderChat();

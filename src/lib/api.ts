@@ -309,7 +309,7 @@ type SocketHandlers = {
   receiptSync: (receipts: ServerReceipt[]) => AsyncSocketHandler;
   ack: (clientMsgId: string, seq: number) => void;
   receiptAck: (clientMsgId: string, receiptSeq: number) => void;
-  error: (message: string, code?: string, clientMsgId?: string) => AsyncSocketHandler;
+  error: (message: string, code?: string, clientMsgId?: string, rejectedEnvelope?: MessageEnvelope) => AsyncSocketHandler;
 };
 
 export class RoomSocket {
@@ -323,6 +323,13 @@ export class RoomSocket {
   private desiredPresenceView: 'chat' | 'away' = 'away';
   private authenticated = false;
   private lastSentPresenceView: 'chat' | 'away' | null = null;
+  /**
+   * The server identifies a rejected send by clientMsgId, while retries may
+   * reuse that ID. Retain the FIFO of exact envelopes written to the socket so
+   * an MLS stale response can only replace the generation it actually
+   * rejected, never a newer re-encryption of the same logical message.
+   */
+  private sentEnvelopes = new Map<string, MessageEnvelope[]>();
 
   constructor(
     private readonly roomId: string,
@@ -395,7 +402,9 @@ export class RoomSocket {
       } else if (frame.type === 'receiptSync') {
         this.runAfterMembershipUpdate(() => this.handlers.receiptSync((frame.receipts ?? []) as ServerReceipt[]));
       } else if (frame.type === 'ack') {
-        this.handlers.ack(String(frame.clientMsgId), Number(frame.seq));
+        const clientMsgId = String(frame.clientMsgId);
+        this.sentEnvelopes.delete(clientMsgId);
+        this.handlers.ack(clientMsgId, Number(frame.seq));
       } else if (frame.type === 'receiptAck') {
         this.handlers.receiptAck(String(frame.clientMsgId), Number(frame.receiptSeq));
       } else if (frame.type === 'pong') {
@@ -405,10 +414,15 @@ export class RoomSocket {
       } else if (frame.type === 'call-state') {
         this.runAfterMembershipUpdate(() => this.handlers.callState?.(frame as CallServerEvent));
       } else if (frame.type === 'error') {
+        const clientMsgId = typeof frame.clientMsgId === 'string' ? frame.clientMsgId : undefined;
+        const sent = clientMsgId ? this.sentEnvelopes.get(clientMsgId) : undefined;
+        const rejectedEnvelope = sent?.shift();
+        if (clientMsgId && sent?.length === 0) this.sentEnvelopes.delete(clientMsgId);
         this.runAfterMembershipUpdate(() => this.handlers.error(
           String(frame.message ?? '实时连接发生错误'),
           String(frame.code ?? 'SOCKET_ERROR'),
-          typeof frame.clientMsgId === 'string' ? frame.clientMsgId : undefined,
+          clientMsgId,
+          rejectedEnvelope,
         ));
       }
     } catch {
@@ -475,6 +489,9 @@ export class RoomSocket {
   sendEnvelope(envelope: MessageEnvelope, countUnread = true): void {
     if (this.socket?.readyState !== WebSocket.OPEN) throw new Error('实时连接尚未恢复');
     this.socket.send(JSON.stringify({ type: 'send', envelope, countUnread }));
+    const sent = this.sentEnvelopes.get(envelope.clientMsgId) ?? [];
+    sent.push(structuredClone(envelope));
+    this.sentEnvelopes.set(envelope.clientMsgId, sent);
   }
 
   sendReceipt(receipt: DeliveryReceipt): void {
@@ -516,6 +533,7 @@ export class RoomSocket {
     this.desiredPresenceView = 'away';
     this.flushChatPresence();
     this.closed = true;
+    this.sentEnvelopes.clear();
     this.stopHeartbeat();
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.socket?.close(1000, 'Locked');

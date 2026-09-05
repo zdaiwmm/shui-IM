@@ -28,6 +28,38 @@ type PrfCredentialRequestOptions = CredentialRequestOptions & {
 
 const encoder = new TextEncoder();
 
+/**
+ * A WebAuthn ceremony ended without a credential because the user or platform
+ * cancelled it. The native exception is deliberately not retained as `cause`:
+ * browser and authenticator messages can contain platform-specific details and
+ * callers only need the stable cancellation classification.
+ */
+export class PlatformVaultCancellationError extends Error {
+  readonly code = 'PLATFORM_VAULT_CANCELLED';
+
+  constructor() {
+    super('未完成设备安全验证');
+    this.name = 'PlatformVaultCancellationError';
+  }
+}
+
+export function isPlatformVaultCancellation(error: unknown): error is PlatformVaultCancellationError {
+  return error instanceof PlatformVaultCancellationError;
+}
+
+function isNativeWebAuthnCancellation(error: unknown): boolean {
+  return error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'AbortError');
+}
+
+async function runWebAuthnCeremony<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    if (isNativeWebAuthnCancellation(error)) throw new PlatformVaultCancellationError();
+    throw error;
+  }
+}
+
 function randomBytes(length: number): Uint8Array<ArrayBuffer> {
   return crypto.getRandomValues(new Uint8Array(length));
 }
@@ -75,7 +107,7 @@ function requireUserVerification(flags: number): void {
 async function evaluatePrf(record: PlatformCredentialRecord): Promise<Uint8Array<ArrayBuffer>> {
   const rpId = record.rpId ?? location.hostname;
   if (rpId !== location.hostname) throw new Error(`此保险库绑定到 ${rpId}，当前域名无法使用原设备凭据`);
-  const assertion = await navigator.credentials.get({
+  const assertion = await runWebAuthnCeremony(() => navigator.credentials.get({
     publicKey: {
       challenge: randomBytes(32),
       rpId,
@@ -88,7 +120,7 @@ async function evaluatePrf(record: PlatformCredentialRecord): Promise<Uint8Array
       timeout: 60_000,
       extensions: { prf: { eval: { first: fromBase64Url(record.prfSalt) } } },
     },
-  } as PrfCredentialRequestOptions);
+  } as PrfCredentialRequestOptions));
   if (
     !(assertion instanceof PublicKeyCredential) ||
     assertion.type !== 'public-key' ||
@@ -115,55 +147,64 @@ export type PlatformCredentialResult = {
   prfOutput: Uint8Array<ArrayBuffer>;
 };
 
-export async function createPlatformCredential(): Promise<PlatformCredentialResult> {
+export async function createPlatformCredential(
+  onCreated?: (record: PlatformCredentialRecord) => void,
+): Promise<PlatformCredentialResult> {
   requireWebAuthn();
   const prfSalt = randomBytes(32);
-  const credential = await navigator.credentials.create({
-    publicKey: {
-      challenge: randomBytes(32),
-      rp: { id: location.hostname, name: 'Quiet Room' },
-      user: {
-        id: randomBytes(32),
-        name: `vault-${crypto.randomUUID()}`,
-        displayName: 'Quiet Room 本机保险库',
+  try {
+    const credential = await runWebAuthnCeremony(() => navigator.credentials.create({
+      publicKey: {
+        challenge: randomBytes(32),
+        rp: { id: location.hostname, name: 'Quiet Room' },
+        user: {
+          id: randomBytes(32),
+          name: `vault-${crypto.randomUUID()}`,
+          displayName: 'Quiet Room 本机保险库',
+        },
+        pubKeyCredParams: [
+          { type: 'public-key', alg: -7 },
+          { type: 'public-key', alg: -8 },
+        ],
+        authenticatorSelection: {
+          residentKey: 'required',
+          requireResidentKey: true,
+          userVerification: 'required',
+        },
+        timeout: 60_000,
+        attestation: 'none',
+        extensions: { prf: { eval: { first: prfSalt } } },
       },
-      pubKeyCredParams: [
-        { type: 'public-key', alg: -7 },
-        { type: 'public-key', alg: -8 },
-      ],
-      authenticatorSelection: {
-        residentKey: 'required',
-        requireResidentKey: true,
-        userVerification: 'required',
-      },
-      timeout: 60_000,
-      attestation: 'none',
-      extensions: { prf: { eval: { first: prfSalt } } },
-    },
-  } as PrfCredentialCreationOptions);
-  if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAttestationResponse)) {
-    throw new Error('没有创建有效的设备安全凭据');
+    } as PrfCredentialCreationOptions));
+    if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAttestationResponse)) {
+      throw new Error('没有创建有效的设备安全凭据');
+    }
+    const flags = authenticatorFlags(credential.response);
+    requireUserVerification(flags);
+    const backupEligible = Boolean(flags & 0x08);
+    if (extensionResults(credential).prf?.enabled !== true) {
+      throw new Error('该通行密钥不支持 WebAuthn PRF，无法保护本机保险库');
+    }
+    const response = credential.response;
+    const record: PlatformCredentialRecord = {
+      credentialId: toBase64Url(credential.rawId),
+      rpId: location.hostname,
+      origin: location.origin,
+      prfSalt: toBase64Url(prfSalt),
+      transports: (response.getTransports?.() ?? []) as AuthenticatorTransport[],
+      authenticatorAttachment: credential.authenticatorAttachment as AuthenticatorAttachment | null,
+      backupEligible,
+      createdAt: new Date().toISOString(),
+    };
+    // Registration is already durable in the authenticator at this point. Give
+    // the caller the exact record before a possible fallback assertion so a
+    // canceled PRF read can be retried without creating another orphan passkey.
+    onCreated?.(structuredClone(record));
+    const output = prfBytes(credential) ?? await evaluatePrf(record);
+    return { record, prfOutput: output };
+  } finally {
+    prfSalt.fill(0);
   }
-  const flags = authenticatorFlags(credential.response);
-  requireUserVerification(flags);
-  const backupEligible = Boolean(flags & 0x08);
-  if (extensionResults(credential).prf?.enabled !== true) {
-    throw new Error('该通行密钥不支持 WebAuthn PRF，无法保护本机保险库');
-  }
-  const response = credential.response;
-  const record: PlatformCredentialRecord = {
-    credentialId: toBase64Url(credential.rawId),
-    rpId: location.hostname,
-    origin: location.origin,
-    prfSalt: toBase64Url(prfSalt),
-    transports: (response.getTransports?.() ?? []) as AuthenticatorTransport[],
-    authenticatorAttachment: credential.authenticatorAttachment as AuthenticatorAttachment | null,
-    backupEligible,
-    createdAt: new Date().toISOString(),
-  };
-  const output = prfBytes(credential) ?? await evaluatePrf(record);
-  prfSalt.fill(0);
-  return { record, prfOutput: output };
 }
 
 export async function unlockPlatformCredential(record: PlatformCredentialRecord): Promise<Uint8Array<ArrayBuffer>> {

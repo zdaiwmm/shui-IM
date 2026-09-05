@@ -1133,6 +1133,27 @@ export async function startServer(options = {}) {
             send(socket, { type: 'error', code: 'INVALID_SIGNATURE', message: '消息签名验证失败' });
             return;
           }
+          // A reconnect may replay an envelope that the server accepted before
+          // the sender durably removed its local outbox row. A later membership
+          // event makes that original MLS epoch stale, but an exact stored
+          // duplicate is already committed work and must be acknowledged before
+          // evaluating the current epoch. The same logical ID with different
+          // authenticated bytes remains a hard conflict.
+          const existingMessage = store.getMessageByClientId(session.roomId, message.envelope.clientMsgId);
+          if (existingMessage) {
+            if (existingMessage.senderId !== message.envelope.senderId ||
+              canonicalStringify(existingMessage.envelope) !== canonicalStringify(message.envelope)) {
+              send(socket, {
+                type: 'error',
+                code: 'MESSAGE_CONFLICT',
+                clientMsgId: message.envelope.clientMsgId,
+                message: '消息标识与已存消息冲突',
+              });
+              return;
+            }
+            send(socket, { type: 'ack', clientMsgId: message.envelope.clientMsgId, seq: existingMessage.seq });
+            return;
+          }
           if (message.envelope.v === 2) {
             const state = store.roomState(session.roomId);
             const messageEpoch = mlsPrivateMessageEpoch(message.envelope.ciphertext);

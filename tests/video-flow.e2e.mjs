@@ -293,6 +293,11 @@ try {
   await rememberPlayer();
   assert.equal(await page.evaluate(() => window.videoFlow.webkitAttempts), 1, 'Safari video did not directly request its system player');
   assert.equal(await page.locator('.viewer-stage video').getAttribute('playsinline'), null, 'Safari was forced to show an inline player first');
+  assert.deepEqual(await page.locator('.image-viewer').evaluate(viewer => ({
+    nativeState: viewer.dataset.nativeVideo,
+    headerVisibility: getComputedStyle(viewer.querySelector('.viewer-header')).visibility,
+  })), { nativeState: 'active', headerVisibility: 'hidden' },
+  'A synchronous Safari native-player entry lost its active gate or flashed the custom header');
   await page.evaluate(() => document.querySelector('.viewer-stage video').webkitExitFullscreen());
   await page.locator('.image-viewer').waitFor({ state: 'detached' });
   await assertPlayerReleased('Safari system player Done');
@@ -377,6 +382,132 @@ try {
   await closePlayer();
   await assertPlayerReleased('Album close');
   assert.equal(await safeVideo.getAttribute('data-revealed'), 'true', 'Closing the viewer reset this visit’s reveal state');
+
+  // Mixed media paging keeps the chrome mounted. An image-to-video page must
+  // arrive paused, and that paused inline video must still yield the next
+  // horizontal gesture back to an image.
+  const safePhoto = page.locator(`.gallery-tile[data-blob-id="${ids.photo}"]`);
+  await safePhoto.click();
+  await safePhoto.click();
+  await page.locator('.image-viewer.is-visible .viewer-stage img').waitFor();
+  const readsBeforeMixedPaging = await page.evaluate(() => window.videoFlow.requests.reads);
+  const imageSwipeChrome = await page.locator('.viewer-stage').evaluate(stage => {
+    const fire = (type, x) => stage.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 211, isPrimary: true, button: 0, clientX: x, clientY: 430 }));
+    fire('pointerdown', 320); fire('pointermove', 190);
+    const header = stage.closest('.image-viewer').querySelector('.viewer-header');
+    const state = {
+      opacity: getComputedStyle(header).opacity,
+      name: header.querySelector('[data-viewer-name]').textContent,
+      paging: stage.closest('.image-viewer').classList.contains('is-paging'),
+      backdropChanged: stage.closest('.image-viewer').style.getPropertyValue('--viewer-backdrop-opacity') !== '',
+    };
+    fire('pointerup', 190);
+    return state;
+  });
+  assert.deepEqual(imageSwipeChrome, { opacity: '1', name: '照片.svg', paging: true, backdropChanged: false }, 'Horizontal image paging flashed or dimmed the persistent viewer header');
+  await page.waitForFunction(name => document.querySelector('[data-viewer-name]')?.textContent === name && document.querySelector('.viewer-stage video'), '保险箱视频.webm');
+  const pausedArrival = await page.locator('.viewer-stage video').evaluate(video => ({ paused: video.paused, autoplay: video.autoplay, controls: video.controls }));
+  assert.deepEqual(pausedArrival, { paused: true, autoplay: false, controls: true }, 'A video reached by paging started playback or lost native controls');
+  assert.equal(await page.evaluate(() => window.videoFlow.requests.reads), readsBeforeMixedPaging, 'Image-to-video paging re-fetched an already verified attachment');
+  await page.locator('.viewer-stage video').evaluate(video => video.play());
+  await page.waitForFunction(() => {
+    const video = document.querySelector('.viewer-stage video');
+    return video && !video.paused && video.currentTime > 0;
+  });
+  await page.evaluate(() => {
+    const f = window.videoFlow;
+    const manifest = f.manifests.photo;
+    const cached = f.app.imageCache.get(manifest.blobId);
+    if (!cached) throw Error('The mixed-media photo was not cached before the delayed paging regression');
+    URL.revokeObjectURL(cached.url);
+    if (cached.posterUrl) URL.revokeObjectURL(cached.posterUrl);
+    f.app.imageCache.delete(manifest.blobId);
+    f.app.imageCacheBytes -= cached.bytes;
+    f.readGate.blobId = manifest.blobId;
+    f.readGate.waiting = false;
+    f.readGate.release = null;
+  });
+  const videoSwipeChrome = await page.locator('.viewer-stage').evaluate(stage => {
+    const video = stage.querySelector('video');
+    window.videoFlow.pagedPlayer = video;
+    const fire = (type, x) => video.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 212, isPrimary: true, button: 0, clientX: x, clientY: 430 }));
+    fire('pointerdown', 70); fire('pointermove', 210);
+    const header = stage.closest('.image-viewer').querySelector('.viewer-header');
+    const state = { opacity: getComputedStyle(header).opacity, paging: stage.closest('.image-viewer').classList.contains('is-paging') };
+    fire('pointerup', 210);
+    return state;
+  });
+  assert.deepEqual(videoSwipeChrome, { opacity: '1', paging: true }, 'Paused video did not page horizontally with stable chrome');
+  await page.waitForFunction(() => window.videoFlow.readGate.waiting);
+  assert.deepEqual(await page.locator('.image-viewer').evaluate(viewer => {
+    const video = viewer.querySelector('.viewer-stage video');
+    return {
+      pausedImmediately: video?.paused,
+      transitioning: viewer.classList.contains('is-transitioning'),
+      busy: viewer.querySelector('.viewer-stage')?.getAttribute('aria-busy'),
+      headerOpacity: getComputedStyle(viewer.querySelector('.viewer-header')).opacity,
+      name: viewer.querySelector('[data-viewer-name]')?.textContent,
+    };
+  }), { pausedImmediately: true, transitioning: true, busy: 'true', headerOpacity: '1', name: '保险箱视频.webm' },
+  'Paging toward a slow image left the old video playing or changed the persistent header before commit');
+  await page.evaluate(() => {
+    const gate = window.videoFlow.readGate;
+    gate.blobId = null;
+    gate.release();
+  });
+  await page.waitForFunction(() => document.querySelectorAll('.image-viewer.is-transitioning .viewer-media-layer').length === 2);
+  assert.deepEqual(await page.locator('.image-viewer').evaluate(viewer => ({
+    layers: [...viewer.querySelectorAll('.viewer-media-layer')].map(layer => ({
+      inert: layer.inert,
+      hidden: layer.getAttribute('aria-hidden'),
+    })),
+    incomingDecoded: (() => {
+      const image = viewer.querySelector('.viewer-media-layer:last-child img');
+      return Boolean(image?.complete && image.naturalWidth > 0);
+    })(),
+  })), {
+    layers: [{ inert: true, hidden: 'true' }, { inert: true, hidden: 'true' }],
+    incomingDecoded: true,
+  }, 'Transition layers exposed controls/focus or mounted an undecoded incoming image');
+  await page.waitForFunction(name => document.querySelector('[data-viewer-name]')?.textContent === name && document.querySelector('.viewer-stage img'), '照片.svg');
+  const releasedPagedVideo = await page.evaluate(() => {
+    const video = window.videoFlow.pagedPlayer;
+    return { paused: video.paused, src: video.getAttribute('src'), connected: video.isConnected };
+  });
+  assert.deepEqual(releasedPagedVideo, { paused: true, src: null, connected: false }, 'Paging away retained the old video decoder or source');
+  assert((await page.evaluate(() => window.videoFlow.requests.reads)) > readsBeforeMixedPaging, 'The delayed mixed-media regression never exercised a real encrypted refetch');
+  await closePlayer();
+
+  // A conflicting encrypted manifest must fail closed without leaving the
+  // mounted viewer, navigation controls, or gesture state permanently busy.
+  const errorsBeforeManifestConflict = errors.length;
+  await page.evaluate(() => {
+    const f = window.videoFlow;
+    f.app.openImageViewer([
+      f.manifests.photo,
+      { ...f.manifests.photo, originalName: '冲突清单.svg' },
+    ], 0);
+  });
+  await page.waitForFunction(() => document.querySelector('.image-viewer .viewer-stage img')
+    && document.querySelector('.image-viewer .viewer-stage')?.getAttribute('aria-busy') === 'false');
+  await page.locator('.viewer-next').evaluate(button => button.click());
+  await page.waitForFunction(() => {
+    const viewer = document.querySelector('.image-viewer');
+    return viewer && viewer.querySelector('.viewer-stage')?.getAttribute('aria-busy') === 'false'
+      && !viewer.classList.contains('is-transitioning');
+  });
+  assert.deepEqual(await page.locator('.image-viewer').evaluate(viewer => ({
+    name: viewer.querySelector('[data-viewer-name]')?.textContent,
+    index: viewer.querySelector('.viewer-media-layer')?.getAttribute('data-viewer-index'),
+    previousDisabled: viewer.querySelector('.viewer-previous')?.disabled,
+    nextDisabled: viewer.querySelector('.viewer-next')?.disabled,
+    activeLayerInteractive: !viewer.querySelector('.viewer-media-layer')?.inert,
+  })), {
+    name: '照片.svg', index: '0', previousDisabled: false, nextDisabled: false, activeLayerInteractive: true,
+  }, 'Manifest rejection changed the active page or left the viewer state locked');
+  assert.equal(errors.length, errorsBeforeManifestConflict, 'Manifest rejection escaped as an unhandled page error');
+  await closePlayer();
+
   await page.locator('#gallery-tab-files').click();
   await page.waitForFunction(() => document.querySelectorAll('.gallery-file').length === 1);
   assert.equal(await page.locator('.gallery-tile').count(), 0, 'Videos appeared in the file category');
@@ -439,7 +570,7 @@ try {
   });
   assert.deepEqual(lateState, { covered: true, cacheSize: 0, mediaNodes: 0, unreleasedUrls: 0 }, 'Late video decryption recreated visible content or retained an object URL after lock');
   assert.deepEqual(errors, [], `Video regression raised browser errors: ${errors.join('; ')}`);
-  console.log(JSON.stringify({ videoPreview: 'verified original with local poster and play button', viewer: { autoplay: true, maximized: true, longPressDoesNotPlay: true, closeReleasesMedia: true, incomingCallStopsPlayback: true }, safe: { label: '相册', photosAndVideos: true, firstClickReveals: true, secondClickPlays: true, genericFilesExcluded: true }, restore: 'album-only video stays outside chat history', ordinaryDownloads: 2, lifecycle: { lockRevokesOriginalAndPoster: true, lateLoadCannotRepopulateCache: true } }, null, 2));
+  console.log(JSON.stringify({ videoPreview: 'verified original with local poster and play button', viewer: { autoplay: true, maximized: true, mixedPagingPaused: true, stablePagingHeader: true, longPressDoesNotPlay: true, closeReleasesMedia: true, incomingCallStopsPlayback: true }, safe: { label: '相册', photosAndVideos: true, firstClickReveals: true, secondClickPlays: true, genericFilesExcluded: true }, restore: 'album-only video stays outside chat history', ordinaryDownloads: 2, lifecycle: { lockRevokesOriginalAndPoster: true, lateLoadCannotRepopulateCache: true } }, null, 2));
 } finally {
   await browser?.close();
   await server.close();

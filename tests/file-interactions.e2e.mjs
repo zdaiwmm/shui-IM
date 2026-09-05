@@ -103,7 +103,10 @@ try {
     assert.equal(await page.evaluate(() => window.fileInteractions.requests.reads), readsBefore, `${direction}: long-press release fetched file bytes`);
     assert.equal(downloadCount, downloadsBefore, `${direction}: long-press release downloaded a file`);
     assert.equal(await page.locator('.message-actions [data-reaction]').count(), 6, `${direction}: file reaction controls are missing`);
-    assert.equal(await page.locator('.message-actions [data-message-action="reply"]').count(), direction === 'incoming' ? 1 : 0, `${direction}: file reply action has the wrong ownership`);
+    assert.equal(await page.locator('.message-actions [data-message-action="reply"]').count(), 1, `${direction}: file reply action is missing`);
+    const deleteAction = page.locator('.message-actions [data-message-action="delete"]');
+    assert.equal(await deleteAction.count(), 1, `${direction}: file delete action is missing`);
+    assert.equal(await deleteAction.getAttribute('data-danger'), 'true', `${direction}: delete action lost its danger treatment`);
     await page.waitForFunction(() => document.activeElement?.closest('.message-actions'));
     const menuBounds = await page.evaluate(() => ({
       viewport: { width: innerWidth, height: innerHeight },
@@ -115,9 +118,124 @@ try {
     }));
     assert(menuBounds.actions.every(element => element.inViewport),
       `${direction}: file actions overflow the mobile viewport: ${JSON.stringify(menuBounds)}`);
+    if (visualQaDirectory && direction === 'outgoing') {
+      await mkdir(visualQaDirectory, { recursive: true });
+      await deleteAction.tap();
+      await page.locator('.message-actions.is-visible [data-message-action="delete-everyone"]').waitFor();
+      await page.screenshot({ path: path.join(visualQaDirectory, 'message-delete-options-390.png'), animations: 'disabled' });
+    }
     await page.evaluate(() => window.fileInteractions.app.closeMessageActions(true, false));
     await page.waitForFunction(() => document.activeElement?.classList.contains('message'));
     results.longPress.push({ direction, menuOpened: true, followingClickSuppressed: true, focusRestored: true });
+  }
+
+  // Reply must be reachable from a damped left swipe, without stealing a
+  // vertical chat scroll or committing a short horizontal exploration.
+  const swipeMessage = page.locator('.message.incoming');
+  const swipeBounds = await swipeMessage.boundingBox();
+  assert(swipeBounds, 'Incoming message has no bounds for the reply swipe');
+  const swipeStart = { x: swipeBounds.x + swipeBounds.width - 22, y: swipeBounds.y + swipeBounds.height / 2 };
+  const dispatchSwipe = async (pointerId, moves) => {
+    await swipeMessage.dispatchEvent('pointerdown', {
+      bubbles: true, button: 0, buttons: 1, isPrimary: true, pointerId, pointerType: 'touch',
+      clientX: swipeStart.x, clientY: swipeStart.y,
+    });
+    for (const move of moves) {
+      await swipeMessage.dispatchEvent('pointermove', {
+        bubbles: true, button: 0, buttons: 1, isPrimary: true, pointerId, pointerType: 'touch',
+        clientX: swipeStart.x - move.left, clientY: swipeStart.y + move.down,
+      });
+    }
+    const last = moves.at(-1) ?? { left: 0, down: 0 };
+    await swipeMessage.dispatchEvent('pointerup', {
+      bubbles: true, button: 0, buttons: 0, isPrimary: true, pointerId, pointerType: 'touch',
+      clientX: swipeStart.x - last.left, clientY: swipeStart.y + last.down,
+    });
+  };
+
+  await dispatchSwipe(71, [{ left: 2, down: 20 }, { left: 5, down: 46 }]);
+  assert.equal(await page.locator('#reply-draft').isHidden(), true, 'Vertical chat drag activated reply');
+  assert.equal(await swipeMessage.evaluate(element => element.classList.contains('is-reply-swiping')), false,
+    'Vertical chat drag entered horizontal reply visuals');
+
+  await swipeMessage.dispatchEvent('pointerdown', {
+    bubbles: true, button: 0, buttons: 1, isPrimary: true, pointerId: 72, pointerType: 'touch',
+    clientX: swipeStart.x, clientY: swipeStart.y,
+  });
+  await swipeMessage.dispatchEvent('pointermove', {
+    bubbles: true, button: 0, buttons: 1, isPrimary: true, pointerId: 72, pointerType: 'touch',
+    clientX: swipeStart.x - 30, clientY: swipeStart.y + 1,
+  });
+  const shortSwipe = await swipeMessage.evaluate(element => ({
+    offset: Number.parseFloat(element.style.getPropertyValue('--reply-swipe-offset')),
+    swiping: element.classList.contains('is-reply-swiping'),
+    armed: element.classList.contains('is-reply-armed'),
+  }));
+  assert(shortSwipe.swiping && !shortSwipe.armed && shortSwipe.offset > 0 && shortSwipe.offset < 30,
+    `Short reply swipe lost damping or armed early: ${JSON.stringify(shortSwipe)}`);
+  await swipeMessage.dispatchEvent('pointerup', {
+    bubbles: true, button: 0, buttons: 0, isPrimary: true, pointerId: 72, pointerType: 'touch',
+    clientX: swipeStart.x - 30, clientY: swipeStart.y + 1,
+  });
+  await page.waitForTimeout(300);
+  assert.equal(await page.locator('#reply-draft').isHidden(), true, 'Sub-threshold reply swipe committed');
+  assert.equal(await swipeMessage.evaluate(element => element.classList.contains('is-reply-swiping')), false,
+    'Sub-threshold reply swipe did not settle back to rest');
+
+  await swipeMessage.dispatchEvent('pointerdown', {
+    bubbles: true, button: 0, buttons: 1, isPrimary: true, pointerId: 73, pointerType: 'touch',
+    clientX: swipeStart.x, clientY: swipeStart.y,
+  });
+  await swipeMessage.dispatchEvent('pointermove', {
+    bubbles: true, button: 0, buttons: 1, isPrimary: true, pointerId: 73, pointerType: 'touch',
+    clientX: swipeStart.x - 96, clientY: swipeStart.y + 2,
+  });
+  const armedSwipe = await swipeMessage.evaluate(element => ({
+    offset: Number.parseFloat(element.style.getPropertyValue('--reply-swipe-offset')),
+    armed: element.classList.contains('is-reply-armed'),
+  }));
+  assert(armedSwipe.armed && armedSwipe.offset > 40 && armedSwipe.offset < 64,
+    `Armed reply swipe lost its bounded resistance: ${JSON.stringify(armedSwipe)}`);
+  await swipeMessage.dispatchEvent('pointerup', {
+    bubbles: true, button: 0, buttons: 0, isPrimary: true, pointerId: 73, pointerType: 'touch',
+    clientX: swipeStart.x - 96, clientY: swipeStart.y + 2,
+  });
+  await page.locator('#reply-draft:not([hidden])').waitFor();
+  await page.waitForFunction(() => document.activeElement?.id === 'message-input');
+  const replyComposer = await page.locator('.composer-input-stack').evaluate(stack => {
+    const draft = stack.querySelector('#reply-draft');
+    const preview = draft?.querySelector('span');
+    return {
+      integrated: Boolean(draft && draft.parentElement === stack && stack.querySelector('.composer-field')),
+      oneLine: preview ? getComputedStyle(preview).whiteSpace === 'nowrap' && preview.scrollHeight <= preview.getBoundingClientRect().height + 1 : false,
+      withinStack: draft ? draft.getBoundingClientRect().left >= stack.getBoundingClientRect().left
+        && draft.getBoundingClientRect().right <= stack.getBoundingClientRect().right + 1 : false,
+    };
+  });
+  assert.deepEqual(replyComposer, { integrated: true, oneLine: true, withinStack: true },
+    'Swipe reply composer is not an integrated, single-line layout');
+  await page.locator('#reply-draft button[aria-label="取消回复"]').tap();
+
+  // A horizontal bubble swipe keeps ownership when the keyboard is already
+  // open; it must not require a first gesture to dismiss and a second gesture
+  // to activate reply.
+  await page.locator('#message-input').focus();
+  await page.evaluate(() => { document.documentElement.dataset.keyboardOpen = 'true'; });
+  await dispatchSwipe(74, [{ left: 96, down: 2 }]);
+  await page.locator('#reply-draft:not([hidden])').waitFor();
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'message-input', 'Keyboard-open reply swipe blurred the composer');
+  await page.locator('#reply-draft button[aria-label="取消回复"]').tap();
+  await page.evaluate(() => { delete document.documentElement.dataset.keyboardOpen; });
+  results.replySwipe = { verticalScrollPreserved: true, shortSwipeCancelled: true, resistanceBounded: true,
+    thresholdActivated: true, keyboardFocused: true, keyboardOpenGestureRetained: true, integratedSingleLineComposer: true };
+
+  if (visualQaDirectory) {
+    const incoming = page.locator('.message.incoming');
+    await incoming.dispatchEvent('contextmenu', { button: 2, clientX: 120, clientY: 320 });
+    await page.locator('.message-actions.is-visible [data-message-action="reply"]').tap();
+    await page.locator('#reply-draft:not([hidden])').waitFor();
+    await page.screenshot({ path: path.join(visualQaDirectory, 'reply-composer-390.png'), animations: 'disabled' });
+    await page.locator('#reply-draft button[aria-label="取消回复"]').tap();
   }
 
   await page.waitForFunction(() => Date.now() >= window.fileInteractions.app.suppressMediaClickUntil);
@@ -145,11 +263,38 @@ try {
   await galleryCard.waitFor();
   assert.equal(await page.locator('.message').count(), 0, 'Gallery file was rendered as a chat message');
   const readsBeforeGalleryHold = await page.evaluate(() => window.fileInteractions.requests.reads);
-  await galleryCard.dispatchEvent('pointerdown', { button: 0, pointerType: 'touch', clientX: 120, clientY: 200 });
-  await page.waitForTimeout(600);
-  await galleryCard.dispatchEvent('pointerup', { button: 0, pointerType: 'touch' });
+  await galleryCard.dispatchEvent('pointerdown', { button: 0, pointerId: 31, isPrimary: true, pointerType: 'touch', clientX: 120, clientY: 200 });
+  await page.locator('.gallery-actions-sheet.is-visible').waitFor({ timeout: 2000 });
+  await page.waitForFunction(() => Date.now() >= window.fileInteractions.app.suppressMediaClickUntil);
+  await galleryCard.evaluate(element => {
+    element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 31, isPrimary: true, pointerType: 'touch' }));
+    element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+  });
   assert.equal(await page.locator('.message-actions, .message-reaction-picker').count(), 0, 'Gallery-only file opened chat actions');
   assert.equal(await page.evaluate(() => window.fileInteractions.requests.reads), readsBeforeGalleryHold, 'Holding a gallery file fetched bytes before a click');
+  assert.equal(await page.locator('.gallery-actions-menu [data-gallery-action]').count(), 2, 'Safe file actions are incomplete');
+  assert.equal((await page.locator('.gallery-actions-menu [data-gallery-action="pin"] span').textContent()).trim(), '置顶', 'Safe file pin action has the wrong initial label');
+  const galleryDelete = page.locator('.gallery-actions-menu [data-gallery-action="delete"]');
+  assert.equal(await galleryDelete.getAttribute('data-danger'), 'true', 'Safe file delete action lost its danger treatment');
+  assert.equal(await galleryDelete.evaluate(element => getComputedStyle(element).color), await page.evaluate(() => {
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--danger)';
+    document.body.append(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  }), 'Safe file delete label and icon do not inherit the danger color');
+  await page.locator('.gallery-actions-menu [data-gallery-action="pin"]').tap();
+  await page.locator('.gallery-actions-sheet').waitFor({ state: 'detached' });
+  await page.waitForFunction(() => window.fileInteractions.app.uiPreferences.galleryCuration?.some(record =>
+    record.category === 'files' && record.clientMsgId === window.fileInteractions.gallery.clientMsgId && record.pinnedAt !== null));
+  await galleryCard.dispatchEvent('pointerdown', { button: 0, pointerId: 32, isPrimary: true, pointerType: 'touch', clientX: 120, clientY: 200 });
+  await page.locator('.gallery-actions-sheet.is-visible').waitFor({ timeout: 2000 });
+  await galleryCard.dispatchEvent('pointerup', { button: 0, pointerId: 32, isPrimary: true, pointerType: 'touch' });
+  assert.equal((await page.locator('.gallery-actions-menu [data-gallery-action="pin"] span').textContent()).trim(), '取消置顶', 'Pinned Safe file did not expose an unpin action');
+  await page.locator('.gallery-actions-menu [data-gallery-action="pin"]').tap();
+  await page.locator('.gallery-actions-sheet').waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(() => window.fileInteractions.app.uiPreferences.galleryCuration?.some(record => record.category === 'files') ?? false), false, 'Unpin left a stale Safe file curation record');
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Gallery file overflows the mobile viewport');
   results.galleryHasNoMessageMenu = true;
 
@@ -177,7 +322,7 @@ try {
       init.signal?.throwIfAborted();
       return new Response(bytes);
     };
-    const addImage = async ({ cache = false, delayed = false } = {}) => {
+    const addImage = async ({ cache = false, delayed = false, chat = false } = {}) => {
       const number = records.length;
       const colors = ['#586d81', '#aa8064', '#718b7b', '#807791', '#8f685b', '#627d98'];
       const file = new File([`<svg xmlns="http://www.w3.org/2000/svg" width="300" height="300"><rect width="300" height="300" fill="${colors[(number - 1) % colors.length]}"/><circle cx="230" cy="64" r="33" fill="#ebe2c6"/><path d="M0 270 80 90 160 220 220 140 300 300H0" fill="#c4c9bb"/><path d="M0 300 50 220 150 280 210 210 300 290V300" fill="#354d53"/></svg>`], `保险箱图片-${number}.svg`, { type: 'image/svg+xml', lastModified: number });
@@ -186,15 +331,20 @@ try {
         upload: async (blobId, index, bytes) => { chunks.set(`${blobId}:${index}`, bytes); },
         complete: async () => {}, savePlan: async () => {},
       });
-      const record = { ...gallery, seq: number + 3, clientMsgId: crypto.randomUUID(), payload: { v: 1, kind: 'gallery-image', image: manifest, sentAt: new Date(Date.parse(gallery.payload.sentAt) + number * 60_000).toISOString() } };
+      const sentAt = new Date(Date.parse(gallery.payload.sentAt) + number * 60_000).toISOString();
+      const record = { ...gallery, seq: number + 3, clientMsgId: crypto.randomUUID(), acceptedAt: sentAt,
+        payload: { v: 1, kind: chat ? 'image' : 'gallery-image', image: manifest, sentAt } };
       records.push(record);
       if (cache) app.cacheLocalImage(manifest, file);
       if (delayed) { gate.blobId = manifest.blobId; gate.waiting = false; gate.release = null; }
       app.pending.set(record.clientMsgId, record);
-      return manifest.blobId;
+      return { blobId: manifest.blobId, clientMsgId: record.clientMsgId };
     };
-    for (let number = 0; number < 6; number++) await addImage({ cache: number === 0 });
-    window.galleryPrivacy = { app, records, gate, addImage, reopen: () => {
+    const chatImage = await addImage({ cache: true, chat: true });
+    for (let number = 1; number < 6; number++) await addImage();
+    app.renderChat();
+    const chatOrderBefore = [...document.querySelectorAll('.message[data-client-msg-id]')].map(message => message.dataset.clientMsgId);
+    window.galleryPrivacy = { app, records, gate, addImage, chatImageId: chatImage.clientMsgId, chatOrderBefore, reopen: () => {
       app.session = session; app.privacyCovered = false; app.runtimeEpoch++; app.runtimeAbort = new AbortController();
       app.pending = new Map(records.map(record => [record.clientMsgId, record]));
       app.renderGallery();
@@ -222,17 +372,99 @@ try {
   assert.equal(await page.locator('.gallery-tile').first().evaluate(tile => getComputedStyle(tile, '::before').content), 'none', 'Safe thumbnail still renders a reveal hint');
   assert.equal(await page.locator('[data-gallery-count="images"]').textContent(), '6', 'Image tab did not count all loaded images');
   assert.equal(await page.locator('[data-gallery-count="files"]').textContent(), '1', 'Known file count was lost when switching to images');
+  const baseSafeOrder = await page.locator('.gallery-tile').evaluateAll(tiles => tiles.map(tile => tile.dataset.galleryAssetKey));
+  const chatSafeKey = `${await page.evaluate(() => window.galleryPrivacy.chatImageId)}:0`;
+  assert.equal(baseSafeOrder.at(-1), chatSafeKey, 'Fixture chat image is not the ordinary oldest Safe asset');
+  let safeHoldPointerId = 40;
+  const openSafeImageActions = async (tile, { outlastClickWindow = false } = {}) => {
+    const pointerId = safeHoldPointerId++;
+    await tile.dispatchEvent('pointerdown', { button: 0, pointerId, isPrimary: true, pointerType: 'touch', clientX: 120, clientY: 440 });
+    await page.locator('.gallery-actions-sheet.is-visible').waitFor({ timeout: 2000 });
+    if (outlastClickWindow) await page.waitForFunction(() => Date.now() >= window.galleryPrivacy.app.suppressMediaClickUntil);
+    await tile.evaluate((element, { pointerId, synthesizeClick }) => {
+      element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, pointerId, isPrimary: true, pointerType: 'touch', clientX: 120, clientY: 440 }));
+      if (synthesizeClick) element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    }, { pointerId, synthesizeClick: outlastClickWindow });
+  };
+  const longHeldImage = page.locator(`.gallery-tile[data-gallery-asset-key="${chatSafeKey}"]`);
+  await openSafeImageActions(longHeldImage, { outlastClickWindow: true });
+  assert.equal(await longHeldImage.getAttribute('data-revealed'), 'false', 'A long Safe hold revealed the image after the ordinary click-suppression window');
+  assert.equal(await page.locator('.image-viewer').count(), 0, 'A long Safe hold opened the image viewer behind its action sheet');
+  assert.equal(await page.locator('.gallery-actions-menu [data-gallery-action]').count(), 2, 'Safe image actions are incomplete');
+  assert.equal((await page.locator('.gallery-actions-menu [data-gallery-action="pin"] span').textContent()).trim(), '置顶', 'Unpinned Safe image has the wrong action label');
+  assert.equal(await page.locator('.gallery-actions-menu [data-gallery-action="delete"]').getAttribute('data-danger'), 'true', 'Safe image delete action lost its danger treatment');
+  await page.locator('.gallery-actions-menu [data-gallery-action="pin"]').tap();
+  await page.waitForFunction(targetKey => document.querySelector('.gallery-tile')?.dataset.galleryAssetKey === targetKey, chatSafeKey);
+  assert.equal(await page.locator('.gallery-tile').count(), 6, 'Pinning changed the Safe image count');
+  assert.equal(await page.locator('[data-gallery-count="images"]').textContent(), '6', 'Pinning made the exact image count provisional');
+  assert.equal(await page.evaluate(id => window.galleryPrivacy.app.uiPreferences.galleryCuration?.find(record =>
+    record.category === 'images' && record.clientMsgId === id)?.pinnedAt != null, await page.evaluate(() => window.galleryPrivacy.chatImageId)), true,
+  'Pinning did not persist an image-category curation record');
+
+  await openSafeImageActions(page.locator('.gallery-tile').first());
+  assert.equal((await page.locator('.gallery-actions-menu [data-gallery-action="pin"] span').textContent()).trim(), '取消置顶', 'Pinned Safe image did not expose an unpin action');
+  await page.locator('.gallery-actions-menu [data-gallery-action="pin"]').tap();
+  await page.waitForFunction(expected => JSON.stringify([...document.querySelectorAll('.gallery-tile')].map(tile => tile.dataset.galleryAssetKey)) === JSON.stringify(expected), baseSafeOrder);
+  assert.equal(await page.evaluate(id => window.galleryPrivacy.app.uiPreferences.galleryCuration?.some(record =>
+    record.category === 'images' && record.clientMsgId === id) ?? false, await page.evaluate(() => window.galleryPrivacy.chatImageId)), false,
+  'Unpin did not restore ordinary Safe ordering or left stale curation state');
+
+  await openSafeImageActions(page.locator(`.gallery-tile[data-gallery-asset-key="${chatSafeKey}"]`));
+  await page.locator('.gallery-actions-menu [data-gallery-action="delete"]').tap();
+  await page.waitForFunction(targetKey => {
+    const tiles = [...document.querySelectorAll('.gallery-tile')];
+    return tiles.length === 5 && tiles.every(tile => tile.dataset.galleryAssetKey !== targetKey);
+  }, chatSafeKey);
+  assert.equal(await page.locator('[data-gallery-count="images"]').textContent(), '5', 'Safe-local deletion did not update the exact image count');
+  assert.equal(await page.evaluate(id => {
+    const f = window.galleryPrivacy;
+    const curation = f.app.uiPreferences.galleryCuration?.find(record => record.category === 'images' && record.clientMsgId === id);
+    return Boolean(curation?.hidden && curation.pinnedAt === null && f.app.pending.get(id)?.payload.kind === 'image');
+  }, await page.evaluate(() => window.galleryPrivacy.chatImageId)), true, 'Safe deletion mutated or removed the underlying chat message');
+  await page.evaluate(() => window.galleryPrivacy.app.renderChat());
+  await page.waitForFunction(id => document.querySelector(`.message[data-client-msg-id="${CSS.escape(id)}"]`), await page.evaluate(() => window.galleryPrivacy.chatImageId));
+  assert.deepEqual(await page.locator('.message[data-client-msg-id]').evaluateAll(messages => messages.map(message => message.dataset.clientMsgId)),
+    await page.evaluate(() => window.galleryPrivacy.chatOrderBefore), 'Safe-local deletion changed chat ordering');
+  await page.evaluate(() => window.galleryPrivacy.app.renderGallery());
+  await page.waitForFunction(targetKey => document.querySelectorAll('.gallery-tile').length === 5 &&
+    ![...document.querySelectorAll('.gallery-tile')].some(tile => tile.dataset.galleryAssetKey === targetKey), chatSafeKey);
+  await page.evaluate(() => {
+    const f = window.galleryPrivacy;
+    f.app.uiPreferences.galleryCuration = [];
+    f.app.renderGallery();
+  });
+  await page.waitForFunction(targetKey => document.querySelectorAll('.gallery-tile').length === 6 &&
+    [...document.querySelectorAll('.gallery-tile')].some(tile => tile.dataset.galleryAssetKey === targetKey), chatSafeKey);
+  await assertVisibility(6, 0, 'Curation fixture reset');
+  results.safeCuration = { longPressActions: true, pinAndUnpinOrdering: true, deleteIsLocalToSafe: true, chatOrderUnchanged: true, exactCountUpdated: true, viewerSurvivesQueuedRefresh: true };
+  const safeTimeOrder = await page.locator('.gallery-tile').evaluateAll(tiles => {
+    const byKey = new Map(window.galleryPrivacy.records
+      .filter(record => record.payload.kind === 'image' || record.payload.kind === 'gallery-image')
+      .map(record => [`${record.clientMsgId}:0`, record.payload.sentAt]));
+    return tiles.map(tile => byKey.get(tile.dataset.galleryAssetKey));
+  });
+  await page.waitForFunction(() => Date.now() >= window.galleryPrivacy.app.suppressMediaClickUntil);
   const firstTile = page.locator('.gallery-tile').first();
   await firstTile.tap();
   await assertVisibility(6, 1, 'First tap');
   assert.equal(await page.locator('.image-viewer').count(), 0, 'First tap opened the viewer before revealing the thumbnail');
   await firstTile.tap();
   await page.locator('.image-viewer.is-visible .viewer-stage img').waitFor();
-  const imageTimes = await page.evaluate(() => window.galleryPrivacy.records.filter(record => record.payload.kind === 'gallery-image').map(record => record.payload.sentAt));
-  assert.equal(await page.locator('[data-viewer-time]').getAttribute('datetime'), imageTimes[0], 'Viewer did not show the selected image timestamp');
+  const viewerIdentity = await page.locator('.image-viewer').evaluate(viewer => {
+    viewer.dataset.testIdentity = crypto.randomUUID();
+    window.galleryPrivacy.app.renderGallery('images');
+    return viewer.dataset.testIdentity;
+  });
+  assert.equal(await page.locator(`.image-viewer[data-test-identity="${viewerIdentity}"]`).count(), 1,
+    'A queued Safe refresh dismantled the open viewer');
+  assert.equal(await page.evaluate(() => window.galleryPrivacy.app.galleryRefreshPending), 'images',
+    'An open viewer did not defer the underlying Safe refresh');
+  assert.equal(await page.locator('[data-viewer-time]').getAttribute('datetime'), safeTimeOrder[0], 'Viewer did not show the selected image timestamp');
   await page.keyboard.press('ArrowRight');
-  assert.equal(await page.locator('[data-viewer-time]').getAttribute('datetime'), imageTimes[1], 'Viewer timestamp did not follow the current image index');
+  await page.waitForFunction(expected => document.querySelector('[data-viewer-time]')?.getAttribute('datetime') === expected, safeTimeOrder[1]);
+  assert.equal(await page.locator('[data-viewer-time]').getAttribute('datetime'), safeTimeOrder[1], 'Viewer timestamp did not follow the current image index');
   await page.keyboard.press('ArrowLeft');
+  await page.waitForFunction(expected => document.querySelector('[data-viewer-time]')?.getAttribute('datetime') === expected, safeTimeOrder[0]);
   if (visualQaDirectory) {
     await mkdir(visualQaDirectory, { recursive: true });
     await page.locator('.viewer-stage img').evaluate(async image => {
@@ -244,6 +476,8 @@ try {
   }
   await page.locator('[data-viewer-close]').tap();
   await page.locator('.image-viewer').waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(() => window.galleryPrivacy.app.galleryRefreshPending), null,
+    'Closing the viewer did not apply its deferred Safe refresh');
   await assertVisibility(6, 1, 'Viewer return');
   await page.locator('#gallery-tab-files').tap();
   await page.locator('#gallery-grid[aria-labelledby="gallery-tab-files"]').waitFor();
@@ -251,6 +485,9 @@ try {
   await page.locator('#gallery-tab-images').tap();
   await page.locator('#gallery-grid[aria-labelledby="gallery-tab-images"]').waitFor();
   await assertVisibility(6, 1, 'Tab roundtrip');
+  assert.equal(await page.locator('[data-gallery-count="images"]').textContent(), '6', 'Files-to-images tab switch added a provisional plus to the complete image count');
+  assert.equal(await page.locator('[data-gallery-count="files"]').textContent(), '1', 'Files-to-images tab switch added a provisional plus to the complete file count');
+  assert(!((await page.locator('.gallery-tabs').textContent()) ?? '').includes('+'), 'A stray plus appeared after switching from files to images');
   await page.locator('#gallery-toggle-visibility').tap();
   await assertVisibility(6, 6, 'Show all');
   await page.evaluate(() => window.galleryPrivacy.app.renderGallery());
@@ -270,6 +507,7 @@ try {
       const geometry = await page.evaluate(() => {
         const rect = element => { const r = element.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height, right: r.right }; };
         return { tabs: rect(document.querySelector('.gallery-tabs')), buttons: [...document.querySelectorAll('.gallery-header button')].map(rect), overflow: document.documentElement.scrollWidth > innerWidth,
+          scrollX: window.scrollX,
           labelsOverflow: [...document.querySelectorAll('.gallery-tab > span')].some(span => {
             const parent = span.parentElement.getBoundingClientRect(); const bounds = span.getBoundingClientRect();
             return bounds.left < parent.left || bounds.right > parent.right;
@@ -278,7 +516,9 @@ try {
       assert.equal(geometry.tabs.height, 44, `${label}: segmented tabs do not match 44px controls`);
       assert(geometry.buttons.every(button => button.height === 44 && button.width >= 44 && Math.abs(button.y - geometry.tabs.y) < 1), `${label}: toolbar targets are undersized or not aligned`);
       assert(geometry.buttons.every((button, index) => index === 0 || button.x >= geometry.buttons[index - 1].right - 1), `${label}: toolbar buttons overlap`);
-      assert(!geometry.overflow && !geometry.labelsOverflow, `${label}: toolbar text or viewport overflows`);
+      assert(geometry.tabs.x >= 0 && geometry.tabs.right <= page.viewportSize().width + 1
+        && geometry.buttons.every(button => button.x >= 0 && button.right <= page.viewportSize().width + 1), `${label}: toolbar controls leave the viewport`);
+      assert(!geometry.scrollX && !geometry.overflow && !geometry.labelsOverflow, `${label}: toolbar text or viewport overflows`);
     };
     for (const width of [316, 320, 390, 1280]) {
       await page.setViewportSize({ width, height: 844 });

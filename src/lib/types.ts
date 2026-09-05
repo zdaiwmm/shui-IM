@@ -285,21 +285,32 @@ export type AudioPayload = {
 
 export type ReactionEmoji = '❤️' | '👍' | '👎' | '😂' | '‼️' | '❓';
 
+/** Stable identity of one confirmed chat message. */
+export type MessageTarget = {
+  clientMsgId: string;
+  serverSeq: number;
+  senderId: string;
+};
+
 /** Encrypted event; one current reaction per participant, even across linked devices. */
 export type ReactionPayload = {
   v: 1;
   kind: 'reaction';
   sentAt: string;
-  target: {
-    clientMsgId: string;
-    serverSeq: number;
-    senderId: string;
-  };
+  target: MessageTarget;
   /** Null removes the participant's current reaction. */
   emoji: ReactionEmoji | null;
 };
 
-export type MessagePayload = TextPayload | ImagePayload | GalleryImagePayload | ImageAlbumPayload | AudioPayload | FilePayload | GalleryFilePayload | ReactionPayload;
+/** Encrypted, irreversible request to hide one confirmed chat message for everyone. */
+export type MessageDeletePayload = {
+  v: 1;
+  kind: 'message-delete';
+  sentAt: string;
+  target: MessageTarget;
+};
+
+export type MessagePayload = TextPayload | ImagePayload | GalleryImagePayload | ImageAlbumPayload | AudioPayload | FilePayload | GalleryFilePayload | ReactionPayload | MessageDeletePayload;
 
 export type RecipientWrap = {
   deviceId: string;

@@ -946,6 +946,17 @@ export async function createStore({
     };
   }
 
+  function getMessageByClientId(roomId, clientMsgId) {
+    const row = statements.messageByClientId.get(roomId, clientMsgId);
+    if (!row) return null;
+    return {
+      seq: row.server_seq,
+      senderId: row.sender_device_id,
+      acceptedAt: row.accepted_at,
+      envelope: JSON.parse(row.envelope),
+    };
+  }
+
   function savePushSubscription(roomId, deviceId, subscription) {
     if (getMember(roomId, deviceId)?.status !== 'active') throw new Error('MEMBER_NOT_FOUND');
     assertDeviceActive(roomId, deviceId);
@@ -1306,6 +1317,7 @@ export async function createStore({
     getBlobChunk,
     getMember,
     getMessage,
+    getMessageByClientId,
     healthCheck,
     insertMessage,
     insertReceipt,

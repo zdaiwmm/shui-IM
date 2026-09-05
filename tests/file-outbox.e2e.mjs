@@ -24,8 +24,8 @@ try {
     const { randomBase64Url } = await import('/src/lib/base64.ts');
     const check = (value, message) => { if (!value) throw Error(message); };
     const [identity, peerIdentity] = await Promise.all([generateIdentity(), generateIdentity()]);
-    const own = { ...identity.publicBundle, role: 'creator', status: 'active', capabilities: ['file-message-v1'] };
-    const peer = { ...peerIdentity.publicBundle, role: 'joiner', status: 'active', capabilities: ['file-message-v1'] };
+    const own = { ...identity.publicBundle, role: 'creator', status: 'active', capabilities: ['file-message-v1', 'reply-v2'] };
+    const peer = { ...peerIdentity.publicBundle, role: 'joiner', status: 'active', capabilities: ['file-message-v1', 'reply-v2'] };
     const session = { vault: { v: 1, roomId: crypto.randomUUID(), role: 'creator', protocol: 'legacy-v1', members: [own, peer], identity } };
     const root = document.querySelector('#app');
     const app = new QuietRoomApp(root);
@@ -70,10 +70,10 @@ try {
     const cases = [];
     try {
       for (const { label, payload } of payloads) {
-        peer.capabilities = ['file-message-v1'];
+        peer.capabilities = ['file-message-v1', 'reply-v2'];
         const item = await addPending(payload);
-        check(app.supportsFilePayload(payload), `${label}: fixture was not supported before the capability change`);
-        peer.capabilities = [];
+        check(app.payloadCapabilityError(payload) === null, `${label}: fixture was not supported before the capability change`);
+        peer.capabilities = ['reply-v2'];
         const sendsBefore = sent.length;
         const paintsBefore = renderCount;
         await app.attemptSend(item.clientMsgId);
@@ -82,10 +82,10 @@ try {
         check(app.pending.get(item.clientMsgId)?.status === 'failed', `${label}: blocked file has no retry state`);
         check(app.retryTimers.has(item.clientMsgId), `${label}: blocked file has no scheduled retry`);
         check(renderCount > paintsBefore, `${label}: the failed state was not rendered`);
-        check(document.querySelector('#notice').textContent.includes('文件已保留待发'), `${label}: missing compatibility explanation`);
+        check(document.querySelector('#notice').textContent.includes('已加密保存在本机待发'), `${label}: missing compatibility explanation`);
         check(!app.sending.has(item.clientMsgId), `${label}: blocked item remained in the sending set`);
 
-        peer.capabilities = ['file-message-v1'];
+        peer.capabilities = ['file-message-v1', 'reply-v2'];
         await app.attemptSend(item.clientMsgId);
         check(sent.length === sendsBefore + 1, `${label}: capability recovery did not resume sending`);
         check(sent.at(-1).envelope === item.envelope, `${label}: retry replaced the existing encrypted envelope`);
@@ -95,7 +95,7 @@ try {
         cases.push({ label, blocked: true, retained: true, recovered: true });
       }
 
-      peer.capabilities = [];
+      peer.capabilities = ['reply-v2'];
       const text = await addPending({ v: 1, kind: 'text', text: '普通文字继续发送', sentAt });
       const sendsBeforeText = sent.length;
       await app.attemptSend(text.clientMsgId);
@@ -105,11 +105,11 @@ try {
 
       // The no-envelope legacy path awaits real encryption. A peer can report
       // its older capability set before that asynchronous encryption returns.
-      peer.capabilities = ['file-message-v1'];
+      peer.capabilities = ['file-message-v1', 'reply-v2'];
       const duringEncryption = await addPending(payloads[0].payload, false);
       const sendsBeforeEncryption = sent.length;
       const encrypting = app.attemptSend(duringEncryption.clientMsgId);
-      peer.capabilities = [];
+      peer.capabilities = ['reply-v2'];
       await encrypting;
       check(sent.length === sendsBeforeEncryption, 'A capability change during encryption bypassed the final send gate');
       check(app.pending.get(duringEncryption.clientMsgId)?.status === 'failed', 'Capability change during encryption did not preserve a retry state');
@@ -125,7 +125,7 @@ try {
       for (const { label, payload } of payloads) {
         const item = [...app.outbox.values()].find(value => value.payload === payload && value.envelope);
         const originalEnvelope = item.envelope;
-        await app.reencryptOutboxItemLocked(item.clientMsgId, undefined);
+        await app.reencryptOutboxItemLocked(item.clientMsgId, undefined, item.envelope);
         check(JSON.stringify(session.vault.mls) === originalMls, `${label}: unsupported retry changed MLS state`);
         check(app.outbox.get(item.clientMsgId) === item && item.envelope === originalEnvelope, `${label}: unsupported MLS retry replaced a queued envelope`);
         check(app.pending.get(item.clientMsgId)?.status === 'failed', `${label}: unsupported MLS retry did not defer the item`);

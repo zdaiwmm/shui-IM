@@ -7,6 +7,8 @@ type MotionOptions = {
   now?: () => number;
 };
 
+export const CHAT_VIEWPORT_SETTLE_MS = 160;
+
 // Driven by the chat's existing viewport sampler. No timeout or independent
 // animation survives privacy teardown, and idle samples never measure content.
 export function createChatViewportMotion(options: MotionOptions) {
@@ -30,17 +32,20 @@ export function createChatViewportMotion(options: MotionOptions) {
       // Never expose an intermediate position, even if the browser reports
       // its first keyboard/toolbar frame before a preceding focus event.
       if (geometryChanged) conceal(true);
-      else if (manual && scrolled) conceal(false);
-      if (hidden && !touching && now() - lastMovement >= 80) {
+      else if (manual && scrolled) conceal(true);
+      // Safari can leave a quiet gap between the browser-toolbar and keyboard
+      // phases.  Wait through that gap, then let CSS perform the single,
+      // deliberate reveal from the settled bottom edge.
+      if (hidden && !touching && now() - lastMovement >= CHAT_VIEWPORT_SETTLE_MS) {
         hidden = false;
         manual = false;
         options.settled();
         options.reveal();
       }
     },
-    keyboard() { conceal(false); },
+    keyboard() { conceal(true); },
     touchStart() { touching = true; },
-    move() { manual = true; conceal(false); },
+    move() { manual = true; conceal(true); },
     automaticScroll() { manual = false; touching = false; },
     touchEnd() { touching = false; if (hidden) lastMovement = now(); },
     suspend() {

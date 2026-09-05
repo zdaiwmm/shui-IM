@@ -121,7 +121,8 @@ try {
   });
   await page.locator('#view-local-recovery').click();
   await page.locator('#verify-recovery-passkey').click();
-  await page.getByText('未完成设备安全验证', { exact: true }).waitFor();
+  await page.locator('#verify-recovery-passkey', { hasText: '重新验证' }).waitFor();
+  assert.equal(await page.locator('.form-error').textContent(), '');
   assert.equal(await page.locator('.local-recovery-code').count(), 0);
   await page.evaluate(() => Object.defineProperty(navigator.credentials, 'get', { configurable: true, value: window.originalCredentialGet }));
   await page.locator('#verify-recovery-passkey').click();
@@ -131,6 +132,7 @@ try {
   assert.equal(await page.evaluate(() => window.fixtureApp.session === null && window.fixtureApp.retainedSession === null), true);
   const mediaRestore = await page.evaluate(async () => {
     const v = await import('/src/lib/vault.ts');
+    const { reduceMessageDeletions } = await import('/src/lib/message-deletions.ts');
     const { generateIdentity } = await import('/src/lib/crypto.ts');
     const { randomBase64Url } = await import('/src/lib/base64.ts');
     const identity = await generateIdentity();
@@ -170,12 +172,42 @@ try {
       if (!page.hasMore) break;
       beforeSeq = page.beforeSeq;
     } while (true);
-    return { imported, duplicateImport, chatRemainsEmpty, noReplyTarget, sequences, bounded, pageCount };
+
+    // A gallery-only restore may receive the media and its later delete event
+    // from different archive pages. Keep the target out of chat/reply history,
+    // retain its encrypted media record, and restore the deletion projection.
+    const deletedTarget = { seq: 201, clientMsgId: crypto.randomUUID(), senderId: identity.publicBundle.deviceId,
+      payload: { v: 1, kind: 'image', image: manifest('deleted-photo.png', 'image/png'), sentAt },
+      acceptedAt: sentAt, status: 'stored' };
+    const deleteEvent = { seq: 402, clientMsgId: crypto.randomUUID(), senderId: identity.publicBundle.deviceId,
+      payload: { v: 1, kind: 'message-delete', sentAt,
+        target: { clientMsgId: deletedTarget.clientMsgId, serverSeq: deletedTarget.seq, senderId: deletedTarget.senderId } },
+      acceptedAt: sentAt, status: 'stored' };
+    const targetImport = await v.importArchivedMessages(session, [deletedTarget], 'gallery');
+    const deleteImport = await v.importArchivedMessages(session, [deleteEvent], 'gallery');
+    const restoredEvents = await v.loadMessageEventHistory(session);
+    const restoredMedia = (await v.loadMediaHistoryPage(session, { limit: 200 })).messages;
+    const roles = new Map([[identity.publicBundle.deviceId, 'creator']]);
+    const projectedBeforeDuplicate = reduceMessageDeletions([...restoredMedia, ...restoredEvents], roles);
+    const targetAbsentFromChat = await v.loadHistoryMessage(session, deletedTarget.seq) === null;
+    const targetRetainedAsMedia = restoredMedia.some(message => message.clientMsgId === deletedTarget.clientMsgId);
+    const restoredDeleteCount = restoredEvents.filter(message => message.clientMsgId === deleteEvent.clientMsgId).length;
+
+    // The same server event can later arrive through ordinary chat history.
+    // The merged event reader must still return exactly one projection event.
+    await v.saveHistoryMessage(session, deleteEvent);
+    const mergedEvents = await v.loadMessageEventHistory(session);
+    const mergedDeleteCount = mergedEvents.filter(message => message.clientMsgId === deleteEvent.clientMsgId).length;
+    return { imported, duplicateImport, chatRemainsEmpty, noReplyTarget, sequences, bounded, pageCount,
+      targetImport, deleteImport, targetAbsentFromChat, targetRetainedAsMedia, restoredDeleteCount, mergedDeleteCount,
+      deletedProjected: projectedBeforeDuplicate.has(deletedTarget.clientMsgId) };
   });
   assert.deepEqual(mediaRestore, { imported: 5, duplicateImport: 0, chatRemainsEmpty: true, noReplyTarget: true,
-    sequences: [7, 5, 4, 2, 1], bounded: true, pageCount: 4 });
+    sequences: [7, 5, 4, 2, 1], bounded: true, pageCount: 4,
+    targetImport: 1, deleteImport: 0, targetAbsentFromChat: true, targetRetainedAsMedia: true,
+    restoredDeleteCount: 1, mergedDeleteCount: 1, deletedProjected: true });
   console.log('Cloud backup lifecycle passed: durable lost-response retry, stable code, no secret persistence/upload, abort fencing, pending-recovery resume and fresh-passkey reveal cleanup.');
-  console.log('Media restore passed: legacy file videos retained, ordinary chat files excluded, no chat/reply history from gallery restore, bounded merged pagination and duplicate suppression.');
+  console.log('Media restore passed: legacy file videos retained, ordinary chat files excluded, no chat/reply history from gallery restore, bounded merged pagination, duplicate suppression and restored delete projections.');
 } finally {
   await browser?.close(); await vite?.close(); await service?.close(); await rm(dataDir, { recursive: true, force: true });
 }

@@ -72,7 +72,7 @@ body:has(.chat-shell) {
 .chat-header .icon-button,
 .chat-header .more-menu > summary,
 .chat-header .peer-summary,
-.composer .composer-field,
+.composer .composer-input-stack,
 .composer .icon-button,
 .composer .send-button {
   background-image: var(--glass-sheen);
@@ -80,7 +80,7 @@ body:has(.chat-shell) {
   backdrop-filter: var(--glass-filter);
   box-shadow: var(--glass-shadow);
 }
-.composer-field:has(textarea:focus) {
+.composer-input-stack:focus-within {
   background-color: var(--glass);
   border-color: color-mix(in oklch, var(--accent) 22%, var(--glass-border));
 }
@@ -167,17 +167,23 @@ body:has(.chat-shell) {
   z-index: 6;
   flex-wrap: wrap;
   opacity: 1;
-  transition: opacity 140ms ease-out;
+  transform: translate3d(0, 0, 0);
+  transition: opacity 280ms var(--motion-out), transform 280ms var(--motion-out);
 }
-.composer[data-viewport-motion] { opacity: 0; pointer-events: none; transition-duration: 70ms; }
+.composer[data-viewport-motion] {
+  opacity: 0;
+  transform: translate3d(0, 14px, 0);
+  pointer-events: none;
+  transition: none;
+}
 /* The first native viewport event can precede focus. Hide before changing its
    position; only the stable endpoint fades back in. Never hide/inert the field,
    which would surrender its focus, selection and keyboard during a send. */
-.composer[data-viewport-motion='positioning'] { transition: none; }
 .chat-shell .composer[data-viewport-motion] * { pointer-events: none; }
 html[data-keyboard-open='true'] .message-list:not(:has(.is-selecting-text)),
 .message-list[data-keyboard-gesture='true'] { touch-action: none; }
-.chat-header, .composer, .system-notices { will-change: translate; }
+.chat-header, .system-notices { will-change: translate; }
+.composer { will-change: translate, transform, opacity; }
 .chat-bottom-control {
   position: absolute;
   right: max(12px, calc((min(100vw, 880px) - 680px) / 2));
@@ -215,14 +221,6 @@ html:has(.chat-shell[inert]) { overflow: hidden; }
 html[data-keyboard-open='true'] .composer {
   min-height: 60px;
   padding-bottom: 8px;
-}
-.reply-draft {
-  position: static;
-  flex: 0 0 100%;
-  order: -1;
-  background-image: var(--glass-sheen);
-  -webkit-backdrop-filter: var(--glass-filter);
-  backdrop-filter: var(--glass-filter);
 }
 .upload-progress { flex: 0 0 100%; }
 @media (max-width: 360px) {

@@ -73,7 +73,7 @@ export type CallControllerOptions = {
   send: (envelope: CallEnvelope) => void;
   getIceConfig: () => Promise<CallIceConfiguration>;
   onChange: (state: CallState) => void;
-  onPermissionChange: (active: boolean) => void;
+  onPermissionChange: (active: boolean) => boolean | void | Promise<boolean | void>;
 };
 
 export type CallViewActions = {

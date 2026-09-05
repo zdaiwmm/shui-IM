@@ -94,13 +94,70 @@ describe('actual IndexedDB vault lifecycle and MLS mutations', () => {
         return encrypt(...args);
       } });
       let rejected = false;
-      try { await app.reencryptOutboxItem(item.clientMsgId); } catch { rejected = true; }
+      try { await app.reencryptOutboxItem(item.clientMsgId, item.envelope); } catch { rejected = true; }
       Object.defineProperty(crypto.subtle, 'encrypt', { configurable: true, value: encrypt });
       const result = { failed, rejected, sameItem: app.outbox.get(item.clientMsgId) === item, sameEnvelope: JSON.stringify(item.envelope) === beforeEnvelope, sameGroup: session.vault.mls.groupState === beforeGroup, sameStored: JSON.stringify(await readStoredVault()) === beforeStored };
       app.lockNow(); root.remove();
       return result;
     });
     expect(result).toEqual({ failed: true, rejected: true, sameItem: true, sameEnvelope: true, sameGroup: true, sameStored: true });
+  });
+
+  it('clears a replayed outbox row when its acknowledged history is already durable', async () => {
+    const result = await page.evaluate(async () => {
+      const importBrowser = new Function('path', 'return import(path)');
+      const { QuietRoomApp } = await importBrowser('/src/app.ts');
+      const { unlockVault, loadOutbox, saveHistoryMessage, saveVault, withVaultMutation } = await importBrowser('/src/lib/vault.ts');
+      const first = await unlockVault();
+      const item = (await loadOutbox(first))[0];
+      await withVaultMutation(first, async mutation => {
+        await saveHistoryMessage(first, {
+          seq: 2,
+          clientMsgId: item.clientMsgId,
+          senderId: first.vault.identity.publicBundle.deviceId,
+          payload: item.payload,
+          acceptedAt: item.createdAt,
+          status: 'stored',
+        }, mutation);
+        first.vault.lastSeq = 2;
+        await saveVault(first, mutation);
+      });
+
+      const session = await unlockVault();
+      const stranded = (await loadOutbox(session))[0];
+      const root = document.createElement('div'); document.body.append(root);
+      const app = new QuietRoomApp(root);
+      app.session = session;
+      app.privacyCovered = false;
+      app.runtimeEpoch++;
+      app.runtimeAbort = new AbortController();
+      app.renderMessages = () => undefined;
+      app.outbox = new Map([[stranded.clientMsgId, stranded]]);
+      app.pending = new Map([[stranded.clientMsgId, {
+        seq: Number.MAX_SAFE_INTEGER,
+        clientMsgId: stranded.clientMsgId,
+        senderId: session.vault.identity.publicBundle.deviceId,
+        payload: stranded.payload,
+        acceptedAt: stranded.createdAt,
+        status: 'pending',
+      }]]);
+      let syncRequests = 0;
+      const roomSocket = { requestSync: () => { syncRequests++; } };
+      app.socket = roomSocket;
+      await app.reconcileMessageAck(stranded.clientMsgId, 2, roomSocket, app.runtimeEpoch, session);
+      const durableOutbox = await loadOutbox(session);
+      const response = {
+        durable: durableOutbox.length,
+        memory: app.outbox.size,
+        pending: app.pending.size,
+        syncRequests,
+      };
+      app.runtimeAbort.abort();
+      app.session = null;
+      root.remove();
+      return response;
+    });
+    expect(result).toEqual({ durable: 0, memory: 0, pending: 0, syncRequests: 0 });
   });
 
   it('unlocks after pending crypto and rejects stale and cross-room session writes', async () => {

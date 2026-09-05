@@ -203,14 +203,20 @@ try {
   await page.clock.runFor(999);
   await assertCovered(page);
   await page.clock.runFor(1);
-  assert.equal(await page.locator('.cover-trigger.is-opening').count(), 1, 'The full hold must begin its short feedback circle');
-  await page.mouse.up();
-  await page.clock.runFor(179);
-  await assertCovered(page);
-  await page.clock.runFor(1);
+  const feedback = await page.locator('.cover-activation-feedback').evaluate(element => {
+    const style = getComputedStyle(element);
+    const bounds = element.getBoundingClientRect();
+    return { animation: style.animationName, width: bounds.width, height: bounds.height };
+  });
+  assert.equal(await page.locator('.cover-activation-feedback').isVisible(), true, 'Activation feedback must be visibly rendered');
+  assert.notEqual(feedback.animation, 'none', 'Completing the hold must paint the activation feedback animation');
+  assert.ok(feedback.width > 0 && feedback.height > 0, 'Activation feedback must have a visible painted box');
   await page.locator('.chat-shell').waitFor();
+  await page.mouse.up();
   assert.equal((await state(page)).resumed, 1, 'The existing corner hold must use the same retained-session gateway');
-  results.cornerHoldResumes = { target: 80, hold: 1000, reveal: 180, captureKeepsSmallDrift: true, releaseAfterThresholdCommits: true };
+  await page.clock.runFor(520);
+  assert.equal(await page.locator('.cover-activation-feedback').count(), 0, 'Activation feedback must clean itself up');
+  results.cornerHoldResumes = { target: 80, hold: 1000, immediateEntry: true, visibleFeedback: true, captureKeepsSmallDrift: true, releaseAfterThresholdCommits: true };
 
   const cornerDown = async targetPage => {
     const box = await targetPage.locator('.cover-trigger').boundingBox();
@@ -218,23 +224,25 @@ try {
     await targetPage.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
     await targetPage.mouse.down();
   };
-  for (const cancellation of ['release', 'blur', 'hidden', 'manual', 'pointercancel']) {
+  for (const cancellation of ['release', 'blur', 'hidden', 'manual', 'pointercancel', 'entry-epoch']) {
     await cover(page);
     await cornerDown(page);
-    await page.clock.runFor(cancellation === 'release' ? 999 : 1000);
+    await page.clock.runFor(cancellation === 'release' ? 999 : 400);
     if (cancellation === 'release') await page.mouse.up();
     else if (cancellation === 'blur') await page.evaluate(() => { window.privacyFixture.blur(); window.privacyFixture.focus(); });
     else if (cancellation === 'hidden') await page.evaluate(() => { window.privacyFixture.visibility(true); window.privacyFixture.visibility(false); });
     else if (cancellation === 'manual') await page.evaluate(() => window.privacyFixture.app.lockNow());
-    else await page.locator('.cover-trigger').dispatchEvent('pointercancel', { pointerId: 1 });
+    else if (cancellation === 'pointercancel') await page.locator('.cover-trigger').dispatchEvent('pointercancel', { pointerId: 1 });
+    else await page.evaluate(() => { window.privacyFixture.app.coverEntryEpoch += 1; });
     await page.mouse.up();
-    await page.clock.runFor(200);
+    await page.clock.runFor(cancellation === 'release' ? 200 : 700);
     await assertCovered(page, cancellation !== 'manual');
-    assert.equal(await page.locator('.cover-trigger.is-opening').count(), 0);
+    assert.equal(await page.locator('.cover-activation-feedback').count(), 0);
     assert.equal((await state(page)).resumed, 0, `${cancellation} must not leave a pending reveal`);
   }
-  // Simulate iOS activation updating hasFocus after pointerdown, without a
-  // window focus event. The completion check still requires focus.
+  // Simulate iOS updating hasFocus after pointer delivery, without a window
+  // focus event. A trusted primary pointer in the sole cover hot-zone is the
+  // return edge; real blur/hidden still increment the entry epoch above.
   await cover(page);
   await page.evaluate(() => window.privacyFixture.setFocused(false));
   await cornerDown(page);
@@ -244,23 +252,29 @@ try {
   await page.mouse.up();
   await page.locator('.chat-shell').waitFor();
   assert.equal((await state(page)).resumed, 1);
+  await page.clock.runFor(340);
   await cover(page);
   await page.evaluate(() => window.privacyFixture.setFocused(false));
   await cornerDown(page);
-  await page.clock.runFor(1180);
+  await page.clock.runFor(1000);
+  await page.locator('.chat-shell').waitFor();
+  assert.equal((await state(page)).resumed, 1, 'A trusted cover pointer must not depend on the transient hasFocus value');
+  assert.equal(await page.locator('.cover-activation-feedback').count(), 1);
   await page.mouse.up();
-  await assertCovered(page);
   await page.evaluate(() => window.privacyFixture.setFocused(true));
+  await page.clock.runFor(520);
   // A missed focus event can leave the opaque curtain over a safe cover. The
   // corner forwards this fresh pointer only; other points leave it opaque.
+  await cover(page);
   await page.evaluate(() => window.privacyFixture.app.obscurePrivacySurface());
   await page.mouse.click(40, 40);
   assert.equal(await page.locator('html.privacy-obscured').count(), 1);
   await cornerDown(page);
-  await page.clock.runFor(1180);
-  await page.mouse.up();
+  await page.clock.runFor(1000);
   await page.locator('.chat-shell').waitFor();
+  await page.mouse.up();
   assert.equal((await state(page)).resumed, 1);
+  await page.clock.runFor(520);
   // The same curtain callback must never reveal an active private screen.
   await page.evaluate(() => window.privacyFixture.app.obscurePrivacySurface());
   await page.mouse.click(corner.x + corner.width / 2, corner.y + corner.height / 2);
@@ -275,20 +289,23 @@ try {
   });
   await page.mouse.up();
   await cornerDown(page);
-  await page.clock.runFor(1180);
-  await page.mouse.up();
+  await page.clock.runFor(1000);
   await page.locator('.chat-shell').waitFor();
+  await page.mouse.up();
   assert.equal((await state(page)).resumed, 1, 'A missed pointerup after departure must not block the next hold');
+  await page.clock.runFor(520);
   const reducedPage = await createPage({ reducedMotion: 'reduce' });
   await cover(reducedPage);
+  await reducedPage.evaluate(() => window.privacyFixture.setFocused(false));
   await cornerDown(reducedPage);
   assert.equal(await reducedPage.locator('.cover-trigger.is-holding').count(), 1, 'Reduced motion hold must start');
   await reducedPage.clock.runFor(1000);
-  assert.equal(await reducedPage.locator('.cover-trigger.is-opening').count(), 0, 'Reduced motion must not start the expanding circle');
+  assert.equal(await reducedPage.locator('.cover-activation-feedback').count(), 0, 'Reduced motion must skip the expanding feedback');
   await reducedPage.mouse.up();
   await reducedPage.locator('.chat-shell').waitFor();
+  assert.equal((await state(reducedPage)).resumed, 1, 'Reduced-motion trusted entry must not depend on a lagging hasFocus value');
   await reducedPage.close();
-  results.cornerLifecycle = { canceledBeforeThresholdAndDuringReveal: true, delayedFocusAccepted: true, missingFocusRejected: true, safeCurtainRecovery: true, privateCurtainUnchanged: true, missedPointerReleaseRecovered: true, reducedMotionSkipsReveal: true };
+  results.cornerLifecycle = { canceledBeforeThreshold: true, actualDepartureRejected: true, entryEpochRejected: true, delayedFocusAccepted: true, transientMissingFocusAccepted: true, safeCurtainRecovery: true, privateCurtainUnchanged: true, missedPointerReleaseRecovered: true, reducedMotionSkipsFeedback: true };
 
   await cover(page);
   await page.evaluate(async () => {
@@ -452,22 +469,31 @@ try {
       prfOutput: new Uint8Array(32).fill(5),
     });
     fixture.attempts = [];
+    fixture.unlockClickEvents = [];
+    document.addEventListener('click', event => {
+      if (event.target instanceof Element && event.target.closest('#passkey-unlock')) {
+        fixture.unlockClickEvents.push(event.isTrusted);
+      }
+    }, { capture: true });
     fixture.app.renderUnlock = fixture.renderUnlock;
     fixture.app.withDeviceVerification = () => new Promise((resolve, reject) => fixture.attempts.push({ resolve, reject }));
   });
   await cornerDown(unlockPage);
-  await unlockPage.clock.runFor(1000);
-  assert.equal(await unlockPage.locator('.cover-trigger.is-opening').count(), 1);
+  await unlockPage.clock.runFor(999);
   assert.equal(await unlockPage.evaluate(() => window.privacyFixture.attempts.length), 0);
-  await unlockPage.mouse.up();
-  await unlockPage.clock.runFor(180);
+  await unlockPage.clock.runFor(1);
   await unlockPage.waitForFunction(() => window.privacyFixture.attempts.length === 1);
+  assert.equal(await unlockPage.locator('.cover-activation-feedback').count(), 1, 'Trusted completion must show feedback while verification begins');
+  assert.deepEqual(await unlockPage.evaluate(() => window.privacyFixture.unlockClickEvents), [], 'Trusted entry must call the unlock operation directly, without button.click()');
   assert.equal(await unlockPage.locator('#passkey-unlock').isDisabled(), true, 'Entering the gateway must start device verification immediately');
-  await unlockPage.evaluate(() => window.privacyFixture.app.lockNow());
-  await cornerDown(unlockPage);
-  await unlockPage.clock.runFor(1180);
   await unlockPage.mouse.up();
+  await unlockPage.evaluate(() => window.privacyFixture.app.lockNow());
+  assert.equal(await unlockPage.locator('.cover-activation-feedback').count(), 0, 'Explicit locking must remove in-flight activation feedback immediately');
+  await cornerDown(unlockPage);
+  await unlockPage.clock.runFor(1000);
   await unlockPage.waitForFunction(() => window.privacyFixture.attempts.length === 2);
+  await unlockPage.mouse.up();
+  await unlockPage.clock.runFor(520);
   await unlockPage.evaluate(async () => {
     const fixture = window.privacyFixture;
     fixture.attempts[0].resolve(fixture.session);
@@ -477,14 +503,70 @@ try {
   assert.equal((await state(unlockPage)).resumed, 0, 'An obsolete unlock must never restore private content');
   assert.equal(await unlockPage.locator('#passkey-unlock').isDisabled(), true);
   await unlockPage.evaluate(async () => {
-    window.privacyFixture.attempts[1].reject(new DOMException('验证已取消，请重试', 'NotAllowedError'));
+    const { PlatformVaultCancellationError } = await import('/src/lib/platform-vault.ts');
+    window.privacyFixture.attempts[1].reject(new PlatformVaultCancellationError());
     await Promise.resolve(); await Promise.resolve();
   });
+  await unlockPage.waitForFunction(() => !window.privacyFixture.app.unlocking);
   assert.equal(await unlockPage.locator('#passkey-unlock').isEnabled(), true);
-  assert.match(await unlockPage.locator('.form-error').innerText(), /验证已取消/);
+  assert.equal(await unlockPage.locator('.form-error').innerText(), '', 'Cancellation must not leave a red error message');
+  assert.equal(await unlockPage.locator('#passkey-unlock').innerText(), '重新验证');
   await unlockPage.locator('#passkey-unlock').click();
   assert.equal(await unlockPage.evaluate(() => window.privacyFixture.attempts.length), 3, 'Canceling verification must leave a usable retry');
+  assert.deepEqual(await unlockPage.evaluate(() => window.privacyFixture.unlockClickEvents), [true], 'Only the explicit retry may dispatch a button click');
+  await unlockPage.evaluate(async () => {
+    window.privacyFixture.attempts[2].reject(new Error('合成的非取消验证失败'));
+    await Promise.resolve(); await Promise.resolve();
+  });
+  await unlockPage.waitForFunction(() => !window.privacyFixture.app.unlocking);
+  assert.match(await unlockPage.locator('.form-error').innerText(), /合成的非取消验证失败/, 'Non-cancellation failures must remain visible');
+  const errorPaint = await unlockPage.locator('.form-error').evaluate(element => {
+    const probe = document.createElement('span');
+    probe.style.color = 'var(--danger)';
+    document.body.append(probe);
+    const result = { actual: getComputedStyle(element).color, danger: getComputedStyle(probe).color };
+    probe.remove();
+    return result;
+  });
+  assert.equal(errorPaint.actual, errorPaint.danger, 'Non-cancellation failures must retain the danger/red treatment');
   await unlockPage.evaluate(() => window.privacyFixture.app.lockNow());
+
+  // Even a trusted pointer cannot authorize a later async storage result after
+  // hidden or a changed cover-entry epoch. Hold the vault lock so each change
+  // lands after the gesture commits but before renderUnlock can start WebAuthn.
+  for (const boundary of ['entry-epoch', 'hidden']) {
+    await unlockPage.evaluate(async () => {
+      const fixture = window.privacyFixture;
+      let acquired;
+      const ready = new Promise(resolve => { acquired = resolve; });
+      fixture.pendingVaultLease = navigator.locks.request('quiet-room:vault:current', async () => {
+        acquired(); await new Promise(resolve => { fixture.releaseVaultLease = resolve; });
+      });
+      await ready;
+    });
+    await cornerDown(unlockPage);
+    await unlockPage.clock.runFor(1000);
+    await unlockPage.waitForFunction(async () => (await navigator.locks.query()).pending.some(lock => lock.name === 'quiet-room:vault:current'));
+    assert.equal(await unlockPage.evaluate(() => window.privacyFixture.attempts.length), 3);
+    await unlockPage.evaluate(boundary => {
+      const fixture = window.privacyFixture;
+      if (boundary === 'hidden') fixture.visibility(true);
+      else fixture.app.coverEntryEpoch += 1;
+      fixture.releaseVaultLease();
+    }, boundary);
+    await unlockPage.evaluate(async () => {
+      const fixture = window.privacyFixture;
+      await fixture.pendingVaultLease;
+      await navigator.locks.request('quiet-room:vault:current', () => {});
+      await Promise.resolve(); await Promise.resolve();
+    });
+    if (boundary === 'hidden') await unlockPage.evaluate(() => { window.privacyFixture.visibility(false); window.privacyFixture.focus(); });
+    await unlockPage.waitForFunction(() => window.privacyFixture.app.privacyCovered);
+    await unlockPage.mouse.up();
+    await assertCovered(unlockPage, false);
+    assert.equal(await unlockPage.evaluate(() => window.privacyFixture.attempts.length), 3, `${boundary} must block the late direct verification`);
+  }
+
   await unlockPage.evaluate(async () => {
     const fixture = window.privacyFixture;
     let acquired;
@@ -502,7 +584,7 @@ try {
     await fixture.pendingVaultLease;
     await Promise.all([fixture.pendingUnlockRender, fixture.newUnlockRender]);
   });
-  assert.equal(await unlockPage.evaluate(() => window.privacyFixture.attempts.length), 4, 'A stale storage read must not render or auto-start an extra verification');
+  assert.equal(await unlockPage.evaluate(() => window.privacyFixture.attempts.length), 3, 'A stale storage read must not render or auto-start an extra verification');
   await unlockPage.evaluate(() => window.privacyFixture.app.lockNow());
   for (const entry of ['renderUnlock', 'renderGateway']) {
     await unlockPage.evaluate(async entry => {
@@ -521,9 +603,9 @@ try {
       await fixture.pendingEntry;
     }, entry);
     await assertCovered(unlockPage, false);
-    assert.equal(await unlockPage.evaluate(() => window.privacyFixture.attempts.length), 4, 'A focus departure during storage reads must prevent automatic verification');
+    assert.equal(await unlockPage.evaluate(() => window.privacyFixture.attempts.length), 3, 'A focus departure during storage reads must prevent automatic verification');
   }
-  results.modernUnlock = { startsImmediatelyAfterReveal: true, lateSuccessIgnored: true, newerBusyStateRetained: true, cancellationRetry: true, staleStorageReadIgnored: true, storageReadDepartureCovered: true };
+  results.modernUnlock = { startsDirectlyAtTrustedThreshold: true, noProgrammaticButtonClick: true, visibleActivationFeedback: true, lateSuccessIgnored: true, newerBusyStateRetained: true, cancellationSilentRetry: true, otherErrorsVisible: true, trustedReadStillChecksHiddenAndEntryEpoch: true, staleStorageReadIgnored: true, storageReadDepartureCovered: true };
   await unlockPage.close();
 
   const exclusions = [

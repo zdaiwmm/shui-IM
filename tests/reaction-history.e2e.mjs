@@ -28,7 +28,7 @@ try {
     // Initialize the real production database schema before inserting fixtures.
     await loadHistoryPageAfter(session);
     const encoder = new TextEncoder();
-    const records = await Promise.all(Array.from({ length: 450 }, async (_, index) => {
+    const validRecords = await Promise.all(Array.from({ length: 450 }, async (_, index) => {
       const seq = index + 1;
       const payload = seq === 5 || seq === 405
         ? { v: 1, kind: 'reaction', sentAt, target: { clientMsgId: targetId, serverSeq: 1, senderId }, emoji: seq === 5 ? '❤️' : '👍' }
@@ -42,9 +42,14 @@ try {
       );
       return {
         id: `${roomId}:${seq}`, roomId, seq, iv: toBase64Url(iv),
-        // A whole corrupt middle page must not hide the newer valid reaction.
-        ciphertext: seq > 200 && seq <= 400 ? 'corrupt' : toBase64Url(ciphertext),
+        ciphertext: toBase64Url(ciphertext),
       };
+    }));
+    const records = validRecords.map(record => ({
+      ...record,
+      // Payload kind is encrypted, so a corrupt row could be a delete event.
+      // The projection scan must fail closed instead of skipping this page.
+      ciphertext: record.seq > 200 && record.seq <= 400 ? 'corrupt' : record.ciphertext,
     }));
     const database = await new Promise((resolve, reject) => {
       const request = indexedDB.open('quiet-room');
@@ -59,6 +64,22 @@ try {
     });
     database.close();
     const corruptPage = await loadHistoryPageAfter(session, { afterSeq: 200 });
+    let integrityError = '';
+    try { await loadReactionHistory(session); }
+    catch (error) { integrityError = error.message; }
+
+    const repairDatabase = await new Promise((resolve, reject) => {
+      const request = indexedDB.open('quiet-room');
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise((resolve, reject) => {
+      const transaction = repairDatabase.transaction('history', 'readwrite');
+      for (const record of validRecords) transaction.objectStore('history').put(record);
+      transaction.oncomplete = resolve;
+      transaction.onerror = () => reject(transaction.error);
+    });
+    repairDatabase.close();
     const reactions = await loadReactionHistory(session);
     const badges = reduceMessageReactions([target, ...reactions], new Map([[senderId, 'creator']]));
 
@@ -76,6 +97,7 @@ try {
     finally { Object.defineProperty(crypto.subtle, 'decrypt', { configurable: true, value: originalDecrypt }); }
     return {
       corruptPageCount: corruptPage.length,
+      integrityFailedClosed: integrityError.includes('已损坏') && integrityError.includes('停止显示'),
       reactionSequences: reactions.map((message) => message.seq),
       latestEmoji: badges.get(targetId)?.[0]?.emoji,
       abortName,
@@ -84,12 +106,13 @@ try {
   });
   assert.deepEqual(result, {
     corruptPageCount: 0,
+    integrityFailedClosed: true,
     reactionSequences: [5, 405],
     latestEmoji: '👍',
     abortName: 'AbortError',
     decryptions: 205,
   });
-  console.log('PASS encrypted reaction history: pagination, corrupt-page recovery, and mid-scan cancellation');
+  console.log('PASS encrypted event history: ordinary-page tolerance, strict projection integrity, repair, and cancellation');
   const restored = await page.evaluate(async () => {
     const importBrowser = new Function('path', 'return import(path)');
     await importBrowser('/src/styles.css');
@@ -120,16 +143,80 @@ try {
     app.connectSocket = async () => {};
     app.unreadCounter.configure = async () => {};
     await app.openSession();
-    const result = {
+    const restoreSnapshot = {
       visibleTexts: [...root.querySelectorAll('.message-text')].map(element => element.textContent),
       badges: [...root.querySelectorAll('.message-reaction')].map(element => element.textContent),
       visibleRows: root.querySelectorAll('.message').length,
     };
+
+    // The socket ACK updates status before sync supplies a real sequence. Use
+    // an isolated target with no older reaction so the pre-fix failure removes
+    // the badge entirely, then require the same DOM node to remain mounted.
+    const ackTarget = {
+      seq: 402,
+      senderId: peerId,
+      clientMsgId: crypto.randomUUID(),
+      status: 'delivered',
+      acceptedAt: sentAt,
+      payload: { v: 1, kind: 'text', text: 'ACK reaction target', sentAt },
+    };
+    app.messages.set(ackTarget.seq, ackTarget);
+    app.renderMessages({ scroll: 'preserve' });
+    const optimistic = {
+      seq: Number.MAX_SAFE_INTEGER,
+      senderId: ownId,
+      clientMsgId: crypto.randomUUID(),
+      status: 'pending',
+      acceptedAt: sentAt,
+      payload: {
+        v: 1,
+        kind: 'reaction',
+        sentAt,
+        target: {
+          clientMsgId: ackTarget.clientMsgId,
+          serverSeq: ackTarget.seq,
+          senderId: ackTarget.senderId,
+        },
+        emoji: '👍',
+      },
+    };
+    app.pending.set(optimistic.clientMsgId, optimistic);
+    app.renderMessages({ scroll: 'preserve' });
+    const badgeSelector = `.message[data-client-msg-id="${CSS.escape(ackTarget.clientMsgId)}"] .message-reaction[data-role="creator"]`;
+    const beforeAck = root.querySelector(badgeSelector);
+    const beforeAckState = {
+      emoji: beforeAck?.textContent,
+      pending: beforeAck?.dataset.pending,
+      connected: beforeAck?.isConnected,
+    };
+    optimistic.status = 'stored';
+    app.renderMessages({ scroll: 'preserve' });
+    const afterAck = root.querySelector(badgeSelector);
+    const ackProjection = {
+      before: beforeAckState,
+      after: {
+        emoji: afterAck?.textContent,
+        pending: afterAck?.dataset.pending,
+        connected: afterAck?.isConnected,
+      },
+      sameNode: beforeAck === afterAck,
+      originalNodeStillConnected: beforeAck?.isConnected,
+    };
     app.lockNow(); root.remove();
-    return result;
+    return { ...restoreSnapshot, ackProjection };
   });
-  assert.deepEqual(restored, { visibleTexts: ['最早的聊天消息'], badges: ['👍'], visibleRows: 1 });
-  console.log('PASS session restore: 400 trailing reaction events still restore the earlier chat message and latest badge');
+  assert.deepEqual(restored, {
+    visibleTexts: ['最早的聊天消息'],
+    badges: ['👍'],
+    visibleRows: 1,
+    ackProjection: {
+      before: { emoji: '👍', pending: 'true', connected: true },
+      after: { emoji: '👍', pending: 'true', connected: true },
+      sameNode: true,
+      originalNodeStillConnected: true,
+    },
+  });
+  console.log('PASS session restore and ACK projection: trailing reactions restore, and stored+MAX keeps the optimistic badge mounted');
 } finally {
   await browser?.close();
   await server.close();

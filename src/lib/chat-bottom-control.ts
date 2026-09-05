@@ -5,6 +5,7 @@ type BottomControlOptions = {
   list: HTMLElement;
   latest: () => HTMLElement | undefined;
   hasNewer: () => boolean;
+  visibilityTop?: () => number;
   targetScrollTop: () => number;
   active: () => boolean;
   begin: () => void;
@@ -55,7 +56,7 @@ export function mountChatBottomControl(options: BottomControlOptions) {
       mutations.observe(options.list, { subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'hidden', 'class', 'data-image-state'] });
     }
     lastGeometry = geometry; lastMessage = latest;
-    setVisible(hasNewer || latest.getBoundingClientRect().bottom > button.getBoundingClientRect().top);
+    setVisible(hasNewer || latest.getBoundingClientRect().bottom > (options.visibilityTop?.() ?? button.getBoundingClientRect().top));
   };
   const scheduleResize = () => {
     if (destroyed || resizeFrame !== null) return;

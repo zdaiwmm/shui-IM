@@ -198,6 +198,7 @@ try {
   assert.equal(manuallyLocked.active, false);
   assert.equal(manuallyLocked.retained, false);
   await holdF(creator);
+  await creator.locator('#passkey-unlock').click();
   await expectChat(creator);
   assert.equal(await verificationCount(creator), initialVerifications + 1, 'Manual lock must perform fresh device verification');
   await creator.getByText(firstMessage, { exact: true }).waitFor();
@@ -208,6 +209,7 @@ try {
   assert.equal(reloaded.active, false);
   assert.equal(reloaded.retained, false);
   await holdF(creator);
+  await creator.locator('#passkey-unlock').click();
   await expectChat(creator);
   assert.equal(await verificationCount(creator), initialVerifications + 2, 'Reload must perform fresh device verification');
   await send(creator, 'desktop-session-after-fresh-verification');

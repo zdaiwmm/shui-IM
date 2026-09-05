@@ -149,15 +149,17 @@ try {
     } });
     await app.renderUnlock();
   });
-  await page.locator('.gateway-unlock .form-error:not(:empty)').waitFor();
+  await page.locator('#passkey-unlock').click();
+  await page.getByRole('button', { name: '重新验证', exact: true }).waitFor();
+  assert.equal(await page.locator('.gateway-unlock .form-error').textContent(), '', 'cancelled passkey verification left a red error message');
   assert.equal(await page.locator('.gateway-unlock button').count(), 1, 'unlock contains only the requested passkey action');
   assert.equal(await page.locator('.gateway-unlock .gateway-heading, .gateway-unlock .gateway-mark, .gateway-unlock .privacy-note').count(), 0, 'unlock decorations are removed');
   assert.equal(await page.locator('#passkey-unlock').evaluate(button => {
     const box = button.getBoundingClientRect();
     const error = document.querySelector('.gateway-unlock .form-error').getBoundingClientRect();
     return innerHeight - box.bottom >= 20 && innerHeight - box.bottom <= 32 && error.bottom <= box.top - 8;
-  }), true, 'unlock button stays at the bottom and a retry error cannot overlap it');
-  await snapshot(page, 'unlock-minimal-error-mobile', false);
+  }), true, 'unlock button stays at the bottom and the neutral retry state cannot overlap it');
+  await snapshot(page, 'unlock-minimal-cancel-mobile', false);
   const admin = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = []; admin.on('pageerror', error => errors.push(error.message));
   await admin.goto(`http://localhost:${port}`);

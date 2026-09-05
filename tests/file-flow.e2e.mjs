@@ -50,6 +50,9 @@ try {
     const vault = await import('/src/lib/vault.ts');
     const root = document.querySelector('#app');
     const app = new QuietRoomApp(root);
+    root.addEventListener('click', event => {
+      if (event.target instanceof HTMLInputElement && event.target.type === 'file') event.preventDefault();
+    }, true);
     const own = { deviceId: crypto.randomUUID(), role: 'creator', status: 'active', capabilities: ['image-album-v1', 'file-message-v1'] };
     const session = await vault.createVault({
       v: 1, roomId: crypto.randomUUID(), accessToken: 'file-flow-test', role: 'creator', protocol: 'legacy-v1',
@@ -134,6 +137,7 @@ try {
     const choose = (destination, files) => {
       const input = root.querySelector(destination === 'gallery' ? '#gallery-image-input' : '#image-input');
       check(input && input.multiple, `${destination}: multiple file selection is unavailable`);
+      input.dispatchEvent(new Event('click'));
       const transfer = new DataTransfer();
       files.forEach(file => transfer.items.add(file));
       input.files = transfer.files;
@@ -322,39 +326,63 @@ try {
     return { originalBlobReused: true, queuedExactlyOnce: true, resumePlanCleared: true };
   });
 
-  results.deferredSelection = [];
+  results.pickerLifecycle = [];
   for (const destination of ['chat', 'gallery']) {
     for (const order of ['focus-before-change', 'change-before-focus']) {
       await page.evaluate(({ destination, order }) => {
         const f = window.fileFlow;
         f.fresh(destination);
-        const input = f.root.querySelector(destination === 'gallery' ? '#gallery-image-input' : '#image-input');
-        input.addEventListener('click', event => event.preventDefault());
         f.root.querySelector(destination === 'gallery' ? '#open-gallery-image-picker' : '#open-image-picker').click();
+        const input = f.app.imagePickerInput;
         f.blur();
         f.check(!f.app.privacyCovered && input.isConnected && input.hidden, 'Owned foreground picker blur locked or detached its selection input');
         f.focus();
         f.blur();
-        f.check(f.app.privacyCovered && input.isConnected && input.hidden, 'A later departure did not preserve a hidden selection input behind the cover');
+        f.check(f.app.privacyCovered && !input.isConnected && !f.app.imagePickerActive,
+          'A later departure retained a stale native selection input behind the cover');
         if (order === 'focus-before-change') f.focus();
         const transfer = new DataTransfer();
         f.fixtures().slice(1).forEach(file => transfer.items.add(file));
         input.files = transfer.files; input.dispatchEvent(new Event('change'));
         if (order === 'change-before-focus') f.focus();
-        f.check(f.app.privacyCovered && f.sent.length === 0, 'File selection uploaded before unlock');
-        f.check(f.app.deferredImageUpload?.files.length === 2, 'Locked picker discarded a non-image selection');
-        f.check(f.app.deferredImageUpload.files[1].type === '', 'Picker mutated the original unknown MIME before upload');
+        f.check(f.app.privacyCovered && f.sent.length === 0, 'Invalidated file selection uploaded before unlock');
+        f.check(!f.app.deferredImageUpload, 'Invalidated picker retained a deferred upload');
         f.reopen(destination);
         window.fileFlow.resume = f.app.resumeDeferredImage();
       }, { destination, order });
       await page.evaluate(() => window.fileFlow.resume);
-      const state = await page.evaluate(() => {
+      const invalidated = await page.evaluate(() => {
         const f = window.fileFlow;
-        f.check(f.sent.length === 2 && !f.app.deferredImageUpload, 'Non-image selection did not resume exactly once after unlock');
-        f.check(JSON.stringify(f.selectedNames()) === '["说明书.pdf","opaque.unknown"]', 'Unlock lost the selected file order');
+        f.check(f.sent.length === 0 && !f.app.deferredImageUpload, 'Invalidated selection resumed after unlock');
+        return { lateSelectionIgnored: true, mustReselect: true };
+      });
+
+      await page.evaluate(({ destination, order }) => {
+        const f = window.fileFlow;
+        f.fresh(destination);
+        f.root.querySelector(destination === 'gallery' ? '#open-gallery-image-picker' : '#open-image-picker').click();
+        const input = f.app.imagePickerInput;
+        f.blur();
+        const transfer = new DataTransfer();
+        f.fixtures().slice(1).forEach(file => transfer.items.add(file));
+        input.files = transfer.files;
+        if (order === 'focus-before-change') {
+          f.focus();
+          input.dispatchEvent(new Event('change'));
+        } else {
+          input.dispatchEvent(new Event('change'));
+          f.focus();
+        }
+      }, { destination, order });
+      await page.waitForFunction(() => window.fileFlow.sent.length === 2 && !window.fileFlow.app.imageBatchUploading);
+      const foreground = await page.evaluate(() => {
+        const f = window.fileFlow;
+        f.check(!f.app.privacyCovered && !f.app.deferredImageUpload, 'Foreground selection locked or remained deferred');
+        f.check(JSON.stringify(f.selectedNames()) === '["说明书.pdf","opaque.unknown"]', 'Foreground return lost the selected file order');
+        f.check(f.sent[1].payload.file.mimeType === '', 'Picker mutated the original unknown MIME before upload');
         return { kinds: f.selectedKinds(), names: f.selectedNames() };
       });
-      results.deferredSelection.push({ destination, order, ...state });
+      results.pickerLifecycle.push({ destination, order, ...invalidated, foreground });
     }
   }
   await page.evaluate(() => window.fileFlow.app.lockNow());

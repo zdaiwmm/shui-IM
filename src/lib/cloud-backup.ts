@@ -141,13 +141,14 @@ export async function recoverFromCloud(code: string, signal: AbortSignal): Promi
 }
 
 export async function restoreCloudHistory(session: VaultSession, code: string, scope: 'chat' | 'gallery', signal: AbortSignal,
-  progress: (count: number) => void = () => undefined): Promise<number> {
+  progress: (count: number, changed: boolean) => void = () => undefined): Promise<number> {
   if (!session.vault.backup?.syncedAt || session.vault.backup.replaces || session.vault.recoverySource) throw new Error('请先完成新恢复码的备份更新');
   if (scope === 'gallery' && session.vault.role !== 'creator') throw new Error('此参与方没有相册入口');
   if (parseCloudRecoveryCode(code).id !== session.vault.backup.id) throw new Error('请使用本设备当前的恢复码');
   const bundle = await fetchRecoveryBundle(code, signal);
   if (bundle.roomId !== session.vault.roomId || bundle.deviceId !== session.vault.identity.publicBundle.deviceId) throw new Error('恢复码不属于本设备');
   let restored = 0;
+  let changed = false;
   for (const archive of bundle.archives) {
     for (const part of archive.parts) {
       signal.throwIfAborted();
@@ -157,8 +158,8 @@ export async function restoreCloudHistory(session: VaultSession, code: string, s
       if (value?.v !== 1 || value.roomId !== bundle.roomId || !Array.isArray(value.messages) || value.messages.length !== part.count ||
           value.messages[0]?.seq !== part.firstSeq || value.messages.at(-1)?.seq !== part.lastSeq ||
           value.messages.some((message, index) => index > 0 && message.seq <= value.messages[index - 1]!.seq)) throw new Error('历史备份索引不正确');
-      restored += await importArchivedMessages(session, value.messages, scope, signal);
-      progress(restored);
+      restored += await importArchivedMessages(session, value.messages, scope, signal, partChanged => { changed ||= partChanged; });
+      progress(restored, changed);
     }
   }
   return restored;
