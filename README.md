@@ -53,6 +53,8 @@ npm run dev
 
 The browser runs at `http://127.0.0.1:5173`, but device-key testing should open `http://localhost:5173` because WebAuthn relying-party IDs are domain names. The API and WebSocket service run at `http://127.0.0.1:8787` through the Vite proxy.
 
+For iPhone or other LAN-device passkey testing, expose the frontend through a stable HTTPS hostname whose certificate the device trusts and whose name matches the certificate; keep the loopback API behind the frontend proxy. Home and office run separate local environments. Local `main` is the current computer's LAN-test candidate and is distinct from `origin/main` and production. Code and workflow rules may be synchronized through GitHub only when explicitly requested, while certificates, private keys, test data, passkeys, vaults, invitations, and recovery material remain local. See [Local LAN testing and cross-computer synchronization](docs/workflows/local-lan-testing.md).
+
 To exercise the actual entry interaction, hold the bottom-right 64 by 64 pixel area for one second. Keyboard users can focus the concealed trigger and hold Space or Enter for one second.
 
 ## Production build
