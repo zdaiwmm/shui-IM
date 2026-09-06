@@ -154,9 +154,10 @@ export class VoiceRecorder {
     this.state = 'requesting';
     this.message = '';
     this.update();
-    this.callbacks.permission(true);
-    this.permissionTimer = window.setTimeout(() => this.fail('等待麦克风授权超时，请点击录音重试'), 30_000);
     try {
+      const ownershipInvalidated = Boolean(await this.callbacks.permission(true));
+      if (ownershipInvalidated || this.signal.aborted) return;
+      this.permissionTimer = window.setTimeout(() => this.fail('等待麦克风授权超时，请点击录音重试'), 30_000);
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
         throw new Error('当前环境不能录音，请使用 HTTPS 和支持麦克风的新版浏览器');
       }

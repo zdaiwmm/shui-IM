@@ -43,6 +43,8 @@
   --glass-filter: blur(22px) saturate(112%);
   --glass-sheen: linear-gradient(160deg, oklch(99.5% 0.004 255 / 0.2), oklch(99% 0.004 255 / 0.025) 42%, oklch(48% 0.01 255 / 0.035));
   --glass-shadow: inset 0 0.5px 0 oklch(99% 0.004 255 / 0.52), inset 0 -0.5px 0 oklch(35% 0.012 255 / 0.16), 0 2px 8px oklch(28% 0.02 255 / 0.08);
+  --composer-surface: color-mix(in oklch, var(--paper-pure) 84%, transparent);
+  --composer-surface-focused: color-mix(in oklch, var(--paper-pure) 92%, transparent);
   --shadow: 0 20px 60px oklch(25% 0.025 255 / 0.17);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
@@ -1923,6 +1925,7 @@ button:disabled {
 }
 
 .composer {
+  --composer-surface-current: var(--composer-surface);
   position: relative;
   min-height: 68px;
   padding: 8px max(12px, calc((100% - 680px) / 2)) calc(8px + var(--safe-bottom));
@@ -1937,6 +1940,10 @@ button:disabled {
   z-index: 6;
 }
 
+.composer:has(#message-input:focus) {
+  --composer-surface-current: var(--composer-surface-focused);
+}
+
 .composer-input-stack {
   flex: 1;
   min-width: 0;
@@ -1945,7 +1952,7 @@ button:disabled {
   align-items: stretch;
   border: 1px solid var(--glass-border);
   border-radius: 24px;
-  background: color-mix(in oklch, var(--paper-pure) 84%, transparent);
+  background-color: var(--composer-surface-current);
   box-shadow: var(--glass-shadow);
   overflow: hidden;
   transition: border-color 120ms ease-out, background 120ms ease-out, border-radius 180ms var(--motion-out);
@@ -1956,7 +1963,7 @@ button:disabled {
 .composer-input-stack:focus-within {
   outline: none;
   border-color: color-mix(in oklch, var(--accent) 34%, var(--glass-border));
-  background: color-mix(in oklch, var(--paper-pure) 92%, transparent);
+  background-color: var(--composer-surface-current);
   box-shadow: var(--glass-shadow), 0 0 0 3px color-mix(in oklch, var(--accent) 8%, transparent);
 }
 
@@ -2109,13 +2116,26 @@ button:disabled {
   box-shadow: var(--glass-shadow);
 }
 
-.composer .image-picker {
+.composer .image-picker,
+.composer .voice-record-button {
   border-color: var(--glass-border);
-  background: var(--glass);
+  background-color: var(--composer-surface-current);
   box-shadow: var(--glass-shadow);
   color: var(--ink-muted);
   -webkit-backdrop-filter: blur(34px) saturate(190%);
   backdrop-filter: blur(34px) saturate(190%);
+}
+
+.composer :is(.image-picker, .voice-record-button):hover {
+  border-color: color-mix(in oklch, var(--accent) 18%, var(--glass-border));
+  background-color: var(--composer-surface-current);
+  color: var(--ink);
+}
+
+.composer :is(.image-picker, .voice-record-button):disabled,
+.composer .image-picker.is-disabled {
+  opacity: 1;
+  color: var(--ink-faint);
 }
 
 .upload-progress {
@@ -3164,7 +3184,28 @@ button:disabled {
   :root {
     --line: oklch(72% 0.018 92);
     --line-strong: oklch(58% 0.025 105);
-    --ink-muted: oklch(38% 0.018 151);
+    --ink-muted: var(--ink);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root {
+    --composer-surface: var(--paper-pure);
+    --composer-surface-focused: var(--paper-pure);
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --composer-surface: var(--paper-pure);
+    --composer-surface-focused: var(--paper-pure);
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --composer-surface: Canvas;
+    --composer-surface-focused: Canvas;
   }
 }
 

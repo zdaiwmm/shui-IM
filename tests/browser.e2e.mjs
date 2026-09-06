@@ -297,6 +297,9 @@ try {
     const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
     const waitForReveal = async () => {
       const deadline = performance.now() + 1200;
+      // A native resize is consumed on the next merged viewport frame. Always
+      // cross that boundary before accepting an already-visible old state.
+      await frame();
       while (performance.now() < deadline) {
         const composer = document.querySelector('.composer');
         if (!composer?.dataset.viewportMotion && Number(getComputedStyle(composer).opacity) === 1) return;
@@ -304,10 +307,16 @@ try {
       }
       throw Error('Composer did not reveal after the viewport settled');
     };
+    const inputElement = document.querySelector('#message-input');
+    inputElement?.focus({ preventScroll: true });
     Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 40 });
     Object.defineProperty(viewport, 'height', { configurable: true, value: 460 });
     try {
       viewport.dispatchEvent(new Event('resize'));
+      // Native viewport events are intentionally coalesced into one animation
+      // frame so WebKit cannot expose mismatched height/offsetTop snapshots.
+      // Observe the concealed transition only after that merged frame starts.
+      await frame();
       const composerElement = document.querySelector('.composer');
       const concealedComposer = composerElement?.getBoundingClientRect();
       const concealedInput = document.querySelector('#message-input')?.getBoundingClientRect();
@@ -325,8 +334,10 @@ try {
       const input = document.querySelector('#message-input')?.getBoundingClientRect();
       return { concealed, composerBottom: composer?.bottom, inputBottom: input?.bottom, composerHeight: composer?.height };
     } finally {
+      inputElement?.blur();
       delete viewport.offsetTop; delete viewport.height;
       viewport.dispatchEvent(new Event('resize'));
+      await frame();
       await waitForReveal();
     }
   });

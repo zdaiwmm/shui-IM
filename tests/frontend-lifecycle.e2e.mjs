@@ -72,7 +72,9 @@ try {
     app.messages = new Map(Array.from({ length: 40 }, (_, index) => [index + 1, message(index + 1)]));
     app.renderMessages({ scroll: 'bottom' });
     const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    await settle();
+    const deadline = performance.now() + 800;
+    while (app.chatViewportMotion?.moving && performance.now() < deadline) await settle();
+    if (app.chatViewportMotion?.moving) throw Error('Initial viewport motion did not settle before menu scroll ordering');
     const list = document.querySelector('#message-list');
     list.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true }));
     const source = document.querySelector('[data-client-msg-id="message-20"]');
@@ -404,6 +406,38 @@ try {
     return { blurCoverage: 'same event stack', transientFocus: 'restored', backgroundReturn: 'authentication required', selection: 'cleared' };
   });
 
+  await page.evaluate(async () => {
+    const { app, message, fresh } = window.regression; fresh();
+    app.messages = new Map([[1, message(1)]]); app.renderMessages({ scroll: 'bottom' });
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+  // Playwright's pointer sequence is trusted. A synthetic PointerEvent cannot
+  // authorize the narrowly scoped native-keyboard focus handoff.
+  await page.locator('#message-input').click();
+  results.keyboardNativeHandoff = await page.evaluate(async () => {
+    const { app } = window.regression;
+    const input = document.querySelector('#message-input');
+    const viewport = window.visualViewport;
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    if (document.activeElement !== input || !app.keyboardHandoff || app.keyboardHandoff.blurred) throw Error('Trusted primary textarea click did not authorize one keyboard handoff');
+    window.dispatchEvent(new Event('blur'));
+    if (app.privacyCovered || document.documentElement.classList.contains('privacy-obscured')
+      || !app.keyboardHandoff?.blurred) throw Error('First native-keyboard window blur was not consumed without exposing a privacy curtain');
+    Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
+    Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 180 });
+    viewport.dispatchEvent(new Event('resize')); await frame();
+    if (app.keyboardHandoff || document.documentElement.dataset.keyboardOpen !== 'true'
+      || document.documentElement.classList.contains('privacy-obscured')) throw Error('Keyboard viewport target did not settle the one-use handoff token');
+    window.dispatchEvent(new Event('blur'));
+    if (!document.documentElement.classList.contains('privacy-obscured')
+      || !document.elementFromPoint(20, 20)?.closest('.privacy-curtain')) throw Error('Second window blur after keyboard handoff did not fail closed synchronously');
+    window.dispatchEvent(new Event('focus'));
+    input.blur(); delete viewport.height; delete viewport.offsetTop;
+    viewport.dispatchEvent(new Event('resize')); await frame();
+    app.lockNow();
+    return { trustedTextareaPointer: true, firstBlurConsumed: true, targetClearedToken: true, secondBlurCoveredSynchronously: true };
+  });
+
   await page.setViewportSize({ width: 320, height: 720 });
   await page.evaluate(async () => {
     const { app, message, fresh } = window.regression; fresh();
@@ -529,6 +563,38 @@ try {
       return { retainedMessages: app.messages.size, covered: Boolean(document.querySelector('.cover-trigger')) };
     });
   }
+
+  // An away overlay deliberately leaves the chat DOM connected. A historical
+  // page that began underneath it must not merge plaintext, rerender that
+  // inactive list or surface an operational error when its decrypt completes.
+  results.historyAwayOwner = await page.evaluate(async () => {
+    const { app, fresh, message } = window.regression;
+    fresh(); app.messages = new Map([[421, message(421)]]); app.renderMessages();
+    app.historyHasMore = true;
+    const list = document.querySelector('#message-list');
+    const decrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+    const renderMessages = app.renderMessages;
+    const operationalError = app.operationalError;
+    let blocked = false; let renderCalls = 0; let errorCalls = 0; let release;
+    Object.defineProperty(crypto.subtle, 'decrypt', { configurable: true, value: async (...args) => {
+      if (!blocked) { blocked = true; await new Promise(resolve => { release = resolve; }); }
+      return decrypt(...args);
+    } });
+    app.renderMessages = function (...args) { renderCalls++; return renderMessages.apply(this, args); };
+    app.operationalError = () => { errorCalls++; };
+    const pending = app.loadOlderHistory(list);
+    while (typeof release !== 'function') await new Promise(resolve => setTimeout(resolve));
+    app.setActiveSurface('away');
+    if (!list.isConnected) throw Error('Away-owner regression did not retain the underlying chat list');
+    release(); await pending;
+    Object.defineProperty(crypto.subtle, 'decrypt', { configurable: true, value: decrypt });
+    app.renderMessages = renderMessages; app.operationalError = operationalError;
+    if (renderCalls || errorCalls || app.messages.size !== 1 || app.historyLoading
+      || list.hasAttribute('data-history-loading')) {
+      throw Error(`Inactive connected chat accepted historical continuation: ${JSON.stringify({ renderCalls, errorCalls, messages: app.messages.size, historyLoading: app.historyLoading, marker: list.hasAttribute('data-history-loading') })}`);
+    }
+    return { connectedList: true, renderCalls, errorCalls, retainedMessages: app.messages.size };
+  });
 
   results.localHistory = await page.evaluate(async () => {
     const { app, fresh, records } = window.regression;
@@ -760,6 +826,7 @@ try {
     const { app, fresh, message } = window.regression; fresh();
     app.messages = new Map(Array.from({ length: 5000 }, (_, i) => [i + 1, message(i + 1)]));
     app.renderMessages({ scroll: 'bottom' });
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
     const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     await settle();
     const getRect = HTMLElement.prototype.getBoundingClientRect;
@@ -775,6 +842,10 @@ try {
       for (const fraction of [0.1, 0.5, 0.9]) {
         window.scrollTo(0, (document.documentElement.scrollHeight - innerHeight) * fraction);
         await settle();
+        // Drive one real displacement after the previous frame is fully
+        // accounted for, then prove a burst of duplicate notifications still
+        // produces just one bookkeeping pass.
+        window.scrollBy(0, 4);
         const top = document.querySelector('.chat-header').getBoundingClientRect().bottom;
         const bottom = window.composerBaseBounds().top;
         const visible = app.renderedMessageOrder.filter(row => {
@@ -804,7 +875,8 @@ try {
       rootObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] });
       try {
         // A collapsing Safari toolbar reveals 60px over consecutive frames.
-        // Each frame must position the composer immediately, without an
+        // Each native event is merged into one animation frame; that frame
+        // must position the composer immediately, without an
         // inherited viewport variable invalidating all 5000 message styles.
         for (const inset of [72, 60, 48, 36, 24, 12]) {
           const height = document.documentElement.clientHeight - inset;
@@ -812,6 +884,7 @@ try {
           Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 0 });
           viewport.dispatchEvent(new Event('resize'));
           window.dispatchEvent(new Event('scroll'));
+          await frame();
           const composer = document.querySelector('#composer');
           const concealShift = new DOMMatrix(getComputedStyle(composer).transform).f;
           // The base edge tracks each viewport frame synchronously. Its visual
@@ -821,7 +894,6 @@ try {
             throw Error('Composer did not immediately conceal at the current toolbar frame');
           }
           if (document.querySelector('#message-list').style.getPropertyValue('--keyboard-space')) throw Error('Viewport spacing still inherits through the message history');
-          await settle();
         }
         const composer = document.querySelector('#composer');
         const revealDeadline = performance.now() + 600;
@@ -846,6 +918,59 @@ try {
       app.unreadCounter.markRead = markRead;
       delete viewport.height; delete viewport.offsetTop;
       viewport.dispatchEvent(new Event('resize')); await settle();
+    }
+  });
+
+  results.manualScrollEndpointBookkeeping = await page.evaluate(async () => {
+    const { app, fresh, message } = window.regression;
+    fresh();
+    app.messages = new Map(Array.from({ length: 120 }, (_, index) => [index + 1, message(index + 1)]));
+    app.renderMessages({ scroll: 'bottom' });
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    const waitForReveal = async () => {
+      const composer = document.querySelector('#composer');
+      const deadline = performance.now() + 1200;
+      while ((composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1)
+        && performance.now() < deadline) await frame();
+      if (composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) {
+        throw Error('Manual scroll did not reach its stable composer endpoint');
+      }
+    };
+    await waitForReveal();
+    const list = document.querySelector('#message-list');
+    const loadOlder = app.loadOlderHistory;
+    const loadNewer = app.loadNewerHistory;
+    const captureAnchor = app.captureChatAnchor;
+    const markVisible = app.markVisibleMessagesRead;
+    const getRect = HTMLElement.prototype.getBoundingClientRect;
+    let olderCalls = 0; let newerCalls = 0; let anchorCalls = 0; let readCalls = 0; let bottomBoundsReads = 0;
+    app.loadOlderHistory = async target => { if (target === list) olderCalls++; };
+    app.loadNewerHistory = async target => { if (target === list) newerCalls++; };
+    app.captureChatAnchor = function (...args) { anchorCalls++; return captureAnchor.apply(this, args); };
+    app.markVisibleMessagesRead = function () { readCalls++; };
+    HTMLElement.prototype.getBoundingClientRect = function (...args) {
+      if (this.id === 'chat-bottom-control') bottomBoundsReads++;
+      return getRect.apply(this, args);
+    };
+    try {
+      list.dispatchEvent(new WheelEvent('wheel', { deltaY: -200, bubbles: true }));
+      window.scrollTo(0, 0);
+      window.dispatchEvent(new Event('scroll'));
+      await frame(); await frame();
+      if (!app.chatViewportMotion?.moving || olderCalls || newerCalls || anchorCalls || readCalls || bottomBoundsReads) {
+        throw Error(`Manual-scroll motion performed message bookkeeping before settlement: ${JSON.stringify({ olderCalls, newerCalls, anchorCalls, readCalls, bottomBoundsReads })}`);
+      }
+      await waitForReveal();
+      if (olderCalls !== 1 || newerCalls !== 0 || anchorCalls !== 1 || readCalls !== 1 || bottomBoundsReads !== 1) {
+        throw Error(`Manual-scroll endpoint did not commit exactly one bookkeeping pass: ${JSON.stringify({ olderCalls, newerCalls, anchorCalls, readCalls, bottomBoundsReads })}`);
+      }
+      return { duringMotion: 0, olderCalls, newerCalls, anchorCalls, readCalls, bottomBoundsReads };
+    } finally {
+      app.loadOlderHistory = loadOlder;
+      app.loadNewerHistory = loadNewer;
+      app.captureChatAnchor = captureAnchor;
+      app.markVisibleMessagesRead = markVisible;
+      HTMLElement.prototype.getBoundingClientRect = getRect;
     }
   });
 
@@ -999,6 +1124,17 @@ try {
     }]));
     app.renderMessages({ scroll: 'bottom' });
     const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const settleViewport = async () => {
+      const composer = document.querySelector('#composer');
+      const deadline = performance.now() + 1200;
+      // Native viewport events enter the application on the next merged frame;
+      // do not mistake the still-visible pre-event state for a settled endpoint.
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      while ((composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) && performance.now() < deadline) {
+        await new Promise(resolve => requestAnimationFrame(resolve));
+      }
+      if (composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) throw Error('Viewport did not reach its stable endpoint');
+    };
     await settle();
     const list = document.querySelector('#message-list');
     if (getComputedStyle(list).overflowY !== 'visible' || window.scrollY <= 0) throw Error('Chat still clips a nested scroller');
@@ -1020,12 +1156,14 @@ try {
       app.renderMessages({ scroll: 'bottom' }); await settle();
       Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
       Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 24 });
-      viewport.dispatchEvent(new Event('resize')); await settle();
+      viewport.dispatchEvent(new Event('resize')); await settleViewport();
       const composer = window.composerBaseBounds();
       const latest = list.lastElementChild.getBoundingClientRect();
-      if (Math.abs(composer.bottom - 444) > 1 || latest.bottom > composer.top - 12) throw Error('Keyboard viewport covered the latest message or displaced the composer');
+      if (Math.abs(composer.bottom - 444) > 1 || latest.bottom > composer.top - 12) {
+        throw Error(`Keyboard viewport covered the latest message or displaced the composer: ${JSON.stringify({ composer, latest: latest.toJSON(), paddingBottom: getComputedStyle(list).paddingBottom, minHeight: getComputedStyle(list).minHeight, scrollY, scrollHeight: document.documentElement.scrollHeight, pinned: app.chatPinnedToBottom })}`);
+      }
       delete viewport.height; delete viewport.offsetTop;
-      viewport.dispatchEvent(new Event('resize')); await settle();
+      viewport.dispatchEvent(new Event('resize')); await settleViewport();
       if (app.chatBottomGap() > 2) throw Error('Closing the keyboard lost the latest message');
     }
     return { scroller: 'document', headerFixed: true, scrollPreserved: true, dialogScrollLock: true, keyboardViewport: 'composer and latest message remain visible' };
@@ -1036,6 +1174,15 @@ try {
     app.messages = new Map(Array.from({ length: 60 }, (_, i) => [i + 1, message(i + 1)]));
     app.renderMessages({ scroll: 'bottom' });
     const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const settleViewport = async () => {
+      const composer = document.querySelector('#composer');
+      const deadline = performance.now() + 1200;
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      while ((composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) && performance.now() < deadline) {
+        await new Promise(resolve => requestAnimationFrame(resolve));
+      }
+      if (composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) throw Error('Viewport pan fixture did not reach its stable endpoint');
+    };
     await settle();
     const viewport = window.visualViewport;
     const list = document.querySelector('#message-list');
@@ -1043,7 +1190,7 @@ try {
     style.setProperty('--safe-bottom', '34px');
     Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
     Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 24 });
-    viewport.dispatchEvent(new Event('resize')); await settle();
+    viewport.dispatchEvent(new Event('resize')); await settleViewport();
     const composer = window.composerBaseBounds();
     const visualComposer = document.querySelector('#composer').getBoundingClientRect();
     const input = document.querySelector('#message-input').getBoundingClientRect();
@@ -1062,6 +1209,7 @@ try {
         viewport.dispatchEvent(new Event('scroll')); await settle();
         if (getComputedStyle(list).paddingBottom !== padding) throw Error('Viewport pan changed document padding');
       }
+      await settleViewport();
       if (corrections) throw Error(`Offset-only panning forced ${corrections} scrolls`);
       list.dispatchEvent(new WheelEvent('wheel', { deltaY: -12, bubbles: true }));
       scrollBy.call(window, 0, -12); await settle();
@@ -1071,6 +1219,7 @@ try {
         Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: top });
         viewport.dispatchEvent(new Event('scroll')); await settle();
       }
+      await settleViewport();
       if (window.scrollY !== before || corrections) throw Error('Viewport panning pulled the reader back to the bottom');
       app.messages.set(60, { ...app.messages.get(60), status: 'stored' });
       app.renderMessages(); await settle();
@@ -1081,13 +1230,13 @@ try {
       if (app.captureChatAnchor().clientMsgId !== anchor.clientMsgId || Math.abs(app.captureChatAnchor().offset - anchor.offset) > 1) throw Error('Composer growth moved an unpinned reader');
       corrections = 0;
       delete viewport.height; delete viewport.offsetTop;
-      viewport.dispatchEvent(new Event('resize')); await settle();
+      viewport.dispatchEvent(new Event('resize')); await settleViewport();
       if (app.chatPinnedToBottom || corrections) throw Error('Keyboard dismissal forced bottom-follow after upward intent');
       scrollTo.call(window, 0, document.documentElement.scrollHeight); await settle();
       list.dispatchEvent(new WheelEvent('wheel', { deltaY: 12, bubbles: true }));
       if (!app.captureChatAnchor().pinnedToBottom) throw Error('Downward intent at the clamped bottom did not resume follow');
       Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
-      viewport.dispatchEvent(new Event('resize')); await settle();
+      viewport.dispatchEvent(new Event('resize')); await settleViewport();
       textarea.focus({ preventScroll: true });
       const beforeGesture = { focused: document.activeElement?.id, connected: textarea.isConnected, disabled: textarea.disabled, visibility: getComputedStyle(textarea).visibility, obscured: document.documentElement.classList.contains('privacy-obscured'), inert: !!textarea.closest('[inert]') };
       list.lastElementChild.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
@@ -1095,13 +1244,13 @@ try {
       list.lastElementChild.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'touch', bubbles: true }));
       const gestureStart = { beforeGesture, pinned: app.chatPinnedToBottom, intent: app.chatScrollIntent, focused: document.activeElement?.id, keyboard: document.documentElement.dataset.keyboardOpen };
       corrections = 0;
-      delete viewport.height; viewport.dispatchEvent(new Event('resize')); await settle();
+      delete viewport.height; viewport.dispatchEvent(new Event('resize')); await settleViewport();
       if (app.chatPinnedToBottom || corrections) throw Error(`Keyboard blur before touchmove stole the gesture position: ${JSON.stringify({ gestureStart, pinned: app.chatPinnedToBottom, intent: app.chatScrollIntent, corrections })}`);
     } finally {
       window.scrollTo = scrollTo; window.scrollBy = scrollBy;
       delete viewport.height; delete viewport.offsetTop;
       style.removeProperty('--safe-bottom');
-      viewport.dispatchEvent(new Event('resize')); await settle();
+      viewport.dispatchEvent(new Event('resize')); await settleViewport();
     }
     return { smallUpwardScroll: 'preserved', panScrollCorrections: 0, keyboardInnerGap, ackAndComposerGrowth: 'anchor preserved' };
   });
@@ -1110,70 +1259,212 @@ try {
     const { app, fresh, message } = window.regression; fresh();
     app.messages = new Map(Array.from({ length: 70 }, (_, i) => [i + 1, message(i + 1)]));
     app.renderMessages({ scroll: 'bottom' });
-    const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    await settle();
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+    await frame(); await frame();
     const viewport = window.visualViewport;
     const list = document.querySelector('#message-list');
     const input = document.querySelector('#message-input');
+    const composer = document.querySelector('#composer');
+    const header = document.querySelector('.chat-header');
     const layoutHeight = document.documentElement.clientHeight;
     const innerHeightDescriptor = Object.getOwnPropertyDescriptor(window, 'innerHeight');
     const scrollTo = window.scrollTo; const scrollBy = window.scrollBy;
-    let corrections = 0;
-    const position = (height, offsetTop, eventTarget = viewport) => {
+    const getRect = HTMLElement.prototype.getBoundingClientRect;
+    const setProperty = CSSStyleDeclaration.prototype.setProperty;
+    const alignBottom = app.alignChatBottom;
+    const listStyle = list.style;
+    let forcedScrolls = 0; let bottomReads = 0; let alignments = 0; let listWrites = [];
+    const resetWork = () => { forcedScrolls = 0; bottomReads = 0; alignments = 0; listWrites = []; };
+    const documentGeometry = () => ({
+      paddingBottom: listStyle.getPropertyValue('padding-bottom'),
+      minHeight: listStyle.getPropertyValue('min-height'),
+    });
+    const assertVisibleConversation = (label, top, bottom) => {
+      const contentTop = Math.max(top, header.getBoundingClientRect().bottom);
+      const contentBottom = Math.min(bottom, window.composerBaseBounds().top);
+      const visible = [...list.querySelectorAll('.message')].some(row => {
+        const bounds = getRect.call(row);
+        return bounds.top < contentBottom && bounds.bottom > contentTop;
+      });
+      if (!visible || contentBottom <= contentTop) throw Error(`${label} exposed an empty conversation viewport`);
+    };
+    const assertMergedFrame = (label, height, offsetTop) => {
+      const top = Math.max(0, Math.min(offsetTop, layoutHeight - height));
+      const headerStyle = getComputedStyle(header);
+      const headerBounds = header.getBoundingClientRect();
+      const composerBounds = window.composerBaseBounds();
+      if (Math.abs(headerBounds.top - top) > 1 || headerStyle.opacity !== '1'
+        || header.getAnimations().some(animation => animation.playState === 'running')) {
+        throw Error(`${label} moved, faded or animated the screen-anchored title`);
+      }
+      if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '0'
+        || Math.abs(composerBounds.bottom - top - height) > 1) {
+        throw Error(`${label} exposed or misplaced intermediate composer geometry`);
+      }
+      assertVisibleConversation(label, top, top + height);
+    };
+    const position = async (label, height, offsetTop) => {
       Object.defineProperty(viewport, 'height', { configurable: true, value: height });
       Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: offsetTop });
       // Safari's innerHeight and its fixed-position layout viewport can differ.
       Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
-      eventTarget.dispatchEvent(new Event(eventTarget === window ? 'scroll' : 'resize'));
+      viewport.dispatchEvent(new Event('resize'));
       // Focus/panning can interleave a native document scroll before rAF.
-      if (eventTarget === viewport) window.dispatchEvent(new Event('scroll'));
-      const top = Math.max(0, Math.min(offsetTop, layoutHeight - height));
-      const header = document.querySelector('.chat-header').getBoundingClientRect();
-      const composer = window.composerBaseBounds();
-      // Check on the dispatch frame: a later correction still visibly trails
-      // the keyboard when it moves through several frames.
-      if (Math.abs(header.top - top) > 1 || Math.abs(composer.bottom - top - height) > 1) {
-        throw Error(`Controls lagged keyboard frame: ${JSON.stringify({ height, offsetTop, top: header.top, bottom: composer.bottom })}`);
+      window.dispatchEvent(new Event('scroll'));
+      await frame();
+      assertMergedFrame(label, height, offsetTop);
+    };
+    const assertTransitionIdle = (label, geometry) => {
+      const current = documentGeometry();
+      if (current.paddingBottom !== geometry.paddingBottom || current.minHeight !== geometry.minHeight || listWrites.length) {
+        throw Error(`${label} committed message-list geometry before the keyboard endpoint: ${JSON.stringify({ geometry, current, listWrites })}`);
+      }
+      if (bottomReads || forcedScrolls || alignments) {
+        throw Error(`${label} performed document work during keyboard motion: ${JSON.stringify({ bottomReads, forcedScrolls, alignments })}`);
       }
     };
-    const settleViewport = async () => { await new Promise(resolve => setTimeout(resolve, 190)); await settle(); };
+    const waitForReveal = async label => {
+      const deadline = performance.now() + 1200;
+      while ((composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) && performance.now() < deadline) await frame();
+      if (composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) throw Error(`${label} never revealed at its final keyboard endpoint`);
+    };
+    const assertEndpointCommit = (label, before) => {
+      const after = documentGeometry();
+      const properties = listWrites.map(write => write.property);
+      if (after.paddingBottom === before.paddingBottom || after.minHeight === before.minHeight
+        || properties.length !== 2 || properties[0] !== 'padding-bottom' || properties[1] !== 'min-height') {
+        throw Error(`${label} did not atomically commit one padding/min-height pair: ${JSON.stringify({ before, after, listWrites })}`);
+      }
+      if (alignments !== 1 || forcedScrolls > 1 || bottomReads !== 1) {
+        throw Error(`${label} did not perform exactly one endpoint alignment and control measurement: ${JSON.stringify({ alignments, forcedScrolls, bottomReads })}`);
+      }
+      const gap = window.composerBaseBounds().top - list.lastElementChild.getBoundingClientRect().bottom;
+      if (!app.chatPinnedToBottom || Math.abs(gap - 64) > 2) throw Error(`${label} failed its final bottom alignment: gap=${gap}`);
+      return { before, after, listWrites: [...listWrites], alignments, forcedScrolls, bottomReads, gap };
+    };
+    window.scrollTo = (...args) => { forcedScrolls++; scrollTo.apply(window, args); };
+    window.scrollBy = (...args) => { forcedScrolls++; scrollBy.apply(window, args); };
+    HTMLElement.prototype.getBoundingClientRect = function (...args) {
+      if (this.id === 'chat-bottom-control') bottomReads++;
+      return getRect.apply(this, args);
+    };
+    CSSStyleDeclaration.prototype.setProperty = function (property, value, priority) {
+      if (this === listStyle && (property === 'padding-bottom' || property === 'min-height')) listWrites.push({ property, value });
+      return setProperty.call(this, property, value, priority);
+    };
+    app.alignChatBottom = function (...args) { alignments++; return alignBottom.apply(this, args); };
+    document.querySelector('#chat-bottom-control').getBoundingClientRect();
+    if (bottomReads !== 1) throw Error('Bottom-control bounds instrumentation did not observe its sentinel read');
+    bottomReads = 0;
     try {
       input.focus({ preventScroll: true });
-      for (const [height, top] of [[720, 40], [620, 100], [520, 180], [430, 260]]) {
-        position(height, top); await settleViewport();
-        const latestGap = window.composerBaseBounds().top - list.lastElementChild.getBoundingClientRect().bottom;
-        if (Math.abs(latestGap - 64) > 2) throw Error(`Keyboard panning left a ${latestGap}px gap above the composer`);
-      }
-      if (document.documentElement.dataset.keyboardOpen !== 'true') throw Error('Shrinking innerHeight hid the keyboard state');
+      const closedGeometry = documentGeometry(); resetWork();
+      await position('opening plateau frame', 780, 40);
+      await delay(220); await frame();
+      assertMergedFrame('opening plateau after 220ms', 780, 40);
+      assertTransitionIdle('opening plateau', closedGeometry);
+      await position('opening endpoint frame', 430, 260);
+      assertTransitionIdle('opening endpoint before settle', closedGeometry);
+      await waitForReveal('keyboard opening');
+      if (document.documentElement.dataset.keyboardOpen !== 'true') throw Error('Final opening endpoint did not set keyboard state');
+      const opening = assertEndpointCommit('keyboard opening', closedGeometry);
+
       input.blur();
-      for (const [height, top] of [[500.25, 210], [610.5, 180], [720.75, 70], [layoutHeight, 0]]) {
-        position(height, top); await settleViewport();
-        if (!app.chatPinnedToBottom) throw Error('Ordinary keyboard dismissal lost bottom follow');
-      }
-      input.focus({ preventScroll: true });
-      position(430, 260); await settleViewport();
-      const padding = getComputedStyle(list).paddingBottom;
-      window.scrollTo = (...args) => { corrections++; scrollTo.apply(window, args); };
-      window.scrollBy = (...args) => { corrections++; scrollBy.apply(window, args); };
-      // WebKit can send window scroll before visualViewport scroll.
-      position(430, 275, window); await settle();
-      if (getComputedStyle(list).paddingBottom !== padding || corrections) throw Error('Window-only panning resized or scrolled history');
-      list.lastElementChild.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', bubbles: true }));
-      if (document.activeElement !== input) throw Error('History pointerdown prematurely blurred the keyboard');
-      list.lastElementChild.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'touch', bubbles: true }));
-      if (document.activeElement === input || app.chatPinnedToBottom) throw Error('History release retained focus or bottom follow');
-      for (const [height, top] of [[500.25, 210], [610.5, 180], [720.75, 70], [layoutHeight, 280]]) {
-        position(height, top); await settle();
-      }
-      if (corrections || app.chatPinnedToBottom) throw Error('Keyboard dismissal pulled the reader to the bottom');
-      if (document.documentElement.dataset.keyboardOpen !== 'false') throw Error('Dismissed keyboard retained its safe-area mode');
-      return { openingFrames: 5, pinnedDismissalFrames: 4, gestureDismissalFrames: 4, synchronousBounds: 'fixed controls', settledBounds: 'latest message', windowOnlyPan: true, differingInnerHeight: true, staleDismissalOffset: 'clamped', forcedScrollsAfterGesture: corrections };
+      const openGeometry = documentGeometry(); resetWork();
+      await position('closing plateau frame', 610, 180);
+      await delay(220); await frame();
+      assertMergedFrame('closing plateau after 220ms', 610, 180);
+      assertTransitionIdle('closing plateau', openGeometry);
+      await position('closing endpoint frame', layoutHeight, 280);
+      assertTransitionIdle('closing endpoint before settle', openGeometry);
+      await waitForReveal('keyboard closing');
+      if (document.documentElement.dataset.keyboardOpen !== 'false') throw Error('Final closing endpoint retained keyboard state');
+      if (Math.abs(header.getBoundingClientRect().top) > 1 || getComputedStyle(header).opacity !== '1') throw Error('Closed endpoint displaced or faded the title');
+      const closing = assertEndpointCommit('keyboard closing', openGeometry);
+      return { histories: 70, plateauMs: 220, opening, closing, visibleTitleEveryMergedFrame: true, nonEmptyConversationEveryMergedFrame: true };
     } finally {
       window.scrollTo = scrollTo; window.scrollBy = scrollBy;
+      HTMLElement.prototype.getBoundingClientRect = getRect;
+      CSSStyleDeclaration.prototype.setProperty = setProperty;
+      app.alignChatBottom = alignBottom;
       if (innerHeightDescriptor) Object.defineProperty(window, 'innerHeight', innerHeightDescriptor);
       else delete window.innerHeight;
       delete viewport.height; delete viewport.offsetTop;
-      viewport.dispatchEvent(new Event('resize')); await settle();
+      viewport.dispatchEvent(new Event('resize')); await frame(); await frame();
+    }
+  });
+
+  results.keyboardIntermediateEdges = await page.evaluate(async () => {
+    const { app, fresh, message } = window.regression;
+    const viewport = window.visualViewport;
+    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    const waitForMotion = async (composer, moving, timeout = 2_800) => {
+      const deadline = performance.now() + timeout;
+      while (Boolean(app.chatViewportMotion?.moving) !== moving && performance.now() < deadline) await frame();
+      if (Boolean(app.chatViewportMotion?.moving) !== moving) throw Error(`Viewport motion did not become ${moving ? 'active' : 'settled'}`);
+      if (!moving) {
+        while (Number(getComputedStyle(composer).opacity) !== 1 && performance.now() < deadline) await frame();
+        if (Number(getComputedStyle(composer).opacity) !== 1) throw Error('Settled intermediate-edge composer did not finish revealing');
+      }
+    };
+    let originalTrack;
+    let originalAlign;
+    let originalUpdate;
+    try {
+      app.lockNow();
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 680 });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 40 });
+      viewport.dispatchEvent(new Event('resize')); await frame();
+      fresh();
+      app.messages = new Map(Array.from({ length: 40 }, (_, index) => [index + 1, message(index + 1)]));
+      app.renderMessages({ scroll: 'bottom' });
+      const composer = document.querySelector('#composer');
+      const list = document.querySelector('#message-list');
+      if (composer.dataset.viewportMotion !== 'positioning' || Number(getComputedStyle(composer).opacity) !== 0
+        || list.style.getPropertyValue('padding-bottom') || list.style.getPropertyValue('min-height')) {
+        throw Error('Chat mounted visibly or committed list geometry at an intermediate keyboard frame');
+      }
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 180 });
+      viewport.dispatchEvent(new Event('resize'));
+      await waitForMotion(composer, false);
+
+      delete viewport.height; delete viewport.offsetTop;
+      viewport.dispatchEvent(new Event('resize'));
+      await frame();
+      await waitForMotion(composer, false);
+      app.scrollChatToBottom(); await frame();
+
+      // Stop the continuous owner so a controlled changed sample, rather than
+      // an intervening rAF, is the exact sample that crosses the hard bound.
+      originalTrack = app.trackChatViewport;
+      app.trackChatViewport = () => {};
+      app.cancelViewportWork();
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 680 });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 40 });
+      app.syncViewport();
+      if (!app.chatViewportMotion?.moving) throw Error('Controlled intermediate baseline was not concealed');
+      await new Promise(resolve => setTimeout(resolve, 1_700));
+      let alignments = 0; let updates = 0;
+      originalAlign = app.alignChatBottom;
+      originalUpdate = app.chatBottomControl.update;
+      app.alignChatBottom = function (...args) { alignments++; return originalAlign.apply(this, args); };
+      app.chatBottomControl.update = function (...args) { updates++; return originalUpdate.apply(this, args); };
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 679 });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 41 });
+      app.syncViewport();
+      if (app.chatViewportMotion?.moving || composer.dataset.viewportMotion || alignments !== 1 || updates !== 1
+        || Math.abs(window.composerBaseBounds().bottom - 720) > 1) {
+        throw Error(`Changed-frame hard fallback duplicated or used stale geometry: ${JSON.stringify({ moving: app.chatViewportMotion?.moving, state: composer.dataset.viewportMotion, alignments, updates, composerBottom: window.composerBaseBounds().bottom })}`);
+      }
+      return { initialIntermediate: 'concealed', changedFrameHardFallback: 'one endpoint batch', alignments, updates };
+    } finally {
+      if (originalAlign) app.alignChatBottom = originalAlign;
+      if (originalUpdate && app.chatBottomControl) app.chatBottomControl.update = originalUpdate;
+      if (originalTrack) app.trackChatViewport = originalTrack;
+      delete viewport.height; delete viewport.offsetTop;
+      viewport.dispatchEvent(new Event('resize')); await frame(); await frame();
     }
   });
 
@@ -1183,7 +1474,7 @@ try {
     app.renderMessages({ scroll: 'bottom' });
     const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
     const settled = async () => {
-      for (let index = 0; index < 60; index++) {
+      for (let index = 0; index < 180; index++) {
         await frame();
         if (!composer.dataset.viewportMotion && Number(getComputedStyle(composer).opacity) === 1) return;
       }
@@ -1196,15 +1487,17 @@ try {
     const input = document.querySelector('#message-input');
     const list = document.querySelector('#message-list');
     const target = list.lastElementChild;
+    const alignChatBottom = app.alignChatBottom;
     const touch = (type, positions) => {
       const event = new Event(type, { bubbles: true, cancelable: true });
       Object.defineProperty(event, 'touches', { value: positions.map(clientY => ({ clientY })) });
       target.dispatchEvent(event); return event;
     };
-    const position = (height, top) => {
+    const position = async (height, top) => {
       Object.defineProperty(viewport, 'height', { configurable: true, value: height });
       Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: top });
       viewport.dispatchEvent(new Event('resize'));
+      await frame();
       const headerStyle = getComputedStyle(header);
       if (Math.abs(header.getBoundingClientRect().top - top) > 1 || headerStyle.opacity !== '1'
         || header.getAnimations().some(animation => animation.playState === 'running')) throw Error('Keyboard frame moved or faded the screen-anchored title');
@@ -1216,9 +1509,37 @@ try {
       input.value = '保留这份草稿'; input.setSelectionRange(2, 4); input.dispatchEvent(new Event('input'));
       input.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'touch' }));
       if (composer.dataset.viewportMotion || composer.inert || input.disabled) throw Error('Input pointerdown concealed or disabled the field before iOS could focus it');
+      // WebKit may publish its first keyboard-sized viewport before the
+      // textarea focus event. Material movement away from the last closed
+      // endpoint must infer the opening target, block passive document work
+      // through a long intermediate plateau, and still allow an explicit
+      // return-to-latest operation already in flight.
+      await position(680, 40);
+      if (!app.chatViewportMotion?.moving || !app.chatViewportMotion?.keyboardMoving) throw Error('Pre-focus viewport resize did not infer the opening target');
+      const chatBottomScrollTop = app.chatBottomScrollTop;
+      const captureChatAnchor = app.captureChatAnchor;
+      const bottomUpdate = app.chatBottomControl.update;
+      let passiveReads = 0; let explicitReads = 0; let updateCalls = 0;
+      app.chatBottomScrollTop = function (...args) {
+        if (document.querySelector('#chat-bottom-control').dataset.explicitProbe) explicitReads++;
+        else passiveReads++;
+        return chatBottomScrollTop.apply(this, args);
+      };
+      app.captureChatAnchor = function (...args) { passiveReads++; return captureChatAnchor.apply(this, args); };
+      app.chatBottomControl.update = function (...args) { updateCalls++; return bottomUpdate.apply(this, args); };
+      app.updateChatBottomControl(); app.alignChatBottom(); window.dispatchEvent(new Event('scroll')); await frame();
+      if (passiveReads || updateCalls) throw Error(`Inferred keyboard motion performed passive document work: ${passiveReads}/${updateCalls}`);
+      await new Promise(resolve => setTimeout(resolve, 220)); await frame();
+      if (!composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 0) {
+        throw Error('Pre-focus opening plateau revealed before the keyboard endpoint');
+      }
+      const bottomButton = document.querySelector('#chat-bottom-control');
+      bottomButton.dataset.explicitProbe = 'true'; bottomButton.click(); delete bottomButton.dataset.explicitProbe;
+      if (!explicitReads) throw Error('Targetless viewport motion blocked the explicit return-to-latest control');
+      app.chatBottomScrollTop = chatBottomScrollTop; app.captureChatAnchor = captureChatAnchor; app.chatBottomControl.update = bottomUpdate;
       input.focus({ preventScroll: true });
-      if (document.activeElement !== input || !composer.dataset.viewportMotion) throw Error('Focused input did not immediately conceal the toolbar before keyboard geometry');
-      for (const [height, top] of [[680, 40], [540, 100], [420, 180]]) { position(height, top); await frame(); }
+      if (document.activeElement !== input || !composer.dataset.viewportMotion || !app.chatViewportMotion?.keyboardMoving) throw Error('Focus after the first resize did not attach the explicit open target');
+      for (const [height, top] of [[540, 100], [420, 180]]) await position(height, top);
       await settled();
       const gap = window.composerBaseBounds().top - target.getBoundingClientRect().bottom;
       const buttonGap = window.composerBaseBounds().top - document.querySelector('#chat-bottom-control').getBoundingClientRect().bottom;
@@ -1259,7 +1580,7 @@ try {
       if (document.activeElement !== input) throw Error('Pointer release blurred before the remaining touch ended');
       touch('touchend', []);
       if (document.activeElement === input || list.dataset.keyboardGesture) throw Error('Final release did not dismiss the keyboard');
-      for (const [height, top] of [[540, 100], [680, 40], [layoutHeight, 0]]) { position(height, top); await frame(); }
+      for (const [height, top] of [[540, 100], [680, 40], [layoutHeight, 0]]) await position(height, top);
       await settled();
       if (input.value !== '保留这份草稿' || app.uiPreferences.composerDraft !== input.value) throw Error('Keyboard gesture changed the draft');
       const anchor = app.captureChatAnchor();
@@ -1267,11 +1588,38 @@ try {
       if (!composer.dataset.viewportMotion || getComputedStyle(header).opacity !== '1') throw Error('Manual list movement did not fade only the composer');
       await settled();
       if (app.captureChatAnchor().pinnedToBottom || !anchor.clientMsgId) throw Error('Manual scrolling lost the reading intent');
+      app.scrollChatToBottom(); await frame();
+      let resumeAlignments = 0;
+      app.alignChatBottom = function (...args) {
+        resumeAlignments++;
+        return alignChatBottom.apply(this, args);
+      };
       app.setActiveSurface('away');
       if (composer.dataset.viewportMotion !== 'positioning') throw Error('Leaving chat did not cancel motion synchronously');
-      app.setActiveSurface('chat'); await settled();
-      return { keyboardFrames: 6, blockedFingerDirections: 'both', blur: 'last touch release', draft: 'preserved', latestGap: gap, buttonGap, idleReveal: '160ms settle then 280ms slide and fade', sameDomReturn: true };
+      input.dispatchEvent(new FocusEvent('focus'));
+      input.dispatchEvent(new FocusEvent('blur'));
+      if (app.chatViewportMotion?.keyboardMoving) throw Error('Inactive chat input re-armed keyboard motion');
+      // The inactive same-DOM surface can outlive both settle thresholds.
+      // Its elapsed time must not make the first returning intermediate frame
+      // reveal or align against the composer's stale pre-viewer position.
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 680 });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 40 });
+      viewport.dispatchEvent(new Event('resize')); await frame();
+      await new Promise(resolve => setTimeout(resolve, 1_700));
+      app.setActiveSurface('chat'); await frame();
+      if (composer.dataset.viewportMotion !== 'positioning' || Number(getComputedStyle(composer).opacity) !== 0
+        || resumeAlignments !== 0 || Math.abs(window.composerBaseBounds().bottom - 720) > 1) {
+        throw Error(`Same-DOM return used away time or stale composer geometry: ${JSON.stringify({ state: composer.dataset.viewportMotion, opacity: getComputedStyle(composer).opacity, resumeAlignments, composerBottom: window.composerBaseBounds().bottom })}`);
+      }
+      await settled();
+      const resumeGap = window.composerBaseBounds().top - target.getBoundingClientRect().bottom;
+      if (resumeAlignments !== 1 || Math.abs(resumeGap - 64) > 2) {
+        throw Error(`Same-DOM return did not settle once at current geometry: ${JSON.stringify({ resumeAlignments, resumeGap })}`);
+      }
+      app.alignChatBottom = alignChatBottom;
+      return { keyboardFrames: 6, blockedFingerDirections: 'both', blur: 'last touch release', draft: 'preserved', latestGap: gap, buttonGap, idleReveal: '160ms settle then 280ms slide and fade', sameDomReturn: true, awayIntermediateFirstFrame: 'concealed', resumeAlignments, resumeGap };
     } finally {
+      app.alignChatBottom = alignChatBottom;
       delete viewport.height; delete viewport.offsetTop;
       input.blur(); viewport.dispatchEvent(new Event('resize')); await frame();
     }
@@ -1296,10 +1644,11 @@ try {
         Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: top });
         viewport.dispatchEvent(new Event('resize'));
         window.scrollBy(0, 18); window.dispatchEvent(new Event('scroll'));
+        await frame();
         const rect = header.getBoundingClientRect();
         if (window.scrollY < 1) throw Error('Gallery native-scroll fixture did not move the document');
         if (Math.abs(rect.top - top) > 1 || getComputedStyle(header).opacity !== '1') throw Error(`Gallery title left its screen anchor: ${JSON.stringify({ height, top, headerTop: rect.top, scrollY: window.scrollY })}`);
-        samples.push(rect.top - top); await frame();
+        samples.push(rect.top - top);
       }
       return { visibleTopOffsets: samples, position: getComputedStyle(header).position };
     } finally {
@@ -1307,7 +1656,7 @@ try {
       for (const { element, property, value } of scrollStyles) {
         if (value) element.style.setProperty(property, value); else element.style.removeProperty(property);
       }
-      delete viewport.height; delete viewport.offsetTop; viewport.dispatchEvent(new Event('resize'));
+      delete viewport.height; delete viewport.offsetTop; viewport.dispatchEvent(new Event('resize')); await frame();
     }
   });
 
@@ -1392,22 +1741,27 @@ try {
       for (const height of [layoutHeight + 20, layoutHeight + 40, layoutHeight + 60, layoutHeight + 80]) {
         Object.defineProperty(viewport, 'height', { configurable: true, value: height });
         viewport.dispatchEvent(new Event('resize'));
+        await frame();
         const bottom = window.composerBaseBounds().bottom;
         if (Math.abs(bottom - height) > 1) throw Error(`Stale layout height clipped toolbar expansion: ${JSON.stringify({ height, clientHeight: document.documentElement.clientHeight, bottom })}`);
         samples.push({ height, bottom });
-        await frame();
       }
       input.focus({ preventScroll: true });
       for (const height of [700, 560, 420]) {
         Object.defineProperty(viewport, 'height', { configurable: true, value: height });
         viewport.dispatchEvent(new Event('resize'));
+        await frame();
         const immediate = window.composerBaseBounds();
-        if (Math.abs(immediate.bottom - height) > 1) throw Error(`Keyboard after collapsed toolbar misplaced fixed composer: ${JSON.stringify({ height, bottom: immediate.bottom })}`);
-        await new Promise(resolve => setTimeout(resolve, 190)); await frame(); await frame();
-        const settledComposer = window.composerBaseBounds();
-        const gap = settledComposer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
-        if (Math.abs(gap - 64) > 2) throw Error(`Keyboard after collapsed toolbar did not settle content: ${JSON.stringify({ height, gap })}`);
+        if (Math.abs(immediate.bottom - height) > 1 || document.querySelector('#composer').dataset.viewportMotion !== 'positioning') {
+          throw Error(`Keyboard after collapsed toolbar misplaced or exposed fixed composer: ${JSON.stringify({ height, bottom: immediate.bottom })}`);
+        }
       }
+      const composer = document.querySelector('#composer');
+      const deadline = performance.now() + 1200;
+      while ((composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) && performance.now() < deadline) await frame();
+      const settledComposer = window.composerBaseBounds();
+      const gap = settledComposer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
+      if (composer.dataset.viewportMotion || Math.abs(gap - 64) > 2) throw Error(`Keyboard after collapsed toolbar did not settle content: ${JSON.stringify({ gap })}`);
       return { staleLayoutFrames: samples, subsequentKeyboardFrames: 3 };
     } finally {
       delete viewport.height; delete viewport.offsetTop;
@@ -1474,6 +1828,13 @@ try {
     await frame(); await frame();
     const viewport = window.visualViewport;
     const input = document.querySelector('#message-input');
+    const composerElement = document.querySelector('#composer');
+    const settleViewport = async () => {
+      const deadline = performance.now() + 1200;
+      await frame();
+      while ((composerElement.dataset.viewportMotion || Number(getComputedStyle(composerElement).opacity) !== 1) && performance.now() < deadline) await frame();
+      if (composerElement.dataset.viewportMotion || Number(getComputedStyle(composerElement).opacity) !== 1) throw Error('Native-focus keyboard endpoint did not settle');
+    };
     try {
       input.focus({ preventScroll: true });
       // Reproduce a browser focus scroll reaching the app before keyboard
@@ -1485,6 +1846,7 @@ try {
       Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
       Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 100 });
       viewport.dispatchEvent(new Event('resize'));
+      await settleViewport();
       const composer = window.composerBaseBounds();
       const gap = composer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
       if (!app.chatPinnedToBottom || Math.abs(gap - 64) > 2) throw Error(`Native focus scroll lost the latest message: gap=${gap}`);
@@ -1554,6 +1916,7 @@ try {
     const { app, fresh, message } = window.regression;
     const viewport = window.visualViewport;
     const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
+    const delay = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
     const layoutHeight = document.documentElement.clientHeight;
     const samples = [];
     try {
@@ -1563,31 +1926,72 @@ try {
         app.renderMessages({ scroll: 'bottom' });
         await frame(); await frame();
         const input = document.querySelector('#message-input');
-        const check = height => {
+        const composerElement = document.querySelector('#composer');
+        const header = document.querySelector('.chat-header');
+        const list = document.querySelector('#message-list');
+        const geometry = () => ({
+          paddingBottom: list.style.getPropertyValue('padding-bottom'),
+          minHeight: list.style.getPropertyValue('min-height'),
+        });
+        const checkEndpoint = (phase, height, top) => {
           const composer = window.composerBaseBounds();
-          const gap = composer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
-          if (Math.abs(composer.bottom - height) > 1 || Math.abs(gap - 64) > 2) throw Error(`Short history did not follow the keyboard: ${JSON.stringify({ count, height, composerBottom: composer.bottom, gap })}`);
-          return { count, height, gap };
+          const gap = composer.top - list.lastElementChild.getBoundingClientRect().bottom;
+          if (Math.abs(composer.bottom - height - top) > 1 || Math.abs(gap - 64) > 2
+            || Number(getComputedStyle(composerElement).opacity) !== 1) {
+            throw Error(`Short history did not settle at the ${phase} endpoint: ${JSON.stringify({ count, height, top, composerBottom: composer.bottom, gap })}`);
+          }
+          samples.push({ count, phase, height, top, gap });
         };
-        check(layoutHeight);
+        const assertTransitionFrame = (phase, height, top, before) => {
+          const expectedTop = Math.max(0, Math.min(top, layoutHeight - height));
+          const composer = window.composerBaseBounds();
+          const current = geometry();
+          const visibleTop = Math.max(expectedTop, header.getBoundingClientRect().bottom);
+          const visibleBottom = Math.min(expectedTop + height, composer.top);
+          const visible = [...list.querySelectorAll('.message')].some(row => {
+            const bounds = row.getBoundingClientRect();
+            return bounds.top < visibleBottom && bounds.bottom > visibleTop;
+          });
+          if (Math.abs(header.getBoundingClientRect().top - expectedTop) > 1 || getComputedStyle(header).opacity !== '1'
+            || header.getAnimations().some(animation => animation.playState === 'running')) throw Error(`${count}-message ${phase} moved, faded or animated the title`);
+          if (composerElement.dataset.viewportMotion !== 'positioning' || getComputedStyle(composerElement).opacity !== '0'
+            || Math.abs(composer.bottom - expectedTop - height) > 1) throw Error(`${count}-message ${phase} exposed intermediate composer geometry`);
+          if (!visible || visibleBottom <= visibleTop) throw Error(`${count}-message ${phase} exposed a blank viewport`);
+          if (current.paddingBottom !== before.paddingBottom || current.minHeight !== before.minHeight) {
+            throw Error(`${count}-message ${phase} committed list geometry before its endpoint`);
+          }
+        };
+        const position = async (phase, height, top, before) => {
+          Object.defineProperty(viewport, 'height', { configurable: true, value: height });
+          Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: top });
+          viewport.dispatchEvent(new Event('resize')); await frame();
+          assertTransitionFrame(phase, height, top, before);
+        };
+        const reveal = async phase => {
+          const deadline = performance.now() + 1200;
+          while ((composerElement.dataset.viewportMotion || Number(getComputedStyle(composerElement).opacity) !== 1) && performance.now() < deadline) await frame();
+          if (composerElement.dataset.viewportMotion || Number(getComputedStyle(composerElement).opacity) !== 1) throw Error(`${count}-message ${phase} endpoint did not reveal`);
+        };
+        checkEndpoint('closed-initial', layoutHeight, 0);
         input.focus({ preventScroll: true });
-        for (const height of [700, 560, 420]) {
-          Object.defineProperty(viewport, 'height', { configurable: true, value: height });
-          Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 0 });
-          // Some native frames change viewport geometry without dispatching a
-          // resize event. Focus starts frame sampling through that transition.
-          await new Promise(resolve => setTimeout(resolve, 190)); await frame(); await frame();
-          samples.push(check(height));
-        }
+        const closedGeometry = geometry();
+        await position('opening plateau frame', 780, 40, closedGeometry);
+        await delay(220); await frame();
+        assertTransitionFrame('opening plateau after 220ms', 780, 40, closedGeometry);
+        await position('opening endpoint frame', 420, 320, closedGeometry);
+        await reveal('opening');
+        checkEndpoint('open', 420, 320);
         input.blur();
-        for (const height of [560, 700, layoutHeight]) {
-          Object.defineProperty(viewport, 'height', { configurable: true, value: height });
-          await new Promise(resolve => setTimeout(resolve, 190)); await frame(); await frame();
-          samples.push(check(height));
-        }
+        const openGeometry = geometry();
+        await position('closing plateau frame', 610, 180, openGeometry);
+        await delay(220); await frame();
+        assertTransitionFrame('closing plateau after 220ms', 610, 180, openGeometry);
+        await position('closing endpoint frame', layoutHeight, 280, openGeometry);
+        await reveal('closing');
+        checkEndpoint('closed-final', layoutHeight, 0);
         if (!app.chatPinnedToBottom) throw Error('Short-history keyboard sampling discarded bottom follow');
       }
-      return { histories: [1, 3], eventlessOpeningFrames: 6, eventlessDismissalFrames: 6, samples };
+      return { histories: [1, 3], plateauMs: 220, nonEmptyConversationEveryMergedFrame: true, samples };
     } finally {
       delete viewport.height; delete viewport.offsetTop;
       viewport.dispatchEvent(new Event('resize')); await frame(); await frame();
