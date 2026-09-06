@@ -200,11 +200,10 @@ body:has(.chat-shell) {
 .chat-shell .message.is-pending { opacity: 1; }
 .composer {
   position: fixed;
-  inset: 0 max(0px, calc((100% - 880px) / 2)) auto;
+  inset: auto max(0px, calc((100% - 880px) / 2)) 0;
   /* The fixed bar is at most 880px wide; viewport-wide padding would
      consume its input as a desktop window grows. Keep a 680px control row. */
   padding-inline: max(12px, calc((min(100vw, 880px) - 680px) / 2));
-  translate: 0 calc(var(--app-top) + var(--app-height) - 100%);
   z-index: 6;
   flex-wrap: wrap;
   opacity: 1;
@@ -224,7 +223,7 @@ body:has(.chat-shell) {
 html[data-keyboard-open='true'] .message-list:not(:has(.is-selecting-text)),
 .message-list[data-keyboard-gesture='true'] { touch-action: none; }
 .chat-header, .system-notices { will-change: translate; }
-.composer { will-change: translate, transform, opacity; }
+.composer { will-change: transform, opacity; }
 .chat-bottom-control {
   position: absolute;
   right: max(12px, calc((min(100vw, 880px) - 680px) / 2));

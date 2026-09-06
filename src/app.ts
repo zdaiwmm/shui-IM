@@ -321,10 +321,10 @@ export class QuietRoomApp {
   private chatScrollBookkeepingPending = false;
   private chatScrollDocumentMovedPending = false;
   private chatMessageAnimations = new Set<Animation>();
+  private chatMessageTranslations = new Set<HTMLElement>();
   private composerHeightMotion: {
     targetHeight: number;
     frame: number | null;
-    clock: Animation | null;
   } | null = null;
   private chatBottomControl: ReturnType<typeof mountChatBottomControl> | null = null;
   private chatViewportMotion: ReturnType<typeof createChatViewportMotion> | null = null;
@@ -580,7 +580,10 @@ export class QuietRoomApp {
       // expires on the same sample as a final unusual keyboard movement.
       if (chat && (viewportGeometryChanged || generationChanged)) {
         setStyle(chat.header.style, 'translate', `0 ${viewportTop}px`);
-        setStyle(chat.composer.style, 'translate', `0 calc(${viewportTop + viewportHeight}px - 100%)`);
+        // Anchor the focused field in layout coordinates. A top-anchored bar
+        // translated by its own changing height can make WebKit's caret reveal
+        // compete with every multiline resize.
+        setStyle(chat.composer.style, 'bottom', `${layoutHeight - viewportTop - viewportHeight}px`);
         setStyle(chat.notices.style, 'translate', `0 ${viewportTop}px`);
         setStyle(chat.notice.style, 'translate', `0 calc(${viewportTop + viewportHeight}px - var(--chat-bottom-space) - 100%)`);
         const openMenu = chat.header.querySelector<HTMLDetailsElement>('.more-menu[open]');
@@ -663,10 +666,9 @@ export class QuietRoomApp {
     };
     this.cancelViewportWork = () => {
       this.galleryViewportHeader = null;
-      if (this.composerHeightMotion && this.composerHeightMotion.frame !== null) {
-        cancelAnimationFrame(this.composerHeightMotion.frame);
-      }
-      this.composerHeightMotion?.clock?.cancel();
+      if (this.composerHeightMotion?.frame != null) cancelAnimationFrame(this.composerHeightMotion.frame);
+      const input = this.chatLayoutElements?.composer.querySelector<HTMLTextAreaElement>('#message-input');
+      if (input && this.composerHeightMotion) input.style.height = `${this.composerHeightMotion.targetHeight}px`;
       this.composerHeightMotion = null;
       this.chatViewportMotion?.suspend();
       this.chatKeyboardGesture?.reset();
@@ -3521,7 +3523,12 @@ export class QuietRoomApp {
       const list = this.chatLayoutElements?.list;
       const origins = new Map<HTMLElement, number>();
       if (list?.isConnected) {
-        for (const row of list.children) {
+        // Include a margin for incoming bubbles and the maximum field growth,
+        // but do not rewrite thousands of offscreen children on every frame.
+        for (let row = list.lastElementChild; row; row = row.previousElementSibling) {
+          const rect = row.getBoundingClientRect();
+          if (rect.bottom < this.chatViewportTop - 320) break;
+          if (rect.top > this.chatViewportTop + this.chatViewportHeight + 320) continue;
           const contents = row.classList.contains('message-date') ? [row] : [...row.children];
           for (const content of contents) {
             if (content instanceof HTMLElement && !content.classList.contains('message-reply-swipe-indicator')) {
@@ -3531,8 +3538,7 @@ export class QuietRoomApp {
         }
       }
       const priorMotion = this.composerHeightMotion;
-      if (priorMotion && priorMotion.frame !== null) cancelAnimationFrame(priorMotion.frame);
-      priorMotion?.clock?.cancel();
+      if (priorMotion?.frame != null) cancelAnimationFrame(priorMotion.frame);
       this.composerHeightMotion = null;
       this.cancelChatMessageMotion();
       // Freeze an interrupted transition at its currently painted height, then
@@ -3544,10 +3550,7 @@ export class QuietRoomApp {
       this.syncChatLayout();
       const composer = this.chatLayoutElements?.composer;
       const currentComposerHeight = composer?.getBoundingClientRect().height ?? currentHeight;
-      textarea.style.height = `${targetHeight}px`;
-      const targetComposerHeight = composer?.getBoundingClientRect().height ?? targetHeight;
-      textarea.style.height = `${currentHeight}px`;
-      void textarea.offsetHeight;
+      const follow = this.chatPinnedToBottom && this.chatScrollIntent !== 'up';
       if (!animate || matchMedia('(prefers-reduced-motion: reduce)').matches
         || !ownsActiveChat() || Math.abs(targetHeight - currentHeight) < 0.5) {
         textarea.style.height = `${targetHeight}px`;
@@ -3556,42 +3559,38 @@ export class QuietRoomApp {
         this.syncChatLayout();
         return;
       }
-      textarea.style.removeProperty('transition');
-      const motion = { targetHeight, frame: null as number | null, clock: null as Animation | null };
+      const motion = { targetHeight, frame: null as number | null };
       this.composerHeightMotion = motion;
-      // The input grows in layout, but document geometry remains committed at
-      // the starting height. Visible message children use the same compositor
-      // clock, avoiding per-frame scroll/ResizeObserver feedback in WebKit.
-      motion.frame = requestAnimationFrame(() => {
-        motion.frame = null;
+      // One pre-paint update owns both layout height and visible translations.
+      // WebKit may sample layout animations and compositor animations at
+      // different instants even with identical WAAPI start times. Read only
+      // the small composer here; document scrolling stays deferred to the end.
+      const starts = new Map<HTMLElement, number>();
+      for (const [content, previousTop] of origins) {
+        if (!content.isConnected) continue;
+        starts.set(content, previousTop - content.getBoundingClientRect().top);
+        content.style.translate = `0 ${starts.get(content)}px`;
+        this.chatMessageTranslations.add(content);
+      }
+      const started = performance.now();
+      const step = (now: number) => {
         if (this.composerHeightMotion !== motion || !ownsActiveChat()) return;
-        textarea.style.height = `${targetHeight}px`;
-        const distance = targetComposerHeight - currentComposerHeight;
-        for (const [content, previousTop] of origins) {
-          if (!content.isConnected) continue;
-          const start = previousTop - content.getBoundingClientRect().top;
-          const animation = content.animate(
-            [{ translate: `0 ${start}px` }, { translate: `0 ${-distance}px` }],
-            { duration: CHAT_COMPOSER_MOTION_MS, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'forwards' },
-          );
-          animation.currentTime = 0;
-          this.chatMessageAnimations.add(animation);
+        const progress = Math.min(1, Math.max(0, (now - started) / CHAT_COMPOSER_MOTION_MS));
+        const eased = 1 - Math.pow(1 - progress, 4);
+        textarea.style.height = `${currentHeight + (targetHeight - currentHeight) * eased}px`;
+        const distance = follow ? (composer?.getBoundingClientRect().height ?? currentHeight) - currentComposerHeight : 0;
+        for (const [content, start] of starts) {
+          content.style.translate = `0 ${start * (1 - eased) - distance}px`;
         }
-        const clock = list!.animate([{ opacity: 1 }, { opacity: 1 }], { duration: CHAT_COMPOSER_MOTION_MS });
-        motion.clock = clock;
-        clock.finished.then(() => {
-          if (this.composerHeightMotion !== motion || !ownsActiveChat()) return;
-          this.composerHeightMotion = null;
-          textarea.style.transition = 'none';
-          textarea.style.height = `${targetHeight}px`;
-          void textarea.offsetHeight;
-          textarea.style.removeProperty('transition');
-          // Move the document to the already-painted endpoint, then remove the
-          // temporary child translations in the same task: no snap is exposed.
-          this.syncChatLayout();
-          this.cancelChatMessageMotion();
-        }, () => {});
-      });
+        if (progress < 1) { motion.frame = requestAnimationFrame(step); return; }
+        this.composerHeightMotion = null;
+        textarea.style.removeProperty('transition');
+        // Commit to the already-painted endpoint, then remove translations in
+        // the same task. Older-history readers keep their original anchor.
+        this.syncChatLayout();
+        this.cancelChatMessageMotion();
+      };
+      motion.frame = requestAnimationFrame(step);
     };
     textarea.addEventListener('input', () => {
       resizeTextarea();
@@ -4440,7 +4439,7 @@ export class QuietRoomApp {
     const transform = getComputedStyle(composer).transform;
     if (!transform || transform === 'none') return top;
     try {
-      // The composer uses `translate` for viewport anchoring and `transform`
+      // The composer uses `bottom` for viewport anchoring and `transform`
       // only for its concealed/reveal motion. Keep message geometry tied to
       // the final anchored edge while that decorative 14px transform runs.
       return top - new DOMMatrixReadOnly(transform).m42;
@@ -6109,7 +6108,22 @@ export class QuietRoomApp {
     const followSend = scroll === 'send';
     const previousLatest = followSend ? this.renderedMessageOrder.at(-1) : null;
     const previousLatestTop = previousLatest?.isConnected ? previousLatest.querySelector('.message-bubble')?.getBoundingClientRect().top ?? null : null;
-    if (followSend) this.cancelChatMessageMotion();
+    if (followSend) {
+      // A send can commit while IME wrapping is still animating. Preserve the
+      // painted input height before committing the new row; otherwise the old
+      // height owner blocks bottom alignment after its row animations cancel.
+      const input = this.chatLayoutElements?.composer.querySelector<HTMLTextAreaElement>('#message-input');
+      if (input && this.composerHeightMotion) {
+        const height = input.getBoundingClientRect().height;
+        if (this.composerHeightMotion.frame !== null) cancelAnimationFrame(this.composerHeightMotion.frame);
+        this.composerHeightMotion = null;
+        input.style.height = `${height}px`;
+        input.style.removeProperty('transition');
+        this.cancelChatMessageMotion();
+        this.syncChatLayout();
+      }
+      this.cancelChatMessageMotion();
+    }
     const anchor = scroll === 'restore'
       ? this.uiPreferences.chatAnchor
       : this.captureChatAnchor(false, scroll === 'position');
@@ -6269,6 +6283,8 @@ export class QuietRoomApp {
   private cancelChatMessageMotion(): void {
     for (const animation of this.chatMessageAnimations) animation.cancel();
     this.chatMessageAnimations.clear();
+    for (const content of this.chatMessageTranslations) content.style.removeProperty('translate');
+    this.chatMessageTranslations.clear();
   }
 
   private animateChatMessageShift(distance: number): void {
@@ -8548,8 +8564,7 @@ export class QuietRoomApp {
       composer.value = '';
     }
     this.sendingTextDrafts.clear();
-    if (this.composerHeightMotion && this.composerHeightMotion.frame !== null) cancelAnimationFrame(this.composerHeightMotion.frame);
-    this.composerHeightMotion?.clock?.cancel();
+    if (this.composerHeightMotion?.frame != null) cancelAnimationFrame(this.composerHeightMotion.frame);
     this.composerHeightMotion = null;
     this.imageBatchUploading = false;
     if (this.blurLockTimer !== null) window.clearTimeout(this.blurLockTimer);
