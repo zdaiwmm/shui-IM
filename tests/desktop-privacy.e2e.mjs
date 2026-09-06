@@ -643,6 +643,20 @@ try {
     });
     fixture.app.renderUnlock = fixture.renderUnlock;
     fixture.nativeRequests = [];
+    fixture.coverTouchDefaultPrevented = [];
+    document.addEventListener('pointerdown', event => {
+      if (event.pointerType === 'touch' && event.target.matches?.('.cover-trigger')) {
+        fixture.coverTouchDefaultPrevented.push(event.defaultPrevented);
+      }
+    });
+    const nativeFocus = HTMLElement.prototype.focus;
+    HTMLElement.prototype.focus = function (...args) {
+      nativeFocus.apply(this, args);
+      if (this.id === 'passkey-unlock' && fixture.focusMode) {
+        if (fixture.focusMode === 'sync') fixture.focus();
+        else fixture.setFocused(true);
+      }
+    };
     // WebKit may return a fresh CredentialsContainer wrapper per property
     // read; install a stable native boundary instead of patching one wrapper.
     Object.defineProperty(navigator, 'credentials', { configurable: true, value: { get: options => {
@@ -698,25 +712,65 @@ try {
     pointerInput: touchDriver ? 'trusted-touch' : 'mouse',
     slowRequestSingleFlight: true, abandonedRequestsAborted: true,
   };
-  if (process.env.QUIET_ROOM_REPRO_STICKY_FOCUS) {
-    // Diagnostic replay of the device trace, not an assertion that this is
-    // acceptable UX or that the native authenticator really rejected there.
+  if (touchDriver) {
+    assert.deepEqual(await pendingPage.evaluate(() => window.privacyFixture.coverTouchDefaultPrevented), [false, false, false, false],
+      'The touch corner must retain the browser default focus path');
+  }
+  for (const departure of ['none', 'hidden', 'lock', 'pagehide', 'freeze']) {
     await pendingPage.evaluate(async () => {
       const fixture = window.privacyFixture;
       fixture.app.lockNow(); fixture.visibility(false); fixture.setFocused(false);
       await navigator.locks.request('quiet-room:vault:current', () => {});
     });
+    const before = await pendingPage.evaluate(() => window.privacyFixture.nativeRequests.length);
     await cornerDown(pendingPage);
     await pendingPage.clock.runFor(1000);
-    assert.equal(await pendingPage.locator('#passkey-unlock').isDisabled(), true);
-    await pendingPage.evaluate(() => window.privacyFixture.nativeRequests.at(-1).cancel());
-    await pendingPage.clock.runFor(249);
+    assert.equal(await pendingPage.evaluate(() => window.privacyFixture.nativeRequests.length), before,
+      'A visible but unfocused gateway must not call WebAuthn and enter the 250ms rejection loop');
+    assert.equal(await pendingPage.locator('#passkey-unlock').isDisabled(), false, 'Focus recovery must retain a usable button');
+    await pendingPage.clock.runFor(5000);
     assert.equal(await pendingPage.locator('.gateway').count(), 1);
-    await pendingPage.clock.runFor(1);
-    await assertCovered(pendingPage, false);
     await pendingPage.mouse.up();
-    results.stickyFocusDiagnostic = { visible: true, hasFocus: false, nativeResult: 'synthetic NotAllowedError', returnToCoverMs: 250, pointerStillDown: true };
+    if (departure !== 'none') {
+      await pendingPage.evaluate(departure => {
+        const fixture = window.privacyFixture;
+        if (departure === 'hidden') fixture.visibility(true);
+        else if (departure === 'lock') fixture.app.lockNow();
+        else if (departure === 'freeze') document.dispatchEvent(new Event('freeze'));
+        else window.dispatchEvent(new Event('pagehide'));
+      }, departure);
+      await assertCovered(pendingPage, false);
+    }
+    await pendingPage.evaluate(() => { window.privacyFixture.visibility(false); window.privacyFixture.focus(); });
+    await pendingPage.clock.runFor(30);
+    assert.equal(await pendingPage.evaluate(() => window.privacyFixture.nativeRequests.length), before + (departure === 'none' ? 1 : 0),
+      'Focus return must start one live entry only, never an abandoned gateway');
+    if (departure === 'none') {
+      await pendingPage.evaluate(() => window.privacyFixture.focus());
+      assert.equal(await pendingPage.evaluate(() => window.privacyFixture.nativeRequests.length), before + 1);
+      await pendingPage.evaluate(() => window.privacyFixture.nativeRequests.at(-1).cancel());
+      await pendingPage.clock.runFor(1);
+      assert.equal(await pendingPage.locator('#passkey-unlock').isDisabled(), false);
+      assert.equal(await pendingPage.locator('#passkey-unlock').textContent(), '重新验证');
+    }
   }
+  results.gatewayFocusRecovery = { noUnfocusedNativeRequest: true, usableWhileWaiting: true, focusedReturnStartsOnce: true, abandonedWaitIgnored: true };
+  for (const mode of ['sync', 'silent']) {
+    await pendingPage.evaluate(async mode => {
+      const fixture = window.privacyFixture;
+      fixture.app.lockNow(); fixture.visibility(false); fixture.setFocused(false);
+      fixture.focusMode = mode;
+      await navigator.locks.request('quiet-room:vault:current', () => {});
+    }, mode);
+    const before = await pendingPage.evaluate(() => window.privacyFixture.nativeRequests.length);
+    await cornerDown(pendingPage);
+    await pendingPage.clock.runFor(1000);
+    await pendingPage.mouse.up();
+    assert.equal(await pendingPage.evaluate(() => window.privacyFixture.nativeRequests.length), before + 1,
+      `${mode} focus recovery must start exactly one native request`);
+    assert.equal(await pendingPage.locator('#passkey-unlock').isDisabled(), true);
+  }
+  await pendingPage.evaluate(() => window.privacyFixture.app.lockNow());
   await pendingPage.close();
 
   const exclusions = [

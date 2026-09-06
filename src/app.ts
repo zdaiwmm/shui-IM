@@ -357,6 +357,7 @@ export class QuietRoomApp {
   private deferredImageUpload: { roomId: string; deviceId: string; files: File[]; destination: 'chat' | 'gallery' } | null = null;
   private unlocking = false;
   private gatewayUnlockAbort: AbortController | null = null;
+  private gatewayFocusAbort: AbortController | null = null;
   private deviceVerificationActive = false;
   private systemSurfaceTokens = new Set<symbol>();
   private nativeHandoff: {
@@ -941,8 +942,8 @@ export class QuietRoomApp {
     const preparation = ++this.coverStoredVaultPreparation;
     this.coverStoredVault = null;
     // Prepare the non-secret encrypted wrapper while the cover is idle. A
-    // completed hold can then enter the v3 gateway and call WebAuthn before
-    // any IndexedDB or cross-tab lifecycle await consumes Safari activation.
+    // completed hold can then enter the v3 gateway without another storage
+    // wait. This preparation does not substitute for real browser focus.
     void readStoredVault().then(stored => {
       if (preparation === this.coverStoredVaultPreparation && this.privacyCovered && trigger.isConnected &&
           stored?.v === 3 && stored.unlockMethod === 'platform') this.coverStoredVault = stored;
@@ -952,7 +953,11 @@ export class QuietRoomApp {
       // A browser may omit pointerup/cancel when focus leaves. Once the hold
       // timer was canceled, the next primary pointer starts a fresh gesture.
       if (!event.isPrimary || event.button !== 0 || (pointerId !== null && this.coverTimer !== null) || this.coverHoldCommitted) return;
-      event.preventDefault();
+      // Keep the native touch-to-focus path. Safari can return from background
+      // visible but unfocused; compatibility mouse/click events can be needed
+      // to recover focus like an ordinary page tap.
+      // touch-action:none and the existing callout/selection rules own gestures.
+      if (event.pointerType !== 'touch') event.preventDefault();
       pointerId = event.pointerId;
       const bounds = trigger.getBoundingClientRect();
       trigger.style.setProperty('--cover-press-x', `${event.clientX - bounds.left}px`);
@@ -1111,6 +1116,8 @@ export class QuietRoomApp {
   }
 
   private async renderUnlock(providedStored?: Awaited<ReturnType<typeof readStoredVault>>, trustedCoverActivation = false): Promise<void> {
+    this.gatewayFocusAbort?.abort();
+    this.gatewayFocusAbort = null;
     const renderEpoch = ++this.gatewayRenderEpoch;
     const runtimeEpoch = this.runtimeEpoch;
     const entryEpoch = this.coverEntryEpoch;
@@ -1230,7 +1237,28 @@ export class QuietRoomApp {
       const button = this.root.querySelector<HTMLButtonElement>('#passkey-unlock')!;
       const error = this.root.querySelector<HTMLElement>('.form-error')!;
       const runUnlock = () => {
-        if (this.unlocking) return;
+        if (this.unlocking || !current() || document.hidden || !button.isConnected) return;
+        if (!document.hasFocus()) {
+          // WebKit rejects an unfocused request before presenting native UI.
+          // Keep this unauthenticated gateway usable, and start only once the
+          // browser reports real focus. This is not a verification exemption:
+          // hidden/pagehide/freeze/lock still tear down this pending intent.
+          if (!this.gatewayFocusAbort) {
+            const focusAbort = new AbortController();
+            this.gatewayFocusAbort = focusAbort;
+            window.addEventListener('focus', event => {
+              if (event.target === window && document.hasFocus()) runUnlock();
+            }, { capture: true, signal: focusAbort.signal });
+          }
+          button.focus({ preventScroll: true });
+          // Some browsers update hasFocus without a window focus event. Calling
+          // runUnlock again also handles a synchronous focus event without a
+          // duplicate request, since unlocking is checked above.
+          if (document.hasFocus()) runUnlock();
+          return;
+        }
+        this.gatewayFocusAbort?.abort();
+        this.gatewayFocusAbort = null;
         this.unlocking = true;
         const abort = new AbortController();
         this.gatewayUnlockAbort = abort;
@@ -8165,6 +8193,8 @@ export class QuietRoomApp {
   }
 
   private cleanupRuntime(preserveFilePicker = false): void {
+    this.gatewayFocusAbort?.abort();
+    this.gatewayFocusAbort = null;
     this.gatewayUnlockAbort?.abort();
     this.gatewayUnlockAbort = null;
     this.clearKeyboardHandoff();

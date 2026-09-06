@@ -17,9 +17,11 @@
   与网关回退。`node tests/cover-entry-probe.e2e.mjs` 和
   `QUIET_ROOM_TEST_BROWSER=webkit node tests/cover-entry-probe.e2e.mjs` 验证最小化书签的事件记录、
   同一任务内短暂网关捕获、无 DOM 文本／网络请求和报告清理；不属于产品或真机通过证据。
-- `QUIET_ROOM_REPRO_STICKY_FOCUS=1 node tests/desktop-privacy.e2e.mjs` 是显式诊断回放：
-  保持可见未聚焦、长按不松手并使原生替身拒绝，断言 249ms 仍在网关、250ms 回到遮蔽页。
-  这是现有失败路径的复现证据，不是期望产品行为或真机原生返回码证明；默认产品套件不启用此分支。
+- 历史诊断提交 `77e807bf3c5b598116f335019bd574ac3b83b552` 的显式 sticky-focus 回放已在
+  Chromium／WebKit 复现：可见未聚焦时原生替身拒绝，249ms 仍在网关、250ms 回锁。
+  当前测试已将其替换为正式回归：未聚焦零原生请求、按钮可用、恢复真实焦点只启动一次、
+  同步焦点重入和无 window focus 事件均不重复请求；隐藏／锁定／pagehide／freeze 取消等待。
+  Chromium 可信触摸另断言入口未 preventDefault，保留浏览器默认聚焦；新断言修复前失败。
 
 ## 真机录屏键盘白屏与输入区材质回归（2026-09-05）
 
