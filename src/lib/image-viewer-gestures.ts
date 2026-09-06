@@ -50,9 +50,24 @@ const DOUBLE_TAP_DELAY = 300;
 const DOUBLE_TAP_DISTANCE = 24;
 const TAP_MAX_DURATION = 260;
 const PINCH_MIN_DISTANCE = 8;
+const MIN_SCALE = 1 / 3;
+const MAX_SCALE = 5;
+const PINCH_UNDERSCALE_LIMIT = 0.28;
+const PINCH_OVERSCALE_LIMIT = 5.42;
+const DRAG_SHRINK_LIMIT = 0.72;
 const ZOOM_DURATION = 340;
 const RETURN_DURATION = 180;
 const MOTION_EASING = 'cubic-bezier(.22,.72,.2,1)';
+
+function resistEdgeDistance(distance: number, extent: number): number {
+  const safeExtent = Math.max(extent, 1);
+  return distance / (1 + Math.abs(distance) / (safeExtent * 2.5));
+}
+
+function dragScaleForDistance(x: number, y: number, width: number, height: number): number {
+  const progress = Math.min(1, Math.hypot(x / Math.max(width, 1), y / Math.max(height, 1)));
+  return Math.max(DRAG_SHRINK_LIMIT, 1 - progress * (1 - DRAG_SHRINK_LIMIT));
+}
 
 function tagName(element: Element | null): string {
   return element?.tagName?.toLowerCase() ?? '';
@@ -347,10 +362,10 @@ export function bindImageViewerGestures(options: ImageViewerGestureOptions): Ima
     const from = target.style.transform || transform();
     const bounds = stage.getBoundingClientRect();
     const origin = { x: bounds.left + bounds.width / 2, y: bounds.top + bounds.height / 2 };
-    const bounded = Math.max(1, Math.min(5, next));
+    const bounded = Math.max(MIN_SCALE, Math.min(MAX_SCALE, next));
     scale = resistant
-      ? next < 1 ? Math.max(.84, 1 - (1 - next) * .22)
-        : next > 5 ? Math.min(5.42, 5 + (next - 5) * .14)
+      ? next < MIN_SCALE ? Math.max(PINCH_UNDERSCALE_LIMIT, MIN_SCALE - (MIN_SCALE - next) * .16)
+        : next > MAX_SCALE ? Math.min(PINCH_OVERSCALE_LIMIT, MAX_SCALE + (next - MAX_SCALE) * .14)
           : next
       : bounded;
     const ratio = scale / startScale;
@@ -546,13 +561,17 @@ export function bindImageViewerGestures(options: ImageViewerGestureOptions): Ima
       // for that class. Horizontal paging keeps the header continuously visible.
       viewer.classList.remove('is-dragging');
       viewer.classList.add('is-paging');
-      drag.media.style.transform = `translate3d(${x}px, 0px, 0)`;
+      const resistedX = resistEdgeDistance(x, stage.clientWidth);
+      drag.media.style.transform = `translate3d(${resistedX}px, 0px, 0)`;
       return;
     }
     event.preventDefault();
     viewer.classList.remove('is-paging');
     viewer.classList.add('is-dragging');
-    drag.media.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+    const resistedX = resistEdgeDistance(x, stage.clientWidth);
+    const resistedY = resistEdgeDistance(y, stage.clientHeight);
+    const dragScale = dragScaleForDistance(x, y, stage.clientWidth, stage.clientHeight);
+    drag.media.style.transform = `translate3d(${resistedX}px, ${resistedY}px, 0) scale(${dragScale})`;
     viewer.style.setProperty('--viewer-backdrop-opacity', String(1 - Math.min(Math.abs(y) / Math.max(stage.clientHeight, 1), 0.8)));
   }, { signal: events.signal });
 
@@ -591,8 +610,8 @@ export function bindImageViewerGestures(options: ImageViewerGestureOptions): Ima
       lastTap = null;
       if (multiSnapshot && media() !== multiSnapshot.media) gestureConflict = true;
       if (completedPinch && image() !== completedPinch.image) gestureConflict = true;
-      if (!gestureConflict && completedPinch && (scale < 1 || scale > 5)) {
-        scale = Math.max(1, Math.min(5, scale));
+      if (!gestureConflict && completedPinch && (scale < MIN_SCALE || scale > MAX_SCALE)) {
+        scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
         applyImage(completedPinch.image, true);
       }
       if (!gestureConflict && completedPinch && pointers.size === 1 && image() === completedPinch.image) {
@@ -657,14 +676,15 @@ export function bindImageViewerGestures(options: ImageViewerGestureOptions): Ima
         (Math.abs(x) >= pageDistance || Math.abs(x) >= PAGE_FLICK_MIN_DISTANCE && Math.abs(velocityX) > PAGE_FLICK_VELOCITY)) {
       lastTap = null;
       const direction = x < 0 ? 1 : -1;
+      const offsetX = resistEdgeDistance(x, stage.clientWidth);
       // Keep the transition-disabling class until the consumer calls reset()
       // after moving this residual transform onto its outgoing layer.
       pagePending = true;
       viewer.classList.add('is-paging');
-      ended.media.style.transform = `translate3d(${x}px, 0px, 0)`;
+      ended.media.style.transform = `translate3d(${offsetX}px, 0px, 0)`;
       options.page(direction, {
         direction,
-        offsetX: x,
+        offsetX,
         velocityX,
         elapsedMs: elapsed,
         stageWidth: stage.clientWidth,
@@ -722,8 +742,8 @@ export function bindImageViewerGestures(options: ImageViewerGestureOptions): Ima
     if (wheelEndTimer !== null) clearTimeout(wheelEndTimer);
     wheelEndTimer = setTimeout(() => {
       wheelEndTimer = null;
-      if (scale < 1 || scale > 5) {
-        scale = Math.max(1, Math.min(5, scale));
+      if (scale < MIN_SCALE || scale > MAX_SCALE) {
+        scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
         applyImage(image(), true);
       }
       setContinuousTransform(false);
