@@ -249,6 +249,7 @@ try {
       const messageContent = trackedMessage?.querySelector('.message-bubble');
       return {
         resizing: Boolean(app.composerHeightMotion),
+        viewportMotion: composer.dataset.viewportMotion ?? null,
         inputHeight: input.getBoundingClientRect().height,
         inputBottom: input.getBoundingClientRect().bottom,
         headerTop: header.getBoundingClientRect().top,
@@ -296,6 +297,9 @@ try {
 
     input.value = '第一行\n第二行\n第三行';
     input.dispatchEvent(new Event('input'));
+    Object.defineProperty(visualViewport, 'height', { configurable: true, value: 422 });
+    Object.defineProperty(visualViewport, 'offsetTop', { configurable: true, value: 108 });
+    visualViewport.dispatchEvent(new Event('resize'));
     const growing = await collect(24);
     if (range(growing, 'inputHeight') < 35 || !direction(growing, 'inputHeight', 1)) {
       throw Error(`Composer did not expand through monotonic intermediate heights: ${JSON.stringify(growing)}`);
@@ -303,6 +307,9 @@ try {
     if (!fixed(growing, 'headerTop') || !fixed(growing, 'inputBottom')
       || !fixed(growing, 'photoBottom') || !fixed(growing, 'actionBottom')) {
       throw Error(`Fixed chat chrome moved during composer expansion: ${JSON.stringify(growing)}`);
+    }
+    if (growing.some(frame => frame.viewportMotion)) {
+      throw Error(`Composer-owned viewport drift concealed the input toolbar: ${JSON.stringify(growing)}`);
     }
     if (!direction(growing, 'messageTop', -1) || !smooth(growing, 'messageTop')
       || growing.at(-1).messageTop >= growing[0].messageTop - 35) {
@@ -327,6 +334,10 @@ try {
     };
     const beforeSend = sample(previousLatest);
     composer.requestSubmit();
+    await Promise.resolve();
+    Object.defineProperty(visualViewport, 'height', { configurable: true, value: 430 });
+    Object.defineProperty(visualViewport, 'offsetTop', { configurable: true, value: 100 });
+    visualViewport.dispatchEvent(new Event('resize'));
     const sending = [beforeSend, ...await collect(24, previousLatest)];
     await settle();
     if (range(sending, 'inputHeight') < 35 || !direction(sending, 'inputHeight', -1)) {
@@ -336,9 +347,23 @@ try {
       || !fixed(sending, 'photoBottom') || !fixed(sending, 'actionBottom')) {
       throw Error(`Fixed chat chrome moved during send: ${JSON.stringify(sending)}`);
     }
+    if (sending.some(frame => frame.viewportMotion)) {
+      throw Error(`Send-owned viewport drift concealed the input toolbar: ${JSON.stringify(sending)}`);
+    }
     if (!direction(sending, 'messageTop', -1) || !smooth(sending, 'messageTop')
       || sending.at(-1).messageTop >= sending[0].messageTop - 4) {
       throw Error(`Inserted message did not move the prior timeline smoothly upward: ${JSON.stringify(sending)}`);
+    }
+    // Real iOS can defer its caret-reveal pan until after the 280ms textarea
+    // collapse has painted. That delayed sample still belongs to the send.
+    const beforeDelayedSendDrift = sample(previousLatest);
+    Object.defineProperty(visualViewport, 'offsetTop', { configurable: true, value: 92 });
+    visualViewport.dispatchEvent(new Event('scroll'));
+    const delayedSendDrift = [beforeDelayedSendDrift, ...await collect(4, previousLatest)];
+    if (delayedSendDrift.some(frame => frame.viewportMotion)
+      || !fixed(delayedSendDrift, 'headerTop') || !fixed(delayedSendDrift, 'inputBottom')
+      || !fixed(delayedSendDrift, 'photoBottom') || !fixed(delayedSendDrift, 'actionBottom')) {
+      throw Error(`Delayed send viewport drift moved fixed chat chrome: ${JSON.stringify(delayedSendDrift)}`);
     }
     // Retarget a live Chinese-IME-style wrap, then delete back to one line.
     // The first position after each edit must retain the last painted position.

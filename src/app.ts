@@ -172,6 +172,7 @@ const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3'
 // from chooser/media handoffs so every hard lifecycle signal still locks.
 const KEYBOARD_NATIVE_HANDOFF_MS = 1_200;
 const CHAT_COMPOSER_MOTION_MS = 280;
+const CHAT_COMPOSER_VIEWPORT_SETTLE_MS = 500;
 
 type CachedImage = { blob: Blob; url: string; bytes: number; lastUsedAt: number; width?: number; height?: number; posterUrl?: string; posterPromise?: Promise<void>; posterUnavailable?: boolean };
 const MAX_IMAGE_CACHE_BYTES = 96 * 1024 * 1024;
@@ -327,6 +328,7 @@ export class QuietRoomApp {
     targetHeight: number;
     frame: number | null;
   } | null = null;
+  private composerViewportSettleUntil = 0;
   private chatBottomControl: ReturnType<typeof mountChatBottomControl> | null = null;
   private chatViewportMotion: ReturnType<typeof createChatViewportMotion> | null = null;
   private chatKeyboardGesture: ReturnType<typeof bindChatKeyboardGesture> | null = null;
@@ -537,8 +539,6 @@ export class QuietRoomApp {
       // Discard rubber-band and stale dismissal offsets once the full viewport
       // is visible. Panning never contributes to the document's keyboard space.
       const viewportTop = Math.max(0, Math.min(viewport?.offsetTop ?? 0, keyboardSpace));
-      this.chatViewportTop = viewportTop;
-      this.chatViewportHeight = viewportHeight;
       const chat = this.activeSurface === 'chat' && this.chatLayoutElements?.shell.isConnected ? this.chatLayoutElements : null;
       const chatGeneration = chat ? this.chatLayoutGeneration : 0;
       const resized = previousViewportHeight !== viewportHeight || previousLayoutHeight !== layoutHeight;
@@ -552,6 +552,18 @@ export class QuietRoomApp {
         : keyboardSpace >= Math.max(180, layoutHeight * 0.28)
           ? 'open'
           : 'intermediate';
+      const previousKeyboardOpen = Math.max(0, previousLayoutHeight - previousViewportHeight) > 120;
+      const composerInput = chat?.composer.querySelector<HTMLTextAreaElement>('#message-input');
+      const composerResizeOwnsGeometry = Boolean(chat
+        && (this.composerHeightMotion || performance.now() < this.composerViewportSettleUntil)
+        && document.activeElement === composerInput && previousChatGeneration === chatGeneration
+        && previousKeyboardOpen && keyboardOpen && keyboardGeometry === 'open'
+        && previousViewportWidth === viewportWidth && previousLayoutHeight === layoutHeight
+        && !this.chatViewportMotion?.moving);
+      if (!composerResizeOwnsGeometry) {
+        this.chatViewportTop = viewportTop;
+        this.chatViewportHeight = viewportHeight;
+      }
       if (keyboardOpen) this.completeKeyboardHandoffFromViewport({
         generation: this.visualViewportGeometryGeneration,
         viewportHeight,
@@ -567,7 +579,7 @@ export class QuietRoomApp {
       if (document.documentElement.dataset.keyboardOpen !== keyboardState) {
         document.documentElement.dataset.keyboardOpen = keyboardState;
       }
-      if (chat && (resized || generationChanged)) {
+      if (chat && (resized || generationChanged) && !composerResizeOwnsGeometry) {
         this.pendingChatViewportGeometry = {
           generation: chatGeneration,
           paddingBottom: `calc(var(--chat-bottom-space) + ${keyboardSpace}px)`,
@@ -579,7 +591,7 @@ export class QuietRoomApp {
       // Put fixed chrome at this snapshot before the motion state can commit
       // document geometry or reveal. This matters when a long hard fallback
       // expires on the same sample as a final unusual keyboard movement.
-      if (chat && (viewportGeometryChanged || generationChanged)) {
+      if (chat && (viewportGeometryChanged || generationChanged) && !composerResizeOwnsGeometry) {
         setStyle(chat.header.style, 'translate', `0 ${viewportTop}px`);
         // Anchor the focused field in layout coordinates. A top-anchored bar
         // translated by its own changing height can make WebKit's caret reveal
@@ -599,6 +611,7 @@ export class QuietRoomApp {
         scrollY: window.scrollY,
         keyboardOpen,
         keyboardGeometry,
+        composerResize: composerResizeOwnsGeometry,
       }) ?? false;
       if (!resized && !widthChanged && previousViewportTop === viewportTop && previousChatGeneration === chatGeneration) return motionSettled;
       // Keep frame-by-frame position updates local to the four floating
@@ -612,6 +625,7 @@ export class QuietRoomApp {
       previousViewportTop = viewportTop;
       previousViewportWidth = viewportWidth;
       previousChatGeneration = chatGeneration;
+      if (composerResizeOwnsGeometry) return motionSettled;
       if (chat) {
         // During keyboard/toolbar movement only the fixed chrome follows the
         // visual viewport. Message-document geometry, bottom alignment and
@@ -671,6 +685,7 @@ export class QuietRoomApp {
       const input = this.chatLayoutElements?.composer.querySelector<HTMLTextAreaElement>('#message-input');
       if (input && this.composerHeightMotion) input.style.height = `${this.composerHeightMotion.targetHeight}px`;
       this.composerHeightMotion = null;
+      this.composerViewportSettleUntil = 0;
       this.chatViewportMotion?.suspend();
       this.chatKeyboardGesture?.reset();
       this.chatBottomControl?.cancel();
@@ -3565,6 +3580,12 @@ export class QuietRoomApp {
       }
       const motion = { targetHeight, frame: null as number | null };
       this.composerHeightMotion = motion;
+      // iOS Safari can publish its caret-reveal viewport pan only after the
+      // textarea has reached its painted endpoint. Keep ownership through that
+      // delayed native settle instead of handing the same resize to the
+      // keyboard/toolbar transition controller.
+      this.composerViewportSettleUntil = performance.now()
+        + CHAT_COMPOSER_MOTION_MS + CHAT_COMPOSER_VIEWPORT_SETTLE_MS;
       // One pre-paint update owns both layout height and visible translations.
       // WebKit may sample layout animations and compositor animations at
       // different instants even with identical WAAPI start times. Read only
@@ -3588,6 +3609,7 @@ export class QuietRoomApp {
         }
         if (progress < 1) { motion.frame = requestAnimationFrame(step); return; }
         this.composerHeightMotion = null;
+        this.composerViewportSettleUntil = performance.now() + CHAT_COMPOSER_VIEWPORT_SETTLE_MS;
         textarea.style.removeProperty('transition');
         // Commit to the already-painted endpoint, then remove translations in
         // the same task. Older-history readers keep their original anchor.
@@ -8583,6 +8605,7 @@ export class QuietRoomApp {
     this.sendingTextDrafts.clear();
     if (this.composerHeightMotion?.frame != null) cancelAnimationFrame(this.composerHeightMotion.frame);
     this.composerHeightMotion = null;
+    this.composerViewportSettleUntil = 0;
     this.imageBatchUploading = false;
     if (this.blurLockTimer !== null) window.clearTimeout(this.blurLockTimer);
     this.blurLockTimer = null;
