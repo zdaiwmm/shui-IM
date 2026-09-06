@@ -477,11 +477,36 @@ try {
     }, { capture: true });
     fixture.app.renderUnlock = fixture.renderUnlock;
     fixture.app.withDeviceVerification = () => new Promise((resolve, reject) => fixture.attempts.push({ resolve, reject }));
+    // Production reaches this state by locking an already-v3 vault. Re-render
+    // the cover after this fixture replaces its initial legacy record so the
+    // cover-time preparation observes the same ordering.
+    fixture.app.renderCover();
+  });
+  await unlockPage.evaluate(async () => {
+    const fixture = window.privacyFixture;
+    // Let any cover-time vault snapshot finish, then hold the lifecycle lock.
+    // A trusted cover completion must start WebAuthn from prepared metadata
+    // instead of waiting for this lock and losing Safari user activation.
+    await navigator.locks.request('quiet-room:vault:current', () => {});
+    let acquired;
+    const ready = new Promise(resolve => { acquired = resolve; });
+    fixture.pendingUnlockVaultLease = navigator.locks.request('quiet-room:vault:current', async () => {
+      acquired();
+      await new Promise(resolve => { fixture.releaseUnlockVaultLease = resolve; });
+    });
+    await ready;
   });
   await cornerDown(unlockPage);
   await unlockPage.clock.runFor(999);
   assert.equal(await unlockPage.evaluate(() => window.privacyFixture.attempts.length), 0);
   await unlockPage.clock.runFor(1);
+  const attemptsBeforeVaultLeaseRelease = await unlockPage.evaluate(() => window.privacyFixture.attempts.length);
+  await unlockPage.evaluate(async () => {
+    const fixture = window.privacyFixture;
+    fixture.releaseUnlockVaultLease();
+    await fixture.pendingUnlockVaultLease;
+  });
+  assert.equal(attemptsBeforeVaultLeaseRelease, 1, 'Trusted cover completion waited for IndexedDB/lifecycle work before starting device verification');
   await unlockPage.waitForFunction(() => window.privacyFixture.attempts.length === 1);
   assert.equal(await unlockPage.locator('.cover-activation-feedback').count(), 1, 'Trusted completion must show feedback while verification begins');
   assert.deepEqual(await unlockPage.evaluate(() => window.privacyFixture.unlockClickEvents), [], 'Trusted entry must call the unlock operation directly, without button.click()');
@@ -531,9 +556,8 @@ try {
   assert.equal(errorPaint.actual, errorPaint.danger, 'Non-cancellation failures must retain the danger/red treatment');
   await unlockPage.evaluate(() => window.privacyFixture.app.lockNow());
 
-  // Even a trusted pointer cannot authorize a later async storage result after
-  // hidden or a changed cover-entry epoch. Hold the vault lock so each change
-  // lands after the gesture commits but before renderUnlock can start WebAuthn.
+  // If cover-time preparation is unavailable, the guarded async fallback must
+  // still reject storage results that cross a hidden or entry-epoch boundary.
   for (const boundary of ['entry-epoch', 'hidden']) {
     await unlockPage.evaluate(async () => {
       const fixture = window.privacyFixture;
@@ -543,6 +567,8 @@ try {
         acquired(); await new Promise(resolve => { fixture.releaseVaultLease = resolve; });
       });
       await ready;
+      fixture.app.coverStoredVault = null;
+      fixture.app.coverStoredVaultPreparation += 1;
     });
     await cornerDown(unlockPage);
     await unlockPage.clock.runFor(1000);
@@ -564,7 +590,7 @@ try {
     await unlockPage.waitForFunction(() => window.privacyFixture.app.privacyCovered);
     await unlockPage.mouse.up();
     await assertCovered(unlockPage, false);
-    assert.equal(await unlockPage.evaluate(() => window.privacyFixture.attempts.length), 3, `${boundary} must block the late direct verification`);
+    assert.equal(await unlockPage.evaluate(() => window.privacyFixture.attempts.length), 3, `${boundary} must block the late fallback verification`);
   }
 
   await unlockPage.evaluate(async () => {
@@ -605,7 +631,7 @@ try {
     await assertCovered(unlockPage, false);
     assert.equal(await unlockPage.evaluate(() => window.privacyFixture.attempts.length), 3, 'A focus departure during storage reads must prevent automatic verification');
   }
-  results.modernUnlock = { startsDirectlyAtTrustedThreshold: true, noProgrammaticButtonClick: true, visibleActivationFeedback: true, lateSuccessIgnored: true, newerBusyStateRetained: true, cancellationSilentRetry: true, otherErrorsVisible: true, trustedReadStillChecksHiddenAndEntryEpoch: true, staleStorageReadIgnored: true, storageReadDepartureCovered: true };
+  results.modernUnlock = { startsDirectlyAtTrustedThreshold: true, startsBeforeLifecycleLock: true, noProgrammaticButtonClick: true, visibleActivationFeedback: true, lateSuccessIgnored: true, newerBusyStateRetained: true, cancellationSilentRetry: true, otherErrorsVisible: true, fallbackReadStillChecksHiddenAndEntryEpoch: true, staleStorageReadIgnored: true, storageReadDepartureCovered: true };
   await unlockPage.close();
 
   const exclusions = [
