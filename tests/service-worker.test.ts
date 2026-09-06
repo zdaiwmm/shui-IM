@@ -7,12 +7,15 @@ async function worker(fetchResponse: () => Promise<Response>, cached?: Response)
   const stored = new Map<string, Response>();
   if (cached) stored.set('/', cached);
   const waiting: Promise<unknown>[] = [];
+  const posted: unknown[] = [];
   vm.runInNewContext(await readFile(new URL('../public/sw.js', import.meta.url), 'utf8'), {
-    self: { location: { origin: 'https://ai.shui.click' }, addEventListener: (type: string, handler: any) => handlers.set(type, handler), skipWaiting() {}, clients: { claim() {} } },
+    self: { location: { origin: 'https://ai.shui.click' }, addEventListener: (type: string, handler: any) => handlers.set(type, handler), skipWaiting() {}, clients: { claim: async () => {}, matchAll: async () => [{ postMessage: (message: unknown) => posted.push(message) }] } },
     URL, Response, fetch: fetchResponse,
     caches: {
       match: async (key: string) => stored.get(key)?.clone(),
       open: async () => ({ put: async (key: string, response: Response) => { stored.set(key, response); } }),
+      keys: async () => [],
+      delete: async () => true,
     },
   });
   const navigate = async () => {
@@ -22,12 +25,22 @@ async function worker(fetchResponse: () => Promise<Response>, cached?: Response)
     await Promise.all(waiting.splice(0));
     return result;
   };
-  return { navigate, stored };
+  const activate = async () => {
+    handlers.get('activate')!({ waitUntil: (value: Promise<unknown>) => waiting.push(value) });
+    await Promise.all(waiting.splice(0));
+  };
+  return { navigate, activate, stored, posted };
 }
 
 const shell = () => new Response('<html>working offline shell</html>', { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 
 describe('offline shell response validation', () => {
+  it('announces the activated release to every open window', async () => {
+    const app = await worker(async () => shell());
+    await app.activate();
+    expect(app.posted).toEqual([{ type: 'quiet-room-release-ready', releaseId: '__QUIET_ROOM_RELEASE_ID__' }]);
+  });
+
   it('retains the last good shell through a temporary 503 and later network failure', async () => {
     let offline = false;
     const app = await worker(async () => {

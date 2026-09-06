@@ -16,7 +16,7 @@
 | 领域 | 先读 | 代码入口 | 主要验证入口 |
 | --- | --- | --- | --- |
 | 产品语义与交互 | `PRODUCT.md`、`README.md` | `src/app.ts`、各 CSS 文件 | `tests/browser.e2e.mjs`、`tests/ui-audit.e2e.mjs`、相关专项浏览器脚本 |
-| 启动、页面状态、Service Worker | `README.md` | `src/main.ts`、`public/sw.js` | `tests/frontend-lifecycle.e2e.mjs`、`tests/service-worker.test.ts` |
+| 启动、页面状态、版本更新、Service Worker | `README.md`、`PRODUCT.md`、`RELEASING.md` | `release.json`、`src/main.ts`、`src/lib/release-update.ts`、`public/sw.js` | `tests/frontend-lifecycle.e2e.mjs`、`tests/release-update.e2e.mjs`、`tests/release-update.test.ts`、`tests/service-worker.test.ts` |
 | 聊天日期、气泡回执、回到最新消息与键盘跟随 | `PRODUCT.md` 的 Message Timeline、`TEST_PLAN.md` | `src/lib/message-date.ts`、`src/lib/chat-bottom-control.ts`、`src/lib/chat-viewport-motion.ts`、`src/app.ts`、`src/chat-layout.css`、`src/styles.css` | `tests/message-timeline.e2e.mjs`、`tests/chat-bottom-control.e2e.mjs`、`tests/frontend-lifecycle.e2e.mjs`、`tests/chat-viewport-motion.test.ts` |
 | 设备邀请与参与者邀请分类 | `PRODUCT.md`、`SECURITY.md` | `src/lib/invite-link.ts`、`src/lib/vault.ts`、`src/app.ts` | `tests/invite-link.test.ts`、`tests/platform-vault.test.ts`、`tests/browser.e2e.mjs` |
 | 隐私遮罩、锁定、桌面恢复、系统弹窗 | `PRODUCT.md`、`SECURITY.md`、`TEST_PLAN.md` | `src/app.ts`、`src/cover.css`、`src/auth-recovery.css`、`src/lib/vault.ts` | `tests/desktop-privacy.e2e.mjs`、`tests/desktop-session-flow.e2e.mjs`、`tests/system-surfaces.e2e.mjs`、`tests/vault-resume.e2e.mjs`、`tests/chat-image-privacy.e2e.mjs` |

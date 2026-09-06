@@ -1,4 +1,5 @@
-const CACHE = 'quiet-room-shell-v6';
+const RELEASE_ID = '__QUIET_ROOM_RELEASE_ID__';
+const CACHE = `quiet-room-shell-${RELEASE_ID}`;
 const SHELL = ['/', '/manifest.webmanifest', '/icon.svg'];
 
 function isCacheableAsset(url) {
@@ -15,10 +16,15 @@ self.addEventListener('install', (event) => {
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((key) => key !== CACHE).map((key) => caches.delete(key)))),
-  );
-  self.clients.claim();
+  event.waitUntil((async () => {
+    await Promise.all((await caches.keys()).filter((key) => key !== CACHE).map((key) => caches.delete(key)));
+    await self.clients.claim();
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    await Promise.all(windows.map(client => client.postMessage({
+      type: 'quiet-room-release-ready',
+      releaseId: RELEASE_ID,
+    })));
+  })());
 });
 
 self.addEventListener('fetch', (event) => {

@@ -610,8 +610,15 @@ export function bindImageViewerGestures(options: ImageViewerGestureOptions): Ima
       lastTap = null;
       if (multiSnapshot && media() !== multiSnapshot.media) gestureConflict = true;
       if (completedPinch && image() !== completedPinch.image) gestureConflict = true;
-      if (!gestureConflict && completedPinch && (scale < MIN_SCALE || scale > MAX_SCALE)) {
-        scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
+      if (!gestureConflict && completedPinch && scale < 1) {
+        // A pinch that makes the fitted image smaller is only exploratory.
+        // Once both fingers leave, return to the original fitted size. Keep a
+        // genuine enlargement in place so the user can continue inspecting it.
+        scale = 1;
+        pan = { x: 0, y: 0 };
+        applyImage(completedPinch.image, true, completedPinch.image.style.transform || 'none', RETURN_DURATION);
+      } else if (!gestureConflict && completedPinch && scale > MAX_SCALE) {
+        scale = MAX_SCALE;
         applyImage(completedPinch.image, true);
       }
       if (!gestureConflict && completedPinch && pointers.size === 1 && image() === completedPinch.image) {

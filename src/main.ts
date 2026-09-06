@@ -7,6 +7,7 @@ import './cover.css';
 import './voice-messages.css';
 import './call.css';
 import { QuietRoomApp } from './app';
+import { startReleaseUpdateDetection } from './lib/release-update';
 
 const colorScheme = window.matchMedia('(prefers-color-scheme: dark)');
 const syncSystemChrome = () => {
@@ -37,11 +38,7 @@ const app = new QuietRoomApp(root);
 void app.start();
 
 if ('serviceWorker' in navigator && window.isSecureContext && import.meta.env.PROD) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch(() => {
-      // The app remains usable online if service-worker registration is unavailable.
-    });
-  });
+  startReleaseUpdateDetection();
 } else if ('serviceWorker' in navigator && import.meta.env.DEV) {
   window.addEventListener('load', () => {
     void navigator.serviceWorker.getRegistrations().then((registrations) =>
