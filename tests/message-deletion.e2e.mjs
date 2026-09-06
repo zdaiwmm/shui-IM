@@ -702,8 +702,9 @@ try {
   });
 
   // The same race can happen after the swipe has crossed its activation
-  // threshold but before pointerup. Keep dispatching pointerup to the detached
-  // production row to prove the captured settle callback cannot revive it.
+  // threshold but before pointerup. The production gesture now tracks release
+  // on window so it survives a detached row; dispatch there to prove the
+  // captured settle callback cannot revive the deleted message.
   const staleSwipeResult = await page.evaluate(async () => {
     const state = window.messageDeletion;
     const { app, ids, root } = state;
@@ -723,7 +724,7 @@ try {
     }));
     const armedBeforeDelete = article.classList.contains('is-reply-armed');
     state.injectRemoteDelete(ids.ownSwipeRace, 9);
-    article.dispatchEvent(new PointerEvent('pointerup', {
+    window.dispatchEvent(new PointerEvent('pointerup', {
       bubbles: true, cancelable: true, pointerId, pointerType: 'touch', isPrimary: true,
       button: 0, buttons: 0, clientX: startX - 100, clientY: y,
     }));
