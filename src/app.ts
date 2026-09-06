@@ -7252,7 +7252,6 @@ export class QuietRoomApp {
           image.src = loaded.url;
           image.alt = manifest.originalName || `第 ${target + 1} 张图片`;
           image.draggable = false;
-          layer.style.setProperty('--viewer-image-source', `url(${JSON.stringify(loaded.url)})`);
           layer.replaceChildren(image);
           // Byte verification and object-URL creation do not guarantee that a
           // frame is decoded. Keep the incoming layer offscreen until decode
