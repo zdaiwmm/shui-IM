@@ -160,6 +160,42 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-06（Asia/Shanghai）；`deployed-at=20260906T090746Z`（17:07:46 发布批次），
+  17:09:06 前完成独立回读。应用版本 `e359476ce6bffee85ae355bdf93b34b14a544dc2`，由
+  [PR #28](https://github.com/zdaiwmm/shui-IM/pull/28) 于 17:01:04 以 merge commit 合并；
+  合并前冻结 head 为 `f3b763d4aa9c12a0ecbae235cec7be5932ab7397`，合并提交第二父树与
+  head 树逐字节一致。用户明确授权向私有仓库推送、创建 PR、合并并发布到正式来源。
+- [PR #28 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34023207250) 与
+  [精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34023450500) 均成功：
+  构建、52 个测试文件／421 项单元集成、两组共 23 个浏览器入口、原生通话、凭据扫描、
+  生产依赖审计及 `Full application verification`／`verify` 汇总全部通过。本地最终组合
+  `npm run check:full` 从头通过，浏览器汇总 254.96 秒；合并期间暴露的回复手势／消息删除
+  竞态夹具已按 window 级松手监听修正，定向和完整套件均通过。自动化不替代真实 iPhone 验收。
+- 本次集中纳入：通行密钥回焦与遗留请求中止、聊天媒体准备阶段和默认遮蔽、图片查看器适配
+  与手势、松手前持续跟随的左滑回复、可回拖的语音发送／取消反馈，以及任务隔离规则和独立
+  只读生产回读入口。早先已由 PR #26 合并的 patch 等价遮蔽激活提交未重复引入。消息／MLS
+  原子持久化、普通重试密文复用、设备历史、原始附件校验、恢复与创建者权限边界不变。
+- 固定入口 `node scripts/publish.mjs --sha e359476ce6bffee85ae355bdf93b34b14a544dc2`
+  从独立浅克隆执行，再次核对 GitHub main 与上述最新完整 CI；服务器返回精确 `DEPLOY_OK`，
+  外层核对回执并返回 `DEPLOY_VERIFIED`。入口总耗时 95,986ms：预检 5,962ms、核对 main
+  1,419ms、CI 复核 4,159ms、隔离克隆 8,163ms、隔离发布及入口回读 76,277ms。服务器阶段
+  总计 62 秒，其中获取源码 5 秒、构建镜像 19 秒、维护门 1 秒、冷备份 5 秒、启动及健康等待
+  32 秒，分项有嵌套。
+- 发布目录 `/opt/quiet-room/git-releases/20260906T090746Z-e359476ce6bf`；已校验冷备份
+  `/opt/quiet-room/backups/predeploy/data-20260906T090746Z-e359476ce6bf.tar.gz`。
+- 17:09:06 前由本版本新增的固定只读入口取得 `READBACK_OK`，总耗时 2,679ms：版本、批次、
+  目录一致且维护标记不存在；应用容器运行且健康，备份容器运行且没有健康探针；两者 Image ID
+  与目标镜像均为 `sha256:9bd4fafb734a4c4280511500c0801c576d1969f80b2292c7ce145c85daabb205`。
+  HTTPS `ok`／`database`／`storage` 全为 true；首页、`/sw.js`、
+  `/assets/app-Co95iXoj.js`、`/assets/app-DJkFQLSk.css` 与 preload 脚本和运行容器产物逐字节
+  一致，公开 WebSocket 新连接成功。检查未读取真实消息、附件或备份内容；结构化脱敏证据以
+  0600 权限写入发布调用仓库的 `.git/quiet-room-readback/`。
+- 本次回读 `admin-enabled=0`、`calls-enabled=0`，后台和 TURN 仍未启用。回读后在不带部署
+  配置的独立文档 worktree 对账；该文档 PR 不代表重新部署。修复后真实 iPhone Safari、
+  长期运维与独立安全审计边界保持不变。
+
+## 上次线上发布记录（2026-09-06 13:38）
+
 - 日期：2026-09-06（Asia/Shanghai）；`deployed-at=20260906T053714Z`（13:37:14 发布批次），
   13:38:29 独立回读完成。应用版本 `6cce8b017c98cf270729e28bfabae0ee3e551570`，由
   [PR #26](https://github.com/zdaiwmm/shui-IM/pull/26) 于 13:31:13 squash 合并；合并前功能
