@@ -96,7 +96,12 @@ export function bindVoiceRecordGesture(
     };
     window.addEventListener('pointercancel', event => { if (event.pointerId === pointerId) interrupt(); }, { signal });
     capture?.addEventListener('lostpointercapture', event => { if (event.pointerId === pointerId) interrupt(); }, { signal });
-    window.addEventListener('blur', interrupt, { signal });
+    // The application-level lifecycle owns window blur. In particular, its
+    // bounded microphone-permission handoff must survive the focus transfer
+    // caused by iOS switching to a Bluetooth hands-free route. Cancelling here
+    // used to stop the new audio track during that transfer, which made car
+    // systems repeatedly connect and drop their call profile. Unowned blur,
+    // hidden, pagehide and freeze still close the recorder through app teardown.
   }, { signal: binding.signal });
   button.addEventListener('click', event => {
     event.preventDefault();

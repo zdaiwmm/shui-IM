@@ -200,13 +200,35 @@ try {
   await hold(); await page.waitForTimeout(650); await touch('touchCancel'); await closed(); await stopped();
   assert.equal(await sentCount(), 1, 'A cancelled pointer sent a draft');
 
+  // iOS may transfer focus while it promotes a Bluetooth car/headset route to
+  // hands-free capture. The app's bounded permission owner accepts that one
+  // foreground blur; the held gesture must not tear down the just-opening
+  // stream and make the vehicle repeatedly reconnect its call profile.
+  await page.evaluate(() => { navigator.mediaDevices.getUserMedia = () => new Promise(resolve => { window.voiceGestures.resolvePermission = resolve; }); });
+  await hold({ permission: true });
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  const routeHandoff = await page.evaluate(() => ({
+    active: Boolean(window.voiceGestures.app.voiceRecorder),
+    aborted: window.voiceGestures.app.voiceRecorder?.signal.aborted,
+    permissionOwned: window.voiceGestures.app.microphonePromptActive,
+    covered: window.voiceGestures.app.privacyCovered,
+  }));
+  assert.deepEqual(routeHandoff, { active: true, aborted: false, permissionOwned: true, covered: false }, 'Bluetooth route focus handoff cancelled the held recorder');
+  await page.evaluate(async () => {
+    const state = window.voiceGestures;
+    state.resolvePermission(await state.capture({ audio: true }));
+    navigator.mediaDevices.getUserMedia = state.capture;
+  });
+  await recorded(); await page.waitForTimeout(650); await release(); await closed(); await stopped();
+  assert.equal(await sentCount(), 2, 'Bluetooth route handoff did not preserve one held recording');
+
   // Vertical swipes stay in hold mode and never expose the old lock rail.
   await hold(); await page.waitForTimeout(650); await touch('touchMove', 0, -100);
   assert.equal(await recorder.getAttribute('data-gesture'), 'hold');
   assert.equal(await recorder.getAttribute('data-mode'), 'hold');
   assert.equal(await recorder.locator('.voice-lock-guide').count(), 0, 'Upward lock affordance must be removed');
   await touch('touchCancel'); await closed(); await stopped();
-  assert.equal(await sentCount(), 1, 'Pointer cancellation after vertical movement sent a draft');
+  assert.equal(await sentCount(), 2, 'Pointer cancellation after vertical movement sent a draft');
   // Tap remains a deliberate hands-free entry with pause, preview and resume.
   await page.locator('#record-voice').tap(); await recorded(); await page.waitForTimeout(750);
   assert.equal(await page.locator('.composer-input-stack').isVisible(), false, 'Hands-free recording must also hide the text input');
@@ -217,7 +239,7 @@ try {
   assert.equal(await recorder.getAttribute('data-mode'), 'locked');
   await page.waitForTimeout(650);
   await page.getByRole('button', { name: '发送语音', exact: true }).click(); await closed(); await stopped();
-  assert.equal(await sentCount(), 2, 'Locked live-send must finish and send once');
+  assert.equal(await sentCount(), 3, 'Locked live-send must finish and send once');
 
   // Finger release and cancel while permission is unresolved cannot leave a
   // future capture or turn a delayed grant into a send.
@@ -232,7 +254,7 @@ try {
       navigator.mediaDevices.getUserMedia = state.capture;
     });
     await stopped();
-    assert.equal(await sentCount(), 2, 'Late microphone permission sent discarded audio');
+    assert.equal(await sentCount(), 3, 'Late microphone permission sent discarded audio');
   }
 
   // Short tap and keyboard activation remain accessible hands-free entry.
@@ -242,7 +264,7 @@ try {
   await page.locator('#record-voice').focus(); await page.keyboard.press('Enter'); await recorded();
   assert.equal(await recorder.getAttribute('data-mode'), 'locked');
   await page.getByRole('button', { name: '取消录音', exact: true }).click(); await closed(); await stopped();
-  assert.equal(await sentCount(), 2, 'Tap or keyboard entry unexpectedly sent a draft');
+  assert.equal(await sentCount(), 3, 'Tap or keyboard entry unexpectedly sent a draft');
 
   // Hardware interruption and the five-minute ceiling retain a reviewable
   // draft. Releasing the original held finger must never authorize auto-send.
@@ -262,7 +284,7 @@ try {
       }
     }, reason);
     await paused(); await stopped(); await release();
-    assert.equal(await sentCount(), 2, `${reason}: release auto-sent a stopped recording`);
+    assert.equal(await sentCount(), 3, `${reason}: release auto-sent a stopped recording`);
     assert.equal(await recorder.getAttribute('data-mode'), 'locked');
     if (reason === 'limit') assert(await page.getByRole('button', { name: '继续录音', exact: true }).isDisabled());
     await page.getByRole('button', { name: '取消录音', exact: true }).click(); await closed();
@@ -287,7 +309,7 @@ try {
   });
   assert.deepEqual(teardown, { detached: true, bindingReleased: true, starts: 0, retiringShapes: 0 }, 'Privacy teardown retained the old chat gesture, its listeners, or cancellation shapes');
   await release(); await stopped();
-  assert.equal(await sentCount(), 2, 'Page teardown sent a held draft');
+  assert.equal(await sentCount(), 3, 'Page teardown sent a held draft');
   assert.equal(await page.locator('.cover-trigger').count(), 1);
   await reset();
   const rebound = await page.evaluate(() => {
@@ -303,7 +325,7 @@ try {
   assert.deepEqual(rebound, { bound: true, starts: 1 }, 'Re-entering chat did not bind the new microphone exactly once');
   await recorded();
   await page.getByRole('button', { name: '取消录音', exact: true }).click(); await closed(); await stopped();
-  assert.equal(await sentCount(), 2, 'Re-entering chat unexpectedly sent a draft');
+  assert.equal(await sentCount(), 3, 'Re-entering chat unexpectedly sent a draft');
 
   // Pointer capture must also survive a desktop mouse drag away from the
   // trigger while its large floating recording control replaces the composer.
@@ -325,7 +347,7 @@ try {
     throw new Error(`Mouse release left a recorder active: ${JSON.stringify(state)}`, { cause });
   });
   await stopped();
-  assert.equal(await sentCount(), 3, 'Mouse release failed to send exactly once');
+  assert.equal(await sentCount(), 4, 'Mouse release failed to send exactly once');
 
   if (screenshotDirectory) await mkdir(screenshotDirectory, { recursive: true });
   for (const colorScheme of ['light', 'dark']) {
@@ -356,7 +378,7 @@ try {
   await hold(); await page.waitForTimeout(250); await inspectLayout('reduced-motion/hold');
   assert.equal(await recorder.evaluate(host => host.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running').length), 0, 'Reduced motion must stop both recording pulses and control animations');
   await touch('touchCancel'); await closed(); await stopped();
-  assert.equal(await sentCount(), 3, 'Visual-state exercise unexpectedly sent a draft');
+  assert.equal(await sentCount(), 4, 'Visual-state exercise unexpectedly sent a draft');
   assert.deepEqual(errors, []);
   process.stdout.write('Voice gestures E2E passed: native touch/mouse hold, hidden unavailable text input with close restoration, release send, extended horizontal resistance, reversible blue-send/red-cancel release feedback, release-only cancel with immediate discard before rightward exit, no vertical lock/drag, pointer cancellation, pause/preview/resume, live hands-free send, late permission discard, tap/keyboard access, interruption/limit review, privacy teardown during cancel-ready state and gesture rebinding, 320/390/1280px light/dark layouts and reduced motion.\n');
 } finally { await browser?.close(); await server.close(); }

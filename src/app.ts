@@ -41,7 +41,7 @@ import { bindImageViewerGestures } from './lib/image-viewer-gestures';
 import { bindChatImageConcealGesture } from './lib/chat-image-conceal-gesture';
 import { CHAT_LATEST_GAP, mountChatBottomControl } from './lib/chat-bottom-control';
 import { bindChatKeyboardGesture, createChatViewportMotion } from './lib/chat-viewport-motion';
-import { bindReplySwipe } from './lib/reply-swipe';
+import { bindReplySwipe, replySwipeMaxOffset } from './lib/reply-swipe';
 import {
   classifyInviteHash,
   makeDeviceInviteUrl,
@@ -5596,7 +5596,7 @@ export class QuietRoomApp {
       exclude: target => target instanceof Element && Boolean(target.closest(
         'input, textarea, audio, video, .message-reactions, .message-reply-quote, button:not(.image-preview):not(.album-cell):not(.file-attachment)',
       )),
-      maxOffset: () => (window.visualViewport?.width ?? window.innerWidth) / 3,
+      maxOffset: () => replySwipeMaxOffset(window.visualViewport?.width ?? window.innerWidth),
       gestureStart: () => {
         this.cancelMessageHold();
         // A clearly horizontal bubble gesture belongs to reply, even while the
@@ -6714,6 +6714,8 @@ export class QuietRoomApp {
     const status = this.root.querySelector<HTMLElement>('#backup-status');
     if (!status || !this.session) return;
     const backup = this.session.vault.backup;
+    const state = this.backupError ? 'error' : this.backupRun ? 'syncing' : backup?.syncedAt ? 'ready' : 'pending';
+    status.closest<HTMLElement>('[data-backup-state]')!.dataset.backupState = state;
     status.textContent = this.backupError || (this.backupRun ? '正在加密并备份…' : backup?.syncedAt
       ? `上次备份：${new Date(backup.syncedAt).toLocaleString()}。已保存 ${backup.archives.reduce((total, archive) => total + archive.parts.reduce((sum, part) => sum + part.count, 0), 0)} 条历史记录。`
       : '尚未完成首次备份，联网并保持页面解锁后会自动重试。');
@@ -6730,22 +6732,33 @@ export class QuietRoomApp {
     if (!this.setActiveSurface('away')) return;
     const epoch = this.runtimeEpoch;
     this.root.innerHTML = `<main class="backup-page">
-      <button class="text-button" id="backup-back" type="button">返回会话</button>
-      <header class="backup-heading">
-        <h1>备份与恢复</h1>
-        <p>备份先在本机加密。恢复码请单独保存，管理员无法找回。</p>
+      <header class="subpage-header backup-header">
+        <button class="icon-button" id="backup-back" type="button" aria-label="返回聊天">${icons.back}</button>
+        <div class="backup-heading"><h1>备份与恢复</h1><p>本机加密 · 自动同步</p></div>
+        <span class="backup-header-spacer" aria-hidden="true"></span>
       </header>
-      <section><h2>自动备份</h2><p id="backup-status" role="status"></p>
-        <button class="secondary-button" id="backup-retry" type="button">立即备份</button>
-        <p class="field-hint">解锁并联网时自动备份，锁定后暂停。</p>
-      </section>
-      <section><h2>本设备恢复码</h2><p>再次验证通行密钥后，即可在本机查看。</p>
-        <button class="secondary-button" id="view-local-recovery" data-backup-ready type="button" disabled>查看本设备恢复码</button>
-      </section>
-      <section><h2>恢复历史内容</h2><p>旧内容需主动恢复。选择范围后，输入本设备当前恢复码。</p>
-        <div class="backup-actions"><button class="secondary-button" data-restore="chat" data-backup-ready type="button" disabled>恢复历史消息</button>
-        ${session.vault.role === 'creator' ? '<button class="secondary-button" data-restore="gallery" data-backup-ready type="button" disabled>恢复保险箱</button>' : ''}</div>
-        <div id="history-restore-form"></div>
+      <section class="backup-content">
+        <p class="backup-intro">恢复码只保存在你的设备上，请另行妥善保存。Quiet Room 和管理员都无法替你找回。</p>
+        <div class="backup-settings-group">
+          <section class="backup-setting backup-sync-setting" data-backup-state="pending">
+            <div class="backup-setting-copy"><span class="backup-setting-icon" aria-hidden="true">${icons.download}</span>
+              <div><h2>自动备份</h2><p id="backup-status" role="status"></p></div></div>
+            <button class="secondary-button" id="backup-retry" type="button">立即备份</button>
+          </section>
+          <section class="backup-setting">
+            <div class="backup-setting-copy"><span class="backup-setting-icon" aria-hidden="true">${icons.lock}</span>
+              <div><h2>本设备恢复码</h2><p>再次验证通行密钥后在本机查看。</p></div></div>
+            <button class="secondary-button" id="view-local-recovery" data-backup-ready type="button" disabled>查看本设备恢复码</button>
+          </section>
+          <section class="backup-setting backup-restore-setting">
+            <div class="backup-setting-copy"><span class="backup-setting-icon" aria-hidden="true">${icons.safe}</span>
+              <div><h2>恢复历史内容</h2><p>旧内容不会自动出现，请选择要恢复的范围。</p></div></div>
+            <div class="backup-actions"><button class="secondary-button" data-restore="chat" data-backup-ready type="button" disabled>恢复历史消息</button>
+            ${session.vault.role === 'creator' ? '<button class="secondary-button" data-restore="gallery" data-backup-ready type="button" disabled>恢复保险箱</button>' : ''}</div>
+            <div id="history-restore-form"></div>
+          </section>
+        </div>
+        <p class="backup-footnote">自动备份仅在页面解锁且联网时运行，锁定后暂停。</p>
       </section>
     </main>`;
     let restoreOperation: AbortController | undefined;

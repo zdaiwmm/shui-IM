@@ -173,8 +173,10 @@ try {
     swiping: element.classList.contains('is-reply-swiping'),
     armed: element.classList.contains('is-reply-armed'),
   }));
-  assert(shortSwipe.swiping && !shortSwipe.armed && shortSwipe.offset === 30,
-    `Short reply swipe stopped following the finger or armed early: ${JSON.stringify(shortSwipe)}`);
+  const replySwipeMaximum = 390 / 6;
+  const expectedReplyOffset = distance => replySwipeMaximum * Math.tanh(distance / replySwipeMaximum);
+  assert(shortSwipe.swiping && !shortSwipe.armed && Math.abs(shortSwipe.offset - expectedReplyOffset(30)) < .01,
+    `Short reply swipe did not follow the smooth resistance curve or armed early: ${JSON.stringify(shortSwipe)}`);
   await swipeMessage.dispatchEvent('pointerup', {
     bubbles: true, button: 0, buttons: 0, isPrimary: true, pointerId: 72, pointerType: 'touch',
     clientX: swipeStart.x - 30, clientY: swipeStart.y + 1,
@@ -196,8 +198,8 @@ try {
     offset: Number.parseFloat(element.style.getPropertyValue('--reply-swipe-offset')),
     armed: element.classList.contains('is-reply-armed'),
   }));
-  assert(armedSwipe.armed && armedSwipe.offset === 96,
-    `Armed reply swipe stopped following the finger: ${JSON.stringify(armedSwipe)}`);
+  assert(armedSwipe.armed && Math.abs(armedSwipe.offset - expectedReplyOffset(96)) < .01,
+    `Armed reply swipe did not follow the smooth resistance curve: ${JSON.stringify(armedSwipe)}`);
   await swipeMessage.dispatchEvent('pointerup', {
     bubbles: true, button: 0, buttons: 0, isPrimary: true, pointerId: 73, pointerType: 'touch',
     clientX: swipeStart.x - 96, clientY: swipeStart.y + 2,
@@ -242,7 +244,7 @@ try {
     swiping: element.classList.contains('is-reply-swiping'),
     armed: element.classList.contains('is-reply-armed'),
   }));
-  assert(heldSwipe.offset > 96 && heldSwipe.offset <= 390 / 3 && heldSwipe.swiping && heldSwipe.armed,
+  assert(heldSwipe.offset > expectedReplyOffset(96) && heldSwipe.offset <= replySwipeMaximum && heldSwipe.swiping && heldSwipe.armed,
     `Reply swipe stopped following with viewport-bounded resistance before finger release: ${JSON.stringify(heldSwipe)}`);
   assert.equal(await page.locator('#reply-draft').isHidden(), true, 'Held reply swipe committed before pointerup');
   await page.locator('body').dispatchEvent('pointermove', {
@@ -250,8 +252,8 @@ try {
     clientX: swipeStart.x - 300, clientY: swipeStart.y + 3,
   });
   const continuedOffset = await swipeMessage.evaluate(element => Number.parseFloat(element.style.getPropertyValue('--reply-swipe-offset')));
-  assert(continuedOffset > 96 && continuedOffset <= 390 / 3,
-    `Reply swipe did not resist toward one third of the viewport after leaving the row: ${continuedOffset}`);
+  assert(continuedOffset > heldSwipe.offset && continuedOffset <= replySwipeMaximum,
+    `Reply swipe did not resist toward one sixth of the viewport after leaving the row: ${continuedOffset}`);
   assert.equal(await page.locator('#reply-draft').isHidden(), true, 'Continued held swipe committed before pointerup');
   await page.locator('body').dispatchEvent('pointerup', {
     bubbles: true, button: 0, buttons: 0, isPrimary: true, pointerId: 75, pointerType: 'touch',
@@ -273,7 +275,7 @@ try {
   assert.equal(await page.evaluate(() => document.activeElement?.id), 'message-input', 'Keyboard-open reply swipe blurred the composer');
   await page.locator('#reply-draft button[aria-label="取消回复"]').click();
   await page.evaluate(() => { delete document.documentElement.dataset.keyboardOpen; });
-  results.replySwipe = { verticalScrollPreserved: true, shortSwipeCancelled: true, resistanceBoundedToViewportThird: true,
+  results.replySwipe = { verticalScrollPreserved: true, shortSwipeCancelled: true, resistanceBoundedToViewportSixth: true,
     thresholdActivated: true, keyboardFocused: true, keyboardOpenGestureRetained: true, integratedSingleLineComposer: true,
     tracksOutsideRowUntilRelease: true, quoteRenderedAfterRelease: true };
 

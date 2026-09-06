@@ -507,7 +507,11 @@ describe('image viewer dismissal and cancellation', () => {
     expect(Number(values![2])).toBeGreaterThan(0);
     expect(Number(values![2])).toBeLessThan(300);
     expect(Number(values![3])).toBeLessThan(1);
-    expect(Number(values![3])).toBeGreaterThanOrEqual(0.72);
+    expect(Number(values![3])).toBeGreaterThanOrEqual(1 / 2);
+
+    harness.pointer('pointermove', { pointerId: 1, clientX: 190, clientY: 1044 });
+    const edgeScale = Number(harness.media.style.transform.match(/scale\(([-\d.]+)\)/)?.[1]);
+    expect(edgeScale).toBeCloseTo(1 / 2, 8);
   });
 
   it.each(['pointercancel', 'lostpointercapture'] as const)('%s settles without paging and leaves the next gesture usable', eventType => {
