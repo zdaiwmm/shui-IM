@@ -1,22 +1,20 @@
 export const REPLY_SWIPE_THRESHOLD_PX = 96;
-export const REPLY_SWIPE_MAX_VIEWPORT_RATIO = 1 / 3;
+export const REPLY_SWIPE_MAX_VIEWPORT_RATIO = 1 / 6;
 
 export function replySwipeMaxOffset(viewportWidth: number): number {
   const width = Number.isFinite(viewportWidth) ? Math.max(0, viewportWidth) : 0;
   return width * REPLY_SWIPE_MAX_VIEWPORT_RATIO;
 }
 
-/** Follow the finger through the activation range, then resist toward one third of the viewport. */
+/** Follow short movement closely, then ease continuously toward one sixth of the viewport. */
 export function replySwipeOffset(distance: number, maximum = replySwipeMaxOffset(globalThis.innerWidth ?? 0)): number {
   const raw = Math.max(0, Number.isFinite(distance) ? distance : 0);
   const boundedMaximum = Math.max(0, Number.isFinite(maximum) ? maximum : 0);
-  const resistanceStart = Math.min(REPLY_SWIPE_THRESHOLD_PX, boundedMaximum * 0.75);
-  if (raw <= resistanceStart) return raw;
-  if (boundedMaximum <= resistanceStart) return boundedMaximum;
-  const resistantDistance = raw - resistanceStart;
-  const resistantRange = boundedMaximum - resistanceStart;
-  return resistanceStart
-    + resistantRange * (1 - Math.exp(-resistantDistance / resistantRange));
+  if (boundedMaximum === 0) return 0;
+  // tanh begins with a 1:1 slope and introduces resistance without the sharp
+  // breakpoint of the old piecewise curve. Long pulls approach, but cannot
+  // cross, the visual travel limit.
+  return boundedMaximum * Math.tanh(raw / boundedMaximum);
 }
 
 export function bindReplySwipe(options: {

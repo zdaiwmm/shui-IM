@@ -224,6 +224,16 @@ describe('chat viewport motion', () => {
     expect(events).toEqual([]);
   });
 
+  it('does not conceal a settled open keyboard for composer-owned viewport drift', () => {
+    const { motion, events, tick } = fixture();
+    tick(0, { height: 420, top: 180 });
+    tick(16, { height: 412, top: 188, composerResize: true });
+    tick(16, { height: 420, top: 180, composerResize: true });
+    expect(events).toEqual([]);
+    expect(motion.concealed).toBe(false);
+    expect(motion.moving).toBe(false);
+  });
+
   it('does not classify an explicit return-to-latest animation as continued finger inertia', () => {
     const { motion, events, tick } = fixture();
     tick(0); motion.move(); tick(20, { scrollY: 400 });

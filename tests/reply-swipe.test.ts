@@ -12,13 +12,16 @@ describe('reply swipe resistance', () => {
     expect(samples[4]).toBeLessThanOrEqual(REPLY_SWIPE_THRESHOLD_PX);
     expect(samples[4]).toBeLessThan(maximum);
     expect(samples[5]).toBeGreaterThan(samples[4]!);
-    expect(replySwipeMaxOffset(390)).toBe(130);
-    expect(replySwipeMaxOffset(430)).toBeCloseTo(143.333, 3);
+    expect(replySwipeMaxOffset(390)).toBe(65);
+    expect(replySwipeMaxOffset(430)).toBeCloseTo(71.667, 3);
+    expect(samples[2]).toBeCloseTo(65 * Math.tanh(24 / 65), 5);
+    expect(samples.at(-1)).toBeGreaterThan(64.9);
   });
 
   it('fails closed for rightward and non-finite input', () => {
     expect(replySwipeOffset(-100, 130)).toBe(0);
     expect(replySwipeOffset(Number.NaN, 130)).toBe(0);
     expect(replySwipeMaxOffset(Number.NaN)).toBe(0);
+    expect(replySwipeOffset(100, 0)).toBe(0);
   });
 });
