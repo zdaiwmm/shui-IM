@@ -8,6 +8,7 @@ type BottomControlOptions = {
   visibilityTop?: () => number;
   targetScrollTop: () => number;
   active: () => boolean;
+  measure?: () => boolean;
   begin: () => void;
   prepare: (signal: AbortSignal) => Promise<boolean> | undefined;
   resized: () => void;
@@ -43,6 +44,9 @@ export function mountChatBottomControl(options: BottomControlOptions) {
   };
   const update = (force = true) => {
     if (destroyed) return;
+    // Keyboard viewport motion pauses passive geometry observation, but does
+    // not disable a user's explicit return-to-latest click.
+    if (options.measure && !options.measure()) return;
     const latest = options.latest();
     if (!options.active() || !latest?.isConnected || !button.isConnected) {
       cancel(); setVisible(false); observer.disconnect(); mutations.disconnect(); lastMessage = undefined; lastGeometry = ''; return;
@@ -65,6 +69,7 @@ export function mountChatBottomControl(options: BottomControlOptions) {
     resizeFrame = requestAnimationFrame(() => {
       resizeFrame = null;
       if (destroyed) return;
+      if (options.measure && !options.measure()) return;
       if (options.active()) options.resized();
       update();
     });
@@ -73,7 +78,13 @@ export function mountChatBottomControl(options: BottomControlOptions) {
   // Observing the list's size feeds back into the control observer that sets
   // its padding. DOM changes and media load events cover earlier content
   // growth without adding a second geometry observer to that layout cycle.
-  const mutations = new MutationObserver(scheduleResize);
+  const mutations = new MutationObserver(records => {
+    // Endpoint keyboard spacing is written on the list itself and the app
+    // already performs the one settled alignment/update. Do not schedule a
+    // duplicate geometry pass for that bookkeeping style mutation; child
+    // insertion and message/media attribute changes still refresh normally.
+    if (records.some(record => record.type !== 'attributes' || record.target !== options.list)) scheduleResize();
+  });
   options.list.addEventListener('load', scheduleResize, { capture: true, signal: events.signal });
   options.list.addEventListener('error', scheduleResize, { capture: true, signal: events.signal });
   const scroll = async () => {

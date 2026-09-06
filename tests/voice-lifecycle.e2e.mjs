@@ -39,13 +39,26 @@ try {
     check(requests === 0 && !app.voiceRecorder, 'Old device gate requested a microphone');
     check(document.querySelector('#notice').textContent.includes('所有已授权设备'), 'Compatibility explanation missing');
 
+    // A consumed keyboard owner can reject a competing microphone handoff
+    // synchronously. Voice capture must stop before asking the OS for media.
+    const rejectedHost = document.createElement('section'); root.append(rejectedHost);
+    const rejectedRecorder = new VoiceRecorder(rejectedHost, {
+      permission: async active => active,
+      cancel: () => {}, fail: () => {}, send: async () => {},
+    });
+    await rejectedRecorder.start();
+    check(requests === 0, 'Rejected native ownership still requested a microphone');
+    rejectedRecorder.destroy();
+
     // Cancel one prompt and start a second; a late first grant cannot clear the
     // second request's ownership or revive its discarded UI.
     fresh();
     const grants = [];
     navigator.mediaDevices.getUserMedia = () => new Promise(resolve => grants.push(resolve));
     app.beginVoiceRecording(); const oldRecorder = app.voiceRecorder;
+    while (grants.length < 1) await Promise.resolve();
     app.closeVoiceRecorder(); app.beginVoiceRecording(); const currentRecorder = app.voiceRecorder;
+    while (grants.length < 2) await Promise.resolve();
     let stops = 0; grants[0]({ getTracks: () => [{ stop: () => stops++ }] });
     await Promise.resolve(); await Promise.resolve();
     check(stops === 1 && oldRecorder.signal.aborted && app.voiceRecorder === currentRecorder && app.microphonePromptActive, 'Late grant crossed recorder ownership');
@@ -58,12 +71,15 @@ try {
     // Bound prompt lifetime even if the user leaves permission unanswered.
     fresh();
     const originalTimeout = window.setTimeout;
-    let expire;
+    const expirations = [];
     window.setTimeout = (fn, delay, ...args) => {
-      if (delay === 30_000) { expire = fn; return 0; }
+      if (delay === 30_000) { expirations.push(fn); return 0; }
       return originalTimeout(fn, delay, ...args);
     };
-    app.beginVoiceRecording(); window.setTimeout = originalTimeout; expire();
+    app.beginVoiceRecording();
+    while (expirations.length < 2) await Promise.resolve();
+    window.setTimeout = originalTimeout;
+    expirations.at(-1)();
     check(!app.voiceRecorder && !app.microphonePromptActive, 'Prompt timeout left a recorder active');
     check(document.querySelector('#notice').textContent.includes('超时'), 'Prompt timeout has no explanation');
 
@@ -102,7 +118,7 @@ try {
     check(host.querySelector('.voice-toggle').disabled && !host.querySelector('.voice-send').disabled && sent === 0, 'Duration limit auto-sent or allowed more recording');
     const sending = recorder.send(); recorder.destroy(); settle(); await sending;
     check(host.childElementCount === 0 && recorder.signal.aborted && recorder.samples.length === 0, 'Late send revived a destroyed draft');
-    return { compatibilityGate: true, latePermissionIsolation: true, hiddenPromptLocks: true, promptTimeout: true, receiptPreservesPlayback: true, singlePlayback: true, lateDownloadDiscarded: true, limitRequiresSend: true, lateSendDiscarded: true };
+    return { compatibilityGate: true, rejectedOwnerSkipsCapture: true, latePermissionIsolation: true, hiddenPromptLocks: true, promptTimeout: true, receiptPreservesPlayback: true, singlePlayback: true, lateDownloadDiscarded: true, limitRequiresSend: true, lateSendDiscarded: true };
   });
   assert.deepEqual(errors, []);
   process.stdout.write(`Voice lifecycle E2E passed: ${JSON.stringify(results)}\n`);

@@ -80,8 +80,16 @@ body:has(.chat-shell) {
   backdrop-filter: var(--glass-filter);
   box-shadow: var(--glass-shadow);
 }
+.composer .composer-input-stack,
+.composer .image-picker,
+.composer .voice-record-button {
+  background-color: var(--composer-surface-current);
+}
+.composer .voice-record-button {
+  transition: transform 180ms var(--motion-out), color 180ms ease, background-color 120ms ease-out, border-color 120ms ease-out;
+}
 .composer-input-stack:focus-within {
-  background-color: var(--glass);
+  background-color: var(--composer-surface-current);
   border-color: color-mix(in oklch, var(--accent) 22%, var(--glass-border));
 }
 .chat-shell > .notice {
@@ -196,7 +204,8 @@ html[data-keyboard-open='true'] .message-list:not(:has(.is-selecting-text)),
   border: 1px solid var(--glass-border);
   border-radius: 50%;
   color: var(--ink);
-  background: var(--glass-sheen), var(--glass-strong);
+  background-color: var(--composer-surface-current);
+  background-image: var(--glass-sheen);
   box-shadow: var(--glass-shadow);
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
@@ -204,12 +213,40 @@ html[data-keyboard-open='true'] .message-list:not(:has(.is-selecting-text)),
   visibility: hidden;
   pointer-events: none;
   cursor: pointer;
-  transition: opacity 180ms ease, visibility 0s linear 180ms;
+  transition: opacity 180ms ease, visibility 0s linear 180ms, background-color 120ms ease-out;
 }
 .chat-bottom-control.is-visible { opacity: 1; visibility: visible; pointer-events: auto; transition-delay: 0s; }
 .chat-bottom-control:not(:disabled):active { transform: none; }
 .chat-bottom-control svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 @media (prefers-reduced-motion: reduce) { .chat-bottom-control, .composer { transition: none; } }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .composer .composer-input-stack,
+  .composer .image-picker,
+  .composer .voice-record-button,
+  .chat-bottom-control {
+    border-color: var(--line-strong);
+    background-image: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .composer-input-stack:focus-within { border-color: var(--accent); }
+  .composer :is(.image-picker, .voice-record-button):hover { border-color: var(--line-strong); }
+}
+@media (forced-colors: active) {
+  .composer .composer-input-stack,
+  .composer .image-picker,
+  .composer .voice-record-button,
+  .chat-bottom-control {
+    border-color: ButtonText;
+    background-color: Canvas;
+    background-image: none;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .composer-input-stack:focus-within { border-color: Highlight; }
+  .composer :is(.image-picker, .voice-record-button):hover { border-color: ButtonText; }
+}
 /* Inert dialog backgrounds must not keep scrolling under the overlay. */
 html:has(.chat-shell[inert]) { overflow: hidden; }
 .composer::before {

@@ -61,11 +61,122 @@ try {
       }
       throw Error('Composer did not reveal after scrolling settled');
     };
+    const surfaceSelectors = {
+      input: '.composer-input-stack',
+      photo: '#open-image-picker',
+      voice: '#record-voice',
+      bottom: '#chat-bottom-control',
+    };
+    const colorAlpha = value => {
+      if (value === 'transparent') return 0;
+      const slash = value.match(/\/\s*([\d.]+)(%)?\s*\)$/);
+      if (slash) return Number(slash[1]) / (slash[2] ? 100 : 1);
+      const comma = value.match(/^rgba\([^)]*,\s*([\d.]+)\s*\)$/);
+      if (comma) return Number(comma[1]);
+      if (/^(?:rgb|hsl|hwb|lab|lch|oklab|oklch|color)\(/.test(value)) return 1;
+      throw Error(`Could not parse computed background alpha: ${value}`);
+    };
+    const assertComposerVisible = label => {
+      const composer = document.querySelector('#composer');
+      const style = getComputedStyle(composer);
+      const bounds = composer.getBoundingClientRect();
+      const top = window.visualViewport?.offsetTop ?? 0;
+      const bottom = top + (window.visualViewport?.height ?? innerHeight);
+      if (composer.dataset.viewportMotion || style.display === 'none' || style.visibility !== 'visible'
+        || Number(style.opacity) !== 1 || bounds.width <= 0 || bounds.height <= 0
+        || bounds.bottom <= top || bounds.top >= bottom) {
+        throw Error(`${label} sampled surfaces through a concealed or offscreen composer: ${JSON.stringify({
+          motion: composer.dataset.viewportMotion ?? null,
+          display: style.display,
+          visibility: style.visibility,
+          opacity: style.opacity,
+          bounds: bounds.toJSON(),
+          viewport: { top, bottom },
+        })}`);
+      }
+    };
+    const assertSurfaceSet = (label, expectedAlpha, fallback = false) => {
+      assertComposerVisible(label);
+      const viewportTop = window.visualViewport?.offsetTop ?? 0;
+      const viewportBottom = viewportTop + (window.visualViewport?.height ?? innerHeight);
+      const snapshot = Object.fromEntries(Object.entries(surfaceSelectors).map(([name, selector]) => {
+        const element = document.querySelector(selector);
+        if (!element) throw Error(`${label} ${name} surface was missing`);
+        const style = getComputedStyle(element);
+        const bounds = element.getBoundingClientRect();
+        if (bounds.width <= 0 || bounds.height <= 0 || bounds.bottom <= viewportTop || bounds.top >= viewportBottom) {
+          throw Error(`${label} ${name} surface did not intersect the visual viewport: ${JSON.stringify(bounds.toJSON())}`);
+        }
+        return [name, {
+          backgroundColor: style.backgroundColor,
+          backgroundImage: style.backgroundImage,
+          color: style.color,
+          borderColor: style.borderColor,
+          alpha: colorAlpha(style.backgroundColor),
+          opacity: style.opacity,
+          backdropFilter: style.getPropertyValue('backdrop-filter'),
+          webkitBackdropFilter: style.getPropertyValue('-webkit-backdrop-filter'),
+        }];
+      }));
+      for (const name of Object.keys(surfaceSelectors)) {
+        if (snapshot[name].backgroundColor !== snapshot.input.backgroundColor
+          || snapshot[name].backgroundImage !== snapshot.input.backgroundImage) {
+          throw Error(`${label} composer surfaces diverged: ${JSON.stringify(snapshot)}`);
+        }
+        if (Math.abs(snapshot[name].alpha - expectedAlpha) > 0.002) {
+          throw Error(`${label} ${name} background alpha was ${snapshot[name].alpha}, expected ${expectedAlpha}: ${snapshot[name].backgroundColor}`);
+        }
+        if (snapshot[name].opacity !== '1') throw Error(`${label} ${name} surface was dimmed: ${JSON.stringify(snapshot[name])}`);
+        if (fallback && (snapshot[name].backgroundImage !== 'none'
+          || [snapshot[name].backdropFilter, snapshot[name].webkitBackdropFilter].some(value => value && value !== 'none'))) {
+          throw Error(`${label} ${name} retained translucent effects in its opaque fallback: ${JSON.stringify(snapshot[name])}`);
+        }
+      }
+      if (!visible() || button().getAttribute('aria-hidden') !== 'false' || button().tabIndex !== 0) {
+        throw Error(`${label} bottom control was not visibly interactive`);
+      }
+      return snapshot;
+    };
+    const forceConditionalRules = kind => {
+      const styles = [];
+      let containers = 0;
+      let ruleCount = 0;
+      for (const sheet of Array.from(document.styleSheets)) {
+        const rules = [];
+        for (const rule of sheet.cssRules) {
+          const condition = rule.conditionText ?? '';
+          const media = rule.type === CSSRule.MEDIA_RULE;
+          const supports = rule.type === CSSRule.SUPPORTS_RULE;
+          const selected = kind === 'reduced-transparency'
+            ? media && condition.includes('prefers-reduced-transparency')
+            : kind === 'contrast'
+              ? media && condition.includes('prefers-contrast')
+              : kind === 'forced-colors'
+                ? media && condition.includes('forced-colors')
+                : supports && condition.includes('backdrop-filter') && condition.trim().startsWith('not');
+          if (!selected) continue;
+          containers++;
+          rules.push(...Array.from(rule.cssRules, nested => nested.cssText));
+        }
+        if (!rules.length) continue;
+        ruleCount += rules.length;
+        const style = document.createElement('style');
+        style.dataset.surfaceFallbackFixture = kind;
+        style.textContent = rules.join('\n');
+        // Keep every forced rule beside the stylesheet that owns the real
+        // conditional block, preserving the application's import cascade.
+        sheet.ownerNode.after(style);
+        styles.push(style);
+      }
+      if (containers < 2 || !ruleCount) throw Error(`${kind} fallback rules were not present across the imported stylesheets`);
+      return { styles, containers };
+    };
     const assertGap = () => {
       const composer = document.querySelector('#composer').getBoundingClientRect(); const rect = button().getBoundingClientRect();
       if (Math.abs(composer.top - rect.bottom - 8) > 0.6 || Math.abs(rect.height - 44) > 0.6) throw Error(`Button lost its composer gap: ${JSON.stringify({ composer: composer.top, bottom: rect.bottom, height: rect.height })}`);
     };
-    window.bottomFixture = { app, session, saveHistoryMessage, fresh, settle, up, button, visible, waitForComposerReveal, assertGap }; await fresh();
+    window.bottomFixture = { app, session, saveHistoryMessage, fresh, settle, up, button, visible, waitForComposerReveal,
+      assertSurfaceSet, forceConditionalRules, assertGap }; await fresh();
   });
 
   results.strictThreshold = await page.evaluate(async () => {
@@ -82,7 +193,13 @@ try {
     if (!visible() || button().getAttribute('aria-hidden') !== 'false' || button().tabIndex !== 0) throw Error('Button did not appear after scroll motion fully settled');
     const fade = getComputedStyle(button());
     if (!fade.transitionProperty.includes('opacity') || !fade.transitionDuration.includes('0.18s')) throw Error('Button lost its opacity transition');
-    await up(11); if (visible() || button().tabIndex !== -1) throw Error('Returning across the threshold left the button active');
+    await up(11);
+    // Manual document scrolling conceals the entire composer immediately and
+    // commits the button's visibility at the same stable endpoint. Inspecting
+    // its child state while the parent is still fully transparent can only
+    // observe the previous (unpainted) frame.
+    await waitForComposerReveal();
+    if (visible() || button().tabIndex !== -1) throw Error('Returning across the threshold left the button active');
     // Observe async content changes even when neither scrolling nor viewport
     // events fire. This covers both the final message and earlier media.
     latest.style.paddingBottom = '30px'; await settle();
@@ -144,8 +261,8 @@ try {
   });
   await page.locator('#chat-bottom-control').click();
   await page.waitForFunction(() => !document.querySelector('#chat-bottom-control').dataset.scrolling);
-  results.keyboardPreserved = await page.evaluate(() => {
-    const { app, button, visible, assertGap } = window.bottomFixture; const input = document.querySelector('#message-input');
+  results.keyboardPreserved = await page.evaluate(async () => {
+    const { app, button, visible, assertGap, settle } = window.bottomFixture; const input = document.querySelector('#message-input');
     if (document.activeElement !== input || input.selectionStart !== 2 || input.selectionEnd !== 5) throw Error('Return to bottom dismissed the keyboard or changed selection');
     const targetGap = Math.abs(window.scrollY - app.chatBottomScrollTop());
     if (targetGap > 2 || !app.chatPinnedToBottom || visible()) throw Error(`Click did not finish at the latest message: ${JSON.stringify({ targetGap, pinned: app.chatPinnedToBottom, visible: visible(), scrollY: window.scrollY })}`);
@@ -153,6 +270,9 @@ try {
     if (window.bottomMotionFrames.some(frame => Math.abs(frame.headerTop - 180) > 1)) throw Error(`Return animation moved the fixed header: ${JSON.stringify(window.bottomMotionFrames)}`);
     assertGap(); if (button().dataset.scrolling) throw Error('Completed scroll retained animation state');
     delete visualViewport.height; delete visualViewport.offsetTop; visualViewport.dispatchEvent(new Event('resize'));
+    // Native viewport events are intentionally coalesced into the next paint.
+    // Finish that cleanup before the following motion scenario takes ownership.
+    await settle();
     return { focus: true, selection: [2, 5], finishedPinned: true, fixedHeader: true, visibleComposerFrames: window.bottomMotionFrames.length };
   });
 
@@ -185,7 +305,7 @@ try {
   });
 
   results.cancellation = await page.evaluate(async () => {
-    const { app, up, settle, button, visible } = window.bottomFixture;
+    const { app, up, settle, button, visible, waitForComposerReveal } = window.bottomFixture;
     await up(1800); button().click(); await settle();
     document.querySelector('#message-list').dispatchEvent(new WheelEvent('wheel', { deltaY: -80, bubbles: true }));
     window.scrollBy(0, -40); const stopped = window.scrollY; await settle(); await settle();
@@ -193,7 +313,9 @@ try {
     button().click(); await settle(); app.setActiveSurface('away'); const away = window.scrollY;
     if (button().dataset.scrolling || visible()) throw Error('Leaving chat retained the return control');
     await settle(); if (window.scrollY !== away) throw Error('Leaving chat retained a scrolling frame');
-    app.setActiveSurface('chat'); await settle(); if (!visible()) throw Error('Returning to the same chat failed to restore control visibility');
+    app.setActiveSurface('chat');
+    await waitForComposerReveal();
+    if (!visible()) throw Error('Returning to the same chat failed to restore control visibility');
     button().click(); await settle(); const stale = button(); app.lockNow(); await settle();
     const lockedY = window.scrollY; stale.click(); await settle();
     if (!app.privacyCovered || document.querySelector('#chat-bottom-control') || window.scrollY !== lockedY) throw Error('Lock left an active or stale return control');
@@ -343,18 +465,41 @@ try {
   });
 
   await page.evaluate(async () => {
-    const { up, button } = window.bottomFixture; await up(200); button().focus({ preventScroll: true }); button().click();
+    const { up, button, visible, waitForComposerReveal } = window.bottomFixture;
+    await up(200);
+    // The control is user-reachable only after the manual-scroll endpoint has
+    // committed its visibility and the parent composer has been revealed.
+    await waitForComposerReveal();
+    if (!visible()) throw Error('Return control was not visible before its keyboard-focus scenario');
+    button().focus({ preventScroll: true });
+    button().click();
   });
   await page.waitForFunction(() => !document.querySelector('#chat-bottom-control').dataset.scrolling);
-  results.hiddenButtonFocus = await page.evaluate(() => {
-    const { app, button } = window.bottomFixture;
-    if (document.activeElement !== app.renderedMessageOrder.at(-1) || button().getAttribute('aria-hidden') !== 'true' || Math.abs(window.scrollY - app.chatBottomScrollTop()) > 2) throw Error('Hidden return control retained keyboard focus or focus transfer moved the page');
+  results.hiddenButtonFocus = await page.evaluate(async () => {
+    const { app, button, waitForComposerReveal } = window.bottomFixture;
+    await waitForComposerReveal();
+    const latest = app.renderedMessageOrder.at(-1);
+    const snapshot = {
+      focusIsLatest: document.activeElement === latest,
+      activeElement: document.activeElement?.id || document.activeElement?.className || document.activeElement?.tagName,
+      ariaHidden: button().getAttribute('aria-hidden'),
+      scrollY: window.scrollY,
+      target: app.chatBottomScrollTop(),
+      latestConnected: latest?.isConnected,
+      latestTabIndex: latest?.tabIndex,
+    };
+    if (!snapshot.focusIsLatest || snapshot.ariaHidden !== 'true' || Math.abs(snapshot.scrollY - snapshot.target) > 2) {
+      throw Error(`Hidden return control retained keyboard focus or focus transfer moved the page: ${JSON.stringify(snapshot)}`);
+    }
     return { movedToLatestArticle: true, noKeyboardOpened: true, noExtraScroll: true };
   });
 
   await page.emulateMedia({ reducedMotion: 'reduce' });
   results.reducedMotionAndBoundedReads = await page.evaluate(async () => {
-    const { app, fresh, up, button, visible } = window.bottomFixture; await fresh(5000); await up(2400);
+    const { app, fresh, up, button, visible, waitForComposerReveal } = window.bottomFixture;
+    await fresh(5000);
+    await up(2400);
+    await waitForComposerReveal();
     const original = Element.prototype.getBoundingClientRect; let messageReads = 0; let buttonReads = 0;
     Element.prototype.getBoundingClientRect = function () {
       if (this.classList.contains('message')) messageReads++;
@@ -375,6 +520,148 @@ try {
     if (visible() || Math.abs(shortGap - 64) > 2) throw Error(`Short conversation lost its final bottom spacing: ${shortGap}`);
     return { historyCount: 5000, messageBoundsReads: messageReads, buttonBoundsReads: buttonReads, idleFrames: 20, instantReducedMotion: true, emptyAndShort: true };
   });
+
+  results.composerSurfaceParity = {};
+  for (const colorScheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme, reducedMotion: 'no-preference', contrast: 'no-preference', forcedColors: 'none' });
+    results.composerSurfaceParity[colorScheme] = await page.evaluate(async scheme => {
+      const { app, fresh, up, settle, button, visible, waitForComposerReveal, assertSurfaceSet } = window.bottomFixture;
+      if (matchMedia('(prefers-color-scheme: dark)').matches !== (scheme === 'dark')) throw Error(`Failed to emulate the ${scheme} color scheme`);
+      await fresh();
+      await up(24);
+      await waitForComposerReveal();
+      const idle = assertSurfaceSet(`${scheme} idle`, 0.84);
+      const input = document.querySelector('#message-input');
+      input.focus({ preventScroll: true });
+      await waitForComposerReveal();
+      const focused = assertSurfaceSet(`${scheme} focused`, 0.92);
+      if (focused.input.backgroundColor === idle.input.backgroundColor) {
+        throw Error(`${scheme} focused composer surface did not reach its focus token`);
+      }
+      document.querySelector('#open-image-picker').disabled = true;
+      document.querySelector('#record-voice').disabled = true;
+      const disabled = assertSurfaceSet(`${scheme} disabled actions`, 0.92);
+      document.querySelector('#open-image-picker').disabled = false;
+      document.querySelector('#record-voice').disabled = false;
+      input.blur();
+      await waitForComposerReveal();
+      app.scrollChatToBottom();
+      await settle();
+      await new Promise(resolve => setTimeout(resolve, 200));
+      const hiddenOpacity = getComputedStyle(button()).opacity;
+      if (visible() || hiddenOpacity !== '0' || button().getAttribute('aria-hidden') !== 'true' || button().tabIndex !== -1) {
+        throw Error(`${scheme} return to bottom left the control exposed: ${JSON.stringify({ visible: visible(), hiddenOpacity, ariaHidden: button().getAttribute('aria-hidden'), tabIndex: button().tabIndex })}`);
+      }
+      return { idle, focused, disabled, hiddenOpacity };
+    }, colorScheme);
+  }
+  assert.notEqual(results.composerSurfaceParity.light.idle.input.backgroundColor, results.composerSurfaceParity.dark.idle.input.backgroundColor,
+    'Light and dark composer surfaces unexpectedly resolved to the same color');
+
+  const verifyOpaqueFallback = async ({ name, media, query, fixtureKind, colorScheme = 'light', expectInk = false }) => {
+    let native = false;
+    if (media) {
+      try {
+        await page.emulateMedia({ colorScheme, reducedMotion: 'no-preference', contrast: 'no-preference', forcedColors: 'none', ...media });
+        native = await page.evaluate(value => matchMedia(value).matches, query);
+      } catch {
+        await page.emulateMedia({ colorScheme, reducedMotion: 'no-preference', contrast: 'no-preference', forcedColors: 'none' });
+      }
+    } else {
+      await page.emulateMedia({ colorScheme, reducedMotion: 'no-preference', contrast: 'no-preference', forcedColors: 'none' });
+    }
+    return page.evaluate(async ({ label, useFixture, kind, requireInk }) => {
+      const { fresh, up, waitForComposerReveal, assertSurfaceSet, forceConditionalRules } = window.bottomFixture;
+      const forced = useFixture ? forceConditionalRules(kind) : null;
+      try {
+        await fresh();
+        await up(24);
+        await waitForComposerReveal();
+        const idle = assertSurfaceSet(`${label} idle`, 1, true);
+        const input = document.querySelector('#message-input');
+        input.focus({ preventScroll: true });
+        await waitForComposerReveal();
+        const focused = assertSurfaceSet(`${label} focused`, 1, true);
+        if (requireInk) {
+          const probe = document.createElement('span');
+          probe.style.color = 'var(--ink)';
+          document.body.append(probe);
+          const expectedInk = getComputedStyle(probe).color;
+          probe.remove();
+          for (const [surface, state] of Object.entries(focused)) {
+            if (state.color !== expectedInk) throw Error(`${label} ${surface} foreground did not use the theme contrast ink: ${state.color} !== ${expectedInk}`);
+          }
+        }
+        return { mode: forced ? 'source-rule fixture' : 'native media emulation', ruleContainers: forced?.containers ?? null, idle, focused };
+      } finally {
+        document.querySelector('#message-input')?.blur();
+        forced?.styles.forEach(style => style.remove());
+      }
+    }, { label: name, useFixture: !native, kind: fixtureKind, requireInk: expectInk });
+  };
+  results.composerSurfaceFallbacks = {
+    reducedTransparency: await verifyOpaqueFallback({
+      name: 'reduced transparency',
+      media: null,
+      query: '(prefers-reduced-transparency: reduce)',
+      fixtureKind: 'reduced-transparency',
+    }),
+    contrastMore: await verifyOpaqueFallback({
+      name: 'increased contrast',
+      media: { contrast: 'more' },
+      query: '(prefers-contrast: more)',
+      fixtureKind: 'contrast',
+      expectInk: true,
+    }),
+    contrastMoreDark: await verifyOpaqueFallback({
+      name: 'increased contrast dark',
+      media: { contrast: 'more' },
+      query: '(prefers-contrast: more)',
+      fixtureKind: 'contrast',
+      colorScheme: 'dark',
+      expectInk: true,
+    }),
+    forcedColors: await verifyOpaqueFallback({
+      name: 'forced colors',
+      media: { forcedColors: 'active' },
+      query: '(forced-colors: active)',
+      fixtureKind: 'forced-colors',
+    }),
+    noBackdropSupport: await verifyOpaqueFallback({
+      name: 'no backdrop-filter support',
+      media: null,
+      query: null,
+      fixtureKind: 'no-backdrop',
+    }),
+  };
+  results.contrastHover = {};
+  await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'no-preference', contrast: 'more', forcedColors: 'none' });
+  await page.evaluate(async () => {
+    const { fresh, up, waitForComposerReveal } = window.bottomFixture;
+    await fresh();
+    await up(24);
+    await waitForComposerReveal();
+  });
+  for (const [name, selector] of [['photo', '#open-image-picker'], ['voice', '#record-voice']]) {
+    await page.locator(selector).hover();
+    results.contrastHover[name] = await page.evaluate(({ label, target }) => {
+      const element = document.querySelector(target);
+      const probe = document.createElement('span');
+      probe.style.border = '1px solid var(--line-strong)';
+      probe.style.color = 'var(--ink)';
+      document.body.append(probe);
+      const expected = getComputedStyle(probe);
+      const actual = getComputedStyle(element);
+      const snapshot = { borderColor: actual.borderColor, color: actual.color };
+      const required = { borderColor: expected.borderColor, color: expected.color };
+      probe.remove();
+      if (snapshot.borderColor !== required.borderColor || snapshot.color !== required.color) {
+        throw Error(`Dark high-contrast ${label} hover lost its strong boundary: ${JSON.stringify({ snapshot, required })}`);
+      }
+      return snapshot;
+    }, { label: name, target: selector });
+  }
+  await page.emulateMedia({ colorScheme: null, reducedMotion: null, contrast: null, forcedColors: null });
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ browser: process.env.QUIET_ROOM_TEST_BROWSER ?? 'chromium', ...results }, null, 2));
 } finally {

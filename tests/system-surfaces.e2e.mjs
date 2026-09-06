@@ -348,6 +348,7 @@ try {
     let grant;
     navigator.mediaDevices.getUserMedia = () => new Promise(resolve => { grant = resolve; });
     app.beginVoiceRecording();
+    while (typeof grant !== 'function') await Promise.resolve();
     const recorder = app.voiceRecorder;
     check(app.microphonePromptActive && recorder, 'Microphone permission was not pending');
     blur();
@@ -436,10 +437,267 @@ try {
     hidden(true); covered('Open conversation verification'); hidden(false); focus();
     await conversationVerification;
 
-    app.lockNow();
-    delete document.hidden; delete document.hasFocus;
+    // Keep the live mobile fixture for the trusted-pointer keyboard handoff
+    // checks below. A Playwright click must happen outside page.evaluate so
+    // pointerdown.isTrusted exercises the production authorization boundary.
+    window.systemSurfaceKeyboardFixture = { app, fresh, blur, focus, hidden, covered };
     return { ordinaryBlurDebounced: true, navigationFrames, immediateNavigationWithoutBlankFrame: true, pickerResults, canceledSelectionsCleared: true, explicitLockDiscardsLateSelections: true, galleryMultiple: true, chatAboveNine: true, exportsLock: true, stalePickerCancelIgnored: true, foregroundSelectionsStayInOriginalSession: true, invalidatedSelectionsRequireReselection: true, pendingSystemSurfacesLock: true, decodedPreviewsReuseCache: true, lockingClearsImageCache: true, foregroundPermissionSurvives: true, backgroundPermissionStopsLateGrant: true, permissionReturnAndExpiryBounded: true, gatewayVerificationCompletes: true, verificationSettleBeforeFocusBounded: true, expiredVerificationRejected: true };
   });
+
+  const armKeyboardHandoff = async () => {
+    await page.evaluate(() => window.systemSurfaceKeyboardFixture.fresh());
+    await page.locator('#message-input').click();
+    assert.equal(await page.evaluate(() => {
+      const fixture = window.systemSurfaceKeyboardFixture;
+      return fixture.app.keyboardHandoff?.input === document.querySelector('#message-input')
+        && fixture.app.keyboardHandoff.blurred === false;
+    }), true, 'A trusted primary composer click did not arm the keyboard handoff');
+  };
+
+  // One visible Safari-style window blur belongs to the directly tapped
+  // keyboard. Reusing that ownership for a second departure must fail closed.
+  await armKeyboardHandoff();
+  assert.deepEqual(await page.evaluate(() => {
+    const fixture = window.systemSurfaceKeyboardFixture;
+    fixture.blur();
+    return {
+      consumed: fixture.app.keyboardHandoff?.blurred === true,
+      obscured: document.documentElement.classList.contains('privacy-obscured'),
+      covered: fixture.app.privacyCovered,
+    };
+  }), { consumed: true, obscured: false, covered: false }, 'The first owned visible keyboard blur exposed the privacy curtain');
+  assert.equal(await page.evaluate(() => {
+    window.systemSurfaceKeyboardFixture.blur();
+    return document.documentElement.classList.contains('privacy-obscured');
+  }), true, 'A second keyboard blur did not obscure synchronously');
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => {
+    const fixture = window.systemSurfaceKeyboardFixture;
+    return fixture.app.privacyCovered && !fixture.app.keyboardHandoff
+      && Boolean(document.querySelector('.cover-trigger')) && !document.querySelector('.chat-shell');
+  }), true, 'A second keyboard blur did not lock after the mobile debounce');
+
+  // Focus alone is not authorization: only the trusted composer pointerdown
+  // above may create the one-use handoff.
+  assert.deepEqual(await page.evaluate(async () => {
+    const fixture = window.systemSurfaceKeyboardFixture;
+    await fixture.fresh();
+    document.querySelector('#message-input').focus({ preventScroll: true });
+    const armed = Boolean(fixture.app.keyboardHandoff);
+    fixture.blur();
+    return {
+      armed,
+      obscured: document.documentElement.classList.contains('privacy-obscured'),
+    };
+  }), { armed: false, obscured: true }, 'Programmatic composer focus acquired a keyboard handoff');
+
+  const hardDepartures = ['hidden', 'pagehide', 'freeze', 'lock'];
+  for (const departure of hardDepartures) {
+    await armKeyboardHandoff();
+    assert.equal(await page.evaluate(departure => {
+      const fixture = window.systemSurfaceKeyboardFixture;
+      fixture.blur();
+      if (departure === 'hidden') fixture.hidden(true);
+      else if (departure === 'pagehide') window.dispatchEvent(new Event('pagehide'));
+      else if (departure === 'freeze') document.dispatchEvent(new Event('freeze'));
+      else fixture.app.lockNow();
+      const privateRuntimeGone = fixture.app.privacyCovered && !fixture.app.keyboardHandoff
+        && Boolean(document.querySelector('.cover-trigger')) && !document.querySelector('.chat-shell');
+      return privateRuntimeGone && (departure !== 'hidden'
+        || document.documentElement.classList.contains('privacy-obscured'));
+    }, departure), true, `Keyboard handoff survived hard ${departure}`);
+  }
+
+  // An unused arm expires harmlessly. Once its blur has been consumed, either
+  // monotonic or wall-clock expiry independently forces a full privacy lock.
+  await armKeyboardHandoff();
+  assert.deepEqual(await page.evaluate(() => {
+    const fixture = window.systemSurfaceKeyboardFixture;
+    const handoff = fixture.app.keyboardHandoff;
+    handoff.deadline = performance.now() - 1;
+    handoff.wallDeadline = Date.now() - 1;
+    const expired = fixture.app.expireKeyboardHandoff(handoff);
+    return { expired, handoff: Boolean(fixture.app.keyboardHandoff), covered: fixture.app.privacyCovered };
+  }), { expired: true, handoff: false, covered: false }, 'An unused keyboard handoff expiry locked or remained reusable');
+
+  for (const clock of ['monotonic', 'wall']) {
+    await armKeyboardHandoff();
+    assert.equal(await page.evaluate(clock => {
+      const fixture = window.systemSurfaceKeyboardFixture;
+      fixture.blur();
+      const handoff = fixture.app.keyboardHandoff;
+      if (clock === 'monotonic') handoff.deadline = performance.now() - 1;
+      else handoff.wallDeadline = Date.now() - 1;
+      fixture.app.expireKeyboardHandoff(handoff);
+      return fixture.app.privacyCovered && !fixture.app.keyboardHandoff
+        && Boolean(document.querySelector('.cover-trigger')) && !document.querySelector('.chat-shell');
+    }, clock), true, `Consumed keyboard handoff ignored ${clock} expiry`);
+  }
+
+  // Picker/media ownership replaces an armed keyboard handoff; conversely an
+  // existing native owner prevents a later composer click from arming one.
+  await armKeyboardHandoff();
+  await page.locator('#open-image-picker').click();
+  assert.deepEqual(await page.evaluate(() => {
+    const app = window.systemSurfaceKeyboardFixture.app;
+    return { keyboard: Boolean(app.keyboardHandoff), native: app.nativeHandoff?.kind ?? null };
+  }), { keyboard: false, native: 'picker' }, 'Picker ownership did not replace keyboard ownership');
+
+  await page.evaluate(() => window.systemSurfaceKeyboardFixture.fresh());
+  await page.locator('#open-image-picker').click();
+  await page.locator('#message-input').click();
+  assert.deepEqual(await page.evaluate(() => {
+    const app = window.systemSurfaceKeyboardFixture.app;
+    return { keyboard: Boolean(app.keyboardHandoff), native: app.nativeHandoff?.kind ?? null };
+  }), { keyboard: false, native: 'picker' }, 'Composer click stole an active picker handoff');
+
+  await armKeyboardHandoff();
+  await page.evaluate(() => window.systemSurfaceKeyboardFixture.app.setMediaPermission('camera', true));
+  assert.deepEqual(await page.evaluate(() => {
+    const app = window.systemSurfaceKeyboardFixture.app;
+    return { keyboard: Boolean(app.keyboardHandoff), native: app.nativeHandoff?.kind ?? null };
+  }), { keyboard: false, native: 'camera' }, 'Media ownership did not replace keyboard ownership');
+
+  await page.evaluate(async () => {
+    const fixture = window.systemSurfaceKeyboardFixture;
+    await fixture.fresh();
+    await fixture.app.setMediaPermission('camera', true);
+  });
+  await page.locator('#message-input').click();
+  assert.deepEqual(await page.evaluate(() => {
+    const app = window.systemSurfaceKeyboardFixture.app;
+    return { keyboard: Boolean(app.keyboardHandoff), native: app.nativeHandoff?.kind ?? null };
+  }), { keyboard: false, native: 'camera' }, 'Composer click stole an active media handoff');
+
+  // Returning browser focus can clear the short native token before the OS
+  // result/cancel event clears its active owner flag. That flag remains
+  // exclusive and must still prevent a keyboard exception from being armed.
+  for (const owner of ['camera', 'picker']) {
+    await page.evaluate(async owner => {
+      const fixture = window.systemSurfaceKeyboardFixture;
+      await fixture.fresh();
+      if (owner === 'camera') await fixture.app.setMediaPermission('camera', true);
+      else document.querySelector('#open-image-picker').click();
+      fixture.blur(); fixture.focus();
+    }, owner);
+    assert.equal(await page.evaluate(owner => {
+      const app = window.systemSurfaceKeyboardFixture.app;
+      return !app.nativeHandoff && (owner === 'camera' ? app.callPermissionActive : app.imagePickerActive);
+    }, owner), true, `${owner}: native active flag did not outlive its focus-return token fixture`);
+    await page.locator('#message-input').click();
+    assert.equal(await page.evaluate(() => Boolean(window.systemSurfaceKeyboardFixture.app.keyboardHandoff)), false,
+      `${owner}: composer stole ownership from a still-active native surface`);
+    assert.equal(await page.evaluate(() => {
+      const fixture = window.systemSurfaceKeyboardFixture;
+      fixture.blur();
+      return fixture.app.privacyCovered && Boolean(document.querySelector('.cover-trigger'));
+    }), true, `${owner}: unowned departure with an active native surface did not fail closed`);
+  }
+
+  // Once a visible blur is consumed, replacing its textarea or navigating
+  // away invalidates the owner synchronously and must lock, not merely clear.
+  for (const invalidation of ['render', 'away', 'disconnect']) {
+    await armKeyboardHandoff();
+    assert.equal(await page.evaluate(invalidation => {
+      const fixture = window.systemSurfaceKeyboardFixture;
+      fixture.blur();
+      const handoff = fixture.app.keyboardHandoff;
+      if (!handoff?.blurred) return false;
+      if (invalidation === 'render') fixture.app.renderChat();
+      else if (invalidation === 'away') fixture.app.setActiveSurface('away');
+      else {
+        handoff.input.remove();
+        fixture.app.completeKeyboardHandoffFromViewport({
+          generation: handoff.viewportGeneration + 1,
+          viewportHeight: 420,
+          layoutHeight: 844,
+        });
+      }
+      return fixture.app.privacyCovered && !fixture.app.keyboardHandoff
+        && Boolean(document.querySelector('.cover-trigger')) && !document.querySelector('.chat-shell');
+    }, invalidation), true, `Consumed keyboard owner survived ${invalidation} invalidation`);
+  }
+
+  // Generate a trusted pointerdown without its default focus, then reproduce
+  // WebKit's resize -> textarea focus -> window blur order. Fresh geometry is
+  // retained as evidence until the one blur consumes and clears the owner.
+  await page.evaluate(async () => {
+    const fixture = window.systemSurfaceKeyboardFixture;
+    await fixture.fresh();
+    document.querySelector('#message-input').addEventListener('mousedown', event => event.preventDefault(), { once: true });
+  });
+  const inputBounds = await page.locator('#message-input').boundingBox();
+  assert.ok(inputBounds, 'Keyboard evidence fixture has no textarea bounds');
+  await page.mouse.move(inputBounds.x + inputBounds.width / 2, inputBounds.y + inputBounds.height / 2);
+  await page.mouse.down(); await page.mouse.up();
+  assert.equal(await page.evaluate(() => Boolean(window.systemSurfaceKeyboardFixture.app.keyboardHandoff)
+    && document.activeElement !== document.querySelector('#message-input')), true,
+  'Trusted pre-focus pointer did not arm the resize-order fixture');
+  assert.equal(await page.evaluate(async () => {
+    const fixture = window.systemSurfaceKeyboardFixture;
+    const viewport = window.visualViewport;
+    Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
+    Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 180 });
+    viewport.dispatchEvent(new Event('resize'));
+    await new Promise(requestAnimationFrame);
+    const evidenceBeforeFocus = fixture.app.keyboardHandoff?.openingEvidence === true
+      && fixture.app.keyboardHandoff?.blurred === false;
+    document.querySelector('#message-input').focus({ preventScroll: true });
+    const targetAttached = fixture.app.chatViewportMotion?.keyboardMoving === true;
+    fixture.blur();
+    return evidenceBeforeFocus && targetAttached && !fixture.app.keyboardHandoff
+      && !fixture.app.privacyCovered && !document.documentElement.classList.contains('privacy-obscured');
+  }), true, 'Resize-before-focus keyboard evidence did not complete exactly one visible blur');
+  assert.equal(await page.evaluate(() => {
+    const fixture = window.systemSurfaceKeyboardFixture;
+    fixture.blur();
+    return document.documentElement.classList.contains('privacy-obscured');
+  }), true, 'Fresh keyboard geometry left a reusable second-blur exception');
+
+  // A keyboard-sized viewport already present before the tap is a baseline,
+  // not post-arm evidence. It must neither arm nor excuse the next blur.
+  await page.evaluate(async () => {
+    const fixture = window.systemSurfaceKeyboardFixture;
+    fixture.app.lockNow();
+    const viewport = window.visualViewport;
+    delete viewport.height; delete viewport.offsetTop;
+    viewport.dispatchEvent(new Event('resize'));
+    await new Promise(requestAnimationFrame);
+    await fixture.fresh();
+    Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
+    Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 180 });
+    viewport.dispatchEvent(new Event('resize'));
+  });
+  await page.locator('#message-input').click();
+  assert.equal(await page.evaluate(() => Boolean(window.systemSurfaceKeyboardFixture.app.keyboardHandoff)), false,
+    'Pre-arm keyboard geometry was accepted as fresh opening evidence');
+  assert.equal(await page.evaluate(() => {
+    const fixture = window.systemSurfaceKeyboardFixture;
+    fixture.blur();
+    return document.documentElement.classList.contains('privacy-obscured');
+  }), true, 'Pre-arm keyboard geometry excused an unowned blur');
+
+  await page.evaluate(async () => {
+    const fixture = window.systemSurfaceKeyboardFixture;
+    fixture.app.lockNow();
+    delete window.visualViewport.height; delete window.visualViewport.offsetTop;
+    window.visualViewport.dispatchEvent(new Event('resize'));
+    await new Promise(requestAnimationFrame);
+    delete document.hidden;
+    delete document.hasFocus;
+    delete window.systemSurfaceKeyboardFixture;
+  });
+  results.keyboardNativeHandoff = {
+    trustedFirstBlur: 'visible',
+    secondBlur: 'fail-closed',
+    hardDepartures,
+    programmaticFocus: 'unowned',
+    expiry: 'dual-clock',
+    nativeOwnership: 'exclusive',
+    activeNativeFlags: 'exclusive after focus return',
+    consumedInvalidation: 'fail-closed',
+    freshOpeningEvidence: 'resize-focus-blur ordered',
+  };
   assert.deepEqual(errors, []);
   console.log(JSON.stringify(results, null, 2));
 } finally {
