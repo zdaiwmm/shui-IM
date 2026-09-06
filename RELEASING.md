@@ -172,6 +172,38 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-06（Asia/Shanghai）；服务器批次 `20260906T130200Z`（21:02:00），
+  21:03:09 独立回读成功。应用提交 `fc3c0cdd28f5acac81f32e30b8c57b28536b0f2c`，由
+  [PR #35](https://github.com/zdaiwmm/shui-IM/pull/35) 合并，候选 head
+  `50f33a05e0645fc4097b30da258e429c06e1d9bb`。
+- 本批修复多行输入和发送时的聊天布局抖动：输入栏按底边定位，输入框高度、消息插入与列表
+  位移由同一逐帧动画驱动，标题栏和输入工具栏保持固定；连续组词、伸展途中发送、多行发送后
+  复位及阅读旧消息锚点均从当前可见位置衔接。消息／MLS 原子持久化、普通重试密文复用、设备
+  历史、恢复和原始附件校验边界不变。
+- 最终本地 `npm run check:full` 通过构建、54 个测试文件／454 项单元集成及 24／24 个 Chromium
+  浏览器入口（265.30 秒），WebKit 输入栏专项也通过。PR 首轮
+  [CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34033689900)的浏览器第 1 组暴露既有图库
+  返回用例在滚动账务提交前读取基线的竞态；产品断言保持不变，夹具等待两个动画帧后再记录
+  基线。修订后的 [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34034272592)
+  和精确 main [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34034568250)全部成功。
+- 固定入口 `node scripts/publish.mjs --sha fc3c0cdd28f5acac81f32e30b8c57b28536b0f2c`
+  返回精确 `DEPLOY_OK`、`DEPLOY_VERIFIED`，外层核对成功。入口总耗时 362,808ms，其中等待
+  main CI 276,063ms、隔离克隆 7,804ms、部署与入口回读 71,883ms；服务器部署 58 秒，获取
+  源码 4 秒、构建镜像 15 秒、停止容器 1 秒、冷备份 6 秒、启动及健康等待 31 秒、门控验证
+  1 秒。发布目录 `/opt/quiet-room/git-releases/20260906T130200Z-fc3c0cdd28f5`，已校验冷备份
+  `/opt/quiet-room/backups/predeploy/data-20260906T130200Z-fc3c0cdd28f5.tar.gz`。
+- 21:03:09 独立只读回读返回 `READBACK_OK`，总耗时 2,661ms：线上 SHA、批次和目录一致，
+  维护标记不存在；应用运行且健康，备份容器运行且无健康探针；应用与备份实际镜像均匹配
+  `sha256:1dd0dbdd60dec11d8ec7c92c917e61a4c1afb88ba868632739d6fc27def9762b`。HTTPS 健康、
+  首页、Service Worker、版本化公开／容器产物和公开 WebSocket 均通过；`admin-enabled=0`、
+  `calls-enabled=0`，TURN 不存在。检查未读取真实消息、附件或备份内容；真实 iPhone／Android、
+  长期运维和独立安全审计仍未验证。
+- 首次从不带部署配置的任务 worktree 调用固定入口时，预检因缺少 `serverHost` 在 24ms 内阻断，
+  未进入任何生产阶段；随后从已有配置的原始工作区对同一精确 SHA 执行成功。回读后在不带部署
+  配置的独立 worktree 对账本记录与状态页；文档 PR 不代表重新部署。
+
+## 上次线上发布记录（2026-09-06 19:37）
+
 - 日期：2026-09-06（Asia/Shanghai）；服务器批次 `20260906T113628Z`（19:36:28），
   19:37:32 独立回读成功。应用提交 `981b21612b16bc5b9d1e4007ed051f17a3170256`，由
   [PR #31](https://github.com/zdaiwmm/shui-IM/pull/31) 集中合并用户可见改动，
