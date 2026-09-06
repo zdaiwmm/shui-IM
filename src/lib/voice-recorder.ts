@@ -4,7 +4,8 @@ import { encodeVoiceWav, MAX_VOICE_SAMPLES, VOICE_SAMPLE_RATE, voiceIcons, voice
 export type VoiceDraft = { file: File; durationMs: number; waveform: number[]; clientMsgId: string };
 type State = 'requesting' | 'recording' | 'processing' | 'paused' | 'sending';
 type Mode = 'hold' | 'locked';
-const CANCEL_DISTANCE = 156;
+const CANCEL_DISTANCE = 220;
+const CANCEL_RESET_DISTANCE = 196;
 const CANCEL_MOTION_MS = 360;
 
 export class VoiceRecorder {
@@ -31,6 +32,7 @@ export class VoiceRecorder {
   private sendAttempted = false;
   private starting = false;
   private holdReleased = false;
+  private cancelReady = false;
   private sendAfterProcessing = false;
   private waveform: number[] | null = null;
   private readonly waveBars: HTMLElement[];
@@ -52,7 +54,7 @@ export class VoiceRecorder {
     host.innerHTML = `
       <div class="voice-recording-bar">
         <div class="voice-recording-info"><span class="voice-recording-dot" aria-hidden="true"></span><time class="voice-recording-time">0:00,00</time></div>
-        <span class="voice-slide-hint" aria-hidden="true">${voiceIcons.chevronLeft}<span>滑动以取消</span></span>
+        <span class="voice-slide-hint" role="status" aria-live="polite">${voiceIcons.chevronLeft}<span class="voice-release-label"></span></span>
         <span class="voice-submit-label" aria-hidden="true"></span>
         <button type="button" class="voice-cancel" aria-label="取消录音">取消</button>
         <div class="voice-draft-timeline">
@@ -100,19 +102,22 @@ export class VoiceRecorder {
   moveHold(deltaX: number): void {
     if (this.signal.aborted || this.mode !== 'hold' || this.holdReleased || !['requesting', 'recording'].includes(this.state)) return;
     const left = Math.max(0, -deltaX);
-    // A logarithmic response keeps moving as the finger travels farther,
-    // without the abrupt hard stop of a clamped transform. Only X participates.
-    const resistance = deltaX < 0 ? 76 : 18;
+    // Keep the microphone visibly attached to the finger for a longer travel.
+    // The logarithmic tail still prevents it from leaving the composer, but the
+    // larger resistance length avoids the earlier near-stop after a short drag.
+    const resistance = deltaX < 0 ? 220 : 72;
     const drag = Math.sign(deltaX) * resistance * Math.log1p(Math.abs(deltaX) / resistance);
+    this.cancelReady = this.cancelReady ? left >= CANCEL_RESET_DISTANCE : left >= CANCEL_DISTANCE;
     this.host.style.setProperty('--voice-drag-x', `${drag}px`);
     this.host.style.setProperty('--voice-cancel-progress', String(Math.min(1, left / CANCEL_DISTANCE)));
-    if (left >= CANCEL_DISTANCE) this.cancel(true);
+    this.updateHoldFeedback();
   }
 
   releaseHold(cancelled = false): void {
     if (this.signal.aborted || this.mode !== 'hold' || this.holdReleased) return;
     this.holdReleased = true;
     if (cancelled) { this.cancel(); return; }
+    if (this.cancelReady) { this.cancel(true); return; }
     // Releasing a hold must not begin recording after a late grant.
     // Privacy teardown still applies to hands-free
     // requests when a native permission prompt takes focus.
@@ -121,9 +126,20 @@ export class VoiceRecorder {
   }
 
   private resetDrag(): void {
+    this.cancelReady = false;
     this.host.dataset.gesture = 'hold';
     this.host.style.setProperty('--voice-drag-x', '0px');
     this.host.style.setProperty('--voice-cancel-progress', '0');
+    this.updateHoldFeedback();
+  }
+
+  private updateHoldFeedback(): void {
+    const label = this.host.querySelector<HTMLElement>('.voice-release-label');
+    if (!label) return;
+    const action = this.state === 'requesting' ? 'pending' : this.cancelReady ? 'cancel' : 'send';
+    this.host.dataset.holdAction = action;
+    const text = action === 'pending' ? '等待麦克风…' : action === 'cancel' ? '松手取消' : '松手发送';
+    if (label.textContent !== text) label.textContent = text;
   }
 
   private cancel(animate = false): void {
@@ -386,6 +402,7 @@ export class VoiceRecorder {
     const progress = this.durationMs ? this.preview.currentTime * 1000 / this.durationMs : 0;
     this.waveBars.forEach((bar, index) => bar.classList.toggle('is-played', index / 48 < progress));
     const holding = this.mode === 'hold' && ['requesting', 'recording'].includes(this.state);
+    if (holding) this.updateHoldFeedback();
     const drafting = ['processing', 'paused'].includes(this.state) && !submitting;
     this.host.querySelector<HTMLElement>('.voice-recording-info')!.hidden = drafting || submitting;
     this.host.querySelector<HTMLElement>('.voice-slide-hint')!.hidden = !holding;

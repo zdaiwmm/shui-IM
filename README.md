@@ -181,9 +181,13 @@ is not automatically enabled by building the application.
 ## Voice messages
 
 When the text field is empty, hold the microphone to record and release to send.
+The unavailable text-input surface is hidden while voice recording is active.
 The microphone expands smoothly and follows only horizontal movement with
-progressive resistance. Slide left by 156 CSS pixels to discard; the empty
-controls retract toward the right after capture and draft cleanup. Vertical
+progressive resistance across a longer travel. Before the cancel threshold it
+stays blue and says “松手发送”. Slide left by 220 CSS pixels to arm cancellation;
+it turns red and says “松手取消”. Sliding back restores sending, and release commits
+the displayed outcome. A cancel release cleans up capture and the draft before
+the empty controls retract toward the right. Vertical
 movement does not lock recording. A short tap or keyboard activation starts
 hands-free recording. In the hands-free state,
 use the large arrow to send or the button above it to pause. Pause opens a compact

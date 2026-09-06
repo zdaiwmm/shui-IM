@@ -1,6 +1,7 @@
 /* Voice recording follows the composer's system theme and glass treatment. */
 #composer > [hidden], .voice-recorder[hidden], .voice-recorder [hidden] { display: none !important; }
-.has-voice-draft > .composer-field,
+.has-voice-draft > .composer-input-stack:has(.reply-draft[hidden]),
+.has-voice-draft .composer-field,
 .has-voice-draft > .image-picker,
 .has-voice-draft > .send-button,
 .has-voice-draft > .voice-record-button { display: none; }
@@ -51,6 +52,9 @@
 .voice-recording-state { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .voice-submit-label { color: var(--ink-muted); font-size: .875rem; line-height: 1.5; text-align: center; }
 .voice-slide-hint {
+  position: absolute;
+  right: 96px;
+  width: 124px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -59,10 +63,11 @@
   white-space: nowrap;
   font-size: 0.8125rem;
   color: var(--ink-muted);
-  opacity: calc(1 - var(--voice-cancel-progress) * .65);
-  transform: translateX(calc(var(--voice-drag-x) * .16));
+  transform: translateX(calc(var(--voice-cancel-progress) * 80px));
+  transition: color 160ms cubic-bezier(.22, 1, .36, 1);
 }
 .voice-slide-hint svg { width: 19px; height: 19px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.voice-recorder[data-hold-action="cancel"] .voice-slide-hint { color: var(--danger); }
 .voice-control, .voice-toggle {
   display: inline-flex;
   align-items: center;
@@ -106,7 +111,16 @@
   box-shadow: inset 0 1px 1px oklch(99% .004 255 / .2), 0 5px 20px oklch(34% .1 255 / .16);
   z-index: 2;
 }
-.voice-hold-orb { transform: translate3d(var(--voice-drag-x), 0, 0); pointer-events: none; }
+.voice-hold-orb {
+  transform: translate3d(var(--voice-drag-x), 0, 0);
+  pointer-events: none;
+  transition: background-color 180ms cubic-bezier(.22, 1, .36, 1), border-color 180ms cubic-bezier(.22, 1, .36, 1), box-shadow 180ms cubic-bezier(.22, 1, .36, 1);
+}
+.voice-recorder[data-hold-action="cancel"] :is(.voice-hold-orb, .voice-cancel-orb) {
+  border-color: color-mix(in oklch, var(--on-accent) 28%, var(--danger));
+  background: var(--danger);
+  box-shadow: inset 0 1px 1px oklch(99% .004 255 / .2), 0 5px 22px color-mix(in oklch, var(--danger) 26%, transparent);
+}
 .voice-hold-orb::before { content: ''; position: absolute; inset: -5px; border: 1px solid color-mix(in oklch, var(--accent) 24%, transparent); border-radius: 50%; opacity: .5; }
 .voice-hold-orb svg, .voice-cancel-orb svg { width: 35px; height: 35px; }
 .voice-send svg { width: 40px; height: 40px; }
@@ -164,6 +178,7 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .voice-record-button { transition: none; }
+  .voice-slide-hint, .voice-hold-orb { transition: none; }
   .voice-recorder *, .voice-recorder[data-state="recording"] :is(.voice-send, .voice-recording-dot) { animation: none; }
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {

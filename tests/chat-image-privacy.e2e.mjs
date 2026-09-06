@@ -308,12 +308,27 @@ try {
   const delayed = page.locator(`.image-preview[data-blob-id="${newId}"]`);
   await page.waitForFunction(() => window.chatPrivacy.gate.waiting);
   await assertVisibility(5, 1, 'New pending thumbnail');
+  await delayed.evaluate(element => {
+    window.chatPrivacy.loadingFeedback = [element.querySelector('.media-load-status')?.textContent];
+    new MutationObserver(() => window.chatPrivacy.loadingFeedback.push(element.querySelector('.media-load-status')?.textContent))
+      .observe(element, { attributes: true, childList: true, subtree: true });
+  });
   await delayed.click();
-  await assertVisibility(5, 2, 'Reveal while loading');
-  await drag(delayed, { followingClick: true });
+  await assertVisibility(5, 1, 'Tap while downloading does not reveal unverified media');
+  assert.match(await delayed.locator('.media-load-status').textContent(), /^正在下载图片 \d+%$/, 'Pending thumbnail did not explain its download state');
+  assert.equal(await delayed.getAttribute('aria-busy'), 'true', 'Pending thumbnail was not exposed as busy');
+  if (visualQaDirectory) {
+    await mkdir(visualQaDirectory, { recursive: true });
+    await delayed.screenshot({ path: path.join(visualQaDirectory, `chat-image-loading-${browserName}-390.png`), animations: 'disabled' });
+  }
+  await drag(first, { followingClick: true });
   await page.evaluate(() => { const gate = window.chatPrivacy.gate; gate.blobId = null; gate.release(); });
   await delayed.locator('img').waitFor();
   await assertVisibility(5, 0, 'Pull before delayed decryption resolves');
+  const loadingFeedback = await page.evaluate(() => window.chatPrivacy.loadingFeedback.filter(Boolean));
+  assert(loadingFeedback.some(value => value.startsWith('正在下载图片')), 'Loading feedback omitted the download stage');
+  assert(loadingFeedback.some(value => value.startsWith('正在解密图片')), 'Loading feedback omitted the decrypt stage');
+  assert(loadingFeedback.includes('正在生成模糊预览'), 'Loading feedback omitted the verified preview stage');
   await waitForClicks();
   await delayed.click();
   await delayed.click();

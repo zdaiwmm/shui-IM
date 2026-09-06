@@ -50,23 +50,41 @@ SHA 完全相同。只有外层核对成功并且后续独立只读生产回读�
 才建立文档 PR；无差异时记录检查成功。相同发布/回读证据重复运行应幂等，不重复追加。
 文档 PR 合并造成 GitHub main SHA 晚于线上应用 SHA 是正常状态，该文档提交不需要发布。
 
-当前生产回读的丰富证据仍由发布任务独立取得和审阅；仓库内结构化 `READBACK_OK` 回执与
-无人值守文档 PR 对账器尚未落地。在它们完成前，执行发布的任务必须按同一触发顺序人工
-完成对账，不能把规则存在写成自动链路已验证。
+独立回读已有仓库内固定入口。外层 `publish.mjs` 精确核对成功回执后，另行执行：
+
+```bash
+npm run deploy:readback -- --sha <本次获批并已发布的40位提交号>
+```
+
+该命令每次重新读取生产，不复用旧绿色结果；只执行服务器状态/容器检查、公开 HTTPS、
+运行容器与公开产物逐字节摘要核对及新的 WebSocket 连接，不调用发布 helper，不开关维护门，
+也不读取真实消息、附件或备份内容。成功时输出 `READBACK_OK`，并将版本化、脱敏 JSON 证据以
+0600 权限原子写入当前仓库的 `.git/quiet-room-readback/`，不会污染工作树。结构化回读成功
+仍不等于知识库已对账、CI 通过、真机通过或独立安全审计通过；无人值守文档 PR 对账器尚未
+落地，执行发布的任务仍须按本页顺序完成人工/代理审阅与对账。
 
 若应用已经 `DEPLOY_VERIFIED`/`READBACK_OK`，但文档生成、检查、推送或 PR 失败，生产发布
 仍然成功。记录 `CONTEXT_SYNC_BLOCKED` 与可重试的同一份证据，只重试知识库对账；禁止为
 修复文档状态再次调用服务器发布程序。
 
 固定入口成功但独立回读超时、探针失败或证据无法保存时，分别记录“固定入口已验证”和
-“独立回读待完成”，只重试只读回读及后续对账。发布进入过非只读阶段后连接中断、开放
+“独立回读待完成”，只用同一目标 SHA 重跑上述只读入口及后续对账。回读失败固定输出
+`READBACK_BLOCKED class=<分类> phase=<阶段> retry=readback-only`；安全续跑不会调用或重试
+生产切换。发布进入过非只读阶段后连接中断、开放
 流量后的检查失败或未取得精确回执时，先标记 `PRODUCTION_STATE_UNRESOLVED` 并调查真实
 生产状态；在查明前不得假定回滚成功，也不得再次执行切换。
 
-结构化入口落地前，独立回读至少核对目标线上 SHA、`deployed-at` 与维护标记，分别记录
-容器 `running` 和实际健康探针结果，核对实际镜像、HTTPS `ok`/`database`/`storage`、
-首页、Service Worker、CSS/JavaScript/preload 产物及公开 WebSocket。没有健康探针时不能
-写 `healthy`。检查不得读取真实消息、附件或备份内容；无法取得的字段直接记为未验证。
+固定入口核对目标线上 SHA、`deployed-at`、精确发布目录与维护标记，分别记录容器
+`running` 和实际健康探针结果，核对实际 Image ID/不可变镜像引用、HTTPS
+`ok`/`database`/`storage`、首页、Service Worker、首页引用的版本化产物及公开 WebSocket。
+没有健康探针时明确记录 `none`，不能写 `healthy`。任何阶段失败都不能产生 `READBACK_OK`；
+无法取得的字段保持未验证。
+
+回读阶段固定为 `server-state`、`validate-state`、`https-health`、`public-artifacts`、
+`container-artifacts` 和 `public-websocket`，另有总耗时；每行 `READBACK_TIMING` 只包含阶段、
+结果、失败分类（仅失败时）和毫秒数。失败分类固定区分用法/配置、连接、服务器检查、生产
+元数据、容器状态、镜像、HTTPS 健康、公开产物、WebSocket 与本地证据写入。原始 SSH、HTTP
+或 WebSocket 错误不进入结构化计时与证据。
 
 ## CI 与分段耗时
 
@@ -141,6 +159,42 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
   开放流量后不自动恢复旧数据，避免抹掉新消息。
 
 ## 本次线上发布记录
+
+- 日期：2026-09-06（Asia/Shanghai）；`deployed-at=20260906T090746Z`（17:07:46 发布批次），
+  17:09:06 前完成独立回读。应用版本 `e359476ce6bffee85ae355bdf93b34b14a544dc2`，由
+  [PR #28](https://github.com/zdaiwmm/shui-IM/pull/28) 于 17:01:04 以 merge commit 合并；
+  合并前冻结 head 为 `f3b763d4aa9c12a0ecbae235cec7be5932ab7397`，合并提交第二父树与
+  head 树逐字节一致。用户明确授权向私有仓库推送、创建 PR、合并并发布到正式来源。
+- [PR #28 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34023207250) 与
+  [精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34023450500) 均成功：
+  构建、52 个测试文件／421 项单元集成、两组共 23 个浏览器入口、原生通话、凭据扫描、
+  生产依赖审计及 `Full application verification`／`verify` 汇总全部通过。本地最终组合
+  `npm run check:full` 从头通过，浏览器汇总 254.96 秒；合并期间暴露的回复手势／消息删除
+  竞态夹具已按 window 级松手监听修正，定向和完整套件均通过。自动化不替代真实 iPhone 验收。
+- 本次集中纳入：通行密钥回焦与遗留请求中止、聊天媒体准备阶段和默认遮蔽、图片查看器适配
+  与手势、松手前持续跟随的左滑回复、可回拖的语音发送／取消反馈，以及任务隔离规则和独立
+  只读生产回读入口。早先已由 PR #26 合并的 patch 等价遮蔽激活提交未重复引入。消息／MLS
+  原子持久化、普通重试密文复用、设备历史、原始附件校验、恢复与创建者权限边界不变。
+- 固定入口 `node scripts/publish.mjs --sha e359476ce6bffee85ae355bdf93b34b14a544dc2`
+  从独立浅克隆执行，再次核对 GitHub main 与上述最新完整 CI；服务器返回精确 `DEPLOY_OK`，
+  外层核对回执并返回 `DEPLOY_VERIFIED`。入口总耗时 95,986ms：预检 5,962ms、核对 main
+  1,419ms、CI 复核 4,159ms、隔离克隆 8,163ms、隔离发布及入口回读 76,277ms。服务器阶段
+  总计 62 秒，其中获取源码 5 秒、构建镜像 19 秒、维护门 1 秒、冷备份 5 秒、启动及健康等待
+  32 秒，分项有嵌套。
+- 发布目录 `/opt/quiet-room/git-releases/20260906T090746Z-e359476ce6bf`；已校验冷备份
+  `/opt/quiet-room/backups/predeploy/data-20260906T090746Z-e359476ce6bf.tar.gz`。
+- 17:09:06 前由本版本新增的固定只读入口取得 `READBACK_OK`，总耗时 2,679ms：版本、批次、
+  目录一致且维护标记不存在；应用容器运行且健康，备份容器运行且没有健康探针；两者 Image ID
+  与目标镜像均为 `sha256:9bd4fafb734a4c4280511500c0801c576d1969f80b2292c7ce145c85daabb205`。
+  HTTPS `ok`／`database`／`storage` 全为 true；首页、`/sw.js`、
+  `/assets/app-Co95iXoj.js`、`/assets/app-DJkFQLSk.css` 与 preload 脚本和运行容器产物逐字节
+  一致，公开 WebSocket 新连接成功。检查未读取真实消息、附件或备份内容；结构化脱敏证据以
+  0600 权限写入发布调用仓库的 `.git/quiet-room-readback/`。
+- 本次回读 `admin-enabled=0`、`calls-enabled=0`，后台和 TURN 仍未启用。回读后在不带部署
+  配置的独立文档 worktree 对账；该文档 PR 不代表重新部署。修复后真实 iPhone Safari、
+  长期运维与独立安全审计边界保持不变。
+
+## 上次线上发布记录（2026-09-06 13:38）
 
 - 日期：2026-09-06（Asia/Shanghai）；`deployed-at=20260906T053714Z`（13:37:14 发布批次），
   13:38:29 独立回读完成。应用版本 `6cce8b017c98cf270729e28bfabae0ee3e551570`，由

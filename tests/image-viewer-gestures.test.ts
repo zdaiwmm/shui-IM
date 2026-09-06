@@ -285,14 +285,16 @@ describe('image viewer horizontal paging', () => {
     expect(harness.viewer.classList.contains('is-paging')).toBe(true);
     expect(harness.viewer.classList.contains('is-dragging')).toBe(false);
     expect(harness.viewer.style.getPropertyValue('--viewer-backdrop-opacity')).toBe('');
-    expect(harness.media.style.transform).toBe('translate3d(-100px, 0px, 0)');
+    const visualOffset = Number(harness.media.style.transform.match(/translate3d\(([-\d.]+)px/)?.[1]);
+    expect(visualOffset).toBeLessThan(0);
+    expect(Math.abs(visualOffset)).toBeLessThan(100);
 
     harness.pointer('pointerup', { pointerId: 1, clientX: 200, clientY: 300 });
     expect(harness.pages).toEqual([{
       direction: 1,
       gesture: {
         direction: 1,
-        offsetX: -100,
+        offsetX: visualOffset,
         velocityX: -0.5,
         elapsedMs: 200,
         stageWidth: 390,
@@ -313,8 +315,10 @@ describe('image viewer horizontal paging', () => {
     expect(harness.pages).toHaveLength(1);
     expect(harness.pages[0]).toMatchObject({
       direction: -1,
-      gesture: { direction: -1, offsetX: 90, velocityX: 0.5, elapsedMs: 180 },
+      gesture: { direction: -1, velocityX: 0.5, elapsedMs: 180 },
     });
+    expect(harness.pages[0]!.gesture!.offsetX).toBeGreaterThan(0);
+    expect(harness.pages[0]!.gesture!.offsetX).toBeLessThan(90);
   });
 
   it('uses adaptive distance and a guarded flick threshold', () => {
@@ -344,7 +348,9 @@ describe('image viewer horizontal paging', () => {
   it('lets a paused inline video page but never treats it as a zoom target', () => {
     const harness = new GestureHarness({ media: 'video' });
     harness.drag(300, 200, 200);
-    expect(harness.pages[0]).toMatchObject({ direction: 1, gesture: { offsetX: -100 } });
+    expect(harness.pages[0]).toMatchObject({ direction: 1 });
+    expect(harness.pages[0]!.gesture!.offsetX).toBeLessThan(0);
+    expect(Math.abs(harness.pages[0]!.gesture!.offsetX)).toBeLessThan(100);
 
     harness.binding.reset();
     harness.time = 1_000;
@@ -489,6 +495,21 @@ describe('image viewer dismissal and cancellation', () => {
     expect(upward.dismissals).toEqual([]);
   });
 
+  it('adds edge resistance and progressively shrinks a normal-scale dismissal drag', () => {
+    const harness = new GestureHarness();
+    harness.pointer('pointerdown', { pointerId: 1, clientX: 190, clientY: 200 });
+    harness.pointer('pointermove', { pointerId: 1, clientX: 220, clientY: 500 });
+
+    const transform = harness.media.style.transform;
+    const values = transform.match(/translate3d\(([-\d.]+)px, ([-\d.]+)px, 0\) scale\(([-\d.]+)\)/);
+    expect(values).not.toBeNull();
+    expect(Math.abs(Number(values![1]))).toBeLessThan(30);
+    expect(Number(values![2])).toBeGreaterThan(0);
+    expect(Number(values![2])).toBeLessThan(300);
+    expect(Number(values![3])).toBeLessThan(1);
+    expect(Number(values![3])).toBeGreaterThanOrEqual(0.72);
+  });
+
   it.each(['pointercancel', 'lostpointercapture'] as const)('%s settles without paging and leaves the next gesture usable', eventType => {
     const harness = new GestureHarness();
     harness.pointer('pointerdown', { pointerId: 1, clientX: 300, clientY: 300 });
@@ -517,7 +538,8 @@ describe('image viewer dismissal and cancellation', () => {
     const harness = new GestureHarness();
     harness.pointer('pointerdown', { pointerId: 1, clientX: 300, clientY: 300 });
     harness.pointer('pointermove', { pointerId: 1, clientX: 230, clientY: 300 });
-    expect(harness.media.style.transform).toBe('translate3d(-70px, 0px, 0)');
+    expect(harness.media.style.transform).toMatch(/^translate3d\(-/);
+    expect(Math.abs(Number(harness.media.style.transform.match(/translate3d\(([-\d.]+)px/)?.[1]))).toBeLessThan(70);
 
     harness.viewer.classList.add('is-transitioning');
     const captureLoss = harness.pointer('lostpointercapture', { pointerId: 1, clientX: 180, clientY: 300 });
@@ -544,7 +566,9 @@ describe('image viewer dismissal and cancellation', () => {
 
     harness.stage.pointerRoot.dispatch('pointerup', { pointerId: 1, clientX: 200, clientY: 300 });
     expect(harness.pages).toHaveLength(1);
-    expect(harness.pages[0]).toMatchObject({ direction: 1, gesture: { offsetX: -100 } });
+    expect(harness.pages[0]).toMatchObject({ direction: 1 });
+    expect(harness.pages[0]!.gesture!.offsetX).toBeLessThan(0);
+    expect(Math.abs(harness.pages[0]!.gesture!.offsetX)).toBeLessThan(100);
   });
 
   it.each(['blur', 'pagehide'] as const)('releases a contact generation lost outside the window on %s', lifecycleEvent => {
@@ -586,7 +610,8 @@ describe('image viewer dismissal and cancellation', () => {
     const harness = new GestureHarness();
     harness.pointer('pointerdown', { pointerId: 7, clientX: 300, clientY: 300 });
     harness.pointer('pointermove', { pointerId: 7, clientX: 220, clientY: 300 });
-    expect(harness.media.style.transform).toBe('translate3d(-80px, 0px, 0)');
+    expect(harness.media.style.transform).toMatch(/^translate3d\(-/);
+    expect(Math.abs(Number(harness.media.style.transform.match(/translate3d\(([-\d.]+)px/)?.[1]))).toBeLessThan(80);
 
     harness.pointer('pointerdown', { pointerId: 7, clientX: 220, clientY: 300 });
     harness.pointer('pointerup', { pointerId: 7, clientX: 220, clientY: 300 });
@@ -608,6 +633,22 @@ describe('image viewer dismissal and cancellation', () => {
 });
 
 describe('image viewer zoom', () => {
+  it('keeps one third of the fitted size as the settled minimum pinch scale', () => {
+    const harness = new GestureHarness();
+    harness.pointer('pointerdown', { pointerId: 1, clientX: 100, clientY: 300 });
+    harness.pointer('pointerdown', { pointerId: 2, clientX: 200, clientY: 300 });
+    harness.pointer('pointermove', { pointerId: 2, clientX: 110, clientY: 300 });
+
+    const activeScale = Number(harness.media.style.transform.match(/scale\(([-\d.]+)\)/)?.[1]);
+    expect(activeScale).toBeLessThan(1 / 3);
+    expect(activeScale).toBeGreaterThanOrEqual(0.28);
+
+    harness.pointer('pointerup', { pointerId: 2, clientX: 110, clientY: 300 });
+    harness.pointer('pointerup', { pointerId: 1, clientX: 100, clientY: 300 });
+    const settledScale = Number(harness.media.style.transform.match(/scale\(([-\d.]+)\)/)?.[1]);
+    expect(settledScale).toBeCloseTo(1 / 3, 8);
+  });
+
   it('uses one guarded WAAPI animation for both directions of image double-click zoom', async () => {
     const harness = new GestureHarness();
     const zoomIn = harness.stage.dispatch('dblclick', { clientX: 195, clientY: 422 });

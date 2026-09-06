@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
 
 // Use the real message/card listeners and attachment decryption. Only the
@@ -16,7 +16,9 @@ server.middlewares.use('/__file_interactions', (_request, response) => {
 let browser;
 try {
   await server.listen();
-  browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
+  const browserName = process.env.QUIET_ROOM_TEST_BROWSER === 'webkit' ? 'webkit' : 'chromium';
+  browser = browserName === 'webkit' ? await webkit.launch()
+    : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true, acceptDownloads: true });
   const errors = [];
   let downloadCount = 0;
@@ -171,8 +173,8 @@ try {
     swiping: element.classList.contains('is-reply-swiping'),
     armed: element.classList.contains('is-reply-armed'),
   }));
-  assert(shortSwipe.swiping && !shortSwipe.armed && shortSwipe.offset > 0 && shortSwipe.offset < 30,
-    `Short reply swipe lost damping or armed early: ${JSON.stringify(shortSwipe)}`);
+  assert(shortSwipe.swiping && !shortSwipe.armed && shortSwipe.offset === 30,
+    `Short reply swipe stopped following the finger or armed early: ${JSON.stringify(shortSwipe)}`);
   await swipeMessage.dispatchEvent('pointerup', {
     bubbles: true, button: 0, buttons: 0, isPrimary: true, pointerId: 72, pointerType: 'touch',
     clientX: swipeStart.x - 30, clientY: swipeStart.y + 1,
@@ -194,8 +196,8 @@ try {
     offset: Number.parseFloat(element.style.getPropertyValue('--reply-swipe-offset')),
     armed: element.classList.contains('is-reply-armed'),
   }));
-  assert(armedSwipe.armed && armedSwipe.offset > 40 && armedSwipe.offset < 64,
-    `Armed reply swipe lost its bounded resistance: ${JSON.stringify(armedSwipe)}`);
+  assert(armedSwipe.armed && armedSwipe.offset === 96,
+    `Armed reply swipe stopped following the finger: ${JSON.stringify(armedSwipe)}`);
   await swipeMessage.dispatchEvent('pointerup', {
     bubbles: true, button: 0, buttons: 0, isPrimary: true, pointerId: 73, pointerType: 'touch',
     clientX: swipeStart.x - 96, clientY: swipeStart.y + 2,
@@ -214,7 +216,51 @@ try {
   });
   assert.deepEqual(replyComposer, { integrated: true, oneLine: true, withinStack: true },
     'Swipe reply composer is not an integrated, single-line layout');
-  await page.locator('#reply-draft button[aria-label="取消回复"]').tap();
+  await page.locator('#reply-draft button[aria-label="取消回复"]').click();
+
+  // Leaving the row or losing pointer capture while the finger is still down
+  // must not settle the bubble. Safari can report both while a transformed
+  // descendant crosses the row's original hit-test boundary.
+  await swipeMessage.dispatchEvent('pointerdown', {
+    bubbles: true, button: 0, buttons: 1, isPrimary: true, pointerId: 75, pointerType: 'touch',
+    clientX: swipeStart.x, clientY: swipeStart.y,
+  });
+  await swipeMessage.dispatchEvent('pointermove', {
+    bubbles: true, button: 0, buttons: 1, isPrimary: true, pointerId: 75, pointerType: 'touch',
+    clientX: swipeStart.x - 120, clientY: swipeStart.y + 2,
+  });
+  await swipeMessage.dispatchEvent('pointerleave', {
+    bubbles: false, button: 0, buttons: 1, isPrimary: true, pointerId: 75, pointerType: 'touch',
+    clientX: swipeStart.x - 120, clientY: swipeStart.y + 2,
+  });
+  await swipeMessage.dispatchEvent('lostpointercapture', {
+    bubbles: false, button: 0, buttons: 1, isPrimary: true, pointerId: 75, pointerType: 'touch',
+    clientX: swipeStart.x - 120, clientY: swipeStart.y + 2,
+  });
+  const heldSwipe = await swipeMessage.evaluate(element => ({
+    offset: Number.parseFloat(element.style.getPropertyValue('--reply-swipe-offset')),
+    swiping: element.classList.contains('is-reply-swiping'),
+    armed: element.classList.contains('is-reply-armed'),
+  }));
+  assert.deepEqual(heldSwipe, { offset: 120, swiping: true, armed: true },
+    `Reply swipe settled before finger release: ${JSON.stringify(heldSwipe)}`);
+  assert.equal(await page.locator('#reply-draft').isHidden(), true, 'Held reply swipe committed before pointerup');
+  await page.locator('body').dispatchEvent('pointermove', {
+    bubbles: true, button: 0, buttons: 1, isPrimary: true, pointerId: 75, pointerType: 'touch',
+    clientX: swipeStart.x - 300, clientY: swipeStart.y + 3,
+  });
+  assert.equal(await swipeMessage.evaluate(element => Number.parseFloat(element.style.getPropertyValue('--reply-swipe-offset'))), 300,
+    'Reply swipe stopped tracking after leaving the message row');
+  assert.equal(await page.locator('#reply-draft').isHidden(), true, 'Continued held swipe committed before pointerup');
+  await page.locator('body').dispatchEvent('pointerup', {
+    bubbles: true, button: 0, buttons: 0, isPrimary: true, pointerId: 75, pointerType: 'touch',
+    clientX: swipeStart.x - 300, clientY: swipeStart.y + 3,
+  });
+  await page.locator('#reply-draft:not([hidden])').waitFor();
+  await page.waitForFunction(() => document.activeElement?.id === 'message-input');
+  assert.equal(await page.locator('#reply-draft span').textContent(), '文件 · 文件操作回归.txt',
+    'Pointerup did not expose the swiped message quote in the composer');
+  await page.locator('#reply-draft button[aria-label="取消回复"]').click();
 
   // A horizontal bubble swipe keeps ownership when the keyboard is already
   // open; it must not require a first gesture to dismiss and a second gesture
@@ -224,10 +270,11 @@ try {
   await dispatchSwipe(74, [{ left: 96, down: 2 }]);
   await page.locator('#reply-draft:not([hidden])').waitFor();
   assert.equal(await page.evaluate(() => document.activeElement?.id), 'message-input', 'Keyboard-open reply swipe blurred the composer');
-  await page.locator('#reply-draft button[aria-label="取消回复"]').tap();
+  await page.locator('#reply-draft button[aria-label="取消回复"]').click();
   await page.evaluate(() => { delete document.documentElement.dataset.keyboardOpen; });
   results.replySwipe = { verticalScrollPreserved: true, shortSwipeCancelled: true, resistanceBounded: true,
-    thresholdActivated: true, keyboardFocused: true, keyboardOpenGestureRetained: true, integratedSingleLineComposer: true };
+    thresholdActivated: true, keyboardFocused: true, keyboardOpenGestureRetained: true, integratedSingleLineComposer: true,
+    tracksOutsideRowUntilRelease: true, quoteRenderedAfterRelease: true };
 
   if (visualQaDirectory) {
     const incoming = page.locator('.message.incoming');
@@ -235,7 +282,7 @@ try {
     await page.locator('.message-actions.is-visible [data-message-action="reply"]').tap();
     await page.locator('#reply-draft:not([hidden])').waitFor();
     await page.screenshot({ path: path.join(visualQaDirectory, 'reply-composer-390.png'), animations: 'disabled' });
-    await page.locator('#reply-draft button[aria-label="取消回复"]').tap();
+    await page.locator('#reply-draft button[aria-label="取消回复"]').click();
   }
 
   await page.waitForFunction(() => Date.now() >= window.fileInteractions.app.suppressMediaClickUntil);
@@ -585,7 +632,7 @@ try {
 
   await page.evaluate(() => window.fileInteractions.app.lockNow());
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify(results, null, 2));
+  console.log(JSON.stringify({ browser: process.env.QUIET_ROOM_TEST_BROWSER ?? 'chromium', ...results }, null, 2));
 } finally {
   await browser?.close();
   await server.close();
