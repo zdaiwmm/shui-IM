@@ -3,7 +3,7 @@ ARG NPM_REGISTRY=https://registry.npmjs.org
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --registry="$NPM_REGISTRY"
-COPY tsconfig.json vite.config.ts index.html admin.html ./
+COPY tsconfig.json vite.config.ts index.html admin.html release.json ./
 COPY public ./public
 COPY src ./src
 RUN npm run build

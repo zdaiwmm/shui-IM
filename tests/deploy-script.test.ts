@@ -5,12 +5,21 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const DOCKERFILE = path.join(PROJECT_ROOT, 'Dockerfile');
 const DEPLOY_SCRIPT = path.join(PROJECT_ROOT, 'deploy/server/quiet-room-deploy');
 const LOCAL_DEPLOY_SCRIPT = path.join(PROJECT_ROOT, 'scripts/deploy-production.sh');
 const NGINX_CONFIG = path.join(PROJECT_ROOT, 'deploy/nginx-ai.shui.click.conf');
 const NGINX_BOOTSTRAP_CONFIG = path.join(PROJECT_ROOT, 'deploy/nginx-ai.shui.click-bootstrap.conf');
 
 describe('production deployment rollback safety contract', () => {
+  it('copies every build-time release manifest before building the client', async () => {
+    const source = await readFile(DOCKERFILE, 'utf8');
+    const buildStage = source.slice(0, source.indexOf('FROM node:24-alpine AS runtime'));
+
+    expect(buildStage).toContain('COPY tsconfig.json vite.config.ts index.html admin.html release.json ./');
+    expect(buildStage.indexOf('release.json')).toBeLessThan(buildStage.indexOf('RUN npm run build'));
+  });
+
   it('has valid Bash syntax', () => {
     const result = spawnSync('bash', ['-n', DEPLOY_SCRIPT], { encoding: 'utf8' });
     expect(result.stderr).toBe('');
