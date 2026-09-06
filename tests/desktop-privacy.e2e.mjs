@@ -654,6 +654,7 @@ try {
       nativeFocus.apply(this, args);
       if (this.id === 'passkey-unlock' && fixture.focusMode) {
         if (fixture.focusMode === 'sync') fixture.focus();
+        else if (fixture.focusMode === 'delayed') setTimeout(() => fixture.setFocused(true), 48);
         else fixture.setFocused(true);
       }
     };
@@ -754,8 +755,8 @@ try {
       assert.equal(await pendingPage.locator('#passkey-unlock').textContent(), '重新验证');
     }
   }
-  results.gatewayFocusRecovery = { noUnfocusedNativeRequest: true, usableWhileWaiting: true, focusedReturnStartsOnce: true, abandonedWaitIgnored: true };
-  for (const mode of ['sync', 'silent']) {
+  results.gatewayFocusRecovery = { noUnfocusedNativeRequest: true, usableWhileWaiting: true, focusedReturnStartsOnce: true, silentFocusTransitionStartsOnce: true, abandonedWaitIgnored: true };
+  for (const mode of ['sync', 'silent', 'delayed']) {
     await pendingPage.evaluate(async mode => {
       const fixture = window.privacyFixture;
       fixture.app.lockNow(); fixture.visibility(false); fixture.setFocused(false);
@@ -766,6 +767,7 @@ try {
     await cornerDown(pendingPage);
     await pendingPage.clock.runFor(1000);
     await pendingPage.mouse.up();
+    if (mode === 'delayed') await pendingPage.clock.runFor(64);
     assert.equal(await pendingPage.evaluate(() => window.privacyFixture.nativeRequests.length), before + 1,
       `${mode} focus recovery must start exactly one native request`);
     assert.equal(await pendingPage.locator('#passkey-unlock').isDisabled(), true);

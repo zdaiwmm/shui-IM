@@ -209,6 +209,16 @@ try {
     return { identical: original.length === restored.length && original.every((byte, index) => byte === restored[index]), poster: Boolean(cached.posterUrl), originalAndPosterDiffer: cached.url !== cached.posterUrl, visibleFrame: red > 40 && green > 40 && blue > 40, sampledPixel: [red, green, blue] };
   });
   assert.deepEqual({ ...originalVerification, sampledPixel: undefined }, { identical: true, poster: true, originalAndPosterDiffer: true, visibleFrame: true, sampledPixel: undefined }, `Video poster generation changed the original bytes or failed to capture a visible frame: ${originalVerification.sampledPixel.join(',')}`);
+  const readsBeforeRuntimeReactivation = await page.evaluate(() => window.videoFlow.requests.reads);
+  await page.evaluate(async () => {
+    const f = window.videoFlow;
+    f.app.cleanupRuntime(false);
+    await f.reopen();
+  });
+  await chatPreview.locator('img').waitFor();
+  await chatPreview.locator('img').evaluate(image => image.decode());
+  assert.equal(await page.evaluate(() => window.videoFlow.requests.reads), readsBeforeRuntimeReactivation,
+    'Re-entering chat re-downloaded media instead of reconstructing it from authenticated local ciphertext');
   await capture('video-chat-390');
   await chatPreview.dispatchEvent('pointerdown', { button: 0, pointerType: 'touch', clientX: 120, clientY: 260 });
   await page.locator('.message-actions.is-visible').waitFor();
@@ -391,6 +401,8 @@ try {
     const fire = (type, x) => stage.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 211, isPrimary: true, button: 0, clientX: x, clientY: 430 }));
     fire('pointerdown', 320); fire('pointermove', 190);
     const header = stage.closest('.image-viewer').querySelector('.viewer-header');
+    const media = stage.querySelector('img');
+    const residualBeforeRelease = new DOMMatrix(getComputedStyle(media).transform).e;
     const state = {
       opacity: getComputedStyle(header).opacity,
       name: header.querySelector('[data-viewer-name]').textContent,
@@ -398,19 +410,36 @@ try {
       backdropChanged: stage.closest('.image-viewer').style.getPropertyValue('--viewer-backdrop-opacity') !== '',
     };
     fire('pointerup', 190);
-    return state;
+    const outgoingLayer = media.closest('.viewer-media-layer');
+    const transferredOffset = new DOMMatrix(getComputedStyle(outgoingLayer).transform).e
+      + new DOMMatrix(getComputedStyle(media).transform).e;
+    return { ...state, continuousTransfer: Math.abs(transferredOffset - residualBeforeRelease) <= 1 };
   });
-  assert.deepEqual(imageSwipeChrome, { opacity: '1', name: '照片.svg', paging: true, backdropChanged: false }, 'Horizontal image paging flashed or dimmed the persistent viewer header');
+  assert.deepEqual(imageSwipeChrome, { opacity: '1', name: '照片.svg', paging: true, backdropChanged: false, continuousTransfer: true }, 'Horizontal image paging flashed, dimmed, or snapped during the residual-offset handoff');
   await page.waitForFunction(name => document.querySelector('[data-viewer-name]')?.textContent === name && document.querySelector('.viewer-stage video'), '保险箱视频.webm');
   const pausedArrival = await page.locator('.viewer-stage video').evaluate(video => ({ paused: video.paused, autoplay: video.autoplay, controls: video.controls }));
   assert.deepEqual(pausedArrival, { paused: true, autoplay: false, controls: true }, 'A video reached by paging started playback or lost native controls');
+  const pagedVideoGeometry = await page.locator('.viewer-stage').evaluate(stage => {
+    const layer = stage.querySelector('.viewer-media-layer.is-video');
+    const video = layer?.querySelector('video');
+    const stageRect = stage.getBoundingClientRect();
+    const layerRect = layer?.getBoundingClientRect();
+    const videoRect = video?.getBoundingClientRect();
+    return {
+      layerFillsStage: Boolean(layerRect && Math.abs(layerRect.left - stageRect.left) <= 1 && Math.abs(layerRect.top - stageRect.top) <= 1
+        && Math.abs(layerRect.right - stageRect.right) <= 1 && Math.abs(layerRect.bottom - stageRect.bottom) <= 1),
+      videoFillsLayer: Boolean(layerRect && videoRect && Math.abs(videoRect.left - layerRect.left) <= 1 && Math.abs(videoRect.top - layerRect.top) <= 1
+        && Math.abs(videoRect.right - layerRect.right) <= 1 && Math.abs(videoRect.bottom - layerRect.bottom) <= 1),
+    };
+  });
+  assert.deepEqual(pagedVideoGeometry, { layerFillsStage: true, videoFillsLayer: true }, 'Paged video did not occupy the same full viewer container as a photo');
   assert.equal(await page.evaluate(() => window.videoFlow.requests.reads), readsBeforeMixedPaging, 'Image-to-video paging re-fetched an already verified attachment');
   await page.locator('.viewer-stage video').evaluate(video => video.play());
   await page.waitForFunction(() => {
     const video = document.querySelector('.viewer-stage video');
     return video && !video.paused && video.currentTime > 0;
   });
-  await page.evaluate(() => {
+  await page.evaluate(async () => {
     const f = window.videoFlow;
     const manifest = f.manifests.photo;
     const cached = f.app.imageCache.get(manifest.blobId);
@@ -419,6 +448,7 @@ try {
     if (cached.posterUrl) URL.revokeObjectURL(cached.posterUrl);
     f.app.imageCache.delete(manifest.blobId);
     f.app.imageCacheBytes -= cached.bytes;
+    await f.vault.deleteCachedMediaBlob(f.session, manifest.blobId);
     f.readGate.blobId = manifest.blobId;
     f.readGate.waiting = false;
     f.readGate.release = null;

@@ -1048,7 +1048,7 @@ try {
     if (!app.chatMessageAnimations.size) throw Error('Second send did not start motion');
     document.querySelector('#message-list').dispatchEvent(new WheelEvent('wheel', { deltaY: -12, bubbles: true }));
     if (app.chatMessageAnimations.size || app.chatPinnedToBottom) throw Error('History gesture did not cancel send motion and follow');
-    return { duration: 300, visibleContentOnly: true, receiptPreserved: true, fixedBarsStable: true, upwardSamples: [topAtStart, topDuring, topAtEnd], gestureCancels: true };
+    return { duration: 280, visibleContentOnly: true, receiptPreserved: true, fixedBarsStable: true, upwardSamples: [topAtStart, topDuring, topAtEnd], gestureCancels: true };
   });
 
   results.continuousViewportSampling = await page.evaluate(async () => {

@@ -633,7 +633,7 @@ describe('image viewer dismissal and cancellation', () => {
 });
 
 describe('image viewer zoom', () => {
-  it('keeps one third of the fitted size as the settled minimum pinch scale', () => {
+  it('springs a pinch-reduced image back to its original fitted size', () => {
     const harness = new GestureHarness();
     harness.pointer('pointerdown', { pointerId: 1, clientX: 100, clientY: 300 });
     harness.pointer('pointerdown', { pointerId: 2, clientX: 200, clientY: 300 });
@@ -646,7 +646,20 @@ describe('image viewer zoom', () => {
     harness.pointer('pointerup', { pointerId: 2, clientX: 110, clientY: 300 });
     harness.pointer('pointerup', { pointerId: 1, clientX: 100, clientY: 300 });
     const settledScale = Number(harness.media.style.transform.match(/scale\(([-\d.]+)\)/)?.[1]);
-    expect(settledScale).toBeCloseTo(1 / 3, 8);
+    expect(settledScale).toBe(1);
+    expect(harness.media.animationCalls.at(-1)?.options.duration).toBe(180);
+  });
+
+  it('keeps a pinch enlargement after both fingers are released', () => {
+    const harness = new GestureHarness();
+    harness.pointer('pointerdown', { pointerId: 1, clientX: 140, clientY: 300 });
+    harness.pointer('pointerdown', { pointerId: 2, clientX: 200, clientY: 300 });
+    harness.pointer('pointermove', { pointerId: 2, clientX: 320, clientY: 300 });
+    harness.pointer('pointerup', { pointerId: 2, clientX: 320, clientY: 300 });
+    harness.pointer('pointerup', { pointerId: 1, clientX: 140, clientY: 300 });
+
+    const settledScale = Number(harness.media.style.transform.match(/scale\(([-\d.]+)\)/)?.[1]);
+    expect(settledScale).toBeGreaterThan(1);
   });
 
   it('uses one guarded WAAPI animation for both directions of image double-click zoom', async () => {

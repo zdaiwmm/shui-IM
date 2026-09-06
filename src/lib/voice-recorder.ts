@@ -138,7 +138,9 @@ export class VoiceRecorder {
     if (!label) return;
     const action = this.state === 'requesting' ? 'pending' : this.cancelReady ? 'cancel' : 'send';
     this.host.dataset.holdAction = action;
-    const text = action === 'pending' ? '等待麦克风…' : action === 'cancel' ? '松手取消' : '松手发送';
+    const text = action === 'pending' ? '等待麦克风…'
+      : action === 'cancel' ? '松手取消录制'
+        : '松手发送，左滑取消录制';
     if (label.textContent !== text) label.textContent = text;
   }
 

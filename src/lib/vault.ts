@@ -31,7 +31,7 @@ import type {
 } from './types';
 
 const DB_NAME = 'quiet-room';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const PLATFORM_PAYLOAD_AAD = encoder.encode('quiet-room-vault-payload-v2');
@@ -122,6 +122,16 @@ type StoredLocalRecord = {
   ciphertext: string;
 };
 
+type StoredMediaChunk = {
+  id: string;
+  roomId: string;
+  blobKey: string;
+  blobId: string;
+  index: number;
+  bytes: ArrayBuffer;
+  cachedAt: number;
+};
+
 type LocalStore = 'outbox' | 'receiptOutbox' | 'uploads' | 'preferences';
 
 export type ChatScrollAnchor = {
@@ -165,6 +175,11 @@ function openDatabase(): Promise<IDBDatabase> {
         const history = request.transaction!.objectStore('history');
         if (!history.indexNames.contains('roomSeq')) history.createIndex('roomSeq', ['roomId', 'seq'], { unique: false });
       }
+      if (!database.objectStoreNames.contains('mediaChunks')) {
+        const mediaChunks = database.createObjectStore('mediaChunks', { keyPath: 'id' });
+        mediaChunks.createIndex('roomId', 'roomId', { unique: false });
+        mediaChunks.createIndex('blobKey', 'blobKey', { unique: false });
+      }
       for (const storeName of ['outbox', 'receiptOutbox', 'uploads', 'preferences'] as const) {
         if (!database.objectStoreNames.contains(storeName)) {
           const store = database.createObjectStore(storeName, { keyPath: 'id' });
@@ -179,7 +194,7 @@ function openDatabase(): Promise<IDBDatabase> {
 }
 
 async function transaction<T>(
-  storeName: 'vault' | 'history' | 'restoredGallery' | 'security' | LocalStore,
+  storeName: 'vault' | 'history' | 'restoredGallery' | 'mediaChunks' | 'security' | LocalStore,
   mode: IDBTransactionMode,
   action: (store: IDBObjectStore) => IDBRequest<T>,
   expectedVault?: StoredVault,
@@ -198,6 +213,75 @@ async function transaction<T>(
       resolve(request.result);
       database.close();
     };
+  });
+}
+
+function mediaBlobKey(roomId: string, blobId: string): string {
+  return `${roomId}\u0000${blobId}`;
+}
+
+function mediaChunkId(roomId: string, blobId: string, index: number): string {
+  return `${mediaBlobKey(roomId, blobId)}\u0000${index}`;
+}
+
+/**
+ * Persist only the server ciphertext. Plaintext blobs and object URLs remain
+ * memory-only and are still cleared synchronously on privacy teardown.
+ */
+export async function loadCachedMediaChunk(
+  session: VaultSession,
+  blobId: string,
+  index: number,
+  expectedBytes: number,
+): Promise<ArrayBuffer | null> {
+  const record = await transaction<StoredMediaChunk | undefined>('mediaChunks', 'readonly', store =>
+    store.get(mediaChunkId(session.vault.roomId, blobId, index)), session.stored);
+  if (!record || record.roomId !== session.vault.roomId || record.blobId !== blobId || record.index !== index ||
+      !(record.bytes instanceof ArrayBuffer) || record.bytes.byteLength !== expectedBytes) return null;
+  return record.bytes.slice(0);
+}
+
+export async function saveCachedMediaChunk(
+  session: VaultSession,
+  blobId: string,
+  index: number,
+  bytes: ArrayBuffer,
+): Promise<void> {
+  const roomId = session.vault.roomId;
+  const record: StoredMediaChunk = {
+    id: mediaChunkId(roomId, blobId, index),
+    roomId,
+    blobKey: mediaBlobKey(roomId, blobId),
+    blobId,
+    index,
+    bytes: bytes.slice(0),
+    cachedAt: Date.now(),
+  };
+  await transaction('mediaChunks', 'readwrite', store => store.put(record), session.stored);
+}
+
+export async function deleteCachedMediaBlob(session: VaultSession, blobId: string): Promise<void> {
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction(['mediaChunks', 'vault'], 'readwrite');
+    const current = tx.objectStore('vault').get('current');
+    current.onsuccess = () => {
+      if (!sameStoredVault(current.result, session.stored)) {
+        tx.abort();
+        return;
+      }
+      const request = tx.objectStore('mediaChunks').index('blobKey')
+        .openKeyCursor(IDBKeyRange.only(mediaBlobKey(session.vault.roomId, blobId)));
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        tx.objectStore('mediaChunks').delete(cursor.primaryKey);
+        cursor.continue();
+      };
+    };
+    tx.oncomplete = () => { database.close(); resolve(); };
+    tx.onabort = () => { database.close(); reject(tx.error ?? staleVaultError()); };
+    tx.onerror = () => reject(tx.error ?? new Error('媒体密文缓存清理失败'));
   });
 }
 
@@ -1547,7 +1631,7 @@ export async function finishVaultRecovery(session: VaultSession, nextVault: Vaul
   const nextStored: StoredPlatformVault = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const stores = ['vault', 'history', 'restoredGallery', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
+    const stores = ['vault', 'history', 'restoredGallery', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
     const tx = database.transaction(stores, 'readwrite');
     putCurrentVault(tx, nextStored, session.stored);
     for (const name of stores.slice(1)) {
