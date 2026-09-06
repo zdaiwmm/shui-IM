@@ -56,6 +56,11 @@ SHA 完全相同。只有外层核对成功并且后续独立只读生产回读�
 npm run deploy:readback -- --sha <本次获批并已发布的40位提交号>
 ```
 
+当前保存证据实现要求源码目录中的 `.git` 是目录。linked worktree 的 `.git` 是文件，
+会在远端检查后以 `evidence-write` 阻塞；修复前在已有精确发布克隆中执行同一入口，先以
+`npm ci --omit=dev --ignore-scripts --no-audit --no-fund` 准备锁定依赖，通过环境传入现有配置，
+不复制凭据、不再次部署。该限制不能记作生产失败或静默跳过证据保存。
+
 该命令每次重新读取生产，不复用旧绿色结果；只执行服务器状态/容器检查、公开 HTTPS、
 运行容器与公开产物逐字节摘要核对及新的 WebSocket 连接，不调用发布 helper，不开关维护门，
 也不读取真实消息、附件或备份内容。成功时输出 `READBACK_OK`，并将版本化、脱敏 JSON 证据以
@@ -159,6 +164,36 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
   开放流量后不自动恢复旧数据，避免抹掉新消息。
 
 ## 本次线上发布记录
+
+- 日期：2026-09-06（Asia/Shanghai）；服务器批次 `20260906T110806Z`（19:08:06），
+  19:10:59 独立回读成功。应用提交 `b2c1b65e6a3ee80dcd6eb4b158e3e8182e2f0e49`，由
+  [PR #30](https://github.com/zdaiwmm/shui-IM/pull/30) 于 19:02:50 merge 合并，候选 head
+  `6855fa5e7a42a6065e8c1fec7cef04c304ce3ea9`；合并前后文件树一致。
+- 本批增加交付前主线同步、任务分支推送和共享交接登记规则，以及默认只检查、按精确 SHA
+  条件执行的开发资源清理脚本。未修改聊天运行时代码、生产 helper 或安全契约；登记仍由 agent
+  执行，未实现自动领取队列、后台持续集成或自动模型切换。
+- [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34028794067) 与
+  [精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34029104686) 全部成功。
+  本地最终 `npm run check:full` 通过 53 个文件／447 项单元集成及 23／23 个浏览器入口，
+  浏览器总计 254.60 秒；26 项清理专项只在临时仓库测试。CI 另通过通话、凭据扫描、
+  生产依赖审计及完整汇总。
+- 固定 `publish.mjs --sha b2c1b65e6a3ee80dcd6eb4b158e3e8182e2f0e49` 返回精确 `DEPLOY_OK` 与
+  `DEPLOY_VERIFIED`，外层与独立读取的隔离副本回执均匹配。总耗时 344,208ms，其中等待
+  main CI 254,826ms、克隆 7,747ms、部署与入口回读 74,847ms；服务器部署 61 秒。
+  发布目录 `/opt/quiet-room/git-releases/20260906T110806Z-b2c1b65e6a3e`，已校验冷备份
+  `/opt/quiet-room/backups/predeploy/data-20260906T110806Z-b2c1b65e6a3e.tar.gz`。
+- 固定独立回读返回 `READBACK_OK`，耗时 2,457ms：维护标记不存在，应用运行且健康，
+  备份运行且无健康探针；实际 Image ID 均匹配
+  `sha256:e9b6d54e3ed5bb03b5f8efacd008de075c6433dbbdf7d9bdc7a649a781bd75c3`。
+  HTTPS 三项健康均为 true；首页、Service Worker、应用 JS/CSS 与 preload 产物和容器一致，
+  公开 WebSocket 新连接成功。`admin-enabled=0`、`calls-enabled=0`；不外推真机或独立审计。
+- 首次独立回读所有远端检查通过，但在 linked worktree 的 `.git` 文件下保存证据失败。
+  随后在已有精确发布克隆补齐锁定的生产依赖，仅重跑独立回读并取得成功证据；没有再次部署。
+  该兼容问题保持待修复，操作要求见本页回读入口说明。
+- 发布记录在独立文档 worktree 对账，不携带部署配置，不因文档合并重新发布。
+  当前任务仍活跃且开发目录含依赖/构建缓存，按清理规则保留本任务开发资源；不清理其他会话。
+
+## 上次线上发布记录（2026-09-06 17:09）
 
 - 日期：2026-09-06（Asia/Shanghai）；`deployed-at=20260906T090746Z`（17:07:46 发布批次），
   17:09:06 前完成独立回读。应用版本 `e359476ce6bffee85ae355bdf93b34b14a544dc2`，由
