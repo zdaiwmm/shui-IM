@@ -172,6 +172,41 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-06（Asia/Shanghai）；服务器批次 `20260906T113628Z`（19:36:28），
+  19:37:32 独立回读成功。应用提交 `981b21612b16bc5b9d1e4007ed051f17a3170256`，由
+  [PR #31](https://github.com/zdaiwmm/shui-IM/pull/31) 集中合并用户可见改动，
+  [PR #33](https://github.com/zdaiwmm/shui-IM/pull/33) 补齐生产 Docker 构建所需的
+  `release.json`；两者之间的 PR #32 仅对账上一批发布文档。
+- 本批上线遮蔽长按后的 Safari 静默焦点观察、回复手势可见宽度上限、相册翻页与缩放归位、
+  已验证密文媒体缓存、语音录制文案与消息时间对比度、textarea 与聊天布局同步动画，以及
+  `release.json` 驱动的 Service Worker 新版本广播、聊天更新条和有序版本说明。消息／MLS
+  原子持久化、普通重试密文复用、设备历史、恢复和原始附件校验边界不变。
+- PR #31 的[完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34029235057)与 PR #33 的
+  [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34029933055)均成功。本地集中组合
+  `npm run check:full` 通过 54 个测试文件／453 项单元集成及 24／24 个浏览器入口；Docker
+  修复后 `npm run check` 通过 54 个文件／454 项测试。精确 main 的
+  [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34030231719)首次仅浏览器第 1 组的
+  图库返回聊天锚点时序断言失败；同一源码树此前 PR CI 已通过，且并行进入 main 的变更仅为
+  文档。读取日志后只重跑该 SHA，浏览器两组、完整应用汇总与最终 `verify` 全部成功。
+- 首次尝试发布前一合并提交 `624abe606674140b0c3de5a44043c8b273ad5e02` 时，Docker 构建
+  因未复制 `release.json` 在 TypeScript 阶段失败；发布停在 `build-image`，尚未进入维护门、
+  停容器、冷备份或流量切换，生产未变化。修复经新 PR 和新 main SHA 的完整 CI 后才重新执行
+  固定入口，没有盲目重发失败 SHA。
+- 固定入口 `node scripts/publish.mjs --sha 981b21612b16bc5b9d1e4007ed051f17a3170256`
+  返回精确 `DEPLOY_OK`、`DEPLOY_VERIFIED`，外层核对成功。入口总耗时 88,711ms，其中隔离
+  发布与入口回读 69,888ms；服务器部署 56 秒，获取源码 5 秒、构建镜像 13 秒、停止容器 1 秒、
+  冷备份 5 秒、启动及健康等待 31 秒。发布目录
+  `/opt/quiet-room/git-releases/20260906T113628Z-981b21612b16`，已校验冷备份
+  `/opt/quiet-room/backups/predeploy/data-20260906T113628Z-981b21612b16.tar.gz`。
+- 19:37:32 独立只读回读返回 `READBACK_OK`，总耗时 2,794ms：线上 SHA、批次和目录一致，
+  维护标记不存在；应用运行且健康，备份容器运行且无健康探针；实际镜像匹配
+  `sha256:0d8bc95ce285143a9cffe6dfa82dafd4300ef643ae9afe14ca8a1f286e9b17ff`。HTTPS 健康、
+  首页、Service Worker、版本化公开／容器产物和公开 WebSocket 均通过。检查未读取真实消息、
+  附件或备份内容；真实 iPhone／Android、长期运维和独立安全审计仍未验证。
+- 回读后在不带部署配置的第二个独立 worktree 对账本记录与状态页；文档 PR 不代表重新部署。
+
+## 上次线上发布记录（2026-09-06 19:10）
+
 - 日期：2026-09-06（Asia/Shanghai）；服务器批次 `20260906T110806Z`（19:08:06），
   19:10:59 独立回读成功。应用提交 `b2c1b65e6a3ee80dcd6eb4b158e3e8182e2f0e49`，由
   [PR #30](https://github.com/zdaiwmm/shui-IM/pull/30) 于 19:02:50 merge 合并，候选 head
