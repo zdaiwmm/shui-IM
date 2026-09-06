@@ -32,7 +32,7 @@
 | 回应、回复手势、消息删除、未读计数和 presence | `PRODUCT.md`、`SECURITY.md`、[D-024](./decisions.md#d-024保险箱本地整理与聊天删除严格分层) | `src/lib/reactions.ts`、`src/lib/reply-swipe.ts`、`src/lib/message-deletions.ts`、`src/lib/message-payload.ts`、`src/lib/unread-counter.ts`、`src/lib/api.ts`、`server/index.mjs`、`server/storage.mjs` | `tests/reactions.test.ts`、`tests/reply-swipe.test.ts`、`tests/message-deletions.test.ts`、`tests/message-deletion.e2e.mjs`、`tests/reaction-history.e2e.mjs`、`tests/unread-counter.test.ts`、`tests/unread-server.test.ts`、`tests/unread-counter.e2e.mjs` |
 | Web Push | `OPERATIONS.md`、`SECURITY.md` | `src/lib/push.ts`、`server/push.mjs`、`public/sw.js` | `tests/push.test.ts`、`tests/push-server.test.ts` |
 | 构建、发布、备份与运维 | `RELEASING.md`、`DEPLOYMENT.md`、`OPERATIONS.md`、`PRODUCTION_SECURITY_GATE.md` | `scripts/`、`deploy/`、`.github/workflows/ci.yml` | `tests/deploy-*.test.ts`、`tests/release.test.ts`、`tests/publish.test.ts`、`tests/backup.test.ts`、`tests/operations-*.test.ts` |
-| 发布后生产事实、上下文治理与交付效率 | `RELEASING.md`、`docs/context/maintenance.md`、[D-021](./decisions.md#d-021生产回读后对账知识库语义变化继续审阅)、[2026-09-05 交付复盘](../../audit/2026-09-05-mobile-ux-delivery-retrospective.md) | 现有证据入口为 `scripts/publish.mjs`、`scripts/release.mjs`；格式检查为 `scripts/check-docs.mjs`，结构化回读/自动对账入口尚待实现 | `tests/publish.test.ts`、`tests/release-entry.test.ts`、`tests/ci-docs.test.ts`、`tests/ci-scope.test.ts` |
+| 发布后生产事实、上下文治理与交付效率 | `RELEASING.md`、`docs/context/maintenance.md`、[D-021](./decisions.md#d-021生产回读后对账知识库语义变化继续审阅)、[2026-09-05 交付复盘](../../audit/2026-09-05-mobile-ux-delivery-retrospective.md) | 发布与最小 SHA 回执为 `scripts/publish.mjs`、`scripts/release.mjs`；独立结构化回读为 `scripts/production-readback.mjs`；格式检查为 `scripts/check-docs.mjs`，自动文档 PR 对账尚待实现 | `tests/publish.test.ts`、`tests/release-entry.test.ts`、`tests/production-readback.test.ts`、`tests/ci-docs.test.ts`、`tests/ci-scope.test.ts` |
 
 ## 测试命令的准确含义
 
@@ -41,6 +41,7 @@
 - `npm run check`：依次运行 build 与 Vitest。
 - `npm run test:browser`：通过 `scripts/test-browser.mjs` 串行运行全部真实浏览器脚本，并输出逐脚本和总耗时。`-- --group 1` / `-- --group 2` 分别运行主流程与其余专项；CI 在两个独立执行环境中并行运行两组。
 - `npm run check:full`：运行 `check`，然后运行浏览器套件。
+- `npm run deploy:readback -- --sha <40位SHA>`：独立、只读地复核该精确生产版本，输出逐阶段耗时与失败分类，并在 `.git/quiet-room-readback/` 保存脱敏结构化证据；它不发布、不回滚，也不替代发布授权。
 - `npm run test:calls`：完整通话专项入口，包含部分 Vitest 用例与 `call-native.e2e.mjs`、`call-view.e2e.mjs`。`npm run test:calls:e2e` 只运行后两个浏览器专项；CI 与本地已完成 `check:full` 后使用此入口，避免重复运行已被 `npm test` 包含的通话单元测试。
 - `node scripts/audit-production.mjs`：使用 npm 官方源审计生产依赖；仅对明确的临时接口故障最多尝试三次。high/critical 漏洞、无效报告和接口持续不可用均阻断 CI。
 
