@@ -48,7 +48,10 @@ try {
 
   await page.locator('.release-notes-sheet.is-visible').waitFor();
   const notes = await page.locator('.release-notes-panel li').allTextContents();
-  if (notes.length !== 2 || notes.some(note => !note.trim())) throw new Error(`Release notes were not rendered as an ordered list: ${JSON.stringify(notes)}`);
+  const expectedNotes = await page.evaluate(() => window.releaseFixture.release.currentRelease.notes);
+  if (!notes.length || JSON.stringify(notes) !== JSON.stringify(expectedNotes) || notes.some(note => !note.trim())) {
+    throw new Error(`Release notes were not rendered as the manifest's ordered list: ${JSON.stringify({ notes, expectedNotes })}`);
+  }
   await page.locator('.release-notes-panel .primary-button').click();
   await page.locator('.release-notes-sheet').waitFor({ state: 'detached' });
   const seen = await page.evaluate(() => {
