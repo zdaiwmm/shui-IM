@@ -112,6 +112,7 @@ import type {
   RoomState,
   ServerMessage,
   ServerReceipt,
+  StoredVault,
   Vault,
 } from './lib/types';
 import {
@@ -291,6 +292,8 @@ export class QuietRoomApp {
   private coverTimer: number | null = null;
   private coverRevealTimer: number | null = null;
   private coverHoldCommitted = false;
+  private coverStoredVault: StoredVault | null = null;
+  private coverStoredVaultPreparation = 0;
   private idleTimer: number | null = null;
   private blurLockTimer: number | null = null;
   private sendingTextDrafts = new Set<string>();
@@ -934,6 +937,15 @@ export class QuietRoomApp {
     this.revealPrivacySurface();
     if (!document.hidden) void this.unreadCounter.refresh();
     const trigger = this.root.querySelector<HTMLButtonElement>('.cover-trigger')!;
+    const preparation = ++this.coverStoredVaultPreparation;
+    this.coverStoredVault = null;
+    // Prepare the non-secret encrypted wrapper while the cover is idle. A
+    // completed hold can then enter the v3 gateway and call WebAuthn before
+    // any IndexedDB or cross-tab lifecycle await consumes Safari activation.
+    void readStoredVault().then(stored => {
+      if (preparation === this.coverStoredVaultPreparation && this.privacyCovered && trigger.isConnected &&
+          stored?.v === 3 && stored.unlockMethod === 'platform') this.coverStoredVault = stored;
+    }).catch(() => undefined);
     let pointerId: number | null = null;
     const begin = (event: PointerEvent) => {
       // A browser may omit pointerup/cancel when focus leaves. Once the hold
@@ -1093,6 +1105,15 @@ export class QuietRoomApp {
     }
     this.privacyCovered = false;
     document.body.className = 'app-mode';
+    const preparedStored = trustedCoverActivation ? this.coverStoredVault : null;
+    this.coverStoredVault = null;
+    if (preparedStored?.v === 3 && preparedStored.unlockMethod === 'platform') {
+      // renderUnlock has no await when supplied a record. It mounts the retry
+      // UI and starts navigator.credentials.get in this activation stack;
+      // unlockVault still rereads and validates the current durable wrapper.
+      void this.renderUnlock(preparedStored, true);
+      return;
+    }
     const hasVault = await hasStoredVault();
     if (!canRender()) return;
     if (hasVault) {
