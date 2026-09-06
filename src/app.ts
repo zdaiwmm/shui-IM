@@ -177,6 +177,7 @@ type CachedImage = { blob: Blob; url: string; bytes: number; lastUsedAt: number;
 const MAX_IMAGE_CACHE_BYTES = 96 * 1024 * 1024;
 
 const encoder = new TextEncoder();
+const DEVICE_VERIFICATION_FOCUS_RETURN_MS = 1_500;
 
 class SecurityViolation extends Error {
   constructor(message: string) {
@@ -1847,8 +1848,11 @@ export class QuietRoomApp {
       let timer = 0;
       let focusPoll = 0;
       let settled = false;
-      const deadline = performance.now() + 250;
-      const wallDeadline = Date.now() + 250;
+      // iOS Safari can resolve WebAuthn before it reports that the document
+      // regained focus. Keep the gateway obscured while waiting for that real
+      // focus edge; lifecycle teardown and the outer 65-second bound still win.
+      const deadline = performance.now() + DEVICE_VERIFICATION_FOCUS_RETURN_MS;
+      const wallDeadline = Date.now() + DEVICE_VERIFICATION_FOCUS_RETURN_MS;
       const finish = (valid = true) => {
         if (settled) return;
         settled = true;
@@ -1870,7 +1874,7 @@ export class QuietRoomApp {
       document.addEventListener('visibilitychange', onReturn, { capture: true });
       this.deviceVerificationFocusSettle = finish;
       focusPoll = window.setInterval(evaluate, 16);
-      timer = window.setTimeout(() => finish(false), 250);
+      timer = window.setTimeout(() => finish(false), DEVICE_VERIFICATION_FOCUS_RETURN_MS);
       evaluate();
     });
   }

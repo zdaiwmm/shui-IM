@@ -392,6 +392,8 @@ try {
 
     // Gateway authentication alone can span hidden visibility. Foreground
     // picker/media handoffs above never exempt background lifecycle events.
+    // Creation, participant joining, and additional-device linking all use
+    // this gateway path before their network/vault continuation runs.
     await fresh(); app.session = null; root.innerHTML = '<section class="gateway"></section>';
     let verify;
     const verification = app.withDeviceVerification(() => new Promise(resolve => { verify = resolve; }));
@@ -410,6 +412,14 @@ try {
     focus();
     check(await settledVerification === 'verified-after-blur' && !app.deviceVerificationActive && !app.privacyCovered &&
       !document.documentElement.classList.contains('privacy-obscured'), 'Verification settlement before focus did not use one bounded return edge');
+
+    await fresh(); app.session = null; root.innerHTML = '<section class="gateway"></section>';
+    let delayedFocusVerificationResult;
+    const delayedFocusVerification = app.withDeviceVerification(() => new Promise(resolve => { delayedFocusVerificationResult = resolve; }));
+    blur(); delayedFocusVerificationResult('verified-after-delayed-focus');
+    window.setTimeout(focus, 500);
+    check(await delayedFocusVerification === 'verified-after-delayed-focus' && !app.deviceVerificationActive && !app.privacyCovered &&
+      !document.documentElement.classList.contains('privacy-obscured'), 'A delayed Safari focus return discarded a completed gateway verification');
 
     await fresh(); app.session = null; root.innerHTML = '<section class="gateway"></section>';
     let abandonVerification;
