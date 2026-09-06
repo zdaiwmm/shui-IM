@@ -120,6 +120,7 @@ import {
   commitMlsReceive,
   commitMlsSend,
   deleteOutboxItem,
+  deleteCachedMediaBlob,
   deleteCurrentVault,
   downloadVaultDiagnostic,
   deletePendingReceipt,
@@ -135,10 +136,12 @@ import {
   loadPendingReceipts,
   loadUploadPlans,
   loadUiPreferences,
+  loadCachedMediaChunk,
   migrateVaultToPlatform,
   readStoredVault,
   resumeVaultSession,
   saveOutboxItem,
+  saveCachedMediaChunk,
   savePendingReceipt,
   saveHistoryMessage,
   saveUploadPlan,
@@ -1250,6 +1253,26 @@ export class QuietRoomApp {
             window.addEventListener('focus', event => {
               if (event.target === window && document.hasFocus()) runUnlock();
             }, { capture: true, signal: focusAbort.signal });
+            // Some Safari foreground returns update document.hasFocus()
+            // without dispatching a window focus event. Observe that short
+            // return edge so the trusted hold still starts verification. The
+            // poll never calls WebAuthn while unfocused and expires after the
+            // short return edge; the normal focus listener and retryable
+            // button remain available without creating unbounded polling.
+            const focusPoll = window.setInterval(() => {
+              if (!current() || document.hidden || !button.isConnected) {
+                focusAbort.abort();
+                return;
+              }
+              if (document.hasFocus()) runUnlock();
+            }, 16);
+            const focusDeadline = window.setTimeout(() => {
+              window.clearInterval(focusPoll);
+            }, 1_500);
+            focusAbort.signal.addEventListener('abort', () => {
+              window.clearInterval(focusPoll);
+              window.clearTimeout(focusDeadline);
+            }, { once: true });
           }
           button.focus({ preventScroll: true });
           // Some browsers update hasFocus without a window focus event. Calling
@@ -5383,6 +5406,7 @@ export class QuietRoomApp {
       exclude: target => target instanceof Element && Boolean(target.closest(
         'input, textarea, audio, video, .message-reactions, .message-reply-quote, button:not(.image-preview):not(.album-cell):not(.file-attachment)',
       )),
+      maxOffset: () => (window.visualViewport?.width ?? window.innerWidth) / 3,
       gestureStart: () => {
         this.cancelMessageHold();
         // A clearly horizontal bubble gesture belongs to reply, even while the
@@ -7061,17 +7085,54 @@ export class QuietRoomApp {
     const operation = this.withImageLoadSlot(async () => {
       signal?.throwIfAborted();
       const decrypt = isVideoFile(manifest) ? decryptFileAttachment : decryptImageFile;
-      const blob = await decrypt(
-        manifest,
-        async (blobId, chunkIndex) => {
-          this.updateChatImageLoadFeedback(manifest, 'download', chunkIndex / manifest.chunkCount);
-          const chunk = await fetchBlobChunk(roomId, accessToken, blobId, chunkIndex, signal);
-          this.updateChatImageLoadFeedback(manifest, 'decrypt', chunkIndex / manifest.chunkCount);
-          return chunk;
-        },
-        ratio => this.updateChatImageLoadFeedback(manifest, 'decrypt', ratio),
-        signal,
-      );
+      let usedPersistentCiphertext = false;
+      const decryptWithCiphertextCache = (allowCache: boolean) => decrypt(
+          manifest,
+          async (blobId, chunkIndex) => {
+            const expectedPlaintextBytes = Math.min(
+              manifest.chunkSize,
+              manifest.originalSize - chunkIndex * manifest.chunkSize,
+            );
+            if (allowCache) {
+              const cachedChunk = await loadCachedMediaChunk(
+                session, blobId, chunkIndex, expectedPlaintextBytes + 16,
+              ).catch(() => null);
+              signal?.throwIfAborted();
+              if (cachedChunk) {
+                usedPersistentCiphertext = true;
+                this.updateChatImageLoadFeedback(manifest, 'decrypt', chunkIndex / manifest.chunkCount);
+                return cachedChunk;
+              }
+            }
+            this.updateChatImageLoadFeedback(manifest, 'download', chunkIndex / manifest.chunkCount);
+            const chunk = await fetchBlobChunk(roomId, accessToken, blobId, chunkIndex, signal);
+            signal?.throwIfAborted();
+            // Cache only the already encrypted server chunk. A lock still
+            // revokes every plaintext object URL and clears decoded media.
+            await saveCachedMediaChunk(session, blobId, chunkIndex, chunk).catch(() => undefined);
+            this.updateChatImageLoadFeedback(manifest, 'decrypt', chunkIndex / manifest.chunkCount);
+            return chunk;
+          },
+          ratio => this.updateChatImageLoadFeedback(manifest, 'decrypt', ratio),
+          signal,
+        );
+      let blob: Blob;
+      try {
+        blob = await decryptWithCiphertextCache(true);
+      } catch (cause) {
+        await deleteCachedMediaBlob(session, manifest.blobId).catch(() => undefined);
+        if (!usedPersistentCiphertext) throw cause;
+        signal?.throwIfAborted();
+        // A partial, stale or externally corrupted local cache must not make a
+        // valid server attachment permanently unreadable. Discard it and
+        // perform one complete authenticated network reconstruction.
+        try {
+          blob = await decryptWithCiphertextCache(false);
+        } catch (retryCause) {
+          await deleteCachedMediaBlob(session, manifest.blobId).catch(() => undefined);
+          throw retryCause;
+        }
+      }
       if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
       this.cacheLocalImage(manifest, blob);
       const cached = this.imageCache.get(manifest.blobId);
@@ -7345,9 +7406,12 @@ export class QuietRoomApp {
         } else {
           outgoingLayer.inert = true;
           outgoingLayer.setAttribute('aria-hidden', 'true');
-          gestures.reset();
+          // Transfer the finger's residual offset from the child media to its
+          // page layer before reset() flushes styles. Reversing this order lets
+          // WebKit paint one centered frame between the drag and page motion.
           outgoingLayer.style.transform = `translate3d(${offset}px, 0, 0)`;
           outgoingLayer.style.opacity = '1';
+          gestures.reset();
           this.viewerMediaCleanup = () => { outgoingCleanup?.(); incomingCleanup?.(); };
           if (!reducedMotion) {
             const timing: KeyframeAnimationOptions = {

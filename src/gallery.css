@@ -193,6 +193,7 @@
   transform-origin: center;
 }
 .image-viewer .viewer-media-layer.is-image { padding: 0; }
+.image-viewer .viewer-media-layer.is-video { padding: 0; }
 .image-viewer.is-dragging .viewer-media-layer.is-image > img,
 .image-viewer.is-paging .viewer-media-layer.is-image > img,
 .image-viewer.is-pinching .viewer-media-layer.is-image > img { transition: none; }

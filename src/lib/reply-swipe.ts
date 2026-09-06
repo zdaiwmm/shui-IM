@@ -1,14 +1,21 @@
 export const REPLY_SWIPE_THRESHOLD_PX = 96;
-export const REPLY_SWIPE_MAX_OFFSET_PX = 480;
-const REPLY_SWIPE_RESISTANCE_START_PX = 360;
+export const REPLY_SWIPE_MAX_VIEWPORT_RATIO = 1 / 3;
 
-/** Follow the finger across a phone width, then add resistance before the hard bound. */
-export function replySwipeOffset(distance: number): number {
+export function replySwipeMaxOffset(viewportWidth: number): number {
+  const width = Number.isFinite(viewportWidth) ? Math.max(0, viewportWidth) : 0;
+  return width * REPLY_SWIPE_MAX_VIEWPORT_RATIO;
+}
+
+/** Follow the finger through the activation range, then resist toward one third of the viewport. */
+export function replySwipeOffset(distance: number, maximum = replySwipeMaxOffset(globalThis.innerWidth ?? 0)): number {
   const raw = Math.max(0, Number.isFinite(distance) ? distance : 0);
-  if (raw <= REPLY_SWIPE_RESISTANCE_START_PX) return raw;
-  const resistantDistance = raw - REPLY_SWIPE_RESISTANCE_START_PX;
-  const resistantRange = REPLY_SWIPE_MAX_OFFSET_PX - REPLY_SWIPE_RESISTANCE_START_PX;
-  return REPLY_SWIPE_RESISTANCE_START_PX
+  const boundedMaximum = Math.max(0, Number.isFinite(maximum) ? maximum : 0);
+  const resistanceStart = Math.min(REPLY_SWIPE_THRESHOLD_PX, boundedMaximum * 0.75);
+  if (raw <= resistanceStart) return raw;
+  if (boundedMaximum <= resistanceStart) return boundedMaximum;
+  const resistantDistance = raw - resistanceStart;
+  const resistantRange = boundedMaximum - resistanceStart;
+  return resistanceStart
     + resistantRange * (1 - Math.exp(-resistantDistance / resistantRange));
 }
 
@@ -16,6 +23,7 @@ export function bindReplySwipe(options: {
   element: HTMLElement;
   enabled: () => boolean;
   exclude: (target: EventTarget | null) => boolean;
+  maxOffset: () => number;
   move: (offset: number, armed: boolean) => void;
   settle: (activated: boolean) => void;
   gestureStart?: () => void;
@@ -53,7 +61,7 @@ export function bindReplySwipe(options: {
     if (event.cancelable) event.preventDefault();
     const distance = Math.max(0, horizontal);
     active.armed = distance >= REPLY_SWIPE_THRESHOLD_PX;
-    options.move(replySwipeOffset(distance), active.armed);
+    options.move(replySwipeOffset(distance, options.maxOffset()), active.armed);
   };
 
   const end = (event: PointerEvent, cancelled: boolean) => {

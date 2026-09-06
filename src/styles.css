@@ -29,7 +29,7 @@
   --incoming: oklch(91.8% 0.009 255 / 0.94);
   --outgoing: oklch(48% 0.2 255);
   --on-accent: oklch(99% 0.004 255);
-  --message-time: oklch(49% 0.006 255);
+  --message-time: oklch(50% 0.006 255);
   --message-time-outgoing: oklch(89% 0.006 255);
   --danger: oklch(48% 0.15 28);
   --danger-soft: oklch(94% 0.03 28);
@@ -67,7 +67,7 @@
     --incoming: oklch(32% 0.016 255 / 0.96);
     --outgoing: oklch(48% 0.18 250);
     --on-accent: oklch(98% 0.006 255);
-    --message-time: oklch(74% 0.006 255);
+    --message-time: oklch(78% 0.006 255);
     --danger: oklch(72% 0.14 28);
     --danger-soft: oklch(31% 0.04 28);
     --focus: oklch(74% 0.16 250);

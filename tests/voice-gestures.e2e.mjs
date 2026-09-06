@@ -132,7 +132,9 @@ try {
 
   await hold(); await page.waitForTimeout(650);
   assert.equal(await page.locator('.composer-input-stack').isVisible(), false, 'Held recording must hide the unused text input surface');
-  assert.equal(await recorder.locator('.voice-release-label').innerText(), '松手发送', 'Held recording must state the release outcome');
+  assert.equal(await recorder.locator('.voice-release-label').innerText(), '松手发送，左滑取消录制', 'Held recording must state the release outcome and cancellation direction');
+  assert.equal(await recorder.locator('.voice-slide-hint').evaluate(hint => hint.scrollWidth <= hint.clientWidth + 1), true,
+    'The expanded send/cancel instruction is clipped on the mobile recorder');
   assert.equal(await recorder.getAttribute('data-hold-action'), 'send');
   const restingY = await page.locator('.voice-hold-orb').evaluate(orb => orb.getBoundingClientRect().y);
   await touch('touchMove', -115, -70);
@@ -145,7 +147,7 @@ try {
   assert(furtherDrag.x < -115 && furtherDrag.x > -165, `Longer resistance must keep the microphone visibly attached to the finger: ${JSON.stringify({ firstDrag, furtherDrag })}`);
   assert(Math.abs(furtherDrag.y - restingY) < 0.5, 'Diagonal finger movement must not change the microphone height');
   assert.equal(await recorder.getAttribute('data-hold-action'), 'send', 'The former cancel distance must remain in the send zone');
-  assert.equal(await recorder.locator('.voice-release-label').innerText(), '松手发送');
+  assert.equal(await recorder.locator('.voice-release-label').innerText(), '松手发送，左滑取消录制');
   await touch('touchMove', -230, -20); await page.waitForTimeout(220);
   const readyFeedback = await recorder.evaluate(host => {
     const probe = document.createElement('span');
@@ -162,10 +164,10 @@ try {
     probe.remove();
     return result;
   });
-  assert.deepEqual(readyFeedback, { action: 'cancel', label: '松手取消', orbColor: readyFeedback.dangerColor, dangerColor: readyFeedback.dangerColor, aborted: false, tracksLive: true }, 'Crossing the threshold must preview, not execute, cancellation');
+  assert.deepEqual(readyFeedback, { action: 'cancel', label: '松手取消录制', orbColor: readyFeedback.dangerColor, dangerColor: readyFeedback.dangerColor, aborted: false, tracksLive: true }, 'Crossing the threshold must preview, not execute, cancellation');
   await touch('touchMove', -190, -20); await page.waitForTimeout(220);
   assert.equal(await recorder.getAttribute('data-hold-action'), 'send', 'Dragging back across hysteresis must restore the send outcome');
-  assert.equal(await recorder.locator('.voice-release-label').innerText(), '松手发送');
+  assert.equal(await recorder.locator('.voice-release-label').innerText(), '松手发送，左滑取消录制');
   await touch('touchMove', -230, -20);
   assert.equal(await recorder.getAttribute('data-hold-action'), 'cancel');
   await release();
