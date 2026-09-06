@@ -506,7 +506,7 @@
   width: 100%;
   height: 100%;
   padding: 0;
-  background: transparent;
+  background: var(--paper);
   transform: none;
   touch-action: none;
   transition: opacity 300ms ease-out;
@@ -517,7 +517,7 @@
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: #080a0e;
+  background: var(--paper);
   opacity: var(--viewer-backdrop-opacity, 1);
   transition: opacity 240ms ease-out;
 }

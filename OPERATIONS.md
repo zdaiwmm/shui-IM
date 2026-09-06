@@ -52,6 +52,19 @@ Permission is requested only after the user selects the notification control. A 
 
 ## Release and incident basics
 
+The fixed independent post-release verification command is
+`npm run deploy:readback -- --sha <full-deployed-SHA>`. Its output separates
+phase timing from stable failure classes and saves a redacted local receipt under
+`.git/quiet-room-readback/`. A `READBACK_BLOCKED` result means that production
+verification is incomplete, not that the application was rolled back or that a
+new cutover is authorized. Repeat only this read-only command for the same SHA
+after resolving connectivity or probe conditions. If its state fields reveal a
+different SHA, a remaining maintenance marker, stopped/unhealthy containers, or
+an image mismatch, keep `PRODUCTION_STATE_UNRESOLVED` until the actual state is
+understood; do not blindly redeploy. A successful `READBACK_OK` still does not
+close certificate, off-site backup, alerting, device-validation, or independent
+security-audit requirements.
+
 - Serve only through HTTPS with HSTS. Preserve `/ws` upgrades and cap bodies slightly above the encrypted 2 MiB chunk size.
 - Treat `ai.shui.click` DNS control, its exact WebAuthn RP ID, and automatic TLS renewal as key-material-grade dependencies. Alert before certificate expiry, and never replace the exact-origin checks with a parent-domain RP ID or wildcard cross-origin access.
 - Keep the retired `chat.mijiu.cloud` hostname controlled but do not serve application JavaScript from it. Its redirect/retirement vhost and certificate are part of the origin-takeover defense, not an application compatibility promise.

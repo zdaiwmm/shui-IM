@@ -39,6 +39,25 @@ when already operating from a clean release checkout.
    `npm run deploy:production -- --sha <full-40-character-main-commit>`.
    This replaces only the interactive confirmation, not any safety check.
 
+After the outer fixed publisher has verified its exact-SHA receipt, run the
+independent repository readback as a separate post-cutover step:
+
+```bash
+npm run deploy:readback -- --sha <full-40-character-deployed-commit>
+```
+
+This command uses the same host/user/key-path configuration but has no GitHub,
+CI, deployment-helper, Compose, maintenance-gate, backup, or rollback action.
+It reads deployment metadata and container inspection fields over SSH, fetches
+only public health and build assets, compares those assets with the running
+container, and opens a new public WebSocket. It does not inspect the data volume,
+messages, attachments, recovery material, or backup contents. Re-running the
+same exact-SHA command is therefore the only supported automatic continuation
+after a readback failure; it must never be replaced by another deployment call.
+Successful and failed attempts write redacted JSON under the local repository's
+`.git/quiet-room-readback/` directory. See `RELEASING.md` for evidence and
+failure-state interpretation.
+
 ### Fixed release entry point and one-time setup
 
 Use `npm run deploy:doctor` before a release. It checks GitHub code access,

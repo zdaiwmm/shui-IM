@@ -571,13 +571,23 @@ try {
       bottom: parseFloat(layerStyle.paddingBottom),
       left: parseFloat(layerStyle.paddingLeft),
     };
-    const header = stage.closest('.image-viewer').querySelector('.viewer-header');
+    const viewer = stage.closest('.image-viewer');
+    const header = viewer.querySelector('.viewer-header');
     const headerStyle = getComputedStyle(header);
+    const imageBackdropStyle = getComputedStyle(layer, '::before');
+    const themeBackgroundProbe = document.createElement('i');
+    themeBackgroundProbe.style.background = 'var(--paper)';
+    viewer.append(themeBackgroundProbe);
+    const expectedBackground = getComputedStyle(themeBackgroundProbe).backgroundColor;
+    themeBackgroundProbe.remove();
     return {
       x: rect.x, y: rect.y, width: rect.width, height: rect.height,
       layer: { x: layerRect.x, y: layerRect.y, width: layerRect.width, height: layerRect.height, padding },
       image: { left: imageRect.left, right: imageRect.right, top: imageRect.top, bottom: imageRect.bottom, width: imageRect.width, height: imageRect.height },
       fit: getComputedStyle(image).objectFit,
+      background: getComputedStyle(viewer).backgroundColor,
+      expectedBackground,
+      imageBackdrop: { content: imageBackdropStyle.content, filter: imageBackdropStyle.filter },
       header: { opacity: headerStyle.opacity, visibility: headerStyle.visibility },
       viewportWidth: innerWidth, viewportHeight: innerHeight,
     };
@@ -591,11 +601,15 @@ try {
   };
   const contentWidth = viewerContent.right - viewerContent.left;
   const contentHeight = viewerContent.bottom - viewerContent.top;
-  invariant(viewerLayout.fit === 'contain'
+  invariant(Object.values(viewerLayout.layer.padding).every(value => value === 0)
+    && viewerLayout.fit === 'contain'
     && viewerLayout.image.left >= viewerContent.left - 1 && viewerLayout.image.right <= viewerContent.right + 1
     && viewerLayout.image.top >= viewerContent.top - 1 && viewerLayout.image.bottom <= viewerContent.bottom + 1
     && (Math.abs(viewerLayout.image.width - contentWidth) <= 1 || Math.abs(viewerLayout.image.height - contentHeight) <= 1),
-  `Photo does not use the padded full-screen viewer content box: ${JSON.stringify(viewerLayout)}`);
+  `Photo does not fill the unpadded full-screen viewer content box: ${JSON.stringify(viewerLayout)}`);
+  invariant(viewerLayout.background === viewerLayout.expectedBackground
+    && viewerLayout.imageBackdrop.content === 'none' && viewerLayout.imageBackdrop.filter === 'none',
+  `Photo viewer does not use the theme background without a blurred image fill: ${JSON.stringify(viewerLayout)}`);
   invariant(viewerLayout.header.opacity === '1' && viewerLayout.header.visibility === 'visible',
     `Photo viewer header is not stably visible: ${JSON.stringify(viewerLayout.header)}`);
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'viewer-mobile.png') });
@@ -603,7 +617,7 @@ try {
   await dragStage.dispatchEvent('pointerdown', { pointerType: 'touch', isPrimary: true, pointerId: 4, button: 0, clientX: 195, clientY: 350 });
   await dragStage.dispatchEvent('pointermove', { pointerType: 'touch', isPrimary: true, pointerId: 4, clientX: 210, clientY: 500 });
   const dragState = await creator.locator('.image-viewer').evaluate((viewer) => ({ dragging: viewer.classList.contains('is-dragging'), transform: viewer.querySelector('.viewer-stage img').style.transform }));
-  invariant(dragState.dragging && dragState.transform.includes('translate3d') && !dragState.transform.includes('scale('), `Photo did not follow the dismiss drag at a stable size: ${JSON.stringify(dragState)}`);
+  invariant(dragState.dragging && dragState.transform.includes('translate3d') && dragState.transform.includes('scale(0.'), `Photo dismiss drag did not resist and progressively shrink: ${JSON.stringify(dragState)}`);
   await dragStage.dispatchEvent('pointerup', { pointerType: 'touch', isPrimary: true, pointerId: 4, button: 0, clientX: 210, clientY: 500 });
   await creator.locator('.image-viewer').waitFor({ state: 'detached' });
   invariant(await directImagePreview.getAttribute('data-revealed') === 'false', 'Dismissing the photo with a downward drag left its chat thumbnail revealed');

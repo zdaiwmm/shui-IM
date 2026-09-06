@@ -280,6 +280,7 @@ export class QuietRoomApp {
   private uploadPlans: ImageUploadPlan[] = [];
   private imageCache = new Map<string, CachedImage>();
   private imageLoadPromises = new Map<string, Promise<CachedImage>>();
+  private imageLoadStatus = new Map<string, { stage: 'queued' | 'download' | 'decrypt' | 'decode'; ratio?: number }>();
   private imageManifestSignatures = new Map<string, string>();
   private activeImageLoads = 0;
   private imageLoadWaiters: Array<() => void> = [];
@@ -356,6 +357,8 @@ export class QuietRoomApp {
   private imagePickerFocusReturnTimer: number | null = null;
   private deferredImageUpload: { roomId: string; deviceId: string; files: File[]; destination: 'chat' | 'gallery' } | null = null;
   private unlocking = false;
+  private gatewayUnlockAbort: AbortController | null = null;
+  private gatewayFocusAbort: AbortController | null = null;
   private deviceVerificationActive = false;
   private systemSurfaceTokens = new Set<symbol>();
   private nativeHandoff: {
@@ -940,8 +943,8 @@ export class QuietRoomApp {
     const preparation = ++this.coverStoredVaultPreparation;
     this.coverStoredVault = null;
     // Prepare the non-secret encrypted wrapper while the cover is idle. A
-    // completed hold can then enter the v3 gateway and call WebAuthn before
-    // any IndexedDB or cross-tab lifecycle await consumes Safari activation.
+    // completed hold can then enter the v3 gateway without another storage
+    // wait. This preparation does not substitute for real browser focus.
     void readStoredVault().then(stored => {
       if (preparation === this.coverStoredVaultPreparation && this.privacyCovered && trigger.isConnected &&
           stored?.v === 3 && stored.unlockMethod === 'platform') this.coverStoredVault = stored;
@@ -951,7 +954,11 @@ export class QuietRoomApp {
       // A browser may omit pointerup/cancel when focus leaves. Once the hold
       // timer was canceled, the next primary pointer starts a fresh gesture.
       if (!event.isPrimary || event.button !== 0 || (pointerId !== null && this.coverTimer !== null) || this.coverHoldCommitted) return;
-      event.preventDefault();
+      // Keep the native touch-to-focus path. Safari can return from background
+      // visible but unfocused; compatibility mouse/click events can be needed
+      // to recover focus like an ordinary page tap.
+      // touch-action:none and the existing callout/selection rules own gestures.
+      if (event.pointerType !== 'touch') event.preventDefault();
       pointerId = event.pointerId;
       const bounds = trigger.getBoundingClientRect();
       trigger.style.setProperty('--cover-press-x', `${event.clientX - bounds.left}px`);
@@ -1010,44 +1017,9 @@ export class QuietRoomApp {
       navigator.vibrate?.(20);
       if (pointer) {
         this.coverHoldCommitted = true;
-        if (!matchMedia('(prefers-reduced-motion: reduce)').matches) this.showCoverActivationFeedback(trigger);
         if (current()) void this.renderGateway({ trustedCoverActivation: true });
       } else void this.renderGateway({ trustedCoverActivation: true });
     }, duration);
-  }
-
-  private showCoverActivationFeedback(trigger: HTMLElement | null): void {
-    if (!trigger) return;
-    document.querySelector('.cover-activation-feedback')?.remove();
-    const bounds = trigger.getBoundingClientRect();
-    const x = Number.parseFloat(trigger.style.getPropertyValue('--cover-press-x'));
-    const y = Number.parseFloat(trigger.style.getPropertyValue('--cover-press-y'));
-    const feedback = document.createElement('span');
-    feedback.className = 'cover-activation-feedback';
-    feedback.setAttribute('aria-hidden', 'true');
-    feedback.style.left = `${bounds.left + (Number.isFinite(x) ? x : bounds.width / 2)}px`;
-    feedback.style.top = `${bounds.top + (Number.isFinite(y) ? y : bounds.height / 2)}px`;
-    for (const burst of [
-      { x: 0, y: 0, delay: 0 },
-      { x: Math.max(72, window.innerWidth * .32 - bounds.left), y: Math.min(-90, window.innerHeight * .28 - bounds.top), delay: 120 },
-      { x: Math.min(-72, window.innerWidth * .68 - bounds.right), y: Math.min(-150, window.innerHeight * .46 - bounds.top), delay: 240 },
-    ]) {
-      const firework = document.createElement('span');
-      firework.className = 'cover-firework';
-      firework.style.setProperty('--firework-x', `${burst.x}px`);
-      firework.style.setProperty('--firework-y', `${burst.y}px`);
-      firework.style.setProperty('--firework-delay', `${burst.delay}ms`);
-      for (let index = 0; index < 12; index += 1) {
-        const spark = document.createElement('i');
-        spark.style.setProperty('--spark-angle', `${index * 30}deg`);
-        firework.append(spark);
-      }
-      feedback.append(firework);
-    }
-    document.body.append(feedback);
-    const remove = () => feedback.remove();
-    feedback.addEventListener('animationend', event => { if (event.target === feedback) remove(); });
-    window.setTimeout(remove, 1200);
   }
 
   private cancelCoverTimer(): void {
@@ -1145,6 +1117,8 @@ export class QuietRoomApp {
   }
 
   private async renderUnlock(providedStored?: Awaited<ReturnType<typeof readStoredVault>>, trustedCoverActivation = false): Promise<void> {
+    this.gatewayFocusAbort?.abort();
+    this.gatewayFocusAbort = null;
     const renderEpoch = ++this.gatewayRenderEpoch;
     const runtimeEpoch = this.runtimeEpoch;
     const entryEpoch = this.coverEntryEpoch;
@@ -1264,16 +1238,39 @@ export class QuietRoomApp {
       const button = this.root.querySelector<HTMLButtonElement>('#passkey-unlock')!;
       const error = this.root.querySelector<HTMLElement>('.form-error')!;
       const runUnlock = () => {
-        if (this.unlocking) return;
+        if (this.unlocking || !current() || document.hidden || !button.isConnected) return;
+        if (!document.hasFocus()) {
+          // WebKit rejects an unfocused request before presenting native UI.
+          // Keep this unauthenticated gateway usable, and start only once the
+          // browser reports real focus. This is not a verification exemption:
+          // hidden/pagehide/freeze/lock still tear down this pending intent.
+          if (!this.gatewayFocusAbort) {
+            const focusAbort = new AbortController();
+            this.gatewayFocusAbort = focusAbort;
+            window.addEventListener('focus', event => {
+              if (event.target === window && document.hasFocus()) runUnlock();
+            }, { capture: true, signal: focusAbort.signal });
+          }
+          button.focus({ preventScroll: true });
+          // Some browsers update hasFocus without a window focus event. Calling
+          // runUnlock again also handles a synchronous focus event without a
+          // duplicate request, since unlocking is checked above.
+          if (document.hasFocus()) runUnlock();
+          return;
+        }
+        this.gatewayFocusAbort?.abort();
+        this.gatewayFocusAbort = null;
         this.unlocking = true;
+        const abort = new AbortController();
+        this.gatewayUnlockAbort = abort;
         error.textContent = '';
         setBusy(button, true, '正在验证…');
         void (async () => {
           try {
-            // Start WebAuthn in this trusted activation stack. Starting it
-            // after IndexedDB/lock awaits is what made Safari intermittently
-            // omit the device-password sheet after a completed cover hold.
-            const platformProof = this.withDeviceVerification(() => unlockPlatformCredential(stored.platform));
+            // Start without another storage wait. Browser-owned sheet timing
+            // is separate from invoking this request; teardown must cancel it
+            // as well as rejecting its late result.
+            const platformProof = this.withDeviceVerification(() => unlockPlatformCredential(stored.platform, abort.signal));
             void platformProof.catch(() => undefined);
             const unlocked = await unlockVault('', platformProof);
             if (!current()) return;
@@ -1285,6 +1282,7 @@ export class QuietRoomApp {
               else error.textContent = cause instanceof Error ? cause.message : '无法解锁';
             }
           } finally {
+            if (this.gatewayUnlockAbort === abort) this.gatewayUnlockAbort = null;
             if (this.gatewayRenderEpoch === renderEpoch) this.unlocking = false;
             if (button.isConnected) setBusy(button, false);
           }
@@ -6885,7 +6883,8 @@ export class QuietRoomApp {
     button.dataset.revealLabel = `${video ? '显示视频预览' : '显示图片'} ${description}`;
     this.updateChatImageVisibility(button);
     button.setAttribute('aria-busy', 'true');
-    button.innerHTML = `${video ? icons.video : icons.image}<span class="sr-only">正在加载${video ? '视频' : '图片'}</span>`;
+    this.mountChatImageLoadingFeedback(button, video);
+    this.renderChatImageLoadFeedback(button, video, this.imageLoadStatus.get(manifest.blobId) ?? { stage: 'queued' });
     const cached = this.imageCache.get(manifest.blobId);
     if (cached) {
       this.assertImageManifestIdentity(manifest);
@@ -6902,6 +6901,8 @@ export class QuietRoomApp {
         if (video) button.append(this.videoPlayBadge());
         button.dataset.imageState = 'loaded';
         button.setAttribute('aria-busy', 'false');
+        delete button.dataset.loadStage;
+        this.updateChatImageVisibility(button);
       } else queueMicrotask(() => { if (button.isConnected) void this.hydrateImagePreview(button, manifest); });
     }
     button.addEventListener('click', () => {
@@ -6909,6 +6910,13 @@ export class QuietRoomApp {
           document.documentElement.classList.contains('privacy-obscured') || this.root.querySelector('.message-actions')) return;
       if (button.dataset.imageState === 'error') {
         void this.hydrateImagePreview(button, manifest);
+        return;
+      }
+      if (button.dataset.imageState !== 'loaded') {
+        // A pending thumbnail has no verified pixels to reveal yet. Treat a
+        // tap as an explicit request to start/continue preparation, while the
+        // visible status explains why the viewer cannot open immediately.
+        if (button.dataset.imageState === 'pending') void this.hydrateImagePreview(button, manifest);
         return;
       }
       if (button.dataset.revealed !== 'true') {
@@ -6930,6 +6938,7 @@ export class QuietRoomApp {
 
   private async renderImageIntoButton(button: HTMLButtonElement, manifest: ImageManifest, cached: CachedImage): Promise<void> {
     const video = isVideoFile(manifest);
+    this.updateChatImageLoadFeedback(manifest, 'decode');
     if (video) {
       await this.ensureVideoPoster(manifest, cached);
       if (!button.isConnected || this.privacyCovered) return;
@@ -6939,6 +6948,9 @@ export class QuietRoomApp {
         button.dataset.imageState = 'loaded';
         button.dataset.posterUnavailable = 'true';
         button.setAttribute('aria-busy', 'false');
+        delete button.dataset.loadStage;
+        this.updateChatImageVisibility(button);
+        this.imageLoadStatus.delete(manifest.blobId);
         const list = this.root.querySelector<HTMLElement>('#message-list');
         if (list) this.finishChatAnchorRestore(list);
         return;
@@ -6960,6 +6972,9 @@ export class QuietRoomApp {
     if (video) button.append(this.videoPlayBadge());
     button.dataset.imageState = 'loaded';
     button.setAttribute('aria-busy', 'false');
+    delete button.dataset.loadStage;
+    this.updateChatImageVisibility(button);
+    this.imageLoadStatus.delete(manifest.blobId);
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (list && anchor) this.restoreChatAnchor(list, anchor);
     if (list) this.finishChatAnchorRestore(list);
@@ -6968,9 +6983,9 @@ export class QuietRoomApp {
   private async hydrateImagePreview(button: HTMLButtonElement, manifest: ImageManifest): Promise<void> {
     if (button.dataset.imageState === 'loading' || button.dataset.imageState === 'loaded') return;
     button.dataset.imageState = 'loading';
-    const label = button.querySelector<HTMLElement>('span');
     button.setAttribute('aria-busy', 'true');
-    if (label) { label.className = 'sr-only'; label.textContent = isVideoFile(manifest) ? '正在加载视频' : '正在加载图片'; }
+    if (!button.querySelector('.media-load-status')) this.mountChatImageLoadingFeedback(button, isVideoFile(manifest));
+    this.renderChatImageLoadFeedback(button, isVideoFile(manifest), this.imageLoadStatus.get(manifest.blobId) ?? { stage: 'queued' });
     try {
       const cached = await this.loadImage(manifest);
       if (!button.isConnected || this.privacyCovered) return;
@@ -6979,10 +6994,12 @@ export class QuietRoomApp {
       if (!button.isConnected || cause instanceof DOMException && cause.name === 'AbortError') return;
       button.dataset.imageState = 'error';
       button.setAttribute('aria-busy', 'false');
+      this.imageLoadStatus.delete(manifest.blobId);
       button.style.removeProperty('--chat-preview-source');
       const error = document.createElement('span');
       error.textContent = cause instanceof Error ? `${cause.message}，点按重试` : '载入失败，点按重试';
       button.replaceChildren(error);
+      button.setAttribute('aria-label', error.textContent);
       const list = this.root.querySelector<HTMLElement>('#message-list');
       if (list) this.finishChatAnchorRestore(list);
     }
@@ -7046,8 +7063,13 @@ export class QuietRoomApp {
       const decrypt = isVideoFile(manifest) ? decryptFileAttachment : decryptImageFile;
       const blob = await decrypt(
         manifest,
-        (blobId, chunkIndex) => fetchBlobChunk(roomId, accessToken, blobId, chunkIndex, signal),
-        undefined,
+        async (blobId, chunkIndex) => {
+          this.updateChatImageLoadFeedback(manifest, 'download', chunkIndex / manifest.chunkCount);
+          const chunk = await fetchBlobChunk(roomId, accessToken, blobId, chunkIndex, signal);
+          this.updateChatImageLoadFeedback(manifest, 'decrypt', chunkIndex / manifest.chunkCount);
+          return chunk;
+        },
+        ratio => this.updateChatImageLoadFeedback(manifest, 'decrypt', ratio),
         signal,
       );
       if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
@@ -7060,6 +7082,49 @@ export class QuietRoomApp {
     });
     this.imageLoadPromises.set(manifest.blobId, operation);
     return operation;
+  }
+
+  private renderChatImageLoadFeedback(
+    button: HTMLButtonElement,
+    video: boolean,
+    status: { stage: 'queued' | 'download' | 'decrypt' | 'decode'; ratio?: number },
+  ): void {
+    if (button.dataset.imageState === 'loaded' || button.dataset.imageState === 'error') return;
+    const kind = video ? '视频' : '图片';
+    const percent = status.ratio === undefined ? undefined : Math.round(Math.max(0, Math.min(1, status.ratio)) * 100);
+    const text = status.stage === 'queued' ? `等待加载${kind}`
+      : status.stage === 'download' ? `正在下载${kind} ${percent}%`
+        : status.stage === 'decrypt' ? `正在解密${kind} ${percent}%`
+          : video ? '正在生成视频预览' : '正在生成模糊预览';
+    button.dataset.loadStage = status.stage;
+    button.querySelector<HTMLElement>('.media-load-status')!.textContent = text;
+    const progress = button.querySelector<HTMLElement>('.media-load-progress')!;
+    if (percent === undefined || status.stage === 'decode') {
+      progress.removeAttribute('aria-valuenow');
+      progress.dataset.indeterminate = 'true';
+    } else {
+      progress.setAttribute('aria-valuenow', String(percent));
+      delete progress.dataset.indeterminate;
+      progress.style.setProperty('--media-load-progress', `${percent}%`);
+    }
+    button.setAttribute('aria-label', `${text}，点按继续准备`);
+  }
+
+  private mountChatImageLoadingFeedback(button: HTMLButtonElement, video: boolean): void {
+    button.innerHTML = `${video ? icons.video : icons.image}<span class="media-load-status" role="status" aria-live="polite"></span><span class="media-load-progress" role="progressbar" aria-label="媒体准备进度" aria-valuemin="0" aria-valuemax="100"><i></i></span>`;
+  }
+
+  private updateChatImageLoadFeedback(
+    manifest: ImageManifest,
+    stage: 'queued' | 'download' | 'decrypt' | 'decode',
+    ratio?: number,
+  ): void {
+    const status = { stage, ...(ratio === undefined ? {} : { ratio }) };
+    this.imageLoadStatus.set(manifest.blobId, status);
+    const selector = `.image-preview[data-blob-id="${CSS.escape(manifest.blobId)}"]`;
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>(selector)) {
+      this.renderChatImageLoadFeedback(button, isVideoFile(manifest), status);
+    }
   }
 
   private openImageViewer(
@@ -7255,7 +7320,6 @@ export class QuietRoomApp {
           image.src = loaded.url;
           image.alt = manifest.originalName || `第 ${target + 1} 张图片`;
           image.draggable = false;
-          layer.style.setProperty('--viewer-image-source', `url(${JSON.stringify(loaded.url)})`);
           layer.replaceChildren(image);
           // Byte verification and object-URL creation do not guarantee that a
           // frame is decoded. Keep the incoming layer offscreen until decode
@@ -8176,7 +8240,6 @@ export class QuietRoomApp {
   private lockNow({ preserveFilePicker = false }: { preserveFilePicker?: boolean } = {}): void {
     this.clearKeyboardHandoff();
     this.clearNativeHandoff();
-    document.querySelector('.cover-activation-feedback')?.remove();
     // A cover can still own a key: explicit lock must discard it even when no UI is open.
     this.coverEntryEpoch += 1;
     this.retainedSession = null;
@@ -8197,6 +8260,10 @@ export class QuietRoomApp {
   }
 
   private cleanupRuntime(preserveFilePicker = false): void {
+    this.gatewayFocusAbort?.abort();
+    this.gatewayFocusAbort = null;
+    this.gatewayUnlockAbort?.abort();
+    this.gatewayUnlockAbort = null;
     this.clearKeyboardHandoff();
     this.clearNativeHandoff();
     this.chatImageConcealGesture?.destroy();
@@ -8239,6 +8306,7 @@ export class QuietRoomApp {
     this.runtimeEpoch += 1;
     this.runtimeAbort?.abort();
     this.runtimeAbort = null;
+    this.imageLoadStatus.clear();
     this.gesturePad?.destroy();
     this.gesturePad = null;
     this.galleryObserver?.disconnect();

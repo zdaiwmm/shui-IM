@@ -23,6 +23,7 @@
     "push:keys": "node scripts/generate-vapid-keys.mjs",
     "deploy:production": "bash scripts/deploy-production.sh",
     "deploy:doctor": "bash scripts/deploy-production.sh --doctor",
+    "deploy:readback": "node scripts/production-readback.mjs",
     "test:calls": "vitest run tests/call-crypto.test.ts tests/call-membership.test.ts tests/call-controller.test.ts tests/call-server.test.ts && npm run test:calls:e2e",
     "test:calls:e2e": "node tests/call-native.e2e.mjs && node tests/call-view.e2e.mjs"
   },
