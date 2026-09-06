@@ -236,6 +236,11 @@ try {
     const { app, fresh, settle } = window.bottomFixture;
     await fresh();
     const input = document.querySelector('#message-input');
+    input.focus({ preventScroll: true });
+    Object.defineProperty(visualViewport, 'height', { configurable: true, value: 430 });
+    Object.defineProperty(visualViewport, 'offsetTop', { configurable: true, value: 100 });
+    visualViewport.dispatchEvent(new Event('resize'));
+    await new Promise(resolve => setTimeout(resolve, 750));
     const composer = document.querySelector('#composer');
     const header = document.querySelector('.chat-header');
     const photo = document.querySelector('#open-image-picker');
@@ -243,6 +248,7 @@ try {
       const action = composer.querySelector('.send-button:not([hidden]), .voice-record-button:not([hidden])');
       const messageContent = trackedMessage?.querySelector('.message-bubble');
       return {
+        resizing: Boolean(app.composerHeightMotion),
         inputHeight: input.getBoundingClientRect().height,
         inputBottom: input.getBoundingClientRect().bottom,
         headerTop: header.getBoundingClientRect().top,
@@ -266,7 +272,13 @@ try {
       return samples;
     };
     const range = (samples, key) => Math.max(...samples.map(item => item[key])) - Math.min(...samples.map(item => item[key]));
-    const direction = (samples, key, sign) => samples.slice(1).every((item, index) => sign * (item[key] - samples[index][key]) >= -0.8);
+    const direction = (samples, key, sign) => samples.slice(1).every((item, index) => {
+      // Layout uses fractional CSS pixels; the endpoint document scroll is
+      // integer-quantized. Allow at most one CSS pixel only at that handoff,
+      // while preserving the tighter bound throughout the visible animation.
+      const tolerance = samples[index].resizing && !item.resizing ? 1 : 0.8;
+      return sign * (item[key] - samples[index][key]) >= -tolerance;
+    });
     // WebKit reports flex-end children on alternating device-pixel rounding
     // boundaries while their sibling height is fractional. Up to 1.25 CSS px
     // spans one WebKit device-pixel quantization step at this emulated scale,
@@ -297,9 +309,12 @@ try {
       throw Error(`Timeline did not rise smoothly with composer expansion: ${JSON.stringify(growing)}`);
     }
 
+    const offsets = growing.map(frame => ({ gap: frame.composerTop - frame.messageTop }));
+    if (range(offsets, 'gap') > 2) throw Error(`Composer and timeline used different progress: ${JSON.stringify(growing)}`);
     const previousLatest = app.renderedMessageOrder.at(-1);
+    let sendNumber = 0;
     app.enqueuePayload = async payload => {
-      const clientMsgId = 'composer-motion-send';
+      const clientMsgId = `composer-motion-send-${++sendNumber}`;
       app.pending.set(clientMsgId, {
         seq: Number.MAX_SAFE_INTEGER,
         clientMsgId,
@@ -325,7 +340,55 @@ try {
       || sending.at(-1).messageTop >= sending[0].messageTop - 4) {
       throw Error(`Inserted message did not move the prior timeline smoothly upward: ${JSON.stringify(sending)}`);
     }
+    // Retarget a live Chinese-IME-style wrap, then delete back to one line.
+    // The first position after each edit must retain the last painted position.
+    input.value = '第一行\n第二行\n第三行\n第四行'; input.dispatchEvent(new Event('input'));
+    await collect(3);
+    const beforeRetarget = sample();
+    input.value = '重新组词\n第二行'; input.dispatchEvent(new Event('input'));
+    const retarget = sample();
+    if (Math.abs(retarget.messageTop - beforeRetarget.messageTop) > 1.25
+      || Math.abs(retarget.inputHeight - beforeRetarget.inputHeight) > 1.25) throw Error('Live wrap retarget jumped before paint');
+    await collect(24);
+    input.value = ''; input.dispatchEvent(new Event('input')); await collect(24);
+    input.value = '快速发送第一行\n第二行\n第三行'; input.dispatchEvent(new Event('input'));
+    await collect(3);
+    const interruptedRow = app.renderedMessageOrder.at(-1);
+    const beforeInterruptedSend = sample(interruptedRow);
+    composer.requestSubmit();
+    const interruptedSend = [beforeInterruptedSend, ...await collect(24, interruptedRow)];
+    if (!direction(interruptedSend, 'messageTop', -1) || !smooth(interruptedSend, 'messageTop')
+      || !fixed(interruptedSend, 'photoBottom') || !fixed(interruptedSend, 'headerTop')) {
+      throw Error(`Sending during wrap interrupted visible motion: ${JSON.stringify(interruptedSend)}`);
+    }
+
+    input.value = '离页之前第一行\n第二行\n第三行'; input.dispatchEvent(new Event('input'));
+    await collect(3);
+    const targetHeight = app.composerHeightMotion?.targetHeight;
+    app.cancelViewportWork();
+    if (app.composerHeightMotion || targetHeight == null || Math.abs(input.getBoundingClientRect().height - targetHeight) > 1) {
+      throw Error('Suspending mid-resize left an incomplete field height');
+    }
+    app.syncViewport(); app.trackChatViewport();
+    await new Promise(resolve => setTimeout(resolve, 750));
+    input.value = ''; input.dispatchEvent(new Event('input')); await collect(24);
+
+    // Typing while reading old history must not temporarily pull it upward
+    // and snap it back at the endpoint. Native scroll intent still wins.
+    app.chatScrollIntent = 'up'; app.chatPinnedToBottom = false; app.chatBottomFollowPending = false;
+    app.chatViewportFollowUntil = 0;
+    window.scrollBy(0, -240); await new Promise(resolve => setTimeout(resolve, 500));
+    const readingRow = app.renderedMessageOrder.find(row => row.getBoundingClientRect().top >= 180);
+    input.value = '历史阅读\n继续输入\n第三行'; input.dispatchEvent(new Event('input'));
+    const reading = await collect(24, readingRow);
+    if (range(reading, 'messageTop') > 1.25) throw Error(`Composer resize moved history anchor: ${JSON.stringify(reading)}`);
+    delete visualViewport.height; delete visualViewport.offsetTop;
+    visualViewport.dispatchEvent(new Event('resize'));
+    await new Promise(resolve => setTimeout(resolve, 750));
     return {
+      focusedKeyboardViewport: true,
+      interruptedWrap: true,
+      historyAnchorStable: true,
       duration: getComputedStyle(document.documentElement).getPropertyValue('--motion-composer').trim(),
       expansionFrames: growing.filter((item, index) => !index || Math.abs(item.inputHeight - growing[index - 1].inputHeight) > 0.2).length,
       collapseFrames: sending.filter((item, index) => !index || Math.abs(item.inputHeight - sending[index - 1].inputHeight) > 0.2).length,
@@ -617,6 +680,12 @@ try {
     button().click();
     if (button().dataset.scrolling || Math.abs(window.scrollY - app.chatBottomScrollTop()) > 2 || visible()) throw Error('Reduced motion did not move directly to latest message');
     if (getComputedStyle(button()).transitionProperty !== 'none') throw Error('Reduced motion retained the fade');
+    const input = document.querySelector('#message-input');
+    const baseHeight = input.getBoundingClientRect().height;
+    input.value = '减少动态效果\n第二行\n第三行'; input.dispatchEvent(new Event('input'));
+    if (app.composerHeightMotion || input.getBoundingClientRect().height <= baseHeight + 30) throw Error('Reduced motion animated or lost multiline sizing');
+    input.value = ''; input.dispatchEvent(new Event('input'));
+    if (app.composerHeightMotion || Math.abs(input.getBoundingClientRect().height - baseHeight) > 1) throw Error('Reduced motion failed to restore single-line height');
     await fresh(0); if (visible()) throw Error('Empty conversation displayed return control');
     await fresh(1);
     const shortGap = document.querySelector('#composer').getBoundingClientRect().top - app.renderedMessageOrder.at(-1).getBoundingClientRect().bottom;

@@ -687,11 +687,17 @@ try {
 
   const imageCount = await joiner.locator('.message.incoming .image-preview').count();
   const creatorChatImageCount = await creator.locator('.message.outgoing .image-preview').count();
-  const chatAnchorBeforeGallery = await creator.locator('#message-list').evaluate((list) => {
+  await creator.locator('#message-list').evaluate((list) => {
     // This is a deliberate history-reading gesture, not a native focus scroll
     // racing the just-completed send. Cancel bottom follow before positioning.
     list.dispatchEvent(new WheelEvent('wheel', { deltaY: -160, bubbles: true }));
     window.scrollTo(0, document.documentElement.scrollHeight - innerHeight - 160);
+  });
+  // The application commits native document-scroll bookkeeping on the next
+  // animation frame. Record the baseline after that commit so a slower CI
+  // runner cannot compare a pre-commit offset with the restored saved anchor.
+  await creator.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const chatAnchorBeforeGallery = await creator.locator('#message-list').evaluate((list) => {
     const listTop = window.visualViewport?.offsetTop ?? 0;
     const visible = [...list.querySelectorAll('.message[data-client-msg-id]')]
       .find((message) => message.getBoundingClientRect().bottom > listTop);
