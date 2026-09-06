@@ -171,6 +171,7 @@ const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3'
 // a direct textarea tap. Keep this exception short, one-use and independent
 // from chooser/media handoffs so every hard lifecycle signal still locks.
 const KEYBOARD_NATIVE_HANDOFF_MS = 1_200;
+const CHAT_COMPOSER_MOTION_MS = 280;
 
 type CachedImage = { blob: Blob; url: string; bytes: number; lastUsedAt: number; width?: number; height?: number; posterUrl?: string; posterPromise?: Promise<void>; posterUnavailable?: boolean };
 const MAX_IMAGE_CACHE_BYTES = 96 * 1024 * 1024;
@@ -320,6 +321,11 @@ export class QuietRoomApp {
   private chatScrollBookkeepingPending = false;
   private chatScrollDocumentMovedPending = false;
   private chatMessageAnimations = new Set<Animation>();
+  private composerHeightMotion: {
+    targetHeight: number;
+    frame: number | null;
+    clock: Animation | null;
+  } | null = null;
   private chatBottomControl: ReturnType<typeof mountChatBottomControl> | null = null;
   private chatViewportMotion: ReturnType<typeof createChatViewportMotion> | null = null;
   private chatKeyboardGesture: ReturnType<typeof bindChatKeyboardGesture> | null = null;
@@ -657,6 +663,11 @@ export class QuietRoomApp {
     };
     this.cancelViewportWork = () => {
       this.galleryViewportHeader = null;
+      if (this.composerHeightMotion && this.composerHeightMotion.frame !== null) {
+        cancelAnimationFrame(this.composerHeightMotion.frame);
+      }
+      this.composerHeightMotion?.clock?.cancel();
+      this.composerHeightMotion = null;
       this.chatViewportMotion?.suspend();
       this.chatKeyboardGesture?.reset();
       this.chatBottomControl?.cancel();
@@ -3484,15 +3495,112 @@ export class QuietRoomApp {
       }
     });
     textarea.addEventListener('paste', event => this.handleComposerPaste(event));
+    const resizeTextarea = (animate = true) => {
+      const measure = textarea.cloneNode() as HTMLTextAreaElement;
+      measure.removeAttribute('id');
+      measure.setAttribute('aria-hidden', 'true');
+      measure.tabIndex = -1;
+      measure.value = textarea.value;
+      measure.style.position = 'fixed';
+      measure.style.inset = 'auto auto 0 0';
+      measure.style.visibility = 'hidden';
+      measure.style.pointerEvents = 'none';
+      measure.style.transition = 'none';
+      measure.style.width = `${textarea.getBoundingClientRect().width}px`;
+      measure.style.height = '0px';
+      textarea.parentElement!.append(measure);
+      const targetHeight = Math.min(measure.scrollHeight, 128);
+      measure.remove();
+      if (this.composerHeightMotion?.targetHeight === targetHeight) return;
+
+      const currentHeight = textarea.getBoundingClientRect().height;
+      // A single-line edit commonly keeps the exact same intrinsic height.
+      // Leave an already-running send/reaction animation alone in that case;
+      // there is no composer geometry for this controller to retarget.
+      if (!this.composerHeightMotion && Math.abs(targetHeight - currentHeight) < 0.5) return;
+      const list = this.chatLayoutElements?.list;
+      const origins = new Map<HTMLElement, number>();
+      if (list?.isConnected) {
+        for (const row of list.children) {
+          const contents = row.classList.contains('message-date') ? [row] : [...row.children];
+          for (const content of contents) {
+            if (content instanceof HTMLElement && !content.classList.contains('message-reply-swipe-indicator')) {
+              origins.set(content, content.getBoundingClientRect().top);
+            }
+          }
+        }
+      }
+      const priorMotion = this.composerHeightMotion;
+      if (priorMotion && priorMotion.frame !== null) cancelAnimationFrame(priorMotion.frame);
+      priorMotion?.clock?.cancel();
+      this.composerHeightMotion = null;
+      this.cancelChatMessageMotion();
+      // Freeze an interrupted transition at its currently painted height, then
+      // commit that geometry before retargeting. Origins above preserve the
+      // exact visible message positions across this bookkeeping step.
+      textarea.style.transition = 'none';
+      textarea.style.height = `${currentHeight}px`;
+      void textarea.offsetHeight;
+      this.syncChatLayout();
+      const composer = this.chatLayoutElements?.composer;
+      const currentComposerHeight = composer?.getBoundingClientRect().height ?? currentHeight;
+      textarea.style.height = `${targetHeight}px`;
+      const targetComposerHeight = composer?.getBoundingClientRect().height ?? targetHeight;
+      textarea.style.height = `${currentHeight}px`;
+      void textarea.offsetHeight;
+      if (!animate || matchMedia('(prefers-reduced-motion: reduce)').matches
+        || !ownsActiveChat() || Math.abs(targetHeight - currentHeight) < 0.5) {
+        textarea.style.height = `${targetHeight}px`;
+        void textarea.offsetHeight;
+        textarea.style.removeProperty('transition');
+        this.syncChatLayout();
+        return;
+      }
+      textarea.style.removeProperty('transition');
+      const motion = { targetHeight, frame: null as number | null, clock: null as Animation | null };
+      this.composerHeightMotion = motion;
+      // The input grows in layout, but document geometry remains committed at
+      // the starting height. Visible message children use the same compositor
+      // clock, avoiding per-frame scroll/ResizeObserver feedback in WebKit.
+      motion.frame = requestAnimationFrame(() => {
+        motion.frame = null;
+        if (this.composerHeightMotion !== motion || !ownsActiveChat()) return;
+        textarea.style.height = `${targetHeight}px`;
+        const distance = targetComposerHeight - currentComposerHeight;
+        for (const [content, previousTop] of origins) {
+          if (!content.isConnected) continue;
+          const start = previousTop - content.getBoundingClientRect().top;
+          const animation = content.animate(
+            [{ translate: `0 ${start}px` }, { translate: `0 ${-distance}px` }],
+            { duration: CHAT_COMPOSER_MOTION_MS, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'forwards' },
+          );
+          animation.currentTime = 0;
+          this.chatMessageAnimations.add(animation);
+        }
+        const clock = list!.animate([{ opacity: 1 }, { opacity: 1 }], { duration: CHAT_COMPOSER_MOTION_MS });
+        motion.clock = clock;
+        clock.finished.then(() => {
+          if (this.composerHeightMotion !== motion || !ownsActiveChat()) return;
+          this.composerHeightMotion = null;
+          textarea.style.transition = 'none';
+          textarea.style.height = `${targetHeight}px`;
+          void textarea.offsetHeight;
+          textarea.style.removeProperty('transition');
+          // Move the document to the already-painted endpoint, then remove the
+          // temporary child translations in the same task: no snap is exposed.
+          this.syncChatLayout();
+          this.cancelChatMessageMotion();
+        }, () => {});
+      });
+    };
     textarea.addEventListener('input', () => {
-      textarea.style.height = 'auto';
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 128)}px`;
+      resizeTextarea();
       this.uiPreferences.composerDraft = textarea.value;
       this.scheduleUiPreferencesSave();
       this.syncComposerMode();
     });
     textarea.value = this.uiPreferences.composerDraft ?? '';
-    textarea.style.height = `${Math.min(textarea.scrollHeight, 128)}px`;
+    resizeTextarea(false);
     this.syncComposerMode();
     textarea.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
@@ -3729,7 +3837,7 @@ export class QuietRoomApp {
       },
       targetScrollTop: () => this.chatBottomScrollTop(),
       active: () => !this.privacyCovered && this.activeSurface === 'chat' && shell.isConnected,
-      measure: () => !this.chatViewportMotion?.moving,
+      measure: () => !this.chatViewportMotion?.moving && !this.composerHeightMotion,
       begin: () => {
         this.replyJumpVersion += 1;
         this.chatViewportMotion?.automaticScroll();
@@ -3761,7 +3869,7 @@ export class QuietRoomApp {
     this.chatLayoutGeneration += 1;
     let previousMeasurements = '';
     const sync = (position = true) => {
-      if (!shell.isConnected || this.chatViewportMotion?.moving) return;
+      if (!shell.isConnected || this.chatViewportMotion?.moving || this.composerHeightMotion) return;
       const headerHeight = header.offsetHeight;
       const noticesHeight = notices.offsetHeight;
       const composerHeight = composer.offsetHeight;
@@ -4388,6 +4496,10 @@ export class QuietRoomApp {
   }
 
   private alignChatBottom(): void {
+    if (this.composerHeightMotion) {
+      this.chatBottomFollowPending = true;
+      return;
+    }
     if (this.chatViewportMotion?.moving) {
       this.chatBottomFollowPending = true;
       return;
@@ -6177,7 +6289,7 @@ export class QuietRoomApp {
         if (!(content instanceof HTMLElement)) continue;
         const animation = content.animate(
           [{ translate: `0 ${offset}px` }, { translate: '0 0' }],
-          { duration: 300, easing: 'cubic-bezier(0.22, 0.68, 0.22, 1)' },
+          { duration: 280, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
         );
         this.chatMessageAnimations.add(animation);
         animation.finished.then(() => this.chatMessageAnimations.delete(animation), () => this.chatMessageAnimations.delete(animation));
@@ -8436,6 +8548,9 @@ export class QuietRoomApp {
       composer.value = '';
     }
     this.sendingTextDrafts.clear();
+    if (this.composerHeightMotion && this.composerHeightMotion.frame !== null) cancelAnimationFrame(this.composerHeightMotion.frame);
+    this.composerHeightMotion?.clock?.cancel();
+    this.composerHeightMotion = null;
     this.imageBatchUploading = false;
     if (this.blurLockTimer !== null) window.clearTimeout(this.blurLockTimer);
     this.blurLockTimer = null;

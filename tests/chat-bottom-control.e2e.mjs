@@ -232,6 +232,109 @@ try {
     return { toolbarFrames: 4, multilineComposer: true, gap: 8 };
   });
 
+  results.composerHeightMotion = await page.evaluate(async () => {
+    const { app, fresh, settle } = window.bottomFixture;
+    await fresh();
+    const input = document.querySelector('#message-input');
+    const composer = document.querySelector('#composer');
+    const header = document.querySelector('.chat-header');
+    const photo = document.querySelector('#open-image-picker');
+    const sample = (trackedMessage = app.renderedMessageOrder.at(-1)) => {
+      const action = composer.querySelector('.send-button:not([hidden]), .voice-record-button:not([hidden])');
+      const messageContent = trackedMessage?.querySelector('.message-bubble');
+      return {
+        inputHeight: input.getBoundingClientRect().height,
+        inputBottom: input.getBoundingClientRect().bottom,
+        headerTop: header.getBoundingClientRect().top,
+        photoBottom: photo.getBoundingClientRect().bottom,
+        actionBottom: action?.getBoundingClientRect().bottom ?? Number.NaN,
+        messageTop: messageContent?.getBoundingClientRect().top ?? Number.NaN,
+        composerTop: composer.getBoundingClientRect().top,
+        scrollY: window.scrollY,
+        bottomSpace: getComputedStyle(document.documentElement).getPropertyValue('--chat-bottom-space'),
+      };
+    };
+    const collect = async (frames, trackedMessage) => {
+      const samples = [sample(trackedMessage)];
+      for (let index = 0; index < frames; index++) {
+        // Sample after paint. App-owned rAF callbacks may be queued later in
+        // the same frame than this test callback, but those intermediate DOM
+        // states are never presented to the user.
+        await new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+        samples.push(sample(trackedMessage));
+      }
+      return samples;
+    };
+    const range = (samples, key) => Math.max(...samples.map(item => item[key])) - Math.min(...samples.map(item => item[key]));
+    const direction = (samples, key, sign) => samples.slice(1).every((item, index) => sign * (item[key] - samples[index][key]) >= -0.8);
+    // WebKit reports flex-end children on alternating device-pixel rounding
+    // boundaries while their sibling height is fractional. Up to 1.25 CSS px
+    // spans one WebKit device-pixel quantization step at this emulated scale,
+    // not a presented movement of the anchored edge.
+    const fixed = (samples, key) => range(samples, key) <= 1.25;
+    const smooth = (samples, key) => {
+      const travel = range(samples, key);
+      const largestFrame = Math.max(...samples.slice(1).map((item, index) => Math.abs(item[key] - samples[index][key])));
+      const movingFrames = samples.filter((item, index) => !index || Math.abs(item[key] - samples[index - 1][key]) > 0.2).length;
+      // Headless WebKit can miss an early presentation deadline while still
+      // producing a continuous compositor transition. Reject a one-frame jump,
+      // while requiring several distinct painted positions and a partial step.
+      return movingFrames >= 5 && largestFrame < Math.max(4, travel * 0.9);
+    };
+
+    input.value = '第一行\n第二行\n第三行';
+    input.dispatchEvent(new Event('input'));
+    const growing = await collect(24);
+    if (range(growing, 'inputHeight') < 35 || !direction(growing, 'inputHeight', 1)) {
+      throw Error(`Composer did not expand through monotonic intermediate heights: ${JSON.stringify(growing)}`);
+    }
+    if (!fixed(growing, 'headerTop') || !fixed(growing, 'inputBottom')
+      || !fixed(growing, 'photoBottom') || !fixed(growing, 'actionBottom')) {
+      throw Error(`Fixed chat chrome moved during composer expansion: ${JSON.stringify(growing)}`);
+    }
+    if (!direction(growing, 'messageTop', -1) || !smooth(growing, 'messageTop')
+      || growing.at(-1).messageTop >= growing[0].messageTop - 35) {
+      throw Error(`Timeline did not rise smoothly with composer expansion: ${JSON.stringify(growing)}`);
+    }
+
+    const previousLatest = app.renderedMessageOrder.at(-1);
+    app.enqueuePayload = async payload => {
+      const clientMsgId = 'composer-motion-send';
+      app.pending.set(clientMsgId, {
+        seq: Number.MAX_SAFE_INTEGER,
+        clientMsgId,
+        senderId: app.session.vault.identity.publicBundle.deviceId,
+        payload,
+        acceptedAt: payload.sentAt,
+        status: 'pending',
+      });
+      app.renderMessages({ scroll: 'send' });
+    };
+    const beforeSend = sample(previousLatest);
+    composer.requestSubmit();
+    const sending = [beforeSend, ...await collect(24, previousLatest)];
+    await settle();
+    if (range(sending, 'inputHeight') < 35 || !direction(sending, 'inputHeight', -1)) {
+      throw Error(`Sent composer did not collapse through monotonic intermediate heights: ${JSON.stringify(sending)}`);
+    }
+    if (!fixed(sending, 'headerTop') || !fixed(sending, 'inputBottom')
+      || !fixed(sending, 'photoBottom') || !fixed(sending, 'actionBottom')) {
+      throw Error(`Fixed chat chrome moved during send: ${JSON.stringify(sending)}`);
+    }
+    if (!direction(sending, 'messageTop', -1) || !smooth(sending, 'messageTop')
+      || sending.at(-1).messageTop >= sending[0].messageTop - 4) {
+      throw Error(`Inserted message did not move the prior timeline smoothly upward: ${JSON.stringify(sending)}`);
+    }
+    return {
+      duration: getComputedStyle(document.documentElement).getPropertyValue('--motion-composer').trim(),
+      expansionFrames: growing.filter((item, index) => !index || Math.abs(item.inputHeight - growing[index - 1].inputHeight) > 0.2).length,
+      collapseFrames: sending.filter((item, index) => !index || Math.abs(item.inputHeight - sending[index - 1].inputHeight) > 0.2).length,
+      fixedHeader: true,
+      fixedToolbar: true,
+      synchronizedTimeline: true,
+    };
+  });
+
   // An actual pointer click must retain the focused textarea and selection.
   await page.locator('#message-input').fill('键盘和选择位置保留');
   await page.evaluate(async () => {

@@ -288,10 +288,10 @@ try {
     if (!dateAnimation || !bubbleAnimation) throw Error(`Cross-midnight send omitted coordinated date/message motion: ${JSON.stringify({ count: animations.length, date: Boolean(dateAnimation), bubble: Boolean(bubbleAnimation), followPending: app.chatBottomFollowPending })}`);
     const dateFrames = dateAnimation.effect.getKeyframes();
     const bubbleFrames = bubbleAnimation.effect.getKeyframes();
-    if (dateFrames[0].translate !== bubbleFrames[0].translate || dateAnimation.effect.getTiming().duration !== 300 || bubbleAnimation.effect.getTiming().duration !== 300) throw Error('Date and message did not share the send offset and 300ms duration');
+    if (dateFrames[0].translate !== bubbleFrames[0].translate || dateAnimation.effect.getTiming().duration !== 280 || bubbleAnimation.effect.getTiming().duration !== 280) throw Error('Date and message did not share the send offset and 280ms duration');
     await Promise.all(animations.map(animation => animation.finished));
     if (app.chatMessageAnimations.size !== 0 || date.getAnimations().some(animation => animations.includes(animation))) throw Error('Completed send motion retained date/message animations');
-    return { offset: dateFrames[0].translate, duration: 300, coordinated: true, finishedAnimations: 0 };
+    return { offset: dateFrames[0].translate, duration: 280, coordinated: true, finishedAnimations: 0 };
   });
   await mobile.emulateMedia({ reducedMotion: 'reduce' });
   results.reducedMidnightMotion = await mobile.evaluate(async () => {
