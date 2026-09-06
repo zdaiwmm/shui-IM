@@ -142,6 +142,40 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-06（Asia/Shanghai）；`deployed-at=20260906T023118Z`（10:31:18 发布批次），
+  10:32:18 独立回读完成。应用版本 `f7c2f1daa41c00a107685750d4be62cc892c15f2`，由
+  [PR #24](https://github.com/zdaiwmm/shui-IM/pull/24) 于 10:18:09 squash 合并。范围为录屏
+  键盘白屏、标题抖动、收键盘时工具栏中途显现与输入区材质一致性；生命周期边界见 D-026。
+- [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34005889972) 与
+  [精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34006132442) 均成功：
+  构建、51 个测试文件／413 项单元集成、两组共 23 个浏览器入口、原生通话、凭据扫描、
+  生产依赖审计与 `Full application verification`／`verify` 汇总通过。本地最终
+  `npm run check:full` 从头通过，浏览器汇总 251.43 秒；通话两项与 WebKit 前端生命周期、
+  系统表面、回到底部专项另行通过。真实 iPhone/Android 仍未验收。
+- 首次切换在停止容器后仍检测到备份容器运行，保护检查拒绝进入冷备份与新容器启动；
+  返回 `ROLLBACK_OK`，没有创建该次冷备份或恢复数据。Docker 事件显示停止完成后由回滚
+  重启旧容器；10:30:19 独立 `READBACK_OK` 确认旧 SHA、镜像、健康与产物一致。现有证据
+  与停止状态同步的瞬时问题相符，但未证明根因。旧版状态明确后对同一 SHA 有界重试一次，
+  保留全部安全检查；未改写 root helper，其摘要仍为
+  `d95bbe225f593732d68bd555228c8ebf1cad29420988d9c40fb681cbfbaf78fe`。
+- 第二次固定入口 `node scripts/publish.mjs --sha f7c2f1daa41c00a107685750d4be62cc892c15f2`
+  返回精确 `DEPLOY_OK`、`DEPLOY_VERIFIED`，外层核对成功回执。总耗时 75,669ms，隔离发布
+  与入口回读 56,109ms，服务器阶段 42 秒（停止检查通过、冷备份 5 秒、启动健康等待 31 秒）。
+- 发布目录 `/opt/quiet-room/git-releases/20260906T023118Z-f7c2f1daa41c`；已校验冷备份
+  `/opt/quiet-room/backups/predeploy/data-20260906T023118Z-f7c2f1daa41c.tar.gz`。
+- 10:32:18 独立只读回读 `READBACK_OK`：版本、批次、目录一致，维护标记不存在；应用
+  容器运行且健康，备份容器运行、没有健康探针；两者 Image ID 与目标镜像均为
+  `sha256:a847d5f786daecc972df2988e1148f092de58fa0785308eea4913f8e2810ef41`。
+  HTTPS `ok`／`database`／`storage` 全为 true；首页、`/sw.js`、
+  `/assets/app-CX7MDSBJ.js`、`/assets/app-CmgLvIKV.css` 与 preload 脚本和容器产物
+  逐字节一致，公开 WebSocket 连接成功。本机访问正式来源遭连接重置，因此公开 HTTPS
+  与 WSS 探针从生产主机访问正式域名，独立于发布程序执行；不声称异网络客户端验证。
+  未读取真实消息、附件或备份内容。`admin-enabled=0`、`calls-enabled=0`。
+- 回读后在不带部署配置的独立文档工作树对账发布记录、状态页、D-026 与测试证据；
+  文档 PR 不代表重新部署应用。真机与长期运维／独立安全审计边界保持不变。
+
+## 上次线上发布记录（2026-09-05 18:08）
+
 - 日期：2026-09-05（Asia/Shanghai）；服务器 `deployed-at=20260905T100553Z`（18:05:53
   发布批次），18:08 前完成独立回读。
 - 应用版本：`2738893b395082504603d4fb0a6360e85d4c4a3f`。由
