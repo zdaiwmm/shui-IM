@@ -58,6 +58,13 @@ import { createAuthenticatedCallVault, assertAuthenticatedRoomRoster, signCallId
 import { CALL_CAPABILITY, type CallKind, type CallState } from './lib/call-types';
 import { voiceIcons, voiceTime } from './lib/voice-audio';
 import { UnreadCounter } from './lib/unread-counter';
+import {
+  currentRelease,
+  hasPendingReleaseNotes,
+  markReleaseNotesSeen,
+  pendingReleaseUpdate,
+  subscribeReleaseUpdate,
+} from './lib/release-update';
 import { REACTION_EMOJIS, reduceMessageReactions } from './lib/reactions';
 import { reduceMessageDeletions } from './lib/message-deletions';
 import {
@@ -263,6 +270,7 @@ function isDesktopBrowser(): boolean {
 export class QuietRoomApp {
   private session: VaultSession | null = null;
   private readonly desktopBrowser = isDesktopBrowser();
+  private availableReleaseId = pendingReleaseUpdate();
   // Memory only. Cover teardown still clears media, rendered history and sockets.
   private retainedSession: VaultSession | null = null;
   private coverEntryEpoch = 0;
@@ -448,6 +456,10 @@ export class QuietRoomApp {
   private callReturnFocus: HTMLElement | null = null;
 
   constructor(private readonly root: HTMLElement) {
+    subscribeReleaseUpdate(releaseId => {
+      this.availableReleaseId = releaseId;
+      this.renderReleaseUpdateBanner();
+    });
     this.unreadCounter = new UnreadCounter(count => {
       document.querySelectorAll<HTMLElement>('.cover-unread').forEach(label => { label.textContent = String(count); });
     });
@@ -3340,6 +3352,7 @@ export class QuietRoomApp {
           </nav>
         </header>
         <div class="system-notices" aria-label="本机安全提醒">
+          ${this.releaseUpdateBannerMarkup()}
           ${cryptoReady ? '' : `
             <aside class="crypto-reminder">
               <div><strong>正在建立安全会话</strong><span>验证完成后即可发送消息。</span></div>
@@ -3533,6 +3546,7 @@ export class QuietRoomApp {
       this.flushUiPreferencesSave();
       this.root.querySelector('.recovery-reminder')?.remove();
     });
+    this.bindReleaseUpdateButton();
     this.root.querySelector('#manage-devices')?.addEventListener('click', () => this.transitionPage('forward', () => void this.renderDeviceManager()));
     const replyClose = this.root.querySelector<HTMLButtonElement>('#reply-draft button');
     let replyCloseRetainsKeyboard = false;
@@ -3561,6 +3575,67 @@ export class QuietRoomApp {
     this.updatePeerStatus();
     this.updateCallControls();
     void this.updateBackgroundNotificationControl();
+    this.showReleaseNotesIfNeeded();
+  }
+
+  private releaseUpdateBannerMarkup(): string {
+    return this.availableReleaseId ? `
+      <aside class="release-update-reminder" role="status">
+        <strong>有新版本待更新</strong>
+        <button type="button" data-release-update>更新</button>
+      </aside>
+    ` : '';
+  }
+
+  private bindReleaseUpdateButton(): void {
+    this.root.querySelector('[data-release-update]')?.addEventListener('click', () => window.location.reload());
+  }
+
+  private renderReleaseUpdateBanner(): void {
+    if (this.privacyCovered || this.activeSurface !== 'chat') return;
+    const notices = this.root.querySelector<HTMLElement>('.system-notices');
+    if (!notices || notices.querySelector('.release-update-reminder')) return;
+    notices.insertAdjacentHTML('afterbegin', this.releaseUpdateBannerMarkup());
+    this.bindReleaseUpdateButton();
+  }
+
+  private showReleaseNotesIfNeeded(): void {
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (!session || !hasPendingReleaseNotes() || this.root.querySelector('.release-notes-sheet')) return;
+    const sheet = document.createElement('section');
+    sheet.className = 'release-notes-sheet';
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-modal', 'true');
+    sheet.setAttribute('aria-labelledby', 'release-notes-title');
+    const panel = document.createElement('div');
+    panel.className = 'release-notes-panel';
+    const eyebrow = document.createElement('p');
+    eyebrow.className = 'eyebrow';
+    eyebrow.textContent = '已更新至最新版本';
+    const title = document.createElement('h2');
+    title.id = 'release-notes-title';
+    title.textContent = currentRelease.title;
+    const list = document.createElement('ol');
+    for (const note of currentRelease.notes) {
+      const item = document.createElement('li');
+      item.textContent = note;
+      list.append(item);
+    }
+    const button = document.createElement('button');
+    button.className = 'primary-button';
+    button.type = 'button';
+    button.textContent = '知道了';
+    panel.append(eyebrow, title, list, button);
+    sheet.append(panel);
+    this.root.append(sheet);
+    const dialog = mountDialog(sheet, {
+      isActive: () => this.isRuntimeActive(epoch, session) && this.activeSurface === 'chat',
+      signal: this.runtimeAbort?.signal,
+      initialFocus: button,
+    });
+    markReleaseNotesSeen();
+    button.addEventListener('click', () => dialog.close());
   }
 
   private commitChatViewportGeometry(): void {
