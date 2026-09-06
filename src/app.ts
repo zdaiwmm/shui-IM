@@ -280,6 +280,7 @@ export class QuietRoomApp {
   private uploadPlans: ImageUploadPlan[] = [];
   private imageCache = new Map<string, CachedImage>();
   private imageLoadPromises = new Map<string, Promise<CachedImage>>();
+  private imageLoadStatus = new Map<string, { stage: 'queued' | 'download' | 'decrypt' | 'decode'; ratio?: number }>();
   private imageManifestSignatures = new Map<string, string>();
   private activeImageLoads = 0;
   private imageLoadWaiters: Array<() => void> = [];
@@ -6882,7 +6883,8 @@ export class QuietRoomApp {
     button.dataset.revealLabel = `${video ? '显示视频预览' : '显示图片'} ${description}`;
     this.updateChatImageVisibility(button);
     button.setAttribute('aria-busy', 'true');
-    button.innerHTML = `${video ? icons.video : icons.image}<span class="sr-only">正在加载${video ? '视频' : '图片'}</span>`;
+    this.mountChatImageLoadingFeedback(button, video);
+    this.renderChatImageLoadFeedback(button, video, this.imageLoadStatus.get(manifest.blobId) ?? { stage: 'queued' });
     const cached = this.imageCache.get(manifest.blobId);
     if (cached) {
       this.assertImageManifestIdentity(manifest);
@@ -6899,6 +6901,8 @@ export class QuietRoomApp {
         if (video) button.append(this.videoPlayBadge());
         button.dataset.imageState = 'loaded';
         button.setAttribute('aria-busy', 'false');
+        delete button.dataset.loadStage;
+        this.updateChatImageVisibility(button);
       } else queueMicrotask(() => { if (button.isConnected) void this.hydrateImagePreview(button, manifest); });
     }
     button.addEventListener('click', () => {
@@ -6906,6 +6910,13 @@ export class QuietRoomApp {
           document.documentElement.classList.contains('privacy-obscured') || this.root.querySelector('.message-actions')) return;
       if (button.dataset.imageState === 'error') {
         void this.hydrateImagePreview(button, manifest);
+        return;
+      }
+      if (button.dataset.imageState !== 'loaded') {
+        // A pending thumbnail has no verified pixels to reveal yet. Treat a
+        // tap as an explicit request to start/continue preparation, while the
+        // visible status explains why the viewer cannot open immediately.
+        if (button.dataset.imageState === 'pending') void this.hydrateImagePreview(button, manifest);
         return;
       }
       if (button.dataset.revealed !== 'true') {
@@ -6927,6 +6938,7 @@ export class QuietRoomApp {
 
   private async renderImageIntoButton(button: HTMLButtonElement, manifest: ImageManifest, cached: CachedImage): Promise<void> {
     const video = isVideoFile(manifest);
+    this.updateChatImageLoadFeedback(manifest, 'decode');
     if (video) {
       await this.ensureVideoPoster(manifest, cached);
       if (!button.isConnected || this.privacyCovered) return;
@@ -6936,6 +6948,9 @@ export class QuietRoomApp {
         button.dataset.imageState = 'loaded';
         button.dataset.posterUnavailable = 'true';
         button.setAttribute('aria-busy', 'false');
+        delete button.dataset.loadStage;
+        this.updateChatImageVisibility(button);
+        this.imageLoadStatus.delete(manifest.blobId);
         const list = this.root.querySelector<HTMLElement>('#message-list');
         if (list) this.finishChatAnchorRestore(list);
         return;
@@ -6957,6 +6972,9 @@ export class QuietRoomApp {
     if (video) button.append(this.videoPlayBadge());
     button.dataset.imageState = 'loaded';
     button.setAttribute('aria-busy', 'false');
+    delete button.dataset.loadStage;
+    this.updateChatImageVisibility(button);
+    this.imageLoadStatus.delete(manifest.blobId);
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (list && anchor) this.restoreChatAnchor(list, anchor);
     if (list) this.finishChatAnchorRestore(list);
@@ -6965,9 +6983,9 @@ export class QuietRoomApp {
   private async hydrateImagePreview(button: HTMLButtonElement, manifest: ImageManifest): Promise<void> {
     if (button.dataset.imageState === 'loading' || button.dataset.imageState === 'loaded') return;
     button.dataset.imageState = 'loading';
-    const label = button.querySelector<HTMLElement>('span');
     button.setAttribute('aria-busy', 'true');
-    if (label) { label.className = 'sr-only'; label.textContent = isVideoFile(manifest) ? '正在加载视频' : '正在加载图片'; }
+    if (!button.querySelector('.media-load-status')) this.mountChatImageLoadingFeedback(button, isVideoFile(manifest));
+    this.renderChatImageLoadFeedback(button, isVideoFile(manifest), this.imageLoadStatus.get(manifest.blobId) ?? { stage: 'queued' });
     try {
       const cached = await this.loadImage(manifest);
       if (!button.isConnected || this.privacyCovered) return;
@@ -6976,10 +6994,12 @@ export class QuietRoomApp {
       if (!button.isConnected || cause instanceof DOMException && cause.name === 'AbortError') return;
       button.dataset.imageState = 'error';
       button.setAttribute('aria-busy', 'false');
+      this.imageLoadStatus.delete(manifest.blobId);
       button.style.removeProperty('--chat-preview-source');
       const error = document.createElement('span');
       error.textContent = cause instanceof Error ? `${cause.message}，点按重试` : '载入失败，点按重试';
       button.replaceChildren(error);
+      button.setAttribute('aria-label', error.textContent);
       const list = this.root.querySelector<HTMLElement>('#message-list');
       if (list) this.finishChatAnchorRestore(list);
     }
@@ -7043,8 +7063,13 @@ export class QuietRoomApp {
       const decrypt = isVideoFile(manifest) ? decryptFileAttachment : decryptImageFile;
       const blob = await decrypt(
         manifest,
-        (blobId, chunkIndex) => fetchBlobChunk(roomId, accessToken, blobId, chunkIndex, signal),
-        undefined,
+        async (blobId, chunkIndex) => {
+          this.updateChatImageLoadFeedback(manifest, 'download', chunkIndex / manifest.chunkCount);
+          const chunk = await fetchBlobChunk(roomId, accessToken, blobId, chunkIndex, signal);
+          this.updateChatImageLoadFeedback(manifest, 'decrypt', chunkIndex / manifest.chunkCount);
+          return chunk;
+        },
+        ratio => this.updateChatImageLoadFeedback(manifest, 'decrypt', ratio),
         signal,
       );
       if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
@@ -7057,6 +7082,49 @@ export class QuietRoomApp {
     });
     this.imageLoadPromises.set(manifest.blobId, operation);
     return operation;
+  }
+
+  private renderChatImageLoadFeedback(
+    button: HTMLButtonElement,
+    video: boolean,
+    status: { stage: 'queued' | 'download' | 'decrypt' | 'decode'; ratio?: number },
+  ): void {
+    if (button.dataset.imageState === 'loaded' || button.dataset.imageState === 'error') return;
+    const kind = video ? '视频' : '图片';
+    const percent = status.ratio === undefined ? undefined : Math.round(Math.max(0, Math.min(1, status.ratio)) * 100);
+    const text = status.stage === 'queued' ? `等待加载${kind}`
+      : status.stage === 'download' ? `正在下载${kind} ${percent}%`
+        : status.stage === 'decrypt' ? `正在解密${kind} ${percent}%`
+          : video ? '正在生成视频预览' : '正在生成模糊预览';
+    button.dataset.loadStage = status.stage;
+    button.querySelector<HTMLElement>('.media-load-status')!.textContent = text;
+    const progress = button.querySelector<HTMLElement>('.media-load-progress')!;
+    if (percent === undefined || status.stage === 'decode') {
+      progress.removeAttribute('aria-valuenow');
+      progress.dataset.indeterminate = 'true';
+    } else {
+      progress.setAttribute('aria-valuenow', String(percent));
+      delete progress.dataset.indeterminate;
+      progress.style.setProperty('--media-load-progress', `${percent}%`);
+    }
+    button.setAttribute('aria-label', `${text}，点按继续准备`);
+  }
+
+  private mountChatImageLoadingFeedback(button: HTMLButtonElement, video: boolean): void {
+    button.innerHTML = `${video ? icons.video : icons.image}<span class="media-load-status" role="status" aria-live="polite"></span><span class="media-load-progress" role="progressbar" aria-label="媒体准备进度" aria-valuemin="0" aria-valuemax="100"><i></i></span>`;
+  }
+
+  private updateChatImageLoadFeedback(
+    manifest: ImageManifest,
+    stage: 'queued' | 'download' | 'decrypt' | 'decode',
+    ratio?: number,
+  ): void {
+    const status = { stage, ...(ratio === undefined ? {} : { ratio }) };
+    this.imageLoadStatus.set(manifest.blobId, status);
+    const selector = `.image-preview[data-blob-id="${CSS.escape(manifest.blobId)}"]`;
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>(selector)) {
+      this.renderChatImageLoadFeedback(button, isVideoFile(manifest), status);
+    }
   }
 
   private openImageViewer(
@@ -8238,6 +8306,7 @@ export class QuietRoomApp {
     this.runtimeEpoch += 1;
     this.runtimeAbort?.abort();
     this.runtimeAbort = null;
+    this.imageLoadStatus.clear();
     this.gesturePad?.destroy();
     this.gesturePad = null;
     this.galleryObserver?.disconnect();

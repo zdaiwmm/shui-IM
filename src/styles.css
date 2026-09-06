@@ -1655,6 +1655,48 @@ button:disabled {
   min-height: 128px;
   align-content: center;
   gap: 7px;
+  padding: 20px;
+  background: linear-gradient(135deg, color-mix(in oklch, var(--surface) 84%, var(--accent-soft)), var(--surface));
+}
+
+.media-load-status {
+  position: relative;
+  z-index: 1;
+  max-width: 100%;
+  color: var(--ink-muted);
+  font-size: .75rem;
+  font-weight: 650;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.media-load-progress {
+  position: relative;
+  z-index: 1;
+  width: min(112px, 82%);
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--line) 68%, transparent);
+}
+
+.media-load-progress > i {
+  display: block;
+  width: var(--media-load-progress, 0%);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 180ms ease;
+}
+
+.media-load-progress[data-indeterminate='true'] > i {
+  width: 42%;
+  animation: media-load-progress 1.15s ease-in-out infinite;
+}
+
+@keyframes media-load-progress {
+  from { transform: translateX(-120%); }
+  to { transform: translateX(340%); }
 }
 
 .image-preview img {
@@ -1723,6 +1765,11 @@ button:disabled {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.7;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .media-load-progress > i { transition: none; }
+  .media-load-progress[data-indeterminate='true'] > i { width: 56%; animation: none; }
 }
 
 .image-album {
