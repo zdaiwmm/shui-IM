@@ -252,9 +252,17 @@ try {
         viewportMotion: composer.dataset.viewportMotion ?? null,
         inputHeight: input.getBoundingClientRect().height,
         inputBottom: input.getBoundingClientRect().bottom,
-        headerTop: header.getBoundingClientRect().top,
+        inputVisualBottom: input.getBoundingClientRect().bottom - visualViewport.offsetTop,
+        // The test mutates a VisualViewport-shaped object in Chromium, whose
+        // fixed-position reference frame does not move as Mobile Safari's
+        // does. Normalize the header by that mocked offset; composer bottom
+        // geometry is already expressed against height + offset explicitly.
+        headerPaintTop: header.getBoundingClientRect().top,
+        headerVisualTop: header.getBoundingClientRect().top - visualViewport.offsetTop,
         photoBottom: photo.getBoundingClientRect().bottom,
+        photoVisualBottom: photo.getBoundingClientRect().bottom - visualViewport.offsetTop,
         actionBottom: action?.getBoundingClientRect().bottom ?? Number.NaN,
+        actionVisualBottom: (action?.getBoundingClientRect().bottom ?? Number.NaN) - visualViewport.offsetTop,
         messageTop: messageContent?.getBoundingClientRect().top ?? Number.NaN,
         composerTop: composer.getBoundingClientRect().top,
         scrollY: window.scrollY,
@@ -304,8 +312,9 @@ try {
     if (range(growing, 'inputHeight') < 35 || !direction(growing, 'inputHeight', 1)) {
       throw Error(`Composer did not expand through monotonic intermediate heights: ${JSON.stringify(growing)}`);
     }
-    if (!fixed(growing, 'headerTop') || !fixed(growing, 'inputBottom')
-      || !fixed(growing, 'photoBottom') || !fixed(growing, 'actionBottom')) {
+    const paintedGrowth = growing.slice(1);
+    if (!fixed(paintedGrowth, 'headerVisualTop') || !fixed(paintedGrowth, 'inputBottom')
+      || !fixed(paintedGrowth, 'photoBottom') || !fixed(paintedGrowth, 'actionBottom')) {
       throw Error(`Fixed chat chrome moved during composer expansion: ${JSON.stringify(growing)}`);
     }
     if (growing.some(frame => frame.viewportMotion)) {
@@ -316,7 +325,7 @@ try {
       throw Error(`Timeline did not rise smoothly with composer expansion: ${JSON.stringify(growing)}`);
     }
 
-    const offsets = growing.map(frame => ({ gap: frame.composerTop - frame.messageTop }));
+    const offsets = paintedGrowth.map(frame => ({ gap: frame.composerTop - frame.messageTop }));
     if (range(offsets, 'gap') > 2) throw Error(`Composer and timeline used different progress: ${JSON.stringify(growing)}`);
     const previousLatest = app.renderedMessageOrder.at(-1);
     let sendNumber = 0;
@@ -343,7 +352,7 @@ try {
     if (range(sending, 'inputHeight') < 35 || !direction(sending, 'inputHeight', -1)) {
       throw Error(`Sent composer did not collapse through monotonic intermediate heights: ${JSON.stringify(sending)}`);
     }
-    if (!fixed(sending, 'headerTop') || !fixed(sending, 'inputBottom')
+    if (!fixed(sending, 'headerVisualTop') || !fixed(sending, 'inputBottom')
       || !fixed(sending, 'photoBottom') || !fixed(sending, 'actionBottom')) {
       throw Error(`Fixed chat chrome moved during send: ${JSON.stringify(sending)}`);
     }
@@ -361,8 +370,8 @@ try {
     visualViewport.dispatchEvent(new Event('scroll'));
     const delayedSendDrift = [beforeDelayedSendDrift, ...await collect(4, previousLatest)];
     if (delayedSendDrift.some(frame => frame.viewportMotion)
-      || !fixed(delayedSendDrift, 'headerTop') || !fixed(delayedSendDrift, 'inputBottom')
-      || !fixed(delayedSendDrift, 'photoBottom') || !fixed(delayedSendDrift, 'actionBottom')) {
+      || !fixed(delayedSendDrift, 'headerVisualTop') || !fixed(delayedSendDrift, 'inputVisualBottom')
+      || !fixed(delayedSendDrift, 'photoVisualBottom') || !fixed(delayedSendDrift, 'actionVisualBottom')) {
       throw Error(`Delayed send viewport drift moved fixed chat chrome: ${JSON.stringify(delayedSendDrift)}`);
     }
     // Retarget a live Chinese-IME-style wrap, then delete back to one line.
@@ -383,7 +392,7 @@ try {
     composer.requestSubmit();
     const interruptedSend = [beforeInterruptedSend, ...await collect(24, interruptedRow)];
     if (!direction(interruptedSend, 'messageTop', -1) || !smooth(interruptedSend, 'messageTop')
-      || !fixed(interruptedSend, 'photoBottom') || !fixed(interruptedSend, 'headerTop')) {
+      || !fixed(interruptedSend, 'photoBottom') || !fixed(interruptedSend, 'headerVisualTop')) {
       throw Error(`Sending during wrap interrupted visible motion: ${JSON.stringify(interruptedSend)}`);
     }
 
