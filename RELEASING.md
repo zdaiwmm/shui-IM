@@ -50,23 +50,41 @@ SHA 完全相同。只有外层核对成功并且后续独立只读生产回读�
 才建立文档 PR；无差异时记录检查成功。相同发布/回读证据重复运行应幂等，不重复追加。
 文档 PR 合并造成 GitHub main SHA 晚于线上应用 SHA 是正常状态，该文档提交不需要发布。
 
-当前生产回读的丰富证据仍由发布任务独立取得和审阅；仓库内结构化 `READBACK_OK` 回执与
-无人值守文档 PR 对账器尚未落地。在它们完成前，执行发布的任务必须按同一触发顺序人工
-完成对账，不能把规则存在写成自动链路已验证。
+独立回读已有仓库内固定入口。外层 `publish.mjs` 精确核对成功回执后，另行执行：
+
+```bash
+npm run deploy:readback -- --sha <本次获批并已发布的40位提交号>
+```
+
+该命令每次重新读取生产，不复用旧绿色结果；只执行服务器状态/容器检查、公开 HTTPS、
+运行容器与公开产物逐字节摘要核对及新的 WebSocket 连接，不调用发布 helper，不开关维护门，
+也不读取真实消息、附件或备份内容。成功时输出 `READBACK_OK`，并将版本化、脱敏 JSON 证据以
+0600 权限原子写入当前仓库的 `.git/quiet-room-readback/`，不会污染工作树。结构化回读成功
+仍不等于知识库已对账、CI 通过、真机通过或独立安全审计通过；无人值守文档 PR 对账器尚未
+落地，执行发布的任务仍须按本页顺序完成人工/代理审阅与对账。
 
 若应用已经 `DEPLOY_VERIFIED`/`READBACK_OK`，但文档生成、检查、推送或 PR 失败，生产发布
 仍然成功。记录 `CONTEXT_SYNC_BLOCKED` 与可重试的同一份证据，只重试知识库对账；禁止为
 修复文档状态再次调用服务器发布程序。
 
 固定入口成功但独立回读超时、探针失败或证据无法保存时，分别记录“固定入口已验证”和
-“独立回读待完成”，只重试只读回读及后续对账。发布进入过非只读阶段后连接中断、开放
+“独立回读待完成”，只用同一目标 SHA 重跑上述只读入口及后续对账。回读失败固定输出
+`READBACK_BLOCKED class=<分类> phase=<阶段> retry=readback-only`；安全续跑不会调用或重试
+生产切换。发布进入过非只读阶段后连接中断、开放
 流量后的检查失败或未取得精确回执时，先标记 `PRODUCTION_STATE_UNRESOLVED` 并调查真实
 生产状态；在查明前不得假定回滚成功，也不得再次执行切换。
 
-结构化入口落地前，独立回读至少核对目标线上 SHA、`deployed-at` 与维护标记，分别记录
-容器 `running` 和实际健康探针结果，核对实际镜像、HTTPS `ok`/`database`/`storage`、
-首页、Service Worker、CSS/JavaScript/preload 产物及公开 WebSocket。没有健康探针时不能
-写 `healthy`。检查不得读取真实消息、附件或备份内容；无法取得的字段直接记为未验证。
+固定入口核对目标线上 SHA、`deployed-at`、精确发布目录与维护标记，分别记录容器
+`running` 和实际健康探针结果，核对实际 Image ID/不可变镜像引用、HTTPS
+`ok`/`database`/`storage`、首页、Service Worker、首页引用的版本化产物及公开 WebSocket。
+没有健康探针时明确记录 `none`，不能写 `healthy`。任何阶段失败都不能产生 `READBACK_OK`；
+无法取得的字段保持未验证。
+
+回读阶段固定为 `server-state`、`validate-state`、`https-health`、`public-artifacts`、
+`container-artifacts` 和 `public-websocket`，另有总耗时；每行 `READBACK_TIMING` 只包含阶段、
+结果、失败分类（仅失败时）和毫秒数。失败分类固定区分用法/配置、连接、服务器检查、生产
+元数据、容器状态、镜像、HTTPS 健康、公开产物、WebSocket 与本地证据写入。原始 SSH、HTTP
+或 WebSocket 错误不进入结构化计时与证据。
 
 ## CI 与分段耗时
 
