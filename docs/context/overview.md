@@ -1,6 +1,6 @@
 # Quiet Room 项目地图
 
-更新时间：2026-09-05。本页用于按任务定位，不复制完整产品说明或目录树。相对路径均从仓库根目录计算。
+更新时间：2026-09-07。本页用于按任务定位，不复制完整产品说明或目录树。相对路径均从仓库根目录计算。
 
 ## 一分钟认识项目
 
@@ -9,7 +9,7 @@
 - 前端启动：`src/main.ts` 加载样式、实例化 `QuietRoomApp`，并在生产环境注册 Service Worker。
 - 主要编排：`src/app.ts` 管理页面、会话、生命周期、消息、附件、相册和通话接入。项目不是 React 应用。
 - 服务入口：`server/index.mjs` 提供 HTTP/WebSocket、认证、安全头与资源限制；`server/storage.mjs` 管理 SQLite、序号、设备历史边界及密文附件状态。
-- 正式来源：`https://ai.shui.click`；本地开发通常使用 `http://localhost:5173` 才适合 WebAuthn RP ID 测试。
+- 正式来源：`https://ai.shui.click`；单机开发通常使用 `http://localhost:5173`，局域网通行密钥真机测试必须使用设备信任且主机名匹配的稳定 HTTPS 来源。
 
 ## 按任务查找
 
@@ -31,6 +31,7 @@
 | 实时音视频通话 | `CALLS.md`、`SECURITY.md` 的通话构造、`DEPLOYMENT.md` 的可选中继部署段与当前状态页 | `src/lib/call-*.ts`、`src/call.css`、`server/calls.mjs` | `tests/call-*.test.ts`、`tests/call-flow.e2e.mjs`、`tests/call-native.e2e.mjs`、`tests/call-view.e2e.mjs` |
 | 回应、回复手势、消息删除、未读计数和 presence | `PRODUCT.md`、`SECURITY.md`、[D-024](./decisions.md#d-024保险箱本地整理与聊天删除严格分层) | `src/lib/reactions.ts`、`src/lib/reply-swipe.ts`、`src/lib/message-deletions.ts`、`src/lib/message-payload.ts`、`src/lib/unread-counter.ts`、`src/lib/api.ts`、`server/index.mjs`、`server/storage.mjs` | `tests/reactions.test.ts`、`tests/reply-swipe.test.ts`、`tests/message-deletions.test.ts`、`tests/message-deletion.e2e.mjs`、`tests/reaction-history.e2e.mjs`、`tests/unread-counter.test.ts`、`tests/unread-server.test.ts`、`tests/unread-counter.e2e.mjs` |
 | Web Push | `OPERATIONS.md`、`SECURITY.md` | `src/lib/push.ts`、`server/push.mjs`、`public/sw.js` | `tests/push.test.ts`、`tests/push-server.test.ts` |
+| 本机 main 集成、局域网测试与跨电脑同步 | [`docs/workflows/local-lan-testing.md`](../workflows/local-lan-testing.md)、本工作流、`README.md` | 共享本机 `main` 工作树、实际 Vite／服务端进程；主机名、证书和数据为每台电脑的本机配置 | 候选与本机 main 精确 SHA、进程工作目录、前端目标代码回读、后端健康接口、局域网 HTTPS 真机记录 |
 | 构建、发布、备份与运维 | `RELEASING.md`、`DEPLOYMENT.md`、`OPERATIONS.md`、`PRODUCTION_SECURITY_GATE.md` | `scripts/`、`deploy/`、`.github/workflows/ci.yml` | `tests/deploy-*.test.ts`、`tests/release.test.ts`、`tests/publish.test.ts`、`tests/backup.test.ts`、`tests/operations-*.test.ts` |
 | 发布后生产事实、上下文治理与交付效率 | `RELEASING.md`、`docs/context/maintenance.md`、[D-021](./decisions.md#d-021生产回读后对账知识库语义变化继续审阅)、[2026-09-05 交付复盘](../../audit/2026-09-05-mobile-ux-delivery-retrospective.md) | 发布与最小 SHA 回执为 `scripts/publish.mjs`、`scripts/release.mjs`；独立结构化回读为 `scripts/production-readback.mjs`；格式检查为 `scripts/check-docs.mjs`，自动文档 PR 对账尚待实现 | `tests/publish.test.ts`、`tests/release-entry.test.ts`、`tests/production-readback.test.ts`、`tests/ci-docs.test.ts`、`tests/ci-scope.test.ts` |
 
@@ -64,4 +65,5 @@
 - [RELEASING.md](../../RELEASING.md)：唯一日常发布入口、授权前提和最近一次发布记录。
 - [DEPLOYMENT.md](../../DEPLOYMENT.md)：部署架构、首次配置、可选通话覆盖和服务器布局。
 - [OPERATIONS.md](../../OPERATIONS.md)：备份、证书、推送、恢复演练和事故处理。
+- [本机局域网测试与跨电脑同步](../workflows/local-lan-testing.md)：本机 `main` 集成、服务回读、局域网 HTTPS 真机验收及 GitHub 同步边界。
 - [audit/](../../audit/)：特定日期和代码基线的审查证据；不能自动外推到当前工作树。
