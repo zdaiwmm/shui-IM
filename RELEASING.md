@@ -142,6 +142,38 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-06（Asia/Shanghai）；`deployed-at=20260906T053714Z`（13:37:14 发布批次），
+  13:38:29 独立回读完成。应用版本 `6cce8b017c98cf270729e28bfabae0ee3e551570`，由
+  [PR #26](https://github.com/zdaiwmm/shui-IM/pull/26) 于 13:31:13 squash 合并；合并前功能
+  提交为 `e579ea806ab6f1e422e1b349a0d1d6b5ccdedce9`。范围仅为遮蔽层长按进入验证页后，Safari
+  偶发不弹系统密码验证的问题：遮蔽空闲期预读加密的 v3 保险箱包装，使受信长按完成后能在
+  用户激活仍有效时同步发起 WebAuthn；实际解锁仍在生命周期锁内重新读取当前持久记录。
+- [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34013956905) 与
+  [精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34014192269) 均成功：
+  构建、52 个测试文件／419 项单元集成、两组共 23 个浏览器入口、原生通话、凭据扫描、
+  生产依赖审计与 `Full application verification`／`verify` 汇总通过。本地最终
+  `npm run check:full` 从头通过，浏览器汇总 250.01 秒；覆盖虚拟 CTAP2.1/PRF、Chromium、
+  Playwright WebKit、系统表面和生命周期时序。真实 iPhone iOS 27 Safari 的系统验证弹窗
+  仍待真机验收，自动化结果不外推为真机通过。
+- 固定入口 `node scripts/publish.mjs --sha 6cce8b017c98cf270729e28bfabae0ee3e551570`
+  从独立浅克隆执行，再次核对 GitHub main 与该 SHA 的最新完整 CI；服务器返回精确
+  `DEPLOY_OK`，外层核对回执并返回 `DEPLOY_VERIFIED`。入口总耗时 88,183ms，隔离发布与
+  入口回读 70,328ms；服务器部署总计 56 秒，其中获取源码 4 秒、构建镜像 14 秒、维护门
+  1 秒、冷备份 5 秒、启动及健康等待 32 秒，分项有嵌套。
+- 发布目录 `/opt/quiet-room/git-releases/20260906T053714Z-6cce8b017c98`；已校验冷备份
+  `/opt/quiet-room/backups/predeploy/data-20260906T053714Z-6cce8b017c98.tar.gz`。
+- 13:38:29 独立只读回读 `READBACK_OK`，总耗时 2,572ms：版本、批次和目录一致，维护标记
+  不存在；应用容器运行且健康，备份容器运行、没有健康探针；两者 Image ID 与目标镜像均为
+  `sha256:f05f256b587db9b4cc7d5691b5b93b90be60099ef9302003452f4e23f762e1cb`。
+  HTTPS `ok`／`database`／`storage` 全为 true；首页、`/sw.js`、
+  `/assets/app-CIOXv7kU.js`、`/assets/app-CmgLvIKV.css` 与 preload 脚本和容器产物逐字节
+  一致，公开 WebSocket 新连接成功。检查未读取真实消息、附件或备份内容；
+  `admin-enabled=0`、`calls-enabled=0`，TURN 仍未启用。
+- 回读后在不带部署配置的独立文档 worktree 对账本记录和状态页；文档 PR 不代表重新部署
+  应用。真实 iPhone/Android、长期运维与独立安全审计边界保持不变。
+
+## 上次线上发布记录（2026-09-06 10:32）
+
 - 日期：2026-09-06（Asia/Shanghai）；`deployed-at=20260906T023118Z`（10:31:18 发布批次），
   10:32:18 独立回读完成。应用版本 `f7c2f1daa41c00a107685750d4be62cc892c15f2`，由
   [PR #24](https://github.com/zdaiwmm/shui-IM/pull/24) 于 10:18:09 squash 合并。范围为录屏
