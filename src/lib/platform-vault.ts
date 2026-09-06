@@ -104,10 +104,11 @@ function requireUserVerification(flags: number): void {
   }
 }
 
-async function evaluatePrf(record: PlatformCredentialRecord): Promise<Uint8Array<ArrayBuffer>> {
+async function evaluatePrf(record: PlatformCredentialRecord, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
   const rpId = record.rpId ?? location.hostname;
   if (rpId !== location.hostname) throw new Error(`此保险库绑定到 ${rpId}，当前域名无法使用原设备凭据`);
   const assertion = await runWebAuthnCeremony(() => navigator.credentials.get({
+    signal,
     publicKey: {
       challenge: randomBytes(32),
       rpId,
@@ -207,9 +208,9 @@ export async function createPlatformCredential(
   }
 }
 
-export async function unlockPlatformCredential(record: PlatformCredentialRecord): Promise<Uint8Array<ArrayBuffer>> {
+export async function unlockPlatformCredential(record: PlatformCredentialRecord, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
   requireWebAuthn();
-  return evaluatePrf(record);
+  return evaluatePrf(record, signal);
 }
 
 export function platformCredentialLabel(record: PlatformCredentialRecord): string {

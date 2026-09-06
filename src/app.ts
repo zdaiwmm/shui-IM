@@ -356,6 +356,7 @@ export class QuietRoomApp {
   private imagePickerFocusReturnTimer: number | null = null;
   private deferredImageUpload: { roomId: string; deviceId: string; files: File[]; destination: 'chat' | 'gallery' } | null = null;
   private unlocking = false;
+  private gatewayUnlockAbort: AbortController | null = null;
   private deviceVerificationActive = false;
   private systemSurfaceTokens = new Set<symbol>();
   private nativeHandoff: {
@@ -1010,44 +1011,9 @@ export class QuietRoomApp {
       navigator.vibrate?.(20);
       if (pointer) {
         this.coverHoldCommitted = true;
-        if (!matchMedia('(prefers-reduced-motion: reduce)').matches) this.showCoverActivationFeedback(trigger);
         if (current()) void this.renderGateway({ trustedCoverActivation: true });
       } else void this.renderGateway({ trustedCoverActivation: true });
     }, duration);
-  }
-
-  private showCoverActivationFeedback(trigger: HTMLElement | null): void {
-    if (!trigger) return;
-    document.querySelector('.cover-activation-feedback')?.remove();
-    const bounds = trigger.getBoundingClientRect();
-    const x = Number.parseFloat(trigger.style.getPropertyValue('--cover-press-x'));
-    const y = Number.parseFloat(trigger.style.getPropertyValue('--cover-press-y'));
-    const feedback = document.createElement('span');
-    feedback.className = 'cover-activation-feedback';
-    feedback.setAttribute('aria-hidden', 'true');
-    feedback.style.left = `${bounds.left + (Number.isFinite(x) ? x : bounds.width / 2)}px`;
-    feedback.style.top = `${bounds.top + (Number.isFinite(y) ? y : bounds.height / 2)}px`;
-    for (const burst of [
-      { x: 0, y: 0, delay: 0 },
-      { x: Math.max(72, window.innerWidth * .32 - bounds.left), y: Math.min(-90, window.innerHeight * .28 - bounds.top), delay: 120 },
-      { x: Math.min(-72, window.innerWidth * .68 - bounds.right), y: Math.min(-150, window.innerHeight * .46 - bounds.top), delay: 240 },
-    ]) {
-      const firework = document.createElement('span');
-      firework.className = 'cover-firework';
-      firework.style.setProperty('--firework-x', `${burst.x}px`);
-      firework.style.setProperty('--firework-y', `${burst.y}px`);
-      firework.style.setProperty('--firework-delay', `${burst.delay}ms`);
-      for (let index = 0; index < 12; index += 1) {
-        const spark = document.createElement('i');
-        spark.style.setProperty('--spark-angle', `${index * 30}deg`);
-        firework.append(spark);
-      }
-      feedback.append(firework);
-    }
-    document.body.append(feedback);
-    const remove = () => feedback.remove();
-    feedback.addEventListener('animationend', event => { if (event.target === feedback) remove(); });
-    window.setTimeout(remove, 1200);
   }
 
   private cancelCoverTimer(): void {
@@ -1266,14 +1232,16 @@ export class QuietRoomApp {
       const runUnlock = () => {
         if (this.unlocking) return;
         this.unlocking = true;
+        const abort = new AbortController();
+        this.gatewayUnlockAbort = abort;
         error.textContent = '';
         setBusy(button, true, '正在验证…');
         void (async () => {
           try {
-            // Start WebAuthn in this trusted activation stack. Starting it
-            // after IndexedDB/lock awaits is what made Safari intermittently
-            // omit the device-password sheet after a completed cover hold.
-            const platformProof = this.withDeviceVerification(() => unlockPlatformCredential(stored.platform));
+            // Start without another storage wait. Browser-owned sheet timing
+            // is separate from invoking this request; teardown must cancel it
+            // as well as rejecting its late result.
+            const platformProof = this.withDeviceVerification(() => unlockPlatformCredential(stored.platform, abort.signal));
             void platformProof.catch(() => undefined);
             const unlocked = await unlockVault('', platformProof);
             if (!current()) return;
@@ -1285,6 +1253,7 @@ export class QuietRoomApp {
               else error.textContent = cause instanceof Error ? cause.message : '无法解锁';
             }
           } finally {
+            if (this.gatewayUnlockAbort === abort) this.gatewayUnlockAbort = null;
             if (this.gatewayRenderEpoch === renderEpoch) this.unlocking = false;
             if (button.isConnected) setBusy(button, false);
           }
@@ -8176,7 +8145,6 @@ export class QuietRoomApp {
   private lockNow({ preserveFilePicker = false }: { preserveFilePicker?: boolean } = {}): void {
     this.clearKeyboardHandoff();
     this.clearNativeHandoff();
-    document.querySelector('.cover-activation-feedback')?.remove();
     // A cover can still own a key: explicit lock must discard it even when no UI is open.
     this.coverEntryEpoch += 1;
     this.retainedSession = null;
@@ -8197,6 +8165,8 @@ export class QuietRoomApp {
   }
 
   private cleanupRuntime(preserveFilePicker = false): void {
+    this.gatewayUnlockAbort?.abort();
+    this.gatewayUnlockAbort = null;
     this.clearKeyboardHandoff();
     this.clearNativeHandoff();
     this.chatImageConcealGesture?.destroy();
