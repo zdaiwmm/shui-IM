@@ -19,11 +19,20 @@
   通过（该专项使用鼠标事件和原生凭据接口替身）。不等于 iPhone 真机通过；本轮未合并或发布。
 - 用户新录屏约 5.9 秒：画面停在遮蔽页，后段出现按住灰点后消失，未见验证页或系统框。
   用户确认灰点消失时未松手，且通常发生于 Safari 后台恢复，杀掉浏览器进程再打开可恢复。
-  已排除用户提前松手；仍须区分原生手势取消、焦点／生命周期变化及网关短暂进入后重新锁定。
+  已排除用户提前松手。后续真机 probe 三次均进入 `A--GB-V-`，约 258／254／261 毫秒后
+  回到遮蔽页，回退发生在 pointerup 之前；全程 `hasFocus=false`，未见入口前 pointercancel。
+  `lostpointercapture` 出现在网关挂载之后，不能当成此次长按取消的根因。
   不把原始录屏／截图存入仓库。
 - 提供 `scripts/cover-entry-probe.js` 临时本机取证书签：记录事件时间及界面布尔状态，不读取
   DOM 文本、凭据、异常详情，不上传、不持久化；两分钟停止，二次运行报告并清理。
-  只用于当前失败的真机取证，不导入应用、不更改认证／手势。待用户回传失败记录再选修复路径。
+  只用于当前失败的真机取证，不导入应用、不更改认证／手势。
+- 本地诊断回放保持真实网关和 `withDeviceVerification`，在可见未聚焦状态令原生替身返回
+  `NotAllowedError`，确定复现 250 毫秒回锁，与真机时间吻合。WebKit 当前主线
+  [AuthenticatorCoordinator](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/Modules/webauthn/AuthenticatorCoordinator.cpp)
+  对非 conditional 且 `!document.hasFocus()` 的请求直接返回 NotAllowedError；这支持
+  “后台恢复焦点缺失→请求被拒→等待焦点超时回锁”，但主线源码不等于目标 iOS 构建的直接日志。
+  尚未证实恢复真实焦点的最小方法，不延长期限、不伪造 hasFocus、不删除成功认证的前台门禁。
+  下一项真机实验：同一失败状态先正常点按页面中部，再长按，使用现有 probe 查看是否恢复 F。
 - Safari 的“使用通行密钥”和 Face ID／设备密码选择属于系统 UI；网页已要求用户验证，
   不能保证跳过系统确认或强制某一种生物识别。其他创建／恢复验证的请求取消范围先记为旁支，
   本批只修改普通 v3 解锁，不扩大恢复或注册行为。

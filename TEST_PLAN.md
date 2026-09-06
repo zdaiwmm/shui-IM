@@ -17,6 +17,9 @@
   与网关回退。`node tests/cover-entry-probe.e2e.mjs` 和
   `QUIET_ROOM_TEST_BROWSER=webkit node tests/cover-entry-probe.e2e.mjs` 验证最小化书签的事件记录、
   同一任务内短暂网关捕获、无 DOM 文本／网络请求和报告清理；不属于产品或真机通过证据。
+- `QUIET_ROOM_REPRO_STICKY_FOCUS=1 node tests/desktop-privacy.e2e.mjs` 是显式诊断回放：
+  保持可见未聚焦、长按不松手并使原生替身拒绝，断言 249ms 仍在网关、250ms 回到遮蔽页。
+  这是现有失败路径的复现证据，不是期望产品行为或真机原生返回码证明；默认产品套件不启用此分支。
 
 ## 真机录屏键盘白屏与输入区材质回归（2026-09-05）
 

@@ -698,6 +698,25 @@ try {
     pointerInput: touchDriver ? 'trusted-touch' : 'mouse',
     slowRequestSingleFlight: true, abandonedRequestsAborted: true,
   };
+  if (process.env.QUIET_ROOM_REPRO_STICKY_FOCUS) {
+    // Diagnostic replay of the device trace, not an assertion that this is
+    // acceptable UX or that the native authenticator really rejected there.
+    await pendingPage.evaluate(async () => {
+      const fixture = window.privacyFixture;
+      fixture.app.lockNow(); fixture.visibility(false); fixture.setFocused(false);
+      await navigator.locks.request('quiet-room:vault:current', () => {});
+    });
+    await cornerDown(pendingPage);
+    await pendingPage.clock.runFor(1000);
+    assert.equal(await pendingPage.locator('#passkey-unlock').isDisabled(), true);
+    await pendingPage.evaluate(() => window.privacyFixture.nativeRequests.at(-1).cancel());
+    await pendingPage.clock.runFor(249);
+    assert.equal(await pendingPage.locator('.gateway').count(), 1);
+    await pendingPage.clock.runFor(1);
+    await assertCovered(pendingPage, false);
+    await pendingPage.mouse.up();
+    results.stickyFocusDiagnostic = { visible: true, hasFocus: false, nativeResult: 'synthetic NotAllowedError', returnToCoverMs: 250, pointerStillDown: true };
+  }
   await pendingPage.close();
 
   const exclusions = [
