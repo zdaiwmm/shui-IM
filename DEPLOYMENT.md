@@ -28,16 +28,17 @@ when already operating from a clean release checkout.
 3. Merge the reviewed change into `main`.
 4. On a trusted computer with the dedicated production SSH key, update the
    local `main` branch so it matches `origin/main`.
-5. Run:
+5. Run the fixed isolated publisher with the exact merged SHA:
 
    ```bash
-   npm run deploy:production
+   npm run deploy:production -- --sha <full-40-character-main-commit>
    ```
 
-6. Review the exact commit shown by the script and type `DEPLOY` to continue.
-   For an agent executing a user-authorized release, use
-   `npm run deploy:production -- --sha <full-40-character-main-commit>`.
-   This replaces only the interactive confirmation, not any safety check.
+   The `--sha` argument replaces only the interactive confirmation; all
+   preflight, CI, clone, server and live-SHA checks still run. The direct
+   checkout-only implementation remains available as
+   `npm run deploy:production:direct` for an explicitly prepared release
+   checkout.
 
 After the outer fixed publisher has verified its exact-SHA receipt, run the
 independent repository readback as a separate post-cutover step:
@@ -398,7 +399,7 @@ their public keys to the corresponding destinations, and configure the local
 repository to use them. Each trusted computer can then run the same command:
 
 ```bash
-npm run deploy:production
+npm run deploy:production -- --sha <full-40-character-main-commit>
 ```
 
 Revoking one computer therefore does not affect the others. Remove its GitHub

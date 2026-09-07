@@ -23,7 +23,7 @@ function command(program, args, options = {}) {
 async function main() {
   const args = process.argv.slice(2);
   if (args.length === 1 && args[0] === '--help') {
-    console.log('Production: https://ai.shui.click\nUsage: npm run deploy:doctor\n       npm run deploy:production [-- --sha <exact 40-character main SHA>]\nConfig: .deploy.local.json or QUIET_ROOM_* environment settings.\n--sha confirms only that exact commit; all safety checks still run.');
+    console.log('Production: https://ai.shui.click\nUsage: npm run deploy:doctor\n       npm run deploy:production -- --sha <exact 40-character main SHA>\n       node scripts/release.mjs --sha <exact 40-character main SHA>\nConfig: .deploy.local.json or QUIET_ROOM_* environment settings.\n--sha confirms only that exact commit; all safety checks still run.');
     return;
   }
   const doctor = args.length === 1 && args[0] === '--doctor';
