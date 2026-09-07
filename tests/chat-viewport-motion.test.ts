@@ -6,7 +6,7 @@ import {
   createChatViewportMotion,
 } from '../src/lib/chat-viewport-motion';
 
-function fixture() {
+function fixture(settleDelay?: (target: 'open' | 'closed' | null) => number) {
   let time = 0;
   const events: string[] = [];
   const sample = {
@@ -19,6 +19,7 @@ function fixture() {
     keyboardGeometry: 'closed' as 'closed' | 'intermediate' | 'open',
   };
   const motion = createChatViewportMotion({
+    settleDelay,
     now: () => time,
     conceal: immediate => events.push(immediate ? 'positioning' : 'fading'),
     settled: () => events.push('measure'), reveal: () => events.push('reveal'),
@@ -36,6 +37,21 @@ function fixture() {
 }
 
 describe('chat viewport motion', () => {
+  it('allows a shorter native closed endpoint without revealing intermediate keyboard geometry', () => {
+    const { motion, events, tick } = fixture(target => target === 'closed' ? 0 : CHAT_VIEWPORT_SETTLE_MS);
+    tick(0);
+    motion.keyboard('open');
+    tick(16, { height: 430 });
+    tick(CHAT_VIEWPORT_SETTLE_MS);
+    events.length = 0;
+    motion.keyboard('closed');
+    tick(16, { height: 650 });
+    tick(100);
+    expect(events).not.toContain('reveal');
+    tick(16, { height: 844 });
+    expect(events.slice(-2)).toEqual(['measure', 'reveal']);
+  });
+
   it('conceals a chat first mounted at intermediate keyboard geometry', () => {
     const { motion, events, tick } = fixture();
     tick(0, { height: 1_236, width: 1_024, layoutHeight: 1_366 });

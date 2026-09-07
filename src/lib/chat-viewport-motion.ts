@@ -15,6 +15,7 @@ type MotionOptions = {
   conceal: (immediate: boolean) => void;
   reveal: () => void;
   settled: () => void;
+  settleDelay?: (target: KeyboardTarget | null) => number;
   now?: () => number;
 };
 
@@ -141,7 +142,7 @@ export function createChatViewportMotion(options: MotionOptions) {
       // Safari can leave a quiet gap between browser-toolbar and keyboard
       // phases. A quiet intermediate height is not the requested endpoint:
       // commit document geometry only after that endpoint itself is stable.
-      const quiet = now() - lastMovement >= CHAT_VIEWPORT_SETTLE_MS;
+      const quiet = now() - lastMovement >= (options.settleDelay?.(keyboardTarget) ?? CHAT_VIEWPORT_SETTLE_MS);
       const hardFallback = targetFallback || targetlessIntermediateFallback;
       if (hidden && !touching && (targetReached && quiet || hardFallback && (!manual || quiet))) {
         moving = false;
