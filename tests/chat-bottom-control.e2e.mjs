@@ -461,6 +461,10 @@ try {
     const { app, fresh, up } = window.bottomFixture;
     const mode = app.visualClientCoordinates;
     const height = Object.getOwnPropertyDescriptor(visualViewport, 'height');
+    let originProbe = document.querySelector('.chat-fixed-origin');
+    let originalOriginBounds = originProbe.getBoundingClientRect;
+    let nativeOrigin = 0;
+    originProbe.getBoundingClientRect = () => new DOMRect(0, -nativeOrigin, 0, 0);
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
     const resize = value => {
       Object.defineProperty(visualViewport, 'height', { configurable: true, value });
@@ -469,7 +473,11 @@ try {
     try {
       app.visualClientCoordinates = true;
       for (const delayedGeometry of [false, true]) {
+        originProbe.getBoundingClientRect = originalOriginBounds;
         resize(844); await fresh(); await wait(200);
+        originProbe = app.chatLayoutElements.fixedOrigin;
+        originalOriginBounds = originProbe.getBoundingClientRect;
+        originProbe.getBoundingClientRect = () => new DOMRect(0, -nativeOrigin, 0, 0);
         const input = document.querySelector('#message-input');
         input.focus({ preventScroll: true }); resize(430); await wait(750);
         app.scrollChatToBottom();
@@ -480,6 +488,7 @@ try {
         const y = scrollY;
         const list = document.querySelector('#message-list');
         const layoutTop = list.style.top;
+        nativeOrigin = 376;
         input.blur();
         if (!app.nativeKeyboardDismiss) throw Error('Bottom keyboard dismissal did not start at blur');
         if (!delayedGeometry) resize(844);
@@ -488,6 +497,16 @@ try {
         if (list.style.top !== layoutTop) throw Error('Keyboard dismissal rewrote list layout while its native origin stayed still');
         if (!(middle > start + 10 && middle < start + 413) || Math.abs(scrollY - y) > 1) {
           throw Error(`Keyboard dismissal jumped instead of translating content: ${JSON.stringify({ start, middle, y, scrollY })}`);
+        }
+        // On the device the fixed origin resets before viewport height, while
+        // normal message geometry has not moved. It must not be subtracted
+        // from the independently animated list a second time.
+        nativeOrigin = 0;
+        const beforeOriginReset = row.getBoundingClientRect().bottom;
+        app.sampleNativeKeyboardDismiss();
+        const afterOriginReset = row.getBoundingClientRect().bottom;
+        if (Math.abs(afterOriginReset - beforeOriginReset) > 1 || list.style.top !== layoutTop) {
+          throw Error(`Native fixed-origin reset displaced the message list: ${JSON.stringify({ beforeOriginReset, afterOriginReset })}`);
         }
         if (delayedGeometry) { await wait(350); resize(844); }
         await wait(550);
@@ -520,6 +539,7 @@ try {
       return { earlyAndLateViewport: true, movesBeforeEndpoint: true, stableDocumentDuringDismissal: true,
         bottomEndpoint: true, historyPreserved: true, openingReturnsImmediately: true, refocusCancels: true, suspensionCancels: true };
     } finally {
+      originProbe.getBoundingClientRect = originalOriginBounds;
       app.commitNativeChatFollow(); app.visualClientCoordinates = mode;
       if (height) Object.defineProperty(visualViewport, 'height', height); else delete visualViewport.height;
       visualViewport.dispatchEvent(new Event('resize')); await fresh();

@@ -326,7 +326,7 @@ export class QuietRoomApp {
   private chatLastScrollY = 0;
   private nativeChatFollow: { list: HTMLElement; offset: number; top: string; padding: string; priority: string } | null = null;
   private nativeKeyboardDismiss: { started: number; row: HTMLElement; height: number; distance: number;
-    offset: number; scroll: number; origin: number; animation: Animation } | null = null;
+    offset: number; scroll: number; animation: Animation } | null = null;
   private nativeClosedViewportHeight = 0;
   private nativeClosedComposer: { minHeight: number; paddingBottom: number } | null = null;
   private nativeKeyboardOpening = false;
@@ -4708,7 +4708,7 @@ export class QuietRoomApp {
     const animation = chat.list.animate([{ translate: '0 0' }, { translate: `0 ${distance}px` }],
       { duration: reduced ? 0 : CHAT_KEYBOARD_DISMISS_MS, easing: 'cubic-bezier(0.33, 1, 0.68, 1)', fill: 'both' });
     this.nativeKeyboardDismiss = { started: performance.now(), row, height, distance,
-      offset: follow.offset, scroll: window.scrollY, origin: -chat.fixedOrigin.getBoundingClientRect().top, animation };
+      offset: follow.offset, scroll: window.scrollY, animation };
   }
 
   private cancelNativeKeyboardDismiss(): void {
@@ -4735,10 +4735,11 @@ export class QuietRoomApp {
     // Safari may expose only the final viewport height while UIKit animates
     // the keyboard. Start on blur/release, using the dismissal interval from
     // device captures; do not wait for the settled gate to move the messages.
-    // Only correct native origin changes in layout. The per-frame movement
-    // stays in the compositor rather than forcing layout for every message.
-    const origin = -(this.chatLayoutElements?.fixedOrigin.getBoundingClientRect().top ?? 0);
-    const offset = motion.offset + window.scrollY - motion.scroll + origin - motion.origin;
+    // The fixed-position origin can reset before viewport height without
+    // moving normal-flow messages. Applying that origin delta here makes the
+    // list jump once on reset and again at settlement. Compensate only actual
+    // document scrolling; the compositor owns the animated displacement.
+    const offset = motion.offset + window.scrollY - motion.scroll;
     if (Math.abs(offset - follow.offset) > 0.1) {
       follow.offset = offset;
       follow.list.style.top = `${offset}px`;
