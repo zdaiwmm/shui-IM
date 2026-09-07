@@ -232,6 +232,61 @@ try {
     return { toolbarFrames: 4, multilineComposer: true, gap: 8 };
   });
 
+  results.nativeFixedOrigin = await page.evaluate(async () => {
+    const { app, fresh } = window.bottomFixture;
+    await fresh();
+    const nativeCoordinates = app.visualClientCoordinates;
+    const viewport = window.visualViewport;
+    const saved = Object.fromEntries(['height', 'offsetTop'].map(key => [key, Object.getOwnPropertyDescriptor(viewport, key)]));
+    const header = document.querySelector('.chat-header');
+    const composer = document.querySelector('#composer');
+    const originalHeaderBounds = header.getBoundingClientRect;
+    const originalComposerBounds = composer.getBoundingClientRect;
+    let nativeOrigin = 376;
+    const shift = rect => new DOMRect(rect.x, rect.y - nativeOrigin, rect.width, rect.height);
+    // Reproduce the device's native fixed-origin changes independently of the
+    // delayed VisualViewport snapshot. Desktop UA emulation cannot do this.
+    header.getBoundingClientRect = () => shift(originalHeaderBounds.call(header));
+    composer.getBoundingClientRect = () => shift(originalComposerBounds.call(composer));
+    const paintedFrame = () => new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    const samples = [];
+    try {
+      app.visualClientCoordinates = true;
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 319 });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 376 });
+      viewport.dispatchEvent(new Event('resize'));
+      await new Promise(resolve => setTimeout(resolve, 750));
+      for (const origin of [376, 397, 376, 399, 376, 424, 376, 425, 376, 0]) {
+        nativeOrigin = origin;
+        // No resize/scroll event, and no focused input: the continuous sampler
+        // must also cover the stale endpoint during keyboard dismissal.
+        await paintedFrame();
+        const top = header.getBoundingClientRect().top;
+        const transform = new DOMMatrixReadOnly(getComputedStyle(composer).transform).m42;
+        const bottom = composer.getBoundingClientRect().bottom - transform;
+        if (Math.abs(top) > 1 || Math.abs(bottom - 319) > 1) {
+          throw Error(`Native fixed origin drifted: ${JSON.stringify({ origin, top, bottom })}`);
+        }
+        samples.push({ origin, top, bottom });
+      }
+      // The 14px conceal/reveal transform must not enter the retained position.
+      composer.style.transition = 'none';
+      composer.style.transform = 'translateY(14px)';
+      await paintedFrame();
+      if (Math.abs(composer.getBoundingClientRect().bottom - 14 - 319) > 1) throw Error('Reveal translation contaminated the fixed origin');
+      if (app.chatViewportTop !== 0) throw Error('Message bounds used layout coordinates with visual client rectangles');
+      return { samples, revealTransformIndependent: true, unfocusedDismissal: true };
+    } finally {
+      app.visualClientCoordinates = nativeCoordinates;
+      header.getBoundingClientRect = originalHeaderBounds;
+      composer.getBoundingClientRect = originalComposerBounds;
+      composer.style.removeProperty('transition'); composer.style.removeProperty('transform');
+      for (const key of Object.keys(saved)) { if (saved[key]) Object.defineProperty(viewport, key, saved[key]); else delete viewport[key]; }
+      viewport.dispatchEvent(new Event('resize'));
+      await fresh();
+    }
+  });
+
   results.composerHeightMotion = await page.evaluate(async () => {
     const { app, fresh, settle } = window.bottomFixture;
     await fresh();

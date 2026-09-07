@@ -275,6 +275,9 @@ export class QuietRoomApp {
   private readonly desktopBrowser = isDesktopBrowser();
   private readonly appleWebKit = navigator.vendor.includes('Apple')
     && CSS.supports('-webkit-touch-callout', 'none');
+  // iOS reports client rectangles against its moving visual viewport. A desktop
+  // WebKit window (including a mobile UA without touch) keeps layout coordinates.
+  private readonly visualClientCoordinates = this.appleWebKit && !this.desktopBrowser && navigator.maxTouchPoints > 0;
   private availableReleaseId = pendingReleaseUpdate();
   // Memory only. Cover teardown still clears media, rendered history and sockets.
   private retainedSession: VaultSession | null = null;
@@ -331,8 +334,6 @@ export class QuietRoomApp {
     frame: number | null;
   } | null = null;
   private composerViewportSettleUntil = 0;
-  private chatChromeCompensationTimer: number | null = null;
-  private chatChromePin: { headerTop: number; composerBottom: number; until: number; frame: number | null } | null = null;
   private chatBottomControl: ReturnType<typeof mountChatBottomControl> | null = null;
   private chatViewportMotion: ReturnType<typeof createChatViewportMotion> | null = null;
   private chatKeyboardGesture: ReturnType<typeof bindChatKeyboardGesture> | null = null;
@@ -573,7 +574,7 @@ export class QuietRoomApp {
       // Composer-owned caret pans still move Safari's visual viewport. They
       // must not enter the conceal gate, but fixed chrome must follow their
       // current geometry instead of remaining at an earlier offset.
-      this.chatViewportTop = viewportTop;
+      this.chatViewportTop = this.visualClientCoordinates ? 0 : viewportTop;
       this.chatViewportHeight = viewportHeight;
       if (keyboardOpen) this.completeKeyboardHandoffFromViewport({
         generation: this.visualViewportGeometryGeneration,
@@ -602,10 +603,8 @@ export class QuietRoomApp {
       // Put fixed chrome at this snapshot before the motion state can commit
       // document geometry or reveal. This matters when a long hard fallback
       // expires on the same sample as a final unusual keyboard movement.
-      if (chat && (viewportGeometryChanged || generationChanged)) {
-        if (this.chatChromeCompensationTimer !== null) window.clearTimeout(this.chatChromeCompensationTimer);
-        this.chatChromeCompensationTimer = null;
-        if (!this.chatChromePin) this.positionChatChrome(viewportTop, viewportHeight, layoutHeight);
+      if (chat && (viewportGeometryChanged || generationChanged || this.visualClientCoordinates)) {
+        this.positionChatChrome(viewportTop, viewportHeight, layoutHeight);
         const openMenu = chat.header.querySelector<HTMLDetailsElement>('.more-menu[open]');
         if (openMenu) setStyle(openMenu.style, '--app-height', `${viewportHeight}px`);
       }
@@ -651,24 +650,11 @@ export class QuietRoomApp {
       syncVisualViewport();
     };
     const scheduleVisualViewportSync = () => {
-      // A visual-viewport event means WebKit has taken ownership after our
-      // pre-scroll fixed-chrome compensation. Remove it synchronously, before
-      // the next paint, rather than showing one over-compensated frame.
+      // A caret pan can be reported between input and the next frame. Keep
+      // settled, focused typing synchronous; the same positioning function
+      // owns both this correction and the continuous native-origin sampler.
       const focusedComposer = this.chatLayoutElements?.composer.querySelector('#message-input') === document.activeElement;
-      if (this.chatChromePin || focusedComposer && document.documentElement.dataset.keyboardOpen === 'true') {
-        syncVisualViewport();
-        this.correctChatChromePin();
-        return;
-      }
-      if (this.chatChromeCompensationTimer !== null) {
-        window.clearTimeout(this.chatChromeCompensationTimer);
-        this.chatChromeCompensationTimer = null;
-        const viewport = window.visualViewport;
-        const layoutHeight = document.documentElement.clientHeight || window.innerHeight;
-        const viewportHeight = Math.max(1, viewport?.height ?? window.innerHeight);
-        const keyboardSpace = Math.max(0, layoutHeight - viewportHeight);
-        const viewportTop = Math.max(0, Math.min(viewport?.offsetTop ?? 0, keyboardSpace));
-        if (!this.chatChromePin) this.positionChatChrome(viewportTop, viewportHeight, layoutHeight);
+      if (focusedComposer && document.documentElement.dataset.keyboardOpen === 'true') {
         syncVisualViewport();
         return;
       }
@@ -714,10 +700,6 @@ export class QuietRoomApp {
       if (input && this.composerHeightMotion) input.style.height = `${this.composerHeightMotion.targetHeight}px`;
       this.composerHeightMotion = null;
       this.composerViewportSettleUntil = 0;
-      if (this.chatChromeCompensationTimer !== null) window.clearTimeout(this.chatChromeCompensationTimer);
-      this.chatChromeCompensationTimer = null;
-      if (this.chatChromePin?.frame != null) cancelAnimationFrame(this.chatChromePin.frame);
-      this.chatChromePin = null;
       this.chatViewportMotion?.suspend();
       this.chatKeyboardGesture?.reset();
       this.chatBottomControl?.cancel();
@@ -741,26 +723,12 @@ export class QuietRoomApp {
     window.visualViewport?.addEventListener('resize', scheduleVisualViewportSync, { passive: true });
     window.visualViewport?.addEventListener('scroll', scheduleVisualViewportSync, { passive: true });
     window.visualViewport?.addEventListener('scrollend', scheduleVisualViewportSync, { passive: true });
-    window.addEventListener('scrollend', () => {
-      this.correctChatChromePin();
-      if (this.chatChromeCompensationTimer === null) return;
-      window.clearTimeout(this.chatChromeCompensationTimer);
-      this.chatChromeCompensationTimer = null;
-      const viewport = window.visualViewport;
-      const layoutHeight = document.documentElement.clientHeight || window.innerHeight;
-      const viewportHeight = Math.max(1, viewport?.height ?? window.innerHeight);
-      const keyboardSpace = Math.max(0, layoutHeight - viewportHeight);
-      const viewportTop = Math.max(0, Math.min(viewport?.offsetTop ?? 0, keyboardSpace));
-      this.chatViewportTop = viewportTop;
-      this.chatViewportHeight = viewportHeight;
-      if (!this.chatChromePin) this.positionChatChrome(viewportTop, viewportHeight, layoutHeight);
-    }, { passive: true });
+    window.addEventListener('scrollend', scheduleVisualViewportSync, { passive: true });
     window.addEventListener('resize', scheduleVisualViewportSync, { passive: true });
     window.addEventListener('scroll', () => {
       // WebKit may defer visualViewport.scroll until a gesture ends, while
       // window.scroll already exposes the new viewport position.
       scheduleVisualViewportSync();
-      this.correctChatChromePin();
       this.scheduleChatScroll();
     }, { passive: true });
     document.addEventListener('gesturestart', preventZoom, { passive: false });
@@ -4507,69 +4475,29 @@ export class QuietRoomApp {
     return Math.max(0, this.chatBottomScrollTop() - window.scrollY);
   }
 
-  private positionChatChrome(viewportTop: number, viewportHeight: number, layoutHeight: number, scrollCompensation = 0): void {
+  private positionChatChrome(viewportTop: number, viewportHeight: number, layoutHeight: number): void {
     const chat = this.chatLayoutElements;
     if (!chat?.shell.isConnected) return;
     const setStyle = (style: CSSStyleDeclaration, property: string, value: string) => {
       if (style.getPropertyValue(property) !== value) style.setProperty(property, value);
     };
-    // With the iOS keyboard open, a programmatic document scroll is painted
-    // before visualViewport.offsetTop catches up. Compensate that one native
-    // hand-off interval so fixed chrome never rides the document offscreen.
-    setStyle(chat.header.style, 'translate', `0 ${viewportTop + scrollCompensation}px`);
-    setStyle(chat.composer.style, 'bottom', `${layoutHeight - viewportTop - viewportHeight - scrollCompensation}px`);
-    setStyle(chat.notices.style, 'translate', `0 ${viewportTop + scrollCompensation}px`);
-    setStyle(chat.notice.style, 'translate', `0 calc(${viewportTop + viewportHeight + scrollCompensation}px - var(--chat-bottom-space) - 100%)`);
-  }
-
-  private pinChatChrome(headerTop: number, composerBottom: number): void {
-    if (this.chatChromePin?.frame != null) cancelAnimationFrame(this.chatChromePin.frame);
-    const pin = { headerTop, composerBottom, until: performance.now() + 240, frame: null as number | null };
-    this.chatChromePin = pin;
-    const correct = () => {
-      if (this.chatChromePin !== pin || this.privacyCovered || this.activeSurface !== 'chat') return;
-      this.correctChatChromePin();
-      if (performance.now() < pin.until) pin.frame = requestAnimationFrame(correct);
-      else {
-        pin.frame = null;
-        const viewport = window.visualViewport;
-        const layoutHeight = document.documentElement.clientHeight || window.innerHeight;
-        const viewportHeight = Math.max(1, viewport?.height ?? window.innerHeight);
-        const keyboardSpace = Math.max(0, layoutHeight - viewportHeight);
-        const viewportTop = Math.max(0, Math.min(viewport?.offsetTop ?? 0, keyboardSpace));
-        this.positionChatChrome(viewportTop, viewportHeight, layoutHeight);
-        this.correctChatChromePin();
-        if (this.chatChromePin === pin) this.chatChromePin = null;
-      }
-    };
-    correct();
-  }
-
-  private correctChatChromePin(): void {
-    if (!this.appleWebKit) return;
-    const chat = this.chatLayoutElements;
-    if (!chat?.shell.isConnected) return;
-    const activeInput = chat.composer.querySelector('#message-input') === document.activeElement;
-    const pin = this.chatChromePin;
-    if (!pin && !(activeInput && document.documentElement.dataset.keyboardOpen === 'true')) return;
-    const currentHeaderTop = chat.header.getBoundingClientRect().top;
-    const targetHeaderTop = pin?.headerTop ?? 0;
-    // Preserve the composer's deliberate safe-area extension while removing
-    // the same whole-page displacement visible on the header.
-    const targetComposerBottom = pin?.composerBottom
-      ?? chat.composer.getBoundingClientRect().bottom - currentHeaderTop;
-    const numericY = (value: string) => Number(value.match(/-?\d+(?:\.\d+)?/g)?.at(-1) ?? 0);
-    const headerError = targetHeaderTop - currentHeaderTop;
-    if (Math.abs(headerError) > 0.25) {
-      const next = numericY(chat.header.style.translate) + headerError;
-      chat.header.style.translate = `0 ${next}px`;
-      chat.notices.style.translate = `0 ${next}px`;
+    let fixedTop = viewportTop;
+    if (this.visualClientCoordinates) {
+      // iPhone can move the native fixed-position origin before offsetTop changes,
+      // or restore it while offsetTop still holds the open keyboard's endpoint.
+      // Subtract our own translation from a non-animated fixed control to measure
+      // that origin directly. One sampler owns the correction, even on blur and
+      // frames with no viewport event; no scroll delta or timer competes with it.
+      const translation = chat.header.style.translate || getComputedStyle(chat.header).translate;
+      const translated = Number(translation.match(/-?\d+(?:\.\d+)?/g)?.at(-1) ?? 0);
+      fixedTop = translated - chat.header.getBoundingClientRect().top;
     }
-    const composerError = chat.composer.getBoundingClientRect().bottom - targetComposerBottom;
-    if (Math.abs(composerError) > 0.25) {
-      const next = numericY(chat.composer.style.bottom) + composerError;
-      chat.composer.style.bottom = `${next}px`;
-    }
+    setStyle(chat.header.style, 'translate', `0 ${fixedTop}px`);
+    setStyle(chat.composer.style, 'bottom', `${layoutHeight - fixedTop - viewportHeight}px`);
+    setStyle(chat.notices.style, 'translate', `0 ${fixedTop}px`);
+    // The composer's 14px reveal transform is deliberately absent from this
+    // positioning calculation; it must never become a retained bottom offset.
+    setStyle(chat.notice.style, 'translate', `0 calc(${fixedTop + viewportHeight}px - var(--chat-bottom-space) - 100%)`);
   }
 
   private chatComposerLayoutTop(composer: HTMLElement): number {
@@ -4643,33 +4571,11 @@ export class QuietRoomApp {
     }
     const bottom = this.chatBottomScrollTop();
     if (Math.abs(window.scrollY - bottom) > 1) {
-      const chat = this.chatLayoutElements;
-      const currentHeaderTop = chat?.header.getBoundingClientRect().top ?? 0;
-      const fixedHeaderTop = 0;
-      const fixedComposerBottom = (chat?.composer.getBoundingClientRect().bottom
-        ?? this.chatViewportTop + this.chatViewportHeight) - currentHeaderTop;
-      const previousScrollY = window.scrollY;
       window.scrollTo(0, bottom);
-      const scrollDelta = window.scrollY - previousScrollY;
-      if (this.appleWebKit && !this.desktopBrowser && document.documentElement.dataset.keyboardOpen === 'true'
-        && Math.abs(scrollDelta) > 0.5) {
-        const layoutHeight = document.documentElement.clientHeight || window.innerHeight;
-        this.positionChatChrome(this.chatViewportTop, this.chatViewportHeight, layoutHeight, scrollDelta);
-        this.pinChatChrome(fixedHeaderTop, fixedComposerBottom);
-        if (this.chatChromeCompensationTimer !== null) window.clearTimeout(this.chatChromeCompensationTimer);
-        this.chatChromeCompensationTimer = window.setTimeout(() => {
-          this.chatChromeCompensationTimer = null;
-          if (this.privacyCovered || this.activeSurface !== 'chat') return;
-          if (this.chatChromePin) return;
-          const currentViewport = window.visualViewport;
-          const currentLayoutHeight = document.documentElement.clientHeight || window.innerHeight;
-          const currentHeight = Math.max(1, currentViewport?.height ?? window.innerHeight);
-          const keyboardSpace = Math.max(0, currentLayoutHeight - currentHeight);
-          const currentTop = Math.max(0, Math.min(currentViewport?.offsetTop ?? 0, keyboardSpace));
-          this.chatViewportTop = currentTop;
-          this.chatViewportHeight = currentHeight;
-          this.positionChatChrome(currentTop, currentHeight, currentLayoutHeight);
-        }, 120);
+      if (this.visualClientCoordinates) {
+        const viewport = window.visualViewport;
+        this.positionChatChrome(viewport?.offsetTop ?? 0, viewport?.height ?? window.innerHeight,
+          document.documentElement.clientHeight || window.innerHeight);
       }
     }
     this.chatLastScrollY = window.scrollY;
