@@ -907,6 +907,19 @@ button:disabled {
   cursor: pointer;
 }
 
+.upload-reminder button {
+  min-width: 76px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--paper-pure);
+  color: var(--ink-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .chat-header {
   min-height: 68px;
   padding: max(8px, env(safe-area-inset-top)) 12px 8px;

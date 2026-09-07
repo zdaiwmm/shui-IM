@@ -1841,6 +1841,27 @@ export class QuietRoomApp {
     }
   }
 
+  private async clearPendingUploadPlans(): Promise<void> {
+    const session = this.session;
+    const plans = [...this.uploadPlans];
+    if (!session || plans.length === 0 || this.privacyCovered) return;
+    if (!this.confirmSystemAction('清除本机待续传记录？已上传的分块不会形成消息，之后可重新选择文件上传。')) return;
+    const epoch = this.runtimeEpoch;
+    try {
+      for (const plan of plans) {
+        await deleteUploadPlan(session, plan.blobId);
+        if (!this.isRuntimeActive(epoch, session)) return;
+      }
+      const cleared = new Set(plans.map(plan => plan.blobId));
+      this.uploadPlans = this.uploadPlans.filter(plan => !cleared.has(plan.blobId));
+      this.renderChat();
+      this.showNotice('已清除待续传记录');
+    } catch (cause) {
+      if (!this.isRuntimeActive(epoch, session)) return;
+      this.showNotice(cause instanceof Error ? cause.message : '清除待续传记录失败，请稍后重试', 'error');
+    }
+  }
+
   private async withDeviceVerification<T>(operation: () => Promise<T>): Promise<T> {
     // Recovery/migration have decrypted key material but have not opened a
     // conversation or socket. Their native prompt needs the same bounded
@@ -3442,6 +3463,7 @@ export class QuietRoomApp {
           ${this.uploadPlans.length > 0 ? `
             <aside class="upload-reminder">
               <div><strong>有 ${this.uploadPlans.length} 个文件待续传</strong><span>重新选择同一文件即可从已完成的分块继续。</span></div>
+              <button type="button" id="clear-upload-reminder">清除记录</button>
             </aside>
           ` : ''}
         </div>
@@ -3786,6 +3808,7 @@ export class QuietRoomApp {
       this.flushUiPreferencesSave();
       this.root.querySelector('.recovery-reminder')?.remove();
     });
+    this.root.querySelector('#clear-upload-reminder')?.addEventListener('click', () => void this.clearPendingUploadPlans());
     this.bindReleaseUpdateButton();
     this.root.querySelector('#manage-devices')?.addEventListener('click', () => this.transitionPage('forward', () => void this.renderDeviceManager()));
     const replyClose = this.root.querySelector<HTMLButtonElement>('#reply-draft button');
