@@ -15,7 +15,7 @@ it('runs an aliased release entry through verification and writes a live-SHA rec
     mkdirSync(path.join(repo, 'scripts'), { recursive: true });
     mkdirSync(path.join(repo, '.git'));
     mkdirSync(bin);
-    for (const script of ['release.mjs', 'release-ci.mjs', 'release-runtime.mjs']) {
+    for (const script of ['release.mjs', 'release-ci.mjs', 'release-runtime.mjs', 'deploy-config.mjs']) {
       copyFileSync(new URL(`../scripts/${script}`, import.meta.url), path.join(repo, 'scripts', script));
     }
     const alias = path.join(directory, 'alias');
