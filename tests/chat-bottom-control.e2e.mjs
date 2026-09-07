@@ -262,6 +262,7 @@ try {
     const samples = [];
     try {
       app.visualClientCoordinates = true;
+      app.refreshNativeChatChrome();
       Object.defineProperty(viewport, 'height', { configurable: true, value: 319 });
       Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 376 });
       viewport.dispatchEvent(new Event('resize'));
