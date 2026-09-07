@@ -172,6 +172,37 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-07（Asia/Shanghai）；服务器批次 `20260907T005618Z`（08:56:18），
+  08:57:28 独立回读成功。应用提交 `fd7a8ab7732afff98c4f0a6a3b60c31ea67bf213`，由
+  [PR #37](https://github.com/zdaiwmm/shui-IM/pull/37) 合并，候选 head
+  `5125c383b1ba990000aeb62a4b6868d9c8b1e81e`。
+- 本批上线首次加入与新增设备绑定的 WebAuthn 回焦续接、图片边缘缩放和回复左滑阻尼、备份与
+  恢复页视觉层级、蓝牙音频授权交接，以及 iOS 发送滚动期间固定栏定位和延迟视口回调抑制。
+  离线密文入队、消息／MLS 原子持久化、普通重试密文复用、设备历史、恢复权限和原始附件校验
+  边界保持不变。
+- 用户提供的 iPhone／iOS 27／Safari 专项真机回归覆盖多行输入、单行／多行发送和输入框高度
+  复位期间的标题栏与输入工具栏稳定；本机调试后端没有既有房间授权，因此不证明消息真实网络
+  送达。首次加入／设备绑定修复后的真机复测、Tesla 蓝牙、Android 和其他系统表面仍未验证。
+- 精确 main 的[完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34050348842)全部成功，
+  通过构建和单元／集成测试、两组浏览器回归、原生通话、凭据扫描、文档检查、生产依赖审计、
+  `Full application verification` 与最终 `verify`。各来源工作树的本地 `npm run check:full`
+  证据见状态页，不能替代该精确 main CI。
+- 固定入口 `node scripts/publish.mjs --sha fd7a8ab7732afff98c4f0a6a3b60c31ea67bf213`
+  返回精确 `DEPLOY_OK`、`DEPLOY_VERIFIED`，外层回执核对成功。入口总耗时 92,173ms，其中
+  隔离发布与入口回读 73,333ms；服务器发布 59 秒，获取源码 5 秒、构建镜像 13 秒、维护门
+  1 秒、停止容器 1 秒、冷备份 6 秒、启动及健康等待 31 秒、门内验证 1 秒。发布目录
+  `/opt/quiet-room/git-releases/20260907T005618Z-fd7a8ab7732a`，已校验冷备份
+  `/opt/quiet-room/backups/predeploy/data-20260907T005618Z-fd7a8ab7732a.tar.gz`。
+- 08:57:28 独立只读回读返回 `READBACK_OK`，总耗时 2,987ms：线上 SHA、批次和发布目录一致，
+  维护标记不存在；应用运行且健康，备份容器运行且无健康探针；应用与备份实际镜像均匹配
+  `sha256:4b52b219a0cfad66da1a1aca4dd0f54d90056f3fa0b55c7be72476d7f2be9972`。HTTPS 的 `ok`、
+  `database`、`storage` 均为 true，首页、Service Worker、版本化公开／容器产物和公开 WebSocket
+  均通过；`admin-enabled=0`、`calls-enabled=0`，TURN 不存在。检查未读取真实消息、附件或备份
+  内容；公开高安全声明仍受 `PRODUCTION_SECURITY_GATE.md` 阻塞。
+- 发布后在不带部署配置的第二个独立 worktree 对账本记录与状态页；文档 PR 不代表再次部署。
+
+## 上次线上发布记录（2026-09-06 21:03）
+
 - 日期：2026-09-06（Asia/Shanghai）；服务器批次 `20260906T130200Z`（21:02:00），
   21:03:09 独立回读成功。应用提交 `fc3c0cdd28f5acac81f32e30b8c57b28536b0f2c`，由
   [PR #35](https://github.com/zdaiwmm/shui-IM/pull/35) 合并，候选 head
