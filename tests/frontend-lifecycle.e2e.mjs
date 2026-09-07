@@ -278,8 +278,18 @@ try {
     await settleLayout();
     const afterUserScroll = structuredClone(app.captureChatAnchor());
     if (!sameAnchor(afterUserScroll, userAnchor)) throw Error(`Late image decode overrode user scrolling: ${JSON.stringify({ userAnchor, afterUserScroll })}`);
+    // Page transitions retain the outgoing chat DOM for their exit animation.
+    // Its image decode may finish after the gallery has reset document scroll.
+    // Connected old rows must not replace the active reading-anchor record.
+    const beforeAwayDecode = structuredClone(app.uiPreferences.chatAnchor);
+    app.cancelViewportWork(); app.activeSurface = 'away';
+    window.scrollTo(0, 0);
+    const outgoingImage = list.querySelector('.image-preview');
+    const outgoingManifest = manifests.find(item => item.blobId === outgoingImage.dataset.blobId);
+    await app.renderImageIntoButton(outgoingImage, outgoingManifest, app.imageCache.get(outgoingManifest.blobId));
+    if (!sameAnchor(app.uiPreferences.chatAnchor, beforeAwayDecode)) throw Error('Outgoing chat image decode overwrote the gallery return anchor');
     app.lockNow();
-    return { saved, restored, tailWasClamped, stableShortTailReleased: true, userScrollPreserved: true, lockClearsCache: true };
+    return { saved, restored, tailWasClamped, stableShortTailReleased: true, userScrollPreserved: true, outgoingDecodePreserved: true, lockClearsCache: true };
   });
 
   results.sendDraftDurability = await page.evaluate(async () => {

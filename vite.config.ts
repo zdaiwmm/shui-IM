@@ -12,6 +12,15 @@ if (!/^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/.test(release.id)
   throw new Error('release.json must contain a safe id, a title, and at least one non-empty note.');
 }
 
+const lanHostname = process.env.QUIET_ROOM_LAN_HOSTNAME?.trim();
+const lanCertificate = process.env.QUIET_ROOM_LAN_CERT?.trim();
+const lanKey = process.env.QUIET_ROOM_LAN_KEY?.trim();
+const lanPort = Number(process.env.QUIET_ROOM_LAN_PORT ?? 5173);
+const lanMode = Boolean(lanHostname || lanCertificate || lanKey);
+if (lanMode && (!lanHostname || !lanCertificate || !lanKey || !Number.isInteger(lanPort) || lanPort < 1 || lanPort > 65535)) {
+  throw new Error('LAN HTTPS requires a hostname, certificate, private key, and valid port. Use npm run dev:lan.');
+}
+
 export default defineConfig({
   plugins: [{
     name: 'quiet-room-release-worker',
@@ -25,8 +34,15 @@ export default defineConfig({
     },
   }],
   server: {
-    host: '127.0.0.1',
-    port: 5173,
+    host: lanMode ? '0.0.0.0' : '127.0.0.1',
+    port: lanMode ? lanPort : 5173,
+    strictPort: lanMode,
+    allowedHosts: lanMode ? [lanHostname!] : undefined,
+    https: lanMode ? {
+      cert: readFileSync(resolve(lanCertificate!)),
+      key: readFileSync(resolve(lanKey!)),
+    } : undefined,
+    hmr: lanMode ? { protocol: 'wss', host: lanHostname!, clientPort: lanPort } : undefined,
     proxy: {
       '/api': 'http://127.0.0.1:8787',
       '/ws': {

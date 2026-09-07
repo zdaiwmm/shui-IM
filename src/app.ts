@@ -40,8 +40,8 @@ import { bindVoiceRecordGesture } from './lib/voice-gesture';
 import { bindImageViewerGestures } from './lib/image-viewer-gestures';
 import { bindChatImageConcealGesture } from './lib/chat-image-conceal-gesture';
 import { CHAT_LATEST_GAP, mountChatBottomControl } from './lib/chat-bottom-control';
-import { bindChatKeyboardGesture, createChatViewportMotion } from './lib/chat-viewport-motion';
-import { bindReplySwipe } from './lib/reply-swipe';
+import { bindChatKeyboardGesture, CHAT_VIEWPORT_SETTLE_MS, createChatViewportMotion } from './lib/chat-viewport-motion';
+import { bindReplySwipe, replySwipeMaxOffset } from './lib/reply-swipe';
 import {
   classifyInviteHash,
   makeDeviceInviteUrl,
@@ -172,6 +172,8 @@ const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3'
 // from chooser/media handoffs so every hard lifecycle signal still locks.
 const KEYBOARD_NATIVE_HANDOFF_MS = 1_200;
 const CHAT_COMPOSER_MOTION_MS = 280;
+const CHAT_KEYBOARD_DISMISS_MS = 420;
+const CHAT_COMPOSER_VIEWPORT_SETTLE_MS = 500;
 
 type CachedImage = { blob: Blob; url: string; bytes: number; lastUsedAt: number; width?: number; height?: number; posterUrl?: string; posterPromise?: Promise<void>; posterUnavailable?: boolean };
 const MAX_IMAGE_CACHE_BYTES = 96 * 1024 * 1024;
@@ -272,6 +274,11 @@ function isDesktopBrowser(): boolean {
 export class QuietRoomApp {
   private session: VaultSession | null = null;
   private readonly desktopBrowser = isDesktopBrowser();
+  private readonly appleWebKit = navigator.vendor.includes('Apple')
+    && CSS.supports('-webkit-touch-callout', 'none');
+  // iOS reports client rectangles against its moving visual viewport. A desktop
+  // WebKit window (including a mobile UA without touch) keeps layout coordinates.
+  private readonly visualClientCoordinates = this.appleWebKit && !this.desktopBrowser && navigator.maxTouchPoints > 0;
   private availableReleaseId = pendingReleaseUpdate();
   // Memory only. Cover teardown still clears media, rendered history and sockets.
   private retainedSession: VaultSession | null = null;
@@ -317,6 +324,12 @@ export class QuietRoomApp {
   private chatBottomFollowPending = false;
   private chatViewportFollowUntil = 0;
   private chatLastScrollY = 0;
+  private nativeChatFollow: { list: HTMLElement; offset: number; top: string; padding: string; priority: string } | null = null;
+  private nativeKeyboardDismiss: { started: number; row: HTMLElement; height: number; distance: number;
+    offset: number; scroll: number; animation: Animation } | null = null;
+  private nativeClosedViewportHeight = 0;
+  private nativeClosedComposer: { minHeight: number; paddingBottom: number } | null = null;
+  private nativeKeyboardOpening = false;
   private chatResumeBottomOnFocus = false;
   private chatScrollFrame: number | null = null;
   private chatScrollBookkeepingPending = false;
@@ -327,6 +340,7 @@ export class QuietRoomApp {
     targetHeight: number;
     frame: number | null;
   } | null = null;
+  private composerViewportSettleUntil = 0;
   private chatBottomControl: ReturnType<typeof mountChatBottomControl> | null = null;
   private chatViewportMotion: ReturnType<typeof createChatViewportMotion> | null = null;
   private chatKeyboardGesture: ReturnType<typeof bindChatKeyboardGesture> | null = null;
@@ -346,6 +360,8 @@ export class QuietRoomApp {
     shell: HTMLElement;
     list: HTMLElement;
     header: HTMLElement;
+    fixedOrigin: HTMLElement;
+    fixedBottom: HTMLElement;
     composer: HTMLElement;
     notices: HTMLElement;
     notice: HTMLElement;
@@ -537,8 +553,6 @@ export class QuietRoomApp {
       // Discard rubber-band and stale dismissal offsets once the full viewport
       // is visible. Panning never contributes to the document's keyboard space.
       const viewportTop = Math.max(0, Math.min(viewport?.offsetTop ?? 0, keyboardSpace));
-      this.chatViewportTop = viewportTop;
-      this.chatViewportHeight = viewportHeight;
       const chat = this.activeSurface === 'chat' && this.chatLayoutElements?.shell.isConnected ? this.chatLayoutElements : null;
       const chatGeneration = chat ? this.chatLayoutGeneration : 0;
       const resized = previousViewportHeight !== viewportHeight || previousLayoutHeight !== layoutHeight;
@@ -552,6 +566,36 @@ export class QuietRoomApp {
         : keyboardSpace >= Math.max(180, layoutHeight * 0.28)
           ? 'open'
           : 'intermediate';
+      const previousKeyboardOpen = Math.max(0, previousLayoutHeight - previousViewportHeight) > 120;
+      if (chat && this.visualClientCoordinates && previousKeyboardOpen && viewportHeight > previousViewportHeight + 72) {
+        this.beginNativeKeyboardDismiss(previousViewportHeight);
+      }
+      if (chat && this.visualClientCoordinates && !keyboardOpen && !this.nativeKeyboardDismiss) {
+        this.nativeClosedViewportHeight = viewportHeight;
+        if (resized || generationChanged) {
+          const style = getComputedStyle(chat.composer);
+          this.nativeClosedComposer = { minHeight: parseFloat(style.minHeight) || 0,
+            paddingBottom: parseFloat(style.paddingBottom) || 0 };
+        }
+      }
+      const composerInput = chat?.composer.querySelector<HTMLTextAreaElement>('#message-input');
+      const composerResizeOwnsGeometry = Boolean(chat
+        && (this.composerHeightMotion || this.sendingTextDrafts.size > 0
+          || performance.now() < this.composerViewportSettleUntil
+          // With a settled open keyboard, an offset-only change while the
+          // textarea retains focus is Safari's caret/document pan. Real
+          // keyboard motion changes height; history gestures are tracked
+          // separately and must continue through the conceal gate.
+          || previousViewportHeight === viewportHeight && previousViewportTop !== viewportTop)
+        && document.activeElement === composerInput && previousChatGeneration === chatGeneration
+        && previousKeyboardOpen && keyboardOpen && keyboardGeometry === 'open'
+        && previousViewportWidth === viewportWidth && previousLayoutHeight === layoutHeight
+        && !this.chatViewportMotion?.moving);
+      // Composer-owned caret pans still move Safari's visual viewport. They
+      // must not enter the conceal gate, but fixed chrome must follow their
+      // current geometry instead of remaining at an earlier offset.
+      this.chatViewportTop = this.visualClientCoordinates ? 0 : viewportTop;
+      this.chatViewportHeight = viewportHeight;
       if (keyboardOpen) this.completeKeyboardHandoffFromViewport({
         generation: this.visualViewportGeometryGeneration,
         viewportHeight,
@@ -567,7 +611,7 @@ export class QuietRoomApp {
       if (document.documentElement.dataset.keyboardOpen !== keyboardState) {
         document.documentElement.dataset.keyboardOpen = keyboardState;
       }
-      if (chat && (resized || generationChanged)) {
+      if (chat && (resized || generationChanged) && !composerResizeOwnsGeometry) {
         this.pendingChatViewportGeometry = {
           generation: chatGeneration,
           paddingBottom: `calc(var(--chat-bottom-space) + ${keyboardSpace}px)`,
@@ -579,18 +623,17 @@ export class QuietRoomApp {
       // Put fixed chrome at this snapshot before the motion state can commit
       // document geometry or reveal. This matters when a long hard fallback
       // expires on the same sample as a final unusual keyboard movement.
-      if (chat && (viewportGeometryChanged || generationChanged)) {
-        setStyle(chat.header.style, 'translate', `0 ${viewportTop}px`);
-        // Anchor the focused field in layout coordinates. A top-anchored bar
-        // translated by its own changing height can make WebKit's caret reveal
-        // compete with every multiline resize.
-        setStyle(chat.composer.style, 'bottom', `${layoutHeight - viewportTop - viewportHeight}px`);
-        setStyle(chat.notices.style, 'translate', `0 ${viewportTop}px`);
-        setStyle(chat.notice.style, 'translate', `0 calc(${viewportTop + viewportHeight}px - var(--chat-bottom-space) - 100%)`);
+      if (chat && (viewportGeometryChanged || generationChanged || this.visualClientCoordinates)) {
+        this.positionChatChrome(viewportTop, viewportHeight, layoutHeight);
         const openMenu = chat.header.querySelector<HTMLDetailsElement>('.more-menu[open]');
         if (openMenu) setStyle(openMenu.style, '--app-height', `${viewportHeight}px`);
       }
       const motion = chat ? this.chatViewportMotion : null;
+      if (this.nativeKeyboardOpening && keyboardOpen && chat
+        && document.activeElement === composerInput && this.chatPinnedToBottom && this.chatScrollIntent !== 'up') {
+        this.alignNativeChatContents();
+      }
+      this.sampleNativeKeyboardDismiss();
       const motionSettled = motion?.sample({
         height: viewportHeight,
         width: viewportWidth,
@@ -599,6 +642,7 @@ export class QuietRoomApp {
         scrollY: window.scrollY,
         keyboardOpen,
         keyboardGeometry,
+        composerResize: composerResizeOwnsGeometry,
       }) ?? false;
       if (!resized && !widthChanged && previousViewportTop === viewportTop && previousChatGeneration === chatGeneration) return motionSettled;
       // Keep frame-by-frame position updates local to the four floating
@@ -612,6 +656,7 @@ export class QuietRoomApp {
       previousViewportTop = viewportTop;
       previousViewportWidth = viewportWidth;
       previousChatGeneration = chatGeneration;
+      if (composerResizeOwnsGeometry) return motionSettled;
       if (chat) {
         // During keyboard/toolbar movement only the fixed chrome follows the
         // visual viewport. Message-document geometry, bottom alignment and
@@ -630,6 +675,15 @@ export class QuietRoomApp {
       syncVisualViewport();
     };
     const scheduleVisualViewportSync = () => {
+      // A caret pan can be reported between input and the next frame. Keep
+      // settled, focused typing synchronous; the same positioning function
+      // owns both this correction and the continuous native-origin sampler.
+      const focusedComposer = this.chatLayoutElements?.composer.querySelector('#message-input') === document.activeElement;
+      if (this.visualClientCoordinates && this.activeSurface === 'chat'
+        || focusedComposer && document.documentElement.dataset.keyboardOpen === 'true') {
+        syncVisualViewport();
+        return;
+      }
       if (nativeViewportFrame !== null) return;
       nativeViewportFrame = requestAnimationFrame(() => {
         nativeViewportFrame = null;
@@ -671,6 +725,9 @@ export class QuietRoomApp {
       const input = this.chatLayoutElements?.composer.querySelector<HTMLTextAreaElement>('#message-input');
       if (input && this.composerHeightMotion) input.style.height = `${this.composerHeightMotion.targetHeight}px`;
       this.composerHeightMotion = null;
+      this.composerViewportSettleUntil = 0;
+      this.cancelNativeKeyboardDismiss();
+      this.nativeKeyboardOpening = false;
       this.chatViewportMotion?.suspend();
       this.chatKeyboardGesture?.reset();
       this.chatBottomControl?.cancel();
@@ -694,6 +751,7 @@ export class QuietRoomApp {
     window.visualViewport?.addEventListener('resize', scheduleVisualViewportSync, { passive: true });
     window.visualViewport?.addEventListener('scroll', scheduleVisualViewportSync, { passive: true });
     window.visualViewport?.addEventListener('scrollend', scheduleVisualViewportSync, { passive: true });
+    window.addEventListener('scrollend', scheduleVisualViewportSync, { passive: true });
     window.addEventListener('resize', scheduleVisualViewportSync, { passive: true });
     window.addEventListener('scroll', () => {
       // WebKit may defer visualViewport.scroll until a gesture ends, while
@@ -3417,9 +3475,11 @@ export class QuietRoomApp {
     const ownsActiveChat = () => !this.privacyCovered && this.activeSurface === 'chat'
       && this.chatLayoutElements?.list === list && this.chatLayoutElements.composer.contains(textarea)
       && list.isConnected && textarea.isConnected;
+    let keyboardHistoryRead: AbortController | null = null;
     this.mountChatImageConcealGesture(list);
     const scrollIntent = (direction: 'up' | 'down') => {
       if (!ownsActiveChat()) return;
+      keyboardHistoryRead?.abort();
       this.chatBottomControl?.cancel();
       this.cancelChatMessageMotion();
       this.chatResumeBottomOnFocus = false;
@@ -3436,6 +3496,7 @@ export class QuietRoomApp {
     let touchY: number | null = null;
     list.addEventListener('touchstart', event => {
       if (!ownsActiveChat()) return;
+      if (!this.visualClientCoordinates || document.documentElement.dataset.keyboardOpen !== 'true') this.commitNativeChatFollow();
       touchY = event.touches[0]?.clientY ?? null;
       this.chatViewportMotion?.touchStart();
       this.trackChatViewport();
@@ -3461,12 +3522,14 @@ export class QuietRoomApp {
     list.addEventListener('touchcancel', endTouch, { passive: true });
     list.addEventListener('wheel', event => {
       if (!ownsActiveChat()) return;
+      this.commitNativeChatFollow();
       if (event.deltaY) { this.chatViewportMotion?.move(); scrollIntent(event.deltaY < 0 ? 'up' : 'down'); }
       this.trackChatViewport();
     }, { passive: true });
     list.addEventListener('pointerdown', () => { if (ownsActiveChat()) this.chatRestoreAnchor = null; }, { passive: true });
     list.addEventListener('keydown', event => {
       if (!ownsActiveChat()) return;
+      this.commitNativeChatFollow();
       if (['ArrowUp', 'PageUp', 'Home'].includes(event.key) || (event.key === ' ' && event.shiftKey)) scrollIntent('up');
       else if (['ArrowDown', 'PageDown', 'End', ' '].includes(event.key)) scrollIntent('down');
     }, { passive: true });
@@ -3494,6 +3557,23 @@ export class QuietRoomApp {
     }, { passive: true });
     textarea.addEventListener('focus', () => {
       if (!ownsActiveChat()) return;
+      this.cancelNativeKeyboardDismiss();
+      delete this.chatLayoutElements?.composer.dataset.keyboardDismissReveal;
+      if (this.visualClientCoordinates) {
+        this.nativeKeyboardOpening = true;
+        this.chatRestoreAnchor = null;
+        this.scrollChatToBottom();
+        if (this.historyHasNewer && this.runtimeAbort) {
+          keyboardHistoryRead?.abort();
+          const read = new AbortController();
+          keyboardHistoryRead = read;
+          const signal = AbortSignal.any([read.signal, this.runtimeAbort.signal]);
+          void this.prepareChatBottomScroll(list, signal).then(ready => {
+            if (ready && !signal.aborted && ownsActiveChat() && document.activeElement === textarea
+              && this.chatScrollIntent !== 'up') this.scrollChatToBottom();
+          }).finally(() => { if (keyboardHistoryRead === read) keyboardHistoryRead = null; });
+        }
+      }
       prepareKeyboardTarget();
       if (!this.desktopBrowser && (document.documentElement.dataset.keyboardOpen !== 'true'
         || this.chatViewportMotion?.moving)) {
@@ -3501,7 +3581,10 @@ export class QuietRoomApp {
       }
     });
     textarea.addEventListener('paste', event => this.handleComposerPaste(event));
-    const resizeTextarea = (animate = true) => {
+    let nativeShrinkFrame: number | null = null;
+    const resizeTextarea = (animate = true, deferNativeShrink = true) => {
+      if (nativeShrinkFrame !== null) cancelAnimationFrame(nativeShrinkFrame);
+      nativeShrinkFrame = null;
       const measure = textarea.cloneNode() as HTMLTextAreaElement;
       measure.removeAttribute('id');
       measure.setAttribute('aria-hidden', 'true');
@@ -3520,6 +3603,18 @@ export class QuietRoomApp {
       if (this.composerHeightMotion?.targetHeight === targetHeight) return;
 
       const currentHeight = textarea.getBoundingClientRect().height;
+      if (deferNativeShrink && animate && this.visualClientCoordinates
+        && document.activeElement === textarea && targetHeight < currentHeight - 0.5) {
+        // IME replacement can remove the marked text and insert its committed
+        // form in adjacent input events. Do not scroll the document for that
+        // transient shorter value. Growth still commits synchronously so the
+        // native caret always has room; a real shrink uses the latest value.
+        nativeShrinkFrame = requestAnimationFrame(() => {
+          nativeShrinkFrame = null;
+          if (ownsActiveChat()) resizeTextarea(animate, false);
+        });
+        return;
+      }
       // A single-line edit commonly keeps the exact same intrinsic height.
       // Leave an already-running send/reaction animation alone in that case;
       // there is no composer geometry for this controller to retarget.
@@ -3563,8 +3658,38 @@ export class QuietRoomApp {
         this.syncChatLayout();
         return;
       }
+      if (this.visualClientCoordinates && document.activeElement === textarea) {
+        // The native iOS caret is not painted by our animation frame. Give it
+        // the complete editing area in the input event; animating a clipped
+        // textarea makes WebKit chase the new line while we move that line.
+        // Only message contents interpolate, after layout and native clamping
+        // have reached their endpoint. The actual input and selection stay put.
+        this.composerViewportSettleUntil = performance.now() + CHAT_COMPOSER_VIEWPORT_SETTLE_MS;
+        textarea.style.height = `${targetHeight}px`;
+        textarea.style.removeProperty('transition');
+        this.syncChatLayout();
+        for (const [content, previousTop] of origins) {
+          if (!content.isConnected) continue;
+          const distance = previousTop - content.getBoundingClientRect().top;
+          if (Math.abs(distance) < 0.5) continue;
+          const animation = content.animate(
+            [{ translate: `0 ${distance}px` }, { translate: '0 0' }],
+            { duration: CHAT_COMPOSER_MOTION_MS, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'backwards' },
+          );
+          animation.currentTime = 0;
+          this.chatMessageAnimations.add(animation);
+          animation.finished.then(() => this.chatMessageAnimations.delete(animation), () => this.chatMessageAnimations.delete(animation));
+        }
+        return;
+      }
       const motion = { targetHeight, frame: null as number | null };
       this.composerHeightMotion = motion;
+      // iOS Safari can publish its caret-reveal viewport pan only after the
+      // textarea has reached its painted endpoint. Keep ownership through that
+      // delayed native settle instead of handing the same resize to the
+      // keyboard/toolbar transition controller.
+      this.composerViewportSettleUntil = performance.now()
+        + CHAT_COMPOSER_MOTION_MS + CHAT_COMPOSER_VIEWPORT_SETTLE_MS;
       // One pre-paint update owns both layout height and visible translations.
       // WebKit may sample layout animations and compositor animations at
       // different instants even with identical WAAPI start times. Read only
@@ -3588,6 +3713,7 @@ export class QuietRoomApp {
         }
         if (progress < 1) { motion.frame = requestAnimationFrame(step); return; }
         this.composerHeightMotion = null;
+        this.composerViewportSettleUntil = performance.now() + CHAT_COMPOSER_VIEWPORT_SETTLE_MS;
         textarea.style.removeProperty('transition');
         // Commit to the already-painted endpoint, then remove translations in
         // the same task. Older-history readers keep their original anchor.
@@ -3613,6 +3739,7 @@ export class QuietRoomApp {
     });
     textarea.addEventListener('blur', () => {
       if (!ownsActiveChat()) return;
+      keyboardHistoryRead?.abort();
       if (this.bottomControlRetainsKeyboard && !this.privacyCovered && this.activeSurface === 'chat') {
         // A few mobile browser builds still transfer focus after a prevented
         // pointerdown on the floating return control. Restore it before the
@@ -3632,6 +3759,8 @@ export class QuietRoomApp {
       } else {
         if (!this.imagePickerActive) this.keepComposerKeyboard = false;
         if (!this.desktopBrowser && document.documentElement.dataset.keyboardOpen === 'true') {
+          if (this.visualClientCoordinates && this.chatLayoutElements) this.chatLayoutElements.composer.dataset.keyboardDismissReveal = 'true';
+          this.beginNativeKeyboardDismiss();
           this.chatViewportMotion?.keyboard('closed');
         }
       }
@@ -3750,13 +3879,17 @@ export class QuietRoomApp {
   }
 
   private commitChatViewportGeometry(): void {
+    if (this.nativeKeyboardDismiss) return;
     const geometry = this.pendingChatViewportGeometry;
     const chat = this.chatLayoutElements;
     if (!geometry || !chat?.shell.isConnected || geometry.generation !== this.chatLayoutGeneration) {
       this.pendingChatViewportGeometry = null;
       return;
     }
-    if (chat.list.style.getPropertyValue('padding-bottom') !== geometry.paddingBottom) {
+    if (this.nativeChatFollow?.list === chat.list) {
+      this.nativeChatFollow.padding = geometry.paddingBottom;
+      chat.list.style.setProperty('padding-bottom', `calc(${geometry.paddingBottom} + 128px)`, 'important');
+    } else if (chat.list.style.getPropertyValue('padding-bottom') !== geometry.paddingBottom) {
       chat.list.style.setProperty('padding-bottom', geometry.paddingBottom);
     }
     if (chat.list.style.getPropertyValue('min-height') !== geometry.minHeight) {
@@ -3776,15 +3909,29 @@ export class QuietRoomApp {
     const notices = shell.querySelector<HTMLElement>('.system-notices')!;
     const composer = shell.querySelector<HTMLElement>('.composer')!;
     const notice = shell.querySelector<HTMLElement>('#notice')!;
-    this.chatLayoutElements = { shell, list, header, composer, notices, notice };
+    const fixedOrigin = document.createElement('div');
+    fixedOrigin.className = 'chat-fixed-origin';
+    fixedOrigin.setAttribute('aria-hidden', 'true');
+    const fixedBottom = fixedOrigin.cloneNode() as HTMLElement;
+    fixedBottom.classList.add('chat-fixed-bottom');
+    shell.append(fixedOrigin, fixedBottom);
+    this.nativeChatFollow = null;
+    this.chatLayoutElements = { shell, list, header, fixedOrigin, fixedBottom, composer, notices, notice };
     this.chatViewportMotion = createChatViewportMotion({
+      // The native closed snapshot already arrives at the terminal position.
+      // The message animation owns any remaining movement before reveal.
+      settleDelay: target => this.visualClientCoordinates && target === 'closed' ? 0 : CHAT_VIEWPORT_SETTLE_MS,
       conceal: immediate => {
         const state = immediate ? 'positioning' : 'moving';
         if (composer.dataset.viewportMotion !== state) composer.dataset.viewportMotion = state;
+        if (!this.nativeKeyboardDismiss && !this.chatKeyboardGesture?.held
+          && document.documentElement.dataset.keyboardOpen !== 'true') this.commitNativeChatFollow();
       },
-      reveal: () => { delete composer.dataset.viewportMotion; },
+      reveal: () => { if (!this.nativeKeyboardDismiss) delete composer.dataset.viewportMotion; },
       settled: () => {
         if (this.privacyCovered || this.activeSurface !== 'chat' || !shell.isConnected) return;
+        this.nativeKeyboardOpening = false;
+        if (this.nativeKeyboardDismiss) return;
         const scrollBookkeepingPending = this.chatScrollBookkeepingPending;
         const documentMoved = this.chatScrollDocumentMovedPending;
         this.chatScrollBookkeepingPending = false;
@@ -3822,6 +3969,7 @@ export class QuietRoomApp {
       },
       release: () => {
         this.chatViewportMotion?.touchEnd();
+        this.beginNativeKeyboardDismiss();
         this.chatViewportMotion?.keyboard('closed');
         this.keepComposerKeyboard = false;
         this.trackChatViewport();
@@ -3872,7 +4020,7 @@ export class QuietRoomApp {
     this.chatLayoutGeneration += 1;
     let previousMeasurements = '';
     const sync = (position = true) => {
-      if (!shell.isConnected || this.chatViewportMotion?.moving || this.composerHeightMotion) return;
+      if (!shell.isConnected || this.chatViewportMotion?.moving || this.composerHeightMotion || this.nativeKeyboardDismiss) return;
       const headerHeight = header.offsetHeight;
       const noticesHeight = notices.offsetHeight;
       const composerHeight = composer.offsetHeight;
@@ -3886,6 +4034,9 @@ export class QuietRoomApp {
       shell.style.setProperty('--chat-bottom-space', `${composerHeight + CHAT_LATEST_GAP}px`);
       document.documentElement.style.setProperty('--chat-top-space', `${headerHeight + noticesHeight + 14}px`);
       document.documentElement.style.setProperty('--chat-bottom-space', `${composerHeight + CHAT_LATEST_GAP}px`);
+      // Padding changes can clamp native document scrolling even for a reader
+      // who has not requested bottom following. Correct chrome in this task.
+      this.refreshNativeChatChrome();
       if (position) {
         if (pinned) this.scrollChatToBottom();
         else if (anchor) this.restoreChatAnchor(list, anchor);
@@ -4438,6 +4589,36 @@ export class QuietRoomApp {
     return Math.max(0, this.chatBottomScrollTop() - window.scrollY);
   }
 
+  private positionChatChrome(viewportTop: number, viewportHeight: number, layoutHeight: number): void {
+    const chat = this.chatLayoutElements;
+    if (!chat?.shell.isConnected) return;
+    const setStyle = (style: CSSStyleDeclaration, property: string, value: string) => {
+      if (style.getPropertyValue(property) !== value) style.setProperty(property, value);
+    };
+    const nativeChrome = String(this.visualClientCoordinates);
+    if (chat.shell.dataset.nativeChrome !== nativeChrome) chat.shell.dataset.nativeChrome = nativeChrome;
+    const fixedTop = this.visualClientCoordinates ? -chat.fixedOrigin.getBoundingClientRect().top : viewportTop;
+    setStyle(chat.header.style, 'top', this.visualClientCoordinates ? `${fixedTop}px` : '0px');
+    setStyle(chat.header.style, 'translate', this.visualClientCoordinates ? 'none' : `0 ${fixedTop}px`);
+    // Safari toolbar collapse can expand the actual fixed-position bottom
+    // before clientHeight updates. Measure that edge independently of the
+    // top origin, or the stale height pushes the composer under native chrome.
+    const fixedBottom = this.visualClientCoordinates
+      ? chat.fixedBottom.getBoundingClientRect().top : layoutHeight - fixedTop;
+    setStyle(chat.composer.style, 'bottom', `${fixedBottom - viewportHeight}px`);
+    setStyle(chat.notices.style, 'translate', `0 ${fixedTop}px`);
+    // The composer's 14px reveal transform is deliberately absent from this
+    // positioning calculation; it must never become a retained bottom offset.
+    setStyle(chat.notice.style, 'translate', `0 calc(${fixedTop + viewportHeight}px - var(--chat-bottom-space) - 100%)`);
+  }
+
+  private refreshNativeChatChrome(): void {
+    if (!this.visualClientCoordinates) return;
+    const viewport = window.visualViewport;
+    this.positionChatChrome(viewport?.offsetTop ?? 0, viewport?.height ?? window.innerHeight,
+      document.documentElement.clientHeight || window.innerHeight);
+  }
+
   private chatComposerLayoutTop(composer: HTMLElement): number {
     const top = composer.getBoundingClientRect().top;
     const transform = getComputedStyle(composer).transform;
@@ -4498,8 +4679,143 @@ export class QuietRoomApp {
     return active();
   }
 
+  private beginNativeKeyboardDismiss(height = this.chatViewportHeight): void {
+    const chat = this.chatLayoutElements;
+    const row = this.renderedMessageOrder.at(-1);
+    if (this.nativeKeyboardDismiss || !this.visualClientCoordinates || this.privacyCovered
+      || this.activeSurface !== 'chat' || !chat?.list.isConnected || !row?.isConnected
+      || !(this.chatPinnedToBottom && this.chatScrollIntent !== 'up' || this.chatResumeBottomOnFocus)
+      || document.documentElement.clientHeight - height <= 120) return;
+    this.cancelChatMessageMotion();
+    this.nativeKeyboardOpening = false;
+    const follow = this.ensureNativeChatFollow(chat.list);
+    this.chatPinnedToBottom = true;
+    this.chatScrollIntent = null;
+    this.chatResumeBottomOnFocus = false;
+    const style = getComputedStyle(chat.composer);
+    const closed = this.nativeClosedComposer;
+    const closedHeight = closed ? Math.max(closed.minHeight,
+      chat.composer.offsetHeight + closed.paddingBottom - (parseFloat(style.paddingBottom) || 0)) : chat.composer.offsetHeight;
+    const distance = Math.max(0, (this.nativeClosedViewportHeight || document.documentElement.clientHeight) - height
+      - (closedHeight - chat.composer.offsetHeight));
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const animation = chat.list.animate([{ translate: '0 0' }, { translate: `0 ${distance}px` }],
+      { duration: reduced ? 0 : CHAT_KEYBOARD_DISMISS_MS, easing: 'cubic-bezier(0.33, 1, 0.68, 1)', fill: 'both' });
+    this.nativeKeyboardDismiss = { started: performance.now(), row, height, distance,
+      offset: follow.offset, scroll: window.scrollY, animation };
+  }
+
+  private cancelNativeKeyboardDismiss(): void {
+    const motion = this.nativeKeyboardDismiss;
+    if (!motion) return;
+    this.nativeKeyboardDismiss = null;
+    const follow = this.nativeChatFollow;
+    if (follow?.list.isConnected) {
+      const translate = getComputedStyle(follow.list).translate.split(' ');
+      follow.offset += parseFloat(translate[1] ?? '0') || 0;
+      follow.list.style.top = `${follow.offset}px`;
+    }
+    motion.animation.cancel();
+  }
+
+  private sampleNativeKeyboardDismiss(): void {
+    const motion = this.nativeKeyboardDismiss;
+    const follow = this.nativeChatFollow;
+    if (!motion || !follow) return;
+    if (this.privacyCovered || this.activeSurface !== 'chat' || !motion.row.isConnected || !follow.list.isConnected) {
+      this.cancelNativeKeyboardDismiss();
+      return;
+    }
+    // Safari may expose only the final viewport height while UIKit animates
+    // the keyboard. Start on blur/release, using the dismissal interval from
+    // device captures; do not wait for the settled gate to move the messages.
+    // The fixed-position origin can reset before viewport height without
+    // moving normal-flow messages. Applying that origin delta here makes the
+    // list jump once on reset and again at settlement. Compensate only actual
+    // document scrolling; the compositor owns the animated displacement.
+    const offset = motion.offset + window.scrollY - motion.scroll;
+    if (Math.abs(offset - follow.offset) > 0.1) {
+      follow.offset = offset;
+      follow.list.style.top = `${offset}px`;
+    }
+    this.chatLastScrollY = window.scrollY;
+    if (motion.animation.playState !== 'finished' || this.chatViewportMotion?.moving) return;
+    this.cancelNativeKeyboardDismiss();
+    this.commitNativeChatFollow();
+    this.commitChatViewportGeometry();
+    this.syncChatLayout(false);
+    this.alignChatBottom();
+    const documentMoved = this.chatScrollDocumentMovedPending;
+    const bookkeeping = this.chatScrollBookkeepingPending;
+    this.chatScrollBookkeepingPending = false;
+    this.chatScrollDocumentMovedPending = false;
+    if (bookkeeping) this.commitChatScrollBookkeeping(follow.list, documentMoved);
+    else this.updateChatBottomControl();
+    if (this.chatLayoutElements) delete this.chatLayoutElements.composer.dataset.viewportMotion;
+  }
+
+  private commitNativeChatFollow(): void {
+    this.cancelNativeKeyboardDismiss();
+    const follow = this.nativeChatFollow;
+    if (!follow) return;
+    this.nativeChatFollow = null;
+    if (!follow.list.isConnected) return;
+    const target = window.scrollY - follow.offset;
+    follow.list.style.top = follow.top;
+    follow.list.style.setProperty('padding-bottom', follow.padding, follow.priority);
+    if (this.activeSurface === 'chat' && !this.privacyCovered) {
+      window.scrollTo(0, target);
+      this.chatLastScrollY = window.scrollY;
+      this.refreshNativeChatChrome();
+    }
+  }
+
+  private ensureNativeChatFollow(list: HTMLElement) {
+    let follow = this.nativeChatFollow;
+    if (!follow || follow.list !== list) {
+      const style = list.style;
+      follow = { list, offset: 0, top: style.top,
+        padding: style.getPropertyValue('padding-bottom'), priority: style.getPropertyPriority('padding-bottom') };
+      this.nativeChatFollow = follow;
+      // A focused textarea shrinking must not clamp the document. Keep room
+      // for its largest editing area until native scrolling takes ownership.
+      const padding = parseFloat(getComputedStyle(list).paddingBottom) || 0;
+      style.setProperty('padding-bottom', `${padding + 128}px`, 'important');
+    }
+    return follow;
+  }
+
+  private alignNativeChatContents(): boolean {
+    const chat = this.chatLayoutElements;
+    const viewport = window.visualViewport;
+    if (!this.visualClientCoordinates || !chat?.list.isConnected
+      || document.activeElement !== chat.composer.querySelector('#message-input')
+      || !viewport || document.documentElement.clientHeight - viewport.height <= 120) return false;
+    const follow = this.ensureNativeChatFollow(chat.list);
+    // During bottom typing, move the message document's contents without
+    // scrolling its native viewport. scrollTo makes Safari rebase fixed layers
+    // after script has already painted their correction. Relative positioning
+    // preserves native message hit testing and avoids a transformed ancestor.
+    const delta = this.chatBottomScrollTop() - window.scrollY;
+    const openingContent = this.nativeKeyboardOpening && delta > 1
+      ? this.renderedMessageOrder.at(-1)?.firstElementChild : null;
+    const openingBottom = openingContent?.getBoundingClientRect().bottom;
+    follow.offset -= delta;
+    chat.list.style.top = `${follow.offset}px`;
+    this.chatLastScrollY = window.scrollY;
+    this.chatBottomFollowPending = false;
+    if (openingContent && openingBottom !== undefined) {
+      // A later keyboard sample must continue the painted position, including
+      // any unfinished content translation from the preceding sample.
+      this.cancelChatMessageMotion();
+      const distance = openingBottom - openingContent.getBoundingClientRect().bottom;
+      this.animateChatMessageShift(distance, 380, distance, 'cubic-bezier(0.33, 1, 0.68, 1)');
+    }
+    return true;
+  }
+
   private alignChatBottom(): void {
-    if (this.composerHeightMotion) {
+    if (this.composerHeightMotion || this.nativeKeyboardDismiss) {
       this.chatBottomFollowPending = true;
       return;
     }
@@ -4507,8 +4823,17 @@ export class QuietRoomApp {
       this.chatBottomFollowPending = true;
       return;
     }
+    // Shrinking document padding can synchronously clamp scrollY and move
+    // Safari's fixed origin. Measure the destination only after chrome is
+    // back at its visual edge, or that clamp is counted a second time.
+    this.refreshNativeChatChrome();
+    if (this.alignNativeChatContents()) return;
+    this.commitNativeChatFollow();
     const bottom = this.chatBottomScrollTop();
-    if (Math.abs(window.scrollY - bottom) > 1) window.scrollTo(0, bottom);
+    if (Math.abs(window.scrollY - bottom) > 1) {
+      window.scrollTo(0, bottom);
+      this.refreshNativeChatChrome();
+    }
     this.chatLastScrollY = window.scrollY;
     // A keyboard/focus scroll may temporarily ignore scrollTo. Preserve the
     // requested destination until a later sampled frame can apply it.
@@ -4643,6 +4968,13 @@ export class QuietRoomApp {
       if (!this.isRuntimeActive(epoch, session)) return;
       if (this.chatPinnedToBottom && this.chatScrollIntent !== 'up') this.trackChatViewport(!this.desktopBrowser);
       if (input?.isConnected && input.value === originalDraft) {
+        // The optimistic row is inserted before the draft is cleared. Own the
+        // ensuing programmatic scroll/caret adjustment for single-line sends
+        // too; it is not a keyboard transition and must never hide the bar.
+        this.composerViewportSettleUntil = Math.max(
+          this.composerViewportSettleUntil,
+          performance.now() + CHAT_COMPOSER_VIEWPORT_SETTLE_MS,
+        );
         input.value = '';
         input.dispatchEvent(new Event('input'));
         this.flushUiPreferencesSave();
@@ -4663,7 +4995,6 @@ export class QuietRoomApp {
     } finally {
       if (this.isRuntimeActive(epoch, session)) this.sendingTextDrafts.delete(originalDraft);
     }
-    if (this.connectionState !== 'connected') this.showNotice('消息已加密保存在本机，连接恢复后会自动发送');
   }
 
   private enqueuePayload(payload: MessagePayload, existingClientMsgId?: string): Promise<void> {
@@ -5596,7 +5927,7 @@ export class QuietRoomApp {
       exclude: target => target instanceof Element && Boolean(target.closest(
         'input, textarea, audio, video, .message-reactions, .message-reply-quote, button:not(.image-preview):not(.album-cell):not(.file-attachment)',
       )),
-      maxOffset: () => (window.visualViewport?.width ?? window.innerWidth) / 3,
+      maxOffset: () => replySwipeMaxOffset(window.visualViewport?.width ?? window.innerWidth),
       gestureStart: () => {
         this.cancelMessageHold();
         // A clearly horizontal bubble gesture belongs to reply, even while the
@@ -6109,7 +6440,8 @@ export class QuietRoomApp {
         }
       }
     }
-    const followSend = scroll === 'send';
+    const sendRequested = scroll === 'send';
+    const followSend = sendRequested;
     const previousLatest = followSend ? this.renderedMessageOrder.at(-1) : null;
     const previousLatestTop = previousLatest?.isConnected ? previousLatest.querySelector('.message-bubble')?.getBoundingClientRect().top ?? null : null;
     if (followSend) {
@@ -6291,10 +6623,12 @@ export class QuietRoomApp {
     this.chatMessageTranslations.clear();
   }
 
-  private animateChatMessageShift(distance: number): void {
+  private animateChatMessageShift(distance: number, duration = 280,
+    maximumOffset = Math.min(280, this.chatViewportHeight * 0.45),
+    easing = 'cubic-bezier(0.16, 1, 0.3, 1)'): void {
     this.cancelChatMessageMotion();
     if (distance < 1 || matchMedia('(prefers-reduced-motion: reduce)').matches || this.chatBottomFollowPending) return;
-    const offset = Math.min(distance, 280, this.chatViewportHeight * 0.45);
+    const offset = Math.min(distance, maximumOffset);
     // Scroll and anchors are committed once. Animate only visible content
     // inside each row, so fixed bars and all geometry used by unread/scroll
     // bookkeeping stay in their final positions throughout the transition.
@@ -6309,7 +6643,7 @@ export class QuietRoomApp {
         if (!(content instanceof HTMLElement)) continue;
         const animation = content.animate(
           [{ translate: `0 ${offset}px` }, { translate: '0 0' }],
-          { duration: 280, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
+          { duration, easing, fill: 'backwards' },
         );
         this.chatMessageAnimations.add(animation);
         animation.finished.then(() => this.chatMessageAnimations.delete(animation), () => this.chatMessageAnimations.delete(animation));
@@ -6714,6 +7048,8 @@ export class QuietRoomApp {
     const status = this.root.querySelector<HTMLElement>('#backup-status');
     if (!status || !this.session) return;
     const backup = this.session.vault.backup;
+    const state = this.backupError ? 'error' : this.backupRun ? 'syncing' : backup?.syncedAt ? 'ready' : 'pending';
+    status.closest<HTMLElement>('[data-backup-state]')!.dataset.backupState = state;
     status.textContent = this.backupError || (this.backupRun ? '正在加密并备份…' : backup?.syncedAt
       ? `上次备份：${new Date(backup.syncedAt).toLocaleString()}。已保存 ${backup.archives.reduce((total, archive) => total + archive.parts.reduce((sum, part) => sum + part.count, 0), 0)} 条历史记录。`
       : '尚未完成首次备份，联网并保持页面解锁后会自动重试。');
@@ -6730,22 +7066,33 @@ export class QuietRoomApp {
     if (!this.setActiveSurface('away')) return;
     const epoch = this.runtimeEpoch;
     this.root.innerHTML = `<main class="backup-page">
-      <button class="text-button" id="backup-back" type="button">返回会话</button>
-      <header class="backup-heading">
-        <h1>备份与恢复</h1>
-        <p>备份先在本机加密。恢复码请单独保存，管理员无法找回。</p>
+      <header class="subpage-header backup-header">
+        <button class="icon-button" id="backup-back" type="button" aria-label="返回聊天">${icons.back}</button>
+        <div class="backup-heading"><h1>备份与恢复</h1><p>本机加密 · 自动同步</p></div>
+        <span class="backup-header-spacer" aria-hidden="true"></span>
       </header>
-      <section><h2>自动备份</h2><p id="backup-status" role="status"></p>
-        <button class="secondary-button" id="backup-retry" type="button">立即备份</button>
-        <p class="field-hint">解锁并联网时自动备份，锁定后暂停。</p>
-      </section>
-      <section><h2>本设备恢复码</h2><p>再次验证通行密钥后，即可在本机查看。</p>
-        <button class="secondary-button" id="view-local-recovery" data-backup-ready type="button" disabled>查看本设备恢复码</button>
-      </section>
-      <section><h2>恢复历史内容</h2><p>旧内容需主动恢复。选择范围后，输入本设备当前恢复码。</p>
-        <div class="backup-actions"><button class="secondary-button" data-restore="chat" data-backup-ready type="button" disabled>恢复历史消息</button>
-        ${session.vault.role === 'creator' ? '<button class="secondary-button" data-restore="gallery" data-backup-ready type="button" disabled>恢复保险箱</button>' : ''}</div>
-        <div id="history-restore-form"></div>
+      <section class="backup-content">
+        <p class="backup-intro">恢复码只保存在你的设备上，请另行妥善保存。Quiet Room 和管理员都无法替你找回。</p>
+        <div class="backup-settings-group">
+          <section class="backup-setting backup-sync-setting" data-backup-state="pending">
+            <div class="backup-setting-copy"><span class="backup-setting-icon" aria-hidden="true">${icons.download}</span>
+              <div><h2>自动备份</h2><p id="backup-status" role="status"></p></div></div>
+            <button class="secondary-button" id="backup-retry" type="button">立即备份</button>
+          </section>
+          <section class="backup-setting">
+            <div class="backup-setting-copy"><span class="backup-setting-icon" aria-hidden="true">${icons.lock}</span>
+              <div><h2>本设备恢复码</h2><p>再次验证通行密钥后在本机查看。</p></div></div>
+            <button class="secondary-button" id="view-local-recovery" data-backup-ready type="button" disabled>查看本设备恢复码</button>
+          </section>
+          <section class="backup-setting backup-restore-setting">
+            <div class="backup-setting-copy"><span class="backup-setting-icon" aria-hidden="true">${icons.safe}</span>
+              <div><h2>恢复历史内容</h2><p>旧内容不会自动出现，请选择要恢复的范围。</p></div></div>
+            <div class="backup-actions"><button class="secondary-button" data-restore="chat" data-backup-ready type="button" disabled>恢复历史消息</button>
+            ${session.vault.role === 'creator' ? '<button class="secondary-button" data-restore="gallery" data-backup-ready type="button" disabled>恢复保险箱</button>' : ''}</div>
+            <div id="history-restore-form"></div>
+          </section>
+        </div>
+        <p class="backup-footnote">自动备份仅在页面解锁且联网时运行，锁定后暂停。</p>
       </section>
     </main>`;
     let restoreOperation: AbortController | undefined;
@@ -7168,6 +7515,10 @@ export class QuietRoomApp {
   }
 
   private async renderImageIntoButton(button: HTMLButtonElement, manifest: ImageManifest, cached: CachedImage): Promise<void> {
+    const ownerList = () => {
+      const list = this.chatLayoutElements?.list;
+      return this.activeSurface === 'chat' && list?.isConnected && list.contains(button) ? list : null;
+    };
     const video = isVideoFile(manifest);
     this.updateChatImageLoadFeedback(manifest, 'decode');
     if (video) {
@@ -7182,7 +7533,7 @@ export class QuietRoomApp {
         delete button.dataset.loadStage;
         this.updateChatImageVisibility(button);
         this.imageLoadStatus.delete(manifest.blobId);
-        const list = this.root.querySelector<HTMLElement>('#message-list');
+        const list = ownerList();
         if (list) this.finishChatAnchorRestore(list);
         return;
       }
@@ -7197,7 +7548,7 @@ export class QuietRoomApp {
     if (!button.isConnected || this.privacyCovered) return;
     cached.width = image.width = image.naturalWidth;
     cached.height = image.height = image.naturalHeight;
-    const anchor = this.captureChatAnchor();
+    const anchor = ownerList() ? this.captureChatAnchor() : null;
     this.setChatImagePreviewSource(button, image.src);
     button.replaceChildren(image);
     if (video) button.append(this.videoPlayBadge());
@@ -7206,7 +7557,7 @@ export class QuietRoomApp {
     delete button.dataset.loadStage;
     this.updateChatImageVisibility(button);
     this.imageLoadStatus.delete(manifest.blobId);
-    const list = this.root.querySelector<HTMLElement>('#message-list');
+    const list = ownerList();
     if (list && anchor) this.restoreChatAnchor(list, anchor);
     if (list) this.finishChatAnchorRestore(list);
   }
@@ -8570,6 +8921,7 @@ export class QuietRoomApp {
     this.sendingTextDrafts.clear();
     if (this.composerHeightMotion?.frame != null) cancelAnimationFrame(this.composerHeightMotion.frame);
     this.composerHeightMotion = null;
+    this.composerViewportSettleUntil = 0;
     this.imageBatchUploading = false;
     if (this.blurLockTimer !== null) window.clearTimeout(this.blurLockTimer);
     this.blurLockTimer = null;
@@ -8663,6 +9015,7 @@ export class QuietRoomApp {
     this.chatKeyboardGesture?.destroy();
     this.chatKeyboardGesture = null;
     this.chatViewportMotion = null;
+    this.nativeChatFollow = null;
     this.chatLayoutElements = null;
     this.syncChatLayout = () => {};
     this.cancelViewportWork();

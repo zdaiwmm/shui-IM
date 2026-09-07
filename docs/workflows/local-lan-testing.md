@@ -20,6 +20,40 @@
 5. 集成授权仅更新本机 `main`。除非用户另外明确要求，否则不 fetch、pull、push、创建 PR、修改远端 main 或发布生产。
 6. 集成后记录本机 `main` 的精确 SHA，并按下一节核对实际服务。代码进入本机 `main` 但服务仍从旧 worktree 或旧构建运行，不能写成测试环境已更新。
 
+## 首次配置本机可信 HTTPS
+
+以下配置在每台 Mac 上独立完成。示例使用 macOS Bonjour 的稳定 `.local` 主机名；不要把示例主机名、证书、私钥或本机 CA 提交到 Git。
+
+1. 确认 Mac 的局域网主机名，并将结果按 DNS 规则转为小写，得到 `<name>.local`：
+
+   ```bash
+   scutil --get LocalHostName
+   ```
+
+   例如输出为 `Example-Mac` 时，后续统一使用 `example-mac.local`，证书文件名也使用小写。
+
+2. 安装 [`mkcert`](https://github.com/FiloSottile/mkcert)，运行 `mkcert -install` 为这台 Mac 建立并信任独立的本机开发 CA。不要共享 CA 私钥；`mkcert -CAROOT` 目录中的 `rootCA-key.pem` 永远不能复制到手机或仓库。
+3. 在仓库根目录为精确主机名创建证书；尖括号内容需替换为第 1 步的结果：
+
+   ```bash
+   mkdir -p .keys/lan
+   mkcert -cert-file .keys/lan/<name>.local.pem -key-file .keys/lan/<name>.local-key.pem <name>.local
+   ```
+
+   `.keys/` 已被 Git 忽略。每台电脑生成自己的 CA 和证书，不通过 Git、聊天或云盘同步私钥。
+4. 只把 `mkcert -CAROOT` 下的 `rootCA.pem`（不是 `rootCA-key.pem`）通过可信的本地方式传到测试 iPhone。安装描述文件后，还要在“设置 → 通用 → 关于本机 → 证书信任设置”中为该根证书启用完全信任。测试完成后不再需要该 CA 时，从手机移除描述文件。
+5. 确保 iPhone 与 Mac 位于同一受信局域网、客户端隔离已关闭，且 macOS 防火墙只允许 Node.js 接收入站连接。不要在公共 Wi-Fi、访客网络或端口转发环境暴露开发服务。
+
+每次从仓库根目录启动：
+
+```bash
+npm run dev:lan -- --host <name>.local
+```
+
+启动器默认读取 `.keys/lan/<name>.local.pem` 和 `.keys/lan/<name>.local-key.pem`，前端固定使用 `5173`，后端固定使用回环地址 `127.0.0.1:8787`。如需自定义文件或前端端口，可显式传入 `--cert`、`--key`、`--port`。启动器会在打开端口前校验证书 SAN、有效期和私钥匹配关系；裸 IP、`localhost`、单标签名称、无效证书或已占用端口都会失败关闭。前端由 Vite 热更新；修改 `server/` 后需重启该命令。
+
+手机只打开 `https://<name>.local:5173`。页面必须无证书警告，Safari 地址栏主机名必须与启动参数一致。该来源与 `http://localhost:5173`、裸 IP、其他端口或另一台电脑都是不同来源；首次使用时应创建新的本地测试保险库和测试会话。
+
 ## 局域网服务回读与重启
 
 先发现实际运行状态，不假定上次端口、临时 Vite 配置或证书路径仍然有效。至少核对：
@@ -28,6 +62,14 @@
 - 两个进程的当前工作目录都是共享本机 `main` 目录，而不是旧任务 worktree；
 - 前端源码或构建版本回读包含目标提交的可识别变化；
 - 后端健康接口成功，并使用本机测试数据而非生产数据。
+
+可从 Mac 做最小回读（主机名替换为本机值）：
+
+```bash
+curl --cacert "$(mkcert -CAROOT)/rootCA.pem" https://<name>.local:5173/api/health
+```
+
+返回 JSON 中的 `ok`、`database`、`storage` 应均为 `true`。随后在 iPhone Safari 打开同一来源，确认通行密钥入口不再提示“请通过 HTTPS 打开”。自动回读不能代替真实通行密钥创建、解锁、邀请打开、消息和附件的真机验收。
 
 Vite 开发服务通常会热更新前端 TypeScript、CSS 和 HTML；源码回读成功时不机械重启。以下情况只重启受影响的本机测试进程，再重新回读：
 

@@ -39,6 +39,24 @@ body:has(.chat-shell) {
   padding-inline: max(12px, env(safe-area-inset-left)) max(12px, env(safe-area-inset-right));
   z-index: 8;
 }
+.chat-fixed-origin {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+.chat-fixed-bottom { top: auto; bottom: 0; }
+.chat-shell[data-native-chrome="true"] .chat-header {
+  position: sticky;
+  top: 0;
+  max-width: 880px;
+  margin-inline: auto;
+  margin-bottom: calc(-1 * var(--chat-header-height));
+  translate: none;
+}
 .chat-header::before,
 .composer::before {
   content: '';
@@ -207,7 +225,8 @@ body:has(.chat-shell) {
   z-index: 6;
   flex-wrap: wrap;
   opacity: 1;
-  transform: translate3d(0, 0, 0);
+  /* Let the native caret use an untransformed ancestor after reveal settles. */
+  transform: none;
   transition: opacity 280ms var(--motion-out), transform 280ms var(--motion-out);
 }
 .composer[data-viewport-motion] {
@@ -223,7 +242,17 @@ body:has(.chat-shell) {
 html[data-keyboard-open='true'] .message-list:not(:has(.is-selecting-text)),
 .message-list[data-keyboard-gesture='true'] { touch-action: none; }
 .chat-header, .system-notices { will-change: translate; }
-.composer { will-change: transform, opacity; }
+.composer { will-change: opacity; }
+.chat-shell[data-native-chrome="true"] .composer { transform: none; }
+.chat-shell[data-native-chrome="true"] .composer:not([data-viewport-motion]) {
+  transition: opacity 120ms var(--motion-out);
+}
+.chat-shell[data-native-chrome="true"] .composer[data-keyboard-dismiss-reveal]:not([data-viewport-motion]) {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-shell[data-native-chrome="true"] .composer:not([data-viewport-motion]) { transition: none; }
+}
 .chat-bottom-control {
   position: absolute;
   right: max(12px, calc((min(100vw, 880px) - 680px) / 2));

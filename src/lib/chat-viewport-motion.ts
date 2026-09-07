@@ -6,6 +6,7 @@ type ViewportSample = {
   scrollY: number;
   keyboardOpen: boolean;
   keyboardGeometry: 'closed' | 'intermediate' | 'open';
+  composerResize?: boolean;
 };
 
 type KeyboardTarget = 'open' | 'closed';
@@ -14,6 +15,7 @@ type MotionOptions = {
   conceal: (immediate: boolean) => void;
   reveal: () => void;
   settled: () => void;
+  settleDelay?: (target: KeyboardTarget | null) => number;
   now?: () => number;
 };
 
@@ -70,8 +72,15 @@ export function createChatViewportMotion(options: MotionOptions) {
         || prior.top !== sample.top || prior.layoutHeight !== sample.layoutHeight
         || prior.keyboardOpen !== sample.keyboardOpen || prior.keyboardGeometry !== sample.keyboardGeometry);
       const scrolled = prior !== null && Math.abs(prior.scrollY - sample.scrollY) > 0.5;
-      if (geometryChanged && !moving) transitionOrigin = prior;
-      if (geometryChanged && keyboardTarget !== null) keyboardTargetSawGeometry = true;
+      // A focused textarea resize can make Safari publish a transient visual
+      // viewport pan while it keeps the caret visible. This is app-owned
+      // composer motion, not a keyboard or browser-toolbar transition. Swallow
+      // that sample into the baseline so it cannot hide the whole composer.
+      const composerResize = Boolean(sample.composerResize && geometryChanged && prior
+        && prior.keyboardGeometry === 'open' && sample.keyboardGeometry === 'open'
+        && keyboardTarget === null && !moving && !manual && !touching);
+      if (geometryChanged && !composerResize && !moving) transitionOrigin = prior;
+      if (geometryChanged && !composerResize && keyboardTarget !== null) keyboardTargetSawGeometry = true;
       previous = sample;
       // Suspension stops sampling while the chat is away or covered. Time
       // spent there is not evidence that the first geometry observed on
@@ -97,7 +106,7 @@ export function createChatViewportMotion(options: MotionOptions) {
       }
       // Never expose an intermediate position, even if the browser reports
       // its first keyboard/toolbar frame before a preceding focus event.
-      if (geometryChanged) conceal(true);
+      if (geometryChanged && !composerResize) conceal(true);
       else if (manual && scrolled) conceal(true);
       // WebKit can publish resize before textarea focus/blur. Infer a likely
       // keyboard direction only after geometry has moved materially away from
@@ -133,7 +142,7 @@ export function createChatViewportMotion(options: MotionOptions) {
       // Safari can leave a quiet gap between browser-toolbar and keyboard
       // phases. A quiet intermediate height is not the requested endpoint:
       // commit document geometry only after that endpoint itself is stable.
-      const quiet = now() - lastMovement >= CHAT_VIEWPORT_SETTLE_MS;
+      const quiet = now() - lastMovement >= (options.settleDelay?.(keyboardTarget) ?? CHAT_VIEWPORT_SETTLE_MS);
       const hardFallback = targetFallback || targetlessIntermediateFallback;
       if (hidden && !touching && (targetReached && quiet || hardFallback && (!manual || quiet))) {
         moving = false;

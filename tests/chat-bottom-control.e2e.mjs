@@ -232,6 +232,376 @@ try {
     return { toolbarFrames: 4, multilineComposer: true, gap: 8 };
   });
 
+  results.nativeFixedOrigin = await page.evaluate(async () => {
+    const { app, fresh } = window.bottomFixture;
+    await fresh();
+    const nativeCoordinates = app.visualClientCoordinates;
+    const viewport = window.visualViewport;
+    const saved = Object.fromEntries(['height', 'offsetTop'].map(key => [key, Object.getOwnPropertyDescriptor(viewport, key)]));
+    const header = document.querySelector('.chat-header');
+    const composer = document.querySelector('#composer');
+    const fixedOrigin = document.querySelector('.chat-fixed-origin');
+    const originalOriginBounds = fixedOrigin.getBoundingClientRect;
+    const fixedBottom = document.querySelector('.chat-fixed-bottom');
+    const originalBottomBounds = fixedBottom.getBoundingClientRect;
+    let nativeBottomGrowth = 0;
+    const originalComposerBounds = composer.getBoundingClientRect;
+    const originalHeaderBounds = header.getBoundingClientRect;
+    let nativeOrigin = 376;
+    const shift = rect => new DOMRect(rect.x, rect.y - nativeOrigin, rect.width, rect.height);
+    // The video captures a native fixed/sticky layer rebasing independently
+    // of normal document content. Ordinary flow must not inherit that rebase.
+    header.getBoundingClientRect = () => getComputedStyle(header).position === 'relative'
+      ? originalHeaderBounds.call(header) : shift(originalHeaderBounds.call(header));
+    // Reproduce the device's native fixed-origin changes independently of the
+    // delayed VisualViewport snapshot. Desktop UA emulation cannot do this.
+    fixedOrigin.getBoundingClientRect = () => shift(originalOriginBounds.call(fixedOrigin));
+    fixedBottom.getBoundingClientRect = () => { const r = shift(originalBottomBounds.call(fixedBottom)); return new DOMRect(r.x, r.y + nativeBottomGrowth, r.width, r.height); };
+    composer.getBoundingClientRect = () => { const r = shift(originalComposerBounds.call(composer)); return new DOMRect(r.x, r.y + nativeBottomGrowth, r.width, r.height); };
+    const paintedFrame = () => new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    const samples = [];
+    try {
+      app.visualClientCoordinates = true;
+      app.refreshNativeChatChrome();
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 319 });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 376 });
+      viewport.dispatchEvent(new Event('resize'));
+      await new Promise(resolve => setTimeout(resolve, 750));
+      for (const origin of [376, 397, 376, 399, 376, 424, 376, 425, 376, 0]) {
+        nativeOrigin = origin;
+        if (Math.abs(header.getBoundingClientRect().top) > 1) {
+          throw Error('The keyboard header moved with a late native origin before application correction');
+        }
+        // No resize/scroll event, and no focused input: the continuous sampler
+        // must also cover the stale endpoint during keyboard dismissal.
+        await paintedFrame();
+        const top = header.getBoundingClientRect().top;
+        const transform = new DOMMatrixReadOnly(getComputedStyle(composer).transform).m42;
+        const bottom = composer.getBoundingClientRect().bottom - transform;
+        if (Math.abs(top) > 1 || Math.abs(bottom - 319) > 1) {
+          throw Error(`Native fixed origin drifted: ${JSON.stringify({ origin, top, bottom })}`);
+        }
+        samples.push({ origin, top, bottom });
+      }
+      nativeBottomGrowth = 40;
+      await paintedFrame();
+      if (Math.abs(composer.getBoundingClientRect().bottom - 319) > 1) {
+        throw Error('Native toolbar expansion pushed the composer below the visual viewport while clientHeight stayed stale');
+      }
+      nativeBottomGrowth = 0;
+      // A textarea collapse reduces document padding. Safari can clamp the
+      // document and fixed origin before the viewport reports that change.
+      // Alignment must not convert the stale composer rectangle into another
+      // programmatic scroll in the same direction as the native clamp.
+      nativeOrigin = 376;
+      await paintedFrame();
+      const savedBottom = app.chatBottomScrollTop;
+      const savedScroll = window.scrollTo;
+      const scrolls = [];
+      try {
+        app.chatBottomScrollTop = () => window.scrollY + 319 - composer.getBoundingClientRect().bottom;
+        window.scrollTo = (...args) => scrolls.push(args);
+        nativeOrigin = 310;
+        app.alignChatBottom();
+        if (scrolls.length || Math.abs(header.getBoundingClientRect().top) > 1) {
+          throw Error(`Native document clamp was compensated twice: ${JSON.stringify(scrolls)}`);
+        }
+      } finally { app.chatBottomScrollTop = savedBottom; window.scrollTo = savedScroll; }
+      if (getComputedStyle(header).position !== 'relative' || header.style.translate !== 'none'
+        || getComputedStyle(header).willChange !== 'auto') throw Error('Keyboard header retained a native fixed/sticky compositing layer');
+      nativeOrigin = 376;
+      app.refreshNativeChatChrome();
+      if (Math.abs(header.getBoundingClientRect().top) > 1) throw Error('Keyboard header left the visible document origin');
+      nativeOrigin = 0;
+      app.refreshNativeChatChrome();
+      if (getComputedStyle(composer).transform !== 'none' || getComputedStyle(composer).willChange.includes('transform')) {
+        throw Error('Settled native textarea retained a transformed ancestor');
+      }
+      // The 14px conceal/reveal transform must not enter the retained position.
+      composer.style.transition = 'none';
+      composer.style.transform = 'translateY(14px)';
+      await paintedFrame();
+      if (Math.abs(composer.getBoundingClientRect().bottom - 14 - 319) > 1) throw Error('Reveal translation contaminated the fixed origin');
+      if (app.chatViewportTop !== 0) throw Error('Message bounds used layout coordinates with visual client rectangles');
+      Object.defineProperty(viewport, 'height', { configurable: true, value: document.documentElement.clientHeight });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 0 });
+      viewport.dispatchEvent(new Event('resize'));
+      await new Promise(resolve => setTimeout(resolve, 750));
+      window.scrollBy(0, -100);
+      if (getComputedStyle(header).position !== 'sticky' || Math.abs(header.getBoundingClientRect().top) > 1) {
+        throw Error(`Closed-keyboard history scrolling moved the header before application correction: ${JSON.stringify({ position: getComputedStyle(header).position, top: header.getBoundingClientRect().top, dismissing: !!app.nativeKeyboardDismiss })}`);
+      }
+      return { samples, revealTransformIndependent: true, unfocusedDismissal: true, nativeHistorySticky: true };
+    } finally {
+      app.visualClientCoordinates = nativeCoordinates;
+      header.getBoundingClientRect = originalHeaderBounds;
+      fixedOrigin.getBoundingClientRect = originalOriginBounds;
+      fixedBottom.getBoundingClientRect = originalBottomBounds;
+      composer.getBoundingClientRect = originalComposerBounds;
+      composer.style.removeProperty('transition'); composer.style.removeProperty('transform');
+      for (const key of Object.keys(saved)) { if (saved[key]) Object.defineProperty(viewport, key, saved[key]); else delete viewport[key]; }
+      viewport.dispatchEvent(new Event('resize'));
+      await fresh();
+    }
+  });
+
+  results.nativeEditorLayout = await page.evaluate(async () => {
+    const { app, fresh, up } = window.bottomFixture;
+    await fresh();
+    const previousMode = app.visualClientCoordinates;
+    const previousHeight = Object.getOwnPropertyDescriptor(visualViewport, 'height');
+    const input = document.querySelector('#message-input');
+    const painted = () => new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    try {
+      app.visualClientCoordinates = true;
+      input.focus({ preventScroll: true });
+      Object.defineProperty(visualViewport, 'height', { configurable: true, value: 430 });
+      visualViewport.dispatchEvent(new Event('resize'));
+      await new Promise(resolve => setTimeout(resolve, 750));
+      app.scrollChatToBottom();
+      const latest = app.renderedMessageOrder.at(-1).querySelector('.message-bubble');
+      const before = latest.getBoundingClientRect().top;
+      const editingScroll = scrollY;
+      input.value = '中文第一行\n中文第二行\n中文第三行';
+      input.setSelectionRange(input.value.length, input.value.length);
+      const selection = input.selectionStart;
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertCompositionText', isComposing: true }));
+      const height = input.getBoundingClientRect().height;
+      if (input.scrollHeight > input.clientHeight + 1 || app.composerHeightMotion) {
+        throw Error('Native composition was left in a partially expanded editing area');
+      }
+      if (input.selectionStart !== selection || input.selectionEnd !== selection || document.activeElement !== input) {
+        throw Error('Native editor layout changed composition selection or focus');
+      }
+      if (Math.abs(latest.getBoundingClientRect().top - before) > 1) throw Error('Native editor resize jumped the first message animation frame');
+      const frames = [];
+      for (let i = 0; i < 24; i++) {
+        await painted();
+        frames.push({ height: input.getBoundingClientRect().height, top: latest.getBoundingClientRect().top });
+      }
+      if (Math.abs(scrollY - editingScroll) > 1) throw Error('Native bottom typing scrolled the document behind fixed chrome');
+      if (frames.some(frame => Math.abs(frame.height - height) > 0.5)) throw Error('Native textarea continued changing height after the input event');
+      if (frames.at(-1).top >= before - 4) throw Error('Native editor lost smooth bottom-follow displacement');
+      const committedValue = input.value;
+      const stableScroll = scrollY;
+      const stableTop = latest.getBoundingClientRect().top;
+      input.value = '中文';
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteCompositionText', isComposing: true }));
+      if (Math.abs(input.getBoundingClientRect().height - height) > 0.5 || Math.abs(scrollY - stableScroll) > 1) {
+        throw Error('Native IME replacement collapsed the editing area before its committed text arrived');
+      }
+      input.value = committedValue;
+      input.setSelectionRange(input.value.length, input.value.length);
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromComposition' }));
+      await painted();
+      if (Math.abs(input.getBoundingClientRect().height - height) > 0.5 || Math.abs(scrollY - stableScroll) > 1
+        || Math.abs(latest.getBoundingClientRect().top - stableTop) > 1) {
+        throw Error('Native IME replacement left a delayed shrink or message displacement');
+      }
+      const beforeRelease = latest.getBoundingClientRect().top;
+      const list = document.querySelector('#message-list');
+      list.dispatchEvent(new WheelEvent('wheel', { deltaY: -1, bubbles: true }));
+      if (app.nativeChatFollow || list.style.top || Math.abs(latest.getBoundingClientRect().top - beforeRelease) > 1) {
+        throw Error('Native bottom following did not hand back the same message position to document scrolling');
+      }
+      await up(350);
+      await new Promise(resolve => setTimeout(resolve, 600));
+      const visible = app.renderedMessageOrder.find(row => row.getBoundingClientRect().bottom > 72).querySelector('.message-bubble');
+      const anchor = visible.getBoundingClientRect().top;
+      const scroll = scrollY;
+      input.value = '一行'; input.setSelectionRange(2, 2);
+      input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+      for (let i = 0; i < 24; i++) {
+        await painted();
+        if (Math.abs(visible.getBoundingClientRect().top - anchor) > 1 || Math.abs(scrollY - scroll) > 1) {
+          throw Error('Native editor resize moved a history reader');
+        }
+      }
+      if (input.getBoundingClientRect().height >= height - 1) throw Error('Native editor never committed a real deletion shrink');
+      return { immediateEditingArea: true, selectionPreserved: true, messageAnimation: true, compositionReplacement: true, stableDocument: true, historyHandoff: true, historyAnchor: true };
+    } finally { input.blur(); app.visualClientCoordinates = previousMode;
+      if (previousHeight) Object.defineProperty(visualViewport, 'height', previousHeight); else delete visualViewport.height;
+      visualViewport.dispatchEvent(new Event('resize')); await fresh(); }
+  });
+
+  results.nativeTypingSends = await page.evaluate(async () => {
+    const { app, fresh } = window.bottomFixture;
+    await fresh();
+    const mode = app.visualClientCoordinates;
+    const height = Object.getOwnPropertyDescriptor(visualViewport, 'height');
+    const input = document.querySelector('#message-input');
+    const painted = () => new Promise(resolve => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    try {
+      app.visualClientCoordinates = true;
+      input.focus({ preventScroll: true });
+      Object.defineProperty(visualViewport, 'height', { configurable: true, value: 430 });
+      visualViewport.dispatchEvent(new Event('resize'));
+      await new Promise(resolve => setTimeout(resolve, 750));
+      app.scrollChatToBottom();
+      const documentTop = scrollY;
+      for (let i = 0; i < 3; i++) {
+        input.value = '测试第一行\n测试第二行\n测试第三行';
+        input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText' }));
+        const seq = app.messages.size + 1;
+        app.messages.set(seq, { seq, clientMsgId: `native-send-${seq}`, senderId: 'bottom-peer', status: 'delivered',
+          acceptedAt: '2026-09-04T01:00:00.000Z', payload: { v: 1, kind: 'text', text: input.value,
+            sentAt: '2026-09-04T01:00:00.000Z' } });
+        app.renderMessages({ scroll: 'send' });
+        input.value = '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        for (let frame = 0; frame < 24; frame++) {
+          await painted();
+          if (Math.abs(scrollY - documentTop) > 1) throw Error('Native send rebased the document viewport');
+        }
+        if (app.chatBottomGap() > 2 || input.getBoundingClientRect().height > 44 || document.activeElement !== input) {
+          throw Error('Native send did not retain a focused, collapsed composer at the latest message');
+        }
+      }
+      const last = app.renderedMessageOrder.at(-1);
+      const before = last.getBoundingClientRect().top;
+      app.commitNativeChatFollow();
+      if (app.nativeChatFollow || Math.abs(last.getBoundingClientRect().top - before) > 1) {
+        throw Error('Repeated native sends lost the message position when document scrolling resumed');
+      }
+      return { sends: 3, stableDocument: true, collapsedComposer: true, scrollHandoff: true };
+    } finally {
+      input.blur(); app.commitNativeChatFollow(); app.visualClientCoordinates = mode;
+      if (height) Object.defineProperty(visualViewport, 'height', height); else delete visualViewport.height;
+      visualViewport.dispatchEvent(new Event('resize')); await fresh();
+    }
+  });
+
+  results.nativeKeyboardDismiss = await page.evaluate(async () => {
+    const { app, fresh, up } = window.bottomFixture;
+    const mode = app.visualClientCoordinates;
+    const height = Object.getOwnPropertyDescriptor(visualViewport, 'height');
+    let originProbe = document.querySelector('.chat-fixed-origin');
+    let originalOriginBounds = originProbe.getBoundingClientRect;
+    let nativeOrigin = 0;
+    originProbe.getBoundingClientRect = () => new DOMRect(0, -nativeOrigin, 0, 0);
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const resize = value => {
+      Object.defineProperty(visualViewport, 'height', { configurable: true, value });
+      visualViewport.dispatchEvent(new Event('resize'));
+    };
+    try {
+      app.visualClientCoordinates = true;
+      for (const delayedGeometry of [false, true]) {
+        originProbe.getBoundingClientRect = originalOriginBounds;
+        resize(844); await fresh(); await wait(200);
+        originProbe = app.chatLayoutElements.fixedOrigin;
+        originalOriginBounds = originProbe.getBoundingClientRect;
+        originProbe.getBoundingClientRect = () => new DOMRect(0, -nativeOrigin, 0, 0);
+        const input = document.querySelector('#message-input');
+        input.focus({ preventScroll: true }); resize(430); await wait(750);
+        app.scrollChatToBottom();
+        input.value = '第一行\n第二行\n第三行'; input.dispatchEvent(new Event('input'));
+        await wait(350);
+        const row = app.renderedMessageOrder.at(-1);
+        const start = row.getBoundingClientRect().bottom;
+        const y = scrollY;
+        const list = document.querySelector('#message-list');
+        const layoutTop = list.style.top;
+        nativeOrigin = 376;
+        input.blur();
+        if (!app.nativeKeyboardDismiss) throw Error('Bottom keyboard dismissal did not start at blur');
+        if (!delayedGeometry) resize(844);
+        await wait(90);
+        const middle = row.getBoundingClientRect().bottom;
+        if (list.style.top !== layoutTop) throw Error('Keyboard dismissal rewrote list layout while its native origin stayed still');
+        if (!(middle > start + 10 && middle < start + 413) || Math.abs(scrollY - y) > 1) {
+          throw Error(`Keyboard dismissal jumped instead of translating content: ${JSON.stringify({ start, middle, y, scrollY })}`);
+        }
+        // On the device the fixed origin resets before viewport height, while
+        // normal message geometry has not moved. It must not be subtracted
+        // from the independently animated list a second time.
+        const dismissalAnimation = app.nativeKeyboardDismiss.animation;
+        const dismissalTime = dismissalAnimation.currentTime;
+        dismissalAnimation.pause();
+        dismissalAnimation.currentTime = dismissalTime;
+        nativeOrigin = 0;
+        const beforeOriginReset = row.getBoundingClientRect().bottom;
+        app.sampleNativeKeyboardDismiss();
+        const afterOriginReset = row.getBoundingClientRect().bottom;
+        if (Math.abs(afterOriginReset - beforeOriginReset) > 1 || list.style.top !== layoutTop) {
+          throw Error(`Native fixed-origin reset displaced the message list: ${JSON.stringify({ beforeOriginReset, afterOriginReset })}`);
+        }
+        dismissalAnimation.play();
+        if (delayedGeometry) { await wait(350); resize(844); }
+        await wait(550);
+        if (app.nativeKeyboardDismiss || app.nativeChatFollow || app.chatBottomGap() > 2) {
+          throw Error('Keyboard dismissal failed to settle at the latest message');
+        }
+        if (Number(getComputedStyle(document.querySelector('#composer')).opacity) !== 1) {
+          throw Error('Composer remained faded after keyboard dismissal settled');
+        }
+      }
+      const input = document.querySelector('#message-input');
+      input.focus({ preventScroll: true }); resize(430); await wait(750);
+      await up(350); await wait(700);
+      input.blur();
+      if (app.nativeKeyboardDismiss) throw Error('Keyboard dismissal forced a history reader toward the bottom');
+      resize(844); await wait(700);
+      input.focus({ preventScroll: true });
+      const openingRow = app.renderedMessageOrder.at(-1);
+      const openingBubble = openingRow.firstElementChild;
+      const beforeOpening = openingBubble.getBoundingClientRect().bottom;
+      const openingScroll = scrollY;
+      resize(430);
+      if (!app.chatViewportMotion.moving || app.chatBottomGap() > 2) {
+        throw Error('Native keyboard opening waited for the endpoint before putting the latest message above the composer');
+      }
+      if (Math.abs(openingBubble.getBoundingClientRect().bottom - beforeOpening) > 1
+        || Math.abs(scrollY - openingScroll) > 1) {
+        throw Error('Native keyboard opening jumped the painted bubble before its content animation');
+      }
+      const openingAnimations = [...app.chatMessageAnimations];
+      if (!openingAnimations.length) throw Error('Native keyboard opening did not animate message contents');
+      for (const animation of openingAnimations) {
+        animation.pause();
+        animation.effect.updateTiming({ delay: 32 });
+        animation.currentTime = 0;
+      }
+      if (Math.abs(openingBubble.getBoundingClientRect().bottom - beforeOpening) > 1) {
+        throw Error('Pending native compositor animations exposed the final message position before starting');
+      }
+      app.alignNativeChatContents();
+      if (openingAnimations.some(animation => !app.chatMessageAnimations.has(animation))) {
+        throw Error('An unchanged keyboard sample restarted the opening animation');
+      }
+      // Freeze the browser animation clock for exact continuity comparisons;
+      // wall-clock timers may resume after the transition on a busy machine.
+      for (const animation of openingAnimations) {
+        animation.effect.updateTiming({ delay: 0 });
+        animation.currentTime = 60;
+      }
+      const openingMiddle = openingBubble.getBoundingClientRect().bottom;
+      if (!(openingMiddle < beforeOpening - 1 && openingMiddle > openingRow.getBoundingClientRect().bottom)) {
+        throw Error(`Native keyboard opening did not paint an intermediate message position: ${JSON.stringify({ beforeOpening, openingMiddle, rowBottom: openingRow.getBoundingClientRect().bottom, animations: app.chatMessageAnimations.size })}`);
+      }
+      resize(400);
+      if (Math.abs(openingBubble.getBoundingClientRect().bottom - openingMiddle) > 1) {
+        throw Error(`A later keyboard height sample interrupted the painted opening position: ${JSON.stringify({ openingMiddle, after: openingBubble.getBoundingClientRect().bottom, opening: app.nativeKeyboardOpening, moving: app.chatViewportMotion.moving, animations: app.chatMessageAnimations.size })}`);
+      }
+      await wait(750);
+      input.blur(); await wait(50); input.focus({ preventScroll: true });
+      if (app.nativeKeyboardDismiss) throw Error('Refocusing left the closing animation running');
+      await wait(750);
+      input.blur(); app.cancelViewportWork();
+      if (app.nativeKeyboardDismiss) throw Error('Viewport suspension retained a keyboard animation');
+      if (document.getAnimations().some(animation => animation.effect?.target?.id === 'message-list')) {
+        throw Error('Viewport suspension retained a compositor message animation');
+      }
+      return { earlyAndLateViewport: true, movesBeforeEndpoint: true, stableDocumentDuringDismissal: true,
+        bottomEndpoint: true, historyPreserved: true, openingReturnsImmediately: true, refocusCancels: true, suspensionCancels: true };
+    } finally {
+      originProbe.getBoundingClientRect = originalOriginBounds;
+      app.commitNativeChatFollow(); app.visualClientCoordinates = mode;
+      if (height) Object.defineProperty(visualViewport, 'height', height); else delete visualViewport.height;
+      visualViewport.dispatchEvent(new Event('resize')); await fresh();
+    }
+  });
+
   results.composerHeightMotion = await page.evaluate(async () => {
     const { app, fresh, settle } = window.bottomFixture;
     await fresh();
@@ -249,11 +619,20 @@ try {
       const messageContent = trackedMessage?.querySelector('.message-bubble');
       return {
         resizing: Boolean(app.composerHeightMotion),
+        viewportMotion: composer.dataset.viewportMotion ?? null,
         inputHeight: input.getBoundingClientRect().height,
         inputBottom: input.getBoundingClientRect().bottom,
-        headerTop: header.getBoundingClientRect().top,
+        inputVisualBottom: input.getBoundingClientRect().bottom - visualViewport.offsetTop,
+        // The test mutates a VisualViewport-shaped object in Chromium, whose
+        // fixed-position reference frame does not move as Mobile Safari's
+        // does. Normalize the header by that mocked offset; composer bottom
+        // geometry is already expressed against height + offset explicitly.
+        headerPaintTop: header.getBoundingClientRect().top,
+        headerVisualTop: header.getBoundingClientRect().top - visualViewport.offsetTop,
         photoBottom: photo.getBoundingClientRect().bottom,
+        photoVisualBottom: photo.getBoundingClientRect().bottom - visualViewport.offsetTop,
         actionBottom: action?.getBoundingClientRect().bottom ?? Number.NaN,
+        actionVisualBottom: (action?.getBoundingClientRect().bottom ?? Number.NaN) - visualViewport.offsetTop,
         messageTop: messageContent?.getBoundingClientRect().top ?? Number.NaN,
         composerTop: composer.getBoundingClientRect().top,
         scrollY: window.scrollY,
@@ -296,20 +675,27 @@ try {
 
     input.value = '第一行\n第二行\n第三行';
     input.dispatchEvent(new Event('input'));
+    Object.defineProperty(visualViewport, 'height', { configurable: true, value: 422 });
+    Object.defineProperty(visualViewport, 'offsetTop', { configurable: true, value: 108 });
+    visualViewport.dispatchEvent(new Event('resize'));
     const growing = await collect(24);
     if (range(growing, 'inputHeight') < 35 || !direction(growing, 'inputHeight', 1)) {
       throw Error(`Composer did not expand through monotonic intermediate heights: ${JSON.stringify(growing)}`);
     }
-    if (!fixed(growing, 'headerTop') || !fixed(growing, 'inputBottom')
-      || !fixed(growing, 'photoBottom') || !fixed(growing, 'actionBottom')) {
+    const paintedGrowth = growing.slice(1);
+    if (!fixed(paintedGrowth, 'headerVisualTop') || !fixed(paintedGrowth, 'inputBottom')
+      || !fixed(paintedGrowth, 'photoBottom') || !fixed(paintedGrowth, 'actionBottom')) {
       throw Error(`Fixed chat chrome moved during composer expansion: ${JSON.stringify(growing)}`);
+    }
+    if (growing.some(frame => frame.viewportMotion)) {
+      throw Error(`Composer-owned viewport drift concealed the input toolbar: ${JSON.stringify(growing)}`);
     }
     if (!direction(growing, 'messageTop', -1) || !smooth(growing, 'messageTop')
       || growing.at(-1).messageTop >= growing[0].messageTop - 35) {
       throw Error(`Timeline did not rise smoothly with composer expansion: ${JSON.stringify(growing)}`);
     }
 
-    const offsets = growing.map(frame => ({ gap: frame.composerTop - frame.messageTop }));
+    const offsets = paintedGrowth.map(frame => ({ gap: frame.composerTop - frame.messageTop }));
     if (range(offsets, 'gap') > 2) throw Error(`Composer and timeline used different progress: ${JSON.stringify(growing)}`);
     const previousLatest = app.renderedMessageOrder.at(-1);
     let sendNumber = 0;
@@ -327,18 +713,36 @@ try {
     };
     const beforeSend = sample(previousLatest);
     composer.requestSubmit();
+    await Promise.resolve();
+    Object.defineProperty(visualViewport, 'height', { configurable: true, value: 430 });
+    Object.defineProperty(visualViewport, 'offsetTop', { configurable: true, value: 100 });
+    visualViewport.dispatchEvent(new Event('resize'));
     const sending = [beforeSend, ...await collect(24, previousLatest)];
     await settle();
     if (range(sending, 'inputHeight') < 35 || !direction(sending, 'inputHeight', -1)) {
       throw Error(`Sent composer did not collapse through monotonic intermediate heights: ${JSON.stringify(sending)}`);
     }
-    if (!fixed(sending, 'headerTop') || !fixed(sending, 'inputBottom')
+    if (!fixed(sending, 'headerVisualTop') || !fixed(sending, 'inputBottom')
       || !fixed(sending, 'photoBottom') || !fixed(sending, 'actionBottom')) {
       throw Error(`Fixed chat chrome moved during send: ${JSON.stringify(sending)}`);
+    }
+    if (sending.some(frame => frame.viewportMotion)) {
+      throw Error(`Send-owned viewport drift concealed the input toolbar: ${JSON.stringify(sending)}`);
     }
     if (!direction(sending, 'messageTop', -1) || !smooth(sending, 'messageTop')
       || sending.at(-1).messageTop >= sending[0].messageTop - 4) {
       throw Error(`Inserted message did not move the prior timeline smoothly upward: ${JSON.stringify(sending)}`);
+    }
+    // Real iOS can defer its caret-reveal pan until after the 280ms textarea
+    // collapse has painted. That delayed sample still belongs to the send.
+    const beforeDelayedSendDrift = sample(previousLatest);
+    Object.defineProperty(visualViewport, 'offsetTop', { configurable: true, value: 92 });
+    visualViewport.dispatchEvent(new Event('scroll'));
+    const delayedSendDrift = [beforeDelayedSendDrift, ...await collect(4, previousLatest)];
+    if (delayedSendDrift.some(frame => frame.viewportMotion)
+      || !fixed(delayedSendDrift, 'headerVisualTop') || !fixed(delayedSendDrift, 'inputVisualBottom')
+      || !fixed(delayedSendDrift, 'photoVisualBottom') || !fixed(delayedSendDrift, 'actionVisualBottom')) {
+      throw Error(`Delayed send viewport drift moved fixed chat chrome: ${JSON.stringify(delayedSendDrift)}`);
     }
     // Retarget a live Chinese-IME-style wrap, then delete back to one line.
     // The first position after each edit must retain the last painted position.
@@ -358,7 +762,7 @@ try {
     composer.requestSubmit();
     const interruptedSend = [beforeInterruptedSend, ...await collect(24, interruptedRow)];
     if (!direction(interruptedSend, 'messageTop', -1) || !smooth(interruptedSend, 'messageTop')
-      || !fixed(interruptedSend, 'photoBottom') || !fixed(interruptedSend, 'headerTop')) {
+      || !fixed(interruptedSend, 'photoBottom') || !fixed(interruptedSend, 'headerVisualTop')) {
       throw Error(`Sending during wrap interrupted visible motion: ${JSON.stringify(interruptedSend)}`);
     }
 
@@ -544,6 +948,34 @@ try {
     if (Math.abs(window.scrollY - app.chatBottomScrollTop()) > 2 || visible() || button().hasAttribute('aria-busy')) throw Error('Paginated return did not finish at true latest');
     if (document.activeElement !== input || input.selectionStart !== 1 || input.selectionEnd !== 3) throw Error('Paginated return lost keyboard focus or selection');
     return { pageCursors, latest: 620, reusedExistingLoad: true, keyboard: true };
+  });
+
+  results.nativeFocusLoadsLatest = await page.evaluate(async () => {
+    const f = window.bottomFixture; const { app } = f;
+    const mode = app.visualClientCoordinates;
+    const height = Object.getOwnPropertyDescriptor(visualViewport, 'height');
+    try {
+      await f.restoreMiddle(); app.visualClientCoordinates = true;
+      const input = document.querySelector('#message-input'); input.focus({ preventScroll: true });
+      Object.defineProperty(visualViewport, 'height', { configurable: true, value: 430 });
+      visualViewport.dispatchEvent(new Event('resize'));
+      const deadline = performance.now() + 10000;
+      while (app.historyHasNewer && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
+      await new Promise(resolve => setTimeout(resolve, 750));
+      if (app.historyHasNewer || app.renderedMessageOrder.at(-1).dataset.clientMsgId !== 'bottom-620'
+        || app.chatBottomGap() > 2 || document.activeElement !== input) {
+        throw Error(`Native input focus stopped at an intermediate loaded history page: ${JSON.stringify({
+          hasNewer: app.historyHasNewer, cursor: app.historyForwardCursor, latest: app.renderedMessageOrder.at(-1).dataset.clientMsgId,
+          gap: app.chatBottomGap(), pinned: app.chatPinnedToBottom, intent: app.chatScrollIntent,
+          focused: document.activeElement === input })}`);
+      }
+      input.blur();
+      return { latest: 620, preservesFocus: true, aboveComposer: true };
+    } finally {
+      app.commitNativeChatFollow(); app.visualClientCoordinates = mode;
+      if (height) Object.defineProperty(visualViewport, 'height', height); else delete visualViewport.height;
+      visualViewport.dispatchEvent(new Event('resize')); await f.fresh();
+    }
   });
 
   results.cancelledHistory = {};
