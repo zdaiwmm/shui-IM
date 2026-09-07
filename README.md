@@ -55,6 +55,14 @@ The browser runs at `http://127.0.0.1:5173`, but device-key testing should open 
 
 For iPhone or other LAN-device passkey testing, expose the frontend through a stable HTTPS hostname whose certificate the device trusts and whose name matches the certificate; keep the loopback API behind the frontend proxy. Home and office run separate local environments. Local `main` is the current computer's LAN-test candidate and is distinct from `origin/main` and production. Code and workflow rules may be synchronized through GitHub only when explicitly requested, while certificates, private keys, test data, passkeys, vaults, invitations, and recovery material remain local. See [Local LAN testing and cross-computer synchronization](docs/workflows/local-lan-testing.md).
 
+The repository includes a fail-closed LAN launcher. It verifies the certificate hostname, validity period, and matching private key before binding Vite to the LAN; the API remains on loopback and is reached through the HTTPS frontend proxy:
+
+```bash
+npm run dev:lan -- --host <this-mac-local-hostname>.local
+```
+
+Certificate creation, iPhone trust setup, hostname discovery, firewall scope, and service readback are documented in [Local LAN testing and cross-computer synchronization](docs/workflows/local-lan-testing.md#首次配置本机可信-https). Do not use a certificate warning bypass, a raw IP address, or plain LAN HTTP for passkey testing.
+
 To exercise the actual entry interaction, hold the bottom-right 64 by 64 pixel area for one second. Keyboard users can focus the concealed trigger and hold Space or Enter for one second.
 
 ## Production build
