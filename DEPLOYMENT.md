@@ -64,12 +64,31 @@ Use `npm run deploy:doctor` before a release. It checks GitHub code access,
 GitHub CI read access, and SSH access to the installed production helper without
 changing production. Do not invent another release route when a check fails.
 
-Save machine-specific settings once in `.deploy.local.json`, using
-`.deploy.example.json` as the template. This file is ignored by Git; it contains
-host/user/key **paths**, never private keys or tokens. Environment settings below
-override the JSON settings. `githubKey` is optional: if absent, Git reuses its
-existing SSH configuration. SSH host verification stays strict; provision and
-verify host fingerprints separately, never disable verification to release.
+Save machine-specific settings once with the setup command below. The default
+location is `~/.config/quiet-room/deploy.json`, so every clone and worktree on
+the trusted computer reuses the same settings. A repository-local
+`.deploy.local.json` remains a supported override for an isolated environment;
+both files contain host/user/key **paths**, never private keys or tokens. The
+`QUIET_ROOM_DEPLOY_CONFIG` variable can select another absolute config path.
+Environment settings below override JSON values. `githubKey` is optional: the
+fixed publisher uses the authenticated GitHub CLI credential for HTTPS clones
+when it is absent. SSH host verification stays strict; provision and verify
+host fingerprints separately, never disable verification to release.
+
+Run once on each trusted computer (the key file must already exist):
+
+```bash
+npm run deploy:setup -- \
+  --host <production-host> \
+  --user <deploy-user> \
+  --server-key /absolute/path/to/production-key
+```
+
+The command atomically writes mode `0600` configuration and verifies the key
+path. It never copies or prints key contents. Use `--github-key` only when a
+dedicated GitHub deploy key is intentionally configured; otherwise run
+`gh auth login -h github.com --web --git-protocol https` once and let the
+publisher use the OS credential store.
 
 The fixed entry point also requires GitHub CLI (`gh`) with authenticated read
 access to this private repository's Actions. Reuse `gh`'s existing login or
@@ -78,8 +97,10 @@ SSH key permits pushing code but is not a GitHub Actions API login. Browser
 login alone likewise does not authenticate `gh`. Initial CLI installation/login
 is a separate setup step, not an action silently performed by deployment.
 
-The script requires a clean local `main` matching `origin/main` and verifies the
-latest **CI push or manually dispatched run for that exact main SHA**. That run
+The direct `release.mjs` entry point requires a clean local `main` matching
+`origin/main`; the fixed `publish.mjs` entry point instead uses an isolated
+shallow clone. Both paths verify the latest **CI push or manually dispatched run
+for that exact main SHA**. That run
 must succeed and include a successful **Full application verification** job.
 PR CI and a green documentation-only run are insufficient. If the current main
 has only documentation checks, manually run the full CI workflow as described
@@ -95,6 +116,34 @@ Do not widen the firewall or extract browser session credentials to make a
 release pass. A trusted reachable SSH route must be established separately.
 After an ambiguous cutover disconnect, inspect the current SHA, gate and helper
 logs before retrying; the script never automatically retries the deployment.
+
+### Fixed GitHub repository workflow
+
+Use the repository commands for routine synchronization. They require the
+canonical `origin`, use the authenticated `gh` credential, refuse dirty trees,
+fast-forward `main` only, and refuse direct pushes from `main`:
+
+```bash
+npm run repo:doctor                 # one read-only check
+npm run repo:pull                   # safe fast-forward of local main
+npm run repo:push                   # push the current task branch and verify its SHA
+```
+
+`repo:pull` stops on local commits or divergent history instead of resetting or
+stashing work. `repo:push` requires a non-`main` branch and a clean tree; open
+the pull request and wait for the exact main CI result before publishing.
+
+For a reviewed release, keep the approved full SHA visible and use the fixed
+isolated publisher followed by the independent readback:
+
+```bash
+node scripts/publish.mjs --sha <full-main-sha>
+npm run deploy:readback -- --sha <full-deployed-sha>
+```
+
+The publisher reads the shared per-user configuration, clones the exact
+GitHub `main` into a temporary isolated directory, verifies matching CI, and
+does not copy uncommitted files from the current worktree.
 
 Before the first release using the traffic gate, separately install the reviewed
 Nginx configuration and root-owned deployment helper. Source synchronization

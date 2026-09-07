@@ -1,27 +1,18 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync, existsSync, writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { createReleaseTimer, isMainModule } from './release-runtime.mjs';
 import { verifySuccessfulCI } from './release-ci.mjs';
+import { assertKeyFiles, loadConfig, validateConfig } from './deploy-config.mjs';
 
 export { requireSuccessfulCI } from './release-ci.mjs';
+export { validateConfig } from './deploy-config.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const repo = 'zdaiwmm/shui-IM';
 const timed = createReleaseTimer('release');
-
-export function validateConfig(config) {
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9.-]*$/.test(config.serverHost ?? '')) throw new Error('Missing or invalid serverHost');
-  if (!/^[a-zA-Z_][a-zA-Z0-9_-]*$/.test(config.serverUser ?? '')) throw new Error('Missing or invalid serverUser');
-  for (const key of ['serverKey', 'githubKey']) {
-    if ((key === 'serverKey' || config[key]) && (typeof config[key] !== 'string' || !path.isAbsolute(config[key]))) {
-      throw new Error(`${key} must be an absolute path`);
-    }
-  }
-  return config;
-}
 
 function command(program, args, options = {}) {
   const result = spawnSync(program, args, { cwd: root, encoding: 'utf8', timeout: 30000, ...options });
@@ -40,15 +31,9 @@ async function main() {
   if (args.length && !doctor && !approved) throw new Error('Invalid arguments; use --help.');
   const receipt = process.env.QUIET_ROOM_PUBLISH_RECEIPT;
   if (receipt && path.resolve(receipt) !== path.join(root, '.git/quiet-room-verified-sha')) throw new Error('Invalid isolated release receipt path.');
-  const configPath = path.join(root, '.deploy.local.json');
-  const config = existsSync(configPath) ? JSON.parse(readFileSync(configPath, 'utf8')) : {};
-  for (const [key, env] of Object.entries({ serverHost: 'QUIET_ROOM_SERVER_HOST', serverUser: 'QUIET_ROOM_SERVER_USER', serverKey: 'QUIET_ROOM_SERVER_KEY', githubKey: 'QUIET_ROOM_GITHUB_KEY' })) {
-    if (process.env[env]) config[key] = process.env[env];
-  }
+  const { config } = loadConfig(root);
   validateConfig(config);
-  for (const key of ['serverKey', 'githubKey']) {
-    if (config[key] && !existsSync(config[key])) throw new Error(`Key file unavailable: ${key}`);
-  }
+  assertKeyFiles(config);
   const ssh = ['-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=8', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3', '-i', config.serverKey, `${config.serverUser}@${config.serverHost}`];
   const env = { ...process.env };
   if (config.githubKey) {

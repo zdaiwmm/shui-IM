@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createReleaseTimer, isMainModule } from './release-runtime.mjs';
 import { readCIRuns, selectRun, verifySuccessfulCI } from './release-ci.mjs';
+import { loadConfig } from './deploy-config.mjs';
 
 export { selectRun } from './release-ci.mjs';
 
@@ -51,21 +52,28 @@ function publishApproved(args, run, timed) {
   });
   const directory = realpathSync(mkdtempSync(path.join(tmpdir(), 'quiet-room-publish-')));
   console.log(`Isolated release directory: ${directory}`);
-  // Reuse the already configured Git SSH identity without touching the working tree.
-  const config = path.join(root, '.deploy.local.json');
-  const localConfig = existsSync(config) ? JSON.parse(readFileSync(config, 'utf8')) : {};
-  const key = process.env.QUIET_ROOM_GITHUB_KEY || localConfig.githubKey;
-  const ssh = key ? `ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -i '${key.replaceAll("'", "'\\''")}'`
-    : run('git', ['config', '--get', 'core.sshCommand']);
-  if (!ssh) throw new Error('Configure core.sshCommand or QUIET_ROOM_GITHUB_KEY before publishing.');
-  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', GH_PROMPT_DISABLED: '1', GIT_SSH_COMMAND: ssh };
+  // Reuse the configured GitHub CLI credential for HTTPS clones. A separate
+  // deploy key remains supported when githubKey is explicitly configured.
+  const { config, sourcePath } = loadConfig(root);
+  const key = process.env.QUIET_ROOM_GITHUB_KEY || config.githubKey;
+  const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', GH_PROMPT_DISABLED: '1' };
+  let cloneUrl = `https://github.com/${repo}.git`;
+  if (key) {
+    const ssh = `ssh -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -i '${key.replaceAll("'", "'\\''")}'`;
+    env.GIT_SSH_COMMAND = ssh;
+    cloneUrl = `git@github.com:${repo}.git`;
+  } else {
+    env.GIT_CONFIG_COUNT = '1';
+    env.GIT_CONFIG_KEY_0 = 'credential.helper';
+    env.GIT_CONFIG_VALUE_0 = '!gh auth git-credential';
+  }
   timed('clone', () => {
-    run('git', ['clone', '--depth', '1', '--single-branch', '--branch', 'main', `git@github.com:${repo}.git`, directory], { env, timeout: 120000 });
+    run('git', ['clone', '--depth', '1', '--single-branch', '--branch', 'main', cloneUrl, directory], { env, timeout: 120000 });
     if (run('git', ['rev-parse', 'HEAD'], { cwd: directory }) !== sha) throw new Error('Main changed while preparing release. Nothing deployed.');
   });
-  if (existsSync(config)) {
+  if (sourcePath) {
     const target = path.join(directory, '.deploy.local.json');
-    copyFileSync(config, target);
+    copyFileSync(sourcePath, target);
     chmodSync(target, 0o600);
   }
   // Existing entry point rechecks exact main CI, clean state, and live SHA.

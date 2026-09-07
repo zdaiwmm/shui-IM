@@ -7,6 +7,21 @@
 Service Worker；复用旧 ID 会让已经打开的客户端无法识别新版本。纯发布记录文档不需要修改
 该文件，也不能为了触发更新提示制造空版本。
 
+## 本机一次性初始化
+
+在每台受信计算机上完成一次 GitHub CLI 和部署配置初始化；配置使用系统凭据存储和本机路径，
+不进入 Git：
+
+```bash
+gh auth login -h github.com --web --git-protocol https
+npm run deploy:setup -- --host <production-host> --user <deploy-user> \
+  --server-key /absolute/path/to/production-key
+```
+
+日常同步固定使用 `npm run repo:doctor`、`npm run repo:pull` 和 `npm run repo:push`。发布仍必须
+由精确 main SHA 授权，不能自动发布“当前最新”提交；配置会被所有 worktree/clone 复用，不需要
+每次重新填写。
+
 ## 每次只用这个入口
 
 用户明确要求发布后，确认需要上线的完整 GitHub `main` 提交号，再执行：

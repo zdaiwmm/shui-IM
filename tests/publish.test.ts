@@ -60,6 +60,8 @@ describe('isolated non-GUI publishing', () => {
       expect(calls[watch].args).toContain('--exit-status');
       expect(calls[watch].args.slice(-2)).toEqual(['--interval', '5']);
       expect(calls[clone].args.slice(0, 5)).toEqual(['clone', '--depth', '1', '--single-branch', '--branch']);
+      expect(calls[clone].args.at(-2)).toBe('https://github.com/zdaiwmm/shui-IM.git');
+      expect(calls[clone].options.env.GIT_CONFIG_VALUE_0).toBe('!gh auth git-credential');
       const deploy = calls.at(-1)!;
       expect(deploy.args.slice(-2)).toEqual(['--sha', sha]);
       expect(deploy.options.cwd).toBe(directory);

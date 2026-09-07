@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import { isMainModule } from './release-runtime.mjs';
-import { validateConfig } from './release.mjs';
+import { assertKeyFiles, loadConfig as loadDeployConfig, validateConfig } from './deploy-config.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const origin = 'https://ai.shui.click';
@@ -80,14 +80,9 @@ export function parseReadbackArgs(args) {
 }
 
 function loadConfig() {
-  const configPath = path.join(root, '.deploy.local.json');
-  const config = existsSync(configPath) ? JSON.parse(readFileSync(configPath, 'utf8')) : {};
-  for (const [key, envName] of Object.entries({
-    serverHost: 'QUIET_ROOM_SERVER_HOST', serverUser: 'QUIET_ROOM_SERVER_USER',
-    serverKey: 'QUIET_ROOM_SERVER_KEY', githubKey: 'QUIET_ROOM_GITHUB_KEY',
-  })) if (process.env[envName]) config[key] = process.env[envName];
+  const { config } = loadDeployConfig(root);
   validateConfig(config);
-  if (!existsSync(config.serverKey)) throw new Error('Configured server key is unavailable');
+  assertKeyFiles(config);
   return config;
 }
 
