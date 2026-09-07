@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 // @ts-expect-error Operational Node script intentionally has no TS declarations.
@@ -67,6 +67,11 @@ describe('release entry point', () => {
       expect(result.status).toBe(1);
       expect(result.stderr).toContain('Invalid arguments');
     }
+  });
+  it('routes the package production command through the fixed publisher', () => {
+    const scripts = JSON.parse(readFileSync(path.resolve('package.json'), 'utf8')).scripts;
+    expect(scripts['deploy:production']).toBe('node scripts/publish.mjs');
+    expect(scripts['deploy:production:direct']).toBe('bash scripts/deploy-production.sh');
   });
   it('executes help and argument validation through aliased directory and script paths', () => {
     const directory = mkdtempSync(path.join(tmpdir(), 'quiet-release-entry-'));
