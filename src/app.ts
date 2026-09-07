@@ -4597,13 +4597,7 @@ export class QuietRoomApp {
     };
     const nativeChrome = String(this.visualClientCoordinates);
     if (chat.shell.dataset.nativeChrome !== nativeChrome) chat.shell.dataset.nativeChrome = nativeChrome;
-    // Sticky headers are attached by the native scrolling compositor itself.
-    // A corrected fixed header can have top=0 in DOM while UIKit paints its
-    // stale translation hundreds of pixels down during keyboard dismissal.
-    // Keep the fixed-origin measurement on an invisible, untranslated probe.
     const fixedTop = this.visualClientCoordinates ? -chat.fixedOrigin.getBoundingClientRect().top : viewportTop;
-    // Sticky top is in layout coordinates. A keyboard caret pan can move the
-    // visual origin away from layout zero even though the document is still.
     setStyle(chat.header.style, 'top', this.visualClientCoordinates ? `${fixedTop}px` : '0px');
     setStyle(chat.header.style, 'translate', this.visualClientCoordinates ? 'none' : `0 ${fixedTop}px`);
     // Safari toolbar collapse can expand the actual fixed-position bottom
@@ -4803,10 +4797,20 @@ export class QuietRoomApp {
     // after script has already painted their correction. Relative positioning
     // preserves native message hit testing and avoids a transformed ancestor.
     const delta = this.chatBottomScrollTop() - window.scrollY;
+    const openingContent = this.nativeKeyboardOpening && delta > 1
+      ? this.renderedMessageOrder.at(-1)?.firstElementChild : null;
+    const openingBottom = openingContent?.getBoundingClientRect().bottom;
     follow.offset -= delta;
     chat.list.style.top = `${follow.offset}px`;
     this.chatLastScrollY = window.scrollY;
     this.chatBottomFollowPending = false;
+    if (openingContent && openingBottom !== undefined) {
+      // A later keyboard sample must continue the painted position, including
+      // any unfinished content translation from the preceding sample.
+      this.cancelChatMessageMotion();
+      const distance = openingBottom - openingContent.getBoundingClientRect().bottom;
+      this.animateChatMessageShift(distance, 380, distance, 'cubic-bezier(0.33, 1, 0.68, 1)');
+    }
     return true;
   }
 
@@ -6619,10 +6623,12 @@ export class QuietRoomApp {
     this.chatMessageTranslations.clear();
   }
 
-  private animateChatMessageShift(distance: number): void {
+  private animateChatMessageShift(distance: number, duration = 280,
+    maximumOffset = Math.min(280, this.chatViewportHeight * 0.45),
+    easing = 'cubic-bezier(0.16, 1, 0.3, 1)'): void {
     this.cancelChatMessageMotion();
     if (distance < 1 || matchMedia('(prefers-reduced-motion: reduce)').matches || this.chatBottomFollowPending) return;
-    const offset = Math.min(distance, 280, this.chatViewportHeight * 0.45);
+    const offset = Math.min(distance, maximumOffset);
     // Scroll and anchors are committed once. Animate only visible content
     // inside each row, so fixed bars and all geometry used by unread/scroll
     // bookkeeping stay in their final positions throughout the transition.
@@ -6637,7 +6643,7 @@ export class QuietRoomApp {
         if (!(content instanceof HTMLElement)) continue;
         const animation = content.animate(
           [{ translate: `0 ${offset}px` }, { translate: '0 0' }],
-          { duration: 280, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
+          { duration, easing, fill: 'backwards' },
         );
         this.chatMessageAnimations.add(animation);
         animation.finished.then(() => this.chatMessageAnimations.delete(animation), () => this.chatMessageAnimations.delete(animation));
