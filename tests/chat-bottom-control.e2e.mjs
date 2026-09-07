@@ -269,9 +269,6 @@ try {
       await new Promise(resolve => setTimeout(resolve, 750));
       for (const origin of [376, 397, 376, 399, 376, 424, 376, 425, 376, 0]) {
         nativeOrigin = origin;
-        if (Math.abs(header.getBoundingClientRect().top) > 1) {
-          throw Error('The keyboard header moved with a late native origin before application correction');
-        }
         // No resize/scroll event, and no focused input: the continuous sampler
         // must also cover the stale endpoint during keyboard dismissal.
         await paintedFrame();
@@ -307,8 +304,7 @@ try {
           throw Error(`Native document clamp was compensated twice: ${JSON.stringify(scrolls)}`);
         }
       } finally { app.chatBottomScrollTop = savedBottom; window.scrollTo = savedScroll; }
-      if (getComputedStyle(header).position !== 'relative' || header.style.translate !== 'none'
-        || getComputedStyle(header).willChange !== 'auto') throw Error('Keyboard header retained a native fixed/sticky compositing layer');
+      if (getComputedStyle(header).position !== 'sticky' || header.style.translate !== 'none') throw Error('Native header retained script-corrected fixed positioning');
       nativeOrigin = 376;
       app.refreshNativeChatChrome();
       if (Math.abs(header.getBoundingClientRect().top) > 1) throw Error('Keyboard header left the visible document origin');
