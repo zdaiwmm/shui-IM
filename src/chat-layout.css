@@ -250,34 +250,20 @@ body:has(:where(#app) > .chat-shell) {
   z-index: 6;
   flex-wrap: wrap;
   opacity: 1;
-  /* Let the native caret use an untransformed ancestor after reveal settles. */
+  /* Keep the native caret and the visible bar on the same anchored surface. */
   transform: none;
-  transition: opacity 280ms var(--motion-out), transform 280ms var(--motion-out);
-}
-.composer[data-viewport-motion] {
-  opacity: 0;
-  transform: translate3d(0, 14px, 0);
-  pointer-events: none;
   transition: none;
 }
-/* The first native viewport event can precede focus. Hide before changing its
-   position; only the stable endpoint fades back in. Never hide/inert the field,
-   which would surrender its focus, selection and keyboard during a send. */
+.composer[data-viewport-motion] {
+  pointer-events: none;
+}
+/* Motion defers interaction and document bookkeeping, never painting. Keep
+   focus, selection and the draft mounted throughout keyboard/toolbar motion. */
 .chat-shell .composer[data-viewport-motion] * { pointer-events: none; }
 html[data-keyboard-open='true'] .message-list:not(:has(.is-selecting-text)),
 .message-list[data-keyboard-gesture='true'] { touch-action: none; }
 .chat-header, .system-notices { will-change: translate; }
-.composer { will-change: opacity; }
 .chat-shell[data-native-chrome="true"] .composer { transform: none; }
-.chat-shell[data-native-chrome="true"] .composer:not([data-viewport-motion]) {
-  transition: opacity 120ms var(--motion-out);
-}
-.chat-shell[data-native-chrome="true"] .composer[data-keyboard-dismiss-reveal]:not([data-viewport-motion]) {
-  transition: none;
-}
-@media (prefers-reduced-motion: reduce) {
-  .chat-shell[data-native-chrome="true"] .composer:not([data-viewport-motion]) { transition: none; }
-}
 .chat-bottom-control {
   position: absolute;
   right: max(12px, calc((min(100vw, 880px) - 680px) / 2));

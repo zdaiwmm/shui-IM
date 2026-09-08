@@ -315,7 +315,7 @@ try {
       viewport.dispatchEvent(new Event('resize'));
       // Native viewport events are intentionally coalesced into one animation
       // frame so WebKit cannot expose mismatched height/offsetTop snapshots.
-      // Observe the concealed transition only after that merged frame starts.
+      // Observe continuous composer painting after that merged frame starts.
       await frame();
       const composerElement = document.querySelector('.composer');
       const concealedComposer = composerElement?.getBoundingClientRect();
@@ -343,8 +343,8 @@ try {
   });
   invariant(
     keyboardViewportLayout.concealed.state === 'positioning'
-      && keyboardViewportLayout.concealed.opacity === '0'
-      && Math.abs(keyboardViewportLayout.concealed.revealOffset - 14) < 1
+      && keyboardViewportLayout.concealed.opacity === '1'
+      && Math.abs(keyboardViewportLayout.concealed.revealOffset) < 1
       && Math.abs((keyboardViewportLayout.concealed.composerBottom ?? 0) - 500) < 1
       && (keyboardViewportLayout.concealed.inputBottom ?? 501) <= 500
       && Math.abs((keyboardViewportLayout.composerBottom ?? 0) - 500) < 1

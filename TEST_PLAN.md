@@ -472,3 +472,11 @@ npm run check:full
   自动化不能证明真实设备阻尼手感。
 
 - iPhone keyboard opening from older history must place the latest row above the composer on the first open viewport sample, before the motion gate settles. Keyboard dismissal at the bottom must move rows before the final viewport event without rebasing document scroll, handle early/late viewport delivery, settle at the latest message, preserve a history reader on dismissal, and cancel movement on refocus or lifecycle suspension. Native keyboard speed and header paint require physical-device capture in addition to browser assertions.
+
+## 2026-09-08 输入栏连续显示验收要求
+
+- 键盘展开／隐藏、浏览器栏伸缩、手动历史滚动及中间视口重新挂载时，输入栏逐帧保持可见，
+  不追加 14 px 显现位移或稳定后的淡入；焦点、草稿、选区与隐私遮挡保持原规则。
+- 自动回归分别等待视口稳定、输入框高度动画及返回按钮动画，不再用输入栏淡入时长隐式等待其他动画。
+- 真机需分别检查底部上滑与历史位置点输入框时标题不下移／抖动，以及键盘、输入栏和 Safari
+  原生 URL 栏的实际开合过程。上述要求取代历史验收记录中的运动期间隐藏输入栏要求。

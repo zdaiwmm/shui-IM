@@ -56,7 +56,8 @@ try {
       const deadline = performance.now() + 1200;
       while (performance.now() < deadline) {
         const composer = document.querySelector('#composer');
-        if (!composer.dataset.viewportMotion && Number(getComputedStyle(composer).opacity) === 1) return;
+        if (!composer.dataset.viewportMotion && Number(getComputedStyle(composer).opacity) === 1
+          && !composer.getAnimations({ subtree: true }).some(animation => animation.playState === 'running')) return;
         await new Promise(resolve => requestAnimationFrame(resolve));
       }
       throw Error('Composer did not reveal after scrolling settled');
@@ -188,16 +189,15 @@ try {
     await up(11); if (visible()) throw Error('Button appeared before latest message crossed its top edge');
     await up(13);
     const composer = document.querySelector('#composer');
-    if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '0') throw Error('Scroll motion did not immediately conceal the composer');
+    if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '1'
+      || getComputedStyle(composer).transform !== 'none') throw Error('Scroll motion hid or shifted the composer');
     await waitForComposerReveal();
     if (!visible() || button().getAttribute('aria-hidden') !== 'false' || button().tabIndex !== 0) throw Error('Button did not appear after scroll motion fully settled');
     const fade = getComputedStyle(button());
     if (!fade.transitionProperty.includes('opacity') || !fade.transitionDuration.includes('0.18s')) throw Error('Button lost its opacity transition');
     await up(11);
-    // Manual document scrolling conceals the entire composer immediately and
-    // commits the button's visibility at the same stable endpoint. Inspecting
-    // its child state while the parent is still fully transparent can only
-    // observe the previous (unpainted) frame.
+    // Scrolling keeps the composer painted while the button's visibility is
+    // measured at the stable endpoint.
     await waitForComposerReveal();
     if (visible() || button().tabIndex !== -1) throw Error('Returning across the threshold left the button active');
     // Observe async content changes even when neither scrolling nor viewport

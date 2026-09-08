@@ -52,9 +52,7 @@ try {
       app.renderChat();
     };
     window.regression = { app, root, session, vault, message, fresh };
-    // Viewport motion intentionally moves the fully transparent composer 14px
-    // below its anchored edge. Layout/scroll assertions use the untransformed
-    // edge that the bar returns to after the 280ms reveal.
+    // Measure the anchoring edge independently of any test-injected transform.
     window.composerBaseBounds = () => {
       const element = document.querySelector('#composer');
       const rect = element.getBoundingClientRect();
@@ -970,12 +968,10 @@ try {
           window.dispatchEvent(new Event('scroll'));
           await frame();
           const composer = document.querySelector('#composer');
-          const concealShift = new DOMMatrix(getComputedStyle(composer).transform).f;
-          // The base edge tracks each viewport frame synchronously. Its visual
-          // box is intentionally 14px below that edge while fully transparent.
-          if (Math.abs(composer.getBoundingClientRect().bottom - concealShift - height) > 1
-            || composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '0') {
-            throw Error('Composer did not immediately conceal at the current toolbar frame');
+          if (Math.abs(composer.getBoundingClientRect().bottom - height) > 1
+            || composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '1'
+            || getComputedStyle(composer).transform !== 'none') {
+            throw Error('Composer disappeared or lagged the current toolbar frame');
           }
           if (document.querySelector('#message-list').style.getPropertyValue('--keyboard-space')) throw Error('Viewport spacing still inherits through the message history');
         }
@@ -984,10 +980,9 @@ try {
         while (composer.dataset.viewportMotion && performance.now() < revealDeadline) await new Promise(requestAnimationFrame);
         const revealAnimation = composer.getAnimations().find(animation =>
           animation.effect?.getKeyframes().some(frame => frame.opacity !== undefined || frame.transform !== undefined));
-        if (composer.dataset.viewportMotion || !revealAnimation || Number(revealAnimation.effect.getTiming().duration) !== 280) {
-          throw Error('Composer did not begin its single 280ms slide-and-fade after viewport settlement');
+        if (composer.dataset.viewportMotion || revealAnimation) {
+          throw Error('Composer retained motion state or started an extra reveal animation after settlement');
         }
-        await revealAnimation.finished;
         if (getComputedStyle(composer).opacity !== '1'
           || Math.abs(window.composerBaseBounds().bottom - (document.documentElement.clientHeight - 12)) > 1) {
           throw Error('Composer reveal did not finish at the settled viewport edge');
@@ -1262,10 +1257,10 @@ try {
       const composer = document.querySelector('#composer');
       const deadline = performance.now() + 1200;
       await new Promise(resolve => requestAnimationFrame(resolve));
-      while ((composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) && performance.now() < deadline) {
+      while ((app.composerHeightMotion || composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) && performance.now() < deadline) {
         await new Promise(resolve => requestAnimationFrame(resolve));
       }
-      if (composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) throw Error('Viewport pan fixture did not reach its stable endpoint');
+      if (app.composerHeightMotion || composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) throw Error('Viewport pan fixture did not reach its stable endpoint');
     };
     await settle();
     const viewport = window.visualViewport;
@@ -1382,9 +1377,9 @@ try {
         || header.getAnimations().some(animation => animation.playState === 'running')) {
         throw Error(`${label} moved, faded or animated the screen-anchored title`);
       }
-      if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '0'
+      if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '1'
         || Math.abs(composerBounds.bottom - top - height) > 1) {
-        throw Error(`${label} exposed or misplaced intermediate composer geometry`);
+        throw Error(`${label} hid or misplaced intermediate composer geometry`);
       }
       assertVisibleConversation(label, top, top + height);
     };
@@ -1505,9 +1500,9 @@ try {
       app.renderMessages({ scroll: 'bottom' });
       const composer = document.querySelector('#composer');
       const list = document.querySelector('#message-list');
-      if (composer.dataset.viewportMotion !== 'positioning' || Number(getComputedStyle(composer).opacity) !== 0
+      if (composer.dataset.viewportMotion !== 'positioning' || Number(getComputedStyle(composer).opacity) !== 1
         || list.style.getPropertyValue('padding-bottom') || list.style.getPropertyValue('min-height')) {
-        throw Error('Chat mounted visibly or committed list geometry at an intermediate keyboard frame');
+        throw Error('Chat hid the composer or committed list geometry at an intermediate keyboard frame');
       }
       Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
       Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 180 });
@@ -1560,9 +1555,10 @@ try {
     const settled = async () => {
       for (let index = 0; index < 180; index++) {
         await frame();
-        if (!composer.dataset.viewportMotion && Number(getComputedStyle(composer).opacity) === 1) return;
+        if (!app.composerHeightMotion && !app.chatBottomControl?.scrolling && !composer.dataset.viewportMotion
+          && Number(getComputedStyle(composer).opacity) === 1) return;
       }
-      throw Error('Composer failed to reappear after stable geometry');
+      throw Error('Composer failed to finish viewport and input-height motion');
     };
     const viewport = window.visualViewport;
     const layoutHeight = document.documentElement.clientHeight;
@@ -1585,8 +1581,8 @@ try {
       const headerStyle = getComputedStyle(header);
       if (Math.abs(header.getBoundingClientRect().top - top) > 1 || headerStyle.opacity !== '1'
         || header.getAnimations().some(animation => animation.playState === 'running')) throw Error('Keyboard frame moved or faded the screen-anchored title');
-      if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '0') throw Error(`Intermediate keyboard geometry remained visible: ${JSON.stringify({ state: composer.dataset.viewportMotion, opacity: getComputedStyle(composer).opacity })}`);
-      if (Math.abs(window.composerBaseBounds().bottom - height - top) > 1) throw Error('Hidden composer geometry lagged a viewport frame');
+      if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '1') throw Error(`Intermediate keyboard geometry hid the composer: ${JSON.stringify({ state: composer.dataset.viewportMotion, opacity: getComputedStyle(composer).opacity })}`);
+      if (Math.abs(window.composerBaseBounds().bottom - height - top) > 1) throw Error('Visible composer geometry lagged a viewport frame');
     };
     try {
       await settled();
@@ -1614,8 +1610,8 @@ try {
       app.updateChatBottomControl(); app.alignChatBottom(); window.dispatchEvent(new Event('scroll')); await frame();
       if (passiveReads || updateCalls) throw Error(`Inferred keyboard motion performed passive document work: ${passiveReads}/${updateCalls}`);
       await new Promise(resolve => setTimeout(resolve, 220)); await frame();
-      if (!composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 0) {
-        throw Error('Pre-focus opening plateau revealed before the keyboard endpoint');
+      if (!composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) {
+        throw Error('Pre-focus opening plateau hid the composer or settled before the keyboard endpoint');
       }
       const bottomButton = document.querySelector('#chat-bottom-control');
       bottomButton.dataset.explicitProbe = 'true'; bottomButton.click(); delete bottomButton.dataset.explicitProbe;
@@ -1637,6 +1633,8 @@ try {
           opacity: getComputedStyle(composer).opacity,
           transform: getComputedStyle(composer).transform,
           viewportMotion: composer.dataset.viewportMotion ?? null,
+          bottomScrolling: app.chatBottomControl?.scrolling,
+          inputHeightMoving: Boolean(app.composerHeightMotion),
           scrollY: window.scrollY,
           innerHeight: window.innerHeight,
           clientHeight: document.documentElement.clientHeight,
@@ -1669,7 +1667,8 @@ try {
       if (input.value !== '保留这份草稿' || app.uiPreferences.composerDraft !== input.value) throw Error('Keyboard gesture changed the draft');
       const anchor = app.captureChatAnchor();
       list.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -24 })); window.scrollBy(0, -24); await frame();
-      if (!composer.dataset.viewportMotion || getComputedStyle(header).opacity !== '1') throw Error('Manual list movement did not fade only the composer');
+      if (!composer.dataset.viewportMotion || getComputedStyle(header).opacity !== '1'
+        || getComputedStyle(composer).opacity !== '1') throw Error('Manual list movement hid chat chrome');
       await settled();
       if (app.captureChatAnchor().pinnedToBottom || !anchor.clientMsgId) throw Error('Manual scrolling lost the reading intent');
       app.scrollChatToBottom(); await frame();
@@ -1691,7 +1690,7 @@ try {
       viewport.dispatchEvent(new Event('resize')); await frame();
       await new Promise(resolve => setTimeout(resolve, 1_700));
       app.setActiveSurface('chat'); await frame();
-      if (composer.dataset.viewportMotion !== 'positioning' || Number(getComputedStyle(composer).opacity) !== 0
+      if (composer.dataset.viewportMotion !== 'positioning' || Number(getComputedStyle(composer).opacity) !== 1
         || resumeAlignments !== 0 || Math.abs(window.composerBaseBounds().bottom - 720) > 1) {
         throw Error(`Same-DOM return used away time or stale composer geometry: ${JSON.stringify({ state: composer.dataset.viewportMotion, opacity: getComputedStyle(composer).opacity, resumeAlignments, composerBottom: window.composerBaseBounds().bottom })}`);
       }
@@ -1701,7 +1700,7 @@ try {
         throw Error(`Same-DOM return did not settle once at current geometry: ${JSON.stringify({ resumeAlignments, resumeGap })}`);
       }
       app.alignChatBottom = alignChatBottom;
-      return { keyboardFrames: 6, blockedFingerDirections: 'both', blur: 'last touch release', draft: 'preserved', latestGap: gap, buttonGap, idleReveal: '160ms settle then 280ms slide and fade', sameDomReturn: true, awayIntermediateFirstFrame: 'concealed', resumeAlignments, resumeGap };
+      return { keyboardFrames: 6, blockedFingerDirections: 'both', blur: 'last touch release', draft: 'preserved', latestGap: gap, buttonGap, composer: 'continuously visible without reveal animation', sameDomReturn: true, awayIntermediateFirstFrame: 'visible', resumeAlignments, resumeGap };
     } finally {
       app.alignChatBottom = alignChatBottom;
       delete viewport.height; delete viewport.offsetTop;
@@ -2038,8 +2037,8 @@ try {
           });
           if (Math.abs(header.getBoundingClientRect().top - expectedTop) > 1 || getComputedStyle(header).opacity !== '1'
             || header.getAnimations().some(animation => animation.playState === 'running')) throw Error(`${count}-message ${phase} moved, faded or animated the title`);
-          if (composerElement.dataset.viewportMotion !== 'positioning' || getComputedStyle(composerElement).opacity !== '0'
-            || Math.abs(composer.bottom - expectedTop - height) > 1) throw Error(`${count}-message ${phase} exposed intermediate composer geometry`);
+          if (composerElement.dataset.viewportMotion !== 'positioning' || getComputedStyle(composerElement).opacity !== '1'
+            || Math.abs(composer.bottom - expectedTop - height) > 1) throw Error(`${count}-message ${phase} hid or displaced intermediate composer geometry`);
           if (!visible || visibleBottom <= visibleTop) throw Error(`${count}-message ${phase} exposed a blank viewport`);
           if (current.paddingBottom !== before.paddingBottom || current.minHeight !== before.minHeight) {
             throw Error(`${count}-message ${phase} committed list geometry before its endpoint`);
