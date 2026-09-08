@@ -1,5 +1,9 @@
 # Quiet Room 项目地图
 
+本机 PDF／文本阅读：`src/lib/document-reader.ts`、`src/lib/pdf-reader.ts`、`src/document-reader.css`；
+专项 `tests/document-reader.e2e.mjs`，附件接入与锁定回归仍在 `tests/file-flow.e2e.mjs`、
+`tests/file-interactions.e2e.mjs`。范围与安全边界见 [D-038](decisions.md#d-038pdf-与文本改用本机内置阅读器)。
+
 聊天工具与附件收藏入口：`src/chat-tools.css`、`src/lib/attachment-favorites.ts`、`src/app.ts`。
 空输入框长按与圆弧录音层：`src/lib/voice-gesture.ts`、`src/lib/voice-recorder.ts`。
 产品范围见 [PRODUCT.md](../../PRODUCT.md#chat-tools-and-attachment-favorites)，验证见

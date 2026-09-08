@@ -65,7 +65,7 @@ const SYSTEM_READABLE_MIME_TYPES = new Set([
   'text/markdown',
 ]);
 
-/** Only inert, browser-native document types are eligible for direct viewing. */
+/** Only allowlisted documents enter the local reader; MIME conflicts fail closed. */
 export function systemReadableMimeType(mimeType: string, filename: string): string | null {
   const normalized = mimeType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
   if (SYSTEM_READABLE_MIME_TYPES.has(normalized)) return normalized;
@@ -77,37 +77,4 @@ export function systemReadableMimeType(mimeType: string, filename: string): stri
         : extension === 'md' ? 'text/markdown'
           : extension === 'json' ? 'application/json'
             : null;
-}
-
-/** Reserve a reader window while the trusted click activation is still live. */
-export function prepareSystemReader(): Window | null {
-  let reader: Window | null;
-  try { reader = window.open('about:blank', '_blank'); } catch { return null; }
-  if (!reader) return null;
-  try {
-    reader.opener = null;
-    reader.document.title = '正在安全读取文件…';
-  } catch {
-    // The blank same-origin window normally permits this. Navigation below
-    // remains the authoritative operation if a browser restricts access.
-  }
-  return reader;
-}
-
-/** Hand verified bytes to the browser/OS reader without executing web content. */
-export async function openBlobInSystemReader(blob: Blob, filename: string, mimeType: string, preparedReader?: Window | null): Promise<boolean> {
-  const safeType = systemReadableMimeType(mimeType, filename);
-  if (!safeType) throw new Error('UNSUPPORTED_SYSTEM_READER_TYPE');
-  const url = URL.createObjectURL(blob.slice(0, blob.size, safeType));
-  if (preparedReader && !preparedReader.closed) {
-    try {
-      preparedReader.location.replace(url);
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      return true;
-    } catch {
-      try { preparedReader.close(); } catch { /* Already unavailable. */ }
-    }
-  }
-  URL.revokeObjectURL(url);
-  return false;
 }

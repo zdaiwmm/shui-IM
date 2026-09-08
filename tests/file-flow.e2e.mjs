@@ -196,18 +196,16 @@ try {
     return { name: download.suggestedFilename(), bytes: Buffer.concat(parts) };
   };
   const openInReader = async locator => {
-    const pending = page.waitForEvent('popup');
     await locator.click();
-    const reader = await pending;
-    await reader.waitForURL('blob:**', { timeout: 5_000 });
-    assert(reader.url().startsWith('blob:'), 'Readable file did not open through a system reader');
-    await reader.close();
+    await page.locator('.document-reader[data-state="ready"] .reader-text').waitFor();
+    assert((await page.locator('.reader-text').textContent()).length > 0, 'Reader contains no verified text');
+    await page.getByRole('button', { name: '关闭阅读器', exact: true }).click();
   };
   await openInReader(page.locator('.message .file-attachment').filter({ hasText: '说明书.txt' }));
   const binary = await readDownload(page.locator('.message .file-attachment').filter({ hasText: 'opaque.unknown' }));
   assert.equal(binary.name, 'opaque.unknown');
   assert.deepEqual(binary.bytes, Buffer.from([0, 255, 1, 128, 10, 13, 42]));
-  results.downloads = { readableText: 'verified bytes handed to system reader', binary: 'exact original bytes' };
+  results.downloads = { readableText: 'verified text displayed in local reader', binary: 'exact original bytes' };
 
   // Locking while a chunk is in flight must stop the late download; stale card
   // listeners must also be unable to start another read after the UI is gone.
@@ -224,6 +222,7 @@ try {
   await staleCard.evaluate(card => card.dispatchEvent(new MouseEvent('click', { bubbles: true })));
   await page.waitForTimeout(250);
   assert.equal(downloads.length, beforeLockDownloads, 'A pending or stale file card downloaded after lock');
+  assert.equal(await page.locator('.document-reader').count(), 0, 'Late verified bytes reopened the reader after lock');
   assert.equal(await page.evaluate(() => window.fileFlow.requests.reads), readsAtLock, 'A stale card started a file read after lock');
   assert.equal(await page.locator('.cover-trigger').count(), 1);
   results.lockedDownloads = { inFlight: 'cancelled', staleCard: 'ignored' };

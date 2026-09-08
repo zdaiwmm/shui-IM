@@ -891,12 +891,10 @@ try {
   await peerDocument.waitFor({ timeout: 15_000 });
   await creator.locator('.message.outgoing.is-delivered').filter({ hasText: documentFile.name }).waitFor({ timeout: 15_000 });
   invariant(await peerDocument.locator('.file-attachment-meta').textContent(), 'Received document has no file metadata');
-  const peerFileReaderPromise = joiner.waitForEvent('popup');
   await peerDocument.click();
-  const peerFileReader = await peerFileReaderPromise;
-  await peerFileReader.waitForURL('blob:**', { timeout: 5_000 });
-  invariant(peerFileReader.url().startsWith('blob:'), 'Readable peer document was not handed to the system reader');
-  await peerFileReader.close();
+  await joiner.locator('.document-reader[data-state="ready"] .reader-text').waitFor();
+  invariant(await joiner.locator('.reader-text').textContent() === documentFile.buffer.toString(), 'Peer reader changed the verified original text');
+  await joiner.getByRole('button', { name: '关闭阅读器', exact: true }).click();
   invariant((await peerDocument.locator('.file-attachment-meta').textContent())?.includes('再次打开'), 'Readable peer document did not return to its open state');
 
   const currentChatFiles = '#app > .chat-shell #message-list .message .file-attachment';

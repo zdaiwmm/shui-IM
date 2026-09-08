@@ -1,5 +1,11 @@
 # Quiet Room P0/P1 修复与验收计划
 
+## 2026-09-09 本机文档阅读器
+
+- `node tests/document-reader.e2e.mjs <output-directory>`：真实 PDF.js worker、画布像素、文字层、翻页、搜索、缩放、纯文本安全、错误状态、迟到任务取消、画布清零与 worker 终止。`QUIET_ROOM_TEST_BROWSER=webkit` 切换 WebKit。几何与可选截图覆盖 320/390/768/1280px、横屏及明暗主题。
+- `tests/file-flow.e2e.mjs`、`tests/file-interactions.e2e.mjs`、真实双端 `tests/browser.e2e.mjs`：校验后正文一致、弹窗拦截无影响、away／已读边界、同步隐私清理与下载中锁定取消。
+- iPhone / iOS 27 / Safari 须另验实际 PDF 与各文本格式、搜索键盘、翻页、缩放、返回聊天／保险箱及后台锁定。桌面 WebKit 不替代真机证据；加密 PDF 与 OCR 不在首版范围。
+
 ## 2026-09-08 聊天工具、附件收藏与输入框录音
 
 - `tests/chat-tools.e2e.mjs`：四列六入口、原发送/录音/标题栏入口移除、梗图保留、原生选择器直接打开、草稿保留、创建者状态入口与被邀请者静默无入口；使用真实本机加密保险库验证精确相册项收藏、无自动收集、无上传/下载/普通文件导出、取消不删源消息及持久化失败回滚。

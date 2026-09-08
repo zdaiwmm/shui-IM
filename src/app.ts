@@ -92,7 +92,8 @@ import {
 import { batchAttachmentFiles } from './lib/image-batches';
 import { isVideoFile, videoMimeType } from './lib/video-media';
 import { createVideoPoster } from './lib/video-poster';
-import { downloadBlob, openBlobInSystemReader, prepareSystemReader, systemReadableMimeType } from './lib/download';
+import { downloadBlob } from './lib/download';
+import { DocumentReader, documentReaderMimeType, PDF_READER_LIMIT, TEXT_READER_LIMIT } from './lib/document-reader';
 import { gestureSecret, GesturePad } from './lib/gesture';
 import {
   createCreatorMlsState,
@@ -414,7 +415,7 @@ export class QuietRoomApp {
   private deviceVerificationActive = false;
   private systemSurfaceTokens = new Set<symbol>();
   private nativeHandoff: {
-    kind: 'picker' | 'microphone' | 'camera' | 'reader';
+    kind: 'picker' | 'microphone' | 'camera';
     deadline: number;
     wallDeadline: number;
     blurred: boolean;
@@ -479,6 +480,7 @@ export class QuietRoomApp {
   private viewerMediaCleanup: (() => void) | null = null;
   private viewerDetailsCleanup: ((animate?: boolean) => void) | null = null;
   private viewerWorkAbort: AbortController | null = null;
+  private documentReader: { view: DocumentReader; previous: 'chat' | 'away'; returnFocus: HTMLElement; source?: DecryptedMessage } | null = null;
   private viewerGestureCleanup: (() => void) | null = null;
   private viewerKeyHandler: ((event: KeyboardEvent) => void) | null = null;
   private viewerReturnFocus: HTMLElement | null = null;
@@ -1716,7 +1718,7 @@ export class QuietRoomApp {
     this.keyboardHandoff = null;
   }
 
-  private beginNativeHandoff(kind: 'picker' | 'microphone' | 'camera' | 'reader', timeout: number): boolean {
+  private beginNativeHandoff(kind: 'picker' | 'microphone' | 'camera', timeout: number): boolean {
     if (this.invalidateKeyboardHandoff()) return false;
     this.clearNativeHandoff();
     if (!this.session || this.privacyCovered || document.hidden || !document.hasFocus()) return false;
@@ -1752,7 +1754,7 @@ export class QuietRoomApp {
     if (this.nativeHandoff !== handoff || !this.nativeHandoffExpired(handoff)) return false;
     // Completion can run before a suspended timeout task after focus returns.
     // Expiry therefore invalidates and locks independently of current focus.
-    const shouldLock = !this.privacyCovered && Boolean(this.session) && (handoff.kind !== 'reader' || handoff.blurred);
+    const shouldLock = !this.privacyCovered && Boolean(this.session);
     this.clearNativeHandoff();
     if (handoff.kind === 'picker') this.abandonImagePicker();
     if (shouldLock) {
@@ -1770,7 +1772,7 @@ export class QuietRoomApp {
     return true;
   }
 
-  private clearNativeHandoff(kind?: 'picker' | 'microphone' | 'camera' | 'reader', invalidated = true): void {
+  private clearNativeHandoff(kind?: 'picker' | 'microphone' | 'camera', invalidated = true): void {
     if (!this.nativeHandoff || (kind && this.nativeHandoff.kind !== kind)) return;
     const handoff = this.nativeHandoff;
     window.clearTimeout(handoff.timer);
@@ -7227,7 +7229,7 @@ export class QuietRoomApp {
         bubble.append(this.createImagePreview(message.payload.file, [message.payload.file], 0, message.clientMsgId));
       } else {
         bubble.classList.add('file-bubble');
-        bubble.append(this.createFileAttachment(message.payload.file));
+        bubble.append(this.createFileAttachment(message.payload.file, true, message));
       }
     } else if (message.payload.kind === 'image-album') {
       article.classList.add('has-media');
@@ -7322,7 +7324,7 @@ export class QuietRoomApp {
     return meta;
   }
 
-  private createFileAttachment(manifest: FileManifest, allowExport = true): HTMLButtonElement {
+  private createFileAttachment(manifest: FileManifest, allowExport = true, source?: DecryptedMessage): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'file-attachment';
@@ -7330,7 +7332,7 @@ export class QuietRoomApp {
     button.dataset.fileState = 'idle';
     const filename = manifest.originalName || '未命名文件';
     const size = this.fileSize(manifest.originalSize);
-    const readableType = systemReadableMimeType(manifest.mimeType, filename);
+    const readableType = documentReaderMimeType(manifest.mimeType, filename);
     const actionLabel = readableType ? '打开文件' : '下载文件';
     button.setAttribute('aria-label', `${actionLabel} ${filename}，${size}`);
     button.innerHTML = `${icons.file}<span class="file-attachment-copy"><strong class="file-attachment-name"></strong><span class="file-attachment-meta" aria-live="polite"></span></span><span class="file-attachment-action" aria-hidden="true">${icons.download}</span>`;
@@ -7351,35 +7353,40 @@ export class QuietRoomApp {
       if (Date.now() < this.suppressMediaClickUntil) return;
       const session = this.session;
       const epoch = this.runtimeEpoch;
-      const signal = this.runtimeAbort?.signal;
+      const runtimeSignal = this.runtimeAbort?.signal;
       if (!session || this.privacyCovered || !button.isConnected || button.disabled) return;
+      let reader: DocumentReader | undefined;
+      if (readableType) {
+        this.closeImageViewer(true);
+        const previous = this.activeSurface;
+        if (!this.setActiveSurface('away')) return;
+        this.closeMessageActions(false, false);
+        reader = new DocumentReader(this.root, filename, readableType, () => this.closeDocumentReader());
+        this.documentReader = { view: reader, previous, returnFocus: button, source };
+        const view = reader;
+        runtimeSignal?.addEventListener('abort', () => this.closeDocumentReader(true), { once: true, signal: view.signal });
+        if (manifest.originalSize > (readableType === 'application/pdf' ? PDF_READER_LIMIT : TEXT_READER_LIMIT)) {
+          reader.fail(`文件过大，阅读上限为 ${readableType === 'application/pdf' ? '64' : '4'} MB`);
+          return;
+        }
+      }
+      const signal = reader?.signal ?? runtimeSignal;
       button.disabled = true;
       button.dataset.fileState = 'loading';
       button.setAttribute('aria-busy', 'true');
       meta.textContent = `${size} · 正在读取`;
       void (async () => {
-        let preparedReader: Window | null = null;
-        let readerHandedOff = false;
         try {
           this.assertImageManifestIdentity(manifest);
           const blob = await decryptFileAttachment(manifest,
             (blobId, index) => fetchBlobChunk(session.vault.roomId, session.vault.accessToken, blobId, index, signal),
             ratio => {
               if (this.isRuntimeActive(epoch, session) && button.isConnected) meta.textContent = `${size} · 正在读取 ${Math.round(ratio * 100)}%`;
+              reader?.progress(ratio);
             }, signal);
-          if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
-          if (readableType) {
-            // Opening an empty tab before decryption can hide and lock Safari
-            // before any verified bytes exist. A blocked reader stays silent.
-            if (!this.beginNativeHandoff('reader', 30_000)) return;
-            preparedReader = prepareSystemReader();
-            readerHandedOff = await openBlobInSystemReader(blob, filename, readableType, preparedReader);
-            if (!readerHandedOff) this.clearNativeHandoff('reader');
-            if (!readerHandedOff) {
-              button.dataset.fileState = 'idle';
-              meta.textContent = `${size} · ${actionLabel}`;
-              return;
-            }
+          if (!this.isRuntimeActive(epoch, session) || !button.isConnected || signal?.aborted) return;
+          if (reader) {
+            await reader.load(blob);
           } else {
             // Unsupported types remain inert downloads; the app never renders
             // arbitrary HTML, SVG, Office macros or executable content.
@@ -7391,6 +7398,12 @@ export class QuietRoomApp {
           meta.textContent = `${size} · ${readableType ? '再次打开' : '再次下载'}`;
         } catch (cause) {
           if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
+          if (reader) {
+            if (!reader.signal.aborted) reader.fail();
+            button.dataset.fileState = 'idle';
+            meta.textContent = `${size} · ${actionLabel}`;
+            return;
+          }
           this.finishFileExport();
           if (cause instanceof DOMException && cause.name === 'AbortError') {
             button.dataset.fileState = 'idle';
@@ -7401,8 +7414,8 @@ export class QuietRoomApp {
             this.operationalError(cause, '文件下载失败，请重试');
           }
         } finally {
-          if (!readerHandedOff && preparedReader && !preparedReader.closed) preparedReader.close();
           if (this.isRuntimeActive(epoch, session) && button.isConnected) {
+            if (signal?.aborted) { button.dataset.fileState = 'idle'; meta.textContent = `${size} · ${actionLabel}`; }
             button.disabled = false;
             button.setAttribute('aria-busy', 'false');
           }
@@ -8653,7 +8666,24 @@ export class QuietRoomApp {
     void render(current, { reason: 'initial' });
   }
 
+  private closeDocumentReader(immediate = false): void {
+    const reader = this.documentReader;
+    if (!reader) return;
+    this.documentReader = null;
+    reader.view.destroy();
+    if (!immediate && !this.privacyCovered && this.session) {
+      this.setActiveSurface(reader.previous);
+      if (reader.returnFocus.isConnected) reader.returnFocus.focus({ preventScroll: true });
+      if (reader.previous === 'away' && this.galleryRefreshPending) {
+        const tab = this.galleryRefreshPending;
+        this.galleryRefreshPending = null;
+        this.renderGallery(tab);
+      } else if (reader.previous === 'away') this.mountGalleryViewport();
+    }
+  }
+
   private closeImageViewer(immediate = false): void {
+    this.closeDocumentReader(immediate);
     const viewer = this.root.querySelector<HTMLElement>('.image-viewer');
     if (this.viewerKeyHandler) document.removeEventListener('keydown', this.viewerKeyHandler);
     this.viewerKeyHandler = null;
@@ -8694,6 +8724,10 @@ export class QuietRoomApp {
   }
 
   private closeViewerIfProjectionDeleted(): boolean {
+    if (this.documentReader?.source && this.messageDeletions([this.documentReader.source]).has(this.documentReader.source.clientMsgId)) {
+      this.closeDocumentReader();
+      return true;
+    }
     const viewer = this.root.querySelector<HTMLElement>('.image-viewer');
     if (!viewer) return false;
     let clientMsgIds: string[] = [];
@@ -8935,7 +8969,7 @@ export class QuietRoomApp {
     // Incoming messages, reactions, deletes, and upload completion can refresh
     // the Safe while its viewer is open. Keep the mounted viewer/gesture state
     // stable and project the newest gallery once the overlay closes.
-    if (this.root.querySelector('.image-viewer')) {
+    if (this.root.querySelector('.image-viewer, .document-reader')) {
       this.galleryRefreshPending = tab;
       return;
     }
@@ -9153,7 +9187,7 @@ export class QuietRoomApp {
           knownCount.keys.add(key);
           fileCount += 1;
           fileAssets.push({ ...target, seq: message.seq, manifest: message.payload.file, sentAt: message.payload.sentAt, source: message });
-          const button = this.createFileAttachment(message.payload.file, !favorites);
+          const button = this.createFileAttachment(message.payload.file, !favorites, message);
           button.classList.add('gallery-file');
           button.dataset.galleryAssetKey = key;
           const time = document.createElement('time');
