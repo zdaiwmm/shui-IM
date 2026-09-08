@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createConsistentBackup, restoreBackup, verifyBackup } from '../server/backup.mjs';
 import { createStore } from '../server/storage.mjs';
+import { createExpressionCatalog } from '../server/expression-catalog.mjs';
 
 const directories: string[] = [];
 
@@ -27,6 +28,11 @@ describe('online disaster-recovery backup', () => {
     const backupRoot = path.join(root, 'backups');
     const restoreDir = path.join(root, 'restore');
     const store = await createStore({ dataDir });
+    const catalog = createExpressionCatalog({ dataDir });
+    const publicGif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAAAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+    const expression = catalog.create({ kind: 'gifs', title: 'Backup fixture', tags: '', files: [{ data: publicGif.toString('base64') }] });
+    catalog.update(expression.id, { title: expression.title, tags: '', status: 'published' });
+    catalog.initializeShipped(() => []);
     const creatorId = crypto.randomUUID();
     const { roomId } = store.createRoom(bundle(creatorId), 'a'.repeat(43));
 
@@ -47,6 +53,12 @@ describe('online disaster-recovery backup', () => {
     const restored = await restoreBackup({ backupDir: created.backupDir, targetDataDir: restoreDir });
     expect(restored.targetDataDir).toBe(restoreDir);
     const restoredStore = await createStore({ dataDir: restoreDir });
+    const restoredCatalog = createExpressionCatalog({ dataDir: restoreDir });
+    expect(restoredCatalog.detail(expression.id).status).toBe('published');
+    expect(restoredCatalog.preview(expression.id, 0).bytes).toEqual(publicGif);
+    expect(restoredCatalog.initializeShipped(() => { throw Error('Restored initialization marker was lost'); }).initialized).toBe(false);
+    await restoredCatalog.close();
+    await catalog.close();
     expect(restoredStore.roomState(roomId)?.roomId).toBe(roomId);
     expect(restoredStore.blobStatus(roomId, completeBlobId)).toMatchObject({ completed: true, receivedBytes: 81 });
     expect(() => restoredStore.blobStatus(roomId, incompleteBlobId)).toThrow('INVALID_BLOB');

@@ -55,7 +55,7 @@ try {
   if (!notes.length || JSON.stringify(notes) !== JSON.stringify(expectedNotes) || notes.some(note => !note.trim())) {
     throw new Error(`Release notes were not rendered as the manifest's ordered list: ${JSON.stringify({ notes, expectedNotes })}`);
   }
-  await page.locator('.release-notes-panel .primary-button').click();
+  await page.getByRole('button', { name: '关闭更新说明' }).click();
   await page.locator('.release-notes-sheet').waitFor({ state: 'detached' });
   const seen = await page.evaluate(() => {
     window.releaseFixture.app.renderChat();
@@ -66,6 +66,13 @@ try {
     };
   });
   if (seen.stored !== seen.current || seen.repeated) throw new Error(`Release notes did not remain one-time: ${JSON.stringify(seen)}`);
+  await page.getByLabel('更多操作').click();
+  await page.locator('#release-history').click();
+  await page.locator('.release-history-content h2').first().waitFor();
+  const versions = await page.locator('.release-history-content h2').allTextContents();
+  if (JSON.stringify(versions) !== JSON.stringify(await page.evaluate(() => window.releaseFixture.release.releaseLog.map(item => item.id)))) throw new Error('Release log order mismatch');
+  await page.getByRole('button', { name: '返回聊天' }).click();
+  await page.locator('.chat-shell:not(.is-page-outgoing)').waitFor();
 
   await page.evaluate(() => window.releaseFixture.release.acceptReleaseWorkerMessage({ type: 'quiet-room-release-ready', releaseId: 'next-release' }));
   const banner = page.locator('.release-update-reminder');
@@ -76,6 +83,38 @@ try {
   }));
   if (layout.text !== '有新版本待更新 更新' || layout.buttonHeight < 44 - 0.01) throw new Error(`Update banner is incomplete: ${JSON.stringify(layout)}`);
   if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`);
+  await page.evaluate(async () => {
+    const { mountPortraitOrientation } = await import('/src/lib/portrait-orientation.ts');
+    const nativeMatch = window.matchMedia;
+    const mobile = new EventTarget(); mobile.matches = true;
+    window.matchMedia = query => query === '(pointer: coarse)' ? mobile : nativeMatch(query);
+    Object.defineProperty(screen.orientation, 'type', { configurable: true, value: 'portrait-primary' });
+    const root = document.querySelector('#app'), dispose = mountPortraitOrientation(root);
+    let reads = 0; const presence = [];
+    window.releaseFixture.app.socket = { setChatPresence: value => presence.push(value) };
+    const originalRead = window.releaseFixture.app.unreadCounter.markRead;
+    window.releaseFixture.app.unreadCounter.markRead = () => { reads++; return Promise.resolve(); };
+    if (root.inert) throw Error('Portrait unexpectedly blocked');
+    Object.defineProperty(screen.orientation, 'type', { configurable: true, value: 'landscape-primary' });
+    screen.orientation.dispatchEvent(new Event('change'));
+    if (root.inert) throw Error('Contradictory emulated orientation blocked portrait');
+    Object.defineProperty(screen, 'width', { configurable: true, value: 844 });
+    Object.defineProperty(screen, 'height', { configurable: true, value: 390 });
+    screen.orientation.dispatchEvent(new Event('change'));
+    if (!root.inert || document.querySelector('.portrait-orientation-guard').hidden) throw Error('Landscape remained interactive');
+    window.releaseFixture.app.updateCallView({ phase: 'idle' });
+    if (!root.inert) throw Error('Call dismissal bypassed landscape protection');
+    window.releaseFixture.app.markVisibleMessagesRead();
+    if (reads || presence.at(-1) !== false) throw Error('Landscape advertised readable chat');
+    Object.defineProperty(screen.orientation, 'type', { configurable: true, value: 'portrait-primary' });
+    Object.defineProperty(screen, 'width', { configurable: true, value: 390 });
+    Object.defineProperty(screen, 'height', { configurable: true, value: 844 });
+    screen.orientation.dispatchEvent(new Event('change'));
+    if (root.inert || !document.querySelector('.portrait-orientation-guard').hidden) throw Error('Portrait failed to restore');
+    dispose(); window.matchMedia = nativeMatch;
+    window.releaseFixture.app.socket = null;
+    window.releaseFixture.app.unreadCounter.markRead = originalRead;
+  });
   console.log(JSON.stringify({ releaseNotes: notes.length, oneTime: true, updateBanner: layout }, null, 2));
 } finally {
   await browser?.close();

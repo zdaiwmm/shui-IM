@@ -96,7 +96,12 @@ async function holdCover(page) {
   await page.mouse.up();
   // The activation ring is body-level and the gateway replaces the cover
   // immediately. Wait for that replacement before measuring the next state.
-  await page.locator('.cover-trigger').waitFor({ state: 'detached' });
+  await page.locator('.cover-trigger').waitFor({ state: 'detached' }).catch(async error => {
+    console.error('Cover activation state', await page.evaluate(() => ({ orientation: screen.orientation?.type,
+      screen: [screen.width, screen.height], viewport: [innerWidth, innerHeight], root: document.querySelector('#app')?.className,
+      inert: document.querySelector('#app')?.inert, coarse: matchMedia('(pointer: coarse)').matches })));
+    throw error;
+  });
 }
 
 async function setPasskey(page) {
@@ -650,11 +655,14 @@ try {
   await creatorAlbum.locator('.album-cell').nth(1).click();
   invariant(await creator.locator('.image-viewer').count() === 0, 'The first album cell tap opened the viewer');
   await creatorAlbum.locator('.album-cell').nth(1).click();
-  await creator.locator('[data-viewer-counter]').getByText('2 / 3', { exact: true }).waitFor();
+  const chatMediaCount = await creator.locator('#message-list .image-preview:not([data-expression="true"])').count();
+  await creator.locator('[data-viewer-counter]').getByText(`${chatMediaCount - 1} / ${chatMediaCount}`, { exact: true }).waitFor();
+  await creator.locator('[data-viewer-name]').getByText('album-two.svg', { exact: true }).waitFor();
   const viewerStage = creator.locator('.viewer-stage');
   await viewerStage.dispatchEvent('pointerdown', { pointerType: 'touch', isPrimary: true, button: 0, clientX: 300, clientY: 400 });
   await viewerStage.dispatchEvent('pointerup', { pointerType: 'touch', isPrimary: true, button: 0, clientX: 100, clientY: 400 });
-  await creator.locator('[data-viewer-counter]').getByText('3 / 3', { exact: true }).waitFor();
+  await creator.locator('[data-viewer-counter]').getByText(`${chatMediaCount} / ${chatMediaCount}`, { exact: true }).waitFor();
+  await creator.locator('[data-viewer-name]').getByText('album-three.svg', { exact: true }).waitFor();
   await creator.locator('[data-viewer-close]').click();
   await creator.locator('.image-viewer').waitFor({ state: 'detached' });
 
@@ -888,12 +896,10 @@ try {
   await peerDocument.waitFor({ timeout: 15_000 });
   await creator.locator('.message.outgoing.is-delivered').filter({ hasText: documentFile.name }).waitFor({ timeout: 15_000 });
   invariant(await peerDocument.locator('.file-attachment-meta').textContent(), 'Received document has no file metadata');
-  const peerFileReaderPromise = joiner.waitForEvent('popup');
   await peerDocument.click();
-  const peerFileReader = await peerFileReaderPromise;
-  await peerFileReader.waitForURL('blob:**', { timeout: 5_000 });
-  invariant(peerFileReader.url().startsWith('blob:'), 'Readable peer document was not handed to the system reader');
-  await peerFileReader.close();
+  await joiner.locator('.document-reader[data-state="ready"] .reader-text').waitFor();
+  invariant(await joiner.locator('.reader-text').textContent() === documentFile.buffer.toString(), 'Peer reader changed the verified original text');
+  await joiner.getByRole('button', { name: '关闭阅读器', exact: true }).click();
   invariant((await peerDocument.locator('.file-attachment-meta').textContent())?.includes('再次打开'), 'Readable peer document did not return to its open state');
 
   const currentChatFiles = '#app > .chat-shell #message-list .message .file-attachment';
@@ -1242,7 +1248,14 @@ try {
   const addCreatorDevice = async (route) => {
     if (await recovery.locator('.chat-shell').count()) {
       await recovery.locator('.more-menu summary').click();
-      await recovery.locator('#manage-devices').click();
+      await recovery.locator('#manage-devices').click().catch(async error => {
+        console.error('Device menu state', await recovery.evaluate(() => ({
+          root: document.querySelector('#app')?.className, cover: !!document.querySelector('.cover-trigger'),
+          menu: document.querySelector('.more-menu')?.outerHTML, surface: document.querySelector('#app > section')?.className,
+          active: document.activeElement?.id, hidden: document.hidden,
+        })));
+        throw error;
+      });
     }
     await recovery.locator('.device-shell').waitFor();
     const activeSection = recovery.locator('.device-section').filter({ hasText: '已授权设备' });

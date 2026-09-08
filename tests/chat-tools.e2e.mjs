@@ -59,10 +59,31 @@ try {
   for(const [trigger,input] of [['#open-image-picker','#image-input'],['#open-camera-picker','#camera-input'],['#open-file-picker','#file-input']]) {
     if(!await page.locator('#chat-tools').isVisible()) await page.locator('#open-chat-tools').click();
     const chooser=page.waitForEvent('filechooser');await page.locator(trigger).click();await chooser;
-    assert.equal(await page.locator('#chat-tools').isVisible(),false);
+    assert.equal(await page.locator('#chat-tools').isVisible(),true, 'Opening the system picker must retain the tools panel');
     await page.locator(input).dispatchEvent('cancel');
   }
   assert.equal(await page.locator('#message-input').inputValue(),'保留草稿');
+  await page.evaluate(() => window.fixture.app.closeChatTools());
+  await page.evaluate(() => {
+    const { app, messages } = window.fixture;
+    const source = messages[1];
+    const image = source.payload.images[0];
+    const photo = { ...source, seq: 4, clientMsgId: crypto.randomUUID(), payload: { v: 1, kind: 'image', image, sentAt: source.payload.sentAt } };
+    const expression = { ...photo, seq: 5, clientMsgId: crypto.randomUUID(), payload: { ...photo.payload, presentation: 'expression' } };
+    app.messages.set(4, photo); app.messages.set(5, expression);
+    app.renderMessages({ scroll: 'bottom' });
+  });
+  const albumCell = page.locator('#message-list .album-cell').first();
+  await albumCell.click(); await albumCell.click();
+  await page.waitForFunction(() => document.querySelector('.viewer-stage')?.getAttribute('aria-busy') === 'false');
+  assert.equal(await page.locator('[data-viewer-counter]').innerText(), '1 / 3', 'Chat paging must include other photo messages and exclude expression/file messages');
+  await page.keyboard.press('ArrowLeft');
+  await page.waitForFunction(() => document.querySelector('[data-viewer-counter]')?.textContent === '3 / 3');
+  await page.keyboard.press('ArrowRight');
+  await page.waitForFunction(() => document.querySelector('[data-viewer-counter]')?.textContent === '1 / 3');
+  await page.locator('[data-viewer-close]').click();
+  await page.locator('.image-viewer').waitFor({ state: 'detached' });
+  await page.evaluate(() => { const app = window.fixture.app; app.messages.delete(4); app.messages.delete(5); app.renderMessages(); });
   await page.evaluate(async()=>{const f=window.fixture;await f.app.toggleMessageFavorite(f.messages[0]);await f.app.toggleMessageFavorite(f.messages[1],1);});
   const stored=await page.evaluate(async()=>{const f=window.fixture;return (await f.vault.loadUiPreferences(f.session)).attachmentFavorites;});
   assert.equal(stored.length,2);assert.equal(stored.find(r=>r.category==='images').assetIndex,1);
@@ -72,12 +93,21 @@ try {
       source.payload.images.map((_,assetIndex)=>({clientMsgId:source.clientMsgId,assetIndex,source})));
   });
   await page.locator('[data-viewer-favorite][aria-pressed="false"]').waitFor();
+  assert(await page.locator('.viewer-header').evaluate(header => {
+    const favorite = header.querySelector('[data-viewer-favorite]')?.getBoundingClientRect();
+    const close = header.querySelector('[data-viewer-close]').getBoundingClientRect();
+    return favorite && favorite.left > close.right && Math.abs(favorite.top - close.top) < 1;
+  }), 'Chat favorite must sit at the top right on the close-button row');
+  assert.equal(await page.locator('[data-viewer-download]').count(),0);
   await page.keyboard.press('ArrowRight');
   await page.locator('[data-viewer-favorite][aria-pressed="true"]').waitFor();
   await page.locator('[data-viewer-favorite]').click();
   await page.locator('[data-viewer-favorite][aria-pressed="false"]').waitFor();
+  assert.equal(await page.locator('[data-viewer-notice]').innerText(),'已取消收藏');
+  assert.equal(await page.locator('[data-viewer-notice]').isVisible(),true);
   await page.locator('[data-viewer-favorite]').click();
   await page.locator('[data-viewer-favorite][aria-pressed="true"]').waitFor();
+  assert.equal(await page.locator('[data-viewer-notice]').innerText(),'已收藏');
   await page.locator('[data-viewer-close]').click();
   await page.locator('#open-chat-tools').click();await page.locator('#open-favorites').click();
   await page.locator('.gallery-tile').waitFor();assert.equal(await page.locator('.gallery-tile').count(),1);

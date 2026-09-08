@@ -1,5 +1,10 @@
 # Quiet Room 项目地图
 
+本机 PDF／EPUB／文本阅读：`src/lib/document-reader.ts`、`src/lib/pdf-reader.ts`、`src/lib/epub-reader.ts`、
+`src/lib/epub-archive.worker.ts`、`src/lib/document-paging.ts`、`src/document-reader.css`；文件格式图标在 `src/lib/file-format.ts`。
+专项 `tests/document-reader.e2e.mjs`，附件接入与锁定回归仍在 `tests/file-flow.e2e.mjs`、
+`tests/file-interactions.e2e.mjs`。范围与安全边界见 [D-038](decisions.md#d-038pdf-与文本改用本机内置阅读器)。
+
 聊天工具与附件收藏入口：`src/chat-tools.css`、`src/lib/attachment-favorites.ts`、`src/app.ts`。
 空输入框长按与圆弧录音层：`src/lib/voice-gesture.ts`、`src/lib/voice-recorder.ts`。
 产品范围见 [PRODUCT.md](../../PRODUCT.md#chat-tools-and-attachment-favorites)，验证见
@@ -25,7 +30,7 @@
 表情消息分类见 `src/lib/expression-media.ts`、`src/lib/message-payload.ts` 和
 `tests/expression-media.test.ts`；加密呈现标记、旧内置摘要识别及保险箱过滤边界见
 [D-037](./decisions.md#d-037表情呈现文件阅读器与跨版本说明)。
-网络来源与受限代理见 `server/memes.mjs`、`server/sticker-source.mjs`、`tests/meme-server.test.ts`；使用公开 Signal 合集目录，GIFs 展示独立动画。预置清单、公开素材缓存及完整性测试见 `src/lib/sticker-library.ts`、`src/lib/starter-library.json`、`tests/sticker-library.test.ts`；搜索范围和真实联调证据见 MEMES 与状态页，不把合成搜索视为上游可用性证明。
+后台资源库见 `server/expression-catalog.mjs`、`src/admin.ts`、`tests/expression-catalog.test.ts`；前端默认与搜索只读取已上架资源。公开 Signal 目录仅用于管理员显式采集，受限传输见 `server/memes.mjs`、`server/sticker-source.mjs`。旧预置清单用于历史识别、`tests/sticker-library.test.ts` 完整性验证及显式初始化；`npm run expressions:initialize` 经 `server/shipped-expressions.mjs` 校验后原子入库并上架，不在启动时自动执行。搜索范围和真实联调证据见 MEMES 与状态页，不把合成搜索视为上游可用性证明。
 
 | 领域 | 先读 | 代码入口 | 主要验证入口 |
 | --- | --- | --- | --- |
@@ -43,7 +48,7 @@
 | 照片、视频、普通文件和创建者保险箱（相册 / 文件） | `PRODUCT.md`、`README.md`、`SECURITY.md`、`TEST_PLAN.md`、[D-024](./decisions.md#d-024保险箱本地整理与聊天删除严格分层) | `src/lib/file-crypto.ts`、`src/lib/image-batches.ts`、`src/lib/video-media.ts`、`src/lib/video-poster.ts`、`src/lib/image-viewer-gestures.ts`、`src/lib/gallery-curation.ts`、`src/app.ts`、`src/gallery.css` | `tests/file-attachments.test.ts`、`tests/image-batches.test.ts`、`tests/video-media.test.ts`、`tests/image-viewer-gestures.test.ts`、`tests/gallery-curation.test.ts`、`tests/video-flow.e2e.mjs`、`tests/file-flow.e2e.mjs`、`tests/file-outbox.e2e.mjs`、`tests/file-interactions.e2e.mjs`、`tests/chat-image-privacy.e2e.mjs`、`tests/gallery-loading.e2e.mjs`、`tests/frontend-lifecycle.e2e.mjs`、`tests/cloud-backup-lifecycle.e2e.mjs` |
 | 语音留言 | `PRODUCT.md`、`README.md` | `src/lib/voice-gesture.ts`、`src/lib/voice-recorder.ts`、`src/lib/voice-audio.ts`、`src/lib/voice-player.ts`、`src/voice-messages.css` | `tests/voice.test.ts`、`tests/voice-lifecycle.e2e.mjs`、`tests/voice-gestures.e2e.mjs`、`tests/voice-flow.e2e.mjs` |
 | 实时音视频通话 | `CALLS.md`、`SECURITY.md` 的通话构造、`DEPLOYMENT.md` 的可选中继部署段与当前状态页 | `src/lib/call-*.ts`、`src/call.css`、`server/calls.mjs` | `tests/call-*.test.ts`、`tests/call-flow.e2e.mjs`、`tests/call-native.e2e.mjs`、`tests/call-view.e2e.mjs` |
-| 回应、回复手势、消息删除、未读计数和 presence | `PRODUCT.md`、`SECURITY.md`、[D-024](./decisions.md#d-024保险箱本地整理与聊天删除严格分层) | `src/lib/reactions.ts`、`src/lib/reply-swipe.ts`、`src/lib/message-deletions.ts`、`src/lib/message-payload.ts`、`src/lib/unread-counter.ts`、`src/lib/api.ts`、`server/index.mjs`、`server/storage.mjs` | `tests/reactions.test.ts`、`tests/reply-swipe.test.ts`、`tests/message-deletions.test.ts`、`tests/message-deletion.e2e.mjs`、`tests/reaction-history.e2e.mjs`、`tests/unread-counter.test.ts`、`tests/unread-server.test.ts`、`tests/unread-counter.e2e.mjs` |
+| 回应、回复手势、消息删除、未读计数和 presence | `PRODUCT.md`、`SECURITY.md`、[D-024](./decisions.md#d-024保险箱本地整理与聊天删除严格分层) | `src/lib/reactions.ts`、`src/lib/reply-swipe.ts`、`src/lib/message-deletions.ts`、`src/lib/message-payload.ts`、`src/lib/unread-counter.ts`、`src/lib/presence-circuit.ts`、`src/presence-circuit.css`、`src/lib/api.ts`、`server/index.mjs`、`server/storage.mjs` | `tests/reactions.test.ts`、`tests/reply-swipe.test.ts`、`tests/message-deletions.test.ts`、`tests/message-deletion.e2e.mjs`、`tests/reaction-history.e2e.mjs`、`tests/unread-counter.test.ts`、`tests/unread-server.test.ts`、`tests/unread-counter.e2e.mjs`、`tests/presence-circuit.e2e.mjs` |
 | Web Push | `OPERATIONS.md`、`SECURITY.md` | `src/lib/push.ts`、`server/push.mjs`、`public/sw.js` | `tests/push.test.ts`、`tests/push-server.test.ts` |
 | 本机 main 集成、局域网测试与跨电脑同步 | [`docs/workflows/local-lan-testing.md`](../workflows/local-lan-testing.md)、本工作流、`README.md` | 共享本机 `main` 工作树、实际 Vite／服务端进程；主机名、证书和数据为每台电脑的本机配置 | 候选与本机 main 精确 SHA、进程工作目录、前端目标代码回读、后端健康接口、局域网 HTTPS 真机记录 |
 | 构建、发布、备份与运维 | `RELEASING.md`、`DEPLOYMENT.md`、`OPERATIONS.md`、`PRODUCTION_SECURITY_GATE.md` | `scripts/deploy-config.mjs`、`scripts/deploy-setup.mjs`、`scripts/repo.mjs`、`scripts/publish.mjs`、`scripts/release.mjs`、`scripts/production-readback.mjs`、`deploy/`、`.github/workflows/ci.yml` | `tests/deploy-*.test.ts`、`tests/release.test.ts`、`tests/publish.test.ts`、`tests/production-readback.test.ts`、`tests/backup.test.ts`、`tests/operations-*.test.ts` |

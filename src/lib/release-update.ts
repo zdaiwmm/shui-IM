@@ -10,6 +10,7 @@ const PENDING_RELEASE_KEY = 'quiet-room.pending-release-notes';
 const BASE_RELEASE_KEY = 'quiet-room.release-notes-base';
 
 export const currentRelease: ReleaseInfo = release;
+export const releaseLog: readonly ReleaseInfo[] = [...history, currentRelease].reverse();
 
 let releaseNotesPending = false;
 let availableReleaseId: string | null = null;

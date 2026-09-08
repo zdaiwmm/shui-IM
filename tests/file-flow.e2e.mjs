@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
+import { readerPdf, readerEpub } from './fixtures/document-fixtures.mjs';
 
 // Exercise the real picker, attachment crypto and UI against an opaque in-memory
 // blob service. Message transport is captured at enqueuePayload; MLS coverage
@@ -196,18 +197,16 @@ try {
     return { name: download.suggestedFilename(), bytes: Buffer.concat(parts) };
   };
   const openInReader = async locator => {
-    const pending = page.waitForEvent('popup');
     await locator.click();
-    const reader = await pending;
-    await reader.waitForURL('blob:**', { timeout: 5_000 });
-    assert(reader.url().startsWith('blob:'), 'Readable file did not open through a system reader');
-    await reader.close();
+    await page.locator('.document-reader[data-state="ready"] .reader-text').waitFor();
+    assert((await page.locator('.reader-text').textContent()).length > 0, 'Reader contains no verified text');
+    await page.getByRole('button', { name: '关闭阅读器', exact: true }).click();
   };
   await openInReader(page.locator('.message .file-attachment').filter({ hasText: '说明书.txt' }));
   const binary = await readDownload(page.locator('.message .file-attachment').filter({ hasText: 'opaque.unknown' }));
   assert.equal(binary.name, 'opaque.unknown');
   assert.deepEqual(binary.bytes, Buffer.from([0, 255, 1, 128, 10, 13, 42]));
-  results.downloads = { readableText: 'verified bytes handed to system reader', binary: 'exact original bytes' };
+  results.downloads = { readableText: 'verified text displayed in local reader', binary: 'exact original bytes' };
 
   // Locking while a chunk is in flight must stop the late download; stale card
   // listeners must also be unable to start another read after the UI is gone.
@@ -224,6 +223,7 @@ try {
   await staleCard.evaluate(card => card.dispatchEvent(new MouseEvent('click', { bubbles: true })));
   await page.waitForTimeout(250);
   assert.equal(downloads.length, beforeLockDownloads, 'A pending or stale file card downloaded after lock');
+  assert.equal(await page.locator('.document-reader').count(), 0, 'Late verified bytes reopened the reader after lock');
   assert.equal(await page.evaluate(() => window.fileFlow.requests.reads), readsAtLock, 'A stale card started a file read after lock');
   assert.equal(await page.locator('.cover-trigger').count(), 1);
   results.lockedDownloads = { inFlight: 'cancelled', staleCard: 'ignored' };
@@ -389,6 +389,34 @@ try {
       results.pickerLifecycle.push({ destination, order, ...invalidated, foreground });
     }
   }
+  for (const destination of ['chat', 'gallery']) {
+    await page.evaluate(({ destination, pdf, epub }) => {
+      const f = window.fileFlow;
+      f.fresh(destination);
+      f.choose(destination, [
+        new File([new Uint8Array(pdf)], '阅读样本.pdf', { type: 'application/pdf' }),
+        new File([new Uint8Array(epub)], '安静的房间.epub', { type: 'application/epub+zip' }),
+        ...['docx', 'xlsx', 'pptx', 'zip', 'md'].map(extension => new File(['format-icon fixture'], `资料.${extension}`, { type: 'application/octet-stream' })),
+      ]);
+    }, { destination, pdf: readerPdf(), epub: await readerEpub({ cover: true }) });
+    await page.waitForFunction(() => window.fileFlow.sent.length === 7 && !window.fileFlow.app.imageBatchUploading);
+    if (destination === 'gallery') await page.locator('#gallery-tab-files').click();
+    const cards = page.locator(destination === 'chat' ? '.message .file-attachment' : '.gallery-file');
+    assert.equal(await cards.count(), 7);
+    await cards.filter({ hasText: '安静的房间.epub' }).scrollIntoViewIfNeeded();
+    await cards.locator('.file-epub-cover').waitFor();
+    assert.equal(new Set(await cards.locator('.file-format-icon').evaluateAll(nodes => nodes.map(node => node.dataset.fileFormat))).size, 6);
+    assert.deepEqual(new Set(await cards.locator('.file-format-icon small').allTextContents()), new Set(['PDF', 'DOCX', 'XLSX', 'PPTX', 'ZIP', 'MD']));
+    assert(await cards.locator('.file-epub-cover').evaluate(image => image.decode().then(() => image.naturalWidth > 0 && image.naturalWidth <= 128)));
+    await captureFiles(`${destination}-format-icons`);
+    await cards.filter({ hasText: '安静的房间.epub' }).click();
+    await page.locator('.document-reader[data-state="ready"] .reader-epub').waitFor();
+    assert.match(await page.locator('.reader-epub').textContent(), /窗外的光/);
+    await page.evaluate(() => window.fileFlow.app.lockNow());
+    assert.equal(await page.locator('.document-reader').count(), 0);
+    assert.equal(await page.locator('.file-epub-cover').count(), 0);
+  }
+  results.epubAndFormatIcons = 'Verified original EPUB opens from chat and Safe; format icons differ; lock removes reader';
   results.expressions = await page.evaluate(async () => {
     const f=window.fileFlow;
     f.fresh(); const reservations=f.requests.reservations;
