@@ -1424,6 +1424,22 @@ button:disabled {
   gap: 5px;
 }
 
+.file-format-icon { display: grid; grid-template-rows: 28px 14px; justify-items: center; align-items: center; width: 32px; height: 44px; color: var(--file-icon-muted, var(--ink-muted)); }
+.file-format-icon svg { width: 28px; height: 28px; stroke-width: 1.6; }
+.file-format-icon small { font-size: 8px; font-weight: 750; line-height: 14px; letter-spacing: 0; white-space: nowrap; }
+.file-format-icon[data-file-format="pdf"] { color: light-dark(#b23d4c, #f39ba6); }
+.file-format-icon[data-file-format="book"] { color: light-dark(#17736c, #75c8bc); }
+.file-format-icon[data-file-format="document"] { color: light-dark(#386caa, #93b9ec); }
+.file-format-icon[data-file-format="sheet"] { color: light-dark(#347445, #94cc96); }
+.file-format-icon[data-file-format="slides"] { color: light-dark(#ad5435, #e9ad8e); }
+.file-format-icon[data-file-format="archive"] { color: light-dark(#826d30, #d3c083); }
+.file-format-icon[data-file-format="code"] { color: light-dark(#805594, #c7a4dd); }
+.file-format-icon[data-file-format="image"] { color: light-dark(#447983, #91c3cf); }
+.file-format-icon[data-file-format="audio"] { color: light-dark(#966181, #dcb0c9); }
+.file-format-icon[data-file-format="video"] { color: light-dark(#666db0, #b4b9ef); }
+.message.outgoing .file-format-icon { color-scheme: only dark; --file-icon-muted: var(--on-accent); }
+.message.outgoing .file-format-icon small { color: var(--on-accent); }
+
 .file-attachment-name {
   overflow-wrap: anywhere;
   font-size: 0.88rem;

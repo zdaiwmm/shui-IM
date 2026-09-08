@@ -93,7 +93,8 @@ import { batchAttachmentFiles } from './lib/image-batches';
 import { isVideoFile, videoMimeType } from './lib/video-media';
 import { createVideoPoster } from './lib/video-poster';
 import { downloadBlob } from './lib/download';
-import { DocumentReader, documentReaderMimeType, PDF_READER_LIMIT, TEXT_READER_LIMIT } from './lib/document-reader';
+import { DocumentReader, documentReaderMimeType, documentReaderLimit } from './lib/document-reader';
+import { createFileFormatIcon } from './lib/file-format';
 import { gestureSecret, GesturePad } from './lib/gesture';
 import {
   createCreatorMlsState,
@@ -7335,7 +7336,8 @@ export class QuietRoomApp {
     const readableType = documentReaderMimeType(manifest.mimeType, filename);
     const actionLabel = readableType ? '打开文件' : '下载文件';
     button.setAttribute('aria-label', `${actionLabel} ${filename}，${size}`);
-    button.innerHTML = `${icons.file}<span class="file-attachment-copy"><strong class="file-attachment-name"></strong><span class="file-attachment-meta" aria-live="polite"></span></span><span class="file-attachment-action" aria-hidden="true">${icons.download}</span>`;
+    button.innerHTML = `<span class="file-attachment-copy"><strong class="file-attachment-name"></strong><span class="file-attachment-meta" aria-live="polite"></span></span><span class="file-attachment-action" aria-hidden="true">${icons.download}</span>`;
+    button.prepend(createFileFormatIcon(manifest.mimeType, filename));
     button.querySelector<HTMLElement>('.file-attachment-name')!.textContent = filename;
     const meta = button.querySelector<HTMLElement>('.file-attachment-meta')!;
     meta.textContent = `${size} · ${actionLabel}`;
@@ -7365,8 +7367,8 @@ export class QuietRoomApp {
         this.documentReader = { view: reader, previous, returnFocus: button, source };
         const view = reader;
         runtimeSignal?.addEventListener('abort', () => this.closeDocumentReader(true), { once: true, signal: view.signal });
-        if (manifest.originalSize > (readableType === 'application/pdf' ? PDF_READER_LIMIT : TEXT_READER_LIMIT)) {
-          reader.fail(`文件过大，阅读上限为 ${readableType === 'application/pdf' ? '64' : '4'} MB`);
+        if (manifest.originalSize > documentReaderLimit(readableType)) {
+          reader.fail(`文件过大，阅读上限为 ${documentReaderLimit(readableType) / 1024 / 1024} MB`);
           return;
         }
       }

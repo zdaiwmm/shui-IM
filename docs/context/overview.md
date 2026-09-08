@@ -1,6 +1,7 @@
 # Quiet Room 项目地图
 
-本机 PDF／文本阅读：`src/lib/document-reader.ts`、`src/lib/pdf-reader.ts`、`src/document-reader.css`；
+本机 PDF／EPUB／文本阅读：`src/lib/document-reader.ts`、`src/lib/pdf-reader.ts`、`src/lib/epub-reader.ts`、
+`src/lib/epub-archive.worker.ts`、`src/lib/document-paging.ts`、`src/document-reader.css`；文件格式图标在 `src/lib/file-format.ts`。
 专项 `tests/document-reader.e2e.mjs`，附件接入与锁定回归仍在 `tests/file-flow.e2e.mjs`、
 `tests/file-interactions.e2e.mjs`。范围与安全边界见 [D-038](decisions.md#d-038pdf-与文本改用本机内置阅读器)。
 

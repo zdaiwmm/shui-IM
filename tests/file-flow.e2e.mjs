@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
+import { readerPdf, readerEpub } from './fixtures/document-fixtures.mjs';
 
 // Exercise the real picker, attachment crypto and UI against an opaque in-memory
 // blob service. Message transport is captured at enqueuePayload; MLS coverage
@@ -388,6 +389,30 @@ try {
       results.pickerLifecycle.push({ destination, order, ...invalidated, foreground });
     }
   }
+  for (const destination of ['chat', 'gallery']) {
+    await page.evaluate(({ destination, pdf, epub }) => {
+      const f = window.fileFlow;
+      f.fresh(destination);
+      f.choose(destination, [
+        new File([new Uint8Array(pdf)], '阅读样本.pdf', { type: 'application/pdf' }),
+        new File([new Uint8Array(epub)], '安静的房间.epub', { type: 'application/epub+zip' }),
+        ...['docx', 'xlsx', 'pptx', 'zip', 'md'].map(extension => new File(['format-icon fixture'], `资料.${extension}`, { type: 'application/octet-stream' })),
+      ]);
+    }, { destination, pdf: readerPdf(), epub: await readerEpub() });
+    await page.waitForFunction(() => window.fileFlow.sent.length === 7 && !window.fileFlow.app.imageBatchUploading);
+    if (destination === 'gallery') await page.locator('#gallery-tab-files').click();
+    const cards = page.locator(destination === 'chat' ? '.message .file-attachment' : '.gallery-file');
+    assert.equal(await cards.count(), 7);
+    assert.equal(new Set(await cards.locator('.file-format-icon').evaluateAll(nodes => nodes.map(node => node.dataset.fileFormat))).size, 7);
+    assert.deepEqual(new Set(await cards.locator('.file-format-icon small').allTextContents()), new Set(['PDF', 'EPUB', 'DOCX', 'XLSX', 'PPTX', 'ZIP', 'MD']));
+    await captureFiles(`${destination}-format-icons`);
+    await cards.filter({ hasText: '安静的房间.epub' }).click();
+    await page.locator('.document-reader[data-state="ready"] .reader-epub').waitFor();
+    assert.match(await page.locator('.reader-epub').textContent(), /窗外的光/);
+    await page.evaluate(() => window.fileFlow.app.lockNow());
+    assert.equal(await page.locator('.document-reader').count(), 0);
+  }
+  results.epubAndFormatIcons = 'Verified original EPUB opens from chat and Safe; format icons differ; lock removes reader';
   results.expressions = await page.evaluate(async () => {
     const f=window.fileFlow;
     f.fresh(); const reservations=f.requests.reservations;

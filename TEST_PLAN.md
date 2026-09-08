@@ -4,7 +4,8 @@
 
 - `node tests/document-reader.e2e.mjs <output-directory>`：真实 PDF.js worker、画布像素、文字层、翻页、搜索、缩放、纯文本安全、错误状态、迟到任务取消、画布清零与 worker 终止。`QUIET_ROOM_TEST_BROWSER=webkit` 切换 WebKit。几何与可选截图覆盖 320/390/768/1280px、横屏及明暗主题。
 - `tests/file-flow.e2e.mjs`、`tests/file-interactions.e2e.mjs`、真实双端 `tests/browser.e2e.mjs`：校验后正文一致、弹窗拦截无影响、away／已读边界、同步隐私清理与下载中锁定取消。
-- iPhone / iOS 27 / Safari 须另验实际 PDF 与各文本格式、搜索键盘、翻页、缩放、返回聊天／保险箱及后台锁定。桌面 WebKit 不替代真机证据；加密 PDF 与 OCR 不在首版范围。
+- 阅读器后续专项覆盖搜索框无方形焦点外框、PDF 双向合成与 Chrome 原生触摸翻页、垂直／短滑／多指排除及放大平移；EPUB 2/3 目录、书内图片、链接、全文搜索、恶意脚本与外链净化、非法 ZIP 路径／加密资源／超限章节拒绝和 worker 清理。文件流专项覆盖聊天与保险箱完整校验后的 EPUB 阅读、锁定移除和七类格式图标；`tests/file-format.test.ts` 覆盖未知 MIME、格式家族与扩展名标记。
+- iPhone / iOS 27 / Safari 须另验实际 PDF、EPUB 与各文本格式、搜索键盘、横滑翻页、缩放、返回聊天／保险箱及后台锁定。桌面 WebKit 不替代真机证据；加密 PDF、EPUB DRM 与 OCR 不在范围内。
 
 ## 2026-09-08 聊天工具、附件收藏与输入框录音
 

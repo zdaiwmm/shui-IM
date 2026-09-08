@@ -35,15 +35,29 @@
 .reader-control:hover:not(:disabled) { background-color: var(--surface-raised); }
 .reader-control:active:not(:disabled) { transform: scale(.94); }
 .reader-control:disabled { opacity: .35; cursor: default; }
-.document-reader :is(button, input, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.document-reader :is(button, input, select, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.document-reader .reader-search input:focus { outline: none; box-shadow: none; }
+.reader-search:focus-within { border-color: var(--ink-muted); box-shadow: var(--glass-shadow), 0 0 0 1px var(--ink-muted); }
 .reader-search { grid-row: 2; display: grid; grid-template-columns: minmax(0, 1fr) auto 44px; align-items: center; gap: 8px; margin: 0 12px 8px; border-radius: 24px; padding: 0 4px 0 14px; }
 .reader-search input { width: 100%; min-width: 0; min-height: 44px; padding: 0; background: transparent; border: 0; color: var(--ink); font-size: 16px; }
 .reader-search output { font-size: 12px; color: var(--ink-muted); white-space: nowrap; }
 .reader-search .reader-control, .reader-toolbar .reader-control { background: transparent; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .reader-stage { grid-row: 3; overflow: auto; overscroll-behavior: contain; min-height: 0; padding: 12px 16px 28px; touch-action: pan-x pan-y; }
 .reader-content { width: max-content; min-width: 100%; }
+.reader-stage.reader-swipe { touch-action: pan-y pinch-zoom; }
+.reader-directory { max-width: 100%; width: 100%; height: 44px; padding: 0 12px; border: 1px solid var(--glass-border); border-radius: 22px; background: var(--glass-panel); color: var(--ink); font: inherit; font-size: 16px; text-overflow: ellipsis; }
+.reader-epub { max-width: 70ch; margin: 0 auto; overflow-wrap: anywhere; line-height: 1.85; user-select: text; -webkit-user-select: text; }
+.reader-epub :is(h1,h2,h3,h4,h5,h6) { font-size: 1.25em; line-height: 1.5; margin: 1.5em 0 .75em; }
+.reader-epub p { margin: .9em 0; }
+.reader-epub :is(figure,blockquote) { margin: 1em 0; }
+.reader-epub img { display: block; max-width: 100%; max-height: 70dvh; height: auto; margin: 1em auto; object-fit: contain; }
+.reader-epub table { display: block; max-width: 100%; overflow: auto; border-collapse: collapse; }
+.reader-epub :is(td,th) { padding: 6px 10px; border: 1px solid var(--line); }
+.reader-epub pre { white-space: pre-wrap; }
+.reader-epub a[role="link"] { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.reader-epub mark { background: oklch(85% .13 85 / .6); color: inherit; }
 .reader-text { width: min(70ch, 100%); margin: 0 auto; white-space: pre-wrap; overflow-wrap: anywhere; font-family: inherit; line-height: 1.85; user-select: text; -webkit-user-select: text; tab-size: 4; }
-.document-reader[data-kind="text"] .reader-content { width: 100%; }
+.document-reader:is([data-kind="text"], [data-kind="epub"]) .reader-content { width: 100%; }
 .reader-pdf-page { position: relative; margin: 0 auto; background: white; color-scheme: only light; box-shadow: 0 2px 14px oklch(20% .008 255 / .12); }
 .reader-pdf-page canvas { display: block; }
 .reader-status { position: absolute; top: 45%; left: 24px; right: 24px; margin: 0; text-align: center; font-size: 14px; color: var(--ink-muted); pointer-events: none; overflow-wrap: anywhere; }
@@ -62,7 +76,7 @@
 .privacy-obscured .document-reader { visibility: hidden !important; }
 @media (max-width: 430px) {
   .reader-toolbar { gap: 0; }
-  .document-reader[data-kind="pdf"] .reader-zoom output { display: none; }
+  .document-reader:is([data-kind="pdf"], [data-kind="epub"]) .reader-zoom output { display: none; }
   .reader-paging input { width: 36px; }
 }
 @media (max-height: 460px) { .reader-header { padding-block: 4px; } .reader-stage { padding-block: 4px 12px; } .reader-toolbar { margin-bottom: 4px; } }
