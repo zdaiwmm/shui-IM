@@ -465,7 +465,7 @@ export class QuietRoomApp {
   private backupError = '';
   private roleLastSeen: { creator: number | null; joiner: number | null } = { creator: null, joiner: null };
   private viewerMediaCleanup: (() => void) | null = null;
-  private viewerDetailsCleanup: (() => void) | null = null;
+  private viewerDetailsCleanup: ((animate?: boolean) => void) | null = null;
   private viewerWorkAbort: AbortController | null = null;
   private viewerGestureCleanup: (() => void) | null = null;
   private viewerKeyHandler: ((event: KeyboardEvent) => void) | null = null;
@@ -4560,6 +4560,9 @@ export class QuietRoomApp {
     }
     const outgoingFrame = document.createElement('div');
     outgoingFrame.className = 'page-transition-outgoing';
+    if (incoming.classList.contains('gallery-shell') && outgoing.classList.contains('chat-shell')) {
+      outgoingFrame.dataset.safeDeparture = '';
+    }
     outgoingFrame.append(outgoing);
     outgoing.setAttribute('aria-hidden', 'true');
     outgoing.inert = true;
@@ -7947,6 +7950,7 @@ export class QuietRoomApp {
     this.viewerReturnFocus = returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const viewer = document.createElement('section');
+    if (allowPhotoDetails) viewer.dataset.safeViewer = '';
     viewer.className = 'image-viewer';
     viewer.setAttribute('role', 'dialog');
     viewer.setAttribute('aria-modal', 'true');
@@ -7956,11 +7960,12 @@ export class QuietRoomApp {
       <header class="viewer-header">
         <button class="viewer-control" type="button" data-viewer-close aria-label="关闭查看器">${icons.close}</button>
         <div><strong data-viewer-name></strong><div class="viewer-metadata"><span data-viewer-counter></span><time data-viewer-time title="发送或上传时间" hidden></time></div></div>
-        <button class="viewer-control" type="button" data-viewer-download aria-label="下载当前原图">${icons.download}</button>
+        ${allowPhotoDetails
+          ? '<button class="viewer-control" type="button" data-viewer-details aria-label="查看图片详情" title="查看图片详情" aria-expanded="false" hidden></button>'
+          : `<button class="viewer-control" type="button" data-viewer-download aria-label="下载当前原图">${icons.download}</button>`}
       </header>
       <div class="viewer-photo-tools">
         <button class="viewer-motion-toggle" type="button" data-viewer-motion aria-pressed="true" hidden></button>
-        ${allowPhotoDetails ? '<button class="viewer-control" type="button" data-viewer-details aria-label="查看图片详情" title="查看图片详情" aria-expanded="false" hidden></button>' : ''}
         <span class="viewer-motion-error" role="status" hidden></span>
       </div>
       <div class="viewer-stage" aria-live="polite"></div>
@@ -7979,15 +7984,15 @@ export class QuietRoomApp {
     const motionButton = viewer.querySelector<HTMLButtonElement>('[data-viewer-motion]')!;
     const detailsButton = viewer.querySelector<HTMLButtonElement>('[data-viewer-details]');
     detailsButton?.append(createElement(Info));
-    const closeDetails = (focus = true) => {
-      this.viewerDetailsCleanup?.();
+    const closeDetails = (focus = true, animate = true) => {
+      this.viewerDetailsCleanup?.(animate);
       this.viewerDetailsCleanup = null;
       detailsButton?.setAttribute('aria-expanded', 'false');
       if (focus) detailsButton?.focus({ preventScroll: true });
     };
     const openDetails = () => {
       if (!allowPhotoDetails || this.privacyCovered || workAbort.signal.aborted || isVideoFile(manifests[current]!)) return;
-      closeDetails(false);
+      closeDetails(false, false);
       gestures.reset();
       detailsButton?.setAttribute('aria-expanded', 'true');
       const manifest = manifests[current]!;
@@ -8039,7 +8044,7 @@ export class QuietRoomApp {
       const video = isVideoFile(manifest);
       viewer.classList.toggle('video-viewer', video);
       viewer.setAttribute('aria-label', video ? '视频播放器' : '图片查看器');
-      viewer.querySelector('[data-viewer-download]')!.setAttribute('aria-label', video ? '下载当前视频' : '下载当前原图');
+      viewer.querySelector('[data-viewer-download]')?.setAttribute('aria-label', video ? '下载当前视频' : '下载当前原图');
       viewer.querySelector<HTMLElement>('[data-viewer-name]')!.textContent = manifest.originalName || (video ? '视频' : '原图');
       const available = manifests.map((_, candidate) => candidate)
         .filter(candidate => !identities[candidate] || !this.messageDeletions().has(identities[candidate]!.clientMsgId));
@@ -8099,7 +8104,7 @@ export class QuietRoomApp {
         return;
       }
       if (activeLayer && target === current && options.reason !== 'retry') return;
-      closeDetails(false);
+      closeDetails(false, false);
       activeMotion?.pause();
       motionButton.disabled = true;
       if (detailsButton) detailsButton.disabled = true;

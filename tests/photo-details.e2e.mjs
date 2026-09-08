@@ -93,6 +93,26 @@ try {
   const ready = async () => { await page.waitForFunction(() => document.querySelector('.viewer-stage')?.getAttribute('aria-busy') === 'false'); await settle(); };
   const capture = async name => { if (screenshotDirectory) { await settle(); await mkdir(screenshotDirectory, { recursive: true }); await page.screenshot({ path: path.join(screenshotDirectory, `${name}.png`) }); } };
   await page.waitForFunction(() => document.querySelectorAll('.gallery-tile').length === 5);
+  await page.evaluate(() => window.photoFixture.app.renderChat());
+  await page.waitForSelector('.image-preview img', { state: 'attached' });
+  const departure = await page.evaluate(async () => {
+    document.querySelectorAll('.image-preview').forEach(button => { button.dataset.revealed = 'true'; });
+    const app = window.photoFixture.app;
+    app.transitionPage('forward', () => app.renderGallery());
+    let frames = 0, media = 0, exposed = 0;
+    const start = performance.now();
+    do {
+      const images = [...document.querySelectorAll('.page-transition-outgoing .image-preview')];
+      media = Math.max(media, images.length);
+      exposed += images.filter(image => getComputedStyle(image).visibility !== 'hidden').length;
+      frames++;
+      await new Promise(requestAnimationFrame);
+    } while (performance.now() - start < 450);
+    return { frames, media, exposed };
+  });
+  assert.ok(departure.frames > 2 && departure.media > 0, 'navigation must sample actual outgoing chat images');
+  assert.equal(departure.exposed, 0, 'entering Safe must never repaint outgoing chat images');
+  await page.waitForFunction(() => document.querySelectorAll('.gallery-tile').length === 5);
   const cameraId = await page.evaluate(() => window.photoFixture.records[0].payload.image.blobId);
   const first = page.locator(`.gallery-tile[data-blob-id="${cameraId}"]`);
   await first.scrollIntoViewIfNeeded();
@@ -102,6 +122,7 @@ try {
   await capture('gallery-menu-dark');
   await page.locator('[data-gallery-action="details"]').click();
   await ready();
+  assert.equal(await page.locator('[data-viewer-download]').count(), 0, 'Safe viewers must not offer downloads');
   await page.waitForFunction(() => document.querySelector('.photo-details')?.textContent.includes('Fixture Camera Test Model'));
   assert.match(await page.locator('.photo-details').innerText(), /2026年09月06日 16:28:35/);
   assert.equal(await page.locator('.photo-details b').count(), 0, 'EXIF text must not become HTML');
@@ -117,6 +138,7 @@ try {
     for (let step = 1; step <= 6; step++) await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y - step * 30 }] });
     await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     await page.waitForFunction(() => document.querySelector('.photo-details-content').scrollTop > 40);
+    await page.waitForTimeout(400);
     await page.locator('.photo-details-content').evaluate(content => { content.scrollTop = 0; });
     await touch.detach();
   }
@@ -135,7 +157,68 @@ try {
   }
   await page.setViewportSize({ width: 390, height: 844 }); await page.emulateMedia({ colorScheme: 'dark' });
   await page.locator('[data-photo-details-close]').click();
+  assert.equal(await page.locator('.photo-details.is-closing').count(), 1, 'ordinary dismissal must animate');
+  await page.waitForSelector('.photo-details', { state: 'detached' });
   assert.equal(await page.locator('.photo-details').count(), 0);
+
+  await page.locator('[data-viewer-details]').click(); await settle();
+  const animation = await page.evaluate(async () => {
+    const panel = document.querySelector('.photo-details');
+    panel.querySelector('[data-photo-details-close]').click();
+    const duration = parseFloat(getComputedStyle(panel).animationDuration);
+    const offsets = [];
+    while (panel.isConnected) {
+      offsets.push(new DOMMatrixReadOnly(getComputedStyle(panel).transform).m42);
+      await new Promise(requestAnimationFrame);
+    }
+    return { duration, offsets };
+  });
+  assert.equal(animation.duration, 0.52);
+  assert.ok(animation.offsets.length > 8 && animation.offsets.at(-1) > 200);
+  assert.ok(animation.offsets.every((offset, index) => !index || offset >= animation.offsets[index - 1] - 1), 'dismissal must slide continuously downward');
+  await page.locator('[data-viewer-details]').click(); await settle();
+  const glass = await page.locator('.photo-details').evaluate(panel => ({
+    filter: getComputedStyle(panel).backdropFilter || getComputedStyle(panel).webkitBackdropFilter,
+    duration: getComputedStyle(panel).transitionDuration,
+  }));
+  assert.match(glass.filter, /blur\(/);
+  assert.equal(glass.duration, '0.52s');
+  await page.locator('.photo-details-backdrop').click({ position: { x: 15, y: 180 } });
+  await page.waitForSelector('.photo-details', { state: 'detached' });
+  assert.equal(await page.locator('.image-viewer').count(), 1, 'outside dismissal must keep the image viewer');
+  await page.locator('[data-viewer-details]').click(); await settle();
+  const handle = await page.locator('.photo-details > header').boundingBox();
+  await page.mouse.move(handle.x + 80, handle.y + 20);
+  await page.mouse.down(); await page.mouse.move(handle.x + 80, handle.y + 48, { steps: 5 }); await page.mouse.up();
+  await settle();
+  assert.equal(await page.locator('.photo-details:not(.is-closing)').count(), 1, 'short drag must return to the open position');
+  assert.ok(Math.abs(await page.locator('.photo-details').evaluate(panel => new DOMMatrixReadOnly(getComputedStyle(panel).transform).m42)) < 1);
+  await page.mouse.move(handle.x + 80, handle.y + 20);
+  await page.mouse.down(); await page.mouse.move(handle.x + 80, handle.y + 150, { steps: 12 }); await page.mouse.up();
+  await page.waitForSelector('.photo-details', { state: 'detached' });
+  await page.locator('[data-viewer-details]').click(); await settle();
+  if (process.env.QUIET_ROOM_PHOTO_BROWSER !== 'webkit') {
+    const touch = await page.context().newCDPSession(page);
+    const header = await page.locator('.photo-details-content').boundingBox();
+    const x = header.x + 80, y = header.y + 20;
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    for (let step = 1; step <= 8; step++) await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + step * 18 }] });
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await page.waitForSelector('.photo-details', { state: 'detached' });
+    await touch.detach();
+  } else {
+    await page.locator('[data-photo-details-close]').click();
+    await page.waitForSelector('.photo-details', { state: 'detached' });
+  }
+  await page.locator('[data-viewer-details]').click();
+  await page.waitForTimeout(120);
+  const interruption = await page.locator('.photo-details').evaluate(panel => {
+    const before = new DOMMatrixReadOnly(getComputedStyle(panel).transform).m42;
+    panel.querySelector('[data-photo-details-close]').click();
+    return { before, after: new DOMMatrixReadOnly(getComputedStyle(panel).transform).m42 };
+  });
+  assert.ok(Math.abs(interruption.before - interruption.after) < 2, 'closing during entry must start at its current position');
+  await page.waitForSelector('.photo-details', { state: 'detached' });
 
   for (const index of [1, 2, 3]) {
     await page.evaluate(index => window.photoFixture.open(index), index);
@@ -170,6 +253,7 @@ try {
   await page.evaluate(() => { const { app } = window.photoFixture; app.closeImageViewer(true); app.renderChat(); window.photoFixture.open(1); });
   await ready();
   assert.equal(await page.locator('[data-viewer-details]').count(), 0, 'chat must never receive a photo properties entry');
+  assert.equal(await page.locator('[data-viewer-download]').count(), 1, 'chat download behavior is unchanged');
   assert.equal(await page.locator('[data-viewer-motion]').getAttribute('aria-pressed'), 'true');
   await page.locator('[data-viewer-motion]').click();
   await page.evaluate(() => window.photoFixture.open(1));
@@ -183,6 +267,7 @@ try {
   await page.locator('[data-viewer-details]').click();
   await page.waitForFunction(() => document.querySelector('.photo-details-content')?.textContent.includes('未记录'));
   await page.locator('[data-photo-details-close]').press('Escape');
+  await page.waitForSelector('.photo-details', { state: 'detached' });
   assert.equal(await page.locator('.photo-details').count(), 0, 'Escape first closes properties');
   assert.equal(await page.locator('.image-viewer').count(), 1);
 
