@@ -18,6 +18,7 @@ describe('production deployment rollback safety contract', () => {
 
     expect(buildStage).toContain('COPY tsconfig.json vite.config.ts index.html admin.html release.json ./');
     expect(buildStage.indexOf('release.json')).toBeLessThan(buildStage.indexOf('RUN npm run build'));
+    expect(buildStage.indexOf('COPY release-history.json')).toBeLessThan(buildStage.indexOf('RUN npm run build'));
   });
 
   it('has valid Bash syntax', () => {

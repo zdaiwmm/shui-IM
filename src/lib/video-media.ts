@@ -1,4 +1,5 @@
 import type { MessagePayload } from './types';
+import { isExpressionPayload } from './expression-media';
 
 type FileMediaMetadata = { mimeType: string; originalName: string };
 
@@ -28,8 +29,9 @@ export function isVideoFile(manifest: FileMediaMetadata): boolean {
   return videoMimeType(manifest) !== null;
 }
 
-/** The creator's safe automatically projects every chat attachment. */
+/** Expressions stay in chat; ordinary attachments also project into Safe. */
 export function isGalleryMediaPayload(payload: MessagePayload): boolean {
+  if (isExpressionPayload(payload)) return false;
   return payload.kind === 'image' || payload.kind === 'image-album' || payload.kind === 'gallery-image' ||
     payload.kind === 'gallery-file' || payload.kind === 'file';
 }

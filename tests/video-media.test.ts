@@ -46,6 +46,7 @@ describe('video attachment classification', () => {
       { ...base, kind: 'file', file: { ...video, mimeType: '' } },
     ];
     for (const payload of included) expect(isGalleryMediaPayload(payload)).toBe(true);
+    expect(isGalleryMediaPayload({ ...base, kind: 'image', image, presentation: 'expression' })).toBe(false);
     expect(isGalleryMediaPayload({ ...base, kind: 'file', file: document })).toBe(true);
     expect(isGalleryMediaPayload({ ...base, kind: 'file', file: { ...video, mimeType: 'text/html' } })).toBe(true);
     expect(isGalleryMediaPayload({ ...base, kind: 'text', text: 'ordinary chat' })).toBe(false);

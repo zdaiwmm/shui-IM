@@ -46,6 +46,14 @@ describe('shared encrypted message payload validation', () => {
     expect(isMessagePayload({ v: 1, kind: 'text', text: 'x'.repeat(MAX_MESSAGE_TEXT_LENGTH + 1), sentAt: manifest.lastModified })).toBe(false);
   });
 
+  it('accepts only the explicit encrypted expression presentation on images', () => {
+    const image = { v: 1, kind: 'image', image: imageManifest(), sentAt: new Date().toISOString(), presentation: 'expression' };
+    expect(isMessagePayload(image)).toBe(true);
+    for (const presentation of [false, null, 'photo', {}, ['expression']]) expect(isMessagePayload({ ...image, presentation })).toBe(false);
+    expect(isMessagePayload({ ...image, injected: true })).toBe(false);
+    expect(isMessagePayload({ v: 1, kind: 'text', text: 'hello', sentAt: image.sentAt, presentation: 'expression' })).toBe(false);
+  });
+
   it('keeps reply references inside a strictly validated encrypted payload', () => {
     const reply = {
       v: 2,

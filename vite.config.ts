@@ -5,6 +5,12 @@ import { defineConfig } from 'vite';
 type Release = { id: string; title: string; notes: string[] };
 
 const release = JSON.parse(readFileSync(resolve('release.json'), 'utf8')) as Release;
+const releaseHistory = JSON.parse(readFileSync(resolve('release-history.json'), 'utf8')) as Release[];
+if (!Array.isArray(releaseHistory) || new Set([...releaseHistory.map(item => item.id), release.id]).size !== releaseHistory.length + 1
+  || releaseHistory.some(item => typeof item.id !== 'string' || typeof item.title !== 'string' || !Array.isArray(item.notes)
+    || !item.notes.length || item.notes.some(note => typeof note !== 'string' || !note.trim()))) {
+  throw new Error('release-history.json must contain unique historical releases and non-empty notes.');
+}
 if (!/^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/.test(release.id)
   || typeof release.title !== 'string' || release.title.trim().length === 0
   || !Array.isArray(release.notes) || release.notes.length === 0

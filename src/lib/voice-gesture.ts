@@ -17,6 +17,7 @@ export function bindVoiceInputGesture(
     if (timer !== null) clearTimeout(timer);
     timer = null;
     pending?.abort(); pending = null;
+    delete input.dataset.voicePress;
     const id = pointer; pointer = null;
     if (id !== null && owner.hasPointerCapture(id)) owner.releasePointerCapture(id);
     recorder = null;
@@ -26,6 +27,7 @@ export function bindVoiceInputGesture(
     if (!event.isPrimary || event.button !== 0 || input.disabled || input.value || pending) return;
     event.preventDefault();
     held = false; suppressClick = false;
+    input.dataset.voicePress = 'true';
     const startX = event.clientX; const startY = event.clientY;
     pending = new AbortController(); const signal = pending.signal;
     let awaitingTouchEnd = false;
@@ -75,6 +77,9 @@ export function bindVoiceInputGesture(
     // App lifecycle owns visible blur, including its bounded microphone/Bluetooth handoff.
     document.addEventListener('visibilitychange', () => { if (document.hidden) interrupt(); }, { signal });
   }, { signal: binding.signal });
+  input.addEventListener('touchstart', event => {
+    if (pending && !input.value) event.preventDefault();
+  }, { signal: binding.signal, passive: false });
   owner.addEventListener('click', event => {
     if (!suppressClick || event.detail === 0) return;
     suppressClick = false; event.preventDefault(); event.stopImmediatePropagation();

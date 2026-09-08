@@ -53,7 +53,10 @@ try {
     app.messages = new Map([[1,msg]]);
     app.imageCache.set(manifest.blobId,{blob:files[0],url:URL.createObjectURL(files[0]),bytes:files[0].size,lastUsedAt:Date.now()});
     const sent = [];
-    app.processImageBatch = async files => { sent.push(await files[0].arrayBuffer()); return true; };
+    app.processImageBatch = async (files, destination, signal, expression) => {
+      if (destination !== 'chat' || expression !== true) throw new Error('Expression send lost its encrypted presentation intent');
+      sent.push(await files[0].arrayBuffer()); return true;
+    };
     app.renderChat();
     document.querySelector('#message-input').value = '保留这份草稿';
     const realFetch = window.fetch.bind(window); const requests = [];
@@ -85,6 +88,8 @@ try {
   const animatedPixels=await firstAnimation.screenshot(); await page.waitForTimeout(350);
   assert.notDeepEqual(await firstAnimation.screenshot(),animatedPixels,'Panel animation pixels did not move');
   const tileBounds=await page.locator('.meme-tile').first().boundingBox();
+  const gridColumns = await page.locator('.meme-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+  assert.equal(gridColumns, 5);
   const imageBounds=await firstAnimation.boundingBox();
   await page.mouse.move(tileBounds.x+tileBounds.width/2,tileBounds.y+tileBounds.height/2); await page.mouse.down();
   await page.locator('.meme-preview img').waitFor(); await page.mouse.up();
@@ -113,6 +118,7 @@ try {
   await page.waitForFunction(()=>window.fixture.requests.at(-1).keyword==='无语');
   assert.equal(await page.getByRole('button',{name:'同意并搜索'}).count(),0);
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===6);
+  assert.ok(Math.abs((await page.locator('.meme-tile').first().boundingBox()).width-tileBounds.width)<1, 'GIF search changed tile size');
   await page.locator('.meme-more').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===12);
   await page.locator('#meme-query').fill('失败'); await page.locator('#meme-query').press('Enter');
@@ -127,11 +133,14 @@ try {
   await page.locator('button[data-kind="stickers"]').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===30);
   assert.equal(await page.locator('.meme-pack-shortcuts img').count(),30);
+  assert.equal((await page.locator('.meme-pack-shortcuts img').first().boundingBox()).width,24);
+  assert.ok(Math.abs((await page.locator('.meme-pack-grid .meme-tile').first().boundingBox()).width-tileBounds.width)<1, 'Sticker tile size differs');
   await page.locator('.meme-pack-shortcuts button').nth(5).click();
   await page.waitForFunction(()=>document.querySelector('.meme-scroll').scrollTop>100);
   await page.locator('.meme-open-search').click();
   await page.locator('#meme-query').fill('预置'); await page.locator('#meme-query').press('Enter');
   await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='已添加');
+  assert.ok(Math.abs((await page.locator('.meme-pack-cover').boundingBox()).width-tileBounds.width)<1, 'Sticker search cover size differs');
   assert.equal(await page.locator('.meme-pack-add').isDisabled(),true,'Bundled pack offered duplicate installation');
   await page.locator('#meme-query').fill('合集'); await page.locator('#meme-query').press('Enter');
   await page.waitForFunction(()=>window.fixture.requests.at(-1).kind==='stickers'&&window.fixture.requests.at(-1).keyword==='合集');
@@ -212,9 +221,12 @@ try {
     });
     assert.ok(geometry.left>=0 && geometry.right<=width && geometry.top>=height*0.4 && Math.abs(geometry.bottom-height)<=1 && !geometry.overflow,JSON.stringify(geometry));
     if(out) await page.screenshot({path:path.join(out,`memes-${width}.png`)});
+    const halfTileWidth=(await page.locator('.meme-tile').first().boundingBox()).width;
     await page.locator('.meme-open-search').click();
     await page.waitForFunction(()=>getComputedStyle(document.querySelector('.meme-search-dialog')).opacity==='1'&&getComputedStyle(document.querySelector('.meme-panel')).opacity==='1');
     const full=await page.locator('.meme-search-dialog').boundingBox();
+    const fullGridColumn=await page.locator('.meme-grid').evaluate(el=>(el.getBoundingClientRect().width-16)/5);
+    assert.ok(Math.abs(fullGridColumn-halfTileWidth)<1, `Tile width changed between half/full search at ${width}px: ${halfTileWidth}/${fullGridColumn}`);
     assert.ok(Math.abs(full.height-height)<=1&&full.y===0&&full.width===width,JSON.stringify(full));
     if(out) await page.screenshot({path:path.join(out,`search-${width}.png`)});
     await page.locator('.meme-back').click();
@@ -254,9 +266,21 @@ try {
   const chatAnimation=page.locator('.message-list .image-preview img').first();
   await chatAnimation.waitFor();
   await page.waitForFunction(()=>document.querySelector('.message-list .image-preview img')?.naturalWidth>0);
+  assert.equal(await page.locator('.message-list .image-preview').first().getAttribute('data-revealed'), 'true');
+  assert.equal(await page.locator('.expression-bubble').count(), 1);
+  assert.ok(Math.abs((await chatAnimation.boundingBox()).width - 128 * 2 / 3) < 1, 'Small expression did not shrink to two thirds');
+  await page.evaluate(() => window.fixture.app.concealChatImages());
+  assert.equal(await page.locator('.message-list .image-preview').first().getAttribute('data-revealed'), 'false');
   await page.locator('.message-list .image-preview').first().click();
   const chatFrame=await chatAnimation.screenshot(); await page.waitForTimeout(350);
   assert.notDeepEqual(await chatAnimation.screenshot(),chatFrame,'Sent chat animation was frozen');
+  await page.locator('.message-list .image-preview').first().dispatchEvent('contextmenu');
+  await page.locator('.message-action-preview img').waitFor();
+  await page.waitForTimeout(350);
+  assert.equal(await page.locator('[data-message-action="favorite-meme"]').innerText(), '收藏为表情');
+  assert.equal(await page.locator('.message-action-preview img').evaluate(el => getComputedStyle(el).opacity), '1');
+  if (out) await page.screenshot({path:path.join(out,'expression-menu.png')});
+  await page.evaluate(() => window.fixture.app.closeMessageActions(false, false));
   await page.evaluate(()=>{window.fixture.app.renderChat();window.fixture.app.openMemePicker();});
   await page.locator('.meme-panel').waitFor();
   await page.evaluate(()=>window.fixture.app.obscurePrivacySurface());

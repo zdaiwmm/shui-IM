@@ -139,8 +139,8 @@ body:has(:where(#app) > .chat-shell) {
   position: fixed;
   top: 0;
   bottom: auto;
-  translate: 0 calc(var(--app-top) + var(--app-height) - var(--chat-bottom-space) - 100%);
-  transform-origin: bottom center;
+  translate: 0 calc(var(--app-top) + var(--chat-header-height) + 8px);
+  transform-origin: top center;
 }
 .chat-shell > .notice.is-visible { transform: none; }
 .system-notices {

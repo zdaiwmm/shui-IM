@@ -7,6 +7,7 @@ export type ReleaseInfo = {
 const CURRENT_RELEASE_KEY = 'quiet-room.current-release';
 const SEEN_RELEASE_KEY = 'quiet-room.seen-release-notes';
 const PENDING_RELEASE_KEY = 'quiet-room.pending-release-notes';
+const BASE_RELEASE_KEY = 'quiet-room.release-notes-base';
 
 export const currentRelease: ReleaseInfo = release;
 
@@ -27,6 +28,9 @@ export function prepareReleaseVisit(storage: Pick<Storage, 'getItem' | 'setItem'
   if (!storage) return false;
   try {
     const previousRelease = storage.getItem(CURRENT_RELEASE_KEY);
+    if (storage.getItem(BASE_RELEASE_KEY) === null) {
+      storage.setItem(BASE_RELEASE_KEY, storage.getItem(SEEN_RELEASE_KEY) ?? previousRelease ?? releaseId);
+    }
     const seen = storage.getItem(SEEN_RELEASE_KEY) === releaseId;
     if (previousRelease !== null && previousRelease !== releaseId && !seen) {
       storage.setItem(PENDING_RELEASE_KEY, releaseId);
@@ -45,12 +49,27 @@ export function hasPendingReleaseNotes(): boolean {
   return releaseNotesPending;
 }
 
+export function collectReleaseNotes(baseId: string | null, releases: readonly ReleaseInfo[]): string[] {
+  const index = releases.findIndex(item => item.id === baseId);
+  return [...new Set(releases.slice(index < 0 ? 0 : index + 1).flatMap(item => item.notes))];
+}
+
+export function pendingReleaseNotes(): string[] {
+  let base: string | null = null;
+  try {
+    const storage = browserStorage();
+    base = storage?.getItem(SEEN_RELEASE_KEY) ?? storage?.getItem(BASE_RELEASE_KEY) ?? null;
+  } catch { /* Keep the update readable when storage becomes unavailable. */ }
+  return collectReleaseNotes(base, [...history, currentRelease]);
+}
+
 export function markReleaseNotesSeen(): void {
   if (!releaseNotesPending) return;
   releaseNotesPending = false;
   try {
     const storage = browserStorage();
     storage?.setItem(SEEN_RELEASE_KEY, currentRelease.id);
+    storage?.setItem(BASE_RELEASE_KEY, currentRelease.id);
     storage?.removeItem(PENDING_RELEASE_KEY);
   } catch {
     // The in-memory latch still prevents repeated dialogs in this page lifetime.
@@ -103,3 +122,4 @@ export function startReleaseUpdateDetection(): void {
   window.setInterval(() => void check(), 15 * 60 * 1000);
 }
 import release from '../../release.json';
+import history from '../../release-history.json';

@@ -243,6 +243,7 @@ export type ImagePayload = {
   v: 1 | 2;
   kind: 'image';
   image: ImageManifest;
+  presentation?: 'expression';
   sentAt: string;
   replyTo?: ReplyReference;
 };

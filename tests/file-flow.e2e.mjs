@@ -389,6 +389,26 @@ try {
       results.pickerLifecycle.push({ destination, order, ...invalidated, foreground });
     }
   }
+  results.expressions = await page.evaluate(async () => {
+    const f=window.fileFlow;
+    f.fresh(); const reservations=f.requests.reservations;
+    f.check(!await f.app.processImageBatch([f.fixtures()[0]], 'chat', undefined, true), 'Old device accepted expression');
+    f.check(f.requests.reservations===reservations, 'Expression uploaded before compatibility check');
+    f.fresh('chat', 'creator', ['image-album-v1', 'file-message-v1', 'expression-image-v1']);
+    f.check(await f.app.processImageBatch([f.fixtures()[0]], 'chat', undefined, true), 'Expression failed to send');
+    const message=f.sent[0];
+    f.check(message.payload.presentation==='expression', 'Image payload lost expression marker');
+    const vault=await import('/src/lib/vault.ts');
+    await vault.saveHistoryMessage(f.session, message);
+    const safe=await vault.loadMediaHistoryPage(f.session);
+    f.check(!safe.messages.some(m=>m.clientMsgId===message.clientMsgId), 'Expression entered automatic Safe history');
+    const favorites=await vault.loadMediaHistoryPage(f.session, {includeExpressions:true});
+    f.check(favorites.messages.some(m=>m.clientMsgId===message.clientMsgId), 'Manual favorites lost expression source');
+    f.app.renderGallery();
+    f.check(!document.querySelector('.gallery-tile'), 'Pending expression entered Safe');
+    f.app.lockNow();
+    return {encryptedMarker:true, compatibilityGate:true, excludedFromSafe:true, availableForManualFavorite:true};
+  });
   await page.evaluate(() => window.fileFlow.app.lockNow());
   assert.deepEqual(errors, []);
   console.log(JSON.stringify(results, null, 2));
