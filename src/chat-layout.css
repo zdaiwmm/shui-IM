@@ -1,6 +1,6 @@
 /* Give Safari real document content to composite behind its native chrome.
    Clipping an inner scroller to visualViewport leaves only a flat body tint. */
-html:has(.chat-shell) {
+html:has(:where(#app) > .chat-shell) {
   height: auto;
   overflow: auto;
   overflow-anchor: none;
@@ -8,11 +8,11 @@ html:has(.chat-shell) {
   scroll-padding-top: var(--chat-top-space, 146px);
   scroll-padding-bottom: var(--chat-bottom-space, 132px);
 }
-body:has(.chat-shell) {
+body:has(:where(#app) > .chat-shell) {
   height: auto;
   overflow: visible;
 }
-.app-mode #app:has(.chat-shell) {
+.app-mode #app:has(> .chat-shell) {
   position: relative;
   top: 0;
   height: auto;

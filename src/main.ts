@@ -22,7 +22,7 @@ document.addEventListener('dblclick', (event) => {
 
 const root = document.querySelector<HTMLElement>('#app');
 if (!root) throw new Error('Application root is missing');
-mountSystemChrome(root);
+mountSystemChrome();
 
 const app = new QuietRoomApp(root);
 void app.start();

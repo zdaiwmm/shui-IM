@@ -202,7 +202,6 @@
 
 .image-viewer[data-native-video] { background: transparent; }
 .image-viewer[data-native-video]::before { opacity: 0; }
-.image-viewer[data-native-video]::after { display: none; }
 .image-viewer[data-native-video] .viewer-header,
 .image-viewer[data-native-video] .viewer-nav { visibility: hidden; }
 .image-viewer[data-native-video="pending"] video { opacity: 0; }

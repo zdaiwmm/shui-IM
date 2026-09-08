@@ -25,7 +25,7 @@ try {
     for (const sheet of ['styles', 'chat-layout', 'gallery', 'auth-recovery', 'chat-interactions', 'cover', 'voice-messages']) await import(`/src/${sheet}.css`);
     const { QuietRoomApp } = await import('/src/app.ts');
     const { mountSystemChrome } = await import('/src/lib/system-chrome.ts');
-    mountSystemChrome(document.querySelector('#app'));
+    mountSystemChrome();
     const vault = await import('/src/lib/vault.ts');
     const { encryptImageFile } = await import('/src/lib/file-crypto.ts');
     const app = new QuietRoomApp(document.querySelector('#app'));
@@ -101,20 +101,31 @@ try {
     document.querySelectorAll('.image-preview').forEach(button => { button.dataset.revealed = 'true'; });
     const app = window.photoFixture.app;
     app.transitionPage('forward', () => app.renderGallery());
-    let frames = 0, media = 0, exposed = 0;
+    let frames = 0, media = 0, exposed = 0, metadata = 0, exposedMetadata = 0, shortFrames = 0;
     const start = performance.now();
     do {
       const images = [...document.querySelectorAll('.page-transition-outgoing .image-preview')];
       media = Math.max(media, images.length);
       exposed += images.filter(image => getComputedStyle(image).visibility !== 'hidden').length;
+      const labels = [...document.querySelectorAll('.page-transition-outgoing .message-meta')];
+      metadata = Math.max(metadata, labels.length);
+      exposedMetadata += labels.filter(label => getComputedStyle(label).visibility !== 'hidden').length;
+      const gallery = document.querySelector('#app > .gallery-shell');
+      if (gallery && gallery.getBoundingClientRect().height < window.innerHeight - 1) shortFrames++;
       frames++;
       await new Promise(requestAnimationFrame);
     } while (performance.now() - start < 450);
-    return { frames, media, exposed };
+    return { frames, media, exposed, metadata, exposedMetadata, shortFrames };
   });
   assert.ok(departure.frames > 2 && departure.media > 0, 'navigation must sample actual outgoing chat images');
   assert.equal(departure.exposed, 0, 'entering Safe must never repaint outgoing chat images');
+  assert.ok(departure.metadata > 0, 'navigation must sample actual outgoing message timestamps and receipts');
+  assert.equal(departure.exposedMetadata, 0, 'entering Safe must conceal outgoing message metadata too');
+  assert.equal(departure.shortFrames, 0, 'the gallery must fill the viewport throughout navigation');
   await page.waitForFunction(() => document.querySelectorAll('.gallery-tile').length === 5);
+  await page.emulateMedia({ colorScheme: 'light' });
+  await capture('gallery-arrival-light');
+  await page.emulateMedia({ colorScheme: 'dark' });
   const cameraId = await page.evaluate(() => window.photoFixture.records[0].payload.image.blobId);
   const first = page.locator(`.gallery-tile[data-blob-id="${cameraId}"]`);
   await first.scrollIntoViewIfNeeded();
@@ -136,7 +147,7 @@ try {
   await first.dispatchEvent('contextmenu');
   assert.equal(await page.locator('.gallery-actions-sheet').count(), 0, 'late long-press contextmenu must not reopen above the viewer');
   assert.equal(await page.locator('.cover-trigger').count(), 0);
-  assert.match(await page.locator('#system-chrome-color').getAttribute('content'), /^rgb\(/);
+  assert.equal(await page.locator('#system-chrome-color').getAttribute('content'), 'transparent');
   assert.equal(await page.locator('[data-viewer-download]').count(), 0, 'Safe viewers must not offer downloads');
   await page.waitForFunction(() => document.querySelector('.photo-details')?.textContent.includes('Fixture Camera Test Model'));
   assert.match(await page.locator('.photo-details').innerText(), /2026年09月06日 16:28:35/);
@@ -161,6 +172,11 @@ try {
   for (const [width, height, theme] of [[320, 700, 'light'], [390, 844, 'light'], [1280, 800, 'dark'], [844, 390, 'dark']]) {
     await page.setViewportSize({ width, height }); await page.emulateMedia({ colorScheme: theme });
     await settle();
+    assert.equal(await page.locator('#system-chrome-color').getAttribute('content'), 'transparent', 'viewer must not impose opaque native toolbar colors');
+    assert.deepEqual(await page.locator('.image-viewer').evaluate(viewer => ({
+      header: getComputedStyle(viewer.querySelector('.viewer-header')).backgroundImage,
+      bottom: getComputedStyle(viewer, '::after').content,
+    })), { header: 'none', bottom: 'none' }, 'viewer edges must not add tint bands over the photo');
     const geometry = await page.locator('.photo-details').evaluate(panel => {
       const bounds = panel.getBoundingClientRect();
       const content = panel.querySelector('.photo-details-content');
@@ -175,6 +191,10 @@ try {
   assert.equal(await page.locator('.photo-details.is-closing').count(), 1, 'ordinary dismissal must animate');
   await page.waitForSelector('.photo-details', { state: 'detached' });
   assert.equal(await page.locator('.photo-details').count(), 0);
+  await capture('photo-viewer-dark');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await capture('photo-viewer-light');
+  await page.emulateMedia({ colorScheme: 'dark' });
 
   await page.locator('[data-viewer-details]').click(); await settle();
   const animation = await page.evaluate(async () => {

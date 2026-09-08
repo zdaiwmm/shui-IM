@@ -549,13 +549,13 @@
 }
 
 .image-viewer .viewer-header {
-  padding-bottom: 26px;
   color: var(--ink);
-  background: linear-gradient(to bottom, var(--paper), color-mix(in oklch, var(--paper) 70%, transparent) 65%, transparent);
+  background: transparent;
 }
 .image-viewer .viewer-header .viewer-control { color: var(--ink); background: var(--glass-sheen), var(--glass-control); border-color: var(--glass-border); box-shadow: var(--glass-shadow); }
-.image-viewer .viewer-metadata { color: var(--ink-muted); }
-.image-viewer::after { content: ''; position: absolute; z-index: 4; inset: auto 0 0; height: max(20px, env(safe-area-inset-bottom, 0px)); pointer-events: none; background: linear-gradient(to bottom, transparent, var(--paper)); }
+.image-viewer .viewer-header > div { text-shadow: none; }
+.image-viewer .viewer-metadata,
+.image-viewer .viewer-header [data-viewer-counter] { color: var(--ink-muted); }
 
 .image-viewer .viewer-header,
 .image-viewer .viewer-nav {
