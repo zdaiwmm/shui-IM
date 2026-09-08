@@ -187,6 +187,34 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-08（Asia/Shanghai）；服务器批次 `20260908T041211Z`（12:12:11），
+  12:13:56 独立回读成功。用户明确授权本次修复合并并发布生产；目标应用提交为
+  `a493aa06459c86a89049978e1df218245cce3836`，版本 ID `2026.09.08.2`。
+  [PR #43](https://github.com/zdaiwmm/shui-IM/pull/43) 的精确 head 为
+  `b49af39189ec1f95178aa370685fc9a5baae6b1a`，合并后文件树与候选一致。
+- 本次修复分页外旧消息回执反复请求空同步，以及空同步重建相册、返回动画期间误重开
+  退场相册的问题。旧回执从本机加密历史读取，签名、消息绑定和角色校验继续有效；
+  历史缺失失败关闭，不跳过回执或重复推进 MLS。没有新增真机验收。
+- [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34185394350) 与
+  [精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34185773418)
+  全部成功，包含构建、两组浏览器、原生通话、依赖审计、凭据扫描与完整汇总。
+  修复本地 `npm run check:full` 通过 58 个文件的 473 项单元／集成测试及
+  24／24 浏览器入口（289.24 秒）；版本说明变更后构建与更新提示专项也通过。
+- 固定 `publish.mjs --sha` 返回精确 `DEPLOY_OK`／`DEPLOY_VERIFIED`，外层成功核对回执。
+  总耗时 387,651ms，其中等待 main CI 297,569ms、隔离发布与入口回读 74,702ms，
+  服务器阶段 62 秒。发布目录 `/opt/quiet-room/git-releases/20260908T041211Z-a493aa06459c`，
+  已校验冷备份 `/opt/quiet-room/backups/predeploy/data-20260908T041211Z-a493aa06459c.tar.gz`。
+- 独立 `READBACK_OK` 耗时 3,108ms：线上提交、批次和发布目录一致，维护标记不存在；
+  应用运行且健康，备份运行且无健康探针，二者实际镜像均匹配目标
+  `sha256:7bc15bbfba26b8101ff15b57f7569fc2c19aefef9f33f2a754c466c5e19dec7b`。
+  HTTPS 的 `ok`／`database`／`storage` 全为 true；首页、Service Worker、应用 JS、CSS
+  和 preload 与容器产物逐字节摘要一致，独立 WebSocket 连接成功。
+  `admin-enabled=0`、`calls-enabled=0`，TURN 不存在。未读取真实消息、附件或备份内容。
+- 发布前只读预检确认旧应用为 `0d835dc78030e9f9ba8ef7d25af36e63314ada13`。
+  发布后对账在不含部署配置的独立文档 worktree 完成；文档提交不代表再次部署。
+
+## 历史线上发布记录（2026-09-08 11:20）
+
 - 日期：2026-09-08（Asia/Shanghai）；服务器批次 `20260908T031931Z`（11:19:31），
   11:20:53 独立回读成功。用户确认的应用提交为
   `0d835dc78030e9f9ba8ef7d25af36e63314ada13`，版本 ID `2026.09.08.1`，
