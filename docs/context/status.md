@@ -19,6 +19,8 @@
 
 ## 当前发布与集成状态（2026-09-08）
 
+- 本地待集成：`codex/stronger-media-blur-20260908` 基于 `4b426f7`，将聊天图片、视频封面、相册缩略图及聊天遮挡背景统一加强为 48px 高斯模糊。2026-09-08 本任务 `npm run check:full` 通过 58 个测试文件、473 项测试及 24 个浏览器脚本；聊天图片隐私专项和 390/1280px 合成图像样式检查通过。尚未合并、推送、经 CI 或部署，真实 iPhone / iOS 27 / Safari 未验收。
+
 - 已发布应用为 `0d835dc78030e9f9ba8ef7d25af36e63314ada13`，版本 ID `2026.09.08.1`。
   [PR #41](https://github.com/zdaiwmm/shui-IM/pull/41) 已合并，
   [精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34182411954)
