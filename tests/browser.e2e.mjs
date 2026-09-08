@@ -687,6 +687,25 @@ try {
 
   const imageCount = await joiner.locator('.message.incoming .image-preview').count();
   const creatorChatImageCount = await creator.locator('.message.outgoing .image-preview').count();
+  await creator.evaluate(async () => {
+    const { QuietRoomApp } = await import('/src/app.ts');
+    window.anchorDiagnostics = [];
+    for (const name of ['captureChatAnchor', 'restoreChatAnchor']) {
+      const original = QuietRoomApp.prototype[name];
+      QuietRoomApp.prototype[name] = function (...args) {
+        const result = original.apply(this, args);
+        if (window.anchorDiagnostics.length < 150) window.anchorDiagnostics.push({ name,
+          anchor: this.uiPreferences.chatAnchor, restoring: this.chatRestoreAnchor,
+          scroll: scrollY, viewportTop: this.chatViewportTop, intent: this.chatScrollIntent,
+          pending: this.chatBottomFollowPending, pinned: this.chatPinnedToBottom, gap: this.chatBottomGap(),
+          focused: document.activeElement?.id,
+          rows: this.renderedMessageOrder.filter(row => row.isConnected).map(row => ({
+            id: row.dataset.clientMsgId, top: row.getBoundingClientRect().top, height: row.getBoundingClientRect().height,
+          })).filter(row => row.top > -300 && row.top < 900) });
+        return result;
+      };
+    }
+  });
   await creator.locator('#message-list').evaluate((list) => {
     // This is a deliberate history-reading gesture, not a native focus scroll
     // racing the just-completed send. Cancel bottom follow before positioning.
@@ -793,7 +812,7 @@ try {
   });
   invariant(
     chatAnchorAfterGallery.id === chatAnchorBeforeGallery.id && Math.abs(chatAnchorAfterGallery.offset - chatAnchorBeforeGallery.offset) <= 3,
-    `Returning from the gallery lost the previous chat position: ${JSON.stringify({ chatAnchorBeforeGallery, chatAnchorAfterGallery })}`,
+    `Returning from the gallery lost the previous chat position: ${JSON.stringify({ chatAnchorBeforeGallery, chatAnchorAfterGallery, diagnostics: await creator.evaluate(() => window.anchorDiagnostics) })}`,
   );
   if (visualQaDirectory) {
     await creator.screenshot({ path: path.join(visualQaDirectory, 'chat-mobile.png') });
