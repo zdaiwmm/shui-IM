@@ -59,6 +59,7 @@ export async function downloadBlob(
 
 const SYSTEM_READABLE_MIME_TYPES = new Set([
   'application/pdf',
+  'application/epub+zip',
   'application/json',
   'text/plain',
   'text/csv',
@@ -69,9 +70,11 @@ const SYSTEM_READABLE_MIME_TYPES = new Set([
 export function systemReadableMimeType(mimeType: string, filename: string): string | null {
   const normalized = mimeType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
   if (SYSTEM_READABLE_MIME_TYPES.has(normalized)) return normalized;
+  if (normalized === 'application/zip' && /\.epub$/i.test(filename)) return 'application/epub+zip';
   if (normalized && normalized !== 'application/octet-stream') return null;
   const extension = filename.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase();
   return extension === 'pdf' ? 'application/pdf'
+    : extension === 'epub' ? 'application/epub+zip'
     : extension === 'txt' ? 'text/plain'
       : extension === 'csv' ? 'text/csv'
         : extension === 'md' ? 'text/markdown'

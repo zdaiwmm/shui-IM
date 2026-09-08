@@ -62,16 +62,15 @@
   有界缓存且无全量预热。回环 5173 被另一任务 HTTP 测试监听占用时未终止该进程。
   此后文档提交只保存交付证据，不将下方历史生产快照视为本次发布。
 
-## 本机文档阅读器（2026-09-09，本机已集成）
+## 本机文档阅读器（2026-09-09，后续格式与交互更新）
 
-- 本任务工作树 `/private/tmp/quiet-room-document-reader`，分支 `codex/document-reader`，
-  规则与开发基线 `dc3c18e472fe69c88e0afe72d530af76664e7145`。用户确认 PDF.js 加自有界面及现有液态玻璃效果。
-- PDF 与 TXT／JSON／Markdown／CSV 的本机阅读已实现；完整校验后解析，PDF 有翻页、缩放、按匹配页搜索，文本按原文显示。关闭、隐私遮蔽和锁定清理文档与 worker；边界见 [D-038](decisions.md#d-038pdf-与文本改用本机内置阅读器)。
-- 任务提交 `8fd10be` 与本机 main `5180bcc` 在独立工作树 `/private/tmp/quiet-room-integrate-document-reader`、分支 `codex/integrate-document-reader` 组合为 `ca160d3`；仅状态文档新增段落冲突，保留两边记录。随后 `d240f7f3259758084a2a918e3bfab7ce0599e196` 修正视频专项的旧弹窗断言，应用源码保持一致。
-- 最终组合构建与 67 个文件的 523 项单元／集成测试通过；29 个浏览器入口分段全部通过，不记为 `check:full` 单次零退出。任务首轮的入口计数夹具、组合轮的视频旧弹窗夹具均已修正；组合轮通过前 26 项后从失败项续跑最后三项，保留原验证范围。失败回收的 `kill EPERM` 记为 runner 环境问题。
-- Chrome 和最终组合 WebKit 阅读器专项通过：真实 PDF 像素与文字、翻页、搜索、缩放、与生产一致的 CSP、超限拒绝、错误与解析中关闭、worker／画布清理、迟到结果隔离。320/390/768/1280px、横屏和明暗截图已检查；真实附件测试覆盖校验后原文、隐私遮蔽与传输中锁定。日志位于 `/private/tmp/quiet-room-reader-integration-check-full.log` 与 `/private/tmp/quiet-room-reader-integration-browser-resume.log`。
-- 已在互斥锁内快进干净本机 main 到 `d240f7f`，版本 `2026.09.09.2`；按锁文件更新依赖并重启既有局域网启动器。前后端 cwd 均为共享 main，原 HTTPS 主机名和证书通过实际局域网接口独立回读应用、阅读器、PDF 模块与逐字节一致的 CSS，后端 ok/database/storage 全部为 true。本节后续文档提交不改变应用源码。
-- iPhone / iOS 27 / Safari 真机验收仍待完成；本任务未推送 GitHub、未运行 CI、未发布生产。截图位于 `/private/tmp/quiet-room-reader-qa` 与 `/private/tmp/quiet-room-reader-webkit-final-qa`。任务及集成工作树保留供真机反馈，未执行发布后清理。
+- 本轮复用独占工作树 `/private/tmp/quiet-room-integrate-document-reader`，分支 `codex/integrate-document-reader`；规则及开发基线为本机 main `19de86c1a14895e409f2630caf8726fcd63b9abb`。该基线已包含上一轮 PDF／文本阅读器及本机服务回读。
+- 本轮版本 `2026.09.09.3`：搜索焦点改为圆角玻璃栏；PDF 支持适合宽度时双向横滑、放大后横向查看；增加 EPUB 2/3 章节目录、书内图片、字号与搜索；聊天、保险箱和收藏使用格式图标。完整校验、away／已读与隐私清理边界沿用 [D-038](decisions.md#d-038pdf-与文本改用本机内置阅读器)。
+- `npm run check:full` 零退出：68 个文件、525 项单元／集成测试及 29 个浏览器入口全部通过。运行期间仅补充发送气泡图标的对比度 CSS；该最终 CSS 已独立重新构建、通过真实文件流和明暗窄屏截图检查。日志为 `/private/tmp/quiet-room-reader-v3-check-full.log` 和 `/private/tmp/quiet-room-reader-v3-final-build.log`。
+- Chrome 与 WebKit 阅读器专项通过；Chrome 另用原生触摸事件验证双向翻页。覆盖 EPUB 2/3、目录／搜索／链接／图片、脚本与外链净化、非法 ZIP 路径／加密资源／超限拒绝、关闭与迟到 worker 清理。打包后的 EPUB 模块在两种浏览器、严格 CSP 下通过资源加载及换章／关闭的对象 URL 释放检查。依赖安装审计为 0 个已知漏洞。
+- 真实附件专项验证聊天和保险箱经加密／完整校验后的 EPUB 阅读、锁定移除及七类格式图标。阅读器截图位于 `/private/tmp/quiet-room-reader-v3-visual`、`/private/tmp/quiet-room-reader-v3-webkit`，最终文件图标截图位于 `/private/tmp/quiet-room-reader-v3-files-final`。
+- 本轮候选待提交并按互斥流程集成本机 main、更新依赖及回读服务；此前服务回读对应版本 `2026.09.09.2`，不能据此宣称本轮已运行。
+- iPhone / iOS 27 / Safari 真机横滑手感和实际书籍仍待验收；EPUB DRM／加密资源、出版者样式与固定版式还原不在范围内。本轮未推送 GitHub、未运行 CI、未发布生产；任务工作树保留供真机反馈。
 
 ## 当前生产与本机状态（2026-09-09 00:22）
 

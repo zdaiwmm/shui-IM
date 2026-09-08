@@ -1,10 +1,16 @@
 import { createElement, X, Search, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize } from 'lucide';
 import type { PdfReader } from './pdf-reader';
+import type { EpubReader } from './epub-reader';
+import { attachDocumentPaging } from './document-paging';
 import '../document-reader.css';
 export { systemReadableMimeType as documentReaderMimeType } from './download';
 
 export const PDF_READER_LIMIT = 64 * 1024 * 1024;
 export const TEXT_READER_LIMIT = 4 * 1024 * 1024;
+export const EPUB_READER_LIMIT = 32 * 1024 * 1024;
+export function documentReaderLimit(type: string): number {
+  return type === 'application/pdf' ? PDF_READER_LIMIT : type === 'application/epub+zip' ? EPUB_READER_LIMIT : TEXT_READER_LIMIT;
+}
 
 function decodeText(bytes: ArrayBuffer): string {
   const data = new Uint8Array(bytes);
@@ -22,6 +28,9 @@ export class DocumentReader {
   private abort = new AbortController();
   readonly signal = this.abort.signal;
   private pdf?: PdfReader;
+  private epub?: EpubReader;
+  private directory: HTMLSelectElement;
+  private fragment?: string;
   private content: HTMLElement;
   private stage: HTMLElement;
   private status: HTMLElement;
@@ -61,7 +70,12 @@ export class DocumentReader {
       <p class="reader-status" role="status">正在读取</p>
       <footer class="reader-toolbar" hidden><div class="reader-paging"><input type="number" min="1" value="1" aria-label="页码"><span></span></div><div class="reader-zoom"><output>100%</output></div></footer>`;
     el.querySelector('strong')!.textContent = filename;
-    el.querySelector('.reader-title > span')!.textContent = mimeType === 'application/pdf' ? 'PDF' : '文本';
+    el.querySelector('.reader-title > span')!.textContent = mimeType === 'application/pdf' ? 'PDF' : mimeType === 'application/epub+zip' ? 'EPUB' : '文本';
+    this.directory = document.createElement('select');
+    this.directory.className = 'reader-directory'; this.directory.hidden = true;
+    this.directory.setAttribute('aria-label', '章节目录');
+    this.directory.addEventListener('change', () => this.go(Number(this.directory.value)), { signal: this.signal });
+    el.querySelector('.reader-title')!.append(this.directory);
     const button = (label: string, icon: typeof X, action: () => void) => {
       const node = document.createElement('button');
       node.type = 'button'; node.className = 'reader-control'; node.title = label; node.setAttribute('aria-label', label);
@@ -105,13 +119,13 @@ export class DocumentReader {
     el.addEventListener('keydown', event => {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.onClose(); }
       if (event.key === 'Tab') {
-        const nodes = [...el.querySelectorAll<HTMLElement>('button:not(:disabled), input, [tabindex="0"]')].filter(node => node.getClientRects().length);
+        const nodes = [...el.querySelectorAll<HTMLElement>('button:not(:disabled), input, select, [tabindex="0"]')].filter(node => node.getClientRects().length);
         const index = nodes.indexOf(document.activeElement as HTMLElement);
         if ((event.shiftKey && index <= 0) || (!event.shiftKey && index === nodes.length - 1)) {
           event.preventDefault(); nodes[event.shiftKey ? nodes.length - 1 : 0]?.focus();
         }
       }
-      if (!(event.target instanceof HTMLInputElement) && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+      if (!(event.target instanceof HTMLInputElement || event.target instanceof HTMLSelectElement) && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
         event.preventDefault(); this.go(this.page + (event.key === 'ArrowLeft' ? -1 : 1));
       }
     }, { signal: this.signal });
@@ -120,11 +134,16 @@ export class DocumentReader {
     }
     root.append(el);
     close.focus({ preventScroll: true });
+    let stageWidth = this.stage.clientWidth;
     this.observer = new ResizeObserver(() => {
+      if (stageWidth === this.stage.clientWidth) return;
+      stageWidth = this.stage.clientWidth;
       clearTimeout(this.resizeTimer);
       this.resizeTimer = window.setTimeout(() => { if (this.ready && this.pdf) void this.render(); }, 120);
     });
     this.observer.observe(this.stage);
+    attachDocumentPaging(this.stage, () => this.ready && Boolean(this.pdf || this.epub)
+      && this.stage.scrollWidth <= this.stage.clientWidth + 1, direction => this.go(this.page + direction), this.signal);
   }
 
   progress(ratio: number): void { if (!this.signal.aborted) this.status.textContent = `正在读取 ${Math.round(ratio * 100)}%`; }
@@ -134,8 +153,9 @@ export class DocumentReader {
     const version = ++this.loadVersion;
     try {
       const isPdf = this.mimeType === 'application/pdf';
-      if (blob.size > (isPdf ? PDF_READER_LIMIT : TEXT_READER_LIMIT)) {
-        this.fail(`文件过大，阅读上限为 ${isPdf ? '64' : '4'} MB`); return;
+      const isEpub = this.mimeType === 'application/epub+zip';
+      if (blob.size > documentReaderLimit(this.mimeType)) {
+        this.fail(`文件过大，阅读上限为 ${documentReaderLimit(this.mimeType) / 1024 / 1024} MB`); return;
       }
       this.deadline = window.setTimeout(() => this.fail('文档读取超时，请关闭后重试'), 30_000);
       const bytes = await blob.arrayBuffer();
@@ -145,13 +165,25 @@ export class DocumentReader {
         if (this.signal.aborted || version !== this.loadVersion) return;
         this.pdf = new PdfReader();
         await this.pdf.load(new Uint8Array(bytes));
+      } else if (isEpub) {
+        const { EpubReader } = await import('./epub-reader');
+        if (this.signal.aborted || version !== this.loadVersion) return;
+        this.epub = new EpubReader((page, fragment) => this.go(page, fragment));
+        await this.epub.load(new Uint8Array(bytes));
+        if (this.signal.aborted || version !== this.loadVersion) return;
+        this.epub.titles.forEach((title, index) => this.directory.add(new Option(title, String(index + 1))));
+        this.directory.hidden = false;
+        this.pageInput.setAttribute('aria-label', '章节');
+        for (const [button, title] of [[this.previous, '上一章'], [this.next, '下一章']] as const) {
+          button.title = title; button.setAttribute('aria-label', title);
+        }
       } else this.text = decodeText(bytes);
       if (this.signal.aborted || version !== this.loadVersion) return;
       clearTimeout(this.deadline);
       this.ready = true;
       this.toolbar.hidden = false;
-      (this.element.querySelector('.reader-paging') as HTMLElement).hidden = !isPdf;
-      this.element.dataset.kind = isPdf ? 'pdf' : 'text';
+      (this.element.querySelector('.reader-paging') as HTMLElement).hidden = !isPdf && !isEpub;
+      this.element.dataset.kind = isPdf ? 'pdf' : isEpub ? 'epub' : 'text';
       await this.render();
     } catch { if (!this.signal.aborted) this.fail('无法阅读此文件，文件可能损坏、加密或格式不受支持'); }
   }
@@ -164,6 +196,8 @@ export class DocumentReader {
     this.renderVersion++;
     clearTimeout(this.deadline);
     this.pdf?.destroy(); this.pdf = undefined;
+    this.epub?.destroy(); this.epub = undefined;
+    this.directory.replaceChildren(); this.directory.hidden = true;
     this.text = '';
     this.content.replaceChildren();
     this.toolbar.hidden = true;
@@ -173,9 +207,11 @@ export class DocumentReader {
     this.element.dataset.state = 'error';
   }
 
-  private go(page: number): void {
-    if (!this.ready || !this.pdf) return;
-    this.page = Number.isFinite(page) ? Math.max(1, Math.min(this.pdf.pages, Math.trunc(page))) : this.page;
+  private go(page: number, fragment?: string): void {
+    const book = this.pdf ?? this.epub;
+    if (!this.ready || !book) return;
+    this.page = Number.isFinite(page) ? Math.max(1, Math.min(book.pages, Math.trunc(page))) : this.page;
+    this.fragment = fragment;
     this.stage.scrollTo(0, 0);
     void this.render();
   }
@@ -189,10 +225,12 @@ export class DocumentReader {
     if (!this.ready || this.signal.aborted) return;
     const version = ++this.renderVersion;
     this.pageInput.value = String(this.page);
-    this.pageInput.max = String(this.pdf?.pages ?? 1);
-    this.pageCount.textContent = `/ ${this.pdf?.pages ?? 1}`;
+    const pages = (this.pdf ?? this.epub)?.pages ?? 1;
+    this.pageInput.max = String(pages);
+    this.pageCount.textContent = `/ ${pages}`;
+    this.directory.value = String(this.page);
     this.previous.disabled = this.page <= 1;
-    this.next.disabled = this.page >= (this.pdf?.pages ?? 1);
+    this.next.disabled = this.page >= pages;
     this.zoomOut.disabled = this.zoom <= 0.75;
     this.zoomIn.disabled = this.zoom >= (this.pdf ? 3 : 1.5);
     this.zoomLabel.textContent = `${Math.round(this.zoom * 100)}%`;
@@ -203,6 +241,7 @@ export class DocumentReader {
     this.deadline = window.setTimeout(() => this.fail('文档排版超时，请关闭后重试'), 20_000);
     try {
       if (this.pdf) await this.pdf.render(this.page, this.content, Math.max(100, this.stage.clientWidth - 32), this.zoom, this.query.value.trim());
+      else if (this.epub) await this.epub.render(this.page, this.content, this.zoom, this.query.value.trim(), this.fragment);
       else {
         const pre = document.createElement('pre');
         pre.className = 'reader-text'; pre.textContent = this.text;
@@ -212,6 +251,7 @@ export class DocumentReader {
       if (this.signal.aborted || version !== this.renderVersion) return;
       clearTimeout(this.deadline);
       this.status.hidden = true;
+      this.stage.classList.toggle('reader-swipe', Boolean(this.pdf || this.epub) && this.stage.scrollWidth <= this.stage.clientWidth + 1);
       this.element.dataset.state = 'ready';
     } catch { if (!this.signal.aborted && version === this.renderVersion) this.fail(); }
   }
@@ -225,8 +265,8 @@ export class DocumentReader {
     const same = query === this.lastQuery;
     this.lastQuery = query;
     output.textContent = '搜索中';
-    if (this.pdf) {
-      const pdf = this.pdf;
+    if (this.pdf || this.epub) {
+      const pdf = (this.pdf ?? this.epub)!;
       const start = same ? this.page % pdf.pages + 1 : this.page;
       const started = performance.now();
       try {
@@ -236,7 +276,7 @@ export class DocumentReader {
           const page = (start - 1 + offset) % pdf.pages + 1;
           const text = await pdf.text(page);
           if (this.signal.aborted || version !== this.searchVersion) return;
-          if (text.toLocaleLowerCase().includes(query)) { output.textContent = `第 ${page} 页`; this.go(page); return; }
+          if (text.toLocaleLowerCase().includes(query)) { output.textContent = `第 ${page} ${this.epub ? '章' : '页'}`; this.go(page); return; }
           await new Promise<void>(resolve => window.setTimeout(resolve, 0));
         }
         output.textContent = '无结果';
@@ -267,6 +307,7 @@ export class DocumentReader {
     clearTimeout(this.resizeTimer);
     this.observer.disconnect();
     this.pdf?.destroy(); this.pdf = undefined;
+    this.epub?.destroy(); this.epub = undefined;
     this.text = ''; this.query.value = ''; this.lastQuery = '';
     this.content.replaceChildren();
     this.element.replaceChildren();

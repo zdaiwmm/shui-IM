@@ -101,6 +101,21 @@ the existing opaque ciphertext cache and original encrypted attachments are unch
 Password-protected documents and OCR are unsupported in this first version. Read errors
 remain local and do not automatically export the file. Other exports retain their strict policy.
 
+EPUB 2/3 is also allowlisted after full original-file verification. Bundled epub.js parses
+package/spine/navigation XML; its XML dependency is pinned to a repaired version via an
+override. zip.js runs in a dedicated, terminable worker with a bundled fallback decoder,
+strict local-header comparison and CRC checks. Reject encrypted entries/resources, unsafe
+paths, duplicates, more than 1,000 entries, 32 MiB compressed, 128 MiB declared total or
+16 MiB per entry. Streamed extraction independently caps actual output; XML/chapters are
+limited to 2 MiB, 30,000 nodes and depth 64, with entity declarations/internal DTDs rejected.
+DOMPurify applies a semantic tag/attribute allowlist to detached chapters. Publisher style,
+scripts, event handlers, forms, frames, SVG and remote resource URLs are removed. IDs become
+reader-local anchor data, and internal links navigate only known spine entries. Only manifest
+PNG/JPEG/GIF/WebP resources create local blob URLs, capped at 8 MiB each and 24 MiB per
+chapter. Chapter replacement and all reader cleanup paths revoke them and terminate pending
+ZIP work. No EPUB plaintext, search index or reading position is persisted. Resource caps
+do not establish decoder safety or memory zeroization. Other active files remain download-only.
+
 New rooms use the standardized RFC 9420 MLS protocol, but the selected browser-capable `ts-mls` implementation states that it has not undergone a formal security audit. The integration must pass independent cryptographic review before high-risk production claims. Legacy rooms have no forward secrecy.
 
 Per-message MLS secret-tree advancement provides forward secrecy for deleted generations. Full post-compromise recovery requires authenticated epoch updates after the attacker loses endpoint access, clean endpoints, and an audited incident procedure; that complete mechanism is not implemented or claimed here.
