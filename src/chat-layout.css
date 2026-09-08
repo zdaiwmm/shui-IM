@@ -250,33 +250,60 @@ body:has(:where(#app) > .chat-shell) {
   z-index: 6;
   flex-wrap: wrap;
   opacity: 1;
-  /* Let the native caret use an untransformed ancestor after reveal settles. */
+  /* Keep the native caret and the visible bar on the same anchored surface. */
   transform: none;
-  transition: opacity 280ms var(--motion-out), transform 280ms var(--motion-out);
-}
-.composer[data-viewport-motion] {
-  opacity: 0;
-  transform: translate3d(0, 14px, 0);
-  pointer-events: none;
   transition: none;
 }
-/* The first native viewport event can precede focus. Hide before changing its
-   position; only the stable endpoint fades back in. Never hide/inert the field,
-   which would surrender its focus, selection and keyboard during a send. */
+.composer[data-viewport-motion] {
+  pointer-events: none;
+}
+/* Motion defers interaction and document bookkeeping, never painting. Keep
+   focus, selection and the draft mounted throughout keyboard/toolbar motion. */
 .chat-shell .composer[data-viewport-motion] * { pointer-events: none; }
 html[data-keyboard-open='true'] .message-list:not(:has(.is-selecting-text)),
 .message-list[data-keyboard-gesture='true'] { touch-action: none; }
 .chat-header, .system-notices { will-change: translate; }
-.composer { will-change: opacity; }
 .chat-shell[data-native-chrome="true"] .composer { transform: none; }
-.chat-shell[data-native-chrome="true"] .composer:not([data-viewport-motion]) {
-  transition: opacity 120ms var(--motion-out);
+.chat-shell[data-native-chrome="true"] .composer[data-viewport-motion] {
+  /* Native fixed positioning already follows Safari's moving bottom edge.
+     A second visualViewport correction can move the composer off screen. */
+  bottom: 0 !important;
 }
-.chat-shell[data-native-chrome="true"] .composer[data-keyboard-dismiss-reveal]:not([data-viewport-motion]) {
-  transition: none;
+html:has(#app > .chat-shell[data-scroll-owner="list"]),
+body:has(#app > .chat-shell[data-scroll-owner="list"]) {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+  scroll-padding: 0;
 }
-@media (prefers-reduced-motion: reduce) {
-  .chat-shell[data-native-chrome="true"] .composer:not([data-viewport-motion]) { transition: none; }
+.app-mode #app:has(> .chat-shell[data-scroll-owner="list"]) {
+  height: 100%;
+  overflow: hidden;
+}
+.chat-shell[data-scroll-owner="list"] {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+.chat-shell[data-scroll-owner="list"] .message-list {
+  height: 100%;
+  min-height: 0;
+  justify-content: safe flex-end;
+  padding-bottom: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.chat-shell[data-scroll-owner="list"] .message-list::after {
+  content: '';
+  flex: 0 0 var(--chat-bottom-space);
+  margin-top: -8px;
+}
+.chat-shell[data-scroll-owner="list"] :is(.chat-header, .composer, .system-notices, #notice) {
+  position: absolute;
+  will-change: auto;
 }
 .chat-bottom-control {
   position: absolute;
@@ -340,11 +367,20 @@ html:has(.chat-shell[inert]) { overflow: hidden; }
   inset: -32px 0 0;
   transform: rotate(180deg);
 }
-.composer textarea { padding-right: 15px; }
+.composer textarea {
+  padding: 0 15px;
+  /* Unlike scrollable padding, these insets remain clear above and below
+     the text when a capped multiline editor reveals its caret. */
+  border-block: 10px solid transparent;
+}
 /* The home-indicator safe area is already inside the docked keyboard. */
 html[data-keyboard-open='true'] .composer {
   min-height: 60px;
   padding-bottom: 8px;
+}
+.chat-shell[data-scroll-owner="list"] .composer {
+  /* A late keyboard-state event must not add a second 6px timeline shift. */
+  min-height: 68px;
 }
 .upload-progress { flex: 0 0 100%; }
 @media (max-width: 360px) {

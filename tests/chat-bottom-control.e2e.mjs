@@ -56,7 +56,8 @@ try {
       const deadline = performance.now() + 1200;
       while (performance.now() < deadline) {
         const composer = document.querySelector('#composer');
-        if (!composer.dataset.viewportMotion && Number(getComputedStyle(composer).opacity) === 1) return;
+        if (!composer.dataset.viewportMotion && Number(getComputedStyle(composer).opacity) === 1
+          && !composer.getAnimations({ subtree: true }).some(animation => animation.playState === 'running')) return;
         await new Promise(resolve => requestAnimationFrame(resolve));
       }
       throw Error('Composer did not reveal after scrolling settled');
@@ -188,16 +189,15 @@ try {
     await up(11); if (visible()) throw Error('Button appeared before latest message crossed its top edge');
     await up(13);
     const composer = document.querySelector('#composer');
-    if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '0') throw Error('Scroll motion did not immediately conceal the composer');
+    if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '1'
+      || getComputedStyle(composer).transform !== 'none') throw Error('Scroll motion hid or shifted the composer');
     await waitForComposerReveal();
     if (!visible() || button().getAttribute('aria-hidden') !== 'false' || button().tabIndex !== 0) throw Error('Button did not appear after scroll motion fully settled');
     const fade = getComputedStyle(button());
     if (!fade.transitionProperty.includes('opacity') || !fade.transitionDuration.includes('0.18s')) throw Error('Button lost its opacity transition');
     await up(11);
-    // Manual document scrolling conceals the entire composer immediately and
-    // commits the button's visibility at the same stable endpoint. Inspecting
-    // its child state while the parent is still fully transparent can only
-    // observe the previous (unpainted) frame.
+    // Scrolling keeps the composer painted while the button's visibility is
+    // measured at the stable endpoint.
     await waitForComposerReveal();
     if (visible() || button().tabIndex !== -1) throw Error('Returning across the threshold left the button active');
     // Observe async content changes even when neither scrolling nor viewport
@@ -474,9 +474,11 @@ try {
     let originProbe = document.querySelector('.chat-fixed-origin');
     let originalOriginBounds = originProbe.getBoundingClientRect;
     let nativeOrigin = 0;
+    let nativeBottom = 844;
     originProbe.getBoundingClientRect = () => new DOMRect(0, -nativeOrigin, 0, 0);
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
     const resize = value => {
+      nativeBottom = value;
       Object.defineProperty(visualViewport, 'height', { configurable: true, value });
       visualViewport.dispatchEvent(new Event('resize'));
     };
@@ -488,6 +490,16 @@ try {
         originProbe = app.chatLayoutElements.fixedOrigin;
         originalOriginBounds = originProbe.getBoundingClientRect;
         originProbe.getBoundingClientRect = () => new DOMRect(0, -nativeOrigin, 0, 0);
+        // Device fixed-bottom geometry moves independently of its fixed-top
+        // origin. Desktop WebKit keeps fixed elements at the full page height.
+        const bottomProbe = app.chatLayoutElements.fixedBottom;
+        bottomProbe.getBoundingClientRect = () => new DOMRect(0, nativeBottom, 0, 0);
+        const composer = app.chatLayoutElements.composer;
+        const composerBounds = composer.getBoundingClientRect.bind(composer);
+        composer.getBoundingClientRect = () => {
+          const rect = composerBounds();
+          return new DOMRect(rect.x, rect.y - (844 - nativeBottom), rect.width, rect.height);
+        };
         const input = document.querySelector('#message-input');
         input.focus({ preventScroll: true }); resize(430); await wait(750);
         app.scrollChatToBottom();
