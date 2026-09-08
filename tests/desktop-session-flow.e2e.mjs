@@ -128,7 +128,7 @@ async function returnToPage(page) {
 
 async function send(page, text) {
   await page.locator('#message-input').fill(text);
-  await page.locator('.send-button').click();
+  await page.locator('#message-input').press('Enter');
   await page.locator('.message.outgoing').filter({ hasText: text }).waitFor({ timeout: 10_000 });
 }
 
@@ -184,7 +184,7 @@ try {
 
     // Sending the restored draft advances the real MLS ratchet. The peer must
     // decrypt it after the sender reopened its durable vault and reconnected.
-    await creator.locator('.send-button').click();
+    await creator.locator('#message-input').press('Enter');
     await joiner.getByText(draft, { exact: true }).waitFor({ timeout: 10_000 });
     await creator.locator('.message.outgoing.is-delivered').filter({ hasText: draft }).waitFor({ timeout: 10_000 });
     assert.equal(await verificationCount(creator), initialVerifications);

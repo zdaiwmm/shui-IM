@@ -19,7 +19,7 @@ describe('browser regression groups', () => {
       'vault-resume', 'system-surfaces', 'file-flow', 'file-outbox', 'file-interactions', 'meme-picker',
       'unread-counter', 'reaction-history', 'message-deletion', 'vault-lifecycle', 'voice-lifecycle', 'voice-submission',
       'cloud-backup-lifecycle', 'backup-admin-ui',
-      'chat-image-privacy', 'gallery-loading', 'photo-details', 'video-flow', 'voice-gestures',
+      'chat-image-privacy', 'gallery-loading', 'photo-details', 'video-flow', 'voice-gestures', 'chat-tools',
     ].map(name => `tests/${name}.e2e.mjs`);
     const all = selectBrowserScripts();
     expect(all).toEqual(expected);

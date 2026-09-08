@@ -2,6 +2,13 @@
 
 Quiet Room is a two-person, multi-device encrypted chat. Each participant may authorize up to three independent devices. The browser encrypts message, reply metadata, album membership, and image content before upload. The Node service stores public device keys and MLS key packages, opaque signed MLS welcome/Add/Remove/replacement messages and recovery authorization proofs, opaque message envelopes, per-device token hashes, device activation boundaries, signed delivery receipts, ordering metadata, push subscriptions, and encrypted image chunks. It also temporarily processes each authenticated socket's chat/away view for presence, but does not persist that state in the application database. It does not receive WebAuthn PRF output, vault master keys, recovery codes, pairing secrets, MLS private state, plaintext messages, reply targets or previews, album ordering, filenames, MIME types, or original image hashes.
 
+## Device-local Attachment Favorites
+
+- Attachment favorites store only exact locally available message/asset identities, save times and pin order in encrypted UI preferences. They do not copy attachment bytes, synchronize to another device, enter recovery backups, or bypass the ordinary device-history boundary. Failed preference persistence rolls the local change back.
+- A valid room-wide source-message deletion also suppresses that attachment in Favorites. Removing a favorite does not delete its source. Independent meme copies use the separate contract in [MEMES.md](./MEMES.md).
+- Favorites has no application download/export or file-reader handoff. Verified photos and videos may still be displayed locally. The absence of an export control is a product restriction, not protection against screenshots, browser/OS controls or extraction by an unlocked endpoint.
+- The chat presence capsule grants Safe navigation only to the creator; other participants receive neither navigation nor denial feedback from that status display. This UI change does not grant gallery-only history or upload rights.
+
 ## Cryptographic construction
 
 - Each device generates separate P-256 ECDH and ECDSA identity key pairs in Web Crypto and an RFC 9420 MLS key package using `MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519`.

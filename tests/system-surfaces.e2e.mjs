@@ -574,6 +574,7 @@ try {
   // Picker/media ownership replaces an armed keyboard handoff; conversely an
   // existing native owner prevents a later composer click from arming one.
   await armKeyboardHandoff();
+  await page.locator('#open-chat-tools').click();
   await page.locator('#open-image-picker').click();
   assert.deepEqual(await page.evaluate(() => {
     const app = window.systemSurfaceKeyboardFixture.app;
@@ -581,6 +582,7 @@ try {
   }), { keyboard: false, native: 'picker' }, 'Picker ownership did not replace keyboard ownership');
 
   await page.evaluate(() => window.systemSurfaceKeyboardFixture.fresh());
+  await page.locator('#open-chat-tools').click();
   await page.locator('#open-image-picker').click();
   await page.locator('#message-input').click();
   assert.deepEqual(await page.evaluate(() => {
@@ -661,7 +663,12 @@ try {
   await page.evaluate(async () => {
     const fixture = window.systemSurfaceKeyboardFixture;
     await fixture.fresh();
-    document.querySelector('#message-input').addEventListener('mousedown', event => event.preventDefault(), { once: true });
+    const input = document.querySelector('#message-input');
+    input.addEventListener('mousedown', event => event.preventDefault(), { once: true });
+    // The empty-input short tap also focuses on pointerup. Hold both focus
+    // paths until this fixture has supplied WebKit's resize-before-focus edge.
+    input.focus = () => {};
+    fixture.restoreInputFocus = () => { delete input.focus; };
   });
   const inputBounds = await page.locator('#message-input').boundingBox();
   assert.ok(inputBounds, 'Keyboard evidence fixture has no textarea bounds');
@@ -679,6 +686,7 @@ try {
     await new Promise(requestAnimationFrame);
     const evidenceBeforeFocus = fixture.app.keyboardHandoff?.openingEvidence === true
       && fixture.app.keyboardHandoff?.blurred === false;
+    fixture.restoreInputFocus();
     document.querySelector('#message-input').focus({ preventScroll: true });
     const targetAttached = fixture.app.chatViewportMotion?.keyboardMoving === true;
     fixture.blur();

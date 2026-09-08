@@ -262,6 +262,22 @@ try {
     if (process.argv[2]) await page.screenshot({ path: path.join(process.argv[2], `list-closed-${viewport.width}.png`) });
   }
 
+  const holdRelease = await page.evaluate(() => {
+    const input = document.querySelector('#message-input');
+    input.value = '';
+    input.blur();
+    const point = { identifier: 1, target: input, clientX: 40, clientY: 340 };
+    const start = new Event('touchstart', { bubbles: true });
+    Object.defineProperty(start, 'touches', { value: [point] });
+    input.dispatchEvent(start);
+    const end = new Event('touchend', { bubbles: true, cancelable: true });
+    Object.defineProperty(end, 'touches', { value: [] });
+    input.dispatchEvent(end);
+    return { focused: document.activeElement === input, root: scrollY };
+  });
+  assert.equal(holdRelease.focused, false, 'The keyboard touchend fallback must not steal an empty-input voice release');
+  assert.equal(holdRelease.root, 0);
+
   await page.evaluate(() => window.listFixture.app.lockNow());
   assert.equal(await page.locator('.chat-shell').count(), 0);
   assert.equal(await page.evaluate(() => getComputedStyle(document.body).position), 'static');

@@ -20,7 +20,8 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
   };
   const start = async (page, kind) => {
     await ready(page);
-    await page.locator(`.chat-header #start-${kind}-call`).click();
+    await page.locator('#open-chat-tools').click();
+    await page.locator(`#chat-tools #start-${kind}-call`).click();
     await phase(page, 'outgoing').waitFor();
   };
   const connect = async (caller, callee, kind) => {

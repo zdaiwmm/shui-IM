@@ -1,5 +1,75 @@
 import type { VoiceRecorder } from './voice-recorder';
 
+/** Empty-input hold owns its pointer; a short release keeps native typing. */
+export function bindVoiceInputGesture(
+  input: HTMLTextAreaElement,
+  begin: (mode: 'hold' | 'locked') => VoiceRecorder | null,
+): { cancel: () => void; destroy: () => void } {
+  const binding = new AbortController();
+  let pending: AbortController | null = null;
+  let timer: number | null = null;
+  let recorder: VoiceRecorder | null = null;
+  let pointer: number | null = null;
+  let held = false;
+  let suppressClick = false;
+  const owner = input.closest<HTMLElement>('.chat-shell') ?? input.parentElement!;
+  const cancel = () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+    pending?.abort(); pending = null;
+    const id = pointer; pointer = null;
+    if (id !== null && owner.hasPointerCapture(id)) owner.releasePointerCapture(id);
+    recorder = null;
+  };
+  owner.addEventListener('pointerdown', () => { suppressClick = false; }, { capture: true, signal: binding.signal });
+  input.addEventListener('pointerdown', event => {
+    if (!event.isPrimary || event.button !== 0 || input.disabled || input.value || pending) return;
+    event.preventDefault();
+    held = false; suppressClick = false;
+    const startX = event.clientX; const startY = event.clientY;
+    pending = new AbortController(); const signal = pending.signal;
+    pointer = event.pointerId;
+    try { owner.setPointerCapture(event.pointerId); } catch { /* Synthetic pointer has no capture owner. */ }
+    timer = window.setTimeout(() => {
+      timer = null;
+      if (!input.isConnected || input.disabled || input.value) { cancel(); return; }
+      held = true; suppressClick = true;
+      recorder = begin('hold');
+    }, 350);
+    window.addEventListener('pointermove', move => {
+      if (move.pointerId !== pointer) return;
+      if (!held && Math.hypot(move.clientX - startX, move.clientY - startY) > 12) { cancel(); return; }
+      move.preventDefault();
+      recorder?.moveHoldAt(move.clientX, move.clientY);
+    }, { signal, passive: false });
+    window.addEventListener('pointerup', up => {
+      if (up.pointerId !== pointer) return;
+      up.preventDefault();
+      const active = recorder; const wasHeld = held;
+      active?.moveHoldAt(up.clientX, up.clientY);
+      cancel();
+      if (wasHeld) active?.releaseHold();
+      else if (input.isConnected && !input.disabled) input.focus({ preventScroll: true });
+    }, { signal });
+    const interrupt = () => { const active = recorder; suppressClick = held; cancel(); active?.releaseHold(true); };
+    window.addEventListener('pointercancel', e => { if (e.pointerId === pointer) interrupt(); }, { signal });
+    owner.addEventListener('lostpointercapture', e => { if (e.pointerId === pointer) interrupt(); }, { signal });
+    // App lifecycle owns visible blur, including its bounded microphone/Bluetooth handoff.
+    document.addEventListener('visibilitychange', () => { if (document.hidden) interrupt(); }, { signal });
+  }, { signal: binding.signal });
+  owner.addEventListener('click', event => {
+    if (!suppressClick || event.detail === 0) return;
+    suppressClick = false; event.preventDefault(); event.stopImmediatePropagation();
+  }, { capture: true, signal: binding.signal });
+  input.addEventListener('contextmenu', event => { if (!input.value) event.preventDefault(); }, { signal: binding.signal });
+  input.addEventListener('keydown', event => {
+    if (!input.value && event.altKey && event.key === 'r' && !event.repeat) {
+      event.preventDefault(); begin('locked');
+    }
+  }, { signal: binding.signal });
+  return { cancel, destroy: () => { cancel(); binding.abort(); } };
+}
+
 // Capture on the composer: the original microphone is hidden while recording,
 // but the pointer must stay owned until release, including outside the button.
 export function bindVoiceRecordGesture(
