@@ -290,20 +290,28 @@ try {
 
   await page.waitForFunction(() => Date.now() >= window.fileInteractions.app.suppressMediaClickUntil);
   await page.evaluate(() => { window.fileInteractions.open=window.open; window.open=()=>null; });
-  await page.locator('.message.incoming .file-attachment').tap();
-  await page.waitForFunction(() => document.querySelector('.message.incoming .file-attachment')?.dataset.fileState==='idle');
-  assert.equal(await page.locator('#notice').isVisible(),false,'Blocked reader displayed a toast');
-  assert.equal(await page.evaluate(() => window.fileInteractions.app.privacyCovered),false,'Blocked reader concealed chat');
-  await page.evaluate(() => { window.open=window.fileInteractions.open; });
   const readsBeforeTap = await page.evaluate(() => window.fileInteractions.requests.reads);
-  const opened = page.waitForEvent('popup');
   await page.locator('.message.incoming .file-attachment').tap();
-  const reader = await opened;
-  await reader.waitForURL('blob:**', { timeout: 5_000 });
-  assert(reader.url().startsWith('blob:'), 'Normal tap did not hand the verified PDF to a system reader');
-  await reader.close();
+  await page.locator('.document-reader[data-state="ready"]').waitFor();
+  assert.equal(await page.locator('.reader-text').textContent(), 'file interaction exact bytes');
+  assert.equal(await page.evaluate(() => window.fileInteractions.app.activeSurface), 'away', 'Reader advanced chat presence/read state');
+  assert.equal(await page.evaluate(() => window.fileInteractions.app.nativeHandoff), null, 'Local reader acquired native blur exemption');
+  await page.getByRole('button', { name: '关闭阅读器', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.fileInteractions.app.activeSurface), 'chat', 'Closing reader failed to restore chat');
+  await page.evaluate(() => { window.open=window.fileInteractions.open; });
   assert.equal(await page.evaluate(() => window.fileInteractions.requests.reads), readsBeforeTap + 1, 'Normal tap did not read exactly one encrypted chunk');
-  results.ordinaryTapSystemReader = 1;
+  results.ordinaryTapLocalReader = 1;
+
+  await page.locator('.message.incoming .file-attachment').tap();
+  await page.locator('.document-reader[data-state="ready"]').waitFor();
+  assert.deepEqual(await page.evaluate(() => {
+    const app = window.fileInteractions.app;
+    const view = app.documentReader.view;
+    app.obscurePrivacySurface();
+    const state = { aborted: view.signal.aborted, text: view.element.textContent, mounted: view.element.isConnected };
+    app.revealPrivacySurface(); app.setActiveSurface('chat');
+    return state;
+  }), { aborted: true, text: '', mounted: false }, 'Privacy concealment retained document content');
 
   await page.evaluate(() => window.fileInteractions.app.renderGallery());
   assert.equal(await page.locator('#gallery-tab-images').getAttribute('aria-selected'), 'true', 'Gallery did not open on images');

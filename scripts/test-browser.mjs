@@ -23,6 +23,7 @@ export const browserGroups = Object.freeze({
     'tests/file-flow.e2e.mjs',
     'tests/file-outbox.e2e.mjs',
     'tests/file-interactions.e2e.mjs',
+    'tests/document-reader.e2e.mjs',
     'tests/meme-picker.e2e.mjs',
     'tests/unread-counter.e2e.mjs',
     'tests/reaction-history.e2e.mjs',
