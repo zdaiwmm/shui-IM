@@ -1572,7 +1572,7 @@ button:disabled {
 
 /* Reserve only the tail of the final text line. The real metadata remains a
    separate node so receipt updates never replace message text or selection. */
-.message:not(.is-failed) .text-bubble > .message-text::after {
+:is(.message, .message-action-preview):not(.is-failed) .text-bubble > .message-text::after {
   content: '';
   display: inline-block;
   width: calc(5ch + .7rem);
@@ -1580,10 +1580,10 @@ button:disabled {
   font-size: .6875rem;
   font-variant-numeric: tabular-nums;
 }
-.message.outgoing:not(.is-failed) .text-bubble > .message-text::after {
+:is(.message, .message-action-preview).outgoing:not(.is-failed) .text-bubble > .message-text::after {
   width: calc(5ch + 1.45em + 3px + .7rem);
 }
-.message:not(.is-failed) .text-bubble > .message-meta {
+:is(.message, .message-action-preview):not(.is-failed) .text-bubble > .message-meta {
   position: absolute;
   right: 12px;
   bottom: 6px;

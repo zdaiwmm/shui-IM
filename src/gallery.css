@@ -307,6 +307,9 @@
 .photo-details-content:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .image-viewer.is-closing .viewer-photo-tools { opacity: 0; pointer-events: none; }
 .image-viewer[data-native-video] .viewer-photo-tools { display: none; }
+.image-viewer .viewer-notice { z-index: 10; pointer-events: none; }
+.image-viewer [data-viewer-favorite][aria-pressed="true"] { color: var(--accent); }
+.image-viewer [data-viewer-favorite][aria-pressed="true"] svg { fill: currentColor; }
 
 #app > .image-viewer.has-photo-details {
   --photo-details-height: min(54%, 480px);
