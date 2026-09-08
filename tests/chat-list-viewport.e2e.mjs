@@ -289,6 +289,23 @@ try {
   assert.equal(holdRelease.focused, false, 'The keyboard touchend fallback must not steal an empty-input voice release');
   assert.equal(holdRelease.root, 0);
 
+  const shortRelease = await page.evaluate(() => {
+    const input = document.querySelector('#message-input');
+    const owner = input.closest('.chat-shell');
+    input.blur();
+    const pointer = { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 91, isPrimary: true, button: 0, clientX: 40, clientY: 340 };
+    input.dispatchEvent(new PointerEvent('pointerdown', pointer));
+    input.dispatchEvent(new PointerEvent('pointerup', pointer));
+    owner.dispatchEvent(new PointerEvent('lostpointercapture', pointer));
+    const beforeTouchEnd = document.activeElement === input;
+    const end = new Event('touchend', { bubbles: true, cancelable: true });
+    Object.defineProperties(end, { touches: { value: [] }, changedTouches: { value: [{ clientX: 40, clientY: 340 }] } });
+    input.dispatchEvent(end);
+    return { beforeTouchEnd, focused: document.activeElement === input, prevented: end.defaultPrevented };
+  });
+  assert.deepEqual(shortRelease, { beforeTouchEnd: false, focused: true, prevented: true },
+    'Empty-input typing must focus during touchend, surviving the preceding implicit pointer capture release');
+
   await page.evaluate(() => window.listFixture.app.lockNow());
   assert.equal(await page.locator('.chat-shell').count(), 0);
   assert.equal(await page.evaluate(() => getComputedStyle(document.body).position), 'static');
