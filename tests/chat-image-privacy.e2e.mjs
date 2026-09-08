@@ -119,18 +119,18 @@ try {
           if (!image) return true;
           const backdrop = getComputedStyle(button, '::before');
           return button.dataset.revealed === 'false'
-            ? getComputedStyle(image).filter.includes('blur(') && backdrop.backgroundImage !== 'none'
+            ? Number(getComputedStyle(image).opacity) === 0 && getComputedStyle(image).filter.includes('blur(') && backdrop.backgroundImage !== 'none'
               && backdrop.backgroundSize === 'cover' && backdrop.filter.includes('blur(') && Number(backdrop.opacity) === 1
-            : getComputedStyle(image).filter === 'none' && Number(backdrop.opacity) === 0;
+            : Number(getComputedStyle(image).opacity) === 1 && getComputedStyle(image).filter === 'none' && Number(backdrop.opacity) === 0;
         });
     }, { total, revealed });
     assert.equal(await previews.locator('img').evaluateAll(images => images.filter(image => {
       const hidden = image.closest('.image-preview').dataset.revealed === 'false';
       const backdrop = getComputedStyle(image.closest('.image-preview'), '::before');
       return hidden
-        ? !getComputedStyle(image).filter.includes('blur(') || backdrop.backgroundImage === 'none'
+        ? Number(getComputedStyle(image).opacity) !== 0 || !getComputedStyle(image).filter.includes('blur(') || backdrop.backgroundImage === 'none'
           || backdrop.backgroundSize !== 'cover' || !backdrop.filter.includes('blur(') || Number(backdrop.opacity) !== 1
-        : getComputedStyle(image).filter !== 'none' || Number(backdrop.opacity) !== 0;
+        : Number(getComputedStyle(image).opacity) !== 1 || getComputedStyle(image).filter !== 'none' || Number(backdrop.opacity) !== 0;
     }).length), 0, `${reason}: thumbnail styling disagrees with its reveal state`);
   };
   const waitForClicks = () => page.waitForFunction(() => Date.now() >= window.chatPrivacy.app.suppressMediaClickUntil);

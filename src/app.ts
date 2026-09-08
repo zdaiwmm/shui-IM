@@ -7603,10 +7603,8 @@ export class QuietRoomApp {
   }
 
   private setChatImagePreviewSource(button: HTMLButtonElement, source: string): void {
-    // A contain-fitted portrait or panorama can leave a large letterbox. Feed
-    // the same verified local object URL to a cover-fitted pseudo layer so the
-    // concealed frame is continuous instead of mixing blurred pixels with a
-    // visibly different solid strip. JSON string quoting is valid CSS string
+    // Use one cover-fitted layer for concealment; the hidden foreground keeps
+    // the original geometry for reveal. JSON string quoting is valid CSS string
     // syntax and keeps the object URL out of generated markup.
     button.style.setProperty('--chat-preview-source', `url(${JSON.stringify(source)})`);
   }

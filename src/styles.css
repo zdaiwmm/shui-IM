@@ -1689,20 +1689,18 @@ button:disabled {
   cursor: zoom-in;
 }
 
-/* Fill contain-letterboxing with a cover crop of the same fully verified
-   local image. This layer exists only while concealed; the foreground retains
-   its exact aspect ratio and remains the sole clear image after reveal. */
+/* Conceal with one continuous crop. Painting a separately fitted foreground
+   over this layer creates mismatched blur bands at its edges. */
 .image-preview::before {
   content: '';
   position: absolute;
-  inset: -24px;
+  inset: calc(-2 * var(--media-conceal-blur));
   z-index: 0;
   background-image: var(--chat-preview-source, none);
   background-position: center;
   background-size: cover;
   filter: blur(var(--media-conceal-blur));
   opacity: 0;
-  transform: scale(1.08);
   pointer-events: none;
 }
 
@@ -1773,7 +1771,7 @@ button:disabled {
    including when a privacy curtain appears and quickly returns to chat. */
 .image-preview[data-revealed="false"] img {
   filter: blur(var(--media-conceal-blur));
-  transform: scale(1.16);
+  opacity: 0;
 }
 
 .image-preview[data-revealed="false"] {
