@@ -28,6 +28,7 @@ export function bindVoiceInputGesture(
     held = false; suppressClick = false;
     const startX = event.clientX; const startY = event.clientY;
     pending = new AbortController(); const signal = pending.signal;
+    let awaitingTouchEnd = false;
     pointer = event.pointerId;
     try { owner.setPointerCapture(event.pointerId); } catch { /* Synthetic pointer has no capture owner. */ }
     timer = window.setTimeout(() => {
@@ -42,18 +43,35 @@ export function bindVoiceInputGesture(
       move.preventDefault();
       recorder?.moveHoldAt(move.clientX, move.clientY);
     }, { signal, passive: false });
-    window.addEventListener('pointerup', up => {
-      if (up.pointerId !== pointer) return;
-      up.preventDefault();
+    const finish = (release: Event, x: number, y: number) => {
+      release.preventDefault();
       const active = recorder; const wasHeld = held;
-      active?.moveHoldAt(up.clientX, up.clientY);
+      active?.moveHoldAt(x, y);
       cancel();
       if (wasHeld) active?.releaseHold();
       else if (input.isConnected && !input.disabled) input.focus({ preventScroll: true });
+    };
+    window.addEventListener('pointerup', up => {
+      if (up.pointerId !== pointer) return;
+      if (event.pointerType === 'touch') {
+        awaitingTouchEnd = true;
+        if (timer !== null) clearTimeout(timer);
+        timer = null;
+        return;
+      }
+      finish(up, up.clientX, up.clientY);
     }, { signal });
+    // iOS keyboard activation needs the touch release. Focusing on pointerup
+    // can leave an active textarea without a software keyboard.
+    input.addEventListener('touchend', end => {
+      if (event.pointerType !== 'touch' || end.touches.length) return;
+      const touch = end.changedTouches[0];
+      if (touch) finish(end, touch.clientX, touch.clientY);
+    }, { signal, passive: false });
     const interrupt = () => { const active = recorder; suppressClick = held; cancel(); active?.releaseHold(true); };
     window.addEventListener('pointercancel', e => { if (e.pointerId === pointer) interrupt(); }, { signal });
-    owner.addEventListener('lostpointercapture', e => { if (e.pointerId === pointer) interrupt(); }, { signal });
+    owner.addEventListener('lostpointercapture', e => { if (e.pointerId === pointer && !awaitingTouchEnd) interrupt(); }, { signal });
+    input.addEventListener('touchcancel', interrupt, { signal });
     // App lifecycle owns visible blur, including its bounded microphone/Bluetooth handoff.
     document.addEventListener('visibilitychange', () => { if (document.hidden) interrupt(); }, { signal });
   }, { signal: binding.signal });
