@@ -81,7 +81,7 @@ body:has(:where(#app) > .chat-shell) {
   --presence-green: oklch(61% 0.185 147);
   background: var(--presence-green);
   box-shadow: 0 0 0 2px color-mix(in oklch, var(--presence-green) 13%, transparent);
-  animation: chat-presence-breathe 1.6s ease-in-out infinite;
+  animation: chat-presence-breathe 2.4s ease-in-out infinite;
 }
 @media (prefers-color-scheme: dark) {
   .chat-header .presence-row[data-state="online"] .presence-dot {
@@ -90,15 +90,15 @@ body:has(:where(#app) > .chat-shell) {
 }
 @keyframes chat-presence-breathe {
   0%, 100% {
-    opacity: 0.4;
-    transform: scale(0.8);
-    box-shadow: 0 0 0 1px color-mix(in oklch, var(--presence-green) 8%, transparent);
+    opacity: 0.48;
+    transform: scale(0.83);
+    box-shadow: 0 0 0 1.5px color-mix(in oklch, var(--presence-green) 10%, transparent);
   }
   50% {
     opacity: 1;
-    transform: scale(1.25);
-    box-shadow: 0 0 0 3px color-mix(in oklch, var(--presence-green) 24%, transparent),
-      0 0 8px color-mix(in oklch, var(--presence-green) 55%, transparent);
+    transform: scale(1.12);
+    box-shadow: 0 0 0 2.5px color-mix(in oklch, var(--presence-green) 18%, transparent),
+      0 0 4px color-mix(in oklch, var(--presence-green) 28%, transparent);
   }
 }
 @media (prefers-reduced-motion: reduce) {
