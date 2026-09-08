@@ -1,5 +1,10 @@
 # Quiet Room P0/P1 修复与验收计划
 
+## 2026-09-09 在线状态栏磁吸爱心
+
+- `node tests/presence-circuit.e2e.mjs`：真实聊天挂载与消息入队、单侧／双侧电流、磁吸融合、重复快照不重播、离线／未知／切页取消、减少动态效果及重新挂载。已纳入完整浏览器入口；`QUIET_ROOM_TEST_BROWSER=webkit` 切换 WebKit，`PRESENCE_SCREENSHOTS=/绝对目录` 保存 320/390/820/1440px 明暗主题截图。
+- 真机另验 iPhone / iOS 27 / Safari 上两端上线、离线发消息、磁吸碰撞与连续心跳的流畅度；后台／锁定必须即时停止特效。在线、电流和送达仍是不同事实。
+
 ## 2026-09-09 本机文档阅读器
 
 - `node tests/document-reader.e2e.mjs <output-directory>`：真实 PDF.js worker、画布像素、文字层、翻页、搜索、缩放、纯文本安全、错误状态、迟到任务取消、画布清零与 worker 终止。`QUIET_ROOM_TEST_BROWSER=webkit` 切换 WebKit。几何与可选截图覆盖 320/390/768/1280px、横屏及明暗主题。

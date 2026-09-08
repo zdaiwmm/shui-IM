@@ -1,4 +1,6 @@
 import QRCode from 'qrcode';
+import { PresenceCircuit, presenceCircuitMarkup } from './lib/presence-circuit';
+import './presence-circuit.css';
 import { closeDialog, mountDialog } from './lib/dialog';
 import { MemePicker, memeIcons } from './lib/meme-picker';
 import { isExpressionPayload } from './lib/expression-media';
@@ -472,6 +474,7 @@ export class QuietRoomApp {
   private galleryRefreshPending: GalleryTab | null = null;
   private chatLayoutObserver: ResizeObserver | null = null;
   private presenceRefreshTimer: number | null = null;
+  private presenceCircuit: PresenceCircuit | null = null;
   private recoveryPollTimer: number | null = null;
   private backupTimer: number | null = null;
   private backupRun: Promise<void> | null = null;
@@ -3563,6 +3566,8 @@ export class QuietRoomApp {
     // blur. Treat that as a departure; an unused pre-focus arm is just cleared.
     if (this.invalidateKeyboardHandoff()) return;
     this.closeMemePicker();
+    this.presenceCircuit?.destroy();
+    this.presenceCircuit = null;
     if (this.galleryMode === 'favorites') this.galleryKnownCounts = {};
     this.galleryMode = 'safe';
     this.galleryRevealedAssets.clear();
@@ -3589,7 +3594,8 @@ export class QuietRoomApp {
           <div class="peer-summary" ${this.session.vault.role === 'creator' ? 'id="open-gallery" role="button" tabindex="0"' : 'role="status"'} aria-live="polite">
             <div class="presence-heading">
               <span class="presence-row" id="self-presence"><span>我</span><i class="presence-dot" aria-hidden="true"></i><strong class="sr-only">同步中</strong></span>
-              <span class="presence-row" id="peer-presence"><span>对方</span><i class="presence-dot" aria-hidden="true"></i></span>
+              ${presenceCircuitMarkup}
+              <span class="presence-row" id="peer-presence"><i class="presence-dot" aria-hidden="true"></i><span>对方</span></span>
             </div>
             <strong class="peer-status">同步中</strong>
           </div>
@@ -4729,6 +4735,8 @@ export class QuietRoomApp {
     if (surface === 'away') this.closeMemePicker();
     this.stopViewerMedia();
     if (surface === 'away') {
+      this.presenceCircuit?.destroy();
+      this.presenceCircuit = null;
       this.clearKeyboardHandoff();
       this.chatImageConcealGesture?.reset();
       this.cancelViewportWork();
@@ -5407,6 +5415,7 @@ export class QuietRoomApp {
       status: 'pending',
     };
     this.pending.set(clientMsgId, pending);
+    if (['text', 'image', 'image-album', 'file', 'audio'].includes(payload.kind)) this.presenceCircuit?.sent();
     const projectionEvent = payload.kind === 'reaction' || payload.kind === 'message-delete';
     this.renderMessages({ scroll: projectionEvent ? 'preserve' : 'send' });
     if (!projectionEvent) this.trackChatViewport(!this.desktopBrowser);
@@ -9555,6 +9564,11 @@ export class QuietRoomApp {
     const peerOnline = snapshotAvailable ? this.rolePresence![peerRole] : null;
     update(selfRow, selfOnline);
     update(peerRow, peerOnline);
+    const circuit = summary.querySelector<SVGElement>('.presence-circuit');
+    if (circuit && this.activeSurface === 'chat' && !this.privacyCovered) {
+      if (!this.presenceCircuit) this.presenceCircuit = new PresenceCircuit(circuit);
+      this.presenceCircuit.update(selfOnline, peerOnline);
+    }
     const transport = this.connectionState === 'connected'
       ? '实时连接正常'
       : this.connectionState === 'connecting'
@@ -9789,6 +9803,8 @@ export class QuietRoomApp {
     this.chatScrollFrame = null;
     if (this.presenceRefreshTimer !== null) window.clearInterval(this.presenceRefreshTimer);
     this.presenceRefreshTimer = null;
+    this.presenceCircuit?.destroy();
+    this.presenceCircuit = null;
     if (this.recoveryPollTimer !== null) window.clearTimeout(this.recoveryPollTimer);
     this.recoveryPollTimer = null;
     this.activeSurface = 'away';
