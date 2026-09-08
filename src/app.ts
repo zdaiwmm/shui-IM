@@ -38,6 +38,9 @@ import { decryptAudioFile, encryptAudioFile, decryptImageFile, encryptImageFile,
 import { VoiceRecorder } from './lib/voice-recorder';
 import { bindVoiceRecordGesture } from './lib/voice-gesture';
 import { bindImageViewerGestures } from './lib/image-viewer-gestures';
+import { prepareImageMotion, type ImageMotion } from './lib/image-animation';
+import { mountPhotoDetails } from './lib/photo-details';
+import { createElement, Info, Pause, Play } from 'lucide';
 import { bindChatImageConcealGesture } from './lib/chat-image-conceal-gesture';
 import { CHAT_LATEST_GAP, mountChatBottomControl } from './lib/chat-bottom-control';
 import { bindChatKeyboardGesture, CHAT_VIEWPORT_SETTLE_MS, createChatViewportMotion } from './lib/chat-viewport-motion';
@@ -457,6 +460,8 @@ export class QuietRoomApp {
   private backupError = '';
   private roleLastSeen: { creator: number | null; joiner: number | null } = { creator: null, joiner: null };
   private viewerMediaCleanup: (() => void) | null = null;
+  private viewerDetailsCleanup: (() => void) | null = null;
+  private viewerWorkAbort: AbortController | null = null;
   private viewerGestureCleanup: (() => void) | null = null;
   private viewerKeyHandler: ((event: KeyboardEvent) => void) | null = null;
   private viewerReturnFocus: HTMLElement | null = null;
@@ -834,6 +839,8 @@ export class QuietRoomApp {
       }
       if (this.root.querySelector('.image-viewer')) {
         event.preventDefault();
+        const closeDetails = this.root.querySelector<HTMLButtonElement>('[data-photo-details-close]');
+        if (closeDetails) { closeDetails.click(); return; }
         this.closeImageViewer();
         return;
       }
@@ -7319,6 +7326,10 @@ export class QuietRoomApp {
   }
 
   private stopViewerMedia(): void {
+    this.viewerWorkAbort?.abort();
+    this.viewerWorkAbort = null;
+    this.viewerDetailsCleanup?.();
+    this.viewerDetailsCleanup = null;
     this.viewerMediaCleanup?.();
     this.viewerMediaCleanup = null;
   }
@@ -7792,15 +7803,20 @@ export class QuietRoomApp {
     returnFocus?: HTMLElement,
     sentAt: readonly string[] = [],
     identities: readonly { clientMsgId: string; assetIndex: number; source?: DecryptedMessage }[] = [],
+    showDetailsOnOpen = false,
   ): void {
     if (manifests.length === 0 || !this.session || this.privacyCovered) return;
     this.closeImageViewer(true);
+    const allowPhotoDetails = this.session.vault.role === 'creator' && this.activeSurface === 'away'
+      && Boolean(this.root.querySelector('.gallery-shell'));
+    const workAbort = new AbortController();
     this.viewerProjectionSources = [...new Map(identities.flatMap(identity => identity.source
       ? [[identity.source.seq, identity.source] as const] : [])).values()];
     this.voicePlayback.stop();
     this.closeMessageActions();
     this.viewerPreviousSurface = this.activeSurface;
     if (!this.setActiveSurface('away')) return;
+    this.viewerWorkAbort = workAbort;
     this.viewerReturnFocus = returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
     const viewer = document.createElement('section');
@@ -7815,6 +7831,11 @@ export class QuietRoomApp {
         <div><strong data-viewer-name></strong><div class="viewer-metadata"><span data-viewer-counter></span><time data-viewer-time title="发送或上传时间" hidden></time></div></div>
         <button class="viewer-control" type="button" data-viewer-download aria-label="下载当前原图">${icons.download}</button>
       </header>
+      <div class="viewer-photo-tools">
+        <button class="viewer-motion-toggle" type="button" data-viewer-motion aria-pressed="true" hidden></button>
+        ${allowPhotoDetails ? '<button class="viewer-control" type="button" data-viewer-details aria-label="查看图片详情" title="查看图片详情" aria-expanded="false" hidden></button>' : ''}
+        <span class="viewer-motion-error" role="status" hidden></span>
+      </div>
       <div class="viewer-stage" aria-live="polite"></div>
       <button class="viewer-nav viewer-previous" type="button" aria-label="上一张">${icons.back}</button>
       <button class="viewer-nav viewer-next" type="button" aria-label="下一张">${icons.back}</button>
@@ -7827,6 +7848,47 @@ export class QuietRoomApp {
     const previous = viewer.querySelector<HTMLButtonElement>('.viewer-previous')!;
     const next = viewer.querySelector<HTMLButtonElement>('.viewer-next')!;
     let activeLayer: HTMLElement | null = null;
+    let activeMotion: ImageMotion | null = null;
+    const motionButton = viewer.querySelector<HTMLButtonElement>('[data-viewer-motion]')!;
+    const detailsButton = viewer.querySelector<HTMLButtonElement>('[data-viewer-details]');
+    detailsButton?.append(createElement(Info));
+    const closeDetails = (focus = true) => {
+      this.viewerDetailsCleanup?.();
+      this.viewerDetailsCleanup = null;
+      detailsButton?.setAttribute('aria-expanded', 'false');
+      if (focus) detailsButton?.focus({ preventScroll: true });
+    };
+    const openDetails = () => {
+      if (!allowPhotoDetails || this.privacyCovered || workAbort.signal.aborted || isVideoFile(manifests[current]!)) return;
+      closeDetails(false);
+      gestures.reset();
+      detailsButton?.setAttribute('aria-expanded', 'true');
+      const manifest = manifests[current]!;
+      this.viewerDetailsCleanup = mountPhotoDetails(viewer, {
+        manifest, sentAt: sentAt[current], signal: workAbort.signal,
+        load: () => this.loadImage(manifest), close: () => closeDetails(),
+      });
+    };
+    detailsButton?.addEventListener('click', () => {
+      if (this.viewerDetailsCleanup) closeDetails();
+      else openDetails();
+    });
+    const updateMotionButton = () => {
+      motionButton.hidden = !activeMotion;
+      if (!activeMotion) return;
+      const playing = activeMotion.playing();
+      motionButton.setAttribute('aria-pressed', String(playing));
+      motionButton.setAttribute('aria-label', playing ? '关闭动态播放' : '开启动图播放');
+      motionButton.title = playing ? '关闭动态播放' : '开启动图播放';
+      const label = document.createElement('span');
+      label.textContent = playing ? '动态开启' : '动态关闭';
+      motionButton.replaceChildren(createElement(playing ? Pause : Play), label);
+    };
+    motionButton.addEventListener('click', () => {
+      if (!activeMotion || workAbort.signal.aborted || transitionActive) return;
+      if (activeMotion.playing()) activeMotion.pause(); else activeMotion.resume();
+      updateMotionButton();
+    });
     const gestures = bindImageViewerGestures({
       stage, viewer, itemCount: manifests.length,
       media: () => activeLayer?.querySelector<HTMLImageElement | HTMLVideoElement>('img, video') ?? null,
@@ -7882,6 +7944,9 @@ export class QuietRoomApp {
       previous.disabled = false;
       next.disabled = false;
       stage.setAttribute('aria-busy', 'false');
+      motionButton.disabled = false;
+      if (detailsButton) { detailsButton.disabled = false; detailsButton.hidden = isVideoFile(manifests[current]!); }
+      updateMotionButton();
     };
     const render = async (
       index: number,
@@ -7907,6 +7972,11 @@ export class QuietRoomApp {
         return;
       }
       if (activeLayer && target === current && options.reason !== 'retry') return;
+      closeDetails(false);
+      activeMotion?.pause();
+      motionButton.disabled = true;
+      if (detailsButton) detailsButton.disabled = true;
+      viewer.querySelector<HTMLElement>('.viewer-motion-error')!.hidden = true;
       transitionActive = true;
       viewer.classList.add('is-transitioning');
       previous.disabled = true;
@@ -7923,6 +7993,7 @@ export class QuietRoomApp {
       let incomingCleanup: (() => void) | null = null;
       let outgoingLayer: HTMLElement | null = null;
       let outgoingCleanup: (() => void) | null = null;
+      let incomingMotion: ImageMotion | null = null;
       try {
         outgoingLayer = activeLayer;
         outgoingCleanup = this.viewerMediaCleanup;
@@ -7984,7 +8055,20 @@ export class QuietRoomApp {
           // frame is decoded. Keep the incoming layer offscreen until decode
           // completes so it cannot pop in halfway through the page animation.
           await image.decode();
+          if (!workAbort.signal.aborted) {
+            try {
+              incomingMotion = await prepareImageMotion(image, loaded.blob, workAbort.signal);
+              if (incomingMotion) incomingCleanup = incomingMotion.destroy;
+            } catch {
+              if (!workAbort.signal.aborted) {
+                const error = viewer.querySelector<HTMLElement>('.viewer-motion-error')!;
+                error.textContent = '动态开关暂不可用';
+                error.hidden = false;
+              }
+            }
+          }
           if (!viewer.isConnected || viewer.classList.contains('is-closing') || token !== renderToken) {
+            incomingCleanup?.();
             finishTransitionState();
             return;
           }
@@ -7993,6 +8077,7 @@ export class QuietRoomApp {
         }
         if (!outgoingLayer) {
           activeLayer = layer;
+          activeMotion = incomingMotion;
           current = target;
           this.viewerMediaCleanup = incomingCleanup;
           updateMetadata(current);
@@ -8035,6 +8120,7 @@ export class QuietRoomApp {
           layer.inert = false;
           layer.removeAttribute('aria-hidden');
           activeLayer = layer;
+          activeMotion = incomingMotion;
           current = target;
           this.viewerMediaCleanup = incomingCleanup;
           updateMetadata(current);
@@ -8048,8 +8134,12 @@ export class QuietRoomApp {
           }
         }
         finishTransitionState();
+        if (showDetailsOnOpen) { showDetailsOnOpen = false; openDetails(); }
       } catch (cause) {
-        if (!viewer.isConnected || token !== renderToken) return;
+        if (!viewer.isConnected || workAbort.signal.aborted || viewer.classList.contains('is-closing') || token !== renderToken) {
+          incomingCleanup?.();
+          return;
+        }
         gestures.reset();
         if (activeLayer) {
           incomingCleanup?.();
@@ -8072,6 +8162,7 @@ export class QuietRoomApp {
         error.addEventListener('click', () => void render(target, { reason: 'retry' }));
         stage.replaceChildren(error);
         finishTransitionState();
+        if (showDetailsOnOpen) { showDetailsOnOpen = false; openDetails(); }
       }
     };
     previous.addEventListener('click', () => void render(current - 1, { direction: -1, reason: 'control' }));
@@ -8102,8 +8193,8 @@ export class QuietRoomApp {
         void render(current + 1, { direction: 1, reason: 'control' });
       }
       if (event.key === 'Tab') {
-        const buttons = [...viewer.querySelectorAll<HTMLElement>('button:not([hidden]):not(:disabled), video[controls]')]
-          .filter(element => element.tabIndex >= 0 && !element.closest('[inert], [aria-hidden="true"]'));
+        const buttons = [...viewer.querySelectorAll<HTMLElement>('button:not([hidden]):not(:disabled), video[controls], .photo-details-content')]
+          .filter(element => element.tabIndex >= 0 && element.getClientRects().length > 0 && !element.closest('[inert], [aria-hidden="true"]'));
         const first = buttons[0];
         const last = buttons.at(-1);
         if (event.shiftKey && document.activeElement === first) {
@@ -8127,6 +8218,10 @@ export class QuietRoomApp {
     this.viewerKeyHandler = null;
     this.viewerGestureCleanup?.();
     this.viewerGestureCleanup = null;
+    this.viewerWorkAbort?.abort();
+    this.viewerWorkAbort = null;
+    this.viewerDetailsCleanup?.();
+    this.viewerDetailsCleanup = null;
     if (!viewer || (!immediate && viewer.classList.contains('is-closing'))) return;
     this.viewerProjectionSources = [];
     this.stopViewerMedia();
@@ -8209,7 +8304,7 @@ export class QuietRoomApp {
     }
   }
 
-  private mountGalleryCurationActions(source: HTMLElement, target: GalleryCurationTarget, tab: GalleryTab, countKey: string): void {
+  private mountGalleryCurationActions(source: HTMLElement, target: GalleryCurationTarget, tab: GalleryTab, countKey: string, openDetails?: () => void): void {
     let start: { x: number; y: number; pointerId: number } | null = null;
     const cancel = () => { this.cancelMessageHold(); start = null; };
     const release = () => {
@@ -8222,7 +8317,7 @@ export class QuietRoomApp {
       this.suppressMediaClickUntil = Date.now() + 650;
       if (fromPointerHold) source.dataset.galleryHoldCommitted = 'true';
       navigator.vibrate?.(18);
-      this.openGalleryCurationActions(source, target, tab, countKey);
+      this.openGalleryCurationActions(source, target, tab, countKey, openDetails);
     };
     source.addEventListener('pointerdown', event => {
       if (!event.isPrimary || event.button !== 0 || event.pointerType === 'mouse' || this.privacyCovered) return;
@@ -8249,7 +8344,7 @@ export class QuietRoomApp {
     });
   }
 
-  private openGalleryCurationActions(source: HTMLElement, target: GalleryCurationTarget, tab: GalleryTab, countKey: string): void {
+  private openGalleryCurationActions(source: HTMLElement, target: GalleryCurationTarget, tab: GalleryTab, countKey: string, openDetails?: () => void): void {
     const session = this.session;
     const epoch = this.runtimeEpoch;
     if (!session || !this.isRuntimeActive(epoch, session) || !source.isConnected) return;
@@ -8262,6 +8357,7 @@ export class QuietRoomApp {
     sheet.setAttribute('aria-modal', 'true');
     sheet.setAttribute('aria-label', target.category === 'images' ? '照片或视频操作' : '文件操作');
     sheet.innerHTML = `<div class="gallery-actions-menu" role="menu">
+      ${openDetails ? '<button type="button" role="menuitem" data-gallery-action="details"><span>查看详情</span></button>' : ''}
       <button type="button" role="menuitem" data-gallery-action="pin">${icons.pin}<span>${pinned ? '取消置顶' : '置顶'}</span></button>
       <button type="button" role="menuitem" data-gallery-action="delete" data-danger="true">${icons.trash}<span>删除</span></button>
     </div>`;
@@ -8271,6 +8367,13 @@ export class QuietRoomApp {
       signal: this.runtimeAbort?.signal,
       returnFocus: source,
       initialFocus: sheet.querySelector<HTMLButtonElement>('[data-gallery-action="pin"]'),
+    });
+    const details = sheet.querySelector<HTMLButtonElement>('[data-gallery-action="details"]');
+    details?.prepend(createElement(Info));
+    details?.addEventListener('click', () => {
+      if (!openDetails || !this.isRuntimeActive(epoch, session) || session.vault.role !== 'creator') return;
+      dialog.close({ animate: false, restoreFocus: false });
+      openDetails();
     });
     let saving = false;
     const finish = async (action: 'pin' | 'unpin' | 'hide') => {
@@ -8598,7 +8701,16 @@ export class QuietRoomApp {
               assets.map((asset) => ({ clientMsgId: asset.clientMsgId, assetIndex: asset.assetIndex, source: asset.source })),
             );
           });
-          this.mountGalleryCurationActions(button, target, tab, key);
+          this.mountGalleryCurationActions(button, target, tab, key, video ? undefined : () => {
+            if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
+            this.galleryScrollTop.images = grid.scrollTop;
+            const currentIndex = assets.findIndex(asset => asset.clientMsgId === message.clientMsgId && asset.assetIndex === assetIndex);
+            if (currentIndex >= 0) this.openImageViewer(
+              assets.map(asset => asset.manifest), currentIndex, button,
+              assets.map(asset => asset.sentAt),
+              assets.map(asset => ({ clientMsgId: asset.clientMsgId, assetIndex: asset.assetIndex, source: asset.source })), true,
+            );
+          });
           imageButtons.set(key, button);
           grid.insertBefore(button, footer);
         }

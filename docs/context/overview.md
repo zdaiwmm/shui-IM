@@ -57,6 +57,7 @@
 
 ## 详细资料索引
 
+- **保险箱图片属性与动图**：`src/lib/photo-detail-model.ts` 定义有界属性展示，`photo-metadata.ts` / `photo-metadata.worker.ts` 负责本机可取消解析，`photo-details.ts` 挂载仅保险箱可见的属性面板；`image-animation.ts` 识别 GIF / 动态 WebP / APNG 并管理内存静态帧。验证入口为 `tests/image-photo.test.ts` 和已纳入 `check:full` 的 `tests/photo-details.e2e.mjs`。Live Photo 不在该功能范围内；真机、CI、生产证据与本地自动测试分开记录。
 - [README.md](../../README.md)：用户流程、架构和本地运行的综合说明。
 - [PRODUCT.md](../../PRODUCT.md)：产品与交互契约；不是实时实施状态表。
 - [SECURITY.md](../../SECURITY.md)：威胁模型、保护范围、限制和部署安全要求。

@@ -32,6 +32,7 @@ export const browserGroups = Object.freeze({
     'tests/backup-admin-ui.e2e.mjs',
     'tests/chat-image-privacy.e2e.mjs',
     'tests/gallery-loading.e2e.mjs',
+    'tests/photo-details.e2e.mjs',
     'tests/video-flow.e2e.mjs',
     'tests/voice-gestures.e2e.mjs',
   ]),
