@@ -539,6 +539,13 @@ try {
     };
     const picker = rect('.message-reaction-picker');
     const actions = rect('.message-action-list');
+    const source = document.querySelector('.message.is-action-source > .message-bubble');
+    const preview = document.querySelector('.message-actions-backdrop .message-action-preview > .message-bubble');
+    if (!preview || preview.textContent !== source.textContent) throw Error('Selected text must be copied above the blur layer');
+    const originalRect = source.getBoundingClientRect();
+    const previewRect = preview.getBoundingClientRect();
+    if (Math.abs(originalRect.left - previewRect.left) > 1 || Math.abs(originalRect.top - previewRect.top) > 1 || Math.abs(originalRect.width - previewRect.width) > 1) throw Error('Menu preview must preserve the original bubble position and width');
+    if (getComputedStyle(preview).visibility !== 'visible' || getComputedStyle(preview).backgroundColor !== getComputedStyle(source).backgroundColor) throw Error('Menu preview must remain visible in the source bubble color');
     for (const box of [picker, actions]) {
       if (box.left < 0 || box.right > innerWidth || box.top < 0 || box.bottom > innerHeight || !box.width || !box.height) throw Error(`Long message actions are clipped at 320px: ${JSON.stringify({ picker, actions })}`);
     }

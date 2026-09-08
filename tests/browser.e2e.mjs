@@ -650,11 +650,14 @@ try {
   await creatorAlbum.locator('.album-cell').nth(1).click();
   invariant(await creator.locator('.image-viewer').count() === 0, 'The first album cell tap opened the viewer');
   await creatorAlbum.locator('.album-cell').nth(1).click();
-  await creator.locator('[data-viewer-counter]').getByText('2 / 3', { exact: true }).waitFor();
+  const chatMediaCount = await creator.locator('#message-list .image-preview:not([data-expression="true"])').count();
+  await creator.locator('[data-viewer-counter]').getByText(`${chatMediaCount - 1} / ${chatMediaCount}`, { exact: true }).waitFor();
+  await creator.locator('[data-viewer-name]').getByText('album-two.svg', { exact: true }).waitFor();
   const viewerStage = creator.locator('.viewer-stage');
   await viewerStage.dispatchEvent('pointerdown', { pointerType: 'touch', isPrimary: true, button: 0, clientX: 300, clientY: 400 });
   await viewerStage.dispatchEvent('pointerup', { pointerType: 'touch', isPrimary: true, button: 0, clientX: 100, clientY: 400 });
-  await creator.locator('[data-viewer-counter]').getByText('3 / 3', { exact: true }).waitFor();
+  await creator.locator('[data-viewer-counter]').getByText(`${chatMediaCount} / ${chatMediaCount}`, { exact: true }).waitFor();
+  await creator.locator('[data-viewer-name]').getByText('album-three.svg', { exact: true }).waitFor();
   await creator.locator('[data-viewer-close]').click();
   await creator.locator('.image-viewer').waitFor({ state: 'detached' });
 
