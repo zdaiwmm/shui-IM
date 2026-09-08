@@ -225,7 +225,10 @@ try {
     app.chatLayoutElements.list.scrollTop -= 700;
     window.listFixture.anchor = app.captureChatAnchor();
     app.chatLayoutElements.list.scrollTop -= 300;
+    app.chatBottomFollowPending = true;
+    app.chatPinnedToBottom = true;
     app.restoreChatAnchor(app.chatLayoutElements.list, window.listFixture.anchor);
+    if (app.chatBottomFollowPending || app.chatPinnedToBottom) throw Error('A restored history anchor retained stale bottom follow');
   });
   assert.equal(await page.evaluate(() => window.listFixture.app.captureChatAnchor().clientMsgId),
     await page.evaluate(() => window.listFixture.anchor.clientMsgId));

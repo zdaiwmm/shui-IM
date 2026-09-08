@@ -4853,6 +4853,11 @@ export class QuietRoomApp {
       this.scrollChatToBottom();
       return;
     }
+    // A temporary empty/cold list may have queued bottom follow during restore.
+    // Once the history target exists, that fallback must not replace its anchor.
+    this.chatBottomFollowPending = false;
+    this.chatPinnedToBottom = false;
+    this.chatViewportFollowUntil = 0;
     const delta = target.getBoundingClientRect().top - this.chatViewportTop - anchor.offset;
     if (Math.abs(delta) > 1) this.setChatScrollTop(this.chatScrollTop + delta);
   }
