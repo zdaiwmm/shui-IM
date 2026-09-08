@@ -1,6 +1,7 @@
 import QRCode from 'qrcode';
 import { closeDialog, mountDialog } from './lib/dialog';
 import { MemePicker, memeIcons } from './lib/meme-picker';
+import { loadStickerPacks, installStickerPack, removeStickerPack } from './lib/vault';
 import './memes.css';
 import { validateMemeFile, MEME_TYPES } from './lib/meme-media';
 import { loadMemeFavorites, loadMemeFavoriteFile, saveMemeFavorite, removeMemeFavorite } from './lib/vault';
@@ -3430,7 +3431,7 @@ export class QuietRoomApp {
     picker?.dispose();
     const button = this.root.querySelector<HTMLButtonElement>('#open-memes');
     button?.setAttribute('aria-expanded', 'false');
-    if (button) { button.innerHTML = memeIcons.smile; button.setAttribute('aria-label', '打开梗图'); }
+    if (button) { button.innerHTML = memeIcons.smile; button.setAttribute('aria-label', '打开表情'); }
     if (keyboard && !this.privacyCovered) this.root.querySelector<HTMLTextAreaElement>('#message-input')?.focus({ preventScroll: true });
     else if (picker && !this.privacyCovered) button?.focus({ preventScroll: true });
   }
@@ -3465,6 +3466,16 @@ export class QuietRoomApp {
       file: (item, signal) => loadMemeFavoriteFile(session, item, signal),
       save: (file, signal) => saveMemeFavorite(session, file, signal),
       remove: (id, signal) => removeMemeFavorite(session, id, signal),
+      packs: () => loadStickerPacks(session),
+      install: (id, title, files, signal) => installStickerPack(session, id, title, files, signal),
+      removePack: (id, signal) => removeStickerPack(session, id, signal),
+      pack: async (id, signal) => {
+        const result = await (await request('pack', { id }, signal)).json();
+        if (result.id !== id || typeof result.title !== 'string' || result.title.length > 120 || !Array.isArray(result.items)
+          || !result.items.length || result.items.length > 200 || result.items.some((item: { id?: unknown; title?: unknown }) =>
+            typeof item?.id !== 'string' || !/^[0-9a-f-]{36}$/.test(item.id) || typeof item.title !== 'string' || item.title.length > 120)) throw new Error('合集格式不受支持');
+        return { id: result.id, title: result.title, items: result.items.map((item: { id: string; title: string }) => ({ id: item.id, title: item.title })) };
+      },
       send: async (file, signal) => {
         if (!isActive()) throw new Error('会话已关闭');
         if (this.imageBatchUploading) throw new Error('另一个附件正在发送，请稍后重试');
@@ -3473,14 +3484,18 @@ export class QuietRoomApp {
           if (!await this.processImageBatch([file], 'chat', signal)) throw new Error('发送未完成，请查看聊天中的状态后重试');
         } finally { if (this.isRuntimeActive(epoch, session)) this.imageBatchUploading = false; }
       },
-      search: async (keyword, page, signal) => {
-        const response = await request('search', { keyword, page }, signal);
+      search: async (keyword, page, signal, kind) => {
+        const response = await request('search', { keyword, page, kind }, signal);
         const result = await response.json();
-        if (!Array.isArray(result.items) || result.items.length > 100
+        if (!Array.isArray(result.items) || result.items.length > 200
           || result.items.some((item: { id?: unknown; title?: unknown }) => typeof item?.id !== 'string' || !/^[0-9a-f-]{36}$/.test(item.id)
             || typeof item.title !== 'string' || item.title.length > 120)
-          || (result.nextPage !== null && (!Number.isSafeInteger(result.nextPage) || result.nextPage <= page || result.nextPage > 100))) throw new Error('搜索结果格式不受支持');
-        return result;
+          || (result.nextPage !== null && (!Number.isSafeInteger(result.nextPage) || result.nextPage <= page || result.nextPage > 1000))) throw new Error('搜索结果格式不受支持');
+        if (result.packs !== undefined && (!Array.isArray(result.packs) || result.packs.length > 24 || result.packs.some((pack: { id?: unknown; title?: unknown; cover?: unknown }) =>
+          typeof pack.id !== 'string' || !/^[a-z0-9-]{1,80}$/.test(pack.id) || typeof pack.title !== 'string' || pack.title.length > 120 || typeof pack.cover !== 'string' || !/^[0-9a-f-]{36}$/.test(pack.cover)))) throw new Error('合集搜索结果不受支持');
+        return { items: result.items.map((item: { id: string; title: string }) => ({ id: item.id, title: item.title, animatedOnly: kind === 'gifs' })),
+          packs: result.packs?.map((pack: { id: string; title: string; cover: string }) => ({ id: pack.id, title: pack.title, cover: pack.cover })),
+          nextPage: result.nextPage, source: typeof result.source === 'string' ? result.source.slice(0, 120) : undefined };
       },
       media: async (id, signal) => {
         const response = await request('media', { id }, signal);
@@ -3609,7 +3624,7 @@ export class QuietRoomApp {
             <div class="composer-field">
               <label class="sr-only" for="message-input">输入消息</label>
               <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '输入消息' : '正在建立安全会话…'}" autocomplete="off" enterkeyhint="send" ${cryptoReady ? '' : 'disabled'}></textarea>
-              <button class="meme-toggle" id="open-memes" type="button" aria-label="打开梗图" title="梗图" aria-expanded="false" aria-controls="meme-panel" ${cryptoReady ? '' : 'disabled'}>${memeIcons.smile}</button>
+              <button class="meme-toggle" id="open-memes" type="button" aria-label="打开表情" title="表情" aria-expanded="false" aria-controls="meme-panel" ${cryptoReady ? '' : 'disabled'}>${memeIcons.smile}</button>
             </div>
           </div>
           <button class="icon-button voice-record-button" id="record-voice" type="button" aria-label="录制语音消息" aria-description="长按录音，松手发送；向左滑动可取消。点按可免手持录音。" title="长按录音，松手发送" ${cryptoReady ? '' : 'disabled'}>${voiceIcons.mic}</button>
@@ -3711,6 +3726,7 @@ export class QuietRoomApp {
     // then cancels the very tap that was meant to open the keyboard.
     textarea.addEventListener('pointerdown', event => {
       if (!ownsActiveChat()) return;
+      if (this.memePicker) this.closeMemePicker();
       if (this.beginKeyboardHandoff(textarea, event)) this.chatViewportMotion?.anticipateKeyboard('open');
       prepareKeyboardTarget();
     }, { passive: true });
