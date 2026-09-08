@@ -14,6 +14,10 @@
 
 ## 按任务查找
 
+梗图面板与本机收藏见 [MEMES.md](../../MEMES.md)、`src/lib/meme-picker.ts`、`src/lib/meme-media.ts`、
+`src/lib/vault.ts` 的收藏存储及 `src/memes.css`；专项为 `tests/meme-media.test.ts` 和 `tests/meme-picker.e2e.mjs`。
+网络搜索代理尚未接入，不能把测试中的合成搜索视为真实接口可用。
+
 | 领域 | 先读 | 代码入口 | 主要验证入口 |
 | --- | --- | --- | --- |
 | 产品语义与交互 | `PRODUCT.md`、`README.md` | `src/app.ts`、各 CSS 文件 | `tests/browser.e2e.mjs`、`tests/ui-audit.e2e.mjs`、相关专项浏览器脚本 |

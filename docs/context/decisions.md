@@ -285,6 +285,11 @@
   `src/app.ts`、`src/lib/image-viewer-gestures.ts`、`src/lib/reply-swipe.ts`、
   `src/lib/voice-gesture.ts` 及对应单元／浏览器专项。
 
+## D-033：梗图收藏是本机独立副本
+
+本次用户确认的梗图取舍见 [MEMES.md](../../MEMES.md)：收藏只在本机，原消息删除后保留独立副本；
+不自动同步、不纳入恢复备份。此取舍只影响主动收藏副本，不改变聊天和保险箱的删除投影。
+
 ## 不在本页记录的内容
 
 - 临时任务清单、每次测试日志、具体 UI 像素和可从代码直接得出的常量；
