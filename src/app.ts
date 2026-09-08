@@ -4431,6 +4431,8 @@ export class QuietRoomApp {
     outgoing.inert = true;
     const oldList = outgoing.querySelector<HTMLElement>('.message-list');
     if (oldList && outgoingScrollY > 0) oldList.style.setProperty('--page-scroll-offset', `${-outgoingScrollY}px`);
+    // Keep content reveal suppressed after the directional animation ends.
+    incoming.dataset.pageNavigation = '';
     incoming.classList.add('page-transition-incoming');
     this.root.append(outgoingFrame);
     this.pageTransitionTimer = window.setTimeout(() => {
