@@ -160,3 +160,27 @@ through the existing sequential runner (174.82 seconds). This is a complete
 segmented result for 27 entries, not a claim that the original full command
 exited successfully. A long USB stream had no RTP sequence gaps, but visible
 encoder artifacts make it unsuitable as proof of individual text-paint frames.
+
+## Local Delivery
+
+- Task commit: `4f65f77`, based on `5e9d208`; initial rule/development baseline
+  was `28dbe2f`. The shared source directory's four existing dirty files were
+  not changed or staged.
+- Local main advanced separately to `744fd1d`. An isolated integration worktree
+  merged the task with it as `d2ca28099609d4781036910d364be0dfb3847149`.
+  Only the status document conflicted; both task records were preserved.
+- The combined candidate's `npm run check:full` exited zero: build, 509 tests
+  across 63 files, and 27 browser entries (364.07 seconds) passed in one run.
+- Under the task's integration lock, clean local main fast-forwarded to that
+  candidate. The diagnostic launcher stopped and the standard `dev-lan.mjs`
+  service resumed at the same trusted HTTPS origin. Independent CA-verified
+  readback matched chat CSS byte-for-byte, checked both application changes,
+  and confirmed all three health fields. Both listeners run from local main.
+- The served HTML no longer injects diagnostics. Original device recordings
+  and captured images were removed; numerical evidence and synthetic test
+  artifacts remain local. Subsequent documentation commits do not change the
+  verified application tree.
+- Occasional input-text flicker remains explicitly deferred by the user.
+  Native URL-bar timing is not under page control. Physical chat feedback
+  does not certify the separately integrated image changes or other devices.
+  No GitHub push, CI run, or production release was performed.
