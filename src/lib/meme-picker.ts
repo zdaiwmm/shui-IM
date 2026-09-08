@@ -225,6 +225,7 @@ export class MemePicker {
       const add = document.createElement('button'); add.type = 'button'; add.className = 'meme-pack-add'; add.textContent = this.hasPack(pack.id) ? '已添加' : '添加合集'; add.disabled = this.hasPack(pack.id);
       const progress = document.createElement('span'); progress.setAttribute('role', 'status'); add.addEventListener('click', () => void this.install(pack, add, progress, detail));
       const grid = document.createElement('div'); grid.className = 'meme-pack-grid'; header.append(title, add, progress); this.grid.append(header, grid); this.append(detail.items, grid);
+      this.panel.querySelector<HTMLButtonElement>('.meme-back')!.focus({ preventScroll: true });
     } catch { if (this.active() && generation === this.generation) this.say('合集加载失败，请重试'); }
   }
   private async install(pack: RemotePack, button: HTMLButtonElement, progress: HTMLElement, detail?: RemotePackDetail) {

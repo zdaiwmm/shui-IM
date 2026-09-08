@@ -76,7 +76,25 @@
   初次初始化需要下载，后续优先本机缓存；详细功能、资源来源和隐私边界见 [MEMES.md](../../MEMES.md)。
 - 最终素材、接口与媒体专项共 18 项通过；WebKit 半屏／全屏、长按不缩放、
   发送收起、两个位置的动画像素变化、合集添加／重开、离线缓存及生命周期专项已通过。
-  新增详情 Escape 返回和预置合集防重复添加也已通过；最终 main 组合的完整门禁与 LAN 回读待执行。
+  新增详情 Escape 返回和预置合集防重复添加也已通过。
+  真实网络联调以合成身份搜索中文“猫”：GIFs 首屏 20 项、合集首屏 24 项，均有后续分页，
+  下载 PNG 原图确认包含动画；没有使用用户房间、凭据或消息作为测试数据。
+- 源候选 `ee1751a1806efc9e042f2769bd4e7543ec807e72` 已提交。在独立工作树
+  `/private/tmp/quiet-room-stickers-gifs-integration`、分支 `codex/stickers-gifs-integration`，
+  基于本机 main `3a9a8f570d46a0ce51552451071fe9d3594e948a` 形成组合 `cfc5690`。
+  仅状态文档有并列新增记录冲突，已完整保留双方；标题栏与模糊修复代码自动合并后已核对。
+- 组合完整检查通过构建、62 个文件的 502 项单元／集成测试。浏览器前 12 项通过，
+  第 13 项暴露 Chrome 合集详情移除原按钮后的焦点丢失；已显式转交到返回按钮，
+  Chrome / WebKit 表情专项和最终构建复验通过，再经现有 runner 续跑剩余 13 项通过。
+  汇总 26／26 浏览器入口通过，不能记作 `check:full` 单次零退出；首次失败还伴随 runner 的 `kill EPERM` 清理错误。
+  续跑日志中的 12 个 `previously verified` 表示沿用先前已通过入口，不计作重新执行。
+  证据日志 `/private/tmp/sticker-final-check.log`、`/private/tmp/sticker-final-browser-resume.log`；
+  最终明暗／四视口截图 `/private/tmp/sticker-picker-final-chrome`、`/private/tmp/sticker-picker-final-webkit`。
+- 本机集成与手机入口回读尚未完成：公共集成锁由 `iphone-chat-viewport-20260908` 的
+  PID `87206` 持有，用途为正在进行的 iPhone 真机诊断；5173 前端固定到该任务独占源码，
+  后端仍从本机 main 启动。本任务未中断该调试、删除他人锁或替换来源。
+  验证期间 main 又前进至 `744fd1da89da64066728e551137bac4d6b2dd526`（新增本机预计算模糊位图），
+  因而后续切换前必须在独立集成工作树核对新增共享媒体改动并按风险复验，不直接快进过期组合。
   iPhone / iOS 27 / Safari 真机尚未验收，CI 未运行、GitHub 未推送、生产未发布。
 
 ## 图片属性与动图本机验收（2026-09-08，未发布）
