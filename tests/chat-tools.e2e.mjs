@@ -43,6 +43,14 @@ try {
   await page.locator('#message-input').fill('保留草稿');
   await page.locator('#open-chat-tools').click();
   assert.equal(await page.locator('#chat-tools > button').count(),6);
+  assert.equal(await page.locator('.composer').evaluate(el => getComputedStyle(el).backgroundColor), await page.evaluate(() => {
+    const probe=document.createElement('div'); probe.style.background='var(--paper-pure)';document.body.append(probe);
+    const color=getComputedStyle(probe).backgroundColor;probe.remove();return color;
+  }));
+  await page.evaluate(() => window.fixture.app.showNotice('已收藏'));
+  await page.waitForTimeout(220);
+  const toast=await page.locator('#notice').boundingBox();const header=await page.locator('.chat-header').boundingBox();
+  assert.ok(toast.width<150 && toast.y>=header.y+header.height && toast.y<=header.y+header.height+12, JSON.stringify({toast,header}));
   const positions=await page.locator('#chat-tools > button').evaluateAll(nodes=>nodes.map(e=>({top:e.getBoundingClientRect().top,left:e.getBoundingClientRect().left})));
   assert.equal(positions[0].top,positions[3].top);assert(positions[4].top>positions[3].top);assert.equal(positions[4].left,positions[0].left);
   assert.equal(await page.locator('#image-input').getAttribute('accept'),'image/*,video/*');
@@ -73,6 +81,14 @@ try {
   await page.locator('[data-viewer-close]').click();
   await page.locator('#open-chat-tools').click();await page.locator('#open-favorites').click();
   await page.locator('.gallery-tile').waitFor();assert.equal(await page.locator('.gallery-tile').count(),1);
+  await page.waitForTimeout(420);
+  const galleryLayout = await page.evaluate(() => {
+    const tabs=document.querySelector('.gallery-tabs').getBoundingClientRect();
+    const toggle=document.querySelector('#gallery-toggle-visibility').getBoundingClientRect();
+    return {center:(tabs.left+tabs.right)/2, right:toggle.right, bottom:toggle.bottom, width:innerWidth, height:innerHeight};
+  });
+  assert.ok(Math.abs(galleryLayout.center-galleryLayout.width/2)<1, JSON.stringify(galleryLayout));
+  assert.ok(galleryLayout.width-galleryLayout.right<=20 && galleryLayout.height-galleryLayout.bottom<=20, JSON.stringify(galleryLayout));
   assert.equal(await page.locator('#open-gallery-image-picker').count(),0);
   await page.locator('.gallery-tile').click();await page.locator('.gallery-tile').click();
   await page.locator('.image-viewer').waitFor();assert.equal(await page.locator('[data-viewer-download],[data-viewer-details]').count(),0);

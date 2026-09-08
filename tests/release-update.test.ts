@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { prepareReleaseVisit } from '../src/lib/release-update';
+import { collectReleaseNotes, prepareReleaseVisit } from '../src/lib/release-update';
 
 function memoryStorage(initial: Record<string, string> = {}) {
   const values = new Map(Object.entries(initial));
@@ -34,5 +34,21 @@ describe('release visit tracking', () => {
   it('fails quietly when durable storage is unavailable', () => {
     const storage = { getItem: vi.fn(() => { throw new Error('blocked'); }), setItem: vi.fn() };
     expect(prepareReleaseVisit(storage, '2')).toBe(false);
+  });
+
+  it('retains the last seen baseline through multiple cover-only upgrades', () => {
+    const storage = memoryStorage({ 'quiet-room.current-release': '1' });
+    expect(prepareReleaseVisit(storage, '2')).toBe(true);
+    expect(prepareReleaseVisit(storage, '3')).toBe(true);
+    expect(storage.getItem('quiet-room.release-notes-base')).toBe('1');
+    const releases = [
+      { id: '1', title: 'Update', notes: ['already read'] },
+      { id: '2', title: 'Update', notes: ['keyboard', 'media'] },
+      { id: '3', title: 'Update', notes: ['media', 'stickers'] },
+    ];
+    expect(collectReleaseNotes(storage.getItem('quiet-room.release-notes-base'), releases)).toEqual(['keyboard', 'media', 'stickers']);
+    expect(collectReleaseNotes('2', releases)).toEqual(['media', 'stickers']);
+    expect(collectReleaseNotes('3', releases)).toEqual([]);
+    expect(collectReleaseNotes('older-unknown', releases)).toEqual(['already read', 'keyboard', 'media', 'stickers']);
   });
 });

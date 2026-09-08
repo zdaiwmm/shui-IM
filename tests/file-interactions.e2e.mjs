@@ -289,6 +289,12 @@ try {
   }
 
   await page.waitForFunction(() => Date.now() >= window.fileInteractions.app.suppressMediaClickUntil);
+  await page.evaluate(() => { window.fileInteractions.open=window.open; window.open=()=>null; });
+  await page.locator('.message.incoming .file-attachment').tap();
+  await page.waitForFunction(() => document.querySelector('.message.incoming .file-attachment')?.dataset.fileState==='idle');
+  assert.equal(await page.locator('#notice').isVisible(),false,'Blocked reader displayed a toast');
+  assert.equal(await page.evaluate(() => window.fileInteractions.app.privacyCovered),false,'Blocked reader concealed chat');
+  await page.evaluate(() => { window.open=window.fileInteractions.open; });
   const readsBeforeTap = await page.evaluate(() => window.fileInteractions.requests.reads);
   const opened = page.waitForEvent('popup');
   await page.locator('.message.incoming .file-attachment').tap();

@@ -6,7 +6,7 @@
   position: fixed;
   inset: 0 max(0px, calc((100% - 880px) / 2)) auto;
   translate: 0 var(--app-top);
-  grid-template-columns: 44px minmax(0, 1fr) 96px;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
   grid-template-rows: minmax(44px, 1fr);
   align-items: center;
   gap: 8px;
@@ -82,7 +82,7 @@
 }
 
 .gallery-header-actions {
-  width: 96px;
+  width: 44px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -104,6 +104,15 @@
 
 .gallery-visibility-button {
   flex-shrink: 0;
+  position: fixed;
+  right: max(16px, calc((100% - 848px) / 2));
+  top: calc(var(--app-top, 0px) + var(--app-height, 100dvh) - max(16px, env(safe-area-inset-bottom)) - 44px);
+  z-index: 8;
+  background: var(--glass-sheen), var(--glass-strong);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
 }
 
 .gallery-visibility-button:disabled {

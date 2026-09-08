@@ -81,7 +81,8 @@ export function systemReadableMimeType(mimeType: string, filename: string): stri
 
 /** Reserve a reader window while the trusted click activation is still live. */
 export function prepareSystemReader(): Window | null {
-  const reader = window.open('about:blank', '_blank');
+  let reader: Window | null;
+  try { reader = window.open('about:blank', '_blank'); } catch { return null; }
   if (!reader) return null;
   try {
     reader.opener = null;
@@ -94,7 +95,7 @@ export function prepareSystemReader(): Window | null {
 }
 
 /** Hand verified bytes to the browser/OS reader without executing web content. */
-export async function openBlobInSystemReader(blob: Blob, filename: string, mimeType: string, preparedReader?: Window | null): Promise<void> {
+export async function openBlobInSystemReader(blob: Blob, filename: string, mimeType: string, preparedReader?: Window | null): Promise<boolean> {
   const safeType = systemReadableMimeType(mimeType, filename);
   if (!safeType) throw new Error('UNSUPPORTED_SYSTEM_READER_TYPE');
   const url = URL.createObjectURL(blob.slice(0, blob.size, safeType));
@@ -102,18 +103,11 @@ export async function openBlobInSystemReader(blob: Blob, filename: string, mimeT
     try {
       preparedReader.location.replace(url);
       window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      return;
+      return true;
     } catch {
       try { preparedReader.close(); } catch { /* Already unavailable. */ }
     }
   }
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.target = '_blank';
-  anchor.rel = 'noopener noreferrer';
-  anchor.style.display = 'none';
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  URL.revokeObjectURL(url);
+  return false;
 }

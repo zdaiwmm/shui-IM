@@ -1333,7 +1333,7 @@ export async function loadHistoryMessage(session: VaultSession, seq: number, sig
 /** Media type stays encrypted. Scan a bounded page and retain only media payloads. */
 export async function loadMediaHistoryPage(
   session: VaultSession,
-  { beforeSeq, limit = 200, signal }: { beforeSeq?: number; limit?: number; signal?: AbortSignal } = {},
+  { beforeSeq, limit = 200, signal, includeExpressions = false }: { beforeSeq?: number; limit?: number; signal?: AbortSignal; includeExpressions?: boolean } = {},
 ): Promise<{ messages: DecryptedMessage[]; beforeSeq: number | null; hasMore: boolean }> {
   signal?.throwIfAborted();
   const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 200);
@@ -1381,7 +1381,7 @@ export async function loadMediaHistoryPage(
   const records = [...canonical.values()].sort((left, right) => right.message.seq - left.message.seq);
   const page = records.slice(0, boundedLimit);
   return {
-    messages: page.map(item => item.message).filter((message) => isGalleryMediaPayload(message.payload)),
+    messages: page.map(item => item.message).filter((message) => isGalleryMediaPayload(message.payload) || includeExpressions && message.payload.kind === 'image'),
     beforeSeq: page.at(-1)?.message.seq ?? null,
     hasMore: scan.truncated || records.length > boundedLimit,
   };
