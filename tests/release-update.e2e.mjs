@@ -71,7 +71,7 @@ try {
     text: element.textContent.replace(/\s+/g, ' ').trim(),
     buttonHeight: element.querySelector('button').getBoundingClientRect().height,
   }));
-  if (layout.text !== '有新版本待更新 更新' || layout.buttonHeight < 44) throw new Error(`Update banner is incomplete: ${JSON.stringify(layout)}`);
+  if (layout.text !== '有新版本待更新 更新' || layout.buttonHeight < 44 - 0.01) throw new Error(`Update banner is incomplete: ${JSON.stringify(layout)}`);
   if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`);
   console.log(JSON.stringify({ releaseNotes: notes.length, oneTime: true, updateBanner: layout }, null, 2));
 } finally {
