@@ -67,6 +67,80 @@ try {
   };
   await page.evaluate(initializeRegression);
 
+  // A disposable context owns only synthetic localhost IndexedDB data. It has
+  // no persistent profile and cannot access the user's production-origin vault.
+  const receiptContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const receiptPage = await receiptContext.newPage();
+  await receiptPage.goto(`http://localhost:${server.httpServer.address().port}/__frontend_regression`);
+  await receiptPage.evaluate(initializeRegression);
+  results.paginatedReceiptSync = await receiptPage.evaluate(async () => {
+    const { app, fresh, vault } = window.regression;
+    fresh();
+    const { generateIdentity, createDeliveryReceipt, encryptMessage } = await import('/src/lib/crypto.ts');
+    const own = await generateIdentity();
+    const peer = await generateIdentity();
+    const roomId = crypto.randomUUID();
+    const members = [{ ...own.publicBundle, role: 'creator', status: 'active' }, { ...peer.publicBundle, role: 'joiner', status: 'active' }];
+    const session = await vault.createVault({ v: 1, roomId, accessToken: 'receipt-regression', role: 'creator', protocol: 'legacy-v1', lastSeq: 620, lastReceiptSeq: 0, members, identity: own }, 'receipt-regression-passphrase', 'password');
+    app.session = session;
+    const old = { seq: 1, clientMsgId: crypto.randomUUID(), senderId: own.publicBundle.deviceId, payload: { v: 1, kind: 'text', text: 'Archived receipt fixture', sentAt: new Date().toISOString() }, acceptedAt: new Date().toISOString(), status: 'stored' };
+    await vault.saveHistoryMessage(session, old);
+    const receipt = await createDeliveryReceipt({ ...session.vault, role: 'joiner', identity: peer }, { seq: old.seq, envelope: { roomId, clientMsgId: old.clientMsgId, senderId: old.senderId } });
+    let syncRequests = 0;
+    app.socket = { requestSync: () => { syncRequests++; }, requestReceiptSync: () => {}, close: () => {}, setChatPresence: () => {} };
+    app.receiptQueue.set(1, { receiptSeq: 1, receipt, acceptedAt: new Date().toISOString() });
+    await app.drainReceiptQueue();
+    // Empty responses used to request another sync for the same old receipt.
+    await app.drainServerQueue();
+    await app.drainServerQueue();
+    const saved = await vault.loadHistoryMessage(session, 1);
+    if (syncRequests || saved.status !== 'delivered' || session.vault.lastReceiptSeq !== 1 || app.receiptQueue.size) {
+      throw Error(`Paginated receipt caused a sync loop: ${JSON.stringify({ syncRequests, status: saved.status, receiptSeq: session.vault.lastReceiptSeq, queued: app.receiptQueue.size })}`);
+    }
+    if (app.messages.has(1)) throw Error('Receipt expanded the visible history page');
+    let securityFailures = 0;
+    const fatal = app.fatalSecurityError;
+    app.fatalSecurityError = () => { securityFailures++; };
+    app.receiptQueue.set(2, { receiptSeq: 2, receipt: { ...receipt, receivedAt: '2020-01-01T00:00:00.000Z' }, acceptedAt: new Date().toISOString() });
+    await app.drainReceiptQueue();
+    if (securityFailures !== 1 || session.vault.lastReceiptSeq !== 1) throw Error('Archived receipt bypassed signature verification');
+    app.receiptQueue.set(2, { receiptSeq: 2, receipt: { ...receipt, seq: 2 }, acceptedAt: new Date().toISOString() });
+    await app.drainReceiptQueue();
+    if (securityFailures !== 2 || syncRequests || session.vault.lastReceiptSeq !== 1) throw Error('Missing durable history retried forever or advanced the receipt cursor');
+    app.fatalSecurityError = fatal;
+    app.receiptQueue.clear();
+    const envelope = await encryptMessage(session.vault, old.payload);
+    app.renderGallery();
+    app.transitionPage('backward', () => app.renderChat());
+    const returningChat = document.querySelector('#app > .chat-shell');
+    app.serverQueue.set(621, { seq: 621, envelope, acceptedAt: new Date().toISOString() });
+    await app.drainServerQueue();
+    if (!returningChat.isConnected || app.activeSurface !== 'chat' || !app.messages.has(621)) throw Error('Incoming message reopened the outgoing gallery');
+    await new Promise(resolve => setTimeout(resolve, 450));
+    app.lockNow();
+    return { syncRequests, persistedDelivery: true, historyWindowPreserved: true, invalidReceiptRejected: true, missingHistoryStopped: true, incomingMessagePreservedReturn: true };
+  });
+  await receiptContext.close();
+
+  results.reconnectGalleryNavigation = await page.evaluate(async () => {
+    const { app, fresh } = window.regression;
+    fresh();
+    app.renderGallery();
+    const gallery = document.querySelector('.gallery-shell');
+    await app.drainServerQueue();
+    const emptySyncPreservedGallery = document.querySelector('.gallery-shell') === gallery;
+    app.transitionPage('backward', () => app.renderChat());
+    const chat = document.querySelector('#app > .chat-shell');
+    await app.drainServerQueue();
+    const returnSurvivedSync = chat?.isConnected && app.activeSurface === 'chat';
+    await new Promise(resolve => setTimeout(resolve, 450));
+    if (!emptySyncPreservedGallery || !returnSurvivedSync) {
+      throw Error(`Reconnect interrupted gallery navigation: ${JSON.stringify({ emptySyncPreservedGallery, returnSurvivedSync })}`);
+    }
+    app.lockNow();
+    return { emptySyncPreservedGallery, returnSurvivedSync };
+  });
+
   results.messageMenuScrollOrdering = await page.evaluate(async () => {
     const { app, fresh, message } = window.regression; fresh();
     app.messages = new Map(Array.from({ length: 40 }, (_, index) => [index + 1, message(index + 1)]));
