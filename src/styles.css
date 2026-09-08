@@ -212,6 +212,9 @@ label[role="button"]:active {
 .page-transition-outgoing .message-list {
   transform: translateY(var(--page-scroll-offset, 0));
 }
+.page-transition-outgoing[data-safe-departure] .image-preview {
+  visibility: hidden;
+}
 #app[data-page-transition='forward'] > .page-transition-incoming { animation-name: page-forward-in; z-index: 71; }
 #app[data-page-transition='forward'] > .page-transition-outgoing { animation-name: page-forward-out; }
 #app[data-page-transition='backward'] > .page-transition-incoming { animation-name: page-back-in; }
