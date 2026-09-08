@@ -474,9 +474,11 @@ try {
     let originProbe = document.querySelector('.chat-fixed-origin');
     let originalOriginBounds = originProbe.getBoundingClientRect;
     let nativeOrigin = 0;
+    let nativeBottom = 844;
     originProbe.getBoundingClientRect = () => new DOMRect(0, -nativeOrigin, 0, 0);
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
     const resize = value => {
+      nativeBottom = value;
       Object.defineProperty(visualViewport, 'height', { configurable: true, value });
       visualViewport.dispatchEvent(new Event('resize'));
     };
@@ -488,6 +490,16 @@ try {
         originProbe = app.chatLayoutElements.fixedOrigin;
         originalOriginBounds = originProbe.getBoundingClientRect;
         originProbe.getBoundingClientRect = () => new DOMRect(0, -nativeOrigin, 0, 0);
+        // Device fixed-bottom geometry moves independently of its fixed-top
+        // origin. Desktop WebKit keeps fixed elements at the full page height.
+        const bottomProbe = app.chatLayoutElements.fixedBottom;
+        bottomProbe.getBoundingClientRect = () => new DOMRect(0, nativeBottom, 0, 0);
+        const composer = app.chatLayoutElements.composer;
+        const composerBounds = composer.getBoundingClientRect.bind(composer);
+        composer.getBoundingClientRect = () => {
+          const rect = composerBounds();
+          return new DOMRect(rect.x, rect.y - (844 - nativeBottom), rect.width, rect.height);
+        };
         const input = document.querySelector('#message-input');
         input.focus({ preventScroll: true }); resize(430); await wait(750);
         app.scrollChatToBottom();
