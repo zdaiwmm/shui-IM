@@ -8,7 +8,7 @@ import { animatedGif, animatedWebp, animatedPng, staticPng, exifPrefix } from '.
 const server = await createServer({ configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0, hmr: false } });
 server.middlewares.use('/__photo_details', (_request, response) => {
   response.setHeader('Content-Type', 'text/html');
-  response.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="app"></div></body></html>');
+  response.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><meta id="system-chrome-color" name="theme-color" content="transparent"></head><body><div id="app"></div></body></html>');
 });
 const screenshotDirectory = process.argv[2];
 let browser;
@@ -24,6 +24,8 @@ try {
   await page.evaluate(async fixture => {
     for (const sheet of ['styles', 'chat-layout', 'gallery', 'auth-recovery', 'chat-interactions', 'cover', 'voice-messages']) await import(`/src/${sheet}.css`);
     const { QuietRoomApp } = await import('/src/app.ts');
+    const { mountSystemChrome } = await import('/src/lib/system-chrome.ts');
+    mountSystemChrome(document.querySelector('#app'));
     const vault = await import('/src/lib/vault.ts');
     const { encryptImageFile } = await import('/src/lib/file-crypto.ts');
     const app = new QuietRoomApp(document.querySelector('#app'));
@@ -119,9 +121,22 @@ try {
   await first.dispatchEvent('pointerdown', { isPrimary: true, button: 0, pointerType: 'touch', pointerId: 41, clientX: 30, clientY: 90 });
   await page.waitForSelector('[data-gallery-action="details"]');
   await first.dispatchEvent('pointerup', { isPrimary: true, button: 0, pointerType: 'touch', pointerId: 41 });
+  await page.evaluate(() => {
+    window.photoFocusTransfers = [];
+    const remove = Element.prototype.remove;
+    Element.prototype.remove = function () {
+      if (this.classList.contains('gallery-actions-sheet')) window.photoFocusTransfers.push(Boolean(document.activeElement?.closest('.image-viewer')));
+      return remove.call(this);
+    };
+  });
   await capture('gallery-menu-dark');
   await page.locator('[data-gallery-action="details"]').click();
   await ready();
+  assert.deepEqual(await page.evaluate(() => window.photoFocusTransfers), [true], 'focus must reach the viewer before its menu is removed');
+  await first.dispatchEvent('contextmenu');
+  assert.equal(await page.locator('.gallery-actions-sheet').count(), 0, 'late long-press contextmenu must not reopen above the viewer');
+  assert.equal(await page.locator('.cover-trigger').count(), 0);
+  assert.match(await page.locator('#system-chrome-color').getAttribute('content'), /^rgb\(/);
   assert.equal(await page.locator('[data-viewer-download]').count(), 0, 'Safe viewers must not offer downloads');
   await page.waitForFunction(() => document.querySelector('.photo-details')?.textContent.includes('Fixture Camera Test Model'));
   assert.match(await page.locator('.photo-details').innerText(), /2026年09月06日 16:28:35/);
@@ -183,9 +198,26 @@ try {
   }));
   assert.match(glass.filter, /blur\(/);
   assert.equal(glass.duration, '0.52s');
+  assert.equal(await page.locator('.photo-details-content').evaluate(content => getComputedStyle(content).scrollbarWidth), 'none');
   await page.locator('.photo-details-backdrop').click({ position: { x: 15, y: 180 } });
   await page.waitForSelector('.photo-details', { state: 'detached' });
   assert.equal(await page.locator('.image-viewer').count(), 1, 'outside dismissal must keep the image viewer');
+  await page.locator('[data-viewer-details]').click(); await settle();
+  const expansionHeader = await page.locator('.photo-details > header').boundingBox();
+  await page.mouse.move(expansionHeader.x + 80, expansionHeader.y + 20);
+  await page.mouse.down(); await page.mouse.move(expansionHeader.x + 80, expansionHeader.y - 180, { steps: 14 }); await page.mouse.up();
+  await settle();
+  const expanded = await page.locator('.photo-details').evaluate(panel => {
+    const bounds = panel.getBoundingClientRect(), parent = panel.parentElement.getBoundingClientRect();
+    return { expanded: panel.classList.contains('is-expanded'), top: bounds.top - parent.top, height: bounds.height - parent.height };
+  });
+  assert.equal(expanded.expanded, true);
+  assert.ok(Math.abs(expanded.top) < 1 && Math.abs(expanded.height) < 1, JSON.stringify(expanded));
+  await page.locator('.photo-details-content').focus(); await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('photo-details-handle')), true, 'fullscreen focus must stay in the sheet');
+  await capture('photo-details-fullscreen-dark');
+  await page.locator('[data-photo-details-close]').click();
+  await page.waitForSelector('.photo-details', { state: 'detached' });
   await page.locator('[data-viewer-details]').click(); await settle();
   const handle = await page.locator('.photo-details > header').boundingBox();
   await page.mouse.move(handle.x + 80, handle.y + 20);
@@ -204,6 +236,16 @@ try {
     await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
     for (let step = 1; step <= 8; step++) await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + step * 18 }] });
     await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await page.waitForSelector('.photo-details', { state: 'detached' });
+    await page.locator('[data-viewer-details]').click(); await settle();
+    const grip = await page.locator('.photo-details > header').boundingBox();
+    const upX = grip.x + 80, upY = grip.y + 20;
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: upX, y: upY }] });
+    for (let step = 1; step <= 8; step++) await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: upX, y: upY - step * 20 }] });
+    await touch.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await settle();
+    assert.equal(await page.locator('.photo-details.is-expanded').count(), 1, 'native upward touch expands to full screen');
+    await page.locator('[data-photo-details-close]').click();
     await page.waitForSelector('.photo-details', { state: 'detached' });
     await touch.detach();
   } else {
@@ -247,6 +289,7 @@ try {
     assert.equal(await page.locator('.viewer-media-layer img').getAttribute('src'), originalUrl);
     if (index === 1) await capture('motion-playing-dark');
     await page.evaluate(() => window.photoFixture.app.closeImageViewer(true));
+    await page.waitForFunction(() => document.querySelector('#system-chrome-color').content === 'transparent');
     assert.equal(await page.evaluate(url => window.photoFixture.revoked.has(url), stillUrl), true, 'closing revokes the exact still frame URL through the native API');
   }
 

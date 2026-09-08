@@ -21,16 +21,26 @@ export function mountPhotoDetails(viewer: HTMLElement, options: {
   panel.className = 'photo-details is-opening';
   panel.addEventListener('animationend', event => { if (event.animationName === 'photo-details-enter') panel.classList.remove('is-opening'); });
   panel.setAttribute('aria-label', '图片详情');
-  panel.innerHTML = `<div class="photo-details-handle" aria-hidden="true"></div>
+  panel.innerHTML = `<button class="photo-details-handle" type="button" aria-label="展开全屏图片详情" aria-expanded="false"></button>
     <header><h2>图片详情</h2><button class="viewer-control" type="button" data-photo-details-close aria-label="收起图片详情" title="收起图片详情"></button></header>
     <p class="photo-details-status" role="status">正在读取图片属性</p>
     <div class="photo-details-content" tabindex="0" aria-label="图片属性"></div>`;
   const close = panel.querySelector<HTMLButtonElement>('[data-photo-details-close]')!;
+  const expandButton = panel.querySelector<HTMLButtonElement>('.photo-details-handle')!;
   close.append(createElement(X));
   close.addEventListener('click', options.close);
   panel.addEventListener('keydown', event => {
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); options.close(); }
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') event.stopPropagation();
+    if (event.key === 'Tab' && panel.classList.contains('is-expanded')) {
+      event.stopPropagation();
+      const targets = [...panel.querySelectorAll<HTMLElement>('button, [tabindex="0"]')];
+      const index = targets.indexOf(document.activeElement as HTMLElement);
+      if ((event.shiftKey && index <= 0) || (!event.shiftKey && index === targets.length - 1)) {
+        event.preventDefault();
+        targets[event.shiftKey ? targets.length - 1 : 0]?.focus({ preventScroll: true });
+      }
+    }
   });
   const content = panel.querySelector<HTMLElement>('.photo-details-content')!;
   const status = panel.querySelector<HTMLElement>('.photo-details-status')!;
@@ -57,8 +67,11 @@ export function mountPhotoDetails(viewer: HTMLElement, options: {
   };
   let closing = false;
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
+  let resizeAnimation: Animation | undefined;
+  let suppressExpandClickUntil = 0;
   const destroy = () => {
     clearTimeout(closeTimer);
+    resizeAnimation?.cancel();
     options.signal.removeEventListener('abort', destroy);
     controller.abort();
     panel.remove();
@@ -71,6 +84,7 @@ export function mountPhotoDetails(viewer: HTMLElement, options: {
     closing = true;
     controller.abort();
     const transform = getComputedStyle(panel).transform;
+    resizeAnimation?.cancel();
     panel.style.setProperty('--details-drag', `${transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m42}px`);
     panel.classList.remove('is-opening');
     panel.inert = true;
@@ -79,26 +93,49 @@ export function mountPhotoDetails(viewer: HTMLElement, options: {
     closeTimer = setTimeout(destroy, 520);
   };
   options.signal.addEventListener('abort', destroy, { once: true });
-  let drag: { x: number; y: number; offset: number; distance: number; allowed: boolean } | undefined;
+  const expand = () => {
+    if (closing || panel.classList.contains('is-expanded')) return;
+    const top = panel.getBoundingClientRect().top;
+    panel.classList.remove('is-opening');
+    panel.classList.add('is-expanded');
+    expandButton.setAttribute('aria-expanded', 'true');
+    expandButton.setAttribute('aria-disabled', 'true');
+    if (!reducedMotion) resizeAnimation = panel.animate([
+      { transform: `translateY(${top - panel.getBoundingClientRect().top}px)` }, { transform: 'translateY(0)' },
+    ], { duration: 620, easing: 'cubic-bezier(.22,.7,.18,1)' });
+  };
+  expandButton.addEventListener('click', () => { if (performance.now() >= suppressExpandClickUntil) expand(); });
+  let drag: { x: number; y: number; offset: number; distance: number; content: boolean; allowed: boolean } | undefined;
   const beginDrag = (x: number, y: number, target: EventTarget | null) => {
-    if (closing || (target instanceof Element && target.closest('button'))) return;
+    if (closing || (target instanceof Element && target.closest('button') && target !== expandButton)) return;
     const transform = getComputedStyle(panel).transform;
     const offset = transform === 'none' ? 0 : new DOMMatrixReadOnly(transform).m42;
-    drag = { x, y, offset, distance: 0, allowed: !content.contains(target as Node) || content.scrollTop <= 0 };
+    resizeAnimation?.cancel();
+    resizeAnimation = undefined;
+    panel.style.setProperty('--details-drag', `${offset}px`);
+    drag = { x, y, offset, distance: 0, content: content.contains(target as Node), allowed: !content.contains(target as Node) || content.scrollTop <= 0 };
   };
   const moveDrag = (x: number, y: number, event: Event) => {
     if (!drag?.allowed) return;
     const distance = y - drag.y;
-    if (distance < 0 || Math.abs(x - drag.x) > Math.max(8, distance)) { drag.allowed = false; return; }
-    if (distance < 8) return;
+    if ((distance < 0 && drag.content) || Math.abs(x - drag.x) > Math.max(8, Math.abs(distance))) { drag.allowed = false; return; }
+    if (Math.abs(distance) < 8) return;
     if (event.cancelable) event.preventDefault();
     drag.distance = distance;
+    if (distance < 0 && !panel.classList.contains('is-expanded')) {
+      const top = panel.getBoundingClientRect().top;
+      panel.classList.add('is-expanded');
+      drag.offset += top - panel.getBoundingClientRect().top;
+      expandButton.setAttribute('aria-expanded', 'true');
+      expandButton.setAttribute('aria-disabled', 'true');
+    }
     panel.classList.remove('is-opening');
     panel.classList.add('is-dragging');
-    panel.style.setProperty('--details-drag', `${drag.offset + distance}px`);
+    panel.style.setProperty('--details-drag', `${Math.max(0, drag.offset + distance)}px`);
   };
   const endDrag = (cancel = false) => {
     const distance = drag?.distance ?? 0;
+    if (distance) suppressExpandClickUntil = performance.now() + 400;
     drag = undefined;
     panel.classList.remove('is-dragging');
     if (!cancel && distance >= Math.min(100, panel.clientHeight * 0.22)) options.close();

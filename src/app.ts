@@ -8446,6 +8446,7 @@ export class QuietRoomApp {
       // clears it so the following intentional tap still works.
     };
     const open = (fromPointerHold = false) => {
+      if (this.root.querySelector('.image-viewer') || !source.isConnected) return;
       this.suppressMediaClickUntil = Date.now() + 650;
       if (fromPointerHold) source.dataset.galleryHoldCommitted = 'true';
       navigator.vibrate?.(18);
@@ -8466,7 +8467,12 @@ export class QuietRoomApp {
       if (start && start.pointerId === event.pointerId && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 10) cancel();
     });
     for (const eventName of ['pointerup', 'pointercancel', 'pointerleave'] as const) source.addEventListener(eventName, release);
-    source.addEventListener('contextmenu', event => { event.preventDefault(); cancel(); open(); });
+    source.addEventListener('contextmenu', event => {
+      event.preventDefault();
+      cancel();
+      if (source.dataset.galleryHoldCommitted === 'true') return;
+      open();
+    });
     source.addEventListener('keydown', event => {
       if ((event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') {
         event.preventDefault();
@@ -8504,8 +8510,9 @@ export class QuietRoomApp {
     details?.prepend(createElement(Info));
     details?.addEventListener('click', () => {
       if (!openDetails || !this.isRuntimeActive(epoch, session) || session.vault.role !== 'creator') return;
-      dialog.close({ animate: false, restoreFocus: false });
       openDetails();
+      // Transfer focus to the connected viewer before removing the focused menu.
+      dialog.close({ animate: false, restoreFocus: false });
     });
     let saving = false;
     const finish = async (action: 'pin' | 'unpin' | 'hide') => {
