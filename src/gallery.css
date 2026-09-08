@@ -121,7 +121,7 @@
    user-triggered reveals only animate opacity, never the media dimensions. */
 .gallery-tile img { transform: scale(1.04); }
 .gallery-tile[data-revealed="false"] img {
-  filter: blur(16px);
+  filter: blur(var(--media-conceal-blur));
 }
 
 .image-preview:not(:disabled):active,
