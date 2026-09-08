@@ -1,14 +1,16 @@
 import { mountDialog, closeDialog } from './dialog';
 import { validateMemeFile, type MemeFavorite } from './meme-media';
+import { createElement, Smile, Star, Search, Keyboard, ChevronDown, Image, X } from 'lucide';
 
 export const memeIcons = {
-  smile: '<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 14s1 3 4 3 4-3 4-3M8 8h.01M16 8h.01"/></svg>',
-  star: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/></svg>',
-  search: '<svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>',
-  keyboard: '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M7 16h10"/></svg>',
-  down: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>',
-  image: '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8" cy="8" r="1"/><path d="m21 15-5-5L5 21"/></svg>',
+  smile: createElement(Smile).outerHTML,
+  star: createElement(Star).outerHTML,
+  search: createElement(Search).outerHTML,
+  keyboard: createElement(Keyboard).outerHTML,
+  down: createElement(ChevronDown).outerHTML,
+  image: createElement(Image).outerHTML,
 };
+const categories = ['热门', '搞笑', '可爱', '开心', '无语', '生气', '晚安', '打工'];
 
 type SearchItem = { id: string; title: string };
 type Item = { id: string; title: string; favorite?: MemeFavorite };
@@ -19,7 +21,7 @@ export type MemePickerOptions = {
   save: (file: File, signal: AbortSignal) => Promise<boolean>;
   remove: (id: string, signal: AbortSignal) => Promise<void>;
   send: (file: File, signal: AbortSignal) => Promise<void>;
-  search: (query: string, page: number, signal: AbortSignal) => Promise<{ items: SearchItem[]; nextPage: number | null }>;
+  search: (query: string, page: number, signal: AbortSignal) => Promise<{ items: SearchItem[]; nextPage: number | null; source?: string }>;
   media: (id: string, signal: AbortSignal) => Promise<Blob>;
   close: (keyboard: boolean) => void;
   onSearchPointer: (input: HTMLInputElement, event: PointerEvent) => void;
@@ -38,10 +40,11 @@ export class MemePicker {
   private observer!: IntersectionObserver;
   private tiles = new Map<HTMLElement, { item: Item; url?: string; file?: File; controller?: AbortController; visible: boolean }>();
   private favorites: MemeFavorite[] = [];
-  private tab: 'favorites' | 'search' = 'favorites';
+  private tab: 'favorites' | 'search' = 'search';
   private query = '';
   private nextPage: number | null = null;
-  private consent = false;
+  private category = '热门';
+  private disposed = false;
   private generation = 0;
   private busy = false;
   private preview: HTMLElement | null = null;
@@ -54,18 +57,20 @@ export class MemePicker {
     this.panel.className = 'meme-panel';
     this.panel.id = 'meme-panel';
     this.panel.setAttribute('aria-label', '梗图');
+    this.panel.setAttribute('role', 'dialog');
+    this.panel.setAttribute('aria-modal', 'true');
     this.panel.innerHTML = `
-      <button type="button" class="meme-grip" aria-label="展开梗图面板" aria-expanded="false"><span></span></button>
+      <header class="meme-header"><h2>梗图</h2><button type="button" class="icon-button" data-mode="close" aria-label="关闭梗图" title="关闭">${createElement(X).outerHTML}</button></header>
       <div class="meme-search"><label class="sr-only" for="meme-query">搜索梗图</label>
-        <input id="meme-query" type="search" maxlength="80" placeholder="搜索收藏" autocomplete="off" enterkeyhint="search" />
+        <input id="meme-query" type="search" maxlength="80" placeholder="搜索网络梗图" autocomplete="off" enterkeyhint="search" />
         <button type="button" aria-label="搜索" title="搜索">${memeIcons.search}</button></div>
+      <div class="meme-categories" role="group" aria-label="梗图类型">${categories.map(category => `<button type="button" data-category="${category}" aria-pressed="${category === '热门'}">${category}</button>`).join('')}</div>
       <div class="meme-scroll"><div class="meme-grid" role="group" aria-label="梗图列表"></div>
         <p class="meme-status" role="status"></p><button type="button" class="meme-more" hidden>加载更多</button></div>
       <nav class="meme-tabs" aria-label="梗图分类">
-        <button type="button" data-mode="keyboard" aria-label="切回键盘" title="切回键盘">${memeIcons.keyboard}</button>
-        <div role="tablist" aria-label="梗图来源"><button type="button" role="tab" aria-selected="true" data-mode="favorites" title="我的收藏" aria-label="我的收藏">${memeIcons.star}</button>
-        <button type="button" role="tab" aria-selected="false" data-mode="search" title="网络梗图" aria-label="网络梗图" tabindex="-1">${memeIcons.image}</button></div>
-        <button type="button" data-mode="close" aria-label="收起梗图面板" title="收起">${memeIcons.down}</button>
+        <span class="meme-source"></span>
+        <div role="tablist" aria-label="梗图来源"><button type="button" role="tab" aria-selected="true" data-mode="search" title="网络梗图" aria-label="网络梗图">${memeIcons.image}<span>网络梗图</span></button>
+        <button type="button" role="tab" aria-selected="false" data-mode="favorites" title="我的收藏" aria-label="我的收藏" tabindex="-1">${memeIcons.star}<span>收藏</span></button></div>
       </nav>`;
     this.grid = this.panel.querySelector('.meme-grid')!;
     this.status = this.panel.querySelector('.meme-status')!;
@@ -77,6 +82,12 @@ export class MemePicker {
       if (event.key === 'Enter' && !event.isComposing) { event.preventDefault(); event.stopPropagation(); void this.submit(); }
     });
     this.panel.querySelector('.meme-search button')!.addEventListener('click', () => void this.submit());
+    this.panel.querySelectorAll<HTMLButtonElement>('[data-category]').forEach(button => button.addEventListener('click', () => {
+      this.category = button.dataset.category!;
+      this.input.value = '';
+      this.panel.querySelectorAll('[data-category]').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+      void this.submit();
+    }));
     this.more.addEventListener('click', () => void this.search(false));
     this.panel.querySelector('.meme-scroll')!.addEventListener('scroll', event => {
       const el = event.currentTarget as HTMLElement;
@@ -94,25 +105,10 @@ export class MemePicker {
       const key = (event as KeyboardEvent).key;
       if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key)) {
         event.preventDefault();
-        const tab = key === 'Home' ? 'favorites' : key === 'End' ? 'search' : this.tab === 'favorites' ? 'search' : 'favorites';
+        const tab = key === 'Home' ? 'search' : key === 'End' ? 'favorites' : this.tab === 'favorites' ? 'search' : 'favorites';
         void this.switchTab(tab);
         this.panel.querySelector<HTMLButtonElement>(`[data-mode="${tab}"]`)!.focus();
       }
-    });
-    this.panel.addEventListener('keydown', event => { if (event.key === 'Escape') { event.stopPropagation(); options.close(false); } });
-    const grip = this.panel.querySelector<HTMLButtonElement>('.meme-grip')!;
-    const expand = (value: boolean) => {
-      this.panel.classList.toggle('is-expanded', value); grip.setAttribute('aria-expanded', String(value));
-      grip.setAttribute('aria-label', value ? '缩小梗图面板' : '展开梗图面板');
-    };
-    grip.addEventListener('click', () => expand(!this.panel.classList.contains('is-expanded')));
-    let startY = 0;
-    grip.addEventListener('pointerdown', event => { startY = event.clientY; grip.setPointerCapture(event.pointerId); });
-    grip.addEventListener('pointerup', event => {
-      if (Math.abs(event.clientY - startY) < 20) return;
-      expand(event.clientY < startY);
-      const cancelClick = (click: Event) => { click.preventDefault(); click.stopImmediatePropagation(); };
-      grip.addEventListener('click', cancelClick, { capture: true, once: true });
     });
     this.observer = new IntersectionObserver(entries => {
       for (const entry of entries) {
@@ -123,9 +119,23 @@ export class MemePicker {
       }
       this.hydrate();
     }, { root: this.panel.querySelector('.meme-scroll'), rootMargin: '0px' });
-    options.host.append(this.panel);
+    options.root.append(this.panel);
+    mountDialog(this.panel, { signal: this.signal, isActive: () => this.active(),
+      returnFocus: options.root.querySelector<HTMLElement>('#open-memes'),
+      initialFocus: this.panel.querySelector<HTMLElement>('[data-mode="close"]'),
+      onClose: () => { if (!this.disposed) options.close(false); },
+    });
+    const syncViewport = () => {
+      const viewport = window.visualViewport;
+      this.panel.style.setProperty('--meme-height', `${viewport?.height ?? window.innerHeight}px`);
+      this.panel.style.setProperty('--meme-top', `${viewport?.offsetTop ?? 0}px`);
+    };
+    window.visualViewport?.addEventListener('resize', syncViewport, { signal: this.signal });
+    window.visualViewport?.addEventListener('scroll', syncViewport, { signal: this.signal });
+    window.addEventListener('resize', syncViewport, { signal: this.signal });
+    syncViewport();
     this.signal.addEventListener('abort', () => this.dispose(), { once: true });
-    void this.switchTab('favorites');
+    void this.switchTab('search');
   }
 
   private active() { return !this.signal.aborted && this.options.isActive() && this.panel.isConnected; }
@@ -144,7 +154,10 @@ export class MemePicker {
       const selected = button.dataset.mode === tab;
       button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1;
     });
-    if (tab === 'search') { this.say('输入关键词搜索'); return; }
+    (this.panel.querySelector('.meme-categories') as HTMLElement).hidden = tab !== 'search';
+    this.panel.dataset.tab = tab;
+    this.panel.querySelector('.meme-source')!.textContent = '';
+    if (tab === 'search') { await this.submit(); return; }
     const generation = this.generation;
     this.say('正在读取收藏…');
     try {
@@ -164,16 +177,7 @@ export class MemePicker {
     this.input.blur();
     if (this.tab === 'favorites') { this.renderFavorites(); return; }
     const query = this.input.value.trim();
-    if (!query) { this.say('请输入搜索关键词'); return; }
-    if (!this.consent) {
-      this.status.replaceChildren();
-      const notice = document.createElement('span');
-      notice.textContent = '联网搜索会将关键词发送给搜索服务；应用服务端也会处理关键词与公开图片。';
-      const agree = document.createElement('button'); agree.type = 'button'; agree.textContent = '同意并搜索';
-      agree.addEventListener('click', () => { this.consent = true; void this.submit(); }, { once: true });
-      this.status.append(notice, agree); return;
-    }
-    this.query = query; this.clear(); this.nextPage = 1;
+    this.query = query || this.category; this.clear(); this.nextPage = 1;
     this.autoLoad = true;
     await this.search(true);
   }
@@ -187,6 +191,7 @@ export class MemePicker {
       const result = await this.options.search(this.query, this.nextPage, signal);
       if (!this.active() || generation !== this.generation) return;
       this.append(result.items); this.nextPage = result.nextPage;
+      this.panel.querySelector('.meme-source')!.textContent = result.source === 'Imgflip' ? 'Imgflip · 热门图库' : '';
       this.autoLoad = true; this.more.textContent = '加载更多';
       this.more.hidden = !this.nextPage;
       this.say(first && !result.items.length ? '没有找到相关梗图' : !this.nextPage ? '没有更多了' : '');
@@ -264,7 +269,7 @@ export class MemePicker {
         }
       }
       if (!this.active()) return;
-      if (action === 'send') this.say('');
+      if (action === 'send') this.say('已发送');
       if (action === 'remove') await this.switchTab('favorites');
     } catch (error) { if (this.active()) this.say(error instanceof Error ? error.message : '操作失败，请重试'); }
     finally { this.busy = false; this.panel.removeAttribute('aria-busy'); }
@@ -295,10 +300,14 @@ export class MemePicker {
     } catch { if (!controller.signal.aborted) sheet.querySelector('.meme-preview-image')!.textContent = '图片加载失败，可关闭后重试'; }
   }
   dispose() {
+    if (this.disposed) return;
+    this.disposed = true;
     if (!this.controller.signal.aborted) this.controller.abort();
     if (this.preview) closeDialog(this.preview, { animate: false, restoreFocus: false });
     this.observer?.disconnect(); this.request?.abort();
     for (const tile of this.tiles.keys()) this.unload(tile);
-    this.tiles.clear(); this.favorites = []; this.panel.remove();
+    this.tiles.clear(); this.favorites = [];
+    closeDialog(this.panel, { animate: false, restoreFocus: false });
+    this.panel.remove();
   }
 }
