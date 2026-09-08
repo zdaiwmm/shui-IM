@@ -33,10 +33,10 @@
 - 组合已快进本机 main。可信局域网 HTTPS 回读的聊天／通话 CSS 与候选逐字节一致，
   后端 ok/database/storage 均为 true；前后端 cwd 均为 `/Users/zhouding/quiet-room-local-main`，
   本轮通过 Vite 热更新交付，未重启后端。随后文档对账提交不改变已验证应用文件。
-- 呼吸灯强度反馈仅调整局部动画样式；`npm run check` 再次通过 500 项测试，
-  WebKit `frontend-lifecycle.e2e.mjs` 及明暗主题截图通过，减少动态效果仍禁用动画。
+- 呼吸灯强度反馈最终采用 2.4 秒中间档，仅调整局部动画样式；`npm run check` 通过 500 项测试，
+  WebKit `frontend-lifecycle.e2e.mjs` 通过，减少动态效果仍禁用动画；本次未重新生成截图。
   此次未重复跨页面完整套件；前述完整门禁对应原集成候选。
-  调整提交 `61266ea` 已快进本机 main，可信 HTTPS 返回的 CSS 与该候选逐字节一致，
+  调整提交 `8211240` 已快进本机 main，可信 HTTPS 返回的 CSS 与该候选逐字节一致，
   后端健康全部通过；前后端仍从 main 运行，无需重启。
 - iPhone / iOS 27 / Safari 真机未验收，
   GitHub 未推送、CI 未运行、生产未发布；共享源目录的四个既有未提交文件未纳入。
