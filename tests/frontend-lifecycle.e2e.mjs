@@ -2246,6 +2246,56 @@ try {
       await page.screenshot({ path: path.join(visualQaDirectory, `chat-glass-${scheme}-390.png`) });
     }
   }
+  const touchPage = await browser.newPage({ hasTouch: true, viewport: { width: 390, height: 844 },
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
+  try {
+    await touchPage.goto(`http://localhost:${server.httpServer.address().port}/__frontend_regression`);
+    await touchPage.evaluate(initializeRegression);
+    results.touchHeaderAnchor = await touchPage.evaluate(async () => {
+      const { app, message } = window.regression;
+      // Chromium cannot acquire WebKit capabilities through a mobile UA.
+      // Exercise the same native-coordinate branch in both engine runs.
+      app.visualClientCoordinates = true;
+      app.refreshNativeChatChrome();
+      app.messages = new Map(Array.from({ length: 120 }, (_, i) => [i + 1, message(i + 1)]));
+      app.renderMessages({ scroll: 'bottom' });
+      const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await settle();
+      const header = document.querySelector('.chat-header');
+      const positions = [];
+      for (const fraction of [1, 0.98, 0.85, 0.5, 0, 1]) {
+        window.scrollTo(0, (document.documentElement.scrollHeight - innerHeight) * fraction);
+        await settle();
+        const top = header.getBoundingClientRect().top;
+        if (getComputedStyle(header).position !== 'fixed' || Math.abs(top) > 1) {
+          throw Error(`Touch Safari history scroll displaced title: ${JSON.stringify({ fraction, top, scrollY })}`);
+        }
+        positions.push(top);
+      }
+      app.connectionState = 'connected'; app.rolePresence = { creator: true, joiner: true }; app.updatePeerStatus();
+      return positions;
+    });
+    for (const colorScheme of ['light', 'dark']) {
+      await touchPage.emulateMedia({ colorScheme });
+      await touchPage.evaluate(async () => {
+        const controls = [...document.querySelectorAll('.chat-header .icon-button')];
+        const picker = document.querySelector('.composer .image-picker');
+        for (const control of controls) if (control instanceof HTMLButtonElement) control.disabled = false;
+        picker.classList.remove('is-disabled');
+        await new Promise(resolve => setTimeout(resolve, 200));
+        const expected = getComputedStyle(picker).color;
+        if (controls.some(control => getComputedStyle(control).color !== expected)) throw Error('Header and composer icon colors differ');
+        const dot = document.querySelector('#peer-presence .presence-dot');
+        if (getComputedStyle(dot).animationName !== 'chat-presence-breathe') throw Error('Online indicator is missing its breathing animation');
+        window.regression.app.rolePresence.joiner = false; window.regression.app.updatePeerStatus();
+        if (getComputedStyle(dot).animationName !== 'none') throw Error('Offline indicator kept breathing');
+        window.regression.app.rolePresence.joiner = true; window.regression.app.updatePeerStatus();
+      });
+      if (visualQaDirectory) await touchPage.screenshot({ path: path.join(visualQaDirectory, `chat-header-touch-${colorScheme}.png`) });
+    }
+    await touchPage.emulateMedia({ reducedMotion: 'reduce' });
+    assert.equal(await touchPage.locator('#peer-presence .presence-dot').evaluate(dot => getComputedStyle(dot).animationName), 'none');
+  } finally { await touchPage.close(); }
   // A wide mobile-emulated page does not exercise desktop scrolling. Use the
   // engine's real desktop user agent and pointer model in a separate context.
   const desktopPage = await browser.newPage({ viewport: { width: 1024, height: 768 } });

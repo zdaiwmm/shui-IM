@@ -49,14 +49,8 @@ body:has(:where(#app) > .chat-shell) {
   pointer-events: none;
 }
 .chat-fixed-bottom { top: auto; bottom: 0; }
-.chat-shell[data-native-chrome="true"] .chat-header {
-  position: sticky;
-  top: 0;
-  max-width: 880px;
-  margin-inline: auto;
-  margin-bottom: calc(-1 * var(--chat-header-height));
-  translate: none;
-}
+/* Keep the title outside document-flow/sticky bounds, including Safari's
+   bottom overscroll. positionChatChrome corrects its fixed viewport origin. */
 .chat-header::before,
 .composer::before {
   content: '';
@@ -83,8 +77,30 @@ body:has(:where(#app) > .chat-shell) {
 }
 .presence-heading { display: flex; align-items: center; justify-content: center; gap: 10px; }
 .presence-heading .presence-row { gap: 4px; color: var(--ink); font-size: 0.8125rem; font-weight: 650; }
+.chat-header .presence-row[data-state="online"] .presence-dot {
+  background: oklch(61% 0.185 147);
+  box-shadow: 0 0 0 2px oklch(61% 0.185 147 / 0.13);
+  animation: chat-presence-breathe 3.2s ease-in-out infinite;
+}
+@media (prefers-color-scheme: dark) {
+  .chat-header .presence-row[data-state="online"] .presence-dot {
+    background: oklch(73% 0.18 147);
+    box-shadow: 0 0 0 2px oklch(73% 0.18 147 / 0.13);
+  }
+}
+@keyframes chat-presence-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.85); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-header .presence-row[data-state="online"] .presence-dot { animation: none; }
+}
 .peer-summary > .peer-status { flex: none; width: 100%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 0.6875rem; font-weight: 500; }
 .header-actions { grid-column: 3; justify-self: end; gap: 8px; }
+.chat-header .icon-button:disabled {
+  opacity: 1;
+  color: var(--ink-faint);
+}
 /* Each bounded control samples the conversation directly. The edge wash above
    has no filter, so it cannot flatten the backdrop before the glass sees it. */
 .chat-header .icon-button,
