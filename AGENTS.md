@@ -4,6 +4,13 @@
 
 ## 接手顺序
 
+每个新会话先读本机 `main` 中本文件及
+[`workflow.md` 的固定交付流程](docs/context/workflow.md#固定交付流程)，报告规则来源提交和当前任务的授权范围。
+可用 `git show main:AGENTS.md`、`git show main:docs/context/workflow.md` 只读取得本机规则，
+再按下列顺序读取任务版本的上下文。没有本机 main 时使用当前版本并说明来源；远端同步仍按现有授权规则执行。
+规则更新必须提交到 main；新会话加载规则不代表继承其他任务的推送、合并或发布授权，
+每次生产发布仍须用户确认本次精确提交。生效范围见[新会话入口](docs/context/maintenance.md#新会话入口)。
+
 0. **任何文件修改前先完成任务隔离**：读取 [工作流开工门槛](docs/context/workflow.md#开工隔离门槛)，核验并报告本任务工作树路径、分支和基线。共享主目录仅供只读接手，不能因目录干净或处于非 main 分支就认定独占。无法确认归属时新建 worktree；隔离失败时不得退回共享目录写代码。
 1. 先读 [`docs/context/status.md`](docs/context/status.md)，确认当前提交、工作树、已知漂移和证据级别。
 2. 用 [`docs/context/overview.md`](docs/context/overview.md) 定位本次任务涉及的代码、详细文档和测试。

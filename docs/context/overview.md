@@ -4,6 +4,7 @@
 
 ## 一分钟认识项目
 
+- 每个新会话先读[固定交付流程](workflow.md#固定交付流程)：统一同步、盘点、集成、验证、PR、发布、回读和对账；[入口生效范围](maintenance.md#新会话入口)说明旧工作树与跨电脑的规则加载。
 - 技术栈：原生 TypeScript/DOM + Vite 前端，Node.js ESM 服务端，SQLite 和文件系统密文存储，Vitest 与 Playwright 测试。
 - 运行要求：Node.js 24 或以上；服务端使用内置 `node:sqlite`。
 - 前端启动：`src/main.ts` 加载样式、实例化 `QuietRoomApp`，并在生产环境注册 Service Worker。
