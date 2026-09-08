@@ -91,6 +91,8 @@ jobs:
           cache: npm
       - run: npm ci --no-audit
       - run: npx playwright install --with-deps chromium
+      - if: matrix.group == 2
+        run: npx playwright install --with-deps webkit
       # The backup/admin browser fixture serves dist/admin.html.
       - run: npm run build
       - run: npm run test:browser -- --group ${{ matrix.group }}

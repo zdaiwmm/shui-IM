@@ -13,7 +13,7 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
     };
   });
   const start = async () => {
-    await creator.locator('#record-voice').click();
+    await creator.locator('#message-input').press('Alt+r');
     await creator.locator('.voice-recorder[data-state="recording"]').waitFor();
   };
   const pause = async () => {
@@ -72,7 +72,7 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   // encrypted attachment/outbox path and produce exactly one peer message.
   const beforeHold = await creator.locator('.voice-player').count();
   const beforePeerHold = await joiner.locator('.message.incoming .voice-player').count();
-  const microphone = await creator.locator('#record-voice').boundingBox();
+  const microphone = await creator.locator('#message-input').boundingBox();
   assert(microphone, 'Microphone trigger must be visible for held recording');
   await creator.mouse.move(microphone.x + microphone.width / 2, microphone.y + microphone.height / 2);
   await creator.mouse.down();
@@ -144,7 +144,7 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
     window.__voiceWrappedGetUserMedia = navigator.mediaDevices.getUserMedia;
     navigator.mediaDevices.getUserMedia = () => new Promise(resolve => { window.__resolveVoicePermission = resolve; });
   });
-  await creator.locator('#record-voice').click();
+  await creator.locator('#message-input').press('Alt+r');
   await creator.locator('.voice-recorder[data-state="requesting"]').waitFor();
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
   assert.equal(await creator.locator('.cover-trigger').count(), 0, 'The first visible native permission blur must retain its requesting UI');
@@ -164,7 +164,7 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   await creator.evaluate(() => {
     navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Denied', 'NotAllowedError'); };
   });
-  await creator.locator('#record-voice').click();
+  await creator.locator('#message-input').press('Alt+r');
   await creator.locator('#notice').filter({ hasText: '麦克风权限' }).waitFor();
   assert.equal(await creator.locator('.voice-recorder').isVisible(), false);
   await creator.evaluate(() => { navigator.mediaDevices.getUserMedia = window.__voiceWrappedGetUserMedia; });

@@ -2,12 +2,14 @@ import { argon2id } from 'hash-wasm';
 import { fromBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
 import { normalizeMemeIndex, MAX_MEME_FAVORITES, MAX_MEME_LIBRARY_BYTES, MAX_MEME_BYTES, MEME_TYPES, type MemeFavorite } from './meme-media';
+import { MAX_PACK_BYTES, MAX_PACK_ITEMS, MAX_PACK_LIBRARY_BYTES, MAX_STICKER_PACKS, type StickerPack } from './sticker-library';
 import { downloadBlob } from './download';
 import { generateIdentity } from './crypto';
 import { createRecoveryRequest } from './mls';
 import { isMessagePayload } from './message-payload';
 import { isGalleryMediaPayload } from './video-media';
 import { normalizeGalleryCurationRecords, type GalleryCurationRecord } from './gallery-curation';
+import { normalizeAttachmentFavorites, type AttachmentFavorite } from './attachment-favorites';
 import type { CloudRecoveryBundle } from './backup-types';
 import { parseCloudRecoveryCode } from './backup-crypto';
 import {
@@ -150,6 +152,7 @@ export type UiPreferences = {
   hiddenChatMessageIds?: string[];
   /** Device-local Safe ordering/removal projection. */
   galleryCuration?: GalleryCurationRecord[];
+  attachmentFavorites?: AttachmentFavorite[];
 };
 
 type UnlockThrottle = {
@@ -1491,6 +1494,82 @@ export async function loadMemeFavorites(session: VaultSession): Promise<MemeFavo
   return record ? normalizeMemeIndex(await decryptLocalRecord(session, 'memeFavorites', record)) : [];
 }
 
+export async function loadStickerPacks(session: VaultSession): Promise<StickerPack[]> {
+  const record = await transaction<StoredLocalRecord | undefined>('memeFavorites', 'readonly', store => store.get(`${session.vault.roomId}:packs`));
+  if (!record) return [];
+  const packs = await decryptLocalRecord<StickerPack[]>(session, 'memeFavorites', record);
+  if (!Array.isArray(packs) || packs.length > MAX_STICKER_PACKS) throw new Error('贴纸合集索引已损坏');
+  let total = 0;
+  const ids = new Set<string>();
+  for (const pack of packs) {
+    if (!pack || !/^[a-z0-9-]{1,80}$/.test(pack.id) || ids.has(pack.id) || typeof pack.title !== 'string' || pack.title.length > 120
+      || !Number.isSafeInteger(pack.installedAt) || !Array.isArray(pack.items) || !pack.items.length || pack.items.length > MAX_PACK_ITEMS) throw new Error('贴纸合集索引已损坏');
+    ids.add(pack.id);
+    // Apply the same authenticated media metadata checks, in bounded pages.
+    for (let offset = 0; offset < pack.items.length; offset += MAX_MEME_FAVORITES) normalizeMemeIndex(pack.items.slice(offset, offset + MAX_MEME_FAVORITES));
+    const bytes = pack.items.reduce((sum, item) => sum + item.size, 0);
+    if (bytes > MAX_PACK_BYTES) throw new Error('贴纸合集超出限制');
+    total += bytes;
+  }
+  if (total > MAX_PACK_LIBRARY_BYTES) throw new Error('贴纸空间超出限制');
+  return packs;
+}
+
+/** Whole packs become visible only after all verified originals commit together. */
+export async function installStickerPack(session: VaultSession, id: string, title: string, files: File[], signal: AbortSignal): Promise<void> {
+  if (!/^[a-z0-9-]{1,80}$/.test(id) || title.length > 120 || !files.length || files.length > MAX_PACK_ITEMS
+    || files.some(file => !file.size || file.size > MAX_MEME_BYTES || !MEME_TYPES.includes(file.type))
+    || files.reduce((sum, file) => sum + file.size, 0) > MAX_PACK_BYTES) throw new Error('贴纸合集格式或大小不受支持');
+  await withVaultMutation(session, async () => {
+    signal.throwIfAborted();
+    const packs = await loadStickerPacks(session);
+    if (packs.some(pack => pack.id === id)) return;
+    if (packs.length >= MAX_STICKER_PACKS || packs.flatMap(pack => pack.items).reduce((sum, item) => sum + item.size, 0)
+      + files.reduce((sum, file) => sum + file.size, 0) > MAX_PACK_LIBRARY_BYTES) throw new Error('贴纸空间已满，请先移除部分合集');
+    const items: MemeFavorite[] = []; const originals: StoredLocalRecord[] = []; const digests = new Set<string>();
+    for (const file of files) {
+      signal.throwIfAborted();
+      const bytes = await file.arrayBuffer();
+      const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(byte => byte.toString(16).padStart(2, '0')).join('');
+      if (digests.has(digest)) continue;
+      digests.add(digest);
+      const item: MemeFavorite = { id: crypto.randomUUID(), digest, name: file.name.slice(0, 120), type: file.type, size: file.size, savedAt: Date.now() };
+      items.push(item); originals.push(await encryptLocalRecord(session, 'memeFavorites', item.id, toBase64Url(bytes)));
+    }
+    const index = await encryptLocalRecord(session, 'memeFavorites', 'packs', [...packs, { id, title, items, installedAt: Date.now() }]);
+    await commitStickerRecords(session, [...originals, index], [], signal);
+  });
+}
+
+export async function removeStickerPack(session: VaultSession, id: string, signal: AbortSignal): Promise<void> {
+  await withVaultMutation(session, async () => {
+    signal.throwIfAborted();
+    const packs = await loadStickerPacks(session);
+    const removed = packs.find(pack => pack.id === id);
+    const index = await encryptLocalRecord(session, 'memeFavorites', 'packs', packs.filter(pack => pack.id !== id));
+    await commitStickerRecords(session, [index], removed?.items.map(item => item.id) ?? [], signal);
+  });
+}
+
+async function commitStickerRecords(session: VaultSession, records: StoredLocalRecord[], deleted: string[], signal: AbortSignal) {
+  signal.throwIfAborted();
+  const database = await openDatabase();
+  if (signal.aborted) { database.close(); signal.throwIfAborted(); }
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction(['vault', 'memeFavorites'], 'readwrite');
+    const abort = () => { try { tx.abort(); } catch { /* Transaction already finished. */ } };
+    signal.addEventListener('abort', abort, { once: true });
+    const current = tx.objectStore('vault').get('current');
+    current.onsuccess = () => { if (!sameStoredVault(current.result, session.stored)) tx.abort(); };
+    const store = tx.objectStore('memeFavorites');
+    for (const record of records) store.put(record);
+    for (const id of deleted) store.delete(`${session.vault.roomId}:${id}`);
+    const cleanup = () => { signal.removeEventListener('abort', abort); database.close(); };
+    tx.oncomplete = () => { cleanup(); resolve(); };
+    tx.onabort = () => { cleanup(); reject(tx.error ?? staleVaultError()); };
+  });
+}
+
 export async function loadMemeFavoriteFile(session: VaultSession, item: MemeFavorite, signal: AbortSignal): Promise<File> {
   signal.throwIfAborted();
   const record = await transaction<StoredLocalRecord | undefined>('memeFavorites', 'readonly', store => store.get(`${session.vault.roomId}:${item.id}`));
@@ -1587,6 +1666,12 @@ function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: b
   const hiddenChatMessageIds = Array.isArray(rawHidden) && validHidden
     ? [...new Set(rawHidden.map((id) => id.toLowerCase()))] : [];
   let galleryCuration: GalleryCurationRecord[] = [];
+  let attachmentFavorites: AttachmentFavorite[] = [];
+  try {
+    attachmentFavorites = normalizeAttachmentFavorites(source.attachmentFavorites ?? []);
+  } catch (cause) {
+    if (strict) throw new Error('收藏偏好记录格式不正确', { cause });
+  }
   try {
     galleryCuration = normalizeGalleryCurationRecords(source.galleryCuration ?? []);
   } catch (cause) {
@@ -1600,6 +1685,7 @@ function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: b
     recoveryReminderDismissed: source.recoveryReminderDismissed === true,
     ...(hiddenChatMessageIds.length ? { hiddenChatMessageIds } : {}),
     ...(galleryCuration.length ? { galleryCuration } : {}),
+    ...(attachmentFavorites.length ? { attachmentFavorites } : {}),
   };
 }
 

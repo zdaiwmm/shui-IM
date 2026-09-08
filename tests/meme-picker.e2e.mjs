@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
 
 const server = await createServer({ configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0, hmr: false } });
@@ -12,7 +12,7 @@ server.middlewares.use('/__memes', (_req, res) => {
 let browser;
 try {
   await server.listen();
-  browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
+  browser = process.env.MEME_WEBKIT === '1' ? await webkit.launch() : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__memes`);
@@ -57,39 +57,58 @@ try {
     app.renderChat();
     document.querySelector('#message-input').value = '保留这份草稿';
     const realFetch = window.fetch.bind(window); const requests = [];
+    const { starterGifs, starterPacks } = await import('/src/lib/sticker-library.ts');
+    const networkGif = await (await realFetch(starterGifs[0].asset)).blob();
     window.fetch = async (input, init) => {
       const url = new URL(typeof input === 'string' ? input : input.url,location.href);
       if (url.pathname.endsWith('/memes/search')) {
         const body = JSON.parse(init.body); requests.push(body);
         if (body.keyword === '失败') return new Response('{}',{status:503});
-        return Response.json({items:files.slice(0,6).map((file,index)=>({id:`00000000-0000-4000-8000-${String(index+body.page*10).padStart(12,'0')}`,title:file.name})),nextPage:body.page===1?2:null});
+        if (body.keyword === '预置') return Response.json({items:[],packs:[{id:starterPacks[0].id,title:starterPacks[0].title,cover:'00000000-0000-4000-8000-000000000000'}],nextPage:null});
+        if (body.kind === 'stickers') return Response.json({items:[],packs:[{id:'a'.repeat(32),title:'测试合集',cover:'00000000-0000-4000-8000-000000000000'}],nextPage:null});
+        return Response.json({items:files.slice(0,6).map((file,index)=>({id:`11111111-0000-4000-8000-${String(index+body.page*10).padStart(12,'0')}`,title:file.name})),nextPage:body.page===1?2:null});
       }
-      if (url.pathname.endsWith('/memes/media')) return new Response(files[0],{headers:{'Content-Type':'image/png'}});
+      if (url.pathname.endsWith('/memes/pack')) return Response.json({id:'a'.repeat(32),title:'测试合集',items:files.slice(0,3).map((file,index)=>({id:`00000000-0000-4000-8000-${String(index).padStart(12,'0')}`,title:file.name}))});
+      if (url.pathname.endsWith('/memes/media')) { const id=JSON.parse(init.body).id; return new Response(id.startsWith('11111111')?networkGif:files[Number(id.slice(-2))%files.length],{headers:{'Content-Type':'image/png'}}); }
       return realFetch(input,init);
     };
     window.fixture = { app, vault, session, controller, files, sent, msg, requests };
   });
   await page.locator('#open-memes').click();
   await page.waitForFunction(() => document.querySelectorAll('.meme-tile img[src]').length >= 3);
-  assert.equal(await page.locator('[data-mode="search"]').getAttribute('aria-selected'),'true');
+  assert.equal(await page.locator('button[data-kind="gifs"]').getAttribute('aria-selected'),'true');
   assert.equal(await page.locator('.meme-grip').count(),0);
-  assert.equal(await page.locator('.chat-shell').evaluate(el=>el.inert),true);
-  assert.equal(await page.evaluate(()=>window.fixture.requests[0].keyword),'热门');
-  await page.locator('[data-category="可爱"]').click();
-  await page.waitForFunction(()=>window.fixture.requests.at(-1).keyword==='可爱');
-  await page.locator('[data-mode="favorites"]').click();
+  assert.equal(await page.locator('.chat-shell').evaluate(el=>el.inert),false);
+  assert.equal(await page.evaluate(()=>window.fixture.requests.length),0);
+  assert.equal(await page.locator('.meme-tile').count(),100);
+  const firstAnimation=page.locator('.meme-tile img').first(); await firstAnimation.waitFor();
+  const animatedPixels=await firstAnimation.screenshot(); await page.waitForTimeout(350);
+  assert.notDeepEqual(await firstAnimation.screenshot(),animatedPixels,'Panel animation pixels did not move');
+  const tileBounds=await page.locator('.meme-tile').first().boundingBox();
+  const imageBounds=await firstAnimation.boundingBox();
+  await page.mouse.move(tileBounds.x+tileBounds.width/2,tileBounds.y+tileBounds.height/2); await page.mouse.down();
+  await page.locator('.meme-preview img').waitFor(); await page.mouse.up();
+  assert.equal(await page.locator('.meme-tile').first().evaluate(el=>getComputedStyle(el).transform),'none');
+  assert.ok(Math.abs((await page.locator('.meme-preview img').boundingBox()).width-imageBounds.width)<1,'Long press resized media');
+  assert.equal(await page.evaluate(()=>window.fixture.sent.length),0);
+  await page.locator('.meme-preview-close').click();
+  await page.getByRole('button',{name:'收藏',exact:true}).click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===9);
   assert.equal(await page.locator('.meme-tile').count(),9);
   assert.equal(await page.locator('#message-input').inputValue(),'保留这份草稿');
   await page.locator('.meme-tile').first().click();
   await page.waitForFunction(()=>window.fixture.sent.length===1);
-  assert.equal(await page.locator('#meme-panel').count(),1);
+  assert.equal(await page.locator('#meme-panel').count(),0);
+  await page.locator('#open-memes').click(); await page.getByRole('button',{name:'收藏',exact:true}).click();
   await page.locator('.meme-tile').first().dispatchEvent('contextmenu');
   await page.locator('.meme-preview img').waitFor();
   assert.equal(await page.evaluate(()=>window.fixture.sent.length),1,'Long press sent an image');
   await page.locator('.meme-preview [data-action="save"]').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===8);
-  await page.locator('[data-mode="search"]').click();
+  await page.locator('.meme-open-search').click();
+  assert.equal(await page.locator('.chat-shell').evaluate(el=>el.inert),true);
+  assert.equal(await page.locator('.meme-tabs').isVisible(),false);
+  await page.waitForFunction(() => document.activeElement === document.querySelector('.meme-back'));
   await page.locator('#meme-query').fill('无语'); await page.locator('#meme-query').press('Enter');
   await page.waitForFunction(()=>window.fixture.requests.at(-1).keyword==='无语');
   assert.equal(await page.getByRole('button',{name:'同意并搜索'}).count(),0);
@@ -98,8 +117,44 @@ try {
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===12);
   await page.locator('#meme-query').fill('失败'); await page.locator('#meme-query').press('Enter');
   await page.getByText('网络梗图暂时不可用，请稍后重试').waitFor();
-  await page.locator('[data-mode="favorites"]').click();
+  await page.locator('.meme-back').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===8);
+  await page.locator('.meme-tile').first().dispatchEvent('contextmenu');
+  await page.locator('.meme-preview [data-action="send"]').click();
+  await page.waitForFunction(()=>!document.querySelector('#meme-panel'));
+  assert.equal(await page.evaluate(()=>window.fixture.sent.length),2);
+  await page.locator('#open-memes').click();
+  await page.locator('button[data-kind="stickers"]').click();
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===30);
+  assert.equal(await page.locator('.meme-pack-shortcuts img').count(),30);
+  await page.locator('.meme-pack-shortcuts button').nth(5).click();
+  await page.waitForFunction(()=>document.querySelector('.meme-scroll').scrollTop>100);
+  await page.locator('.meme-open-search').click();
+  await page.locator('#meme-query').fill('预置'); await page.locator('#meme-query').press('Enter');
+  await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='已添加');
+  assert.equal(await page.locator('.meme-pack-add').isDisabled(),true,'Bundled pack offered duplicate installation');
+  await page.locator('#meme-query').fill('合集'); await page.locator('#meme-query').press('Enter');
+  await page.waitForFunction(()=>window.fixture.requests.at(-1).kind==='stickers'&&window.fixture.requests.at(-1).keyword==='合集');
+  await page.locator('.meme-pack-cover').click();
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-grid .meme-tile').length===3);
+  await page.locator('.meme-back').click();
+  await page.locator('.meme-pack-result').waitFor();
+  assert.equal(await page.locator('.meme-search-dialog').count(),1,'Pack detail back skipped search results');
+  await page.locator('.meme-pack-cover').click();
+  await page.locator('.meme-pack-detail-header').waitFor();
+  await page.keyboard.press('Escape');
+  await page.locator('.meme-pack-result').waitFor();
+  assert.equal(await page.locator('.meme-search-dialog').evaluate(el=>el.inert),false,'Escape left search inert');
+  await page.locator('.meme-pack-add').click();
+  await page.waitForFunction(()=>document.querySelector('.meme-pack-add').textContent==='已添加');
+  assert.equal(await page.evaluate(async()=> (await window.fixture.vault.loadStickerPacks(window.fixture.session))[0].items.length),3);
+  await page.locator('.meme-back').click();
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===31);
+  await page.locator('.meme-collapse').click();
+  const networkCount=await page.evaluate(()=>window.fixture.requests.length);
+  await page.locator('#open-memes').click(); await page.locator('button[data-kind="stickers"]').click();
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===31);
+  assert.equal(await page.evaluate(()=>window.fixture.requests.length),networkCount,'Reopening a downloaded pack searched the network');
   await page.evaluate(async()=> {
     const { app,msg,session,vault,controller,files }=window.fixture;
     await app.favoriteChatMeme(msg,msg.payload.image);
@@ -127,6 +182,14 @@ try {
     const restoredGif=await vault.loadMemeFavoriteFile(session,gifItem,controller.signal);
     if(restoredGif.size!==gif.size || restoredGif.type!=='image/gif') throw new Error('GIF bytes or type changed');
     await vault.removeMemeFavorite(session,gifItem.id,controller.signal);
+    const installed=(await vault.loadStickerPacks(session))[0];
+    const restored=await vault.loadMemeFavoriteFile(session,installed.items[0],controller.signal);
+    if(restored.size!==files[0].size) throw new Error('Installed pack original changed');
+    try { await vault.installStickerPack(stale,'b'.repeat(32),'Stale pack',[files[0]],controller.signal); throw new Error('Stale pack install succeeded'); }
+    catch(error) { if(error.message==='Stale pack install succeeded') throw error; }
+    try { await vault.removeStickerPack(session,installed.id,cancelled.signal); throw new Error('Cancelled pack removal succeeded'); }
+    catch(error) { if(error.message==='Cancelled pack removal succeeded') throw error; }
+    if((await vault.loadStickerPacks(session)).length!==1) throw new Error('Failed pack mutation changed index');
   });
   const out = process.argv[2];
   if(out) await mkdir(out,{recursive:true});
@@ -147,17 +210,23 @@ try {
       }
       throw new Error('Meme panel geometry did not settle');
     });
-    assert.ok(geometry.left===0 && geometry.right===width && geometry.top===0 && Math.abs(geometry.bottom-height)<=1 && !geometry.overflow,JSON.stringify(geometry));
+    assert.ok(geometry.left>=0 && geometry.right<=width && geometry.top>=height*0.4 && Math.abs(geometry.bottom-height)<=1 && !geometry.overflow,JSON.stringify(geometry));
     if(out) await page.screenshot({path:path.join(out,`memes-${width}.png`)});
+    await page.locator('.meme-open-search').click();
+    await page.waitForFunction(()=>getComputedStyle(document.querySelector('.meme-search-dialog')).opacity==='1'&&getComputedStyle(document.querySelector('.meme-panel')).opacity==='1');
+    const full=await page.locator('.meme-search-dialog').boundingBox();
+    assert.ok(Math.abs(full.height-height)<=1&&full.y===0&&full.width===width,JSON.stringify(full));
+    if(out) await page.screenshot({path:path.join(out,`search-${width}.png`)});
+    await page.locator('.meme-back').click();
   }
   await page.emulateMedia({colorScheme:'dark'});
   if(out) await page.screenshot({path:path.join(out,'memes-dark.png')});
-  await page.locator('[data-mode="close"]').click();
+  await page.locator('.meme-collapse').click();
   assert.equal(await page.locator('.meme-panel').count(),0);
   assert.equal(await page.locator('.chat-shell').evaluate(el=>el.inert),false);
   assert.equal(await page.locator('#message-input').inputValue(),'保留这份草稿');
   await page.locator('#open-memes').click();
-  await page.locator('[data-mode="favorites"]').click();
+  await page.getByRole('button',{name:'收藏',exact:true}).click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===8);
   await page.evaluate(()=> {
     window.fixture.app.processImageBatch=()=>new Promise(resolve=>{window.fixture.finishSend=resolve;});
@@ -166,10 +235,32 @@ try {
   await page.waitForFunction(()=>window.fixture.finishSend);
   await page.evaluate(()=>{window.fixture.app.setActiveSurface('away');window.fixture.finishSend(false);});
   await page.waitForFunction(()=>window.fixture.app.imageBatchUploading===false);
+  // The actual chat renderer must play the same original animation that was selected.
+  await page.evaluate(async()=> {
+    const { app,session }=window.fixture;
+    const { starterGifs,starterMedia,STARTER_CACHE }=await import('/src/lib/sticker-library.ts');
+    const { encryptImageFile }=await import('/src/lib/file-crypto.ts');
+    const original=await starterMedia(starterGifs[0].asset,new AbortController().signal);
+    const file=new File([original],'chat-animation.png',{type:original.type});
+    const manifest=await encryptImageFile(file,{reserve:async()=>{},status:async()=>({uploadedIndexes:[],completed:false}),upload:async()=>{},complete:async()=>{},savePlan:async()=>{}});
+    app.cacheLocalImage(manifest,file); app.messages.clear();
+    const msg={seq:2,clientMsgId:crypto.randomUUID(),senderId:session.vault.identity.publicBundle.deviceId,payload:{v:1,kind:'image',image:manifest,sentAt:new Date().toISOString()},acceptedAt:new Date().toISOString(),status:'delivered'};
+    app.messages.set(2,msg); app.renderChat();
+    const cached=await caches.open(STARTER_CACHE); if(!(await cached.match(starterGifs[0].asset))) throw new Error('Starter original not cached');
+    const realFetch=window.fetch; window.fetch=()=>Promise.reject(new Error('offline'));
+    try { const offline=await starterMedia(starterGifs[0].asset,new AbortController().signal); if(offline.size!==file.size) throw new Error('Offline original changed'); }
+    finally { window.fetch=realFetch; }
+  });
+  const chatAnimation=page.locator('.message-list .image-preview img').first();
+  await chatAnimation.waitFor();
+  await page.waitForFunction(()=>document.querySelector('.message-list .image-preview img')?.naturalWidth>0);
+  await page.locator('.message-list .image-preview').first().click();
+  const chatFrame=await chatAnimation.screenshot(); await page.waitForTimeout(350);
+  assert.notDeepEqual(await chatAnimation.screenshot(),chatFrame,'Sent chat animation was frozen');
   await page.evaluate(()=>{window.fixture.app.renderChat();window.fixture.app.openMemePicker();});
   await page.locator('.meme-panel').waitFor();
   await page.evaluate(()=>window.fixture.app.obscurePrivacySurface());
   assert.equal(await page.locator('.meme-panel,.meme-preview').count(),0,'Privacy curtain retained meme UI');
   assert.deepEqual(errors,[]);
-  console.log('Meme picker: encryption, originals, send, long press, default online, categories, direct search, paging, modal isolation, privacy teardown and fullscreen viewports passed.');
+  console.log('Sticker picker: 30 packs/100 animations, moving pixels, half sheet, typed fullscreen search, atomic encrypted pack install/reopen, tap/hold send closure, privacy and responsive geometry passed.');
 } finally { await browser?.close(); await server.close(); }

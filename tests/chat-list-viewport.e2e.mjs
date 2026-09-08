@@ -225,7 +225,18 @@ try {
     app.chatLayoutElements.list.scrollTop -= 700;
     window.listFixture.anchor = app.captureChatAnchor();
     app.chatLayoutElements.list.scrollTop -= 300;
+    app.chatBottomFollowPending = true;
+    app.chatPinnedToBottom = true;
+    app.chatScrollIntent = null;
+    app.chatRestoreAnchor = window.listFixture.anchor;
     app.restoreChatAnchor(app.chatLayoutElements.list, window.listFixture.anchor);
+    app.chatRestoreAnchor = null;
+    if (app.chatBottomFollowPending || app.chatPinnedToBottom) throw Error('A restored history anchor retained stale bottom follow');
+    const gap = app.chatBottomGap;
+    app.chatBottomGap = () => 0;
+    app.commitChatScrollBookkeeping(app.chatLayoutElements.list, false);
+    app.chatBottomGap = gap;
+    if (app.chatPinnedToBottom) throw Error('Transient transition geometry replaced the restored history intent');
   });
   assert.equal(await page.evaluate(() => window.listFixture.app.captureChatAnchor().clientMsgId),
     await page.evaluate(() => window.listFixture.anchor.clientMsgId));
@@ -261,6 +272,22 @@ try {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     if (process.argv[2]) await page.screenshot({ path: path.join(process.argv[2], `list-closed-${viewport.width}.png`) });
   }
+
+  const holdRelease = await page.evaluate(() => {
+    const input = document.querySelector('#message-input');
+    input.value = '';
+    input.blur();
+    const point = { identifier: 1, target: input, clientX: 40, clientY: 340 };
+    const start = new Event('touchstart', { bubbles: true });
+    Object.defineProperty(start, 'touches', { value: [point] });
+    input.dispatchEvent(start);
+    const end = new Event('touchend', { bubbles: true, cancelable: true });
+    Object.defineProperty(end, 'touches', { value: [] });
+    input.dispatchEvent(end);
+    return { focused: document.activeElement === input, root: scrollY };
+  });
+  assert.equal(holdRelease.focused, false, 'The keyboard touchend fallback must not steal an empty-input voice release');
+  assert.equal(holdRelease.root, 0);
 
   await page.evaluate(() => window.listFixture.app.lockNow());
   assert.equal(await page.locator('.chat-shell').count(), 0);

@@ -1,34 +1,18 @@
 import https from 'node:https';
 import { lookup } from 'node:dns';
 import { randomUUID } from 'node:crypto';
+import { STICKER_DIRECTORY, createStickerSource, decryptPublicSticker, matchStickerPacks } from './sticker-source.mjs';
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const PAGE_SIZE = 24;
 const TTL = 15 * 60_000;
-const categories = {
-  搞笑: /drake|buttons|boyfriend|gru|spongebob|disaster|batman|doge|cheems|laugh|clown/i,
-  可爱: /cat|doge|cheems|baby|kid|puppy|penguin|pooh/i,
-  开心: /success|happy|handshake|cheer|laugh|smile|cinema|celebrat/i,
-  无语: /skeleton|pablo|waiting|picard|awkward|confused|pigeon|facepalm|fry|fine|distracted/i,
-  生气: /angry|yell|slap|rage|batman|disaster/i,
-  晚安: /sleep|bed/i,
-  打工: /paid|office|meeting|work|boss|trade|support|bernie|buttons|trophy/i,
-};
-const aliases = [
-  [/drake/i, '德雷克 不要 好的 拒绝 选择'], [/buttons/i, '按钮 纠结 选择 困难'],
-  [/boyfriend/i, '男友 分心 回头'], [/skeleton|waiting/i, '等待 等你 累了'],
-  [/pablo/i, '难过 孤独 发呆'], [/cat/i, '猫 猫咪'], [/doge|cheems/i, '狗 狗头 柴犬'],
-  [/spongebob/i, '海绵宝宝 嘲讽'], [/success/i, '成功 好耶 加油'],
-  [/handshake/i, '握手 合作 赞同'], [/paid|office|work/i, '上班 工资 打工'],
-  [/brain/i, '大脑 聪明 思考'], [/fine/i, '没事 无所谓'], [/yell|slap/i, '吵架 生气'],
-];
 
 export function allowedMemeUrl(value) {
   try {
     const url = new URL(value);
-    return url.protocol === 'https:' && url.hostname === 'i.imgflip.com' && !url.port
+    return url.protocol === 'https:' && url.hostname === 'cdn-ca.signal.org' && !url.port
       && !url.username && !url.password && !url.search && !url.hash
-      && /^\/[a-z0-9]+\.(jpg|jpeg|png|gif|webp)$/i.test(url.pathname);
+      && /^\/stickers\/[a-f0-9]{32}\/(manifest\.proto|full\/\d{1,5})$/.test(url.pathname);
   } catch { return false; }
 }
 
@@ -43,13 +27,13 @@ export function publicMemeAddress(address) {
 
 // The socket uses this exact validated DNS answer; redirects are never followed.
 export function fetchMemeResource(url, limit, signal) {
-  if (url !== 'https://api.imgflip.com/get_memes' && !allowedMemeUrl(url)) throw new Error('MEME_SOURCE_REJECTED');
+  if (url !== STICKER_DIRECTORY && !allowedMemeUrl(url)) throw new Error('MEME_SOURCE_REJECTED');
   return new Promise((resolve, reject) => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15_000);
     const request = https.get(url, {
       signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal,
-      headers: { Accept: url.includes('/get_memes') ? 'application/json' : 'image/*' },
+      headers: { Accept: url === STICKER_DIRECTORY ? 'application/json' : 'application/octet-stream' },
       lookup: (hostname, options, callback) => lookup(hostname, { family: 4, all: true }, (error, addresses) => {
         if (error || !addresses?.length || addresses.some(item => !publicMemeAddress(item.address))) {
           callback(new Error('MEME_DNS_REJECTED')); return;
@@ -85,47 +69,34 @@ export function memeContentType(bytes) {
 }
 
 export function createMemeService({ fetchResource = fetchMemeResource, now = Date.now } = {}) {
-  let catalog = [];
-  let refreshedAt = -Infinity;
-  let pending;
+  const source = createStickerSource(fetchResource, now);
   let activeMedia = 0;
   const grants = new Map();
-  async function loadCatalog() {
-    if (now() - refreshedAt < TTL) return catalog;
-    if (!pending) pending = (async () => {
-      const bytes = await fetchResource('https://api.imgflip.com/get_memes', 512 * 1024);
-      const body = JSON.parse(bytes.toString('utf8'));
-      if (body?.success !== true || !Array.isArray(body.data?.memes) || body.data.memes.length > 500) throw new Error('MEME_INVALID_CATALOG');
-      const rows = body.data.memes.filter(item => typeof item.name === 'string' && item.name.length <= 120 && allowedMemeUrl(item.url)
-        && Number.isInteger(item.width) && Number.isInteger(item.height) && item.width > 0 && item.height > 0
-        && item.width <= 8192 && item.height <= 8192 && item.width * item.height <= 16_000_000);
-      catalog = [...new Map(rows.map(item => [item.url, item])).values()];
-      if (!catalog.length) throw new Error('MEME_INVALID_CATALOG');
-      refreshedAt = now(); return catalog;
-    })().finally(() => { pending = undefined; });
-    return pending;
+  function grant(owner, item) {
+    for (const [id, value] of grants) if (value.expires <= now()) grants.delete(id);
+    while (grants.size >= 4000) grants.delete(grants.keys().next().value);
+    const id = randomUUID(); grants.set(id, { ...item, owner, expires: now() + TTL }); return { id, title: item.title };
   }
   return {
     async search(owner, body, signal) {
       if (!body || typeof body.keyword !== 'string' || body.keyword.length > 80 || /[\u0000-\u001f]/.test(body.keyword)
-        || !Number.isInteger(body.page) || body.page < 1 || body.page > 100) throw new Error('MEME_INVALID_QUERY');
-      const rows = await loadCatalog(); signal?.throwIfAborted();
-      const query = body.keyword.trim().toLocaleLowerCase();
-      const terms = query.split(/\s+/).filter(Boolean);
-      const filtered = !query || query === '热门' ? rows : rows.filter(item => {
-        const tags = Object.entries(categories).filter(([, pattern]) => pattern.test(item.name)).map(([tag]) => tag);
-        const names = aliases.filter(([pattern]) => pattern.test(item.name)).map(([, label]) => label);
-        const searchable = [item.name, ...tags, ...names].join(' ').toLocaleLowerCase();
-        return terms.every(term => searchable.includes(term));
-      });
-      for (const [id, grant] of grants) if (grant.expires <= now()) grants.delete(id);
+        || !['gifs', 'stickers'].includes(body.kind) || !Number.isInteger(body.page) || body.page < 1 || body.page > 1000) throw new Error('MEME_INVALID_QUERY');
+      signal?.throwIfAborted();
+      const rows = matchStickerPacks(await source.list(signal), body.keyword, body.kind === 'gifs');
+      signal?.throwIfAborted();
+      if (body.kind === 'gifs') {
+        const row = rows[body.page - 1];
+        const pack = row ? await source.pack(row.id, signal) : null;
+        signal?.throwIfAborted();
+        return { items: pack?.items.map(item => grant(owner, item)) ?? [], nextPage: body.page < Math.min(rows.length, 1000) ? body.page + 1 : null, source: 'Signal Stickers · 动画' };
+      }
       const start = (body.page - 1) * PAGE_SIZE;
-      const items = filtered.slice(start, start + PAGE_SIZE).map(item => {
-        while (grants.size >= 2000) grants.delete(grants.keys().next().value);
-        const id = randomUUID(); grants.set(id, { owner, url: item.url, expires: now() + TTL });
-        return { id, title: item.name };
-      });
-      return { items, nextPage: start + PAGE_SIZE < filtered.length ? body.page + 1 : null, source: 'Imgflip', scope: 'popular-catalog' };
+      return { items: [], packs: rows.slice(start, start + PAGE_SIZE).map(pack => ({ id: pack.id, title: pack.title, cover: grant(owner, { packId: pack.id, title: pack.title }).id })),
+        nextPage: body.page < 1000 && start + PAGE_SIZE < rows.length ? body.page + 1 : null, source: 'Signal Stickers · 合集' };
+    },
+    async pack(owner, id, signal) {
+      const pack = await source.pack(id, signal); signal?.throwIfAborted();
+      return { id: pack.id, title: pack.title, items: pack.items.map(item => grant(owner, item)) };
     },
     async media(owner, id, signal) {
       const grant = grants.get(id);
@@ -133,7 +104,8 @@ export function createMemeService({ fetchResource = fetchMemeResource, now = Dat
       if (activeMedia >= 8) throw new Error('MEME_BUSY');
       activeMedia++;
       try {
-        const bytes = await fetchResource(grant.url, MAX_BYTES, signal);
+        const item = grant.packId ? (await source.pack(grant.packId, signal)).cover : grant;
+        const bytes = decryptPublicSticker(await fetchResource(item.url, MAX_BYTES + 64, signal), item.key);
         signal?.throwIfAborted();
         if (!bytes.length || bytes.length > MAX_BYTES) throw new Error('MEME_TOO_LARGE');
         return { bytes, type: memeContentType(bytes) };

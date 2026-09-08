@@ -377,7 +377,7 @@ export async function startServer(options = {}) {
       const pathname = decodeURIComponent(url.pathname);
       if (await admin(request, response, pathname)) return;
 
-      const memeMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/memes/(search|media)$`));
+      const memeMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/memes/(search|media|pack)$`));
       if (request.method === 'POST' && memeMatch) {
         const device = requireActiveDevice(request, memeMatch[1]);
         const media = memeMatch[2] === 'media';
@@ -396,7 +396,7 @@ export async function startServer(options = {}) {
             response.writeHead(200, { 'Content-Type': result.type, 'Content-Length': result.bytes.length, 'Cache-Control': 'no-store' });
             response.end(result.bytes);
           } else {
-            const result = await memes.search(owner, body, controller.signal);
+            const result = memeMatch[2] === 'pack' ? await memes.pack(owner, body?.id, controller.signal) : await memes.search(owner, body, controller.signal);
             requireActiveDevice(request, memeMatch[1], device.deviceId);
             json(request, response, 200, result);
           }

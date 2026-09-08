@@ -1,7 +1,10 @@
 import QRCode from 'qrcode';
 import { closeDialog, mountDialog } from './lib/dialog';
 import { MemePicker, memeIcons } from './lib/meme-picker';
+import { loadStickerPacks, installStickerPack, removeStickerPack } from './lib/vault';
 import './memes.css';
+import './chat-tools.css';
+import { normalizeAttachmentFavorites, sortFavoriteAssets } from './lib/attachment-favorites';
 import { validateMemeFile, MEME_TYPES } from './lib/meme-media';
 import { loadMemeFavorites, loadMemeFavoriteFile, saveMemeFavorite, removeMemeFavorite } from './lib/vault';
 import {
@@ -40,12 +43,12 @@ import {
 } from './lib/crypto';
 import { decryptAudioFile, encryptAudioFile, decryptImageFile, encryptImageFile, encryptFileAttachment, decryptFileAttachment, MAX_IMAGE_BYTES } from './lib/file-crypto';
 import { VoiceRecorder } from './lib/voice-recorder';
-import { bindVoiceRecordGesture } from './lib/voice-gesture';
+import { bindVoiceInputGesture } from './lib/voice-gesture';
 import { bindImageViewerGestures } from './lib/image-viewer-gestures';
 import { prepareImageMotion, type ImageMotion } from './lib/image-animation';
 import { createConcealedImage } from './lib/concealed-image';
 import { mountPhotoDetails } from './lib/photo-details';
-import { createElement, Info, Pause, Play } from 'lucide';
+import { createElement, Info, Pause, Play, Plus, Camera } from 'lucide';
 import { bindChatImageConcealGesture } from './lib/chat-image-conceal-gesture';
 import { CHAT_LATEST_GAP, mountChatBottomControl } from './lib/chat-bottom-control';
 import { CHAT_KEYBOARD_LAYOUT_MS, chatKeyboardLayoutProgress, createChatKeyboardLayout } from './lib/chat-keyboard-layout';
@@ -457,6 +460,7 @@ export class QuietRoomApp {
   private uiPreferencesHydrated = false;
   private restoreChatAnchorOnNextRender = true;
   private galleryScrollTop: Record<GalleryTab, number> = { images: 0, files: 0 };
+  private galleryMode: 'safe' | 'favorites' = 'safe';
   private galleryRevealedAssets = new Set<string>();
   private chatRevealedAssets = new Set<string>();
   private chatImageConcealGesture: ReturnType<typeof bindChatImageConcealGesture> | null = null;
@@ -484,7 +488,7 @@ export class QuietRoomApp {
   private messageHighlightTimer: number | null = null;
   private replyJumpVersion = 0;
   private voiceRecorder: VoiceRecorder | null = null;
-  private voiceGesture: ReturnType<typeof bindVoiceRecordGesture> | null = null;
+  private voiceGesture: ReturnType<typeof bindVoiceInputGesture> | null = null;
   private microphonePromptActive = false;
   private voicePlayback = new VoicePlayback();
   private callController: CallController | null = null;
@@ -3441,12 +3445,13 @@ export class QuietRoomApp {
     picker?.dispose();
     const button = this.root.querySelector<HTMLButtonElement>('#open-memes');
     button?.setAttribute('aria-expanded', 'false');
-    if (button) { button.innerHTML = memeIcons.smile; button.setAttribute('aria-label', '打开梗图'); }
+    if (button) { button.innerHTML = memeIcons.smile; button.setAttribute('aria-label', '打开表情'); }
     if (keyboard && !this.privacyCovered) this.root.querySelector<HTMLTextAreaElement>('#message-input')?.focus({ preventScroll: true });
     else if (picker && !this.privacyCovered) button?.focus({ preventScroll: true });
   }
 
   private openMemePicker(): void {
+    this.closeChatTools();
     const session = this.session;
     const epoch = this.runtimeEpoch;
     const host = this.root.querySelector<HTMLElement>('#composer');
@@ -3476,6 +3481,16 @@ export class QuietRoomApp {
       file: (item, signal) => loadMemeFavoriteFile(session, item, signal),
       save: (file, signal) => saveMemeFavorite(session, file, signal),
       remove: (id, signal) => removeMemeFavorite(session, id, signal),
+      packs: () => loadStickerPacks(session),
+      install: (id, title, files, signal) => installStickerPack(session, id, title, files, signal),
+      removePack: (id, signal) => removeStickerPack(session, id, signal),
+      pack: async (id, signal) => {
+        const result = await (await request('pack', { id }, signal)).json();
+        if (result.id !== id || typeof result.title !== 'string' || result.title.length > 120 || !Array.isArray(result.items)
+          || !result.items.length || result.items.length > 200 || result.items.some((item: { id?: unknown; title?: unknown }) =>
+            typeof item?.id !== 'string' || !/^[0-9a-f-]{36}$/.test(item.id) || typeof item.title !== 'string' || item.title.length > 120)) throw new Error('合集格式不受支持');
+        return { id: result.id, title: result.title, items: result.items.map((item: { id: string; title: string }) => ({ id: item.id, title: item.title })) };
+      },
       send: async (file, signal) => {
         if (!isActive()) throw new Error('会话已关闭');
         if (this.imageBatchUploading) throw new Error('另一个附件正在发送，请稍后重试');
@@ -3484,14 +3499,18 @@ export class QuietRoomApp {
           if (!await this.processImageBatch([file], 'chat', signal)) throw new Error('发送未完成，请查看聊天中的状态后重试');
         } finally { if (this.isRuntimeActive(epoch, session)) this.imageBatchUploading = false; }
       },
-      search: async (keyword, page, signal) => {
-        const response = await request('search', { keyword, page }, signal);
+      search: async (keyword, page, signal, kind) => {
+        const response = await request('search', { keyword, page, kind }, signal);
         const result = await response.json();
-        if (!Array.isArray(result.items) || result.items.length > 100
+        if (!Array.isArray(result.items) || result.items.length > 200
           || result.items.some((item: { id?: unknown; title?: unknown }) => typeof item?.id !== 'string' || !/^[0-9a-f-]{36}$/.test(item.id)
             || typeof item.title !== 'string' || item.title.length > 120)
-          || (result.nextPage !== null && (!Number.isSafeInteger(result.nextPage) || result.nextPage <= page || result.nextPage > 100))) throw new Error('搜索结果格式不受支持');
-        return result;
+          || (result.nextPage !== null && (!Number.isSafeInteger(result.nextPage) || result.nextPage <= page || result.nextPage > 1000))) throw new Error('搜索结果格式不受支持');
+        if (result.packs !== undefined && (!Array.isArray(result.packs) || result.packs.length > 24 || result.packs.some((pack: { id?: unknown; title?: unknown; cover?: unknown }) =>
+          typeof pack.id !== 'string' || !/^[a-z0-9-]{1,80}$/.test(pack.id) || typeof pack.title !== 'string' || pack.title.length > 120 || typeof pack.cover !== 'string' || !/^[0-9a-f-]{36}$/.test(pack.cover)))) throw new Error('合集搜索结果不受支持');
+        return { items: result.items.map((item: { id: string; title: string }) => ({ id: item.id, title: item.title, animatedOnly: kind === 'gifs' })),
+          packs: result.packs?.map((pack: { id: string; title: string; cover: string }) => ({ id: pack.id, title: pack.title, cover: pack.cover })),
+          nextPage: result.nextPage, source: typeof result.source === 'string' ? result.source.slice(0, 120) : undefined };
       },
       media: async (id, signal) => {
         const response = await request('media', { id }, signal);
@@ -3539,6 +3558,8 @@ export class QuietRoomApp {
     // blur. Treat that as a departure; an unused pre-focus arm is just cleared.
     if (this.invalidateKeyboardHandoff()) return;
     this.closeMemePicker();
+    if (this.galleryMode === 'favorites') this.galleryKnownCounts = {};
+    this.galleryMode = 'safe';
     this.galleryRevealedAssets.clear();
     this.clearMessageTextSelection();
     this.closeVoiceRecorder();
@@ -3559,11 +3580,8 @@ export class QuietRoomApp {
     this.root.innerHTML = `
       <section class="chat-shell">
         <header class="chat-header">
-          <nav class="call-actions" aria-label="发起通话">
-            <button class="icon-button" id="start-video-call" type="button" aria-label="发起视频通话" title="视频通话" disabled>${icons.video}</button>
-            <button class="icon-button" id="start-audio-call" type="button" aria-label="发起语音通话" title="语音通话" disabled>${icons.phone}</button>
-          </nav>
-          <div class="peer-summary" role="status" aria-live="polite">
+          <div aria-hidden="true"></div>
+          <div class="peer-summary" ${this.session.vault.role === 'creator' ? 'id="open-gallery" role="button" tabindex="0"' : 'role="status"'} aria-live="polite">
             <div class="presence-heading">
               <span class="presence-row" id="self-presence"><span>我</span><i class="presence-dot" aria-hidden="true"></i><strong class="sr-only">同步中</strong></span>
               <span class="presence-row" id="peer-presence"><span>对方</span><i class="presence-dot" aria-hidden="true"></i></span>
@@ -3571,9 +3589,6 @@ export class QuietRoomApp {
             <strong class="peer-status">同步中</strong>
           </div>
           <nav class="header-actions" aria-label="会话操作">
-            ${this.session.vault.role === 'creator' ? `
-              <button class="icon-button gallery-button" id="open-gallery" type="button" aria-label="查看保险箱" title="保险箱">${icons.safe}</button>
-            ` : ''}
             <details class="more-menu">
               <summary class="icon-button" aria-label="更多操作">${icons.more}</summary>
               <div class="menu-panel">
@@ -3610,8 +3625,9 @@ export class QuietRoomApp {
         <section class="message-list" id="message-list" aria-label="聊天消息"></section>
         <form class="composer" id="composer" autocomplete="off">
           <button class="chat-bottom-control" id="chat-bottom-control" type="button" aria-label="回到最新消息" aria-hidden="true" tabindex="-1"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></button>
-          <button class="image-picker icon-button${cryptoReady ? '' : ' is-disabled'}" id="open-image-picker" type="button" aria-label="发送照片、视频或文件" title="发送照片、视频或文件" ${cryptoReady ? '' : 'disabled'}>${icons.image}</button>
-          <input id="image-input" type="file" multiple ${cryptoReady ? '' : 'disabled'} hidden />
+          <input id="image-input" type="file" accept="image/*,video/*" multiple ${cryptoReady ? '' : 'disabled'} hidden />
+          <input id="camera-input" type="file" accept="image/*,video/*" capture="environment" ${cryptoReady ? '' : 'disabled'} hidden />
+          <input id="file-input" type="file" multiple ${cryptoReady ? '' : 'disabled'} hidden />
           <div class="composer-input-stack">
             <div class="reply-draft" id="reply-draft" hidden>
               <div><strong>回复对方</strong><span></span></div>
@@ -3620,14 +3636,21 @@ export class QuietRoomApp {
             <div class="composer-field">
               <label class="sr-only" for="message-input">输入消息</label>
               <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '输入消息' : '正在建立安全会话…'}" autocomplete="off" enterkeyhint="send" ${cryptoReady ? '' : 'disabled'}></textarea>
-              <button class="meme-toggle" id="open-memes" type="button" aria-label="打开梗图" title="梗图" aria-expanded="false" aria-controls="meme-panel" ${cryptoReady ? '' : 'disabled'}>${memeIcons.smile}</button>
+              <button class="meme-toggle" id="open-memes" type="button" aria-label="打开表情" title="表情" aria-expanded="false" aria-controls="meme-panel" ${cryptoReady ? '' : 'disabled'}>${memeIcons.smile}</button>
             </div>
           </div>
-          <button class="icon-button voice-record-button" id="record-voice" type="button" aria-label="录制语音消息" aria-description="长按录音，松手发送；向左滑动可取消。点按可免手持录音。" title="长按录音，松手发送" ${cryptoReady ? '' : 'disabled'}>${voiceIcons.mic}</button>
-          <button class="send-button" type="submit" aria-label="发送消息" ${cryptoReady ? '' : 'disabled'} hidden>${icons.send}</button>
-          <section class="voice-recorder" aria-label="录制语音消息" hidden></section>
+          <button class="icon-button" id="open-chat-tools" type="button" aria-label="更多功能" aria-expanded="false" aria-controls="chat-tools">${createElement(Plus).outerHTML}</button>
+          <div class="chat-tools" id="chat-tools" hidden>
+            <button id="open-image-picker" type="button" ${cryptoReady ? '' : 'disabled'}><span>${icons.image}</span>图片</button>
+            <button id="open-camera-picker" type="button" ${cryptoReady ? '' : 'disabled'}><span>${createElement(Camera).outerHTML}</span>拍摄</button>
+            <button id="start-video-call" type="button" disabled><span>${icons.video}</span>视频通话</button>
+            <button id="start-audio-call" type="button" disabled><span>${icons.phone}</span>实时语音</button>
+            <button id="open-file-picker" type="button" ${cryptoReady ? '' : 'disabled'}><span>${icons.file}</span>文件</button>
+            <button id="open-favorites" type="button"><span>${memeIcons.star}</span>收藏</button>
+          </div>
           <div class="upload-progress" id="upload-progress" hidden><span></span><output></output></div>
         </form>
+        <section class="voice-recorder" aria-label="录制语音消息" hidden></section>
       </section>
     `;
     this.mountChatLayout();
@@ -3726,6 +3749,7 @@ export class QuietRoomApp {
     // then cancels the very tap that was meant to open the keyboard.
     textarea.addEventListener('pointerdown', event => {
       if (!ownsActiveChat()) return;
+      if (this.memePicker) this.closeMemePicker();
       if (this.beginKeyboardHandoff(textarea, event)) this.chatViewportMotion?.anticipateKeyboard('open');
       prepareKeyboardTarget();
     }, { passive: true });
@@ -3743,7 +3767,8 @@ export class QuietRoomApp {
       const tap = focusTap;
       focusTap = null;
       if (!this.usesListScrolling || !ownsActiveChat() || event.touches.length
-        || !tap || document.activeElement === textarea || !event.cancelable) return;
+        || !tap || !textarea.value || document.activeElement === textarea || !event.cancelable) return;
+      // Empty-input releases belong to the voice gesture, which focuses short taps.
       // Native tap focus pans Safari's root even when the list owns scrolling.
       // Keep focus in the trusted touch gesture and suppress only that root pan.
       event.preventDefault();
@@ -3984,17 +4009,37 @@ export class QuietRoomApp {
     });
     const imageInput = this.root.querySelector<HTMLInputElement>('#image-input');
     this.voiceGesture?.destroy();
-    this.voiceGesture = bindVoiceRecordGesture(this.root.querySelector<HTMLButtonElement>('#record-voice')!, mode => this.beginVoiceRecording(mode));
-    this.root.querySelector('#start-video-call')?.addEventListener('click', () => void this.startCall('video'));
-    this.root.querySelector('#start-audio-call')?.addEventListener('click', () => void this.startCall('audio'));
-    const sendButton = this.root.querySelector<HTMLButtonElement>('.send-button');
-    sendButton?.addEventListener('pointerdown', (event) => this.retainComposerKeyboard(event, textarea));
+    this.voiceGesture = bindVoiceInputGesture(textarea, mode => this.beginVoiceRecording(mode));
+    this.root.querySelector('#open-chat-tools')?.addEventListener('click', () => this.toggleChatTools());
+    textarea.addEventListener('focus', () => this.closeChatTools());
+    this.root.querySelector('#message-list')?.addEventListener('click', event => {
+      if (event.target === event.currentTarget) this.closeChatTools();
+    });
+    this.root.querySelector('#chat-tools')?.addEventListener('keydown', event => {
+      if ((event as KeyboardEvent).key === 'Escape') { this.closeChatTools(); this.root.querySelector<HTMLButtonElement>('#open-chat-tools')?.focus(); }
+    });
+    this.root.querySelector('#start-video-call')?.addEventListener('click', () => { this.closeChatTools(); void this.startCall('video'); });
+    this.root.querySelector('#start-audio-call')?.addEventListener('click', () => { this.closeChatTools(); void this.startCall('audio'); });
     this.root.querySelector('#chat-bottom-control')?.addEventListener('pointerdown', event => {
       this.bottomControlRetainsKeyboard = document.activeElement === textarea;
       this.retainComposerKeyboard(event as PointerEvent, textarea);
     });
     this.mountImagePicker(imageInput, 'chat', this.root.querySelector<HTMLButtonElement>('#open-image-picker'));
-    this.root.querySelector('#open-gallery')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderGallery()));
+    this.mountImagePicker(this.root.querySelector<HTMLInputElement>('#camera-input'), 'chat', this.root.querySelector<HTMLButtonElement>('#open-camera-picker'));
+    this.mountImagePicker(this.root.querySelector<HTMLInputElement>('#file-input'), 'chat', this.root.querySelector<HTMLButtonElement>('#open-file-picker'));
+    const openSafe = () => {
+      if (this.session?.vault.role !== 'creator' || this.privacyCovered) return;
+      this.closeChatTools(); this.galleryMode = 'safe';
+      this.transitionPage('forward', () => this.renderGallery());
+    };
+    this.root.querySelector('#open-gallery')?.addEventListener('click', openSafe);
+    this.root.querySelector('#open-gallery')?.addEventListener('keydown', event => {
+      if (['Enter', ' '].includes((event as KeyboardEvent).key)) { event.preventDefault(); openSafe(); }
+    });
+    this.root.querySelector('#open-favorites')?.addEventListener('click', () => {
+      this.closeChatTools(); this.galleryMode = 'favorites'; this.galleryKnownCounts = {}; this.galleryScrollTop = { images: 0, files: 0 };
+      this.transitionPage('forward', () => this.renderGallery());
+    });
     this.root.querySelector('#backup-settings')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderBackupSettings()));
     this.root.querySelector('#reminder-export')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderBackupSettings()));
     this.root.querySelector('#dismiss-recovery')?.addEventListener('click', () => {
@@ -4808,6 +4853,14 @@ export class QuietRoomApp {
       this.scrollChatToBottom();
       return;
     }
+    // A temporary empty/cold list may have queued bottom follow during restore.
+    // Once the history target exists, that fallback must not replace its anchor.
+    this.chatBottomFollowPending = false;
+    this.chatPinnedToBottom = false;
+    this.chatViewportFollowUntil = 0;
+    // Page-transition transforms can temporarily move fixed composer geometry.
+    // A restored history position remains a reading intent until user action.
+    if (this.chatRestoreAnchor) this.chatScrollIntent = 'up';
     const delta = target.getBoundingClientRect().top - this.chatViewportTop - anchor.offset;
     if (Math.abs(delta) > 1) this.setChatScrollTop(this.chatScrollTop + delta);
   }
@@ -5476,11 +5529,29 @@ export class QuietRoomApp {
   }
 
   private syncComposerMode(): void {
-    const hasText = Boolean(this.root.querySelector<HTMLTextAreaElement>('#message-input')?.value.trim());
-    const mic = this.root.querySelector<HTMLButtonElement>('#record-voice');
-    const send = this.root.querySelector<HTMLButtonElement>('#composer > .send-button');
-    if (mic) mic.hidden = hasText;
-    if (send) send.hidden = !hasText;
+    const input = this.root.querySelector<HTMLTextAreaElement>('#message-input');
+    if (input) input.dataset.voiceEligible = String(!input.value);
+  }
+
+  private closeChatTools(): void {
+    const panel = this.root.querySelector<HTMLElement>('#chat-tools');
+    if (panel) panel.hidden = true;
+    const button = this.root.querySelector<HTMLButtonElement>('#open-chat-tools');
+    button?.setAttribute('aria-expanded', 'false');
+    button?.setAttribute('aria-label', '更多功能');
+    if (button) button.innerHTML = createElement(Plus).outerHTML;
+  }
+
+  private toggleChatTools(): void {
+    const panel = this.root.querySelector<HTMLElement>('#chat-tools');
+    if (!panel || this.privacyCovered || this.voiceRecorder) return;
+    if (!panel.hidden) { this.closeChatTools(); return; }
+    this.closeMemePicker(); this.closeMessageActions(false, false);
+    this.root.querySelector<HTMLTextAreaElement>('#message-input')?.blur();
+    panel.hidden = false;
+    const button = this.root.querySelector<HTMLButtonElement>('#open-chat-tools')!;
+    button.setAttribute('aria-expanded', 'true'); button.setAttribute('aria-label', '收起功能');
+    button.innerHTML = icons.close;
   }
 
   private closeVoiceRecorder(restoreFocus = false): void {
@@ -5493,7 +5564,8 @@ export class QuietRoomApp {
     const host = this.root.querySelector<HTMLElement>('.voice-recorder');
     if (host) host.hidden = true;
     this.root.querySelector('#composer')?.classList.remove('has-voice-draft');
-    if (restoreFocus) this.root.querySelector<HTMLButtonElement>('#record-voice')?.focus({ preventScroll: true });
+    this.root.querySelector('.chat-shell')?.classList.remove('is-voice-recording');
+    if (restoreFocus && this.desktopBrowser) this.root.querySelector<HTMLTextAreaElement>('#message-input')?.focus({ preventScroll: true });
   }
 
   private beginVoiceRecording(mode: 'hold' | 'locked' = 'locked'): VoiceRecorder | null {
@@ -5511,10 +5583,13 @@ export class QuietRoomApp {
       return null;
     }
     this.voicePlayback.stop();
+    this.closeChatTools();
+    this.closeMemePicker();
     this.closeMessageActions();
     this.root.querySelector<HTMLTextAreaElement>('#message-input')?.blur();
     this.root.querySelector('#composer')?.classList.add('has-voice-draft');
     host.hidden = false;
+    this.root.querySelector('.chat-shell')?.classList.add('is-voice-recording');
     let replyTarget: DecryptedMessage | null | undefined;
     let payload: MessagePayload | undefined;
     let plan: ImageUploadPlan | undefined;
@@ -5559,7 +5634,7 @@ export class QuietRoomApp {
         this.closeVoiceRecorder(true);
         if (this.replyTarget === replyTarget) { this.replyTarget = null; this.renderReplyDraft(); }
       },
-    }, mode);
+    }, mode, true);
     this.voiceRecorder = recorder;
     void recorder.start();
     return recorder;
@@ -5649,6 +5724,7 @@ export class QuietRoomApp {
       });
       trigger.addEventListener('click', () => {
         if (currentInput.disabled) return;
+        if (destination === 'chat') this.closeChatTools();
         // One DOM input owns exactly one native chooser invocation. Removing a
         // stranded owner can then never let its late change/cancel event act on
         // a later invocation launched from the same still-mounted trigger.
@@ -5803,7 +5879,7 @@ export class QuietRoomApp {
     const output = progress?.querySelector<HTMLOutputElement>('output');
     const uploadControlSelector = destination === 'gallery'
       ? 'button, textarea, input'
-      : '#open-image-picker, #image-input';
+      : '#open-image-picker, #image-input, #open-camera-picker, #camera-input, #open-file-picker, #file-input';
     uploadScope?.classList.add('is-uploading');
     uploadScope?.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement | HTMLInputElement>(uploadControlSelector).forEach((control) => {
       control.disabled = true;
@@ -6332,6 +6408,11 @@ export class QuietRoomApp {
     const image = message.payload.kind === 'image' ? message.payload.image
       : message.payload.kind === 'image-album' ? message.payload.images.find(item => item.blobId === selectedBlobId) : undefined;
     if (image && MEME_TYPES.includes(image.mimeType)) addAction('favorite-meme', '收藏为梗图', memeIcons.star, () => void this.favoriteChatMeme(message, image));
+    const favoriteTargets = this.messageFavoriteTargets(message);
+    if (favoriteTargets.length) {
+      const saved = favoriteTargets.every(target => this.attachmentFavorite(target));
+      addAction('favorite', saved ? '取消收藏' : '收藏', memeIcons.star, () => void this.toggleMessageFavorite(message));
+    }
     // Local deletion is a projection preference, so an unsent or failed
     // outbox-backed message can be hidden without mutating its durable outbox
     // item. "For everyone" remains limited to confirmed own messages below.
@@ -7208,7 +7289,7 @@ export class QuietRoomApp {
     return meta;
   }
 
-  private createFileAttachment(manifest: FileManifest): HTMLButtonElement {
+  private createFileAttachment(manifest: FileManifest, allowExport = true): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'file-attachment';
@@ -7223,6 +7304,12 @@ export class QuietRoomApp {
     button.querySelector<HTMLElement>('.file-attachment-name')!.textContent = filename;
     const meta = button.querySelector<HTMLElement>('.file-attachment-meta')!;
     meta.textContent = `${size} · ${actionLabel}`;
+    if (!allowExport) {
+      button.setAttribute('aria-label', `${filename}，${size}，收藏操作`);
+      meta.textContent = size;
+      button.querySelector('.file-attachment-action')!.innerHTML = icons.more;
+      return button;
+    }
     button.addEventListener('click', () => {
       if (button.dataset.galleryHoldCommitted === 'true') {
         delete button.dataset.galleryHoldCommitted;
@@ -8091,7 +8178,8 @@ export class QuietRoomApp {
   ): void {
     if (manifests.length === 0 || !this.session || this.privacyCovered) return;
     this.closeImageViewer(true);
-    const allowPhotoDetails = this.session.vault.role === 'creator' && this.activeSurface === 'away'
+    const favoriteViewer = this.galleryMode === 'favorites' && Boolean(this.root.querySelector('.gallery-shell'));
+    const allowPhotoDetails = !favoriteViewer && this.session.vault.role === 'creator' && this.activeSurface === 'away'
       && Boolean(this.root.querySelector('.gallery-shell'));
     const workAbort = new AbortController();
     this.viewerProjectionSources = [...new Map(identities.flatMap(identity => identity.source
@@ -8114,11 +8202,13 @@ export class QuietRoomApp {
       <header class="viewer-header">
         <button class="viewer-control" type="button" data-viewer-close aria-label="关闭查看器">${icons.close}</button>
         <div><strong data-viewer-name></strong><div class="viewer-metadata"><span data-viewer-counter></span><time data-viewer-time title="发送或上传时间" hidden></time></div></div>
-        ${allowPhotoDetails
+        ${favoriteViewer ? '<span></span>' : allowPhotoDetails
           ? '<button class="viewer-control" type="button" data-viewer-details aria-label="查看图片详情" title="查看图片详情" aria-expanded="false" hidden></button>'
           : `<button class="viewer-control" type="button" data-viewer-download aria-label="下载当前原图">${icons.download}</button>`}
       </header>
       <div class="viewer-photo-tools">
+        ${!favoriteViewer && identities.some(identity => identity.source && this.messageFavoriteTargets(identity.source).length)
+          ? `<button class="viewer-control" type="button" data-viewer-favorite aria-label="收藏当前附件">${memeIcons.star}</button>` : ''}
         <button class="viewer-motion-toggle" type="button" data-viewer-motion aria-pressed="true" hidden></button>
         <span class="viewer-motion-error" role="status" hidden></span>
       </div>
@@ -8196,6 +8286,15 @@ export class QuietRoomApp {
       const manifest = manifests[index]!;
       const identity = identities[index];
       const video = isVideoFile(manifest);
+      const favoriteButton = viewer.querySelector<HTMLButtonElement>('[data-viewer-favorite]');
+      if (favoriteButton) {
+        const target = identity?.source && this.messageFavoriteTargets(identity.source).find(item => item.assetIndex === identity.assetIndex);
+        const saved = Boolean(target && this.attachmentFavorite(target));
+        favoriteButton.hidden = !target;
+        favoriteButton.setAttribute('aria-pressed', String(saved));
+        favoriteButton.setAttribute('aria-label', saved ? '取消收藏当前附件' : '收藏当前附件');
+        favoriteButton.title = saved ? '取消收藏' : '收藏';
+      }
       viewer.classList.toggle('video-viewer', video);
       viewer.setAttribute('aria-label', video ? '视频播放器' : '图片查看器');
       viewer.querySelector('[data-viewer-download]')?.setAttribute('aria-label', video ? '下载当前视频' : '下载当前原图');
@@ -8453,6 +8552,12 @@ export class QuietRoomApp {
     };
     previous.addEventListener('click', () => void render(current - 1, { direction: -1, reason: 'control' }));
     next.addEventListener('click', () => void render(current + 1, { direction: 1, reason: 'control' }));
+    viewer.querySelector('[data-viewer-favorite]')?.addEventListener('click', async () => {
+      if (transitionActive || workAbort.signal.aborted) return;
+      const identity = identities[current];
+      if (identity?.source) await this.toggleMessageFavorite(identity.source, identity.assetIndex);
+      if (!workAbort.signal.aborted && viewer.isConnected) updateMetadata(current);
+    });
     viewer.querySelector('[data-viewer-close]')?.addEventListener('click', () => this.closeImageViewer());
     viewer.querySelector('[data-viewer-download]')?.addEventListener('click', async () => {
       try {
@@ -8567,11 +8672,67 @@ export class QuietRoomApp {
   }
 
   private galleryCurationRecord(target: GalleryCurationTarget): GalleryCurationRecord | undefined {
+    if (this.galleryMode === 'favorites') {
+      const favorite = this.attachmentFavorite(target);
+      return favorite ? { v: 1, ...target, hidden: false, pinnedAt: favorite.pinnedAt } : undefined;
+    }
     const key = galleryCurationKey(target);
     return (this.uiPreferences.galleryCuration ?? []).find(record => galleryCurationKey(record) === key);
   }
 
+  private attachmentFavorite(target: GalleryCurationTarget) {
+    const key = galleryCurationKey(target);
+    return this.uiPreferences.attachmentFavorites?.find(record => galleryCurationKey(record) === key);
+  }
+
+  private messageFavoriteTargets(message: DecryptedMessage): GalleryCurationTarget[] {
+    if (this.messageIsUnavailable(message.clientMsgId)) return [];
+    const payload = message.payload;
+    const count = payload.kind === 'image-album' ? payload.images.length : payload.kind === 'image' || payload.kind === 'file' ? 1 : 0;
+    const targets: GalleryCurationTarget[] = Array.from({ length: count }, (_, assetIndex) => ({ clientMsgId: message.clientMsgId, assetIndex,
+      category: payload.kind === 'file' && !isVideoFile(payload.file) ? 'files' : 'images' }));
+    // Unsupported older identities must not break the rest of the message menu.
+    try { targets.forEach(galleryCurationKey); return targets; }
+    catch { return []; }
+  }
+
+  private async saveAttachmentFavorites(records: NonNullable<UiPreferences['attachmentFavorites']>): Promise<void> {
+    if (!this.session || !this.uiPreferencesHydrated || this.privacyCovered) throw new Error('本机收藏尚未就绪');
+    const next = normalizeAttachmentFavorites(records);
+    const previous = this.uiPreferences.attachmentFavorites;
+    this.uiPreferences.attachmentFavorites = next;
+    try { await this.saveUiPreferencesNow(); }
+    catch (cause) {
+      if (this.uiPreferences.attachmentFavorites === next) this.uiPreferences.attachmentFavorites = previous;
+      throw cause;
+    }
+  }
+
+  private async toggleMessageFavorite(message: DecryptedMessage, assetIndex?: number): Promise<void> {
+    const session = this.session; const epoch = this.runtimeEpoch;
+    if (!session || this.privacyCovered) return;
+    const targets = this.messageFavoriteTargets(message).filter(target => assetIndex === undefined || target.assetIndex === assetIndex);
+    if (!targets.length) return;
+    const remove = targets.every(target => this.attachmentFavorite(target));
+    const keys = new Set(targets.map(galleryCurationKey));
+    const previous = this.uiPreferences.attachmentFavorites ?? [];
+    const next = remove ? previous.filter(record => !keys.has(galleryCurationKey(record)))
+      : [...previous, ...targets.filter(target => !this.attachmentFavorite(target)).map(target => ({ ...target, savedAt: Date.now(), pinnedAt: null }))];
+    this.closeMessageActions(false, false);
+    try {
+      await this.saveAttachmentFavorites(next);
+      if (this.isRuntimeActive(epoch, session)) this.showNotice(remove ? '已取消收藏' : '已收藏');
+    } catch (cause) { if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '收藏未能保存'); }
+  }
+
   private async updateGalleryCuration(target: GalleryCurationTarget, action: 'pin' | 'unpin' | 'hide'): Promise<void> {
+    if (this.galleryMode === 'favorites') {
+      const key = galleryCurationKey(target);
+      const previous = this.uiPreferences.attachmentFavorites ?? [];
+      await this.saveAttachmentFavorites(previous.flatMap(record => galleryCurationKey(record) !== key ? [record]
+        : action === 'hide' ? [] : [{ ...record, pinnedAt: action === 'pin' ? Date.now() : null }]));
+      return;
+    }
     const key = galleryCurationKey(target);
     const previous = this.uiPreferences.galleryCuration;
     const records = (previous ?? []).filter(record => galleryCurationKey(record) !== key);
@@ -8651,7 +8812,7 @@ export class QuietRoomApp {
     sheet.innerHTML = `<div class="gallery-actions-menu" role="menu">
       ${openDetails ? '<button type="button" role="menuitem" data-gallery-action="details"><span>查看详情</span></button>' : ''}
       <button type="button" role="menuitem" data-gallery-action="pin">${icons.pin}<span>${pinned ? '取消置顶' : '置顶'}</span></button>
-      <button type="button" role="menuitem" data-gallery-action="delete" data-danger="true">${icons.trash}<span>删除</span></button>
+      <button type="button" role="menuitem" data-gallery-action="delete" ${this.galleryMode === 'safe' ? 'data-danger="true"' : ''}>${this.galleryMode === 'favorites' ? memeIcons.star : icons.trash}<span>${this.galleryMode === 'favorites' ? '取消收藏' : '删除'}</span></button>
     </div>`;
     this.root.append(sheet);
     const dialog = mountDialog(sheet, {
@@ -8724,9 +8885,8 @@ export class QuietRoomApp {
     const epoch = this.runtimeEpoch;
     const signal = this.runtimeAbort?.signal;
     if (!this.setActiveSurface('away')) return;
-    if (session.vault.role !== 'creator') {
+    if (this.galleryMode === 'safe' && session.vault.role !== 'creator') {
       this.renderChat();
-      this.showNotice('保险箱仅对会话创建者开放', 'error');
       return;
     }
     // Reveals belong to this visit, never to stored preferences or the verified
@@ -8734,6 +8894,8 @@ export class QuietRoomApp {
     if (!this.root.querySelector('.gallery-shell')) this.galleryRevealedAssets.clear();
     const cryptoReady = session.vault.protocol !== 'mls-rfc9420' || session.vault.mls?.phase === 'active';
     const filesTab = tab === 'files';
+    const favorites = this.galleryMode === 'favorites';
+    const surfaceName = favorites ? '收藏' : '保险箱';
     const category = filesTab ? '文件' : '照片和视频';
     const knownCount = this.galleryKnownCounts[tab] ??= { keys: new Set(), complete: false };
     let assets: GalleryAsset[] = [];
@@ -8742,7 +8904,7 @@ export class QuietRoomApp {
     let fileCount = 0;
     const imageButtons = new Map<string, HTMLButtonElement>();
     const fileButtons = new Map<string, HTMLButtonElement>();
-    const curationRecords = this.uiPreferences.galleryCuration ?? [];
+    const curationRecords = favorites ? [] : this.uiPreferences.galleryCuration ?? [];
     const deletedForEveryone = this.messageDeletions();
     // Counts survive tab switches, but global deletion is a later projection
     // event rather than a mutation of the original media record. Reconcile the
@@ -8756,18 +8918,18 @@ export class QuietRoomApp {
     const retainedTabs = this.root.querySelector<HTMLElement>(':scope > .gallery-shell > .gallery-header > .gallery-tabs');
     retainedTabs?.remove();
     this.root.innerHTML = `
-      <section class="gallery-shell" aria-label="保险箱">
-        <header class="subpage-header gallery-header" aria-label="保险箱操作">
+      <section class="gallery-shell" data-gallery-mode="${this.galleryMode}" aria-label="${surfaceName}">
+        <header class="subpage-header gallery-header" aria-label="${surfaceName}操作">
           <button class="icon-button" id="gallery-back" type="button" aria-label="返回聊天">${icons.back}</button>
-          <div class="gallery-tabs" role="tablist" aria-label="保险箱分类" data-active-tab="${tab}">
+          <div class="gallery-tabs" role="tablist" aria-label="${surfaceName}分类" data-active-tab="${tab}">
             <button class="gallery-tab" id="gallery-tab-images" type="button" role="tab" aria-controls="gallery-grid" aria-selected="${!filesTab}" tabindex="${filesTab ? -1 : 0}"><span>相册</span><span class="gallery-tab-count" aria-hidden="true" data-gallery-count="images" hidden></span></button>
             <button class="gallery-tab" id="gallery-tab-files" type="button" role="tab" aria-controls="gallery-grid" aria-selected="${filesTab}" tabindex="${filesTab ? 0 : -1}"><span>文件</span><span class="gallery-tab-count" aria-hidden="true" data-gallery-count="files" hidden></span></button>
           </div>
-          <nav class="gallery-header-actions" aria-label="保险箱操作">
+          <nav class="gallery-header-actions" aria-label="${surfaceName}操作">
             ${filesTab ? '' : `<button class="icon-button gallery-visibility-button" id="gallery-toggle-visibility" type="button" aria-label="显示全部" title="显示全部" aria-controls="gallery-grid" disabled>${icons.eye}</button>`}
-            <button class="icon-button gallery-upload-button${cryptoReady ? '' : ' is-disabled'}" id="open-gallery-image-picker" type="button" aria-label="上传照片、视频或文件到保险箱" title="上传照片、视频或文件到保险箱" ${cryptoReady ? '' : 'disabled'}>${icons.upload}</button>
+            ${favorites ? '' : `<button class="icon-button gallery-upload-button${cryptoReady ? '' : ' is-disabled'}" id="open-gallery-image-picker" type="button" aria-label="上传照片、视频或文件到保险箱" title="上传照片、视频或文件到保险箱" ${cryptoReady ? '' : 'disabled'}>${icons.upload}</button>`}
           </nav>
-          <input id="gallery-image-input" type="file" multiple ${cryptoReady ? '' : 'disabled'} hidden />
+          ${favorites ? '' : `<input id="gallery-image-input" type="file" multiple ${cryptoReady ? '' : 'disabled'} hidden />`}
         </header>
         <div class="notice gallery-notice" id="notice" role="status" hidden></div>
         <div class="upload-progress gallery-upload-progress" id="upload-progress" hidden><span></span><output></output></div>
@@ -8928,11 +9090,12 @@ export class QuietRoomApp {
           if (assetKeys.has(key)) continue;
           assetKeys.add(key);
           const target: GalleryCurationTarget = { category: 'files', clientMsgId: message.clientMsgId, assetIndex: 0 };
+          if (favorites && (!this.attachmentFavorite(target) || message.payload.kind === 'gallery-file')) continue;
           if (curationRecords.some(record => record.hidden && galleryCurationKey(record) === galleryCurationKey(target))) continue;
           knownCount.keys.add(key);
           fileCount += 1;
           fileAssets.push({ ...target, seq: message.seq, manifest: message.payload.file, sentAt: message.payload.sentAt, source: message });
-          const button = this.createFileAttachment(message.payload.file);
+          const button = this.createFileAttachment(message.payload.file, !favorites);
           button.classList.add('gallery-file');
           button.dataset.galleryAssetKey = key;
           const time = document.createElement('time');
@@ -8940,6 +9103,11 @@ export class QuietRoomApp {
           time.textContent = timeLabel(message.payload.sentAt);
           button.querySelector('.file-attachment-copy')!.append(time);
           this.mountGalleryCurationActions(button, target, tab, key);
+          if (favorites) button.addEventListener('click', () => {
+            if (button.dataset.galleryHoldCommitted === 'true') { delete button.dataset.galleryHoldCommitted; return; }
+            if (Date.now() < this.suppressMediaClickUntil) return;
+            this.openGalleryCurationActions(button, target, tab, key);
+          });
           fileButtons.set(key, button);
           grid.insertBefore(button, footer);
           continue;
@@ -8953,6 +9121,7 @@ export class QuietRoomApp {
           if (assetKeys.has(key)) continue;
           assetKeys.add(key);
           const target: GalleryCurationTarget = { category: 'images', clientMsgId: message.clientMsgId, assetIndex };
+          if (favorites && (!this.attachmentFavorite(target) || message.payload.kind === 'gallery-image' || message.payload.kind === 'gallery-file')) continue;
           if (curationRecords.some(record => record.hidden && galleryCurationKey(record) === galleryCurationKey(target))) continue;
           knownCount.keys.add(key);
           const index = assets.length;
@@ -8994,7 +9163,7 @@ export class QuietRoomApp {
               assets.map((asset) => ({ clientMsgId: asset.clientMsgId, assetIndex: asset.assetIndex, source: asset.source })),
             );
           });
-          this.mountGalleryCurationActions(button, target, tab, key, video ? undefined : () => {
+          this.mountGalleryCurationActions(button, target, tab, key, video || favorites ? undefined : () => {
             if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
             this.galleryScrollTop.images = grid.scrollTop;
             const currentIndex = assets.findIndex(asset => asset.clientMsgId === message.clientMsgId && asset.assetIndex === assetIndex);
@@ -9008,16 +9177,16 @@ export class QuietRoomApp {
           grid.insertBefore(button, footer);
         }
       }
-      if (filesTab && curationRecords.some(record => record.category === 'files')) {
-        fileAssets = curateGalleryAssets('files', fileAssets, curationRecords);
+      if (filesTab && (favorites || curationRecords.some(record => record.category === 'files'))) {
+        fileAssets = favorites ? sortFavoriteAssets(fileAssets, this.uiPreferences.attachmentFavorites ?? []) : curateGalleryAssets('files', fileAssets, curationRecords);
         for (const asset of fileAssets) {
           const button = fileButtons.get(`${asset.clientMsgId}:file`);
           if (button) grid.insertBefore(button, footer);
         }
         fileCount = fileAssets.length;
       }
-      if (!filesTab && curationRecords.some(record => record.category === 'images')) {
-        assets = curateGalleryAssets('images', assets, curationRecords);
+      if (!filesTab && (favorites || curationRecords.some(record => record.category === 'images'))) {
+        assets = favorites ? sortFavoriteAssets(assets, this.uiPreferences.attachmentFavorites ?? []) : curateGalleryAssets('images', assets, curationRecords);
         for (const [index, asset] of assets.entries()) {
           const button = imageButtons.get(`${asset.clientMsgId}:${asset.assetIndex}`);
           if (!button) continue;
@@ -9054,11 +9223,11 @@ export class QuietRoomApp {
         knownCount.complete = !hasMore;
         updateCounts();
         status.textContent = hasMore ? '' : assets.length + fileCount ? `已加载本机保存的全部${category}`
-          : filesTab ? '从保险箱上传的文档、压缩包等文件会显示在这里。' : '聊天中的照片、视频和从保险箱上传的照片、视频会显示在这里。';
+          : favorites ? '' : filesTab ? '从保险箱上传的文档、压缩包等文件会显示在这里。' : '聊天中的照片、视频和从保险箱上传的照片、视频会显示在这里。';
         if (!hasMore && !assets.length && !fileCount) {
           const empty = document.createElement('p');
           empty.className = 'gallery-empty';
-          empty.textContent = `还没有${category}`;
+          empty.textContent = favorites ? '暂无收藏' : `还没有${category}`;
           grid.insertBefore(empty, footer);
         }
         more.hidden = !hasMore;
