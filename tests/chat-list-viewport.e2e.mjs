@@ -227,8 +227,14 @@ try {
     app.chatLayoutElements.list.scrollTop -= 300;
     app.chatBottomFollowPending = true;
     app.chatPinnedToBottom = true;
+    app.chatScrollIntent = null;
     app.restoreChatAnchor(app.chatLayoutElements.list, window.listFixture.anchor);
     if (app.chatBottomFollowPending || app.chatPinnedToBottom) throw Error('A restored history anchor retained stale bottom follow');
+    const gap = app.chatBottomGap;
+    app.chatBottomGap = () => 0;
+    app.commitChatScrollBookkeeping(app.chatLayoutElements.list, false);
+    app.chatBottomGap = gap;
+    if (app.chatPinnedToBottom) throw Error('Transient transition geometry replaced the restored history intent');
   });
   assert.equal(await page.evaluate(() => window.listFixture.app.captureChatAnchor().clientMsgId),
     await page.evaluate(() => window.listFixture.anchor.clientMsgId));
