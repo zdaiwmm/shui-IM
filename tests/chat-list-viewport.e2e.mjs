@@ -228,7 +228,9 @@ try {
     app.chatBottomFollowPending = true;
     app.chatPinnedToBottom = true;
     app.chatScrollIntent = null;
+    app.chatRestoreAnchor = window.listFixture.anchor;
     app.restoreChatAnchor(app.chatLayoutElements.list, window.listFixture.anchor);
+    app.chatRestoreAnchor = null;
     if (app.chatBottomFollowPending || app.chatPinnedToBottom) throw Error('A restored history anchor retained stale bottom follow');
     const gap = app.chatBottomGap;
     app.chatBottomGap = () => 0;

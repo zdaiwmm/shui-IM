@@ -4860,7 +4860,7 @@ export class QuietRoomApp {
     this.chatViewportFollowUntil = 0;
     // Page-transition transforms can temporarily move fixed composer geometry.
     // A restored history position remains a reading intent until user action.
-    this.chatScrollIntent = 'up';
+    if (this.chatRestoreAnchor) this.chatScrollIntent = 'up';
     const delta = target.getBoundingClientRect().top - this.chatViewportTop - anchor.offset;
     if (Math.abs(delta) > 1) this.setChatScrollTop(this.chatScrollTop + delta);
   }
