@@ -3432,6 +3432,7 @@ export class QuietRoomApp {
     button?.setAttribute('aria-expanded', 'false');
     if (button) { button.innerHTML = memeIcons.smile; button.setAttribute('aria-label', '打开梗图'); }
     if (keyboard && !this.privacyCovered) this.root.querySelector<HTMLTextAreaElement>('#message-input')?.focus({ preventScroll: true });
+    else if (picker && !this.privacyCovered) button?.focus({ preventScroll: true });
   }
 
   private openMemePicker(): void {
@@ -3451,7 +3452,9 @@ export class QuietRoomApp {
         headers: { Authorization: `Bearer ${session.vault.accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       if (!response.ok) {
-        if (response.status === 404 || response.status === 503) throw new Error('网络梗图服务尚未配置，收藏仍可使用');
+        if (response.status === 404) throw new Error('图片已过期，请重新搜索');
+        if (response.status >= 500) throw new Error('网络梗图暂时不可用，请稍后重试');
+        if (response.status === 429) throw new Error('请求过于频繁，请稍后再试');
         throw new Error('梗图请求失败，请重试或重新搜索');
       }
       return response;
@@ -4584,7 +4587,7 @@ export class QuietRoomApp {
     const session = this.session;
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!session || this.privacyCovered || document.hidden || document.documentElement.classList.contains('privacy-obscured')
-      || this.activeSurface !== 'chat' || this.callView || !list || this.chatRestoreAnchor) return;
+      || this.activeSurface !== 'chat' || this.callView || this.memePicker || !list || this.chatRestoreAnchor) return;
     const top = this.root.querySelector('.chat-header')?.getBoundingClientRect().bottom ?? list.getBoundingClientRect().top;
     const composer = this.root.querySelector<HTMLElement>('#composer');
     const bottom = composer ? this.chatComposerLayoutTop(composer) : list.getBoundingClientRect().bottom;

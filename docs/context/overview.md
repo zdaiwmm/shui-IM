@@ -16,7 +16,7 @@
 
 梗图面板与本机收藏见 [MEMES.md](../../MEMES.md)、`src/lib/meme-picker.ts`、`src/lib/meme-media.ts`、
 `src/lib/vault.ts` 的收藏存储及 `src/memes.css`；专项为 `tests/meme-media.test.ts` 和 `tests/meme-picker.e2e.mjs`。
-网络搜索代理尚未接入，不能把测试中的合成搜索视为真实接口可用。
+网络来源与受限代理见 `server/memes.mjs`、`tests/meme-server.test.ts`；默认 Imgflip 热门图库，搜索范围和真实联调证据见 MEMES 与状态页，不把合成搜索视为上游可用性证明。
 
 | 领域 | 先读 | 代码入口 | 主要验证入口 |
 | --- | --- | --- | --- |

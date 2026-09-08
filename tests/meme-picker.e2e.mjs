@@ -71,6 +71,14 @@ try {
   });
   await page.locator('#open-memes').click();
   await page.waitForFunction(() => document.querySelectorAll('.meme-tile img[src]').length >= 3);
+  assert.equal(await page.locator('[data-mode="search"]').getAttribute('aria-selected'),'true');
+  assert.equal(await page.locator('.meme-grip').count(),0);
+  assert.equal(await page.locator('.chat-shell').evaluate(el=>el.inert),true);
+  assert.equal(await page.evaluate(()=>window.fixture.requests[0].keyword),'热门');
+  await page.locator('[data-category="可爱"]').click();
+  await page.waitForFunction(()=>window.fixture.requests.at(-1).keyword==='可爱');
+  await page.locator('[data-mode="favorites"]').click();
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===9);
   assert.equal(await page.locator('.meme-tile').count(),9);
   assert.equal(await page.locator('#message-input').inputValue(),'保留这份草稿');
   await page.locator('.meme-tile').first().click();
@@ -83,13 +91,13 @@ try {
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===8);
   await page.locator('[data-mode="search"]').click();
   await page.locator('#meme-query').fill('无语'); await page.locator('#meme-query').press('Enter');
-  assert.equal(await page.evaluate(()=>window.fixture.requests.length),0,'Search ran before consent');
-  await page.getByRole('button',{name:'同意并搜索'}).click();
+  await page.waitForFunction(()=>window.fixture.requests.at(-1).keyword==='无语');
+  assert.equal(await page.getByRole('button',{name:'同意并搜索'}).count(),0);
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===6);
   await page.locator('.meme-more').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===12);
   await page.locator('#meme-query').fill('失败'); await page.locator('#meme-query').press('Enter');
-  await page.getByText('网络梗图服务尚未配置，收藏仍可使用').waitFor();
+  await page.getByText('网络梗图暂时不可用，请稍后重试').waitFor();
   await page.locator('[data-mode="favorites"]').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===8);
   await page.evaluate(async()=> {
@@ -139,9 +147,18 @@ try {
       }
       throw new Error('Meme panel geometry did not settle');
     });
-    assert.ok(geometry.left>=0 && geometry.right<=width+1 && geometry.top>=0 && geometry.bottom<=height+1 && !geometry.overflow,JSON.stringify(geometry));
+    assert.ok(geometry.left===0 && geometry.right===width && geometry.top===0 && Math.abs(geometry.bottom-height)<=1 && !geometry.overflow,JSON.stringify(geometry));
     if(out) await page.screenshot({path:path.join(out,`memes-${width}.png`)});
   }
+  await page.emulateMedia({colorScheme:'dark'});
+  if(out) await page.screenshot({path:path.join(out,'memes-dark.png')});
+  await page.locator('[data-mode="close"]').click();
+  assert.equal(await page.locator('.meme-panel').count(),0);
+  assert.equal(await page.locator('.chat-shell').evaluate(el=>el.inert),false);
+  assert.equal(await page.locator('#message-input').inputValue(),'保留这份草稿');
+  await page.locator('#open-memes').click();
+  await page.locator('[data-mode="favorites"]').click();
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===8);
   await page.evaluate(()=> {
     window.fixture.app.processImageBatch=()=>new Promise(resolve=>{window.fixture.finishSend=resolve;});
   });
@@ -154,5 +171,5 @@ try {
   await page.evaluate(()=>window.fixture.app.obscurePrivacySurface());
   assert.equal(await page.locator('.meme-panel,.meme-preview').count(),0,'Privacy curtain retained meme UI');
   assert.deepEqual(errors,[]);
-  console.log('Meme picker: local encryption, exact bytes, dedup, independent copy, send, long press, consent, paging, failure, privacy teardown and four viewport checks passed.');
+  console.log('Meme picker: encryption, originals, send, long press, default online, categories, direct search, paging, modal isolation, privacy teardown and fullscreen viewports passed.');
 } finally { await browser?.close(); await server.close(); }
