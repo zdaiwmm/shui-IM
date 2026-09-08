@@ -72,14 +72,15 @@
   有界缓存且无全量预热。回环 5173 被另一任务 HTTP 测试监听占用时未终止该进程。
   此后文档提交只保存交付证据，不将下方历史生产快照视为本次发布。
 
-## 本机文档阅读器（2026-09-09，后续格式与交互更新）
+## 本机文档阅读器（2026-09-09，后续格式与交互更新已集成本机）
 
 - 本轮复用独占工作树 `/private/tmp/quiet-room-integrate-document-reader`，分支 `codex/integrate-document-reader`；规则及开发基线为本机 main `19de86c1a14895e409f2630caf8726fcd63b9abb`。该基线已包含上一轮 PDF／文本阅读器及本机服务回读。
+- 阅读器候选为 `842edd6fc6d8f6852ba6a8f5ab242620b287e881`。在独立集成工作树 `/private/tmp/quiet-room-reader-v3-integration`、分支 `codex/reader-v3-integration` 中保留随后进入 main 的在线动画、媒体控件和回读文档；锁内 main 基线为 `b506686794fe47d71641f0f022253ae619834910`，最终集成提交为 `9c2a4ef491bd44aa057f906be2ac2dee7af1f168`，无冲突。
 - 本轮版本 `2026.09.09.3`：搜索焦点改为圆角玻璃栏；PDF 支持适合宽度时双向横滑、放大后横向查看；增加 EPUB 2/3 章节目录、书内图片、字号与搜索；聊天、保险箱和收藏使用格式图标。完整校验、away／已读与隐私清理边界沿用 [D-038](decisions.md#d-038pdf-与文本改用本机内置阅读器)。
-- `npm run check:full` 零退出：68 个文件、525 项单元／集成测试及 29 个浏览器入口全部通过。运行期间仅补充发送气泡图标的对比度 CSS；该最终 CSS 已独立重新构建、通过真实文件流和明暗窄屏截图检查。日志为 `/private/tmp/quiet-room-reader-v3-check-full.log` 和 `/private/tmp/quiet-room-reader-v3-final-build.log`。
+- 最终应用组合 `b658645` 的 `npm run check:full` 单次零退出：构建、68 个文件的 527 项单元／集成测试、30/30 浏览器入口通过，浏览器阶段 361.49 秒。验证期间仅保留主线回读文档形成 `9c2a4ef`，应用源码与冻结候选一致。日志为 `/private/tmp/quiet-room-reader-v3-final-combination-check-full.log`；发送气泡图标的最终对比度 CSS 已包含在该完整组合验证内。
 - Chrome 与 WebKit 阅读器专项通过；Chrome 另用原生触摸事件验证双向翻页。覆盖 EPUB 2/3、目录／搜索／链接／图片、脚本与外链净化、非法 ZIP 路径／加密资源／超限拒绝、关闭与迟到 worker 清理。打包后的 EPUB 模块在两种浏览器、严格 CSP 下通过资源加载及换章／关闭的对象 URL 释放检查。依赖安装审计为 0 个已知漏洞。
 - 真实附件专项验证聊天和保险箱经加密／完整校验后的 EPUB 阅读、锁定移除及七类格式图标。阅读器截图位于 `/private/tmp/quiet-room-reader-v3-visual`、`/private/tmp/quiet-room-reader-v3-webkit`，最终文件图标截图位于 `/private/tmp/quiet-room-reader-v3-files-final`。
-- 本轮候选待提交并按互斥流程集成本机 main、更新依赖及回读服务；此前服务回读对应版本 `2026.09.09.2`，不能据此宣称本轮已运行。
+- 本机 main 已在本任务互斥锁内快进至 `9c2a4ef`；按锁定依赖执行 `npm ci` 并重启既有局域网启动器。前后端均由共享 main 运行，原 HTTPS 来源与既有证书经实际局域网接口回读：版本 `2026.09.09.3`、阅读器／EPUB worker／格式图标及保留的在线动画命中，阅读器 CSS 逐字节一致，后端 ok/database/storage 全为 true。回读证据为 `/private/tmp/quiet-room-reader-v3-lan-readback.json`，启动日志为 `/private/tmp/quiet-room-reader-v3-lan.log`。后续对账提交只修改本页，不改变应用代码。
 - iPhone / iOS 27 / Safari 真机横滑手感和实际书籍仍待验收；EPUB DRM／加密资源、出版者样式与固定版式还原不在范围内。本轮未推送 GitHub、未运行 CI、未发布生产；任务工作树保留供真机反馈。
 
 ## 当前生产与本机状态（2026-09-09 00:22）
