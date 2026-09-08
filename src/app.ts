@@ -1,5 +1,9 @@
 import QRCode from 'qrcode';
 import { closeDialog, mountDialog } from './lib/dialog';
+import { MemePicker, memeIcons } from './lib/meme-picker';
+import './memes.css';
+import { validateMemeFile, MEME_TYPES } from './lib/meme-media';
+import { loadMemeFavorites, loadMemeFavoriteFile, saveMemeFavorite, removeMemeFavorite } from './lib/vault';
 import {
   ApiError,
   completeBlob,
@@ -299,6 +303,7 @@ export class QuietRoomApp {
   private receiptQueue = new Map<number, ServerReceipt>();
   private uploadPlans: ImageUploadPlan[] = [];
   private imageCache = new Map<string, CachedImage>();
+  private memePicker: MemePicker | null = null;
   private imageLoadPromises = new Map<string, Promise<CachedImage>>();
   private imageLoadStatus = new Map<string, { stage: 'queued' | 'download' | 'decrypt' | 'decode'; ratio?: number }>();
   private imageManifestSignatures = new Map<string, string>();
@@ -410,7 +415,7 @@ export class QuietRoomApp {
     blurred: boolean;
     runtimeEpoch: number;
     session: VaultSession;
-    input: HTMLTextAreaElement;
+    input: HTMLTextAreaElement | HTMLInputElement;
     viewportGeneration: number;
     baselineViewportHeight: number;
     baselineLayoutHeight: number;
@@ -978,6 +983,7 @@ export class QuietRoomApp {
   }
 
   private obscurePrivacySurface(): void {
+    this.closeMemePicker();
     document.documentElement.classList.add('privacy-obscured');
     this.concealChatImages();
     this.closeImageViewer(true);
@@ -1564,7 +1570,7 @@ export class QuietRoomApp {
       || this.systemSurfaceTokens.size > 0;
   }
 
-  private beginKeyboardHandoff(input: HTMLTextAreaElement, event: PointerEvent): boolean {
+  private beginKeyboardHandoff(input: HTMLTextAreaElement | HTMLInputElement, event: PointerEvent): boolean {
     const previous = this.keyboardHandoff;
     if (previous) {
       if (previous.blurred) {
@@ -3410,11 +3416,108 @@ export class QuietRoomApp {
     this.updateConnectionStatus();
   }
 
+  private closeMemePicker(keyboard = false): void {
+    if (this.keyboardHandoff?.input.id === 'meme-query' && this.invalidateKeyboardHandoff()) return;
+    const picker = this.memePicker;
+    this.memePicker = null;
+    picker?.dispose();
+    const button = this.root.querySelector<HTMLButtonElement>('#open-memes');
+    button?.setAttribute('aria-expanded', 'false');
+    if (button) { button.innerHTML = memeIcons.smile; button.setAttribute('aria-label', '打开梗图'); }
+    if (keyboard && !this.privacyCovered) this.root.querySelector<HTMLTextAreaElement>('#message-input')?.focus({ preventScroll: true });
+  }
+
+  private openMemePicker(): void {
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    const host = this.root.querySelector<HTMLElement>('#composer');
+    if (!session || !host || this.privacyCovered || !this.runtimeAbort || this.activeSurface !== 'chat') return;
+    this.closeMemePicker();
+    this.closeMessageActions(false, false);
+    this.root.querySelector<HTMLTextAreaElement>('#message-input')?.blur();
+    const button = this.root.querySelector<HTMLButtonElement>('#open-memes')!;
+    button.setAttribute('aria-expanded', 'true'); button.setAttribute('aria-label', '切回键盘'); button.innerHTML = memeIcons.keyboard;
+    const isActive = () => this.isRuntimeActive(epoch, session) && this.activeSurface === 'chat' && host.isConnected;
+    const request = async (path: string, body: unknown, signal: AbortSignal) => {
+      const response = await fetch(`/api/rooms/${session.vault.roomId}/memes/${path}`, {
+        method: 'POST', credentials: 'omit', cache: 'no-store', signal,
+        headers: { Authorization: `Bearer ${session.vault.accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        if (response.status === 404 || response.status === 503) throw new Error('网络梗图服务尚未配置，收藏仍可使用');
+        throw new Error('梗图请求失败，请重试或重新搜索');
+      }
+      return response;
+    };
+    this.memePicker = new MemePicker({
+      host, root: this.root, signal: this.runtimeAbort.signal, isActive,
+      list: () => loadMemeFavorites(session),
+      file: (item, signal) => loadMemeFavoriteFile(session, item, signal),
+      save: (file, signal) => saveMemeFavorite(session, file, signal),
+      remove: (id, signal) => removeMemeFavorite(session, id, signal),
+      send: async (file, signal) => {
+        if (!isActive()) throw new Error('会话已关闭');
+        if (this.imageBatchUploading) throw new Error('另一个附件正在发送，请稍后重试');
+        this.imageBatchUploading = true;
+        try {
+          if (!await this.processImageBatch([file], 'chat', signal)) throw new Error('发送未完成，请查看聊天中的状态后重试');
+        } finally { if (this.isRuntimeActive(epoch, session)) this.imageBatchUploading = false; }
+      },
+      search: async (keyword, page, signal) => {
+        const response = await request('search', { keyword, page }, signal);
+        const result = await response.json();
+        if (!Array.isArray(result.items) || result.items.length > 100
+          || result.items.some((item: { id?: unknown; title?: unknown }) => typeof item?.id !== 'string' || !/^[0-9a-f-]{36}$/.test(item.id)
+            || typeof item.title !== 'string' || item.title.length > 120)
+          || (result.nextPage !== null && (!Number.isSafeInteger(result.nextPage) || result.nextPage <= page || result.nextPage > 100))) throw new Error('搜索结果格式不受支持');
+        return result;
+      },
+      media: async (id, signal) => {
+        const response = await request('media', { id }, signal);
+        // Bound streamed bytes even if a response omits Content-Length.
+        if (!response.body) throw new Error('图片内容为空');
+        const reader = response.body.getReader(); const chunks: Uint8Array<ArrayBuffer>[] = []; let size = 0;
+        try {
+          while (true) {
+            signal.throwIfAborted();
+            const part = await reader.read(); if (part.done) break;
+            size += part.value.byteLength;
+            if (size > 8 * 1024 * 1024) throw new Error('梗图需小于 8 MiB');
+            chunks.push(new Uint8Array(part.value));
+          }
+        } finally { await reader.cancel().catch(() => undefined); }
+        return new Blob(chunks, { type: response.headers.get('Content-Type') ?? '' });
+      },
+      close: keyboard => this.closeMemePicker(keyboard),
+      onSearchPointer: (input, event) => { this.beginKeyboardHandoff(input, event); },
+      onKeyboardPointer: event => {
+        const input = host.querySelector<HTMLTextAreaElement>('#message-input');
+        if (input) this.beginKeyboardHandoff(input, event);
+      },
+    });
+  }
+
+  private async favoriteChatMeme(message: DecryptedMessage, manifest: ImageManifest): Promise<void> {
+    const session = this.session; const epoch = this.runtimeEpoch; const signal = this.runtimeAbort?.signal;
+    if (!session || !signal || this.privacyCovered || this.messageIsUnavailable(message.clientMsgId)) return;
+    this.closeMessageActions(false, false);
+    this.showNotice('正在收藏…');
+    try {
+      const cached = await this.loadImage(manifest);
+      if (!this.isRuntimeActive(epoch, session) || this.messageIsUnavailable(message.clientMsgId)) return;
+      const file = await validateMemeFile(cached.blob, manifest.originalName || '梗图', signal);
+      if (!this.isRuntimeActive(epoch, session) || this.messageIsUnavailable(message.clientMsgId)) return;
+      const added = await saveMemeFavorite(session, file, signal);
+      if (this.isRuntimeActive(epoch, session)) this.showNotice(added ? '已收藏到本机' : '已在收藏中');
+    } catch (error) { if (this.isRuntimeActive(epoch, session)) this.operationalError(error, '收藏失败，请重试'); }
+  }
+
   private renderChat(): void {
     if (!this.session) return;
     // Replacing the textarea destroys the owner of a consumed native-keyboard
     // blur. Treat that as a departure; an unused pre-focus arm is just cleared.
     if (this.invalidateKeyboardHandoff()) return;
+    this.closeMemePicker();
     this.galleryRevealedAssets.clear();
     this.clearMessageTextSelection();
     this.closeVoiceRecorder();
@@ -3496,6 +3599,7 @@ export class QuietRoomApp {
             <div class="composer-field">
               <label class="sr-only" for="message-input">输入消息</label>
               <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '输入消息' : '正在建立安全会话…'}" autocomplete="off" enterkeyhint="send" ${cryptoReady ? '' : 'disabled'}></textarea>
+              <button class="meme-toggle" id="open-memes" type="button" aria-label="打开梗图" title="梗图" aria-expanded="false" aria-controls="meme-panel" ${cryptoReady ? '' : 'disabled'}>${memeIcons.smile}</button>
             </div>
           </div>
           <button class="icon-button voice-record-button" id="record-voice" type="button" aria-label="录制语音消息" aria-description="长按录音，松手发送；向左滑动可取消。点按可免手持录音。" title="长按录音，松手发送" ${cryptoReady ? '' : 'disabled'}>${voiceIcons.mic}</button>
@@ -3506,6 +3610,14 @@ export class QuietRoomApp {
       </section>
     `;
     this.mountChatLayout();
+    this.root.querySelector('#open-memes')?.addEventListener('pointerdown', event => {
+      if (!this.memePicker) return;
+      const input = this.root.querySelector<HTMLTextAreaElement>('#message-input');
+      if (input) this.beginKeyboardHandoff(input, event as PointerEvent);
+    });
+    this.root.querySelector('#open-memes')?.addEventListener('click', () => {
+      if (this.memePicker) this.closeMemePicker(true); else this.openMemePicker();
+    });
     this.root.querySelector('#composer')?.addEventListener('submit', (event) => void this.handleSendText(event));
     const list = this.root.querySelector<HTMLElement>('#message-list')!;
     const textarea = this.root.querySelector<HTMLTextAreaElement>('#message-input')!;
@@ -4490,6 +4602,7 @@ export class QuietRoomApp {
 
   private setActiveSurface(surface: 'away' | 'chat'): boolean {
     if (surface === 'away' && this.invalidateKeyboardHandoff()) return false;
+    if (surface === 'away') this.closeMemePicker();
     this.stopViewerMedia();
     if (surface === 'away') {
       this.clearKeyboardHandoff();
@@ -5037,22 +5150,24 @@ export class QuietRoomApp {
     }
   }
 
-  private enqueuePayload(payload: MessagePayload, existingClientMsgId?: string): Promise<void> {
+  private enqueuePayload(payload: MessagePayload, existingClientMsgId?: string, signal?: AbortSignal): Promise<void> {
     const session = this.session;
     const epoch = this.runtimeEpoch;
     const operation = this.sendChain.catch(() => undefined).then(() => {
+      signal?.throwIfAborted();
       if (!session || !this.isRuntimeActive(epoch, session)) return;
-      return this.sendPayload(payload, existingClientMsgId);
+      return this.sendPayload(payload, existingClientMsgId, signal);
     });
     this.sendChain = operation.catch(() => undefined);
     return operation;
   }
 
-  private async sendPayload(payload: MessagePayload, existingClientMsgId?: string): Promise<void> {
+  private async sendPayload(payload: MessagePayload, existingClientMsgId?: string, signal?: AbortSignal): Promise<void> {
     const session = this.session;
     const epoch = this.runtimeEpoch;
     if (!session || this.privacyCovered) return;
     await withVaultMutation(session, async (mutation) => {
+      signal?.throwIfAborted();
       if (this.isRuntimeActive(epoch, session)) await this.sendPayloadLocked(payload, existingClientMsgId, mutation);
     });
   }
@@ -5508,7 +5623,7 @@ export class QuietRoomApp {
     }
   }
 
-  private async processImageBatch(files: File[], destination: 'chat' | 'gallery'): Promise<boolean> {
+  private async processImageBatch(files: File[], destination: 'chat' | 'gallery', operationSignal?: AbortSignal): Promise<boolean> {
     const session = this.session;
     if (!session || this.privacyCovered || files.length === 0) return false;
     const isFile = !files[0]!.type.startsWith('image/');
@@ -5533,7 +5648,8 @@ export class QuietRoomApp {
       return false;
     }
     const epoch = this.runtimeEpoch;
-    const signal = this.runtimeAbort?.signal;
+    const signal = operationSignal && this.runtimeAbort ? AbortSignal.any([operationSignal, this.runtimeAbort.signal]) : this.runtimeAbort?.signal;
+    if (signal?.aborted) return false;
     if (files.some((file) => file.size > MAX_IMAGE_BYTES)) {
       this.showNotice('单个文件不能超过 256 MiB', 'error');
       return false;
@@ -5635,7 +5751,8 @@ export class QuietRoomApp {
             : replyTarget
               ? { v: 2, kind: 'image', image: manifests[0]!, sentAt, replyTo: this.replyReference(replyTarget) }
               : { v: 1, kind: 'image', image: manifests[0]!, sentAt };
-      await this.enqueuePayload(payload, clientMsgId);
+      signal?.throwIfAborted();
+      await this.enqueuePayload(payload, clientMsgId, operationSignal);
       if (!this.isRuntimeActive(epoch, session)) return false;
       if (this.replyTarget?.clientMsgId === replyTarget?.clientMsgId) {
         this.replyTarget = null;
@@ -5904,8 +6021,13 @@ export class QuietRoomApp {
     }, { capture: true });
     const currentMessage = () => this.messages.get(this.renderedMessageSeq.get(message.clientMsgId) ?? 0)
       ?? this.pending.get(message.clientMsgId) ?? message;
-    const open = () => this.openMessageActions(article, currentMessage());
+    let selectedBlobId: string | undefined;
+    const selectImage = (target: EventTarget | null) => {
+      selectedBlobId = target instanceof Element ? target.closest<HTMLElement>('[data-blob-id]')?.dataset.blobId : undefined;
+    };
+    const open = () => this.openMessageActions(article, currentMessage(), selectedBlobId);
     article.addEventListener('pointerdown', (event) => {
+      selectImage(event.target);
       if (article.classList.contains('is-selecting-text')) return;
       const target = event.target instanceof Element ? event.target : null;
       const insideVoicePlayer = Boolean(target?.closest('.voice-player'));
@@ -5932,6 +6054,7 @@ export class QuietRoomApp {
       article.addEventListener(eventName, () => this.cancelMessageHold());
     }
     article.addEventListener('contextmenu', (event) => {
+      selectImage(event.target);
       if (article.classList.contains('is-selecting-text')) return;
       event.preventDefault();
       this.cancelMessageHold();
@@ -5940,6 +6063,7 @@ export class QuietRoomApp {
     article.addEventListener('keydown', (event) => {
       if (article.classList.contains('is-selecting-text')) return;
       if ((event.shiftKey && event.key === 'F10') || event.key === 'ContextMenu') {
+        selectImage(event.target);
         event.preventDefault();
         open();
       }
@@ -6007,7 +6131,7 @@ export class QuietRoomApp {
     });
   }
 
-  private openMessageActions(article: HTMLElement, message: DecryptedMessage): void {
+  private openMessageActions(article: HTMLElement, message: DecryptedMessage, selectedBlobId?: string): void {
     if (!this.session || this.privacyCovered || !article.isConnected || this.messageIsUnavailable(message.clientMsgId)) return;
     this.clearMessageTextSelection();
     this.closeMessageActions(false, false);
@@ -6065,6 +6189,9 @@ export class QuietRoomApp {
       addAction('select', '选择文字', '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5h8M12 5v14M9 19h6M4 3v18M20 3v18"/></svg>', () => this.openMessageTextSelection(message));
     }
     if (confirmed) addAction('reply', '回复', icons.reply, () => this.beginReply(message));
+    const image = message.payload.kind === 'image' ? message.payload.image
+      : message.payload.kind === 'image-album' ? message.payload.images.find(item => item.blobId === selectedBlobId) : undefined;
+    if (image && MEME_TYPES.includes(image.mimeType)) addAction('favorite-meme', '收藏为梗图', memeIcons.star, () => void this.favoriteChatMeme(message, image));
     // Local deletion is a projection preference, so an unsent or failed
     // outbox-backed message can be hidden without mutating its durable outbox
     // item. "For everyone" remains limited to confirmed own messages below.
@@ -8922,6 +9049,7 @@ export class QuietRoomApp {
   }
 
   private cleanupRuntime(preserveFilePicker = false): void {
+    this.closeMemePicker();
     this.gatewayFocusAbort?.abort();
     this.gatewayFocusAbort = null;
     this.gatewayUnlockAbort?.abort();

@@ -1,6 +1,7 @@
 import { argon2id } from 'hash-wasm';
 import { fromBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
+import { normalizeMemeIndex, MAX_MEME_FAVORITES, MAX_MEME_LIBRARY_BYTES, MAX_MEME_BYTES, MEME_TYPES, type MemeFavorite } from './meme-media';
 import { downloadBlob } from './download';
 import { generateIdentity } from './crypto';
 import { createRecoveryRequest } from './mls';
@@ -31,7 +32,7 @@ import type {
 } from './types';
 
 const DB_NAME = 'quiet-room';
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const PLATFORM_PAYLOAD_AAD = encoder.encode('quiet-room-vault-payload-v2');
@@ -132,7 +133,7 @@ type StoredMediaChunk = {
   cachedAt: number;
 };
 
-type LocalStore = 'outbox' | 'receiptOutbox' | 'uploads' | 'preferences';
+type LocalStore = 'outbox' | 'receiptOutbox' | 'uploads' | 'preferences' | 'memeFavorites';
 
 export type ChatScrollAnchor = {
   clientMsgId: string;
@@ -180,7 +181,7 @@ function openDatabase(): Promise<IDBDatabase> {
         mediaChunks.createIndex('roomId', 'roomId', { unique: false });
         mediaChunks.createIndex('blobKey', 'blobKey', { unique: false });
       }
-      for (const storeName of ['outbox', 'receiptOutbox', 'uploads', 'preferences'] as const) {
+      for (const storeName of ['outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites'] as const) {
         if (!database.objectStoreNames.contains(storeName)) {
           const store = database.createObjectStore(storeName, { keyPath: 'id' });
           store.createIndex('roomId', 'roomId', { unique: false });
@@ -1483,6 +1484,81 @@ async function loadLocalRecords<T>(session: VaultSession, storeName: LocalStore)
 async function deleteLocalRecord(session: VaultSession, storeName: LocalStore, id: string, mutation?: VaultMutation): Promise<void> {
   if (!ownsVaultMutation(session, mutation)) return withVaultMutation(session, (lease) => deleteLocalRecord(session, storeName, id, lease));
   await transaction(storeName, 'readwrite', (store) => store.delete(`${session.vault.roomId}:${id}`), session.stored);
+}
+
+export async function loadMemeFavorites(session: VaultSession): Promise<MemeFavorite[]> {
+  const record = await transaction<StoredLocalRecord | undefined>('memeFavorites', 'readonly', store => store.get(`${session.vault.roomId}:index`));
+  return record ? normalizeMemeIndex(await decryptLocalRecord(session, 'memeFavorites', record)) : [];
+}
+
+export async function loadMemeFavoriteFile(session: VaultSession, item: MemeFavorite, signal: AbortSignal): Promise<File> {
+  signal.throwIfAborted();
+  const record = await transaction<StoredLocalRecord | undefined>('memeFavorites', 'readonly', store => store.get(`${session.vault.roomId}:${item.id}`));
+  if (!record) throw new Error('收藏图片已不存在');
+  const data = await decryptLocalRecord<unknown>(session, 'memeFavorites', record);
+  signal.throwIfAborted();
+  if (typeof data !== 'string' || data.length > Math.ceil(MAX_MEME_BYTES * 4 / 3)) throw new Error('收藏图片已损坏');
+  const bytes = fromBase64Url(data);
+  const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(byte => byte.toString(16).padStart(2, '0')).join('');
+  signal.throwIfAborted();
+  if (bytes.byteLength !== item.size || digest !== item.digest) throw new Error('收藏图片完整性校验失败');
+  return new File([bytes], item.name, { type: item.type, lastModified: 0 });
+}
+
+/** Index and independent encrypted original commit atomically under the vault lease. */
+export async function saveMemeFavorite(session: VaultSession, file: File, signal: AbortSignal): Promise<boolean> {
+  if (!file.size || file.size > MAX_MEME_BYTES || !MEME_TYPES.includes(file.type)) throw new Error('梗图格式或大小不受支持');
+  const bytes = await file.arrayBuffer();
+  const digest = [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map(byte => byte.toString(16).padStart(2, '0')).join('');
+  return withVaultMutation(session, async () => {
+    signal.throwIfAborted();
+    const items = await loadMemeFavorites(session);
+    if (items.some(item => item.digest === digest)) return false;
+    if (items.length >= MAX_MEME_FAVORITES || items.reduce((size, item) => size + item.size, file.size) > MAX_MEME_LIBRARY_BYTES) {
+      throw new Error('收藏空间已满，请先取消部分收藏');
+    }
+    const item: MemeFavorite = { id: crypto.randomUUID(), digest, name: file.name.slice(0, 120), type: file.type, size: file.size, savedAt: Date.now() };
+    const original = await encryptLocalRecord(session, 'memeFavorites', item.id, toBase64Url(bytes));
+    const index = await encryptLocalRecord(session, 'memeFavorites', 'index', [item, ...items]);
+    signal.throwIfAborted();
+    const database = await openDatabase();
+    if (signal.aborted) { database.close(); signal.throwIfAborted(); }
+    await new Promise<void>((resolve, reject) => {
+      const tx = database.transaction(['vault', 'memeFavorites'], 'readwrite');
+      const abort = () => { try { tx.abort(); } catch { /* Already committed. */ } };
+      signal.addEventListener('abort', abort, { once: true });
+      const current = tx.objectStore('vault').get('current');
+      current.onsuccess = () => { if (!sameStoredVault(current.result, session.stored)) tx.abort(); };
+      tx.objectStore('memeFavorites').put(original); tx.objectStore('memeFavorites').put(index);
+      const cleanup = () => { signal.removeEventListener('abort', abort); database.close(); };
+      tx.oncomplete = () => { cleanup(); resolve(); };
+      tx.onabort = () => { cleanup(); reject(tx.error ?? staleVaultError()); };
+    });
+    return true;
+  });
+}
+
+export async function removeMemeFavorite(session: VaultSession, id: string, signal: AbortSignal): Promise<void> {
+  await withVaultMutation(session, async () => {
+    signal.throwIfAborted();
+    const items = (await loadMemeFavorites(session)).filter(item => item.id !== id);
+    const index = await encryptLocalRecord(session, 'memeFavorites', 'index', items);
+    signal.throwIfAborted();
+    const database = await openDatabase();
+    if (signal.aborted) { database.close(); signal.throwIfAborted(); }
+    await new Promise<void>((resolve, reject) => {
+      const tx = database.transaction(['vault', 'memeFavorites'], 'readwrite');
+      const abort = () => { try { tx.abort(); } catch { /* Already committed. */ } };
+      signal.addEventListener('abort', abort, { once: true });
+      const current = tx.objectStore('vault').get('current');
+      current.onsuccess = () => { if (!sameStoredVault(current.result, session.stored)) tx.abort(); };
+      tx.objectStore('memeFavorites').delete(`${session.vault.roomId}:${id}`);
+      tx.objectStore('memeFavorites').put(index);
+      const cleanup = () => { signal.removeEventListener('abort', abort); database.close(); };
+      tx.oncomplete = () => { cleanup(); resolve(); };
+      tx.onabort = () => { cleanup(); reject(tx.error ?? staleVaultError()); };
+    });
+  });
 }
 
 function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: boolean } = {}): UiPreferences {
