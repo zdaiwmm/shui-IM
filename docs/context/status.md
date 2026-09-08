@@ -23,7 +23,17 @@
   底部往返滚动、在线／离线与减少动态效果、键盘和原生坐标校正。
   首次定向执行受沙箱端口限制，后获准通过；新增夹具已明确启用原生坐标分支，
   旧 sticky 类型断言按新定位契约更新，保留原几何断言。
-- 本机集成及服务回读待交付阶段完成；iPhone / iOS 27 / Safari 真机未验收，
+- 源提交 `466d71c715639dc87e765d3776eddd16c3f74bf0` 完成后，锁内发现 main 已前进至
+  `3b8eb4b72f2d6ea83917f88812b9573402130acd`。在独立工作树
+  `/private/tmp/quiet-room-chat-header-integration`、分支 `codex/chat-header-integration`
+  保留相册过渡／查看器边缘修复并合入本任务，组合提交
+  `182a05611e09826e4439f54ac50370a0f025f48e` 的 `npm run check:full` 单次通过构建、
+  61 个文件的 500 项测试及 26／26 浏览器入口（325.47 秒），WebKit 底部／键盘专项也通过。
+  额外完整验证仅由 main 新增共享布局改动触发。
+- 组合已快进本机 main。可信局域网 HTTPS 回读的聊天／通话 CSS 与候选逐字节一致，
+  后端 ok/database/storage 均为 true；前后端 cwd 均为 `/Users/zhouding/quiet-room-local-main`，
+  本轮通过 Vite 热更新交付，未重启后端。随后文档对账提交不改变已验证应用文件。
+- iPhone / iOS 27 / Safari 真机未验收，
   GitHub 未推送、CI 未运行、生产未发布；共享源目录的四个既有未提交文件未纳入。
 
 ## 图片属性与动图本机验收（2026-09-08，未发布）
