@@ -1,5 +1,11 @@
 # Quiet Room 项目地图
 
+聊天工具与附件收藏入口：`src/chat-tools.css`、`src/lib/attachment-favorites.ts`、`src/app.ts`。
+空输入框长按与圆弧录音层：`src/lib/voice-gesture.ts`、`src/lib/voice-recorder.ts`。
+产品范围见 [PRODUCT.md](../../PRODUCT.md#chat-tools-and-attachment-favorites)，验证见
+`tests/chat-tools.e2e.mjs`、`tests/attachment-favorites.test.ts`、`tests/voice-gestures.e2e.mjs`。
+该收藏是加密本机标识投影，与下方梗图独立副本不同。
+
 更新时间：2026-09-07。本页用于按任务定位，不复制完整产品说明或目录树。相对路径均从仓库根目录计算。
 
 ## 一分钟认识项目

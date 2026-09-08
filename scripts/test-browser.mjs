@@ -36,6 +36,7 @@ export const browserGroups = Object.freeze({
     'tests/photo-details.e2e.mjs',
     'tests/video-flow.e2e.mjs',
     'tests/voice-gestures.e2e.mjs',
+    'tests/chat-tools.e2e.mjs',
   ]),
 });
 

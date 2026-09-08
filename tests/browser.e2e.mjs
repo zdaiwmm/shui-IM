@@ -264,14 +264,13 @@ try {
     const self = document.querySelector('#self-presence').getBoundingClientRect();
     const peer = document.querySelector('#peer-presence').getBoundingClientRect();
     const summary = document.querySelector('.peer-summary').getBoundingClientRect();
-    const safe = document.querySelector('#open-gallery').getBoundingClientRect();
     const more = document.querySelector('.more-menu > summary').getBoundingClientRect();
     return { selfRight: self.right, peerLeft: peer.left, peerCenter: (summary.left + summary.right) / 2, headerCenter: (header.left + header.right) / 2,
-      summaryHeight: summary.height, actionHeight: safe.height, actionGap: more.left - safe.right, statusGap: safe.left - summary.right };
+      summaryHeight: summary.height, actionHeight: more.height, statusGap: more.left - summary.right };
   });
   invariant(presenceLayout.selfRight <= presenceLayout.peerLeft + 1, `Self presence is not on the left: ${JSON.stringify(presenceLayout)}`);
   invariant(Math.abs(presenceLayout.peerCenter - presenceLayout.headerCenter) <= 3, `Combined presence is not centered: ${JSON.stringify(presenceLayout)}`);
-  invariant(Math.abs(presenceLayout.summaryHeight - presenceLayout.actionHeight) < 1 && presenceLayout.actionGap >= 8 && presenceLayout.statusGap >= 6,
+  invariant(Math.abs(presenceLayout.summaryHeight - presenceLayout.actionHeight) < 1 && presenceLayout.statusGap >= 8,
     `Header status crowds the actions or has a different height: ${JSON.stringify(presenceLayout)}`);
   invariant(await creator.locator('#dismiss-recovery svg').evaluate((icon) => getComputedStyle(icon).stroke !== 'none'), 'Pinned recovery reminder close icon is invisible');
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-pinned-mobile.png') });
@@ -354,7 +353,7 @@ try {
   );
   const startedAt = Date.now();
   await creator.locator('#message-input').fill('browser-e2e-live');
-  await creator.locator('.send-button').click();
+  await creator.locator('#message-input').press('Enter');
   invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Send button dismissed the composer keyboard focus');
   await joiner.getByText('browser-e2e-live', { exact: true }).waitFor({ timeout: 3000 });
   await creator.locator('.message.outgoing.is-delivered').filter({ hasText: 'browser-e2e-live' }).waitFor({ timeout: 3000 });
@@ -502,15 +501,16 @@ try {
     };
     root.addEventListener('click', preventNativeChooser, true);
   });
+  await creator.locator('#open-chat-tools').click();
   await creator.locator('#open-image-picker').click();
-  invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Gallery button dismissed the composer keyboard focus');
+  invariant(await creator.evaluate(() => document.activeElement?.id !== 'message-input'), 'Tool panel did not dismiss the keyboard');
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
   invariant(await creator.locator('.chat-shell').count() === 1 && !await creator.evaluate(() => document.documentElement.classList.contains('privacy-obscured')), 'Owned foreground picker blur covered the conversation');
   await creator.evaluate(() => window.dispatchEvent(new Event('focus')));
   const retainedFocusImageIndex = await creator.locator('.message.outgoing .image-preview').count();
   await creator.locator('#image-input').setInputFiles({ ...image, name: 'keyboard-retained.svg' });
   await creator.locator('.message.outgoing .image-preview').nth(retainedFocusImageIndex).locator('img').waitFor({ timeout: 10_000 });
-  invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Selecting an image dismissed the composer keyboard focus');
+  invariant(await creator.evaluate(() => document.activeElement?.id !== 'message-input'), 'Picker unexpectedly reopened the dismissed keyboard');
   await creator.locator('.message-list').click({ position: { x: 8, y: 8 } });
   invariant(await creator.evaluate(() => document.activeElement?.id !== 'message-input'), 'Tapping outside the composer did not dismiss keyboard focus');
   invariant(await creator.locator('#emoji-button, .emoji-picker, [data-expression-tab], .favorite-expression').count() === 0, 'Removed expression controls reappeared after unlocking');
@@ -878,9 +878,9 @@ try {
     mimeType: 'text/plain',
     buffer: Buffer.from('Quiet Room encrypted file transfer\n'),
   };
-  invariant(!await creator.locator('#image-input').getAttribute('accept'), 'Chat file picker still filters out documents');
-  await creator.waitForFunction(() => !document.querySelector('#image-input')?.disabled);
-  const documentInput = await creator.locator('#image-input').elementHandle();
+  invariant(!await creator.locator('#file-input').getAttribute('accept'), 'Chat file picker still filters out documents');
+  await creator.waitForFunction(() => !document.querySelector('#file-input')?.disabled);
+  const documentInput = await creator.locator('#file-input').elementHandle();
   invariant(documentInput, 'Chat document input is missing');
   await beginSyntheticFilePicker(documentInput);
   await documentInput.setInputFiles(documentFile);

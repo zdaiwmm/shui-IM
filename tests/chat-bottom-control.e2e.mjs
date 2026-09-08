@@ -63,8 +63,7 @@ try {
     };
     const surfaceSelectors = {
       input: '.composer-input-stack',
-      photo: '#open-image-picker',
-      voice: '#record-voice',
+      tools: '#open-chat-tools',
       bottom: '#chat-bottom-control',
     };
     const colorAlpha = value => {
@@ -609,9 +608,9 @@ try {
     await new Promise(resolve => setTimeout(resolve, 750));
     const composer = document.querySelector('#composer');
     const header = document.querySelector('.chat-header');
-    const photo = document.querySelector('#open-image-picker');
+    const photo = document.querySelector('#open-chat-tools');
     const sample = (trackedMessage = app.renderedMessageOrder.at(-1)) => {
-      const action = composer.querySelector('.send-button:not([hidden]), .voice-record-button:not([hidden])');
+      const action = composer.querySelector('#open-chat-tools');
       const messageContent = trackedMessage?.querySelector('.message-bubble');
       return {
         resizing: Boolean(app.composerHeightMotion),
@@ -1138,11 +1137,9 @@ try {
       if (focused.input.backgroundColor === idle.input.backgroundColor) {
         throw Error(`${scheme} focused composer surface did not reach its focus token`);
       }
-      document.querySelector('#open-image-picker').disabled = true;
-      document.querySelector('#record-voice').disabled = true;
+      document.querySelector('#open-chat-tools').disabled = true;
       const disabled = assertSurfaceSet(`${scheme} disabled actions`, 0.92);
-      document.querySelector('#open-image-picker').disabled = false;
-      document.querySelector('#record-voice').disabled = false;
+      document.querySelector('#open-chat-tools').disabled = false;
       input.blur();
       await waitForComposerReveal();
       app.scrollChatToBottom();
@@ -1242,7 +1239,7 @@ try {
     await up(24);
     await waitForComposerReveal();
   });
-  for (const [name, selector] of [['photo', '#open-image-picker'], ['voice', '#record-voice']]) {
+  for (const [name, selector] of [['tools', '#open-chat-tools']]) {
     await page.locator(selector).hover();
     results.contrastHover[name] = await page.evaluate(({ label, target }) => {
       const element = document.querySelector(target);

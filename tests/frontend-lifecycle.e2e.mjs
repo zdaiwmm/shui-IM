@@ -2283,7 +2283,7 @@ try {
       await touchPage.emulateMedia({ colorScheme });
       await touchPage.evaluate(async () => {
         const controls = [...document.querySelectorAll('.chat-header .icon-button')];
-        const picker = document.querySelector('.composer .image-picker');
+        const picker = document.querySelector('.composer #open-chat-tools');
         for (const control of controls) if (control instanceof HTMLButtonElement) control.disabled = false;
         picker.classList.remove('is-disabled');
         await new Promise(resolve => setTimeout(resolve, 200));

@@ -8,6 +8,7 @@ import { createRecoveryRequest } from './mls';
 import { isMessagePayload } from './message-payload';
 import { isGalleryMediaPayload } from './video-media';
 import { normalizeGalleryCurationRecords, type GalleryCurationRecord } from './gallery-curation';
+import { normalizeAttachmentFavorites, type AttachmentFavorite } from './attachment-favorites';
 import type { CloudRecoveryBundle } from './backup-types';
 import { parseCloudRecoveryCode } from './backup-crypto';
 import {
@@ -150,6 +151,7 @@ export type UiPreferences = {
   hiddenChatMessageIds?: string[];
   /** Device-local Safe ordering/removal projection. */
   galleryCuration?: GalleryCurationRecord[];
+  attachmentFavorites?: AttachmentFavorite[];
 };
 
 type UnlockThrottle = {
@@ -1587,6 +1589,12 @@ function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: b
   const hiddenChatMessageIds = Array.isArray(rawHidden) && validHidden
     ? [...new Set(rawHidden.map((id) => id.toLowerCase()))] : [];
   let galleryCuration: GalleryCurationRecord[] = [];
+  let attachmentFavorites: AttachmentFavorite[] = [];
+  try {
+    attachmentFavorites = normalizeAttachmentFavorites(source.attachmentFavorites ?? []);
+  } catch (cause) {
+    if (strict) throw new Error('收藏偏好记录格式不正确', { cause });
+  }
   try {
     galleryCuration = normalizeGalleryCurationRecords(source.galleryCuration ?? []);
   } catch (cause) {
@@ -1600,6 +1608,7 @@ function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: b
     recoveryReminderDismissed: source.recoveryReminderDismissed === true,
     ...(hiddenChatMessageIds.length ? { hiddenChatMessageIds } : {}),
     ...(galleryCuration.length ? { galleryCuration } : {}),
+    ...(attachmentFavorites.length ? { attachmentFavorites } : {}),
   };
 }
 
