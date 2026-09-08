@@ -269,16 +269,18 @@ try {
       v: 1, blobId: `cold-anchor-${index}`, originalName: `cold-anchor-${index}.svg`, originalSize: blob.size, mimeType: blob.type,
     }));
     const messages = (count = manifests.length) => new Map(manifests.slice(0, count).map((image, index) => [index + 1, message(index + 1, { v: 1, kind: 'image', image, sentAt: '2026-09-04T01:00:00.000Z' })]));
-    const warm = () => {
+    const warm = async () => {
       for (const manifest of manifests) {
         app.cacheLocalImage(manifest, blob);
         const cached = app.imageCache.get(manifest.blobId);
         cached.width = 300; cached.height = 400;
+        const decoded = new Image(); decoded.src = cached.url; await decoded.decode();
+        await app.ensureChatConcealedImage(manifest, cached, decoded);
       }
     };
     const settleLayout = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const sameAnchor = (actual, expected) => actual?.clientMsgId === expected.clientMsgId && Math.abs(actual.offset - expected.offset) <= 2 && !actual.pinnedToBottom;
-    warm(); app.messages = messages(); app.renderChat();
+    await warm(); app.messages = messages(); app.renderChat();
     let list = document.querySelector('#message-list');
     // Cached dimensions do not mean the newly mounted <img> has decoded.
     // Establish an actually warm baseline before saving a position that the
@@ -301,7 +303,7 @@ try {
     };
     list = reopenCold(); await settleLayout();
     if (!sameAnchor(app.uiPreferences.chatAnchor, saved) || !sameAnchor(app.chatRestoreAnchor, saved)) throw Error('Cold placeholder replaced the intended restored anchor');
-    warm();
+    await warm();
     for (const button of list.querySelectorAll('.image-preview')) {
       const manifest = manifests.find(item => item.blobId === button.dataset.blobId);
       await app.renderImageIntoButton(button, manifest, app.imageCache.get(manifest.blobId));
@@ -312,7 +314,7 @@ try {
 
     // Two cold rows below message 8 cannot provide enough scrollable space
     // for its deep saved offset until those rows decode too.
-    list = reopenCold(10); await settleLayout(); warm();
+    list = reopenCold(10); await settleLayout(); await warm();
     let tailWasClamped = false;
     for (const [index, button] of [...list.querySelectorAll('.image-preview')].entries()) {
       const manifest = manifests.find(item => item.blobId === button.dataset.blobId);
@@ -328,7 +330,7 @@ try {
 
     // With only one final row, even the fully decoded tail cannot reach that
     // offset. Earlier offscreen pending media must not stall restoration.
-    list = reopenCold(9); await settleLayout(); warm();
+    list = reopenCold(9); await settleLayout(); await warm();
     for (const button of [...list.querySelectorAll('.image-preview')].slice(7)) {
       const manifest = manifests.find(item => item.blobId === button.dataset.blobId);
       await app.renderImageIntoButton(button, manifest, app.imageCache.get(manifest.blobId));
@@ -1064,6 +1066,8 @@ try {
     const manifest = { v: 1, blobId: 'stable-media-receipt', originalName: 'portrait.svg', originalSize: blob.size, mimeType: blob.type };
     app.cacheLocalImage(manifest, blob);
     const cached = app.imageCache.get(manifest.blobId); cached.width = 900; cached.height = 1600;
+    const decoded = new Image(); decoded.src = cached.url; await decoded.decode();
+    await app.ensureChatConcealedImage(manifest, cached, decoded);
     const outgoing = { ...message(1, { v: 1, kind: 'image', image: manifest, sentAt: '2026-09-04T01:00:00.000Z' }), senderId: session.vault.identity.publicBundle.deviceId, status: 'pending' };
     app.pending.set(outgoing.clientMsgId, { ...outgoing, seq: Number.MAX_SAFE_INTEGER }); app.renderMessages({ scroll: 'bottom' });
     const row = document.querySelector('[data-client-msg-id="message-1"]');

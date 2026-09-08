@@ -1689,17 +1689,16 @@ button:disabled {
   cursor: zoom-in;
 }
 
-/* Conceal with one continuous crop. Painting a separately fitted foreground
-   over this layer creates mismatched blur bands at its edges. */
+/* The verified image is blurred once in memory. No live CSS filter can split
+   its colors across compositor tiles while this layer scrolls. */
 .image-preview::before {
   content: '';
   position: absolute;
-  inset: calc(-2 * var(--media-conceal-blur));
+  inset: 0;
   z-index: 0;
   background-image: var(--chat-preview-source, none);
   background-position: center;
   background-size: cover;
-  filter: blur(var(--media-conceal-blur));
   opacity: 0;
   pointer-events: none;
 }
@@ -1770,7 +1769,6 @@ button:disabled {
 /* Apply before decoded/cached media enters the DOM. Concealment is immediate,
    including when a privacy curtain appears and quickly returns to chat. */
 .image-preview[data-revealed="false"] img {
-  filter: blur(var(--media-conceal-blur));
   opacity: 0;
 }
 

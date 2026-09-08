@@ -119,8 +119,8 @@ try {
           if (!image) return true;
           const backdrop = getComputedStyle(button, '::before');
           return button.dataset.revealed === 'false'
-            ? Number(getComputedStyle(image).opacity) === 0 && getComputedStyle(image).filter.includes('blur(') && backdrop.backgroundImage !== 'none'
-              && backdrop.backgroundSize === 'cover' && backdrop.filter.includes('blur(') && Number(backdrop.opacity) === 1
+            ? Number(getComputedStyle(image).opacity) === 0 && getComputedStyle(image).filter === 'none' && backdrop.backgroundImage !== 'none'
+              && backdrop.backgroundSize === 'cover' && backdrop.filter === 'none' && Number(backdrop.opacity) === 1
             : Number(getComputedStyle(image).opacity) === 1 && getComputedStyle(image).filter === 'none' && Number(backdrop.opacity) === 0;
         });
     }, { total, revealed });
@@ -128,8 +128,8 @@ try {
       const hidden = image.closest('.image-preview').dataset.revealed === 'false';
       const backdrop = getComputedStyle(image.closest('.image-preview'), '::before');
       return hidden
-        ? Number(getComputedStyle(image).opacity) !== 0 || !getComputedStyle(image).filter.includes('blur(') || backdrop.backgroundImage === 'none'
-          || backdrop.backgroundSize !== 'cover' || !backdrop.filter.includes('blur(') || Number(backdrop.opacity) !== 1
+        ? Number(getComputedStyle(image).opacity) !== 0 || getComputedStyle(image).filter !== 'none' || backdrop.backgroundImage === 'none'
+          || backdrop.backgroundSize !== 'cover' || backdrop.filter !== 'none' || Number(backdrop.opacity) !== 1
         : Number(getComputedStyle(image).opacity) !== 1 || getComputedStyle(image).filter !== 'none' || Number(backdrop.opacity) !== 0;
     }).length), 0, `${reason}: thumbnail styling disagrees with its reveal state`);
   };
@@ -166,6 +166,24 @@ try {
 
   await page.waitForFunction(() => document.querySelectorAll('.message .image-preview img').length === 4);
   await assertVisibility(4, 0, 'Initial cached and decrypted thumbnails');
+  const bitmapEvidence = await page.evaluate(async () => {
+    const entries = [...window.chatPrivacy.app.imageCache.values()];
+    let maxJump = 0;
+    for (const cached of entries) {
+      if (!cached.concealedUrl || cached.concealedUrl === cached.url) return { valid: false };
+      const image = new Image(); image.src = cached.concealedUrl; await image.decode();
+      if (image.width > 128 || image.height > 128) return { valid: false };
+      const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
+      const context = canvas.getContext('2d'); context.drawImage(image, 0, 0);
+      const { data } = context.getImageData(0, 0, image.width, image.height);
+      for (let y = 1; y < image.height; y++) for (let x = 0; x < image.width; x++) {
+        const offset = (y * image.width + x) * 4;
+        for (let channel = 0; channel < 3; channel++) maxJump = Math.max(maxJump, Math.abs(data[offset + channel] - data[offset - image.width * 4 + channel]));
+      }
+    }
+    return { valid: true, maxJump };
+  });
+  assert(bitmapEvidence.valid && bitmapEvidence.maxJump <= 8, `Concealed bitmap has a discontinuous row: ${JSON.stringify(bitmapEvidence)}`);
   assert.equal(await page.locator('.image-album .image-preview').count(), 2, 'Album fixture does not exercise individual cells');
   const first = previews.first();
   // A long hold can outlast the ordinary click-suppression interval. The
@@ -347,7 +365,7 @@ try {
     window.dispatchEvent(new Event('blur'));
     const buttons = [...document.querySelectorAll('.message .image-preview')];
     const immediatelyHidden = buttons.length === 5 && buttons.every(button => button.dataset.revealed === 'false'
-      && (!button.querySelector('img') || getComputedStyle(button.querySelector('img')).filter.includes('blur(')));
+      && (!button.querySelector('img') || Number(getComputedStyle(button.querySelector('img')).opacity) === 0));
     const curtainVisible = getComputedStyle(document.querySelector('.privacy-curtain')).visibility === 'visible';
     window.dispatchEvent(new Event('focus'));
     element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch', pointerId: 64, isPrimary: true, button: 0, clientX: 120, clientY: 280 }));
@@ -440,11 +458,44 @@ try {
     const stage = document.querySelector('.viewer-stage');
     const image = stage.querySelector('img');
     const before = image.style.transform;
+    const concealedUrls = [...app.imageCache.values()].map(cached => cached.concealedUrl).filter(Boolean);
+    const revoke = URL.revokeObjectURL;
+    const revoked = [];
+    URL.revokeObjectURL = url => { revoked.push(url); revoke.call(URL, url); };
     app.cleanupRuntime();
+    URL.revokeObjectURL = revoke;
     image.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 195, clientY: 422 }));
-    return { cleanupReleased: app.viewerGestureCleanup === null && app.chatImageConcealGesture === null, detached: !stage.isConnected, staleGestureIgnored: image.style.transform === before };
+    return { cleanupReleased: app.viewerGestureCleanup === null && app.chatImageConcealGesture === null, detached: !stage.isConnected, staleGestureIgnored: image.style.transform === before,
+      concealedUrlsRevoked: concealedUrls.length > 0 && concealedUrls.every(url => revoked.includes(url)) };
   });
-  assert.deepEqual(directCleanup, { cleanupReleased: true, detached: true, staleGestureIgnored: true }, 'Direct runtime teardown retained a viewer gesture closure');
+  assert.deepEqual(directCleanup, { cleanupReleased: true, detached: true, staleGestureIgnored: true, concealedUrlsRevoked: true }, 'Direct runtime teardown retained a viewer gesture closure or concealed bitmap');
+  await page.evaluate(async () => {
+    const f = window.chatPrivacy;
+    const encode = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function (callback, ...args) {
+      return encode.call(this, blob => {
+        if (!f.concealedEncodeGate) f.concealedEncodeGate = { release: () => callback(blob) };
+        else callback(blob);
+      }, ...args);
+    };
+    f.restoreEncoder = () => { HTMLCanvasElement.prototype.toBlob = encode; };
+    await f.reopen();
+  });
+  await page.waitForFunction(() => window.chatPrivacy.concealedEncodeGate);
+  const lateEncoding = await page.evaluate(async () => {
+    const f = window.chatPrivacy;
+    const pending = [...f.app.imageCache.values()].map(cached => cached.concealedPromise).filter(Boolean);
+    f.app.lockNow();
+    const create = URL.createObjectURL;
+    let created = 0;
+    URL.createObjectURL = blob => { created++; return create.call(URL, blob); };
+    f.concealedEncodeGate.release();
+    await Promise.allSettled(pending);
+    URL.createObjectURL = create;
+    f.restoreEncoder();
+    return { hadPending: pending.length > 0, created, cache: f.app.imageCache.size, chat: Boolean(document.querySelector('.chat-shell')) };
+  });
+  assert.deepEqual(lateEncoding, { hadPending: true, created: 0, cache: 0, chat: false }, 'Late concealed PNG encoding revived a locked runtime');
   await page.evaluate(() => window.chatPrivacy.app.lockNow());
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ browser: browserName, defaultHidden: true, longHoldReleaseHidden: true, revealThenView: true, albumCells: true, pointerAndTouchPull: true, dampedClearPullUntilRelease: true, cancelledPullReleased: true, keyboardGesturePriority: true, dragClickSuppressed: true, cachedRebuildHidden: true, reusedManifestIsolated: true, revealedReceiptRebuildPreserved: true, delayedDecodeHidden: true, viewerPullHidden: true, synchronousCoverHidden: true, rapidFocusHidden: true, lockAndReentryHidden: true, originalBytesPreserved: true }, null, 2));

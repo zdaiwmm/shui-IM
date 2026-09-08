@@ -191,7 +191,8 @@ try {
   await chatPreview.locator('img').waitFor();
   await chatPreview.locator('img').evaluate(image => image.decode());
   assert.equal(await chatPreview.getAttribute('data-revealed'), 'false', 'Chat video poster was visible before an explicit reveal');
-  assert(await chatPreview.locator('img').evaluate(image => getComputedStyle(image).filter.includes('blur(')), 'Chat video poster did not use the default thumbnail blur');
+  assert(await chatPreview.locator('img').evaluate(image => Number(getComputedStyle(image).opacity) === 0
+    && getComputedStyle(image.parentElement, '::before').backgroundImage !== 'none'), 'Chat video poster did not use the concealed bitmap');
   assert.equal(await chatPreview.locator('.video-play').count(), 1, 'Chat video has no visible play affordance');
   assert.equal(await page.locator('.message video').count(), 0, 'Chat preview started an inline video player before a click');
   assert.equal(await page.locator('.message').count(), 3, 'Gallery-only items leaked into chat');
@@ -446,6 +447,7 @@ try {
     if (!cached) throw Error('The mixed-media photo was not cached before the delayed paging regression');
     URL.revokeObjectURL(cached.url);
     if (cached.posterUrl) URL.revokeObjectURL(cached.posterUrl);
+    if (cached.concealedUrl) URL.revokeObjectURL(cached.concealedUrl);
     f.app.imageCache.delete(manifest.blobId);
     f.app.imageCacheBytes -= cached.bytes;
     await f.vault.deleteCachedMediaBlob(f.session, manifest.blobId);

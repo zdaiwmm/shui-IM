@@ -43,6 +43,7 @@ import { VoiceRecorder } from './lib/voice-recorder';
 import { bindVoiceRecordGesture } from './lib/voice-gesture';
 import { bindImageViewerGestures } from './lib/image-viewer-gestures';
 import { prepareImageMotion, type ImageMotion } from './lib/image-animation';
+import { createConcealedImage } from './lib/concealed-image';
 import { mountPhotoDetails } from './lib/photo-details';
 import { createElement, Info, Pause, Play } from 'lucide';
 import { bindChatImageConcealGesture } from './lib/chat-image-conceal-gesture';
@@ -182,7 +183,7 @@ const CHAT_COMPOSER_MOTION_MS = 280;
 const CHAT_KEYBOARD_DISMISS_MS = 420;
 const CHAT_COMPOSER_VIEWPORT_SETTLE_MS = 500;
 
-type CachedImage = { blob: Blob; url: string; bytes: number; lastUsedAt: number; width?: number; height?: number; posterUrl?: string; posterPromise?: Promise<void>; posterUnavailable?: boolean };
+type CachedImage = { blob: Blob; url: string; bytes: number; lastUsedAt: number; width?: number; height?: number; posterUrl?: string; posterPromise?: Promise<void>; posterUnavailable?: boolean; concealedUrl?: string; concealedPromise?: Promise<void> };
 const MAX_IMAGE_CACHE_BYTES = 96 * 1024 * 1024;
 
 const encoder = new TextEncoder();
@@ -5804,6 +5805,7 @@ export class QuietRoomApp {
       if (!oldest) break;
       URL.revokeObjectURL(oldest[1].url);
       if (oldest[1].posterUrl) URL.revokeObjectURL(oldest[1].posterUrl);
+      if (oldest[1].concealedUrl) URL.revokeObjectURL(oldest[1].concealedUrl);
       this.imageCacheBytes -= oldest[1].bytes;
       this.imageCache.delete(oldest[0]);
     }
@@ -7609,6 +7611,25 @@ export class QuietRoomApp {
     button.style.setProperty('--chat-preview-source', `url(${JSON.stringify(source)})`);
   }
 
+  private async ensureChatConcealedImage(manifest: ImageManifest, cached: CachedImage, image: HTMLImageElement): Promise<void> {
+    if (cached.concealedUrl) return;
+    if (cached.concealedPromise) return cached.concealedPromise;
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    const signal = this.runtimeAbort?.signal;
+    if (!session || this.privacyCovered) return;
+    cached.concealedPromise = (async () => {
+      try {
+        const blob = await createConcealedImage(image, signal);
+        if (!this.isRuntimeActive(epoch, session) || this.imageCache.get(manifest.blobId) !== cached) return;
+        cached.concealedUrl = URL.createObjectURL(blob);
+        cached.bytes += blob.size;
+        this.imageCacheBytes += blob.size;
+      } finally { cached.concealedPromise = undefined; }
+    })();
+    return cached.concealedPromise;
+  }
+
   private concealChatImages(): void {
     this.chatImageConcealGesture?.reset();
     this.chatRevealedAssets.clear();
@@ -7649,14 +7670,14 @@ export class QuietRoomApp {
     if (cached) {
       this.assertImageManifestIdentity(manifest);
       cached.lastUsedAt = Date.now();
-      if (cached.width && cached.height && (!video || cached.posterUrl)) {
+      if (cached.width && cached.height && cached.concealedUrl && (!video || cached.posterUrl)) {
         const image = document.createElement('img');
         image.src = cached.posterUrl ?? cached.url;
         image.alt = manifest.originalName || '聊天图片';
         image.draggable = false;
         image.width = cached.width;
         image.height = cached.height;
-        this.setChatImagePreviewSource(button, image.src);
+        this.setChatImagePreviewSource(button, cached.concealedUrl);
         button.replaceChildren(image);
         if (video) button.append(this.videoPlayBadge());
         button.dataset.imageState = 'loaded';
@@ -7728,10 +7749,12 @@ export class QuietRoomApp {
     // the user's current anchor after decoding, as they may scroll meanwhile.
     await image.decode();
     if (!button.isConnected || this.privacyCovered) return;
+    await this.ensureChatConcealedImage(manifest, cached, image);
+    if (!button.isConnected || this.privacyCovered || !cached.concealedUrl || this.imageCache.get(manifest.blobId) !== cached) return;
     cached.width = image.width = image.naturalWidth;
     cached.height = image.height = image.naturalHeight;
     const anchor = ownerList() ? this.captureChatAnchor() : null;
-    this.setChatImagePreviewSource(button, image.src);
+    this.setChatImagePreviewSource(button, cached.concealedUrl);
     button.replaceChildren(image);
     if (video) button.append(this.videoPlayBadge());
     button.dataset.imageState = 'loaded';
@@ -9293,6 +9316,7 @@ export class QuietRoomApp {
     for (const cached of this.imageCache.values()) {
       URL.revokeObjectURL(cached.url);
       if (cached.posterUrl) URL.revokeObjectURL(cached.posterUrl);
+      if (cached.concealedUrl) URL.revokeObjectURL(cached.concealedUrl);
     }
     this.imageCache.clear();
     this.imageLoadPromises.clear();

@@ -42,6 +42,10 @@
 
 ## 测试命令的准确含义
 
+聊天遮蔽位图实现见 `src/lib/concealed-image.ts`；高斯像素验证为
+`tests/concealed-image.test.ts`，编码中锁定、URL 释放和聊天显隐回归沿用
+`tests/chat-image-privacy.e2e.mjs`。它只生成解锁运行期的内存预览，不替代原始附件。
+
 - `npm run tasks:cleanup -- --plan /绝对路径/plan.json`：发布后任务资源只读检查，加 `--apply` 才清理；入口 `scripts/cleanup-task-resources.mjs`，回归 `tests/cleanup-task-resources.test.ts`，计划与保留边界见[说明](../workflows/task-cleanup.md)。不属于生产切换入口。
 - `npm run build`：TypeScript 类型检查后构建 Vite 产物。
 - `npm test`：运行 Vitest 自动发现的单元/集成测试；它不等于浏览器回归。
