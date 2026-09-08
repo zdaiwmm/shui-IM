@@ -187,6 +187,38 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-08（Asia/Shanghai）；服务器批次 `20260908T150136Z`（23:01:36），
+  23:03:39 独立回读成功。应用提交 `cf95d2dfb4b3169c8affef38f27db1c0cbee67fb`，
+  版本 ID `2026.09.08.4`。用户本轮明确授权合并近期完成分支、推送 main 并自行发布，无需再次确认。
+  [PR #48](https://github.com/zdaiwmm/shui-IM/pull/48) head 为
+  `f9cabc5def84be08736c7d6138a59423f83121e9`，合并后文件树与该候选完全一致。
+- 包含键盘修复 `4f65f77`、模糊位图 `744fd1d`、标题栏、相册与图片属性，以及
+  贴纸/GIF `f3778bd`、聊天工具/附件收藏/输入框录音 `1fc84d4`。
+  键盘核心模块、视口运动模块与原布局 CSS 相对本机基线 `83dd21e` 逐字节不变。
+  合并修复空输入框录音释放重复聚焦，以及页面过渡的临时坐标覆盖历史阅读位置；
+  保护仅用于保存位置恢复，普通分页仍允许聚焦输入框回到最新消息。
+- [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34239954968) 与
+  [精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34240917913) 全部成功。
+  最终候选本地 `CI=1 npm run check:full` 单次通过构建、514 项单元／集成测试和
+  28／28 浏览器入口（315.16 秒）；原生通话、通话 UI、WebKit 聊天工具与系统界面专项通过。
+  CI 补装实际需要的 WebKit；浏览器入口计数、对话框聚焦夹具与浮点高度断言已同步。
+  没有新增真机验收，既有换行偶发闪动暂缓项继续保留。
+- 固定 `publish.mjs --sha` 返回精确 `DEPLOY_OK`／`DEPLOY_VERIFIED`，外层核对回执成功。
+  入口耗时 632,034ms（含等待 main CI 420,120ms），服务器阶段 93 秒。
+  发布目录 `/opt/quiet-room/git-releases/20260908T150136Z-cf95d2dfb4b3`，已校验冷备份
+  `/opt/quiet-room/backups/predeploy/data-20260908T150136Z-cf95d2dfb4b3.tar.gz`。
+- 独立 `READBACK_OK` 耗时 2,990ms：线上 SHA、批次、发布目录一致，维护标记不存在；
+  应用运行且健康，备份运行且无健康探针，二者实际镜像均匹配
+  `sha256:df76d19c62fec31c935ab646e89666bf3e342c4ad46ac59fa59ea2544e54a3b0`。
+  HTTPS 健康三项全 true；首页、Service Worker、JS、CSS 与 preload 摘要匹配容器，
+  新建 WebSocket 连接成功。`admin-enabled=0`、`calls-enabled=0`，TURN 不存在。
+  未读取真实消息、附件或备份内容；发布前旧版本为 `18e07b08e3c1422ac693a7f98a6a66ac1277ef85`。
+- 本机 main 保留并行完成的 iPhone 调试工具 `b15a453`，以 `8f6a753` 集成此应用。
+  前后端 cwd 均为 `/Users/zhouding/quiet-room-local-main`，原可信 HTTPS 来源健康与新源码回读通过。
+  原开发目录四个未提交文件未纳入。对账在不含部署配置的独立文档工作树完成，文档不触发重新部署。
+
+## 历史线上发布记录（2026-09-08 14:02）
+
 - 日期：2026-09-08（Asia/Shanghai）；服务器批次 `20260908T060001Z`（14:00:01），
   14:02:06 独立回读成功。用户确认的精确应用提交为
   `18e07b08e3c1422ac693a7f98a6a66ac1277ef85`，版本 ID `2026.09.08.3`。
