@@ -7,6 +7,23 @@
 规则任务仅更新文档和本机入口，后续已随下述应用提交纳入生产源码。生效条件见[新会话入口](maintenance.md#新会话入口)，
 流程加载不授予或继承其他任务的远端写入与发布权限。
 
+## iPhone 调试工具固定（2026-09-08，本地工具）
+
+- 用户要求把今日真机调试能力固定。基线 `83dd21e`，任务分支
+  `codex/iphone-debug-tools-20260908`，独立工作树 `/private/tmp/quiet-room-iphone-debug-tools-20260908`。
+  入口 `npm run device:debug -- --help`；详见 [iPhone 真机调试](../workflows/iphone-debug.md)。
+- 包含持久依赖安装、USB/原生显示服务/HTTPS 检查、截图、RTCP 保活录制、自动开合键盘、
+  MP4 解码、数值探针与限定媒体清理。无产品代码改动，无生产探针或常驻采集。
+  本机技能已安装到 `/Users/zhouding/.codex/skills/iphone-debug`，运行环境位于
+  `/Users/zhouding/.cache/iphone-debug/venv`；其他电脑需要单独安装。
+- iPhone16,1 / iOS 27.0 实测连接、截图和 30 秒自动键盘录制成功，1663 帧，
+  RTP 序列不连续 0、解码错误 0、原生流停止成功；MP4 抽帧确认存在运动编码伪影，
+  不声称录屏逐帧无损或页面已自动验收。iOS 锁定接口未实现时记录 unknown。
+  Mac 端稳定局域网 HTTPS 证书校验及 HTTP 200 通过；未新增 Safari DOM 远程连接的成功证据。
+- 工具 4 项 Python 测试、1 项数值探针测试和技能结构校验通过；`npm run check` 构建及
+  509 项测试通过。首次沙箱禁止本地监听，提升权限后同一门禁通过；未重跑产品浏览器套件。
+  未推送 GitHub，未运行 CI，未发布生产。最终本机集成 SHA 以任务交付回执和 Git 为准。
+
 ## 聊天模糊位图续修（2026-09-08，已本机集成，未发布）
 
 - 用户反馈上一版 `3a9a8f5` 静止时仍有图片内部横向接缝，黑块也再次出现；
