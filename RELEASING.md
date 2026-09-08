@@ -187,6 +187,33 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-08（Asia/Shanghai）；服务器批次 `20260908T152725Z`，23:28:44 独立回读成功。
+  应用提交 `9728183734c602f3602a07cbdcac4643501cb6ed`，版本 ID `2026.09.08.5`。
+  用户本轮明确授权修复输入框键盘故障、合并并发布生产，无需再次审核。
+  [PR #49](https://github.com/zdaiwmm/shui-IM/pull/49) head 为
+  `8a8b205c7fdae88747c4c600be767a268a3c3ffd`；主线期间仅新增上一版文档对账，已核对应用文件一致。
+- 空输入框短按改在 `touchend` 同步聚焦，保留鼠标释放、长按录音和取消行为；
+  处理 `pointerup` 后隐式丢失捕获的事件顺序。WebKit 真实触摸对比确认旧版在 `pointerup` 聚焦、
+  新版在 `touchend` 聚焦。未修改密码学、存储、键盘布局 CSS 或服务器发布程序。
+- 本地 `npm run check:full` 单次通过构建、514 项单元／集成测试和 28／28 浏览器入口
+  （浏览器总计 410.00 秒）。[PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34242462548)
+  及[精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34243283577) 均成功。
+  USB iPhone16,1 / iOS 27.0 可连接，但当时处于浏览器连接错误页；本次没有真机键盘通过证据。
+- 首次发布在 `stop-containers` 阶段检测到旧容器仍运行，固定程序回滚成功；未进入冷备份及
+  数据替换阶段。独立 `READBACK_OK` 确认旧版 `cf95d2d` 健康（3,289ms），再只读检查容器停止／退出事件。
+  对同一精确 SHA 的一次有限重试成功，未修改发布入口或 helper。该停止状态时序问题保留为运维观察项。
+- 成功重试取得 `DEPLOY_OK`、`DEPLOY_VERIFIED` 并由外层核对精确回执；入口耗时 155,296ms，
+  服务器阶段 48 秒。发布目录 `/opt/quiet-room/git-releases/20260908T152725Z-9728183734c6`，
+  冷备份 `/opt/quiet-room/backups/predeploy/data-20260908T152725Z-9728183734c6.tar.gz` 已校验。
+- 独立 `READBACK_OK` 耗时 2,734ms：SHA、发布目录和镜像一致，维护标记不存在；
+  应用运行且健康，备份运行且无健康探针，镜像为
+  `sha256:9c1136b6fcb399a0ca996386e93399a196689699b619892b9e4de7320ae8f461`。
+  HTTPS 健康三项全 true；首页、Service Worker、JS、CSS 与 preload 摘要匹配容器，WebSocket 成功。
+  后台、通话和 TURN 未启用。本机 main `ff61522` 已集成，可信 HTTPS 源码和后端健康回读通过。
+- 对账使用不含部署配置的独立工作树；文档提交不触发再次部署。既有四个未提交文件未纳入。
+
+## 历史线上发布记录（2026-09-08 23:03）
+
 - 日期：2026-09-08（Asia/Shanghai）；服务器批次 `20260908T150136Z`（23:01:36），
   23:03:39 独立回读成功。应用提交 `cf95d2dfb4b3169c8affef38f27db1c0cbee67fb`，
   版本 ID `2026.09.08.4`。用户本轮明确授权合并近期完成分支、推送 main 并自行发布，无需再次确认。
