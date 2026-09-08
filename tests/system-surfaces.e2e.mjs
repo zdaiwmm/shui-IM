@@ -124,6 +124,33 @@ try {
       }
     }
 
+    // Content must remain opaque after the push animation hands off to rest.
+    for (const destination of ['gallery', 'devices', 'backup']) {
+      await fresh();
+      app.transitionPage('forward', () => {
+        if (destination === 'gallery') app.renderGallery();
+        else if (destination === 'devices') void app.renderDeviceManager();
+        else app.renderBackupSettings();
+      });
+      const shell = root.firstElementChild;
+      const content = shell.querySelector('.gallery-grid, .device-content, section');
+      check(content, `${destination}: missing navigation content`);
+      const deadline = performance.now() + 650;
+      while (performance.now() < deadline) {
+        await new Promise(requestAnimationFrame);
+        check(getComputedStyle(content).opacity === '1', `${destination}: content flashed during navigation handoff (${getComputedStyle(content).opacity})`);
+      }
+      check(!root.dataset.pageTransition, `${destination}: navigation did not finish`);
+      app.transitionPage('backward', () => app.renderChat());
+      const messages = root.querySelector(':scope > .chat-shell > .message-list');
+      const returnDeadline = performance.now() + 650;
+      while (performance.now() < returnDeadline) {
+        await new Promise(requestAnimationFrame);
+        check(getComputedStyle(messages).opacity === '1', `${destination}: chat content flashed on return`);
+      }
+      check(!root.dataset.pageTransition, `${destination}: return navigation did not finish`);
+    }
+
     // Recovery pages can be mounted after awaited storage/authentication work,
     // outside transitionPage. Their new content owns the same blend.
     app.renderBackupSettings();
