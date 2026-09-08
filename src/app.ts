@@ -1,6 +1,7 @@
 import QRCode from 'qrcode';
 import { closeDialog, mountDialog } from './lib/dialog';
 import { MemePicker, memeIcons } from './lib/meme-picker';
+import { isExpressionPayload } from './lib/expression-media';
 import { loadStickerPacks, installStickerPack, removeStickerPack } from './lib/vault';
 import './memes.css';
 import './chat-tools.css';
@@ -72,6 +73,7 @@ import { voiceIcons, voiceTime } from './lib/voice-audio';
 import { UnreadCounter } from './lib/unread-counter';
 import {
   currentRelease,
+  pendingReleaseNotes,
   hasPendingReleaseNotes,
   markReleaseNotesSeen,
   pendingReleaseUpdate,
@@ -178,7 +180,7 @@ import {
 import { recoverFromCloud, restoreCloudHistory, syncCloudBackup } from './lib/cloud-backup';
 import './backup.css';
 
-const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'file-message-v1', CALL_CAPABILITY];
+const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'file-message-v1', CALL_CAPABILITY];
 // Safari may briefly move window focus into its native keyboard surface after
 // a direct textarea tap. Keep this exception short, one-use and independent
 // from chooser/media handoffs so every hard lifecycle signal still locks.
@@ -412,7 +414,7 @@ export class QuietRoomApp {
   private deviceVerificationActive = false;
   private systemSurfaceTokens = new Set<symbol>();
   private nativeHandoff: {
-    kind: 'picker' | 'microphone' | 'camera';
+    kind: 'picker' | 'microphone' | 'camera' | 'reader';
     deadline: number;
     wallDeadline: number;
     blurred: boolean;
@@ -463,6 +465,7 @@ export class QuietRoomApp {
   private galleryMode: 'safe' | 'favorites' = 'safe';
   private galleryRevealedAssets = new Set<string>();
   private chatRevealedAssets = new Set<string>();
+  private chatConcealedExpressions = new Set<string>();
   private chatImageConcealGesture: ReturnType<typeof bindChatImageConcealGesture> | null = null;
   private galleryKnownCounts: Partial<Record<GalleryTab, { keys: Set<string>; complete: boolean }>> = {};
   private galleryRefreshPending: GalleryTab | null = null;
@@ -1713,7 +1716,7 @@ export class QuietRoomApp {
     this.keyboardHandoff = null;
   }
 
-  private beginNativeHandoff(kind: 'picker' | 'microphone' | 'camera', timeout: number): boolean {
+  private beginNativeHandoff(kind: 'picker' | 'microphone' | 'camera' | 'reader', timeout: number): boolean {
     if (this.invalidateKeyboardHandoff()) return false;
     this.clearNativeHandoff();
     if (!this.session || this.privacyCovered || document.hidden || !document.hasFocus()) return false;
@@ -1749,7 +1752,7 @@ export class QuietRoomApp {
     if (this.nativeHandoff !== handoff || !this.nativeHandoffExpired(handoff)) return false;
     // Completion can run before a suspended timeout task after focus returns.
     // Expiry therefore invalidates and locks independently of current focus.
-    const shouldLock = !this.privacyCovered && Boolean(this.session);
+    const shouldLock = !this.privacyCovered && Boolean(this.session) && (handoff.kind !== 'reader' || handoff.blurred);
     this.clearNativeHandoff();
     if (handoff.kind === 'picker') this.abandonImagePicker();
     if (shouldLock) {
@@ -1767,7 +1770,7 @@ export class QuietRoomApp {
     return true;
   }
 
-  private clearNativeHandoff(kind?: 'picker' | 'microphone' | 'camera', invalidated = true): void {
+  private clearNativeHandoff(kind?: 'picker' | 'microphone' | 'camera' | 'reader', invalidated = true): void {
     if (!this.nativeHandoff || (kind && this.nativeHandoff.kind !== kind)) return;
     const handoff = this.nativeHandoff;
     window.clearTimeout(handoff.timer);
@@ -3496,7 +3499,7 @@ export class QuietRoomApp {
         if (this.imageBatchUploading) throw new Error('另一个附件正在发送，请稍后重试');
         this.imageBatchUploading = true;
         try {
-          if (!await this.processImageBatch([file], 'chat', signal)) throw new Error('发送未完成，请查看聊天中的状态后重试');
+          if (!await this.processImageBatch([file], 'chat', signal, true)) throw new Error('发送未完成，请查看聊天中的状态后重试');
         } finally { if (this.isRuntimeActive(epoch, session)) this.imageBatchUploading = false; }
       },
       search: async (keyword, page, signal, kind) => {
@@ -4119,7 +4122,7 @@ export class QuietRoomApp {
     title.id = 'release-notes-title';
     title.textContent = currentRelease.title;
     const list = document.createElement('ol');
-    for (const note of currentRelease.notes) {
+    for (const note of pendingReleaseNotes()) {
       const item = document.createElement('li');
       item.textContent = note;
       list.append(item);
@@ -4920,7 +4923,7 @@ export class QuietRoomApp {
       setStyle(chat.header.style, 'translate', 'none');
       setStyle(chat.composer.style, 'bottom', '0px');
       setStyle(chat.notices.style, 'translate', 'none');
-      setStyle(chat.notice.style, 'translate', `0 calc(${viewportHeight}px - var(--chat-bottom-space) - 100%)`);
+      setStyle(chat.notice.style, 'translate', '0 calc(var(--chat-header-height) + 8px)');
       return;
     }
     const fixedTop = this.visualClientCoordinates ? -chat.fixedOrigin.getBoundingClientRect().top : viewportTop;
@@ -4933,7 +4936,7 @@ export class QuietRoomApp {
       ? chat.fixedBottom.getBoundingClientRect().top : layoutHeight - fixedTop;
     setStyle(chat.composer.style, 'bottom', `${fixedBottom - viewportHeight}px`);
     setStyle(chat.notices.style, 'translate', `0 ${fixedTop}px`);
-    setStyle(chat.notice.style, 'translate', `0 calc(${fixedTop + viewportHeight}px - var(--chat-bottom-space) - 100%)`);
+    setStyle(chat.notice.style, 'translate', `0 calc(${fixedTop}px + var(--chat-header-height) + 8px)`);
   }
 
   private beginListKeyboardLayout(direction: 'open' | 'closed'): void {
@@ -5838,9 +5841,14 @@ export class QuietRoomApp {
     }
   }
 
-  private async processImageBatch(files: File[], destination: 'chat' | 'gallery', operationSignal?: AbortSignal): Promise<boolean> {
+  private async processImageBatch(files: File[], destination: 'chat' | 'gallery', operationSignal?: AbortSignal, expression = false): Promise<boolean> {
     const session = this.session;
     if (!session || this.privacyCovered || files.length === 0) return false;
+    if (expression && (destination !== 'chat' || files.length !== 1 || !files[0]!.type.startsWith('image/'))) return false;
+    if (expression && !this.activeDevicesSupport('expression-image-v1')) {
+      this.showNotice('请先让所有已授权设备打开一次最新版，再发送表情', 'error');
+      return false;
+    }
     const isFile = !files[0]!.type.startsWith('image/');
     if ((isFile || (destination === 'chat' && this.replyTarget?.payload.kind === 'file')) && !this.activeDevicesSupport('file-message-v1')) {
       this.showNotice('请先让所有已授权设备打开一次最新版，再发送文件或回复文件', 'error');
@@ -5966,6 +5974,7 @@ export class QuietRoomApp {
             : replyTarget
               ? { v: 2, kind: 'image', image: manifests[0]!, sentAt, replyTo: this.replyReference(replyTarget) }
               : { v: 1, kind: 'image', image: manifests[0]!, sentAt };
+      if (expression && payload.kind === 'image') payload.presentation = 'expression';
       signal?.throwIfAborted();
       await this.enqueuePayload(payload, clientMsgId, operationSignal);
       if (!this.isRuntimeActive(epoch, session)) return false;
@@ -6115,6 +6124,9 @@ export class QuietRoomApp {
     }
     if (payload.kind === 'image-album' && !this.activeDevicesSupport('image-album-v1')) {
       return '请先让所有已授权设备打开一次最新版，再发送多张图片';
+    }
+    if (payload.kind === 'image' && payload.presentation === 'expression' && !this.activeDevicesSupport('expression-image-v1')) {
+      return '请先让所有已授权设备打开一次最新版，再发送表情';
     }
     if ('replyTo' in payload && payload.replyTo && !this.activeDevicesSupport('reply-v2')) {
       return '请先让所有已授权设备打开一次最新版，再发送回复';
@@ -6407,7 +6419,7 @@ export class QuietRoomApp {
     if (confirmed) addAction('reply', '回复', icons.reply, () => this.beginReply(message));
     const image = message.payload.kind === 'image' ? message.payload.image
       : message.payload.kind === 'image-album' ? message.payload.images.find(item => item.blobId === selectedBlobId) : undefined;
-    if (image && MEME_TYPES.includes(image.mimeType)) addAction('favorite-meme', '收藏为梗图', memeIcons.star, () => void this.favoriteChatMeme(message, image));
+    if (image && MEME_TYPES.includes(image.mimeType)) addAction('favorite-meme', '收藏为表情', memeIcons.star, () => void this.favoriteChatMeme(message, image));
     const favoriteTargets = this.messageFavoriteTargets(message);
     if (favoriteTargets.length) {
       const saved = favoriteTargets.every(target => this.attachmentFavorite(target));
@@ -6420,6 +6432,19 @@ export class QuietRoomApp {
     if (list.childElementCount) actions.append(list);
     if (!actionButtons.length) { article.classList.remove('is-action-source'); return; }
     this.root.append(backdrop, actions);
+    const sourceBubble = article.querySelector<HTMLElement>('.message-bubble');
+    if (sourceBubble && article.classList.contains('has-media')) {
+      const rect = sourceBubble.getBoundingClientRect();
+      const preview = document.createElement('div');
+      preview.className = 'message-action-preview';
+      preview.setAttribute('aria-hidden', 'true');
+      preview.inert = true;
+      preview.style.cssText = `left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px`;
+      const clone = sourceBubble.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll('[id]').forEach(element => element.removeAttribute('id'));
+      preview.append(clone);
+      backdrop.append(preview);
+    }
     this.positionMessageActions(actions, article);
     actions.addEventListener('keydown', event => {
       if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End', 'Tab'].includes(event.key)) return;
@@ -7221,7 +7246,16 @@ export class QuietRoomApp {
     } else if (message.payload.kind === 'image' || message.payload.kind === 'gallery-image') {
       article.classList.add('has-media');
       bubble.classList.add('image-bubble');
-      bubble.append(this.createImagePreview(message.payload.image, [message.payload.image], 0, message.clientMsgId));
+      const expression = isExpressionPayload(message.payload);
+      if (expression) bubble.classList.add('expression-bubble');
+      const preview = this.createImagePreview(message.payload.image, [message.payload.image], 0, message.clientMsgId);
+      if (expression) {
+        preview.dataset.expression = 'true';
+        const image = preview.querySelector('img');
+        if (image) image.style.width = `${image.width * 2 / 3}px`;
+        this.updateChatImageVisibility(preview);
+      }
+      bubble.append(preview);
     }
     bubble.append(this.createMessageMeta(message));
     article.append(bubble);
@@ -7324,10 +7358,8 @@ export class QuietRoomApp {
       button.dataset.fileState = 'loading';
       button.setAttribute('aria-busy', 'true');
       meta.textContent = `${size} · 正在读取`;
-      void this.withSystemSurface(async () => {
-        // Reserve the external reader before the first await. Browser popup
-        // policies otherwise reject navigation after encrypted chunk reads.
-        const preparedReader = readableType ? prepareSystemReader() : null;
+      void (async () => {
+        let preparedReader: Window | null = null;
         let readerHandedOff = false;
         try {
           this.assertImageManifestIdentity(manifest);
@@ -7337,14 +7369,23 @@ export class QuietRoomApp {
               if (this.isRuntimeActive(epoch, session) && button.isConnected) meta.textContent = `${size} · 正在读取 ${Math.round(ratio * 100)}%`;
             }, signal);
           if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
-          this.beginFileExport();
           if (readableType) {
-            await openBlobInSystemReader(blob, filename, readableType, preparedReader);
-            readerHandedOff = true;
+            // Opening an empty tab before decryption can hide and lock Safari
+            // before any verified bytes exist. A blocked reader stays silent.
+            if (!this.beginNativeHandoff('reader', 30_000)) return;
+            preparedReader = prepareSystemReader();
+            readerHandedOff = await openBlobInSystemReader(blob, filename, readableType, preparedReader);
+            if (!readerHandedOff) this.clearNativeHandoff('reader');
+            if (!readerHandedOff) {
+              button.dataset.fileState = 'idle';
+              meta.textContent = `${size} · ${actionLabel}`;
+              return;
+            }
           } else {
             // Unsupported types remain inert downloads; the app never renders
             // arbitrary HTML, SVG, Office macros or executable content.
-            await downloadBlob(blob.slice(0, blob.size, 'application/octet-stream'), filename);
+            this.beginFileExport();
+            await this.withSystemSurface(() => downloadBlob(blob.slice(0, blob.size, 'application/octet-stream'), filename));
           }
           if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
           button.dataset.fileState = 'idle';
@@ -7367,7 +7408,7 @@ export class QuietRoomApp {
             button.setAttribute('aria-busy', 'false');
           }
         }
-      });
+      })();
     });
     return button;
   }
@@ -7816,7 +7857,8 @@ export class QuietRoomApp {
   }
 
   private updateChatImageVisibility(button: HTMLButtonElement): void {
-    const revealed = this.chatRevealedAssets.has(button.dataset.revealKey!);
+    const revealed = this.chatRevealedAssets.has(button.dataset.revealKey!) ||
+      button.dataset.expression === 'true' && !this.chatConcealedExpressions.has(button.dataset.revealKey!);
     button.dataset.revealed = String(revealed);
     button.setAttribute('aria-label', (revealed ? button.dataset.openLabel : button.dataset.revealLabel)!);
   }
@@ -7851,6 +7893,7 @@ export class QuietRoomApp {
     this.chatImageConcealGesture?.reset();
     this.chatRevealedAssets.clear();
     this.root.querySelectorAll<HTMLButtonElement>('#message-list .image-preview').forEach(button => {
+      if (button.dataset.expression === 'true') this.chatConcealedExpressions.add(button.dataset.revealKey!);
       this.updateChatImageVisibility(button);
     });
   }
@@ -7970,6 +8013,9 @@ export class QuietRoomApp {
     if (!button.isConnected || this.privacyCovered || !cached.concealedUrl || this.imageCache.get(manifest.blobId) !== cached) return;
     cached.width = image.width = image.naturalWidth;
     cached.height = image.height = image.naturalHeight;
+    if (button.dataset.expression === 'true') {
+      image.style.width = `${image.naturalWidth * 2 / 3}px`;
+    }
     const anchor = ownerList() ? this.captureChatAnchor() : null;
     this.setChatImagePreviewSource(button, cached.concealedUrl);
     button.replaceChildren(image);
@@ -8926,11 +8972,11 @@ export class QuietRoomApp {
             <button class="gallery-tab" id="gallery-tab-files" type="button" role="tab" aria-controls="gallery-grid" aria-selected="${filesTab}" tabindex="${filesTab ? 0 : -1}"><span>文件</span><span class="gallery-tab-count" aria-hidden="true" data-gallery-count="files" hidden></span></button>
           </div>
           <nav class="gallery-header-actions" aria-label="${surfaceName}操作">
-            ${filesTab ? '' : `<button class="icon-button gallery-visibility-button" id="gallery-toggle-visibility" type="button" aria-label="显示全部" title="显示全部" aria-controls="gallery-grid" disabled>${icons.eye}</button>`}
             ${favorites ? '' : `<button class="icon-button gallery-upload-button${cryptoReady ? '' : ' is-disabled'}" id="open-gallery-image-picker" type="button" aria-label="上传照片、视频或文件到保险箱" title="上传照片、视频或文件到保险箱" ${cryptoReady ? '' : 'disabled'}>${icons.upload}</button>`}
           </nav>
           ${favorites ? '' : `<input id="gallery-image-input" type="file" multiple ${cryptoReady ? '' : 'disabled'} hidden />`}
         </header>
+        ${filesTab ? '' : `<button class="icon-button gallery-visibility-button" id="gallery-toggle-visibility" type="button" aria-label="显示全部" title="显示全部" aria-controls="gallery-grid" disabled>${icons.eye}</button>`}
         <div class="notice gallery-notice" id="notice" role="status" hidden></div>
         <div class="upload-progress gallery-upload-progress" id="upload-progress" hidden><span></span><output></output></div>
         <div class="gallery-grid${filesTab ? ' gallery-file-list' : ''}" id="gallery-grid" role="tabpanel" aria-labelledby="gallery-tab-${tab}" tabindex="0"></div>
@@ -9084,6 +9130,7 @@ export class QuietRoomApp {
       }
       for (const message of messages) {
         if (deletedForEveryone.has(message.clientMsgId)) continue;
+        if (!favorites && isExpressionPayload(message.payload)) continue;
         if ((message.payload.kind === 'file' || message.payload.kind === 'gallery-file') && !isVideoFile(message.payload.file)) {
           if (!filesTab) continue;
           const key = `${message.clientMsgId}:file`;
@@ -9213,7 +9260,7 @@ export class QuietRoomApp {
         // Skip text-only batches without exposing plaintext media metadata in
         // IndexedDB or coupling the album to the chat's current history page.
         do {
-          const page = await loadMediaHistoryPage(session, { beforeSeq, signal });
+          const page = await loadMediaHistoryPage(session, { beforeSeq, signal, includeExpressions: favorites });
           if (!this.isRuntimeActive(epoch, session) || !grid.isConnected) return;
           beforeSeq = page.beforeSeq ?? undefined;
           hasMore = page.hasMore;
@@ -9649,6 +9696,7 @@ export class QuietRoomApp {
     this.galleryScrollTop = { images: 0, files: 0 };
     this.galleryRevealedAssets.clear();
     this.chatRevealedAssets.clear();
+    this.chatConcealedExpressions.clear();
     this.galleryKnownCounts = {};
     this.galleryRefreshPending = null;
     if (this.idleTimer !== null) window.clearTimeout(this.idleTimer);

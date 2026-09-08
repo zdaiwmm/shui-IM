@@ -149,6 +149,15 @@
 .message-actions-backdrop.is-visible { opacity: 1; }
 .message-actions-backdrop.is-closing { opacity: 0; pointer-events: none; }
 
+/* A scroll container is a compositor boundary in Safari. Paint the selected
+   media in the overlay itself so its pixels sit above the backdrop filter. */
+.message-action-preview { position: absolute; pointer-events: none; }
+.message-action-preview > .message-bubble { width: 100%; height: 100%; max-width: none; }
+.message-action-preview .image-preview { width: 100%; height: 100%; }
+.message-action-preview .image-preview img { opacity: 1; }
+.message-action-preview .image-preview::before { opacity: 0 !important; }
+.message.is-action-source.has-media > .message-bubble { visibility: hidden; }
+
 /* The two surfaces have their own placement around the selected bubble. */
 .message-actions {
   width: min(224px, calc(100vw - 24px));

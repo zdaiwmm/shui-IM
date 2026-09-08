@@ -1206,7 +1206,9 @@ button:disabled {
   right: 14px;
   left: 14px;
   margin: 0 auto;
-  width: min(calc(100% - 28px), 560px);
+  width: fit-content;
+  max-width: min(calc(100% - 28px), 560px);
+  overflow-wrap: anywhere;
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -2575,6 +2577,12 @@ button:disabled {
   inset: calc(var(--gallery-header-height) + 10px) 16px auto;
   z-index: 4;
   margin: 0;
+}
+
+.gallery-notice {
+  position: fixed;
+  top: calc(var(--app-top, 0px) + var(--gallery-header-height) + 8px);
+  margin-inline: auto;
 }
 
 .detail-notice {

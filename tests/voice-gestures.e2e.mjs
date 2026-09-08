@@ -71,6 +71,10 @@ try {
   assert.equal(await page.locator('#message-input').inputValue(),'已有草稿');
 
   await reset(); await hold(); await page.waitForTimeout(700);
+  assert.equal(await page.locator('.voice-hold-bed > svg').evaluate(el=>getComputedStyle(el).animationName),'voice-bed-breathe');
+  await page.emulateMedia({reducedMotion:'reduce'});
+  assert.equal(await page.locator('.voice-hold-bed > svg').evaluate(el=>getComputedStyle(el).animationName),'none');
+  await page.emulateMedia({reducedMotion:'no-preference'});
   await touch('touchEnd'); await closed(); await stopped(); assert.equal(await count(),1);
   await reset(); await hold(); await page.waitForTimeout(650);
   await touch('touchMove',await cancelPoint());

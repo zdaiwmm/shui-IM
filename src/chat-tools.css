@@ -1,4 +1,5 @@
 .chat-tools[hidden] { display: none; }
+.composer:has(.chat-tools:not([hidden])) { background: var(--paper-pure); isolation: isolate; }
 .chat-tools { flex: 1 0 100%; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px 8px; padding: 18px 0 8px; }
 .chat-tools > button { display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 0; min-height: 80px; padding: 0; border: 0; background: transparent; color: var(--ink-muted); font: inherit; font-size: .75rem; cursor: pointer; }
 .chat-tools > button > span { display: grid; place-items: center; width: 60px; height: 56px; border-radius: 18px; border: 1px solid var(--glass-border); background: var(--glass-sheen), var(--glass-strong); box-shadow: var(--glass-shadow); -webkit-backdrop-filter: var(--glass-filter); backdrop-filter: var(--glass-filter); color: var(--ink); }
@@ -11,6 +12,7 @@
 .peer-summary[role="button"] { cursor: pointer; }
 .peer-summary[role="button"]:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 #message-input[data-voice-eligible="true"] { touch-action: none; }
+#message-input[data-voice-press="true"] { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .chat-shell.is-voice-recording > .composer { visibility: hidden; }
 .voice-recorder[data-fullscreen="true"] { position: fixed; z-index: 54; inset: auto max(12px, calc((100% - 650px) / 2)) 24px; width: auto; height: 80px; }
 .voice-hold-screen { display: none; }
@@ -30,6 +32,10 @@
 .voice-cancel-zone > span > svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.7; }
 .voice-hold-bed { position: absolute; bottom: 0; left: max(0px, calc((100% - 470px) / 2)); right: max(0px, calc((100% - 470px) / 2)); height: 160px; }
 .voice-hold-bed path { fill: oklch(83% .008 255 / .38); stroke: oklch(99% .004 255 / .24); stroke-width: .7; }
+.voice-recorder[data-mode="hold"][data-hold-action="send"] .voice-hold-bed > svg { transform-origin: center bottom; animation: voice-bed-breathe 1800ms ease-in-out infinite; }
+.voice-recorder[data-mode="hold"][data-hold-action="send"] .voice-hold-bed path { fill: var(--accent); }
+@keyframes voice-bed-breathe { 0%, 100% { opacity: .5; transform: scaleY(.86); } 50% { opacity: .9; transform: scaleY(1.06); } }
+@media (prefers-reduced-motion: reduce) { .voice-recorder[data-mode="hold"] .voice-hold-bed > svg { animation: none !important; } }
 .voice-recorder[data-hold-action="cancel"] .voice-live-card { background: oklch(58% .21 25); }
 .voice-recorder[data-hold-action="cancel"] .voice-cancel-zone > svg path { fill: oklch(54% .2 25 / .8); stroke: oklch(88% .055 25 / .5); }
 @media (max-height: 600px) {
