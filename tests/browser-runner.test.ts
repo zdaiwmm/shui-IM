@@ -24,7 +24,7 @@ describe('browser regression groups', () => {
     const all = selectBrowserScripts();
     expect(all).toEqual(expected);
     expect([...selectBrowserScripts('1'), ...selectBrowserScripts('2')]).toEqual(all);
-    expect(new Set(all).size).toBe(27);
+    expect(new Set(all).size).toBe(28);
     expect(Object.keys(browserGroups)).toEqual(['1', '2']);
     expect(selectBrowserScripts('1')).toEqual(['tests/browser.e2e.mjs']);
     const main = await readFile(path.join(root, 'tests/browser.e2e.mjs'), 'utf8');
@@ -66,8 +66,8 @@ describe('browser regression groups', () => {
       active--;
     } });
     expect(seen).toEqual(selectBrowserScripts());
-    expect(log.mock.calls.filter(([line]) => line.startsWith('[browser] PASS'))).toHaveLength(27);
-    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 2.70s; 27 passed, 0 failed, 0 not run.');
+    expect(log.mock.calls.filter(([line]) => line.startsWith('[browser] PASS'))).toHaveLength(28);
+    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 2.80s; 28 passed, 0 failed, 0 not run.');
   });
 
   it('stops a failing group, preserves its failure and explicitly reports scripts that did not run', async () => {
@@ -76,7 +76,7 @@ describe('browser regression groups', () => {
     const log = vi.fn();
     await expect(runBrowserTests({ group: '2', run, log, now: () => 0 })).rejects.toBe(failure);
     expect(run.mock.calls.map(([script]) => script)).toEqual(selectBrowserScripts('2').slice(0, 2));
-    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 0.00s; 1 passed, 1 failed, 24 not run.');
+    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 0.00s; 1 passed, 1 failed, 25 not run.');
   });
 
   it('does not start another script after cancellation', async () => {
