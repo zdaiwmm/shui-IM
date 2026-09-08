@@ -398,19 +398,23 @@ try {
         new File([new Uint8Array(epub)], '安静的房间.epub', { type: 'application/epub+zip' }),
         ...['docx', 'xlsx', 'pptx', 'zip', 'md'].map(extension => new File(['format-icon fixture'], `资料.${extension}`, { type: 'application/octet-stream' })),
       ]);
-    }, { destination, pdf: readerPdf(), epub: await readerEpub() });
+    }, { destination, pdf: readerPdf(), epub: await readerEpub({ cover: true }) });
     await page.waitForFunction(() => window.fileFlow.sent.length === 7 && !window.fileFlow.app.imageBatchUploading);
     if (destination === 'gallery') await page.locator('#gallery-tab-files').click();
     const cards = page.locator(destination === 'chat' ? '.message .file-attachment' : '.gallery-file');
     assert.equal(await cards.count(), 7);
-    assert.equal(new Set(await cards.locator('.file-format-icon').evaluateAll(nodes => nodes.map(node => node.dataset.fileFormat))).size, 7);
-    assert.deepEqual(new Set(await cards.locator('.file-format-icon small').allTextContents()), new Set(['PDF', 'EPUB', 'DOCX', 'XLSX', 'PPTX', 'ZIP', 'MD']));
+    await cards.filter({ hasText: '安静的房间.epub' }).scrollIntoViewIfNeeded();
+    await cards.locator('.file-epub-cover').waitFor();
+    assert.equal(new Set(await cards.locator('.file-format-icon').evaluateAll(nodes => nodes.map(node => node.dataset.fileFormat))).size, 6);
+    assert.deepEqual(new Set(await cards.locator('.file-format-icon small').allTextContents()), new Set(['PDF', 'DOCX', 'XLSX', 'PPTX', 'ZIP', 'MD']));
+    assert(await cards.locator('.file-epub-cover').evaluate(image => image.decode().then(() => image.naturalWidth > 0 && image.naturalWidth <= 128)));
     await captureFiles(`${destination}-format-icons`);
     await cards.filter({ hasText: '安静的房间.epub' }).click();
     await page.locator('.document-reader[data-state="ready"] .reader-epub').waitFor();
     assert.match(await page.locator('.reader-epub').textContent(), /窗外的光/);
     await page.evaluate(() => window.fileFlow.app.lockNow());
     assert.equal(await page.locator('.document-reader').count(), 0);
+    assert.equal(await page.locator('.file-epub-cover').count(), 0);
   }
   results.epubAndFormatIcons = 'Verified original EPUB opens from chat and Safe; format icons differ; lock removes reader';
   results.expressions = await page.evaluate(async () => {

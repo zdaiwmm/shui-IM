@@ -5,7 +5,7 @@
   height: var(--app-height, 100dvh);
   z-index: 100;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
   background: var(--paper);
   color: var(--ink);
@@ -14,6 +14,7 @@
 }
 .document-reader [hidden] { display: none !important; }
 .reader-header {
+  position: relative;
   display: grid;
   grid-template-columns: 44px minmax(0, 1fr) 44px;
   align-items: center;
@@ -38,11 +39,18 @@
 .document-reader :is(button, input, select, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .document-reader .reader-search input:focus { outline: none; box-shadow: none; }
 .reader-search:focus-within { border-color: var(--ink-muted); box-shadow: var(--glass-shadow), 0 0 0 1px var(--ink-muted); }
-.reader-search { grid-row: 2; display: grid; grid-template-columns: minmax(0, 1fr) auto 44px; align-items: center; gap: 8px; margin: 0 12px 8px; border-radius: 24px; padding: 0 4px 0 14px; }
+.reader-search { position: absolute; inset: auto 12px 10px 68px; height: 44px; display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 0; margin: 0; border-radius: 24px; padding: 0; transform-origin: right center; animation: reader-search-expand 220ms var(--motion-out); }
+.reader-searching .reader-title, .reader-searching .reader-header > .reader-control:last-of-type { visibility: hidden; }
 .reader-search input { width: 100%; min-width: 0; min-height: 44px; padding: 0; background: transparent; border: 0; color: var(--ink); font-size: 16px; }
-.reader-search output { font-size: 12px; color: var(--ink-muted); white-space: nowrap; }
+.reader-search output { position: absolute; right: 12px; top: 48px; font-size: 12px; color: var(--ink-muted); white-space: nowrap; background: var(--paper); border-radius: 6px; padding: 0 6px; }
+.reader-search output:empty { display: none; }
 .reader-search .reader-control, .reader-toolbar .reader-control { background: transparent; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
-.reader-stage { grid-row: 3; overflow: auto; overscroll-behavior: contain; min-height: 0; padding: 12px 16px 28px; touch-action: pan-x pan-y; }
+.reader-stage { grid-row: 2; overflow: auto; overscroll-behavior: contain; min-height: 0; padding: 12px 16px 28px; touch-action: pan-x pan-y; scrollbar-width: none; }
+.reader-stage::-webkit-scrollbar { display: none; }
+.document-reader[data-mode="pages"]:not([data-kind="pdf"]) .reader-stage { overflow: hidden; }
+.document-reader[data-mode="pages"] .reader-epub img { max-height: calc(var(--reader-page-height) - 48px); break-inside: avoid; }
+.document-reader[data-mode="pages"] .reader-epub :is(table,figure) { max-height: var(--reader-page-height); overflow: auto; break-inside: avoid; }
+.reader-pdf-slot { position: relative; min-width: 100%; }
 .reader-content { width: max-content; min-width: 100%; }
 .reader-stage.reader-swipe { touch-action: pan-y pinch-zoom; }
 .reader-directory { max-width: 100%; width: 100%; height: 44px; padding: 0 12px; border: 1px solid var(--glass-border); border-radius: 22px; background: var(--glass-panel); color: var(--ink); font: inherit; font-size: 16px; text-overflow: ellipsis; }
@@ -61,7 +69,9 @@
 .reader-pdf-page { position: relative; margin: 0 auto; background: white; color-scheme: only light; box-shadow: 0 2px 14px oklch(20% .008 255 / .12); }
 .reader-pdf-page canvas { display: block; }
 .reader-status { position: absolute; top: 45%; left: 24px; right: 24px; margin: 0; text-align: center; font-size: 14px; color: var(--ink-muted); pointer-events: none; overflow-wrap: anywhere; }
-.reader-toolbar { grid-row: 4; justify-self: center; display: flex; align-items: center; max-width: calc(100% - 16px); gap: 8px; padding: 4px; margin: 0 8px max(12px, env(safe-area-inset-bottom)); border-radius: 28px; z-index: 2; }
+.reader-toolbar { grid-row: 3; justify-self: center; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; max-width: calc(100% - 16px); gap: 4px; padding: 4px; margin: 0 8px max(12px, env(safe-area-inset-bottom)); border-radius: 28px; z-index: 2; }
+.reader-toolbar .reader-directory { width: 140px; flex: 1 1 120px; max-width: 240px; margin-left: auto; }
+.reader-mode svg { width: 20px; height: 20px; }
 .reader-paging, .reader-zoom { display: flex; align-items: center; gap: 0; min-width: 0; }
 .reader-paging input { width: 44px; height: 44px; min-height: 44px; padding: 0; text-align: center; font-size: 16px; color: var(--ink); background: transparent; border: 0; appearance: textfield; }
 .reader-paging input::-webkit-inner-spin-button { appearance: none; }
@@ -74,6 +84,7 @@
 .reader-text-layer > :not(.markedContent), .reader-text-layer .markedContent span:not(.markedContent) { --font-height: 0; --scale-x: 1; --rotate: 0deg; font-size: calc(var(--text-scale-factor) * var(--font-height)); transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }
 .reader-text-layer .markedContent { display: contents; }
 .privacy-obscured .document-reader { visibility: hidden !important; }
+.file-epub-cover { display: block; width: 38px; height: 48px; flex: 0 0 38px; object-fit: contain; border-radius: 3px; }
 @media (max-width: 430px) {
   .reader-toolbar { gap: 0; }
   .document-reader:is([data-kind="pdf"], [data-kind="epub"]) .reader-zoom output { display: none; }
@@ -84,3 +95,5 @@
 @media (prefers-reduced-transparency: reduce) { .reader-control, .reader-toolbar, .reader-search { background: var(--paper-pure); backdrop-filter: none; -webkit-backdrop-filter: none; } }
 @media (forced-colors: active) { .document-reader { background: Canvas; color: CanvasText; } .reader-control, .reader-toolbar, .reader-search { border-color: ButtonText; background: Canvas; color: ButtonText; } }
 @keyframes reader-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes reader-search-expand { from { opacity: 0; clip-path: inset(0 0 0 calc(100% - 44px) round 24px); } to { opacity: 1; clip-path: inset(0 round 24px); } }
+@media (prefers-reduced-motion: reduce) { .reader-search { animation: none; } }

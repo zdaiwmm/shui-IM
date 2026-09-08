@@ -61,7 +61,7 @@ export class PresenceCircuit {
   }
 
   sent(): void {
-    if (this.self !== true || this.peer !== false || this.motion.matches || document.hidden) return;
+    if (this.self === null || this.peer === null || (this.self && this.peer) || this.motion.matches || document.hidden) return;
     // Bound visual work during bursts; retries never call this entry point.
     if (this.mode === 'send') { this.queued = Math.min(2, this.queued + 1); return; }
     this.start('send');
@@ -116,6 +116,11 @@ export class PresenceCircuit {
     if (elapsed < 1000) {
       this.arcs[0]!.setAttribute('d', this.arc(leftWire, elapsed / 1000, elapsed));
       if (this.mode === 'connect') this.arcs[1]!.setAttribute('d', this.arc(rightWire, elapsed / 1000, elapsed));
+    } else if (this.mode === 'send' && elapsed < 1550) {
+      this.arcs.forEach(arc => arc.removeAttribute('d'));
+      const t = (elapsed - 1000) / 550;
+      const shake = Math.sin(t * Math.PI * 8) * (1 - t) * .85;
+      this.left.setAttribute('transform', `translate(${-2 + shake} ${shake * .6}) rotate(${shake * 7})`);
     } else if (this.mode === 'connect' && elapsed < 4200) {
       this.arcs.forEach(arc => arc.removeAttribute('d'));
       this.element.dataset.phase = 'fusing';

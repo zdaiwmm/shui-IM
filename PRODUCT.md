@@ -199,4 +199,8 @@ Do not resemble a neon cyber-security dashboard, hacker terminal, crypto trading
 
 ## Accessibility & Inclusion
 
+- PDF, EPUB and text readers provide horizontal pages and vertical scrolling from a toolbar mode control. EPUB and text horizontal pages fit the available reading height; EPUB chapter selection occupies the toolbar's right side. Search expands leftward within the header, temporarily replacing title/format, with close at the left and submit at the right. Horizontal page changes animate, respecting reduced motion. Verified EPUB attachments with a declared supported cover use a local thumbnail in chat and file lists.
+- The chat menu opens a version history page, newest first, with version dates and notes from the bundled release history. Update notices have a top-right close control and scroll without visible scrollbar chrome. Menu actions and quoted-message links do not scale on press. Removing a reply draft while the keyboard is open retains composer focus and text selection.
+- Mobile screens prefer portrait. The manifest and supported orientation APIs request portrait; browsers that cannot lock orientation display a portrait-return guard in physical landscape. Soft-keyboard viewport changes alone never activate it. This does not promise control of Safari or operating-system orientation, and desktop layouts remain responsive.
+
 Target WCAG 2.2 AA for the unlocked experience. Support keyboard navigation, visible focus, screen-reader labels, sufficient contrast, touch targets of at least 44 by 44 CSS pixels, reduced-motion preferences, clear non-color-only status communication, and resilient layouts from small mobile screens through desktop browsers.

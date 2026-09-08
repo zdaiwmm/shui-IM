@@ -54,6 +54,9 @@ export class MemePicker {
   private searching = false;
   private packDetail = false;
   private operation: AbortController | null = null;
+  private expanded = false;
+  private autoPage: IntersectionObserver;
+  private sentinel = document.createElement('div');
 
   constructor(private options: MemePickerOptions) {
     this.signal = AbortSignal.any([options.signal, this.controller.signal]);
@@ -83,6 +86,24 @@ export class MemePicker {
       void this.switchKind(kind); this.panel.querySelector<HTMLButtonElement>(`[data-kind="${kind}"]`)!.focus();
     });
     this.more.addEventListener('click', () => void this.search());
+    this.sentinel.className = 'meme-page-sentinel';
+    this.more.before(this.sentinel);
+    this.autoPage = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting) && this.more.hidden) void this.search();
+    }, { root: this.panel.querySelector('.meme-scroll'), rootMargin: '120px' });
+    this.autoPage.observe(this.sentinel);
+    const shortcuts = this.panel.querySelector<HTMLElement>('.meme-pack-shortcuts')!;
+    let drag: { x: number; y: number } | undefined;
+    shortcuts.addEventListener('pointerdown', event => { drag = { x: event.clientX, y: event.clientY }; }, { signal: this.signal });
+    shortcuts.addEventListener('pointermove', event => {
+      if (!drag || this.overlay) return;
+      const dy = event.clientY - drag.y;
+      if (dy < -45 && Math.abs(dy) > Math.abs(event.clientX - drag.x) * 1.5) {
+        drag = undefined; event.preventDefault(); this.expand();
+      }
+    }, { signal: this.signal, passive: false });
+    window.addEventListener('pointerup', () => { drag = undefined; }, { signal: this.signal });
+    window.addEventListener('pointercancel', () => { drag = undefined; }, { signal: this.signal });
     this.observer = new IntersectionObserver(entries => {
       for (const entry of entries) { const tile = this.tiles.get(entry.target as HTMLElement); if (tile) { tile.visible = entry.isIntersecting; if (!tile.visible) this.unload(entry.target as HTMLElement); } }
       this.hydrate();
@@ -109,7 +130,7 @@ export class MemePicker {
   private clear() {
     this.generation++; this.request?.abort(); this.operation?.abort(); this.searching = false; this.observer.disconnect();
     for (const tile of this.tiles.keys()) this.unload(tile);
-    this.tiles.clear(); this.grid.replaceChildren(); this.status.replaceChildren(); this.more.hidden = true;
+    this.tiles.clear(); this.grid.replaceChildren(); this.status.replaceChildren(); this.more.hidden = true; this.nextPage = null;
     this.grid.className = 'meme-grid'; this.panel.querySelector('.meme-scroll')!.scrollTop = 0;
     this.panel.querySelector('.meme-source')!.textContent = '';
   }
@@ -128,9 +149,8 @@ export class MemePicker {
     };
     control('查找贴纸合集', createElement(Plus).outerHTML, () => { void this.switchKind('stickers').then(() => this.openSearch()); });
     control('收藏', memeIcons.star, () => { this.favoriteView = !this.favoriteView; void this.local(); }).setAttribute('aria-pressed', String(this.favoriteView));
-    if (this.kind !== 'stickers') return;
     for (const pack of this.packs) {
-      const button = control(pack.title, '', () => { if (this.favoriteView) { this.favoriteView = false; void this.local().then(() => this.jump(pack.id)); } else this.jump(pack.id); });
+      const button = control(pack.title, '', () => { if (this.favoriteView || this.kind !== 'stickers') { void this.switchKind('stickers').then(() => this.jump(pack.id)); } else this.jump(pack.id); });
       const first = pack.items[0]; if (!first) continue;
       const item: MediaItem = { id: first.id, title: pack.title, favorite: first, pack: pack.id };
       const image = document.createElement('img'); image.alt = ''; image.draggable = false; button.append(image); this.tiles.set(button, { item, visible: true });
@@ -148,7 +168,7 @@ export class MemePicker {
       const [favorites, packs] = await Promise.all([this.options.list(), this.options.packs()]);
       if (!this.active() || generation !== this.generation) return;
       this.favorites = favorites; this.packs = packs; this.clear(); this.renderLocalItems(); this.shortcuts();
-      if (!this.favoriteView) { this.query = ''; this.nextPage = 1; await this.search(); }
+      if (!this.favoriteView && this.kind === 'gifs') { this.query = ''; this.nextPage = 1; await this.search(); }
     } catch { if (generation === this.generation) { this.shortcuts(); this.say('本地收藏或合集读取失败，请重新打开'); } }
   }
   private renderLocalItems() {
@@ -169,7 +189,18 @@ export class MemePicker {
       }
     }
   }
+  private expand() {
+    if (this.overlay) return;
+    this.expanded = true; this.openSearch(false);
+    this.panel.parentElement?.classList.add('meme-expanded-dialog');
+    (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = true;
+  }
   private openSearch(load = true) {
+    if (this.expanded && this.overlay && load) {
+      this.overlay.classList.remove('meme-expanded-dialog');
+      (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = false;
+      this.input.value = ''; void this.submit(); return;
+    }
     if (!this.active() || this.overlay) return;
     const overlay = document.createElement('div'); overlay.className = 'meme-search-dialog'; overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', this.kind === 'gifs' ? '搜索 GIFs' : '搜索贴纸合集');
     this.overlay = overlay; this.options.root.append(overlay); overlay.append(this.panel);
@@ -183,6 +214,12 @@ export class MemePicker {
   private back() {
     if (!this.overlay) return;
     if (this.packDetail) { void this.submit(); return; }
+    if (this.expanded && !this.overlay.classList.contains('meme-expanded-dialog')) {
+      this.overlay.classList.add('meme-expanded-dialog');
+      (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = true;
+      void this.local(); return;
+    }
+    this.expanded = false;
     const overlay = this.overlay; this.overlay = null; this.input.blur(); this.input.value = '';
     this.options.host.append(this.panel); (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = true;
     closeDialog(overlay, { animate: false, restoreFocus: false }); void this.local(); this.panel.querySelector<HTMLButtonElement>('.meme-open-search')!.focus({ preventScroll: true });
@@ -198,10 +235,17 @@ export class MemePicker {
       const result = await this.options.search(this.query, this.nextPage, signal, this.kind);
       if (!this.active() || generation !== this.generation) return;
       if (this.kind === 'gifs') this.append(result.items); else this.appendPacks(result.packs ?? []);
-      this.nextPage = result.nextPage; this.more.textContent = '加载更多'; this.more.hidden = !this.nextPage;
+      this.nextPage = result.nextPage; this.more.hidden = true;
       this.panel.querySelector('.meme-source')!.textContent = result.source ?? ''; this.say(!this.grid.children.length ? '没有找到相关内容' : '');
     } catch (error) { if (!signal.aborted && generation === this.generation) { this.say(error instanceof Error ? error.message : '搜索失败，请重试'); this.more.textContent = '重试'; this.more.hidden = false; } }
-    finally { if (generation === this.generation) this.searching = false; }
+    finally {
+      if (generation === this.generation) {
+        this.searching = false;
+        if (this.nextPage && this.more.hidden) {
+          this.autoPage.unobserve(this.sentinel); this.autoPage.observe(this.sentinel);
+        }
+      }
+    }
   }
   private appendPacks(packs: RemotePack[]) {
     this.grid.classList.add('meme-pack-results');
@@ -210,9 +254,9 @@ export class MemePicker {
       const cover = document.createElement('button'); cover.type = 'button'; cover.className = 'meme-pack-cover'; cover.setAttribute('aria-label', `查看 ${pack.title}`); cover.innerHTML = '<img alt="" draggable="false">';
       this.tiles.set(cover, { item: { id: pack.cover, title: pack.title }, visible: false }); this.observer.observe(cover);
       const title = document.createElement('h3'); title.textContent = pack.title;
-      const add = document.createElement('button'); add.type = 'button'; add.className = 'meme-pack-add'; const installed = this.hasPack(pack.id); add.textContent = installed ? '已添加' : '添加'; add.disabled = installed;
+      const add = document.createElement('button'); add.type = 'button'; add.className = 'meme-pack-add'; add.textContent = this.hasPack(pack.id) ? '解除添加' : '添加';
       const progress = document.createElement('span'); progress.className = 'meme-pack-progress'; progress.setAttribute('role', 'status');
-      add.addEventListener('click', () => void this.install(pack, add, progress)); cover.addEventListener('click', () => void this.showPack(pack)); row.append(cover, title, add, progress); this.grid.append(row);
+      add.addEventListener('click', () => void this.togglePack(pack, add, progress)); cover.addEventListener('click', () => void this.showPack(pack)); row.append(cover, title, add, progress); this.grid.append(row);
     }
   }
   private async showPack(pack: RemotePack) {
@@ -223,11 +267,22 @@ export class MemePicker {
       const detail = await this.options.pack(pack.id, this.signal); if (!this.active() || generation !== this.generation) return;
       this.clear(); this.packDetail = true; this.grid.classList.add('meme-pack-list'); const header = document.createElement('header'); header.className = 'meme-pack-detail-header';
       const title = document.createElement('h3'); title.textContent = detail.title;
-      const add = document.createElement('button'); add.type = 'button'; add.className = 'meme-pack-add'; add.textContent = this.hasPack(pack.id) ? '已添加' : '添加合集'; add.disabled = this.hasPack(pack.id);
-      const progress = document.createElement('span'); progress.setAttribute('role', 'status'); add.addEventListener('click', () => void this.install(pack, add, progress, detail));
+      const add = document.createElement('button'); add.type = 'button'; add.className = 'meme-pack-add'; add.textContent = this.hasPack(pack.id) ? '解除添加' : '添加';
+      const progress = document.createElement('span'); progress.setAttribute('role', 'status'); add.addEventListener('click', () => void this.togglePack(pack, add, progress, detail));
       const grid = document.createElement('div'); grid.className = 'meme-pack-grid'; header.append(title, add, progress); this.grid.append(header, grid); this.append(detail.items, grid);
       this.panel.querySelector<HTMLButtonElement>('.meme-back')!.focus({ preventScroll: true });
     } catch { if (this.active() && generation === this.generation) this.say('合集加载失败，请重试'); }
+  }
+  private async togglePack(pack: RemotePack, button: HTMLButtonElement, progress: HTMLElement, detail?: RemotePackDetail) {
+    if (!this.hasPack(pack.id)) { await this.install(pack, button, progress, detail); return; }
+    if (this.busy || !this.active()) return;
+    this.busy = true; button.disabled = true;
+    try {
+      await this.options.removePack(pack.id, this.signal);
+      if (!this.active()) return;
+      this.packs = await this.options.packs(); button.textContent = '添加'; progress.textContent = '';
+    } catch { if (this.active()) progress.textContent = '解除失败，请重试'; }
+    finally { this.busy = false; button.disabled = false; }
   }
   private async install(pack: RemotePack, button: HTMLButtonElement, progress: HTMLElement, detail?: RemotePackDetail) {
     if (this.busy || !this.active()) return; this.busy = true; button.disabled = true; progress.textContent = '正在下载…';
@@ -240,7 +295,7 @@ export class MemePicker {
         files.push(file); if (progress.isConnected) progress.textContent = `${files.length} / ${detail.items.length}`;
       }
       await this.options.install(pack.id, detail.title, files, signal); if (!this.active()) return;
-      this.packs = await this.options.packs(); button.textContent = '已添加'; progress.textContent = `${files.length} 张 · 已下载`;
+      this.packs = await this.options.packs(); button.textContent = '解除添加'; button.disabled = false; progress.textContent = `${files.length} 张 · 已下载`;
     } catch (error) { if (this.active()) { progress.textContent = signal.aborted ? '已取消' : error instanceof Error ? error.message : '下载失败，请重试'; button.disabled = false; } }
     finally { this.busy = false; if (this.operation === controller) this.operation = null; cancel.remove(); }
   }
@@ -315,7 +370,7 @@ export class MemePicker {
   dispose() {
     if (this.disposed) return; this.disposed = true; this.controller.abort();
     if (this.preview) closeDialog(this.preview, { animate: false, restoreFocus: false }); if (this.overlay) closeDialog(this.overlay, { animate: false, restoreFocus: false });
-    this.observer.disconnect(); this.request?.abort(); for (const tile of this.tiles.keys()) this.unload(tile);
+    this.observer.disconnect(); this.autoPage.disconnect(); this.request?.abort(); for (const tile of this.tiles.keys()) this.unload(tile);
     this.tiles.clear(); this.mediaCache.clear(); this.mediaCacheBytes = 0; this.favorites = []; this.packs = []; this.input.value = ''; this.panel.remove(); this.options.host.classList.remove('has-meme-panel');
   }
 }

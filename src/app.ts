@@ -75,6 +75,7 @@ import { voiceIcons, voiceTime } from './lib/voice-audio';
 import { UnreadCounter } from './lib/unread-counter';
 import {
   currentRelease,
+  releaseLog,
   pendingReleaseNotes,
   hasPendingReleaseNotes,
   markReleaseNotesSeen,
@@ -97,6 +98,7 @@ import { createVideoPoster } from './lib/video-poster';
 import { downloadBlob } from './lib/download';
 import { DocumentReader, documentReaderMimeType, documentReaderLimit } from './lib/document-reader';
 import { createFileFormatIcon } from './lib/file-format';
+import { observeEpubCover } from './lib/epub-cover';
 import { gestureSecret, GesturePad } from './lib/gesture';
 import {
   createCreatorMlsState,
@@ -507,6 +509,12 @@ export class QuietRoomApp {
   private callReturnFocus: HTMLElement | null = null;
 
   constructor(private readonly root: HTMLElement) {
+    root.inert = root.classList.contains('portrait-blocked');
+    root.addEventListener('portraitvisibilitychange', () => {
+      root.inert = root.classList.contains('portrait-blocked') || Boolean(this.callView);
+      this.socket?.setChatPresence(this.activeSurface === 'chat' && !root.classList.contains('portrait-blocked'));
+      if (!root.classList.contains('portrait-blocked')) this.markVisibleMessagesRead();
+    });
     subscribeReleaseUpdate(releaseId => {
       this.availableReleaseId = releaseId;
       this.renderReleaseUpdateBanner();
@@ -3031,7 +3039,7 @@ export class QuietRoomApp {
       callIdentity,
     );
     this.socket = roomSocket;
-    roomSocket.setChatPresence(this.activeSurface === 'chat');
+    roomSocket.setChatPresence(this.activeSurface === 'chat' && !this.root.classList.contains('portrait-blocked'));
     roomSocket.connect();
   }
 
@@ -3608,6 +3616,7 @@ export class QuietRoomApp {
                 <p class="protocol-label">${this.session.vault.protocol === 'mls-rfc9420' ? '端到端加密' : '旧版会话，建议重新建立'}</p>
                 <button id="manage-devices" type="button">${icons.lock}<span>设备管理</span></button>
                 <button id="backup-settings" type="button">${icons.download}<span>备份与恢复</span></button>
+                <button id="release-history" type="button">${icons.file}<span>更新日志</span></button>
                 <p class="menu-footnote">新设备只能查看加入后的消息。</p>
               </div>
             </details>
@@ -3647,7 +3656,7 @@ export class QuietRoomApp {
             </div>
             <div class="composer-field">
               <label class="sr-only" for="message-input">输入消息</label>
-              <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '输入消息' : '正在建立安全会话…'}" autocomplete="off" enterkeyhint="send" ${cryptoReady ? '' : 'disabled'}></textarea>
+              <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '点击输入文字，长按录制语音' : '正在建立安全会话…'}" autocomplete="off" enterkeyhint="send" ${cryptoReady ? '' : 'disabled'}></textarea>
               <button class="meme-toggle" id="open-memes" type="button" aria-label="打开表情" title="表情" aria-expanded="false" aria-controls="meme-panel" ${cryptoReady ? '' : 'disabled'}>${memeIcons.smile}</button>
             </div>
           </div>
@@ -3992,12 +4001,12 @@ export class QuietRoomApp {
     textarea.addEventListener('blur', () => {
       if (!ownsActiveChat()) return;
       keyboardHistoryRead?.abort();
-      if (this.bottomControlRetainsKeyboard && !this.privacyCovered && this.activeSurface === 'chat') {
+      if ((this.bottomControlRetainsKeyboard || replyCloseRetainsKeyboard) && !this.privacyCovered && this.activeSurface === 'chat') {
         // A few mobile browser builds still transfer focus after a prevented
         // pointerdown on the floating return control. Restore it before the
         // soft keyboard begins to dismiss, retaining the exact selection.
         queueMicrotask(() => {
-          if (!this.bottomControlRetainsKeyboard || !ownsActiveChat()) return;
+          if ((!this.bottomControlRetainsKeyboard && !replyCloseRetainsKeyboard) || !ownsActiveChat()) return;
           const selection = this.composerSelection ?? {
             start: textarea.selectionStart ?? textarea.value.length,
             end: textarea.selectionEnd ?? textarea.value.length,
@@ -4053,6 +4062,7 @@ export class QuietRoomApp {
       this.transitionPage('forward', () => this.renderGallery());
     });
     this.root.querySelector('#backup-settings')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderBackupSettings()));
+    this.root.querySelector('#release-history')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderReleaseHistory()));
     this.root.querySelector('#reminder-export')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderBackupSettings()));
     this.root.querySelector('#dismiss-recovery')?.addEventListener('click', () => {
       this.uiPreferences.recoveryReminderDismissed = true;
@@ -4065,14 +4075,26 @@ export class QuietRoomApp {
     const replyClose = this.root.querySelector<HTMLButtonElement>('#reply-draft button');
     let replyCloseRetainsKeyboard = false;
     replyClose?.addEventListener('pointerdown', event => {
+      if (event.button !== 0) return;
       replyCloseRetainsKeyboard = document.activeElement === textarea
         || document.documentElement.dataset.keyboardOpen === 'true';
-      if (replyCloseRetainsKeyboard) this.retainComposerKeyboard(event, textarea);
+      if (replyCloseRetainsKeyboard) {
+        event.preventDefault(); this.retainComposerKeyboard(event, textarea);
+        if (document.activeElement !== textarea) this.restoreComposerFocus();
+      }
     });
-    replyClose?.addEventListener('click', () => {
+    const dismissReply = () => {
       this.replyTarget = null;
       this.renderReplyDraft();
       if (replyCloseRetainsKeyboard) this.restoreComposerFocus();
+      replyCloseRetainsKeyboard = false;
+    };
+    replyClose?.addEventListener('click', dismissReply);
+    replyClose?.addEventListener('touchend', event => {
+      if (!replyCloseRetainsKeyboard) return;
+      event.preventDefault(); dismissReply();
+    }, { passive: false });
+    replyClose?.addEventListener('pointercancel', () => {
       replyCloseRetainsKeyboard = false;
     });
     const moreMenu = this.root.querySelector<HTMLDetailsElement>('.more-menu');
@@ -4137,10 +4159,10 @@ export class QuietRoomApp {
       list.append(item);
     }
     const button = document.createElement('button');
-    button.className = 'primary-button';
+    button.className = 'icon-button release-notes-close';
     button.type = 'button';
-    button.textContent = '知道了';
-    panel.append(eyebrow, title, list, button);
+    button.setAttribute('aria-label', '关闭更新说明'); button.title = '关闭'; button.innerHTML = icons.close;
+    panel.append(button, eyebrow, title, list);
     sheet.append(panel);
     this.root.append(sheet);
     const dialog = mountDialog(sheet, {
@@ -4150,6 +4172,25 @@ export class QuietRoomApp {
     });
     markReleaseNotesSeen();
     button.addEventListener('click', () => dialog.close());
+  }
+
+  private renderReleaseHistory(): void {
+    if (!this.session || this.privacyCovered) return;
+    this.captureChatAnchor(false); this.closeVoiceRecorder(); this.voicePlayback.stop();
+    if (!this.setActiveSurface('away')) return;
+    this.root.innerHTML = `<section class="device-shell release-history-page"><header class="subpage-header device-header"><button class="icon-button" id="release-history-back" type="button" aria-label="返回聊天">${icons.back}</button><div><h1>更新日志</h1></div><span></span></header><main class="device-content release-history-content"></main></section>`;
+    const content = this.root.querySelector('.release-history-content')!;
+    for (const release of releaseLog) {
+      const section = document.createElement('section');
+      const heading = document.createElement('h2'); heading.textContent = release.id;
+      const date = document.createElement('time');
+      const parts = release.id.split('.');
+      date.dateTime = parts.slice(0, 3).join('-'); date.textContent = `${parts[0]}年${Number(parts[1])}月${Number(parts[2])}日`;
+      const list = document.createElement('ul');
+      for (const note of release.notes) { const item = document.createElement('li'); item.textContent = note; list.append(item); }
+      section.append(heading, date, list); content.append(section);
+    }
+    this.root.querySelector('#release-history-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderChat()));
   }
 
   private commitChatViewportGeometry(): void {
@@ -4705,7 +4746,7 @@ export class QuietRoomApp {
     const session = this.session;
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!session || this.privacyCovered || document.hidden || document.documentElement.classList.contains('privacy-obscured')
-      || this.activeSurface !== 'chat' || this.callView || this.memePicker || !list || this.chatRestoreAnchor) return;
+      || this.root.classList.contains('portrait-blocked') || this.activeSurface !== 'chat' || this.callView || this.memePicker || !list || this.chatRestoreAnchor) return;
     const top = this.root.querySelector('.chat-header')?.getBoundingClientRect().bottom ?? list.getBoundingClientRect().top;
     const composer = this.root.querySelector<HTMLElement>('#composer');
     const bottom = composer ? this.chatComposerLayoutTop(composer) : list.getBoundingClientRect().bottom;
@@ -4749,7 +4790,7 @@ export class QuietRoomApp {
       if (this.activeSurface !== 'chat') this.rolePresence = null;
     }
     this.activeSurface = surface;
-    this.socket?.setChatPresence(surface === 'chat');
+    this.socket?.setChatPresence(surface === 'chat' && !this.root.classList.contains('portrait-blocked'));
     this.syncViewport();
     this.updateChatBottomControl();
     // Viewer dismissal reuses the same chat DOM and viewport geometry. Resume
@@ -7347,6 +7388,15 @@ export class QuietRoomApp {
     button.setAttribute('aria-label', `${actionLabel} ${filename}，${size}`);
     button.innerHTML = `<span class="file-attachment-copy"><strong class="file-attachment-name"></strong><span class="file-attachment-meta" aria-live="polite"></span></span><span class="file-attachment-action" aria-hidden="true">${icons.download}</span>`;
     button.prepend(createFileFormatIcon(manifest.mimeType, filename));
+    if (readableType === 'application/epub+zip' && manifest.originalSize <= documentReaderLimit(readableType) && this.runtimeAbort && this.session) {
+      const session = this.session, epoch = this.runtimeEpoch;
+      observeEpubCover(button, async signal => {
+        if (!this.isRuntimeActive(epoch, session)) throw new Error('RUNTIME_CLOSED');
+        this.assertImageManifestIdentity(manifest);
+        return this.withImageLoadSlot(() => decryptFileAttachment(manifest,
+          (id, index) => fetchBlobChunk(session.vault.roomId, session.vault.accessToken, id, index, signal), undefined, signal));
+      }, this.runtimeAbort.signal);
+    }
     button.querySelector<HTMLElement>('.file-attachment-name')!.textContent = filename;
     const meta = button.querySelector<HTMLElement>('.file-attachment-meta')!;
     meta.textContent = `${size} · ${actionLabel}`;
@@ -8414,7 +8464,7 @@ export class QuietRoomApp {
         : null,
       dismiss: downward => {
         if (downward && this.viewerPreviousSurface === 'chat') this.concealChatImages();
-        this.closeImageViewer();
+        this.closeImageViewer(false, true);
       },
       page: (direction, gesture?: { offsetX: number; stageWidth: number }) => {
         if (!transitionActive && !viewer.dataset.nativeVideo) {
@@ -8750,9 +8800,11 @@ export class QuietRoomApp {
     }
   }
 
-  private closeImageViewer(immediate = false): void {
+  private closeImageViewer(immediate = false, dragged = false): void {
     this.closeDocumentReader(immediate);
     const viewer = this.root.querySelector<HTMLElement>('.image-viewer');
+    const departingImage = dragged ? viewer?.querySelector<HTMLImageElement>('.viewer-stage img') : null;
+    const departingTransform = departingImage?.style.transform;
     if (this.viewerKeyHandler) document.removeEventListener('keydown', this.viewerKeyHandler);
     this.viewerKeyHandler = null;
     this.viewerGestureCleanup?.();
@@ -8788,6 +8840,13 @@ export class QuietRoomApp {
     }
     viewer.classList.remove('is-visible', 'is-dragging');
     viewer.classList.add('is-closing');
+    if (departingImage && departingTransform) {
+      departingImage.style.transform = departingTransform;
+      departingImage.animate([
+        { transform: departingTransform },
+        { transform: `translate3d(0, ${viewer.clientHeight}px, 0) scale(.35)` },
+      ], { duration: 220, easing: 'cubic-bezier(.2,.65,.3,1)', fill: 'forwards' });
+    }
     window.setTimeout(finish, 220);
   }
 
@@ -9687,7 +9746,7 @@ export class QuietRoomApp {
     this.callView = null;
     this.callPermissionActive = false;
     this.callReturnFocus = null;
-    this.root.inert = false;
+    this.root.inert = this.root.classList.contains('portrait-blocked');
     document.body.classList.remove('call-active');
     this.closeVoiceRecorder();
     this.voiceGesture?.destroy();
@@ -9925,7 +9984,7 @@ export class QuietRoomApp {
     if (state.phase === 'idle') {
       this.callView?.destroy();
       this.callView = null;
-      this.root.inert = false;
+      this.root.inert = this.root.classList.contains('portrait-blocked');
       document.body.classList.remove('call-active');
       if (this.callReturnFocus?.isConnected) this.callReturnFocus.focus({ preventScroll: true });
       this.callReturnFocus = null;

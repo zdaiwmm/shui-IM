@@ -20,6 +20,7 @@ export class PdfReader {
   private renderVersion = 0;
   private pageNumber = 0;
   private canvas?: HTMLCanvasElement;
+  private retained = new Map<number, { canvas: HTMLCanvasElement; layer: TextLayer; sheet: HTMLElement }>();
   pages = 0;
 
   async load(bytes: Uint8Array<ArrayBuffer>): Promise<void> {
@@ -59,14 +60,22 @@ export class PdfReader {
     return text;
   }
 
-  async render(pageNumber: number, container: HTMLElement, width: number, zoom: number, query: string): Promise<void> {
+  retain(pages: number[]): void {
+    for (const [number, entry] of this.retained) if (!pages.includes(number)) {
+      entry.layer.cancel(); entry.canvas.width = entry.canvas.height = 0; entry.sheet.remove();
+      this.retained.delete(number);
+      void this.document?.getPage(number).then(page => page.cleanup());
+    }
+  }
+
+  async render(pageNumber: number, container: HTMLElement, width: number, zoom: number, query: string, keep = false): Promise<void> {
     const version = ++this.renderVersion;
     this.renderTask?.cancel();
     this.textLayer?.cancel();
-    if (this.canvas) this.canvas.width = this.canvas.height = 0;
+    if (!keep) { this.retain([]); if (this.canvas) this.canvas.width = this.canvas.height = 0; }
     const document = this.document;
     if (!document || this.disposed) return;
-    if (this.pageNumber && this.pageNumber !== pageNumber) (await document.getPage(this.pageNumber)).cleanup();
+    if (!keep && this.pageNumber && this.pageNumber !== pageNumber) (await document.getPage(this.pageNumber)).cleanup();
     const page = await document.getPage(pageNumber);
     if (this.disposed || version !== this.renderVersion) return;
     this.pageNumber = pageNumber;
@@ -103,6 +112,7 @@ export class PdfReader {
     if (query) for (const span of this.textLayer.textDivs) {
       if (span.textContent?.toLocaleLowerCase().includes(query.toLocaleLowerCase())) span.classList.add('reader-match');
     }
+    this.retained.set(pageNumber, { canvas, layer: this.textLayer, sheet });
   }
 
   destroy(): void {
@@ -110,6 +120,7 @@ export class PdfReader {
     this.disposed = true;
     this.renderVersion++;
     this.fetchAbort.abort();
+    this.retain([]);
     this.renderTask?.cancel();
     this.textLayer?.cancel();
     if (this.canvas) this.canvas.width = this.canvas.height = 0;

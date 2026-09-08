@@ -96,7 +96,12 @@ async function holdCover(page) {
   await page.mouse.up();
   // The activation ring is body-level and the gateway replaces the cover
   // immediately. Wait for that replacement before measuring the next state.
-  await page.locator('.cover-trigger').waitFor({ state: 'detached' });
+  await page.locator('.cover-trigger').waitFor({ state: 'detached' }).catch(async error => {
+    console.error('Cover activation state', await page.evaluate(() => ({ orientation: screen.orientation?.type,
+      screen: [screen.width, screen.height], viewport: [innerWidth, innerHeight], root: document.querySelector('#app')?.className,
+      inert: document.querySelector('#app')?.inert, coarse: matchMedia('(pointer: coarse)').matches })));
+    throw error;
+  });
 }
 
 async function setPasskey(page) {
@@ -1243,7 +1248,14 @@ try {
   const addCreatorDevice = async (route) => {
     if (await recovery.locator('.chat-shell').count()) {
       await recovery.locator('.more-menu summary').click();
-      await recovery.locator('#manage-devices').click();
+      await recovery.locator('#manage-devices').click().catch(async error => {
+        console.error('Device menu state', await recovery.evaluate(() => ({
+          root: document.querySelector('#app')?.className, cover: !!document.querySelector('.cover-trigger'),
+          menu: document.querySelector('.more-menu')?.outerHTML, surface: document.querySelector('#app > section')?.className,
+          active: document.activeElement?.id, hidden: document.hidden,
+        })));
+        throw error;
+      });
     }
     await recovery.locator('.device-shell').waitFor();
     const activeSection = recovery.locator('.device-section').filter({ hasText: '已授权设备' });

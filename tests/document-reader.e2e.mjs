@@ -112,7 +112,12 @@ try {
   await swipe(130);
   assert.equal(await page.getByRole('spinbutton').inputValue(), '2', 'zoomed PDF keeps horizontal panning');
   await page.getByRole('button', { name: '适合宽度', exact: true }).click(); await ready();
-  await page.getByRole('button', { name: '搜索', exact: true }).click();
+  await page.getByRole('button', { name: '关闭搜索', exact: true }).click();
+  await page.getByRole('button', { name: '上下滚动', exact: true }).click(); await ready();
+  await page.waitForFunction(() => document.querySelectorAll('.reader-pdf-slot canvas').length === 2);
+  await page.locator('.reader-stage').evaluate(stage => stage.scrollTop = stage.scrollHeight);
+  await page.waitForFunction(() => document.querySelector('.reader-paging input').value === '2');
+  await page.getByRole('button', { name: '左右翻页', exact: true }).click(); await ready();
   if (screenshotDirectory) await mkdir(screenshotDirectory, { recursive: true });
   for (const colorScheme of ['light', 'dark']) {
     await page.emulateMedia({ colorScheme });
@@ -140,6 +145,12 @@ try {
   await page.evaluate(text => window.readerTest.open('text/markdown', text), literal); await ready();
   assert.equal(await page.locator('.reader-text').textContent(), literal);
   assert.equal(await page.evaluate(() => window.readerExecuted), undefined);
+  assert(await page.locator('.reader-paging span').evaluate(node => Number(node.textContent.slice(2)) > 1));
+  await swipe(-130); assert.equal(await page.getByRole('spinbutton').inputValue(), '2');
+  assert(await page.locator('.reader-stage').evaluate(stage => stage.scrollTop === 0));
+  await page.getByRole('button', { name: '上下滚动', exact: true }).click(); await ready();
+  assert(await page.locator('.reader-stage').evaluate(stage => stage.scrollHeight > stage.clientHeight));
+  await page.getByRole('button', { name: '左右翻页', exact: true }).click(); await ready();
   await page.getByRole('button', { name: '搜索', exact: true }).click();
   await page.getByRole('searchbox').fill('离线阅读'); await page.getByRole('searchbox').press('Enter');
   assert.equal(await page.locator('.reader-text mark').textContent(), '离线阅读');
@@ -166,11 +177,11 @@ try {
       await page.setViewportSize({ width: 390, height: 844 });
     }
     await page.getByRole('link', { name: '阅读下一章' }).click(); await ready();
-    assert.equal(await page.getByRole('spinbutton').inputValue(), '2');
+    assert.equal(await page.getByRole('combobox', { name: '章节目录' }).inputValue(), '2');
     await page.getByRole('combobox').selectOption('1'); await ready();
     await page.getByRole('button', { name: '搜索', exact: true }).click();
     await page.getByRole('searchbox').fill('Needle'); await page.getByRole('searchbox').press('Enter');
-    await page.waitForFunction(() => document.querySelector('.reader-paging input').value === '2'); await ready();
+    await page.waitForFunction(() => document.querySelector('.reader-directory').value === '2'); await ready();
     assert.equal(await page.locator('.reader-epub mark').textContent(), 'Needle');
     await page.getByRole('button', { name: '关闭阅读器' }).click();
     assert.equal(await page.evaluate(() => window.readerTest.workers()), 0);
@@ -180,6 +191,26 @@ try {
     await page.locator('.document-reader[data-state="error"]').waitFor();
     assert.equal(await page.evaluate(() => window.readerTest.workers()), 0);
     assert.equal(await page.locator('.reader-epub').count(), 0);
+  }
+  await page.evaluate(bytes => window.readerTest.open('application/epub+zip', new Uint8Array(bytes)), await readerEpub({ long: true, cover: true })); await ready();
+  await page.getByRole('combobox').selectOption('2'); await ready();
+  const pagesInChapter = await page.locator('.reader-paging span').evaluate(node => Number(node.textContent.slice(2)));
+  assert(pagesInChapter > 5, 'Long chapter must split into screen-sized pages');
+  await swipe(-130);
+  assert.equal(await page.getByRole('spinbutton').inputValue(), '2');
+  assert.equal(await page.getByRole('combobox').inputValue(), '2', 'A swipe skipped the rest of the chapter');
+  assert(await page.locator('.reader-epub').evaluate(node => node.offsetHeight <= node.closest('.reader-stage').clientHeight));
+  await page.getByRole('button', { name: '上下滚动' }).click(); await ready();
+  assert(await page.locator('.reader-stage').evaluate(stage => stage.scrollHeight > stage.clientHeight * 5));
+  await page.getByRole('button', { name: '左右翻页' }).click(); await ready();
+  assert.equal(await page.locator('.reader-paging span').evaluate(node => Number(node.textContent.slice(2))), pagesInChapter);
+  for (const epub2 of [false, true]) {
+    assert(await page.evaluate(async bytes => {
+      const { EpubReader } = await import('/src/lib/epub-reader.ts');
+      const reader = new EpubReader(() => {});
+      try { await reader.load(new Uint8Array(bytes)); return (await reader.cover())?.size > 0; }
+      finally { reader.destroy(); }
+    }, await readerEpub({ cover: true, epub2 })), 'Declared EPUB cover missing');
   }
   await page.evaluate(bytes => {
     window.readerTest.open('application/epub+zip', new Uint8Array(bytes));

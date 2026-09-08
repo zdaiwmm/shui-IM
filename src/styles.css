@@ -148,6 +148,11 @@ input,
 textarea {
   font: inherit;
 }
+.portrait-blocked { visibility: hidden !important; }
+.portrait-orientation-guard { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: var(--paper); color: var(--ink-muted); }
+.portrait-orientation-guard[hidden] { display: none; }
+.portrait-orientation-guard svg { width: 36px; height: 36px; }
+.portrait-orientation-guard p { margin: 0; font-size: 15px; }
 
 button,
 summary,
@@ -175,6 +180,9 @@ label[role="button"]:active {
 .gallery-actions-menu > button:not(:disabled):active {
   transform: none;
 }
+.more-menu .menu-panel > button:not(:disabled):active { transform: none; }
+.message-reply-quote:not(:disabled):active { transform: none; }
+#message-input::placeholder { font-size: 13px; }
 
 /* Page shells, backgrounds and fixed headers never fade to an empty frame.
    New content owns its blend so asynchronous recovery routes participate too. */
@@ -1261,6 +1269,8 @@ button:disabled {
 .release-notes-sheet.is-visible { opacity: 1; }
 .release-notes-sheet.is-closing { opacity: 0; }
 .release-notes-panel {
+  position: relative;
+  scrollbar-width: none;
   width: min(100%, 420px);
   max-height: min(76svh, 620px);
   overflow-y: auto;
@@ -1284,6 +1294,16 @@ button:disabled {
 .release-notes-panel li { padding-left: 5px; line-height: 1.6; }
 .release-notes-panel li + li { margin-top: 10px; }
 .release-notes-panel .primary-button { width: 100%; min-height: 46px; }
+.release-notes-panel::-webkit-scrollbar { display: none; }
+.release-notes-panel .release-notes-close { position: sticky; float: right; top: 0; margin-top: -12px; margin-right: -14px; width: 44px; height: 44px; }
+.release-notes-panel :is(.eyebrow,h2) { padding-right: 30px; }
+.release-history-content { scrollbar-width: none; }
+.release-history-content::-webkit-scrollbar { display: none; }
+.release-history-content > section { padding: 20px 0; border-bottom: 1px solid var(--line); }
+.release-history-content h2 { margin: 0 0 4px; font-size: 16px; }
+.release-history-content time { color: var(--ink-muted); font-size: 12px; }
+.release-history-content ul { padding-left: 22px; margin: 14px 0 0; line-height: 1.7; }
+.release-history-content li + li { margin-top: 8px; }
 @media (prefers-reduced-motion: reduce) {
   .release-notes-sheet, .release-notes-panel { transition: none; }
 }

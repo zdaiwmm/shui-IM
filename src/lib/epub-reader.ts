@@ -43,6 +43,7 @@ export class EpubReader {
   private images = new Map<string, string>();
   private urls = new Set<string>();
   private chapters: Array<{ path: string; label: string }> = [];
+  private coverPath?: string;
   get pages(): number { return this.chapters.length; }
   get titles(): string[] { return this.chapters.map(chapter => chapter.label); }
 
@@ -86,6 +87,8 @@ export class EpubReader {
         const path = localReference(item.href, opf)?.path;
         if (path && this.files.has(path) && ['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(item.type)) this.images.set(path, item.type);
       }
+      const cover = localReference(packaging.coverPath, opf)?.path;
+      if (cover && this.images.has(cover)) this.coverPath = cover;
       for (const item of packaging.spine) {
         const resource = packaging.manifest[item.idref];
         const path = resource && localReference(resource.href, opf)?.path;
@@ -122,6 +125,13 @@ export class EpubReader {
 
   async text(page: number): Promise<string> { return (await this.chapter(page)).textContent ?? ''; }
 
+  async cover(): Promise<Blob | undefined> {
+    if (!this.coverPath) return;
+    const bytes = await this.read(this.coverPath, 8 * 1024 * 1024);
+    if (this.disposed) return;
+    return new Blob([bytes], { type: this.images.get(this.coverPath)! });
+  }
+
   async render(page: number, container: HTMLElement, zoom: number, query: string, fragment?: string): Promise<void> {
     const version = ++this.version;
     this.releaseImages();
@@ -145,7 +155,7 @@ export class EpubReader {
       const url = URL.createObjectURL(new Blob([bytes], { type: this.images.get(path)! }));
       this.urls.add(url);
       image.src = url;
-      image.loading = 'lazy'; image.decoding = 'async';
+      image.decoding = 'async';
     }
     for (const anchor of body.querySelectorAll('a')) {
       const target = localReference(anchor.getAttribute('href') ?? '', base);
@@ -174,6 +184,8 @@ export class EpubReader {
       }
     }
     container.replaceChildren(article);
+    await Promise.all([...article.querySelectorAll('img')].map(image => image.decode().catch(() => undefined)));
+    if (!current()) return;
     if (fragment) [...article.querySelectorAll<HTMLElement>('[data-reader-anchor]')].find(node => node.dataset.readerAnchor === fragment)?.scrollIntoView({ block: 'start' });
     else article.querySelector('mark')?.scrollIntoView({ block: 'center' });
   }

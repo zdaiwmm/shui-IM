@@ -82,7 +82,10 @@ try {
   assert.equal(await phase(), 'offline');
   await page.evaluate(() => window.fixture.app.presenceCircuit.sent());
   await page.waitForTimeout(100);
-  assert.equal(await page.locator('[data-arc="left"]').getAttribute('d'), null);
+  assert.ok(await page.locator('[data-arc="left"]').getAttribute('d'));
+  await page.waitForTimeout(1050);
+  assert.notEqual(await page.locator('[data-half="left"]').getAttribute('transform'), 'translate(-2 0)');
+  assert.equal(await page.locator('[data-half="right"]').getAttribute('transform'), 'translate(2 0)');
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await state(true, true);
   assert.equal(await phase(), 'online');

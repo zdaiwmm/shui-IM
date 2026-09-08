@@ -274,6 +274,8 @@ try {
   await page.locator('#reply-draft:not([hidden])').waitFor();
   assert.equal(await page.evaluate(() => document.activeElement?.id), 'message-input', 'Keyboard-open reply swipe blurred the composer');
   await page.locator('#reply-draft button[aria-label="取消回复"]').click();
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'message-input', 'Closing a quote dismissed the keyboard');
+  assert.equal(await page.locator('#reply-draft').isVisible(), false);
   await page.evaluate(() => { delete document.documentElement.dataset.keyboardOpen; });
   results.replySwipe = { verticalScrollPreserved: true, shortSwipeCancelled: true, resistanceBoundedToViewportSixth: true,
     thresholdActivated: true, keyboardFocused: true, keyboardOpenGestureRetained: true, integratedSingleLineComposer: true,
@@ -647,6 +649,25 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('.gallery-tile img').length === 8);
   await assertVisibility(8, 0, 'Unlock reentry');
   results.safePrivacy = { cachedImagesHidden: true, revealThenView: true, tabAndViewerStatePreserved: true, newImagesHidden: true, hideDuringDecode: true, leaveAndLockReset: true, staleControlsBlocked: true, countsRetained: true, viewerTimeFollowsIndex: true };
+  await firstTile.tap(); await firstTile.tap();
+  await page.locator('.image-viewer .viewer-stage img').waitFor();
+  await page.waitForTimeout(300);
+  const exit = await page.locator('.image-viewer .viewer-stage').evaluate(async stage => {
+    const image = stage.querySelector('img');
+    const rect = stage.getBoundingClientRect();
+    const pointer = (type, y) => stage.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 902, button: 0, clientX: rect.left + rect.width / 2, clientY: y }));
+    pointer('pointerdown', rect.top + 100); pointer('pointermove', rect.top + 330);
+    const before = image.getBoundingClientRect(); pointer('pointerup', rect.top + 330);
+    const samples = [];
+    while (image.isConnected && samples.length < 30) {
+      const r = image.getBoundingClientRect(); samples.push({ top: r.top, width: r.width });
+      await new Promise(requestAnimationFrame);
+    }
+    return { before: { top: before.top, width: before.width }, samples };
+  });
+  assert(exit.samples.length > 2, 'Dismissal skipped the transition');
+  assert(exit.samples.every(sample => sample.top >= exit.before.top - 2 && sample.width <= exit.before.width + 2), JSON.stringify(exit));
+  await page.locator('.image-viewer').waitFor({ state: 'detached' });
 
   await page.evaluate(() => window.fileInteractions.app.lockNow());
   assert.deepEqual(errors, []);

@@ -93,7 +93,8 @@ fetch disabled; no document-provided URL is fetched. Font outlines are rendered 
 without relaxing the application's CSP. PDF parsing is limited to 64 MiB and 2,000 pages,
 text to 4 MiB and 2,000,000 decoded characters; the visible canvas is capped at six million
 pixels and 4,096 pixels per edge. Load/render deadlines dispose failed PDF workers.
-Only one PDF page is rendered at a time. Closing, runtime replacement, navigation and
+PDF pages are rendered serially. Vertical scrolling retains at most the current page and its two neighbors,
+each subject to the same canvas limits; horizontal reading retains one. Closing, runtime replacement, navigation and
 the existing privacy curtain cancel work, terminate the worker, clear text and zero the
 visible canvas. This is best-effort reference/resource cleanup, not guaranteed memory
 zeroization by the JavaScript engine. No plaintext document or search index is persisted;
@@ -115,6 +116,12 @@ PNG/JPEG/GIF/WebP resources create local blob URLs, capped at 8 MiB each and 24 
 chapter. Chapter replacement and all reader cleanup paths revoke them and terminate pending
 ZIP work. No EPUB plaintext, search index or reading position is persisted. Resource caps
 do not establish decoder safety or memory zeroization. Other active files remain download-only.
+
+Visible EPUB file rows may decrypt and verify the entire original before extracting a declared manifest cover.
+Extraction uses the same bounded ZIP worker and PNG/JPEG/GIF/WebP allowlist, with at most two concurrent cover tasks.
+The original cover is reduced locally to a maximum 128-pixel thumbnail; it is never uploaded or persisted.
+Runtime abort terminates workers, removes thumbnails and revokes their object URLs. Missing, invalid or oversized
+covers retain the format icon. A cover does not expand device history access or substitute for attachment verification.
 
 New rooms use the standardized RFC 9420 MLS protocol, but the selected browser-capable `ts-mls` implementation states that it has not undergone a formal security audit. The integration must pass independent cryptographic review before high-risk production claims. Legacy rooms have no forward secrecy.
 

@@ -5,6 +5,7 @@ declare module 'epubjs/src/packaging.js' {
     spine: Array<{ idref: string; linear: string }>;
     navPath: string;
     ncxPath: string;
+    coverPath: string;
     destroy(): void;
   }
 }
