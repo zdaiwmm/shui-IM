@@ -11,7 +11,7 @@
 
 - 规则及开发基线为本机 main `5a2cae398c78449f23ac02ffb3476af7a1f18405`；
   独占工作树 `/private/tmp/quiet-room-chat-header-presence`，分支 `codex/chat-header-presence`。
-- 在线点改为独立绿色并以 3.2 秒缓慢呼吸，离线／未知和减少动态效果不播放动画；
+- 在线点改为独立绿色，后续按用户反馈由 3.2 秒缩短至 1.6 秒，增强明暗／缩放差异和亮起光晕；离线／未知和减少动态效果不播放动画；
   顶栏与输入栏采用一致的普通／禁用图标颜色。触屏 Safari 顶栏移除 sticky 覆盖，
   使用既有 fixed 原点校正，避免受文档流及 sticky 容器边界影响。
 - “最近上线时间未知”来自缺少内存中的离线转变时间：重启后、尚未观察到离线、
@@ -33,6 +33,9 @@
 - 组合已快进本机 main。可信局域网 HTTPS 回读的聊天／通话 CSS 与候选逐字节一致，
   后端 ok/database/storage 均为 true；前后端 cwd 均为 `/Users/zhouding/quiet-room-local-main`，
   本轮通过 Vite 热更新交付，未重启后端。随后文档对账提交不改变已验证应用文件。
+- 呼吸灯强度反馈仅调整局部动画样式；`npm run check` 再次通过 500 项测试，
+  WebKit `frontend-lifecycle.e2e.mjs` 及明暗主题截图通过，减少动态效果仍禁用动画。
+  此次未重复跨页面完整套件；前述完整门禁对应原集成候选。
 - iPhone / iOS 27 / Safari 真机未验收，
   GitHub 未推送、CI 未运行、生产未发布；共享源目录的四个既有未提交文件未纳入。
 
