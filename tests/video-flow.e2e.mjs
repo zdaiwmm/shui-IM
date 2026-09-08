@@ -261,7 +261,7 @@ try {
   await closePlayer();
   await assertPlayerReleased('Native full-screen exit');
 
-  // A denied native request keeps a playable native-controls fallback, without
+  // A denied native request keeps a playable inline fallback, without
   // exporting or re-fetching the already integrity-checked original.
   await page.evaluate(() => {
     window.videoFlow.nativeFullscreen = HTMLVideoElement.prototype.requestFullscreen;
@@ -365,24 +365,62 @@ try {
   await openInReader(page.locator(`.message .file-attachment[data-blob-id="${ids.chatDocument}"]`));
   assert.equal(await page.locator('.image-viewer').count(), 0, 'An ordinary document opened a media preview');
 
-  const swipeToNativeVideo = async () => {
+  const swipeToInlineVideo = async () => {
     await page.locator('.viewer-stage').evaluate(stage => {
       for (const [type, x] of [['pointerdown', 320], ['pointermove', 180], ['pointerup', 180]]) {
         stage.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 291, isPrimary: true, button: 0, clientX: x, clientY: 430 }));
       }
     });
+    await page.waitForFunction(() => document.querySelector('.viewer-stage video')?.readyState >= 2 && document.querySelector('.viewer-stage')?.getAttribute('aria-busy') === 'false');
+    assert.deepEqual(await page.locator('.viewer-stage video').evaluate(video => ({ paused: video.paused, autoplay: video.autoplay, controls: video.controls, inline: video.playsInline })),
+      { paused: true, autoplay: false, controls: false, inline: true }, 'Paging must show the paused inline viewer with application controls');
+    assert.equal(await page.evaluate(() => document.fullscreenElement), null);
+    assert.equal(await page.locator('[data-viewer-close]').isVisible(), true);
+    await page.locator('[data-video-play]').click();
     await awaitPlayingVideo();
+    await page.locator('[data-video-play]').click();
+    assert.equal(await page.locator('.viewer-stage video').evaluate(video => video.paused), true);
+    await page.locator('[data-video-mute]').click();
+    assert.equal(await page.locator('.viewer-stage video').evaluate(video => video.muted), true);
+    await page.locator('[data-video-mute]').click();
+    assert.equal(await page.locator('.viewer-stage video').evaluate(video => video.muted), false);
+    await page.locator('.viewer-stage video').evaluate(video => { video.volume = 0; });
+    await page.locator('[data-video-mute][aria-label="开启声音"]').click();
+    assert.equal(await page.locator('.viewer-stage video').evaluate(video => !video.muted && video.volume > 0), true, 'Unmuting did not restore native-player zero volume');
+    await page.locator('.viewer-video-seek').evaluate(input => {
+      const x = input.getBoundingClientRect().x + 80;
+      for (const [type, offset] of [['pointerdown', 0], ['pointermove', 150], ['pointerup', 150]]) input.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerType: 'touch', pointerId: 299, isPrimary: true, button: 0, clientX: x + offset, clientY: 690 }));
+      input.value = String(Number(input.max) / 2); input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    assert.equal(await page.locator('.image-viewer').evaluate(viewer => viewer.classList.contains('is-transitioning')), false, 'Seeking paged the viewer');
+    assert(await page.locator('.viewer-stage video').evaluate(video => Math.abs(video.currentTime - video.duration / 2) < 0.15));
+    for (const width of [320, 390, 1024]) {
+      await page.setViewportSize({ width, height: 844 });
+      assert(await page.locator('.viewer-video-controls').evaluate(controls => {
+        const children = [...controls.querySelectorAll('button, input, .viewer-video-time')];
+        return children.every(child => { const rect = child.getBoundingClientRect(); return rect.left >= 0 && rect.right <= innerWidth && child.scrollWidth <= child.clientWidth + 1; });
+      }), 'Video controls overflowed the viewport');
+      assert(await page.locator('[data-video-fullscreen]').evaluate(button => getComputedStyle(button).color === getComputedStyle(document.querySelector('[data-viewer-close]')).color), 'Video buttons did not follow the viewer theme');
+      await capture(`inline-video-controls-${width}`);
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await capture('inline-video-controls-dark-390');
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.locator('[data-video-fullscreen]').click();
     await page.waitForFunction(() => document.fullscreenElement === document.querySelector('.viewer-stage video'));
-    assert.equal(await page.locator('[data-viewer-close]').isVisible(), false, 'Paging to video must hand off directly to the system player');
+    await page.evaluate(() => document.exitFullscreen());
+    await page.locator('[data-video-fullscreen]').waitFor();
+    assert.equal(await page.locator('.viewer-stage video').evaluate(video => video.controls), false, 'Exiting maximize failed to restore inline controls');
     await rememberPlayer();
     await closePlayer();
-    await assertPlayerReleased('Paged native player exit');
+    await assertPlayerReleased('Paged inline player exit');
   };
   const chatPhoto = page.locator(`.message .image-preview[data-blob-id="${ids.photo}"]`);
   await chatPhoto.click(); await chatPhoto.click();
   await page.waitForFunction(() => document.querySelector('.viewer-stage')?.getAttribute('aria-busy') === 'false');
   assert.equal(await page.locator('[data-viewer-counter]').innerText(), '1 / 2', 'Chat viewer must include the other message video and exclude ordinary files and gallery-only media');
-  await swipeToNativeVideo();
+  await swipeToInlineVideo();
 
   await page.evaluate(async () => {
     const f = window.videoFlow;
@@ -393,7 +431,7 @@ try {
   const favoritePhoto = page.locator(`.gallery-tile[data-blob-id="${ids.photo}"]`);
   await favoritePhoto.click(); await favoritePhoto.click();
   await page.waitForFunction(() => document.querySelector('.viewer-stage')?.getAttribute('aria-busy') === 'false');
-  await swipeToNativeVideo();
+  await swipeToInlineVideo();
   await page.evaluate(() => { const app = window.videoFlow.app; app.galleryMode = 'safe'; app.renderChat(); });
 
   // Clear the currently mounted message page: the gallery must discover chat
@@ -419,13 +457,12 @@ try {
   await assertPlayerReleased('Album close');
   assert.equal(await safeVideo.getAttribute('data-revealed'), 'true', 'Closing the viewer reset this visit’s reveal state');
 
-  // Safe paging also enters the system player. If native fullscreen is denied,
-  // the fallback still plays and yields the next horizontal gesture to a photo.
+  // Safe paging uses the same inline controls and continuous photo transition.
   const safePhoto = page.locator(`.gallery-tile[data-blob-id="${ids.photo}"]`);
   await safePhoto.click();
   await safePhoto.click();
   await page.waitForFunction(() => document.querySelector('.viewer-stage')?.getAttribute('aria-busy') === 'false');
-  await swipeToNativeVideo();
+  await swipeToInlineVideo();
   await safePhoto.click();
   await page.waitForFunction(() => document.querySelector('.viewer-stage')?.getAttribute('aria-busy') === 'false');
   await page.evaluate(() => {
@@ -447,13 +484,16 @@ try {
     };
     fire('pointerup', 190);
     const outgoingLayer = media.closest('.viewer-media-layer');
-    return { ...state, immediateHandoff: !outgoingLayer.isConnected && residualBeforeRelease < 0 };
+    return { ...state, continuous: outgoingLayer.isConnected && Math.abs(new DOMMatrix(getComputedStyle(outgoingLayer).transform).e - residualBeforeRelease) < 1 };
   });
-  assert.deepEqual(imageSwipeChrome, { opacity: '1', name: '照片.svg', paging: true, backdropChanged: false, immediateHandoff: true }, 'Horizontal paging must immediately hand the video to the native-player path');
+  assert.deepEqual(imageSwipeChrome, { opacity: '1', name: '照片.svg', paging: true, backdropChanged: false, continuous: true }, 'Horizontal paging must retain the image offset while the video arrives');
   await page.waitForFunction(name => document.querySelector('[data-viewer-name]')?.textContent === name && document.querySelector('.viewer-stage video'), '保险箱视频.webm');
-  await awaitPlayingVideo();
   const playingArrival = await page.locator('.viewer-stage video').evaluate(video => ({ paused: video.paused, autoplay: video.autoplay, controls: video.controls }));
-  assert.deepEqual(playingArrival, { paused: false, autoplay: true, controls: true }, 'A video reached by paging must play with native controls when fullscreen is refused');
+  assert.deepEqual(playingArrival, { paused: true, autoplay: false, controls: false }, 'A video reached by paging must stay in the inline viewer');
+  await page.locator('[data-video-fullscreen]').click();
+  await awaitPlayingVideo();
+  await page.waitForFunction(() => !document.querySelector('.image-viewer').dataset.nativeVideo);
+  assert.equal(await page.locator('[data-video-fullscreen]').isVisible(), true, 'A refused fullscreen request lost the inline controls');
   const pagedVideoGeometry = await page.locator('.viewer-stage').evaluate(stage => {
     const layer = stage.querySelector('.viewer-media-layer.is-video');
     const video = layer?.querySelector('video');
@@ -630,7 +670,7 @@ try {
   });
   assert.deepEqual(lateState, { covered: true, cacheSize: 0, mediaNodes: 0, unreleasedUrls: 0 }, 'Late video decryption recreated visible content or retained an object URL after lock');
   assert.deepEqual(errors, [], `Video regression raised browser errors: ${errors.join('; ')}`);
-  console.log(JSON.stringify({ videoPreview: 'verified original with local poster and play button', viewer: { autoplay: true, maximized: true, mixedPagingNative: true, stablePagingHeader: true, longPressDoesNotPlay: true, closeReleasesMedia: true, incomingCallStopsPlayback: true }, safe: { label: '相册', photosAndVideos: true, firstClickReveals: true, secondClickPlays: true, genericFilesExcluded: true }, restore: 'album-only video stays outside chat history', ordinaryDownloads: 2, lifecycle: { lockRevokesOriginalAndPoster: true, lateLoadCannotRepopulateCache: true } }, null, 2));
+  console.log(JSON.stringify({ videoPreview: 'verified original with local poster and play button', viewer: { autoplay: true, maximized: true, mixedPagingInline: true, stablePagingHeader: true, longPressDoesNotPlay: true, closeReleasesMedia: true, incomingCallStopsPlayback: true }, safe: { label: '相册', photosAndVideos: true, firstClickReveals: true, secondClickPlays: true, genericFilesExcluded: true }, restore: 'album-only video stays outside chat history', ordinaryDownloads: 2, lifecycle: { lockRevokesOriginalAndPoster: true, lateLoadCannotRepopulateCache: true } }, null, 2));
 } finally {
   await browser?.close();
   await server.close();

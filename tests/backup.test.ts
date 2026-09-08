@@ -32,6 +32,7 @@ describe('online disaster-recovery backup', () => {
     const publicGif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAAAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
     const expression = catalog.create({ kind: 'gifs', title: 'Backup fixture', tags: '', files: [{ data: publicGif.toString('base64') }] });
     catalog.update(expression.id, { title: expression.title, tags: '', status: 'published' });
+    catalog.initializeShipped(() => []);
     const creatorId = crypto.randomUUID();
     const { roomId } = store.createRoom(bundle(creatorId), 'a'.repeat(43));
 
@@ -55,6 +56,7 @@ describe('online disaster-recovery backup', () => {
     const restoredCatalog = createExpressionCatalog({ dataDir: restoreDir });
     expect(restoredCatalog.detail(expression.id).status).toBe('published');
     expect(restoredCatalog.preview(expression.id, 0).bytes).toEqual(publicGif);
+    expect(restoredCatalog.initializeShipped(() => { throw Error('Restored initialization marker was lost'); }).initialized).toBe(false);
     await restoredCatalog.close();
     await catalog.close();
     expect(restoredStore.roomState(roomId)?.roomId).toBe(roomId);

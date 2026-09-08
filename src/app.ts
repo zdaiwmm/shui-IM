@@ -51,7 +51,7 @@ import { bindImageViewerGestures } from './lib/image-viewer-gestures';
 import { prepareImageMotion, type ImageMotion } from './lib/image-animation';
 import { createConcealedImage } from './lib/concealed-image';
 import { mountPhotoDetails } from './lib/photo-details';
-import { createElement, Info, Pause, Play, Plus, Camera } from 'lucide';
+import { createElement, Info, Pause, Play, Plus, Camera, Maximize, Volume2, VolumeX } from 'lucide';
 import { bindChatImageConcealGesture } from './lib/chat-image-conceal-gesture';
 import { CHAT_LATEST_GAP, mountChatBottomControl } from './lib/chat-bottom-control';
 import { CHAT_KEYBOARD_LAYOUT_MS, chatKeyboardLayoutProgress, createChatKeyboardLayout } from './lib/chat-keyboard-layout';
@@ -6773,12 +6773,12 @@ export class QuietRoomApp {
     const sources = [...this.root.querySelectorAll('.is-action-source')];
     const actions = this.root.querySelector<HTMLElement>('.message-actions');
     const finish = () => {
-      backdrops.forEach(element => element.remove());
-      actions?.remove();
       for (const source of sources) {
         const current = this.root.querySelector<HTMLElement>('.message-actions:not(.is-closing)');
-        if (current?.dataset.sourceId !== (source as HTMLElement).dataset.clientMsgId) source.classList.remove('is-action-source');
+        if (current === actions || current?.dataset.sourceId !== (source as HTMLElement).dataset.clientMsgId) source.classList.remove('is-action-source');
       }
+      backdrops.forEach(element => element.remove());
+      actions?.remove();
     };
     if (!actions) { finish(); return; }
     if (closeDialog(actions, { animate, restoreFocus })) { finish(); return; }
@@ -7763,7 +7763,7 @@ export class QuietRoomApp {
       webkitDisplayingFullscreen?: boolean;
     };
     const viewer = stage.closest<HTMLElement>('.image-viewer')!;
-    video.controls = true;
+    video.controls = requestNative;
     video.autoplay = autoplay;
     // iPhone may enter its system player as part of play() while its metadata
     // is still loading. Do not force that playback back into an inline player.
@@ -7778,6 +7778,44 @@ export class QuietRoomApp {
     feedback.type = 'button';
     feedback.className = 'viewer-video-feedback';
     feedback.hidden = true;
+    const controls = document.createElement('div');
+    controls.className = 'viewer-video-controls';
+    controls.innerHTML = `
+      <input class="viewer-video-seek" type="range" min="0" max="0" value="0" step="0.1" aria-label="视频进度" disabled>
+      <div class="viewer-video-transport">
+        <button class="viewer-control" type="button" data-video-play></button>
+        <span class="viewer-video-time" aria-live="off">0:00 / 0:00</span>
+        <button class="viewer-control" type="button" data-video-mute></button>
+        <button class="viewer-control" type="button" data-video-fullscreen aria-label="全屏播放" title="全屏播放"></button>
+      </div>`;
+    const playButton = controls.querySelector<HTMLButtonElement>('[data-video-play]')!;
+    const muteButton = controls.querySelector<HTMLButtonElement>('[data-video-mute]')!;
+    const fullscreenButton = controls.querySelector<HTMLButtonElement>('[data-video-fullscreen]')!;
+    const seek = controls.querySelector<HTMLInputElement>('input')!;
+    const time = controls.querySelector<HTMLElement>('.viewer-video-time')!;
+    fullscreenButton.append(createElement(Maximize));
+    const formatTime = (value: number) => {
+      const seconds = Math.max(0, Math.floor(Number.isFinite(value) ? value : 0));
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor(seconds / 60) % 60;
+      return `${hours ? `${hours}:${String(minutes).padStart(2, '0')}` : Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+    };
+    const updateControls = () => {
+      const paused = video.paused || video.ended;
+      const muted = video.muted || video.volume === 0;
+      playButton.setAttribute('aria-label', paused ? '播放视频' : '暂停视频');
+      playButton.title = paused ? '播放视频' : '暂停视频';
+      playButton.replaceChildren(createElement(paused ? Play : Pause));
+      muteButton.setAttribute('aria-label', muted ? '开启声音' : '静音');
+      muteButton.title = muted ? '开启声音' : '静音';
+      muteButton.setAttribute('aria-pressed', String(muted));
+      muteButton.replaceChildren(createElement(muted ? VolumeX : Volume2));
+      seek.disabled = !Number.isFinite(video.duration) || video.duration <= 0;
+      seek.max = String(seek.disabled ? 0 : video.duration);
+      seek.value = String(video.currentTime);
+      seek.setAttribute('aria-valuetext', `${formatTime(video.currentTime)} / ${formatTime(video.duration)}`);
+      time.textContent = `${formatTime(video.currentTime)} / ${formatTime(video.duration)}`;
+    };
     const events = new AbortController();
     let active = true;
     let nativeEntered = false;
@@ -7787,6 +7825,7 @@ export class QuietRoomApp {
       if (!live() || nativeEntered) return;
       delete viewer.dataset.nativeVideo;
       video.playsInline = true;
+      video.controls = false;
     };
     const nativeBegan = () => {
       if (!live()) return;
@@ -7796,8 +7835,12 @@ export class QuietRoomApp {
     };
     const nativeEnded = () => {
       if (!live() || !nativeEntered) return;
-      // Returning from Done / Escape goes directly to the originating surface.
-      this.closeImageViewer(true);
+      if (requestNative) this.closeImageViewer(true);
+      else {
+        nativeEntered = false;
+        revealFallback();
+        updateControls();
+      }
     };
     const showError = () => {
       if (!live()) return;
@@ -7821,6 +7864,7 @@ export class QuietRoomApp {
     };
     const requestNativePlayer = () => {
       if (!live() || nativeEntered) return;
+      video.controls = true;
       viewer.dataset.nativeVideo = 'pending';
       if (nativePendingTimer !== null) window.clearTimeout(nativePendingTimer);
       nativePendingTimer = window.setTimeout(revealFallback, 1200);
@@ -7856,7 +7900,20 @@ export class QuietRoomApp {
     }, { signal: events.signal });
     video.addEventListener('error', showError, { signal: events.signal });
     video.addEventListener('playing', () => { feedback.hidden = true; }, { signal: events.signal });
-    feedback.addEventListener('click', () => { requestNativePlayer(); play(); }, { signal: events.signal });
+    for (const event of ['play', 'pause', 'ended', 'volumechange', 'durationchange', 'loadedmetadata', 'timeupdate']) {
+      video.addEventListener(event, updateControls, { signal: events.signal });
+    }
+    playButton.addEventListener('click', () => { if (video.paused) play(); else video.pause(); }, { signal: events.signal });
+    muteButton.addEventListener('click', () => {
+      const muted = video.muted || video.volume === 0;
+      video.muted = !muted;
+      if (muted && video.volume === 0) video.volume = 1;
+    }, { signal: events.signal });
+    fullscreenButton.addEventListener('click', () => { requestNativePlayer(); play(); }, { signal: events.signal });
+    seek.addEventListener('input', () => {
+      if (!seek.disabled && live()) video.currentTime = Number(seek.value);
+    }, { signal: events.signal });
+    feedback.addEventListener('click', () => { if (requestNative) requestNativePlayer(); play(); }, { signal: events.signal });
     const cleanup = () => {
       active = false;
       events.abort();
@@ -7870,7 +7927,8 @@ export class QuietRoomApp {
       video.removeAttribute('poster');
       video.load();
     };
-    stage.replaceChildren(video, feedback);
+    updateControls();
+    stage.replaceChildren(video, controls, feedback);
     video.src = cached.url;
     if (requestNative) {
       requestNativePlayer();
@@ -8287,11 +8345,10 @@ export class QuietRoomApp {
         <div><strong data-viewer-name></strong><div class="viewer-metadata"><span data-viewer-counter></span><time data-viewer-time title="发送或上传时间" hidden></time></div></div>
         ${allowPhotoDetails
           ? '<button class="viewer-control" type="button" data-viewer-details aria-label="查看图片详情" title="查看图片详情" aria-expanded="false" hidden></button>'
-          : '<span></span>'}
+          : !favoriteViewer && identities.some(identity => identity.source && this.messageFavoriteTargets(identity.source).length)
+            ? `<button class="viewer-control" type="button" data-viewer-favorite aria-label="收藏当前附件">${memeIcons.star}</button>` : '<span></span>'}
       </header>
       <div class="viewer-photo-tools">
-        ${!favoriteViewer && !allowPhotoDetails && identities.some(identity => identity.source && this.messageFavoriteTargets(identity.source).length)
-          ? `<button class="viewer-control" type="button" data-viewer-favorite aria-label="收藏当前附件">${memeIcons.star}</button>` : ''}
         <button class="viewer-motion-toggle" type="button" data-viewer-motion aria-pressed="true" hidden></button>
         <span class="viewer-motion-error" role="status" hidden></span>
       </div>
@@ -8495,7 +8552,7 @@ export class QuietRoomApp {
         incomingLayer = layer;
         layer.className = `viewer-media-layer${video ? ' is-video' : ' is-image'}`;
         layer.dataset.viewerIndex = String(target);
-        if (outgoingLayer && !video) {
+        if (outgoingLayer) {
           layer.inert = true;
           layer.setAttribute('aria-hidden', 'true');
           layer.style.transform = `translate3d(${offset + direction * width}px, 0, 0)`;
@@ -8507,8 +8564,8 @@ export class QuietRoomApp {
           if (outgoingLayer) stage.append(layer);
           else stage.replaceChildren(layer);
           const rendered = this.renderViewerVideo(layer, loaded, manifest, {
-            autoplay: true,
-            requestNative: true,
+            autoplay: !outgoingLayer,
+            requestNative: !outgoingLayer,
           });
           incomingCleanup = rendered.cleanup;
         } else {
@@ -8562,7 +8619,7 @@ export class QuietRoomApp {
           outgoingLayer.style.opacity = '1';
           gestures.reset();
           this.viewerMediaCleanup = () => { outgoingCleanup?.(); incomingCleanup?.(); };
-          if (!reducedMotion && !video) {
+          if (!reducedMotion) {
             const timing: KeyframeAnimationOptions = {
               duration: 380,
               easing: 'cubic-bezier(.22, .76, .18, 1)',

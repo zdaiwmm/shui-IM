@@ -15,6 +15,7 @@
     "test:browser": "node scripts/test-browser.mjs",
     "test:cloud-backup": "node tests/cloud-backup-lifecycle.e2e.mjs",
     "test:watch": "vitest",
+    "expressions:initialize": "node scripts/initialize-expression-catalog.mjs",
     "check": "npm run build && npm run test",
     "check:full": "npm run check && npm run test:browser",
     "repo:doctor": "node scripts/repo.mjs doctor",

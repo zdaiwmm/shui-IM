@@ -277,9 +277,11 @@
 
 .viewer-photo-tools > * { pointer-events: auto; }
 .viewer-photo-tools [hidden] { display: none; }
-.image-viewer[data-safe-viewer] .viewer-header .viewer-control,
+.image-viewer .viewer-header .viewer-control,
+.viewer-video-controls .viewer-control,
 .viewer-motion-toggle {
   background: var(--glass-sheen), var(--glass-control);
+  color: var(--ink);
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow);
   -webkit-backdrop-filter: var(--glass-filter);
@@ -354,7 +356,8 @@
 .photo-details h3 { margin: 20px 0 8px; color: var(--ink-muted); font-size: 0.78rem; font-weight: 600; }
 .photo-details section:first-child h3 { margin-top: 8px; }
 .photo-details dl { margin: 0; font-size: 0.8rem; line-height: 1.6; }
-.photo-details dl > div { display: grid; grid-template-columns: minmax(80px, 28%) minmax(0, 1fr); gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.photo-details dl > div { display: grid; grid-template-columns: minmax(80px, 28%) minmax(0, 1fr); gap: 12px; padding: 8px 0; }
+.photo-details section + section { margin-top: 16px; padding-top: 4px; border-top: 1px solid var(--glass-border); }
 .photo-details dt { color: var(--ink-muted); }
 .photo-details dd { margin: 0; overflow-wrap: anywhere; text-align: right; font-variant-numeric: tabular-nums; }
 .photo-details .is-missing { color: var(--ink-faint); }
@@ -367,6 +370,21 @@
   .image-viewer.has-photo-details { --photo-details-height: 68%; }
 }
 
+.viewer-video-controls {
+  position: absolute;
+  z-index: 3;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  left: max(16px, env(safe-area-inset-left));
+  right: max(16px, env(safe-area-inset-right));
+  max-width: 560px;
+  margin-inline: auto;
+  touch-action: none;
+}
+.viewer-video-seek { display: block; width: 100%; height: 44px; margin: 0; padding: 0; accent-color: var(--accent); cursor: pointer; }
+.viewer-video-transport { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px 44px; align-items: center; gap: 12px; }
+.viewer-video-time { min-width: 0; font-size: 0.75rem; font-variant-numeric: tabular-nums; color: var(--ink); text-shadow: 0 1px 6px var(--paper); }
+.viewer-video-controls :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.image-viewer[data-native-video] .viewer-video-controls { visibility: hidden; }
 .viewer-video-feedback {
   position: absolute;
   top: 50%;

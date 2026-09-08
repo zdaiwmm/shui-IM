@@ -32,6 +32,7 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
     CREATE TABLE IF NOT EXISTS items (entry TEXT REFERENCES entries(id) ON DELETE CASCADE,
       position INTEGER NOT NULL, hash TEXT REFERENCES assets(hash), title TEXT NOT NULL, PRIMARY KEY(entry,position));
     CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, body TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS expression_initializations (id TEXT PRIMARY KEY, completed INTEGER NOT NULL);
   `);
   for (const row of db.prepare('SELECT * FROM jobs').all()) {
     const job = JSON.parse(row.body);
@@ -50,12 +51,12 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
     const id = randomUUID(); grants.set(id, { owner, entry, hash: item.hash, expires: now() + 15 * 60_000 });
     return { id, title: item.title };
   }
-  function put(entry, files) {
+  function put(entry, files, { transaction = true, status = 'pending' } = {}) {
     if (db.prepare('SELECT 1 FROM entries WHERE id=?').get(entry.id)) return false;
     if (!files.length || files.length > 200 || files.reduce((sum, f) => sum + f.bytes.length, 0) > MAX_PACK) fail('MEME_TOO_LARGE');
-    db.exec('BEGIN IMMEDIATE');
+    if (transaction) db.exec('BEGIN IMMEDIATE');
     try {
-      db.prepare('INSERT INTO entries VALUES (?,?,?,?,?,?,?,?)').run(entry.id, entry.kind, entry.title, entry.tags, entry.author, entry.source, 'pending', now());
+      db.prepare('INSERT INTO entries VALUES (?,?,?,?,?,?,?,?)').run(entry.id, entry.kind, entry.title, entry.tags, entry.author, entry.source, status, now());
       for (const [position, file] of files.entries()) {
         if (!file.bytes.length || file.bytes.length > MAX_IMAGE) fail('MEME_TOO_LARGE');
         const hash = digest(file.bytes); const type = memeContentType(file.bytes);
@@ -64,8 +65,8 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       }
       if (db.prepare('SELECT coalesce(sum(length(bytes)),0) AS size FROM assets').get().size > MAX_STORAGE
         || db.prepare('SELECT count(*) AS count FROM entries').get().count > 10000) fail('MEME_STORAGE_FULL');
-      db.exec('COMMIT'); return true;
-    } catch (error) { db.exec('ROLLBACK'); throw error; }
+      if (transaction) db.exec('COMMIT'); return true;
+    } catch (error) { if (transaction) db.exec('ROLLBACK'); throw error; }
   }
   const saveJob = job => db.prepare('INSERT OR REPLACE INTO jobs VALUES (?,?)').run(job.id, JSON.stringify(job));
   async function collect(job, body, signal) {
@@ -105,6 +106,25 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
     finally { job.finished = now(); saveJob(job); }
   }
   const service = {
+    // Only the explicit repository initializer uses this entry point. Keeping
+    // the marker in the snapshot prevents a later run from undoing moderation.
+    initializeShipped(loadEntries) {
+      if (running || closing) fail('MEME_BUSY');
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const id = 'shipped-library-v1';
+        if (db.prepare('SELECT 1 FROM expression_initializations WHERE id=?').get(id)) {
+          db.exec('COMMIT'); return { initialized: false, added: 0, skipped: 0 };
+        }
+        let added = 0; let skipped = 0;
+        for (const { entry, files } of loadEntries()) {
+          if (put(entry, files, { transaction: false, status: 'published' })) added++;
+          else skipped++;
+        }
+        db.prepare('INSERT INTO expression_initializations VALUES (?,?)').run(id, now());
+        db.exec('COMMIT'); return { initialized: true, added, skipped };
+      } catch (error) { db.exec('ROLLBACK'); throw error; }
+    },
     async search(owner, body, signal) {
       query(body); signal?.throwIfAborted();
       const rows = matchStickerPacks(db.prepare('SELECT * FROM entries WHERE kind=? AND status=? ORDER BY created DESC,id').all(body.kind, 'published'), body.keyword);
