@@ -21,6 +21,7 @@ RUN npm ci --omit=dev --registry="$NPM_REGISTRY" && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY server ./server
 COPY scripts ./scripts
+COPY src/lib/starter-library.json src/lib/additional-gifs.json ./src/lib/
 RUN mkdir -p /app/data && chown -R node:node /app
 USER node
 VOLUME ["/app/data"]

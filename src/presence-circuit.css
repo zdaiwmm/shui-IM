@@ -39,6 +39,7 @@
 .presence-whole { display: none; }
 .presence-circuit:is([data-phase="online"], [data-phase="fusing"]) .presence-wires { stroke: var(--circuit-live); }
 .presence-circuit:is([data-phase="online"], [data-phase="fusing"]) .presence-heart { fill: var(--circuit-heart); }
+.presence-circuit[data-phase="pulsing"] .presence-heart { fill: var(--circuit-heart); }
 .presence-circuit[data-phase="online"] .presence-half { display: none; }
 .presence-circuit[data-phase="online"] .presence-whole { display: block; }
 .presence-circuit[data-phase="online"] .presence-heart { animation: presence-heartbeat 1.65s linear infinite; }

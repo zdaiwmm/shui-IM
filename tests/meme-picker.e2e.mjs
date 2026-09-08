@@ -166,19 +166,59 @@ try {
   assert.equal(await page.evaluate(async()=> (await window.fixture.vault.loadStickerPacks(window.fixture.session))[0].items.length),3);
   await page.locator('.meme-back').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);
-  await page.locator('.meme-collapse').click();
+  assert.equal(await page.locator('.meme-collapse').isVisible(), false);
+  await page.locator('#open-memes').click();
   await page.locator('#open-memes').click();
   await page.locator('.meme-pack-shortcuts img').waitFor();
   await page.locator('.meme-pack-shortcuts button[title="测试合集"]').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);
   assert.equal(await page.locator('button[data-kind="stickers"]').getAttribute('aria-selected'), 'true');
   await page.locator('.meme-pack-shortcuts').evaluate(bar => {
+    window.retainedShortcut = bar.querySelector('img');
     bar.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, clientX: 100, clientY: 500 }));
     bar.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 1, clientX: 100, clientY: 400 }));
-    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 100, clientY: 400 }));
   });
   await page.locator('.meme-expanded-dialog').waitFor();
+  await page.waitForTimeout(260);
   assert.equal(await page.locator('.meme-tabs').isVisible(), true);
+  assert.equal(await page.locator('.meme-collapse').isVisible(), true);
+  await page.locator('.meme-pack-shortcuts').evaluate(bar => {
+    bar.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 2, clientX: 100, clientY: 60 }));
+    bar.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 2, clientX: 100, clientY: 180 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 2, clientX: 100, clientY: 180 }));
+  });
+  await page.locator('.meme-expanded-dialog').waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(() => window.retainedShortcut === document.querySelector('.meme-pack-shortcuts img')), true, 'Dragging should retain decoded shortcuts');
+  assert.equal(await page.locator('.meme-collapse').isVisible(), false);
+  if (process.env.MEME_WEBKIT !== '1') {
+    const cdp = await page.context().newCDPSession(page);
+    const pull = async distance => {
+      const bar = await page.locator('.meme-pack-shortcuts').boundingBox();
+      const before = await page.locator('.meme-panel').boundingBox();
+      const x = bar.x + bar.width - 20, y = bar.y + bar.height / 2;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      for (let step = 1; step <= 5; step++) {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + distance * step / 5 }] });
+      }
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const during = await page.locator('.meme-panel').boundingBox();
+      assert.ok(Math.abs(during.height - (before.height - distance)) < 3, `Sheet did not follow native touch: ${JSON.stringify({ before, during, distance })}`);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await page.waitForTimeout(280);
+    };
+    await pull(-120);
+    assert.equal(await page.locator('.meme-expanded-dialog').count(), 1);
+    await pull(120);
+    assert.equal(await page.locator('.meme-expanded-dialog').count(), 0);
+    await cdp.detach();
+  }
+  await page.locator('.meme-pack-shortcuts').evaluate(bar => {
+    bar.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 3, clientX: 100, clientY: 500 }));
+    bar.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 3, clientX: 100, clientY: 400 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 3, clientX: 100, clientY: 400 }));
+  });
+  await page.waitForTimeout(260);
   await page.locator('.meme-collapse').click();
   await page.locator('#open-memes').click();
   await page.locator('button[data-kind="stickers"]').click();
@@ -254,7 +294,7 @@ try {
   }
   await page.emulateMedia({colorScheme:'dark'});
   if(out) await page.screenshot({path:path.join(out,'memes-dark.png')});
-  await page.locator('.meme-collapse').click();
+  await page.locator('#open-memes').click();
   assert.equal(await page.locator('.meme-panel').count(),0);
   assert.equal(await page.locator('.chat-shell').evaluate(el=>el.inert),false);
   assert.equal(await page.locator('#message-input').inputValue(),'保留这份草稿');

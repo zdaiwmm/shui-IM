@@ -1,6 +1,7 @@
 export type ReleaseInfo = {
   readonly id: string;
   readonly title: string;
+  readonly createdAt?: string;
   readonly notes: readonly string[];
 };
 

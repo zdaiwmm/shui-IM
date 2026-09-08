@@ -373,6 +373,9 @@ html:has(.chat-shell[inert]) { overflow: hidden; }
      the text when a capped multiline editor reveals its caret. */
   border-block: 10px solid transparent;
 }
+.composer .composer-placeholder { position: absolute; inset: 0 48px 0 15px; display: none; align-items: center; pointer-events: none; color: var(--ink-faint); font-size: 13px; line-height: 1.4; }
+.composer textarea:placeholder-shown + .composer-placeholder { display: flex; }
+.composer textarea::placeholder { color: transparent; }
 /* The home-indicator safe area is already inside the docked keyboard. */
 html[data-keyboard-open='true'] .composer {
   min-height: 60px;

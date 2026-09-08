@@ -182,7 +182,7 @@ label[role="button"]:active {
 }
 .more-menu .menu-panel > button:not(:disabled):active { transform: none; }
 .message-reply-quote:not(:disabled):active { transform: none; }
-#message-input::placeholder { font-size: 13px; }
+#message-input::placeholder { font-size: 13px; line-height: inherit; }
 
 /* Page shells, backgrounds and fixed headers never fade to an empty frame.
    New content owns its blend so asynchronous recovery routes participate too. */
@@ -1270,11 +1270,13 @@ button:disabled {
 .release-notes-sheet.is-closing { opacity: 0; }
 .release-notes-panel {
   position: relative;
+  display: flex;
+  flex-direction: column;
   scrollbar-width: none;
   width: min(100%, 420px);
   max-height: min(76svh, 620px);
-  overflow-y: auto;
-  padding: 26px;
+  overflow: hidden;
+  padding: 0;
   border: 1px solid var(--glass-border);
   border-radius: 28px;
   background: var(--glass-panel);
@@ -1290,12 +1292,16 @@ button:disabled {
 .release-notes-sheet.is-closing .release-notes-panel { transform: translateY(8px) scale(0.985); }
 .release-notes-panel .eyebrow { margin: 0 0 7px; color: var(--accent); font-size: 0.7rem; font-weight: 750; letter-spacing: 0.06em; }
 .release-notes-panel h2 { margin: 0; font-size: 1.25rem; line-height: 1.3; }
-.release-notes-panel ol { margin: 20px 0 24px; padding-left: 1.5rem; color: var(--ink-muted); }
+.release-notes-panel ol { margin: 0; padding-left: 1.5rem; color: var(--ink-muted); }
 .release-notes-panel li { padding-left: 5px; line-height: 1.6; }
 .release-notes-panel li + li { margin-top: 10px; }
 .release-notes-panel .primary-button { width: 100%; min-height: 46px; }
-.release-notes-panel::-webkit-scrollbar { display: none; }
-.release-notes-panel .release-notes-close { position: sticky; float: right; top: 0; margin-top: -12px; margin-right: -14px; width: 44px; height: 44px; }
+.release-notes-panel:focus { outline: none; }
+.release-notes-header { position: relative; flex: none; padding: 26px 26px 20px; }
+.release-notes-details { min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: none; padding: 0 26px 30px; }
+.release-notes-details::-webkit-scrollbar { display: none; }
+.release-notes-panel .release-notes-close { position: absolute; right: 10px; top: 10px; width: 44px; height: 44px; border: 0; box-shadow: none; background: transparent; }
+.release-notes-close:focus-visible { outline-color: var(--ink-muted); }
 .release-notes-panel :is(.eyebrow,h2) { padding-right: 30px; }
 .release-history-content { scrollbar-width: none; }
 .release-history-content::-webkit-scrollbar { display: none; }
@@ -1474,7 +1480,7 @@ button:disabled {
 }
 
 .file-attachment-meta { opacity: 0.86; }
-.file-attachment:hover:not(:disabled) .file-attachment-name { text-decoration: underline; }
+.file-attachment .file-attachment-name { text-decoration: none; }
 .file-attachment:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
 .file-attachment:disabled { opacity: 0.75; cursor: progress; }
 .file-attachment[data-file-state="error"] .file-attachment-meta { font-weight: 600; }

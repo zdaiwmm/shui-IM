@@ -1,13 +1,13 @@
 type Presence = boolean | null;
 type Point = readonly [number, number];
 
-const leftWire: Point[] = [[0, 12], [15, 12], [23, 7], [31, 17], [39, 12], [40, 12]];
+const leftWire: Point[] = [[0, 12], [15, 12], [23, 7], [31, 17], [36, 14]];
 const rightWire: Point[] = leftWire.map(([x, y]) => [100 - x, y]);
 const leftHeart = 'M0 -5 C-5 -11 -11 -7 -10 -1 C-9 3 -3 7 0 10 L-1 3 L1 0 L-1 -3 Z';
 const rightHeart = 'M0 -5 C5 -11 11 -7 10 -1 C9 3 3 7 0 10 L-1 3 L1 0 L-1 -3 Z';
 
 export const presenceCircuitMarkup = `<svg class="presence-circuit" viewBox="0 0 100 24" aria-hidden="true" focusable="false" data-phase="unknown">
-  <g class="presence-wires" fill="none"><path d="M0 12 H15 L23 7 L31 17 L39 12 H40"/><path d="M100 12 H85 L77 7 L69 17 L61 12 H60"/></g>
+  <g class="presence-wires" fill="none"><path d="M0 12 H15 L23 7 L31 17 L36 14"/><path d="M100 12 H85 L77 7 L69 17 L64 14"/></g>
   <g class="presence-electric" fill="none"><path data-arc="left"/><path data-arc="right"/></g>
   <g transform="translate(50 11)"><g class="presence-heart">
     <path class="presence-half" data-half="left" d="${leftHeart}" transform="translate(-2 0)"/>
@@ -118,6 +118,7 @@ export class PresenceCircuit {
       if (this.mode === 'connect') this.arcs[1]!.setAttribute('d', this.arc(rightWire, elapsed / 1000, elapsed));
     } else if (this.mode === 'send' && elapsed < 1550) {
       this.arcs.forEach(arc => arc.removeAttribute('d'));
+      this.element.dataset.phase = 'pulsing';
       const t = (elapsed - 1000) / 550;
       const shake = Math.sin(t * Math.PI * 8) * (1 - t) * .85;
       this.left.setAttribute('transform', `translate(${-2 + shake} ${shake * .6}) rotate(${shake * 7})`);

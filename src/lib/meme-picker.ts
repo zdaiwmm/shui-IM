@@ -57,6 +57,9 @@ export class MemePicker {
   private expanded = false;
   private autoPage: IntersectionObserver;
   private sentinel = document.createElement('div');
+  private sheetAnimation?: Animation;
+  private halfHeight = 0;
+  private suppressShortcutClickUntil = 0;
 
   constructor(private options: MemePickerOptions) {
     this.signal = AbortSignal.any([options.signal, this.controller.signal]);
@@ -93,17 +96,53 @@ export class MemePicker {
     }, { root: this.panel.querySelector('.meme-scroll'), rootMargin: '120px' });
     this.autoPage.observe(this.sentinel);
     const shortcuts = this.panel.querySelector<HTMLElement>('.meme-pack-shortcuts')!;
-    let drag: { x: number; y: number } | undefined;
-    shortcuts.addEventListener('pointerdown', event => { drag = { x: event.clientX, y: event.clientY }; }, { signal: this.signal });
-    shortcuts.addEventListener('pointermove', event => {
-      if (!drag || this.overlay) return;
-      const dy = event.clientY - drag.y;
-      if (dy < -45 && Math.abs(dy) > Math.abs(event.clientX - drag.x) * 1.5) {
-        drag = undefined; event.preventDefault(); this.expand();
+    let drag: { id: number; x: number; y: number; height: number; full: boolean; moving: boolean } | undefined;
+    shortcuts.addEventListener('pointerdown', event => {
+      if (event.button !== 0 || this.sheetAnimation || this.preview) return;
+      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, height: this.panel.getBoundingClientRect().height, full: Boolean(this.overlay), moving: false };
+    }, { signal: this.signal });
+    window.addEventListener('pointermove', event => {
+      if (!drag || drag.id !== event.pointerId) return;
+      const dy = event.clientY - drag.y, dx = event.clientX - drag.x;
+      if (!drag.moving) {
+        if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) { drag = undefined; return; }
+        if (Math.abs(dy) < 8 || Math.abs(dy) <= Math.abs(dx) * 1.5) return;
+        drag.moving = true;
+        this.expand();
+        try { shortcuts.setPointerCapture(event.pointerId); } catch { /* Synthetic pointers do not own capture. */ }
+        this.panel.style.animation = 'none';
+        this.panel.style.top = 'auto';
       }
+      event.preventDefault();
+      const height = this.overlay!.getBoundingClientRect().height;
+      this.panel.style.height = `${Math.max(this.halfHeight, Math.min(height, drag.height - dy))}px`;
     }, { signal: this.signal, passive: false });
-    window.addEventListener('pointerup', () => { drag = undefined; }, { signal: this.signal });
-    window.addEventListener('pointercancel', () => { drag = undefined; }, { signal: this.signal });
+    const finishDrag = (event: PointerEvent) => {
+      if (!drag || drag.id !== event.pointerId) return;
+      const start = drag; drag = undefined;
+      if (!start.moving) return;
+      this.suppressShortcutClickUntil = performance.now() + 500;
+      const height = this.panel.getBoundingClientRect().height;
+      const fullHeight = this.overlay!.getBoundingClientRect().height;
+      const full = event.type === 'pointercancel' ? start.full
+        : start.full ? event.clientY - start.y < 50 : start.y - event.clientY > 50;
+      const finish = () => {
+        this.sheetAnimation = undefined;
+        if (!this.active()) return;
+        this.panel.style.removeProperty('height'); this.panel.style.removeProperty('top');
+        if (!full) this.back(true);
+      };
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) finish();
+      else {
+        this.sheetAnimation = this.panel.animate([{ height: `${height}px` }, { height: `${full ? fullHeight : this.halfHeight}px` }], { duration: 220, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'forwards' });
+        this.sheetAnimation.onfinish = () => { this.sheetAnimation?.cancel(); finish(); };
+      }
+    };
+    window.addEventListener('pointerup', finishDrag, { signal: this.signal });
+    window.addEventListener('pointercancel', finishDrag, { signal: this.signal });
+    shortcuts.addEventListener('click', event => {
+      if (performance.now() < this.suppressShortcutClickUntil) { event.preventDefault(); event.stopImmediatePropagation(); }
+    }, { signal: this.signal, capture: true });
     this.observer = new IntersectionObserver(entries => {
       for (const entry of entries) { const tile = this.tiles.get(entry.target as HTMLElement); if (tile) { tile.visible = entry.isIntersecting; if (!tile.visible) this.unload(entry.target as HTMLElement); } }
       this.hydrate();
@@ -129,8 +168,8 @@ export class MemePicker {
   private say(value: string) { if (this.active()) this.status.textContent = value; }
   private clear() {
     this.generation++; this.request?.abort(); this.operation?.abort(); this.searching = false; this.observer.disconnect();
-    for (const tile of this.tiles.keys()) this.unload(tile);
-    this.tiles.clear(); this.grid.replaceChildren(); this.status.replaceChildren(); this.more.hidden = true; this.nextPage = null;
+    for (const tile of this.tiles.keys()) if (!tile.closest('.meme-pack-shortcuts')) { this.unload(tile); this.tiles.delete(tile); }
+    this.grid.replaceChildren(); this.status.replaceChildren(); this.more.hidden = true; this.nextPage = null;
     this.grid.className = 'meme-grid'; this.panel.querySelector('.meme-scroll')!.scrollTop = 0;
     this.panel.querySelector('.meme-source')!.textContent = '';
   }
@@ -142,16 +181,24 @@ export class MemePicker {
     this.panel.querySelector('.meme-open-search span')!.textContent = label; await this.local();
   }
   private shortcuts() {
-    const bar = this.panel.querySelector('.meme-pack-shortcuts')!; bar.replaceChildren();
-    const control = (label: string, icon: string, action: () => void) => {
+    const bar = this.panel.querySelector('.meme-pack-shortcuts')!;
+    const control = (key: string, label: string, icon: string, action: () => void) => {
+      const existing = [...bar.querySelectorAll<HTMLButtonElement>('button')].find(node => node.dataset.shortcut === key);
+      if (existing) { existing.title = label; existing.setAttribute('aria-label', label); return existing; }
       const button = document.createElement('button'); button.type = 'button'; button.title = label; button.setAttribute('aria-label', label); button.innerHTML = icon;
+      button.dataset.shortcut = key;
       button.addEventListener('click', action); bar.append(button); return button;
     };
-    control('查找贴纸合集', createElement(Plus).outerHTML, () => { void this.switchKind('stickers').then(() => this.openSearch()); });
-    control('收藏', memeIcons.star, () => { this.favoriteView = !this.favoriteView; void this.local(); }).setAttribute('aria-pressed', String(this.favoriteView));
+    control('search', '查找贴纸合集', createElement(Plus).outerHTML, () => { void this.switchKind('stickers').then(() => this.openSearch()); });
+    control('favorites', '收藏', memeIcons.star, () => { this.favoriteView = !this.favoriteView; void this.local(); }).setAttribute('aria-pressed', String(this.favoriteView));
+    for (const node of bar.querySelectorAll<HTMLElement>('[data-shortcut^="pack:"]')) {
+      if (!this.hasPack(node.dataset.shortcut!.slice(5))) { this.unload(node); this.tiles.delete(node); node.remove(); }
+    }
     for (const pack of this.packs) {
-      const button = control(pack.title, '', () => { if (this.favoriteView || this.kind !== 'stickers') { void this.switchKind('stickers').then(() => this.jump(pack.id)); } else this.jump(pack.id); });
+      const button = control(`pack:${pack.id}`, pack.title, '', () => { if (this.favoriteView || this.kind !== 'stickers') { void this.switchKind('stickers').then(() => this.jump(pack.id)); } else this.jump(pack.id); });
       const first = pack.items[0]; if (!first) continue;
+      if (this.tiles.get(button)?.item.id === first.id) continue;
+      this.unload(button); button.replaceChildren();
       const item: MediaItem = { id: first.id, title: pack.title, favorite: first, pack: pack.id };
       const image = document.createElement('img'); image.alt = ''; image.draggable = false; button.append(image); this.tiles.set(button, { item, visible: true });
     }
@@ -191,6 +238,7 @@ export class MemePicker {
   }
   private expand() {
     if (this.overlay) return;
+    this.halfHeight = this.panel.getBoundingClientRect().height;
     this.expanded = true; this.openSearch(false);
     this.panel.parentElement?.classList.add('meme-expanded-dialog');
     (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = true;
@@ -211,7 +259,7 @@ export class MemePicker {
       onClose: () => { if (this.overlay === overlay && this.active()) this.back(); } });
     this.input.value = ''; if (load) void this.submit();
   }
-  private back() {
+  private back(preserve = false) {
     if (!this.overlay) return;
     if (this.packDetail) { void this.submit(); return; }
     if (this.expanded && !this.overlay.classList.contains('meme-expanded-dialog')) {
@@ -222,7 +270,9 @@ export class MemePicker {
     this.expanded = false;
     const overlay = this.overlay; this.overlay = null; this.input.blur(); this.input.value = '';
     this.options.host.append(this.panel); (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = true;
-    closeDialog(overlay, { animate: false, restoreFocus: false }); void this.local(); this.panel.querySelector<HTMLButtonElement>('.meme-open-search')!.focus({ preventScroll: true });
+    closeDialog(overlay, { animate: false, restoreFocus: false });
+    if (!preserve) void this.local();
+    this.panel.querySelector<HTMLButtonElement>('.meme-open-search')!.focus({ preventScroll: true });
   }
   private async submit() {
     this.packDetail = false; this.input.blur(); this.query = this.input.value.trim(); this.clear(); this.panel.dataset.view = 'search'; this.nextPage = 1; await this.search();
@@ -236,7 +286,7 @@ export class MemePicker {
       if (!this.active() || generation !== this.generation) return;
       if (this.kind === 'gifs') this.append(result.items); else this.appendPacks(result.packs ?? []);
       this.nextPage = result.nextPage; this.more.hidden = true;
-      this.panel.querySelector('.meme-source')!.textContent = result.source ?? ''; this.say(!this.grid.children.length ? '没有找到相关内容' : '');
+      this.panel.querySelector('.meme-source')!.textContent = result.source === '表情资源库' ? '' : result.source ?? ''; this.say(!this.grid.children.length ? '没有找到相关内容' : '');
     } catch (error) { if (!signal.aborted && generation === this.generation) { this.say(error instanceof Error ? error.message : '搜索失败，请重试'); this.more.textContent = '重试'; this.more.hidden = false; } }
     finally {
       if (generation === this.generation) {
@@ -255,6 +305,7 @@ export class MemePicker {
       this.tiles.set(cover, { item: { id: pack.cover, title: pack.title }, visible: false }); this.observer.observe(cover);
       const title = document.createElement('h3'); title.textContent = pack.title;
       const add = document.createElement('button'); add.type = 'button'; add.className = 'meme-pack-add'; add.textContent = this.hasPack(pack.id) ? '解除添加' : '添加';
+      add.dataset.danger = String(this.hasPack(pack.id));
       const progress = document.createElement('span'); progress.className = 'meme-pack-progress'; progress.setAttribute('role', 'status');
       add.addEventListener('click', () => void this.togglePack(pack, add, progress)); cover.addEventListener('click', () => void this.showPack(pack)); row.append(cover, title, add, progress); this.grid.append(row);
     }
@@ -268,6 +319,7 @@ export class MemePicker {
       this.clear(); this.packDetail = true; this.grid.classList.add('meme-pack-list'); const header = document.createElement('header'); header.className = 'meme-pack-detail-header';
       const title = document.createElement('h3'); title.textContent = detail.title;
       const add = document.createElement('button'); add.type = 'button'; add.className = 'meme-pack-add'; add.textContent = this.hasPack(pack.id) ? '解除添加' : '添加';
+      add.dataset.danger = String(this.hasPack(pack.id));
       const progress = document.createElement('span'); progress.setAttribute('role', 'status'); add.addEventListener('click', () => void this.togglePack(pack, add, progress, detail));
       const grid = document.createElement('div'); grid.className = 'meme-pack-grid'; header.append(title, add, progress); this.grid.append(header, grid); this.append(detail.items, grid);
       this.panel.querySelector<HTMLButtonElement>('.meme-back')!.focus({ preventScroll: true });
@@ -280,7 +332,7 @@ export class MemePicker {
     try {
       await this.options.removePack(pack.id, this.signal);
       if (!this.active()) return;
-      this.packs = await this.options.packs(); button.textContent = '添加'; progress.textContent = '';
+      this.packs = await this.options.packs(); button.textContent = '添加'; button.dataset.danger = 'false'; progress.textContent = ''; this.shortcuts();
     } catch { if (this.active()) progress.textContent = '解除失败，请重试'; }
     finally { this.busy = false; button.disabled = false; }
   }
@@ -295,7 +347,7 @@ export class MemePicker {
         files.push(file); if (progress.isConnected) progress.textContent = `${files.length} / ${detail.items.length}`;
       }
       await this.options.install(pack.id, detail.title, files, signal); if (!this.active()) return;
-      this.packs = await this.options.packs(); button.textContent = '解除添加'; button.disabled = false; progress.textContent = `${files.length} 张 · 已下载`;
+      this.packs = await this.options.packs(); button.textContent = '解除添加'; button.dataset.danger = 'true'; button.disabled = false; progress.textContent = `${files.length} 张 · 已下载`; this.shortcuts();
     } catch (error) { if (this.active()) { progress.textContent = signal.aborted ? '已取消' : error instanceof Error ? error.message : '下载失败，请重试'; button.disabled = false; } }
     finally { this.busy = false; if (this.operation === controller) this.operation = null; cancel.remove(); }
   }
@@ -369,6 +421,7 @@ export class MemePicker {
   }
   dispose() {
     if (this.disposed) return; this.disposed = true; this.controller.abort();
+    this.sheetAnimation?.cancel();
     if (this.preview) closeDialog(this.preview, { animate: false, restoreFocus: false }); if (this.overlay) closeDialog(this.overlay, { animate: false, restoreFocus: false });
     this.observer.disconnect(); this.autoPage.disconnect(); this.request?.abort(); for (const tile of this.tiles.keys()) this.unload(tile);
     this.tiles.clear(); this.mediaCache.clear(); this.mediaCacheBytes = 0; this.favorites = []; this.packs = []; this.input.value = ''; this.panel.remove(); this.options.host.classList.remove('has-meme-panel');
