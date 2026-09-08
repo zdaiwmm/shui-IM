@@ -304,7 +304,7 @@ try {
           throw Error(`Native document clamp was compensated twice: ${JSON.stringify(scrolls)}`);
         }
       } finally { app.chatBottomScrollTop = savedBottom; window.scrollTo = savedScroll; }
-      if (getComputedStyle(header).position !== 'sticky' || header.style.translate !== 'none') throw Error('Native header retained script-corrected fixed positioning');
+      if (getComputedStyle(header).position !== 'fixed' || header.style.translate !== 'none') throw Error('Native header lost fixed viewport positioning');
       nativeOrigin = 376;
       app.refreshNativeChatChrome();
       if (Math.abs(header.getBoundingClientRect().top) > 1) throw Error('Keyboard header left the visible document origin');
@@ -324,10 +324,10 @@ try {
       viewport.dispatchEvent(new Event('resize'));
       await new Promise(resolve => setTimeout(resolve, 750));
       window.scrollBy(0, -100);
-      if (getComputedStyle(header).position !== 'sticky' || Math.abs(header.getBoundingClientRect().top) > 1) {
+      if (getComputedStyle(header).position !== 'fixed' || Math.abs(header.getBoundingClientRect().top) > 1) {
         throw Error(`Closed-keyboard history scrolling moved the header before application correction: ${JSON.stringify({ position: getComputedStyle(header).position, top: header.getBoundingClientRect().top, dismissing: !!app.nativeKeyboardDismiss })}`);
       }
-      return { samples, revealTransformIndependent: true, unfocusedDismissal: true, nativeHistorySticky: true };
+      return { samples, revealTransformIndependent: true, unfocusedDismissal: true, nativeHistoryFixed: true };
     } finally {
       app.visualClientCoordinates = nativeCoordinates;
       header.getBoundingClientRect = originalHeaderBounds;
