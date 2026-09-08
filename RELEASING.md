@@ -187,6 +187,34 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-08（Asia/Shanghai）；服务器批次 `20260908T031931Z`（11:19:31），
+  11:20:53 独立回读成功。用户确认的应用提交为
+  `0d835dc78030e9f9ba8ef7d25af36e63314ada13`，版本 ID `2026.09.08.1`，
+  [PR #41](https://github.com/zdaiwmm/shui-IM/pull/41) 的 head 为
+  `527a94435e84b4fa70386f9344216c60f91f9142`。
+- 本批发布已在 main 的 iPhone 键盘跟随、输入区域定位、可续传附件提醒修复及固定发布入口，
+  同时更新版本 ID，使旧客户端识别新版本。原共享目录四个未提交文件未纳入。
+  本轮没有新增真机验收，既有列表末尾闪动等缺口继续保留。
+- [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34182031335) 与
+  [精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34182411954)
+  全部成功，包含两组浏览器、原生通话、依赖审计、凭据扫描与完整汇总。
+  候选本地 `npm run check:full` 通过 58 个文件、473 项单元／集成测试、24／24 浏览器入口
+  （287.35 秒）；首次受限运行因本地端口 `EPERM` 失败，获端口权限后的完整重跑通过。
+- 本次实时预检回报生产为 `a2fa6336f9ff080c71442ea9b53d283961044c28`，与上一轮较早的
+  `fd7a8ab` 快照不同；该预检只证明当时运行 SHA，不补造中间版本的独立发布证据。
+- 固定 `publish.mjs --sha` 入口返回精确 `DEPLOY_OK`／`DEPLOY_VERIFIED`，外层成功核对回执。
+  总耗时 94,003ms，隔离发布与入口回读 73,544ms，服务器发布 60 秒。发布目录
+  `/opt/quiet-room/git-releases/20260908T031931Z-0d835dc78030`，已校验冷备份
+  `/opt/quiet-room/backups/predeploy/data-20260908T031931Z-0d835dc78030.tar.gz`。
+- 独立 `READBACK_OK` 耗时 2,748ms：线上 SHA、批次和发布目录一致，维护标记不存在；
+  应用运行且健康，备份运行且无健康探针，二者镜像均为
+  `sha256:3862fecef4e3d6b1629b95dba829829e146e4e765c6352b28833fef24e8e1c65`。
+  HTTPS 的 `ok`／`database`／`storage`、公开与容器产物逐字节摘要和 WebSocket 均通过。
+  `admin-enabled=0`、`calls-enabled=0`，TURN 不存在。检查未读取真实消息或备份内容。
+- 对账在不含部署配置的独立文档 worktree 完成，文档提交不代表再次部署。
+
+## 上次线上发布记录（2026-09-07 08:57）
+
 - 日期：2026-09-07（Asia/Shanghai）；服务器批次 `20260907T005618Z`（08:56:18），
   08:57:28 独立回读成功。应用提交 `fd7a8ab7732afff98c4f0a6a3b60c31ea67bf213`，由
   [PR #37](https://github.com/zdaiwmm/shui-IM/pull/37) 合并，候选 head
