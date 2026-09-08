@@ -212,6 +212,9 @@ label[role="button"]:active {
 .page-transition-outgoing .message-list {
   transform: translateY(var(--page-scroll-offset, 0));
 }
+.page-transition-outgoing[data-safe-departure] .message-list {
+  visibility: hidden;
+}
 #app[data-page-transition='forward'] > .page-transition-incoming { animation-name: page-forward-in; z-index: 71; }
 #app[data-page-transition='forward'] > .page-transition-outgoing { animation-name: page-forward-out; }
 #app[data-page-transition='backward'] > .page-transition-incoming { animation-name: page-back-in; }
@@ -1686,20 +1689,17 @@ button:disabled {
   cursor: zoom-in;
 }
 
-/* Fill contain-letterboxing with a cover crop of the same fully verified
-   local image. This layer exists only while concealed; the foreground retains
-   its exact aspect ratio and remains the sole clear image after reveal. */
+/* The verified image is blurred once in memory. No live CSS filter can split
+   its colors across compositor tiles while this layer scrolls. */
 .image-preview::before {
   content: '';
   position: absolute;
-  inset: -24px;
+  inset: 0;
   z-index: 0;
   background-image: var(--chat-preview-source, none);
   background-position: center;
   background-size: cover;
-  filter: blur(var(--media-conceal-blur));
   opacity: 0;
-  transform: scale(1.08);
   pointer-events: none;
 }
 
@@ -1769,8 +1769,7 @@ button:disabled {
 /* Apply before decoded/cached media enters the DOM. Concealment is immediate,
    including when a privacy curtain appears and quickly returns to chat. */
 .image-preview[data-revealed="false"] img {
-  filter: blur(var(--media-conceal-blur));
-  transform: scale(1.16);
+  opacity: 0;
 }
 
 .image-preview[data-revealed="false"] {

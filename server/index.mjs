@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createStore } from './storage.mjs';
 import { createAdminConsole } from './admin.mjs';
+import { createMemeService } from './memes.mjs';
 import { callIceConfiguration, createCallService } from './calls.mjs';
 import { createPushService, validatePushAuthorization, validatePushSubscription } from './push.mjs';
 import {
@@ -369,11 +370,45 @@ export async function startServer(options = {}) {
     } });
   await store.cleanupDeletedRooms();
 
+  const memes = createMemeService();
   const httpServer = createHttpServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://localhost');
       const pathname = decodeURIComponent(url.pathname);
       if (await admin(request, response, pathname)) return;
+
+      const memeMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/memes/(search|media|pack)$`));
+      if (request.method === 'POST' && memeMatch) {
+        const device = requireActiveDevice(request, memeMatch[1]);
+        const media = memeMatch[2] === 'media';
+        if (!allowRequest(request, media ? 'meme-media' : 'meme-search', media ? 240 : 30)) {
+          json(request, response, 429, { error: '请求过于频繁，请稍后再试' }); return;
+        }
+        const controller = new AbortController();
+        response.once('close', () => controller.abort());
+        try {
+          const body = JSON.parse((await readBody(request, 2048)).toString('utf8'));
+          const owner = `${memeMatch[1]}:${device.deviceId}`;
+          if (media) {
+            const result = await memes.media(owner, body?.id, controller.signal);
+            requireActiveDevice(request, memeMatch[1], device.deviceId);
+            applySecurityHeaders(request, response);
+            response.writeHead(200, { 'Content-Type': result.type, 'Content-Length': result.bytes.length, 'Cache-Control': 'no-store' });
+            response.end(result.bytes);
+          } else {
+            const result = memeMatch[2] === 'pack' ? await memes.pack(owner, body?.id, controller.signal) : await memes.search(owner, body, controller.signal);
+            requireActiveDevice(request, memeMatch[1], device.deviceId);
+            json(request, response, 200, result);
+          }
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          const code = error instanceof Error ? error.message : '';
+          const invalid = error instanceof SyntaxError || ['MEME_INVALID_QUERY', 'BODY_TOO_LARGE'].includes(code);
+          json(request, response, invalid ? 400 : code === 'MEME_NOT_FOUND' ? 404 : code === 'UNAUTHORIZED' ? 401 : 502,
+            { error: invalid ? '搜索条件不正确' : code === 'MEME_NOT_FOUND' ? '图片已过期，请重新搜索' : '网络梗图暂时不可用，请稍后重试' });
+        }
+        return;
+      }
 
       const backupWrite = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/backup$`));
       const archiveWrite = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/archives/([A-Za-z0-9_-]{43})/([A-Za-z0-9_-]{43})$`));

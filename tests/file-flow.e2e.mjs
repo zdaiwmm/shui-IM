@@ -135,7 +135,7 @@ try {
       new File([new Uint8Array([0, 255, 1, 128, 10, 13, 42])], 'opaque.unknown', { type: '', lastModified: 3 }),
     ];
     const choose = (destination, files) => {
-      const input = root.querySelector(destination === 'gallery' ? '#gallery-image-input' : '#image-input');
+      const input = root.querySelector(destination === 'gallery' ? '#gallery-image-input' : '#file-input');
       check(input && input.multiple, `${destination}: multiple file selection is unavailable`);
       input.dispatchEvent(new Event('click'));
       const transfer = new DataTransfer();
@@ -158,7 +158,7 @@ try {
     const { root, fresh, check } = window.fileFlow;
     for (const destination of ['chat', 'gallery']) {
       fresh(destination);
-      const input = root.querySelector(destination === 'gallery' ? '#gallery-image-input' : '#image-input');
+      const input = root.querySelector(destination === 'gallery' ? '#gallery-image-input' : '#file-input');
       check(input && input.multiple && !input.getAttribute('accept'), `${destination}: picker still restricts file formats`);
     }
     return { chat: 'all files', gallery: 'all files', multiple: true };
@@ -336,7 +336,7 @@ try {
       await page.evaluate(({ destination, order }) => {
         const f = window.fileFlow;
         f.fresh(destination);
-        f.root.querySelector(destination === 'gallery' ? '#open-gallery-image-picker' : '#open-image-picker').click();
+        f.root.querySelector(destination === 'gallery' ? '#open-gallery-image-picker' : '#open-file-picker').click();
         const input = f.app.imagePickerInput;
         f.blur();
         f.check(!f.app.privacyCovered && input.isConnected && input.hidden, 'Owned foreground picker blur locked or detached its selection input');
@@ -364,7 +364,7 @@ try {
       await page.evaluate(({ destination, order }) => {
         const f = window.fileFlow;
         f.fresh(destination);
-        f.root.querySelector(destination === 'gallery' ? '#open-gallery-image-picker' : '#open-image-picker').click();
+        f.root.querySelector(destination === 'gallery' ? '#open-gallery-image-picker' : '#open-file-picker').click();
         const input = f.app.imagePickerInput;
         f.blur();
         const transfer = new DataTransfer();

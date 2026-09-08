@@ -437,7 +437,8 @@ try {
   await openSafeImageActions(longHeldImage, { outlastClickWindow: true });
   assert.equal(await longHeldImage.getAttribute('data-revealed'), 'false', 'A long Safe hold revealed the image after the ordinary click-suppression window');
   assert.equal(await page.locator('.image-viewer').count(), 0, 'A long Safe hold opened the image viewer behind its action sheet');
-  assert.equal(await page.locator('.gallery-actions-menu [data-gallery-action]').count(), 2, 'Safe image actions are incomplete');
+  assert.deepEqual(await page.locator('.gallery-actions-menu [data-gallery-action]').evaluateAll(buttons => buttons.map(button => button.dataset.galleryAction)),
+    ['details', 'pin', 'delete'], 'Safe image actions are incomplete');
   assert.equal((await page.locator('.gallery-actions-menu [data-gallery-action="pin"] span').textContent()).trim(), '置顶', 'Unpinned Safe image has the wrong action label');
   assert.equal(await page.locator('.gallery-actions-menu [data-gallery-action="delete"]').getAttribute('data-danger'), 'true', 'Safe image delete action lost its danger treatment');
   await page.locator('.gallery-actions-menu [data-gallery-action="pin"]').tap();

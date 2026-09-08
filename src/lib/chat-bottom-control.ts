@@ -7,6 +7,8 @@ type BottomControlOptions = {
   hasNewer: () => boolean;
   visibilityTop?: () => number;
   targetScrollTop: () => number;
+  scrollTop?: () => number;
+  scrollTo?: (top: number) => void;
   active: () => boolean;
   measure?: () => boolean;
   begin: () => void;
@@ -17,6 +19,8 @@ type BottomControlOptions = {
 
 export function mountChatBottomControl(options: BottomControlOptions) {
   const { button } = options;
+  const scrollTop = options.scrollTop ?? (() => window.scrollY);
+  const scrollTo = options.scrollTo ?? (top => window.scrollTo(0, top));
   const events = new AbortController();
   let frame: number | null = null;
   let resizeFrame: number | null = null;
@@ -52,7 +56,7 @@ export function mountChatBottomControl(options: BottomControlOptions) {
       cancel(); setVisible(false); observer.disconnect(); mutations.disconnect(); lastMessage = undefined; lastGeometry = ''; return;
     }
     const hasNewer = options.hasNewer();
-    const geometry = `${window.scrollY}:${window.visualViewport?.height ?? innerHeight}:${window.visualViewport?.offsetTop ?? 0}:${hasNewer}`;
+    const geometry = `${scrollTop()}:${window.visualViewport?.height ?? innerHeight}:${window.visualViewport?.offsetTop ?? 0}:${hasNewer}`;
     if (!force && geometry === lastGeometry && latest === lastMessage) return;
     if (latest !== lastMessage) {
       observer.disconnect();
@@ -101,7 +105,7 @@ export function mountChatBottomControl(options: BottomControlOptions) {
       button.removeAttribute('aria-busy');
       if (!ready || current.signal.aborted || !options.active()) { cancel(); update(); return; }
     }
-    const start = window.scrollY;
+    const start = scrollTop();
     // Freeze the destination for the animation. Re-reading the latest row and
     // composer's computed transform on every frame forces synchronous layout
     // during document scrolling and is especially expensive while Safari is
@@ -110,7 +114,7 @@ export function mountChatBottomControl(options: BottomControlOptions) {
     const target = options.targetScrollTop();
     const distance = Math.abs(target - start);
     if (matchMedia('(prefers-reduced-motion: reduce)').matches || distance < 1) {
-      window.scrollTo(0, target); request = null; delete button.dataset.scrolling; options.complete(); update(); return;
+      scrollTo(target); request = null; delete button.dataset.scrolling; options.complete(); update(); return;
     }
     // Short travel remains deliberate; large distances cover more pixels per
     // second without stretching into a long animation.
@@ -121,7 +125,7 @@ export function mountChatBottomControl(options: BottomControlOptions) {
       if (destroyed || !options.active() || !button.isConnected) { cancel(); update(); return; }
       const progress = Math.min(1, (now - started) / duration);
       const eased = 1 - Math.pow(1 - progress, 3);
-      window.scrollTo(0, start + (target - start) * eased);
+      scrollTo(start + (target - start) * eased);
       if (progress < 1) frame = requestAnimationFrame(step);
       else { request = null; delete button.dataset.scrolling; options.complete(); update(); }
     };

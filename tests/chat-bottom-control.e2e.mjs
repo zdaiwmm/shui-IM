@@ -56,15 +56,15 @@ try {
       const deadline = performance.now() + 1200;
       while (performance.now() < deadline) {
         const composer = document.querySelector('#composer');
-        if (!composer.dataset.viewportMotion && Number(getComputedStyle(composer).opacity) === 1) return;
+        if (!composer.dataset.viewportMotion && Number(getComputedStyle(composer).opacity) === 1
+          && !composer.getAnimations({ subtree: true }).some(animation => animation.playState === 'running')) return;
         await new Promise(resolve => requestAnimationFrame(resolve));
       }
       throw Error('Composer did not reveal after scrolling settled');
     };
     const surfaceSelectors = {
       input: '.composer-input-stack',
-      photo: '#open-image-picker',
-      voice: '#record-voice',
+      tools: '#open-chat-tools',
       bottom: '#chat-bottom-control',
     };
     const colorAlpha = value => {
@@ -188,16 +188,15 @@ try {
     await up(11); if (visible()) throw Error('Button appeared before latest message crossed its top edge');
     await up(13);
     const composer = document.querySelector('#composer');
-    if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '0') throw Error('Scroll motion did not immediately conceal the composer');
+    if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '1'
+      || getComputedStyle(composer).transform !== 'none') throw Error('Scroll motion hid or shifted the composer');
     await waitForComposerReveal();
     if (!visible() || button().getAttribute('aria-hidden') !== 'false' || button().tabIndex !== 0) throw Error('Button did not appear after scroll motion fully settled');
     const fade = getComputedStyle(button());
     if (!fade.transitionProperty.includes('opacity') || !fade.transitionDuration.includes('0.18s')) throw Error('Button lost its opacity transition');
     await up(11);
-    // Manual document scrolling conceals the entire composer immediately and
-    // commits the button's visibility at the same stable endpoint. Inspecting
-    // its child state while the parent is still fully transparent can only
-    // observe the previous (unpainted) frame.
+    // Scrolling keeps the composer painted while the button's visibility is
+    // measured at the stable endpoint.
     await waitForComposerReveal();
     if (visible() || button().tabIndex !== -1) throw Error('Returning across the threshold left the button active');
     // Observe async content changes even when neither scrolling nor viewport
@@ -304,7 +303,7 @@ try {
           throw Error(`Native document clamp was compensated twice: ${JSON.stringify(scrolls)}`);
         }
       } finally { app.chatBottomScrollTop = savedBottom; window.scrollTo = savedScroll; }
-      if (getComputedStyle(header).position !== 'sticky' || header.style.translate !== 'none') throw Error('Native header retained script-corrected fixed positioning');
+      if (getComputedStyle(header).position !== 'fixed' || header.style.translate !== 'none') throw Error('Native header lost fixed viewport positioning');
       nativeOrigin = 376;
       app.refreshNativeChatChrome();
       if (Math.abs(header.getBoundingClientRect().top) > 1) throw Error('Keyboard header left the visible document origin');
@@ -324,10 +323,10 @@ try {
       viewport.dispatchEvent(new Event('resize'));
       await new Promise(resolve => setTimeout(resolve, 750));
       window.scrollBy(0, -100);
-      if (getComputedStyle(header).position !== 'sticky' || Math.abs(header.getBoundingClientRect().top) > 1) {
+      if (getComputedStyle(header).position !== 'fixed' || Math.abs(header.getBoundingClientRect().top) > 1) {
         throw Error(`Closed-keyboard history scrolling moved the header before application correction: ${JSON.stringify({ position: getComputedStyle(header).position, top: header.getBoundingClientRect().top, dismissing: !!app.nativeKeyboardDismiss })}`);
       }
-      return { samples, revealTransformIndependent: true, unfocusedDismissal: true, nativeHistorySticky: true };
+      return { samples, revealTransformIndependent: true, unfocusedDismissal: true, nativeHistoryFixed: true };
     } finally {
       app.visualClientCoordinates = nativeCoordinates;
       header.getBoundingClientRect = originalHeaderBounds;
@@ -474,9 +473,11 @@ try {
     let originProbe = document.querySelector('.chat-fixed-origin');
     let originalOriginBounds = originProbe.getBoundingClientRect;
     let nativeOrigin = 0;
+    let nativeBottom = 844;
     originProbe.getBoundingClientRect = () => new DOMRect(0, -nativeOrigin, 0, 0);
     const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
     const resize = value => {
+      nativeBottom = value;
       Object.defineProperty(visualViewport, 'height', { configurable: true, value });
       visualViewport.dispatchEvent(new Event('resize'));
     };
@@ -488,6 +489,16 @@ try {
         originProbe = app.chatLayoutElements.fixedOrigin;
         originalOriginBounds = originProbe.getBoundingClientRect;
         originProbe.getBoundingClientRect = () => new DOMRect(0, -nativeOrigin, 0, 0);
+        // Device fixed-bottom geometry moves independently of its fixed-top
+        // origin. Desktop WebKit keeps fixed elements at the full page height.
+        const bottomProbe = app.chatLayoutElements.fixedBottom;
+        bottomProbe.getBoundingClientRect = () => new DOMRect(0, nativeBottom, 0, 0);
+        const composer = app.chatLayoutElements.composer;
+        const composerBounds = composer.getBoundingClientRect.bind(composer);
+        composer.getBoundingClientRect = () => {
+          const rect = composerBounds();
+          return new DOMRect(rect.x, rect.y - (844 - nativeBottom), rect.width, rect.height);
+        };
         const input = document.querySelector('#message-input');
         input.focus({ preventScroll: true }); resize(430); await wait(750);
         app.scrollChatToBottom();
@@ -609,9 +620,9 @@ try {
     await new Promise(resolve => setTimeout(resolve, 750));
     const composer = document.querySelector('#composer');
     const header = document.querySelector('.chat-header');
-    const photo = document.querySelector('#open-image-picker');
+    const photo = document.querySelector('#open-chat-tools');
     const sample = (trackedMessage = app.renderedMessageOrder.at(-1)) => {
-      const action = composer.querySelector('.send-button:not([hidden]), .voice-record-button:not([hidden])');
+      const action = composer.querySelector('#open-chat-tools');
       const messageContent = trackedMessage?.querySelector('.message-bubble');
       return {
         resizing: Boolean(app.composerHeightMotion),
@@ -1138,11 +1149,9 @@ try {
       if (focused.input.backgroundColor === idle.input.backgroundColor) {
         throw Error(`${scheme} focused composer surface did not reach its focus token`);
       }
-      document.querySelector('#open-image-picker').disabled = true;
-      document.querySelector('#record-voice').disabled = true;
+      document.querySelector('#open-chat-tools').disabled = true;
       const disabled = assertSurfaceSet(`${scheme} disabled actions`, 0.92);
-      document.querySelector('#open-image-picker').disabled = false;
-      document.querySelector('#record-voice').disabled = false;
+      document.querySelector('#open-chat-tools').disabled = false;
       input.blur();
       await waitForComposerReveal();
       app.scrollChatToBottom();
@@ -1242,7 +1251,7 @@ try {
     await up(24);
     await waitForComposerReveal();
   });
-  for (const [name, selector] of [['photo', '#open-image-picker'], ['voice', '#record-voice']]) {
+  for (const [name, selector] of [['tools', '#open-chat-tools']]) {
     await page.locator(selector).hover();
     results.contrastHover[name] = await page.evaluate(({ label, target }) => {
       const element = document.querySelector(target);

@@ -14,6 +14,7 @@ export const browserGroups = Object.freeze({
     'tests/frontend-lifecycle.e2e.mjs',
     'tests/release-update.e2e.mjs',
     'tests/chat-bottom-control.e2e.mjs',
+    'tests/chat-list-viewport.e2e.mjs',
     'tests/message-timeline.e2e.mjs',
     'tests/desktop-privacy.e2e.mjs',
     'tests/desktop-session-flow.e2e.mjs',
@@ -22,6 +23,7 @@ export const browserGroups = Object.freeze({
     'tests/file-flow.e2e.mjs',
     'tests/file-outbox.e2e.mjs',
     'tests/file-interactions.e2e.mjs',
+    'tests/meme-picker.e2e.mjs',
     'tests/unread-counter.e2e.mjs',
     'tests/reaction-history.e2e.mjs',
     'tests/message-deletion.e2e.mjs',
@@ -32,8 +34,10 @@ export const browserGroups = Object.freeze({
     'tests/backup-admin-ui.e2e.mjs',
     'tests/chat-image-privacy.e2e.mjs',
     'tests/gallery-loading.e2e.mjs',
+    'tests/photo-details.e2e.mjs',
     'tests/video-flow.e2e.mjs',
     'tests/voice-gestures.e2e.mjs',
+    'tests/chat-tools.e2e.mjs',
   ]),
 });
 

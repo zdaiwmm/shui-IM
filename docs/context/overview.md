@@ -1,5 +1,11 @@
 # Quiet Room 项目地图
 
+聊天工具与附件收藏入口：`src/chat-tools.css`、`src/lib/attachment-favorites.ts`、`src/app.ts`。
+空输入框长按与圆弧录音层：`src/lib/voice-gesture.ts`、`src/lib/voice-recorder.ts`。
+产品范围见 [PRODUCT.md](../../PRODUCT.md#chat-tools-and-attachment-favorites)，验证见
+`tests/chat-tools.e2e.mjs`、`tests/attachment-favorites.test.ts`、`tests/voice-gestures.e2e.mjs`。
+该收藏是加密本机标识投影，与下方梗图独立副本不同。
+
 更新时间：2026-09-07。本页用于按任务定位，不复制完整产品说明或目录树。相对路径均从仓库根目录计算。
 
 ## 一分钟认识项目
@@ -14,11 +20,15 @@
 
 ## 按任务查找
 
+梗图面板与本机收藏见 [MEMES.md](../../MEMES.md)、`src/lib/meme-picker.ts`、`src/lib/meme-media.ts`、
+`src/lib/vault.ts` 的收藏存储及 `src/memes.css`；专项为 `tests/meme-media.test.ts` 和 `tests/meme-picker.e2e.mjs`。
+网络来源与受限代理见 `server/memes.mjs`、`server/sticker-source.mjs`、`tests/meme-server.test.ts`；使用公开 Signal 合集目录，GIFs 展示独立动画。预置清单、公开素材缓存及完整性测试见 `src/lib/sticker-library.ts`、`src/lib/starter-library.json`、`tests/sticker-library.test.ts`；搜索范围和真实联调证据见 MEMES 与状态页，不把合成搜索视为上游可用性证明。
+
 | 领域 | 先读 | 代码入口 | 主要验证入口 |
 | --- | --- | --- | --- |
 | 产品语义与交互 | `PRODUCT.md`、`README.md` | `src/app.ts`、各 CSS 文件 | `tests/browser.e2e.mjs`、`tests/ui-audit.e2e.mjs`、相关专项浏览器脚本 |
 | 启动、页面状态、版本更新、Service Worker | `README.md`、`PRODUCT.md`、`RELEASING.md` | `release.json`、`src/main.ts`、`src/lib/release-update.ts`、`public/sw.js` | `tests/frontend-lifecycle.e2e.mjs`、`tests/release-update.e2e.mjs`、`tests/release-update.test.ts`、`tests/service-worker.test.ts` |
-| 聊天日期、气泡回执、回到最新消息与键盘跟随 | `PRODUCT.md` 的 Message Timeline、`TEST_PLAN.md` | `src/lib/message-date.ts`、`src/lib/chat-bottom-control.ts`、`src/lib/chat-viewport-motion.ts`、`src/app.ts`、`src/chat-layout.css`、`src/styles.css` | `tests/message-timeline.e2e.mjs`、`tests/chat-bottom-control.e2e.mjs`、`tests/frontend-lifecycle.e2e.mjs`、`tests/chat-viewport-motion.test.ts` |
+| 聊天日期、气泡回执、回到最新消息与键盘跟随 | `PRODUCT.md` 的 Message Timeline、`TEST_PLAN.md` | `src/lib/message-date.ts`、`src/lib/chat-bottom-control.ts`、`src/lib/chat-viewport-motion.ts`、`src/lib/chat-keyboard-layout.ts`、`src/app.ts`、`src/chat-layout.css`、`src/styles.css` | `tests/message-timeline.e2e.mjs`、`tests/chat-bottom-control.e2e.mjs`、`tests/chat-list-viewport.e2e.mjs`、`tests/frontend-lifecycle.e2e.mjs`、`tests/chat-viewport-motion.test.ts`、`tests/chat-keyboard-layout.test.ts` |
 | 设备邀请与参与者邀请分类 | `PRODUCT.md`、`SECURITY.md` | `src/lib/invite-link.ts`、`src/lib/vault.ts`、`src/app.ts` | `tests/invite-link.test.ts`、`tests/platform-vault.test.ts`、`tests/browser.e2e.mjs` |
 | 隐私遮罩、锁定、桌面恢复、系统弹窗 | `PRODUCT.md`、`SECURITY.md`、`TEST_PLAN.md` | `src/app.ts`、`src/cover.css`、`src/auth-recovery.css`、`src/lib/vault.ts` | `tests/desktop-privacy.e2e.mjs`、`tests/desktop-session-flow.e2e.mjs`、`tests/system-surfaces.e2e.mjs`、`tests/vault-resume.e2e.mjs`、`tests/chat-image-privacy.e2e.mjs` |
 | 消息格式、签名和协议校验 | `SECURITY.md`、`PRODUCT.md` | `src/lib/types.ts`、`src/lib/message-payload.ts`、`src/lib/crypto.ts`、`server/protocol.mjs` | `tests/crypto.test.ts`、`tests/message-payload.test.ts`、`tests/protocol.test.ts`、`tests/room-protocol.test.ts` |
@@ -37,6 +47,10 @@
 | 发布后生产事实、上下文治理与交付效率 | `RELEASING.md`、`docs/context/maintenance.md`、[D-021](./decisions.md#d-021生产回读后对账知识库语义变化继续审阅)、[2026-09-05 交付复盘](../../audit/2026-09-05-mobile-ux-delivery-retrospective.md) | 发布与最小 SHA 回执为 `scripts/publish.mjs`、`scripts/release.mjs`；独立结构化回读为 `scripts/production-readback.mjs`；格式检查为 `scripts/check-docs.mjs`，自动文档 PR 对账尚待实现 | `tests/publish.test.ts`、`tests/release-entry.test.ts`、`tests/production-readback.test.ts`、`tests/ci-docs.test.ts`、`tests/ci-scope.test.ts` |
 
 ## 测试命令的准确含义
+
+聊天遮蔽位图实现见 `src/lib/concealed-image.ts`；高斯像素验证为
+`tests/concealed-image.test.ts`，编码中锁定、URL 释放和聊天显隐回归沿用
+`tests/chat-image-privacy.e2e.mjs`。它只生成解锁运行期的内存预览，不替代原始附件。
 
 - `npm run tasks:cleanup -- --plan /绝对路径/plan.json`：发布后任务资源只读检查，加 `--apply` 才清理；入口 `scripts/cleanup-task-resources.mjs`，回归 `tests/cleanup-task-resources.test.ts`，计划与保留边界见[说明](../workflows/task-cleanup.md)。不属于生产切换入口。
 - `npm run build`：TypeScript 类型检查后构建 Vite 产物。
@@ -57,6 +71,8 @@
 
 ## 详细资料索引
 
+- **系统栏与明暗主题**：`src/lib/system-chrome.ts` 同步系统明暗状态并保持透明 theme-color 提示，查看器不另设不透明色值；浏览器原生工具栏仍由系统控制。
+- **保险箱图片属性与动图**：`src/lib/photo-detail-model.ts` 定义有界属性展示，`photo-metadata.ts` / `photo-metadata.worker.ts` 负责本机可取消解析，`photo-details.ts` 挂载仅保险箱可见的属性面板；`image-animation.ts` 识别 GIF / 动态 WebP / APNG 并管理内存静态帧。验证入口为 `tests/image-photo.test.ts` 和已纳入 `check:full` 的 `tests/photo-details.e2e.mjs`。Live Photo 不在该功能范围内；真机、CI、生产证据与本地自动测试分开记录。
 - [README.md](../../README.md)：用户流程、架构和本地运行的综合说明。
 - [PRODUCT.md](../../PRODUCT.md)：产品与交互契约；不是实时实施状态表。
 - [SECURITY.md](../../SECURITY.md)：威胁模型、保护范围、限制和部署安全要求。

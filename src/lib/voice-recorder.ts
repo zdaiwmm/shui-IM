@@ -1,5 +1,6 @@
 import { AUDIO_MIME_TYPES, MAX_AUDIO_BYTES, MAX_AUDIO_DURATION_MS, MIN_AUDIO_DURATION_MS } from './message-payload';
 import { encodeVoiceWav, MAX_VOICE_SAMPLES, VOICE_SAMPLE_RATE, voiceIcons, voiceTime, voiceWaveform, waveformMarkup } from './voice-audio';
+import { createElement, X } from 'lucide';
 
 export type VoiceDraft = { file: File; durationMs: number; waveform: number[]; clientMsgId: string };
 type State = 'requesting' | 'recording' | 'processing' | 'paused' | 'sending';
@@ -49,9 +50,16 @@ export class VoiceRecorder {
     cancel: () => void;
     fail: (message: string) => void;
     send: (draft: VoiceDraft, signal: AbortSignal) => Promise<void>;
-  }, private mode: Mode = 'locked') {
+  }, private mode: Mode = 'locked', private readonly fullscreen = false) {
     this.signal = this.abort.signal;
+    host.dataset.fullscreen = String(fullscreen);
     host.innerHTML = `
+      ${fullscreen ? `<div class="voice-hold-screen">
+        <div class="voice-live-card"><div class="voice-live-wave voice-waveform" aria-hidden="true">${waveformMarkup(Array(48).fill(0))}</div><span class="voice-live-time"></span></div>
+        <p class="voice-live-label" role="status" aria-live="polite"></p>
+        <div class="voice-cancel-zone"><svg viewBox="0 0 354 120" preserveAspectRatio="none" aria-hidden="true"><path d="M46 30 Q177 -14 308 30 C352 45 330 111 286 96 Q177 60 68 96 C24 111 2 45 46 30 Z"/></svg><span>${createElement(X).outerHTML}<span class="voice-cancel-label">滑到这里取消</span></span></div>
+        <div class="voice-hold-bed"><svg viewBox="0 0 390 160" preserveAspectRatio="none" aria-hidden="true"><path d="M0 40 Q195 -40 390 40 L390 160 L0 160 Z"/></svg></div>
+      </div>` : ''}
       <div class="voice-recording-bar">
         <div class="voice-recording-info"><span class="voice-recording-dot" aria-hidden="true"></span><time class="voice-recording-time">0:00,00</time></div>
         <span class="voice-slide-hint" role="status" aria-live="polite">${voiceIcons.chevronLeft}<span class="voice-release-label"></span></span>
@@ -113,11 +121,22 @@ export class VoiceRecorder {
     this.updateHoldFeedback();
   }
 
+  moveHoldAt(x: number, y: number): void {
+    if (!this.fullscreen || this.signal.aborted || this.mode !== 'hold' || this.holdReleased) return;
+    const svg = this.host.querySelector<SVGSVGElement>('.voice-cancel-zone > svg');
+    const path = svg?.querySelector('path');
+    const matrix = svg?.getScreenCTM();
+    if (!svg || !path || !matrix) return;
+    const point = new DOMPoint(x, y).matrixTransform(matrix.inverse());
+    this.cancelReady = path.isPointInFill(point);
+    this.updateHoldFeedback();
+  }
+
   releaseHold(cancelled = false): void {
     if (this.signal.aborted || this.mode !== 'hold' || this.holdReleased) return;
     this.holdReleased = true;
     if (cancelled) { this.cancel(); return; }
-    if (this.cancelReady) { this.cancel(true); return; }
+    if (this.cancelReady) { this.cancel(!this.fullscreen); return; }
     // Releasing a hold must not begin recording after a late grant.
     // Privacy teardown still applies to hands-free
     // requests when a native permission prompt takes focus.
@@ -142,6 +161,10 @@ export class VoiceRecorder {
       : action === 'cancel' ? '松手取消录制'
         : '松手发送，左滑取消录制';
     if (label.textContent !== text) label.textContent = text;
+    const liveLabel = this.host.querySelector('.voice-live-label');
+    if (liveLabel) liveLabel.textContent = action === 'pending' ? '等待麦克风…' : action === 'cancel' ? '松手取消' : '松手发送';
+    const cancelLabel = this.host.querySelector('.voice-cancel-label');
+    if (cancelLabel) cancelLabel.textContent = action === 'cancel' ? '松手取消' : '滑到这里取消';
   }
 
   private cancel(animate = false): void {
@@ -336,6 +359,7 @@ export class VoiceRecorder {
     const shouldSend = this.sendAfterProcessing;
     this.sendAfterProcessing = false;
     if (shouldSend && this.durationMs >= MIN_AUDIO_DURATION_MS) await this.send();
+    else if (shouldSend && this.fullscreen) this.fail('录音太短，请重新录制');
     else this.update();
   }
 
@@ -394,12 +418,17 @@ export class VoiceRecorder {
     if (status.textContent !== labels[this.state]) status.textContent = labels[this.state];
     const elapsed = this.state === 'recording' ? this.durationMs + performance.now() - this.startedAt : this.durationMs;
     this.host.querySelector('time')!.textContent = `${voiceTime(elapsed)},${String(Math.floor(elapsed % 1000 / 10)).padStart(2, '0')}`;
+    const liveTime = this.host.querySelector('.voice-live-time');
+    if (liveTime) liveTime.textContent = voiceTime(elapsed);
     const levels = this.state === 'recording'
       ? [...Array(Math.max(0, 48 - this.liveLevels.length)).fill(0), ...this.liveLevels] : this.getWaveform();
     const waveformKey = levels.join(',');
     if (this.renderedWaveform !== waveformKey) {
       levels.forEach((level, index) => this.waveBars[index]?.style.setProperty('--level', `${Math.max(6, Math.min(100, level))}%`));
       this.renderedWaveform = waveformKey;
+      this.host.querySelectorAll<HTMLElement>('.voice-live-wave i').forEach((bar, index) => {
+        bar.style.setProperty('--level', `${Math.max(8, Math.min(100, levels[index] ?? 0))}%`);
+      });
     }
     const progress = this.durationMs ? this.preview.currentTime * 1000 / this.durationMs : 0;
     this.waveBars.forEach((bar, index) => bar.classList.toggle('is-played', index / 48 < progress));

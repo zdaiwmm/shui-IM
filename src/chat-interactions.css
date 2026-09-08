@@ -549,9 +549,13 @@
 }
 
 .image-viewer .viewer-header {
-  padding-bottom: 26px;
-  background: linear-gradient(to bottom, oklch(6% 0.01 255 / 0.58), transparent);
+  color: var(--ink);
+  background: transparent;
 }
+.image-viewer .viewer-header .viewer-control { color: var(--ink); background: var(--glass-sheen), var(--glass-control); border-color: var(--glass-border); box-shadow: var(--glass-shadow); }
+.image-viewer .viewer-header > div { text-shadow: none; }
+.image-viewer .viewer-metadata,
+.image-viewer .viewer-header [data-viewer-counter] { color: var(--ink-muted); }
 
 .image-viewer .viewer-header,
 .image-viewer .viewer-nav {
