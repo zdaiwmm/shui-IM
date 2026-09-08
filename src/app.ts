@@ -3143,6 +3143,7 @@ export class QuietRoomApp {
     const session = this.session;
     if (this.draining || !session || this.privacyCovered) return;
     const epoch = this.runtimeEpoch;
+    let projectionChanged = false;
     this.draining = true;
     try {
       let expected = session.vault.lastSeq + 1;
@@ -3218,6 +3219,7 @@ export class QuietRoomApp {
           }
           if (!this.isRuntimeActive(epoch, session)) return;
           this.messages.set(message.seq, message);
+          projectionChanged = true;
           if (!this.historyHasNewer && message.seq > this.historyForwardCursor) {
             this.historyForwardCursor = message.seq;
           }
@@ -3238,10 +3240,15 @@ export class QuietRoomApp {
           break;
         }
       }
-      this.closeViewerIfProjectionDeleted();
-      const galleryTab = this.root.querySelector<HTMLElement>('.gallery-tabs')?.dataset.activeTab;
-      if (this.root.querySelector('.gallery-shell') && (galleryTab === 'images' || galleryTab === 'files')) this.renderGallery(galleryTab);
-      else this.renderMessages();
+      // Reconnect readiness and empty sync frames must not restart local media
+      // loading. Only the active page owns updates, never an outgoing animation.
+      if (projectionChanged) {
+        this.closeViewerIfProjectionDeleted();
+        const gallery = this.root.querySelector<HTMLElement>(':scope > .gallery-shell');
+        const galleryTab = gallery?.querySelector<HTMLElement>('.gallery-tabs')?.dataset.activeTab;
+        if (gallery && (galleryTab === 'images' || galleryTab === 'files')) this.renderGallery(galleryTab);
+        else this.renderMessages();
+      }
       if (requestMore || [...this.serverQueue.keys()].some((seq) => seq > session.vault.lastSeq + 1)) {
         this.socket?.requestSync(session.vault.lastSeq);
       }
@@ -3285,10 +3292,18 @@ export class QuietRoomApp {
           continue;
         }
         const receipt = serverReceipt.receipt;
-        const message = this.messages.get(receipt.seq);
+        // The visible history is paginated; an old receipt must resolve against
+        // encrypted local history rather than repeatedly syncing after lastSeq.
+        const message = this.messages.get(receipt.seq)
+          ?? await loadHistoryMessage(session, receipt.seq, this.runtimeAbort?.signal);
+        if (!this.isRuntimeActive(epoch, session)) return;
         const sender = message ? this.memberForMessage(message) : undefined;
         const receiver = session.vault.members.find((member) => member.deviceId === receipt.receiverId);
         if (!message) {
+          if (receipt.seq <= session.vault.lastSeq) {
+            this.fatalSecurityError(new SecurityViolation('送达回执对应的本机加密历史缺失，已停止同步'));
+            return;
+          }
           this.socket?.requestSync(session.vault.lastSeq);
           break;
         }
