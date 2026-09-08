@@ -552,6 +552,27 @@ try {
     if (Math.min(picker.right, actions.right) > Math.max(picker.left, actions.left) && Math.min(picker.bottom, actions.bottom) > Math.max(picker.top, actions.top)) throw Error('Long message action list overlaps its reaction bar');
     return { viewportWidth: innerWidth, picker, actions, overlap: false };
   });
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.message-actions-backdrop')).opacity === '1');
+  results.messageDismissContinuity = await page.evaluate(async () => {
+    const source = document.querySelector('.message.is-action-source');
+    const bubble = source.querySelector('.message-bubble');
+    const backdrop = document.querySelector('.message-actions-backdrop');
+    const preview = backdrop.querySelector('.message-action-preview');
+    window.regression.app.closeMessageActions();
+    let frames = 0;
+    const started = performance.now();
+    while (performance.now() - started < 380) {
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      const originalVisible = getComputedStyle(bubble).visibility === 'visible';
+      const previewVisible = preview.isConnected && getComputedStyle(preview).visibility === 'visible' && Number(getComputedStyle(backdrop).opacity) >= 0.99;
+      if (!originalVisible && !previewVisible) throw Error('Selected bubble faded out before the original returned');
+      frames++;
+    }
+    if (preview.isConnected || source.classList.contains('is-action-source')) throw Error('Closing retained the selected preview');
+    window.regression.app.openMessageActions(source, window.regression.app.messages.get(1));
+    return { frames, continuous: true };
+  });
+  await page.locator('.message-actions.is-visible').waitFor();
   if (visualQaDirectory) {
     await mkdir(visualQaDirectory, { recursive: true });
     await page.screenshot({ path: path.join(visualQaDirectory, 'message-menu-long-320.png') });

@@ -5,6 +5,8 @@ import path from 'node:path';
 import { createCipheriv, createHmac, hkdfSync } from 'node:crypto';
 import protobuf from 'protobufjs';
 import { createExpressionCatalog } from '../server/expression-catalog.mjs';
+import { shippedExpressions } from '../server/shipped-expressions.mjs';
+import { fileURLToPath } from 'node:url';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
@@ -34,6 +36,45 @@ async function finished(service: ReturnType<typeof createExpressionCatalog>) {
   return service.jobs()[0];
 }
 describe('managed expression catalog', () => {
+  it('initializes the shipped originals as 30 full published packs and 100 animations without network, once only', async () => {
+    const f = await fixture();
+    const load = () => shippedExpressions({
+      libraryPath: fileURLToPath(new URL('../src/lib/starter-library.json', import.meta.url)),
+      publicDir: fileURLToPath(new URL('../public', import.meta.url)),
+    });
+    expect(f.service.initializeShipped(load)).toEqual({ initialized: true, added: 130, skipped: 0 });
+    expect(f.service.list({ ...search('stickers'), status: 'published' }).total).toBe(30);
+    expect(f.service.list({ ...search(), status: 'published' }).total).toBe(100);
+    const pack = (await f.service.search('owner', search('stickers'))).packs[0];
+    const items = (await f.service.pack('owner', pack.id)).items;
+    expect(items.length).toBeGreaterThan(1);
+    expect((await f.service.media('owner', items[0].id)).bytes).toEqual(f.service.preview(pack.id, 0).bytes);
+    const removed = f.service.list({ ...search(), status: 'published' }).entries[0];
+    f.service.remove(removed.id);
+    f.service.update(pack.id, { title: 'Moderated', tags: '', status: 'pending' });
+    await f.restart();
+    const unexpectedLoad = vi.fn(() => { throw Error('Already initialized'); });
+    expect(f.service.initializeShipped(unexpectedLoad)).toEqual({ initialized: false, added: 0, skipped: 0 });
+    expect(unexpectedLoad).not.toHaveBeenCalled();
+    expect(f.service.detail(pack.id)).toMatchObject({ title: 'Moderated', status: 'pending' });
+    expect(() => f.service.detail(removed.id)).toThrow('MEME_NOT_FOUND');
+    expect(f.fetchResource).not.toHaveBeenCalled();
+  });
+  it('rolls back the entire initialization on invalid bytes and preserves existing moderation on retry', async () => {
+    const f = await fixture();
+    const existing = f.service.create(upload('stickers', 'Existing pending'));
+    const entry = { ...existing, id: 'fixture-shipped' };
+    const original = { entry, files: [{ title: 'Original', bytes: gif }] };
+    expect(() => f.service.initializeShipped(function* () {
+      yield original;
+      yield { entry: { ...entry, id: 'invalid' }, files: [{ title: 'Invalid', bytes: Buffer.from('<html/>') }] };
+    })).toThrow('MEME_INVALID_IMAGE');
+    expect(f.service.list({ ...search('stickers'), status: 'all' }).total).toBe(1);
+    expect(() => f.service.detail(entry.id)).toThrow('MEME_NOT_FOUND');
+    expect(f.service.initializeShipped(() => [original, { ...original, entry: existing }]))
+      .toEqual({ initialized: true, added: 1, skipped: 1 });
+    expect(f.service.detail(existing.id)).toMatchObject({ title: 'Existing pending', status: 'pending' });
+  });
   it('persists originals and metadata atomically, exposes only published entries, and revokes existing grants', async () => {
     const f = await fixture(); const entry = f.service.create(upload('stickers'));
     expect(entry.status).toBe('pending');

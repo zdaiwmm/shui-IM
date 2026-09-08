@@ -93,6 +93,11 @@ try {
       source.payload.images.map((_,assetIndex)=>({clientMsgId:source.clientMsgId,assetIndex,source})));
   });
   await page.locator('[data-viewer-favorite][aria-pressed="false"]').waitFor();
+  assert(await page.locator('.viewer-header').evaluate(header => {
+    const favorite = header.querySelector('[data-viewer-favorite]')?.getBoundingClientRect();
+    const close = header.querySelector('[data-viewer-close]').getBoundingClientRect();
+    return favorite && favorite.left > close.right && Math.abs(favorite.top - close.top) < 1;
+  }), 'Chat favorite must sit at the top right on the close-button row');
   assert.equal(await page.locator('[data-viewer-download]').count(),0);
   await page.keyboard.press('ArrowRight');
   await page.locator('[data-viewer-favorite][aria-pressed="true"]').waitFor();
