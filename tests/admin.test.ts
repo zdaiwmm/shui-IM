@@ -55,6 +55,17 @@ describe('isolated session administration', () => {
     const identity = await generateIdentity();
     const { roomId } = server.store.createRoom(identity.publicBundle, 't'.repeat(43), 'i'.repeat(43), '<img src=x onerror=alert(1)>');
     const headers = { Cookie: cookie, 'X-CSRF-Token': csrf };
+    const upload = { kind: 'gifs', title: '<img src=x onerror=alert(1)>', tags: 'cat', files: [{ data: 'R0lGODlhAQABAIAAAAAAAP///yH5BAAAAAAALAAAAAABAAEAAAIBRAA7' }] };
+    expect((await send('/admin-api/expressions')).status).toBe(401);
+    expect((await send('/admin-api/expressions', 'POST', upload, { Cookie: cookie })).status).toBe(403);
+    expect((await send('/admin-api/expressions', 'POST', upload, { ...headers, Origin: 'https://ai.shui.click' })).status).toBe(403);
+    const created = await send('/admin-api/expressions', 'POST', upload, headers);
+    expect(created.status).toBe(201); const expression = await created.json();
+    expect(expression.status).toBe('pending');
+    expect((await send(`/admin-api/expressions/${expression.id}/media/0`, 'GET', undefined, headers)).headers.get('content-type')).toBe('image/gif');
+    expect((await send(`/admin-api/expressions/${expression.id}`, 'PATCH', { title: 'Reviewed', tags: 'cat', status: 'published' }, headers)).status).toBe(200);
+    expect((await send(`/admin-api/expressions/${expression.id}`, 'DELETE', undefined, headers)).status).toBe(200);
+    expect((await send(`/admin-api/expressions/${expression.id}/media/0`, 'GET', undefined, headers)).status).toBe(404);
     const list = await send('/admin-api/rooms', 'GET', undefined, headers);
     expect((await list.json()).rooms[0].roomId).toBe(roomId);
     const detail = await send(`/admin-api/rooms/${roomId}`, 'GET', undefined, headers);

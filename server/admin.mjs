@@ -9,7 +9,7 @@ const secret = () => randomBytes(32).toString('base64url');
 const hash = value => createHash('sha256').update(value).digest('hex');
 
 export async function createAdminConsole({ config: suppliedConfig, configFile, origin = 'https://sao.shui.click',
-  data, json, readJson, headers, staticDir, onDelete }) {
+  data, expressions, json, readJson, readExpressionJson = readJson, headers, staticDir, onDelete }) {
   let config = suppliedConfig;
   if (!config && configFile) {
     const info = await stat(configFile);
@@ -79,6 +79,35 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
       sessions.delete(hash(token)); clearCookie(response); json(request, response, 200, { loggedOut: true }); return true;
     }
     const url = new URL(request.url, adminOrigin);
+    if (expressions && pathname.startsWith('/admin-api/expressions')) {
+      try {
+        const match = pathname.match(/^\/admin-api\/expressions\/([a-zA-Z0-9-]+)(?:\/media\/(\d{1,3}))?$/);
+        if (pathname === '/admin-api/expressions' && request.method === 'GET') {
+          json(request, response, 200, expressions.list({ kind: url.searchParams.get('kind') ?? 'gifs', keyword: url.searchParams.get('keyword') ?? '',
+            status: url.searchParams.get('status') ?? 'all', page: Number(url.searchParams.get('page') ?? 1) }));
+        } else if (pathname === '/admin-api/expressions' && request.method === 'POST') {
+          json(request, response, 201, expressions.create(await readExpressionJson(request)));
+        } else if (pathname === '/admin-api/expressions/collect' && request.method === 'POST') {
+          json(request, response, 202, expressions.start(await readJson(request)));
+        } else if (pathname === '/admin-api/expressions/jobs' && request.method === 'GET') {
+          json(request, response, 200, { jobs: expressions.jobs() });
+        } else if (match && match[2] !== undefined && request.method === 'GET') {
+          const result = expressions.preview(match[1], Number(match[2]));
+          headers(request, response); response.writeHead(200, { 'Content-Type': result.type, 'Content-Length': result.bytes.length, 'Cache-Control': 'no-store' }); response.end(result.bytes);
+        } else if (match && match[2] === undefined && request.method === 'GET') {
+          json(request, response, 200, expressions.detail(match[1]));
+        } else if (match && match[2] === undefined && request.method === 'PATCH') {
+          json(request, response, 200, expressions.update(match[1], await readJson(request)));
+        } else if (match && match[2] === undefined && request.method === 'DELETE') {
+          json(request, response, 200, expressions.remove(match[1]));
+        } else json(request, response, 404, { error: 'NOT_FOUND' });
+      } catch (error) {
+        const code = error.message;
+        json(request, response, code === 'MEME_NOT_FOUND' ? 404 : code === 'MEME_BUSY' ? 409 : 400,
+          { error: code === 'MEME_NOT_FOUND' ? '资源不存在' : code === 'MEME_BUSY' ? '已有采集任务正在运行' : '资源参数不正确或操作失败' });
+      }
+      return true;
+    }
     if (request.method === 'GET' && pathname === '/admin-api/rooms') {
       const offset = Number(url.searchParams.get('offset') ?? 0);
       if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000) { json(request, response, 400, { error: '页码不正确' }); return true; }

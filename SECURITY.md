@@ -4,6 +4,13 @@ Quiet Room is a two-person, multi-device encrypted chat. Each participant may au
 
 ## Device-local Attachment Favorites
 
+The administrator-managed public expression catalog is separate from private chat attachments. Public originals,
+titles, tags and source attribution are stored in the server SQLite database and its existing backups. Only
+published entries are returned to authenticated devices; unpublishing also invalidates subsequent reads using
+previous grants. Explicit admin acquisition uses the existing fixed-host, public-address, no-redirect transport.
+Uploaded catalog images are public content selected by administrators, never an endpoint for chat recovery.
+See [MEMES.md](./MEMES.md) for limits and local-copy behavior.
+
 - Attachment favorites store only exact locally available message/asset identities, save times and pin order in encrypted UI preferences. They do not copy attachment bytes, synchronize to another device, enter recovery backups, or bypass the ordinary device-history boundary. Failed preference persistence rolls the local change back.
 - A valid room-wide source-message deletion also suppresses that attachment in Favorites. Removing a favorite does not delete its source. Independent meme copies use the separate contract in [MEMES.md](./MEMES.md).
 - Favorites has no application download/export or file-reader handoff. Verified photos and videos may still be displayed locally. The absence of an export control is a product restriction, not protection against screenshots, browser/OS controls or extraction by an unlocked endpoint.

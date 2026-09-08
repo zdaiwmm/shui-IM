@@ -5,7 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createStore } from './storage.mjs';
 import { createAdminConsole } from './admin.mjs';
-import { createMemeService } from './memes.mjs';
+import { createExpressionCatalog } from './expression-catalog.mjs';
 import { callIceConfiguration, createCallService } from './calls.mjs';
 import { createPushService, validatePushAuthorization, validatePushSubscription } from './push.mjs';
 import {
@@ -360,8 +360,11 @@ export async function startServer(options = {}) {
   }
 
   const adminOrigin = options.adminOrigin ?? process.env.ADMIN_ORIGIN ?? 'https://sao.shui.click';
+  const memes = createExpressionCatalog({ dataDir });
   const admin = await createAdminConsole({ config: options.adminConfig, configFile: options.adminConfigFile ?? process.env.ADMIN_CONFIG_FILE,
-    origin: adminOrigin, data: store.cloudBackups, json, readJson, headers: applySecurityHeaders, staticDir,
+    origin: adminOrigin, data: store.cloudBackups, expressions: memes, json, readJson,
+    readExpressionJson: async request => JSON.parse((await readBody(request, 12 * 1024 * 1024)).toString('utf8')),
+    headers: applySecurityHeaders, staticDir,
     onDelete: async roomId => {
       for (const socket of clientsByRoom.get(roomId) ?? []) socket.close(4403, 'Room removed');
       callService.sweep();
@@ -370,7 +373,6 @@ export async function startServer(options = {}) {
     } });
   await store.cleanupDeletedRooms();
 
-  const memes = createMemeService();
   const httpServer = createHttpServer(async (request, response) => {
     try {
       const url = new URL(request.url ?? '/', 'http://localhost');
@@ -1290,6 +1292,7 @@ export async function startServer(options = {}) {
       }
       await new Promise((resolve) => webSocketServer.close(resolve));
       await new Promise((resolve) => httpServer.close(resolve));
+      await memes.close();
       store.close();
     },
   };

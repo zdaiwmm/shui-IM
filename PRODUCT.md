@@ -183,6 +183,13 @@ Do not resemble a neon cyber-security dashboard, hacker terminal, crypto trading
 - Incidental long press on non-editable page surfaces suppresses native selection and context menus. Message long press opens the application menu. Text entry and explicitly choosing “选择文字” retain platform editing support; native input loupe/edit controls are browser-owned and cannot be universally disabled without impairing editing.
 - Microphone and camera permission is requested only for the operation using it. The page cannot grant permission or force persistence; users may select Allow in the browser's settings for the exact site. Idle capture is never retained to avoid future prompts.
 
+## Managed Expression Catalog
+
+- GIFs and sticker collections are separate administrator-managed public libraries. Default browsing and search return only published server entries. Browsing, searching and downloading never initiate upstream acquisition.
+- Administrators can upload, preview, edit titles and tags, publish, unpublish and delete resources. Explicit online acquisition accepts a keyword, an optional known source collection ID and a target count; newly downloaded entries remain pending until reviewed and published.
+- Existing encrypted local favorites and downloaded collections remain independent copies. Public unpublishing prevents subsequent server reads, but does not erase delivered messages or already obtained local copies. A new catalog starts empty and requires administrator publication.
+- See [MEMES.md](./MEMES.md) for acquisition limits, source restrictions, caching, backup and publication semantics.
+
 ## Accessibility & Inclusion
 
 Target WCAG 2.2 AA for the unlocked experience. Support keyboard navigation, visible focus, screen-reader labels, sufficient contrast, touch targets of at least 44 by 44 CSS pixels, reduced-motion preferences, clear non-color-only status communication, and resilient layouts from small mobile screens through desktop browsers.

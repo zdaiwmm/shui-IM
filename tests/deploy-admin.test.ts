@@ -57,6 +57,12 @@ printf '%s\\n' "\${previous_compose_args[@]}" > old-args
 }
 
 describe('persistent optional administrator deployment', () => {
+  it('allows bounded expression uploads only on the exact authenticated catalog route', async () => {
+    const config = await readFile(new URL('../deploy/nginx-sao.shui.click.conf', import.meta.url), 'utf8');
+    expect(config).toContain('client_max_body_size 64k;');
+    expect(config).toMatch(/location = \/admin-api\/expressions \{\s*client_max_body_size 12m;/);
+    expect(config.indexOf('if (-f /var/lib/quiet-room-deploy/maintenance)')).toBeLessThan(config.indexOf('location = /admin-api/expressions'));
+  });
   it('keeps administration disabled without persistent settings', async () => {
     const result = await simulate('disabled');
     expect(result.status).toBe(0);

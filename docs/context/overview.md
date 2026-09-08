@@ -25,7 +25,7 @@
 表情消息分类见 `src/lib/expression-media.ts`、`src/lib/message-payload.ts` 和
 `tests/expression-media.test.ts`；加密呈现标记、旧内置摘要识别及保险箱过滤边界见
 [D-037](./decisions.md#d-037表情呈现文件阅读器与跨版本说明)。
-网络来源与受限代理见 `server/memes.mjs`、`server/sticker-source.mjs`、`tests/meme-server.test.ts`；使用公开 Signal 合集目录，GIFs 展示独立动画。预置清单、公开素材缓存及完整性测试见 `src/lib/sticker-library.ts`、`src/lib/starter-library.json`、`tests/sticker-library.test.ts`；搜索范围和真实联调证据见 MEMES 与状态页，不把合成搜索视为上游可用性证明。
+后台资源库见 `server/expression-catalog.mjs`、`src/admin.ts`、`tests/expression-catalog.test.ts`；前端默认与搜索只读取已上架资源。公开 Signal 目录仅用于管理员显式采集，受限传输见 `server/memes.mjs`、`server/sticker-source.mjs`。旧预置清单仍用于历史识别与 `tests/sticker-library.test.ts` 完整性验证，不再默认展示。搜索范围和真实联调证据见 MEMES 与状态页，不把合成搜索视为上游可用性证明。
 
 | 领域 | 先读 | 代码入口 | 主要验证入口 |
 | --- | --- | --- | --- |

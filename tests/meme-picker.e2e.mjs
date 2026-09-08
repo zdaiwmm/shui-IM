@@ -82,8 +82,8 @@ try {
   assert.equal(await page.locator('button[data-kind="gifs"]').getAttribute('aria-selected'),'true');
   assert.equal(await page.locator('.meme-grip').count(),0);
   assert.equal(await page.locator('.chat-shell').evaluate(el=>el.inert),false);
-  assert.equal(await page.evaluate(()=>window.fixture.requests.length),0);
-  assert.equal(await page.locator('.meme-tile').count(),100);
+  assert.equal(await page.evaluate(()=>window.fixture.requests.length),1);
+  assert.equal(await page.locator('.meme-tile').count(),6);
   const firstAnimation=page.locator('.meme-tile img').first(); await firstAnimation.waitFor();
   const animatedPixels=await firstAnimation.screenshot(); await page.waitForTimeout(350);
   assert.notDeepEqual(await firstAnimation.screenshot(),animatedPixels,'Panel animation pixels did not move');
@@ -131,17 +131,18 @@ try {
   assert.equal(await page.evaluate(()=>window.fixture.sent.length),2);
   await page.locator('#open-memes').click();
   await page.locator('button[data-kind="stickers"]').click();
-  await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===30);
-  assert.equal(await page.locator('.meme-pack-shortcuts img').count(),30);
-  assert.equal((await page.locator('.meme-pack-shortcuts img').first().boundingBox()).width,24);
-  assert.ok(Math.abs((await page.locator('.meme-pack-grid .meme-tile').first().boundingBox()).width-tileBounds.width)<1, 'Sticker tile size differs');
-  await page.locator('.meme-pack-shortcuts button').nth(5).click();
-  await page.waitForFunction(()=>document.querySelector('.meme-scroll').scrollTop>100);
+  await page.locator('.meme-pack-cover').waitFor();
+  assert.equal(await page.locator('.meme-pack-shortcuts img').count(),0);
+  await page.locator('.meme-pack-cover').click();
+  await page.locator('.meme-pack-detail-header').waitFor();
+  assert.equal(await page.locator('.meme-search-dialog').count(),1,'Default catalog detail needs a visible return path');
+  await page.locator('.meme-back').click();
+  await page.locator('.meme-back').click();
   await page.locator('.meme-open-search').click();
   await page.locator('#meme-query').fill('预置'); await page.locator('#meme-query').press('Enter');
-  await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='已添加');
+  await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='添加');
   assert.ok(Math.abs((await page.locator('.meme-pack-cover').boundingBox()).width-tileBounds.width)<1, 'Sticker search cover size differs');
-  assert.equal(await page.locator('.meme-pack-add').isDisabled(),true,'Bundled pack offered duplicate installation');
+  assert.equal(await page.locator('.meme-pack-add').isDisabled(),false,'A formerly bundled pack is now managed by the catalog');
   await page.locator('#meme-query').fill('合集'); await page.locator('#meme-query').press('Enter');
   await page.waitForFunction(()=>window.fixture.requests.at(-1).kind==='stickers'&&window.fixture.requests.at(-1).keyword==='合集');
   await page.locator('.meme-pack-cover').click();
@@ -158,12 +159,14 @@ try {
   await page.waitForFunction(()=>document.querySelector('.meme-pack-add').textContent==='已添加');
   assert.equal(await page.evaluate(async()=> (await window.fixture.vault.loadStickerPacks(window.fixture.session))[0].items.length),3);
   await page.locator('.meme-back').click();
-  await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===31);
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);
   await page.locator('.meme-collapse').click();
   const networkCount=await page.evaluate(()=>window.fixture.requests.length);
   await page.locator('#open-memes').click(); await page.locator('button[data-kind="stickers"]').click();
-  await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===31);
-  assert.equal(await page.evaluate(()=>window.fixture.requests.length),networkCount,'Reopening a downloaded pack searched the network');
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);
+  await page.waitForFunction(count=>window.fixture.requests.length>count,networkCount);
+  assert.equal((await page.locator('.meme-pack-shortcuts img').first().boundingBox()).width,24);
+  assert.ok(Math.abs((await page.locator('.meme-pack-grid .meme-tile').first().boundingBox()).width-tileBounds.width)<1, 'Sticker tile size differs');
   await page.evaluate(async()=> {
     const { app,msg,session,vault,controller,files }=window.fixture;
     await app.favoriteChatMeme(msg,msg.payload.image);
@@ -286,5 +289,5 @@ try {
   await page.evaluate(()=>window.fixture.app.obscurePrivacySurface());
   assert.equal(await page.locator('.meme-panel,.meme-preview').count(),0,'Privacy curtain retained meme UI');
   assert.deepEqual(errors,[]);
-  console.log('Sticker picker: 30 packs/100 animations, moving pixels, half sheet, typed fullscreen search, atomic encrypted pack install/reopen, tap/hold send closure, privacy and responsive geometry passed.');
+  console.log('Sticker picker: server catalog defaults, moving pixels, half sheet, typed fullscreen search, atomic encrypted pack install/reopen, tap/hold send closure, privacy and responsive geometry passed.');
 } finally { await browser?.close(); await server.close(); }

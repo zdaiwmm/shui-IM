@@ -8,6 +8,10 @@ The included backup worker uses SQLite's online backup API against the live WAL 
 
 Compose runs that worker once at startup and then every 24 hours by default. It retains 14 completed snapshots. Configure `QUIET_ROOM_BACKUP_DIR` as a mount whose data is replicated to a different failure domain. A second directory on the same disk is not disaster recovery.
 
+The public expression catalog stores its original images and publication state in the same SQLite database,
+so online snapshots and restore include it. Public catalog bytes are separate from encrypted chat attachments.
+Interrupted acquisition jobs remain interrupted after restart and require a new explicit administrator action.
+
 Recommended minimum production policy:
 
 - RPO: 24 hours or less; reduce `BACKUP_INTERVAL_MS` if that loss window is unacceptable.

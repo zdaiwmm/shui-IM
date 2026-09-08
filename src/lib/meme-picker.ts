@@ -1,7 +1,7 @@
 import { mountDialog, closeDialog } from './dialog';
 import { validateMemeFile, type MemeFavorite } from './meme-media';
 import { detectImageAnimation } from './image-animation';
-import { starterPacks, starterGifs, starterMedia, warmStarterMedia, MAX_PACK_BYTES, type MediaKind, type MediaItem, type MediaSearchResult, type RemotePack, type RemotePackDetail, type StickerPack } from './sticker-library';
+import { starterMedia, MAX_PACK_BYTES, type MediaKind, type MediaItem, type MediaSearchResult, type RemotePack, type RemotePackDetail, type StickerPack } from './sticker-library';
 import { createElement, Smile, Star, Search, Keyboard, ChevronDown, Image, X, ArrowLeft, Plus, Trash2, Send } from 'lucide';
 
 export const memeIcons = {
@@ -39,6 +39,8 @@ export class MemePicker {
   private more: HTMLButtonElement;
   private observer: IntersectionObserver;
   private tiles = new Map<HTMLElement, Tile>();
+  private mediaCache = new Map<string, File>();
+  private mediaCacheBytes = 0;
   private favorites: MemeFavorite[] = [];
   private packs: StickerPack[] = [];
   private kind: MediaKind = 'gifs';
@@ -100,10 +102,9 @@ export class MemePicker {
     }, { signal: this.signal });
     this.signal.addEventListener('abort', () => this.dispose(), { once: true });
     void this.switchKind('gifs');
-    warmStarterMedia(options.signal);
   }
   private active() { return !this.disposed && !this.signal.aborted && this.options.isActive() && this.panel.isConnected; }
-  private hasPack(id: string) { return starterPacks.some(pack => pack.id === id) || this.packs.some(pack => pack.id === id); }
+  private hasPack(id: string) { return this.packs.some(pack => pack.id === id); }
   private say(value: string) { if (this.active()) this.status.textContent = value; }
   private clear() {
     this.generation++; this.request?.abort(); this.operation?.abort(); this.searching = false; this.observer.disconnect();
@@ -128,10 +129,10 @@ export class MemePicker {
     control('查找贴纸合集', createElement(Plus).outerHTML, () => { void this.switchKind('stickers').then(() => this.openSearch()); });
     control('收藏', memeIcons.star, () => { this.favoriteView = !this.favoriteView; void this.local(); }).setAttribute('aria-pressed', String(this.favoriteView));
     if (this.kind !== 'stickers') return;
-    for (const pack of [...starterPacks, ...this.packs]) {
+    for (const pack of this.packs) {
       const button = control(pack.title, '', () => { if (this.favoriteView) { this.favoriteView = false; void this.local().then(() => this.jump(pack.id)); } else this.jump(pack.id); });
       const first = pack.items[0]; if (!first) continue;
-      const item: MediaItem = 'asset' in first ? first as MediaItem : { id: first.id, title: pack.title, favorite: first as MemeFavorite, pack: pack.id };
+      const item: MediaItem = { id: first.id, title: pack.title, favorite: first, pack: pack.id };
       const image = document.createElement('img'); image.alt = ''; image.draggable = false; button.append(image); this.tiles.set(button, { item, visible: true });
     }
     this.hydrate();
@@ -143,22 +144,20 @@ export class MemePicker {
   }
   private async local() {
     this.clear(); this.panel.dataset.view = 'local'; const generation = this.generation;
-    // Paint bundled content before reading the encrypted local library.
-    if (!this.favoriteView) this.renderLocalItems();
     try {
       const [favorites, packs] = await Promise.all([this.options.list(), this.options.packs()]);
       if (!this.active() || generation !== this.generation) return;
       this.favorites = favorites; this.packs = packs; this.clear(); this.renderLocalItems(); this.shortcuts();
+      if (!this.favoriteView) { this.query = ''; this.nextPage = 1; await this.search(); }
     } catch { if (generation === this.generation) { this.shortcuts(); this.say('本地收藏或合集读取失败，请重新打开'); } }
   }
   private renderLocalItems() {
     if (this.favoriteView) {
       const items = this.favorites;
       this.append(items.map(item => ({ id: item.id, title: item.name, favorite: item }))); if (!items.length) this.say('暂无收藏');
-    } else if (this.kind === 'gifs') this.append(starterGifs);
-    else {
+    } else if (this.kind === 'stickers') {
       this.grid.classList.add('meme-pack-list');
-      for (const pack of [...starterPacks, ...this.packs]) {
+      for (const pack of this.packs) {
         const section = document.createElement('section'); section.dataset.pack = pack.id;
         const header = document.createElement('header'); const title = document.createElement('h3'); title.textContent = pack.title; header.append(title);
         if (this.packs.includes(pack as StickerPack)) {
@@ -166,11 +165,11 @@ export class MemePicker {
           remove.addEventListener('click', () => { if (this.busy) return; this.busy = true; void this.options.removePack(pack.id, this.signal).then(() => this.local()).catch(() => this.say('移除失败，请重试')).finally(() => { this.busy = false; }); }); header.append(remove);
         }
         const grid = document.createElement('div'); grid.className = 'meme-pack-grid'; section.append(header, grid); this.grid.append(section);
-        this.append(pack.items.map(item => 'asset' in item ? item as MediaItem : { id: item.id, title: (item as MemeFavorite).name, favorite: item as MemeFavorite, pack: pack.id }), grid);
+        this.append(pack.items.map(item => ({ id: item.id, title: item.name, favorite: item, pack: pack.id })), grid);
       }
     }
   }
-  private openSearch() {
+  private openSearch(load = true) {
     if (!this.active() || this.overlay) return;
     const overlay = document.createElement('div'); overlay.className = 'meme-search-dialog'; overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', this.kind === 'gifs' ? '搜索 GIFs' : '搜索贴纸合集');
     this.overlay = overlay; this.options.root.append(overlay); overlay.append(this.panel);
@@ -179,7 +178,7 @@ export class MemePicker {
     mountDialog(overlay, { signal: this.signal, isActive: () => this.active(), initialFocus: this.panel.querySelector<HTMLElement>('.meme-back'), returnFocus: this.options.host.querySelector<HTMLElement>('#open-memes'),
       beforeClose: () => { if (!this.packDetail) return true; void this.submit(); return false; },
       onClose: () => { if (this.overlay === overlay && this.active()) this.back(); } });
-    this.input.value = ''; void this.submit();
+    this.input.value = ''; if (load) void this.submit();
   }
   private back() {
     if (!this.overlay) return;
@@ -217,7 +216,9 @@ export class MemePicker {
     }
   }
   private async showPack(pack: RemotePack) {
-    if (this.busy || !this.active()) return; const generation = this.generation; this.say('正在加载合集…');
+    if (this.busy || !this.active()) return;
+    if (!this.overlay) this.openSearch(false);
+    const generation = this.generation; this.say('正在加载合集…');
     try {
       const detail = await this.options.pack(pack.id, this.signal); if (!this.active() || generation !== this.generation) return;
       this.clear(); this.packDetail = true; this.grid.classList.add('meme-pack-list'); const header = document.createElement('header'); header.className = 'meme-pack-detail-header';
@@ -274,11 +275,20 @@ export class MemePicker {
   }
   private async getFile(item: MediaItem, signal: AbortSignal): Promise<File> {
     signal.throwIfAborted(); const cached = [...this.tiles.values()].find(state => state.item.id === item.id && state.file)?.file; if (cached) return cached;
+    const retained = this.mediaCache.get(item.id); if (retained) { this.mediaCache.delete(item.id); this.mediaCache.set(item.id, retained); return retained; }
     let blob: Blob;
     if (item.asset) blob = await starterMedia(item.asset, signal);
     else blob = item.favorite ? await this.options.file(item.favorite, signal) : await this.options.media(item.id, signal);
     const file = await validateMemeFile(blob, item.title, signal);
     if (item.animatedOnly && !await detectImageAnimation(file, signal)) throw new Error('NON_ANIMATED_RESULT');
+    signal.throwIfAborted();
+    if (!item.favorite && file.size <= 16 * 1024 * 1024) {
+      while (this.mediaCacheBytes + file.size > 16 * 1024 * 1024 && this.mediaCache.size) {
+        const key = this.mediaCache.keys().next().value!; this.mediaCacheBytes -= this.mediaCache.get(key)!.size; this.mediaCache.delete(key);
+      }
+      this.mediaCacheBytes -= this.mediaCache.get(item.id)?.size ?? 0;
+      this.mediaCache.set(item.id, file); this.mediaCacheBytes += file.size;
+    }
     return file;
   }
   private async perform(item: MediaItem, action: 'send' | 'save' | 'remove') {
@@ -306,6 +316,6 @@ export class MemePicker {
     if (this.disposed) return; this.disposed = true; this.controller.abort();
     if (this.preview) closeDialog(this.preview, { animate: false, restoreFocus: false }); if (this.overlay) closeDialog(this.overlay, { animate: false, restoreFocus: false });
     this.observer.disconnect(); this.request?.abort(); for (const tile of this.tiles.keys()) this.unload(tile);
-    this.tiles.clear(); this.favorites = []; this.packs = []; this.input.value = ''; this.panel.remove(); this.options.host.classList.remove('has-meme-panel');
+    this.tiles.clear(); this.mediaCache.clear(); this.mediaCacheBytes = 0; this.favorites = []; this.packs = []; this.input.value = ''; this.panel.remove(); this.options.host.classList.remove('has-meme-panel');
   }
 }

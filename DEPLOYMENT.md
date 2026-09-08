@@ -440,7 +440,7 @@ data deletion.
 
 ## 可选会话管理后台（sao.shui.click）
 
-应用默认不开启后台。自动加密备份不依赖管理员登录，后台只能管理会话/设备/备份元数据和清理会话，不能获取恢复码或解密内容。功能和风险边界见 [RECOVERY_BACKUPS.md](./RECOVERY_BACKUPS.md)。本段是部署准备说明，不是发布授权或已安装记录。
+应用默认不开启后台。自动加密备份不依赖管理员登录，后台管理会话/设备/备份元数据、清理会话和公开表情资源库，不能获取恢复码或解密聊天内容。功能和风险边界见 [RECOVERY_BACKUPS.md](./RECOVERY_BACKUPS.md) 与 [MEMES.md](./MEMES.md)。新资源库初始为空，需先启用后台并上架资源。手动上传要求安装新版后台 Nginx 配置，仅精确资源入口允许 12 MiB 请求体，其他后台入口保持 64 KiB。本段是部署准备说明，不是发布授权或已安装记录。
 
 1. 在受信任的交互终端运行 `node scripts/admin-setup.mjs --out /secure/path/admin.json`。输入至少 16 字符的管理员密码两次，扫描 Google Authenticator 二维码并验证动态码。脚本拒绝覆盖已有文件，以 0600 权限创建配置。不要把二维码、密码、种子或生成的 JSON 提交、记录到工单或终端日志。
 2. 在服务器保护目录放置配置，例如 `/opt/quiet-room/shared/admin.json`。运行时应用为 Node 镜像的 `node` 用户（默认 UID/GID 1000，部署前核实），配置须可由该 UID 读取且为 0600；目录由 root 管理且不可被普通用户写入。容器通过单文件只读 bind mount 获取它，备份容器不挂载该文件。不要将它放在 `/app/data`、Git release 目录或公开静态目录内。
