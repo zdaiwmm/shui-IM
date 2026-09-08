@@ -179,12 +179,10 @@ try {
     await page.locator('.image-viewer').waitFor({ state: 'detached' });
   };
   const openInReader = async locator => {
-    const waiting = page.waitForEvent('popup');
     await locator.click();
-    const reader = await waiting;
-    await reader.waitForURL('blob:**', { timeout: 5_000 });
-    assert(reader.url().startsWith('blob:'), 'Verified document did not open through a system reader');
-    await reader.close();
+    await page.locator('.document-reader[data-state="ready"] .reader-text').waitFor();
+    assert((await page.locator('.reader-text').textContent()).length > 0, 'Verified document has no reader content');
+    await page.getByRole('button', { name: '关闭阅读器', exact: true }).click();
   };
 
   const chatPreview = page.locator(`.message .image-preview.video-preview[data-blob-id="${ids.chatVideo}"]`);
