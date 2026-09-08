@@ -41,14 +41,16 @@
   有界缓存且无全量预热。回环 5173 被另一任务 HTTP 测试监听占用时未终止该进程。
   此后文档提交只保存交付证据，不将下方历史生产快照视为本次发布。
 
-## 本机文档阅读器（2026-09-09，候选验证中）
+## 本机文档阅读器（2026-09-09，本机已集成）
 
 - 本任务工作树 `/private/tmp/quiet-room-document-reader`，分支 `codex/document-reader`，
   规则与开发基线 `dc3c18e472fe69c88e0afe72d530af76664e7145`。用户确认 PDF.js 加自有界面及现有液态玻璃效果。
 - PDF 与 TXT／JSON／Markdown／CSV 的本机阅读已实现；完整校验后解析，PDF 有翻页、缩放、按匹配页搜索，文本按原文显示。关闭、隐私遮蔽和锁定清理文档与 worker；边界见 [D-038](decisions.md#d-038pdf-与文本改用本机内置阅读器)。
-- 构建与 66 个文件的 518 项单元／集成测试通过；Chrome 和 WebKit 阅读器专项通过，含真实 PDF 像素、文字、翻页、搜索、缩放、错误与 worker 清理。320/390/768/1280px、横屏和明暗截图已检查。Chrome 另通过与生产一致的 CSP 限制、超限拒绝与解析中关闭。
-- 首轮完整门禁停在新增浏览器入口后的旧计数断言，已修正并通过单元验证；完整浏览器与最新 main 组合验证待完成。附件点击专项已通过，新增隐私断言随最终组合再验。
-- 本机集成、服务回读与 iPhone / iOS 27 / Safari 真机验收待完成；本任务未推送 GitHub、未运行 CI、未发布生产。截图位于 `/private/tmp/quiet-room-reader-qa` 与 `/private/tmp/quiet-room-reader-webkit-qa`。
+- 任务提交 `8fd10be` 与本机 main `5180bcc` 在独立工作树 `/private/tmp/quiet-room-integrate-document-reader`、分支 `codex/integrate-document-reader` 组合为 `ca160d3`；仅状态文档新增段落冲突，保留两边记录。随后 `d240f7f3259758084a2a918e3bfab7ce0599e196` 修正视频专项的旧弹窗断言，应用源码保持一致。
+- 最终组合构建与 67 个文件的 523 项单元／集成测试通过；29 个浏览器入口分段全部通过，不记为 `check:full` 单次零退出。任务首轮的入口计数夹具、组合轮的视频旧弹窗夹具均已修正；组合轮通过前 26 项后从失败项续跑最后三项，保留原验证范围。失败回收的 `kill EPERM` 记为 runner 环境问题。
+- Chrome 和最终组合 WebKit 阅读器专项通过：真实 PDF 像素与文字、翻页、搜索、缩放、与生产一致的 CSP、超限拒绝、错误与解析中关闭、worker／画布清理、迟到结果隔离。320/390/768/1280px、横屏和明暗截图已检查；真实附件测试覆盖校验后原文、隐私遮蔽与传输中锁定。日志位于 `/private/tmp/quiet-room-reader-integration-check-full.log` 与 `/private/tmp/quiet-room-reader-integration-browser-resume.log`。
+- 已在互斥锁内快进干净本机 main 到 `d240f7f`，版本 `2026.09.09.2`；按锁文件更新依赖并重启既有局域网启动器。前后端 cwd 均为共享 main，原 HTTPS 主机名和证书通过实际局域网接口独立回读应用、阅读器、PDF 模块与逐字节一致的 CSS，后端 ok/database/storage 全部为 true。本节后续文档提交不改变应用源码。
+- iPhone / iOS 27 / Safari 真机验收仍待完成；本任务未推送 GitHub、未运行 CI、未发布生产。截图位于 `/private/tmp/quiet-room-reader-qa` 与 `/private/tmp/quiet-room-reader-webkit-final-qa`。任务及集成工作树保留供真机反馈，未执行发布后清理。
 
 ## 当前生产与本机状态（2026-09-09 00:22）
 
