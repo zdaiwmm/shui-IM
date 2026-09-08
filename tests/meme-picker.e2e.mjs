@@ -108,6 +108,7 @@ try {
   await page.locator('.meme-open-search').click();
   assert.equal(await page.locator('.chat-shell').evaluate(el=>el.inert),true);
   assert.equal(await page.locator('.meme-tabs').isVisible(),false);
+  await page.waitForFunction(() => document.activeElement === document.querySelector('.meme-back'));
   await page.locator('#meme-query').fill('无语'); await page.locator('#meme-query').press('Enter');
   await page.waitForFunction(()=>window.fixture.requests.at(-1).keyword==='无语');
   assert.equal(await page.getByRole('button',{name:'同意并搜索'}).count(),0);
