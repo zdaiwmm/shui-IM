@@ -1,4 +1,4 @@
-import { createElement, X, Search, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize, ArrowDownUp, ArrowLeftRight, Send } from 'lucide';
+import { createElement, X, Search, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize, ArrowDownUp, ArrowLeftRight, Send, List } from 'lucide';
 import type { PdfReader } from './pdf-reader';
 import type { EpubReader } from './epub-reader';
 import { attachDocumentPaging } from './document-paging';
@@ -29,7 +29,10 @@ export class DocumentReader {
   readonly signal = this.abort.signal;
   private pdf?: PdfReader;
   private epub?: EpubReader;
-  private directory: HTMLSelectElement;
+  private directory: HTMLElement;
+  private directoryButton: HTMLButtonElement;
+  private chapterPages: number[] = [];
+  private paginationKey = '';
   private fragment?: string;
   private content: HTMLElement;
   private stage: HTMLElement;
@@ -82,10 +85,11 @@ export class DocumentReader {
       <footer class="reader-toolbar" hidden><div class="reader-paging"><input type="number" min="1" value="1" aria-label="页码"><span></span></div><div class="reader-zoom"><output>100%</output></div></footer>`;
     el.querySelector('strong')!.textContent = filename;
     el.querySelector('.reader-title > span')!.textContent = mimeType === 'application/pdf' ? 'PDF' : mimeType === 'application/epub+zip' ? 'EPUB' : '文本';
-    this.directory = document.createElement('select');
+    this.directory = document.createElement('div');
     this.directory.className = 'reader-directory'; this.directory.hidden = true;
+    this.directory.id = 'reader-directory';
+    this.directory.setAttribute('role', 'menu');
     this.directory.setAttribute('aria-label', '章节目录');
-    this.directory.addEventListener('change', () => this.go(Number(this.directory.value)), { signal: this.signal });
     const button = (label: string, icon: typeof X, action: () => void) => {
       const node = document.createElement('button');
       node.type = 'button'; node.className = 'reader-control'; node.title = label; node.setAttribute('aria-label', label);
@@ -149,16 +153,34 @@ export class DocumentReader {
       mode.replaceChildren(createElement(this.mode === 'pages' ? ArrowDownUp : ArrowLeftRight));
       this.screen = 0; this.stage.scrollTo(0, 0); void this.render();
     });
-    mode.classList.add('reader-mode'); this.toolbar.append(mode, this.directory);
+    this.directoryButton = button('章节目录', List, () => this.toggleDirectory());
+    this.directoryButton.hidden = true;
+    this.directoryButton.setAttribute('aria-expanded', 'false');
+    this.directoryButton.setAttribute('aria-controls', this.directory.id);
+    this.directoryButton.setAttribute('aria-haspopup', 'menu');
+    mode.classList.add('reader-mode'); this.toolbar.append(mode, this.directoryButton);
+    el.append(this.directory);
+    el.addEventListener('pointerdown', event => {
+      if (!this.directory.hidden && !this.directory.contains(event.target as Node) && !this.directoryButton.contains(event.target as Node)) this.toggleDirectory(false, false);
+    }, { signal: this.signal });
+    this.directory.addEventListener('keydown', event => {
+      if (!['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return;
+      event.preventDefault(); event.stopPropagation();
+      const buttons = [...this.directory.querySelectorAll('button')];
+      const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (index + (event.key === 'ArrowUp' ? -1 : 1) + buttons.length) % buttons.length;
+      buttons[next]?.focus();
+    }, { signal: this.signal });
     el.dataset.mode = this.mode;
     this.searchForm.addEventListener('submit', event => { event.preventDefault(); void this.find(); }, { signal: this.signal });
     this.query.addEventListener('input', () => { this.searchVersion++; this.searchOffset = -1; }, { signal: this.signal });
     this.pageInput.addEventListener('change', () => {
       if (this.pdf) this.go(Number(this.pageInput.value));
+      else if (this.epub) this.goBookPage(Number(this.pageInput.value));
       else { this.screen = Math.max(0, Math.min(this.screens - 1, Number(this.pageInput.value) - 1 || 0)); this.position(); }
     }, { signal: this.signal });
     el.addEventListener('keydown', event => {
-      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.onClose(); }
+      if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); if (!this.directory.hidden) this.toggleDirectory(false); else this.onClose(); }
       if (event.key === 'Tab') {
         const nodes = [...el.querySelectorAll<HTMLElement>('button:not(:disabled), input, select, [tabindex="0"]')].filter(node => node.getClientRects().length);
         const index = nodes.indexOf(document.activeElement as HTMLElement);
@@ -187,6 +209,10 @@ export class DocumentReader {
     attachDocumentPaging(this.stage, () => this.ready && this.mode === 'pages'
       && (!this.pdf || this.zoom <= 1), direction => this.step(direction), this.signal);
     this.stage.addEventListener('scroll', () => {
+      if (this.mode === 'scroll' && this.epub && this.element.dataset.state === 'ready') {
+        const progress = this.stage.scrollTop / Math.max(1, this.stage.scrollHeight - this.stage.clientHeight);
+        this.screen = Math.min(this.screens - 1, Math.floor(progress * this.screens)); this.position();
+      }
       if (this.mode !== 'scroll' || !this.pdf) return;
       clearTimeout(this.scrollTimer);
       this.scrollTimer = window.setTimeout(() => void this.renderPdfWindow(), 60);
@@ -236,8 +262,14 @@ export class DocumentReader {
         this.epub = new EpubReader((page, fragment) => this.go(page, fragment));
         await this.epub.load(new Uint8Array(bytes));
         if (this.signal.aborted || version !== this.loadVersion) return;
-        this.epub.titles.forEach((title, index) => this.directory.add(new Option(title, String(index + 1))));
-        this.directory.hidden = false;
+        this.epub.titles.forEach((title, index) => {
+          const item = document.createElement('button');
+          item.type = 'button'; item.textContent = title;
+          item.dataset.chapter = String(index + 1); item.setAttribute('role', 'menuitem');
+          item.addEventListener('click', () => { this.toggleDirectory(false); this.go(index + 1); }, { signal: this.signal });
+          this.directory.append(item);
+        });
+        this.directoryButton.hidden = false;
       } else this.text = decodeText(bytes);
       if (this.signal.aborted || version !== this.loadVersion) return;
       clearTimeout(this.deadline);
@@ -246,6 +278,28 @@ export class DocumentReader {
       this.element.dataset.kind = isPdf ? 'pdf' : isEpub ? 'epub' : 'text';
       await this.render();
     } catch { if (!this.signal.aborted) this.fail('无法阅读此文件，文件可能损坏、加密或格式不受支持'); }
+  }
+
+  private toggleDirectory(open = this.directory.hidden, focus = true): void {
+    this.directory.hidden = !open;
+    this.directoryButton.setAttribute('aria-expanded', String(open));
+    if (!focus) return;
+    if (open) this.directory.querySelector<HTMLButtonElement>(`[data-chapter="${this.page}"]`)?.focus({ preventScroll: true });
+    else this.directoryButton.focus({ preventScroll: true });
+    if (open) this.directory.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'nearest' });
+  }
+
+  private goBookPage(value: number): void {
+    const total = this.chapterPages.reduce((sum, count) => sum + count, 0);
+    let page = Math.max(1, Math.min(total, Math.trunc(value) || 1));
+    let chapter = 0;
+    while (chapter < this.chapterPages.length - 1 && page > this.chapterPages[chapter]!) page -= this.chapterPages[chapter++]!;
+    if (chapter + 1 === this.page) {
+      this.screen = page - 1;
+      if (this.mode === 'scroll') this.stage.scrollTop = (this.stage.scrollHeight - this.stage.clientHeight) * this.screen / Math.max(1, this.screens - 1);
+      this.position();
+    }
+    else this.go(chapter + 1, undefined, false, page - 1);
   }
 
   fail(message = '文件读取失败，请关闭后重试'): void {
@@ -258,6 +312,7 @@ export class DocumentReader {
     this.pdf?.destroy(); this.pdf = undefined;
     this.epub?.destroy(); this.epub = undefined;
     this.directory.replaceChildren(); this.directory.hidden = true;
+    this.directoryButton.hidden = true; this.chapterPages = []; this.paginationKey = '';
     this.text = '';
     this.content.replaceChildren();
     this.toolbar.hidden = true;
@@ -267,12 +322,13 @@ export class DocumentReader {
     this.element.dataset.state = 'error';
   }
 
-  private go(page: number, fragment?: string, end = false): void {
+  private go(page: number, fragment?: string, end = false, screen = 0): void {
     const book = this.pdf ?? this.epub;
     if (!this.ready || !book) return;
     const next = Number.isFinite(page) ? Math.max(1, Math.min(book.pages, Math.trunc(page))) : this.page;
+    if (next === this.page && page !== next) return;
     this.turn = Math.sign(next - this.page); this.page = next;
-    this.screen = end ? Number.MAX_SAFE_INTEGER : 0;
+    this.screen = end ? Number.MAX_SAFE_INTEGER : screen;
     this.fragment = fragment;
     this.stage.scrollTo(0, 0);
     void this.render();
@@ -294,13 +350,15 @@ export class DocumentReader {
       this.content.style.transform = `translate3d(${-this.screen * this.stride}px,0,0)`;
       this.stage.scrollLeft = 0; this.stage.scrollTop = 0;
     }
-    const pages = this.pdf?.pages ?? this.screens;
-    this.pageInput.value = String(this.pdf ? this.page : this.screen + 1);
+    const pages = this.pdf?.pages ?? (this.epub ? this.chapterPages.reduce((sum, count) => sum + count, 0) : this.screens);
+    const offset = this.epub ? this.chapterPages.slice(0, this.page - 1).reduce((sum, count) => sum + count, 0) : 0;
+    this.pageInput.value = String(this.pdf ? this.page : offset + this.screen + 1);
     this.pageInput.max = String(pages); this.pageCount.textContent = `/ ${pages}`;
-    this.directory.value = String(this.page);
+    this.directory.dataset.chapter = String(this.page);
+    for (const item of this.directory.querySelectorAll<HTMLElement>('[data-chapter]')) item.setAttribute('aria-current', String(item.dataset.chapter === String(this.page)));
     this.previous.disabled = this.pdf ? this.page <= 1 : this.screen === 0 && (!this.epub || this.page === 1);
     this.next.disabled = this.pdf ? this.page >= pages : this.screen >= this.screens - 1 && (!this.epub || this.page === this.epub.pages);
-    if (this.turn && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (this.turn && !this.pdf && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
       this.pageAnimation?.cancel();
       const target = this.content;
       const end = target.style.transform || 'translate3d(0,0,0)';
@@ -317,22 +375,48 @@ export class DocumentReader {
     if (!article) return;
     this.content.style.transform = '';
     if (this.mode === 'pages') {
-      const style = getComputedStyle(this.stage);
-      const width = this.stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-      const height = this.stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-      this.stride = width + 32;
-      article.style.height = `${Math.max(60, height)}px`;
-      article.style.columnWidth = `${width}px`; article.style.columnGap = '32px'; article.style.columnFill = 'auto';
-      article.style.maxWidth = 'none'; article.style.width = `${width}px`;
-      article.style.setProperty('--reader-page-height', `${Math.max(60, height)}px`);
-      this.screens = Math.max(1, Math.ceil((article.scrollWidth + 32) / this.stride));
+      this.screens = this.measurePages(article);
       const target = this.fragment ? [...article.querySelectorAll<HTMLElement>('[data-reader-anchor]')].find(node => node.dataset.readerAnchor === this.fragment) : article.querySelector('mark');
       if (target) this.screen = Math.max(0, Math.floor((target.getBoundingClientRect().left - article.getBoundingClientRect().left) / this.stride));
     } else {
-      this.screens = 1;
-      if (this.screen > 0) this.stage.scrollTop = this.stage.scrollHeight;
+      this.screens = this.epub ? this.chapterPages[this.page - 1] ?? 1 : 1;
+      this.screen = Math.min(this.screen, this.screens - 1);
+      if (this.screen > 0) this.stage.scrollTop = (this.stage.scrollHeight - this.stage.clientHeight) * this.screen / Math.max(1, this.screens - 1);
     }
     this.position(); this.fragment = undefined;
+  }
+
+  private measurePages(article: HTMLElement): number {
+    const style = getComputedStyle(this.stage);
+    const width = Math.max(60, this.stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight));
+    const height = Math.max(60, this.stage.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom));
+    this.stride = width + 32;
+    article.style.height = `${height}px`;
+    article.style.columnWidth = `${width}px`; article.style.columnGap = '32px'; article.style.columnFill = 'auto';
+    article.style.maxWidth = 'none'; article.style.width = `${width}px`;
+    article.style.setProperty('--reader-page-height', `${height}px`);
+    return Math.max(1, Math.ceil((article.scrollWidth + 32) / this.stride));
+  }
+
+  private async paginateBook(version: number): Promise<void> {
+    const key = `${this.stage.clientWidth}:${this.stage.clientHeight}:${this.zoom}`;
+    if (!this.epub || this.paginationKey === key) return;
+    const measure = document.createElement('div');
+    measure.className = 'reader-content reader-measure'; measure.inert = true;
+    this.element.append(measure);
+    const pages: number[] = [];
+    try {
+      for (let chapter = 1; chapter <= this.epub.pages; chapter++) {
+        if (this.signal.aborted || version !== this.renderVersion) return;
+        await this.epub.render(chapter, measure, this.zoom, '');
+        if (this.signal.aborted || version !== this.renderVersion) return;
+        pages.push(this.measurePages(measure.firstElementChild as HTMLElement));
+        measure.replaceChildren();
+        await new Promise<void>(resolve => window.setTimeout(resolve, 0));
+      }
+      if (this.signal.aborted || version !== this.renderVersion) return;
+      this.chapterPages = pages; this.paginationKey = key;
+    } finally { measure.remove(); }
   }
 
   private async renderPdfWindow(): Promise<void> {
@@ -380,13 +464,9 @@ export class DocumentReader {
     const version = ++this.renderVersion;
     this.pageAnimation?.cancel(); this.content.style.transform = '';
     this.pdfSlots = []; this.pdfRendered.clear(); this.pdf?.retain([]);
-    this.pageInput.value = String(this.page);
-    const pages = (this.pdf ?? this.epub)?.pages ?? 1;
-    this.pageInput.max = String(pages);
-    this.pageCount.textContent = `/ ${pages}`;
-    this.directory.value = String(this.page);
-    this.previous.disabled = this.page <= 1;
-    this.next.disabled = this.page >= pages;
+    this.previous.disabled = true;
+    this.next.disabled = true;
+    this.pageInput.disabled = true;
     this.zoomOut.disabled = this.zoom <= 0.75;
     this.zoomIn.disabled = this.zoom >= (this.pdf ? 3 : 1.5);
     this.zoomLabel.textContent = `${Math.round(this.zoom * 100)}%`;
@@ -396,6 +476,8 @@ export class DocumentReader {
     clearTimeout(this.deadline);
     this.deadline = window.setTimeout(() => this.fail('文档排版超时，请关闭后重试'), 20_000);
     try {
+      await this.paginateBook(version);
+      if (this.signal.aborted || version !== this.renderVersion) return;
       if (this.pdf && this.mode === 'scroll') {
         this.content.replaceChildren();
         this.pdfSlots = Array.from({ length: this.pdf.pages }, (_, index) => {
@@ -418,6 +500,7 @@ export class DocumentReader {
       if (size === `${this.stage.clientWidth}:${this.stage.clientHeight}`) clearTimeout(this.resizeTimer);
       clearTimeout(this.deadline);
       this.status.hidden = true;
+      this.pageInput.disabled = false;
       this.stage.classList.toggle('reader-swipe', this.mode === 'pages' && (!this.pdf || this.zoom <= 1));
       this.element.dataset.state = 'ready';
     } catch { if (!this.signal.aborted && version === this.renderVersion) this.fail(); }
@@ -478,6 +561,7 @@ export class DocumentReader {
     this.pdf?.destroy(); this.pdf = undefined;
     this.epub?.destroy(); this.epub = undefined;
     this.text = ''; this.query.value = ''; this.lastQuery = '';
+    this.chapterPages = []; this.paginationKey = '';
     this.content.replaceChildren();
     this.element.replaceChildren();
     this.element.remove();

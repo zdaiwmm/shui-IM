@@ -79,9 +79,9 @@ export function bindChatImageConcealGesture(options: {
     if (ended.moved || cancelled) options.suppressClick();
     const dx = ended.latest.x - ended.origin.x;
     const dy = ended.latest.y - ended.origin.y;
-    // Real cancellation is fail-closed. A native pan's pointercancel is ignored
-    // by the pointer listener while touch events own the active gesture.
-    if (cancelled || dy >= 24 && dy > Math.abs(dx)) options.conceal();
+    // Only an owned, completed media pull hides previews. Native scrolling and
+    // pointer cancellation carry no conceal intent; privacy teardown is separate.
+    if (!cancelled && ended.intent === 'pull' && dy >= 24 && dy > Math.abs(dx)) options.conceal();
     clearTarget(ended.target);
     if (cancelled || !options.active() || !ended.target?.isConnected || ended.displaced < 1 || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const target = ended.target;

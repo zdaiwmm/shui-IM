@@ -6,6 +6,7 @@ import { createCipheriv, createHmac, hkdfSync } from 'node:crypto';
 import protobuf from 'protobufjs';
 import { createExpressionCatalog } from '../server/expression-catalog.mjs';
 import { shippedExpressions } from '../server/shipped-expressions.mjs';
+import { shippedGifAdditions, GIF_ADDITIONS_BATCH } from '../server/shipped-gif-additions.mjs';
 import { fileURLToPath } from 'node:url';
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -36,6 +37,23 @@ async function finished(service: ReturnType<typeof createExpressionCatalog>) {
   return service.jobs()[0];
 }
 describe('managed expression catalog', () => {
+  it('imports 400 additional animations in a separate durable batch without undoing moderation', async () => {
+    const f = await fixture();
+    f.service.initializeShipped(() => []);
+    const load = () => shippedGifAdditions({
+      libraryPath: fileURLToPath(new URL('../src/lib/additional-gifs.json', import.meta.url)),
+      publicDir: fileURLToPath(new URL('../public', import.meta.url)),
+    });
+    expect(f.service.initializeShipped(load, GIF_ADDITIONS_BATCH)).toEqual({ initialized: true, added: 400, skipped: 0 });
+    expect(f.service.list({ ...search(), status: 'published' }).total).toBe(400);
+    const removed = f.service.list({ ...search(), status: 'published' }).entries[0];
+    f.service.remove(removed.id);
+    await f.restart();
+    expect(f.service.initializeShipped(load, GIF_ADDITIONS_BATCH)).toEqual({ initialized: false, added: 0, skipped: 0 });
+    expect(f.service.list({ ...search(), status: 'published' }).total).toBe(399);
+    expect(f.service.initializeShipped(() => { throw Error('Base replayed'); }).initialized).toBe(false);
+    expect(f.fetchResource).not.toHaveBeenCalled();
+  });
   it('initializes the shipped originals as 30 full published packs and 100 animations without network, once only', async () => {
     const f = await fixture();
     const load = () => shippedExpressions({

@@ -45,15 +45,20 @@
 .reader-search output { position: absolute; right: 12px; top: 48px; font-size: 12px; color: var(--ink-muted); white-space: nowrap; background: var(--paper); border-radius: 6px; padding: 0 6px; }
 .reader-search output:empty { display: none; }
 .reader-search .reader-control, .reader-toolbar .reader-control { background: transparent; border: 0; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
-.reader-stage { grid-row: 2; overflow: auto; overscroll-behavior: contain; min-height: 0; padding: 12px 16px 28px; touch-action: pan-x pan-y; scrollbar-width: none; }
+.reader-stage { grid-row: 2; overflow: auto; overscroll-behavior-y: contain; overscroll-behavior-x: none; min-height: 0; padding: 12px 16px 28px; touch-action: pan-x pan-y; scrollbar-width: none; }
 .reader-stage::-webkit-scrollbar { display: none; }
 .document-reader[data-mode="pages"]:not([data-kind="pdf"]) .reader-stage { overflow: hidden; }
 .document-reader[data-mode="pages"] .reader-epub img { max-height: calc(var(--reader-page-height) - 48px); break-inside: avoid; }
 .document-reader[data-mode="pages"] .reader-epub :is(table,figure) { max-height: var(--reader-page-height); overflow: auto; break-inside: avoid; }
 .reader-pdf-slot { position: relative; min-width: 100%; }
 .reader-content { width: max-content; min-width: 100%; }
-.reader-stage.reader-swipe { touch-action: pan-y pinch-zoom; }
-.reader-directory { max-width: 100%; width: 100%; height: 44px; padding: 0 12px; border: 1px solid var(--glass-border); border-radius: 22px; background: var(--glass-panel); color: var(--ink); font: inherit; font-size: 16px; text-overflow: ellipsis; }
+.reader-stage.reader-swipe { touch-action: pan-y pinch-zoom; overflow-x: hidden; }
+.reader-directory { position: absolute; bottom: calc(84px + env(safe-area-inset-bottom)); right: 12px; width: min(340px, calc(100% - 24px)); max-height: min(55%, 420px); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border: 1px solid var(--glass-border); border-radius: 8px; background: var(--paper-pure); box-shadow: var(--glass-shadow); color: var(--ink); z-index: 3; animation: reader-directory-in 180ms var(--motion-out); }
+.reader-directory button { display: block; width: 100%; min-height: 44px; padding: 10px 12px; border: 0; border-radius: 6px; background: transparent; text-align: left; font-size: 14px; overflow-wrap: anywhere; }
+.reader-directory button[aria-current="true"] { background: var(--glass-control); color: var(--accent); }
+.reader-measure { position: absolute; inset: 0 auto auto 0; visibility: hidden; pointer-events: none; overflow: hidden; contain: layout paint; }
+.reader-measure .reader-epub img { max-height: calc(var(--reader-page-height) - 48px); break-inside: avoid; }
+.reader-measure .reader-epub :is(table,figure) { max-height: var(--reader-page-height); overflow: auto; break-inside: avoid; }
 .reader-epub { max-width: 70ch; margin: 0 auto; overflow-wrap: anywhere; line-height: 1.85; user-select: text; -webkit-user-select: text; }
 .reader-epub :is(h1,h2,h3,h4,h5,h6) { font-size: 1.25em; line-height: 1.5; margin: 1.5em 0 .75em; }
 .reader-epub p { margin: .9em 0; }
@@ -69,13 +74,13 @@
 .reader-pdf-page { position: relative; margin: 0 auto; background: white; color-scheme: only light; box-shadow: 0 2px 14px oklch(20% .008 255 / .12); }
 .reader-pdf-page canvas { display: block; }
 .reader-status { position: absolute; top: 45%; left: 24px; right: 24px; margin: 0; text-align: center; font-size: 14px; color: var(--ink-muted); pointer-events: none; overflow-wrap: anywhere; }
-.reader-toolbar { grid-row: 3; justify-self: center; display: flex; flex-wrap: wrap; justify-content: center; align-items: center; max-width: calc(100% - 16px); gap: 4px; padding: 4px; margin: 0 8px max(12px, env(safe-area-inset-bottom)); border-radius: 28px; z-index: 2; }
-.reader-toolbar .reader-directory { width: 140px; flex: 1 1 120px; max-width: 240px; margin-left: auto; }
+.reader-toolbar { grid-row: 3; justify-self: center; display: flex; flex-wrap: nowrap; justify-content: flex-start; align-items: center; max-width: calc(100% - 16px); min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; gap: 4px; padding: 4px; margin: 0 8px max(12px, env(safe-area-inset-bottom)); border-radius: 28px; z-index: 2; }
+.reader-toolbar::-webkit-scrollbar { display: none; }
 .reader-mode svg { width: 20px; height: 20px; }
-.reader-paging, .reader-zoom { display: flex; align-items: center; gap: 0; min-width: 0; }
+.reader-paging, .reader-zoom { display: flex; flex: 0 0 auto; align-items: center; gap: 0; min-width: 0; }
 .reader-paging input { width: 44px; height: 44px; min-height: 44px; padding: 0; text-align: center; font-size: 16px; color: var(--ink); background: transparent; border: 0; appearance: textfield; }
 .reader-paging input::-webkit-inner-spin-button { appearance: none; }
-.reader-paging > span { white-space: nowrap; color: var(--ink-muted); font-size: 12px; padding-right: 4px; }
+.reader-paging > span { white-space: nowrap; color: var(--ink-muted); font-size: 16px; padding-right: 4px; }
 .reader-zoom output { width: 44px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
 .reader-text mark, .reader-match { background: oklch(85% .13 85 / .6); color: inherit; }
 /* PDF.js text positioning, adapted from its Apache-2.0 viewer stylesheet. */
@@ -95,5 +100,6 @@
 @media (prefers-reduced-transparency: reduce) { .reader-control, .reader-toolbar, .reader-search { background: var(--paper-pure); backdrop-filter: none; -webkit-backdrop-filter: none; } }
 @media (forced-colors: active) { .document-reader { background: Canvas; color: CanvasText; } .reader-control, .reader-toolbar, .reader-search { border-color: ButtonText; background: Canvas; color: ButtonText; } }
 @keyframes reader-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes reader-directory-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 @keyframes reader-search-expand { from { opacity: 0; clip-path: inset(0 0 0 calc(100% - 44px) round 24px); } to { opacity: 1; clip-path: inset(0 round 24px); } }
-@media (prefers-reduced-motion: reduce) { .reader-search { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .reader-search, .reader-directory { animation: none; } }

@@ -47,6 +47,23 @@ try {
   });
 
   await page.locator('.release-notes-sheet.is-visible').waitFor();
+  await page.waitForTimeout(400);
+  const fixedNotes = await page.evaluate(async () => {
+    const panel = document.querySelector('.release-notes-panel');
+    const header = panel.querySelector('.release-notes-header');
+    const close = panel.querySelector('button');
+    const details = panel.querySelector('.release-notes-details');
+    const before = [header.getBoundingClientRect().top, close.getBoundingClientRect().top];
+    details.scrollTop = details.scrollHeight;
+    await new Promise(requestAnimationFrame);
+    const after = [header.getBoundingClientRect().top, close.getBoundingClientRect().top];
+    const bottomGap = panel.getBoundingClientRect().bottom - panel.querySelector('li:last-child').getBoundingClientRect().bottom;
+    details.scrollTop = 0;
+    return { before, after, bottomGap, outline: getComputedStyle(close).outlineStyle,
+      scrollable: details.scrollHeight > details.clientHeight, bounce: getComputedStyle(details).overscrollBehaviorY };
+  });
+  if (JSON.stringify(fixedNotes.before) !== JSON.stringify(fixedNotes.after) || fixedNotes.bottomGap < 24
+    || fixedNotes.outline !== 'none' || !fixedNotes.scrollable || fixedNotes.bounce !== 'contain') throw Error(`Release sheet geometry: ${JSON.stringify(fixedNotes)}`);
   const notes = await page.locator('.release-notes-panel li').allTextContents();
   const expectedNotes = await page.evaluate(async () => {
     const history = (await import('/release-history.json')).default;
@@ -70,6 +87,8 @@ try {
   await page.locator('#release-history').click();
   await page.locator('.release-history-content h2').first().waitFor();
   const versions = await page.locator('.release-history-content h2').allTextContents();
+  const dates = await page.locator('.release-history-content time').allTextContents();
+  if (dates.some(date => !/\d{2}:\d{2}/.test(date))) throw Error('Release history is missing minute precision');
   if (JSON.stringify(versions) !== JSON.stringify(await page.evaluate(() => window.releaseFixture.release.releaseLog.map(item => item.id)))) throw new Error('Release log order mismatch');
   await page.getByRole('button', { name: '返回聊天' }).click();
   await page.locator('.chat-shell:not(.is-page-outgoing)').waitFor();

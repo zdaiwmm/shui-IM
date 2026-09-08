@@ -108,11 +108,11 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
   const service = {
     // Only the explicit repository initializer uses this entry point. Keeping
     // the marker in the snapshot prevents a later run from undoing moderation.
-    initializeShipped(loadEntries) {
+    initializeShipped(loadEntries, id = 'shipped-library-v1') {
       if (running || closing) fail('MEME_BUSY');
+      if (!/^[a-z0-9-]{1,64}$/.test(id)) fail('MEME_INVALID_QUERY');
       db.exec('BEGIN IMMEDIATE');
       try {
-        const id = 'shipped-library-v1';
         if (db.prepare('SELECT 1 FROM expression_initializations WHERE id=?').get(id)) {
           db.exec('COMMIT'); return { initialized: false, added: 0, skipped: 0 };
         }

@@ -3657,6 +3657,7 @@ export class QuietRoomApp {
             <div class="composer-field">
               <label class="sr-only" for="message-input">输入消息</label>
               <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '点击输入文字，长按录制语音' : '正在建立安全会话…'}" autocomplete="off" enterkeyhint="send" ${cryptoReady ? '' : 'disabled'}></textarea>
+              <span class="composer-placeholder" aria-hidden="true">${cryptoReady ? '点击输入文字，长按录制语音' : '正在建立安全会话…'}</span>
               <button class="meme-toggle" id="open-memes" type="button" aria-label="打开表情" title="表情" aria-expanded="false" aria-controls="meme-panel" ${cryptoReady ? '' : 'disabled'}>${memeIcons.smile}</button>
             </div>
           </div>
@@ -4162,13 +4163,20 @@ export class QuietRoomApp {
     button.className = 'icon-button release-notes-close';
     button.type = 'button';
     button.setAttribute('aria-label', '关闭更新说明'); button.title = '关闭'; button.innerHTML = icons.close;
-    panel.append(button, eyebrow, title, list);
+    const header = document.createElement('header');
+    header.className = 'release-notes-header';
+    header.append(button, eyebrow, title);
+    const details = document.createElement('div');
+    details.className = 'release-notes-details';
+    details.append(list);
+    panel.tabIndex = -1;
+    panel.append(header, details);
     sheet.append(panel);
     this.root.append(sheet);
     const dialog = mountDialog(sheet, {
       isActive: () => this.isRuntimeActive(epoch, session) && this.activeSurface === 'chat',
       signal: this.runtimeAbort?.signal,
-      initialFocus: button,
+      initialFocus: panel,
     });
     markReleaseNotesSeen();
     button.addEventListener('click', () => dialog.close());
@@ -4185,7 +4193,10 @@ export class QuietRoomApp {
       const heading = document.createElement('h2'); heading.textContent = release.id;
       const date = document.createElement('time');
       const parts = release.id.split('.');
-      date.dateTime = parts.slice(0, 3).join('-'); date.textContent = `${parts[0]}年${Number(parts[1])}月${Number(parts[2])}日`;
+      date.dateTime = release.createdAt ?? parts.slice(0, 3).join('-');
+      date.textContent = release.createdAt
+        ? new Date(release.createdAt).toLocaleString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+        : `${parts[0]}年${Number(parts[1])}月${Number(parts[2])}日`;
       const list = document.createElement('ul');
       for (const note of release.notes) { const item = document.createElement('li'); item.textContent = note; list.append(item); }
       section.append(heading, date, list); content.append(section);
@@ -7564,7 +7575,7 @@ export class QuietRoomApp {
     const state = this.backupError ? 'error' : this.backupRun ? 'syncing' : backup?.syncedAt ? 'ready' : 'pending';
     status.closest<HTMLElement>('[data-backup-state]')!.dataset.backupState = state;
     status.textContent = this.backupError || (this.backupRun ? '正在加密并备份…' : backup?.syncedAt
-      ? `上次备份：${new Date(backup.syncedAt).toLocaleString()}。已保存 ${backup.archives.reduce((total, archive) => total + archive.parts.reduce((sum, part) => sum + part.count, 0), 0)} 条历史记录。`
+      ? `上次备份：${new Date(backup.syncedAt).toLocaleString()}\n已保存 ${backup.archives.reduce((total, archive) => total + archive.parts.reduce((sum, part) => sum + part.count, 0), 0)} 条历史记录。`
       : '尚未完成首次备份，联网并保持页面解锁后会自动重试。');
     const ready = Boolean(backup?.syncedAt && !backup.replaces && !this.session.vault.recoverySource);
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-backup-ready]')) button.disabled = !ready;
@@ -8156,6 +8167,13 @@ export class QuietRoomApp {
     if (!button.isConnected || this.privacyCovered) return;
     await this.ensureChatConcealedImage(manifest, cached, image);
     if (!button.isConnected || this.privacyCovered || !cached.concealedUrl || this.imageCache.get(manifest.blobId) !== cached) return;
+    // Committing intrinsic media size during touch/inertia interrupts Safari's
+    // scroll trajectory. Decode ahead, then settle geometry at the shared gate.
+    const signal = this.runtimeAbort?.signal;
+    while (ownerList() && this.chatViewportMotion?.moving && signal && !signal.aborted) {
+      await this.abortableDelay(60, signal);
+    }
+    if (!button.isConnected || this.privacyCovered || signal?.aborted || this.imageCache.get(manifest.blobId) !== cached) return;
     cached.width = image.width = image.naturalWidth;
     cached.height = image.height = image.naturalHeight;
     if (button.dataset.expression === 'true') {
@@ -9100,6 +9118,8 @@ export class QuietRoomApp {
       this.galleryRefreshPending = tab;
       return;
     }
+    const actions = this.root.querySelector<HTMLElement>('.gallery-actions-sheet');
+    if (actions) closeDialog(actions, { animate: false, restoreFocus: false });
     const epoch = this.runtimeEpoch;
     const signal = this.runtimeAbort?.signal;
     if (!this.setActiveSurface('away')) return;
@@ -9133,9 +9153,12 @@ export class QuietRoomApp {
     this.galleryObserver = null;
     // Keep the segment control mounted across category changes so its capsule
     // can finish one continuous translation without a header layout reset.
-    const retainedTabs = this.root.querySelector<HTMLElement>(':scope > .gallery-shell > .gallery-header > .gallery-tabs');
+    const retainedShell = this.root.querySelector<HTMLElement>(':scope > .gallery-shell');
+    const retainedHeader = retainedShell?.querySelector<HTMLElement>('.gallery-header');
+    const retainedTabs = retainedHeader?.querySelector<HTMLElement>('.gallery-tabs');
     retainedTabs?.remove();
-    this.root.innerHTML = `
+    const template = document.createElement('template');
+    template.innerHTML = `
       <section class="gallery-shell" data-gallery-mode="${this.galleryMode}" aria-label="${surfaceName}">
         <header class="subpage-header gallery-header" aria-label="${surfaceName}操作">
           <button class="icon-button" id="gallery-back" type="button" aria-label="返回聊天">${icons.back}</button>
@@ -9154,6 +9177,14 @@ export class QuietRoomApp {
         <div class="gallery-grid${filesTab ? ' gallery-file-list' : ''}" id="gallery-grid" role="tabpanel" aria-labelledby="gallery-tab-${tab}" tabindex="0"></div>
       </section>
     `;
+    if (retainedShell && retainedHeader && retainedTabs) {
+      const nextShell = template.content.firstElementChild!;
+      const nextHeader = nextShell.querySelector('.gallery-header')!;
+      retainedHeader.replaceChildren(...nextHeader.childNodes);
+      nextHeader.replaceWith(retainedHeader);
+      retainedShell.replaceChildren(...nextShell.childNodes);
+      retainedShell.style.animation = 'none';
+    } else this.root.replaceChildren(template.content);
     if (retainedTabs) {
       this.root.querySelector('.gallery-tabs')!.replaceWith(retainedTabs);
       this.root.querySelector<HTMLElement>('.gallery-shell')!.style.animation = 'none';
@@ -9177,8 +9208,9 @@ export class QuietRoomApp {
       this.root.querySelector<HTMLButtonElement>('#open-gallery-image-picker'),
     );
     const grid = this.root.querySelector<HTMLElement>('#gallery-grid')!;
-    if (retainedTabs && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      grid.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: 'ease-out' });
+    if (retainedTabs) grid.style.animation = 'none';
+    if (favorites && knownCount.complete && knownCount.keys.size === 0) {
+      const empty = document.createElement('p'); empty.className = 'gallery-empty'; empty.textContent = '暂无收藏'; grid.append(empty);
     }
     const updateCounts = () => {
       for (const kind of ['images', 'files'] as const) {
@@ -9426,7 +9458,7 @@ export class QuietRoomApp {
       if (loading || !hasMore || !this.isRuntimeActive(epoch, session) || !grid.isConnected) return;
       loading = true;
       more.disabled = true;
-      status.textContent = `正在查找${category}…`;
+      status.textContent = initial && favorites ? '' : `正在查找${category}…`;
       const startedWith = assets.length + fileCount;
       try {
         // Skip text-only batches without exposing plaintext media metadata in
@@ -9443,7 +9475,8 @@ export class QuietRoomApp {
         updateCounts();
         status.textContent = hasMore ? '' : assets.length + fileCount ? `已加载本机保存的全部${category}`
           : favorites ? '' : filesTab ? '从保险箱上传的文档、压缩包等文件会显示在这里。' : '聊天中的照片、视频和从保险箱上传的照片、视频会显示在这里。';
-        if (!hasMore && !assets.length && !fileCount) {
+        if (assets.length || fileCount) grid.querySelector('.gallery-empty')?.remove();
+        if (!hasMore && !assets.length && !fileCount && !grid.querySelector('.gallery-empty')) {
           const empty = document.createElement('p');
           empty.className = 'gallery-empty';
           empty.textContent = favorites ? '暂无收藏' : `还没有${category}`;

@@ -19,7 +19,8 @@
   height: 24px;
   overflow: visible;
   pointer-events: none;
-  --circuit-idle: oklch(72% 0.012 255 / 55%);
+  --circuit-idle: oklch(72% 0.012 255);
+  --circuit-idle-opacity: .55;
   --circuit-live: oklch(61% 0.185 147);
   --circuit-heart: oklch(63% 0.20 14);
 }
@@ -30,6 +31,10 @@
   stroke-linejoin: round;
   transition: stroke 220ms ease-out;
 }
+/* Composite touching neutral shapes once so their junction cannot darken. */
+.presence-base { opacity: var(--circuit-idle-opacity); }
+.presence-circuit:is([data-phase="online"], [data-phase="fusing"], [data-phase="pulsing"]) .presence-base { opacity: 1; }
+.presence-circuit[data-phase="pulsing"] .presence-wires { stroke-opacity: var(--circuit-idle-opacity); }
 .presence-heart {
   fill: var(--circuit-idle);
   transform-box: fill-box;
@@ -39,6 +44,7 @@
 .presence-whole { display: none; }
 .presence-circuit:is([data-phase="online"], [data-phase="fusing"]) .presence-wires { stroke: var(--circuit-live); }
 .presence-circuit:is([data-phase="online"], [data-phase="fusing"]) .presence-heart { fill: var(--circuit-heart); }
+.presence-circuit[data-phase="pulsing"] .presence-heart { fill: var(--circuit-heart); }
 .presence-circuit[data-phase="online"] .presence-half { display: none; }
 .presence-circuit[data-phase="online"] .presence-whole { display: block; }
 .presence-circuit[data-phase="online"] .presence-heart { animation: presence-heartbeat 1.65s linear infinite; }
@@ -57,7 +63,8 @@
 }
 @media (prefers-color-scheme: dark) {
   .presence-circuit {
-    --circuit-idle: oklch(74% 0.012 255 / 48%);
+    --circuit-idle: oklch(74% 0.012 255);
+    --circuit-idle-opacity: .48;
     --circuit-live: oklch(73% 0.18 147);
     --circuit-heart: oklch(71% 0.18 14);
   }

@@ -239,3 +239,4 @@
 @media (prefers-reduced-motion: reduce) {
   .backup-sync-setting[data-backup-state='syncing']::after { animation: none; }
 }
+#backup-status { white-space: pre-line; }
