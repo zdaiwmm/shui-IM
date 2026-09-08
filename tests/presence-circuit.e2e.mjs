@@ -82,6 +82,24 @@ try {
   assert.equal(await phase(), 'offline');
   await page.waitForTimeout(250);
   const offlineColor = await page.locator('.presence-heart').evaluate(element => getComputedStyle(element).fill);
+  const idleAlpha = await circuit.evaluate(async element => {
+    const copy = element.cloneNode(true);
+    const original = [element, ...element.querySelectorAll('*')];
+    const cloned = [copy, ...copy.querySelectorAll('*')];
+    for (let i = 0; i < original.length; i++) {
+      const computed = getComputedStyle(original[i]);
+      for (const key of ['opacity', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'display']) cloned[i].style.setProperty(key, computed.getPropertyValue(key));
+    }
+    copy.setAttribute('width', '100'); copy.setAttribute('height', '24');
+    const image = new Image(); image.src = `data:image/svg+xml;base64,${btoa(new XMLSerializer().serializeToString(copy))}`;
+    await image.decode();
+    const canvas = document.createElement('canvas'); canvas.width = 1000; canvas.height = 240;
+    const context = canvas.getContext('2d'); context.drawImage(image, 0, 0, 1000, 240);
+    const rgba = context.getImageData(0, 0, 1000, 240).data;
+    let max = 0; for (let i = 3; i < rgba.length; i += 4) max = Math.max(max, rgba[i]);
+    return max;
+  });
+  assert.ok(idleAlpha > 120 && idleAlpha <= 142, `Wire/heart overlap compounded opacity: ${idleAlpha}`);
   await page.evaluate(() => window.fixture.app.presenceCircuit.sent());
   await page.waitForTimeout(100);
   assert.ok(await page.locator('[data-arc="left"]').getAttribute('d'));
@@ -94,6 +112,7 @@ try {
   assert.equal(await phase(), 'offline');
   assert.equal(await page.locator('.presence-heart').evaluate(element => getComputedStyle(element).fill), offlineColor);
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.waitForFunction(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
   await state(true, true);
   assert.equal(await phase(), 'online');
   assert.equal(await page.locator('.presence-heart').evaluate(e => getComputedStyle(e).animationName), 'none');
@@ -101,13 +120,17 @@ try {
   await page.evaluate(() => window.fixture.app.presenceCircuit.sent());
   assert.equal(await page.locator('[data-arc="left"]').getAttribute('d'), null);
   await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.waitForFunction(() => !matchMedia('(prefers-reduced-motion: reduce)').matches);
   await state(true, true);
   await page.evaluate(() => window.fixture.app.setActiveSurface('away'));
   assert.equal(await phase(), 'unknown');
   assert.equal(await page.evaluate(() => window.fixture.app.presenceCircuit), null);
   await page.evaluate(() => window.fixture.app.renderChat());
   await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.waitForFunction(() => matchMedia('(prefers-reduced-motion: reduce)').matches);
   await state(true, true);
+  // The unchanged snapshot is deduplicated; WebKit's media-query event settles it.
+  await page.waitForFunction(() => document.querySelector('.presence-circuit').dataset.phase === 'online', null, { timeout: 1000 });
   assert.equal(await phase(), 'online');
   const output = process.env.PRESENCE_SCREENSHOTS;
   if (output) await mkdir(output, { recursive: true });

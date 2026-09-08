@@ -1,19 +1,19 @@
 type Presence = boolean | null;
 type Point = readonly [number, number];
 
-const leftWire: Point[] = [[0, 12], [15, 12], [23, 7], [31, 17], [36, 14]];
+const leftWire: Point[] = [[0, 12], [15, 12], [23, 7], [31, 17], [39, 12], [40, 12]];
 const rightWire: Point[] = leftWire.map(([x, y]) => [100 - x, y]);
 const leftHeart = 'M0 -5 C-5 -11 -11 -7 -10 -1 C-9 3 -3 7 0 10 L-1 3 L1 0 L-1 -3 Z';
 const rightHeart = 'M0 -5 C5 -11 11 -7 10 -1 C9 3 3 7 0 10 L-1 3 L1 0 L-1 -3 Z';
 
 export const presenceCircuitMarkup = `<svg class="presence-circuit" viewBox="0 0 100 24" aria-hidden="true" focusable="false" data-phase="unknown">
-  <g class="presence-wires" fill="none"><path d="M0 12 H15 L23 7 L31 17 L36 14"/><path d="M100 12 H85 L77 7 L69 17 L64 14"/></g>
-  <g class="presence-electric" fill="none"><path data-arc="left"/><path data-arc="right"/></g>
+  <g class="presence-base"><g class="presence-wires" fill="none"><path d="M0 12 H15 L23 7 L31 17 L39 12 H40"/><path d="M100 12 H85 L77 7 L69 17 L61 12 H60"/></g>
   <g transform="translate(50 11)"><g class="presence-heart">
     <path class="presence-half" data-half="left" d="${leftHeart}" transform="translate(-2 0)"/>
     <path class="presence-half" data-half="right" d="${rightHeart}" transform="translate(2 0)"/>
     <path class="presence-whole" d="M0 -5 C-5 -11 -11 -7 -10 -1 C-9 3 -3 7 0 10 C3 7 9 3 10 -1 C11 -7 5 -11 0 -5 Z"/>
-  </g></g>
+  </g></g></g>
+  <g class="presence-electric" fill="none"><path data-arc="left"/><path data-arc="right"/></g>
 </svg>`;
 
 function along(path: Point[], progress: number): Point {
