@@ -8,6 +8,7 @@ import { createServer } from 'vite';
 import { startServer } from '../server/index.mjs';
 import { makeAdminConfig, totp } from '../server/admin-auth.mjs';
 import { animatedGif } from './fixtures/photo-fixtures.mjs';
+import { wastickers } from './fixtures/wastickers.mjs';
 
 const directory = await mkdtemp(path.join(tmpdir(), 'quiet-backup-ui-'));
 const screenshots = process.argv[2];
@@ -218,6 +219,18 @@ try {
   await admin.getByRole('tab', { name: '贴图', exact: true }).press('Home');
   assert.equal(await admin.getByRole('tab', { name: 'GIFs', exact: true }).getAttribute('aria-selected'), 'true');
   await admin.getByRole('tab', { name: '贴图', exact: true }).click();
+  const packageBytes = await wastickers({ 'title.txt': Buffer.from('合成贴图包'), 'author.txt': Buffer.from('Fixture'),
+    'tray.png': animatedGif, 'one.gif': animatedGif, 'two.gif': animatedGif });
+  await admin.locator('#expression-upload [name=files]').setInputFiles({ name: 'fixture.wastickers', mimeType: 'application/octet-stream', buffer: packageBytes });
+  await admin.getByText('合成贴图包', { exact: true }).waitFor();
+  await admin.getByText('2 张', { exact: true }).waitFor();
+  await admin.getByText('已上架', { exact: true }).waitFor();
+  await admin.getByRole('button', { name: '编辑 合成贴图包', exact: true }).click();
+  await admin.locator('.expression-gallery img').nth(1).waitFor();
+  assert.equal(await admin.locator('.expression-gallery img').count(), 2);
+  await admin.getByText('删除资源', { exact: true }).click();
+  await admin.getByRole('button', { name: '确认删除资源', exact: true }).click();
+  await admin.getByText('暂无符合条件的资源').waitFor();
   const batchIds = await admin.evaluate(async data => {
     const { csrf } = await (await fetch('/admin-api/session')).json();
     const ids = [];

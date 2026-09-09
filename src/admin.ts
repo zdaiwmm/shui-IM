@@ -200,7 +200,11 @@ async function expressions() {
     openUpload.disabled = true; openUpload.setAttribute('aria-busy', 'true'); openUpload.textContent = '正在上传…';
     try {
       const data = new FormData(upload); const files = data.getAll('files').filter((file): file is File => file instanceof File && file.size > 0);
-      if (!files.length || files.length > 200 || files.reduce((sum, file) => sum + file.size, 0) > 8 * 1024 * 1024) throw new Error('图片合计不得超过 8 MiB，合集最多 200 张');
+      const packageUpload = files.length === 1 && /\.wastickers$/i.test(files[0]!.name);
+      const maxUploadBytes = 8 * 1024 * 1024;
+      if (!files.length || files.length > 200 || files.reduce((sum, file) => sum + file.size, 0) > maxUploadBytes) {
+        throw new Error(packageUpload ? 'wastickers 文件不得超过 8 MiB' : '图片合计不得超过 8 MiB，合集最多 200 张');
+      }
       const encoded = [];
       for (const file of files) {
         const bytes = new Uint8Array(await file.arrayBuffer()); let binary = '';
@@ -208,7 +212,7 @@ async function expressions() {
         encoded.push({ name: file.name, data: btoa(binary) });
       }
       if (view !== epoch) return;
-      const file = files[0]!; const kind = /\.wastickers$/i.test(file.name) ? 'stickers' : 'gifs';
+      const file = files[0]!; const kind = packageUpload ? 'stickers' : 'gifs';
       await api('/expressions', 'POST', { kind, title: file.name.replace(/\.[^.]+$/, ''), tags: '', status: 'published', files: encoded });
       if (view === epoch) { expressionKind = kind; expressionStatus = 'all'; expressionPage = 1; await expressions(); report('已上传并上架', 'success'); }
     } catch (error) { if (view === epoch) report(error); } finally {
