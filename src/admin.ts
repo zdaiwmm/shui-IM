@@ -59,6 +59,8 @@ function frame(title: string) {
   root.querySelector('h1')!.textContent = title;
   root.querySelector('.nav-icon')!.replaceChildren(createElement(LayoutDashboard));
   root.querySelectorAll('.nav-icon')[1]!.replaceChildren(createElement(Images));
+  const activeNav = title === '表情管理' ? '#expressions-nav' : '#rooms-nav';
+  root.querySelector<HTMLButtonElement>(activeNav)!.setAttribute('aria-current', 'page');
   root.querySelector('#logout')!.addEventListener('click', () => { void api('/logout', 'POST').finally(login); });
   root.querySelector('#rooms-nav')!.addEventListener('click', () => void rooms());
   root.querySelector('#expressions-nav')!.addEventListener('click', () => void expressions());
