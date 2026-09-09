@@ -8,7 +8,7 @@ const cookieName = '__Host-qr-admin';
 const secret = () => randomBytes(32).toString('base64url');
 const hash = value => createHash('sha256').update(value).digest('hex');
 
-export async function createAdminConsole({ config: suppliedConfig, configFile, origin = 'https://sao.shui.click',
+export async function createAdminConsole({ config: suppliedConfig, configFile, origin = 'https://admin.mijiu.cloud',
   data, expressions, json, readJson, readExpressionJson = readJson, headers, staticDir, onDelete }) {
   let config = suppliedConfig;
   if (!config && configFile) {

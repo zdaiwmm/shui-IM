@@ -91,4 +91,5 @@
 - [DEPLOYMENT.md](../../DEPLOYMENT.md)：部署架构、首次配置、可选通话覆盖和服务器布局。
 - [OPERATIONS.md](../../OPERATIONS.md)：备份、证书、推送、恢复演练和事故处理。
 - [本机局域网测试与跨电脑同步](../workflows/local-lan-testing.md)：本机 `main` 集成、服务回读、局域网 HTTPS 真机验收及 GitHub 同步边界。
+- [iPhone 真机调试](../workflows/iphone-debug.md)：持久 USB 工具、自动录制与键盘操作、数值探针、证据限制及媒体清理。
 - [audit/](../../audit/)：特定日期和代码基线的审查证据；不能自动外推到当前工作树。

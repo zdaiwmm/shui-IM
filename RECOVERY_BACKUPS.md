@@ -45,7 +45,7 @@ SQLite 的恢复与归档表随现有在线/冷备份一起保存，附件仍沿
 
 ## 会话管理后台
 
-后台来源固定 `https://sao.shui.click`，普通应用仍是 `https://ai.shui.click`，不扩大 WebAuthn RP ID 或允许跨域 API。默认不配置后台凭据时关闭管理页面/API。
+后台来源固定 `https://admin.mijiu.cloud`，普通应用仍是 `https://ai.shui.click`，不扩大 WebAuthn RP ID 或允许跨域 API。默认不配置后台凭据时关闭管理页面/API。
 
 2026-09-04 本次生产回读为 `admin-enabled=0`：后台代码已部署，域名、TLS 和管理员密码/TOTP 初始化及后台验收尚未完成。主站自动备份不依赖管理后台启用，具体发布证据见 [发布记录](RELEASING.md#本次线上发布记录)。
 

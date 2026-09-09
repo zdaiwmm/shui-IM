@@ -3,6 +3,16 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
+import { animatedWebp } from './fixtures/photo-fixtures.mjs';
+
+async function assertMoving(image, message) {
+  const first = await image.screenshot();
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await image.page().waitForTimeout(90);
+    if (!first.equals(await image.screenshot())) return;
+  }
+  assert.fail(message);
+}
 
 const server = await createServer({ configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0, hmr: false } });
 server.middlewares.use('/__memes', (_req, res) => {
@@ -16,7 +26,7 @@ try {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__memes`);
-  await page.evaluate(async () => {
+  await page.evaluate(async (animation) => {
     for (const css of ['styles','chat-layout','gallery','chat-interactions','cover','call','memes']) await import(`/src/${css}.css`);
     const { QuietRoomApp } = await import('/src/app.ts');
     const vault = await import('/src/lib/vault.ts');
@@ -60,23 +70,24 @@ try {
     app.renderChat();
     document.querySelector('#message-input').value = '保留这份草稿';
     const realFetch = window.fetch.bind(window); const requests = [];
-    const { starterGifs, starterPacks } = await import('/src/lib/sticker-library.ts');
-    const networkGif = await (await realFetch(starterGifs[0].asset)).blob();
+    const formerPack = { id: 'synthetic-pack', title: 'Synthetic pack' };
+    const networkGif = new File([new Uint8Array(animation)], 'catalog-animation.webp', { type: 'image/webp' });
     window.fetch = async (input, init) => {
       const url = new URL(typeof input === 'string' ? input : input.url,location.href);
       if (url.pathname.endsWith('/memes/search')) {
         const body = JSON.parse(init.body); requests.push(body);
         if (body.keyword === '失败') return new Response('{}',{status:503});
-        if (body.keyword === '预置') return Response.json({items:[],packs:[{id:starterPacks[0].id,title:starterPacks[0].title,cover:'00000000-0000-4000-8000-000000000000'}],nextPage:null});
+        if (body.keyword === '预置') return Response.json({items:[],packs:[{...formerPack,cover:'00000000-0000-4000-8000-000000000000'}],nextPage:null});
         if (body.kind === 'stickers') return Response.json({items:[],packs:[{id:'a'.repeat(32),title:'测试合集',cover:'00000000-0000-4000-8000-000000000000'}],nextPage:null});
         return Response.json({items:files.slice(0,6).map((file,index)=>({id:`11111111-0000-4000-8000-${String(index+body.page*10).padStart(12,'0')}`,title:file.name})),nextPage:body.page===1?2:null});
       }
       if (url.pathname.endsWith('/memes/pack')) return Response.json({id:'a'.repeat(32),title:'测试合集',items:files.slice(0,3).map((file,index)=>({id:`00000000-0000-4000-8000-${String(index).padStart(12,'0')}`,title:file.name}))});
-      if (url.pathname.endsWith('/memes/media')) { const id=JSON.parse(init.body).id; return new Response(id.startsWith('11111111')?networkGif:files[Number(id.slice(-2))%files.length],{headers:{'Content-Type':'image/png'}}); }
+      if (url.pathname.endsWith('/memes/media')) { const id=JSON.parse(init.body).id; const file=id.startsWith('11111111')?networkGif:files[Number(id.slice(-2))%files.length]; return new Response(file,{headers:{'Content-Type':file.type}}); }
+      if (url.pathname.startsWith('/stickers/') || url.pathname.startsWith('/gifs/')) throw new Error('Bundled media requested');
       return realFetch(input,init);
     };
-    window.fixture = { app, vault, session, controller, files, sent, msg, requests };
-  });
+    window.fixture = { app, vault, session, controller, files, sent, msg, requests, networkGif };
+  }, [...animatedWebp]);
   await page.locator('#open-memes').click();
   await page.waitForFunction(() => document.querySelectorAll('.meme-tile img[src]').length >= 3);
   assert.equal(await page.locator('button[data-kind="gifs"]').getAttribute('aria-selected'),'true');
@@ -85,8 +96,7 @@ try {
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===12);
   assert.equal(await page.evaluate(()=>window.fixture.requests.length),2);
   const firstAnimation=page.locator('.meme-tile img').first(); await firstAnimation.waitFor();
-  const animatedPixels=await firstAnimation.screenshot(); await page.waitForTimeout(350);
-  assert.notDeepEqual(await firstAnimation.screenshot(),animatedPixels,'Panel animation pixels did not move');
+  await assertMoving(firstAnimation, 'Panel animation pixels did not move');
   const tileBounds=await page.locator('.meme-tile').first().boundingBox();
   const gridColumns = await page.locator('.meme-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
   assert.equal(gridColumns, 5);
@@ -310,18 +320,16 @@ try {
   await page.waitForFunction(()=>window.fixture.app.imageBatchUploading===false);
   // The actual chat renderer must play the same original animation that was selected.
   await page.evaluate(async()=> {
-    const { app,session }=window.fixture;
-    const { starterGifs,starterMedia,STARTER_CACHE }=await import('/src/lib/sticker-library.ts');
+    const { app,session,networkGif }=window.fixture;
     const { encryptImageFile }=await import('/src/lib/file-crypto.ts');
-    const original=await starterMedia(starterGifs[0].asset,new AbortController().signal);
-    const file=new File([original],'chat-animation.png',{type:original.type});
+    const file=networkGif;
     const manifest=await encryptImageFile(file,{reserve:async()=>{},status:async()=>({uploadedIndexes:[],completed:false}),upload:async()=>{},complete:async()=>{},savePlan:async()=>{}});
     app.cacheLocalImage(manifest,file); app.messages.clear();
-    const msg={seq:2,clientMsgId:crypto.randomUUID(),senderId:session.vault.identity.publicBundle.deviceId,payload:{v:1,kind:'image',image:manifest,sentAt:new Date().toISOString()},acceptedAt:new Date().toISOString(),status:'delivered'};
+    const msg={seq:2,clientMsgId:crypto.randomUUID(),senderId:session.vault.identity.publicBundle.deviceId,payload:{v:1,kind:'image',presentation:'expression',image:manifest,sentAt:new Date().toISOString()},acceptedAt:new Date().toISOString(),status:'delivered'};
     app.messages.set(2,msg); app.renderChat();
-    const cached=await caches.open(STARTER_CACHE); if(!(await cached.match(starterGifs[0].asset))) throw new Error('Starter original not cached');
+    if ((await caches.keys()).includes('quiet-room-starter-media-v1')) throw new Error('Catalog original persisted to plaintext cache');
     const realFetch=window.fetch; window.fetch=()=>Promise.reject(new Error('offline'));
-    try { const offline=await starterMedia(starterGifs[0].asset,new AbortController().signal); if(offline.size!==file.size) throw new Error('Offline original changed'); }
+    try { app.renderChat(); }
     finally { window.fetch=realFetch; }
   });
   const chatAnimation=page.locator('.message-list .image-preview img').first();
@@ -329,12 +337,12 @@ try {
   await page.waitForFunction(()=>document.querySelector('.message-list .image-preview img')?.naturalWidth>0);
   assert.equal(await page.locator('.message-list .image-preview').first().getAttribute('data-revealed'), 'true');
   assert.equal(await page.locator('.expression-bubble').count(), 1);
-  assert.ok(Math.abs((await chatAnimation.boundingBox()).width - 128 * 2 / 3) < 1, 'Small expression did not shrink to two thirds');
+  const originalWidth = await chatAnimation.evaluate(image => image.naturalWidth);
+  assert.ok(Math.abs((await chatAnimation.boundingBox()).width - originalWidth * 2 / 3) < 1, 'Small expression did not shrink to two thirds');
   await page.evaluate(() => window.fixture.app.concealChatImages());
   assert.equal(await page.locator('.message-list .image-preview').first().getAttribute('data-revealed'), 'false');
   await page.locator('.message-list .image-preview').first().click();
-  const chatFrame=await chatAnimation.screenshot(); await page.waitForTimeout(350);
-  assert.notDeepEqual(await chatAnimation.screenshot(),chatFrame,'Sent chat animation was frozen');
+  await assertMoving(chatAnimation, 'Sent chat animation was frozen');
   await page.locator('.message-list .image-preview').first().dispatchEvent('contextmenu');
   await page.locator('.message-action-preview img').waitFor();
   await page.waitForTimeout(350);

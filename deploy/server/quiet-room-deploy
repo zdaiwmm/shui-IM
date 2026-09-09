@@ -280,7 +280,7 @@ probe_public_maintenance() {
   done
   if (( admin_enabled || previous_admin_enabled )); then
     status="$(curl --silent --show-error --connect-timeout 3 --max-time 5 \
-      --output /dev/null --write-out '%{http_code}' https://sao.shui.click/admin-api/rooms)" || return 1
+      --output /dev/null --write-out '%{http_code}' https://admin.mijiu.cloud/admin-api/rooms)" || return 1
     if [[ "$status" != 503 ]]; then
       printf 'Admin traffic gate is ineffective: HTTP %s\n' "$status" >&2
       return 1

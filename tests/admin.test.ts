@@ -29,7 +29,7 @@ describe('isolated session administration', () => {
     cleanups.push(async () => { await server.close(); await rm(dir, { recursive: true, force: true }); });
     const send = (route: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}) => new Promise<Response>((resolve, reject) => {
       const request = httpRequest({ hostname: '127.0.0.1', port: server.port, path: route, method, agent: false,
-        headers: { Host: 'sao.shui.click', Origin: 'https://sao.shui.click', 'Content-Type': 'application/json',
+        headers: { Host: 'admin.mijiu.cloud', Origin: 'https://admin.mijiu.cloud', 'Content-Type': 'application/json',
           ...(body === undefined ? {} : { 'Content-Length': Buffer.byteLength(JSON.stringify(body)) }), ...headers } }, response => {
         const chunks: Buffer[] = []; response.on('data', chunk => chunks.push(chunk));
         response.on('end', () => resolve(new Response(Buffer.concat(chunks), { status: response.statusCode,

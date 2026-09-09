@@ -1,7 +1,7 @@
 import { mountDialog, closeDialog } from './dialog';
 import { validateMemeFile, type MemeFavorite } from './meme-media';
 import { detectImageAnimation } from './image-animation';
-import { starterMedia, MAX_PACK_BYTES, type MediaKind, type MediaItem, type MediaSearchResult, type RemotePack, type RemotePackDetail, type StickerPack } from './sticker-library';
+import { MAX_PACK_BYTES, type MediaKind, type MediaItem, type MediaSearchResult, type RemotePack, type RemotePackDetail, type StickerPack } from './sticker-library';
 import { createElement, Smile, Star, Search, Keyboard, ChevronDown, Image, X, ArrowLeft, Plus, Trash2, Send } from 'lucide';
 
 export const memeIcons = {
@@ -383,9 +383,7 @@ export class MemePicker {
   private async getFile(item: MediaItem, signal: AbortSignal): Promise<File> {
     signal.throwIfAborted(); const cached = [...this.tiles.values()].find(state => state.item.id === item.id && state.file)?.file; if (cached) return cached;
     const retained = this.mediaCache.get(item.id); if (retained) { this.mediaCache.delete(item.id); this.mediaCache.set(item.id, retained); return retained; }
-    let blob: Blob;
-    if (item.asset) blob = await starterMedia(item.asset, signal);
-    else blob = item.favorite ? await this.options.file(item.favorite, signal) : await this.options.media(item.id, signal);
+    const blob = item.favorite ? await this.options.file(item.favorite, signal) : await this.options.media(item.id, signal);
     const file = await validateMemeFile(blob, item.title, signal);
     if (item.animatedOnly && !await detectImageAnimation(file, signal)) throw new Error('NON_ANIMATED_RESULT');
     signal.throwIfAborted();

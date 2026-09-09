@@ -5,9 +5,6 @@ import path from 'node:path';
 import { createCipheriv, createHmac, hkdfSync } from 'node:crypto';
 import protobuf from 'protobufjs';
 import { createExpressionCatalog } from '../server/expression-catalog.mjs';
-import { shippedExpressions } from '../server/shipped-expressions.mjs';
-import { shippedGifAdditions, GIF_ADDITIONS_BATCH } from '../server/shipped-gif-additions.mjs';
-import { fileURLToPath } from 'node:url';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
@@ -37,45 +34,17 @@ async function finished(service: ReturnType<typeof createExpressionCatalog>) {
   return service.jobs()[0];
 }
 describe('managed expression catalog', () => {
-  it('imports 400 additional animations in a separate durable batch without undoing moderation', async () => {
+  it('starts and restarts with an empty server catalog without acquiring upstream resources', async () => {
     const f = await fixture();
-    f.service.initializeShipped(() => []);
-    const load = () => shippedGifAdditions({
-      libraryPath: fileURLToPath(new URL('../src/lib/additional-gifs.json', import.meta.url)),
-      publicDir: fileURLToPath(new URL('../public', import.meta.url)),
-    });
-    expect(f.service.initializeShipped(load, GIF_ADDITIONS_BATCH)).toEqual({ initialized: true, added: 400, skipped: 0 });
-    expect(f.service.list({ ...search(), status: 'published' }).total).toBe(400);
-    const removed = f.service.list({ ...search(), status: 'published' }).entries[0];
-    f.service.remove(removed.id);
-    await f.restart();
-    expect(f.service.initializeShipped(load, GIF_ADDITIONS_BATCH)).toEqual({ initialized: false, added: 0, skipped: 0 });
-    expect(f.service.list({ ...search(), status: 'published' }).total).toBe(399);
-    expect(f.service.initializeShipped(() => { throw Error('Base replayed'); }).initialized).toBe(false);
-    expect(f.fetchResource).not.toHaveBeenCalled();
-  });
-  it('initializes the shipped originals as 30 full published packs and 100 animations without network, once only', async () => {
-    const f = await fixture();
-    const load = () => shippedExpressions({
-      libraryPath: fileURLToPath(new URL('../src/lib/starter-library.json', import.meta.url)),
-      publicDir: fileURLToPath(new URL('../public', import.meta.url)),
-    });
-    expect(f.service.initializeShipped(load)).toEqual({ initialized: true, added: 130, skipped: 0 });
-    expect(f.service.list({ ...search('stickers'), status: 'published' }).total).toBe(30);
-    expect(f.service.list({ ...search(), status: 'published' }).total).toBe(100);
-    const pack = (await f.service.search('owner', search('stickers'))).packs[0];
-    const items = (await f.service.pack('owner', pack.id)).items;
-    expect(items.length).toBeGreaterThan(1);
-    expect((await f.service.media('owner', items[0].id)).bytes).toEqual(f.service.preview(pack.id, 0).bytes);
-    const removed = f.service.list({ ...search(), status: 'published' }).entries[0];
-    f.service.remove(removed.id);
-    f.service.update(pack.id, { title: 'Moderated', tags: '', status: 'pending' });
-    await f.restart();
-    const unexpectedLoad = vi.fn(() => { throw Error('Already initialized'); });
-    expect(f.service.initializeShipped(unexpectedLoad)).toEqual({ initialized: false, added: 0, skipped: 0 });
-    expect(unexpectedLoad).not.toHaveBeenCalled();
-    expect(f.service.detail(pack.id)).toMatchObject({ title: 'Moderated', status: 'pending' });
-    expect(() => f.service.detail(removed.id)).toThrow('MEME_NOT_FOUND');
+    for (const restart of [false, true]) {
+      if (restart) await f.restart();
+      for (const kind of ['gifs', 'stickers']) {
+        expect(f.service.list({ ...search(kind), status: 'all' }).total).toBe(0);
+        const result = await f.service.search('owner', search(kind));
+        expect(kind === 'gifs' ? result.items : result.packs).toEqual([]);
+      }
+      expect(f.service.jobs()).toEqual([]);
+    }
     expect(f.fetchResource).not.toHaveBeenCalled();
   });
   it('rolls back the entire initialization on invalid bytes and preserves existing moderation on retry', async () => {

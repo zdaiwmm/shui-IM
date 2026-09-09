@@ -418,7 +418,7 @@ npm run check:full
 - `npm run test:calls`：单独补跑 56 项通话测试、原生 DTLS 与通话 UI 脚本。
 - 合并集成后再次通过 `npm run check:full`（241 项及完整浏览器套件）与 `npm run test:calls`（56 项及原生 DTLS/通话 UI）。恢复表单统一“保险箱”命名后重新构建并单独通过 `backup-admin-ui.e2e.mjs`。
 - [PR #5 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33874161493) 与[精确主干 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/33874534302) 均通过。应用 `6753d010d822ef5cb90b2b3d2582d9fd1f7805c6` 已部署，固定入口成功后独立核验版本、健康、首页及脚本/样式产物、Service Worker、合成未知备份的未认证请求；结果见 [发布记录](RELEASING.md#本次线上发布记录)。未在生产读取真实恢复材料或执行真实会话清理。
-- 自动测试与生产回读不等于真机通过；尚需真实 iPhone/Android/通行密钥矩阵、真实 Google Authenticator 扫码、`sao.shui.click` 后台 DNS/TLS/维护门与容器管理员配置挂载验收、灾备恢复及独立审计。生产 `admin-enabled=0`，上述后台测试仅证明本地/CI 合成场景。管理员清理应以合成会话验收，不使用真实用户数据。
+- 自动测试与生产回读不等于真机通过；尚需真实 iPhone/Android/通行密钥矩阵、真实 Google Authenticator 扫码、`admin.mijiu.cloud` 后台 DNS/TLS/维护门与容器管理员配置挂载验收、灾备恢复及独立审计。生产 `admin-enabled=0`，上述后台测试仅证明本地/CI 合成场景。管理员清理应以合成会话验收，不使用真实用户数据。
 
 
 ## 2026-09-04 备份间距、相册骨架与聊天图片隐私

@@ -27,7 +27,7 @@ The implementation includes:
 - role-aggregated chat-page presence that is independent from WebSocket connection state;
 - native document chat scrolling behind Safari chrome, keyboard-aware floating glass controls, stable reading anchors, pinchable photos without opening zoom effects, and page-level double-tap zoom suppression;
 - automatic encrypted per-device recovery/history backups, local recovery-code retrieval after fresh passkey verification, and explicit history restore after device replacement;
-- optional room/device/backup administration with password + TOTP on `sao.shui.click`, without recovery-code escrow;
+- optional room/device/backup administration with password + TOTP on `admin.mijiu.cloud`, without recovery-code escrow;
 - payload-free Web Push wake-ups for existing opt-in subscriptions, revealing no sender, room, message type, content, attachment metadata, or count in the push request; the current UI has no subscription switch;
 - online WAL-consistent backup, completed-blob snapshotting, per-file checksums, verification, scheduled retention, and guarded restore tooling;
 - responsive PWA shell, strict production security headers, synchronous concealment on every blur, desktop-only in-memory resume with a 30-minute idle limit and F-key entry, and strict mobile/PWA and native-surface locking;
@@ -257,7 +257,7 @@ On a replacement device, enter the QR3 code to locate the matching server backup
 
 The replacement immediately generates a new code and rewraps every retained archive key. It persists the new request before upload and safely retries an identical request after acknowledgement loss. The server atomically retires old online retrieval only when the new recovery wrapper and archive transfer are saved. The user then receives the new code. Historical chat and creator gallery are restored only on an explicit request with this current code; gallery-only restoration includes photos and videos without adding old chat bubbles or reply previews. Original attachment ciphertext must still exist. Normal linked devices gain no pre-join history.
 
-The administrator manages room/device/backup metadata on `sao.shui.click` after password + TOTP verification. Neither the administrator nor the server can retrieve recovery codes or decrypt these backups. Already copied old ciphertext can still be decrypted with its old code offline; rotation does not remotely erase it. Foreground backup may lag, and same-host storage is not disaster recovery. See [RECOVERY_BACKUPS.md](./RECOVERY_BACKUPS.md) for cryptographic construction, limits, failure handling, legacy-file migration and administration.
+The administrator manages room/device/backup metadata on `admin.mijiu.cloud` after password + TOTP verification. Neither the administrator nor the server can retrieve recovery codes or decrypt these backups. Already copied old ciphertext can still be decrypted with its old code offline; rotation does not remotely erase it. Foreground backup may lag, and same-host storage is not disaster recovery. See [RECOVERY_BACKUPS.md](./RECOVERY_BACKUPS.md) for cryptographic construction, limits, failure handling, legacy-file migration and administration.
 
 All local vault read/derive/write operations share the same physical `current` lifecycle lock, including unlock, import, migration, and deletion. The browser Web Locks API coordinates tabs when available, and an IndexedDB compare-and-swap rejects stale snapshots at commit. A stale window must lock and unlock again instead of overwriting a newer cryptographic state.
 

@@ -33,6 +33,17 @@ button.room-id { text-align: left; font-size: .82rem; }
 select { font: inherit; color: inherit; background: transparent; border: 1px solid oklch(60% .006 250 / .5); border-radius: .4rem; min-height: 44px; padding: .6rem; }
 .expression-filter { max-width: none; grid-template-columns: minmax(8rem, 1fr) minmax(8rem, 12rem) auto; align-items: end; }
 .collection-tools { padding: 1rem 0; border-block: 1px solid oklch(60% .006 250 / .22); }
+.collection-actions { margin-bottom: 1rem; }
+#open-collect { display: inline-flex; align-items: center; gap: .5rem; }
+#open-collect svg { width: 20px; height: 20px; }
+#collect-dialog { width: min(29rem, calc(100% - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; border: 1px solid oklch(60% .006 250 / .4); border-radius: 8px; padding: 1.5rem; color: inherit; background: light-dark(oklch(98% .005 250),oklch(19% .008 250)); }
+#collect-dialog::backdrop { background: rgb(0 0 0 / .45); }
+#collect-dialog h2 { margin-top: 0; }
+#collect-dialog form { margin-bottom: 0; }
+#collect-dialog .actions { justify-content: flex-end; flex-wrap: wrap; }
+#collect-error { margin: 0; color: light-dark(oklch(43% .14 25),oklch(75% .12 25)); overflow-wrap: anywhere; }
+#collect-error:empty { display: none; }
+select:focus-visible { outline: 3px solid oklch(65% .12 250); outline-offset: 3px; }
 summary { cursor: pointer; min-height: 44px; padding-block: .7rem; }
 .expression-thumbnail { width: 64px; height: 64px; object-fit: contain; }
 .expression-gallery { display: grid; grid-template-columns: repeat(auto-fill,minmax(90px,1fr)); gap: 1rem; }
