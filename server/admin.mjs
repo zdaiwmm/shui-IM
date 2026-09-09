@@ -5,6 +5,8 @@ import { adminConfigId, validateAdminConfig, verifyAdmin } from './admin-auth.mj
 import { isUuid } from './protocol.mjs';
 
 const cookieName = '__Host-qr-admin';
+const sessionIdleMs = 60 * 60_000;
+const sessionAbsoluteMs = 12 * 60 * 60_000;
 const secret = () => randomBytes(32).toString('base64url');
 const hash = value => createHash('sha256').update(value).digest('hex');
 
@@ -24,6 +26,8 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
   let authBusy = false;
   let attempts = 0, attemptsUntil = 0;
   const clearCookie = response => response.setHeader('Set-Cookie', `${cookieName}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict`);
+  const setCookie = (response, token, expires, now) => response.setHeader('Set-Cookie',
+    `${cookieName}=${token}; Path=/; Max-Age=${Math.ceil((expires - now) / 1000)}; Secure; HttpOnly; SameSite=Strict`);
 
   async function authenticate(password, code) {
     const now = Date.now();
@@ -61,8 +65,8 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
       const token = secret(); const csrf = secret(); const now = Date.now();
       for (const [key, session] of sessions) if (session.expires < now || session.absolute < now) sessions.delete(key);
       while (sessions.size >= 20) sessions.delete(sessions.keys().next().value);
-      sessions.set(hash(token), { csrf, expires: now + 15 * 60_000, absolute: now + 60 * 60_000 });
-      response.setHeader('Set-Cookie', `${cookieName}=${token}; Path=/; Max-Age=3600; Secure; HttpOnly; SameSite=Strict`);
+      sessions.set(hash(token), { csrf, expires: now + sessionIdleMs, absolute: now + sessionAbsoluteMs });
+      setCookie(response, token, now + sessionIdleMs, now);
       json(request, response, 200, { csrf }); return true;
     }
     const cookies = String(request.headers.cookie ?? '').split(';').map(value => value.trim());
@@ -70,11 +74,15 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
     const session = /^[A-Za-z0-9_-]{43}$/.test(token) ? sessions.get(hash(token)) : null;
     if (!session || session.expires <= Date.now() || session.absolute <= Date.now()) {
       if (token) sessions.delete(hash(token)); clearCookie(response);
-      json(request, response, 401, { error: '请重新登录后台' }); return true;
+      json(request, response, 401, { error: '后台登录已过期，请重新验证', code: 'SESSION_EXPIRED' }); return true;
     }
     if (request.method !== 'GET' && request.headers['x-csrf-token'] !== session.csrf) { json(request, response, 403, { error: '请求验证失败' }); return true; }
-    session.expires = Date.now() + 15 * 60_000;
-    if (request.method === 'GET' && pathname === '/admin-api/session') { json(request, response, 200, { csrf: session.csrf }); return true; }
+    const now = Date.now();
+    session.expires = Math.min(now + sessionIdleMs, session.absolute);
+    setCookie(response, token, session.expires, now);
+    if (['GET', 'POST'].includes(request.method) && pathname === '/admin-api/session') {
+      json(request, response, 200, { csrf: session.csrf }); return true;
+    }
     if (request.method === 'POST' && pathname === '/admin-api/logout') {
       sessions.delete(hash(token)); clearCookie(response); json(request, response, 200, { loggedOut: true }); return true;
     }
@@ -87,6 +95,8 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
             status: url.searchParams.get('status') ?? 'all', page: Number(url.searchParams.get('page') ?? 1) }));
         } else if (pathname === '/admin-api/expressions' && request.method === 'POST') {
           json(request, response, 201, expressions.create(await readExpressionJson(request)));
+        } else if (pathname === '/admin-api/expressions/status' && request.method === 'PATCH') {
+          json(request, response, 200, expressions.updateStatus(await readJson(request)));
         } else if (pathname === '/admin-api/expressions/collect' && request.method === 'POST') {
           json(request, response, 202, expressions.start(await readJson(request)));
         } else if (pathname === '/admin-api/expressions/jobs' && request.method === 'GET') {

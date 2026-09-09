@@ -176,6 +176,19 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       return { type: row.type, bytes: Buffer.from(row.bytes) };
     },
     update(id, body) { get(id); const values = metadata(body); db.prepare('UPDATE entries SET title=?,tags=?,status=? WHERE id=?').run(...values, id); return service.detail(id); },
+    updateStatus(body) {
+      if (!body || !Array.isArray(body.ids) || !body.ids.length || body.ids.length > 24
+        || body.ids.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9-]{1,128}$/.test(id))
+        || new Set(body.ids).size !== body.ids.length || !['pending', 'published'].includes(body.status)) fail('MEME_INVALID_QUERY');
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        for (const id of body.ids) get(id);
+        const update = db.prepare('UPDATE entries SET status=? WHERE id=?');
+        for (const id of body.ids) update.run(body.status, id);
+        db.exec('COMMIT');
+      } catch (error) { db.exec('ROLLBACK'); throw error; }
+      return { updated: body.ids.length };
+    },
     remove(id) {
       get(id); db.exec('BEGIN IMMEDIATE');
       try { db.prepare('DELETE FROM entries WHERE id=?').run(id); db.exec('DELETE FROM assets WHERE NOT EXISTS (SELECT 1 FROM items WHERE items.hash=assets.hash); COMMIT'); }

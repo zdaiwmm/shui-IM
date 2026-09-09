@@ -1,5 +1,5 @@
 import './admin.css';
-import { createElement, Pencil, Trash2, ArrowLeft, ArrowRight, Download } from 'lucide';
+import { createElement, Pencil, Trash2, ArrowLeft, ArrowRight, ChevronsLeft, ChevronsRight, Download } from 'lucide';
 
 type Room = { roomId: string; createdAt: string; lastSeenAt: string | null; devices: number; backups: number; messageCount: number };
 type Detail = { roomId: string; devices: { deviceId: string; role: string; name: string; status: string; lastSeenAt: string | null }[];
@@ -8,15 +8,45 @@ const root = document.querySelector<HTMLElement>('#admin')!;
 let csrf = '';
 let offset = 0;
 let view = 0;
+let sessionGeneration = 0;
+let sessionTimer: number | undefined;
+let sessionActivity = 0;
+let sessionRenewing = false;
+let lastSessionRenewal = 0;
 const date = (value: string | null) => value ? new Date(value).toLocaleString() : '暂无记录';
 const size = (value: number) => `${(value / 1024).toFixed(1)} KiB`;
 
-async function api<T>(route: string, method = 'GET', body?: unknown): Promise<T> {
-  const response = await fetch(`/admin-api${route}`, { method, cache: 'no-store', credentials: 'same-origin',
+async function api<T>(route: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
+  const generation = sessionGeneration;
+  const response = await fetch(`/admin-api${route}`, { method, cache: 'no-store', credentials: 'same-origin', signal,
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const result = await response.json();
+  if (response.status === 401 && result.code === 'SESSION_EXPIRED' && csrf && generation === sessionGeneration) {
+    login(); report(new Error(result.error));
+  }
   if (!response.ok) throw new Error(result.error ?? '操作未完成，请重试');
   return result;
+}
+
+function startSessionRenewal() {
+  window.clearInterval(sessionTimer);
+  sessionActivity = 0; sessionRenewing = false; lastSessionRenewal = Date.now();
+  const generation = sessionGeneration;
+  sessionTimer = window.setInterval(() => {
+    if (!csrf || generation !== sessionGeneration || sessionRenewing || !sessionActivity
+      || Date.now() - sessionActivity > 5 * 60_000 || document.visibilityState !== 'visible'
+      || !document.hasFocus() || Date.now() - lastSessionRenewal < 5 * 60_000) return;
+    const activity = sessionActivity;
+    sessionActivity = 0; sessionRenewing = true; lastSessionRenewal = Date.now();
+    void api('/session', 'POST', undefined, AbortSignal.timeout(15_000)).catch(() => {
+      if (generation === sessionGeneration && !sessionActivity) sessionActivity = activity;
+    }).finally(() => { if (generation === sessionGeneration) sessionRenewing = false; });
+  }, 60_000);
+}
+for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
+  document.addEventListener(type, event => {
+    if (event.isTrusted && csrf && document.visibilityState === 'visible' && document.hasFocus()) sessionActivity = Date.now();
+  }, { passive: true });
 }
 
 function frame(title: string) {
@@ -32,6 +62,7 @@ function frame(title: string) {
 function report(error: unknown) { const target = root.querySelector('#status'); if (target) target.textContent = error instanceof Error ? error.message : '操作失败'; }
 
 function login() {
+  sessionGeneration += 1; window.clearInterval(sessionTimer); sessionTimer = undefined; sessionActivity = 0;
   view += 1; csrf = '';
   root.innerHTML = `<div class="login"><p class="eyebrow">QUIET ROOM</p><h1>登录会话管理</h1><p>使用管理员密码与 Google Authenticator 动态验证码。</p>
     <form><label>管理员密码<input name="password" type="password" autocomplete="current-password" required /></label>
@@ -45,7 +76,7 @@ function login() {
     const values = new FormData(form);
     const body = { password: String(values.get('password')), code: String(values.get('code')) };
     form.reset();
-    try { const result = await api<{ csrf: string }>('/login', 'POST', body); csrf = result.csrf; await rooms(); }
+    try { const result = await api<{ csrf: string }>('/login', 'POST', body); if (!form.isConnected) return; csrf = result.csrf; startSessionRenewal(); await rooms(); }
     catch (error) { if (form.isConnected) report(error); }
     finally { body.password = ''; body.code = ''; if (button.isConnected) button.disabled = false; }
   });
@@ -225,30 +256,83 @@ async function expressions() {
     const params = new URLSearchParams({ kind: expressionKind, keyword: expressionKeyword, status: expressionStatus, page: String(expressionPage) });
     const data = await api<{ entries: Expression[]; total: number; jobs: CollectionJob[] }>(`/expressions?${params}`);
     if (view !== epoch) return;
+    const totalPages = Math.max(1, Math.ceil(data.total / 24));
+    if (expressionPage > totalPages) { expressionPage = totalPages; await expressions(); return; }
     renderJobs(jobs, data.jobs);
     openCollect.disabled = data.jobs.some(job => job.status === 'running');
     const host = content.querySelector('#expression-list')!; host.replaceChildren();
+    const selection = new Set<string>();
+    const bulk = document.createElement('div'); bulk.className = 'actions expression-bulk';
+    const selectLabel = document.createElement('label'); selectLabel.className = 'expression-select';
+    const selectAll = document.createElement('input'); selectAll.type = 'checkbox';
+    selectAll.disabled = !data.entries.length; selectLabel.append(selectAll, '全选本页');
+    const selectedCount = document.createElement('span'); selectedCount.setAttribute('role', 'status');
+    const publish = document.createElement('button'); publish.textContent = '批量上架'; publish.className = 'publish';
+    const unpublish = document.createElement('button'); unpublish.textContent = '批量下架'; unpublish.className = 'unpublish';
+    const checkboxes: HTMLInputElement[] = [];
+    let busy = false;
+    const updateSelection = () => {
+      selectedCount.textContent = `已选 ${selection.size} 项`;
+      selectAll.checked = data.entries.length > 0 && selection.size === data.entries.length;
+      selectAll.indeterminate = selection.size > 0 && selection.size < data.entries.length;
+      publish.disabled = busy || !data.entries.some(entry => selection.has(entry.id) && entry.status !== 'published');
+      unpublish.disabled = busy || !data.entries.some(entry => selection.has(entry.id) && entry.status !== 'pending');
+    };
+    selectAll.addEventListener('change', () => {
+      selection.clear();
+      for (const checkbox of checkboxes) { checkbox.checked = selectAll.checked; if (checkbox.checked) selection.add(checkbox.value); }
+      updateSelection();
+    });
+    const changeStatus = async (ids: string[], status: 'pending' | 'published') => {
+      if (busy || !ids.length) return;
+      busy = true;
+      const controls = [...content.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>('button, input, select')];
+      const disabled = controls.map(control => control.disabled);
+      controls.forEach(control => { control.disabled = true; });
+      try {
+        const result = await api<{ updated: number }>('/expressions/status', 'PATCH', { ids, status });
+        if (view === epoch) { await expressions(); report(new Error(`已${status === 'published' ? '上架' : '下架'} ${result.updated} 项`)); }
+      } catch (error) { if (view === epoch) report(error); }
+      finally { busy = false; controls.forEach((control, index) => { control.disabled = disabled[index]!; }); updateSelection(); }
+    };
+    publish.addEventListener('click', () => void changeStatus(data.entries.filter(entry => selection.has(entry.id) && entry.status !== 'published').map(entry => entry.id), 'published'));
+    unpublish.addEventListener('click', () => void changeStatus(data.entries.filter(entry => selection.has(entry.id) && entry.status !== 'pending').map(entry => entry.id), 'pending'));
+    bulk.append(selectLabel, selectedCount, publish, unpublish); host.append(bulk);
     const list = table(['预览', '名称 / 作者', '状态', '数量', '操作']);
     for (const entry of data.entries) {
       const image = document.createElement('img'); image.className = 'expression-thumbnail'; image.alt = entry.title; image.loading = 'lazy'; image.src = `/admin-api/expressions/${entry.id}/media/0`;
+      const preview = document.createElement('label'); preview.className = 'expression-select expression-preview';
+      const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.value = entry.id; checkbox.setAttribute('aria-label', `选择 ${entry.title}`);
+      checkbox.addEventListener('change', () => { if (checkbox.checked) selection.add(entry.id); else selection.delete(entry.id); updateSelection(); });
+      checkboxes.push(checkbox); preview.append(checkbox, image);
       const name = document.createElement('div'); const title = document.createElement('strong'); title.textContent = entry.title;
       const author = document.createElement('p'); author.textContent = entry.author; name.append(title, author);
       const actions = document.createElement('div'); actions.className = 'actions';
       actions.append(iconButton(`编辑 ${entry.title}`, Pencil, () => void editExpression(entry.id)));
       const toggle = document.createElement('button'); toggle.textContent = entry.status === 'published' ? '下架' : '上架';
-      toggle.addEventListener('click', async () => {
-        toggle.disabled = true;
-        try { await api(`/expressions/${entry.id}`, 'PATCH', { title: entry.title, tags: entry.tags, status: entry.status === 'published' ? 'pending' : 'published' }); if (view === epoch) await expressions(); }
-        catch (error) { if (view === epoch) report(error); } finally { toggle.disabled = false; }
-      });
-      actions.append(toggle); row(list.body, [image, name, entry.status === 'published' ? '已上架' : '待上架', `${entry.count} 张`, actions]);
+      toggle.className = entry.status === 'published' ? 'unpublish' : 'publish';
+      toggle.addEventListener('click', () => void changeStatus([entry.id], entry.status === 'published' ? 'pending' : 'published'));
+      actions.append(toggle); row(list.body, [preview, name, entry.status === 'published' ? '已上架' : '待上架', `${entry.count} 张`, actions]);
     }
+    updateSelection();
     host.append(list.wrapper);
     if (!data.entries.length) { const empty = document.createElement('p'); empty.textContent = '暂无符合条件的资源'; host.append(empty); }
-    const paging = document.createElement('nav'); paging.className = 'actions'; paging.setAttribute('aria-label', '资源分页');
+    const paging = document.createElement('nav'); paging.className = 'actions expression-paging'; paging.setAttribute('aria-label', '资源分页');
+    const first = iconButton('首页', ChevronsLeft, () => { expressionPage = 1; void expressions(); }); first.disabled = expressionPage === 1;
     const previous = iconButton('上一页', ArrowLeft, () => { expressionPage--; void expressions(); }); previous.disabled = expressionPage === 1;
     const next = iconButton('下一页', ArrowRight, () => { expressionPage++; void expressions(); }); next.disabled = expressionPage * 24 >= data.total;
-    const count = document.createElement('span'); count.textContent = `第 ${expressionPage} 页 · 共 ${data.total} 项`; paging.append(previous, count, next); host.append(paging);
+    const last = iconButton('尾页', ChevronsRight, () => { expressionPage = totalPages; void expressions(); }); last.disabled = expressionPage === totalPages;
+    const count = document.createElement('span'); count.textContent = `第 ${expressionPage} / ${totalPages} 页 · 共 ${data.total} 项`;
+    const jump = document.createElement('form'); jump.className = 'page-jump';
+    const pageLabel = document.createElement('label'); pageLabel.textContent = '跳至';
+    const pageInput = document.createElement('input'); pageInput.type = 'number'; pageInput.min = '1'; pageInput.max = String(totalPages); pageInput.step = '1'; pageInput.required = true; pageInput.value = String(expressionPage); pageInput.setAttribute('aria-label', '指定页码');
+    pageLabel.append(pageInput);
+    const go = iconButton('跳转', ArrowRight, () => {}); go.type = 'submit';
+    jump.append(pageLabel, go); jump.addEventListener('submit', event => {
+      event.preventDefault(); const target = pageInput.valueAsNumber;
+      if (Number.isSafeInteger(target) && target >= 1 && target <= totalPages && target !== expressionPage) { expressionPage = target; void expressions(); }
+    });
+    paging.append(first, previous, count, next, last, jump); host.append(paging);
     if (data.jobs.some(job => job.status === 'running')) {
       const poll = async () => {
         if (view !== epoch) return;
@@ -287,4 +371,7 @@ async function editExpression(id: string) {
   } catch (error) { if (view === epoch) report(error); }
 }
 
-login();
+root.textContent = '正在验证后台会话…';
+void api<{ csrf: string }>('/session').then(result => {
+  csrf = result.csrf; startSessionRenewal(); return rooms();
+}).catch(login);

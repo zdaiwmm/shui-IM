@@ -34,6 +34,27 @@ async function finished(service: ReturnType<typeof createExpressionCatalog>) {
   return service.jobs()[0];
 }
 describe('managed expression catalog', () => {
+  it('updates selected statuses atomically without overwriting metadata and revokes public access', async () => {
+    const f = await fixture();
+    const a = f.service.create(upload('gifs', 'First'));
+    const b = f.service.create(upload('stickers', 'Second'));
+    const ids = [a.id, b.id];
+    expect(f.service.updateStatus({ ids, status: 'published' })).toEqual({ updated: 2 });
+    const pack = await f.service.pack('owner', b.id);
+    expect(() => f.service.updateStatus({ ids: [a.id, 'missing'], status: 'pending' })).toThrow('MEME_NOT_FOUND');
+    expect(f.service.detail(a.id).status).toBe('published');
+    f.service.update(a.id, { title: 'Edited elsewhere', tags: 'new', status: 'published' });
+    expect(f.service.updateStatus({ ids, status: 'pending' })).toEqual({ updated: 2 });
+    expect(f.service.detail(a.id)).toMatchObject({ title: 'Edited elsewhere', tags: 'new', status: 'pending' });
+    await expect(f.service.media('owner', pack.items[0].id)).rejects.toThrow('MEME_NOT_FOUND');
+    await f.restart();
+    expect(f.service.detail(b.id).status).toBe('pending');
+    for (const body of [null, { ids: [], status: 'pending' }, { ids: [a.id, a.id], status: 'pending' },
+      { ids: Array.from({ length: 25 }, (_, i) => `id-${i}`), status: 'pending' },
+      { ids: [a.id], status: 'deleted' }, { ids: [123], status: 'pending' }]) {
+      expect(() => f.service.updateStatus(body)).toThrow('MEME_INVALID_QUERY');
+    }
+  });
   it('starts and restarts with an empty server catalog without acquiring upstream resources', async () => {
     const f = await fixture();
     for (const restart of [false, true]) {

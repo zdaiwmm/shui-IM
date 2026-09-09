@@ -171,6 +171,9 @@ try {
   await admin.getByRole('button', { name: '验证并登录' }).click();
   await admin.getByRole('heading', { name: '会话管理', exact: true }).waitFor();
   await admin.getByRole('button', { name: roomId }).waitFor();
+  await admin.reload();
+  await admin.getByRole('button', { name: roomId }).waitFor();
+  assert.equal(await admin.getByRole('heading', { name: '登录会话管理' }).count(), 0, 'Reload restores a valid administrator session');
   await snapshot(admin, 'admin-rooms-desktop');
   await admin.getByRole('button', { name: '表情管理', exact: true }).click();
   await admin.getByText('暂无符合条件的资源').waitFor();
@@ -209,6 +212,73 @@ try {
   await admin.getByRole('button', { name: '确认删除资源', exact: true }).click();
   await admin.getByText('暂无符合条件的资源').waitFor();
   await admin.getByRole('tab', { name: '贴图合集', exact: true }).click();
+  const batchIds = await admin.evaluate(async data => {
+    const { csrf } = await (await fetch('/admin-api/session')).json();
+    const ids = [];
+    for (let i = 0; i < 49; i++) {
+      const response = await fetch('/admin-api/expressions', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+        body: JSON.stringify({ kind: 'stickers', title: `分页示例 ${i}`, tags: '', files: [{ data }] }) });
+      if (!response.ok) throw new Error('Fixture upload failed');
+      ids.push((await response.json()).id);
+    }
+    return ids;
+  }, animatedGif.toString('base64'));
+  await admin.getByRole('tab', { name: '贴图合集', exact: true }).click();
+  await admin.getByText('第 1 / 3 页 · 共 49 项', { exact: true }).waitFor();
+  assert.equal(await admin.getByRole('button', { name: '批量上架', exact: true }).isDisabled(), true);
+  await admin.getByRole('checkbox', { name: '全选本页', exact: true }).check();
+  await admin.getByText('已选 24 项', { exact: true }).waitFor();
+  await admin.getByRole('checkbox', { name: /^选择 分页示例/ }).first().uncheck();
+  assert.equal(await admin.getByRole('checkbox', { name: '全选本页', exact: true }).evaluate(input => input.indeterminate), true);
+  await admin.getByRole('button', { name: '尾页', exact: true }).click();
+  await admin.getByText('第 3 / 3 页 · 共 49 项', { exact: true }).waitFor();
+  await admin.getByText('已选 0 项', { exact: true }).waitFor();
+  assert.equal(await admin.getByRole('button', { name: '下一页', exact: true }).isDisabled(), true);
+  await admin.getByRole('spinbutton', { name: '指定页码' }).fill('2');
+  await admin.getByRole('button', { name: '跳转', exact: true }).click();
+  await admin.getByText('第 2 / 3 页 · 共 49 项', { exact: true }).waitFor();
+  await admin.getByRole('spinbutton', { name: '指定页码' }).fill('4');
+  await admin.getByRole('button', { name: '跳转', exact: true }).click();
+  assert.equal(await admin.getByRole('spinbutton', { name: '指定页码' }).evaluate(input => input.validity.rangeOverflow), true);
+  await admin.getByRole('button', { name: '首页', exact: true }).click();
+  await admin.getByText('第 1 / 3 页 · 共 49 项', { exact: true }).waitFor();
+  await admin.getByRole('checkbox', { name: '全选本页', exact: true }).check();
+  await admin.route('**/admin-api/expressions/status', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: '批量操作暂时失败' }) }));
+  await admin.getByRole('button', { name: '批量上架', exact: true }).click();
+  await admin.getByText('批量操作暂时失败', { exact: true }).waitFor();
+  assert.equal(await admin.getByRole('checkbox', { name: '全选本页', exact: true }).isChecked(), true);
+  await admin.unroute('**/admin-api/expressions/status');
+  await admin.getByRole('button', { name: '批量上架', exact: true }).click();
+  await admin.getByText('已上架 24 项', { exact: true }).waitFor();
+  assert.equal(await admin.getByRole('button', { name: '下架', exact: true }).count(), 24);
+  await admin.getByRole('checkbox', { name: '全选本页', exact: true }).check();
+  for (const width of [1280, 390, 320]) {
+    await admin.setViewportSize({ width, height: 900 });
+    await snapshot(admin, `admin-bulk-pagination-${width}`);
+  }
+  await admin.emulateMedia({ colorScheme: 'dark' });
+  await snapshot(admin, 'admin-bulk-pagination-dark-320');
+  await admin.emulateMedia({ colorScheme: 'light' });
+  await admin.getByRole('button', { name: '批量下架', exact: true }).click();
+  await admin.getByText('已下架 24 项', { exact: true }).waitFor();
+  await admin.locator('.expression-filter [name=status]').selectOption('pending');
+  await admin.locator('.expression-filter').getByRole('button', { name: '搜索', exact: true }).click();
+  await admin.getByText('第 1 / 3 页 · 共 49 项', { exact: true }).waitFor();
+  await admin.getByRole('button', { name: '尾页', exact: true }).click();
+  await admin.getByText('第 3 / 3 页 · 共 49 项', { exact: true }).waitFor();
+  await admin.getByRole('checkbox', { name: '全选本页', exact: true }).check();
+  await admin.getByRole('button', { name: '批量上架', exact: true }).click();
+  await admin.getByText('第 2 / 2 页 · 共 48 项', { exact: true }).waitFor();
+  await admin.evaluate(async ids => {
+    const { csrf } = await (await fetch('/admin-api/session')).json();
+    for (const id of ids) {
+      const response = await fetch(`/admin-api/expressions/${id}`, { method: 'DELETE', headers: { 'X-CSRF-Token': csrf } });
+      if (!response.ok) throw new Error('Fixture cleanup failed');
+    }
+  }, batchIds);
+  await admin.locator('.expression-filter [name=status]').selectOption('all');
+  await admin.locator('.expression-filter').getByRole('button', { name: '搜索', exact: true }).click();
+  await admin.getByText('第 1 / 1 页 · 共 0 项', { exact: true }).waitFor();
   const collectionRequests = [];
   let failCollection = true;
   await admin.route('**/admin-api/expressions/collect', async route => {
@@ -256,9 +326,46 @@ try {
   await admin.getByRole('button', { name: '准备清理' }).click();
   await snapshot(admin, 'admin-cleanup-mobile');
   assert.equal(await admin.locator('[name=confirmRoomId]').getAttribute('required'), '');
+  await admin.clock.install();
+  await admin.reload();
+  await admin.getByRole('button', { name: roomId }).waitFor();
+  await admin.bringToFront();
+  let renewals = 0;
+  admin.on('request', request => { if (request.url().endsWith('/admin-api/session') && request.method() === 'POST') renewals++; });
+  await admin.clock.runFor(6 * 60_000);
+  assert.equal(renewals, 0, 'An untouched foreground page must not renew indefinitely');
+  await admin.keyboard.press('Shift');
+  const renewal = admin.waitForResponse(response => response.url().endsWith('/admin-api/session') && response.request().method() === 'POST');
+  await admin.clock.runFor(60_000);
+  assert.equal((await renewal).status(), 200);
+  assert.equal(renewals, 1, 'Trusted foreground interaction renews the session');
+  await admin.clock.runFor(10 * 60_000);
+  assert.equal(renewals, 1, 'One interaction cannot power a perpetual renewal loop');
+  await admin.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }); });
+  await admin.keyboard.press('Shift');
+  await admin.clock.runFor(6 * 60_000);
+  assert.equal(renewals, 1, 'Hidden pages do not renew');
+  await admin.evaluate(() => { delete document.visibilityState; });
   await admin.getByRole('button', { name: '退出后台' }).click();
   await admin.getByRole('heading', { name: '登录会话管理' }).waitFor();
   assert.equal((await admin.request.get(`http://localhost:${port}/admin-api/rooms`)).status(), 401);
+  await admin.reload();
+  await admin.getByRole('heading', { name: '登录会话管理' }).waitFor();
+  await admin.route('**/admin-api/session', route => route.fulfill({
+    status: route.request().method() === 'POST' ? 401 : 200, contentType: 'application/json',
+    body: JSON.stringify(route.request().method() === 'POST' ? { code: 'SESSION_EXPIRED', error: '后台登录已过期，请重新验证' } : { csrf: 'synthetic-expiry-test' }),
+  }));
+  await admin.route('**/admin-api/rooms?*', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rooms: [] }) }));
+  await admin.reload();
+  await admin.getByRole('heading', { name: '会话管理', exact: true }).waitFor();
+  await admin.bringToFront();
+  await admin.keyboard.press('Shift');
+  await admin.clock.runFor(5 * 60_000);
+  await admin.getByRole('heading', { name: '登录会话管理' }).waitFor();
+  await admin.getByText('后台登录已过期，请重新验证', { exact: true }).waitFor();
+  const expiredRenewals = renewals;
+  await admin.clock.runFor(10 * 60_000);
+  assert.equal(renewals, expiredRenewals, 'Expired sessions stop renewing and require fresh factors');
   assert.deepEqual(errors, []);
   console.log('Backup/admin browser UI passed: desktop/mobile backup spacing, usable touch targets, fresh-passkey view, scoped restore form, real admin login, room/device/backup detail, deletion confirmation, logout and mobile overflow.');
 } finally {

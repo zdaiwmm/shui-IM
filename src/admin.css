@@ -15,6 +15,17 @@ button:disabled { opacity: .5; cursor: default; }
 button:focus-visible,input:focus-visible { outline: 3px solid oklch(65% .12 250); outline-offset: 3px; }
 .primary { background: light-dark(oklch(40% .08 250),oklch(72% .075 250)); color: light-dark(oklch(98% .005 250),oklch(18% .009 250)); }
 .danger { color: light-dark(oklch(43% .14 25),oklch(75% .12 25)); }
+.publish { color: light-dark(oklch(39% .11 150),oklch(80% .12 150)); border-color: currentColor; background: oklch(65% .1 150 / .1); }
+.unpublish { color: light-dark(oklch(43% .14 25),oklch(80% .12 25)); border-color: currentColor; background: oklch(65% .1 25 / .1); }
+.publish:hover:not(:disabled) { background: oklch(65% .1 150 / .2); }
+.unpublish:hover:not(:disabled) { background: oklch(65% .1 25 / .2); }
+.expression-bulk, .expression-paging { flex-wrap: wrap; }
+.expression-select { display: flex; align-items: center; gap: .5rem; min-height: 44px; cursor: pointer; }
+.expression-select input { width: 20px; height: 20px; min-height: 20px; flex: 0 0 20px; padding: 0; }
+.expression-preview { flex-wrap: wrap; }
+.page-jump { display: flex; align-items: center; gap: .5rem; margin: 0; }
+.page-jump label { display: flex; align-items: center; gap: .5rem; }
+.page-jump input { width: 5rem; }
 form { max-width: 29rem; display: grid; gap: 1.2rem; margin: 1.5rem 0; }
 label { display: grid; gap: .5rem; font-size: .95rem; }
 input { min-width: 0; width: 100%; min-height: 44px; border: 1px solid oklch(60% .006 250 / .5); border-radius: .4rem; padding: .6rem .8rem; color: inherit; background: transparent; }
