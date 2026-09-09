@@ -29,11 +29,46 @@ async function fixture() {
 }
 const search = (kind = 'gifs') => ({ kind, keyword: '', page: 1 });
 const upload = (kind = 'gifs', title = 'Test') => ({ kind, title, tags: 'cat', files: [{ data: gif.toString('base64') }] });
+function wastickers(files: Record<string, Buffer>): Buffer {
+  const chunks: Buffer[] = [];
+  for (const [name, data] of Object.entries(files)) {
+    const nameBytes = Buffer.from(name);
+    const header = Buffer.alloc(30);
+    header.writeUInt32LE(0x04034b50, 0);
+    header.writeUInt16LE(20, 4);
+    header.writeUInt32LE(data.length, 18);
+    header.writeUInt32LE(data.length, 22);
+    header.writeUInt16LE(nameBytes.length, 26);
+    chunks.push(header, nameBytes, data);
+  }
+  return Buffer.concat(chunks);
+}
 async function finished(service: ReturnType<typeof createExpressionCatalog>) {
   await vi.waitFor(() => expect(service.jobs()[0].status).not.toBe('running'));
   return service.jobs()[0];
 }
 describe('managed expression catalog', () => {
+  it('updates selected statuses atomically without overwriting metadata and revokes public access', async () => {
+    const f = await fixture();
+    const a = f.service.create(upload('gifs', 'First'));
+    const b = f.service.create(upload('stickers', 'Second'));
+    const ids = [a.id, b.id];
+    expect(f.service.updateStatus({ ids, status: 'published' })).toEqual({ updated: 2 });
+    const pack = await f.service.pack('owner', b.id);
+    expect(() => f.service.updateStatus({ ids: [a.id, 'missing'], status: 'pending' })).toThrow('MEME_NOT_FOUND');
+    expect(f.service.detail(a.id).status).toBe('published');
+    f.service.update(a.id, { title: 'Edited elsewhere', tags: 'new', status: 'published' });
+    expect(f.service.updateStatus({ ids, status: 'pending' })).toEqual({ updated: 2 });
+    expect(f.service.detail(a.id)).toMatchObject({ title: 'Edited elsewhere', tags: 'new', status: 'pending' });
+    await expect(f.service.media('owner', pack.items[0].id)).rejects.toThrow('MEME_NOT_FOUND');
+    await f.restart();
+    expect(f.service.detail(b.id).status).toBe('pending');
+    for (const body of [null, { ids: [], status: 'pending' }, { ids: [a.id, a.id], status: 'pending' },
+      { ids: Array.from({ length: 25 }, (_, i) => `id-${i}`), status: 'pending' },
+      { ids: [a.id], status: 'deleted' }, { ids: [123], status: 'pending' }]) {
+      expect(() => f.service.updateStatus(body)).toThrow('MEME_INVALID_QUERY');
+    }
+  });
   it('starts and restarts with an empty server catalog without acquiring upstream resources', async () => {
     const f = await fixture();
     for (const restart of [false, true]) {
@@ -79,6 +114,18 @@ describe('managed expression catalog', () => {
     expect(f.service.preview(entry.id, 0).bytes).toEqual(gif);
     f.service.remove(entry.id); expect(() => f.service.detail(entry.id)).toThrow('MEME_NOT_FOUND');
     expect(f.fetchResource).not.toHaveBeenCalled();
+  });
+  it('imports a .wastickers package through the existing moderated catalog', async () => {
+    const f = await fixture();
+    const packageBytes = wastickers({
+      'contents.json': Buffer.from(JSON.stringify({ name: 'Imported pack', stickers: [{ image_file: 'one.gif', emojis: ['🙂'] }] })),
+      'one.gif': gif,
+    });
+    const entry = f.service.create({ kind: 'stickers', title: 'Fallback title', tags: '', files: [{ name: 'pack.wastickers', data: packageBytes.toString('base64') }] });
+    expect(entry).toMatchObject({ kind: 'stickers', title: 'Imported pack', status: 'pending' });
+    expect(f.service.preview(entry.id, 0).bytes).toEqual(gif);
+    f.service.update(entry.id, { title: entry.title, tags: entry.tags, status: 'published' });
+    expect((await f.service.search('owner', search('stickers'))).packs[0].title).toBe('Imported pack');
   });
   it('counts newly collected GIFs, deduplicates repeated imports, and never fetches upstream during public reads', async () => {
     const f = await fixture(); f.service.start({ kind: 'gifs', keyword: '', target: 1 });

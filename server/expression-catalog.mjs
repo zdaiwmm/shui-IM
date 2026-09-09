@@ -1,14 +1,46 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { inflateRawSync } from 'node:zlib';
 import { createStickerSource, decryptPublicSticker, matchStickerPacks, publicStickerAnimated } from './sticker-source.mjs';
 import { fetchMemeResource, memeContentType } from './memes.mjs';
 
 const MAX_IMAGE = 8 * 1024 * 1024;
 const MAX_PACK = 64 * 1024 * 1024;
 const MAX_STORAGE = 1024 * 1024 * 1024;
+const MAX_PACKAGE = 64 * 1024 * 1024;
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const fail = code => { throw new Error(code); };
+
+function parseWastickers(bytes) {
+  if (bytes.length > MAX_PACKAGE) fail('MEME_TOO_LARGE');
+  try {
+    const files = new Map(); let offset = 0; let count = 0;
+    while (offset + 30 <= bytes.length && bytes.readUInt32LE(offset) === 0x04034b50) {
+      if (++count > 205) fail('MEME_TOO_LARGE');
+      const method = bytes.readUInt16LE(offset + 8), compressed = bytes.readUInt32LE(offset + 18), nameLen = bytes.readUInt16LE(offset + 26), extraLen = bytes.readUInt16LE(offset + 28);
+      const name = bytes.subarray(offset + 30, offset + 30 + nameLen).toString('utf8').replace(/^\.\//, ''); const start = offset + 30 + nameLen + extraLen;
+      if (start + compressed > bytes.length || name.includes('..')) fail('MEME_INVALID_QUERY');
+      const raw = bytes.subarray(start, start + compressed); files.set(name, method === 0 ? raw : method === 8 ? inflateRawSync(raw) : fail('MEME_INVALID_QUERY')); offset = start + compressed;
+    }
+    const metadataBytes = files.get('contents.json') ?? files.get('metadata.json');
+    if (!metadataBytes) fail('MEME_INVALID_QUERY');
+    const metadata = JSON.parse(metadataBytes.toString('utf8'));
+    const listed = Array.isArray(metadata.stickers) ? metadata.stickers : [];
+    if (!listed.length || listed.length > 200) fail('MEME_INVALID_QUERY');
+    const result = [];
+    for (const item of listed) {
+      const name = typeof item?.image_file === 'string' ? item.image_file : typeof item?.file === 'string' ? item.file : '';
+      const image = files.get(name.replace(/^\.\//, ''));
+      if (!image) fail('MEME_INVALID_QUERY');
+      const type = memeContentType(image);
+      if (!['image/webp', 'image/png', 'image/jpeg', 'image/gif'].includes(type)) fail('MEME_INVALID_IMAGE');
+      if (!image.length || image.length > MAX_IMAGE) fail('MEME_TOO_LARGE');
+      result.push({ bytes: image, title: `${String(metadata.name ?? metadata.title ?? '').slice(0, 100)} ${String(item?.emojis?.[0] ?? '').slice(0, 8)}`.trim() });
+    }
+    return { title: typeof metadata.name === 'string' ? metadata.name : typeof metadata.title === 'string' ? metadata.title : '', files: result };
+  } catch (error) { if (['MEME_TOO_LARGE', 'MEME_INVALID_QUERY', 'MEME_INVALID_IMAGE'].includes(error.message)) throw error; fail('MEME_INVALID_QUERY'); }
+}
 function query(body) {
   if (!body || !['gifs', 'stickers'].includes(body.kind) || typeof body.keyword !== 'string'
     || body.keyword.length > 80 || /[\u0000-\u001f]/.test(body.keyword)
@@ -157,6 +189,12 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       metadata({ ...body, status: 'pending' });
       if (!['gifs', 'stickers'].includes(body.kind) || !Array.isArray(body.files) || !body.files.length || body.files.length > 200
         || (body.kind === 'gifs' && body.files.length !== 1)) fail('MEME_INVALID_QUERY');
+      if (body.kind === 'stickers' && body.files.length === 1 && typeof body.files[0]?.name === 'string' && /\.wastickers$/i.test(body.files[0].name)) {
+        const packageBytes = Buffer.from(body.files[0].data, 'base64');
+        const parsed = parseWastickers(packageBytes);
+        body.title = parsed.title || body.title;
+        body.files = parsed.files.map(file => ({ data: file.bytes.toString('base64') }));
+      }
       const files = body.files.map(file => {
         if (!file || typeof file.data !== 'string' || file.data.length > 12 * 1024 * 1024
           || !/^[A-Za-z0-9+/]*={0,2}$/.test(file.data)) fail('MEME_INVALID_QUERY');
@@ -176,6 +214,19 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       return { type: row.type, bytes: Buffer.from(row.bytes) };
     },
     update(id, body) { get(id); const values = metadata(body); db.prepare('UPDATE entries SET title=?,tags=?,status=? WHERE id=?').run(...values, id); return service.detail(id); },
+    updateStatus(body) {
+      if (!body || !Array.isArray(body.ids) || !body.ids.length || body.ids.length > 24
+        || body.ids.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9-]{1,128}$/.test(id))
+        || new Set(body.ids).size !== body.ids.length || !['pending', 'published'].includes(body.status)) fail('MEME_INVALID_QUERY');
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        for (const id of body.ids) get(id);
+        const update = db.prepare('UPDATE entries SET status=? WHERE id=?');
+        for (const id of body.ids) update.run(body.status, id);
+        db.exec('COMMIT');
+      } catch (error) { db.exec('ROLLBACK'); throw error; }
+      return { updated: body.ids.length };
+    },
     remove(id) {
       get(id); db.exec('BEGIN IMMEDIATE');
       try { db.prepare('DELETE FROM entries WHERE id=?').run(id); db.exec('DELETE FROM assets WHERE NOT EXISTS (SELECT 1 FROM items WHERE items.hash=assets.hash); COMMIT'); }
