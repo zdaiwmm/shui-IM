@@ -206,6 +206,7 @@ try {
   await admin.getByText('2 张', { exact: true }).waitFor();
   await admin.getByText('已上架', { exact: true }).waitFor();
   await admin.getByRole('button', { name: '编辑 合成贴图包', exact: true }).click();
+  await admin.locator('.expression-gallery img').nth(1).waitFor();
   assert.equal(await admin.locator('.expression-gallery img').count(), 2);
   await admin.getByText('删除资源', { exact: true }).click();
   await admin.getByRole('button', { name: '确认删除资源', exact: true }).click();
