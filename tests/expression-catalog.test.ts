@@ -5,7 +5,6 @@ import path from 'node:path';
 import { createCipheriv, createHmac, hkdfSync } from 'node:crypto';
 import protobuf from 'protobufjs';
 import { createExpressionCatalog } from '../server/expression-catalog.mjs';
-import { shippedExpressions } from '../server/shipped-expressions.mjs';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
@@ -35,18 +34,18 @@ async function finished(service: ReturnType<typeof createExpressionCatalog>) {
   return service.jobs()[0];
 }
 describe('managed expression catalog', () => {
-  it('does not initialize removed bundled animations', async () => {
+  it('starts and restarts with an empty server catalog without acquiring upstream resources', async () => {
     const f = await fixture();
-    expect(f.service.initializeShipped(() => [])).toEqual({ initialized: true, added: 0, skipped: 0 });
-    expect(f.service.list({ ...search(), status: 'published' }).total).toBe(0);
+    for (const restart of [false, true]) {
+      if (restart) await f.restart();
+      for (const kind of ['gifs', 'stickers']) {
+        expect(f.service.list({ ...search(kind), status: 'all' }).total).toBe(0);
+        const result = await f.service.search('owner', search(kind));
+        expect(kind === 'gifs' ? result.items : result.packs).toEqual([]);
+      }
+      expect(f.service.jobs()).toEqual([]);
+    }
     expect(f.fetchResource).not.toHaveBeenCalled();
-  });
-  it('does not initialize removed bundled originals', async () => {
-    const f = await fixture();
-    const load = () => [];
-    expect(f.service.initializeShipped(load)).toEqual({ initialized: true, added: 0, skipped: 0 });
-    expect(f.service.list({ ...search('stickers'), status: 'published' }).total).toBe(0);
-    expect(f.service.list({ ...search(), status: 'published' }).total).toBe(0);
   });
   it('rolls back the entire initialization on invalid bytes and preserves existing moderation on retry', async () => {
     const f = await fixture();

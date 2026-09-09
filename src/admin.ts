@@ -1,5 +1,5 @@
 import './admin.css';
-import { createElement, Pencil, Trash2, ArrowLeft, ArrowRight } from 'lucide';
+import { createElement, Pencil, Trash2, ArrowLeft, ArrowRight, Download } from 'lucide';
 
 type Room = { roomId: string; createdAt: string; lastSeenAt: string | null; devices: number; backups: number; messageCount: number };
 type Detail = { roomId: string; devices: { deviceId: string; role: string; name: string; status: string; lastSeenAt: string | null }[];
@@ -155,10 +155,18 @@ async function expressions() {
   const content = root.querySelector<HTMLElement>('#content')!;
   content.innerHTML = `<div class="actions expression-tabs" role="tablist" aria-label="资源类型"><button role="tab" data-type="gifs">GIFs</button><button role="tab" data-type="stickers">贴图合集</button></div>
     <form class="expression-filter"><label>搜索资源<input name="keyword" type="search" maxlength="80"></label><label>状态<select name="status"><option value="all">全部状态</option><option value="pending">待上架</option><option value="published">已上架</option></select></label><button type="submit">搜索</button></form>
-    <details class="collection-tools"><summary>新增与采集</summary><form id="collect-form"><label>关键词<input name="keyword" maxlength="80"></label><label>数量目标<input name="target" type="number" min="1" max="100" value="10" required></label><label>指定来源合集 ID（可选）<input name="sourceId" pattern="[a-f0-9]{32}" maxlength="32"></label><button class="primary" type="submit">开始采集</button></form></details>
+    <div class="collection-actions"><button id="open-collect" class="primary" type="button" disabled>自动获取</button></div>
+    <dialog id="collect-dialog" aria-labelledby="collect-title"><h2 id="collect-title">获取表情资源</h2>
+      <form id="collect-form"><label>资源类型<select name="kind"><option value="gifs">动图</option><option value="stickers">贴纸合集</option></select></label>
+        <label><span id="collect-quantity">获取数量（张）</span><input name="target" type="number" min="1" max="100" step="1" value="10" required autofocus></label>
+        <label>关键词（可选）<input name="keyword" maxlength="80"></label>
+        <label>指定来源合集 ID（可选）<input name="sourceId" pattern="[a-f0-9]{32}" maxlength="32"></label>
+        <p id="collect-error" role="alert"></p><div class="actions"><button id="cancel-collect" type="button">取消</button><button class="primary" type="submit">确认获取</button></div>
+      </form></dialog>
+    <details class="collection-tools"><summary>手动上传</summary></details>
     <div id="collection-jobs" aria-live="polite"></div><div id="expression-list">正在读取资源…</div>`;
   const upload = document.createElement('form'); upload.id = 'expression-upload';
-  upload.innerHTML = `<h2>手动上传</h2><label>名称<input name="title" maxlength="120" required></label><label>标签<input name="tags" maxlength="2048"></label><label>图片（合计最多 8 MiB）<input name="files" type="file" accept="image/gif,image/png,image/webp,image/jpeg" required ${expressionKind === 'stickers' ? 'multiple' : ''}></label><button type="submit">添加到待上架</button>`;
+  upload.innerHTML = `<label>名称<input name="title" maxlength="120" required></label><label>标签<input name="tags" maxlength="2048"></label><label>图片（合计最多 8 MiB）<input name="files" type="file" accept="image/gif,image/png,image/webp,image/jpeg" required ${expressionKind === 'stickers' ? 'multiple' : ''}></label><button type="submit">添加到待上架</button>`;
   content.querySelector('.collection-tools')!.append(upload);
   upload.addEventListener('submit', async event => {
     event.preventDefault(); const button = upload.querySelector('button')!; if (button.disabled) return; button.disabled = true;
@@ -188,20 +196,37 @@ async function expressions() {
   });
   const jobs = content.querySelector<HTMLElement>('#collection-jobs')!;
   const collect = content.querySelector<HTMLFormElement>('#collect-form')!;
+  const dialog = content.querySelector<HTMLDialogElement>('#collect-dialog')!;
+  const openCollect = content.querySelector<HTMLButtonElement>('#open-collect')!;
+  const cancelCollect = content.querySelector<HTMLButtonElement>('#cancel-collect')!;
+  const collectKind = collect.elements.namedItem('kind') as HTMLSelectElement;
+  const collectError = content.querySelector<HTMLElement>('#collect-error')!;
+  const updateQuantity = () => { content.querySelector('#collect-quantity')!.textContent = `获取数量（${collectKind.value === 'gifs' ? '张' : '套'}）`; };
+  openCollect.prepend(createElement(Download));
+  openCollect.addEventListener('click', () => {
+    collect.reset(); collectKind.value = expressionKind; updateQuantity(); collectError.textContent = ''; dialog.showModal();
+  });
+  collectKind.addEventListener('change', updateQuantity);
+  cancelCollect.addEventListener('click', () => dialog.close());
+  dialog.addEventListener('cancel', event => { if (cancelCollect.disabled) event.preventDefault(); });
   collect.addEventListener('submit', async event => {
-    event.preventDefault(); const button = collect.querySelector('button')!; if (button.disabled) return; button.disabled = true;
+    event.preventDefault(); const button = collect.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    if (button.disabled) return;
     const data = new FormData(collect); const sourceId = String(data.get('sourceId')).trim();
+    const controls = collect.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>('input,select,button');
+    controls.forEach(control => { control.disabled = true; }); collectError.textContent = ''; button.textContent = '正在提交…';
     try {
-      await api('/expressions/collect', 'POST', { kind: expressionKind, keyword: String(data.get('keyword')), target: Number(data.get('target')), ...(sourceId ? { sourceId } : {}) });
-      if (view === epoch) { await expressions(); report(new Error('采集已开始，新资源将进入待上架。')); }
-    } catch (error) { if (view === epoch) report(error); }
-    finally { if (button.isConnected) button.disabled = false; }
+      await api('/expressions/collect', 'POST', { kind: String(data.get('kind')), keyword: String(data.get('keyword')), target: Number(data.get('target')), ...(sourceId ? { sourceId } : {}) });
+      if (view === epoch) { dialog.close(); expressionKind = String(data.get('kind')) as typeof expressionKind; expressionPage = 1; await expressions(); report(new Error('获取已开始，新资源将进入待上架。')); }
+    } catch (error) { if (view === epoch) collectError.textContent = error instanceof Error ? error.message : '获取未开始，请重试'; }
+    finally { controls.forEach(control => { control.disabled = false; }); button.textContent = '确认获取'; }
   });
   try {
     const params = new URLSearchParams({ kind: expressionKind, keyword: expressionKeyword, status: expressionStatus, page: String(expressionPage) });
     const data = await api<{ entries: Expression[]; total: number; jobs: CollectionJob[] }>(`/expressions?${params}`);
     if (view !== epoch) return;
     renderJobs(jobs, data.jobs);
+    openCollect.disabled = data.jobs.some(job => job.status === 'running');
     const host = content.querySelector('#expression-list')!; host.replaceChildren();
     const list = table(['预览', '名称 / 作者', '状态', '数量', '操作']);
     for (const entry of data.entries) {

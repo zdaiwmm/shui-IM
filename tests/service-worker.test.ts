@@ -2,20 +2,21 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vitest';
 
-async function worker(fetchResponse: () => Promise<Response>, cached?: Response) {
+async function worker(fetchResponse: () => Promise<Response>, cached?: Response, cacheKeys: string[] = []) {
   const handlers = new Map<string, (event: any) => void>();
   const stored = new Map<string, Response>();
   if (cached) stored.set('/', cached);
   const waiting: Promise<unknown>[] = [];
   const posted: unknown[] = [];
+  const deleted: string[] = [];
   vm.runInNewContext(await readFile(new URL('../public/sw.js', import.meta.url), 'utf8'), {
     self: { location: { origin: 'https://ai.shui.click' }, addEventListener: (type: string, handler: any) => handlers.set(type, handler), skipWaiting() {}, clients: { claim: async () => {}, matchAll: async () => [{ postMessage: (message: unknown) => posted.push(message) }] } },
     URL, Response, fetch: fetchResponse,
     caches: {
       match: async (key: string) => stored.get(key)?.clone(),
       open: async () => ({ put: async (key: string, response: Response) => { stored.set(key, response); } }),
-      keys: async () => [],
-      delete: async () => true,
+      keys: async () => cacheKeys,
+      delete: async (key: string) => { deleted.push(key); return true; },
     },
   });
   const navigate = async () => {
@@ -29,12 +30,17 @@ async function worker(fetchResponse: () => Promise<Response>, cached?: Response)
     handlers.get('activate')!({ waitUntil: (value: Promise<unknown>) => waiting.push(value) });
     await Promise.all(waiting.splice(0));
   };
-  return { navigate, activate, stored, posted };
+  return { navigate, activate, stored, posted, deleted };
 }
 
 const shell = () => new Response('<html>working offline shell</html>', { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 
 describe('offline shell response validation', () => {
+  it('removes legacy bundled expression caches on upgrade', async () => {
+    const app = await worker(async () => shell(), undefined, ['quiet-room-starter-media-v1']);
+    await app.activate();
+    expect(app.deleted).toEqual(['quiet-room-starter-media-v1']);
+  });
   it('announces the activated release to every open window', async () => {
     const app = await worker(async () => shell());
     await app.activate();
