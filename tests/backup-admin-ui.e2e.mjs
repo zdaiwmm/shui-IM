@@ -224,7 +224,7 @@ try {
   await admin.locator('#expression-upload [name=files]').setInputFiles({ name: 'fixture.wastickers', mimeType: 'application/octet-stream', buffer: packageBytes });
   await admin.getByText('合成贴图包', { exact: true }).waitFor();
   await admin.getByText('2 张', { exact: true }).waitFor();
-  await admin.getByText('已上架', { exact: true }).waitFor();
+  await admin.locator('#expression-list').getByText('已上架', { exact: true }).waitFor();
   await admin.getByRole('button', { name: '编辑 合成贴图包', exact: true }).click();
   await admin.locator('.expression-gallery img').nth(1).waitFor();
   assert.equal(await admin.locator('.expression-gallery img').count(), 2);
