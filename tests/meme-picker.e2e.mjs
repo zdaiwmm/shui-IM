@@ -381,6 +381,7 @@ try {
     document.querySelector('.meme-open-search').click(); await verifyMotion('height');
     document.querySelector('.meme-close').click();
     if (!document.querySelector('.meme-panel')?.inert) throw Error('Closing panel remained interactive');
+    document.querySelector('.meme-search-dialog').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await verifyMotion('transform');
     if (document.querySelector('.meme-panel') || document.querySelector('.chat-shell').inert) throw Error('Full close did not release the dialog');
     app.openMemePicker(); await verifyMotion('transform');

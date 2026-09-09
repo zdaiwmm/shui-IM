@@ -186,7 +186,9 @@ export class MemePicker {
     if (this.closing) return;
     this.closing = true; this.panel.inert = true; this.input.blur();
     const bounds = this.panel.getBoundingClientRect();
-    this.animateSheet(0, (visualViewport?.height ?? innerHeight) + (visualViewport?.offsetTop ?? 0) - bounds.top, 'translate', finish);
+    const translate = new DOMMatrixReadOnly(getComputedStyle(this.panel).transform).m42;
+    this.panel.style.height = `${bounds.height}px`;
+    this.animateSheet(translate, translate + (visualViewport?.height ?? innerHeight) + (visualViewport?.offsetTop ?? 0) - bounds.top, 'translate', finish);
   }
   private hasPack(id: string) { return this.packs.some(pack => pack.id === id); }
   private say(value: string) { if (this.active()) this.status.textContent = value; }
@@ -289,7 +291,7 @@ export class MemePicker {
     this.input.value = ''; if (load) void this.submit();
   }
   private back(preserve = false, animate = true) {
-    if (!this.overlay) return;
+    if (!this.overlay || this.closing) return;
     if (this.packDetail) { void this.submit(); return; }
     if (this.expanded && !this.overlay.classList.contains('meme-expanded-dialog')) {
       this.overlay.classList.add('meme-expanded-dialog');
