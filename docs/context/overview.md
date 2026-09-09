@@ -1,5 +1,8 @@
 # Quiet Room 项目地图
 
+后台组件层：`src/admin/ui.ts`、`src/admin.css`，页面与验证契约见
+[后台组件与页面](../workflows/admin-ui.md)。后台页面由 `src/admin.ts` 编排，共用表格、分页、状态与错误处理组件。
+
 本机 PDF／EPUB／文本阅读：`src/lib/document-reader.ts`、`src/lib/pdf-reader.ts`、`src/lib/epub-reader.ts`、
 `src/lib/epub-archive.worker.ts`、`src/lib/document-paging.ts`、`src/document-reader.css`；文件格式图标在 `src/lib/file-format.ts`。
 专项 `tests/document-reader.e2e.mjs`，附件接入与锁定回归仍在 `tests/file-flow.e2e.mjs`、

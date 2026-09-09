@@ -99,6 +99,8 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
           json(request, response, 200, expressions.updateStatus(await readJson(request)));
         } else if (pathname === '/admin-api/expressions/collect' && request.method === 'POST') {
           json(request, response, 202, expressions.start(await readJson(request)));
+        } else if (pathname === '/admin-api/expressions/source' && request.method === 'GET') {
+          json(request, response, 200, await expressions.sourceSearch({ keyword: url.searchParams.get('keyword') ?? '', kind: 'stickers', page: 1 }));
         } else if (pathname === '/admin-api/expressions/jobs' && request.method === 'GET') {
           json(request, response, 200, { jobs: expressions.jobs() });
         } else if (match && match[2] !== undefined && request.method === 'GET') {
