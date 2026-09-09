@@ -7,7 +7,7 @@ type State = 'requesting' | 'recording' | 'processing' | 'paused' | 'sending';
 type Mode = 'hold' | 'locked';
 const CANCEL_DISTANCE = 220;
 const CANCEL_RESET_DISTANCE = 196;
-const CANCEL_MOTION_MS = 360;
+const CANCEL_MOTION_MS = 140;
 
 export class VoiceRecorder {
   readonly signal: AbortSignal;
