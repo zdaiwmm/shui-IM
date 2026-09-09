@@ -190,6 +190,36 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-09（Asia/Shanghai）；服务器批次 `20260908T235336Z`，最终独立回读于 08:02:06 成功。
+  应用提交 `ab3c04ef49d19fe8f1d4b70ff5c5df4747ce670b`，版本 `2026.09.09.5`。
+  用户在精确 SHA 已列明后确认未发布则继续发布及资源同步。
+  [PR #56](https://github.com/zdaiwmm/shui-IM/pull/56) head 为 `35ed4bae681695d69808fa2f24ac2465e29e9df3`。
+- 本批包含更新说明、输入占位、状态栏、表情手势和菜单、收藏与备份布局、消息媒体稳定性、
+  EPUB 全书页码与跨章节连续翻页、单行阅读器工具栏及 PDF 翻页修正。
+  新增 400 张 Google Noto 普通动画（原始 WebP，CC BY 4.0），未新增合集，露骨色情素材未纳入。
+- 本地构建、68 个文件的 529 项测试及 30 个浏览器入口分段通过；Chrome / WebKit 专项、
+  触摸跟手与状态栏画布像素检查通过；iPhone / iOS 27 / Safari 真机未验证。
+  [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34290709451) 通过；
+  [精确 main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34290750485) 首次贴纸搜索超时，
+  同树 PR 及 CI 同版浏览器本地复测通过后重跑失败作业，attempt 2 全部成功。
+- 固定入口一次实际发布成功，外层核对精确回执；总耗时 182,868ms，服务器发布 136 秒。
+  发布目录 `/opt/quiet-room/git-releases/20260908T235336Z-ab3c04ef49d1`，已校验冷归档
+  `/opt/quiet-room/backups/predeploy/data-20260908T235336Z-ab3c04ef49d1.tar.gz`。
+- 公开素材批次 `noto-gifs-20260909` 事务新增 400、跳过 0，生产已上架动画 500、合集 30。
+  400 份新增原图共 132,633,304 字节，逐份 SHA-256、批次标记及数据库 quick_check 均通过。
+  导入前停机冷归档 `/opt/quiet-room/backups/expression-import-20260909T000026Z-ab3c04ef49d1/data.tar.gz`
+  已校验；未同步测试数据库。SQLite 快照及只读挂载校验曾失败并自动恢复服务，改用既有冷归档后导入成功，
+  后置校验在运行容器中以数据库只读模式续做，未重复导入或再次发布。
+- 最终独立 `READBACK_OK` 耗时 2,614ms，SHA、镜像、HTTPS 产物与 WebSocket 一致，维护门不存在。
+  应用健康，备份运行且无健康探针；实际镜像为
+  `sha256:92020cd6ca1afbb0038eee77357e4f4abdc9b2ee1b3b164cb6526b59152b4f31`。
+  后台、通话与 TURN 未启用。公共 Git 目录证据
+  `quiet-room-readback/20260909T000204069Z-ab3c04ef49d1-success.json`。
+  上一批已知的在线逻辑备份附件索引异常未在本批修复，不将冷归档和容器运行记为在线逻辑备份成功。
+  对账在独立工作树完成，文档合并不触发再次部署。
+
+## 历史线上发布记录（2026-09-09 06:27）
+
 - 日期：2026-09-09（Asia/Shanghai）；服务器批次 `20260908T221713Z`，最终独立回读于 06:27:35 成功。
   应用提交 `46e4b77fee27df1ad30cb32cf4a45e1fd01186d0`，版本 `2026.09.09.4`。
   用户明确授权本批修复、合并和生产发布；自动审批要求精确 SHA 后，用户确认发布及公开表情库初始化。

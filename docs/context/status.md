@@ -1,10 +1,11 @@
 # Quiet Room 当前状态
 
-## 移动交互、整书页码与新增动画（2026-09-09，交付中）
+## 移动交互、整书页码与新增动画（2026-09-09 08:02，已部署）
 
 - 规则来源与实施基线为本机 main `46e4b77fee27df1ad30cb32cf4a45e1fd01186d0`，独占工作树
   `/private/tmp/quiet-room-mobile-polish-reader-pagination`，分支 `codex/mobile-polish-reader-pagination`。
-  用户本次明确授权修复、GitHub 合并、生产发布及新增普通表情资源同步，无需再次确认授权。
+  用户本次明确授权修复、GitHub 合并、生产发布及新增普通表情资源同步，并要求无需再次确认授权。
+  自动审批要求精确提交确认后，用户确认未发布则继续；本批生产切换和新增资源入库已完成。
   露骨色情素材部分未纳入；版本 `2026.09.09.5` 新增 400 张 Google Noto 普通动画，未新增合集。
 - 更新说明标题及关闭固定、明细回弹和底部留白；日志新增分钟时间。输入占位居中、离线爱心短暂变红后恢复；
   表情图片圆角、解除添加负向样式、合集快捷图保留、跟手双向展开和半屏收起入口调整；
@@ -18,10 +19,24 @@
   首轮定位触摸回半屏重复入场，第二轮定位保留页面后遗留操作菜单；修复后对应及后续回归均通过，
   不记为 `check:full` 单次零退出。日志为 `/private/tmp/mobile-polish-check-full.log`、
   `/private/tmp/mobile-polish-final-check.log`、`/private/tmp/mobile-polish-remaining-browser.log`。
-  iPhone / iOS 27 / Safari 真机尚未验证。当前阶段为候选已验证，CI 与发布结果待单独记录。
-- 本次只读部署预检成功，生产精确提交仍为 `46e4b77fee27df1ad30cb32cf4a45e1fd01186d0`。
-  生产公开资源只读回查为 30 个已上架合集、100 张已上架动画，基线批次标记存在。
-  新批次需随精确发布镜像显式导入并单独回读，完整性与幂等规则见 [MEMES.md](../../MEMES.md)。
+  iPhone / iOS 27 / Safari 真机尚未验证。
+- [PR #56](https://github.com/zdaiwmm/shui-IM/pull/56) 已合并为精确 main
+  `ab3c04ef49d19fe8f1d4b70ff5c5df4747ce670b`，与候选 `35ed4bae681695d69808fa2f24ac2465e29e9df3` 文件树相同。
+  [候选 PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34290709451) 通过；
+  [main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34290750485) 首次在贴纸搜索用例超时，
+  使用 CI 同版 Chromium 本地复测通过后重跑失败作业；attempt 2 全部成功，
+  `Full application verification` 与 `verify` 均通过。
+  本机 main 已在互斥锁内快进并从原可信 HTTPS 来源回读版本、相关模块及后端健康；证据
+  `.git/quiet-room-task-evidence/mobile-polish-local.json`。发布后对账使用独立工作树
+  `/private/tmp/quiet-room-mobile-polish-release-record`，文档提交不触发再次部署。
+- 固定入口一次实际发布成功并核对精确回执，生产为 `ab3c04ef49d19fe8f1d4b70ff5c5df4747ce670b`。
+  新批次 `noto-gifs-20260909` 事务新增 400，生产已上架动画 500、合集 30；新增原图摘要、批次标记、
+  数据库完整性均通过。SQLite 快照/只读挂载校验失败后服务自动恢复，使用已验证冷归档保护导入，
+  运行容器内只读续做后置校验，未重复导入。完整性与幂等规则见 [MEMES.md](../../MEMES.md)。
+- 08:02:06 最终独立 `READBACK_OK`，HTTPS 健康、镜像、公开产物和 WebSocket 均通过，维护门不存在。
+  应用健康，备份运行但无健康探针；后台、通话与 TURN 未启用。证据
+  `.git/quiet-room-readback/20260909T000204069Z-ab3c04ef49d1-success.json`，详见[发布记录](../../RELEASING.md#本次线上发布记录)。
+  上一批在线逻辑备份附件索引异常仍需独立调查，本批冷归档校验不代表该问题已解决。
 
 ## 移动交互与阅读器续修（2026-09-09 06:27，已部署）
 
@@ -48,7 +63,7 @@
 - 用户更新服务器 IP 白名单后预检恢复；固定入口一次实际发布成功，精确 `DEPLOY_VERIFIED` 已核对。
   最终独立 `READBACK_OK` 为 06:27:35，耗时 2,967ms；SHA、镜像、HTTPS 资源与 WebSocket 一致，
   维护门不存在。应用健康，备份容器运行但没有健康探针；后台、通话与 TURN 未启用。
-  证据 `.git/quiet-room-readback/20260908T222732300Z-46e4b77fee27-success.json`；详见[发布记录](../../RELEASING.md#本次线上发布记录)。
+  证据 `.git/quiet-room-readback/20260908T222732300Z-46e4b77fee27-success.json`；详见[发布记录](../../RELEASING.md#历史线上发布记录2026-09-09-0627)。
 - 生产公开表情库由空库显式初始化为 30 个已上架合集和 100 张 GIF，883 份去重原图（56,948,375 字节），
   完成标记已回查。全部使用仓库预置素材，不读取测试数据库；后续测试后台新增资源不会随代码更新自动同步。
   初始化前冷归档已校验，事务提交后服务恢复并完成上述再次回读；未修改原始聊天数据。
@@ -141,7 +156,7 @@
 - 本机 main 已在本任务互斥锁内快进至 `9c2a4ef`；按锁定依赖执行 `npm ci` 并重启既有局域网启动器。前后端均由共享 main 运行，原 HTTPS 来源与既有证书经实际局域网接口回读：版本 `2026.09.09.3`、阅读器／EPUB worker／格式图标及保留的在线动画命中，阅读器 CSS 逐字节一致，后端 ok/database/storage 全为 true。回读证据为 `/private/tmp/quiet-room-reader-v3-lan-readback.json`，启动日志为 `/private/tmp/quiet-room-reader-v3-lan.log`。后续对账提交只修改本页，不改变应用代码。
 - iPhone / iOS 27 / Safari 真机横滑手感和实际书籍仍待验收；EPUB DRM／加密资源、出版者样式与固定版式还原不在范围内。本轮未推送 GitHub、未运行 CI、未发布生产；任务工作树保留供真机反馈。
 
-## 当前生产与本机状态（2026-09-09 00:22）
+## 历史生产与本机状态（2026-09-09 00:22）
 
 - 本轮授权修复、合并并发布生产，无需再次审核；独立分支
   `codex/chat-expression-polish-20260908`，基线 `ff6152283bdf316b08951820c3250016c3b13e82`。
@@ -725,7 +740,7 @@ ALAPI 代理因具体外发目的地授权待确认而未写入，凭据及真�
 
 ## 知识库治理状态
 
-- 固定发布回执和独立生产回读证明线上应用为 `9728183734c602f3602a07cbdcac4643501cb6ed`；
+- 固定发布回执和独立生产回读证明线上应用为 `ab3c04ef49d19fe8f1d4b70ff5c5df4747ce670b`；
   本次知识库治理从该精确 main 建立独立分支，只存在于工作树时不算合并或部署。最终文档
   提交在运行时复核，不把包含本页的提交号写成自引用“当前应用值”。
 - D-021 已把每次发布后的固定触发点设为外层 `publish.mjs` 核对精确成功回执之后的独立生产回读，并要求在发布任务结束前完成一次轻治理。对账失败与生产失败分开，只重试对应后置步骤，不能重发应用。
@@ -752,7 +767,7 @@ ALAPI 代理因具体外发目的地授权待确认而未写入，凭据及真�
 
 ## 接手复核
 
-已部署应用为 `9728183734c602f3602a07cbdcac4643501cb6ed`；本发布记录随后由独立文档
+已部署应用为 `ab3c04ef49d19fe8f1d4b70ff5c5df4747ce670b`；本发布记录随后由独立文档
 提交形成，文档 SHA 不代表应用重新部署。原始开发目录仍可能包含不属于本发布的未提交内容，
 不得覆盖或混入本次知识库 PR。接手时重新读取 `git status`、HEAD、GitHub main、精确 CI 和
 生产 SHA；工作树、本地验证、CI、真机和生产分别取证。后续发布仍遵循
