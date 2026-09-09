@@ -60,8 +60,9 @@ try {
     app.renderChat();
     document.querySelector('#message-input').value = '保留这份草稿';
     const realFetch = window.fetch.bind(window); const requests = [];
-    const { starterGifs, starterPacks } = await import('/src/lib/sticker-library.ts');
-    const networkGif = await (await realFetch(starterGifs[0].asset)).blob();
+    const starterGifs = [{ asset: '/__memes/synthetic.gif' }];
+    const starterPacks = [{ id: 'synthetic-pack', title: 'Synthetic pack' }];
+    const networkGif = files[0];
     window.fetch = async (input, init) => {
       const url = new URL(typeof input === 'string' ? input : input.url,location.href);
       if (url.pathname.endsWith('/memes/search')) {
