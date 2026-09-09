@@ -94,7 +94,7 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
           json(request, response, 200, expressions.list({ kind: url.searchParams.get('kind') ?? 'gifs', keyword: url.searchParams.get('keyword') ?? '',
             status: url.searchParams.get('status') ?? 'all', page: Number(url.searchParams.get('page') ?? 1) }));
         } else if (pathname === '/admin-api/expressions' && request.method === 'POST') {
-          json(request, response, 201, expressions.create(await readExpressionJson(request)));
+          json(request, response, 201, await expressions.create(await readExpressionJson(request)));
         } else if (pathname === '/admin-api/expressions/status' && request.method === 'PATCH') {
           json(request, response, 200, expressions.updateStatus(await readJson(request)));
         } else if (pathname === '/admin-api/expressions/collect' && request.method === 'POST') {

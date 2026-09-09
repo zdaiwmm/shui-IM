@@ -196,9 +196,9 @@ async function expressions() {
     try {
       const data = new FormData(upload); const files = data.getAll('files').filter((file): file is File => file instanceof File && file.size > 0);
       const packageUpload = files.length === 1 && /\.wastickers$/i.test(files[0]!.name);
-      const maxUploadBytes = packageUpload ? 64 * 1024 * 1024 : 8 * 1024 * 1024;
+      const maxUploadBytes = 8 * 1024 * 1024;
       if (!files.length || files.length > 200 || files.reduce((sum, file) => sum + file.size, 0) > maxUploadBytes) {
-        throw new Error(packageUpload ? 'wastickers 合集不得超过 64 MiB' : '图片合计不得超过 8 MiB，合集最多 200 张');
+        throw new Error(packageUpload ? 'wastickers 文件不得超过 8 MiB' : '图片合计不得超过 8 MiB，合集最多 200 张');
       }
       const encoded = [];
       for (const file of files) {

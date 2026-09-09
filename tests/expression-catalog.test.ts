@@ -5,6 +5,7 @@ import path from 'node:path';
 import { createCipheriv, createHmac, hkdfSync } from 'node:crypto';
 import protobuf from 'protobufjs';
 import { createExpressionCatalog } from '../server/expression-catalog.mjs';
+import { wastickers } from './fixtures/wastickers.mjs';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
@@ -29,20 +30,6 @@ async function fixture() {
 }
 const search = (kind = 'gifs') => ({ kind, keyword: '', page: 1 });
 const upload = (kind = 'gifs', title = 'Test') => ({ kind, title, tags: 'cat', files: [{ data: gif.toString('base64') }] });
-function wastickers(files: Record<string, Buffer>): Buffer {
-  const chunks: Buffer[] = [];
-  for (const [name, data] of Object.entries(files)) {
-    const nameBytes = Buffer.from(name);
-    const header = Buffer.alloc(30);
-    header.writeUInt32LE(0x04034b50, 0);
-    header.writeUInt16LE(20, 4);
-    header.writeUInt32LE(data.length, 18);
-    header.writeUInt32LE(data.length, 22);
-    header.writeUInt16LE(nameBytes.length, 26);
-    chunks.push(header, nameBytes, data);
-  }
-  return Buffer.concat(chunks);
-}
 async function finished(service: ReturnType<typeof createExpressionCatalog>) {
   await vi.waitFor(() => expect(service.jobs()[0].status).not.toBe('running'));
   return service.jobs()[0];
@@ -50,8 +37,8 @@ async function finished(service: ReturnType<typeof createExpressionCatalog>) {
 describe('managed expression catalog', () => {
   it('updates selected statuses atomically without overwriting metadata and revokes public access', async () => {
     const f = await fixture();
-    const a = f.service.create(upload('gifs', 'First'));
-    const b = f.service.create(upload('stickers', 'Second'));
+    const a = await f.service.create(upload('gifs', 'First'));
+    const b = await f.service.create(upload('stickers', 'Second'));
     const ids = [a.id, b.id];
     expect(f.service.updateStatus({ ids, status: 'published' })).toEqual({ updated: 2 });
     const pack = await f.service.pack('owner', b.id);
@@ -84,7 +71,7 @@ describe('managed expression catalog', () => {
   });
   it('rolls back the entire initialization on invalid bytes and preserves existing moderation on retry', async () => {
     const f = await fixture();
-    const existing = f.service.create(upload('stickers', 'Existing pending'));
+    const existing = await f.service.create(upload('stickers', 'Existing pending'));
     const entry = { ...existing, id: 'fixture-shipped' };
     const original = { entry, files: [{ title: 'Original', bytes: gif }] };
     expect(() => f.service.initializeShipped(function* () {
@@ -98,7 +85,7 @@ describe('managed expression catalog', () => {
     expect(f.service.detail(existing.id)).toMatchObject({ title: 'Existing pending', status: 'pending' });
   });
   it('persists originals and metadata atomically, exposes only published entries, and revokes existing grants', async () => {
-    const f = await fixture(); const entry = f.service.create(upload('stickers'));
+    const f = await fixture(); const entry = await f.service.create(upload('stickers'));
     expect(entry.status).toBe('pending');
     expect((await f.service.search('owner', search('stickers'))).packs).toEqual([]);
     await expect(f.service.pack('owner', entry.id)).rejects.toThrow('MEME_NOT_FOUND');
@@ -117,11 +104,11 @@ describe('managed expression catalog', () => {
   });
   it('imports a .wastickers package through the existing moderated catalog', async () => {
     const f = await fixture();
-    const packageBytes = wastickers({
+    const packageBytes = await wastickers({
       'contents.json': Buffer.from(JSON.stringify({ name: 'Imported pack', stickers: [{ image_file: 'one.gif', emojis: ['🙂'] }] })),
       'one.gif': gif,
     });
-    const entry = f.service.create({ kind: 'gifs', title: 'Fallback title', tags: '', status: 'published', files: [{ name: 'pack.wastickers', data: packageBytes.toString('base64') }] });
+    const entry = await f.service.create({ kind: 'gifs', title: 'Fallback title', tags: '', status: 'published', files: [{ name: 'pack.wastickers', data: packageBytes.toString('base64') }] });
     expect(entry).toMatchObject({ kind: 'stickers', title: 'Imported pack', status: 'published' });
     expect(f.service.preview(entry.id, 0).bytes).toEqual(gif);
     expect((await f.service.search('owner', search('stickers'))).packs[0].title).toBe('Imported pack');
@@ -130,12 +117,12 @@ describe('managed expression catalog', () => {
     const f = await fixture();
     const large = Buffer.alloc(5 * 1024 * 1024, 0);
     large.write('GIF89a', 0, 'ascii');
-    const packageBytes = wastickers({
+    const packageBytes = await wastickers({
       'contents.json': Buffer.from(JSON.stringify({ name: 'Large pack', stickers: [{ image_file: 'one.gif' }, { image_file: 'two.gif' }] })),
       'one.gif': large,
       'two.gif': large,
     });
-    const entry = f.service.create({ kind: 'stickers', title: 'Fallback title', tags: '', status: 'published', files: [{ name: 'large.wastickers', data: packageBytes.toString('base64') }] });
+    const entry = await f.service.create({ kind: 'stickers', title: 'Fallback title', tags: '', status: 'published', files: [{ name: 'large.wastickers', data: packageBytes.toString('base64') }] });
     expect(entry).toMatchObject({ kind: 'stickers', title: 'Large pack', status: 'published' });
   });
   it('counts newly collected GIFs, deduplicates repeated imports, and never fetches upstream during public reads', async () => {
@@ -163,10 +150,10 @@ describe('managed expression catalog', () => {
     const { service } = await fixture();
     for (const target of [0, 101, 1.5]) expect(() => service.start({ kind: 'gifs', keyword: '', target })).toThrow('MEME_INVALID_QUERY');
     expect(() => service.start({ kind: 'gifs', keyword: '', target: 1, sourceId: 'http://localhost/' })).toThrow('MEME_INVALID_QUERY');
-    expect(() => service.create({ ...upload(), files: [{ data: Buffer.from('<svg/>').toString('base64') }] })).toThrow();
-    expect(() => service.create({ ...upload(), files: [{ data: 'abc' }] })).toThrow();
-    expect(() => service.create({ ...upload(), title: '' })).toThrow();
-    for (let i = 0; i < 25; i++) { const entry = service.create(upload('gifs', `GIF ${i}`)); service.update(entry.id, { title: entry.title, tags: '', status: 'published' }); }
+    await expect(service.create({ ...upload(), files: [{ data: Buffer.from('<svg/>').toString('base64') }] })).rejects.toThrow();
+    await expect(service.create({ ...upload(), files: [{ data: 'abc' }] })).rejects.toThrow();
+    await expect(service.create({ ...upload(), title: '' })).rejects.toThrow();
+    for (let i = 0; i < 25; i++) { const entry = await service.create(upload('gifs', `GIF ${i}`)); service.update(entry.id, { title: entry.title, tags: '', status: 'published' }); }
     expect((await service.search('owner', search())).items).toHaveLength(24);
     expect((await service.search('owner', { ...search(), page: 2 })).items).toHaveLength(1);
     await expect(service.search('owner', { ...search(), page: 0 })).rejects.toThrow('MEME_INVALID_QUERY');
