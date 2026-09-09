@@ -10,7 +10,7 @@ import { verifySuccessfulCI } from '../scripts/release-ci.mjs';
 
 const sha = 'a'.repeat(40);
 const run = { id: 1, run_attempt: 2, head_sha: sha, head_branch: 'main', event: 'push', path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'success', html_url: 'https://github.com/example/run/1' };
-const fullJob = { run_id: run.id, head_sha: sha, name: 'Full application verification', status: 'completed', conclusion: 'success' };
+const fullJob = { run_id: run.id, head_sha: sha, name: 'verify', status: 'completed', conclusion: 'success' };
 const jobs = { jobs: [fullJob] };
 
 describe('release entry point', () => {
@@ -29,8 +29,8 @@ describe('release entry point', () => {
   });
   it('refuses green documentation-only runs, skipped gates and unrelated job evidence', () => {
     for (const changedJobs of [[], [{ ...fullJob, conclusion: 'skipped' }], [{ ...fullJob, status: 'in_progress' }],
-      [{ ...fullJob, run_id: 99 }], [{ ...fullJob, head_sha: 'b'.repeat(40) }], [{ ...fullJob, name: 'verify' }], [fullJob, fullJob]]) {
-      expect(() => requireSuccessfulCI({ workflow_runs: [run] }, sha, { jobs: changedJobs })).toThrow('Full application verification');
+      [{ ...fullJob, run_id: 99 }], [{ ...fullJob, head_sha: 'b'.repeat(40) }], [{ ...fullJob, name: 'other' }], [fullJob, fullJob]]) {
+      expect(() => requireSuccessfulCI({ workflow_runs: [run] }, sha, { jobs: changedJobs })).toThrow('aggregate verify');
     }
   });
   it('reads all job pages for the latest run attempt, without accepting an older attempt', () => {

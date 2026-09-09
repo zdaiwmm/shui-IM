@@ -6,7 +6,7 @@ import { approvedCommit, selectRun, publish } from '../scripts/publish.mjs';
 
 const sha = 'a'.repeat(40);
 const good = { id: 42, run_attempt: 1, head_sha: sha, head_branch: 'main', event: 'push', path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'success' };
-const jobs = { jobs: [{ run_id: 42, head_sha: sha, name: 'Full application verification', status: 'completed', conclusion: 'success' }] };
+const jobs = { jobs: [{ run_id: 42, head_sha: sha, name: 'verify', status: 'completed', conclusion: 'success' }] };
 
 describe('isolated non-GUI publishing', () => {
   it('requires explicit full SHA, never broad yes or an implicit latest release', () => {
