@@ -121,10 +121,9 @@ describe('managed expression catalog', () => {
       'contents.json': Buffer.from(JSON.stringify({ name: 'Imported pack', stickers: [{ image_file: 'one.gif', emojis: ['🙂'] }] })),
       'one.gif': gif,
     });
-    const entry = f.service.create({ kind: 'stickers', title: 'Fallback title', tags: '', files: [{ name: 'pack.wastickers', data: packageBytes.toString('base64') }] });
-    expect(entry).toMatchObject({ kind: 'stickers', title: 'Imported pack', status: 'pending' });
+    const entry = f.service.create({ kind: 'gifs', title: 'Fallback title', tags: '', status: 'published', files: [{ name: 'pack.wastickers', data: packageBytes.toString('base64') }] });
+    expect(entry).toMatchObject({ kind: 'stickers', title: 'Imported pack', status: 'published' });
     expect(f.service.preview(entry.id, 0).bytes).toEqual(gif);
-    f.service.update(entry.id, { title: entry.title, tags: entry.tags, status: 'published' });
     expect((await f.service.search('owner', search('stickers'))).packs[0].title).toBe('Imported pack');
   });
   it('counts newly collected GIFs, deduplicates repeated imports, and never fetches upstream during public reads', async () => {

@@ -177,28 +177,14 @@ try {
   await snapshot(admin, 'admin-rooms-desktop');
   await admin.getByRole('button', { name: '表情管理', exact: true }).click();
   await admin.getByText('暂无符合条件的资源').waitFor();
-  await admin.getByRole('button', { name: '自动获取', exact: true }).click();
-  const collectionDialog = admin.getByRole('dialog', { name: '获取表情资源' });
-  await collectionDialog.waitFor();
-  assert.equal(await collectionDialog.locator('[name=target]').evaluate(input => input === document.activeElement), true);
-  await snapshot(admin, 'admin-collect-desktop');
-  await admin.keyboard.press('Escape');
-  assert.equal(await collectionDialog.isVisible(), false);
-  assert.equal(await admin.getByRole('button', { name: '自动获取', exact: true }).evaluate(button => button === document.activeElement), true);
-  await admin.getByRole('button', { name: '自动获取', exact: true }).click();
-  await collectionDialog.getByRole('button', { name: '取消', exact: true }).click();
-  await admin.getByText('手动上传', { exact: true }).click();
-  await admin.locator('#expression-upload [name=title]').fill('审核示例 GIF');
-  await admin.locator('#expression-upload [name=tags]').fill('cat 可爱');
-  await admin.locator('#expression-upload [name=files]').setInputFiles({ name: 'fixture.gif', mimeType: 'image/gif',
+  await admin.getByRole('button', { name: '上传资源', exact: true }).click();
+  await admin.locator('#expression-upload [name=files]').setInputFiles({ name: '审核示例.gif', mimeType: 'image/gif',
     buffer: animatedGif });
-  await admin.getByRole('button', { name: '添加到待上架', exact: true }).click();
-  await admin.getByText('审核示例 GIF', { exact: true }).waitFor();
+  await admin.getByText('审核示例', { exact: true }).waitFor();
   await admin.locator('.expression-thumbnail').evaluate(image => image.decode());
   await snapshot(admin, 'admin-expressions-desktop');
-  await admin.getByRole('button', { name: '上架', exact: true }).click();
   await admin.getByText('已上架', { exact: true }).last().waitFor();
-  await admin.getByRole('button', { name: '编辑 审核示例 GIF', exact: true }).click();
+  await admin.getByRole('button', { name: '编辑 审核示例', exact: true }).click();
   await admin.locator('input[name=title]').fill('审核后的 GIF');
   await admin.getByRole('button', { name: '保存', exact: true }).click();
   await admin.getByText('已保存', { exact: true }).waitFor();
@@ -211,7 +197,7 @@ try {
   await admin.getByText('删除资源', { exact: true }).click();
   await admin.getByRole('button', { name: '确认删除资源', exact: true }).click();
   await admin.getByText('暂无符合条件的资源').waitFor();
-  await admin.getByRole('tab', { name: '贴图合集', exact: true }).click();
+  await admin.getByRole('tab', { name: '贴图', exact: true }).click();
   const batchIds = await admin.evaluate(async data => {
     const { csrf } = await (await fetch('/admin-api/session')).json();
     const ids = [];
@@ -223,7 +209,7 @@ try {
     }
     return ids;
   }, animatedGif.toString('base64'));
-  await admin.getByRole('tab', { name: '贴图合集', exact: true }).click();
+  await admin.getByRole('tab', { name: '贴图', exact: true }).click();
   await admin.getByText('第 1 / 3 页 · 共 49 项', { exact: true }).waitFor();
   assert.equal(await admin.getByRole('button', { name: '批量上架', exact: true }).isDisabled(), true);
   await admin.getByRole('checkbox', { name: '全选本页', exact: true }).check();
@@ -261,14 +247,6 @@ try {
   await admin.emulateMedia({ colorScheme: 'light' });
   await admin.getByRole('button', { name: '批量下架', exact: true }).click();
   await admin.getByText('已下架 24 项', { exact: true }).waitFor();
-  await admin.locator('.expression-filter [name=status]').selectOption('pending');
-  await admin.locator('.expression-filter').getByRole('button', { name: '搜索', exact: true }).click();
-  await admin.getByText('第 1 / 3 页 · 共 49 项', { exact: true }).waitFor();
-  await admin.getByRole('button', { name: '尾页', exact: true }).click();
-  await admin.getByText('第 3 / 3 页 · 共 49 项', { exact: true }).waitFor();
-  await admin.getByRole('checkbox', { name: '全选本页', exact: true }).check();
-  await admin.getByRole('button', { name: '批量上架', exact: true }).click();
-  await admin.getByText('第 2 / 2 页 · 共 48 项', { exact: true }).waitFor();
   await admin.evaluate(async ids => {
     const { csrf } = await (await fetch('/admin-api/session')).json();
     for (const id of ids) {
@@ -276,45 +254,9 @@ try {
       if (!response.ok) throw new Error('Fixture cleanup failed');
     }
   }, batchIds);
-  await admin.locator('.expression-filter [name=status]').selectOption('all');
-  await admin.locator('.expression-filter').getByRole('button', { name: '搜索', exact: true }).click();
+  await admin.getByRole('tab', { name: '贴图', exact: true }).click();
   await admin.getByText('第 1 / 1 页 · 共 0 项', { exact: true }).waitFor();
-  const collectionRequests = [];
-  let failCollection = true;
-  await admin.route('**/admin-api/expressions/collect', async route => {
-    collectionRequests.push(route.request().postDataJSON());
-    await route.fulfill({ status: failCollection ? 503 : 202, contentType: 'application/json',
-      body: JSON.stringify(failCollection ? { error: '来源暂时不可用，请重试' } : { job: { id: 'synthetic-collection' } }) });
-  });
-  await admin.getByRole('button', { name: '自动获取', exact: true }).click();
-  assert.equal(await collectionDialog.locator('[name=kind]').inputValue(), 'stickers');
-  await collectionDialog.getByText('获取数量（套）', { exact: true }).waitFor();
-  await admin.setViewportSize({ width: 320, height: 740 });
-  await snapshot(admin, 'admin-collect-small-mobile');
-  await collectionDialog.locator('[name=target]').fill('0');
-  await collectionDialog.getByRole('button', { name: '确认获取', exact: true }).click();
-  assert.equal(collectionRequests.length, 0, 'Invalid quantity submitted');
-  await collectionDialog.locator('[name=target]').fill('3');
-  await collectionDialog.locator('[name=keyword]').fill('爱心');
-  await collectionDialog.getByRole('button', { name: '确认获取', exact: true }).click();
-  await collectionDialog.getByRole('alert').getByText('来源暂时不可用，请重试').waitFor();
-  assert.equal(await collectionDialog.locator('[name=target]').inputValue(), '3');
-  await admin.emulateMedia({ colorScheme: 'dark' });
-  await snapshot(admin, 'admin-collect-error-small-mobile-dark');
-  failCollection = false;
-  await collectionDialog.locator('[name=kind]').selectOption('gifs');
-  await collectionDialog.getByText('获取数量（张）', { exact: true }).waitFor();
-  await collectionDialog.getByRole('button', { name: '确认获取', exact: true }).click();
-  await collectionDialog.waitFor({ state: 'hidden' });
-  assert.deepEqual(collectionRequests, [
-    { kind: 'stickers', target: 3, keyword: '爱心' }, { kind: 'gifs', target: 3, keyword: '爱心' },
-  ]);
-  await admin.getByRole('tab', { name: 'GIFs', exact: true }).getAttribute('aria-selected').then(value => assert.equal(value, 'true'));
-  await admin.unroute('**/admin-api/expressions/collect');
   await admin.emulateMedia({ colorScheme: 'light' });
-  await admin.getByRole('tab', { name: '贴图合集', exact: true }).click();
-  await admin.getByText('手动上传', { exact: true }).click();
-  assert.equal(await admin.locator('#expression-upload input[type=file]').getAttribute('multiple'), '');
   await admin.setViewportSize({ width: 1280, height: 900 });
   await admin.getByRole('button', { name: '会话管理', exact: true }).click();
   await admin.getByRole('button', { name: roomId }).waitFor();
