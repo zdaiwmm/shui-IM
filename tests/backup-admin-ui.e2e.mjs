@@ -175,6 +175,14 @@ try {
   await admin.getByRole('button', { name: roomId }).waitFor();
   assert.equal(await admin.getByRole('heading', { name: '登录会话管理' }).count(), 0, 'Reload restores a valid administrator session');
   await snapshot(admin, 'admin-rooms-desktop');
+  assert.equal(await admin.locator('#rooms-nav').getAttribute('aria-current'), 'page');
+  assert.equal(await admin.getByText('后台服务正常').count(), 0, 'no unverified health claim');
+  await admin.route('**/admin-api/rooms?*', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: '会话读取暂时失败' }) }));
+  await admin.getByRole('button', { name: '刷新会话列表' }).click();
+  await admin.getByText('会话读取暂时失败').waitFor();
+  await admin.unroute('**/admin-api/rooms?*');
+  await admin.getByRole('button', { name: '重试', exact: true }).click();
+  await admin.getByRole('button', { name: roomId }).waitFor();
   await admin.getByRole('button', { name: '表情管理', exact: true }).click();
   await admin.getByText('暂无符合条件的资源').waitFor();
   await admin.getByRole('button', { name: '上传资源', exact: true }).click();
@@ -184,10 +192,18 @@ try {
   await admin.locator('.expression-thumbnail').evaluate(image => image.decode());
   await snapshot(admin, 'admin-expressions-desktop');
   await admin.getByText('已上架', { exact: true }).last().waitFor();
+  await admin.getByRole('combobox', { name: '上架状态' }).selectOption('pending');
+  await admin.getByText('暂无符合条件的资源').waitFor();
+  await admin.getByRole('combobox', { name: '上架状态' }).selectOption('published');
+  await admin.getByText('审核示例', { exact: true }).waitFor();
+  await admin.getByRole('combobox', { name: '上架状态' }).selectOption('all');
   await admin.getByRole('button', { name: '编辑 审核示例', exact: true }).click();
+  assert.equal(await admin.locator('#expressions-nav').getAttribute('aria-current'), 'page', 'resource detail keeps the resource navigation active');
   await admin.locator('input[name=title]').fill('审核后的 GIF');
   await admin.getByRole('button', { name: '保存', exact: true }).click();
   await admin.getByText('已保存', { exact: true }).waitFor();
+  assert.equal(await admin.locator('#status').getAttribute('data-tone'), 'success');
+  await snapshot(admin, 'admin-expression-detail-desktop');
   await admin.setViewportSize({ width: 390, height: 844 });
   await snapshot(admin, 'admin-expression-detail-mobile');
   await admin.getByRole('button', { name: '返回资源列表', exact: true }).click();
@@ -197,6 +213,10 @@ try {
   await admin.getByText('删除资源', { exact: true }).click();
   await admin.getByRole('button', { name: '确认删除资源', exact: true }).click();
   await admin.getByText('暂无符合条件的资源').waitFor();
+  await admin.getByRole('tab', { name: 'GIFs', exact: true }).press('ArrowRight');
+  assert.equal(await admin.getByRole('tab', { name: '贴图', exact: true }).getAttribute('aria-selected'), 'true');
+  await admin.getByRole('tab', { name: '贴图', exact: true }).press('Home');
+  assert.equal(await admin.getByRole('tab', { name: 'GIFs', exact: true }).getAttribute('aria-selected'), 'true');
   await admin.getByRole('tab', { name: '贴图', exact: true }).click();
   const batchIds = await admin.evaluate(async data => {
     const { csrf } = await (await fetch('/admin-api/session')).json();
