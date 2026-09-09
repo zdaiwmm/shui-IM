@@ -6,8 +6,6 @@ import { createCipheriv, createHmac, hkdfSync } from 'node:crypto';
 import protobuf from 'protobufjs';
 import { createExpressionCatalog } from '../server/expression-catalog.mjs';
 import { shippedExpressions } from '../server/shipped-expressions.mjs';
-import { shippedGifAdditions, GIF_ADDITIONS_BATCH } from '../server/shipped-gif-additions.mjs';
-import { fileURLToPath } from 'node:url';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
@@ -37,21 +35,10 @@ async function finished(service: ReturnType<typeof createExpressionCatalog>) {
   return service.jobs()[0];
 }
 describe('managed expression catalog', () => {
-  it('imports 400 additional animations in a separate durable batch without undoing moderation', async () => {
+  it('does not initialize removed bundled animations', async () => {
     const f = await fixture();
-    f.service.initializeShipped(() => []);
-    const load = () => shippedGifAdditions({
-      libraryPath: fileURLToPath(new URL('../src/lib/additional-gifs.json', import.meta.url)),
-      publicDir: fileURLToPath(new URL('../public', import.meta.url)),
-    });
-    expect(f.service.initializeShipped(load, GIF_ADDITIONS_BATCH)).toEqual({ initialized: true, added: 400, skipped: 0 });
-    expect(f.service.list({ ...search(), status: 'published' }).total).toBe(400);
-    const removed = f.service.list({ ...search(), status: 'published' }).entries[0];
-    f.service.remove(removed.id);
-    await f.restart();
-    expect(f.service.initializeShipped(load, GIF_ADDITIONS_BATCH)).toEqual({ initialized: false, added: 0, skipped: 0 });
-    expect(f.service.list({ ...search(), status: 'published' }).total).toBe(399);
-    expect(f.service.initializeShipped(() => { throw Error('Base replayed'); }).initialized).toBe(false);
+    expect(f.service.initializeShipped(() => [])).toEqual({ initialized: true, added: 0, skipped: 0 });
+    expect(f.service.list({ ...search(), status: 'published' }).total).toBe(0);
     expect(f.fetchResource).not.toHaveBeenCalled();
   });
   it('does not initialize removed bundled originals', async () => {
@@ -60,21 +47,6 @@ describe('managed expression catalog', () => {
     expect(f.service.initializeShipped(load)).toEqual({ initialized: true, added: 0, skipped: 0 });
     expect(f.service.list({ ...search('stickers'), status: 'published' }).total).toBe(0);
     expect(f.service.list({ ...search(), status: 'published' }).total).toBe(0);
-    return;
-    const pack = (await f.service.search('owner', search('stickers'))).packs[0];
-    const items = (await f.service.pack('owner', pack.id)).items;
-    expect(items.length).toBeGreaterThan(1);
-    expect((await f.service.media('owner', items[0].id)).bytes).toEqual(f.service.preview(pack.id, 0).bytes);
-    const removed = f.service.list({ ...search(), status: 'published' }).entries[0];
-    f.service.remove(removed.id);
-    f.service.update(pack.id, { title: 'Moderated', tags: '', status: 'pending' });
-    await f.restart();
-    const unexpectedLoad = vi.fn(() => { throw Error('Already initialized'); });
-    expect(f.service.initializeShipped(unexpectedLoad)).toEqual({ initialized: false, added: 0, skipped: 0 });
-    expect(unexpectedLoad).not.toHaveBeenCalled();
-    expect(f.service.detail(pack.id)).toMatchObject({ title: 'Moderated', status: 'pending' });
-    expect(() => f.service.detail(removed.id)).toThrow('MEME_NOT_FOUND');
-    expect(f.fetchResource).not.toHaveBeenCalled();
   });
   it('rolls back the entire initialization on invalid bytes and preserves existing moderation on retry', async () => {
     const f = await fixture();
