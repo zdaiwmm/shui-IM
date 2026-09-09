@@ -120,8 +120,8 @@ npm run deploy:readback -- --sha <本次获批并已发布的40位提交号>
 
 发布等待的轮询间隔为 5 秒。发布入口和隔离副本都会检查精确 `main` SHA 的
 `.github/workflows/ci.yml`，只接受 `push` 或 `workflow_dispatch` 事件中最新的 run，
-并要求该 run 已完成且成功、同一次 attempt 的 `Full application verification`
-job 已完成且成功。查询读取所有分页；取回 job 证据后再次核对最新 run 和 attempt，
+并要求该 run 已完成且成功、同一次 attempt 的 `verify` 汇总 job
+已完成且成功。查询读取所有分页；取回 job 证据后再次核对最新 run 和 attempt，
 较新的失败、取消、排队或运行中结果都不能回退到旧绿色结果。
 
 严格限定的纯文档提交可以通过轻量 CI，但这不能作为应用发布证据。若确实需要发布

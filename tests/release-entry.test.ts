@@ -33,7 +33,7 @@ if (name === 'git') {
   else if (args[0] === 'rev-parse' || args[0] === 'ls-remote') console.log(sha);
   else if (!['status', 'fetch'].includes(args[0])) process.exit(88);
 } else if (name === 'gh') {
-  if (args[1].includes('/jobs?')) console.log(JSON.stringify([{ jobs: [{ run_id: 42, head_sha: sha, name: 'Full application verification', status: 'completed', conclusion: 'success' }] }]));
+  if (args[1].includes('/jobs?')) console.log(JSON.stringify([{ jobs: [{ run_id: 42, head_sha: sha, name: 'verify', status: 'completed', conclusion: 'success' }] }]));
   else if (args[1].includes('runs?')) console.log(JSON.stringify([{ workflow_runs: [{ id: 42, run_attempt: 1, head_sha: sha, head_branch: 'main', event: 'workflow_dispatch', path: '.github/workflows/ci.yml', status: 'completed', conclusion: 'success', html_url: 'https://github.com/example/run/42' }] }]));
   else if (args[1].endsWith('/ci.yml')) console.log('{}');
   else process.exit(88);
