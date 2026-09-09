@@ -190,6 +190,17 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-09（Asia/Shanghai）；服务器批次 `20260909T121009Z`，独立回读于 20:14:25 成功。
+  应用提交 `1f42ea0f6ec649bee87320107e481a188bdb4d50`，版本 `2026.09.09.9`；
+  PR #62（代码）与 PR #63（发布说明）已合并，精确 main CI `34348514538` 全部成功。
+- 本批将后台 GIFs 与贴图分为独立资源库，移除资源搜索和自动获取；手动上传直接打开文件选择器，
+  按格式自动分类，使用文件名初始化名称并默认上架，修复 `.wastickers` 上传后的上架问题。
+  Apple Liquid Glass 视觉优化分支明确排除。
+- 固定入口取得 `DEPLOY_VERIFIED`；独立 `READBACK_OK` 总耗时 2,540ms，证据位于
+  `/private/tmp/quiet-room-publish-2oiFDb/.git/quiet-room-readback/20260909T121425674Z-1f42ea0f6ec6-success.json`。
+- 线上 SHA、容器与公开产物、HTTPS 健康和公开 WebSocket 独立回读一致。iPhone / iOS 27 / Safari
+  真机未验证。
+
 - 日期：2026-09-09（Asia/Shanghai）；服务器批次 `20260909T084220Z`，独立回读于 16:46:45 成功。
   应用提交 `ff828dc4476defc907c1f6daac144a7d6322b335`，版本 `2026.09.09.7`；
   PR #59 已合并，精确 main CI `34329323339` attempt 1 全部成功。

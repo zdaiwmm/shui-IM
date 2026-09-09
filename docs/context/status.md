@@ -1,5 +1,17 @@
 # Quiet Room 当前状态
 
+## 后台表情库优化（2026-09-09，已部署）
+
+- 本批任务分支 `codex/admin-expression-library-optimization`，代码提交 `85ca2eec86a61ac121eae0812b36464f8db0a01f`；
+  PR #62 已合并。发布说明提交 `af1d0c75f867e22df1fc86ba71913259434342f2` 经 PR #63 合并。
+- 后台 GIFs 与贴图改为两个独立库；移除资源搜索和自动获取；手动上传直接打开文件选择器，
+  按 GIF／`.wastickers` 自动分类，名称使用文件名并默认上架；服务端修复 `.wastickers` 上架。
+- 最终 main 提交 `1f42ea0f6ec649bee87320107e481a188bdb4d50` 的精确 main CI `34348514538` 全部通过。
+  Apple Liquid Glass 视觉优化分支未纳入本批。
+- 固定入口取得 `DEPLOY_VERIFIED`，服务器批次 `20260909T121009Z`；独立回读取得
+  `READBACK_OK`，证据位于 `/private/tmp/quiet-room-publish-2oiFDb/.git/quiet-room-readback/`，
+  总耗时 2,540ms。iPhone / iOS 27 / Safari 真机未验证。
+
 ## 今日非 Liquid Glass 分支集成（2026-09-09，已部署）
 
 - 本次用户授权合并今天除 Apple Liquid Glass 视觉升级以外的分支并准备生产发布。
