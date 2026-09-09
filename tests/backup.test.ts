@@ -30,7 +30,7 @@ describe('online disaster-recovery backup', () => {
     const store = await createStore({ dataDir });
     const catalog = createExpressionCatalog({ dataDir });
     const publicGif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAAAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
-    const expression = catalog.create({ kind: 'gifs', title: 'Backup fixture', tags: '', files: [{ data: publicGif.toString('base64') }] });
+    const expression = await catalog.create({ kind: 'gifs', title: 'Backup fixture', tags: '', files: [{ data: publicGif.toString('base64') }] });
     catalog.update(expression.id, { title: expression.title, tags: '', status: 'published' });
     catalog.initializeShipped(() => []);
     const creatorId = crypto.randomUUID();
