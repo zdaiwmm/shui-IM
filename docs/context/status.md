@@ -1,6 +1,6 @@
 # Quiet Room 当前状态
 
-## 今日非 Liquid Glass 分支集成（2026-09-09，候选）
+## 今日非 Liquid Glass 分支集成（2026-09-09，已部署）
 
 - 本次用户授权合并今天除 Apple Liquid Glass 视觉升级以外的分支并准备生产发布。
   规则与集成基线为 `7136b15c495ce7bfa4265a093c9e1f12c16d8b19`；独占工作树
@@ -13,8 +13,10 @@
 - 今天的管理员表情、阅读器及移动交互分支已在基线中，不重复合入。明确排除
   `codex/liquid-glass-20260908`、`codex/liquid-glass-followup-20260909`、
   `codex/liquid-glass-tuning-20260909` 以及共享目录未提交内容。
-- 版本 `2026.09.09.7`；合并候选待完整验证、PR 与精确 main CI。真实 iPhone / iOS 27 / Safari
-  录音延迟尚未验收，当前生产仍以本页下方上一批发布证据为准。
+- 版本 `2026.09.09.7`；PR #59 已合并为 `ff828dc4476defc907c1f6daac144a7d6322b335`，
+  精确 main CI `34329323339` attempt 1 全部成功。固定入口取得 `DEPLOY_VERIFIED`，
+  独立回读于 16:46 取得 `READBACK_OK`；线上录音延迟变化已部署。真实 iPhone / iOS 27 / Safari
+  录音延迟尚未验收。
 
 ## 后台生产域名与资源包瘦身（2026-09-09，已部署）
 

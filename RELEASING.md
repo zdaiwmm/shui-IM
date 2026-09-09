@@ -190,6 +190,17 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-09（Asia/Shanghai）；服务器批次 `20260909T084220Z`，独立回读于 16:46:45 成功。
+  应用提交 `ff828dc4476defc907c1f6daac144a7d6322b335`，版本 `2026.09.09.7`；
+  PR #59 已合并，精确 main CI `34329323339` attempt 1 全部成功。
+- 本批缩短空输入框和录音按钮的长按启动等待，并加快取消录音退出反馈；管理员表情、阅读器及移动交互
+  已在基线中，Apple Liquid Glass 三个分支明确排除。
+- 固定入口取得 `DEPLOY_VERIFIED`，独立 `READBACK_OK` 总耗时 2,892ms；
+  生产发布目录为 `/opt/quiet-room/git-releases/20260909T084220Z-ff828dc4476d`，
+  冷备份为 `/opt/quiet-room/backups/predeploy/data-20260909T084220Z-ff828dc4476d.tar.gz`。
+- 线上 SHA、容器与公开产物、HTTPS 健康和公开 WebSocket 独立回读一致。iPhone / iOS 27 / Safari
+  真机录音延迟尚未验证。
+
 - 日期：2026-09-09（Asia/Shanghai）；服务器批次 `20260909T072358Z`，独立回读于 15:35:21 成功。
   应用提交 `7136b15c495ce7bfa4265a093c9e1f12c16d8b19`，版本 `2026.09.09.6`；
   PR #58 已合并，main 精确 CI `34322813712` 全部成功。
