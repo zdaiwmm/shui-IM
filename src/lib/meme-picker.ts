@@ -1,4 +1,5 @@
 import { mountDialog, closeDialog } from './dialog';
+import { CHAT_KEYBOARD_LAYOUT_MS, chatKeyboardLayoutProgress } from './chat-keyboard-layout';
 import { validateMemeFile, type MemeFavorite } from './meme-media';
 import { detectImageAnimation } from './image-animation';
 import { MAX_PACK_BYTES, type MediaKind, type MediaItem, type MediaSearchResult, type RemotePack, type RemotePackDetail, type StickerPack } from './sticker-library';
@@ -60,6 +61,7 @@ export class MemePicker {
   private sheetAnimation?: Animation;
   private halfHeight = 0;
   private suppressShortcutClickUntil = 0;
+  private closing = false;
 
   constructor(private options: MemePickerOptions) {
     this.signal = AbortSignal.any([options.signal, this.controller.signal]);
@@ -134,8 +136,7 @@ export class MemePicker {
       };
       if (matchMedia('(prefers-reduced-motion: reduce)').matches) finish();
       else {
-        this.sheetAnimation = this.panel.animate([{ height: `${height}px` }, { height: `${full ? fullHeight : this.halfHeight}px` }], { duration: 280, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'forwards' });
-        this.sheetAnimation.onfinish = () => { this.sheetAnimation?.cancel(); finish(); };
+        this.animateSheet(height, full ? fullHeight : this.halfHeight, 'height', finish);
       }
     };
     window.addEventListener('pointerup', finishDrag, { signal: this.signal });
@@ -148,6 +149,7 @@ export class MemePicker {
       this.hydrate();
     }, { root: this.panel.querySelector('.meme-scroll'), rootMargin: '80px' });
     options.host.classList.add('has-meme-panel'); options.host.append(this.panel);
+    this.animateSheet(this.panel.getBoundingClientRect().height, 0, 'translate');
     const sync = () => {
       const view = window.visualViewport;
       this.panel.style.setProperty('--meme-height', `${view?.height ?? innerHeight}px`);
@@ -164,6 +166,28 @@ export class MemePicker {
     void this.switchKind('gifs');
   }
   private active() { return !this.disposed && !this.signal.aborted && this.options.isActive() && this.panel.isConnected; }
+  private animateSheet(from: number, to: number, property: 'height' | 'translate', finish = () => {}) {
+    this.sheetAnimation?.cancel(); this.sheetAnimation = undefined;
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) { finish(); return; }
+    const frames = Array.from({ length: 25 }, (_, index) => {
+      const offset = index / 24;
+      const value = from + (to - from) * chatKeyboardLayoutProgress(offset * CHAT_KEYBOARD_LAYOUT_MS);
+      return property === 'height' ? { offset, height: `${value}px` } : { offset, transform: `translateY(${value}px)` };
+    });
+    const animation = this.panel.animate(frames, { duration: CHAT_KEYBOARD_LAYOUT_MS, fill: 'both' });
+    this.sheetAnimation = animation;
+    animation.onfinish = () => {
+      if (this.sheetAnimation !== animation) return;
+      this.sheetAnimation = undefined; animation.cancel();
+      if (this.active()) finish();
+    };
+  }
+  close(finish: () => void) {
+    if (this.closing) return;
+    this.closing = true; this.panel.inert = true; this.input.blur();
+    const bounds = this.panel.getBoundingClientRect();
+    this.animateSheet(0, (visualViewport?.height ?? innerHeight) + (visualViewport?.offsetTop ?? 0) - bounds.top, 'translate', finish);
+  }
   private hasPack(id: string) { return this.packs.some(pack => pack.id === id); }
   private say(value: string) { if (this.active()) this.status.textContent = value; }
   private clear() {
@@ -239,33 +263,32 @@ export class MemePicker {
   private expand() {
     if (this.overlay) return;
     this.halfHeight = this.panel.getBoundingClientRect().height;
-    this.expanded = true; this.openSearch(false);
+    this.expanded = true; this.openSearch(false, false);
     this.panel.parentElement?.classList.add('meme-expanded-dialog');
     (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = true;
   }
-  private openSearch(load = true) {
+  private openSearch(load = true, animate = true) {
     if (this.expanded && this.overlay && load) {
       this.overlay.classList.remove('meme-expanded-dialog');
       (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = false;
       this.input.value = ''; void this.submit(); return;
     }
     if (!this.active() || this.overlay) return;
+    const height = this.panel.getBoundingClientRect().height;
+    this.halfHeight = height;
     const overlay = document.createElement('div'); overlay.className = 'meme-search-dialog'; overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', this.kind === 'gifs' ? '搜索 GIFs' : '搜索贴纸合集');
     this.overlay = overlay; this.options.root.append(overlay); overlay.append(this.panel);
     const view = visualViewport; overlay.style.setProperty('--meme-height', `${view?.height ?? innerHeight}px`); overlay.style.setProperty('--meme-top', `${view?.offsetTop ?? 0}px`);
     this.panel.dataset.view = 'search'; (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = false;
     mountDialog(overlay, { signal: this.signal, isActive: () => this.active(), initialFocus: this.panel.querySelector<HTMLElement>('.meme-back'), returnFocus: this.options.host.querySelector<HTMLElement>('#open-memes'),
-      beforeClose: () => { if (!this.packDetail) return true; void this.submit(); return false; },
-      onClose: () => {
-        if (this.overlay !== overlay || !this.active()) return;
-        this.overlay = null;
-        this.options.host.append(this.panel);
-        (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = true;
-        this.expanded = false;
-      } });
+      beforeClose: () => { this.back(); return false; } });
+    if (animate) {
+      this.panel.style.top = 'auto';
+      this.animateSheet(height, overlay.getBoundingClientRect().height, 'height', () => this.panel.style.removeProperty('top'));
+    }
     this.input.value = ''; if (load) void this.submit();
   }
-  private back(preserve = false) {
+  private back(preserve = false, animate = true) {
     if (!this.overlay) return;
     if (this.packDetail) { void this.submit(); return; }
     if (this.expanded && !this.overlay.classList.contains('meme-expanded-dialog')) {
@@ -273,6 +296,13 @@ export class MemePicker {
       (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = true;
       void this.local(); return;
     }
+    if (animate && !preserve && !this.closing) {
+      this.panel.style.top = 'auto';
+      this.animateSheet(this.panel.getBoundingClientRect().height, this.halfHeight, 'height', () => this.back(false, false));
+      return;
+    }
+    this.sheetAnimation?.cancel(); this.sheetAnimation = undefined;
+    this.panel.style.removeProperty('top'); this.panel.style.removeProperty('height');
     this.expanded = false;
     const overlay = this.overlay; this.overlay = null; this.input.blur(); this.input.value = '';
     this.options.host.append(this.panel); (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = true;

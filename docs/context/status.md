@@ -1,5 +1,9 @@
 # Quiet Room 当前状态
 
+## 自动验收与远端交付规则（2026-09-09）
+
+用户确认后续实施任务默认自动验收、提交、推送本仓库、创建 PR、等待 CI 并合并远端 main，不再逐次询问。入口和权限范围见 [持续远端交付授权](workflow.md#持续远端交付授权)；生产发布仍确认精确提交。本批在 `codex/meme-motion-keyboard` 同步规则与表情动效修正，主线基线 `978a814`；PR/CI 和合并证据以 GitHub 实时记录为准，未进行生产发布或 iPhone 真机验收。
+
 ## 后台表情库优化（2026-09-09，已部署）
 
 - 本批任务分支 `codex/admin-expression-library-optimization`，代码提交 `85ca2eec86a61ac121eae0812b36464f8db0a01f`；

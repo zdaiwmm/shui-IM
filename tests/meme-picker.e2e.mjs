@@ -113,6 +113,7 @@ try {
   assert.equal(await page.locator('#message-input').inputValue(),'保留这份草稿');
   await page.locator('.meme-tile').first().click();
   await page.waitForFunction(()=>window.fixture.sent.length===1);
+  await page.locator('#meme-panel').waitFor({ state: 'detached' });
   assert.equal(await page.locator('#meme-panel').count(),0);
   await page.locator('#open-memes').click(); await page.getByRole('button',{name:'收藏',exact:true}).click();
   await page.locator('.meme-tile').first().dispatchEvent('contextmenu');
@@ -178,6 +179,7 @@ try {
   await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);
   assert.equal(await page.locator('.meme-collapse').isVisible(), false);
   await page.locator('#open-memes').click();
+  await page.locator('#meme-panel').waitFor({ state: 'detached' });
   await page.locator('#open-memes').click();
   await page.locator('.meme-pack-shortcuts img').waitFor();
   await page.locator('.meme-pack-shortcuts button[title="测试合集"]').click();
@@ -190,7 +192,7 @@ try {
     window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 100, clientY: 400 }));
   });
   await page.locator('.meme-expanded-dialog').waitFor();
-  await page.waitForTimeout(260);
+  await page.waitForFunction(() => !document.querySelector('.meme-panel').getAnimations().some(animation => animation.playState === 'running'));
   assert.equal(await page.locator('.meme-tabs').isVisible(), true);
   assert.equal(await page.locator('.meme-collapse').isVisible(), true);
   await page.locator('.meme-pack-shortcuts').evaluate(bar => {
@@ -215,7 +217,7 @@ try {
       const during = await page.locator('.meme-panel').boundingBox();
       assert.ok(Math.abs(during.height - (before.height - distance)) < 3, `Sheet did not follow native touch: ${JSON.stringify({ before, during, distance })}`);
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-      await page.waitForTimeout(280);
+      await page.waitForFunction(() => !document.querySelector('.meme-panel').getAnimations().some(animation => animation.playState === 'running'));
     };
     await pull(-120);
     assert.equal(await page.locator('.meme-expanded-dialog').count(), 1);
@@ -305,6 +307,7 @@ try {
   await page.emulateMedia({colorScheme:'dark'});
   if(out) await page.screenshot({path:path.join(out,'memes-dark.png')});
   await page.locator('#open-memes').click();
+  await page.locator('#meme-panel').waitFor({ state: 'detached' });
   assert.equal(await page.locator('.meme-panel').count(),0);
   assert.equal(await page.locator('.chat-shell').evaluate(el=>el.inert),false);
   assert.equal(await page.locator('#message-input').inputValue(),'保留这份草稿');
@@ -350,9 +353,56 @@ try {
   assert.equal(await page.locator('.message-action-preview img').evaluate(el => getComputedStyle(el).opacity), '1');
   if (out) await page.screenshot({path:path.join(out,'expression-menu.png')});
   await page.evaluate(() => window.fixture.app.closeMessageActions(false, false));
+  await page.evaluate(async () => {
+    const { app } = window.fixture;
+    const { CHAT_KEYBOARD_LAYOUT_MS, chatKeyboardLayoutProgress } = await import('/src/lib/chat-keyboard-layout.ts');
+    const verifyMotion = async property => {
+      const panel = document.querySelector('.meme-panel');
+      const animation = panel.getAnimations().find(item => item.effect.getKeyframes().some(frame => property in frame));
+      if (!animation || animation.effect.getTiming().duration !== CHAT_KEYBOARD_LAYOUT_MS) throw Error(`${property} motion did not share keyboard timing`);
+      animation.pause();
+      const frames = animation.effect.getKeyframes();
+      const value = frame => property === 'height' ? parseFloat(frame.height) : parseFloat(frame.transform.match(/translateY\(([-.\d]+)px\)/)[1]);
+      const start = value(frames[0]), end = value(frames.at(-1));
+      const expected = start + (end - start) * chatKeyboardLayoutProgress(CHAT_KEYBOARD_LAYOUT_MS / 2);
+      if (Math.abs(value(frames[12]) - expected) > 0.01 || start === end) throw Error('Panel motion lost the keyboard curve or travel');
+      animation.finish(); await animation.finished;
+      await new Promise(requestAnimationFrame);
+      return { start, end };
+    };
+    app.renderChat(); app.openMemePicker();
+    await verifyMotion('transform');
+    document.querySelector('.meme-open-search').click();
+    const expansion = await verifyMotion('height');
+    if (expansion.end <= expansion.start) throw Error('Search did not extend the half sheet');
+    document.querySelector('.meme-back').click();
+    const contraction = await verifyMotion('height');
+    if (contraction.end >= contraction.start || document.querySelector('.meme-search-dialog')) throw Error('Back did not restore the half sheet');
+    document.querySelector('.meme-open-search').click(); await verifyMotion('height');
+    document.querySelector('.meme-close').click();
+    if (!document.querySelector('.meme-panel')?.inert) throw Error('Closing panel remained interactive');
+    await verifyMotion('transform');
+    if (document.querySelector('.meme-panel') || document.querySelector('.chat-shell').inert) throw Error('Full close did not release the dialog');
+    app.openMemePicker(); await verifyMotion('transform');
+    document.querySelector('#open-memes').click(); await verifyMotion('transform');
+    if (document.querySelector('.meme-panel')) throw Error('Half close retained the panel');
+  });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => {
+    const { app } = window.fixture; app.renderChat(); app.openMemePicker();
+    document.querySelector('.meme-open-search').click();
+    if (document.querySelector('.meme-panel').getAnimations().length) throw Error('Reduced motion animated search');
+    document.querySelector('.meme-close').click();
+    if (document.querySelector('.meme-panel')) throw Error('Reduced motion delayed closing');
+  });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.evaluate(()=>{window.fixture.app.renderChat();window.fixture.app.openMemePicker();});
   await page.locator('.meme-panel').waitFor();
-  await page.evaluate(()=>window.fixture.app.obscurePrivacySurface());
+  await page.evaluate(()=> {
+    document.querySelector('.meme-open-search').click();
+    document.querySelector('.meme-close').click();
+    window.fixture.app.obscurePrivacySurface();
+  });
   assert.equal(await page.locator('.meme-panel,.meme-preview').count(),0,'Privacy curtain retained meme UI');
   assert.deepEqual(errors,[]);
   console.log('Sticker picker: server catalog defaults, moving pixels, half sheet, typed fullscreen search, atomic encrypted pack install/reopen, tap/hold send closure, privacy and responsive geometry passed.');

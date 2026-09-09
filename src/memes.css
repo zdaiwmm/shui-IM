@@ -3,7 +3,7 @@
 .meme-toggle { position: absolute; right: 2px; bottom: 0; width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: transparent; color: var(--ink-muted); padding: 10px; }
 .meme-toggle[aria-expanded="true"] { color: var(--accent); }
 .composer.has-meme-panel { --meme-sheet-height: min(48svh, 430px); padding-bottom: calc(var(--meme-sheet-height) + 12px); will-change: auto; }
-.meme-panel { position: absolute; inset: auto 0 0; height: min(48svh, 430px); display: grid; grid-template-rows: 56px 44px minmax(0, 1fr); padding: 0 12px; border: 1px solid var(--glass-border); border-bottom: 0; border-radius: 22px 22px 0 0; background: var(--glass-sheen), var(--glass-panel); box-shadow: var(--glass-shadow), 0 -8px 32px oklch(15% 0.01 255 / 0.12); -webkit-backdrop-filter: var(--glass-filter); backdrop-filter: var(--glass-filter); color: var(--ink); overflow: hidden; animation: meme-enter var(--motion-composer) cubic-bezier(.22,.7,.18,1); }
+.meme-panel { position: absolute; inset: auto 0 0; height: min(48svh, 430px); display: grid; grid-template-rows: 56px 44px minmax(0, 1fr); padding: 0 12px; border: 1px solid var(--glass-border); border-bottom: 0; border-radius: 22px 22px 0 0; background: var(--glass-sheen), var(--glass-panel); box-shadow: var(--glass-shadow), 0 -8px 32px oklch(15% 0.01 255 / 0.12); -webkit-backdrop-filter: var(--glass-filter); backdrop-filter: var(--glass-filter); color: var(--ink); overflow: hidden; }
 .meme-panel button { font: inherit; cursor: pointer; color: inherit; }
 .meme-panel button:disabled { cursor: default; }
 .meme-panel svg, .meme-toggle svg, .meme-preview svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
@@ -53,8 +53,8 @@
 .meme-pack-progress { grid-column: 2 / -1; color: var(--ink-muted); font-size: 12px; }
 .meme-pack-progress:empty { display: none; }
 .meme-search-dialog { position: fixed; inset: var(--meme-top, 0px) 0 auto; height: var(--meme-height, 100dvh); z-index: 52; }
-.meme-search-dialog.dialog-surface { transition-duration: var(--motion-composer); }
-.meme-search-dialog .meme-panel { inset: 0; height: 100%; border: 0; border-radius: 0; grid-template-rows: auto minmax(0, 1fr); padding: max(8px, env(safe-area-inset-top)) max(13px, calc((100% - 854px) / 2)) max(8px, env(safe-area-inset-bottom)); animation: meme-search-enter 280ms ease-out; }
+.meme-search-dialog.dialog-surface { opacity: 1; transition: none; }
+.meme-search-dialog .meme-panel { inset: 0; height: 100%; border: 0; border-radius: 0; grid-template-rows: auto minmax(0, 1fr); padding: max(8px, env(safe-area-inset-top)) max(13px, calc((100% - 854px) / 2)) max(8px, env(safe-area-inset-bottom)); }
 .meme-search-dialog .meme-pack-shortcuts, .meme-search-dialog .meme-open-search, .meme-search-dialog .meme-tabs { display: none; }
 .meme-search-dialog .meme-scroll { padding-bottom: 16px; }
 .meme-search-header { display: flex; gap: 8px; align-items: center; padding-bottom: 12px; min-width: 0; }
@@ -79,10 +79,7 @@
 .chat-shell .expression-bubble .image-preview img { max-height: min(28svh, 213.333px); }
 .message-bubble.expression-bubble > .message-meta { position: static; justify-self: end; margin-top: 4px; background: transparent; color: var(--ink-muted); }
 .message-bubble.expression-bubble > .message-meta time { color: inherit; }
-@keyframes meme-enter { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-@keyframes meme-search-enter { from { opacity: 0; } to { opacity: 1; } }
 @media (max-height: 480px) { .composer.has-meme-panel { --meme-sheet-height: 52svh; } .meme-panel { height: 52svh; grid-template-rows: 44px 44px minmax(0,1fr); } }
-@media (prefers-reduced-motion: reduce) { .meme-panel, .meme-search-dialog .meme-panel { animation: none; } }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { .meme-panel, .meme-open-search, .meme-search, .meme-tabs [role="tablist"], .meme-collapse, .meme-preview, .meme-preview-actions, .meme-preview-close { background: var(--paper-pure); backdrop-filter: none; -webkit-backdrop-filter: none; } }
 .meme-expanded-dialog .meme-panel { grid-template-rows: 56px 44px minmax(0, 1fr); }
 .meme-expanded-dialog .meme-pack-shortcuts, .meme-expanded-dialog .meme-open-search, .meme-expanded-dialog .meme-tabs { display: flex; }
