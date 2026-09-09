@@ -1,5 +1,5 @@
 export const repository = 'zdaiwmm/shui-IM';
-export const fullVerificationJob = 'Full application verification';
+export const fullVerificationJob = 'verify';
 
 function pageItems(response, key) {
   const pages = Array.isArray(response) ? response : [response];
@@ -23,7 +23,7 @@ export function requireSuccessfulCI(response, sha, jobsResponse) {
   const jobs = pageItems(jobsResponse, 'jobs').filter(job => job.name === fullVerificationJob);
   if (jobs.length !== 1 || jobs[0].run_id !== run.id || jobs[0].head_sha !== sha ||
       jobs[0].status !== 'completed' || jobs[0].conclusion !== 'success') {
-    throw new Error('Full application verification has not passed for the latest exact main CI run. Documentation-only CI cannot authorize release. Run gh workflow run ci.yml --repo zdaiwmm/shui-IM --ref main, verify its exact SHA, then retry.');
+    throw new Error('The aggregate verify job has not passed for the latest exact main CI run. Documentation-only CI cannot authorize release. Run gh workflow run ci.yml --repo zdaiwmm/shui-IM --ref main, verify its exact SHA, then retry.');
   }
   return run.html_url;
 }

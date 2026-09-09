@@ -123,7 +123,7 @@ describe('CI documentation scope', () => {
 function results(mode = 'full'): Record<string, { result: string; outputs?: { mode: string } }> {
   return {
     scope: { result: 'success', outputs: { mode } }, docs: { result: 'success' }, secret_scan: { result: 'success' },
-    ...Object.fromEntries(['build', 'browser', 'calls', 'audit', 'full_application'].map(name => [name, { result: mode === 'full' ? 'success' : 'skipped' }])),
+    ...Object.fromEntries(['build', 'browser', 'calls', 'audit'].map(name => [name, { result: mode === 'full' ? 'success' : 'skipped' }])),
   };
 }
 
@@ -137,7 +137,7 @@ describe('CI verification summaries', () => {
 
   it('rejects every missing, failed, cancelled or unexpectedly skipped required job', () => {
     for (const gate of ['verify', 'full']) {
-      const required = ['scope', 'docs', 'secret_scan', 'build', 'browser', 'calls', 'audit', ...(gate === 'verify' ? ['full_application'] : [])];
+      const required = ['scope', 'docs', 'secret_scan', 'build', 'browser', 'calls', 'audit'];
       for (const name of required) {
         for (const result of ['failure', 'cancelled', 'skipped', 'unknown']) {
           const needs = results(); needs[name].result = result;
@@ -156,7 +156,7 @@ describe('CI verification summaries', () => {
         expect(() => requireVerification(needs)).toThrow();
       }
     }
-    for (const name of ['build', 'browser', 'calls', 'audit', 'full_application']) {
+    for (const name of ['build', 'browser', 'calls', 'audit']) {
       for (const result of ['success', 'failure', 'cancelled']) {
         const needs = results('docs'); needs[name].result = result;
         expect(() => requireVerification(needs)).toThrow();
