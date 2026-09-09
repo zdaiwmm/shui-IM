@@ -134,7 +134,7 @@ export class MemePicker {
       };
       if (matchMedia('(prefers-reduced-motion: reduce)').matches) finish();
       else {
-        this.sheetAnimation = this.panel.animate([{ height: `${height}px` }, { height: `${full ? fullHeight : this.halfHeight}px` }], { duration: 220, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'forwards' });
+        this.sheetAnimation = this.panel.animate([{ height: `${height}px` }, { height: `${full ? fullHeight : this.halfHeight}px` }], { duration: 280, easing: 'cubic-bezier(.16,1,.3,1)', fill: 'forwards' });
         this.sheetAnimation.onfinish = () => { this.sheetAnimation?.cancel(); finish(); };
       }
     };
@@ -256,7 +256,13 @@ export class MemePicker {
     this.panel.dataset.view = 'search'; (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = false;
     mountDialog(overlay, { signal: this.signal, isActive: () => this.active(), initialFocus: this.panel.querySelector<HTMLElement>('.meme-back'), returnFocus: this.options.host.querySelector<HTMLElement>('#open-memes'),
       beforeClose: () => { if (!this.packDetail) return true; void this.submit(); return false; },
-      onClose: () => { if (this.overlay === overlay && this.active()) this.back(); } });
+      onClose: () => {
+        if (this.overlay !== overlay || !this.active()) return;
+        this.overlay = null;
+        this.options.host.append(this.panel);
+        (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = true;
+        this.expanded = false;
+      } });
     this.input.value = ''; if (load) void this.submit();
   }
   private back(preserve = false) {
