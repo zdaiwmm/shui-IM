@@ -359,7 +359,7 @@ export async function startServer(options = {}) {
     }));
   }
 
-  const adminOrigin = options.adminOrigin ?? process.env.ADMIN_ORIGIN ?? 'https://sao.shui.click';
+  const adminOrigin = options.adminOrigin ?? process.env.ADMIN_ORIGIN ?? 'https://admin.mijiu.cloud';
   const memes = createExpressionCatalog({ dataDir });
   const admin = await createAdminConsole({ config: options.adminConfig, configFile: options.adminConfigFile ?? process.env.ADMIN_CONFIG_FILE,
     origin: adminOrigin, data: store.cloudBackups, expressions: memes, json, readJson,
