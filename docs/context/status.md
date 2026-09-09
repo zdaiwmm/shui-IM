@@ -1,11 +1,18 @@
 # Quiet Room 当前状态
 
-## 后台页面组件化（2026-09-09，候选待集成）
+## 三会话集成批次（2026-09-10，已部署）
+
+- 三个会话的可发布改动已在独立工作树 `/private/tmp/quiet-room-integrate-three-sessions` 合并，PR [#70](https://github.com/zdaiwmm/shui-IM/pull/70) 合并后的精确 main 提交为 `bc5893092fc8051750319bf38b77302e166d0194`；main CI [34379775756](https://github.com/zdaiwmm/shui-IM/actions/runs/34379775756) 全部通过。
+- 版本 `2026.09.09.10`：后台会话和表情管理采用响应式控制台，补充状态筛选、批量操作、分页、上传反馈、详情预览、失败重试与键盘导航，并修复含 `title.txt` 的 `.wastickers` 导入及封面排除。
+- 固定发布入口取得 `DEPLOY_VERIFIED`；服务器批次 `20260909T232408Z`，冷备份已校验。独立生产回读取得 `READBACK_OK`，线上精确运行 SHA 为 `bc5893092fc8051750319bf38b77302e166d0194`，HTTPS、公开产物、容器产物与公开 WebSocket 均通过。
+- 生产发布目录为 `/opt/quiet-room/git-releases/20260909T232408Z-bc5893092fc8`，冷备份为 `/opt/quiet-room/backups/predeploy/data-20260909T232408Z-bc5893092fc8.tar.gz`；独立回读证据保存在发布 clone 的 `.git/quiet-room-readback/`。iPhone / iOS 27 / Safari 真机仍未验证。
+
+## 后台页面组件化（2026-09-09，已纳入本批）
 
 - 任务分支 `codex/admin-framework`，基线 `d5a7a8f9ab19f2555696fbeb958201aa9af681ff`。
   会话与表情页面迁移到本地共享组件层，含状态筛选、分页、加载/空状态/失败重试、
   上传忙碌反馈、详情编辑预览、成功/失败通知及窄屏布局；无关键词搜索或自动采集入口。
-- 定向构建和后台浏览器回归通过；全量回归、CI、集成和生产发布证据待后续核实。
+- 定向构建和后台浏览器回归通过；全量回归、CI、集成和生产发布证据见上方“三会话集成批次”记录。
   不将合成浏览器测试写成 iPhone / iOS 27 / Safari 真机验收。
 ## 自动验收与远端交付规则（2026-09-09）
 

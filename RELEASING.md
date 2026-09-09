@@ -190,6 +190,11 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-10（Asia/Shanghai）；服务器批次 `20260909T232408Z`，独立回读于 07:27:26 成功。
+  应用提交 `bc5893092fc8051750319bf38b77302e166d0194`，版本 `2026.09.09.10`；[PR #70](https://github.com/zdaiwmm/shui-IM/pull/70) 已合并，精确 main CI [34379775756](https://github.com/zdaiwmm/shui-IM/actions/runs/34379775756) 全部成功。
+- 本批合并后台会话、表情管理和贴图导入修正：响应式控制台、状态筛选、批量操作、分页、上传反馈、详情预览、失败重试与键盘导航，以及含 `title.txt` 的 `.wastickers` 导入和封面排除。
+- 固定入口取得 `DEPLOY_VERIFIED`，服务器发布目录为 `/opt/quiet-room/git-releases/20260909T232408Z-bc5893092fc8`，冷备份为 `/opt/quiet-room/backups/predeploy/data-20260909T232408Z-bc5893092fc8.tar.gz`。独立 `READBACK_OK` 核对线上 SHA、容器与公开产物、HTTPS 健康和公开 WebSocket 一致；脱敏证据位于独立发布 clone 的 `.git/quiet-room-readback/`。iPhone / iOS 27 / Safari 真机未验证。
+
 - 日期：2026-09-09（Asia/Shanghai）；服务器批次 `20260909T121009Z`，独立回读于 20:14:25 成功。
   应用提交 `1f42ea0f6ec649bee87320107e481a188bdb4d50`，版本 `2026.09.09.9`；
   PR #62（代码）与 PR #63（发布说明）已合并，精确 main CI `34348514538` 全部成功。
