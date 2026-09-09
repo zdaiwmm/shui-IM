@@ -1,5 +1,5 @@
 import './admin.css';
-import { createElement, Pencil, Trash2, ArrowLeft, ArrowRight, ChevronsLeft, ChevronsRight, LayoutDashboard, Images } from 'lucide';
+import { createElement, Pencil, Trash2, ArrowLeft, ArrowRight, ChevronsLeft, ChevronsRight, LayoutDashboard, Images, RefreshCw } from 'lucide';
 
 type Room = { roomId: string; createdAt: string; lastSeenAt: string | null; devices: number; backups: number; messageCount: number };
 type Detail = { roomId: string; devices: { deviceId: string; role: string; name: string; status: string; lastSeenAt: string | null }[];
@@ -101,6 +101,13 @@ function row(body: HTMLTableSectionElement, values: (string | number | HTMLEleme
   const tr = body.insertRow();
   for (const value of values) { const cell = tr.insertCell(); if (value instanceof HTMLElement) cell.append(value); else cell.textContent = String(value); }
 }
+function pageToolbar(title: string, description: string, action?: { label: string; icon: typeof RefreshCw; run: () => void }) {
+  const toolbar = document.createElement('div'); toolbar.className = 'page-toolbar';
+  const copy = document.createElement('div'); const heading = document.createElement('h2'); heading.textContent = title; const detail = document.createElement('p'); detail.textContent = description; copy.append(heading, detail); toolbar.append(copy);
+  if (action) toolbar.append(iconButton(action.label, action.icon, action.run));
+  return toolbar;
+}
+function badge(label: string, tone: 'success' | 'warning' | 'muted' | 'danger' = 'muted') { const element = document.createElement('span'); element.className = `status-badge ${tone}`; element.textContent = label; return element; }
 
 async function rooms() {
   frame('会话管理'); const epoch = view;
@@ -109,6 +116,7 @@ async function rooms() {
     const data = await api<{ rooms: Room[] }>(`/rooms?offset=${offset}`);
     if (epoch !== view) return;
     content.textContent = '';
+    content.append(pageToolbar('所有会话', '查看活跃设备、备份状态与消息记录。', { label: '刷新会话列表', icon: RefreshCw, run: () => void rooms() }));
     const list = table(['会话', '最近活动', '活跃设备', '有效备份', '消息记录']);
     for (const room of data.rooms) {
       const button = document.createElement('button'); button.className = 'room-id'; button.textContent = room.roomId;
@@ -138,8 +146,9 @@ async function detail(id: string) {
     const devices = table(['参与方 / 设备', '状态', '最近活动', '恢复备份', '历史备份']);
     for (const device of data.devices) {
       const backup = data.backups.find(b => b.deviceId === device.deviceId && b.active);
+      const status = ({ active: ['活跃', 'success'], pending: ['待授权', 'warning'], revoked: ['已撤销', 'danger'] } as Record<string, [string, 'success' | 'warning' | 'danger']>)[device.status] ?? [device.status, 'muted'];
       row(devices.body, [`${device.role === 'creator' ? '创建者' : '受邀者'} · ${device.name} · ${device.deviceId}`,
-        ({ active: '活跃', pending: '待授权', revoked: '已撤销' } as Record<string, string>)[device.status] ?? device.status,
+        badge(status[0], status[1]),
         date(device.lastSeenAt), backup ? `${date(backup.updatedAt)} · 版本 ${backup.revision} · ${size(backup.recoveryBytes)}` : '暂无有效备份',
         backup ? size(backup.historyBytes) : '—']);
     }
