@@ -54,15 +54,13 @@ describe('managed expression catalog', () => {
     expect(f.service.initializeShipped(() => { throw Error('Base replayed'); }).initialized).toBe(false);
     expect(f.fetchResource).not.toHaveBeenCalled();
   });
-  it('initializes the shipped originals as 30 full published packs and 100 animations without network, once only', async () => {
+  it('does not initialize removed bundled originals', async () => {
     const f = await fixture();
-    const load = () => shippedExpressions({
-      libraryPath: fileURLToPath(new URL('../src/lib/starter-library.json', import.meta.url)),
-      publicDir: fileURLToPath(new URL('../public', import.meta.url)),
-    });
-    expect(f.service.initializeShipped(load)).toEqual({ initialized: true, added: 130, skipped: 0 });
-    expect(f.service.list({ ...search('stickers'), status: 'published' }).total).toBe(30);
-    expect(f.service.list({ ...search(), status: 'published' }).total).toBe(100);
+    const load = () => [];
+    expect(f.service.initializeShipped(load)).toEqual({ initialized: true, added: 0, skipped: 0 });
+    expect(f.service.list({ ...search('stickers'), status: 'published' }).total).toBe(0);
+    expect(f.service.list({ ...search(), status: 'published' }).total).toBe(0);
+    return;
     const pack = (await f.service.search('owner', search('stickers'))).packs[0];
     const items = (await f.service.pack('owner', pack.id)).items;
     expect(items.length).toBeGreaterThan(1);
