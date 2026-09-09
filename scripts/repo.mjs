@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import fs from 'node:fs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const canonicalHttps = 'https://github.com/zdaiwmm/shui-IM.git';
@@ -48,6 +49,16 @@ export function parseRemoteHead(output, branch) {
 }
 
 function doctor() {
+  const commonDir = run('git', ['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  try {
+    fs.accessSync(commonDir, fs.constants.W_OK);
+    const probe = path.join(commonDir, `.codex-write-check-${process.pid}`);
+    fs.writeFileSync(probe, ''); fs.unlinkSync(probe);
+  } catch {
+    throw new Error(`Git metadata is not writable: ${commonDir}; use a worktree whose common Git directory is writable`);
+  }
+  const missing = ['node_modules/.bin/tsc', 'node_modules/.bin/vitest'].filter(file => !fs.existsSync(path.join(root, file)));
+  if (missing.length) throw new Error(`Dependencies are not installed (${missing.join(', ')}); run npm ci in this worktree`);
   const remote = run('git', ['remote', 'get-url', 'origin']);
   if (!isCanonicalRemote(remote)) throw new Error(`origin must be ${canonicalHttps} (found ${remote})`);
   run('gh', ['auth', 'status', '--hostname', 'github.com'], { stdio: 'ignore' });

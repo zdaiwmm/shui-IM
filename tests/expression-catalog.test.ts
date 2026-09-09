@@ -126,6 +126,18 @@ describe('managed expression catalog', () => {
     expect(f.service.preview(entry.id, 0).bytes).toEqual(gif);
     expect((await f.service.search('owner', search('stickers'))).packs[0].title).toBe('Imported pack');
   });
+  it('accepts sticker packages whose originals exceed the single-image upload limit', async () => {
+    const f = await fixture();
+    const large = Buffer.alloc(5 * 1024 * 1024, 0);
+    large.write('GIF89a', 0, 'ascii');
+    const packageBytes = wastickers({
+      'contents.json': Buffer.from(JSON.stringify({ name: 'Large pack', stickers: [{ image_file: 'one.gif' }, { image_file: 'two.gif' }] })),
+      'one.gif': large,
+      'two.gif': large,
+    });
+    const entry = f.service.create({ kind: 'stickers', title: 'Fallback title', tags: '', status: 'published', files: [{ name: 'large.wastickers', data: packageBytes.toString('base64') }] });
+    expect(entry).toMatchObject({ kind: 'stickers', title: 'Large pack', status: 'published' });
+  });
   it('counts newly collected GIFs, deduplicates repeated imports, and never fetches upstream during public reads', async () => {
     const f = await fixture(); f.service.start({ kind: 'gifs', keyword: '', target: 1 });
     expect(() => f.service.start({ kind: 'gifs', keyword: '', target: 1 })).toThrow('MEME_BUSY');

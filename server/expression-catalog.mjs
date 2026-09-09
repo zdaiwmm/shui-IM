@@ -207,7 +207,7 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
         if (kind === 'gifs' && !publicStickerAnimated(bytes)) fail('MEME_INVALID_IMAGE');
         return { bytes, title: body.title.trim() };
       });
-      if (files.reduce((sum, file) => sum + file.bytes.length, 0) > MAX_IMAGE) fail('MEME_TOO_LARGE');
+      if (files.reduce((sum, file) => sum + file.bytes.length, 0) > (packageUpload ? MAX_PACK : MAX_IMAGE)) fail('MEME_TOO_LARGE');
       const id = randomUUID();
       put({ id, kind, title: body.title.trim(), tags: body.tags, author: '管理员上传', source: '手动上传' }, files, { status });
       return service.detail(id);
