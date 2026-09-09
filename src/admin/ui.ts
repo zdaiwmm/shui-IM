@@ -4,14 +4,14 @@ export type Tone = 'success' | 'warning' | 'muted' | 'danger';
 export function iconButton(label: string, icon: typeof RefreshCw, action: () => void) {
   const button = document.createElement('button');
   button.type = 'button'; button.title = label; button.setAttribute('aria-label', label);
-  button.className = 'icon-button';
+  button.className = 'icon-button btn btn-outline-secondary';
   const graphic = createElement(icon); graphic.setAttribute('aria-hidden', 'true');
   button.append(graphic); button.addEventListener('click', action);
   return button;
 }
 
 export function badge(label: string, tone: Tone = 'muted') {
-  const element = document.createElement('span'); element.className = `status-badge ${tone}`; element.textContent = label;
+  const element = document.createElement('span'); element.className = `status-badge badge ${tone}`; element.textContent = label;
   return element;
 }
 
@@ -25,8 +25,8 @@ export function pageToolbar(title: string, description = '', action?: { label: s
 }
 
 export function table(headers: string[]) {
-  const wrapper = document.createElement('div'); wrapper.className = 'table-scroll';
-  const element = document.createElement('table'); const head = element.createTHead().insertRow();
+  const wrapper = document.createElement('div'); wrapper.className = 'table-scroll card';
+  const element = document.createElement('table'); element.className = 'table table-vcenter card-table'; const head = element.createTHead().insertRow();
   for (const title of headers) { const th = document.createElement('th'); th.scope = 'col'; th.textContent = title; head.append(th); }
   const body = element.createTBody(); wrapper.append(element);
   return { wrapper, body };

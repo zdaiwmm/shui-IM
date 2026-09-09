@@ -53,10 +53,10 @@ for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
 function frame(title: string) {
   view += 1;
   const expressionView = title === '表情管理' || title === '资源详情';
-  root.innerHTML = `<div class="admin-shell"><aside class="admin-sidebar"><div class="brand"><span class="brand-mark">Q</span><div><strong>Quiet Room</strong><small>管理控制台</small></div></div>
+  root.innerHTML = `<div class="admin-shell tabler-shell"><aside class="admin-sidebar navbar navbar-vertical"><div class="brand"><span class="brand-mark avatar bg-primary text-white">Q</span><div><strong>Quiet Room</strong><small>管理控制台</small></div></div>
     <nav class="sidebar-nav" aria-label="后台导航"><button id="rooms-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>会话管理</span></button><button id="expressions-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>表情管理</span></button></nav>
     <div class="sidebar-note">管理员会话</div></aside>
-    <main class="admin-main"><header class="topbar"><div><p class="eyebrow">QUIET ROOM / ADMIN</p><h1></h1></div><button id="logout" class="logout-button" type="button">退出后台</button></header>
+    <main class="admin-main"><header class="topbar navbar navbar-expand-md"><div><p class="eyebrow">QUIET ROOM / ADMIN</p><h1></h1></div><button id="logout" class="logout-button btn btn-outline-secondary" type="button">退出后台</button></header>
     <div class="content-wrap"><div id="content"></div></div><div id="status" role="status" aria-live="polite"></div></main></div>`;
   root.querySelector('h1')!.textContent = title;
   root.querySelector('.nav-icon')!.replaceChildren(createElement(LayoutDashboard));
@@ -180,7 +180,10 @@ async function expressions() {
   const content = root.querySelector<HTMLElement>('#content')!;
   content.innerHTML = `<div class="resource-toolbar"><div class="actions expression-tabs" role="tablist" aria-label="资源类型"><button role="tab" data-type="gifs" aria-controls="expression-list">GIFs</button><button role="tab" data-type="stickers" aria-controls="expression-list">贴图</button></div>
     <div class="actions"><label class="filter-field"><span>上架状态</span><select id="status-filter"><option value="all">全部状态</option><option value="published">已上架</option><option value="pending">待上架</option></select></label><button id="open-upload" class="primary" type="button">上传资源</button></div></div>
+    <section class="source-panel card" aria-labelledby="source-title"><div class="card-body"><div class="source-heading"><div><h2 id="source-title">Signal Stickers 资源库</h2><p>搜索公开贴图包，预览封面后选择性采集到本地数据库。</p></div><form id="source-search" class="source-search"><input name="keyword" placeholder="搜索贴图包" maxlength="80" aria-label="搜索 Signal 贴图包"><button class="btn btn-primary" type="submit">搜索</button></form></div><div id="source-results" class="source-results"></div></div></section>
     <div id="expression-list" role="tabpanel"></div>`;
+  const sourceResults = content.querySelector<HTMLElement>('#source-results')!;
+  content.querySelector<HTMLFormElement>('#source-search')!.addEventListener('submit', async event => { event.preventDefault(); const keyword = String(new FormData(event.currentTarget as HTMLFormElement).get('keyword') ?? ''); sourceResults.textContent = '正在搜索…'; try { const data = await api<{ packs: { id: string; title: string; author: string; source: string }[] }>(`/expressions/source?keyword=${encodeURIComponent(keyword)}`); sourceResults.replaceChildren(...data.packs.map(pack => { const card = document.createElement('article'); card.className = 'source-pack'; card.innerHTML = `<div><strong></strong><small></small></div><button class="btn btn-outline-primary" type="button">采集</button>`; card.querySelector('strong')!.textContent = pack.title; card.querySelector('small')!.textContent = pack.author || 'Signal Stickers'; const button = card.querySelector('button')!; button.addEventListener('click', async () => { button.disabled = true; try { await api('/expressions/collect', 'POST', { kind: 'stickers', keyword: pack.title, sourceId: pack.id, target: 1 }); button.textContent = '已加入采集'; } catch (error) { button.disabled = false; report(error); } }); return card; })); if (!data.packs.length) sourceResults.textContent = '没有找到匹配的贴图包'; } catch (error) { sourceResults.textContent = ''; sourceResults.append(errorState(error, () => undefined)); } });
   content.querySelector('#expression-list')!.append(loadingState('正在读取资源…'));
   const statusFilter = content.querySelector<HTMLSelectElement>('#status-filter')!; statusFilter.value = expressionStatus;
   statusFilter.addEventListener('change', () => { expressionStatus = statusFilter.value; expressionPage = 1; void expressions(); });

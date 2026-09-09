@@ -138,6 +138,11 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
     finally { job.finished = now(); saveJob(job); }
   }
   const service = {
+    async sourceSearch(body, signal) {
+      query({ ...body, page: 1 });
+      const rows = matchStickerPacks(await source.list(signal), body.keyword, body.kind === 'gifs');
+      return { packs: rows.slice(0, 24).map(row => ({ id: row.id, title: row.title, author: row.author, tags: row.tags, source: row.source })), source: 'Signal Stickers' };
+    },
     // Only the explicit repository initializer uses this entry point. Keeping
     // the marker in the snapshot prevents a later run from undoing moderation.
     initializeShipped(loadEntries, id = 'shipped-library-v1') {
