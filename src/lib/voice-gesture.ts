@@ -33,12 +33,14 @@ export function bindVoiceInputGesture(
     let awaitingTouchEnd = false;
     pointer = event.pointerId;
     try { owner.setPointerCapture(event.pointerId); } catch { /* Synthetic pointer has no capture owner. */ }
+    // Confirm a hold quickly so the recording surface and microphone request
+    // start while the original touch is still active.
     timer = window.setTimeout(() => {
       timer = null;
       if (!input.isConnected || input.disabled || input.value) { cancel(); return; }
       held = true; suppressClick = true;
       recorder = begin('hold');
-    }, 350);
+    }, 180);
     window.addEventListener('pointermove', move => {
       if (move.pointerId !== pointer) return;
       if (!held && Math.hypot(move.clientX - startX, move.clientY - startY) > 12) { cancel(); return; }
@@ -159,7 +161,7 @@ export function bindVoiceRecordGesture(
       activeRecorder = begin('hold');
       activeRecorder?.animateHoldFrom(inflatedOrigin);
       button.classList.remove('is-pressing');
-    }, 180);
+    }, 90);
 
     window.addEventListener('pointermove', move => {
       if (move.pointerId !== pointerId) return;
