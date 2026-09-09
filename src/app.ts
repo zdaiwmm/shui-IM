@@ -3455,9 +3455,14 @@ export class QuietRoomApp {
     this.updateConnectionStatus();
   }
 
-  private closeMemePicker(keyboard = false): void {
+  private closeMemePicker(keyboard = false, animate = false): void {
     if (this.keyboardHandoff?.input.id === 'meme-query' && this.invalidateKeyboardHandoff()) return;
     const picker = this.memePicker;
+    if (animate && picker && !this.privacyCovered) {
+      if (keyboard) this.root.querySelector<HTMLTextAreaElement>('#message-input')?.focus({ preventScroll: true });
+      picker.close(() => this.closeMemePicker(keyboard));
+      return;
+    }
     this.memePicker = null;
     picker?.dispose();
     const button = this.root.querySelector<HTMLButtonElement>('#open-memes');
@@ -3545,7 +3550,7 @@ export class QuietRoomApp {
         } finally { await reader.cancel().catch(() => undefined); }
         return new Blob(chunks, { type: response.headers.get('Content-Type') ?? '' });
       },
-      close: keyboard => this.closeMemePicker(keyboard),
+      close: keyboard => this.closeMemePicker(keyboard, true),
       onSearchPointer: (input, event) => { this.beginKeyboardHandoff(input, event); },
       onKeyboardPointer: event => {
         const input = host.querySelector<HTMLTextAreaElement>('#message-input');
@@ -3682,7 +3687,7 @@ export class QuietRoomApp {
       if (input) this.beginKeyboardHandoff(input, event as PointerEvent);
     });
     this.root.querySelector('#open-memes')?.addEventListener('click', () => {
-      if (this.memePicker) this.closeMemePicker(true); else this.openMemePicker();
+      if (this.memePicker) this.closeMemePicker(true, true); else this.openMemePicker();
     });
     this.root.querySelector('#composer')?.addEventListener('submit', (event) => void this.handleSendText(event));
     const list = this.root.querySelector<HTMLElement>('#message-list')!;
@@ -3771,7 +3776,7 @@ export class QuietRoomApp {
     // then cancels the very tap that was meant to open the keyboard.
     textarea.addEventListener('pointerdown', event => {
       if (!ownsActiveChat()) return;
-      if (this.memePicker) this.closeMemePicker();
+      if (this.memePicker) this.closeMemePicker(true, true);
       if (this.beginKeyboardHandoff(textarea, event)) this.chatViewportMotion?.anticipateKeyboard('open');
       prepareKeyboardTarget();
     }, { passive: true });
