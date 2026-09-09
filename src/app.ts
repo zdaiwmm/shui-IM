@@ -739,6 +739,7 @@ export class QuietRoomApp {
         syncVisualViewport();
         return;
       }
+      }
       if (nativeViewportFrame !== null) return;
       nativeViewportFrame = requestAnimationFrame(() => {
         nativeViewportFrame = null;
@@ -5066,21 +5067,6 @@ export class QuietRoomApp {
     const viewport = window.visualViewport;
     this.positionChatChrome(viewport?.offsetTop ?? 0, viewport?.height ?? window.innerHeight,
       document.documentElement.clientHeight || window.innerHeight);
-  }
-
-  private positionChatChrome(viewportTop: number, viewportHeight: number, layoutHeight: number, scrollCompensation = 0): void {
-    const chat = this.chatLayoutElements;
-    if (!chat?.shell.isConnected) return;
-    const setStyle = (style: CSSStyleDeclaration, property: string, value: string) => {
-      if (style.getPropertyValue(property) !== value) style.setProperty(property, value);
-    };
-    // With the iOS keyboard open, a programmatic document scroll is painted
-    // before visualViewport.offsetTop catches up. Compensate that one native
-    // hand-off interval so fixed chrome never rides the document offscreen.
-    setStyle(chat.header.style, 'translate', `0 ${viewportTop + scrollCompensation}px`);
-    setStyle(chat.composer.style, 'bottom', `${layoutHeight - viewportTop - viewportHeight - scrollCompensation}px`);
-    setStyle(chat.notices.style, 'translate', `0 ${viewportTop + scrollCompensation}px`);
-    setStyle(chat.notice.style, 'translate', `0 calc(${viewportTop + viewportHeight + scrollCompensation}px - var(--chat-bottom-space) - 100%)`);
   }
 
   private pinChatChrome(headerTop: number, composerBottom: number): void {
