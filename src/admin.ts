@@ -1,5 +1,5 @@
 import './admin.css';
-import { createElement, Pencil, Trash2, ArrowLeft, ArrowRight, ChevronsLeft, ChevronsRight } from 'lucide';
+import { createElement, Pencil, Trash2, ArrowLeft, ArrowRight, ChevronsLeft, ChevronsRight, LayoutDashboard, Images } from 'lucide';
 
 type Room = { roomId: string; createdAt: string; lastSeenAt: string | null; devices: number; backups: number; messageCount: number };
 type Detail = { roomId: string; devices: { deviceId: string; role: string; name: string; status: string; lastSeenAt: string | null }[];
@@ -51,9 +51,14 @@ for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
 
 function frame(title: string) {
   view += 1;
-  root.innerHTML = `<header><div><p class="eyebrow">QUIET ROOM</p><h1></h1></div><button id="logout" type="button">退出后台</button></header>
-    <nav class="actions admin-nav" aria-label="后台导航"><button id="rooms-nav">会话管理</button><button id="expressions-nav">表情管理</button></nav><div id="content"></div><p id="status" role="status"></p>`;
+  root.innerHTML = `<div class="admin-shell"><aside class="admin-sidebar"><div class="brand"><span class="brand-mark">Q</span><div><strong>Quiet Room</strong><small>管理控制台</small></div></div>
+    <nav class="sidebar-nav" aria-label="后台导航"><button id="rooms-nav" class="nav-item"><span class="nav-icon">⌂</span><span>会话管理</span></button><button id="expressions-nav" class="nav-item"><span class="nav-icon">✦</span><span>表情管理</span></button></nav>
+    <div class="sidebar-note"><span class="status-dot"></span><span>后台服务正常</span></div></aside>
+    <main class="admin-main"><header class="topbar"><div><p class="eyebrow">QUIET ROOM / ADMIN</p><h1></h1></div><button id="logout" class="logout-button" type="button">退出后台</button></header>
+    <div class="content-wrap"><div id="content"></div><p id="status" role="status"></p></div></main></div>`;
   root.querySelector('h1')!.textContent = title;
+  root.querySelector('.nav-icon')!.replaceChildren(createElement(LayoutDashboard));
+  root.querySelectorAll('.nav-icon')[1]!.replaceChildren(createElement(Images));
   root.querySelector('#logout')!.addEventListener('click', () => { void api('/logout', 'POST').finally(login); });
   root.querySelector('#rooms-nav')!.addEventListener('click', () => void rooms());
   root.querySelector('#expressions-nav')!.addEventListener('click', () => void expressions());
