@@ -16,7 +16,7 @@ export const MAX_PACK_BYTES = 64 * 1024 * 1024;
 export const MAX_PACK_LIBRARY_BYTES = 256 * 1024 * 1024;
 
 export const STARTER_CACHE = 'quiet-room-starter-media-v1';
-const starterAssets = new Map([...starters.packs.flatMap(pack => pack.items), ...starters.gifs].map(item => [item.asset, item]));
+const starterAssets = new Map<string, { size: number; digest: string }>();
 let warming: Promise<void> | undefined;
 let warmed = false;
 
