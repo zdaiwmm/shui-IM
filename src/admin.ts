@@ -197,7 +197,7 @@ async function expressions() {
     <details class="collection-tools"><summary>手动上传</summary></details>
     <div id="collection-jobs" aria-live="polite"></div><div id="expression-list">正在读取资源…</div>`;
   const upload = document.createElement('form'); upload.id = 'expression-upload';
-  upload.innerHTML = `<label>名称<input name="title" maxlength="120" required></label><label>标签<input name="tags" maxlength="2048"></label><label>图片（合计最多 8 MiB）<input name="files" type="file" accept="image/gif,image/png,image/webp,image/jpeg" required ${expressionKind === 'stickers' ? 'multiple' : ''}></label><button type="submit">添加到待上架</button>`;
+  upload.innerHTML = `<label>名称<input name="title" maxlength="120" required></label><label>标签<input name="tags" maxlength="2048"></label><label>图片或 .wastickers 包（合计最多 8 MiB）<input name="files" type="file" accept=".wastickers,image/gif,image/png,image/webp,image/jpeg" required ${expressionKind === 'stickers' ? 'multiple' : ''}></label><button type="submit">添加到待上架</button>`;
   content.querySelector('.collection-tools')!.append(upload);
   upload.addEventListener('submit', async event => {
     event.preventDefault(); const button = upload.querySelector('button')!; if (button.disabled) return; button.disabled = true;
@@ -208,7 +208,7 @@ async function expressions() {
       for (const file of files) {
         const bytes = new Uint8Array(await file.arrayBuffer()); let binary = '';
         for (let offset = 0; offset < bytes.length; offset += 8192) binary += String.fromCharCode(...bytes.subarray(offset, offset + 8192));
-        encoded.push({ data: btoa(binary) });
+        encoded.push({ name: file.name, data: btoa(binary) });
       }
       if (view !== epoch) return;
       await api('/expressions', 'POST', { kind: expressionKind, title: String(data.get('title')), tags: String(data.get('tags')), files: encoded });

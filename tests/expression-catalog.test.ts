@@ -29,6 +29,20 @@ async function fixture() {
 }
 const search = (kind = 'gifs') => ({ kind, keyword: '', page: 1 });
 const upload = (kind = 'gifs', title = 'Test') => ({ kind, title, tags: 'cat', files: [{ data: gif.toString('base64') }] });
+function wastickers(files: Record<string, Buffer>): Buffer {
+  const chunks: Buffer[] = [];
+  for (const [name, data] of Object.entries(files)) {
+    const nameBytes = Buffer.from(name);
+    const header = Buffer.alloc(30);
+    header.writeUInt32LE(0x04034b50, 0);
+    header.writeUInt16LE(20, 4);
+    header.writeUInt32LE(data.length, 18);
+    header.writeUInt32LE(data.length, 22);
+    header.writeUInt16LE(nameBytes.length, 26);
+    chunks.push(header, nameBytes, data);
+  }
+  return Buffer.concat(chunks);
+}
 async function finished(service: ReturnType<typeof createExpressionCatalog>) {
   await vi.waitFor(() => expect(service.jobs()[0].status).not.toBe('running'));
   return service.jobs()[0];
@@ -100,6 +114,18 @@ describe('managed expression catalog', () => {
     expect(f.service.preview(entry.id, 0).bytes).toEqual(gif);
     f.service.remove(entry.id); expect(() => f.service.detail(entry.id)).toThrow('MEME_NOT_FOUND');
     expect(f.fetchResource).not.toHaveBeenCalled();
+  });
+  it('imports a .wastickers package through the existing moderated catalog', async () => {
+    const f = await fixture();
+    const packageBytes = wastickers({
+      'contents.json': Buffer.from(JSON.stringify({ name: 'Imported pack', stickers: [{ image_file: 'one.gif', emojis: ['🙂'] }] })),
+      'one.gif': gif,
+    });
+    const entry = f.service.create({ kind: 'stickers', title: 'Fallback title', tags: '', files: [{ name: 'pack.wastickers', data: packageBytes.toString('base64') }] });
+    expect(entry).toMatchObject({ kind: 'stickers', title: 'Imported pack', status: 'pending' });
+    expect(f.service.preview(entry.id, 0).bytes).toEqual(gif);
+    f.service.update(entry.id, { title: entry.title, tags: entry.tags, status: 'published' });
+    expect((await f.service.search('owner', search('stickers'))).packs[0].title).toBe('Imported pack');
   });
   it('counts newly collected GIFs, deduplicates repeated imports, and never fetches upstream during public reads', async () => {
     const f = await fixture(); f.service.start({ kind: 'gifs', keyword: '', target: 1 });

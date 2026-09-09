@@ -102,7 +102,7 @@ export class VoiceRecorder {
     const motion = orb.animate([
       { translate: `${x}px ${y}px`, scale: String(origin.width / destination.width), opacity: 0.75 },
       { translate: '0px 0px', scale: '1', opacity: 1 },
-    ], { duration: 340, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
+    ], { duration: 120, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
     this.holdEntryMotion = motion;
     motion.onfinish = () => { if (this.holdEntryMotion === motion) this.holdEntryMotion = null; };
   }
