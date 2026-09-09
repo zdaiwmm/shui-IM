@@ -186,26 +186,30 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
     },
     detail(id) { return { ...get(id), items: items(id) }; },
     create(body) {
-      metadata({ ...body, status: 'pending' });
-      if (!['gifs', 'stickers'].includes(body.kind) || !Array.isArray(body.files) || !body.files.length || body.files.length > 200
+      if (!body || !Array.isArray(body.files) || !body.files.length || body.files.length > 200
         || (body.kind === 'gifs' && body.files.length !== 1)) fail('MEME_INVALID_QUERY');
-      if (body.kind === 'stickers' && body.files.length === 1 && typeof body.files[0]?.name === 'string' && /\.wastickers$/i.test(body.files[0].name)) {
+      const packageUpload = body.files.length === 1 && typeof body.files[0]?.name === 'string' && /\.wastickers$/i.test(body.files[0].name);
+      const kind = packageUpload ? 'stickers' : body.kind;
+      if (!['gifs', 'stickers'].includes(kind) || (kind === 'gifs' && body.files.length !== 1)) fail('MEME_INVALID_QUERY');
+      if (packageUpload) {
         const packageBytes = Buffer.from(body.files[0].data, 'base64');
         const parsed = parseWastickers(packageBytes);
         body.title = parsed.title || body.title;
         body.files = parsed.files.map(file => ({ data: file.bytes.toString('base64') }));
       }
+      const status = body.status === 'published' ? 'published' : 'pending';
+      metadata({ ...body, status });
       const files = body.files.map(file => {
         if (!file || typeof file.data !== 'string' || file.data.length > 12 * 1024 * 1024
           || !/^[A-Za-z0-9+/]*={0,2}$/.test(file.data)) fail('MEME_INVALID_QUERY');
         const bytes = Buffer.from(file.data, 'base64');
         if (bytes.toString('base64') !== file.data) fail('MEME_INVALID_QUERY');
-        if (body.kind === 'gifs' && !publicStickerAnimated(bytes)) fail('MEME_INVALID_IMAGE');
+        if (kind === 'gifs' && !publicStickerAnimated(bytes)) fail('MEME_INVALID_IMAGE');
         return { bytes, title: body.title.trim() };
       });
       if (files.reduce((sum, file) => sum + file.bytes.length, 0) > MAX_IMAGE) fail('MEME_TOO_LARGE');
       const id = randomUUID();
-      put({ id, kind: body.kind, title: body.title.trim(), tags: body.tags, author: '管理员上传', source: '手动上传' }, files);
+      put({ id, kind, title: body.title.trim(), tags: body.tags, author: '管理员上传', source: '手动上传' }, files, { status });
       return service.detail(id);
     },
     preview(id, position) {
