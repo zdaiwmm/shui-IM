@@ -277,8 +277,8 @@ try {
     for (const [type, y] of [['pointerdown', 200], ['pointermove', 270], ['pointercancel', 270]]) element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 62, isPrimary: true, button: 0, clientX: 120, clientY: y }));
     return { hidden: element.dataset.revealed === 'false', reset: getComputedStyle(bubble).transform === 'none', animations: bubble.getAnimations().length };
   });
-  assert.deepEqual(cancelledPull, { hidden: true, reset: true, animations: 0 }, 'Cancelled media drag did not immediately conceal and release motion');
-  await waitForClicks(); await first.click();
+  assert.deepEqual(cancelledPull, { hidden: false, reset: true, animations: 0 }, 'Cancelled/native media scrolling must preserve visibility and release motion');
+  await waitForClicks();
   const keyboardPriority = await first.evaluate(element => {
     const previous = document.documentElement.dataset.keyboardOpen;
     document.documentElement.dataset.keyboardOpen = 'true';

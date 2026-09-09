@@ -28,4 +28,27 @@ button.room-id { text-align: left; font-size: .82rem; }
 .actions { display: flex; gap: .75rem; }
 .cleanup { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid oklch(60% .006 250 / .35); }
 #status { min-height: 1.65em; }
+.admin-nav { margin: 1.5rem 0 2rem; flex-wrap: wrap; }
+.expression-tabs [aria-selected="true"] { background: oklch(65% .08 250 / .2); font-weight: 600; }
+select { font: inherit; color: inherit; background: transparent; border: 1px solid oklch(60% .006 250 / .5); border-radius: .4rem; min-height: 44px; padding: .6rem; }
+.expression-filter { max-width: none; grid-template-columns: minmax(8rem, 1fr) minmax(8rem, 12rem) auto; align-items: end; }
+.collection-tools { padding: 1rem 0; border-block: 1px solid oklch(60% .006 250 / .22); }
+summary { cursor: pointer; min-height: 44px; padding-block: .7rem; }
+.expression-thumbnail { width: 64px; height: 64px; object-fit: contain; }
+.expression-gallery { display: grid; grid-template-columns: repeat(auto-fill,minmax(90px,1fr)); gap: 1rem; }
+.expression-gallery img { width: 100%; aspect-ratio: 1; object-fit: contain; }
+.icon-button { padding: .65rem; width: 44px; height: 44px; flex: 0 0 44px; }
+.icon-button svg { width: 20px; height: 20px; }
+.actions { align-items: center; }
+td p { margin: .25rem 0 0; opacity: .7; }
+td strong, #content > p { overflow-wrap: anywhere; }
+@media(max-width:600px) {
+  .expression-filter { grid-template-columns: 1fr; } .expression-tabs { flex-wrap: wrap; }
+  #expression-list thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  #expression-list tr { display: grid; grid-template-columns: 64px minmax(0,1fr) auto; gap: .5rem; padding: 1rem 0; border-bottom: 1px solid oklch(60% .006 250 / .22); }
+  #expression-list td { border: 0; padding: 0; }
+  #expression-list td:first-child { grid-row: span 2; }
+  #expression-list td:nth-child(4) { grid-column: 2; }
+  #expression-list td:last-child { grid-column: 2 / -1; }
+}
 @media(max-width:600px) { main { padding: 1.1rem; } h1 { font-size: 1.5rem; } td,th { padding: .65rem .5rem; } }

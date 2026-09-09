@@ -9,6 +9,7 @@ import './call.css';
 import { QuietRoomApp } from './app';
 import { startReleaseUpdateDetection } from './lib/release-update';
 import { mountSystemChrome } from './lib/system-chrome';
+import { mountPortraitOrientation } from './lib/portrait-orientation';
 
 // Keep zooming inside purpose-built media viewers instead of allowing a
 // double tap/click to scale the whole browser page. The viewport declaration
@@ -23,6 +24,7 @@ document.addEventListener('dblclick', (event) => {
 const root = document.querySelector<HTMLElement>('#app');
 if (!root) throw new Error('Application root is missing');
 mountSystemChrome();
+mountPortraitOrientation(root);
 
 const app = new QuietRoomApp(root);
 void app.start();

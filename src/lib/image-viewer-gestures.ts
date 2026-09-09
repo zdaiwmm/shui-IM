@@ -74,7 +74,7 @@ function tagName(element: Element | null): string {
 }
 
 function eventStartedOnButton(target: EventTarget | null): boolean {
-  return typeof Element !== 'undefined' && target instanceof Element && Boolean(target.closest('button'));
+  return typeof Element !== 'undefined' && target instanceof Element && Boolean(target.closest('button, input, .viewer-video-controls'));
 }
 
 /** Image zoom plus media paging. Native full-screen video remains outside this DOM. */

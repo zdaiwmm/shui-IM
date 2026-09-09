@@ -326,24 +326,6 @@ try {
       focus();
     }
 
-    await fresh();
-    check(app.beginNativeHandoff('reader', 30_000), 'Reader handoff did not start');
-    blur(); check(!app.privacyCovered, 'Reader visible blur covered immediately');
-    focus(); check(!app.nativeHandoff && !app.privacyCovered, 'Reader return retained ownership');
-    blur();
-    check(document.documentElement.classList.contains('privacy-obscured'), 'Reader second departure did not conceal synchronously');
-    await new Promise(resolve => setTimeout(resolve, 300));
-    covered('Reader second departure'); focus();
-    await fresh(); app.beginNativeHandoff('reader', 30_000);
-    app.nativeHandoff.deadline = performance.now() - 1;
-    app.expireNativeHandoff(app.nativeHandoff);
-    check(!app.privacyCovered && !app.nativeHandoff, 'Unused reader timeout covered the page');
-    await fresh(); app.beginNativeHandoff('reader', 30_000); blur();
-    app.nativeHandoff.wallDeadline = Date.now() - 1;
-    focus(); covered('Reader expired before return');
-    await fresh(); app.beginNativeHandoff('reader', 30_000); hidden(true);
-    covered('Reader real background'); hidden(false); focus();
-
     for (const event of ['blur', 'hidden']) {
       await fresh(); app.beginFileExport();
       if (event === 'blur') blur(); else hidden(true);

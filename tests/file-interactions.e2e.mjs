@@ -274,6 +274,8 @@ try {
   await page.locator('#reply-draft:not([hidden])').waitFor();
   assert.equal(await page.evaluate(() => document.activeElement?.id), 'message-input', 'Keyboard-open reply swipe blurred the composer');
   await page.locator('#reply-draft button[aria-label="取消回复"]').click();
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'message-input', 'Closing a quote dismissed the keyboard');
+  assert.equal(await page.locator('#reply-draft').isVisible(), false);
   await page.evaluate(() => { delete document.documentElement.dataset.keyboardOpen; });
   results.replySwipe = { verticalScrollPreserved: true, shortSwipeCancelled: true, resistanceBoundedToViewportSixth: true,
     thresholdActivated: true, keyboardFocused: true, keyboardOpenGestureRetained: true, integratedSingleLineComposer: true,
@@ -290,20 +292,28 @@ try {
 
   await page.waitForFunction(() => Date.now() >= window.fileInteractions.app.suppressMediaClickUntil);
   await page.evaluate(() => { window.fileInteractions.open=window.open; window.open=()=>null; });
-  await page.locator('.message.incoming .file-attachment').tap();
-  await page.waitForFunction(() => document.querySelector('.message.incoming .file-attachment')?.dataset.fileState==='idle');
-  assert.equal(await page.locator('#notice').isVisible(),false,'Blocked reader displayed a toast');
-  assert.equal(await page.evaluate(() => window.fileInteractions.app.privacyCovered),false,'Blocked reader concealed chat');
-  await page.evaluate(() => { window.open=window.fileInteractions.open; });
   const readsBeforeTap = await page.evaluate(() => window.fileInteractions.requests.reads);
-  const opened = page.waitForEvent('popup');
   await page.locator('.message.incoming .file-attachment').tap();
-  const reader = await opened;
-  await reader.waitForURL('blob:**', { timeout: 5_000 });
-  assert(reader.url().startsWith('blob:'), 'Normal tap did not hand the verified PDF to a system reader');
-  await reader.close();
+  await page.locator('.document-reader[data-state="ready"]').waitFor();
+  assert.equal(await page.locator('.reader-text').textContent(), 'file interaction exact bytes');
+  assert.equal(await page.evaluate(() => window.fileInteractions.app.activeSurface), 'away', 'Reader advanced chat presence/read state');
+  assert.equal(await page.evaluate(() => window.fileInteractions.app.nativeHandoff), null, 'Local reader acquired native blur exemption');
+  await page.getByRole('button', { name: '关闭阅读器', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.fileInteractions.app.activeSurface), 'chat', 'Closing reader failed to restore chat');
+  await page.evaluate(() => { window.open=window.fileInteractions.open; });
   assert.equal(await page.evaluate(() => window.fileInteractions.requests.reads), readsBeforeTap + 1, 'Normal tap did not read exactly one encrypted chunk');
-  results.ordinaryTapSystemReader = 1;
+  results.ordinaryTapLocalReader = 1;
+
+  await page.locator('.message.incoming .file-attachment').tap();
+  await page.locator('.document-reader[data-state="ready"]').waitFor();
+  assert.deepEqual(await page.evaluate(() => {
+    const app = window.fileInteractions.app;
+    const view = app.documentReader.view;
+    app.obscurePrivacySurface();
+    const state = { aborted: view.signal.aborted, text: view.element.textContent, mounted: view.element.isConnected };
+    app.revealPrivacySurface(); app.setActiveSurface('chat');
+    return state;
+  }), { aborted: true, text: '', mounted: false }, 'Privacy concealment retained document content');
 
   await page.evaluate(() => window.fileInteractions.app.renderGallery());
   assert.equal(await page.locator('#gallery-tab-images').getAttribute('aria-selected'), 'true', 'Gallery did not open on images');
@@ -639,6 +649,25 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('.gallery-tile img').length === 8);
   await assertVisibility(8, 0, 'Unlock reentry');
   results.safePrivacy = { cachedImagesHidden: true, revealThenView: true, tabAndViewerStatePreserved: true, newImagesHidden: true, hideDuringDecode: true, leaveAndLockReset: true, staleControlsBlocked: true, countsRetained: true, viewerTimeFollowsIndex: true };
+  await firstTile.tap(); await firstTile.tap();
+  await page.locator('.image-viewer .viewer-stage img').waitFor();
+  await page.waitForTimeout(300);
+  const exit = await page.locator('.image-viewer .viewer-stage').evaluate(async stage => {
+    const image = stage.querySelector('img');
+    const rect = stage.getBoundingClientRect();
+    const pointer = (type, y) => stage.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 902, button: 0, clientX: rect.left + rect.width / 2, clientY: y }));
+    pointer('pointerdown', rect.top + 100); pointer('pointermove', rect.top + 330);
+    const before = image.getBoundingClientRect(); pointer('pointerup', rect.top + 330);
+    const samples = [];
+    while (image.isConnected && samples.length < 30) {
+      const r = image.getBoundingClientRect(); samples.push({ top: r.top, width: r.width });
+      await new Promise(requestAnimationFrame);
+    }
+    return { before: { top: before.top, width: before.width }, samples };
+  });
+  assert(exit.samples.length > 2, 'Dismissal skipped the transition');
+  assert(exit.samples.every(sample => sample.top >= exit.before.top - 2 && sample.width <= exit.before.width + 2), JSON.stringify(exit));
+  await page.locator('.image-viewer').waitFor({ state: 'detached' });
 
   await page.evaluate(() => window.fileInteractions.app.lockNow());
   assert.deepEqual(errors, []);

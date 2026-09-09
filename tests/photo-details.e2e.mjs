@@ -141,14 +141,23 @@ try {
     };
   });
   await capture('gallery-menu-dark');
+  await page.evaluate(() => { window.detailsTrigger = document.querySelector('[data-gallery-action="details"]'); });
   await page.locator('[data-gallery-action="details"]').click();
   await ready();
   assert.deepEqual(await page.evaluate(() => window.photoFocusTransfers), [true], 'focus must reach the viewer before its menu is removed');
+  const lateDetails = await page.evaluate(() => {
+    const viewer = document.querySelector('.image-viewer');
+    const focus = document.activeElement;
+    window.detailsTrigger.click();
+    return { sameViewer: document.querySelector('.image-viewer') === viewer, sameFocus: document.activeElement === focus };
+  });
+  assert.deepEqual(lateDetails, { sameViewer: true, sameFocus: true }, 'A late details activation must not tear down the focused viewer');
   await first.dispatchEvent('contextmenu');
   assert.equal(await page.locator('.gallery-actions-sheet').count(), 0, 'late long-press contextmenu must not reopen above the viewer');
   assert.equal(await page.locator('.cover-trigger').count(), 0);
   assert.equal(await page.locator('#system-chrome-color').getAttribute('content'), 'transparent');
   assert.equal(await page.locator('[data-viewer-download]').count(), 0, 'Safe viewers must not offer downloads');
+  assert.equal(await page.locator('[data-viewer-favorite]').count(), 0, 'Safe viewers must not offer favorites');
   await page.waitForFunction(() => document.querySelector('.photo-details')?.textContent.includes('Fixture Camera Test Model'));
   assert.match(await page.locator('.photo-details').innerText(), /2026年09月06日 16:28:35/);
   assert.equal(await page.locator('.photo-details b').count(), 0, 'EXIF text must not become HTML');
@@ -316,7 +325,7 @@ try {
   await page.evaluate(() => { const { app } = window.photoFixture; app.closeImageViewer(true); app.renderChat(); window.photoFixture.open(1); });
   await ready();
   assert.equal(await page.locator('[data-viewer-details]').count(), 0, 'chat must never receive a photo properties entry');
-  assert.equal(await page.locator('[data-viewer-download]').count(), 1, 'chat download behavior is unchanged');
+  assert.equal(await page.locator('[data-viewer-download]').count(), 0, 'chat viewers must not offer downloads');
   assert.equal(await page.locator('[data-viewer-motion]').getAttribute('aria-pressed'), 'true');
   await page.locator('[data-viewer-motion]').click();
   await page.evaluate(() => window.photoFixture.open(1));

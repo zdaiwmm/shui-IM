@@ -138,25 +138,31 @@
   position: fixed;
   inset: 0;
   z-index: 35;
-  background: oklch(13% 0.01 255 / 0.22);
-  opacity: 0;
-  transition: opacity 320ms ease-out, backdrop-filter 320ms ease-out, -webkit-backdrop-filter 320ms ease-out;
-  -webkit-backdrop-filter: blur(4px);
-  backdrop-filter: blur(4px);
+  background: transparent;
+  opacity: 1;
+  transition: opacity 320ms ease-out, background-color 320ms ease-out, backdrop-filter 320ms ease-out, -webkit-backdrop-filter 320ms ease-out;
+  -webkit-backdrop-filter: blur(0);
+  backdrop-filter: blur(0);
   touch-action: none;
 }
 
-.message-actions-backdrop.is-visible { opacity: 1; }
-.message-actions-backdrop.is-closing { opacity: 0; pointer-events: none; }
+.message-actions-backdrop.is-visible { background: oklch(13% 0.01 255 / 0.22); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+.message-actions-backdrop.is-closing {
+  opacity: 1;
+  background: transparent;
+  -webkit-backdrop-filter: blur(0);
+  backdrop-filter: blur(0);
+  pointer-events: none;
+}
 
 /* A scroll container is a compositor boundary in Safari. Paint the selected
-   media in the overlay itself so its pixels sit above the backdrop filter. */
+   bubble in the overlay itself so its pixels sit above the backdrop filter. */
 .message-action-preview { position: absolute; pointer-events: none; }
 .message-action-preview > .message-bubble { width: 100%; height: 100%; max-width: none; }
 .message-action-preview .image-preview { width: 100%; height: 100%; }
 .message-action-preview .image-preview img { opacity: 1; }
 .message-action-preview .image-preview::before { opacity: 0 !important; }
-.message.is-action-source.has-media > .message-bubble { visibility: hidden; }
+.message.is-action-source > .message-bubble { visibility: hidden; }
 
 /* The two surfaces have their own placement around the selected bubble. */
 .message-actions {
@@ -234,7 +240,7 @@
 }
 
 @media (hover: hover) {
-  .message-action-list > button:hover {
+  .message-actions:not([data-delete-options='true']) .message-action-list > button:hover {
     background: color-mix(in oklch, var(--ink) 7%, transparent);
     color: inherit;
   }
@@ -242,7 +248,7 @@
 
 .message-action-list > button[data-danger='true'] { color: var(--danger); }
 @media (hover: hover) {
-  .message-action-list > button[data-danger='true']:hover { background: var(--danger-soft); color: var(--danger); }
+  .message-actions:not([data-delete-options='true']) .message-action-list > button[data-danger='true']:hover { background: var(--danger-soft); color: var(--danger); }
 }
 
 .gallery-actions-sheet {
@@ -470,7 +476,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .message-actions-backdrop { background: oklch(7% 0.01 255 / 0.42); }
+  .message-actions-backdrop.is-visible { background: oklch(7% 0.01 255 / 0.42); }
   .message-action-list,
   .message-reaction-picker { background: color-mix(in oklch, var(--surface-raised) 92%, transparent); }
   .message-reaction[data-own='true'] { --reaction-fill: oklch(61% 0.15 148); }
