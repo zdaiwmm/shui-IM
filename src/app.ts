@@ -365,8 +365,6 @@ export class QuietRoomApp {
     frame: number | null;
   } | null = null;
   private composerViewportSettleUntil = 0;
-  private chatChromeCompensationTimer: number | null = null;
-  private chatChromePin: { headerTop: number; composerBottom: number; until: number; frame: number | null } | null = null;
   private chatBottomControl: ReturnType<typeof mountChatBottomControl> | null = null;
   private chatViewportMotion: ReturnType<typeof createChatViewportMotion> | null = null;
   private chatKeyboardGesture: ReturnType<typeof bindChatKeyboardGesture> | null = null;
@@ -667,9 +665,6 @@ export class QuietRoomApp {
         if (this.usesListScrolling && (resized || priorShellHeight !== chat.shell.style.height)
           && this.chatPinnedToBottom && this.chatScrollIntent !== 'up'
           && !this.chatBottomControl?.scrolling) this.setChatScrollTop(this.chatBottomScrollTop());
-        if (this.chatChromeCompensationTimer !== null) window.clearTimeout(this.chatChromeCompensationTimer);
-        this.chatChromeCompensationTimer = null;
-        if (!this.chatChromePin) this.positionChatChrome(viewportTop, viewportHeight, layoutHeight);
         const openMenu = chat.header.querySelector<HTMLDetailsElement>('.more-menu[open]');
         if (openMenu) setStyle(openMenu.style, '--app-height', `${viewportHeight}px`);
       }
@@ -724,21 +719,10 @@ export class QuietRoomApp {
       // settled, focused typing synchronous; the same positioning function
       // owns both this correction and the continuous native-origin sampler.
       const focusedComposer = this.chatLayoutElements?.composer.querySelector('#message-input') === document.activeElement;
-      if (this.chatChromePin || this.visualClientCoordinates && this.activeSurface === 'chat'
+      if (this.visualClientCoordinates && this.activeSurface === 'chat'
         || focusedComposer && document.documentElement.dataset.keyboardOpen === 'true') {
-        if (this.chatChromePin) this.correctChatChromePin();
-      if (this.chatChromeCompensationTimer !== null) {
-        window.clearTimeout(this.chatChromeCompensationTimer);
-        this.chatChromeCompensationTimer = null;
-        const viewport = window.visualViewport;
-        const layoutHeight = document.documentElement.clientHeight || window.innerHeight;
-        const viewportHeight = Math.max(1, viewport?.height ?? window.innerHeight);
-        const keyboardSpace = Math.max(0, layoutHeight - viewportHeight);
-        const viewportTop = Math.max(0, Math.min(viewport?.offsetTop ?? 0, keyboardSpace));
-        if (!this.chatChromePin) this.positionChatChrome(viewportTop, viewportHeight, layoutHeight);
         syncVisualViewport();
         return;
-      }
       }
       if (nativeViewportFrame !== null) return;
       nativeViewportFrame = requestAnimationFrame(() => {
@@ -786,10 +770,6 @@ export class QuietRoomApp {
       this.composerViewportSettleUntil = 0;
       this.cancelNativeKeyboardDismiss();
       this.nativeKeyboardOpening = false;
-      if (this.chatChromeCompensationTimer !== null) window.clearTimeout(this.chatChromeCompensationTimer);
-      this.chatChromeCompensationTimer = null;
-      if (this.chatChromePin?.frame != null) cancelAnimationFrame(this.chatChromePin.frame);
-      this.chatChromePin = null;
       this.chatViewportMotion?.suspend();
       this.chatKeyboardGesture?.reset();
       this.chatBottomControl?.cancel();
@@ -813,27 +793,12 @@ export class QuietRoomApp {
     window.visualViewport?.addEventListener('resize', scheduleVisualViewportSync, { passive: true });
     window.visualViewport?.addEventListener('scroll', scheduleVisualViewportSync, { passive: true });
     window.visualViewport?.addEventListener('scrollend', scheduleVisualViewportSync, { passive: true });
-    window.addEventListener('scrollend', () => {
-      scheduleVisualViewportSync();
-      this.correctChatChromePin();
-      if (this.chatChromeCompensationTimer === null) return;
-      window.clearTimeout(this.chatChromeCompensationTimer);
-      this.chatChromeCompensationTimer = null;
-      const viewport = window.visualViewport;
-      const layoutHeight = document.documentElement.clientHeight || window.innerHeight;
-      const viewportHeight = Math.max(1, viewport?.height ?? window.innerHeight);
-      const keyboardSpace = Math.max(0, layoutHeight - viewportHeight);
-      const viewportTop = Math.max(0, Math.min(viewport?.offsetTop ?? 0, keyboardSpace));
-      this.chatViewportTop = viewportTop;
-      this.chatViewportHeight = viewportHeight;
-      if (!this.chatChromePin) this.positionChatChrome(viewportTop, viewportHeight, layoutHeight);
-    }, { passive: true });
+    window.addEventListener('scrollend', scheduleVisualViewportSync, { passive: true });
     window.addEventListener('resize', scheduleVisualViewportSync, { passive: true });
     window.addEventListener('scroll', () => {
       // WebKit may defer visualViewport.scroll until a gesture ends, while
       // window.scroll already exposes the new viewport position.
       scheduleVisualViewportSync();
-      this.correctChatChromePin();
       this.scheduleChatScroll();
     }, { passive: true });
     document.addEventListener('gesturestart', preventZoom, { passive: false });
@@ -5067,56 +5032,6 @@ export class QuietRoomApp {
     const viewport = window.visualViewport;
     this.positionChatChrome(viewport?.offsetTop ?? 0, viewport?.height ?? window.innerHeight,
       document.documentElement.clientHeight || window.innerHeight);
-  }
-
-  private pinChatChrome(headerTop: number, composerBottom: number): void {
-    if (this.chatChromePin?.frame != null) cancelAnimationFrame(this.chatChromePin.frame);
-    const pin = { headerTop, composerBottom, until: performance.now() + 240, frame: null as number | null };
-    this.chatChromePin = pin;
-    const correct = () => {
-      if (this.chatChromePin !== pin || this.privacyCovered || this.activeSurface !== 'chat') return;
-      this.correctChatChromePin();
-      if (performance.now() < pin.until) pin.frame = requestAnimationFrame(correct);
-      else {
-        pin.frame = null;
-        const viewport = window.visualViewport;
-        const layoutHeight = document.documentElement.clientHeight || window.innerHeight;
-        const viewportHeight = Math.max(1, viewport?.height ?? window.innerHeight);
-        const keyboardSpace = Math.max(0, layoutHeight - viewportHeight);
-        const viewportTop = Math.max(0, Math.min(viewport?.offsetTop ?? 0, keyboardSpace));
-        this.positionChatChrome(viewportTop, viewportHeight, layoutHeight);
-        this.correctChatChromePin();
-        if (this.chatChromePin === pin) this.chatChromePin = null;
-      }
-    };
-    correct();
-  }
-
-  private correctChatChromePin(): void {
-    if (!this.appleWebKit) return;
-    const chat = this.chatLayoutElements;
-    if (!chat?.shell.isConnected) return;
-    const activeInput = chat.composer.querySelector('#message-input') === document.activeElement;
-    const pin = this.chatChromePin;
-    if (!pin && !(activeInput && document.documentElement.dataset.keyboardOpen === 'true')) return;
-    const currentHeaderTop = chat.header.getBoundingClientRect().top;
-    const targetHeaderTop = pin?.headerTop ?? 0;
-    // Preserve the composer's deliberate safe-area extension while removing
-    // the same whole-page displacement visible on the header.
-    const targetComposerBottom = pin?.composerBottom
-      ?? chat.composer.getBoundingClientRect().bottom - currentHeaderTop;
-    const numericY = (value: string) => Number(value.match(/-?\d+(?:\.\d+)?/g)?.at(-1) ?? 0);
-    const headerError = targetHeaderTop - currentHeaderTop;
-    if (Math.abs(headerError) > 0.25) {
-      const next = numericY(chat.header.style.translate) + headerError;
-      chat.header.style.translate = `0 ${next}px`;
-      chat.notices.style.translate = `0 ${next}px`;
-    }
-    const composerError = chat.composer.getBoundingClientRect().bottom - targetComposerBottom;
-    if (Math.abs(composerError) > 0.25) {
-      const next = numericY(chat.composer.style.bottom) + composerError;
-      chat.composer.style.bottom = `${next}px`;
-    }
   }
 
   private chatComposerLayoutTop(composer: HTMLElement): number {
