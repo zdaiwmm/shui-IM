@@ -1,5 +1,5 @@
 import type { MemeFavorite } from './meme-media';
-const starters = { packs: [], gifs: [] } as const;
+const starters: { packs: StarterPack[]; gifs: MediaItem[] } = { packs: [], gifs: [] };
 
 export type MediaKind = 'gifs' | 'stickers';
 export type StickerPack = { id: string; title: string; items: MemeFavorite[]; installedAt: number };
