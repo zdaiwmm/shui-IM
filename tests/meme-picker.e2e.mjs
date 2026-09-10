@@ -169,11 +169,11 @@ try {
   await page.locator('.meme-pack-result').waitFor();
   assert.equal(await page.locator('.meme-search-dialog').evaluate(el=>el.inert),false,'Escape left search inert');
   await page.locator('.meme-pack-add').click();
-  await page.waitForFunction(()=>document.querySelector('.meme-pack-add').textContent==='解除添加');
+  await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='解除添加');
   await page.locator('.meme-pack-add').click();
-  await page.waitForFunction(()=>document.querySelector('.meme-pack-add').textContent==='添加');
+  await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='添加');
   await page.locator('.meme-pack-add').click();
-  await page.waitForFunction(()=>document.querySelector('.meme-pack-add').textContent==='解除添加');
+  await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='解除添加');
   assert.equal(await page.evaluate(async()=> (await window.fixture.vault.loadStickerPacks(window.fixture.session))[0].items.length),3);
   await page.locator('.meme-back').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);
