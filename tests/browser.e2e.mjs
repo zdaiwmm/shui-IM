@@ -475,6 +475,10 @@ try {
 
   await creator.locator('#message-input').fill('browser-e2e-outbox');
   await creator.locator('#composer').evaluate((form) => form.requestSubmit());
+  // Enqueue shares the durable send chain with encrypted read events. A form
+  // submit alone is not an outbox commit; concealment must begin after the
+  // pending row proves persistence, otherwise this tests an unsubmitted draft.
+  await creator.locator('.message.outgoing').filter({ hasText: 'browser-e2e-outbox' }).waitFor({ timeout: 5000 });
   await blurOutsidePage(creator);
   await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
