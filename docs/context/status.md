@@ -1,11 +1,11 @@
 # Quiet Room 当前状态
 
-## 弱网通话连接策略（2026-09-10，已合并未发布）
+## 弱网通话连接策略（2026-09-10，续作验收中，未发布）
 
-- 通话连接分层诊断、候选预收集与 relay 升级、质量降级/恢复策略、WebSocket 宽限重绑定、配置校验及脱敏快照已在 PR [#74](https://github.com/zdaiwmm/shui-IM/pull/74) 合并；远端 main 精确提交为 `7f331269b1cd6c42eb64d9addd1a40479e4f620f`。
-- CI [34442819733](https://github.com/zdaiwmm/shui-IM/actions/runs/34442819733) 的构建、单元/集成、服务端通话、原生通话媒体、浏览器 group 1/2、依赖审计和汇总 verify 全部通过。新增服务端回归覆盖 transport grace 中旧 callId 被新通话替换；本机 `npm ci`、`npm run build`、`npm test`（71 文件/544 项）和 `npm run test:calls` 通过。
-- 本机完整浏览器脚本单独复测通过；`npm run check:full` 在第四个浏览器脚本完成后仅因本机包装器回收子进程触发 `EPERM` 返回失败，不能外推为产品断言失败。弱网策略单元夹具已纳入测试，但尚未完成真实 TURN 多地域/多协议故障注入和上下行限速矩阵。
-- 当前仅证明代码已合并和自动测试通过；未进行真实 iPhone / iOS 27 / Safari 验收，未进行真实 TURN 基础设施验证，未发布生产。下一步应在真实设备和可控 TURN/DNS 网络夹具上验证首通耗时、语音保持、视频逐级降级、网络切换恢复及配置刷新边界。
+- PR [#74](https://github.com/zdaiwmm/shui-IM/pull/74) 和 [#75](https://github.com/zdaiwmm/shui-IM/pull/75) 已合并。前一批仅是基础实现；此前“完整浏览器脚本单独复测通过”的表述证据不足，不能由 group 1 与单脚本复测推出全部通过。
+- 本次在独占树 `/Users/zhouding/ss-worktrees/call-weak-network-v2`、分支 `codex/call-weak-network-complete`，基线 `1d8a29acbd4953e51a2db8b4ff957ae0a028485a` 补齐分层时钟、信令 ACK/同 ID 重传、配置与有效期校验、恢复阶梯、双向质量统计、视频自动逐级恢复、语音错误分类与幂等重试。实现与证据限制见 [CALLS.md](../../CALLS.md#弱网连接策略与诊断2026-09-10)。
+- 开发期构建、单元/服务端集成和 20 个 Chrome 弱网场景通过。完整验收曾在成功浏览器脚本退出后的进程组清理触发 EPERM；本轮已修复包装器并保留失败退出码，最终门禁正在重跑。推送、PR、最终 CI、合并结果以本次交付回查为准，不能由开发测试推断。
+- 实体 iPhone 仅取得 USB 发现：设备型号标识 iPhone16,1、iOS 27.0；原生显示服务连接失败，未验证 Safari 通话。浏览器/CDP、控制器模拟 TURN 路径、实体设备和实际 TURN 基础设施分别记录；尚缺真实跨地域 UDP/TCP/TLS TURN、Wi-Fi/蜂窝切换和长通话验证。未修改生产部署，未发布本次代码。
 
 ## 三会话集成批次（2026-09-10，已部署）
 

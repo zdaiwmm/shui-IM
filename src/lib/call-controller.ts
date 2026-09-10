@@ -1,5 +1,8 @@
+import { sha256 } from '@noble/hashes/sha2.js';
+import { boundedOperation, networkDelay, NetworkOperationError } from './network-operation';
+import { classifyQuality, recoveryAction, VIDEO_LIMITS } from './call-network-policy';
 import { canonicalStringify } from './canonical';
-import { createCallDiagnostics, transitionCallStage, type CallDiagnosticSnapshot, type CallConnectionStage } from './call-connection';
+import { CALL_STAGE_POLICY, CallStageMonitor, createCallDiagnostics, transitionCallStage, type CallDiagnosticSnapshot, type CallConnectionStage } from './call-connection';
 import { openCallSignal, sealCallSignal, trustedCallMember } from './call-crypto';
 import { CALL_CAPABILITY, type CallAction, type CallControllerOptions, type CallEnvelope, type CallKind, type CallIceConfiguration, type CallPayload, type CallServerEvent, type CallState } from './call-types';
 import type { Vault } from './types';
@@ -7,9 +10,7 @@ import type { Vault } from './types';
 type Context = { generation: number; roomId: string; deviceId: string; identity: string };
 const ACTIVE_PHASES = new Set(['outgoing', 'incoming', 'connecting', 'connected', 'reconnecting']);
 const RING_MS = 45_000;
-const SETUP_MS = 25_000;
-const RECONNECT_MS = 60_000;
-const RECONNECT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000] as const;
+const PATH_SETTLE_MS = 12_000;
 const MEDIA_MS = 30_000;
 const MAX_CANDIDATES = 256;
 const statusByCode: Record<string, string> = {
@@ -62,7 +63,6 @@ export class CallController {
   private terminalCalls = new Map<string, number>();
   private receiveQueue: Promise<void> = Promise.resolve();
   private sendQueue: Promise<void> = Promise.resolve();
-  private phaseTimer: ReturnType<typeof setTimeout> | null = null;
   private statsTimer: ReturnType<typeof setInterval> | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private credentialTimer: ReturnType<typeof setTimeout> | null = null;
@@ -74,15 +74,24 @@ export class CallController {
   private initialDescriptionSent = false;
   private restartRequested = false;
   private reconnectAttempts = 0;
-  private lastStats: { received: number; lost: number } | null = null;
+  private lastStats = new Map<string, { received: number; lost: number }>();
+  private lifetime = new AbortController();
+  private stages: CallStageMonitor | null = null;
+  private setupStartedAt = 0;
+  private configuration: CallIceConfiguration | null = null;
+  private candidateFlush: Promise<void> | null = null;
+  private videoPausedByNetwork = false;
+  private statsBusy = false;
+  private recoveryBusy = false;
   private poorSamples = 0;
   private goodSamples = 0;
   private qualityLevel = 0;
   private audioSender: RTCRtpSender | null = null;
   private videoSender: RTCRtpSender | null = null;
   private diagnostics: CallDiagnosticSnapshot | null = null;
+  private readonly diagnosticSalt = crypto.randomUUID();
   private relayConfigured = false;
-  private readonly onlineHandler = () => { if (this.active && this.current.startedAt) this.scheduleReconnect(); };
+  private readonly onlineHandler = () => { if (this.active && this.context) this.connectionStateChanged(this.context); };
 
   constructor(private readonly options: CallControllerOptions) {
     if (typeof window !== 'undefined') window.addEventListener('online', this.onlineHandler);
@@ -92,13 +101,13 @@ export class CallController {
 
   private emit(changes: Partial<CallState> = {}) {
     this.current = { ...this.current, ...changes };
-    if (!this.disposed) this.options.onChange({ ...this.state, ...(this.diagnostics ? { diagnostics: this.diagnostics } : {}) });
+    if (!this.disposed) this.options.onChange({ ...this.state, ...(this.diagnostics ? { diagnostics: this.diagnosticsSnapshot! } : {}) });
   }
-  get diagnosticsSnapshot(): CallDiagnosticSnapshot | null { return this.diagnostics ? { ...this.diagnostics } : null; }
+  get diagnosticsSnapshot(): CallDiagnosticSnapshot | null { return this.diagnostics ? structuredClone(this.diagnostics) : null; }
   private diagnosticStage(stage: CallConnectionStage, code?: string) {
     if (!this.diagnostics) return;
     this.diagnostics = transitionCallStage(this.diagnostics, stage, Date.now(), code ? { code } : undefined);
-    this.options.onDiagnostics?.({ ...this.diagnostics });
+    this.options.onDiagnostics?.(this.diagnosticsSnapshot!);
   }
   private capture(vault: Vault): Context {
     return { generation: this.generation, roomId: vault.roomId, deviceId: vault.identity.publicBundle.deviceId,
@@ -118,7 +127,6 @@ export class CallController {
   }
   private requireBrowser() {
     if (typeof RTCPeerConnection === 'undefined' || !globalThis.navigator?.mediaDevices?.getUserMedia) throw new Error('当前浏览器不支持实时通话，请使用新版浏览器');
-    if (!this.connected) throw new Error('网络尚未连接，请稍后重试');
   }
   private rememberPeer(vault: Vault, peerId: string) {
     const peer = trustedCallMember(vault, peerId);
@@ -130,25 +138,69 @@ export class CallController {
       return this.peerKeys.get(peerId) === canonicalStringify({ encryptionKey: peer.encryptionKey, signingKey: peer.signingKey });
     } catch { return false; }
   }
-  private setPhaseTimeout(ms: number, text: string, reason: string) {
-    if (this.phaseTimer) clearTimeout(this.phaseTimer);
-    const generation = this.generation;
-    this.phaseTimer = setTimeout(() => {
-      if (generation === this.generation && this.active) void this.finish(text, reason, true);
-    }, Math.max(1, ms));
+  private async operation<T>(stage: CallConnectionStage, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    this.stages?.begin(stage);
+    const stages = this.stages;
+    const lifetime = this.lifetime;
+    try {
+      const value = await boundedOperation(operation, CALL_STAGE_POLICY[stage].timeoutMs, CALL_STAGE_POLICY[stage].code, lifetime.signal);
+      stages?.complete(stage);
+      return value;
+    } catch (error) {
+      if (!lifetime.signal.aborted) stages?.fail(stage, this.safeError(error, stage));
+      throw error;
+    }
+  }
+  private safeError(error: unknown, stage: CallConnectionStage): string {
+    const code = error instanceof NetworkOperationError ? error.code : (error as { code?: string })?.code;
+    return code && /^[A-Z_]{1,64}$/.test(code) ? code : `${stage.toUpperCase().replaceAll('-', '_')}_FAILED`;
+  }
+  private stageExpired(stage: CallConnectionStage) {
+    if (!this.active || !this.context) return;
+    if (stage === 'quality' || (stage === 'config' && this.current.startedAt)) return; // Retry stats on the next tick; never restart usable media for missing stats.
+    if (stage === 'ice-gathering' || stage === 'ice-checking') { this.scheduleReconnect(); return; }
+    const text: Record<CallConnectionStage, string> = {
+      config: '获取通话配置超时，请重试', websocket: '信令认证连接超时，请重试', signaling: this.caller ? '对方未接听' : '未接听',
+      sdp: '通话协商超时，请重新呼叫', 'ice-gathering': '候选收集超时', 'ice-checking': '媒体线路检查超时',
+      'dtls-srtp': '安全媒体连接超时，请重新呼叫', media: '未收到对方音频，请重新呼叫', quality: '', recovery: '媒体线路恢复失败，请重新呼叫',
+    };
+    void this.finish(text[stage], CALL_STAGE_POLICY[stage].code, true);
+  }
+  private async waitForSignaling() {
+    if (this.connected) {
+      if (!this.diagnostics?.events?.some(event => event.stage === 'websocket')) { this.stages?.begin('websocket'); this.stages?.complete('websocket'); }
+      return;
+    }
+    await this.operation('websocket', async signal => {
+      while (!this.connected) await networkDelay(100, signal);
+    });
+  }
+  private beginChecking() {
+    if (!this.active) return;
+    this.stages?.complete('signaling');
+    this.stages?.begin('ice-checking');
+    if (this.context) this.connectionStateChanged(this.context);
   }
   private begin(kind: CallKind, callId: string, caller: boolean, vault: Vault) {
     this.cleanup(false);
     this.current = { ...emptyState(), kind, callId, phase: caller ? 'outgoing' : 'incoming', statusText: caller ? '正在准备通话…' : `${kind === 'video' ? '视频' : '语音'}通话邀请` };
+    this.lifetime = new AbortController();
     this.caller = caller;
     this.context = this.capture(vault);
     this.diagnostics = createCallDiagnostics({ callIdHash: this.redactCallId(callId), kind, role: caller ? 'caller' : 'callee' });
+    this.setupStartedAt = Date.now();
+    const generation = this.generation;
+    this.stages = new CallStageMonitor(event => {
+      if (generation !== this.generation || !this.diagnostics) return;
+      if (event.state === 'started') this.diagnosticStage(event.stage);
+      this.diagnostics = { ...this.diagnostics, events: [...(this.diagnostics.events ?? []), event].slice(-64),
+        ...(event.state === 'failed' ? { failureStage: event.stage, errorCode: `${event.stage}:${event.code}` as const } : {}) };
+      this.options.onDiagnostics?.(this.diagnosticsSnapshot!);
+    }, stage => this.stageExpired(stage));
     this.emit();
   }
   private redactCallId(callId: string): string {
-    let hash = 2166136261;
-    for (let i = 0; i < callId.length; i += 1) hash = Math.imul(hash ^ callId.charCodeAt(i), 16777619);
-    return (hash >>> 0).toString(16).padStart(8, '0');
+    return Array.from(sha256(new TextEncoder().encode(`${this.diagnosticSalt}:${callId}`)), byte => byte.toString(16).padStart(2, '0')).join('');
   }
 
   async start(kind: CallKind): Promise<void> {
@@ -162,21 +214,23 @@ export class CallController {
       this.begin(kind, crypto.randomUUID(), true, vault);
       context = this.context!;
       peers.forEach((peer) => { this.rememberPeer(vault, peer.deviceId); this.invited.add(peer.deviceId); });
-      this.setPhaseTimeout(MEDIA_MS + SETUP_MS, '准备通话超时，请重试', 'timeout');
+      await this.waitForSignaling();
+      if (!this.valid(context)) return;
       const pc = await this.createPeer(context);
       if (!pc || !this.valid(context)) return;
       const stream = await this.acquireMedia(kind === 'video', context);
       if (!this.valid(context)) { stopStream(stream); return; }
       await this.bindInitialMedia(pc, stream);
       if (!this.valid(context)) return;
-      const offer = await pc.createOffer();
+      const offer = await this.operation('sdp', () => pc.createOffer());
       if (!this.valid(context)) return;
-      await pc.setLocalDescription(offer);
+      await this.operation('sdp', () => pc.setLocalDescription(offer));
+      this.stages?.begin('ice-gathering');
       if (!this.valid(context)) return;
       const description = { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp };
       this.emit({ phase: 'outgoing', statusText: '正在呼叫…' });
       this.incomingExpiresAt = Date.now() + RING_MS;
-      this.setPhaseTimeout(RING_MS, '对方未接听', 'timeout');
+      this.stages?.begin('signaling', RING_MS);
       for (const peerId of [...this.invited]) await this.sendTo(peerId, 'invite', { kind, description, cameraEnabled: this.current.cameraEnabled, micMuted: false }, context);
     } catch (error) {
       if (!context || this.valid(context)) await this.finish(mediaError(error), 'failed', true);
@@ -228,7 +282,7 @@ export class CallController {
       this.incomingOffer = payload.description!;
       this.incomingExpiresAt = envelope.expiresAt;
       this.emit({ remoteVideoEnabled: payload.cameraEnabled ?? payload.kind === 'video', remoteMuted: payload.micMuted ?? false });
-      this.setPhaseTimeout(Math.min(RING_MS, envelope.expiresAt - Date.now()), '未接听', 'timeout');
+      this.stages?.begin('signaling', Math.min(RING_MS, envelope.expiresAt - Date.now()));
       return;
     }
     if (!this.active || envelope.callId !== this.current.callId || !this.context) return;
@@ -240,13 +294,14 @@ export class CallController {
       if (this.current.phase !== 'outgoing' || !this.pc) return;
       this.peerId = envelope.senderId;
       this.emit({ phase: 'connecting', statusText: '正在安全连接…', remoteVideoEnabled: payload.cameraEnabled ?? this.current.kind === 'video', remoteMuted: payload.micMuted ?? false });
-      this.setPhaseTimeout(SETUP_MS, '连接超时，请重试', 'timeout');
-      await this.pc.setRemoteDescription(payload.description!);
+      this.stages?.complete('signaling');
+      await this.operation('sdp', () => this.pc!.setRemoteDescription(payload.description!));
       if (!this.valid(context)) return;
       this.localSignalsReady = true;
       await this.applyVideoLimit(context);
       await this.flushRemoteCandidates(context);
       await this.flushLocalCandidates(context);
+      this.beginChecking();
       return;
     }
     if (envelope.action === 'decline' && this.caller && !this.peerId && this.invited.has(envelope.senderId)) {
@@ -280,21 +335,24 @@ export class CallController {
       this.requireBrowser();
       if (Date.now() >= this.incomingExpiresAt || !this.peerStillTrusted(this.peerId)) throw new Error('通话邀请已过期');
       this.emit({ phase: 'connecting', statusText: '正在准备接听…' });
+      await this.waitForSignaling();
+      if (!this.valid(context)) return;
       // Keep the original invitation deadline while waiting for permission; do not accept an expired call.
       const pc = await this.createPeer(context);
       if (!pc || !this.valid(context)) return;
-      await pc.setRemoteDescription(offer);
+      await this.operation('sdp', () => pc.setRemoteDescription(offer));
       if (!this.valid(context)) return;
       const stream = await this.acquireMedia(this.current.kind === 'video', context);
       if (!this.valid(context)) { stopStream(stream); return; }
       if (Date.now() >= this.incomingExpiresAt) { stopStream(stream); throw new Error('通话邀请已过期'); }
       await this.bindInitialMedia(pc, stream);
       if (!this.valid(context)) return;
-      const answer = await pc.createAnswer();
+      const answer = await this.operation('sdp', () => pc.createAnswer());
       if (!this.valid(context)) return;
-      await pc.setLocalDescription(answer);
+      await this.operation('sdp', () => pc.setLocalDescription(answer));
+      this.stages?.begin('ice-gathering');
       if (!this.valid(context)) return;
-      this.setPhaseTimeout(SETUP_MS, '连接超时，请重试', 'timeout');
+      this.stages?.complete('signaling');
       this.emit({ statusText: '正在安全连接…' });
       await this.sendTo(this.peerId!, 'accept', { kind: this.current.kind, description: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp }, cameraEnabled: this.current.cameraEnabled, micMuted: this.current.micMuted }, context);
       if (!this.valid(context)) return;
@@ -303,6 +361,7 @@ export class CallController {
       await this.applyVideoLimit(context);
       await this.flushRemoteCandidates(context);
       if (this.localSignalsReady) await this.flushLocalCandidates(context);
+      this.beginChecking();
     } catch (error) { if (this.valid(context)) await this.finish(mediaError(error), 'failed', true); }
   }
 
@@ -323,9 +382,10 @@ export class CallController {
   }
   private async createPeer(context: Context): Promise<RTCPeerConnection | null> {
     this.diagnosticStage('config');
-    const config = await this.options.getIceConfig();
-    this.relayConfigured = config.relayConfigured;
+    const config = await this.operation('config', signal => this.options.getIceConfig(signal));
     if (!this.valid(context)) return null;
+    this.configuration = config;
+    this.relayConfigured = config.relayConfigured;
     if (!this.applyVerifiedPeerIds(config)) {
       // Refuse unproven device encryption keys before requesting any capture or creating an SDP.
       this.peerId = null;
@@ -343,23 +403,33 @@ export class CallController {
       iceCandidatePoolSize: 4,
     });
     this.pc = pc;
-    this.diagnosticStage('ice-gathering');
     this.emit({ remoteStream: new MediaStream() });
     pc.onicecandidate = (event) => {
-      if (!this.valid(context) || !event.candidate) return;
-      const candidate = event.candidate.toJSON();
-      // Callees also wait until their signed answer has been sent; signaling is ordered below.
-      if (!this.peerId || !this.localSignalsReady) {
-        if (this.pendingLocalCandidates.length < MAX_CANDIDATES) this.pendingLocalCandidates.push(candidate);
-      } else void this.sendTo(this.peerId, 'signal', { kind: this.current.kind, candidate }, context).catch(() => this.connectionFailed(context));
+      if (!this.valid(context)) return;
+      if (!event.candidate) { this.stages?.complete('ice-gathering'); return; }
+      if (this.pendingLocalCandidates.length >= MAX_CANDIDATES) {
+        this.stages?.fail('ice-gathering', 'CANDIDATE_QUEUE_FULL');
+        return;
+      }
+      this.pendingLocalCandidates.push(event.candidate.toJSON());
+      if (this.peerId && this.localSignalsReady) void this.flushLocalCandidates(context).catch(() => {});
+    };
+    pc.onicegatheringstatechange = () => {
+      if (this.valid(context) && pc.iceGatheringState === 'complete') this.stages?.complete('ice-gathering');
+    };
+    pc.onicecandidateerror = () => {
+      // One failed DNS/TURN route does not invalidate other routes. Never retain URL/address/errorText.
+      if (this.valid(context)) this.diagnosticStage('ice-gathering', 'route-unavailable');
     };
     pc.ontrack = (event) => {
       if (!this.valid(context)) { event.track.stop(); return; }
       const stream = this.current.remoteStream;
       if (!stream || stream.getTracks().some((track) => track.id === event.track.id)) return;
       stream.addTrack(event.track);
+      event.track.onmute = event.track.onunmute = () => { if (this.valid(context)) { this.connectionStateChanged(context); void this.inspectQuality(context); } };
       event.track.onended = () => { if (this.valid(context) && event.track.kind === 'video') this.emit({ remoteVideoEnabled: false }); };
       this.emit();
+      this.connectionStateChanged(context);
     };
     pc.onconnectionstatechange = () => this.connectionStateChanged(context);
     pc.oniceconnectionstatechange = () => this.connectionStateChanged(context);
@@ -402,7 +472,10 @@ export class CallController {
         resolve(stream);
       }, (error: unknown) => { void release().finally(() => reject(error)); });
     });
-    return result;
+    return result.catch(error => {
+      if (this.valid(context)) this.stages?.fail('media', error instanceof DOMException && error.name === 'TimeoutError' ? 'PERMISSION_TIMEOUT' : 'CAPTURE_FAILED');
+      throw error;
+    });
   }
 
   private async bindInitialMedia(pc: RTCPeerConnection, stream: MediaStream) {
@@ -467,6 +540,14 @@ export class CallController {
   async toggleCamera(): Promise<void> {
     if (!this.active || !this.context || !this.videoSender || this.mediaBusy || !this.current.localStream) return;
     const context = this.context;
+    if (this.videoPausedByNetwork) {
+      this.videoPausedByNetwork = false;
+      this.emit({ cameraPaused: false, cameraEnabled: false });
+      this.current.localStream.getVideoTracks().forEach(track => { track.onended = null; track.stop(); this.current.localStream?.removeTrack(track); });
+      await this.videoSender.replaceTrack(null).catch(() => {});
+      if (this.valid(context)) await this.sendMediaState(context);
+      return;
+    }
     if (this.current.cameraEnabled) {
       this.current.localStream.getVideoTracks().forEach((track) => { track.onended = null; track.stop(); this.current.localStream?.removeTrack(track); });
       this.emit({ cameraEnabled: false });
@@ -531,20 +612,13 @@ export class CallController {
       const envelope = await sealCallSignal(this.vault(), recipientId, callId, action, payload);
       for (let attempt = 0; attempt < 4; attempt += 1) {
         if (!this.valid(context) || !this.peerStillTrusted(recipientId)) return;
-        if (!this.connected) await new Promise<void>((resolve, reject) => {
-          const started = Date.now();
-          const wait = () => {
-            if (!this.valid(context)) return reject(new Error('通话已结束'));
-            if (this.connected) return resolve();
-            if (Date.now() - started >= 30_000) return reject(new Error('网络连接已中断'));
-            setTimeout(wait, 250);
-          };
-          wait();
-        });
-        try { this.options.send(envelope); return; }
+        await this.waitForSignaling();
+        try { await this.options.send(envelope); return; }
         catch (error) {
+          if (!this.valid(context)) return;
+          this.stages?.noteFailure('websocket', this.safeError(error, 'websocket'));
           if (attempt === 3) throw error;
-          await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+          await networkDelay(250 * 2 ** attempt, this.lifetime.signal);
         }
       }
     });
@@ -558,17 +632,22 @@ export class CallController {
       const current = this.options.getVault();
       if (this.generation !== generation || !this.connected || !current || current.roomId !== vault.roomId || canonicalStringify(current.identity.publicBundle) !== canonicalStringify(vault.identity.publicBundle)) return;
       trustedCallMember(current, recipientId);
-      this.options.send(envelope);
+      await this.options.send(envelope);
     } catch { /* Best effort cancellation must not delay releasing capture devices. */ }
   }
-  private async flushLocalCandidates(context: Context) {
-    if (!this.peerId) return;
-    while (this.pendingLocalCandidates.length) {
-      const candidate = this.pendingLocalCandidates[0]!;
-      if (!this.valid(context)) return;
-      await this.sendTo(this.peerId, 'signal', { kind: this.current.kind, candidate }, context);
-      this.pendingLocalCandidates.shift();
-    }
+  private flushLocalCandidates(context: Context): Promise<void> {
+    if (this.candidateFlush) return this.candidateFlush;
+    const run = async () => {
+      while (this.valid(context) && this.peerId && this.localSignalsReady && this.pendingLocalCandidates.length) {
+        const candidate = this.pendingLocalCandidates[0]!;
+        await this.sendTo(this.peerId, 'signal', { kind: this.current.kind, candidate }, context);
+        if (!this.valid(context)) return;
+        if (this.pendingLocalCandidates[0] === candidate) this.pendingLocalCandidates.shift();
+      }
+    };
+    const result = run().finally(() => { if (this.candidateFlush === result) this.candidateFlush = null; });
+    this.candidateFlush = result;
+    return result;
   }
   private async flushRemoteCandidates(context: Context) {
     for (const candidate of this.pendingRemoteCandidates.splice(0)) {
@@ -614,22 +693,34 @@ export class CallController {
       if (!this.invited.has(event.recipientId)) return;
       this.invited.delete(event.recipientId);
       if (!this.invited.size) void this.finish(statusByCode.CALL_UNAVAILABLE!, 'unavailable', false);
+    } else if (event.state === 'error' && ['CALL_PEER_RECONNECTING', 'CALL_BACKPRESSURE', 'CALL_RATE_LIMITED'].includes(event.code ?? '')) {
+      this.stages?.noteFailure('websocket', event.code!);
+      this.emit({ statusText: '正在等待信令线路恢复…' });
     } else if (event.state === 'ended' || event.state === 'error') {
+      if (event.state === 'error') this.stages?.fail('signaling', event.code ?? 'SERVER_REJECTED');
       void this.finish(statusByCode[event.code ?? ''] ?? (event.state === 'error' ? '暂时无法接通，请重试' : '通话已结束'), event.code ?? 'ended', false);
     }
   }
-  setConnection(connected: boolean) {
-    this.connected = connected;
+  signalingFailure(code: string) {
     if (!this.active) return;
+    this.stages?.noteFailure('websocket', code);
+    if (code === 'WS_AUTH_FAILED') void this.finish('设备信令认证失败，请重新解锁', code, false);
+    else this.emit({ statusText: code === 'WS_BACKPRESSURE' ? '信令发送拥堵，正在等待恢复…' : '信令连接暂不可用，正在重试…' });
+  }
+  setConnection(connected: boolean) {
+    const changed = this.connected !== connected;
+    this.connected = connected;
+    if (!this.active || !this.context || !changed) return;
     if (!connected) {
-      this.emit({ statusText: this.current.startedAt ? '连接中断，正在恢复…' : '网络连接中断…', ...(this.current.startedAt ? { phase: 'reconnecting' as const } : {}) });
-      this.setPhaseTimeout(RECONNECT_MS, '网络连接已中断', 'disconnected');
-    } else if (this.current.startedAt || this.restartRequested) {
-      if (this.pc?.connectionState === 'connected' || this.pc?.iceConnectionState === 'connected' || this.pc?.iceConnectionState === 'completed') this.connectionStateChanged(this.context!);
-      else this.scheduleReconnect();
-    } else if (this.current.phase === 'incoming' || this.current.phase === 'outgoing') {
-      this.emit({ statusText: this.current.phase === 'incoming' ? `${this.current.kind === 'video' ? '视频' : '语音'}通话邀请` : '正在呼叫…' });
-      this.setPhaseTimeout(this.incomingExpiresAt - Date.now(), this.caller ? '对方未接听' : '未接听', 'timeout');
+      if (this.diagnostics) this.diagnostics.reconnects += 1;
+      this.stages?.begin('websocket');
+      this.emit({ statusText: '信令连接中断，正在重连…' });
+    } else {
+      this.stages?.complete('websocket');
+      if (this.localSignalsReady) void this.flushLocalCandidates(this.context).catch(() => {});
+      this.connectionStateChanged(this.context);
+      if (this.current.phase === 'outgoing' || this.current.phase === 'incoming') this.emit({ statusText: this.caller ? '正在呼叫…' : '通话邀请' });
+      if (this.restartRequested) this.scheduleReconnect();
     }
   }
   updateMembers() {
@@ -640,98 +731,127 @@ export class CallController {
     if (this.caller && !this.peerId && !this.invited.size) void this.finish('对方设备暂时无法通话', 'revoked', false);
   }
 
-  private connectionFailed(context: Context) { if (this.valid(context)) this.scheduleReconnect(); }
   private connectionStateChanged(context: Context) {
     if (!this.valid(context) || !this.pc || !this.active) return;
     const pc = this.pc;
-    if (pc.connectionState === 'connected' || pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-      if (!this.connected) return;
-      if (this.phaseTimer) clearTimeout(this.phaseTimer);
+    // ICE connected is not DTLS connected. Keep the independently timed stages separate.
+    if (['connected', 'completed'].includes(pc.iceConnectionState) || pc.connectionState === 'connected') {
+      this.stages?.complete('ice-gathering');
+      this.stages?.complete('ice-checking');
+      if (pc.connectionState !== 'connected') this.stages?.begin('dtls-srtp');
+    }
+    if (pc.connectionState === 'connected') {
+      this.stages?.complete('dtls-srtp');
+      const audio = this.current.remoteStream?.getAudioTracks().some(track => track.readyState === 'live' && !track.muted);
+      if (!audio) { this.stages?.begin('media'); return; }
+      this.stages?.complete('media');
+      this.stages?.complete('recovery');
       if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-      this.phaseTimer = null;
       this.reconnectTimer = null;
       this.restartRequested = false;
       this.reconnectAttempts = 0;
-      this.diagnosticStage('dtls-srtp');
-      this.diagnosticStage('media');
-      this.diagnosticStage('quality');
-      this.emit({ phase: 'connected', startedAt: this.current.startedAt ?? Date.now(), statusText: '' });
-      if (!this.statsTimer) this.statsTimer = setInterval(() => { void this.inspectQuality(context); }, 4000);
+      if (this.diagnostics && this.diagnostics.setupMs === undefined) this.diagnostics.setupMs = Date.now() - this.setupStartedAt;
+      this.emit({ phase: 'connected', startedAt: this.current.startedAt ?? Date.now(), statusText: this.connected ? '' : '信令连接中断，正在重连…' });
+      if (!this.statsTimer) { this.statsTimer = setInterval(() => { void this.inspectQuality(context); }, 4000); void this.inspectQuality(context); }
       if (!this.credentialTimer) this.scheduleCredentialRenewal(context);
-    } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
-      this.diagnosticStage('recovery', pc.iceConnectionState === 'failed' ? 'ice-failed' : 'transport-disconnected');
+    } else if (pc.connectionState === 'failed' && ['connected', 'completed'].includes(pc.iceConnectionState)) {
+      this.stages?.fail('dtls-srtp', 'DTLS_FAILED');
+      void this.finish('安全媒体连接失败，请重新呼叫', 'DTLS_FAILED', true);
+    } else if (['disconnected', 'failed'].includes(pc.connectionState) || ['disconnected', 'failed'].includes(pc.iceConnectionState)) {
+      this.stages?.fail('ice-checking', pc.iceConnectionState === 'failed' ? 'ICE_FAILED' : 'PATH_DISCONNECTED');
       this.scheduleReconnect();
     }
   }
   private scheduleReconnect() {
-    if (!this.context || !this.peerId || !this.pc || this.current.phase === 'incoming') return;
+    if (!this.context || !this.peerId || !this.pc || this.current.phase === 'incoming' || !this.active) return;
     this.restartRequested = true;
-    if (this.current.phase !== 'reconnecting') {
-      this.emit({ phase: 'reconnecting', statusText: '网络不稳定，正在重新连接…', quality: 'poor' });
-      this.setPhaseTimeout(RECONNECT_MS, '网络连接已中断', 'disconnected');
-    }
-    if (this.reconnectTimer || !this.connected) return;
-    if (this.reconnectAttempts >= RECONNECT_DELAYS_MS.length) return;
+    this.stages?.begin('recovery');
+    this.emit({ phase: 'reconnecting', statusText: '媒体线路中断，正在恢复…', quality: 'recovering' });
+    if (this.reconnectTimer || this.recoveryBusy || !this.connected) return;
     const context = this.context;
-    const delay = RECONNECT_DELAYS_MS[this.reconnectAttempts++] ?? RECONNECT_DELAYS_MS.at(-1)!;
-    if (this.diagnostics) {
-      this.diagnostics = { ...this.diagnostics, reconnects: this.diagnostics.reconnects + 1 };
-      this.options.onDiagnostics?.({ ...this.diagnostics });
-    }
+    // A short flap retains the established path before any ICE restart.
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      void this.restartIce(context).then((restarted) => {
-        if (!restarted && this.valid(context) && this.active) this.scheduleReconnect();
-      });
-    }, delay);
+      if (!this.valid(context)) return;
+      void this.recoverPath(context);
+    }, this.current.startedAt && this.pc.iceConnectionState !== 'failed' ? 3000 : 500);
   }
-  private scheduleCredentialRenewal(context: Context, delay = (this.caller ? 60 : 61) * 60_000) {
+  private async recoverPath(context: Context) {
+    if (!this.pc || !this.valid(context)) return;
+    if (!this.connected) return;
+    const action = recoveryAction(++this.reconnectAttempts, this.relayConfigured);
+    if (action === 'end-call') {
+      this.stages?.fail('ice-checking', this.pc.getConfiguration().iceTransportPolicy === 'relay' ? 'RELAY_FAILED' : 'NO_USABLE_PATH');
+      await this.finish('无法建立媒体线路，请稍后重试', 'NO_USABLE_PATH', true);
+      return;
+    }
+    this.recoveryBusy = true;
+    const restarted = await this.restartIce(context, action === 'refresh-config', action === 'relay-only');
+    if (this.valid(context)) this.recoveryBusy = false;
+    if (!this.valid(context) || !this.active || !this.restartRequested) return;
+    // Even if the browser emits no second failure event, advance the bounded ladder.
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.recoverPath(context);
+    }, restarted ? PATH_SETTLE_MS : 1000);
+  }
+  private scheduleCredentialRenewal(context: Context, retryDelay?: number) {
     if (this.credentialTimer) clearTimeout(this.credentialTimer);
+    const remaining = (this.configuration?.expiresAt ?? Date.now() + 2 * 60 * 60_000) - Date.now();
+    const delay = retryDelay ?? Math.max(1000, Math.min(60 * 60_000, remaining - Math.max(60_000, remaining * 0.2)));
     this.credentialTimer = setTimeout(() => {
       this.credentialTimer = null;
-      if (!this.valid(context) || !this.active) return;
-      if (this.current.phase !== 'connected' || !this.connected) { this.scheduleCredentialRenewal(context, 60_000); return; }
-      void this.restartIce(context).then((renewed) => {
-        if (this.valid(context) && this.active) this.scheduleCredentialRenewal(context, renewed ? (this.caller ? 60 : 61) * 60_000 : 60_000);
+      if (!this.valid(context) || !this.active || !this.pc) return;
+      // Refresh configuration without disturbing a successful media path.
+      void this.refreshPeerConfiguration(this.pc, context).then(() => {
+        if (this.valid(context)) this.scheduleCredentialRenewal(context);
+      }).catch(() => {
+        if (this.valid(context)) this.scheduleCredentialRenewal(context, 30_000);
       });
     }, delay);
   }
   private async refreshPeerConfiguration(pc: RTCPeerConnection, context: Context): Promise<boolean> {
-    const config = await this.options.getIceConfig();
+    // Refresh failures retain media; the bounded request does not end an established call.
+    const config = await this.operation('config', signal => this.options.getIceConfig(signal));
     if (!this.valid(context) || pc !== this.pc) return false;
-    this.relayConfigured = config.relayConfigured;
     if (!this.applyVerifiedPeerIds(config)) {
       void this.finish('对方身份验证已失效，请重新发起通话', 'unverified', false);
       return false;
     }
-    const relayOnly = this.reconnectAttempts >= 3 && this.relayConfigured;
-    pc.setConfiguration({ ...pc.getConfiguration(), iceServers: config.iceServers, iceTransportPolicy: relayOnly ? 'relay' : config.iceTransportPolicy });
-    if (relayOnly && this.diagnostics) this.diagnostics = { ...this.diagnostics, relay: true };
-    if (this.current.startedAt) this.scheduleCredentialRenewal(context);
+    if (config.expiresAt !== undefined && config.expiresAt <= Date.now()) throw new NetworkOperationError('TURN_EXPIRED', '中继凭据已过期');
+    this.configuration = config;
+    this.relayConfigured = config.relayConfigured;
+    const relayOnly = pc.getConfiguration().iceTransportPolicy === 'relay' || config.iceTransportPolicy === 'relay';
+    pc.setConfiguration({ ...pc.getConfiguration(), iceServers: config.iceServers, iceTransportPolicy: relayOnly ? 'relay' : 'all' });
     return true;
   }
-  private async restartIce(context: Context): Promise<boolean> {
+  private async restartIce(context: Context, refresh = false, relay = false): Promise<boolean> {
     const pc = this.pc;
-    if (!pc || !this.valid(context) || !this.connected || !this.peerId || this.negotiating || pc.signalingState !== 'stable') return false;
+    if (!pc || !this.valid(context) || !this.connected || !this.peerId || this.negotiating) return false;
     this.negotiating = true;
-    if (this.diagnostics) this.diagnostics = { ...this.diagnostics, iceRestarts: this.diagnostics.iceRestarts + 1 };
     this.localSignalsReady = false;
     try {
-      if (!(await this.refreshPeerConfiguration(pc, context))) return false;
-      const offer = await pc.createOffer({ iceRestart: true });
+      if (refresh || (this.configuration?.expiresAt !== undefined && this.configuration.expiresAt <= Date.now() + 30_000)) {
+        if (!(await this.refreshPeerConfiguration(pc, context))) return false;
+      }
+      if (this.configuration?.expiresAt !== undefined && this.configuration.expiresAt <= Date.now()) throw new NetworkOperationError('TURN_EXPIRED', '中继凭据已过期');
+      if (relay) pc.setConfiguration({ ...pc.getConfiguration(), iceTransportPolicy: 'relay' });
+      if (pc.signalingState === 'have-local-offer') await this.operation('sdp', () => pc.setLocalDescription({ type: 'rollback' }));
+      if (pc.signalingState !== 'stable') return false;
+      this.pendingLocalCandidates = [];
+      if (this.diagnostics) this.diagnostics.iceRestarts += 1;
+      const offer = await this.operation('sdp', () => pc.createOffer({ iceRestart: true }));
       if (!this.valid(context)) return false;
-      await pc.setLocalDescription(offer);
+      await this.operation('sdp', () => pc.setLocalDescription(offer));
       if (!this.valid(context)) return false;
+      this.stages?.begin('ice-gathering');
       await this.sendTo(this.peerId, 'signal', { kind: this.current.kind, description: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp } }, context);
       if (this.valid(context)) { this.localSignalsReady = true; await this.flushLocalCandidates(context); }
       return this.valid(context);
-    } catch { return false; /* Recovery timeout or credential retry handles a failed request. */ }
-    finally {
-      if (this.valid(context)) {
-        this.negotiating = false;
-        if (pc.signalingState === 'stable') this.localSignalsReady = true;
-      }
-    }
+    } catch (error) {
+      if (this.valid(context)) this.stages?.fail('config', this.safeError(error, 'config'));
+      return false;
+    } finally { if (this.valid(context)) { this.negotiating = false; if (pc.signalingState === 'stable') this.localSignalsReady = true; } }
   }
   private async receiveDescription(description: RTCSessionDescriptionInit, context: Context) {
     const pc = this.pc;
@@ -740,22 +860,25 @@ export class CallController {
     // The caller is the impolite peer; the callee rolls back on simultaneous ICE restarts.
     if (collision && this.caller) return;
     if (collision) {
-      await pc.setLocalDescription({ type: 'rollback' });
+      await this.operation('sdp', () => pc.setLocalDescription({ type: 'rollback' }));
       if (!this.valid(context)) return;
     }
     if (description.type === 'answer' && pc.signalingState !== 'have-local-offer') return;
     if (description.type === 'offer') {
       this.localSignalsReady = false;
-      try { await this.refreshPeerConfiguration(pc, context); } catch { /* Keep usable existing credentials if the configuration service is temporarily unavailable. */ }
+      try { await this.refreshPeerConfiguration(pc, context); } catch {
+        if (this.configuration?.expiresAt !== undefined && this.configuration.expiresAt <= Date.now()) { this.stages?.fail('config', 'TURN_EXPIRED'); return; }
+      }
       if (!this.valid(context)) return;
     }
-    await pc.setRemoteDescription(description);
+    await this.operation('sdp', () => pc.setRemoteDescription(description));
     if (!this.valid(context)) return;
     await this.flushRemoteCandidates(context);
     if (description.type === 'offer') {
-      const answer = await pc.createAnswer();
+      const answer = await this.operation('sdp', () => pc.createAnswer());
       if (!this.valid(context)) return;
-      await pc.setLocalDescription(answer);
+      await this.operation('sdp', () => pc.setLocalDescription(answer));
+      this.stages?.begin('ice-gathering');
       if (!this.valid(context)) return;
       await this.sendTo(this.peerId, 'signal', { kind: this.current.kind, description: { type: pc.localDescription!.type, sdp: pc.localDescription!.sdp } }, context);
       if (this.valid(context)) { this.localSignalsReady = true; await this.flushLocalCandidates(context); }
@@ -765,65 +888,89 @@ export class CallController {
 
   private async inspectQuality(context: Context) {
     const pc = this.pc;
-    if (!pc || !this.valid(context) || this.current.phase !== 'connected') return;
+    if (!pc || !this.valid(context) || !this.current.startedAt || this.statsBusy) return;
+    this.statsBusy = true;
     try {
-      const stats = await pc.getStats();
+      const stats = await this.operation('quality', () => pc.getStats());
       if (!this.valid(context)) return;
-      let received = 0; let lost = 0; let rtt = 0; let jitter = 0; let bitrate = 0;
-      stats.forEach((report) => {
-        if (report.type === 'inbound-rtp' && !report.isRemote) { received += Number(report.packetsReceived ?? 0); lost += Math.max(0, Number(report.packetsLost ?? 0)); jitter = Math.max(jitter, Number(report.jitter ?? 0)); }
-        if (report.type === 'candidate-pair' && report.state === 'succeeded' && (report.nominated || report.selected)) rtt = Math.max(rtt, Number(report.currentRoundTripTime ?? 0));
-        if (report.type === 'remote-inbound-rtp') rtt = Math.max(rtt, Number(report.roundTripTime ?? 0));
-        if (report.type === 'outbound-rtp') bitrate += Number(report.bytesSent ?? 0);
-      });
-      if (this.diagnostics) {
-        stats.forEach((report) => {
-          if (report.type !== 'candidate-pair' || report.state !== 'succeeded' || (!report.nominated && !report.selected)) return;
+      let inboundLoss = 0; let outboundLoss = 0; let rtt: number | undefined; let jitter: number | undefined; let bitrate: number | undefined;
+      let candidateState = pc.iceConnectionState as string;
+      const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0;
+      const selectedIds = new Set<string>();
+      stats.forEach(report => { if (report.type === 'transport' && report.selectedCandidatePairId) selectedIds.add(report.selectedCandidatePairId); });
+      stats.forEach(report => {
+        if (report.type === 'inbound-rtp' || report.type === 'remote-inbound-rtp') {
+          const previous = this.lastStats.get(report.id);
+          const received = Number(report.packetsReceived ?? 0), lost = Math.max(0, Number(report.packetsLost ?? 0));
+          this.lastStats.set(report.id, { received, lost });
+          const total = previous ? Math.max(0, received - previous.received) + Math.max(0, lost - previous.lost) : 0;
+          const fraction = previous && total > 0 ? Math.max(0, lost - previous.lost) / total : 0;
+          if (report.type === 'inbound-rtp') inboundLoss = Math.max(inboundLoss, fraction);
+          else outboundLoss = Math.max(outboundLoss, finite(report.fractionLost) ? report.fractionLost : fraction);
+          if (finite(report.jitter)) jitter = Math.max(jitter ?? 0, report.jitter * 1000);
+          if (finite(report.roundTripTime)) rtt = Math.max(rtt ?? 0, report.roundTripTime * 1000);
+        }
+        if (report.type === 'candidate-pair' && (selectedIds.has(report.id) || (!selectedIds.size && (report.selected || report.nominated)))) {
+          candidateState = report.state;
+          if (finite(report.currentRoundTripTime)) rtt = Math.max(rtt ?? 0, report.currentRoundTripTime * 1000);
+          if (finite(report.availableOutgoingBitrate)) bitrate = report.availableOutgoingBitrate;
           const local = stats.get(report.localCandidateId);
-          const type = local?.candidateType === 'relay' ? 'relay' : local?.candidateType === 'srflx' ? 'srflx' : local?.candidateType === 'host' ? 'host' : undefined;
-          const protocol = local?.protocol === 'tls' ? 'tls' : local?.protocol === 'tcp' ? 'tcp' : local?.protocol === 'udp' ? 'udp' : undefined;
-          if (type && protocol) this.diagnostics = { ...this.diagnostics!, candidateType: type, candidateProtocol: protocol, relay: type === 'relay' };
-        });
-      }
-      const previous = this.lastStats;
-      this.lastStats = { received, lost };
-      const receivedDelta = previous ? Math.max(0, received - previous.received) : 0;
-      const lostDelta = previous ? Math.max(0, lost - previous.lost) : 0;
-      const loss = receivedDelta + lostDelta > 0 ? lostDelta / (receivedDelta + lostDelta) : 0;
-      if (this.diagnostics) {
-        this.diagnostics = { ...this.diagnostics, iceState: pc.iceConnectionState, rttMs: rtt ? Math.round(rtt * 1000) : undefined, jitterMs: jitter ? Math.round(jitter * 1000) : undefined, packetLoss: loss, estimatedBitrate: bitrate, audioOnly: this.qualityLevel >= 3 };
-        this.options.onDiagnostics?.({ ...this.diagnostics });
-      }
-      const poor = rtt > 0.45 || jitter > 0.06 || loss > 0.06;
+          const type = local?.candidateType;
+          // relayProtocol describes the browser-to-TURN hop; protocol alone may say UDP for TURN TLS.
+          const protocol = local?.relayProtocol ?? local?.protocol;
+          if (this.diagnostics && ['host', 'srflx', 'prflx', 'relay'].includes(type) && ['udp', 'tcp', 'tls'].includes(protocol)) {
+            this.diagnostics = { ...this.diagnostics, candidateType: type, candidateProtocol: protocol, relay: type === 'relay' };
+          }
+        }
+      });
+      if (this.lastStats.size > 128) this.lastStats.clear();
+      const audioMuted = [...(this.current.localStream?.getAudioTracks() ?? []), ...(this.current.remoteStream?.getAudioTracks() ?? [])].some(track => track.muted);
+      const quality = classifyQuality({ rttMs: rtt, jitterMs: jitter, packetLoss: Math.max(inboundLoss, outboundLoss), bitrateKbps: bitrate === undefined ? undefined : bitrate / 1000, candidateState, audioMuted });
+      const poor = quality === 'degraded' || quality === 'audio-only';
       this.poorSamples = poor ? this.poorSamples + 1 : 0;
       this.goodSamples = poor ? 0 : this.goodSamples + 1;
-      if (poor && this.current.quality !== 'poor') this.emit({ quality: 'poor' });
-      if (this.goodSamples >= 3 && this.current.quality !== 'good') this.emit({ quality: 'good' });
-      if (this.poorSamples >= 3 && this.current.cameraEnabled) {
+      if (this.poorSamples >= 3 && (this.current.cameraEnabled || this.videoPausedByNetwork)) {
         this.poorSamples = 0;
-        this.qualityLevel = Math.min(3, this.qualityLevel + 1);
-        if (this.qualityLevel === 3) {
-          await this.toggleCamera();
-          if (this.valid(context)) this.emit({ statusText: '网络较弱，已关闭摄像头以保持语音清晰' });
-        } else await this.applyVideoLimit(context);
-      } else if (this.goodSamples >= 8 && this.qualityLevel > 0 && this.current.cameraEnabled) {
+        this.qualityLevel = Math.min(VIDEO_LIMITS.length - 1, this.qualityLevel + 1);
+        await this.applyVideoLimit(context);
+      } else if (this.goodSamples >= 8 && this.qualityLevel > 0) {
         this.goodSamples = 0;
         this.qualityLevel -= 1;
         await this.applyVideoLimit(context);
       }
-    } catch { /* Stats support varies; media itself remains usable. */ }
+      if (!this.valid(context)) return;
+      if (this.diagnostics) {
+        this.diagnostics = { ...this.diagnostics, iceState: pc.iceConnectionState, rttMs: rtt, jitterMs: jitter,
+          packetLoss: Math.max(inboundLoss, outboundLoss), inboundLoss, outboundLoss, estimatedBitrate: bitrate, audioMuted,
+          audioOnly: this.diagnostics.audioOnly || this.videoPausedByNetwork };
+        this.options.onDiagnostics?.(this.diagnosticsSnapshot!);
+      }
+      this.emit({ quality: this.current.phase === 'reconnecting' ? 'recovering' : this.videoPausedByNetwork ? 'audio-only' : this.qualityLevel > 0 && !poor ? 'recovering' : poor ? 'degraded' : 'good' });
+    } catch { /* Unsupported or stalled stats retain media and are retried on the next tick. */ }
+    finally { if (this.valid(context)) this.statsBusy = false; }
   }
   private async applyVideoLimit(context: Context) {
     const sender = this.videoSender;
     if (!sender || !this.valid(context)) return;
+    const pause = this.qualityLevel === VIDEO_LIMITS.length - 1;
+    const track = this.current.localStream?.getVideoTracks()[0];
+    if (track && (pause || this.videoPausedByNetwork)) {
+      track.enabled = !pause;
+      this.videoPausedByNetwork = pause;
+      this.emit({ cameraEnabled: !pause, cameraPaused: pause, statusText: pause ? '网络较弱，已暂停视频并保留语音' : '网络正在恢复，已恢复低画质视频' });
+      await this.sendMediaState(context);
+      if (!this.valid(context)) return;
+    }
+    if (this.qualityLevel === 0 && this.current.phase === 'connected') this.emit({ statusText: this.connected ? '' : '信令连接中断，正在重连…' });
     try {
       const parameters = sender.getParameters();
       if (!parameters.encodings?.length) parameters.encodings = [{}];
-      const limits = [{ bitrate: 1_500_000, scale: 1, fps: 24 }, { bitrate: 700_000, scale: 1.5, fps: 20 }, { bitrate: 350_000, scale: 2, fps: 15 }];
-      const limit = limits[Math.min(2, this.qualityLevel)]!;
-      for (const encoding of parameters.encodings) { encoding.maxBitrate = limit.bitrate; encoding.scaleResolutionDownBy = limit.scale; encoding.maxFramerate = limit.fps; }
+      const limit = VIDEO_LIMITS[this.qualityLevel]!;
+      for (const encoding of parameters.encodings) {
+        encoding.active = !pause; encoding.maxBitrate = Math.max(1, limit.bitrate); encoding.scaleResolutionDownBy = limit.scale; encoding.maxFramerate = limit.fps;
+      }
       await sender.setParameters(parameters);
-    } catch { /* Some browsers set encodings only after negotiation. Native congestion control still applies. */ }
+    } catch { /* Browser support differs; track pause and native congestion control remain effective. */ }
   }
 
   private async finish(text: string, reason: string, notify: boolean, action: CallAction = 'end'): Promise<void> {
@@ -840,22 +987,22 @@ export class CallController {
   private cleanup(invalidateReceives = true) {
     this.generation += 1;
     if (invalidateReceives) this.receiveEpoch += 1;
-    // A finished call must not carry a stale transport-down flag into the
-    // next call. The WebSocket owner will report the current transport state
-    // again before any subsequent signaling is sent.
-    this.connected = true;
+    // Transport state belongs to RoomSocket; teardown only cancels this call's work.
+    this.lifetime.abort(new DOMException('通话已结束', 'AbortError'));
+    this.stages?.clear();
+    this.stages = null;
+    if (this.current.callId) this.options.cancelSignals?.(this.current.callId);
     this.context = null;
-    if (this.phaseTimer) clearTimeout(this.phaseTimer);
     if (this.statsTimer) clearInterval(this.statsTimer);
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.credentialTimer) clearTimeout(this.credentialTimer);
-    this.phaseTimer = null; this.statsTimer = null; this.reconnectTimer = null; this.credentialTimer = null;
+    this.statsTimer = null; this.reconnectTimer = null; this.credentialTimer = null;
     for (const stream of [this.current.localStream, this.current.remoteStream]) {
       stream?.getTracks().forEach((track) => { track.onended = null; track.onmute = null; track.onunmute = null; track.stop(); });
     }
     const pc = this.pc;
     if (pc) {
-      pc.ontrack = null; pc.onicecandidate = null; pc.onconnectionstatechange = null; pc.oniceconnectionstatechange = null;
+      pc.ontrack = null; pc.onicecandidate = null; pc.onconnectionstatechange = null; pc.oniceconnectionstatechange = null; pc.onicegatheringstatechange = null; pc.onicecandidateerror = null;
       pc.getSenders().forEach((sender) => sender.track?.stop());
       pc.close();
     }
@@ -869,7 +1016,8 @@ export class CallController {
     // cannot block the first invite of the next call.
     this.sendQueue = Promise.resolve();
     this.receiveQueue = Promise.resolve();
-    this.lastStats = null; this.poorSamples = 0; this.goodSamples = 0; this.qualityLevel = 0; this.reconnectAttempts = 0;
+    this.candidateFlush = null; this.configuration = null; this.statsBusy = false; this.recoveryBusy = false; this.videoPausedByNetwork = false;
+    this.lastStats.clear(); this.poorSamples = 0; this.goodSamples = 0; this.qualityLevel = 0; this.reconnectAttempts = 0;
   }
   dismiss() {
     if (this.active || this.disposed) return;
@@ -884,6 +1032,7 @@ export class CallController {
     this.disposed = true;
     this.replay.clear();
     this.terminalCalls.clear();
+    this.diagnostics = null;
     if (typeof window !== 'undefined') window.removeEventListener('online', this.onlineHandler);
   }
 }

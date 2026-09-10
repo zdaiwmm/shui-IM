@@ -340,8 +340,8 @@ export async function startServer(options = {}) {
     clients.add(socket);
     socketSessions.set(socket, session);
     clientsByRoom.set(session.roomId, clients);
-    socket.once('close', () => {
-      callService.disconnect(socket);
+    socket.once('close', (code, reason) => {
+      callService.disconnect(socket, code, reason.toString());
       delete session.callIdentity;
       clients.delete(socket);
       if (clients.size === 0) clientsByRoom.delete(session.roomId);
@@ -1037,9 +1037,9 @@ export async function startServer(options = {}) {
             registerSocket(session, socket);
             // Keep an in-flight call alive across a short WebSocket transport
             // flap; the authenticated device identity is the rebind key.
-            callService.rebind(socket, session);
             const state = store.roomState(session.roomId);
             send(socket, { type: 'ready', state: publicState(state) });
+            callService.rebind(socket, session);
             send(socket, {
               type: 'sync',
               messages: store.messagesAfter(

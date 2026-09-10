@@ -1,4 +1,5 @@
 import type { Vault } from './types';
+import type { QualityLevel } from './call-network-policy';
 import type { CallDiagnosticSnapshot } from './call-connection';
 
 export const CALL_CAPABILITY = 'webrtc-call-v1';
@@ -42,7 +43,11 @@ export type CallServerEvent = {
   code?: string;
 };
 
+export type CallIceRoute = { url: string; kind: 'stun' | 'turn'; protocol: 'udp' | 'tcp' | 'tls'; region?: string };
+
 export type CallIceConfiguration = {
+  expiresAt?: number;
+  iceRoutes?: CallIceRoute[];
   iceServers: RTCIceServer[];
   iceTransportPolicy: RTCIceTransportPolicy;
   relayConfigured: boolean;
@@ -60,20 +65,22 @@ export type CallState = {
   remoteStream: MediaStream | null;
   micMuted: boolean;
   cameraEnabled: boolean;
+  cameraPaused?: boolean;
   remoteVideoEnabled: boolean;
   remoteMuted: boolean;
   facingMode: 'user' | 'environment';
   startedAt: number | null;
   statusText: string;
-  quality: 'good' | 'poor';
+  quality: QualityLevel;
   canSwitchCamera: boolean;
   diagnostics?: CallDiagnosticSnapshot;
 };
 
 export type CallControllerOptions = {
   getVault: () => Vault | null;
-  send: (envelope: CallEnvelope) => void;
-  getIceConfig: () => Promise<CallIceConfiguration>;
+  send: (envelope: CallEnvelope) => void | Promise<void>;
+  cancelSignals?: (callId: string) => void;
+  getIceConfig: (signal?: AbortSignal) => Promise<CallIceConfiguration>;
   onChange: (state: CallState) => void;
   onPermissionChange: (active: boolean) => boolean | void | Promise<boolean | void>;
   onDiagnostics?: (snapshot: CallDiagnosticSnapshot) => void;
