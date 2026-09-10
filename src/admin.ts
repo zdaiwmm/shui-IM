@@ -59,9 +59,9 @@ for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
 
 function frame(title: string) {
   view += 1;
-  try { sessionStorage.setItem('quiet-admin-view', title === '表情采集' ? 'collection' : 'rooms'); } catch { /* Storage may be unavailable. */ }
+  try { sessionStorage.setItem('quiet-admin-view', title === '采集任务' ? 'collection-jobs' : title === '表情采集' ? 'collection' : 'rooms'); } catch { /* Storage may be unavailable. */ }
   const expressionView = title === '表情管理' || title === '资源详情';
-  const collectionView = title === '表情采集';
+  const collectionView = title === '表情采集' || title === '采集任务';
   root.innerHTML = `<div class="admin-shell tabler-shell"><aside class="admin-sidebar navbar navbar-vertical"><div class="brand"><span class="brand-mark avatar bg-primary text-white">Q</span><div><strong>Quiet Room</strong><small>管理控制台</small></div></div>
     <nav class="sidebar-nav" aria-label="后台导航"><button id="rooms-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>会话管理</span></button><button id="expressions-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>表情管理</span></button><button id="collection-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>表情采集</span></button></nav>
     <div class="sidebar-note">管理员会话</div></aside>
@@ -190,78 +190,127 @@ let expressionStatus = 'all';
 
 type SourcePack = { id: string; title: string; author: string; cover: string; collected?: boolean };
 
-type CollectionJob = { id: string; sourceId?: string; channel?: string; kind?: string; title?: string; status: string; added: number; target?: number; failed: number; error?: string; started?: number; packStarted?: number; totalFiles?: number; downloadedFiles?: number; downloadedBytes?: number; phase?: string };
+type CollectionJobStatus = 'running' | 'queued' | 'completed' | 'cancelled' | 'failed';
+type CollectionJob = { id: string; sourceId?: string; keyword?: string; channel?: string; kind?: string; title?: string; status: CollectionJobStatus; added: number; target?: number; failed: number; error?: string; created?: number; started?: number; finished?: number; packStarted?: number; totalFiles?: number; downloadedFiles?: number; downloadedBytes?: number; phase?: string };
 let collectionChannel = 'signal';
+let collectionJobStatus: CollectionJobStatus = 'running';
+const collectionJobStates: { status: CollectionJobStatus; label: string }[] = [
+  { status: 'running', label: '进行中' }, { status: 'queued', label: '排队中' },
+  { status: 'completed', label: '已完成' }, { status: 'cancelled', label: '已取消' },
+  { status: 'failed', label: '异常' },
+];
+const collectionJobLabels = Object.fromEntries(collectionJobStates.map(item => [item.status, item.label])) as Record<CollectionJobStatus, string>;
+
+function collectionJobTitle(job: CollectionJob): string {
+  return job.title || job.sourceId || job.keyword || (job.channel === 'noto' ? 'Google Noto 动画' : 'Signal Stickers 采集');
+}
+
+function collectionJobDetail(job: CollectionJob): string {
+  const total = job.totalFiles || 0; const done = job.downloadedFiles || 0;
+  let note = job.error || '';
+  if (job.status === 'queued') note = '等待可用任务位';
+  else if (job.status === 'running' && done > 0 && total > done && job.started) {
+    note = `预计还需 ${Math.max(1, Math.ceil((Date.now() - (job.packStarted || job.started)) / done * (total - done) / 1000))} 秒`;
+  } else if (job.status === 'running' && total && done === total) note = '正在校验入库';
+  else if (job.status === 'running' && !note) note = '正在读取来源';
+  return `${done} / ${total || '待确定'} 张${total ? `（${Math.round(done / total * 100)}%）` : ''} · 已下载 ${size(job.downloadedBytes || 0)} · 已上架 ${job.added} / ${job.target || 1} 项${note ? ` · ${note}` : ''}`;
+}
+
+async function collectionJobs() {
+  frame('采集任务'); const epoch = view;
+  const content = root.querySelector<HTMLElement>('#content')!;
+  const toolbar = document.createElement('div'); toolbar.className = 'resource-toolbar';
+  toolbar.append(iconButton('返回表情采集', ArrowLeft, () => void collection()));
+  const note = document.createElement('p'); note.className = 'collection-capacity'; note.textContent = '最多同时进行 10 个任务，超出后自动排队；完成并校验后自动上架。';
+  toolbar.append(note); content.append(toolbar);
+  const tabs = document.createElement('div'); tabs.className = 'actions expression-tabs collection-job-tabs'; tabs.setAttribute('role', 'tablist'); tabs.setAttribute('aria-label', '采集任务状态');
+  const host = document.createElement('section'); host.id = 'collection-jobs'; host.className = 'collection-tasks'; host.setAttribute('role', 'tabpanel'); host.setAttribute('aria-live', 'polite'); host.append(loadingState('正在读取采集任务…'));
+  content.append(tabs, host);
+  let jobs: CollectionJob[] = []; let requestId = 0; let signature = '';
+  const render = () => {
+    tabs.replaceChildren(...collectionJobStates.map(({ status, label }) => {
+      const button = document.createElement('button'); button.type = 'button'; button.setAttribute('role', 'tab'); button.dataset.status = status;
+      button.setAttribute('aria-controls', host.id); button.setAttribute('aria-selected', String(collectionJobStatus === status));
+      button.textContent = `${label} ${jobs.filter(job => job.status === status).length}`;
+      button.addEventListener('click', () => { collectionJobStatus = status; render(); });
+      return button;
+    }));
+    host.replaceChildren();
+    const selected = jobs.filter(job => job.status === collectionJobStatus);
+    if (!selected.length) { host.append(emptyState(`暂无${collectionJobLabels[collectionJobStatus]}任务`)); return; }
+    for (const job of selected) {
+      const item = document.createElement('article'); item.className = 'collection-task'; item.dataset.jobId = job.id;
+      const title = document.createElement('strong'); title.textContent = collectionJobTitle(job);
+      const tone = job.status === 'completed' ? 'success' : job.status === 'failed' ? 'danger' : job.status === 'running' ? 'warning' : 'muted';
+      const state = badge(collectionJobLabels[job.status], tone);
+      const detail = document.createElement('p'); detail.textContent = collectionJobDetail(job);
+      item.append(title, state);
+      const total = job.totalFiles || 0;
+      if (job.status === 'running') {
+        const progress = document.createElement('progress'); progress.max = total || 1; if (total) progress.value = job.downloadedFiles || 0;
+        progress.setAttribute('aria-label', `${title.textContent} 下载进度`); item.append(progress);
+      }
+      item.append(detail);
+      const actions = document.createElement('div'); actions.className = 'actions collection-task-actions';
+      if (['running', 'queued'].includes(job.status)) {
+        const cancel = document.createElement('button'); cancel.type = 'button'; cancel.className = 'danger'; cancel.textContent = '取消任务'; cancel.prepend(createElement(X));
+        cancel.addEventListener('click', async () => { cancel.disabled = true; try { await api(`/expressions/jobs/${job.id}/cancel`, 'POST'); signature = ''; await refresh(); } catch (error) { if (view === epoch) { report(error); cancel.disabled = false; } } });
+        actions.append(cancel);
+      } else {
+        const retry = document.createElement('button'); retry.type = 'button'; retry.textContent = '重新采集'; retry.prepend(createElement(RefreshCw));
+        retry.addEventListener('click', async () => { retry.disabled = true; try { const restarted = await api<CollectionJob>(`/expressions/jobs/${job.id}/retry`, 'POST'); collectionJobStatus = restarted.status; signature = ''; await refresh(); } catch (error) { if (view === epoch) { report(error); retry.disabled = false; } } });
+        actions.append(retry);
+      }
+      item.append(actions); host.append(item);
+    }
+  };
+  const refresh = async () => {
+    const current = ++requestId;
+    try {
+      const result = await api<{ jobs: CollectionJob[] }>('/expressions/jobs', 'GET', undefined, AbortSignal.timeout(15000));
+      if (view !== epoch || current !== requestId) return;
+      const nextSignature = JSON.stringify(result.jobs);
+      if (signature === nextSignature) return;
+      jobs = result.jobs; signature = nextSignature; render();
+    } catch (error) { if (view === epoch && current === requestId) { signature = ''; host.replaceChildren(errorState(error, () => void refresh())); } }
+  };
+  const poll = async () => {
+    if (view !== epoch) return;
+    if (document.visibilityState === 'visible' && document.hasFocus() && Date.now() - lastAdminActivity < 5 * 60_000) await refresh();
+    if (view === epoch) window.setTimeout(() => void poll(), 1500);
+  };
+  void poll();
+}
+
 async function collection() {
   frame('表情采集'); const epoch = view;
   const content = root.querySelector<HTMLElement>('#content')!;
-  content.innerHTML = `<div class="resource-toolbar"><label>采集渠道<select id="collection-channel"><option value="signal">Signal Stickers · 贴图合集</option><option value="noto">Google Noto · 动画表情</option></select></label><button id="review-collected">管理已入库资源</button></div>
-    <section class="collection-tasks" aria-labelledby="tasks-title"><h2 id="tasks-title">采集任务</h2><p>最多同时采集 3 个任务，其余排队。刷新或离开页面不影响下载，剩余时间按下载进度估算。</p><div id="collection-jobs" aria-live="polite">正在读取任务…</div></section><section class="source-panel" aria-labelledby="source-title"><div class="source-heading"><div><h2 id="source-title"></h2><p>选择资源加入后台队列，完整下载并校验后自动上架。</p></div><form id="source-search" class="source-search"><input name="keyword" placeholder="搜索表情" maxlength="80" aria-label="搜索表情"><button class="primary" type="submit">搜索</button></form></div><div id="source-results" class="source-results" aria-live="polite"></div><div id="source-pagination"></div></section>`;
+  content.innerHTML = `<div class="resource-toolbar"><label>采集渠道<select id="collection-channel"><option value="signal">Signal Stickers · 贴图合集</option><option value="noto">Google Noto · 动画表情</option></select></label><div class="actions"><button id="open-collection-jobs">采集任务</button><button id="review-collected">管理已入库资源</button></div></div>
+    <section class="source-panel" aria-labelledby="source-title"><div class="source-heading"><div><h2 id="source-title"></h2><p>选择资源加入后台队列，完整下载并校验后自动上架。</p></div><form id="source-search" class="source-search"><input name="keyword" placeholder="搜索表情" maxlength="80" aria-label="搜索表情"><button class="primary" type="submit">搜索</button></form></div><div id="source-results" class="source-results" aria-live="polite"></div><div id="source-pagination"></div></section>`;
   const channel = content.querySelector<HTMLSelectElement>('#collection-channel')!;
   channel.value = collectionChannel;
   const selectedChannel = collectionChannel;
   content.querySelector('#source-title')!.textContent = selectedChannel === 'noto' ? 'Google Noto 动画表情' : 'Signal Stickers 贴图包';
   channel.addEventListener('change', () => { collectionChannel = channel.value; void collection(); });
+  content.querySelector('#open-collection-jobs')!.addEventListener('click', () => { collectionJobStatus = 'running'; void collectionJobs(); });
   content.querySelector('#review-collected')!.addEventListener('click', () => { expressionKind = selectedChannel === 'noto' ? 'gifs' : 'stickers'; expressionStatus = 'all'; expressionPage = 1; void expressions(); });
   let page = 1; let generation = 0;
-  const jobsHost = content.querySelector<HTMLElement>('#collection-jobs')!;
   let jobs: CollectionJob[] = [];
-  let jobRequest = 0; let renderedJobs = '';
   const buttons = new Map<string, HTMLButtonElement>();
-  const labels: Record<string, string> = { queued: '排队中', running: '正在下载', completed: '已采集并上架', exists: '已入库', partial: '未全部完成', interrupted: '已中断', failed: '采集失败' };
   const refreshJobs = async () => {
-    const request = ++jobRequest;
     try {
       const result = await api<{ jobs: CollectionJob[] }>('/expressions/jobs', 'GET', undefined, AbortSignal.timeout(15000));
-      if (view !== epoch || request !== jobRequest) return;
+      if (view !== epoch) return;
       jobs = result.jobs;
-      const signature = JSON.stringify(jobs);
-      if (signature === renderedJobs) return;
-      renderedJobs = signature;
-      jobsHost.replaceChildren();
-      if (!jobs.length) jobsHost.textContent = '暂无采集任务。搜索并选择资源即可开始。';
-      for (const job of jobs) {
-        const item = document.createElement('div'); item.className = 'collection-task'; item.dataset.jobId = job.id;
-        const title = document.createElement('strong'); title.textContent = job.title || job.sourceId || (job.channel === 'noto' ? 'Google Noto 动画' : 'Signal Stickers 采集');
-        const state = document.createElement('span'); state.textContent = labels[job.status] || job.status;
-        const detail = document.createElement('p');
-        const total = job.totalFiles || 0; const done = job.downloadedFiles || 0;
-        let remaining = '正在估算剩余时间';
-        if (job.status === 'queued') remaining = '等待前面的任务完成';
-        else if (job.status === 'running' && done > 0 && total > done && job.started) remaining = `预计还需 ${Math.max(1, Math.ceil((Date.now() - (job.packStarted || job.started)) / done * (total - done) / 1000))} 秒`;
-        else if (job.status === 'running' && total && done === total) remaining = '正在校验入库';
-        else if (job.status !== 'running') remaining = job.error || '';
-        detail.textContent = `${done} / ${total || '待确定'} 张${total ? `（${Math.round(done / total * 100)}%）` : ''} · 已下载 ${size(job.downloadedBytes || 0)} · 已上架 ${job.added} / ${job.target || 1} 项${remaining ? ` · ${remaining}` : ''}`;
-        const progress = document.createElement('progress'); progress.max = total || 1;
-        if (total) progress.value = done;
-        progress.setAttribute('aria-label', `${title.textContent} 下载进度`);
-        item.append(title, state, progress, detail); jobsHost.append(item);
-        const button = job.sourceId ? buttons.get(job.sourceId) : undefined;
-        if (button && button.dataset.jobId === job.id) { button.disabled = ['running', 'queued', 'completed', 'exists'].includes(job.status); button.textContent = labels[job.status] || '重试采集'; }
-        if (['failed', 'partial', 'interrupted'].includes(job.status) && job.sourceId) {
-          const retry = document.createElement('button'); retry.textContent = '重试任务';
-          retry.addEventListener('click', async () => {
-            retry.disabled = true;
-            try { await api('/expressions/collect', 'POST', { channel: job.channel, kind: job.kind, sourceId: job.sourceId, target: job.target || 1 }); await refreshJobs(); }
-            catch (error) { if (view === epoch) { report(error); retry.disabled = false; } }
-          }); item.append(retry);
-        }
-      }
-    } catch (error) { if (view === epoch && request === jobRequest) { renderedJobs = ''; jobsHost.replaceChildren(errorState(error, () => void refreshJobs())); } }
+    } catch { /* The collection action still performs server-side deduplication. */ }
   };
-  const pollJobs = async () => {
-    if (view !== epoch) return;
-    // Status traffic must not keep an unattended administrator session alive.
-    if (document.visibilityState === 'visible' && document.hasFocus() && Date.now() - lastAdminActivity < 5 * 60_000) await refreshJobs();
-    if (view === epoch) window.setTimeout(() => void pollJobs(), 1500);
-  };
-  void pollJobs();
+  void refreshJobs();
   const sourceResults = content.querySelector<HTMLElement>('#source-results')!;
   const search = async () => {
     const form = content.querySelector<HTMLFormElement>('#source-search')!;
     const keyword = String(new FormData(form).get('keyword') ?? '');
     const request = ++generation;
-    buttons.clear(); renderedJobs = ''; sourceResults.textContent = '正在搜索…';
+    buttons.clear(); sourceResults.textContent = '正在搜索…';
     try {
       const data = await api<{ packs: SourcePack[]; total: number }>(`/expressions/source?channel=${selectedChannel}&page=${page}&keyword=${encodeURIComponent(keyword)}`);
       if (view !== epoch || request !== generation) return;
@@ -280,13 +329,13 @@ async function collection() {
         buttons.set(pack.id, button);
         const active = jobs.find(job => job.sourceId === pack.id && ['running', 'queued'].includes(job.status));
         if (pack.collected) { button.disabled = true; button.textContent = '已入库'; }
-        else if (active) { button.dataset.jobId = active.id; button.disabled = true; button.textContent = labels[active.status]!; }
+        else if (active) { button.dataset.jobId = active.id; button.disabled = true; button.textContent = collectionJobLabels[active.status]; }
         button.addEventListener('click', async () => {
           button.disabled = true; button.textContent = '准备中…';
           try {
             const job = await api<{ id: string }>('/expressions/collect', 'POST', { channel: selectedChannel, kind: selectedChannel === 'noto' ? 'gifs' : 'stickers', keyword: '', sourceId: pack.id, target: 1 });
             if (view !== epoch) return;
-            button.dataset.jobId = job.id; button.textContent = '已加入队列'; renderedJobs = ''; await refreshJobs();
+            button.dataset.jobId = job.id; button.textContent = '已加入队列'; await refreshJobs();
           } catch (error) { button.disabled = false; button.textContent = '采集此包'; report(error); }
         });
         return card;
@@ -459,5 +508,5 @@ root.textContent = '正在验证后台会话…';
 void api<{ csrf: string }>('/session').then(result => {
   csrf = result.csrf; startSessionRenewal();
   let previous = ''; try { previous = sessionStorage.getItem('quiet-admin-view') || ''; } catch { /* Use the default view. */ }
-  return previous === 'collection' ? collection() : rooms();
+  return previous === 'collection-jobs' ? collectionJobs() : previous === 'collection' ? collection() : rooms();
 }).catch(login);

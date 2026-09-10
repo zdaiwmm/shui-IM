@@ -108,6 +108,10 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
           json(request, response, 200, expressions.removeItem(match[1], Number(url.searchParams.get('position'))));
         } else if (pathname === '/admin-api/expressions/jobs' && request.method === 'GET') {
           json(request, response, 200, { jobs: expressions.jobs() });
+        } else if (pathname.match(/^\/admin-api\/expressions\/jobs\/[a-f0-9-]{36}\/cancel$/) && request.method === 'POST') {
+          json(request, response, 200, expressions.cancel(pathname.split('/')[4]));
+        } else if (pathname.match(/^\/admin-api\/expressions\/jobs\/[a-f0-9-]{36}\/retry$/) && request.method === 'POST') {
+          json(request, response, 202, expressions.retry(pathname.split('/')[4]));
         } else if (match && match[2] !== undefined && request.method === 'GET') {
           const result = expressions.preview(match[1], Number(match[2]));
           headers(request, response); response.writeHead(200, { 'Content-Type': result.type, 'Content-Length': result.bytes.length, 'Cache-Control': 'no-store' }); response.end(result.bytes);

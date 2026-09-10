@@ -34,6 +34,9 @@ describe('shared encrypted message payload validation', () => {
     expect(isMessagePayload(text)).toBe(true);
     expect(isMessagePayload({ ...text, debug: true })).toBe(false);
     expect(isImageManifest(imageManifest())).toBe(true);
+    expect(isImageManifest({ ...imageManifest(), width: 1600, height: 900 })).toBe(true);
+    expect(isImageManifest({ ...imageManifest(), width: 1600 })).toBe(false);
+    expect(isImageManifest({ ...imageManifest(), width: 0, height: 900 })).toBe(false);
     expect(isMessagePayload({ v: 1, kind: 'image', image: imageManifest(), sentAt: text.sentAt })).toBe(true);
   });
 

@@ -225,5 +225,8 @@ summary { cursor: pointer; min-height: 44px; padding-block: 10px; }
 .collection-task strong { overflow-wrap: anywhere; }
 .collection-task progress, .collection-task p { grid-column: 1 / -1; width: 100%; margin: 0; }
 .collection-task progress { height: 8px; accent-color: var(--accent); }
-.collection-task button { justify-self: start; }
+.collection-task-actions { grid-column: 1 / -1; }
+.collection-capacity { margin: 0; color: var(--muted); font-size: .8125rem; }
+.collection-job-tabs { width: fit-content; margin-bottom: 16px; overflow-x: auto; max-width: 100%; flex-wrap: nowrap; }
+.collection-job-tabs button { white-space: nowrap; }
 .preview-retry { font-size: 12px; }

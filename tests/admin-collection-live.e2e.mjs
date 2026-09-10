@@ -37,8 +37,11 @@ try {
     await card.getByRole('button', { name: '采集此包' }).click();
     const job = await (await accepted).json();
     await page.reload();
+    await page.getByRole('button', { name: '采集任务', exact: true }).click();
     await page.getByRole('heading', { name: '采集任务', exact: true }).waitFor();
-    await page.locator(`[data-job-id="${job.id}"]`).getByText('已采集并上架', { exact: true }).waitFor({ timeout: 180000 });
+    await page.getByRole('tab', { name: /已完成/ }).click();
+    await page.locator(`[data-job-id="${job.id}"]`).getByText('已完成', { exact: true }).waitFor({ timeout: 180000 });
+    await page.getByRole('button', { name: '返回表情采集' }).click();
     await page.locator('#collection-channel').selectOption(channel);
     await page.locator('[name=keyword]').fill(keyword);
     await page.getByRole('button', { name: '搜索', exact: true }).click();

@@ -70,6 +70,7 @@ try {
       imageNumber++;
       const file = new File([`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#809d97"/><rect x="0" y="${height * .18}" width="${width}" height="${height * .29}" fill="#eadbb7"/><rect x="0" y="${height * .68}" width="${width}" height="${height * .32}" fill="#526c61"/></svg>`], `聊天隐私-${imageNumber}.svg`, { type: 'image/svg+xml', lastModified: imageNumber });
       const manifest = await encryptImageFile(file, {
+        includeDimensions: true,
         reserve: async () => {}, status: async () => ({ uploadedIndexes: [], completed: false }),
         upload: async (blobId, index, bytes) => { encryptedChunks.set(`${blobId}:${index}`, bytes); },
         complete: async () => {}, savePlan: async () => {},
@@ -85,7 +86,7 @@ try {
       payload: { v: 1, sentAt, ...media }, acceptedAt: sentAt, status: senderId === own.deviceId ? 'stored' : 'delivered',
     });
     const records = [
-      record(1, { kind: 'image', image: await makeImage({ cached: true }) }),
+      record(1, { kind: 'image', presentation: 'expression', image: await makeImage({ cached: true }) }),
       record(2, { kind: 'image', image: await makeImage({ width: 8, height: 1200 }) }, peer.deviceId),
       record(3, { kind: 'image-album', images: [await makeImage({ cached: true, width: 1200, height: 8 }), await makeImage()] }),
     ];
@@ -166,7 +167,7 @@ try {
 
   await page.waitForFunction(() => document.querySelectorAll('.message .image-preview img').length === 4);
   await assertVisibility(4, 0, 'Initial cached and decrypted thumbnails');
-  // Sender visibility is driven by encrypted peer-read events, never delivery.
+  // Sent photos, videos and expressions now share the same explicit reveal rule.
   const outgoingId = await page.evaluate(() => {
     const app = window.chatPrivacy.app;
     const message = app.messages.get(1);
@@ -176,23 +177,22 @@ try {
     return message.clientMsgId;
   });
   const outgoing = page.locator(`[data-client-msg-id="${outgoingId}"] .image-preview`);
-  assert.equal(await outgoing.getAttribute('data-revealed'), 'true', 'Old delivered-but-unread media must stay revealed');
+  assert.equal(await outgoing.getAttribute('data-revealed'), 'false', 'Sent expression did not start concealed');
   await page.evaluate(() => {
     const app = window.chatPrivacy.app;
     const target = app.messages.get(1);
     const peer = app.session.vault.members.find(member => member.role !== app.session.vault.role);
-    const acceptedAt = new Date(Date.now() - 9_000).toISOString();
+    const acceptedAt = new Date(Date.now() - 11_000).toISOString();
     app.messages.set(90, { seq: 90, clientMsgId: crypto.randomUUID(), senderId: peer.deviceId,
       status: 'delivered', acceptedAt,
       payload: { v: 1, kind: 'media-read', sentAt: acceptedAt,
         target: { clientMsgId: target.clientMsgId, serverSeq: target.seq, senderId: target.senderId } } });
     app.renderMessages();
   });
-  assert.equal(await outgoing.getAttribute('data-revealed'), 'true', 'Media hid before ten seconds after read');
+  assert.equal(await outgoing.getAttribute('data-revealed'), 'false', 'Peer read event revealed sent media');
   assert.equal(await page.locator('.message').count(), 3, 'Read event became a chat message');
-  await page.waitForFunction(id => document.querySelector(`[data-client-msg-id="${id}"] .image-preview`)?.dataset.revealed === 'false', outgoingId);
   await outgoing.click();
-  assert.equal(await outgoing.getAttribute('data-revealed'), 'true', 'Manual reveal after expiry failed');
+  assert.equal(await outgoing.getAttribute('data-revealed'), 'true', 'Manual reveal of sent media failed');
   await page.evaluate(() => window.chatPrivacy.app.renderMessages());
   assert.equal(await outgoing.getAttribute('data-revealed'), 'true', 'Duplicate read projection undid manual reveal');
   await page.evaluate(() => {
@@ -221,6 +221,14 @@ try {
     return { valid: true, maxJump };
   });
   assert(bitmapEvidence.valid && bitmapEvidence.maxJump <= 8, `Concealed bitmap has a discontinuous row: ${JSON.stringify(bitmapEvidence)}`);
+  const cachedBlurReused = await page.evaluate(() => {
+    const app = window.chatPrivacy.app;
+    const before = [...app.imageCache.entries()].map(([blobId, cached]) => [blobId, cached.concealedUrl]).sort();
+    app.renderMessages();
+    const after = [...app.imageCache.entries()].map(([blobId, cached]) => [blobId, cached.concealedUrl]).sort();
+    return before.length > 0 && before.every((entry, index) => entry[1] && entry[1] === after[index]?.[1]);
+  });
+  assert.equal(cachedBlurReused, true, 'A chat rerender regenerated an already cached concealed bitmap');
   assert.equal(await page.locator('.image-album .image-preview').count(), 2, 'Album fixture does not exercise individual cells');
   const first = previews.first();
   // A long hold can outlast the ordinary click-suppression interval. The
@@ -362,6 +370,7 @@ try {
   const newId = await page.evaluate(() => window.chatPrivacy.addImage({ delayed: true }));
   const delayed = page.locator(`.image-preview[data-blob-id="${newId}"]`);
   await page.waitForFunction(() => window.chatPrivacy.gate.waiting);
+  const pendingBox = await delayed.boundingBox();
   await assertVisibility(5, 1, 'New pending thumbnail');
   await delayed.evaluate(element => {
     window.chatPrivacy.loadingFeedback = [element.querySelector('.media-load-status')?.textContent];
@@ -379,6 +388,9 @@ try {
   await drag(first, { followingClick: true });
   await page.evaluate(() => { const gate = window.chatPrivacy.gate; gate.blobId = null; gate.release(); });
   await delayed.locator('img').waitFor();
+  const loadedBox = await delayed.boundingBox();
+  assert(pendingBox && loadedBox && Math.abs(pendingBox.width - loadedBox.width) < 1 && Math.abs(pendingBox.height - loadedBox.height) < 1,
+    `Known media dimensions shifted the placeholder: ${JSON.stringify({ pendingBox, loadedBox })}`);
   await assertVisibility(5, 0, 'Pull before delayed decryption resolves');
   const loadingFeedback = await page.evaluate(() => window.chatPrivacy.loadingFeedback.filter(Boolean));
   assert(loadingFeedback.some(value => value.startsWith('正在下载图片')), 'Loading feedback omitted the download stage');
@@ -562,7 +574,7 @@ try {
   assert.deepEqual(lateEncoding, { hadPending: true, created: 0, cache: 0, chat: false }, 'Late concealed PNG encoding revived a locked runtime');
   await page.evaluate(() => window.chatPrivacy.app.lockNow());
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ browser: browserName, defaultHidden: true, longHoldReleaseHidden: true, revealThenView: true, albumCells: true, pointerAndTouchPull: true, dampedClearPullUntilRelease: true, cancelledPullReleased: true, keyboardGesturePriority: true, dragClickSuppressed: true, cachedRebuildHidden: true, reusedManifestIsolated: true, revealedReceiptRebuildPreserved: true, delayedDecodeHidden: true, viewerPullHidden: true, synchronousCoverHidden: true, rapidFocusHidden: true, lockAndReentryHidden: true, originalBytesPreserved: true }, null, 2));
+  console.log(JSON.stringify({ browser: browserName, defaultHidden: true, cachedBlurReused: true, longHoldReleaseHidden: true, revealThenView: true, albumCells: true, pointerAndTouchPull: true, dampedClearPullUntilRelease: true, cancelledPullReleased: true, keyboardGesturePriority: true, dragClickSuppressed: true, cachedRebuildHidden: true, reusedManifestIsolated: true, revealedReceiptRebuildPreserved: true, delayedDecodeHidden: true, viewerPullHidden: true, synchronousCoverHidden: true, rapidFocusHidden: true, lockAndReentryHidden: true, originalBytesPreserved: true }, null, 2));
 } finally {
   await browser?.close();
   await server.close();

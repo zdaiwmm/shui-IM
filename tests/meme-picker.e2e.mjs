@@ -443,14 +443,12 @@ try {
   const chatAnimation=page.locator('.message-list .image-preview img').first();
   await chatAnimation.waitFor();
   await page.waitForFunction(()=>document.querySelector('.message-list .image-preview img')?.naturalWidth>0);
-  assert.equal(await page.locator('.message-list .image-preview').first().getAttribute('data-revealed'), 'true');
+  assert.equal(await page.locator('.message-list .image-preview').first().getAttribute('data-revealed'), 'false');
   assert.equal(await page.locator('.expression-bubble').count(), 1);
   assert.deepEqual(await chatAnimation.evaluate(image => { const style = getComputedStyle(image); return [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomLeftRadius, style.borderBottomRightRadius]; }), ['12px', '12px', '12px', '12px']);
   if (out) await page.screenshot({path:path.join(out,'expression-rounded.png')});
   const originalWidth = await chatAnimation.evaluate(image => image.naturalWidth);
   assert.ok(Math.abs((await chatAnimation.boundingBox()).width - originalWidth * 2 / 3) < 1, 'Small expression did not shrink to two thirds');
-  await page.evaluate(() => window.fixture.app.concealChatImages());
-  assert.equal(await page.locator('.message-list .image-preview').first().getAttribute('data-revealed'), 'false');
   await page.locator('.message-list .image-preview').first().click();
   await assertMoving(chatAnimation, 'Sent chat animation was frozen');
   await page.locator('.message-list .image-preview').first().dispatchEvent('contextmenu');

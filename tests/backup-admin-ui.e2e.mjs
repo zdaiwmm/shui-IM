@@ -206,8 +206,13 @@ try {
   await admin.getByRole('button', { name: '搜索', exact: true }).click();
   await admin.getByText('Fixture Signal pack', { exact: true }).waitFor();
   await admin.getByRole('button', { name: '采集此包', exact: true }).click();
-  await admin.getByRole('button', { name: '已采集并上架', exact: true }).waitFor();
+  await admin.getByRole('button', { name: '已加入队列', exact: true }).waitFor();
+  await admin.getByRole('button', { name: '采集任务', exact: true }).click();
+  await admin.getByRole('tab', { name: '已完成 1', exact: true }).waitFor();
+  await admin.getByRole('tab', { name: '已完成 1', exact: true }).click();
+  await admin.locator('[data-job-id="fixture-job"]').getByText('已完成', { exact: true }).waitFor();
   assert.deepEqual(collectionPayload, { channel: 'signal', kind: 'stickers', keyword: '', sourceId: sourcePackId, target: 1 });
+  assert(collectionPolls > 0, 'Task page did not read collection status');
   await admin.unroute('**/admin-api/expressions/source*');
   await admin.unroute('**/admin-api/expressions/collect');
   await admin.unroute('**/admin-api/expressions/jobs');
@@ -367,6 +372,7 @@ try {
   admin.on('request', request => { if (request.url().endsWith('/expressions/jobs')) jobReads++; });
   const firstJobRead = admin.waitForResponse(response => response.url().endsWith('/expressions/jobs'));
   await admin.getByRole('button', { name: '表情采集', exact: true }).click();
+  await admin.getByRole('button', { name: '采集任务', exact: true }).click();
   await admin.clock.runFor(2000); await firstJobRead;
   await admin.clock.fastForward(6 * 60_000);
   const idleJobReads = jobReads;
