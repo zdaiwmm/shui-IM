@@ -207,7 +207,7 @@ try {
   await admin.getByText('Fixture Signal pack', { exact: true }).waitFor();
   await admin.getByRole('button', { name: '采集此包', exact: true }).click();
   await admin.getByRole('button', { name: '已采集，待审核', exact: true }).waitFor();
-  assert.deepEqual(collectionPayload, { kind: 'stickers', keyword: '', sourceId: sourcePackId, target: 1 });
+  assert.deepEqual(collectionPayload, { channel: 'signal', kind: 'stickers', keyword: '', sourceId: sourcePackId, target: 1 });
   await admin.unroute('**/admin-api/expressions/source*');
   await admin.unroute('**/admin-api/expressions/collect');
   await admin.unroute('**/admin-api/expressions/jobs');

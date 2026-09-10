@@ -179,38 +179,49 @@ let expressionKind: 'gifs' | 'stickers' = 'gifs';
 let expressionPage = 1;
 let expressionStatus = 'all';
 
-type SourcePack = { id: string; title: string; author: string; cover: string };
+type SourcePack = { id: string; title: string; author: string; cover: string; collected?: boolean };
 
+let collectionChannel = 'signal';
 async function collection() {
   frame('表情采集'); const epoch = view;
   const content = root.querySelector<HTMLElement>('#content')!;
-  content.innerHTML = `<div class="collection-channels" role="list" aria-label="采集渠道"><article class="collection-channel is-active" role="listitem"><div class="channel-icon" aria-hidden="true"></div><div><h2>Signal Stickers</h2><p>公开贴图包目录，已验证可读取目录、manifest 和原图并完成入库。</p></div><span class="status-badge success">可用</span></article></div>
-    <section class="source-panel" aria-labelledby="source-title"><div class="source-heading"><div><h2 id="source-title">搜索 Signal 贴图包</h2><p>搜索结果只来自公开目录；采集后进入待上架资源，便于审核。</p></div><form id="source-search" class="source-search"><input name="keyword" placeholder="搜索贴图包" maxlength="80" aria-label="搜索 Signal 贴图包"><button class="primary" type="submit">搜索</button></form></div><div id="source-results" class="source-results" aria-live="polite"></div></section>`;
-  const channelIcon = content.querySelector<HTMLElement>('.channel-icon');
-  channelIcon?.append(createElement(Download));
+  content.innerHTML = `<div class="resource-toolbar"><label>采集渠道<select id="collection-channel"><option value="signal">Signal Stickers · 贴图合集</option><option value="noto">Google Noto · 动画表情</option></select></label><button id="review-collected">管理已入库资源</button></div>
+    <section class="source-panel" aria-labelledby="source-title"><div class="source-heading"><div><h2 id="source-title"></h2><p>选择资源采集，完成后在表情管理中审核上架。</p></div><form id="source-search" class="source-search"><input name="keyword" placeholder="搜索表情" maxlength="80" aria-label="搜索表情"><button class="primary" type="submit">搜索</button></form></div><div id="source-results" class="source-results" aria-live="polite"></div><div id="source-pagination"></div></section>`;
+  const channel = content.querySelector<HTMLSelectElement>('#collection-channel')!;
+  channel.value = collectionChannel;
+  const selectedChannel = collectionChannel;
+  content.querySelector('#source-title')!.textContent = selectedChannel === 'noto' ? 'Google Noto 动画表情' : 'Signal Stickers 贴图包';
+  channel.addEventListener('change', () => { collectionChannel = channel.value; void collection(); });
+  content.querySelector('#review-collected')!.addEventListener('click', () => { expressionKind = selectedChannel === 'noto' ? 'gifs' : 'stickers'; expressionStatus = 'all'; expressionPage = 1; void expressions(); });
+  let page = 1; let generation = 0;
   const sourceResults = content.querySelector<HTMLElement>('#source-results')!;
   const search = async () => {
     const form = content.querySelector<HTMLFormElement>('#source-search')!;
     const keyword = String(new FormData(form).get('keyword') ?? '');
+    const request = ++generation;
     sourceResults.textContent = '正在搜索…';
     try {
-      const data = await api<{ packs: SourcePack[] }>(`/expressions/source?keyword=${encodeURIComponent(keyword)}`);
-      if (view !== epoch) return;
+      const data = await api<{ packs: SourcePack[]; total: number }>(`/expressions/source?channel=${selectedChannel}&page=${page}&keyword=${encodeURIComponent(keyword)}`);
+      if (view !== epoch || request !== generation) return;
+      content.querySelector('#source-pagination')!.replaceChildren(pagination({ page, total: data.total ?? data.packs.length, pageSize: 24, label: '来源分页', change: value => { page = value; void search(); } }));
       sourceResults.replaceChildren(...data.packs.map(pack => {
         const card = document.createElement('article'); card.className = 'source-pack';
         card.innerHTML = `<img class="source-cover" alt=""><div class="source-pack-info"><strong></strong><small></small></div><button class="btn btn-outline-primary" type="button">采集此包</button>`;
         const cover = card.querySelector<HTMLImageElement>('img')!; cover.src = pack.cover; cover.alt = pack.title;
         card.querySelector('strong')!.textContent = pack.title; card.querySelector('small')!.textContent = pack.author || 'Signal Stickers';
         const button = card.querySelector<HTMLButtonElement>('button')!;
+        if (pack.collected) { button.disabled = true; button.textContent = '已入库'; }
         button.addEventListener('click', async () => {
           button.disabled = true; button.textContent = '准备中…';
           try {
-            const job = await api<{ id: string }>('/expressions/collect', 'POST', { kind: 'stickers', keyword: '', sourceId: pack.id, target: 1 });
+            const job = await api<{ id: string }>('/expressions/collect', 'POST', { channel: selectedChannel, kind: selectedChannel === 'noto' ? 'gifs' : 'stickers', keyword: '', sourceId: pack.id, target: 1 });
             const poll = async (): Promise<void> => {
+              if (view !== epoch || !button.isConnected) return;
               const state = await api<{ jobs: { id: string; status: string; added: number; failed: number; scanned: number; error?: string }[] }>('/expressions/jobs');
               const current = state.jobs.find(item => item.id === job.id);
               if (!current || view !== epoch) return;
-              if (current.status === 'running') { button.textContent = `采集中 ${current.scanned}`; window.setTimeout(() => void poll().catch(error => report(error)), 700); return; }
+              if (current.status === 'running') { button.textContent = `采集中 ${current.scanned}`; window.setTimeout(() => void poll().catch(error => { if (view === epoch) { button.textContent = '状态读取失败'; report(error); } }), 700); return; }
+              if (current.status === 'exists') { button.textContent = '已入库'; return; }
               if (current.status === 'completed') { button.textContent = '已采集，待审核'; report(`已采集「${pack.title}」，请在表情管理中审核`, 'success'); return; }
               button.disabled = false; button.textContent = '重试采集'; report(current.error || '采集失败');
             };
@@ -220,9 +231,9 @@ async function collection() {
         return card;
       }));
       if (!data.packs.length) sourceResults.textContent = '没有找到匹配的贴图包';
-    } catch (error) { sourceResults.replaceChildren(errorState(error, () => void search())); }
+    } catch (error) { if (view === epoch && request === generation) sourceResults.replaceChildren(errorState(error, () => void search())); }
   };
-  content.querySelector<HTMLFormElement>('#source-search')!.addEventListener('submit', event => { event.preventDefault(); void search(); });
+  content.querySelector<HTMLFormElement>('#source-search')!.addEventListener('submit', event => { event.preventDefault(); page = 1; void search(); });
 }
 
 async function expressions() {

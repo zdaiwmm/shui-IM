@@ -7,6 +7,12 @@
 - 本机完整浏览器脚本单独复测通过；`npm run check:full` 在第四个浏览器脚本完成后仅因本机包装器回收子进程触发 `EPERM` 返回失败，不能外推为产品断言失败。弱网策略单元夹具已纳入测试，但尚未完成真实 TURN 多地域/多协议故障注入和上下行限速矩阵。
 - 当前仅证明代码已合并和自动测试通过；未进行真实 iPhone / iOS 27 / Safari 验收，未进行真实 TURN 基础设施验证，未发布生产。下一步应在真实设备和可控 TURN/DNS 网络夹具上验证首通耗时、语音保持、视频逐级降级、网络切换恢复及配置刷新边界。
 
+## 表情采集修复与新增渠道（2026-09-10，本地验证）
+
+- 任务分支 `codex/admin-expression-collection-fix`，基线 `49a6dc933e13d4e301116dc4463ee6ab3cb4f117`。新增独立采集菜单与 Google Noto 动画渠道，修复 Signal 长标题校验、重复采集误报和布局问题。
+- 真实后台点击采集 Signal cat meme 完整 20 张、Noto smile 动画 1 个；原图读取和数据库重启回读通过。证据见 [采集验收](../../audit/2026-09-10-expression-collection.md)。
+- 仅为本地验证，未部署生产，未完成 iPhone 真机验证。
+
 ## 三会话集成批次（2026-09-10，已部署）
 
 - 三个会话的可发布改动已在独立工作树 `/private/tmp/quiet-room-integrate-three-sessions` 合并，PR [#70](https://github.com/zdaiwmm/shui-IM/pull/70) 合并后的精确 main 提交为 `bc5893092fc8051750319bf38b77302e166d0194`；main CI [34379775756](https://github.com/zdaiwmm/shui-IM/actions/runs/34379775756) 全部通过。

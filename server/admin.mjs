@@ -100,8 +100,8 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
         } else if (pathname === '/admin-api/expressions/collect' && request.method === 'POST') {
           json(request, response, 202, expressions.start(await readJson(request)));
         } else if (pathname === '/admin-api/expressions/source' && request.method === 'GET') {
-          json(request, response, 200, await expressions.sourceSearch({ keyword: url.searchParams.get('keyword') ?? '', kind: 'stickers', page: 1 }));
-        } else if (pathname.match(/^\/admin-api\/expressions\/source\/[a-f0-9]{32}\/media$/) && request.method === 'GET') {
+          json(request, response, 200, await expressions.sourceSearch({ keyword: url.searchParams.get('keyword') ?? '', channel: url.searchParams.get('channel') ?? 'signal', kind: url.searchParams.get('channel') === 'noto' ? 'gifs' : 'stickers', page: Number(url.searchParams.get('page') ?? 1) }));
+        } else if (pathname.match(/^\/admin-api\/expressions\/source\/(?:[a-f0-9]{32}|noto-[a-f0-9_]{4,80})\/media$/) && request.method === 'GET') {
           const result = await expressions.sourcePreview(pathname.split('/')[4]);
           headers(request, response); response.writeHead(200, { 'Content-Type': result.type, 'Content-Length': result.bytes.length, 'Cache-Control': 'no-store' }); response.end(result.bytes);
         } else if (match && match[2] === undefined && request.method === 'DELETE' && url.searchParams.has('position')) {
@@ -120,8 +120,10 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
         } else json(request, response, 404, { error: 'NOT_FOUND' });
       } catch (error) {
         const code = error.message;
-        json(request, response, code === 'MEME_NOT_FOUND' ? 404 : code === 'MEME_BUSY' ? 409 : 400,
-          { error: code === 'MEME_NOT_FOUND' ? '资源不存在' : code === 'MEME_BUSY' ? '已有采集任务正在运行' : '资源参数不正确或操作失败' });
+        const upstreamError = ['MEME_UPSTREAM_UNAVAILABLE', 'MEME_DNS_REJECTED', 'MEME_INVALID_CATALOG', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'ABORT_ERR'].includes(code)
+          || ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'ABORT_ERR'].includes(error.code);
+        json(request, response, code === 'MEME_NOT_FOUND' ? 404 : code === 'MEME_BUSY' ? 409 : upstreamError ? 503 : 400,
+          { error: code === 'MEME_NOT_FOUND' ? '资源不存在' : code === 'MEME_BUSY' ? '已有采集任务正在运行' : upstreamError ? '来源连接或目录读取失败，请重新搜索' : '资源参数不正确或操作失败' });
       }
       return true;
     }
