@@ -60,14 +60,14 @@ export function bindChatImageConcealGesture(options: {
       current.moved = true;
       options.moving();
       options.suppressClick();
-      if (current.intent === 'undecided') current.intent = current.target && dy > Math.abs(dx) ? 'pull' : 'native';
+      if (current.intent === 'undecided') current.intent = current.target && dx > Math.abs(dy) ? 'pull' : 'native';
     }
     if (current.source === 'touch' && event.type === 'touchmove' && !event.cancelable) current.intent = 'native';
     if (current.intent !== 'pull') return;
-    // Reserve downward media pulls before native scrolling begins. Upward and
-    // horizontal gestures keep their normal document scrolling behavior.
+    // Reserve rightward media pulls. Vertical scrolling and leftward reply
+    // gestures keep their existing ownership.
     if (event.cancelable) event.preventDefault();
-    current.displaced = 76 * Math.log1p(Math.max(0, dy) / 100);
+    current.displaced = 76 * Math.log1p(Math.max(0, dx) / 100);
     current.target!.classList.add('is-media-pulling');
     current.target!.style.setProperty('--media-pull-offset', `${current.displaced}px`);
   };
@@ -81,13 +81,13 @@ export function bindChatImageConcealGesture(options: {
     const dy = ended.latest.y - ended.origin.y;
     // Only an owned, completed media pull hides previews. Native scrolling and
     // pointer cancellation carry no conceal intent; privacy teardown is separate.
-    if (!cancelled && ended.intent === 'pull' && dy >= 24 && dy > Math.abs(dx)) options.conceal();
+    if (!cancelled && ended.intent === 'pull' && dx >= 24 && dx > Math.abs(dy)) options.conceal();
     clearTarget(ended.target);
     if (cancelled || !options.active() || !ended.target?.isConnected || ended.displaced < 1 || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const target = ended.target;
     target.classList.add('is-media-returning');
     const animation = target.animate(
-      [{ transform: `translate3d(0, ${ended.displaced}px, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
+      [{ transform: `translate3d(${ended.displaced}px, 0, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
       { duration: 240, easing: 'cubic-bezier(.2, .72, .2, 1)' },
     );
     settling = { target, animation };

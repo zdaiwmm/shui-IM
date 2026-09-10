@@ -1281,7 +1281,7 @@ export async function loadMessageEventHistory(
         // Ordinary history is scanned second and is the canonical copy when
         // both stores contain the exact same restored record.
         messagesBySequence.set(message.seq, message);
-        if ((message?.payload?.kind === 'reaction' || message?.payload?.kind === 'message-delete') && isMessagePayload(message.payload)) {
+        if ((message?.payload?.kind === 'reaction' || message?.payload?.kind === 'message-delete' || message?.payload?.kind === 'media-read') && isMessagePayload(message.payload)) {
           eventsBySequence.set(message.seq, message);
         }
       }

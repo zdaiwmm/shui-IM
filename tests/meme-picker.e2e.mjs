@@ -182,6 +182,7 @@ try {
   await page.locator('#meme-panel').waitFor({ state: 'detached' });
   await page.locator('#open-memes').click();
   await page.locator('.meme-pack-shortcuts img').waitFor();
+  assert.equal(await page.locator('.meme-pack-shortcuts img').first().evaluate(image => getComputedStyle(image).borderRadius), '6px');
   await page.locator('.meme-pack-shortcuts button[title="测试合集"]').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);
   assert.equal(await page.locator('button[data-kind="stickers"]').getAttribute('aria-selected'), 'true');
@@ -340,6 +341,8 @@ try {
   await page.waitForFunction(()=>document.querySelector('.message-list .image-preview img')?.naturalWidth>0);
   assert.equal(await page.locator('.message-list .image-preview').first().getAttribute('data-revealed'), 'true');
   assert.equal(await page.locator('.expression-bubble').count(), 1);
+  assert.deepEqual(await chatAnimation.evaluate(image => { const style = getComputedStyle(image); return [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomLeftRadius, style.borderBottomRightRadius]; }), ['12px', '12px', '12px', '12px']);
+  if (out) await page.screenshot({path:path.join(out,'expression-rounded.png')});
   const originalWidth = await chatAnimation.evaluate(image => image.naturalWidth);
   assert.ok(Math.abs((await chatAnimation.boundingBox()).width - originalWidth * 2 / 3) < 1, 'Small expression did not shrink to two thirds');
   await page.evaluate(() => window.fixture.app.concealChatImages());
