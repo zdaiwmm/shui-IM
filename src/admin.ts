@@ -12,6 +12,7 @@ let view = 0;
 let sessionGeneration = 0;
 let sessionTimer: number | undefined;
 let sessionActivity = 0;
+let lastAdminActivity = 0;
 let sessionRenewing = false;
 let lastSessionRenewal = 0;
 const date = (value: string | null) => value ? new Date(value).toLocaleString() : '暂无记录';
@@ -31,7 +32,7 @@ async function api<T>(route: string, method = 'GET', body?: unknown, signal?: Ab
 
 function startSessionRenewal() {
   window.clearInterval(sessionTimer);
-  sessionActivity = 0; sessionRenewing = false; lastSessionRenewal = Date.now();
+  sessionActivity = 0; lastAdminActivity = Date.now(); sessionRenewing = false; lastSessionRenewal = Date.now();
   const generation = sessionGeneration;
   sessionTimer = window.setInterval(() => {
     if (!csrf || generation !== sessionGeneration || sessionRenewing || !sessionActivity
@@ -46,7 +47,7 @@ function startSessionRenewal() {
 }
 for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
   document.addEventListener(type, event => {
-    if (event.isTrusted && csrf && document.visibilityState === 'visible' && document.hasFocus()) sessionActivity = Date.now();
+    if (event.isTrusted && csrf && document.visibilityState === 'visible' && document.hasFocus()) { sessionActivity = Date.now(); lastAdminActivity = sessionActivity; }
   }, { passive: true });
 }
 
@@ -242,7 +243,12 @@ async function collection() {
       }
     } catch (error) { if (view === epoch && request === jobRequest) { renderedJobs = ''; jobsHost.replaceChildren(errorState(error, () => void refreshJobs())); } }
   };
-  const pollJobs = async () => { await refreshJobs(); if (view === epoch) window.setTimeout(() => void pollJobs(), 1500); };
+  const pollJobs = async () => {
+    if (view !== epoch) return;
+    // Status traffic must not keep an unattended administrator session alive.
+    if (document.visibilityState === 'visible' && document.hasFocus() && Date.now() - lastAdminActivity < 5 * 60_000) await refreshJobs();
+    if (view === epoch) window.setTimeout(() => void pollJobs(), 1500);
+  };
   void pollJobs();
   const sourceResults = content.querySelector<HTMLElement>('#source-results')!;
   const search = async () => {
