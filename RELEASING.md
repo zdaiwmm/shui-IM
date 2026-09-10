@@ -191,6 +191,14 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-10（Asia/Shanghai）；服务器批次 `20260910T105954Z`，独立回读于 19:06:39 成功。
+  应用提交 `b8be26c563430a98ffeade5a07ef815f6f87d169`，版本 `2026.09.10.3`；用户确认该完整提交后发布。
+  [PR #84](https://github.com/zdaiwmm/shui-IM/pull/84) 已合并，精确 main [CI 34468072163](https://github.com/zdaiwmm/shui-IM/actions/runs/34468072163) 完整通过（含 632 项测试、浏览器回归、通话专项、依赖审计与凭据扫描）。
+- 本批上线最多三个并行采集任务、持久任务进度与预计耗时、完整校验后自动上架、列表分页优化、Noto 多码点原图与 Signal 封面修复，以及表情搜索的过期返回动画和初始焦点竞态修复。
+- 固定入口取得并核对 `DEPLOY_VERIFIED`，总耗时 414,455ms；镜像构建 302 秒，期间一次只读 SSH 检查超时，随后公网健康和构建恢复，未重试生产切换。冷备份已校验；发布目录 `/opt/quiet-room/git-releases/20260910T105954Z-b8be26c56343`，备份 `/opt/quiet-room/backups/predeploy/data-20260910T105954Z-b8be26c56343.tar.gz`。
+- 独立 `READBACK_OK` 耗时 2,729ms：线上 SHA、镜像、容器和公开产物一致；维护标记不存在；应用健康，备份容器运行中（无健康探针）；HTTPS ok/database/storage 与新建 WebSocket 全部通过。后台开关为 `1`，通话覆盖开关为 `0`，TURN 容器不存在。脱敏证据保存于公共 Git 目录 `quiet-room-release-evidence/b8be26c56343/`。
+- 真实 Chrome 临时数据库验证 Signal 20 张合集、Noto 白旗、刷新后任务恢复和自动上架，Signal 首页 24/24 封面解码；不等于生产管理页面逐项验收。iPhone / iOS Safari 真机未验证。对账文档单独提交与合并，不再次部署。
+
 - 日期：2026-09-10（Asia/Shanghai）；服务器批次 `20260910T093547Z`，独立回读于 17:38:18 成功。
   应用提交 `e30a0cd1e876a4e8c152c34b2d833494b5078e71`，版本 `2026.09.10.2`；用户对该精确提交确认发布。
   [PR #82](https://github.com/zdaiwmm/shui-IM/pull/82) 已合并，精确 main [CI 34460331818](https://github.com/zdaiwmm/shui-IM/actions/runs/34460331818) attempt 1 完整通过。
