@@ -356,6 +356,17 @@ describe('multi-device selection and lifecycle fences', () => {
     expect(sockets[2]!.frames.at(-1)?.envelope?.callId).toBe(next.callId);
   });
 
+  it('replaces an accepted call when the peer is in transport grace and a fresh callId arrives', async () => {
+    const { sockets, transmit } = await arbitrationHarness();
+    await transmit(0, 1, 'invite');
+    await transmit(1, 0, 'accept');
+    sockets[1]!.open = false;
+    const next = { callId: crypto.randomUUID() };
+    await transmit(0, 2, 'invite', next);
+    expect(sockets[2]!.frames.at(-1)?.envelope?.callId).toBe(next.callId);
+    expect(sockets[0]!.frames.some((frame) => frame.state === 'ended')).toBe(true);
+  });
+
   it('expires ringing calls without allowing old invitations to resurrect them', async () => {
     const { sockets, service, transmit } = await arbitrationHarness();
     await transmit(0, 1, 'invite');
