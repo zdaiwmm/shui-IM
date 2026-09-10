@@ -127,11 +127,11 @@ describe('managed expression catalog', () => {
   });
   it('counts newly collected GIFs, deduplicates repeated imports, and never fetches upstream during public reads', async () => {
     const f = await fixture(); f.service.start({ kind: 'gifs', keyword: '', target: 1 });
-    expect(() => f.service.start({ kind: 'gifs', keyword: '', target: 1 })).toThrow('MEME_BUSY');
+
     expect(await finished(f.service)).toMatchObject({ added: 1, target: 1, status: 'completed' });
     f.service.start({ kind: 'gifs', keyword: '', target: 2 });
     expect(await finished(f.service)).toMatchObject({ added: 1, status: 'partial' });
-    const entries = f.service.list({ ...search(), status: 'pending' }).entries;
+    const entries = f.service.list({ ...search(), status: 'published' }).entries;
     expect(entries).toHaveLength(2);
     for (const entry of entries) f.service.update(entry.id, { title: entry.title, tags: entry.tags, status: 'published' });
     const calls = f.fetchResource.mock.calls.length;
@@ -143,7 +143,7 @@ describe('managed expression catalog', () => {
     const f = await fixture();
     f.service.start({ kind: 'stickers', keyword: 'title that is not in the directory', sourceId: id, target: 1 });
     expect(await finished(f.service)).toMatchObject({ added: 1, target: 1, status: 'completed' });
-    expect(f.service.detail(id)).toMatchObject({ kind: 'stickers', status: 'pending' });
+    expect(f.service.detail(id)).toMatchObject({ kind: 'stickers', status: 'published' });
   });
   it('handles long selected titles and duplicates without reporting download failure', async () => {
     const f = await fixture();
@@ -172,6 +172,67 @@ describe('managed expression catalog', () => {
     f.service.start({ kind: 'stickers', keyword: '', target: 1 });
     expect(await finished(f.service)).toMatchObject({ added: 0, failed: 1, status: 'partial' });
     expect(f.service.list({ ...search('stickers'), status: 'all' }).total).toBe(0);
+  });
+  it('queues jobs, deduplicates active selections, reports per-file progress and preserves completion after restart', async () => {
+    const f = await fixture(); const original = f.fetchResource.getMockImplementation()!;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    f.fetchResource.mockImplementation(async url => { if (url.endsWith('/full/1')) await gate; return original(url); });
+    const first = f.service.start({ kind: 'stickers', sourceId: id, target: 1 });
+    await vi.waitFor(() => expect(f.service.jobs()[0]).toMatchObject({ downloadedFiles: 1, totalFiles: 2, status: 'running' }));
+    expect(f.service.start({ kind: 'stickers', sourceId: id, target: 1 }).id).toBe(first.id);
+    const second = f.service.start({ kind: 'gifs', sourceId: id, target: 2 });
+    expect(second.status).toBe('running');
+    const third = f.service.start({ kind: 'gifs', keyword: 'cat', target: 2 });
+    expect(third.status).toBe('running');
+    const fourth = f.service.start({ kind: 'stickers', keyword: 'cat', target: 1 });
+    expect(fourth.status).toBe('queued');
+    expect(f.service.list({ ...search('stickers'), status: 'published' }).total).toBe(0);
+    release();
+    await vi.waitFor(() => expect(f.service.jobs().every(job => !['running', 'queued'].includes(job.status))).toBe(true));
+    expect(f.service.detail(id).status).toBe('published');
+    const completed = f.service.jobs().find(job => job.id === first.id);
+    expect(completed).toMatchObject({ downloadedFiles: 2, totalFiles: 2, downloadedBytes: gif.length * 2 });
+    await f.restart();
+    expect(f.service.jobs().find(job => job.id === first.id)).toEqual(completed);
+    expect((await f.service.search('reader', search('stickers'))).packs).toHaveLength(1);
+  });
+  it('deduplicates and caches validated source previews and uses stored covers after collection', async () => {
+    const f = await fixture();
+    await Promise.all(Array.from({ length: 8 }, () => f.service.sourcePreview(id)));
+    const calls = f.fetchResource.mock.calls.length;
+    expect((await f.service.sourcePreview(id)).bytes).toEqual(gif);
+    expect(f.fetchResource).toHaveBeenCalledTimes(calls);
+    f.service.start({ kind: 'stickers', sourceId: id, target: 1 }); await finished(f.service);
+    await f.restart(); f.fetchResource.mockClear();
+    expect((await f.service.sourcePreview(id)).bytes).toEqual(gif);
+    expect(f.fetchResource).not.toHaveBeenCalled();
+  });
+  it('bounds concurrent source previews and retries failures without caching invalid originals', async () => {
+    const f = await fixture(); const original = f.fetchResource.getMockImplementation()!;
+    const ids = Array.from({ length: 28 }, (_, i) => (i + 1).toString(16).padStart(32, '0'));
+    let release!: () => void; let active = 0; let peak = 0;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    f.fetchResource.mockImplementation(async url => {
+      if (url.endsWith('/packs/')) return Buffer.from(JSON.stringify(ids.map(id => ({ meta: { id, key }, manifest: { title: id } }))));
+      if (url.includes('/full/')) { active++; peak = Math.max(peak, active); await gate; active--; }
+      return original(url);
+    });
+    const pending = ids.slice(0, 27).map(id => f.service.sourcePreview(id));
+    await expect(f.service.sourcePreview(ids[27])).rejects.toThrow('MEME_BUSY');
+    await vi.waitFor(() => expect(active).toBe(3)); release();
+    await Promise.all(pending); expect(peak).toBe(3);
+    f.fetchResource.mockImplementation(async url => url.includes('/full/') ? seal(Buffer.from('<html/>')) : original(url));
+    await expect(f.service.sourcePreview(ids[27])).rejects.toThrow('MEME_INVALID_IMAGE');
+    f.fetchResource.mockImplementation(original);
+    expect((await f.service.sourcePreview(ids[27])).bytes).toEqual(gif);
+  });
+  it('keeps explicitly unpublished resources unpublished when collection is repeated', async () => {
+    const f = await fixture(); f.service.start({ kind: 'stickers', sourceId: id, target: 1 }); await finished(f.service);
+    f.service.updateStatus({ ids: [id], status: 'pending' });
+    f.service.start({ kind: 'stickers', sourceId: id, target: 1 });
+    expect(await finished(f.service)).toMatchObject({ status: 'exists', added: 0 });
+    expect(f.service.detail(id).status).toBe('pending');
   });
   it('validates upload, publication, pagination and acquisition limits before mutation', async () => {
     const { service } = await fixture();

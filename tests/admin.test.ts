@@ -5,6 +5,7 @@ import path from 'node:path';
 import { request as httpRequest } from 'node:http';
 import { startServer } from '../server/index.mjs';
 import { makeAdminConfig, totp, verifyAdmin } from '../server/admin-auth.mjs';
+import { createExpressionCatalog } from '../server/expression-catalog.mjs';
 import { generateIdentity } from '../src/lib/crypto';
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -100,6 +101,15 @@ describe('isolated session administration', () => {
     expect((await send('/admin-api/expressions')).status).toBe(401);
     expect((await send('/admin-api/expressions', 'POST', upload, { Cookie: cookie })).status).toBe(403);
     expect((await send('/admin-api/expressions', 'POST', upload, { ...headers, Origin: 'https://ai.shui.click' })).status).toBe(403);
+    const seed = createExpressionCatalog({ dataDir: dir });
+    const notoId = 'noto-1f3f3_fe0f';
+    seed.initializeShipped(() => [{ entry: { id: notoId, kind: 'gifs', title: 'white flag', tags: '', author: 'Google Noto', source: 'fixture' }, files: [{ title: 'white flag', bytes: Buffer.from(upload.files[0].data, 'base64') }] }], 'test-noto');
+    await seed.close();
+    expect((await send(`/admin-api/expressions/${notoId}/media/0`)).status).toBe(401);
+    expect((await send(`/admin-api/expressions/${notoId}/media/0`, 'GET', undefined, headers)).headers.get('content-type')).toBe('image/gif');
+    expect((await send(`/admin-api/expressions/${notoId}`, 'GET', undefined, headers)).status).toBe(200);
+    expect((await send('/admin-api/expressions/status', 'PATCH', { ids: [notoId], status: 'pending' }, headers)).status).toBe(200);
+    expect((await send(`/admin-api/expressions/${notoId}`, 'DELETE', undefined, headers)).status).toBe(200);
     const created = await send('/admin-api/expressions', 'POST', upload, headers);
     expect(created.status).toBe(201); const expression = await created.json();
     expect(expression.status).toBe('pending');

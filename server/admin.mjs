@@ -89,7 +89,7 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
     const url = new URL(request.url, adminOrigin);
     if (expressions && pathname.startsWith('/admin-api/expressions')) {
       try {
-        const match = pathname.match(/^\/admin-api\/expressions\/([a-zA-Z0-9-]+)(?:\/media\/(\d{1,3}))?$/);
+        const match = pathname.match(/^\/admin-api\/expressions\/([a-zA-Z0-9_-]{1,128})(?:\/media\/(\d{1,3}))?$/);
         if (pathname === '/admin-api/expressions' && request.method === 'GET') {
           json(request, response, 200, expressions.list({ kind: url.searchParams.get('kind') ?? 'gifs', keyword: url.searchParams.get('keyword') ?? '',
             status: url.searchParams.get('status') ?? 'all', page: Number(url.searchParams.get('page') ?? 1) }));
@@ -123,7 +123,7 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
         const upstreamError = ['MEME_UPSTREAM_UNAVAILABLE', 'MEME_DNS_REJECTED', 'MEME_INVALID_CATALOG', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'ABORT_ERR'].includes(code)
           || ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'ABORT_ERR'].includes(error.code);
         json(request, response, code === 'MEME_NOT_FOUND' ? 404 : code === 'MEME_BUSY' ? 409 : upstreamError ? 503 : 400,
-          { error: code === 'MEME_NOT_FOUND' ? '资源不存在' : code === 'MEME_BUSY' ? '已有采集任务正在运行' : upstreamError ? '来源连接或目录读取失败，请重新搜索' : '资源参数不正确或操作失败' });
+          { error: code === 'MEME_NOT_FOUND' ? '资源不存在' : code === 'MEME_BUSY' ? '任务队列或预览繁忙，请稍后重试' : upstreamError ? '来源连接或目录读取失败，请重新搜索' : '资源参数不正确或操作失败' });
       }
       return true;
     }

@@ -219,3 +219,11 @@ summary { cursor: pointer; min-height: 44px; padding-block: 10px; }
   #status:not(:empty) { bottom: 16px; right: 16px; max-width: calc(100% - 32px); }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+
+.collection-tasks { margin-bottom: 28px; }
+.collection-task { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; padding: 16px 0; border-bottom: 1px solid var(--border); }
+.collection-task strong { overflow-wrap: anywhere; }
+.collection-task progress, .collection-task p { grid-column: 1 / -1; width: 100%; margin: 0; }
+.collection-task progress { height: 8px; accent-color: var(--accent); }
+.collection-task button { justify-self: start; }
+.preview-retry { font-size: 12px; }

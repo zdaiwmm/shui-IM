@@ -194,7 +194,7 @@ Do not resemble a neon cyber-security dashboard, hacker terminal, crypto trading
 ## Managed Expression Catalog
 
 - GIFs and sticker collections are separate administrator-managed public libraries. Default browsing and search return only published server entries. Browsing, searching and downloading never initiate upstream acquisition.
-- Administrators can upload, preview, edit titles and tags, publish, unpublish and delete resources. Explicit online acquisition accepts a keyword, an optional known source collection ID and a target count; newly downloaded entries remain pending until reviewed and published.
+- Administrators can upload, preview, edit titles and tags, publish, unpublish and delete resources. Explicit online acquisition accepts a keyword, an optional known source collection ID and a target count; newly downloaded entries are automatically published after complete validation. Acquisition runs in a bounded server-side queue with up to three simultaneous acquisition tasks; the administrator can see download progress and estimated remaining time after navigating away or refreshing. Failed or interrupted selected resources can be retried explicitly.
 - Existing encrypted local favorites and downloaded collections remain independent copies. Public unpublishing prevents subsequent server reads, but does not erase delivered messages or already obtained local copies. A new catalog starts empty and requires administrator publication.
 - See [MEMES.md](./MEMES.md) for acquisition limits, source restrictions, caching, backup and publication semantics.
 
