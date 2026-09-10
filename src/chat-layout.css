@@ -373,7 +373,7 @@ html:has(.chat-shell[inert]) { overflow: hidden; }
      the text when a capped multiline editor reveals its caret. */
   border-block: 10px solid transparent;
 }
-.composer .composer-placeholder { position: absolute; inset: 0 48px 0 15px; display: none; align-items: center; pointer-events: none; color: var(--ink-faint); font-size: 13px; line-height: 1.4; }
+.composer .composer-placeholder { position: absolute; inset: 0 48px 0 15px; display: none; align-items: center; pointer-events: none; color: var(--composer-placeholder-ink); font-size: 13px; line-height: 1.4; }
 .composer textarea:placeholder-shown + .composer-placeholder { display: flex; }
 .composer textarea::placeholder { color: transparent; }
 /* The home-indicator safe area is already inside the docked keyboard. */
@@ -390,4 +390,10 @@ html[data-keyboard-open='true'] .composer {
   .chat-header { padding-inline: 8px; }
   .presence-heading { gap: 8px; }
   .presence-heading .presence-row { font-size: 0.75rem; }
+}
+
+/* Distinguish the empty-input instruction from actual message text. */
+.composer { --composer-placeholder-ink: oklch(58% 0.006 255); }
+@media (prefers-color-scheme: dark) {
+  .composer { --composer-placeholder-ink: oklch(64% 0.006 255); }
 }

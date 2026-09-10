@@ -102,6 +102,12 @@ describe('HTTP and WebSocket integration', () => {
     const joinerToken = randomBase64Url(32);
     const pairingSecret = randomBase64Url(32);
     const [creatorIdentity, joinerIdentity] = await Promise.all([generateIdentity(), generateIdentity()]);
+    const capabilities = ['message-read-v1', ...Array.from({ length: 12 }, (_, index) => `cap-${index}`)];
+    await expect(request(`${baseUrl}/api/rooms`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ creatorBundle: creatorIdentity.publicBundle, accessToken: creatorToken, inviteToken,
+        capabilities: Array.from({ length: 17 }, (_, index) => `cap-${index}`) }),
+    })).rejects.toThrow('INVALID_ROOM_REQUEST');
     const room = await request(`${baseUrl}/api/rooms`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -110,6 +116,7 @@ describe('HTTP and WebSocket integration', () => {
         accessToken: creatorToken,
         inviteToken,
         deviceName: 'Creator test device',
+        capabilities,
       }),
     });
     const proof = await createJoinProof(pairingSecret, joinerIdentity.publicBundle);

@@ -318,7 +318,14 @@ export type MediaReadPayload = {
   target: MessageTarget;
 };
 
-export type MessagePayload = TextPayload | ImagePayload | GalleryImagePayload | ImageAlbumPayload | AudioPayload | FilePayload | GalleryFilePayload | ReactionPayload | MessageDeletePayload | MediaReadPayload;
+export type MessageReadPayload = {
+  v: 1;
+  kind: 'message-read';
+  sentAt: string;
+  target: MessageTarget;
+};
+
+export type MessagePayload = TextPayload | ImagePayload | GalleryImagePayload | ImageAlbumPayload | AudioPayload | FilePayload | GalleryFilePayload | ReactionPayload | MessageDeletePayload | MediaReadPayload | MessageReadPayload;
 
 export type RecipientWrap = {
   deviceId: string;

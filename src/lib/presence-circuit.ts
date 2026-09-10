@@ -1,4 +1,5 @@
 type Presence = boolean | null;
+type Side = 'left' | 'right';
 type Point = readonly [number, number];
 
 const leftWire: Point[] = [[0, 12], [15, 12], [23, 7], [31, 17], [39, 12], [40, 12]];
@@ -36,13 +37,16 @@ export class PresenceCircuit {
   private frame: number | null = null;
   private mode: 'connect' | 'send' | null = null;
   private started = 0;
-  private queued = 0;
+  private queued: Side[] = [];
+  private side: Side = 'left';
+  private readonly heart: SVGElement;
   private readonly motion = window.matchMedia('(prefers-reduced-motion: reduce)');
   private readonly left: SVGElement;
   private readonly right: SVGElement;
   private readonly arcs: SVGElement[];
 
   constructor(private readonly element: SVGElement) {
+    this.heart = element.querySelector('.presence-heart')!;
     this.left = element.querySelector('[data-half="left"]')!;
     this.right = element.querySelector('[data-half="right"]')!;
     this.arcs = Array.from(element.querySelectorAll('[data-arc]'));
@@ -61,9 +65,20 @@ export class PresenceCircuit {
   }
 
   sent(): void {
-    if (this.self === null || this.peer === null || (this.self && this.peer) || this.motion.matches || document.hidden) return;
-    // Bound visual work during bursts; retries never call this entry point.
-    if (this.mode === 'send') { this.queued = Math.min(2, this.queued + 1); return; }
+    if (this.self !== true || this.peer === null) return;
+    this.message('left');
+  }
+
+  received(ownRole = false): void {
+    if (this.self !== true || this.peer !== true) return;
+    this.message(ownRole ? 'left' : 'right');
+  }
+
+  private message(side: Side): void {
+    if (this.motion.matches || document.hidden) return;
+    // Keep the fusion intact and bound visual work during bursts.
+    if (this.mode) { if (this.queued.length < 2) this.queued.push(side); return; }
+    this.side = side;
     this.start('send');
   }
 
@@ -78,7 +93,8 @@ export class PresenceCircuit {
     if (this.frame !== null) cancelAnimationFrame(this.frame);
     this.frame = null;
     this.mode = null;
-    this.queued = 0;
+    this.queued = [];
+    this.heart.removeAttribute('transform');
     this.arcs.forEach(arc => arc.removeAttribute('d'));
     this.left.setAttribute('transform', 'translate(-2 0)');
     this.right.setAttribute('transform', 'translate(2 0)');
@@ -114,14 +130,21 @@ export class PresenceCircuit {
     if (!this.element.isConnected || document.hidden) { this.reset(); return; }
     const elapsed = now - this.started;
     if (elapsed < 1000) {
-      this.arcs[0]!.setAttribute('d', this.arc(leftWire, elapsed / 1000, elapsed));
-      if (this.mode === 'connect') this.arcs[1]!.setAttribute('d', this.arc(rightWire, elapsed / 1000, elapsed));
+      if (this.mode === 'connect' || this.side === 'left') this.arcs[0]!.setAttribute('d', this.arc(leftWire, elapsed / 1000, elapsed));
+      if (this.mode === 'connect' || this.side === 'right') this.arcs[1]!.setAttribute('d', this.arc(rightWire, elapsed / 1000, elapsed));
     } else if (this.mode === 'send' && elapsed < 1550) {
       this.arcs.forEach(arc => arc.removeAttribute('d'));
-      this.element.dataset.phase = 'pulsing';
+      const online = this.self === true && this.peer === true;
+      this.element.dataset.phase = online ? 'online-pulsing' : 'pulsing';
       const t = (elapsed - 1000) / 550;
       const shake = Math.sin(t * Math.PI * 8) * (1 - t) * .85;
-      this.left.setAttribute('transform', `translate(${-2 + shake} ${shake * .6}) rotate(${shake * 7})`);
+      if (online) {
+        const impact = Math.sin(t * Math.PI * 8) * (1 - t);
+        const scale = 1 + .22 * Math.sin(Math.PI * Math.min(1, t * 3)) + .09 * Math.sin(Math.PI * Math.max(0, (t - .4) / .6));
+        this.heart.setAttribute('transform', `translate(${impact * 1.25} ${-Math.abs(impact) * .65}) rotate(${impact * 9}) scale(${scale})`);
+      } else {
+        this.left.setAttribute('transform', `translate(${-2 + shake} ${shake * .6}) rotate(${shake * 7})`);
+      }
     } else if (this.mode === 'connect' && elapsed < 4200) {
       this.arcs.forEach(arc => arc.removeAttribute('d'));
       this.element.dataset.phase = 'fusing';
@@ -131,7 +154,7 @@ export class PresenceCircuit {
       if (t < 1.8) {
         const p = t / 1.8;
         gap = 2 - .5 * p * p;
-        shake = (.12 + .55 * p) * Math.sin(t * (24 + 8 * p));
+        shake = (.18 + .85 * p) * Math.sin(t * (24 + 8 * p));
         tilt = 7 * p + 3 * p * Math.sin(t * 27);
       } else if (t < 2.12) {
         const p = (t - 1.8) / .32;
@@ -141,18 +164,18 @@ export class PresenceCircuit {
       } else {
         const hit = t - 2.12;
         gap = 1.75 * Math.exp(-hit * 3.4) * Math.abs(Math.sin(hit * 12));
-        shake = .48 * Math.exp(-hit * 3) * Math.sin(hit * 35);
-        tilt = -10 * Math.exp(-hit * 3.5) * Math.sin(hit * 12);
-        squeeze = 1 - .17 * Math.exp(-hit * 4) * Math.cos(hit * 14);
+        shake = .85 * Math.exp(-hit * 3) * Math.sin(hit * 35);
+        tilt = -15 * Math.exp(-hit * 3.5) * Math.sin(hit * 12);
+        squeeze = 1 - .25 * Math.exp(-hit * 4) * Math.cos(hit * 14);
       }
       for (const [part, side] of [[this.left, -1], [this.right, 1]] as const) {
         part.setAttribute('transform', `translate(${side * Math.max(0, gap + shake)} ${side * shake * .9}) rotate(${side * tilt}) scale(${squeeze} ${2 - squeeze})`);
       }
     } else {
       const queued = this.queued;
-      const send = this.mode === 'send';
       this.reset();
-      if (send && queued > 0) { this.start('send'); this.queued = queued - 1; }
+      const next = queued.shift();
+      if (next) { this.side = next; this.start('send'); this.queued = queued; }
       return;
     }
     this.frame = requestAnimationFrame(this.tick);
