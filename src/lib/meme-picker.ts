@@ -300,7 +300,14 @@ export class MemePicker {
     }
     if (animate && !preserve && !this.closing) {
       this.panel.style.top = 'auto';
-      this.animateSheet(this.panel.getBoundingClientRect().height, this.halfHeight, 'height', () => this.back(false, false));
+      const overlay = this.overlay; const generation = this.generation;
+      this.animateSheet(this.panel.getBoundingClientRect().height, this.halfHeight, 'height', () => {
+        if (this.overlay !== overlay) return;
+        // A newer search/detail operation owns the panel now. An old return
+        // must not close it or abort its pending collection installation.
+        if (this.generation !== generation) { this.panel.style.removeProperty('top'); return; }
+        this.back(false, false);
+      });
       return;
     }
     this.sheetAnimation?.cancel(); this.sheetAnimation = undefined;

@@ -154,6 +154,18 @@ try {
   assert.ok(Math.abs((await page.locator('.meme-tile').first().boundingBox()).width-tileBounds.width)<1, 'GIF search changed tile size');
   assert.equal(await page.locator('.meme-more').isVisible(), false);
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===12);
+  // Force the previously intermittent ordering: a new search starts while a
+  // return animation is pending, then that old animation finishes.
+  await page.evaluate(async () => {
+    document.querySelector('.meme-back').click();
+    const animation = document.querySelector('#meme-panel').getAnimations()[0];
+    if (!animation) throw new Error('Expected pending return animation');
+    animation.pause();
+    document.querySelector('#meme-query').form.requestSubmit();
+    const ended = new Promise(resolve => animation.addEventListener('finish', resolve, { once: true }));
+    animation.finish(); await ended;
+  });
+  assert.equal(await page.locator('.meme-search-dialog').count(), 1, 'A stale return animation must not close a newer search');
   await page.locator('#meme-query').fill('失败'); await page.locator('#meme-query').press('Enter');
   await page.getByText('网络梗图暂时不可用，请稍后重试').waitFor();
   await page.locator('.meme-back').click();
