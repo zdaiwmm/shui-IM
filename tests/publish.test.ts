@@ -21,14 +21,23 @@ describe('isolated non-GUI publishing', () => {
     expect(() => selectRun({ workflow_runs: [good, { ...good, id: 43, conclusion: 'cancelled' }] }, sha)).toThrow();
     expect(selectRun({ workflow_runs: [{ ...good, status: 'in_progress', conclusion: null }] }, sha).id).toBe(42);
   });
-  it('stops before cloning or deploying if main advanced', () => {
+  it('stops before cloning or deploying for an invalid main identity', () => {
     const calls: string[] = [];
     expect(() => publish(['--sha', sha], (program: string) => {
       calls.push(program);
-      return program === 'gh' ? 'b'.repeat(40) : '';
-    })).toThrow('not the current GitHub main');
+      return program === 'gh' ? 'invalid' : '';
+    })).toThrow('Invalid GitHub main identity');
     expect(calls).toHaveLength(2);
     expect(calls).not.toContain('git');
+  });
+  it.each(['behind', 'diverged', 'unknown'])('rejects a batch outside main (%s)', status => {
+    const calls: string[][] = [];
+    expect(() => publish(['--sha', sha], (_program: string, args: string[]) => {
+      calls.push(args);
+      if (args.includes('--jq')) return 'b'.repeat(40);
+      return JSON.stringify({ status, merge_base_commit: { sha } });
+    })).toThrow('not an ancestor');
+    expect(calls.some(args => args[0] === 'clone')).toBe(false);
   });
   it('does not clone or deploy when preflight fails', () => {
     let calls = 0;
@@ -42,7 +51,8 @@ describe('isolated non-GUI publishing', () => {
     try {
       const operation = () => publish(['--sha', sha], (program: string, args: string[], options: Record<string, any> = {}) => {
         calls.push({ program, args, options });
-        if (args.includes('--jq')) return sha;
+        if (args.includes('--jq')) return 'b'.repeat(40);
+        if (args[1]?.includes('/compare/')) return JSON.stringify({ status: 'ahead', merge_base_commit: { sha } });
         if (args[0] === 'api' && args[1].includes('runs?')) return JSON.stringify([{ workflow_runs: [{ ...good, status: ++ciReads === 1 ? 'in_progress' : 'completed' }] }]);
         if (args[0] === 'api' && args[1].includes('/jobs?')) return JSON.stringify([jobs]);
         if (args[0] === 'clone') { directory = args.at(-1)!; mkdirSync(path.join(directory, '.git')); }
@@ -59,12 +69,14 @@ describe('isolated non-GUI publishing', () => {
       expect(watch).toBeLessThan(clone);
       expect(calls[watch].args).toContain('--exit-status');
       expect(calls[watch].args.slice(-2)).toEqual(['--interval', '5']);
-      expect(calls[clone].args.slice(0, 5)).toEqual(['clone', '--depth', '1', '--single-branch', '--branch']);
+      expect(calls[clone].args.slice(0, 4)).toEqual(['clone', '--filter=blob:none', '--single-branch', '--branch']);
       expect(calls[clone].args.at(-2)).toBe('https://github.com/zdaiwmm/shui-IM.git');
       expect(calls[clone].options.env.GIT_CONFIG_VALUE_0).toBe('!gh auth git-credential');
       const deploy = calls.at(-1)!;
       expect(deploy.args.slice(-2)).toEqual(['--sha', sha]);
       expect(deploy.options.cwd).toBe(directory);
+      expect(calls.some(call => call.args.join(' ') === `checkout -B main ${sha}` && call.options.cwd === directory)).toBe(true);
+      expect(calls.some(call => call.args.join(' ') === `merge-base --is-ancestor ${sha} origin/main`)).toBe(true);
       expect(directory).toContain('quiet-room-publish-');
       expect(directory).toBe(realpathSync(directory));
       expect(calls.filter(call => call.args.includes('reset') || call.args.includes('stash'))).toEqual([]);
@@ -76,7 +88,8 @@ describe('isolated non-GUI publishing', () => {
     const calls: string[][] = [];
     expect(() => publish(['--sha', sha], (_program: string, args: string[]) => {
       calls.push(args);
-      if (args.includes('--jq')) return sha;
+      if (args.includes('--jq')) return 'b'.repeat(40);
+        if (args[1]?.includes('/compare/')) return JSON.stringify({ status: 'ahead', merge_base_commit: { sha } });
       if (args[1]?.includes('runs?')) return JSON.stringify([{ workflow_runs: [good] }]);
       if (args[1]?.includes('/jobs?')) return JSON.stringify([{ jobs: [{ ...jobs.jobs[0], conclusion: 'skipped' }] }]);
       return '';

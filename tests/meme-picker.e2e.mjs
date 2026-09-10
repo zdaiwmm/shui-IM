@@ -24,6 +24,11 @@ try {
   await server.listen();
   browser = process.env.MEME_WEBKIT === '1' ? await webkit.launch() : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  if (process.env.MEME_CPU_RATE) {
+    const rate = Number(process.env.MEME_CPU_RATE);
+    if (!Number.isFinite(rate) || rate < 1 || rate > 8) throw new Error('Invalid MEME_CPU_RATE');
+    await (await page.context().newCDPSession(page)).send('Emulation.setCPUThrottlingRate', { rate });
+  }
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__memes`);
   await page.evaluate(async (animation) => {
@@ -32,6 +37,12 @@ try {
     // Bounded synthetic-fixture diagnostics make intermittent CI navigation races actionable.
     const { MemePicker } = await import('/src/lib/meme-picker.ts');
     const events = []; window.memeTestEvents = events;
+    for (const name of ['pointerdown', 'pointerup', 'click']) document.addEventListener(name, event => {
+      if (event.target instanceof Element && event.target.closest('.meme-panel')) {
+        events.push({ action: name, target: event.target.tagName, className: event.target.getAttribute('class') });
+        if (events.length > 48) events.shift();
+      }
+    }, true);
     for (const key of ['local', 'clear', 'back', 'submit', 'showPack', 'togglePack', 'install', 'dispose']) {
       const original = MemePicker.prototype[key];
       MemePicker.prototype[key] = function (...args) {
