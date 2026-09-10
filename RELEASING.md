@@ -191,6 +191,16 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-10（Asia/Shanghai）；服务器批次 `20260910T113538Z`，独立回读于 19:38:11 成功。
+  应用提交 `e3e4eed9e2a6a4a5516d184c55f76b2d801b9e6f`，版本 `2026.09.10.4`。用户明确要求聊天反馈与后台上传修复一起集成、合并、直接发布，并明确本次不再重复确认；本任务固定该精确目标后执行。
+  [集成 PR #89](https://github.com/zdaiwmm/shui-IM/pull/89) 已合并，源提交为聊天 `299e7418d0c8ee768d8905b68c71ad6d2d4f8840`（PR #87）与后台上传 `8c557225918694ed8d0567e555766c91b962b65b`。
+- 候选 `89f5a608cb7155aa8256b6d93fd86e555ccc4bb9` 完整组合验证通过：78 文件／635 项单元测试、31/31 浏览器入口（398.95 秒）；[PR CI 34471148826](https://github.com/zdaiwmm/shui-IM/actions/runs/34471148826) 与精确 main [CI 34471738691](https://github.com/zdaiwmm/shui-IM/actions/runs/34471738691) 全部通过，合并文件树与候选一致。
+- 本批上线爱心合拢、在线收发电流和空闲心跳增强、浅灰输入占位、500ms 长按录音防误触，以及加密已读双勾。文字／语音／文件须在前台可见，图片／视频还须校验、加载并显露；语音已读不表示已听完。后台整包上限对齐 50 MiB，异常 HTTP 响应显示可理解错误。
+- 固定入口核对 `DEPLOY_VERIFIED`，总耗时 321,404ms（含等待 main CI）；冷备份已校验。发布目录 `/opt/quiet-room/git-releases/20260910T113538Z-e3e4eed9e2a6`，冷备份 `/opt/quiet-room/backups/predeploy/data-20260910T113538Z-e3e4eed9e2a6.tar.gz`。
+- 后台 Nginx 独立安装了该提交的配置：实际 `/etc/nginx/conf.d/admin-mijiu.conf` 精确上传路由从 12m 改为 70m，其他路由仍为 64k。安装前旧摘要校验、同部署锁、备份、安装后 `nginx -t`、reload、active 与加载配置回读均通过。新文件 SHA-256 `fdfbaeaf3880ce6cace2614b99064968d6cda7e81112c27b987bfc25c3fc6290`，旧配置备份 `/opt/quiet-room/deploy-state/nginx-backups/admin-mijiu-20260910T113750Z-e3e4eed9e2a6.conf`；未更换部署 helper。
+- 在应用与 Nginx 更新后，独立 `READBACK_OK` 耗时 2,737ms：线上 SHA、镜像、容器及公开产物一致；维护标记不存在，应用健康，备份容器运行中（无健康探针）；HTTPS ok/database/storage 和新建 WebSocket 均通过。后台开关 `1`，通话覆盖 `0`，TURN 容器不存在。脱敏证据保存于公共 Git 目录 `quiet-room-release-evidence/e3e4eed9e2a6/`。
+- iPhone / iOS 27 / Safari 真机仍未验证；未使用管理员凭据在生产导入测试包。配置生效与自动合成上传验收不等于生产管理页面逐项验收。对账文档单独提交，不再次部署。
+
 - 日期：2026-09-10（Asia/Shanghai）；服务器批次 `20260910T105954Z`，独立回读于 19:06:39 成功。
   应用提交 `b8be26c563430a98ffeade5a07ef815f6f87d169`，版本 `2026.09.10.3`；用户确认该完整提交后发布。
   [PR #84](https://github.com/zdaiwmm/shui-IM/pull/84) 已合并，精确 main [CI 34468072163](https://github.com/zdaiwmm/shui-IM/actions/runs/34468072163) 完整通过（含 632 项测试、浏览器回归、通话专项、依赖审计与凭据扫描）。
