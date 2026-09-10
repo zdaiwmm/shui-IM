@@ -1,18 +1,25 @@
 # Quiet Room 当前状态
 
-## 弱网通话连接策略（2026-09-10，已合并未发布）
+## 当前生产快照（2026-09-10 17:38，独立回读通过）
+
+- 版本 `2026.09.10.2`，线上应用 SHA `e30a0cd1e876a4e8c152c34b2d833494b5078e71`；[发布记录](../../RELEASING.md#本次线上发布记录)包含精确发布、完整 main CI、冷备份与独立回读证据。
+- 已上线媒体已读隐藏、右拖隐藏与圆角，弱网通话和语音消息重试代码，以及后台表情管理与 Signal / Noto 采集改进。最终组合本地 620 项单元测试与 30/30 浏览器入口通过；PR #82 与精确 main CI 均通过。
+- 应用健康，备份容器运行中（无健康探针），维护标记不存在；公开 HTTPS、资源与容器摘要一致、新建 WebSocket 通过。生产 TURN 未配置，通话覆盖开关为 `0`；真实 iPhone / iOS Safari、真实 TURN 和 Wi-Fi/蜂窝切换仍未验证。
+- 本页以下带日期的发布条目为历史证据。此次对账的文档提交可晚于线上应用 SHA，不触发再次部署。用户共享目录未提交内容未纳入。
+
+## 弱网通话连接策略（2026-09-10，代码已发布）
 
 - [PR #77](https://github.com/zdaiwmm/shui-IM/pull/77) 已合并，代码候选 `c3e14d68a57408391d0f1fc13cbb288ffe0d152d`，main 合并提交 `63a329078d9541699d48b93835094a1342c09506`；任务分支已推送并回查。十阶段时钟、ICE 恢复阶梯、TURN 配置校验与刷新、信令 ACK/同 ID 重传、语音优先和幂等语音重试见 [CALLS.md](../../CALLS.md#弱网连接策略与诊断2026-09-10)。
 - 最终候选 `npm ci`、构建、`npm test` 75 文件 / 611 项、`check:full` 30/30 浏览器入口、`test:calls` 123 项及调用的 `test:calls:e2e`、独立 `test:weak-network` 61 项和 20 场景均通过。完整命令、逐场景接通数据和证据边界见 [验收报告](../../audit/2026-09-10-call-weak-network.md)；取代 PR #74/#75 阶段的不足证据，不将分组复测写为完整验收。
 - [候选 PR CI 34454175838](https://github.com/zdaiwmm/shui-IM/actions/runs/34454175838) 全部通过；[合并提交 CI 34455244502](https://github.com/zdaiwmm/shui-IM/actions/runs/34455244502) 首次在既有表情测试发生 DOM 脱离超时，CI 同版 Chromium 本地定向通过后，仅重跑失败作业，attempt 2 全部通过。
 - 实体 iPhone 仅取得 USB 发现（iPhone16,1 / iOS 27.0），显示服务连接失败，Safari 通话未验证。CDP 网络整形和控制器模拟不能证明实际多地域 TURN UDP/TCP/TLS、Wi-Fi/蜂窝切换、长通话或音频可懂度；这些缺口与后续步骤已单列。
-- 本批未修改或执行生产部署；未发布的任务工作树保留。用户目录 `/Users/zhouding/ss` 的其他未提交改动未纳入，当前文档对账不改变线上应用 SHA。
+- 本批代码已随上方 `2026.09.10.2` 发布；生产中继基础设施与真机验收缺口保持单列。当前活动工作树保留，其他任务现场未改动。
 
-## 表情采集修复与新增渠道（2026-09-10，已合并未发布）
+## 表情采集修复与新增渠道（2026-09-10，已发布）
 
 - 任务分支 `codex/admin-expression-collection-fix`，基线 `49a6dc933e13d4e301116dc4463ee6ab3cb4f117`。新增独立采集菜单与 Google Noto 动画渠道，修复 Signal 长标题校验、重复采集误报和布局问题。
 - 真实后台点击采集 Signal cat meme 完整 20 张、Noto smile 动画 1 个；原图读取和数据库重启回读通过。证据见 [采集验收](../../audit/2026-09-10-expression-collection.md)。
-- [PR #76](https://github.com/zdaiwmm/shui-IM/pull/76) 已合并，main 提交 `cd7db9000d72e9f3505e3367595e2b64583273c0`；候选 `d23c7cbbcc1c8c0a4d1645ae009ca5d80f4d9c2b` 的 [CI 34453330816](https://github.com/zdaiwmm/shui-IM/actions/runs/34453330816) 全部通过。未部署生产，未完成 iPhone 真机验证。
+- [PR #76](https://github.com/zdaiwmm/shui-IM/pull/76) 已合并，main 提交 `cd7db9000d72e9f3505e3367595e2b64583273c0`；候选 `d23c7cbbcc1c8c0a4d1645ae009ca5d80f4d9c2b` 的 [CI 34453330816](https://github.com/zdaiwmm/shui-IM/actions/runs/34453330816) 全部通过。已随 `2026.09.10.2` 发布；未完成 iPhone 真机验证。
 
 ## 三会话集成批次（2026-09-10，已部署）
 
