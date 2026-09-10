@@ -176,9 +176,11 @@ export function createCallService({ store, clientsByRoom, socketSessions, send, 
       // frame arrives. A fresh call from the same authenticated device is an
       // explicit replacement of that detached stale attempt; a matching
       // callId still follows the normal reconnect path below.
-      const detachedPeer = call?.acceptedBy ? (call.detachedUntil.get(call.acceptedBy) ?? 0) : 0;
-      if (call && call.callId !== callId && call.callerId === session.deviceId &&
-          ((!socketActive(call.callerSocket, call.roomId, call.callerId) && (call.detachedUntil.get(session.deviceId) ?? 0) > Date.now()) || detachedPeer > Date.now())) {
+      const callerDetached = call ? (call.detachedUntil.get(call.callerId) ?? 0) > Date.now() : false;
+      const calleeDetached = call?.acceptedBy ? (call.detachedUntil.get(call.acceptedBy) ?? 0) > Date.now() : false;
+      const participant = call && (call.callerId === session.deviceId || call.acceptedBy === session.deviceId);
+      const acceptedPeerReplacement = call?.acceptedBy === session.deviceId;
+      if (call && call.callId !== callId && participant && (callerDetached || calleeDetached || acceptedPeerReplacement)) {
         finish(call, 'CALL_DISCONNECTED');
         call = null;
       }

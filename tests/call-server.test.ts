@@ -357,14 +357,14 @@ describe('multi-device selection and lifecycle fences', () => {
   });
 
   it('replaces an accepted call when the peer is in transport grace and a fresh callId arrives', async () => {
-    const { sockets, transmit } = await arbitrationHarness();
+    const { sockets, transmit, service } = await arbitrationHarness();
     await transmit(0, 1, 'invite');
     await transmit(1, 0, 'accept');
-    sockets[1]!.open = false;
+    service.disconnect(sockets[0]);
     const next = { callId: crypto.randomUUID() };
-    await transmit(0, 2, 'invite', next);
-    expect(sockets[2]!.frames.at(-1)?.envelope?.callId).toBe(next.callId);
-    expect(sockets[0]!.frames.some((frame) => frame.state === 'ended')).toBe(true);
+    await transmit(1, 0, 'invite', next);
+    expect(sockets[0]!.frames.at(-1)?.envelope?.callId).toBe(next.callId);
+    expect(sockets[1]!.frames.some((frame) => frame.state === 'ended')).toBe(true);
   });
 
   it('expires ringing calls without allowing old invitations to resurrect them', async () => {
