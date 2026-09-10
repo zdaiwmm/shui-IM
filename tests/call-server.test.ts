@@ -131,7 +131,7 @@ describe('ephemeral encrypted call transport', () => {
   });
 
   it('fails closed on cancellation versus late accept and permits a fresh call after endpoint disconnects', async () => {
-    const { a, b, callId, make } = await setup();
+    const { server, roomId, callee, calleeToken, a, b, callId, make } = await setup();
     a.send({ type: 'call', envelope: await make('signal') });
     await a.waitFor((frame) => frame.code === 'CALL_NOT_FOUND');
     a.send({ type: 'call', envelope: await make('invite') });
@@ -147,7 +147,12 @@ describe('ephemeral encrypted call transport', () => {
     b.send({ type: 'call', envelope: await make('accept', true, { callId: nextId }) });
     await a.waitFor((frame) => frame.callId === nextId && frame.state === 'accepted');
     b.socket.terminate();
-    await a.waitFor((frame) => frame.callId === nextId && frame.code === 'CALL_DISCONNECTED');
+    // A short transport flap must not tear down the authenticated call. The
+    // same device can rebind a fresh WebSocket and continue negotiation.
+    const b2 = await connect(server, roomId, callee, calleeToken);
+    const resumedSignal = await make('signal', false, { callId: nextId });
+    a.send({ type: 'call', envelope: resumedSignal });
+    expect(await b2.waitFor((frame) => frame.envelope?.eventId === resumedSignal.eventId)).toEqual({ type: 'call', envelope: resumedSignal });
     expect(nextId).not.toBe(callId);
   });
 

@@ -7,7 +7,8 @@ type Context = { generation: number; roomId: string; deviceId: string; identity:
 const ACTIVE_PHASES = new Set(['outgoing', 'incoming', 'connecting', 'connected', 'reconnecting']);
 const RING_MS = 45_000;
 const SETUP_MS = 25_000;
-const RECONNECT_MS = 20_000;
+const RECONNECT_MS = 60_000;
+const RECONNECT_DELAYS_MS = [1_000, 2_000, 4_000, 8_000, 16_000] as const;
 const MEDIA_MS = 30_000;
 const MAX_CANDIDATES = 256;
 const statusByCode: Record<string, string> = {
@@ -71,6 +72,7 @@ export class CallController {
   private localSignalsReady = false;
   private initialDescriptionSent = false;
   private restartRequested = false;
+  private reconnectAttempts = 0;
   private lastStats: { received: number; lost: number } | null = null;
   private poorSamples = 0;
   private goodSamples = 0;
@@ -314,7 +316,15 @@ export class CallController {
       this.peerKeys.clear();
       throw new Error('对方未准备好安全通话，请双方重新打开页面');
     }
-    const pc = new RTCPeerConnection({ iceServers: config.iceServers, iceTransportPolicy: config.iceTransportPolicy, bundlePolicy: 'max-bundle' });
+    const pc = new RTCPeerConnection({
+      iceServers: config.iceServers,
+      iceTransportPolicy: config.iceTransportPolicy,
+      bundlePolicy: 'max-bundle',
+      // Pre-gather candidates while media permission and signaling are in flight.
+      // This materially reduces the chance that a slow DNS/TURN lookup outlives
+      // the initial offer window on a lossy connection.
+      iceCandidatePoolSize: 4,
+    });
     this.pc = pc;
     this.emit({ remoteStream: new MediaStream() });
     pc.onicecandidate = (event) => {
@@ -501,9 +511,24 @@ export class CallController {
     const result = this.sendQueue.then(async () => {
       if (!callId || !this.valid(context) || !this.peerStillTrusted(recipientId)) return;
       const envelope = await sealCallSignal(this.vault(), recipientId, callId, action, payload);
-      if (!this.valid(context) || !this.peerStillTrusted(recipientId)) return;
-      if (!this.connected) throw new Error('网络连接已中断');
-      this.options.send(envelope);
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        if (!this.valid(context) || !this.peerStillTrusted(recipientId)) return;
+        if (!this.connected) await new Promise<void>((resolve, reject) => {
+          const started = Date.now();
+          const wait = () => {
+            if (!this.valid(context)) return reject(new Error('通话已结束'));
+            if (this.connected) return resolve();
+            if (Date.now() - started >= 30_000) return reject(new Error('网络连接已中断'));
+            setTimeout(wait, 250);
+          };
+          wait();
+        });
+        try { this.options.send(envelope); return; }
+        catch (error) {
+          if (attempt === 3) throw error;
+          await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+        }
+      }
     });
     this.sendQueue = result.catch(() => {});
     return result;
@@ -520,10 +545,11 @@ export class CallController {
   }
   private async flushLocalCandidates(context: Context) {
     if (!this.peerId) return;
-    const candidates = this.pendingLocalCandidates.splice(0);
-    for (const candidate of candidates) {
+    while (this.pendingLocalCandidates.length) {
+      const candidate = this.pendingLocalCandidates[0]!;
       if (!this.valid(context)) return;
       await this.sendTo(this.peerId, 'signal', { kind: this.current.kind, candidate }, context);
+      this.pendingLocalCandidates.shift();
     }
   }
   private async flushRemoteCandidates(context: Context) {
@@ -607,6 +633,7 @@ export class CallController {
       this.phaseTimer = null;
       this.reconnectTimer = null;
       this.restartRequested = false;
+      this.reconnectAttempts = 0;
       this.emit({ phase: 'connected', startedAt: this.current.startedAt ?? Date.now(), statusText: '' });
       if (!this.statsTimer) this.statsTimer = setInterval(() => { void this.inspectQuality(context); }, 4000);
       if (!this.credentialTimer) this.scheduleCredentialRenewal(context);
@@ -620,8 +647,15 @@ export class CallController {
       this.setPhaseTimeout(RECONNECT_MS, '网络连接已中断', 'disconnected');
     }
     if (this.reconnectTimer || !this.connected) return;
+    if (this.reconnectAttempts >= RECONNECT_DELAYS_MS.length) return;
     const context = this.context;
-    this.reconnectTimer = setTimeout(() => { this.reconnectTimer = null; void this.restartIce(context); }, this.caller ? 1000 : 3500);
+    const delay = RECONNECT_DELAYS_MS[this.reconnectAttempts++] ?? RECONNECT_DELAYS_MS.at(-1)!;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.restartIce(context).then((restarted) => {
+        if (!restarted && this.valid(context) && this.active) this.scheduleReconnect();
+      });
+    }, delay);
   }
   private scheduleCredentialRenewal(context: Context, delay = (this.caller ? 60 : 61) * 60_000) {
     if (this.credentialTimer) clearTimeout(this.credentialTimer);
@@ -781,7 +815,7 @@ export class CallController {
     this.invited.clear(); this.peerKeys.clear(); this.incomingOffer = null; this.incomingExpiresAt = 0;
     this.pendingLocalCandidates = []; this.pendingRemoteCandidates = [];
     this.mediaBusy = false; this.negotiating = false; this.restartRequested = false; this.localSignalsReady = false; this.initialDescriptionSent = false;
-    this.lastStats = null; this.poorSamples = 0; this.goodSamples = 0; this.qualityLevel = 0;
+    this.lastStats = null; this.poorSamples = 0; this.goodSamples = 0; this.qualityLevel = 0; this.reconnectAttempts = 0;
   }
   dismiss() {
     if (this.active || this.disposed) return;

@@ -8,6 +8,7 @@ const ACTIONS = new Set(['invite', 'accept', 'signal', 'decline', 'end']);
 const MAX_TTL_MS = 60_000;
 const CLOCK_SKEW_MS = 10_000;
 const RING_MS = 45_000;
+const TRANSPORT_GRACE_MS = 30_000;
 const RETENTION_MS = MAX_TTL_MS + CLOCK_SKEW_MS;
 const MAX_REPLAY_ENTRIES = 20_000;
 
@@ -119,8 +120,10 @@ export function createCallService({ store, clientsByRoom, socketSessions, send, 
     for (const map of [seen, ended]) for (const [key, expiry] of map) if (expiry <= now) map.delete(key);
     for (const [key, rate] of rates) if (rate.until <= now) rates.delete(key);
     for (const call of calls.values()) {
-      if (!socketActive(call.callerSocket, call.roomId, call.callerId) ||
-          (call.acceptedBy && !socketActive(call.calleeSocket, call.roomId, call.acceptedBy))) finish(call, 'CALL_DEVICE_INACTIVE');
+      const callerDetachedUntil = call.detachedUntil.get(call.callerId) ?? 0;
+      const calleeDetachedUntil = call.acceptedBy ? (call.detachedUntil.get(call.acceptedBy) ?? 0) : 0;
+      if ((!socketActive(call.callerSocket, call.roomId, call.callerId) && callerDetachedUntil <= now) ||
+          (call.acceptedBy && !socketActive(call.calleeSocket, call.roomId, call.acceptedBy) && calleeDetachedUntil <= now)) finish(call, 'CALL_DEVICE_INACTIVE');
       else if (!call.acceptedBy && call.ringUntil <= now) finish(call, 'CALL_TIMEOUT');
     }
   }
@@ -169,13 +172,23 @@ export function createCallService({ store, clientsByRoom, socketSessions, send, 
     let call = calls.get(session.roomId);
 
     if (envelope.action === 'invite') {
+      // A lifecycle teardown may close the transport before its encrypted end
+      // frame arrives. A fresh call from the same authenticated device is an
+      // explicit replacement of that detached stale attempt; a matching
+      // callId still follows the normal reconnect path below.
+      if (call && call.callId !== callId && call.callerId === session.deviceId &&
+          !socketActive(call.callerSocket, call.roomId, call.callerId) &&
+          (call.detachedUntil.get(session.deviceId) ?? 0) > Date.now()) {
+        finish(call, 'CALL_DISCONNECTED');
+        call = null;
+      }
       if (call && (call.callId !== callId || call.callerId !== session.deviceId || call.callerSocket !== socket)) return fail('CALL_BUSY');
       if (call?.acceptedBy) return fail('CALL_ALREADY_ACCEPTED');
       const recipientSocket = availableSocket(session.roomId, envelope.recipientId);
       if (!recipientSocket) return fail('CALL_UNAVAILABLE');
       if (call?.invited.has(envelope.recipientId)) return fail('CALL_REPLAY');
       if (!call) {
-        call = { roomId: session.roomId, callId, callerId: session.deviceId, callerSocket: socket, invited: new Map(), ringUntil: Date.now() + RING_MS };
+        call = { roomId: session.roomId, callId, callerId: session.deviceId, callerSocket: socket, invited: new Map(), detachedUntil: new Map(), ringUntil: Date.now() + RING_MS };
         call.timer = setTimeout(() => finish(call, 'CALL_TIMEOUT'), RING_MS);
         call.timer.unref?.();
         calls.set(session.roomId, call);
@@ -226,14 +239,29 @@ export function createCallService({ store, clientsByRoom, socketSessions, send, 
   return {
     handle,
     sweep: cleanup,
+    rebind(socket, session) {
+      const call = calls.get(session.roomId);
+      if (!call) return;
+      if (call.callerId === session.deviceId) {
+        call.callerSocket = socket;
+        call.detachedUntil.delete(session.deviceId);
+      }
+      if (call.acceptedBy === session.deviceId) {
+        call.calleeSocket = socket;
+        call.detachedUntil.delete(session.deviceId);
+      }
+      if (call.invited.has(session.deviceId)) {
+        call.invited.set(session.deviceId, socket);
+        call.detachedUntil.delete(session.deviceId);
+      }
+    },
     disconnect(socket) {
       const session = socketSessions.get(socket);
       const call = session && calls.get(session.roomId);
       if (!call) return;
-      if (call.callerSocket === socket || call.calleeSocket === socket) finish(call, 'CALL_DISCONNECTED');
-      else {
-        for (const [id, invitedSocket] of call.invited) if (invitedSocket === socket) call.invited.delete(id);
-        if (!call.acceptedBy && call.invited.size === 0) finish(call, 'CALL_UNAVAILABLE');
+      const deviceId = session.deviceId;
+      if (call.callerSocket === socket || call.calleeSocket === socket || call.invited.get(deviceId) === socket) {
+        call.detachedUntil.set(deviceId, Date.now() + TRANSPORT_GRACE_MS);
       }
     },
     close() {

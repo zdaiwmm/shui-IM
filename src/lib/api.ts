@@ -89,8 +89,22 @@ export async function getRoomState(roomId: string, accessToken: string): Promise
 }
 
 export async function getCallConfiguration(roomId: string, accessToken: string, signal?: AbortSignal): Promise<CallIceConfiguration> {
-  const response = await authorizedFetch(`/api/rooms/${roomId}/call-config`, accessToken, { signal, cache: 'no-store' });
-  return response.json();
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (signal?.aborted) throw signal.reason ?? new DOMException('请求已取消', 'AbortError');
+    try {
+      const response = await authorizedFetch(`/api/rooms/${roomId}/call-config`, accessToken, { signal, cache: 'no-store' });
+      return response.json();
+    } catch (error) {
+      lastError = error;
+      if (signal?.aborted || (error instanceof ApiError && !error.retryable) || attempt === 2) throw error;
+      await new Promise<void>((resolve, reject) => {
+        const timer = window.setTimeout(resolve, 250 * 2 ** attempt);
+        signal?.addEventListener('abort', () => { window.clearTimeout(timer); reject(signal.reason ?? new DOMException('请求已取消', 'AbortError')); }, { once: true });
+      });
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('通话网络配置暂不可用');
 }
 
 export async function requestRecovery(
