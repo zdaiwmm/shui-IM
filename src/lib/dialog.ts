@@ -22,6 +22,7 @@ export function closeDialog(sheet: HTMLElement, options?: CloseOptions): boolean
 }
 
 export function mountDialog(sheet: HTMLElement, options: DialogOptions) {
+  const focusAtMount = document.activeElement;
   let closed = false;
   let finished = false;
   let timer: number | undefined;
@@ -114,6 +115,9 @@ export function mountDialog(sheet: HTMLElement, options: DialogOptions) {
   else requestAnimationFrame(() => {
     if (closed || !sheet.isConnected || !options.isActive()) return;
     sheet.classList.add('is-visible');
+    // An early click/fill can focus an input before this deferred frame runs.
+    // Preserve that interaction: stealing focus can turn Enter into Back/Close.
+    if (document.activeElement !== focusAtMount && sheet.contains(document.activeElement)) return;
     (options.initialFocus ?? focusables()[0] ?? sheet).focus({ preventScroll: true });
   });
   return { close, dispose: () => close({ animate: false, restoreFocus: false }) };

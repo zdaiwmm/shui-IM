@@ -185,8 +185,18 @@ try {
   assert.equal(await page.locator('.meme-search-dialog').count(),1,'Default catalog detail needs a visible return path');
   await page.locator('.meme-back').click();
   await page.locator('.meme-back').click();
-  await page.locator('.meme-open-search').click();
-  await page.locator('#meme-query').fill('预置'); await page.locator('#meme-query').press('Enter');
+  await page.locator('.meme-search-dialog').waitFor({ state: 'detached' });
+  await page.evaluate(() => {
+    const original = window.requestAnimationFrame, frames = [];
+    window.requestAnimationFrame = callback => { frames.push(callback); return 1; };
+    try { document.querySelector('.meme-open-search').click(); }
+    finally { window.requestAnimationFrame = original; }
+    window.flushMemeFocus = () => frames.forEach(frame => frame(performance.now()));
+  });
+  await page.locator('#meme-query').fill('预置');
+  await page.evaluate(() => window.flushMemeFocus());
+  assert.equal(await page.locator('#meme-query').evaluate(input => input === document.activeElement), true, 'Delayed initial focus stole search input before Enter');
+  await page.locator('#meme-query').press('Enter');
   await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='添加');
   assert.ok(Math.abs((await page.locator('.meme-pack-cover').boundingBox()).width-tileBounds.width)<1, 'Sticker search cover size differs');
   assert.equal(await page.locator('.meme-pack-add').isDisabled(),false,'A formerly bundled pack is now managed by the catalog');
