@@ -38,7 +38,7 @@ describe('wastickers archive validation', () => {
     await expect(parseWastickers(await wastickers(flat, { password: 'synthetic-package-password' }))).rejects.toThrow('MEME_INVALID_QUERY');
   });
   it('bounds uploaded bytes, metadata, per-image output, item count and aggregate output', async () => {
-    await expect(parseWastickers(Buffer.alloc(8 * 1024 * 1024 + 1))).rejects.toThrow('MEME_TOO_LARGE');
+    await expect(parseWastickers(Buffer.alloc(50 * 1024 * 1024 + 1))).rejects.toThrow('MEME_TOO_LARGE');
     await expect(parseWastickers(await wastickers({ ...flat, 'title.txt': Buffer.alloc(256 * 1024 + 1) }))).rejects.toThrow('MEME_TOO_LARGE');
     await expect(parseWastickers(await wastickers({ ...flat, 'one.gif': Buffer.alloc(8 * 1024 * 1024 + 1) }))).rejects.toThrow('MEME_TOO_LARGE');
     const many = Object.fromEntries(Array.from({ length: 201 }, (_, i) => [`${i}.gif`, gif]));

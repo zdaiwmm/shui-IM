@@ -1,6 +1,7 @@
 import { ZipReader, Uint8ArrayReader } from '@zip.js/zip.js';
 import { memeContentType } from './memes.mjs';
 
+const MAX_UPLOAD = 50 * 1024 * 1024;
 const MAX_IMAGE = 8 * 1024 * 1024;
 const MAX_PACK = 64 * 1024 * 1024;
 const invalid = () => { throw new Error('MEME_INVALID_QUERY'); };
@@ -15,7 +16,7 @@ function filename(value) {
 }
 
 export async function parseWastickers(bytes) {
-  if (!bytes.length || bytes.length > MAX_IMAGE) tooLarge();
+  if (!bytes.length || bytes.length > MAX_UPLOAD) tooLarge();
   const reader = new ZipReader(new Uint8ArrayReader(bytes), { useWebWorkers: false, checkSignature: true });
   try {
     const files = new Map(); const names = new Set();
