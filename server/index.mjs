@@ -1035,6 +1035,9 @@ export async function startServer(options = {}) {
               return;
             }
             registerSocket(session, socket);
+            // Keep an in-flight call alive across a short WebSocket transport
+            // flap; the authenticated device identity is the rebind key.
+            callService.rebind(socket, session);
             const state = store.roomState(session.roomId);
             send(socket, { type: 'ready', state: publicState(state) });
             send(socket, {

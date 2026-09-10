@@ -1,4 +1,5 @@
 import type { Vault } from './types';
+import type { CallDiagnosticSnapshot } from './call-connection';
 
 export const CALL_CAPABILITY = 'webrtc-call-v1';
 export const CALL_PROTOCOL = 'quiet-room-call-v1';
@@ -66,6 +67,7 @@ export type CallState = {
   statusText: string;
   quality: 'good' | 'poor';
   canSwitchCamera: boolean;
+  diagnostics?: CallDiagnosticSnapshot;
 };
 
 export type CallControllerOptions = {
@@ -74,6 +76,7 @@ export type CallControllerOptions = {
   getIceConfig: () => Promise<CallIceConfiguration>;
   onChange: (state: CallState) => void;
   onPermissionChange: (active: boolean) => boolean | void | Promise<boolean | void>;
+  onDiagnostics?: (snapshot: CallDiagnosticSnapshot) => void;
 };
 
 export type CallViewActions = {
