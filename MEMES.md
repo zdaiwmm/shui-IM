@@ -102,7 +102,10 @@ GIFs 与贴图合集分别支持分页搜索、预览、上传、编辑名称与
 上传不用于接收或恢复聊天原图。底层普通图片上传 API 的原图合计限制仍为 8 MiB。
 后台反向代理仅对 `/admin-api/expressions` 放宽至 12 MiB，以容纳有界 Base64 JSON；其他后台请求仍为 64 KiB。
 
-后台界面已移除资源搜索和自动获取入口。底层采集 API 保留 1–100 项目标、关键词及公开合集 ID；
+后台表情采集使用独立导航入口，提供 Signal Stickers 贴图合集与 Google Noto 动画表情两个渠道。
+Noto 使用官方目录与固定 Google CDN 路径，保留来源及 CC BY 4.0 作者说明，进入 GIFs 管理。
+搜索结果按稳定来源 ID 采集并进入待上架状态。已入库资源禁用采集按钮，重复请求返回已存在。其他来源未完成真实采集验证前不显示在后台。底层采集 API
+保留 1–100 项目标、关键词及公开合集 ID；
 GIF 目标按新增独立条目，贴图按新增完整合集计数，新增资源进入待上架。
 一次只运行一个采集任务，最多扫描 200 个候选合集、运行 10 分钟，遇到重复或失败继续寻找，达不到目标如实标记。
 保存最近 20 个任务的类型、目标、新增、跳过、失败和结束状态；不保存原始检索词。
@@ -126,4 +129,5 @@ DNS 为非公网地址、重定向、HMAC 或格式验证失败均拒绝，不�
 - `tests/sticker-library.test.ts`、`tests/service-worker.test.ts`：发布静态目录不包含表情原图、升级清理旧公开缓存。
 - `tests/meme-picker.e2e.mjs`：半屏/全屏、发送收起、长按、合集下载、缓存、隐私清理及两处动画播放。
 - `MEME_WEBKIT=1 node tests/meme-picker.e2e.mjs /private/tmp/sticker-picker-webkit`：WebKit 同范围验证。
+- `CHROME_CHANNEL=chrome node tests/admin-collection-live.e2e.mjs`：构建后显式验证真实上游搜索、后台点击采集、原图读取及数据库重启回读，使用临时数据库。省略环境变量使用 Playwright Chromium。证据见 [采集验收](audit/2026-09-10-expression-collection.md)。
 - 最终组合执行 `npm run check:full`。自动浏览器验证不等于 iPhone / Safari 真机验收。

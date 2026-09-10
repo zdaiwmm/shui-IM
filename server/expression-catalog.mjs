@@ -1,3 +1,4 @@
+import { createNotoSource } from './noto-source.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -41,6 +42,9 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
     if (job.status === 'running') { job.status = 'interrupted'; db.prepare('UPDATE jobs SET body=? WHERE id=?').run(JSON.stringify(job), row.id); }
   }
   const source = createStickerSource(fetchResource, now);
+  const noto = createNotoSource(fetchResource, now);
+  const channelSource = channel => channel === 'noto' ? noto : channel === 'signal' || channel === undefined ? source : fail('MEME_INVALID_QUERY');
+  const entryId = (row, kind, itemId = 0) => row.id.startsWith('noto-') ? row.id : kind === 'gifs' ? `gif-${row.id}-${itemId}` : row.id;
   const grants = new Map();
   let running;
   let controller;
@@ -73,49 +77,62 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
   const saveJob = job => db.prepare('INSERT OR REPLACE INTO jobs VALUES (?,?)').run(job.id, JSON.stringify(job));
   async function collect(job, body, signal) {
     try {
-      const rows = matchStickerPacks(await source.list(signal), body.keyword, body.kind === 'gifs');
-      const candidates = body.sourceId ? rows.filter(row => row.id === body.sourceId) : rows;
+      const upstream = channelSource(body.channel);
+      const directory = await upstream.list(signal);
+      // Resolve the selected source id against the upstream directory.
+      // Do not re-run the UI display title through search: titles are truncated
+      // for presentation and can change independently of the stable pack id.
+      const rows = body.sourceId
+        ? directory.filter(row => row.id === body.sourceId && (body.kind !== 'gifs' || row.animated))
+        : matchStickerPacks(directory, body.keyword, body.kind === 'gifs');
+      const candidates = rows;
       for (const row of candidates) {
         if (job.added >= job.target || job.scanned >= 200) break;
         signal.throwIfAborted(); job.scanned++;
-        if (body.kind === 'stickers' && db.prepare('SELECT 1 FROM entries WHERE id=?').get(row.id)) { job.skipped++; saveJob(job); continue; }
+        if (body.kind === 'stickers' && db.prepare('SELECT 1 FROM entries WHERE id=?').get(row.id)) { job.skipped++; job.existing++; saveJob(job); continue; }
         try {
-          const pack = await source.pack(row.id, signal);
+          const pack = await upstream.pack(row.id, signal);
           const files = []; let total = 0;
           for (const item of pack.items) {
             signal.throwIfAborted();
-            const id = `gif-${row.id}-${item.id}`;
-            if (body.kind === 'gifs' && db.prepare('SELECT 1 FROM entries WHERE id=?').get(id)) { job.skipped++; continue; }
-            const bytes = decryptPublicSticker(await fetchResource(item.url, MAX_IMAGE + 64, signal), item.key);
+            const id = entryId(row, body.kind, item.id);
+            if (body.kind === 'gifs' && db.prepare('SELECT 1 FROM entries WHERE id=?').get(id)) { job.skipped++; job.existing++; continue; }
+            const raw = await fetchResource(item.url, MAX_IMAGE + 64, signal);
+            const bytes = item.key ? decryptPublicSticker(raw, item.key) : raw;
             memeContentType(bytes); total += bytes.length;
             if (!bytes.length || bytes.length > MAX_IMAGE || total > MAX_PACK) fail('MEME_TOO_LARGE');
             if (body.kind === 'gifs') {
               if (!publicStickerAnimated(bytes)) { job.skipped++; continue; }
-              if (put({ ...row, id, kind: body.kind, source: `https://signalstickers.org/pack/${row.id}` }, [{ bytes, title: item.title }])) job.added++;
+              if (put({ ...row, id, kind: body.kind, source: body.channel === 'noto' ? row.source : `https://signalstickers.org/pack/${row.id}` }, [{ bytes, title: item.title }])) job.added++;
               saveJob(job); if (job.added >= job.target) break;
             } else files.push({ bytes, title: item.title });
           }
           signal.throwIfAborted();
-          if (body.kind === 'stickers' && put({ ...row, kind: body.kind, source: `https://signalstickers.org/pack/${row.id}` }, files)) job.added++;
+          if (body.kind === 'stickers' && put({ ...row, kind: body.kind, source: body.channel === 'noto' ? row.source : `https://signalstickers.org/pack/${row.id}` }, files)) job.added++;
         } catch (error) {
           if (signal.aborted || error.message === 'MEME_STORAGE_FULL') throw error;
-          job.failed++;
+          job.failed++; job.error = ({ MEME_TOO_LARGE: '资源超过大小限制', MEME_INVALID_IMAGE: '原图校验失败', MEME_UPSTREAM_UNAVAILABLE: '来源服务暂不可用', MEME_DNS_REJECTED: '来源域名解析失败' })[error.message] || '来源下载失败，请重试';
         }
         saveJob(job);
       }
-      job.status = job.added >= job.target ? 'completed' : 'partial';
+      job.status = job.added >= job.target ? 'completed' : body.sourceId && job.existing > 0 && !job.failed ? 'exists' : 'partial';
     } catch (error) { job.status = signal.aborted ? 'interrupted' : 'failed'; job.error = error.message === 'MEME_STORAGE_FULL' ? '资源库容量已满' : '采集未完成，请重试'; }
     finally { job.finished = now(); saveJob(job); }
   }
   const service = {
     async sourceSearch(body, signal) {
-      query({ ...body, page: 1 });
-      const rows = matchStickerPacks(await source.list(signal), body.keyword, body.kind === 'gifs');
-      return { packs: rows.slice(0, 24).map(row => ({ id: row.id, title: row.title, author: row.author, tags: row.tags, source: row.source, cover: `/admin-api/expressions/source/${row.id}/media` })), source: 'Signal Stickers' };
+      query(body);
+      const rows = matchStickerPacks(await channelSource(body.channel).list(signal), body.keyword, body.kind === 'gifs');
+      const start = (body.page - 1) * 24;
+      return { packs: rows.slice(start, start + 24).map(row => ({ id: row.id, title: row.title, author: row.author,
+        collected: !!db.prepare('SELECT 1 FROM entries WHERE id=?').get(entryId(row, body.kind)),
+        cover: `/admin-api/expressions/source/${row.id}/media` })), total: rows.length };
     },
     async sourcePreview(id, signal) {
-      const pack = await source.pack(id, signal);
-      const bytes = decryptPublicSticker(await fetchResource(pack.cover.url, MAX_IMAGE + 64, signal), pack.cover.key);
+      const pack = await channelSource(id.startsWith('noto-') ? 'noto' : 'signal').pack(id, signal);
+      const raw = await fetchResource(pack.cover.url, MAX_IMAGE + 64, signal);
+      const bytes = pack.cover.key ? decryptPublicSticker(raw, pack.cover.key) : raw;
+      if (!bytes.length || bytes.length > MAX_IMAGE) fail('MEME_TOO_LARGE');
       return { type: memeContentType(bytes), bytes };
     },
     // Only the explicit repository initializer uses this entry point. Keeping
@@ -236,11 +253,14 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
     },
     jobs() { return db.prepare('SELECT body FROM jobs ORDER BY rowid DESC LIMIT 20').all().map(row => JSON.parse(row.body)); },
     start(body) {
+      body = { ...body, keyword: body?.sourceId ? '' : body?.keyword ?? '' };
       query({ ...body, page: 1 });
+      channelSource(body.channel);
+      if (body.channel === 'noto' && body.kind !== 'gifs') fail('MEME_INVALID_QUERY');
       if (!Number.isSafeInteger(body.target) || body.target < 1 || body.target > 100
-        || (body.sourceId !== undefined && !/^[a-f0-9]{32}$/.test(body.sourceId))) fail('MEME_INVALID_QUERY');
+        || (body.sourceId !== undefined && !(body.channel === 'noto' ? /^noto-[a-f0-9]{4,6}(?:_[a-f0-9]{4,6}){0,10}$/ : /^[a-f0-9]{32}$/).test(body.sourceId))) fail('MEME_INVALID_QUERY');
       if (running || closing) fail('MEME_BUSY');
-      const job = { id: randomUUID(), kind: body.kind, target: body.target, added: 0, scanned: 0, skipped: 0, failed: 0, status: 'running', created: now() };
+      const job = { id: randomUUID(), channel: body.channel ?? 'signal', sourceId: body.sourceId, kind: body.kind, target: body.target, added: 0, scanned: 0, skipped: 0, existing: 0, failed: 0, status: 'running', created: now() };
       saveJob(job); db.exec('DELETE FROM jobs WHERE id NOT IN (SELECT id FROM jobs ORDER BY rowid DESC LIMIT 20)');
       controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 10 * 60_000);

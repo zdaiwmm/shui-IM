@@ -27,7 +27,7 @@ export function publicMemeAddress(address) {
 
 // The socket uses this exact validated DNS answer; redirects are never followed.
 export function fetchMemeResource(url, limit, signal) {
-  if (url !== STICKER_DIRECTORY && !allowedMemeUrl(url)) throw new Error('MEME_SOURCE_REJECTED');
+  if (url !== STICKER_DIRECTORY && url !== 'https://googlefonts.github.io/noto-emoji-animation/data/api.json' && !/^https:\/\/fonts\.gstatic\.com\/s\/e\/notoemoji\/latest\/[a-f0-9_]{4,80}\/512\.webp$/.test(url) && !allowedMemeUrl(url)) throw new Error('MEME_SOURCE_REJECTED');
   return new Promise((resolve, reject) => {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15_000);

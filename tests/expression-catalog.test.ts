@@ -139,6 +139,33 @@ describe('managed expression catalog', () => {
     for (const item of result.items) expect((await f.service.media('owner', item.id)).bytes).toEqual(gif);
     expect(f.fetchResource).toHaveBeenCalledTimes(calls);
   });
+  it('collects a selected Signal pack by stable source id without depending on its display title', async () => {
+    const f = await fixture();
+    f.service.start({ kind: 'stickers', keyword: 'title that is not in the directory', sourceId: id, target: 1 });
+    expect(await finished(f.service)).toMatchObject({ added: 1, target: 1, status: 'completed' });
+    expect(f.service.detail(id)).toMatchObject({ kind: 'stickers', status: 'pending' });
+  });
+  it('handles long selected titles and duplicates without reporting download failure', async () => {
+    const f = await fixture();
+    f.service.start({ kind: 'stickers', keyword: 'x'.repeat(120), sourceId: id, target: 1 });
+    expect(await finished(f.service)).toMatchObject({ added: 1, status: 'completed' });
+    f.service.start({ kind: 'stickers', keyword: '', sourceId: id, target: 1 });
+    expect(await finished(f.service)).toMatchObject({ added: 0, existing: 1, failed: 0, status: 'exists' });
+  });
+  it('collects Noto originals, retains attribution and rejects unsupported channels', async () => {
+    const f = await fixture();
+    f.fetchResource.mockImplementation(async url => url.endsWith('api.json')
+      ? Buffer.from(JSON.stringify({ icons: [{ codepoint: '1f600', tags: [':smile:'], categories: ['emotion'] }] })) : gif);
+    const result = await f.service.sourceSearch({ channel: 'noto', kind: 'gifs', keyword: 'smile', page: 1 });
+    expect(result.packs).toHaveLength(1);
+    f.service.start({ channel: 'noto', kind: 'gifs', sourceId: 'noto-1f600', target: 1 });
+    expect(await finished(f.service)).toMatchObject({ status: 'completed', added: 1 });
+    expect(f.service.preview('noto-1f600', 0).bytes).toEqual(gif);
+    expect(f.service.detail('noto-1f600').author).toContain('CC BY 4.0');
+    expect((await f.service.sourceSearch({ channel: 'noto', kind: 'gifs', keyword: '', page: 1 })).packs[0].collected).toBe(true);
+    for (const channel of ['unknown', 'http://localhost']) expect(() => f.service.start({ channel, kind: 'gifs', target: 1 })).toThrow('MEME_INVALID_QUERY');
+    expect(() => f.service.start({ channel: 'noto', kind: 'stickers', target: 1 })).toThrow('MEME_INVALID_QUERY');
+  });
   it('does not expose or retain half a collection when downloading fails', async () => {
     const f = await fixture(); const original = f.fetchResource.getMockImplementation()!;
     f.fetchResource.mockImplementation(async url => url.endsWith('/full/1') ? seal(Buffer.from('<html>bad</html>')) : original(url));
