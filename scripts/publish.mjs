@@ -73,10 +73,10 @@ function publishApproved(args, run, timed) {
   }
   timed('clone', () => {
     run('git', ['clone', '--filter=blob:none', '--single-branch', '--branch', 'main', cloneUrl, directory], { env, timeout: 120000 });
-    run('git', ['merge-base', '--is-ancestor', sha, 'origin/main'], { cwd: directory });
+    run('git', ['merge-base', '--is-ancestor', sha, 'origin/main'], { cwd: directory, env });
     // Only this newly created isolated clone is moved to the approved batch.
-    run('git', ['checkout', '-B', 'main', sha], { cwd: directory });
-    if (run('git', ['rev-parse', 'HEAD'], { cwd: directory }) !== sha) throw new Error('Isolated release differs from approved SHA.');
+    run('git', ['checkout', '-B', 'main', sha], { cwd: directory, env });
+    if (run('git', ['rev-parse', 'HEAD'], { cwd: directory, env }) !== sha) throw new Error('Isolated release differs from approved SHA.');
   });
   if (sourcePath) {
     const target = path.join(directory, '.deploy.local.json');

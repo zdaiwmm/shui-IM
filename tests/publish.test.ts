@@ -75,7 +75,8 @@ describe('isolated non-GUI publishing', () => {
       const deploy = calls.at(-1)!;
       expect(deploy.args.slice(-2)).toEqual(['--sha', sha]);
       expect(deploy.options.cwd).toBe(directory);
-      expect(calls.some(call => call.args.join(' ') === `checkout -B main ${sha}` && call.options.cwd === directory)).toBe(true);
+      expect(calls.some(call => call.args.join(' ') === `checkout -B main ${sha}` && call.options.cwd === directory
+        && call.options.env.GIT_CONFIG_VALUE_0 === '!gh auth git-credential')).toBe(true);
       expect(calls.some(call => call.args.join(' ') === `merge-base --is-ancestor ${sha} origin/main`)).toBe(true);
       expect(directory).toContain('quiet-room-publish-');
       expect(directory).toBe(realpathSync(directory));
