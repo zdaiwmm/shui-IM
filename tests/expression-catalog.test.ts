@@ -121,7 +121,8 @@ describe('managed expression catalog', () => {
       'contents.json': Buffer.from(JSON.stringify({ name: 'Large pack', stickers: [{ image_file: 'one.gif' }, { image_file: 'two.gif' }] })),
       'one.gif': large,
       'two.gif': large,
-    });
+    }, { level: 0 });
+    expect(packageBytes.length).toBeGreaterThan(8 * 1024 * 1024);
     const entry = await f.service.create({ kind: 'stickers', title: 'Fallback title', tags: '', status: 'published', files: [{ name: 'large.wastickers', data: packageBytes.toString('base64') }] });
     expect(entry).toMatchObject({ kind: 'stickers', title: 'Large pack', status: 'published' });
   });

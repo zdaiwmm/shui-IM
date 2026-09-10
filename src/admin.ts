@@ -22,11 +22,17 @@ async function api<T>(route: string, method = 'GET', body?: unknown, signal?: Ab
   const generation = sessionGeneration;
   const response = await fetch(`/admin-api${route}`, { method, cache: 'no-store', credentials: 'same-origin', signal,
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-  const result = await response.json();
+  const fallback = response.status === 413
+    ? '上传请求超过服务器大小限制，请联系管理员检查上传配置（HTTP 413）'
+    : response.status >= 500
+      ? `服务器暂时无法处理请求，请稍后重试（HTTP ${response.status}）`
+      : `服务器返回异常响应，请刷新页面后重试（HTTP ${response.status}）`;
+  const result = await response.json().catch(() => { throw new Error(fallback); });
+  if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error(fallback);
   if (response.status === 401 && result.code === 'SESSION_EXPIRED' && csrf && generation === sessionGeneration) {
     login(); report(new Error(result.error));
   }
-  if (!response.ok) throw new Error(result.error ?? '操作未完成，请重试');
+  if (!response.ok) throw new Error(typeof result.error === 'string' ? result.error : fallback);
   return result;
 }
 
@@ -313,9 +319,9 @@ async function expressions() {
     try {
       const data = new FormData(upload); const files = data.getAll('files').filter((file): file is File => file instanceof File && file.size > 0);
       const packageUpload = files.length === 1 && /\.wastickers$/i.test(files[0]!.name);
-      const maxUploadBytes = 50 * 1024 * 1024;
+      const maxUploadBytes = (packageUpload ? 50 : 8) * 1024 * 1024;
       if (!files.length || files.length > 200 || files.reduce((sum, file) => sum + file.size, 0) > maxUploadBytes) {
-        throw new Error(packageUpload ? 'wastickers 文件不得超过 50 MiB' : '图片合计不得超过 50 MiB，合集最多 200 张');
+        throw new Error(packageUpload ? 'wastickers 文件不得超过 50 MiB' : '图片合计不得超过 8 MiB，合集最多 200 张');
       }
       const encoded = [];
       for (const file of files) {

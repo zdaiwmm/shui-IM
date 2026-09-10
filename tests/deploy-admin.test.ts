@@ -64,7 +64,7 @@ describe('persistent optional administrator deployment', () => {
     expect(config).toContain('proxy_set_header Host admin.mijiu.cloud;');
     expect(config).toContain('location /ws { return 404; }');
     expect(config).toContain('location ^~ /.well-known/acme-challenge/ { root /var/lib/letsencrypt; }');
-    expect(config).toMatch(/location = \/admin-api\/expressions \{\s*client_max_body_size 12m;/);
+    expect(config).toMatch(/location = \/admin-api\/expressions \{\s*client_max_body_size 70m;/);
     expect(config.indexOf('if (-f /var/lib/quiet-room-deploy/maintenance)')).toBeLessThan(config.indexOf('location = /admin-api/expressions'));
   });
   it('keeps administration disabled without persistent settings', async () => {

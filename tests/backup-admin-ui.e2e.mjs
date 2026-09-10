@@ -213,6 +213,19 @@ try {
   await admin.unroute('**/admin-api/expressions/jobs');
   await admin.getByRole('button', { name: '表情管理', exact: true }).click();
   await admin.getByText('暂无符合条件的资源').waitFor();
+  for (const failure of [
+    { status: 413, contentType: 'text/html', body: '<html><h1>413 Request Entity Too Large</h1></html>', message: '上传请求超过服务器大小限制' },
+    { status: 502, contentType: 'text/html', body: '<html><h1>Bad Gateway</h1></html>', message: '服务器暂时无法处理请求' },
+    { status: 200, contentType: 'text/html', body: '<html>Unexpected login page</html>', message: '服务器返回异常响应' },
+    { status: 200, contentType: 'application/json', body: 'null', message: '服务器返回异常响应' },
+  ]) {
+    await admin.route('**/admin-api/expressions', route => route.fulfill(failure));
+    await admin.locator('#expression-upload [name=files]').setInputFiles({ name: 'retry.gif', mimeType: 'image/gif', buffer: animatedGif });
+    await admin.locator('#status').filter({ hasText: failure.message }).waitFor();
+    assert.equal(await admin.getByRole('button', { name: '上传资源', exact: true }).isEnabled(), true);
+    assert.equal(await admin.locator('#expression-upload [name=files]').inputValue(), '');
+    await admin.unroute('**/admin-api/expressions');
+  }
   await admin.getByRole('button', { name: '上传资源', exact: true }).click();
   await admin.locator('#expression-upload [name=files]').setInputFiles({ name: '审核示例.gif', mimeType: 'image/gif',
     buffer: animatedGif });
@@ -246,8 +259,10 @@ try {
   await admin.getByRole('tab', { name: '贴图', exact: true }).press('Home');
   assert.equal(await admin.getByRole('tab', { name: 'GIFs', exact: true }).getAttribute('aria-selected'), 'true');
   await admin.getByRole('tab', { name: '贴图', exact: true }).click();
+  const largeGif = Buffer.concat([animatedGif, Buffer.alloc(5 * 1024 * 1024)]);
   const packageBytes = await wastickers({ 'title.txt': Buffer.from('合成贴图包'), 'author.txt': Buffer.from('Fixture'),
-    'tray.png': animatedGif, 'one.gif': animatedGif, 'two.gif': animatedGif });
+    'tray.png': animatedGif, 'one.gif': largeGif, 'two.gif': largeGif }, { level: 0 });
+  assert.ok(Buffer.byteLength(packageBytes.toString('base64')) > 12 * 1024 * 1024, 'upload crosses the old proxy limit');
   await admin.locator('#expression-upload [name=files]').setInputFiles({ name: 'fixture.wastickers', mimeType: 'application/octet-stream', buffer: packageBytes });
   await admin.getByText('合成贴图包', { exact: true }).waitFor();
   await admin.getByText('2 张', { exact: true }).waitFor();
