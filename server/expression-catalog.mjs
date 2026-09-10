@@ -73,8 +73,14 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
   const saveJob = job => db.prepare('INSERT OR REPLACE INTO jobs VALUES (?,?)').run(job.id, JSON.stringify(job));
   async function collect(job, body, signal) {
     try {
-      const rows = matchStickerPacks(await source.list(signal), body.keyword, body.kind === 'gifs');
-      const candidates = body.sourceId ? rows.filter(row => row.id === body.sourceId) : rows;
+      const directory = await source.list(signal);
+      // A selected source id is already an authenticated directory reference.
+      // Do not re-run the UI display title through search: titles are truncated
+      // for presentation and can change independently of the stable pack id.
+      const rows = body.sourceId
+        ? directory.filter(row => row.id === body.sourceId && (!body.kind || body.kind !== 'gifs' || row.animated))
+        : matchStickerPacks(directory, body.keyword, body.kind === 'gifs');
+      const candidates = rows;
       for (const row of candidates) {
         if (job.added >= job.target || job.scanned >= 200) break;
         signal.throwIfAborted(); job.scanned++;
@@ -236,7 +242,7 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
     },
     jobs() { return db.prepare('SELECT body FROM jobs ORDER BY rowid DESC LIMIT 20').all().map(row => JSON.parse(row.body)); },
     start(body) {
-      query({ ...body, page: 1 });
+      query({ ...body, keyword: body?.keyword ?? '', page: 1 });
       if (!Number.isSafeInteger(body.target) || body.target < 1 || body.target > 100
         || (body.sourceId !== undefined && !/^[a-f0-9]{32}$/.test(body.sourceId))) fail('MEME_INVALID_QUERY');
       if (running || closing) fail('MEME_BUSY');

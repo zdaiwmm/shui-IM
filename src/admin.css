@@ -41,11 +41,20 @@
 .login { width: min(100% - 32px, 440px); margin: 12vh auto; padding: 32px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); box-shadow: 0 8px 32px rgb(24 36 51 / 8%); }
 .login .primary { width: 100%; }
 .source-panel { margin: 0 0 24px; border: 1px solid var(--border); border-radius: 4px; box-shadow: 0 1px 4px rgb(24 36 51 / 4%); }
+.collection-channels { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin: 0 0 20px; }
+.collection-channel { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 16px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
+.collection-channel.is-active { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); box-shadow: 0 1px 4px rgb(24 36 51 / 5%); }
+.collection-channel h2 { margin: 0 0 4px; font-size: 1rem; }
+.collection-channel p { margin: 0; color: var(--muted); font-size: .8125rem; }
+.channel-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 4px; color: var(--accent); background: var(--selected); }
+.channel-icon svg { width: 20px; height: 20px; }
+.source-panel { padding: 20px; }
 .source-heading { display: flex; align-items: end; justify-content: space-between; gap: 20px; flex-wrap: wrap; }
 .source-heading h2 { margin-bottom: 4px; }
 .source-heading p { margin: 0; color: var(--muted); font-size: .8125rem; }
 .source-search { display: flex; gap: 8px; margin: 0; max-width: 360px; }
 .source-search input { min-width: 220px; }
+.source-search button { min-width: 64px; white-space: nowrap; }
 .source-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-top: 20px; }
 .source-pack { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); min-width: 0; }
 .source-cover { width: 64px; height: 64px; object-fit: cover; border-radius: 6px; background: var(--subtle); }
@@ -206,6 +215,8 @@ summary { cursor: pointer; min-height: 44px; padding-block: 10px; }
   .resource-toolbar { align-items: flex-start; }
   .resource-toolbar > .actions { width: 100%; justify-content: space-between; }
   .resource-toolbar > .expression-tabs { width: auto; }
+  .collection-channel { grid-template-columns: 32px minmax(0, 1fr); }
+  .collection-channel .status-badge { grid-column: 2; justify-self: start; }
   .filter-field { gap: 8px; }
   .filter-field > span { display: none; }
   .pagination { gap: 4px; }

@@ -139,6 +139,12 @@ describe('managed expression catalog', () => {
     for (const item of result.items) expect((await f.service.media('owner', item.id)).bytes).toEqual(gif);
     expect(f.fetchResource).toHaveBeenCalledTimes(calls);
   });
+  it('collects a selected Signal pack by stable source id without depending on its display title', async () => {
+    const f = await fixture();
+    f.service.start({ kind: 'stickers', keyword: 'title that is not in the directory', sourceId: id, target: 1 });
+    expect(await finished(f.service)).toMatchObject({ added: 1, target: 1, status: 'completed' });
+    expect(f.service.detail(id)).toMatchObject({ kind: 'stickers', status: 'pending' });
+  });
   it('does not expose or retain half a collection when downloading fails', async () => {
     const f = await fixture(); const original = f.fetchResource.getMockImplementation()!;
     f.fetchResource.mockImplementation(async url => url.endsWith('/full/1') ? seal(Buffer.from('<html>bad</html>')) : original(url));

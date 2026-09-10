@@ -1,5 +1,5 @@
 import './admin.css';
-import { createElement, Pencil, Trash2, ArrowLeft, LayoutDashboard, Images, RefreshCw, LogOut, Upload, Save, X } from 'lucide';
+import { createElement, Pencil, Trash2, ArrowLeft, LayoutDashboard, Images, RefreshCw, LogOut, Upload, Save, X, Download } from 'lucide';
 import { table, row, badge, iconButton, pageToolbar, loadingState, emptyState, errorState, pagination } from './admin/ui';
 
 type Room = { roomId: string; createdAt: string; lastSeenAt: string | null; devices: number; backups: number; messageCount: number };
@@ -53,15 +53,17 @@ for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
 function frame(title: string) {
   view += 1;
   const expressionView = title === '表情管理' || title === '资源详情';
+  const collectionView = title === '表情采集';
   root.innerHTML = `<div class="admin-shell tabler-shell"><aside class="admin-sidebar navbar navbar-vertical"><div class="brand"><span class="brand-mark avatar bg-primary text-white">Q</span><div><strong>Quiet Room</strong><small>管理控制台</small></div></div>
-    <nav class="sidebar-nav" aria-label="后台导航"><button id="rooms-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>会话管理</span></button><button id="expressions-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>表情管理</span></button></nav>
+    <nav class="sidebar-nav" aria-label="后台导航"><button id="rooms-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>会话管理</span></button><button id="expressions-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>表情管理</span></button><button id="collection-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>表情采集</span></button></nav>
     <div class="sidebar-note">管理员会话</div></aside>
     <main class="admin-main"><header class="topbar navbar navbar-expand-md"><div><p class="eyebrow">QUIET ROOM / ADMIN</p><h1></h1></div><button id="logout" class="logout-button btn btn-outline-secondary" type="button">退出后台</button></header>
     <div class="content-wrap"><div id="content"></div></div><div id="status" role="status" aria-live="polite"></div></main></div>`;
   root.querySelector('h1')!.textContent = title;
   root.querySelector('.nav-icon')!.replaceChildren(createElement(LayoutDashboard));
   root.querySelectorAll('.nav-icon')[1]!.replaceChildren(createElement(Images));
-  const activeNav = expressionView ? '#expressions-nav' : '#rooms-nav';
+  root.querySelectorAll('.nav-icon')[2]!.replaceChildren(createElement(Download));
+  const activeNav = expressionView ? '#expressions-nav' : collectionView ? '#collection-nav' : '#rooms-nav';
   root.querySelector<HTMLButtonElement>(activeNav)!.setAttribute('aria-current', 'page');
   const logout = root.querySelector<HTMLButtonElement>('#logout')!;
   const logoutIcon = createElement(LogOut); logoutIcon.setAttribute('aria-hidden', 'true'); logout.prepend(logoutIcon);
@@ -72,6 +74,7 @@ function frame(title: string) {
   });
   root.querySelector('#rooms-nav')!.addEventListener('click', () => void rooms());
   root.querySelector('#expressions-nav')!.addEventListener('click', () => void expressions());
+  root.querySelector('#collection-nav')!.addEventListener('click', () => void collection());
 }
 
 function report(error: unknown, tone: 'danger' | 'success' = 'danger') {
@@ -175,15 +178,58 @@ type Expression = { id: string; kind: 'gifs' | 'stickers'; title: string; tags: 
 let expressionKind: 'gifs' | 'stickers' = 'gifs';
 let expressionPage = 1;
 let expressionStatus = 'all';
+
+type SourcePack = { id: string; title: string; author: string; cover: string };
+
+async function collection() {
+  frame('表情采集'); const epoch = view;
+  const content = root.querySelector<HTMLElement>('#content')!;
+  content.innerHTML = `<div class="collection-channels" role="list" aria-label="采集渠道"><article class="collection-channel is-active" role="listitem"><div class="channel-icon" aria-hidden="true"></div><div><h2>Signal Stickers</h2><p>公开贴图包目录，已验证可读取目录、manifest 和原图并完成入库。</p></div><span class="status-badge success">可用</span></article></div>
+    <section class="source-panel" aria-labelledby="source-title"><div class="source-heading"><div><h2 id="source-title">搜索 Signal 贴图包</h2><p>搜索结果只来自公开目录；采集后进入待上架资源，便于审核。</p></div><form id="source-search" class="source-search"><input name="keyword" placeholder="搜索贴图包" maxlength="80" aria-label="搜索 Signal 贴图包"><button class="primary" type="submit">搜索</button></form></div><div id="source-results" class="source-results" aria-live="polite"></div></section>`;
+  const channelIcon = content.querySelector<HTMLElement>('.channel-icon');
+  channelIcon?.append(createElement(Download));
+  const sourceResults = content.querySelector<HTMLElement>('#source-results')!;
+  const search = async () => {
+    const form = content.querySelector<HTMLFormElement>('#source-search')!;
+    const keyword = String(new FormData(form).get('keyword') ?? '');
+    sourceResults.textContent = '正在搜索…';
+    try {
+      const data = await api<{ packs: SourcePack[] }>(`/expressions/source?keyword=${encodeURIComponent(keyword)}`);
+      if (view !== epoch) return;
+      sourceResults.replaceChildren(...data.packs.map(pack => {
+        const card = document.createElement('article'); card.className = 'source-pack';
+        card.innerHTML = `<img class="source-cover" alt=""><div class="source-pack-info"><strong></strong><small></small></div><button class="btn btn-outline-primary" type="button">采集此包</button>`;
+        const cover = card.querySelector<HTMLImageElement>('img')!; cover.src = pack.cover; cover.alt = pack.title;
+        card.querySelector('strong')!.textContent = pack.title; card.querySelector('small')!.textContent = pack.author || 'Signal Stickers';
+        const button = card.querySelector<HTMLButtonElement>('button')!;
+        button.addEventListener('click', async () => {
+          button.disabled = true; button.textContent = '准备中…';
+          try {
+            const job = await api<{ id: string }>('/expressions/collect', 'POST', { kind: 'stickers', keyword: '', sourceId: pack.id, target: 1 });
+            const poll = async (): Promise<void> => {
+              const state = await api<{ jobs: { id: string; status: string; added: number; failed: number; scanned: number; error?: string }[] }>('/expressions/jobs');
+              const current = state.jobs.find(item => item.id === job.id);
+              if (!current || view !== epoch) return;
+              if (current.status === 'running') { button.textContent = `采集中 ${current.scanned}`; window.setTimeout(() => void poll().catch(error => report(error)), 700); return; }
+              if (current.status === 'completed') { button.textContent = '已采集，待审核'; report(`已采集「${pack.title}」，请在表情管理中审核`, 'success'); return; }
+              button.disabled = false; button.textContent = '重试采集'; report(current.error || '采集失败');
+            };
+            await poll();
+          } catch (error) { button.disabled = false; button.textContent = '采集此包'; report(error); }
+        });
+        return card;
+      }));
+      if (!data.packs.length) sourceResults.textContent = '没有找到匹配的贴图包';
+    } catch (error) { sourceResults.replaceChildren(errorState(error, () => void search())); }
+  };
+  content.querySelector<HTMLFormElement>('#source-search')!.addEventListener('submit', event => { event.preventDefault(); void search(); });
+}
+
 async function expressions() {
   frame('表情管理'); const epoch = view;
   const content = root.querySelector<HTMLElement>('#content')!;
   content.innerHTML = `<div class="resource-toolbar"><div class="actions expression-tabs" role="tablist" aria-label="资源类型"><button role="tab" data-type="gifs" aria-controls="expression-list">GIFs</button><button role="tab" data-type="stickers" aria-controls="expression-list">贴图</button></div>
-    <div class="actions"><label class="filter-field"><span>上架状态</span><select id="status-filter"><option value="all">全部状态</option><option value="published">已上架</option><option value="pending">待上架</option></select></label><button id="open-upload" class="primary" type="button">上传资源</button></div></div>
-    <section class="source-panel card" aria-labelledby="source-title"><div class="card-body"><div class="source-heading"><div><h2 id="source-title">Signal Stickers 资源库</h2><p>搜索公开贴图包，预览封面后选择性采集到本地数据库。</p></div><form id="source-search" class="source-search"><input name="keyword" placeholder="搜索贴图包" maxlength="80" aria-label="搜索 Signal 贴图包"><button class="btn btn-primary" type="submit">搜索</button></form></div><div id="source-results" class="source-results"></div></div></section>
-    <div id="expression-list" role="tabpanel"></div>`;
-  const sourceResults = content.querySelector<HTMLElement>('#source-results')!;
-  content.querySelector<HTMLFormElement>('#source-search')!.addEventListener('submit', async event => { event.preventDefault(); const keyword = String(new FormData(event.currentTarget as HTMLFormElement).get('keyword') ?? ''); sourceResults.textContent = '正在搜索…'; try { const data = await api<{ packs: { id: string; title: string; author: string; cover: string }[] }>(`/expressions/source?keyword=${encodeURIComponent(keyword)}`); sourceResults.replaceChildren(...data.packs.map(pack => { const card = document.createElement('article'); card.className = 'source-pack'; card.innerHTML = `<img class="source-cover" alt=""><div class="source-pack-info"><strong></strong><small></small></div><button class="btn btn-outline-primary" type="button">采集</button>`; const cover = card.querySelector<HTMLImageElement>('img')!; cover.src = pack.cover; cover.alt = pack.title; card.querySelector('strong')!.textContent = pack.title; card.querySelector('small')!.textContent = pack.author || 'Signal Stickers'; const button = card.querySelector('button')!; button.addEventListener('click', async () => { button.disabled = true; button.textContent = '准备中…'; try { const job = await api<{ id: string }>('/expressions/collect', 'POST', { kind: 'stickers', keyword: pack.title, sourceId: pack.id, target: 1 }); const timer = window.setInterval(async () => { try { const state = await api<{ jobs: { id: string; status: string; added: number; scanned: number }[] }>('/expressions/jobs'); const current = state.jobs.find(item => item.id === job.id); if (!current) return; button.textContent = current.status === 'running' ? `采集中 ${current.scanned}` : current.status === 'completed' ? '已采集' : '采集失败'; if (current.status !== 'running') window.clearInterval(timer); } catch { window.clearInterval(timer); } }, 700); } catch (error) { button.disabled = false; button.textContent = '采集'; report(error); } }); return card; })); if (!data.packs.length) sourceResults.textContent = '没有找到匹配的贴图包'; } catch (error) { sourceResults.textContent = ''; sourceResults.append(errorState(error, () => undefined)); } });
+    <div class="actions"><label class="filter-field"><span>上架状态</span><select id="status-filter"><option value="all">全部状态</option><option value="published">已上架</option><option value="pending">待上架</option></select></label><button id="open-upload" class="primary" type="button">上传资源</button></div></div><div id="expression-list" role="tabpanel"></div>`;
   content.querySelector('#expression-list')!.append(loadingState('正在读取资源…'));
   const statusFilter = content.querySelector<HTMLSelectElement>('#status-filter')!; statusFilter.value = expressionStatus;
   statusFilter.addEventListener('change', () => { expressionStatus = statusFilter.value; expressionPage = 1; void expressions(); });

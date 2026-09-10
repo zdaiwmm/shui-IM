@@ -184,6 +184,33 @@ try {
   await admin.unroute('**/admin-api/rooms?*');
   await admin.getByRole('button', { name: '重试', exact: true }).click();
   await admin.getByRole('button', { name: roomId }).waitFor();
+  const sourcePackId = 'a'.repeat(32);
+  let collectionPolls = 0; let collectionPayload;
+  await admin.route('**/admin-api/expressions/source*', route => {
+    if (route.request().url().endsWith('/media')) return route.fulfill({ status: 200, contentType: 'image/gif', body: animatedGif });
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ packs: [{ id: sourcePackId, title: 'Fixture Signal pack', author: 'Fixture', cover: `/admin-api/expressions/source/${sourcePackId}/media` }] }) });
+  });
+  await admin.route('**/admin-api/expressions/collect', route => { collectionPayload = JSON.parse(route.request().postData() ?? '{}'); return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ id: 'fixture-job' }) }); });
+  await admin.route('**/admin-api/expressions/jobs', route => {
+    collectionPolls += 1;
+    const status = collectionPolls === 1 ? 'running' : 'completed';
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ jobs: [{ id: 'fixture-job', status, added: status === 'completed' ? 1 : 0, scanned: 1, failed: 0 }] }) });
+  });
+  await admin.getByRole('button', { name: '表情采集', exact: true }).click();
+  await admin.getByRole('heading', { name: '表情采集', exact: true }).waitFor();
+  await snapshot(admin, 'admin-expression-collection-desktop');
+  await admin.setViewportSize({ width: 390, height: 844 });
+  await snapshot(admin, 'admin-expression-collection-mobile');
+  await admin.setViewportSize({ width: 1280, height: 900 });
+  await admin.locator('[name=keyword]').fill('fixture');
+  await admin.getByRole('button', { name: '搜索', exact: true }).click();
+  await admin.getByText('Fixture Signal pack', { exact: true }).waitFor();
+  await admin.getByRole('button', { name: '采集此包', exact: true }).click();
+  await admin.getByRole('button', { name: '已采集，待审核', exact: true }).waitFor();
+  assert.deepEqual(collectionPayload, { kind: 'stickers', keyword: '', sourceId: sourcePackId, target: 1 });
+  await admin.unroute('**/admin-api/expressions/source*');
+  await admin.unroute('**/admin-api/expressions/collect');
+  await admin.unroute('**/admin-api/expressions/jobs');
   await admin.getByRole('button', { name: '表情管理', exact: true }).click();
   await admin.getByText('暂无符合条件的资源').waitFor();
   await admin.getByRole('button', { name: '上传资源', exact: true }).click();
