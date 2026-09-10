@@ -191,7 +191,7 @@ try {
   const joiner = await joinerContext.newPage();
   await Promise.all([enableDeviceVault(creator), enableDeviceVault(joiner, true)]);
 
-  await creator.goto(baseUrl);
+  await creator.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   await holdCover(creator);
   await assertStablePage(creator, 'Welcome page');
   await creator.locator('#create-room').click();
