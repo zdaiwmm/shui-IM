@@ -1823,7 +1823,7 @@ button:disabled {
 /* A deliberate media pull moves the bubble without changing the message row,
    its reading anchor or its verified thumbnail dimensions. */
 .message-bubble.is-media-pulling {
-  transform: translate3d(0, var(--media-pull-offset, 0px), 0);
+  transform: translate3d(var(--media-pull-offset, 0px), 0, 0);
   transition: none;
   will-change: transform;
 }

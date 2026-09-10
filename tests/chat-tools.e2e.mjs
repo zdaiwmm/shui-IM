@@ -74,7 +74,8 @@ try {
     app.renderMessages({ scroll: 'bottom' });
   });
   const albumCell = page.locator('#message-list .album-cell').first();
-  await albumCell.click(); await albumCell.click();
+  if (await albumCell.getAttribute('data-revealed') !== 'true') await albumCell.click();
+  await albumCell.click();
   await page.waitForFunction(() => document.querySelector('.viewer-stage')?.getAttribute('aria-busy') === 'false');
   assert.equal(await page.locator('[data-viewer-counter]').innerText(), '1 / 3', 'Chat paging must include other photo messages and exclude expression/file messages');
   await page.keyboard.press('ArrowLeft');

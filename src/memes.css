@@ -16,7 +16,7 @@
 .meme-expanded-dialog .meme-scroll { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
 .meme-pack-shortcuts button { flex: 0 0 44px; height: 44px; padding: 5px; border: 0; border-radius: 12px; background: transparent; display: grid; place-items: center; color: var(--ink-muted); }
 .meme-pack-shortcuts button[aria-pressed="true"] { background: var(--glass-control); color: var(--accent); }
-.meme-pack-shortcuts img { width: 24px; height: 24px; object-fit: contain; }
+.meme-pack-shortcuts img { width: 24px; height: 24px; object-fit: contain; border-radius: 6px; }
 .meme-open-search { display: flex; align-items: center; gap: 10px; min-width: 0; width: 100%; height: 44px; padding: 0 14px; color: var(--ink-muted) !important; text-align: left; }
 .meme-open-search, .meme-search, .meme-tabs [role="tablist"], .meme-collapse, .meme-preview-actions, .meme-preview-close { border: 1px solid var(--glass-border); border-radius: 24px; background: var(--glass-sheen), var(--glass-strong); box-shadow: var(--glass-shadow); -webkit-backdrop-filter: var(--glass-filter); backdrop-filter: var(--glass-filter); }
 .meme-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding: 8px 0 calc(76px + env(safe-area-inset-bottom)); scrollbar-width: none; }
@@ -74,9 +74,9 @@
 .meme-preview-actions button + button { border-top: 1px solid var(--line); color: var(--accent); }
 .meme-preview-close { display: block; margin: 10px auto 0; min-height: 44px; padding: 8px 24px; font: inherit; color: var(--ink); }
 .chat-shell .message-bubble.expression-bubble { max-width: min(192px, 100%); }
-.message-bubble.expression-bubble > .image-preview { background: transparent; border-radius: 0; box-shadow: none; }
+.message-bubble.expression-bubble > .image-preview { background: transparent; border-radius: 12px; overflow: hidden; box-shadow: none; }
 .chat-shell .expression-bubble .image-preview { max-width: min(192px, 100%); }
-.chat-shell .expression-bubble .image-preview img { max-height: min(28svh, 213.333px); }
+.chat-shell .expression-bubble .image-preview img { border-radius: 12px; max-height: min(28svh, 213.333px); }
 .message-bubble.expression-bubble > .message-meta { position: static; justify-self: end; margin-top: 4px; background: transparent; color: var(--ink-muted); }
 .message-bubble.expression-bubble > .message-meta time { color: inherit; }
 @media (max-height: 480px) { .composer.has-meme-panel { --meme-sheet-height: 52svh; } .meme-panel { height: 52svh; grid-template-rows: 44px 44px minmax(0,1fr); } }

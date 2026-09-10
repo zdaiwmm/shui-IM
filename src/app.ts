@@ -53,6 +53,7 @@ import { prepareImageMotion, type ImageMotion } from './lib/image-animation';
 import { createConcealedImage } from './lib/concealed-image';
 import { mountPhotoDetails } from './lib/photo-details';
 import { createElement, Info, Pause, Play, Plus, Camera, Maximize, Volume2, VolumeX } from 'lucide';
+import { isChatMedia, mediaReadTimes, MEDIA_READ_HIDE_DELAY_MS } from './lib/media-read';
 import { bindChatImageConcealGesture } from './lib/chat-image-conceal-gesture';
 import { CHAT_LATEST_GAP, mountChatBottomControl } from './lib/chat-bottom-control';
 import { CHAT_KEYBOARD_LAYOUT_MS, chatKeyboardLayoutProgress, createChatKeyboardLayout } from './lib/chat-keyboard-layout';
@@ -187,7 +188,7 @@ import {
 import { recoverFromCloud, restoreCloudHistory, syncCloudBackup } from './lib/cloud-backup';
 import './backup.css';
 
-const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'file-message-v1', CALL_CAPABILITY];
+const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'file-message-v1', CALL_CAPABILITY];
 // Safari may briefly move window focus into its native keyboard surface after
 // a direct textarea tap. Keep this exception short, one-use and independent
 // from chooser/media handoffs so every hard lifecycle signal still locks.
@@ -472,6 +473,11 @@ export class QuietRoomApp {
   private galleryMode: 'safe' | 'favorites' = 'safe';
   private galleryRevealedAssets = new Set<string>();
   private chatRevealedAssets = new Set<string>();
+  private chatExplicitlyConcealedAssets = new Set<string>();
+  private mediaReadQueued = new Set<string>();
+  private mediaReadExpired = new Set<string>();
+  private mediaReadDeadlines = new Map<string, number>();
+  private mediaReadTimer: number | null = null;
   private chatConcealedExpressions = new Set<string>();
   private chatImageConcealGesture: ReturnType<typeof bindChatImageConcealGesture> | null = null;
   private galleryKnownCounts: Partial<Record<GalleryTab, { keys: Set<string>; complete: boolean }>> = {};
@@ -2663,7 +2669,7 @@ export class QuietRoomApp {
     // Reaction/gallery events share the encrypted stream. An all-hidden tail
     // has no scrollbar, so fill backwards until there is a chat row to show.
     while (historyHasMore && !page.some(message => message.payload.kind !== 'gallery-image' && message.payload.kind !== 'gallery-file'
-      && message.payload.kind !== 'reaction' && message.payload.kind !== 'message-delete')) {
+      && message.payload.kind !== 'reaction' && message.payload.kind !== 'message-delete' && message.payload.kind !== 'media-read')) {
       page = await loadHistoryPage(session, { limit: 200, beforeSeq: Math.min(...page.map(message => message.seq)), signal: this.runtimeAbort.signal });
       if (!this.isRuntimeActive(epoch, session)) return;
       pages.unshift(page);
@@ -4784,10 +4790,58 @@ export class QuietRoomApp {
       if (rect.bottom < top) break;
       if (rect.top < bottom && rect.bottom > top) {
         const candidate = this.renderedMessageSeq.get(article.dataset.clientMsgId ?? '') ?? 0;
-        if (candidate < Number.MAX_SAFE_INTEGER) seq = Math.max(seq, candidate);
+        if (candidate < Number.MAX_SAFE_INTEGER) {
+          seq = Math.max(seq, candidate);
+          this.queueVisibleMediaRead(article, candidate);
+        }
       }
     }
     if (seq > 0) void this.unreadCounter.markRead(session.vault, seq, this.runtimeAbort?.signal);
+  }
+
+  private queueVisibleMediaRead(article: HTMLElement, seq: number): void {
+    const message = this.messages.get(seq);
+    if (!message || !isChatMedia(message) || this.isOwnMessage(message) || !document.hasFocus()
+      || !this.activeDevicesSupport('media-read-v1') || this.mediaReadQueued.has(message.clientMsgId)) return;
+    const previews = [...article.querySelectorAll<HTMLElement>('.image-preview')];
+    if (!previews.length || previews.some(preview => preview.dataset.imageState !== 'loaded' || preview.dataset.revealed !== 'true')) return;
+    const previous = [...this.messageEventHistory.values(), ...this.messages.values(), ...this.pending.values()];
+    if (previous.some(event => event.payload.kind === 'media-read' && this.isOwnMessage(event)
+      && event.payload.target.clientMsgId === message.clientMsgId
+      && event.payload.target.serverSeq === message.seq && event.payload.target.senderId === message.senderId)) return;
+    this.mediaReadQueued.add(message.clientMsgId);
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    void this.enqueuePayload({ v: 1, kind: 'media-read', sentAt: new Date().toISOString(),
+      target: { clientMsgId: message.clientMsgId, serverSeq: message.seq, senderId: message.senderId },
+    }).catch(() => {
+      if (session && this.isRuntimeActive(epoch, session)) this.mediaReadQueued.delete(message.clientMsgId);
+    });
+  }
+
+  private refreshMediaReadVisibility(): void {
+    if (this.mediaReadTimer !== null) window.clearTimeout(this.mediaReadTimer);
+    this.mediaReadTimer = null;
+    if (!this.session || this.privacyCovered) return;
+    const roles = new Map(this.session.vault.members.map(member => [member.deviceId, member.role]));
+    const messages = [...this.messageEventHistory.values(), ...this.messages.values()];
+    this.mediaReadDeadlines = new Map([...mediaReadTimes(messages, roles)]
+      .map(([id, time]) => [id, time + MEDIA_READ_HIDE_DELAY_MS]));
+    let next = Infinity;
+    const now = Date.now();
+    for (const message of this.messages.values()) {
+      if (!this.isOwnMessage(message)) continue;
+      const deadline = this.mediaReadDeadlines.get(message.clientMsgId);
+      if (deadline === undefined || this.mediaReadExpired.has(message.clientMsgId)) continue;
+      if (deadline > now) { next = Math.min(next, deadline); continue; }
+      this.mediaReadExpired.add(message.clientMsgId);
+      for (const key of this.chatRevealedAssets) {
+        if (key.startsWith(`${message.clientMsgId}:`)) this.chatRevealedAssets.delete(key);
+      }
+    }
+    this.root.querySelectorAll<HTMLButtonElement>('#message-list .image-preview')
+      .forEach(button => this.updateChatImageVisibility(button));
+    if (Number.isFinite(next)) this.mediaReadTimer = window.setTimeout(() => this.refreshMediaReadVisibility(), Math.max(1, next - now));
   }
 
   private setActiveSurface(surface: 'away' | 'chat'): boolean {
@@ -5482,7 +5536,7 @@ export class QuietRoomApp {
     };
     this.pending.set(clientMsgId, pending);
     if (['text', 'image', 'image-album', 'file', 'audio'].includes(payload.kind)) this.presenceCircuit?.sent();
-    const projectionEvent = payload.kind === 'reaction' || payload.kind === 'message-delete';
+    const projectionEvent = payload.kind === 'reaction' || payload.kind === 'message-delete' || payload.kind === 'media-read';
     this.renderMessages({ scroll: projectionEvent ? 'preserve' : 'send' });
     if (!projectionEvent) this.trackChatViewport(!this.desktopBrowser);
     await this.attemptSend(clientMsgId);
@@ -5504,7 +5558,7 @@ export class QuietRoomApp {
       if (!this.isRuntimeActive(epoch, session)) return;
       if (this.deferUnsupportedPayload(item)) return;
       this.socket?.sendEnvelope(envelope, item.payload.kind !== 'gallery-image' && item.payload.kind !== 'gallery-file'
-        && item.payload.kind !== 'reaction' && item.payload.kind !== 'message-delete');
+        && item.payload.kind !== 'reaction' && item.payload.kind !== 'message-delete' && item.payload.kind !== 'media-read');
       this.scheduleRetry(clientMsgId);
     } catch (cause) {
       if (!this.isRuntimeActive(epoch, session)) return;
@@ -6166,7 +6220,7 @@ export class QuietRoomApp {
   private orderedMessages(deletedForEveryone = this.messageDeletions()): DecryptedMessage[] {
     const hiddenOnThisDevice = new Set(this.uiPreferences.hiddenChatMessageIds ?? []);
     const visible = (message: DecryptedMessage) => message.payload.kind !== 'gallery-image' && message.payload.kind !== 'gallery-file'
-      && message.payload.kind !== 'reaction' && message.payload.kind !== 'message-delete'
+      && message.payload.kind !== 'reaction' && message.payload.kind !== 'message-delete' && message.payload.kind !== 'media-read'
       && !deletedForEveryone.has(message.clientMsgId) && !hiddenOnThisDevice.has(message.clientMsgId.toLowerCase());
     const confirmed = [...this.messages.values()]
       .filter(visible)
@@ -6183,6 +6237,7 @@ export class QuietRoomApp {
   }
 
   private payloadCapabilityError(payload: MessagePayload): string | null {
+    if (payload.kind === 'media-read' && !this.activeDevicesSupport('media-read-v1')) return '已读同步等待设备更新';
     if (payload.kind === 'reaction' && !this.activeDevicesSupport('message-reactions-v1')) {
       return '请先让所有已授权设备打开最新版，再使用表情回应';
     }
@@ -6219,7 +6274,7 @@ export class QuietRoomApp {
     const firstDeferral = !this.deferredCapabilityItems.has(item.clientMsgId);
     this.deferredCapabilityItems.add(item.clientMsgId);
     const pending = this.pending.get(item.clientMsgId);
-    const projectionEvent = item.payload.kind === 'reaction' || item.payload.kind === 'message-delete';
+    const projectionEvent = item.payload.kind === 'reaction' || item.payload.kind === 'message-delete' || item.payload.kind === 'media-read';
     if (!projectionEvent && pending && pending.status !== 'failed') {
       pending.status = 'failed';
       this.renderMessages();
@@ -6252,6 +6307,7 @@ export class QuietRoomApp {
     if (message.payload.kind === 'audio') return `语音 · ${voiceTime(message.payload.durationMs)}`;
     if (message.payload.kind === 'file' || message.payload.kind === 'gallery-file') return `${isVideoFile(message.payload.file) ? '视频' : '文件'} · ${this.replyPreview(message.payload.file.originalName || '未命名文件')}`;
     if (message.payload.kind === 'image-album') return `${message.payload.images.length} 张图片`;
+    if (message.payload.kind === 'media-read') return '媒体已读';
     if (message.payload.kind === 'reaction') return '表情回应';
     return '图片';
   }
@@ -6884,7 +6940,7 @@ export class QuietRoomApp {
         const saved = await loadHistoryMessage(session, seq, signal);
         if (!this.isRuntimeActive(epoch, session) || !list.isConnected || this.replyJumpVersion !== jumpVersion) return;
         if (saved?.clientMsgId === clientMsgId && saved.payload.kind !== 'gallery-image' && saved.payload.kind !== 'gallery-file'
-          && saved.payload.kind !== 'reaction' && saved.payload.kind !== 'message-delete') {
+          && saved.payload.kind !== 'reaction' && saved.payload.kind !== 'message-delete' && saved.payload.kind !== 'media-read') {
           const nearby = await loadHistoryPage(session, { limit: 200, beforeSeq: Math.min(seq + 101, Number.MAX_SAFE_INTEGER), signal });
           if (!this.isRuntimeActive(epoch, session) || !list.isConnected || this.replyJumpVersion !== jumpVersion) return;
           for (const message of nearby) this.messages.set(message.seq, message);
@@ -7090,6 +7146,7 @@ export class QuietRoomApp {
     }
     const reactionLayoutChanged = this.renderMessageReactions();
     this.mountChatImageObserver(list);
+    this.refreshMediaReadVisibility();
     this.voicePlayback.prune();
     if (scroll === 'bottom' || followSend || !anchor) {
       this.chatPinnedToBottom = true;
@@ -8013,8 +8070,14 @@ export class QuietRoomApp {
   }
 
   private updateChatImageVisibility(button: HTMLButtonElement): void {
-    const revealed = this.chatRevealedAssets.has(button.dataset.revealKey!) ||
-      button.dataset.expression === 'true' && !this.chatConcealedExpressions.has(button.dataset.revealKey!);
+    const key = button.dataset.revealKey!;
+    const messageId = button.dataset.mediaMessageId;
+    const message = messageId ? [...this.messages.values(), ...this.pending.values()].find(item => item.clientMsgId === messageId) : undefined;
+    const outgoing = message && this.isOwnMessage(message);
+    const automatic = outgoing ? !this.mediaReadExpired.has(message.clientMsgId)
+      : button.dataset.expression === 'true' && !this.chatConcealedExpressions.has(key);
+    const revealed = !this.privacyCovered && (this.chatRevealedAssets.has(key)
+      || automatic && !this.chatExplicitlyConcealedAssets.has(key));
     button.dataset.revealed = String(revealed);
     button.setAttribute('aria-label', (revealed ? button.dataset.openLabel : button.dataset.revealLabel)!);
   }
@@ -8049,6 +8112,7 @@ export class QuietRoomApp {
     this.chatImageConcealGesture?.reset();
     this.chatRevealedAssets.clear();
     this.root.querySelectorAll<HTMLButtonElement>('#message-list .image-preview').forEach(button => {
+      this.chatExplicitlyConcealedAssets.add(button.dataset.revealKey!);
       if (button.dataset.expression === 'true') this.chatConcealedExpressions.add(button.dataset.revealKey!);
       this.updateChatImageVisibility(button);
     });
@@ -8074,6 +8138,7 @@ export class QuietRoomApp {
     const video = isVideoFile(manifest);
     button.className = `image-preview${video ? ' video-preview' : ''}`;
     button.dataset.blobId = manifest.blobId;
+    button.dataset.mediaMessageId = clientMsgId;
     button.dataset.revealKey = `${clientMsgId}:${manifest.blobId}`;
     button.dataset.imageState = 'pending';
     button.dataset.openLabel = `${video ? '播放视频' : '放大查看'} ${description}`;
@@ -8119,6 +8184,7 @@ export class QuietRoomApp {
       if (button.dataset.revealed !== 'true') {
         this.chatRevealedAssets.add(button.dataset.revealKey!);
         this.updateChatImageVisibility(button);
+        this.markVisibleMessagesRead();
         return;
       }
       const assets = this.orderedMessages().flatMap(source => {
@@ -8205,6 +8271,7 @@ export class QuietRoomApp {
     const list = ownerList();
     if (list && anchor) this.restoreChatAnchor(list, anchor);
     if (list) this.finishChatAnchorRestore(list);
+    this.markVisibleMessagesRead();
   }
 
   private async hydrateImagePreview(button: HTMLButtonElement, manifest: ImageManifest): Promise<void> {
@@ -9832,6 +9899,12 @@ export class QuietRoomApp {
     this.session = null;
     this.messages.clear();
     this.messageEventHistory.clear();
+    if (this.mediaReadTimer !== null) window.clearTimeout(this.mediaReadTimer);
+    this.mediaReadTimer = null;
+    this.mediaReadQueued.clear();
+    this.mediaReadExpired.clear();
+    this.mediaReadDeadlines.clear();
+    this.chatExplicitlyConcealedAssets.clear();
     this.clearMessageTextSelection();
     this.pending.clear();
     this.outbox.clear();
