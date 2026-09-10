@@ -81,8 +81,8 @@ SHA 完全相同。只有外层核对成功并且后续独立只读生产回读�
 npm run deploy:readback -- --sha <本次获批并已发布的40位提交号>
 ```
 
-当前保存证据实现要求源码目录中的 `.git` 是目录。linked worktree 的 `.git` 是文件，
-会在远端检查后以 `evidence-write` 阻塞；修复前在已有精确发布克隆中执行同一入口，先以
+保存证据通过 `git rev-parse --absolute-git-dir` 定位当前工作树独立的 Git 元数据目录，
+支持普通克隆与 linked worktree；该目录仍需执行权限。旧版本入口不支持 linked worktree 时，在已有精确发布克隆中执行同一入口，先以
 `npm ci --omit=dev --ignore-scripts --no-audit --no-fund` 准备锁定依赖，通过环境传入现有配置，
 不复制凭据、不再次部署。该限制不能记作生产失败或静默跳过证据保存。
 

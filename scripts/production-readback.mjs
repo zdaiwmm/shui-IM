@@ -254,7 +254,15 @@ export async function runReadback(expectedSha, operations, emit = console.log, c
   return evidence;
 }
 
-export function saveEvidence(evidence, directory = path.join(root, '.git', 'quiet-room-readback')) {
+export function evidenceDirectory(cwd = root) {
+  const result = spawnSync('git', ['rev-parse', '--absolute-git-dir'], { cwd, encoding: 'utf8', timeout: 10000 });
+  if (result.error || result.status !== 0 || !path.isAbsolute(result.stdout.trim())) {
+    throw new Error('Cannot resolve worktree Git metadata directory');
+  }
+  return path.join(result.stdout.trim(), 'quiet-room-readback');
+}
+
+export function saveEvidence(evidence, directory = evidenceDirectory()) {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const stamp = evidence.startedAt.replaceAll(/[-:.]/g, '').replace('Z', 'Z');
   const target = path.join(directory, `${stamp}-${evidence.expectedSha.slice(0, 12)}-${evidence.status}.json`);

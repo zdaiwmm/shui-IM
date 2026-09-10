@@ -74,7 +74,7 @@ jobs:
       - run: npm run check
 
   browser:
-    name: Browser regression group ${{ matrix.group }}
+    name: Browser regression group ${{ matrix.group }} shard ${{ matrix.shard }}
     needs: scope
     if: needs.scope.outputs.mode == 'full'
     runs-on: ubuntu-latest
@@ -82,7 +82,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [1, 2]
+        include:
+          - { group: 1, shard: '1/1' }
+          - { group: 2, shard: '1/4' }
+          - { group: 2, shard: '2/4' }
+          - { group: 2, shard: '3/4' }
+          - { group: 2, shard: '4/4' }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -95,7 +100,7 @@ jobs:
         run: npx playwright install --with-deps webkit
       # The backup/admin browser fixture serves dist/admin.html.
       - run: npm run build
-      - run: npm run test:browser -- --group ${{ matrix.group }}
+      - run: npm run test:browser -- --group ${{ matrix.group }} --shard ${{ matrix.shard }}
 
   calls:
     name: Native call media and call views
