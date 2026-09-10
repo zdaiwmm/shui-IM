@@ -1,3 +1,6 @@
+import { CallSignalQueue } from './call-signal-queue';
+import { validateCallConfiguration } from './call-configuration';
+import { boundedOperation, networkDelay, NetworkOperationError } from './network-operation';
 import type {
   DeliveryReceipt,
   MessageEnvelope,
@@ -89,22 +92,26 @@ export async function getRoomState(roomId: string, accessToken: string): Promise
 }
 
 export async function getCallConfiguration(roomId: string, accessToken: string, signal?: AbortSignal): Promise<CallIceConfiguration> {
-  let lastError: unknown;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if (signal?.aborted) throw signal.reason ?? new DOMException('请求已取消', 'AbortError');
+  // Four attempts, including the initial request. Each deadline includes body decoding.
+  for (let attempt = 0; ; attempt += 1) {
+    signal?.throwIfAborted();
     try {
-      const response = await authorizedFetch(`/api/rooms/${roomId}/call-config`, accessToken, { signal, cache: 'no-store' });
-      return response.json();
+      return await boundedOperation(async requestSignal => {
+        const response = await authorizedFetch(`/api/rooms/${roomId}/call-config`, accessToken, { signal: requestSignal, cache: 'no-store' });
+        let body: unknown;
+        try { body = await response.json(); } catch (error) {
+          requestSignal.throwIfAborted();
+          if (error instanceof SyntaxError) throw new NetworkOperationError('CALL_CONFIG_INVALID', '通话网络配置无效');
+          throw error;
+        }
+        return validateCallConfiguration(body);
+      }, 4000, 'CALL_CONFIG_TIMEOUT', signal);
     } catch (error) {
-      lastError = error;
-      if (signal?.aborted || (error instanceof ApiError && !error.retryable) || attempt === 2) throw error;
-      await new Promise<void>((resolve, reject) => {
-        const timer = window.setTimeout(resolve, 250 * 2 ** attempt);
-        signal?.addEventListener('abort', () => { window.clearTimeout(timer); reject(signal.reason ?? new DOMException('请求已取消', 'AbortError')); }, { once: true });
-      });
+      const retryable = error instanceof TypeError || (error instanceof ApiError && error.retryable) || (error instanceof NetworkOperationError && error.code === 'CALL_CONFIG_TIMEOUT');
+      if (signal?.aborted || !retryable || attempt >= 3) throw error;
+      await networkDelay([250, 500, 1000][attempt]!, signal);
     }
   }
-  throw lastError instanceof Error ? lastError : new Error('通话网络配置暂不可用');
 }
 
 export async function requestRecovery(
@@ -312,6 +319,7 @@ function isRoomPresence(value: unknown): value is RoomPresence {
 
 type SocketHandlers = {
   call?: (envelope: CallEnvelope) => AsyncSocketHandler;
+  callTransport?: (code: string) => void;
   callState?: (event: CallServerEvent) => AsyncSocketHandler;
   connection: (state: 'connecting' | 'connected' | 'disconnected') => void;
   presence: (roles: RoomPresence, lastSeen: { creator: number | null; joiner: number | null }) => void;
@@ -328,6 +336,13 @@ type SocketHandlers = {
 
 export class RoomSocket {
   private socket: WebSocket | null = null;
+  private connectionDeadline: ReturnType<typeof setTimeout> | null = null;
+  private readonly callSignals = new CallSignalQueue(envelope => {
+    if (!this.authenticated || this.socket?.readyState !== WebSocket.OPEN) return false;
+    if (this.socket.bufferedAmount > 512 * 1024) { this.handlers.callTransport?.('WS_BACKPRESSURE'); return false; }
+    this.socket.send(JSON.stringify({ type: 'call', envelope }));
+    return true;
+  });
   private reconnectTimer: number | null = null;
   private retry = 0;
   private closed = false;
@@ -360,8 +375,11 @@ export class RoomSocket {
     if (this.closed || this.socket?.readyState === WebSocket.OPEN || this.socket?.readyState === WebSocket.CONNECTING) return;
     this.handlers.connection('connecting');
     const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    this.socket = new WebSocket(`${scheme}//${location.host}/ws`);
+    const socket = this.socket = new WebSocket(`${scheme}//${location.host}/ws`);
+    this.armConnectionDeadline(socket, 'WS_CONNECT_TIMEOUT');
     this.socket.addEventListener('open', () => {
+      if (this.socket !== socket || this.closed) return;
+      this.armConnectionDeadline(socket, 'WS_AUTH_TIMEOUT');
       this.authenticated = false;
       this.lastSentPresenceView = null;
       this.socket?.send(JSON.stringify({
@@ -375,8 +393,12 @@ export class RoomSocket {
         afterReceiptSeq: this.afterReceiptSeq(),
       }));
     });
-    this.socket.addEventListener('message', (event) => this.handleFrame(String(event.data)));
-    this.socket.addEventListener('close', () => {
+    this.socket.addEventListener('message', (event) => { if (this.socket === socket && !this.closed) this.handleFrame(String(event.data)); });
+    this.socket.addEventListener('close', (event) => {
+      if (this.socket !== socket) return;
+      if (this.connectionDeadline) clearTimeout(this.connectionDeadline);
+      this.connectionDeadline = null;
+      if ([4401, 4403].includes(event.code)) { this.closed = true; this.callSignals.close(); this.handlers.callTransport?.('WS_AUTH_FAILED'); }
       this.stopHeartbeat();
       this.authenticated = false;
       this.lastSentPresenceView = null;
@@ -391,11 +413,14 @@ export class RoomSocket {
     try {
       const frame = JSON.parse(raw) as Record<string, unknown>;
       if (frame.type === 'ready') {
+        if (this.connectionDeadline) clearTimeout(this.connectionDeadline);
+        this.connectionDeadline = null;
         this.retry = 0;
         this.startHeartbeat();
         this.authenticated = true;
         this.handlers.connection('connected');
         this.flushChatPresence();
+        this.callSignals.flush(true);
         this.queueMembershipUpdate(() => this.handlers.ready(frame.state as RoomState));
       } else if (frame.type === 'membership') {
         this.queueMembershipUpdate(() => this.handlers.membership(frame.state as RoomState));
@@ -425,7 +450,10 @@ export class RoomSocket {
         this.lastPongAt = Date.now();
       } else if (frame.type === 'call') {
         this.runAfterMembershipUpdate(() => this.handlers.call?.(frame.envelope as CallEnvelope));
+      } else if (frame.type === 'call-ack') {
+        if (typeof frame.callId === 'string' && typeof frame.eventId === 'string') this.callSignals.acknowledge(frame.callId, frame.eventId);
       } else if (frame.type === 'call-state') {
+        if (frame.state === 'error' && typeof frame.callId === 'string' && typeof frame.eventId === 'string' && typeof frame.code === 'string') this.callSignals.reject(frame.callId, frame.eventId, frame.code);
         this.runAfterMembershipUpdate(() => this.handlers.callState?.(frame as CallServerEvent));
       } else if (frame.type === 'error') {
         const clientMsgId = typeof frame.clientMsgId === 'string' ? frame.clientMsgId : undefined;
@@ -484,10 +512,19 @@ export class RoomSocket {
     this.flushChatPresence();
   }
 
-  sendCall(envelope: CallEnvelope): void {
-    if (!this.authenticated || this.socket?.readyState !== WebSocket.OPEN) throw new Error('通话连接已断开');
-    if (this.socket.bufferedAmount > 512 * 1024) throw new Error('网络拥堵，请稍后重试');
-    this.socket.send(JSON.stringify({ type: 'call', envelope }));
+  sendCall(envelope: CallEnvelope): Promise<void> {
+    if (this.closed) return Promise.reject(new NetworkOperationError('WS_CLOSED', '通话连接已关闭'));
+    return this.callSignals.send(envelope);
+  }
+  cancelCallSignals(callId: string) { this.callSignals.cancel(callId); }
+  private armConnectionDeadline(socket: WebSocket, code: string) {
+    if (this.connectionDeadline) clearTimeout(this.connectionDeadline);
+    this.connectionDeadline = setTimeout(() => {
+      this.connectionDeadline = null;
+      if (this.socket !== socket || this.closed) return;
+      this.handlers.callTransport?.(code);
+      socket.close(4000, 'Connection timeout');
+    }, code === 'WS_CONNECT_TIMEOUT' ? 8000 : 10_000);
   }
 
   private flushChatPresence(): void {
@@ -547,6 +584,9 @@ export class RoomSocket {
     this.desiredPresenceView = 'away';
     this.flushChatPresence();
     this.closed = true;
+    this.callSignals.close();
+    if (this.connectionDeadline) clearTimeout(this.connectionDeadline);
+    this.connectionDeadline = null;
     this.sentEnvelopes.clear();
     this.stopHeartbeat();
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);

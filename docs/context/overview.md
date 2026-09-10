@@ -70,7 +70,8 @@
 - `npm run test:browser`：通过 `scripts/test-browser.mjs` 串行运行全部真实浏览器脚本，并输出逐脚本和总耗时。`-- --group 1` / `-- --group 2` 分别运行主流程与其余专项；CI 在两个独立执行环境中并行运行两组。
 - `npm run check:full`：运行 `check`，然后运行浏览器套件。
 - `npm run deploy:readback -- --sha <40位SHA>`：独立、只读地复核该精确生产版本，输出逐阶段耗时与失败分类，并在 `.git/quiet-room-readback/` 保存脱敏结构化证据；它不发布、不回滚，也不替代发布授权。
-- `npm run test:calls`：完整通话专项入口，包含部分 Vitest 用例与 `call-native.e2e.mjs`、`call-view.e2e.mjs`。`npm run test:calls:e2e` 只运行后两个浏览器专项；CI 与本地已完成 `check:full` 后使用此入口，避免重复运行已被 `npm test` 包含的通话单元测试。
+- `npm run test:weak-network`：通话控制器、配置、信令确认和语音重试专项，以及 Chrome 信令/质量输入和 CDP WebRTC 网络故障注入；不等于真机或实际 TURN 验收。
+- `npm run test:calls`：完整通话专项入口，包含部分 Vitest 用例与 `call-native.e2e.mjs`、`call-view.e2e.mjs` 和 `call-weak-network.e2e.mjs`。`npm run test:calls:e2e` 只运行这三个浏览器专项；CI 与本地已完成 `check:full` 后使用此入口，避免重复运行已被 `npm test` 包含的通话单元测试。
 - `node scripts/audit-production.mjs`：使用 npm 官方源审计生产依赖；仅对明确的临时接口故障最多尝试三次。high/critical 漏洞、无效报告和接口持续不可用均阻断 CI。
 
 两个容易误判的细节：

@@ -214,6 +214,22 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
     assert.equal(await joiner.locator('.call-view').count(), 0, 'No invite may be sent after the caller locked during permission');
     await unlock(creator);
     await ready(creator);
+    for (const lifecycle of ['pagehide', 'freeze']) {
+      await creator.bringToFront();
+      await creator.evaluate(() => { window.__callFlow.deferNext = true; });
+      await start(creator, 'audio');
+      await creator.waitForFunction(() => typeof window.__callFlow.resolvePermission === 'function');
+      await creator.evaluate(name => (name === 'freeze' ? document : window).dispatchEvent(new Event(name)), lifecycle);
+      await creator.locator('.cover-trigger').waitFor();
+      await creator.evaluate(async () => {
+        const state = window.__callFlow, stream = await state.media({ audio: true });
+        state.lateTracks = stream.getTracks(); state.tracks.push(...state.lateTracks);
+        state.resolvePermission(stream); state.resolvePermission = null;
+      });
+      await tracksStopped(creator);
+      assert.equal(await joiner.locator('.call-view').count(), 0, 'Locked setup must never deliver an invite');
+      await unlock(creator); await ready(creator);
+    }
     assert.deepEqual(errors, []);
     process.stdout.write('App call E2E passed: authenticated voice/video, acceptance, microphone mute, camera upgrade/stop, idle suspension, decline/cancel, pagehide/freeze, and late permission cleanup.\n');
   } finally {

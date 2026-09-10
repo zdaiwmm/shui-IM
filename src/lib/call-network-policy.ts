@@ -9,13 +9,23 @@ export function recoveryAction(failures: number, relayAvailable: boolean): Recov
   return 'end-call';
 }
 
-export function classifyQuality(input: { rttMs: number; jitterMs: number; packetLoss: number; bitrateKbps: number; candidateState: string; audioMuted?: boolean; recovering?: boolean }): QualityLevel {
+export function classifyQuality(input: { rttMs?: number; jitterMs?: number; packetLoss?: number; bitrateKbps?: number; candidateState: string; audioMuted?: boolean; recovering?: boolean }): QualityLevel {
   if (input.recovering) return 'recovering';
-  const degraded = input.rttMs > 450 || input.jitterMs > 60 || input.packetLoss > 0.06 || input.bitrateKbps < 300 || !['connected', 'completed'].includes(input.candidateState);
-  const audioOnly = input.rttMs > 800 || input.jitterMs > 120 || input.packetLoss > 0.2 || input.bitrateKbps < 120;
-  if (audioOnly && !input.audioMuted) return 'audio-only';
+  const lowBitrate = input.bitrateKbps !== undefined && input.bitrateKbps < 300;
+  const degraded = (input.rttMs ?? 0) > 450 || (input.jitterMs ?? 0) > 60 || (input.packetLoss ?? 0) >= 0.06 || lowBitrate || input.audioMuted || !['succeeded', 'connected', 'completed'].includes(input.candidateState);
+  const audioOnly = (input.rttMs ?? 0) >= 800 || (input.jitterMs ?? 0) >= 120 || (input.packetLoss ?? 0) >= 0.2 || (input.bitrateKbps !== undefined && input.bitrateKbps < 120);
+  if (audioOnly) return 'audio-only';
   return degraded ? 'degraded' : 'good';
 }
+
+/** Fixed initial thresholds, adjusted only after real path measurements. */
+export const VIDEO_LIMITS = [
+  { bitrate: 1_500_000, scale: 1, fps: 24 },
+  { bitrate: 700_000, scale: 1, fps: 24 },
+  { bitrate: 350_000, scale: 2, fps: 24 },
+  { bitrate: 180_000, scale: 3, fps: 12 },
+  { bitrate: 0, scale: 3, fps: 12 },
+] as const;
 
 export const WEAK_NETWORK_PROFILES = [
   ...[100, 300, 800].map((latencyMs) => ({ name: `latency-${latencyMs}`, latencyMs, uplinkLoss: 0, downlinkLoss: 0 })),

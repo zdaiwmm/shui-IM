@@ -103,6 +103,22 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   await creator.locator('.message.outgoing:has(.voice-player).is-delivered').nth(beforeCancel).waitFor();
   assert.equal(await creator.locator('.voice-player').count(), beforeCancel + 1);
 
+  const beforeAckLoss = await creator.locator('.voice-player').count();
+  const peerBeforeAckLoss = await joiner.locator('.message.incoming .voice-player').count();
+  let completionDropped = false;
+  await creator.route('**/api/rooms/*/blobs/*/complete', async route => {
+    if (completionDropped) return route.continue();
+    completionDropped = true; await route.fetch(); await route.abort();
+  });
+  await start(); await creator.waitForTimeout(850); await pause();
+  await creator.getByRole('button', { name: '发送语音', exact: true }).click();
+  await creator.locator('.message.outgoing:has(.voice-player).is-delivered').nth(beforeAckLoss).waitFor();
+  await joiner.locator('.message.incoming .voice-player').nth(peerBeforeAckLoss).waitFor();
+  assert(completionDropped, 'Completion acknowledgment fault was not injected');
+  assert.equal(await creator.locator('.voice-player').count(), beforeAckLoss + 1);
+  assert.equal(await joiner.locator('.message.incoming .voice-player').count(), peerBeforeAckLoss + 1);
+  await creator.unroute('**/api/rooms/*/blobs/*/complete');
+
   // Re-locking tears down active playback and recording, including tracks and
   // Blob URLs; historical voice remains after a normal authenticated unlock.
   await creator.locator('.voice-player').first().getByRole('button', { name: '播放语音', exact: true }).click();
@@ -110,7 +126,7 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   await creator.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   await creator.locator('.cover-trigger').waitFor();
   await unlock(creator); await creator.locator('.chat-shell').waitFor();
-  assert.equal(await creator.locator('.voice-player').count(), beforeCancel + 1);
+  assert.equal(await creator.locator('.voice-player').count(), beforeAckLoss + 1);
   await start();
   await creator.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   await creator.locator('.cover-trigger').waitFor();

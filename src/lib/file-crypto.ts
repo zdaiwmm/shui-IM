@@ -1,3 +1,4 @@
+import { VoiceNetworkError } from './voice-network';
 import { createSHA256 } from 'hash-wasm';
 import { canonicalStringify } from './canonical';
 import { fromBase64Url, toBase64Url } from './base64';
@@ -214,8 +215,16 @@ export function decryptImageFile(manifest: ImageManifest, fetchChunk: FetchChunk
 
 type FetchChunk = (blobId: string, index: number) => Promise<ArrayBuffer>;
 
-export function decryptAudioFile(manifest: ImageManifest, fetchChunk: FetchChunk, progress?: (ratio: number) => void, signal?: AbortSignal): Promise<Blob> {
-  return decryptAttachmentFile(manifest, fetchChunk, progress, signal, 'audio');
+export async function decryptAudioFile(manifest: ImageManifest, fetchChunk: FetchChunk, progress?: (ratio: number) => void, signal?: AbortSignal): Promise<Blob> {
+  let fetchFailure: unknown;
+  try {
+    return await decryptAttachmentFile(manifest, async (blobId, index) => {
+      try { return await fetchChunk(blobId, index); } catch (error) { fetchFailure = error; throw error; }
+    }, progress, signal, 'audio');
+  } catch (error) {
+    if (signal?.aborted || error === fetchFailure) throw error;
+    throw new VoiceNetworkError('VOICE_DECRYPT_FAILED');
+  }
 }
 
 export function decryptFileAttachment(manifest: FileManifest, fetchChunk: FetchChunk, progress?: (ratio: number) => void, signal?: AbortSignal): Promise<Blob> {

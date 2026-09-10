@@ -162,7 +162,7 @@ export class CallView {
     this.element.classList.toggle('call-has-remote-video', remoteVisible);
     this.element.classList.toggle('call-has-local-video', localVisible);
     this.element.classList.toggle('call-local-mirrored', state.facingMode === 'user');
-    this.element.classList.toggle('call-poor-connection', state.quality === 'poor');
+    this.element.classList.toggle('call-poor-connection', state.quality !== 'good');
     this.peerName.textContent = state.peerName || '对方';
     this.callType.textContent = state.kind === 'video' ? '视频通话' : '语音通话';
     const fallbackStatus = {
@@ -184,8 +184,8 @@ export class CallView {
     setIcon(this.mic.querySelector('.call-control-disc')!, state.micMuted ? 'microphoneOff' : 'microphone');
     this.camera.disabled = !connected || !state.localStream;
     this.camera.setAttribute('aria-pressed', String(state.cameraEnabled));
-    this.camera.setAttribute('aria-label', state.cameraEnabled ? '关闭摄像头' : '打开摄像头');
-    this.camera.querySelector('.call-control-label')!.textContent = state.cameraEnabled ? '摄像头' : '已关闭';
+    this.camera.setAttribute('aria-label', state.cameraPaused ? '停用视频自动恢复' : state.cameraEnabled ? '关闭摄像头' : '打开摄像头');
+    this.camera.querySelector('.call-control-label')!.textContent = state.cameraPaused ? '视频已暂停' : state.cameraEnabled ? '摄像头' : '已关闭';
     setIcon(this.camera.querySelector('.call-control-disc')!, state.cameraEnabled ? 'camera' : 'cameraOff');
     this.flip.disabled = !connected || !state.cameraEnabled || !state.canSwitchCamera;
     this.flip.hidden = !state.canSwitchCamera;
@@ -196,7 +196,7 @@ export class CallView {
     const remoteHint = connected ? [
       state.remoteMuted ? '对方已静音' : '',
       state.kind === 'video' && !state.remoteVideoEnabled ? '对方已关闭摄像头' : '',
-      state.quality === 'poor' && state.phase !== 'reconnecting' ? '网络不稳定' : '',
+      state.quality !== 'good' && state.phase !== 'reconnecting' ? ({ good: '', degraded: '视频画质已降低', 'audio-only': '已暂停视频，语音保持连接', recovering: '视频画质逐步恢复中' }[state.quality]) : '',
     ].filter(Boolean).join(' · ') : '';
     this.remoteHint.textContent = remoteHint;
     this.remoteHint.hidden = !remoteHint;

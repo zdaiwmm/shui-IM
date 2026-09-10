@@ -2,10 +2,11 @@
 
 ## 弱网通话连接策略（2026-09-10，已合并未发布）
 
-- 通话连接分层诊断、候选预收集与 relay 升级、质量降级/恢复策略、WebSocket 宽限重绑定、配置校验及脱敏快照已在 PR [#74](https://github.com/zdaiwmm/shui-IM/pull/74) 合并；远端 main 精确提交为 `7f331269b1cd6c42eb64d9addd1a40479e4f620f`。
-- CI [34442819733](https://github.com/zdaiwmm/shui-IM/actions/runs/34442819733) 的构建、单元/集成、服务端通话、原生通话媒体、浏览器 group 1/2、依赖审计和汇总 verify 全部通过。新增服务端回归覆盖 transport grace 中旧 callId 被新通话替换；本机 `npm ci`、`npm run build`、`npm test`（71 文件/544 项）和 `npm run test:calls` 通过。
-- 本机完整浏览器脚本单独复测通过；`npm run check:full` 在第四个浏览器脚本完成后仅因本机包装器回收子进程触发 `EPERM` 返回失败，不能外推为产品断言失败。弱网策略单元夹具已纳入测试，但尚未完成真实 TURN 多地域/多协议故障注入和上下行限速矩阵。
-- 当前仅证明代码已合并和自动测试通过；未进行真实 iPhone / iOS 27 / Safari 验收，未进行真实 TURN 基础设施验证，未发布生产。下一步应在真实设备和可控 TURN/DNS 网络夹具上验证首通耗时、语音保持、视频逐级降级、网络切换恢复及配置刷新边界。
+- [PR #77](https://github.com/zdaiwmm/shui-IM/pull/77) 已合并，代码候选 `c3e14d68a57408391d0f1fc13cbb288ffe0d152d`，main 合并提交 `63a329078d9541699d48b93835094a1342c09506`；任务分支已推送并回查。十阶段时钟、ICE 恢复阶梯、TURN 配置校验与刷新、信令 ACK/同 ID 重传、语音优先和幂等语音重试见 [CALLS.md](../../CALLS.md#弱网连接策略与诊断2026-09-10)。
+- 最终候选 `npm ci`、构建、`npm test` 75 文件 / 611 项、`check:full` 30/30 浏览器入口、`test:calls` 123 项及调用的 `test:calls:e2e`、独立 `test:weak-network` 61 项和 20 场景均通过。完整命令、逐场景接通数据和证据边界见 [验收报告](../../audit/2026-09-10-call-weak-network.md)；取代 PR #74/#75 阶段的不足证据，不将分组复测写为完整验收。
+- [候选 PR CI 34454175838](https://github.com/zdaiwmm/shui-IM/actions/runs/34454175838) 全部通过；[合并提交 CI 34455244502](https://github.com/zdaiwmm/shui-IM/actions/runs/34455244502) 首次在既有表情测试发生 DOM 脱离超时，CI 同版 Chromium 本地定向通过后，仅重跑失败作业，attempt 2 全部通过。
+- 实体 iPhone 仅取得 USB 发现（iPhone16,1 / iOS 27.0），显示服务连接失败，Safari 通话未验证。CDP 网络整形和控制器模拟不能证明实际多地域 TURN UDP/TCP/TLS、Wi-Fi/蜂窝切换、长通话或音频可懂度；这些缺口与后续步骤已单列。
+- 本批未修改或执行生产部署；未发布的任务工作树保留。用户目录 `/Users/zhouding/ss` 的其他未提交改动未纳入，当前文档对账不改变线上应用 SHA。
 
 ## 表情采集修复与新增渠道（2026-09-10，已合并未发布）
 

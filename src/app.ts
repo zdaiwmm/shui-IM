@@ -1,3 +1,4 @@
+import { voiceRequest, confirmVoiceUpload, VOICE_FAILURE_TEXT } from './lib/voice-network';
 import QRCode from 'qrcode';
 import { PresenceCircuit, presenceCircuitMarkup } from './lib/presence-circuit';
 import './presence-circuit.css';
@@ -2983,6 +2984,7 @@ export class QuietRoomApp {
         call: (envelope) => {
           if (this.isRuntimeActive(epoch, session) && this.socket === roomSocket) return this.callController?.receive(envelope);
         },
+        callTransport: code => this.callController?.signalingFailure(code),
         callState: (event) => {
           if (this.isRuntimeActive(epoch, session) && this.socket === roomSocket) this.callController?.serverEvent(event);
         },
@@ -5499,6 +5501,12 @@ export class QuietRoomApp {
     }
     const epoch = this.runtimeEpoch;
     const clientMsgId = existingClientMsgId ?? crypto.randomUUID();
+    // A draft retry must reuse the durable ciphertext and never advance MLS twice.
+    if (existingClientMsgId) {
+      if ([...this.messages.values()].some(message => message.clientMsgId === clientMsgId)) return;
+      const existing = this.outbox.get(clientMsgId) ?? (await loadOutbox(session)).find(item => item.clientMsgId === clientMsgId);
+      if (existing) { this.outbox.set(clientMsgId, existing); await this.attemptSend(clientMsgId); return; }
+    }
     const outboxItem: OutboxItem = {
       clientMsgId,
       payload,
@@ -5739,10 +5747,10 @@ export class QuietRoomApp {
         const signal = AbortSignal.any([draftSignal, this.runtimeAbort!.signal]);
         const { roomId, accessToken } = session.vault;
         uploaded ??= await encryptAudioFile(draft.file, {
-          reserve: (blobId, count, size) => reserveBlob(roomId, accessToken, blobId, count, size, signal),
-          status: blobId => getBlobStatus(roomId, accessToken, blobId, signal),
-          upload: (blobId, index, bytes) => this.retryOperation(() => uploadBlobChunk(roomId, accessToken, blobId, index, bytes, signal), 3, signal),
-          complete: blobId => completeBlob(roomId, accessToken, blobId, signal),
+          reserve: (blobId, count, size) => voiceRequest('VOICE_CONNECT_FAILED', attemptSignal => reserveBlob(roomId, accessToken, blobId, count, size, attemptSignal), signal),
+          status: blobId => voiceRequest('VOICE_CONNECT_FAILED', attemptSignal => getBlobStatus(roomId, accessToken, blobId, attemptSignal), signal),
+          upload: (blobId, index, bytes) => voiceRequest('VOICE_UPLOAD_INTERRUPTED', attemptSignal => uploadBlobChunk(roomId, accessToken, blobId, index, bytes, attemptSignal), signal),
+          complete: blobId => confirmVoiceUpload(attemptSignal => completeBlob(roomId, accessToken, blobId, attemptSignal), attemptSignal => getBlobStatus(roomId, accessToken, blobId, attemptSignal), signal),
           // The unsent recording and its retry plan are memory-only and are
           // discarded together on lock. Never persist unencrypted audio.
           savePlan: async value => { plan = value; },
@@ -7341,7 +7349,7 @@ export class QuietRoomApp {
         if (this.voiceRecorder) throw new Error('请先结束录音');
         const signal = AbortSignal.any([playbackSignal, this.runtimeAbort!.signal]);
         const blob = await decryptAudioFile(payload.audio,
-          (blobId, index) => fetchBlobChunk(session.vault.roomId, session.vault.accessToken, blobId, index, signal), undefined, signal);
+          (blobId, index) => voiceRequest('VOICE_DOWNLOAD_INTERRUPTED', attemptSignal => fetchBlobChunk(session.vault.roomId, session.vault.accessToken, blobId, index, attemptSignal), signal), undefined, signal);
         signal.throwIfAborted();
         if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
         return blob;
@@ -7431,6 +7439,7 @@ export class QuietRoomApp {
       meta.title = message.status === 'delivered' ? '对方至少一台设备已验证并保存这条消息'
         : message.status === 'stored' || message.status === 'sent' ? '服务器已保存加密消息，等待对方接收'
           : message.status === 'pending' ? '已保存在本机，等待发送到服务器' : '发送失败，可以重试';
+      if (message.payload.kind === 'audio' && message.status === 'failed') { meta.title = VOICE_FAILURE_TEXT.VOICE_ACK_UNKNOWN; meta.dataset.errorCode = 'VOICE_ACK_UNKNOWN'; }
       meta.setAttribute('aria-label', `${timeLabel(message.payload.sentAt)}，${meta.title}`);
     }
     if (own && message.status === 'failed') {
@@ -9846,6 +9855,7 @@ export class QuietRoomApp {
     this.idleMonotonicDeadline = 0;
     this.callController?.destroy();
     this.callController = null;
+    delete (window as Window & { quietRoomCallDiagnostics?: () => unknown }).quietRoomCallDiagnostics;
     this.callVault = null;
     this.callView?.destroy();
     this.callView = null;
@@ -10042,12 +10052,13 @@ export class QuietRoomApp {
       getVault: () => this.isRuntimeActive(epoch, session) ? this.callVault : null,
       send: envelope => {
         if (!this.isRuntimeActive(epoch, session) || !this.socket) throw new Error('会话已锁定');
-        this.socket.sendCall(envelope);
+        return this.socket.sendCall(envelope);
       },
-      getIceConfig: async () => {
+      cancelSignals: callId => this.socket?.cancelCallSignals(callId),
+      getIceConfig: async callSignal => {
         const vault = this.callVault;
         if (!vault || !this.isRuntimeActive(epoch, session)) throw new Error('安全通话尚未就绪');
-        const config = await getCallConfiguration(session.vault.roomId, session.vault.accessToken, this.runtimeAbort?.signal);
+        const config = await getCallConfiguration(session.vault.roomId, session.vault.accessToken, callSignal && this.runtimeAbort ? AbortSignal.any([callSignal, this.runtimeAbort.signal]) : this.runtimeAbort?.signal);
         const verifiedPeerIds = await verifyCallIdentityAttestations(vault, config.callIdentities ?? []);
         if (!this.isRuntimeActive(epoch, session) || this.callVault !== vault) throw new Error('设备状态已更新，请重试通话');
         return { ...config, verifiedPeerIds };
@@ -10061,6 +10072,9 @@ export class QuietRoomApp {
       },
     });
     this.callController = controller;
+    // Local, read-only troubleshooting. Each call has a salted hash and at most 64 redacted events.
+    (window as Window & { quietRoomCallDiagnostics?: () => unknown }).quietRoomCallDiagnostics = () =>
+      this.isRuntimeActive(epoch, session) && !this.privacyCovered ? controller.diagnosticsSnapshot : null;
     controller.setConnection(this.connectionState === 'connected');
     return controller;
   }
