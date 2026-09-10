@@ -17,6 +17,7 @@ export type MemePickerOptions = {
   packs: () => Promise<StickerPack[]>;
   install: (id: string, title: string, files: File[], signal: AbortSignal) => Promise<void>;
   removePack: (id: string, signal: AbortSignal) => Promise<void>;
+  reorderPacks: (ids: string[], signal: AbortSignal) => Promise<void>;
   pack: (id: string, signal: AbortSignal) => Promise<RemotePackDetail>;
   send: (file: File, signal: AbortSignal) => Promise<void>;
   search: (query: string, page: number, signal: AbortSignal, kind: MediaKind) => Promise<MediaSearchResult>;
@@ -62,6 +63,9 @@ export class MemePicker {
   private halfHeight = 0;
   private suppressShortcutClickUntil = 0;
   private closing = false;
+  private recentGrid: HTMLElement | null = null;
+  private browseGrid: HTMLElement | null = null;
+  private recentCount = 0;
 
   constructor(private options: MemePickerOptions) {
     this.signal = AbortSignal.any([options.signal, this.controller.signal]);
@@ -98,17 +102,184 @@ export class MemePicker {
     }, { root: this.panel.querySelector('.meme-scroll'), rootMargin: '120px' });
     this.autoPage.observe(this.sentinel);
     const shortcuts = this.panel.querySelector<HTMLElement>('.meme-pack-shortcuts')!;
-    let drag: { id: number; x: number; y: number; height: number; full: boolean; moving: boolean } | undefined;
+    type SheetDrag = { id: number; x: number; y: number; height: number; full: boolean; moving: boolean; scrolling: boolean; scrollLeft: number; fromPack: boolean };
+    type ShortcutHold = { id: number; x: number; y: number; button: HTMLButtonElement; timer: number };
+    type ShortcutReorder = {
+      id: number; button: HTMLButtonElement; floating: HTMLButtonElement; placeholder: HTMLElement | null;
+      startIndex: number; targetIndex: number; startX: number; startY: number; dx: number; dy: number;
+      originalIds: string[]; originalPacks: StickerPack[];
+    };
+    let drag: SheetDrag | undefined;
+    let hold: ShortcutHold | undefined;
+    let reorder: ShortcutReorder | undefined;
+    let settling: HTMLButtonElement | undefined;
+    const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const packButtons = () => [...shortcuts.querySelectorAll<HTMLButtonElement>('button[data-shortcut^="pack:"]')];
+    const packId = (button: HTMLButtonElement) => button.dataset.shortcut!.slice(5);
+    const capturePositions = () => new Map([...shortcuts.querySelectorAll<HTMLElement>('button[data-shortcut]')].map(node => [node, node.getBoundingClientRect()]));
+    const animatePositions = (before: Map<HTMLElement, DOMRect>) => {
+      if (reducedMotion()) return;
+      for (const [node, start] of before) {
+        if (!node.isConnected) continue;
+        const end = node.getBoundingClientRect();
+        const x = start.left - end.left; const y = start.top - end.top;
+        if (Math.abs(x) < 0.5 && Math.abs(y) < 0.5) continue;
+        node.animate([{ transform: `translate3d(${x}px, ${y}px, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
+          { duration: 240, easing: 'cubic-bezier(.16, 1, .3, 1)' });
+      }
+    };
+    const cancelHold = () => {
+      if (!hold) return;
+      window.clearTimeout(hold.timer);
+      hold = undefined;
+    };
+    const reorderDom = (ids: string[]) => {
+      const before = capturePositions();
+      const buttons = new Map(packButtons().map(button => [packId(button), button]));
+      for (const id of ids) {
+        const button = buttons.get(id);
+        if (button) shortcuts.append(button);
+      }
+      animatePositions(before);
+    };
+    const saveOrder = (ids: string[], previousPacks: StickerPack[], label: string) => {
+      const byId = new Map(this.packs.map(pack => [pack.id, pack]));
+      this.packs = ids.map(id => byId.get(id)!).filter(Boolean);
+      this.busy = true;
+      void this.options.reorderPacks(ids, this.signal).then(() => {
+        if (this.active()) this.say(`已移动 ${label}`);
+      }).catch(() => {
+        if (!this.active() || this.signal.aborted) return;
+        this.packs = previousPacks;
+        reorderDom(previousPacks.map(pack => pack.id));
+        this.say('合集顺序未能保存，已恢复');
+      }).finally(() => { this.busy = false; });
+    };
+    const placePlaceholder = (targetIndex: number, force = false) => {
+      if (!reorder) return;
+      if (targetIndex === reorder.targetIndex && (targetIndex !== reorder.startIndex || reorder.placeholder || !force)) return;
+      const before = capturePositions();
+      if (targetIndex === reorder.startIndex && !force) {
+        reorder.placeholder?.remove();
+        reorder.placeholder = null;
+      } else {
+        reorder.placeholder ??= Object.assign(document.createElement('span'), { className: 'meme-shortcut-placeholder' });
+        reorder.placeholder.setAttribute('aria-hidden', 'true');
+        const remaining = packButtons();
+        const reference = remaining[targetIndex];
+        if (reference) shortcuts.insertBefore(reorder.placeholder, reference);
+        else shortcuts.append(reorder.placeholder);
+      }
+      reorder.targetIndex = targetIndex;
+      animatePositions(before);
+    };
+    const beginReorder = (pending: ShortcutHold) => {
+      if (this.busy || !pending.button.isConnected || !this.active()) return;
+      const buttons = packButtons();
+      const startIndex = buttons.indexOf(pending.button);
+      if (startIndex < 0) return;
+      const bounds = pending.button.getBoundingClientRect();
+      const before = capturePositions();
+      const floating = pending.button.cloneNode(true) as HTMLButtonElement;
+      floating.className = 'meme-shortcut-float';
+      floating.tabIndex = -1;
+      floating.setAttribute('aria-hidden', 'true');
+      floating.style.left = `${bounds.left}px`;
+      floating.style.top = `${bounds.top}px`;
+      floating.style.width = `${bounds.width}px`;
+      floating.style.height = `${bounds.height}px`;
+      floating.style.transform = 'translate3d(0, 0, 0) scale(1.08)';
+      pending.button.remove();
+      this.options.root.append(floating);
+      reorder = {
+        id: pending.id, button: pending.button, floating, placeholder: null,
+        startIndex, targetIndex: startIndex, startX: pending.x, startY: pending.y, dx: 0, dy: 0,
+        originalIds: buttons.map(packId), originalPacks: [...this.packs],
+      };
+      hold = undefined;
+      drag = undefined;
+      shortcuts.dataset.reordering = 'true';
+      this.suppressShortcutClickUntil = performance.now() + 700;
+      navigator.vibrate?.(18);
+      try { shortcuts.setPointerCapture(pending.id); } catch { /* Synthetic pointers do not own capture. */ }
+      animatePositions(before);
+    };
+    const finishReorder = (event: PointerEvent) => {
+      if (!reorder || reorder.id !== event.pointerId) return false;
+      const cancelled = event.type === 'pointercancel';
+      const targetIndex = cancelled ? reorder.startIndex : reorder.targetIndex;
+      placePlaceholder(targetIndex, true);
+      const state = reorder;
+      reorder = undefined;
+      settling = state.floating;
+      this.busy = true;
+      const placeholder = state.placeholder!;
+      const remainingIds = packButtons().map(packId);
+      remainingIds.splice(targetIndex, 0, packId(state.button));
+      const changed = !cancelled && remainingIds.some((id, index) => id !== state.originalIds[index]);
+      const current = state.floating.getBoundingClientRect();
+      const destination = placeholder.getBoundingClientRect();
+      state.floating.style.left = `${current.left}px`;
+      state.floating.style.top = `${current.top}px`;
+      state.floating.style.transform = 'none';
+      const complete = () => {
+        if (placeholder.isConnected) placeholder.replaceWith(state.button);
+        state.floating.remove();
+        if (settling === state.floating) settling = undefined;
+        shortcuts.removeAttribute('data-reordering');
+        try { shortcuts.releasePointerCapture(state.id); } catch { /* Synthetic pointers do not own capture. */ }
+        if (!this.active()) { this.busy = false; return; }
+        if (changed) saveOrder(remainingIds, state.originalPacks, state.button.title);
+        else { this.packs = state.originalPacks; this.busy = false; }
+      };
+      if (reducedMotion()) complete();
+      else {
+        const animation = state.floating.animate([
+          { transform: 'translate3d(0, 0, 0) scale(1.08)' },
+          { transform: `translate3d(${destination.left - current.left}px, ${destination.top - current.top}px, 0) scale(1)` },
+        ], { duration: 220, easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'forwards' });
+        void animation.finished.then(complete, complete);
+      }
+      return true;
+    };
     shortcuts.addEventListener('pointerdown', event => {
-      if (event.button !== 0 || this.sheetAnimation || this.preview) return;
-      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, height: this.panel.getBoundingClientRect().height, full: Boolean(this.overlay), moving: false };
+      if (event.button !== 0 || this.sheetAnimation || this.preview || this.busy || reorder) return;
+      const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button[data-shortcut^="pack:"]') : null;
+      drag = { id: event.pointerId, x: event.clientX, y: event.clientY, height: this.panel.getBoundingClientRect().height,
+        full: Boolean(this.overlay), moving: false, scrolling: false, scrollLeft: shortcuts.scrollLeft, fromPack: Boolean(button) };
+      if (button) {
+        const pending: ShortcutHold = { id: event.pointerId, x: event.clientX, y: event.clientY, button, timer: 0 };
+        pending.timer = window.setTimeout(() => beginReorder(pending), 500);
+        hold = pending;
+      }
     }, { signal: this.signal });
     window.addEventListener('pointermove', event => {
+      if (reorder?.id === event.pointerId) {
+        event.preventDefault();
+        reorder.dx = event.clientX - reorder.startX;
+        reorder.dy = event.clientY - reorder.startY;
+        reorder.floating.style.transform = `translate3d(${reorder.dx}px, ${reorder.dy}px, 0) scale(1.08)`;
+        const bar = shortcuts.getBoundingClientRect();
+        if (event.clientX < bar.left + 32) shortcuts.scrollLeft -= 12;
+        else if (event.clientX > bar.right - 32) shortcuts.scrollLeft += 12;
+        const remaining = packButtons();
+        const targetIndex = remaining.findIndex(button => event.clientX < button.getBoundingClientRect().left + button.getBoundingClientRect().width / 2);
+        placePlaceholder(targetIndex < 0 ? remaining.length : targetIndex);
+        return;
+      }
       if (!drag || drag.id !== event.pointerId) return;
-      const dy = event.clientY - drag.y, dx = event.clientX - drag.x;
+      const dy = event.clientY - drag.y; const dx = event.clientX - drag.x;
+      if (hold && Math.hypot(dx, dy) > 10) cancelHold();
+      if (!drag.moving && drag.fromPack && (drag.scrolling || Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy))) {
+        drag.scrolling = true;
+        event.preventDefault();
+        shortcuts.scrollLeft = drag.scrollLeft - dx;
+        return;
+      }
       if (!drag.moving) {
         if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) { drag = undefined; return; }
         if (Math.abs(dy) < 8 || Math.abs(dy) <= Math.abs(dx) * 1.5) return;
+        cancelHold();
         drag.moving = true;
         this.expand();
         try { shortcuts.setPointerCapture(event.pointerId); } catch { /* Synthetic pointers do not own capture. */ }
@@ -120,8 +291,11 @@ export class MemePicker {
       this.panel.style.height = `${Math.max(this.halfHeight, Math.min(height, drag.height - dy))}px`;
     }, { signal: this.signal, passive: false });
     const finishDrag = (event: PointerEvent) => {
+      if (finishReorder(event)) { cancelHold(); drag = undefined; return; }
+      cancelHold();
       if (!drag || drag.id !== event.pointerId) return;
       const start = drag; drag = undefined;
+      if (start.scrolling) { this.suppressShortcutClickUntil = performance.now() + 500; return; }
       if (!start.moving) return;
       this.suppressShortcutClickUntil = performance.now() + 500;
       const height = this.panel.getBoundingClientRect().height;
@@ -134,13 +308,35 @@ export class MemePicker {
         this.panel.style.removeProperty('height'); this.panel.style.removeProperty('top');
         if (!full) this.back(true);
       };
-      if (matchMedia('(prefers-reduced-motion: reduce)').matches) finish();
-      else {
-        this.animateSheet(height, full ? fullHeight : this.halfHeight, 'height', finish);
-      }
+      if (reducedMotion()) finish();
+      else this.animateSheet(height, full ? fullHeight : this.halfHeight, 'height', finish);
     };
     window.addEventListener('pointerup', finishDrag, { signal: this.signal });
     window.addEventListener('pointercancel', finishDrag, { signal: this.signal });
+    shortcuts.addEventListener('keydown', event => {
+      const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button[data-shortcut^="pack:"]') : null;
+      if (!button || !event.altKey || !['ArrowLeft', 'ArrowRight'].includes(event.key) || this.busy || reorder) return;
+      const ids = this.packs.map(pack => pack.id);
+      const from = ids.indexOf(packId(button));
+      const to = Math.max(0, Math.min(ids.length - 1, from + (event.key === 'ArrowLeft' ? -1 : 1)));
+      if (from < 0 || from === to) return;
+      event.preventDefault();
+      const previousPacks = [...this.packs];
+      ids.splice(to, 0, ids.splice(from, 1)[0]!);
+      reorderDom(ids);
+      button.focus({ preventScroll: true });
+      saveOrder(ids, previousPacks, button.title);
+    }, { signal: this.signal });
+    shortcuts.addEventListener('contextmenu', event => {
+      if (event.target instanceof Element && event.target.closest('[data-shortcut^="pack:"]')) event.preventDefault();
+    }, { signal: this.signal });
+    this.signal.addEventListener('abort', () => {
+      cancelHold();
+      reorder?.floating.remove();
+      settling?.remove();
+      reorder = undefined;
+      settling = undefined;
+    }, { once: true });
     shortcuts.addEventListener('click', event => {
       if (performance.now() < this.suppressShortcutClickUntil) { event.preventDefault(); event.stopImmediatePropagation(); }
     }, { signal: this.signal, capture: true });
@@ -197,6 +393,7 @@ export class MemePicker {
     for (const tile of this.tiles.keys()) if (!tile.closest('.meme-pack-shortcuts')) { this.unload(tile); this.tiles.delete(tile); }
     this.grid.replaceChildren(); this.status.replaceChildren(); this.more.hidden = true; this.nextPage = null;
     this.grid.className = 'meme-grid'; this.panel.querySelector('.meme-scroll')!.scrollTop = 0;
+    this.recentGrid = null; this.browseGrid = null; this.recentCount = 0;
     this.panel.querySelector('.meme-source')!.textContent = '';
   }
   private async switchKind(kind: MediaKind) {
@@ -222,6 +419,9 @@ export class MemePicker {
     }
     for (const pack of this.packs) {
       const button = control(`pack:${pack.id}`, pack.title, '', () => { if (this.favoriteView || this.kind !== 'stickers') { void this.switchKind('stickers').then(() => this.jump(pack.id)); } else this.jump(pack.id); });
+      button.setAttribute('aria-label', `${pack.title}，长按拖动排序`);
+      button.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight');
+      bar.append(button);
       const first = pack.items[0]; if (!first) continue;
       if (this.tiles.get(button)?.item.id === first.id) continue;
       this.unload(button); button.replaceChildren();
@@ -329,9 +529,12 @@ export class MemePicker {
     try {
       const result = await this.options.search(this.query, this.nextPage, signal, this.kind);
       if (!this.active() || generation !== this.generation) return;
-      if (this.kind === 'gifs') this.append(result.items); else this.appendPacks(result.packs ?? []);
+      if (this.kind === 'gifs') {
+        if (!this.query && this.panel.dataset.view === 'local') this.appendCatalog(result.items);
+        else this.append(result.items);
+      } else this.appendPacks(result.packs ?? []);
       this.nextPage = result.nextPage; this.more.hidden = true;
-      this.panel.querySelector('.meme-source')!.textContent = result.source === '表情资源库' ? '' : result.source ?? ''; this.say(!this.grid.children.length ? '没有找到相关内容' : '');
+      this.panel.querySelector('.meme-source')!.textContent = result.source === '表情资源库' ? '' : result.source ?? ''; this.say(!this.grid.querySelector('.meme-tile, .meme-pack-result') ? '没有找到相关内容' : '');
     } catch (error) { if (!signal.aborted && generation === this.generation) { this.say(error instanceof Error ? error.message : '搜索失败，请重试'); this.more.textContent = '重试'; this.more.hidden = false; } }
     finally {
       if (generation === this.generation) {
@@ -340,6 +543,26 @@ export class MemePicker {
           this.autoPage.unobserve(this.sentinel); this.autoPage.observe(this.sentinel);
         }
       }
+    }
+  }
+  private appendCatalog(items: MediaItem[]) {
+    if (!this.recentGrid || !this.browseGrid) {
+      this.grid.classList.add('meme-catalog-sections');
+      const recent = document.createElement('section'); recent.className = 'meme-recent-section'; recent.setAttribute('aria-labelledby', 'meme-recent-title');
+      recent.innerHTML = '<h3 id="meme-recent-title">最近发布</h3><div class="meme-recent-grid"></div>';
+      const browse = document.createElement('section'); browse.className = 'meme-browse-section'; browse.setAttribute('aria-labelledby', 'meme-browse-title'); browse.hidden = true;
+      browse.innerHTML = '<h3 id="meme-browse-title">更多 GIFs</h3><div class="meme-browse-grid"></div>';
+      this.grid.append(recent, browse);
+      this.recentGrid = recent.querySelector('.meme-recent-grid');
+      this.browseGrid = browse.querySelector('.meme-browse-grid');
+    }
+    const recent = items.slice(0, Math.max(0, 10 - this.recentCount));
+    const remaining = items.slice(recent.length);
+    this.append(recent, this.recentGrid!);
+    this.recentCount += recent.length;
+    if (remaining.length) {
+      this.browseGrid!.closest<HTMLElement>('.meme-browse-section')!.hidden = false;
+      this.append(remaining, this.browseGrid!);
     }
   }
   private appendPacks(packs: RemotePack[]) {

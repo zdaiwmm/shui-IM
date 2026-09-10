@@ -403,8 +403,8 @@ try {
       app.pending.set(record.clientMsgId, record);
       return { blobId: manifest.blobId, clientMsgId: record.clientMsgId };
     };
-    const chatImage = await addImage({ cache: true, chat: true });
     for (let number = 1; number < 6; number++) await addImage();
+    const chatImage = await addImage({ cache: true, chat: true });
     app.renderChat();
     const chatOrderBefore = [...document.querySelectorAll('.message[data-client-msg-id]')].map(message => message.dataset.clientMsgId);
     window.galleryPrivacy = { app, records, gate, addImage, chatImageId: chatImage.clientMsgId, chatOrderBefore, reopen: () => {
@@ -437,7 +437,7 @@ try {
   assert.equal(await page.locator('[data-gallery-count="files"]').textContent(), '1', 'Known file count was lost when switching to images');
   const baseSafeOrder = await page.locator('.gallery-tile').evaluateAll(tiles => tiles.map(tile => tile.dataset.galleryAssetKey));
   const chatSafeKey = `${await page.evaluate(() => window.galleryPrivacy.chatImageId)}:0`;
-  assert.equal(baseSafeOrder.at(-1), chatSafeKey, 'Fixture chat image is not the ordinary oldest Safe asset');
+  assert.equal(baseSafeOrder.at(0), chatSafeKey, 'Fixture chat image is not the ordinary newest Safe asset');
   let safeHoldPointerId = 40;
   const openSafeImageActions = async (tile, { outlastClickWindow = false } = {}) => {
     const pointerId = safeHoldPointerId++;
@@ -474,11 +474,28 @@ try {
   'Unpin did not restore ordinary Safe ordering or left stale curation state');
 
   await openSafeImageActions(page.locator(`.gallery-tile[data-gallery-asset-key="${chatSafeKey}"]`));
+  await page.evaluate(() => {
+    window.galleryGridBeforeDelete = document.querySelector('#gallery-grid');
+    window.galleryDeleteMotion = [];
+    window.galleryOriginalAnimate = Element.prototype.animate;
+    Element.prototype.animate = function (frames, options) {
+      if (this.matches?.('.gallery-tile') && Array.from(frames).some(frame => typeof frame?.transform === 'string')) {
+        window.galleryDeleteMotion.push(this.dataset.galleryAssetKey);
+      }
+      return window.galleryOriginalAnimate.call(this, frames, options);
+    };
+  });
   await page.locator('.gallery-actions-menu [data-gallery-action="delete"]').tap();
   await page.waitForFunction(targetKey => {
     const tiles = [...document.querySelectorAll('.gallery-tile')];
     return tiles.length === 5 && tiles.every(tile => tile.dataset.galleryAssetKey !== targetKey);
   }, chatSafeKey);
+  assert.equal(await page.evaluate(() => window.galleryGridBeforeDelete === document.querySelector('#gallery-grid')), true, 'Safe deletion replaced the grid and caused a page-level jump');
+  assert.ok((await page.evaluate(() => new Set(window.galleryDeleteMotion).size)) >= 2, 'Remaining Safe images did not animate into the deleted slot');
+  await page.evaluate(() => {
+    Element.prototype.animate = window.galleryOriginalAnimate;
+    delete window.galleryOriginalAnimate;
+  });
   assert.equal(await page.locator('[data-gallery-count="images"]').textContent(), '5', 'Safe-local deletion did not update the exact image count');
   assert.equal(await page.evaluate(id => {
     const f = window.galleryPrivacy;

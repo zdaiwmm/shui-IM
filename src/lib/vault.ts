@@ -1541,6 +1541,20 @@ export async function installStickerPack(session: VaultSession, id: string, titl
   });
 }
 
+/** Persist the user-selected shortcut order without rewriting pack originals. */
+export async function reorderStickerPacks(session: VaultSession, ids: string[], signal: AbortSignal): Promise<void> {
+  if (!Array.isArray(ids) || ids.length > MAX_STICKER_PACKS || new Set(ids).size !== ids.length
+    || ids.some(id => typeof id !== 'string' || !/^[a-z0-9-]{1,80}$/.test(id))) throw new Error('贴纸合集顺序不正确');
+  await withVaultMutation(session, async () => {
+    signal.throwIfAborted();
+    const packs = await loadStickerPacks(session);
+    const byId = new Map(packs.map(pack => [pack.id, pack]));
+    if (ids.length !== packs.length || ids.some(id => !byId.has(id))) throw new Error('贴纸合集顺序不正确');
+    const index = await encryptLocalRecord(session, 'memeFavorites', 'packs', ids.map(id => byId.get(id)!));
+    await commitStickerRecords(session, [index], [], signal);
+  });
+}
+
 export async function removeStickerPack(session: VaultSession, id: string, signal: AbortSignal): Promise<void> {
   await withVaultMutation(session, async () => {
     signal.throwIfAborted();
