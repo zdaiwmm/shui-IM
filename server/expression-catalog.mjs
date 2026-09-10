@@ -9,6 +9,8 @@ import { fetchMemeResource, memeContentType } from './memes.mjs';
 const MAX_IMAGE = 8 * 1024 * 1024;
 const MAX_PACK = 50 * 1024 * 1024;
 const MAX_STORAGE = 1024 * 1024 * 1024;
+const MAX_RUNNING_JOBS = 10;
+const PACK_DOWNLOAD_CONCURRENCY = 4;
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const fail = code => { throw new Error(code); };
 
@@ -39,7 +41,14 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
   `);
   for (const row of db.prepare('SELECT * FROM jobs').all()) {
     const job = JSON.parse(row.body);
-    if (['running', 'queued'].includes(job.status)) { job.status = 'interrupted'; db.prepare('UPDATE jobs SET body=? WHERE id=?').run(JSON.stringify(job), row.id); }
+    if (['running', 'queued'].includes(job.status)) {
+      job.status = 'failed'; job.error = '服务重启，任务未完成，可重试'; job.finished = now(); job.phase = 'finished';
+      db.prepare('UPDATE jobs SET body=? WHERE id=?').run(JSON.stringify(job), row.id);
+    } else if (job.status === 'exists') {
+      job.status = 'completed'; job.error = ''; db.prepare('UPDATE jobs SET body=? WHERE id=?').run(JSON.stringify(job), row.id);
+    } else if (['partial', 'interrupted'].includes(job.status)) {
+      job.status = 'failed'; job.error ||= '历史任务未完成，可重试'; db.prepare('UPDATE jobs SET body=? WHERE id=?').run(JSON.stringify(job), row.id);
+    }
   }
   const source = createStickerSource(fetchResource, now);
   const noto = createNotoSource(fetchResource, now);
@@ -81,6 +90,36 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
     } catch (error) { if (transaction) db.exec('ROLLBACK'); throw error; }
   }
   const saveJob = job => db.prepare('INSERT INTO jobs VALUES (?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body').run(job.id, JSON.stringify(job));
+  const getJob = id => {
+    if (typeof id !== 'string' || !/^[a-f0-9-]{36}$/.test(id)) fail('MEME_INVALID_QUERY');
+    const row = db.prepare('SELECT body FROM jobs WHERE id=?').get(id) ?? fail('MEME_NOT_FOUND');
+    return JSON.parse(row.body);
+  };
+  async function downloadStickerPack(pack, job, signal) {
+    const files = new Array(pack.items.length);
+    const packController = new AbortController();
+    const packSignal = AbortSignal.any([signal, packController.signal]);
+    let cursor = 0; let total = 0;
+    const worker = async () => {
+      while (cursor < pack.items.length) {
+        const index = cursor++; const item = pack.items[index];
+        packSignal.throwIfAborted();
+        const raw = await fetchResource(item.url, MAX_IMAGE + 64, packSignal);
+        const bytes = item.key ? decryptPublicSticker(raw, item.key) : raw;
+        memeContentType(bytes);
+        if (!bytes.length || bytes.length > MAX_IMAGE || total + bytes.length > MAX_PACK) fail('MEME_TOO_LARGE');
+        total += bytes.length; files[index] = { bytes, title: item.title };
+        job.downloadedFiles++; job.downloadedBytes += bytes.length; saveJob(job);
+      }
+    };
+    try {
+      await Promise.all(Array.from({ length: Math.min(PACK_DOWNLOAD_CONCURRENCY, pack.items.length) }, worker));
+      return files;
+    } catch (error) {
+      packController.abort(error);
+      throw error;
+    }
+  }
   async function collect(job, body, signal) {
     try {
       const upstream = channelSource(body.channel);
@@ -98,22 +137,22 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
         if (body.kind === 'stickers' && db.prepare('SELECT 1 FROM entries WHERE id=?').get(row.id)) { job.skipped++; job.existing++; saveJob(job); continue; }
         try {
           const pack = await upstream.pack(row.id, signal);
-          const files = []; let total = 0;
+          let files = [];
           job.totalFiles = pack.items.length; job.downloadedFiles = 0; job.packStarted = now(); job.phase = 'downloading'; saveJob(job);
-          for (const item of pack.items) {
+          if (body.kind === 'stickers') {
+            files = await downloadStickerPack(pack, job, signal);
+          } else for (const item of pack.items) {
             signal.throwIfAborted();
             const id = entryId(row, body.kind, item.id);
             if (body.kind === 'gifs' && db.prepare('SELECT 1 FROM entries WHERE id=?').get(id)) { job.skipped++; job.existing++; continue; }
             const raw = await fetchResource(item.url, MAX_IMAGE + 64, signal);
             const bytes = item.key ? decryptPublicSticker(raw, item.key) : raw;
-            memeContentType(bytes); total += bytes.length;
+            memeContentType(bytes);
             job.downloadedFiles++; job.downloadedBytes += bytes.length; saveJob(job);
-            if (!bytes.length || bytes.length > MAX_IMAGE || total > MAX_PACK) fail('MEME_TOO_LARGE');
-            if (body.kind === 'gifs') {
-              if (!publicStickerAnimated(bytes)) { job.skipped++; continue; }
-              if (put({ ...row, id, kind: body.kind, source: body.channel === 'noto' ? row.source : `https://signalstickers.org/pack/${row.id}` }, [{ bytes, title: item.title }], { status: 'published' })) job.added++;
-              saveJob(job); if (job.added >= job.target) break;
-            } else files.push({ bytes, title: item.title });
+            if (!bytes.length || bytes.length > MAX_IMAGE) fail('MEME_TOO_LARGE');
+            if (!publicStickerAnimated(bytes)) { job.skipped++; continue; }
+            if (put({ ...row, id, kind: body.kind, source: body.channel === 'noto' ? row.source : `https://signalstickers.org/pack/${row.id}` }, [{ bytes, title: item.title }], { status: 'published' })) job.added++;
+            saveJob(job); if (job.added >= job.target) break;
           }
           signal.throwIfAborted();
           if (body.kind === 'stickers' && put({ ...row, kind: body.kind, source: body.channel === 'noto' ? row.source : `https://signalstickers.org/pack/${row.id}` }, files, { status: 'published' })) job.added++;
@@ -123,16 +162,26 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
         }
         saveJob(job);
       }
-      job.status = job.added >= job.target ? 'completed' : body.sourceId && job.existing > 0 && !job.failed ? 'exists' : 'partial';
-    } catch (error) { job.status = signal.aborted ? 'interrupted' : 'failed'; job.error = error.message === 'MEME_STORAGE_FULL' ? '资源库容量已满' : '采集未完成，请重试'; }
+      job.status = job.added >= job.target || (body.sourceId && job.existing > 0 && !job.failed) ? 'completed' : 'failed';
+      if (job.status === 'failed' && !job.error) job.error = '没有可入库的资源，请重试或选择其他资源';
+    } catch (error) {
+      if (signal.aborted && signal.reason === 'cancelled') { job.status = 'cancelled'; job.error = '';
+      } else {
+        job.status = 'failed';
+        job.error = error.message === 'MEME_STORAGE_FULL' ? '资源库容量已满'
+          : signal.aborted && signal.reason === 'timeout' ? '采集超时，请重试'
+          : signal.aborted && signal.reason === 'shutdown' ? '服务停止，任务未完成，可重试'
+          : '采集未完成，请重试';
+      }
+    }
     finally { job.finished = now(); job.phase = 'finished'; saveJob(job); }
   }
   function runNext() {
-    while (running.size < 3 && !closing && queue.length) {
+    while (running.size < MAX_RUNNING_JOBS && !closing && queue.length) {
       const { job, body } = queue.shift();
       job.status = 'running'; job.started = now(); job.phase = 'directory'; saveJob(job);
       const controller = new AbortController(); controllers.set(job.id, controller);
-      const timeout = setTimeout(() => controller.abort(), 10 * 60_000);
+      const timeout = setTimeout(() => controller.abort('timeout'), 10 * 60_000);
       const promise = collect(job, body, controller.signal).finally(() => {
         clearTimeout(timeout); running.delete(promise); controllers.delete(job.id); runNext();
       });
@@ -305,7 +354,7 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       for (const [key, value] of grants) if (value.entry === id) grants.delete(key);
       return { deleted: true };
     },
-    jobs() { return db.prepare('SELECT body FROM jobs ORDER BY rowid DESC LIMIT 20').all().map(row => JSON.parse(row.body)); },
+    jobs() { return db.prepare('SELECT body FROM jobs ORDER BY rowid DESC LIMIT 100').all().map(row => JSON.parse(row.body)); },
     start(body) {
       body = { ...body, keyword: body?.sourceId ? '' : body?.keyword ?? '' };
       query({ ...body, page: 1 });
@@ -317,12 +366,32 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       const duplicate = service.jobs().find(job => ['running', 'queued'].includes(job.status) && body.sourceId && job.sourceId === body.sourceId && job.kind === body.kind);
       if (duplicate) return duplicate;
       if (queue.length + running.size >= 20) fail('MEME_BUSY');
-      const job = { id: randomUUID(), channel: body.channel ?? 'signal', sourceId: body.sourceId, kind: body.kind, target: body.target, added: 0, scanned: 0, skipped: 0, existing: 0, failed: 0, status: 'queued', phase: 'queued', downloadedFiles: 0, totalFiles: 0, downloadedBytes: 0, created: now() };
+      const job = { id: randomUUID(), channel: body.channel ?? 'signal', sourceId: body.sourceId, keyword: body.keyword, kind: body.kind, target: body.target, added: 0, scanned: 0, skipped: 0, existing: 0, failed: 0, status: 'queued', phase: 'queued', downloadedFiles: 0, totalFiles: 0, downloadedBytes: 0, created: now() };
       saveJob(job); db.exec("DELETE FROM jobs WHERE json_extract(body,'$.status') NOT IN ('running','queued') AND id NOT IN (SELECT id FROM jobs ORDER BY rowid DESC LIMIT 20)");
       queue.push({ job, body }); runNext();
       return { ...job };
     },
-    async close() { closing = true; for (const { job } of queue.splice(0)) { job.status = 'interrupted'; job.finished = now(); saveJob(job); } for (const controller of controllers.values()) controller.abort(); await Promise.all(running); db.close(); },
+    cancel(id) {
+      const job = getJob(id);
+      if (!['running', 'queued'].includes(job.status)) return job;
+      const queued = queue.findIndex(item => item.job.id === id);
+      if (queued >= 0) queue.splice(queued, 1);
+      job.status = 'cancelled'; job.error = ''; job.finished = now(); job.phase = 'finished'; saveJob(job);
+      controllers.get(id)?.abort('cancelled');
+      return { ...job };
+    },
+    retry(id) {
+      const job = getJob(id);
+      if (['running', 'queued'].includes(job.status)) fail('MEME_BUSY');
+      if (!job.sourceId && typeof job.keyword !== 'string') fail('MEME_INVALID_QUERY');
+      return service.start({ channel: job.channel, sourceId: job.sourceId, keyword: job.keyword ?? '', kind: job.kind, target: job.target });
+    },
+    async close() {
+      closing = true;
+      for (const { job } of queue.splice(0)) { job.status = 'failed'; job.error = '服务停止，任务未完成，可重试'; job.finished = now(); job.phase = 'finished'; saveJob(job); }
+      for (const controller of controllers.values()) controller.abort('shutdown');
+      await Promise.all(running); db.close();
+    },
   };
   return service;
 }

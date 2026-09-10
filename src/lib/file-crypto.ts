@@ -4,6 +4,7 @@ import { canonicalStringify } from './canonical';
 import { fromBase64Url, toBase64Url } from './base64';
 import { IMAGE_CHUNK_SIZE, isImageManifest, MAX_IMAGE_BYTES, isAudioManifest, isAudioMimeType, MAX_AUDIO_BYTES, isFileManifest, MAX_IMAGE_NAME_LENGTH, MAX_IMAGE_MIME_LENGTH } from './message-payload';
 import type { FileManifest, ImageManifest, ImageUploadPlan, ImageUploadPlanV2 } from './types';
+import { readMediaDimensions } from './media-dimensions';
 
 export { IMAGE_CHUNK_SIZE, MAX_IMAGE_BYTES } from './message-payload';
 const encoder = new TextEncoder();
@@ -47,6 +48,7 @@ async function encryptAttachmentFile(
     savePlan: (plan: ImageUploadPlan) => Promise<void>;
     progress?: (ratio: number) => void;
     signal?: AbortSignal;
+    includeDimensions?: boolean;
   },
   existingPlan?: ImageUploadPlan,
   kind: 'image' | 'audio' | 'file' = 'image',
@@ -63,6 +65,15 @@ async function encryptAttachmentFile(
     file.name.length > MAX_IMAGE_NAME_LENGTH || /[\u0000-\u001f\u007f]/.test(file.name) ||
     file.type.length > MAX_IMAGE_MIME_LENGTH || /[\u0000-\u001f\u007f]/.test(file.type)
   )) throw new Error('文件名称或格式信息不受支持');
+  // Start metadata decoding beside hashing/upload, but always observe its
+  // rejection so a later upload failure cannot leave an unhandled abort.
+  const dimensionsPromise = (callbacks.includeDimensions
+    ? readMediaDimensions(file, callbacks.signal)
+    : Promise.resolve(undefined)
+  ).then(
+    (dimensions) => ({ dimensions }),
+    (error: unknown) => ({ error }),
+  );
   const chunkCount = Math.ceil(file.size / IMAGE_CHUNK_SIZE);
   if (existingPlan?.v === 1) {
     throw new Error(`旧版${fileLabel}续传计划缺少内容校验，不能安全复用`);
@@ -131,9 +142,14 @@ async function encryptAttachmentFile(
     callbacks.progress?.((index + 1) / chunkCount);
   }
   if (!remote.completed) await callbacks.complete(plan.blobId);
+  const dimensionsResult = await dimensionsPromise;
+  if ('error' in dimensionsResult) throw dimensionsResult.error;
+  const { dimensions } = dimensionsResult;
+  callbacks.signal?.throwIfAborted();
 
   return {
     v: 1,
+    ...dimensions,
     blobId: plan.blobId,
     key: plan.key,
     ivPrefix: plan.ivPrefix,

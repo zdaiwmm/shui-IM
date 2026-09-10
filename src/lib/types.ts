@@ -209,6 +209,9 @@ export type TextPayload = {
 
 export type ImageManifest = {
   v: 1;
+  /** Optional encrypted display geometry, emitted only when every active device supports it. */
+  width?: number;
+  height?: number;
   blobId: string;
   key: string;
   ivPrefix: string;

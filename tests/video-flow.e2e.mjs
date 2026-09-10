@@ -36,7 +36,7 @@ try {
     const { encryptFileAttachment, encryptImageFile } = await import('/src/lib/file-crypto.ts');
     const root = document.querySelector('#app');
     const app = new QuietRoomApp(root);
-    const capabilities = ['image-album-v1', 'file-message-v1', 'reply-v2', 'message-reactions-v1'];
+    const capabilities = ['image-album-v1', 'file-message-v1', 'media-dimensions-v1', 'reply-v2', 'message-reactions-v1'];
     const own = { deviceId: crypto.randomUUID(), role: 'creator', status: 'active', capabilities };
     const peer = { deviceId: crypto.randomUUID(), role: 'joiner', status: 'active', capabilities };
     const session = await vault.createVault({
@@ -87,6 +87,7 @@ try {
     const originals = new Map();
     const encrypt = async (file, image = false) => {
       const manifest = await (image ? encryptImageFile : encryptFileAttachment)(file, {
+        includeDimensions: true,
         reserve: async () => {}, status: async () => ({ uploadedIndexes: [], completed: false }),
         upload: async (blobId, index, bytes) => { encryptedChunks.set(`${blobId}:${index}`, bytes.slice()); },
         complete: async () => {}, savePlan: async () => {},
@@ -144,6 +145,7 @@ try {
       if (destination === 'gallery') app.renderGallery(); else app.renderChat();
     };
     window.videoFlow = { app, root, session, vault, originals, records, restored, delayed, requests, readGate, createdUrls, revokedUrls, reopen, manifests: { photo, chatVideo, chatDocument, galleryVideo, galleryDocument, restoredVideo, delayedVideo } };
+    readGate.blobId = chatVideo.blobId;
     await reopen();
     return Object.fromEntries(Object.entries(window.videoFlow.manifests).map(([name, manifest]) => [name, manifest.blobId]));
   });
@@ -186,8 +188,18 @@ try {
   };
 
   const chatPreview = page.locator(`.message .image-preview.video-preview[data-blob-id="${ids.chatVideo}"]`);
+  await page.waitForFunction(() => window.videoFlow.readGate.waiting);
+  assert.deepEqual(await page.evaluate(() => {
+    const manifest = window.videoFlow.manifests.chatVideo;
+    return { width: manifest.width, height: manifest.height };
+  }), { width: 320, height: 180 }, 'Sender did not attach decoded video dimensions to the encrypted manifest');
+  const pendingVideoBox = await chatPreview.boundingBox();
+  await page.evaluate(() => { const gate = window.videoFlow.readGate; gate.blobId = null; gate.release(); });
   await chatPreview.locator('img').waitFor();
   await chatPreview.locator('img').evaluate(image => image.decode());
+  const loadedVideoBox = await chatPreview.boundingBox();
+  assert(pendingVideoBox && loadedVideoBox && Math.abs(pendingVideoBox.width - loadedVideoBox.width) < 1 && Math.abs(pendingVideoBox.height - loadedVideoBox.height) < 1,
+    `Known video dimensions shifted the placeholder: ${JSON.stringify({ pendingVideoBox, loadedVideoBox })}`);
   assert.equal(await chatPreview.getAttribute('data-revealed'), 'false', 'Chat video poster was visible before an explicit reveal');
   assert(await chatPreview.locator('img').evaluate(image => Number(getComputedStyle(image).opacity) === 0
     && getComputedStyle(image.parentElement, '::before').backgroundImage !== 'none'), 'Chat video poster did not use the concealed bitmap');

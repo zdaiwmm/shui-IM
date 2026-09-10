@@ -10,7 +10,7 @@ import { startServer } from '../server/index.mjs';
 const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-unread-browser-'));
 const api = await startServer({ port: 0, host: '127.0.0.1', dataDir, quiet: true });
 const server = await createServer({ configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error', server: {
-  host: '127.0.0.1', port: 0, proxy: { '/api': `http://127.0.0.1:${api.port}` },
+  host: '127.0.0.1', port: 0, hmr: false, proxy: { '/api': `http://127.0.0.1:${api.port}` },
 } });
 server.middlewares.use('/__unread_regression', (_request, response) => {
   response.setHeader('Content-Type', 'text/html');

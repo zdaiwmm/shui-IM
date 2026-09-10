@@ -131,7 +131,7 @@ describe('managed expression catalog', () => {
 
     expect(await finished(f.service)).toMatchObject({ added: 1, target: 1, status: 'completed' });
     f.service.start({ kind: 'gifs', keyword: '', target: 2 });
-    expect(await finished(f.service)).toMatchObject({ added: 1, status: 'partial' });
+    expect(await finished(f.service)).toMatchObject({ added: 1, status: 'failed' });
     const entries = f.service.list({ ...search(), status: 'published' }).entries;
     expect(entries).toHaveLength(2);
     for (const entry of entries) f.service.update(entry.id, { title: entry.title, tags: entry.tags, status: 'published' });
@@ -151,7 +151,7 @@ describe('managed expression catalog', () => {
     f.service.start({ kind: 'stickers', keyword: 'x'.repeat(120), sourceId: id, target: 1 });
     expect(await finished(f.service)).toMatchObject({ added: 1, status: 'completed' });
     f.service.start({ kind: 'stickers', keyword: '', sourceId: id, target: 1 });
-    expect(await finished(f.service)).toMatchObject({ added: 0, existing: 1, failed: 0, status: 'exists' });
+    expect(await finished(f.service)).toMatchObject({ added: 0, existing: 1, failed: 0, status: 'completed' });
   });
   it('collects Noto originals, retains attribution and rejects unsupported channels', async () => {
     const f = await fixture();
@@ -171,10 +171,10 @@ describe('managed expression catalog', () => {
     const f = await fixture(); const original = f.fetchResource.getMockImplementation()!;
     f.fetchResource.mockImplementation(async url => url.endsWith('/full/1') ? seal(Buffer.from('<html>bad</html>')) : original(url));
     f.service.start({ kind: 'stickers', keyword: '', target: 1 });
-    expect(await finished(f.service)).toMatchObject({ added: 0, failed: 1, status: 'partial' });
+    expect(await finished(f.service)).toMatchObject({ added: 0, failed: 1, status: 'failed' });
     expect(f.service.list({ ...search('stickers'), status: 'all' }).total).toBe(0);
   });
-  it('queues jobs, deduplicates active selections, reports per-file progress and preserves completion after restart', async () => {
+  it('runs ten jobs, queues overflow, reports per-file progress and preserves completion after restart', async () => {
     const f = await fixture(); const original = f.fetchResource.getMockImplementation()!;
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
@@ -187,7 +187,10 @@ describe('managed expression catalog', () => {
     const third = f.service.start({ kind: 'gifs', keyword: 'cat', target: 2 });
     expect(third.status).toBe('running');
     const fourth = f.service.start({ kind: 'stickers', keyword: 'cat', target: 1 });
-    expect(fourth.status).toBe('queued');
+    expect(fourth.status).toBe('running');
+    for (let index = 0; index < 7; index++) f.service.start({ kind: 'gifs', keyword: 'cat', target: 1 });
+    expect(f.service.jobs().filter(job => job.status === 'running')).toHaveLength(10);
+    expect(f.service.jobs().filter(job => job.status === 'queued')).toHaveLength(1);
     expect(f.service.list({ ...search('stickers'), status: 'published' }).total).toBe(0);
     release();
     await vi.waitFor(() => expect(f.service.jobs().every(job => !['running', 'queued'].includes(job.status))).toBe(true));
@@ -197,6 +200,27 @@ describe('managed expression catalog', () => {
     await f.restart();
     expect(f.service.jobs().find(job => job.id === first.id)).toEqual(completed);
     expect((await f.service.search('reader', search('stickers'))).packs).toHaveLength(1);
+  });
+  it('cancels queued and running jobs and allows both to be retried', async () => {
+    const f = await fixture(); const original = f.fetchResource.getMockImplementation()!;
+    let release!: () => void; const gate = new Promise<void>(resolve => { release = resolve; });
+    f.fetchResource.mockImplementation(async url => { if (url.includes('/full/')) await gate; return original(url); });
+    const running = f.service.start({ kind: 'stickers', sourceId: id, target: 1 });
+    for (let index = 0; index < 9; index++) f.service.start({ kind: 'gifs', keyword: 'cat', target: 1 });
+    const queued = f.service.start({ kind: 'stickers', keyword: 'cat queued', target: 1 });
+    expect(queued.status).toBe('queued');
+    expect(f.service.cancel(queued.id).status).toBe('cancelled');
+    expect(f.service.cancel(running.id).status).toBe('cancelled');
+    await vi.waitFor(() => expect(f.service.jobs().find(job => job.id === running.id)?.status).toBe('cancelled'));
+    const queuedRetry = f.service.retry(queued.id);
+    const runningRetry = f.service.retry(running.id);
+    expect(queuedRetry.id).not.toBe(queued.id);
+    expect(runningRetry.id).not.toBe(running.id);
+    expect(['running', 'queued']).toContain(queuedRetry.status);
+    expect(['running', 'queued']).toContain(runningRetry.status);
+    release();
+    await vi.waitFor(() => expect(f.service.jobs().every(job => !['running', 'queued'].includes(job.status))).toBe(true));
+    expect(f.service.jobs().every(job => ['completed', 'cancelled', 'failed'].includes(job.status))).toBe(true);
   });
   it('deduplicates and caches validated source previews and uses stored covers after collection', async () => {
     const f = await fixture();
@@ -232,7 +256,7 @@ describe('managed expression catalog', () => {
     const f = await fixture(); f.service.start({ kind: 'stickers', sourceId: id, target: 1 }); await finished(f.service);
     f.service.updateStatus({ ids: [id], status: 'pending' });
     f.service.start({ kind: 'stickers', sourceId: id, target: 1 });
-    expect(await finished(f.service)).toMatchObject({ status: 'exists', added: 0 });
+    expect(await finished(f.service)).toMatchObject({ status: 'completed', added: 0 });
     expect(f.service.detail(id).status).toBe('pending');
   });
   it('validates upload, publication, pagination and acquisition limits before mutation', async () => {

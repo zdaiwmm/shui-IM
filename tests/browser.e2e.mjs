@@ -163,6 +163,7 @@ const vite = await createViteServer({
   server: {
     host: '127.0.0.1',
     port: 0,
+    hmr: false,
     proxy: {
       '/api': `http://127.0.0.1:${backend.port}`,
       '/ws': { target: `ws://127.0.0.1:${backend.port}`, ws: true },
@@ -509,8 +510,7 @@ try {
   invariant(Buffer.from(pastedBytes).equals(image.buffer), 'Clipboard image changed during encryption, transfer or decryption');
   invariant(await creator.locator('#message-input').inputValue() === '图片粘贴时保留的草稿', 'Image paste erased an unsent text draft');
   const sentPaste = creator.locator('.message.outgoing .image-preview').nth(pastedCreatorIndex);
-  invariant(await sentPaste.getAttribute('data-revealed') === 'true', 'Delivery alone concealed outgoing media');
-  const readStarted = Date.now();
+  invariant(await sentPaste.getAttribute('data-revealed') === 'false', 'Outgoing media did not start concealed');
   await pastedImage.locator('..').evaluate(preview => {
     // Independent headless contexts cannot model simultaneous native focus.
     // Exercise the real click handler, MLS outbox, socket and peer projection.
@@ -519,8 +519,9 @@ try {
     try { preview.click(); }
     finally { if (descriptor) Object.defineProperty(document, 'hasFocus', descriptor); else delete document.hasFocus; }
   });
-  await creator.waitForFunction(index => document.querySelectorAll('.message.outgoing .image-preview')[index]?.dataset.revealed === 'false', pastedCreatorIndex, { timeout: 15_000 });
-  invariant(Date.now() - readStarted >= 9_500, 'Media concealed before the peer-read grace period');
+  await creator.waitForFunction(index => document.querySelectorAll('.message.outgoing .image-preview')[index]
+    ?.closest('.message')?.querySelector('.message-meta')?.textContent?.includes('已读'), pastedCreatorIndex, { timeout: 15_000 });
+  invariant(await sentPaste.getAttribute('data-revealed') === 'false', 'Peer media read changed the sender reveal state');
 
   await creator.locator('#message-input').fill('');
   await creator.bringToFront();
@@ -581,7 +582,9 @@ try {
     joiner.locator('.message.incoming .image-preview').nth(directImageJoinerIndex).locator('img').waitFor({ timeout: 10_000 }),
   ]);
   const directImagePreview = creator.locator('.message.outgoing .image-preview').nth(directImageCreatorIndex);
-  invariant(await directImagePreview.getAttribute('data-revealed') === 'true', 'An unread outgoing photo must remain visible');
+  invariant(await directImagePreview.getAttribute('data-revealed') === 'false', 'An outgoing photo did not start concealed');
+  await directImagePreview.click();
+  invariant(await directImagePreview.getAttribute('data-revealed') === 'true', 'The first outgoing photo click did not reveal its thumbnail');
   await directImagePreview.click();
   await creator.locator('.image-viewer.is-visible .viewer-stage img').waitFor({ timeout: 10_000 });
   await creator.locator('.viewer-stage img').evaluate(async (image) => {
@@ -675,7 +678,9 @@ try {
   invariant(await creator.locator('.message.outgoing').count() === albumCreatorMessagesBefore + 1, 'Multi-image selection was split into more than one outgoing message');
   invariant(await joiner.locator('.message.incoming').count() === albumJoinerMessagesBefore + 1, 'Multi-image selection was split for the receiver');
   invariant(await creatorAlbum.locator('.album-cell').count() === 3, 'Three selected images did not render as one three-cell album');
-  invariant(await creatorAlbum.locator('.album-cell').evaluateAll(cells => cells.every(cell => cell.dataset.revealed === 'true')), 'Unread outgoing album cells must remain visible');
+  invariant(await creatorAlbum.locator('.album-cell').evaluateAll(cells => cells.every(cell => cell.dataset.revealed === 'false')), 'Outgoing album cells did not start concealed');
+  await creatorAlbum.locator('.album-cell').nth(1).click();
+  invariant(await creatorAlbum.locator('.album-cell').nth(1).getAttribute('data-revealed') === 'true', 'The first album-cell click did not reveal its thumbnail');
   await creatorAlbum.locator('.album-cell').nth(1).click();
   const chatMediaCount = await creator.locator('#message-list .image-preview:not([data-expression="true"])').count();
   await creator.locator('[data-viewer-counter]').getByText(`${chatMediaCount - 1} / ${chatMediaCount}`, { exact: true }).waitFor();

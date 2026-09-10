@@ -45,7 +45,11 @@ function isAttachmentManifest(value: unknown, kind: 'image' | 'audio' | 'file'):
   const originalSize = image.originalSize;
   const lastModified = image.lastModified;
   return Boolean(
-    hasOnlyKeys(image, ['v', 'blobId', 'key', 'ivPrefix', 'chunkSize', 'chunkCount', 'originalSize', 'originalName', 'mimeType', 'lastModified', 'sha256']) &&
+    hasOnlyKeys(image, ['v', 'width', 'height', 'blobId', 'key', 'ivPrefix', 'chunkSize', 'chunkCount', 'originalSize', 'originalName', 'mimeType', 'lastModified', 'sha256']) &&
+    ((image.width === undefined && image.height === undefined) ||
+      (Number.isSafeInteger(image.width) && Number.isSafeInteger(image.height)
+        && Number(image.width) > 0 && Number(image.width) <= 65535
+        && Number(image.height) > 0 && Number(image.height) <= 65535)) &&
     image.v === 1 &&
     typeof image.blobId === 'string' && UUID_V4.test(image.blobId) &&
     boundedBase64(image.key, 32) &&
