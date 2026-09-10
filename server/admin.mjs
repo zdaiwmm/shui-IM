@@ -101,6 +101,11 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
           json(request, response, 202, expressions.start(await readJson(request)));
         } else if (pathname === '/admin-api/expressions/source' && request.method === 'GET') {
           json(request, response, 200, await expressions.sourceSearch({ keyword: url.searchParams.get('keyword') ?? '', kind: 'stickers', page: 1 }));
+        } else if (pathname.match(/^\/admin-api\/expressions\/source\/[a-f0-9]{32}\/media$/) && request.method === 'GET') {
+          const result = await expressions.sourcePreview(pathname.split('/')[4]);
+          headers(request, response); response.writeHead(200, { 'Content-Type': result.type, 'Content-Length': result.bytes.length, 'Cache-Control': 'no-store' }); response.end(result.bytes);
+        } else if (match && match[2] === undefined && request.method === 'DELETE' && url.searchParams.has('position')) {
+          json(request, response, 200, expressions.removeItem(match[1], Number(url.searchParams.get('position'))));
         } else if (pathname === '/admin-api/expressions/jobs' && request.method === 'GET') {
           json(request, response, 200, { jobs: expressions.jobs() });
         } else if (match && match[2] !== undefined && request.method === 'GET') {
