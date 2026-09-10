@@ -26,17 +26,26 @@ try {
   await page.locator('[name=code]').fill(totp(config.totpSecret));
   await page.getByRole('button', { name: '验证并登录' }).click();
   await page.getByRole('button', { name: '表情采集', exact: true }).click();
-  for (const [channel, keyword, id] of [['signal', 'cat meme', '8771105c23a9dc10df5aafb55105ef02'], ['noto', 'smile', 'noto-1f600']]) {
+  for (const [channel, keyword, id] of [['signal', 'cat meme', '8771105c23a9dc10df5aafb55105ef02'], ['noto', 'white flag', 'noto-1f3f3_fe0f']]) {
     await page.locator('#collection-channel').selectOption(channel);
     await page.locator('[name=keyword]').fill(keyword);
     await page.getByRole('button', { name: '搜索', exact: true }).click();
     const card = page.locator('.source-pack').filter({ has: page.locator(`img[src*="/${id}/"]`) });
     await Promise.race([card.waitFor({ timeout: 60000 }), page.getByText('来源连接或目录读取失败，请重新搜索', { exact: true }).waitFor({ timeout: 60000 }).then(() => { throw new Error('Live upstream search unavailable'); })]);
     await card.locator('img').evaluate(img => img.decode());
+    const accepted = page.waitForResponse(response => response.url().endsWith('/expressions/collect') && response.status() === 202);
     await card.getByRole('button', { name: '采集此包' }).click();
-    await card.getByRole('button', { name: '已采集，待审核' }).waitFor({ timeout: 180000 });
+    const job = await (await accepted).json();
+    await page.reload();
+    await page.getByRole('heading', { name: '采集任务', exact: true }).waitFor();
+    await page.locator(`[data-job-id="${job.id}"]`).getByText('已采集并上架', { exact: true }).waitFor({ timeout: 180000 });
+    await page.locator('#collection-channel').selectOption(channel);
+    await page.locator('[name=keyword]').fill(keyword);
+    await page.getByRole('button', { name: '搜索', exact: true }).click();
+    await card.waitFor();
+    await card.locator('img').evaluate(img => img.decode());
     const detail = await page.evaluate(async id => (await fetch(`/admin-api/expressions/${id}`)).json(), id);
-    assert.equal(detail.status, 'pending'); assert(detail.items.length > 0);
+    assert.equal(detail.status, 'published'); assert(detail.items.length > 0);
     const bytes = await page.evaluate(async id => (await (await fetch(`/admin-api/expressions/${id}/media/0`)).arrayBuffer()).byteLength, id);
     assert(bytes > 0);
     evidence.push({ channel, id, count: detail.items.length, firstImageBytes: bytes, status: detail.status });
@@ -52,11 +61,27 @@ try {
     await page.screenshot({ path: `${output}/${channel}-mobile.png` });
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.getByRole('button', { name: '搜索', exact: true }).click();
-    await card.getByRole('button', { name: '已入库', exact: true }).waitFor();
+    assert(await card.locator('button').first().isDisabled());
   }
+  // Exercise a full page of upstream covers, including requests beyond the
+  // browser's initial viewport. This is separate from single-pack acquisition.
+  await page.locator('#collection-channel').selectOption('signal');
+  await page.locator('[name=keyword]').fill('');
+  await page.getByRole('button', { name: '搜索', exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.source-cover').length === 24);
+  const covers = await page.locator('.source-cover').evaluateAll(async images => {
+    return Promise.all(images.map(async image => {
+      image.loading = 'eager';
+      try { await image.decode(); return { ok: true, id: image.getAttribute('src') }; }
+      catch { return { ok: false, id: image.getAttribute('src') }; }
+    }));
+  });
+  evidence.push({ fullPageSignalPreviews: covers });
+  assert(covers.every(cover => cover.ok), 'All 24 Signal covers decode');
+  await page.screenshot({ path: `${output}/signal-full-page.png`, fullPage: true });
   await browser.close(); browser = undefined; await service.close(); service = undefined;
   const reopened = createExpressionCatalog({ dataDir });
-  try { for (const item of evidence) { assert.equal(reopened.detail(item.id).items.length, item.count); assert.equal(reopened.preview(item.id, 0).bytes.length, item.firstImageBytes); } } finally { await reopened.close(); }
+  try { for (const item of evidence.filter(item => item.id)) { assert.equal(reopened.detail(item.id).items.length, item.count); assert.equal(reopened.preview(item.id, 0).bytes.length, item.firstImageBytes); } } finally { await reopened.close(); }
   await writeFile(`${output}/result.json`, JSON.stringify({ at: new Date().toISOString(), restartReadback: true, evidence }, null, 2));
   console.log(JSON.stringify({ restartReadback: true, evidence, output }));
 } catch (error) {

@@ -39,16 +39,22 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
   `);
   for (const row of db.prepare('SELECT * FROM jobs').all()) {
     const job = JSON.parse(row.body);
-    if (job.status === 'running') { job.status = 'interrupted'; db.prepare('UPDATE jobs SET body=? WHERE id=?').run(JSON.stringify(job), row.id); }
+    if (['running', 'queued'].includes(job.status)) { job.status = 'interrupted'; db.prepare('UPDATE jobs SET body=? WHERE id=?').run(JSON.stringify(job), row.id); }
   }
   const source = createStickerSource(fetchResource, now);
   const noto = createNotoSource(fetchResource, now);
   const channelSource = channel => channel === 'noto' ? noto : channel === 'signal' || channel === undefined ? source : fail('MEME_INVALID_QUERY');
   const entryId = (row, kind, itemId = 0) => row.id.startsWith('noto-') ? row.id : kind === 'gifs' ? `gif-${row.id}-${itemId}` : row.id;
   const grants = new Map();
-  let running;
-  let controller;
+  const running = new Set();
+  const controllers = new Map();
   let closing = false;
+  const queue = [];
+  const previews = new Map();
+  const previewPending = new Map();
+  let previewBytes = 0;
+  let activePreviews = 0;
+  const previewWaiters = [];
   const get = id => db.prepare('SELECT * FROM entries WHERE id=?').get(id) ?? fail('MEME_NOT_FOUND');
   const items = id => db.prepare('SELECT position,hash,title FROM items WHERE entry=? ORDER BY position').all(id);
   function grant(owner, entry, item) {
@@ -74,7 +80,7 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       if (transaction) db.exec('COMMIT'); return true;
     } catch (error) { if (transaction) db.exec('ROLLBACK'); throw error; }
   }
-  const saveJob = job => db.prepare('INSERT OR REPLACE INTO jobs VALUES (?,?)').run(job.id, JSON.stringify(job));
+  const saveJob = job => db.prepare('INSERT INTO jobs VALUES (?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body').run(job.id, JSON.stringify(job));
   async function collect(job, body, signal) {
     try {
       const upstream = channelSource(body.channel);
@@ -88,11 +94,12 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       const candidates = rows;
       for (const row of candidates) {
         if (job.added >= job.target || job.scanned >= 200) break;
-        signal.throwIfAborted(); job.scanned++;
+        signal.throwIfAborted(); job.scanned++; job.title = row.title; job.phase = 'manifest'; saveJob(job);
         if (body.kind === 'stickers' && db.prepare('SELECT 1 FROM entries WHERE id=?').get(row.id)) { job.skipped++; job.existing++; saveJob(job); continue; }
         try {
           const pack = await upstream.pack(row.id, signal);
           const files = []; let total = 0;
+          job.totalFiles = pack.items.length; job.downloadedFiles = 0; job.packStarted = now(); job.phase = 'downloading'; saveJob(job);
           for (const item of pack.items) {
             signal.throwIfAborted();
             const id = entryId(row, body.kind, item.id);
@@ -100,15 +107,16 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
             const raw = await fetchResource(item.url, MAX_IMAGE + 64, signal);
             const bytes = item.key ? decryptPublicSticker(raw, item.key) : raw;
             memeContentType(bytes); total += bytes.length;
+            job.downloadedFiles++; job.downloadedBytes += bytes.length; saveJob(job);
             if (!bytes.length || bytes.length > MAX_IMAGE || total > MAX_PACK) fail('MEME_TOO_LARGE');
             if (body.kind === 'gifs') {
               if (!publicStickerAnimated(bytes)) { job.skipped++; continue; }
-              if (put({ ...row, id, kind: body.kind, source: body.channel === 'noto' ? row.source : `https://signalstickers.org/pack/${row.id}` }, [{ bytes, title: item.title }])) job.added++;
+              if (put({ ...row, id, kind: body.kind, source: body.channel === 'noto' ? row.source : `https://signalstickers.org/pack/${row.id}` }, [{ bytes, title: item.title }], { status: 'published' })) job.added++;
               saveJob(job); if (job.added >= job.target) break;
             } else files.push({ bytes, title: item.title });
           }
           signal.throwIfAborted();
-          if (body.kind === 'stickers' && put({ ...row, kind: body.kind, source: body.channel === 'noto' ? row.source : `https://signalstickers.org/pack/${row.id}` }, files)) job.added++;
+          if (body.kind === 'stickers' && put({ ...row, kind: body.kind, source: body.channel === 'noto' ? row.source : `https://signalstickers.org/pack/${row.id}` }, files, { status: 'published' })) job.added++;
         } catch (error) {
           if (signal.aborted || error.message === 'MEME_STORAGE_FULL') throw error;
           job.failed++; job.error = ({ MEME_TOO_LARGE: '资源超过大小限制', MEME_INVALID_IMAGE: '原图校验失败', MEME_UPSTREAM_UNAVAILABLE: '来源服务暂不可用', MEME_DNS_REJECTED: '来源域名解析失败' })[error.message] || '来源下载失败，请重试';
@@ -117,7 +125,19 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       }
       job.status = job.added >= job.target ? 'completed' : body.sourceId && job.existing > 0 && !job.failed ? 'exists' : 'partial';
     } catch (error) { job.status = signal.aborted ? 'interrupted' : 'failed'; job.error = error.message === 'MEME_STORAGE_FULL' ? '资源库容量已满' : '采集未完成，请重试'; }
-    finally { job.finished = now(); saveJob(job); }
+    finally { job.finished = now(); job.phase = 'finished'; saveJob(job); }
+  }
+  function runNext() {
+    while (running.size < 3 && !closing && queue.length) {
+      const { job, body } = queue.shift();
+      job.status = 'running'; job.started = now(); job.phase = 'directory'; saveJob(job);
+      const controller = new AbortController(); controllers.set(job.id, controller);
+      const timeout = setTimeout(() => controller.abort(), 10 * 60_000);
+      const promise = collect(job, body, controller.signal).finally(() => {
+        clearTimeout(timeout); running.delete(promise); controllers.delete(job.id); runNext();
+      });
+      running.add(promise);
+    }
   }
   const service = {
     async sourceSearch(body, signal) {
@@ -129,16 +149,40 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
         cover: `/admin-api/expressions/source/${row.id}/media` })), total: rows.length };
     },
     async sourcePreview(id, signal) {
-      const pack = await channelSource(id.startsWith('noto-') ? 'noto' : 'signal').pack(id, signal);
-      const raw = await fetchResource(pack.cover.url, MAX_IMAGE + 64, signal);
-      const bytes = pack.cover.key ? decryptPublicSticker(raw, pack.cover.key) : raw;
-      if (!bytes.length || bytes.length > MAX_IMAGE) fail('MEME_TOO_LARGE');
-      return { type: memeContentType(bytes), bytes };
+      // Already collected covers never need to revisit the upstream network.
+      if (db.prepare('SELECT 1 FROM entries WHERE id=?').get(id)) return service.preview(id, 0);
+      const cached = previews.get(id);
+      if (cached && now() - cached.time < 15 * 60_000) return cached.result;
+      if (previewPending.has(id)) return previewPending.get(id);
+      if (previewWaiters.length >= 24) fail('MEME_BUSY');
+      const pending = (async () => {
+        if (activePreviews >= 3) await new Promise(resolve => previewWaiters.push(resolve));
+        else activePreviews++;
+        try {
+          signal?.throwIfAborted();
+          const pack = await channelSource(id.startsWith('noto-') ? 'noto' : 'signal').pack(id, signal);
+          const raw = await fetchResource(pack.cover.url, MAX_IMAGE + 64, signal);
+          const bytes = pack.cover.key ? decryptPublicSticker(raw, pack.cover.key) : raw;
+          if (!bytes.length || bytes.length > MAX_IMAGE) fail('MEME_TOO_LARGE');
+          const result = { type: memeContentType(bytes), bytes };
+          const previous = previews.get(id);
+          if (previous) { previews.delete(id); previewBytes -= previous.result.bytes.length; }
+          while (previewBytes + bytes.length > 16 * 1024 * 1024 || previews.size >= 100) {
+            const oldest = previews.keys().next().value;
+            previewBytes -= previews.get(oldest).result.bytes.length; previews.delete(oldest);
+          }
+          previews.set(id, { result, time: now() }); previewBytes += bytes.length;
+          return result;
+        } finally {
+          const next = previewWaiters.shift(); if (next) next(); else activePreviews--;
+        }
+      })().finally(() => previewPending.delete(id));
+      previewPending.set(id, pending); return pending;
     },
     // Only the explicit repository initializer uses this entry point. Keeping
     // the marker in the snapshot prevents a later run from undoing moderation.
     initializeShipped(loadEntries, id = 'shipped-library-v1') {
-      if (running || closing) fail('MEME_BUSY');
+      if (running.size || closing) fail('MEME_BUSY');
       if (!/^[a-z0-9-]{1,64}$/.test(id)) fail('MEME_INVALID_QUERY');
       db.exec('BEGIN IMMEDIATE');
       try {
@@ -177,11 +221,21 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
     list(body) {
       query(body);
       if (!['all', 'pending', 'published'].includes(body.status)) fail('MEME_INVALID_QUERY');
-      const rows = matchStickerPacks(db.prepare(`SELECT entries.*, (SELECT count(*) FROM items WHERE entry=entries.id) AS count FROM entries WHERE kind=? ORDER BY created DESC,id`).all(body.kind), body.keyword)
-        .filter(row => body.status === 'all' || row.status === body.status);
-      return { entries: rows.slice((body.page - 1) * 24, body.page * 24), total: rows.length, jobs: service.jobs() };
+      const count = db.prepare('SELECT count(*) AS count FROM items WHERE entry=?');
+      const offset = (body.page - 1) * 24;
+      let page; let total;
+      if (!body.keyword.trim()) {
+        const where = body.status === 'all' ? 'kind=?' : 'kind=? AND status=?';
+        const params = body.status === 'all' ? [body.kind] : [body.kind, body.status];
+        total = db.prepare(`SELECT count(*) AS count FROM entries WHERE ${where}`).get(...params).count;
+        page = db.prepare(`SELECT * FROM entries WHERE ${where} ORDER BY created DESC,id LIMIT 24 OFFSET ?`).all(...params, offset);
+      } else {
+        const rows = matchStickerPacks(db.prepare(`SELECT * FROM entries WHERE kind=? AND (?='all' OR status=?) ORDER BY created DESC,id`).all(body.kind, body.status, body.status), body.keyword);
+        total = rows.length; page = rows.slice(offset, offset + 24);
+      }
+      return { entries: page.map(row => ({ ...row, count: count.get(row.id).count })), total };
     },
-    detail(id) { return { ...get(id), items: items(id) }; },
+    detail(id) { const files = items(id); return { ...get(id), count: files.length, items: files }; },
     async create(body) {
       if (!body || !Array.isArray(body.files) || !body.files.length || body.files.length > 200
         || (body.kind === 'gifs' && body.files.length !== 1)) fail('MEME_INVALID_QUERY');
@@ -214,14 +268,14 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       return service.detail(id);
     },
     preview(id, position) {
-      get(id); const item = items(id).find(item => item.position === position) ?? fail('MEME_NOT_FOUND');
+      get(id); const item = db.prepare('SELECT hash FROM items WHERE entry=? AND position=?').get(id, position) ?? fail('MEME_NOT_FOUND');
       const row = db.prepare('SELECT type,bytes FROM assets WHERE hash=?').get(item.hash);
       return { type: row.type, bytes: Buffer.from(row.bytes) };
     },
     update(id, body) { get(id); const values = metadata(body); db.prepare('UPDATE entries SET title=?,tags=?,status=? WHERE id=?').run(...values, id); return service.detail(id); },
     updateStatus(body) {
       if (!body || !Array.isArray(body.ids) || !body.ids.length || body.ids.length > 24
-        || body.ids.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9-]{1,128}$/.test(id))
+        || body.ids.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(id))
         || new Set(body.ids).size !== body.ids.length || !['pending', 'published'].includes(body.status)) fail('MEME_INVALID_QUERY');
       db.exec('BEGIN IMMEDIATE');
       try {
@@ -259,15 +313,16 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       if (body.channel === 'noto' && body.kind !== 'gifs') fail('MEME_INVALID_QUERY');
       if (!Number.isSafeInteger(body.target) || body.target < 1 || body.target > 100
         || (body.sourceId !== undefined && !(body.channel === 'noto' ? /^noto-[a-f0-9]{4,6}(?:_[a-f0-9]{4,6}){0,10}$/ : /^[a-f0-9]{32}$/).test(body.sourceId))) fail('MEME_INVALID_QUERY');
-      if (running || closing) fail('MEME_BUSY');
-      const job = { id: randomUUID(), channel: body.channel ?? 'signal', sourceId: body.sourceId, kind: body.kind, target: body.target, added: 0, scanned: 0, skipped: 0, existing: 0, failed: 0, status: 'running', created: now() };
-      saveJob(job); db.exec('DELETE FROM jobs WHERE id NOT IN (SELECT id FROM jobs ORDER BY rowid DESC LIMIT 20)');
-      controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10 * 60_000);
-      running = collect(job, body, controller.signal).finally(() => { clearTimeout(timeout); running = undefined; });
+      if (closing) fail('MEME_BUSY');
+      const duplicate = service.jobs().find(job => ['running', 'queued'].includes(job.status) && body.sourceId && job.sourceId === body.sourceId && job.kind === body.kind);
+      if (duplicate) return duplicate;
+      if (queue.length + running.size >= 20) fail('MEME_BUSY');
+      const job = { id: randomUUID(), channel: body.channel ?? 'signal', sourceId: body.sourceId, kind: body.kind, target: body.target, added: 0, scanned: 0, skipped: 0, existing: 0, failed: 0, status: 'queued', phase: 'queued', downloadedFiles: 0, totalFiles: 0, downloadedBytes: 0, created: now() };
+      saveJob(job); db.exec("DELETE FROM jobs WHERE json_extract(body,'$.status') NOT IN ('running','queued') AND id NOT IN (SELECT id FROM jobs ORDER BY rowid DESC LIMIT 20)");
+      queue.push({ job, body }); runNext();
       return { ...job };
     },
-    async close() { closing = true; controller?.abort(); await running; db.close(); },
+    async close() { closing = true; for (const { job } of queue.splice(0)) { job.status = 'interrupted'; job.finished = now(); saveJob(job); } for (const controller of controllers.values()) controller.abort(); await Promise.all(running); db.close(); },
   };
   return service;
 }

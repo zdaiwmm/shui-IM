@@ -193,8 +193,8 @@ try {
   await admin.route('**/admin-api/expressions/collect', route => { collectionPayload = JSON.parse(route.request().postData() ?? '{}'); return route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ id: 'fixture-job' }) }); });
   await admin.route('**/admin-api/expressions/jobs', route => {
     collectionPolls += 1;
-    const status = collectionPolls === 1 ? 'running' : 'completed';
-    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ jobs: [{ id: 'fixture-job', status, added: status === 'completed' ? 1 : 0, scanned: 1, failed: 0 }] }) });
+    const status = collectionPayload ? 'completed' : 'running';
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ jobs: collectionPayload ? [{ id: 'fixture-job', sourceId: sourcePackId, status, added: status === 'completed' ? 1 : 0, scanned: 1, failed: 0 }] : [] }) });
   });
   await admin.getByRole('button', { name: '表情采集', exact: true }).click();
   await admin.getByRole('heading', { name: '表情采集', exact: true }).waitFor();
@@ -206,7 +206,7 @@ try {
   await admin.getByRole('button', { name: '搜索', exact: true }).click();
   await admin.getByText('Fixture Signal pack', { exact: true }).waitFor();
   await admin.getByRole('button', { name: '采集此包', exact: true }).click();
-  await admin.getByRole('button', { name: '已采集，待审核', exact: true }).waitFor();
+  await admin.getByRole('button', { name: '已采集并上架', exact: true }).waitFor();
   assert.deepEqual(collectionPayload, { channel: 'signal', kind: 'stickers', keyword: '', sourceId: sourcePackId, target: 1 });
   await admin.unroute('**/admin-api/expressions/source*');
   await admin.unroute('**/admin-api/expressions/collect');
@@ -347,6 +347,24 @@ try {
   await admin.keyboard.press('Shift');
   await admin.clock.runFor(6 * 60_000);
   assert.equal(renewals, 1, 'Hidden pages do not renew');
+  await admin.evaluate(() => { delete document.visibilityState; });
+  let jobReads = 0;
+  admin.on('request', request => { if (request.url().endsWith('/expressions/jobs')) jobReads++; });
+  const firstJobRead = admin.waitForResponse(response => response.url().endsWith('/expressions/jobs'));
+  await admin.getByRole('button', { name: '表情采集', exact: true }).click();
+  await admin.clock.runFor(2000); await firstJobRead;
+  await admin.clock.fastForward(6 * 60_000);
+  const idleJobReads = jobReads;
+  await admin.clock.runFor(60_000);
+  assert.equal(jobReads, idleJobReads, 'Idle task polling must not extend administrator authentication');
+  await admin.keyboard.press('Shift');
+  const resumedJobRead = admin.waitForResponse(response => response.url().endsWith('/expressions/jobs'));
+  await admin.clock.runFor(2000); await resumedJobRead;
+  assert(jobReads > idleJobReads, 'Trusted interaction resumes task progress');
+  await admin.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }); });
+  const hiddenJobReads = jobReads;
+  await admin.clock.runFor(60_000);
+  assert.equal(jobReads, hiddenJobReads, 'Hidden pages stop task polling while server jobs continue');
   await admin.evaluate(() => { delete document.visibilityState; });
   await admin.getByRole('button', { name: '退出后台' }).click();
   await admin.getByRole('heading', { name: '登录会话管理' }).waitFor();
