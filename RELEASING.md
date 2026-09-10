@@ -190,6 +190,15 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-10（Asia/Shanghai）；服务器批次 `20260910T093547Z`，独立回读于 17:38:18 成功。
+  应用提交 `e30a0cd1e876a4e8c152c34b2d833494b5078e71`，版本 `2026.09.10.2`；用户对该精确提交确认发布。
+  [PR #82](https://github.com/zdaiwmm/shui-IM/pull/82) 已合并，精确 main [CI 34460331818](https://github.com/zdaiwmm/shui-IM/actions/runs/34460331818) attempt 1 完整通过。
+- 本批包含媒体已读后 10 秒隐藏、向右拖拽隐藏与圆角、弱网通话恢复和语音优先、语音消息幂等重试，以及后台表情管理和 Signal / Noto 采集改进。
+- 固定入口取得 `DEPLOY_VERIFIED`，总耗时 206,579ms；冷备份已校验。发布目录为 `/opt/quiet-room/git-releases/20260910T093547Z-e30a0cd1e876`，冷备份为 `/opt/quiet-room/backups/predeploy/data-20260910T093547Z-e30a0cd1e876.tar.gz`。
+- 独立 `READBACK_OK` 耗时 3,001ms：线上 SHA、镜像、容器与公开产物一致；维护标记不存在；应用健康，备份容器运行中且无健康探针；HTTPS 的 ok/database/storage 和新建公开 WebSocket 均通过。脱敏证据持久保存于公共 Git 目录 `quiet-room-release-evidence/e30a0cd1e876/`。
+- 最终组合本地 `check:full` 76 文件 / 620 项单元测试和 30/30 浏览器入口通过；通话及弱网专项证据见已有验收报告。iPhone / iOS Safari、真实多地域 TURN 与 Wi-Fi/蜂窝切换未验收。生产通话覆盖开关仍为 `0`、TURN 容器不存在；应用发布未配置中继基础设施。
+- 对账文档单独提交与合并，不改变上述线上应用 SHA，也不再次部署。
+
 - 日期：2026-09-10（Asia/Shanghai）；服务器批次 `20260909T232408Z`，独立回读于 07:27:26 成功。
   应用提交 `bc5893092fc8051750319bf38b77302e166d0194`，版本 `2026.09.09.10`；[PR #70](https://github.com/zdaiwmm/shui-IM/pull/70) 已合并，精确 main CI [34379775756](https://github.com/zdaiwmm/shui-IM/actions/runs/34379775756) 全部成功。
 - 本批合并后台会话、表情管理和贴图导入修正：响应式控制台、状态筛选、批量操作、分页、上传反馈、详情预览、失败重试与键盘导航，以及含 `title.txt` 的 `.wastickers` 导入和封面排除。
