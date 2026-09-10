@@ -99,9 +99,9 @@ SSH key permits pushing code but is not a GitHub Actions API login. Browser
 login alone likewise does not authenticate `gh`. Initial CLI installation/login
 is a separate setup step, not an action silently performed by deployment.
 
-The direct `release.mjs` entry point requires a clean local `main` matching
+The direct `release.mjs` entry point requires a clean local `main` contained in
 `origin/main`; the fixed `publish.mjs` entry point instead uses an isolated
-shallow clone. Both paths verify the latest **CI push or manually dispatched run
+clone pinned to the approved batch, retaining main history for ancestry checks. Both paths verify the latest **CI push or manually dispatched run
 for that exact main SHA**. That run
 must succeed and include a successful **Full application verification** job.
 PR CI and a green documentation-only run are insufficient. If the current main
