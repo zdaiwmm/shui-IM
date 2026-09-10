@@ -6,7 +6,7 @@ import { createStickerSource, decryptPublicSticker, matchStickerPacks, publicSti
 import { fetchMemeResource, memeContentType } from './memes.mjs';
 
 const MAX_IMAGE = 8 * 1024 * 1024;
-const MAX_PACK = 64 * 1024 * 1024;
+const MAX_PACK = 50 * 1024 * 1024;
 const MAX_STORAGE = 1024 * 1024 * 1024;
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const fail = code => { throw new Error(code); };
@@ -111,7 +111,12 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
     async sourceSearch(body, signal) {
       query({ ...body, page: 1 });
       const rows = matchStickerPacks(await source.list(signal), body.keyword, body.kind === 'gifs');
-      return { packs: rows.slice(0, 24).map(row => ({ id: row.id, title: row.title, author: row.author, tags: row.tags, source: row.source })), source: 'Signal Stickers' };
+      return { packs: rows.slice(0, 24).map(row => ({ id: row.id, title: row.title, author: row.author, tags: row.tags, source: row.source, cover: `/admin-api/expressions/source/${row.id}/media` })), source: 'Signal Stickers' };
+    },
+    async sourcePreview(id, signal) {
+      const pack = await source.pack(id, signal);
+      const bytes = decryptPublicSticker(await fetchResource(pack.cover.url, MAX_IMAGE + 64, signal), pack.cover.key);
+      return { type: memeContentType(bytes), bytes };
     },
     // Only the explicit repository initializer uses this entry point. Keeping
     // the marker in the snapshot prevents a later run from undoing moderation.
@@ -168,7 +173,7 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       if (!['gifs', 'stickers'].includes(kind) || (kind === 'gifs' && body.files.length !== 1)) fail('MEME_INVALID_QUERY');
       if (packageUpload) {
         const data = body.files[0].data;
-        if (typeof data !== 'string' || data.length > 12 * 1024 * 1024
+        if (typeof data !== 'string' || data.length > 70 * 1024 * 1024
           || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) fail('MEME_INVALID_QUERY');
         const packageBytes = Buffer.from(body.files[0].data, 'base64');
         if (packageBytes.toString('base64') !== data) fail('MEME_INVALID_QUERY');
@@ -179,7 +184,7 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       const status = body.status === 'published' ? 'published' : 'pending';
       metadata({ ...body, status });
       const files = body.files.map(file => {
-        if (!file || typeof file.data !== 'string' || file.data.length > 12 * 1024 * 1024
+        if (!file || typeof file.data !== 'string' || file.data.length > 70 * 1024 * 1024
           || !/^[A-Za-z0-9+/]*={0,2}$/.test(file.data)) fail('MEME_INVALID_QUERY');
         const bytes = Buffer.from(file.data, 'base64');
         if (bytes.toString('base64') !== file.data) fail('MEME_INVALID_QUERY');
@@ -209,6 +214,18 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
         db.exec('COMMIT');
       } catch (error) { db.exec('ROLLBACK'); throw error; }
       return { updated: body.ids.length };
+    },
+    removeItem(id, position) {
+      get(id); const selected = items(id).find(item => item.position === position) ?? fail('MEME_NOT_FOUND');
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        db.prepare('DELETE FROM items WHERE entry=? AND position=?').run(id, position);
+        db.prepare('UPDATE items SET position=position-1 WHERE entry=? AND position>?').run(id, position);
+        if (!db.prepare('SELECT 1 FROM items WHERE hash=?').get(selected.hash)) db.prepare('DELETE FROM assets WHERE hash=?').run(selected.hash);
+        if (!db.prepare('SELECT 1 FROM items WHERE entry=?').get(id)) db.prepare('DELETE FROM entries WHERE id=?').run(id);
+        db.exec('COMMIT');
+      } catch (error) { db.exec('ROLLBACK'); throw error; }
+      return db.prepare('SELECT 1 FROM entries WHERE id=?').get(id) ? service.detail(id) : { deleted: true };
     },
     remove(id) {
       get(id); db.exec('BEGIN IMMEDIATE');

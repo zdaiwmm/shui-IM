@@ -363,7 +363,7 @@ export async function startServer(options = {}) {
   const memes = createExpressionCatalog({ dataDir });
   const admin = await createAdminConsole({ config: options.adminConfig, configFile: options.adminConfigFile ?? process.env.ADMIN_CONFIG_FILE,
     origin: adminOrigin, data: store.cloudBackups, expressions: memes, json, readJson,
-    readExpressionJson: async request => JSON.parse((await readBody(request, 12 * 1024 * 1024)).toString('utf8')),
+    readExpressionJson: async request => JSON.parse((await readBody(request, 70 * 1024 * 1024)).toString('utf8')),
     headers: applySecurityHeaders, staticDir,
     onDelete: async roomId => {
       for (const socket of clientsByRoom.get(roomId) ?? []) socket.close(4403, 'Room removed');
