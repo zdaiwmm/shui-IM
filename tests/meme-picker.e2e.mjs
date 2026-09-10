@@ -19,16 +19,27 @@ server.middlewares.use('/__memes', (_req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="app"></div></body></html>');
 });
-let browser;
+let browser, page;
 try {
   await server.listen();
   browser = process.env.MEME_WEBKIT === '1' ? await webkit.launch() : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__memes`);
   await page.evaluate(async (animation) => {
     for (const css of ['styles','chat-layout','gallery','chat-interactions','cover','call','memes']) await import(`/src/${css}.css`);
     const { QuietRoomApp } = await import('/src/app.ts');
+    // Bounded synthetic-fixture diagnostics make intermittent CI navigation races actionable.
+    const { MemePicker } = await import('/src/lib/meme-picker.ts');
+    const events = []; window.memeTestEvents = events;
+    for (const key of ['local', 'clear', 'back', 'submit', 'showPack', 'togglePack', 'install', 'dispose']) {
+      const original = MemePicker.prototype[key];
+      MemePicker.prototype[key] = function (...args) {
+        events.push({ action: key, generation: this.generation, detail: this.packDetail, overlay: Boolean(this.overlay), busy: this.busy });
+        if (events.length > 48) events.shift();
+        return original.apply(this, args);
+      };
+    }
     const vault = await import('/src/lib/vault.ts');
     const { encryptImageFile } = await import('/src/lib/file-crypto.ts');
     const { validateMemeFile } = await import('/src/lib/meme-media.ts');
@@ -174,6 +185,13 @@ try {
   await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='添加');
   await page.locator('.meme-pack-add').click();
   await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='解除添加');
+  // Exercise repeated installation transitions, including the CI failure boundary.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await page.locator('.meme-pack-add').click();
+    await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='添加');
+    await page.locator('.meme-pack-add').click();
+    await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='解除添加');
+  }
   assert.equal(await page.evaluate(async()=> (await window.fixture.vault.loadStickerPacks(window.fixture.session))[0].items.length),3);
   await page.locator('.meme-back').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);
@@ -407,4 +425,13 @@ try {
   assert.equal(await page.locator('.meme-panel,.meme-preview').count(),0,'Privacy curtain retained meme UI');
   assert.deepEqual(errors,[]);
   console.log('Sticker picker: server catalog defaults, moving pixels, half sheet, typed fullscreen search, atomic encrypted pack install/reopen, tap/hold send closure, privacy and responsive geometry passed.');
+} catch (error) {
+  const diagnostic = await page?.evaluate(() => ({
+    events: window.memeTestEvents,
+    buttons: [...document.querySelectorAll('.meme-pack-add')].map(button => ({ text: button.textContent, disabled: button.disabled })),
+    view: document.querySelector('.meme-panel')?.dataset.view,
+    covered: window.fixture?.app.privacyCovered,
+  })).catch(() => null);
+  console.error('MEME_TEST_STATE', JSON.stringify(diagnostic));
+  throw error;
 } finally { await browser?.close(); await server.close(); }
