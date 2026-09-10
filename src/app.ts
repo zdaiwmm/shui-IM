@@ -5,7 +5,7 @@ import './presence-circuit.css';
 import { closeDialog, mountDialog } from './lib/dialog';
 import { MemePicker, memeIcons } from './lib/meme-picker';
 import { isExpressionPayload } from './lib/expression-media';
-import { loadStickerPacks, installStickerPack, removeStickerPack } from './lib/vault';
+import { loadStickerPacks, installStickerPack, removeStickerPack, reorderStickerPacks } from './lib/vault';
 import './memes.css';
 import './chat-tools.css';
 import { normalizeAttachmentFavorites, sortFavoriteAssets } from './lib/attachment-favorites';
@@ -3523,6 +3523,7 @@ export class QuietRoomApp {
       packs: () => loadStickerPacks(session),
       install: (id, title, files, signal) => installStickerPack(session, id, title, files, signal),
       removePack: (id, signal) => removeStickerPack(session, id, signal),
+      reorderPacks: (ids, signal) => reorderStickerPacks(session, ids, signal),
       pack: async (id, signal) => {
         const result = await (await request('pack', { id }, signal)).json();
         if (result.id !== id || typeof result.title !== 'string' || result.title.length > 120 || !Array.isArray(result.items)
@@ -9095,7 +9096,8 @@ export class QuietRoomApp {
     }
   }
 
-  private mountGalleryCurationActions(source: HTMLElement, target: GalleryCurationTarget, tab: GalleryTab, countKey: string, openDetails?: () => void): void {
+  private mountGalleryCurationActions(source: HTMLElement, target: GalleryCurationTarget, tab: GalleryTab, countKey: string,
+    openDetails?: () => void, onSaved?: (action: 'pin' | 'unpin' | 'hide') => boolean): void {
     let start: { x: number; y: number; pointerId: number } | null = null;
     const cancel = () => { this.cancelMessageHold(); start = null; };
     const release = () => {
@@ -9109,7 +9111,7 @@ export class QuietRoomApp {
       this.suppressMediaClickUntil = Date.now() + 650;
       if (fromPointerHold) source.dataset.galleryHoldCommitted = 'true';
       navigator.vibrate?.(18);
-      this.openGalleryCurationActions(source, target, tab, countKey, openDetails);
+      this.openGalleryCurationActions(source, target, tab, countKey, openDetails, onSaved);
     };
     source.addEventListener('pointerdown', event => {
       if (!event.isPrimary || event.button !== 0 || event.pointerType === 'mouse' || this.privacyCovered) return;
@@ -9141,7 +9143,8 @@ export class QuietRoomApp {
     });
   }
 
-  private openGalleryCurationActions(source: HTMLElement, target: GalleryCurationTarget, tab: GalleryTab, countKey: string, openDetails?: () => void): void {
+  private openGalleryCurationActions(source: HTMLElement, target: GalleryCurationTarget, tab: GalleryTab, countKey: string,
+    openDetails?: () => void, onSaved?: (action: 'pin' | 'unpin' | 'hide') => boolean): void {
     const session = this.session;
     const epoch = this.runtimeEpoch;
     if (!session || !this.isRuntimeActive(epoch, session) || !source.isConnected) return;
@@ -9192,7 +9195,7 @@ export class QuietRoomApp {
         if (!this.isRuntimeActive(epoch, session)) return;
         if (action === 'hide') this.galleryKnownCounts[tab]?.keys.delete(countKey);
         dialog.close({ animate: false, restoreFocus: false });
-        this.renderGallery(tab);
+        if (!onSaved?.(action)) this.renderGallery(tab);
       } catch (cause) {
         if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected) return;
         saving = false;
@@ -9439,6 +9442,57 @@ export class QuietRoomApp {
     const more = footer.querySelector<HTMLButtonElement>('button')!;
     const status = footer.querySelector<HTMLElement>('[role="status"]')!;
     grid.append(footer);
+    const removeGalleryAsset = (source: HTMLElement, target: GalleryCurationTarget, key: string,
+      action: 'pin' | 'unpin' | 'hide'): boolean => {
+      if (action !== 'hide' || target.category !== 'images') return false;
+      const finish = () => {
+        if (!this.isRuntimeActive(epoch, session) || !grid.isConnected || !source.isConnected) return;
+        const scrollTop = grid.scrollTop;
+        const moving = [...grid.querySelectorAll<HTMLElement>('.gallery-tile, .gallery-file')];
+        const sourceIndex = moving.indexOf(source);
+        const before = new Map(moving.filter(node => node !== source).map(node => [node, node.getBoundingClientRect()]));
+        this.galleryObserver?.unobserve(source);
+        source.remove();
+        assetKeys.delete(key);
+        assets = assets.filter(asset => galleryCurationKey(asset) !== galleryCurationKey(target));
+        imageButtons.delete(key);
+        this.galleryRevealedAssets.delete(key);
+        for (const [index, asset] of assets.entries()) {
+          const button = imageButtons.get(`${asset.clientMsgId}:${asset.assetIndex}`);
+          if (button) button.dataset.galleryIndex = String(index);
+        }
+        grid.scrollTop = scrollTop;
+        updateCounts();
+        updateVisibilityButton();
+        const remaining = [...grid.querySelectorAll<HTMLElement>('.gallery-tile, .gallery-file')];
+        if (!remaining.length && knownCount.complete && !grid.querySelector('.gallery-empty')) {
+          const empty = document.createElement('p');
+          empty.className = 'gallery-empty';
+          empty.textContent = favorites ? '暂无收藏' : `还没有${category}`;
+          grid.insertBefore(empty, footer);
+        }
+        if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          for (const node of remaining) {
+            const start = before.get(node); if (!start) continue;
+            const end = node.getBoundingClientRect();
+            const x = start.left - end.left; const y = start.top - end.top;
+            if (Math.abs(x) < 0.5 && Math.abs(y) < 0.5) continue;
+            node.animate([{ transform: `translate3d(${x}px, ${y}px, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
+              { duration: 260, easing: 'cubic-bezier(.16, 1, .3, 1)' });
+          }
+        }
+        remaining[Math.min(Math.max(0, sourceIndex), remaining.length - 1)]?.focus({ preventScroll: true });
+      };
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) finish();
+      else {
+        const animation = source.animate([
+          { opacity: 1, transform: 'scale(1)' },
+          { opacity: 0, transform: 'scale(.92)' },
+        ], { duration: 140, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+        void animation.finished.then(finish, finish);
+      }
+      return true;
+    };
     const addMessages = (messages: DecryptedMessage[]) => {
       // A delete event is loaded independently from the visible chat page. An
       // older media target may only become available during this Safe scan, so
@@ -9468,7 +9522,8 @@ export class QuietRoomApp {
           time.className = 'gallery-file-time';
           time.textContent = timeLabel(message.payload.sentAt);
           button.querySelector('.file-attachment-copy')!.append(time);
-          this.mountGalleryCurationActions(button, target, tab, key);
+          this.mountGalleryCurationActions(button, target, tab, key, undefined,
+            action => removeGalleryAsset(button, target, key, action));
           if (favorites) button.addEventListener('click', () => {
             if (button.dataset.galleryHoldCommitted === 'true') { delete button.dataset.galleryHoldCommitted; return; }
             if (Date.now() < this.suppressMediaClickUntil) return;
@@ -9538,7 +9593,7 @@ export class QuietRoomApp {
               assets.map(asset => asset.sentAt),
               assets.map(asset => ({ clientMsgId: asset.clientMsgId, assetIndex: asset.assetIndex, source: asset.source })), true,
             );
-          });
+          }, action => removeGalleryAsset(button, target, key, action));
           imageButtons.set(key, button);
           grid.insertBefore(button, footer);
         }

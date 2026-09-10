@@ -117,10 +117,17 @@ try {
   assert.equal(await page.locator('.chat-shell').evaluate(el=>el.inert),false);
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===12);
   assert.equal(await page.evaluate(()=>window.fixture.requests.length),2);
+  assert.equal((await page.locator('.meme-recent-section h3').textContent()).trim(), '最近发布');
+  assert.equal(await page.locator('.meme-recent-grid .meme-tile').count(), 10, 'Recent releases must contain exactly ten published expressions');
+  assert.equal(await page.locator('.meme-browse-grid .meme-tile').count(), 2, 'Catalog continuation duplicated or dropped recent expressions');
+  if (process.argv[2]) {
+    await mkdir(process.argv[2], { recursive: true });
+    await page.screenshot({ path: path.join(process.argv[2], 'recent-390.png') });
+  }
   const firstAnimation=page.locator('.meme-tile img').first(); await firstAnimation.waitFor();
   await assertMoving(firstAnimation, 'Panel animation pixels did not move');
   const tileBounds=await page.locator('.meme-tile').first().boundingBox();
-  const gridColumns = await page.locator('.meme-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+  const gridColumns = await page.locator('.meme-recent-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
   assert.equal(gridColumns, 5);
   const imageBounds=await firstAnimation.boundingBox();
   await page.mouse.move(tileBounds.x+tileBounds.width/2,tileBounds.y+tileBounds.height/2); await page.mouse.down();
@@ -289,6 +296,52 @@ try {
   await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);
   assert.equal((await page.locator('.meme-pack-shortcuts img').first().boundingBox()).width,24);
   assert.ok(Math.abs((await page.locator('.meme-pack-grid .meme-tile').first().boundingBox()).width-tileBounds.width)<1, 'Sticker tile size differs');
+  await page.evaluate(async () => {
+    const { vault, session, files, controller } = window.fixture;
+    await vault.installStickerPack(session, 'b'.repeat(32), '第二合集', [files[1]], controller.signal);
+    await vault.installStickerPack(session, 'c'.repeat(32), '第三合集', [files[2]], controller.signal);
+  });
+  await page.locator('#open-memes').click();
+  await page.locator('#meme-panel').waitFor({ state: 'detached' });
+  await page.locator('#open-memes').click();
+  await page.locator('button[data-kind="stickers"]').click();
+  await page.waitForFunction(() => document.querySelectorAll('.meme-pack-shortcuts [data-shortcut^="pack:"]').length === 3);
+  const initialPackOrder = await page.locator('.meme-pack-shortcuts [data-shortcut^="pack:"]').evaluateAll(buttons => buttons.map(button => button.title));
+  assert.deepEqual(initialPackOrder, ['测试合集', '第二合集', '第三合集']);
+  await page.locator('.meme-pack-shortcuts [title="第二合集"]').evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    const init = { bubbles: true, button: 0, pointerId: 91, isPrimary: true, pointerType: 'touch', clientX: bounds.left + bounds.width / 2, clientY: bounds.top + bounds.height / 2 };
+    element.dispatchEvent(new PointerEvent('pointerdown', init));
+  });
+  await page.waitForTimeout(540);
+  assert.equal(await page.locator('.meme-pack-shortcuts').getAttribute('data-reordering'), 'true', 'Long press did not lift the sticker shortcut');
+  assert.equal(await page.locator('.meme-shortcut-float').count(), 1, 'Lifted shortcut is not floating');
+  await page.evaluate(() => {
+    const target = document.querySelector('.meme-pack-shortcuts [title="第三合集"]');
+    const bounds = target.getBoundingClientRect();
+    window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, button: 0, pointerId: 91, isPrimary: true, pointerType: 'touch', clientX: bounds.right + 8, clientY: bounds.top + bounds.height / 2 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 91, isPrimary: true, pointerType: 'touch', clientX: bounds.right + 8, clientY: bounds.top + bounds.height / 2 }));
+  });
+  await page.waitForFunction(() => !document.querySelector('.meme-shortcut-float'));
+  await page.waitForFunction(async () => (await window.fixture.vault.loadStickerPacks(window.fixture.session)).map(pack => pack.title).join('|') === '测试合集|第三合集|第二合集');
+  assert.deepEqual(await page.locator('.meme-pack-shortcuts [data-shortcut^="pack:"]').evaluateAll(buttons => buttons.map(button => button.title)), ['测试合集', '第三合集', '第二合集']);
+  const unchangedButton = page.locator('.meme-pack-shortcuts [title="测试合集"]');
+  const unchangedBefore = await unchangedButton.boundingBox();
+  await unchangedButton.evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 92, isPrimary: true, pointerType: 'touch', clientX: bounds.left + bounds.width / 2, clientY: bounds.top + bounds.height / 2 }));
+  });
+  await page.waitForTimeout(540);
+  assert.equal(await page.locator('.meme-shortcut-float').count(), 1, 'Stationary long press did not enter reorder mode');
+  await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 92, isPrimary: true, pointerType: 'touch' })));
+  await page.waitForFunction(() => !document.querySelector('.meme-shortcut-float'));
+  assert.deepEqual(await page.evaluate(async () => (await window.fixture.vault.loadStickerPacks(window.fixture.session)).map(pack => pack.title)), ['测试合集', '第三合集', '第二合集'], 'Stationary release changed the saved order');
+  const unchangedAfter = await unchangedButton.boundingBox();
+  assert.ok(Math.abs(unchangedAfter.x - unchangedBefore.x) < 1 && Math.abs(unchangedAfter.y - unchangedBefore.y) < 1, 'Stationary release did not return the shortcut to its original slot');
+  await page.locator('.meme-pack-shortcuts [title="第三合集"]').press('Alt+ArrowLeft');
+  await page.waitForFunction(async () => (await window.fixture.vault.loadStickerPacks(window.fixture.session)).map(pack => pack.title).join('|') === '第三合集|测试合集|第二合集');
+  await page.locator('.meme-pack-shortcuts [title="第三合集"]').press('Alt+ArrowRight');
+  await page.waitForFunction(async () => (await window.fixture.vault.loadStickerPacks(window.fixture.session)).map(pack => pack.title).join('|') === '测试合集|第三合集|第二合集');
   await page.evaluate(async()=> {
     const { app,msg,session,vault,controller,files }=window.fixture;
     await app.favoriteChatMeme(msg,msg.payload.image);
@@ -323,7 +376,7 @@ try {
     catch(error) { if(error.message==='Stale pack install succeeded') throw error; }
     try { await vault.removeStickerPack(session,installed.id,cancelled.signal); throw new Error('Cancelled pack removal succeeded'); }
     catch(error) { if(error.message==='Cancelled pack removal succeeded') throw error; }
-    if((await vault.loadStickerPacks(session)).length!==1) throw new Error('Failed pack mutation changed index');
+    if((await vault.loadStickerPacks(session)).length!==3) throw new Error('Failed pack mutation changed index');
   });
   const out = process.argv[2];
   if(out) await mkdir(out,{recursive:true});

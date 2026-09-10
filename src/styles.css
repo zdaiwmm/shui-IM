@@ -2650,6 +2650,7 @@ button:disabled {
   align-content: start;
   gap: 3px;
   overflow-y: auto;
+  overflow-anchor: none;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;

@@ -9,6 +9,26 @@
 .meme-panel svg, .meme-toggle svg, .meme-preview svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 .meme-pack-shortcuts { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .meme-pack-shortcuts { touch-action: pan-x; }
+.meme-pack-shortcuts button[data-shortcut^="pack:"] { touch-action: none; }
+.meme-pack-shortcuts[data-reordering="true"] { touch-action: none; }
+.meme-pack-shortcuts[data-reordering="true"] button { animation: meme-shortcut-jiggle 140ms ease-in-out infinite alternate; }
+.meme-shortcut-placeholder { flex: 0 0 44px; width: 44px; height: 44px; visibility: hidden; pointer-events: none; }
+.meme-shortcut-float {
+  position: fixed;
+  z-index: 58;
+  padding: 5px;
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  background: var(--glass-sheen), var(--glass-strong);
+  box-shadow: var(--glass-shadow), 0 10px 24px oklch(15% 0.01 255 / 0.2);
+  color: var(--ink-muted);
+  pointer-events: none;
+  transform-origin: center;
+  will-change: transform;
+  animation: meme-shortcut-jiggle 140ms ease-in-out infinite alternate;
+}
+.meme-shortcut-float img { width: 24px; height: 24px; object-fit: contain; border-radius: 6px; }
+@keyframes meme-shortcut-jiggle { from { rotate: -1.4deg; } to { rotate: 1.4deg; } }
 .meme-page-sentinel { height: 1px; }
 .meme-expanded-dialog .meme-panel { grid-template-rows: 56px 44px minmax(0, 1fr); }
 .meme-expanded-dialog .meme-pack-shortcuts { display: flex; }
@@ -21,7 +41,9 @@
 .meme-open-search, .meme-search, .meme-tabs [role="tablist"], .meme-collapse, .meme-preview-actions, .meme-preview-close { border: 1px solid var(--glass-border); border-radius: 24px; background: var(--glass-sheen), var(--glass-strong); box-shadow: var(--glass-shadow); -webkit-backdrop-filter: var(--glass-filter); backdrop-filter: var(--glass-filter); }
 .meme-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding: 8px 0 calc(76px + env(safe-area-inset-bottom)); scrollbar-width: none; }
 .meme-scroll::-webkit-scrollbar, .meme-pack-shortcuts::-webkit-scrollbar { display: none; }
-.meme-grid, .meme-pack-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.meme-grid, .meme-pack-grid, .meme-recent-grid, .meme-browse-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.meme-grid.meme-catalog-sections { display: flex; flex-direction: column; gap: 16px; }
+.meme-catalog-sections section > h3 { margin: 0 4px 8px; }
 .meme-tile { width: 100%; aspect-ratio: 1; padding: 2px; border: 0; border-radius: 8px; overflow: hidden; background: transparent; position: relative; touch-action: pan-y; -webkit-touch-callout: none; user-select: none; }
 .meme-tile img { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: 8px; font-size: 12px; color: var(--ink-muted); pointer-events: none; }
 .meme-panel img:not([src]) { visibility: hidden; }
@@ -81,6 +103,7 @@
 .message-bubble.expression-bubble > .message-meta time { color: inherit; }
 @media (max-height: 480px) { .composer.has-meme-panel { --meme-sheet-height: 52svh; } .meme-panel { height: 52svh; grid-template-rows: 44px 44px minmax(0,1fr); } }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { .meme-panel, .meme-open-search, .meme-search, .meme-tabs [role="tablist"], .meme-collapse, .meme-preview, .meme-preview-actions, .meme-preview-close { background: var(--paper-pure); backdrop-filter: none; -webkit-backdrop-filter: none; } }
+@media (prefers-reduced-motion: reduce) { .meme-pack-shortcuts[data-reordering="true"] button, .meme-shortcut-float { animation: none; } }
 .meme-expanded-dialog .meme-panel { grid-template-rows: 56px 44px minmax(0, 1fr); }
 .meme-expanded-dialog .meme-pack-shortcuts, .meme-expanded-dialog .meme-open-search, .meme-expanded-dialog .meme-tabs { display: flex; }
 .meme-expanded-dialog .meme-scroll { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
