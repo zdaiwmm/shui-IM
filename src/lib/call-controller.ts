@@ -81,6 +81,7 @@ export class CallController {
   private audioSender: RTCRtpSender | null = null;
   private videoSender: RTCRtpSender | null = null;
   private diagnostics: CallDiagnosticSnapshot | null = null;
+  private relayConfigured = false;
   private readonly onlineHandler = () => { if (this.active && this.current.startedAt) this.scheduleReconnect(); };
 
   constructor(private readonly options: CallControllerOptions) {
@@ -323,6 +324,7 @@ export class CallController {
   private async createPeer(context: Context): Promise<RTCPeerConnection | null> {
     this.diagnosticStage('config');
     const config = await this.options.getIceConfig();
+    this.relayConfigured = config.relayConfigured;
     if (!this.valid(context)) return null;
     if (!this.applyVerifiedPeerIds(config)) {
       // Refuse unproven device encryption keys before requesting any capture or creating an SDP.
@@ -672,6 +674,10 @@ export class CallController {
     if (this.reconnectAttempts >= RECONNECT_DELAYS_MS.length) return;
     const context = this.context;
     const delay = RECONNECT_DELAYS_MS[this.reconnectAttempts++] ?? RECONNECT_DELAYS_MS.at(-1)!;
+    if (this.diagnostics) {
+      this.diagnostics = { ...this.diagnostics, reconnects: this.diagnostics.reconnects + 1 };
+      this.options.onDiagnostics?.({ ...this.diagnostics });
+    }
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       void this.restartIce(context).then((restarted) => {
@@ -693,11 +699,14 @@ export class CallController {
   private async refreshPeerConfiguration(pc: RTCPeerConnection, context: Context): Promise<boolean> {
     const config = await this.options.getIceConfig();
     if (!this.valid(context) || pc !== this.pc) return false;
+    this.relayConfigured = config.relayConfigured;
     if (!this.applyVerifiedPeerIds(config)) {
       void this.finish('对方身份验证已失效，请重新发起通话', 'unverified', false);
       return false;
     }
-    pc.setConfiguration({ ...pc.getConfiguration(), iceServers: config.iceServers, iceTransportPolicy: config.iceTransportPolicy });
+    const relayOnly = this.reconnectAttempts >= 3 && this.relayConfigured;
+    pc.setConfiguration({ ...pc.getConfiguration(), iceServers: config.iceServers, iceTransportPolicy: relayOnly ? 'relay' : config.iceTransportPolicy });
+    if (relayOnly && this.diagnostics) this.diagnostics = { ...this.diagnostics, relay: true };
     if (this.current.startedAt) this.scheduleCredentialRenewal(context);
     return true;
   }
@@ -705,6 +714,7 @@ export class CallController {
     const pc = this.pc;
     if (!pc || !this.valid(context) || !this.connected || !this.peerId || this.negotiating || pc.signalingState !== 'stable') return false;
     this.negotiating = true;
+    if (this.diagnostics) this.diagnostics = { ...this.diagnostics, iceRestarts: this.diagnostics.iceRestarts + 1 };
     this.localSignalsReady = false;
     try {
       if (!(await this.refreshPeerConfiguration(pc, context))) return false;
