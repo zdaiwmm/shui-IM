@@ -1,4 +1,5 @@
 import { canonicalStringify } from './canonical';
+import { createCallDiagnostics, transitionCallStage, type CallDiagnosticSnapshot, type CallConnectionStage } from './call-connection';
 import { openCallSignal, sealCallSignal, trustedCallMember } from './call-crypto';
 import { CALL_CAPABILITY, type CallAction, type CallControllerOptions, type CallEnvelope, type CallKind, type CallIceConfiguration, type CallPayload, type CallServerEvent, type CallState } from './call-types';
 import type { Vault } from './types';
@@ -79,6 +80,7 @@ export class CallController {
   private qualityLevel = 0;
   private audioSender: RTCRtpSender | null = null;
   private videoSender: RTCRtpSender | null = null;
+  private diagnostics: CallDiagnosticSnapshot | null = null;
   private readonly onlineHandler = () => { if (this.active && this.current.startedAt) this.scheduleReconnect(); };
 
   constructor(private readonly options: CallControllerOptions) {
@@ -89,7 +91,13 @@ export class CallController {
 
   private emit(changes: Partial<CallState> = {}) {
     this.current = { ...this.current, ...changes };
-    if (!this.disposed) this.options.onChange(this.state);
+    if (!this.disposed) this.options.onChange({ ...this.state, ...(this.diagnostics ? { diagnostics: this.diagnostics } : {}) });
+  }
+  get diagnosticsSnapshot(): CallDiagnosticSnapshot | null { return this.diagnostics ? { ...this.diagnostics } : null; }
+  private diagnosticStage(stage: CallConnectionStage, code?: string) {
+    if (!this.diagnostics) return;
+    this.diagnostics = transitionCallStage(this.diagnostics, stage, Date.now(), code ? { code } : undefined);
+    this.options.onDiagnostics?.({ ...this.diagnostics });
   }
   private capture(vault: Vault): Context {
     return { generation: this.generation, roomId: vault.roomId, deviceId: vault.identity.publicBundle.deviceId,
@@ -133,7 +141,13 @@ export class CallController {
     this.current = { ...emptyState(), kind, callId, phase: caller ? 'outgoing' : 'incoming', statusText: caller ? '正在准备通话…' : `${kind === 'video' ? '视频' : '语音'}通话邀请` };
     this.caller = caller;
     this.context = this.capture(vault);
+    this.diagnostics = createCallDiagnostics({ callIdHash: this.redactCallId(callId), kind, role: caller ? 'caller' : 'callee' });
     this.emit();
+  }
+  private redactCallId(callId: string): string {
+    let hash = 2166136261;
+    for (let i = 0; i < callId.length; i += 1) hash = Math.imul(hash ^ callId.charCodeAt(i), 16777619);
+    return (hash >>> 0).toString(16).padStart(8, '0');
   }
 
   async start(kind: CallKind): Promise<void> {
@@ -307,6 +321,7 @@ export class CallController {
     return true;
   }
   private async createPeer(context: Context): Promise<RTCPeerConnection | null> {
+    this.diagnosticStage('config');
     const config = await this.options.getIceConfig();
     if (!this.valid(context)) return null;
     if (!this.applyVerifiedPeerIds(config)) {
@@ -326,6 +341,7 @@ export class CallController {
       iceCandidatePoolSize: 4,
     });
     this.pc = pc;
+    this.diagnosticStage('ice-gathering');
     this.emit({ remoteStream: new MediaStream() });
     pc.onicecandidate = (event) => {
       if (!this.valid(context) || !event.candidate) return;
@@ -634,10 +650,16 @@ export class CallController {
       this.reconnectTimer = null;
       this.restartRequested = false;
       this.reconnectAttempts = 0;
+      this.diagnosticStage('dtls-srtp');
+      this.diagnosticStage('media');
+      this.diagnosticStage('quality');
       this.emit({ phase: 'connected', startedAt: this.current.startedAt ?? Date.now(), statusText: '' });
       if (!this.statsTimer) this.statsTimer = setInterval(() => { void this.inspectQuality(context); }, 4000);
       if (!this.credentialTimer) this.scheduleCredentialRenewal(context);
-    } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') this.scheduleReconnect();
+    } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
+      this.diagnosticStage('recovery', pc.iceConnectionState === 'failed' ? 'ice-failed' : 'transport-disconnected');
+      this.scheduleReconnect();
+    }
   }
   private scheduleReconnect() {
     if (!this.context || !this.peerId || !this.pc || this.current.phase === 'incoming') return;
@@ -737,17 +759,31 @@ export class CallController {
     try {
       const stats = await pc.getStats();
       if (!this.valid(context)) return;
-      let received = 0; let lost = 0; let rtt = 0; let jitter = 0;
+      let received = 0; let lost = 0; let rtt = 0; let jitter = 0; let bitrate = 0;
       stats.forEach((report) => {
         if (report.type === 'inbound-rtp' && !report.isRemote) { received += Number(report.packetsReceived ?? 0); lost += Math.max(0, Number(report.packetsLost ?? 0)); jitter = Math.max(jitter, Number(report.jitter ?? 0)); }
         if (report.type === 'candidate-pair' && report.state === 'succeeded' && (report.nominated || report.selected)) rtt = Math.max(rtt, Number(report.currentRoundTripTime ?? 0));
         if (report.type === 'remote-inbound-rtp') rtt = Math.max(rtt, Number(report.roundTripTime ?? 0));
+        if (report.type === 'outbound-rtp') bitrate += Number(report.bytesSent ?? 0);
       });
+      if (this.diagnostics) {
+        stats.forEach((report) => {
+          if (report.type !== 'candidate-pair' || report.state !== 'succeeded' || (!report.nominated && !report.selected)) return;
+          const local = stats.get(report.localCandidateId);
+          const type = local?.candidateType === 'relay' ? 'relay' : local?.candidateType === 'srflx' ? 'srflx' : local?.candidateType === 'host' ? 'host' : undefined;
+          const protocol = local?.protocol === 'tls' ? 'tls' : local?.protocol === 'tcp' ? 'tcp' : local?.protocol === 'udp' ? 'udp' : undefined;
+          if (type && protocol) this.diagnostics = { ...this.diagnostics!, candidateType: type, candidateProtocol: protocol, relay: type === 'relay' };
+        });
+      }
       const previous = this.lastStats;
       this.lastStats = { received, lost };
       const receivedDelta = previous ? Math.max(0, received - previous.received) : 0;
       const lostDelta = previous ? Math.max(0, lost - previous.lost) : 0;
       const loss = receivedDelta + lostDelta > 0 ? lostDelta / (receivedDelta + lostDelta) : 0;
+      if (this.diagnostics) {
+        this.diagnostics = { ...this.diagnostics, iceState: pc.iceConnectionState, rttMs: rtt ? Math.round(rtt * 1000) : undefined, jitterMs: jitter ? Math.round(jitter * 1000) : undefined, packetLoss: loss, estimatedBitrate: bitrate, audioOnly: this.qualityLevel >= 3 };
+        this.options.onDiagnostics?.({ ...this.diagnostics });
+      }
       const poor = rtt > 0.45 || jitter > 0.06 || loss > 0.06;
       this.poorSamples = poor ? this.poorSamples + 1 : 0;
       this.goodSamples = poor ? 0 : this.goodSamples + 1;
