@@ -102,14 +102,17 @@ export function runBrowserScript(script, { signal, cwd = root } = {}) {
     child.once('close', (code, childSignal) => {
       signal?.removeEventListener('abort', abort);
       clearTimeout(forceTimer);
-      // A crashed test must not leave its browser/server descendants behind.
-      if (grouped) stop('SIGKILL');
+      // Successful scripts already await browser/server close. Killing their retiring
+      // macOS Chrome process group can return EPERM after all assertions passed.
+      // Keep forced cleanup for crashes and interruption, where it is necessary.
+      if (grouped && (code !== 0 || childSignal || signal?.aborted)) stop('SIGKILL');
       if (signal?.aborted) reject(interrupted(signal));
-      else if (spawnError) reject(spawnError);
+      else if (spawnError && !child.pid) reject(spawnError);
       else if (code !== 0 || childSignal) reject(Object.assign(
         new Error(`${script} exited with ${childSignal ?? `code ${code}`}.`),
         { exitCode: Number.isInteger(code) && code > 0 ? code : 1 },
       ));
+      else if (spawnError) reject(spawnError);
       else resolve();
     });
   });

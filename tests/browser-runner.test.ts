@@ -102,7 +102,7 @@ describe('browser regression groups', () => {
 
   it('preserves native/view call checks in the full call entry while allowing CI to avoid duplicate unit tests', async () => {
     const { scripts } = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
-    expect(scripts['test:calls:e2e']).toBe('node tests/call-native.e2e.mjs && node tests/call-view.e2e.mjs');
+    expect(scripts['test:calls:e2e']).toBe('node tests/call-native.e2e.mjs && node tests/call-view.e2e.mjs && node tests/call-weak-network.e2e.mjs');
     for (const name of ['crypto', 'membership', 'controller', 'server']) {
       expect(scripts['test:calls']).toContain(`tests/call-${name}.test.ts`);
     }
@@ -135,6 +135,17 @@ describe('browser child process lifecycle', () => {
     const cwd = await fixture('process.exitCode = 7;');
     await expect(runBrowserScript('fixture.mjs', { cwd })).rejects.toMatchObject({ exitCode: 7 });
     await expect(runBrowserScript('fixture.mjs', { cwd: path.join(cwd, 'missing') })).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('does not force-kill a successful process group and preserves a real failure when cleanup is denied', async () => {
+    const cwd = await fixture('process.exitCode = 0;');
+    const kill = vi.spyOn(process, 'kill').mockImplementation(() => { throw Object.assign(new Error('cleanup denied'), { code: 'EPERM' }); });
+    try {
+      await expect(runBrowserScript('fixture.mjs', { cwd })).resolves.toBeUndefined();
+      expect(kill).not.toHaveBeenCalled();
+      await writeFile(path.join(cwd, 'fixture.mjs'), 'process.exitCode = 7;');
+      await expect(runBrowserScript('fixture.mjs', { cwd })).rejects.toMatchObject({ exitCode: 7 });
+    } finally { kill.mockRestore(); }
   });
 
   it('terminates the active script on cancellation and rejects with a nonzero interruption status', async () => {

@@ -58,7 +58,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.call-remote-video').readyState >= 2);
   const videoResult = await page.evaluate(() => {
     const ui = window.callUi;
-    ui.state = { ...ui.state, micMuted: true, remoteMuted: true, quality: 'poor' };
+    ui.state = { ...ui.state, micMuted: true, remoteMuted: true, quality: 'degraded' };
     ui.view.update(ui.state);
     return {
       sameRemoteNode: ui.remoteNode === document.querySelector('.call-remote-video'),
@@ -71,7 +71,7 @@ try {
   });
   assert.equal(videoResult.sameRemoteNode && videoResult.sameLocalNode && videoResult.sameStream && videoResult.localMuted, true);
   assert.match(videoResult.timer, /^01:0[3-9]$/);
-  assert.equal(videoResult.status, '对方已静音 · 网络不稳定');
+  assert.equal(videoResult.status, '对方已静音 · 视频画质已降低');
 
   for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }, { width: 844, height: 390 }, { width: 1440, height: 900 }]) {
     await page.setViewportSize(viewport);
