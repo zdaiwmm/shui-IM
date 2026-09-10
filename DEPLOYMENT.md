@@ -56,7 +56,8 @@ messages, attachments, recovery material, or backup contents. Re-running the
 same exact-SHA command is therefore the only supported automatic continuation
 after a readback failure; it must never be replaced by another deployment call.
 Successful and failed attempts write redacted JSON under the local repository's
-`.git/quiet-room-readback/` directory. See `RELEASING.md` for evidence and
+Git metadata directory's `quiet-room-readback/` subdirectory (resolved with
+`git rev-parse --absolute-git-dir`, including linked worktrees). See `RELEASING.md` for evidence and
 failure-state interpretation.
 
 ### Fixed release entry point and one-time setup

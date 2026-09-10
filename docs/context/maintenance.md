@@ -84,7 +84,7 @@ Codex 在新运行开始时发现全局和项目指令；修改文件不保证�
 `AGENTS.md` 和 `PRODUCTION_SECURITY_GATE.md`；不要让生成器每次机械重写长期语义。
 
 结构化生产回读使用 `npm run deploy:readback -- --sha <精确SHA>`，成功/失败证据保存在
-`.git/quiet-room-readback/`，安全续跑只重跑该只读入口，不能触发生产切换。在独立文档 PR
+当前工作树 Git 元数据目录下的 `quiet-room-readback/`（通过 `git rev-parse --absolute-git-dir` 定位），安全续跑只重跑该只读入口，不能触发生产切换。在独立文档 PR
 对账器落地前，由执行发布的任务按上述顺序完成审阅与对账。未来文档自动化必须在第二个独立克隆或单独 `git worktree` 中运行，不污染调用
 发布的工作树，也不得复制 `.deploy.local.json`、密钥相关环境或未脱敏原始回执。有文档
 差异时创建 PR；无差异时记录检查成功，不制造空提交。不直接推送 `main`；文档 PR 合并后

@@ -59,7 +59,8 @@ Permission is requested only after the user selects the notification control. A 
 The fixed independent post-release verification command is
 `npm run deploy:readback -- --sha <full-deployed-SHA>`. Its output separates
 phase timing from stable failure classes and saves a redacted local receipt under
-`.git/quiet-room-readback/`. A `READBACK_BLOCKED` result means that production
+`quiet-room-readback/` inside the current worktree's Git metadata directory
+(resolved with `git rev-parse --absolute-git-dir`). A `READBACK_BLOCKED` result means that production
 verification is incomplete, not that the application was rolled back or that a
 new cutover is authorized. Repeat only this read-only command for the same SHA
 after resolving connectivity or probe conditions. If its state fields reveal a

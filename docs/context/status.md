@@ -29,6 +29,17 @@
 - 固定入口取得 `DEPLOY_VERIFIED`，服务器批次 `20260909T121009Z`；独立回读取得
   `READBACK_OK`，证据位于 `/private/tmp/quiet-room-publish-2oiFDb/.git/quiet-room-readback/`，
   总耗时 2,540ms。iPhone / iOS 27 / Safari 真机未验证。
+## 交付预检与回读兼容（2026-09-10，本地任务）
+
+- 基线 `650991f8adef2a3fb45b7a46f793fbf40e26c490`；任务 `codex/delivery-preflight-20260910` 位于 `/Users/zhouding/ss-worktrees/delivery-preflight-20260910`。
+- 新增分阶段本机环境检查；回读证据目录按当前工作树 Git 元数据解析，避免 linked worktree 的 `.git` 文件错误。未改变生产切换或 CI 门禁；未执行生产回读或发布，远端状态未核验。
+- 浏览器 CI 第 2 组分为四个独立 runner 分片，第 1 组保留；全覆盖与失败汇总门禁保留。本地构建及 68 文件／529 项测试通过，随后分片、回读与 CI 汇总专项 31 项通过，文档检查通过。远端五路并发、真实浏览器全量及生产未验证，不承诺具体提速比例。
+
+## 工作流环境准备（2026-09-10，本地任务）
+
+- 基线 `4f06bd46e5c14aa94b86a603bfc4c233c2233871`；任务分支 `codex/workflow-environment-20260910`，独占目录 `/Users/zhouding/ss-worktrees/workflow-environment-20260910`。
+- 通过正式执行审批创建工作树；核实已有 npm 缓存 `/Users/zhouding/.npm-cache`。统一新树位置、按需安装与各阶段权限失败处理；没有更改系统权限配置。
+- 本任务只修改文档，未安装产品依赖、未运行产品测试、未验证远端 CI 或生产；尚未合并 main，新会话默认入口生效仍需集成该规则。下方历史生产记录未在本任务重新回读。
 
 ## 今日非 Liquid Glass 分支集成（2026-09-09，已部署）
 

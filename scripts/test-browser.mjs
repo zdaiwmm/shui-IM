@@ -43,10 +43,14 @@ export const browserGroups = Object.freeze({
   ]),
 });
 
-export function selectBrowserScripts(group) {
-  if (group === undefined) return Object.values(browserGroups).flat();
-  if (!Object.hasOwn(browserGroups, group)) throw new Error('Browser group must be 1 or 2.');
-  return [...browserGroups[group]];
+export function selectBrowserScripts(group, shard) {
+  if (group !== undefined && !Object.hasOwn(browserGroups, group)) throw new Error('Browser group must be 1 or 2.');
+  const scripts = group === undefined ? Object.values(browserGroups).flat() : [...browserGroups[group]];
+  if (shard === undefined) return scripts;
+  if (!/^[1-9]\d*\/[1-9]\d*$/.test(shard)) throw new Error('Shard must be index/total.');
+  const [index, total] = shard.split('/').map(Number);
+  if (index > total || total > scripts.length) throw new Error('Shard exceeds selected script count.');
+  return scripts.filter((_, offset) => offset % total === index - 1);
 }
 
 export function parseBrowserArguments(args) {
@@ -54,11 +58,16 @@ export function parseBrowserArguments(args) {
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (arg === '--list' && !options.list) options.list = true;
+    else if (arg === '--shard' && options.shard === undefined) {
+      options.shard = args[++index];
+      if (!options.shard) throw new Error('Shard must be index/total.');
+    }
     else if (arg === '--group' && options.group === undefined) {
       options.group = args[++index];
       if (!['1', '2'].includes(options.group)) throw new Error('Browser group must be 1 or 2.');
     } else throw new Error(`Unknown or duplicate browser argument: ${arg}`);
   }
+  selectBrowserScripts(options.group, options.shard);
   return options;
 }
 
@@ -106,8 +115,8 @@ export function runBrowserScript(script, { signal, cwd = root } = {}) {
   });
 }
 
-export async function runBrowserTests({ group, signal, run = runBrowserScript, log = console.log, now = () => performance.now() } = {}) {
-  const scripts = selectBrowserScripts(group);
+export async function runBrowserTests({ group, shard, signal, run = runBrowserScript, log = console.log, now = () => performance.now() } = {}) {
+  const scripts = selectBrowserScripts(group, shard);
   const started = now();
   let completed = 0;
   let passed = 0;
@@ -141,8 +150,8 @@ if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToP
   process.on('SIGTERM', onTerminate);
   try {
     const options = parseBrowserArguments(process.argv.slice(2));
-    if (options.list) console.log(selectBrowserScripts(options.group).join('\n'));
-    else await runBrowserTests({ group: options.group, signal: controller.signal });
+    if (options.list) console.log(selectBrowserScripts(options.group, options.shard).join('\n'));
+    else await runBrowserTests({ group: options.group, shard: options.shard, signal: controller.signal });
   } catch (error) {
     console.error(`BROWSER_TESTS_FAILED: ${error.message}`);
     process.exitCode = error.exitCode ?? 1;

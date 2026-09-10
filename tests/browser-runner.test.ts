@@ -13,6 +13,20 @@ const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
 
 describe('browser regression groups', () => {
+  it('partitions group 2 into disjoint concurrent runner shards without omissions', async () => {
+    const shards = Array.from({ length: 4 }, (_, i) => selectBrowserScripts('2', `${i + 1}/4`));
+    expect(shards.flat().sort()).toEqual(selectBrowserScripts('2').sort());
+    expect(new Set(shards.flat()).size).toBe(29);
+    expect(shards.map(shard => shard.length)).toEqual([8, 7, 7, 7]);
+    for (const shard of ['0/4', '5/4', '1/0', '1/99', 'x', '1/2/3']) {
+      expect(() => parseBrowserArguments(['--group', '2', '--shard', shard])).toThrow();
+    }
+    expect(() => parseBrowserArguments(['--shard'])).toThrow();
+    expect(() => parseBrowserArguments(['--shard', '1/4', '--shard', '2/4'])).toThrow();
+    const seen: string[] = [];
+    await runBrowserTests({ group: '2', shard: '2/4', run: async (script: string) => { seen.push(script); }, log: () => {} });
+    expect(seen).toEqual(shards[1]);
+  });
   it('partitions every existing browser entry exactly once and preserves full-suite order', async () => {
     const expected = [
       'browser', 'frontend-lifecycle', 'release-update', 'chat-bottom-control', 'chat-list-viewport', 'message-timeline', 'desktop-privacy', 'desktop-session-flow',

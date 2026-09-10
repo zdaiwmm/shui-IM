@@ -131,6 +131,8 @@
 
 ### 开工隔离门槛
 
+本机环境准备与后续阶段的权限处理统一按下节[本机工作树与依赖准备](#本机工作树与依赖准备)执行。
+
 适用于代码、测试和文档写入。纯问答和只读调查无需创建。此门槛优先于后文的环境复用描述。
 
 1. 修改前执行 `git status --short`、`git rev-parse --show-toplevel`、`git branch --show-current`、`git rev-parse HEAD` 和 `git worktree list --porcelain`。明确实际执行目录，不能以应用任务名称代替路径核验。
@@ -159,11 +161,11 @@
 示例命令由 agent 替换任务名、路径和核实后的基线后执行，用户无需输入：
 
 ```sh
-git worktree add -b codex/task-name /private/tmp/quiet-room-task-name main
-git -C /private/tmp/quiet-room-task-name rev-parse --show-toplevel
-git -C /private/tmp/quiet-room-task-name branch --show-current
-git -C /private/tmp/quiet-room-task-name rev-parse HEAD
-git -C /private/tmp/quiet-room-task-name status --short
+git -C /Users/zhouding/ss worktree add -b codex/task-name /Users/zhouding/ss-worktrees/task-name main
+git -C /Users/zhouding/ss-worktrees/task-name rev-parse --show-toplevel
+git -C /Users/zhouding/ss-worktrees/task-name branch --show-current
+git -C /Users/zhouding/ss-worktrees/task-name rev-parse HEAD
+git -C /Users/zhouding/ss-worktrees/task-name status --short
 ```
 
 这是可审查的 agent 执行门槛，不是应用自动创建 worktree 的设置或禁止写入的系统沙箱。只有提交并集成这些指令后，新基线才会携带规则；旧任务和旧 worktree 必须单独读取更新后的入口，不能假定会自动刷新。
@@ -180,6 +182,40 @@ git -C /private/tmp/quiet-room-task-name status --short
 - 发布成功后按下节清理本批资源，无需用户再次提出清理要求；不满足条件的资源保留并记录原因。
 
 以上是 agent 的操作规则，不是已经运行的后台调度器。不会自动创建其他会话或更改模型；并行仍须遵守任务授权与共享文件依赖约束。未合并的本页不会自动出现在从 main 新建的 worktree；过渡期间可读取源目录本页执行，不得为了携带规则复制整个脏工作树。
+
+### 本机工作树与依赖准备
+
+2026-09-10 用户确认固定本机工作树位置并复用依赖缓存。以下是 agent 执行规则，不能修改应用沙箱权限，也不承诺所有后续阶段无阻塞。
+
+- 本机默认从已打开的 `/Users/zhouding/ss` 只读接手，由 agent 在同层级的 `/Users/zhouding/ss-worktrees/<任务名>` 显式创建任务树；集成与文档对账树也使用该根目录。其他电脑先核实当地仓库路径，再采用同层级专用根目录，不照抄本机绝对路径。不自动搬迁、清理已有工作树。
+- 已获分配且核实属于本任务的应用工作树或旧任务树直接复用，不重复隔离；detached HEAD 先创建任务分支。共享目录的干净状态或分支名不能证明归属。
+- 创建前核对 Git common dir（`git rev-parse --path-format=absolute --git-common-dir`）、目标路径和当前会话可写范围。操作会写目标目录及共享 Git 元数据；`ls`、`test -w` 或终端成功不证明沙箱内可写。已知超出权限时，对精确创建命令申请必要执行权限；权限失败后使用工具的正式审批机制，不以改目录、chmod、完全磁盘访问权限或修改 AGENTS 冒充解决。审批拒绝时报告动作、原因与尚缺权限，不在共享目录修改。
+- 创建部分失败时先检查目标分支和 worktree 注册状态，再续跑；不盲删锁文件、分支或未知目录。成功后核验真实路径、任务分支、基线和干净状态，后续各工具显式使用该绝对目录。一次命令获批不表示后续编辑、安装或 Git 写入永久获批。
+- 代码任务检查项目 Node 版本要求、npm、`package.json` 与 `package-lock.json`。全新树执行 `npm ci --prefer-offline`，每树保留独立 `node_modules`；使用 `npm config get cache` 核实并复用既有用户缓存，不为每任务重设全局配置、不共享软链接 `node_modules`、不擅自迁移 pnpm。缓存减少重复下载，仍有解包及安装脚本开销。
+- 同一独占树已有成功安装记录，且 package/lockfile、Node/npm 与安装选项未变、依赖完整时复用；缺少记录、依赖损坏或上述条件变化时重新安装。`npm ci` 会重建该树依赖，不在运行中的共享环境执行。缓存、下载、安装脚本或浏览器运行遇沙箱限制时申请对应最小权限；记录失败阶段，只重跑受阻步骤。
+- 环境就绪检查按任务选择必要工具与定向命令；纯文档任务可直接运行文档检查，无需安装产品依赖或跑全量测试。产品基线测试失败先分类，修复既有失败的任务可保留复现证据继续实现；不能将失败标记通过。实现后的风险匹配门禁仍必须完成。
+
+### 验证与远端交付的阻塞处理
+
+进入阶段前执行 `npm run env:check -- docs|test|browser|delivery`（选择一个模式）；入口只检查本机工具和依赖可用性，不联网、不安装、不读取部署凭据。失败先补对应缺项，成功不代替权限审批、浏览器实际启动、认证或发布预检。
+
+浏览器 CI 使用独立 runner 并发：第 1 组一个任务，第 2 组通过 `--shard 1/4` 至 `--shard 4/4` 分成四个任务；所有分片成功才允许完整验证汇总通过。分片可用 `--list` 核对覆盖，失败可在独占环境重跑精确分片。本机同一 checkout 内仍顺序运行浏览器入口；本机并行分片必须使用同一候选的不同独占环境，不能在共享缓存和固定端口尚未隔离时直接后台启动四条命令。分片降低关键路径但增加 runner 数和准备开销，实际加速取决于配额和耗时分布。
+
+单元测试沿用 Vitest 文件并发；CI 的构建、浏览器、通话和审计已有独立 job，可同时运行。集成同一目标分支、同一树的安装与构建、生产切换保持单写者；生产回读必须在切换成功后，对账必须在回读后。可提前运行独立的本地检查或获授权的 CI，不能打乱这些依赖关系。
+
+提速顺序：开发中定向反馈，冻结候选后一次风险匹配门禁；本任务已有推送授权时 PR CI 可与本地验证并行，合并仍等待所有必需检查。复用缓存与同一树安装结果，CI 等待沿用已有 run；用已有发布阶段计时区分安装、测试、外部等待与切换，不凭总会话时长判断瓶颈。浏览器入口可能共享端口和 Vite 缓存，未经隔离和耗时验证不得直接并发；PR 与 main CI 的既有门禁不因提速跳过。
+
+固定目录只解决位置一致性。每个阶段仍需核实自身前提，不能把 worktree 创建成功当成测试、合并或发布可用证明：
+
+| 阶段 | 前提与续跑方式 |
+| --- | --- |
+| 本地验证 | 当前任务依赖及所需浏览器可用，端口、进程清理、缓存和产物目录权限满足；环境失败申请相应权限后重跑受阻项，产品失败按既有分类修复 |
+| 多任务集成 | 核实源提交、授权和独占集成树；合入后重新判断锁文件与依赖，冻结组合候选后运行风险匹配验证，不能复用各分支测试充当组合结果 |
+| 提交与同步 | Git 元数据写入仍可能需执行审批；远端同步另需当前任务授权、网络与现有认证。不要把沙箱网络错误直接判成密钥失效 |
+| PR 与合并 | 当前任务推送/合并授权、精确 head CI 与分支保护满足；缺权限或 CI 失败按实际原因处理，已合并则续等对应 main CI，不重复合并 |
+| 发布与回读 | 沿用 RELEASING.md 的精确 SHA 授权、固定入口、独立发布环境和回读证据位置；普通开发树准备成功不代替发布预检。切换结果不明先回读，已有成功发布只续跑回读或对账 |
+
+沿用当前任务已有授权，不反复询问同一业务授权；系统执行审批与业务授权是两层条件。执行审批不能授予推送、合并或生产发布权。前置条件仍不满足时列明已完成阶段、实际错误、待执行步骤；不得承诺调整文档即可消除 CI、网络、真实冲突或生产确认。权限模型参考 [OpenAI 官方安全说明](https://developers.openai.com/codex/security/)。
 
 ## 本机 main 与局域网验收
 
