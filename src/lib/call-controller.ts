@@ -840,6 +840,10 @@ export class CallController {
   private cleanup(invalidateReceives = true) {
     this.generation += 1;
     if (invalidateReceives) this.receiveEpoch += 1;
+    // A finished call must not carry a stale transport-down flag into the
+    // next call. The WebSocket owner will report the current transport state
+    // again before any subsequent signaling is sent.
+    this.connected = true;
     this.context = null;
     if (this.phaseTimer) clearTimeout(this.phaseTimer);
     if (this.statsTimer) clearInterval(this.statsTimer);
