@@ -251,10 +251,10 @@ try {
     app.renderMessages();
     const row = status => document.querySelector(`.message.is-${status}`);
     for (const status of ['stored', 'sent']) if (row(status).querySelectorAll('.message-delivery path').length !== 1) throw Error('Sent receipt did not have one check arm');
-    if (row('delivered').querySelectorAll('.message-delivery path').length !== 2) throw Error('Delivered receipt did not have two check arms');
+    if (row('delivered').querySelectorAll('.message-delivery path').length !== 1) throw Error('Delivery alone must retain one check arm');
     if (row('pending').querySelector('.message-delivery') || row('failed').querySelector('.message-delivery')) throw Error('Unconfirmed message displayed a success check');
     if (!row('failed').querySelector('.message-retry') || !row('delivered').querySelector('.message-meta').getAttribute('aria-label')) throw Error('Receipt accessibility or retry was lost');
-    return { sentArms: 1, deliveredArms: 2, pendingAndFailure: 'explicit', retry: true, accessibleDescriptions: true };
+    return { sentArms: 1, deliveredArms: 1, pendingAndFailure: 'explicit', retry: true, accessibleDescriptions: true };
   });
 
   // A saved offset may sit deep inside a tall photo. A cold 128px placeholder
@@ -455,7 +455,7 @@ try {
     app.messages.set(source.seq, { ...source, status: 'delivered' });
     app.renderMessages({ scroll: 'preserve' });
     if (article.querySelector('.message-text-selection') !== textarea || textarea.value.slice(textarea.selectionStart, textarea.selectionEnd) !== 'e2e') throw Error('A message status update replaced the active native selection');
-    if (!article.classList.contains('is-delivered') || !article.querySelector('.message-meta')?.textContent.includes('已送达')) throw Error('A receipt left stale delivery metadata during native selection');
+    if (!article.classList.contains('is-delivered') || !article.querySelector('.message-meta')?.textContent.includes('已发送')) throw Error('A receipt left stale delivery metadata during native selection');
     for (const attributes of [{ key: 'ContextMenu' }, { key: 'F10', shiftKey: true }]) {
       const event = new KeyboardEvent('keydown', { ...attributes, bubbles: true, cancelable: true });
       textarea.dispatchEvent(event);
@@ -463,7 +463,7 @@ try {
     }
     textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     if (article.querySelector('textarea') || article.querySelector('.message-text')?.textContent !== source.payload.text) throw Error('Leaving selection did not restore the original message');
-    if (!article.querySelector('.message-meta')?.textContent.includes('已送达')) throw Error('Leaving native selection restored outdated receipt metadata');
+    if (!article.querySelector('.message-meta')?.textContent.includes('已发送')) throw Error('Leaving native selection restored outdated receipt metadata');
     return { originalBubblePreserved: true, nativeSelectionReady: true, selectionBeforeInitialFramePreserved: true, selectedText: selected };
   });
 
@@ -1112,7 +1112,7 @@ try {
         app.messages.set(1, { ...outgoing, payload: structuredClone(outgoing.payload), status }); app.renderMessages();
         if (document.querySelector('[data-client-msg-id="message-1"]') !== row || row.querySelector('img') !== media) throw Error('Receipt replaced decoded media or its message row');
         if (getComputedStyle(row).opacity !== initialOpacity || !row.classList.contains(`is-${status}`)) throw Error('Receipt flashed full-message opacity or failed to update status');
-        if (row.querySelectorAll('.message-delivery path').length !== (status === 'delivered' ? 2 : 1)) throw Error('Preserved message lost delivery decoration');
+        if (row.querySelectorAll('.message-delivery path').length !== 1) throw Error('Preserved message lost delivery decoration');
       }
       row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
       if (document.querySelectorAll('.message-reaction-picker [data-reaction]').length !== 6) throw Error('Retained message actions used the unconfirmed pending sequence');

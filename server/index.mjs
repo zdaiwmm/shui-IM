@@ -158,7 +158,7 @@ function publicState(state) {
 }
 
 function validCapabilities(capabilities) {
-  return Array.isArray(capabilities) && capabilities.length <= 12 &&
+  return Array.isArray(capabilities) && capabilities.length <= 16 &&
     capabilities.every((value) => typeof value === 'string' && /^[a-z0-9-]{1,40}$/.test(value));
 }
 

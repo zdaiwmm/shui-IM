@@ -229,7 +229,7 @@ try {
     if (!article.querySelector('.message-meta').title.includes('服务器已保存加密消息')) throw Error('Sent status lost its server-storage meaning');
     app.messages.set(1, { ...confirmed, status: 'delivered' }); app.renderMessages({ scroll: 'position' }); await settle();
     assertIdentity();
-    if (article.querySelectorAll('.message-delivery path').length !== 2 || !article.querySelector('.message-meta').title.includes('对方至少一台设备已验证并保存')) throw Error('Delivered status lost its verified-device meaning');
+    if (article.querySelectorAll('.message-delivery path').length !== 1 || !article.querySelector('.message-meta').title.includes('尚无已读回执')) throw Error('Delivered status lost its verified-device meaning');
     const finalBounds = selection.getBoundingClientRect();
     for (const key of ['x', 'y', 'width', 'height']) if (Math.abs(finalBounds[key] - selectedBounds[key]) > 1) throw Error(`Receipt upgrade moved selected text ${key}`);
     app.clearMessageTextSelection();
@@ -253,7 +253,7 @@ try {
       const current = bubble.getBoundingClientRect();
       if (article !== document.querySelector('[data-client-msg-id="timeline-short"]') || bubble !== article.querySelector('.message-bubble')) throw Error('Short receipt upgrade replaced the live bubble');
       for (const key of ['x', 'y', 'width', 'height']) if (Math.abs(current[key] - initial[key]) > 1) throw Error(`Short ${status} receipt changed bubble ${key}: ${initial[key]} -> ${current[key]}`);
-      if (meta.querySelector('.message-pending') || meta.querySelectorAll('.message-delivery path').length !== (status === 'stored' ? 1 : 2)) throw Error(`Short ${status} receipt did not upgrade its marker`);
+      if (meta.querySelector('.message-pending') || meta.querySelectorAll('.message-delivery path').length !== 1) throw Error(`Short ${status} receipt did not upgrade its marker`);
     }
     return { text: '好', pendingSemantics: 'waiting', upgrades: ['stored', 'delivered'], geometryPreserved: true };
   });

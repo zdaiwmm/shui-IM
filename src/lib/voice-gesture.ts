@@ -33,14 +33,14 @@ export function bindVoiceInputGesture(
     let awaitingTouchEnd = false;
     pointer = event.pointerId;
     try { owner.setPointerCapture(event.pointerId); } catch { /* Synthetic pointer has no capture owner. */ }
-    // Confirm a hold quickly so the recording surface and microphone request
-    // start while the original touch is still active.
+    // Use a deliberate long press: an ordinary mouse click or touch tap can
+    // easily last 180–300 ms. Never request microphone access in that window.
     timer = window.setTimeout(() => {
       timer = null;
       if (!input.isConnected || input.disabled || input.value) { cancel(); return; }
       held = true; suppressClick = true;
       recorder = begin('hold');
-    }, 180);
+    }, 500);
     window.addEventListener('pointermove', move => {
       if (move.pointerId !== pointer) return;
       if (!held && Math.hypot(move.clientX - startX, move.clientY - startY) > 12) { cancel(); return; }
