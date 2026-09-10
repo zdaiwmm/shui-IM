@@ -24,10 +24,14 @@ try {
     const { QuietRoomApp } = await import('/src/app.ts');
     const { createVault } = await import('/src/lib/vault.ts');
     const app = new QuietRoomApp(document.querySelector('#app'));
-    const own = { deviceId: crypto.randomUUID(), role: 'creator', status: 'active' };
-    const peer = { deviceId: crypto.randomUUID(), role: 'joiner', status: 'active' };
+    const { generateIdentity, createJoinProof, bundleFingerprint } = await import('/src/lib/crypto.ts');
+    const { randomBase64Url } = await import('/src/lib/base64.ts');
+    const [identity, peerIdentity] = await Promise.all([generateIdentity(), generateIdentity()]);
+    const pairingSecret = randomBase64Url(32);
+    const own = { ...identity.publicBundle, role: 'creator', status: 'active', joinProof: null };
+    const peer = { ...peerIdentity.publicBundle, role: 'joiner', status: 'active', joinProof: await createJoinProof(pairingSecret, peerIdentity.publicBundle) };
     app.session = await createVault({ v: 1, roomId: crypto.randomUUID(), accessToken: 'presence-fixture', role: 'creator',
-      protocol: 'legacy-v1', lastSeq: 0, members: [own, peer], identity: { publicBundle: own } }, 'presence-fixture-passphrase', 'password');
+      protocol: 'legacy-v1', lastSeq: 0, members: [own, peer], identity, pairingSecret, creatorFingerprint: await bundleFingerprint(identity.publicBundle) }, 'presence-fixture-passphrase', 'password');
     app.privacyCovered = false;
     app.runtimeAbort = new AbortController();
     app.uiPreferencesHydrated = true;
@@ -37,7 +41,7 @@ try {
     app.attemptSend = async () => {};
     Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
     app.renderChat();
-    window.fixture = { app };
+    window.fixture = { app, peerVault: { ...app.session.vault, role: 'joiner', identity: peerIdentity } };
   });
   const circuit = page.locator('.presence-circuit');
   const phase = () => circuit.getAttribute('data-phase');
@@ -78,8 +82,61 @@ try {
   await page.waitForTimeout(4300);
   assert.equal(await phase(), 'online');
   assert.equal(await page.locator('.presence-heart').evaluate(e => getComputedStyle(e).animationName), 'presence-heartbeat');
-  await state(false, true);
+  // Idle double beat is visibly stronger without moving surrounding chrome.
+  const beat = await page.locator('.presence-heart').evaluate(element => {
+    const animation = element.getAnimations()[0];
+    animation.pause(); animation.currentTime = 1650 * .12;
+    return new DOMMatrix(getComputedStyle(element).transform).a;
+  });
+  assert.ok(beat >= 1.13, `Idle beat too subtle: ${beat}`);
+  await page.locator('.presence-heart').evaluate(element => element.getAnimations()[0].play());
+  await page.evaluate(async () => window.fixture.app.enqueuePayload({ v: 1, kind: 'text', text: 'Online local message', sentAt: new Date().toISOString() }));
+  await page.waitForTimeout(100);
+  assert.ok(await page.locator('[data-arc="left"]').getAttribute('d'));
+  assert.equal(await page.locator('[data-arc="right"]').getAttribute('d'), null);
+  await page.waitForTimeout(1020);
+  assert.equal(await phase(), 'online-pulsing');
+  assert.equal(await page.locator('.presence-whole').evaluate(e => getComputedStyle(e).display), 'block');
+  assert.notEqual(await page.locator('.presence-heart').getAttribute('transform'), null);
+  await page.waitForTimeout(550);
+  assert.equal(await phase(), 'online');
+
+  // Exercise the authenticated, persisted receive path, including replay exclusion.
+  const receive = live => page.evaluate(async live => {
+    const { app, peerVault } = window.fixture;
+    const { encryptMessage } = await import('/src/lib/crypto.ts');
+    const envelope = await encryptMessage(peerVault, { v: 1, kind: 'text', text: 'Synthetic peer message', sentAt: new Date().toISOString() });
+    const message = { seq: app.session.vault.lastSeq + 1, envelope, acceptedAt: new Date().toISOString() };
+    if (live) app.livePresenceMessages.add(message);
+    app.serverQueue.set(message.seq, message);
+    await app.drainServerQueue();
+    return message.seq;
+  }, live);
+  await receive(false);
+  assert.equal(await page.locator('[data-arc="right"]').getAttribute('d'), null, 'history sync must stay quiet');
+  await receive(true);
+  await page.waitForTimeout(100);
+  assert.ok(await page.locator('[data-arc="right"]').getAttribute('d'));
+  assert.equal(await page.locator('[data-arc="left"]').getAttribute('d'), null);
+  await page.waitForTimeout(1020);
+  assert.equal(await phase(), 'online-pulsing');
+  await page.waitForTimeout(550);
+  assert.equal(await phase(), 'online');
+  assert.equal(await page.locator('.presence-heart').getAttribute('transform'), null);
+
+  // A message during fusion must wait for the complete heart, then pulse once.
+  await state(true, false);
+  await state(true, true);
+  await page.evaluate(() => window.fixture.app.presenceCircuit.received());
+  assert.equal(await phase(), 'charging');
+  await page.waitForTimeout(4350);
+  assert.equal(await phase(), 'online');
+  assert.ok(await page.locator('[data-arc="right"]').getAttribute('d'));
+  await page.waitForTimeout(1000);
+  assert.equal(await phase(), 'online-pulsing');
+  await state(true, false);
   assert.equal(await phase(), 'offline');
+  assert.equal(await page.locator('.presence-heart').getAttribute('transform'), null);
   await page.waitForTimeout(250);
   const offlineColor = await page.locator('.presence-heart').evaluate(element => getComputedStyle(element).fill);
   const idleAlpha = await circuit.evaluate(async element => {

@@ -64,6 +64,15 @@ try {
 
   await page.locator('#message-input').tap();
   assert.equal(await count(),0); assert.equal(await page.locator('.voice-recorder').isVisible(),false);
+  // A slow ordinary desktop click and touch tap must still enter typing.
+  await page.locator('#message-input').click({ delay: 300 });
+  assert.equal(await page.locator('.voice-recorder').isVisible(), false);
+  assert.equal(await page.locator('#message-input').evaluate(e => document.activeElement === e), true);
+  const tapBox = await page.locator('#message-input').boundingBox();
+  origin = { x: tapBox.x + 30, y: tapBox.y + tapBox.height / 2 };
+  await touch('touchStart'); await page.waitForTimeout(280); await touch('touchEnd');
+  assert.equal(await page.locator('.voice-recorder').isVisible(), false);
+  assert.equal(await page.evaluate(() => window.fixture.tracks.length), 0, 'short input presses must never request capture');
   await page.locator('#message-input').fill('已有草稿');
   const draftBox=await page.locator('#message-input').boundingBox();
   origin={x:draftBox.x+30,y:draftBox.y+20}; await touch('touchStart'); await page.waitForTimeout(450); await touch('touchEnd');

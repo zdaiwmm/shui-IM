@@ -53,6 +53,7 @@ import { prepareImageMotion, type ImageMotion } from './lib/image-animation';
 import { createConcealedImage } from './lib/concealed-image';
 import { mountPhotoDetails } from './lib/photo-details';
 import { createElement, Info, Pause, Play, Plus, Camera, Maximize, Volume2, VolumeX } from 'lucide';
+import { isReadableChatMessage, readMessageIds } from './lib/message-read';
 import { isChatMedia, mediaReadTimes, MEDIA_READ_HIDE_DELAY_MS } from './lib/media-read';
 import { bindChatImageConcealGesture } from './lib/chat-image-conceal-gesture';
 import { CHAT_LATEST_GAP, mountChatBottomControl } from './lib/chat-bottom-control';
@@ -188,7 +189,7 @@ import {
 import { recoverFromCloud, restoreCloudHistory, syncCloudBackup } from './lib/cloud-backup';
 import './backup.css';
 
-const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'file-message-v1', CALL_CAPABILITY];
+const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', CALL_CAPABILITY];
 // Safari may briefly move window focus into its native keyboard surface after
 // a direct textarea tap. Keep this exception short, one-use and independent
 // from chooser/media handoffs so every hard lifecycle signal still locks.
@@ -319,6 +320,7 @@ export class QuietRoomApp {
   private outbox = new Map<string, OutboxItem>();
   private pendingReceipts = new Map<string, DeliveryReceipt>();
   private serverQueue = new Map<number, ServerMessage>();
+  private livePresenceMessages = new WeakSet<ServerMessage>();
   private receiptQueue = new Map<number, ServerReceipt>();
   private uploadPlans: ImageUploadPlan[] = [];
   private imageCache = new Map<string, CachedImage>();
@@ -475,6 +477,8 @@ export class QuietRoomApp {
   private chatRevealedAssets = new Set<string>();
   private chatExplicitlyConcealedAssets = new Set<string>();
   private mediaReadQueued = new Set<string>();
+  private messageReadQueued = new Set<string>();
+  private readMessageIds = new Set<string>();
   private mediaReadExpired = new Set<string>();
   private mediaReadDeadlines = new Map<string, number>();
   private mediaReadTimer: number | null = null;
@@ -2669,7 +2673,7 @@ export class QuietRoomApp {
     // Reaction/gallery events share the encrypted stream. An all-hidden tail
     // has no scrollbar, so fill backwards until there is a chat row to show.
     while (historyHasMore && !page.some(message => message.payload.kind !== 'gallery-image' && message.payload.kind !== 'gallery-file'
-      && message.payload.kind !== 'reaction' && message.payload.kind !== 'message-delete' && message.payload.kind !== 'media-read')) {
+      && message.payload.kind !== 'reaction' && message.payload.kind !== 'message-delete' && message.payload.kind !== 'media-read' && message.payload.kind !== 'message-read')) {
       page = await loadHistoryPage(session, { limit: 200, beforeSeq: Math.min(...page.map(message => message.seq)), signal: this.runtimeAbort.signal });
       if (!this.isRuntimeActive(epoch, session)) return;
       pages.unshift(page);
@@ -2990,6 +2994,7 @@ export class QuietRoomApp {
         },
         message: (message) => {
           if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
+          this.livePresenceMessages.add(message);
           this.serverQueue.set(message.seq, message);
           if (new Set(this.session?.vault.members.filter((member) => member.status !== 'pending' && member.status !== 'revoked').map((member) => member.role)).size === 2) {
             void this.drainServerQueue();
@@ -3272,6 +3277,10 @@ export class QuietRoomApp {
           }
           if (!this.isRuntimeActive(epoch, session)) return;
           this.messages.set(message.seq, message);
+          if (!ownDevice && this.livePresenceMessages.has(serverMessage)
+            && ['text', 'image', 'image-album', 'file', 'audio'].includes(payload.kind)) {
+            this.presenceCircuit?.received(ownRole);
+          }
           projectionChanged = true;
           if (!this.historyHasNewer && message.seq > this.historyForwardCursor) {
             this.historyForwardCursor = message.seq;
@@ -4793,10 +4802,30 @@ export class QuietRoomApp {
         if (candidate < Number.MAX_SAFE_INTEGER) {
           seq = Math.max(seq, candidate);
           this.queueVisibleMediaRead(article, candidate);
+          this.queueVisibleMessageRead(candidate);
         }
       }
     }
     if (seq > 0) void this.unreadCounter.markRead(session.vault, seq, this.runtimeAbort?.signal);
+  }
+
+  private queueVisibleMessageRead(seq: number): void {
+    const message = this.messages.get(seq);
+    if (!message || !isReadableChatMessage(message) || isChatMedia(message) || this.isOwnMessage(message)
+      || !document.hasFocus() || this.voiceRecorder || this.root.querySelector('.message-actions')
+      || !this.activeDevicesSupport('message-read-v1') || this.messageReadQueued.has(message.clientMsgId)) return;
+    const previous = [...this.messageEventHistory.values(), ...this.messages.values(), ...this.pending.values()];
+    if (previous.some(event => event.payload.kind === 'message-read' && this.isOwnMessage(event)
+      && event.payload.target.clientMsgId === message.clientMsgId
+      && event.payload.target.serverSeq === message.seq && event.payload.target.senderId === message.senderId)) return;
+    this.messageReadQueued.add(message.clientMsgId);
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    void this.enqueuePayload({ v: 1, kind: 'message-read', sentAt: new Date().toISOString(),
+      target: { clientMsgId: message.clientMsgId, serverSeq: message.seq, senderId: message.senderId },
+    }).catch(() => {
+      if (session && this.isRuntimeActive(epoch, session)) this.messageReadQueued.delete(message.clientMsgId);
+    });
   }
 
   private queueVisibleMediaRead(article: HTMLElement, seq: number): void {
@@ -5536,7 +5565,7 @@ export class QuietRoomApp {
     };
     this.pending.set(clientMsgId, pending);
     if (['text', 'image', 'image-album', 'file', 'audio'].includes(payload.kind)) this.presenceCircuit?.sent();
-    const projectionEvent = payload.kind === 'reaction' || payload.kind === 'message-delete' || payload.kind === 'media-read';
+    const projectionEvent = payload.kind === 'reaction' || payload.kind === 'message-delete' || payload.kind === 'media-read' || payload.kind === 'message-read';
     this.renderMessages({ scroll: projectionEvent ? 'preserve' : 'send' });
     if (!projectionEvent) this.trackChatViewport(!this.desktopBrowser);
     await this.attemptSend(clientMsgId);
@@ -5558,7 +5587,7 @@ export class QuietRoomApp {
       if (!this.isRuntimeActive(epoch, session)) return;
       if (this.deferUnsupportedPayload(item)) return;
       this.socket?.sendEnvelope(envelope, item.payload.kind !== 'gallery-image' && item.payload.kind !== 'gallery-file'
-        && item.payload.kind !== 'reaction' && item.payload.kind !== 'message-delete' && item.payload.kind !== 'media-read');
+        && item.payload.kind !== 'reaction' && item.payload.kind !== 'message-delete' && item.payload.kind !== 'media-read' && item.payload.kind !== 'message-read');
       this.scheduleRetry(clientMsgId);
     } catch (cause) {
       if (!this.isRuntimeActive(epoch, session)) return;
@@ -6220,7 +6249,7 @@ export class QuietRoomApp {
   private orderedMessages(deletedForEveryone = this.messageDeletions()): DecryptedMessage[] {
     const hiddenOnThisDevice = new Set(this.uiPreferences.hiddenChatMessageIds ?? []);
     const visible = (message: DecryptedMessage) => message.payload.kind !== 'gallery-image' && message.payload.kind !== 'gallery-file'
-      && message.payload.kind !== 'reaction' && message.payload.kind !== 'message-delete' && message.payload.kind !== 'media-read'
+      && message.payload.kind !== 'reaction' && message.payload.kind !== 'message-delete' && message.payload.kind !== 'media-read' && message.payload.kind !== 'message-read'
       && !deletedForEveryone.has(message.clientMsgId) && !hiddenOnThisDevice.has(message.clientMsgId.toLowerCase());
     const confirmed = [...this.messages.values()]
       .filter(visible)
@@ -6237,6 +6266,7 @@ export class QuietRoomApp {
   }
 
   private payloadCapabilityError(payload: MessagePayload): string | null {
+    if (payload.kind === 'message-read' && !this.activeDevicesSupport('message-read-v1')) return '已读同步等待设备更新';
     if (payload.kind === 'media-read' && !this.activeDevicesSupport('media-read-v1')) return '已读同步等待设备更新';
     if (payload.kind === 'reaction' && !this.activeDevicesSupport('message-reactions-v1')) {
       return '请先让所有已授权设备打开最新版，再使用表情回应';
@@ -6274,7 +6304,7 @@ export class QuietRoomApp {
     const firstDeferral = !this.deferredCapabilityItems.has(item.clientMsgId);
     this.deferredCapabilityItems.add(item.clientMsgId);
     const pending = this.pending.get(item.clientMsgId);
-    const projectionEvent = item.payload.kind === 'reaction' || item.payload.kind === 'message-delete' || item.payload.kind === 'media-read';
+    const projectionEvent = item.payload.kind === 'reaction' || item.payload.kind === 'message-delete' || item.payload.kind === 'media-read' || item.payload.kind === 'message-read';
     if (!projectionEvent && pending && pending.status !== 'failed') {
       pending.status = 'failed';
       this.renderMessages();
@@ -6307,6 +6337,7 @@ export class QuietRoomApp {
     if (message.payload.kind === 'audio') return `语音 · ${voiceTime(message.payload.durationMs)}`;
     if (message.payload.kind === 'file' || message.payload.kind === 'gallery-file') return `${isVideoFile(message.payload.file) ? '视频' : '文件'} · ${this.replyPreview(message.payload.file.originalName || '未命名文件')}`;
     if (message.payload.kind === 'image-album') return `${message.payload.images.length} 张图片`;
+    if (message.payload.kind === 'message-read') return '消息已读';
     if (message.payload.kind === 'media-read') return '媒体已读';
     if (message.payload.kind === 'reaction') return '表情回应';
     return '图片';
@@ -6940,7 +6971,7 @@ export class QuietRoomApp {
         const saved = await loadHistoryMessage(session, seq, signal);
         if (!this.isRuntimeActive(epoch, session) || !list.isConnected || this.replyJumpVersion !== jumpVersion) return;
         if (saved?.clientMsgId === clientMsgId && saved.payload.kind !== 'gallery-image' && saved.payload.kind !== 'gallery-file'
-          && saved.payload.kind !== 'reaction' && saved.payload.kind !== 'message-delete' && saved.payload.kind !== 'media-read') {
+          && saved.payload.kind !== 'reaction' && saved.payload.kind !== 'message-delete' && saved.payload.kind !== 'media-read' && saved.payload.kind !== 'message-read') {
           const nearby = await loadHistoryPage(session, { limit: 200, beforeSeq: Math.min(seq + 101, Number.MAX_SAFE_INTEGER), signal });
           if (!this.isRuntimeActive(epoch, session) || !list.isConnected || this.replyJumpVersion !== jumpVersion) return;
           for (const message of nearby) this.messages.set(message.seq, message);
@@ -7015,6 +7046,8 @@ export class QuietRoomApp {
       : this.captureChatAnchor(false, scroll === 'position');
     if (scroll === 'bottom' || followSend || scroll === 'position') this.chatRestoreAnchor = null;
     else if (scroll === 'restore') this.chatRestoreAnchor = anchor && !anchor.pinnedToBottom ? anchor : null;
+    const previousReadIds = this.readMessageIds;
+    this.readMessageIds = readMessageIds([...this.messageEventHistory.values(), ...this.messages.values()], new Map(this.session.vault.members.map(member => [member.deviceId, member.role])));
     const deletedForEveryone = this.messageDeletions();
     const messages = this.orderedMessages(deletedForEveryone);
     const visibleMessageIds = new Set(messages.map(message => message.clientMsgId));
@@ -7060,7 +7093,8 @@ export class QuietRoomApp {
         // delivery decoration. Legacy confirmation can decrypt a fresh payload.
         const selecting = this.selectedMessageId === key && cached?.payload.kind === 'text'
           && message.payload.kind === 'text' && cached.payload.text === message.payload.text;
-        const unchanged = cached?.payload === message.payload && cached.status === message.status && cached.acceptedAt === message.acceptedAt;
+        const unchanged = cached?.payload === message.payload && cached.status === message.status && cached.acceptedAt === message.acceptedAt
+          && previousReadIds.has(key) === this.readMessageIds.has(key);
         // Legacy confirmation decrypts a fresh but equivalent payload. Compare
         // that changed object only; unchanged history retains the fast path.
         const samePayload = cached?.payload === message.payload || Boolean(cached && canonicalStringify(cached.payload) === canonicalStringify(message.payload));
@@ -7400,14 +7434,13 @@ export class QuietRoomApp {
     const own = this.isOwnMessage(message);
     const meta = document.createElement('div');
     meta.className = 'message-meta';
+    const read = this.readMessageIds.has(message.clientMsgId);
     const status = own
       ? message.status === 'pending'
         ? ' · 等待发送'
-        : message.status === 'stored' || message.status === 'sent'
-          ? '已发送'
-          : message.status === 'delivered'
-            ? '已送达'
-            : ' · 发送失败'
+        : message.status === 'stored' || message.status === 'sent' || message.status === 'delivered'
+          ? read ? '已读' : '已发送'
+          : ' · 发送失败'
       : '';
     const time = document.createElement('time');
     time.dateTime = message.payload.sentAt;
@@ -7416,10 +7449,10 @@ export class QuietRoomApp {
     if (own && (message.status === 'stored' || message.status === 'sent' || message.status === 'delivered')) {
       const delivery = document.createElement('span');
       delivery.className = 'message-delivery';
-      delivery.dataset.state = message.status === 'delivered' ? 'delivered' : 'sent';
-      // One complete check; delivery adds only the second rising arm, matching
+      delivery.dataset.state = read ? 'read' : 'sent';
+      // One complete check; a read receipt adds the second rising arm, matching
       // the compact Telegram receipt rather than placing two glyphs side by side.
-      delivery.innerHTML = `<svg aria-hidden="true" viewBox="0 0 22 16"><path d="m2 8 4 4L16 2"/>${message.status === 'delivered' ? '<path d="m10 12 10-10"/>' : ''}</svg>`;
+      delivery.innerHTML = `<svg aria-hidden="true" viewBox="0 0 22 16"><path d="m2 8 4 4L16 2"/>${read ? '<path d="m10 12 10-10"/>' : ''}</svg>`;
       const label = document.createElement('span');
       label.className = 'sr-only';
       label.textContent = status;
@@ -7436,7 +7469,8 @@ export class QuietRoomApp {
       meta.append(waiting);
     } else if (status) meta.append(document.createTextNode(status));
     if (own) {
-      meta.title = message.status === 'delivered' ? '对方至少一台设备已验证并保存这条消息'
+      meta.title = read ? '对方已读：至少一台设备已在前台显示这条消息'
+        : message.status === 'delivered' ? '服务器已保存加密消息，对方设备已接收，尚无已读回执'
         : message.status === 'stored' || message.status === 'sent' ? '服务器已保存加密消息，等待对方接收'
           : message.status === 'pending' ? '已保存在本机，等待发送到服务器' : '发送失败，可以重试';
       if (message.payload.kind === 'audio' && message.status === 'failed') { meta.title = VOICE_FAILURE_TEXT.VOICE_ACK_UNKNOWN; meta.dataset.errorCode = 'VOICE_ACK_UNKNOWN'; }
@@ -9902,6 +9936,8 @@ export class QuietRoomApp {
     if (this.mediaReadTimer !== null) window.clearTimeout(this.mediaReadTimer);
     this.mediaReadTimer = null;
     this.mediaReadQueued.clear();
+    this.messageReadQueued.clear();
+    this.readMessageIds.clear();
     this.mediaReadExpired.clear();
     this.mediaReadDeadlines.clear();
     this.chatExplicitlyConcealedAssets.clear();

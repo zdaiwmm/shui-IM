@@ -33,7 +33,7 @@
 }
 /* Composite touching neutral shapes once so their junction cannot darken. */
 .presence-base { opacity: var(--circuit-idle-opacity); }
-.presence-circuit:is([data-phase="online"], [data-phase="fusing"], [data-phase="pulsing"]) .presence-base { opacity: 1; }
+.presence-circuit:is([data-phase="online"], [data-phase="online-pulsing"], [data-phase="fusing"], [data-phase="pulsing"]) .presence-base { opacity: 1; }
 .presence-circuit[data-phase="pulsing"] .presence-wires { stroke-opacity: var(--circuit-idle-opacity); }
 .presence-heart {
   fill: var(--circuit-idle);
@@ -42,11 +42,11 @@
   transition: fill 220ms ease-out;
 }
 .presence-whole { display: none; }
-.presence-circuit:is([data-phase="online"], [data-phase="fusing"]) .presence-wires { stroke: var(--circuit-live); }
-.presence-circuit:is([data-phase="online"], [data-phase="fusing"]) .presence-heart { fill: var(--circuit-heart); }
+.presence-circuit:is([data-phase="online"], [data-phase="online-pulsing"], [data-phase="fusing"]) .presence-wires { stroke: var(--circuit-live); }
+.presence-circuit:is([data-phase="online"], [data-phase="online-pulsing"], [data-phase="fusing"]) .presence-heart { fill: var(--circuit-heart); }
 .presence-circuit[data-phase="pulsing"] .presence-heart { fill: var(--circuit-heart); }
-.presence-circuit[data-phase="online"] .presence-half { display: none; }
-.presence-circuit[data-phase="online"] .presence-whole { display: block; }
+.presence-circuit:is([data-phase="online"], [data-phase="online-pulsing"]) .presence-half { display: none; }
+.presence-circuit:is([data-phase="online"], [data-phase="online-pulsing"]) .presence-whole { display: block; }
 .presence-circuit[data-phase="online"] .presence-heart { animation: presence-heartbeat 1.65s linear infinite; }
 .presence-electric {
   stroke: var(--circuit-live);
@@ -57,9 +57,9 @@
 }
 @keyframes presence-heartbeat {
   0%, 6%, 37%, 100% { transform: scale(1); }
-  12% { transform: scale(1.045); }
-  20% { transform: scale(1.005); }
-  27% { transform: scale(1.025); }
+  12% { transform: scale(1.14); }
+  20% { transform: scale(.98); }
+  27% { transform: scale(1.085); }
 }
 @media (prefers-color-scheme: dark) {
   .presence-circuit {

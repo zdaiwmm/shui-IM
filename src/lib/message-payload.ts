@@ -114,7 +114,7 @@ export function isMessagePayload(value: unknown): value is MessagePayload {
     ) return false;
     return true;
   }
-  if (payload.kind === 'message-delete' || payload.kind === 'media-read') {
+  if (payload.kind === 'message-delete' || payload.kind === 'media-read' || payload.kind === 'message-read') {
     return payload.v === 1 &&
       hasOnlyKeys(payload, ['v', 'kind', 'sentAt', 'target']) &&
       isMessageTarget(payload.target);

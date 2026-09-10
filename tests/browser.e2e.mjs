@@ -365,6 +365,14 @@ try {
   const deliveryMs = Date.now() - startedAt;
   invariant(deliveryMs < 3000, 'Local real-time delivery exceeded the acceptance budget');
 
+  await joiner.evaluate(async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(document, 'hasFocus');
+    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
+    try { window.dispatchEvent(new Event('scroll')); await new Promise(resolve => setTimeout(resolve, 150)); }
+    finally { if (descriptor) Object.defineProperty(document, 'hasFocus', descriptor); else delete document.hasFocus; }
+  });
+  await creator.locator('.message.outgoing').filter({ hasText: 'browser-e2e-live' }).locator('.message-delivery[data-state="read"]').waitFor({ timeout: 3000 });
+
   const replySourceId = await joiner.locator('.message.incoming').filter({ hasText: 'browser-e2e-live' }).getAttribute('data-client-msg-id');
   const replySource = joiner.locator(`.message.incoming[data-client-msg-id="${replySourceId}"]`);
   const messageSelection = await replySource.evaluate((article) => ({
