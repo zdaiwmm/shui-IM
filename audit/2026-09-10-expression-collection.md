@@ -1,7 +1,8 @@
 # 后台表情采集验收（2026-09-10）
 
 任务分支 `codex/admin-expression-collection-fix`，基线 `49a6dc933e13d4e301116dc4463ee6ab3cb4f117`。
-仅覆盖本地实现，不代表已合并、CI 通过或生产部署。
+下方实测为本地证据。交付后续：候选 `d23c7cbbcc1c8c0a4d1645ae009ca5d80f4d9c2b` 的 [CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34453330816) 全部通过，
+[PR #76](https://github.com/zdaiwmm/shui-IM/pull/76) 合并为 `cd7db9000d72e9f3505e3367595e2b64583273c0`。未发布生产。
 
 ## 实现与确认的缺陷
 
