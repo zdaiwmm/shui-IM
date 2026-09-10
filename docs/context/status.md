@@ -30,6 +30,12 @@
   `READBACK_OK`，证据位于 `/private/tmp/quiet-room-publish-2oiFDb/.git/quiet-room-readback/`，
   总耗时 2,540ms。iPhone / iOS 27 / Safari 真机未验证。
 
+## 工作流环境准备（2026-09-10，本地任务）
+
+- 基线 `4f06bd46e5c14aa94b86a603bfc4c233c2233871`；任务分支 `codex/workflow-environment-20260910`，独占目录 `/Users/zhouding/ss-worktrees/workflow-environment-20260910`。
+- 通过正式执行审批创建工作树；核实已有 npm 缓存 `/Users/zhouding/.npm-cache`。统一新树位置、按需安装与各阶段权限失败处理；没有更改系统权限配置。
+- 本任务只修改文档，未安装产品依赖、未运行产品测试、未验证远端 CI 或生产；尚未合并 main，新会话默认入口生效仍需集成该规则。下方历史生产记录未在本任务重新回读。
+
 ## 今日非 Liquid Glass 分支集成（2026-09-09，已部署）
 
 - 本次用户授权合并今天除 Apple Liquid Glass 视觉升级以外的分支并准备生产发布。

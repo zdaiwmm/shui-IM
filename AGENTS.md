@@ -36,6 +36,8 @@
 
 ## 工作约定
 
+- 本机从 `/Users/zhouding/ss` 接手，新任务由 agent 显式创建于 `/Users/zhouding/ss-worktrees/<任务名>`；已核实属于本任务的独占树复用。目录、Git 元数据执行审批、共享 npm 缓存与按需安装、验证及交付阻塞续跑统一遵循[环境准备](docs/context/workflow.md#本机工作树与依赖准备)。文档规则不授予系统写权限；不能仅更换目录后声称权限已解决。
+
 - 分支模型：用户于 2026-09-09 确认采用[轻量 trunk-based 流程](docs/context/workflow.md#当前分支模型)。任务在独立 worktree 的短生命周期 `codex/<task>` 分支开发并直接验证，通过 PR 与 CI 后合并远端 `main`；不维护长期 `dev`，仅多任务联调需要临时组合 worktree。本地 `main` 只作同步基线；生产发布仍须针对精确提交单独确认。
 - 执行任务时按 [`docs/context/workflow.md`](docs/context/workflow.md) 分级：默认单任务单故障域，先明确验收与验证范围；同一假设连续两次被证据否定后重新取证，不继续盲调。模型建议不是自动切换配置，也不替代下列安全和发布门禁。
 - 分支、隔离 worktree、本任务提交及集成由 agent 按工作流管理，用户无需提供 Git 命令或分支名；复用本任务独占环境，不在多个会话共用目录切分支，不混入其他任务改动。实施任务默认完成风险匹配自动验收、提交、推送到 `https://github.com/zdaiwmm/shui-IM.git`、创建 PR、等待 CI 并合并远端 main，无需逐次确认；明确要求只分析、暂不提交或不合并时遵从本次限制。测试失败须定位修复，缺依赖或沙箱限制须处理并重跑，不能仅凭修改存在宣布完成。生产发布仍单独确认。家里和公司分别运行本机环境，代码与规则通过 GitHub 同步，本机证书、数据和保险库不得同步。局域网能力沿用 [`docs/workflows/local-lan-testing.md`](docs/workflows/local-lan-testing.md)，服务运行目录按当前分支模型选择。
