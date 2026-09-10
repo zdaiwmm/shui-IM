@@ -80,7 +80,7 @@ try {
       return manifest;
     };
     const sentAt = '2026-09-04T10:00:00.000Z';
-    const record = (seq, media, senderId = own.deviceId) => ({
+    const record = (seq, media, senderId = peer.deviceId) => ({
       seq, clientMsgId: crypto.randomUUID(), senderId,
       payload: { v: 1, sentAt, ...media }, acceptedAt: sentAt, status: senderId === own.deviceId ? 'stored' : 'delivered',
     });
@@ -134,7 +134,7 @@ try {
     }).length), 0, `${reason}: thumbnail styling disagrees with its reveal state`);
   };
   const waitForClicks = () => page.waitForFunction(() => Date.now() >= window.chatPrivacy.app.suppressMediaClickUntil);
-  const drag = async (locator, { dx = 0, dy = 60, touch = false, followingClick = false } = {}) => locator.evaluate((element, { dx, dy, touch, followingClick }) => {
+  const drag = async (locator, { dx = 60, dy = 0, touch = false, followingClick = false } = {}) => locator.evaluate((element, { dx, dy, touch, followingClick }) => {
     if (touch) {
       // WebKit does not expose constructible Touch objects in this harness.
       // Supply the same read-only touch coordinates to the mounted listeners.
@@ -152,7 +152,7 @@ try {
       element.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerType: 'touch', pointerId: 9, isPrimary: true, clientX: 120, clientY: 200 }));
       const scrollReserved = sendTouch('touchmove', [finger(120 + dx, 200 + dy)], [finger(120 + dx, 200 + dy)]);
       const clearDuringTouch = element.dataset.revealed === 'true' && getComputedStyle(element.querySelector('img')).filter === 'none';
-      const displaced = new DOMMatrix(getComputedStyle(element.closest('.message-bubble')).transform).f;
+      const displaced = new DOMMatrix(getComputedStyle(element.closest('.message-bubble')).transform).e;
       sendTouch('touchend', [], [finger(120 + dx, 200 + dy)]);
       if (followingClick) element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       return { scrollReserved, clearDuringTouch, displaced };
@@ -166,6 +166,43 @@ try {
 
   await page.waitForFunction(() => document.querySelectorAll('.message .image-preview img').length === 4);
   await assertVisibility(4, 0, 'Initial cached and decrypted thumbnails');
+  // Sender visibility is driven by encrypted peer-read events, never delivery.
+  const outgoingId = await page.evaluate(() => {
+    const app = window.chatPrivacy.app;
+    const message = app.messages.get(1);
+    window.chatPrivacy.originalIncoming = message;
+    app.messages.set(1, { ...message, senderId: app.session.vault.identity.publicBundle.deviceId, status: 'delivered' });
+    app.renderMessages();
+    return message.clientMsgId;
+  });
+  const outgoing = page.locator(`[data-client-msg-id="${outgoingId}"] .image-preview`);
+  assert.equal(await outgoing.getAttribute('data-revealed'), 'true', 'Old delivered-but-unread media must stay revealed');
+  await page.evaluate(() => {
+    const app = window.chatPrivacy.app;
+    const target = app.messages.get(1);
+    const peer = app.session.vault.members.find(member => member.role !== app.session.vault.role);
+    const acceptedAt = new Date(Date.now() - 9_000).toISOString();
+    app.messages.set(90, { seq: 90, clientMsgId: crypto.randomUUID(), senderId: peer.deviceId,
+      status: 'delivered', acceptedAt,
+      payload: { v: 1, kind: 'media-read', sentAt: acceptedAt,
+        target: { clientMsgId: target.clientMsgId, serverSeq: target.seq, senderId: target.senderId } } });
+    app.renderMessages();
+  });
+  assert.equal(await outgoing.getAttribute('data-revealed'), 'true', 'Media hid before ten seconds after read');
+  assert.equal(await page.locator('.message').count(), 3, 'Read event became a chat message');
+  await page.waitForFunction(id => document.querySelector(`[data-client-msg-id="${id}"] .image-preview`)?.dataset.revealed === 'false', outgoingId);
+  await outgoing.click();
+  assert.equal(await outgoing.getAttribute('data-revealed'), 'true', 'Manual reveal after expiry failed');
+  await page.evaluate(() => window.chatPrivacy.app.renderMessages());
+  assert.equal(await outgoing.getAttribute('data-revealed'), 'true', 'Duplicate read projection undid manual reveal');
+  await page.evaluate(() => {
+    const f = window.chatPrivacy;
+    f.app.messages.delete(90);
+    f.app.messages.set(1, f.originalIncoming);
+    f.app.concealChatImages();
+    f.app.renderMessages();
+  });
+  await assertVisibility(4, 0, 'Return to incoming-media fixture');
   const bitmapEvidence = await page.evaluate(async () => {
     const entries = [...window.chatPrivacy.app.imageCache.values()];
     let maxJump = 0;
@@ -254,12 +291,12 @@ try {
     const row = element.closest('.message');
     const before = bubble.getBoundingClientRect();
     const rowBefore = row.getBoundingClientRect();
-    const fire = (type, y) => element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 61, isPrimary: true, button: 0, clientX: 120, clientY: y }));
+    const fire = (type, x) => element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 61, isPrimary: true, button: 0, clientX: x, clientY: 200 }));
     fire('pointerdown', 200); fire('pointermove', 260);
-    const firstPull = bubble.getBoundingClientRect().top - before.top;
+    const firstPull = bubble.getBoundingClientRect().left - before.left;
     const clearDuringPull = element.dataset.revealed === 'true' && getComputedStyle(element.querySelector('img')).filter === 'none';
     fire('pointermove', 380);
-    const longerPull = bubble.getBoundingClientRect().top - before.top;
+    const longerPull = bubble.getBoundingClientRect().left - before.left;
     const stillClear = element.dataset.revealed === 'true';
     const stableRow = row.getBoundingClientRect().height === rowBefore.height && row.getBoundingClientRect().top === rowBefore.top;
     fire('pointerup', 380);
@@ -274,7 +311,7 @@ try {
   await waitForClicks(); await first.click();
   const cancelledPull = await first.evaluate(element => {
     const bubble = element.closest('.message-bubble');
-    for (const [type, y] of [['pointerdown', 200], ['pointermove', 270], ['pointercancel', 270]]) element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 62, isPrimary: true, button: 0, clientX: 120, clientY: y }));
+    for (const [type, y] of [['pointerdown', 200], ['pointermove', 270], ['pointercancel', 270]]) element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 62, isPrimary: true, button: 0, clientX: y, clientY: 200 }));
     return { hidden: element.dataset.revealed === 'false', reset: getComputedStyle(bubble).transform === 'none', animations: bubble.getAnimations().length };
   });
   assert.deepEqual(cancelledPull, { hidden: false, reset: true, animations: 0 }, 'Cancelled/native media scrolling must preserve visibility and release motion');
@@ -297,11 +334,11 @@ try {
 
   // A deliberate pull conceals all thumbnails, including those outside the
   // gesture target; the browser's subsequent synthesized click stays inert.
-  await drag(first, { dy: 12 });
+  await drag(first, { dx: 12 });
   await assertVisibility(4, 2, 'Small touch movement');
-  await drag(first, { dx: 80, dy: 30 });
-  await assertVisibility(4, 2, 'Horizontal gesture');
-  await drag(first, { dy: 24, followingClick: true });
+  await drag(first, { dx: 0, dy: 80 });
+  await assertVisibility(4, 2, 'Downward scrolling preserves visibility');
+  await drag(first, { dx: 24, followingClick: true });
   await assertVisibility(4, 0, 'Pointer pull and synthesized click');
   assert.equal(await page.locator('.image-viewer').count(), 0, 'A pull opened the viewer');
   await waitForClicks();
@@ -351,7 +388,7 @@ try {
   await delayed.click();
   await delayed.click();
   await page.locator('.image-viewer.is-visible .viewer-stage img').waitFor();
-  await drag(page.locator('.viewer-stage'), { dy: 150 });
+  await drag(page.locator('.viewer-stage'), { dx: 0, dy: 150 });
   await page.locator('.image-viewer').waitFor({ state: 'detached' });
   await assertVisibility(5, 0, 'Viewer downward dismissal');
   await waitForClicks();
@@ -361,7 +398,7 @@ try {
     const f = window.chatPrivacy;
     const element = [...document.querySelectorAll('.message .image-preview')].find(preview => preview.dataset.revealed === 'true');
     const bubble = element.closest('.message-bubble');
-    for (const [type, y] of [['pointerdown', 200], ['pointermove', 280]]) element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 64, isPrimary: true, button: 0, clientX: 120, clientY: y }));
+    for (const [type, y] of [['pointerdown', 200], ['pointermove', 280]]) element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 64, isPrimary: true, button: 0, clientX: y, clientY: 200 }));
     window.dispatchEvent(new Event('blur'));
     const buttons = [...document.querySelectorAll('.message .image-preview')];
     const immediatelyHidden = buttons.length === 5 && buttons.every(button => button.dataset.revealed === 'false'
@@ -448,6 +485,33 @@ try {
   await assertVisibility(7, 1, 'Repeated manifest isolated from the original revealed message');
   await drag(originalRow, { followingClick: true });
   await assertVisibility(7, 0, 'Pull hides both messages sharing one attachment');
+  // Actual encrypted outbox: hidden/away media cannot acknowledge reading.
+  await originalRow.scrollIntoViewIfNeeded();
+  await page.evaluate(() => {
+    const app = window.chatPrivacy.app;
+    app.session.vault.members.forEach(member => member.capabilities.push('media-read-v1'));
+    app.chatRestoreAnchor = null;
+    app.markVisibleMessagesRead();
+  });
+  assert.equal(await page.evaluate(() => window.chatPrivacy.app.mediaReadQueued.size), 0, 'Blurred media emitted read intent');
+  await page.evaluate(id => {
+    const app = window.chatPrivacy.app;
+    const preview = document.querySelector(`[data-client-msg-id="${id}"] .image-preview`);
+    app.chatRevealedAssets.add(preview.dataset.revealKey);
+    app.updateChatImageVisibility(preview);
+    app.activeSurface = 'away';
+    app.markVisibleMessagesRead();
+  }, repeatedIds.original);
+  assert.equal(await page.evaluate(() => window.chatPrivacy.app.mediaReadQueued.size), 0, 'Away surface emitted read intent');
+  await page.evaluate(() => { const app = window.chatPrivacy.app; app.activeSurface = 'chat'; app.markVisibleMessagesRead(); });
+  await page.waitForFunction(() => [...window.chatPrivacy.app.outbox.values()].some(item => item.payload.kind === 'media-read'));
+  const readOutbox = await page.evaluate(async id => {
+    const f = window.chatPrivacy;
+    f.app.markVisibleMessagesRead();
+    const items = (await f.vault.loadOutbox(f.session)).filter(item => item.payload.kind === 'media-read' && item.payload.target.clientMsgId === id);
+    return { count: items.length, seq: items[0]?.payload.target.serverSeq, visibleRows: document.querySelectorAll('.message').length };
+  }, repeatedIds.original);
+  assert.deepEqual(readOutbox, { count: 1, seq: 1, visibleRows: 6 }, 'Visible-media read was not saved once in the encrypted outbox without a chat row');
   await page.evaluate(() => {
     const f = window.chatPrivacy;
     f.app.openImageViewer([f.records[0].payload.image]);

@@ -68,6 +68,15 @@ describe('RFC 9420 MLS message state', () => {
     creator.mls.groupState = openedReply.nextGroupState;
     expect(openedReply.payload).toMatchObject({ kind: 'text', text: 'reply' });
 
+    const mediaRead = { v: 1 as const, kind: 'media-read' as const, sentAt: new Date().toISOString(),
+      target: { clientMsgId: firstId, serverSeq: 1, senderId: creator.identity.publicBundle.deviceId } };
+    const encryptedRead = await encryptMlsApplication(joiner, mediaRead, crypto.randomUUID());
+    joiner.mls.groupState = encryptedRead.nextGroupState;
+    expect(JSON.stringify(encryptedRead.envelope)).not.toContain(firstId);
+    const openedRead = await decryptMlsApplication(creator, encryptedRead.envelope);
+    creator.mls.groupState = openedRead.nextGroupState;
+    expect(openedRead.payload).toEqual(mediaRead);
+
     const galleryPayload = {
       v: 1 as const,
       kind: 'gallery-image' as const,

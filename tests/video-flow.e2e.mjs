@@ -234,9 +234,9 @@ try {
   assert.equal(await page.locator('.image-viewer').count(), 0, 'First chat video click played a still-hidden video');
   const videoPull = await chatPreview.evaluate(async element => {
     const bubble = element.closest('.message-bubble');
-    const fire = (type, y) => element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 91, isPrimary: true, button: 0, clientX: 120, clientY: y }));
+    const fire = (type, x) => element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 91, isPrimary: true, button: 0, clientX: x, clientY: 240 }));
     fire('pointerdown', 240); fire('pointermove', 330);
-    const clearAndMoving = element.dataset.revealed === 'true' && getComputedStyle(element.querySelector('img')).filter === 'none' && new DOMMatrix(getComputedStyle(bubble).transform).f > 20;
+    const clearAndMoving = element.dataset.revealed === 'true' && getComputedStyle(element.querySelector('img')).filter === 'none' && new DOMMatrix(getComputedStyle(bubble).transform).e > 20;
     fire('pointerup', 330);
     const hiddenOnRelease = element.dataset.revealed === 'false';
     await Promise.all(bubble.getAnimations().map(animation => animation.finished));
@@ -417,7 +417,8 @@ try {
     await assertPlayerReleased('Paged inline player exit');
   };
   const chatPhoto = page.locator(`.message .image-preview[data-blob-id="${ids.photo}"]`);
-  await chatPhoto.click(); await chatPhoto.click();
+  if (await chatPhoto.getAttribute('data-revealed') !== 'true') await chatPhoto.click();
+  await chatPhoto.click();
   await page.waitForFunction(() => document.querySelector('.viewer-stage')?.getAttribute('aria-busy') === 'false');
   assert.equal(await page.locator('[data-viewer-counter]').innerText(), '1 / 2', 'Chat viewer must include the other message video and exclude ordinary files and gallery-only media');
   await swipeToInlineVideo();
