@@ -76,7 +76,7 @@
 | ICE gathering | 12 秒 | ICE_GATHER_TIMEOUT | 进入线路恢复；单个节点错误仅记录脱敏事件 |
 | ICE checking | 12 秒 | ICE_CHECK_TIMEOUT | 进入线路恢复 |
 | DTLS/SRTP | 10 秒 | DTLS_TIMEOUT | 结束安全媒体建立，不能将 ICE connected 当作成功 |
-| 远端媒体 | 10 秒 | MEDIA_TIMEOUT | 等待 live、非 muted 的音频；缺失则结束并提示重新呼叫 |
+| 远端媒体 | 首次 10 秒，已连接音频短暂 mute 使用恢复总预算 | MEDIA_TIMEOUT | 等待 live、非 muted 的音频；缺失则结束并提示重新呼叫 |
 | 质量统计 | 每次 12 秒，正常 4 秒采样 | STATS_TIMEOUT | 保留媒体，下次采样；不因缺失统计执行 ICE restart |
 | 网络恢复 | 总预算 60 秒，每条路径约 12 秒 | RECOVERY_TIMEOUT / RELAY_FAILED | 第一次重新收集并 restart，第二次刷新验证配置再 restart，第三次有 TURN 则 relay-only；仍失败结束 |
 

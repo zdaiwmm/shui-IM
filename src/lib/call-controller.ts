@@ -743,7 +743,14 @@ export class CallController {
     if (pc.connectionState === 'connected') {
       this.stages?.complete('dtls-srtp');
       const audio = this.current.remoteStream?.getAudioTracks().some(track => track.readyState === 'live' && !track.muted);
-      if (!audio) { this.stages?.begin('media'); return; }
+      if (!audio) {
+        if (this.current.startedAt) {
+          this.stages?.noteFailure('media', 'AUDIO_TEMPORARILY_MUTED');
+          this.stages?.begin('recovery');
+          this.emit({ statusText: '对方音频暂时中断，正在等待恢复…', quality: 'recovering' });
+        } else this.stages?.begin('media');
+        return;
+      }
       this.stages?.complete('media');
       this.stages?.complete('recovery');
       if (this.reconnectTimer) clearTimeout(this.reconnectTimer);

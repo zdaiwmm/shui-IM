@@ -104,6 +104,9 @@ describe('controlled weak-network controller injection (simulated paths, no TURN
   for (const protocol of ['tcp', 'tls']) it(`retains surviving TURN ${protocol} when earlier transports fail`, async () => {
     const h = await attempt(true);
     vi.useFakeTimers();
+    (h.peer as any).onicecandidateerror?.({ errorCode: 701 });
+    if (protocol === 'tls') (h.peer as any).onicecandidateerror?.({ errorCode: 701 });
+    expect(h.controller.active).toBe(true);
     h.peer.getStats.mockResolvedValue(stats(100, 0, 0, protocol, 'relay'));
     h.peer.connect();
     await vi.advanceTimersByTimeAsync(10);
@@ -157,6 +160,32 @@ describe('controlled weak-network controller injection (simulated paths, no TURN
     await vi.advanceTimersByTimeAsync(96_000);
     expect(h.controller.state.quality).toBe('good');
     expect(getUserMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains established audio during a 15-second track interruption without restarting healthy ICE', async () => {
+    const h = await attempt(); vi.useFakeTimers(); h.peer.connect();
+    const localAudio = h.controller.state.localStream!.getAudioTracks()[0]!;
+    const remoteAudio = h.controller.state.remoteStream!.getAudioTracks()[0]!;
+    Object.defineProperty(remoteAudio, 'muted', { value: true, configurable: true });
+    remoteAudio.onmute?.(new Event('mute'));
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(h.controller.active).toBe(true); expect(localAudio.readyState).toBe('live');
+    expect(h.peer.createOffer).toHaveBeenCalledTimes(1);
+    Object.defineProperty(remoteAudio, 'muted', { value: false, configurable: true });
+    remoteAudio.onunmute?.(new Event('unmute'));
+    expect(h.controller.state.phase).toBe('connected');
+    await vi.advanceTimersByTimeAsync(60_000); expect(h.controller.active).toBe(true);
+  });
+
+  it('retains healthy media when refresh fails but forbids expired credentials in a new restart', async () => {
+    const h = await attempt(true); vi.useFakeTimers(); h.peer.connect();
+    const audio = h.controller.state.localStream!.getAudioTracks()[0]!;
+    (h.controller as any).configuration.expiresAt = Date.now() - 1;
+    h.getIceConfig.mockRejectedValue(new TypeError('unreachable'));
+    expect(await (h.controller as any).restartIce((h.controller as any).context)).toBe(false);
+    expect(h.peer.createOffer).toHaveBeenCalledTimes(1); expect(audio.readyState).toBe('live');
+    expect(h.controller.state.phase).toBe('connected');
+    expect(h.controller.diagnosticsSnapshot?.failureStage).toBe('config');
   });
 
   it('never automatically reopens a camera explicitly disabled during audio-only mode', async () => {
