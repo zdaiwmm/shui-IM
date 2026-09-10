@@ -57,6 +57,8 @@
 | 构建、发布、备份与运维 | `RELEASING.md`、`DEPLOYMENT.md`、`OPERATIONS.md`、`PRODUCTION_SECURITY_GATE.md` | `scripts/deploy-config.mjs`、`scripts/deploy-setup.mjs`、`scripts/repo.mjs`、`scripts/publish.mjs`、`scripts/release.mjs`、`scripts/production-readback.mjs`、`deploy/`、`.github/workflows/ci.yml` | `tests/deploy-*.test.ts`、`tests/release.test.ts`、`tests/publish.test.ts`、`tests/production-readback.test.ts`、`tests/backup.test.ts`、`tests/operations-*.test.ts` |
 | 发布后生产事实、上下文治理与交付效率 | `RELEASING.md`、`docs/context/maintenance.md`、[D-021](./decisions.md#d-021生产回读后对账知识库语义变化继续审阅)、[2026-09-05 交付复盘](../../audit/2026-09-05-mobile-ux-delivery-retrospective.md) | 发布与最小 SHA 回执为 `scripts/publish.mjs`、`scripts/release.mjs`；独立结构化回读为 `scripts/production-readback.mjs`；格式检查为 `scripts/check-docs.mjs`，自动文档 PR 对账尚待实现 | `tests/publish.test.ts`、`tests/release-entry.test.ts`、`tests/production-readback.test.ts`、`tests/ci-docs.test.ts`、`tests/ci-scope.test.ts` |
 
+新增交付工具：`scripts/prepare-release.mjs` 生成与应用版本计划；`scripts/delivery-evidence.mjs` 执行既有门禁并汇总脱敏证据。使用与固定批次规则见 [工作流](workflow.md#固定批次发布2026-09-10)，回归为 `tests/delivery-tools.test.ts`。
+
 ## 测试命令的准确含义
 
 聊天遮蔽位图实现见 `src/lib/concealed-image.ts`；高斯像素验证为

@@ -36,7 +36,9 @@
     "deploy:readback": "node scripts/production-readback.mjs",
     "test:calls": "vitest run tests/call-crypto.test.ts tests/call-membership.test.ts tests/call-controller.test.ts tests/call-server.test.ts tests/call-connection.test.ts tests/call-configuration.test.ts tests/call-signal-queue.test.ts tests/call-weak-network.test.ts tests/voice-network.test.ts && npm run test:calls:e2e",
     "test:calls:e2e": "node tests/call-native.e2e.mjs && node tests/call-view.e2e.mjs && node tests/call-weak-network.e2e.mjs",
-    "test:weak-network": "vitest run tests/call-weak-network.test.ts tests/call-configuration.test.ts tests/call-signal-queue.test.ts tests/voice-network.test.ts && node tests/call-weak-network.e2e.mjs"
+    "test:weak-network": "vitest run tests/call-weak-network.test.ts tests/call-configuration.test.ts tests/call-signal-queue.test.ts tests/voice-network.test.ts && node tests/call-weak-network.e2e.mjs",
+    "release:prepare": "node scripts/prepare-release.mjs",
+    "delivery:evidence": "node scripts/delivery-evidence.mjs"
   },
   "dependencies": {
     "@noble/ciphers": "2.1.1",
