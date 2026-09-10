@@ -865,6 +865,10 @@ export class CallController {
     this.invited.clear(); this.peerKeys.clear(); this.incomingOffer = null; this.incomingExpiresAt = 0;
     this.pendingLocalCandidates = []; this.pendingRemoteCandidates = [];
     this.mediaBusy = false; this.negotiating = false; this.restartRequested = false; this.localSignalsReady = false; this.initialDescriptionSent = false;
+    // Detach queued work from the finished call so a delayed recovery frame
+    // cannot block the first invite of the next call.
+    this.sendQueue = Promise.resolve();
+    this.receiveQueue = Promise.resolve();
     this.lastStats = null; this.poorSamples = 0; this.goodSamples = 0; this.qualityLevel = 0; this.reconnectAttempts = 0;
   }
   dismiss() {
