@@ -561,6 +561,7 @@ export class QuietRoomApp {
     let nativeViewportFrame: number | null = null;
     let trackingFrame: number | null = null;
     let trackingUntil = 0;
+    let trackingHardUntil = 0;
     let previousViewportHeight = 0;
     let previousLayoutHeight = 0;
     let previousViewportTop = -1;
@@ -754,19 +755,26 @@ export class QuietRoomApp {
       if (performance.now() >= trackingUntil) {
         this.chatBottomFollowPending = false;
         this.chatViewportFollowUntil = 0;
+        if (!this.chatViewportMotion?.moving || performance.now() >= trackingHardUntil) return;
+        // Viewport events start a fresh bounded sampling window when Safari
+        // cannot deliver every native toolbar frame. Do not keep a permanent
+        // animation loop alive while the page is idle. A moving keyboard
+        // state gets one longer, still bounded window so its existing hard
+        // fallback can settle instead of leaving the composer concealed.
       }
       // Safari can withhold viewport events during native toolbar movement.
-      // Keep this cheap geometry sample alive while chat/gallery is visible; unchanged
-      // samples return before reading messages or writing any styles.
+      // Keep this cheap geometry sample alive only during the bounded window;
+      // unchanged samples return before reading messages or writing any styles.
       if (trackingFrame === null) trackingFrame = requestAnimationFrame(sampleViewport);
     };
     this.trackChatViewport = (follow = false) => {
       const chat = this.activeSurface === 'chat' && this.chatLayoutElements?.shell.isConnected;
       const gallery = this.activeSurface === 'away' && this.galleryViewportHeader?.isConnected;
       if (this.privacyCovered || !chat && !gallery) return;
-      // Following browser focus scrolls is bounded. Position sampling itself
-      // continues until chat is left or privacy teardown cancels this frame.
+      // Following browser focus scrolls is bounded. A moving viewport may use
+      // the longer motion bound, while idle pages never keep this frame alive.
       trackingUntil = performance.now() + 900;
+      trackingHardUntil = performance.now() + 2_200;
       if (follow) this.chatViewportFollowUntil = trackingUntil;
       if (trackingFrame === null) trackingFrame = requestAnimationFrame(sampleViewport);
     };
@@ -792,6 +800,7 @@ export class QuietRoomApp {
       nativeViewportFrame = null;
       trackingFrame = null;
       trackingUntil = 0;
+      trackingHardUntil = 0;
       viewportWidthChanged = false;
       this.chatBottomFollowPending = false;
       this.chatViewportFollowUntil = 0;
