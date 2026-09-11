@@ -60,7 +60,8 @@ try {
   });
   const settled = () => page.waitForFunction(() => {
     const app = window.listFixture.app;
-    return !app.chatViewportMotion?.moving && !app.chatBottomControl?.scrolling
+    const composerPositioning = document.querySelector('#composer')?.dataset.viewportMotion === 'positioning';
+    return (!app.chatViewportMotion?.moving || (composerPositioning && !app.chatViewportMotion?.concealed)) && !app.chatBottomControl?.scrolling
       && !app.composerHeightMotion && !app.listKeyboardLayout.moving;
   }, undefined, { timeout: 60_000 }).catch(async error => {
     const state = await page.evaluate(() => {
