@@ -1634,6 +1634,36 @@ button:disabled {
   pointer-events: none;
 }
 .message-delivery, .message-pending { display: inline-flex; flex: none; align-items: center; color: inherit; }
+.message.outgoing .video-upload-tile {
+  --video-upload-ratio: 1.7778;
+  position: relative;
+  overflow: hidden;
+  width: min(288px, calc(min(42svh, 320px) * var(--video-upload-ratio)));
+  max-width: 100%;
+  aspect-ratio: 16 / 9;
+  min-height: 120px;
+  padding: 0;
+  background: var(--surface-raised, var(--surface));
+  color: var(--ink);
+  border-color: var(--line);
+  box-shadow: none;
+}
+.video-upload-tile > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.video-upload-icon { position: absolute; inset: 12px 12px auto auto; color: var(--ink-muted); }
+.video-upload-icon svg { width: 20px; height: 20px; fill: currentColor; }
+.video-upload-status {
+  position: absolute;
+  inset: auto 0 0;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  background: color-mix(in oklch, var(--surface) 92%, transparent);
+  font-size: .8125rem;
+}
+.video-upload-status progress { width: 100%; height: 5px; accent-color: var(--accent); }
+.video-upload-actions { display: flex; gap: 8px; }
+.video-upload-actions button { min-width: 64px; min-height: 44px; color: var(--accent); }
+.video-upload:not([data-upload-state='failed']) .video-upload-actions { display: none; }
 .message-delivery svg, .message-pending svg {
   width: 1.45em;
   height: 1.1em;

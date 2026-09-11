@@ -6,6 +6,7 @@ import path from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 import { startServer } from '../server/index.mjs';
+import { DatabaseSync } from 'node:sqlite';
 
 const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-unread-browser-'));
 const api = await startServer({ port: 0, host: '127.0.0.1', dataDir, quiet: true });
@@ -110,7 +111,7 @@ try {
     window.unreadFixture.app.lockNow();
     await window.unreadFixture.app.preferenceSaveChain;
   });
-  insert();
+  const lastIncoming = insert();
   requests.length = 0;
   await page.reload();
   await initializeApp();
@@ -118,6 +119,19 @@ try {
   assert.ok(requests.length > 0);
   assert.ok(requests.every(request => request.method === 'GET' && request.url.includes('/unread/') && request.authorization === `Bearer ${storedObserver.token}`));
   assert.equal(await page.evaluate(() => window.unreadFixture.app.session), null);
+  // Another device reads while this page stays locked; only the restricted GET is needed here.
+  const db = new DatabaseSync(path.join(dataDir, 'quiet-room.sqlite'));
+  const companionId = randomUUID();
+  try {
+    db.prepare(`INSERT INTO members(room_id, device_id, role, encryption_jwk, signing_jwk, access_hash, status, join_seq, created_at)
+      SELECT room_id, ?, role, encryption_jwk, signing_jwk, ?, 'active', 0, created_at FROM members WHERE room_id = ? AND device_id = ?`)
+      .run(companionId, Buffer.alloc(32, 18), room.roomId, own.deviceId);
+    api.store.saveUnreadObserver(room.roomId, companionId, { token: randomBytes(32).toString('base64url'), readSeq: lastIncoming.seq });
+    // Exercise the real periodic cover refresh, without manually calling refresh or unlocking.
+    await page.waitForFunction(() => document.querySelector('#app .cover-unread')?.textContent === '0', undefined, { timeout: 8000 });
+    assert.equal(await page.evaluate(() => window.unreadFixture.app.session), null);
+    assert.ok(requests.every(request => request.method === 'GET' && request.url.includes('/unread/') && request.authorization === `Bearer ${storedObserver.token}`));
+  } finally { db.close(); }
   assert.deepEqual(errors, []);
   console.log(JSON.stringify({ countWithGalleryReactionAndOwnActivity: 1, visibleChatMarkRead: 0, reloadedCoverCount: 1, reloadUsesCountTokenOnly: true }, null, 2));
 } finally {
