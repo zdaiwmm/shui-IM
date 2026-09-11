@@ -72,6 +72,9 @@ try {
   await page.locator('[name=keyword]').fill('');
   await page.getByRole('button', { name: '搜索', exact: true }).click();
   await page.waitForFunction(() => document.querySelectorAll('.source-cover').length === 24);
+  // Previews start through a bounded queue, so off-screen images may not have a src yet.
+  await page.waitForFunction(() => [...document.querySelectorAll('.source-cover')].every(image =>
+    image.hasAttribute('src') && image.complete || image.closest('.source-pack')?.querySelector('.preview-retry')), undefined, { timeout: 180000 });
   const covers = await page.locator('.source-cover').evaluateAll(async images => {
     return Promise.all(images.map(async image => {
       image.loading = 'eager';

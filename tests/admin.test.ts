@@ -28,23 +28,23 @@ describe('isolated session administration', () => {
     });
     const start = Date.now(); vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(start);
     const login = await send('login', 'POST', { password, code: totp(config.totpSecret) });
-    expect(login.status).toBe(200); expect(login.cookie).toContain('Max-Age=3600');
+    expect(login.status).toBe(200); expect(login.cookie).toContain('Max-Age=604800');
     const headers = { Cookie: login.cookie.split(';')[0]!, 'X-CSRF-Token': login.body.csrf };
     expect((await send('session', 'POST', undefined, { Cookie: headers.Cookie })).status).toBe(403);
     expect((await send('session', 'POST', undefined, { ...headers, Origin: 'https://ai.shui.click' })).status).toBe(403);
-    for (let minute = 50; minute <= 700; minute += 50) {
+    for (const minute of [2 * 24 * 60, 6 * 24 * 60, 7 * 24 * 60 - 1]) {
       vi.setSystemTime(start + minute * 60_000);
       const renewed = await send('session', 'POST', undefined, headers);
       expect(renewed.status).toBe(200);
-      expect(renewed.cookie).toContain(`Max-Age=${Math.min(60, 720 - minute) * 60}`);
+      expect(renewed.cookie).toContain(`Max-Age=${(7 * 24 * 60 - minute) * 60}`);
       expect(renewed.body.csrf).toBe(login.body.csrf);
     }
-    vi.setSystemTime(start + 720 * 60_000);
+    vi.setSystemTime(start + 7 * 24 * 60 * 60_000);
     const expired = await send('session', 'POST', undefined, headers);
     expect(expired.status).toBe(401); expect(expired.body.code).toBe('SESSION_EXPIRED'); expect(expired.cookie).toContain('Max-Age=0');
     const next = await send('login', 'POST', { password, code: totp(config.totpSecret) });
     const nextHeaders = { Cookie: next.cookie.split(';')[0]!, 'X-CSRF-Token': next.body.csrf };
-    vi.setSystemTime(start + 780 * 60_000);
+    vi.setSystemTime(start + 14 * 24 * 60 * 60_000);
     expect((await send('session', 'POST', undefined, nextHeaders)).status).toBe(401);
     const last = await send('login', 'POST', { password, code: totp(config.totpSecret) });
     const lastHeaders = { Cookie: last.cookie.split(';')[0]!, 'X-CSRF-Token': last.body.csrf };

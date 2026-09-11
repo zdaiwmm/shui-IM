@@ -185,6 +185,62 @@ try {
   await admin.getByRole('button', { name: '重试', exact: true }).click();
   await admin.getByRole('button', { name: roomId }).waitFor();
   const sourcePackId = 'a'.repeat(32);
+  // First task read is a user navigation, not an automatic renewal poll.
+  await admin.evaluate(() => { Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => false }); });
+  await admin.getByRole('button', { name: '表情采集', exact: true }).click();
+  await admin.getByRole('button', { name: '采集任务', exact: true }).click();
+  await admin.getByText('暂无进行中任务', { exact: true }).waitFor({ timeout: 3000 });
+  await admin.evaluate(() => { delete document.hasFocus; });
+
+  // Simulate stalled reads with a shortened native request deadline; each view must recover without reload.
+  await admin.evaluate(() => {
+    window.originalAdminTimeout = AbortSignal.timeout;
+    AbortSignal.timeout = ms => window.originalAdminTimeout.call(AbortSignal, ms === 20000 || ms === 15000 ? 200 : ms);
+  });
+  for (const kind of ['resources', 'search', 'jobs']) {
+    const pattern = kind === 'resources' ? '**/admin-api/expressions?*' : kind === 'search' ? '**/admin-api/expressions/source?*' : '**/admin-api/expressions/jobs';
+    await admin.route(pattern, async route => {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      await route.abort().catch(() => {});
+    });
+    if (kind === 'resources') await admin.getByRole('button', { name: '表情管理', exact: true }).click();
+    else {
+      await admin.getByRole('button', { name: '表情采集', exact: true }).click();
+      if (kind === 'jobs') await admin.getByRole('button', { name: '采集任务', exact: true }).click();
+      else await admin.getByRole('button', { name: '搜索', exact: true }).click();
+    }
+    await admin.getByText('读取超时，请重试', { exact: true }).waitFor({ timeout: 3000 });
+    await admin.unroute(pattern);
+    if (kind === 'search') await admin.route(pattern, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ packs: [], total: 0 }) }));
+    await admin.getByRole('button', { name: '重试', exact: true }).click();
+    await admin.getByText('读取超时，请重试', { exact: true }).waitFor({ state: 'detached' });
+    if (kind === 'resources') await admin.locator('#expression-list .empty-state').waitFor();
+    else if (kind === 'jobs') await admin.getByText('暂无进行中任务', { exact: true }).waitFor();
+    else { await admin.getByText('没有找到匹配的贴图包', { exact: true }).waitFor(); await admin.unroute(pattern); }
+  }
+  await admin.evaluate(() => { AbortSignal.timeout = window.originalAdminTimeout; delete window.originalAdminTimeout; });
+
+  let previewRequests = 0;
+  let releasePreviews;
+  const previewGate = new Promise(resolve => { releasePreviews = resolve; });
+  await admin.route('**/admin-api/expressions/source?*', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ total: 24, packs: Array.from({ length: 24 }, (_, i) => ({ id: String(i), title: `Slow preview ${i}`, cover: `/admin-api/expressions/source/${String(i).padStart(32, '0')}/media` })) }) }));
+  await admin.route('**/admin-api/expressions/source/*/media', async route => {
+    previewRequests++; await previewGate;
+    await route.fulfill({ status: 200, contentType: 'image/gif', body: animatedGif }).catch(() => {});
+  });
+  await admin.getByRole('button', { name: '表情采集', exact: true }).click();
+  await admin.getByRole('button', { name: '搜索', exact: true }).click();
+  await admin.getByText('Slow preview 23', { exact: true }).waitFor();
+  await admin.waitForTimeout(300);
+  assert.equal(previewRequests, 3, 'Slow previews leave connections available for navigation and API reads');
+  await admin.getByRole('button', { name: '表情管理', exact: true }).click();
+  await admin.locator('#expression-list .empty-state').waitFor();
+  releasePreviews();
+  await admin.waitForTimeout(100);
+  assert.equal(previewRequests, 3, 'Leaving a page discards its queued previews');
+  await admin.unroute('**/admin-api/expressions/source?*');
+  await admin.unroute('**/admin-api/expressions/source/*/media');
+
   let collectionPolls = 0; let collectionPayload;
   await admin.route('**/admin-api/expressions/source*', route => {
     if (route.request().url().endsWith('/media')) return route.fulfill({ status: 200, contentType: 'image/gif', body: animatedGif });
