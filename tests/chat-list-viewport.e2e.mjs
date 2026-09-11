@@ -58,12 +58,28 @@ try {
     app.renderMessages({ scroll: 'bottom' });
     window.listFixture = { app };
   });
-  // CI WebKit runners can need a longer settling window under load.
   const settled = () => page.waitForFunction(() => {
     const app = window.listFixture.app;
     return !app.chatViewportMotion?.moving && !app.chatBottomControl?.scrolling
       && !app.composerHeightMotion && !app.listKeyboardLayout.moving;
-  }, undefined, { timeout: 60_000 });
+  }).catch(async error => {
+    const state = await page.evaluate(() => {
+      const app = window.listFixture.app;
+      const viewport = window.visualViewport;
+      return {
+        motion: app.chatViewportMotion?.moving ?? false,
+        concealed: app.chatViewportMotion?.concealed ?? false,
+        keyboardMoving: app.chatViewportMotion?.keyboardMoving ?? false,
+        bottomScrolling: app.chatBottomControl?.scrolling ?? false,
+        composerHeightMotion: Boolean(app.composerHeightMotion),
+        listKeyboardMoving: app.listKeyboardLayout.moving,
+        viewport: { width: viewport?.width, height: viewport?.height, top: viewport?.offsetTop },
+        layoutHeight: document.documentElement.clientHeight,
+        composerMotion: document.querySelector('#composer')?.dataset.viewportMotion ?? null,
+      };
+    });
+    throw new Error(`${error.message}; state=${JSON.stringify(state)}`);
+  });
   const geometry = () => page.evaluate(() => {
     const app = window.listFixture.app;
     const { shell, header, composer, list } = app.chatLayoutElements;

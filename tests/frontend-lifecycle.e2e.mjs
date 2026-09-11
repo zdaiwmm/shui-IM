@@ -933,8 +933,17 @@ try {
     app.captureChatAnchor();
     app.orderedMessages = ordered; HTMLElement.prototype.getBoundingClientRect = getRect;
     if (boundsReads > 16) throw Error(`Scroll anchor read too many rows: ${boundsReads}`);
+    let reactionBoundsReads = 0;
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this.classList.contains('message')) reactionBoundsReads++;
+      return getRect.call(this);
+    };
+    app.renderMessages({ scroll: 'preserve' });
+    HTMLElement.prototype.getBoundingClientRect = getRect;
+    if (reactionBoundsReads > 128) throw Error(`Reaction reflow measured too much history: ${reactionBoundsReads}`);
     app.lockNow();
-    return { rows: 5001, unchangedNodesRemoved: removed, newNodesAdded: added, anchorBoundsReads: boundsReads, focusPreserved: true, initialMs: Math.round(initialMs), appendMs: Math.round(updateMs) };
+    return { rows: 5001, unchangedNodesRemoved: removed, newNodesAdded: added, anchorBoundsReads: boundsReads,
+      reactionBoundsReads, focusPreserved: true, initialMs: Math.round(initialMs), appendMs: Math.round(updateMs) };
   });
 
   results.scrollWork = await page.evaluate(async () => {
@@ -1170,29 +1179,39 @@ try {
     app.messages.set(1, message(1)); app.renderMessages({ scroll: 'bottom' });
     const viewport = visualViewport;
     const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 2300));
     try {
-      // No interaction or browser event starts this late native-toolbar frame.
+      // An idle chat must not retain a permanent animation-frame sampler.
       Object.defineProperty(viewport, 'height', { configurable: true, value: 780 });
+      const idleBefore = document.querySelector('#composer').getBoundingClientRect().bottom;
+      await new Promise(resolve => setTimeout(resolve, 80));
+      const idleAfter = document.querySelector('#composer').getBoundingClientRect().bottom;
+      if (idleAfter !== idleBefore) throw Error('Idle viewport sampling continued without a native viewport event');
+
+      // A real viewport event starts a fresh bounded window and preserves the
+      // keyboard/toolbar positioning behavior.
+      viewport.dispatchEvent(new Event('resize'));
       await frame();
       const composer = document.querySelector('#composer');
       const bottom = composer.getBoundingClientRect().bottom;
       const concealShift = new DOMMatrix(getComputedStyle(composer).transform).f;
       if (Math.abs(bottom - concealShift - 780) > 1 || composer.dataset.viewportMotion !== 'positioning') {
-        throw Error(`Input stopped sampling or concealing at toolbar geometry after the previous interaction: ${bottom}`);
+        throw Error(`Viewport resize did not restart bounded sampling or conceal at toolbar geometry: ${bottom}`);
       }
       // The media viewer leaves and returns to the existing chat without a
-      // layout mount or changed viewport; dismissal must restart sampling.
+      // layout mount or changed viewport; an explicit viewport event still
+      // restarts the same bounded sampler.
       app.setActiveSurface('away');
       app.setActiveSurface('chat');
       Object.defineProperty(viewport, 'height', { configurable: true, value: 808 });
+      viewport.dispatchEvent(new Event('resize'));
       await frame();
       const resumedBottom = document.querySelector('#composer').getBoundingClientRect().bottom;
       const resumedShift = new DOMMatrix(getComputedStyle(composer).transform).f;
       if (Math.abs(resumedBottom - resumedShift - 808) > 1 || composer.dataset.viewportMotion !== 'positioning') {
-        throw Error(`Returning to unchanged chat geometry failed to restart concealed sampling: ${resumedBottom}`);
+        throw Error(`Returning to unchanged chat geometry failed to restart sampling after viewport event: ${resumedBottom}`);
       }
-      return { sameGeometryReturn: 'sampling resumed', eventlessChangeAfterIdle: 'followed in one frame' };
+      return { idleSampler: 'stopped', resizeEvent: 'sampling resumed', sameGeometryReturn: 'preserved' };
     } finally {
       delete viewport.height; viewport.dispatchEvent(new Event('resize')); await frame();
     }
