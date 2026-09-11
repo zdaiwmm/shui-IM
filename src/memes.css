@@ -7,7 +7,7 @@
 .meme-panel button { font: inherit; cursor: pointer; color: inherit; }
 .meme-panel button:disabled { cursor: default; }
 .meme-panel svg, .meme-toggle svg, .meme-preview svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
-.meme-pack-shortcuts { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.meme-pack-shortcuts { display: flex; align-items: center; gap: 4px; min-width: 0; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
 .meme-pack-shortcuts { touch-action: pan-x; }
 .meme-pack-shortcuts button[data-shortcut^="pack:"] { touch-action: none; }
 .meme-pack-shortcuts[data-reordering="true"] { touch-action: none; }

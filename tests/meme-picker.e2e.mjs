@@ -23,7 +23,10 @@ let browser, page;
 try {
   await server.listen();
   browser = process.env.MEME_WEBKIT === '1' ? await webkit.launch() : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  page = await browser.newPage({
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+    viewport: { width: 390, height: 844 }, hasTouch: true,
+  });
   if (process.env.MEME_CPU_RATE) {
     const rate = Number(process.env.MEME_CPU_RATE);
     if (!Number.isFinite(rate) || rate < 1 || rate > 8) throw new Error('Invalid MEME_CPU_RATE');
@@ -91,7 +94,7 @@ try {
     };
     app.renderChat();
     document.querySelector('#message-input').value = '保留这份草稿';
-    const realFetch = window.fetch.bind(window); const requests = [];
+    const realFetch = window.fetch.bind(window); const requests = []; const mediaRequests = [];
     const formerPack = { id: 'synthetic-pack', title: 'Synthetic pack' };
     const networkGif = new File([new Uint8Array(animation)], 'catalog-animation.webp', { type: 'image/webp' });
     window.fetch = async (input, init) => {
@@ -104,11 +107,11 @@ try {
         return Response.json({items:files.slice(0,6).map((file,index)=>({id:`11111111-0000-4000-8000-${String(index+body.page*10).padStart(12,'0')}`,title:file.name})),nextPage:body.page===1?2:null});
       }
       if (url.pathname.endsWith('/memes/pack')) return Response.json({id:'a'.repeat(32),title:'测试合集',items:files.slice(0,3).map((file,index)=>({id:`00000000-0000-4000-8000-${String(index).padStart(12,'0')}`,title:file.name}))});
-      if (url.pathname.endsWith('/memes/media')) { const id=JSON.parse(init.body).id; const file=id.startsWith('11111111')?networkGif:files[Number(id.slice(-2))%files.length]; return new Response(file,{headers:{'Content-Type':file.type}}); }
+      if (url.pathname.endsWith('/memes/media')) { const id=JSON.parse(init.body).id; mediaRequests.push(id); const file=id.startsWith('11111111')?networkGif:files[Number(id.slice(-2))%files.length]; return new Response(file,{headers:{'Content-Type':file.type}}); }
       if (url.pathname.startsWith('/stickers/') || url.pathname.startsWith('/gifs/')) throw new Error('Bundled media requested');
       return realFetch(input,init);
     };
-    window.fixture = { app, vault, session, controller, files, sent, msg, requests, networkGif };
+    window.fixture = { app, vault, session, controller, files, sent, msg, requests, mediaRequests, networkGif };
   }, [...animatedWebp]);
   await page.locator('#open-memes').click();
   await page.waitForFunction(() => document.querySelectorAll('.meme-tile img[src]').length >= 3);
@@ -117,6 +120,24 @@ try {
   assert.equal(await page.locator('.chat-shell').evaluate(el=>el.inert),false);
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===12);
   assert.equal(await page.evaluate(()=>window.fixture.requests.length),2);
+  // iOS Safari can publish one visible window blur while the keyboard is
+  // dismissed by the expression toggle. That app-local transition must not
+  // expose the curtain or lock the just-opened panel.
+  await page.locator('#open-memes').click();
+  await page.locator('#meme-panel').waitFor({ state: 'detached' });
+  await page.locator('#message-input').focus();
+  await page.evaluate(() => {
+    document.querySelector('#open-memes').addEventListener('pointerdown', () => {
+      window.dispatchEvent(new Event('blur'));
+    }, { once: true });
+  });
+  await page.locator('#open-memes').click();
+  await page.locator('#meme-panel').waitFor();
+  assert.deepEqual(await page.evaluate(() => ({
+    covered: window.fixture.app.privacyCovered,
+    obscured: document.documentElement.classList.contains('privacy-obscured'),
+  })), { covered: false, obscured: false }, 'Opening the expression panel treated its keyboard handoff as a departure');
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   assert.equal((await page.locator('.meme-recent-section h3').textContent()).trim(), '最近发布');
   assert.equal(await page.locator('.meme-recent-grid .meme-tile').count(), 10, 'Recent releases must contain exactly ten published expressions');
   assert.equal(await page.locator('.meme-browse-grid .meme-tile').count(), 2, 'Catalog continuation duplicated or dropped recent expressions');
@@ -145,7 +166,15 @@ try {
   await page.waitForFunction(()=>window.fixture.sent.length===1);
   await page.locator('#meme-panel').waitFor({ state: 'detached' });
   assert.equal(await page.locator('#meme-panel').count(),0);
-  await page.locator('#open-memes').click(); await page.getByRole('button',{name:'收藏',exact:true}).click();
+  await page.waitForFunction(() => window.fixture.mediaRequests.length >= 3);
+  const cachedSearchRequests = await page.evaluate(() => window.fixture.requests.length);
+  const cachedMediaRequests = await page.evaluate(() => window.fixture.mediaRequests.length);
+  await page.locator('#open-memes').click();
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===12);
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-tile img[src]').length>=3);
+  assert.equal(await page.evaluate(() => window.fixture.requests.length), cachedSearchRequests, 'Reopening the picker refetched the catalog');
+  assert.equal(await page.evaluate(() => window.fixture.mediaRequests.length), cachedMediaRequests, 'Reopening the picker refetched visible media');
+  await page.getByRole('button',{name:'收藏',exact:true}).click();
   await page.locator('.meme-tile').first().dispatchEvent('contextmenu');
   await page.locator('.meme-preview img').waitFor();
   assert.equal(await page.evaluate(()=>window.fixture.sent.length),1,'Long press sent an image');
@@ -255,20 +284,41 @@ try {
     return bar.scrollWidth - bar.clientWidth;
   });
   assert.ok(shortcutOverflow > 0, `Sticker shortcuts did not overflow horizontally: ${shortcutOverflow}`);
-  await page.mouse.move(shortcutBounds.x + shortcutBounds.width * 0.72, shortcutBounds.y + shortcutBounds.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(shortcutBounds.x + 8, shortcutBounds.y + shortcutBounds.height / 2, { steps: 8 });
-  await page.mouse.up();
+  const sampleShortcutScroll = async () => page.locator('.meme-pack-shortcuts').evaluate(async bar => {
+    const values = [];
+    const deadline = performance.now() + 420;
+    while (performance.now() < deadline) {
+      values.push(bar.scrollLeft);
+      await new Promise(requestAnimationFrame);
+    }
+    return { values, max: bar.scrollWidth - bar.clientWidth };
+  });
+  const dispatchShortcutDrag = async (startX, endX, pointerId) => page.locator('.meme-pack-shortcuts').evaluate((bar, details) => {
+    const button = bar.querySelector('button[data-shortcut^="pack:"]');
+    if (!button) throw new Error('No sticker shortcut available for gesture test');
+    const bounds = bar.getBoundingClientRect();
+    const init = { bubbles: true, button: 0, pointerId: details.pointerId, isPrimary: true, pointerType: 'touch', clientY: bounds.top + bounds.height / 2 };
+    button.dispatchEvent(new PointerEvent('pointerdown', { ...init, clientX: details.startX }));
+    for (let step = 1; step <= 8; step++) {
+      window.dispatchEvent(new PointerEvent('pointermove', { ...init, clientX: details.startX + (details.endX - details.startX) * step / 8 }));
+    }
+    window.dispatchEvent(new PointerEvent('pointerup', { ...init, clientX: details.endX }));
+  }, { startX, endX, pointerId });
+  await page.locator('.meme-pack-shortcuts').evaluate(bar => { bar.scrollLeft = 0; });
+  await dispatchShortcutDrag(shortcutBounds.x + shortcutBounds.width * 0.72, shortcutBounds.x + 8, 101);
   await page.waitForTimeout(120);
   const shortcutAfterDrag = await page.locator('.meme-pack-shortcuts').evaluate(bar => ({ scrollLeft: bar.scrollLeft, max: bar.scrollWidth - bar.clientWidth }));
   assert.ok(shortcutAfterDrag.scrollLeft > 0, `Sticker shortcuts did not follow the drag: ${JSON.stringify(shortcutAfterDrag)}`);
-  await page.mouse.move(shortcutBounds.x + 8, shortcutBounds.y + shortcutBounds.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(shortcutBounds.x + shortcutBounds.width + 100, shortcutBounds.y + shortcutBounds.height / 2, { steps: 8 });
-  await page.mouse.up();
-  await page.waitForTimeout(500);
+  await dispatchShortcutDrag(shortcutBounds.x + 8, shortcutBounds.x + shortcutBounds.width + 100, 102);
+  const shortcutLeftSettling = await sampleShortcutScroll();
   const shortcutSettled = await page.locator('.meme-pack-shortcuts').evaluate(bar => ({ scrollLeft: bar.scrollLeft, max: bar.scrollWidth - bar.clientWidth }));
   assert.ok(Math.abs(shortcutSettled.scrollLeft) <= 1, `Sticker shortcut edge did not rebound to the start: ${JSON.stringify(shortcutSettled)}`);
+  assert.ok(Math.max(...shortcutLeftSettling.values) <= 1, `Sticker shortcut moved away from the left edge while settling: ${JSON.stringify(shortcutLeftSettling)}`);
+  await page.locator('.meme-pack-shortcuts').evaluate(bar => { bar.scrollLeft = bar.scrollWidth - bar.clientWidth; });
+  await dispatchShortcutDrag(shortcutBounds.x + shortcutBounds.width - 8, shortcutBounds.x - 100, 103);
+  const shortcutRightSettling = await sampleShortcutScroll();
+  assert.ok(Math.min(...shortcutRightSettling.values) >= shortcutRightSettling.max - 1,
+    `Sticker shortcut moved back from the right edge while settling: ${JSON.stringify(shortcutRightSettling)}`);
   await page.locator('.meme-pack-shortcuts [data-synthetic-shortcut="true"]').evaluateAll(nodes => nodes.forEach(node => node.remove()));
   await page.locator('.meme-pack-shortcuts button[title="测试合集"]').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);

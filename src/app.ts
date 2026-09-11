@@ -3,7 +3,7 @@ import QRCode from 'qrcode';
 import { PresenceCircuit, presenceCircuitMarkup } from './lib/presence-circuit';
 import './presence-circuit.css';
 import { closeDialog, mountDialog } from './lib/dialog';
-import { MemePicker, memeIcons } from './lib/meme-picker';
+import { createMemePickerCache, MemePicker, memeIcons } from './lib/meme-picker';
 import { isExpressionPayload } from './lib/expression-media';
 import { loadStickerPacks, installStickerPack, removeStickerPack, reorderStickerPacks } from './lib/vault';
 import './memes.css';
@@ -195,6 +195,9 @@ const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3'
 // a direct textarea tap. Keep this exception short, one-use and independent
 // from chooser/media handoffs so every hard lifecycle signal still locks.
 const KEYBOARD_NATIVE_HANDOFF_MS = 1_200;
+// Tapping the expression toggle may dismiss the iOS keyboard through a short
+// visible window blur before the panel's click handler runs.
+const MEME_PANEL_HANDOFF_MS = 700;
 const CHAT_COMPOSER_MOTION_MS = 280;
 const CHAT_KEYBOARD_DISMISS_MS = 420;
 const CHAT_COMPOSER_VIEWPORT_SETTLE_MS = 500;
@@ -327,6 +330,7 @@ export class QuietRoomApp {
   private receiptQueue = new Map<number, ServerReceipt>();
   private uploadPlans: ImageUploadPlan[] = [];
   private imageCache = new Map<string, CachedImage>();
+  private memeCache = createMemePickerCache();
   private memePicker: MemePicker | null = null;
   private imageLoadPromises = new Map<string, Promise<CachedImage>>();
   private imageLoadStatus = new Map<string, { stage: 'queued' | 'download' | 'decrypt' | 'decode'; ratio?: number }>();
@@ -446,6 +450,15 @@ export class QuietRoomApp {
     baselineViewportHeight: number;
     baselineLayoutHeight: number;
     openingEvidence: boolean;
+    timer: number;
+  } | null = null;
+  private memePanelHandoff: {
+    deadline: number;
+    wallDeadline: number;
+    blurred: boolean;
+    runtimeEpoch: number;
+    session: VaultSession;
+    button: HTMLButtonElement;
     timer: number;
   } | null = null;
   private deviceVerificationToken: symbol | null = null;
@@ -917,6 +930,7 @@ export class QuietRoomApp {
       if (document.hidden) {
         this.coverEntryEpoch += 1;
         this.clearKeyboardHandoff();
+        this.clearMemePanelHandoff();
         this.abandonImagePicker();
       }
       if (document.hidden) this.obscurePrivacySurface();
@@ -932,6 +946,7 @@ export class QuietRoomApp {
       // A foreground chooser or permission sheet can take window focus while
       // the document remains visible. Only the operation that we just opened
       // owns this bounded departure; hidden/pagehide/freeze still lock below.
+      if (this.consumeMemePanelHandoffBlur()) return;
       if (this.consumeKeyboardHandoffBlur()) return;
       if (this.consumeNativeHandoffBlur()) return;
       this.coverEntryEpoch += 1;
@@ -962,6 +977,19 @@ export class QuietRoomApp {
       if (this.expireDeviceVerification()) {
         refreshUnread();
         return;
+      }
+      const memePanelHandoff = this.memePanelHandoff;
+      if (memePanelHandoff) {
+        if (this.expireMemePanelHandoff(memePanelHandoff)) {
+          refreshUnread();
+          return;
+        }
+        if (!this.memePanelHandoffValid(memePanelHandoff)) {
+          if (this.invalidateMemePanelHandoff(memePanelHandoff)) {
+            refreshUnread();
+            return;
+          }
+        } else this.clearMemePanelHandoff();
       }
       const keyboardHandoff = this.keyboardHandoff;
       if (keyboardHandoff) {
@@ -1006,12 +1034,13 @@ export class QuietRoomApp {
       }
       refreshUnread();
     }, { capture: true });
-    document.addEventListener('freeze', () => { this.abandonImagePicker(); this.lockNow(); }, { capture: true });
+    document.addEventListener('freeze', () => { this.clearMemePanelHandoff(); this.abandonImagePicker(); this.lockNow(); }, { capture: true });
     window.addEventListener('pageshow', event => {
       if (event.persisted) this.lockNow();
       refreshUnread();
     }, { capture: true });
     window.addEventListener('pagehide', () => {
+      this.clearMemePanelHandoff();
       this.abandonImagePicker();
       this.lockNow({ preserveFilePicker: false });
     }, { capture: true });
@@ -1033,6 +1062,7 @@ export class QuietRoomApp {
   }
 
   private obscurePrivacySurface(): void {
+    this.clearMemePanelHandoff();
     this.closeMemePicker();
     document.documentElement.classList.add('privacy-obscured');
     this.concealChatImages();
@@ -1618,6 +1648,85 @@ export class QuietRoomApp {
     return Boolean(this.nativeHandoff) || this.imagePickerActive || this.filePickerActive
       || this.fileExportActive || this.microphonePromptActive || this.callPermissionActive
       || this.systemSurfaceTokens.size > 0;
+  }
+
+  private beginMemePanelHandoff(button: HTMLButtonElement, event: PointerEvent): boolean {
+    const previous = this.memePanelHandoff;
+    if (previous) {
+      if (previous.blurred) {
+        this.invalidateMemePanelHandoff(previous);
+        return false;
+      }
+      this.clearMemePanelHandoff();
+    }
+    if (!event.isTrusted || event.button !== 0 || !event.isPrimary || this.desktopBrowser
+      || this.privacyCovered || !this.session || this.activeSurface !== 'chat'
+      || document.hidden || !document.hasFocus() || !button.isConnected || button.disabled
+      || this.nativeSurfaceActive() || this.expireIdleSession()) return false;
+    if (this.blurLockTimer !== null) window.clearTimeout(this.blurLockTimer);
+    this.blurLockTimer = null;
+    const handoff = {
+      deadline: performance.now() + MEME_PANEL_HANDOFF_MS,
+      wallDeadline: Date.now() + MEME_PANEL_HANDOFF_MS,
+      blurred: false,
+      runtimeEpoch: this.runtimeEpoch,
+      session: this.session,
+      button,
+      timer: 0,
+    };
+    handoff.timer = window.setTimeout(() => { this.expireMemePanelHandoff(handoff); }, MEME_PANEL_HANDOFF_MS);
+    this.memePanelHandoff = handoff;
+    return true;
+  }
+
+  private memePanelHandoffValid(handoff: NonNullable<QuietRoomApp['memePanelHandoff']>): boolean {
+    return this.memePanelHandoff === handoff && handoff.runtimeEpoch === this.runtimeEpoch
+      && handoff.session === this.session && !this.privacyCovered && this.activeSurface === 'chat'
+      && !document.hidden && handoff.button.isConnected && !handoff.button.disabled && !this.nativeSurfaceActive();
+  }
+
+  private memePanelHandoffExpired(handoff: NonNullable<QuietRoomApp['memePanelHandoff']>): boolean {
+    return performance.now() >= handoff.deadline || Date.now() >= handoff.wallDeadline;
+  }
+
+  private expireMemePanelHandoff(handoff: NonNullable<QuietRoomApp['memePanelHandoff']>): boolean {
+    if (this.memePanelHandoff !== handoff || !this.memePanelHandoffExpired(handoff)) return false;
+    this.invalidateMemePanelHandoff(handoff);
+    return true;
+  }
+
+  private invalidateMemePanelHandoff(handoff = this.memePanelHandoff): boolean {
+    if (!handoff || this.memePanelHandoff !== handoff) return false;
+    const consumed = handoff.blurred;
+    this.clearMemePanelHandoff();
+    if (consumed && !this.privacyCovered && this.session) {
+      this.obscurePrivacySurface();
+      this.lockNow({ preserveFilePicker: false });
+    }
+    return consumed;
+  }
+
+  private consumeMemePanelHandoffBlur(): boolean {
+    const handoff = this.memePanelHandoff;
+    if (!handoff) return false;
+    if (!this.memePanelHandoffValid(handoff) || document.hidden) {
+      return this.invalidateMemePanelHandoff(handoff);
+    }
+    if (this.memePanelHandoffExpired(handoff)) {
+      const consumed = handoff.blurred;
+      this.expireMemePanelHandoff(handoff);
+      return consumed;
+    }
+    if (handoff.blurred || this.expireIdleSession()) return false;
+    handoff.blurred = true;
+    return true;
+  }
+
+  private clearMemePanelHandoff(): void {
+    const handoff = this.memePanelHandoff;
+    if (!handoff) return;
+    window.clearTimeout(handoff.timer);
+    this.memePanelHandoff = null;
   }
 
   private beginKeyboardHandoff(input: HTMLTextAreaElement | HTMLInputElement, event: PointerEvent): boolean {
@@ -3473,8 +3582,9 @@ export class QuietRoomApp {
   }
 
   private closeMemePicker(keyboard = false, animate = false): void {
-    if (this.keyboardHandoff?.input.id === 'meme-query' && this.invalidateKeyboardHandoff()) return;
     const picker = this.memePicker;
+    if (picker) this.clearMemePanelHandoff();
+    if (this.keyboardHandoff?.input.id === 'meme-query' && this.invalidateKeyboardHandoff()) return;
     if (animate && picker && !this.privacyCovered) {
       if (keyboard) this.root.querySelector<HTMLTextAreaElement>('#message-input')?.focus({ preventScroll: true });
       picker.close(() => this.closeMemePicker(keyboard));
@@ -3516,6 +3626,7 @@ export class QuietRoomApp {
     };
     this.memePicker = new MemePicker({
       host, root: this.root, signal: this.runtimeAbort.signal, isActive,
+      cache: this.memeCache,
       list: () => loadMemeFavorites(session),
       file: (item, signal) => loadMemeFavoriteFile(session, item, signal),
       save: (file, signal) => saveMemeFavorite(session, file, signal),
@@ -3700,7 +3811,10 @@ export class QuietRoomApp {
     `;
     this.mountChatLayout();
     this.root.querySelector('#open-memes')?.addEventListener('pointerdown', event => {
-      if (!this.memePicker) return;
+      if (!this.memePicker) {
+        this.beginMemePanelHandoff(event.currentTarget as HTMLButtonElement, event as PointerEvent);
+        return;
+      }
       const input = this.root.querySelector<HTMLTextAreaElement>('#message-input');
       if (input) this.beginKeyboardHandoff(input, event as PointerEvent);
     });
@@ -9946,6 +10060,13 @@ export class QuietRoomApp {
     this.root.querySelector('#fatal-lock')?.addEventListener('click', () => this.lockNow());
   }
 
+  private clearMemeCache(): void {
+    this.memeCache.media.clear();
+    this.memeCache.mediaBytes = 0;
+    this.memeCache.searches.clear();
+    this.memeCache.packs.clear();
+  }
+
   private fileSize(bytes: number): string {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KiB`;
@@ -9953,6 +10074,8 @@ export class QuietRoomApp {
   }
 
   private lockNow({ preserveFilePicker = false }: { preserveFilePicker?: boolean } = {}): void {
+    this.clearMemePanelHandoff();
+    this.clearMemeCache();
     this.clearKeyboardHandoff();
     this.clearNativeHandoff();
     // A cover can still own a key: explicit lock must discard it even when no UI is open.
@@ -9976,6 +10099,8 @@ export class QuietRoomApp {
 
   private cleanupRuntime(preserveFilePicker = false): void {
     this.closeMemePicker();
+    this.clearMemePanelHandoff();
+    this.clearMemeCache();
     this.gatewayFocusAbort?.abort();
     this.gatewayFocusAbort = null;
     this.gatewayUnlockAbort?.abort();
