@@ -930,8 +930,17 @@ try {
     app.captureChatAnchor();
     app.orderedMessages = ordered; HTMLElement.prototype.getBoundingClientRect = getRect;
     if (boundsReads > 16) throw Error(`Scroll anchor read too many rows: ${boundsReads}`);
+    let reactionBoundsReads = 0;
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this.classList.contains('message')) reactionBoundsReads++;
+      return getRect.call(this);
+    };
+    app.renderMessages({ scroll: 'preserve' });
+    HTMLElement.prototype.getBoundingClientRect = getRect;
+    if (reactionBoundsReads > 128) throw Error(`Reaction reflow measured too much history: ${reactionBoundsReads}`);
     app.lockNow();
-    return { rows: 5001, unchangedNodesRemoved: removed, newNodesAdded: added, anchorBoundsReads: boundsReads, focusPreserved: true, initialMs: Math.round(initialMs), appendMs: Math.round(updateMs) };
+    return { rows: 5001, unchangedNodesRemoved: removed, newNodesAdded: added, anchorBoundsReads: boundsReads,
+      reactionBoundsReads, focusPreserved: true, initialMs: Math.round(initialMs), appendMs: Math.round(updateMs) };
   });
 
   results.scrollWork = await page.evaluate(async () => {

@@ -1,7 +1,15 @@
 import { archiveAad, backupDigest, newRecoveryCode, openJson, openRecovery, parseCloudRecoveryCode, randomBackupSecret, recoveryFetchToken, sealJson, sealRecovery } from './backup-crypto';
+import { toBase64Url } from './base64';
 import type { CloudRecoveryBundle, LocalBackupState, SealedBackup } from './backup-types';
+import { canonicalStringify } from './canonical';
 import { importArchivedMessages, installCloudRecovery, readStoredVault, loadHistoryPageAfter, saveVault, withVaultMutation, type VaultSession } from './vault';
 import type { DecryptedMessage, Vault } from './types';
+
+const encoder = new TextEncoder();
+const AUTOMATIC_BACKUP_REVALIDATION_MS = 5 * 60_000;
+type BackupFingerprint = { value: string; material: string };
+type BackupObservation = { fingerprint: string; observedAt: number };
+const automaticBackupObservations = new WeakMap<VaultSession, BackupObservation>();
 
 async function request<T>(url: string, token: string, signal: AbortSignal, body?: unknown): Promise<T> {
   signal.throwIfAborted();
@@ -51,6 +59,65 @@ function checkpoint(vault: Vault): Vault {
   return value;
 }
 
+function backupFingerprintMaterial(session: VaultSession, state: LocalBackupState): string {
+  return canonicalStringify({
+    checkpoint: checkpoint(session.vault),
+    backup: {
+      id: state.id,
+      cursor: state.cursor,
+      archives: state.archives.map(archive => ({
+        id: archive.id,
+        key: archive.key,
+        token: archive.token,
+        partCount: archive.parts.length,
+        lastPart: archive.parts.at(-1) ?? null,
+      })),
+    },
+  });
+}
+
+async function backupFingerprint(session: VaultSession, state: LocalBackupState): Promise<BackupFingerprint> {
+  const material = backupFingerprintMaterial(session, state);
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(material));
+  return { value: toBase64Url(new Uint8Array(digest)), material };
+}
+
+function isCleanlySynced(session: VaultSession): boolean {
+  const state = session.vault.backup;
+  return Boolean(state?.syncedAt && !state.pending && !state.pendingPart && !state.replaces
+    && !state.newCodePending && !session.vault.recoverySource && state.cursor >= session.vault.lastSeq);
+}
+
+async function shouldSkipAutomaticBackup(session: VaultSession): Promise<boolean> {
+  if (!isCleanlySynced(session)) return false;
+  const observation = automaticBackupObservations.get(session);
+  if (!observation) return false;
+  const age = Date.now() - observation.observedAt;
+  if (age < 0 || age >= AUTOMATIC_BACKUP_REVALIDATION_MS) return false;
+  const state = session.vault.backup!;
+  const fingerprint = await backupFingerprint(session, state);
+  // A message or membership update can arrive while the digest is pending.
+  // Never skip if the state changed during that asynchronous check.
+  if (session.vault.backup !== state || !isCleanlySynced(session)
+    || backupFingerprintMaterial(session, state) !== fingerprint.material) return false;
+  return observation.fingerprint === fingerprint.value;
+}
+
+async function rememberAutomaticBackup(session: VaultSession): Promise<void> {
+  if (!isCleanlySynced(session)) {
+    automaticBackupObservations.delete(session);
+    return;
+  }
+  const state = session.vault.backup!;
+  const fingerprint = await backupFingerprint(session, state);
+  if (session.vault.backup !== state || !isCleanlySynced(session)
+    || backupFingerprintMaterial(session, state) !== fingerprint.material) {
+    automaticBackupObservations.delete(session);
+    return;
+  }
+  automaticBackupObservations.set(session, { fingerprint: fingerprint.value, observedAt: Date.now() });
+}
+
 async function stageEnvelope(session: VaultSession, signal: AbortSignal): Promise<void> {
   await update(session, signal, async state => {
     if (state.pending) return;
@@ -88,8 +155,15 @@ async function sendEnvelope(session: VaultSession, signal: AbortSignal): Promise
 }
 
 /** Foreground only. Pending ciphertext is durable before any network upload. */
-export async function syncCloudBackup(session: VaultSession, signal: AbortSignal): Promise<void> {
+export type CloudBackupSyncOptions = { force?: boolean };
+
+export async function syncCloudBackup(session: VaultSession, signal: AbortSignal, { force = true }: CloudBackupSyncOptions = {}): Promise<void> {
   if (session.vault.protocol !== 'mls-rfc9420' || session.stored.unlockMethod !== 'platform' || session.vault.pairingState === 'recovering') return;
+  signal.throwIfAborted();
+  if (!force && await shouldSkipAutomaticBackup(session)) {
+    signal.throwIfAborted();
+    return;
+  }
   await stageEnvelope(session, signal);
   await sendEnvelope(session, signal);
   // Bound each foreground pass; the next pass continues from the durable cursor.
@@ -123,6 +197,7 @@ export async function syncCloudBackup(session: VaultSession, signal: AbortSignal
     await stageEnvelope(session, signal);
     await sendEnvelope(session, signal);
   }
+  await rememberAutomaticBackup(session);
 }
 
 export async function fetchRecoveryBundle(code: string, signal: AbortSignal): Promise<CloudRecoveryBundle> {

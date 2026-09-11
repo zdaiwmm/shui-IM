@@ -7052,7 +7052,21 @@ export class QuietRoomApp {
       // earlier FLIP. Rows themselves do not carry that transform—their
       // visible children do—so row bounds would make a rapid second reaction
       // snap back before starting its new animation.
-      for (const row of list.children) {
+      // Message rows are monotonic in document order, so avoid measuring the
+      // entire loaded history when only the viewport can be animated.
+      const captureTop = this.chatViewportTop - 64;
+      const captureBottom = this.chatViewportTop + this.chatViewportHeight + 64;
+      let first = 0;
+      let high = list.children.length;
+      while (first < high) {
+        const middle = Math.floor((first + high) / 2);
+        const row = list.children[middle] as HTMLElement;
+        if (row.getBoundingClientRect().bottom < captureTop) first = middle + 1;
+        else high = middle;
+      }
+      for (let index = first; index < list.children.length; index += 1) {
+        const row = list.children[index] as HTMLElement;
+        if (row.getBoundingClientRect().top > captureBottom) break;
         const contents = row.classList.contains('message-date') ? [row] : [...row.children];
         for (const content of contents) {
           if (content instanceof HTMLElement && !content.classList.contains('message-reply-swipe-indicator')) {
@@ -7291,9 +7305,9 @@ export class QuietRoomApp {
     this.cancelChatMessageMotion();
     for (const [content, previousTop] of origins) {
       if (!content.isConnected) continue;
-      const distance = previousTop - content.getBoundingClientRect().top;
-      if (Math.abs(distance) < 0.5) continue;
       const rect = content.getBoundingClientRect();
+      const distance = previousTop - rect.top;
+      if (Math.abs(distance) < 0.5) continue;
       if (rect.bottom < this.chatViewportTop - 32 || rect.top > this.chatViewportTop + this.chatViewportHeight + 32) continue;
       const animation = content.animate(
         [{ translate: `0 ${distance}px` }, { translate: '0 0' }],
@@ -7709,16 +7723,16 @@ export class QuietRoomApp {
   private startAutomaticBackup(): void {
     if (this.backupTimer !== null) window.clearInterval(this.backupTimer);
     this.backupTimer = window.setInterval(() => void this.runAutomaticBackup(), 15_000);
-    void this.runAutomaticBackup();
+    void this.runAutomaticBackup(true);
   }
 
-  private runAutomaticBackup(): Promise<void> {
+  private runAutomaticBackup(force = false): Promise<void> {
     if (this.backupRun) return this.backupRun;
     const session = this.session;
     const signal = this.runtimeAbort?.signal;
     if (!session || !signal || this.privacyCovered || document.hidden) return Promise.resolve();
     const epoch = this.runtimeEpoch;
-    const run = syncCloudBackup(session, signal).then(() => {
+    const run = syncCloudBackup(session, signal, { force }).then(() => {
       if (this.isRuntimeActive(epoch, session)) this.backupError = '';
     }).catch(cause => {
       if (this.isRuntimeActive(epoch, session)) this.backupError = cause instanceof Error ? cause.message : '自动备份暂未完成';
@@ -7791,7 +7805,7 @@ export class QuietRoomApp {
       this.runtimeAbort?.signal.removeEventListener('abort', cancelRestore);
       this.transitionPage('backward', () => { if (historyChanged) void this.openSession(); else this.renderChat(); });
     });
-    this.root.querySelector('#backup-retry')?.addEventListener('click', () => void this.runAutomaticBackup());
+    this.root.querySelector('#backup-retry')?.addEventListener('click', () => void this.runAutomaticBackup(true));
     this.root.querySelector('#view-local-recovery')?.addEventListener('click', () => this.verifyLocalRecoveryCode());
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-restore]')) button.addEventListener('click', () => {
       if (!this.isRuntimeActive(epoch, session)) return;
