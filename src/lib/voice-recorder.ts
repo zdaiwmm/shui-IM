@@ -250,7 +250,11 @@ export class VoiceRecorder {
       }));
       this.startedAt = performance.now();
       this.state = 'recording';
-      recorder.start(1000);
+      // Keep the browser-side recording as one complete container. Chunking
+      // here is unrelated to encrypted upload and adds avoidable encoder and
+      // main-thread pressure on mobile browsers; transport chunks are created
+      // later from the finished local WAV.
+      recorder.start();
       this.timer = window.setInterval(() => {
         if (this.state !== 'recording') return;
         const values = new Uint8Array(256);
