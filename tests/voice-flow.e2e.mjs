@@ -11,6 +11,12 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
     navigator.mediaDevices.getUserMedia = async options => {
       const stream = await original(options); window.__voiceTracks.push(...stream.getTracks()); return stream;
     };
+    const originalStart = MediaRecorder.prototype.start;
+    window.__voiceRecorderStarts = [];
+    MediaRecorder.prototype.start = function (...args) {
+      window.__voiceRecorderStarts.push(args.length ? args[0] : undefined);
+      return originalStart.apply(this, args);
+    };
   });
   const start = async () => {
     await creator.locator('#message-input').press('Alt+r');
@@ -25,6 +31,7 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   // Exercise the real browser recorder and local transcoder using a synthetic
   // microphone, never the developer's physical microphone.
   await start(); await creator.waitForTimeout(1200); await pause();
+  assert.equal(await creator.evaluate(() => window.__voiceRecorderStarts[0]), undefined, 'Voice recording must not emit transport-sized timeslices while recording');
   await creator.getByRole('button', { name: '试听录音', exact: true }).click();
   await creator.getByRole('button', { name: '暂停试听', exact: true }).waitFor();
   await creator.getByRole('button', { name: '继续录音', exact: true }).click();
