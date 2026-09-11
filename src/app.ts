@@ -1,3 +1,4 @@
+// Release candidate marker for privacy curtain and expression-panel lifecycle fixes.
 import { voiceRequest, confirmVoiceUpload, VOICE_FAILURE_TEXT } from './lib/voice-network';
 import QRCode from 'qrcode';
 import { PresenceCircuit, presenceCircuitMarkup } from './lib/presence-circuit';
