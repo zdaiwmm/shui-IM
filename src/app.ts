@@ -8,6 +8,7 @@ import { isExpressionPayload } from './lib/expression-media';
 import { loadStickerPacks, installStickerPack, removeStickerPack, reorderStickerPacks } from './lib/vault';
 import './memes.css';
 import './chat-tools.css';
+import './design-system.css';
 import { normalizeAttachmentFavorites, sortFavoriteAssets } from './lib/attachment-favorites';
 import { validateMemeFile, MEME_TYPES } from './lib/meme-media';
 import { loadMemeFavorites, loadMemeFavoriteFile, saveMemeFavorite, removeMemeFavorite } from './lib/vault';
