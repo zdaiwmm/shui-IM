@@ -61,7 +61,7 @@ try {
   const settled = () => page.waitForFunction(() => {
     const app = window.listFixture.app;
     const composerPositioning = document.querySelector('#composer')?.dataset.viewportMotion === 'positioning';
-    return (!app.chatViewportMotion?.moving || (composerPositioning && !app.chatViewportMotion?.concealed)) && !app.chatBottomControl?.scrolling
+    return (!app.chatViewportMotion?.moving || composerPositioning) && !app.chatBottomControl?.scrolling
       && !app.composerHeightMotion && !app.listKeyboardLayout.moving;
   }, undefined, { timeout: 60_000 }).catch(async error => {
     const state = await page.evaluate(() => {
