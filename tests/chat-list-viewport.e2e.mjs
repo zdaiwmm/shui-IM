@@ -58,6 +58,7 @@ try {
     app.renderMessages({ scroll: 'bottom' });
     window.listFixture = { app };
   });
+  // CI WebKit runners can need a longer settling window under load.
   const settled = () => page.waitForFunction(() => {
     const app = window.listFixture.app;
     return !app.chatViewportMotion?.moving && !app.chatBottomControl?.scrolling
