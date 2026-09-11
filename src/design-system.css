@@ -25,7 +25,7 @@
   --accent-hover: oklch(52% 0.215 254);
   --accent-soft: oklch(92.8% 0.045 242);
   --incoming: oklch(99% 0.004 250 / 0.76);
-  --outgoing: oklch(56% 0.2 254);
+  --outgoing: oklch(48% 0.2 254);
   --on-accent: oklch(99.3% 0.004 250);
   --message-time: oklch(50% 0.015 250);
   --message-time-outgoing: oklch(90% 0.014 250);
@@ -60,7 +60,7 @@
     --accent-hover: oklch(80% 0.15 245);
     --accent-soft: oklch(33% 0.07 250);
     --incoming: oklch(29% 0.028 250 / 0.9);
-    --outgoing: oklch(54% 0.18 250);
+    --outgoing: oklch(48% 0.18 250);
     --on-accent: oklch(99% 0.008 245);
     --message-time: oklch(79% 0.016 245);
     --message-time-outgoing: oklch(92% 0.012 245);
@@ -188,7 +188,8 @@ body {
 
 .outgoing .message-bubble {
   border-color: color-mix(in oklch, var(--accent) 72%, var(--glass-border));
-  background: linear-gradient(145deg, color-mix(in oklch, var(--outgoing) 92%, white 8%), var(--outgoing));
+  background-color: var(--outgoing);
+  background-image: linear-gradient(145deg, color-mix(in oklch, var(--outgoing) 92%, white 8%), var(--outgoing));
   box-shadow: 0 7px 20px color-mix(in oklch, var(--accent) 19%, transparent), inset 0 0.5px 0 oklch(100% 0 0 / 0.3);
 }
 
