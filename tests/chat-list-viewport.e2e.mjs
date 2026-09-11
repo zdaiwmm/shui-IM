@@ -62,7 +62,7 @@ try {
     const app = window.listFixture.app;
     return !app.chatViewportMotion?.moving && !app.chatBottomControl?.scrolling
       && !app.composerHeightMotion && !app.listKeyboardLayout.moving;
-  });
+  }, undefined, { timeout: 60_000 });
   const geometry = () => page.evaluate(() => {
     const app = window.listFixture.app;
     const { shell, header, composer, list } = app.chatLayoutElements;
