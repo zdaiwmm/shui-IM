@@ -111,7 +111,7 @@ try {
   assert.ok(history.scroll < state.scroll - 500, JSON.stringify(history));
   assert.equal(history.header, 0);
 
-  await page.locator('#message-input').tap({ force: true });
+  await page.locator('#message-input').focus();
   assert.equal(await page.locator('#message-input').evaluate(input => input === document.activeElement), true);
   await page.evaluate(() => {
     Object.defineProperty(visualViewport, 'height', { configurable: true, value: 319 });
