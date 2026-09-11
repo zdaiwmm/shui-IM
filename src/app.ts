@@ -752,15 +752,17 @@ export class QuietRoomApp {
         if (this.chatBottomFollowPending && this.chatScrollIntent !== 'up') this.alignChatBottom();
         this.chatBottomControl?.update(false);
       }
-      if (performance.now() >= trackingUntil) {
+      const keepSamplingNativeChrome = Boolean(chat && this.visualClientCoordinates);
+      const now = performance.now();
+      if (now >= trackingUntil) {
         this.chatBottomFollowPending = false;
         this.chatViewportFollowUntil = 0;
-        if (!this.chatViewportMotion?.moving || performance.now() >= trackingHardUntil) return;
+        if ((!keepSamplingNativeChrome && !this.chatViewportMotion?.moving) || now >= trackingHardUntil) return;
         // Viewport events start a fresh bounded sampling window when Safari
         // cannot deliver every native toolbar frame. Do not keep a permanent
-        // animation loop alive while the page is idle. A moving keyboard
-        // state gets one longer, still bounded window so its existing hard
-        // fallback can settle instead of leaving the composer concealed.
+        // animation loop alive while the page is idle. Native fixed chrome
+        // gets the same longer, still bounded window because WebKit can move
+        // its origin after the keyboard motion itself has settled.
       }
       // Safari can withhold viewport events during native toolbar movement.
       // Keep this cheap geometry sample alive only during the bounded window;
