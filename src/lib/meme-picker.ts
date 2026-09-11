@@ -102,7 +102,7 @@ export class MemePicker {
     }, { root: this.panel.querySelector('.meme-scroll'), rootMargin: '120px' });
     this.autoPage.observe(this.sentinel);
     const shortcuts = this.panel.querySelector<HTMLElement>('.meme-pack-shortcuts')!;
-    type SheetDrag = { id: number; x: number; y: number; height: number; full: boolean; moving: boolean; scrolling: boolean; scrollLeft: number; fromPack: boolean };
+    type SheetDrag = { id: number; x: number; y: number; height: number; full: boolean; moving: boolean; scrolling: boolean; scrollLeft: number; fromPack: boolean; lastX: number; lastAt: number; velocity: number; overshoot: number };
     type ShortcutHold = { id: number; x: number; y: number; button: HTMLButtonElement; timer: number };
     type ShortcutReorder = {
       id: number; button: HTMLButtonElement; floating: HTMLButtonElement; placeholder: HTMLElement | null;
@@ -113,9 +113,51 @@ export class MemePicker {
     let hold: ShortcutHold | undefined;
     let reorder: ShortcutReorder | undefined;
     let settling: HTMLButtonElement | undefined;
+    let shortcutAnimation: number | null = null;
     const reducedMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
     const packButtons = () => [...shortcuts.querySelectorAll<HTMLButtonElement>('button[data-shortcut^="pack:"]')];
     const packId = (button: HTMLButtonElement) => button.dataset.shortcut!.slice(5);
+    const shortcutMax = () => Math.max(0, shortcuts.scrollWidth - shortcuts.clientWidth);
+    const clearShortcutPull = () => {
+      for (const button of shortcuts.querySelectorAll<HTMLElement>('button')) button.style.translate = '';
+    };
+    const renderShortcutPull = (offset: number) => {
+      for (const button of shortcuts.querySelectorAll<HTMLElement>('button')) button.style.translate = `${offset.toFixed(2)}px 0`;
+    };
+    const rubberBand = (offset: number) => offset === 0 ? 0
+      : Math.sign(offset) * (Math.abs(offset) * 0.34 + Math.min(18, Math.abs(offset) * 0.04));
+    const stopShortcutAnimation = () => {
+      if (shortcutAnimation !== null) cancelAnimationFrame(shortcutAnimation);
+      shortcutAnimation = null;
+    };
+    const releaseShortcut = (velocity: number, overshoot: number) => {
+      stopShortcutAnimation();
+      let currentVelocity = Math.max(-2.2, Math.min(2.2, velocity));
+      let pull = overshoot;
+      let lastAt = performance.now();
+      const tick = (now: number) => {
+        const elapsed = Math.min(32, Math.max(1, now - lastAt));
+        lastAt = now;
+        if (Math.abs(pull) > 0.25) {
+          pull *= Math.pow(0.0008, elapsed / 1000);
+          renderShortcutPull(pull);
+        } else {
+          pull = 0;
+          clearShortcutPull();
+          if (Math.abs(currentVelocity) > 0.015) {
+            const next = shortcuts.scrollLeft + currentVelocity * elapsed;
+            const max = shortcutMax();
+            const clamped = Math.max(0, Math.min(max, next));
+            if (clamped !== next) currentVelocity *= -0.22;
+            shortcuts.scrollLeft = clamped;
+            currentVelocity *= Math.pow(0.055, elapsed / 1000);
+          } else currentVelocity = 0;
+        }
+        if (Math.abs(pull) > 0.25 || Math.abs(currentVelocity) > 0.015) shortcutAnimation = requestAnimationFrame(tick);
+        else { clearShortcutPull(); shortcutAnimation = null; }
+      };
+      shortcutAnimation = requestAnimationFrame(tick);
+    };
     const capturePositions = () => new Map([...shortcuts.querySelectorAll<HTMLElement>('button[data-shortcut]')].map(node => [node, node.getBoundingClientRect()]));
     const animatePositions = (before: Map<HTMLElement, DOMRect>) => {
       if (reducedMotion()) return;
@@ -245,8 +287,10 @@ export class MemePicker {
     shortcuts.addEventListener('pointerdown', event => {
       if (event.button !== 0 || this.sheetAnimation || this.preview || this.busy || reorder) return;
       const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button[data-shortcut^="pack:"]') : null;
+      stopShortcutAnimation(); clearShortcutPull();
       drag = { id: event.pointerId, x: event.clientX, y: event.clientY, height: this.panel.getBoundingClientRect().height,
-        full: Boolean(this.overlay), moving: false, scrolling: false, scrollLeft: shortcuts.scrollLeft, fromPack: Boolean(button) };
+        full: Boolean(this.overlay), moving: false, scrolling: false, scrollLeft: shortcuts.scrollLeft, fromPack: Boolean(button),
+        lastX: event.clientX, lastAt: performance.now(), velocity: 0, overshoot: 0 };
       if (button) {
         const pending: ShortcutHold = { id: event.pointerId, x: event.clientX, y: event.clientY, button, timer: 0 };
         pending.timer = window.setTimeout(() => beginReorder(pending), 500);
@@ -268,12 +312,20 @@ export class MemePicker {
         return;
       }
       if (!drag || drag.id !== event.pointerId) return;
+      const now = performance.now();
       const dy = event.clientY - drag.y; const dx = event.clientX - drag.x;
       if (hold && Math.hypot(dx, dy) > 10) cancelHold();
       if (!drag.moving && drag.fromPack && (drag.scrolling || Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy))) {
         drag.scrolling = true;
         event.preventDefault();
-        shortcuts.scrollLeft = drag.scrollLeft - dx;
+        const raw = drag.scrollLeft - dx;
+        const clamped = Math.max(0, Math.min(shortcutMax(), raw));
+        const elapsed = Math.max(1, now - drag.lastAt);
+        drag.velocity = (event.clientX - drag.lastX) / elapsed * -1;
+        drag.lastX = event.clientX; drag.lastAt = now;
+        drag.overshoot = rubberBand(raw - clamped);
+        shortcuts.scrollLeft = clamped;
+        renderShortcutPull(drag.overshoot);
         return;
       }
       if (!drag.moving) {
@@ -295,7 +347,11 @@ export class MemePicker {
       cancelHold();
       if (!drag || drag.id !== event.pointerId) return;
       const start = drag; drag = undefined;
-      if (start.scrolling) { this.suppressShortcutClickUntil = performance.now() + 500; return; }
+      if (start.scrolling) {
+        this.suppressShortcutClickUntil = performance.now() + 500;
+        releaseShortcut(start.velocity, start.overshoot);
+        return;
+      }
       if (!start.moving) return;
       this.suppressShortcutClickUntil = performance.now() + 500;
       const height = this.panel.getBoundingClientRect().height;
@@ -331,6 +387,8 @@ export class MemePicker {
       if (event.target instanceof Element && event.target.closest('[data-shortcut^="pack:"]')) event.preventDefault();
     }, { signal: this.signal });
     this.signal.addEventListener('abort', () => {
+      stopShortcutAnimation();
+      clearShortcutPull();
       cancelHold();
       reorder?.floating.remove();
       settling?.remove();

@@ -127,6 +127,7 @@ try {
   const firstAnimation=page.locator('.meme-tile img').first(); await firstAnimation.waitFor();
   await assertMoving(firstAnimation, 'Panel animation pixels did not move');
   const tileBounds=await page.locator('.meme-tile').first().boundingBox();
+  assert.ok(tileBounds.width <= 132.5, `GIF tile grew beyond its stable cell: ${JSON.stringify(tileBounds)}`);
   const gridColumns = await page.locator('.meme-recent-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
   assert.equal(gridColumns, 5);
   const imageBounds=await firstAnimation.boundingBox();
@@ -240,7 +241,35 @@ try {
   await page.locator('#meme-panel').waitFor({ state: 'detached' });
   await page.locator('#open-memes').click();
   await page.locator('.meme-pack-shortcuts img').waitFor();
+  await page.waitForFunction(() => !document.querySelector('.meme-panel')?.getAnimations().some(animation => animation.playState === 'running'));
   assert.equal(await page.locator('.meme-pack-shortcuts img').first().evaluate(image => getComputedStyle(image).borderRadius), '6px');
+  const shortcutBounds = await page.locator('.meme-pack-shortcuts').boundingBox();
+  const shortcutOverflow = await page.locator('.meme-pack-shortcuts').evaluate(bar => {
+    if (bar.scrollWidth - bar.clientWidth <= 0) {
+      for (let index = 0; index < 8; index++) {
+        const button = document.createElement('button');
+        button.type = 'button'; button.dataset.syntheticShortcut = 'true'; button.dataset.shortcut = `pack:synthetic-${index}`;
+        button.style.flex = '0 0 44px'; button.setAttribute('aria-label', `synthetic ${index}`); bar.append(button);
+      }
+    }
+    return bar.scrollWidth - bar.clientWidth;
+  });
+  assert.ok(shortcutOverflow > 0, `Sticker shortcuts did not overflow horizontally: ${shortcutOverflow}`);
+  await page.mouse.move(shortcutBounds.x + shortcutBounds.width * 0.72, shortcutBounds.y + shortcutBounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(shortcutBounds.x + 8, shortcutBounds.y + shortcutBounds.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(120);
+  const shortcutAfterDrag = await page.locator('.meme-pack-shortcuts').evaluate(bar => ({ scrollLeft: bar.scrollLeft, max: bar.scrollWidth - bar.clientWidth }));
+  assert.ok(shortcutAfterDrag.scrollLeft > 0, `Sticker shortcuts did not follow the drag: ${JSON.stringify(shortcutAfterDrag)}`);
+  await page.mouse.move(shortcutBounds.x + 8, shortcutBounds.y + shortcutBounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(shortcutBounds.x + shortcutBounds.width + 100, shortcutBounds.y + shortcutBounds.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  const shortcutSettled = await page.locator('.meme-pack-shortcuts').evaluate(bar => ({ scrollLeft: bar.scrollLeft, max: bar.scrollWidth - bar.clientWidth }));
+  assert.ok(Math.abs(shortcutSettled.scrollLeft) <= 1, `Sticker shortcut edge did not rebound to the start: ${JSON.stringify(shortcutSettled)}`);
+  await page.locator('.meme-pack-shortcuts [data-synthetic-shortcut="true"]').evaluateAll(nodes => nodes.forEach(node => node.remove()));
   await page.locator('.meme-pack-shortcuts button[title="测试合集"]').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);
   assert.equal(await page.locator('button[data-kind="stickers"]').getAttribute('aria-selected'), 'true');
@@ -403,8 +432,8 @@ try {
     await page.locator('.meme-open-search').click();
     await page.waitForFunction(()=>getComputedStyle(document.querySelector('.meme-search-dialog')).opacity==='1'&&getComputedStyle(document.querySelector('.meme-panel')).opacity==='1');
     const full=await page.locator('.meme-search-dialog').boundingBox();
-    const fullGridColumn=await page.locator('.meme-grid').evaluate(el=>(el.getBoundingClientRect().width-16)/5);
-    assert.ok(Math.abs(fullGridColumn-halfTileWidth)<1, `Tile width changed between half/full search at ${width}px: ${halfTileWidth}/${fullGridColumn}`);
+    const fullTileWidth=await page.locator('.meme-grid').evaluate(el => Math.min(132, (el.getBoundingClientRect().width - 16) / 5));
+    assert.ok(Math.abs(fullTileWidth-halfTileWidth)<1, `Tile width changed between half/full search at ${width}px: ${halfTileWidth}/${fullTileWidth}`);
     assert.ok(Math.abs(full.height-height)<=1&&full.y===0&&full.width===width,JSON.stringify(full));
     if(out) await page.screenshot({path:path.join(out,`search-${width}.png`)});
     await page.locator('.meme-back').click();
