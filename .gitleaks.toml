@@ -1,0 +1,8 @@
+[allowlist]
+  paths = [
+    '''^tests/admin\.test\.ts$''',
+    '''^tests/upgrade-safety\.test\.ts$'''
+  ]
+  rules = [
+    "generic-api-key"
+  ]
