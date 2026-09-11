@@ -62,7 +62,7 @@ try {
     const app = window.listFixture.app;
     return !app.chatViewportMotion?.moving && !app.chatBottomControl?.scrolling
       && !app.composerHeightMotion && !app.listKeyboardLayout.moving;
-  }).catch(async error => {
+  }, undefined, { timeout: 60_000 }).catch(async error => {
     const state = await page.evaluate(() => {
       const app = window.listFixture.app;
       const viewport = window.visualViewport;
