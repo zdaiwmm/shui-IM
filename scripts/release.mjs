@@ -60,7 +60,7 @@ async function main() {
     if (git('status', '--porcelain')) throw new Error('Working tree must be clean, including untracked files.');
     git('fetch', 'origin', 'main');
     const head = git('rev-parse', 'HEAD');
-    if (head !== git('rev-parse', 'origin/main')) throw new Error('Local main must exactly match origin/main.');
+    git('merge-base', '--is-ancestor', head, 'origin/main');
     if (approved && approved !== head) throw new Error('Approved SHA does not match main.');
     return head;
   });
@@ -73,6 +73,11 @@ async function main() {
     try { answer = await input.question('Type DEPLOY to continue: '); } finally { input.close(); }
     if (answer !== 'DEPLOY') throw new Error('Deployment cancelled.');
   }
+  // Main may advance after batch freeze; production must not move backwards.
+  const liveBefore = command('ssh', [...ssh, 'sudo -n cat /opt/quiet-room/deploy-state/current-sha']);
+  if (!/^[a-f0-9]{40}$/.test(liveBefore)) throw new Error('Invalid production SHA.');
+  if (liveBefore === sha) throw new Error('This SHA is already deployed; run independent readback only.');
+  git('merge-base', '--is-ancestor', liveBefore, sha);
   // Never automatically retry a cutover after an ambiguous disconnect.
   timed('server-deploy', () => command('ssh', [...ssh, 'sudo', '-n', '/usr/local/sbin/quiet-room-deploy', sha], { stdio: 'inherit', timeout: 0 }));
   timed('readback', () => {

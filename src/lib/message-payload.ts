@@ -45,7 +45,11 @@ function isAttachmentManifest(value: unknown, kind: 'image' | 'audio' | 'file'):
   const originalSize = image.originalSize;
   const lastModified = image.lastModified;
   return Boolean(
-    hasOnlyKeys(image, ['v', 'blobId', 'key', 'ivPrefix', 'chunkSize', 'chunkCount', 'originalSize', 'originalName', 'mimeType', 'lastModified', 'sha256']) &&
+    hasOnlyKeys(image, ['v', 'width', 'height', 'blobId', 'key', 'ivPrefix', 'chunkSize', 'chunkCount', 'originalSize', 'originalName', 'mimeType', 'lastModified', 'sha256']) &&
+    ((image.width === undefined && image.height === undefined) ||
+      (Number.isSafeInteger(image.width) && Number.isSafeInteger(image.height)
+        && Number(image.width) > 0 && Number(image.width) <= 65535
+        && Number(image.height) > 0 && Number(image.height) <= 65535)) &&
     image.v === 1 &&
     typeof image.blobId === 'string' && UUID_V4.test(image.blobId) &&
     boundedBase64(image.key, 32) &&
@@ -114,7 +118,7 @@ export function isMessagePayload(value: unknown): value is MessagePayload {
     ) return false;
     return true;
   }
-  if (payload.kind === 'message-delete') {
+  if (payload.kind === 'message-delete' || payload.kind === 'media-read' || payload.kind === 'message-read') {
     return payload.v === 1 &&
       hasOnlyKeys(payload, ['v', 'kind', 'sentAt', 'target']) &&
       isMessageTarget(payload.target);
@@ -127,8 +131,9 @@ export function isMessagePayload(value: unknown): value is MessagePayload {
   }
   if (payload.kind === 'image') {
     if (!isImageManifest(payload.image)) return false;
-    if (payload.v === 1) return hasOnlyKeys(payload, ['v', 'kind', 'image', 'sentAt']);
-    return hasOnlyKeys(payload, ['v', 'kind', 'image', 'sentAt', 'replyTo']) && isReplyReference(payload.replyTo);
+    if ('presentation' in payload && payload.presentation !== 'expression') return false;
+    if (payload.v === 1) return hasOnlyKeys(payload, ['v', 'kind', 'image', 'sentAt', 'presentation']);
+    return hasOnlyKeys(payload, ['v', 'kind', 'image', 'sentAt', 'replyTo', 'presentation']) && isReplyReference(payload.replyTo);
   }
   if (payload.kind === 'file') {
     if (!isFileManifest(payload.file)) return false;

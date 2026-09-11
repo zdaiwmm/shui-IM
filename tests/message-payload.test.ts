@@ -34,6 +34,9 @@ describe('shared encrypted message payload validation', () => {
     expect(isMessagePayload(text)).toBe(true);
     expect(isMessagePayload({ ...text, debug: true })).toBe(false);
     expect(isImageManifest(imageManifest())).toBe(true);
+    expect(isImageManifest({ ...imageManifest(), width: 1600, height: 900 })).toBe(true);
+    expect(isImageManifest({ ...imageManifest(), width: 1600 })).toBe(false);
+    expect(isImageManifest({ ...imageManifest(), width: 0, height: 900 })).toBe(false);
     expect(isMessagePayload({ v: 1, kind: 'image', image: imageManifest(), sentAt: text.sentAt })).toBe(true);
   });
 
@@ -44,6 +47,14 @@ describe('shared encrypted message payload validation', () => {
     expect(isImageManifest({ ...manifest, blobId: 'not-a-v4-uuid' })).toBe(false);
     expect(isImageManifest({ ...manifest, originalName: 'bad\u0000name.png' })).toBe(false);
     expect(isMessagePayload({ v: 1, kind: 'text', text: 'x'.repeat(MAX_MESSAGE_TEXT_LENGTH + 1), sentAt: manifest.lastModified })).toBe(false);
+  });
+
+  it('accepts only the explicit encrypted expression presentation on images', () => {
+    const image = { v: 1, kind: 'image', image: imageManifest(), sentAt: new Date().toISOString(), presentation: 'expression' };
+    expect(isMessagePayload(image)).toBe(true);
+    for (const presentation of [false, null, 'photo', {}, ['expression']]) expect(isMessagePayload({ ...image, presentation })).toBe(false);
+    expect(isMessagePayload({ ...image, injected: true })).toBe(false);
+    expect(isMessagePayload({ v: 1, kind: 'text', text: 'hello', sentAt: image.sentAt, presentation: 'expression' })).toBe(false);
   });
 
   it('keeps reply references inside a strictly validated encrypted payload', () => {

@@ -3,22 +3,54 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
+import { animatedWebp } from './fixtures/photo-fixtures.mjs';
+
+async function assertMoving(image, message) {
+  const first = await image.screenshot();
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await image.page().waitForTimeout(90);
+    if (!first.equals(await image.screenshot())) return;
+  }
+  assert.fail(message);
+}
 
 const server = await createServer({ configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0, hmr: false } });
 server.middlewares.use('/__memes', (_req, res) => {
   res.setHeader('Content-Type', 'text/html');
   res.end('<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="app"></div></body></html>');
 });
-let browser;
+let browser, page;
 try {
   await server.listen();
   browser = process.env.MEME_WEBKIT === '1' ? await webkit.launch() : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  if (process.env.MEME_CPU_RATE) {
+    const rate = Number(process.env.MEME_CPU_RATE);
+    if (!Number.isFinite(rate) || rate < 1 || rate > 8) throw new Error('Invalid MEME_CPU_RATE');
+    await (await page.context().newCDPSession(page)).send('Emulation.setCPUThrottlingRate', { rate });
+  }
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__memes`);
-  await page.evaluate(async () => {
+  await page.evaluate(async (animation) => {
     for (const css of ['styles','chat-layout','gallery','chat-interactions','cover','call','memes']) await import(`/src/${css}.css`);
     const { QuietRoomApp } = await import('/src/app.ts');
+    // Bounded synthetic-fixture diagnostics make intermittent CI navigation races actionable.
+    const { MemePicker } = await import('/src/lib/meme-picker.ts');
+    const events = []; window.memeTestEvents = events;
+    for (const name of ['pointerdown', 'pointerup', 'click']) document.addEventListener(name, event => {
+      if (event.target instanceof Element && event.target.closest('.meme-panel')) {
+        events.push({ action: name, target: event.target.tagName, className: event.target.getAttribute('class') });
+        if (events.length > 48) events.shift();
+      }
+    }, true);
+    for (const key of ['local', 'clear', 'back', 'submit', 'showPack', 'togglePack', 'install', 'dispose']) {
+      const original = MemePicker.prototype[key];
+      MemePicker.prototype[key] = function (...args) {
+        events.push({ action: key, generation: this.generation, detail: this.packDetail, overlay: Boolean(this.overlay), busy: this.busy });
+        if (events.length > 48) events.shift();
+        return original.apply(this, args);
+      };
+    }
     const vault = await import('/src/lib/vault.ts');
     const { encryptImageFile } = await import('/src/lib/file-crypto.ts');
     const { validateMemeFile } = await import('/src/lib/meme-media.ts');
@@ -53,38 +85,51 @@ try {
     app.messages = new Map([[1,msg]]);
     app.imageCache.set(manifest.blobId,{blob:files[0],url:URL.createObjectURL(files[0]),bytes:files[0].size,lastUsedAt:Date.now()});
     const sent = [];
-    app.processImageBatch = async files => { sent.push(await files[0].arrayBuffer()); return true; };
+    app.processImageBatch = async (files, destination, signal, expression) => {
+      if (destination !== 'chat' || expression !== true) throw new Error('Expression send lost its encrypted presentation intent');
+      sent.push(await files[0].arrayBuffer()); return true;
+    };
     app.renderChat();
     document.querySelector('#message-input').value = '保留这份草稿';
     const realFetch = window.fetch.bind(window); const requests = [];
-    const { starterGifs, starterPacks } = await import('/src/lib/sticker-library.ts');
-    const networkGif = await (await realFetch(starterGifs[0].asset)).blob();
+    const formerPack = { id: 'synthetic-pack', title: 'Synthetic pack' };
+    const networkGif = new File([new Uint8Array(animation)], 'catalog-animation.webp', { type: 'image/webp' });
     window.fetch = async (input, init) => {
       const url = new URL(typeof input === 'string' ? input : input.url,location.href);
       if (url.pathname.endsWith('/memes/search')) {
         const body = JSON.parse(init.body); requests.push(body);
         if (body.keyword === '失败') return new Response('{}',{status:503});
-        if (body.keyword === '预置') return Response.json({items:[],packs:[{id:starterPacks[0].id,title:starterPacks[0].title,cover:'00000000-0000-4000-8000-000000000000'}],nextPage:null});
+        if (body.keyword === '预置') return Response.json({items:[],packs:[{...formerPack,cover:'00000000-0000-4000-8000-000000000000'}],nextPage:null});
         if (body.kind === 'stickers') return Response.json({items:[],packs:[{id:'a'.repeat(32),title:'测试合集',cover:'00000000-0000-4000-8000-000000000000'}],nextPage:null});
         return Response.json({items:files.slice(0,6).map((file,index)=>({id:`11111111-0000-4000-8000-${String(index+body.page*10).padStart(12,'0')}`,title:file.name})),nextPage:body.page===1?2:null});
       }
       if (url.pathname.endsWith('/memes/pack')) return Response.json({id:'a'.repeat(32),title:'测试合集',items:files.slice(0,3).map((file,index)=>({id:`00000000-0000-4000-8000-${String(index).padStart(12,'0')}`,title:file.name}))});
-      if (url.pathname.endsWith('/memes/media')) { const id=JSON.parse(init.body).id; return new Response(id.startsWith('11111111')?networkGif:files[Number(id.slice(-2))%files.length],{headers:{'Content-Type':'image/png'}}); }
+      if (url.pathname.endsWith('/memes/media')) { const id=JSON.parse(init.body).id; const file=id.startsWith('11111111')?networkGif:files[Number(id.slice(-2))%files.length]; return new Response(file,{headers:{'Content-Type':file.type}}); }
+      if (url.pathname.startsWith('/stickers/') || url.pathname.startsWith('/gifs/')) throw new Error('Bundled media requested');
       return realFetch(input,init);
     };
-    window.fixture = { app, vault, session, controller, files, sent, msg, requests };
-  });
+    window.fixture = { app, vault, session, controller, files, sent, msg, requests, networkGif };
+  }, [...animatedWebp]);
   await page.locator('#open-memes').click();
   await page.waitForFunction(() => document.querySelectorAll('.meme-tile img[src]').length >= 3);
   assert.equal(await page.locator('button[data-kind="gifs"]').getAttribute('aria-selected'),'true');
   assert.equal(await page.locator('.meme-grip').count(),0);
   assert.equal(await page.locator('.chat-shell').evaluate(el=>el.inert),false);
-  assert.equal(await page.evaluate(()=>window.fixture.requests.length),0);
-  assert.equal(await page.locator('.meme-tile').count(),100);
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===12);
+  assert.equal(await page.evaluate(()=>window.fixture.requests.length),2);
+  assert.equal((await page.locator('.meme-recent-section h3').textContent()).trim(), '最近发布');
+  assert.equal(await page.locator('.meme-recent-grid .meme-tile').count(), 10, 'Recent releases must contain exactly ten published expressions');
+  assert.equal(await page.locator('.meme-browse-grid .meme-tile').count(), 2, 'Catalog continuation duplicated or dropped recent expressions');
+  if (process.argv[2]) {
+    await mkdir(process.argv[2], { recursive: true });
+    await page.screenshot({ path: path.join(process.argv[2], 'recent-390.png') });
+  }
   const firstAnimation=page.locator('.meme-tile img').first(); await firstAnimation.waitFor();
-  const animatedPixels=await firstAnimation.screenshot(); await page.waitForTimeout(350);
-  assert.notDeepEqual(await firstAnimation.screenshot(),animatedPixels,'Panel animation pixels did not move');
+  await assertMoving(firstAnimation, 'Panel animation pixels did not move');
   const tileBounds=await page.locator('.meme-tile').first().boundingBox();
+  assert.ok(tileBounds.width <= 132.5, `GIF tile grew beyond its stable cell: ${JSON.stringify(tileBounds)}`);
+  const gridColumns = await page.locator('.meme-recent-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
+  assert.equal(gridColumns, 5);
   const imageBounds=await firstAnimation.boundingBox();
   await page.mouse.move(tileBounds.x+tileBounds.width/2,tileBounds.y+tileBounds.height/2); await page.mouse.down();
   await page.locator('.meme-preview img').waitFor(); await page.mouse.up();
@@ -98,6 +143,7 @@ try {
   assert.equal(await page.locator('#message-input').inputValue(),'保留这份草稿');
   await page.locator('.meme-tile').first().click();
   await page.waitForFunction(()=>window.fixture.sent.length===1);
+  await page.locator('#meme-panel').waitFor({ state: 'detached' });
   assert.equal(await page.locator('#meme-panel').count(),0);
   await page.locator('#open-memes').click(); await page.getByRole('button',{name:'收藏',exact:true}).click();
   await page.locator('.meme-tile').first().dispatchEvent('contextmenu');
@@ -108,12 +154,26 @@ try {
   await page.locator('.meme-open-search').click();
   assert.equal(await page.locator('.chat-shell').evaluate(el=>el.inert),true);
   assert.equal(await page.locator('.meme-tabs').isVisible(),false);
+  await page.waitForFunction(() => document.activeElement === document.querySelector('.meme-back'));
   await page.locator('#meme-query').fill('无语'); await page.locator('#meme-query').press('Enter');
   await page.waitForFunction(()=>window.fixture.requests.at(-1).keyword==='无语');
   assert.equal(await page.getByRole('button',{name:'同意并搜索'}).count(),0);
-  await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===6);
-  await page.locator('.meme-more').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===12);
+  assert.ok(Math.abs((await page.locator('.meme-tile').first().boundingBox()).width-tileBounds.width)<1, 'GIF search changed tile size');
+  assert.equal(await page.locator('.meme-more').isVisible(), false);
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===12);
+  // Force the previously intermittent ordering: a new search starts while a
+  // return animation is pending, then that old animation finishes.
+  await page.evaluate(async () => {
+    document.querySelector('.meme-back').click();
+    const animation = document.querySelector('#meme-panel').getAnimations()[0];
+    if (!animation) throw new Error('Expected pending return animation');
+    animation.pause();
+    document.querySelector('#meme-query').form.requestSubmit();
+    const ended = new Promise(resolve => animation.addEventListener('finish', resolve, { once: true }));
+    animation.finish(); await ended;
+  });
+  assert.equal(await page.locator('.meme-search-dialog').count(), 1, 'A stale return animation must not close a newer search');
   await page.locator('#meme-query').fill('失败'); await page.locator('#meme-query').press('Enter');
   await page.getByText('网络梗图暂时不可用，请稍后重试').waitFor();
   await page.locator('.meme-back').click();
@@ -123,57 +183,31 @@ try {
   await page.waitForFunction(()=>!document.querySelector('#meme-panel'));
   assert.equal(await page.evaluate(()=>window.fixture.sent.length),2);
   await page.locator('#open-memes').click();
-  await page.waitForFunction(() => (document.querySelector('.meme-grid .meme-tile')?.getBoundingClientRect().width ?? 0) > 0);
-  const gifTileSize = await page.locator('.meme-grid .meme-tile').first().evaluate(el => {
-    const rect = el.getBoundingClientRect();
-    return { width: rect.width, height: rect.height, maxWidth: parseFloat(getComputedStyle(el).maxWidth) };
-  });
-  assert.ok(gifTileSize.width <= gifTileSize.maxWidth + 1 && Math.abs(gifTileSize.width - gifTileSize.height) < 1, `GIF tile grew beyond its stable cell: ${JSON.stringify(gifTileSize)}`);
   await page.locator('button[data-kind="stickers"]').click();
-  await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===30);
-  assert.equal(await page.locator('.meme-pack-shortcuts img').count(),30);
-  const shortcutGesture = await page.evaluate(() => {
-    const bar = document.querySelector('.meme-pack-shortcuts');
-    const track = document.querySelector('.meme-pack-shortcuts-track');
-    if (!(bar instanceof HTMLElement) || !(track instanceof HTMLElement)) throw new Error('Sticker shortcut track missing');
-    const bounds = bar.getBoundingClientRect();
-    return { bounds: { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height }, overflow: track.scrollWidth - bar.clientWidth };
-  });
-  assert.ok(shortcutGesture.overflow > 0, `Sticker shortcuts did not overflow horizontally: ${JSON.stringify(shortcutGesture)}`);
-  await page.mouse.move(shortcutGesture.bounds.left + shortcutGesture.bounds.width * 0.72, shortcutGesture.bounds.top + shortcutGesture.bounds.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(shortcutGesture.bounds.left + 8, shortcutGesture.bounds.top + shortcutGesture.bounds.height / 2, { steps: 8 });
-  await page.mouse.up();
-  await page.waitForTimeout(120);
-  const shortcutAfterDrag = await page.evaluate(() => {
-    const bar = document.querySelector('.meme-pack-shortcuts');
-    const track = document.querySelector('.meme-pack-shortcuts-track');
-    if (!(bar instanceof HTMLElement) || !(track instanceof HTMLElement)) throw new Error('Sticker shortcut track missing');
-    const barRect = bar.getBoundingClientRect();
-    const trackRect = track.getBoundingClientRect();
-    return { left: trackRect.left, right: trackRect.right, barLeft: barRect.left, barRight: barRect.right, transform: getComputedStyle(track).transform };
-  });
-  assert.ok(shortcutAfterDrag.left < shortcutAfterDrag.barLeft - 1, `Sticker shortcuts did not follow the drag: ${JSON.stringify(shortcutAfterDrag)}`);
-  await page.mouse.move(shortcutAfterDrag.barLeft + 8, shortcutGesture.bounds.top + shortcutGesture.bounds.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(shortcutAfterDrag.barRight + 100, shortcutGesture.bounds.top + shortcutGesture.bounds.height / 2, { steps: 8 });
-  await page.mouse.up();
-  await page.waitForTimeout(500);
-  const shortcutSettled = await page.evaluate(() => {
-    const bar = document.querySelector('.meme-pack-shortcuts');
-    const track = document.querySelector('.meme-pack-shortcuts-track');
-    if (!(bar instanceof HTMLElement) || !(track instanceof HTMLElement)) throw new Error('Sticker shortcut track missing');
-    const barRect = bar.getBoundingClientRect();
-    const trackRect = track.getBoundingClientRect();
-    return { left: trackRect.left, right: trackRect.right, barLeft: barRect.left, barRight: barRect.right, transform: getComputedStyle(track).transform };
-  });
-  assert.ok(shortcutSettled.left <= shortcutSettled.barLeft + 1 && shortcutSettled.right >= shortcutSettled.barRight - 1, `Sticker shortcut edge did not rebound to a bounded position: ${JSON.stringify(shortcutSettled)}`);
-  await page.locator('.meme-pack-shortcuts button').nth(5).evaluate(el => el.click());
-  await page.waitForFunction(()=>document.querySelector('.meme-scroll').scrollTop>100);
+  assert.equal(await page.locator('.meme-pack-cover').count(), 0, 'Unadded collections must only appear in search');
+  assert.equal(await page.locator('.meme-pack-shortcuts img').count(),0);
   await page.locator('.meme-open-search').click();
-  await page.locator('#meme-query').fill('预置'); await page.locator('#meme-query').press('Enter');
-  await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='已添加');
-  assert.equal(await page.locator('.meme-pack-add').isDisabled(),true,'Bundled pack offered duplicate installation');
+  await page.locator('.meme-pack-cover').waitFor();
+  await page.locator('.meme-pack-cover').click();
+  await page.locator('.meme-pack-detail-header').waitFor();
+  assert.equal(await page.locator('.meme-search-dialog').count(),1,'Default catalog detail needs a visible return path');
+  await page.locator('.meme-back').click();
+  await page.locator('.meme-back').click();
+  await page.locator('.meme-search-dialog').waitFor({ state: 'detached' });
+  await page.evaluate(() => {
+    const original = window.requestAnimationFrame, frames = [];
+    window.requestAnimationFrame = callback => { frames.push(callback); return 1; };
+    try { document.querySelector('.meme-open-search').click(); }
+    finally { window.requestAnimationFrame = original; }
+    window.flushMemeFocus = () => frames.forEach(frame => frame(performance.now()));
+  });
+  await page.locator('#meme-query').fill('预置');
+  await page.evaluate(() => window.flushMemeFocus());
+  assert.equal(await page.locator('#meme-query').evaluate(input => input === document.activeElement), true, 'Delayed initial focus stole search input before Enter');
+  await page.locator('#meme-query').press('Enter');
+  await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='添加');
+  assert.ok(Math.abs((await page.locator('.meme-pack-cover').boundingBox()).width-tileBounds.width)<1, 'Sticker search cover size differs');
+  assert.equal(await page.locator('.meme-pack-add').isDisabled(),false,'A formerly bundled pack is now managed by the catalog');
   await page.locator('#meme-query').fill('合集'); await page.locator('#meme-query').press('Enter');
   await page.waitForFunction(()=>window.fixture.requests.at(-1).kind==='stickers'&&window.fixture.requests.at(-1).keyword==='合集');
   await page.locator('.meme-pack-cover').click();
@@ -187,15 +221,156 @@ try {
   await page.locator('.meme-pack-result').waitFor();
   assert.equal(await page.locator('.meme-search-dialog').evaluate(el=>el.inert),false,'Escape left search inert');
   await page.locator('.meme-pack-add').click();
-  await page.waitForFunction(()=>document.querySelector('.meme-pack-add').textContent==='已添加');
+  await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='解除添加');
+  await page.locator('.meme-pack-add').click();
+  await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='添加');
+  await page.locator('.meme-pack-add').click();
+  await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='解除添加');
+  // Exercise repeated installation transitions, including the CI failure boundary.
+  for (let attempt = 0; attempt < 4; attempt++) {
+    await page.locator('.meme-pack-add').click();
+    await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='添加');
+    await page.locator('.meme-pack-add').click();
+    await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='解除添加');
+  }
   assert.equal(await page.evaluate(async()=> (await window.fixture.vault.loadStickerPacks(window.fixture.session))[0].items.length),3);
   await page.locator('.meme-back').click();
-  await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===31);
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);
+  assert.equal(await page.locator('.meme-collapse').isVisible(), false);
+  await page.locator('#open-memes').click();
+  await page.locator('#meme-panel').waitFor({ state: 'detached' });
+  await page.locator('#open-memes').click();
+  await page.locator('.meme-pack-shortcuts img').waitFor();
+  await page.waitForFunction(() => !document.querySelector('.meme-panel')?.getAnimations().some(animation => animation.playState === 'running'));
+  assert.equal(await page.locator('.meme-pack-shortcuts img').first().evaluate(image => getComputedStyle(image).borderRadius), '6px');
+  const shortcutBounds = await page.locator('.meme-pack-shortcuts').boundingBox();
+  const shortcutOverflow = await page.locator('.meme-pack-shortcuts').evaluate(bar => {
+    if (bar.scrollWidth - bar.clientWidth <= 0) {
+      for (let index = 0; index < 8; index++) {
+        const button = document.createElement('button');
+        button.type = 'button'; button.dataset.syntheticShortcut = 'true'; button.dataset.shortcut = `pack:synthetic-${index}`;
+        button.style.flex = '0 0 44px'; button.setAttribute('aria-label', `synthetic ${index}`); bar.append(button);
+      }
+    }
+    return bar.scrollWidth - bar.clientWidth;
+  });
+  assert.ok(shortcutOverflow > 0, `Sticker shortcuts did not overflow horizontally: ${shortcutOverflow}`);
+  await page.mouse.move(shortcutBounds.x + shortcutBounds.width * 0.72, shortcutBounds.y + shortcutBounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(shortcutBounds.x + 8, shortcutBounds.y + shortcutBounds.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(120);
+  const shortcutAfterDrag = await page.locator('.meme-pack-shortcuts').evaluate(bar => ({ scrollLeft: bar.scrollLeft, max: bar.scrollWidth - bar.clientWidth }));
+  assert.ok(shortcutAfterDrag.scrollLeft > 0, `Sticker shortcuts did not follow the drag: ${JSON.stringify(shortcutAfterDrag)}`);
+  await page.mouse.move(shortcutBounds.x + 8, shortcutBounds.y + shortcutBounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(shortcutBounds.x + shortcutBounds.width + 100, shortcutBounds.y + shortcutBounds.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  const shortcutSettled = await page.locator('.meme-pack-shortcuts').evaluate(bar => ({ scrollLeft: bar.scrollLeft, max: bar.scrollWidth - bar.clientWidth }));
+  assert.ok(Math.abs(shortcutSettled.scrollLeft) <= 1, `Sticker shortcut edge did not rebound to the start: ${JSON.stringify(shortcutSettled)}`);
+  await page.locator('.meme-pack-shortcuts [data-synthetic-shortcut="true"]').evaluateAll(nodes => nodes.forEach(node => node.remove()));
+  await page.locator('.meme-pack-shortcuts button[title="测试合集"]').click();
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);
+  assert.equal(await page.locator('button[data-kind="stickers"]').getAttribute('aria-selected'), 'true');
+  await page.locator('.meme-pack-shortcuts').evaluate(bar => {
+    window.retainedShortcut = bar.querySelector('img');
+    bar.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, clientX: 100, clientY: 500 }));
+    bar.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 1, clientX: 100, clientY: 400 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 100, clientY: 400 }));
+  });
+  await page.locator('.meme-expanded-dialog').waitFor();
+  await page.waitForFunction(() => !document.querySelector('.meme-panel').getAnimations().some(animation => animation.playState === 'running'));
+  assert.equal(await page.locator('.meme-tabs').isVisible(), true);
+  assert.equal(await page.locator('.meme-collapse').isVisible(), true);
+  await page.locator('.meme-pack-shortcuts').evaluate(bar => {
+    bar.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 2, clientX: 100, clientY: 60 }));
+    bar.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 2, clientX: 100, clientY: 180 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 2, clientX: 100, clientY: 180 }));
+  });
+  await page.locator('.meme-expanded-dialog').waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(() => window.retainedShortcut === document.querySelector('.meme-pack-shortcuts img')), true, 'Dragging should retain decoded shortcuts');
+  assert.equal(await page.locator('.meme-collapse').isVisible(), false);
+  if (process.env.MEME_WEBKIT !== '1') {
+    const cdp = await page.context().newCDPSession(page);
+    const pull = async distance => {
+      const bar = await page.locator('.meme-pack-shortcuts').boundingBox();
+      const before = await page.locator('.meme-panel').boundingBox();
+      const x = bar.x + bar.width - 20, y = bar.y + bar.height / 2;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      for (let step = 1; step <= 5; step++) {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + distance * step / 5 }] });
+      }
+      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const during = await page.locator('.meme-panel').boundingBox();
+      assert.ok(Math.abs(during.height - (before.height - distance)) < 3, `Sheet did not follow native touch: ${JSON.stringify({ before, during, distance })}`);
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await page.waitForFunction(() => !document.querySelector('.meme-panel').getAnimations().some(animation => animation.playState === 'running'));
+    };
+    await pull(-120);
+    assert.equal(await page.locator('.meme-expanded-dialog').count(), 1);
+    await pull(120);
+    assert.equal(await page.locator('.meme-expanded-dialog').count(), 0);
+    await cdp.detach();
+  }
+  await page.locator('.meme-pack-shortcuts').evaluate(bar => {
+    bar.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 3, clientX: 100, clientY: 500 }));
+    bar.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 3, clientX: 100, clientY: 400 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 3, clientX: 100, clientY: 400 }));
+  });
+  await page.waitForTimeout(260);
   await page.locator('.meme-collapse').click();
-  const networkCount=await page.evaluate(()=>window.fixture.requests.length);
-  await page.locator('#open-memes').click(); await page.locator('button[data-kind="stickers"]').click();
-  await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===31);
-  assert.equal(await page.evaluate(()=>window.fixture.requests.length),networkCount,'Reopening a downloaded pack searched the network');
+  await page.locator('#open-memes').click();
+  await page.locator('button[data-kind="stickers"]').click();
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);
+  assert.equal((await page.locator('.meme-pack-shortcuts img').first().boundingBox()).width,24);
+  assert.ok(Math.abs((await page.locator('.meme-pack-grid .meme-tile').first().boundingBox()).width-tileBounds.width)<1, 'Sticker tile size differs');
+  await page.evaluate(async () => {
+    const { vault, session, files, controller } = window.fixture;
+    await vault.installStickerPack(session, 'b'.repeat(32), '第二合集', [files[1]], controller.signal);
+    await vault.installStickerPack(session, 'c'.repeat(32), '第三合集', [files[2]], controller.signal);
+  });
+  await page.locator('#open-memes').click();
+  await page.locator('#meme-panel').waitFor({ state: 'detached' });
+  await page.locator('#open-memes').click();
+  await page.locator('button[data-kind="stickers"]').click();
+  await page.waitForFunction(() => document.querySelectorAll('.meme-pack-shortcuts [data-shortcut^="pack:"]').length === 3);
+  const initialPackOrder = await page.locator('.meme-pack-shortcuts [data-shortcut^="pack:"]').evaluateAll(buttons => buttons.map(button => button.title));
+  assert.deepEqual(initialPackOrder, ['测试合集', '第二合集', '第三合集']);
+  await page.locator('.meme-pack-shortcuts [title="第二合集"]').evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    const init = { bubbles: true, button: 0, pointerId: 91, isPrimary: true, pointerType: 'touch', clientX: bounds.left + bounds.width / 2, clientY: bounds.top + bounds.height / 2 };
+    element.dispatchEvent(new PointerEvent('pointerdown', init));
+  });
+  await page.waitForTimeout(540);
+  assert.equal(await page.locator('.meme-pack-shortcuts').getAttribute('data-reordering'), 'true', 'Long press did not lift the sticker shortcut');
+  assert.equal(await page.locator('.meme-shortcut-float').count(), 1, 'Lifted shortcut is not floating');
+  await page.evaluate(() => {
+    const target = document.querySelector('.meme-pack-shortcuts [title="第三合集"]');
+    const bounds = target.getBoundingClientRect();
+    window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, button: 0, pointerId: 91, isPrimary: true, pointerType: 'touch', clientX: bounds.right + 8, clientY: bounds.top + bounds.height / 2 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 91, isPrimary: true, pointerType: 'touch', clientX: bounds.right + 8, clientY: bounds.top + bounds.height / 2 }));
+  });
+  await page.waitForFunction(() => !document.querySelector('.meme-shortcut-float'));
+  await page.waitForFunction(async () => (await window.fixture.vault.loadStickerPacks(window.fixture.session)).map(pack => pack.title).join('|') === '测试合集|第三合集|第二合集');
+  assert.deepEqual(await page.locator('.meme-pack-shortcuts [data-shortcut^="pack:"]').evaluateAll(buttons => buttons.map(button => button.title)), ['测试合集', '第三合集', '第二合集']);
+  const unchangedButton = page.locator('.meme-pack-shortcuts [title="测试合集"]');
+  const unchangedBefore = await unchangedButton.boundingBox();
+  await unchangedButton.evaluate(element => {
+    const bounds = element.getBoundingClientRect();
+    element.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, pointerId: 92, isPrimary: true, pointerType: 'touch', clientX: bounds.left + bounds.width / 2, clientY: bounds.top + bounds.height / 2 }));
+  });
+  await page.waitForTimeout(540);
+  assert.equal(await page.locator('.meme-shortcut-float').count(), 1, 'Stationary long press did not enter reorder mode');
+  await page.evaluate(() => window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, pointerId: 92, isPrimary: true, pointerType: 'touch' })));
+  await page.waitForFunction(() => !document.querySelector('.meme-shortcut-float'));
+  assert.deepEqual(await page.evaluate(async () => (await window.fixture.vault.loadStickerPacks(window.fixture.session)).map(pack => pack.title)), ['测试合集', '第三合集', '第二合集'], 'Stationary release changed the saved order');
+  const unchangedAfter = await unchangedButton.boundingBox();
+  assert.ok(Math.abs(unchangedAfter.x - unchangedBefore.x) < 1 && Math.abs(unchangedAfter.y - unchangedBefore.y) < 1, 'Stationary release did not return the shortcut to its original slot');
+  await page.locator('.meme-pack-shortcuts [title="第三合集"]').press('Alt+ArrowLeft');
+  await page.waitForFunction(async () => (await window.fixture.vault.loadStickerPacks(window.fixture.session)).map(pack => pack.title).join('|') === '第三合集|测试合集|第二合集');
+  await page.locator('.meme-pack-shortcuts [title="第三合集"]').press('Alt+ArrowRight');
+  await page.waitForFunction(async () => (await window.fixture.vault.loadStickerPacks(window.fixture.session)).map(pack => pack.title).join('|') === '测试合集|第三合集|第二合集');
   await page.evaluate(async()=> {
     const { app,msg,session,vault,controller,files }=window.fixture;
     await app.favoriteChatMeme(msg,msg.payload.image);
@@ -230,7 +405,7 @@ try {
     catch(error) { if(error.message==='Stale pack install succeeded') throw error; }
     try { await vault.removeStickerPack(session,installed.id,cancelled.signal); throw new Error('Cancelled pack removal succeeded'); }
     catch(error) { if(error.message==='Cancelled pack removal succeeded') throw error; }
-    if((await vault.loadStickerPacks(session)).length!==1) throw new Error('Failed pack mutation changed index');
+    if((await vault.loadStickerPacks(session)).length!==3) throw new Error('Failed pack mutation changed index');
   });
   const out = process.argv[2];
   if(out) await mkdir(out,{recursive:true});
@@ -253,16 +428,20 @@ try {
     });
     assert.ok(geometry.left>=0 && geometry.right<=width && geometry.top>=height*0.4 && Math.abs(geometry.bottom-height)<=1 && !geometry.overflow,JSON.stringify(geometry));
     if(out) await page.screenshot({path:path.join(out,`memes-${width}.png`)});
+    const halfTileWidth=(await page.locator('.meme-tile').first().boundingBox()).width;
     await page.locator('.meme-open-search').click();
     await page.waitForFunction(()=>getComputedStyle(document.querySelector('.meme-search-dialog')).opacity==='1'&&getComputedStyle(document.querySelector('.meme-panel')).opacity==='1');
     const full=await page.locator('.meme-search-dialog').boundingBox();
+    const fullTileWidth=await page.locator('.meme-grid').evaluate(el => Math.min(132, (el.getBoundingClientRect().width - 16) / 5));
+    assert.ok(Math.abs(fullTileWidth-halfTileWidth)<1, `Tile width changed between half/full search at ${width}px: ${halfTileWidth}/${fullTileWidth}`);
     assert.ok(Math.abs(full.height-height)<=1&&full.y===0&&full.width===width,JSON.stringify(full));
     if(out) await page.screenshot({path:path.join(out,`search-${width}.png`)});
     await page.locator('.meme-back').click();
   }
   await page.emulateMedia({colorScheme:'dark'});
   if(out) await page.screenshot({path:path.join(out,'memes-dark.png')});
-  await page.locator('.meme-collapse').click();
+  await page.locator('#open-memes').click();
+  await page.locator('#meme-panel').waitFor({ state: 'detached' });
   assert.equal(await page.locator('.meme-panel').count(),0);
   assert.equal(await page.locator('.chat-shell').evaluate(el=>el.inert),false);
   assert.equal(await page.locator('#message-input').inputValue(),'保留这份草稿');
@@ -278,30 +457,97 @@ try {
   await page.waitForFunction(()=>window.fixture.app.imageBatchUploading===false);
   // The actual chat renderer must play the same original animation that was selected.
   await page.evaluate(async()=> {
-    const { app,session }=window.fixture;
-    const { starterGifs,starterMedia,STARTER_CACHE }=await import('/src/lib/sticker-library.ts');
+    const { app,session,networkGif }=window.fixture;
     const { encryptImageFile }=await import('/src/lib/file-crypto.ts');
-    const original=await starterMedia(starterGifs[0].asset,new AbortController().signal);
-    const file=new File([original],'chat-animation.png',{type:original.type});
+    const file=networkGif;
     const manifest=await encryptImageFile(file,{reserve:async()=>{},status:async()=>({uploadedIndexes:[],completed:false}),upload:async()=>{},complete:async()=>{},savePlan:async()=>{}});
     app.cacheLocalImage(manifest,file); app.messages.clear();
-    const msg={seq:2,clientMsgId:crypto.randomUUID(),senderId:session.vault.identity.publicBundle.deviceId,payload:{v:1,kind:'image',image:manifest,sentAt:new Date().toISOString()},acceptedAt:new Date().toISOString(),status:'delivered'};
+    const msg={seq:2,clientMsgId:crypto.randomUUID(),senderId:session.vault.identity.publicBundle.deviceId,payload:{v:1,kind:'image',presentation:'expression',image:manifest,sentAt:new Date().toISOString()},acceptedAt:new Date().toISOString(),status:'delivered'};
     app.messages.set(2,msg); app.renderChat();
-    const cached=await caches.open(STARTER_CACHE); if(!(await cached.match(starterGifs[0].asset))) throw new Error('Starter original not cached');
+    if ((await caches.keys()).includes('quiet-room-starter-media-v1')) throw new Error('Catalog original persisted to plaintext cache');
     const realFetch=window.fetch; window.fetch=()=>Promise.reject(new Error('offline'));
-    try { const offline=await starterMedia(starterGifs[0].asset,new AbortController().signal); if(offline.size!==file.size) throw new Error('Offline original changed'); }
+    try { app.renderChat(); }
     finally { window.fetch=realFetch; }
   });
   const chatAnimation=page.locator('.message-list .image-preview img').first();
   await chatAnimation.waitFor();
   await page.waitForFunction(()=>document.querySelector('.message-list .image-preview img')?.naturalWidth>0);
+  assert.equal(await page.locator('.message-list .image-preview').first().getAttribute('data-revealed'), 'false');
+  assert.equal(await page.locator('.expression-bubble').count(), 1);
+  assert.deepEqual(await chatAnimation.evaluate(image => { const style = getComputedStyle(image); return [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomLeftRadius, style.borderBottomRightRadius]; }), ['12px', '12px', '12px', '12px']);
+  if (out) await page.screenshot({path:path.join(out,'expression-rounded.png')});
+  const originalWidth = await chatAnimation.evaluate(image => image.naturalWidth);
+  assert.ok(Math.abs((await chatAnimation.boundingBox()).width - originalWidth * 2 / 3) < 1, 'Small expression did not shrink to two thirds');
   await page.locator('.message-list .image-preview').first().click();
-  const chatFrame=await chatAnimation.screenshot(); await page.waitForTimeout(350);
-  assert.notDeepEqual(await chatAnimation.screenshot(),chatFrame,'Sent chat animation was frozen');
+  await assertMoving(chatAnimation, 'Sent chat animation was frozen');
+  await page.locator('.message-list .image-preview').first().dispatchEvent('contextmenu');
+  await page.locator('.message-action-preview img').waitFor();
+  await page.waitForTimeout(350);
+  assert.equal(await page.locator('[data-message-action="favorite-meme"]').innerText(), '收藏为表情');
+  assert.equal(await page.locator('.message-action-preview img').evaluate(el => getComputedStyle(el).opacity), '1');
+  if (out) await page.screenshot({path:path.join(out,'expression-menu.png')});
+  await page.evaluate(() => window.fixture.app.closeMessageActions(false, false));
+  await page.evaluate(async () => {
+    const { app } = window.fixture;
+    const { CHAT_KEYBOARD_LAYOUT_MS, chatKeyboardLayoutProgress } = await import('/src/lib/chat-keyboard-layout.ts');
+    const verifyMotion = async property => {
+      const panel = document.querySelector('.meme-panel');
+      const animation = panel.getAnimations().find(item => item.effect.getKeyframes().some(frame => property in frame));
+      if (!animation || animation.effect.getTiming().duration !== CHAT_KEYBOARD_LAYOUT_MS) throw Error(`${property} motion did not share keyboard timing`);
+      animation.pause();
+      const frames = animation.effect.getKeyframes();
+      const value = frame => property === 'height' ? parseFloat(frame.height) : parseFloat(frame.transform.match(/translateY\(([-.\d]+)px\)/)[1]);
+      const start = value(frames[0]), end = value(frames.at(-1));
+      const expected = start + (end - start) * chatKeyboardLayoutProgress(CHAT_KEYBOARD_LAYOUT_MS / 2);
+      if (Math.abs(value(frames[12]) - expected) > 0.01 || start === end) throw Error('Panel motion lost the keyboard curve or travel');
+      animation.finish(); await animation.finished;
+      await new Promise(requestAnimationFrame);
+      return { start, end };
+    };
+    app.renderChat(); app.openMemePicker();
+    await verifyMotion('transform');
+    document.querySelector('.meme-open-search').click();
+    const expansion = await verifyMotion('height');
+    if (expansion.end <= expansion.start) throw Error('Search did not extend the half sheet');
+    document.querySelector('.meme-back').click();
+    const contraction = await verifyMotion('height');
+    if (contraction.end >= contraction.start || document.querySelector('.meme-search-dialog')) throw Error('Back did not restore the half sheet');
+    document.querySelector('.meme-open-search').click(); await verifyMotion('height');
+    document.querySelector('.meme-close').click();
+    if (!document.querySelector('.meme-panel')?.inert) throw Error('Closing panel remained interactive');
+    document.querySelector('.meme-search-dialog').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await verifyMotion('transform');
+    if (document.querySelector('.meme-panel') || document.querySelector('.chat-shell').inert) throw Error('Full close did not release the dialog');
+    app.openMemePicker(); await verifyMotion('transform');
+    document.querySelector('#open-memes').click(); await verifyMotion('transform');
+    if (document.querySelector('.meme-panel')) throw Error('Half close retained the panel');
+  });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => {
+    const { app } = window.fixture; app.renderChat(); app.openMemePicker();
+    document.querySelector('.meme-open-search').click();
+    if (document.querySelector('.meme-panel').getAnimations().length) throw Error('Reduced motion animated search');
+    document.querySelector('.meme-close').click();
+    if (document.querySelector('.meme-panel')) throw Error('Reduced motion delayed closing');
+  });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.evaluate(()=>{window.fixture.app.renderChat();window.fixture.app.openMemePicker();});
   await page.locator('.meme-panel').waitFor();
-  await page.evaluate(()=>window.fixture.app.obscurePrivacySurface());
+  await page.evaluate(()=> {
+    document.querySelector('.meme-open-search').click();
+    document.querySelector('.meme-close').click();
+    window.fixture.app.obscurePrivacySurface();
+  });
   assert.equal(await page.locator('.meme-panel,.meme-preview').count(),0,'Privacy curtain retained meme UI');
   assert.deepEqual(errors,[]);
-  console.log('Sticker picker: 30 packs/100 animations, moving pixels, half sheet, typed fullscreen search, atomic encrypted pack install/reopen, tap/hold send closure, privacy and responsive geometry passed.');
+  console.log('Sticker picker: server catalog defaults, moving pixels, half sheet, typed fullscreen search, atomic encrypted pack install/reopen, tap/hold send closure, privacy and responsive geometry passed.');
+} catch (error) {
+  const diagnostic = await page?.evaluate(() => ({
+    events: window.memeTestEvents,
+    buttons: [...document.querySelectorAll('.meme-pack-add')].map(button => ({ text: button.textContent, disabled: button.disabled })),
+    view: document.querySelector('.meme-panel')?.dataset.view,
+    covered: window.fixture?.app.privacyCovered,
+  })).catch(() => null);
+  console.error('MEME_TEST_STATE', JSON.stringify(diagnostic));
+  throw error;
 } finally { await browser?.close(); await server.close(); }

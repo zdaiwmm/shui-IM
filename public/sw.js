@@ -17,7 +17,7 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    await Promise.all((await caches.keys()).filter((key) => key !== CACHE && key !== 'quiet-room-starter-media-v1').map((key) => caches.delete(key)));
+    await Promise.all((await caches.keys()).filter((key) => key !== CACHE).map((key) => caches.delete(key)));
     await self.clients.claim();
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     await Promise.all(windows.map(client => client.postMessage({

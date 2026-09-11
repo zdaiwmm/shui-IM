@@ -54,8 +54,8 @@ export async function createVideoPoster(url: string, signal?: AbortSignal): Prom
     // video remains valid after the final candidate.
     const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
     const candidates = duration
-      ? [Math.min(0.1, duration / 2), duration / 2, Math.max(0, duration - 0.08)]
-      : [0.1];
+      ? [0, Math.min(0.1, duration / 2), duration / 2, Math.max(0, duration - 0.08)]
+      : [0, 0.1];
     const hasVisiblePixels = () => {
       const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
       const stride = Math.max(4, Math.floor(pixels.length / 256 / 4) * 4);

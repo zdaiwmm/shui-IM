@@ -2,9 +2,19 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 
-type Release = { id: string; title: string; notes: string[] };
+type Release = { id: string; title: string; notes: string[]; createdAt?: string };
 
 const release = JSON.parse(readFileSync(resolve('release.json'), 'utf8')) as Release;
+const releaseHistory = JSON.parse(readFileSync(resolve('release-history.json'), 'utf8')) as Release[];
+if ([release, ...releaseHistory].some(item => item.createdAt !== undefined
+  && (typeof item.createdAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})$/.test(item.createdAt) || !Number.isFinite(Date.parse(item.createdAt))))) {
+  throw new Error('Release record times must be valid ISO timestamps.');
+}
+if (!Array.isArray(releaseHistory) || new Set([...releaseHistory.map(item => item.id), release.id]).size !== releaseHistory.length + 1
+  || releaseHistory.some(item => typeof item.id !== 'string' || typeof item.title !== 'string' || !Array.isArray(item.notes)
+    || !item.notes.length || item.notes.some(note => typeof note !== 'string' || !note.trim()))) {
+  throw new Error('release-history.json must contain unique historical releases and non-empty notes.');
+}
 if (!/^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/.test(release.id)
   || typeof release.title !== 'string' || release.title.trim().length === 0
   || !Array.isArray(release.notes) || release.notes.length === 0

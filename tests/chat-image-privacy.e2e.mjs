@@ -70,6 +70,7 @@ try {
       imageNumber++;
       const file = new File([`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="${width}" height="${height}" fill="#809d97"/><rect x="0" y="${height * .18}" width="${width}" height="${height * .29}" fill="#eadbb7"/><rect x="0" y="${height * .68}" width="${width}" height="${height * .32}" fill="#526c61"/></svg>`], `聊天隐私-${imageNumber}.svg`, { type: 'image/svg+xml', lastModified: imageNumber });
       const manifest = await encryptImageFile(file, {
+        includeDimensions: true,
         reserve: async () => {}, status: async () => ({ uploadedIndexes: [], completed: false }),
         upload: async (blobId, index, bytes) => { encryptedChunks.set(`${blobId}:${index}`, bytes); },
         complete: async () => {}, savePlan: async () => {},
@@ -80,12 +81,12 @@ try {
       return manifest;
     };
     const sentAt = '2026-09-04T10:00:00.000Z';
-    const record = (seq, media, senderId = own.deviceId) => ({
+    const record = (seq, media, senderId = peer.deviceId) => ({
       seq, clientMsgId: crypto.randomUUID(), senderId,
       payload: { v: 1, sentAt, ...media }, acceptedAt: sentAt, status: senderId === own.deviceId ? 'stored' : 'delivered',
     });
     const records = [
-      record(1, { kind: 'image', image: await makeImage({ cached: true }) }),
+      record(1, { kind: 'image', presentation: 'expression', image: await makeImage({ cached: true }) }),
       record(2, { kind: 'image', image: await makeImage({ width: 8, height: 1200 }) }, peer.deviceId),
       record(3, { kind: 'image-album', images: [await makeImage({ cached: true, width: 1200, height: 8 }), await makeImage()] }),
     ];
@@ -119,22 +120,22 @@ try {
           if (!image) return true;
           const backdrop = getComputedStyle(button, '::before');
           return button.dataset.revealed === 'false'
-            ? getComputedStyle(image).filter.includes('blur(') && backdrop.backgroundImage !== 'none'
-              && backdrop.backgroundSize === 'cover' && backdrop.filter.includes('blur(') && Number(backdrop.opacity) === 1
-            : getComputedStyle(image).filter === 'none' && Number(backdrop.opacity) === 0;
+            ? Number(getComputedStyle(image).opacity) === 0 && getComputedStyle(image).filter === 'none' && backdrop.backgroundImage !== 'none'
+              && backdrop.backgroundSize === 'cover' && backdrop.filter === 'none' && Number(backdrop.opacity) === 1
+            : Number(getComputedStyle(image).opacity) === 1 && getComputedStyle(image).filter === 'none' && Number(backdrop.opacity) === 0;
         });
     }, { total, revealed });
     assert.equal(await previews.locator('img').evaluateAll(images => images.filter(image => {
       const hidden = image.closest('.image-preview').dataset.revealed === 'false';
       const backdrop = getComputedStyle(image.closest('.image-preview'), '::before');
       return hidden
-        ? !getComputedStyle(image).filter.includes('blur(') || backdrop.backgroundImage === 'none'
-          || backdrop.backgroundSize !== 'cover' || !backdrop.filter.includes('blur(') || Number(backdrop.opacity) !== 1
-        : getComputedStyle(image).filter !== 'none' || Number(backdrop.opacity) !== 0;
+        ? Number(getComputedStyle(image).opacity) !== 0 || getComputedStyle(image).filter !== 'none' || backdrop.backgroundImage === 'none'
+          || backdrop.backgroundSize !== 'cover' || backdrop.filter !== 'none' || Number(backdrop.opacity) !== 1
+        : Number(getComputedStyle(image).opacity) !== 1 || getComputedStyle(image).filter !== 'none' || Number(backdrop.opacity) !== 0;
     }).length), 0, `${reason}: thumbnail styling disagrees with its reveal state`);
   };
   const waitForClicks = () => page.waitForFunction(() => Date.now() >= window.chatPrivacy.app.suppressMediaClickUntil);
-  const drag = async (locator, { dx = 0, dy = 60, touch = false, followingClick = false } = {}) => locator.evaluate((element, { dx, dy, touch, followingClick }) => {
+  const drag = async (locator, { dx = 60, dy = 0, touch = false, followingClick = false } = {}) => locator.evaluate((element, { dx, dy, touch, followingClick }) => {
     if (touch) {
       // WebKit does not expose constructible Touch objects in this harness.
       // Supply the same read-only touch coordinates to the mounted listeners.
@@ -152,7 +153,7 @@ try {
       element.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerType: 'touch', pointerId: 9, isPrimary: true, clientX: 120, clientY: 200 }));
       const scrollReserved = sendTouch('touchmove', [finger(120 + dx, 200 + dy)], [finger(120 + dx, 200 + dy)]);
       const clearDuringTouch = element.dataset.revealed === 'true' && getComputedStyle(element.querySelector('img')).filter === 'none';
-      const displaced = new DOMMatrix(getComputedStyle(element.closest('.message-bubble')).transform).f;
+      const displaced = new DOMMatrix(getComputedStyle(element.closest('.message-bubble')).transform).e;
       sendTouch('touchend', [], [finger(120 + dx, 200 + dy)]);
       if (followingClick) element.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       return { scrollReserved, clearDuringTouch, displaced };
@@ -166,6 +167,68 @@ try {
 
   await page.waitForFunction(() => document.querySelectorAll('.message .image-preview img').length === 4);
   await assertVisibility(4, 0, 'Initial cached and decrypted thumbnails');
+  // Sent photos, videos and expressions now share the same explicit reveal rule.
+  const outgoingId = await page.evaluate(() => {
+    const app = window.chatPrivacy.app;
+    const message = app.messages.get(1);
+    window.chatPrivacy.originalIncoming = message;
+    app.messages.set(1, { ...message, senderId: app.session.vault.identity.publicBundle.deviceId, status: 'delivered' });
+    app.renderMessages();
+    return message.clientMsgId;
+  });
+  const outgoing = page.locator(`[data-client-msg-id="${outgoingId}"] .image-preview`);
+  assert.equal(await outgoing.getAttribute('data-revealed'), 'false', 'Sent expression did not start concealed');
+  await page.evaluate(() => {
+    const app = window.chatPrivacy.app;
+    const target = app.messages.get(1);
+    const peer = app.session.vault.members.find(member => member.role !== app.session.vault.role);
+    const acceptedAt = new Date(Date.now() - 11_000).toISOString();
+    app.messages.set(90, { seq: 90, clientMsgId: crypto.randomUUID(), senderId: peer.deviceId,
+      status: 'delivered', acceptedAt,
+      payload: { v: 1, kind: 'media-read', sentAt: acceptedAt,
+        target: { clientMsgId: target.clientMsgId, serverSeq: target.seq, senderId: target.senderId } } });
+    app.renderMessages();
+  });
+  assert.equal(await outgoing.getAttribute('data-revealed'), 'false', 'Peer read event revealed sent media');
+  assert.equal(await page.locator('.message').count(), 3, 'Read event became a chat message');
+  await outgoing.click();
+  assert.equal(await outgoing.getAttribute('data-revealed'), 'true', 'Manual reveal of sent media failed');
+  await page.evaluate(() => window.chatPrivacy.app.renderMessages());
+  assert.equal(await outgoing.getAttribute('data-revealed'), 'true', 'Duplicate read projection undid manual reveal');
+  await page.evaluate(() => {
+    const f = window.chatPrivacy;
+    f.app.messages.delete(90);
+    f.app.messages.set(1, f.originalIncoming);
+    f.app.concealChatImages();
+    f.app.renderMessages();
+  });
+  await assertVisibility(4, 0, 'Return to incoming-media fixture');
+  const bitmapEvidence = await page.evaluate(async () => {
+    const entries = [...window.chatPrivacy.app.imageCache.values()];
+    let maxJump = 0;
+    for (const cached of entries) {
+      if (!cached.concealedUrl || cached.concealedUrl === cached.url) return { valid: false };
+      const image = new Image(); image.src = cached.concealedUrl; await image.decode();
+      if (image.width > 128 || image.height > 128) return { valid: false };
+      const canvas = document.createElement('canvas'); canvas.width = image.width; canvas.height = image.height;
+      const context = canvas.getContext('2d'); context.drawImage(image, 0, 0);
+      const { data } = context.getImageData(0, 0, image.width, image.height);
+      for (let y = 1; y < image.height; y++) for (let x = 0; x < image.width; x++) {
+        const offset = (y * image.width + x) * 4;
+        for (let channel = 0; channel < 3; channel++) maxJump = Math.max(maxJump, Math.abs(data[offset + channel] - data[offset - image.width * 4 + channel]));
+      }
+    }
+    return { valid: true, maxJump };
+  });
+  assert(bitmapEvidence.valid && bitmapEvidence.maxJump <= 8, `Concealed bitmap has a discontinuous row: ${JSON.stringify(bitmapEvidence)}`);
+  const cachedBlurReused = await page.evaluate(() => {
+    const app = window.chatPrivacy.app;
+    const before = [...app.imageCache.entries()].map(([blobId, cached]) => [blobId, cached.concealedUrl]).sort();
+    app.renderMessages();
+    const after = [...app.imageCache.entries()].map(([blobId, cached]) => [blobId, cached.concealedUrl]).sort();
+    return before.length > 0 && before.every((entry, index) => entry[1] && entry[1] === after[index]?.[1]);
+  });
+  assert.equal(cachedBlurReused, true, 'A chat rerender regenerated an already cached concealed bitmap');
   assert.equal(await page.locator('.image-album .image-preview').count(), 2, 'Album fixture does not exercise individual cells');
   const first = previews.first();
   // A long hold can outlast the ordinary click-suppression interval. The
@@ -236,12 +299,12 @@ try {
     const row = element.closest('.message');
     const before = bubble.getBoundingClientRect();
     const rowBefore = row.getBoundingClientRect();
-    const fire = (type, y) => element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 61, isPrimary: true, button: 0, clientX: 120, clientY: y }));
+    const fire = (type, x) => element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 61, isPrimary: true, button: 0, clientX: x, clientY: 200 }));
     fire('pointerdown', 200); fire('pointermove', 260);
-    const firstPull = bubble.getBoundingClientRect().top - before.top;
+    const firstPull = bubble.getBoundingClientRect().left - before.left;
     const clearDuringPull = element.dataset.revealed === 'true' && getComputedStyle(element.querySelector('img')).filter === 'none';
     fire('pointermove', 380);
-    const longerPull = bubble.getBoundingClientRect().top - before.top;
+    const longerPull = bubble.getBoundingClientRect().left - before.left;
     const stillClear = element.dataset.revealed === 'true';
     const stableRow = row.getBoundingClientRect().height === rowBefore.height && row.getBoundingClientRect().top === rowBefore.top;
     fire('pointerup', 380);
@@ -256,11 +319,11 @@ try {
   await waitForClicks(); await first.click();
   const cancelledPull = await first.evaluate(element => {
     const bubble = element.closest('.message-bubble');
-    for (const [type, y] of [['pointerdown', 200], ['pointermove', 270], ['pointercancel', 270]]) element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 62, isPrimary: true, button: 0, clientX: 120, clientY: y }));
+    for (const [type, y] of [['pointerdown', 200], ['pointermove', 270], ['pointercancel', 270]]) element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 62, isPrimary: true, button: 0, clientX: y, clientY: 200 }));
     return { hidden: element.dataset.revealed === 'false', reset: getComputedStyle(bubble).transform === 'none', animations: bubble.getAnimations().length };
   });
-  assert.deepEqual(cancelledPull, { hidden: true, reset: true, animations: 0 }, 'Cancelled media drag did not immediately conceal and release motion');
-  await waitForClicks(); await first.click();
+  assert.deepEqual(cancelledPull, { hidden: false, reset: true, animations: 0 }, 'Cancelled/native media scrolling must preserve visibility and release motion');
+  await waitForClicks();
   const keyboardPriority = await first.evaluate(element => {
     const previous = document.documentElement.dataset.keyboardOpen;
     document.documentElement.dataset.keyboardOpen = 'true';
@@ -279,11 +342,11 @@ try {
 
   // A deliberate pull conceals all thumbnails, including those outside the
   // gesture target; the browser's subsequent synthesized click stays inert.
-  await drag(first, { dy: 12 });
+  await drag(first, { dx: 12 });
   await assertVisibility(4, 2, 'Small touch movement');
-  await drag(first, { dx: 80, dy: 30 });
-  await assertVisibility(4, 2, 'Horizontal gesture');
-  await drag(first, { dy: 24, followingClick: true });
+  await drag(first, { dx: 0, dy: 80 });
+  await assertVisibility(4, 2, 'Downward scrolling preserves visibility');
+  await drag(first, { dx: 24, followingClick: true });
   await assertVisibility(4, 0, 'Pointer pull and synthesized click');
   assert.equal(await page.locator('.image-viewer').count(), 0, 'A pull opened the viewer');
   await waitForClicks();
@@ -307,6 +370,7 @@ try {
   const newId = await page.evaluate(() => window.chatPrivacy.addImage({ delayed: true }));
   const delayed = page.locator(`.image-preview[data-blob-id="${newId}"]`);
   await page.waitForFunction(() => window.chatPrivacy.gate.waiting);
+  const pendingBox = await delayed.boundingBox();
   await assertVisibility(5, 1, 'New pending thumbnail');
   await delayed.evaluate(element => {
     window.chatPrivacy.loadingFeedback = [element.querySelector('.media-load-status')?.textContent];
@@ -324,6 +388,9 @@ try {
   await drag(first, { followingClick: true });
   await page.evaluate(() => { const gate = window.chatPrivacy.gate; gate.blobId = null; gate.release(); });
   await delayed.locator('img').waitFor();
+  const loadedBox = await delayed.boundingBox();
+  assert(pendingBox && loadedBox && Math.abs(pendingBox.width - loadedBox.width) < 1 && Math.abs(pendingBox.height - loadedBox.height) < 1,
+    `Known media dimensions shifted the placeholder: ${JSON.stringify({ pendingBox, loadedBox })}`);
   await assertVisibility(5, 0, 'Pull before delayed decryption resolves');
   const loadingFeedback = await page.evaluate(() => window.chatPrivacy.loadingFeedback.filter(Boolean));
   assert(loadingFeedback.some(value => value.startsWith('正在下载图片')), 'Loading feedback omitted the download stage');
@@ -333,7 +400,7 @@ try {
   await delayed.click();
   await delayed.click();
   await page.locator('.image-viewer.is-visible .viewer-stage img').waitFor();
-  await drag(page.locator('.viewer-stage'), { dy: 150 });
+  await drag(page.locator('.viewer-stage'), { dx: 0, dy: 150 });
   await page.locator('.image-viewer').waitFor({ state: 'detached' });
   await assertVisibility(5, 0, 'Viewer downward dismissal');
   await waitForClicks();
@@ -343,11 +410,11 @@ try {
     const f = window.chatPrivacy;
     const element = [...document.querySelectorAll('.message .image-preview')].find(preview => preview.dataset.revealed === 'true');
     const bubble = element.closest('.message-bubble');
-    for (const [type, y] of [['pointerdown', 200], ['pointermove', 280]]) element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 64, isPrimary: true, button: 0, clientX: 120, clientY: y }));
+    for (const [type, y] of [['pointerdown', 200], ['pointermove', 280]]) element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 64, isPrimary: true, button: 0, clientX: y, clientY: 200 }));
     window.dispatchEvent(new Event('blur'));
     const buttons = [...document.querySelectorAll('.message .image-preview')];
     const immediatelyHidden = buttons.length === 5 && buttons.every(button => button.dataset.revealed === 'false'
-      && (!button.querySelector('img') || getComputedStyle(button.querySelector('img')).filter.includes('blur(')));
+      && (!button.querySelector('img') || Number(getComputedStyle(button.querySelector('img')).opacity) === 0));
     const curtainVisible = getComputedStyle(document.querySelector('.privacy-curtain')).visibility === 'visible';
     window.dispatchEvent(new Event('focus'));
     element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch', pointerId: 64, isPrimary: true, button: 0, clientX: 120, clientY: 280 }));
@@ -430,6 +497,33 @@ try {
   await assertVisibility(7, 1, 'Repeated manifest isolated from the original revealed message');
   await drag(originalRow, { followingClick: true });
   await assertVisibility(7, 0, 'Pull hides both messages sharing one attachment');
+  // Actual encrypted outbox: hidden/away media cannot acknowledge reading.
+  await originalRow.scrollIntoViewIfNeeded();
+  await page.evaluate(() => {
+    const app = window.chatPrivacy.app;
+    app.session.vault.members.forEach(member => member.capabilities.push('media-read-v1'));
+    app.chatRestoreAnchor = null;
+    app.markVisibleMessagesRead();
+  });
+  assert.equal(await page.evaluate(() => window.chatPrivacy.app.mediaReadQueued.size), 0, 'Blurred media emitted read intent');
+  await page.evaluate(id => {
+    const app = window.chatPrivacy.app;
+    const preview = document.querySelector(`[data-client-msg-id="${id}"] .image-preview`);
+    app.chatRevealedAssets.add(preview.dataset.revealKey);
+    app.updateChatImageVisibility(preview);
+    app.activeSurface = 'away';
+    app.markVisibleMessagesRead();
+  }, repeatedIds.original);
+  assert.equal(await page.evaluate(() => window.chatPrivacy.app.mediaReadQueued.size), 0, 'Away surface emitted read intent');
+  await page.evaluate(() => { const app = window.chatPrivacy.app; app.activeSurface = 'chat'; app.markVisibleMessagesRead(); });
+  await page.waitForFunction(() => [...window.chatPrivacy.app.outbox.values()].some(item => item.payload.kind === 'media-read'));
+  const readOutbox = await page.evaluate(async id => {
+    const f = window.chatPrivacy;
+    f.app.markVisibleMessagesRead();
+    const items = (await f.vault.loadOutbox(f.session)).filter(item => item.payload.kind === 'media-read' && item.payload.target.clientMsgId === id);
+    return { count: items.length, seq: items[0]?.payload.target.serverSeq, visibleRows: document.querySelectorAll('.message').length };
+  }, repeatedIds.original);
+  assert.deepEqual(readOutbox, { count: 1, seq: 1, visibleRows: 6 }, 'Visible-media read was not saved once in the encrypted outbox without a chat row');
   await page.evaluate(() => {
     const f = window.chatPrivacy;
     f.app.openImageViewer([f.records[0].payload.image]);
@@ -440,14 +534,47 @@ try {
     const stage = document.querySelector('.viewer-stage');
     const image = stage.querySelector('img');
     const before = image.style.transform;
+    const concealedUrls = [...app.imageCache.values()].map(cached => cached.concealedUrl).filter(Boolean);
+    const revoke = URL.revokeObjectURL;
+    const revoked = [];
+    URL.revokeObjectURL = url => { revoked.push(url); revoke.call(URL, url); };
     app.cleanupRuntime();
+    URL.revokeObjectURL = revoke;
     image.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, clientX: 195, clientY: 422 }));
-    return { cleanupReleased: app.viewerGestureCleanup === null && app.chatImageConcealGesture === null, detached: !stage.isConnected, staleGestureIgnored: image.style.transform === before };
+    return { cleanupReleased: app.viewerGestureCleanup === null && app.chatImageConcealGesture === null, detached: !stage.isConnected, staleGestureIgnored: image.style.transform === before,
+      concealedUrlsRevoked: concealedUrls.length > 0 && concealedUrls.every(url => revoked.includes(url)) };
   });
-  assert.deepEqual(directCleanup, { cleanupReleased: true, detached: true, staleGestureIgnored: true }, 'Direct runtime teardown retained a viewer gesture closure');
+  assert.deepEqual(directCleanup, { cleanupReleased: true, detached: true, staleGestureIgnored: true, concealedUrlsRevoked: true }, 'Direct runtime teardown retained a viewer gesture closure or concealed bitmap');
+  await page.evaluate(async () => {
+    const f = window.chatPrivacy;
+    const encode = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function (callback, ...args) {
+      return encode.call(this, blob => {
+        if (!f.concealedEncodeGate) f.concealedEncodeGate = { release: () => callback(blob) };
+        else callback(blob);
+      }, ...args);
+    };
+    f.restoreEncoder = () => { HTMLCanvasElement.prototype.toBlob = encode; };
+    await f.reopen();
+  });
+  await page.waitForFunction(() => window.chatPrivacy.concealedEncodeGate);
+  const lateEncoding = await page.evaluate(async () => {
+    const f = window.chatPrivacy;
+    const pending = [...f.app.imageCache.values()].map(cached => cached.concealedPromise).filter(Boolean);
+    f.app.lockNow();
+    const create = URL.createObjectURL;
+    let created = 0;
+    URL.createObjectURL = blob => { created++; return create.call(URL, blob); };
+    f.concealedEncodeGate.release();
+    await Promise.allSettled(pending);
+    URL.createObjectURL = create;
+    f.restoreEncoder();
+    return { hadPending: pending.length > 0, created, cache: f.app.imageCache.size, chat: Boolean(document.querySelector('.chat-shell')) };
+  });
+  assert.deepEqual(lateEncoding, { hadPending: true, created: 0, cache: 0, chat: false }, 'Late concealed PNG encoding revived a locked runtime');
   await page.evaluate(() => window.chatPrivacy.app.lockNow());
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ browser: browserName, defaultHidden: true, longHoldReleaseHidden: true, revealThenView: true, albumCells: true, pointerAndTouchPull: true, dampedClearPullUntilRelease: true, cancelledPullReleased: true, keyboardGesturePriority: true, dragClickSuppressed: true, cachedRebuildHidden: true, reusedManifestIsolated: true, revealedReceiptRebuildPreserved: true, delayedDecodeHidden: true, viewerPullHidden: true, synchronousCoverHidden: true, rapidFocusHidden: true, lockAndReentryHidden: true, originalBytesPreserved: true }, null, 2));
+  console.log(JSON.stringify({ browser: browserName, defaultHidden: true, cachedBlurReused: true, longHoldReleaseHidden: true, revealThenView: true, albumCells: true, pointerAndTouchPull: true, dampedClearPullUntilRelease: true, cancelledPullReleased: true, keyboardGesturePriority: true, dragClickSuppressed: true, cachedRebuildHidden: true, reusedManifestIsolated: true, revealedReceiptRebuildPreserved: true, delayedDecodeHidden: true, viewerPullHidden: true, synchronousCoverHidden: true, rapidFocusHidden: true, lockAndReentryHidden: true, originalBytesPreserved: true }, null, 2));
 } finally {
   await browser?.close();
   await server.close();

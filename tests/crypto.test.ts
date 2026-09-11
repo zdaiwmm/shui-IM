@@ -151,6 +151,17 @@ describe('message encryption protocol', () => {
     }
   });
 
+  it('encrypts media read targets and timestamps for both enrolled devices', async () => {
+    const { creatorVault, joinerVault } = await pairedVaults();
+    const payload: MessagePayload = { v: 1, kind: 'media-read', sentAt: new Date().toISOString(),
+      target: { clientMsgId: crypto.randomUUID(), serverSeq: 8, senderId: joinerVault.identity.publicBundle.deviceId } };
+    const envelope = await encryptMessage(creatorVault, payload);
+    expect(JSON.stringify(envelope)).not.toContain(payload.target.clientMsgId);
+    expect(JSON.stringify(envelope)).not.toContain('media-read');
+    await expect(decryptMessage(joinerVault, envelope)).resolves.toEqual(payload);
+    await expect(decryptMessage(creatorVault, envelope)).resolves.toEqual(payload);
+  });
+
   it('fails closed when ciphertext is modified', async () => {
     const { creatorVault, joinerVault } = await pairedVaults();
     const envelope = await encryptMessage(creatorVault, {

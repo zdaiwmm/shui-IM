@@ -5,12 +5,54 @@ import path from 'node:path';
 import { request as httpRequest } from 'node:http';
 import { startServer } from '../server/index.mjs';
 import { makeAdminConfig, totp, verifyAdmin } from '../server/admin-auth.mjs';
+import { createExpressionCatalog } from '../server/expression-catalog.mjs';
 import { generateIdentity } from '../src/lib/crypto';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { vi.useRealTimers(); for (const fn of cleanups.splice(0)) await fn(); });
 
 describe('isolated session administration', () => {
+  it('renews the idle cookie, requires CSRF for renewal, caps absolute lifetime and revokes logout', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'quiet-admin-session-'));
+    const password = 'long-admin-session-test-password';
+    const config = await makeAdminConfig(password);
+    const server = await startServer({ port: 0, host: '127.0.0.1', dataDir: dir, adminConfig: config, quiet: true });
+    cleanups.push(async () => { await server.close(); await rm(dir, { recursive: true, force: true }); });
+    const send = (route: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}) => new Promise<{ status: number; cookie: string; body: any }>((resolve, reject) => {
+      const request = httpRequest({ hostname: '127.0.0.1', port: server.port, path: `/admin-api/${route}`, method, agent: false,
+        headers: { Host: 'admin.mijiu.cloud', Origin: 'https://admin.mijiu.cloud', 'Content-Type': 'application/json', ...headers } }, response => {
+        const chunks: Buffer[] = []; response.on('data', chunk => chunks.push(chunk));
+        response.on('end', () => resolve({ status: response.statusCode!, cookie: response.headers['set-cookie']?.[0] ?? '', body: JSON.parse(Buffer.concat(chunks).toString()) }));
+      });
+      request.on('error', reject); request.end(body === undefined ? undefined : JSON.stringify(body));
+    });
+    const start = Date.now(); vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(start);
+    const login = await send('login', 'POST', { password, code: totp(config.totpSecret) });
+    expect(login.status).toBe(200); expect(login.cookie).toContain('Max-Age=604800');
+    const headers = { Cookie: login.cookie.split(';')[0]!, 'X-CSRF-Token': login.body.csrf };
+    expect((await send('session', 'POST', undefined, { Cookie: headers.Cookie })).status).toBe(403);
+    expect((await send('session', 'POST', undefined, { ...headers, Origin: 'https://ai.shui.click' })).status).toBe(403);
+    for (const minute of [2 * 24 * 60, 6 * 24 * 60, 7 * 24 * 60 - 1]) {
+      vi.setSystemTime(start + minute * 60_000);
+      const renewed = await send('session', 'POST', undefined, headers);
+      expect(renewed.status).toBe(200);
+      expect(renewed.cookie).toContain(`Max-Age=${(7 * 24 * 60 - minute) * 60}`);
+      expect(renewed.body.csrf).toBe(login.body.csrf);
+    }
+    vi.setSystemTime(start + 7 * 24 * 60 * 60_000);
+    const expired = await send('session', 'POST', undefined, headers);
+    expect(expired.status).toBe(401); expect(expired.body.code).toBe('SESSION_EXPIRED'); expect(expired.cookie).toContain('Max-Age=0');
+    const next = await send('login', 'POST', { password, code: totp(config.totpSecret) });
+    const nextHeaders = { Cookie: next.cookie.split(';')[0]!, 'X-CSRF-Token': next.body.csrf };
+    vi.setSystemTime(start + 14 * 24 * 60 * 60_000);
+    expect((await send('session', 'POST', undefined, nextHeaders)).status).toBe(401);
+    const last = await send('login', 'POST', { password, code: totp(config.totpSecret) });
+    const lastHeaders = { Cookie: last.cookie.split(';')[0]!, 'X-CSRF-Token': last.body.csrf };
+    expect((await send('session', 'GET', undefined, lastHeaders)).status).toBe(200);
+    const logout = await send('logout', 'POST', undefined, lastHeaders);
+    expect(logout.status).toBe(200); expect(logout.cookie).toContain('Max-Age=0');
+    expect((await send('session', 'POST', undefined, lastHeaders)).status).toBe(401);
+  });
   it('implements RFC TOTP and rejects reused or invalid factors', async () => {
     // RFC 6238 SHA-1 test secret; the application uses its six-digit suffix.
     const secret = 'GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ';
@@ -29,7 +71,7 @@ describe('isolated session administration', () => {
     cleanups.push(async () => { await server.close(); await rm(dir, { recursive: true, force: true }); });
     const send = (route: string, method = 'GET', body?: unknown, headers: Record<string, string> = {}) => new Promise<Response>((resolve, reject) => {
       const request = httpRequest({ hostname: '127.0.0.1', port: server.port, path: route, method, agent: false,
-        headers: { Host: 'sao.shui.click', Origin: 'https://sao.shui.click', 'Content-Type': 'application/json',
+        headers: { Host: 'admin.mijiu.cloud', Origin: 'https://admin.mijiu.cloud', 'Content-Type': 'application/json',
           ...(body === undefined ? {} : { 'Content-Length': Buffer.byteLength(JSON.stringify(body)) }), ...headers } }, response => {
         const chunks: Buffer[] = []; response.on('data', chunk => chunks.push(chunk));
         response.on('end', () => resolve(new Response(Buffer.concat(chunks), { status: response.statusCode,
@@ -55,6 +97,34 @@ describe('isolated session administration', () => {
     const identity = await generateIdentity();
     const { roomId } = server.store.createRoom(identity.publicBundle, 't'.repeat(43), 'i'.repeat(43), '<img src=x onerror=alert(1)>');
     const headers = { Cookie: cookie, 'X-CSRF-Token': csrf };
+    const upload = { kind: 'gifs', title: '<img src=x onerror=alert(1)>', tags: 'cat', files: [{ data: 'R0lGODlhAQABAIAAAAAAAP///yH5BAAAAAAALAAAAAABAAEAAAIBRAA7' }] };
+    expect((await send('/admin-api/expressions')).status).toBe(401);
+    expect((await send('/admin-api/expressions', 'POST', upload, { Cookie: cookie })).status).toBe(403);
+    expect((await send('/admin-api/expressions', 'POST', upload, { ...headers, Origin: 'https://ai.shui.click' })).status).toBe(403);
+    const seed = createExpressionCatalog({ dataDir: dir });
+    const notoId = 'noto-1f3f3_fe0f';
+    seed.initializeShipped(() => [{ entry: { id: notoId, kind: 'gifs', title: 'white flag', tags: '', author: 'Google Noto', source: 'fixture' }, files: [{ title: 'white flag', bytes: Buffer.from(upload.files[0].data, 'base64') }] }], 'test-noto');
+    await seed.close();
+    expect((await send(`/admin-api/expressions/${notoId}/media/0`)).status).toBe(401);
+    expect((await send(`/admin-api/expressions/${notoId}/media/0`, 'GET', undefined, headers)).headers.get('content-type')).toBe('image/gif');
+    expect((await send(`/admin-api/expressions/${notoId}`, 'GET', undefined, headers)).status).toBe(200);
+    expect((await send('/admin-api/expressions/status', 'PATCH', { ids: [notoId], status: 'pending' }, headers)).status).toBe(200);
+    expect((await send(`/admin-api/expressions/${notoId}`, 'DELETE', undefined, headers)).status).toBe(200);
+    const created = await send('/admin-api/expressions', 'POST', upload, headers);
+    expect(created.status).toBe(201); const expression = await created.json();
+    expect(expression.status).toBe('pending');
+    const batch = { ids: [expression.id], status: 'published' };
+    expect((await send('/admin-api/expressions/status', 'PATCH', batch)).status).toBe(401);
+    expect((await send('/admin-api/expressions/status', 'PATCH', batch, { Cookie: cookie })).status).toBe(403);
+    expect((await send('/admin-api/expressions/status', 'PATCH', batch, { ...headers, Origin: 'https://ai.shui.click' })).status).toBe(403);
+    const batchResult = await send('/admin-api/expressions/status', 'PATCH', batch, headers);
+    expect(batchResult.status).toBe(200);
+    expect(await batchResult.json()).toEqual({ updated: 1 });
+    expect((await send('/admin-api/expressions/status', 'PATCH', { ids: [], status: 'pending' }, headers)).status).toBe(400);
+    expect((await send(`/admin-api/expressions/${expression.id}/media/0`, 'GET', undefined, headers)).headers.get('content-type')).toBe('image/gif');
+    expect((await send(`/admin-api/expressions/${expression.id}`, 'PATCH', { title: 'Reviewed', tags: 'cat', status: 'published' }, headers)).status).toBe(200);
+    expect((await send(`/admin-api/expressions/${expression.id}`, 'DELETE', undefined, headers)).status).toBe(200);
+    expect((await send(`/admin-api/expressions/${expression.id}/media/0`, 'GET', undefined, headers)).status).toBe(404);
     const list = await send('/admin-api/rooms', 'GET', undefined, headers);
     expect((await list.json()).rooms[0].roomId).toBe(roomId);
     const detail = await send(`/admin-api/rooms/${roomId}`, 'GET', undefined, headers);

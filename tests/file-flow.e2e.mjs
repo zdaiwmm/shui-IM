@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
+import { readerPdf, readerEpub } from './fixtures/document-fixtures.mjs';
 
 // Exercise the real picker, attachment crypto and UI against an opaque in-memory
 // blob service. Message transport is captured at enqueuePayload; MLS coverage
@@ -135,7 +136,7 @@ try {
       new File([new Uint8Array([0, 255, 1, 128, 10, 13, 42])], 'opaque.unknown', { type: '', lastModified: 3 }),
     ];
     const choose = (destination, files) => {
-      const input = root.querySelector(destination === 'gallery' ? '#gallery-image-input' : '#image-input');
+      const input = root.querySelector(destination === 'gallery' ? '#gallery-image-input' : '#file-input');
       check(input && input.multiple, `${destination}: multiple file selection is unavailable`);
       input.dispatchEvent(new Event('click'));
       const transfer = new DataTransfer();
@@ -158,7 +159,7 @@ try {
     const { root, fresh, check } = window.fileFlow;
     for (const destination of ['chat', 'gallery']) {
       fresh(destination);
-      const input = root.querySelector(destination === 'gallery' ? '#gallery-image-input' : '#image-input');
+      const input = root.querySelector(destination === 'gallery' ? '#gallery-image-input' : '#file-input');
       check(input && input.multiple && !input.getAttribute('accept'), `${destination}: picker still restricts file formats`);
     }
     return { chat: 'all files', gallery: 'all files', multiple: true };
@@ -196,18 +197,16 @@ try {
     return { name: download.suggestedFilename(), bytes: Buffer.concat(parts) };
   };
   const openInReader = async locator => {
-    const pending = page.waitForEvent('popup');
     await locator.click();
-    const reader = await pending;
-    await reader.waitForURL('blob:**', { timeout: 5_000 });
-    assert(reader.url().startsWith('blob:'), 'Readable file did not open through a system reader');
-    await reader.close();
+    await page.locator('.document-reader[data-state="ready"] .reader-text').waitFor();
+    assert((await page.locator('.reader-text').textContent()).length > 0, 'Reader contains no verified text');
+    await page.getByRole('button', { name: '关闭阅读器', exact: true }).click();
   };
   await openInReader(page.locator('.message .file-attachment').filter({ hasText: '说明书.txt' }));
   const binary = await readDownload(page.locator('.message .file-attachment').filter({ hasText: 'opaque.unknown' }));
   assert.equal(binary.name, 'opaque.unknown');
   assert.deepEqual(binary.bytes, Buffer.from([0, 255, 1, 128, 10, 13, 42]));
-  results.downloads = { readableText: 'verified bytes handed to system reader', binary: 'exact original bytes' };
+  results.downloads = { readableText: 'verified text displayed in local reader', binary: 'exact original bytes' };
 
   // Locking while a chunk is in flight must stop the late download; stale card
   // listeners must also be unable to start another read after the UI is gone.
@@ -224,6 +223,7 @@ try {
   await staleCard.evaluate(card => card.dispatchEvent(new MouseEvent('click', { bubbles: true })));
   await page.waitForTimeout(250);
   assert.equal(downloads.length, beforeLockDownloads, 'A pending or stale file card downloaded after lock');
+  assert.equal(await page.locator('.document-reader').count(), 0, 'Late verified bytes reopened the reader after lock');
   assert.equal(await page.evaluate(() => window.fileFlow.requests.reads), readsAtLock, 'A stale card started a file read after lock');
   assert.equal(await page.locator('.cover-trigger').count(), 1);
   results.lockedDownloads = { inFlight: 'cancelled', staleCard: 'ignored' };
@@ -336,7 +336,7 @@ try {
       await page.evaluate(({ destination, order }) => {
         const f = window.fileFlow;
         f.fresh(destination);
-        f.root.querySelector(destination === 'gallery' ? '#open-gallery-image-picker' : '#open-image-picker').click();
+        f.root.querySelector(destination === 'gallery' ? '#open-gallery-image-picker' : '#open-file-picker').click();
         const input = f.app.imagePickerInput;
         f.blur();
         f.check(!f.app.privacyCovered && input.isConnected && input.hidden, 'Owned foreground picker blur locked or detached its selection input');
@@ -364,7 +364,7 @@ try {
       await page.evaluate(({ destination, order }) => {
         const f = window.fileFlow;
         f.fresh(destination);
-        f.root.querySelector(destination === 'gallery' ? '#open-gallery-image-picker' : '#open-image-picker').click();
+        f.root.querySelector(destination === 'gallery' ? '#open-gallery-image-picker' : '#open-file-picker').click();
         const input = f.app.imagePickerInput;
         f.blur();
         const transfer = new DataTransfer();
@@ -389,6 +389,54 @@ try {
       results.pickerLifecycle.push({ destination, order, ...invalidated, foreground });
     }
   }
+  for (const destination of ['chat', 'gallery']) {
+    await page.evaluate(({ destination, pdf, epub }) => {
+      const f = window.fileFlow;
+      f.fresh(destination);
+      f.choose(destination, [
+        new File([new Uint8Array(pdf)], '阅读样本.pdf', { type: 'application/pdf' }),
+        new File([new Uint8Array(epub)], '安静的房间.epub', { type: 'application/epub+zip' }),
+        ...['docx', 'xlsx', 'pptx', 'zip', 'md'].map(extension => new File(['format-icon fixture'], `资料.${extension}`, { type: 'application/octet-stream' })),
+      ]);
+    }, { destination, pdf: readerPdf(), epub: await readerEpub({ cover: true }) });
+    await page.waitForFunction(() => window.fileFlow.sent.length === 7 && !window.fileFlow.app.imageBatchUploading);
+    if (destination === 'gallery') await page.locator('#gallery-tab-files').click();
+    const cards = page.locator(destination === 'chat' ? '.message .file-attachment' : '.gallery-file');
+    assert.equal(await cards.count(), 7);
+    await cards.filter({ hasText: '安静的房间.epub' }).scrollIntoViewIfNeeded();
+    await cards.locator('.file-epub-cover').waitFor();
+    assert.equal(new Set(await cards.locator('.file-format-icon').evaluateAll(nodes => nodes.map(node => node.dataset.fileFormat))).size, 6);
+    assert.deepEqual(new Set(await cards.locator('.file-format-icon small').allTextContents()), new Set(['PDF', 'DOCX', 'XLSX', 'PPTX', 'ZIP', 'MD']));
+    assert(await cards.locator('.file-epub-cover').evaluate(image => image.decode().then(() => image.naturalWidth > 0 && image.naturalWidth <= 128)));
+    await captureFiles(`${destination}-format-icons`);
+    await cards.filter({ hasText: '安静的房间.epub' }).click();
+    await page.locator('.document-reader[data-state="ready"] .reader-epub').waitFor();
+    assert.match(await page.locator('.reader-epub').textContent(), /窗外的光/);
+    await page.evaluate(() => window.fileFlow.app.lockNow());
+    assert.equal(await page.locator('.document-reader').count(), 0);
+    assert.equal(await page.locator('.file-epub-cover').count(), 0);
+  }
+  results.epubAndFormatIcons = 'Verified original EPUB opens from chat and Safe; format icons differ; lock removes reader';
+  results.expressions = await page.evaluate(async () => {
+    const f=window.fileFlow;
+    f.fresh(); const reservations=f.requests.reservations;
+    f.check(!await f.app.processImageBatch([f.fixtures()[0]], 'chat', undefined, true), 'Old device accepted expression');
+    f.check(f.requests.reservations===reservations, 'Expression uploaded before compatibility check');
+    f.fresh('chat', 'creator', ['image-album-v1', 'file-message-v1', 'expression-image-v1']);
+    f.check(await f.app.processImageBatch([f.fixtures()[0]], 'chat', undefined, true), 'Expression failed to send');
+    const message=f.sent[0];
+    f.check(message.payload.presentation==='expression', 'Image payload lost expression marker');
+    const vault=await import('/src/lib/vault.ts');
+    await vault.saveHistoryMessage(f.session, message);
+    const safe=await vault.loadMediaHistoryPage(f.session);
+    f.check(!safe.messages.some(m=>m.clientMsgId===message.clientMsgId), 'Expression entered automatic Safe history');
+    const favorites=await vault.loadMediaHistoryPage(f.session, {includeExpressions:true});
+    f.check(favorites.messages.some(m=>m.clientMsgId===message.clientMsgId), 'Manual favorites lost expression source');
+    f.app.renderGallery();
+    f.check(!document.querySelector('.gallery-tile'), 'Pending expression entered Safe');
+    f.app.lockNow();
+    return {encryptedMarker:true, compatibilityGate:true, excludedFromSafe:true, availableForManualFavorite:true};
+  });
   await page.evaluate(() => window.fileFlow.app.lockNow());
   assert.deepEqual(errors, []);
   console.log(JSON.stringify(results, null, 2));

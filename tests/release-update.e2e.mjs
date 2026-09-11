@@ -47,12 +47,32 @@ try {
   });
 
   await page.locator('.release-notes-sheet.is-visible').waitFor();
+  await page.waitForTimeout(400);
+  const fixedNotes = await page.evaluate(async () => {
+    const panel = document.querySelector('.release-notes-panel');
+    const header = panel.querySelector('.release-notes-header');
+    const close = panel.querySelector('button');
+    const details = panel.querySelector('.release-notes-details');
+    const before = [header.getBoundingClientRect().top, close.getBoundingClientRect().top];
+    details.scrollTop = details.scrollHeight;
+    await new Promise(requestAnimationFrame);
+    const after = [header.getBoundingClientRect().top, close.getBoundingClientRect().top];
+    const bottomGap = panel.getBoundingClientRect().bottom - panel.querySelector('li:last-child').getBoundingClientRect().bottom;
+    details.scrollTop = 0;
+    return { before, after, bottomGap, outline: getComputedStyle(close).outlineStyle,
+      scrollable: details.scrollHeight > details.clientHeight, bounce: getComputedStyle(details).overscrollBehaviorY };
+  });
+  if (JSON.stringify(fixedNotes.before) !== JSON.stringify(fixedNotes.after) || fixedNotes.bottomGap < 24
+    || fixedNotes.outline !== 'none' || !fixedNotes.scrollable || fixedNotes.bounce !== 'contain') throw Error(`Release sheet geometry: ${JSON.stringify(fixedNotes)}`);
   const notes = await page.locator('.release-notes-panel li').allTextContents();
-  const expectedNotes = await page.evaluate(() => window.releaseFixture.release.currentRelease.notes);
+  const expectedNotes = await page.evaluate(async () => {
+    const history = (await import('/release-history.json')).default;
+    return [...new Set([...history.flatMap(item => item.notes), ...window.releaseFixture.release.currentRelease.notes])];
+  });
   if (!notes.length || JSON.stringify(notes) !== JSON.stringify(expectedNotes) || notes.some(note => !note.trim())) {
     throw new Error(`Release notes were not rendered as the manifest's ordered list: ${JSON.stringify({ notes, expectedNotes })}`);
   }
-  await page.locator('.release-notes-panel .primary-button').click();
+  await page.getByRole('button', { name: '关闭更新说明' }).click();
   await page.locator('.release-notes-sheet').waitFor({ state: 'detached' });
   const seen = await page.evaluate(() => {
     window.releaseFixture.app.renderChat();
@@ -63,6 +83,15 @@ try {
     };
   });
   if (seen.stored !== seen.current || seen.repeated) throw new Error(`Release notes did not remain one-time: ${JSON.stringify(seen)}`);
+  await page.getByLabel('更多操作').click();
+  await page.locator('#release-history').click();
+  await page.locator('.release-history-content h2').first().waitFor();
+  const versions = await page.locator('.release-history-content h2').allTextContents();
+  const dates = await page.locator('.release-history-content time').allTextContents();
+  if (dates.some(date => !/\d{2}:\d{2}/.test(date))) throw Error('Release history is missing minute precision');
+  if (JSON.stringify(versions) !== JSON.stringify(await page.evaluate(() => window.releaseFixture.release.releaseLog.map(item => item.id)))) throw new Error('Release log order mismatch');
+  await page.getByRole('button', { name: '返回聊天' }).click();
+  await page.locator('.chat-shell:not(.is-page-outgoing)').waitFor();
 
   await page.evaluate(() => window.releaseFixture.release.acceptReleaseWorkerMessage({ type: 'quiet-room-release-ready', releaseId: 'next-release' }));
   const banner = page.locator('.release-update-reminder');
@@ -71,8 +100,40 @@ try {
     text: element.textContent.replace(/\s+/g, ' ').trim(),
     buttonHeight: element.querySelector('button').getBoundingClientRect().height,
   }));
-  if (layout.text !== '有新版本待更新 更新' || layout.buttonHeight < 44) throw new Error(`Update banner is incomplete: ${JSON.stringify(layout)}`);
+  if (layout.text !== '有新版本待更新 更新' || layout.buttonHeight < 44 - 0.01) throw new Error(`Update banner is incomplete: ${JSON.stringify(layout)}`);
   if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`);
+  await page.evaluate(async () => {
+    const { mountPortraitOrientation } = await import('/src/lib/portrait-orientation.ts');
+    const nativeMatch = window.matchMedia;
+    const mobile = new EventTarget(); mobile.matches = true;
+    window.matchMedia = query => query === '(pointer: coarse)' ? mobile : nativeMatch(query);
+    Object.defineProperty(screen.orientation, 'type', { configurable: true, value: 'portrait-primary' });
+    const root = document.querySelector('#app'), dispose = mountPortraitOrientation(root);
+    let reads = 0; const presence = [];
+    window.releaseFixture.app.socket = { setChatPresence: value => presence.push(value) };
+    const originalRead = window.releaseFixture.app.unreadCounter.markRead;
+    window.releaseFixture.app.unreadCounter.markRead = () => { reads++; return Promise.resolve(); };
+    if (root.inert) throw Error('Portrait unexpectedly blocked');
+    Object.defineProperty(screen.orientation, 'type', { configurable: true, value: 'landscape-primary' });
+    screen.orientation.dispatchEvent(new Event('change'));
+    if (root.inert) throw Error('Contradictory emulated orientation blocked portrait');
+    Object.defineProperty(screen, 'width', { configurable: true, value: 844 });
+    Object.defineProperty(screen, 'height', { configurable: true, value: 390 });
+    screen.orientation.dispatchEvent(new Event('change'));
+    if (!root.inert || document.querySelector('.portrait-orientation-guard').hidden) throw Error('Landscape remained interactive');
+    window.releaseFixture.app.updateCallView({ phase: 'idle' });
+    if (!root.inert) throw Error('Call dismissal bypassed landscape protection');
+    window.releaseFixture.app.markVisibleMessagesRead();
+    if (reads || presence.at(-1) !== false) throw Error('Landscape advertised readable chat');
+    Object.defineProperty(screen.orientation, 'type', { configurable: true, value: 'portrait-primary' });
+    Object.defineProperty(screen, 'width', { configurable: true, value: 390 });
+    Object.defineProperty(screen, 'height', { configurable: true, value: 844 });
+    screen.orientation.dispatchEvent(new Event('change'));
+    if (root.inert || !document.querySelector('.portrait-orientation-guard').hidden) throw Error('Portrait failed to restore');
+    dispose(); window.matchMedia = nativeMatch;
+    window.releaseFixture.app.socket = null;
+    window.releaseFixture.app.unreadCounter.markRead = originalRead;
+  });
   console.log(JSON.stringify({ releaseNotes: notes.length, oneTime: true, updateBanner: layout }, null, 2));
 } finally {
   await browser?.close();

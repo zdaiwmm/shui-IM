@@ -39,7 +39,11 @@ function publishApproved(args, run, timed) {
   timed('preflight', () => run(process.execPath, [path.join(root, 'scripts/release.mjs'), '--doctor'], { stdio: 'inherit', timeout: 120000 }));
   timed('verify-main', () => {
     const remoteSHA = run('gh', ['api', `repos/${repo}/commits/main`, '--jq', '.sha']);
-    if (remoteSHA !== sha) throw new Error('Approved commit is not the current GitHub main. Review the new main before publishing.');
+    if (!/^[a-f0-9]{40}$/.test(remoteSHA)) throw new Error('Invalid GitHub main identity.');
+    const comparison = JSON.parse(run('gh', ['api', `repos/${repo}/compare/${sha}...${remoteSHA}`]));
+    if (!['ahead', 'identical'].includes(comparison.status) || comparison.merge_base_commit?.sha !== sha) {
+      throw new Error('Approved commit is not an ancestor of current GitHub main. Nothing deployed.');
+    }
   });
   timed('wait-ci', () => {
     const ci = selectRun(readCIRuns(run, sha), sha);
@@ -68,8 +72,11 @@ function publishApproved(args, run, timed) {
     env.GIT_CONFIG_VALUE_0 = '!gh auth git-credential';
   }
   timed('clone', () => {
-    run('git', ['clone', '--depth', '1', '--single-branch', '--branch', 'main', cloneUrl, directory], { env, timeout: 120000 });
-    if (run('git', ['rev-parse', 'HEAD'], { cwd: directory }) !== sha) throw new Error('Main changed while preparing release. Nothing deployed.');
+    run('git', ['clone', '--filter=blob:none', '--single-branch', '--branch', 'main', cloneUrl, directory], { env, timeout: 120000 });
+    run('git', ['merge-base', '--is-ancestor', sha, 'origin/main'], { cwd: directory, env });
+    // Only this newly created isolated clone is moved to the approved batch.
+    run('git', ['checkout', '-B', 'main', sha], { cwd: directory, env });
+    if (run('git', ['rev-parse', 'HEAD'], { cwd: directory, env }) !== sha) throw new Error('Isolated release differs from approved SHA.');
   });
   if (sourcePath) {
     const target = path.join(directory, '.deploy.local.json');

@@ -88,6 +88,8 @@ try {
 
       // Exercise a genuine ICE restart and both endpoints' fresh-credential path through the public online event.
       window.dispatchEvent(new Event('online'));
+      check(configRequests === 2, 'Online event disturbed healthy media');
+      await caller.restartIce(caller.context, true);
       await wait(() => configRequests >= 4 && caller.state.phase === 'connected' && callee.state.phase === 'connected', () => `ICE recovery failed: ${JSON.stringify({ configRequests, caller: caller.state.phase, callee: callee.state.phase, callerStatus: caller.state.statusText, calleeStatus: callee.state.statusText, callerSignaling: caller.pc?.signalingState, calleeSignaling: callee.pc?.signalingState, callerIce: caller.pc?.iceConnectionState, calleeIce: callee.pc?.iceConnectionState, actions })}`);
 
       const streams = [caller.state.localStream, callee.state.localStream];

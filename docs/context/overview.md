@@ -1,5 +1,19 @@
 # Quiet Room 项目地图
 
+后台组件层：`src/admin/ui.ts`、`src/admin.css`，页面与验证契约见
+[后台组件与页面](../workflows/admin-ui.md)。后台页面由 `src/admin.ts` 编排，共用表格、分页、状态与错误处理组件。
+
+本机 PDF／EPUB／文本阅读：`src/lib/document-reader.ts`、`src/lib/pdf-reader.ts`、`src/lib/epub-reader.ts`、
+`src/lib/epub-archive.worker.ts`、`src/lib/document-paging.ts`、`src/document-reader.css`；文件格式图标在 `src/lib/file-format.ts`。
+专项 `tests/document-reader.e2e.mjs`，附件接入与锁定回归仍在 `tests/file-flow.e2e.mjs`、
+`tests/file-interactions.e2e.mjs`。范围与安全边界见 [D-038](decisions.md#d-038pdf-与文本改用本机内置阅读器)。
+
+聊天工具与附件收藏入口：`src/chat-tools.css`、`src/lib/attachment-favorites.ts`、`src/app.ts`。
+空输入框长按与圆弧录音层：`src/lib/voice-gesture.ts`、`src/lib/voice-recorder.ts`。
+产品范围见 [PRODUCT.md](../../PRODUCT.md#chat-tools-and-attachment-favorites)，验证见
+`tests/chat-tools.e2e.mjs`、`tests/attachment-favorites.test.ts`、`tests/voice-gestures.e2e.mjs`。
+该收藏是加密本机标识投影，与下方梗图独立副本不同。
+
 更新时间：2026-09-07。本页用于按任务定位，不复制完整产品说明或目录树。相对路径均从仓库根目录计算。
 
 ## 一分钟认识项目
@@ -16,31 +30,40 @@
 
 梗图面板与本机收藏见 [MEMES.md](../../MEMES.md)、`src/lib/meme-picker.ts`、`src/lib/meme-media.ts`、
 `src/lib/vault.ts` 的收藏存储及 `src/memes.css`；专项为 `tests/meme-media.test.ts` 和 `tests/meme-picker.e2e.mjs`。
-网络来源与受限代理见 `server/memes.mjs`、`server/sticker-source.mjs`、`tests/meme-server.test.ts`；使用公开 Signal 合集目录，GIFs 展示独立动画。预置清单、公开素材缓存及完整性测试见 `src/lib/sticker-library.ts`、`src/lib/starter-library.json`、`tests/sticker-library.test.ts`；搜索范围和真实联调证据见 MEMES 与状态页，不把合成搜索视为上游可用性证明。
+表情消息分类见 `src/lib/expression-media.ts`、`src/lib/message-payload.ts` 和
+`tests/expression-media.test.ts`；加密呈现标记、旧内置摘要识别及保险箱过滤边界见
+[D-037](./decisions.md#d-037表情呈现文件阅读器与跨版本说明)。
+后台资源库和采集任务见 `server/expression-catalog.mjs`、`server/admin.mjs`、`src/admin.ts`、`tests/expression-catalog.test.ts` 与 `tests/admin-collection-ui.e2e.mjs`；前端默认与搜索只读取已上架资源。公开 Signal 与 Noto 动画目录用于管理员显式采集，受限传输见 `server/memes.mjs`、`server/sticker-source.mjs`、`server/noto-source.mjs`；真实联网验收见 `tests/admin-collection-live.e2e.mjs`。旧预置清单用于历史识别、`tests/sticker-library.test.ts` 完整性验证及显式初始化；`npm run expressions:initialize` 经 `server/shipped-expressions.mjs` 校验后原子入库并上架，不在启动时自动执行。搜索范围和真实联调证据见 MEMES 与状态页，不把合成搜索视为上游可用性证明。
 
 | 领域 | 先读 | 代码入口 | 主要验证入口 |
 | --- | --- | --- | --- |
 | 产品语义与交互 | `PRODUCT.md`、`README.md` | `src/app.ts`、各 CSS 文件 | `tests/browser.e2e.mjs`、`tests/ui-audit.e2e.mjs`、相关专项浏览器脚本 |
-| 启动、页面状态、版本更新、Service Worker | `README.md`、`PRODUCT.md`、`RELEASING.md` | `release.json`、`src/main.ts`、`src/lib/release-update.ts`、`public/sw.js` | `tests/frontend-lifecycle.e2e.mjs`、`tests/release-update.e2e.mjs`、`tests/release-update.test.ts`、`tests/service-worker.test.ts` |
-| 聊天日期、气泡回执、回到最新消息与键盘跟随 | `PRODUCT.md` 的 Message Timeline、`TEST_PLAN.md` | `src/lib/message-date.ts`、`src/lib/chat-bottom-control.ts`、`src/lib/chat-viewport-motion.ts`、`src/app.ts`、`src/chat-layout.css`、`src/styles.css` | `tests/message-timeline.e2e.mjs`、`tests/chat-bottom-control.e2e.mjs`、`tests/frontend-lifecycle.e2e.mjs`、`tests/chat-viewport-motion.test.ts` |
+| 启动、页面状态、版本更新、Service Worker | `README.md`、`PRODUCT.md`、`RELEASING.md` | `release.json`、`release-history.json`、`src/main.ts`、`src/lib/release-update.ts`、`public/sw.js` | `tests/frontend-lifecycle.e2e.mjs`、`tests/release-update.e2e.mjs`、`tests/release-update.test.ts`、`tests/service-worker.test.ts` |
+| 聊天日期、气泡回执、回到最新消息与键盘跟随 | `PRODUCT.md` 的 Message Timeline、`TEST_PLAN.md` | `src/lib/message-date.ts`、`src/lib/chat-bottom-control.ts`、`src/lib/chat-viewport-motion.ts`、`src/lib/chat-keyboard-layout.ts`、`src/app.ts`、`src/chat-layout.css`、`src/styles.css` | `tests/message-timeline.e2e.mjs`、`tests/chat-bottom-control.e2e.mjs`、`tests/chat-list-viewport.e2e.mjs`、`tests/frontend-lifecycle.e2e.mjs`、`tests/chat-viewport-motion.test.ts`、`tests/chat-keyboard-layout.test.ts` |
 | 设备邀请与参与者邀请分类 | `PRODUCT.md`、`SECURITY.md` | `src/lib/invite-link.ts`、`src/lib/vault.ts`、`src/app.ts` | `tests/invite-link.test.ts`、`tests/platform-vault.test.ts`、`tests/browser.e2e.mjs` |
 | 隐私遮罩、锁定、桌面恢复、系统弹窗 | `PRODUCT.md`、`SECURITY.md`、`TEST_PLAN.md` | `src/app.ts`、`src/cover.css`、`src/auth-recovery.css`、`src/lib/vault.ts` | `tests/desktop-privacy.e2e.mjs`、`tests/desktop-session-flow.e2e.mjs`、`tests/system-surfaces.e2e.mjs`、`tests/vault-resume.e2e.mjs`、`tests/chat-image-privacy.e2e.mjs` |
 | 消息格式、签名和协议校验 | `SECURITY.md`、`PRODUCT.md` | `src/lib/types.ts`、`src/lib/message-payload.ts`、`src/lib/crypto.ts`、`server/protocol.mjs` | `tests/crypto.test.ts`、`tests/message-payload.test.ts`、`tests/protocol.test.ts`、`tests/room-protocol.test.ts` |
 | MLS、多设备、成员变更与历史边界 | `SECURITY.md`、`PRODUCTION_SECURITY_GATE.md` | `src/lib/mls.ts`、`src/lib/vault.ts`、`server/storage.mjs` | `tests/mls.test.ts`、`tests/storage.test.ts`、`tests/upgrade-safety.test.ts` |
 | 通行密钥、本机保险库、恢复、待发箱 | `SECURITY.md`、`README.md` | `src/lib/platform-vault.ts`、`src/lib/vault.ts` | `tests/recovery.test.ts`、`tests/recovery-server.test.ts`、`tests/vault-lifecycle.e2e.mjs`、`tests/vault-resume.e2e.mjs` |
 | 自动恢复备份、新码轮换、显式历史恢复 | `RECOVERY_BACKUPS.md`、`SECURITY.md` | `src/lib/backup-crypto.ts`、`src/lib/cloud-backup.ts`、`src/lib/vault.ts`、`server/cloud-backups.mjs` | `tests/cloud-backups.test.ts`、`tests/cloud-backup-lifecycle.e2e.mjs`、`tests/browser.e2e.mjs` |
-| 会话管理后台 | `RECOVERY_BACKUPS.md`、`DEPLOYMENT.md` | `src/admin.ts`、`server/admin.mjs`、`server/admin-auth.mjs`、`scripts/admin-setup.mjs`、`compose.admin.yaml` | `tests/admin.test.ts`、`tests/backup-admin-ui.e2e.mjs`、`tests/deploy-admin.test.ts` |
+| 会话管理后台与采集任务 | `RECOVERY_BACKUPS.md`、`MEMES.md`、`DEPLOYMENT.md` | `src/admin.ts`、`server/admin.mjs`、`server/expression-catalog.mjs`、`server/admin-auth.mjs`、`scripts/admin-setup.mjs`、`compose.admin.yaml` | `tests/admin.test.ts`、`tests/expression-catalog.test.ts`、`tests/backup-admin-ui.e2e.mjs`、`tests/admin-collection-ui.e2e.mjs`、`tests/deploy-admin.test.ts` |
 | API、WebSocket、服务端资源控制 | `README.md`、`SECURITY.md` | `src/lib/api.ts`、`server/index.mjs`、`server/storage.mjs`、`server/protocol.mjs` | `tests/api.test.ts`、`tests/server.test.ts`、`tests/storage.test.ts` |
-| 照片、视频、普通文件和创建者保险箱（相册 / 文件） | `PRODUCT.md`、`README.md`、`SECURITY.md`、`TEST_PLAN.md`、[D-024](./decisions.md#d-024保险箱本地整理与聊天删除严格分层) | `src/lib/file-crypto.ts`、`src/lib/image-batches.ts`、`src/lib/video-media.ts`、`src/lib/video-poster.ts`、`src/lib/image-viewer-gestures.ts`、`src/lib/gallery-curation.ts`、`src/app.ts`、`src/gallery.css` | `tests/file-attachments.test.ts`、`tests/image-batches.test.ts`、`tests/video-media.test.ts`、`tests/image-viewer-gestures.test.ts`、`tests/gallery-curation.test.ts`、`tests/video-flow.e2e.mjs`、`tests/file-flow.e2e.mjs`、`tests/file-outbox.e2e.mjs`、`tests/file-interactions.e2e.mjs`、`tests/chat-image-privacy.e2e.mjs`、`tests/gallery-loading.e2e.mjs`、`tests/frontend-lifecycle.e2e.mjs`、`tests/cloud-backup-lifecycle.e2e.mjs` |
+| 照片、视频、普通文件和创建者保险箱（相册 / 文件） | `PRODUCT.md`、`README.md`、`SECURITY.md`、`TEST_PLAN.md`、[D-024](./decisions.md#d-024保险箱本地整理与聊天删除严格分层) | `src/lib/file-crypto.ts`、`src/lib/media-dimensions.ts`、`src/lib/image-batches.ts`、`src/lib/video-media.ts`、`src/lib/video-poster.ts`、`src/lib/image-viewer-gestures.ts`、`src/lib/gallery-curation.ts`、`src/app.ts`、`src/gallery.css` | `tests/file-attachments.test.ts`、`tests/message-payload.test.ts`、`tests/image-batches.test.ts`、`tests/video-media.test.ts`、`tests/image-viewer-gestures.test.ts`、`tests/gallery-curation.test.ts`、`tests/video-flow.e2e.mjs`、`tests/file-flow.e2e.mjs`、`tests/file-outbox.e2e.mjs`、`tests/file-interactions.e2e.mjs`、`tests/chat-image-privacy.e2e.mjs`、`tests/gallery-loading.e2e.mjs`、`tests/frontend-lifecycle.e2e.mjs`、`tests/cloud-backup-lifecycle.e2e.mjs` |
 | 语音留言 | `PRODUCT.md`、`README.md` | `src/lib/voice-gesture.ts`、`src/lib/voice-recorder.ts`、`src/lib/voice-audio.ts`、`src/lib/voice-player.ts`、`src/voice-messages.css` | `tests/voice.test.ts`、`tests/voice-lifecycle.e2e.mjs`、`tests/voice-gestures.e2e.mjs`、`tests/voice-flow.e2e.mjs` |
 | 实时音视频通话 | `CALLS.md`、`SECURITY.md` 的通话构造、`DEPLOYMENT.md` 的可选中继部署段与当前状态页 | `src/lib/call-*.ts`、`src/call.css`、`server/calls.mjs` | `tests/call-*.test.ts`、`tests/call-flow.e2e.mjs`、`tests/call-native.e2e.mjs`、`tests/call-view.e2e.mjs` |
-| 回应、回复手势、消息删除、未读计数和 presence | `PRODUCT.md`、`SECURITY.md`、[D-024](./decisions.md#d-024保险箱本地整理与聊天删除严格分层) | `src/lib/reactions.ts`、`src/lib/reply-swipe.ts`、`src/lib/message-deletions.ts`、`src/lib/message-payload.ts`、`src/lib/unread-counter.ts`、`src/lib/api.ts`、`server/index.mjs`、`server/storage.mjs` | `tests/reactions.test.ts`、`tests/reply-swipe.test.ts`、`tests/message-deletions.test.ts`、`tests/message-deletion.e2e.mjs`、`tests/reaction-history.e2e.mjs`、`tests/unread-counter.test.ts`、`tests/unread-server.test.ts`、`tests/unread-counter.e2e.mjs` |
+| 回应、回复手势、消息删除、未读计数和 presence | `PRODUCT.md`、`SECURITY.md`、[D-024](./decisions.md#d-024保险箱本地整理与聊天删除严格分层) | `src/lib/reactions.ts`、`src/lib/reply-swipe.ts`、`src/lib/message-deletions.ts`、`src/lib/message-payload.ts`、`src/lib/unread-counter.ts`、`src/lib/message-read.ts`、`src/lib/presence-circuit.ts`、`src/presence-circuit.css`、`src/lib/api.ts`、`server/index.mjs`、`server/storage.mjs` | `tests/reactions.test.ts`、`tests/reply-swipe.test.ts`、`tests/message-deletions.test.ts`、`tests/message-deletion.e2e.mjs`、`tests/reaction-history.e2e.mjs`、`tests/unread-counter.test.ts`、`tests/unread-server.test.ts`、`tests/unread-counter.e2e.mjs`、`tests/message-read.test.ts`、`tests/message-read.e2e.mjs`、`tests/presence-circuit.e2e.mjs` |
 | Web Push | `OPERATIONS.md`、`SECURITY.md` | `src/lib/push.ts`、`server/push.mjs`、`public/sw.js` | `tests/push.test.ts`、`tests/push-server.test.ts` |
 | 本机 main 集成、局域网测试与跨电脑同步 | [`docs/workflows/local-lan-testing.md`](../workflows/local-lan-testing.md)、本工作流、`README.md` | 共享本机 `main` 工作树、实际 Vite／服务端进程；主机名、证书和数据为每台电脑的本机配置 | 候选与本机 main 精确 SHA、进程工作目录、前端目标代码回读、后端健康接口、局域网 HTTPS 真机记录 |
 | 构建、发布、备份与运维 | `RELEASING.md`、`DEPLOYMENT.md`、`OPERATIONS.md`、`PRODUCTION_SECURITY_GATE.md` | `scripts/deploy-config.mjs`、`scripts/deploy-setup.mjs`、`scripts/repo.mjs`、`scripts/publish.mjs`、`scripts/release.mjs`、`scripts/production-readback.mjs`、`deploy/`、`.github/workflows/ci.yml` | `tests/deploy-*.test.ts`、`tests/release.test.ts`、`tests/publish.test.ts`、`tests/production-readback.test.ts`、`tests/backup.test.ts`、`tests/operations-*.test.ts` |
 | 发布后生产事实、上下文治理与交付效率 | `RELEASING.md`、`docs/context/maintenance.md`、[D-021](./decisions.md#d-021生产回读后对账知识库语义变化继续审阅)、[2026-09-05 交付复盘](../../audit/2026-09-05-mobile-ux-delivery-retrospective.md) | 发布与最小 SHA 回执为 `scripts/publish.mjs`、`scripts/release.mjs`；独立结构化回读为 `scripts/production-readback.mjs`；格式检查为 `scripts/check-docs.mjs`，自动文档 PR 对账尚待实现 | `tests/publish.test.ts`、`tests/release-entry.test.ts`、`tests/production-readback.test.ts`、`tests/ci-docs.test.ts`、`tests/ci-scope.test.ts` |
 
+新增交付工具：`scripts/prepare-release.mjs` 生成与应用版本计划；`scripts/delivery-evidence.mjs` 执行既有门禁并汇总脱敏证据。使用与固定批次规则见 [工作流](workflow.md#固定批次发布2026-09-10)，回归为 `tests/delivery-tools.test.ts`。
+
 ## 测试命令的准确含义
+
+聊天遮蔽位图实现见 `src/lib/concealed-image.ts`；高斯像素验证为
+`tests/concealed-image.test.ts`，编码中锁定、URL 释放和聊天显隐回归沿用
+`tests/chat-image-privacy.e2e.mjs`。它只生成解锁运行期的内存预览，不替代原始附件。
 
 - `npm run tasks:cleanup -- --plan /绝对路径/plan.json`：发布后任务资源只读检查，加 `--apply` 才清理；入口 `scripts/cleanup-task-resources.mjs`，回归 `tests/cleanup-task-resources.test.ts`，计划与保留边界见[说明](../workflows/task-cleanup.md)。不属于生产切换入口。
 - `npm run build`：TypeScript 类型检查后构建 Vite 产物。
@@ -49,7 +72,8 @@
 - `npm run test:browser`：通过 `scripts/test-browser.mjs` 串行运行全部真实浏览器脚本，并输出逐脚本和总耗时。`-- --group 1` / `-- --group 2` 分别运行主流程与其余专项；CI 在两个独立执行环境中并行运行两组。
 - `npm run check:full`：运行 `check`，然后运行浏览器套件。
 - `npm run deploy:readback -- --sha <40位SHA>`：独立、只读地复核该精确生产版本，输出逐阶段耗时与失败分类，并在 `.git/quiet-room-readback/` 保存脱敏结构化证据；它不发布、不回滚，也不替代发布授权。
-- `npm run test:calls`：完整通话专项入口，包含部分 Vitest 用例与 `call-native.e2e.mjs`、`call-view.e2e.mjs`。`npm run test:calls:e2e` 只运行后两个浏览器专项；CI 与本地已完成 `check:full` 后使用此入口，避免重复运行已被 `npm test` 包含的通话单元测试。
+- `npm run test:weak-network`：通话控制器、配置、信令确认和语音重试专项，以及 Chrome 信令/质量输入和 CDP WebRTC 网络故障注入；不等于真机或实际 TURN 验收。
+- `npm run test:calls`：完整通话专项入口，包含部分 Vitest 用例与 `call-native.e2e.mjs`、`call-view.e2e.mjs` 和 `call-weak-network.e2e.mjs`。`npm run test:calls:e2e` 只运行这三个浏览器专项；CI 与本地已完成 `check:full` 后使用此入口，避免重复运行已被 `npm test` 包含的通话单元测试。
 - `node scripts/audit-production.mjs`：使用 npm 官方源审计生产依赖；仅对明确的临时接口故障最多尝试三次。high/critical 漏洞、无效报告和接口持续不可用均阻断 CI。
 
 两个容易误判的细节：
@@ -73,4 +97,5 @@
 - [DEPLOYMENT.md](../../DEPLOYMENT.md)：部署架构、首次配置、可选通话覆盖和服务器布局。
 - [OPERATIONS.md](../../OPERATIONS.md)：备份、证书、推送、恢复演练和事故处理。
 - [本机局域网测试与跨电脑同步](../workflows/local-lan-testing.md)：本机 `main` 集成、服务回读、局域网 HTTPS 真机验收及 GitHub 同步边界。
+- [iPhone 真机调试](../workflows/iphone-debug.md)：持久 USB 工具、自动录制与键盘操作、数值探针、证据限制及媒体清理。
 - [audit/](../../audit/)：特定日期和代码基线的审查证据；不能自动外推到当前工作树。

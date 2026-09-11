@@ -2,7 +2,7 @@
 services:
   quiet-room:
     environment:
-      ADMIN_ORIGIN: https://sao.shui.click
+      ADMIN_ORIGIN: https://admin.mijiu.cloud
       ADMIN_CONFIG_FILE: /run/quiet-room-admin.json
     volumes:
       - type: bind

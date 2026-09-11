@@ -209,6 +209,9 @@ export type TextPayload = {
 
 export type ImageManifest = {
   v: 1;
+  /** Optional encrypted display geometry, emitted only when every active device supports it. */
+  width?: number;
+  height?: number;
   blobId: string;
   key: string;
   ivPrefix: string;
@@ -243,6 +246,7 @@ export type ImagePayload = {
   v: 1 | 2;
   kind: 'image';
   image: ImageManifest;
+  presentation?: 'expression';
   sentAt: string;
   replyTo?: ReplyReference;
 };
@@ -310,7 +314,21 @@ export type MessageDeletePayload = {
   target: MessageTarget;
 };
 
-export type MessagePayload = TextPayload | ImagePayload | GalleryImagePayload | ImageAlbumPayload | AudioPayload | FilePayload | GalleryFilePayload | ReactionPayload | MessageDeletePayload;
+export type MediaReadPayload = {
+  v: 1;
+  kind: 'media-read';
+  sentAt: string;
+  target: MessageTarget;
+};
+
+export type MessageReadPayload = {
+  v: 1;
+  kind: 'message-read';
+  sentAt: string;
+  target: MessageTarget;
+};
+
+export type MessagePayload = TextPayload | ImagePayload | GalleryImagePayload | ImageAlbumPayload | AudioPayload | FilePayload | GalleryFilePayload | ReactionPayload | MessageDeletePayload | MediaReadPayload | MessageReadPayload;
 
 export type RecipientWrap = {
   deviceId: string;

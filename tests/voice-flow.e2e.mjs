@@ -13,7 +13,7 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
     };
   });
   const start = async () => {
-    await creator.locator('#record-voice').click();
+    await creator.locator('#message-input').press('Alt+r');
     await creator.locator('.voice-recorder[data-state="recording"]').waitFor();
   };
   const pause = async () => {
@@ -72,7 +72,7 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   // encrypted attachment/outbox path and produce exactly one peer message.
   const beforeHold = await creator.locator('.voice-player').count();
   const beforePeerHold = await joiner.locator('.message.incoming .voice-player').count();
-  const microphone = await creator.locator('#record-voice').boundingBox();
+  const microphone = await creator.locator('#message-input').boundingBox();
   assert(microphone, 'Microphone trigger must be visible for held recording');
   await creator.mouse.move(microphone.x + microphone.width / 2, microphone.y + microphone.height / 2);
   await creator.mouse.down();
@@ -103,6 +103,22 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   await creator.locator('.message.outgoing:has(.voice-player).is-delivered').nth(beforeCancel).waitFor();
   assert.equal(await creator.locator('.voice-player').count(), beforeCancel + 1);
 
+  const beforeAckLoss = await creator.locator('.voice-player').count();
+  const peerBeforeAckLoss = await joiner.locator('.message.incoming .voice-player').count();
+  let completionDropped = false;
+  await creator.route('**/api/rooms/*/blobs/*/complete', async route => {
+    if (completionDropped) return route.continue();
+    completionDropped = true; await route.fetch(); await route.abort();
+  });
+  await start(); await creator.waitForTimeout(850); await pause();
+  await creator.getByRole('button', { name: '发送语音', exact: true }).click();
+  await creator.locator('.message.outgoing:has(.voice-player).is-delivered').nth(beforeAckLoss).waitFor();
+  await joiner.locator('.message.incoming .voice-player').nth(peerBeforeAckLoss).waitFor();
+  assert(completionDropped, 'Completion acknowledgment fault was not injected');
+  assert.equal(await creator.locator('.voice-player').count(), beforeAckLoss + 1);
+  assert.equal(await joiner.locator('.message.incoming .voice-player').count(), peerBeforeAckLoss + 1);
+  await creator.unroute('**/api/rooms/*/blobs/*/complete');
+
   // Re-locking tears down active playback and recording, including tracks and
   // Blob URLs; historical voice remains after a normal authenticated unlock.
   await creator.locator('.voice-player').first().getByRole('button', { name: '播放语音', exact: true }).click();
@@ -110,7 +126,7 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   await creator.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   await creator.locator('.cover-trigger').waitFor();
   await unlock(creator); await creator.locator('.chat-shell').waitFor();
-  assert.equal(await creator.locator('.voice-player').count(), beforeCancel + 1);
+  assert.equal(await creator.locator('.voice-player').count(), beforeAckLoss + 1);
   await start();
   await creator.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   await creator.locator('.cover-trigger').waitFor();
@@ -144,7 +160,7 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
     window.__voiceWrappedGetUserMedia = navigator.mediaDevices.getUserMedia;
     navigator.mediaDevices.getUserMedia = () => new Promise(resolve => { window.__resolveVoicePermission = resolve; });
   });
-  await creator.locator('#record-voice').click();
+  await creator.locator('#message-input').press('Alt+r');
   await creator.locator('.voice-recorder[data-state="requesting"]').waitFor();
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
   assert.equal(await creator.locator('.cover-trigger').count(), 0, 'The first visible native permission blur must retain its requesting UI');
@@ -164,7 +180,7 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   await creator.evaluate(() => {
     navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Denied', 'NotAllowedError'); };
   });
-  await creator.locator('#record-voice').click();
+  await creator.locator('#message-input').press('Alt+r');
   await creator.locator('#notice').filter({ hasText: '麦克风权限' }).waitFor();
   assert.equal(await creator.locator('.voice-recorder').isVisible(), false);
   await creator.evaluate(() => { navigator.mediaDevices.getUserMedia = window.__voiceWrappedGetUserMedia; });

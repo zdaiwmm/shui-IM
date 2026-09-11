@@ -22,6 +22,30 @@ try {
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__system_surfaces`);
+  // Hold the initial-focus frame so an early user interaction deterministically
+  // wins the race that used to turn Enter in meme search into Back activation.
+  await page.evaluate(async () => {
+    const { mountDialog } = await import('/src/lib/dialog.ts');
+    for (const mode of ['initial', 'user-focused', 'closed']) {
+      const host = document.createElement('div');
+      host.innerHTML = '<button>Origin</button><section><button>Back</button><input></section>';
+      document.body.append(host);
+      const sheet = host.querySelector('section'), input = host.querySelector('input');
+      const back = sheet.querySelector('button'); host.querySelector('button').focus();
+      const original = window.requestAnimationFrame; const frames = [];
+      window.requestAnimationFrame = callback => { frames.push(callback); return 1; };
+      let dialog;
+      try { dialog = mountDialog(sheet, { isActive: () => true, initialFocus: back }); }
+      finally { window.requestAnimationFrame = original; }
+      if (mode === 'user-focused') input.focus();
+      if (mode === 'closed') dialog.dispose();
+      for (const frame of frames) frame(performance.now());
+      if (mode === 'initial' && document.activeElement !== back) throw Error('Initial dialog focus missing');
+      if (mode === 'user-focused' && document.activeElement !== input) throw Error('Deferred dialog focus stole early user input');
+      if (mode === 'closed' && sheet.isConnected) throw Error('Disposed dialog restored by deferred frame');
+      dialog.dispose(); host.remove();
+    }
+  });
   const results = await page.evaluate(async () => {
     await import('/src/styles.css');
     await import('/src/chat-layout.css');
@@ -574,6 +598,7 @@ try {
   // Picker/media ownership replaces an armed keyboard handoff; conversely an
   // existing native owner prevents a later composer click from arming one.
   await armKeyboardHandoff();
+  await page.locator('#open-chat-tools').click();
   await page.locator('#open-image-picker').click();
   assert.deepEqual(await page.evaluate(() => {
     const app = window.systemSurfaceKeyboardFixture.app;
@@ -581,6 +606,7 @@ try {
   }), { keyboard: false, native: 'picker' }, 'Picker ownership did not replace keyboard ownership');
 
   await page.evaluate(() => window.systemSurfaceKeyboardFixture.fresh());
+  await page.locator('#open-chat-tools').click();
   await page.locator('#open-image-picker').click();
   await page.locator('#message-input').click();
   assert.deepEqual(await page.evaluate(() => {
@@ -661,7 +687,12 @@ try {
   await page.evaluate(async () => {
     const fixture = window.systemSurfaceKeyboardFixture;
     await fixture.fresh();
-    document.querySelector('#message-input').addEventListener('mousedown', event => event.preventDefault(), { once: true });
+    const input = document.querySelector('#message-input');
+    input.addEventListener('mousedown', event => event.preventDefault(), { once: true });
+    // The empty-input short tap also focuses on pointerup. Hold both focus
+    // paths until this fixture has supplied WebKit's resize-before-focus edge.
+    input.focus = () => {};
+    fixture.restoreInputFocus = () => { delete input.focus; };
   });
   const inputBounds = await page.locator('#message-input').boundingBox();
   assert.ok(inputBounds, 'Keyboard evidence fixture has no textarea bounds');
@@ -679,6 +710,7 @@ try {
     await new Promise(requestAnimationFrame);
     const evidenceBeforeFocus = fixture.app.keyboardHandoff?.openingEvidence === true
       && fixture.app.keyboardHandoff?.blurred === false;
+    fixture.restoreInputFocus();
     document.querySelector('#message-input').focus({ preventScroll: true });
     const targetAttached = fixture.app.chatViewportMotion?.keyboardMoving === true;
     fixture.blur();

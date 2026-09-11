@@ -7,6 +7,8 @@
     "node": ">=24"
   },
   "scripts": {
+    "env:check": "node scripts/environment-check.mjs",
+    "device:debug": "python3 tools/iphone-debug/scripts/device.py",
     "dev": "node scripts/dev.mjs",
     "dev:lan": "node scripts/dev-lan.mjs",
     "build": "tsc --noEmit && vite build",
@@ -15,6 +17,7 @@
     "test:browser": "node scripts/test-browser.mjs",
     "test:cloud-backup": "node tests/cloud-backup-lifecycle.e2e.mjs",
     "test:watch": "vitest",
+    "expressions:initialize": "node scripts/initialize-expression-catalog.mjs",
     "check": "npm run build && npm run test",
     "check:full": "npm run check && npm run test:browser",
     "repo:doctor": "node scripts/repo.mjs doctor",
@@ -31,21 +34,33 @@
     "deploy:production:direct": "bash scripts/deploy-production.sh",
     "deploy:doctor": "bash scripts/deploy-production.sh --doctor",
     "deploy:readback": "node scripts/production-readback.mjs",
-    "test:calls": "vitest run tests/call-crypto.test.ts tests/call-membership.test.ts tests/call-controller.test.ts tests/call-server.test.ts && npm run test:calls:e2e",
-    "test:calls:e2e": "node tests/call-native.e2e.mjs && node tests/call-view.e2e.mjs"
+    "test:calls": "vitest run tests/call-crypto.test.ts tests/call-membership.test.ts tests/call-controller.test.ts tests/call-server.test.ts tests/call-connection.test.ts tests/call-configuration.test.ts tests/call-signal-queue.test.ts tests/call-weak-network.test.ts tests/voice-network.test.ts && npm run test:calls:e2e",
+    "test:calls:e2e": "node tests/call-native.e2e.mjs && node tests/call-view.e2e.mjs && node tests/call-weak-network.e2e.mjs",
+    "test:weak-network": "vitest run tests/call-weak-network.test.ts tests/call-configuration.test.ts tests/call-signal-queue.test.ts tests/voice-network.test.ts && node tests/call-weak-network.e2e.mjs",
+    "release:prepare": "node scripts/prepare-release.mjs",
+    "delivery:evidence": "node scripts/delivery-evidence.mjs"
   },
   "dependencies": {
     "@noble/ciphers": "2.1.1",
     "@noble/curves": "2.0.1",
     "@noble/hashes": "2.3.0",
+    "@zip.js/zip.js": "2.13.1",
+    "dompurify": "3.4.15",
+    "epubjs": "0.3.93",
     "exifr": "7.1.3",
     "hash-wasm": "4.12.0",
     "lucide": "0.468.0",
+    "pdfjs-dist": "6.3.289",
     "protobufjs": "8.8.0",
     "qrcode": "1.5.4",
     "ts-mls": "1.6.4",
     "web-push": "3.6.7",
     "ws": "8.21.3"
+  },
+  "overrides": {
+    "epubjs": {
+      "@xmldom/xmldom": "0.9.12"
+    }
   },
   "devDependencies": {
     "@types/node": "24.13.3",

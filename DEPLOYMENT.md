@@ -56,7 +56,8 @@ messages, attachments, recovery material, or backup contents. Re-running the
 same exact-SHA command is therefore the only supported automatic continuation
 after a readback failure; it must never be replaced by another deployment call.
 Successful and failed attempts write redacted JSON under the local repository's
-`.git/quiet-room-readback/` directory. See `RELEASING.md` for evidence and
+Git metadata directory's `quiet-room-readback/` subdirectory (resolved with
+`git rev-parse --absolute-git-dir`, including linked worktrees). See `RELEASING.md` for evidence and
 failure-state interpretation.
 
 ### Fixed release entry point and one-time setup
@@ -98,9 +99,9 @@ SSH key permits pushing code but is not a GitHub Actions API login. Browser
 login alone likewise does not authenticate `gh`. Initial CLI installation/login
 is a separate setup step, not an action silently performed by deployment.
 
-The direct `release.mjs` entry point requires a clean local `main` matching
+The direct `release.mjs` entry point requires a clean local `main` contained in
 `origin/main`; the fixed `publish.mjs` entry point instead uses an isolated
-shallow clone. Both paths verify the latest **CI push or manually dispatched run
+clone pinned to the approved batch, retaining main history for ancestry checks. Both paths verify the latest **CI push or manually dispatched run
 for that exact main SHA**. That run
 must succeed and include a successful **Full application verification** job.
 PR CI and a green documentation-only run are insufficient. If the current main
@@ -438,15 +439,15 @@ After an operator reconciles or explicitly discards that data, remove the
 archive manually under the same change-control process used for production
 data deletion.
 
-## 可选会话管理后台（sao.shui.click）
+## 可选会话管理后台（admin.mijiu.cloud）
 
-应用默认不开启后台。自动加密备份不依赖管理员登录，后台只能管理会话/设备/备份元数据和清理会话，不能获取恢复码或解密内容。功能和风险边界见 [RECOVERY_BACKUPS.md](./RECOVERY_BACKUPS.md)。本段是部署准备说明，不是发布授权或已安装记录。
+应用默认不开启后台。自动加密备份不依赖管理员登录，后台管理会话/设备/备份元数据、清理会话和公开表情资源库，不能获取恢复码或解密聊天内容。功能和风险边界见 [RECOVERY_BACKUPS.md](./RECOVERY_BACKUPS.md) 与 [MEMES.md](./MEMES.md)。新资源库初始为空，需先启用后台并上架资源。手动上传要求安装新版后台 Nginx 配置，仅精确资源入口允许 70 MiB 请求体（容纳 50 MiB 表情包的 Base64 JSON），其他后台入口保持 64 KiB。本段是部署准备说明，不是发布授权或已安装记录。 2026-09-10 本批已安装 70 MiB 配置并回读，精确提交、摘要和旧配置备份见 [发布记录](RELEASING.md#本次线上发布记录)。
 
 1. 在受信任的交互终端运行 `node scripts/admin-setup.mjs --out /secure/path/admin.json`。输入至少 16 字符的管理员密码两次，扫描 Google Authenticator 二维码并验证动态码。脚本拒绝覆盖已有文件，以 0600 权限创建配置。不要把二维码、密码、种子或生成的 JSON 提交、记录到工单或终端日志。
 2. 在服务器保护目录放置配置，例如 `/opt/quiet-room/shared/admin.json`。运行时应用为 Node 镜像的 `node` 用户（默认 UID/GID 1000，部署前核实），配置须可由该 UID 读取且为 0600；目录由 root 管理且不可被普通用户写入。容器通过单文件只读 bind mount 获取它，备份容器不挂载该文件。不要将它放在 `/app/data`、Git release 目录或公开静态目录内。
 3. 将仅含 `QUIET_ROOM_ADMIN_CONFIG=/opt/quiet-room/shared/admin.json` 的管理员环境文件放到 `/opt/quiet-room/shared/admin.env`，root:root、0600；本例路径需与实际受限配置相符。不要在该文件中放恢复码或用户秘密。它与 `production.env`、可选 `calls.env` 分开，由 Compose 解析，不作为 shell 脚本执行。
-4. 为精确域名 `sao.shui.click` 配置 DNS、可信证书及经过验证的自动续期。按既有独立特权安装流程部署 `deploy/nginx-sao.shui.click.conf` 并检查 Nginx。后台所有路径须受同一 `/var/lib/quiet-room-deploy/maintenance` 标记保护，且该域名不能开放应用 `/ws`。它不改变 `ai.shui.click` 的 WebAuthn RP ID、来源或本机数据位置。
+4. 为精确域名 `admin.mijiu.cloud` 配置 DNS、可信证书及经过验证的自动续期。按既有独立特权安装流程部署 `deploy/nginx-admin.mijiu.cloud.conf` 并检查 Nginx。后台所有路径须受同一 `/var/lib/quiet-room-deploy/maintenance` 标记保护，且该域名不能开放应用 `/ws`。它不改变 `ai.shui.click` 的 WebAuthn RP ID、来源或本机数据位置。
 5. 独立审查并安装当前 `deploy/server/quiet-room-deploy`。持久 `admin.env` 存在时，它自动合并 `compose.admin.yaml`，将管理员配置只读挂载至 `/run/quiet-room-admin.json`。已启用状态记录到 `deploy-state/admin-enabled`，后续版本及回滚都保留该覆盖。已启用而缺配置、配置权限不安全或缺新/旧覆盖时，停机前拒绝发布。首次启用失败可回滚到原本无后台的版本。
-6. 正式启用依旧必须先合并、明确完整目标提交和用户发布授权，再运行 `RELEASING.md` 的固定入口。部署前验证 Compose 配置，禁止打印已解析的秘密。维护门实际探测包括 `https://sao.shui.click/admin-api/rooms` 必须返回 503；缺 DNS/TLS/代理门时拒绝切换。上线后单独验收 HTTPS 登录、TOTP、元数据、退出、来源隔离及配置挂载权限。
+6. 正式启用依旧必须先合并、明确完整目标提交和用户发布授权，再运行 `RELEASING.md` 的固定入口。部署前验证 Compose 配置，禁止打印已解析的秘密。维护门实际探测包括 `https://admin.mijiu.cloud/admin-api/rooms` 必须返回 503；缺 DNS/TLS/代理门时拒绝切换。上线后单独验收 HTTPS 登录、TOTP、元数据、退出、来源隔离及配置挂载权限。
 
 管理员 JSON 不随数据卷冷备份回滚；常规升级不会重新生成密码或验证器。更换管理员配置须通过受信任主机维护，重启进程使现有管理会话失效。先保管好独立的验证器应急副本；忘记管理员因素只能在主机上重新设置管理员，不构成用户聊天恢复途径。不要通过删除 `admin.env` 临时停用已启用的后台；有意停用需在独立维护中关闭 vhost、移除覆盖并同步状态，正常发布遇到文件意外丢失将失败关闭。

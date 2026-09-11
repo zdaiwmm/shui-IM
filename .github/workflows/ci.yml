@@ -74,7 +74,7 @@ jobs:
       - run: npm run check
 
   browser:
-    name: Browser regression group ${{ matrix.group }}
+    name: Browser regression group ${{ matrix.group }} shard ${{ matrix.shard }}
     needs: scope
     if: needs.scope.outputs.mode == 'full'
     runs-on: ubuntu-latest
@@ -82,7 +82,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [1, 2]
+        include:
+          - { group: 1, shard: '1/1' }
+          - { group: 2, shard: '1/4' }
+          - { group: 2, shard: '2/4' }
+          - { group: 2, shard: '3/4' }
+          - { group: 2, shard: '4/4' }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -91,9 +96,11 @@ jobs:
           cache: npm
       - run: npm ci --no-audit
       - run: npx playwright install --with-deps chromium
+      - if: matrix.group == 2
+        run: npx playwright install --with-deps webkit
       # The backup/admin browser fixture serves dist/admin.html.
       - run: npm run build
-      - run: npm run test:browser -- --group ${{ matrix.group }}
+      - run: npm run test:browser -- --group ${{ matrix.group }} --shard ${{ matrix.shard }}
 
   calls:
     name: Native call media and call views
@@ -127,27 +134,11 @@ jobs:
       - run: npm ci --no-audit
       - run: node scripts/audit-production.mjs
 
-  full_application:
-    # Fixed release evidence name. A green documentation run cannot replace it.
-    name: Full application verification
-    needs: [scope, docs, secret_scan, build, browser, calls, audit]
-    if: always() && needs.scope.outputs.mode == 'full'
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      - name: Require every full verification job to succeed
-        env:
-          CI_NEEDS: ${{ toJSON(needs) }}
-        run: node scripts/ci-scope.mjs verify full
-
   verify:
-    # Keep the existing branch-protection check name stable.
+    # Keep the existing branch-protection check name stable and make it the
+    # single aggregate runner so account runner limits cannot block a green run.
     name: verify
-    needs: [scope, docs, secret_scan, build, browser, calls, audit, full_application]
+    needs: [scope, docs, secret_scan, build, browser, calls, audit]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 3

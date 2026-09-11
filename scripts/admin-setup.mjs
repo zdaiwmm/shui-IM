@@ -24,7 +24,7 @@ try {
   if (password !== confirmation) throw new Error('两次密码不一致');
   const config = await makeAdminConfig(password);
   password = ''; confirmation = '';
-  const uri = `otpauth://totp/Quiet%20Room:sao.shui.click?secret=${config.totpSecret}&issuer=Quiet%20Room&algorithm=SHA1&digits=6&period=30`;
+  const uri = `otpauth://totp/Quiet%20Room:admin.mijiu.cloud?secret=${config.totpSecret}&issuer=Quiet%20Room&algorithm=SHA1&digits=6&period=30`;
   process.stdout.write('请用 Google Authenticator 扫描下方二维码。二维码和配置文件都应保密。\n');
   process.stdout.write(await qrcode.toString(uri, { type: 'terminal', small: true }));
   const code = await ask('输入验证器显示的 6 位动态码完成绑定：');

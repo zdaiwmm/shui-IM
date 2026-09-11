@@ -94,10 +94,9 @@ export function requireVerification(needs, gate = 'verify') {
   const skipped = [];
   if (mode === 'full') {
     required.push(...applicationJobs);
-    if (gate === 'verify') required.push('full_application');
   } else {
     if (gate === 'full') throw new Error('Documentation-only CI is not full application verification.');
-    skipped.push(...applicationJobs, 'full_application');
+    skipped.push(...applicationJobs);
   }
   for (const name of required) {
     if (needs[name]?.result !== 'success') throw new Error(`Required job ${name} did not succeed.`);
@@ -119,7 +118,7 @@ if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToP
       console.log(`CI scope: ${scope.mode}. ${scope.reason}`);
     } else if (args.length === 2 && args[0] === 'verify' && ['verify', 'full'].includes(args[1])) {
       const mode = requireVerification(JSON.parse(process.env.CI_NEEDS ?? ''), args[1]);
-      console.log(`${args[1] === 'full' ? 'Full application verification' : 'CI verification'} passed (${mode}).`);
+      console.log(`${args[1] === 'full' ? 'Full application verification (verify aggregate)' : 'CI verification'} passed (${mode}).`);
     } else {
       throw new Error('Invalid CI scope arguments.');
     }

@@ -96,7 +96,12 @@ async function holdCover(page) {
   await page.mouse.up();
   // The activation ring is body-level and the gateway replaces the cover
   // immediately. Wait for that replacement before measuring the next state.
-  await page.locator('.cover-trigger').waitFor({ state: 'detached' });
+  await page.locator('.cover-trigger').waitFor({ state: 'detached' }).catch(async error => {
+    console.error('Cover activation state', await page.evaluate(() => ({ orientation: screen.orientation?.type,
+      screen: [screen.width, screen.height], viewport: [innerWidth, innerHeight], root: document.querySelector('#app')?.className,
+      inert: document.querySelector('#app')?.inert, coarse: matchMedia('(pointer: coarse)').matches })));
+    throw error;
+  });
 }
 
 async function setPasskey(page) {
@@ -158,6 +163,7 @@ const vite = await createViteServer({
   server: {
     host: '127.0.0.1',
     port: 0,
+    hmr: false,
     proxy: {
       '/api': `http://127.0.0.1:${backend.port}`,
       '/ws': { target: `ws://127.0.0.1:${backend.port}`, ws: true },
@@ -185,7 +191,7 @@ try {
   const joiner = await joinerContext.newPage();
   await Promise.all([enableDeviceVault(creator), enableDeviceVault(joiner, true)]);
 
-  await creator.goto(baseUrl);
+  await creator.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   await holdCover(creator);
   await assertStablePage(creator, 'Welcome page');
   await creator.locator('#create-room').click();
@@ -264,14 +270,13 @@ try {
     const self = document.querySelector('#self-presence').getBoundingClientRect();
     const peer = document.querySelector('#peer-presence').getBoundingClientRect();
     const summary = document.querySelector('.peer-summary').getBoundingClientRect();
-    const safe = document.querySelector('#open-gallery').getBoundingClientRect();
     const more = document.querySelector('.more-menu > summary').getBoundingClientRect();
     return { selfRight: self.right, peerLeft: peer.left, peerCenter: (summary.left + summary.right) / 2, headerCenter: (header.left + header.right) / 2,
-      summaryHeight: summary.height, actionHeight: safe.height, actionGap: more.left - safe.right, statusGap: safe.left - summary.right };
+      summaryHeight: summary.height, actionHeight: more.height, statusGap: more.left - summary.right };
   });
   invariant(presenceLayout.selfRight <= presenceLayout.peerLeft + 1, `Self presence is not on the left: ${JSON.stringify(presenceLayout)}`);
   invariant(Math.abs(presenceLayout.peerCenter - presenceLayout.headerCenter) <= 3, `Combined presence is not centered: ${JSON.stringify(presenceLayout)}`);
-  invariant(Math.abs(presenceLayout.summaryHeight - presenceLayout.actionHeight) < 1 && presenceLayout.actionGap >= 8 && presenceLayout.statusGap >= 6,
+  invariant(Math.abs(presenceLayout.summaryHeight - presenceLayout.actionHeight) < 1 && presenceLayout.statusGap >= 8,
     `Header status crowds the actions or has a different height: ${JSON.stringify(presenceLayout)}`);
   invariant(await creator.locator('#dismiss-recovery svg').evaluate((icon) => getComputedStyle(icon).stroke !== 'none'), 'Pinned recovery reminder close icon is invisible');
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-pinned-mobile.png') });
@@ -315,7 +320,7 @@ try {
       viewport.dispatchEvent(new Event('resize'));
       // Native viewport events are intentionally coalesced into one animation
       // frame so WebKit cannot expose mismatched height/offsetTop snapshots.
-      // Observe the concealed transition only after that merged frame starts.
+      // Observe continuous composer painting after that merged frame starts.
       await frame();
       const composerElement = document.querySelector('.composer');
       const concealedComposer = composerElement?.getBoundingClientRect();
@@ -343,8 +348,8 @@ try {
   });
   invariant(
     keyboardViewportLayout.concealed.state === 'positioning'
-      && keyboardViewportLayout.concealed.opacity === '0'
-      && Math.abs(keyboardViewportLayout.concealed.revealOffset - 14) < 1
+      && keyboardViewportLayout.concealed.opacity === '1'
+      && Math.abs(keyboardViewportLayout.concealed.revealOffset) < 1
       && Math.abs((keyboardViewportLayout.concealed.composerBottom ?? 0) - 500) < 1
       && (keyboardViewportLayout.concealed.inputBottom ?? 501) <= 500
       && Math.abs((keyboardViewportLayout.composerBottom ?? 0) - 500) < 1
@@ -354,12 +359,20 @@ try {
   );
   const startedAt = Date.now();
   await creator.locator('#message-input').fill('browser-e2e-live');
-  await creator.locator('.send-button').click();
+  await creator.locator('#message-input').press('Enter');
   invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Send button dismissed the composer keyboard focus');
   await joiner.getByText('browser-e2e-live', { exact: true }).waitFor({ timeout: 3000 });
   await creator.locator('.message.outgoing.is-delivered').filter({ hasText: 'browser-e2e-live' }).waitFor({ timeout: 3000 });
   const deliveryMs = Date.now() - startedAt;
   invariant(deliveryMs < 3000, 'Local real-time delivery exceeded the acceptance budget');
+
+  await joiner.evaluate(async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(document, 'hasFocus');
+    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
+    try { window.dispatchEvent(new Event('scroll')); await new Promise(resolve => setTimeout(resolve, 150)); }
+    finally { if (descriptor) Object.defineProperty(document, 'hasFocus', descriptor); else delete document.hasFocus; }
+  });
+  await creator.locator('.message.outgoing').filter({ hasText: 'browser-e2e-live' }).locator('.message-delivery[data-state="read"]').waitFor({ timeout: 3000 });
 
   const replySourceId = await joiner.locator('.message.incoming').filter({ hasText: 'browser-e2e-live' }).getAttribute('data-client-msg-id');
   const replySource = joiner.locator(`.message.incoming[data-client-msg-id="${replySourceId}"]`);
@@ -463,6 +476,10 @@ try {
 
   await creator.locator('#message-input').fill('browser-e2e-outbox');
   await creator.locator('#composer').evaluate((form) => form.requestSubmit());
+  // Enqueue shares the durable send chain with encrypted read events. A form
+  // submit alone is not an outbox commit; concealment must begin after the
+  // pending row proves persistence, otherwise this tests an unsubmitted draft.
+  await creator.locator('.message.outgoing').filter({ hasText: 'browser-e2e-outbox' }).waitFor({ timeout: 5000 });
   await blurOutsidePage(creator);
   await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
@@ -479,6 +496,7 @@ try {
   };
   // Exercise a paste payload through real MLS encryption, blob storage and
   // peer decryption. The existing draft must survive an image-only send.
+  const pastedCreatorIndex = await creator.locator('.message.outgoing .image-preview').count();
   const pastedIndex = await joiner.locator('.message.incoming .image-preview').count();
   await creator.locator('#message-input').fill('图片粘贴时保留的草稿');
   await creator.locator('#message-input').evaluate((input, bytes) => {
@@ -491,6 +509,20 @@ try {
   const pastedBytes = await pastedImage.evaluate(async img => [...new Uint8Array(await (await fetch(img.src)).arrayBuffer())]);
   invariant(Buffer.from(pastedBytes).equals(image.buffer), 'Clipboard image changed during encryption, transfer or decryption');
   invariant(await creator.locator('#message-input').inputValue() === '图片粘贴时保留的草稿', 'Image paste erased an unsent text draft');
+  const sentPaste = creator.locator('.message.outgoing .image-preview').nth(pastedCreatorIndex);
+  invariant(await sentPaste.getAttribute('data-revealed') === 'false', 'Outgoing media did not start concealed');
+  await pastedImage.locator('..').evaluate(preview => {
+    // Independent headless contexts cannot model simultaneous native focus.
+    // Exercise the real click handler, MLS outbox, socket and peer projection.
+    const descriptor = Object.getOwnPropertyDescriptor(document, 'hasFocus');
+    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });
+    try { preview.click(); }
+    finally { if (descriptor) Object.defineProperty(document, 'hasFocus', descriptor); else delete document.hasFocus; }
+  });
+  await creator.waitForFunction(index => document.querySelectorAll('.message.outgoing .image-preview')[index]
+    ?.closest('.message')?.querySelector('.message-meta')?.textContent?.includes('已读'), pastedCreatorIndex, { timeout: 15_000 });
+  invariant(await sentPaste.getAttribute('data-revealed') === 'false', 'Peer media read changed the sender reveal state');
+
   await creator.locator('#message-input').fill('');
   await creator.bringToFront();
   await creator.locator('#message-input').focus();
@@ -502,15 +534,16 @@ try {
     };
     root.addEventListener('click', preventNativeChooser, true);
   });
+  await creator.locator('#open-chat-tools').click();
   await creator.locator('#open-image-picker').click();
-  invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Gallery button dismissed the composer keyboard focus');
+  invariant(await creator.evaluate(() => document.activeElement?.id !== 'message-input'), 'Tool panel did not dismiss the keyboard');
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
   invariant(await creator.locator('.chat-shell').count() === 1 && !await creator.evaluate(() => document.documentElement.classList.contains('privacy-obscured')), 'Owned foreground picker blur covered the conversation');
   await creator.evaluate(() => window.dispatchEvent(new Event('focus')));
   const retainedFocusImageIndex = await creator.locator('.message.outgoing .image-preview').count();
   await creator.locator('#image-input').setInputFiles({ ...image, name: 'keyboard-retained.svg' });
   await creator.locator('.message.outgoing .image-preview').nth(retainedFocusImageIndex).locator('img').waitFor({ timeout: 10_000 });
-  invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Selecting an image dismissed the composer keyboard focus');
+  invariant(await creator.evaluate(() => document.activeElement?.id !== 'message-input'), 'Picker unexpectedly reopened the dismissed keyboard');
   await creator.locator('.message-list').click({ position: { x: 8, y: 8 } });
   invariant(await creator.evaluate(() => document.activeElement?.id !== 'message-input'), 'Tapping outside the composer did not dismiss keyboard focus');
   invariant(await creator.locator('#emoji-button, .emoji-picker, [data-expression-tab], .favorite-expression').count() === 0, 'Removed expression controls reappeared after unlocking');
@@ -549,10 +582,9 @@ try {
     joiner.locator('.message.incoming .image-preview').nth(directImageJoinerIndex).locator('img').waitFor({ timeout: 10_000 }),
   ]);
   const directImagePreview = creator.locator('.message.outgoing .image-preview').nth(directImageCreatorIndex);
-  invariant(await directImagePreview.getAttribute('data-revealed') === 'false', 'A newly sent chat photo is visible before its first tap');
+  invariant(await directImagePreview.getAttribute('data-revealed') === 'false', 'An outgoing photo did not start concealed');
   await directImagePreview.click();
-  invariant(await directImagePreview.getAttribute('data-revealed') === 'true', 'The first chat photo tap did not reveal its thumbnail');
-  invariant(await creator.locator('.image-viewer').count() === 0, 'The first chat photo tap opened the viewer');
+  invariant(await directImagePreview.getAttribute('data-revealed') === 'true', 'The first outgoing photo click did not reveal its thumbnail');
   await directImagePreview.click();
   await creator.locator('.image-viewer.is-visible .viewer-stage img').waitFor({ timeout: 10_000 });
   await creator.locator('.viewer-stage img').evaluate(async (image) => {
@@ -646,15 +678,18 @@ try {
   invariant(await creator.locator('.message.outgoing').count() === albumCreatorMessagesBefore + 1, 'Multi-image selection was split into more than one outgoing message');
   invariant(await joiner.locator('.message.incoming').count() === albumJoinerMessagesBefore + 1, 'Multi-image selection was split for the receiver');
   invariant(await creatorAlbum.locator('.album-cell').count() === 3, 'Three selected images did not render as one three-cell album');
-  invariant(await creatorAlbum.locator('.album-cell').evaluateAll(cells => cells.every(cell => cell.dataset.revealed === 'false')), 'A new chat album contains a revealed thumbnail');
+  invariant(await creatorAlbum.locator('.album-cell').evaluateAll(cells => cells.every(cell => cell.dataset.revealed === 'false')), 'Outgoing album cells did not start concealed');
   await creatorAlbum.locator('.album-cell').nth(1).click();
-  invariant(await creator.locator('.image-viewer').count() === 0, 'The first album cell tap opened the viewer');
+  invariant(await creatorAlbum.locator('.album-cell').nth(1).getAttribute('data-revealed') === 'true', 'The first album-cell click did not reveal its thumbnail');
   await creatorAlbum.locator('.album-cell').nth(1).click();
-  await creator.locator('[data-viewer-counter]').getByText('2 / 3', { exact: true }).waitFor();
+  const chatMediaCount = await creator.locator('#message-list .image-preview:not([data-expression="true"])').count();
+  await creator.locator('[data-viewer-counter]').getByText(`${chatMediaCount - 1} / ${chatMediaCount}`, { exact: true }).waitFor();
+  await creator.locator('[data-viewer-name]').getByText('album-two.svg', { exact: true }).waitFor();
   const viewerStage = creator.locator('.viewer-stage');
   await viewerStage.dispatchEvent('pointerdown', { pointerType: 'touch', isPrimary: true, button: 0, clientX: 300, clientY: 400 });
   await viewerStage.dispatchEvent('pointerup', { pointerType: 'touch', isPrimary: true, button: 0, clientX: 100, clientY: 400 });
-  await creator.locator('[data-viewer-counter]').getByText('3 / 3', { exact: true }).waitFor();
+  await creator.locator('[data-viewer-counter]').getByText(`${chatMediaCount} / ${chatMediaCount}`, { exact: true }).waitFor();
+  await creator.locator('[data-viewer-name]').getByText('album-three.svg', { exact: true }).waitFor();
   await creator.locator('[data-viewer-close]').click();
   await creator.locator('.image-viewer').waitFor({ state: 'detached' });
 
@@ -878,9 +913,9 @@ try {
     mimeType: 'text/plain',
     buffer: Buffer.from('Quiet Room encrypted file transfer\n'),
   };
-  invariant(!await creator.locator('#image-input').getAttribute('accept'), 'Chat file picker still filters out documents');
-  await creator.waitForFunction(() => !document.querySelector('#image-input')?.disabled);
-  const documentInput = await creator.locator('#image-input').elementHandle();
+  invariant(!await creator.locator('#file-input').getAttribute('accept'), 'Chat file picker still filters out documents');
+  await creator.waitForFunction(() => !document.querySelector('#file-input')?.disabled);
+  const documentInput = await creator.locator('#file-input').elementHandle();
   invariant(documentInput, 'Chat document input is missing');
   await beginSyntheticFilePicker(documentInput);
   await documentInput.setInputFiles(documentFile);
@@ -888,12 +923,10 @@ try {
   await peerDocument.waitFor({ timeout: 15_000 });
   await creator.locator('.message.outgoing.is-delivered').filter({ hasText: documentFile.name }).waitFor({ timeout: 15_000 });
   invariant(await peerDocument.locator('.file-attachment-meta').textContent(), 'Received document has no file metadata');
-  const peerFileReaderPromise = joiner.waitForEvent('popup');
   await peerDocument.click();
-  const peerFileReader = await peerFileReaderPromise;
-  await peerFileReader.waitForURL('blob:**', { timeout: 5_000 });
-  invariant(peerFileReader.url().startsWith('blob:'), 'Readable peer document was not handed to the system reader');
-  await peerFileReader.close();
+  await joiner.locator('.document-reader[data-state="ready"] .reader-text').waitFor();
+  invariant(await joiner.locator('.reader-text').textContent() === documentFile.buffer.toString(), 'Peer reader changed the verified original text');
+  await joiner.getByRole('button', { name: '关闭阅读器', exact: true }).click();
   invariant((await peerDocument.locator('.file-attachment-meta').textContent())?.includes('再次打开'), 'Readable peer document did not return to its open state');
 
   const currentChatFiles = '#app > .chat-shell #message-list .message .file-attachment';
@@ -1242,7 +1275,14 @@ try {
   const addCreatorDevice = async (route) => {
     if (await recovery.locator('.chat-shell').count()) {
       await recovery.locator('.more-menu summary').click();
-      await recovery.locator('#manage-devices').click();
+      await recovery.locator('#manage-devices').click().catch(async error => {
+        console.error('Device menu state', await recovery.evaluate(() => ({
+          root: document.querySelector('#app')?.className, cover: !!document.querySelector('.cover-trigger'),
+          menu: document.querySelector('.more-menu')?.outerHTML, surface: document.querySelector('#app > section')?.className,
+          active: document.activeElement?.id, hidden: document.hidden,
+        })));
+        throw error;
+      });
     }
     await recovery.locator('.device-shell').waitFor();
     const activeSection = recovery.locator('.device-section').filter({ hasText: '已授权设备' });

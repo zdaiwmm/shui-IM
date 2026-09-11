@@ -376,7 +376,13 @@ export async function createStore({
       token_hash = excluded.token_hash, read_seq = MAX(unread_observers.read_seq, excluded.read_seq)`),
     unreadCount: db.prepare(`SELECT COUNT(*) AS count FROM messages
       JOIN members AS sender ON sender.room_id = messages.room_id AND sender.device_id = messages.sender_device_id
-      WHERE messages.room_id = ? AND messages.server_seq > ? AND messages.count_unread = 1 AND sender.role <> ?`),
+      WHERE messages.room_id = ?1 AND messages.server_seq > ?2 AND messages.count_unread = 1 AND sender.role <> ?3
+      AND NOT EXISTS (
+        SELECT 1 FROM unread_observers AS observer
+        JOIN members AS reader ON reader.room_id = observer.room_id AND reader.device_id = observer.device_id
+        WHERE observer.room_id = messages.room_id AND reader.role = ?3
+          AND messages.server_seq > reader.join_seq AND messages.server_seq <= observer.read_seq
+      )`),
     saveMlsWelcome: db.prepare('UPDATE rooms SET mls_welcome = ? WHERE room_id = ? AND mls_welcome IS NULL'),
     insertDeviceLink: db.prepare(`INSERT INTO device_links(
       link_id, room_id, authorizer_id, role, secret_hash, expires_at, created_at

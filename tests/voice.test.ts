@@ -96,7 +96,7 @@ describe('voice attachment encryption', () => {
     await expect(decryptAudioFile({ ...manifest, sha256: '0'.repeat(64) }, async (_blobId, index) => chunks.get(index)!)).rejects.toThrow('完整性');
     const damaged = chunks.get(0)!.slice(0); new Uint8Array(damaged)[30] ^= 1;
     await expect(decryptAudioFile(manifest, async (_blobId, index) => index === 0 ? damaged : chunks.get(index)!)).rejects.toThrow();
-    await expect(decryptAudioFile(manifest, async () => new ArrayBuffer(1))).rejects.toThrow('长度');
+    await expect(decryptAudioFile(manifest, async () => new ArrayBuffer(1))).rejects.toMatchObject({ code: 'VOICE_DECRYPT_FAILED' });
     const controller = new AbortController(); controller.abort();
     await expect(decryptAudioFile(manifest, async () => { throw Error('must not fetch'); }, undefined, controller.signal)).rejects.toThrow();
   });

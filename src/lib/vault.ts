@@ -9,6 +9,7 @@ import { createRecoveryRequest } from './mls';
 import { isMessagePayload } from './message-payload';
 import { isGalleryMediaPayload } from './video-media';
 import { normalizeGalleryCurationRecords, type GalleryCurationRecord } from './gallery-curation';
+import { normalizeAttachmentFavorites, type AttachmentFavorite } from './attachment-favorites';
 import type { CloudRecoveryBundle } from './backup-types';
 import { parseCloudRecoveryCode } from './backup-crypto';
 import {
@@ -151,6 +152,7 @@ export type UiPreferences = {
   hiddenChatMessageIds?: string[];
   /** Device-local Safe ordering/removal projection. */
   galleryCuration?: GalleryCurationRecord[];
+  attachmentFavorites?: AttachmentFavorite[];
 };
 
 type UnlockThrottle = {
@@ -1279,7 +1281,7 @@ export async function loadMessageEventHistory(
         // Ordinary history is scanned second and is the canonical copy when
         // both stores contain the exact same restored record.
         messagesBySequence.set(message.seq, message);
-        if ((message?.payload?.kind === 'reaction' || message?.payload?.kind === 'message-delete') && isMessagePayload(message.payload)) {
+        if ((message?.payload?.kind === 'reaction' || message?.payload?.kind === 'message-delete' || message?.payload?.kind === 'media-read' || message?.payload?.kind === 'message-read') && isMessagePayload(message.payload)) {
           eventsBySequence.set(message.seq, message);
         }
       }
@@ -1331,7 +1333,7 @@ export async function loadHistoryMessage(session: VaultSession, seq: number, sig
 /** Media type stays encrypted. Scan a bounded page and retain only media payloads. */
 export async function loadMediaHistoryPage(
   session: VaultSession,
-  { beforeSeq, limit = 200, signal }: { beforeSeq?: number; limit?: number; signal?: AbortSignal } = {},
+  { beforeSeq, limit = 200, signal, includeExpressions = false }: { beforeSeq?: number; limit?: number; signal?: AbortSignal; includeExpressions?: boolean } = {},
 ): Promise<{ messages: DecryptedMessage[]; beforeSeq: number | null; hasMore: boolean }> {
   signal?.throwIfAborted();
   const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 200);
@@ -1379,7 +1381,7 @@ export async function loadMediaHistoryPage(
   const records = [...canonical.values()].sort((left, right) => right.message.seq - left.message.seq);
   const page = records.slice(0, boundedLimit);
   return {
-    messages: page.map(item => item.message).filter((message) => isGalleryMediaPayload(message.payload)),
+    messages: page.map(item => item.message).filter((message) => isGalleryMediaPayload(message.payload) || includeExpressions && message.payload.kind === 'image'),
     beforeSeq: page.at(-1)?.message.seq ?? null,
     hasMore: scan.truncated || records.length > boundedLimit,
   };
@@ -1539,6 +1541,20 @@ export async function installStickerPack(session: VaultSession, id: string, titl
   });
 }
 
+/** Persist the user-selected shortcut order without rewriting pack originals. */
+export async function reorderStickerPacks(session: VaultSession, ids: string[], signal: AbortSignal): Promise<void> {
+  if (!Array.isArray(ids) || ids.length > MAX_STICKER_PACKS || new Set(ids).size !== ids.length
+    || ids.some(id => typeof id !== 'string' || !/^[a-z0-9-]{1,80}$/.test(id))) throw new Error('贴纸合集顺序不正确');
+  await withVaultMutation(session, async () => {
+    signal.throwIfAborted();
+    const packs = await loadStickerPacks(session);
+    const byId = new Map(packs.map(pack => [pack.id, pack]));
+    if (ids.length !== packs.length || ids.some(id => !byId.has(id))) throw new Error('贴纸合集顺序不正确');
+    const index = await encryptLocalRecord(session, 'memeFavorites', 'packs', ids.map(id => byId.get(id)!));
+    await commitStickerRecords(session, [index], [], signal);
+  });
+}
+
 export async function removeStickerPack(session: VaultSession, id: string, signal: AbortSignal): Promise<void> {
   await withVaultMutation(session, async () => {
     signal.throwIfAborted();
@@ -1664,6 +1680,12 @@ function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: b
   const hiddenChatMessageIds = Array.isArray(rawHidden) && validHidden
     ? [...new Set(rawHidden.map((id) => id.toLowerCase()))] : [];
   let galleryCuration: GalleryCurationRecord[] = [];
+  let attachmentFavorites: AttachmentFavorite[] = [];
+  try {
+    attachmentFavorites = normalizeAttachmentFavorites(source.attachmentFavorites ?? []);
+  } catch (cause) {
+    if (strict) throw new Error('收藏偏好记录格式不正确', { cause });
+  }
   try {
     galleryCuration = normalizeGalleryCurationRecords(source.galleryCuration ?? []);
   } catch (cause) {
@@ -1677,6 +1699,7 @@ function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: b
     recoveryReminderDismissed: source.recoveryReminderDismissed === true,
     ...(hiddenChatMessageIds.length ? { hiddenChatMessageIds } : {}),
     ...(galleryCuration.length ? { galleryCuration } : {}),
+    ...(attachmentFavorites.length ? { attachmentFavorites } : {}),
   };
 }
 

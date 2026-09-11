@@ -47,7 +47,7 @@ async function connect(server: Awaited<ReturnType<typeof startServer>>, roomId: 
       if (found) return found;
       await new Promise((resolve) => setTimeout(resolve, 5));
     }
-    throw new Error(`Missing frame; observed ${JSON.stringify(frames)}`);
+    throw new Error(`Missing frame; observed ${JSON.stringify(frames.map(({ type, state, code }) => ({ type, state, code })))}`);
   };
   await new Promise<void>((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
   cleanups.push(() => { socket.terminate(); });
@@ -89,7 +89,7 @@ describe('ephemeral encrypted call transport', () => {
     expect(await b.waitFor((frame) => frame.type === 'call')).toEqual({ type: 'call', envelope: invite });
     expect(JSON.stringify(b.frames)).not.toContain('private-sdp-never-on-server');
     a.send({ type: 'call', envelope: invite });
-    await a.waitFor((frame) => frame.code === 'CALL_REPLAY');
+    await vi.waitFor(() => expect(a.frames.filter(frame => frame.type === 'call-ack' && frame.eventId === invite.eventId)).toHaveLength(2));
     expect(b.frames.filter((frame) => frame.type === 'call')).toHaveLength(1);
     const accept = await make('accept', true);
     b.send({ type: 'call', envelope: accept });
@@ -131,7 +131,7 @@ describe('ephemeral encrypted call transport', () => {
   });
 
   it('fails closed on cancellation versus late accept and permits a fresh call after endpoint disconnects', async () => {
-    const { a, b, callId, make } = await setup();
+    const { server, roomId, callee, calleeToken, a, b, callId, make } = await setup();
     a.send({ type: 'call', envelope: await make('signal') });
     await a.waitFor((frame) => frame.code === 'CALL_NOT_FOUND');
     a.send({ type: 'call', envelope: await make('invite') });
@@ -147,7 +147,13 @@ describe('ephemeral encrypted call transport', () => {
     b.send({ type: 'call', envelope: await make('accept', true, { callId: nextId }) });
     await a.waitFor((frame) => frame.callId === nextId && frame.state === 'accepted');
     b.socket.terminate();
-    await a.waitFor((frame) => frame.callId === nextId && frame.code === 'CALL_DISCONNECTED');
+    // A short transport flap must not tear down the authenticated call. The
+    // same device can rebind a fresh WebSocket and continue negotiation.
+    const b2 = await connect(server, roomId, callee, calleeToken);
+    expect(await b2.waitFor(frame => frame.callId === nextId && frame.state === 'accepted')).toMatchObject({ acceptedBy: callee.publicBundle.deviceId });
+    const resumedSignal = await make('signal', false, { callId: nextId });
+    a.send({ type: 'call', envelope: resumedSignal });
+    expect(await b2.waitFor((frame) => frame.envelope?.eventId === resumedSignal.eventId)).toEqual({ type: 'call', envelope: resumedSignal });
     expect(nextId).not.toBe(callId);
   });
 
@@ -349,6 +355,52 @@ describe('multi-device selection and lifecycle fences', () => {
     const next = { callId: crypto.randomUUID() };
     await transmit(0, 2, 'invite', next);
     expect(sockets[2]!.frames.at(-1)?.envelope?.callId).toBe(next.callId);
+  });
+
+  it('replaces an accepted call when the peer is in transport grace and a fresh callId arrives', async () => {
+    const { sockets, transmit, service } = await arbitrationHarness();
+    await transmit(0, 1, 'invite');
+    await transmit(1, 0, 'accept');
+    service.disconnect(sockets[0]);
+    const next = { callId: crypto.randomUUID() };
+    await transmit(1, 0, 'invite', next);
+    expect(sockets[0]!.frames.at(-1)?.envelope?.callId).toBe(next.callId);
+    expect(sockets[1]!.frames.some((frame) => frame.state === 'ended')).toBe(true);
+  });
+
+  it('honors explicit lock immediately and does not apply transport grace to revoked peers', async () => {
+    const { sockets, transmit, service, fenced, identities } = await arbitrationHarness();
+    await transmit(0, 1, 'invite'); await transmit(1, 0, 'accept');
+    service.disconnect(sockets[1], 1000, 'Locked');
+    expect(sockets[0]!.frames.some(frame => frame.code === 'CALL_ENDED')).toBe(true);
+    const fresh = { callId: crypto.randomUUID() }; await transmit(0, 1, 'invite', fresh); await transmit(1, 0, 'accept', fresh);
+    service.disconnect(sockets[1]); fenced.add(identities[1]!.publicBundle.deviceId); service.sweep();
+    expect(sockets[0]!.frames.at(-1)?.code).toBe('CALL_DEVICE_INACTIVE');
+  });
+
+  it('resends only the acknowledgment for an identical signed event, rejects changed replay content', async () => {
+    const { sockets, service, sessions, make } = await arbitrationHarness();
+    const original = await make(0, 1, 'invite');
+    await service.handle(sockets[0], sessions[0], { type: 'call', envelope: original });
+    await service.handle(sockets[0], sessions[0], { type: 'call', envelope: original });
+    expect(sockets[1]!.frames.filter(frame => frame.envelope?.eventId === original.eventId)).toHaveLength(1);
+    expect(sockets[0]!.frames.filter(frame => frame.type === 'call-ack')).toHaveLength(2);
+    const changed = await make(0, 1, 'invite', { eventId: original.eventId });
+    await service.handle(sockets[0], sessions[0], { type: 'call', envelope: changed });
+    expect(sockets[0]!.frames.at(-1)?.code).toBe('CALL_REPLAY');
+  });
+
+  it('does not acknowledge or lose a signal when the selected peer transport is unavailable', async () => {
+    const { sockets, transmit, service, sessions, make } = await arbitrationHarness();
+    await transmit(0, 1, 'invite'); await transmit(1, 0, 'accept');
+    service.disconnect(sockets[1]); sockets[1]!.open = false;
+    const signal = await make(0, 1, 'signal');
+    await service.handle(sockets[0], sessions[0], { type: 'call', envelope: signal });
+    expect(sockets[0]!.frames.at(-1)?.code).toBe('CALL_PEER_RECONNECTING');
+    sockets[1]!.open = true; service.rebind(sockets[1], sessions[1]);
+    await service.handle(sockets[0], sessions[0], { type: 'call', envelope: signal });
+    expect(sockets[1]!.frames.filter(frame => frame.envelope?.eventId === signal.eventId)).toHaveLength(1);
+    expect(sockets[0]!.frames.at(-1)?.type).toBe('call-ack');
   });
 
   it('expires ringing calls without allowing old invitations to resurrect them', async () => {

@@ -8,6 +8,7 @@ const ACTIONS = new Set(['invite', 'accept', 'signal', 'decline', 'end']);
 const MAX_TTL_MS = 60_000;
 const CLOCK_SKEW_MS = 10_000;
 const RING_MS = 45_000;
+const TRANSPORT_GRACE_MS = 30_000;
 const RETENTION_MS = MAX_TTL_MS + CLOCK_SKEW_MS;
 const MAX_REPLAY_ENTRIES = 20_000;
 
@@ -47,7 +48,7 @@ function parseUrls(value, allowedSchemes) {
         (scheme === 'turns' && transport === 'udp')) throw new Error('CALL_CONFIG_INVALID');
     if (host.startsWith('[')) {
       if (isIP(host.slice(1, -1)) !== 6) throw new Error('CALL_CONFIG_INVALID');
-    } else if (host.length > 253 || !host.split('.').every((label) => /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/.test(label))) {
+    } else if ((/^[0-9.]+$/.test(host) && isIP(host) !== 4) || host.length > 253 || !host.split('.').every((label) => /^[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/.test(label))) {
       throw new Error('CALL_CONFIG_INVALID');
     }
   }
@@ -71,7 +72,13 @@ export function callIceConfiguration(options = {}, now = Date.now()) {
     const credential = createHmac('sha1', secret).update(username).digest('base64');
     iceServers.push({ urls: turnUrls, username, credential });
   }
-  return { iceServers, iceTransportPolicy: relayOnly ? 'relay' : 'all', relayConfigured: turnUrls.length > 0 };
+  const regionsRaw = options.callIceRegions ?? process.env.CALL_ICE_REGIONS ?? '{}';
+  let regions;
+  try { regions = JSON.parse(regionsRaw); } catch { throw new Error('CALL_CONFIG_INVALID'); }
+  if (!regions || typeof regions !== 'object' || Array.isArray(regions) || Object.entries(regions).some(([url, region]) => ![...stunUrls, ...turnUrls].includes(url) || typeof region !== 'string' || !/^[a-zA-Z0-9_-]{1,32}$/.test(region))) throw new Error('CALL_CONFIG_INVALID');
+  const iceRoutes = [...stunUrls, ...turnUrls].map(url => ({ url, ...(regions[url] ? { region: regions[url] } : {}) }));
+  return { iceServers, iceTransportPolicy: relayOnly ? 'relay' : 'all', relayConfigured: turnUrls.length > 0,
+    ...(turnUrls.length ? { expiresAt: (Math.floor(now / 1000) + 7200) * 1000 } : {}), ...(iceRoutes.length ? { iceRoutes } : {}) };
 }
 
 /** Ephemeral single-call arbitration. No SDP, candidate or ciphertext is persisted. */
@@ -90,16 +97,16 @@ export function createCallService({ store, clientsByRoom, socketSessions, send, 
     return isOpen(socket) && session?.roomId === roomId && session.deviceId === deviceId && memberActive(roomId, deviceId);
   }
   function deliver(socket, frame) {
+    if (!socket || !isOpen(socket)) return false;
     // Do not accumulate encrypted media negotiation behind a stalled connection.
     if ((socket.bufferedAmount ?? 0) > 512 * 1024) {
       socket.close?.(4429, 'Call transport backpressure');
       return false;
     }
-    send(socket, frame);
-    return true;
+    try { send(socket, frame); return true; } catch { return false; }
   }
-  function state(socket, callId, value, code, acceptedBy, recipientId) {
-    deliver(socket, { type: 'call-state', callId, state: value, ...(code ? { code } : {}), ...(acceptedBy ? { acceptedBy } : {}), ...(recipientId ? { recipientId } : {}) });
+  function state(socket, callId, value, code, acceptedBy, recipientId, eventId) {
+    deliver(socket, { type: 'call-state', callId, state: value, ...(code ? { code } : {}), ...(acceptedBy ? { acceptedBy } : {}), ...(recipientId ? { recipientId } : {}), ...(eventId ? { eventId } : {}) });
   }
   function broadcast(call, value, code) {
     for (const socket of clientsByRoom.get(call.roomId) ?? []) {
@@ -116,11 +123,15 @@ export function createCallService({ store, clientsByRoom, socketSessions, send, 
   }
   function cleanup() {
     const now = Date.now();
-    for (const map of [seen, ended]) for (const [key, expiry] of map) if (expiry <= now) map.delete(key);
+    for (const [key, entry] of seen) if (entry.expiry <= now) seen.delete(key);
+    for (const [key, expiry] of ended) if (expiry <= now) ended.delete(key);
     for (const [key, rate] of rates) if (rate.until <= now) rates.delete(key);
     for (const call of calls.values()) {
-      if (!socketActive(call.callerSocket, call.roomId, call.callerId) ||
-          (call.acceptedBy && !socketActive(call.calleeSocket, call.roomId, call.acceptedBy))) finish(call, 'CALL_DEVICE_INACTIVE');
+      const callerDetachedUntil = call.detachedUntil.get(call.callerId) ?? 0;
+      const calleeDetachedUntil = call.acceptedBy ? (call.detachedUntil.get(call.acceptedBy) ?? 0) : 0;
+      if (!memberActive(call.roomId, call.callerId) || (call.acceptedBy && !memberActive(call.roomId, call.acceptedBy))) { finish(call, 'CALL_DEVICE_INACTIVE'); continue; }
+      if ((!socketActive(call.callerSocket, call.roomId, call.callerId) && callerDetachedUntil <= now) ||
+          (call.acceptedBy && !socketActive(call.calleeSocket, call.roomId, call.acceptedBy) && calleeDetachedUntil <= now)) finish(call, 'CALL_DEVICE_INACTIVE');
       else if (!call.acceptedBy && call.ringUntil <= now) finish(call, 'CALL_TIMEOUT');
     }
   }
@@ -145,7 +156,7 @@ export function createCallService({ store, clientsByRoom, socketSessions, send, 
     const envelope = frame.envelope;
     const callId = isUuid(envelope?.callId) ? envelope.callId : '';
     const failedRecipient = envelope?.action === 'invite' && isUuid(envelope.recipientId) ? envelope.recipientId : undefined;
-    const fail = (code) => state(socket, callId, 'error', code, undefined, failedRecipient);
+    const fail = (code) => state(socket, callId, 'error', code, undefined, failedRecipient, isUuid(envelope?.eventId) ? envelope.eventId : undefined);
     if (!allow(session)) return fail('CALL_RATE_LIMITED');
     if (Object.keys(frame).length !== 2 || frame.type !== 'call') return fail('INVALID_CALL');
     const invalid = validateCallEnvelope(envelope, session.roomId);
@@ -161,21 +172,36 @@ export function createCallService({ store, clientsByRoom, socketSessions, send, 
     if (!recipient || recipient.role === sender.role || !sender.capabilities?.includes(CAPABILITY) ||
         (envelope.action !== 'end' && !memberActive(session.roomId, envelope.recipientId))) return fail('CALL_FORBIDDEN');
     cleanup();
-    const eventKey = `${session.roomId}:${envelope.eventId}`;
-    if (seen.has(eventKey)) return fail('CALL_REPLAY');
+    const eventKey = `${session.roomId}:${session.deviceId}:${envelope.eventId}`;
+    const ack = () => deliver(socket, { type: 'call-ack', callId, eventId: envelope.eventId });
+    const previous = seen.get(eventKey);
+    if (previous) return previous.signature === envelope.signature ? ack() : fail('CALL_REPLAY');
     if (seen.size >= MAX_REPLAY_ENTRIES || ended.size >= MAX_REPLAY_ENTRIES) return fail('CALL_RATE_LIMITED');
-    seen.set(eventKey, envelope.expiresAt + CLOCK_SKEW_MS);
+    const commit = () => { seen.set(eventKey, { expiry: envelope.expiresAt + CLOCK_SKEW_MS, signature: envelope.signature }); ack(); };
     if (ended.has(`${session.roomId}:${callId}`)) return fail('CALL_NOT_FOUND');
     let call = calls.get(session.roomId);
 
     if (envelope.action === 'invite') {
+      // A lifecycle teardown may close the transport before its encrypted end
+      // frame arrives. A fresh call from the same authenticated device is an
+      // explicit replacement of that detached stale attempt; a matching
+      // callId still follows the normal reconnect path below.
+      const callerDetached = call ? (call.detachedUntil.get(call.callerId) ?? 0) > Date.now() : false;
+      const calleeDetached = call?.acceptedBy ? (call.detachedUntil.get(call.acceptedBy) ?? 0) > Date.now() : false;
+      const participant = call && (call.callerId === session.deviceId || call.acceptedBy === session.deviceId);
+      const acceptedPeerReplacement = call?.acceptedBy === session.deviceId && envelope.createdAt >= call.createdAt;
+      if (call && call.callId !== callId && participant && (callerDetached || calleeDetached || acceptedPeerReplacement)) {
+        finish(call, 'CALL_DISCONNECTED');
+        call = null;
+      }
       if (call && (call.callId !== callId || call.callerId !== session.deviceId || call.callerSocket !== socket)) return fail('CALL_BUSY');
       if (call?.acceptedBy) return fail('CALL_ALREADY_ACCEPTED');
       const recipientSocket = availableSocket(session.roomId, envelope.recipientId);
       if (!recipientSocket) return fail('CALL_UNAVAILABLE');
+      if ((recipientSocket.bufferedAmount ?? 0) > 512 * 1024) return fail('CALL_BACKPRESSURE');
       if (call?.invited.has(envelope.recipientId)) return fail('CALL_REPLAY');
       if (!call) {
-        call = { roomId: session.roomId, callId, callerId: session.deviceId, callerSocket: socket, invited: new Map(), ringUntil: Date.now() + RING_MS };
+        call = { createdAt: envelope.createdAt, roomId: session.roomId, callId, callerId: session.deviceId, callerSocket: socket, invited: new Map(), detachedUntil: new Map(), ringUntil: Date.now() + RING_MS };
         call.timer = setTimeout(() => finish(call, 'CALL_TIMEOUT'), RING_MS);
         call.timer.unref?.();
         calls.set(session.roomId, call);
@@ -183,6 +209,7 @@ export function createCallService({ store, clientsByRoom, socketSessions, send, 
       call.invited.set(envelope.recipientId, recipientSocket);
       deliver(recipientSocket, { type: 'call', envelope });
       state(socket, callId, 'ringing');
+      commit();
       return;
     }
     if (!call || call.callId !== callId) return fail('CALL_NOT_FOUND');
@@ -192,18 +219,22 @@ export function createCallService({ store, clientsByRoom, socketSessions, send, 
     if (envelope.action === 'accept') {
       if (!invitedCallee) return fail('CALL_FORBIDDEN');
       if (call.acceptedBy) return fail('CALL_ALREADY_ACCEPTED');
+      if (!socketActive(call.callerSocket, call.roomId, call.callerId)) return fail('CALL_PEER_RECONNECTING');
+      if ((call.callerSocket.bufferedAmount ?? 0) > 512 * 1024) return fail('CALL_BACKPRESSURE');
       call.acceptedBy = session.deviceId;
       call.calleeSocket = socket;
       clearTimeout(call.timer);
       // Set and publish selection synchronously before forwarding the encrypted answer.
       broadcast(call, 'accepted');
       deliver(call.callerSocket, { type: 'call', envelope });
+      commit();
       return;
     }
     if (envelope.action === 'decline') {
       if (!invitedCallee || call.acceptedBy) return fail('CALL_FORBIDDEN');
       deliver(call.callerSocket, { type: 'call', envelope });
       finish(call, 'CALL_DECLINED');
+      commit();
       return;
     }
     if (envelope.action === 'end' && fromCaller) {
@@ -214,26 +245,47 @@ export function createCallService({ store, clientsByRoom, socketSessions, send, 
       const target = call.invited.get(envelope.recipientId);
       if (target) deliver(target, { type: 'call', envelope });
       finish(call, 'CALL_ENDED');
+      commit();
       return;
     }
     const fromCallee = session.deviceId === call.acceptedBy && socket === call.calleeSocket;
     const targetId = fromCaller ? call.acceptedBy : call.callerId;
     if (!call.acceptedBy || (!fromCaller && !fromCallee) || envelope.recipientId !== targetId) return fail('CALL_FORBIDDEN');
-    deliver(fromCaller ? call.calleeSocket : call.callerSocket, { type: 'call', envelope });
+    const delivered = deliver(fromCaller ? call.calleeSocket : call.callerSocket, { type: 'call', envelope });
+    if (!delivered && envelope.action !== 'end') return fail('CALL_PEER_RECONNECTING');
     if (envelope.action === 'end') finish(call, 'CALL_ENDED');
+    commit();
   }
 
   return {
     handle,
     sweep: cleanup,
-    disconnect(socket) {
+    rebind(socket, session) {
+      cleanup();
+      const call = calls.get(session.roomId);
+      if (!call || !memberActive(session.roomId, session.deviceId)) return;
+      if (call.callerId === session.deviceId) {
+        call.callerSocket = socket;
+        call.detachedUntil.delete(session.deviceId);
+      }
+      if (call.acceptedBy === session.deviceId) {
+        call.calleeSocket = socket;
+        call.detachedUntil.delete(session.deviceId);
+      }
+      if (call.invited.has(session.deviceId)) {
+        call.invited.set(session.deviceId, socket);
+        call.detachedUntil.delete(session.deviceId);
+      }
+      if (call.callerId === session.deviceId || call.invited.has(session.deviceId)) state(socket, call.callId, call.acceptedBy ? 'accepted' : 'ringing', undefined, call.acceptedBy);
+    },
+    disconnect(socket, code, reason) {
       const session = socketSessions.get(socket);
       const call = session && calls.get(session.roomId);
       if (!call) return;
-      if (call.callerSocket === socket || call.calleeSocket === socket) finish(call, 'CALL_DISCONNECTED');
-      else {
-        for (const [id, invitedSocket] of call.invited) if (invitedSocket === socket) call.invited.delete(id);
-        if (!call.acceptedBy && call.invited.size === 0) finish(call, 'CALL_UNAVAILABLE');
+      const deviceId = session.deviceId;
+      if (call.callerSocket === socket || call.calleeSocket === socket || call.invited.get(deviceId) === socket) {
+        if ((code === 1000 && reason === 'Locked') || [4401, 4403].includes(code)) { finish(call, 'CALL_ENDED'); return; }
+        call.detachedUntil.set(deviceId, Date.now() + TRANSPORT_GRACE_MS);
       }
     },
     close() {

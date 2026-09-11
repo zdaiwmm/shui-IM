@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error Operational Node script intentionally has no TS declarations.
-import { artifactProbe, discoverPublicArtifacts, parseReadbackArgs, ReadbackError, runReadback, saveEvidence, stateProbe, validateServerState } from '../scripts/production-readback.mjs';
+import { artifactProbe, discoverPublicArtifacts, evidenceDirectory, parseReadbackArgs, ReadbackError, runReadback, saveEvidence, stateProbe, validateServerState } from '../scripts/production-readback.mjs';
 
 const sha = 'a'.repeat(40);
 const image = `sha256:${'b'.repeat(64)}`;
@@ -17,6 +17,27 @@ const state = {
 };
 
 describe('independent production readback', () => {
+  it('writes independent receipts in a real linked worktree without treating .git as a directory', () => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'quiet-readback-worktree-'));
+    const linked = path.join(directory, 'linked');
+    const git = (...args: string[]) => {
+      const result = spawnSync('git', args, { cwd: directory, encoding: 'utf8' });
+      expect(result.status, result.stderr).toBe(0);
+    };
+    try {
+      git('init');
+      git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '--allow-empty', '-m', 'fixture');
+      git('worktree', 'add', '--detach', linked);
+      expect(statSync(path.join(linked, '.git')).isFile()).toBe(true);
+      const primaryDirectory = evidenceDirectory(directory);
+      const linkedDirectory = evidenceDirectory(linked);
+      expect(linkedDirectory).not.toBe(primaryDirectory);
+      const receipt = saveEvidence({ startedAt: '2026-09-10T00:00:00Z', expectedSha: sha, status: 'success' }, linkedDirectory);
+      expect(JSON.parse(readFileSync(receipt, 'utf8')).expectedSha).toBe(sha);
+      expect(statSync(receipt).mode & 0o777).toBe(0o600);
+      expect(() => evidenceDirectory(tmpdir())).toThrow();
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
   it('requires one exact expected SHA and never accepts latest or release flags', () => {
     expect(parseReadbackArgs(['--sha', sha])).toBe(sha);
     for (const args of [[], ['--sha', 'main'], ['--yes'], ['--sha', sha, '--retry-deploy']]) expect(() => parseReadbackArgs(args)).toThrow();

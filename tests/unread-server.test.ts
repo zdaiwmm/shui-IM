@@ -72,6 +72,36 @@ function nextFrame(socket: WebSocket, type: string): Promise<any> {
 }
 
 describe('restricted unread observer', () => {
+  it('shares reads across a participant devices without clearing unread history before a companion joined', async () => {
+    const { db, server, vault, observerToken, post, get, envelope } = await setup();
+    await post({ token: observerToken });
+    const old = server.store.insertMessage(vault.roomId, await envelope());
+    const companionId = crypto.randomUUID();
+    // A real separate member and observer, with a later history boundary.
+    db.prepare(`INSERT INTO members(room_id, device_id, role, encryption_jwk, signing_jwk, access_hash,
+      status, join_seq, created_at) SELECT room_id, ?, role, encryption_jwk, signing_jwk, ?,
+      'active', ?, created_at FROM members WHERE room_id = ? AND device_id = ?`)
+      .run(companionId, Buffer.alloc(32, 17), old.seq, vault.roomId, vault.identity.publicBundle.deviceId);
+    const companionToken = randomBase64Url(32);
+    server.store.saveUnreadObserver(vault.roomId, companionId, { token: companionToken });
+    expect(await (await get()).json()).toEqual({ count: 1 }); // Enrollment is not a read.
+    const next = server.store.insertMessage(vault.roomId, await envelope());
+    expect(await (await get()).json()).toEqual({ count: 2 });
+    server.store.saveUnreadObserver(vault.roomId, companionId, { readSeq: next.seq });
+    expect(await (await get()).json()).toEqual({ count: 1 }); // Only the visible history range is shared.
+    await post({ readSeq: old.seq });
+    expect(await (await get()).json()).toEqual({ count: 0 });
+    const latest = server.store.insertMessage(vault.roomId, await envelope());
+    await post({ readSeq: latest.seq });
+    expect(server.store.unreadCount(vault.roomId, companionId, companionToken)).toEqual({ count: 0 });
+    server.store.saveUnreadObserver(vault.roomId, companionId, { readSeq: 0 });
+    expect(server.store.unreadCount(vault.roomId, companionId, companionToken)).toEqual({ count: 0 });
+    // Revoking a device prevents new reads but does not undo its previous reads.
+    db.prepare("UPDATE members SET status = 'revoked' WHERE device_id = ?").run(companionId);
+    expect(await (await get()).json()).toEqual({ count: 0 });
+    expect(() => server.store.saveUnreadObserver(vault.roomId, companionId, { readSeq: latest.seq })).toThrow();
+  });
+
   it('counts unseen synced messages when initial registration is retried after an offline failure', async () => {
     const { server, vault, base, envelope } = await setup();
     const { counter, fetchMock } = counterClient(base);

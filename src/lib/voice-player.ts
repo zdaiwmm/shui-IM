@@ -1,3 +1,4 @@
+import { VoiceNetworkError, VOICE_FAILURE_TEXT } from './voice-network';
 import type { AudioPayload } from './types';
 import { voiceIcons, voiceTime, waveformMarkup } from './voice-audio';
 
@@ -49,7 +50,7 @@ export class VoicePlayer {
     for (const event of ['play', 'pause', 'timeupdate', 'ended', 'loadedmetadata']) this.audio.addEventListener(event, () => this.update());
     this.audio.addEventListener('error', () => {
       if (!this.url) return;
-      this.error = '语音无法播放，点按重试'; this.update();
+      this.release(); this.error = VOICE_FAILURE_TEXT.VOICE_DECODE_FAILED; this.element.dataset.errorCode = 'VOICE_DECODE_FAILED'; this.update();
     });
   }
 
@@ -73,7 +74,8 @@ export class VoicePlayer {
       if (request.signal.aborted) return;
       this.release();
       this.error = cause instanceof Error && cause.name === 'NotAllowedError'
-        ? '请再次点击播放语音' : '语音加载或播放失败，点按重试';
+        ? '请再次点击播放语音' : cause instanceof VoiceNetworkError ? cause.message : VOICE_FAILURE_TEXT.VOICE_DECODE_FAILED;
+      this.element.dataset.errorCode = cause instanceof VoiceNetworkError ? cause.code : cause instanceof Error && cause.name === 'NotAllowedError' ? 'PLAYBACK_GESTURE_REQUIRED' : 'VOICE_DECODE_FAILED';
     } finally {
       if (!request.signal.aborted) this.loading = false;
       this.update();
@@ -101,6 +103,6 @@ export class VoicePlayer {
     this.request?.abort(); this.request = null; this.loading = false;
     this.audio.pause(); this.audio.removeAttribute('src'); this.audio.load();
     if (this.url) URL.revokeObjectURL(this.url);
-    this.url = null; this.error = ''; this.update();
+    this.url = null; this.error = ''; delete this.element.dataset.errorCode; this.update();
   }
 }

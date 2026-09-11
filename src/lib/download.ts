@@ -59,61 +59,25 @@ export async function downloadBlob(
 
 const SYSTEM_READABLE_MIME_TYPES = new Set([
   'application/pdf',
+  'application/epub+zip',
   'application/json',
   'text/plain',
   'text/csv',
   'text/markdown',
 ]);
 
-/** Only inert, browser-native document types are eligible for direct viewing. */
+/** Only allowlisted documents enter the local reader; MIME conflicts fail closed. */
 export function systemReadableMimeType(mimeType: string, filename: string): string | null {
   const normalized = mimeType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
   if (SYSTEM_READABLE_MIME_TYPES.has(normalized)) return normalized;
+  if (normalized === 'application/zip' && /\.epub$/i.test(filename)) return 'application/epub+zip';
   if (normalized && normalized !== 'application/octet-stream') return null;
   const extension = filename.match(/\.([a-z0-9]+)$/i)?.[1]?.toLowerCase();
   return extension === 'pdf' ? 'application/pdf'
+    : extension === 'epub' ? 'application/epub+zip'
     : extension === 'txt' ? 'text/plain'
       : extension === 'csv' ? 'text/csv'
         : extension === 'md' ? 'text/markdown'
           : extension === 'json' ? 'application/json'
             : null;
-}
-
-/** Reserve a reader window while the trusted click activation is still live. */
-export function prepareSystemReader(): Window | null {
-  const reader = window.open('about:blank', '_blank');
-  if (!reader) return null;
-  try {
-    reader.opener = null;
-    reader.document.title = '正在安全读取文件…';
-  } catch {
-    // The blank same-origin window normally permits this. Navigation below
-    // remains the authoritative operation if a browser restricts access.
-  }
-  return reader;
-}
-
-/** Hand verified bytes to the browser/OS reader without executing web content. */
-export async function openBlobInSystemReader(blob: Blob, filename: string, mimeType: string, preparedReader?: Window | null): Promise<void> {
-  const safeType = systemReadableMimeType(mimeType, filename);
-  if (!safeType) throw new Error('UNSUPPORTED_SYSTEM_READER_TYPE');
-  const url = URL.createObjectURL(blob.slice(0, blob.size, safeType));
-  if (preparedReader && !preparedReader.closed) {
-    try {
-      preparedReader.location.replace(url);
-      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-      return;
-    } catch {
-      try { preparedReader.close(); } catch { /* Already unavailable. */ }
-    }
-  }
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.target = '_blank';
-  anchor.rel = 'noopener noreferrer';
-  anchor.style.display = 'none';
-  document.body.append(anchor);
-  anchor.click();
-  anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

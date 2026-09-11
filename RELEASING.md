@@ -1,11 +1,16 @@
 # Quiet Room 固定发布流程
 
+新版本发布前将上一版 `release.json` 的原始内容追加到 `release-history.json`，按发布顺序保留唯一 ID。
+应用以已查看版本或旧客户端迁移基线合并后续说明，去重相同条目；仅停留遮蔽页不会推进已查看基线。
+构建及容器均需包含该历史文件，未知旧基线展示仓库内可用历史，不编造更早记录。
 ## 先更新用户可见版本说明
 
 每个包含用户可见变化的发布候选都必须先更新根目录 `release.json`：使用新的唯一 `id`，并以
 简洁语句逐条填写本次 `notes`。构建会校验该文件，把同一个版本 ID 同时注入应用和
 Service Worker；复用旧 ID 会让已经打开的客户端无法识别新版本。纯发布记录文档不需要修改
 该文件，也不能为了触发更新提示制造空版本。
+
+版本生成与固定批次入口见 [工作流](docs/context/workflow.md#固定批次发布2026-09-10)。工具改进不制造空的用户可见版本，也不自动发布。
 
 ## 本机一次性初始化
 
@@ -46,10 +51,10 @@ TMPDIR=/private/tmp node scripts/publish.mjs --sha <40位提交号>
 默认临时目录完成真实路径规范化、隔离发布和成功回执验证，见[该次历史发布记录](#release-20260904-2209)。
 
 该入口依次执行：只读预检 → 核对 GitHub main → 等待该提交完整 CI 成功 →
-新建独立浅克隆发布副本（仅 main，`--depth 1`）→ 再次核对提交 →
+新建独立发布副本（仅 main 历史，按需取 blob）→ 校验祖先并固定获批提交 →
 调用已有服务器发布程序 → 回读线上提交号并保存隔离副本内的成功回执。
 不会把本地未提交文件复制过去，也不会切分支、stash、重置或覆盖开发工作区。
-GitHub main 在准备期间变化时停止，不擅自改发新版。
+GitHub main 在准备期间正常前进时继续发布已确认批次，不擅自改发新版；候选不再属于 main 时拒绝。生产已为同版时仅做独立回读，生产领先或分叉时拒绝常规发布。发布仍须单写者，不自动回退生产。
 
 本地待合并改动仍须先审阅、测试并合并；该入口只发布已合并内容，不自动合并。
 已经完成且失败的 CI 不会自动重跑，先读取失败原因再处理。
@@ -78,8 +83,8 @@ SHA 完全相同。只有外层核对成功并且后续独立只读生产回读�
 npm run deploy:readback -- --sha <本次获批并已发布的40位提交号>
 ```
 
-当前保存证据实现要求源码目录中的 `.git` 是目录。linked worktree 的 `.git` 是文件，
-会在远端检查后以 `evidence-write` 阻塞；修复前在已有精确发布克隆中执行同一入口，先以
+保存证据通过 `git rev-parse --absolute-git-dir` 定位当前工作树独立的 Git 元数据目录，
+支持普通克隆与 linked worktree；该目录仍需执行权限。旧版本入口不支持 linked worktree 时，在已有精确发布克隆中执行同一入口，先以
 `npm ci --omit=dev --ignore-scripts --no-audit --no-fund` 准备锁定依赖，通过环境传入现有配置，
 不复制凭据、不再次部署。该限制不能记作生产失败或静默跳过证据保存。
 
@@ -117,8 +122,8 @@ npm run deploy:readback -- --sha <本次获批并已发布的40位提交号>
 
 发布等待的轮询间隔为 5 秒。发布入口和隔离副本都会检查精确 `main` SHA 的
 `.github/workflows/ci.yml`，只接受 `push` 或 `workflow_dispatch` 事件中最新的 run，
-并要求该 run 已完成且成功、同一次 attempt 的 `Full application verification`
-job 已完成且成功。查询读取所有分页；取回 job 证据后再次核对最新 run 和 attempt，
+并要求该 run 已完成且成功、同一次 attempt 的 `verify` 汇总 job
+已完成且成功。查询读取所有分页；取回 job 证据后再次核对最新 run 和 attempt，
 较新的失败、取消、排队或运行中结果都不能回退到旧绿色结果。
 
 严格限定的纯文档提交可以通过轻量 CI，但这不能作为应用发布证据。若确实需要发布
@@ -132,8 +137,7 @@ gh run list --repo zdaiwmm/shui-IM --workflow ci.yml --branch main --event workf
 
 核对新 run 的 `headSha` 与批准版本逐字相同，并在 GitHub Actions 中确认完整 job
 成功后，仍使用本页开头的 `publish.mjs --sha <40位提交号>`。入口可等待仍在运行的
-完整 CI，但不会自动触发或重跑它。若 main 已变化，先重新审阅并取得新目标版本的
-发布授权；手工运行 CI 本身不构成发布授权。
+完整 CI，但不会自动触发或重跑它。手工 dispatch 仍针对当时的 main；不能拿后续 main 的 CI 替代冻结提交的 CI。确需变更目标时重新审阅并确认，手工运行 CI 本身不构成发布授权。
 
 本地输出 `RELEASE_TIMING`，分别记录预检、CI 等待／校验、克隆、服务器发布和线上
 回读耗时；服务器 helper 输出 `DEPLOY_TIMING`，记录源码获取、镜像构建、Compose
@@ -186,6 +190,223 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
   开放流量后不自动恢复旧数据，避免抹掉新消息。
 
 ## 本次线上发布记录
+
+- 日期：2026-09-10（Asia/Shanghai）；服务器批次 `20260910T113538Z`，独立回读于 19:38:11 成功。
+  应用提交 `e3e4eed9e2a6a4a5516d184c55f76b2d801b9e6f`，版本 `2026.09.10.4`。用户明确要求聊天反馈与后台上传修复一起集成、合并、直接发布，并明确本次不再重复确认；本任务固定该精确目标后执行。
+  [集成 PR #89](https://github.com/zdaiwmm/shui-IM/pull/89) 已合并，源提交为聊天 `299e7418d0c8ee768d8905b68c71ad6d2d4f8840`（PR #87）与后台上传 `8c557225918694ed8d0567e555766c91b962b65b`。
+- 候选 `89f5a608cb7155aa8256b6d93fd86e555ccc4bb9` 完整组合验证通过：78 文件／635 项单元测试、31/31 浏览器入口（398.95 秒）；[PR CI 34471148826](https://github.com/zdaiwmm/shui-IM/actions/runs/34471148826) 与精确 main [CI 34471738691](https://github.com/zdaiwmm/shui-IM/actions/runs/34471738691) 全部通过，合并文件树与候选一致。
+- 本批上线爱心合拢、在线收发电流和空闲心跳增强、浅灰输入占位、500ms 长按录音防误触，以及加密已读双勾。文字／语音／文件须在前台可见，图片／视频还须校验、加载并显露；语音已读不表示已听完。后台整包上限对齐 50 MiB，异常 HTTP 响应显示可理解错误。
+- 固定入口核对 `DEPLOY_VERIFIED`，总耗时 321,404ms（含等待 main CI）；冷备份已校验。发布目录 `/opt/quiet-room/git-releases/20260910T113538Z-e3e4eed9e2a6`，冷备份 `/opt/quiet-room/backups/predeploy/data-20260910T113538Z-e3e4eed9e2a6.tar.gz`。
+- 后台 Nginx 独立安装了该提交的配置：实际 `/etc/nginx/conf.d/admin-mijiu.conf` 精确上传路由从 12m 改为 70m，其他路由仍为 64k。安装前旧摘要校验、同部署锁、备份、安装后 `nginx -t`、reload、active 与加载配置回读均通过。新文件 SHA-256 `fdfbaeaf3880ce6cace2614b99064968d6cda7e81112c27b987bfc25c3fc6290`，旧配置备份 `/opt/quiet-room/deploy-state/nginx-backups/admin-mijiu-20260910T113750Z-e3e4eed9e2a6.conf`；未更换部署 helper。
+- 在应用与 Nginx 更新后，独立 `READBACK_OK` 耗时 2,737ms：线上 SHA、镜像、容器及公开产物一致；维护标记不存在，应用健康，备份容器运行中（无健康探针）；HTTPS ok/database/storage 和新建 WebSocket 均通过。后台开关 `1`，通话覆盖 `0`，TURN 容器不存在。脱敏证据保存于公共 Git 目录 `quiet-room-release-evidence/e3e4eed9e2a6/`。
+- iPhone / iOS 27 / Safari 真机仍未验证；未使用管理员凭据在生产导入测试包。配置生效与自动合成上传验收不等于生产管理页面逐项验收。对账文档单独提交，不再次部署。
+
+- 日期：2026-09-10（Asia/Shanghai）；服务器批次 `20260910T105954Z`，独立回读于 19:06:39 成功。
+  应用提交 `b8be26c563430a98ffeade5a07ef815f6f87d169`，版本 `2026.09.10.3`；用户确认该完整提交后发布。
+  [PR #84](https://github.com/zdaiwmm/shui-IM/pull/84) 已合并，精确 main [CI 34468072163](https://github.com/zdaiwmm/shui-IM/actions/runs/34468072163) 完整通过（含 632 项测试、浏览器回归、通话专项、依赖审计与凭据扫描）。
+- 本批上线最多三个并行采集任务、持久任务进度与预计耗时、完整校验后自动上架、列表分页优化、Noto 多码点原图与 Signal 封面修复，以及表情搜索的过期返回动画和初始焦点竞态修复。
+- 固定入口取得并核对 `DEPLOY_VERIFIED`，总耗时 414,455ms；镜像构建 302 秒，期间一次只读 SSH 检查超时，随后公网健康和构建恢复，未重试生产切换。冷备份已校验；发布目录 `/opt/quiet-room/git-releases/20260910T105954Z-b8be26c56343`，备份 `/opt/quiet-room/backups/predeploy/data-20260910T105954Z-b8be26c56343.tar.gz`。
+- 独立 `READBACK_OK` 耗时 2,729ms：线上 SHA、镜像、容器和公开产物一致；维护标记不存在；应用健康，备份容器运行中（无健康探针）；HTTPS ok/database/storage 与新建 WebSocket 全部通过。后台开关为 `1`，通话覆盖开关为 `0`，TURN 容器不存在。脱敏证据保存于公共 Git 目录 `quiet-room-release-evidence/b8be26c56343/`。
+- 真实 Chrome 临时数据库验证 Signal 20 张合集、Noto 白旗、刷新后任务恢复和自动上架，Signal 首页 24/24 封面解码；不等于生产管理页面逐项验收。iPhone / iOS Safari 真机未验证。对账文档单独提交与合并，不再次部署。
+
+- 日期：2026-09-10（Asia/Shanghai）；服务器批次 `20260910T093547Z`，独立回读于 17:38:18 成功。
+  应用提交 `e30a0cd1e876a4e8c152c34b2d833494b5078e71`，版本 `2026.09.10.2`；用户对该精确提交确认发布。
+  [PR #82](https://github.com/zdaiwmm/shui-IM/pull/82) 已合并，精确 main [CI 34460331818](https://github.com/zdaiwmm/shui-IM/actions/runs/34460331818) attempt 1 完整通过。
+- 本批包含媒体已读后 10 秒隐藏、向右拖拽隐藏与圆角、弱网通话恢复和语音优先、语音消息幂等重试，以及后台表情管理和 Signal / Noto 采集改进。
+- 固定入口取得 `DEPLOY_VERIFIED`，总耗时 206,579ms；冷备份已校验。发布目录为 `/opt/quiet-room/git-releases/20260910T093547Z-e30a0cd1e876`，冷备份为 `/opt/quiet-room/backups/predeploy/data-20260910T093547Z-e30a0cd1e876.tar.gz`。
+- 独立 `READBACK_OK` 耗时 3,001ms：线上 SHA、镜像、容器与公开产物一致；维护标记不存在；应用健康，备份容器运行中且无健康探针；HTTPS 的 ok/database/storage 和新建公开 WebSocket 均通过。脱敏证据持久保存于公共 Git 目录 `quiet-room-release-evidence/e30a0cd1e876/`。
+- 最终组合本地 `check:full` 76 文件 / 620 项单元测试和 30/30 浏览器入口通过；通话及弱网专项证据见已有验收报告。iPhone / iOS Safari、真实多地域 TURN 与 Wi-Fi/蜂窝切换未验收。生产通话覆盖开关仍为 `0`、TURN 容器不存在；应用发布未配置中继基础设施。
+- 对账文档单独提交与合并，不改变上述线上应用 SHA，也不再次部署。
+
+- 日期：2026-09-10（Asia/Shanghai）；服务器批次 `20260909T232408Z`，独立回读于 07:27:26 成功。
+  应用提交 `bc5893092fc8051750319bf38b77302e166d0194`，版本 `2026.09.09.10`；[PR #70](https://github.com/zdaiwmm/shui-IM/pull/70) 已合并，精确 main CI [34379775756](https://github.com/zdaiwmm/shui-IM/actions/runs/34379775756) 全部成功。
+- 本批合并后台会话、表情管理和贴图导入修正：响应式控制台、状态筛选、批量操作、分页、上传反馈、详情预览、失败重试与键盘导航，以及含 `title.txt` 的 `.wastickers` 导入和封面排除。
+- 固定入口取得 `DEPLOY_VERIFIED`，服务器发布目录为 `/opt/quiet-room/git-releases/20260909T232408Z-bc5893092fc8`，冷备份为 `/opt/quiet-room/backups/predeploy/data-20260909T232408Z-bc5893092fc8.tar.gz`。独立 `READBACK_OK` 核对线上 SHA、容器与公开产物、HTTPS 健康和公开 WebSocket 一致；脱敏证据位于独立发布 clone 的 `.git/quiet-room-readback/`。iPhone / iOS 27 / Safari 真机未验证。
+
+- 日期：2026-09-09（Asia/Shanghai）；服务器批次 `20260909T121009Z`，独立回读于 20:14:25 成功。
+  应用提交 `1f42ea0f6ec649bee87320107e481a188bdb4d50`，版本 `2026.09.09.9`；
+  PR #62（代码）与 PR #63（发布说明）已合并，精确 main CI `34348514538` 全部成功。
+- 本批将后台 GIFs 与贴图分为独立资源库，移除资源搜索和自动获取；手动上传直接打开文件选择器，
+  按格式自动分类，使用文件名初始化名称并默认上架，修复 `.wastickers` 上传后的上架问题。
+  Apple Liquid Glass 视觉优化分支明确排除。
+- 固定入口取得 `DEPLOY_VERIFIED`；独立 `READBACK_OK` 总耗时 2,540ms，证据位于
+  `/private/tmp/quiet-room-publish-2oiFDb/.git/quiet-room-readback/20260909T121425674Z-1f42ea0f6ec6-success.json`。
+- 线上 SHA、容器与公开产物、HTTPS 健康和公开 WebSocket 独立回读一致。iPhone / iOS 27 / Safari
+  真机未验证。
+
+- 日期：2026-09-09（Asia/Shanghai）；服务器批次 `20260909T084220Z`，独立回读于 16:46:45 成功。
+  应用提交 `ff828dc4476defc907c1f6daac144a7d6322b335`，版本 `2026.09.09.7`；
+  PR #59 已合并，精确 main CI `34329323339` attempt 1 全部成功。
+- 本批缩短空输入框和录音按钮的长按启动等待，并加快取消录音退出反馈；管理员表情、阅读器及移动交互
+  已在基线中，Apple Liquid Glass 三个分支明确排除。
+- 固定入口取得 `DEPLOY_VERIFIED`，独立 `READBACK_OK` 总耗时 2,892ms；
+  生产发布目录为 `/opt/quiet-room/git-releases/20260909T084220Z-ff828dc4476d`，
+  冷备份为 `/opt/quiet-room/backups/predeploy/data-20260909T084220Z-ff828dc4476d.tar.gz`。
+- 线上 SHA、容器与公开产物、HTTPS 健康和公开 WebSocket 独立回读一致。iPhone / iOS 27 / Safari
+  真机录音延迟尚未验证。
+
+- 日期：2026-09-09（Asia/Shanghai）；服务器批次 `20260909T072358Z`，独立回读于 15:35:21 成功。
+  应用提交 `7136b15c495ce7bfa4265a093c9e1f12c16d8b19`，版本 `2026.09.09.6`；
+  PR #58 已合并，main 精确 CI `34322813712` 全部成功。
+- 本批将动图和贴纸原图移出应用包，客户端改为读取服务器已上架资源；新增资源管理的自动获取配置弹窗，
+  支持动图／贴纸合集、数量目标、关键词、错误重试和待上架审核。旧公开素材缓存随 Service Worker 升级清理。
+- `admin.mijiu.cloud` 已配置 DNS A 记录、可信证书（有效期至 2026-12-08）和 Certbot 自动续期；
+  原有管理员配置通过生产同版非特权容器校验并以只读方式挂载。后台上线后回读：首页 200、未认证 API 401、
+  跨域请求 403、`/ws` 404；旧 `sao.shui.click` 已停用并返回 410。
+- 固定入口取得 `DEPLOY_VERIFIED`，容器、冷归档和公开 WebSocket 检查通过。独立
+  `READBACK_OK` 总耗时 3,207ms，证据位于独立回读 clone 的 `.git/quiet-room-readback/`；
+  生产镜像 `sha256:e2e7e79ed0023ad3e5b88f3a3e9b89e08fde491d7121f335a3e1646384913373`。
+- 本机构建及 68 个测试文件的 528 项测试通过，30 个 CI 浏览器入口通过；表情 WebKit 专项、后台合成登录／上传／审核、
+  数量校验及失败重试通过。iPhone / iOS 27 / Safari 真机仍未验证。
+
+- 日期：2026-09-09（Asia/Shanghai）；服务器批次 `20260908T235336Z`，最终独立回读于 08:02:06 成功。
+  应用提交 `ab3c04ef49d19fe8f1d4b70ff5c5df4747ce670b`，版本 `2026.09.09.5`。
+  用户在精确 SHA 已列明后确认未发布则继续发布及资源同步。
+  [PR #56](https://github.com/zdaiwmm/shui-IM/pull/56) head 为 `35ed4bae681695d69808fa2f24ac2465e29e9df3`。
+- 本批包含更新说明、输入占位、状态栏、表情手势和菜单、收藏与备份布局、消息媒体稳定性、
+  EPUB 全书页码与跨章节连续翻页、单行阅读器工具栏及 PDF 翻页修正。
+  新增 400 张 Google Noto 普通动画（原始 WebP，CC BY 4.0），未新增合集，露骨色情素材未纳入。
+- 本地构建、68 个文件的 529 项测试及 30 个浏览器入口分段通过；Chrome / WebKit 专项、
+  触摸跟手与状态栏画布像素检查通过；iPhone / iOS 27 / Safari 真机未验证。
+  [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34290709451) 通过；
+  [精确 main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34290750485) 首次贴纸搜索超时，
+  同树 PR 及 CI 同版浏览器本地复测通过后重跑失败作业，attempt 2 全部成功。
+- 固定入口一次实际发布成功，外层核对精确回执；总耗时 182,868ms，服务器发布 136 秒。
+  发布目录 `/opt/quiet-room/git-releases/20260908T235336Z-ab3c04ef49d1`，已校验冷归档
+  `/opt/quiet-room/backups/predeploy/data-20260908T235336Z-ab3c04ef49d1.tar.gz`。
+- 公开素材批次 `noto-gifs-20260909` 事务新增 400、跳过 0，生产已上架动画 500、合集 30。
+  400 份新增原图共 132,633,304 字节，逐份 SHA-256、批次标记及数据库 quick_check 均通过。
+  导入前停机冷归档 `/opt/quiet-room/backups/expression-import-20260909T000026Z-ab3c04ef49d1/data.tar.gz`
+  已校验；未同步测试数据库。SQLite 快照及只读挂载校验曾失败并自动恢复服务，改用既有冷归档后导入成功，
+  后置校验在运行容器中以数据库只读模式续做，未重复导入或再次发布。
+- 最终独立 `READBACK_OK` 耗时 2,614ms，SHA、镜像、HTTPS 产物与 WebSocket 一致，维护门不存在。
+  应用健康，备份运行且无健康探针；实际镜像为
+  `sha256:92020cd6ca1afbb0038eee77357e4f4abdc9b2ee1b3b164cb6526b59152b4f31`。
+  后台、通话与 TURN 未启用。公共 Git 目录证据
+  `quiet-room-readback/20260909T000204069Z-ab3c04ef49d1-success.json`。
+  上一批已知的在线逻辑备份附件索引异常未在本批修复，不将冷归档和容器运行记为在线逻辑备份成功。
+  对账在独立工作树完成，文档合并不触发再次部署。
+
+## 历史线上发布记录（2026-09-09 06:27）
+
+- 日期：2026-09-09（Asia/Shanghai）；服务器批次 `20260908T221713Z`，最终独立回读于 06:27:35 成功。
+  应用提交 `46e4b77fee27df1ad30cb32cf4a45e1fd01186d0`，版本 `2026.09.09.4`。
+  用户明确授权本批修复、合并和生产发布；自动审批要求精确 SHA 后，用户确认发布及公开表情库初始化。
+  [PR #54](https://github.com/zdaiwmm/shui-IM/pull/54) head 为 `d3fd45121f65bfad60b0ee82f4da004d6d766993`。
+- 本批同时纳入本机 main 已集成但此前未发布的表情资源库、文档阅读器和媒体控件。
+  修正表情自动分页及安装合集管理、全屏展开与跨 tab 定位；逐屏文档阅读、滚动模式、翻页动画、搜索与封面；
+  更新日志、回复焦点、照片连续退出、离线电流反馈和移动竖屏保护。产品与隐私边界见 [PRODUCT.md](PRODUCT.md)、
+  [MEMES.md](MEMES.md)、[SECURITY.md](SECURITY.md)。Safari 不支持方向锁时采用横屏保护，不声称能锁定系统旋转。
+- 本地构建、527 项单元/集成测试、30 个浏览器入口通过；进程组回收 `kill EPERM` 后分段续跑，
+  不记为 check:full 单次零退出。Chrome 专项与 WebKit 阅读器、表情、照片和回复交互通过，
+  移动/桌面截图及几何检查通过；iPhone / iOS 27 / Safari 真机未验证。
+  [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34281004905) 与
+  [精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34282202538) 全部成功。
+- 固定入口一次实际发布成功，外层核对精确成功回执；总耗时 135,289ms，服务器发布 107 秒。
+  发布目录 `/opt/quiet-room/git-releases/20260908T221713Z-46e4b77fee27`；发布前冷归档
+  `/opt/quiet-room/backups/predeploy/data-20260908T221713Z-46e4b77fee27.tar.gz` 已校验。
+- 经用户授权，另以维护锁、停机冷归档及仓库原子初始化器完成公开素材入库：30 个已上架合集、100 张 GIF，
+  883 份去重原图、56,948,375 字节，新增 130、跳过 0，完成标记与数量回查一致。
+  使用仓库静态素材，未同步测试数据库；后续代码版本不自动导入测试后台新增资源。
+  公开文件只读权限预检通过后才进入最终维护，初始化冷归档为
+  `/opt/quiet-room/backups/predeploy/catalog-20260908T222618Z-46e4b77fee27.tar.gz`，未修改原始聊天数据。
+- 初始化后独立 `READBACK_OK` 耗时 2,967ms，目标 SHA、批次、发布目录、HTTPS 健康与公开资源一致，
+  WebSocket 连接成功，维护标记不存在。应用健康，备份运行且无健康探针；两者镜像为
+  `sha256:2a6d5cab1098907f22cbb052db15943228e34acc3bee57970758279d3f3e55b5`。
+  后台、通话与 TURN 未启用。脱敏证据为公共 Git 目录中的
+  `quiet-room-readback/20260908T222732300Z-46e4b77fee27-success.json`。
+- 初始化前在线逻辑备份报告附件索引不完整，未自动修复或删除数据；备份代码未变，索引异常仍需独立调查。
+  上述冷归档校验不等于在线逻辑备份成功。早期 SSH 白名单问题由用户修复；公开素材权限失败事务未提交且服务已恢复，
+  最终预检及初始化成功后再次完成生产回读。本机 main 原 HTTPS 来源已回读同一应用代码；
+  发布后对账只修改文档，不触发再次部署。
+
+## 历史线上发布记录（2026-09-09 00:22）
+
+- 日期：2026-09-09（Asia/Shanghai）；服务器批次 `20260908T161957Z`，00:22:14 独立回读成功。
+  应用提交 `01f7ab0b60aded47e04bef5e34e42ddb9300cade`，版本 ID `2026.09.08.6`。
+  用户明确授权本轮 11 项修复优化、合并并发布，无需再次审核；精确目标在发布前展示。
+  [PR #52](https://github.com/zdaiwmm/shui-IM/pull/52) head 为
+  `c703adef6acf08445021dc7ae1733504f5cc8bbf`，从远端 `733e794` 构建，未包含本地专用调试工具。
+- 统一五列表情容器、缩小定位图标与表情消息、清晰长按预览、录音热区动画、工具背景、
+  保险箱浮动显隐、顶部自适应 toast；表情不自动进入保险箱；文件阅读器被拦截时静默停留。
+  跨版本说明按历史记录合并去重。新加密表情标记须所有活动设备更新，旧自定义图片不推测分类；
+  真实后台与原始附件校验继续生效。详见 [D-037](docs/context/decisions.md#d-037表情呈现文件阅读器与跨版本说明)。
+- 本地构建、518 项单元／集成测试通过，28 个浏览器入口分段续跑通过，不记为 check:full 单次零退出。
+  WebKit 表情／文件／系统界面、原生 WebRTC／通话 UI、移动及桌面截图通过；本轮无 iPhone 真机通过证据。
+  [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34248542602) 和
+  [精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34249429553) 均成功。
+- 固定入口一次成功，`DEPLOY_OK`、`DEPLOY_VERIFIED` 与隔离克隆精确回执一致；总耗时 582,322ms
+  （含等待 CI 399,755ms），服务器发布 73 秒。发布目录
+  `/opt/quiet-room/git-releases/20260908T161957Z-01f7ab0b60ad`，冷备份
+  `/opt/quiet-room/backups/predeploy/data-20260908T161957Z-01f7ab0b60ad.tar.gz` 已校验。
+- 独立 `READBACK_OK` 耗时 2,816ms：目标 SHA、批次和发布目录匹配，维护标记不存在；
+  应用运行且健康，备份运行且无健康探针，两者镜像均为
+  `sha256:372b94b8e538d3c3c269a8b34233923addcb9085a8ea0a696a2a27719f203be5`。
+  HTTPS 健康三项全 true，首页、Service Worker、JS、CSS 与 preload 摘要匹配容器，WebSocket 成功。
+  后台、通话和 TURN 未启用。
+- 本机 main 以 `d650fe8` 集成并保留本地调试工具；可信 HTTPS 源码和健康后端回读通过。
+  对账在不含部署配置的第二个独立工作树完成，文档提交不触发再次部署；共享源目录未提交改动保留。
+
+## 历史线上发布记录（2026-09-08 23:28）
+
+- 日期：2026-09-08（Asia/Shanghai）；服务器批次 `20260908T152725Z`，23:28:44 独立回读成功。
+  应用提交 `9728183734c602f3602a07cbdcac4643501cb6ed`，版本 ID `2026.09.08.5`。
+  用户本轮明确授权修复输入框键盘故障、合并并发布生产，无需再次审核。
+  [PR #49](https://github.com/zdaiwmm/shui-IM/pull/49) head 为
+  `8a8b205c7fdae88747c4c600be767a268a3c3ffd`；主线期间仅新增上一版文档对账，已核对应用文件一致。
+- 空输入框短按改在 `touchend` 同步聚焦，保留鼠标释放、长按录音和取消行为；
+  处理 `pointerup` 后隐式丢失捕获的事件顺序。WebKit 真实触摸对比确认旧版在 `pointerup` 聚焦、
+  新版在 `touchend` 聚焦。未修改密码学、存储、键盘布局 CSS 或服务器发布程序。
+- 本地 `npm run check:full` 单次通过构建、514 项单元／集成测试和 28／28 浏览器入口
+  （浏览器总计 410.00 秒）。[PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34242462548)
+  及[精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34243283577) 均成功。
+  USB iPhone16,1 / iOS 27.0 可连接，但当时处于浏览器连接错误页；本次没有真机键盘通过证据。
+- 首次发布在 `stop-containers` 阶段检测到旧容器仍运行，固定程序回滚成功；未进入冷备份及
+  数据替换阶段。独立 `READBACK_OK` 确认旧版 `cf95d2d` 健康（3,289ms），再只读检查容器停止／退出事件。
+  对同一精确 SHA 的一次有限重试成功，未修改发布入口或 helper。该停止状态时序问题保留为运维观察项。
+- 成功重试取得 `DEPLOY_OK`、`DEPLOY_VERIFIED` 并由外层核对精确回执；入口耗时 155,296ms，
+  服务器阶段 48 秒。发布目录 `/opt/quiet-room/git-releases/20260908T152725Z-9728183734c6`，
+  冷备份 `/opt/quiet-room/backups/predeploy/data-20260908T152725Z-9728183734c6.tar.gz` 已校验。
+- 独立 `READBACK_OK` 耗时 2,734ms：SHA、发布目录和镜像一致，维护标记不存在；
+  应用运行且健康，备份运行且无健康探针，镜像为
+  `sha256:9c1136b6fcb399a0ca996386e93399a196689699b619892b9e4de7320ae8f461`。
+  HTTPS 健康三项全 true；首页、Service Worker、JS、CSS 与 preload 摘要匹配容器，WebSocket 成功。
+  后台、通话和 TURN 未启用。本机 main `ff61522` 已集成，可信 HTTPS 源码和后端健康回读通过。
+- 对账使用不含部署配置的独立工作树；文档提交不触发再次部署。既有四个未提交文件未纳入。
+
+## 历史线上发布记录（2026-09-08 23:03）
+
+- 日期：2026-09-08（Asia/Shanghai）；服务器批次 `20260908T150136Z`（23:01:36），
+  23:03:39 独立回读成功。应用提交 `cf95d2dfb4b3169c8affef38f27db1c0cbee67fb`，
+  版本 ID `2026.09.08.4`。用户本轮明确授权合并近期完成分支、推送 main 并自行发布，无需再次确认。
+  [PR #48](https://github.com/zdaiwmm/shui-IM/pull/48) head 为
+  `f9cabc5def84be08736c7d6138a59423f83121e9`，合并后文件树与该候选完全一致。
+- 包含键盘修复 `4f65f77`、模糊位图 `744fd1d`、标题栏、相册与图片属性，以及
+  贴纸/GIF `f3778bd`、聊天工具/附件收藏/输入框录音 `1fc84d4`。
+  键盘核心模块、视口运动模块与原布局 CSS 相对本机基线 `83dd21e` 逐字节不变。
+  合并修复空输入框录音释放重复聚焦，以及页面过渡的临时坐标覆盖历史阅读位置；
+  保护仅用于保存位置恢复，普通分页仍允许聚焦输入框回到最新消息。
+- [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34239954968) 与
+  [精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/34240917913) 全部成功。
+  最终候选本地 `CI=1 npm run check:full` 单次通过构建、514 项单元／集成测试和
+  28／28 浏览器入口（315.16 秒）；原生通话、通话 UI、WebKit 聊天工具与系统界面专项通过。
+  CI 补装实际需要的 WebKit；浏览器入口计数、对话框聚焦夹具与浮点高度断言已同步。
+  没有新增真机验收，既有换行偶发闪动暂缓项继续保留。
+- 固定 `publish.mjs --sha` 返回精确 `DEPLOY_OK`／`DEPLOY_VERIFIED`，外层核对回执成功。
+  入口耗时 632,034ms（含等待 main CI 420,120ms），服务器阶段 93 秒。
+  发布目录 `/opt/quiet-room/git-releases/20260908T150136Z-cf95d2dfb4b3`，已校验冷备份
+  `/opt/quiet-room/backups/predeploy/data-20260908T150136Z-cf95d2dfb4b3.tar.gz`。
+- 独立 `READBACK_OK` 耗时 2,990ms：线上 SHA、批次、发布目录一致，维护标记不存在；
+  应用运行且健康，备份运行且无健康探针，二者实际镜像均匹配
+  `sha256:df76d19c62fec31c935ab646e89666bf3e342c4ad46ac59fa59ea2544e54a3b0`。
+  HTTPS 健康三项全 true；首页、Service Worker、JS、CSS 与 preload 摘要匹配容器，
+  新建 WebSocket 连接成功。`admin-enabled=0`、`calls-enabled=0`，TURN 不存在。
+  未读取真实消息、附件或备份内容；发布前旧版本为 `18e07b08e3c1422ac693a7f98a6a66ac1277ef85`。
+- 本机 main 保留并行完成的 iPhone 调试工具 `b15a453`，以 `8f6a753` 集成此应用。
+  前后端 cwd 均为 `/Users/zhouding/quiet-room-local-main`，原可信 HTTPS 来源健康与新源码回读通过。
+  原开发目录四个未提交文件未纳入。对账在不含部署配置的独立文档工作树完成，文档不触发重新部署。
+
+## 历史线上发布记录（2026-09-08 14:02）
 
 - 日期：2026-09-08（Asia/Shanghai）；服务器批次 `20260908T060001Z`（14:00:01），
   14:02:06 独立回读成功。用户确认的精确应用提交为

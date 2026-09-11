@@ -5,11 +5,13 @@ import { adminConfigId, validateAdminConfig, verifyAdmin } from './admin-auth.mj
 import { isUuid } from './protocol.mjs';
 
 const cookieName = '__Host-qr-admin';
+const sessionIdleMs = 7 * 24 * 60 * 60_000;
+const sessionAbsoluteMs = 7 * 24 * 60 * 60_000;
 const secret = () => randomBytes(32).toString('base64url');
 const hash = value => createHash('sha256').update(value).digest('hex');
 
-export async function createAdminConsole({ config: suppliedConfig, configFile, origin = 'https://sao.shui.click',
-  data, json, readJson, headers, staticDir, onDelete }) {
+export async function createAdminConsole({ config: suppliedConfig, configFile, origin = 'https://admin.mijiu.cloud',
+  data, expressions, json, readJson, readExpressionJson = readJson, headers, staticDir, onDelete }) {
   let config = suppliedConfig;
   if (!config && configFile) {
     const info = await stat(configFile);
@@ -24,6 +26,8 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
   let authBusy = false;
   let attempts = 0, attemptsUntil = 0;
   const clearCookie = response => response.setHeader('Set-Cookie', `${cookieName}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict`);
+  const setCookie = (response, token, expires, now) => response.setHeader('Set-Cookie',
+    `${cookieName}=${token}; Path=/; Max-Age=${Math.ceil((expires - now) / 1000)}; Secure; HttpOnly; SameSite=Strict`);
 
   async function authenticate(password, code) {
     const now = Date.now();
@@ -61,8 +65,8 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
       const token = secret(); const csrf = secret(); const now = Date.now();
       for (const [key, session] of sessions) if (session.expires < now || session.absolute < now) sessions.delete(key);
       while (sessions.size >= 20) sessions.delete(sessions.keys().next().value);
-      sessions.set(hash(token), { csrf, expires: now + 15 * 60_000, absolute: now + 60 * 60_000 });
-      response.setHeader('Set-Cookie', `${cookieName}=${token}; Path=/; Max-Age=3600; Secure; HttpOnly; SameSite=Strict`);
+      sessions.set(hash(token), { csrf, expires: now + sessionIdleMs, absolute: now + sessionAbsoluteMs });
+      setCookie(response, token, now + sessionIdleMs, now);
       json(request, response, 200, { csrf }); return true;
     }
     const cookies = String(request.headers.cookie ?? '').split(';').map(value => value.trim());
@@ -70,15 +74,63 @@ export async function createAdminConsole({ config: suppliedConfig, configFile, o
     const session = /^[A-Za-z0-9_-]{43}$/.test(token) ? sessions.get(hash(token)) : null;
     if (!session || session.expires <= Date.now() || session.absolute <= Date.now()) {
       if (token) sessions.delete(hash(token)); clearCookie(response);
-      json(request, response, 401, { error: '请重新登录后台' }); return true;
+      json(request, response, 401, { error: '后台登录已过期，请重新验证', code: 'SESSION_EXPIRED' }); return true;
     }
     if (request.method !== 'GET' && request.headers['x-csrf-token'] !== session.csrf) { json(request, response, 403, { error: '请求验证失败' }); return true; }
-    session.expires = Date.now() + 15 * 60_000;
-    if (request.method === 'GET' && pathname === '/admin-api/session') { json(request, response, 200, { csrf: session.csrf }); return true; }
+    const now = Date.now();
+    session.expires = Math.min(now + sessionIdleMs, session.absolute);
+    setCookie(response, token, session.expires, now);
+    if (['GET', 'POST'].includes(request.method) && pathname === '/admin-api/session') {
+      json(request, response, 200, { csrf: session.csrf }); return true;
+    }
     if (request.method === 'POST' && pathname === '/admin-api/logout') {
       sessions.delete(hash(token)); clearCookie(response); json(request, response, 200, { loggedOut: true }); return true;
     }
     const url = new URL(request.url, adminOrigin);
+    if (expressions && pathname.startsWith('/admin-api/expressions')) {
+      try {
+        const match = pathname.match(/^\/admin-api\/expressions\/([a-zA-Z0-9_-]{1,128})(?:\/media\/(\d{1,3}))?$/);
+        if (pathname === '/admin-api/expressions' && request.method === 'GET') {
+          json(request, response, 200, expressions.list({ kind: url.searchParams.get('kind') ?? 'gifs', keyword: url.searchParams.get('keyword') ?? '',
+            status: url.searchParams.get('status') ?? 'all', page: Number(url.searchParams.get('page') ?? 1) }));
+        } else if (pathname === '/admin-api/expressions' && request.method === 'POST') {
+          json(request, response, 201, await expressions.create(await readExpressionJson(request)));
+        } else if (pathname === '/admin-api/expressions/status' && request.method === 'PATCH') {
+          json(request, response, 200, expressions.updateStatus(await readJson(request)));
+        } else if (pathname === '/admin-api/expressions/collect' && request.method === 'POST') {
+          json(request, response, 202, expressions.start(await readJson(request)));
+        } else if (pathname === '/admin-api/expressions/source' && request.method === 'GET') {
+          json(request, response, 200, await expressions.sourceSearch({ keyword: url.searchParams.get('keyword') ?? '', channel: url.searchParams.get('channel') ?? 'signal', kind: url.searchParams.get('channel') === 'noto' ? 'gifs' : 'stickers', page: Number(url.searchParams.get('page') ?? 1) }));
+        } else if (pathname.match(/^\/admin-api\/expressions\/source\/(?:[a-f0-9]{32}|noto-[a-f0-9_]{4,80})\/media$/) && request.method === 'GET') {
+          const result = await expressions.sourcePreview(pathname.split('/')[4]);
+          headers(request, response); response.writeHead(200, { 'Content-Type': result.type, 'Content-Length': result.bytes.length, 'Cache-Control': 'no-store' }); response.end(result.bytes);
+        } else if (match && match[2] === undefined && request.method === 'DELETE' && url.searchParams.has('position')) {
+          json(request, response, 200, expressions.removeItem(match[1], Number(url.searchParams.get('position'))));
+        } else if (pathname === '/admin-api/expressions/jobs' && request.method === 'GET') {
+          json(request, response, 200, { jobs: expressions.jobs() });
+        } else if (pathname.match(/^\/admin-api\/expressions\/jobs\/[a-f0-9-]{36}\/cancel$/) && request.method === 'POST') {
+          json(request, response, 200, expressions.cancel(pathname.split('/')[4]));
+        } else if (pathname.match(/^\/admin-api\/expressions\/jobs\/[a-f0-9-]{36}\/retry$/) && request.method === 'POST') {
+          json(request, response, 202, expressions.retry(pathname.split('/')[4]));
+        } else if (match && match[2] !== undefined && request.method === 'GET') {
+          const result = expressions.preview(match[1], Number(match[2]));
+          headers(request, response); response.writeHead(200, { 'Content-Type': result.type, 'Content-Length': result.bytes.length, 'Cache-Control': 'no-store' }); response.end(result.bytes);
+        } else if (match && match[2] === undefined && request.method === 'GET') {
+          json(request, response, 200, expressions.detail(match[1]));
+        } else if (match && match[2] === undefined && request.method === 'PATCH') {
+          json(request, response, 200, expressions.update(match[1], await readJson(request)));
+        } else if (match && match[2] === undefined && request.method === 'DELETE') {
+          json(request, response, 200, expressions.remove(match[1]));
+        } else json(request, response, 404, { error: 'NOT_FOUND' });
+      } catch (error) {
+        const code = error.message;
+        const upstreamError = ['MEME_UPSTREAM_UNAVAILABLE', 'MEME_DNS_REJECTED', 'MEME_INVALID_CATALOG', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'ABORT_ERR'].includes(code)
+          || ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'EAI_AGAIN', 'ABORT_ERR'].includes(error.code);
+        json(request, response, code === 'MEME_NOT_FOUND' ? 404 : code === 'MEME_BUSY' ? 409 : upstreamError ? 503 : 400,
+          { error: code === 'MEME_NOT_FOUND' ? '资源不存在' : code === 'MEME_BUSY' ? '任务队列或预览繁忙，请稍后重试' : upstreamError ? '来源连接或目录读取失败，请重新搜索' : '资源参数不正确或操作失败' });
+      }
+      return true;
+    }
     if (request.method === 'GET' && pathname === '/admin-api/rooms') {
       const offset = Number(url.searchParams.get('offset') ?? 0);
       if (!Number.isSafeInteger(offset) || offset < 0 || offset > 1_000_000) { json(request, response, 400, { error: '页码不正确' }); return true; }

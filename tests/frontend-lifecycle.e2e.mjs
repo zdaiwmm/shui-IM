@@ -52,9 +52,7 @@ try {
       app.renderChat();
     };
     window.regression = { app, root, session, vault, message, fresh };
-    // Viewport motion intentionally moves the fully transparent composer 14px
-    // below its anchored edge. Layout/scroll assertions use the untransformed
-    // edge that the bar returns to after the 280ms reveal.
+    // Measure the anchoring edge independently of any test-injected transform.
     window.composerBaseBounds = () => {
       const element = document.querySelector('#composer');
       const rect = element.getBoundingClientRect();
@@ -253,10 +251,10 @@ try {
     app.renderMessages();
     const row = status => document.querySelector(`.message.is-${status}`);
     for (const status of ['stored', 'sent']) if (row(status).querySelectorAll('.message-delivery path').length !== 1) throw Error('Sent receipt did not have one check arm');
-    if (row('delivered').querySelectorAll('.message-delivery path').length !== 2) throw Error('Delivered receipt did not have two check arms');
+    if (row('delivered').querySelectorAll('.message-delivery path').length !== 1) throw Error('Delivery alone must retain one check arm');
     if (row('pending').querySelector('.message-delivery') || row('failed').querySelector('.message-delivery')) throw Error('Unconfirmed message displayed a success check');
     if (!row('failed').querySelector('.message-retry') || !row('delivered').querySelector('.message-meta').getAttribute('aria-label')) throw Error('Receipt accessibility or retry was lost');
-    return { sentArms: 1, deliveredArms: 2, pendingAndFailure: 'explicit', retry: true, accessibleDescriptions: true };
+    return { sentArms: 1, deliveredArms: 1, pendingAndFailure: 'explicit', retry: true, accessibleDescriptions: true };
   });
 
   // A saved offset may sit deep inside a tall photo. A cold 128px placeholder
@@ -269,16 +267,18 @@ try {
       v: 1, blobId: `cold-anchor-${index}`, originalName: `cold-anchor-${index}.svg`, originalSize: blob.size, mimeType: blob.type,
     }));
     const messages = (count = manifests.length) => new Map(manifests.slice(0, count).map((image, index) => [index + 1, message(index + 1, { v: 1, kind: 'image', image, sentAt: '2026-09-04T01:00:00.000Z' })]));
-    const warm = () => {
+    const warm = async () => {
       for (const manifest of manifests) {
         app.cacheLocalImage(manifest, blob);
         const cached = app.imageCache.get(manifest.blobId);
         cached.width = 300; cached.height = 400;
+        const decoded = new Image(); decoded.src = cached.url; await decoded.decode();
+        await app.ensureChatConcealedImage(manifest, cached, decoded);
       }
     };
     const settleLayout = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const sameAnchor = (actual, expected) => actual?.clientMsgId === expected.clientMsgId && Math.abs(actual.offset - expected.offset) <= 2 && !actual.pinnedToBottom;
-    warm(); app.messages = messages(); app.renderChat();
+    await warm(); app.messages = messages(); app.renderChat();
     let list = document.querySelector('#message-list');
     // Cached dimensions do not mean the newly mounted <img> has decoded.
     // Establish an actually warm baseline before saving a position that the
@@ -301,7 +301,7 @@ try {
     };
     list = reopenCold(); await settleLayout();
     if (!sameAnchor(app.uiPreferences.chatAnchor, saved) || !sameAnchor(app.chatRestoreAnchor, saved)) throw Error('Cold placeholder replaced the intended restored anchor');
-    warm();
+    await warm();
     for (const button of list.querySelectorAll('.image-preview')) {
       const manifest = manifests.find(item => item.blobId === button.dataset.blobId);
       await app.renderImageIntoButton(button, manifest, app.imageCache.get(manifest.blobId));
@@ -312,7 +312,7 @@ try {
 
     // Two cold rows below message 8 cannot provide enough scrollable space
     // for its deep saved offset until those rows decode too.
-    list = reopenCold(10); await settleLayout(); warm();
+    list = reopenCold(10); await settleLayout(); await warm();
     let tailWasClamped = false;
     for (const [index, button] of [...list.querySelectorAll('.image-preview')].entries()) {
       const manifest = manifests.find(item => item.blobId === button.dataset.blobId);
@@ -328,7 +328,7 @@ try {
 
     // With only one final row, even the fully decoded tail cannot reach that
     // offset. Earlier offscreen pending media must not stall restoration.
-    list = reopenCold(9); await settleLayout(); warm();
+    list = reopenCold(9); await settleLayout(); await warm();
     for (const button of [...list.querySelectorAll('.image-preview')].slice(7)) {
       const manifest = manifests.find(item => item.blobId === button.dataset.blobId);
       await app.renderImageIntoButton(button, manifest, app.imageCache.get(manifest.blobId));
@@ -455,7 +455,7 @@ try {
     app.messages.set(source.seq, { ...source, status: 'delivered' });
     app.renderMessages({ scroll: 'preserve' });
     if (article.querySelector('.message-text-selection') !== textarea || textarea.value.slice(textarea.selectionStart, textarea.selectionEnd) !== 'e2e') throw Error('A message status update replaced the active native selection');
-    if (!article.classList.contains('is-delivered') || !article.querySelector('.message-meta')?.textContent.includes('已送达')) throw Error('A receipt left stale delivery metadata during native selection');
+    if (!article.classList.contains('is-delivered') || !article.querySelector('.message-meta')?.textContent.includes('已发送')) throw Error('A receipt left stale delivery metadata during native selection');
     for (const attributes of [{ key: 'ContextMenu' }, { key: 'F10', shiftKey: true }]) {
       const event = new KeyboardEvent('keydown', { ...attributes, bubbles: true, cancelable: true });
       textarea.dispatchEvent(event);
@@ -463,7 +463,7 @@ try {
     }
     textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     if (article.querySelector('textarea') || article.querySelector('.message-text')?.textContent !== source.payload.text) throw Error('Leaving selection did not restore the original message');
-    if (!article.querySelector('.message-meta')?.textContent.includes('已送达')) throw Error('Leaving native selection restored outdated receipt metadata');
+    if (!article.querySelector('.message-meta')?.textContent.includes('已发送')) throw Error('Leaving native selection restored outdated receipt metadata');
     return { originalBubblePreserved: true, nativeSelectionReady: true, selectionBeforeInitialFramePreserved: true, selectedText: selected };
   });
 
@@ -539,12 +539,40 @@ try {
     };
     const picker = rect('.message-reaction-picker');
     const actions = rect('.message-action-list');
+    const source = document.querySelector('.message.is-action-source > .message-bubble');
+    const preview = document.querySelector('.message-actions-backdrop .message-action-preview > .message-bubble');
+    if (!preview || preview.textContent !== source.textContent) throw Error('Selected text must be copied above the blur layer');
+    const originalRect = source.getBoundingClientRect();
+    const previewRect = preview.getBoundingClientRect();
+    if (Math.abs(originalRect.left - previewRect.left) > 1 || Math.abs(originalRect.top - previewRect.top) > 1 || Math.abs(originalRect.width - previewRect.width) > 1) throw Error('Menu preview must preserve the original bubble position and width');
+    if (getComputedStyle(preview).visibility !== 'visible' || getComputedStyle(preview).backgroundColor !== getComputedStyle(source).backgroundColor) throw Error('Menu preview must remain visible in the source bubble color');
     for (const box of [picker, actions]) {
       if (box.left < 0 || box.right > innerWidth || box.top < 0 || box.bottom > innerHeight || !box.width || !box.height) throw Error(`Long message actions are clipped at 320px: ${JSON.stringify({ picker, actions })}`);
     }
     if (Math.min(picker.right, actions.right) > Math.max(picker.left, actions.left) && Math.min(picker.bottom, actions.bottom) > Math.max(picker.top, actions.top)) throw Error('Long message action list overlaps its reaction bar');
     return { viewportWidth: innerWidth, picker, actions, overlap: false };
   });
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.message-actions-backdrop')).opacity === '1');
+  results.messageDismissContinuity = await page.evaluate(async () => {
+    const source = document.querySelector('.message.is-action-source');
+    const bubble = source.querySelector('.message-bubble');
+    const backdrop = document.querySelector('.message-actions-backdrop');
+    const preview = backdrop.querySelector('.message-action-preview');
+    window.regression.app.closeMessageActions();
+    let frames = 0;
+    const started = performance.now();
+    while (performance.now() - started < 380) {
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      const originalVisible = getComputedStyle(bubble).visibility === 'visible';
+      const previewVisible = preview.isConnected && getComputedStyle(preview).visibility === 'visible' && Number(getComputedStyle(backdrop).opacity) >= 0.99;
+      if (!originalVisible && !previewVisible) throw Error('Selected bubble faded out before the original returned');
+      frames++;
+    }
+    if (preview.isConnected || source.classList.contains('is-action-source')) throw Error('Closing retained the selected preview');
+    window.regression.app.openMessageActions(source, window.regression.app.messages.get(1));
+    return { frames, continuous: true };
+  });
+  await page.locator('.message-actions.is-visible').waitFor();
   if (visualQaDirectory) {
     await mkdir(visualQaDirectory, { recursive: true });
     await page.screenshot({ path: path.join(visualQaDirectory, 'message-menu-long-320.png') });
@@ -970,12 +998,10 @@ try {
           window.dispatchEvent(new Event('scroll'));
           await frame();
           const composer = document.querySelector('#composer');
-          const concealShift = new DOMMatrix(getComputedStyle(composer).transform).f;
-          // The base edge tracks each viewport frame synchronously. Its visual
-          // box is intentionally 14px below that edge while fully transparent.
-          if (Math.abs(composer.getBoundingClientRect().bottom - concealShift - height) > 1
-            || composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '0') {
-            throw Error('Composer did not immediately conceal at the current toolbar frame');
+          if (Math.abs(composer.getBoundingClientRect().bottom - height) > 1
+            || composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '1'
+            || getComputedStyle(composer).transform !== 'none') {
+            throw Error('Composer disappeared or lagged the current toolbar frame');
           }
           if (document.querySelector('#message-list').style.getPropertyValue('--keyboard-space')) throw Error('Viewport spacing still inherits through the message history');
         }
@@ -984,10 +1010,9 @@ try {
         while (composer.dataset.viewportMotion && performance.now() < revealDeadline) await new Promise(requestAnimationFrame);
         const revealAnimation = composer.getAnimations().find(animation =>
           animation.effect?.getKeyframes().some(frame => frame.opacity !== undefined || frame.transform !== undefined));
-        if (composer.dataset.viewportMotion || !revealAnimation || Number(revealAnimation.effect.getTiming().duration) !== 280) {
-          throw Error('Composer did not begin its single 280ms slide-and-fade after viewport settlement');
+        if (composer.dataset.viewportMotion || revealAnimation) {
+          throw Error('Composer retained motion state or started an extra reveal animation after settlement');
         }
-        await revealAnimation.finished;
         if (getComputedStyle(composer).opacity !== '1'
           || Math.abs(window.composerBaseBounds().bottom - (document.documentElement.clientHeight - 12)) > 1) {
           throw Error('Composer reveal did not finish at the settled viewport edge');
@@ -1064,6 +1089,8 @@ try {
     const manifest = { v: 1, blobId: 'stable-media-receipt', originalName: 'portrait.svg', originalSize: blob.size, mimeType: blob.type };
     app.cacheLocalImage(manifest, blob);
     const cached = app.imageCache.get(manifest.blobId); cached.width = 900; cached.height = 1600;
+    const decoded = new Image(); decoded.src = cached.url; await decoded.decode();
+    await app.ensureChatConcealedImage(manifest, cached, decoded);
     const outgoing = { ...message(1, { v: 1, kind: 'image', image: manifest, sentAt: '2026-09-04T01:00:00.000Z' }), senderId: session.vault.identity.publicBundle.deviceId, status: 'pending' };
     app.pending.set(outgoing.clientMsgId, { ...outgoing, seq: Number.MAX_SAFE_INTEGER }); app.renderMessages({ scroll: 'bottom' });
     const row = document.querySelector('[data-client-msg-id="message-1"]');
@@ -1085,7 +1112,7 @@ try {
         app.messages.set(1, { ...outgoing, payload: structuredClone(outgoing.payload), status }); app.renderMessages();
         if (document.querySelector('[data-client-msg-id="message-1"]') !== row || row.querySelector('img') !== media) throw Error('Receipt replaced decoded media or its message row');
         if (getComputedStyle(row).opacity !== initialOpacity || !row.classList.contains(`is-${status}`)) throw Error('Receipt flashed full-message opacity or failed to update status');
-        if (row.querySelectorAll('.message-delivery path').length !== (status === 'delivered' ? 2 : 1)) throw Error('Preserved message lost delivery decoration');
+        if (row.querySelectorAll('.message-delivery path').length !== 1) throw Error('Preserved message lost delivery decoration');
       }
       row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
       if (document.querySelectorAll('.message-reaction-picker [data-reaction]').length !== 6) throw Error('Retained message actions used the unconfirmed pending sequence');
@@ -1262,10 +1289,10 @@ try {
       const composer = document.querySelector('#composer');
       const deadline = performance.now() + 1200;
       await new Promise(resolve => requestAnimationFrame(resolve));
-      while ((composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) && performance.now() < deadline) {
+      while ((app.composerHeightMotion || composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) && performance.now() < deadline) {
         await new Promise(resolve => requestAnimationFrame(resolve));
       }
-      if (composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) throw Error('Viewport pan fixture did not reach its stable endpoint');
+      if (app.composerHeightMotion || composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) throw Error('Viewport pan fixture did not reach its stable endpoint');
     };
     await settle();
     const viewport = window.visualViewport;
@@ -1382,9 +1409,9 @@ try {
         || header.getAnimations().some(animation => animation.playState === 'running')) {
         throw Error(`${label} moved, faded or animated the screen-anchored title`);
       }
-      if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '0'
+      if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '1'
         || Math.abs(composerBounds.bottom - top - height) > 1) {
-        throw Error(`${label} exposed or misplaced intermediate composer geometry`);
+        throw Error(`${label} hid or misplaced intermediate composer geometry`);
       }
       assertVisibleConversation(label, top, top + height);
     };
@@ -1505,9 +1532,9 @@ try {
       app.renderMessages({ scroll: 'bottom' });
       const composer = document.querySelector('#composer');
       const list = document.querySelector('#message-list');
-      if (composer.dataset.viewportMotion !== 'positioning' || Number(getComputedStyle(composer).opacity) !== 0
+      if (composer.dataset.viewportMotion !== 'positioning' || Number(getComputedStyle(composer).opacity) !== 1
         || list.style.getPropertyValue('padding-bottom') || list.style.getPropertyValue('min-height')) {
-        throw Error('Chat mounted visibly or committed list geometry at an intermediate keyboard frame');
+        throw Error('Chat hid the composer or committed list geometry at an intermediate keyboard frame');
       }
       Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
       Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 180 });
@@ -1560,9 +1587,10 @@ try {
     const settled = async () => {
       for (let index = 0; index < 180; index++) {
         await frame();
-        if (!composer.dataset.viewportMotion && Number(getComputedStyle(composer).opacity) === 1) return;
+        if (!app.composerHeightMotion && !app.chatBottomControl?.scrolling && !composer.dataset.viewportMotion
+          && Number(getComputedStyle(composer).opacity) === 1) return;
       }
-      throw Error('Composer failed to reappear after stable geometry');
+      throw Error('Composer failed to finish viewport and input-height motion');
     };
     const viewport = window.visualViewport;
     const layoutHeight = document.documentElement.clientHeight;
@@ -1585,8 +1613,8 @@ try {
       const headerStyle = getComputedStyle(header);
       if (Math.abs(header.getBoundingClientRect().top - top) > 1 || headerStyle.opacity !== '1'
         || header.getAnimations().some(animation => animation.playState === 'running')) throw Error('Keyboard frame moved or faded the screen-anchored title');
-      if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '0') throw Error(`Intermediate keyboard geometry remained visible: ${JSON.stringify({ state: composer.dataset.viewportMotion, opacity: getComputedStyle(composer).opacity })}`);
-      if (Math.abs(window.composerBaseBounds().bottom - height - top) > 1) throw Error('Hidden composer geometry lagged a viewport frame');
+      if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '1') throw Error(`Intermediate keyboard geometry hid the composer: ${JSON.stringify({ state: composer.dataset.viewportMotion, opacity: getComputedStyle(composer).opacity })}`);
+      if (Math.abs(window.composerBaseBounds().bottom - height - top) > 1) throw Error('Visible composer geometry lagged a viewport frame');
     };
     try {
       await settled();
@@ -1614,8 +1642,8 @@ try {
       app.updateChatBottomControl(); app.alignChatBottom(); window.dispatchEvent(new Event('scroll')); await frame();
       if (passiveReads || updateCalls) throw Error(`Inferred keyboard motion performed passive document work: ${passiveReads}/${updateCalls}`);
       await new Promise(resolve => setTimeout(resolve, 220)); await frame();
-      if (!composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 0) {
-        throw Error('Pre-focus opening plateau revealed before the keyboard endpoint');
+      if (!composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) {
+        throw Error('Pre-focus opening plateau hid the composer or settled before the keyboard endpoint');
       }
       const bottomButton = document.querySelector('#chat-bottom-control');
       bottomButton.dataset.explicitProbe = 'true'; bottomButton.click(); delete bottomButton.dataset.explicitProbe;
@@ -1637,6 +1665,8 @@ try {
           opacity: getComputedStyle(composer).opacity,
           transform: getComputedStyle(composer).transform,
           viewportMotion: composer.dataset.viewportMotion ?? null,
+          bottomScrolling: app.chatBottomControl?.scrolling,
+          inputHeightMoving: Boolean(app.composerHeightMotion),
           scrollY: window.scrollY,
           innerHeight: window.innerHeight,
           clientHeight: document.documentElement.clientHeight,
@@ -1669,7 +1699,8 @@ try {
       if (input.value !== '保留这份草稿' || app.uiPreferences.composerDraft !== input.value) throw Error('Keyboard gesture changed the draft');
       const anchor = app.captureChatAnchor();
       list.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: -24 })); window.scrollBy(0, -24); await frame();
-      if (!composer.dataset.viewportMotion || getComputedStyle(header).opacity !== '1') throw Error('Manual list movement did not fade only the composer');
+      if (!composer.dataset.viewportMotion || getComputedStyle(header).opacity !== '1'
+        || getComputedStyle(composer).opacity !== '1') throw Error('Manual list movement hid chat chrome');
       await settled();
       if (app.captureChatAnchor().pinnedToBottom || !anchor.clientMsgId) throw Error('Manual scrolling lost the reading intent');
       app.scrollChatToBottom(); await frame();
@@ -1691,7 +1722,7 @@ try {
       viewport.dispatchEvent(new Event('resize')); await frame();
       await new Promise(resolve => setTimeout(resolve, 1_700));
       app.setActiveSurface('chat'); await frame();
-      if (composer.dataset.viewportMotion !== 'positioning' || Number(getComputedStyle(composer).opacity) !== 0
+      if (composer.dataset.viewportMotion !== 'positioning' || Number(getComputedStyle(composer).opacity) !== 1
         || resumeAlignments !== 0 || Math.abs(window.composerBaseBounds().bottom - 720) > 1) {
         throw Error(`Same-DOM return used away time or stale composer geometry: ${JSON.stringify({ state: composer.dataset.viewportMotion, opacity: getComputedStyle(composer).opacity, resumeAlignments, composerBottom: window.composerBaseBounds().bottom })}`);
       }
@@ -1701,7 +1732,7 @@ try {
         throw Error(`Same-DOM return did not settle once at current geometry: ${JSON.stringify({ resumeAlignments, resumeGap })}`);
       }
       app.alignChatBottom = alignChatBottom;
-      return { keyboardFrames: 6, blockedFingerDirections: 'both', blur: 'last touch release', draft: 'preserved', latestGap: gap, buttonGap, idleReveal: '160ms settle then 280ms slide and fade', sameDomReturn: true, awayIntermediateFirstFrame: 'concealed', resumeAlignments, resumeGap };
+      return { keyboardFrames: 6, blockedFingerDirections: 'both', blur: 'last touch release', draft: 'preserved', latestGap: gap, buttonGap, composer: 'continuously visible without reveal animation', sameDomReturn: true, awayIntermediateFirstFrame: 'visible', resumeAlignments, resumeGap };
     } finally {
       app.alignChatBottom = alignChatBottom;
       delete viewport.height; delete viewport.offsetTop;
@@ -2038,8 +2069,8 @@ try {
           });
           if (Math.abs(header.getBoundingClientRect().top - expectedTop) > 1 || getComputedStyle(header).opacity !== '1'
             || header.getAnimations().some(animation => animation.playState === 'running')) throw Error(`${count}-message ${phase} moved, faded or animated the title`);
-          if (composerElement.dataset.viewportMotion !== 'positioning' || getComputedStyle(composerElement).opacity !== '0'
-            || Math.abs(composer.bottom - expectedTop - height) > 1) throw Error(`${count}-message ${phase} exposed intermediate composer geometry`);
+          if (composerElement.dataset.viewportMotion !== 'positioning' || getComputedStyle(composerElement).opacity !== '1'
+            || Math.abs(composer.bottom - expectedTop - height) > 1) throw Error(`${count}-message ${phase} hid or displaced intermediate composer geometry`);
           if (!visible || visibleBottom <= visibleTop) throw Error(`${count}-message ${phase} exposed a blank viewport`);
           if (current.paddingBottom !== before.paddingBottom || current.minHeight !== before.minHeight) {
             throw Error(`${count}-message ${phase} committed list geometry before its endpoint`);
@@ -2246,6 +2277,56 @@ try {
       await page.screenshot({ path: path.join(visualQaDirectory, `chat-glass-${scheme}-390.png`) });
     }
   }
+  const touchPage = await browser.newPage({ hasTouch: true, viewport: { width: 390, height: 844 },
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' });
+  try {
+    await touchPage.goto(`http://localhost:${server.httpServer.address().port}/__frontend_regression`);
+    await touchPage.evaluate(initializeRegression);
+    results.touchHeaderAnchor = await touchPage.evaluate(async () => {
+      const { app, message } = window.regression;
+      // Chromium cannot acquire WebKit capabilities through a mobile UA.
+      // Exercise the same native-coordinate branch in both engine runs.
+      app.visualClientCoordinates = true;
+      app.refreshNativeChatChrome();
+      app.messages = new Map(Array.from({ length: 120 }, (_, i) => [i + 1, message(i + 1)]));
+      app.renderMessages({ scroll: 'bottom' });
+      const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await settle();
+      const header = document.querySelector('.chat-header');
+      const positions = [];
+      for (const fraction of [1, 0.98, 0.85, 0.5, 0, 1]) {
+        window.scrollTo(0, (document.documentElement.scrollHeight - innerHeight) * fraction);
+        await settle();
+        const top = header.getBoundingClientRect().top;
+        if (getComputedStyle(header).position !== 'fixed' || Math.abs(top) > 1) {
+          throw Error(`Touch Safari history scroll displaced title: ${JSON.stringify({ fraction, top, scrollY })}`);
+        }
+        positions.push(top);
+      }
+      app.connectionState = 'connected'; app.rolePresence = { creator: true, joiner: true }; app.updatePeerStatus();
+      return positions;
+    });
+    for (const colorScheme of ['light', 'dark']) {
+      await touchPage.emulateMedia({ colorScheme });
+      await touchPage.evaluate(async () => {
+        const controls = [...document.querySelectorAll('.chat-header .icon-button')];
+        const picker = document.querySelector('.composer #open-chat-tools');
+        for (const control of controls) if (control instanceof HTMLButtonElement) control.disabled = false;
+        picker.classList.remove('is-disabled');
+        await new Promise(resolve => setTimeout(resolve, 200));
+        const expected = getComputedStyle(picker).color;
+        if (controls.some(control => getComputedStyle(control).color !== expected)) throw Error('Header and composer icon colors differ');
+        const dot = document.querySelector('#peer-presence .presence-dot');
+        if (getComputedStyle(dot).animationName !== 'chat-presence-breathe') throw Error('Online indicator is missing its breathing animation');
+        window.regression.app.rolePresence.joiner = false; window.regression.app.updatePeerStatus();
+        if (getComputedStyle(dot).animationName !== 'none') throw Error('Offline indicator kept breathing');
+        window.regression.app.rolePresence.joiner = true; window.regression.app.updatePeerStatus();
+      });
+      if (visualQaDirectory) await touchPage.screenshot({ path: path.join(visualQaDirectory, `chat-header-touch-${colorScheme}.png`) });
+    }
+    await touchPage.emulateMedia({ reducedMotion: 'reduce' });
+    assert.equal(await touchPage.locator('#peer-presence .presence-dot').evaluate(dot => getComputedStyle(dot).animationName), 'none');
+  } finally { await touchPage.close(); }
   // A wide mobile-emulated page does not exercise desktop scrolling. Use the
   // engine's real desktop user agent and pointer model in a separate context.
   const desktopPage = await browser.newPage({ viewport: { width: 1024, height: 768 } });

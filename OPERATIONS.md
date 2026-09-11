@@ -8,6 +8,10 @@ The included backup worker uses SQLite's online backup API against the live WAL 
 
 Compose runs that worker once at startup and then every 24 hours by default. It retains 14 completed snapshots. Configure `QUIET_ROOM_BACKUP_DIR` as a mount whose data is replicated to a different failure domain. A second directory on the same disk is not disaster recovery.
 
+The public expression catalog stores its original images and publication state in the same SQLite database,
+so online snapshots and restore include it. Public catalog bytes are separate from encrypted chat attachments.
+Interrupted acquisition jobs remain interrupted after restart and require a new explicit administrator action.
+
 Recommended minimum production policy:
 
 - RPO: 24 hours or less; reduce `BACKUP_INTERVAL_MS` if that loss window is unacceptable.
@@ -55,7 +59,8 @@ Permission is requested only after the user selects the notification control. A 
 The fixed independent post-release verification command is
 `npm run deploy:readback -- --sha <full-deployed-SHA>`. Its output separates
 phase timing from stable failure classes and saves a redacted local receipt under
-`.git/quiet-room-readback/`. A `READBACK_BLOCKED` result means that production
+`quiet-room-readback/` inside the current worktree's Git metadata directory
+(resolved with `git rev-parse --absolute-git-dir`). A `READBACK_BLOCKED` result means that production
 verification is incomplete, not that the application was rolled back or that a
 new cutover is authorized. Repeat only this read-only command for the same SHA
 after resolving connectivity or probe conditions. If its state fields reveal a
@@ -181,6 +186,6 @@ interruption survives reboot and requires inspection before another deployment.
 
 存在恢复备份的未配对会话不会按普通无用邀请自动过期。后台按会话查看设备、时间和大小；不要只按消息数为零就删除。清理要求完整会话号及新的密码/TOTP 验证，删除在线会话和恢复材料并清理附件。附件删除中断由持久队列重试；独立快照与设备副本不会被远程删除。审计记录仅保留删除动作、会话号和时间，不记录管理员表单或恢复材料。现场运行应对元数据记录采取适当访问及保留策略。
 
-`sao.shui.click` 后台默认关闭，配置步骤见 `DEPLOYMENT.md`。管理员配置在聊天数据卷之外，只读挂载给应用，需独立安全保管并保持服务器时钟准确。后台密码哈希与 TOTP 种子不具备用户内容解密能力。备份工作人员仍不得记录 Authorization、请求正文、恢复码、凭据二维码或归档读取令牌。发布维护门必须同时覆盖普通应用和后台写入，不能让管理员在可回滚的验证窗口修改数据库。
+`admin.mijiu.cloud` 后台默认关闭，配置步骤见 `DEPLOYMENT.md`。管理员配置在聊天数据卷之外，只读挂载给应用，需独立安全保管并保持服务器时钟准确。后台密码哈希与 TOTP 种子不具备用户内容解密能力。备份工作人员仍不得记录 Authorization、请求正文、恢复码、凭据二维码或归档读取令牌。发布维护门必须同时覆盖普通应用和后台写入，不能让管理员在可回滚的验证窗口修改数据库。
 
 数据快照可能包含历史恢复包装和旧取件哈希。恢复旧服务器快照会恢复当时的权限/版本状态，不应把在线轮换当作不可回滚的全局吊销；在受信任维护中评估快照时点、客户端更新与需重新建立的恢复保护，不能静默对外宣称旧码永远无法再次使用。

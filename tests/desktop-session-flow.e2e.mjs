@@ -14,6 +14,12 @@ const vite = await createServer({
   logLevel: 'error',
   plugins: [{
     name: 'desktop-session-test-observer',
+    configureServer(server) {
+      server.middlewares.use('/__desktop_session', (_request, response) => {
+        response.setHeader('Content-Type', 'text/html');
+        response.end('<!doctype html><html><body><div id="app"></div></body></html>');
+      });
+    },
     transform(code, id) {
       // Expose the running application for assertions. All lifecycle, vault,
       // history, MLS, and transport methods remain their production versions.
@@ -36,6 +42,7 @@ const trace = step => { if (process.env.QUIET_ROOM_TEST_TRACE) console.log(step)
 async function createDesktop() {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   const page = await context.newPage();
+  page.setDefaultNavigationTimeout(120_000);
   page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => {
     // Headless pages share one OS window. Give each context its own focus and
@@ -128,13 +135,13 @@ async function returnToPage(page) {
 
 async function send(page, text) {
   await page.locator('#message-input').fill(text);
-  await page.locator('.send-button').click();
+  await page.locator('#message-input').press('Enter');
   await page.locator('.message.outgoing').filter({ hasText: text }).waitFor({ timeout: 10_000 });
 }
 
 try {
   await vite.listen();
-  const baseUrl = `http://localhost:${vite.httpServer.address().port}/`;
+  const baseUrl = `http://localhost:${vite.httpServer.address().port}/__desktop_session`;
   browser = await chromium.launch(process.env.CHROME_PATH
     ? { headless: true, executablePath: process.env.CHROME_PATH }
     : process.env.CI ? { headless: true } : { headless: true, channel: 'chrome' });
@@ -142,13 +149,15 @@ try {
   const joiner = await createDesktop();
 
   trace('Pairing two desktop browsers with real device-bound PRF vaults');
-  await creator.goto(baseUrl);
+  await creator.goto(baseUrl, { waitUntil: 'domcontentloaded' });
+  await creator.evaluate(() => import('/src/main.ts'));
   await holdF(creator);
   await creator.locator('#create-room').click();
   await creator.locator('[data-device-verify]').click();
   await creator.locator('.pairing-screen').waitFor({ timeout: 15_000 });
   const invite = await creator.locator('#invite-url').inputValue();
-  await joiner.goto(invite);
+  await joiner.goto(invite, { waitUntil: 'domcontentloaded' });
+  await joiner.evaluate(() => import('/src/main.ts'));
   await holdF(joiner);
   await joiner.locator('[data-device-verify]').click();
   await Promise.all([expectChat(creator), expectChat(joiner)]);
@@ -184,7 +193,7 @@ try {
 
     // Sending the restored draft advances the real MLS ratchet. The peer must
     // decrypt it after the sender reopened its durable vault and reconnected.
-    await creator.locator('.send-button').click();
+    await creator.locator('#message-input').press('Enter');
     await joiner.getByText(draft, { exact: true }).waitFor({ timeout: 10_000 });
     await creator.locator('.message.outgoing.is-delivered').filter({ hasText: draft }).waitFor({ timeout: 10_000 });
     assert.equal(await verificationCount(creator), initialVerifications);
@@ -203,6 +212,7 @@ try {
   await creator.getByText(firstMessage, { exact: true }).waitFor();
 
   await creator.reload();
+  await creator.evaluate(() => import('/src/main.ts'));
   await creator.locator('.cover-trigger').waitFor();
   const reloaded = await state(creator);
   assert.equal(reloaded.active, false);
