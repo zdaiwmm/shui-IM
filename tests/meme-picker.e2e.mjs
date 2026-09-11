@@ -123,10 +123,52 @@ try {
   await page.waitForFunction(()=>!document.querySelector('#meme-panel'));
   assert.equal(await page.evaluate(()=>window.fixture.sent.length),2);
   await page.locator('#open-memes').click();
+  await page.waitForFunction(() => (document.querySelector('.meme-grid .meme-tile')?.getBoundingClientRect().width ?? 0) > 0);
+  const gifTileSize = await page.locator('.meme-grid .meme-tile').first().evaluate(el => {
+    const rect = el.getBoundingClientRect();
+    return { width: rect.width, height: rect.height, maxWidth: parseFloat(getComputedStyle(el).maxWidth) };
+  });
+  assert.ok(gifTileSize.width <= gifTileSize.maxWidth + 1 && Math.abs(gifTileSize.width - gifTileSize.height) < 1, `GIF tile grew beyond its stable cell: ${JSON.stringify(gifTileSize)}`);
   await page.locator('button[data-kind="stickers"]').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===30);
   assert.equal(await page.locator('.meme-pack-shortcuts img').count(),30);
-  await page.locator('.meme-pack-shortcuts button').nth(5).click();
+  const shortcutGesture = await page.evaluate(() => {
+    const bar = document.querySelector('.meme-pack-shortcuts');
+    const track = document.querySelector('.meme-pack-shortcuts-track');
+    if (!(bar instanceof HTMLElement) || !(track instanceof HTMLElement)) throw new Error('Sticker shortcut track missing');
+    const bounds = bar.getBoundingClientRect();
+    return { bounds: { left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height }, overflow: track.scrollWidth - bar.clientWidth };
+  });
+  assert.ok(shortcutGesture.overflow > 0, `Sticker shortcuts did not overflow horizontally: ${JSON.stringify(shortcutGesture)}`);
+  await page.mouse.move(shortcutGesture.bounds.left + shortcutGesture.bounds.width * 0.72, shortcutGesture.bounds.top + shortcutGesture.bounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(shortcutGesture.bounds.left + 8, shortcutGesture.bounds.top + shortcutGesture.bounds.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(120);
+  const shortcutAfterDrag = await page.evaluate(() => {
+    const bar = document.querySelector('.meme-pack-shortcuts');
+    const track = document.querySelector('.meme-pack-shortcuts-track');
+    if (!(bar instanceof HTMLElement) || !(track instanceof HTMLElement)) throw new Error('Sticker shortcut track missing');
+    const barRect = bar.getBoundingClientRect();
+    const trackRect = track.getBoundingClientRect();
+    return { left: trackRect.left, right: trackRect.right, barLeft: barRect.left, barRight: barRect.right, transform: getComputedStyle(track).transform };
+  });
+  assert.ok(shortcutAfterDrag.left < shortcutAfterDrag.barLeft - 1, `Sticker shortcuts did not follow the drag: ${JSON.stringify(shortcutAfterDrag)}`);
+  await page.mouse.move(shortcutAfterDrag.barLeft + 8, shortcutGesture.bounds.top + shortcutGesture.bounds.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(shortcutAfterDrag.barRight + 100, shortcutGesture.bounds.top + shortcutGesture.bounds.height / 2, { steps: 8 });
+  await page.mouse.up();
+  await page.waitForTimeout(500);
+  const shortcutSettled = await page.evaluate(() => {
+    const bar = document.querySelector('.meme-pack-shortcuts');
+    const track = document.querySelector('.meme-pack-shortcuts-track');
+    if (!(bar instanceof HTMLElement) || !(track instanceof HTMLElement)) throw new Error('Sticker shortcut track missing');
+    const barRect = bar.getBoundingClientRect();
+    const trackRect = track.getBoundingClientRect();
+    return { left: trackRect.left, right: trackRect.right, barLeft: barRect.left, barRight: barRect.right, transform: getComputedStyle(track).transform };
+  });
+  assert.ok(shortcutSettled.left <= shortcutSettled.barLeft + 1 && shortcutSettled.right >= shortcutSettled.barRight - 1, `Sticker shortcut edge did not rebound to a bounded position: ${JSON.stringify(shortcutSettled)}`);
+  await page.locator('.meme-pack-shortcuts button').nth(5).evaluate(el => el.click());
   await page.waitForFunction(()=>document.querySelector('.meme-scroll').scrollTop>100);
   await page.locator('.meme-open-search').click();
   await page.locator('#meme-query').fill('预置'); await page.locator('#meme-query').press('Enter');

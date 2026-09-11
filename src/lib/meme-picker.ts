@@ -37,6 +37,8 @@ export class MemePicker {
   private status: HTMLElement;
   private input: HTMLInputElement;
   private more: HTMLButtonElement;
+  private shortcutBar: HTMLElement;
+  private shortcutTrack: HTMLElement;
   private observer: IntersectionObserver;
   private tiles = new Map<HTMLElement, Tile>();
   private favorites: MemeFavorite[] = [];
@@ -52,13 +54,26 @@ export class MemePicker {
   private searching = false;
   private packDetail = false;
   private operation: AbortController | null = null;
+  private shortcutOffset = 0;
+  private shortcutOvershoot = 0;
+  private shortcutAnimation: number | null = null;
+  private shortcutPointer: {
+    id: number;
+    startX: number;
+    startOffset: number;
+    lastX: number;
+    lastAt: number;
+    velocity: number;
+    dragged: boolean;
+  } | null = null;
+  private shortcutSuppressClick = false;
 
   constructor(private options: MemePickerOptions) {
     this.signal = AbortSignal.any([options.signal, this.controller.signal]);
     this.panel.className = 'meme-panel'; this.panel.id = 'meme-panel';
     this.panel.setAttribute('role', 'region'); this.panel.setAttribute('aria-label', '表情');
     this.panel.innerHTML = `
-      <div class="meme-pack-shortcuts" aria-label="贴纸合集"></div>
+      <div class="meme-pack-shortcuts" aria-label="贴纸合集"><div class="meme-pack-shortcuts-track"></div></div>
       <button type="button" class="meme-open-search">${memeIcons.search}<span>搜索 GIFs</span></button>
       <header class="meme-search-header" hidden><button type="button" class="meme-back" aria-label="返回表情面板" title="返回">${createElement(ArrowLeft).outerHTML}</button>
         <form class="meme-search"><label class="sr-only" for="meme-query">搜索 GIFs</label><input id="meme-query" type="search" maxlength="80" placeholder="搜索 GIFs" autocomplete="off" enterkeyhint="search" /><button type="submit" aria-label="搜索" title="搜索">${memeIcons.search}</button></form>
@@ -66,7 +81,10 @@ export class MemePicker {
       <div class="meme-scroll"><div class="meme-grid"></div><p class="meme-status" role="status"></p><button type="button" class="meme-more" hidden>加载更多</button><p class="meme-source"></p></div>
       <nav class="meme-tabs" aria-label="表情分类"><div role="tablist" aria-label="表情类型"><button type="button" role="tab" aria-selected="true" data-kind="gifs">GIFs</button><button type="button" role="tab" aria-selected="false" tabindex="-1" data-kind="stickers">贴纸</button></div><button type="button" class="meme-collapse" aria-label="收起表情" title="收起">${memeIcons.down}</button></nav>`;
     this.grid = this.panel.querySelector('.meme-grid')!; this.status = this.panel.querySelector('.meme-status')!;
+    this.shortcutBar = this.panel.querySelector('.meme-pack-shortcuts')!;
+    this.shortcutTrack = this.panel.querySelector('.meme-pack-shortcuts-track')!;
     this.input = this.panel.querySelector('input')!; this.more = this.panel.querySelector('.meme-more')!;
+    this.installShortcutGesture();
     this.input.addEventListener('pointerdown', event => options.onSearchPointer(this.input, event));
     this.panel.querySelector('form')!.addEventListener('submit', event => { event.preventDefault(); event.stopPropagation(); void this.submit(); });
     this.panel.querySelector('.meme-open-search')!.addEventListener('click', () => this.openSearch());
@@ -120,7 +138,8 @@ export class MemePicker {
     this.panel.querySelector('.meme-open-search span')!.textContent = label; await this.local();
   }
   private shortcuts() {
-    const bar = this.panel.querySelector('.meme-pack-shortcuts')!; bar.replaceChildren();
+    const bar = this.shortcutTrack; bar.replaceChildren();
+    this.shortcutOffset = 0; this.shortcutOvershoot = 0; this.renderShortcutOffset();
     const control = (label: string, icon: string, action: () => void) => {
       const button = document.createElement('button'); button.type = 'button'; button.title = label; button.setAttribute('aria-label', label); button.innerHTML = icon;
       button.addEventListener('click', action); bar.append(button); return button;
@@ -135,6 +154,119 @@ export class MemePicker {
       const image = document.createElement('img'); image.alt = ''; image.draggable = false; button.append(image); this.tiles.set(button, { item, visible: true });
     }
     this.hydrate();
+  }
+  private installShortcutGesture() {
+    const bar = this.shortcutBar;
+    bar.addEventListener('pointerdown', event => {
+      if (event.button !== 0 || this.shortcutMaxOffset() <= 0) return;
+      this.stopShortcutAnimation();
+      this.shortcutSuppressClick = false;
+      this.shortcutPointer = {
+        id: event.pointerId,
+        startX: event.clientX,
+        startOffset: this.shortcutOffset,
+        lastX: event.clientX,
+        lastAt: performance.now(),
+        velocity: 0,
+        dragged: false,
+      };
+      bar.setPointerCapture(event.pointerId);
+      bar.classList.add('is-dragging');
+    });
+    bar.addEventListener('pointermove', event => {
+      const gesture = this.shortcutPointer;
+      if (!gesture || gesture.id !== event.pointerId) return;
+      const now = performance.now();
+      const delta = event.clientX - gesture.startX;
+      const raw = gesture.startOffset - delta;
+      const clamped = this.clampShortcutOffset(raw);
+      const overshoot = raw - clamped;
+      const elapsed = Math.max(1, now - gesture.lastAt);
+      gesture.velocity = (event.clientX - gesture.lastX) / elapsed * -1;
+      gesture.lastX = event.clientX;
+      gesture.lastAt = now;
+      if (Math.abs(delta) > 6) gesture.dragged = true;
+      if (gesture.dragged) event.preventDefault();
+      this.shortcutOffset = clamped;
+      this.shortcutOvershoot = this.rubberBand(overshoot);
+      this.renderShortcutOffset();
+    });
+    const finish = (event: PointerEvent) => {
+      const gesture = this.shortcutPointer;
+      if (!gesture || gesture.id !== event.pointerId) return;
+      this.shortcutPointer = null;
+      bar.classList.remove('is-dragging');
+      try { bar.releasePointerCapture(event.pointerId); } catch { /* The pointer may already be released. */ }
+      if (gesture.dragged) {
+        this.shortcutSuppressClick = true;
+        this.startShortcutRelease(gesture.velocity);
+      } else {
+        this.startShortcutRelease(0);
+      }
+    };
+    bar.addEventListener('pointerup', finish);
+    bar.addEventListener('pointercancel', finish);
+    bar.addEventListener('click', event => {
+      if (this.shortcutSuppressClick) {
+        this.shortcutSuppressClick = false;
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }, true);
+    bar.addEventListener('wheel', event => {
+      if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+      event.preventDefault();
+      this.stopShortcutAnimation();
+      this.shortcutOffset = this.clampShortcutOffset(this.shortcutOffset + event.deltaX);
+      this.renderShortcutOffset();
+    }, { passive: false });
+    this.signal.addEventListener('abort', () => this.stopShortcutAnimation(), { once: true });
+  }
+  private shortcutMaxOffset() {
+    return Math.max(0, this.shortcutTrack.scrollWidth - this.shortcutBar.clientWidth);
+  }
+  private clampShortcutOffset(value: number) {
+    return Math.max(0, Math.min(this.shortcutMaxOffset(), value));
+  }
+  private rubberBand(value: number) {
+    return value === 0 ? 0 : Math.sign(value) * (Math.abs(value) * 0.34 + Math.min(18, Math.abs(value) * 0.04));
+  }
+  private renderShortcutOffset() {
+    this.shortcutTrack.style.transform = `translate3d(${(-this.shortcutOffset + this.shortcutOvershoot).toFixed(2)}px, 0, 0)`;
+  }
+  private stopShortcutAnimation() {
+    if (this.shortcutAnimation !== null) cancelAnimationFrame(this.shortcutAnimation);
+    this.shortcutAnimation = null;
+  }
+  private startShortcutRelease(velocity: number) {
+    this.stopShortcutAnimation();
+    let currentVelocity = Math.max(-2.2, Math.min(2.2, velocity));
+    let lastAt = performance.now();
+    const tick = (now: number) => {
+      const elapsed = Math.min(32, Math.max(1, now - lastAt));
+      lastAt = now;
+      if (Math.abs(this.shortcutOvershoot) > 0.25) {
+        this.shortcutOvershoot *= Math.pow(0.0008, elapsed / 1000);
+      } else {
+        this.shortcutOvershoot = 0;
+        if (Math.abs(currentVelocity) > 0.015) {
+          const next = this.shortcutOffset + currentVelocity * elapsed;
+          const clamped = this.clampShortcutOffset(next);
+          if (clamped !== next) currentVelocity *= -0.22;
+          this.shortcutOffset = clamped;
+          currentVelocity *= Math.pow(0.055, elapsed / 1000);
+        } else currentVelocity = 0;
+      }
+      this.renderShortcutOffset();
+      if (Math.abs(this.shortcutOvershoot) > 0.25 || Math.abs(currentVelocity) > 0.015) {
+        this.shortcutAnimation = requestAnimationFrame(tick);
+      } else {
+        this.shortcutOvershoot = 0;
+        this.renderShortcutOffset();
+        this.shortcutAnimation = null;
+      }
+    };
+    this.shortcutAnimation = requestAnimationFrame(tick);
   }
   private jump(id: string) {
     const section = [...this.grid.querySelectorAll<HTMLElement>('[data-pack]')].find(node => node.dataset.pack === id); if (!section) return;
@@ -304,7 +436,7 @@ export class MemePicker {
   dispose() {
     if (this.disposed) return; this.disposed = true; this.controller.abort();
     if (this.preview) closeDialog(this.preview, { animate: false, restoreFocus: false }); if (this.overlay) closeDialog(this.overlay, { animate: false, restoreFocus: false });
-    this.observer.disconnect(); this.request?.abort(); for (const tile of this.tiles.keys()) this.unload(tile);
+    this.observer.disconnect(); this.request?.abort(); this.stopShortcutAnimation(); for (const tile of this.tiles.keys()) this.unload(tile);
     this.tiles.clear(); this.favorites = []; this.packs = []; this.input.value = ''; this.panel.remove(); this.options.host.classList.remove('has-meme-panel');
   }
 }
