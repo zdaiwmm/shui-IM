@@ -42,6 +42,18 @@ try {
     const code = session.vault.backup.code;
     const before = session.vault.backup.revision;
     const original = fetch;
+    const noOpRevision = session.vault.backup.revision;
+    let noOpRequests = 0;
+    window.fetch = async (...args) => { noOpRequests++; return original(...args); };
+    await b.syncCloudBackup(session, new AbortController().signal, { force: false });
+    window.fetch = original;
+    const noOpSkipped = noOpRequests === 0 && session.vault.backup.revision === noOpRevision;
+    session.vault.lastReceiptSeq = 3;
+    let changedStateRequests = 0;
+    window.fetch = async (...args) => { changedStateRequests++; return original(...args); };
+    await b.syncCloudBackup(session, new AbortController().signal, { force: false });
+    window.fetch = original;
+    const changedStateSynced = changedStateRequests > 0;
     let committedThenLost = false;
     window.fetch = async (...args) => {
       const response = await original(...args);
@@ -99,10 +111,10 @@ try {
     const pendingResumes = resume.vault.roomId === room.roomId;
     // Keep this synthetic original device for the local reauthentication UI check.
     await v.createVault(reopened.vault);
-    return { rejected, committedThenLost, identicalRetry, stableCode, noCodeInPayload, persistedCiphertext, abortUnchanged,
+    return { rejected, committedThenLost, noOpSkipped, changedStateSynced, identicalRetry, stableCode, noCodeInPayload, persistedCiphertext, abortUnchanged,
       noAutomaticHistory, pendingResumes, lateAbortUnchanged, lateFetchUnchanged, revisionAdvanced: reopened.vault.backup.revision > before };
   });
-  assert.deepEqual(first, { rejected: true, committedThenLost: true, identicalRetry: true, stableCode: true, noCodeInPayload: true,
+  assert.deepEqual(first, { rejected: true, committedThenLost: true, noOpSkipped: true, changedStateSynced: true, identicalRetry: true, stableCode: true, noCodeInPayload: true,
     persistedCiphertext: true, abortUnchanged: true, noAutomaticHistory: true, pendingResumes: true, lateAbortUnchanged: true, lateFetchUnchanged: true, revisionAdvanced: true });
   await page.evaluate(async () => {
     const { QuietRoomApp } = await import('/src/app.ts'); const v = await import('/src/lib/vault.ts');

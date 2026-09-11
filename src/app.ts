@@ -561,6 +561,7 @@ export class QuietRoomApp {
     let nativeViewportFrame: number | null = null;
     let trackingFrame: number | null = null;
     let trackingUntil = 0;
+    let trackingHardUntil = 0;
     let previousViewportHeight = 0;
     let previousLayoutHeight = 0;
     let previousViewportTop = -1;
@@ -713,7 +714,7 @@ export class QuietRoomApp {
         // visual viewport. Message-document geometry, bottom alignment and
         // control measurements are committed together by the settled callback.
         if (!motion?.moving && !motionSettled) this.commitChatViewportGeometry();
-        if (resized) this.trackChatViewport(false);
+        if (resized || widthChanged) this.trackChatViewport(false);
         if (!motion?.moving && !motionSettled) this.updateChatBottomControl();
       }
       viewportWidthChanged ||= widthChanged;
@@ -751,22 +752,31 @@ export class QuietRoomApp {
         if (this.chatBottomFollowPending && this.chatScrollIntent !== 'up') this.alignChatBottom();
         this.chatBottomControl?.update(false);
       }
-      if (performance.now() >= trackingUntil) {
+      const keepSamplingNativeChrome = Boolean(chat && this.visualClientCoordinates);
+      const now = performance.now();
+      if (now >= trackingUntil) {
         this.chatBottomFollowPending = false;
         this.chatViewportFollowUntil = 0;
+        if ((!keepSamplingNativeChrome && !this.chatViewportMotion?.moving) || now >= trackingHardUntil) return;
+        // Viewport events start a fresh bounded sampling window when Safari
+        // cannot deliver every native toolbar frame. Do not keep a permanent
+        // animation loop alive while the page is idle. Native fixed chrome
+        // gets the same longer, still bounded window because WebKit can move
+        // its origin after the keyboard motion itself has settled.
       }
       // Safari can withhold viewport events during native toolbar movement.
-      // Keep this cheap geometry sample alive while chat/gallery is visible; unchanged
-      // samples return before reading messages or writing any styles.
+      // Keep this cheap geometry sample alive only during the bounded window;
+      // unchanged samples return before reading messages or writing any styles.
       if (trackingFrame === null) trackingFrame = requestAnimationFrame(sampleViewport);
     };
     this.trackChatViewport = (follow = false) => {
       const chat = this.activeSurface === 'chat' && this.chatLayoutElements?.shell.isConnected;
       const gallery = this.activeSurface === 'away' && this.galleryViewportHeader?.isConnected;
       if (this.privacyCovered || !chat && !gallery) return;
-      // Following browser focus scrolls is bounded. Position sampling itself
-      // continues until chat is left or privacy teardown cancels this frame.
+      // Following browser focus scrolls is bounded. A moving viewport may use
+      // the longer motion bound, while idle pages never keep this frame alive.
       trackingUntil = performance.now() + 900;
+      trackingHardUntil = performance.now() + 2_200;
       if (follow) this.chatViewportFollowUntil = trackingUntil;
       if (trackingFrame === null) trackingFrame = requestAnimationFrame(sampleViewport);
     };
@@ -792,6 +802,7 @@ export class QuietRoomApp {
       nativeViewportFrame = null;
       trackingFrame = null;
       trackingUntil = 0;
+      trackingHardUntil = 0;
       viewportWidthChanged = false;
       this.chatBottomFollowPending = false;
       this.chatViewportFollowUntil = 0;
@@ -7043,7 +7054,21 @@ export class QuietRoomApp {
       // earlier FLIP. Rows themselves do not carry that transform—their
       // visible children do—so row bounds would make a rapid second reaction
       // snap back before starting its new animation.
-      for (const row of list.children) {
+      // Message rows are monotonic in document order, so avoid measuring the
+      // entire loaded history when only the viewport can be animated.
+      const captureTop = this.chatViewportTop - 64;
+      const captureBottom = this.chatViewportTop + this.chatViewportHeight + 64;
+      let first = 0;
+      let high = list.children.length;
+      while (first < high) {
+        const middle = Math.floor((first + high) / 2);
+        const row = list.children[middle] as HTMLElement;
+        if (row.getBoundingClientRect().bottom < captureTop) first = middle + 1;
+        else high = middle;
+      }
+      for (let index = first; index < list.children.length; index += 1) {
+        const row = list.children[index] as HTMLElement;
+        if (row.getBoundingClientRect().top > captureBottom) break;
         const contents = row.classList.contains('message-date') ? [row] : [...row.children];
         for (const content of contents) {
           if (content instanceof HTMLElement && !content.classList.contains('message-reply-swipe-indicator')) {
@@ -7282,9 +7307,9 @@ export class QuietRoomApp {
     this.cancelChatMessageMotion();
     for (const [content, previousTop] of origins) {
       if (!content.isConnected) continue;
-      const distance = previousTop - content.getBoundingClientRect().top;
-      if (Math.abs(distance) < 0.5) continue;
       const rect = content.getBoundingClientRect();
+      const distance = previousTop - rect.top;
+      if (Math.abs(distance) < 0.5) continue;
       if (rect.bottom < this.chatViewportTop - 32 || rect.top > this.chatViewportTop + this.chatViewportHeight + 32) continue;
       const animation = content.animate(
         [{ translate: `0 ${distance}px` }, { translate: '0 0' }],
@@ -7700,16 +7725,16 @@ export class QuietRoomApp {
   private startAutomaticBackup(): void {
     if (this.backupTimer !== null) window.clearInterval(this.backupTimer);
     this.backupTimer = window.setInterval(() => void this.runAutomaticBackup(), 15_000);
-    void this.runAutomaticBackup();
+    void this.runAutomaticBackup(true);
   }
 
-  private runAutomaticBackup(): Promise<void> {
+  private runAutomaticBackup(force = false): Promise<void> {
     if (this.backupRun) return this.backupRun;
     const session = this.session;
     const signal = this.runtimeAbort?.signal;
     if (!session || !signal || this.privacyCovered || document.hidden) return Promise.resolve();
     const epoch = this.runtimeEpoch;
-    const run = syncCloudBackup(session, signal).then(() => {
+    const run = syncCloudBackup(session, signal, { force }).then(() => {
       if (this.isRuntimeActive(epoch, session)) this.backupError = '';
     }).catch(cause => {
       if (this.isRuntimeActive(epoch, session)) this.backupError = cause instanceof Error ? cause.message : '自动备份暂未完成';
@@ -7782,7 +7807,7 @@ export class QuietRoomApp {
       this.runtimeAbort?.signal.removeEventListener('abort', cancelRestore);
       this.transitionPage('backward', () => { if (historyChanged) void this.openSession(); else this.renderChat(); });
     });
-    this.root.querySelector('#backup-retry')?.addEventListener('click', () => void this.runAutomaticBackup());
+    this.root.querySelector('#backup-retry')?.addEventListener('click', () => void this.runAutomaticBackup(true));
     this.root.querySelector('#view-local-recovery')?.addEventListener('click', () => this.verifyLocalRecoveryCode());
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-restore]')) button.addEventListener('click', () => {
       if (!this.isRuntimeActive(epoch, session)) return;
