@@ -5,8 +5,8 @@ import { adminConfigId, validateAdminConfig, verifyAdmin } from './admin-auth.mj
 import { isUuid } from './protocol.mjs';
 
 const cookieName = '__Host-qr-admin';
-const sessionIdleMs = 60 * 60_000;
-const sessionAbsoluteMs = 12 * 60 * 60_000;
+const sessionIdleMs = 7 * 24 * 60 * 60_000;
+const sessionAbsoluteMs = 7 * 24 * 60 * 60_000;
 const secret = () => randomBytes(32).toString('base64url');
 const hash = value => createHash('sha256').update(value).digest('hex');
 

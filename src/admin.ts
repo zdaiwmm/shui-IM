@@ -9,6 +9,38 @@ const root = document.querySelector<HTMLElement>('#admin')!;
 let csrf = '';
 let offset = 0;
 let view = 0;
+let viewRequests = new AbortController();
+let previewCleanup: (() => void)[] = [];
+let previewQueue: (() => void)[] = [];
+let activePreviews = 0;
+
+function clearPreviews() {
+  previewQueue = [];
+  for (const cleanup of previewCleanup.splice(0)) cleanup();
+  activePreviews = 0;
+}
+
+function loadPreview(image: HTMLImageElement, url: string) {
+  previewQueue.push(() => {
+    activePreviews++;
+    let finished = false;
+    const finish = () => {
+      if (finished) return;
+      finished = true; window.clearTimeout(timer);
+      image.removeEventListener('load', finish); image.removeEventListener('error', finish);
+      activePreviews--; previewQueue.shift()?.();
+    };
+    const timer = window.setTimeout(() => { image.removeAttribute('src'); image.dispatchEvent(new Event('error')); }, 20_000);
+    previewCleanup.push(() => { finished = true; window.clearTimeout(timer); image.removeEventListener('load', finish); image.removeEventListener('error', finish); image.removeAttribute('src'); });
+    image.addEventListener('load', finish); image.addEventListener('error', finish);
+    image.src = url;
+  });
+  if (activePreviews < 3) previewQueue.shift()?.();
+}
+
+function leaveView() {
+  viewRequests.abort(); viewRequests = new AbortController(); clearPreviews();
+}
 let sessionGeneration = 0;
 let sessionTimer: number | undefined;
 let sessionActivity = 0;
@@ -18,22 +50,37 @@ let lastSessionRenewal = 0;
 const date = (value: string | null) => value ? new Date(value).toLocaleString() : '暂无记录';
 const size = (value: number) => `${(value / 1024).toFixed(1)} KiB`;
 
-async function api<T>(route: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
+async function requestApi<T>(route: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
   const generation = sessionGeneration;
-  const response = await fetch(`/admin-api${route}`, { method, cache: 'no-store', credentials: 'same-origin', signal,
+  const timeout = AbortSignal.timeout(method === 'GET' ? 20_000 : 120_000);
+  const signals = [timeout, ...(signal ? [signal] : []), ...(method === 'GET' ? [viewRequests.signal] : [])];
+  const response = await fetch(`/admin-api${route}`, { method, cache: 'no-store', credentials: 'same-origin', signal: AbortSignal.any(signals),
     headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const fallback = response.status === 413
     ? '上传请求超过服务器大小限制，请联系管理员检查上传配置（HTTP 413）'
     : response.status >= 500
       ? `服务器暂时无法处理请求，请稍后重试（HTTP ${response.status}）`
       : `服务器返回异常响应，请刷新页面后重试（HTTP ${response.status}）`;
-  const result = await response.json().catch(() => { throw new Error(fallback); });
+  const result = await response.json().catch(error => {
+    if (error instanceof DOMException && ['AbortError', 'TimeoutError'].includes(error.name)) throw error;
+    throw new Error(fallback);
+  });
   if (!result || typeof result !== 'object' || Array.isArray(result)) throw new Error(fallback);
   if (response.status === 401 && result.code === 'SESSION_EXPIRED' && csrf && generation === sessionGeneration) {
     login(); report(new Error(result.error));
   }
   if (!response.ok) throw new Error(typeof result.error === 'string' ? result.error : fallback);
   return result;
+}
+
+async function api<T>(route: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {
+  try { return await requestApi<T>(route, method, body, signal); }
+  catch (error) {
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      throw new Error(method === 'GET' ? '读取超时，请重试' : '请求超时，请先刷新确认操作结果');
+    }
+    throw error;
+  }
 }
 
 function startSessionRenewal() {
@@ -58,6 +105,7 @@ for (const type of ['pointerdown', 'keydown', 'wheel'] as const) {
 }
 
 function frame(title: string) {
+  leaveView();
   view += 1;
   try { sessionStorage.setItem('quiet-admin-view', title === '采集任务' ? 'collection-jobs' : title === '表情采集' ? 'collection' : 'rooms'); } catch { /* Storage may be unavailable. */ }
   const expressionView = title === '表情管理' || title === '资源详情';
@@ -94,6 +142,7 @@ function report(error: unknown, tone: 'danger' | 'success' = 'danger') {
 }
 
 function login() {
+  leaveView();
   sessionGeneration += 1; window.clearInterval(sessionTimer); sessionTimer = undefined; sessionActivity = 0;
   view += 1;
   try { sessionStorage.removeItem('quiet-admin-view'); } catch { /* Storage may be unavailable. */ } csrf = '';
@@ -279,7 +328,9 @@ async function collectionJobs() {
     if (document.visibilityState === 'visible' && document.hasFocus() && Date.now() - lastAdminActivity < 5 * 60_000) await refresh();
     if (view === epoch) window.setTimeout(() => void poll(), 1500);
   };
-  void poll();
+  // Explicit navigation always loads once, even when browser focus is unavailable.
+  await refresh();
+  if (view === epoch) window.setTimeout(() => void poll(), 1500);
 }
 
 async function collection() {
@@ -306,23 +357,26 @@ async function collection() {
   };
   void refreshJobs();
   const sourceResults = content.querySelector<HTMLElement>('#source-results')!;
+  let searchRequest: AbortController | undefined;
   const search = async () => {
+    searchRequest?.abort(); searchRequest = new AbortController();
+    clearPreviews();
     const form = content.querySelector<HTMLFormElement>('#source-search')!;
     const keyword = String(new FormData(form).get('keyword') ?? '');
     const request = ++generation;
     buttons.clear(); sourceResults.textContent = '正在搜索…';
     try {
-      const data = await api<{ packs: SourcePack[]; total: number }>(`/expressions/source?channel=${selectedChannel}&page=${page}&keyword=${encodeURIComponent(keyword)}`);
+      const data = await api<{ packs: SourcePack[]; total: number }>(`/expressions/source?channel=${selectedChannel}&page=${page}&keyword=${encodeURIComponent(keyword)}`, 'GET', undefined, searchRequest.signal);
       if (view !== epoch || request !== generation) return;
       content.querySelector('#source-pagination')!.replaceChildren(pagination({ page, total: data.total ?? data.packs.length, pageSize: 24, label: '来源分页', change: value => { page = value; void search(); } }));
       sourceResults.replaceChildren(...data.packs.map(pack => {
         const card = document.createElement('article'); card.className = 'source-pack';
         card.innerHTML = `<img class="source-cover" alt=""><div class="source-pack-info"><strong></strong><small></small></div><button class="btn btn-outline-primary" type="button">采集此包</button>`;
-        const cover = card.querySelector<HTMLImageElement>('img')!; cover.loading = 'lazy'; cover.src = pack.cover; cover.alt = pack.title;
+        const cover = card.querySelector<HTMLImageElement>('img')!; loadPreview(cover, pack.cover); cover.alt = pack.title;
         cover.addEventListener('error', () => {
           if (card.querySelector('.preview-retry')) return;
           const retry = document.createElement('button'); retry.className = 'preview-retry'; retry.textContent = '重试预览';
-          retry.addEventListener('click', () => { retry.remove(); cover.src = pack.cover; }); card.append(retry);
+          retry.addEventListener('click', () => { retry.remove(); loadPreview(cover, pack.cover); }); card.append(retry);
         });
         card.querySelector('strong')!.textContent = pack.title; card.querySelector('small')!.textContent = pack.author || 'Signal Stickers';
         const button = card.querySelector<HTMLButtonElement>('button')!;
@@ -445,7 +499,7 @@ async function expressions() {
     bulk.append(selectLabel, selectedCount, publish, unpublish); host.append(bulk);
     const list = table(['预览', '名称 / 作者', '状态', '数量', '操作']);
     for (const entry of data.entries) {
-      const image = document.createElement('img'); image.className = 'expression-thumbnail'; image.alt = entry.title; image.loading = 'lazy'; image.src = `/admin-api/expressions/${entry.id}/media/0`;
+      const image = document.createElement('img'); image.className = 'expression-thumbnail'; image.alt = entry.title; loadPreview(image, `/admin-api/expressions/${entry.id}/media/0`);
       const preview = document.createElement('label'); preview.className = 'expression-select expression-preview';
       const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.value = entry.id; checkbox.setAttribute('aria-label', `选择 ${entry.title}`);
       checkbox.addEventListener('change', () => { if (checkbox.checked) selection.add(entry.id); else selection.delete(entry.id); updateSelection(); });
@@ -490,10 +544,10 @@ async function editExpression(id: string) {
     editor.append(form);
     const source = document.createElement('p'); source.className = 'resource-attribution'; source.textContent = `作者：${entry.author || '未记录'} · 来源：${entry.source || '未记录'}`; editor.append(source);
     const gallery = document.createElement('div'); gallery.className = 'expression-gallery';
-    for (const item of entry.items ?? []) { const tile = document.createElement('label'); tile.className = 'expression-item'; const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.setAttribute('aria-label', `选择 ${item.title}`); const image = document.createElement('img'); image.alt = item.title; image.loading = 'lazy'; image.src = `/admin-api/expressions/${id}/media/${item.position}`; tile.append(checkbox, image); gallery.append(tile); }
+    for (const item of entry.items ?? []) { const tile = document.createElement('label'); tile.className = 'expression-item'; const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.setAttribute('aria-label', `选择 ${item.title}`); const image = document.createElement('img'); image.alt = item.title; image.dataset.position = String(item.position); loadPreview(image, `/admin-api/expressions/${id}/media/${item.position}`); tile.append(checkbox, image); gallery.append(tile); }
     const removeSelected = document.createElement('button'); removeSelected.type = 'button'; removeSelected.textContent = '删除选中资源'; removeSelected.className = 'danger'; removeSelected.disabled = true; preview.append(removeSelected);
     gallery.addEventListener('change', () => { removeSelected.disabled = !gallery.querySelector('input:checked'); });
-    removeSelected.addEventListener('click', async () => { const selected = [...gallery.querySelectorAll<HTMLInputElement>('input:checked')].map(input => Number(input.closest('label')?.querySelector('img')?.src.split('/').pop())); removeSelected.disabled = true; try { for (const position of selected.sort((a, b) => b - a)) await api(`/expressions/${id}?position=${position}`, 'DELETE'); if (view === epoch) selected.length >= entry.count ? await expressions() : await editExpression(id); } catch (error) { report(error); } });
+    removeSelected.addEventListener('click', async () => { const selected = [...gallery.querySelectorAll<HTMLInputElement>('input:checked')].map(input => Number(input.closest('label')?.querySelector('img')?.dataset.position)); removeSelected.disabled = true; try { for (const position of selected.sort((a, b) => b - a)) await api(`/expressions/${id}?position=${position}`, 'DELETE'); if (view === epoch) selected.length >= entry.count ? await expressions() : await editExpression(id); } catch (error) { report(error); } });
     preview.append(gallery);
     const deletion = document.createElement('details'); deletion.className = 'cleanup'; deletion.innerHTML = '<summary>删除资源</summary><p>资源及不再使用的原图将从资源库删除。已发送和本机保存的副本不受影响。</p>';
     const button = iconButton('确认删除资源', Trash2, async () => {
