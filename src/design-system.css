@@ -1,0 +1,409 @@
+/* Quiet Room design system
+   Scene: two trusted people reading a private conversation in changing daylight,
+   where controls should feel light and precise while the message remains primary. */
+
+:root {
+  color-scheme: light dark;
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --radius-control: 14px;
+  --radius-surface: 22px;
+  --radius-bubble: 19px;
+  --material-blur: blur(24px) saturate(145%);
+  --material-blur-strong: blur(32px) saturate(165%);
+  --chrome-tint: oklch(95.8% 0.012 245);
+  --paper: oklch(97.9% 0.008 248);
+  --paper-pure: oklch(99.4% 0.004 248);
+  --surface: oklch(94.8% 0.014 248);
+  --surface-raised: oklch(99.1% 0.006 248);
+  --ink: oklch(22.5% 0.022 250);
+  --ink-muted: oklch(43.5% 0.024 250);
+  --ink-faint: oklch(56% 0.018 250);
+  --line: oklch(78% 0.025 245 / 0.58);
+  --line-strong: oklch(61% 0.027 245);
+  --accent: oklch(58.5% 0.205 254);
+  --accent-hover: oklch(52% 0.215 254);
+  --accent-soft: oklch(92.8% 0.045 242);
+  --incoming: oklch(99% 0.004 250 / 0.76);
+  --outgoing: oklch(56% 0.2 254);
+  --on-accent: oklch(99.3% 0.004 250);
+  --message-time: oklch(50% 0.015 250);
+  --message-time-outgoing: oklch(90% 0.014 250);
+  --danger: oklch(54% 0.18 28);
+  --danger-soft: oklch(94% 0.038 28);
+  --focus: oklch(64% 0.19 248);
+  --glass: oklch(99% 0.006 248 / 0.58);
+  --glass-strong: oklch(98.5% 0.008 248 / 0.76);
+  --glass-control: oklch(97% 0.012 248 / 0.68);
+  --glass-panel: oklch(98.2% 0.01 248 / 0.84);
+  --glass-border: oklch(100% 0 0 / 0.62);
+  --glass-sheen: linear-gradient(145deg, oklch(100% 0 0 / 0.42), oklch(100% 0 0 / 0.08) 48%, oklch(60% 0.02 248 / 0.045));
+  --glass-shadow: inset 0 0.5px 0 oklch(100% 0 0 / 0.72), inset 0 -0.5px 0 oklch(34% 0.02 248 / 0.1), 0 5px 18px oklch(30% 0.03 248 / 0.09);
+  --shadow: 0 22px 70px oklch(28% 0.03 248 / 0.16);
+  --composer-surface: color-mix(in oklch, var(--paper-pure) 84%, transparent);
+  --composer-surface-focused: color-mix(in oklch, var(--paper-pure) 92%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --chrome-tint: oklch(19.5% 0.024 252);
+    --paper: oklch(20.5% 0.024 252);
+    --paper-pure: oklch(23.5% 0.025 252);
+    --surface: oklch(27% 0.028 252);
+    --surface-raised: oklch(29% 0.029 252);
+    --ink: oklch(95% 0.012 245);
+    --ink-muted: oklch(76% 0.022 245);
+    --ink-faint: oklch(64% 0.018 245);
+    --line: oklch(58% 0.03 250 / 0.48);
+    --line-strong: oklch(72% 0.028 250);
+    --accent: oklch(74% 0.17 245);
+    --accent-hover: oklch(80% 0.15 245);
+    --accent-soft: oklch(33% 0.07 250);
+    --incoming: oklch(29% 0.028 250 / 0.9);
+    --outgoing: oklch(54% 0.18 250);
+    --on-accent: oklch(99% 0.008 245);
+    --message-time: oklch(79% 0.016 245);
+    --message-time-outgoing: oklch(92% 0.012 245);
+    --danger: oklch(75% 0.15 28);
+    --danger-soft: oklch(31% 0.065 28);
+    --focus: oklch(79% 0.16 245);
+    --glass: oklch(31% 0.028 252 / 0.58);
+    --glass-strong: oklch(30% 0.03 252 / 0.78);
+    --glass-control: oklch(38% 0.032 252 / 0.64);
+    --glass-panel: oklch(26% 0.026 252 / 0.9);
+    --glass-border: oklch(92% 0.012 245 / 0.22);
+    --glass-sheen: linear-gradient(145deg, oklch(100% 0 0 / 0.16), oklch(100% 0 0 / 0.035) 48%, oklch(4% 0.02 252 / 0.15));
+    --glass-shadow: inset 0 0.5px 0 oklch(100% 0 0 / 0.2), inset 0 -0.5px 0 oklch(3% 0.02 252 / 0.45), 0 7px 24px oklch(3% 0.02 252 / 0.34);
+    --shadow: 0 26px 80px oklch(3% 0.02 252 / 0.52);
+    --composer-surface: color-mix(in oklch, var(--paper-pure) 84%, transparent);
+    --composer-surface-focused: color-mix(in oklch, var(--paper-pure) 92%, transparent);
+  }
+}
+
+html,
+body,
+button,
+input,
+textarea {
+  font-family: var(--font-ui);
+  letter-spacing: 0;
+}
+
+body {
+  background: var(--chrome-tint);
+}
+
+/* Reusable material vocabulary for future surfaces. */
+.glass-surface,
+.glass-panel,
+.glass-control {
+  border: 1px solid var(--glass-border);
+  background: var(--glass-sheen), var(--glass);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+}
+
+.glass-panel {
+  background: var(--glass-sheen), var(--glass-panel);
+  -webkit-backdrop-filter: var(--material-blur-strong);
+  backdrop-filter: var(--material-blur-strong);
+}
+
+.glass-control {
+  background: var(--glass-sheen), var(--glass-control);
+}
+
+.chat-shell,
+.gallery-shell,
+.device-shell {
+  background: var(--paper);
+  border-color: color-mix(in oklch, var(--line) 68%, transparent);
+}
+
+.chat-header .icon-button,
+.chat-header .more-menu summary,
+.chat-header .peer-summary,
+.subpage-header .icon-button,
+.composer .composer-input-stack,
+.composer .icon-button,
+.composer .send-button,
+.gallery-header > .gallery-tabs,
+.gallery-visibility-button {
+  border-color: var(--glass-border);
+  background-image: var(--glass-sheen);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+}
+
+.chat-header .icon-button,
+.chat-header .more-menu summary,
+.subpage-header .icon-button,
+.composer .icon-button,
+.gallery-visibility-button {
+  color: var(--ink-muted);
+  background-color: var(--glass-control);
+}
+
+.chat-header .icon-button:hover,
+.chat-header .more-menu summary:hover,
+.subpage-header .icon-button:hover,
+.composer .icon-button:hover,
+.gallery-visibility-button:hover {
+  border-color: color-mix(in oklch, var(--accent) 34%, var(--glass-border));
+  background-color: color-mix(in oklch, var(--accent-soft) 42%, var(--glass-control));
+  color: var(--ink);
+}
+
+.peer-summary {
+  color: var(--ink);
+  background-color: color-mix(in oklch, var(--glass-control) 82%, transparent);
+}
+
+.peer-summary > .peer-status {
+  color: var(--ink-muted);
+}
+
+.system-notices > aside,
+.notice,
+.release-notes-panel,
+.device-link-panel,
+.message-actions .message-action-list,
+.message-actions .message-reaction-picker,
+.gallery-actions-menu {
+  border-color: var(--glass-border);
+  background: var(--glass-sheen), var(--glass-panel);
+  box-shadow: var(--glass-shadow), var(--shadow);
+  -webkit-backdrop-filter: var(--material-blur-strong);
+  backdrop-filter: var(--material-blur-strong);
+}
+
+.message-bubble {
+  border-color: color-mix(in oklch, var(--line) 72%, var(--glass-border));
+  border-radius: var(--radius-bubble);
+  background: color-mix(in oklch, var(--incoming) 86%, var(--glass) 14%);
+  box-shadow: 0 4px 14px oklch(28% 0.03 248 / 0.07), inset 0 0.5px 0 var(--glass-border);
+}
+
+.outgoing .message-bubble {
+  border-color: color-mix(in oklch, var(--accent) 72%, var(--glass-border));
+  background: linear-gradient(145deg, color-mix(in oklch, var(--outgoing) 92%, white 8%), var(--outgoing));
+  box-shadow: 0 7px 20px color-mix(in oklch, var(--accent) 19%, transparent), inset 0 0.5px 0 oklch(100% 0 0 / 0.3);
+}
+
+.message-date {
+  border: 1px solid color-mix(in oklch, var(--line) 64%, transparent);
+  background: color-mix(in oklch, var(--glass-control) 78%, transparent);
+  box-shadow: inset 0 0.5px 0 var(--glass-border);
+  color: var(--ink-muted);
+}
+
+.composer {
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
+
+.composer-input-stack {
+  border-radius: 22px;
+  border-color: var(--glass-border);
+  background-image: var(--glass-sheen);
+  background-color: var(--composer-surface-current);
+  box-shadow: var(--glass-shadow);
+}
+
+.composer-input-stack:focus-within {
+  border-color: color-mix(in oklch, var(--accent) 50%, var(--glass-border));
+  box-shadow: var(--glass-shadow), 0 0 0 3px color-mix(in oklch, var(--accent) 16%, transparent);
+}
+
+.composer textarea {
+  color: var(--ink);
+}
+
+.composer .meme-toggle {
+  color: var(--ink-muted);
+}
+
+.chat-tools {
+  margin-top: 8px;
+  padding: 16px 10px 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-surface);
+  background: var(--glass-sheen), var(--glass-panel);
+  box-shadow: var(--glass-shadow), var(--shadow);
+  -webkit-backdrop-filter: var(--material-blur-strong);
+  backdrop-filter: var(--material-blur-strong);
+}
+
+.chat-tools > button > span {
+  width: 64px;
+  height: 58px;
+  border-radius: var(--radius-control);
+  border-color: var(--glass-border);
+  background: var(--glass-sheen), var(--glass-control);
+  box-shadow: var(--glass-shadow);
+  color: var(--accent);
+}
+
+.chat-tools > button:hover > span {
+  border-color: color-mix(in oklch, var(--accent) 38%, var(--glass-border));
+  background-color: color-mix(in oklch, var(--accent-soft) 48%, var(--glass-control));
+}
+
+.message-actions .message-action-list > button:hover,
+.menu-panel button:hover,
+.gallery-actions-menu > button:hover {
+  background: color-mix(in oklch, var(--accent-soft) 52%, transparent);
+  color: var(--ink);
+}
+
+.menu-panel {
+  border-radius: var(--radius-surface);
+}
+
+.menu-title,
+.safety-label {
+  color: var(--ink-faint);
+}
+
+.upload-progress {
+  border-color: var(--glass-border);
+  background: var(--glass-sheen), var(--glass-panel);
+  box-shadow: var(--glass-shadow), var(--shadow);
+}
+
+.gallery-tile {
+  background: var(--surface);
+}
+
+.gallery-tile::after {
+  border-color: color-mix(in oklch, var(--glass-border) 58%, transparent);
+}
+
+.gallery-tabs {
+  border-color: var(--glass-border);
+}
+
+.gallery-tabs::before {
+  background: color-mix(in oklch, var(--paper-pure) 84%, transparent);
+  box-shadow: inset 0 0.5px 0 var(--glass-border), 0 2px 8px oklch(28% 0.03 248 / 0.1);
+}
+
+.gallery-tab[aria-selected="true"] {
+  color: var(--ink);
+}
+
+.device-card,
+.device-security-note,
+.device-safety-code {
+  border-color: var(--glass-border);
+  background: var(--glass-sheen), var(--glass);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root {
+    --composer-surface: var(--paper-pure);
+    --composer-surface-focused: var(--paper-pure);
+  }
+
+  .glass-surface,
+  .glass-panel,
+  .glass-control,
+  .chat-header .icon-button,
+  .chat-header .more-menu summary,
+  .chat-header .peer-summary,
+  .subpage-header .icon-button,
+  .composer .composer-input-stack,
+  .composer .icon-button,
+  .composer .send-button,
+  .composer .meme-toggle,
+  .chat-bottom-control,
+  .gallery-header > .gallery-tabs,
+  .gallery-visibility-button,
+  .system-notices > aside,
+  .notice,
+  .release-notes-panel,
+  .device-link-panel,
+  .message-actions .message-action-list,
+  .message-actions .message-reaction-picker,
+  .gallery-actions-menu,
+  .chat-tools,
+  .chat-tools > button > span,
+  .device-card,
+  .device-security-note,
+  .device-safety-code {
+    background-image: none;
+    background-color: var(--paper-pure);
+    color: var(--ink);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: 0 0 0 1px var(--line);
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --composer-surface: Canvas;
+    --composer-surface-focused: Canvas;
+  }
+
+  .glass-surface,
+  .glass-panel,
+  .glass-control,
+  .chat-header .icon-button,
+  .chat-header .more-menu summary,
+  .chat-header .peer-summary,
+  .subpage-header .icon-button,
+  .composer .composer-input-stack,
+  .composer .icon-button,
+  .composer .send-button,
+  .composer .meme-toggle,
+  .chat-bottom-control,
+  .chat-tools,
+  .chat-tools > button > span {
+    background: Canvas;
+    border-color: ButtonText;
+    color: CanvasText;
+    box-shadow: none;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root {
+    --composer-surface: var(--paper-pure);
+    --composer-surface-focused: var(--paper-pure);
+  }
+
+  .glass-surface,
+  .glass-panel,
+  .glass-control,
+  .chat-header .icon-button,
+  .chat-header .more-menu summary,
+  .chat-header .peer-summary,
+  .subpage-header .icon-button,
+  .composer .composer-input-stack,
+  .composer .icon-button,
+  .composer .send-button,
+  .composer .meme-toggle,
+  .chat-bottom-control,
+  .chat-tools,
+  .chat-tools > button > span {
+    background-image: none;
+    background-color: var(--paper-pure);
+    color: var(--ink);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-tools > button > span,
+  .gallery-tabs::before {
+    transition: none;
+  }
+}
