@@ -1,0 +1,3 @@
+[allowlist]
+description = "Intentional protocol fixture values in automated tests"
+paths = ['''tests/admin\.test\.ts''', '''tests/upgrade-safety\.test\.ts''']
