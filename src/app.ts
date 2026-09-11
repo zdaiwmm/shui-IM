@@ -709,7 +709,13 @@ export class QuietRoomApp {
         keyboardGeometry,
         composerResize: composerResizeOwnsGeometry,
       }) ?? false;
-      if (!resized && !widthChanged && previousViewportTop === viewportTop && previousChatGeneration === chatGeneration) return motionSettled;
+      if (!resized && !widthChanged && previousViewportTop === viewportTop && previousChatGeneration === chatGeneration) {
+        // A WebKit viewport event can arrive without geometry changes while
+        // the initial chat motion is still settling. Keep the bounded sampler
+        // alive so a quiet endpoint can reveal the composer.
+        if (motion?.moving) this.trackChatViewport(false);
+        return motionSettled;
+      }
       // Keep frame-by-frame position updates local to the four floating
       // controls. Inherited root variables invalidate every historical row.
       if (!chat) {
