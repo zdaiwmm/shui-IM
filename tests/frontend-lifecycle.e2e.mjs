@@ -484,6 +484,9 @@ try {
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
     try { document.dispatchEvent(new Event('visibilitychange')); }
     finally { delete document.hidden; }
+    const curtain = document.querySelector('.privacy-curtain');
+    if (getComputedStyle(curtain).visibility !== 'visible') throw Error('Background state did not show the existing privacy curtain');
+    if (!curtain.querySelector('.cover-unread')) throw Error('Privacy curtain dropped the unread count');
     window.dispatchEvent(new Event('focus'));
     if (!app.privacyCovered || !document.querySelector('.cover-trigger') || document.querySelector('.message, .message-text-selection')) throw Error('Returning from background exposed message content or native selection');
     if (app.messages.size || app.pending.size || app.messageEventHistory.size) throw Error('Background lock retained decrypted message state');

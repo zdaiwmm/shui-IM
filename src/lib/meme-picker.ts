@@ -10,6 +10,24 @@ export const memeIcons = {
   search: createElement(Search).outerHTML, keyboard: createElement(Keyboard).outerHTML,
   down: createElement(ChevronDown).outerHTML, image: createElement(Image).outerHTML,
 };
+const MAX_MEME_CACHE_BYTES = 16 * 1024 * 1024;
+const MEME_CATALOG_CACHE_MS = 5 * 60 * 1000;
+const MAX_MEME_SEARCH_CACHE_ENTRIES = 32;
+
+export type MemePickerCache = {
+  media: Map<string, File>;
+  mediaBytes: number;
+  searches: Map<string, { result: MediaSearchResult; expiresAt: number }>;
+  packs: Map<string, { result: RemotePackDetail; expiresAt: number }>;
+};
+
+export const createMemePickerCache = (): MemePickerCache => ({
+  media: new Map(),
+  mediaBytes: 0,
+  searches: new Map(),
+  packs: new Map(),
+});
+
 export type MemePickerOptions = {
   host: HTMLElement; root: HTMLElement; signal: AbortSignal; isActive: () => boolean;
   list: () => Promise<MemeFavorite[]>; file: (item: MemeFavorite, signal: AbortSignal) => Promise<File>;
@@ -22,6 +40,7 @@ export type MemePickerOptions = {
   send: (file: File, signal: AbortSignal) => Promise<void>;
   search: (query: string, page: number, signal: AbortSignal, kind: MediaKind) => Promise<MediaSearchResult>;
   media: (id: string, signal: AbortSignal) => Promise<Blob>;
+  cache?: MemePickerCache;
   close: (keyboard: boolean) => void;
   onSearchPointer: (input: HTMLInputElement, event: PointerEvent) => void;
   onKeyboardPointer: (event: PointerEvent) => void;
@@ -41,8 +60,7 @@ export class MemePicker {
   private more: HTMLButtonElement;
   private observer: IntersectionObserver;
   private tiles = new Map<HTMLElement, Tile>();
-  private mediaCache = new Map<string, File>();
-  private mediaCacheBytes = 0;
+  private cache: MemePickerCache;
   private favorites: MemeFavorite[] = [];
   private packs: StickerPack[] = [];
   private kind: MediaKind = 'gifs';
@@ -68,6 +86,7 @@ export class MemePicker {
   private recentCount = 0;
 
   constructor(private options: MemePickerOptions) {
+    this.cache = options.cache ?? createMemePickerCache();
     this.signal = AbortSignal.any([options.signal, this.controller.signal]);
     this.panel.className = 'meme-panel'; this.panel.id = 'meme-panel';
     this.panel.setAttribute('role', 'region'); this.panel.setAttribute('aria-label', '表情');
@@ -102,7 +121,7 @@ export class MemePicker {
     }, { root: this.panel.querySelector('.meme-scroll'), rootMargin: '120px' });
     this.autoPage.observe(this.sentinel);
     const shortcuts = this.panel.querySelector<HTMLElement>('.meme-pack-shortcuts')!;
-    type SheetDrag = { id: number; x: number; y: number; height: number; full: boolean; moving: boolean; scrolling: boolean; scrollLeft: number; fromPack: boolean; lastX: number; lastAt: number; velocity: number; overshoot: number };
+    type SheetDrag = { id: number; x: number; y: number; height: number; full: boolean; moving: boolean; scrolling: boolean; scrollLeft: number; maxScrollLeft: number; fromPack: boolean; lastX: number; lastAt: number; velocity: number; overshoot: number };
     type ShortcutHold = { id: number; x: number; y: number; button: HTMLButtonElement; timer: number };
     type ShortcutReorder = {
       id: number; button: HTMLButtonElement; floating: HTMLButtonElement; placeholder: HTMLElement | null;
@@ -119,10 +138,12 @@ export class MemePicker {
     const packId = (button: HTMLButtonElement) => button.dataset.shortcut!.slice(5);
     const shortcutMax = () => Math.max(0, shortcuts.scrollWidth - shortcuts.clientWidth);
     const clearShortcutPull = () => {
-      for (const button of shortcuts.querySelectorAll<HTMLElement>('button')) button.style.translate = '';
+      shortcuts.style.removeProperty('translate');
+      shortcuts.style.removeProperty('will-change');
     };
     const renderShortcutPull = (offset: number) => {
-      for (const button of shortcuts.querySelectorAll<HTMLElement>('button')) button.style.translate = `${offset.toFixed(2)}px 0`;
+      shortcuts.style.translate = `${offset.toFixed(2)}px 0`;
+      shortcuts.style.willChange = 'translate';
     };
     const rubberBand = (offset: number) => offset === 0 ? 0
       : Math.sign(offset) * (Math.abs(offset) * 0.34 + Math.min(18, Math.abs(offset) * 0.04));
@@ -130,11 +151,15 @@ export class MemePicker {
       if (shortcutAnimation !== null) cancelAnimationFrame(shortcutAnimation);
       shortcutAnimation = null;
     };
-    const releaseShortcut = (velocity: number, overshoot: number) => {
+    const releaseShortcut = (velocity: number, overshoot: number, maxScrollLeft: number) => {
       stopShortcutAnimation();
-      let currentVelocity = Math.max(-2.2, Math.min(2.2, velocity));
+      let currentVelocity = Math.abs(overshoot) > 0.25 || maxScrollLeft <= 0
+        ? 0
+        : Math.max(-2.2, Math.min(2.2, velocity));
       let pull = overshoot;
       let lastAt = performance.now();
+      if ((shortcuts.scrollLeft <= 0.5 && currentVelocity < 0)
+        || (shortcuts.scrollLeft >= maxScrollLeft - 0.5 && currentVelocity > 0)) currentVelocity = 0;
       const tick = (now: number) => {
         const elapsed = Math.min(32, Math.max(1, now - lastAt));
         lastAt = now;
@@ -146,10 +171,13 @@ export class MemePicker {
           clearShortcutPull();
           if (Math.abs(currentVelocity) > 0.015) {
             const next = shortcuts.scrollLeft + currentVelocity * elapsed;
-            const max = shortcutMax();
-            const clamped = Math.max(0, Math.min(max, next));
-            if (clamped !== next) currentVelocity *= -0.22;
-            shortcuts.scrollLeft = clamped;
+            if (next <= 0) {
+              shortcuts.scrollLeft = 0;
+              currentVelocity = 0;
+            } else if (next >= maxScrollLeft) {
+              shortcuts.scrollLeft = maxScrollLeft;
+              currentVelocity = 0;
+            } else shortcuts.scrollLeft = next;
             currentVelocity *= Math.pow(0.055, elapsed / 1000);
           } else currentVelocity = 0;
         }
@@ -289,7 +317,7 @@ export class MemePicker {
       const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button[data-shortcut^="pack:"]') : null;
       stopShortcutAnimation(); clearShortcutPull();
       drag = { id: event.pointerId, x: event.clientX, y: event.clientY, height: this.panel.getBoundingClientRect().height,
-        full: Boolean(this.overlay), moving: false, scrolling: false, scrollLeft: shortcuts.scrollLeft, fromPack: Boolean(button),
+        full: Boolean(this.overlay), moving: false, scrolling: false, scrollLeft: shortcuts.scrollLeft, maxScrollLeft: shortcutMax(), fromPack: Boolean(button),
         lastX: event.clientX, lastAt: performance.now(), velocity: 0, overshoot: 0 };
       if (button) {
         const pending: ShortcutHold = { id: event.pointerId, x: event.clientX, y: event.clientY, button, timer: 0 };
@@ -319,7 +347,7 @@ export class MemePicker {
         drag.scrolling = true;
         event.preventDefault();
         const raw = drag.scrollLeft - dx;
-        const clamped = Math.max(0, Math.min(shortcutMax(), raw));
+        const clamped = Math.max(0, Math.min(drag.maxScrollLeft, raw));
         const elapsed = Math.max(1, now - drag.lastAt);
         drag.velocity = (event.clientX - drag.lastX) / elapsed * -1;
         drag.lastX = event.clientX; drag.lastAt = now;
@@ -349,7 +377,7 @@ export class MemePicker {
       const start = drag; drag = undefined;
       if (start.scrolling) {
         this.suppressShortcutClickUntil = performance.now() + 500;
-        releaseShortcut(start.velocity, start.overshoot);
+        releaseShortcut(start.velocity, start.overshoot, start.maxScrollLeft);
         return;
       }
       if (!start.moving) return;
@@ -446,6 +474,65 @@ export class MemePicker {
   }
   private hasPack(id: string) { return this.packs.some(pack => pack.id === id); }
   private say(value: string) { if (this.active()) this.status.textContent = value; }
+  private searchCacheKey(query: string, page: number, kind: MediaKind): string {
+    return `${kind}\u0000${query}\u0000${page}`;
+  }
+  private cachedSearch(key: string): MediaSearchResult | undefined {
+    const entry = this.cache.searches.get(key);
+    if (!entry) return undefined;
+    if (entry.expiresAt <= Date.now()) {
+      this.cache.searches.delete(key);
+      return undefined;
+    }
+    this.cache.searches.delete(key);
+    this.cache.searches.set(key, entry);
+    return entry.result;
+  }
+  private rememberSearch(key: string, result: MediaSearchResult): void {
+    this.cache.searches.delete(key);
+    this.cache.searches.set(key, { result, expiresAt: Date.now() + MEME_CATALOG_CACHE_MS });
+    while (this.cache.searches.size > MAX_MEME_SEARCH_CACHE_ENTRIES) {
+      const oldest = this.cache.searches.keys().next().value;
+      if (oldest === undefined) break;
+      this.cache.searches.delete(oldest);
+    }
+  }
+  private async loadPack(id: string, signal: AbortSignal): Promise<RemotePackDetail> {
+    const cached = this.cache.packs.get(id);
+    if (cached && cached.expiresAt > Date.now()) {
+      this.cache.packs.delete(id);
+      this.cache.packs.set(id, cached);
+      return cached.result;
+    }
+    if (cached) this.cache.packs.delete(id);
+    const result = await this.options.pack(id, signal);
+    signal.throwIfAborted();
+    this.cache.packs.set(id, { result, expiresAt: Date.now() + MEME_CATALOG_CACHE_MS });
+    return result;
+  }
+  private rememberMedia(id: string, file: File): void {
+    if (file.size > MAX_MEME_CACHE_BYTES) return;
+    const previous = this.cache.media.get(id);
+    if (previous) {
+      this.cache.media.delete(id);
+      this.cache.mediaBytes -= previous.size;
+    }
+    while (this.cache.mediaBytes + file.size > MAX_MEME_CACHE_BYTES && this.cache.media.size) {
+      const oldest = this.cache.media.keys().next().value;
+      if (oldest === undefined) break;
+      const evicted = this.cache.media.get(oldest);
+      this.cache.media.delete(oldest);
+      if (evicted) this.cache.mediaBytes -= evicted.size;
+    }
+    this.cache.media.set(id, file);
+    this.cache.mediaBytes += file.size;
+  }
+  private forgetMedia(id: string): void {
+    const file = this.cache.media.get(id);
+    if (!file) return;
+    this.cache.media.delete(id);
+    this.cache.mediaBytes = Math.max(0, this.cache.mediaBytes - file.size);
+  }
   private clear() {
     this.generation++; this.request?.abort(); this.operation?.abort(); this.searching = false; this.observer.disconnect();
     for (const tile of this.tiles.keys()) if (!tile.closest('.meme-pack-shortcuts')) { this.unload(tile); this.tiles.delete(tile); }
@@ -582,10 +669,17 @@ export class MemePicker {
   }
   private async search() {
     if (!this.active() || this.searching || !this.nextPage) return;
+    const page = this.nextPage;
     this.request = new AbortController(); const signal = AbortSignal.any([this.signal, this.request.signal]); const generation = this.generation;
     this.searching = true; this.more.hidden = true; this.say('正在搜索…');
     try {
-      const result = await this.options.search(this.query, this.nextPage, signal, this.kind);
+      const key = this.searchCacheKey(this.query, page, this.kind);
+      const cached = this.cachedSearch(key);
+      const result = cached ?? await this.options.search(this.query, page, signal, this.kind);
+      if (!cached) {
+        signal.throwIfAborted();
+        this.rememberSearch(key, result);
+      }
       if (!this.active() || generation !== this.generation) return;
       if (this.kind === 'gifs') {
         if (!this.query && this.panel.dataset.view === 'local') this.appendCatalog(result.items);
@@ -641,7 +735,7 @@ export class MemePicker {
     if (!this.overlay) this.openSearch(false);
     const generation = this.generation; this.say('正在加载合集…');
     try {
-      const detail = await this.options.pack(pack.id, this.signal); if (!this.active() || generation !== this.generation) return;
+      const detail = await this.loadPack(pack.id, this.signal); if (!this.active() || generation !== this.generation) return;
       this.clear(); this.packDetail = true; this.grid.classList.add('meme-pack-list'); const header = document.createElement('header'); header.className = 'meme-pack-detail-header';
       const title = document.createElement('h3'); title.textContent = detail.title;
       const add = document.createElement('button'); add.type = 'button'; add.className = 'meme-pack-add'; add.textContent = this.hasPack(pack.id) ? '解除添加' : '添加';
@@ -667,7 +761,7 @@ export class MemePicker {
     const controller = new AbortController(); this.operation = controller; const signal = AbortSignal.any([this.signal, controller.signal]);
     const cancel = document.createElement('button'); cancel.type = 'button'; cancel.textContent = '取消'; cancel.addEventListener('click', () => controller.abort()); progress.after(cancel);
     try {
-      detail ??= await this.options.pack(pack.id, signal); const files: File[] = []; let bytes = 0;
+      detail ??= await this.loadPack(pack.id, signal); const files: File[] = []; let bytes = 0;
       for (const item of detail.items) {
         const file = await this.getFile(item, signal); bytes += file.size; if (bytes > MAX_PACK_BYTES) throw new Error('合集超过 64 MiB');
         files.push(file); if (progress.isConnected) progress.textContent = `${files.length} / ${detail.items.length}`;
@@ -708,18 +802,12 @@ export class MemePicker {
   }
   private async getFile(item: MediaItem, signal: AbortSignal): Promise<File> {
     signal.throwIfAborted(); const cached = [...this.tiles.values()].find(state => state.item.id === item.id && state.file)?.file; if (cached) return cached;
-    const retained = this.mediaCache.get(item.id); if (retained) { this.mediaCache.delete(item.id); this.mediaCache.set(item.id, retained); return retained; }
+    const retained = this.cache.media.get(item.id); if (retained) { this.cache.media.delete(item.id); this.cache.media.set(item.id, retained); return retained; }
     const blob = item.favorite ? await this.options.file(item.favorite, signal) : await this.options.media(item.id, signal);
     const file = await validateMemeFile(blob, item.title, signal);
     if (item.animatedOnly && !await detectImageAnimation(file, signal)) throw new Error('NON_ANIMATED_RESULT');
     signal.throwIfAborted();
-    if (!item.favorite && file.size <= 16 * 1024 * 1024) {
-      while (this.mediaCacheBytes + file.size > 16 * 1024 * 1024 && this.mediaCache.size) {
-        const key = this.mediaCache.keys().next().value!; this.mediaCacheBytes -= this.mediaCache.get(key)!.size; this.mediaCache.delete(key);
-      }
-      this.mediaCacheBytes -= this.mediaCache.get(item.id)?.size ?? 0;
-      this.mediaCache.set(item.id, file); this.mediaCacheBytes += file.size;
-    }
+    this.rememberMedia(item.id, file);
     return file;
   }
   private async perform(item: MediaItem, action: 'send' | 'save' | 'remove') {
@@ -727,7 +815,7 @@ export class MemePicker {
     try {
       if (action === 'remove') await this.options.remove(item.id, this.signal);
       else { const file = await this.getFile(item, this.signal); if (!this.active()) return; if (action === 'send') await this.options.send(file, this.signal); else this.say(await this.options.save(file, this.signal) ? '已收藏到本机' : '已在收藏中'); }
-      if (!this.active()) return; if (action === 'send') this.options.close(false); else if (action === 'remove') await this.local();
+      if (!this.active()) return; if (action === 'send') this.options.close(false); else if (action === 'remove') { this.forgetMedia(item.id); await this.local(); }
     } catch (error) { if (this.active()) this.say(error instanceof Error ? error.message : '操作失败，请重试'); }
     finally { this.busy = false; this.panel.removeAttribute('aria-busy'); }
   }
@@ -748,6 +836,6 @@ export class MemePicker {
     this.sheetAnimation?.cancel();
     if (this.preview) closeDialog(this.preview, { animate: false, restoreFocus: false }); if (this.overlay) closeDialog(this.overlay, { animate: false, restoreFocus: false });
     this.observer.disconnect(); this.autoPage.disconnect(); this.request?.abort(); for (const tile of this.tiles.keys()) this.unload(tile);
-    this.tiles.clear(); this.mediaCache.clear(); this.mediaCacheBytes = 0; this.favorites = []; this.packs = []; this.input.value = ''; this.panel.remove(); this.options.host.classList.remove('has-meme-panel');
+    this.tiles.clear(); this.favorites = []; this.packs = []; this.input.value = ''; this.panel.remove(); this.options.host.classList.remove('has-meme-panel');
   }
 }
