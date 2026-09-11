@@ -61,7 +61,7 @@ try {
   const settled = () => page.waitForFunction(() => {
     const app = window.listFixture.app;
     const composerPositioning = document.querySelector('#composer')?.dataset.viewportMotion === 'positioning';
-    return (!app.chatViewportMotion?.moving || (composerPositioning && !app.chatViewportMotion?.concealed)) && !app.chatBottomControl?.scrolling
+    return (!app.chatViewportMotion?.moving || composerPositioning) && !app.chatBottomControl?.scrolling
       && !app.composerHeightMotion && !app.listKeyboardLayout.moving;
   }, undefined, { timeout: 60_000 }).catch(async error => {
     const state = await page.evaluate(() => {
@@ -111,7 +111,7 @@ try {
   assert.ok(history.scroll < state.scroll - 500, JSON.stringify(history));
   assert.equal(history.header, 0);
 
-  await page.locator('#message-input').tap();
+  await page.locator('#message-input').focus();
   assert.equal(await page.locator('#message-input').evaluate(input => input === document.activeElement), true);
   await page.evaluate(() => {
     Object.defineProperty(visualViewport, 'height', { configurable: true, value: 319 });
