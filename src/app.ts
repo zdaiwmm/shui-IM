@@ -714,7 +714,7 @@ export class QuietRoomApp {
         // visual viewport. Message-document geometry, bottom alignment and
         // control measurements are committed together by the settled callback.
         if (!motion?.moving && !motionSettled) this.commitChatViewportGeometry();
-        if (resized) this.trackChatViewport(false);
+        if (resized || widthChanged) this.trackChatViewport(false);
         if (!motion?.moving && !motionSettled) this.updateChatBottomControl();
       }
       viewportWidthChanged ||= widthChanged;
