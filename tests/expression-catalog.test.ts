@@ -45,6 +45,8 @@ describe('managed expression catalog', () => {
     expect(() => f.service.updateStatus({ ids: [a.id, 'missing'], status: 'pending' })).toThrow('MEME_NOT_FOUND');
     expect(f.service.detail(a.id).status).toBe('published');
     f.service.update(a.id, { title: 'Edited elsewhere', tags: 'new', status: 'published' });
+    f.service.update(a.id, { autoHide: true });
+    expect(f.service.detail(a.id)).toMatchObject({ title: 'Edited elsewhere', tags: 'new', status: 'published', autoHide: true });
     expect(f.service.updateStatus({ ids, status: 'pending' })).toEqual({ updated: 2 });
     expect(f.service.detail(a.id)).toMatchObject({ title: 'Edited elsewhere', tags: 'new', status: 'pending' });
     await expect(f.service.media('owner', pack.items[0].id)).rejects.toThrow('MEME_NOT_FOUND');

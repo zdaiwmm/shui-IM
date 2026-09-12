@@ -370,7 +370,7 @@ export class MemePicker {
       const now = performance.now();
       const dy = event.clientY - drag.y; const dx = event.clientX - drag.x;
       if (hold && Math.hypot(dx, dy) > 10) cancelHold();
-      if (!drag.moving && drag.fromPack && (drag.scrolling || Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy))) {
+      if (!drag.moving && (drag.scrolling || Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy))) {
         drag.scrolling = true;
         event.preventDefault();
         // Keep the scroll position incremental. Using the initial pointer

@@ -547,6 +547,8 @@ try {
   await page.waitForFunction(()=>document.querySelector('.message-list .image-preview img')?.naturalWidth>0);
   assert.equal(await page.locator('.message-list .image-preview').first().getAttribute('data-revealed'), 'false');
   assert.equal(await page.locator('.expression-bubble').count(), 1);
+  assert.equal(await page.locator('.expression-bubble').evaluate(el => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)');
+  assert.equal(await page.locator('.expression-bubble').evaluate(el => getComputedStyle(el).borderWidth), '0px');
   assert.deepEqual(await chatAnimation.evaluate(image => { const style = getComputedStyle(image); return [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomLeftRadius, style.borderBottomRightRadius]; }), ['12px', '12px', '12px', '12px']);
   if (out) await page.screenshot({path:path.join(out,'expression-rounded.png')});
   const originalWidth = await chatAnimation.evaluate(image => image.naturalWidth);
@@ -557,7 +559,8 @@ try {
   await page.locator('.message-action-preview img').waitFor();
   await page.waitForTimeout(350);
   assert.equal(await page.locator('[data-message-action="favorite-meme"]').innerText(), '收藏为表情');
-  assert.equal(await page.locator('.message-action-preview img').evaluate(el => getComputedStyle(el).opacity), '1');
+  assert.equal(await page.locator('.message-action-preview img').evaluate(el => getComputedStyle(el).opacity), '0');
+  assert.equal(await page.locator('.message-action-preview .image-preview').evaluate(el => getComputedStyle(el, '::before').opacity), '1');
   if (out) await page.screenshot({path:path.join(out,'expression-menu.png')});
   await page.evaluate(() => window.fixture.app.closeMessageActions(false, false));
   await page.evaluate(async () => {

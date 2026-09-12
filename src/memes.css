@@ -95,7 +95,14 @@
 .meme-preview-actions button { width: 100%; min-height: 48px; display: flex; align-items: center; gap: 12px; padding: 12px 16px; background: transparent; border: 0; color: var(--ink); font: inherit; text-align: left; }
 .meme-preview-actions button + button { border-top: 1px solid var(--line); color: var(--accent); }
 .meme-preview-close { display: block; margin: 10px auto 0; min-height: 44px; padding: 8px 24px; font: inherit; color: var(--ink); }
-.chat-shell .message-bubble.expression-bubble { max-width: min(192px, 100%); }
+.chat-shell .message-bubble.expression-bubble {
+  max-width: min(192px, 100%);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink);
+}
 .message-bubble.expression-bubble > .image-preview,
 .message-bubble.expression-bubble > .image-preview[data-image-state='loaded'] {
   background: transparent;
