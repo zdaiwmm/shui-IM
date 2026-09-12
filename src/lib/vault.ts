@@ -1503,6 +1503,7 @@ export async function loadStickerPacks(session: VaultSession): Promise<StickerPa
   const ids = new Set<string>();
   for (const pack of packs) {
     if (!pack || !/^[a-z0-9-]{1,80}$/.test(pack.id) || ids.has(pack.id) || typeof pack.title !== 'string' || pack.title.length > 120
+      || (pack.autoHide !== undefined && typeof pack.autoHide !== 'boolean')
       || !Number.isSafeInteger(pack.installedAt) || !Array.isArray(pack.items) || !pack.items.length || pack.items.length > MAX_PACK_ITEMS) throw new Error('贴纸合集索引已损坏');
     ids.add(pack.id);
     // Apply the same authenticated media metadata checks, in bounded pages.
@@ -1516,7 +1517,7 @@ export async function loadStickerPacks(session: VaultSession): Promise<StickerPa
 }
 
 /** Whole packs become visible only after all verified originals commit together. */
-export async function installStickerPack(session: VaultSession, id: string, title: string, files: File[], signal: AbortSignal): Promise<void> {
+export async function installStickerPack(session: VaultSession, id: string, title: string, files: File[], signal: AbortSignal, autoHide = false): Promise<void> {
   if (!/^[a-z0-9-]{1,80}$/.test(id) || title.length > 120 || !files.length || files.length > MAX_PACK_ITEMS
     || files.some(file => !file.size || file.size > MAX_MEME_BYTES || !MEME_TYPES.includes(file.type))
     || files.reduce((sum, file) => sum + file.size, 0) > MAX_PACK_BYTES) throw new Error('贴纸合集格式或大小不受支持');
@@ -1536,7 +1537,7 @@ export async function installStickerPack(session: VaultSession, id: string, titl
       const item: MemeFavorite = { id: crypto.randomUUID(), digest, name: file.name.slice(0, 120), type: file.type, size: file.size, savedAt: Date.now() };
       items.push(item); originals.push(await encryptLocalRecord(session, 'memeFavorites', item.id, toBase64Url(bytes)));
     }
-    const index = await encryptLocalRecord(session, 'memeFavorites', 'packs', [...packs, { id, title, items, installedAt: Date.now() }]);
+    const index = await encryptLocalRecord(session, 'memeFavorites', 'packs', [...packs, { id, title, items, installedAt: Date.now(), autoHide: Boolean(autoHide) }]);
     await commitStickerRecords(session, [...originals, index], [], signal);
   });
 }

@@ -19,25 +19,34 @@ export type MemePickerCache = {
   mediaBytes: number;
   searches: Map<string, { result: MediaSearchResult; expiresAt: number }>;
   packs: Map<string, { result: RemotePackDetail; expiresAt: number }>;
+  usage: Map<string, number>;
 };
 
-export const createMemePickerCache = (): MemePickerCache => ({
+export const createMemePickerCache = (): MemePickerCache => {
+  const usage = new Map<string, number>();
+  try {
+    const raw = JSON.parse(localStorage.getItem('quiet-room-expression-usage-v1') || '{}') as Record<string, unknown>;
+    for (const [id, count] of Object.entries(raw)) if (/^[0-9a-f-]{36}$/.test(id) && typeof count === 'number' && Number.isSafeInteger(count) && count > 0) usage.set(id, Math.min(count, 1000));
+  } catch { /* Private browsing or malformed local state falls back to memory. */ }
+  return {
   media: new Map(),
   mediaBytes: 0,
   searches: new Map(),
   packs: new Map(),
-});
+    usage,
+  };
+};
 
 export type MemePickerOptions = {
   host: HTMLElement; root: HTMLElement; signal: AbortSignal; isActive: () => boolean;
   list: () => Promise<MemeFavorite[]>; file: (item: MemeFavorite, signal: AbortSignal) => Promise<File>;
   save: (file: File, signal: AbortSignal) => Promise<boolean>; remove: (id: string, signal: AbortSignal) => Promise<void>;
   packs: () => Promise<StickerPack[]>;
-  install: (id: string, title: string, files: File[], signal: AbortSignal) => Promise<void>;
+  install: (id: string, title: string, files: File[], signal: AbortSignal, autoHide?: boolean) => Promise<void>;
   removePack: (id: string, signal: AbortSignal) => Promise<void>;
   reorderPacks: (ids: string[], signal: AbortSignal) => Promise<void>;
   pack: (id: string, signal: AbortSignal) => Promise<RemotePackDetail>;
-  send: (file: File, signal: AbortSignal) => Promise<void>;
+  send: (file: File, autoHide: boolean, signal: AbortSignal) => Promise<void>;
   search: (query: string, page: number, signal: AbortSignal, kind: MediaKind) => Promise<MediaSearchResult>;
   media: (id: string, signal: AbortSignal) => Promise<Blob>;
   cache?: MemePickerCache;
@@ -61,6 +70,7 @@ export class MemePicker {
   private observer: IntersectionObserver;
   private tiles = new Map<HTMLElement, Tile>();
   private cache: MemePickerCache;
+  private persistentCachePromise?: Promise<Cache | null>;
   private favorites: MemeFavorite[] = [];
   private packs: StickerPack[] = [];
   private kind: MediaKind = 'gifs';
@@ -121,10 +131,10 @@ export class MemePicker {
     }, { root: this.panel.querySelector('.meme-scroll'), rootMargin: '120px' });
     this.autoPage.observe(this.sentinel);
     const shortcuts = this.panel.querySelector<HTMLElement>('.meme-pack-shortcuts')!;
-    type SheetDrag = { id: number; x: number; y: number; height: number; full: boolean; moving: boolean; scrolling: boolean; scrollLeft: number; maxScrollLeft: number; fromPack: boolean; lastX: number; lastAt: number; velocity: number; overshoot: number };
+    type SheetDrag = { id: number; x: number; y: number; height: number; full: boolean; moving: boolean; scrolling: boolean; scrollLeft: number; maxScrollLeft: number; fromPack: boolean; lastX: number; lastAt: number; velocity: number; overshoot: number; left: number; right: number };
     type ShortcutHold = { id: number; x: number; y: number; button: HTMLButtonElement; timer: number };
     type ShortcutReorder = {
-      id: number; button: HTMLButtonElement; floating: HTMLButtonElement; placeholder: HTMLElement | null;
+      id: number; button: HTMLButtonElement; floating: HTMLButtonElement; placeholder: HTMLElement | null; left: number; right: number;
       startIndex: number; targetIndex: number; startX: number; startY: number; dx: number; dy: number;
       originalIds: string[]; originalPacks: StickerPack[];
     };
@@ -264,7 +274,7 @@ export class MemePicker {
       reorder = {
         id: pending.id, button: pending.button, floating, placeholder: null,
         startIndex, targetIndex: startIndex, startX: pending.x, startY: pending.y, dx: 0, dy: 0,
-        originalIds: buttons.map(packId), originalPacks: [...this.packs],
+        originalIds: buttons.map(packId), originalPacks: [...this.packs], left: shortcuts.getBoundingClientRect().left, right: shortcuts.getBoundingClientRect().right,
       };
       hold = undefined;
       drag = undefined;
@@ -316,9 +326,10 @@ export class MemePicker {
       if (event.button !== 0 || this.sheetAnimation || this.preview || this.busy || reorder) return;
       const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button[data-shortcut^="pack:"]') : null;
       stopShortcutAnimation(); clearShortcutPull();
+      const bounds = shortcuts.getBoundingClientRect();
       drag = { id: event.pointerId, x: event.clientX, y: event.clientY, height: this.panel.getBoundingClientRect().height,
         full: Boolean(this.overlay), moving: false, scrolling: false, scrollLeft: shortcuts.scrollLeft, maxScrollLeft: shortcutMax(), fromPack: Boolean(button),
-        lastX: event.clientX, lastAt: performance.now(), velocity: 0, overshoot: 0 };
+        lastX: event.clientX, lastAt: performance.now(), velocity: 0, overshoot: 0, left: bounds.left, right: bounds.right };
       if (button) {
         const pending: ShortcutHold = { id: event.pointerId, x: event.clientX, y: event.clientY, button, timer: 0 };
         pending.timer = window.setTimeout(() => beginReorder(pending), 500);
@@ -331,9 +342,8 @@ export class MemePicker {
         reorder.dx = event.clientX - reorder.startX;
         reorder.dy = event.clientY - reorder.startY;
         reorder.floating.style.transform = `translate3d(${reorder.dx}px, ${reorder.dy}px, 0) scale(1.08)`;
-        const bar = shortcuts.getBoundingClientRect();
-        if (event.clientX < bar.left + 32) shortcuts.scrollLeft -= 12;
-        else if (event.clientX > bar.right - 32) shortcuts.scrollLeft += 12;
+        if (event.clientX < reorder.left + 32) shortcuts.scrollLeft -= 12;
+        else if (event.clientX > reorder.right - 32) shortcuts.scrollLeft += 12;
         const remaining = packButtons();
         const targetIndex = remaining.findIndex(button => event.clientX < button.getBoundingClientRect().left + button.getBoundingClientRect().width / 2);
         placePlaceholder(targetIndex < 0 ? remaining.length : targetIndex);
@@ -351,7 +361,9 @@ export class MemePicker {
         const elapsed = Math.max(1, now - drag.lastAt);
         drag.velocity = (event.clientX - drag.lastX) / elapsed * -1;
         drag.lastX = event.clientX; drag.lastAt = now;
-        drag.overshoot = rubberBand(raw - clamped);
+        // At the right edge a leftward swipe must not rubber-band the bar to
+        // the right, which feels like the gesture is reversed on touchscreens.
+        drag.overshoot = raw < 0 ? rubberBand(raw) : 0;
         shortcuts.scrollLeft = clamped;
         renderShortcutPull(drag.overshoot);
         return;
@@ -527,11 +539,40 @@ export class MemePicker {
     this.cache.media.set(id, file);
     this.cache.mediaBytes += file.size;
   }
+  private recordUsage(id: string): void {
+    const count = Math.min(1000, (this.cache.usage.get(id) ?? 0) + 1);
+    this.cache.usage.set(id, count);
+    try {
+      const rows = [...this.cache.usage.entries()].sort((a, b) => b[1] - a[1]).slice(0, 100);
+      localStorage.setItem('quiet-room-expression-usage-v1', JSON.stringify(Object.fromEntries(rows)));
+    } catch { /* Usage ranking remains available for the current runtime. */ }
+  }
   private forgetMedia(id: string): void {
     const file = this.cache.media.get(id);
     if (!file) return;
     this.cache.media.delete(id);
     this.cache.mediaBytes = Math.max(0, this.cache.mediaBytes - file.size);
+  }
+  private async persistentCache(): Promise<Cache | null> {
+    if (typeof caches === 'undefined') return null;
+    this.persistentCachePromise ??= caches.open('quiet-room-expression-media-v1').catch(() => null);
+    return this.persistentCachePromise;
+  }
+  private async readPersistentMedia(item: MediaItem, signal: AbortSignal): Promise<File | null> {
+    if (item.favorite) return null;
+    const cache = await this.persistentCache(); if (!cache) return null;
+    signal.throwIfAborted();
+    const response = await cache.match(`/__quiet-room-expression/${encodeURIComponent(item.id)}`);
+    if (!response) return null;
+    const blob = await response.blob();
+    try { return await validateMemeFile(blob, item.title, signal); } catch { await cache.delete(response.url); return null; }
+  }
+  private async writePersistentMedia(item: MediaItem, file: File): Promise<void> {
+    if (item.favorite) return;
+    const cache = await this.persistentCache(); if (!cache) return;
+    try {
+      await cache.put(`/__quiet-room-expression/${encodeURIComponent(item.id)}`, new Response(file, { headers: { 'Content-Type': file.type } }));
+    } catch { /* Cache storage is an optional acceleration; memory remains authoritative. */ }
   }
   private clear() {
     this.generation++; this.request?.abort(); this.operation?.abort(); this.searching = false; this.observer.disconnect();
@@ -570,7 +611,7 @@ export class MemePicker {
       const first = pack.items[0]; if (!first) continue;
       if (this.tiles.get(button)?.item.id === first.id) continue;
       this.unload(button); button.replaceChildren();
-      const item: MediaItem = { id: first.id, title: pack.title, favorite: first, pack: pack.id };
+      const item: MediaItem = { id: first.id, title: pack.title, favorite: first, pack: pack.id, autoHide: pack.autoHide };
       const image = document.createElement('img'); image.alt = ''; image.draggable = false; button.append(image); this.tiles.set(button, { item, visible: true });
     }
     this.hydrate();
@@ -586,7 +627,14 @@ export class MemePicker {
       const [favorites, packs] = await Promise.all([this.options.list(), this.options.packs()]);
       if (!this.active() || generation !== this.generation) return;
       this.favorites = favorites; this.packs = packs; this.clear(); this.renderLocalItems(); this.shortcuts();
-      if (!this.favoriteView && this.kind === 'gifs') { this.query = ''; this.nextPage = 1; await this.search(); }
+      if (!this.favoriteView && this.kind === 'gifs') {
+        this.query = ''; this.nextPage = 1;
+        // Fill the ten-item recent section in the same open operation so the
+        // first paint does not briefly show a partial catalog while the
+        // sentinel waits for an intersection event.
+        do { await this.search(); }
+        while (this.nextPage && !this.searching && (this.recentGrid?.querySelectorAll('.meme-tile').length ?? 0) < 10);
+      }
     } catch { if (generation === this.generation) { this.shortcuts(); this.say('本地收藏或合集读取失败，请重新打开'); } }
   }
   private renderLocalItems() {
@@ -603,7 +651,7 @@ export class MemePicker {
           remove.addEventListener('click', () => { if (this.busy) return; this.busy = true; void this.options.removePack(pack.id, this.signal).then(() => this.local()).catch(() => this.say('移除失败，请重试')).finally(() => { this.busy = false; }); }); header.append(remove);
         }
         const grid = document.createElement('div'); grid.className = 'meme-pack-grid'; section.append(header, grid); this.grid.append(section);
-        this.append(pack.items.map(item => ({ id: item.id, title: item.name, favorite: item, pack: pack.id })), grid);
+        this.append(pack.items.map(item => ({ id: item.id, title: item.name, favorite: item, pack: pack.id, autoHide: pack.autoHide })), grid);
       }
     }
   }
@@ -701,15 +749,18 @@ export class MemePicker {
     if (!this.recentGrid || !this.browseGrid) {
       this.grid.classList.add('meme-catalog-sections');
       const recent = document.createElement('section'); recent.className = 'meme-recent-section'; recent.setAttribute('aria-labelledby', 'meme-recent-title');
-      recent.innerHTML = '<h3 id="meme-recent-title">最近发布</h3><div class="meme-recent-grid"></div>';
+      recent.innerHTML = '<h3 id="meme-recent-title">最近使用</h3><div class="meme-recent-grid"></div>';
       const browse = document.createElement('section'); browse.className = 'meme-browse-section'; browse.setAttribute('aria-labelledby', 'meme-browse-title'); browse.hidden = true;
       browse.innerHTML = '<h3 id="meme-browse-title">更多 GIFs</h3><div class="meme-browse-grid"></div>';
       this.grid.append(recent, browse);
       this.recentGrid = recent.querySelector('.meme-recent-grid');
       this.browseGrid = browse.querySelector('.meme-browse-grid');
     }
-    const recent = items.slice(0, Math.max(0, 10 - this.recentCount));
-    const remaining = items.slice(recent.length);
+    const ranked = [...items].sort((a, b) => (this.cache.usage.get(b.id) ?? 0) - (this.cache.usage.get(a.id) ?? 0));
+    const renderedRecent = this.recentGrid?.querySelectorAll('.meme-tile').length ?? this.recentCount;
+    const recent = ranked.slice(0, Math.max(0, 10 - renderedRecent));
+    const recentIds = new Set(recent.map(item => item.id));
+    const remaining = items.filter(item => !recentIds.has(item.id));
     this.append(recent, this.recentGrid!);
     this.recentCount += recent.length;
     if (remaining.length) {
@@ -766,7 +817,7 @@ export class MemePicker {
         const file = await this.getFile(item, signal); bytes += file.size; if (bytes > MAX_PACK_BYTES) throw new Error('合集超过 64 MiB');
         files.push(file); if (progress.isConnected) progress.textContent = `${files.length} / ${detail.items.length}`;
       }
-      await this.options.install(pack.id, detail.title, files, signal); if (!this.active()) return;
+      await this.options.install(pack.id, detail.title, files, signal, Boolean(detail.autoHide ?? pack.autoHide)); if (!this.active()) return;
       this.packs = await this.options.packs(); button.textContent = '解除添加'; button.dataset.danger = 'true'; button.disabled = false; progress.textContent = `${files.length} 张 · 已下载`; this.shortcuts();
     } catch (error) { if (this.active()) { progress.textContent = signal.aborted ? '已取消' : error instanceof Error ? error.message : '下载失败，请重试'; button.disabled = false; } }
     finally { this.busy = false; if (this.operation === controller) this.operation = null; cancel.remove(); }
@@ -790,7 +841,9 @@ export class MemePicker {
   private hydrate() {
     if (!this.active()) return;
     for (const [tile, state] of this.tiles) {
-      if (this.loading >= 3) break; if (!state.visible || state.url || state.controller) continue;
+      // Decoding large animated GIFs in parallel can saturate mobile CPUs and
+      // make the panel feel hot. Two visible decodes keep scrolling responsive.
+      if (this.loading >= 2) break; if (!state.visible || state.url || state.controller) continue;
       const controller = new AbortController(); state.controller = controller; this.loading++; const signal = AbortSignal.any([controller.signal, this.signal]);
       void this.getFile(state.item, signal).then(file => { if (!this.active() || signal.aborted || !state.visible) return; state.url = URL.createObjectURL(file); state.file = file; tile.querySelector('img')!.src = state.url; tile.classList.remove('is-error'); })
         .catch(error => {
@@ -803,19 +856,29 @@ export class MemePicker {
   private async getFile(item: MediaItem, signal: AbortSignal): Promise<File> {
     signal.throwIfAborted(); const cached = [...this.tiles.values()].find(state => state.item.id === item.id && state.file)?.file; if (cached) return cached;
     const retained = this.cache.media.get(item.id); if (retained) { this.cache.media.delete(item.id); this.cache.media.set(item.id, retained); return retained; }
-    const blob = item.favorite ? await this.options.file(item.favorite, signal) : await this.options.media(item.id, signal);
+    const persisted = await this.readPersistentMedia(item, signal);
+    if (persisted) { this.rememberMedia(item.id, persisted); return persisted; }
+    let blob: Blob | undefined; let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { blob = item.favorite ? await this.options.file(item.favorite, signal) : await this.options.media(item.id, signal); break; }
+      catch (error) { lastError = error; if (signal.aborted || attempt === 2) throw error; await new Promise(resolve => setTimeout(resolve, 80 * (attempt + 1))); }
+    }
+    if (!blob) throw lastError instanceof Error ? lastError : new Error('图片加载失败');
     const file = await validateMemeFile(blob, item.title, signal);
     if (item.animatedOnly && !await detectImageAnimation(file, signal)) throw new Error('NON_ANIMATED_RESULT');
     signal.throwIfAborted();
     this.rememberMedia(item.id, file);
+    void this.writePersistentMedia(item, file);
     return file;
   }
   private async perform(item: MediaItem, action: 'send' | 'save' | 'remove') {
     if (this.busy || !this.active()) return; this.busy = true; this.panel.setAttribute('aria-busy', 'true'); this.say(action === 'send' ? '正在发送…' : '正在保存…');
     try {
       if (action === 'remove') await this.options.remove(item.id, this.signal);
-      else { const file = await this.getFile(item, this.signal); if (!this.active()) return; if (action === 'send') await this.options.send(file, this.signal); else this.say(await this.options.save(file, this.signal) ? '已收藏到本机' : '已在收藏中'); }
-      if (!this.active()) return; if (action === 'send') this.options.close(false); else if (action === 'remove') { this.forgetMedia(item.id); await this.local(); }
+      else { const file = await this.getFile(item, this.signal); if (!this.active()) return; if (action === 'send') { await this.options.send(file, Boolean(item.autoHide), this.signal); this.recordUsage(item.id); } else this.say(await this.options.save(file, this.signal) ? '已收藏到本机' : '已在收藏中'); }
+      // Sending is non-modal: keep the picker open so repeated expressions can
+      // be sent without reopening it for every message.
+      if (!this.active()) return; if (action === 'remove') { this.forgetMedia(item.id); await this.local(); }
     } catch (error) { if (this.active()) this.say(error instanceof Error ? error.message : '操作失败，请重试'); }
     finally { this.busy = false; this.panel.removeAttribute('aria-busy'); }
   }

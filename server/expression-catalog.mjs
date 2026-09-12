@@ -22,7 +22,8 @@ function query(body) {
 function metadata(body) {
   if (!body || typeof body.title !== 'string' || !body.title.trim() || body.title.length > 120
     || typeof body.tags !== 'string' || body.tags.length > 2048
-    || !['pending', 'published'].includes(body.status)) fail('MEME_INVALID_QUERY');
+    || !['pending', 'published'].includes(body.status)
+    || (body.autoHide !== undefined && typeof body.autoHide !== 'boolean')) fail('MEME_INVALID_QUERY');
   return [body.title.trim(), body.tags, body.status];
 }
 
@@ -32,13 +33,16 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
   db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
     CREATE TABLE IF NOT EXISTS assets (hash TEXT PRIMARY KEY, type TEXT NOT NULL, bytes BLOB NOT NULL);
     CREATE TABLE IF NOT EXISTS entries (id TEXT PRIMARY KEY, kind TEXT NOT NULL, title TEXT NOT NULL,
-      tags TEXT NOT NULL, author TEXT NOT NULL, source TEXT NOT NULL, status TEXT NOT NULL, created INTEGER NOT NULL);
+      tags TEXT NOT NULL, author TEXT NOT NULL, source TEXT NOT NULL, status TEXT NOT NULL, created INTEGER NOT NULL,
+      auto_hide INTEGER NOT NULL DEFAULT 0);
     CREATE INDEX IF NOT EXISTS entry_status ON entries(kind,status,created);
     CREATE TABLE IF NOT EXISTS items (entry TEXT REFERENCES entries(id) ON DELETE CASCADE,
       position INTEGER NOT NULL, hash TEXT REFERENCES assets(hash), title TEXT NOT NULL, PRIMARY KEY(entry,position));
     CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, body TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS expression_initializations (id TEXT PRIMARY KEY, completed INTEGER NOT NULL);
   `);
+  const entryColumns = db.prepare('PRAGMA table_info(entries)').all().map(row => row.name);
+  if (!entryColumns.includes('auto_hide')) db.exec('ALTER TABLE entries ADD COLUMN auto_hide INTEGER NOT NULL DEFAULT 0');
   for (const row of db.prepare('SELECT * FROM jobs').all()) {
     const job = JSON.parse(row.body);
     if (['running', 'queued'].includes(job.status)) {
@@ -70,14 +74,15 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
     for (const [id, value] of grants) if (value.expires <= now()) grants.delete(id);
     while (grants.size >= 4000) grants.delete(grants.keys().next().value);
     const id = randomUUID(); grants.set(id, { owner, entry, hash: item.hash, expires: now() + 15 * 60_000 });
-    return { id, title: item.title };
+    return { id, title: item.title, ...(item.autoHide !== undefined ? { autoHide: item.autoHide } : {}) };
   }
   function put(entry, files, { transaction = true, status = 'pending' } = {}) {
     if (db.prepare('SELECT 1 FROM entries WHERE id=?').get(entry.id)) return false;
     if (!files.length || files.length > 200 || files.reduce((sum, f) => sum + f.bytes.length, 0) > MAX_PACK) fail('MEME_TOO_LARGE');
     if (transaction) db.exec('BEGIN IMMEDIATE');
     try {
-      db.prepare('INSERT INTO entries VALUES (?,?,?,?,?,?,?,?)').run(entry.id, entry.kind, entry.title, entry.tags, entry.author, entry.source, status, now());
+      db.prepare('INSERT INTO entries (id,kind,title,tags,author,source,status,created,auto_hide) VALUES (?,?,?,?,?,?,?,?,?)')
+        .run(entry.id, entry.kind, entry.title, entry.tags, entry.author, entry.source, status, now(), entry.autoHide ? 1 : 0);
       for (const [position, file] of files.entries()) {
         if (!file.bytes.length || file.bytes.length > MAX_IMAGE) fail('MEME_TOO_LARGE');
         const hash = digest(file.bytes); const type = memeContentType(file.bytes);
@@ -251,14 +256,14 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       query(body); signal?.throwIfAborted();
       const rows = matchStickerPacks(db.prepare('SELECT * FROM entries WHERE kind=? AND status=? ORDER BY created DESC,id').all(body.kind, 'published'), body.keyword);
       const start = (body.page - 1) * 24; const page = rows.slice(start, start + 24);
-      return { items: body.kind === 'gifs' ? page.map(row => grant(owner, row.id, { ...items(row.id)[0], title: row.title })) : [],
-        ...(body.kind === 'stickers' ? { packs: page.map(row => ({ id: row.id, title: row.title, cover: grant(owner, row.id, items(row.id)[0]).id })) } : {}),
+      return { items: body.kind === 'gifs' ? page.map(row => grant(owner, row.id, { ...items(row.id)[0], title: row.title, autoHide: Boolean(row.auto_hide) })) : [],
+        ...(body.kind === 'stickers' ? { packs: page.map(row => ({ id: row.id, title: row.title, autoHide: Boolean(row.auto_hide), cover: grant(owner, row.id, items(row.id)[0]).id })) } : {}),
         nextPage: start + 24 < rows.length ? body.page + 1 : null, source: '表情资源库' };
     },
     async pack(owner, id, signal) {
       signal?.throwIfAborted(); const row = get(id);
       if (row.status !== 'published' || row.kind !== 'stickers') fail('MEME_NOT_FOUND');
-      return { id, title: row.title, items: items(id).map(item => grant(owner, id, item)) };
+      return { id, title: row.title, autoHide: Boolean(row.auto_hide), items: items(id).map(item => grant(owner, id, { ...item, autoHide: Boolean(row.auto_hide) })) };
     },
     async media(owner, id, signal) {
       signal?.throwIfAborted(); const access = grants.get(id);
@@ -282,9 +287,9 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
         const rows = matchStickerPacks(db.prepare(`SELECT * FROM entries WHERE kind=? AND (?='all' OR status=?) ORDER BY created DESC,id`).all(body.kind, body.status, body.status), body.keyword);
         total = rows.length; page = rows.slice(offset, offset + 24);
       }
-      return { entries: page.map(row => ({ ...row, count: count.get(row.id).count })), total };
+      return { entries: page.map(row => ({ ...row, autoHide: Boolean(row.auto_hide), count: count.get(row.id).count })), total };
     },
-    detail(id) { const files = items(id); return { ...get(id), count: files.length, items: files }; },
+    detail(id) { const files = items(id); const entry = get(id); return { ...entry, autoHide: Boolean(entry.auto_hide), count: files.length, items: files }; },
     async create(body) {
       if (!body || !Array.isArray(body.files) || !body.files.length || body.files.length > 200
         || (body.kind === 'gifs' && body.files.length !== 1)) fail('MEME_INVALID_QUERY');
@@ -313,7 +318,7 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       });
       if (files.reduce((sum, file) => sum + file.bytes.length, 0) > (packageUpload ? MAX_PACK : MAX_IMAGE)) fail('MEME_TOO_LARGE');
       const id = randomUUID();
-      put({ id, kind, title: body.title.trim(), tags: body.tags, author: '管理员上传', source: '手动上传' }, files, { status });
+      put({ id, kind, title: body.title.trim(), tags: body.tags, author: '管理员上传', source: '手动上传', autoHide: Boolean(body.autoHide) }, files, { status });
       return service.detail(id);
     },
     preview(id, position) {
@@ -321,7 +326,11 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       const row = db.prepare('SELECT type,bytes FROM assets WHERE hash=?').get(item.hash);
       return { type: row.type, bytes: Buffer.from(row.bytes) };
     },
-    update(id, body) { get(id); const values = metadata(body); db.prepare('UPDATE entries SET title=?,tags=?,status=? WHERE id=?').run(...values, id); return service.detail(id); },
+    update(id, body) {
+      const entry = get(id); const values = metadata(body);
+      db.prepare('UPDATE entries SET title=?,tags=?,status=?,auto_hide=? WHERE id=?').run(...values, body.autoHide === undefined ? entry.auto_hide : body.autoHide ? 1 : 0, id);
+      return service.detail(id);
+    },
     updateStatus(body) {
       if (!body || !Array.isArray(body.ids) || !body.ids.length || body.ids.length > 24
         || body.ids.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/.test(id))

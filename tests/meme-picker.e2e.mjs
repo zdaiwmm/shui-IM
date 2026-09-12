@@ -138,8 +138,8 @@ try {
     obscured: document.documentElement.classList.contains('privacy-obscured'),
   })), { covered: false, obscured: false }, 'Opening the expression panel treated its keyboard handoff as a departure');
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  assert.equal((await page.locator('.meme-recent-section h3').textContent()).trim(), '最近发布');
-  assert.equal(await page.locator('.meme-recent-grid .meme-tile').count(), 10, 'Recent releases must contain exactly ten published expressions');
+  assert.equal((await page.locator('.meme-recent-section h3').textContent()).trim(), '最近使用');
+  assert.equal(await page.locator('.meme-recent-grid .meme-tile').count(), 10, 'Recent usage must contain at most ten expressions');
   assert.equal(await page.locator('.meme-browse-grid .meme-tile').count(), 2, 'Catalog continuation duplicated or dropped recent expressions');
   if (process.argv[2]) {
     await mkdir(process.argv[2], { recursive: true });
@@ -164,11 +164,11 @@ try {
   assert.equal(await page.locator('#message-input').inputValue(),'保留这份草稿');
   await page.locator('.meme-tile').first().click();
   await page.waitForFunction(()=>window.fixture.sent.length===1);
-  await page.locator('#meme-panel').waitFor({ state: 'detached' });
-  assert.equal(await page.locator('#meme-panel').count(),0);
+  assert.equal(await page.locator('#meme-panel').count(),1, 'Sending an expression must keep the picker open');
   await page.waitForFunction(() => window.fixture.mediaRequests.length >= 3);
   const cachedSearchRequests = await page.evaluate(() => window.fixture.requests.length);
   const cachedMediaRequests = await page.evaluate(() => window.fixture.mediaRequests.length);
+  await page.locator('#open-memes').click();
   await page.locator('#open-memes').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===12);
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile img[src]').length>=3);
@@ -209,8 +209,10 @@ try {
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===8);
   await page.locator('.meme-tile').first().dispatchEvent('contextmenu');
   await page.locator('.meme-preview [data-action="send"]').click();
-  await page.waitForFunction(()=>!document.querySelector('#meme-panel'));
+  await page.waitForFunction(()=>document.querySelector('#meme-panel'));
+  await page.waitForFunction(()=>window.fixture.sent.length===2);
   assert.equal(await page.evaluate(()=>window.fixture.sent.length),2);
+  await page.locator('#open-memes').click();
   await page.locator('#open-memes').click();
   await page.locator('button[data-kind="stickers"]').click();
   assert.equal(await page.locator('.meme-pack-cover').count(), 0, 'Unadded collections must only appear in search');
@@ -320,6 +322,7 @@ try {
   assert.ok(Math.min(...shortcutRightSettling.values) >= shortcutRightSettling.max - 1,
     `Sticker shortcut moved back from the right edge while settling: ${JSON.stringify(shortcutRightSettling)}`);
   await page.locator('.meme-pack-shortcuts [data-synthetic-shortcut="true"]').evaluateAll(nodes => nodes.forEach(node => node.remove()));
+  await page.waitForTimeout(600);
   await page.locator('.meme-pack-shortcuts button[title="测试合集"]').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);
   assert.equal(await page.locator('button[data-kind="stickers"]').getAttribute('aria-selected'), 'true');
