@@ -376,9 +376,16 @@ export class MemePicker {
         // Keep the scroll position incremental. Using the initial pointer
         // delta makes a bar stick at the edge until the finger crosses its
         // starting point, so reversing direction appears to push it back.
-        drag.position -= event.clientX - drag.lastX;
+        const deltaX = event.clientX - drag.lastX;
+        // A reverse gesture must leave an overscrolled edge immediately. If
+        // the finger changes direction while the position is beyond an edge,
+        // applying the delta to the overshoot first makes the bar appear to
+        // snap back in the old direction.
+        if ((drag.position > drag.maxScrollLeft && deltaX > 0)
+          || (drag.position < 0 && deltaX < 0)) drag.position = deltaX > 0 ? drag.maxScrollLeft : 0;
+        drag.position -= deltaX;
         const elapsed = Math.max(1, now - drag.lastAt);
-        drag.velocity = (event.clientX - drag.lastX) / elapsed * -1;
+        drag.velocity = deltaX / elapsed * -1;
         drag.lastX = event.clientX; drag.lastAt = now;
         scheduleShortcutScroll(drag);
         return;
@@ -891,7 +898,21 @@ export class MemePicker {
     if (this.busy || !this.active()) return; this.busy = true; this.panel.setAttribute('aria-busy', 'true'); this.say(action === 'send' ? '正在发送…' : '正在保存…');
     try {
       if (action === 'remove') await this.options.remove(item.id, this.signal);
-      else { const file = await this.getFile(item, this.signal); if (!this.active()) return; if (action === 'send') { await this.options.send(file, Boolean(item.autoHide), this.signal); this.recordUsage(item.id); } else this.say(await this.options.save(file, this.signal) ? '已收藏到本机' : '已在收藏中'); }
+      else {
+        const file = await this.getFile(item, this.signal); if (!this.active()) return;
+        if (action === 'send') {
+          // Installed packs retain encrypted local metadata. Re-read the
+          // server setting at send time so an admin change applies to packs
+          // that were installed before the setting was changed.
+          let autoHide = Boolean(item.autoHide);
+          if (item.pack) {
+            const detail = await this.options.pack(item.pack, this.signal);
+            const remoteItem = detail.items.find(candidate => candidate.id === item.id);
+            autoHide = Boolean(remoteItem?.autoHide ?? detail.autoHide ?? item.autoHide);
+          }
+          await this.options.send(file, autoHide, this.signal); this.recordUsage(item.id);
+        } else this.say(await this.options.save(file, this.signal) ? '已收藏到本机' : '已在收藏中');
+      }
       // Sending is non-modal: keep the picker open so repeated expressions can
       // be sent without reopening it for every message.
       if (!this.active()) return; if (action === 'remove') { this.forgetMedia(item.id); await this.local(); }
