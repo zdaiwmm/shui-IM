@@ -494,10 +494,21 @@ async function expressions() {
       } catch (error) { if (view === epoch) report(error); }
       finally { busy = false; controls.forEach((control, index) => { control.disabled = disabled[index]!; }); updateSelection(); }
     };
+    const changeAutoHide = async (entry: Expression, input: HTMLInputElement) => {
+      if (busy) return;
+      const value = input.checked; input.disabled = true;
+      try {
+        await api(`/expressions/${entry.id}`, 'PATCH', { autoHide: value });
+        if (view === epoch) report(`${value ? '已开启' : '已关闭'} ${entry.title} 的自动隐藏`, 'success');
+      } catch (error) {
+        input.checked = !value;
+        if (view === epoch) report(error);
+      } finally { if (input.isConnected) input.disabled = false; }
+    };
     publish.addEventListener('click', () => void changeStatus(data.entries.filter(entry => selection.has(entry.id) && entry.status !== 'published').map(entry => entry.id), 'published'));
     unpublish.addEventListener('click', () => void changeStatus(data.entries.filter(entry => selection.has(entry.id) && entry.status !== 'pending').map(entry => entry.id), 'pending'));
     bulk.append(selectLabel, selectedCount, publish, unpublish); host.append(bulk);
-    const list = table(['预览', '名称 / 作者', '状态', '数量', '操作']);
+    const list = table(['预览', '名称 / 作者', '状态', '数量', '自动隐藏', '操作']);
     for (const entry of data.entries) {
       const image = document.createElement('img'); image.className = 'expression-thumbnail'; image.alt = entry.title; loadPreview(image, `/admin-api/expressions/${entry.id}/media/0`);
       const preview = document.createElement('label'); preview.className = 'expression-select expression-preview';
@@ -506,12 +517,15 @@ async function expressions() {
       checkboxes.push(checkbox); preview.append(checkbox, image);
       const name = document.createElement('div'); const title = document.createElement('strong'); title.textContent = entry.title;
       const author = document.createElement('p'); author.textContent = entry.author; name.append(title, author);
+      const autoHide = document.createElement('label'); autoHide.className = 'toggle-field';
+      const autoHideInput = document.createElement('input'); autoHideInput.type = 'checkbox'; autoHideInput.checked = Boolean(entry.autoHide); autoHideInput.setAttribute('aria-label', `${entry.title} 自动隐藏`);
+      autoHideInput.addEventListener('change', () => void changeAutoHide(entry, autoHideInput)); autoHide.append(autoHideInput, document.createTextNode('启用'));
       const actions = document.createElement('div'); actions.className = 'actions';
       actions.append(iconButton(`编辑 ${entry.title}`, Pencil, () => void editExpression(entry.id)));
       const toggle = document.createElement('button'); toggle.textContent = entry.status === 'published' ? '下架' : '上架';
       toggle.className = entry.status === 'published' ? 'unpublish' : 'publish';
       toggle.addEventListener('click', () => void changeStatus([entry.id], entry.status === 'published' ? 'pending' : 'published'));
-      actions.append(toggle); row(list.body, [preview, name, badge(entry.status === 'published' ? '已上架' : '待上架', entry.status === 'published' ? 'success' : 'warning'), `${entry.count} 张`, actions]);
+      actions.append(toggle); row(list.body, [preview, name, badge(entry.status === 'published' ? '已上架' : '待上架', entry.status === 'published' ? 'success' : 'warning'), `${entry.count} 张`, autoHide, actions]);
     }
     updateSelection();
     host.append(list.wrapper);
@@ -531,13 +545,11 @@ async function editExpression(id: string) {
     const preview = document.createElement('section'); preview.className = 'resource-media'; preview.append(pageToolbar('原图预览', `${entry.count} 张`));
     layout.append(editor, preview); content.append(layout);
     const form = document.createElement('form');
-    form.innerHTML = `<label>名称<input name="title" maxlength="120" required></label><label>标签<input name="tags" maxlength="2048"></label><label>状态<select name="status"><option value="pending">待上架</option><option value="published">已上架</option></select></label><label class="toggle-field"><input name="autoHide" type="checkbox"> 自动隐藏</label><button class="primary" type="submit">保存</button>`;
+    form.innerHTML = `<label>名称<input name="title" maxlength="120" required></label><label>标签<input name="tags" maxlength="2048"></label><label>状态<select name="status"><option value="pending">待上架</option><option value="published">已上架</option></select></label><button class="primary" type="submit">保存</button>`;
     for (const key of ['title', 'tags', 'status'] as const) (form.elements.namedItem(key) as HTMLInputElement).value = entry[key];
-    (form.elements.namedItem('autoHide') as HTMLInputElement).checked = Boolean(entry.autoHide);
     form.addEventListener('submit', async event => {
       event.preventDefault(); const button = form.querySelector('button')!; if (button.disabled) return;
       const values = Object.fromEntries(new FormData(form));
-      (values as Record<string, unknown>).autoHide = (form.elements.namedItem('autoHide') as HTMLInputElement).checked;
       const controls = [...form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>('input, select, button')]; controls.forEach(control => { control.disabled = true; });
       try { await api(`/expressions/${id}`, 'PATCH', values); if (view === epoch) report('已保存', 'success'); }
       catch (error) { if (view === epoch) report(error); } finally { controls.forEach(control => { control.disabled = false; }); }

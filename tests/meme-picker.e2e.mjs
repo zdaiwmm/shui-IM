@@ -96,6 +96,7 @@ try {
     document.querySelector('#message-input').value = '保留这份草稿';
     const realFetch = window.fetch.bind(window); const requests = []; const mediaRequests = [];
     const formerPack = { id: 'synthetic-pack', title: 'Synthetic pack' };
+    const packSettings = { autoHide: false };
     const networkGif = new File([new Uint8Array(animation)], 'catalog-animation.webp', { type: 'image/webp' });
     window.fetch = async (input, init) => {
       const url = new URL(typeof input === 'string' ? input : input.url,location.href);
@@ -106,12 +107,12 @@ try {
         if (body.kind === 'stickers') return Response.json({items:[],packs:[{id:'a'.repeat(32),title:'测试合集',cover:'00000000-0000-4000-8000-000000000000'}],nextPage:null});
         return Response.json({items:files.slice(0,6).map((file,index)=>({id:`11111111-0000-4000-8000-${String(index+body.page*10).padStart(12,'0')}`,title:file.name})),nextPage:body.page===1?2:null});
       }
-      if (url.pathname.endsWith('/memes/pack')) return Response.json({id:'a'.repeat(32),title:'测试合集',items:files.slice(0,3).map((file,index)=>({id:`00000000-0000-4000-8000-${String(index).padStart(12,'0')}`,title:file.name}))});
+      if (url.pathname.endsWith('/memes/pack')) return Response.json({id:'a'.repeat(32),title:'测试合集',autoHide:packSettings.autoHide,items:files.slice(0,3).map((file,index)=>({id:`00000000-0000-4000-8000-${String(index).padStart(12,'0')}`,title:file.name,autoHide:packSettings.autoHide}))});
       if (url.pathname.endsWith('/memes/media')) { const id=JSON.parse(init.body).id; mediaRequests.push(id); const file=id.startsWith('11111111')?networkGif:files[Number(id.slice(-2))%files.length]; return new Response(file,{headers:{'Content-Type':file.type}}); }
       if (url.pathname.startsWith('/stickers/') || url.pathname.startsWith('/gifs/')) throw new Error('Bundled media requested');
       return realFetch(input,init);
     };
-    window.fixture = { app, vault, session, controller, files, sent, msg, requests, mediaRequests, networkGif };
+    window.fixture = { app, vault, session, controller, files, sent, packSettings, msg, requests, mediaRequests, networkGif };
   }, [...animatedWebp]);
   await page.locator('#open-memes').click();
   await page.waitForFunction(() => document.querySelectorAll('.meme-tile img[src]').length >= 3);
@@ -321,6 +322,20 @@ try {
   const shortcutRightSettling = await sampleShortcutScroll();
   assert.ok(Math.min(...shortcutRightSettling.values) >= shortcutRightSettling.max - 1,
     `Sticker shortcut moved back from the right edge while settling: ${JSON.stringify(shortcutRightSettling)}`);
+  await page.locator('.meme-pack-shortcuts').evaluate(bar => { bar.scrollLeft = bar.scrollWidth - bar.clientWidth; });
+  await page.locator('.meme-pack-shortcuts').evaluate(bar => {
+    const bounds = bar.getBoundingClientRect();
+    const init = { bubbles: true, button: 0, pointerId: 105, isPrimary: true, pointerType: 'touch', clientY: bounds.top + bounds.height / 2 };
+    const button = bar.querySelector('button[data-shortcut^="pack:"]');
+    button.dispatchEvent(new PointerEvent('pointerdown', { ...init, clientX: bounds.right - 8 }));
+    window.dispatchEvent(new PointerEvent('pointermove', { ...init, clientX: bounds.left - 100 }));
+    window.dispatchEvent(new PointerEvent('pointermove', { ...init, clientX: bounds.left - 80 }));
+    window.dispatchEvent(new PointerEvent('pointerup', { ...init, clientX: bounds.left - 80 }));
+  });
+  await page.waitForTimeout(120);
+  const sameGestureReversed = await page.locator('.meme-pack-shortcuts').evaluate(bar => ({ scrollLeft: bar.scrollLeft, max: bar.scrollWidth - bar.clientWidth }));
+  assert.ok(sameGestureReversed.scrollLeft < sameGestureReversed.max - 1,
+    `Sticker shortcut kept the right-edge overshoot after reversing in one gesture: ${JSON.stringify(sameGestureReversed)}`);
   await dispatchShortcutDrag(shortcutBounds.x + 8, shortcutBounds.x + shortcutBounds.width + 100, 104);
   await page.waitForTimeout(120);
   const shortcutReversed = await page.locator('.meme-pack-shortcuts').evaluate(bar => ({ scrollLeft: bar.scrollLeft, max: bar.scrollWidth - bar.clientWidth }));

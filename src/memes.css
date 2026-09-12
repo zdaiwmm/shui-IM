@@ -98,11 +98,13 @@
 .chat-shell .message-bubble.expression-bubble { max-width: min(192px, 100%); }
 .message-bubble.expression-bubble > .image-preview,
 .message-bubble.expression-bubble > .image-preview[data-image-state='loaded'] {
-  background: none;
+  background: transparent;
+  background-image: none;
   border: 0;
   border-radius: 12px;
   box-shadow: none;
 }
+.message-bubble.expression-bubble > .image-preview[data-revealed='true']::before { background: none; box-shadow: none; }
 .chat-shell .expression-bubble .image-preview { max-width: min(192px, 100%); }
 .chat-shell .expression-bubble .image-preview img { border-radius: 12px; max-height: min(28svh, 213.333px); }
 .message-bubble.expression-bubble > .message-meta { position: static; justify-self: end; margin-top: 4px; background: transparent; color: var(--ink-muted); }
