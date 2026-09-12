@@ -135,6 +135,27 @@ npm run repo:push                   # push the current task branch and verify it
 stashing work. `repo:push` requires a non-`main` branch and a clean tree; open
 the pull request and wait for the exact main CI result before publishing.
 
+### Alibaba OIDC readiness check
+
+The repository includes a manual `Alibaba OIDC doctor` workflow. It exchanges
+the GitHub Actions OIDC token for the `quiet-room-github-production` RAM role
+and reads the configured ECS instance with `DescribeInstances`; it does not
+deploy or execute a command on the server.
+
+In the GitHub `production` environment, keep these four non-secret variables:
+
+```text
+ALIBABA_OIDC_PROVIDER_ARN=acs:ram::1364322673254107:oidc-provider/github-actions-shui-im
+ALIBABA_DEPLOY_ROLE_ARN=acs:ram::1364322673254107:role/quiet-room-github-production
+ECS_REGION_ID=cn-wuhan-lr
+ECS_INSTANCE_ID=i-f2bf8acfb4754bf08e5f6d8534c3ce83
+```
+
+Run it from **Actions → Alibaba OIDC doctor → Run workflow**, using `main`.
+The expected final line is `ECS_OIDC_OK` with the configured instance ID and
+`status=Running`. A failed run is an authentication or RAM-policy diagnosis;
+it is not evidence that production changed.
+
 For a reviewed release, keep the approved full SHA visible and use the fixed
 isolated publisher followed by the independent readback:
 

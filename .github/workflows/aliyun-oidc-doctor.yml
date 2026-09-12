@@ -1,0 +1,64 @@
+name: Alibaba OIDC doctor
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aliyun-oidc-doctor-production
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify Alibaba OIDC and ECS access
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - name: Exchange GitHub OIDC token for RAM role credentials
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          oidc-provider-arn: ${{ vars.ALIBABA_OIDC_PROVIDER_ARN }}
+          role-to-assume: ${{ vars.ALIBABA_DEPLOY_ROLE_ARN }}
+          role-session-name: github-actions-oidc-doctor
+          role-session-expiration: 900
+          audience: sts.aliyuncs.com
+
+      - name: Install Alibaba Cloud CLI
+        uses: aliyun/setup-aliyun-cli-action@v1
+        with:
+          version: 3.4.11
+
+      - name: Read the configured ECS instance
+        env:
+          ECS_REGION_ID: ${{ vars.ECS_REGION_ID }}
+          ECS_INSTANCE_ID: ${{ vars.ECS_INSTANCE_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          instance_ids=$(printf '["%s"]' "$ECS_INSTANCE_ID")
+          aliyun ecs DescribeInstances \
+            --RegionId "$ECS_REGION_ID" \
+            --InstanceIds "$instance_ids" \
+            > "$RUNNER_TEMP/quiet-room-ecs.json"
+
+          ECS_INSTANCE_ID="$ECS_INSTANCE_ID" node <<'NODE'
+          import { readFileSync } from 'node:fs';
+
+          const expected = process.env.ECS_INSTANCE_ID;
+          const payload = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/quiet-room-ecs.json`, 'utf8'));
+          const instances = payload?.Instances?.Instance ?? [];
+          const instance = instances.find(({ InstanceId }) => InstanceId === expected);
+
+          if (!instance) {
+            throw new Error(`ECS instance ${expected} was not returned by DescribeInstances`);
+          }
+          if (instance.Status !== 'Running') {
+            throw new Error(`ECS instance ${expected} is ${instance.Status}, expected Running`);
+          }
+
+          console.log(`ECS_OIDC_OK instance=${instance.InstanceId} status=${instance.Status}`);
+          NODE
