@@ -198,7 +198,7 @@ const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3'
 const KEYBOARD_NATIVE_HANDOFF_MS = 1_200;
 // Tapping the expression toggle may dismiss the iOS keyboard through a short
 // visible window blur before the panel's click handler runs.
-const MEME_PANEL_HANDOFF_MS = 700;
+const MEME_PANEL_HANDOFF_MS = 2_500;
 const CHAT_COMPOSER_MOTION_MS = 280;
 const CHAT_KEYBOARD_DISMISS_MS = 420;
 const CHAT_COMPOSER_VIEWPORT_SETTLE_MS = 500;
@@ -893,7 +893,12 @@ export class QuietRoomApp {
       const selecting = this.selectedMessageId && this.root.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(this.selectedMessageId)}"]`);
       if (selecting && event.target instanceof Node && !selecting.contains(event.target)) this.clearMessageTextSelection();
       const messageActions = this.root.querySelector<HTMLElement>('.message-actions');
-      if (messageActions && event.target instanceof Node && !messageActions.contains(event.target)) this.closeMessageActions();
+      if (messageActions && event.target instanceof Node && !messageActions.contains(event.target)) {
+        // The release that dismisses a long-press menu must not immediately
+        // activate the media underneath it.
+        this.suppressMediaClickUntil = Math.max(this.suppressMediaClickUntil, Date.now() + 500);
+        this.closeMessageActions();
+      }
     }, { capture: true, passive: false });
     document.addEventListener('keydown', (event) => {
       if (this.privacyCovered) {
@@ -3650,22 +3655,22 @@ export class QuietRoomApp {
       save: (file, signal) => saveMemeFavorite(session, file, signal),
       remove: (id, signal) => removeMemeFavorite(session, id, signal),
       packs: () => loadStickerPacks(session),
-      install: (id, title, files, signal) => installStickerPack(session, id, title, files, signal),
+      install: (id, title, files, signal, autoHide) => installStickerPack(session, id, title, files, signal, autoHide),
       removePack: (id, signal) => removeStickerPack(session, id, signal),
       reorderPacks: (ids, signal) => reorderStickerPacks(session, ids, signal),
       pack: async (id, signal) => {
         const result = await (await request('pack', { id }, signal)).json();
-        if (result.id !== id || typeof result.title !== 'string' || result.title.length > 120 || !Array.isArray(result.items)
+        if (result.id !== id || typeof result.title !== 'string' || result.title.length > 120 || (result.autoHide !== undefined && typeof result.autoHide !== 'boolean') || !Array.isArray(result.items)
           || !result.items.length || result.items.length > 200 || result.items.some((item: { id?: unknown; title?: unknown }) =>
-            typeof item?.id !== 'string' || !/^[0-9a-f-]{36}$/.test(item.id) || typeof item.title !== 'string' || item.title.length > 120)) throw new Error('合集格式不受支持');
-        return { id: result.id, title: result.title, items: result.items.map((item: { id: string; title: string }) => ({ id: item.id, title: item.title })) };
+            typeof item?.id !== 'string' || !/^[0-9a-f-]{36}$/.test(item.id) || typeof item.title !== 'string' || item.title.length > 120 || (item as { autoHide?: unknown }).autoHide !== undefined && typeof (item as { autoHide?: unknown }).autoHide !== 'boolean')) throw new Error('合集格式不受支持');
+        return { id: result.id, title: result.title, autoHide: result.autoHide, items: result.items.map((item: { id: string; title: string; autoHide?: boolean }) => ({ id: item.id, title: item.title, autoHide: item.autoHide ?? result.autoHide })) };
       },
-      send: async (file, signal) => {
+      send: async (file, autoHide, signal) => {
         if (!isActive()) throw new Error('会话已关闭');
         if (this.imageBatchUploading) throw new Error('另一个附件正在发送，请稍后重试');
         this.imageBatchUploading = true;
         try {
-          if (!await this.processImageBatch([file], 'chat', signal, true)) throw new Error('发送未完成，请查看聊天中的状态后重试');
+          if (!await this.processImageBatch([file], 'chat', signal, true, undefined, autoHide)) throw new Error('发送未完成，请查看聊天中的状态后重试');
         } finally { if (this.isRuntimeActive(epoch, session)) this.imageBatchUploading = false; }
       },
       search: async (keyword, page, signal, kind) => {
@@ -3673,12 +3678,12 @@ export class QuietRoomApp {
         const result = await response.json();
         if (!Array.isArray(result.items) || result.items.length > 200
           || result.items.some((item: { id?: unknown; title?: unknown }) => typeof item?.id !== 'string' || !/^[0-9a-f-]{36}$/.test(item.id)
-            || typeof item.title !== 'string' || item.title.length > 120)
+            || typeof item.title !== 'string' || item.title.length > 120 || (item as { autoHide?: unknown }).autoHide !== undefined && typeof (item as { autoHide?: unknown }).autoHide !== 'boolean')
           || (result.nextPage !== null && (!Number.isSafeInteger(result.nextPage) || result.nextPage <= page || result.nextPage > 1000))) throw new Error('搜索结果格式不受支持');
         if (result.packs !== undefined && (!Array.isArray(result.packs) || result.packs.length > 24 || result.packs.some((pack: { id?: unknown; title?: unknown; cover?: unknown }) =>
-          typeof pack.id !== 'string' || !/^[a-z0-9-]{1,80}$/.test(pack.id) || typeof pack.title !== 'string' || pack.title.length > 120 || typeof pack.cover !== 'string' || !/^[0-9a-f-]{36}$/.test(pack.cover)))) throw new Error('合集搜索结果不受支持');
-        return { items: result.items.map((item: { id: string; title: string }) => ({ id: item.id, title: item.title, animatedOnly: kind === 'gifs' })),
-          packs: result.packs?.map((pack: { id: string; title: string; cover: string }) => ({ id: pack.id, title: pack.title, cover: pack.cover })),
+          typeof pack.id !== 'string' || !/^[a-z0-9-]{1,80}$/.test(pack.id) || typeof pack.title !== 'string' || pack.title.length > 120 || typeof pack.cover !== 'string' || !/^[0-9a-f-]{36}$/.test(pack.cover) || (pack as { autoHide?: unknown }).autoHide !== undefined && typeof (pack as { autoHide?: unknown }).autoHide !== 'boolean'))) throw new Error('合集搜索结果不受支持');
+        return { items: result.items.map((item: { id: string; title: string; autoHide?: boolean }) => ({ id: item.id, title: item.title, animatedOnly: kind === 'gifs', autoHide: item.autoHide })),
+          packs: result.packs?.map((pack: { id: string; title: string; cover: string; autoHide?: boolean }) => ({ id: pack.id, title: pack.title, cover: pack.cover, autoHide: pack.autoHide })),
           nextPage: result.nextPage, source: typeof result.source === 'string' ? result.source.slice(0, 120) : undefined };
       },
       media: async (id, signal) => {
@@ -3704,6 +3709,9 @@ export class QuietRoomApp {
         if (input) this.beginKeyboardHandoff(input, event);
       },
     });
+    // Once the picker owns the gesture, a delayed Safari blur must not be
+    // mistaken for a fresh departure and lock an actively used panel.
+    this.clearMemePanelHandoff();
   }
 
   private async favoriteChatMeme(message: DecryptedMessage, manifest: ImageManifest): Promise<void> {
@@ -6115,7 +6123,7 @@ export class QuietRoomApp {
     }
   }
 
-  private async processImageBatch(files: File[], destination: 'chat' | 'gallery', operationSignal?: AbortSignal, expression = false, videoRetryId?: string): Promise<boolean> {
+  private async processImageBatch(files: File[], destination: 'chat' | 'gallery', operationSignal?: AbortSignal, expression = false, videoRetryId?: string, expressionAutoHide = false): Promise<boolean> {
     const session = this.session;
     if (!session || this.privacyCovered || files.length === 0) return false;
     if (expression && (destination !== 'chat' || files.length !== 1 || !files[0]!.type.startsWith('image/'))) return false;
@@ -6279,7 +6287,10 @@ export class QuietRoomApp {
             : replyTarget
               ? { v: 2, kind: 'image', image: manifests[0]!, sentAt, replyTo: this.replyReference(replyTarget) }
               : { v: 1, kind: 'image', image: manifests[0]!, sentAt };
-      if (expression && payload.kind === 'image') payload.presentation = 'expression';
+      if (expression && payload.kind === 'image') {
+        payload.presentation = expressionAutoHide ? 'expression-hidden' : 'expression';
+        payload.expressionAutoHide = Boolean(expressionAutoHide);
+      }
       signal?.throwIfAborted();
       videoUpload?.view.update('finishing');
       await this.enqueuePayload(payload, clientMsgId, operationSignal);
@@ -7605,6 +7616,7 @@ export class QuietRoomApp {
       const preview = this.createImagePreview(message.payload.image, [message.payload.image], 0, message.clientMsgId);
       if (expression) {
         preview.dataset.expression = 'true';
+        if (message.payload.kind === 'image' && message.payload.expressionAutoHide !== undefined) preview.dataset.expressionAutoHide = String(message.payload.expressionAutoHide);
         const image = preview.querySelector('img');
         if (image) image.style.width = `${image.width * 2 / 3}px`;
         this.updateChatImageVisibility(preview);
@@ -8300,7 +8312,10 @@ export class QuietRoomApp {
 
   private updateChatImageVisibility(button: HTMLButtonElement): void {
     const key = button.dataset.revealKey!;
-    const revealed = !this.privacyCovered && this.chatRevealedAssets.has(key);
+    const expression = button.dataset.expression === 'true';
+    const autoHide = button.dataset.expressionAutoHide === 'true';
+    const explicitExpressionVisibility = button.dataset.expressionAutoHide !== undefined;
+    const revealed = !this.privacyCovered && (expression && explicitExpressionVisibility ? (!autoHide || this.chatRevealedAssets.has(key)) : this.chatRevealedAssets.has(key));
     button.dataset.revealed = String(revealed);
     button.setAttribute('aria-label', (revealed ? button.dataset.openLabel : button.dataset.revealLabel)!);
   }

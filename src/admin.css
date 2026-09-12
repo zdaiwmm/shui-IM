@@ -158,6 +158,8 @@ input:user-invalid { border-color: var(--danger); }
 .resource-detail { display: grid; grid-template-columns: minmax(240px, 360px) minmax(0, 1fr); gap: 40px; margin-top: 24px; }
 .resource-editor, .resource-media { min-width: 0; }
 .resource-editor form { margin-top: 0; }
+.resource-editor .toggle-field { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.resource-editor .toggle-field input { width: 18px; height: 18px; }
 .resource-attribution { font-size: .75rem; color: var(--muted); overflow-wrap: anywhere; }
 .expression-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; }
 .expression-gallery img { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--subtle); border-radius: var(--radius); }

@@ -167,7 +167,7 @@ try {
 
   await page.waitForFunction(() => document.querySelectorAll('.message .image-preview img').length === 4);
   await assertVisibility(4, 0, 'Initial cached and decrypted thumbnails');
-  // Sent photos, videos and expressions now share the same explicit reveal rule.
+  // Ordinary media remains concealed; expressions without automatic hiding stay visible.
   const outgoingId = await page.evaluate(() => {
     const app = window.chatPrivacy.app;
     const message = app.messages.get(1);

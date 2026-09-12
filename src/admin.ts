@@ -232,7 +232,7 @@ async function detail(id: string) {
   } catch (error) { if (epoch === view) content.append(errorState(error, () => void detail(id))); }
 }
 
-type Expression = { id: string; kind: 'gifs' | 'stickers'; title: string; tags: string; author: string; source: string; status: string; count: number; items?: { position: number; title: string }[] };
+type Expression = { id: string; kind: 'gifs' | 'stickers'; title: string; tags: string; author: string; source: string; status: string; count: number; autoHide?: boolean; items?: { position: number; title: string }[] };
 let expressionKind: 'gifs' | 'stickers' = 'gifs';
 let expressionPage = 1;
 let expressionStatus = 'all';
@@ -531,11 +531,13 @@ async function editExpression(id: string) {
     const preview = document.createElement('section'); preview.className = 'resource-media'; preview.append(pageToolbar('原图预览', `${entry.count} 张`));
     layout.append(editor, preview); content.append(layout);
     const form = document.createElement('form');
-    form.innerHTML = `<label>名称<input name="title" maxlength="120" required></label><label>标签<input name="tags" maxlength="2048"></label><label>状态<select name="status"><option value="pending">待上架</option><option value="published">已上架</option></select></label><button class="primary" type="submit">保存</button>`;
+    form.innerHTML = `<label>名称<input name="title" maxlength="120" required></label><label>标签<input name="tags" maxlength="2048"></label><label>状态<select name="status"><option value="pending">待上架</option><option value="published">已上架</option></select></label><label class="toggle-field"><input name="autoHide" type="checkbox"> 自动隐藏</label><button class="primary" type="submit">保存</button>`;
     for (const key of ['title', 'tags', 'status'] as const) (form.elements.namedItem(key) as HTMLInputElement).value = entry[key];
+    (form.elements.namedItem('autoHide') as HTMLInputElement).checked = Boolean(entry.autoHide);
     form.addEventListener('submit', async event => {
       event.preventDefault(); const button = form.querySelector('button')!; if (button.disabled) return;
       const values = Object.fromEntries(new FormData(form));
+      (values as Record<string, unknown>).autoHide = (form.elements.namedItem('autoHide') as HTMLInputElement).checked;
       const controls = [...form.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLButtonElement>('input, select, button')]; controls.forEach(control => { control.disabled = true; });
       try { await api(`/expressions/${id}`, 'PATCH', values); if (view === epoch) report('已保存', 'success'); }
       catch (error) { if (view === epoch) report(error); } finally { controls.forEach(control => { control.disabled = false; }); }

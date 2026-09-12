@@ -8,6 +8,7 @@ describe('expression classification', () => {
   it('distinguishes explicit expressions from arbitrary photos and filenames', () => {
     expect(isExpressionPayload(ordinary)).toBe(false);
     expect(isExpressionPayload({ ...ordinary, presentation: 'expression' })).toBe(true);
+    expect(isExpressionPayload({ ...ordinary, presentation: 'expression-hidden' })).toBe(true);
     expect(isExpressionPayload({ ...ordinary, image: { ...ordinary.image, originalName: 'sticker.gif' } })).toBe(false);
   });
   it('recognizes historical bundled originals by digest without reclassifying direct Safe uploads', () => {
