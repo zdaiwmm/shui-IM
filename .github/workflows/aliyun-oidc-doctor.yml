@@ -18,6 +18,29 @@ jobs:
     timeout-minutes: 5
     environment: production
     steps:
+      - name: Inspect OIDC claims without printing the token
+        shell: bash
+        run: |
+          set -euo pipefail
+          response=$(curl --fail --silent --show-error \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.aliyuncs.com")
+          printf '%s' "$response" > "$RUNNER_TEMP/quiet-room-oidc.json"
+          RUNNER_TEMP="$RUNNER_TEMP" node <<'NODE'
+          import { readFileSync } from 'node:fs';
+
+          const response = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/quiet-room-oidc.json`, 'utf8'));
+          const token = response.value;
+          const claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
+          const visible = Object.fromEntries(
+            ['iss', 'aud', 'sub', 'repository', 'environment', 'ref', 'event_name', 'job_workflow_ref']
+              .filter((key) => claims[key] !== undefined)
+              .map((key) => [key, claims[key]]),
+          );
+          console.log(JSON.stringify(visible, null, 2));
+          NODE
+          rm -f "$RUNNER_TEMP/quiet-room-oidc.json"
+
       - name: Exchange GitHub OIDC token for RAM role credentials
         uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
         with:
