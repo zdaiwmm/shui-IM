@@ -96,7 +96,13 @@
 .meme-preview-actions button + button { border-top: 1px solid var(--line); color: var(--accent); }
 .meme-preview-close { display: block; margin: 10px auto 0; min-height: 44px; padding: 8px 24px; font: inherit; color: var(--ink); }
 .chat-shell .message-bubble.expression-bubble { max-width: min(192px, 100%); }
-.message-bubble.expression-bubble > .image-preview { background: transparent; border-radius: 12px; overflow: hidden; box-shadow: none; }
+.message-bubble.expression-bubble > .image-preview,
+.message-bubble.expression-bubble > .image-preview[data-image-state='loaded'] {
+  background: none;
+  border: 0;
+  border-radius: 12px;
+  box-shadow: none;
+}
 .chat-shell .expression-bubble .image-preview { max-width: min(192px, 100%); }
 .chat-shell .expression-bubble .image-preview img { border-radius: 12px; max-height: min(28svh, 213.333px); }
 .message-bubble.expression-bubble > .message-meta { position: static; justify-self: end; margin-top: 4px; background: transparent; color: var(--ink-muted); }
