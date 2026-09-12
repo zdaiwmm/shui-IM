@@ -191,6 +191,21 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 
 ## 本次线上发布记录
 
+- 日期：2026-09-12（Asia/Shanghai）；服务器批次 `20260912T075839Z`，独立回读于
+  `2026-09-12T08:04:57Z` 成功。应用提交
+  `b9ec6754ef6dbaf3d0ac348654ec2bf9fa8ec088`，版本 `2026.09.12.2`；PR #113 已合并。
+- 本批修复后台 GIF/贴纸自动隐藏未传递到聊天发送的问题，移除聊天表情的额外背景和边框，并优化贴纸快捷入口拖动的帧率与右边缘反向滑动；更新日志已随 `release.json` 发布。
+- 精确 main CI
+  [34681349485](https://github.com/zdaiwmm/shui-IM/actions/runs/34681349485) 全部通过，覆盖构建与单元/集成测试、浏览器回归四分片、原生通话、依赖审计、凭据扫描和 `verify` 汇总。
+- 固定入口 `node scripts/publish.mjs --sha b9ec6754ef6dbaf3d0ac348654ec2bf9fa8ec088` 返回
+  `DEPLOY_OK`／`DEPLOY_VERIFIED`；发布目录
+  `/opt/quiet-room/git-releases/20260912T075839Z-b9ec6754ef6d`，冷备份
+  `/opt/quiet-room/backups/predeploy/data-20260912T075839Z-b9ec6754ef6d.tar.gz`。
+- 独立 `READBACK_OK` 总耗时 2,709ms：线上 SHA、维护标记、容器状态和公开/容器产物一致；应用健康，
+  备份容器运行中且无健康探针；HTTPS `ok`／`database`／`storage` 与新建公开 WebSocket 均通过。运行镜像摘要为
+  `sha256:668b8f2e3cbc9138c165ba8279d64605684992d0cefe1e7db5a62a7cc343ed03`。
+- iPhone / iOS 27 / Safari 真机、生产管理员逐项操作、独立密码学审计和高安全发布门槛仍未完成；文档提交不代表应用再次部署。
+
 - 日期：2026-09-12（Asia/Shanghai）；服务器批次 `20260912T020340Z`，独立回读于
   `2026-09-12T02:06:08Z` 成功。应用提交
   `28cf70d380406d9a699873608f8df0430d2e8db2`，版本 `2026.09.12.1`；PR #110 已合并。
