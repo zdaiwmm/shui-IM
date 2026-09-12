@@ -5,5 +5,5 @@ const shippedDigests = new Set(starters.packs.flatMap(pack => pack.items.map(ite
 
 /** Older clients sent bundled expressions as ordinary images without a marker. */
 export function isExpressionPayload(payload: MessagePayload): boolean {
-  return payload.kind === 'image' && (payload.presentation === 'expression' || shippedDigests.has(payload.image.sha256));
+  return payload.kind === 'image' && (payload.presentation === 'expression' || payload.presentation === 'expression-hidden' || shippedDigests.has(payload.image.sha256));
 }

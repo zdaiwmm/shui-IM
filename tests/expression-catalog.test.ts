@@ -29,7 +29,7 @@ async function fixture() {
   return { get service() { return service; }, fetchResource, restart: async () => { await service.close(); service = createExpressionCatalog({ dataDir, fetchResource }); } };
 }
 const search = (kind = 'gifs') => ({ kind, keyword: '', page: 1 });
-const upload = (kind = 'gifs', title = 'Test') => ({ kind, title, tags: 'cat', files: [{ data: gif.toString('base64') }] });
+const upload = (kind = 'gifs', title = 'Test', autoHide = false) => ({ kind, title, tags: 'cat', autoHide, files: [{ data: gif.toString('base64') }] });
 async function finished(service: ReturnType<typeof createExpressionCatalog>) {
   await vi.waitFor(() => expect(service.jobs()[0].status).not.toBe('running'));
   return service.jobs()[0];
@@ -101,6 +101,19 @@ describe('managed expression catalog', () => {
     expect(f.service.preview(entry.id, 0).bytes).toEqual(gif);
     f.service.remove(entry.id); expect(() => f.service.detail(entry.id)).toThrow('MEME_NOT_FOUND');
     expect(f.fetchResource).not.toHaveBeenCalled();
+  });
+  it('persists the automatic-hide setting and applies a pack setting to every item', async () => {
+    const f = await fixture();
+    const gifEntry = await f.service.create(upload('gifs', 'Hidden GIF', true));
+    const packEntry = await f.service.create(upload('stickers', 'Hidden pack', true));
+    f.service.updateStatus({ ids: [gifEntry.id, packEntry.id], status: 'published' });
+    expect(f.service.detail(gifEntry.id)).toMatchObject({ autoHide: true });
+    expect((await f.service.search('owner', search('gifs'))).items[0]).toMatchObject({ autoHide: true });
+    expect(await f.service.pack('owner', packEntry.id)).toMatchObject({ autoHide: true, items: [{ autoHide: true }] });
+    f.service.update(gifEntry.id, { title: 'Hidden GIF', tags: 'cat', status: 'published', autoHide: false });
+    expect(f.service.detail(gifEntry.id).autoHide).toBe(false);
+    await f.restart();
+    expect(f.service.detail(packEntry.id).autoHide).toBe(true);
   });
   it('imports a .wastickers package through the existing moderated catalog', async () => {
     const f = await fixture();

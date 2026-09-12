@@ -246,7 +246,8 @@ export type ImagePayload = {
   v: 1 | 2;
   kind: 'image';
   image: ImageManifest;
-  presentation?: 'expression';
+  presentation?: 'expression' | 'expression-hidden';
+  expressionAutoHide?: boolean;
   sentAt: string;
   replyTo?: ReplyReference;
 };
