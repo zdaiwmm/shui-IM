@@ -131,7 +131,7 @@ export class MemePicker {
     }, { root: this.panel.querySelector('.meme-scroll'), rootMargin: '120px' });
     this.autoPage.observe(this.sentinel);
     const shortcuts = this.panel.querySelector<HTMLElement>('.meme-pack-shortcuts')!;
-    type SheetDrag = { id: number; x: number; y: number; height: number; full: boolean; moving: boolean; scrolling: boolean; scrollLeft: number; maxScrollLeft: number; fromPack: boolean; lastX: number; lastAt: number; velocity: number; overshoot: number; left: number; right: number };
+    type SheetDrag = { id: number; x: number; y: number; height: number; full: boolean; moving: boolean; scrolling: boolean; scrollLeft: number; maxScrollLeft: number; fromPack: boolean; lastX: number; lastAt: number; velocity: number; overshoot: number; position: number; frame: number | null };
     type ShortcutHold = { id: number; x: number; y: number; button: HTMLButtonElement; timer: number };
     type ShortcutReorder = {
       id: number; button: HTMLButtonElement; floating: HTMLButtonElement; placeholder: HTMLElement | null; left: number; right: number;
@@ -160,6 +160,24 @@ export class MemePicker {
     const stopShortcutAnimation = () => {
       if (shortcutAnimation !== null) cancelAnimationFrame(shortcutAnimation);
       shortcutAnimation = null;
+    };
+    const flushShortcutScroll = (state: SheetDrag) => {
+      if (state.frame !== null) {
+        cancelAnimationFrame(state.frame);
+        state.frame = null;
+      }
+      const clamped = Math.max(0, Math.min(state.maxScrollLeft, state.position));
+      state.overshoot = rubberBand(state.position - clamped);
+      shortcuts.scrollLeft = clamped;
+      renderShortcutPull(state.overshoot);
+    };
+    const scheduleShortcutScroll = (state: SheetDrag) => {
+      if (state.frame !== null) return;
+      state.frame = requestAnimationFrame(() => {
+        state.frame = null;
+        if (drag !== state || !state.scrolling) return;
+        flushShortcutScroll(state);
+      });
     };
     const releaseShortcut = (velocity: number, overshoot: number, maxScrollLeft: number) => {
       stopShortcutAnimation();
@@ -326,10 +344,9 @@ export class MemePicker {
       if (event.button !== 0 || this.sheetAnimation || this.preview || this.busy || reorder) return;
       const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>('button[data-shortcut^="pack:"]') : null;
       stopShortcutAnimation(); clearShortcutPull();
-      const bounds = shortcuts.getBoundingClientRect();
       drag = { id: event.pointerId, x: event.clientX, y: event.clientY, height: this.panel.getBoundingClientRect().height,
         full: Boolean(this.overlay), moving: false, scrolling: false, scrollLeft: shortcuts.scrollLeft, maxScrollLeft: shortcutMax(), fromPack: Boolean(button),
-        lastX: event.clientX, lastAt: performance.now(), velocity: 0, overshoot: 0, left: bounds.left, right: bounds.right };
+        lastX: event.clientX, lastAt: performance.now(), velocity: 0, overshoot: 0, position: shortcuts.scrollLeft, frame: null };
       if (button) {
         const pending: ShortcutHold = { id: event.pointerId, x: event.clientX, y: event.clientY, button, timer: 0 };
         pending.timer = window.setTimeout(() => beginReorder(pending), 500);
@@ -356,16 +373,14 @@ export class MemePicker {
       if (!drag.moving && drag.fromPack && (drag.scrolling || Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy))) {
         drag.scrolling = true;
         event.preventDefault();
-        const raw = drag.scrollLeft - dx;
-        const clamped = Math.max(0, Math.min(drag.maxScrollLeft, raw));
+        // Keep the scroll position incremental. Using the initial pointer
+        // delta makes a bar stick at the edge until the finger crosses its
+        // starting point, so reversing direction appears to push it back.
+        drag.position -= event.clientX - drag.lastX;
         const elapsed = Math.max(1, now - drag.lastAt);
         drag.velocity = (event.clientX - drag.lastX) / elapsed * -1;
         drag.lastX = event.clientX; drag.lastAt = now;
-        // At the right edge a leftward swipe must not rubber-band the bar to
-        // the right, which feels like the gesture is reversed on touchscreens.
-        drag.overshoot = raw < 0 ? rubberBand(raw) : 0;
-        shortcuts.scrollLeft = clamped;
-        renderShortcutPull(drag.overshoot);
+        scheduleShortcutScroll(drag);
         return;
       }
       if (!drag.moving) {
@@ -389,6 +404,7 @@ export class MemePicker {
       const start = drag; drag = undefined;
       if (start.scrolling) {
         this.suppressShortcutClickUntil = performance.now() + 500;
+        flushShortcutScroll(start);
         releaseShortcut(start.velocity, start.overshoot, start.maxScrollLeft);
         return;
       }

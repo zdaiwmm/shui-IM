@@ -321,6 +321,11 @@ try {
   const shortcutRightSettling = await sampleShortcutScroll();
   assert.ok(Math.min(...shortcutRightSettling.values) >= shortcutRightSettling.max - 1,
     `Sticker shortcut moved back from the right edge while settling: ${JSON.stringify(shortcutRightSettling)}`);
+  await dispatchShortcutDrag(shortcutBounds.x + 8, shortcutBounds.x + shortcutBounds.width + 100, 104);
+  await page.waitForTimeout(120);
+  const shortcutReversed = await page.locator('.meme-pack-shortcuts').evaluate(bar => ({ scrollLeft: bar.scrollLeft, max: bar.scrollWidth - bar.clientWidth }));
+  assert.ok(shortcutReversed.scrollLeft < shortcutReversed.max - 1,
+    `Sticker shortcut did not reverse immediately from the right edge: ${JSON.stringify(shortcutReversed)}`);
   await page.locator('.meme-pack-shortcuts [data-synthetic-shortcut="true"]').evaluateAll(nodes => nodes.forEach(node => node.remove()));
   await page.waitForTimeout(600);
   await page.locator('.meme-pack-shortcuts button[title="测试合集"]').click();

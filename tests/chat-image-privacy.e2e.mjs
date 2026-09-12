@@ -167,7 +167,15 @@ try {
 
   await page.waitForFunction(() => document.querySelectorAll('.message .image-preview img').length === 4);
   await assertVisibility(4, 0, 'Initial cached and decrypted thumbnails');
-  // Ordinary media remains concealed; expressions without automatic hiding stay visible.
+  const expressionStyle = await page.locator('.message .image-preview[data-expression="true"]').evaluate(element => {
+    const style = getComputedStyle(element);
+    return { backgroundImage: style.backgroundImage, borderTopWidth: style.borderTopWidth, borderRightWidth: style.borderRightWidth,
+      borderBottomWidth: style.borderBottomWidth, borderLeftWidth: style.borderLeftWidth, boxShadow: style.boxShadow };
+  });
+  assert.deepEqual(expressionStyle, { backgroundImage: 'none', borderTopWidth: '0px', borderRightWidth: '0px',
+    borderBottomWidth: '0px', borderLeftWidth: '0px', boxShadow: 'none' },
+    'Chat expressions must render without a fallback background or border');
+  // Sent photos, videos and expressions now share the same explicit reveal rule.
   const outgoingId = await page.evaluate(() => {
     const app = window.chatPrivacy.app;
     const message = app.messages.get(1);
