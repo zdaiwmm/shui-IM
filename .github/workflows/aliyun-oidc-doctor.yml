@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify Alibaba OIDC and ECS access
+    name: Verify Alibaba OIDC and SAS access
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: production
@@ -55,55 +55,53 @@ jobs:
         with:
           version: 3.4.11
 
-      - name: Read the configured ECS instance
+      - name: Read the configured Simple Application Server instance
         env:
-          ALIBABA_CLOUD_REGION_ID: ${{ vars.ECS_REGION_ID }}
-          ECS_REGION_ID: ${{ vars.ECS_REGION_ID }}
-          ECS_INSTANCE_ID: ${{ vars.ECS_INSTANCE_ID }}
+          ALIBABA_CLOUD_REGION_ID: ${{ vars.SAS_REGION_ID || vars.ECS_REGION_ID }}
+          SAS_REGION_ID: ${{ vars.SAS_REGION_ID || vars.ECS_REGION_ID }}
+          SAS_INSTANCE_ID: ${{ vars.SAS_INSTANCE_ID || vars.ECS_INSTANCE_ID }}
         shell: bash
         run: |
           set -euo pipefail
-          case "$ECS_INSTANCE_ID" in
+          case "$SAS_INSTANCE_ID" in
             *'<'*|*'>'*)
-              echo "ECS_INSTANCE_ID must be a real ECS instance ID without angle-bracket placeholders" >&2
+              echo "SAS_INSTANCE_ID must be a real Simple Application Server ID without angle-bracket placeholders" >&2
               exit 2
               ;;
           esac
-          instance_without_prefix="${ECS_INSTANCE_ID#i-}"
-          instance_ids=$(printf '["%s","i-%s"]' "$ECS_INSTANCE_ID" "$instance_without_prefix")
-          aliyun ecs DescribeInstances \
-            --RegionId "$ECS_REGION_ID" \
+          instance_ids=$(printf '["%s"]' "$SAS_INSTANCE_ID")
+          aliyun swas-open ListInstances \
+            --RegionId "$SAS_REGION_ID" \
             --InstanceIds "$instance_ids" \
-            > "$RUNNER_TEMP/quiet-room-ecs.json"
+            > "$RUNNER_TEMP/quiet-room-sas.json"
 
           if ! node -e "
             const { readFileSync } = require('node:fs');
-            const payload = JSON.parse(readFileSync(process.env.RUNNER_TEMP + '/quiet-room-ecs.json', 'utf8'));
-            process.exit((payload?.Instances?.Instance ?? []).length ? 0 : 1);
+            const payload = JSON.parse(readFileSync(process.env.RUNNER_TEMP + '/quiet-room-sas.json', 'utf8'));
+            process.exit((payload?.Instances ?? []).length ? 0 : 1);
           "; then
-            echo "Configured ID was not returned; listing visible ECS instances in ${ECS_REGION_ID} for diagnosis"
-            aliyun ecs DescribeInstances \
-              --RegionId "$ECS_REGION_ID" \
+            echo "Configured ID was not returned; listing visible Simple Application Server instances in ${SAS_REGION_ID} for diagnosis"
+            aliyun swas-open ListInstances \
+              --RegionId "$SAS_REGION_ID" \
               --PageSize 100 \
-              > "$RUNNER_TEMP/quiet-room-ecs.json"
+              > "$RUNNER_TEMP/quiet-room-sas.json"
           fi
 
-          ECS_INSTANCE_ID="$ECS_INSTANCE_ID" node <<'NODE'
+          SAS_INSTANCE_ID="$SAS_INSTANCE_ID" node <<'NODE'
           import { readFileSync } from 'node:fs';
 
-          const expected = process.env.ECS_INSTANCE_ID;
-          const payload = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/quiet-room-ecs.json`, 'utf8'));
-          const instances = payload?.Instances?.Instance ?? [];
-          const normalize = (id) => id.replace(/^i-/, '');
-          const instance = instances.find(({ InstanceId }) => normalize(InstanceId) === normalize(expected));
+          const expected = process.env.SAS_INSTANCE_ID;
+          const payload = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/quiet-room-sas.json`, 'utf8'));
+          const instances = Array.isArray(payload?.Instances) ? payload.Instances : [];
+          const instance = instances.find(({ InstanceId }) => InstanceId === expected);
 
           if (!instance) {
             const returned = instances.map(({ InstanceId, Status }) => `${InstanceId}:${Status}`).join(', ');
-            throw new Error(`ECS instance ${expected} was not returned by DescribeInstances (returned: ${returned || 'none'})`);
+            throw new Error(`SAS instance ${expected} was not returned by ListInstances (returned: ${returned || 'none'})`);
           }
           if (instance.Status !== 'Running') {
-            throw new Error(`ECS instance ${expected} is ${instance.Status}, expected Running`);
+            throw new Error(`SAS instance ${expected} is ${instance.Status}, expected Running`);
           }
 
-          console.log(`ECS_OIDC_OK instance=${instance.InstanceId} status=${instance.Status}`);
+          console.log(`SAS_OIDC_OK instance=${instance.InstanceId} status=${instance.Status}`);
           NODE
