@@ -43,6 +43,7 @@ function git(args) {
 
 export function determineScope({ eventName, event, runGit = git }) {
   if (eventName === 'workflow_dispatch') return complete('Manual verification always runs the complete suite.');
+  if (eventName === 'merge_group') return complete('Merge queue groups always run the complete suite.');
   if (!['pull_request', 'push'].includes(eventName)) return complete('Unknown event requires the complete suite.');
   try {
     const head = runGit(['rev-parse', '--verify', 'HEAD']).trim();
