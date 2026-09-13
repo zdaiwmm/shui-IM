@@ -518,8 +518,9 @@ async function expressions() {
       const name = document.createElement('div'); const title = document.createElement('strong'); title.textContent = entry.title;
       const author = document.createElement('p'); author.textContent = entry.author; name.append(title, author);
       const autoHide = document.createElement('label'); autoHide.className = 'toggle-field';
-      const autoHideInput = document.createElement('input'); autoHideInput.type = 'checkbox'; autoHideInput.checked = Boolean(entry.autoHide); autoHideInput.setAttribute('aria-label', `${entry.title} 自动隐藏`);
-      autoHideInput.addEventListener('change', () => void changeAutoHide(entry, autoHideInput)); autoHide.append(autoHideInput, document.createTextNode('启用'));
+      const autoHideInput = document.createElement('input'); autoHideInput.type = 'checkbox'; autoHideInput.className = 'toggle-input'; autoHideInput.checked = Boolean(entry.autoHide); autoHideInput.setAttribute('aria-label', `${entry.title} 自动隐藏`);
+      const autoHideTrack = document.createElement('span'); autoHideTrack.className = 'toggle-track'; autoHideTrack.setAttribute('aria-hidden', 'true');
+      autoHideInput.addEventListener('change', () => void changeAutoHide(entry, autoHideInput)); autoHide.append(autoHideInput, autoHideTrack, document.createTextNode('启用'));
       const actions = document.createElement('div'); actions.className = 'actions';
       actions.append(iconButton(`编辑 ${entry.title}`, Pencil, () => void editExpression(entry.id)));
       const toggle = document.createElement('button'); toggle.textContent = entry.status === 'published' ? '下架' : '上架';

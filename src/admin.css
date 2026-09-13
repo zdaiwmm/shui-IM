@@ -158,8 +158,14 @@ input:user-invalid { border-color: var(--danger); }
 .resource-detail { display: grid; grid-template-columns: minmax(240px, 360px) minmax(0, 1fr); gap: 40px; margin-top: 24px; }
 .resource-editor, .resource-media { min-width: 0; }
 .resource-editor form { margin-top: 0; }
-.resource-editor .toggle-field { display: flex; align-items: center; gap: 8px; min-height: 44px; }
-.resource-editor .toggle-field input { width: 18px; height: 18px; }
+.toggle-field { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
+.toggle-field .toggle-input { position: absolute; width: 1px; height: 1px; margin: -1px; opacity: 0; clip: rect(0 0 0 0); }
+.toggle-track { position: relative; width: 42px; height: 24px; flex: 0 0 42px; border: 1px solid var(--border); border-radius: 999px; background: var(--subtle); transition: background .16s ease, border-color .16s ease; }
+.toggle-track::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--muted); transition: transform .16s ease, background .16s ease; }
+.toggle-input:checked + .toggle-track { border-color: var(--accent-fill); background: var(--accent-fill); }
+.toggle-input:checked + .toggle-track::after { background: var(--on-accent); transform: translateX(18px); }
+.toggle-input:focus-visible + .toggle-track { outline: 2px solid var(--focus); outline-offset: 2px; }
+.toggle-input:disabled + .toggle-track { opacity: .6; }
 .resource-attribution { font-size: .75rem; color: var(--muted); overflow-wrap: anywhere; }
 .expression-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 12px; }
 .expression-gallery img { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; background: var(--subtle); border-radius: var(--radius); }
