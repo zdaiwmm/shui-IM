@@ -76,6 +76,18 @@ jobs:
             --InstanceIds "$instance_ids" \
             > "$RUNNER_TEMP/quiet-room-ecs.json"
 
+          if ! node -e "
+            const { readFileSync } = require('node:fs');
+            const payload = JSON.parse(readFileSync(process.env.RUNNER_TEMP + '/quiet-room-ecs.json', 'utf8'));
+            process.exit((payload?.Instances?.Instance ?? []).length ? 0 : 1);
+          "; then
+            echo "Configured ID was not returned; listing visible ECS instances in ${ECS_REGION_ID} for diagnosis"
+            aliyun ecs DescribeInstances \
+              --RegionId "$ECS_REGION_ID" \
+              --PageSize 100 \
+              > "$RUNNER_TEMP/quiet-room-ecs.json"
+          fi
+
           ECS_INSTANCE_ID="$ECS_INSTANCE_ID" node <<'NODE'
           import { readFileSync } from 'node:fs';
 
