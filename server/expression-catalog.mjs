@@ -327,7 +327,12 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       return { type: row.type, bytes: Buffer.from(row.bytes) };
     },
     update(id, body) {
-      const entry = get(id); const values = metadata(body);
+      const entry = get(id);
+      // The list toggle sends only autoHide. The detail editor sends the full
+      // metadata object, so validate both shapes without weakening either.
+      const hasMetadata = body && (Object.hasOwn(body, 'title') || Object.hasOwn(body, 'tags') || Object.hasOwn(body, 'status'));
+      const values = hasMetadata ? metadata(body) : [entry.title, entry.tags, entry.status];
+      if (!hasMetadata && (!body || typeof body.autoHide !== 'boolean')) fail('MEME_INVALID_QUERY');
       db.prepare('UPDATE entries SET title=?,tags=?,status=?,auto_hide=? WHERE id=?').run(...values, body.autoHide === undefined ? entry.auto_hide : body.autoHide ? 1 : 0, id);
       return service.detail(id);
     },
