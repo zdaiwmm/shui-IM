@@ -63,7 +63,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          instance_ids=$(printf '["%s"]' "$ECS_INSTANCE_ID")
+          case "$ECS_INSTANCE_ID" in
+            *'<'*|*'>'*)
+              echo "ECS_INSTANCE_ID must be a real ECS instance ID without angle-bracket placeholders" >&2
+              exit 2
+              ;;
+          esac
+          instance_without_prefix="${ECS_INSTANCE_ID#i-}"
+          instance_ids=$(printf '["%s","i-%s"]' "$ECS_INSTANCE_ID" "$instance_without_prefix")
           aliyun ecs DescribeInstances \
             --RegionId "$ECS_REGION_ID" \
             --InstanceIds "$instance_ids" \
@@ -75,10 +82,12 @@ jobs:
           const expected = process.env.ECS_INSTANCE_ID;
           const payload = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/quiet-room-ecs.json`, 'utf8'));
           const instances = payload?.Instances?.Instance ?? [];
-          const instance = instances.find(({ InstanceId }) => InstanceId === expected);
+          const normalize = (id) => id.replace(/^i-/, '');
+          const instance = instances.find(({ InstanceId }) => normalize(InstanceId) === normalize(expected));
 
           if (!instance) {
-            throw new Error(`ECS instance ${expected} was not returned by DescribeInstances`);
+            const returned = instances.map(({ InstanceId, Status }) => `${InstanceId}:${Status}`).join(', ');
+            throw new Error(`ECS instance ${expected} was not returned by DescribeInstances (returned: ${returned || 'none'})`);
           }
           if (instance.Status !== 'Running') {
             throw new Error(`ECS instance ${expected} is ${instance.Status}, expected Running`);
