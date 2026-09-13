@@ -40,7 +40,7 @@ describe('CI documentation scope', () => {
   it('falls back to full verification for empty changes, unavailable events and manual runs', () => {
     const repo = repository();
     expect(repo.scope(repo.before).mode).toBe('full');
-    for (const eventName of ['workflow_dispatch', 'schedule', 'unknown', undefined]) {
+    for (const eventName of ['workflow_dispatch', 'merge_group', 'schedule', 'unknown', undefined]) {
       expect(determineScope({ eventName, event: {}, runGit: repo.git }).mode).toBe('full');
     }
     expect(determineScope({ eventName: 'push', event: null, runGit: repo.git }).mode).toBe('full');
