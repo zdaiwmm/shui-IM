@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Required checks for pull requests tested by GitHub Merge Queue.
+  merge_group:
   # A documentation-only main commit needs this full run before release.
   workflow_dispatch:
 
