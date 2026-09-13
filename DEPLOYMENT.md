@@ -139,20 +139,69 @@ the pull request and wait for the exact main CI result before publishing.
 
 The repository includes a manual `Alibaba OIDC doctor` workflow. It exchanges
 the GitHub Actions OIDC token for the `quiet-room-github-production` RAM role
-and reads the configured ECS instance with `DescribeInstances`; it does not
-deploy or execute a command on the server.
+and reads the configured Simple Application Server (SAS) instance with
+`swas-open:ListInstances`; it does not deploy or execute a command on the
+server.
 
 In the GitHub `production` environment, keep these four non-secret variables:
 
 ```text
 ALIBABA_OIDC_PROVIDER_ARN=acs:ram::1364322673254107:oidc-provider/github-actions-shui-im
 ALIBABA_DEPLOY_ROLE_ARN=acs:ram::1364322673254107:role/quiet-room-github-production
-ECS_REGION_ID=cn-wuhan-lr
-ECS_INSTANCE_ID=i-f2bf8acfb4754bf08e5f6d8534c3ce83
+SAS_REGION_ID=cn-wuhan-lr
+SAS_INSTANCE_ID=f2bf8acfb4754bf08e5f6d8534c3ce83
 ```
 
+For one transition run, the workflow also accepts the existing `ECS_REGION_ID`
+and `ECS_INSTANCE_ID` variable names as fallbacks. New configuration should use
+the `SAS_*` names because this server is not an ECS instance.
+
+The RAM role must use the SAS service code. Replace the old `ecs:*` instance
+permissions with this minimum read/command policy (keep the OIDC trust policy
+unchanged):
+
+```json
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["swas-open:ListInstances"],
+      "Resource": [
+        "acs:swas-open:cn-wuhan-lr:1364322673254107:instance/f2bf8acfb4754bf08e5f6d8534c3ce83"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["swas-open:RunCommand"],
+      "Resource": [
+        "acs:swas-open:cn-wuhan-lr:1364322673254107:command/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["swas-open:DescribeInvocations"],
+      "Resource": [
+        "acs:swas-open:cn-wuhan-lr:1364322673254107:f2bf8acfb4754bf08e5f6d8534c3ce83"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": ["swas-open:DescribeInvocationResult"],
+      "Resource": [
+        "acs:swas-open:cn-wuhan-lr:1364322673254107:command/f2bf8acfb4754bf08e5f6d8534c3ce83"
+      ]
+    }
+  ]
+}
+```
+
+The first statement is required by the doctor. The remaining statements are
+for the later command-based deployment path and can be omitted if this role is
+only used for the read-only readiness check.
+
 Run it from **Actions → Alibaba OIDC doctor → Run workflow**, using `main`.
-The expected final line is `ECS_OIDC_OK` with the configured instance ID and
+The expected final line is `SAS_OIDC_OK` with the configured instance ID and
 `status=Running`. A failed run is an authentication or RAM-policy diagnosis;
 it is not evidence that production changed.
 
