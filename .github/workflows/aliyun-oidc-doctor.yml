@@ -34,6 +34,7 @@ jobs:
 
       - name: Read the configured ECS instance
         env:
+          ALIBABA_CLOUD_REGION_ID: ${{ vars.ECS_REGION_ID }}
           ECS_REGION_ID: ${{ vars.ECS_REGION_ID }}
           ECS_INSTANCE_ID: ${{ vars.ECS_INSTANCE_ID }}
         shell: bash
