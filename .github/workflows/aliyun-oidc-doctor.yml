@@ -71,7 +71,7 @@ jobs:
           esac
           instance_ids=$(printf '["%s"]' "$SAS_INSTANCE_ID")
           aliyun swas-open ListInstances \
-            --version 2020-06-01 \
+            --api-version 2020-06-01 \
             --endpoint "swas.${SAS_REGION_ID}.aliyuncs.com" \
             --force \
             --RegionId "$SAS_REGION_ID" \
@@ -85,7 +85,7 @@ jobs:
           "; then
             echo "Configured ID was not returned; listing visible Simple Application Server instances in ${SAS_REGION_ID} for diagnosis"
             aliyun swas-open ListInstances \
-              --version 2020-06-01 \
+              --api-version 2020-06-01 \
               --endpoint "swas.${SAS_REGION_ID}.aliyuncs.com" \
               --force \
               --RegionId "$SAS_REGION_ID" \
