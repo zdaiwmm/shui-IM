@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # GitHub merge queue speculative groups must run the same required checks.
+  merge_group:
+    types: [checks_requested]
   # A documentation-only main commit needs this full run before release.
   workflow_dispatch:
 
