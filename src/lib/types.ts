@@ -54,6 +54,7 @@ export type MlsMembershipEnvelope = {
   target?: RoomMember;
   replacedDeviceId?: string;
   recoveryRequest?: RecoveryRequest;
+  repairRequest?: RepairRequest;
   commit: string;
   welcome?: string;
   signature: string;
@@ -64,6 +65,19 @@ export type RecoveryRequest = {
   protocol: 'mls-rfc9420';
   roomId: string;
   requestId: string;
+  sourceDeviceId: string;
+  replacement: PublicBundle;
+  tokenHash: string;
+  expiresAt: string;
+  signature: string;
+};
+
+export type RepairRequest = {
+  v: 1;
+  protocol: 'mls-rfc9420';
+  roomId: string;
+  requestId: string;
+  initiatorDeviceId: string;
   sourceDeviceId: string;
   replacement: PublicBundle;
   tokenHash: string;
@@ -109,7 +123,7 @@ export type Vault = {
   members: RoomMember[];
   lastSeq: number;
   lastReceiptSeq?: number;
-  pairingState?: 'joining' | 'linking' | 'recovering' | 'ready';
+  pairingState?: 'joining' | 'linking' | 'recovering' | 'repairing' | 'ready';
   pendingRecovery?: {
     request: RecoveryRequest;
     checkpointMembers: RoomMember[];
@@ -126,6 +140,13 @@ export type Vault = {
   mls?: MlsVaultState;
   pendingDeviceLinks?: PendingDeviceLink[];
   pendingDeviceLinkId?: string;
+  pendingRepair?: {
+    linkId: string;
+    secret: string;
+    expiresAt: string;
+    checkpointEventSeq: number;
+    request?: RepairRequest;
+  };
 };
 
 export type VaultKdf = {
