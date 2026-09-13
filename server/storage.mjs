@@ -177,6 +177,21 @@ export async function createStore({
     );
     CREATE UNIQUE INDEX IF NOT EXISTS one_pending_recovery ON recovery_requests(room_id, source_device_id) WHERE status = 'pending';
     CREATE UNIQUE INDEX IF NOT EXISTS one_room_recovery ON recovery_requests(room_id) WHERE status = 'pending';
+
+    CREATE TABLE IF NOT EXISTS repair_links (
+      link_id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+      initiator_id TEXT NOT NULL,
+      source_device_id TEXT NOT NULL,
+      secret_hash BLOB NOT NULL,
+      expires_at TEXT NOT NULL,
+      claimed_device_id TEXT,
+      claimed_at TEXT,
+      used_at TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(room_id, initiator_id) REFERENCES members(room_id, device_id) ON DELETE CASCADE,
+      FOREIGN KEY(room_id, source_device_id) REFERENCES members(room_id, device_id) ON DELETE CASCADE
+    );
   `);
 
   const eventsSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mls_events'").get()?.sql ?? '';
@@ -723,6 +738,70 @@ export async function createStore({
     return statements.deviceLinksForRoom.all(roomId, authorizerId).map(publicDeviceLink);
   }
 
+  function publicRepairLink(row) {
+    if (!row) return null;
+    return { linkId: row.link_id, roomId: row.room_id, initiatorId: row.initiator_id, sourceDeviceId: row.source_device_id,
+      expiresAt: row.expires_at, claimedDeviceId: row.claimed_device_id, createdAt: row.created_at,
+      claimedAt: row.claimed_at, usedAt: row.used_at };
+  }
+
+  function createRepairLink(roomId, initiatorId, sourceDeviceId, linkId, secret, expiresAt) {
+    cleanupExpiredRepairLinks(nowIso());
+    const room = statements.room.get(roomId);
+    const initiator = getMember(roomId, initiatorId);
+    const source = getMember(roomId, sourceDeviceId);
+    if (!room || room.protocol !== 'mls-rfc9420' || !initiator || !source || source.status !== 'active' || sourceDeviceId === initiatorId) throw new Error('INVALID_REPAIR_LINK');
+    assertDeviceActive(roomId, initiatorId);
+    if (statements.memberReservationCountForRole.get(roomId, source.role).count >= 3) throw new Error('DEVICE_LIMIT');
+    const expires = Date.parse(expiresAt);
+    if (!Number.isFinite(expires) || expires <= Date.now() || expires > Date.now() + 15 * 60_000) throw new Error('INVALID_REPAIR_LINK');
+    db.prepare(`INSERT INTO repair_links(link_id, room_id, initiator_id, source_device_id, secret_hash, expires_at, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`).run(linkId, roomId, initiatorId, sourceDeviceId, hashToken(secret), expiresAt, nowIso());
+    return publicRepairLink(db.prepare('SELECT * FROM repair_links WHERE link_id = ?').get(linkId));
+  }
+
+  function repairLinkRow(linkId) { return db.prepare('SELECT * FROM repair_links WHERE link_id = ?').get(linkId); }
+  function claimRepairLink(linkId, secret, bundle, accessToken, deviceName, capabilities = []) {
+    cleanupExpiredRepairLinks(nowIso());
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const link = repairLinkRow(linkId);
+      if (!link || !validToken(secret) || !timingSafeEqual(Buffer.from(link.secret_hash), hashToken(secret)) || link.used_at || Date.parse(link.expires_at) <= Date.now()) throw new Error('INVALID_REPAIR_LINK');
+      assertDeviceActive(link.room_id, link.initiator_id);
+      const source = getMember(link.room_id, link.source_device_id);
+      if (!source || source.status !== 'active') throw new Error('REPAIR_SOURCE_UNAVAILABLE');
+      if (link.claimed_device_id) {
+        if (link.claimed_device_id !== bundle.deviceId) throw new Error('REPAIR_LINK_CLAIMED');
+        db.exec('COMMIT');
+        return { link: publicRepairLink(link), state: roomState(link.room_id) };
+      }
+      if (statements.memberReservationCountForRole.get(link.room_id, source.role).count >= 3 || statements.member.get(link.room_id, bundle.deviceId)) throw new Error('DEVICE_LIMIT');
+      if (!bundle.mlsKeyPackage) throw new Error('PROTOCOL_MISMATCH');
+      const createdAt = nowIso();
+      statements.insertMember.run(link.room_id, bundle.deviceId, source.role, JSON.stringify(bundle.encryptionKey), JSON.stringify(bundle.signingKey), bundle.mlsKeyPackage, null, hashToken(accessToken), deviceName, 'pending', link.initiator_id, 0, 0, JSON.stringify(capabilities), createdAt);
+      const changed = db.prepare('UPDATE repair_links SET claimed_device_id = ?, claimed_at = ? WHERE link_id = ? AND claimed_device_id IS NULL AND used_at IS NULL').run(bundle.deviceId, createdAt, linkId).changes;
+      if (changed !== 1) throw new Error('REPAIR_LINK_CLAIMED');
+      db.exec('COMMIT');
+      return { link: publicRepairLink(repairLinkRow(linkId)), state: roomState(link.room_id) };
+    } catch (error) { db.exec('ROLLBACK'); throw error; }
+  }
+
+  function repairLinkStatus(linkId, secret) {
+    const link = repairLinkRow(linkId);
+    if (!link || !validToken(secret) || !timingSafeEqual(Buffer.from(link.secret_hash), hashToken(secret))) throw new Error('INVALID_REPAIR_LINK');
+    if (!link.used_at) assertDeviceActive(link.room_id, link.initiator_id);
+    return { link: publicRepairLink(link), state: roomState(link.room_id) };
+  }
+
+  function cleanupExpiredRepairLinks(cutoffIso = nowIso()) {
+    const rows = db.prepare('SELECT * FROM repair_links WHERE used_at IS NULL AND expires_at <= ?').all(cutoffIso);
+    for (const row of rows) {
+      if (row.claimed_device_id) statements.deletePendingLinkedMember.run(row.room_id, row.claimed_device_id, row.initiator_id);
+      db.prepare('DELETE FROM repair_links WHERE link_id = ? AND used_at IS NULL').run(row.link_id);
+    }
+    return rows.length;
+  }
+
   function cleanupExpiredDeviceLinks(cutoffIso = nowIso()) {
     const expired = statements.expiredDeviceLinks.all(cutoffIso);
     if (expired.length === 0) return 0;
@@ -792,17 +871,23 @@ export async function createStore({
         if (canonicalStringify(envelope.target) !== expected || !envelope.welcome) throw new Error('INVALID_MLS_EVENT');
         if (statements.memberCountForRole.get(roomId, target.role).count >= 3) throw new Error('DEVICE_LIMIT');
       } else if (envelope.action === 'replace') {
-        const pending = db.prepare("SELECT * FROM recovery_requests WHERE room_id = ? AND request_id = ? AND status = 'pending' AND expires_at > ?")
+        const pendingRecovery = db.prepare("SELECT * FROM recovery_requests WHERE room_id = ? AND request_id = ? AND status = 'pending' AND expires_at > ?")
           .get(roomId, envelope.recoveryRequest?.requestId ?? '', nowIso());
+        const repair = envelope.repairRequest;
+        const pendingRepair = repair ? db.prepare("SELECT * FROM repair_links WHERE room_id = ? AND claimed_device_id = ? AND used_at IS NULL AND expires_at > ?")
+          .get(roomId, envelope.targetId, nowIso()) : null;
         const source = getMember(roomId, envelope.replacedDeviceId);
-        if (!pending || pending.source_device_id !== source?.deviceId || source.status !== 'active' ||
-          pending.replacement_device_id !== target?.deviceId || target.status !== 'pending' ||
-          target.role !== source.role || target.addedBy !== source.deviceId || source.deviceId === sender.deviceId ||
-          canonicalStringify(JSON.parse(pending.request)) !== canonicalStringify(envelope.recoveryRequest) ||
-          canonicalStringify(target) !== canonicalStringify(envelope.target) || !envelope.welcome) {
+        const validRecovery = pendingRecovery && !repair && pendingRecovery.source_device_id === source?.deviceId && source.status === 'active' &&
+          pendingRecovery.replacement_device_id === target?.deviceId && target.status === 'pending' && target.role === source.role && target.addedBy === source.deviceId && source.deviceId !== sender.deviceId &&
+          canonicalStringify(JSON.parse(pendingRecovery.request)) === canonicalStringify(envelope.recoveryRequest);
+        const validRepair = pendingRepair && repair && repair.initiatorDeviceId === sender.deviceId && pendingRepair.initiator_id === sender.deviceId &&
+          pendingRepair.source_device_id === source?.deviceId && source.status === 'active' && target?.status === 'pending' && target.role === source.role && target.addedBy === sender.deviceId &&
+          canonicalStringify(JSON.parse(JSON.stringify(repair.replacement))) === canonicalStringify({ deviceId: target?.deviceId, encryptionKey: target?.encryptionKey, signingKey: target?.signingKey, mlsKeyPackage: target?.mlsKeyPackage }) &&
+          timingSafeEqual(Buffer.from(pendingRepair.secret_hash), Buffer.from(repair.tokenHash, 'base64url'));
+        if ((!validRecovery && !validRepair) || canonicalStringify(target) !== canonicalStringify(envelope.target) || !envelope.welcome) {
           throw new Error('INVALID_RECOVERY_REQUEST');
         }
-        if (statements.members.all(roomId).map(memberRow).some((member) =>
+        if (!validRepair && statements.members.all(roomId).map(memberRow).some((member) =>
           member.status === 'active' && member.deviceId !== source.deviceId && !member.capabilities.includes('recovery-replace-v1'))) {
           throw new Error('RECOVERY_REQUIRES_UPGRADE');
         }
@@ -835,8 +920,8 @@ export async function createStore({
         if (envelope.action === 'replace') {
           if (statements.revokeMember.run(acceptedAt, roomId, envelope.replacedDeviceId).changes !== 1) throw new Error('INVALID_RECOVERY_REQUEST');
           statements.deletePushSubscription.run(roomId, envelope.replacedDeviceId);
-          db.prepare("UPDATE recovery_requests SET status = 'completed' WHERE room_id = ? AND request_id = ?")
-            .run(roomId, envelope.recoveryRequest.requestId);
+          if (envelope.recoveryRequest) db.prepare("UPDATE recovery_requests SET status = 'completed' WHERE room_id = ? AND request_id = ?").run(roomId, envelope.recoveryRequest.requestId);
+          if (envelope.repairRequest) db.prepare("UPDATE repair_links SET used_at = ? WHERE link_id = ? AND used_at IS NULL").run(acceptedAt, pendingRepair.link_id);
         }
         const link = db.prepare('SELECT link_id FROM device_links WHERE room_id = ? AND claimed_device_id = ? AND used_at IS NULL')
           .get(roomId, envelope.targetId);
@@ -1319,6 +1404,7 @@ export async function createStore({
     createBlob,
     createRoom,
     createDeviceLink,
+    createRepairLink,
     deleteRoom,
     getBlobChunk,
     getMember,
@@ -1330,6 +1416,8 @@ export async function createStore({
     joinRoom,
     claimDeviceLink,
     deviceLinkStatus,
+    claimRepairLink,
+    repairLinkStatus,
     deviceLinksForRoom,
     messagesAfter,
     mlsEventsAfter,

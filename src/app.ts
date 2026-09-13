@@ -16,12 +16,15 @@ import {
   ApiError,
   completeBlob,
   claimDeviceLink,
+  claimRepairLink,
   createDeviceLink,
+  createRepairLink,
   createRoom,
   deleteRoom,
   fetchBlobChunk,
   getBlobStatus,
   getDeviceLinkStatus,
+  getRepairLinkStatus,
   getRoomState,
   getCallConfiguration,
   joinRoom,
@@ -67,6 +70,8 @@ import {
   makeParticipantInviteUrl,
   parseInviteText,
   type DeviceInvite,
+  makeRepairInviteUrl,
+  type RepairInvite,
   type ParticipantInvite as Invite,
 } from './lib/invite-link';
 import { messageLocalDay } from './lib/message-date';
@@ -115,6 +120,8 @@ import {
   prepareMlsMembership,
   processMlsMembership,
   prepareMlsRecoveryReplacement,
+  prepareMlsRepairReplacement,
+  createRepairRequest,
   verifyRecoveryMembershipChain,
 } from './lib/mls';
 import {
@@ -1293,6 +1300,7 @@ export class QuietRoomApp {
     else {
       const inviteLink = classifyInviteHash(location.hash);
       if (inviteLink.kind === 'device') this.renderJoinDevice(inviteLink.invite);
+      else if (inviteLink.kind === 'repair') this.renderJoinRepair(inviteLink.invite);
       else this.renderFirstRun(inviteLink.kind === 'participant' ? inviteLink.invite : null);
     }
   }
@@ -2321,6 +2329,7 @@ export class QuietRoomApp {
       form.querySelector<HTMLTextAreaElement>('#invite-input')?.removeAttribute('aria-invalid');
       this.transitionPage('forward', () => {
         if (parsed.kind === 'device') this.renderJoinDevice(parsed.invite);
+        else if (parsed.kind === 'repair') this.renderJoinRepair(parsed.invite);
         else this.renderJoin(parsed.invite);
       });
     });
@@ -2429,6 +2438,52 @@ export class QuietRoomApp {
       history.replaceState(null, '', `${location.pathname}${location.search}`);
       this.renderFirstRun(null);
     });
+  }
+
+  private renderJoinRepair(invite: RepairInvite): void {
+    this.gatewayTemplate('修复这台设备', '旧设备会被安全替换，新设备只会收到修复完成后的新消息。', `
+      ${this.passkeySetupMarkup()}
+      <p class="form-note">完成后请保持页面打开，回到发起修复的设备核对六位安全码并批准。</p>
+      <button class="text-button gateway-back" type="button">返回</button>
+    `);
+    this.mountPasskeySetup((platformResult) => this.handleJoinRepair(invite, platformResult), '正在生成修复设备密钥…');
+    this.root.querySelector('.gateway-back')?.addEventListener('click', () => { history.replaceState(null, '', `${location.pathname}${location.search}`); this.renderFirstRun(null); });
+  }
+
+  private async handleJoinRepair(invite: RepairInvite, platformResult: PlatformCredentialResult): Promise<void> {
+    const epoch = this.runtimeEpoch;
+    const initialSession = this.session;
+    const active = () => !this.privacyCovered && this.runtimeEpoch === epoch && this.session === initialSession;
+    const status = await getRepairLinkStatus(invite.linkId, invite.secret);
+    if (!active()) return;
+    if (status.link.usedAt || status.link.claimedDeviceId || status.link.roomId !== invite.roomId || status.link.sourceDeviceId !== invite.sourceDeviceId || status.link.initiatorId !== invite.initiatorId) throw new Error('这条修复邀请已失效，请让对方重新生成');
+    const initiator = status.state.members.find(member => member.deviceId === invite.initiatorId);
+    const source = status.state.members.find(member => member.deviceId === invite.sourceDeviceId);
+    const creator = status.state.members.find(member => member.role === 'creator' && !member.addedBy);
+    if (!initiator || !source || !creator || await bundleFingerprint(memberBundle(initiator)) !== invite.initiatorFingerprint || await bundleFingerprint(memberBundle(source)) !== invite.sourceFingerprint || await bundleFingerprint(memberBundle(creator)) !== invite.creatorFingerprint) throw new SecurityViolation('修复邀请中的会话身份与服务器不一致');
+    const identity = await generateIdentity();
+    const accessToken = randomBase64Url(32);
+    const createdAt = new Date().toISOString();
+    const own: RoomMember = { ...identity.publicBundle, role: source.role, joinProof: null, deviceName: defaultDeviceName(), status: 'pending', addedBy: invite.initiatorId, joinSeq: 0, joinReceiptSeq: 0, revokedAt: null, capabilities: CLIENT_CAPABILITIES, createdAt };
+    const vault: Vault = { v: 3, roomId: invite.roomId, accessToken, role: source.role, pairingSecret: '', creatorFingerprint: invite.creatorFingerprint, identity, members: [...status.state.members, own], lastSeq: 0, lastReceiptSeq: 0, pairingState: 'repairing', historyUnavailableBeforeSeq: 0, createdAt, protocol: 'mls-rfc9420', mls: { protocol: 'mls-rfc9420', phase: 'awaiting-welcome', lastEventSeq: status.state.nextMlsEventSeq ?? 0 }, pendingRepair: { linkId: invite.linkId, secret: invite.secret, expiresAt: invite.expiresAt, checkpointEventSeq: status.state.nextMlsEventSeq ?? 0 } };
+    const createdSession = await createVault(vault, '', 'platform', platformResult, active);
+    if (!active()) return;
+    this.session = createdSession;
+    history.replaceState(null, '', `${location.pathname}${location.search}`);
+    await claimRepairLink(invite.linkId, invite.secret, identity.publicBundle, accessToken, defaultDeviceName(), CLIENT_CAPABILITIES);
+    await this.renderPendingRepair();
+  }
+
+  private async renderPendingRepair(cause?: unknown): Promise<void> {
+    const session = this.session;
+    if (!session || session.vault.pairingState !== 'repairing') return;
+    this.gatewayTemplate('等待修复授权', '请在发起修复的设备上核对六位安全码并批准。', `<div class="credential-only-step"><p class="form-error" id="repair-wait-error" role="status"></p><button class="primary-button" id="retry-repair" type="button">检查修复进度</button><button class="text-button" id="repair-lock" type="button">锁定并返回白屏</button></div>`);
+    const error = this.root.querySelector<HTMLElement>('#repair-wait-error')!;
+    error.textContent = cause instanceof Error ? cause.message : '等待发起方批准…';
+    const check = async () => { const pending = session.vault.pendingRepair; if (!pending) return; try { const result = await getRepairLinkStatus(pending.linkId, pending.secret, session.vault.accessToken); const own = session.vault.identity.publicBundle.deviceId; const event = result.state.mlsEvents?.find(item => item.event.action === 'replace' && item.event.targetId === own && item.event.repairRequest); if (!event) return; await withVaultMutation(session, async mutation => { const target = result.state.members.find(member => member.deviceId === own); if (!target) throw new SecurityViolation('修复设备未出现在会话成员中'); const nextVault = { ...session.vault, members: result.state.members, mls: { protocol: 'mls-rfc9420' as const, phase: 'awaiting-welcome' as const, lastEventSeq: event.eventSeq - 1 } }; nextVault.mls = await joinMlsMembership(nextVault, event.event, event.eventSeq); nextVault.identity.mlsPrivatePackage = undefined; nextVault.lastSeq = target.joinSeq ?? result.state.nextSeq; nextVault.lastReceiptSeq = target.joinReceiptSeq ?? result.state.nextReceiptSeq; nextVault.historyUnavailableBeforeSeq = nextVault.lastSeq; nextVault.pairingState = 'ready'; nextVault.pendingRepair = undefined; session.vault = nextVault; await saveVault(session, mutation); }); await this.openSession(); this.showNotice('设备修复完成，历史消息不会自动恢复'); } catch (nextCause) { if (error.isConnected) error.textContent = nextCause instanceof Error ? nextCause.message : '修复状态暂时不可用'; } finally { if (session.vault.pairingState === 'repairing') window.setTimeout(() => void check(), 3000); } };
+    this.root.querySelector('#retry-repair')?.addEventListener('click', () => void check());
+    this.root.querySelector('#repair-lock')?.addEventListener('click', () => this.lockNow());
+    window.setTimeout(() => void check(), 1000);
   }
 
   private async handleJoinDevice(
@@ -2873,6 +2928,10 @@ export class QuietRoomApp {
         await this.renderPendingDeviceLink();
         return;
       }
+    }
+    if (session.vault.pairingState === 'repairing') {
+      await this.renderPendingRepair();
+      return;
     }
     if (!this.isRuntimeActive(epoch, session)) return;
     const activeRoles = new Set(session.vault.members.filter((member) => member.status !== 'pending' && member.status !== 'revoked').map((member) => member.role));
@@ -4686,7 +4745,16 @@ export class QuietRoomApp {
       const peerSection = document.createElement('section');
       peerSection.className = 'device-section peer-device-section';
       peerSection.innerHTML = `<h2>对方设备 <span>${peerDevices.length} 台</span></h2>`;
-      for (const member of peerDevices) peerSection.append(this.deviceCard(member, false));
+      for (const member of peerDevices) {
+        const card = this.deviceCard(member, false);
+        if (member.status !== 'revoked') {
+          const repair = document.createElement('button');
+          repair.type = 'button'; repair.className = 'secondary-button compact-button'; repair.textContent = '修复此设备';
+          repair.addEventListener('click', () => void this.startRepairLink(member, repair));
+          card.append(repair);
+        }
+        peerSection.append(card);
+      }
       content.append(peerSection);
     } catch (cause) {
       this.operationalError(cause, '设备状态载入失败');
@@ -4776,9 +4844,45 @@ export class QuietRoomApp {
     }
   }
 
-  private async showDeviceInvite(invite: DeviceInvite, session = this.session, epoch = this.runtimeEpoch, returnFocus?: HTMLElement): Promise<void> {
+  private async startRepairLink(source: RoomMember, button: HTMLButtonElement): Promise<void> {
+    const session = this.session; const epoch = this.runtimeEpoch;
+    if (!session || !session.vault.mls) return;
+    setBusy(button, true, '正在生成…');
+    try {
+      const linkId = crypto.randomUUID(); const secret = randomBase64Url(32); const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
+      await createRepairLink(session.vault.roomId, session.vault.accessToken, { linkId, secret, expiresAt, sourceDeviceId: source.deviceId });
+      const creator = session.vault.members.find(member => member.role === 'creator' && !member.addedBy);
+      if (!creator) throw new SecurityViolation('创建者身份不完整');
+      const invite: RepairInvite = { v: 1, kind: 'repair-link', roomId: session.vault.roomId, linkId, secret, sourceDeviceId: source.deviceId, initiatorId: session.vault.identity.publicBundle.deviceId, initiatorFingerprint: await bundleFingerprint(memberBundle(session.vault.members.find(member => member.deviceId === session.vault.identity.publicBundle.deviceId)!)), sourceFingerprint: await bundleFingerprint(memberBundle(source)), creatorFingerprint: await bundleFingerprint(memberBundle(creator)), expiresAt };
+      await withVaultMutation(session, async mutation => { session.vault.pendingRepair = { linkId, secret, expiresAt, checkpointEventSeq: session.vault.mls?.lastEventSeq ?? 0 }; await saveVault(session, mutation); });
+      if (this.isRuntimeActive(epoch, session)) await this.showDeviceInvite(invite, session, epoch, button);
+      window.setTimeout(() => void this.finishRepairFromClaim(source, linkId, secret, epoch, session), 1200);
+    } catch (cause) { if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '修复邀请生成失败'); }
+    finally { if (button.isConnected) setBusy(button, false); }
+  }
+
+  private async finishRepairFromClaim(source: RoomMember, linkId: string, secret: string, epoch: number, session: VaultSession): Promise<void> {
+    if (!this.isRuntimeActive(epoch, session) || !session.vault.mls) return;
+    const result = await getRepairLinkStatus(linkId, secret, session.vault.accessToken).catch(() => null);
+    if (!result || !this.isRuntimeActive(epoch, session)) return;
+    const target = result.state.members.find(member => member.status === 'pending' && member.addedBy === session.vault.identity.publicBundle.deviceId && member.role === source.role);
+    if (!target) { window.setTimeout(() => void this.finishRepairFromClaim(source, linkId, secret, epoch, session), 2500); return; }
+    try {
+      await withVaultMutation(session, async mutation => {
+        if (!session.vault.mls) return;
+        const request = await createRepairRequest(session.vault, source.deviceId, memberBundle(target), secret);
+        session.vault.mls.pendingMembership = await prepareMlsRepairReplacement(session.vault, request, target);
+        await saveVault(session, mutation);
+        const published = await publishMlsMembership(session.vault.roomId, session.vault.accessToken, session.vault.mls.pendingMembership.event);
+        await this.applyRoomState(published.state, mutation);
+      });
+      if (this.isRuntimeActive(epoch, session)) { this.showNotice('修复邀请已批准，旧设备已撤销'); await this.renderDeviceManager(); }
+    } catch (cause) { if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '修复授权失败'); }
+  }
+
+  private async showDeviceInvite(invite: DeviceInvite | RepairInvite, session = this.session, epoch = this.runtimeEpoch, returnFocus?: HTMLElement): Promise<void> {
     if (!session || !this.isRuntimeActive(epoch, session)) return;
-    const url = makeDeviceInviteUrl(invite);
+    const url = invite.kind === 'repair-link' ? makeRepairInviteUrl(invite) : makeDeviceInviteUrl(invite);
     this.root.querySelector('.device-link-sheet')?.remove();
     const generation = ++this.deviceInviteGeneration;
     const sheet = document.createElement('section');
@@ -4789,7 +4893,7 @@ export class QuietRoomApp {
     sheet.innerHTML = `
       <div class="device-link-panel">
         <p class="eyebrow">10 分钟内有效</p>
-        <h2 id="device-link-title">在新设备上打开</h2>
+        <h2 id="device-link-title">${invite.kind === 'repair-link' ? '在新设备上打开修复邀请' : '在新设备上打开'}</h2>
         <canvas width="232" height="232" aria-label="添加设备二维码"></canvas>
         <p>新设备只会收到你批准加入之后的新消息。加入前的历史密钥不会复制过去。</p>
         <input readonly aria-label="设备链接" />

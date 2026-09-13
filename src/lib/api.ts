@@ -8,6 +8,7 @@ import type {
   MlsWelcomeEnvelope,
   PublicBundle,
   RecoveryRequest,
+  RepairRequest,
   RoomState,
   ServerMessage,
   ServerMlsMembershipEvent,
@@ -29,6 +30,12 @@ export type DeviceLinkRecord = {
 };
 
 export type DeviceLinkState = { link: DeviceLinkRecord; state: RoomState };
+export type RepairLinkRecord = {
+  linkId: string; roomId: string; initiatorId: string; sourceDeviceId: string;
+  expiresAt: string; claimedDeviceId: string | null; createdAt: string;
+  claimedAt: string | null; usedAt: string | null;
+};
+export type RepairLinkState = { link: RepairLinkRecord; state: RoomState };
 
 export class ApiError extends Error {
   constructor(
@@ -213,6 +220,33 @@ export async function getDeviceLinkStatus(
       'Content-Type': 'application/json',
       ...(deviceAccessToken ? { Authorization: `Bearer ${deviceAccessToken}` } : {}),
     },
+    body: JSON.stringify({ secret }),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json();
+}
+
+export async function createRepairLink(roomId: string, accessToken: string, body: {
+  linkId: string; secret: string; expiresAt: string; sourceDeviceId: string;
+}): Promise<RepairLinkRecord> {
+  const response = await authorizedFetch(`/api/rooms/${roomId}/repair-links`, accessToken, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  return response.json();
+}
+
+export async function claimRepairLink(linkId: string, secret: string, bundle: PublicBundle, deviceAccessToken: string, deviceName: string, capabilities: string[]): Promise<RepairLinkState> {
+  const response = await fetch(`/api/repair-links/${linkId}/claim`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ secret, bundle, deviceAccessToken, deviceName, capabilities }),
+  });
+  if (!response.ok) throw await responseError(response);
+  return response.json();
+}
+
+export async function getRepairLinkStatus(linkId: string, secret: string, deviceAccessToken?: string): Promise<RepairLinkState> {
+  const response = await fetch(`/api/repair-links/${linkId}/status`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...(deviceAccessToken ? { Authorization: `Bearer ${deviceAccessToken}` } : {}) },
     body: JSON.stringify({ secret }),
   });
   if (!response.ok) throw await responseError(response);

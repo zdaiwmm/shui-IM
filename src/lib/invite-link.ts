@@ -21,9 +21,24 @@ export type DeviceInvite = {
   expiresAt: string;
 };
 
+export type RepairInvite = {
+  v: 1;
+  kind: 'repair-link';
+  roomId: string;
+  linkId: string;
+  secret: string;
+  sourceDeviceId: string;
+  initiatorId: string;
+  initiatorFingerprint: string;
+  sourceFingerprint: string;
+  creatorFingerprint: string;
+  expiresAt: string;
+};
+
 export type ParsedInviteLink =
   | { kind: 'participant'; invite: ParticipantInvite }
-  | { kind: 'device'; invite: DeviceInvite };
+  | { kind: 'device'; invite: DeviceInvite }
+  | { kind: 'repair'; invite: RepairInvite };
 
 export type InviteLinkClassification = ParsedInviteLink | { kind: 'invalid' };
 
@@ -46,6 +61,10 @@ const deviceKeys = [
   'roomId',
   'secret',
   'v',
+] as const;
+const repairKeys = [
+  'creatorFingerprint', 'expiresAt', 'initiatorFingerprint', 'initiatorId', 'kind',
+  'linkId', 'roomId', 'secret', 'sourceDeviceId', 'sourceFingerprint', 'v',
 ] as const;
 
 const encoder = new TextEncoder();
@@ -120,6 +139,19 @@ function deviceInvite(value: unknown): DeviceInvite | null {
   };
 }
 
+function repairInvite(value: unknown): RepairInvite | null {
+  if (!isRecord(value) || !hasExactKeys(value, repairKeys)) return null;
+  if (value.v !== 1 || value.kind !== 'repair-link' ||
+    typeof value.roomId !== 'string' || !UUID_V4.test(value.roomId) ||
+    typeof value.linkId !== 'string' || !UUID_V4.test(value.linkId) ||
+    !isBase64UrlWithin(value.secret, MIN_CAPABILITY_LENGTH, MAX_CAPABILITY_LENGTH) ||
+    typeof value.sourceDeviceId !== 'string' || !UUID_V4.test(value.sourceDeviceId) ||
+    typeof value.initiatorId !== 'string' || !UUID_V4.test(value.initiatorId) ||
+    !isFingerprint(value.initiatorFingerprint) || !isFingerprint(value.sourceFingerprint) ||
+    !isFingerprint(value.creatorFingerprint) || !isCanonicalTimestamp(value.expiresAt)) return null;
+  return value as RepairInvite;
+}
+
 function decodeInvite(encoded: string): unknown {
   if (!encoded || encoded.length > MAX_ENCODED_INVITE_LENGTH || !BASE64_URL.test(encoded)) return null;
   try {
@@ -144,6 +176,10 @@ export function classifyInviteHash(hash: string): InviteLinkClassification {
   if (key === 'device') {
     const invite = deviceInvite(decoded);
     return invite ? { kind: 'device', invite } : { kind: 'invalid' };
+  }
+  if (key === 'repair') {
+    const invite = repairInvite(decoded);
+    return invite ? { kind: 'repair', invite } : { kind: 'invalid' };
   }
   return { kind: 'invalid' };
 }
@@ -173,8 +209,15 @@ function validBaseUrl(baseUrl?: string | URL): URL {
   return url;
 }
 
-function encodedInvite(value: ParticipantInvite | DeviceInvite): string {
+function encodedInvite(value: ParticipantInvite | DeviceInvite | RepairInvite): string {
   return toBase64Url(encoder.encode(JSON.stringify(value)));
+}
+
+export function makeRepairInviteUrl(invite: RepairInvite, baseUrl?: string | URL): string {
+  const validated = repairInvite(invite);
+  if (!validated) throw new TypeError('Invalid repair invite');
+  const base = validBaseUrl(baseUrl);
+  return `${base.origin}${base.pathname}#repair=${encodedInvite(validated)}`;
 }
 
 export function makeParticipantInviteUrl(invite: ParticipantInvite, baseUrl?: string | URL): string {
