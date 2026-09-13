@@ -630,6 +630,41 @@ export async function startServer(options = {}) {
         return;
       }
 
+      const repairLinksMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/repair-links$`));
+      if (repairLinksMatch && request.method === 'POST') {
+        const roomId = repairLinksMatch[1];
+        const device = store.authenticatedDevice(roomId, bearerToken(request));
+        if (!device) { json(request, response, 401, { error: 'UNAUTHORIZED' }); return; }
+        const body = await readJson(request);
+        if (!isUuid(body.linkId) || body.initiatorId && body.initiatorId !== device.deviceId || !isUuid(body.sourceDeviceId) ||
+          typeof body.secret !== 'string' || body.secret.length < 32 || body.secret.length > 512 || typeof body.expiresAt !== 'string') {
+          json(request, response, 400, { error: 'INVALID_REPAIR_LINK' }); return;
+        }
+        requireActiveDevice(request, roomId, device.deviceId);
+        json(request, response, 201, store.createRepairLink(roomId, device.deviceId, body.sourceDeviceId, body.linkId, body.secret, body.expiresAt));
+        return;
+      }
+      const claimRepairLinkMatch = pathname.match(new RegExp(`^/api/repair-links/(${ID_PATTERN})/claim$`));
+      if (request.method === 'POST' && claimRepairLinkMatch) {
+        const body = await readJson(request);
+        if (typeof body.secret !== 'string' || body.secret.length < 32 || body.secret.length > 512 || !validatePublicBundle(body.bundle) || !body.bundle.mlsKeyPackage || typeof body.deviceAccessToken !== 'string' || body.deviceAccessToken.length < 32 || !validDeviceMetadata(body.deviceName, body.capabilities ?? [])) {
+          json(request, response, 400, { error: 'INVALID_REPAIR_LINK' }); return;
+        }
+        const claimed = store.claimRepairLink(claimRepairLinkMatch[1], body.secret, body.bundle, body.deviceAccessToken, body.deviceName.trim(), body.capabilities ?? []);
+        broadcast(claimed.link.roomId, { type: 'membership', state: publicState(claimed.state) });
+        broadcastPresence(claimed.link.roomId);
+        json(request, response, 201, { link: claimed.link, state: publicState(claimed.state) });
+        return;
+      }
+      const repairLinkStatusMatch = pathname.match(new RegExp(`^/api/repair-links/(${ID_PATTERN})/status$`));
+      if (request.method === 'POST' && repairLinkStatusMatch) {
+        const body = await readJson(request);
+        const result = store.repairLinkStatus(repairLinkStatusMatch[1], body.secret);
+        if (result.link.usedAt && (!result.link.claimedDeviceId || !store.authenticatedDevice(result.link.roomId, bearerToken(request), result.link.claimedDeviceId))) { json(request, response, 401, { error: 'UNAUTHORIZED' }); return; }
+        json(request, response, 200, { link: result.link, state: publicState(result.state) });
+        return;
+      }
+
       const deviceLinkStatusMatch = pathname.match(new RegExp(`^/api/device-links/(${ID_PATTERN})/status$`));
       if (request.method === 'POST' && deviceLinkStatusMatch) {
         const body = await readJson(request);

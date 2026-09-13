@@ -41,6 +41,7 @@ import type {
   PublicBundle,
   RoomMember,
   RecoveryRequest,
+  RepairRequest,
   RoomState,
   Vault,
 } from './types';
@@ -225,7 +226,7 @@ async function verifyMembershipEnvelope(vault: Vault, envelope: MlsMembershipEnv
 export async function createRecoveryRequest(
   vault: Vault,
   replacement: PublicBundle,
-  newAccessToken: string,
+  requestSecret: string,
 ): Promise<RecoveryRequest> {
   const unsigned: Omit<RecoveryRequest, 'signature'> = {
     v: 1,
@@ -234,7 +235,7 @@ export async function createRecoveryRequest(
     requestId: crypto.randomUUID(),
     sourceDeviceId: vault.identity.publicBundle.deviceId,
     replacement,
-    tokenHash: toBase64Url(await crypto.subtle.digest('SHA-256', encoder.encode(newAccessToken))),
+    tokenHash: toBase64Url(await crypto.subtle.digest('SHA-256', encoder.encode(requestSecret))),
     expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
   };
   return { ...unsigned, signature: await signEcdsa(vault.identity.signingPrivateKey, unsigned) };
@@ -249,9 +250,51 @@ export async function verifyRecoveryRequest(vault: Pick<Vault, 'roomId' | 'membe
   if (!await verifyEcdsa(source.signingKey, signature, unsigned)) throw new Error('恢复授权签名验证失败');
 }
 
+export async function createRepairRequest(
+  vault: Vault,
+  sourceDeviceId: string,
+  replacement: PublicBundle,
+  newAccessToken: string,
+): Promise<RepairRequest> {
+  if (sourceDeviceId === vault.identity.publicBundle.deviceId || sourceDeviceId === replacement.deviceId) {
+    throw new Error('修复目标设备不正确');
+  }
+  const source = vault.members.find(member => member.deviceId === sourceDeviceId);
+  if (!source || source.status === 'revoked' || !replacement.mlsKeyPackage) throw new Error('修复目标设备不存在');
+  const unsigned: Omit<RepairRequest, 'signature'> = {
+    v: 1, protocol: 'mls-rfc9420', roomId: vault.roomId, requestId: crypto.randomUUID(),
+    initiatorDeviceId: vault.identity.publicBundle.deviceId, sourceDeviceId, replacement,
+    tokenHash: toBase64Url(await crypto.subtle.digest('SHA-256', encoder.encode(newAccessToken))),
+    expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+  };
+  return { ...unsigned, signature: await signEcdsa(vault.identity.signingPrivateKey, unsigned) };
+}
+
+export async function verifyRepairRequest(vault: Pick<Vault, 'roomId' | 'members'>, request: RepairRequest): Promise<void> {
+  const initiator = vault.members.find(member => member.deviceId === request?.initiatorDeviceId);
+  const source = vault.members.find(member => member.deviceId === request?.sourceDeviceId);
+  if (!initiator || !source || source.status === 'revoked' || request.v !== 1 || request.protocol !== 'mls-rfc9420' ||
+    request.roomId !== vault.roomId || request.initiatorDeviceId === request.sourceDeviceId ||
+    request.sourceDeviceId === request.replacement?.deviceId || !request.replacement?.mlsKeyPackage ||
+    !Number.isFinite(Date.parse(request.expiresAt))) throw new Error('修复授权与会话身份不匹配');
+  const { signature, ...unsigned } = request;
+  if (!await verifyEcdsa(initiator.signingKey, signature, unsigned)) throw new Error('修复授权签名验证失败');
+}
+
 function verifyReplacementTarget(envelope: MlsMembershipEnvelope, members: RoomMember[]): void {
   const request = envelope.recoveryRequest;
+  const repair = envelope.repairRequest;
   const source = members.find((member) => member.deviceId === envelope.replacedDeviceId);
+  if (repair) {
+    const initiator = members.find(member => member.deviceId === repair.initiatorDeviceId);
+    if (!initiator || !source || !envelope.target || envelope.senderId !== repair.initiatorDeviceId ||
+      envelope.replacedDeviceId !== repair.sourceDeviceId || envelope.targetId !== repair.replacement.deviceId ||
+      envelope.target.addedBy !== repair.initiatorDeviceId || source.role !== envelope.target.role ||
+      canonicalStringify(memberBundleForMls(envelope.target)) !== canonicalStringify(repair.replacement)) {
+      throw new Error('修复替换目标与已签名授权不一致');
+    }
+    return;
+  }
   if (!request || !source || !envelope.target || envelope.targetId !== request.replacement.deviceId ||
     source.deviceId !== request.sourceDeviceId || envelope.senderId === source.deviceId ||
     source.role !== envelope.target.role || envelope.target.addedBy !== source.deviceId ||
@@ -332,6 +375,37 @@ export async function prepareMlsRecoveryReplacement(
       previousEventSeq: vault.mls.lastEventSeq ?? 0, action: 'replace',
       senderId: vault.identity.publicBundle.deviceId, targetId: target.deviceId, target,
       replacedDeviceId: request.sourceDeviceId, recoveryRequest: request,
+      commit: toBase64Url(encodeMlsMessage(result.commit)),
+      welcome: toBase64Url(encodeMlsMessage({ welcome: result.welcome, wireformat: 'mls_welcome', version: 'mls10' })),
+    };
+    const event = { ...unsigned, signature: await signEcdsa(vault.identity.signingPrivateKey, unsigned) };
+    verifyReplacementTarget(event, vault.members);
+    return { event, nextGroupState: encodeState(result.newState) };
+  } finally { clearConsumed(result.consumed); }
+}
+
+export async function prepareMlsRepairReplacement(
+  vault: Vault, request: RepairRequest, target: RoomMember,
+): Promise<{ event: MlsMembershipEnvelope; nextGroupState: string }> {
+  if (vault.mls?.phase !== 'active' || !vault.mls.groupState) throw new Error('当前设备尚未建立安全会话');
+  if (Date.parse(request.expiresAt) <= Date.now()) throw new Error('修复授权已过期');
+  await verifyRepairRequest(vault, request);
+  if (request.initiatorDeviceId !== vault.identity.publicBundle.deviceId || !target.mlsKeyPackage) throw new Error('需要发起修复的在线设备完成授权');
+  const state = decodeState(vault.mls.groupState, vault.members);
+  const removed = leafIndexForDevice(state, request.sourceDeviceId);
+  if (removed === null || request.sourceDeviceId === vault.identity.publicBundle.deviceId) throw new Error('修复目标设备不在当前会话');
+  const result = await createCommit({ state, cipherSuite: await cipherSuite() }, {
+    extraProposals: [
+      { proposalType: 'remove', remove: { removed } },
+      { proposalType: 'add', add: { keyPackage: decodeKeyPackage(target.mlsKeyPackage) } },
+    ], ratchetTreeExtension: true, wireAsPublicMessage: true,
+  });
+  try {
+    if (!result.welcome || result.commit.wireformat !== 'mls_public_message') throw new Error('修复替换未生成有效欢迎消息');
+    const unsigned: Omit<MlsMembershipEnvelope, 'signature'> = {
+      v: 1, protocol: 'mls-rfc9420', roomId: vault.roomId, eventId: crypto.randomUUID(),
+      previousEventSeq: vault.mls.lastEventSeq ?? 0, action: 'replace', senderId: vault.identity.publicBundle.deviceId,
+      targetId: target.deviceId, target, replacedDeviceId: request.sourceDeviceId, repairRequest: request,
       commit: toBase64Url(encodeMlsMessage(result.commit)),
       welcome: toBase64Url(encodeMlsMessage({ welcome: result.welcome, wireformat: 'mls_welcome', version: 'mls10' })),
     };
@@ -533,7 +607,8 @@ export async function processMlsMembership(
   await verifyMembershipEnvelope(vault, envelope);
   if (envelope.action === 'replace') {
     verifyReplacementTarget(envelope, vault.members);
-    await verifyRecoveryRequest(vault, envelope.recoveryRequest!);
+    if (envelope.recoveryRequest) await verifyRecoveryRequest(vault, envelope.recoveryRequest);
+    if (envelope.repairRequest) await verifyRepairRequest(vault, envelope.repairRequest);
   }
   if (eventSeq !== (vault.mls?.lastEventSeq ?? 0) + 1 || envelope.previousEventSeq !== eventSeq - 1) {
     throw new Error('MLS 设备变更顺序不连续');
@@ -587,7 +662,8 @@ export async function joinMlsMembership(
   await verifyMembershipEnvelope(vault, envelope);
   if (envelope.action === 'replace') {
     verifyReplacementTarget(envelope, vault.members);
-    await verifyRecoveryRequest(vault, envelope.recoveryRequest!);
+    if (envelope.recoveryRequest) await verifyRecoveryRequest(vault, envelope.recoveryRequest);
+    if (envelope.repairRequest) await verifyRepairRequest(vault, envelope.repairRequest);
   }
   if (eventSeq !== (vault.mls?.lastEventSeq ?? 0) + 1 || envelope.previousEventSeq !== eventSeq - 1) {
     throw new Error('MLS 新设备加入事件顺序不连续');

@@ -112,22 +112,25 @@ export function validateMlsMembershipShape(envelope, expectedRoomId) {
     envelope.signature.length > 512
   ) return false;
   if (envelope.action === 'replace') {
-    return validateRecoveryRequestShape(envelope.recoveryRequest, expectedRoomId) &&
+    const recovery = envelope.recoveryRequest;
+    const repair = envelope.repairRequest;
+    const validRequest = (validateRecoveryRequestShape(recovery, expectedRoomId) && !repair) || (validateRepairRequestShape(repair, expectedRoomId) && !recovery);
+    return validRequest &&
       isUuid(envelope.replacedDeviceId) &&
       envelope.replacedDeviceId !== envelope.senderId &&
-      envelope.replacedDeviceId === envelope.recoveryRequest.sourceDeviceId &&
-      canonicalStringify(envelope.recoveryRequest.replacement) === canonicalStringify({
+      envelope.replacedDeviceId === (recovery?.sourceDeviceId ?? repair?.sourceDeviceId) &&
+      canonicalStringify((recovery ?? repair).replacement) === canonicalStringify({
         deviceId: envelope.target?.deviceId, encryptionKey: envelope.target?.encryptionKey,
         signingKey: envelope.target?.signingKey, mlsKeyPackage: envelope.target?.mlsKeyPackage,
       }) &&
       validatePublicBundle(envelope.target) &&
       envelope.target.deviceId === envelope.targetId && envelope.target.status === 'pending' &&
-      envelope.target.addedBy === envelope.replacedDeviceId &&
+      (repair ? envelope.target.addedBy === repair.initiatorDeviceId : envelope.target.addedBy === envelope.replacedDeviceId) &&
       ['creator', 'joiner'].includes(envelope.target.role) &&
       typeof envelope.welcome === 'string' && envelope.welcome.length >= 64 &&
       envelope.welcome.length <= 256 * 1024 && /^[A-Za-z0-9_-]+$/.test(envelope.welcome);
   }
-  if (envelope.replacedDeviceId !== undefined || envelope.recoveryRequest !== undefined) return false;
+  if (envelope.replacedDeviceId !== undefined || envelope.recoveryRequest !== undefined || envelope.repairRequest !== undefined) return false;
   if (envelope.action === 'add') {
     return validatePublicBundle(envelope.target) &&
       envelope.target.deviceId === envelope.targetId &&
@@ -145,6 +148,17 @@ export function validateMlsMembershipShape(envelope, expectedRoomId) {
 export function validateRecoveryRequestShape(request, expectedRoomId) {
   return Boolean(request && request.v === 1 && request.protocol === 'mls-rfc9420' &&
     request.roomId === expectedRoomId && isUuid(request.requestId) && isUuid(request.sourceDeviceId) &&
+    validatePublicBundle(request.replacement) && request.replacement.mlsKeyPackage &&
+    request.sourceDeviceId !== request.replacement.deviceId &&
+    typeof request.tokenHash === 'string' && /^[A-Za-z0-9_-]{43}$/.test(request.tokenHash) &&
+    isCanonicalUtcTimestamp(request.expiresAt) &&
+    typeof request.signature === 'string' && /^[A-Za-z0-9_-]{1,512}$/.test(request.signature));
+}
+
+export function validateRepairRequestShape(request, expectedRoomId) {
+  return Boolean(request && request.v === 1 && request.protocol === 'mls-rfc9420' &&
+    request.roomId === expectedRoomId && isUuid(request.requestId) && isUuid(request.initiatorDeviceId) &&
+    isUuid(request.sourceDeviceId) && request.initiatorDeviceId !== request.sourceDeviceId &&
     validatePublicBundle(request.replacement) && request.replacement.mlsKeyPackage &&
     request.sourceDeviceId !== request.replacement.deviceId &&
     typeof request.tokenHash === 'string' && /^[A-Za-z0-9_-]{43}$/.test(request.tokenHash) &&
