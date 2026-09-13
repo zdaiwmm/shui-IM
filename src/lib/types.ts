@@ -123,7 +123,7 @@ export type Vault = {
   members: RoomMember[];
   lastSeq: number;
   lastReceiptSeq?: number;
-  pairingState?: 'joining' | 'linking' | 'recovering' | 'ready';
+  pairingState?: 'joining' | 'linking' | 'recovering' | 'repairing' | 'ready';
   pendingRecovery?: {
     request: RecoveryRequest;
     checkpointMembers: RoomMember[];
