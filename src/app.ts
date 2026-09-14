@@ -8039,7 +8039,7 @@ export class QuietRoomApp {
           </section>
           <section class="backup-setting backup-restore-setting">
             <div class="backup-setting-copy"><span class="backup-setting-icon" aria-hidden="true">${icons.safe}</span>
-              <div><h2>恢复历史内容</h2><p>旧内容不会自动出现，请选择要恢复的范围。</p></div></div>
+              <div><h2>恢复历史内容</h2><p>旧内容不会自动出现，可合并本会话多个设备的备份。</p></div></div>
             <div class="backup-actions"><button class="secondary-button" data-restore="chat" data-backup-ready type="button" disabled>恢复历史消息</button>
             ${session.vault.role === 'creator' ? '<button class="secondary-button" data-restore="gallery" data-backup-ready type="button" disabled>恢复保险箱</button>' : ''}</div>
             <div id="history-restore-form"></div>
@@ -8064,36 +8064,38 @@ export class QuietRoomApp {
       cancelRestore();
       const scope = button.dataset.restore === 'gallery' ? 'gallery' : 'chat';
       const host = this.root.querySelector<HTMLElement>('#history-restore-form')!;
-      host.innerHTML = `<form><label>本设备当前恢复码<input name="code" type="password" autocomplete="off" spellcheck="false" required placeholder="QR3-…" /></label>
-        <p class="field-hint">${scope === 'chat' ? '仅恢复历史消息。' : '仅恢复保险箱，不把旧消息加入聊天列表。'}图片原件在你查看时才下载解密。</p>
+      host.innerHTML = `<form><label>会话恢复码（每行一个）<textarea name="code" rows="3" autocomplete="off" spellcheck="false" required placeholder="QR3-…"></textarea></label>
+        <p class="field-hint">可填本会话各设备的 QR3 恢复码，重复填写会自动去重。${scope === 'chat' ? '仅恢复历史消息。' : '仅恢复保险箱，不把旧消息加入聊天列表。'}图片原件在你查看时才下载解密。</p>
         <button class="primary-button" type="submit">验证并恢复${scope === 'chat' ? '历史消息' : '保险箱'}</button><p role="status"></p></form>`;
       const form = host.querySelector('form')!;
-      const input = form.querySelector('input')!;
+      const input = form.querySelector('textarea')!;
       input.focus();
       form.addEventListener('submit', async event => {
         event.preventDefault();
         const submit = form.querySelector<HTMLButtonElement>('button')!;
         if (submit.disabled || !this.isRuntimeActive(epoch, session)) return;
-        let code = input.value.trim(); input.value = '';
+        let codes = input.value.trim(); input.value = '';
         const status = form.querySelector<HTMLElement>('[role=status]')!;
         setBusy(submit, true, '正在恢复…');
         const operation = new AbortController();
         restoreOperation = operation;
         try {
-          const count = await restoreCloudHistory(session, code, scope, operation.signal, (count, changed) => {
+          const count = await restoreCloudHistory(session, codes, scope, operation.signal, (count, changed) => {
             if (changed) historyChanged = true;
             if (form.isConnected && this.isRuntimeActive(epoch, session)) status.textContent = `已恢复 ${count} 条记录…`;
           });
-          code = '';
+          codes = '';
           if (!form.isConnected || !this.isRuntimeActive(epoch, session)) return;
-          status.textContent = `恢复完成，新增 ${count} 条记录。返回会话后即可查看。`;
+          status.textContent = count > 0
+            ? `恢复完成，新增 ${count} 条记录。返回会话后即可查看。`
+            : '恢复完成，但没有新增记录。可能已经恢复过，或备份中没有该范围的内容。';
           // A retry may add only an encrypted delete projection while all
           // content rows were imported by an interrupted prior attempt.
           // `progress.changed` keeps that event-only commit from reviving the
           // old Safe/chat projection until the next unlock.
         } catch (cause) {
           if (form.isConnected && this.isRuntimeActive(epoch, session)) status.textContent = `${cause instanceof Error ? cause.message : '恢复未完成'}。已通过验证的记录会保留，可安全重试。`;
-        } finally { code = ''; if (restoreOperation === operation) restoreOperation = undefined; if (submit.isConnected) setBusy(submit, false); }
+        } finally { codes = ''; if (restoreOperation === operation) restoreOperation = undefined; if (submit.isConnected) setBusy(submit, false); }
       });
     });
     this.updateBackupStatus();

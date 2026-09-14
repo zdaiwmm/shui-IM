@@ -1073,7 +1073,7 @@ try {
   await recovery.locator('.more-menu summary').click();
   await recovery.locator('#backup-settings').click();
   await recovery.locator('[data-restore="gallery"]').click();
-  await recovery.locator('#history-restore-form input').fill(newRecoveryCode);
+  await recovery.locator('#history-restore-form textarea').fill(newRecoveryCode);
   await recovery.locator('#history-restore-form form').evaluate(form => form.requestSubmit());
   await recovery.waitForFunction(() => document.querySelector('#history-restore-form [role=status]')?.textContent?.startsWith('恢复完成'));
   const galleryIsolation = await recovery.evaluate(async () => {
@@ -1083,10 +1083,10 @@ try {
   });
   invariant(!galleryIsolation.chat && galleryIsolation.gallery > 0, 'Gallery-only recovery exposed old chat or failed to restore media');
   await recovery.locator('[data-restore="chat"]').click();
-  await recovery.locator('#history-restore-form input').fill(recoveryCode);
+  await recovery.locator('#history-restore-form textarea').fill(recoveryCode);
   await recovery.locator('#history-restore-form form').evaluate(form => form.requestSubmit());
-  await recovery.getByText(/^请使用本设备当前的恢复码/).waitFor();
-  await recovery.locator('#history-restore-form input').fill(newRecoveryCode);
+  await recovery.getByText(/^找不到可用备份/).waitFor();
+  await recovery.locator('#history-restore-form textarea').fill(newRecoveryCode);
   await recovery.locator('#history-restore-form form').evaluate(form => form.requestSubmit());
   await recovery.waitForFunction(() => document.querySelector('#history-restore-form [role=status]')?.textContent?.startsWith('恢复完成'));
   await recovery.locator('#backup-back').click();

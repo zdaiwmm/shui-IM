@@ -215,16 +215,36 @@ export async function recoverFromCloud(code: string, signal: AbortSignal): Promi
   return installCloudRecovery(bundle, parseCloudRecoveryCode(code).secret, expected, signal);
 }
 
-export async function restoreCloudHistory(session: VaultSession, code: string, scope: 'chat' | 'gallery', signal: AbortSignal,
+export function normalizeRecoveryCodes(input: string | readonly string[]): string[] {
+  const values: readonly string[] = typeof input === 'string' ? input.split(/\r?\n/) : input;
+  const codes = [...new Set(values.map((value: string) => value.trim()).filter(Boolean))];
+  if (!codes.length) throw new Error('请输入至少一个恢复码');
+  if (codes.length > 6) throw new Error('本会话最多支持 6 个设备恢复码');
+  for (const code of codes) {
+    try { parseCloudRecoveryCode(code); }
+    catch { throw new Error('恢复码格式不正确，请输入完整的 QR3 恢复码'); }
+  }
+  return codes;
+}
+
+/** Restore one or more device archives belonging to the current room. */
+export async function restoreCloudHistory(session: VaultSession, input: string | readonly string[], scope: 'chat' | 'gallery', signal: AbortSignal,
   progress: (count: number, changed: boolean) => void = () => undefined): Promise<number> {
   if (!session.vault.backup?.syncedAt || session.vault.backup.replaces || session.vault.recoverySource) throw new Error('请先完成新恢复码的备份更新');
   if (scope === 'gallery' && session.vault.role !== 'creator') throw new Error('此参与方没有相册入口');
-  if (parseCloudRecoveryCode(code).id !== session.vault.backup.id) throw new Error('请使用本设备当前的恢复码');
-  const bundle = await fetchRecoveryBundle(code, signal);
-  if (bundle.roomId !== session.vault.roomId || bundle.deviceId !== session.vault.identity.publicBundle.deviceId) throw new Error('恢复码不属于本设备');
+  const codes = normalizeRecoveryCodes(input);
+  const bundles: CloudRecoveryBundle[] = [];
+  const backupIds = new Set<string>();
+  for (const code of codes) {
+    const bundle = await fetchRecoveryBundle(code, signal);
+    if (bundle.roomId !== session.vault.roomId) throw new Error('恢复码不属于当前会话');
+    if (backupIds.has(bundle.backupId)) continue;
+    backupIds.add(bundle.backupId);
+    bundles.push(bundle);
+  }
   let restored = 0;
   let changed = false;
-  for (const archive of bundle.archives) {
+  for (const bundle of bundles) for (const archive of bundle.archives) {
     for (const part of archive.parts) {
       signal.throwIfAborted();
       const sealed = await request<SealedBackup>(`/api/history-archives/${archive.id}/${part.id}`, archive.token, signal);
