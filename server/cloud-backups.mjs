@@ -138,15 +138,36 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
 
-  function getPart(archiveId, partId, token) {
+  function authorizeArchiveRead(archiveId, token) {
     const archive = archiveRow(archiveId);
     const backup = archive && row(archive.backup_id);
     if (!archive || !backup?.active || !sameToken(token, archive.read_hash)) fail('BACKUP_UNAVAILABLE');
     const owner = db.prepare('SELECT status FROM members WHERE room_id=? AND device_id=?').get(backup.room_id, backup.device_id);
     if (owner?.status !== 'active' && !db.prepare("SELECT 1 FROM recovery_requests WHERE room_id=? AND source_device_id=? AND status='completed'").get(backup.room_id, backup.device_id)) fail('BACKUP_UNAVAILABLE');
+  }
+
+  function getPart(archiveId, partId, token) {
+    authorizeArchiveRead(archiveId, token);
     const part = db.prepare('SELECT sealed FROM history_archive_parts WHERE archive_id = ? AND part_id = ?').get(archiveId, partId);
     if (!part) fail('BACKUP_UNAVAILABLE');
     return JSON.parse(part.sealed);
+  }
+
+  function getParts(archiveId, partIds, token) {
+    authorizeArchiveRead(archiveId, token);
+    if (!Array.isArray(partIds) || partIds.length < 1 || partIds.length > 20 ||
+      partIds.some(id => !validId(id)) || new Set(partIds).size !== partIds.length) fail('INVALID_BACKUP');
+    const parts = [];
+    let bytes = 12;
+    for (const id of partIds) {
+      const part = db.prepare('SELECT sealed FROM history_archive_parts WHERE archive_id = ? AND part_id = ?').get(archiveId, id);
+      if (!part) fail('BACKUP_UNAVAILABLE');
+      // Return a nonempty prefix; one valid part is always below this bound.
+      const size = Buffer.byteLength(part.sealed) + id.length + 32;
+      if (bytes + size > 4 * 1024 * 1024) break;
+      parts.push({ id, sealed: JSON.parse(part.sealed) }); bytes += size;
+    }
+    return { parts };
   }
 
   function rooms(offset = 0) {
@@ -177,7 +198,7 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
 
-  return { save, fetch, putPart, getPart, rooms, room, deleteRoom,
+  return { save, fetch, putPart, getPart, getParts, rooms, room, deleteRoom,
     adminCounter: id => db.prepare('SELECT counter FROM admin_totp_counters WHERE config_id=?').get(id)?.counter ?? -1,
     consumeAdminCounter: (id, counter) => Boolean(db.prepare(`INSERT INTO admin_totp_counters VALUES(?,?)
       ON CONFLICT(config_id) DO UPDATE SET counter=excluded.counter WHERE excluded.counter > admin_totp_counters.counter`).run(id, counter).changes),

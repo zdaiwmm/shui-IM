@@ -3,12 +3,13 @@ import { isGalleryMediaPayload } from './video-media';
 import { galleryCurationKey, normalizeGalleryCurationRecords } from './gallery-curation';
 import { archiveAad, backupDigest, newRecoveryCode, openJson, openRecovery, parseCloudRecoveryCode, randomBackupSecret, recoveryFetchToken, sealJson, sealRecovery } from './backup-crypto';
 import { toBase64Url } from './base64';
-import type { CloudRecoveryBundle, LocalBackupState, SealedBackup } from './backup-types';
+import type { ArchivePart, CloudRecoveryBundle, LocalBackupState, SealedBackup } from './backup-types';
 import { canonicalStringify } from './canonical';
-import { loadUiPreferences, restoreGalleryHidden, importArchivedMessages, installCloudRecovery, readStoredVault, loadHistoryPageAfter, saveVault, withVaultMutation, type VaultSession } from './vault';
+import { loadUiPreferences, restoreGalleryHidden, findMissingArchivedMessages, importArchivedMessages, installCloudRecovery, readStoredVault, loadHistoryPageAfter, saveVault, withVaultMutation, type VaultSession } from './vault';
 import type { DecryptedMessage, Vault } from './types';
 
 export const BACKUP_REQUEST_TIMEOUT_MS = 30_000;
+export const AUTOMATIC_HISTORY_BATCH_WAIT_MS = 45_000;
 const encoder = new TextEncoder();
 const AUTOMATIC_BACKUP_REVALIDATION_MS = 5 * 60_000;
 const MAX_RATE_LIMIT_RETRIES = 12;
@@ -62,7 +63,9 @@ async function request<T>(url: string, token: string, signal: AbortSignal, body?
       finally { if (!signal.aborted) onWait?.(false); }
       continue;
     }
-    if (response.status === 401) throw new Error('找不到可用备份，请检查恢复码；备份也可能已被停用或清理');
+    if (response.status === 401) throw new Error(url.startsWith('/api/history-archives/')
+      ? '恢复包已读取，但历史片段无法取回。恢复码可能刚被轮换、所属设备已撤销，或片段已被清理；请使用当前恢复码重试'
+      : '找不到可用备份。设备恢复并换码后，旧码会停用，请使用新生成的恢复码；也请确认码输入完整、对应设备未撤销且备份未清理');
     if (response.status === 409) throw new Error('备份版本冲突，请锁定后重新解锁再试');
     if (response.status === 413) throw new Error('备份空间已满，请联系管理员处理');
     throw new Error('备份服务暂时不可用，请稍后重试');
@@ -93,6 +96,7 @@ async function update<T>(session: VaultSession, signal: AbortSignal, change: (st
 function checkpoint(vault: Vault): Vault {
   const value = structuredClone(vault);
   delete value.backup;
+  delete value.historyRestoreTask;
   delete value.recoverySource;
   delete value.pendingRecovery;
   delete value.pendingDeviceLinks;
@@ -228,7 +232,14 @@ export async function syncCloudBackup(session: VaultSession, signal: AbortSignal
     await update(session, signal, async state => {
       if (state.pendingPart) return;
       let messages = await loadHistoryPageAfter(session, { afterSeq: state.cursor, limit: 100, signal });
-      if (!messages.length) return;
+      if (!messages.length) { delete state.historyBatchStartedAt; return; }
+      // Durable local history is already encrypted. Coalesce small automatic
+      // batches without resetting the deadline on each 15-second foreground pass.
+      const now = Date.now();
+      if (!force && messages.length < 100) {
+        state.historyBatchStartedAt ??= now;
+        if (now >= state.historyBatchStartedAt && now - state.historyBatchStartedAt < AUTOMATIC_HISTORY_BATCH_WAIT_MS) return;
+      }
       const archive = state.archives.at(-1)!;
       const id = randomBackupSecret();
       let sealed: SealedBackup;
@@ -241,6 +252,7 @@ export async function syncCloudBackup(session: VaultSession, signal: AbortSignal
       }
       state.pendingPart = { archiveId: archive.id, sealed, part: { id, digest: await backupDigest(sealed),
         firstSeq: messages[0]!.seq, lastSeq: messages.at(-1)!.seq, count: messages.length } };
+      delete state.historyBatchStartedAt;
     });
     const pending = session.vault.backup!.pendingPart;
     if (!pending) break;
@@ -284,6 +296,23 @@ export function normalizeRecoveryCodes(input: string | readonly string[]): strin
   return codes;
 }
 
+/** Keep authenticated index failures separate from unsupported record formats. */
+function validateArchivePart(value: unknown, roomId: string, part: ArchivePart): DecryptedMessage[] {
+  const archive = value as { v?: unknown; roomId?: unknown; messages?: unknown } | null;
+  if (archive?.v !== 1 || archive.roomId !== roomId || !Array.isArray(archive.messages)) throw new Error('历史备份片段格式或会话归属不正确');
+  const messages = archive.messages as DecryptedMessage[];
+  if (messages.length !== part.count) throw new Error('历史备份条数与索引不一致');
+  if (messages.some((message, index) => !message || !Number.isSafeInteger(message.seq) || message.seq < 1 ||
+    index > 0 && message.seq <= messages[index - 1]!.seq) || messages[0]?.seq !== part.firstSeq || messages.at(-1)?.seq !== part.lastSeq) {
+    throw new Error('历史备份序号与索引不一致');
+  }
+  if (messages.some(message => typeof message.clientMsgId !== 'string' || typeof message.senderId !== 'string' || typeof message.acceptedAt !== 'string')) {
+    throw new Error('历史备份记录元数据不正确');
+  }
+  if (messages.some(message => !isMessagePayload(message.payload))) throw new Error('历史备份包含当前版本不支持或格式不正确的记录，请更新应用后重试');
+  return messages;
+}
+
 /** Restore one or more device archives belonging to the current room. */
 export async function restoreCloudHistory(session: VaultSession, input: string | readonly string[], scope: 'chat' | 'gallery', signal: AbortSignal,
   progress: (count: number, changed: boolean) => void = () => undefined): Promise<number> {
@@ -306,11 +335,8 @@ export async function restoreCloudHistory(session: VaultSession, input: string |
       signal.throwIfAborted();
       const sealed = await request<SealedBackup>(`/api/history-archives/${archive.id}/${part.id}`, archive.token, signal);
       if (await backupDigest(sealed) !== part.digest) throw new Error('历史备份完整性验证失败');
-      const value = await openJson(sealed, archive.key, archiveAad(bundle.roomId, archive.id, part.id)) as { v: number; roomId: string; messages: DecryptedMessage[] };
-      if (value?.v !== 1 || value.roomId !== bundle.roomId || !Array.isArray(value.messages) || value.messages.length !== part.count ||
-          value.messages[0]?.seq !== part.firstSeq || value.messages.at(-1)?.seq !== part.lastSeq ||
-          value.messages.some((message, index) => index > 0 && message.seq <= value.messages[index - 1]!.seq)) throw new Error('历史备份索引不正确');
-      restored += await importArchivedMessages(session, value.messages, scope, signal, partChanged => { changed ||= partChanged; });
+      const messages = validateArchivePart(await openJson(sealed, archive.key, archiveAad(bundle.roomId, archive.id, part.id)), bundle.roomId, part);
+      restored += await importArchivedMessages(session, messages, scope, signal, partChanged => { changed ||= partChanged; });
       progress(restored, changed);
     }
   }
@@ -353,38 +379,60 @@ export async function restoreUnifiedHistory(session: VaultSession, input: string
   const parts = bundles.flatMap(bundle => bundle.archives.flatMap(archive => archive.parts.map(part => ({ bundle, archive, part }))));
   status.totalParts = parts.length;
   const cache = new Map<number, SealedBackup>();
+  // At most 8 MiB retained across passes plus an 8 MiB UTF-16 batch window.
+  const batchCache = new Map<number, SealedBackup>();
   let cacheSize = 0;
   const read = async (index: number) => {
     const { bundle, archive, part } = parts[index]!;
-    const sealed = cache.get(index) ?? await request<SealedBackup>(`/api/history-archives/${archive.id}/${part.id}`, archive.token, signal, undefined, onWait);
+    if (!cache.has(index) && !batchCache.has(index)) {
+      batchCache.clear();
+      const wanted: number[] = [];
+      const ids = new Set<string>();
+      for (let next = index; next < parts.length && wanted.length < 20; next++) {
+        const candidate = parts[next]!;
+        if (candidate.archive.id !== archive.id || candidate.archive.token !== archive.token) break;
+        if (cache.has(next) || ids.has(candidate.part.id)) continue;
+        wanted.push(next); ids.add(candidate.part.id);
+      }
+      const result = await request<{ parts: { id: string; sealed: SealedBackup }[] }>(
+        `/api/history-archives/${archive.id}/batch?parts=${[...ids].join(',')}`, archive.token, signal, undefined, onWait);
+      if (!result || !Array.isArray(result.parts) || !result.parts.length || result.parts.length > wanted.length ||
+        JSON.stringify(result).length > 4 * 1024 * 1024 || result.parts.some((item, offset) => !item ||
+          item.id !== parts[wanted[offset]!]!.part.id || typeof item.sealed?.iv !== 'string' || typeof item.sealed.ciphertext !== 'string')) {
+        throw new Error('历史备份批量响应不正确');
+      }
+      result.parts.forEach((item, offset) => batchCache.set(wanted[offset]!, item.sealed));
+    }
+    const sealed = cache.get(index) ?? batchCache.get(index)!;
+    batchCache.delete(index);
     signal.throwIfAborted();
     if (await backupDigest(sealed) !== part.digest) throw new Error('历史备份完整性验证失败');
-    const value = await openJson(sealed, archive.key, archiveAad(bundle.roomId, archive.id, part.id)) as { v: number; roomId: string; messages: DecryptedMessage[] };
-    if (value?.v !== 1 || value.roomId !== bundle.roomId || !Array.isArray(value.messages) || value.messages.length !== part.count ||
-      value.messages[0]?.seq !== part.firstSeq || value.messages.at(-1)?.seq !== part.lastSeq || value.messages.some((message, offset) =>
-        !Number.isSafeInteger(message.seq) || message.seq < 1 || !isMessagePayload(message.payload) ||
-        typeof message.clientMsgId !== 'string' || typeof message.senderId !== 'string' || typeof message.acceptedAt !== 'string' ||
-        offset > 0 && message.seq <= value.messages[offset - 1]!.seq)) throw new Error('历史备份索引不正确');
-    if (!cache.has(index) && cacheSize + sealed.ciphertext.length * 2 <= 16 * 1024 * 1024) {
+    const messages = validateArchivePart(await openJson(sealed, archive.key, archiveAad(bundle.roomId, archive.id, part.id)), bundle.roomId, part);
+    if (!cache.has(index) && cacheSize + sealed.ciphertext.length * 2 <= 8 * 1024 * 1024) {
       cache.set(index, sealed); cacheSize += sealed.ciphertext.length * 2;
     }
-    return value.messages;
+    return messages;
   };
   // Keep only identities and hashes, not plaintext history, across the discovery pass.
   const seen = new Map<number, { digest: string; chat: boolean; gallery: boolean }>();
   const messageIds = new Map<string, number>();
   const deletes: DecryptedMessage[] = [];
+  const missingParts = new Set<number>();
+  const scope = creator ? 'all' : 'chat';
   try {
     for (let index = 0; index < parts.length; index++) {
-      for (const message of await read(index)) {
+      const messages = await read(index);
+      const missing = new Set((await findMissingArchivedMessages(session, messages, scope, signal)).map(message => message.seq));
+      if (missing.size) missingParts.add(index);
+      for (const message of messages) {
         const digest = toBase64Url(await crypto.subtle.digest('SHA-256', encoder.encode(canonicalStringify({ seq: message.seq,
           clientMsgId: message.clientMsgId, senderId: message.senderId, acceptedAt: message.acceptedAt, payload: message.payload }))));
         const existing = seen.get(message.seq);
         if (existing && existing.digest !== digest || messageIds.has(message.clientMsgId) && messageIds.get(message.clientMsgId) !== message.seq) throw new Error('多个备份中的历史记录冲突');
         if (existing) continue;
         messageIds.set(message.clientMsgId, message.seq);
-        const chat = ['text', 'image', 'image-album', 'audio', 'file'].includes(message.payload.kind);
-        const gallery = creator && isGalleryMediaPayload(message.payload);
+        const chat = missing.has(message.seq) && ['text', 'image', 'image-album', 'audio', 'file'].includes(message.payload.kind);
+        const gallery = missing.has(message.seq) && creator && isGalleryMediaPayload(message.payload);
         seen.set(message.seq, { digest, chat, gallery });
         if (chat) status.chat.total++;
         if (gallery) status.gallery!.total++;
@@ -393,13 +441,13 @@ export async function restoreUnifiedHistory(session: VaultSession, input: string
       status.scannedParts = index + 1; emit();
     }
     signal.throwIfAborted();
+    status.phase = 'restoring'; status.percent = 0; emit();
     if (creator) status.changed = await restoreGalleryHidden(session, [...hidden.values()], signal);
-    const scope = creator ? 'all' : 'chat';
     for (let index = 0; index < deletes.length; index += 100) await importArchivedMessages(session, deletes.slice(index, index + 100), scope, signal,
       changed => { status.changed ||= changed; });
-    status.phase = 'restoring'; status.percent = 0; emit();
     const processed = new Set<number>();
     for (let index = 0; index < parts.length; index++) {
+      if (!missingParts.has(index)) { cache.delete(index); continue; }
       const messages = await read(index);
       await importArchivedMessages(session, messages, scope, signal, changed => { status.changed ||= changed; });
       for (const message of messages) {
@@ -417,5 +465,5 @@ export async function restoreUnifiedHistory(session: VaultSession, input: string
     }
     status.phase = 'complete'; status.percent = 100; emit();
     return status;
-  } finally { cache.clear(); seen.clear(); messageIds.clear(); deletes.length = 0; }
+  } finally { cache.clear(); batchCache.clear(); seen.clear(); messageIds.clear(); missingParts.clear(); deletes.length = 0; }
 }

@@ -416,7 +416,8 @@ export async function startServer(options = {}) {
       const archiveWrite = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/archives/([A-Za-z0-9_-]{43})/([A-Za-z0-9_-]{43})$`));
       const backupRead = pathname.match(/^\/api\/recovery-backups\/([A-Za-z0-9_-]{22})$/);
       const archiveRead = pathname.match(/^\/api\/history-archives\/([A-Za-z0-9_-]{43})\/([A-Za-z0-9_-]{43})$/);
-      if ((request.method === 'PUT' && (backupWrite || archiveWrite)) || (request.method === 'GET' && (backupRead || archiveRead))) {
+      const archiveBatchRead = pathname.match(/^\/api\/history-archives\/([A-Za-z0-9_-]{43})\/batch$/);
+      if ((request.method === 'PUT' && (backupWrite || archiveWrite)) || (request.method === 'GET' && (backupRead || archiveRead || archiveBatchRead))) {
         if (!allowRequest(request, 'cloud-backups', 120)) {
           response.setHeader('Retry-After', '60');
           json(request, response, 429, { error: '备份请求过于频繁', code: 'RATE_LIMITED' }); return;
@@ -431,6 +432,7 @@ export async function startServer(options = {}) {
             result = backupWrite ? store.cloudBackups.save(roomId, token, body)
               : store.cloudBackups.putPart(roomId, token, archiveWrite[2], archiveWrite[3], body);
           } else result = backupRead ? store.cloudBackups.fetch(backupRead[1], token)
+            : archiveBatchRead ? store.cloudBackups.getParts(archiveBatchRead[1], (url.searchParams.get('parts') ?? '').split(','), token)
             : store.cloudBackups.getPart(archiveRead[1], archiveRead[2], token);
           json(request, response, 200, result);
         } catch (error) {

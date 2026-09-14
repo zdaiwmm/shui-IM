@@ -40,6 +40,15 @@ try {
       payload: { v: 1, kind: 'text', text: `private-history-${seq}`, sentAt: new Date().toISOString() }, acceptedAt: new Date().toISOString(), status: 'stored' });
     await b.syncCloudBackup(session, new AbortController().signal);
     const code = session.vault.backup.code;
+    const tasks = await import('/src/lib/history-restore-task.ts');
+    const taskCode = (await import('/src/lib/backup-crypto.ts')).newRecoveryCode().code;
+    await tasks.saveHistoryRestoreTask(session, taskCode, new AbortController().signal);
+    const taskId = session.vault.historyRestoreTask.id;
+    const taskEncrypted = !JSON.stringify(await v.readStoredVault()).includes(taskCode)
+      && (await v.unlockVault()).vault.historyRestoreTask.id === taskId;
+    await b.syncCloudBackup(session, new AbortController().signal);
+    const taskNotBackedUp = !(await b.fetchRecoveryBundle(code, new AbortController().signal)).checkpoint.historyRestoreTask;
+    await tasks.clearHistoryRestoreTask(session, new AbortController().signal);
     const before = session.vault.backup.revision;
     const original = fetch;
     const noOpRevision = session.vault.backup.revision;
@@ -87,6 +96,34 @@ try {
     const hiddenBundle = await b.fetchRecoveryBundle(code, new AbortController().signal);
     const deletionSnapshot = hiddenBundle.galleryHidden?.[0]?.clientMsgId === hidden.clientMsgId
       && reopened.vault.backup.revision > previousRevision && !JSON.stringify(hiddenBundle).includes('draft-not-for-backup');
+    const addHistory = async seq => {
+      await v.saveHistoryMessage(reopened, { seq, clientMsgId: crypto.randomUUID(), senderId: identity.publicBundle.deviceId,
+        payload: { v: 1, kind: 'text', text: `batch-${seq}`, sentAt: new Date().toISOString() }, acceptedAt: new Date().toISOString(), status: 'stored' });
+      reopened.vault.lastSeq = seq; await v.saveVault(reopened);
+    };
+    const partCount = () => reopened.vault.backup.archives.at(-1).parts.length;
+    const beforeBatch = partCount();
+    await addHistory(3); await b.syncCloudBackup(reopened, new AbortController().signal, { force: false });
+    const batchStarted = reopened.vault.backup.historyBatchStartedAt;
+    const durableBatchStart = (await v.unlockVault()).vault.backup.historyBatchStartedAt === batchStarted;
+    await addHistory(4); await b.syncCloudBackup(reopened, new AbortController().signal, { force: false });
+    const buffered = partCount() === beforeBatch && reopened.vault.backup.cursor === 2 && reopened.vault.backup.historyBatchStartedAt === batchStarted;
+    const now = Date.now;
+    Date.now = () => batchStarted + b.AUTOMATIC_HISTORY_BATCH_WAIT_MS;
+    try { await b.syncCloudBackup(reopened, new AbortController().signal, { force: false }); }
+    finally { Date.now = now; }
+    const deadlineFlushed = partCount() === beforeBatch + 1 && reopened.vault.backup.archives.at(-1).parts.at(-1).count === 2;
+    await addHistory(5); await b.syncCloudBackup(reopened, new AbortController().signal, { force: false });
+    await b.syncCloudBackup(reopened, new AbortController().signal);
+    const manualFlushed = reopened.vault.backup.cursor === 5 && reopened.vault.backup.historyBatchStartedAt === undefined;
+    for (let seq = 6; seq <= 105; seq++) await addHistory(seq);
+    await b.syncCloudBackup(reopened, new AbortController().signal, { force: false });
+    const fullBatchFlushed = reopened.vault.backup.cursor === 105 && reopened.vault.backup.archives.at(-1).parts.at(-1).count === 100;
+    let batchReads = 0;
+    window.fetch = (...args) => { if (String(args[0]).includes('/batch?parts=')) batchReads++; return original(...args); };
+    const restoredBatch = await b.restoreUnifiedHistory(reopened, code, new AbortController().signal, () => {});
+    window.fetch = original;
+    const realBatchRestore = batchReads === 1 && restoredBatch.chat.restored === 0 && restoredBatch.chat.total === 0 && restoredBatch.percent === 100;
     const controller = new AbortController(); controller.abort();
     const prior = JSON.stringify(await v.readStoredVault());
     try { await b.syncCloudBackup(reopened, controller.signal); } catch { /* expected */ }
@@ -124,10 +161,12 @@ try {
     const deletionSurvivesReplacement = resume.vault.recoverySource.galleryHidden?.[0]?.clientMsgId === hidden.clientMsgId;
     // Keep this synthetic original device for the local reauthentication UI check.
     await v.createVault(reopened.vault);
-    return { deletionSnapshot, deletionSurvivesReplacement, rejected, committedThenLost, noOpSkipped, changedStateSynced, identicalRetry, stableCode, noCodeInPayload, persistedCiphertext, abortUnchanged,
+    return { taskEncrypted, taskNotBackedUp, buffered, durableBatchStart, deadlineFlushed, manualFlushed, fullBatchFlushed, realBatchRestore,
+      deletionSnapshot, deletionSurvivesReplacement, rejected, committedThenLost, noOpSkipped, changedStateSynced, identicalRetry, stableCode, noCodeInPayload, persistedCiphertext, abortUnchanged,
       noAutomaticHistory, pendingResumes, lateAbortUnchanged, lateFetchUnchanged, revisionAdvanced: reopened.vault.backup.revision > before };
   });
-  assert.deepEqual(first, { deletionSnapshot: true, deletionSurvivesReplacement: true, rejected: true, committedThenLost: true, noOpSkipped: true, changedStateSynced: true, identicalRetry: true, stableCode: true, noCodeInPayload: true,
+  assert.deepEqual(first, { taskEncrypted: true, taskNotBackedUp: true, buffered: true, durableBatchStart: true, deadlineFlushed: true, manualFlushed: true, fullBatchFlushed: true, realBatchRestore: true,
+    deletionSnapshot: true, deletionSurvivesReplacement: true, rejected: true, committedThenLost: true, noOpSkipped: true, changedStateSynced: true, identicalRetry: true, stableCode: true, noCodeInPayload: true,
     persistedCiphertext: true, abortUnchanged: true, noAutomaticHistory: true, pendingResumes: true, lateAbortUnchanged: true, lateFetchUnchanged: true, revisionAdvanced: true });
   await page.evaluate(async () => {
     const { QuietRoomApp } = await import('/src/app.ts'); const v = await import('/src/lib/vault.ts');

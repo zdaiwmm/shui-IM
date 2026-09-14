@@ -73,7 +73,7 @@ export async function openRecovery(sealed: SealedBackup, code: string): Promise<
   const value = await openWithKey(sealed, await aesKey(await derive(code, 'encryption')), `quiet-room-cloud-recovery-v1:${id}`) as CloudRecoveryBundle;
   if (value?.v !== 1 || value.backupId !== id || value.roomId !== value.checkpoint?.roomId ||
       value.deviceId !== value.checkpoint?.identity?.publicBundle?.deviceId || value.checkpoint.protocol !== 'mls-rfc9420' ||
-      value.checkpoint.backup || value.checkpoint.recoverySource || !Array.isArray(value.archives) || value.archives.length > 100 ||
+      value.checkpoint.backup || value.checkpoint.historyRestoreTask || value.checkpoint.recoverySource || !Array.isArray(value.archives) || value.archives.length > 100 ||
       value.archives.some(a => !/^[A-Za-z0-9_-]{43}$/.test(a.id) || !/^[A-Za-z0-9_-]{43}$/.test(a.key) ||
         !/^[A-Za-z0-9_-]{43}$/.test(a.token) || !Array.isArray(a.parts) || a.parts.length > 10_000 ||
         a.parts.some(p => !/^[A-Za-z0-9_-]{43}$/.test(p.id) || !/^[A-Za-z0-9_-]{43}$/.test(p.digest) ||

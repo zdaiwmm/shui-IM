@@ -901,6 +901,7 @@ async function prepareRecoveryPackageLocked(session: VaultSession, mutation: Vau
   masterBytes.fill(0);
   const exportVault = structuredClone(session.vault);
   delete exportVault.backup;
+  delete exportVault.historyRestoreTask;
   delete exportVault.recoverySource;
   const body = JSON.stringify({
     format: 'quiet-room-recovery',
@@ -959,6 +960,7 @@ export async function installCloudRecovery(bundle: CloudRecoveryBundle, recovery
     if (!sameStoredVault(await readStoredVaultUnlocked(), expected)) throw staleVaultError();
     const vault = structuredClone(bundle.checkpoint);
     delete vault.backup;
+    delete vault.historyRestoreTask;
     vault.recoverySource = { backupId: bundle.backupId, archives: structuredClone(bundle.archives), galleryHidden: structuredClone(bundle.galleryHidden ?? []) };
     const masterBytes = crypto.getRandomValues(new Uint8Array(32));
     const key = await importMasterKey(masterBytes);
@@ -993,6 +995,49 @@ export async function installCloudRecovery(bundle: CloudRecoveryBundle, recovery
   });
 }
 
+/** Compare authenticated archive records with a consistent local snapshot before planning an import. */
+export async function findMissingArchivedMessages(
+  session: VaultSession, messages: DecryptedMessage[], scope: 'chat' | 'gallery' | 'all', signal?: AbortSignal,
+): Promise<DecryptedMessage[]> {
+  signal?.throwIfAborted();
+  if (scope !== 'chat' && session.vault.role !== 'creator') throw new Error('此参与方没有保险箱入口');
+  const storeName = scope === 'gallery' ? 'restoredGallery' : 'history';
+  // One snapshot transaction per archive part rather than reopening IDB twice per record.
+  const existingDatabase = await openDatabase();
+  const existing = await new Promise<[Map<number, StoredHistory>, Map<number, StoredHistory>]>((resolve, reject) => {
+    const maps: [Map<number, StoredHistory>, Map<number, StoredHistory>] = [new Map(), new Map()];
+    const tx = existingDatabase.transaction(['history', 'restoredGallery'], 'readonly');
+    for (const [index, name] of (['history', 'restoredGallery'] as const).entries()) for (const message of messages) {
+      const request = tx.objectStore(name).get(`${session.vault.roomId}:${message.seq}`);
+      request.onsuccess = () => { if (request.result) maps[index]!.set(message.seq, request.result); };
+    }
+    tx.oncomplete = () => { existingDatabase.close(); resolve(maps); };
+    tx.onabort = () => { existingDatabase.close(); reject(tx.error ?? new Error('历史读取失败')); };
+    tx.onerror = () => reject(tx.error);
+  });
+  const missing: DecryptedMessage[] = [];
+  for (const message of messages) {
+    if (!Number.isSafeInteger(message.seq) || message.seq < 1 || !isMessagePayload(message.payload) ||
+        typeof message.clientMsgId !== 'string' || typeof message.senderId !== 'string' || typeof message.acceptedAt !== 'string') throw new Error('历史备份记录不正确');
+    const galleryOnly = message.payload.kind === 'gallery-image' || message.payload.kind === 'gallery-file';
+    if (scope === 'chat' && galleryOnly) continue;
+    const galleryProjectionEvent = message.payload.kind === 'message-delete';
+    if (scope === 'gallery' && !isGalleryMediaPayload(message.payload) && !galleryProjectionEvent) continue;
+    const [historyRecord, restoredRecord] = existing.map(records => records.get(message.seq));
+    for (const previous of [historyRecord, restoredRecord]) if (previous) {
+      const decrypted = (await decryptHistoryRecords(session, [previous], signal, { strict: true }))[0];
+      if (!decrypted || !sameHistoryMessage(decrypted, message)) throw new Error('历史记录与本机数据冲突');
+    }
+    const previous = storeName === 'history' ? historyRecord : restoredRecord;
+    if (previous) {
+      continue;
+    }
+    missing.push(message);
+  }
+  signal?.throwIfAborted();
+  return missing;
+}
+
 /** Imported content never advances MLS, network cursors, receipts, or an ordinary linked device's access. */
 export async function importArchivedMessages(
   session: VaultSession,
@@ -1006,41 +1051,10 @@ export async function importArchivedMessages(
     if (scope !== 'chat' && session.vault.role !== 'creator') throw new Error('此参与方没有保险箱入口');
     const storeName = scope === 'gallery' ? 'restoredGallery' : 'history';
     const records: StoredHistory[] = [];
-    // One snapshot transaction per archive part rather than reopening IDB twice per record.
-    const existingDatabase = await openDatabase();
-    const existing = await new Promise<[Map<number, StoredHistory>, Map<number, StoredHistory>]>((resolve, reject) => {
-      const maps: [Map<number, StoredHistory>, Map<number, StoredHistory>] = [new Map(), new Map()];
-      const tx = existingDatabase.transaction(['history', 'restoredGallery'], 'readonly');
-      for (const [index, name] of (['history', 'restoredGallery'] as const).entries()) for (const message of messages) {
-        const request = tx.objectStore(name).get(`${session.vault.roomId}:${message.seq}`);
-        request.onsuccess = () => { if (request.result) maps[index]!.set(message.seq, request.result); };
-      }
-      tx.oncomplete = () => { existingDatabase.close(); resolve(maps); };
-      tx.onabort = () => { existingDatabase.close(); reject(tx.error ?? new Error('历史读取失败')); };
-      tx.onerror = () => reject(tx.error);
-    });
-    let importedContentCount = 0;
-    for (const message of messages) {
-      if (!Number.isSafeInteger(message.seq) || message.seq < 1 || !isMessagePayload(message.payload) ||
-          typeof message.clientMsgId !== 'string' || typeof message.senderId !== 'string' || typeof message.acceptedAt !== 'string') throw new Error('历史备份记录不正确');
-      const galleryOnly = message.payload.kind === 'gallery-image' || message.payload.kind === 'gallery-file';
-      if (scope === 'chat' && galleryOnly) continue;
-      const galleryProjectionEvent = message.payload.kind === 'message-delete';
-      if (scope === 'gallery' && !isGalleryMediaPayload(message.payload) && !galleryProjectionEvent) continue;
-      const [historyRecord, restoredRecord] = existing.map(records => records.get(message.seq));
-      for (const previous of [historyRecord, restoredRecord]) if (previous) {
-        const decrypted = (await decryptHistoryRecords(session, [previous], signal, { strict: true }))[0];
-        if (!decrypted || !sameHistoryMessage(decrypted, message)) throw new Error('历史记录与本机数据冲突');
-      }
-      const previous = storeName === 'history' ? historyRecord : restoredRecord;
-      if (previous) {
-        continue;
-      }
-      records.push(await encryptHistoryRecord(session, message));
-      // Gallery recovery reports restored media, not internal projection events
-      // needed to keep a later room-wide deletion effective.
-      if (scope !== 'gallery' || isGalleryMediaPayload(message.payload)) importedContentCount++;
-    }
+    const missing = await findMissingArchivedMessages(session, messages, scope, signal);
+    for (const message of missing) records.push(await encryptHistoryRecord(session, message));
+    // Gallery recovery counts media, not the internal deletion projections.
+    const importedContentCount = missing.filter(message => scope !== 'gallery' || isGalleryMediaPayload(message.payload)).length;
     signal?.throwIfAborted();
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {

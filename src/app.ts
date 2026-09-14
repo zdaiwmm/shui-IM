@@ -8108,11 +8108,11 @@ export class QuietRoomApp {
   private startAutomaticBackup(): void {
     if (this.backupTimer !== null) window.clearInterval(this.backupTimer);
     this.backupTimer = window.setInterval(() => void this.runAutomaticBackup(), 15_000);
-    void this.runAutomaticBackup(true);
+    void this.runAutomaticBackup();
   }
 
   private runAutomaticBackup(force = false): Promise<void> {
-    if (this.backupRun) return this.backupRun;
+    if (this.backupRun) return force ? this.backupRun.then(() => this.runAutomaticBackup(true)) : this.backupRun;
     const session = this.session;
     const signal = this.runtimeAbort?.signal;
     if (!session || !signal || this.privacyCovered || document.hidden) return Promise.resolve();
@@ -8134,10 +8134,11 @@ export class QuietRoomApp {
     const status = this.root.querySelector<HTMLElement>('#backup-status');
     if (!status || !this.session) return;
     const backup = this.session.vault.backup;
-    const state = this.backupError ? 'error' : this.backupRun ? 'syncing' : backup?.syncedAt ? 'ready' : 'pending';
+    const waiting = backup?.historyBatchStartedAt !== undefined;
+    const state = this.backupError ? 'error' : this.backupRun ? 'syncing' : waiting ? 'pending' : backup?.syncedAt ? 'ready' : 'pending';
     status.closest<HTMLElement>('[data-backup-state]')!.dataset.backupState = state;
     status.textContent = this.backupError || (this.backupRun ? '正在加密并备份…' : backup?.syncedAt
-      ? `上次备份：${new Date(backup.syncedAt).toLocaleString()}\n已保存 ${backup.archives.reduce((total, archive) => total + archive.parts.reduce((sum, part) => sum + part.count, 0), 0)} 条历史记录。`
+      ? `上次备份：${new Date(backup.syncedAt).toLocaleString()}\n已保存 ${backup.archives.reduce((total, archive) => total + archive.parts.reduce((sum, part) => sum + part.count, 0), 0)} 条历史记录。${waiting ? '\n新记录已保存在本机，正在合并备份；保持解锁约一分钟内上传，也可立即备份。' : ''}`
       : '尚未完成首次备份，联网并保持页面解锁后会自动重试。');
     const ready = Boolean(backup?.syncedAt && !backup.replaces && !this.session.vault.recoverySource);
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-backup-ready]')) button.disabled = !ready;
@@ -8182,7 +8183,7 @@ export class QuietRoomApp {
     let historyChanged = false;
     const cancelRestore = attachHistoryRestore({ root: this.root, session, signal: this.runtimeAbort!.signal,
       isActive: () => this.isRuntimeActive(epoch, session),
-      withClipboard: action => this.withSystemSurface(action), onChanged: () => { historyChanged = true; } });
+      onChanged: () => { historyChanged = true; } });
     this.runtimeAbort!.signal.addEventListener('abort', cancelRestore, { once: true });
     this.root.querySelector('#backup-back')?.addEventListener('click', () => {
       cancelRestore();

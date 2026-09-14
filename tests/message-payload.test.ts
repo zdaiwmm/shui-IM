@@ -52,6 +52,15 @@ describe('shared encrypted message payload validation', () => {
   it('accepts only the explicit encrypted expression presentation on images', () => {
     const image = { v: 1, kind: 'image', image: imageManifest(), sentAt: new Date().toISOString(), presentation: 'expression' };
     expect(isMessagePayload(image)).toBe(true);
+    for (const expressionAutoHide of [false, true]) {
+      const expression = { ...image, presentation: expressionAutoHide ? 'expression-hidden' : 'expression', expressionAutoHide };
+      expect(isMessagePayload(expression)).toBe(true);
+      expect(isMessagePayload({ ...expression, v: 2, replyTo: { clientMsgId: crypto.randomUUID(), serverSeq: 1,
+        senderId: crypto.randomUUID(), kind: 'image', preview: '图片' } })).toBe(true);
+      for (const invalid of [null, 'true', 1, {}]) expect(isMessagePayload({ ...expression, expressionAutoHide: invalid })).toBe(false);
+      expect(isMessagePayload({ ...expression, injected: true })).toBe(false);
+    }
+    expect(isMessagePayload({ ...image, presentation: 'expression-hidden' })).toBe(true);
     for (const presentation of [false, null, 'photo', {}, ['expression']]) expect(isMessagePayload({ ...image, presentation })).toBe(false);
     expect(isMessagePayload({ ...image, injected: true })).toBe(false);
     expect(isMessagePayload({ v: 1, kind: 'text', text: 'hello', sentAt: image.sentAt, presentation: 'expression' })).toBe(false);
