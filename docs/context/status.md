@@ -1,9 +1,12 @@
 # Quiet Room 当前状态
 
-## 大批量历史恢复限流续传（2026-09-14，工作树已实现）
+## 历史恢复限流修复上线（2026-09-14 17:02）
 
-- 任务工作树 `/Users/zhouding/ss-worktrees/restore-partial-history-fix`，分支 `codex/restore-partial-history-fix`，基线 `origin/main`=`85276ea`。服务端备份限流响应补充 `Retry-After`，客户端对 429 在可取消等待后继续同一请求，超过重试预算才报告限流并保留已导入片段。
-- 新增 429 重试回归；构建、完整 Vitest（78 个文件／640 项）和云备份生命周期浏览器专项通过。修复提交 `4029e275` 已完成，正在集成 `0dd8b26a` 基线并准备发布；未执行 iPhone / iOS 27 / Safari 真机验收。
+- 用户确认的线上应用 SHA 为 `5c75678eab393ccd543f458729ccbb962faff715`，PR [#151](https://github.com/zdaiwmm/shui-IM/pull/151) 已合并，版本 `2026.09.14.4`。精确 main CI [34823276916](https://github.com/zdaiwmm/shui-IM/actions/runs/34823276916) 全部通过；相同文件树的本地 `check:full` 通过（78 个测试文件／642 项，浏览器 33/33）。
+- 本次修复大量历史恢复触发 429 限流后中断：服务端返回等待时间，客户端可取消地等待后重试同一片段，超过预算才显示限流失败；已导入记录保留。恢复码验证、片段完整性验证与历史访问边界未改变。
+- 固定入口返回 `DEPLOY_OK` 与 `DEPLOY_VERIFIED`，外层精确回执核验成功。批次 `20260914T090002Z`，发布目录 `/opt/quiet-room/git-releases/20260914T090002Z-5c75678eab39`，冷备份 `/opt/quiet-room/backups/predeploy/data-20260914T090002Z-5c75678eab39.tar.gz` 已校验。
+- 独立回读于 `2026-09-14T09:02:48Z` 返回 `READBACK_OK`，线上 SHA、HTTPS、数据库、存储、公开产物和新建 WebSocket 均通过。应用容器运行且健康，备份容器运行但无健康探针，维护标记不存在。证据 `quiet-room-readback/20260914T090244818Z-5c75678eab39-success.json`。
+- 未进行实体 iPhone / iOS 27 / Safari 验收，未读取用户真实恢复码或消息；生产健康回读不等于原始用户数据恢复验收。既有独立审计和异地备份等高安全门槛仍未完成。本次文档对账不触发再次发布。
 
 ## 文档对账批次生产发布（2026-09-14 16:15）
 
