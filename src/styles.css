@@ -2548,6 +2548,37 @@ button:disabled {
   backdrop-filter: blur(12px);
 }
 
+.recovery-authorization-sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  display: grid;
+  place-items: center;
+  padding: max(20px, env(safe-area-inset-top)) 16px max(20px, var(--safe-bottom));
+  background: oklch(10% 0.01 255 / 0.46);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+
+.recovery-authorization-panel {
+  width: min(100%, 430px);
+  display: grid;
+  gap: 14px;
+  padding: 24px;
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  background: var(--glass-panel);
+  box-shadow: var(--shadow);
+}
+
+.recovery-authorization-panel h2,
+.recovery-authorization-panel p { margin: 0; }
+
+.recovery-authorization-detail,
+.recovery-authorization-expiry { color: var(--ink-muted); line-height: 1.55; }
+.recovery-authorization-expiry { font-size: 0.8rem; }
+.recovery-authorization-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+
 .device-link-panel {
   width: min(100%, 430px);
   max-height: 100%;

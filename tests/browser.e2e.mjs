@@ -1030,11 +1030,15 @@ try {
       finally { window.dispatchEvent(new Event('focus')); }
     } });
   });
+  await recovery.locator('#confirm-recovery-clear').check();
   await setPasskey(recovery);
   await recovery.getByRole('heading', { name: '等待安全恢复' }).waitFor({ timeout: 15_000 });
   invariant(await recovery.locator('#composer').count() === 0, 'An old sender checkpoint became writable before fresh membership authorization');
   await unlock(joiner);
   await joiner.locator('.chat-shell').waitFor({ timeout: 15_000 });
+  await joiner.locator('.recovery-authorization-sheet').waitFor({ timeout: 15_000 });
+  await joiner.getByRole('button', { name: '批准恢复', exact: true }).click();
+  await joiner.locator('.recovery-authorization-sheet').waitFor({ state: 'detached', timeout: 15_000 });
   await recovery.locator('#confirm-new-recovery').waitFor({ timeout: 20_000 }).catch(async error => {
     throw new Error(`Recovery rotation did not finish: ${await recovery.locator('body').innerText()}`, { cause: error });
   });
