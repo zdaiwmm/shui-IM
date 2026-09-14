@@ -263,6 +263,9 @@
 .history-restore-counts { margin: 20px 0; font-size: .88rem; }
 .history-restore-counts > div { display: flex; justify-content: space-between; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--line); }
 .history-restore-counts dd { margin: 0; font-variant-numeric: tabular-nums; }
+.history-restore-counts dt { flex-shrink: 0; }
+.history-restore-counts small { display: block; margin-top: 5px; color: var(--ink-muted); font-size: .72rem; line-height: 1.5; white-space: pre-line; }
+.history-restore-counts small[hidden] { display: none; }
 .history-restore-actions { display: grid; gap: 10px; }
 .history-restore-actions [hidden] { display: none; }
 [data-restore].is-restoring { color: var(--accent); }
