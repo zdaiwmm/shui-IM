@@ -1,10 +1,12 @@
 # Quiet Room 当前状态
 
-## 媒体上传气泡候选（2026-09-14）
+## 媒体上传气泡已发布（2026-09-14 22:52）
 
-- 用户确认采用右下角状态胶囊：图片、相册、表情和视频在上传完成前进入消息列表，显示进度与原位重试；图片、视频及自动隐藏表情默认只绘制模糊预览。普通表情保持正常显示。版本 `2026.09.14.8`，任务分支 `codex/media-upload-bubbles`，起始主线 `dad8fc773cdd84ed2b4efff81a644435a766f2ba`。
-- 使用既有分块续传、同消息 ID 和加密待发箱；本机临时草稿不是已发送回执，锁定清理选择和预览。入口为 `src/lib/media-upload-view.ts`，完整浏览器门禁新增 `tests/media-upload.e2e.mjs`，视频专项保留。精确候选、最终验证及合并证据以本任务 PR 为准。
-- 此候选不改变下方最近一次已核验的生产事实。实体 iPhone / iOS 27 / Safari 仍需单独验收。
+- 用户要求发布生产，PR [#159](https://github.com/zdaiwmm/shui-IM/pull/159) 已合并。线上应用 SHA `a4db1c2d3d52d6c528ee9b90c47d69a66e1a19fc`，版本 `2026.09.14.8`；与冻结候选 `241c029c6739836842484cc1f1a7a24ae10cc9cd` 文件树完全一致。精确 main CI [34857581222](https://github.com/zdaiwmm/shui-IM/actions/runs/34857581222) 通过；本地 `check:full` 通过（645 项测试、35/35 浏览器脚本，冻结证据 `clean=true`），Chromium／WebKit 媒体上传专项通过。
+- 图片、相册、表情和视频提交后立即进入消息列表，在气泡右下角显示加载进度，失败时原位重试；关闭选择弹窗不取消已提交上传。图片、视频和自动隐藏表情默认使用模糊预览，普通表情保持可见；重试复用消息 ID、文件和隐藏策略，锁定时清理内存草稿。
+- 固定发布入口取得 `DEPLOY_OK`、`DEPLOY_VERIFIED` 并核对精确成功回执。批次 `20260914T144959Z`，发布目录 `/opt/quiet-room/git-releases/20260914T144959Z-a4db1c2d3d52`，切换前冷备份 `/opt/quiet-room/backups/predeploy/data-20260914T144959Z-a4db1c2d3d52.tar.gz` 已校验。
+- 独立 `READBACK_OK` 于 `2026-09-14T14:52:35Z` 核对线上 SHA、镜像、HTTPS／数据库／存储、公开产物和新建 WebSocket 全部通过。应用运行且健康，备份容器运行但无健康探针，维护标记不存在。证据 `quiet-room-readback/20260914T145232876Z-a4db1c2d3d52-success.json`。
+- 实体 iPhone / iOS 27 / Safari 仍未验收；本次文档对账不触发再次部署。
 
 ## 恢复数量与本机回读核验已发布（2026-09-14 21:12）
 
