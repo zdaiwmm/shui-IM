@@ -105,7 +105,7 @@ import {
 import { batchAttachmentFiles } from './lib/image-batches';
 import { isVideoFile, videoMimeType } from './lib/video-media';
 import { createVideoPoster } from './lib/video-poster';
-import { VideoUploadView } from './lib/video-upload-view';
+import { MediaUploadView } from './lib/media-upload-view';
 import { downloadBlob } from './lib/download';
 import { DocumentReader, documentReaderMimeType, documentReaderLimit } from './lib/document-reader';
 import { createFileFormatIcon } from './lib/file-format';
@@ -331,7 +331,7 @@ export class QuietRoomApp {
   private messages = new Map<number, DecryptedMessage>();
   private messageEventHistory = new Map<number, DecryptedMessage>();
   private readCompatibility = '';
-  private videoUploads = new Map<string, { view: VideoUploadView; file: File; reply: DecryptedMessage | null; sentAt: string; busy: boolean }>();
+  private mediaUploads = new Map<string, { view: MediaUploadView; files: File[]; expression: boolean; autoHide: boolean; reply: DecryptedMessage | null; sentAt: string; busy: boolean }>();
   private selectedMessageId: string | null = null;
   private privacyCurtain: HTMLElement;
   private unreadCounter: UnreadCounter;
@@ -3819,11 +3819,12 @@ export class QuietRoomApp {
         return { id: result.id, title: result.title, autoHide: result.autoHide, items: result.items.map((item: { id: string; title: string; autoHide?: boolean }) => ({ id: item.id, title: item.title, autoHide: item.autoHide ?? result.autoHide })) };
       },
       send: async (file, autoHide, signal) => {
+        signal.throwIfAborted();
         if (!isActive()) throw new Error('会话已关闭');
         if (this.imageBatchUploading) throw new Error('另一个附件正在发送，请稍后重试');
         this.imageBatchUploading = true;
         try {
-          if (!await this.processImageBatch([file], 'chat', signal, true, undefined, autoHide)) throw new Error('发送未完成，请查看聊天中的状态后重试');
+          if (!await this.processImageBatch([file], 'chat', undefined, true, undefined, autoHide)) throw new Error('发送未完成，请查看聊天中的状态后重试');
         } finally { if (this.isRuntimeActive(epoch, session)) this.imageBatchUploading = false; }
       },
       search: async (keyword, page, signal, kind) => {
@@ -6361,7 +6362,7 @@ export class QuietRoomApp {
     }
   }
 
-  private async processImageBatch(files: File[], destination: 'chat' | 'gallery', operationSignal?: AbortSignal, expression = false, videoRetryId?: string, expressionAutoHide = false): Promise<boolean> {
+  private async processImageBatch(files: File[], destination: 'chat' | 'gallery', operationSignal?: AbortSignal, expression = false, mediaRetryId?: string, expressionAutoHide = false): Promise<boolean> {
     const session = this.session;
     if (!session || this.privacyCovered || files.length === 0) return false;
     if (expression && (destination !== 'chat' || files.length !== 1 || !files[0]!.type.startsWith('image/'))) return false;
@@ -6401,9 +6402,10 @@ export class QuietRoomApp {
       this.showNotice('不能发送空文件', 'error');
       return false;
     }
-    if (!videoRetryId && destination === 'chat' && isVideoFile({ mimeType: files[0]!.type, originalName: files[0]!.name })
-      && (this.videoUploads.size >= 3 || [...this.videoUploads.values()].reduce((size, draft) => size + draft.file.size, files[0]!.size) > MAX_IMAGE_BYTES)) {
-      this.showNotice('请先重试或移除列表中未发送的视频', 'error');
+    const inlineMedia = destination === 'chat' && (!isFile || isVideoFile({ mimeType: files[0]!.type, originalName: files[0]!.name }));
+    if (!mediaRetryId && inlineMedia
+      && (this.mediaUploads.size >= 3 || [...this.mediaUploads.values()].reduce((size, draft) => size + draft.files.reduce((sum, file) => sum + file.size, 0), files.reduce((sum, file) => sum + file.size, 0)) > MAX_IMAGE_BYTES)) {
+      this.showNotice('请先重试或移除列表中未发送的媒体，最多保留 3 条、共 256 MiB', 'error');
       return false;
     }
     const uploadScope = this.root.querySelector<HTMLElement>(destination === 'gallery' ? '.gallery-shell' : '#composer');
@@ -6417,31 +6419,31 @@ export class QuietRoomApp {
     uploadScope?.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement | HTMLInputElement>(uploadControlSelector).forEach((control) => {
       control.disabled = true;
     });
-    if (progress) progress.hidden = false;
-    const existingVideo = videoRetryId ? this.videoUploads.get(videoRetryId) : undefined;
-    const replyTarget = existingVideo ? existingVideo.reply : destination === 'chat' ? this.replyTarget : null;
-    const clientMsgId = videoRetryId ?? crypto.randomUUID();
-    let videoUpload = existingVideo;
-    if (destination === 'chat' && isFile && isVideoFile({ mimeType: files[0]!.type, originalName: files[0]!.name })) {
-      if (!videoUpload) {
-        const view = new VideoUploadView(clientMsgId, files[0]!, () => {
-          const draft = this.videoUploads.get(clientMsgId);
+    if (progress) progress.hidden = inlineMedia;
+    const existingMedia = mediaRetryId ? this.mediaUploads.get(mediaRetryId) : undefined;
+    const replyTarget = existingMedia ? existingMedia.reply : destination === 'chat' ? this.replyTarget : null;
+    const clientMsgId = mediaRetryId ?? crypto.randomUUID();
+    let mediaUpload = existingMedia;
+    if (inlineMedia) {
+      if (!mediaUpload) {
+        const view = new MediaUploadView(clientMsgId, files, expression, expressionAutoHide, () => {
+          const draft = this.mediaUploads.get(clientMsgId);
           if (!draft || draft.busy || !this.isRuntimeActive(epoch, session)) return;
           if (this.root.querySelector('#composer.is-uploading')) { this.showNotice('请等当前文件上传结束后再重试'); return; }
-          void this.processImageBatch([draft.file], 'chat', undefined, false, clientMsgId);
+          void this.processImageBatch(draft.files, 'chat', undefined, draft.expression, clientMsgId, draft.autoHide);
         }, () => {
-          const draft = this.videoUploads.get(clientMsgId);
+          const draft = this.mediaUploads.get(clientMsgId);
           if (!draft || draft.busy) return;
-          draft.view.destroy(); this.videoUploads.delete(clientMsgId); this.renderMessages({ scroll: 'position' });
+          draft.view.destroy(); this.mediaUploads.delete(clientMsgId); this.renderMessages({ scroll: 'position' });
         }, () => {
           if (this.isRuntimeActive(epoch, session)) this.renderMessages({ scroll: 'preserve' });
         });
-        videoUpload = { view, file: files[0]!, reply: replyTarget, sentAt: new Date().toISOString(), busy: true };
-        this.videoUploads.set(clientMsgId, videoUpload);
+        mediaUpload = { view, files, expression, autoHide: expressionAutoHide, reply: replyTarget, sentAt: new Date().toISOString(), busy: true };
+        this.mediaUploads.set(clientMsgId, mediaUpload);
       }
-      videoUpload.busy = true;
-      videoUpload.view.update('preparing');
-      if (progress) progress.hidden = true; // The video bubble owns its progress.
+      mediaUpload.busy = true;
+      mediaUpload.view.update('preparing');
+      if (progress) progress.hidden = true; // Each media bubble owns its progress.
       this.renderMessages({ scroll: 'send' });
     }
     const totalBytes = files.reduce((sum, file) => sum + Math.max(file.size, 1), 0);
@@ -6484,7 +6486,7 @@ export class QuietRoomApp {
           progress: (ratio) => {
             if (!this.isRuntimeActive(epoch, session)) return;
             const overall = (completedBytes + Math.max(file.size, 1) * ratio) / totalBytes;
-            videoUpload?.view.update('uploading', overall);
+            mediaUpload?.view.update('uploading', overall);
             if (bar) bar.style.transform = `scaleX(${overall})`;
             if (output) output.textContent = files.length > 1
               ? `正在处理第 ${index + 1}/${files.length} 张 · ${Math.round(overall * 100)}%`
@@ -6509,7 +6511,7 @@ export class QuietRoomApp {
         if (!isFile || isVideoFile(manifest)) this.cacheLocalImage(manifest, file);
         completedBytes += Math.max(file.size, 1);
       }
-      const sentAt = videoUpload?.sentAt ?? new Date().toISOString();
+      const sentAt = mediaUpload?.sentAt ?? new Date().toISOString();
       const payload: MessagePayload = isFile
         ? destination === 'gallery'
           ? { v: 1, kind: 'gallery-file', file: manifests[0]!, sentAt }
@@ -6530,11 +6532,11 @@ export class QuietRoomApp {
         payload.expressionAutoHide = Boolean(expressionAutoHide);
       }
       signal?.throwIfAborted();
-      videoUpload?.view.update('finishing');
+      mediaUpload?.view.update('finishing');
       await this.enqueuePayload(payload, clientMsgId, operationSignal);
       if (!this.isRuntimeActive(epoch, session)) return false;
-      videoUpload?.view.destroy();
-      this.videoUploads.delete(clientMsgId);
+      mediaUpload?.view.destroy();
+      this.mediaUploads.delete(clientMsgId);
       if (this.replyTarget?.clientMsgId === replyTarget?.clientMsgId) {
         this.replyTarget = null;
         this.renderReplyDraft();
@@ -6549,17 +6551,17 @@ export class QuietRoomApp {
     } catch (cause) {
       if (!this.isRuntimeActive(epoch, session)) return false;
       if (signal?.aborted) {
-        videoUpload?.view.destroy(); this.videoUploads.delete(clientMsgId);
+        mediaUpload?.view.destroy(); this.mediaUploads.delete(clientMsgId);
         this.renderMessages({ scroll: 'position' });
         return false;
       }
-      videoUpload?.view.update('failed');
-      const suffix = this.uploadPlans.length > 0 ? '。重新选择同一文件可从已完成分块继续' : '';
-      this.showNotice(`${cause instanceof Error ? cause.message : '文件上传失败'}${suffix}`, 'error');
+      mediaUpload?.view.update('failed');
+      const suffix = !mediaUpload && this.uploadPlans.length > 0 ? '。重新选择同一文件可从已完成分块继续' : '';
+      if (!mediaUpload) this.showNotice(`${cause instanceof Error ? cause.message : '文件上传失败'}${suffix}`, 'error');
       return false;
     } finally {
       if (!this.isRuntimeActive(epoch, session)) return false;
-      if (videoUpload) videoUpload.busy = false;
+      if (mediaUpload) mediaUpload.busy = false;
       uploadScope?.classList.remove('is-uploading');
       uploadScope?.querySelectorAll<HTMLButtonElement | HTMLTextAreaElement | HTMLInputElement>(uploadControlSelector).forEach((control) => {
         control.disabled = false;
@@ -7504,7 +7506,7 @@ export class QuietRoomApp {
       this.replyTarget = null;
       this.renderReplyDraft();
     }
-    if (messages.length === 0 && this.videoUploads.size === 0) {
+    if (messages.length === 0 && this.mediaUploads.size === 0) {
       const empty = document.createElement('div');
       empty.className = 'empty-conversation';
       const title = document.createElement('p');
@@ -7524,7 +7526,7 @@ export class QuietRoomApp {
       const dateKeys = new Set<string>();
       const currentYear = new Date().getFullYear();
       const sequences = new Map<string, number>();
-      const uploadDrafts = [...this.videoUploads.entries()].filter(([id]) => !visibleMessageIds.has(id))
+      const uploadDrafts = [...this.mediaUploads.entries()].filter(([id]) => !visibleMessageIds.has(id))
         .sort(([, a], [, b]) => a.sentAt.localeCompare(b.sentAt));
       for (const message of messages) {
         while (message.seq === Number.MAX_SAFE_INTEGER && uploadDrafts[0] && uploadDrafts[0][1].sentAt <= message.acceptedAt) {
@@ -7553,6 +7555,7 @@ export class QuietRoomApp {
           const updated = this.createMessageMeta(message);
           if (meta) {
             meta.replaceChildren(...updated.childNodes);
+            meta.className = updated.className;
             for (const attribute of ['title', 'aria-label']) {
               const value = updated.getAttribute(attribute);
               if (value === null) meta.removeAttribute(attribute);
@@ -7623,8 +7626,8 @@ export class QuietRoomApp {
         stale.remove();
       }
       // Upload tiles participate in scrolling/geometry, never in read cursors.
-      for (const [id] of this.videoUploads) if (!visibleMessageIds.has(id)) sequences.set(id, Number.MAX_SAFE_INTEGER);
-      this.renderedMessageOrder = this.videoUploads.size ? timeline.filter(element => element.classList.contains('message')) : elements;
+      for (const [id] of this.mediaUploads) if (!visibleMessageIds.has(id)) sequences.set(id, Number.MAX_SAFE_INTEGER);
+      this.renderedMessageOrder = this.mediaUploads.size ? timeline.filter(element => element.classList.contains('message')) : elements;
       this.renderedMessageSeq = sequences;
     }
     const reactionLayoutChanged = this.renderMessageReactions();
@@ -7891,6 +7894,8 @@ export class QuietRoomApp {
     const own = this.isOwnMessage(message);
     const meta = document.createElement('div');
     meta.className = 'message-meta';
+    const sendingMedia = own && isChatMedia(message) && (message.status === 'pending' || message.status === 'failed');
+    if (sendingMedia) meta.classList.add('media-send-meta');
     const read = this.readMessageIds.has(message.clientMsgId);
     const status = own
       ? message.status === 'pending'
@@ -7917,11 +7922,11 @@ export class QuietRoomApp {
       meta.append(delivery);
     } else if (own && message.status === 'pending') {
       const waiting = document.createElement('span');
-      waiting.className = 'message-pending';
+      waiting.className = sendingMedia ? 'message-pending media-send-pending' : 'message-pending';
       waiting.innerHTML = '<svg aria-hidden="true" viewBox="0 0 22 16"><circle cx="11" cy="8" r="6"/><path d="M11 4.5V8l2.5 1.5"/></svg>';
       const label = document.createElement('span');
-      label.className = 'sr-only';
-      label.textContent = '等待发送';
+      label.className = sendingMedia ? 'media-send-label' : 'sr-only';
+      label.textContent = sendingMedia ? '发送中' : '等待发送';
       waiting.append(label);
       meta.append(waiting);
     } else if (status) meta.append(document.createTextNode(status));
@@ -10431,8 +10436,8 @@ export class QuietRoomApp {
     this.chatExplicitlyConcealedAssets.clear();
     this.clearMessageTextSelection();
     this.pending.clear();
-    for (const draft of this.videoUploads.values()) draft.view.destroy();
-    this.videoUploads.clear();
+    for (const draft of this.mediaUploads.values()) draft.view.destroy();
+    this.mediaUploads.clear();
     this.outbox.clear();
     this.pendingReceipts.clear();
     this.serverQueue.clear();

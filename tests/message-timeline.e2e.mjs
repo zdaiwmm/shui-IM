@@ -373,7 +373,8 @@ try {
           if (style.justifyContent !== 'flex-end' || style.textAlign !== 'right') issues.push(`${id}: metadata not right aligned`);
           const icon = meta.querySelector('.message-delivery svg');
           if (icon && Math.abs(icon.getBoundingClientRect().width - font * 11 / 16 * 1.45) > .5) issues.push(`${id}: delivery glyph is not approximately 16px at default size or its accessible scaled equivalent`);
-          const mediaOverlay = bubble.classList.contains('image-bubble') && !article.classList.contains('is-failed');
+          // Pending/failed media now deliberately place the status and retry on the bubble.
+          const mediaOverlay = bubble.classList.contains('image-bubble');
           if (mediaOverlay) {
             if (style.position !== 'absolute' || style.backgroundColor === 'transparent' || style.backgroundColor === 'rgba(0, 0, 0, 0)' || b.right - m.right > 12 || b.bottom - m.bottom > 12) issues.push(`${id}: media metadata lost its contrasting bottom-right overlay`);
             if (kind === 'extremes') {
