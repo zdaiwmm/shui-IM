@@ -1,5 +1,11 @@
 # Product
 
+## Unified History Restoration
+
+“恢复历史记录” is the unified entry. Its focused dialog accepts up to six current device codes from the same room; confirmation dismisses the keyboard and opens progress. Creators restore chats and direct Safe uploads together. Participants restore chat history only and receive no Safe counter. Dismissing the dialog keeps the page-owned task running; the entry reopens the same task. Leaving the page or locking cancels it. Exact totals follow authenticated discovery; request deadlines and service cooldowns produce explicit feedback. Only completion shows 100%. Counts describe archive content records, including content hidden by deletion projections, rather than newly visible messages or downloaded originals.
+
+New encrypted backups preserve creator-local Safe deletion projections through recovery-code rotation. Explicit restore unions source and destination hiding records and commits deletion events before media. It does not synchronize deletion to peers, erase originals, or include drafts, pin ordering or favorites. Old backups lacking these records cannot reconstruct lost deletion intent. Clipboard pre-reading remains browser-dependent: unknown permission keeps a neutral Paste action with native paste fallback, never proof of an empty clipboard.
+
 ## Register
 
 product

@@ -239,3 +239,38 @@
 @media (prefers-reduced-motion: reduce) {
   .backup-sync-setting[data-backup-state='syncing']::after { animation: none; }
 }
+
+/* Uses the existing recovery panel, dialog lifecycle and theme tokens. */
+.history-restore-sheet { bottom: auto; }
+.history-restore-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.history-restore-heading h2 { font-size: 1.1rem; }
+.history-restore-heading .icon-button { flex-shrink: 0; font-size: 1.5rem; }
+.history-restore-form { display: grid; gap: 12px; margin-top: 18px; }
+.history-restore-form label { font-size: .85rem; }
+.history-restore-input { display: flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-raised); padding-right: 6px; }
+.history-restore-input:focus-within { border-color: var(--focus); }
+.history-restore-input textarea { min-width: 0; width: 100%; border: 0; background: transparent; resize: none; max-height: 160px; font: 16px/1.5 var(--font-mono); box-shadow: none; padding: 12px; }
+.history-restore-input textarea:focus-visible { outline: none; }
+.history-restore-input [data-paste] { min-width: 52px; min-height: 44px; padding: 6px; color: var(--ink-muted); }
+.history-restore-input [data-clipboard="content"] { color: var(--accent); background: var(--accent-soft); border-radius: 10px; }
+.history-restore-input [data-paste]:disabled { opacity: .45; }
+.history-restore-form .field-hint { margin: 0; }
+.history-restore-form [data-clipboard-hint]:empty { display: none; }
+.history-restore-progress-copy { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 22px 0 12px; color: var(--ink-muted); font-size: .82rem; }
+.history-restore-progress-copy strong { color: var(--ink); font-size: 1.6rem; font-variant-numeric: tabular-nums; }
+.history-restore-progress { display: block; width: 100%; height: 7px; border: 0; border-radius: 8px; accent-color: var(--accent); background: var(--surface); overflow: hidden; }
+.history-restore-progress::-webkit-progress-bar { background: var(--surface); border-radius: 8px; }
+.history-restore-progress::-webkit-progress-value { background: var(--accent); border-radius: 8px; }
+.history-restore-progress::-moz-progress-bar { background: var(--accent); }
+.history-restore-counts { margin: 20px 0; font-size: .88rem; }
+.history-restore-counts > div { display: flex; justify-content: space-between; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.history-restore-counts dd { margin: 0; font-variant-numeric: tabular-nums; }
+.history-restore-actions { display: grid; gap: 10px; }
+.history-restore-actions [hidden] { display: none; }
+[data-restore].is-restoring { color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .history-restore-sheet, .history-restore-panel { transition: none; animation: none; } }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
+  .history-restore-sheet { -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .history-restore-panel { background: var(--paper-pure); }
+}
+.history-restore-form [type="submit"]:disabled { background: var(--surface); color: var(--ink-faint); box-shadow: none; opacity: 1; }

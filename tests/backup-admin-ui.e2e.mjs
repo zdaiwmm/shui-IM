@@ -121,11 +121,11 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.emulateMedia({ colorScheme: 'light' });
   await page.evaluate(() => { document.documentElement.dataset.colorScheme = 'light'; });
-  await page.getByRole('button', { name: '恢复保险箱', exact: true }).click();
+  await page.getByRole('button', { name: '恢复历史记录', exact: true }).click();
   await assertBackupSpacing('restore-gallery-mobile');
   await page.setViewportSize({ width: 320, height: 740 });
   await assertBackupSpacing('restore-gallery-small-mobile');
-  const restoreSubmit = page.getByRole('button', { name: '验证并恢复保险箱', exact: true });
+  const restoreSubmit = page.getByRole('button', { name: '确认恢复', exact: true });
   await restoreSubmit.scrollIntoViewIfNeeded();
   assert.equal(await restoreSubmit.evaluate(button => {
     const box = button.getBoundingClientRect();
@@ -133,6 +133,7 @@ try {
   }), true, 'small mobile: restore action remains reachable by scrolling');
   await snapshot(page, 'restore-gallery-small-mobile-bottom', false);
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('[data-close]').click();
   await page.locator('#view-local-recovery').click();
   await page.locator('#verify-recovery-passkey').click();
   await page.locator('.local-recovery-code').waitFor();

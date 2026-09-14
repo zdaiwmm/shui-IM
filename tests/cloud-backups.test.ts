@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createStore } from '../server/storage.mjs';
 import { generateIdentity } from '../src/lib/crypto';
 import { newRecoveryCode, recoveryFetchToken, sealRecovery, openRecovery, randomBackupSecret, sealJson, openJson } from '../src/lib/backup-crypto';
-import { fetchRecoveryBundle, normalizeRecoveryCodes } from '../src/lib/cloud-backup';
+import { BACKUP_REQUEST_TIMEOUT_MS, fetchRecoveryBundle, normalizeRecoveryCodes } from '../src/lib/cloud-backup';
 import type { CloudRecoveryBundle, BackupUpload } from '../src/lib/backup-types';
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -37,6 +37,22 @@ describe('cloud recovery encryption and atomic storage', () => {
     expect(() => normalizeRecoveryCodes('')).toThrow('请输入至少一个恢复码');
     expect(() => normalizeRecoveryCodes('QR3-invalid')).toThrow('恢复码格式不正确');
     expect(() => normalizeRecoveryCodes(Array.from({ length: 7 }, () => newRecoveryCode().code))).toThrow('最多支持 6 个');
+  });
+
+  it('terminates a stalled fetch and clears its deadline', async () => {
+    const code = newRecoveryCode().code;
+    vi.useFakeTimers();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation((_url, options) => new Promise((_resolve, reject) => {
+      options!.signal!.addEventListener('abort', () => reject(options!.signal!.reason), { once: true });
+    }));
+    try {
+      const result = fetchRecoveryBundle(code, new AbortController().signal);
+      const rejected = expect(result).rejects.toThrow('备份请求超时');
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(BACKUP_REQUEST_TIMEOUT_MS);
+      await rejected;
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); fetchMock.mockRestore(); }
   });
 
   it('waits for a rate-limit response and retries the same recovery request', async () => {
@@ -93,7 +109,11 @@ describe('cloud recovery encryption and atomic storage', () => {
       await expect(fetchRecoveryBundle(recovery.code, new AbortController().signal)).rejects.toThrow('备份请求过于频繁');
       expect(fetchMock).toHaveBeenCalledTimes(13);
       const calls = fetchMock.mock.calls;
-      for (const call of calls) expect(call).toEqual(calls[0]);
+      for (const [url, options] of calls) {
+        expect(url).toEqual(calls[0]![0]);
+        expect({ ...options, signal: undefined }).toEqual({ ...calls[0]![1], signal: undefined });
+        expect(options?.signal?.aborted).toBe(false);
+      }
     } finally { fetchMock.mockRestore(); }
   });
 
@@ -107,6 +127,18 @@ describe('cloud recovery encryption and atomic storage', () => {
     const secret = randomBackupSecret();
     const encrypted = await sealJson({ text: 'history' }, secret, 'archive-one');
     await expect(openJson(encrypted, secret, 'archive-two')).rejects.toThrow();
+  });
+
+  it('accepts only creator deletion projections in the optional encrypted snapshot', async () => {
+    const { bundle, recovery } = await fixture();
+    const hidden = { v: 1 as const, category: 'images' as const, clientMsgId: crypto.randomUUID(), assetIndex: 0, hidden: true, pinnedAt: null };
+    const withHidden = { ...bundle, galleryHidden: [hidden] };
+    await expect(openRecovery(await sealRecovery(withHidden, recovery.code), recovery.code)).resolves.toEqual(withHidden);
+    for (const invalid of [
+      { ...withHidden, checkpoint: { ...bundle.checkpoint, role: 'joiner' as const } },
+      { ...withHidden, galleryHidden: [{ ...hidden, hidden: false }] },
+      { ...withHidden, galleryHidden: [{ ...hidden, pinnedAt: 1 }] },
+    ]) await expect(openRecovery(await sealRecovery(invalid, recovery.code), recovery.code)).rejects.toThrow();
   });
 
   it('stores no recovery code or history key, rejects unauthorized writes and handles exact retries', async () => {

@@ -1,3 +1,4 @@
+import { normalizeGalleryCurationRecords } from './gallery-curation';
 import { fromBase64Url, toBase64Url } from './base64';
 import type { CloudRecoveryBundle, SealedBackup } from './backup-types';
 
@@ -78,6 +79,10 @@ export async function openRecovery(sealed: SealedBackup, code: string): Promise<
         a.parts.some(p => !/^[A-Za-z0-9_-]{43}$/.test(p.id) || !/^[A-Za-z0-9_-]{43}$/.test(p.digest) ||
           !Number.isSafeInteger(p.firstSeq) || !Number.isSafeInteger(p.lastSeq) || p.firstSeq < 1 || p.lastSeq < p.firstSeq ||
           !Number.isSafeInteger(p.count) || p.count < 1 || p.count > 100))) throw new Error('恢复备份的身份或历史索引不正确');
+  if (value.galleryHidden !== undefined) {
+    const hidden = normalizeGalleryCurationRecords(value.galleryHidden);
+    if (value.checkpoint.role !== 'creator' || hidden.some(record => !record.hidden || record.pinnedAt !== null)) throw new Error('保险箱删除记录不正确');
+  }
   return value;
 }
 

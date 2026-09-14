@@ -1076,23 +1076,26 @@ try {
 
   await recovery.locator('.more-menu summary').click();
   await recovery.locator('#backup-settings').click();
-  await recovery.locator('[data-restore="gallery"]').click();
-  await recovery.locator('#history-restore-form textarea').fill(newRecoveryCode);
-  await recovery.locator('#history-restore-form form').evaluate(form => form.requestSubmit());
-  await recovery.waitForFunction(() => document.querySelector('#history-restore-form [role=status]')?.textContent?.startsWith('恢复完成'));
+  await recovery.locator('[data-restore="all"]').click();
+  await recovery.locator('#history-restore-code').fill(newRecoveryCode);
+  await recovery.locator('.history-restore-sheet:not(.is-closing) .history-restore-form').evaluate(form => form.requestSubmit());
+  await recovery.getByRole('heading', { name: '恢复完成', exact: true }).waitFor();
+  await recovery.locator('[data-dismiss]').click();
   const galleryIsolation = await recovery.evaluate(async () => {
     const v = await import('/src/lib/vault.ts'); const session = await v.unlockVault();
     return { chat: (await v.loadHistory(session)).some(m => m.payload.text === 'browser-e2e-after-gallery-file'),
       gallery: (await v.loadMediaHistoryPage(session)).messages.length };
   });
-  invariant(!galleryIsolation.chat && galleryIsolation.gallery > 0, 'Gallery-only recovery exposed old chat or failed to restore media');
-  await recovery.locator('[data-restore="chat"]').click();
-  await recovery.locator('#history-restore-form textarea').fill(recoveryCode);
-  await recovery.locator('#history-restore-form form').evaluate(form => form.requestSubmit());
+  invariant(galleryIsolation.chat && galleryIsolation.gallery > 0, 'Unified recovery must restore chat and Safe together');
+  await recovery.locator('[data-restore="all"]').click();
+  await recovery.locator('#history-restore-code').fill(recoveryCode);
+  await recovery.locator('.history-restore-sheet:not(.is-closing) .history-restore-form').evaluate(form => form.requestSubmit());
   await recovery.getByText(/^找不到可用备份/).waitFor();
-  await recovery.locator('#history-restore-form textarea').fill(newRecoveryCode);
-  await recovery.locator('#history-restore-form form').evaluate(form => form.requestSubmit());
-  await recovery.waitForFunction(() => document.querySelector('#history-restore-form [role=status]')?.textContent?.startsWith('恢复完成'));
+  await recovery.locator('[data-retry]').click();
+  await recovery.locator('#history-restore-code').fill(newRecoveryCode);
+  await recovery.locator('.history-restore-sheet:not(.is-closing) .history-restore-form').evaluate(form => form.requestSubmit());
+  await recovery.getByRole('heading', { name: '恢复完成', exact: true }).waitFor();
+  await recovery.locator('[data-dismiss]').click();
   await recovery.locator('#backup-back').click();
   await recovery.getByText('browser-e2e-after-gallery-file', { exact: true }).waitFor();
 

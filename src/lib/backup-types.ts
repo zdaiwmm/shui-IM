@@ -1,3 +1,4 @@
+import type { GalleryCurationRecord } from './gallery-curation';
 import type { Vault } from './types';
 
 export type SealedBackup = { iv: string; ciphertext: string };
@@ -9,6 +10,8 @@ export type CloudRecoveryBundle = {
   roomId: string;
   deviceId: string;
   checkpoint: Vault;
+  /** Only Safe deletion projections; never drafts, pins or favorites. */
+  galleryHidden?: GalleryCurationRecord[];
   archives: HistoryArchive[];
 };
 export type BackupUpload = {
@@ -27,10 +30,11 @@ export type LocalBackupState = {
   cursor: number;
   revision: number;
   syncedAt?: string;
+  galleryHidden?: GalleryCurationRecord[];
   newCodePending?: boolean;
   replaces?: string;
   pending?: BackupUpload;
   pendingPart?: { archiveId: string; part: ArchivePart; sealed: SealedBackup };
 };
 
-export type RecoverySource = { backupId: string; archives: HistoryArchive[] };
+export type RecoverySource = { backupId: string; archives: HistoryArchive[]; galleryHidden?: GalleryCurationRecord[] };

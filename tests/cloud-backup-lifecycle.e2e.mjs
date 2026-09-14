@@ -80,6 +80,13 @@ try {
     const noCodeInPayload = !JSON.stringify(bundle).includes(code) && !bundle.checkpoint.backup;
     const record = JSON.stringify(await v.readStoredVault());
     const persistedCiphertext = !record.includes(code) && !record.includes('private-history-');
+    const hidden = { v: 1, category: 'images', clientMsgId: crypto.randomUUID(), assetIndex: 0, hidden: true, pinnedAt: null };
+    await v.saveUiPreferences(reopened, { composerDraft: 'draft-not-for-backup', galleryCuration: [hidden] });
+    const previousRevision = reopened.vault.backup.revision;
+    await b.syncCloudBackup(reopened, new AbortController().signal, { force: false });
+    const hiddenBundle = await b.fetchRecoveryBundle(code, new AbortController().signal);
+    const deletionSnapshot = hiddenBundle.galleryHidden?.[0]?.clientMsgId === hidden.clientMsgId
+      && reopened.vault.backup.revision > previousRevision && !JSON.stringify(hiddenBundle).includes('draft-not-for-backup');
     const controller = new AbortController(); controller.abort();
     const prior = JSON.stringify(await v.readStoredVault());
     try { await b.syncCloudBackup(reopened, controller.signal); } catch { /* expected */ }
@@ -104,17 +111,23 @@ try {
     window.fetch = original;
     const lateFetchUnchanged = staleRejected && await v.readStoredVault() === null;
     // Restore the synthetic original fixture before the normal replacement path.
+    // Its previous preferences used a different master key; remove this test-only store.
+    await new Promise((resolve, reject) => { const request = indexedDB.open('quiet-room'); request.onsuccess = () => {
+      const db = request.result; const tx = db.transaction('preferences', 'readwrite'); tx.objectStore('preferences').clear();
+      tx.oncomplete = () => { db.close(); resolve(); }; tx.onerror = () => reject(tx.error);
+    }; request.onerror = () => reject(request.error); });
     await v.createVault(reopened.vault);
     const recovered = await b.recoverFromCloud(code, new AbortController().signal);
     const noAutomaticHistory = recovered.vault.recoverySource.archives.length > 0 && !recovered.vault.mls.groupState;
     const resume = await v.unlockRecoveryVault(code);
     const pendingResumes = resume.vault.roomId === room.roomId;
+    const deletionSurvivesReplacement = resume.vault.recoverySource.galleryHidden?.[0]?.clientMsgId === hidden.clientMsgId;
     // Keep this synthetic original device for the local reauthentication UI check.
     await v.createVault(reopened.vault);
-    return { rejected, committedThenLost, noOpSkipped, changedStateSynced, identicalRetry, stableCode, noCodeInPayload, persistedCiphertext, abortUnchanged,
+    return { deletionSnapshot, deletionSurvivesReplacement, rejected, committedThenLost, noOpSkipped, changedStateSynced, identicalRetry, stableCode, noCodeInPayload, persistedCiphertext, abortUnchanged,
       noAutomaticHistory, pendingResumes, lateAbortUnchanged, lateFetchUnchanged, revisionAdvanced: reopened.vault.backup.revision > before };
   });
-  assert.deepEqual(first, { rejected: true, committedThenLost: true, noOpSkipped: true, changedStateSynced: true, identicalRetry: true, stableCode: true, noCodeInPayload: true,
+  assert.deepEqual(first, { deletionSnapshot: true, deletionSurvivesReplacement: true, rejected: true, committedThenLost: true, noOpSkipped: true, changedStateSynced: true, identicalRetry: true, stableCode: true, noCodeInPayload: true,
     persistedCiphertext: true, abortUnchanged: true, noAutomaticHistory: true, pendingResumes: true, lateAbortUnchanged: true, lateFetchUnchanged: true, revisionAdvanced: true });
   await page.evaluate(async () => {
     const { QuietRoomApp } = await import('/src/app.ts'); const v = await import('/src/lib/vault.ts');
