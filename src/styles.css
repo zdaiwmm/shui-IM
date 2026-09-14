@@ -3529,3 +3529,14 @@ button:disabled {
   width: max-content;
   max-width: calc(100vw - 56px);
 }
+/* The retiring capsule keeps the live metadata typography and flex layout. */
+.media-status-departing {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  font-size: .6875rem;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
