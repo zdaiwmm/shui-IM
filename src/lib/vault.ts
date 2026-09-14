@@ -1044,7 +1044,7 @@ export async function importArchivedMessages(
   messages: DecryptedMessage[],
   scope: 'chat' | 'gallery' | 'all',
   signal?: AbortSignal,
-  onCommit: (changed: boolean) => void = () => undefined,
+  onCommit: (changed: boolean, imported: readonly DecryptedMessage[]) => void = () => undefined,
 ): Promise<number> {
   return withVaultMutation(session, async () => {
     signal?.throwIfAborted();
@@ -1069,7 +1069,7 @@ export async function importArchivedMessages(
       tx.onabort = () => { release(); reject(signal?.reason ?? tx.error ?? staleVaultError()); };
       tx.onerror = () => reject(tx.error);
     });
-    onCommit(records.length > 0);
+    onCommit(records.length > 0, missing);
     return importedContentCount;
   });
 }
@@ -1254,9 +1254,9 @@ export async function loadHistoryPage(
 
 export async function loadHistoryPageAfter(
   session: VaultSession,
-  { limit = 200, afterSeq = 0, signal }: { limit?: number; afterSeq?: number; signal?: AbortSignal } = {},
+  { limit = 200, afterSeq = 0, signal, strict = false }: { limit?: number; afterSeq?: number; signal?: AbortSignal; strict?: boolean } = {},
 ): Promise<DecryptedMessage[]> {
-  return decryptHistoryRecords(session, await loadHistoryRecordsAfter(session, { limit, afterSeq, signal }), signal);
+  return decryptHistoryRecords(session, await loadHistoryRecordsAfter(session, { limit, afterSeq, signal }), signal, { strict });
 }
 
 async function loadHistoryRecordsAfter(

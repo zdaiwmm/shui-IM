@@ -7,6 +7,7 @@ import type { ArchivePart, CloudRecoveryBundle, LocalBackupState, SealedBackup }
 import { canonicalStringify } from './canonical';
 import { loadUiPreferences, restoreGalleryHidden, findMissingArchivedMessages, importArchivedMessages, installCloudRecovery, readStoredVault, loadHistoryPageAfter, saveVault, withVaultMutation, type VaultSession } from './vault';
 import type { DecryptedMessage, Vault } from './types';
+import { auditRestoredHistory, historyRecordDigest, type RestoreAudit, type RestoreAuditRecord } from './history-restore-audit';
 
 export const BACKUP_REQUEST_TIMEOUT_MS = 30_000;
 export const AUTOMATIC_HISTORY_BATCH_WAIT_MS = 45_000;
@@ -344,7 +345,7 @@ export async function restoreCloudHistory(session: VaultSession, input: string |
 }
 
 export type HistoryRestoreProgress = {
-  phase: 'reading' | 'restoring' | 'complete';
+  phase: 'reading' | 'restoring' | 'verifying' | 'complete';
   scannedParts: number;
   totalParts: number;
   chat: { restored: number; total: number };
@@ -352,6 +353,8 @@ export type HistoryRestoreProgress = {
   percent: number | null;
   waitingForService?: boolean;
   changed: boolean;
+  inventory?: { chat: { backup: number; existing: number }; gallery?: { backup: number; existing: number } };
+  audit?: RestoreAudit;
 };
 
 /** Discover exact content totals before importing, retaining at most 16 MiB of ciphertext.
@@ -364,6 +367,7 @@ export async function restoreUnifiedHistory(session: VaultSession, input: string
   const creator = session.vault.role === 'creator';
   const status: HistoryRestoreProgress = { phase: 'reading', scannedParts: 0, totalParts: 0,
     chat: { restored: 0, total: 0 }, ...(creator ? { gallery: { restored: 0, total: 0 } } : {}), percent: null, changed: false };
+  status.inventory = { chat: { backup: 0, existing: 0 }, ...(creator ? { gallery: { backup: 0, existing: 0 } } : {}) };
   const emit = () => { signal.throwIfAborted(); onProgress(structuredClone(status)); };
   const onWait = (waiting: boolean) => { status.waitingForService = waiting; emit(); };
   emit();
@@ -418,6 +422,12 @@ export async function restoreUnifiedHistory(session: VaultSession, input: string
   const messageIds = new Map<string, number>();
   const deletes: DecryptedMessage[] = [];
   const missingParts = new Set<number>();
+  const expected = new Map<number, RestoreAuditRecord>();
+  const imported = new Set<number>();
+  const committed = (changed: boolean, messages: readonly DecryptedMessage[]) => {
+    status.changed ||= changed;
+    for (const message of messages) imported.add(message.seq);
+  };
   const scope = creator ? 'all' : 'chat';
   try {
     for (let index = 0; index < parts.length; index++) {
@@ -425,8 +435,7 @@ export async function restoreUnifiedHistory(session: VaultSession, input: string
       const missing = new Set((await findMissingArchivedMessages(session, messages, scope, signal)).map(message => message.seq));
       if (missing.size) missingParts.add(index);
       for (const message of messages) {
-        const digest = toBase64Url(await crypto.subtle.digest('SHA-256', encoder.encode(canonicalStringify({ seq: message.seq,
-          clientMsgId: message.clientMsgId, senderId: message.senderId, acceptedAt: message.acceptedAt, payload: message.payload }))));
+        const digest = await historyRecordDigest(message);
         const existing = seen.get(message.seq);
         if (existing && existing.digest !== digest || messageIds.has(message.clientMsgId) && messageIds.get(message.clientMsgId) !== message.seq) throw new Error('多个备份中的历史记录冲突');
         if (existing) continue;
@@ -434,6 +443,16 @@ export async function restoreUnifiedHistory(session: VaultSession, input: string
         const chat = missing.has(message.seq) && ['text', 'image', 'image-album', 'audio', 'file'].includes(message.payload.kind);
         const gallery = missing.has(message.seq) && creator && isGalleryMediaPayload(message.payload);
         seen.set(message.seq, { digest, chat, gallery });
+        if (creator || !['gallery-image', 'gallery-file'].includes(message.payload.kind)) {
+          const record = { digest, missing: missing.has(message.seq),
+            chat: ['text', 'image', 'image-album', 'audio', 'file'].includes(message.payload.kind),
+            gallery: creator && isGalleryMediaPayload(message.payload) };
+          expected.set(message.seq, record);
+          for (const kind of ['chat', 'gallery'] as const) if (record[kind] && status.inventory![kind]) {
+            status.inventory![kind]!.backup++;
+            if (!record.missing) status.inventory![kind]!.existing++;
+          }
+        }
         if (chat) status.chat.total++;
         if (gallery) status.gallery!.total++;
         if (message.payload.kind === 'message-delete') deletes.push(message);
@@ -443,13 +462,12 @@ export async function restoreUnifiedHistory(session: VaultSession, input: string
     signal.throwIfAborted();
     status.phase = 'restoring'; status.percent = 0; emit();
     if (creator) status.changed = await restoreGalleryHidden(session, [...hidden.values()], signal);
-    for (let index = 0; index < deletes.length; index += 100) await importArchivedMessages(session, deletes.slice(index, index + 100), scope, signal,
-      changed => { status.changed ||= changed; });
+    for (let index = 0; index < deletes.length; index += 100) await importArchivedMessages(session, deletes.slice(index, index + 100), scope, signal, committed);
     const processed = new Set<number>();
     for (let index = 0; index < parts.length; index++) {
       if (!missingParts.has(index)) { cache.delete(index); continue; }
       const messages = await read(index);
-      await importArchivedMessages(session, messages, scope, signal, changed => { status.changed ||= changed; });
+      await importArchivedMessages(session, messages, scope, signal, committed);
       for (const message of messages) {
         if (processed.has(message.seq)) continue;
         processed.add(message.seq);
@@ -463,7 +481,9 @@ export async function restoreUnifiedHistory(session: VaultSession, input: string
       status.percent = total ? Math.min(99, Math.floor(restored / total * 100)) : 0; emit();
       cache.delete(index);
     }
+    status.phase = 'verifying'; status.percent = 99; emit();
+    status.audit = await auditRestoredHistory(session, expected, imported, signal);
     status.phase = 'complete'; status.percent = 100; emit();
     return status;
-  } finally { cache.clear(); batchCache.clear(); seen.clear(); messageIds.clear(); missingParts.clear(); deletes.length = 0; }
+  } finally { cache.clear(); batchCache.clear(); seen.clear(); messageIds.clear(); missingParts.clear(); expected.clear(); imported.clear(); deletes.length = 0; }
 }

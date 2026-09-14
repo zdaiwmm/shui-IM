@@ -147,6 +147,55 @@ try {
   assert.deepEqual(restored.result.chat, { restored: 3, total: 3 }); assert.deepEqual(restored.result.gallery, { restored: 3, total: 3 });
   assert.equal(restored.retry.changed, false); assert.deepEqual(restored.retry.chat, { restored: 0, total: 0 }); assert.deepEqual(restored.retry.gallery, { restored: 0, total: 0 }); assert.equal(restored.cursor, 0); assert.equal(restored.readingIndeterminate, true); assert.equal(restored.monotonic, true);
   assert.equal(restored.requests, 4, 'one code and one batch per run, no duplicate downloads for a bounded archive');
+  assert.deepEqual(restored.result.inventory, { chat: { backup: 3, existing: 0 }, gallery: { backup: 3, existing: 0 } });
+  assert.equal(restored.result.audit.chat.imported, 3); assert.equal(restored.result.audit.chat.visible, 2);
+  assert.equal(restored.result.audit.chat.hidden, 1); assert.equal(restored.result.audit.gallery.visible, 1);
+  assert.equal(restored.result.audit.gallery.hidden, 2, 'a withdrawn image and a Safe-hidden image are not visible additions');
+  assert.equal(restored.retry.audit.chat.backup, 3); assert.equal(restored.retry.audit.chat.existing, 3);
+  assert.equal(restored.retry.audit.chat.imported, 0); assert.equal(restored.retry.audit.chat.available, 2);
+  const readback = await page.evaluate(async () => {
+    const f = window.fixture; await f.setup(); await f.restore();
+    const { auditRestoredHistory, historyRecordDigest } = await import('/src/lib/history-restore-audit.ts');
+    const expected = new Map([[1, { digest: await historyRecordDigest(f.messages[0]), chat: true, gallery: false, missing: true }]]);
+    const name = (await indexedDB.databases()).find(item => item.name.includes('quiet'))?.name;
+    if (!name) throw new Error('fixture database missing');
+    await new Promise((resolve, reject) => {
+      const opening = indexedDB.open(name);
+      opening.onsuccess = () => {
+        const db = opening.result, tx = db.transaction('history', 'readwrite');
+        tx.objectStore('history').delete(`${f.target().vault.roomId}:1`);
+        tx.oncomplete = () => { db.close(); resolve(); }; tx.onerror = () => reject(tx.error);
+      };
+    });
+    let rejected = false;
+    try { await auditRestoredHistory(f.target(), expected, new Set([1]), new AbortController().signal); }
+    catch (error) { rejected = error.message.includes('未能全部从本机读回'); }
+    // Prior successful restores and an advanced backup cursor cannot substitute for local rows.
+    f.target().vault.backup.cursor = 9999;
+    const repaired = await f.restore();
+    return { rejected, repaired, present: (await f.history()).some(m => m.seq === 1 && m.payload.text === f.messages[0].payload.text) };
+  });
+  assert.equal(readback.rejected, true, 'missing local ciphertext prevents successful readback');
+  assert.equal(readback.repaired.chat.total, 1); assert.equal(readback.repaired.audit.chat.visible, 1);
+  assert.equal(readback.repaired.audit.chat.existing, 2); assert.equal(readback.present, true, 'retry compares actual local records and restores a missing row again');
+  const hiddenOnly = await page.evaluate(async () => {
+    const f = window.fixture; await f.setup();
+    const v = await import('/src/lib/vault.ts');
+    const { QuietRoomApp } = await import('/src/app.ts');
+    await v.importArchivedMessages(f.target(), [f.messages[0], f.messages[1], f.messages[4]], 'all');
+    await v.saveUiPreferences(f.target(), { hiddenChatMessageIds: [f.messages[2].clientMsgId] });
+    const result = await f.restore();
+    const app = new QuietRoomApp(document.querySelector('#app'));
+    app.session = f.target(); app.uiPreferences = await f.preferences();
+    app.messages = new Map((await f.history()).map(m => [m.seq, m]));
+    app.messageEventHistory = new Map((await v.loadMessageEventHistory(f.target())).map(m => [m.seq, m]));
+    return { result, visibleChat: app.orderedMessages().map(m => m.seq), stored: (await f.history()).length };
+  });
+  assert.equal(hiddenOnly.result.chat.total, 2); assert.equal(hiddenOnly.result.audit.chat.imported, 2);
+  assert.equal(hiddenOnly.result.audit.chat.visible, 0); assert.equal(hiddenOnly.result.audit.gallery.visible, 0);
+  assert.equal(hiddenOnly.result.audit.chat.hidden, 2); assert.equal(hiddenOnly.result.audit.gallery.hidden, 2);
+  assert.deepEqual(hiddenOnly.visibleChat, [1], 'real chat projection agrees with the zero-visible-additions report');
+  assert.equal(hiddenOnly.stored, 5, 'hidden content remains durably stored rather than disappearing');
   const cancelled = await page.evaluate(async () => {
     const f = window.fixture; await f.setup();
     const abort = new AbortController(); let interrupted = false;
@@ -261,6 +310,9 @@ try {
   await page.locator('[data-restore]').click();
   await page.getByRole('heading', { name: '恢复完成', exact: true }).waitFor();
   assert.equal(await page.locator('[data-count=gallery]').count(), 1);
+  assert.match(await page.locator('[data-inventory=chat]').textContent(), /备份共 3 条 · 本机原有 0 条/);
+  assert.match(await page.locator('[data-audit=chat]').textContent(), /本次补入 3 条：可见 2 条，隐藏 1 条/);
+  assert.match(await page.locator('[data-audit=gallery]').textContent(), /本次补入 3 条：可见 1 条，隐藏 2 条/);
   if (screenshots) await page.screenshot({ path: `${screenshots}/progress-dark.png` });
   await page.locator('[data-dismiss]').click();
   const participant = await page.evaluate(async () => { window.fixture.delay = 0; await window.fixture.setup('joiner'); const result = await window.fixture.restore(); return { result, direct: (await window.fixture.history()).some(m => m.payload.kind === 'gallery-image') }; });
@@ -299,6 +351,8 @@ try {
   await page.locator('[data-restore]').click();
   await page.locator('[data-cancel]').click();
   await page.waitForFunction(() => !window.fixture.target().vault.historyRestoreTask);
+  // The in-memory task clears before the encrypted vault save resolves.
+  await page.locator('.history-restore-sheet').waitFor({ state: 'detached' });
   assert.equal(await page.locator('.history-restore-sheet').count(), 0);
   assert.equal(await page.evaluate(async () => (await window.fixture.history()).length), 4, 'cancel keeps already restored participant history');
   await page.evaluate(() => window.fixture.reopen());
