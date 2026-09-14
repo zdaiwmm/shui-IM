@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createStore } from '../server/storage.mjs';
 import { generateIdentity } from '../src/lib/crypto';
 import { newRecoveryCode, recoveryFetchToken, sealRecovery, openRecovery, randomBackupSecret, sealJson, openJson } from '../src/lib/backup-crypto';
-import { normalizeRecoveryCodes } from '../src/lib/cloud-backup';
+import { fetchRecoveryBundle, normalizeRecoveryCodes } from '../src/lib/cloud-backup';
 import type { CloudRecoveryBundle, BackupUpload } from '../src/lib/backup-types';
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -37,6 +37,27 @@ describe('cloud recovery encryption and atomic storage', () => {
     expect(() => normalizeRecoveryCodes('')).toThrow('请输入至少一个恢复码');
     expect(() => normalizeRecoveryCodes('QR3-invalid')).toThrow('恢复码格式不正确');
     expect(() => normalizeRecoveryCodes(Array.from({ length: 7 }, () => newRecoveryCode().code))).toThrow('最多支持 6 个');
+  });
+
+  it('waits for a rate-limit response and retries the same recovery request', async () => {
+    const f = await fixture();
+    let attempts = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      attempts += 1;
+      if (attempts === 1) return new Response(JSON.stringify({ code: 'RATE_LIMITED' }), {
+        status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': '0' },
+      });
+      return new Response(JSON.stringify({ revision: 1, sealed: f.upload.sealed }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      });
+    };
+    try {
+      await expect(fetchRecoveryBundle(f.recovery.code, new AbortController().signal)).resolves.toEqual(f.bundle);
+      expect(attempts).toBe(2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('separates lookup capability from decryption and authenticates the backup identity', async () => {

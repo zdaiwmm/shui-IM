@@ -1,5 +1,10 @@
 # Quiet Room 当前状态
 
+## 大批量历史恢复限流续传（2026-09-14，工作树已实现）
+
+- 任务工作树 `/Users/zhouding/ss-worktrees/restore-partial-history-fix`，分支 `codex/restore-partial-history-fix`，基线 `origin/main`=`85276ea`。服务端备份限流响应补充 `Retry-After`，客户端对 429 在可取消等待后继续同一请求，超过重试预算才报告限流并保留已导入片段。
+- 新增 429 重试回归；构建、完整 Vitest（78 个文件／640 项）和云备份生命周期浏览器专项通过。当前尚未提交、推送、合并或发布；未执行 iPhone / iOS 27 / Safari 真机验收。
+
 ## 会话级多设备历史恢复（2026-09-14，已发布）
 
 - 独立工作树 `/Users/zhouding/ss-worktrees/session-all-device-recovery`，分支 `codex/session-all-device-recovery`，PR #146 已合并，生产提交为 `3e1f5cc4614cdbecf779361b25bdd62c554aa574`，版本 `2026.09.14.3`。
