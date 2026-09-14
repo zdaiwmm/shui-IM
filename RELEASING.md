@@ -1,5 +1,13 @@
 # Quiet Room 固定发布流程
 
+## 媒体气泡状态一致性修复已发布（2026-09-14 23:56）
+
+- 用户要求发布本次修复，PR [#161](https://github.com/zdaiwmm/shui-IM/pull/161) 已合并。线上应用 SHA `b85093e53623c6394d41e04946ad99a717e9126c`，版本 `2026.09.14.9`，与冻结候选 `1bbd52e6280fd98a5bd986085a08ecfe747ab95d` 文件树一致。精确 main CI [34864289446](https://github.com/zdaiwmm/shui-IM/actions/runs/34864289446) 通过；本地 `check:full` 通过（645 项测试、35/35 浏览器脚本，`clean=true`），最终 WebKit 媒体专项及长按截图核验通过。
+- 上传、加载和完成状态共享原始尺寸与四角；长按预览保持内容尺寸，上传预览保留到正式缩略图就绪，角落状态平滑淡出。极窄媒体由消息行提供触摸空间；旧消息若既无尺寸清单又无已解码缓存，首次解码前仍无法精确占位。附件协议和能力门禁未变，旧 PR #117 未纳入。
+- 固定入口取得 `DEPLOY_OK`、`DEPLOY_VERIFIED` 并核对精确成功回执。批次 `20260914T155348Z`，发布目录 `/opt/quiet-room/git-releases/20260914T155348Z-b85093e53623`，切换前冷备份 `/opt/quiet-room/backups/predeploy/data-20260914T155348Z-b85093e53623.tar.gz` 已校验。
+- 独立 `READBACK_OK` 于 `2026-09-14T15:56:30Z` 确认线上 SHA、镜像、HTTPS／数据库／存储、公开产物及新建 WebSocket 均通过。应用运行且健康，备份容器运行但无健康探针，维护标记不存在。证据 `quiet-room-readback/20260914T155627150Z-b85093e53623-success.json`。
+- 实体 iPhone / iOS 27 / Safari 仍未验收。本次对账不触发再次部署，后续文档 main 提交不代表线上应用 SHA 改变。
+
 ## 媒体上传气泡已发布（2026-09-14 22:52）
 
 - 用户要求发布生产，PR [#159](https://github.com/zdaiwmm/shui-IM/pull/159) 已合并。线上应用 SHA `a4db1c2d3d52d6c528ee9b90c47d69a66e1a19fc`，版本 `2026.09.14.8`；与冻结候选 `241c029c6739836842484cc1f1a7a24ae10cc9cd` 文件树完全一致。精确 main CI [34857581222](https://github.com/zdaiwmm/shui-IM/actions/runs/34857581222) 通过；本地 `check:full` 通过（645 项测试、35/35 浏览器脚本，冻结证据 `clean=true`），Chromium／WebKit 媒体上传专项通过。
