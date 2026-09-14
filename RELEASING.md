@@ -1,5 +1,13 @@
 # Quiet Room 固定发布流程
 
+## 统一历史恢复修复上线（2026-09-14 18:47）
+
+- 用户明确要求将 PR [#153](https://github.com/zdaiwmm/shui-IM/pull/153) 合并并发布生产。修复提交 `cbcb50600dcc46a4c16f626b6299e0ef2bd017f2` 已正常合并为 `51bae9d15796b5cc232e9f63d8631625c2f6f752`，两者文件树一致；版本 `2026.09.14.5`。精确 main CI [34834359692](https://github.com/zdaiwmm/shui-IM/actions/runs/34834359692) 全部通过。
+- 本批统一历史恢复入口，沿用项目视觉和弹窗动画，增加聚焦输入、粘贴和可收起再打开的真实进度；创建者一起恢复聊天和保险箱直传内容。请求增加超时反馈，修复恢复前 IndexedDB 清理异常，新备份保存保险箱删除投影并在恢复内容前应用。
+- 首次固定入口仅在本地配置预检退出，未触碰生产；复用原项目已有配置后，固定入口返回 `DEPLOY_OK`、`DEPLOY_VERIFIED` 并通过外层精确回执核验。批次 `20260914T104533Z`，发布目录 `/opt/quiet-room/git-releases/20260914T104533Z-51bae9d15796`，已校验冷备份 `/opt/quiet-room/backups/predeploy/data-20260914T104533Z-51bae9d15796.tar.gz`。
+- 独立回读于 `2026-09-14T10:47:59Z` 返回 `READBACK_OK`：线上 SHA、镜像、HTTPS 健康、数据库、存储、公开产物与新建 WebSocket 均通过。应用容器运行且健康；备份容器运行但无健康探针；维护标记不存在。证据 `quiet-room-readback/20260914T104756675Z-51bae9d15796-success.json`。
+- 未进行实体 iPhone / iOS 27 / Safari 或真实用户恢复材料验收。旧备份未保存且本机已丢失的删除标记无法追溯；恢复计数不是原图下载数。既有独立审计等高安全门槛仍未完成。此后文档对账不触发再次发布。
+
 ## 历史恢复限流修复上线（2026-09-14 17:02）
 
 - 用户确认的线上应用 SHA 为 `5c75678eab393ccd543f458729ccbb962faff715`，PR [#151](https://github.com/zdaiwmm/shui-IM/pull/151) 已合并，版本 `2026.09.14.4`。精确 main CI [34823276916](https://github.com/zdaiwmm/shui-IM/actions/runs/34823276916) 全部通过；相同文件树的本地 `check:full` 通过（78 个测试文件／642 项，浏览器 33/33）。
