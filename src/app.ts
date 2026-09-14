@@ -3691,6 +3691,7 @@ export class QuietRoomApp {
             <button id="start-audio-call" type="button" disabled><span>${icons.phone}</span>实时语音</button>
             <button id="open-file-picker" type="button" ${cryptoReady ? '' : 'disabled'}><span>${icons.file}</span>文件</button>
             <button id="open-favorites" type="button"><span>${memeIcons.star}</span>收藏</button>
+            <p class="call-availability-note" id="call-availability-note" role="status" hidden></p>
           </div>
           <div class="upload-progress" id="upload-progress" hidden><span></span><output></output></div>
         </form>
@@ -6637,6 +6638,7 @@ export class QuietRoomApp {
       return;
     }
     actions.querySelector('.message-reaction-picker')?.remove();
+    actions.querySelector('.message-delete-note')?.remove();
     const list = actions.querySelector<HTMLElement>('.message-action-list');
     if (!list) return;
     list.replaceChildren();
@@ -6657,7 +6659,15 @@ export class QuietRoomApp {
     const confirmed = message.status !== 'pending' && message.status !== 'failed'
       && Number.isSafeInteger(message.seq) && message.seq > 0 && message.seq < Number.MAX_SAFE_INTEGER;
     if (confirmed && this.isOwnMessage(message)) add('delete-everyone', '为所有人删除', () => void this.deleteMessageForEveryone(message));
-    add('delete-local', '仅为我删除', () => void this.deleteMessageForThisDevice(message));
+    const remainsInOutbox = message.status === 'pending' || message.status === 'failed';
+    if (remainsInOutbox) {
+      const note = document.createElement('p');
+      note.className = 'message-delete-note';
+      note.setAttribute('role', 'note');
+      note.textContent = '这条消息尚未送达；隐藏后仍会在连接恢复时尝试发送。';
+      actions.insertBefore(note, list);
+    }
+    add('delete-local', remainsInOutbox ? '仅本机隐藏（仍会发送）' : '仅为我删除', () => void this.deleteMessageForThisDevice(message));
     this.positionMessageActions(actions, article);
     // These are choices, not a selected answer. Keyboard navigation can move
     // focus into either item without painting a default selected state.
@@ -6669,6 +6679,7 @@ export class QuietRoomApp {
     const epoch = this.runtimeEpoch;
     if (!session || this.privacyCovered || this.messageIsUnavailable(message.clientMsgId)) return;
     const previous = this.uiPreferences.hiddenChatMessageIds;
+    const remainsInOutbox = message.status === 'pending' || message.status === 'failed';
     const hidden = new Set(previous ?? []);
     if (!hidden.has(message.clientMsgId.toLowerCase()) && hidden.size >= 20_000) {
       this.closeMessageActions(false, false);
@@ -6685,7 +6696,9 @@ export class QuietRoomApp {
     this.renderReplyDraft();
     try {
       await this.saveUiPreferencesNow();
-      if (this.isRuntimeActive(epoch, session)) this.showNotice('已仅从这台设备的聊天中删除');
+      if (this.isRuntimeActive(epoch, session)) this.showNotice(remainsInOutbox
+        ? '已从本机隐藏；消息仍会在连接恢复后尝试发送'
+        : '已仅从这台设备的聊天中删除');
     } catch (cause) {
       if (!this.isRuntimeActive(epoch, session)) return;
       if (this.uiPreferences.hiddenChatMessageIds === next) {
@@ -10135,9 +10148,21 @@ export class QuietRoomApp {
     const vault = this.callVault;
     const ready = !this.privacyCovered && this.connectionState === 'connected' && vault?.protocol === 'mls-rfc9420' && vault.mls?.phase === 'active' &&
       vault.members.some(member => member.status === 'active' && member.role !== vault.role && member.capabilities?.includes(CALL_CAPABILITY));
+    const active = Boolean(this.callController?.active);
+    const note = this.root.querySelector<HTMLElement>('#call-availability-note');
+    let unavailableReason = '';
+    if (active) unavailableReason = '通话进行中';
+    else if (this.connectionState !== 'connected') unavailableReason = '连接恢复后可发起通话';
+    else if (vault?.protocol !== 'mls-rfc9420' || vault.mls?.phase !== 'active') unavailableReason = '安全会话建立后可发起通话';
+    else if (!ready) unavailableReason = '对方设备尚未支持通话';
+    if (note) {
+      note.textContent = unavailableReason;
+      note.hidden = !unavailableReason;
+    }
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('#start-video-call, #start-audio-call')) {
-      button.disabled = !ready || Boolean(this.callController?.active);
+      button.disabled = !ready || active;
       button.title = ready ? (button.id === 'start-video-call' ? '视频通话' : '语音通话') : '双方打开最新版并连接安全会话后可通话';
+      if (note) button.setAttribute('aria-describedby', note.id);
     }
   }
 

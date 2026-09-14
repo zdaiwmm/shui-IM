@@ -572,7 +572,8 @@ try {
     label: button.querySelector('span')?.textContent?.trim(),
     danger: button.dataset.danger,
   })));
-  assert.deepEqual(pendingChoices, [{ action: 'delete-local', label: '仅为我删除', danger: 'true' }]);
+  assert.deepEqual(pendingChoices, [{ action: 'delete-local', label: '仅本机隐藏（仍会发送）', danger: 'true' }]);
+  assert.equal(await page.locator('.message-delete-note').innerText(), '这条消息尚未送达；隐藏后仍会在连接恢复时尝试发送');
   await sampleDanger(page.locator('[data-message-action="delete-local"]'), 'pending image delete locally');
   await page.locator('[data-message-action="delete-local"]').click();
   await page.locator(messageSelector(fixture.ids.pendingImage)).waitFor({ state: 'detached' });
@@ -589,7 +590,8 @@ try {
     label: button.querySelector('span')?.textContent?.trim(),
     danger: button.dataset.danger,
   })));
-  assert.deepEqual(failedChoices, [{ action: 'delete-local', label: '仅为我删除', danger: 'true' }]);
+  assert.deepEqual(failedChoices, [{ action: 'delete-local', label: '仅本机隐藏（仍会发送）', danger: 'true' }]);
+  assert.equal(await page.locator('.message-delete-note').innerText(), '这条消息尚未送达；隐藏后仍会在连接恢复时尝试发送');
   await page.locator('[data-message-action="delete-local"]').click();
   await page.locator(messageSelector(fixture.ids.failedFile)).waitFor({ state: 'detached' });
 

@@ -216,6 +216,8 @@
   border-radius: 23px;
 }
 
+.message-delete-note { margin: 0; padding: 10px 19px 6px; color: var(--ink-muted); font-size: .72rem; line-height: 1.45; }
+
 .message-action-list > button {
   width: 100%;
   min-height: 48px;

@@ -241,9 +241,7 @@ label[role="button"]:active {
 button:focus-visible,
 summary:focus-visible,
 input:focus-visible,
-textarea:focus-visible,
-label:has(input:focus-visible),
-label:has(textarea:focus-visible) {
+textarea:focus-visible {
   outline: 3px solid color-mix(in oklch, var(--focus) 74%, transparent);
   outline-offset: 3px;
 }

@@ -67,7 +67,7 @@
 }
 
 .backup-settings-group {
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid var(--line);
   border-radius: 20px;
   background: var(--surface-raised);
