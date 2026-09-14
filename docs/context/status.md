@@ -1,5 +1,12 @@
 # Quiet Room 当前状态
 
+## 当前生产快照（2026-09-14 10:07，独立回读通过）
+
+- 线上应用 SHA `ad47f0faa9faa7459bbfe042afcead846d0128b2`；PR #140 已合并，应用版本为 `2026.09.14.1`。精确 main CI [34797058185](https://github.com/zdaiwmm/shui-IM/actions/runs/34797058185) 全部通过。
+- 生产批次为 `20260914T020142Z`，发布目录为 `/opt/quiet-room/git-releases/20260914T020142Z-ad47f0faa9fa`；独立 `READBACK_OK` 于 `2026-09-14T02:07:07Z` 核对线上 SHA、容器和公开产物一致。应用运行且健康，备份容器运行中但无健康探针，维护标记不存在。
+- HTTPS `ok`／`database`／`storage` 和新建公开 WebSocket 均通过；后台开关 `1`，通话覆盖 `0`，TURN 容器不存在。回读证据为 `quiet-room-readback/20260914T020703855Z-ad47f0faa9fa-success.json`。
+- 本批仅包含四项产品/交互修复：备份页小屏按钮裁切、待发送消息隐藏提示、通话不可用原因和表单焦点边框。保险箱入口辨认度与横竖屏限制未改。实体 iPhone / iOS 27 / Safari、生产管理员逐项操作、OSS 异地备份、外部监控告警、独立密码学审计和高安全发布门槛仍未完成。文档提交不代表再次部署。
+
 ## 当前生产快照（2026-09-13 23:17，独立回读通过）
 
 - 线上应用 SHA `8f946e78a6603155f221a96eb085d15510ddd1cf`；集成 PR #129、#131、#132 与版本元数据 PR #133 已合并，应用版本为 `2026.09.13.1`。精确 main CI [34764358330](https://github.com/zdaiwmm/shui-IM/actions/runs/34764358330) 全部通过。
