@@ -38,6 +38,25 @@
   flex: 0 0 auto;
 }
 
+.recovery-clear-confirm {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  margin: 24px 0 8px;
+  color: var(--ink-muted);
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.recovery-clear-confirm input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
 .gateway .field-hint,
 .gateway .form-error {
   margin: 0;
