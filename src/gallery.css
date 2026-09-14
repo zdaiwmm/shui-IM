@@ -277,6 +277,33 @@
 
 .viewer-photo-tools > * { pointer-events: auto; }
 .viewer-photo-tools [hidden] { display: none; }
+.viewer-delete-wrap {
+  position: absolute;
+  z-index: 6;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(86px, calc(72px + env(safe-area-inset-bottom)));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+.viewer-delete-wrap[hidden] { display: none; }
+.viewer-delete-control { color: oklch(76% 0.16 25); }
+.viewer-delete-confirm {
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  white-space: nowrap;
+  padding: 0;
+  color: oklch(96% 0.006 255);
+  font-size: .76rem;
+  transition: max-width 220ms cubic-bezier(.16, 1, .3, 1), opacity 180ms ease-out, padding 220ms ease-out;
+}
+.viewer-delete-wrap.is-confirming .viewer-delete-confirm {
+  max-width: 110px;
+  opacity: 1;
+  padding-inline: 8px;
+}
 .image-viewer .viewer-header .viewer-control,
 .viewer-video-controls .viewer-control,
 .viewer-motion-toggle {
@@ -380,10 +407,45 @@
   margin-inline: auto;
   touch-action: none;
 }
+.viewer-video-center {
+  position: absolute;
+  inset: 50% 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: clamp(12px, 4vw, 28px);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.viewer-video-center .viewer-control { pointer-events: auto; }
+.viewer-video-center-play { width: 72px; height: 72px; }
+.viewer-video-center-play svg { width: 36px; height: 36px; }
+.viewer-video-center [data-video-skip-back] svg,
+.viewer-video-center [data-video-skip-forward] svg { width: 28px; height: 28px; }
 .viewer-video-seek { display: block; width: 100%; height: 44px; margin: 0; padding: 0; accent-color: var(--accent); cursor: pointer; }
-.viewer-video-transport { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px 44px; align-items: center; gap: 12px; }
+.viewer-video-transport { display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px repeat(2, 44px); align-items: center; gap: 12px; }
+.viewer-video-controls.has-delete .viewer-video-transport { grid-template-columns: 44px minmax(0, 1fr) 44px repeat(3, 44px); }
+.viewer-video-delete-wrap { position: relative; width: 44px; height: 44px; }
 .viewer-video-time { min-width: 0; font-size: 0.75rem; font-variant-numeric: tabular-nums; color: var(--ink); text-shadow: 0 1px 6px var(--paper); }
 .viewer-video-controls :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.viewer-video-delete { color: oklch(76% 0.16 25); }
+.viewer-video-delete-confirm {
+  position: absolute;
+  right: 52px;
+  bottom: 50%;
+  transform: translateY(50%);
+  max-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  color: oklch(96% 0.006 255);
+  font-size: 0;
+  white-space: nowrap;
+  transition: max-width 220ms cubic-bezier(.16, 1, .3, 1), opacity 180ms ease-out;
+}
+.viewer-video-delete-confirm.is-visible { max-width: 92px; opacity: 1; font-size: .7rem; }
+@media (max-width: 360px) {
+  .viewer-video-controls.has-delete .viewer-video-transport { gap: 4px; }
+}
 .image-viewer[data-native-video] .viewer-video-controls { visibility: hidden; }
 .viewer-video-feedback {
   position: absolute;

@@ -59,7 +59,7 @@ import { bindImageViewerGestures } from './lib/image-viewer-gestures';
 import { prepareImageMotion, type ImageMotion } from './lib/image-animation';
 import { createConcealedImage } from './lib/concealed-image';
 import { mountPhotoDetails } from './lib/photo-details';
-import { createElement, Info, Pause, Play, Plus, Camera, Maximize, Volume2, VolumeX } from 'lucide';
+import { createElement, Info, Pause, Play, Plus, Camera, Maximize, Volume2, VolumeX, Gauge, Trash2, RotateCcw, RotateCw } from 'lucide';
 import { isReadableChatMessage, readMessageIds } from './lib/message-read';
 import { isChatMedia } from './lib/media-read';
 import { bindChatImageConcealGesture } from './lib/chat-image-conceal-gesture';
@@ -8377,7 +8377,7 @@ export class QuietRoomApp {
     stage: HTMLElement,
     cached: CachedImage,
     manifest: ImageManifest,
-    { autoplay, requestNative }: { autoplay: boolean; requestNative: boolean },
+    { autoplay, requestNative, onDelete }: { autoplay: boolean; requestNative: boolean; onDelete?: () => void | Promise<void> },
   ): { video: HTMLVideoElement; cleanup: () => void } {
     const video = document.createElement('video');
     const nativeVideo = video as HTMLVideoElement & {
@@ -8402,33 +8402,86 @@ export class QuietRoomApp {
     feedback.className = 'viewer-video-feedback';
     feedback.hidden = true;
     const controls = document.createElement('div');
-    controls.className = 'viewer-video-controls';
+    controls.className = `viewer-video-controls${onDelete ? ' has-delete' : ''}`;
     controls.innerHTML = `
+      <div class="viewer-video-center" aria-label="视频播放控制">
+        <button class="viewer-control" type="button" data-video-skip-back aria-label="后退 10 秒" title="后退 10 秒"></button>
+        <button class="viewer-control viewer-video-center-play" type="button" data-video-center-play aria-label="播放视频" title="播放视频"></button>
+        <button class="viewer-control" type="button" data-video-skip-forward aria-label="前进 10 秒" title="前进 10 秒"></button>
+      </div>
       <input class="viewer-video-seek" type="range" min="0" max="0" value="0" step="0.1" aria-label="视频进度" disabled>
       <div class="viewer-video-transport">
         <button class="viewer-control" type="button" data-video-play></button>
         <span class="viewer-video-time" aria-live="off">0:00 / 0:00</span>
         <button class="viewer-control" type="button" data-video-mute></button>
+        ${onDelete ? '<span class="viewer-video-delete-wrap"><button class="viewer-control viewer-video-delete" type="button" data-video-delete aria-label="删除保险箱中的此项" title="删除保险箱中的此项"></button><span class="viewer-video-delete-confirm" data-video-delete-confirm role="status">再次点击删除</span></span>' : ''}
+        <button class="viewer-control" type="button" data-video-speed aria-label="播放速度" title="播放速度"></button>
         <button class="viewer-control" type="button" data-video-fullscreen aria-label="全屏播放" title="全屏播放"></button>
       </div>`;
     const playButton = controls.querySelector<HTMLButtonElement>('[data-video-play]')!;
+    const centerPlayButton = controls.querySelector<HTMLButtonElement>('[data-video-center-play]')!;
+    const skipBackButton = controls.querySelector<HTMLButtonElement>('[data-video-skip-back]')!;
+    const skipForwardButton = controls.querySelector<HTMLButtonElement>('[data-video-skip-forward]')!;
     const muteButton = controls.querySelector<HTMLButtonElement>('[data-video-mute]')!;
+    const deleteVideoButton = controls.querySelector<HTMLButtonElement>('[data-video-delete]');
+    const deleteVideoConfirm = controls.querySelector<HTMLElement>('[data-video-delete-confirm]');
+    const speedButton = controls.querySelector<HTMLButtonElement>('[data-video-speed]')!;
     const fullscreenButton = controls.querySelector<HTMLButtonElement>('[data-video-fullscreen]')!;
     const seek = controls.querySelector<HTMLInputElement>('input')!;
     const time = controls.querySelector<HTMLElement>('.viewer-video-time')!;
+    const events = new AbortController();
+    let videoDeleteArmed = false;
+    let videoDeleteTimer: number | null = null;
     fullscreenButton.append(createElement(Maximize));
+    speedButton.append(createElement(Gauge));
+    skipBackButton.append(createElement(RotateCcw));
+    skipForwardButton.append(createElement(RotateCw));
+    deleteVideoButton?.append(createElement(Trash2));
+    let speed = 1;
+    const updateSpeed = () => {
+      video.playbackRate = speed;
+      speedButton.setAttribute('aria-label', `播放速度 ${speed} 倍`);
+      speedButton.title = `播放速度 ${speed} 倍`;
+    };
+    speedButton.addEventListener('click', () => {
+      speed = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1;
+      updateSpeed();
+    }, { signal: events.signal });
+    deleteVideoButton?.addEventListener('click', () => {
+      if (!onDelete || deleteVideoButton.disabled) return;
+      if (!videoDeleteArmed) {
+        videoDeleteArmed = true;
+        deleteVideoConfirm?.classList.add('is-visible');
+        if (videoDeleteTimer !== null) window.clearTimeout(videoDeleteTimer);
+        videoDeleteTimer = window.setTimeout(() => { videoDeleteArmed = false; deleteVideoConfirm?.classList.remove('is-visible'); }, 3000);
+        return;
+      }
+      deleteVideoButton.disabled = true;
+      void Promise.resolve(onDelete()).finally(() => { if (deleteVideoButton.isConnected) deleteVideoButton.disabled = false; });
+    }, { signal: events.signal });
     const formatTime = (value: number) => {
       const seconds = Math.max(0, Math.floor(Number.isFinite(value) ? value : 0));
       const hours = Math.floor(seconds / 3600);
       const minutes = Math.floor(seconds / 60) % 60;
       return `${hours ? `${hours}:${String(minutes).padStart(2, '0')}` : Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
     };
+    const updateTimeLabel = () => {
+      const current = formatTime(video.currentTime);
+      const duration = formatTime(video.duration);
+      const full = `${current} / ${duration}`;
+      time.textContent = controls.clientWidth < 300 || window.innerWidth <= 360 ? current : full;
+      time.setAttribute('aria-label', full);
+    };
+    window.addEventListener('resize', updateTimeLabel, { signal: events.signal });
     const updateControls = () => {
       const paused = video.paused || video.ended;
       const muted = video.muted || video.volume === 0;
       playButton.setAttribute('aria-label', paused ? '播放视频' : '暂停视频');
       playButton.title = paused ? '播放视频' : '暂停视频';
       playButton.replaceChildren(createElement(paused ? Play : Pause));
+      centerPlayButton.setAttribute('aria-label', paused ? '播放视频' : '暂停视频');
+      centerPlayButton.title = paused ? '播放视频' : '暂停视频';
+      centerPlayButton.replaceChildren(createElement(paused ? Play : Pause));
       muteButton.setAttribute('aria-label', muted ? '开启声音' : '静音');
       muteButton.title = muted ? '开启声音' : '静音';
       muteButton.setAttribute('aria-pressed', String(muted));
@@ -8437,9 +8490,8 @@ export class QuietRoomApp {
       seek.max = String(seek.disabled ? 0 : video.duration);
       seek.value = String(video.currentTime);
       seek.setAttribute('aria-valuetext', `${formatTime(video.currentTime)} / ${formatTime(video.duration)}`);
-      time.textContent = `${formatTime(video.currentTime)} / ${formatTime(video.duration)}`;
+      updateTimeLabel();
     };
-    const events = new AbortController();
     let active = true;
     let nativeEntered = false;
     let nativePendingTimer: number | null = null;
@@ -8527,6 +8579,13 @@ export class QuietRoomApp {
       video.addEventListener(event, updateControls, { signal: events.signal });
     }
     playButton.addEventListener('click', () => { if (video.paused) play(); else video.pause(); }, { signal: events.signal });
+    centerPlayButton.addEventListener('click', () => { if (video.paused) play(); else video.pause(); }, { signal: events.signal });
+    const skip = (offset: number) => {
+      if (!live() || !Number.isFinite(video.duration)) return;
+      video.currentTime = Math.max(0, Math.min(video.duration, video.currentTime + offset));
+    };
+    skipBackButton.addEventListener('click', () => skip(-10), { signal: events.signal });
+    skipForwardButton.addEventListener('click', () => skip(10), { signal: events.signal });
     muteButton.addEventListener('click', () => {
       const muted = video.muted || video.volume === 0;
       video.muted = !muted;
@@ -8551,6 +8610,7 @@ export class QuietRoomApp {
       video.load();
     };
     updateControls();
+    updateSpeed();
     stage.replaceChildren(video, controls, feedback);
     video.src = cached.url;
     if (requestNative) {
@@ -8998,6 +9058,10 @@ export class QuietRoomApp {
         <button class="viewer-motion-toggle" type="button" data-viewer-motion aria-pressed="true" hidden></button>
         <span class="viewer-motion-error" role="status" hidden></span>
       </div>
+      <div class="viewer-delete-wrap" data-viewer-delete-wrap hidden>
+        <button class="viewer-control viewer-delete-control" type="button" data-viewer-delete aria-label="删除保险箱中的此项" title="删除保险箱中的此项">${icons.trash}</button>
+        <span class="viewer-delete-confirm" data-viewer-delete-confirm role="status">再次点击删除</span>
+      </div>
       <p class="notice viewer-notice" role="status" data-viewer-notice hidden></p>
       <div class="viewer-stage" aria-live="polite"></div>
       <button class="viewer-nav viewer-previous" type="button" aria-label="上一张">${icons.back}</button>
@@ -9014,6 +9078,40 @@ export class QuietRoomApp {
     let activeMotion: ImageMotion | null = null;
     const motionButton = viewer.querySelector<HTMLButtonElement>('[data-viewer-motion]')!;
     const detailsButton = viewer.querySelector<HTMLButtonElement>('[data-viewer-details]');
+    const deleteWrap = viewer.querySelector<HTMLElement>('[data-viewer-delete-wrap]')!;
+    const deleteButton = viewer.querySelector<HTMLButtonElement>('[data-viewer-delete]')!;
+    const deleteConfirm = viewer.querySelector<HTMLElement>('[data-viewer-delete-confirm]')!;
+    let deleteArmed = false;
+    let deleteTimer: number | null = null;
+    const safeDeleteAllowed = allowPhotoDetails && identities.length > 0;
+    const performSafeDelete = async () => {
+      const identity = identities[current];
+      if (!safeDeleteAllowed || !identity || deleteButton.disabled) return;
+      deleteButton.disabled = true;
+      try {
+        await this.updateGalleryCuration({ category: 'images', clientMsgId: identity.clientMsgId, assetIndex: identity.assetIndex }, 'hide');
+        if (!workAbort.signal.aborted) this.closeImageViewer(true);
+      } catch (cause) {
+        deleteButton.disabled = false;
+        deleteConfirm.textContent = cause instanceof Error ? cause.message : '删除失败，请重试';
+        deleteArmed = false;
+        deleteWrap.classList.remove('is-confirming');
+      }
+    };
+    const deleteCurrentSafeAsset = async () => {
+      if (!safeDeleteAllowed || !identities[current] || deleteButton.disabled) return;
+      if (!deleteArmed) {
+        deleteArmed = true;
+        deleteWrap.classList.add('is-confirming');
+        deleteConfirm.textContent = '再次点击删除';
+        if (deleteTimer !== null) window.clearTimeout(deleteTimer);
+        deleteTimer = window.setTimeout(() => { deleteArmed = false; deleteWrap.classList.remove('is-confirming'); }, 3000);
+        return;
+      }
+      await performSafeDelete();
+    };
+    deleteButton.addEventListener('click', () => void deleteCurrentSafeAsset());
+    deleteWrap.hidden = !safeDeleteAllowed;
     detailsButton?.append(createElement(Info));
     const closeDetails = (focus = true, animate = true) => {
       this.viewerDetailsCleanup?.(animate);
@@ -9108,6 +9206,10 @@ export class QuietRoomApp {
         delete viewer.dataset.viewerClientMsgId;
         delete viewer.dataset.viewerAssetIndex;
       }
+      deleteWrap.hidden = !safeDeleteAllowed || !identity || video;
+      deleteArmed = false;
+      deleteWrap.classList.remove('is-confirming');
+      deleteButton.disabled = false;
     };
     const finishTransitionState = () => {
       transitionActive = false;
@@ -9211,7 +9313,8 @@ export class QuietRoomApp {
           else stage.replaceChildren(layer);
           const rendered = this.renderViewerVideo(layer, loaded, manifest, {
             autoplay: !outgoingLayer,
-            requestNative: !outgoingLayer,
+            requestNative: !outgoingLayer && !safeDeleteAllowed,
+            onDelete: safeDeleteAllowed ? performSafeDelete : undefined,
           });
           incomingCleanup = rendered.cleanup;
         } else {
@@ -9814,6 +9917,9 @@ export class QuietRoomApp {
       }
     };
     updateCounts();
+    if (!favorites && (!this.galleryKnownCounts.images?.complete || !this.galleryKnownCounts.files?.complete)) {
+      void this.primeGalleryCounts(session, epoch, signal);
+    }
     const visibilityButton = this.root.querySelector<HTMLButtonElement>('#gallery-toggle-visibility');
     const allImagesRevealed = () => assets.length > 0 && assets.every(asset =>
       this.galleryRevealedAssets.has(`${asset.clientMsgId}:${asset.assetIndex}`));
@@ -10140,6 +10246,47 @@ export class QuietRoomApp {
     for (const count of Object.values(this.galleryKnownCounts)) {
       if (!count) continue;
       for (const key of count.keys) if (key.startsWith(prefix)) count.keys.delete(key);
+    }
+  }
+
+  /** Populate both tab badges from the encrypted media projection on entry. */
+  private async primeGalleryCounts(session: VaultSession, epoch: number, signal?: AbortSignal): Promise<void> {
+    const counts = {
+      images: this.galleryKnownCounts.images ??= { keys: new Set<string>(), complete: false },
+      files: this.galleryKnownCounts.files ??= { keys: new Set<string>(), complete: false },
+    };
+    try {
+      // Prime both tabs from the first page. Keep the established `+` state
+      // until the visible tab paginates through the remaining local history.
+      const page = await loadMediaHistoryPage(session, { limit: 200, signal });
+      if (!this.isRuntimeActive(epoch, session)) return;
+      for (const message of page.messages) {
+        if (this.messageDeletions().has(message.clientMsgId) || isExpressionPayload(message.payload)) continue;
+        if (message.payload.kind === 'image-album') {
+          message.payload.images.forEach((_, index) => counts.images.keys.add(`${message.clientMsgId}:${index}`));
+        } else if (message.payload.kind === 'image' || message.payload.kind === 'gallery-image') {
+          counts.images.keys.add(`${message.clientMsgId}:0`);
+        } else if ((message.payload.kind === 'file' || message.payload.kind === 'gallery-file') && isVideoFile(message.payload.file)) {
+          counts.images.keys.add(`${message.clientMsgId}:0`);
+        } else if (message.payload.kind === 'file' || message.payload.kind === 'gallery-file') {
+          counts.files.keys.add(`${message.clientMsgId}:file`);
+        }
+      }
+      counts.images.complete = !page.hasMore;
+      counts.files.complete = !page.hasMore;
+      for (const id of this.messageDeletions().keys()) this.removeDeletedGalleryKnownCount(id);
+      for (const kind of ['images', 'files'] as const) {
+        const badge = this.root.querySelector<HTMLElement>(`[data-gallery-count="${kind}"]`);
+        if (!badge) continue;
+        const value = this.galleryKnownCounts[kind]!.keys.size;
+        badge.hidden = value === 0;
+        badge.textContent = value === 0 ? '' : String(value);
+        const button = badge.closest<HTMLButtonElement>('.gallery-tab');
+        button?.setAttribute('aria-label', `${kind === 'images' ? '相册' : '文件'}，已加载 ${value} 项`);
+      }
+    } catch {
+      // The visible tab owns its retry/error state. A count that cannot be
+      // decrypted remains marked as loading and never becomes a false zero.
     }
   }
 

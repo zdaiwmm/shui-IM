@@ -35,7 +35,9 @@ export function createCloudBackups(db, { authenticatedDevice }) {
       backup_id TEXT NOT NULL REFERENCES recovery_backups(backup_id) ON DELETE CASCADE,
       read_hash BLOB NOT NULL,
       writable INTEGER NOT NULL,
-      byte_count INTEGER NOT NULL DEFAULT 0
+      byte_count INTEGER NOT NULL DEFAULT 0,
+      chat_count INTEGER NOT NULL DEFAULT 0,
+      gallery_count INTEGER NOT NULL DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS history_archive_parts (
       archive_id TEXT NOT NULL REFERENCES history_archives(archive_id) ON DELETE CASCADE,
@@ -52,6 +54,9 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     CREATE TABLE IF NOT EXISTS pending_room_cleanup (room_id TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS admin_totp_counters (config_id TEXT PRIMARY KEY, counter INTEGER NOT NULL);
   `);
+  const archiveColumns = db.prepare('PRAGMA table_info(history_archives)').all().map(column => column.name);
+  if (!archiveColumns.includes('chat_count')) db.exec('ALTER TABLE history_archives ADD COLUMN chat_count INTEGER NOT NULL DEFAULT 0');
+  if (!archiveColumns.includes('gallery_count')) db.exec('ALTER TABLE history_archives ADD COLUMN gallery_count INTEGER NOT NULL DEFAULT 0');
   const row = id => db.prepare('SELECT * FROM recovery_backups WHERE backup_id = ?').get(id);
   const archiveRow = id => db.prepare('SELECT * FROM history_archives WHERE archive_id = ?').get(id);
 
@@ -60,7 +65,9 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     if (!member) fail('UNAUTHORIZED');
     if (!value || !backupId(value.id) || !validId(value.fetchToken) || !Number.isSafeInteger(value.revision) || value.revision < 1 ||
         !Array.isArray(value.archives) || value.archives.length < 1 || value.archives.length > 100 ||
-        value.archives.some(a => !validId(a.id) || !validId(a.token) || typeof a.writable !== 'boolean' || Object.keys(a).sort().join(',') !== 'id,token,writable') ||
+        value.archives.some(a => !validId(a.id) || !validId(a.token) || typeof a.writable !== 'boolean' ||
+          Object.keys(a).some(key => !['id', 'token', 'writable', 'chatCount', 'galleryCount'].includes(key)) ||
+          [a.chatCount, a.galleryCount].some(count => count !== undefined && (!Number.isSafeInteger(count) || count < 0))) ||
         new Set(value.archives.map(a => a.id)).size !== value.archives.length || value.archives.filter(a => a.writable).length !== 1 ||
         (value.replaces !== undefined && !backupId(value.replaces)) ||
         Object.keys(value).some(key => !['id', 'revision', 'fetchToken', 'sealed', 'archives', 'replaces'].includes(key))) fail('INVALID_BACKUP');
@@ -96,9 +103,10 @@ export function createCloudBackups(db, { authenticatedDevice }) {
       else db.prepare('UPDATE recovery_backups SET revision = ?, sealed = ?, request_hash = ?, updated_at = ? WHERE backup_id = ?')
         .run(value.revision, sealed, requestHash, now, value.id);
       for (const archive of value.archives) {
-        db.prepare(`INSERT INTO history_archives(archive_id,room_id,backup_id,read_hash,writable) VALUES(?,?,?,?,?)
-          ON CONFLICT(archive_id) DO UPDATE SET backup_id=excluded.backup_id, read_hash=excluded.read_hash, writable=excluded.writable`)
-          .run(archive.id, roomId, value.id, tokenHash(archive.token), Number(archive.writable));
+        db.prepare(`INSERT INTO history_archives(archive_id,room_id,backup_id,read_hash,writable,chat_count,gallery_count) VALUES(?,?,?,?,?,?,?)
+          ON CONFLICT(archive_id) DO UPDATE SET backup_id=excluded.backup_id, read_hash=excluded.read_hash, writable=excluded.writable,
+            chat_count=excluded.chat_count, gallery_count=excluded.gallery_count`)
+          .run(archive.id, roomId, value.id, tokenHash(archive.token), Number(archive.writable), archive.chatCount ?? 0, archive.galleryCount ?? 0);
       }
       // Rotation is one transaction. A lost response can retry the exact new request.
       if (source) db.prepare("UPDATE recovery_backups SET active = 0, sealed = '', fetch_hash = zeroblob(32), updated_at = ? WHERE backup_id = ?").run(now, source.backup_id);
@@ -174,6 +182,8 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     return db.prepare(`SELECT r.room_id AS roomId,r.created_at AS createdAt,r.sealed_at AS sealedAt,r.message_count AS messageCount,
       (SELECT COUNT(*) FROM members m WHERE m.room_id=r.room_id AND m.status='active') AS devices,
       (SELECT COUNT(*) FROM recovery_backups b WHERE b.room_id=r.room_id AND b.active=1) AS backups,
+      (SELECT COALESCE(SUM(a.chat_count),0) FROM history_archives a JOIN recovery_backups b ON b.backup_id=a.backup_id WHERE b.room_id=r.room_id AND b.active=1) AS backupChatCount,
+      (SELECT COALESCE(SUM(a.gallery_count),0) FROM history_archives a JOIN recovery_backups b ON b.backup_id=a.backup_id WHERE b.room_id=r.room_id AND b.active=1) AS backupGalleryCount,
       (SELECT MAX(last_seen_at) FROM members m WHERE m.room_id=r.room_id) AS lastSeenAt
       FROM rooms r ORDER BY r.created_at DESC LIMIT 50 OFFSET ?`).all(offset);
   }
@@ -183,7 +193,9 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     const devices = db.prepare(`SELECT device_id AS deviceId,role,device_name AS name,status,last_seen_at AS lastSeenAt,created_at AS createdAt
       FROM members WHERE room_id=? ORDER BY role,created_at`).all(roomId);
     const backups = db.prepare(`SELECT b.backup_id AS id,b.device_id AS deviceId,b.revision,b.active,b.updated_at AS updatedAt,
-      LENGTH(b.sealed) AS recoveryBytes,(SELECT COALESCE(SUM(a.byte_count),0) FROM history_archives a WHERE a.backup_id=b.backup_id) AS historyBytes
+      LENGTH(b.sealed) AS recoveryBytes,(SELECT COALESCE(SUM(a.byte_count),0) FROM history_archives a WHERE a.backup_id=b.backup_id) AS historyBytes,
+      (SELECT COALESCE(SUM(a.chat_count),0) FROM history_archives a WHERE a.backup_id=b.backup_id) AS chatCount,
+      (SELECT COALESCE(SUM(a.gallery_count),0) FROM history_archives a WHERE a.backup_id=b.backup_id) AS galleryCount
       FROM recovery_backups b WHERE b.room_id=? ORDER BY b.created_at`).all(roomId);
     return { roomId, devices, backups };
   }

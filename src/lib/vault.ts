@@ -34,7 +34,7 @@ import type {
 } from './types';
 
 const DB_NAME = 'quiet-room';
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const PLATFORM_PAYLOAD_AAD = encoder.encode('quiet-room-vault-payload-v2');
@@ -170,6 +170,11 @@ function openDatabase(): Promise<IDBDatabase> {
         gallery.createIndex('roomId', 'roomId', { unique: false });
         gallery.createIndex('roomSeq', ['roomId', 'seq'], { unique: false });
       }
+      if (!database.objectStoreNames.contains('galleryHistory')) {
+        const galleryHistory = database.createObjectStore('galleryHistory', { keyPath: 'id' });
+        galleryHistory.createIndex('roomId', 'roomId', { unique: false });
+        galleryHistory.createIndex('roomSeq', ['roomId', 'seq'], { unique: false });
+      }
       if (!database.objectStoreNames.contains('vault')) database.createObjectStore('vault');
       if (!database.objectStoreNames.contains('history')) {
         const history = database.createObjectStore('history', { keyPath: 'id' });
@@ -198,7 +203,7 @@ function openDatabase(): Promise<IDBDatabase> {
 }
 
 async function transaction<T>(
-  storeName: 'vault' | 'history' | 'restoredGallery' | 'mediaChunks' | 'security' | LocalStore,
+  storeName: 'vault' | 'history' | 'galleryHistory' | 'restoredGallery' | 'mediaChunks' | 'security' | LocalStore,
   mode: IDBTransactionMode,
   action: (store: IDBObjectStore) => IDBRequest<T>,
   expectedVault?: StoredVault,
@@ -533,7 +538,7 @@ export async function clearLocalBrowserData(session: VaultSession): Promise<void
   await withVaultLifecycle(async () => {
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
-      const stores = ['history', 'restoredGallery', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
+      const stores = ['history', 'galleryHistory', 'restoredGallery', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
       const tx = database.transaction(['vault', ...stores], 'readwrite');
       const current = tx.objectStore('vault').get('current');
       current.onsuccess = () => {
@@ -1004,10 +1009,11 @@ export async function findMissingArchivedMessages(
   const storeName = scope === 'gallery' ? 'restoredGallery' : 'history';
   // One snapshot transaction per archive part rather than reopening IDB twice per record.
   const existingDatabase = await openDatabase();
-  const existing = await new Promise<[Map<number, StoredHistory>, Map<number, StoredHistory>]>((resolve, reject) => {
-    const maps: [Map<number, StoredHistory>, Map<number, StoredHistory>] = [new Map(), new Map()];
-    const tx = existingDatabase.transaction(['history', 'restoredGallery'], 'readonly');
-    for (const [index, name] of (['history', 'restoredGallery'] as const).entries()) for (const message of messages) {
+  const existing = await new Promise<[Map<number, StoredHistory>, Map<number, StoredHistory>, Map<number, StoredHistory>]>
+  ((resolve, reject) => {
+    const maps: [Map<number, StoredHistory>, Map<number, StoredHistory>, Map<number, StoredHistory>] = [new Map(), new Map(), new Map()];
+    const tx = existingDatabase.transaction(['history', 'galleryHistory', 'restoredGallery'], 'readonly');
+    for (const [index, name] of (['history', 'galleryHistory', 'restoredGallery'] as const).entries()) for (const message of messages) {
       const request = tx.objectStore(name).get(`${session.vault.roomId}:${message.seq}`);
       request.onsuccess = () => { if (request.result) maps[index]!.set(message.seq, request.result); };
     }
@@ -1023,8 +1029,8 @@ export async function findMissingArchivedMessages(
     if (scope === 'chat' && galleryOnly) continue;
     const galleryProjectionEvent = message.payload.kind === 'message-delete';
     if (scope === 'gallery' && !isGalleryMediaPayload(message.payload) && !galleryProjectionEvent) continue;
-    const [historyRecord, restoredRecord] = existing.map(records => records.get(message.seq));
-    for (const previous of [historyRecord, restoredRecord]) if (previous) {
+    const [historyRecord, galleryRecord, restoredRecord] = existing.map(records => records.get(message.seq));
+    for (const previous of [historyRecord, galleryRecord, restoredRecord]) if (previous) {
       const decrypted = (await decryptHistoryRecords(session, [previous], signal, { strict: true }))[0];
       if (!decrypted || !sameHistoryMessage(decrypted, message)) throw new Error('历史记录与本机数据冲突');
     }
@@ -1194,7 +1200,7 @@ function sameHistoryMessage(left: DecryptedMessage, right: DecryptedMessage): bo
 async function assertCompatibleHistoryRecord(
   session: VaultSession,
   message: DecryptedMessage,
-  storeName: 'history' | 'restoredGallery',
+  storeName: 'history' | 'galleryHistory' | 'restoredGallery',
 ): Promise<StoredHistory | undefined> {
   const existing = await transaction<StoredHistory | undefined>(storeName, 'readonly', store =>
     store.get(`${session.vault.roomId}:${message.seq}`));
@@ -1206,9 +1212,34 @@ async function assertCompatibleHistoryRecord(
 
 export async function saveHistoryMessage(session: VaultSession, message: DecryptedMessage, mutation?: VaultMutation): Promise<void> {
   if (!ownsVaultMutation(session, mutation)) return withVaultMutation(session, (lease) => saveHistoryMessage(session, message, lease));
-  await assertCompatibleHistoryRecord(session, message, 'restoredGallery');
+  await assertCompatibleHistoryRecord(session, message, 'history');
+  const isGalleryMedia = isGalleryMediaPayload(message.payload);
+  if (isGalleryMedia) await assertCompatibleHistoryRecord(session, message, 'galleryHistory');
   const record = await encryptHistoryRecord(session, message);
-  await transaction('history', 'readwrite', (store) => store.put(record), session.stored);
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const stores = isGalleryMedia ? ['history', 'galleryHistory', 'vault'] : ['history', 'vault'];
+    const tx = database.transaction(stores, 'readwrite');
+    const current = tx.objectStore('vault').get('current');
+    current.onsuccess = () => {
+      if (!sameStoredVault(current.result, session.stored)) {
+        tx.abort();
+        return;
+      }
+      tx.objectStore('history').put(record);
+      if (isGalleryMedia) tx.objectStore('galleryHistory').put(record);
+    };
+    current.onerror = () => tx.abort();
+    tx.oncomplete = () => {
+      database.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      database.close();
+      reject(tx.error ?? staleVaultError());
+    };
+    tx.onerror = () => reject(tx.error ?? new Error('历史记录写入失败'));
+  });
 }
 
 export async function loadHistory(session: VaultSession): Promise<DecryptedMessage[]> {
@@ -1262,7 +1293,7 @@ export async function loadHistoryPageAfter(
 async function loadHistoryRecordsAfter(
   session: VaultSession,
   { limit, afterSeq, signal }: { limit: number; afterSeq: number; signal?: AbortSignal },
-  storeName: 'history' | 'restoredGallery' = 'history',
+  storeName: 'history' | 'galleryHistory' | 'restoredGallery' = 'history',
 ): Promise<StoredHistory[]> {
   signal?.throwIfAborted();
   const boundedLimit = Math.min(Math.max(Math.floor(limit), 1), 1000);
@@ -1323,7 +1354,7 @@ export async function loadMessageEventHistory(
   const eventsBySequence = new Map<number, DecryptedMessage>();
   const liveHistorySequences = new Set<number>();
   const limit = 200;
-  for (const storeName of ['restoredGallery', 'history'] as const) {
+  for (const storeName of ['galleryHistory', 'restoredGallery', 'history'] as const) {
     let afterSeq = 0;
     for (;;) {
       signal?.throwIfAborted();
@@ -1396,9 +1427,9 @@ export async function loadMediaHistoryPage(
   const upper = beforeSeq === undefined ? Number.MAX_SAFE_INTEGER : beforeSeq - 1;
   if (upper < 1) return { messages: [], beforeSeq: null, hasMore: false };
   const database = await openDatabase();
-  type TaggedHistory = { storeName: 'history' | 'restoredGallery'; record: StoredHistory };
+  type TaggedHistory = { storeName: 'history' | 'galleryHistory' | 'restoredGallery'; record: StoredHistory };
   const scan = await new Promise<{ records: TaggedHistory[]; truncated: boolean }>((resolve, reject) => {
-    const tx = database.transaction(['history', 'restoredGallery'], 'readonly');
+    const tx = database.transaction(['galleryHistory', 'restoredGallery', 'history'], 'readonly');
     const collected: TaggedHistory[] = [];
     let truncated = false;
     const abort = () => { try { tx.abort(); } catch { /* The readonly transaction has already finished. */ } };
@@ -1408,7 +1439,7 @@ export async function loadMediaHistoryPage(
     };
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) abort();
-    for (const name of ['history', 'restoredGallery'] as const) {
+    for (const name of ['galleryHistory', 'restoredGallery', 'history'] as const) {
       const request = tx.objectStore(name).index('roomSeq').openCursor(
         IDBKeyRange.bound([session.vault.roomId, 1], [session.vault.roomId, upper]), 'prev');
       let count = 0;
@@ -1828,7 +1859,10 @@ async function commitMlsVaultAndRecords(
     ...session.stored,
     payload: await encryptPayload(nextVault, session.key),
   };
-  if (records.history) await assertCompatibleHistoryRecord(session, records.history, 'restoredGallery');
+  if (records.history) {
+    await assertCompatibleHistoryRecord(session, records.history, 'history');
+    if (isGalleryMediaPayload(records.history.payload)) await assertCompatibleHistoryRecord(session, records.history, 'galleryHistory');
+  }
   const outboxRecord = records.outbox
     ? await encryptLocalRecord(session, 'outbox', records.outbox.clientMsgId, records.outbox)
     : null;
@@ -1842,12 +1876,14 @@ async function commitMlsVaultAndRecords(
       'vault',
       ...(outboxRecord ? ['outbox'] : []),
       ...(historyRecord ? ['history'] : []),
+      ...(historyRecord && records.history && isGalleryMediaPayload(records.history.payload) ? ['galleryHistory'] : []),
       ...(receiptRecord ? ['receiptOutbox'] : []),
     ];
     const tx = database.transaction(stores, 'readwrite');
     putCurrentVault(tx, nextStored, session.stored);
     if (outboxRecord) tx.objectStore('outbox').put(outboxRecord);
     if (historyRecord) tx.objectStore('history').put(historyRecord);
+    if (historyRecord && records.history && isGalleryMediaPayload(records.history.payload)) tx.objectStore('galleryHistory').put(historyRecord);
     if (receiptRecord) tx.objectStore('receiptOutbox').put(receiptRecord);
     tx.oncomplete = () => {
       database.close();
@@ -1890,7 +1926,7 @@ export async function finishVaultRecovery(session: VaultSession, nextVault: Vaul
   const nextStored: StoredPlatformVault = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const stores = ['vault', 'history', 'restoredGallery', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
+    const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
     const tx = database.transaction(stores, 'readwrite');
     putCurrentVault(tx, nextStored, session.stored);
     for (const name of stores.slice(1)) {

@@ -2,8 +2,24 @@ import type { GalleryCurationRecord } from './gallery-curation';
 import type { Vault } from './types';
 
 export type SealedBackup = { iv: string; ciphertext: string };
-export type ArchivePart = { id: string; digest: string; firstSeq: number; lastSeq: number; count: number };
-export type HistoryArchive = { id: string; key: string; token: string; parts: ArchivePart[] };
+export type ArchivePart = {
+  id: string;
+  digest: string;
+  firstSeq: number;
+  lastSeq: number;
+  count: number;
+  /** Encrypted metadata used only for backup inventory in the admin console. */
+  chatCount?: number;
+  galleryCount?: number;
+};
+export type HistoryArchive = {
+  id: string;
+  key: string;
+  token: string;
+  parts: ArchivePart[];
+  chatCount?: number;
+  galleryCount?: number;
+};
 export type CloudRecoveryBundle = {
   v: 1;
   backupId: string;
@@ -19,7 +35,7 @@ export type BackupUpload = {
   revision: number;
   fetchToken: string;
   sealed: SealedBackup;
-  archives: { id: string; token: string; writable: boolean }[];
+  archives: { id: string; token: string; writable: boolean; chatCount?: number; galleryCount?: number }[];
   replaces?: string;
 };
 export type LocalBackupState = {
