@@ -8,7 +8,7 @@ import { generateIdentity } from './crypto';
 import { createRecoveryRequest } from './mls';
 import { isMessagePayload } from './message-payload';
 import { isGalleryMediaPayload } from './video-media';
-import { normalizeGalleryCurationRecords, type GalleryCurationRecord } from './gallery-curation';
+import { galleryCurationKey, normalizeGalleryCurationRecords, type GalleryCurationRecord } from './gallery-curation';
 import { normalizeAttachmentFavorites, type AttachmentFavorite } from './attachment-favorites';
 import type { CloudRecoveryBundle } from './backup-types';
 import { parseCloudRecoveryCode } from './backup-crypto';
@@ -544,7 +544,7 @@ export async function clearLocalBrowserData(session: VaultSession): Promise<void
         request.onsuccess = () => {
           const cursor = request.result;
           if (!cursor) return;
-          cursor.delete();
+          tx.objectStore(name).delete(cursor.primaryKey);
           cursor.continue();
         };
       }
@@ -959,7 +959,7 @@ export async function installCloudRecovery(bundle: CloudRecoveryBundle, recovery
     if (!sameStoredVault(await readStoredVaultUnlocked(), expected)) throw staleVaultError();
     const vault = structuredClone(bundle.checkpoint);
     delete vault.backup;
-    vault.recoverySource = { backupId: bundle.backupId, archives: structuredClone(bundle.archives) };
+    vault.recoverySource = { backupId: bundle.backupId, archives: structuredClone(bundle.archives), galleryHidden: structuredClone(bundle.galleryHidden ?? []) };
     const masterBytes = crypto.getRandomValues(new Uint8Array(32));
     const key = await importMasterKey(masterBytes);
     const salt = crypto.getRandomValues(new Uint8Array(32));
@@ -997,14 +997,28 @@ export async function installCloudRecovery(bundle: CloudRecoveryBundle, recovery
 export async function importArchivedMessages(
   session: VaultSession,
   messages: DecryptedMessage[],
-  scope: 'chat' | 'gallery',
+  scope: 'chat' | 'gallery' | 'all',
   signal?: AbortSignal,
   onCommit: (changed: boolean) => void = () => undefined,
 ): Promise<number> {
   return withVaultMutation(session, async () => {
     signal?.throwIfAborted();
+    if (scope !== 'chat' && session.vault.role !== 'creator') throw new Error('此参与方没有保险箱入口');
     const storeName = scope === 'gallery' ? 'restoredGallery' : 'history';
     const records: StoredHistory[] = [];
+    // One snapshot transaction per archive part rather than reopening IDB twice per record.
+    const existingDatabase = await openDatabase();
+    const existing = await new Promise<[Map<number, StoredHistory>, Map<number, StoredHistory>]>((resolve, reject) => {
+      const maps: [Map<number, StoredHistory>, Map<number, StoredHistory>] = [new Map(), new Map()];
+      const tx = existingDatabase.transaction(['history', 'restoredGallery'], 'readonly');
+      for (const [index, name] of (['history', 'restoredGallery'] as const).entries()) for (const message of messages) {
+        const request = tx.objectStore(name).get(`${session.vault.roomId}:${message.seq}`);
+        request.onsuccess = () => { if (request.result) maps[index]!.set(message.seq, request.result); };
+      }
+      tx.oncomplete = () => { existingDatabase.close(); resolve(maps); };
+      tx.onabort = () => { existingDatabase.close(); reject(tx.error ?? new Error('历史读取失败')); };
+      tx.onerror = () => reject(tx.error);
+    });
     let importedContentCount = 0;
     for (const message of messages) {
       if (!Number.isSafeInteger(message.seq) || message.seq < 1 || !isMessagePayload(message.payload) ||
@@ -1013,10 +1027,11 @@ export async function importArchivedMessages(
       if (scope === 'chat' && galleryOnly) continue;
       const galleryProjectionEvent = message.payload.kind === 'message-delete';
       if (scope === 'gallery' && !isGalleryMediaPayload(message.payload) && !galleryProjectionEvent) continue;
-      const [historyRecord, restoredRecord] = await Promise.all([
-        assertCompatibleHistoryRecord(session, message, 'history'),
-        assertCompatibleHistoryRecord(session, message, 'restoredGallery'),
-      ]);
+      const [historyRecord, restoredRecord] = existing.map(records => records.get(message.seq));
+      for (const previous of [historyRecord, restoredRecord]) if (previous) {
+        const decrypted = (await decryptHistoryRecords(session, [previous], signal, { strict: true }))[0];
+        if (!decrypted || !sameHistoryMessage(decrypted, message)) throw new Error('历史记录与本机数据冲突');
+      }
       const previous = storeName === 'history' ? historyRecord : restoredRecord;
       if (previous) {
         continue;
@@ -1024,7 +1039,7 @@ export async function importArchivedMessages(
       records.push(await encryptHistoryRecord(session, message));
       // Gallery recovery reports restored media, not internal projection events
       // needed to keep a later room-wide deletion effective.
-      if (scope === 'chat' || isGalleryMediaPayload(message.payload)) importedContentCount++;
+      if (scope !== 'gallery' || isGalleryMediaPayload(message.payload)) importedContentCount++;
     }
     signal?.throwIfAborted();
     const database = await openDatabase();
@@ -1748,8 +1763,34 @@ export async function loadUiPreferences(session: VaultSession): Promise<UiPrefer
   }
 }
 
+/** Merge authenticated Safe tombstones before any restored media becomes visible. */
+export async function restoreGalleryHidden(session: VaultSession, records: GalleryCurationRecord[], signal: AbortSignal): Promise<boolean> {
+  if (session.vault.role !== 'creator' || !records.length) return false;
+  const incoming = normalizeGalleryCurationRecords(records);
+  if (incoming.some(record => !record.hidden || record.pinnedAt !== null)) throw new Error('保险箱删除记录不正确');
+  return withVaultMutation(session, async mutation => {
+    signal.throwIfAborted();
+    const preferences = await loadUiPreferences(session);
+    const merged = new Map((preferences.galleryCuration ?? []).map(record => [galleryCurationKey(record), record]));
+    for (const record of incoming) merged.set(galleryCurationKey(record), record);
+    const galleryCuration = normalizeGalleryCurationRecords([...merged.values()]);
+    if (JSON.stringify(galleryCuration) === JSON.stringify(preferences.galleryCuration ?? [])) return false;
+    signal.throwIfAborted();
+    await putLocalRecord(session, 'preferences', uiPreferenceId(session), { ...preferences, galleryCuration }, mutation);
+    return true;
+  });
+}
+
 export function saveUiPreferences(session: VaultSession, preferences: UiPreferences): Promise<void> {
-  return putLocalRecord(session, 'preferences', uiPreferenceId(session), normalizeUiPreferences(preferences));
+  return withVaultMutation(session, async mutation => {
+    const next = normalizeUiPreferences(preferences);
+    // A delayed draft/anchor save must not erase restored deletion projections.
+    const previous = await loadUiPreferences(session);
+    const merged = new Map((next.galleryCuration ?? []).map(record => [galleryCurationKey(record), record]));
+    for (const record of previous.galleryCuration ?? []) if (record.hidden) merged.set(galleryCurationKey(record), record);
+    if (merged.size) next.galleryCuration = normalizeGalleryCurationRecords([...merged.values()]);
+    await putLocalRecord(session, 'preferences', uiPreferenceId(session), next, mutation);
+  });
 }
 
 export function saveOutboxItem(session: VaultSession, item: OutboxItem, mutation?: VaultMutation): Promise<void> {

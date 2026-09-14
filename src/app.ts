@@ -1,3 +1,4 @@
+import { attachHistoryRestore } from './lib/history-restore-ui';
 import { voiceRequest, confirmVoiceUpload, VOICE_FAILURE_TEXT } from './lib/voice-network';
 import QRCode from 'qrcode';
 import { PresenceCircuit, presenceCircuitMarkup } from './lib/presence-circuit';
@@ -197,7 +198,7 @@ import {
   type UiPreferences,
   type VaultMutation,
 } from './lib/vault';
-import { recoverFromCloud, restoreCloudHistory, syncCloudBackup } from './lib/cloud-backup';
+import { recoverFromCloud, syncCloudBackup } from './lib/cloud-backup';
 import './backup.css';
 
 const CLIENT_CAPABILITIES = ['mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
@@ -8172,64 +8173,24 @@ export class QuietRoomApp {
           <section class="backup-setting backup-restore-setting">
             <div class="backup-setting-copy"><span class="backup-setting-icon" aria-hidden="true">${icons.safe}</span>
               <div><h2>恢复历史内容</h2><p>旧内容不会自动出现，可合并本会话多个设备的备份。</p></div></div>
-            <div class="backup-actions"><button class="secondary-button" data-restore="chat" data-backup-ready type="button" disabled>恢复历史消息</button>
-            ${session.vault.role === 'creator' ? '<button class="secondary-button" data-restore="gallery" data-backup-ready type="button" disabled>恢复保险箱</button>' : ''}</div>
-            <div id="history-restore-form"></div>
+            <div class="backup-actions"><button class="secondary-button" data-restore="all" data-backup-ready type="button" disabled>恢复历史记录</button></div>
           </section>
         </div>
         <p class="backup-footnote">自动备份仅在页面解锁且联网时运行，锁定后暂停。</p>
       </section>
     </main>`;
-    let restoreOperation: AbortController | undefined;
     let historyChanged = false;
-    const cancelRestore = () => restoreOperation?.abort();
+    const cancelRestore = attachHistoryRestore({ root: this.root, session, signal: this.runtimeAbort!.signal,
+      isActive: () => this.isRuntimeActive(epoch, session),
+      withClipboard: action => this.withSystemSurface(action), onChanged: () => { historyChanged = true; } });
     this.runtimeAbort!.signal.addEventListener('abort', cancelRestore, { once: true });
-    this.root.querySelector('#backup-back')?.addEventListener('click', async () => {
+    this.root.querySelector('#backup-back')?.addEventListener('click', () => {
       cancelRestore();
       this.runtimeAbort?.signal.removeEventListener('abort', cancelRestore);
       this.transitionPage('backward', () => { if (historyChanged) void this.openSession(); else this.renderChat(); });
     });
     this.root.querySelector('#backup-retry')?.addEventListener('click', () => void this.runAutomaticBackup(true));
     this.root.querySelector('#view-local-recovery')?.addEventListener('click', () => this.verifyLocalRecoveryCode());
-    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-restore]')) button.addEventListener('click', () => {
-      if (!this.isRuntimeActive(epoch, session)) return;
-      cancelRestore();
-      const scope = button.dataset.restore === 'gallery' ? 'gallery' : 'chat';
-      const host = this.root.querySelector<HTMLElement>('#history-restore-form')!;
-      host.innerHTML = `<form><label>会话恢复码（每行一个）<textarea name="code" rows="3" autocomplete="off" spellcheck="false" required placeholder="QR3-…"></textarea></label>
-        <p class="field-hint">可填本会话各设备的 QR3 恢复码，重复填写会自动去重。${scope === 'chat' ? '仅恢复历史消息。' : '仅恢复保险箱，不把旧消息加入聊天列表。'}图片原件在你查看时才下载解密。</p>
-        <button class="primary-button" type="submit">验证并恢复${scope === 'chat' ? '历史消息' : '保险箱'}</button><p role="status"></p></form>`;
-      const form = host.querySelector('form')!;
-      const input = form.querySelector('textarea')!;
-      input.focus();
-      form.addEventListener('submit', async event => {
-        event.preventDefault();
-        const submit = form.querySelector<HTMLButtonElement>('button')!;
-        if (submit.disabled || !this.isRuntimeActive(epoch, session)) return;
-        let codes = input.value.trim(); input.value = '';
-        const status = form.querySelector<HTMLElement>('[role=status]')!;
-        setBusy(submit, true, '正在恢复…');
-        const operation = new AbortController();
-        restoreOperation = operation;
-        try {
-          const count = await restoreCloudHistory(session, codes, scope, operation.signal, (count, changed) => {
-            if (changed) historyChanged = true;
-            if (form.isConnected && this.isRuntimeActive(epoch, session)) status.textContent = `已恢复 ${count} 条记录…`;
-          });
-          codes = '';
-          if (!form.isConnected || !this.isRuntimeActive(epoch, session)) return;
-          status.textContent = count > 0
-            ? `恢复完成，新增 ${count} 条记录。返回会话后即可查看。`
-            : '恢复完成，但没有新增记录。可能已经恢复过，或备份中没有该范围的内容。';
-          // A retry may add only an encrypted delete projection while all
-          // content rows were imported by an interrupted prior attempt.
-          // `progress.changed` keeps that event-only commit from reviving the
-          // old Safe/chat projection until the next unlock.
-        } catch (cause) {
-          if (form.isConnected && this.isRuntimeActive(epoch, session)) status.textContent = `${cause instanceof Error ? cause.message : '恢复未完成'}。已通过验证的记录会保留，可安全重试。`;
-        } finally { codes = ''; if (restoreOperation === operation) restoreOperation = undefined; if (submit.isConnected) setBusy(submit, false); }
-      });
-    });
     this.updateBackupStatus();
   }
 
@@ -9553,6 +9514,7 @@ export class QuietRoomApp {
       // closes. Background debounce errors are intentionally non-blocking for
       // scroll anchors, but silently losing a pin/delete would be misleading.
       await this.saveUiPreferencesNow();
+      void this.runAutomaticBackup(true);
     } catch (cause) {
       if (this.uiPreferences.galleryCuration === next) this.uiPreferences.galleryCuration = previous;
       throw cause;

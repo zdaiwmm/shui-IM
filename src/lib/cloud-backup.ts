@@ -1,10 +1,14 @@
+import { isMessagePayload } from './message-payload';
+import { isGalleryMediaPayload } from './video-media';
+import { galleryCurationKey, normalizeGalleryCurationRecords } from './gallery-curation';
 import { archiveAad, backupDigest, newRecoveryCode, openJson, openRecovery, parseCloudRecoveryCode, randomBackupSecret, recoveryFetchToken, sealJson, sealRecovery } from './backup-crypto';
 import { toBase64Url } from './base64';
 import type { CloudRecoveryBundle, LocalBackupState, SealedBackup } from './backup-types';
 import { canonicalStringify } from './canonical';
-import { importArchivedMessages, installCloudRecovery, readStoredVault, loadHistoryPageAfter, saveVault, withVaultMutation, type VaultSession } from './vault';
+import { loadUiPreferences, restoreGalleryHidden, importArchivedMessages, installCloudRecovery, readStoredVault, loadHistoryPageAfter, saveVault, withVaultMutation, type VaultSession } from './vault';
 import type { DecryptedMessage, Vault } from './types';
 
+export const BACKUP_REQUEST_TIMEOUT_MS = 30_000;
 const encoder = new TextEncoder();
 const AUTOMATIC_BACKUP_REVALIDATION_MS = 5 * 60_000;
 const MAX_RATE_LIMIT_RETRIES = 12;
@@ -33,17 +37,29 @@ async function waitForRetry(delayMs: number, signal: AbortSignal): Promise<void>
   });
 }
 
-async function request<T>(url: string, token: string, signal: AbortSignal, body?: unknown): Promise<T> {
+async function request<T>(url: string, token: string, signal: AbortSignal, body?: unknown, onWait?: (waiting: boolean) => void): Promise<T> {
   const options = { method: body === undefined ? 'GET' : 'PUT', signal, cache: 'no-store' as RequestCache, credentials: 'omit' as RequestCredentials,
     headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }) };
   for (let retry = 0;; retry += 1) {
     signal.throwIfAborted();
-    const response = await fetch(url, options);
-    if (response.ok) return response.json() as Promise<T>;
+    const timeout = new AbortController();
+    const timer = setTimeout(() => timeout.abort(new Error('备份请求超时，请检查网络后重试')), BACKUP_REQUEST_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(url, { ...options, signal: AbortSignal.any([signal, timeout.signal]) });
+      if (response.ok) return await response.json() as T;
+    } catch (cause) {
+      signal.throwIfAborted();
+      if (timeout.signal.aborted) throw timeout.signal.reason;
+      if (cause instanceof TypeError) throw new Error('网络连接中断，请检查网络后重试');
+      throw cause;
+    } finally { clearTimeout(timer); }
     if (response.status === 429) {
       if (retry >= MAX_RATE_LIMIT_RETRIES) throw new Error('备份请求过于频繁，请稍后再试；已恢复的记录会保留，可继续重试');
-      await waitForRetry(retryAfterMs(response), signal);
+      onWait?.(true);
+      try { await waitForRetry(retryAfterMs(response), signal); }
+      finally { if (!signal.aborted) onWait?.(false); }
       continue;
     }
     if (response.status === 401) throw new Error('找不到可用备份，请检查恢复码；备份也可能已被停用或清理');
@@ -116,8 +132,19 @@ function isCleanlySynced(session: VaultSession): boolean {
     && !state.newCodePending && !session.vault.recoverySource && state.cursor >= session.vault.lastSeq);
 }
 
+async function galleryHiddenSnapshot(session: VaultSession) {
+  if (session.vault.role !== 'creator') return [];
+  const hidden = new Map([...(session.vault.recoverySource?.galleryHidden ?? []), ...(session.vault.backup?.galleryHidden ?? []),
+    ...((await loadUiPreferences(session)).galleryCuration ?? [])].filter(record => record.hidden).map(record => [galleryCurationKey(record), record]));
+  return normalizeGalleryCurationRecords([...hidden.values()]);
+}
+
+async function hiddenSnapshotCurrent(session: VaultSession) {
+  return JSON.stringify(session.vault.backup?.galleryHidden ?? []) === JSON.stringify(await galleryHiddenSnapshot(session));
+}
+
 async function shouldSkipAutomaticBackup(session: VaultSession): Promise<boolean> {
-  if (!isCleanlySynced(session)) return false;
+  if (!isCleanlySynced(session) || !await hiddenSnapshotCurrent(session)) return false;
   const observation = automaticBackupObservations.get(session);
   if (!observation) return false;
   const age = Date.now() - observation.observedAt;
@@ -132,7 +159,7 @@ async function shouldSkipAutomaticBackup(session: VaultSession): Promise<boolean
 }
 
 async function rememberAutomaticBackup(session: VaultSession): Promise<void> {
-  if (!isCleanlySynced(session)) {
+  if (!isCleanlySynced(session) || !await hiddenSnapshotCurrent(session)) {
     automaticBackupObservations.delete(session);
     return;
   }
@@ -149,8 +176,10 @@ async function rememberAutomaticBackup(session: VaultSession): Promise<void> {
 async function stageEnvelope(session: VaultSession, signal: AbortSignal): Promise<void> {
   await update(session, signal, async state => {
     if (state.pending) return;
+    state.galleryHidden = await galleryHiddenSnapshot(session);
     const bundle: CloudRecoveryBundle = { v: 1, backupId: state.id, roomId: session.vault.roomId,
-      deviceId: session.vault.identity.publicBundle.deviceId, checkpoint: checkpoint(session.vault), archives: state.archives };
+      deviceId: session.vault.identity.publicBundle.deviceId, checkpoint: checkpoint(session.vault), archives: state.archives,
+      ...(session.vault.role === 'creator' ? { galleryHidden: state.galleryHidden } : {}) };
     const sealed = await sealRecovery(bundle, state.code);
     // Validate the exact new envelope before it can replace any online recovery route.
     const verified = await openRecovery(sealed, state.code);
@@ -228,10 +257,10 @@ export async function syncCloudBackup(session: VaultSession, signal: AbortSignal
   await rememberAutomaticBackup(session);
 }
 
-export async function fetchRecoveryBundle(code: string, signal: AbortSignal): Promise<CloudRecoveryBundle> {
+export async function fetchRecoveryBundle(code: string, signal: AbortSignal, onWait?: (waiting: boolean) => void): Promise<CloudRecoveryBundle> {
   const { id, secret } = parseCloudRecoveryCode(code);
   secret.fill(0);
-  const result = await request<{ revision: number; sealed: SealedBackup }>(`/api/recovery-backups/${id}`, await recoveryFetchToken(code), signal);
+  const result = await request<{ revision: number; sealed: SealedBackup }>(`/api/recovery-backups/${id}`, await recoveryFetchToken(code), signal, undefined, onWait);
   try { return await openRecovery(result.sealed, code); }
   catch { throw new Error('恢复码不正确，或备份未通过完整性验证'); }
 }
@@ -286,4 +315,107 @@ export async function restoreCloudHistory(session: VaultSession, input: string |
     }
   }
   return restored;
+}
+
+export type HistoryRestoreProgress = {
+  phase: 'reading' | 'restoring' | 'complete';
+  scannedParts: number;
+  totalParts: number;
+  chat: { restored: number; total: number };
+  gallery?: { restored: number; total: number };
+  percent: number | null;
+  waitingForService?: boolean;
+  changed: boolean;
+};
+
+/** Discover exact content totals before importing, retaining at most 16 MiB of ciphertext.
+ * Larger archives are re-read with the same authenticated digest; content plaintext
+ * lives for only one part. Deletion projections are retained and commit before content.
+ */
+export async function restoreUnifiedHistory(session: VaultSession, input: string, signal: AbortSignal,
+  onProgress: (value: HistoryRestoreProgress) => void): Promise<HistoryRestoreProgress> {
+  if (!session.vault.backup?.syncedAt || session.vault.backup.replaces || session.vault.recoverySource) throw new Error('请先完成新恢复码的备份更新');
+  const creator = session.vault.role === 'creator';
+  const status: HistoryRestoreProgress = { phase: 'reading', scannedParts: 0, totalParts: 0,
+    chat: { restored: 0, total: 0 }, ...(creator ? { gallery: { restored: 0, total: 0 } } : {}), percent: null, changed: false };
+  const emit = () => { signal.throwIfAborted(); onProgress(structuredClone(status)); };
+  const onWait = (waiting: boolean) => { status.waitingForService = waiting; emit(); };
+  emit();
+  const bundles: CloudRecoveryBundle[] = [];
+  for (const code of normalizeRecoveryCodes(input)) {
+    const bundle = await fetchRecoveryBundle(code, signal, onWait);
+    signal.throwIfAborted();
+    if (bundle.roomId !== session.vault.roomId) throw new Error('恢复码不属于当前会话');
+    if (!bundles.some(previous => previous.backupId === bundle.backupId)) bundles.push(bundle);
+  }
+  const hidden = new Map((await galleryHiddenSnapshot(session)).map(record => [galleryCurationKey(record), record]));
+  if (creator) for (const bundle of bundles) for (const record of bundle.galleryHidden ?? []) hidden.set(galleryCurationKey(record), record);
+  const parts = bundles.flatMap(bundle => bundle.archives.flatMap(archive => archive.parts.map(part => ({ bundle, archive, part }))));
+  status.totalParts = parts.length;
+  const cache = new Map<number, SealedBackup>();
+  let cacheSize = 0;
+  const read = async (index: number) => {
+    const { bundle, archive, part } = parts[index]!;
+    const sealed = cache.get(index) ?? await request<SealedBackup>(`/api/history-archives/${archive.id}/${part.id}`, archive.token, signal, undefined, onWait);
+    signal.throwIfAborted();
+    if (await backupDigest(sealed) !== part.digest) throw new Error('历史备份完整性验证失败');
+    const value = await openJson(sealed, archive.key, archiveAad(bundle.roomId, archive.id, part.id)) as { v: number; roomId: string; messages: DecryptedMessage[] };
+    if (value?.v !== 1 || value.roomId !== bundle.roomId || !Array.isArray(value.messages) || value.messages.length !== part.count ||
+      value.messages[0]?.seq !== part.firstSeq || value.messages.at(-1)?.seq !== part.lastSeq || value.messages.some((message, offset) =>
+        !Number.isSafeInteger(message.seq) || message.seq < 1 || !isMessagePayload(message.payload) ||
+        typeof message.clientMsgId !== 'string' || typeof message.senderId !== 'string' || typeof message.acceptedAt !== 'string' ||
+        offset > 0 && message.seq <= value.messages[offset - 1]!.seq)) throw new Error('历史备份索引不正确');
+    if (!cache.has(index) && cacheSize + sealed.ciphertext.length * 2 <= 16 * 1024 * 1024) {
+      cache.set(index, sealed); cacheSize += sealed.ciphertext.length * 2;
+    }
+    return value.messages;
+  };
+  // Keep only identities and hashes, not plaintext history, across the discovery pass.
+  const seen = new Map<number, { digest: string; chat: boolean; gallery: boolean }>();
+  const messageIds = new Map<string, number>();
+  const deletes: DecryptedMessage[] = [];
+  try {
+    for (let index = 0; index < parts.length; index++) {
+      for (const message of await read(index)) {
+        const digest = toBase64Url(await crypto.subtle.digest('SHA-256', encoder.encode(canonicalStringify({ seq: message.seq,
+          clientMsgId: message.clientMsgId, senderId: message.senderId, acceptedAt: message.acceptedAt, payload: message.payload }))));
+        const existing = seen.get(message.seq);
+        if (existing && existing.digest !== digest || messageIds.has(message.clientMsgId) && messageIds.get(message.clientMsgId) !== message.seq) throw new Error('多个备份中的历史记录冲突');
+        if (existing) continue;
+        messageIds.set(message.clientMsgId, message.seq);
+        const chat = ['text', 'image', 'image-album', 'audio', 'file'].includes(message.payload.kind);
+        const gallery = creator && isGalleryMediaPayload(message.payload);
+        seen.set(message.seq, { digest, chat, gallery });
+        if (chat) status.chat.total++;
+        if (gallery) status.gallery!.total++;
+        if (message.payload.kind === 'message-delete') deletes.push(message);
+      }
+      status.scannedParts = index + 1; emit();
+    }
+    signal.throwIfAborted();
+    if (creator) status.changed = await restoreGalleryHidden(session, [...hidden.values()], signal);
+    const scope = creator ? 'all' : 'chat';
+    for (let index = 0; index < deletes.length; index += 100) await importArchivedMessages(session, deletes.slice(index, index + 100), scope, signal,
+      changed => { status.changed ||= changed; });
+    status.phase = 'restoring'; status.percent = 0; emit();
+    const processed = new Set<number>();
+    for (let index = 0; index < parts.length; index++) {
+      const messages = await read(index);
+      await importArchivedMessages(session, messages, scope, signal, changed => { status.changed ||= changed; });
+      for (const message of messages) {
+        if (processed.has(message.seq)) continue;
+        processed.add(message.seq);
+        const item = seen.get(message.seq)!;
+        if (item.chat) status.chat.restored++;
+        if (item.gallery) status.gallery!.restored++;
+      }
+      // Internal events still need to finish even if the content counts are full.
+      const total = status.chat.total + (status.gallery?.total ?? 0);
+      const restored = status.chat.restored + (status.gallery?.restored ?? 0);
+      status.percent = total ? Math.min(99, Math.floor(restored / total * 100)) : 0; emit();
+      cache.delete(index);
+    }
+    status.phase = 'complete'; status.percent = 100; emit();
+    return status;
+  } finally { cache.clear(); seen.clear(); messageIds.clear(); deletes.length = 0; }
 }

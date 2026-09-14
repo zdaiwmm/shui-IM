@@ -662,7 +662,9 @@ try {
       const decrypt = crypto.subtle.decrypt.bind(crypto.subtle);
       let blocked = false;
       Object.defineProperty(crypto.subtle, 'decrypt', { configurable: true, value: async (...args) => {
-        if (!blocked) { blocked = true; await new Promise(resolve => { window.releaseHistory = resolve; }); }
+        if (!blocked && new TextDecoder().decode(args[0].additionalData).startsWith('quiet-room-history-v1:')) {
+          blocked = true; await new Promise(resolve => { window.releaseHistory = resolve; });
+        }
         return decrypt(...args);
       } });
       window.restoreDecrypt = () => Object.defineProperty(crypto.subtle, 'decrypt', { configurable: true, value: decrypt });
@@ -692,7 +694,11 @@ try {
     const operationalError = app.operationalError;
     let blocked = false; let renderCalls = 0; let errorCalls = 0; let release;
     Object.defineProperty(crypto.subtle, 'decrypt', { configurable: true, value: async (...args) => {
-      if (!blocked) { blocked = true; await new Promise(resolve => { release = resolve; }); }
+      // Background preference saves also decrypt now. Gate the actual history
+      // page, otherwise it can finish while an unrelated preference read waits.
+      if (!blocked && new TextDecoder().decode(args[0].additionalData).startsWith('quiet-room-history-v1:')) {
+        blocked = true; await new Promise(resolve => { release = resolve; });
+      }
       return decrypt(...args);
     } });
     app.renderMessages = function (...args) { renderCalls++; return renderMessages.apply(this, args); };
