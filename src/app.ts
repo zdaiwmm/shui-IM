@@ -2477,10 +2477,19 @@ export class QuietRoomApp {
   private async renderPendingRepair(cause?: unknown): Promise<void> {
     const session = this.session;
     if (!session || session.vault.pairingState !== 'repairing') return;
+    const pending = session.vault.pendingRepair;
+    const own = session.vault.members.find((member) => member.deviceId === session.vault.identity.publicBundle.deviceId);
+    const initiator = session.vault.members.find((member) => member.deviceId === own?.addedBy);
+    const code = pending && own && initiator ? await deviceLinkSafetyCode(pending.linkId, initiator, own) : '无法计算';
     this.gatewayTemplate('等待修复授权', '请在发起修复的设备上核对六位安全码并批准。', `<div class="credential-only-step"><p class="form-error" id="repair-wait-error" role="status"></p><button class="primary-button" id="retry-repair" type="button">检查修复进度</button><button class="text-button" id="repair-lock" type="button">锁定并返回白屏</button></div>`);
+    const safetyCode = document.createElement('div');
+    safetyCode.className = 'device-safety-code';
+    safetyCode.setAttribute('aria-label', '设备安全码');
+    safetyCode.textContent = code;
+    this.root.querySelector('.credential-only-step')?.prepend(safetyCode);
     const error = this.root.querySelector<HTMLElement>('#repair-wait-error')!;
     error.textContent = cause instanceof Error ? cause.message : '等待发起方批准…';
-    const check = async () => { const pending = session.vault.pendingRepair; if (!pending) return; try { const result = await getRepairLinkStatus(pending.linkId, pending.secret, session.vault.accessToken); const own = session.vault.identity.publicBundle.deviceId; const event = result.state.mlsEvents?.find(item => item.event.action === 'replace' && item.event.targetId === own && item.event.repairRequest); if (!event) return; await withVaultMutation(session, async mutation => { const target = result.state.members.find(member => member.deviceId === own); if (!target) throw new SecurityViolation('修复设备未出现在会话成员中'); const nextVault: Vault = { ...session.vault, members: result.state.members, mls: { protocol: 'mls-rfc9420', phase: 'awaiting-welcome', lastEventSeq: event.eventSeq - 1 } }; nextVault.mls = await joinMlsMembership(nextVault, event.event, event.eventSeq); nextVault.identity.mlsPrivatePackage = undefined; nextVault.lastSeq = target.joinSeq ?? result.state.nextSeq; nextVault.lastReceiptSeq = target.joinReceiptSeq ?? result.state.nextReceiptSeq; nextVault.historyUnavailableBeforeSeq = nextVault.lastSeq; nextVault.pairingState = 'ready'; nextVault.pendingRepair = undefined; session.vault = nextVault; await saveVault(session, mutation); }); await this.openSession(); this.showNotice('设备修复完成，历史消息不会自动恢复'); } catch (nextCause) { if (error.isConnected) error.textContent = nextCause instanceof Error ? nextCause.message : '修复状态暂时不可用'; } finally { if (session.vault.pairingState === 'repairing') window.setTimeout(() => void check(), 3000); } };
+    const check = async () => { const pending = session.vault.pendingRepair; if (!pending) return; try { const result = await getRepairLinkStatus(pending.linkId, pending.secret, session.vault.accessToken); const own = session.vault.identity.publicBundle.deviceId; const event = result.state.mlsEvents?.find(item => item.event.action === 'replace' && item.event.targetId === own && item.event.repairRequest); if (!event) return; await withVaultMutation(session, async mutation => { const target = result.state.members.find(member => member.deviceId === own); if (!target) throw new SecurityViolation('修复设备未出现在会话成员中'); const nextVault: Vault = { ...session.vault, members: result.state.members, mls: { protocol: 'mls-rfc9420', phase: 'awaiting-welcome', lastEventSeq: event.eventSeq - 1 } }; const membershipVault: Vault = { ...nextVault, members: session.vault.members }; nextVault.mls = await joinMlsMembership(membershipVault, event.event, event.eventSeq); nextVault.identity.mlsPrivatePackage = undefined; nextVault.lastSeq = target.joinSeq ?? result.state.nextSeq; nextVault.lastReceiptSeq = target.joinReceiptSeq ?? result.state.nextReceiptSeq; nextVault.historyUnavailableBeforeSeq = nextVault.lastSeq; nextVault.pairingState = 'ready'; nextVault.pendingRepair = undefined; session.vault = nextVault; await saveVault(session, mutation); }); await this.openSession(); this.showNotice('设备修复完成，历史消息不会自动恢复'); } catch (nextCause) { if (error.isConnected) error.textContent = nextCause instanceof Error ? nextCause.message : '修复状态暂时不可用'; } finally { if (session.vault.pairingState === 'repairing') window.setTimeout(() => void check(), 3000); } };
     this.root.querySelector('#retry-repair')?.addEventListener('click', () => void check());
     this.root.querySelector('#repair-lock')?.addEventListener('click', () => this.lockNow());
     window.setTimeout(() => void check(), 1000);
@@ -3300,9 +3309,18 @@ export class QuietRoomApp {
     const epoch = this.runtimeEpoch;
     try {
       const before = new Set(session.vault.members.filter((member) => member.status !== 'pending' && member.status !== 'revoked').map((member) => member.role)).size;
+      const ownId = session.vault.identity.publicBundle.deviceId;
+      const hadPendingRepairClaim = Boolean(session.vault.pendingRepair && session.vault.members.some((member) =>
+        member.status === 'pending' && member.addedBy === ownId));
       const mlsWasReady = session.vault.protocol !== 'mls-rfc9420' || session.vault.mls?.phase === 'active';
       await this.applyRoomStateQueued(state);
       if (!this.isRuntimeActive(epoch, session)) return;
+      const hasPendingRepairClaim = Boolean(session.vault.pendingRepair && session.vault.members.some((member) =>
+        member.status === 'pending' && member.addedBy === ownId));
+      if (!hadPendingRepairClaim && hasPendingRepairClaim) {
+        this.showNotice('修复设备已确认，请在设备管理中核对安全码并批准');
+        if (this.activeSurface === 'away') void this.renderDeviceManager();
+      }
       await this.ensureMlsReady(state);
       if (!this.isRuntimeActive(epoch, session)) return;
       if (session.vault.protocol === 'mls-rfc9420' && session.vault.mls?.phase === 'active') {
@@ -4685,6 +4703,17 @@ export class QuietRoomApp {
         .filter((link) => link.claimedDeviceId && !link.usedAt)
         .map((link) => ({ link, member: session.vault.members.find((member) => member.deviceId === link.claimedDeviceId) }))
         .filter((item): item is typeof item & { member: RoomMember } => Boolean(item.member?.status === 'pending'));
+      const pendingRepair = session.vault.pendingRepair;
+      const repairStatus = pendingRepair
+        ? await getRepairLinkStatus(pendingRepair.linkId, pendingRepair.secret, session.vault.accessToken).catch(() => null)
+        : null;
+      const repairClaim = repairStatus && !repairStatus.link.usedAt && repairStatus.link.claimedDeviceId
+        ? {
+            link: repairStatus.link,
+            source: repairStatus.state.members.find((member) => member.deviceId === repairStatus.link.sourceDeviceId),
+            member: repairStatus.state.members.find((member) => member.deviceId === repairStatus.link.claimedDeviceId),
+          }
+        : null;
 
       const toolbar = document.createElement('section');
       toolbar.className = 'device-toolbar';
@@ -4719,6 +4748,28 @@ export class QuietRoomApp {
           card.append(code, note, approve);
           section.append(card);
         }
+        content.append(section);
+      }
+
+      if (pendingRepair && repairClaim?.source && repairClaim.member?.status === 'pending') {
+        const section = document.createElement('section');
+        section.className = 'device-section';
+        section.innerHTML = '<h2>等待你批准修复</h2>';
+        const card = this.deviceCard(repairClaim.member, false);
+        card.classList.add('pending-device-card');
+        const code = document.createElement('code');
+        code.className = 'device-inline-code';
+        const own = session.vault.members.find((member) => member.deviceId === ownId);
+        code.textContent = own ? await deviceLinkSafetyCode(repairClaim.link.linkId, own, repairClaim.member) : '无法计算';
+        const note = document.createElement('p');
+        note.textContent = '请确认修复设备显示相同的六位安全码。批准后，原设备会立即撤销。';
+        const approve = document.createElement('button');
+        approve.type = 'button';
+        approve.className = 'primary-button compact-button';
+        approve.textContent = '安全码一致，批准修复';
+        approve.addEventListener('click', () => void this.approveRepairClaim(repairClaim.source!, repairClaim.member!, pendingRepair, approve));
+        card.append(code, note, approve);
+        section.append(card);
         content.append(section);
       }
 
@@ -4857,28 +4908,34 @@ export class QuietRoomApp {
       const invite: RepairInvite = { v: 1, kind: 'repair-link', roomId: session.vault.roomId, linkId, secret, sourceDeviceId: source.deviceId, initiatorId: session.vault.identity.publicBundle.deviceId, initiatorFingerprint: await bundleFingerprint(memberBundle(session.vault.members.find(member => member.deviceId === session.vault.identity.publicBundle.deviceId)!)), sourceFingerprint: await bundleFingerprint(memberBundle(source)), creatorFingerprint: await bundleFingerprint(memberBundle(creator)), expiresAt };
       await withVaultMutation(session, async mutation => { session.vault.pendingRepair = { linkId, secret, expiresAt, checkpointEventSeq: session.vault.mls?.lastEventSeq ?? 0 }; await saveVault(session, mutation); });
       if (this.isRuntimeActive(epoch, session)) await this.showDeviceInvite(invite, session, epoch, button);
-      window.setTimeout(() => void this.finishRepairFromClaim(source, linkId, secret, epoch, session), 1200);
     } catch (cause) { if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '修复邀请生成失败'); }
     finally { if (button.isConnected) setBusy(button, false); }
   }
 
-  private async finishRepairFromClaim(source: RoomMember, linkId: string, secret: string, epoch: number, session: VaultSession): Promise<void> {
-    if (!this.isRuntimeActive(epoch, session) || !session.vault.mls) return;
-    const result = await getRepairLinkStatus(linkId, secret, session.vault.accessToken).catch(() => null);
-    if (!result || !this.isRuntimeActive(epoch, session)) return;
-    const target = result.state.members.find(member => member.status === 'pending' && member.addedBy === session.vault.identity.publicBundle.deviceId && member.role === source.role);
-    if (!target) { window.setTimeout(() => void this.finishRepairFromClaim(source, linkId, secret, epoch, session), 2500); return; }
+  private async approveRepairClaim(source: RoomMember, target: RoomMember, pending: NonNullable<Vault['pendingRepair']>, button: HTMLButtonElement): Promise<void> {
+    const session = this.session;
+    if (!session?.vault.mls) return;
+    const epoch = this.runtimeEpoch;
+    setBusy(button, true, '正在批准修复…');
     try {
       await withVaultMutation(session, async mutation => {
-        if (!session.vault.mls) return;
-        const request = await createRepairRequest(session.vault, source.deviceId, memberBundle(target), secret);
+        if (!this.isRuntimeActive(epoch, session) || !session.vault.mls) return;
+        const request = await createRepairRequest(session.vault, source.deviceId, memberBundle(target), pending.secret);
         session.vault.mls.pendingMembership = await prepareMlsRepairReplacement(session.vault, request, target);
         await saveVault(session, mutation);
         const published = await publishMlsMembership(session.vault.roomId, session.vault.accessToken, session.vault.mls.pendingMembership.event);
         await this.applyRoomState(published.state, mutation);
+        if (this.isRuntimeActive(epoch, session)) {
+          session.vault.pendingRepair = undefined;
+          await saveVault(session, mutation);
+        }
       });
       if (this.isRuntimeActive(epoch, session)) { this.showNotice('修复邀请已批准，旧设备已撤销'); await this.renderDeviceManager(); }
-    } catch (cause) { if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '修复授权失败'); }
+    } catch (cause) {
+      if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '修复授权失败');
+    } finally {
+      if (button.isConnected) setBusy(button, false);
+    }
   }
 
   private async showDeviceInvite(invite: DeviceInvite | RepairInvite, session = this.session, epoch = this.runtimeEpoch, returnFocus?: HTMLElement): Promise<void> {
