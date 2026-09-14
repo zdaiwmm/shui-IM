@@ -1335,6 +1335,49 @@ try {
   await addCreatorDevice('paste');
   invariant(await recovery.getByRole('button', { name: '添加设备', exact: true }).isDisabled(), 'A third linked creator device did not enforce the 3-device limit');
 
+  // A repair invitation must stop at an explicit authorization step on the
+  // initiator. The replacement device can claim the link, but it must not be
+  // activated until both sides compare the safety code and the initiator
+  // publishes the signed MLS replacement event.
+  const peerSection = recovery.locator('.peer-device-section');
+  await peerSection.getByRole('button', { name: '修复此设备', exact: true }).click();
+  const repairUrl = await recovery.locator('.device-link-sheet input[aria-label="设备链接"]').inputValue();
+  invariant(repairUrl.includes('#repair='), 'Repair invitation did not use the repair discriminator');
+  await recovery.locator('.device-link-sheet [data-close]').click();
+  await recovery.locator('.device-link-sheet').waitFor({ state: 'detached' });
+
+  const repairContext = await browser.newContext({
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+  });
+  linkedContexts.push(repairContext);
+  const repairPage = await repairContext.newPage();
+  await enableDeviceVault(repairPage);
+  await repairPage.goto(repairUrl);
+  await holdCover(repairPage);
+  await repairPage.getByRole('heading', { name: '修复这台设备', exact: true }).waitFor();
+  await setPasskey(repairPage);
+  await repairPage.locator('#retry-repair').waitFor({ timeout: 15_000 });
+  const repairCode = (await repairPage.locator('.device-safety-code').textContent().catch(() => ''))?.trim();
+  invariant(/^\d{3} \d{3}$/.test(repairCode ?? ''), 'Repair device did not render a six-digit safety code');
+
+  await recovery.locator('#refresh-devices').click();
+  const repairCard = recovery.locator('.pending-device-card').filter({ hasText: repairCode });
+  await repairCard.waitFor({ timeout: 15_000 });
+  invariant((await repairCard.locator('.device-inline-code').textContent())?.trim() === repairCode,
+    'Initiator and replacement device disagreed on the repair safety code');
+  await repairCard.getByRole('button', { name: '安全码一致，批准修复', exact: true }).click();
+  await recovery.getByRole('heading', { name: '已授权设备', exact: true }).waitFor();
+  await repairPage.locator('#retry-repair').click().catch(() => undefined);
+  await repairPage.locator('.chat-shell').waitFor({ timeout: 15_000 }).catch(async error => {
+    console.error('Repair completion state', await repairPage.evaluate(() => ({
+      body: document.body.innerText,
+      root: document.querySelector('#app')?.innerHTML.slice(0, 1200),
+    })));
+    throw error;
+  });
+
   await Promise.all([creatorContext.close(), joinerContext.close(), recoveryContext.close(), legacyContext.close(), ...linkedContexts.map(context => context.close())]);
   process.stdout.write(`Browser E2E passed; local signed delivery ${deliveryMs} ms.\n`);
 } finally {

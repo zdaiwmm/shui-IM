@@ -847,6 +847,7 @@ export async function createStore({
       if (!room || room.protocol !== 'mls-rfc9420') throw new Error('PROTOCOL_MISMATCH');
       if (!sender || sender.status !== 'active' || deviceRecoveryPending(roomId, sender.deviceId)) throw new Error('UNAUTHORIZED');
       if (envelope.previousEventSeq !== room.next_mls_event_seq) throw new Error('MLS_EVENT_STALE');
+      let pendingRepairLinkId = null;
       if (envelope.action === 'add') {
         if (!target || target.status !== 'pending' || target.addedBy !== sender.deviceId || !envelope.target) {
           throw new Error('INVALID_MLS_EVENT');
@@ -876,6 +877,7 @@ export async function createStore({
         const repair = envelope.repairRequest;
         const pendingRepair = repair ? db.prepare("SELECT * FROM repair_links WHERE room_id = ? AND claimed_device_id = ? AND used_at IS NULL AND expires_at > ?")
           .get(roomId, envelope.targetId, nowIso()) : null;
+        pendingRepairLinkId = pendingRepair?.link_id ?? null;
         const source = getMember(roomId, envelope.replacedDeviceId);
         const validRecovery = pendingRecovery && !repair && pendingRecovery.source_device_id === source?.deviceId && source.status === 'active' &&
           pendingRecovery.replacement_device_id === target?.deviceId && target.status === 'pending' && target.role === source.role && target.addedBy === source.deviceId && source.deviceId !== sender.deviceId &&
@@ -921,7 +923,7 @@ export async function createStore({
           if (statements.revokeMember.run(acceptedAt, roomId, envelope.replacedDeviceId).changes !== 1) throw new Error('INVALID_RECOVERY_REQUEST');
           statements.deletePushSubscription.run(roomId, envelope.replacedDeviceId);
           if (envelope.recoveryRequest) db.prepare("UPDATE recovery_requests SET status = 'completed' WHERE room_id = ? AND request_id = ?").run(roomId, envelope.recoveryRequest.requestId);
-          if (envelope.repairRequest) db.prepare("UPDATE repair_links SET used_at = ? WHERE link_id = ? AND used_at IS NULL").run(acceptedAt, pendingRepair.link_id);
+          if (envelope.repairRequest && pendingRepairLinkId) db.prepare("UPDATE repair_links SET used_at = ? WHERE link_id = ? AND used_at IS NULL").run(acceptedAt, pendingRepairLinkId);
         }
         const link = db.prepare('SELECT link_id FROM device_links WHERE room_id = ? AND claimed_device_id = ? AND used_at IS NULL')
           .get(roomId, envelope.targetId);
