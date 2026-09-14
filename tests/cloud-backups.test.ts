@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createStore } from '../server/storage.mjs';
 import { generateIdentity } from '../src/lib/crypto';
 import { newRecoveryCode, recoveryFetchToken, sealRecovery, openRecovery, randomBackupSecret, sealJson, openJson } from '../src/lib/backup-crypto';
+import { normalizeRecoveryCodes } from '../src/lib/cloud-backup';
 import type { CloudRecoveryBundle, BackupUpload } from '../src/lib/backup-types';
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -29,6 +30,15 @@ async function fixture() {
 }
 
 describe('cloud recovery encryption and atomic storage', () => {
+  it('normalizes one or more device recovery codes for session-wide restore', () => {
+    const first = newRecoveryCode();
+    const second = newRecoveryCode();
+    expect(normalizeRecoveryCodes(`\n${first.code}\n${second.code}\n${first.code}\n`)).toEqual([first.code, second.code]);
+    expect(() => normalizeRecoveryCodes('')).toThrow('请输入至少一个恢复码');
+    expect(() => normalizeRecoveryCodes('QR3-invalid')).toThrow('恢复码格式不正确');
+    expect(() => normalizeRecoveryCodes(Array.from({ length: 7 }, () => newRecoveryCode().code))).toThrow('最多支持 6 个');
+  });
+
   it('separates lookup capability from decryption and authenticates the backup identity', async () => {
     const { recovery, upload, bundle } = await fixture();
     expect(upload.fetchToken).not.toContain(recovery.code.slice(4));

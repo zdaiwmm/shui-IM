@@ -1,5 +1,10 @@
 # Quiet Room 当前状态
 
+## 会话级多设备历史恢复（2026-09-14，候选未发布）
+
+- 独立工作树 `/Users/zhouding/ss-worktrees/session-all-device-recovery`，分支 `codex/session-all-device-recovery`，已合入远端 `main` `074ebcb2ecdf1c140355bc0c1c37909487914f6d`。
+- 恢复入口支持每行一个 QR3 恢复码，最多合并本会话 6 台设备的有效备份；按会话校验后合并聊天/保险箱归档，现有加密冲突和重复去重边界保持。恢复新增 0 条时显示可解释状态。
+- `npm run check:full` 通过（78 个文件／639 项，浏览器 33/33）；未执行真机、远端 CI、PR 合并或生产发布。
 ## 当前生产快照（2026-09-14 12:31，独立回读通过）
 
 - 线上应用 SHA `c2bf8ee032df15e1a5b4b64ac6a649abfb4b7256`；修复代码 PR #142 与版本元数据 PR #143 已合并，应用版本为 `2026.09.14.2`。精确 main CI [34805585974](https://github.com/zdaiwmm/shui-IM/actions/runs/34805585974) 在浏览器通话用例一次时序超时后仅重跑失败 job，最终全部通过。
