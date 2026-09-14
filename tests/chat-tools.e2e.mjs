@@ -43,7 +43,7 @@ try {
   await page.locator('#message-input').fill('保留草稿');
   await page.locator('#open-chat-tools').click();
   assert.equal(await page.locator('#chat-tools > button').count(),6);
-  assert.equal(await page.locator('#call-availability-note').innerText(), '安全会话建立后可发起通话');
+  assert.equal(await page.locator('#call-availability-note').innerText(), '连接恢复后可发起通话');
   assert.equal(await page.locator('#start-video-call').getAttribute('aria-describedby'), 'call-availability-note');
   assert.equal(await page.locator('.composer').evaluate(el => getComputedStyle(el).backgroundColor), await page.evaluate(() => {
     const probe=document.createElement('div'); probe.style.background='var(--paper-pure)';document.body.append(probe);
