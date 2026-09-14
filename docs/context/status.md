@@ -1,5 +1,12 @@
 # Quiet Room 当前状态
 
+## 文档对账批次生产发布（2026-09-14 16:15）
+
+- 用户确认的精确生产 SHA 为 `90edf16b04944b2197f846cdf26613f441af49fe`，PR #149 已合并；完整 main CI [34819418850](https://github.com/zdaiwmm/shui-IM/actions/runs/34819418850) 通过。
+- 固定入口返回 `DEPLOY_OK`、`DEPLOY_VERIFIED`，外层回执核验成功。批次 `20260914T081333Z`，发布目录 `/opt/quiet-room/git-releases/20260914T081333Z-90edf16b0494`，冷备份 `/opt/quiet-room/backups/predeploy/data-20260914T081333Z-90edf16b0494.tar.gz` 已校验。
+- 独立回读 `READBACK_OK` 验证线上 SHA、容器、HTTPS 健康、数据库、存储、公开产物及公开 WebSocket。证据 `quiet-room-readback/20260914T081515040Z-90edf16b0494-success.json`。
+- 本批只发布对账文档，无新增应用行为；应用版本仍为 `2026.09.14.3`，上一批版本元数据遗漏和真机验证缺口仍存在。本记录无需再次部署。
+
 ## 恢复授权修复生产回读（2026-09-14 15:43）
 
 - PR #148 已合并；用户确认的线上应用提交为 `b9f15d759feaa37ef61e9d7dd336aa260d4c18d9`。精确 main CI [34816573786](https://github.com/zdaiwmm/shui-IM/actions/runs/34816573786) 在失败作业重跑后通过。
