@@ -417,7 +417,10 @@ export async function startServer(options = {}) {
       const backupRead = pathname.match(/^\/api\/recovery-backups\/([A-Za-z0-9_-]{22})$/);
       const archiveRead = pathname.match(/^\/api\/history-archives\/([A-Za-z0-9_-]{43})\/([A-Za-z0-9_-]{43})$/);
       if ((request.method === 'PUT' && (backupWrite || archiveWrite)) || (request.method === 'GET' && (backupRead || archiveRead))) {
-        if (!allowRequest(request, 'cloud-backups', 120)) { json(request, response, 429, { error: '备份请求过于频繁', code: 'RATE_LIMITED' }); return; }
+        if (!allowRequest(request, 'cloud-backups', 120)) {
+          response.setHeader('Retry-After', '60');
+          json(request, response, 429, { error: '备份请求过于频繁', code: 'RATE_LIMITED' }); return;
+        }
         try {
           const token = bearerToken(request);
           let result;

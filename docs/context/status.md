@@ -1,5 +1,10 @@
 # Quiet Room 当前状态
 
+## 大批量历史恢复限流续传（2026-09-14，工作树已实现）
+
+- 任务工作树 `/Users/zhouding/ss-worktrees/restore-partial-history-fix`，分支 `codex/restore-partial-history-fix`，基线 `origin/main`=`85276ea`。服务端备份限流响应补充 `Retry-After`，客户端对 429 在可取消等待后继续同一请求，超过重试预算才报告限流并保留已导入片段。
+- 新增 429 重试回归；构建、完整 Vitest（78 个文件／640 项）和云备份生命周期浏览器专项通过。修复提交 `4029e275` 已完成，正在集成 `0dd8b26a` 基线并准备发布；未执行 iPhone / iOS 27 / Safari 真机验收。
+
 ## 文档对账批次生产发布（2026-09-14 16:15）
 
 - 用户确认的精确生产 SHA 为 `90edf16b04944b2197f846cdf26613f441af49fe`，PR #149 已合并；完整 main CI [34819418850](https://github.com/zdaiwmm/shui-IM/actions/runs/34819418850) 通过。

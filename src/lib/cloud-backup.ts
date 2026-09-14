@@ -7,22 +7,50 @@ import type { DecryptedMessage, Vault } from './types';
 
 const encoder = new TextEncoder();
 const AUTOMATIC_BACKUP_REVALIDATION_MS = 5 * 60_000;
+const MAX_RATE_LIMIT_RETRIES = 12;
+const DEFAULT_RETRY_AFTER_MS = 1_000;
+const MAX_RETRY_AFTER_MS = 60_000;
 type BackupFingerprint = { value: string; material: string };
 type BackupObservation = { fingerprint: string; observedAt: number };
 const automaticBackupObservations = new WeakMap<VaultSession, BackupObservation>();
 
-async function request<T>(url: string, token: string, signal: AbortSignal, body?: unknown): Promise<T> {
+function retryAfterMs(response: Response): number {
+  const value = response.headers.get('Retry-After')?.trim() ?? '';
+  if (!value) return DEFAULT_RETRY_AFTER_MS;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.min(MAX_RETRY_AFTER_MS, seconds * 1_000);
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.min(MAX_RETRY_AFTER_MS, Math.max(0, date - Date.now())) : DEFAULT_RETRY_AFTER_MS;
+}
+
+async function waitForRetry(delayMs: number, signal: AbortSignal): Promise<void> {
   signal.throwIfAborted();
-  const response = await fetch(url, { method: body === undefined ? 'GET' : 'PUT', signal, cache: 'no-store', credentials: 'omit',
+  if (delayMs <= 0) return;
+  await new Promise<void>((resolve, reject) => {
+    const abort = () => { clearTimeout(timer); signal.removeEventListener('abort', abort); reject(signal.reason ?? new DOMException('操作已取消', 'AbortError')); };
+    const timer = setTimeout(() => { signal.removeEventListener('abort', abort); resolve(); }, delayMs);
+    signal.addEventListener('abort', abort, { once: true });
+  });
+}
+
+async function request<T>(url: string, token: string, signal: AbortSignal, body?: unknown): Promise<T> {
+  const options = { method: body === undefined ? 'GET' : 'PUT', signal, cache: 'no-store' as RequestCache, credentials: 'omit' as RequestCredentials,
     headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-  if (!response.ok) {
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }) };
+  for (let retry = 0;; retry += 1) {
+    signal.throwIfAborted();
+    const response = await fetch(url, options);
+    if (response.ok) return response.json() as Promise<T>;
+    if (response.status === 429) {
+      if (retry >= MAX_RATE_LIMIT_RETRIES) throw new Error('备份请求过于频繁，请稍后再试；已恢复的记录会保留，可继续重试');
+      await waitForRetry(retryAfterMs(response), signal);
+      continue;
+    }
     if (response.status === 401) throw new Error('找不到可用备份，请检查恢复码；备份也可能已被停用或清理');
     if (response.status === 409) throw new Error('备份版本冲突，请锁定后重新解锁再试');
     if (response.status === 413) throw new Error('备份空间已满，请联系管理员处理');
     throw new Error('备份服务暂时不可用，请稍后重试');
   }
-  return response.json() as Promise<T>;
 }
 
 /** Save changes atomically without leaking a failed in-memory mutation into later writes. */
