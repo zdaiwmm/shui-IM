@@ -73,7 +73,7 @@ try {
   assert.equal(await page.evaluate(() => document.querySelector('.video-upload') === window.uploadFixture.row), true);
   await page.evaluate(() => { const gate = window.uploadFixture.gate; gate.release(); gate.release = null; });
   await page.waitForFunction(() => window.uploadFixture.gate.requests === 2 && window.uploadFixture.gate.release);
-  assert.match(await draft.innerText(), /正在上传 33%/);
+  assert.match(await draft.innerText(), /33%[\s\S]*上传中/);
   await page.waitForFunction(() => {
     const rect = document.querySelector('.video-upload').getBoundingClientRect();
     const composer = document.querySelector('#composer').getBoundingClientRect();
@@ -102,7 +102,7 @@ try {
   await page.evaluate(() => { const f = window.uploadFixture; f.app.lockNow(); f.gate.release(); });
   await page.evaluate(() => window.uploadFixture.run);
   assert.equal(await page.locator('.video-upload').count(), 0);
-  assert.equal(await page.evaluate(() => window.uploadFixture.app.videoUploads.size), 0);
+  assert.equal(await page.evaluate(() => window.uploadFixture.app.mediaUploads.size), 0);
   assert.deepEqual(errors, []);
   console.log('Video upload:', { ...result, poster: true, progress: true, lockCleanup: true });
 } finally { await browser?.close(); await server.close(); }

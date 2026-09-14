@@ -1632,36 +1632,97 @@ button:disabled {
   pointer-events: none;
 }
 .message-delivery, .message-pending { display: inline-flex; flex: none; align-items: center; color: inherit; }
-.message.outgoing .video-upload-tile {
-  --video-upload-ratio: 1.7778;
+/* Upload drafts share media geometry. Only the corner status is translucent. */
+.message.outgoing .media-upload-tile {
+  --media-upload-ratio: 1.3333;
+  --media-upload-natural-width: 288px;
+  --media-upload-max-width: 288px;
+  --media-upload-max-height: min(42svh, 320px);
+  max-height: var(--media-upload-max-height);
   position: relative;
   overflow: hidden;
-  width: min(288px, calc(min(42svh, 320px) * var(--video-upload-ratio)));
+  width: min(var(--media-upload-natural-width), var(--media-upload-max-width), calc(var(--media-upload-max-height) * var(--media-upload-ratio)));
   max-width: 100%;
-  aspect-ratio: 16 / 9;
-  min-height: 120px;
+  min-width: 112px;
+  min-height: 80px;
+  aspect-ratio: 4 / 3;
   padding: 0;
   background: var(--surface-raised, var(--surface));
   color: var(--ink);
-  border-color: var(--line);
+  border: 0;
   box-shadow: none;
 }
-.video-upload-tile > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.video-upload-icon { position: absolute; inset: 12px 12px auto auto; color: var(--ink-muted); }
-.video-upload-icon svg { width: 20px; height: 20px; fill: currentColor; }
-.video-upload-status {
-  position: absolute;
-  inset: auto 0 0;
-  display: grid;
-  gap: 8px;
-  padding: 12px;
-  background: color-mix(in oklch, var(--surface) 92%, transparent);
-  font-size: .8125rem;
+.message.outgoing .media-upload-expression {
+  --media-upload-natural-width: 192px;
+  --media-upload-max-width: 192px;
+  --media-upload-max-height: min(28svh, 213.333px);
+  --media-upload-ratio: 1;
+  aspect-ratio: 1;
+  background: transparent;
 }
-.video-upload-status progress { width: 100%; height: 5px; accent-color: var(--accent); }
-.video-upload-actions { display: flex; gap: 8px; }
-.video-upload-actions button { min-width: 64px; min-height: 44px; color: var(--accent); }
-.video-upload:not([data-upload-state='failed']) .video-upload-actions { display: none; }
+.message.outgoing .media-upload-album { width: fit-content; aspect-ratio: auto; }
+.media-upload-previews:not(.image-album) { position: absolute; inset: 0; }
+.media-upload-preview { cursor: default; }
+.media-upload-previews:not(.image-album) > .media-upload-preview { height: 100%; border-radius: inherit; }
+.media-upload-preview > img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.media-upload-expression .media-upload-preview { background: transparent; }
+.media-upload-expression .media-upload-preview > img { object-fit: contain; }
+.media-upload-placeholder { position: absolute; top: 32%; left: calc(50% - 14px); width: 28px; height: 28px; color: var(--ink-muted); }
+.media-upload-video-label { position: absolute; top: 8px; left: 8px; display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-radius: 8px; background: var(--glass-control); font-size: .6875rem; }
+.media-upload-video-label svg { width: 14px; height: 14px; }
+.media-upload-status {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 14px);
+  min-height: 44px;
+  padding: 7px 11px;
+  border: 1px solid var(--glass-border, var(--line));
+  border-radius: 24px;
+  background: color-mix(in oklch, var(--surface) 92%, transparent);
+  color: var(--ink);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  font-size: .75rem;
+  line-height: 1.2;
+}
+.media-upload-copy { display: grid; gap: 2px; }
+.media-upload-copy strong { font-size: .875rem; font-variant-numeric: tabular-nums; }
+.media-upload-copy > span { color: var(--ink-muted); }
+.media-upload-ring {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: conic-gradient(var(--accent) var(--upload-progress, 0%), var(--accent-soft) 0);
+  mask: radial-gradient(farthest-side, transparent calc(100% - 4px), oklch(100% 0 0) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 4px), oklch(100% 0 0) 0);
+}
+.media-upload-status:is([data-state='preparing'], [data-state='finishing']) .media-upload-ring {
+  background: conic-gradient(var(--accent) 25%, var(--accent-soft) 0);
+  animation: media-upload-spin 1s linear infinite;
+}
+.media-upload-status[data-state='failed'] { gap: 3px; padding: 0 5px 0 11px; background: color-mix(in oklch, var(--surface) 94%, var(--danger)); }
+.media-upload-status[data-state='failed'] .media-upload-copy > span { color: var(--danger); }
+.media-upload-retry, .media-upload-remove { display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 0 7px; gap: 5px; border: 0; background: transparent; color: var(--danger); cursor: pointer; }
+.media-upload-retry svg { width: 20px; height: 20px; }
+.media-upload-remove { position: absolute; top: 0; right: 0; z-index: 2; border-radius: 50%; background: var(--glass-control); }
+.media-upload-remove svg { width: 16px; height: 16px; }
+.media-upload :is(button, .media-upload-ring, strong)[hidden] { display: none; }
+.media-upload-retry:focus-visible, .media-upload-remove:focus-visible { outline: 2px solid var(--focus); outline-offset: -3px; }
+@keyframes media-upload-spin { to { rotate: 360deg; } }
+@media (prefers-reduced-motion: reduce) { .media-upload-ring { animation: none !important; } }
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .media-upload-status { background: var(--surface); backdrop-filter: none; -webkit-backdrop-filter: none; }
+}
+@media (forced-colors: active) {
+  .media-upload-status { background: Canvas; color: CanvasText; border: 1px solid CanvasText; backdrop-filter: none; }
+  .media-upload-ring { mask: none; -webkit-mask: none; background: none; border: 3px solid Highlight; border-top-color: Canvas; }
+}
 .message-delivery svg, .message-pending svg {
   width: 1.45em;
   height: 1.1em;
@@ -3423,3 +3484,29 @@ button:disabled {
 .gallery-tile[aria-busy="true"] > svg { opacity: 0.22; }
 .quiet-image-placeholder > svg,
 .viewer-loading > svg { width: 32px; height: 32px; opacity: 0.4; fill: none; stroke: currentColor; stroke-width: 1.5; }
+
+.message-bubble.image-bubble > .message-meta.media-send-meta {
+  position: absolute;
+  right: 7px;
+  bottom: 7px;
+  margin: 0;
+  min-height: 44px;
+  max-width: calc(100% - 14px);
+  padding: 4px 10px;
+  gap: 6px;
+  border: 1px solid var(--glass-border, var(--line));
+  border-radius: 24px;
+  color: var(--ink);
+  background: color-mix(in oklch, var(--surface) 94%, transparent);
+  pointer-events: auto;
+}
+.media-send-meta > time { display: none; }
+.media-send-pending { gap: 6px; font-size: .75rem; }
+.media-send-pending svg { color: var(--accent); }
+.message.is-failed .image-bubble > .media-send-meta { color: var(--danger); }
+
+/* Retain an operable corner action even for unusually thin source media. */
+.chat-shell .message:is(.is-pending, .is-failed) .message-bubble.image-bubble {
+  min-width: 112px;
+  min-height: 80px;
+}
