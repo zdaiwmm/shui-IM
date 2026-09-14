@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -58,6 +58,43 @@ describe('cloud recovery encryption and atomic storage', () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  it('honors the server cooldown and cancellation without another request', async () => {
+    const recovery = newRecoveryCode();
+    const controller = new AbortController();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', {
+      status: 429, headers: { 'Retry-After': '60' },
+    }));
+    vi.useFakeTimers();
+    try {
+      const pending = fetchRecoveryBundle(recovery.code, controller.signal);
+      const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+      await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1));
+      await vi.advanceTimersByTimeAsync(59_000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      controller.abort();
+      await rejected;
+      expect(vi.getTimerCount()).toBe(0);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      controller.abort();
+      vi.useRealTimers();
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('stops persistent throttling after a bounded retry budget', async () => {
+    const recovery = newRecoveryCode();
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response('{}', {
+      status: 429, headers: { 'Retry-After': '0' },
+    }));
+    try {
+      await expect(fetchRecoveryBundle(recovery.code, new AbortController().signal)).rejects.toThrow('备份请求过于频繁');
+      expect(fetchMock).toHaveBeenCalledTimes(13);
+      const calls = fetchMock.mock.calls;
+      for (const call of calls) expect(call).toEqual(calls[0]);
+    } finally { fetchMock.mockRestore(); }
   });
 
   it('separates lookup capability from decryption and authenticates the backup identity', async () => {
