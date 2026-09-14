@@ -7,6 +7,7 @@
 .chat-tools > button:disabled { cursor: default; }
 .chat-tools > button:disabled > span { color: var(--ink-faint); }
 .chat-tools > button:active:not(:disabled) > span { background-color: var(--glass-panel); }
+.call-availability-note { grid-column: 1 / -1; margin: -4px 8px 0; color: var(--ink-muted); font-size: .72rem; line-height: 1.45; text-align: center; }
 #open-chat-tools { flex: 0 0 44px; color: var(--ink-muted); border-color: var(--glass-border); background-color: var(--composer-surface-current); }
 #open-chat-tools:disabled { opacity: 1; color: var(--ink-faint); }
 .peer-summary[role="button"] { cursor: pointer; }
