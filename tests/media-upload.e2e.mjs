@@ -50,8 +50,8 @@ try {
       }
       return Response.json({ ok: true });
     };
-    const makeFile = async (index, transparent = false) => {
-      const canvas = document.createElement('canvas'); canvas.width = 512; canvas.height = transparent ? 512 : 320;
+    const makeFile = async (index, transparent = false, width = 512, height = transparent ? 512 : 320) => {
+      const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
       const c = canvas.getContext('2d');
       if (!transparent) { c.fillStyle = '#789894'; c.fillRect(0, 0, 512, 320); }
       c.fillStyle = '#dbc985'; c.fillRect(90, 80, 260, 150);
@@ -59,28 +59,38 @@ try {
       const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
       return new File([blob, new Uint8Array(2 * 1024 * 1024)], `合成预览-${index}.png`, { type: 'image/png', lastModified: index });
     };
-    const files = [await makeFile(1), await makeFile(2), await makeFile(3, true)];
+    const files = [await makeFile(1), await makeFile(2), await makeFile(3, true), await makeFile(4, false, 120, 960), await makeFile(5, false, 960, 60), await makeFile(6, false, 60, 40), await makeFile(7, true, 512, 1024)];
     app.renderChat();
     const enqueue = app.enqueuePayload.bind(app);
     app.enqueuePayload = async (...args) => { if (gate.failCommit) throw Error('Synthetic local commit failure'); return enqueue(...args); };
-    window.mediaFixture = { app, session, own, files, gate, blobs, vault, run: null, start(files, expression = false, autoHide = false) { this.run = app.processImageBatch(files, 'chat', undefined, expression, undefined, autoHide); } };
+    window.mediaFixture = { app, session, own, files, gate, blobs, vault, run: null, fileFor(variant) { return variant === 'tall-photo' ? files[3] : variant === 'wide-photo' ? files[4] : variant === 'small-photo' ? files[5] : variant === 'tall-expression' ? files[6] : variant.includes('expression') ? files[2] : files[0]; }, start(files, expression = false, autoHide = false) { this.run = app.processImageBatch(files, 'chat', undefined, expression, undefined, autoHide); } };
   });
-  for (const variant of ['photo', 'album', 'expression', 'hidden-expression']) {
+  const geometry = async locator => locator.evaluate(node => {
+    const box = node.getBoundingClientRect(), style = getComputedStyle(node);
+    return { width: box.width, height: box.height, corners: [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomRightRadius, style.borderBottomLeftRadius] };
+  });
+  const sameSize = (before, after, label) => {
+    assert.ok(Math.abs(before.width - after.width) < 1 && Math.abs(before.height - after.height) < 1, `${label}: ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
+    assert.equal(new Set(after.corners).size, 1, `${label}: four equal corners`);
+  };
+  for (const variant of ['photo', 'tall-photo', 'wide-photo', 'small-photo', 'album', 'expression', 'hidden-expression', 'tall-expression']) {
     await page.evaluate(variant => {
       const f = window.mediaFixture;
       f.gate.release = null; f.gate.hold = true; f.gate.fail = false;
-      f.start(variant === 'album' ? f.files.slice(0, 2) : [variant.includes('expression') ? f.files[2] : f.files[0]], variant.includes('expression'), variant === 'hidden-expression');
+      f.start(variant === 'album' ? f.files.slice(0, 2) : [f.fileFor(variant)], variant.includes('expression'), variant === 'hidden-expression');
     }, variant);
     const draft = page.locator('.media-upload');
     await draft.waitFor();
     await page.waitForFunction(() => window.mediaFixture.gate.release);
     await page.waitForFunction(() => [...document.querySelectorAll('.media-upload-preview')].every(cell => cell.querySelector('img')?.complete));
     const id = await draft.getAttribute('data-client-msg-id');
-    assert.equal(await draft.getAttribute('data-concealed'), String(variant !== 'expression'));
+    const uploadBox = await geometry(draft.locator('.message-bubble'));
+    assert.equal(new Set(uploadBox.corners).size, 1, 'Upload has four equal corners');
+    assert.equal(await draft.getAttribute('data-concealed'), String(!variant.includes('expression') || variant === 'hidden-expression'));
     assert.equal(await page.locator('#upload-progress').isVisible(), false, 'No global progress for chat media');
     assert.equal(await draft.locator('.message-delivery').count(), 0, 'Upload is not a sent message');
     const width = await draft.locator('img').first().evaluate(image => image.naturalWidth);
-    assert.equal(width <= 128, variant !== 'expression', 'Only concealed derivatives may be painted for private media');
+    assert.equal(width <= 128, !variant.includes('expression') || variant === 'hidden-expression', 'Only concealed derivatives may be painted for private media');
     await page.evaluate(() => { const f = window.mediaFixture; f.row = document.querySelector('.media-upload'); f.app.renderMessages(); });
     assert.equal(await draft.evaluate(node => node === window.mediaFixture.row), true, 'Progress updates retain the row');
     await page.evaluate(() => { const g = window.mediaFixture.gate; g.fail = true; g.release(); });
@@ -88,7 +98,7 @@ try {
     assert.equal(await draft.getAttribute('data-client-msg-id'), id);
     const retryRect = await draft.getByRole('button', { name: '重试', exact: true }).boundingBox();
     assert.ok(retryRect.height >= 44 && retryRect.width >= 44);
-    assert.equal(await draft.getAttribute('data-concealed'), String(variant !== 'expression'));
+    assert.equal(await draft.getAttribute('data-concealed'), String(!variant.includes('expression') || variant === 'hidden-expression'));
     if (process.argv[2]) {
       await mkdir(process.argv[2], { recursive: true });
       await page.screenshot({ path: `${process.argv[2]}/${variant}-failed.png` });
@@ -111,9 +121,11 @@ try {
     const message = page.locator(`.message[data-client-msg-id="${id}"]`);
     await message.locator('.image-preview[data-image-state="loaded"]').first().waitFor();
     assert.equal(await message.count(), 1);
+    sameSize(uploadBox, await geometry(message.locator('.message-bubble')), `${variant} upload to pending`);
+    if (variant !== 'album') sameSize(uploadBox, await geometry(message.locator('.image-preview')), `${variant} content fills bubble`);
     assert.match(await message.locator('.message-meta').innerText(), /发送中/);
     assert.equal(await message.locator('.message-delivery').count(), 0, '100% upload is not server confirmation');
-    assert.equal(await message.locator('.image-preview').first().getAttribute('data-revealed'), String(variant === 'expression'));
+    assert.equal(await message.locator('.image-preview').first().getAttribute('data-revealed'), String(variant.includes('expression') && variant !== 'hidden-expression'));
     const outcome = await page.evaluate(async ({ id, variant }) => {
       const f = window.mediaFixture;
       const entries = (await f.vault.loadOutbox(f.session)).filter(item => item.clientMsgId === id);
@@ -122,7 +134,7 @@ try {
       if (variant.includes('expression') && payload.expressionAutoHide !== (variant === 'hidden-expression')) throw Error('Retry lost expression visibility policy');
       const { decryptImageFile } = await import('/src/lib/file-crypto.ts');
       const manifests = payload.kind === 'image-album' ? payload.images : [payload.image];
-      const originals = variant === 'album' ? f.files.slice(0, 2) : [variant.includes('expression') ? f.files[2] : f.files[0]];
+      const originals = variant === 'album' ? f.files.slice(0, 2) : [f.fileFor(variant)];
       for (const [index, manifest] of manifests.entries()) {
         const restored = await decryptImageFile(manifest, async (blobId, chunk) => f.blobs.get(blobId).chunks.get(chunk).buffer);
         const hash = async blob => [...new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()))].join(',');
@@ -134,6 +146,28 @@ try {
       return manifests.length;
     }, { id, variant });
     assert.equal(await message.locator('.media-send-meta').count(), 0);
+    sameSize(uploadBox, await geometry(message.locator('.message-bubble')), `${variant} server confirmation`);
+    await page.waitForFunction(id => !document.querySelector(`[data-client-msg-id="${id}"] .media-upload-handoff`), id);
+    const departure = message.locator('.media-status-departing');
+    if (await departure.count()) {
+      const animation = await departure.evaluate(node => node.getAnimations().map(animation => ({ duration: animation.effect.getTiming().duration, keyframes: animation.effect.getKeyframes().map(frame => frame.opacity) })));
+      assert.ok(animation.some(item => item.duration === 320 && item.keyframes.join(',') === '1,0'), 'Status fades out instead of vanishing');
+    }
+    await page.waitForFunction(id => !document.querySelector(`[data-client-msg-id="${id}"] .media-status-departing`), id);
+    for (const revealed of [false, true]) {
+      await message.locator('.image-preview').first().evaluate((node, revealed) => { node.dataset.revealed = String(revealed); }, revealed);
+      const original = await geometry(message.locator('.message-bubble'));
+      const originalMedia = await geometry(message.locator('.image-preview').first());
+      await message.dispatchEvent('contextmenu');
+      const lifted = page.locator('.message-action-preview');
+      await lifted.waitFor();
+      await page.locator('.message-actions.is-visible').waitFor();
+      sameSize(original, await geometry(lifted.locator('.message-bubble')), `${variant} lifted bubble`);
+      sameSize(originalMedia, await geometry(lifted.locator('.image-preview').first()), `${variant} lifted content`);
+      if (process.argv[2]) await page.screenshot({ path: `${process.argv[2]}/${variant}-menu-${revealed}.png` });
+      await page.evaluate(() => window.mediaFixture.app.closeMessageActions(false, false));
+    }
+
     assert.equal(await message.locator('.message-delivery').count(), 1);
     assert.equal(await message.locator('.image-preview').first().evaluate(node => node === window.mediaFixture.preview), true);
     console.log(`${variant}: immediate bubble, concealed policy, same-ID retry, ${outcome} original(s), confirmation continuity`);

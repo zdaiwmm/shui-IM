@@ -3,7 +3,7 @@ import { isGalleryMediaPayload } from './video-media';
 import { galleryCurationKey, normalizeGalleryCurationRecords } from './gallery-curation';
 import { archiveAad, backupDigest, newRecoveryCode, openJson, openRecovery, parseCloudRecoveryCode, randomBackupSecret, recoveryFetchToken, sealJson, sealRecovery } from './backup-crypto';
 import { toBase64Url } from './base64';
-import type { ArchivePart, CloudRecoveryBundle, LocalBackupState, SealedBackup } from './backup-types';
+import type { ArchivePart, CloudRecoveryBundle, HistoryArchive, LocalBackupState, SealedBackup } from './backup-types';
 import { canonicalStringify } from './canonical';
 import { loadUiPreferences, restoreGalleryHidden, findMissingArchivedMessages, importArchivedMessages, installCloudRecovery, readStoredVault, loadHistoryPageAfter, saveVault, withVaultMutation, type VaultSession } from './vault';
 import type { DecryptedMessage, Vault } from './types';
@@ -19,6 +19,28 @@ const MAX_RETRY_AFTER_MS = 60_000;
 type BackupFingerprint = { value: string; material: string };
 type BackupObservation = { fingerprint: string; observedAt: number };
 const automaticBackupObservations = new WeakMap<VaultSession, BackupObservation>();
+
+function backupInventory(messages: readonly DecryptedMessage[]): { chatCount: number; galleryCount: number } {
+  let chatCount = 0;
+  let galleryCount = 0;
+  for (const message of messages) {
+    const payload = message.payload;
+    const galleryOnly = payload.kind === 'gallery-image' || payload.kind === 'gallery-file';
+    const projection = payload.kind === 'reaction' || payload.kind === 'message-delete' || payload.kind === 'media-read' || payload.kind === 'message-read';
+    if (!galleryOnly && !projection) chatCount += 1;
+    if (isGalleryMediaPayload(payload)) {
+      galleryCount += payload.kind === 'image-album' ? payload.images.length : 1;
+    }
+  }
+  return { chatCount, galleryCount };
+}
+
+function archiveInventory(archive: HistoryArchive): { chatCount: number; galleryCount: number } {
+  return archive.parts.reduce((totals, part) => ({
+    chatCount: totals.chatCount + (part.chatCount ?? 0),
+    galleryCount: totals.galleryCount + (part.galleryCount ?? 0),
+  }), { chatCount: 0, galleryCount: 0 });
+}
 
 function retryAfterMs(response: Response): number {
   const value = response.headers.get('Retry-After')?.trim() ?? '';
@@ -190,7 +212,12 @@ async function stageEnvelope(session: VaultSession, signal: AbortSignal): Promis
     const verified = await openRecovery(sealed, state.code);
     if (JSON.stringify(verified) !== JSON.stringify(bundle)) throw new Error('恢复备份自检失败');
     state.pending = { id: state.id, revision: state.revision + 1, fetchToken: await recoveryFetchToken(state.code), sealed,
-      archives: state.archives.map((archive, index) => ({ id: archive.id, token: archive.token, writable: index === state.archives.length - 1 })),
+      archives: state.archives.map((archive, index) => ({
+        id: archive.id,
+        token: archive.token,
+        writable: index === state.archives.length - 1,
+        ...archiveInventory(archive),
+      })),
       ...(state.replaces ? { replaces: state.replaces } : {}) };
   });
 }
@@ -251,8 +278,9 @@ export async function syncCloudBackup(session: VaultSession, signal: AbortSignal
         messages = messages.slice(0, Math.ceil(messages.length / 2));
         signal.throwIfAborted();
       }
+      const inventory = backupInventory(messages);
       state.pendingPart = { archiveId: archive.id, sealed, part: { id, digest: await backupDigest(sealed),
-        firstSeq: messages[0]!.seq, lastSeq: messages.at(-1)!.seq, count: messages.length } };
+        firstSeq: messages[0]!.seq, lastSeq: messages.at(-1)!.seq, count: messages.length, ...inventory } };
       delete state.historyBatchStartedAt;
     });
     const pending = session.vault.backup!.pendingPart;

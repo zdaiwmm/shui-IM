@@ -114,7 +114,7 @@
 .message-bubble.expression-bubble > .image-preview[data-revealed='true']::before { background: none; box-shadow: none; }
 .chat-shell .expression-bubble .image-preview { max-width: min(192px, 100%); }
 .chat-shell .expression-bubble .image-preview img { border-radius: 12px; max-height: min(28svh, 213.333px); }
-.message-bubble.expression-bubble > .message-meta { position: static; justify-self: end; margin-top: 4px; background: transparent; color: var(--ink-muted); }
+.message-bubble.expression-bubble > .message-meta { position: absolute; margin-top: 0; }
 .message-bubble.expression-bubble > .message-meta time { color: inherit; }
 @media (max-height: 480px) { .composer.has-meme-panel { --meme-sheet-height: 52svh; } .meme-panel { height: 52svh; grid-template-rows: 44px 44px minmax(0,1fr); } }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { .meme-panel, .meme-open-search, .meme-search, .meme-tabs [role="tablist"], .meme-collapse, .meme-preview, .meme-preview-actions, .meme-preview-close { background: var(--paper-pure); backdrop-filter: none; -webkit-backdrop-filter: none; } }

@@ -2,9 +2,9 @@ import './admin.css';
 import { createElement, Pencil, Trash2, ArrowLeft, LayoutDashboard, Images, RefreshCw, LogOut, Upload, Save, X, Download } from 'lucide';
 import { table, row, badge, iconButton, pageToolbar, loadingState, emptyState, errorState, pagination } from './admin/ui';
 
-type Room = { roomId: string; createdAt: string; lastSeenAt: string | null; devices: number; backups: number; messageCount: number };
+type Room = { roomId: string; createdAt: string; lastSeenAt: string | null; devices: number; backups: number; messageCount: number; backupChatCount: number; backupGalleryCount: number };
 type Detail = { roomId: string; devices: { deviceId: string; role: string; name: string; status: string; lastSeenAt: string | null }[];
-  backups: { id: string; deviceId: string; revision: number; active: number; updatedAt: string; recoveryBytes: number; historyBytes: number }[] };
+  backups: { id: string; deviceId: string; revision: number; active: number; updatedAt: string; recoveryBytes: number; historyBytes: number; chatCount: number; galleryCount: number }[] };
 const root = document.querySelector<HTMLElement>('#admin')!;
 let csrf = '';
 let offset = 0;
@@ -174,11 +174,11 @@ async function rooms() {
     content.textContent = '';
     if (!data.rooms.length && offset > 0) { offset = Math.max(0, offset - 50); await rooms(); return; }
     content.append(pageToolbar('所有会话', `本页 ${data.rooms.length} 个会话`, { label: '刷新会话列表', icon: RefreshCw, run: () => void rooms() }));
-    const list = table(['会话', '最近活动', '活跃设备', '有效备份', '消息记录']);
+    const list = table(['会话', '最近活动', '活跃设备', '有效备份', '聊天消息', '保险箱数据']);
     for (const room of data.rooms) {
       const button = document.createElement('button'); button.className = 'room-id'; button.textContent = room.roomId;
       button.addEventListener('click', () => void detail(room.roomId));
-      row(list.body, [button, date(room.lastSeenAt), room.devices, room.backups, room.messageCount]);
+      row(list.body, [button, date(room.lastSeenAt), room.devices, room.backups, room.backupChatCount ?? room.messageCount, room.backupGalleryCount ?? 0]);
     }
     content.append(list.wrapper);
     if (!data.rooms.length) content.append(emptyState('暂无会话。'));
@@ -195,7 +195,7 @@ async function detail(id: string) {
     const data = await api<Detail>(`/rooms/${id}`);
     if (epoch !== view) return;
     content.append(pageToolbar('设备与备份', `${data.devices.length} 台设备`));
-    const devices = table(['参与方 / 设备', '状态', '最近活动', '恢复备份', '历史备份']);
+    const devices = table(['参与方 / 设备', '状态', '最近活动', '恢复备份', '备份聊天', '备份保险箱']);
     for (const device of data.devices) {
       const backup = data.backups.find(b => b.deviceId === device.deviceId && b.active);
       const status = ({ active: ['活跃', 'success'], pending: ['待授权', 'warning'], revoked: ['已撤销', 'danger'] } as Record<string, [string, 'success' | 'warning' | 'danger']>)[device.status] ?? [device.status, 'muted'];
@@ -204,7 +204,7 @@ async function detail(id: string) {
       row(devices.body, [identity,
         badge(status[0], status[1]),
         date(device.lastSeenAt), backup ? `${date(backup.updatedAt)} · 版本 ${backup.revision} · ${size(backup.recoveryBytes)}` : '暂无有效备份',
-        backup ? size(backup.historyBytes) : '—']);
+        backup ? `${backup.chatCount ?? 0} 条` : '—', backup ? `${backup.galleryCount ?? 0} 项` : '—']);
     }
     content.append(devices.wrapper);
     const cleanup = document.createElement('section'); cleanup.className = 'cleanup';
