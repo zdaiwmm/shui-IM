@@ -1,4 +1,6 @@
 import { createElement, Image as ImageIcon, Video, RotateCcw, X } from 'lucide';
+import { setChatMediaDimensions } from './chat-media-geometry';
+import { readMediaDimensions, type MediaDimensions } from './media-dimensions';
 import { createVideoPoster } from './video-poster';
 import { createConcealedImage } from './concealed-image';
 import { isVideoFile, videoMimeType } from './video-media';
@@ -59,6 +61,20 @@ export class MediaUploadView {
     this.tile.append(previews, this.status, this.cancel);
     this.element.append(this.tile);
     this.update('preparing');
+    // Measure before the first timeline insertion, independently of poster/blur
+    // generation. Every later state uses these same original dimensions.
+    this.geometryReady = files.length > 1;
+    const source = video ? new Blob([files[0]!], { type: videoMimeType({ mimeType: files[0]!.type, originalName: files[0]!.name })! }) : files[0]!;
+    this.ready = files.length === 1 ? readMediaDimensions(source, this.abort.signal).then(dimensions => {
+      this.geometryReady = true;
+      if (!dimensions || this.abort.signal.aborted) return;
+      this.dimensions = dimensions;
+      const ratio = dimensions.width / dimensions.height;
+      this.tile.style.aspectRatio = String(ratio);
+      this.tile.style.setProperty('--media-upload-ratio', String(ratio));
+      this.tile.style.setProperty('--media-upload-natural-width', `${dimensions.width * (expression ? 2 / 3 : 1)}px`);
+    }) : Promise.resolve();
+    this.preparation = this.ready.catch(() => {});
     for (const [index, file] of files.entries()) {
       const cell = document.createElement('div');
       cell.className = 'media-upload-preview album-cell';
@@ -72,6 +88,8 @@ export class MediaUploadView {
     }
   }
 
+  geometryReady = false;
+  readonly ready: Promise<void>;
   private preparation = Promise.resolve();
 
   update(state: UploadState, ratio = 0): void {
@@ -125,12 +143,6 @@ export class MediaUploadView {
       signal.throwIfAborted();
       preview.alt = `${this.kind}${count > 1 ? ` ${index + 1}/${count}` : ''}${conceal ? '（已模糊）' : ''}`;
       preview.draggable = false;
-      if (count === 1) {
-        const ratio = decoded.naturalWidth / decoded.naturalHeight;
-        this.tile.style.aspectRatio = String(ratio);
-        this.tile.style.setProperty('--media-upload-ratio', String(ratio));
-        this.tile.style.setProperty('--media-upload-natural-width', `${decoded.naturalWidth * (this.kind === '表情' ? 2 / 3 : 1)}px`);
-      }
       cell.replaceChildren(preview);
       if (video) {
         const badge = document.createElement('span');
@@ -150,7 +162,54 @@ export class MediaUploadView {
     }
   }
 
-  destroy(): void {
+  private handedOff = false;
+  private dimensions?: MediaDimensions;
+
+  handoff(message: HTMLElement, signal: AbortSignal): void {
+    const bubble = message.querySelector<HTMLElement>('.image-bubble');
+    if (!bubble || this.handedOff || this.abort.signal.aborted) return;
+    this.handedOff = true;
+    if (this.dimensions) {
+      setChatMediaDimensions(bubble, this.dimensions);
+      const preview = bubble.querySelector<HTMLElement>(':scope > .image-preview');
+      if (preview) setChatMediaDimensions(preview, this.dimensions);
+    }
+    const overlay = document.createElement('div');
+    overlay.className = 'media-upload-handoff';
+    overlay.inert = true;
+    overlay.setAttribute('aria-hidden', 'true');
+    const previews = this.tile.querySelector('.media-upload-previews')!;
+    overlay.append(previews, this.status);
+    bubble.append(overlay);
+    const cleanup = () => {
+      observer.disconnect();
+      window.clearTimeout(timeout);
+      signal.removeEventListener('abort', cleanup);
+      for (const image of previews.querySelectorAll('img')) image.removeAttribute('src');
+      overlay.remove();
+      this.destroy(true);
+    };
+    const settle = () => {
+      if (![...bubble.querySelectorAll('.image-preview')].every(node => node.getAttribute('data-image-state') === 'loaded')) return;
+      observer.disconnect();
+      previews.remove();
+      const animation = this.status.animate([{ opacity: 1 }, { opacity: 0 }], {
+        duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 320,
+        easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards',
+      });
+      void animation.finished.then(cleanup, cleanup);
+    };
+    // Observe only this short-lived handoff, never the timeline or document.
+    const observer = new MutationObserver(settle);
+    observer.observe(bubble, { subtree: true, attributes: true, attributeFilter: ['data-image-state'] });
+    const timeout = window.setTimeout(cleanup, 5000);
+    signal.addEventListener('abort', cleanup, { once: true });
+    if (signal.aborted) cleanup();
+    else settle();
+  }
+
+  destroy(force = false): void {
+    if (this.handedOff && !force) { this.element.remove(); return; }
     this.abort.abort();
     for (const image of this.element.querySelectorAll('img')) image.removeAttribute('src');
     for (const url of this.urls) URL.revokeObjectURL(url);

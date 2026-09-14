@@ -1,3 +1,5 @@
+import { validMediaDimensions } from './lib/media-dimensions';
+import { setChatMediaDimensions } from './lib/chat-media-geometry';
 import { attachHistoryRestore } from './lib/history-restore-ui';
 import { voiceRequest, confirmVoiceUpload, VOICE_FAILURE_TEXT } from './lib/voice-network';
 import QRCode from 'qrcode';
@@ -6444,7 +6446,6 @@ export class QuietRoomApp {
       mediaUpload.busy = true;
       mediaUpload.view.update('preparing');
       if (progress) progress.hidden = true; // Each media bubble owns its progress.
-      this.renderMessages({ scroll: 'send' });
     }
     const totalBytes = files.reduce((sum, file) => sum + Math.max(file.size, 1), 0);
     let completedBytes = 0;
@@ -6452,6 +6453,11 @@ export class QuietRoomApp {
     const usedUploadPlanIds = new Set<string>();
     const encryptFile = isFile ? encryptFileAttachment : encryptImageFile;
     try {
+      if (mediaUpload) {
+        await mediaUpload.view.ready;
+        if (!this.isRuntimeActive(epoch, session)) return false;
+        this.renderMessages({ scroll: 'send' });
+      }
       const vault = session.vault;
       for (const [index, file] of files.entries()) {
         const matchingPlans = this.uploadPlans.filter((plan) =>
@@ -7019,6 +7025,18 @@ export class QuietRoomApp {
       preview.style.cssText = `left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px`;
       const clone = sourceBubble.cloneNode(true) as HTMLElement;
       clone.querySelectorAll('[id]').forEach(element => element.removeAttribute('id'));
+      if (sourceBubble.classList.contains('image-bubble')) {
+        const originals = sourceBubble.querySelectorAll<HTMLElement>('.image-preview, .image-album, .image-preview > img');
+        const copies = clone.querySelectorAll<HTMLElement>('.image-preview, .image-album, .image-preview > img');
+        originals.forEach((original, index) => {
+          const box = original.getBoundingClientRect();
+          const copy = copies[index]!;
+          copy.style.width = `${box.width}px`;
+          copy.style.height = `${box.height}px`;
+          copy.style.minWidth = copy.style.minHeight = '0';
+          copy.style.maxWidth = copy.style.maxHeight = 'none';
+        });
+      }
       preview.append(clone);
       backdrop.append(preview);
     }
@@ -7526,7 +7544,7 @@ export class QuietRoomApp {
       const dateKeys = new Set<string>();
       const currentYear = new Date().getFullYear();
       const sequences = new Map<string, number>();
-      const uploadDrafts = [...this.mediaUploads.entries()].filter(([id]) => !visibleMessageIds.has(id))
+      const uploadDrafts = [...this.mediaUploads.entries()].filter(([id, draft]) => draft.view.geometryReady && !visibleMessageIds.has(id))
         .sort(([, a], [, b]) => a.sentAt.localeCompare(b.sentAt));
       for (const message of messages) {
         while (message.seq === Number.MAX_SAFE_INTEGER && uploadDrafts[0] && uploadDrafts[0][1].sentAt <= message.acceptedAt) {
@@ -7548,12 +7566,26 @@ export class QuietRoomApp {
         const samePayload = cached?.payload === message.payload || Boolean(cached && canonicalStringify(cached.payload) === canonicalStringify(message.payload));
         const keepContent = Boolean(cached && (selecting || samePayload));
         const element = keepContent ? cached!.element : this.createMessageElement(message, deletedForEveryone);
+        if (!keepContent && this.runtimeAbort) this.mediaUploads.get(key)?.view.handoff(element, this.runtimeAbort.signal);
         if (keepContent && !unchanged) {
           // A delivery receipt updates decoration only. Preserve decoded media,
           // in-flight downloads, playback, focus and any send-motion layer.
           const meta = element.querySelector<HTMLElement>('.message-meta');
           const updated = this.createMessageMeta(message);
           if (meta) {
+            if (meta.classList.contains('media-send-meta') && !updated.classList.contains('media-send-meta')) {
+              const departing = meta.cloneNode(true) as HTMLElement;
+              departing.classList.remove('message-meta', 'media-send-meta');
+              departing.classList.add('media-status-departing');
+              departing.inert = true;
+              departing.setAttribute('aria-hidden', 'true');
+              meta.parentElement?.append(departing);
+              const animation = departing.animate([{ opacity: 1 }, { opacity: 0 }], {
+                duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 320,
+                easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards',
+              });
+              void animation.finished.then(() => departing.remove(), () => departing.remove());
+            }
             meta.replaceChildren(...updated.childNodes);
             meta.className = updated.className;
             for (const attribute of ['title', 'aria-label']) {
@@ -7871,7 +7903,7 @@ export class QuietRoomApp {
         preview.dataset.expression = 'true';
         if (message.payload.kind === 'image' && message.payload.expressionAutoHide !== undefined) preview.dataset.expressionAutoHide = String(message.payload.expressionAutoHide);
         const image = preview.querySelector('img');
-        if (image) image.style.width = `${image.width * 2 / 3}px`;
+        if (image && !preview.dataset.mediaDimensions) image.style.width = `${image.width * 2 / 3}px`;
         this.updateChatImageVisibility(preview);
       }
       bubble.append(preview);
@@ -8597,15 +8629,8 @@ export class QuietRoomApp {
     button.dataset.mediaMessageId = clientMsgId;
     button.dataset.revealKey = `${clientMsgId}:${manifest.blobId}`;
     button.dataset.imageState = 'pending';
-    if (manifest.width && manifest.height) {
-      button.dataset.mediaDimensions = 'known';
-      button.style.setProperty('--chat-media-aspect', `${manifest.width} / ${manifest.height}`);
-      button.style.setProperty('--chat-media-ratio', String(manifest.width / manifest.height));
-      button.style.setProperty('--chat-media-source-width', `${manifest.width}px`);
-      button.style.setProperty('--chat-expression-natural-width', `${manifest.width * 2 / 3}px`);
-      button.style.setProperty('--chat-media-height-width', `${Math.min(window.innerHeight * .42, 320) * manifest.width / manifest.height}px`);
-      button.style.setProperty('--chat-expression-height-width', `${Math.min(window.innerHeight * .28, 213.333) * manifest.width / manifest.height}px`);
-    }
+    const dimensions = validMediaDimensions(manifest) ? manifest : this.imageCache.get(manifest.blobId);
+    if (dimensions && validMediaDimensions(dimensions)) setChatMediaDimensions(button, dimensions);
     button.dataset.openLabel = `${video ? '播放视频' : '放大查看'} ${description}`;
     button.dataset.revealLabel = `${video ? '显示视频预览' : '显示图片'} ${description}`;
     this.updateChatImageVisibility(button);
@@ -8721,10 +8746,17 @@ export class QuietRoomApp {
     if (!button.isConnected || this.privacyCovered || signal?.aborted || this.imageCache.get(manifest.blobId) !== cached) return;
     cached.width = image.width = image.naturalWidth;
     cached.height = image.height = image.naturalHeight;
-    if (button.dataset.expression === 'true') {
+    if (button.dataset.expression === 'true' && !button.dataset.mediaDimensions) {
       image.style.width = `${image.naturalWidth * 2 / 3}px`;
     }
     const anchor = ownerList() ? this.captureChatAnchor() : null;
+    if (!button.dataset.mediaDimensions) {
+      const dimensions = { width: image.naturalWidth, height: image.naturalHeight };
+      setChatMediaDimensions(button, dimensions);
+      const bubble = button.parentElement;
+      if (bubble?.classList.contains('image-bubble')) setChatMediaDimensions(bubble, dimensions);
+      image.style.removeProperty('width');
+    }
     this.setChatImagePreviewSource(button, cached.concealedUrl);
     button.replaceChildren(image);
     if (video) button.append(this.videoPlayBadge());
