@@ -10,7 +10,7 @@
 
 - 用户确认发布精确 main 提交 `c2bf8ee032df15e1a5b4b64ac6a649abfb4b7256`；修复代码 PR #142 与版本元数据 PR #143 已合并，应用版本为 `2026.09.14.2`。main CI [34805585974](https://github.com/zdaiwmm/shui-IM/actions/runs/34805585974) 首次浏览器通话用例超时，按失败日志仅重跑失败 job 后同一 attempt 全部通过。
 - 固定入口返回 `DEPLOY_OK` 与 `DEPLOY_VERIFIED`；服务器批次为 `20260914T042821Z`，发布目录为 `/opt/quiet-room/git-releases/20260914T042821Z-c2bf8ee`，切换前冷备份为 `/opt/quiet-room/backups/predeploy/data-20260914T042821Z-c2bf8ee.tar.gz`，已完成校验。
-- 独立只读回读于 `2026-09-14T04:31:15Z` 返回 `READBACK_OK`；线上 SHA、应用与备份容器、HTTPS 健康、数据库／存储、公开产物及公开 WebSocket 均匹配。成功证据保存在 `quiet-room-readback/20260914T043115876Z-c2bf8ee032df-success.json`。
+- 独立只读回读于 `2026-09-14T04:37:50Z` 返回 `READBACK_OK`；线上 SHA、应用与备份容器、HTTPS 健康、数据库／存储、公开产物及公开 WebSocket 均匹配。成功证据保存在 `quiet-room-readback/20260914T043750183Z-c2bf8ee032df-success.json`。
 - 本次上线修复设备修复授权阻塞：发起方可在设备管理中看到待授权请求并核对六位安全码后批准替换；修复方打开邀请后可看到安全码，成员验证和会话加入完成后从新加入边界接收消息。既有加密、设备历史边界和附件完整性边界保持不变。实体 iPhone / iOS 27 / Safari、生产管理员逐项操作、OSS 异地备份、外部监控告警、独立密码学审计和高安全发布门槛仍未完成；文档提交不代表再次部署。
 
 <a id="release-20260914-0207"></a>
