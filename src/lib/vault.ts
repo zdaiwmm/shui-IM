@@ -528,6 +528,33 @@ export async function deleteCurrentVault(): Promise<void> {
   await withVaultLifecycle(() => transaction('vault', 'readwrite', (store) => store.delete('current')));
 }
 
+/** Remove room-scoped browser data while keeping the current vault record. */
+export async function clearLocalBrowserData(session: VaultSession): Promise<void> {
+  await withVaultLifecycle(async () => {
+    const database = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const stores = ['history', 'restoredGallery', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
+      const tx = database.transaction(['vault', ...stores], 'readwrite');
+      const current = tx.objectStore('vault').get('current');
+      current.onsuccess = () => {
+        if (!sameStoredVault(current.result, session.stored)) tx.abort();
+      };
+      for (const name of stores) {
+        const request = tx.objectStore(name).index('roomId').openKeyCursor(IDBKeyRange.only(session.vault.roomId));
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) return;
+          cursor.delete();
+          cursor.continue();
+        };
+      }
+      tx.oncomplete = () => { database.close(); resolve(); };
+      tx.onabort = () => { database.close(); reject(tx.error ?? new Error('本地数据清理失败')); };
+      tx.onerror = () => reject(tx.error ?? new Error('本地数据清理失败'));
+    });
+  });
+}
+
 export async function downloadVaultDiagnostic(): Promise<void> {
   const value: unknown = await transaction('vault', 'readonly', (store) => store.get('current'));
   const record = value && typeof value === 'object' ? value as Record<string, unknown> : null;

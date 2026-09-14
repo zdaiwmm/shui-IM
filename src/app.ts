@@ -148,6 +148,7 @@ import type {
   PlatformCredentialRecord,
   ReplyReference,
   RoomMember,
+  RecoveryRequest,
   RoomState,
   ServerMessage,
   ServerReceipt,
@@ -161,6 +162,7 @@ import {
   deleteOutboxItem,
   deleteCachedMediaBlob,
   deleteCurrentVault,
+  clearLocalBrowserData,
   downloadVaultDiagnostic,
   deletePendingReceipt,
   deleteUploadPlan,
@@ -323,6 +325,8 @@ export class QuietRoomApp {
   private idleDeadline = 0;
   private idleMonotonicDeadline = 0;
   private socket: RoomSocket | null = null;
+  private recoveryAuthorizationDismissed = new Set<string>();
+  private recoveryAuthorizationDialog: { requestId: string; close: () => void } | null = null;
   private messages = new Map<number, DecryptedMessage>();
   private messageEventHistory = new Map<number, DecryptedMessage>();
   private readCompatibility = '';
@@ -2186,12 +2190,21 @@ export class QuietRoomApp {
   private renderRecoveredVaultBinding(): void {
     if (!this.session) return;
     this.gatewayTemplate('重新绑定设备', '为这台设备创建新的通行密钥保护。', `
+      <label class="recovery-clear-confirm"><input id="confirm-recovery-clear" type="checkbox" />我确认清除这台浏览器中本会话的历史、缓存和待发数据</label>
       ${this.passkeySetupMarkup()}
       <button class="text-button gateway-back" id="recovery-lock" type="button">取消并锁定</button>
     `);
+    const verifyButton = this.root.querySelector<HTMLButtonElement>('[data-device-verify]')!;
+    const confirmation = this.root.querySelector<HTMLInputElement>('#confirm-recovery-clear')!;
+    verifyButton.disabled = true;
+    confirmation.addEventListener('change', () => {
+      verifyButton.disabled = !confirmation.checked;
+    });
     this.mountPasskeySetup(async (platformResult) => {
       const session = this.session;
       if (!session) return;
+      if (!confirmation.checked) throw new Error('请先确认清除本地浏览器数据');
+      await clearLocalBrowserData(session);
       await bindRecoveredVaultToPlatform(session, '', platformResult);
       if (!this.privacyCovered && this.session === session) await this.openSession();
     }, '正在绑定…');
@@ -2767,39 +2780,96 @@ export class QuietRoomApp {
     this.recoveryPollTimer = window.setTimeout(() => void check(), 1500);
   }
 
-  private async completeAuthorizedRecoveries(state: RoomState): Promise<void> {
+  private showRecoveryAuthorization(request: RecoveryRequest, state: RoomState): void {
     const session = this.session;
     const epoch = this.runtimeEpoch;
-    if (!session || session.vault.mls?.phase !== 'active') return;
-    for (const request of state.recoveryRequests ?? []) {
-      if (request.sourceDeviceId === session.vault.identity.publicBundle.deviceId ||
-        request.replacement.deviceId === session.vault.identity.publicBundle.deviceId) continue;
-      const target = state.members.find((member) => member.deviceId === request.replacement.deviceId);
-      if (!target || target.status !== 'pending') continue;
+    if (!session || session.vault.mls?.phase !== 'active' || this.recoveryAuthorizationDismissed.has(request.requestId) ||
+      this.recoveryAuthorizationDialog?.requestId === request.requestId || Date.parse(request.expiresAt) <= Date.now()) return;
+    const target = state.members.find((member) => member.deviceId === request.replacement.deviceId);
+    const source = state.members.find((member) => member.deviceId === request.sourceDeviceId);
+    if (!target || target.status !== 'pending' || !source || source.status !== 'active' ||
+      request.sourceDeviceId === session.vault.identity.publicBundle.deviceId ||
+      request.replacement.deviceId === session.vault.identity.publicBundle.deviceId) return;
+
+    const sheet = document.createElement('section');
+    sheet.className = 'recovery-authorization-sheet';
+    sheet.setAttribute('role', 'dialog');
+    sheet.setAttribute('aria-modal', 'true');
+    sheet.setAttribute('aria-labelledby', 'recovery-authorization-title');
+    const panel = document.createElement('div');
+    panel.className = 'recovery-authorization-panel';
+    panel.innerHTML = '<p class="eyebrow">需要你的确认</p><h2 id="recovery-authorization-title">批准设备恢复</h2>';
+    const detail = document.createElement('p');
+    detail.className = 'recovery-authorization-detail';
+    detail.textContent = `${source.deviceName ?? '原设备'} 请求恢复为新设备“${target.deviceName ?? '恢复设备'}”。批准后原设备会立即撤销，新设备只从新的加入边界开始接收消息。`;
+    const expiry = document.createElement('p');
+    expiry.className = 'recovery-authorization-expiry';
+    expiry.textContent = `授权有效至 ${new Date(request.expiresAt).toLocaleString('zh-CN')}`;
+    const error = document.createElement('p');
+    error.className = 'form-error';
+    error.setAttribute('role', 'alert');
+    const actions = document.createElement('div');
+    actions.className = 'recovery-authorization-actions';
+    const reject = document.createElement('button');
+    reject.type = 'button'; reject.className = 'secondary-button'; reject.textContent = '暂不批准';
+    const approve = document.createElement('button');
+    approve.type = 'button'; approve.className = 'primary-button'; approve.textContent = '批准恢复';
+    actions.append(reject, approve);
+    panel.append(detail, expiry, error, actions);
+    sheet.append(panel);
+    this.root.append(sheet);
+    const dialog = mountDialog(sheet, {
+      isActive: () => this.isRuntimeActive(epoch, session),
+      signal: this.runtimeAbort?.signal,
+      initialFocus: approve,
+    });
+    this.recoveryAuthorizationDialog = { requestId: request.requestId, close: () => dialog.close({ restoreFocus: false }) };
+    const close = (dismiss = false) => {
+      if (dismiss) this.recoveryAuthorizationDismissed.add(request.requestId);
+      dialog.close();
+      if (this.recoveryAuthorizationDialog?.requestId === request.requestId) this.recoveryAuthorizationDialog = null;
+    };
+    reject.addEventListener('click', () => close(true));
+    approve.addEventListener('click', async () => {
+      if (!this.isRuntimeActive(epoch, session) || approve.disabled) return;
+      setBusy(approve, true, '正在批准…'); reject.disabled = true; error.textContent = '';
       try {
-        await withVaultMutation(session, async (mutation) => {
-          if (!this.isRuntimeActive(epoch, session) || !session.vault.mls) return;
-          let pending = session.vault.mls.pendingMembership;
-          if (pending && (pending.event.action !== 'replace' || pending.event.recoveryRequest?.requestId !== request.requestId)) return;
-          if (!pending) {
-            pending = await prepareMlsRecoveryReplacement(session.vault, request, target);
-            session.vault.mls.pendingMembership = pending;
-            await saveVault(session, mutation);
-          }
-          const result = await publishMlsMembership(session.vault.roomId, session.vault.accessToken, pending.event);
-          if (this.isRuntimeActive(epoch, session)) await this.applyRoomState(result.state, mutation);
-        });
+        await this.authorizeRecoveryRequest(request);
+        close();
       } catch (cause) {
-        if (!this.isRuntimeActive(epoch, session)) return;
-        if (cause instanceof ApiError && !cause.retryable) {
-          await withVaultMutation(session, async (mutation) => {
-            if (!this.isRuntimeActive(epoch, session) || !session.vault.mls) return;
-            session.vault.mls.pendingMembership = undefined;
-            await saveVault(session, mutation);
-          });
-        } else throw cause;
+        if (this.isRuntimeActive(epoch, session) && error.isConnected) {
+          error.textContent = cause instanceof Error ? cause.message : '恢复授权失败，请稍后重试';
+          reject.disabled = false;
+          setBusy(approve, false);
+        }
       }
-    }
+    });
+  }
+
+  private async authorizeRecoveryRequest(request: RecoveryRequest): Promise<void> {
+    const session = this.session;
+    const epoch = this.runtimeEpoch;
+    if (!session || session.vault.mls?.phase !== 'active') throw new Error('当前设备尚未建立安全会话');
+    if (Date.parse(request.expiresAt) <= Date.now()) throw new Error('恢复授权已过期，请让恢复方重新请求');
+    const latest = await getRoomState(session.vault.roomId, session.vault.accessToken);
+    const latestRequest = latest.recoveryRequests?.find(item => item.requestId === request.requestId);
+    const latestTarget = latest.members.find(member => member.deviceId === request.replacement.deviceId);
+    if (!latestRequest || !latestTarget || latestTarget.status !== 'pending') throw new Error('恢复请求已完成或已过期');
+    await withVaultMutation(session, async (mutation) => {
+      if (!this.isRuntimeActive(epoch, session) || !session.vault.mls) return;
+      let pending = session.vault.mls.pendingMembership;
+      if (pending && (pending.event.action !== 'replace' || pending.event.recoveryRequest?.requestId !== request.requestId)) {
+        throw new Error('另一项设备变更尚待完成，请稍后再试');
+      }
+      if (!pending) {
+        pending = await prepareMlsRecoveryReplacement(session.vault, latestRequest, latestTarget);
+        session.vault.mls.pendingMembership = pending;
+        await saveVault(session, mutation);
+      }
+      const result = await publishMlsMembership(session.vault.roomId, session.vault.accessToken, pending.event);
+      if (this.isRuntimeActive(epoch, session)) await this.applyRoomState(result.state, mutation);
+    });
+    if (this.isRuntimeActive(epoch, session)) this.showNotice('设备恢复已批准，原设备将立即撤销');
   }
 
   private async openSession(): Promise<void> {
@@ -3323,6 +3393,11 @@ export class QuietRoomApp {
       }
       await this.ensureMlsReady(state);
       if (!this.isRuntimeActive(epoch, session)) return;
+      const pendingRecoveryIds = new Set((state.recoveryRequests ?? []).map(request => request.requestId));
+      if (this.recoveryAuthorizationDialog && !pendingRecoveryIds.has(this.recoveryAuthorizationDialog.requestId)) {
+        this.recoveryAuthorizationDialog.close();
+        this.recoveryAuthorizationDialog = null;
+      }
       if (session.vault.protocol === 'mls-rfc9420' && session.vault.mls?.phase === 'active') {
         try {
           const callVault = await createAuthenticatedCallVault(session.vault);
@@ -3332,7 +3407,7 @@ export class QuietRoomApp {
       }
       this.callController?.updateMembers();
       this.updateCallControls();
-      await this.completeAuthorizedRecoveries(state);
+      for (const request of state.recoveryRequests ?? []) this.showRecoveryAuthorization(request, state);
       if (!this.isRuntimeActive(epoch, session)) return;
       const mlsBecameReady = !mlsWasReady && session.vault.mls?.phase === 'active';
       const activeRoleCount = new Set(state.members.filter((member) => member.status === undefined || member.status === 'active').map((member) => member.role)).size;

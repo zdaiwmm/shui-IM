@@ -3,13 +3,23 @@
 ## 大批量历史恢复限流续传（2026-09-14，工作树已实现）
 
 - 任务工作树 `/Users/zhouding/ss-worktrees/restore-partial-history-fix`，分支 `codex/restore-partial-history-fix`，基线 `origin/main`=`85276ea`。服务端备份限流响应补充 `Retry-After`，客户端对 429 在可取消等待后继续同一请求，超过重试预算才报告限流并保留已导入片段。
-- 新增 429 重试回归；构建、完整 Vitest（78 个文件／640 项）和云备份生命周期浏览器专项通过。当前尚未提交、推送、合并或发布；未执行 iPhone / iOS 27 / Safari 真机验收。
+- 新增 429 重试回归；构建、完整 Vitest（78 个文件／640 项）和云备份生命周期浏览器专项通过。修复提交 `4029e275` 已完成，正在集成 `0dd8b26a` 基线并准备发布；未执行 iPhone / iOS 27 / Safari 真机验收。
 
-## 会话级多设备历史恢复（2026-09-14，已发布）
+## 文档对账批次生产发布（2026-09-14 16:15）
 
-- 独立工作树 `/Users/zhouding/ss-worktrees/session-all-device-recovery`，分支 `codex/session-all-device-recovery`，PR #146 已合并，生产提交为 `3e1f5cc4614cdbecf779361b25bdd62c554aa574`，版本 `2026.09.14.3`。
-- 恢复入口支持每行一个 QR3 恢复码，最多合并本会话 6 台设备的有效备份；按会话校验后合并聊天/保险箱归档，现有加密冲突和重复去重边界保持。恢复新增 0 条时显示可解释状态。
-- `npm run check:full` 通过（78 个文件／639 项，浏览器 33/33）；精确 main CI run `34813696088` 全部通过，固定发布取得 `DEPLOY_VERIFIED`，独立回读取得 `READBACK_OK`。未执行真机验收。
+- 用户确认的精确生产 SHA 为 `90edf16b04944b2197f846cdf26613f441af49fe`，PR #149 已合并；完整 main CI [34819418850](https://github.com/zdaiwmm/shui-IM/actions/runs/34819418850) 通过。
+- 固定入口返回 `DEPLOY_OK`、`DEPLOY_VERIFIED`，外层回执核验成功。批次 `20260914T081333Z`，发布目录 `/opt/quiet-room/git-releases/20260914T081333Z-90edf16b0494`，冷备份 `/opt/quiet-room/backups/predeploy/data-20260914T081333Z-90edf16b0494.tar.gz` 已校验。
+- 独立回读 `READBACK_OK` 验证线上 SHA、容器、HTTPS 健康、数据库、存储、公开产物及公开 WebSocket。证据 `quiet-room-readback/20260914T081515040Z-90edf16b0494-success.json`。
+- 本批只发布对账文档，无新增应用行为；应用版本仍为 `2026.09.14.3`，上一批版本元数据遗漏和真机验证缺口仍存在。本记录无需再次部署。
+
+## 恢复授权修复生产回读（2026-09-14 15:43）
+
+- PR #148 已合并；用户确认的线上应用提交为 `b9f15d759feaa37ef61e9d7dd336aa260d4c18d9`。精确 main CI [34816573786](https://github.com/zdaiwmm/shui-IM/actions/runs/34816573786) 在失败作业重跑后通过。
+- 固定发布入口执行期间会话中断，未保留外层成功回执；未重发。独立回读 `READBACK_OK` 确认实际生产已切换至该 SHA，批次 `20260914T073955Z`，发布目录 `/opt/quiet-room/git-releases/20260914T073955Z-b9f15d759fea`。
+- HTTPS、数据库、存储、容器及公开产物一致性和新建公开 WebSocket 均通过。证据：`quiet-room-readback/20260914T074301655Z-b9f15d759fea-success.json`。
+- 本批新增恢复授权弹窗和恢复前本会话本地数据清理确认。已部署提交仍使用版本 ID `2026.09.14.3`，未更新用户可见版本说明，属于版本元数据遗漏；不能声称已打开客户端会收到新版本提示。真机验收与截图所示 MLS 绑定错误的原始现场复现仍缺少证据。
+- 本记录只对账实际线上状态，不再次发布。
+
 ## 当前生产快照（2026-09-14 12:31，独立回读通过）
 
 - 线上应用 SHA `c2bf8ee032df15e1a5b4b64ac6a649abfb4b7256`；修复代码 PR #142 与版本元数据 PR #143 已合并，应用版本为 `2026.09.14.2`。精确 main CI [34805585974](https://github.com/zdaiwmm/shui-IM/actions/runs/34805585974) 在浏览器通话用例一次时序超时后仅重跑失败 job，最终全部通过。

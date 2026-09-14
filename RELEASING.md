@@ -1,5 +1,20 @@
 # Quiet Room 固定发布流程
 
+## 文档对账批次生产发布（2026-09-14 16:15）
+
+- 用户确认的精确生产 SHA 为 `90edf16b04944b2197f846cdf26613f441af49fe`，PR #149 已合并；完整 main CI [34819418850](https://github.com/zdaiwmm/shui-IM/actions/runs/34819418850) 通过。
+- 固定入口返回 `DEPLOY_OK`、`DEPLOY_VERIFIED`，外层回执核验成功。批次 `20260914T081333Z`，发布目录 `/opt/quiet-room/git-releases/20260914T081333Z-90edf16b0494`，冷备份 `/opt/quiet-room/backups/predeploy/data-20260914T081333Z-90edf16b0494.tar.gz` 已校验。
+- 独立回读 `READBACK_OK` 验证线上 SHA、容器、HTTPS 健康、数据库、存储、公开产物及公开 WebSocket。证据 `quiet-room-readback/20260914T081515040Z-90edf16b0494-success.json`。
+- 本批只发布对账文档，无新增应用行为；应用版本仍为 `2026.09.14.3`，上一批版本元数据遗漏和真机验证缺口仍存在。本记录无需再次部署。
+
+## 恢复授权修复生产回读（2026-09-14 15:43）
+
+- PR #148 已合并；用户确认的线上应用提交为 `b9f15d759feaa37ef61e9d7dd336aa260d4c18d9`。精确 main CI [34816573786](https://github.com/zdaiwmm/shui-IM/actions/runs/34816573786) 在失败作业重跑后通过。
+- 固定发布入口执行期间会话中断，未保留外层成功回执；未重发。独立回读 `READBACK_OK` 确认实际生产已切换至该 SHA，批次 `20260914T073955Z`，发布目录 `/opt/quiet-room/git-releases/20260914T073955Z-b9f15d759fea`。
+- HTTPS、数据库、存储、容器及公开产物一致性和新建公开 WebSocket 均通过。证据：`quiet-room-readback/20260914T074301655Z-b9f15d759fea-success.json`。
+- 本批新增恢复授权弹窗和恢复前本会话本地数据清理确认。已部署提交仍使用版本 ID `2026.09.14.3`，未更新用户可见版本说明，属于版本元数据遗漏；不能声称已打开客户端会收到新版本提示。真机验收与截图所示 MLS 绑定错误的原始现场复现仍缺少证据。
+- 本记录只对账实际线上状态，不再次发布。
+
 新版本发布前将上一版 `release.json` 的原始内容追加到 `release-history.json`，按发布顺序保留唯一 ID。
 应用以已查看版本或旧客户端迁移基线合并后续说明，去重相同条目；仅停留遮蔽页不会推进已查看基线。
 构建及容器均需包含该历史文件，未知旧基线展示仓库内可用历史，不编造更早记录。
