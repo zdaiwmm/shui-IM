@@ -135,6 +135,7 @@ describe('cloud recovery encryption and atomic storage', () => {
     const withHidden = { ...bundle, galleryHidden: [hidden] };
     await expect(openRecovery(await sealRecovery(withHidden, recovery.code), recovery.code)).resolves.toEqual(withHidden);
     for (const invalid of [
+      { ...withHidden, checkpoint: { ...bundle.checkpoint, historyRestoreTask: { v: 1 as const, id: crypto.randomUUID(), codes: [recovery.code], createdAt: new Date().toISOString() } } },
       { ...withHidden, checkpoint: { ...bundle.checkpoint, role: 'joiner' as const } },
       { ...withHidden, galleryHidden: [{ ...hidden, hidden: false }] },
       { ...withHidden, galleryHidden: [{ ...hidden, pinnedAt: 1 }] },
@@ -188,5 +189,28 @@ describe('cloud recovery encryption and atomic storage', () => {
     expect(() => f.store.cloudBackups.fetch(next.id, upload.fetchToken)).toThrow('BACKUP_UNAVAILABLE');
     expect(f.store.cloudBackups.rooms()).toHaveLength(0);
     expect(f.store.cloudBackups.pendingCleanup()).toEqual([f.roomId]);
+  });
+
+  it('reads bounded authenticated batches without allowing another capability or archive', async () => {
+    const f = await fixture(); f.store.cloudBackups.save(f.roomId, f.token, f.upload);
+    const ids = Array.from({ length: 20 }, randomBackupSecret);
+    const sealed = { iv: 'a'.repeat(16), ciphertext: 'b'.repeat(30) };
+    for (const id of ids) f.store.cloudBackups.putPart(f.roomId, f.token, f.archive.id, id, sealed);
+    expect(f.store.cloudBackups.getParts(f.archive.id, ids, f.archive.token).parts).toEqual(ids.map(id => ({ id, sealed })));
+    for (const invalid of [[], [...ids, randomBackupSecret()], [ids[0], ids[0]], ['invalid']]) {
+      expect(() => f.store.cloudBackups.getParts(f.archive.id, invalid, f.archive.token)).toThrow('INVALID_BACKUP');
+    }
+    expect(() => f.store.cloudBackups.getParts(f.archive.id, ids, f.upload.fetchToken)).toThrow('BACKUP_UNAVAILABLE');
+    expect(() => f.store.cloudBackups.getParts(randomBackupSecret(), ids, f.archive.token)).toThrow('BACKUP_UNAVAILABLE');
+    expect(() => f.store.cloudBackups.getParts(f.archive.id, [randomBackupSecret()], f.archive.token)).toThrow('BACKUP_UNAVAILABLE');
+    const bigIds = Array.from({ length: 3 }, randomBackupSecret);
+    for (const id of bigIds) f.store.cloudBackups.putPart(f.roomId, f.token, f.archive.id, id, { ...sealed, ciphertext: 'c'.repeat(1_700_000) });
+    const result = f.store.cloudBackups.getParts(f.archive.id, bigIds, f.archive.token);
+    expect(result.parts.map(part => part.id)).toEqual(bigIds.slice(0, 2));
+    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThanOrEqual(4 * 1024 * 1024);
+    expect(f.store.cloudBackups.getParts(f.archive.id, bigIds.slice(2), f.archive.token).parts).toHaveLength(1);
+    const db = new DatabaseSync(path.join(f.dir, 'quiet-room.sqlite'));
+    db.prepare("UPDATE members SET status='revoked' WHERE device_id=?").run(f.identity.publicBundle.deviceId); db.close();
+    expect(() => f.store.cloudBackups.getParts(f.archive.id, ids, f.archive.token)).toThrow('BACKUP_UNAVAILABLE');
   });
 });

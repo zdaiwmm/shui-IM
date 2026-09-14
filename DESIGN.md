@@ -28,7 +28,7 @@ Use `.glass-surface`, `.glass-control`, and `.glass-panel` for future bounded co
 - Header controls and the composer use circular or capsule controls with a minimum 44px hit target.
 - Incoming and outgoing message bubbles retain their existing geometry and delivery metadata. Incoming content stays neutral; outgoing content uses the accent surface.
 - Menus and notices share the panel material and anchor-origin motion.
-- History restoration reuses the recovery-code panel and shared `mountDialog` lifecycle. Its input panel follows the visible viewport during keyboard motion; privacy cancellation removes it immediately. Do not introduce a separate prototype theme.
+- History restoration reuses the recovery-code panel and shared `mountDialog` lifecycle. Its compact input panel follows the visible viewport during keyboard motion, has no Paste action or helper rows, and keeps balanced padding outside the textarea scroll area; privacy cancellation removes it immediately. Do not introduce a separate prototype theme.
 - The chat tools grid remains the existing six-entry workflow. Its panel is a single surface with icon-first controls.
 - Gallery and device pages reuse the same material tokens without introducing new navigation or product concepts.
 

@@ -241,21 +241,19 @@
 }
 
 /* Uses the existing recovery panel, dialog lifecycle and theme tokens. */
-.history-restore-sheet { bottom: auto; }
+.recovery-code-sheet.history-restore-sheet { bottom: auto; padding: 12px 16px; }
+.history-restore-sheet .history-restore-panel { max-height: 100%; padding: 16px; scrollbar-width: none; }
+.history-restore-panel::-webkit-scrollbar { display: none; }
 .history-restore-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .history-restore-heading h2 { font-size: 1.1rem; }
 .history-restore-heading .icon-button { flex-shrink: 0; font-size: 1.5rem; }
-.history-restore-form { display: grid; gap: 12px; margin-top: 18px; }
+.history-restore-form { display: grid; gap: 8px; margin-top: 8px; }
 .history-restore-form label { font-size: .85rem; }
-.history-restore-input { display: flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-raised); padding-right: 6px; }
+.history-restore-input { border: 1px solid var(--line); border-radius: var(--radius-control); background: var(--surface-raised); padding: 12px; }
 .history-restore-input:focus-within { border-color: var(--focus); }
-.history-restore-input textarea { min-width: 0; width: 100%; border: 0; background: transparent; resize: none; max-height: 160px; font: 16px/1.5 var(--font-mono); box-shadow: none; padding: 12px; }
+.history-restore-input textarea { display: block; min-width: 0; width: 100%; min-height: 48px; height: clamp(48px, calc(var(--restore-viewport-height, 100dvh) - 224px), 96px); margin: 0; border: 0; border-radius: 0; background: transparent; color: var(--ink); resize: none; font: 16px/1.5 var(--font-mono); word-break: break-all; box-shadow: none; padding: 0; scrollbar-width: none; }
+.history-restore-input textarea::-webkit-scrollbar { display: none; }
 .history-restore-input textarea:focus-visible { outline: none; }
-.history-restore-input [data-paste] { min-width: 52px; min-height: 44px; padding: 6px; color: var(--ink-muted); }
-.history-restore-input [data-clipboard="content"] { color: var(--accent); background: var(--accent-soft); border-radius: 10px; }
-.history-restore-input [data-paste]:disabled { opacity: .45; }
-.history-restore-form .field-hint { margin: 0; }
-.history-restore-form [data-clipboard-hint]:empty { display: none; }
 .history-restore-progress-copy { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 22px 0 12px; color: var(--ink-muted); font-size: .82rem; }
 .history-restore-progress-copy strong { color: var(--ink); font-size: 1.6rem; font-variant-numeric: tabular-nums; }
 .history-restore-progress { display: block; width: 100%; height: 7px; border: 0; border-radius: 8px; accent-color: var(--accent); background: var(--surface); overflow: hidden; }

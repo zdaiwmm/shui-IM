@@ -131,9 +131,12 @@ export function isMessagePayload(value: unknown): value is MessagePayload {
   }
   if (payload.kind === 'image') {
     if (!isImageManifest(payload.image)) return false;
-    if ('presentation' in payload && payload.presentation !== 'expression') return false;
-    if (payload.v === 1) return hasOnlyKeys(payload, ['v', 'kind', 'image', 'sentAt', 'presentation']);
-    return hasOnlyKeys(payload, ['v', 'kind', 'image', 'sentAt', 'replyTo', 'presentation']) && isReplyReference(payload.replyTo);
+    if ('presentation' in payload && payload.presentation !== 'expression' && payload.presentation !== 'expression-hidden') return false;
+    if ('expressionAutoHide' in payload && (typeof payload.expressionAutoHide !== 'boolean' ||
+      (payload.presentation !== 'expression' && payload.presentation !== 'expression-hidden'))) return false;
+    const keys = ['v', 'kind', 'image', 'sentAt', 'presentation', 'expressionAutoHide'];
+    if (payload.v === 1) return hasOnlyKeys(payload, keys);
+    return hasOnlyKeys(payload, [...keys, 'replyTo']) && isReplyReference(payload.replyTo);
   }
   if (payload.kind === 'file') {
     if (!isFileManifest(payload.file)) return false;

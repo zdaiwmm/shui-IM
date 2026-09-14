@@ -132,6 +132,8 @@ export type Vault = {
   recoveryExportedAt?: string;
   /** Device-local secrets. Never include in a recovery checkpoint or API request. */
   backup?: LocalBackupState;
+  /** Device-local encrypted job. Never exported or included in a recovery checkpoint. */
+  historyRestoreTask?: { v: 1; id: string; codes: string[]; createdAt: string };
   /** Only carried through an explicitly decrypted device recovery. */
   recoverySource?: RecoverySource;
   historyUnavailableBeforeSeq?: number;

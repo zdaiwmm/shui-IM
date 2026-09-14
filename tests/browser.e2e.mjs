@@ -1091,7 +1091,7 @@ try {
   await recovery.locator('#history-restore-code').fill(recoveryCode);
   await recovery.locator('.history-restore-sheet:not(.is-closing) .history-restore-form').evaluate(form => form.requestSubmit());
   await recovery.getByText(/^找不到可用备份/).waitFor();
-  await recovery.locator('[data-retry]').click();
+  await recovery.locator('[data-change-code]').click();
   await recovery.locator('#history-restore-code').fill(newRecoveryCode);
   await recovery.locator('.history-restore-sheet:not(.is-closing) .history-restore-form').evaluate(form => form.requestSubmit());
   await recovery.getByRole('heading', { name: '恢复完成', exact: true }).waitFor();

@@ -98,7 +98,17 @@ describe('RFC 9420 MLS message state', () => {
     const gallery = await encryptMlsApplication(creator, galleryPayload, crypto.randomUUID());
     creator.mls.groupState = gallery.nextGroupState;
     const openedGallery = await decryptMlsApplication(joiner, gallery.envelope);
+    joiner.mls.groupState = openedGallery.nextGroupState;
     expect(openedGallery.payload).toEqual(galleryPayload);
+    for (const expressionAutoHide of [false, true]) {
+      const expression = { ...galleryPayload, kind: 'image' as const,
+        presentation: expressionAutoHide ? 'expression-hidden' as const : 'expression' as const, expressionAutoHide };
+      const encrypted = await encryptMlsApplication(creator, expression, crypto.randomUUID());
+      creator.mls.groupState = encrypted.nextGroupState;
+      const decrypted = await decryptMlsApplication(joiner, encrypted.envelope);
+      joiner.mls.groupState = decrypted.nextGroupState;
+      expect(decrypted.payload).toEqual(expression);
+    }
   }, 20_000);
 
   it('rejects a welcome signed by an unenrolled identity', async () => {
