@@ -3,8 +3,8 @@
 ## 当前生产快照（2026-09-14 12:31，独立回读通过）
 
 - 线上应用 SHA `c2bf8ee032df15e1a5b4b64ac6a649abfb4b7256`；修复代码 PR #142 与版本元数据 PR #143 已合并，应用版本为 `2026.09.14.2`。精确 main CI [34805585974](https://github.com/zdaiwmm/shui-IM/actions/runs/34805585974) 在浏览器通话用例一次时序超时后仅重跑失败 job，最终全部通过。
-- 固定入口取得 `DEPLOY_VERIFIED`，服务器批次 `20260914T042821Z`；独立 `READBACK_OK` 于 `2026-09-14T04:31:15Z` 核对线上 SHA、发布目录、容器和公开产物一致。发布目录为 `/opt/quiet-room/git-releases/20260914T042821Z-c2bf8ee`，切换前冷备份为 `/opt/quiet-room/backups/predeploy/data-20260914T042821Z-c2bf8ee.tar.gz`。
-- HTTPS `ok`／`database`／`storage` 和新建公开 WebSocket 均通过；应用容器运行且健康，备份容器运行但无健康探针，维护标记不存在。回读证据为 `quiet-room-readback/20260914T043115876Z-c2bf8ee032df-success.json`。
+- 固定入口取得 `DEPLOY_VERIFIED`，服务器批次 `20260914T042821Z`；独立 `READBACK_OK` 于 `2026-09-14T04:37:50Z` 核对线上 SHA、发布目录、容器和公开产物一致。发布目录为 `/opt/quiet-room/git-releases/20260914T042821Z-c2bf8ee`，切换前冷备份为 `/opt/quiet-room/backups/predeploy/data-20260914T042821Z-c2bf8ee.tar.gz`。
+- HTTPS `ok`／`database`／`storage` 和新建公开 WebSocket 均通过；应用容器运行且健康，备份容器运行但无健康探针，维护标记不存在。回读证据为 `quiet-room-readback/20260914T043750183Z-c2bf8ee032df-success.json`。
 - 本批修复设备修复授权、六位安全码显示与成员验证阻塞，修复完成后从新加入边界接收消息；既有加密、设备历史边界和附件完整性边界未改变。实体 iPhone / iOS 27 / Safari、生产管理员逐项操作、OSS 异地备份、外部监控告警、独立密码学审计和高安全发布门槛仍未完成。文档提交不代表再次部署。
 
 ## 当前生产快照（2026-09-14 10:07，独立回读通过）
