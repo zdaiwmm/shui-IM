@@ -1,5 +1,13 @@
 # Quiet Room 固定发布流程
 
+## 保险箱需求复验修复已发布（2026-09-15 10:18）
+
+- 用户确认发布精确提交 `4ae9ff88c057b49edcee3d08f7f4f4f84e3f877a`，PR [#166](https://github.com/zdaiwmm/shui-IM/pull/166) 已合并，版本 `2026.09.15.2`。与验收候选 `0a99bf6f3e9abc7dc026bd59e721dcbeac10794d` 文件树完全一致；本地 `check:full` 通过（78 个测试文件、646 项测试、35/35 浏览器脚本，`clean=true`）。WebKit 文件/保险箱交互专项通过，精确 main CI [34920062374](https://github.com/zdaiwmm/shui-IM/actions/runs/34920062374) 的 12 项检查全部通过。
+- 本批修复保险箱误用聊天删除投影，补齐旧媒体与恢复记录的独立密文副本；验证双向删除互不影响、双 tab 完整计数、骨架占位、系统式视频布局、照片/视频删除确认与旧备份分类统计。此前 `92d6ea2` 的部署记录不代表这些需求当时已验收。
+- 固定入口返回 `DEPLOY_OK`、`DEPLOY_VERIFIED` 并核对精确成功回执。批次 `20260915T021606Z`；发布目录 `/opt/quiet-room/git-releases/20260915T021606Z-4ae9ff88c057`；切换前冷备份 `/opt/quiet-room/backups/predeploy/data-20260915T021606Z-4ae9ff88c057.tar.gz` 已校验。
+- 独立回读于 `2026-09-15T02:18:53Z` 返回 `READBACK_OK`：线上 SHA、应用/备份镜像、HTTPS `ok/database/storage`、公开产物及新建 WebSocket 均通过；维护标记不存在。应用运行且健康，备份容器运行但无健康探针；管理员功能开启，通话关闭。证据：`quiet-room-readback/20260915T021850744Z-4ae9ff88c057-success.json`。
+- 实体 iPhone / iOS 27 / Safari 尚未验收；生产回读不等于用户真实数据或真机交互验收。本次对账为独立文档变更，不触发再次部署，线上应用保持上述提交。
+
 ## 保险箱独立存储与媒体播放器已发布（2026-09-15）
 
 - 用户要求完成聊天与保险箱数据分离、备份统计、保险箱媒体删除及视频播放器交互；PR [#163](https://github.com/zdaiwmm/shui-IM/pull/163) 合并后，补充版本元数据 PR [#164](https://github.com/zdaiwmm/shui-IM/pull/164) 已合并。
