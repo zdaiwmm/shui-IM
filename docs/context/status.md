@@ -1,5 +1,12 @@
 # Quiet Room 当前状态
 
+## 保险箱独立存储与媒体播放器已发布（2026-09-15）
+
+- PR [#163](https://github.com/zdaiwmm/shui-IM/pull/163) 完成聊天与保险箱存储分离、备份统计、保险箱媒体删除和视频播放器控件；版本元数据由 PR [#164](https://github.com/zdaiwmm/shui-IM/pull/164) 补齐并合并。
+- 线上应用 SHA `92d6ea26ecd5ef98fe59f3e87af038918f348e00`，版本 `2026.09.15.1`。精确 main CI [34912158997](https://github.com/zdaiwmm/shui-IM/actions/runs/34912158997) 全部通过；固定入口取得 `DEPLOY_VERIFIED`，冷备份已校验。
+- 独立 `READBACK_OK` 于 `2026-09-15T00:20:03Z` 确认线上 SHA、镜像、HTTPS／数据库／存储、公开产物和 WebSocket；应用运行且健康，备份容器运行但无健康探针，维护标记不存在。证据：`quiet-room-readback/20260915T002000196Z-92d6ea26ecd5-success.json`。
+- 实体 iPhone / iOS 27 / Safari 仍未验收；本次知识库对账不改变应用提交，也不读取真实消息、附件或备份内容。
+
 ## 媒体气泡状态一致性修复已发布（2026-09-14 23:56）
 
 - 用户要求发布本次修复，PR [#161](https://github.com/zdaiwmm/shui-IM/pull/161) 已合并。线上应用 SHA `b85093e53623c6394d41e04946ad99a717e9126c`，版本 `2026.09.14.9`，与冻结候选 `1bbd52e6280fd98a5bd986085a08ecfe747ab95d` 文件树一致。精确 main CI [34864289446](https://github.com/zdaiwmm/shui-IM/actions/runs/34864289446) 通过；本地 `check:full` 通过（645 项测试、35/35 浏览器脚本，`clean=true`），最终 WebKit 媒体专项及长按截图核验通过。

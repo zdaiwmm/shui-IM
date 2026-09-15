@@ -1,5 +1,13 @@
 # Quiet Room 固定发布流程
 
+## 保险箱独立存储与媒体播放器已发布（2026-09-15）
+
+- 用户要求完成聊天与保险箱数据分离、备份统计、保险箱媒体删除及视频播放器交互；PR [#163](https://github.com/zdaiwmm/shui-IM/pull/163) 合并后，补充版本元数据 PR [#164](https://github.com/zdaiwmm/shui-IM/pull/164) 已合并。
+- 生产应用提交：`92d6ea26ecd5ef98fe59f3e87af038918f348e00`；版本：`2026.09.15.1`。精确 main CI [34912158997](https://github.com/zdaiwmm/shui-IM/actions/runs/34912158997) 的构建、645 项测试、浏览器回归、通话专项、凭据扫描、文档检查和生产依赖审计全部通过。
+- 固定入口返回 `DEPLOY_OK` 与 `DEPLOY_VERIFIED`。发布目录：`/opt/quiet-room/git-releases/20260915T001741Z-92d6ea26ecd5`；切换前冷备份：`/opt/quiet-room/backups/predeploy/data-20260915T001741Z-92d6ea26ecd5.tar.gz`，已校验。
+- 独立回读于 `2026-09-15T00:20:03Z` 返回 `READBACK_OK`：线上 SHA、应用与备份容器镜像、HTTPS `ok/database/storage`、公开构建产物及 WebSocket 全部匹配；维护标记不存在。应用容器运行且健康，备份容器运行但无健康探针，TURN 不存在。证据文件：`quiet-room-readback/20260915T002000196Z-92d6ea26ecd5-success.json`。
+- 本批功能包括：聊天与保险箱媒体独立投影及互不联动删除、备份聊天/保险箱数量、进入保险箱立即展示两类数量、相册骨架加载、图片/视频详情删除确认、系统播放器式视频控件。实体 iPhone / iOS 27 / Safari 仍未验收。
+
 ## 媒体气泡状态一致性修复已发布（2026-09-14 23:56）
 
 - 用户要求发布本次修复，PR [#161](https://github.com/zdaiwmm/shui-IM/pull/161) 已合并。线上应用 SHA `b85093e53623c6394d41e04946ad99a717e9126c`，版本 `2026.09.14.9`，与冻结候选 `1bbd52e6280fd98a5bd986085a08ecfe747ab95d` 文件树一致。精确 main CI [34864289446](https://github.com/zdaiwmm/shui-IM/actions/runs/34864289446) 通过；本地 `check:full` 通过（645 项测试、35/35 浏览器脚本，`clean=true`），最终 WebKit 媒体专项及长按截图核验通过。
