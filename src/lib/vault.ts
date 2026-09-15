@@ -1059,15 +1059,17 @@ export async function importArchivedMessages(
     const records: StoredHistory[] = [];
     const missing = await findMissingArchivedMessages(session, messages, scope, signal);
     for (const message of missing) records.push(await encryptHistoryRecord(session, message));
+    const mediaRecords = scope === 'gallery' ? [] : records.filter((_, index) => isGalleryMediaPayload(missing[index]!.payload));
     // Gallery recovery counts media, not the internal deletion projections.
     const importedContentCount = missing.filter(message => scope !== 'gallery' || isGalleryMediaPayload(message.payload)).length;
     signal?.throwIfAborted();
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
-      const tx = database.transaction(['vault', storeName], 'readwrite');
+      const tx = database.transaction(['vault', storeName, ...(mediaRecords.length ? ['galleryHistory'] : [])], 'readwrite');
       const current = tx.objectStore('vault').get('current');
       current.onsuccess = () => { if (!sameStoredVault(current.result, session.stored) || signal?.aborted) tx.abort(); };
       for (const record of records) tx.objectStore(storeName).put(record);
+      for (const record of mediaRecords) tx.objectStore('galleryHistory').put(record);
       const abort = () => { try { tx.abort(); } catch { /* already complete */ } };
       signal?.addEventListener('abort', abort, { once: true });
       const release = () => { signal?.removeEventListener('abort', abort); database.close(); };
@@ -1467,6 +1469,30 @@ export async function loadMediaHistoryPage(
   }
   const records = [...canonical.values()].sort((left, right) => right.message.seq - left.message.seq);
   const page = records.slice(0, boundedLimit);
+  // Older clients stored ordinary attachments only in chat. Materialize their
+  // already-authenticated encrypted rows independently before exposing Safe.
+  const gallerySequences = new Set(scan.records.filter(item => item.storeName !== 'history').map(item => item.record.seq));
+  const legacySequences = new Set(page.filter(item => isGalleryMediaPayload(item.message.payload)
+    && !gallerySequences.has(item.message.seq)).map(item => item.message.seq));
+  if (legacySequences.size) await withVaultMutation(session, async () => {
+    signal?.throwIfAborted();
+    const database = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const tx = database.transaction(['vault', 'galleryHistory'], 'readwrite');
+      const current = tx.objectStore('vault').get('current');
+      current.onsuccess = () => { if (!sameStoredVault(current.result, session.stored) || signal?.aborted) tx.abort(); };
+      for (const { storeName, record } of scan.records) if (storeName === 'history' && legacySequences.has(record.seq)) {
+        const existing = tx.objectStore('galleryHistory').get(record.id);
+        existing.onsuccess = () => { if (!existing.result) tx.objectStore('galleryHistory').put(record); };
+      }
+      const abort = () => { try { tx.abort(); } catch { /* already completed */ } };
+      signal?.addEventListener('abort', abort, { once: true });
+      const release = () => { signal?.removeEventListener('abort', abort); database.close(); };
+      tx.oncomplete = () => { release(); resolve(); };
+      tx.onabort = () => { release(); reject(signal?.reason ?? tx.error ?? staleVaultError()); };
+      tx.onerror = () => reject(tx.error);
+    });
+  });
   return {
     messages: page.map(item => item.message).filter((message) => isGalleryMediaPayload(message.payload) || includeExpressions && message.payload.kind === 'image'),
     beforeSeq: page.at(-1)?.message.seq ?? null,

@@ -171,6 +171,7 @@ async function hiddenSnapshotCurrent(session: VaultSession) {
 }
 
 async function shouldSkipAutomaticBackup(session: VaultSession): Promise<boolean> {
+  if (session.vault.backup?.archives.some(archive => archive.parts.some(part => part.chatCount === undefined || part.galleryCount === undefined))) return false;
   if (!isCleanlySynced(session) || !await hiddenSnapshotCurrent(session)) return false;
   const observation = automaticBackupObservations.get(session);
   if (!observation) return false;
@@ -246,6 +247,26 @@ async function sendEnvelope(session: VaultSession, signal: AbortSignal): Promise
 /** Foreground only. Pending ciphertext is durable before any network upload. */
 export type CloudBackupSyncOptions = { force?: boolean };
 
+/** Upgrade older encrypted indexes once; never infer a content count from ciphertext size. */
+async function backfillArchiveInventory(session: VaultSession, signal: AbortSignal): Promise<boolean> {
+  const missing = session.vault.backup?.archives.flatMap(archive => archive.parts
+    .filter(part => part.chatCount === undefined || part.galleryCount === undefined)
+    .map(part => ({ archive, part }))).slice(0, 20) ?? [];
+  for (const { archive, part } of missing) {
+    const sealed = await request<SealedBackup>(`/api/history-archives/${archive.id}/${part.id}`, archive.token, signal);
+    if (await backupDigest(sealed) !== part.digest) throw new Error('历史备份完整性验证失败');
+    const messages = validateArchivePart(await openJson(sealed, archive.key,
+      archiveAad(session.vault.roomId, archive.id, part.id)), session.vault.roomId, part);
+    const inventory = backupInventory(messages);
+    await update(session, signal, state => {
+      const current = state.archives.find(item => item.id === archive.id)?.parts.find(item => item.id === part.id);
+      if (!current || current.digest !== part.digest) throw new Error('历史备份状态已经变化');
+      Object.assign(current, inventory);
+    });
+  }
+  return missing.length > 0;
+}
+
 export async function syncCloudBackup(session: VaultSession, signal: AbortSignal, { force = true }: CloudBackupSyncOptions = {}): Promise<void> {
   if (session.vault.protocol !== 'mls-rfc9420' || session.stored.unlockMethod !== 'platform' || session.vault.pairingState === 'recovering') return;
   signal.throwIfAborted();
@@ -292,6 +313,10 @@ export async function syncCloudBackup(session: VaultSession, signal: AbortSignal
       state.cursor = pending.part.lastSeq;
       delete state.pendingPart;
     });
+    await stageEnvelope(session, signal);
+    await sendEnvelope(session, signal);
+  }
+  if (await backfillArchiveInventory(session, signal)) {
     await stageEnvelope(session, signal);
     await sendEnvelope(session, signal);
   }

@@ -52,6 +52,14 @@ try {
     const session = await v.createVault({ v: 3, roomId: room.roomId, role: 'creator', accessToken: token, pairingSecret: '', creatorFingerprint: 'fixture',
       identity, members: [{ ...identity.publicBundle, role: 'creator', status: 'active', joinProof: null }], lastSeq: 0,
       createdAt: new Date().toISOString(), protocol: 'mls-rfc9420', mls: { protocol: 'mls-rfc9420', phase: 'awaiting-peer' } });
+    const sentAt = new Date().toISOString();
+    const manifest = name => ({v:1,blobId:crypto.randomUUID(),key:randomBackupSecret(),ivPrefix:randomBackupSecret().slice(0,11),
+      chunkSize:2097152,chunkCount:1,originalSize:1,originalName:name,mimeType:'image/png',lastModified:1,sha256:'a'.repeat(64)});
+    const payloads = [{kind:'text',text:'synthetic backup counter'}, {kind:'image',image:manifest('first.png')},
+      {kind:'image-album',images:[manifest('second.png'),manifest('third.png')]}];
+    for (const [index,payload] of payloads.entries()) await v.saveHistoryMessage(session,{seq:index+1,clientMsgId:crypto.randomUUID(),senderId:identity.publicBundle.deviceId,
+      payload:{v:1,sentAt,...payload},acceptedAt:sentAt,status:'stored'});
+    session.vault.lastSeq=3;await v.saveVault(session);
     await syncCloudBackup(session, new AbortController().signal);
     const app = new QuietRoomApp(document.querySelector('#app')); await app.start();
     app.session = session; app.privacyCovered = false; app.runtimeAbort = new AbortController(); app.resetIdleLock();
@@ -176,6 +184,10 @@ try {
   await admin.reload();
   await admin.getByRole('button', { name: roomId }).waitFor();
   assert.equal(await admin.getByRole('heading', { name: '登录会话管理' }).count(), 0, 'Reload restores a valid administrator session');
+  await admin.getByRole('columnheader',{name:'已备份聊天',exact:true}).waitFor();
+  await admin.getByRole('columnheader',{name:'已备份保险箱',exact:true}).waitFor();
+  const inventoryRow = admin.locator('tr').filter({has:admin.getByRole('button',{name:roomId,exact:true})});
+  assert.deepEqual((await inventoryRow.locator('td').allTextContents()).slice(-2),['3','3'],'Admin did not show independently backed up messages and media assets');
   await snapshot(admin, 'admin-rooms-desktop');
   assert.equal(await admin.locator('#rooms-nav').getAttribute('aria-current'), 'page');
   assert.equal(await admin.getByText('后台服务正常').count(), 0, 'no unverified health claim');

@@ -378,6 +378,7 @@ try {
   assert.equal(await page.locator('.image-viewer').count(), 0, 'An ordinary document opened a media preview');
 
   const swipeToInlineVideo = async () => {
+    const safe = await page.locator('.image-viewer[data-safe-viewer]').count() > 0;
     await page.locator('.viewer-stage').evaluate(stage => {
       for (const [type, x] of [['pointerdown', 320], ['pointermove', 180], ['pointerup', 180]]) {
         stage.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 291, isPrimary: true, button: 0, clientX: x, clientY: 430 }));
@@ -412,18 +413,20 @@ try {
         const children = [...controls.querySelectorAll('button, input, .viewer-video-time')];
         return children.every(child => { const rect = child.getBoundingClientRect(); return rect.left >= 0 && rect.right <= innerWidth && child.scrollWidth <= child.clientWidth + 1; });
       }), 'Video controls overflowed the viewport');
-      assert(await page.locator('[data-video-fullscreen]').evaluate(button => getComputedStyle(button).color === getComputedStyle(document.querySelector('[data-viewer-close]')).color), 'Video buttons did not follow the viewer theme');
+      if (!safe) assert(await page.locator('[data-video-fullscreen]').evaluate(button => getComputedStyle(button).color === getComputedStyle(document.querySelector('[data-viewer-close]')).color), 'Video buttons did not follow the viewer theme');
       await capture(`inline-video-controls-${width}`);
     }
     await page.setViewportSize({ width: 390, height: 844 });
     await page.emulateMedia({ colorScheme: 'dark' });
     await capture('inline-video-controls-dark-390');
     await page.emulateMedia({ colorScheme: 'light' });
+    if (!safe) {
     await page.locator('[data-video-fullscreen]').click();
     await page.waitForFunction(() => document.fullscreenElement === document.querySelector('.viewer-stage video'));
     await page.evaluate(() => document.exitFullscreen());
     await page.locator('[data-video-fullscreen]').waitFor();
     assert.equal(await page.locator('.viewer-stage video').evaluate(video => video.controls), false, 'Exiting maximize failed to restore inline controls');
+    } else assert.equal(await page.locator('[data-video-fullscreen]').count(), 0);
     await rememberPlayer();
     await closePlayer();
     await assertPlayerReleased('Paged inline player exit');
@@ -464,11 +467,52 @@ try {
   assert.equal(await page.locator('.image-viewer').count(), 0, 'First album click played a still-hidden video');
   await safeVideo.click();
   await awaitPlayingVideo();
+  assert.equal(await page.locator('[data-video-fullscreen]').count(), 0, 'Safe added an unrequested minimize/fullscreen button');
+  assert.equal(await page.locator('.image-viewer').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(0, 0, 0)', 'Safe video inherited the photo theme instead of the reference black canvas');
+  for (const width of [320, 390, 1024]) {
+    await page.setViewportSize({ width, height: 844 });
+    const layout = await page.evaluate(() => {
+      const box = selector => { const r = document.querySelector(selector).getBoundingClientRect(); return { x:r.x, y:r.y, w:r.width, h:r.height }; };
+      return { close:box('[data-viewer-close]'), mute:box('[data-video-mute]'), play:box('[data-video-center-play]'),
+        timeline:box('.viewer-video-timeline'), speed:box('[data-video-speed]'), del:box('[data-video-delete]') };
+    });
+    assert(Math.abs(layout.play.y + layout.play.h / 2 - 422) < 2, 'Play controls are not at the video center');
+    assert(Math.abs(layout.close.y - layout.mute.y) < 2 && layout.mute.x > width / 2, 'Mute is not aligned with top-left close');
+    assert(layout.del.x < layout.speed.x && layout.speed.y + layout.speed.h < layout.timeline.y, 'Delete/speed do not sit above the bottom progress capsule');
+    await page.locator('[data-video-delete]').click();
+    const panel = page.locator('.media-delete-confirm:not([hidden])');
+    await panel.waitFor();
+    assert(await panel.evaluate(el => { const r=el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0; }), 'Delete confirmation escaped the viewport');
+    assert.equal(await panel.getByRole('button', { name:'删除视频' }).count(), 1);
+    await capture(`safe-video-confirm-${width}`);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('.image-viewer').count(), 1, 'Escape dismissed the player instead of its confirmation');
+  }
+  await page.setViewportSize({ width:390, height:844 });
   await rememberPlayer();
   assert.equal(await page.locator('[data-viewer-time]').getAttribute('datetime'), '2026-09-04T10:00:00.000Z', 'Video viewer lost the message/upload timestamp');
   await closePlayer();
   await assertPlayerReleased('Album close');
   assert.equal(await safeVideo.getAttribute('data-revealed'), 'true', 'Closing the viewer reset this visit’s reveal state');
+
+  const safeChatVideo = page.locator(`.gallery-tile[data-blob-id="${ids.chatVideo}"]`);
+  await safeChatVideo.click(); await safeChatVideo.click();
+  await page.locator('[data-video-delete]').waitFor();
+  await page.locator('[data-video-delete]').click();
+  await page.locator('[data-confirm-media-delete]').click();
+  await page.locator('.image-viewer').waitFor({state:'detached'});
+  await page.waitForFunction(id=>!document.querySelector(`.gallery-tile[data-blob-id="${id}"]`),ids.chatVideo);
+  const videoDeletion = await page.evaluate(async () => {
+    const f=window.videoFlow;
+    const record=await f.vault.loadHistoryMessage(f.session,2);
+    const prefs=await f.vault.loadUiPreferences(f.session);
+    return { source:record?.payload.file.blobId, hidden:prefs.galleryCuration?.some(item=>item.hidden&&item.clientMsgId===record.clientMsgId) };
+  });
+  assert.deepEqual(videoDeletion,{source:ids.chatVideo,hidden:true},'Safe video deletion did not preserve its source chat record');
+  // Restore only synthetic test preferences for the subsequent paging checks.
+  await page.evaluate(async () => {const f=window.videoFlow; f.app.uiPreferences.galleryCuration=[];
+    await f.app.saveUiPreferencesNow(); f.app.galleryKnownCounts={}; f.app.renderGallery();});
+  await page.waitForFunction(()=>document.querySelectorAll('.gallery-tile img').length===3);
 
   // Safe paging uses the same inline controls and continuous photo transition.
   const safePhoto = page.locator(`.gallery-tile[data-blob-id="${ids.photo}"]`);
@@ -503,10 +547,10 @@ try {
   await page.waitForFunction(name => document.querySelector('[data-viewer-name]')?.textContent === name && document.querySelector('.viewer-stage video'), '保险箱视频.webm');
   const playingArrival = await page.locator('.viewer-stage video').evaluate(video => ({ paused: video.paused, autoplay: video.autoplay, controls: video.controls }));
   assert.deepEqual(playingArrival, { paused: true, autoplay: false, controls: false }, 'A video reached by paging must stay in the inline viewer');
-  await page.locator('[data-video-fullscreen]').click();
+  await page.locator('[data-video-center-play]').click();
   await awaitPlayingVideo();
   await page.waitForFunction(() => !document.querySelector('.image-viewer').dataset.nativeVideo);
-  assert.equal(await page.locator('[data-video-fullscreen]').isVisible(), true, 'A refused fullscreen request lost the inline controls');
+  assert.equal(await page.locator('[data-video-fullscreen]').count(), 0, 'Safe paging added an unrequested native-player control');
   const pagedVideoGeometry = await page.locator('.viewer-stage').evaluate(stage => {
     const layer = stage.querySelector('.viewer-media-layer.is-video');
     const video = layer?.querySelector('video');

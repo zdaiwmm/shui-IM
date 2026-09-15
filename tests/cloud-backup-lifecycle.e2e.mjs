@@ -84,6 +84,16 @@ try {
     };
     await b.syncCloudBackup(reopened, new AbortController().signal);
     window.fetch = original;
+    // Model pre-upgrade indexes with no per-category counts. Upgrade must
+    // authenticate the archived ciphertext and publish counts without new parts.
+    const legacyPartCount = reopened.vault.backup.archives[0].parts.length;
+    for (const part of reopened.vault.backup.archives[0].parts) { delete part.chatCount; delete part.galleryCount; }
+    await v.saveVault(reopened);
+    await b.syncCloudBackup(reopened, new AbortController().signal, { force:false });
+    const upgraded = await b.fetchRecoveryBundle(code, new AbortController().signal);
+    const upgradedCounts = upgraded.archives[0].parts.reduce((n,part)=>n + part.chatCount,0);
+    if (upgradedCounts !== 2 || upgraded.archives[0].parts.some(part=>part.galleryCount !== 0)
+      || upgraded.archives[0].parts.length !== legacyPartCount) throw Error('Legacy backup inventory was not upgraded exactly');
     const stableCode = reopened.vault.backup.code === code;
     const bundle = await b.fetchRecoveryBundle(code, new AbortController().signal);
     const noCodeInPayload = !JSON.stringify(bundle).includes(code) && !bundle.checkpoint.backup;

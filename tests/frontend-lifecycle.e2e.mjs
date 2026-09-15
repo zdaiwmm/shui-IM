@@ -164,8 +164,7 @@ try {
     return { preOpenScroll: 'preserved', unchangedDelayedEvent: 'preserved', laterMovement: 'dismissed' };
   });
 
-  // Confirmed empty categories have no visible number, including when the
-  // other category is selected. Loading and unknown counts retain their state.
+  // Both confirmed empty categories show zero without depending on selection.
   await page.evaluate(() => window.regression.app.renderGallery());
   await page.waitForFunction(() => window.regression.app.galleryKnownCounts.images?.complete);
   await page.locator('#gallery-tab-files').click();
@@ -173,9 +172,9 @@ try {
   results.emptyGalleryCounts = await page.evaluate(() => {
     for (const kind of ['images', 'files']) {
       const label = document.querySelector(`[data-gallery-count="${kind}"]`);
-      if (!label.hidden || label.textContent !== '' || getComputedStyle(label).display !== 'none') throw Error(`Empty ${kind} tab still displayed a count`);
+      if (label.hidden || label.textContent !== '0' || getComputedStyle(label).display === 'none') throw Error(`Empty ${kind} tab did not show zero`);
     }
-    return { images: 'hidden', files: 'hidden' };
+    return { images: '0', files: '0' };
   });
 
   results.composerRecovery = await page.evaluate(async () => {
@@ -728,7 +727,7 @@ try {
   });
   await page.locator('[data-gallery-load-more]:not(:disabled)').waitFor();
   const initialSafeImages = await page.locator('.gallery-tile').count();
-  assert.equal(await page.locator('[data-gallery-count="images"]').textContent(), `${initialSafeImages}+`, 'Partial safe count does not disclose remaining local history');
+  await page.waitForFunction(() => document.querySelector('[data-gallery-count="images"]')?.textContent === '62');
   await page.locator('#gallery-toggle-visibility').click();
   let pages = 0;
   while (await page.locator('[data-gallery-load-more]').isVisible()) {

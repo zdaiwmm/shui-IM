@@ -1,3 +1,4 @@
+import { mountMediaDeleteConfirm } from './lib/media-delete-confirm';
 import { validMediaDimensions } from './lib/media-dimensions';
 import { setChatMediaDimensions } from './lib/chat-media-geometry';
 import { attachHistoryRestore } from './lib/history-restore-ui';
@@ -929,6 +930,8 @@ export class QuietRoomApp {
         return;
       }
       if (event.key !== 'Escape') return;
+      // The anchored confirmation owns Escape before the underlying viewer.
+      if (this.root.querySelector('.media-delete-confirm:not([hidden])')) return;
       if (this.selectedMessageId) { event.preventDefault(); this.clearMessageTextSelection(); return; }
       if (this.voiceRecorder) {
         event.preventDefault();
@@ -8403,7 +8406,24 @@ export class QuietRoomApp {
     feedback.hidden = true;
     const controls = document.createElement('div');
     controls.className = `viewer-video-controls${onDelete ? ' has-delete' : ''}`;
-    controls.innerHTML = `
+    controls.innerHTML = onDelete ? `
+      <div class="viewer-video-top"><button class="viewer-control" type="button" data-video-mute></button></div>
+      <div class="viewer-video-center" aria-label="视频播放控制">
+        <button class="viewer-control viewer-video-skip" type="button" data-video-skip-back aria-label="后退 10 秒"></button>
+        <button class="viewer-control viewer-video-center-play" type="button" data-video-play data-video-center-play aria-label="播放视频"></button>
+        <button class="viewer-control viewer-video-skip" type="button" data-video-skip-forward aria-label="前进 10 秒"></button>
+      </div>
+      <div class="viewer-video-bottom">
+        <div class="viewer-video-actions">
+          <span class="viewer-video-delete-wrap"><button class="viewer-control" type="button" data-video-delete aria-label="删除保险箱中的此项"></button></span>
+          <button class="viewer-control" type="button" data-video-speed aria-label="播放速度"></button>
+        </div>
+        <div class="viewer-video-timeline">
+          <span class="viewer-video-time" aria-live="off">0:00</span>
+          <input class="viewer-video-seek" type="range" min="0" max="0" value="0" step="0.1" aria-label="视频进度" disabled>
+          <span class="viewer-video-remaining" aria-live="off">−0:00</span>
+        </div>
+      </div>` : `
       <div class="viewer-video-center" aria-label="视频播放控制">
         <button class="viewer-control" type="button" data-video-skip-back aria-label="后退 10 秒" title="后退 10 秒"></button>
         <button class="viewer-control viewer-video-center-play" type="button" data-video-center-play aria-label="播放视频" title="播放视频"></button>
@@ -8414,7 +8434,6 @@ export class QuietRoomApp {
         <button class="viewer-control" type="button" data-video-play></button>
         <span class="viewer-video-time" aria-live="off">0:00 / 0:00</span>
         <button class="viewer-control" type="button" data-video-mute></button>
-        ${onDelete ? '<span class="viewer-video-delete-wrap"><button class="viewer-control viewer-video-delete" type="button" data-video-delete aria-label="删除保险箱中的此项" title="删除保险箱中的此项"></button><span class="viewer-video-delete-confirm" data-video-delete-confirm role="status">再次点击删除</span></span>' : ''}
         <button class="viewer-control" type="button" data-video-speed aria-label="播放速度" title="播放速度"></button>
         <button class="viewer-control" type="button" data-video-fullscreen aria-label="全屏播放" title="全屏播放"></button>
       </div>`;
@@ -8424,15 +8443,12 @@ export class QuietRoomApp {
     const skipForwardButton = controls.querySelector<HTMLButtonElement>('[data-video-skip-forward]')!;
     const muteButton = controls.querySelector<HTMLButtonElement>('[data-video-mute]')!;
     const deleteVideoButton = controls.querySelector<HTMLButtonElement>('[data-video-delete]');
-    const deleteVideoConfirm = controls.querySelector<HTMLElement>('[data-video-delete-confirm]');
     const speedButton = controls.querySelector<HTMLButtonElement>('[data-video-speed]')!;
-    const fullscreenButton = controls.querySelector<HTMLButtonElement>('[data-video-fullscreen]')!;
+    const fullscreenButton = controls.querySelector<HTMLButtonElement>('[data-video-fullscreen]');
     const seek = controls.querySelector<HTMLInputElement>('input')!;
     const time = controls.querySelector<HTMLElement>('.viewer-video-time')!;
     const events = new AbortController();
-    let videoDeleteArmed = false;
-    let videoDeleteTimer: number | null = null;
-    fullscreenButton.append(createElement(Maximize));
+    fullscreenButton?.append(createElement(Maximize));
     speedButton.append(createElement(Gauge));
     skipBackButton.append(createElement(RotateCcw));
     skipForwardButton.append(createElement(RotateCw));
@@ -8447,18 +8463,7 @@ export class QuietRoomApp {
       speed = speed === 1 ? 1.5 : speed === 1.5 ? 2 : 1;
       updateSpeed();
     }, { signal: events.signal });
-    deleteVideoButton?.addEventListener('click', () => {
-      if (!onDelete || deleteVideoButton.disabled) return;
-      if (!videoDeleteArmed) {
-        videoDeleteArmed = true;
-        deleteVideoConfirm?.classList.add('is-visible');
-        if (videoDeleteTimer !== null) window.clearTimeout(videoDeleteTimer);
-        videoDeleteTimer = window.setTimeout(() => { videoDeleteArmed = false; deleteVideoConfirm?.classList.remove('is-visible'); }, 3000);
-        return;
-      }
-      deleteVideoButton.disabled = true;
-      void Promise.resolve(onDelete()).finally(() => { if (deleteVideoButton.isConnected) deleteVideoButton.disabled = false; });
-    }, { signal: events.signal });
+    const deleteCleanup = deleteVideoButton && onDelete ? mountMediaDeleteConfirm(deleteVideoButton, '视频', onDelete) : undefined;
     const formatTime = (value: number) => {
       const seconds = Math.max(0, Math.floor(Number.isFinite(value) ? value : 0));
       const hours = Math.floor(seconds / 3600);
@@ -8469,7 +8474,9 @@ export class QuietRoomApp {
       const current = formatTime(video.currentTime);
       const duration = formatTime(video.duration);
       const full = `${current} / ${duration}`;
-      time.textContent = controls.clientWidth < 300 || window.innerWidth <= 360 ? current : full;
+      time.textContent = onDelete || controls.clientWidth < 300 || window.innerWidth <= 360 ? current : full;
+      const remaining = controls.querySelector('.viewer-video-remaining');
+      if (remaining) remaining.textContent = `−${formatTime(video.duration - video.currentTime)}`;
       time.setAttribute('aria-label', full);
     };
     window.addEventListener('resize', updateTimeLabel, { signal: events.signal });
@@ -8578,7 +8585,7 @@ export class QuietRoomApp {
     for (const event of ['play', 'pause', 'ended', 'volumechange', 'durationchange', 'loadedmetadata', 'timeupdate']) {
       video.addEventListener(event, updateControls, { signal: events.signal });
     }
-    playButton.addEventListener('click', () => { if (video.paused) play(); else video.pause(); }, { signal: events.signal });
+    if (playButton !== centerPlayButton) playButton.addEventListener('click', () => { if (video.paused) play(); else video.pause(); }, { signal: events.signal });
     centerPlayButton.addEventListener('click', () => { if (video.paused) play(); else video.pause(); }, { signal: events.signal });
     const skip = (offset: number) => {
       if (!live() || !Number.isFinite(video.duration)) return;
@@ -8591,13 +8598,14 @@ export class QuietRoomApp {
       video.muted = !muted;
       if (muted && video.volume === 0) video.volume = 1;
     }, { signal: events.signal });
-    fullscreenButton.addEventListener('click', () => { requestNativePlayer(); play(); }, { signal: events.signal });
+    fullscreenButton?.addEventListener('click', () => { requestNativePlayer(); play(); }, { signal: events.signal });
     seek.addEventListener('input', () => {
       if (!seek.disabled && live()) video.currentTime = Number(seek.value);
     }, { signal: events.signal });
     feedback.addEventListener('click', () => { if (requestNative) requestNativePlayer(); play(); }, { signal: events.signal });
     const cleanup = () => {
       active = false;
+      deleteCleanup?.();
       events.abort();
       if (nativePendingTimer !== null) window.clearTimeout(nativePendingTimer);
       if (document.fullscreenElement === video) void document.exitFullscreen().catch(() => undefined);
@@ -9060,7 +9068,6 @@ export class QuietRoomApp {
       </div>
       <div class="viewer-delete-wrap" data-viewer-delete-wrap hidden>
         <button class="viewer-control viewer-delete-control" type="button" data-viewer-delete aria-label="删除保险箱中的此项" title="删除保险箱中的此项">${icons.trash}</button>
-        <span class="viewer-delete-confirm" data-viewer-delete-confirm role="status">再次点击删除</span>
       </div>
       <p class="notice viewer-notice" role="status" data-viewer-notice hidden></p>
       <div class="viewer-stage" aria-live="polite"></div>
@@ -9080,37 +9087,20 @@ export class QuietRoomApp {
     const detailsButton = viewer.querySelector<HTMLButtonElement>('[data-viewer-details]');
     const deleteWrap = viewer.querySelector<HTMLElement>('[data-viewer-delete-wrap]')!;
     const deleteButton = viewer.querySelector<HTMLButtonElement>('[data-viewer-delete]')!;
-    const deleteConfirm = viewer.querySelector<HTMLElement>('[data-viewer-delete-confirm]')!;
-    let deleteArmed = false;
-    let deleteTimer: number | null = null;
     const safeDeleteAllowed = allowPhotoDetails && identities.length > 0;
+    const viewerMessageDeleted = (id: string) => !allowPhotoDetails && this.messageDeletions().has(id);
     const performSafeDelete = async () => {
       const identity = identities[current];
-      if (!safeDeleteAllowed || !identity || deleteButton.disabled) return;
-      deleteButton.disabled = true;
-      try {
-        await this.updateGalleryCuration({ category: 'images', clientMsgId: identity.clientMsgId, assetIndex: identity.assetIndex }, 'hide');
-        if (!workAbort.signal.aborted) this.closeImageViewer(true);
-      } catch (cause) {
-        deleteButton.disabled = false;
-        deleteConfirm.textContent = cause instanceof Error ? cause.message : '删除失败，请重试';
-        deleteArmed = false;
-        deleteWrap.classList.remove('is-confirming');
+      if (!safeDeleteAllowed || !identity || workAbort.signal.aborted) return;
+      await this.updateGalleryCuration({ category: 'images', clientMsgId: identity.clientMsgId, assetIndex: identity.assetIndex }, 'hide');
+      this.galleryKnownCounts.images?.keys.delete(`${identity.clientMsgId}:${identity.assetIndex}`);
+      if (!workAbort.signal.aborted) {
+        this.galleryRefreshPending = 'images';
+        this.closeImageViewer(true);
       }
     };
-    const deleteCurrentSafeAsset = async () => {
-      if (!safeDeleteAllowed || !identities[current] || deleteButton.disabled) return;
-      if (!deleteArmed) {
-        deleteArmed = true;
-        deleteWrap.classList.add('is-confirming');
-        deleteConfirm.textContent = '再次点击删除';
-        if (deleteTimer !== null) window.clearTimeout(deleteTimer);
-        deleteTimer = window.setTimeout(() => { deleteArmed = false; deleteWrap.classList.remove('is-confirming'); }, 3000);
-        return;
-      }
-      await performSafeDelete();
-    };
-    deleteButton.addEventListener('click', () => void deleteCurrentSafeAsset());
+    let photoDeleteCleanup: (() => void) | undefined;
+    workAbort.signal.addEventListener('abort', () => photoDeleteCleanup?.(), { once: true });
     deleteWrap.hidden = !safeDeleteAllowed;
     detailsButton?.append(createElement(Info));
     const closeDetails = (focus = true, animate = true) => {
@@ -9184,7 +9174,7 @@ export class QuietRoomApp {
       viewer.setAttribute('aria-label', video ? '视频播放器' : '图片查看器');
       viewer.querySelector<HTMLElement>('[data-viewer-name]')!.textContent = manifest.originalName || (video ? '视频' : '原图');
       const available = manifests.map((_, candidate) => candidate)
-        .filter(candidate => !identities[candidate] || !this.messageDeletions().has(identities[candidate]!.clientMsgId));
+        .filter(candidate => !identities[candidate] || !viewerMessageDeleted(identities[candidate]!.clientMsgId));
       const position = available.indexOf(index);
       viewer.querySelector<HTMLElement>('[data-viewer-counter]')!.textContent = available.length > 1
         ? `${Math.max(position, 0) + 1} / ${available.length}` : this.fileSize(manifest.originalSize);
@@ -9207,8 +9197,8 @@ export class QuietRoomApp {
         delete viewer.dataset.viewerAssetIndex;
       }
       deleteWrap.hidden = !safeDeleteAllowed || !identity || video;
-      deleteArmed = false;
-      deleteWrap.classList.remove('is-confirming');
+      photoDeleteCleanup?.();
+      photoDeleteCleanup = safeDeleteAllowed && !video ? mountMediaDeleteConfirm(deleteButton, '照片', performSafeDelete) : undefined;
       deleteButton.disabled = false;
     };
     const finishTransitionState = () => {
@@ -9237,10 +9227,10 @@ export class QuietRoomApp {
       // below closes immediately when the current item itself is deleted.
       for (let checked = 0; checked < manifests.length; checked++) {
         const identity = identities[target];
-        if (!identity || !this.messageDeletions().has(identity.clientMsgId)) break;
+        if (!identity || !viewerMessageDeleted(identity.clientMsgId)) break;
         target = (target + directionHint + manifests.length) % manifests.length;
       }
-      if (identities[target] && this.messageDeletions().has(identities[target]!.clientMsgId)) {
+      if (identities[target] && viewerMessageDeleted(identities[target]!.clientMsgId)) {
         this.closeImageViewer(true);
         return;
       }
@@ -9259,7 +9249,7 @@ export class QuietRoomApp {
       const manifest = manifests[target]!;
       const video = isVideoFile(manifest);
       const availableCount = manifests.filter((_, candidate) =>
-        !identities[candidate] || !this.messageDeletions().has(identities[candidate]!.clientMsgId)).length;
+        !identities[candidate] || !viewerMessageDeleted(identities[candidate]!.clientMsgId)).length;
       previous.hidden = availableCount < 2;
       next.hidden = availableCount < 2;
       let incomingLayer: HTMLElement | null = null;
@@ -9455,6 +9445,7 @@ export class QuietRoomApp {
     stage.addEventListener('contextmenu', (event) => event.preventDefault());
     this.viewerKeyHandler = (event: KeyboardEvent) => {
       if (!viewer.isConnected || viewer.classList.contains('is-closing')) return;
+      if (event.key !== 'Tab' && event.target instanceof Element && event.target.closest('input, .media-delete-confirm')) return;
       if (event.key === 'ArrowLeft' && !viewer.dataset.nativeVideo && !(event.target instanceof HTMLVideoElement) && manifests.length > 1) {
         event.preventDefault();
         void render(current - 1, { direction: -1, reason: 'control' });
@@ -9550,12 +9541,14 @@ export class QuietRoomApp {
   }
 
   private closeViewerIfProjectionDeleted(): boolean {
-    if (this.documentReader?.source && this.messageDeletions([this.documentReader.source]).has(this.documentReader.source.clientMsgId)) {
+    const safe = this.galleryMode === 'safe' && Boolean(this.root.querySelector('.gallery-shell'));
+    if (!safe && this.documentReader?.source && this.messageDeletions([this.documentReader.source]).has(this.documentReader.source.clientMsgId)) {
       this.closeDocumentReader();
       return true;
     }
     const viewer = this.root.querySelector<HTMLElement>('.image-viewer');
     if (!viewer) return false;
+    if (viewer.hasAttribute('data-safe-viewer')) return false;
     let clientMsgIds: string[] = [];
     try {
       const parsed = JSON.parse(viewer.dataset.viewerClientMsgIds ?? '[]') as unknown;
@@ -9819,6 +9812,7 @@ export class QuietRoomApp {
     const favorites = this.galleryMode === 'favorites';
     const surfaceName = favorites ? '收藏' : '保险箱';
     const category = filesTab ? '文件' : '照片和视频';
+    if (!favorites) for (const kind of ['images', 'files'] as const) this.galleryKnownCounts[kind] ??= { keys: new Set(), complete: false };
     const knownCount = this.galleryKnownCounts[tab] ??= { keys: new Set(), complete: false };
     let assets: GalleryAsset[] = [];
     let fileAssets: GalleryFileAsset[] = [];
@@ -9827,12 +9821,10 @@ export class QuietRoomApp {
     const imageButtons = new Map<string, HTMLButtonElement>();
     const fileButtons = new Map<string, HTMLButtonElement>();
     const curationRecords = favorites ? [] : this.uiPreferences.galleryCuration ?? [];
-    const deletedForEveryone = this.messageDeletions();
-    // Counts survive tab switches, but global deletion is a later projection
-    // event rather than a mutation of the original media record. Reconcile the
-    // retained keys before painting either tab so a deleted item cannot leave
-    // a stale number (or briefly add a misleading `+`) behind.
-    for (const deletedClientMsgId of deletedForEveryone.keys()) this.removeDeletedGalleryKnownCount(deletedClientMsgId);
+    // Safe is an independent media projection. Chat tombstones affect the
+    // conversation only and must not remove the corresponding Safe asset.
+    const deletedForEveryone = favorites ? this.messageDeletions() : new Map();
+    if (favorites) for (const id of deletedForEveryone.keys()) this.removeDeletedGalleryKnownCount(id);
     this.galleryObserver?.disconnect();
     this.galleryObserver = null;
     // Keep the segment control mounted across category changes so its capsule
@@ -9906,10 +9898,8 @@ export class QuietRoomApp {
         const pending = count && !count.complete && value === 0;
         const compactValue = value >= 10_000 ? `${Math.floor(value / 1000) / 10}万`
           : value >= 1000 ? `${Math.floor(value / 100) / 10}千` : String(value);
-        // A pending or empty category has no visual placeholder. Its loading
-        // distinction remains in the accessible description below.
-        label.hidden = value === 0;
-        label.textContent = value === 0 ? '' : `${compactValue}${count?.complete ? '' : '+'}`;
+        label.hidden = favorites ? value === 0 : false;
+        label.textContent = favorites && value === 0 ? '' : !count || pending ? '…' : `${compactValue}${count.complete ? '' : '+'}`;
         const description = !count ? '数量尚未加载' : pending ? '正在加载数量'
           : `已加载 ${value}${kind === 'images' ? ' 项照片和视频' : ' 个文件'}${count.complete ? '' : '，还有更早记录待加载'}`;
         button.setAttribute('aria-label', `${categoryName}，${description}`);
@@ -9917,7 +9907,7 @@ export class QuietRoomApp {
       }
     };
     updateCounts();
-    if (!favorites && (!this.galleryKnownCounts.images?.complete || !this.galleryKnownCounts.files?.complete)) {
+    if (!favorites) {
       void this.primeGalleryCounts(session, epoch, signal);
     }
     const visibilityButton = this.root.querySelector<HTMLButtonElement>('#gallery-toggle-visibility');
@@ -10063,15 +10053,14 @@ export class QuietRoomApp {
       return true;
     };
     const addMessages = (messages: DecryptedMessage[]) => {
-      // A delete event is loaded independently from the visible chat page. An
-      // older media target may only become available during this Safe scan, so
-      // project the event again with this decrypted page before adding tiles.
-      for (const [clientMsgId, tombstone] of this.messageDeletions(messages)) {
-        deletedForEveryone.set(clientMsgId, tombstone);
-        this.removeDeletedGalleryKnownCount(clientMsgId);
+      if (favorites) for (const [id, tombstone] of this.messageDeletions(messages)) {
+        deletedForEveryone.set(id, tombstone);
+        this.removeDeletedGalleryKnownCount(id);
       }
       for (const message of messages) {
         if (deletedForEveryone.has(message.clientMsgId)) continue;
+        if (!favorites && (message.status === 'pending' || message.status === 'failed')
+          && message.payload.kind !== 'gallery-image' && message.payload.kind !== 'gallery-file') continue;
         if (!favorites && isExpressionPayload(message.payload)) continue;
         if ((message.payload.kind === 'file' || message.payload.kind === 'gallery-file') && !isVideoFile(message.payload.file)) {
           if (!filesTab) continue;
@@ -10189,6 +10178,15 @@ export class QuietRoomApp {
       if (!filesTab) this.mountGalleryThumbnails(grid, assets);
     };
     addMessages([...this.pending.values()].sort((left, right) => right.acceptedAt.localeCompare(left.acceptedAt)));
+    const placeholders: HTMLElement[] = [];
+    if (!filesTab && !assets.length) for (let index = 0; index < 12; index++) {
+      const tile = document.createElement('div');
+      tile.className = 'gallery-initial-skeleton';
+      tile.setAttribute('aria-hidden', 'true');
+      tile.innerHTML = '<span class="gallery-skeleton"></span>';
+      grid.insertBefore(tile, footer); placeholders.push(tile);
+    }
+    const clearPlaceholders = () => placeholders.splice(0).forEach(tile => tile.remove());
     let beforeSeq: number | undefined;
     let hasMore = true;
     let loading = false;
@@ -10198,7 +10196,8 @@ export class QuietRoomApp {
       loading = true;
       more.disabled = true;
       status.textContent = initial && favorites ? '' : `正在查找${category}…`;
-      const startedWith = assets.length + fileCount;
+      const batch: DecryptedMessage[] = [];
+      let matchingAssets = 0;
       try {
         // Skip text-only batches without exposing plaintext media metadata in
         // IndexedDB or coupling the album to the chat's current history page.
@@ -10207,10 +10206,23 @@ export class QuietRoomApp {
           if (!this.isRuntimeActive(epoch, session) || !grid.isConnected) return;
           beforeSeq = page.beforeSeq ?? undefined;
           hasMore = page.hasMore;
-          addMessages(page.messages);
-          if (hasMore && assets.length + fileCount - startedWith < 36) await this.abortableDelay(0, signal);
-        } while (hasMore && assets.length + fileCount - startedWith < 36);
-        knownCount.complete = !hasMore;
+          batch.push(...page.messages);
+          for (const message of page.messages) {
+            const payload = message.payload;
+            const isFile = (payload.kind === 'file' || payload.kind === 'gallery-file') && !isVideoFile(payload.file);
+            if (filesTab !== isFile) continue;
+            if (favorites && this.messageDeletions(page.messages).has(message.clientMsgId)) continue;
+            const count = payload.kind === 'image-album' ? payload.images.length : 1;
+            for (let assetIndex = 0; assetIndex < count; assetIndex++) {
+              const target: GalleryCurationTarget = { category: filesTab ? 'files' : 'images', clientMsgId: message.clientMsgId, assetIndex };
+              if (favorites ? this.attachmentFavorite(target) : !curationRecords.some(item => item.hidden && galleryCurationKey(item) === galleryCurationKey(target))) matchingAssets++;
+            }
+          }
+          if (hasMore && matchingAssets < 36) await this.abortableDelay(0, signal);
+        } while (hasMore && matchingAssets < 36);
+        clearPlaceholders();
+        addMessages(batch);
+        knownCount.complete ||= !hasMore;
         updateCounts();
         status.textContent = hasMore ? '' : assets.length + fileCount ? `已加载本机保存的全部${category}`
           : favorites ? '' : filesTab ? '从保险箱上传的文档、压缩包等文件会显示在这里。' : '聊天中的照片、视频和从保险箱上传的照片、视频会显示在这里。';
@@ -10228,6 +10240,7 @@ export class QuietRoomApp {
         }
       } catch (cause) {
         if (this.isRuntimeActive(epoch, session) && grid.isConnected) {
+          clearPlaceholders();
           status.textContent = '保险箱记录暂时无法读取';
           more.textContent = '重试';
           this.operationalError(cause, '保险箱读取失败');
@@ -10256,31 +10269,35 @@ export class QuietRoomApp {
       files: this.galleryKnownCounts.files ??= { keys: new Set<string>(), complete: false },
     };
     try {
-      // Prime both tabs from the first page. Keep the established `+` state
-      // until the visible tab paginates through the remaining local history.
-      const page = await loadMediaHistoryPage(session, { limit: 200, signal });
-      if (!this.isRuntimeActive(epoch, session)) return;
-      for (const message of page.messages) {
-        if (this.messageDeletions().has(message.clientMsgId) || isExpressionPayload(message.payload)) continue;
-        if (message.payload.kind === 'image-album') {
-          message.payload.images.forEach((_, index) => counts.images.keys.add(`${message.clientMsgId}:${index}`));
-        } else if (message.payload.kind === 'image' || message.payload.kind === 'gallery-image') {
-          counts.images.keys.add(`${message.clientMsgId}:0`);
-        } else if ((message.payload.kind === 'file' || message.payload.kind === 'gallery-file') && isVideoFile(message.payload.file)) {
-          counts.images.keys.add(`${message.clientMsgId}:0`);
-        } else if (message.payload.kind === 'file' || message.payload.kind === 'gallery-file') {
-          counts.files.keys.add(`${message.clientMsgId}:file`);
+      let beforeSeq: number | undefined;
+      let hasMore = true;
+      do {
+        const page = await loadMediaHistoryPage(session, { beforeSeq, limit: 200, signal });
+        if (!this.isRuntimeActive(epoch, session) || this.galleryMode !== 'safe'
+          || this.galleryKnownCounts.images !== counts.images || this.galleryKnownCounts.files !== counts.files) return;
+        for (const message of page.messages) {
+          if (isExpressionPayload(message.payload)) continue;
+          const payload = message.payload;
+          if (payload.kind === 'image-album') payload.images.forEach((_, index) => counts.images.keys.add(`${message.clientMsgId}:${index}`));
+          else if (payload.kind === 'image' || payload.kind === 'gallery-image'
+            || (payload.kind === 'file' || payload.kind === 'gallery-file') && isVideoFile(payload.file)) counts.images.keys.add(`${message.clientMsgId}:0`);
+          else if (payload.kind === 'file' || payload.kind === 'gallery-file') counts.files.keys.add(`${message.clientMsgId}:file`);
         }
+        beforeSeq = page.beforeSeq ?? undefined;
+        hasMore = page.hasMore;
+        if (hasMore) await this.abortableDelay(0, signal);
+      } while (hasMore);
+      // Reconcile the latest Safe-only hides, including deletions during this scan.
+      for (const item of this.uiPreferences.galleryCuration ?? []) if (item.hidden) {
+        counts[item.category].keys.delete(`${item.clientMsgId}:${item.category === 'files' ? 'file' : item.assetIndex}`);
       }
-      counts.images.complete = !page.hasMore;
-      counts.files.complete = !page.hasMore;
-      for (const id of this.messageDeletions().keys()) this.removeDeletedGalleryKnownCount(id);
+      counts.images.complete = counts.files.complete = true;
       for (const kind of ['images', 'files'] as const) {
         const badge = this.root.querySelector<HTMLElement>(`[data-gallery-count="${kind}"]`);
         if (!badge) continue;
         const value = this.galleryKnownCounts[kind]!.keys.size;
-        badge.hidden = value === 0;
-        badge.textContent = value === 0 ? '' : String(value);
+        badge.hidden = false;
+        badge.textContent = String(value);
         const button = badge.closest<HTMLButtonElement>('.gallery-tab');
         button?.setAttribute('aria-label', `${kind === 'images' ? '相册' : '文件'}，已加载 ${value} 项`);
       }

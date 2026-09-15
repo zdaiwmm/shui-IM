@@ -162,6 +162,13 @@ describe('cloud recovery encryption and atomic storage', () => {
     expect(f.store.cleanupOrphanRooms(new Date(Date.now() + 86_400_000).toISOString())).toBe(0);
   });
 
+  it('reports independent uploaded chat and Safe inventory in room and backup rows', async () => {
+    const f = await fixture();
+    const upload = { ...f.upload, archives: f.upload.archives.map(archive => ({ ...archive, chatCount: 7, galleryCount: 3 })) };
+    f.store.cloudBackups.save(f.roomId, f.token, upload);
+    expect(f.store.cloudBackups.rooms()[0]).toMatchObject({ backupChatCount: 7, backupGalleryCount: 3 });
+  });
+
   it('requires a completed replacement and transfers every archive while retiring old online capabilities atomically', async () => {
     const f = await fixture();
     f.store.cloudBackups.save(f.roomId, f.token, f.upload);

@@ -174,7 +174,7 @@ async function rooms() {
     content.textContent = '';
     if (!data.rooms.length && offset > 0) { offset = Math.max(0, offset - 50); await rooms(); return; }
     content.append(pageToolbar('所有会话', `本页 ${data.rooms.length} 个会话`, { label: '刷新会话列表', icon: RefreshCw, run: () => void rooms() }));
-    const list = table(['会话', '最近活动', '活跃设备', '有效备份', '聊天消息', '保险箱数据']);
+    const list = table(['会话', '最近活动', '活跃设备', '有效备份', '已备份聊天', '已备份保险箱']);
     for (const room of data.rooms) {
       const button = document.createElement('button'); button.className = 'room-id'; button.textContent = room.roomId;
       button.addEventListener('click', () => void detail(room.roomId));
