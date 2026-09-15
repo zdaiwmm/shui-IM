@@ -256,10 +256,10 @@ try {
   await assertGalleryTab('images', { images: 0, files: 0 });
   await page.waitForFunction(() => {
     const count = document.querySelector('[data-gallery-count="images"]');
-    return count?.hidden && count.textContent === '';
+    return count && !count.hidden && count.textContent === '0';
   });
-  assert.equal(await page.locator('[data-gallery-count="files"]').textContent(), '', 'An unknown file count displayed a placeholder instead of only the category name');
-  assert.equal(await page.locator('[data-gallery-count="files"]').isVisible(), false, 'An unknown file count occupied visible space');
+  assert.equal(await page.locator('[data-gallery-count="files"]').textContent(), '0', 'Empty file category did not show its count on entry');
+  assert.equal(await page.locator('[data-gallery-count="files"]').isVisible(), true, 'File count required a tab visit');
   await page.evaluate(() => { const f = window.fileFlow; f.choose('gallery', f.fixtures()); });
   await page.waitForFunction(() => window.fileFlow.sent.length === 3 && !window.fileFlow.app.imageBatchUploading);
   results.gallery = await page.evaluate(() => {

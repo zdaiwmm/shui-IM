@@ -519,8 +519,8 @@ try {
     return { targetId };
   });
   await page.waitForFunction(() => document.querySelector('.gallery-scan-status')?.textContent?.startsWith('已加载本机保存的全部'));
-  assert.equal(await page.locator(`[data-gallery-asset-key="${pagedDeletion.targetId}:0"]`).count(), 0,
-    'A globally deleted image returned when its older Safe page loaded after the delete event');
+  assert.equal(await page.locator(`[data-gallery-asset-key="${pagedDeletion.targetId}:0"]`).count(), 1,
+    'Chat deletion removed the independent Safe image on an older page');
   assert.equal(await page.evaluate(async () => (await window.messageDeletion.vaultModule.loadHistoryMessage(
     window.messageDeletion.session, 8,
   ))?.clientMsgId), pagedDeletion.targetId, 'Global deletion mutated the immutable encrypted history record');

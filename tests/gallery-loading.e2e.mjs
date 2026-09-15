@@ -24,6 +24,7 @@ try {
     await import('/src/styles.css');
     await import('/src/chat-layout.css');
     await import('/src/gallery.css');
+    await import('/src/chat-interactions.css');
     await import('/src/cover.css');
     const { QuietRoomApp } = await import('/src/app.ts');
     const { createVault } = await import('/src/lib/vault.ts');
@@ -59,7 +60,7 @@ try {
         complete: async () => {}, savePlan: async () => {},
       });
       const sentAt = `2026-09-04T10:0${index}:00.000Z`;
-      const record = { clientMsgId: crypto.randomUUID(), senderId: own.deviceId, payload: { v: 1, kind: 'gallery-image', image: manifest, sentAt }, acceptedAt: sentAt, status: 'delivered' };
+      const record = { seq: Number.MAX_SAFE_INTEGER - index, clientMsgId: crypto.randomUUID(), senderId: own.deviceId, payload: { v: 1, kind: 'gallery-image', image: manifest, sentAt }, acceptedAt: sentAt, status: 'delivered' };
       records.push(record);
       if (cached) app.cacheLocalImage(manifest, file);
       if (delayed) gates.set(manifest.blobId, { waiting: false });
@@ -130,6 +131,110 @@ try {
   await page.evaluate(() => { const f = window.galleryLoading; f.release(f.retry); });
   await page.waitForFunction(() => document.querySelectorAll('.gallery-tile[data-thumbnail-state="loaded"] img').length === 3);
   assert(await page.locator('.gallery-tile img').evaluateAll(images => images.every(image => image.complete && image.naturalWidth > 0 && getComputedStyle(image).filter.includes('blur('))), 'Decoded images did not retain their default concealment');
+
+  // Test entry before encrypted metadata can resolve, not only slow original downloads.
+  await page.setViewportSize({ width:390, height:844 });
+  await page.evaluate(async () => {
+    const f = window.galleryLoading;
+    const v = await import('/src/lib/vault.ts');
+    f.v = v;
+    f.app.uiPreferencesHydrated = true;
+    f.saved = f.records.map((record, index) => ({ ...record, seq:index + 1, payload:{ ...record.payload, kind:'image' } }));
+    f.app.pending.clear();
+    for (const record of f.saved) await v.saveHistoryMessage(f.session, record);
+    for (let seq=4; seq<=225; seq++) await v.saveHistoryMessage(f.session, {
+      ...f.saved[0], seq, clientMsgId:crypto.randomUUID(), payload:{ v:1, kind:'text', text:'synthetic count gap', sentAt:f.saved[0].payload.sentAt }
+    });
+    await v.saveHistoryMessage(f.session, { ...f.saved[0], seq:226, clientMsgId:crypto.randomUUID(),
+      payload:{ v:1, kind:'file', file:{ ...f.saved[0].payload.image, blobId:crypto.randomUUID(), originalName:'test.txt', mimeType:'text/plain' }, sentAt:f.saved[0].payload.sentAt } });
+    f.app.messages = new Map(f.saved.map(record => [record.seq,record]));
+    f.app.galleryKnownCounts = {};
+    const decrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+    const gate = new Promise(resolve => { f.releaseHistory=resolve; });
+    crypto.subtle.decrypt = async (...args) => {
+      const aad = args[0]?.additionalData;
+      if (aad && new TextDecoder().decode(aad).startsWith('quiet-room-history-v1:')) await gate;
+      return decrypt(...args);
+    };
+    f.restoreDecrypt = () => { crypto.subtle.decrypt=decrypt; };
+    f.app.renderGallery();
+  });
+  assert.equal(await page.locator('.gallery-initial-skeleton').count(), 12, 'Entry did not show skeletons while reading encrypted metadata');
+  assert.equal(await page.locator('[data-gallery-count="files"]').isVisible(), true, 'Other tab has no entry count state');
+  if (screenshotDirectory) await page.screenshot({ path:path.join(screenshotDirectory,'gallery-entry-skeleton-390.png') });
+  await page.evaluate(() => { const f=window.galleryLoading; f.releaseHistory(); f.restoreDecrypt(); });
+  await page.waitForFunction(() => document.querySelector('[data-gallery-count="images"]')?.textContent === '3' && document.querySelector('[data-gallery-count="files"]')?.textContent === '1');
+  assert.equal(await page.locator('.gallery-initial-skeleton').count(), 0);
+  assert.equal(await page.locator('.gallery-tile').count(), 3, 'Metadata pages appended incomplete thumbnail layouts');
+  const independence = await page.evaluate(async () => {
+    const f=window.galleryLoading;
+    await f.app.deleteMessageForThisDevice(f.saved[0]);
+    // Old-version records had no separate Safe row. Opening Safe migrates
+    // that ciphertext without changing the authenticated source record.
+    await new Promise((resolve,reject)=>{const opening=indexedDB.open('quiet-room');opening.onsuccess=()=>{
+      const db=opening.result,tx=db.transaction('galleryHistory','readwrite');
+      tx.objectStore('galleryHistory').delete(`${f.session.vault.roomId}:1`);
+      tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>reject(tx.error);
+    };});
+    await f.v.loadMediaHistoryPage(f.session,{beforeSeq:4});
+    const migrated=await new Promise((resolve,reject)=>{const opening=indexedDB.open('quiet-room');opening.onsuccess=()=>{
+      const db=opening.result,tx=db.transaction('galleryHistory','readonly'),req=tx.objectStore('galleryHistory').get(`${f.session.vault.roomId}:1`);
+      tx.oncomplete=()=>{db.close();resolve(Boolean(req.result));};tx.onabort=()=>reject(tx.error);
+    };});
+    if(!migrated) throw Error('Legacy chat attachment did not gain an independent Safe record');
+    const deleted={ ...f.saved[1], seq:227, clientMsgId:crypto.randomUUID(), payload:{v:1, kind:'message-delete', sentAt:f.saved[1].payload.sentAt,
+      target:{clientMsgId:f.saved[1].clientMsgId,serverSeq:2,senderId:f.saved[1].senderId}} };
+    await f.v.saveHistoryMessage(f.session,deleted);
+    f.app.messageEventHistory.set(227,deleted);
+    const chat=f.app.orderedMessages().map(message=>message.clientMsgId);
+    f.app.renderGallery();
+    return { chat, ids:f.saved.map(m=>m.clientMsgId) };
+  });
+  assert.deepEqual(independence.chat, [independence.ids[2]], 'Chat deletion no longer suppresses chat targets');
+  await page.waitForFunction(() => document.querySelectorAll('.gallery-tile img').length===3);
+  for (const id of independence.ids) assert.equal(await page.locator(`[data-gallery-asset-key="${id}:0"]`).count(),1,'Chat deletion removed a Safe copy');
+  // Even removing one chat-store row cannot remove the independently persisted Safe record.
+  const detached = await page.evaluate(async () => {
+    const f=window.galleryLoading;
+    await new Promise((resolve,reject)=>{const opening=indexedDB.open('quiet-room');opening.onsuccess=()=>{
+      const db=opening.result,tx=db.transaction(['history','galleryHistory'],'readwrite');
+      const req=tx.objectStore('galleryHistory').get(`${f.session.vault.roomId}:2`);
+      req.onsuccess=()=>{if(!req.result)tx.abort();};
+      tx.objectStore('history').delete(`${f.session.vault.roomId}:2`);
+      tx.oncomplete=()=>{db.close();resolve();};tx.onabort=()=>reject(Error('Safe copy missing'));
+    };});
+    const result=await f.v.loadMediaHistoryPage(f.session,{beforeSeq:4});
+    await f.v.saveHistoryMessage(f.session,f.saved[1]);
+    return result.messages.some(m=>m.clientMsgId===f.saved[1].clientMsgId);
+  });
+  assert(detached, 'Safe still depends on the chat-store row');
+  const deletedChatTile=page.locator(`[data-gallery-asset-key="${independence.ids[1]}:0"]`);
+  await deletedChatTile.click(); await deletedChatTile.click();
+  await page.locator('.viewer-stage img').waitFor();
+  assert.equal(await page.evaluate(()=>window.galleryLoading.app.closeViewerIfProjectionDeleted()),false,'Safe viewer closed for a chat tombstone');
+  await page.locator('[data-viewer-close]').click();
+  await page.locator('.image-viewer').waitFor({state:'detached'});
+  const keepChatTile=page.locator(`[data-gallery-asset-key="${independence.ids[2]}:0"]`);
+  await keepChatTile.click(); await keepChatTile.click();
+  await page.locator('.viewer-stage img').waitFor();
+  await page.locator('[data-viewer-delete]').click();
+  await page.locator('.media-delete-confirm:not([hidden])').waitFor();
+  if (screenshotDirectory) await page.screenshot({path:path.join(screenshotDirectory,'safe-photo-delete-confirm-390.png'), animations:'disabled'});
+  await page.keyboard.press('Escape');
+  assert.equal(await page.locator('.image-viewer').count(),1);
+  await page.locator('[data-viewer-delete]').click();
+  await page.evaluate(()=>{const f=window.galleryLoading; f.savePreferences=f.app.saveUiPreferencesNow; f.app.saveUiPreferencesNow=async()=>{throw Error('synthetic write failure');};});
+  await page.locator('[data-confirm-media-delete]').click();
+  await page.locator('.media-delete-error:not([hidden])').waitFor();
+  assert.equal(await page.evaluate(()=>window.galleryLoading.app.uiPreferences.galleryCuration?.some(item=>item.hidden)??false),false,'Failed deletion changed Safe preferences');
+  await page.evaluate(()=>{const f=window.galleryLoading; f.app.saveUiPreferencesNow=f.savePreferences;});
+  await page.locator('[data-confirm-media-delete]').click();
+  await page.locator('.image-viewer').waitFor({state:'detached'});
+  await page.waitForFunction(()=>document.querySelectorAll('.gallery-tile').length===2);
+  assert.equal(await page.locator('[data-gallery-count="images"]').textContent(),'2');
+  assert.equal(await page.evaluate(id=>window.galleryLoading.app.orderedMessages().some(m=>m.clientMsgId===id),independence.ids[2]),true,'Safe deletion removed chat');
+  const durable=await page.evaluate(async()=>{const f=window.galleryLoading;const prefs=await f.v.loadUiPreferences(f.session);return prefs.galleryCuration?.some(item=>item.hidden&&item.clientMsgId===f.saved[2].clientMsgId);});
+  assert(durable,'Safe deletion did not persist');
 
   await page.evaluate(async () => { const f = window.galleryLoading; f.late = await f.addImage({ delayed: true }); f.app.renderGallery(); });
   await page.waitForFunction(() => window.galleryLoading.gates.get(window.galleryLoading.late).waiting);

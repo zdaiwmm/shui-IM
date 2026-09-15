@@ -149,8 +149,8 @@ try {
   assert.equal(restored.requests, 4, 'one code and one batch per run, no duplicate downloads for a bounded archive');
   assert.deepEqual(restored.result.inventory, { chat: { backup: 3, existing: 0 }, gallery: { backup: 3, existing: 0 } });
   assert.equal(restored.result.audit.chat.imported, 3); assert.equal(restored.result.audit.chat.visible, 2);
-  assert.equal(restored.result.audit.chat.hidden, 1); assert.equal(restored.result.audit.gallery.visible, 1);
-  assert.equal(restored.result.audit.gallery.hidden, 2, 'a withdrawn image and a Safe-hidden image are not visible additions');
+  assert.equal(restored.result.audit.chat.hidden, 1); assert.equal(restored.result.audit.gallery.visible, 2);
+  assert.equal(restored.result.audit.gallery.hidden, 1, 'only Safe-specific deletion hides a restored Safe image');
   assert.equal(restored.retry.audit.chat.backup, 3); assert.equal(restored.retry.audit.chat.existing, 3);
   assert.equal(restored.retry.audit.chat.imported, 0); assert.equal(restored.retry.audit.chat.available, 2);
   const readback = await page.evaluate(async () => {
@@ -192,8 +192,8 @@ try {
     return { result, visibleChat: app.orderedMessages().map(m => m.seq), stored: (await f.history()).length };
   });
   assert.equal(hiddenOnly.result.chat.total, 2); assert.equal(hiddenOnly.result.audit.chat.imported, 2);
-  assert.equal(hiddenOnly.result.audit.chat.visible, 0); assert.equal(hiddenOnly.result.audit.gallery.visible, 0);
-  assert.equal(hiddenOnly.result.audit.chat.hidden, 2); assert.equal(hiddenOnly.result.audit.gallery.hidden, 2);
+  assert.equal(hiddenOnly.result.audit.chat.visible, 0); assert.equal(hiddenOnly.result.audit.gallery.visible, 1);
+  assert.equal(hiddenOnly.result.audit.chat.hidden, 2); assert.equal(hiddenOnly.result.audit.gallery.hidden, 1);
   assert.deepEqual(hiddenOnly.visibleChat, [1], 'real chat projection agrees with the zero-visible-additions report');
   assert.equal(hiddenOnly.stored, 5, 'hidden content remains durably stored rather than disappearing');
   const cancelled = await page.evaluate(async () => {
@@ -312,7 +312,7 @@ try {
   assert.equal(await page.locator('[data-count=gallery]').count(), 1);
   assert.match(await page.locator('[data-inventory=chat]').textContent(), /备份共 3 条 · 本机原有 0 条/);
   assert.match(await page.locator('[data-audit=chat]').textContent(), /本次补入 3 条：可见 2 条，隐藏 1 条/);
-  assert.match(await page.locator('[data-audit=gallery]').textContent(), /本次补入 3 条：可见 1 条，隐藏 2 条/);
+  assert.match(await page.locator('[data-audit=gallery]').textContent(), /本次补入 3 条：可见 2 条，隐藏 1 条/);
   if (screenshots) await page.screenshot({ path: `${screenshots}/progress-dark.png` });
   await page.locator('[data-dismiss]').click();
   const participant = await page.evaluate(async () => { window.fixture.delay = 0; await window.fixture.setup('joiner'); const result = await window.fixture.restore(); return { result, direct: (await window.fixture.history()).some(m => m.payload.kind === 'gallery-image') }; });

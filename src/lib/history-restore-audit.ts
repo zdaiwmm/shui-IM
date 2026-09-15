@@ -50,8 +50,8 @@ export async function auditRestoredHistory(session: VaultSession, expected: Read
           if (!plan[kind] || !result[kind]) continue;
           const row = result[kind]!;
           row.backup++; if (!plan.missing) row.existing++;
-          let visible = !deleted.has(message.clientMsgId);
-          if (kind === 'chat') visible &&= !hiddenChat.has(message.clientMsgId.toLowerCase());
+          let visible = true;
+          if (kind === 'chat') visible = !deleted.has(message.clientMsgId) && !hiddenChat.has(message.clientMsgId.toLowerCase());
           else {
             const payload = message.payload;
             const category = (payload.kind === 'file' || payload.kind === 'gallery-file') && !isVideoFile(payload.file) ? 'files' : 'images';
