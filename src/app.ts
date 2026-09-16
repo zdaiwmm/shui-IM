@@ -1,4 +1,6 @@
 import { mountMediaDeleteConfirm } from './lib/media-delete-confirm';
+import { exportLocalHistory, importLocalHistory } from './lib/local-history-backup';
+import { createLocalBackupFile } from './lib/local-backup-file';
 import { validMediaDimensions } from './lib/media-dimensions';
 import { setChatMediaDimensions } from './lib/chat-media-geometry';
 import { attachHistoryRestore } from './lib/history-restore-ui';
@@ -3935,6 +3937,7 @@ export class QuietRoomApp {
                 <p class="protocol-label">${this.session.vault.protocol === 'mls-rfc9420' ? '端到端加密' : '旧版会话，建议重新建立'}</p>
                 <button id="manage-devices" type="button">${icons.lock}<span>设备管理</span></button>
                 <button id="backup-settings" type="button">${icons.download}<span>备份与恢复</span></button>
+                <button id="local-history-backup" type="button">${icons.file}<span>聊天记录本地备份</span></button>
                 <button id="release-history" type="button">${icons.file}<span>更新日志</span></button>
                 <p class="menu-footnote">新设备只能查看加入后的消息。</p>
               </div>
@@ -4386,6 +4389,7 @@ export class QuietRoomApp {
       this.transitionPage('forward', () => this.renderGallery());
     });
     this.root.querySelector('#backup-settings')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderBackupSettings()));
+    this.root.querySelector('#local-history-backup')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderLocalHistoryBackup()));
     this.root.querySelector('#release-history')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderReleaseHistory()));
     this.root.querySelector('#reminder-export')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderBackupSettings()));
     this.root.querySelector('#dismiss-recovery')?.addEventListener('click', () => {
@@ -8182,6 +8186,99 @@ export class QuietRoomApp {
       : '尚未完成首次备份，联网并保持页面解锁后会自动重试。');
     const ready = Boolean(backup?.syncedAt && !backup.replaces && !this.session.vault.recoverySource);
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-backup-ready]')) button.disabled = !ready;
+  }
+
+  private renderLocalHistoryBackup(): void {
+    const session = this.session;
+    if (!session || this.privacyCovered || !this.runtimeAbort) return;
+    this.captureChatAnchor(false);
+    this.closeVoiceRecorder();
+    this.voicePlayback.stop();
+    if (!this.setActiveSurface('away')) return;
+    const epoch = this.runtimeEpoch;
+    const controller = new AbortController();
+    const signal = AbortSignal.any([controller.signal, this.runtimeAbort.signal]);
+    this.root.innerHTML = `<main class="backup-page">
+      <header class="subpage-header backup-header">
+        <button class="icon-button" id="local-backup-back" type="button" aria-label="返回聊天">${icons.back}</button>
+        <div class="backup-heading"><h1>聊天记录本地备份</h1><p>文件由你保管</p></div>
+        <span class="backup-header-spacer" aria-hidden="true"></span>
+      </header>
+      <section class="backup-content">
+        <p class="backup-intro">导出这台设备已有的聊天和已下载的附件。图片、视频和文件保留原始字节。</p>
+        <div class="backup-settings-group">
+          <section class="backup-setting"><div class="backup-setting-copy"><span class="backup-setting-icon" aria-hidden="true">${icons.download}</span><div><h2>导出聊天备份</h2><p>在本机压缩、加密，不上传文件。新聊天需要重新导出。</p></div></div>
+            <button class="secondary-button" id="local-backup-export" type="button">生成备份文件</button></section>
+          <section class="backup-setting"><div class="backup-setting-copy"><span class="backup-setting-icon" aria-hidden="true">${icons.file}</span><div><h2>恢复聊天记录</h2><p>选择自己保存的文件，在本机校验并导入。</p></div></div>
+            <button class="secondary-button" id="local-backup-import" type="button">选择聊天备份</button></section>
+        </div>
+        <p id="local-backup-status" class="backup-intro" role="status" aria-live="polite"></p>
+        <button class="primary-button" id="local-backup-save" type="button" hidden>保存到系统文件</button>
+        <p class="form-error" role="alert"></p>
+        <p class="backup-footnote">生成后还需保存到系统文件位置，并确认文件存在。清除浏览器数据不会删除已经另存的文件；请另存一份到安全位置。未下载或缓存已被清理的附件不包含在文件中。</p>
+      </section></main>`;
+    const exportButton = this.root.querySelector<HTMLButtonElement>('#local-backup-export')!;
+    const importButton = this.root.querySelector<HTMLButtonElement>('#local-backup-import')!;
+    const saveButton = this.root.querySelector<HTMLButtonElement>('#local-backup-save')!;
+    const status = this.root.querySelector<HTMLElement>('#local-backup-status')!;
+    const error = this.root.querySelector<HTMLElement>('.form-error')!;
+    let prepared: Awaited<ReturnType<typeof createLocalBackupFile>> | null = null;
+    let file: File | null = null;
+    let busy = false;
+    const active = () => status.isConnected && this.isRuntimeActive(epoch, session) && !signal.aborted;
+    const setWorking = (value: boolean) => { busy = value; exportButton.disabled = value; importButton.disabled = value; };
+    signal.addEventListener('abort', () => { file = null; void prepared?.dispose(); prepared = null; }, { once: true });
+    this.root.querySelector('#local-backup-back')?.addEventListener('click', () => {
+      controller.abort(); this.transitionPage('backward', () => { void this.openSession(); });
+    });
+    exportButton.addEventListener('click', async () => {
+      if (busy) return;
+      setWorking(true); error.textContent = ''; saveButton.hidden = true; file = null;
+      await prepared?.dispose(); prepared = null;
+      try {
+        prepared = await createLocalBackupFile(signal);
+        const summary = await exportLocalHistory(session, prepared.sink, signal, result => {
+          if (active()) status.textContent = `正在打包：${result.messages} 条记录，${result.attachments} 个附件`;
+        });
+        file = await prepared.finish();
+        if (!active()) return;
+        status.textContent = `已生成 ${summary.messages} 条记录、${summary.attachments} 个原始附件的备份。${summary.missingAttachments ? `另有 ${summary.missingAttachments} 个附件未保存在本机，本文件不包含这些原件。` : ''}请继续保存文件。`;
+        saveButton.hidden = false;
+      } catch (cause) {
+        await prepared?.dispose(); prepared = null;
+        if (active()) error.textContent = cause instanceof Error ? cause.message : '备份生成失败，请检查可用存储空间';
+      } finally { if (active()) setWorking(false); }
+    });
+    saveButton.addEventListener('click', async () => {
+      if (!file || busy) return;
+      try {
+        const saving = file;
+        prepared?.handoff(); prepared = null;
+        await this.withSystemSurface(() => downloadBlob(saving, `quiet-room-${new Date().toISOString().slice(0, 10)}.qrlocal`));
+        if (active()) status.textContent = '已交给系统保存，请在文件应用中确认。分享取消或下载中断不代表已保存。';
+      } catch (cause) { if (active()) error.textContent = cause instanceof Error ? cause.message : '文件未保存，请重试'; }
+    });
+    importButton.addEventListener('click', () => {
+      if (busy) return;
+      const input = document.createElement('input'); input.type = 'file'; input.accept = '.qrlocal'; input.hidden = true;
+      this.root.append(input);
+      input.addEventListener('cancel', () => { if (input === this.imagePickerInput) void this.finishImagePicker(false); input.remove(); });
+      input.addEventListener('change', async () => {
+        if (input !== this.imagePickerInput) return;
+        const selected = input.files?.[0];
+        const invalidated = await this.finishImagePicker(false); input.remove();
+        if (!selected || invalidated || !active()) return;
+        setWorking(true); error.textContent = '';
+        try {
+          const summary = await importLocalHistory(session, selected, signal, (stage, result) => {
+            if (active()) status.textContent = `${stage === 'verifying' ? '正在校验' : '正在导入'}：${result.messages} 条记录，${result.attachments} 个附件`;
+          });
+          if (active()) status.textContent = `本机回读核验完成，补入 ${summary.imported} 条记录。${summary.missingAttachments ? `备份不含 ${summary.missingAttachments} 个附件原件。` : '附件原始字节已核验。'}`;
+        } catch (cause) { if (active()) error.textContent = cause instanceof Error ? cause.message : '导入未完成，可重新选择文件重试'; }
+        finally { if (active()) setWorking(false); }
+      });
+      if (this.beginImagePicker(input)) input.click(); else input.remove();
+    });
   }
 
   private renderBackupSettings(): void {

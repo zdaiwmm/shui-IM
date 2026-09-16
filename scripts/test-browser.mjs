@@ -33,6 +33,7 @@ export const browserGroups = Object.freeze({
     'tests/voice-lifecycle.e2e.mjs',
     'tests/voice-submission.e2e.mjs',
     'tests/cloud-backup-lifecycle.e2e.mjs',
+    'tests/local-history-backup.e2e.mjs',
     'tests/history-restore.e2e.mjs',
     'tests/backup-admin-ui.e2e.mjs',
     'tests/admin-collection-ui.e2e.mjs',

@@ -63,6 +63,8 @@
 
 ## 测试命令的准确含义
 
+本地聊天备份基础模块：`LOCAL_HISTORY_BACKUPS.md`、`src/lib/local-archive.ts`、`src/lib/local-history-backup.ts`、`src/lib/local-backup-file.ts`；回归为 `tests/local-archive.test.ts` 和 `tests/local-history-backup.e2e.mjs`。该能力不代表 v8 双人会话恢复协议已经完成。
+
 聊天遮蔽位图实现见 `src/lib/concealed-image.ts`；高斯像素验证为
 `tests/concealed-image.test.ts`，编码中锁定、URL 释放和聊天显隐回归沿用
 `tests/chat-image-privacy.e2e.mjs`。它只生成解锁运行期的内存预览，不替代原始附件。

@@ -1857,6 +1857,10 @@ export function saveUiPreferences(session: VaultSession, preferences: UiPreferen
     const next = normalizeUiPreferences(preferences);
     // A delayed draft/anchor save must not erase restored deletion projections.
     const previous = await loadUiPreferences(session);
+    // Local history imports must not be undone by an older queued draft/anchor save.
+    const hiddenChatMessageIds = [...new Set([...(next.hiddenChatMessageIds ?? []), ...(previous.hiddenChatMessageIds ?? [])])];
+    if (hiddenChatMessageIds.length > 20_000) throw new Error('本机删除记录超过上限');
+    if (hiddenChatMessageIds.length) next.hiddenChatMessageIds = hiddenChatMessageIds;
     const merged = new Map((next.galleryCuration ?? []).map(record => [galleryCurationKey(record), record]));
     for (const record of previous.galleryCuration ?? []) if (record.hidden) merged.set(galleryCurationKey(record), record);
     if (merged.size) next.galleryCuration = normalizeGalleryCurationRecords([...merged.values()]);
