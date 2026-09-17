@@ -216,7 +216,7 @@ try {
   invariant(await creator.locator('#joint-start').count() === 1, 'Dismissing the recovery keyboard returned to the first entry page');
   await creator.evaluate(() => window.dispatchEvent(new Event('focus')));
   invariant(await creator.locator('#joint-start').count() === 1, 'Returning window focus left the recovery-code page');
-  await creator.keyboard.press('Escape');
+  await creator.locator('.joint-code-sheet').press('Escape');
   await creator.locator('#joint-code-form').waitFor({ state: 'detached' });
   await creator.locator('#joint-back').click();
   await creator.locator('#create-room').click();
