@@ -242,6 +242,13 @@ try {
   await setPasskey(joiner);
   await creator.locator('.chat-shell').waitFor({ timeout: 15000 });
   await joiner.locator('.chat-shell').waitFor({ timeout: 15000 });
+  for (const page of [creator, joiner]) {
+    const welcome = page.locator('#welcome-chat');
+    if (await welcome.waitFor({ timeout: 5_000 }).then(() => true, () => false)) {
+      await welcome.click();
+      await welcome.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
+    }
+  }
   await creator.locator('#peer-presence[data-state=online]').waitFor();
   if (process.argv.includes('--privacy-repro')) {
     await joiner.locator('#message-input').fill('audit-secret-canary');
@@ -305,7 +312,7 @@ try {
   await creator.locator('#backup-settings').click();
   await creator.locator('.backup-page').waitFor();
   await capture('recovery', ['mobile', 'small', 'landscape', 'dark', 'large']);
-  await creator.locator('#backup-back').click();
+  await creator.locator('#recovery-center-back').click();
   await creator.keyboard.press('Escape');
   await creator.waitForTimeout(300);
   const source = creator.locator('.message.incoming').filter({ hasText: messages[4] });

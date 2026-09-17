@@ -48,6 +48,7 @@
 | MLS、多设备、成员变更与历史边界 | `SECURITY.md`、`PRODUCTION_SECURITY_GATE.md` | `src/lib/mls.ts`、`src/lib/vault.ts`、`server/storage.mjs` | `tests/mls.test.ts`、`tests/storage.test.ts`、`tests/upgrade-safety.test.ts` |
 | 通行密钥、本机保险库、恢复、待发箱 | `SECURITY.md`、`README.md` | `src/lib/platform-vault.ts`、`src/lib/vault.ts` | `tests/recovery.test.ts`、`tests/recovery-server.test.ts`、`tests/vault-lifecycle.e2e.mjs`、`tests/vault-resume.e2e.mjs` |
 | 自动恢复备份、新码轮换、显式历史恢复 | `RECOVERY_BACKUPS.md`、`SECURITY.md` | `src/lib/backup-crypto.ts`、`src/lib/cloud-backup.ts`、`src/lib/history-restore-ui.ts`、`src/lib/vault.ts`、`server/cloud-backups.mjs` | `tests/cloud-backups.test.ts`、`tests/cloud-backup-lifecycle.e2e.mjs`、`tests/history-restore.e2e.mjs`、`tests/browser.e2e.mjs` |
+| 双人恢复、邀请进度、本地聊天备份 | `RECOVERY_BACKUPS.md`、`LOCAL_HISTORY_BACKUPS.md`、[D-041](decisions.md#d-041双人恢复后其他旧设备必须重新授权) | `src/lib/joint-recovery.ts`、`server/joint-recovery.mjs`、`src/lib/local-archive.ts`、`src/app.ts` | `tests/joint-recovery.test.ts`、`tests/joint-recovery.e2e.mjs`、`tests/local-archive.test.ts`、`tests/local-history-backup.e2e.mjs` |
 | 会话管理后台与采集任务 | `RECOVERY_BACKUPS.md`、`MEMES.md`、`DEPLOYMENT.md` | `src/admin.ts`、`server/admin.mjs`、`server/expression-catalog.mjs`、`server/admin-auth.mjs`、`scripts/admin-setup.mjs`、`compose.admin.yaml` | `tests/admin.test.ts`、`tests/expression-catalog.test.ts`、`tests/backup-admin-ui.e2e.mjs`、`tests/admin-collection-ui.e2e.mjs`、`tests/deploy-admin.test.ts` |
 | API、WebSocket、服务端资源控制 | `README.md`、`SECURITY.md` | `src/lib/api.ts`、`server/index.mjs`、`server/storage.mjs`、`server/protocol.mjs` | `tests/api.test.ts`、`tests/server.test.ts`、`tests/storage.test.ts` |
 | 照片、视频、普通文件和创建者保险箱（相册 / 文件） | `PRODUCT.md`、`README.md`、`SECURITY.md`、`TEST_PLAN.md`、[D-024](./decisions.md#d-024保险箱本地整理与聊天删除严格分层) | `src/lib/file-crypto.ts`、`src/lib/media-dimensions.ts`、`src/lib/image-batches.ts`、`src/lib/video-media.ts`、`src/lib/video-poster.ts`、`src/lib/media-upload-view.ts`、`src/lib/image-viewer-gestures.ts`、`src/lib/gallery-curation.ts`、`src/app.ts`、`src/gallery.css` | `tests/file-attachments.test.ts`、`tests/message-payload.test.ts`、`tests/image-batches.test.ts`、`tests/video-media.test.ts`、`tests/image-viewer-gestures.test.ts`、`tests/gallery-curation.test.ts`、`tests/video-flow.e2e.mjs`、`tests/video-upload.e2e.mjs`、`tests/media-upload.e2e.mjs`、`tests/file-flow.e2e.mjs`、`tests/file-outbox.e2e.mjs`、`tests/file-interactions.e2e.mjs`、`tests/chat-image-privacy.e2e.mjs`、`tests/gallery-loading.e2e.mjs`、`tests/frontend-lifecycle.e2e.mjs`、`tests/cloud-backup-lifecycle.e2e.mjs` |
@@ -63,7 +64,7 @@
 
 ## 测试命令的准确含义
 
-本地聊天备份基础模块：`LOCAL_HISTORY_BACKUPS.md`、`src/lib/local-archive.ts`、`src/lib/local-history-backup.ts`、`src/lib/local-backup-file.ts`；回归为 `tests/local-archive.test.ts` 和 `tests/local-history-backup.e2e.mjs`。该能力不代表 v8 双人会话恢复协议已经完成。
+本地聊天备份：`LOCAL_HISTORY_BACKUPS.md`、`src/lib/local-archive.ts`、`src/lib/local-history-backup.ts`、`src/lib/local-backup-file.ts`；回归为 `tests/local-archive.test.ts` 和 `tests/local-history-backup.e2e.mjs`。双人恢复协议为 `src/lib/joint-recovery.ts` 与 `tests/joint-recovery.test.ts` / `tests/joint-recovery.e2e.mjs`。旧自动备份隐藏入口为 `#legacy-backup` 与 `#legacy-recovery`。
 
 聊天遮蔽位图实现见 `src/lib/concealed-image.ts`；高斯像素验证为
 `tests/concealed-image.test.ts`，编码中锁定、URL 释放和聊天显隐回归沿用

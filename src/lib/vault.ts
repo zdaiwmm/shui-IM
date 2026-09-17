@@ -148,6 +148,8 @@ export type UiPreferences = {
   composerDraft?: string;
   chatAnchor?: ChatScrollAnchor;
   recoveryReminderDismissed?: boolean;
+  entranceCardDismissed?: boolean;
+  historyImportDismissed?: boolean;
   /** Device-local chat projection; it never mutates encrypted room history. */
   hiddenChatMessageIds?: string[];
   /** Device-local Safe ordering/removal projection. */
@@ -586,6 +588,65 @@ export async function createVault(
   isActive: () => boolean = () => true,
 ): Promise<VaultSession> {
   return withVaultLifecycle(() => createVaultLocked(vault, legacySecret, unlockMethod, preparedPlatformCredential, isActive));
+}
+
+/** Explicitly replace this browser's inaccessible vault after the recovery screen's confirmation. */
+export async function createJointRecoveryVault(vault: Vault, credential: PlatformCredentialResult, expected: StoredVault | null, signal: AbortSignal): Promise<VaultSession> {
+  return withVaultLifecycle(async () => {
+    signal.throwIfAborted();
+    if (!sameStoredVault(await readStoredVaultUnlocked(), expected)) throw staleVaultError();
+    return createVaultLocked(vault, '', 'platform', credential, () => !signal.aborted, expected ?? undefined);
+  });
+}
+
+/** Discard only the authenticated, server-cancelled staging session. */
+export async function discardJointRecovery(session: VaultSession, signal: AbortSignal): Promise<boolean> {
+  return withVaultMutation(session, async mutation => {
+    const pending = session.vault.pendingJointRecovery;
+    if (!pending) throw new Error('本机恢复状态已变化');
+    signal.throwIfAborted();
+    if (pending.preserveHistory) {
+      delete session.vault.pendingJointRecovery;
+      await saveVault(session, mutation); return true;
+    }
+    await transaction('vault', 'readwrite', store => store.delete('current'));
+    return false;
+  });
+}
+
+/** Keep a helper's master key/history; clear transient old-epoch sends for both roles atomically. */
+export async function finishJointRecovery(session: VaultSession, nextVault: Vault, signal: AbortSignal): Promise<void> {
+  return withVaultMutation(session, async () => {
+    const pending = session.vault.pendingJointRecovery;
+    if (!pending || session.stored.unlockMethod !== 'platform') throw new Error('双人恢复状态不存在');
+    const preferences = pending.preserveHistory ? await loadUiPreferences(session) : {};
+    const nextSession = { ...session, vault: nextVault };
+    const preferenceRecord = await encryptLocalRecord(nextSession, 'preferences', uiPreferenceId(nextSession), preferences);
+    const nextStored: StoredPlatformVault = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
+    signal.throwIfAborted();
+    const database = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
+      const tx = database.transaction(stores, 'readwrite');
+      putCurrentVault(tx, nextStored, session.stored);
+      for (const name of stores.slice(1)) {
+        if (pending.preserveHistory && ['history', 'galleryHistory', 'restoredGallery', 'mediaChunks'].includes(name)) continue;
+        const store = tx.objectStore(name);
+        const request = store.index('roomId').openCursor(IDBKeyRange.only(nextVault.roomId));
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (cursor) { cursor.delete(); cursor.continue(); }
+          else if (name === 'preferences') store.put(preferenceRecord);
+        };
+      }
+      const abort = () => { try { tx.abort(); } catch { /* settled */ } };
+      signal.addEventListener('abort', abort, { once: true });
+      const release = () => { signal.removeEventListener('abort', abort); database.close(); };
+      tx.oncomplete = () => { release(); session.vault = nextVault; session.stored = nextStored; resolve(); };
+      tx.onabort = () => { release(); reject(signal.reason ?? tx.error ?? staleVaultError()); };
+      tx.onerror = () => reject(tx.error);
+    });
+  });
 }
 
 async function createVaultLocked(
@@ -1811,6 +1872,8 @@ function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: b
     composerDraft: typeof source.composerDraft === 'string' ? source.composerDraft.slice(0, 4000) : '',
     ...(chatAnchor ? { chatAnchor } : {}),
     recoveryReminderDismissed: source.recoveryReminderDismissed === true,
+    entranceCardDismissed: source.entranceCardDismissed === true,
+    historyImportDismissed: source.historyImportDismissed === true,
     ...(hiddenChatMessageIds.length ? { hiddenChatMessageIds } : {}),
     ...(galleryCuration.length ? { galleryCuration } : {}),
     ...(attachmentFavorites.length ? { attachmentFavorites } : {}),

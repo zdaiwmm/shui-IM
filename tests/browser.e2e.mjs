@@ -248,6 +248,13 @@ try {
   ]).catch(async (error) => {
     throw new Error(`Pairing did not finish. Creator: ${await creator.locator('body').innerText()} Joiner: ${await joiner.locator('body').innerText()}`, { cause: error });
   });
+  for (const page of [creator, joiner]) {
+    const welcome = page.locator('#welcome-chat');
+    if (await welcome.waitFor({ timeout: 5_000 }).then(() => true, () => false)) {
+      await welcome.click();
+      await welcome.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
+    }
+  }
   const joinerUsesSyncablePasskey = await joiner.evaluate(async () => {
     const { readStoredVault } = await import('/src/lib/vault.ts');
     const stored = await readStoredVault();
@@ -981,10 +988,9 @@ try {
 
   await creator.locator('.more-menu summary').click();
   await creator.locator('#backup-settings').click();
-  await creator.locator('#backup-retry').click();
-  await creator.waitForFunction(() => document.querySelector('#backup-status')?.textContent?.startsWith('上次备份：'));
+  await creator.locator('#save-my-code').waitFor();
   invariant(await creator.locator('#export-recovery').count() === 0, 'Manual recovery export remains exposed');
-  await creator.locator('#view-local-recovery').click();
+  await creator.locator('#save-my-code').click();
   invariant(await creator.locator('.local-recovery-code').count() === 0, 'Recovery code appeared without fresh passkey verification');
   await creator.locator('#verify-recovery-passkey').click();
   await creator.locator('.local-recovery-code').waitFor();
@@ -997,7 +1003,6 @@ try {
   invariant(codeIsEncrypted, 'Local durable vault leaked the recovery code');
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-code-mobile.png') });
   await creator.locator('#hide-local-recovery').click();
-  await creator.locator('#backup-back').click();
   await creator.locator('.chat-shell').waitFor();
   const sourceIdentity = await creator.evaluate(async () => {
     const { unlockVault } = await import('/src/lib/vault.ts');
@@ -1017,9 +1022,8 @@ try {
   const recoveryContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
   const recovery = await recoveryContext.newPage();
   await enableDeviceVault(recovery);
-  await recovery.goto(baseUrl);
+  await recovery.goto(`${baseUrl}#legacy-recovery`);
   await holdCover(recovery);
-  await recovery.locator('#restore-cloud').click();
   await recovery.locator('#cloud-recovery-form input[name="code"]').fill(recoveryCode);
   await recovery.locator('#cloud-recovery-form').evaluate((form) => form.requestSubmit());
   await recovery.evaluate(() => {
@@ -1037,8 +1041,8 @@ try {
   await unlock(joiner);
   await joiner.locator('.chat-shell').waitFor({ timeout: 15_000 });
   await joiner.locator('.recovery-authorization-sheet').waitFor({ timeout: 15_000 });
-  await joiner.getByRole('button', { name: '批准恢复', exact: true }).click();
-  await joiner.locator('.recovery-authorization-sheet').waitFor({ state: 'detached', timeout: 15_000 });
+  await joiner.getByRole('button', { name: '批准恢复', exact: true }).first().click();
+  await joiner.waitForFunction(() => document.querySelectorAll('.recovery-authorization-sheet').length === 0, null, { timeout: 15_000 });
   await recovery.locator('#confirm-new-recovery').waitFor({ timeout: 20_000 }).catch(async error => {
     throw new Error(`Recovery rotation did not finish: ${await recovery.locator('body').innerText()}`, { cause: error });
   });
@@ -1053,6 +1057,13 @@ try {
   await recovery.locator('.chat-shell').waitFor({ timeout: 15_000 }).catch(async (error) => {
     throw new Error(`Recovery did not reopen: ${await recovery.locator('body').innerText()}`, { cause: error });
   });
+  for (const page of [recovery, joiner]) {
+    const welcome = page.locator('#welcome-chat');
+    if (await welcome.waitFor({ timeout: 3_000 }).then(() => true, () => false)) {
+      await welcome.click();
+      await welcome.waitFor({ state: 'detached', timeout: 3_000 }).catch(() => undefined);
+    }
+  }
   invariant(await recovery.locator('.fatal-screen').count() === 0, 'MLS recovery replayed an unavailable sender ratchet');
   const restoredIdentity = await recovery.evaluate(async () => {
     const { unlockVault } = await import('/src/lib/vault.ts');
@@ -1061,7 +1072,12 @@ try {
   });
   invariant(restoredIdentity.id !== sourceIdentity && !restoredIdentity.pending, 'Recovery reused the checkpoint identity or did not finish replacement');
   invariant(restoredIdentity.boundary > 0 && !restoredIdentity.exportedAt, 'Fresh recovery failed to establish a history boundary and require a new backup');
+  if (await recovery.locator('.cover-trigger').count()) {
+    await unlock(recovery);
+    await recovery.locator('.chat-shell').waitFor({ timeout: 15_000 });
+  }
   invariant(await recovery.getByText('browser-e2e-source-after-checkpoint', { exact: true }).count() === 0, 'Recovery claimed unavailable old local history');
+  await joiner.locator('#self-presence[data-state="online"]').waitFor({ timeout: 15_000 });
   await Promise.all([
     recovery.locator('.peer-summary[data-connection-state="ready"]').waitFor({ timeout: 15_000 }),
     recovery.locator('#self-presence[data-state="online"]').waitFor({ timeout: 15_000 }),
@@ -1075,7 +1091,7 @@ try {
   await joiner.getByText('browser-e2e-fresh-identity-send', { exact: true }).waitFor({ timeout: 5000 });
 
   await recovery.locator('.more-menu summary').click();
-  await recovery.locator('#backup-settings').click();
+  await recovery.evaluate(() => { location.hash = 'legacy-backup'; });
   await recovery.locator('[data-restore="all"]').click();
   await recovery.locator('#history-restore-code').fill(newRecoveryCode);
   await recovery.locator('.history-restore-sheet:not(.is-closing) .history-restore-form').evaluate(form => form.requestSubmit());

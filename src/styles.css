@@ -877,6 +877,7 @@ button:disabled {
 }
 
 .recovery-reminder,
+.pinned-notice,
 .upload-reminder {
   min-height: 58px;
   padding: 9px 14px;
@@ -889,17 +890,20 @@ button:disabled {
 }
 
 .recovery-reminder > div,
+.pinned-notice > div,
 .upload-reminder > div {
   display: grid;
   gap: 2px;
 }
 
 .recovery-reminder strong,
+.pinned-notice strong,
 .upload-reminder strong {
   font-size: 0.76rem;
 }
 
 .recovery-reminder span,
+.pinned-notice span,
 .upload-reminder span {
   color: var(--ink-muted);
   font-size: 0.7rem;

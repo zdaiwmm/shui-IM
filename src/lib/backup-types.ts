@@ -55,4 +55,4 @@ export type LocalBackupState = {
   pendingPart?: { archiveId: string; part: ArchivePart; sealed: SealedBackup };
 };
 
-export type RecoverySource = { backupId: string; archives: HistoryArchive[]; galleryHidden?: GalleryCurationRecord[] };
+export type RecoverySource = { resumeCursor?: number; backupId: string; archives: HistoryArchive[]; galleryHidden?: GalleryCurationRecord[] };

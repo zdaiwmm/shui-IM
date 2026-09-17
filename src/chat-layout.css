@@ -185,7 +185,8 @@ body:has(:where(#app) > .chat-shell) {
   from { opacity: 0; transform: translateY(-18px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.recovery-reminder {
+.recovery-reminder,
+.pinned-notice {
   min-height: 56px;
   gap: 4px;
   padding: 4px 5px 4px 14px;
@@ -197,11 +198,14 @@ body:has(:where(#app) > .chat-shell) {
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
 }
-.recovery-reminder .pinned-recovery-content {
+.recovery-reminder .pinned-recovery-content,
+.pinned-notice .pinned-recovery-content {
   position: relative;
   display: grid;
   flex: 1;
   min-width: 0;
+  min-height: 44px;
+  align-content: center;
   gap: 3px;
   padding: 4px 4px 4px 12px;
   border: 0;
@@ -214,7 +218,8 @@ body:has(:where(#app) > .chat-shell) {
 .pinned-recovery-content::before { content: ''; position: absolute; inset: 5px auto 5px 0; width: 3px; border-radius: 3px; background: var(--accent); }
 .pinned-recovery-content strong { font-size: 0.78rem; }
 .pinned-recovery-content span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.72rem; }
-.recovery-reminder #dismiss-recovery { width: 44px; min-width: 44px; height: 44px; padding: 11px; border: 0; border-radius: 50%; background: transparent; color: var(--ink-muted); }
+.recovery-reminder #dismiss-recovery,
+.pinned-notice [id^="dismiss-"] { width: 44px; min-width: 44px; height: 44px; padding: 11px; border: 0; border-radius: 50%; background: transparent; color: var(--ink-muted); }
 #dismiss-recovery svg { display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 .message-list {
   position: relative;

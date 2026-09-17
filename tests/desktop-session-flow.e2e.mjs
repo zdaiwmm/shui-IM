@@ -161,6 +161,13 @@ try {
   await holdF(joiner);
   await joiner.locator('[data-device-verify]').click();
   await Promise.all([expectChat(creator), expectChat(joiner)]);
+  for (const page of [creator, joiner]) {
+    const welcome = page.locator('#welcome-chat');
+    if (await welcome.waitFor({ timeout: 5_000 }).then(() => true, () => false)) {
+      await welcome.click();
+      await welcome.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
+    }
+  }
   const initialVerifications = await verificationCount(creator);
   assert.equal(await creator.evaluate(() => Number(sessionStorage.getItem('desktop-test-credential-create'))), 1, 'Initial setup must create the real platform credential');
 

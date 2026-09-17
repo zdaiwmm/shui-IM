@@ -5,6 +5,7 @@ import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
 import { canonicalStringify, isCanonicalUtcTimestamp } from './protocol.mjs';
 import { createCloudBackups } from './cloud-backups.mjs';
+import { createJointRecovery } from './joint-recovery.mjs';
 
 function nowIso() {
   return new Date().toISOString();
@@ -303,6 +304,9 @@ export async function createStore({
   }
   db.exec("UPDATE blobs SET updated_at = created_at WHERE updated_at = ''");
 
+  db.exec(`CREATE TABLE IF NOT EXISTS recovery_preparation (room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE, device_id TEXT NOT NULL, saved INTEGER NOT NULL, PRIMARY KEY(room_id,device_id));
+    CREATE TABLE IF NOT EXISTS invitation_progress (room_id TEXT PRIMARY KEY REFERENCES rooms(room_id) ON DELETE CASCADE, stage TEXT NOT NULL, updated_at TEXT NOT NULL);`);
+  const jointRecovery = createJointRecovery(db, { roomState, getMember, messagesAfter });
   const cloudBackups = createCloudBackups(db, { authenticatedDevice });
   const statements = {
     insertRoom: db.prepare('INSERT INTO rooms(room_id, access_hash, created_at, protocol) VALUES (?, ?, ?, ?)'),
@@ -311,7 +315,7 @@ export async function createStore({
       device_name, status, added_by, join_seq, join_receipt_seq, capabilities, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
     room: db.prepare(`SELECT room_id, access_hash, next_seq, next_receipt_seq, next_mls_event_seq,
-      message_count, message_bytes, created_at, sealed_at, mls_welcome, protocol
+      message_count, message_bytes, created_at, sealed_at, mls_welcome, protocol, mls_epoch_offset
       FROM rooms WHERE room_id = ?`),
     members: db.prepare(`SELECT device_id, role, encryption_jwk, signing_jwk, mls_key_package, join_proof,
       device_name, status, added_by, join_seq, join_receipt_seq, last_seen_at, revoked_at, capabilities, created_at
@@ -603,9 +607,12 @@ export async function createStore({
     if (!room) return null;
     return {
       roomId,
+      recoveryPreparation: db.prepare('SELECT device_id AS deviceId, saved FROM recovery_preparation WHERE room_id=?').all(roomId),
+      invitationProgress: db.prepare('SELECT stage, updated_at AS updatedAt FROM invitation_progress WHERE room_id=?').get(roomId) ?? null,
       nextSeq: room.next_seq,
       nextReceiptSeq: room.next_receipt_seq,
       nextMlsEventSeq: room.next_mls_event_seq,
+      mlsEpochOffset: room.mls_epoch_offset ?? 0,
       createdAt: room.created_at,
       sealedAt: room.sealed_at,
       protocol: room.protocol,
@@ -1389,6 +1396,9 @@ export async function createStore({
 
   return {
     cloudBackups,
+    jointRecovery,
+    saveRecoveryPreparation: (roomId, deviceId, saved) => db.prepare('INSERT INTO recovery_preparation VALUES(?,?,?) ON CONFLICT(room_id,device_id) DO UPDATE SET saved=excluded.saved').run(roomId, deviceId, saved ? 1 : 0),
+    saveInvitationProgress: (roomId, stage) => db.prepare("INSERT INTO invitation_progress VALUES(?,?,?) ON CONFLICT(room_id) DO UPDATE SET stage=CASE WHEN invitation_progress.stage='setting' THEN 'setting' ELSE excluded.stage END,updated_at=excluded.updated_at").run(roomId, stage, nowIso()),
     cleanupDeletedRooms,
     authenticate,
     authenticateInvite,

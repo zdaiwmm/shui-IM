@@ -185,7 +185,7 @@ Do not resemble a neon cyber-security dashboard, hacker terminal, crypto trading
 
 ## Recovery Setup
 
-- Unlocked, online MLS devices automatically back up their recovery checkpoint and local history as ciphertext. Backup status, retry, local recovery-code viewing and optional history restore live in “备份与恢复”; manual recovery-file import/export controls are removed.
+- Unlocked, online MLS devices still automatically back up recovery checkpoints and local history as ciphertext. Ordinary users now use “会话保护”, recovery codes, joint recovery and local chat files. The previous “备份与恢复” automatic-sync page and single-code device recovery remain available only through hidden compatibility hashes `#legacy-backup` and `#legacy-recovery`; they are not advertised in the new primary flow.
 - A reminder can be dismissed through an encrypted local preference. It directs users to save their QR3 code separately; only the current device stores that code, encrypted in its vault. Viewing it requires fresh passkey verification and closes the active conversation first. The code screen locks after one minute or privacy teardown.
 - A QR3 code locates the corresponding server backup and decrypts it locally. The server and administrator never receive the code or decryption keys. Forgotten code plus lost devices has no administrator bypass.
 - MLS recovery proves the original identity but creates a fresh device, token and leaf. Another trusted active device must be online; all active devices need protocol support. Pending recovery fences the original for at most 15 minutes; success permanently revokes it.
