@@ -168,6 +168,7 @@ export async function createPlatformCredential(
           { type: 'public-key', alg: -8 },
         ],
         authenticatorSelection: {
+          authenticatorAttachment: 'platform',
           residentKey: 'required',
           requireResidentKey: true,
           userVerification: 'required',

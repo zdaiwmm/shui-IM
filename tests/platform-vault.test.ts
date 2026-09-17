@@ -128,6 +128,33 @@ describe('platform vault WebAuthn cancellation', () => {
     expect(create).toHaveBeenCalledTimes(1);
   });
 
+  it('requests the current-device authenticator for setup', async () => {
+    const credential = new FakePublicKeyCredential(
+      new FakeAttestationResponse(),
+      {
+        prf: {
+          enabled: true,
+          results: { first: new Uint8Array(32).fill(7).buffer },
+        },
+      } as AuthenticationExtensionsClientOutputs,
+    );
+    const create = vi.fn().mockResolvedValue(credential as unknown as Credential);
+    installCredentials({ create });
+
+    await createPlatformCredential();
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      publicKey: expect.objectContaining({
+        rp: { id: 'ai.shui.click', name: 'Quiet Room' },
+        authenticatorSelection: expect.objectContaining({
+          authenticatorAttachment: 'platform',
+          residentKey: 'required',
+          userVerification: 'required',
+        }),
+      }),
+    }));
+  });
+
   it('does not classify policy failures or post-assertion credential mismatches as cancellation', async () => {
     const policyFailure = new DOMException('RP policy failure', 'SecurityError');
     installCredentials({ get: vi.fn().mockRejectedValue(policyFailure) });

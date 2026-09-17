@@ -304,6 +304,23 @@ body {
   backdrop-filter: var(--material-blur);
 }
 
+.gateway-mark,
+.invite-status {
+  border: 1px solid var(--glass-border);
+  background: var(--glass-sheen), var(--glass-panel);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+}
+
+.gateway-mark {
+  color: var(--accent);
+}
+
+.invite-status-row {
+  border-color: color-mix(in oklch, var(--line) 70%, transparent);
+}
+
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   :root {
     --composer-surface: var(--paper-pure);
@@ -335,7 +352,9 @@ body {
   .chat-tools > button > span,
   .device-card,
   .device-security-note,
-  .device-safety-code {
+  .device-safety-code,
+  .gateway-mark,
+  .invite-status {
     background-image: none;
     background-color: var(--paper-pure);
     color: var(--ink);
@@ -364,7 +383,9 @@ body {
   .composer .meme-toggle,
   .chat-bottom-control,
   .chat-tools,
-  .chat-tools > button > span {
+  .chat-tools > button > span,
+  .gateway-mark,
+  .invite-status {
     background: Canvas;
     border-color: ButtonText;
     color: CanvasText;
@@ -393,7 +414,9 @@ body {
   .composer .meme-toggle,
   .chat-bottom-control,
   .chat-tools,
-  .chat-tools > button > span {
+  .chat-tools > button > span,
+  .gateway-mark,
+  .invite-status {
     background-image: none;
     background-color: var(--paper-pure);
     color: var(--ink);

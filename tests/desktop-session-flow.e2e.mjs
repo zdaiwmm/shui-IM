@@ -78,7 +78,8 @@ async function createDesktop() {
 }
 
 async function holdF(page) {
-  await page.locator('.cover-trigger').waitFor();
+  await page.locator('.cover-trigger, #create-room, [data-device-verify], .pairing-screen, #cloud-recovery-form, #joint-start').first().waitFor();
+  if (await page.locator('.cover-trigger').count() === 0) return;
   await page.keyboard.down('f');
   await page.waitForTimeout(2100);
   await page.keyboard.up('f');

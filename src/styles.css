@@ -209,6 +209,12 @@ label[role="button"]:active {
   animation-fill-mode: both;
   will-change: transform, opacity;
 }
+#app[data-page-transition] > .page-transition-incoming {
+  /* Every destination owns an opaque canvas. The previous painted page may
+     remain mounted for motion, but its copy must never show through controls
+     or text on the incoming page. */
+  background: var(--paper);
+}
 #app[data-page-transition] > .page-transition-outgoing {
   position: fixed !important;
   inset: 0 !important;
@@ -328,6 +334,7 @@ button:disabled {
   padding: max(72px, 12vh) 0 calc(48px + var(--safe-bottom));
   display: flex;
   flex-direction: column;
+  background: var(--paper);
 }
 
 .gateway-gesture {
@@ -741,6 +748,7 @@ button:disabled {
   padding: max(30px, env(safe-area-inset-top)) 28px calc(30px + var(--safe-bottom));
   display: grid;
   grid-template-rows: auto 1fr auto;
+  background: var(--paper);
 }
 
 .pairing-header,
@@ -810,7 +818,10 @@ button:disabled {
 }
 
 .pairing-footer {
-  max-width: 54ch;
+  display: grid;
+  gap: 8px;
+  width: min(100%, 420px);
+  margin: 0 auto;
   padding-top: 24px;
   color: var(--ink-faint);
   font-size: 0.74rem;

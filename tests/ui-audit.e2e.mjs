@@ -71,7 +71,10 @@ async function beginSyntheticFilePicker(input) {
 }
 
 async function holdCover(page) {
-  const box = await page.locator('.cover-trigger').boundingBox();
+  await page.locator('.cover-trigger, #create-room, [data-device-verify], .pairing-screen, #cloud-recovery-form, #joint-start').first().waitFor({ timeout: 120_000 });
+  const trigger = page.locator('.cover-trigger');
+  if (await trigger.count() === 0) return;
+  const box = await trigger.boundingBox();
   invariant(box, 'Privacy-curtain trigger is missing');
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();

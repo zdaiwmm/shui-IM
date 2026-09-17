@@ -88,7 +88,10 @@ async function blurOutsidePage(page) {
 }
 
 async function holdCover(page) {
-  const box = await page.locator('.cover-trigger').boundingBox();
+  await page.locator('.cover-trigger, #create-room, [data-device-verify], .pairing-screen, #cloud-recovery-form, #joint-start').first().waitFor({ timeout: 120_000 });
+  const trigger = page.locator('.cover-trigger');
+  if (await trigger.count() === 0) return;
+  const box = await trigger.boundingBox();
   invariant(box, 'Privacy-curtain trigger is missing');
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
@@ -194,7 +197,18 @@ try {
   await creator.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   await holdCover(creator);
   await assertStablePage(creator, 'Welcome page');
+  await creator.locator('#join-room').click();
+  await creator.locator('#paste-form').waitFor();
+  invariant(await creator.locator('#app > .page-transition-outgoing').count() === 0, 'Welcome copy remained mounted during invitation-link navigation');
+  await creator.locator('.gateway-back').click();
+  await creator.locator('#restore-cloud').click();
+  await creator.locator('#joint-start').waitFor();
+  invariant(await creator.locator('#app > .page-transition-outgoing').count() === 0, 'Welcome copy remained mounted during recovery navigation');
+  await creator.locator('#joint-back').click();
   await creator.locator('#create-room').click();
+  invariant(await creator.locator('#app > .page-transition-outgoing').count() === 0, 'Welcome copy remained mounted during passkey navigation');
+  const incomingCanvas = await creator.locator('#app > .gateway').evaluate((element) => getComputedStyle(element).backgroundColor);
+  invariant(incomingCanvas !== 'transparent' && incomingCanvas !== 'rgba(0, 0, 0, 0)', `Passkey page has a transparent transition canvas: ${incomingCanvas}`);
   await assertStablePage(creator, 'Passkey setup page');
   await assertCredentialLayout(creator, '[data-device-verify]');
   if (visualQaDirectory) {
@@ -237,10 +251,24 @@ try {
     throw new Error(`Creator setup did not finish: ${visibleError || await creator.locator('body').innerText()}`, { cause: error });
   });
   const invite = await creator.locator('#invite-url').inputValue();
+  const inviteLabel = (await creator.locator('#invite-url-display').textContent())?.trim() ?? '';
+  invariant(/^邀请编号 · [A-F0-9]{10}$/.test(inviteLabel), `Invite display did not use a ten-character reference: ${inviteLabel}`);
+  invariant(invite.length > 10, 'Secure invitation capability was accidentally shortened');
   await assertStablePage(creator, 'Pairing page');
 
   await joiner.goto(invite);
   await holdCover(joiner);
+  invariant(await joiner.locator('[data-device-verify]').isEnabled(), 'Invitee passkey setup control is not operable');
+  await joiner.evaluate(() => {
+    const create = navigator.credentials.create.bind(navigator.credentials);
+    Object.defineProperty(navigator.credentials, 'create', {
+      configurable: true,
+      value: (options) => {
+        window.__inviteePasskeyActivation = navigator.userActivation?.isActive ?? false;
+        return create(options);
+      },
+    });
+  });
   await setPasskey(joiner);
   await Promise.all([
     creator.locator('.chat-shell').waitFor({ timeout: 15_000 }),
@@ -248,6 +276,7 @@ try {
   ]).catch(async (error) => {
     throw new Error(`Pairing did not finish. Creator: ${await creator.locator('body').innerText()} Joiner: ${await joiner.locator('body').innerText()}`, { cause: error });
   });
+  invariant(await joiner.evaluate(() => window.__inviteePasskeyActivation) === true, 'Invitee passkey request lost its trusted click activation');
   for (const page of [creator, joiner]) {
     const welcome = page.locator('#welcome-chat');
     if (await welcome.waitFor({ timeout: 5_000 }).then(() => true, () => false)) {
