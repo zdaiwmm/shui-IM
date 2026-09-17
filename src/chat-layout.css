@@ -32,7 +32,7 @@ body:has(:where(#app) > .chat-shell) {
   inset: 0 max(0px, calc((100% - 880px) / 2)) auto;
   translate: 0 var(--app-top);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(96px, 1fr) auto minmax(96px, 1fr);
   gap: 8px;
   min-height: 72px;
   padding: max(8px, env(safe-area-inset-top)) 12px 10px;
@@ -106,6 +106,8 @@ body:has(:where(#app) > .chat-shell) {
 }
 .peer-summary > .peer-status { flex: none; width: 100%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 0.6875rem; font-weight: 500; }
 .header-actions { grid-column: 3; justify-self: end; gap: 8px; }
+.header-actions .recovery-shield { flex: 0 0 44px; }
+.header-actions .recovery-shield svg { width: 22px; height: 22px; }
 .chat-header .icon-button:disabled {
   opacity: 1;
   color: var(--ink-faint);
@@ -232,6 +234,27 @@ body:has(:where(#app) > .chat-shell) {
   scroll-padding-bottom: var(--chat-bottom-space);
 }
 .message-list > * { flex-shrink: 0; }
+.chat-guide {
+  width: min(100%, 390px);
+  margin: 22px auto 8px;
+  padding: 18px;
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: 22px;
+  background: var(--glass-strong);
+  background-image: var(--glass-sheen);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  color: var(--ink);
+}
+.chat-guide > small { color: var(--ink-muted); font-size: .7rem; }
+.chat-guide h2 { margin: 0; font-size: 1.05rem; line-height: 1.35; }
+.chat-guide p { margin: 0 0 2px; color: var(--ink-muted); font-size: .82rem; line-height: 1.6; }
+.chat-guide button { width: 100%; min-height: 44px; }
+.chat-guide .secondary-button { background: var(--accent-soft); color: var(--accent); }
+.chat-guide .text-button { min-height: 44px; }
 /* Native toolbar animation changes dvh on every frame. Media uses a stable
    small-viewport bound so its decoded geometry never breathes while scrolling. */
 .chat-shell .message-bubble.image-bubble { max-width: min(288px, 100%); }
@@ -339,6 +362,7 @@ body:has(#app > .chat-shell[data-scroll-owner="list"]) {
 @media (prefers-reduced-motion: reduce) { .chat-bottom-control, .composer, .composer textarea { transition: none; } }
 @media (prefers-reduced-motion: reduce) { .release-update-reminder { animation: none; } }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .chat-guide,
   .composer .composer-input-stack,
   .composer .image-picker,
   .composer .voice-record-button,
@@ -350,6 +374,7 @@ body:has(#app > .chat-shell[data-scroll-owner="list"]) {
   }
   .composer-input-stack:focus-within { border-color: var(--accent); }
   .composer :is(.image-picker, .voice-record-button):hover { border-color: var(--line-strong); }
+  .chat-guide { background: var(--paper-pure); }
 }
 @media (forced-colors: active) {
   .composer .composer-input-stack,

@@ -22,7 +22,7 @@ try {
     const peer = { ...own, deviceId: crypto.randomUUID(), role: 'joiner' };
     const session = await vault.createVault({ v: 1, roomId: crypto.randomUUID(), accessToken: 'media-upload-fixture', role: 'creator', protocol: 'legacy-v1', lastSeq: 0, members: [own, peer], identity: { publicBundle: own } }, 'media-upload-password', 'password');
     app.session = session; app.privacyCovered = false; app.runtimeAbort = new AbortController();
-    app.uiPreferencesHydrated = true; app.uiPreferences = { recoveryReminderDismissed: true };
+    app.uiPreferencesHydrated = true; app.uiPreferences = { recoveryReminderDismissed: true, entranceCardDismissed: true };
     app.updateSafetyCode = async () => {}; app.unreadCounter.markRead = async () => {};
     app.connectionState = 'disconnected'; app.retryOperation = operation => operation();
     Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => true });

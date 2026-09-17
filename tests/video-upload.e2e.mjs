@@ -32,7 +32,7 @@ try {
     const peer = { ...own, deviceId: crypto.randomUUID(), role: 'joiner' };
     const session = await createVault({ v: 1, roomId: crypto.randomUUID(), accessToken: 'upload-fixture', role: 'creator', protocol: 'legacy-v1', lastSeq: 0, members: [own, peer], identity: { publicBundle: own } }, 'upload-fixture-password', 'password');
     app.session = session; app.privacyCovered = false; app.runtimeAbort = new AbortController();
-    app.uiPreferencesHydrated = true; app.uiPreferences = { recoveryReminderDismissed: true };
+    app.uiPreferencesHydrated = true; app.uiPreferences = { recoveryReminderDismissed: true, entranceCardDismissed: true };
     app.updateSafetyCode = async () => {}; app.unreadCounter.markRead = async () => {};
     app.connectionState = 'disconnected';
     app.retryOperation = operation => operation(); // One failed request per explicit test retry.

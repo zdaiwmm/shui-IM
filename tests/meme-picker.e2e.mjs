@@ -81,7 +81,7 @@ try {
     const manifest = await encryptImageFile(files[0], { reserve: async()=>{}, status:async()=>({uploadedIndexes:[],completed:false}), upload:async()=>{}, complete:async()=>{}, savePlan:async()=>{} });
     const app = new QuietRoomApp(document.querySelector('#app'));
     app.session = session; app.privacyCovered = false; app.runtimeEpoch++; app.runtimeAbort = controller;
-    app.uiPreferences = { recoveryReminderDismissed: true }; app.uiPreferencesHydrated = true;
+    app.uiPreferences = { recoveryReminderDismissed: true, entranceCardDismissed: true }; app.uiPreferencesHydrated = true;
     app.updateSafetyCode = async()=>{}; app.updateBackgroundNotificationControl = async()=>{};
     app.unreadCounter.markRead = async()=>{}; app.flushUiPreferencesSave = ()=>{};
     const msg = { seq:1,clientMsgId:crypto.randomUUID(),senderId:peer.deviceId,payload:{v:1,kind:'image',image:manifest,sentAt:new Date().toISOString()},acceptedAt:new Date().toISOString(),status:'delivered' };

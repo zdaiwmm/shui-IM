@@ -23,7 +23,7 @@ The implementation includes:
 - encrypted voice messages with recording, pause/resume, local preview, waveform playback/seeking, and privacy-bound microphone cleanup;
 - original-byte image encryption in resumable 2 MiB chunks;
 - image selection without a nine-image cap, ordered encrypted message groups, gallery multi-upload, quiet local previews, and a full-screen viewer with paging, drag-to-dismiss, and original download;
-- encrypted per-device unsent text drafts, reading anchors, and dismissible recovery reminders;
+- encrypted per-device unsent text drafts, reading anchors, and a dismissible local Space Guide card;
 - role-aggregated chat-page presence that is independent from WebSocket connection state;
 - native document chat scrolling behind Safari chrome, keyboard-aware floating glass controls, stable reading anchors, pinchable photos without opening zoom effects, and page-level double-tap zoom suppression;
 - automatic encrypted per-device recovery/history backups, local recovery-code retrieval after fresh passkey verification, and explicit history restore after device replacement;

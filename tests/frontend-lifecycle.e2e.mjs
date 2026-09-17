@@ -200,7 +200,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 100));
     const list = document.querySelector('#message-list');
     if (document.documentElement.scrollHeight - window.scrollY - window.innerHeight > 2) throw Error('Composer resize lost bottom position');
-    const last = list.querySelector('.message:last-child').getBoundingClientRect();
+    const last = list.querySelector('.message:last-of-type').getBoundingClientRect();
     const composer = window.composerBaseBounds();
     if (last.bottom > composer.top) throw Error(`Latest message is covered by composer: ${JSON.stringify({ lastBottom: last.bottom, composerTop: composer.top, composerHeight: composer.height, padding: getComputedStyle(list).paddingBottom, scrollY, scrollHeight: document.documentElement.scrollHeight, pinned: app.chatPinnedToBottom })}`);
     return { transientBlur: 'visible', encryptedDraft: 'restored', latestMessage: 'above composer' };

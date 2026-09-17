@@ -1,6 +1,6 @@
 .chat-header .peer-summary {
-  width: min(190px, calc(100vw - 120px));
-  max-width: 190px;
+  width: min(160px, calc(100vw - 232px));
+  max-width: 160px;
   gap: 0;
   padding-block: 4px 6px;
 }

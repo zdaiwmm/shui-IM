@@ -32,6 +32,14 @@ function ownArchives(session: VaultSession) {
   return session.vault.backup.archives;
 }
 
+export async function inspectLocalHistoryBackup(session: VaultSession, file: Blob): Promise<void> {
+  const prefix = decoder.decode(await file.slice(0, PREFIX_SIZE).arrayBuffer());
+  if (!/^QRL1[A-Za-z0-9_-]{43}\n$/.test(prefix)) throw new Error('请选择有效的聊天备份文件');
+  if (!ownArchives(session).some(item => item.id === prefix.slice(4, 47))) {
+    throw new Error('此备份不属于本设备的恢复身份，请先恢复导出备份的本人身份');
+  }
+}
+
 async function attachmentVerifier(manifest: ImageManifest) {
   const key = await crypto.subtle.importKey('raw', fromBase64Url(manifest.key), 'AES-GCM', false, ['decrypt']);
   const hash = await createSHA256(); hash.init();
@@ -108,10 +116,9 @@ export async function exportLocalHistory(session: VaultSession, sink: ArchiveSin
 /** Pass 1 validates the entire file and local conflicts; pass 2 applies deletion events; pass 3 imports. */
 export async function importLocalHistory(session: VaultSession, file: Blob, signal: AbortSignal,
   progress: (stage: 'verifying' | 'importing', summary: LocalHistorySummary) => void = () => undefined): Promise<LocalHistorySummary> {
+  await inspectLocalHistoryBackup(session, file);
   const prefix = decoder.decode(await file.slice(0, PREFIX_SIZE).arrayBuffer());
-  if (!/^QRL1[A-Za-z0-9_-]{43}\n$/.test(prefix)) throw new Error('请选择有效的聊天备份文件');
-  const archive = ownArchives(session).find(item => item.id === prefix.slice(4, 47));
-  if (!archive) throw new Error('此备份不属于本设备的恢复身份，请先恢复导出备份的本人身份');
+  const archive = ownArchives(session).find(item => item.id === prefix.slice(4, 47))!;
   const body = file.slice(PREFIX_SIZE);
   let final = emptySummary();
   for (const pass of [0, 1, 2, 3]) {

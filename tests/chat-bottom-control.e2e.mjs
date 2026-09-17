@@ -38,7 +38,7 @@ try {
     const settle = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     const fresh = async (count = 80) => {
       app.session = session; app.privacyCovered = false; app.runtimeEpoch += 1; app.runtimeAbort = new AbortController();
-      app.uiPreferences = { recoveryReminderDismissed: true }; app.restoreChatAnchorOnNextRender = false;
+      app.uiPreferences = { recoveryReminderDismissed: true, entranceCardDismissed: true }; app.restoreChatAnchorOnNextRender = false;
       app.historyHasNewer = false; app.historyHasMore = false; app.historyLoading = false; app.historyForwardCursor = count;
       app.messages = new Map(Array.from({ length: count }, (_, index) => [index + 1, {
         seq: index + 1, clientMsgId: `bottom-${index + 1}`, senderId: 'bottom-peer', status: 'delivered', acceptedAt: '2026-09-04T01:00:00.000Z',

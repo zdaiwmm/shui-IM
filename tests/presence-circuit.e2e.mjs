@@ -35,7 +35,7 @@ try {
     app.privacyCovered = false;
     app.runtimeAbort = new AbortController();
     app.uiPreferencesHydrated = true;
-    app.uiPreferences = { recoveryReminderDismissed: true };
+    app.uiPreferences = { recoveryReminderDismissed: true, entranceCardDismissed: true };
     app.updateSafetyCode = async () => {};
     app.unreadCounter.markRead = async () => {};
     app.attemptSend = async () => {};

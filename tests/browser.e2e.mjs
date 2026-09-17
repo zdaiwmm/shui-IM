@@ -204,6 +204,16 @@ try {
   await creator.locator('#restore-cloud').click();
   await creator.locator('#joint-start').waitFor();
   invariant(await creator.locator('#app > .page-transition-outgoing').count() === 0, 'Welcome copy remained mounted during recovery navigation');
+  await creator.locator('#joint-start input[name="code"]').focus();
+  await creator.evaluate(() => {
+    const input = document.querySelector('#joint-start input[name="code"]');
+    input.blur();
+    window.dispatchEvent(new Event('blur'));
+  });
+  await creator.waitForTimeout(1800);
+  invariant(await creator.locator('#joint-start').count() === 1, 'Dismissing the recovery keyboard returned to the first entry page');
+  await creator.evaluate(() => window.dispatchEvent(new Event('focus')));
+  invariant(await creator.locator('#joint-start').count() === 1, 'Returning window focus left the recovery-code page');
   await creator.locator('#joint-back').click();
   await creator.locator('#create-room').click();
   invariant(await creator.locator('#app > .page-transition-outgoing').count() === 0, 'Welcome copy remained mounted during passkey navigation');
@@ -242,7 +252,7 @@ try {
   });
   await creator.locator('[data-device-verify]').click();
   await creator.locator('[data-device-verify]', { hasText: '重新验证' }).waitFor();
-  invariant(!(await creator.locator('.form-error').textContent())?.trim(), 'Cancelling passkey setup left a red error message');
+  invariant((await creator.locator('.form-error').textContent())?.includes('未完成设备安全验证'), 'Passkey cancellation did not provide a browser-neutral retry message');
   await assertCredentialLayout(creator, '[data-device-verify]');
   invariant(await creator.locator('.cover-trigger').count() === 0, 'Passkey prompt blur unexpectedly activated the privacy curtain');
   await creator.locator('[data-device-verify]').click();
@@ -254,6 +264,14 @@ try {
   const inviteLabel = (await creator.locator('#invite-url-display').textContent())?.trim() ?? '';
   invariant(/^邀请编号 · [A-F0-9]{10}$/.test(inviteLabel), `Invite display did not use a ten-character reference: ${inviteLabel}`);
   invariant(invite.length > 10, 'Secure invitation capability was accidentally shortened');
+  await creator.evaluate(() => {
+    window.__inviteShareCalls = 0;
+    Object.defineProperty(navigator, 'share', { configurable: true, value: async () => { window.__inviteShareCalls++; } });
+  });
+  await creator.locator('#copy-invite').click();
+  await creator.locator('#invite-copy-status').filter({ hasText: '已复制链接' }).waitFor();
+  invariant(await creator.locator('.pairing-screen').count() === 1, 'Copying the invite link left the invitation page');
+  invariant(await creator.evaluate(() => window.__inviteShareCalls) === 0, 'Copying the invite link unexpectedly opened system sharing');
   await assertStablePage(creator, 'Pairing page');
 
   await joiner.goto(invite);
@@ -306,18 +324,20 @@ try {
     const self = document.querySelector('#self-presence').getBoundingClientRect();
     const peer = document.querySelector('#peer-presence').getBoundingClientRect();
     const summary = document.querySelector('.peer-summary').getBoundingClientRect();
+    const shield = document.querySelector('#recovery-shield').getBoundingClientRect();
     const more = document.querySelector('.more-menu > summary').getBoundingClientRect();
     return { selfRight: self.right, peerLeft: peer.left, peerCenter: (summary.left + summary.right) / 2, headerCenter: (header.left + header.right) / 2,
-      summaryHeight: summary.height, actionHeight: more.height, statusGap: more.left - summary.right };
+      summaryHeight: summary.height, actionHeight: more.height, statusGap: shield.left - summary.right, shieldRight: shield.right, moreLeft: more.left };
   });
   invariant(presenceLayout.selfRight <= presenceLayout.peerLeft + 1, `Self presence is not on the left: ${JSON.stringify(presenceLayout)}`);
   invariant(Math.abs(presenceLayout.peerCenter - presenceLayout.headerCenter) <= 3, `Combined presence is not centered: ${JSON.stringify(presenceLayout)}`);
   invariant(Math.abs(presenceLayout.summaryHeight - presenceLayout.actionHeight) < 1 && presenceLayout.statusGap >= 8,
     `Header status crowds the actions or has a different height: ${JSON.stringify(presenceLayout)}`);
-  invariant(await creator.locator('#dismiss-recovery svg').evaluate((icon) => getComputedStyle(icon).stroke !== 'none'), 'Pinned recovery reminder close icon is invisible');
-  if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-pinned-mobile.png') });
-  await creator.locator('#dismiss-recovery').click();
-  await creator.locator('.recovery-reminder').waitFor({ state: 'detached' });
+  invariant(presenceLayout.shieldRight <= presenceLayout.moreLeft + 1, `Recovery shield is not immediately left of the more menu: ${JSON.stringify(presenceLayout)}`);
+  invariant(await creator.locator('#message-list > #entrance-card-banner[data-local-system-card="entry"]').count() === 1, 'Save-entry guidance is not a local timeline system card');
+  if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-shield-entry-card-mobile.png') });
+  await creator.locator('#dismiss-entrance-card').click();
+  await creator.locator('#entrance-card-banner').waitFor({ state: 'detached' });
   await creator.waitForTimeout(280);
   const composerLayout = await creator.evaluate(() => {
     const composer = document.querySelector('.composer')?.getBoundingClientRect();
@@ -506,7 +526,7 @@ try {
   invariant(await creator.locator('.cover-trigger').count() === 1, 'Focus restored the session without authentication');
   await unlock(creator, true);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
-  invariant(await creator.locator('.recovery-reminder').count() === 0, 'Dismissed recovery reminder returned after unlocking');
+  invariant(await creator.locator('#entrance-card-banner').count() === 0, 'Dismissed local entry card returned after unlocking');
   await creatorSource.locator('.message-reaction').filter({ hasText: '👍' }).waitFor({ timeout: 5000 });
   invariant(await creatorSource.locator('.message-reaction').count() === 1, 'Restoring the encrypted session lost, duplicated, or resurrected a removed reaction');
 

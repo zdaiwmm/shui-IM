@@ -70,6 +70,18 @@ try {
   await sendOld('during recovery');
   await a.evaluate(async () => { window.snapshot = await j.advanceJointRecovery(session, signal); });
   await b.evaluate(async () => { window.snapshot = await j.advanceJointRecovery(session, signal); });
+  await a.evaluate(async () => {
+    await Promise.all(['/src/styles.css', '/src/recovery-experience.css'].map(file => import(file)));
+    const { QuietRoomApp } = await import('/src/app.ts');
+    window.progressApp = new QuietRoomApp(document.querySelector('#app'));
+    progressApp.session = session; progressApp.privacyCovered = false; progressApp.runtimeAbort = new AbortController();
+    progressApp.renderJointProgress();
+  });
+  assert.equal(await a.locator('#joint-progress h1').textContent(), '请对方一起参与');
+  assert.match((await a.locator('.joint-code').textContent()) ?? '', /^\d{3} \d{3}$/);
+  assert.equal(await a.locator('#joint-scope-summary').count(), 1);
+  assert.equal(await a.locator('#joint-participant-badge').count(), 1);
+  await a.evaluate(() => progressApp.runtimeAbort.abort());
   // Both local states and fresh identities survive an actual unlock before confirmation.
   for (const page of pages) await page.evaluate(async () => { window.session = await v.unlockVault(); window.snapshot = await j.advanceJointRecovery(session, signal); });
   await a.evaluate(async () => { window.snapshot = await j.approveJointRecovery(session, snapshot, signal); if (snapshot.result) throw new Error('Single signature committed'); });
@@ -99,7 +111,8 @@ try {
     assert.equal(layout.overflow, false); assert.equal(layout.small, false);
   }
   if (process.argv[2]) await a.screenshot({ path: process.argv[2], fullPage: true });
-  await a.locator('#cover-practice').click(); await a.locator('#practice-back').click();
+  assert.equal(await a.locator('#open-local-history').textContent().then(text => text.includes('消息备份')), true);
+  await a.locator('#recovery-center-back').click();
   await a.evaluate(() => app.lockNow()); assert.equal(await a.locator('#recovery-center-back').count(), 0);
   console.log('Joint recovery browser: dual signatures, helper catch-up, atomic history preservation, code rotation, own local import, resumed passkeys and 375/390 UI passed.');
 } finally { await browser?.close(); await vite?.close(); await service?.close(); await rm(dataDir, { recursive: true, force: true }); }

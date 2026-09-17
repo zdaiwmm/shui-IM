@@ -65,8 +65,11 @@ function randomBytes(length: number): Uint8Array<ArrayBuffer> {
 }
 
 function requireWebAuthn(): void {
-  if (!window.isSecureContext || !window.PublicKeyCredential || !navigator.credentials) {
-    throw new Error('当前环境不支持安全的设备密钥，请使用最新版浏览器并通过 HTTPS 打开');
+  if (!window.isSecureContext) {
+    throw new Error('当前连接不是浏览器信任的 HTTPS 安全环境。局域网测试请先信任开发证书，再重新打开此页面');
+  }
+  if (!window.PublicKeyCredential || !navigator.credentials) {
+    throw new Error('当前浏览器不支持通行密钥，请升级浏览器或改用支持 WebAuthn PRF 的浏览器');
   }
 }
 
@@ -168,7 +171,6 @@ export async function createPlatformCredential(
           { type: 'public-key', alg: -8 },
         ],
         authenticatorSelection: {
-          authenticatorAttachment: 'platform',
           residentKey: 'required',
           requireResidentKey: true,
           userVerification: 'required',

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 
@@ -81,7 +83,7 @@ try {
     session.vault.backup.archives = [archive];
     const unchangedSeq = session.vault.lastSeq;
     session.vault.lastSeq = 3; await v.saveVault(session);
-    await Promise.all(['/src/styles.css', '/src/chat-layout.css', '/src/auth-recovery.css', '/src/chat-interactions.css', '/src/cover.css'].map(file => import(file)));
+    await Promise.all(['/src/styles.css', '/src/chat-layout.css', '/src/auth-recovery.css', '/src/chat-interactions.css', '/src/cover.css', '/src/recovery-experience.css'].map(file => import(file)));
     const { QuietRoomApp } = await import('/src/app.ts');
     const app = new QuietRoomApp(document.querySelector('#app')); await app.start();
     app.session = session; app.privacyCovered = false; app.runtimeAbort = new AbortController();
@@ -98,17 +100,56 @@ try {
   for (const key of ['damagedRejected', 'cleanAfterDamage', 'originalEqual', 'hiddenPreserved', 'hiddenSurvivesQueuedSave', 'wrongRole', 'wrongRoom', 'wrongIdentity']) assert.equal(result[key], true, key);
   assert.equal(result.network, 0); assert.equal(result.lastSeq, 0);
   await page.locator('#local-backup-export').click();
-  await page.locator('#local-backup-save').waitFor({ state: 'visible' });
+  await page.locator('#local-backup-ready').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('#local-backup-export').textContent(), '保存聊天备份');
   assert.match(await page.locator('#local-backup-status').textContent(), /3 条记录、1 个原始附件/);
   for (const width of [390, 375]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 812 });
     await page.waitForTimeout(100);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
-    const targets = await page.locator('#local-backup-export, #local-backup-import, #local-backup-save, #local-backup-back').evaluateAll(nodes => nodes.every(node => node.getBoundingClientRect().height >= 44));
+    const targets = await page.locator('#local-backup-export, #open-local-import, #local-backup-back').evaluateAll(nodes => nodes.every(node => node.getBoundingClientRect().height >= 44));
     assert.equal(targets, true, '44px controls');
   }
   if (process.argv[2]) await page.screenshot({ path: process.argv[2], fullPage: true });
+  await page.evaluate(() => window.fixtureApp.renderCoverPractice());
+  const coverGeometry = await page.evaluate(() => {
+    const hotspot = document.querySelector('.cover-practice-page .practice-hotspot')?.getBoundingClientRect();
+    const guide = document.querySelector('.cover-practice-page .hold-guide')?.getBoundingClientRect();
+    if (!hotspot || !guide) return null;
+    return {
+      width: Math.round(hotspot.width),
+      height: Math.round(hotspot.height),
+      right: innerWidth - hotspot.right,
+      bottom: innerHeight - hotspot.bottom,
+      guideAbove: guide.bottom <= hotspot.top + 8,
+    };
+  });
+  assert.equal(coverGeometry?.width, 80);
+  assert.equal(coverGeometry?.height, 80);
+  assert.ok((coverGeometry?.right ?? 99) <= 8, 'practice hotspot is not at the live cover right edge');
+  assert.ok((coverGeometry?.bottom ?? 99) <= 8, 'practice hotspot is not at the live cover bottom edge');
+  assert.equal(coverGeometry?.guideAbove, true);
+  await page.evaluate(() => window.fixtureApp.renderLocalHistoryBackup('export'));
+  if (process.env.V8_VISUAL_DIR) {
+    await mkdir(process.env.V8_VISUAL_DIR, { recursive: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: path.join(process.env.V8_VISUAL_DIR, 'backup-390x844.png'), fullPage: true });
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.screenshot({ path: path.join(process.env.V8_VISUAL_DIR, 'backup-375x812.png'), fullPage: true });
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: path.join(process.env.V8_VISUAL_DIR, 'backup-dark-390x844.png'), fullPage: true });
+    await page.emulateMedia({ colorScheme: 'light' });
+    await page.setViewportSize({ width: 844, height: 390 });
+    await page.screenshot({ path: path.join(process.env.V8_VISUAL_DIR, 'backup-landscape-844x390.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.evaluate(() => window.fixtureApp.renderLocalHistoryBackup('import'));
+    await page.screenshot({ path: path.join(process.env.V8_VISUAL_DIR, 'history-import-390x844.png'), fullPage: true });
+    await page.evaluate(() => window.fixtureApp.renderCoverPractice());
+    await page.screenshot({ path: path.join(process.env.V8_VISUAL_DIR, 'cover-practice-390x844.png'), fullPage: true });
+    await page.evaluate(() => window.fixtureApp.renderLocalHistoryBackup('export'));
+  }
   await page.evaluate(() => window.fixtureApp.lockNow());
-  assert.equal(await page.locator('#local-backup-save').count(), 0);
+  assert.equal(await page.locator('#local-backup-export').count(), 0);
   console.log('Local backup browser regression passed: original bytes, OPFS output, no-network import, corruption, lineage, role, room, idempotency and deletion projections.');
 } finally { await browser?.close(); await vite?.close(); }

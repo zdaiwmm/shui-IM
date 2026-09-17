@@ -33,6 +33,12 @@ const invalid = () => new Error('恢复身份或双方确认内容不一致，�
 export function jointRecoveryUrl(link: JointLink): string {
   const url = new URL(location.pathname, location.origin); url.hash = `recover=${encodeURIComponent(JSON.stringify(link))}`; return url.href;
 }
+/** A display-only comparison code. It authenticates neither participant nor the link. */
+export function jointRecoveryCode(link: JointLink): string {
+  const tail = link.requestId.replaceAll('-', '').slice(-12);
+  const value = Number(BigInt(`0x${tail}`) % 1_000_000n);
+  return value.toString().padStart(6, '0').replace(/(\d{3})(\d{3})/, '$1 $2');
+}
 export function parseJointRecoveryLink(value: string): JointLink | null {
   try {
     const url = new URL(value, location.origin);
