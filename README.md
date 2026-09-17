@@ -124,11 +124,11 @@ Terminate TLS with a valid public certificate. Do not bypass certificate warning
 ## First conversation
 
 1. Both people open the same site. A first visit with no local vault goes straight to **有些话，只留给彼此**.
-2. The creator selects **创建空间**, then **设置访问密钥**, and completes system biometric or device-password verification. Both syncable passkeys and single-device credentials are accepted.
-3. The creator shares the invitation QR code or full invitation link through a trusted channel. The page shows only a ten-character invitation reference, while QR, copy, and system share retain the complete high-entropy link. It also shows the creator as ready and the other person’s open / setting-up status.
+2. The creator selects **创建私密空间**, then **设置访问密钥**, and completes system biometric or device-password verification. Both syncable passkeys and single-device credentials are accepted.
+3. The creator shares the invitation QR code or full invitation link through a trusted channel. QR and copy retain the complete high-entropy link. The page also shows the creator as ready and the other person’s open / setting-up status.
 4. The second person opens the invite, selects **设置访问密钥并加入**, and creates a passkey-protected local vault. The creator publishes a signed opaque MLS welcome; neither side enables the composer before MLS setup completes. After both join, the app celebrates and offers an optional cover practice; cover stays off until chosen.
 5. The participant invite seals after the second person joins. Compare the **设备安全码** shown in device management on both sides.
-6. Each device automatically saves encrypted backups while unlocked and online. Open **恢复会话**, verify the passkey again to view its recovery code, and save that code separately. Chat history restore uses a locally saved backup file.
+6. Each device automatically saves encrypted backups while unlocked and online. Open **恢复私密空间**, verify the passkey again to view its recovery code, and save that code separately. Chat history restore uses a locally saved backup file.
 
 The invite URL fragment contains the room access capability and pairing secret. Anyone who obtains an unused invite can claim the second slot. Share it only with the intended participant.
 

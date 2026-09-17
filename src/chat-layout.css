@@ -63,20 +63,20 @@ body:has(:where(#app) > .chat-shell) {
 .peer-summary {
   grid-column: 2;
   justify-self: center;
-  width: clamp(88px, calc(100vw - 232px), 160px);
-  max-width: 160px;
+  width: clamp(108px, calc(100vw - 232px), 188px);
+  max-width: 188px;
   min-width: 0;
-  height: 44px;
+  height: auto;
   min-height: 44px;
-  padding: 4px 8px;
+  padding: 5px 10px 6px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 3px;
+  gap: 2px;
   line-height: 1.2;
 }
-.presence-heading { display: flex; align-items: center; justify-content: center; gap: 10px; }
-.presence-heading .presence-row { gap: 4px; color: var(--ink); font-size: 0.8125rem; font-weight: 650; }
+.presence-status-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px; width: 100%; min-width: 0; }
+.presence-status-row .presence-row { gap: 4px; color: var(--ink); font-size: 0.6875rem; font-weight: 650; }
 .chat-header .presence-row[data-state="online"] .presence-dot {
   --presence-green: oklch(61% 0.185 147);
   background: var(--presence-green);
@@ -104,7 +104,7 @@ body:has(:where(#app) > .chat-shell) {
 @media (prefers-reduced-motion: reduce) {
   .chat-header .presence-row[data-state="online"] .presence-dot { animation: none; }
 }
-.peer-summary > .peer-status { flex: none; width: 100%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 0.6875rem; font-weight: 500; }
+.peer-summary > .peer-status { flex: none; width: auto; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 0.6875rem; font-weight: 500; }
 .header-actions { grid-column: 3; justify-self: end; gap: 8px; }
 .header-actions .recovery-shield { flex: 0 0 44px; }
 .header-actions .recovery-shield svg { width: 22px; height: 22px; }
@@ -418,8 +418,9 @@ html[data-keyboard-open='true'] .composer {
 .upload-progress { flex: 0 0 100%; }
 @media (max-width: 360px) {
   .chat-header { padding-inline: 8px; }
-  .presence-heading { gap: 8px; }
-  .presence-heading .presence-row { font-size: 0.75rem; }
+  .presence-status-row { gap: 3px; }
+  .presence-status-row .presence-row,
+  .presence-status-row .peer-status { font-size: 0.625rem; }
 }
 
 /* Distinguish the empty-input instruction from actual message text. */

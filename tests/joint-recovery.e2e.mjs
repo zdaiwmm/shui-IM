@@ -81,6 +81,8 @@ try {
   assert.match((await a.locator('.joint-code').textContent()) ?? '', /^\d{3} \d{3}$/);
   assert.equal(await a.locator('#joint-scope-summary').count(), 1);
   assert.equal(await a.locator('#joint-participant-badge').count(), 1);
+  assert.equal(await a.locator('#joint-retire, #joint-retry, #joint-cancel').count(), 0);
+  assert.equal(await a.locator('#joint-qr').evaluate(canvas => canvas.getAttribute('width')), '248');
   await a.evaluate(() => progressApp.runtimeAbort.abort());
   // Both local states and fresh identities survive an actual unlock before confirmation.
   for (const page of pages) await page.evaluate(async () => { window.session = await v.unlockVault(); window.snapshot = await j.advanceJointRecovery(session, signal); });

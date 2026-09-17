@@ -80,9 +80,9 @@ export async function prepareJointRecovery(code: string, requestedScope: 'me' | 
   if (requestedScope === 'peer') scope[peer] = true;
   if (snapshot) { scope[peer] = snapshot.offers[peer]!.recover; scope[source.role] = requestedScope !== 'peer'; }
   if (!scope.creator && !scope.joiner) throw new Error('至少一位参与者需要恢复');
-  if (!scope[source.role] && !helper) throw new Error('协助恢复需要先解锁自己的现有会话');
+  if (!scope[source.role] && !helper) throw new Error('协助恢复需要先解锁自己的现有私密空间');
   const preserveHistory = Boolean(helper && !scope[source.role]);
-  if (preserveHistory && (helper!.vault.mls?.lastEventSeq ?? 0) !== (state.nextMlsEventSeq ?? 0)) throw new Error('设备变更尚未同步，请回到会话完成同步后重试');
+  if (preserveHistory && (helper!.vault.mls?.lastEventSeq ?? 0) !== (state.nextMlsEventSeq ?? 0)) throw new Error('设备变更尚未同步，请回到私密空间完成同步后重试');
   if (preserveHistory && ((await loadOutbox(helper!)).length || (await loadUploadPlans(helper!)).length)) throw new Error('请先完成或取消待发送内容，再协助恢复');
   const identity = await generateIdentity(), accessToken = randomBase64Url(32);
   const actualLink = link ?? { roomId: source.roomId, requestId: crypto.randomUUID(), capability: randomBase64Url(32) };

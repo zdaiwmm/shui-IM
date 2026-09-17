@@ -161,7 +161,7 @@ body {
   background-color: color-mix(in oklch, var(--glass-control) 82%, transparent);
 }
 
-.peer-summary > .peer-status {
+.peer-summary .peer-status {
   color: var(--ink-muted);
 }
 

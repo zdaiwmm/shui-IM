@@ -197,16 +197,18 @@ try {
   await creator.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   await holdCover(creator);
   await assertStablePage(creator, 'Welcome page');
-  await creator.locator('#join-room').click();
-  await creator.locator('#paste-form').waitFor();
-  invariant(await creator.locator('#app > .page-transition-outgoing').count() === 0, 'Welcome copy remained mounted during invitation-link navigation');
-  await creator.locator('.gateway-back').click();
+  invariant(await creator.locator('#join-room').count() === 0, 'Welcome page still offers a paste-invite entry');
   await creator.locator('#restore-cloud').click();
   await creator.locator('#joint-start').waitFor();
   invariant(await creator.locator('#app > .page-transition-outgoing').count() === 0, 'Welcome copy remained mounted during recovery navigation');
-  await creator.locator('#joint-start input[name="code"]').focus();
-  await creator.evaluate(() => {
-    const input = document.querySelector('#joint-start input[name="code"]');
+  invariant(await creator.locator('input[name="scope"][value="peer"]:not([disabled])').count() === 1, 'Peer-only recovery cannot be selected');
+  invariant(await creator.locator('#joint-start input[name="code"]').count() === 0, 'Recovery-code field is still on the page');
+  invariant(await creator.locator('#joint-cancel-entry').count() === 0, 'Home return button is still on the recovery page');
+  await creator.locator('#joint-open-code').click();
+  const recoveryCodeInput = creator.locator('#joint-code-form input[name="code"]');
+  await recoveryCodeInput.waitFor();
+  invariant(await recoveryCodeInput.evaluate((input) => document.activeElement === input), 'Recovery code input did not take focus');
+  await recoveryCodeInput.evaluate((input) => {
     input.blur();
     window.dispatchEvent(new Event('blur'));
   });
@@ -214,6 +216,8 @@ try {
   invariant(await creator.locator('#joint-start').count() === 1, 'Dismissing the recovery keyboard returned to the first entry page');
   await creator.evaluate(() => window.dispatchEvent(new Event('focus')));
   invariant(await creator.locator('#joint-start').count() === 1, 'Returning window focus left the recovery-code page');
+  await creator.keyboard.press('Escape');
+  await creator.locator('#joint-code-form').waitFor({ state: 'detached' });
   await creator.locator('#joint-back').click();
   await creator.locator('#create-room').click();
   invariant(await creator.locator('#app > .page-transition-outgoing').count() === 0, 'Welcome copy remained mounted during passkey navigation');
@@ -261,15 +265,15 @@ try {
     throw new Error(`Creator setup did not finish: ${visibleError || await creator.locator('body').innerText()}`, { cause: error });
   });
   const invite = await creator.locator('#invite-url').inputValue();
-  const inviteLabel = (await creator.locator('#invite-url-display').textContent())?.trim() ?? '';
-  invariant(/^邀请编号 · [A-F0-9]{10}$/.test(inviteLabel), `Invite display did not use a ten-character reference: ${inviteLabel}`);
+  invariant(await creator.locator('#invite-url-display, .invite-url-text, #connection-label').count() === 0, 'Invite page still shows a reference code or connection footnote');
+  invariant(!(await creator.locator('body').innerText()).includes('对方加入后'), 'Invite page still explains auto-entry after joining');
   invariant(invite.length > 10, 'Secure invitation capability was accidentally shortened');
   await creator.evaluate(() => {
     window.__inviteShareCalls = 0;
     Object.defineProperty(navigator, 'share', { configurable: true, value: async () => { window.__inviteShareCalls++; } });
   });
   await creator.locator('#copy-invite').click();
-  await creator.locator('#invite-copy-status').filter({ hasText: '已复制链接' }).waitFor();
+  await creator.locator('#app-toast, .notice').filter({ hasText: '链接已复制' }).waitFor();
   invariant(await creator.locator('.pairing-screen').count() === 1, 'Copying the invite link left the invitation page');
   invariant(await creator.evaluate(() => window.__inviteShareCalls) === 0, 'Copying the invite link unexpectedly opened system sharing');
   await assertStablePage(creator, 'Pairing page');
@@ -326,13 +330,15 @@ try {
     const summary = document.querySelector('.peer-summary').getBoundingClientRect();
     const shield = document.querySelector('#recovery-shield').getBoundingClientRect();
     const more = document.querySelector('.more-menu > summary').getBoundingClientRect();
-    return { selfRight: self.right, peerLeft: peer.left, peerCenter: (summary.left + summary.right) / 2, headerCenter: (header.left + header.right) / 2,
+    return { selfLeft: self.left, selfRight: self.right, peerLeft: peer.left, peerRight: peer.right, summaryLeft: summary.left, summaryRight: summary.right,
+      peerCenter: (summary.left + summary.right) / 2, headerCenter: (header.left + header.right) / 2,
       summaryHeight: summary.height, actionHeight: more.height, statusGap: shield.left - summary.right, shieldRight: shield.right, moreLeft: more.left };
   });
   invariant(presenceLayout.selfRight <= presenceLayout.peerLeft + 1, `Self presence is not on the left: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.selfLeft >= presenceLayout.summaryLeft - 1 && presenceLayout.peerRight <= presenceLayout.summaryRight + 1, `Presence labels overflow the capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(Math.abs(presenceLayout.peerCenter - presenceLayout.headerCenter) <= 3, `Combined presence is not centered: ${JSON.stringify(presenceLayout)}`);
-  invariant(Math.abs(presenceLayout.summaryHeight - presenceLayout.actionHeight) < 1 && presenceLayout.statusGap >= 8,
-    `Header status crowds the actions or has a different height: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.summaryHeight >= 44 && presenceLayout.statusGap >= 8,
+    `Header status crowds the actions or is shorter than the hit target: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.shieldRight <= presenceLayout.moreLeft + 1, `Recovery shield is not immediately left of the more menu: ${JSON.stringify(presenceLayout)}`);
   invariant(await creator.locator('#message-list > #entrance-card-banner[data-local-system-card="entry"]').count() === 1, 'Save-entry guidance is not a local timeline system card');
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-shield-entry-card-mobile.png') });
@@ -1376,11 +1382,8 @@ try {
       await page.goto(deviceUrl);
       await holdCover(page);
     } else {
-      await page.goto(baseUrl);
+      await page.goto(deviceUrl);
       await holdCover(page);
-      await page.locator('#join-room').click();
-      await page.locator('#invite-input').fill(deviceUrl);
-      await page.locator('#paste-form').evaluate(form => form.requestSubmit());
     }
     await page.getByRole('heading', { name: '添加这台设备', exact: true }).waitFor();
     invariant(!(await page.locator('body').innerText()).includes('该邀请已被另一位参与者使用'), `${route}: device link entered the participant invitation error path`);

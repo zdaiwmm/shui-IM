@@ -1,22 +1,39 @@
 .chat-header .peer-summary {
-  width: min(160px, calc(100vw - 232px));
-  max-width: 160px;
-  gap: 0;
-  padding-block: 4px 6px;
+  width: min(188px, calc(100vw - 232px));
+  max-width: 188px;
+  height: auto;
+  min-height: 44px;
+  gap: 2px;
+  padding: 5px 10px 6px;
 }
-.chat-header .presence-heading {
+.chat-header .presence-status-row {
   display: grid;
-  grid-template-columns: 1fr minmax(48px, 88px) 1fr;
-  gap: 0;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px;
   width: 100%;
+  min-width: 0;
 }
-.presence-heading #self-presence { justify-content: flex-end; }
-.presence-heading #peer-presence { justify-content: flex-start; }
-.presence-heading .presence-row { white-space: nowrap; }
+.chat-header .presence-status-row .presence-row {
+  min-width: 0;
+  font-size: 0.6875rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+.chat-header .presence-status-row .peer-status {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
 .presence-circuit {
   display: block;
   width: 100%;
-  height: 24px;
+  height: 20px;
   overflow: visible;
   pointer-events: none;
   --circuit-idle: oklch(72% 0.012 255);

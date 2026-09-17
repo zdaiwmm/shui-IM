@@ -1,17 +1,30 @@
 .joint-progress { display: grid; gap: 16px; width: 100%; }
-.joint-progress canvas, #entrance-card { max-width: 100%; height: auto; justify-self: center; margin-inline: auto; }
-.gateway-form select { width: 100%; min-height: 48px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); font: inherit; }
-.recovery-check { display: flex; gap: 12px; align-items: center; min-height: 48px; line-height: 1.6; }
-.recovery-check input { width: 24px; height: 24px; flex: 0 0 24px; }
-.recovery-scope { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; }
-.recovery-scope legend { padding: 0; margin-bottom: 8px; font-weight: 600; }
-.recovery-scope-option { display: flex; align-items: center; min-height: 48px; padding: 0 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); gap: 12px; }
+.joint-progress .invite-qr, #joint-qr { max-width: min(248px, 100%); height: auto; justify-self: center; margin-inline: auto; }
+.gateway-form select { width: 100%; min-height: 48px; padding: 12px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); color: var(--ink); font: inherit; }
+.recovery-scope { border: 0; margin: 16px 0 0; padding: 0; display: grid; gap: 8px; }
+.recovery-scope legend { padding: 0; margin-bottom: 8px; color: var(--ink); font-size: .85rem; font-weight: 650; }
+.recovery-scope-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 16px;
+  border: 1px solid var(--glass-border);
+  border-radius: 16px;
+  background: var(--glass-control);
+  background-image: var(--glass-sheen);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  gap: 12px;
+  cursor: pointer;
+  transition: border-color 120ms var(--motion-out), background-color 120ms var(--motion-out);
+}
 .recovery-scope-option > span:first-of-type { flex: 1; }
 .recovery-scope-option .scope-check { opacity: 0; color: var(--accent); font-weight: 700; }
 .recovery-scope-option:has(input:checked) .scope-check { opacity: 1; }
-.recovery-scope-option:has(input:checked) { border-color: var(--accent, #3b6ea5); background: color-mix(in oklch, var(--accent, #3b6ea5) 12%, var(--surface)); }
-.recovery-scope-option:has(input:disabled) { opacity: .5; }
-.recovery-scope-option input { width: 22px; height: 22px; margin-right: 12px; }
+.recovery-scope-option:has(input:checked) { border-color: color-mix(in oklch, var(--accent) 34%, var(--glass-border)); background-color: color-mix(in oklch, var(--accent-soft) 42%, var(--glass-control)); }
+.recovery-scope-option input { width: 22px; height: 22px; margin: 0; accent-color: var(--accent); flex: none; }
 .joint-progress button, .backup-content > button { min-height: 48px; }
 .joint-progress p { overflow-wrap: anywhere; }
 .recovery-shield.needs-preparation { animation: recovery-breathe 3s ease-in-out infinite; }
@@ -51,15 +64,6 @@
   margin-top: auto;
 }
 .welcome-actions .primary-button { width: 100%; }
-.welcome-actions #join-room { color: var(--ink-faint); font-weight: 500; }
-.invite-url-text {
-  margin: 0;
-  color: var(--ink-muted);
-  font-size: 0.82rem;
-  line-height: 1.5;
-  text-align: center;
-  overflow-wrap: anywhere;
-}
 .invite-status {
   display: grid;
   border: 1px solid var(--line);
@@ -87,19 +91,13 @@
 }
 .invite-badge-ready { color: var(--accent); }
 .pairing-footer .primary-button { width: 100%; }
-#invite-copy-status {
-  margin: 10px 0 0;
-  text-align: center;
-  color: var(--ink);
-  font-size: 0.86rem;
-}
 .recovery-details { margin: 8px 0 0; color: var(--ink-muted); }
 .recovery-details summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
 .recovery-details p { margin: 0 0 8px; line-height: 1.65; }
 .gateway-plain .credential-only-step { margin-top: 28px; }
 .pairing-body { gap: 16px; }
 @media (max-height: 760px) {
-  #invite-qr { width: 200px; height: 200px; }
+  #invite-qr, #joint-qr, .invite-qr { width: 200px; height: 200px; }
 }
 .backup-content > .secondary-button { margin-top: 12px; width: 100%; }
 @keyframes recovery-breathe { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
@@ -110,10 +108,25 @@
 .recovery-code-confirm { display: grid; gap: 12px; }
 .recovery-code-confirm input { min-height: 48px; width: 100%; font: inherit; padding: 12px; }
 .confirm-overlay { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom)); background: color-mix(in oklch, var(--ink) 28%, transparent); backdrop-filter: blur(8px); }
-.confirm-dialog { display: grid; gap: 16px; width: min(100%, 400px); max-height: 90dvh; overflow: auto; padding: 28px; border: 1px solid var(--line); border-radius: 24px; background: var(--paper); box-shadow: 0 12px 50px #0002; }
+.confirm-dialog {
+  display: grid;
+  gap: 16px;
+  width: min(100%, 400px);
+  max-height: 90dvh;
+  overflow: auto;
+  padding: 28px;
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  background: var(--glass-panel);
+  background-image: var(--glass-sheen);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--material-blur-strong);
+  backdrop-filter: var(--material-blur-strong);
+}
 .confirm-dialog h2, .confirm-dialog p { margin: 0; }
 .confirm-dialog p { color: var(--ink-muted); line-height: 1.7; }
 .confirm-dialog button { min-height: 48px; }
+.joint-code-sheet { z-index: 130; }
 
 .recovery-flow-page {
   width: min(100%, 760px);
@@ -262,7 +275,6 @@
 }
 .recovery-flow-hero svg { width: 26px; height: 26px; fill: none; stroke: currentColor; }
 .recovery-flow-hero.success { color: var(--accent); }
-.joint-progress canvas { width: 164px; height: 164px; margin: 0 auto 4px; }
 .joint-request-code {
   margin: 14px 0;
   color: var(--ink);
@@ -309,7 +321,8 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .recovery-flow-progress > span, .cover-practice-page .practice-hotspot { animation: none; }
+  .recovery-scope-option { transition: none; }
 }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more), (forced-colors: active) {
-  .recovery-flow-group, .recovery-flow-notice { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--paper-pure); }
+  .recovery-flow-group, .recovery-flow-notice, .recovery-scope-option, .confirm-dialog { -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--paper-pure); background-image: none; }
 }

@@ -771,7 +771,7 @@ button:disabled {
   gap: 22px;
 }
 
-#invite-qr {
+#invite-qr, #joint-qr, .invite-qr {
   justify-self: center;
   width: 248px;
   height: 248px;
@@ -1260,6 +1260,12 @@ button:disabled {
   transform: translateY(-5px) scale(0.99);
   transition-duration: var(--motion-notice-out);
   transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
+}
+
+.notice.app-toast {
+  position: fixed;
+  top: max(14px, env(safe-area-inset-top));
+  z-index: 200;
 }
 
 .notice[data-tone="error"] {
