@@ -88,6 +88,7 @@ export function createCloudBackups(db, { authenticatedDevice }) {
       const source = !current && value.replaces ? row(value.replaces) : null;
       if (!current && value.replaces && (!source?.active || source.room_id !== roomId ||
           !db.prepare("SELECT 1 FROM recovery_requests WHERE room_id = ? AND source_device_id = ? AND replacement_device_id = ? AND status = 'completed'")
+            .get(roomId, source.device_id, member.deviceId) && !db.prepare('SELECT 1 FROM joint_recovery_replacements WHERE room_id=? AND source_device_id=? AND replacement_device_id=?')
             .get(roomId, source.device_id, member.deviceId))) fail('INVALID_BACKUP_REPLACEMENT');
       const existing = db.prepare('SELECT archive_id FROM history_archives WHERE backup_id = ?').all(source?.backup_id ?? value.id);
       if (existing.some(a => !value.archives.some(next => next.id === a.archive_id))) fail('BACKUP_ARCHIVE_MISSING');
@@ -121,7 +122,7 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     const member = db.prepare('SELECT status FROM members WHERE room_id = ? AND device_id = ?').get(backup.room_id, backup.device_id);
     // A completed replacement may still be waiting to upload the new wrapper.
     const recoverableReplacement = db.prepare("SELECT 1 FROM recovery_requests WHERE room_id = ? AND source_device_id = ? AND status = 'completed'").get(backup.room_id, backup.device_id);
-    if (member?.status !== 'active' && !recoverableReplacement) fail('BACKUP_UNAVAILABLE');
+    if (member?.status !== 'active' && !recoverableReplacement && !db.prepare('SELECT 1 FROM joint_recovery_replacements WHERE room_id=? AND source_device_id=?').get(backup.room_id, backup.device_id)) fail('BACKUP_UNAVAILABLE');
     return { revision: backup.revision, sealed: JSON.parse(backup.sealed) };
   }
 
@@ -151,7 +152,8 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     const backup = archive && row(archive.backup_id);
     if (!archive || !backup?.active || !sameToken(token, archive.read_hash)) fail('BACKUP_UNAVAILABLE');
     const owner = db.prepare('SELECT status FROM members WHERE room_id=? AND device_id=?').get(backup.room_id, backup.device_id);
-    if (owner?.status !== 'active' && !db.prepare("SELECT 1 FROM recovery_requests WHERE room_id=? AND source_device_id=? AND status='completed'").get(backup.room_id, backup.device_id)) fail('BACKUP_UNAVAILABLE');
+    if (owner?.status !== 'active' && !db.prepare("SELECT 1 FROM recovery_requests WHERE room_id=? AND source_device_id=? AND status='completed'").get(backup.room_id, backup.device_id) &&
+        !db.prepare('SELECT 1 FROM joint_recovery_replacements WHERE room_id=? AND source_device_id=?').get(backup.room_id, backup.device_id)) fail('BACKUP_UNAVAILABLE');
   }
 
   function getPart(archiveId, partId, token) {

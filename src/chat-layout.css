@@ -32,7 +32,7 @@ body:has(:where(#app) > .chat-shell) {
   inset: 0 max(0px, calc((100% - 880px) / 2)) auto;
   translate: 0 var(--app-top);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(96px, 1fr) auto minmax(96px, 1fr);
   gap: 8px;
   min-height: 72px;
   padding: max(8px, env(safe-area-inset-top)) 12px 10px;
@@ -63,20 +63,20 @@ body:has(:where(#app) > .chat-shell) {
 .peer-summary {
   grid-column: 2;
   justify-self: center;
-  width: clamp(88px, calc(100vw - 232px), 160px);
-  max-width: 160px;
+  width: clamp(108px, calc(100vw - 232px), 188px);
+  max-width: 188px;
   min-width: 0;
-  height: 44px;
+  height: auto;
   min-height: 44px;
-  padding: 4px 8px;
+  padding: 5px 10px 6px;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 3px;
+  gap: 2px;
   line-height: 1.2;
 }
-.presence-heading { display: flex; align-items: center; justify-content: center; gap: 10px; }
-.presence-heading .presence-row { gap: 4px; color: var(--ink); font-size: 0.8125rem; font-weight: 650; }
+.presence-status-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px; width: 100%; min-width: 0; }
+.presence-status-row .presence-row { gap: 4px; color: var(--ink); font-size: 0.6875rem; font-weight: 650; }
 .chat-header .presence-row[data-state="online"] .presence-dot {
   --presence-green: oklch(61% 0.185 147);
   background: var(--presence-green);
@@ -104,8 +104,10 @@ body:has(:where(#app) > .chat-shell) {
 @media (prefers-reduced-motion: reduce) {
   .chat-header .presence-row[data-state="online"] .presence-dot { animation: none; }
 }
-.peer-summary > .peer-status { flex: none; width: 100%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 0.6875rem; font-weight: 500; }
+.peer-summary > .peer-status { flex: none; width: auto; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 0.6875rem; font-weight: 500; }
 .header-actions { grid-column: 3; justify-self: end; gap: 8px; }
+.header-actions .recovery-shield { flex: 0 0 44px; }
+.header-actions .recovery-shield svg { width: 22px; height: 22px; }
 .chat-header .icon-button:disabled {
   opacity: 1;
   color: var(--ink-faint);
@@ -185,7 +187,8 @@ body:has(:where(#app) > .chat-shell) {
   from { opacity: 0; transform: translateY(-18px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.recovery-reminder {
+.recovery-reminder,
+.pinned-notice {
   min-height: 56px;
   gap: 4px;
   padding: 4px 5px 4px 14px;
@@ -197,11 +200,14 @@ body:has(:where(#app) > .chat-shell) {
   -webkit-backdrop-filter: var(--glass-filter);
   backdrop-filter: var(--glass-filter);
 }
-.recovery-reminder .pinned-recovery-content {
+.recovery-reminder .pinned-recovery-content,
+.pinned-notice .pinned-recovery-content {
   position: relative;
   display: grid;
   flex: 1;
   min-width: 0;
+  min-height: 44px;
+  align-content: center;
   gap: 3px;
   padding: 4px 4px 4px 12px;
   border: 0;
@@ -214,7 +220,8 @@ body:has(:where(#app) > .chat-shell) {
 .pinned-recovery-content::before { content: ''; position: absolute; inset: 5px auto 5px 0; width: 3px; border-radius: 3px; background: var(--accent); }
 .pinned-recovery-content strong { font-size: 0.78rem; }
 .pinned-recovery-content span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.72rem; }
-.recovery-reminder #dismiss-recovery { width: 44px; min-width: 44px; height: 44px; padding: 11px; border: 0; border-radius: 50%; background: transparent; color: var(--ink-muted); }
+.recovery-reminder #dismiss-recovery,
+.pinned-notice [id^="dismiss-"] { width: 44px; min-width: 44px; height: 44px; padding: 11px; border: 0; border-radius: 50%; background: transparent; color: var(--ink-muted); }
 #dismiss-recovery svg { display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 .message-list {
   position: relative;
@@ -227,6 +234,27 @@ body:has(:where(#app) > .chat-shell) {
   scroll-padding-bottom: var(--chat-bottom-space);
 }
 .message-list > * { flex-shrink: 0; }
+.chat-guide {
+  width: min(100%, 390px);
+  margin: 22px auto 8px;
+  padding: 18px;
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--glass-border);
+  border-radius: 22px;
+  background: var(--glass-strong);
+  background-image: var(--glass-sheen);
+  box-shadow: var(--glass-shadow);
+  -webkit-backdrop-filter: var(--glass-filter);
+  backdrop-filter: var(--glass-filter);
+  color: var(--ink);
+}
+.chat-guide > small { color: var(--ink-muted); font-size: .7rem; }
+.chat-guide h2 { margin: 0; font-size: 1.05rem; line-height: 1.35; }
+.chat-guide p { margin: 0 0 2px; color: var(--ink-muted); font-size: .82rem; line-height: 1.6; }
+.chat-guide button { width: 100%; min-height: 44px; }
+.chat-guide .secondary-button { background: var(--accent-soft); color: var(--accent); }
+.chat-guide .text-button { min-height: 44px; }
 /* Native toolbar animation changes dvh on every frame. Media uses a stable
    small-viewport bound so its decoded geometry never breathes while scrolling. */
 .chat-shell .message-bubble.image-bubble { max-width: min(288px, 100%); }
@@ -334,6 +362,7 @@ body:has(#app > .chat-shell[data-scroll-owner="list"]) {
 @media (prefers-reduced-motion: reduce) { .chat-bottom-control, .composer, .composer textarea { transition: none; } }
 @media (prefers-reduced-motion: reduce) { .release-update-reminder { animation: none; } }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  .chat-guide,
   .composer .composer-input-stack,
   .composer .image-picker,
   .composer .voice-record-button,
@@ -345,6 +374,7 @@ body:has(#app > .chat-shell[data-scroll-owner="list"]) {
   }
   .composer-input-stack:focus-within { border-color: var(--accent); }
   .composer :is(.image-picker, .voice-record-button):hover { border-color: var(--line-strong); }
+  .chat-guide { background: var(--paper-pure); }
 }
 @media (forced-colors: active) {
   .composer .composer-input-stack,
@@ -388,8 +418,9 @@ html[data-keyboard-open='true'] .composer {
 .upload-progress { flex: 0 0 100%; }
 @media (max-width: 360px) {
   .chat-header { padding-inline: 8px; }
-  .presence-heading { gap: 8px; }
-  .presence-heading .presence-row { font-size: 0.75rem; }
+  .presence-status-row { gap: 3px; }
+  .presence-status-row .presence-row,
+  .presence-status-row .peer-status { font-size: 0.625rem; }
 }
 
 /* Distinguish the empty-input instruction from actual message text. */

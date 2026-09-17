@@ -78,7 +78,8 @@ async function createDesktop() {
 }
 
 async function holdF(page) {
-  await page.locator('.cover-trigger').waitFor();
+  await page.locator('.cover-trigger, #create-room, [data-device-verify], .pairing-screen, #cloud-recovery-form, #joint-start').first().waitFor();
+  if (await page.locator('.cover-trigger').count() === 0) return;
   await page.keyboard.down('f');
   await page.waitForTimeout(2100);
   await page.keyboard.up('f');
@@ -161,6 +162,13 @@ try {
   await holdF(joiner);
   await joiner.locator('[data-device-verify]').click();
   await Promise.all([expectChat(creator), expectChat(joiner)]);
+  for (const page of [creator, joiner]) {
+    const welcome = page.locator('#welcome-chat');
+    if (await welcome.waitFor({ timeout: 5_000 }).then(() => true, () => false)) {
+      await welcome.click();
+      await welcome.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
+    }
+  }
   const initialVerifications = await verificationCount(creator);
   assert.equal(await creator.evaluate(() => Number(sessionStorage.getItem('desktop-test-credential-create'))), 1, 'Initial setup must create the real platform credential');
 

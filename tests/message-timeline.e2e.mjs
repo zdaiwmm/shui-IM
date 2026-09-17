@@ -65,7 +65,7 @@ async function initializeTimeline() {
     app.session = session; app.privacyCovered = false;
     app.runtimeEpoch += 1; app.runtimeAbort = new AbortController();
     app.messages = new Map(); app.pending = new Map(); app.messageEventHistory = new Map();
-    app.uiPreferences = { recoveryReminderDismissed: true }; app.restoreChatAnchorOnNextRender = false;
+    app.uiPreferences = { recoveryReminderDismissed: true, entranceCardDismissed: true }; app.restoreChatAnchorOnNextRender = false;
     reads.length = 0;
     app.renderChat();
   };
@@ -340,7 +340,7 @@ try {
         const composer = document.querySelector('#composer');
         const composerBox = composer?.getBoundingClientRect();
         if (!document.body.classList.contains('app-mode') || !composerBox || composerBox.height < 44 || composerBox.top >= innerHeight || composerBox.bottom < 1 || getComputedStyle(composer).visibility !== 'visible') issues.push('fixture did not present the chat composer');
-        const latest = document.querySelector('#message-list > article.message:last-child');
+        const latest = document.querySelector('#message-list > article.message:last-of-type');
         const latestGap = composerBox.top - latest.getBoundingClientRect().bottom;
         const scrollState = { pinned: app.chatPinnedToBottom, gap: latestGap, remainingScroll: app.chatBottomGap(), scrollY, scrollHeight: document.documentElement.scrollHeight, intent: app.chatScrollIntent, followPending: app.chatBottomFollowPending, restoringAnchor: Boolean(app.chatRestoreAnchor) };
         if (app.chatPinnedToBottom) {

@@ -128,6 +128,45 @@ describe('platform vault WebAuthn cancellation', () => {
     expect(create).toHaveBeenCalledTimes(1);
   });
 
+  it('allows any resident PRF-capable authenticator for setup', async () => {
+    const credential = new FakePublicKeyCredential(
+      new FakeAttestationResponse(),
+      {
+        prf: {
+          enabled: true,
+          results: { first: new Uint8Array(32).fill(7).buffer },
+        },
+      } as AuthenticationExtensionsClientOutputs,
+    );
+    const create = vi.fn().mockResolvedValue(credential as unknown as Credential);
+    installCredentials({ create });
+
+    await createPlatformCredential();
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      publicKey: expect.objectContaining({
+        rp: { id: 'ai.shui.click', name: 'Quiet Room' },
+        authenticatorSelection: expect.objectContaining({
+          residentKey: 'required',
+          userVerification: 'required',
+        }),
+      }),
+    }));
+    expect(create.mock.calls[0]![0]!.publicKey!.authenticatorSelection).not.toHaveProperty('authenticatorAttachment');
+  });
+
+  it('separates an untrusted HTTPS context from browser capability failures', async () => {
+    vi.stubGlobal('navigator', { credentials: {} });
+    vi.stubGlobal('window', { isSecureContext: false, PublicKeyCredential: FakePublicKeyCredential });
+    await expect(createPlatformCredential()).rejects.toThrow('浏览器信任的 HTTPS');
+  });
+
+  it('reports a missing WebAuthn API without blaming the certificate', async () => {
+    vi.stubGlobal('navigator', { credentials: undefined });
+    vi.stubGlobal('window', { isSecureContext: true, PublicKeyCredential: undefined });
+    await expect(createPlatformCredential()).rejects.toThrow('当前浏览器不支持通行密钥');
+  });
+
   it('does not classify policy failures or post-assertion credential mismatches as cancellation', async () => {
     const policyFailure = new DOMException('RP policy failure', 'SecurityError');
     installCredentials({ get: vi.fn().mockRejectedValue(policyFailure) });

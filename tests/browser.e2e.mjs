@@ -88,7 +88,10 @@ async function blurOutsidePage(page) {
 }
 
 async function holdCover(page) {
-  const box = await page.locator('.cover-trigger').boundingBox();
+  await page.locator('.cover-trigger, #create-room, [data-device-verify], .pairing-screen, #cloud-recovery-form, #joint-start').first().waitFor({ timeout: 120_000 });
+  const trigger = page.locator('.cover-trigger');
+  if (await trigger.count() === 0) return;
+  const box = await trigger.boundingBox();
   invariant(box, 'Privacy-curtain trigger is missing');
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
@@ -194,7 +197,32 @@ try {
   await creator.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   await holdCover(creator);
   await assertStablePage(creator, 'Welcome page');
+  invariant(await creator.locator('#join-room').count() === 0, 'Welcome page still offers a paste-invite entry');
+  await creator.locator('#restore-cloud').click();
+  await creator.locator('#joint-start').waitFor();
+  invariant(await creator.locator('#app > .page-transition-outgoing').count() === 0, 'Welcome copy remained mounted during recovery navigation');
+  invariant(await creator.locator('input[name="scope"][value="peer"]:not([disabled])').count() === 1, 'Peer-only recovery cannot be selected');
+  invariant(await creator.locator('#joint-start input[name="code"]').count() === 0, 'Recovery-code field is still on the page');
+  invariant(await creator.locator('#joint-cancel-entry').count() === 0, 'Home return button is still on the recovery page');
+  await creator.locator('#joint-open-code').click();
+  const recoveryCodeInput = creator.locator('#joint-code-form input[name="code"]');
+  await recoveryCodeInput.waitFor();
+  invariant(await recoveryCodeInput.evaluate((input) => document.activeElement === input), 'Recovery code input did not take focus');
+  await recoveryCodeInput.evaluate((input) => {
+    input.blur();
+    window.dispatchEvent(new Event('blur'));
+  });
+  await creator.waitForTimeout(1800);
+  invariant(await creator.locator('#joint-start').count() === 1, 'Dismissing the recovery keyboard returned to the first entry page');
+  await creator.evaluate(() => window.dispatchEvent(new Event('focus')));
+  invariant(await creator.locator('#joint-start').count() === 1, 'Returning window focus left the recovery-code page');
+  await creator.locator('.joint-code-sheet').press('Escape');
+  await creator.locator('#joint-code-form').waitFor({ state: 'detached' });
+  await creator.locator('#joint-back').click();
   await creator.locator('#create-room').click();
+  invariant(await creator.locator('#app > .page-transition-outgoing').count() === 0, 'Welcome copy remained mounted during passkey navigation');
+  const incomingCanvas = await creator.locator('#app > .gateway').evaluate((element) => getComputedStyle(element).backgroundColor);
+  invariant(incomingCanvas !== 'transparent' && incomingCanvas !== 'rgba(0, 0, 0, 0)', `Passkey page has a transparent transition canvas: ${incomingCanvas}`);
   await assertStablePage(creator, 'Passkey setup page');
   await assertCredentialLayout(creator, '[data-device-verify]');
   if (visualQaDirectory) {
@@ -228,7 +256,7 @@ try {
   });
   await creator.locator('[data-device-verify]').click();
   await creator.locator('[data-device-verify]', { hasText: '重新验证' }).waitFor();
-  invariant(!(await creator.locator('.form-error').textContent())?.trim(), 'Cancelling passkey setup left a red error message');
+  invariant((await creator.locator('.form-error').textContent())?.includes('未完成设备安全验证'), 'Passkey cancellation did not provide a browser-neutral retry message');
   await assertCredentialLayout(creator, '[data-device-verify]');
   invariant(await creator.locator('.cover-trigger').count() === 0, 'Passkey prompt blur unexpectedly activated the privacy curtain');
   await creator.locator('[data-device-verify]').click();
@@ -237,10 +265,32 @@ try {
     throw new Error(`Creator setup did not finish: ${visibleError || await creator.locator('body').innerText()}`, { cause: error });
   });
   const invite = await creator.locator('#invite-url').inputValue();
+  invariant(await creator.locator('#invite-url-display, .invite-url-text, #connection-label').count() === 0, 'Invite page still shows a reference code or connection footnote');
+  invariant(!(await creator.locator('body').innerText()).includes('对方加入后'), 'Invite page still explains auto-entry after joining');
+  invariant(invite.length > 10, 'Secure invitation capability was accidentally shortened');
+  await creator.evaluate(() => {
+    window.__inviteShareCalls = 0;
+    Object.defineProperty(navigator, 'share', { configurable: true, value: async () => { window.__inviteShareCalls++; } });
+  });
+  await creator.locator('#copy-invite').click();
+  await creator.locator('#app-toast, .notice').filter({ hasText: '链接已复制' }).waitFor();
+  invariant(await creator.locator('.pairing-screen').count() === 1, 'Copying the invite link left the invitation page');
+  invariant(await creator.evaluate(() => window.__inviteShareCalls) === 0, 'Copying the invite link unexpectedly opened system sharing');
   await assertStablePage(creator, 'Pairing page');
 
   await joiner.goto(invite);
   await holdCover(joiner);
+  invariant(await joiner.locator('[data-device-verify]').isEnabled(), 'Invitee passkey setup control is not operable');
+  await joiner.evaluate(() => {
+    const create = navigator.credentials.create.bind(navigator.credentials);
+    Object.defineProperty(navigator.credentials, 'create', {
+      configurable: true,
+      value: (options) => {
+        window.__inviteePasskeyActivation = navigator.userActivation?.isActive ?? false;
+        return create(options);
+      },
+    });
+  });
   await setPasskey(joiner);
   await Promise.all([
     creator.locator('.chat-shell').waitFor({ timeout: 15_000 }),
@@ -248,6 +298,14 @@ try {
   ]).catch(async (error) => {
     throw new Error(`Pairing did not finish. Creator: ${await creator.locator('body').innerText()} Joiner: ${await joiner.locator('body').innerText()}`, { cause: error });
   });
+  invariant(await joiner.evaluate(() => window.__inviteePasskeyActivation) === true, 'Invitee passkey request lost its trusted click activation');
+  for (const page of [creator, joiner]) {
+    const welcome = page.locator('#welcome-chat');
+    if (await welcome.waitFor({ timeout: 5_000 }).then(() => true, () => false)) {
+      await welcome.click();
+      await welcome.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
+    }
+  }
   const joinerUsesSyncablePasskey = await joiner.evaluate(async () => {
     const { readStoredVault } = await import('/src/lib/vault.ts');
     const stored = await readStoredVault();
@@ -270,18 +328,22 @@ try {
     const self = document.querySelector('#self-presence').getBoundingClientRect();
     const peer = document.querySelector('#peer-presence').getBoundingClientRect();
     const summary = document.querySelector('.peer-summary').getBoundingClientRect();
+    const shield = document.querySelector('#recovery-shield').getBoundingClientRect();
     const more = document.querySelector('.more-menu > summary').getBoundingClientRect();
-    return { selfRight: self.right, peerLeft: peer.left, peerCenter: (summary.left + summary.right) / 2, headerCenter: (header.left + header.right) / 2,
-      summaryHeight: summary.height, actionHeight: more.height, statusGap: more.left - summary.right };
+    return { selfLeft: self.left, selfRight: self.right, peerLeft: peer.left, peerRight: peer.right, summaryLeft: summary.left, summaryRight: summary.right,
+      peerCenter: (summary.left + summary.right) / 2, headerCenter: (header.left + header.right) / 2,
+      summaryHeight: summary.height, actionHeight: more.height, statusGap: shield.left - summary.right, shieldRight: shield.right, moreLeft: more.left };
   });
   invariant(presenceLayout.selfRight <= presenceLayout.peerLeft + 1, `Self presence is not on the left: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.selfLeft >= presenceLayout.summaryLeft - 1 && presenceLayout.peerRight <= presenceLayout.summaryRight + 1, `Presence labels overflow the capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(Math.abs(presenceLayout.peerCenter - presenceLayout.headerCenter) <= 3, `Combined presence is not centered: ${JSON.stringify(presenceLayout)}`);
-  invariant(Math.abs(presenceLayout.summaryHeight - presenceLayout.actionHeight) < 1 && presenceLayout.statusGap >= 8,
-    `Header status crowds the actions or has a different height: ${JSON.stringify(presenceLayout)}`);
-  invariant(await creator.locator('#dismiss-recovery svg').evaluate((icon) => getComputedStyle(icon).stroke !== 'none'), 'Pinned recovery reminder close icon is invisible');
-  if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-pinned-mobile.png') });
-  await creator.locator('#dismiss-recovery').click();
-  await creator.locator('.recovery-reminder').waitFor({ state: 'detached' });
+  invariant(presenceLayout.summaryHeight >= 44 && presenceLayout.statusGap >= 8,
+    `Header status crowds the actions or is shorter than the hit target: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.shieldRight <= presenceLayout.moreLeft + 1, `Recovery shield is not immediately left of the more menu: ${JSON.stringify(presenceLayout)}`);
+  invariant(await creator.locator('#message-list > #entrance-card-banner[data-local-system-card="entry"]').count() === 1, 'Save-entry guidance is not a local timeline system card');
+  if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-shield-entry-card-mobile.png') });
+  await creator.locator('#dismiss-entrance-card').click();
+  await creator.locator('#entrance-card-banner').waitFor({ state: 'detached' });
   await creator.waitForTimeout(280);
   const composerLayout = await creator.evaluate(() => {
     const composer = document.querySelector('.composer')?.getBoundingClientRect();
@@ -470,7 +532,7 @@ try {
   invariant(await creator.locator('.cover-trigger').count() === 1, 'Focus restored the session without authentication');
   await unlock(creator, true);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
-  invariant(await creator.locator('.recovery-reminder').count() === 0, 'Dismissed recovery reminder returned after unlocking');
+  invariant(await creator.locator('#entrance-card-banner').count() === 0, 'Dismissed local entry card returned after unlocking');
   await creatorSource.locator('.message-reaction').filter({ hasText: '👍' }).waitFor({ timeout: 5000 });
   invariant(await creatorSource.locator('.message-reaction').count() === 1, 'Restoring the encrypted session lost, duplicated, or resurrected a removed reaction');
 
@@ -981,10 +1043,9 @@ try {
 
   await creator.locator('.more-menu summary').click();
   await creator.locator('#backup-settings').click();
-  await creator.locator('#backup-retry').click();
-  await creator.waitForFunction(() => document.querySelector('#backup-status')?.textContent?.startsWith('上次备份：'));
+  await creator.locator('#save-my-code').waitFor();
   invariant(await creator.locator('#export-recovery').count() === 0, 'Manual recovery export remains exposed');
-  await creator.locator('#view-local-recovery').click();
+  await creator.locator('#save-my-code').click();
   invariant(await creator.locator('.local-recovery-code').count() === 0, 'Recovery code appeared without fresh passkey verification');
   await creator.locator('#verify-recovery-passkey').click();
   await creator.locator('.local-recovery-code').waitFor();
@@ -997,7 +1058,6 @@ try {
   invariant(codeIsEncrypted, 'Local durable vault leaked the recovery code');
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-code-mobile.png') });
   await creator.locator('#hide-local-recovery').click();
-  await creator.locator('#backup-back').click();
   await creator.locator('.chat-shell').waitFor();
   const sourceIdentity = await creator.evaluate(async () => {
     const { unlockVault } = await import('/src/lib/vault.ts');
@@ -1017,9 +1077,8 @@ try {
   const recoveryContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
   const recovery = await recoveryContext.newPage();
   await enableDeviceVault(recovery);
-  await recovery.goto(baseUrl);
+  await recovery.goto(`${baseUrl}#legacy-recovery`);
   await holdCover(recovery);
-  await recovery.locator('#restore-cloud').click();
   await recovery.locator('#cloud-recovery-form input[name="code"]').fill(recoveryCode);
   await recovery.locator('#cloud-recovery-form').evaluate((form) => form.requestSubmit());
   await recovery.evaluate(() => {
@@ -1037,8 +1096,8 @@ try {
   await unlock(joiner);
   await joiner.locator('.chat-shell').waitFor({ timeout: 15_000 });
   await joiner.locator('.recovery-authorization-sheet').waitFor({ timeout: 15_000 });
-  await joiner.getByRole('button', { name: '批准恢复', exact: true }).click();
-  await joiner.locator('.recovery-authorization-sheet').waitFor({ state: 'detached', timeout: 15_000 });
+  await joiner.getByRole('button', { name: '批准恢复', exact: true }).first().click();
+  await joiner.waitForFunction(() => document.querySelectorAll('.recovery-authorization-sheet').length === 0, null, { timeout: 15_000 });
   await recovery.locator('#confirm-new-recovery').waitFor({ timeout: 20_000 }).catch(async error => {
     throw new Error(`Recovery rotation did not finish: ${await recovery.locator('body').innerText()}`, { cause: error });
   });
@@ -1053,6 +1112,13 @@ try {
   await recovery.locator('.chat-shell').waitFor({ timeout: 15_000 }).catch(async (error) => {
     throw new Error(`Recovery did not reopen: ${await recovery.locator('body').innerText()}`, { cause: error });
   });
+  for (const page of [recovery, joiner]) {
+    const welcome = page.locator('#welcome-chat');
+    if (await welcome.waitFor({ timeout: 3_000 }).then(() => true, () => false)) {
+      await welcome.click();
+      await welcome.waitFor({ state: 'detached', timeout: 3_000 }).catch(() => undefined);
+    }
+  }
   invariant(await recovery.locator('.fatal-screen').count() === 0, 'MLS recovery replayed an unavailable sender ratchet');
   const restoredIdentity = await recovery.evaluate(async () => {
     const { unlockVault } = await import('/src/lib/vault.ts');
@@ -1061,7 +1127,12 @@ try {
   });
   invariant(restoredIdentity.id !== sourceIdentity && !restoredIdentity.pending, 'Recovery reused the checkpoint identity or did not finish replacement');
   invariant(restoredIdentity.boundary > 0 && !restoredIdentity.exportedAt, 'Fresh recovery failed to establish a history boundary and require a new backup');
+  if (await recovery.locator('.cover-trigger').count()) {
+    await unlock(recovery);
+    await recovery.locator('.chat-shell').waitFor({ timeout: 15_000 });
+  }
   invariant(await recovery.getByText('browser-e2e-source-after-checkpoint', { exact: true }).count() === 0, 'Recovery claimed unavailable old local history');
+  await joiner.locator('#self-presence[data-state="online"]').waitFor({ timeout: 15_000 });
   await Promise.all([
     recovery.locator('.peer-summary[data-connection-state="ready"]').waitFor({ timeout: 15_000 }),
     recovery.locator('#self-presence[data-state="online"]').waitFor({ timeout: 15_000 }),
@@ -1075,7 +1146,7 @@ try {
   await joiner.getByText('browser-e2e-fresh-identity-send', { exact: true }).waitFor({ timeout: 5000 });
 
   await recovery.locator('.more-menu summary').click();
-  await recovery.locator('#backup-settings').click();
+  await recovery.evaluate(() => { location.hash = 'legacy-backup'; });
   await recovery.locator('[data-restore="all"]').click();
   await recovery.locator('#history-restore-code').fill(newRecoveryCode);
   await recovery.locator('.history-restore-sheet:not(.is-closing) .history-restore-form').evaluate(form => form.requestSubmit());
@@ -1311,11 +1382,8 @@ try {
       await page.goto(deviceUrl);
       await holdCover(page);
     } else {
-      await page.goto(baseUrl);
+      await page.goto(deviceUrl);
       await holdCover(page);
-      await page.locator('#join-room').click();
-      await page.locator('#invite-input').fill(deviceUrl);
-      await page.locator('#paste-form').evaluate(form => form.requestSubmit());
     }
     await page.getByRole('heading', { name: '添加这台设备', exact: true }).waitFor();
     invariant(!(await page.locator('body').innerText()).includes('该邀请已被另一位参与者使用'), `${route}: device link entered the participant invitation error path`);

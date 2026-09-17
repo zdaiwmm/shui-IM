@@ -163,7 +163,8 @@ try {
   await page.locator('#passkey-unlock').click();
   await page.getByRole('button', { name: '重新验证', exact: true }).waitFor();
   assert.equal(await page.locator('.gateway-unlock .form-error').textContent(), '', 'cancelled passkey verification left a red error message');
-  assert.equal(await page.locator('.gateway-unlock button').count(), 1, 'unlock contains only the requested passkey action');
+  assert.equal(await page.locator('.gateway-unlock .primary-button').count(), 1, 'unlock contains only one primary passkey action');
+  assert.equal(await page.locator('#recover-without-passkey').count(), 1, 'lost-passkey recovery remains a secondary text action');
   assert.equal(await page.locator('.gateway-unlock .gateway-heading, .gateway-unlock .gateway-mark, .gateway-unlock .privacy-note').count(), 0, 'unlock decorations are removed');
   assert.equal(await page.locator('#passkey-unlock').evaluate(button => {
     const box = button.getBoundingClientRect();

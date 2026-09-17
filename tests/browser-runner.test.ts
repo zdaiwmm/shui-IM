@@ -16,8 +16,8 @@ describe('browser regression groups', () => {
   it('partitions group 2 into disjoint concurrent runner shards without omissions', async () => {
     const shards = Array.from({ length: 4 }, (_, i) => selectBrowserScripts('2', `${i + 1}/4`));
     expect(shards.flat().sort()).toEqual(selectBrowserScripts('2').sort());
-    expect(new Set(shards.flat()).size).toBe(34);
-    expect(shards.map(shard => shard.length)).toEqual([9, 9, 8, 8]);
+    expect(new Set(shards.flat()).size).toBe(36);
+    expect(shards.map(shard => shard.length)).toEqual([9, 9, 9, 9]);
     for (const shard of ['0/4', '5/4', '1/0', '1/99', 'x', '1/2/3']) {
       expect(() => parseBrowserArguments(['--group', '2', '--shard', shard])).toThrow();
     }
@@ -32,13 +32,13 @@ describe('browser regression groups', () => {
       'browser', 'frontend-lifecycle', 'release-update', 'chat-bottom-control', 'chat-list-viewport', 'message-timeline', 'message-read', 'desktop-privacy', 'desktop-session-flow',
       'vault-resume', 'system-surfaces', 'file-flow', 'file-outbox', 'file-interactions', 'document-reader', 'meme-picker',
       'unread-counter', 'reaction-history', 'message-deletion', 'vault-lifecycle', 'voice-lifecycle', 'voice-submission',
-      'cloud-backup-lifecycle', 'history-restore', 'backup-admin-ui', 'admin-collection-ui',
+      'cloud-backup-lifecycle', 'local-history-backup', 'joint-recovery', 'history-restore', 'backup-admin-ui', 'admin-collection-ui',
       'chat-image-privacy', 'gallery-loading', 'photo-details', 'video-flow', 'video-upload', 'media-upload', 'voice-gestures', 'chat-tools', 'presence-circuit',
     ].map(name => `tests/${name}.e2e.mjs`);
     const all = selectBrowserScripts();
     expect(all).toEqual(expected);
     expect([...selectBrowserScripts('1'), ...selectBrowserScripts('2')]).toEqual(all);
-    expect(new Set(all).size).toBe(35);
+    expect(new Set(all).size).toBe(37);
     expect(Object.keys(browserGroups)).toEqual(['1', '2']);
     expect(selectBrowserScripts('1')).toEqual(['tests/browser.e2e.mjs']);
     const main = await readFile(path.join(root, 'tests/browser.e2e.mjs'), 'utf8');
@@ -80,8 +80,8 @@ describe('browser regression groups', () => {
       active--;
     } });
     expect(seen).toEqual(selectBrowserScripts());
-    expect(log.mock.calls.filter(([line]) => line.startsWith('[browser] PASS'))).toHaveLength(35);
-    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 3.50s; 35 passed, 0 failed, 0 not run.');
+    expect(log.mock.calls.filter(([line]) => line.startsWith('[browser] PASS'))).toHaveLength(37);
+    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 3.70s; 37 passed, 0 failed, 0 not run.');
   });
 
   it('stops a failing group, preserves its failure and explicitly reports scripts that did not run', async () => {
@@ -90,7 +90,7 @@ describe('browser regression groups', () => {
     const log = vi.fn();
     await expect(runBrowserTests({ group: '2', run, log, now: () => 0 })).rejects.toBe(failure);
     expect(run.mock.calls.map(([script]) => script)).toEqual(selectBrowserScripts('2').slice(0, 2));
-    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 0.00s; 1 passed, 1 failed, 32 not run.');
+    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 0.00s; 1 passed, 1 failed, 34 not run.');
   });
 
   it('does not start another script after cancellation', async () => {

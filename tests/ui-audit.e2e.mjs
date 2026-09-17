@@ -71,7 +71,10 @@ async function beginSyntheticFilePicker(input) {
 }
 
 async function holdCover(page) {
-  const box = await page.locator('.cover-trigger').boundingBox();
+  await page.locator('.cover-trigger, #create-room, [data-device-verify], .pairing-screen, #cloud-recovery-form, #joint-start').first().waitFor({ timeout: 120_000 });
+  const trigger = page.locator('.cover-trigger');
+  if (await trigger.count() === 0) return;
+  const box = await trigger.boundingBox();
   invariant(box, 'Privacy-curtain trigger is missing');
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
@@ -242,6 +245,13 @@ try {
   await setPasskey(joiner);
   await creator.locator('.chat-shell').waitFor({ timeout: 15000 });
   await joiner.locator('.chat-shell').waitFor({ timeout: 15000 });
+  for (const page of [creator, joiner]) {
+    const welcome = page.locator('#welcome-chat');
+    if (await welcome.waitFor({ timeout: 5_000 }).then(() => true, () => false)) {
+      await welcome.click();
+      await welcome.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
+    }
+  }
   await creator.locator('#peer-presence[data-state=online]').waitFor();
   if (process.argv.includes('--privacy-repro')) {
     await joiner.locator('#message-input').fill('audit-secret-canary');
@@ -305,7 +315,7 @@ try {
   await creator.locator('#backup-settings').click();
   await creator.locator('.backup-page').waitFor();
   await capture('recovery', ['mobile', 'small', 'landscape', 'dark', 'large']);
-  await creator.locator('#backup-back').click();
+  await creator.locator('#recovery-center-back').click();
   await creator.keyboard.press('Escape');
   await creator.waitForTimeout(300);
   const source = creator.locator('.message.incoming').filter({ hasText: messages[4] });

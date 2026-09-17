@@ -39,7 +39,7 @@ try {
       const own = { deviceId: 'voice-own', role: 'creator', status: 'active', capabilities: ['voice-message-v1'] };
       app.session = { vault: { roomId: 'voice-gestures', role: 'creator', protocol: 'legacy-v1', members: [own], identity: { publicBundle: own } } };
       app.privacyCovered = false; app.runtimeEpoch++; app.runtimeAbort = new AbortController();
-      app.uiPreferences = { recoveryReminderDismissed: true };
+      app.uiPreferences = { recoveryReminderDismissed: true, entranceCardDismissed: true };
       app.renderChat();
     };
     window.fixture = { app, fresh, capture, tracks, sends }; fresh();

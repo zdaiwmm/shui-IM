@@ -23,7 +23,7 @@ The implementation includes:
 - encrypted voice messages with recording, pause/resume, local preview, waveform playback/seeking, and privacy-bound microphone cleanup;
 - original-byte image encryption in resumable 2 MiB chunks;
 - image selection without a nine-image cap, ordered encrypted message groups, gallery multi-upload, quiet local previews, and a full-screen viewer with paging, drag-to-dismiss, and original download;
-- encrypted per-device unsent text drafts, reading anchors, and dismissible recovery reminders;
+- encrypted per-device unsent text drafts, reading anchors, and a dismissible local Space Guide card;
 - role-aggregated chat-page presence that is independent from WebSocket connection state;
 - native document chat scrolling behind Safari chrome, keyboard-aware floating glass controls, stable reading anchors, pinchable photos without opening zoom effects, and page-level double-tap zoom suppression;
 - automatic encrypted per-device recovery/history backups, local recovery-code retrieval after fresh passkey verification, and explicit history restore after device replacement;
@@ -123,14 +123,16 @@ Terminate TLS with a valid public certificate. Do not bypass certificate warning
 
 ## First conversation
 
-1. Both people open the same site and see a browser-load-failure cover.
-2. The creator holds the bottom-right corner for one second and selects **创建会话**.
-3. The creator selects **设置通行密钥** and completes system biometric or device-password verification. Both syncable passkeys and single-device credentials are accepted. The creator then shares the invitation QR code or full invitation link through a trusted channel.
-4. The second person opens the invite, holds the bottom-right corner, creates a passkey-protected local vault, and joins. The creator publishes a signed opaque MLS welcome; neither side enables the composer before MLS setup completes.
-5. The participant invite seals after the second person joins. Compare the **设备安全码** shown in the top-right menu on both sides.
-6. Each device automatically saves encrypted backups while unlocked and online. Open “备份与恢复”, verify the passkey again to view its recovery code, and save that code separately.
+1. Both people open the same site. A first visit with no local vault goes straight to **有些话，只留给彼此**.
+2. The creator selects **创建私密空间**, then **设置访问密钥**, and completes system biometric or device-password verification. Both syncable passkeys and single-device credentials are accepted.
+3. The creator shares the invitation QR code or full invitation link through a trusted channel. QR and copy retain the complete high-entropy link. The page also shows the creator as ready and the other person’s open / setting-up status.
+4. The second person opens the invite, selects **设置访问密钥并加入**, and creates a passkey-protected local vault. The creator publishes a signed opaque MLS welcome; neither side enables the composer before MLS setup completes. After both join, the app celebrates and offers an optional cover practice; cover stays off until chosen.
+5. The participant invite seals after the second person joins. Compare the **设备安全码** shown in device management on both sides.
+6. Each device automatically saves encrypted backups while unlocked and online. Open **恢复私密空间**, verify the passkey again to view its recovery code, and save that code separately. Chat history restore uses a locally saved backup file.
 
 The invite URL fragment contains the room access capability and pairing secret. Anyone who obtains an unused invite can claim the second slot. Share it only with the intended participant.
+
+Passkey setup requires a trusted HTTPS page. On a LAN test device, a certificate-warning bypass is not enough: install and trust the local development CA on every participating phone.
 
 ## Additional devices and replies
 

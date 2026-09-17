@@ -19,7 +19,7 @@ try {
     const peer = { ...own, deviceId: crypto.randomUUID(), role: 'joiner' };
     const session = await createVault({ v: 1, roomId: crypto.randomUUID(), accessToken: 'read-fixture', role: 'creator', protocol: 'legacy-v1', lastSeq: 0, members: [own, peer], identity: { publicBundle: own } }, 'read-fixture-password', 'password');
     app.session = session; app.privacyCovered = false; app.runtimeAbort = new AbortController();
-    app.uiPreferencesHydrated = true; app.uiPreferences = { recoveryReminderDismissed: true };
+    app.uiPreferencesHydrated = true; app.uiPreferences = { recoveryReminderDismissed: true, entranceCardDismissed: true };
     let cursorWrites = 0;
     app.updateSafetyCode = async () => {}; app.attemptSend = async () => {}; app.unreadCounter.markRead = async () => { cursorWrites++; };
     let focused = false;

@@ -69,7 +69,7 @@ function bindingBody(value: Omit<CredentialBinding, 'bindingSignature'>) {
   return { v: value.v, deviceId: value.deviceId, mlsSignatureKey: value.mlsSignatureKey };
 }
 
-async function signEcdsa(privateJwk: JsonWebKey, value: unknown): Promise<string> {
+export async function signEcdsa(privateJwk: JsonWebKey, value: unknown): Promise<string> {
   const key = await crypto.subtle.importKey(
     'jwk',
     privateJwk,
@@ -84,7 +84,7 @@ async function signEcdsa(privateJwk: JsonWebKey, value: unknown): Promise<string
   ));
 }
 
-async function verifyEcdsa(publicJwk: JsonWebKey, signature: string, value: unknown): Promise<boolean> {
+export async function verifyEcdsa(publicJwk: JsonWebKey, signature: string, value: unknown): Promise<boolean> {
   try {
     const key = await crypto.subtle.importKey(
       'jwk',
@@ -467,7 +467,7 @@ export async function createCreatorMlsState(
     await cipherSuite(),
     clientConfig(members),
   );
-  return { protocol: 'mls-rfc9420', phase: 'awaiting-peer', groupState: encodeState(state) };
+  return { protocol: 'mls-rfc9420', phase: 'awaiting-peer', groupState: encodeState(state), lastEventSeq: 0 };
 }
 
 export async function prepareCreatorWelcome(vault: Vault): Promise<MlsVaultState> {
@@ -499,6 +499,7 @@ export async function prepareCreatorWelcome(vault: Vault): Promise<MlsVaultState
       protocol: 'mls-rfc9420',
       phase: 'active',
       groupState: encodeState(result.newState),
+      lastEventSeq: vault.mls.lastEventSeq ?? 0,
       pendingWelcome: {
         ...unsigned,
         signature: await signEcdsa(vault.identity.signingPrivateKey, unsigned),
@@ -538,7 +539,7 @@ export async function joinMlsGroup(vault: Vault, envelope: MlsWelcomeEnvelope): 
     undefined,
     clientConfig(vault.members),
   );
-  return { protocol: 'mls-rfc9420', phase: 'active', groupState: encodeState(state) };
+  return { protocol: 'mls-rfc9420', phase: 'active', groupState: encodeState(state), lastEventSeq: vault.mls?.lastEventSeq ?? 0 };
 }
 
 export async function prepareMlsMembership(

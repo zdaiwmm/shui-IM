@@ -102,7 +102,7 @@ async function update<T>(session: VaultSession, signal: AbortSignal, change: (st
     const previous = session.vault.backup;
     const source = session.vault.recoverySource;
     const state: LocalBackupState = previous ? structuredClone(previous) : {
-      v: 1, ...newRecoveryCode(), revision: 0, cursor: session.vault.historyUnavailableBeforeSeq ?? 0,
+      v: 1, ...newRecoveryCode(), revision: 0, cursor: source?.resumeCursor ?? session.vault.historyUnavailableBeforeSeq ?? 0,
       archives: [...(source?.archives ?? []).map(a => ({ ...structuredClone(a), token: randomBackupSecret() })),
         { id: randomBackupSecret(), key: randomBackupSecret(), token: randomBackupSecret(), parts: [] }],
       ...(source ? { replaces: source.backupId, newCodePending: true } : {}),
@@ -122,6 +122,8 @@ function checkpoint(vault: Vault): Vault {
   delete value.historyRestoreTask;
   delete value.recoverySource;
   delete value.pendingRecovery;
+  delete value.pendingJointRecovery;
+  delete value.recoveryExperience;
   delete value.pendingDeviceLinks;
   delete value.inviteToken;
   delete value.identity.mlsPrivatePackage;

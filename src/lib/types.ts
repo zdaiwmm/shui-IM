@@ -124,6 +124,8 @@ export type Vault = {
   lastSeq: number;
   lastReceiptSeq?: number;
   pairingState?: 'joining' | 'linking' | 'recovering' | 'repairing' | 'ready';
+  pendingJointRecovery?: import('./joint-recovery').PendingJointRecovery;
+  recoveryExperience?: { peerPrepared?: boolean; codeSaved?: string; completed?: 'recovered' | 'helper'; welcomePending?: boolean; coverEnabled?: boolean };
   pendingRecovery?: {
     request: RecoveryRequest;
     checkpointMembers: RoomMember[];
@@ -454,6 +456,9 @@ export type RoomState = {
   sealedAt: string | null;
   protocol: 'legacy-v1' | 'mls-rfc9420';
   members: RoomMember[];
+  recoveryPreparation?: { deviceId: string; saved: number }[];
+  invitationProgress?: { stage: 'opened' | 'setting'; updatedAt: string } | null;
+  mlsEpochOffset?: number;
   mlsWelcome?: MlsWelcomeEnvelope | null;
   nextMlsEventSeq?: number;
   mlsEvents?: ServerMlsMembershipEvent[];

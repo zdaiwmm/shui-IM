@@ -152,6 +152,9 @@ function publicState(state) {
     members: state.members,
     mlsWelcome: state.mlsWelcome,
     nextMlsEventSeq: state.nextMlsEventSeq,
+    mlsEpochOffset: state.mlsEpochOffset ?? 0,
+    recoveryPreparation: state.recoveryPreparation ?? [],
+    invitationProgress: state.invitationProgress ?? null,
     mlsEvents: state.mlsEvents,
     recoveryRequests: state.recoveryRequests,
   };
@@ -689,6 +692,63 @@ export async function startServer(options = {}) {
         return;
       }
 
+      const preparationMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/preparation$`));
+      if (request.method === 'POST' && preparationMatch) {
+        if (!allowRequest(request, 'preparation', 60)) { json(request, response, 429, { error: 'RATE_LIMITED' }); return; }
+        const roomId = preparationMatch[1], device = requireActiveDevice(request, roomId);
+        const body = await readJson(request);
+        if (typeof body.saved !== 'boolean') { json(request, response, 400, { error: 'INVALID_REQUEST' }); return; }
+        store.saveRecoveryPreparation(roomId, device.deviceId, body.saved);
+        broadcast(roomId, { type: 'membership', state: publicState(store.roomState(roomId)) });
+        json(request, response, 200, { ok: true }); return;
+      }
+      const invitationProgressMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/invitation-progress$`));
+      if (request.method === 'POST' && invitationProgressMatch) {
+        if (!allowRequest(request, 'invitation-progress', 60)) { json(request, response, 429, { error: 'RATE_LIMITED' }); return; }
+        const roomId = invitationProgressMatch[1], state = store.roomState(roomId);
+        if (!state || state.sealedAt || !store.authenticateInvite(roomId, bearerToken(request))) throw new Error('UNAUTHORIZED');
+        const body = await readJson(request);
+        if (!['opened', 'setting'].includes(body.stage)) { json(request, response, 400, { error: 'INVALID_REQUEST' }); return; }
+        store.saveInvitationProgress(roomId, body.stage);
+        broadcast(roomId, { type: 'membership', state: publicState(store.roomState(roomId)) });
+        json(request, response, 200, { ok: true }); return;
+      }
+
+      const jointCatchUp = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/joint-recovery/(${ID_PATTERN})/catch-up$`));
+      if (request.method === 'GET' && jointCatchUp) {
+        if (!allowRequest(request, 'joint-catch-up', 120)) { json(request, response, 429, { error: 'RATE_LIMITED' }); return; }
+        const device = requireActiveDevice(request, jointCatchUp[1]);
+        json(request, response, 200, { messages: store.jointRecovery.catchUp(jointCatchUp[1], jointCatchUp[2], device.deviceId, Number(url.searchParams.get('after'))) }); return;
+      }
+
+      const jointMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/joint-recovery(?:/(${ID_PATTERN}))?$`));
+      if (jointMatch) {
+        if (!allowRequest(request, 'joint-recovery', 120)) {
+          json(request, response, 429, { error: '恢复请求过于频繁', code: 'RATE_LIMITED' }); return;
+        }
+        const [, roomId, requestId] = jointMatch;
+        const capability = bearerToken(request);
+        let result;
+        if (request.method === 'GET' && requestId) result = store.jointRecovery.status(roomId, requestId, capability);
+        else if (request.method === 'POST') {
+          const body = await readJson(request);
+          if (!requestId && body.offer?.roomId === roomId) result = await store.jointRecovery.create(body.offer, capability);
+          else if (requestId && body.action === 'participate') result = await store.jointRecovery.participate(roomId, requestId, capability, body.offer);
+          else if (requestId && body.action === 'propose') result = await store.jointRecovery.propose(roomId, requestId, capability, body.proposal);
+          else if (requestId && body.action === 'cancel') result = await store.jointRecovery.cancel(roomId, requestId, capability, body.approval);
+          else if (requestId && body.action === 'approve') result = await store.jointRecovery.approve(roomId, requestId, capability, body.approval);
+        }
+        if (!result) { json(request, response, 400, { error: '恢复请求格式不正确' }); return; }
+        if (result.result) {
+          // Every old token was revoked atomically. Never let an existing socket
+          // retain a stale in-memory authentication after the quorum reset.
+          const active = new Set(result.state.members.filter(member => member.status === 'active').map(member => member.deviceId));
+          for (const socket of clientsByRoom.get(roomId) ?? []) if (!active.has(socketSessions.get(socket)?.deviceId)) socket.terminate();
+          callService.sweep(); broadcastPresence(roomId);
+        }
+        json(request, response, 200, result); return;
+      }
+
       const recoveryMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/recovery$`));
       if (recoveryMatch && request.method === 'POST') {
         const roomId = recoveryMatch[1];
@@ -737,7 +797,7 @@ export async function startServer(options = {}) {
           !validateMlsMembershipShape(envelope, roomId) ||
           envelope.senderId !== device.deviceId ||
           !(await verifyEnvelopeSignature(envelope, device.signingKey)) ||
-          mlsPublicMessageEpoch(envelope.commit) !== envelope.previousEventSeq + 1
+          mlsPublicMessageEpoch(envelope.commit) !== envelope.previousEventSeq - (store.roomState(roomId).mlsEpochOffset ?? 0) + 1
         ) {
           json(request, response, 400, { error: 'INVALID_MLS_EVENT' });
           return;
@@ -1246,7 +1306,7 @@ export async function startServer(options = {}) {
               });
               return;
             }
-            if (messageEpoch !== state.nextMlsEventSeq + 1) {
+            if (messageEpoch !== state.nextMlsEventSeq - (state.mlsEpochOffset ?? 0) + 1) {
               send(socket, { type: 'membership', state: publicState(state) });
               send(socket, {
                 type: 'error',

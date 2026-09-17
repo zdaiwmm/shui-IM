@@ -46,7 +46,7 @@ try {
     app.runtimeAbort = new AbortController();
     app.updateSafetyCode = async () => {};
     app.updateBackgroundNotificationControl = async () => {};
-    app.uiPreferences = { recoveryReminderDismissed: true };
+    app.uiPreferences = { recoveryReminderDismissed: true, entranceCardDismissed: true };
     app.uiPreferencesHydrated = true;
     app.messages = new Map(Array.from({ length: 180 }, (_, index) => {
       const seq = index + 1;

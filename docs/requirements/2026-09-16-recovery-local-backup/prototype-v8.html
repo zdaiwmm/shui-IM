@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>Quiet Room · 双人共同恢复原型</title><style>
+
+:root{--canvas:#f2f2f7;--paper:#fbfbfd;--elevated:#f7f7fa;--control:#e8e8ed;--line:#d9d9de;--ink:#111113;--muted:#64646d;--blue:#2464d8;--green:#237942;--red:#c52b26;--amber:#95600b;--tint:#e9effc;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;color:var(--ink);background:#e9e9ee;font-synthesis:none}
+*{box-sizing:border-box}body{margin:0}button,input,textarea{font:inherit}button,a,input,summary{ -webkit-tap-highlight-color:transparent}button{cursor:pointer}button:disabled{cursor:not-allowed;opacity:.45}button:focus-visible,a:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid #2464d8;outline-offset:4px}a{color:var(--blue)}button{border:0}svg{display:block}header.workbar{height:76px;padding:0 30px;display:flex;gap:26px;align-items:center;background:var(--paper);border-bottom:1px solid var(--line)}.brand{display:flex;align-items:center;gap:12px;min-width:240px}.brand-mark{width:34px;height:34px;color:var(--ink)}.brand strong{display:block;font-size:17px;letter-spacing:-.3px}.brand small{display:block;margin-top:3px;color:var(--muted);font-size:11px;letter-spacing:1.1px}.work-tabs{display:flex;gap:6px;margin:auto}.work-tabs button,.lang,.reset,.plain-control{min-height:44px;border-radius:12px;padding:0 16px;background:transparent;color:var(--muted);font-size:13px;font-weight:600}.work-tabs button.active{background:var(--control);color:var(--ink)}.lang{border:1px solid var(--line);color:var(--ink)}.reset{padding:0 10px}.workspace{display:grid;grid-template-columns:240px minmax(420px,1fr) 292px;min-height:calc(100vh - 76px)}.sidebar{padding:26px 16px 40px;background:var(--elevated);border-right:1px solid var(--line)}.nav-group{margin:0 0 23px}.nav-group h2{font-size:11px;font-weight:600;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin:0 12px 8px}.nav-item{width:100%;display:flex;align-items:center;gap:11px;text-align:left;min-height:40px;border-radius:9px;background:transparent;color:var(--muted);padding:9px 12px;font-size:13px}.nav-item span.num{font-size:10px;min-width:19px;font-variant-numeric:tabular-nums;opacity:.8}.nav-item.active{background:#e2e8f5;color:var(--blue);font-weight:600}.sidebar-foot{font-size:11px;line-height:1.8;margin:30px 12px;color:var(--muted)}.stage{padding:25px 24px 42px;min-width:0;display:flex;flex-direction:column;align-items:center;gap:14px}.stage-label{width:390px;max-width:100%;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted);line-height:1.5}.stage-label b{font-weight:600;color:var(--ink)}.phone{width:390px;max-width:100%;height:844px;border-radius:0;position:relative;display:flex;flex-direction:column;overflow:hidden;background:var(--canvas);border:1px solid #d2d2da;box-shadow:0 14px 38px rgba(25,29,45,.065)}.statusbar{height:50px;flex:none;padding:15px 26px 0;display:flex;align-items:flex-start;justify-content:space-between;font-size:14px;font-weight:650;background:inherit}.status-icons{display:flex;align-items:center;gap:7px}.status-icons svg{width:17px;height:16px}.phone-nav{height:58px;padding:0 18px;display:flex;align-items:center;justify-content:space-between;flex:none;gap:10px}.phone-nav>span{font-size:14px;font-weight:600}.icon-btn{width:44px;min-width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--control);color:var(--ink)}.icon-btn svg{width:20px;height:20px}.icon-btn.blank{visibility:hidden}.scroll{overflow:auto;flex:1;min-height:0;padding:13px 24px 26px;scrollbar-width:thin}.scroll h1{font-size:32px;line-height:1.2;letter-spacing:-.8px;margin:10px 0 14px;font-weight:700}.scroll h2{font-size:21px;line-height:1.3;margin:0 0 10px}.scroll p{font-size:16px;line-height:1.65;color:var(--muted);margin:0 0 18px}.eyebrow{font-size:12px;line-height:1.5;color:var(--muted);margin:2px 0 12px}.hero-icon{width:66px;height:66px;display:grid;place-items:center;margin:25px 0 30px;background:var(--control);border-radius:22px;color:var(--ink)}.hero-icon svg{width:33px;height:33px}.hero-icon.success{color:var(--green);background:#e5f1e8}.hero-icon.danger{color:var(--red);background:#fbe8e7}.intro-space{margin-top:20px}.group{border-radius:25px;background:var(--paper);overflow:hidden;margin:20px 0}.row{display:flex;align-items:center;gap:12px;width:100%;padding:17px 18px;text-align:left;background:transparent;color:var(--ink);min-height:66px;position:relative}.row+.row:before{content:"";position:absolute;top:0;left:18px;right:18px;border-top:1px solid var(--line)}.row-main{flex:1;min-width:0}.row-main strong{font-size:16px;line-height:1.4;display:block;font-weight:500}.row-main small{font-size:13px;line-height:1.5;color:var(--muted);display:block;margin-top:4px}.row-value{font-size:13px;max-width:108px;text-align:right;line-height:1.4;color:var(--muted)}.row .chevron{width:14px;height:18px;color:#898994;flex-shrink:0}.section-label{font-size:12px;letter-spacing:.5px;color:var(--muted);margin:25px 14px -9px;line-height:1.5}.note{font-size:13px!important;line-height:1.6!important;margin:12px 6px 20px!important;color:var(--muted)}.note strong{font-weight:600;color:var(--ink)}.notice{background:var(--paper);border-radius:20px;padding:18px;margin:20px 0;font-size:14px;line-height:1.6}.notice strong{display:block;font-size:15px;margin-bottom:6px}.notice p{font-size:14px;margin:0;line-height:1.6}.notice.warn{background:#f7efdF;color:#79540f}.notice.error{background:#fae9e8;color:var(--red)}.notice.error p{color:#9f2824}.footer{flex:none;padding:13px 24px 29px;background:var(--canvas);position:relative;border-top:1px solid rgba(217,217,222,.4)}.footer:after{content:"";width:126px;height:4px;border-radius:3px;background:#202027;position:absolute;bottom:8px;left:50%;transform:translateX(-50%)}.btn{width:100%;min-height:54px;border-radius:28px;background:var(--blue);color:var(--paper);font-size:17px;font-weight:600;line-height:1.35;padding:14px 20px}.btn+.btn{margin-top:9px}.btn.secondary{color:var(--ink);background:var(--paper)}.btn.text{background:transparent;color:var(--blue);min-height:44px;font-size:15px}.btn.danger{background:var(--red)}.btn:active,.row:is(button):active{filter:brightness(.96)}.footer .fine{font-size:11px;color:var(--muted);line-height:1.5;text-align:center;margin:8px 0 2px}.progress-dots{display:flex;gap:6px;margin:3px 0 24px}.progress-dots i{height:4px;width:27px;border-radius:4px;background:#d9dce3}.progress-dots i.on{background:var(--blue)}.step-list{list-style:none;padding:0;margin:26px 0}.step-list li{display:flex;gap:15px;align-items:flex-start;margin:24px 0}.step-list b{width:28px;height:28px;flex-shrink:0;display:grid;place-items:center;background:var(--control);border-radius:50%;font-size:12px}.step-list strong{font-size:16px;font-weight:600;display:block;margin:2px 0 6px}.step-list p{font-size:14px;line-height:1.5;margin:0}.badge{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:550;line-height:1.5;padding:5px 10px;border-radius:20px;background:var(--control);color:var(--muted)}.badge.good{color:var(--green);background:#e7f1e9}.badge.pending{color:#805c17;background:#f5edda}.badge.red{color:var(--red);background:#f9e4e3}.badge.blue{color:var(--blue);background:var(--tint)}.key-paper{border:1px solid var(--line);border-radius:20px;margin:24px 0;background:var(--paper);padding:25px 18px;text-align:center}.key-paper .key-label{font-size:12px;color:var(--muted);margin-bottom:17px}.key-code{font-family:ui-monospace,SFMono-Regular,monospace;font-size:23px;letter-spacing:1px;word-break:break-word}.key-paper small{display:block;font-size:11px;color:var(--muted);margin-top:17px}.field-label{display:block;font-size:14px;font-weight:550;margin:26px 0 9px}.field{width:100%;min-height:58px;border:1px solid var(--line);border-radius:16px;background:var(--paper);padding:14px 16px;color:var(--ink);font-size:17px}.field.code{font-family:ui-monospace,SFMono-Regular,monospace;letter-spacing:1px}.field-error{font-size:13px;color:var(--red);line-height:1.5;margin:9px 3px}.avatar{height:38px;width:38px;background:#e6e8f0;border-radius:50%;display:grid;place-items:center;font-size:14px;flex-shrink:0}.avatar.mine{background:#e4edfc;color:var(--blue)}.spinner{height:28px;width:28px;border:3px solid #dce4f5;border-top-color:var(--blue);border-radius:50%;animation:spin .85s linear infinite;flex-shrink:0}@keyframes spin{to{transform:rotate(360deg)}}.loading-line{display:flex;align-items:center;gap:14px;margin:27px 0;font-size:15px;color:var(--muted)}.progress-track{height:6px;background:var(--control);border-radius:5px;overflow:hidden;margin:22px 0 12px}.progress-track span{display:block;width:65%;height:100%;background:var(--blue)}.number{font-size:31px;font-weight:650;font-variant-numeric:tabular-nums;letter-spacing:-1px}.dual-state{margin:24px 0}.checkline{display:flex;gap:12px;align-items:flex-start;font-size:14px;line-height:1.6;margin:23px 0}.checkline input{width:21px;height:21px;margin:2px 0;flex-shrink:0;accent-color:var(--blue)}.details{font-size:14px;line-height:1.65;color:var(--muted);margin:20px 0}.details summary{min-height:44px;cursor:pointer;color:var(--blue);padding:10px 0}.details p{font-size:14px}.request-code{font-size:28px;letter-spacing:5px;text-align:center;margin:20px 0;color:var(--ink);font-weight:650}.chat-scroll{display:flex;flex-direction:column}.chat-time{text-align:center;font-size:12px;color:var(--muted);margin:15px 0 26px}.bubble{max-width:86%;padding:12px 16px;border-radius:20px;background:var(--paper);font-size:16px;line-height:1.55;margin-bottom:14px;align-self:flex-start}.bubble.mine{background:#e3ebfc;align-self:flex-end}.bubble small{display:block;font-size:10px;color:var(--muted);margin-top:5px;text-align:right}.chat-setup{margin-top:auto;padding-top:35px}.chat-setup button{width:100%;padding:16px;text-align:left;background:var(--paper);border-radius:19px;color:var(--ink);font-size:14px}.chat-setup button strong{display:block;margin-bottom:5px}.chat-setup small{color:var(--muted);line-height:1.5}.composer{display:flex;gap:9px;align-items:center}.composer input{min-width:0;flex:1;border:0;background:var(--paper);padding:12px 16px;border-radius:24px;font-size:15px}.composer button{height:44px;width:44px;border-radius:50%;background:var(--blue);color:var(--paper);display:grid;place-items:center}.composer button svg{width:20px;height:20px}.inspector{background:var(--elevated);padding:29px 24px;border-left:1px solid var(--line);font-size:13px;line-height:1.7;min-width:0}.inspector .kicker{font-size:10px;letter-spacing:1px;color:var(--muted);text-transform:uppercase}.inspector h2{font-size:19px;margin:8px 0 13px;line-height:1.5}.inspector h3{font-size:12px;margin:26px 0 10px}.inspector p{color:var(--muted);margin:0 0 14px}.inspector ul{padding-left:18px;color:var(--muted)}.inspector li{margin:9px 0}.scenario{width:100%;min-height:43px;text-align:left;border:1px solid var(--line);border-radius:10px;background:var(--paper);padding:10px 12px;margin-bottom:7px;font-size:12px;color:var(--ink);line-height:1.45}.scenario:hover{border-color:#9babc9}.scenario.active{background:var(--tint);border-color:#a6bce8;color:var(--blue)}.review-divider{height:1px;background:var(--line);margin:25px 0}.toast{position:absolute;bottom:145px;left:20px;right:20px;padding:13px 18px;background:#2e303b;color:var(--paper);border-radius:15px;text-align:center;font-size:13px;line-height:1.5;z-index:12;box-shadow:0 5px 20px #2222}.overlay{position:absolute;inset:0;background:rgba(39,42,54,.32);z-index:20;display:flex;align-items:flex-end}.sheet{background:var(--canvas);padding:10px 24px 30px;border-radius:30px 30px 0 0;max-height:90%;overflow:auto;width:100%;box-shadow:0 -10px 30px #2221}.handle{width:34px;height:4px;border-radius:4px;background:#b6b6c0;margin:0 auto 24px}.sheet h2{font-size:25px;line-height:1.3;margin:0 0 14px}.sheet p{font-size:15px;line-height:1.65;color:var(--muted)}.sheet .btn{margin-top:10px}.sheet .simulation{font-size:11px;color:var(--muted);text-align:center;padding:8px 0}.phone.fade .scroll{animation:enter .18s ease-out}@keyframes enter{from{opacity:.4;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}.flow-stage{padding:28px;display:block}.flow-heading{display:flex;gap:15px;align-items:flex-start;justify-content:space-between;margin:0 0 22px}.flow-heading h1{font-size:25px;margin:0 0 8px}.flow-heading p{font-size:13px;color:var(--muted);line-height:1.7;max-width:680px}.flow-actions{display:flex;gap:8px}.flow-actions button{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-height:44px;font-size:12px;white-space:nowrap}.flow-canvas{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:20px;overflow:auto}.flow-svg{width:100%;height:auto;min-width:640px}.flow-node{cursor:pointer}.flow-node:hover rect{stroke:var(--blue);stroke-width:2}.flow-node:focus{outline:none}.flow-node:focus rect{stroke:var(--blue);stroke-width:3}.flow-legend{display:flex;flex-wrap:wrap;gap:22px;margin:18px 0;font-size:12px;color:var(--muted)}.flow-legend span{display:flex;align-items:center;gap:7px}.flow-legend i{width:12px;height:12px;border-radius:3px;background:#e5edf9;border:1px solid #7d9fd5}.flow-legend i.failure{background:#fae9e8;border-color:#d48d87}.flow-legend i.future{background:#f5eddb;border:1px dashed #b58b38}.flow-caption{font-size:13px;color:var(--muted);line-height:1.7}.workspace.flow-mode{grid-template-columns:240px minmax(0,1fr)}.flow-mode .inspector{display:none}.review-footer{font-size:11px;color:var(--muted);line-height:1.6;text-align:center;max-width:440px}.empty-illustration{margin:22px 0;color:#737985}.choose{background:var(--paper);border-radius:20px;padding:16px 17px;margin:12px 0;display:flex;gap:13px;align-items:flex-start;font-size:15px;line-height:1.5}.choose input{accent-color:var(--blue);margin:4px 0;width:19px;height:19px;flex-shrink:0}.choose small{display:block;color:var(--muted);font-size:13px;margin-top:5px}.version{font-size:11px;color:var(--muted);margin-top:23px}.sample-photo{height:145px;background:#e1e5e9;border-radius:13px;display:grid;place-items:center;color:#58626c;margin-bottom:12px}.sample-photo svg{width:35px;height:35px}button.row.danger .row-main strong{color:var(--red)}.screen-id{font-family:ui-monospace,monospace}
+@media(min-width:1550px){.workspace{grid-template-columns:260px minmax(420px,1fr) 320px}.stage{padding-top:32px}.phone{height:844px}.inspector{padding:32px}}
+@media(max-width:1100px){.workspace{grid-template-columns:205px minmax(390px,1fr)}.inspector{grid-column:1/-1;border-left:0;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:20px}.inspector h3{margin-top:8px}.inspector .review-divider{display:none}.brand{min-width:180px}.workbar{gap:10px!important}.workspace.flow-mode{grid-template-columns:205px minmax(0,1fr)}}
+@media(max-width:700px){header.workbar{height:auto;min-height:108px;padding:12px 16px;gap:8px;flex-wrap:wrap}.brand{flex:1}.brand small{font-size:9px}.work-tabs{order:3;width:100%;justify-content:center}.work-tabs button{min-height:36px}.lang,.reset{min-height:38px}.workspace,.workspace.flow-mode{display:block}.sidebar{padding:10px 12px;border-right:0;border-bottom:1px solid var(--line);display:flex;overflow:auto;gap:10px;max-height:68px}.nav-group{display:contents}.nav-group h2,.sidebar-foot{display:none}.nav-item{width:auto;white-space:nowrap;min-height:40px}.nav-item span.num{display:none}.stage{padding:18px 12px 25px}.phone{height:844px;width:390px}.inspector{display:block;padding:24px}.stage-label{font-size:10px}.flow-stage{padding:20px 12px}.flow-heading{display:block}.flow-heading h1{font-size:23px}.flow-actions{margin-bottom:15px}.flow-canvas{padding:8px}.flow-svg{min-width:650px}}
+@media(max-width:390px){.stage{padding:14px 0}.stage-label{padding:0 15px}.phone{border-left:0;border-right:0}.scroll{padding-left:20px;padding-right:20px}.footer{padding-left:20px;padding-right:20px}.scroll h1{font-size:30px}.key-code{font-size:21px}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;scroll-behavior:auto!important}}
+@media print{.workbar,.sidebar,.inspector,.flow-actions,.flow-legend,.review-footer{display:none!important}.workspace,.workspace.flow-mode{display:block}.stage{padding:0}.flow-canvas{border:0;padding:0;overflow:visible}.flow-svg{min-width:0}.phone{box-shadow:none}.flow-heading h1{font-size:20px}@page{size:A4 landscape;margin:12mm}}
+
+
+@media(min-width:1101px){
+ .workspace{height:calc(100dvh - 76px);min-height:0;overflow:hidden}
+ .sidebar,.inspector{height:100%;overflow-y:auto}
+ .stage{overflow-y:auto}
+ .phone{flex-shrink:0;height:min(844px,calc(100dvh - 168px));min-height:640px}
+ .flow-stage{height:100%;overflow:auto}
+}
+@media print{.workspace,.workspace.flow-mode,.flow-stage{height:auto!important;overflow:visible!important}.flow-canvas{overflow:visible!important}}
+.phone:has(#peercheck) .group{margin:14px 0}
+.phone:has(#peercheck) .row{padding:12px 18px;min-height:56px}
+.phone:has(#peercheck) .request-code{margin:14px 0}
+.phone:has(#peercheck) .checkline{margin:16px 0}
+.shield-unread{color:var(--red);animation:shield-breathe 2.8s ease-in-out infinite;background:#f8e9e8}@keyframes shield-breathe{0%,100%{box-shadow:0 0 0 0 #c52b261a}50%{box-shadow:0 0 0 7px #c52b2600;transform:scale(1.06)}}.cover-screen{position:relative;min-height:430px;padding-top:160px;text-align:center}.cover-screen h2{font-size:20px;color:var(--muted)}.cover-hotspot{position:absolute;bottom:0;right:0;width:48px;height:48px;background:transparent;color:#888}.details summary{min-height:48px;padding:12px 0;font-size:16px}.details p{font-size:14px}.details .btn{font-size:15px}.chat-scroll .notice{padding:16px}.chat-scroll .notice .btn{min-height:44px;font-size:15px;margin-top:8px}@media(prefers-reduced-motion:reduce){.shield-unread{animation:none}}
+.chat-scroll h1{font-size:25px}.chat-scroll .hero-icon{margin:12px 0 16px}.chat-scroll>p{font-size:14px}.chat-scroll .chat-time{margin:8px 0 20px}.chat-scroll .notice p{font-size:14px}.chat-scroll .notice .btn.text{margin-top:0}
+.invite-qr{width:186px;height:186px;margin:18px auto 5px}.invite-qr svg{width:100%;height:100%}.invite-code{text-align:center;font:600 25px ui-monospace,monospace;letter-spacing:3px}.qr-caption{text-align:center;font-size:12px!important;margin-top:8px!important}.invite-status{display:flex;align-items:center;gap:12px;padding:16px 0;min-height:74px}.invite-status strong{font-size:15px}.invite-status small{display:block;color:var(--muted);font-size:12px;margin-top:5px}.status-dot{width:8px;height:8px;border-radius:50%;background:var(--blue);flex:none}.phone-nav:has(.more-btn){gap:8px}.phone-nav:has(.more-btn)>span{flex:1}.phone-nav:has(.more-btn)>.blank{display:none}.more-btn{background:transparent}.cover-screen{min-height:430px;padding-top:100px}.hold-guide{position:absolute;bottom:95px;right:0;max-width:230px;text-align:right;font-size:15px;line-height:1.7;color:var(--blue)}.hold-guide span{display:block;font-size:36px;line-height:1.1;margin-right:26px}.cover-hotspot{width:76px;height:76px;border-radius:20px;background:#dbe6fa;color:var(--blue);font-size:14px;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}.cover-hotspot.pulse{animation:hotspot-pulse 2s ease-in-out infinite}.cover-hotspot.holding{animation:none;background:var(--blue);color:var(--paper);box-shadow:0 0 0 5px #b8cdf4}.chat-guide{background:var(--paper);padding:18px;border-radius:20px;margin:30px 0 8px}.chat-guide>small{font-size:11px;color:var(--muted)}.chat-guide h2{font-size:19px;margin-top:12px}.chat-guide p{font-size:14px;line-height:1.6}.chat-guide .btn{font-size:15px;min-height:44px}.chat-guide .btn.secondary{background:var(--tint);color:var(--blue)}.toggle-row{display:flex;gap:18px;align-items:center;margin:24px 0}.toggle-row>span{flex:1}.toggle-row strong{font-size:16px}.toggle-row small{display:block;font-size:12px;color:var(--muted);margin-top:6px}.switch{width:52px;height:44px;padding:7px 0;background:transparent;position:relative;flex:none}.switch:before{content:'';position:absolute;inset:7px 0;border-radius:20px;background:#cdced6}.switch.on:before{background:var(--green)}.switch i{position:absolute;width:26px;height:26px;background:var(--paper);border-radius:50%;top:9px;left:2px;transition:transform .18s ease-out}.switch.on i{transform:translateX(22px)}.confetti{pointer-events:none;position:absolute;inset:0;overflow:hidden}.confetti i{position:absolute;left:var(--x);top:-15px;width:6px;height:13px;animation:celebrate 1.4s ease-out var(--delay) both}.recovery-facts section{padding:17px 0;border-bottom:1px solid var(--line)}.recovery-facts h2{font-size:17px;margin-bottom:7px}.recovery-facts p{font-size:14px;line-height:1.6;margin:0}.demo-banner{display:flex;align-items:center;justify-content:space-between;padding:5px 12px;background:var(--tint);color:var(--blue);border-radius:12px;font-size:12px;margin-bottom:18px}.demo-banner button{background:transparent;color:var(--blue);min-width:44px;min-height:44px}@keyframes hotspot-pulse{0%,100%{opacity:.7;box-shadow:0 0 0 0 #2464d820}50%{opacity:1;box-shadow:0 0 0 10px #2464d804}}@keyframes celebrate{from{transform:translateY(0) rotate(var(--r));opacity:1}to{transform:translateY(420px) rotate(calc(var(--r) + 160deg));opacity:0}}@media(prefers-reduced-motion:reduce){.cover-hotspot.pulse{animation:none}.confetti{display:none}.switch i{transition:none}}
+.cover-hotspot.discreet{background:transparent;box-shadow:none}.cover-hotspot.discreet.holding{background:transparent;box-shadow:none}
+.access-choices{margin:22px 0 12px}.access-choice{width:100%;display:flex;align-items:center;justify-content:space-between;min-height:66px;padding:12px 15px;background:var(--paper);color:var(--ink);border:1px solid var(--line);border-radius:16px;margin-bottom:9px;text-align:left}.access-choice.selected{border-color:var(--blue);background:var(--tint)}.access-choice strong{font-size:16px}.access-choice small{display:block;font-size:12px;color:var(--muted);line-height:1.5;margin-top:4px}.access-choice:disabled{opacity:.46}.invite-link{display:block;text-align:center;overflow-wrap:anywhere;font-size:15px;line-height:1.6;min-height:44px;padding:8px 0}.invite-qr{width:164px;height:164px;margin:14px auto 4px}.phone:has(.invite-link) .group{margin:12px 0}.phone:has(.invite-link) .row{min-height:70px;padding:13px 16px}.recovery-scenarios{padding-left:22px;margin:22px 0 8px;font-size:15px;line-height:1.9}.phone:has(.cover-screen){background:#fcfdfd}.phone:has(.cover-screen) .phone-nav{display:none}.phone:has(.cover-screen) .scroll{padding:0;overflow:auto;position:relative}.phone:has(.cover-screen) .footer{background:#fcfdfd}.cover-screen{min-height:520px;height:100%;padding:0;position:relative;text-align:left}.cover-error{position:absolute;top:105px;left:32px;right:32px;color:#5b6267}.cover-error-icon{width:42px;height:48px;margin-bottom:24px;color:#788086}.cover-error h1{font-size:22.4px;font-weight:500;line-height:1.4;letter-spacing:0;margin:0 0 18px;color:#1d252a}.cover-error p{font-size:16px;line-height:1.6;margin:0 0 16px;color:#5b6267}.cover-error-details{font-size:13.76px;line-height:1.75}.cover-error-details ul{margin:8px 0 0;padding-left:20px}.cover-error-code{display:block;font:11.36px/1.6 ui-monospace,monospace;margin-top:18px;color:#788086}.cover-hotspot{right:8px;bottom:8px}.hold-guide{right:18px;bottom:101px;max-width:270px;font-size:14px}.phone:has(.cover-screen) .footer:empty{padding:0;height:0;border:0}
+
+.scope-options{border:0;margin:24px 0 12px;padding:0}.scope-options legend{font-size:15px;font-weight:600;margin-bottom:8px}.scope-options label{display:flex;gap:12px;align-items:center;min-height:46px;font-size:15px}.scope-options input{width:19px;height:19px;accent-color:var(--blue)}.share-link{user-select:all;overflow-wrap:anywhere;padding:16px;border-radius:12px;background:var(--paper);color:var(--blue);margin:18px 0;font-size:15px}.phone:has(.cover-screen) .scroll{position:static;overflow:hidden;flex:1}.cover-screen{position:absolute;inset:50px 0 0;height:auto;min-height:0}.cover-hotspot{position:absolute;width:80px;height:80px;border-radius:24px;right:4px;bottom:4px}.hold-guide{right:24px;bottom:112px}.cover-return{position:absolute;top:66px;left:32px;right:32px}.cover-return .btn{font-size:14px;min-height:44px;background:#f0f2f4}.phone:has(.cover-return) .cover-error{top:146px}.phone:has(.cover-screen) .footer{display:none}
+
+/* v6: touch selection, persistent recovery reminder, standard cover back. */
+.scope-options{margin:22px 0 12px}.scope-options legend{margin-bottom:12px}
+.scope-options label{position:relative;min-height:56px;padding:0 16px;margin-bottom:8px;border:1px solid #dedee6;border-radius:14px;background:var(--paper);cursor:pointer;justify-content:space-between;transition:background .16s,border-color .16s}
+.scope-options label:has(input:checked){background:#eaf0ff;border-color:var(--blue);color:var(--blue);font-weight:600}
+.scope-options label:active{background:#e3eaff}.scope-options label:has(input:focus-visible){outline:3px solid #88aaff;outline-offset:2px}
+.scope-options input{position:absolute;opacity:0;width:1px;height:1px}.scope-check{width:24px;height:24px;display:grid;place-items:center;visibility:hidden}.scope-options input:checked~.scope-check{visibility:visible}
+.shield-unread{position:relative;color:var(--red);background:#f8e9e8;animation:shield-breathe 2.4s ease-in-out infinite}
+@keyframes shield-breathe{0%,100%{box-shadow:0 0 0 0 #c52b2633;transform:scale(1)}50%{box-shadow:0 0 0 6px #c52b260a;transform:scale(1.07)}}
+.phone:has(.cover-screen) .phone-nav:has(button:not(.blank)){display:flex;position:relative;z-index:2;pointer-events:none}.phone:has(.cover-screen) .phone-nav button:not(.blank){pointer-events:auto}
+@media(prefers-reduced-motion:reduce){.shield-unread{animation:none}.scope-options label{transition:none}}
+
+/* v8: compact content without shrinking touch targets. */
+.scroll{padding:8px 20px 16px}.scroll h1{font-size:27px;line-height:1.25;margin:6px 0 12px}.scroll p{font-size:15px;line-height:1.5;margin-bottom:12px}.hero-icon{width:48px;height:48px;margin:10px 0 16px;border-radius:16px}.hero-icon svg{width:27px;height:27px}.group{margin:14px 0;border-radius:18px}.row{min-height:56px;padding:12px 15px}.row-main strong{font-size:15px}.notice{padding:14px;margin:12px 0}.note{margin:8px 2px 12px!important}.field-label{margin:16px 0 8px}.field{min-height:52px}.details{margin:8px 0}.details summary{padding:10px 0;min-height:44px}.footer{padding:10px 20px 24px}.btn{min-height:48px;padding:12px 16px;font-size:16px}.btn.text{min-height:44px}.key-paper{margin:14px 0;padding:18px 14px}.key-paper .key-label{margin-bottom:12px}.key-paper small{margin-top:12px}.scope-options{margin:16px 0 10px}.scope-options label{min-height:52px}.request-code{margin:12px 0}.progress-dots{margin-bottom:14px}.phone[data-page="waiting"] .hero-icon{display:none}
+@media(max-width:600px){
+ header.workbar{height:56px;padding:6px 10px;gap:4px;flex-wrap:nowrap}.workbar .brand{display:none}.work-tabs{margin:0 auto 0 0}.work-tabs button,.lang,.reset{font-size:12px;padding:0 9px;min-height:44px}.workspace{display:block}.sidebar{padding:0 8px;height:48px;overflow-x:auto;overflow-y:hidden;white-space:nowrap}.sidebar .nav-group{display:contents}.sidebar .nav-item{display:inline-flex;width:auto;min-height:44px;margin:0 4px}.stage{padding:0;gap:0}.stage-label,.review-footer{display:none}.phone{width:100%;max-width:100%;height:calc(100svh - 104px);border:0;box-shadow:none}.statusbar{display:none}.phone-nav{height:52px;padding:0 12px}.cover-screen{inset:0}.phone:has(.cover-screen) .phone-nav{padding-top:0}.scroll{padding:8px 18px 14px}.footer{padding-bottom:max(18px,env(safe-area-inset-bottom))}.footer:after{display:none}.inspector{margin-top:20px}
+}
+
+@media(max-width:600px){header.workbar{min-height:56px;height:56px}.workbar .work-tabs{width:auto;flex-basis:auto;flex:1;order:0}.workbar .reset{order:1;flex-shrink:0;white-space:nowrap}.workbar .lang{order:2;flex-shrink:0;white-space:nowrap}.work-tabs button{white-space:nowrap}}
+.phone[data-page="recover"] .scope-options{margin-top:12px}.phone[data-page="peer"] .group{margin:10px 0}.phone[data-page="peer"] .row{padding:10px 14px;min-height:52px}
+.phone.fade{animation:none}
+.phone[data-page="newkeys"] .hero-icon{display:none}
+.phone[data-page="recover"] .scope-options label{min-height:48px}
+</style></head><body><div id="app"></div><noscript>请启用 JavaScript 体验交互原型。Enable JavaScript to explore this prototype.</noscript><script>
+
+'use strict';
+let lang='zh', page='welcome', view='prototype', flowId='start', modal='', pendingAuth='', timer;
+let S={archiveName:"",archiveValid:false,archiveError:false,peerDevice:"pending",scope:"me",requestedScope:"me",scopeChanged:false,peerAccess:true,activeRole:"a",recoveryComplete:false,historyRestored:{a:false,b:false},freshMessages:{a:[],b:[]},materialsPending:false,shareBusy:false,shareCopied:false,shareReason:"",deviceProfile:"face",accessMethod:"face",inviteVersion:0,coverEnabled:false,coverLearned:false,coverPractice:false,locked:false,saveCard:true,inviteStatus:0,inviteError:"",shieldSeen:false,coachDone:false,entryOffered:false,joined:false,mine:false,peer:false,ready:false,entry:false,home:false,backup:'partial',approved:false,newMine:false,newPeer:false,checked:false,choice:'messages',reason:'missing',removed:false,hidden:false,deleted:false,revoked:false,retried:false,messages:[],error:'',inputA:'',inputB:'',digits:''};
+const $=s=>document.querySelector(s), L=(z,e)=>lang==='zh'?z:e;
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const INVITES=[{"code":"Q7M49K2P","url":"https://ai.shui.click/i/Q7M49K2P","svg":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 37 37\" shape-rendering=\"crispEdges\"><path fill=\"#fbfbfd\" d=\"M0 0h37v37H0z\"/><path stroke=\"#111113\" d=\"M4 4.5h7m2 0h1m2 0h1m2 0h6m1 0h7M4 5.5h1m5 0h1m3 0h1m7 0h1m1 0h1m1 0h1m5 0h1M4 6.5h1m1 0h3m1 0h1m1 0h1m3 0h1m1 0h1m1 0h1m2 0h2m1 0h1m1 0h3m1 0h1M4 7.5h1m1 0h3m1 0h1m1 0h1m1 0h2m4 0h4m2 0h1m1 0h3m1 0h1M4 8.5h1m1 0h3m1 0h1m1 0h2m1 0h1m1 0h3m2 0h2m2 0h1m1 0h3m1 0h1M4 9.5h1m5 0h1m1 0h1m4 0h4m1 0h1m1 0h1m1 0h1m5 0h1M4 10.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M12 11.5h6m1 0h1m2 0h2M4 12.5h1m1 0h5m2 0h3m2 0h2m3 0h1m2 0h5M4 13.5h1m2 0h1m4 0h1m2 0h1m3 0h10m3 0h1M4 14.5h3m1 0h3m1 0h2m1 0h2m4 0h1m2 0h4M4 15.5h2m3 0h1m2 0h3m3 0h1m1 0h2m1 0h1m1 0h1m2 0h2m1 0h1M4 16.5h2m1 0h4m2 0h1m1 0h1m4 0h3m4 0h1m1 0h2M5 17.5h3m1 0h1m1 0h2m2 0h1m1 0h3m1 0h4m1 0h3m3 0h1M5 18.5h1m1 0h1m1 0h2m1 0h1m3 0h5m1 0h1m1 0h1m4 0h2M5 19.5h1m1 0h1m1 0h1m3 0h3m1 0h1m1 0h1m7 0h1m3 0h1M6 20.5h1m1 0h1m1 0h2m2 0h1m1 0h1m1 0h2m1 0h3m5 0h2M4 21.5h2m2 0h2m2 0h1m2 0h2m2 0h8m1 0h1m1 0h1m1 0h1M4 22.5h1m2 0h2m1 0h2m3 0h1m5 0h2m2 0h4m1 0h1M4 23.5h1m2 0h1m3 0h1m1 0h1m1 0h2m1 0h1m1 0h1m1 0h1m1 0h1m6 0h1M4 24.5h1m2 0h1m2 0h3m1 0h3m4 0h8m1 0h3M12 25.5h1m1 0h1m2 0h3m2 0h1m1 0h1m3 0h5M4 26.5h7m2 0h2m1 0h4m1 0h4m1 0h1m1 0h3M4 27.5h1m5 0h1m1 0h1m2 0h3m3 0h4m3 0h1m3 0h1M4 28.5h1m1 0h3m1 0h1m1 0h1m2 0h2m1 0h4m2 0h5m1 0h1M4 29.5h1m1 0h3m1 0h1m1 0h1m10 0h3m3 0h2M4 30.5h1m1 0h3m1 0h1m1 0h1m2 0h2m2 0h2m4 0h7M4 31.5h1m5 0h1m7 0h1m2 0h1m2 0h1m1 0h4m1 0h1M4 32.5h7m1 0h3m4 0h1m3 0h1m1 0h2m1 0h1m1 0h1\"/></svg>\n"},{"code":"R8N52L3T","url":"https://ai.shui.click/i/R8N52L3T","svg":"<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 37 37\" shape-rendering=\"crispEdges\"><path fill=\"#fbfbfd\" d=\"M0 0h37v37H0z\"/><path stroke=\"#111113\" d=\"M4 4.5h7m1 0h2m1 0h1m3 0h6m1 0h7M4 5.5h1m5 0h1m1 0h3m1 0h1m1 0h2m1 0h1m4 0h1m5 0h1M4 6.5h1m1 0h3m1 0h1m2 0h2m2 0h3m2 0h1m1 0h1m1 0h1m1 0h3m1 0h1M4 7.5h1m1 0h3m1 0h1m1 0h5m3 0h4m2 0h1m1 0h3m1 0h1M4 8.5h1m1 0h3m1 0h1m2 0h2m1 0h2m3 0h1m1 0h2m1 0h1m1 0h3m1 0h1M4 9.5h1m5 0h1m2 0h1m2 0h1m1 0h1m4 0h2m1 0h1m5 0h1M4 10.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M12 11.5h4m1 0h2m2 0h1m1 0h2M4 12.5h1m1 0h2m1 0h3m1 0h2m2 0h2m1 0h1m1 0h1m3 0h1m2 0h1m1 0h2M4 13.5h1m1 0h1m5 0h1m1 0h1m1 0h1m2 0h10m3 0h1M4 14.5h1m1 0h2m1 0h2m3 0h3m1 0h2m2 0h1m3 0h1m1 0h1m1 0h2M4 15.5h1m2 0h1m1 0h1m1 0h1m2 0h1m1 0h4m1 0h2m3 0h1m5 0h1M4 16.5h2m1 0h1m2 0h2m1 0h1m2 0h1m3 0h3m4 0h1m1 0h2M5 17.5h5m2 0h2m1 0h1m1 0h1m5 0h1m1 0h2m3 0h3M7 18.5h2m1 0h1m3 0h1m1 0h1m1 0h1m2 0h1m1 0h4m1 0h1m1 0h3M4 19.5h1m2 0h1m1 0h1m4 0h4m1 0h1m2 0h1m4 0h1m3 0h1M5 20.5h3m2 0h3m2 0h2m6 0h3m1 0h3m1 0h1M5 21.5h2m4 0h1m4 0h2m3 0h1m2 0h1m4 0h3M4 22.5h1m1 0h2m2 0h4m1 0h2m4 0h1m3 0h4m1 0h1M7 23.5h2m4 0h2m1 0h1m2 0h2m1 0h1m2 0h1m1 0h2m1 0h1M5 24.5h2m2 0h2m2 0h3m1 0h1m1 0h4m1 0h7M12 25.5h1m1 0h2m1 0h3m2 0h1m1 0h1m3 0h5M4 26.5h7m1 0h6m5 0h2m1 0h1m1 0h2m1 0h1M4 27.5h1m5 0h1m1 0h1m6 0h4m1 0h1m3 0h2m1 0h1M4 28.5h1m1 0h3m1 0h1m2 0h1m4 0h1m1 0h1m1 0h1m1 0h5m1 0h1M4 29.5h1m1 0h3m1 0h1m1 0h1m1 0h6m3 0h1m3 0h3m1 0h1M4 30.5h1m1 0h3m1 0h1m1 0h2m2 0h3m1 0h1m1 0h2m3 0h1m2 0h1m1 0h1M4 31.5h1m5 0h1m3 0h1m1 0h3m2 0h1m2 0h1m1 0h4m1 0h1M4 32.5h7m1 0h2m3 0h1m1 0h6m1 0h2m3 0h1\"/></svg>\n"}];
+const currentInvite=()=>INVITES[S.inviteVersion%INVITES.length];
+const paths={more:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',shield:'<path d="M12 3 20 6v6c0 5-8 9-8 9s-8-4-8-9V6Z"/><path d="m8 12 3 3 5-6"/>',
+room:'<path d="M5 20V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v14M4 20h16M9 4v16M14 12h.01"/>',
+back:'<path d="m14 6-6 6 6 6"/>',arrow:'<path d="m9 6 6 6-6 6"/>',
+key:'<circle cx="8" cy="9" r="4"/><path d="m11 12 8 8m-4-4 3-3m-6 0 3-3"/>',
+lock:'<rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3m-4 5v2"/>',
+check:'<path d="m5 12 4 4L19 6"/>',
+people:'<circle cx="9" cy="8" r="3"/><path d="M3 20v-2a6 6 0 0 1 12 0v2m1-15a3 3 0 0 1 0 6m3 9v-2a6 6 0 0 0-2-4"/>',
+cloud:'<path d="M7 18H6a4 4 0 1 1 1-8 6 6 0 0 1 11-2 5 5 0 0 1 0 10h-1m-5-5v8m-3-5 3-3 3 3"/>',
+phone:'<rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 18h4"/>',
+bookmark:'<path d="M6 3h12v18l-6-4-6 4Z"/>',
+face:'<path d="M8 3H5a2 2 0 0 0-2 2v3m13-5h3a2 2 0 0 1 2 2v3M3 16v3a2 2 0 0 0 2 2h3m13-5v3a2 2 0 0 1-2 2h-3M8 8v2m8-2v2m-4 0v4h-2m-2 3q4 3 8 0"/>',
+settings:'<path d="M4 7h16M4 17h16"/><circle cx="8" cy="7" r="3" fill="currentColor"/><circle cx="16" cy="17" r="3" fill="currentColor"/>',
+send:'<path d="m5 12 7-7 7 7m-7-7v15"/>',
+wifi:'<path d="M3 8a15 15 0 0 1 18 0M6 12a10 10 0 0 1 12 0m-9 4a5 5 0 0 1 6 0m-3 4h.01"/>',
+battery:'<rect x="2" y="6" width="17" height="12" rx="3"/><path d="M22 10v4"/><rect x="5" y="9" width="11" height="6" rx="1" fill="currentColor" stroke="none"/>',
+info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/>'
+};
+const ic=(n,cl='')=>`<svg class="${cl}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[n]||paths.info}</svg>`;
+const B=(t,a,k='',disabled=false)=>`<button class="btn ${k}" data-a="${a}" ${disabled?'disabled':''}>${t}</button>`;
+const badge=(t,k='')=>`<span class="badge ${k}">${t}</span>`;
+const R=(t,d='',v='',a='',k='')=>`<${a?'button':'div'} class="row ${k}" ${a?`data-a="${a}"`:''}><span class="row-main"><strong>${t}</strong>${d?`<small>${d}</small>`:''}</span>${v?`<span class="row-value">${v}</span>`:''}${a?ic('arrow','chevron'):''}</${a?'button':'div'}>`;
+const G=(...r)=>`<div class="group">${r.join('')}</div>`;
+const T=(h,p='')=>`<h1>${h}</h1>${p?`<p>${p}</p>`:''}`;
+const N=t=>`<p class="note">${t}</p>`;
+const C=(h,p,k='')=>`<div class="notice ${k}"><strong>${h}</strong><p>${p}</p></div>`;
+const H=(i,k='')=>`<div class="hero-icon ${k}">${ic(i)}</div>`;
+const D=(i,n=3)=>`<div class="progress-dots" aria-label="${L('步骤','Step')} ${i}/${n}">${Array.from({length:n},(_,j)=>`<i class="${j<i?'on':''}"></i>`).join('')}</div>`;
+const Steps=a=>`<ol class="step-list">${a.map((r,i)=>`<li><b>${i+1}</b><div><strong>${r[0]}</strong><p>${r[1]}</p></div></li>`).join('')}</ol>`;
+const F=(id,label,placeholder='',value='')=>`<label class="field-label" for="${id}">${label}</label><input id="${id}" class="field code" autocomplete="off" spellcheck="false" placeholder="${placeholder}" value="${esc(value)}" ${id==='digits'||id==='newdigits'?'maxlength="4" inputmode="numeric"':''}>`;
+const Err=()=>S.error?`<div class="field-error" role="alert">${L('恢复码或校验内容不正确，请检查后重试。','The recovery code or verification value is incorrect. Check it and try again.')}</div>`:'';
+const PAGES=[
+['welcome',0,'空间入口','Entry'],['joinInvite',0,'打开邀请链接','Open invitation'],['tutorials',1,'功能说明','Feature guide'],['invite',0,'邀请对方','Invite'],['save',0,'保存我的恢复码','Save my code'],['verify',0,'校验与等待','Verify & wait'],['ready',0,'共同恢复已启用','Recovery ready'],
+['cover',1,'遮蔽层演练','Cover practice'],['chat',1,'聊天与引导','Chat & guidance'],['entry',1,'保存空间入口','Save entry'],['home',1,'主屏幕首次接入','Home Screen setup'],['hub',1,'恢复会话','Recover conversation'],['devices',1,'设备与访问','Devices'],
+['recover',2,'发起恢复','Start recovery'],['waiting',2,'等待对方参与','Await participation'],['peer',2,'对方核对与参与','Other participant'],['restoring',2,'建立新的访问','Restore access'],['newkeys',2,'更新恢复码','Update codes'],['history',2,'恢复聊天记录','Restore history'],['result',2,'恢复结果','Recovery result'],
+['backup',3,'准确备份状态','Backup status'],['data',3,'删除与导出','Delete & export'],['resetkeys',3,'恢复码遗失与重设','Replace code'],
+['blocked',4,'无法恢复','Recovery blocked'],['private',4,'无痕便捷进入','Private access'],['privacy',4,'隐私与保护边界','Privacy boundaries']];
+const GROUPS=[['开始使用','START'],['日常与入口','EVERYDAY ACCESS'],['双方共同恢复','JOINT RECOVERY'],['数据管理','DATA MANAGEMENT'],['异常与探索','EXCEPTIONS & RESEARCH']];
+const parents={tutorials:'chat',invite:'welcome',prepare:'hub',save:'hub',verify:'save',ready:'hub',chat:'welcome',entry:'hub',home:'entry',hub:'chat',devices:'hub',recover:'welcome',history:'chat',waiting:'recover',peer:'waiting',restoring:'waiting',newkeys:'hub',history:'chat',result:'hub',backup:'hub',data:'hub',resetkeys:'hub',blocked:'recover',private:'welcome',privateok:'private',privacy:'hub'};
+function go(p){if(p==='prepare')p='save';if(S.materialsPending&&['save','prepare'].includes(p))p='newkeys';stopHold();if(page==='invite'&&p!=='invite')clearTimeout(inviteTimer);if(p==='hub')S.shieldSeen=true;if(p==='entry')S.entryOffered=true;clearTimeout(timer);modal='';S.error='';S.checked=false;page=p;render();}
+function jump(p){if(p==='chat')S.joined=true;if(p==='cover')S.coverPractice=true;
+ if(['hub','entry','home','devices','backup','data','ready','resetkeys'].includes(p)){S.joined=true;}
+ if(p==='ready'){S.mine=true;S.peer=true;S.ready=true;}
+ if(p==='verify')S.mine=false;
+ if(p==='waiting')S.approved=false;
+ if(p==='peer'){S.inputB='';S.activeRole='b';}
+ if(p==='newkeys'){S.resetContext=false;}
+ if(p==='history'||p==='result'){S.newMine=true;S.newPeer=true;}
+ view='prototype';go(p);
+}
+function toast(z,e){$('.toast')?.remove();const x=document.createElement('div');x.className='toast';x.setAttribute('role','status');x.textContent=L(z,e);$('.phone')?.append(x);setTimeout(()=>x.remove(),2600);}
+function load(kind,next){S.loadKind=kind;go(kind==='restore'?'restoring':kind==='backup'?'backupload':'historyload');timer=setTimeout(()=>{if(kind==='backup'){S.backup='complete';S.deleted=false;}if(kind==='restore'){completeRecovery();return;}if(kind==='history')S.historyRestored[S.activeRole]=true;go(next);},1600);}
+function screen(){
+ let c='',f='',nav='',back=page!=='welcome';
+ switch(page){
+ case 'welcome':
+ c=`<div class="intro-space">${H('room')}${T(L('有些话，<br>只留给彼此。','Some things are<br>just for you two.'),L('一个只属于两个人的私密空间。','A private space for two people.'))}<p>${L('无需手机号或邮箱。<br>聊天内容只对你和对方可读，平台无法读取。','No phone number or email.<br>Only you and your person can read your chats, not the platform.')}</p></div>`;
+ f=B(L('创建空间','Create a space'),'auth:create')+B(L('恢复会话','Recover conversation'),'go:recover','text');break;
+ case 'cover':
+ nav='';back=S.coverPractice;
+ c=`<div class="cover-screen"><div class="cover-error"><svg class="cover-error-icon" aria-hidden="true" viewBox="0 0 48 48"><path d="M10 5h19l9 9v29H10zM29 5v10h9M17 25h2m10 0h2M18 35l5-3 6 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg><h1>${L('无法访问此网站','This site can’t be reached')}</h1><p>${L('连接已意外关闭。','The connection was unexpectedly closed.')}</p><div class="cover-error-details">${L('请试试以下办法：','Try the following:')}<ul><li>${L('检查网络连接','Check your internet connection')}</li><li>${L('检查代理服务器和防火墙','Check the proxy and firewall')}</li></ul></div><code class="cover-error-code">ERR_CONNECTION_CLOSED <span>0</span></code></div>${S.coverPractice?`<div class="hold-guide">${L('长按色块 1 秒，进入聊天','Hold the block for 1 second to enter chat')}<span aria-hidden="true">↘</span></div>`:''}<button class="cover-hotspot ${S.coverPractice?'pulse':'discreet'}" id="coverHold" aria-label="${L('长按一秒进入聊天；键盘按住空格或回车','Hold for one second to enter; hold Space or Enter on a keyboard')}"><span id="holdLabel">${S.coverPractice?L('长按','Hold'):''}</span></button></div>`;
+ f='';break;
+ case 'invite':{
+ nav=L('邀请对方','Invite your person');
+ const stages=[L('等待对方打开邀请','Waiting for them to open the invite'),L('对方已打开，正在确认加入','Invite opened; reviewing'),L('对方正在设置访问密钥','Setting up their access key'),L('正在建立你们的空间','Connecting your space'),L('对方已加入','They have joined')];
+ c=T(L('邀请重要的那个人','Invite your person'),L('让对方扫码，或把邀请链接发给对方。','Ask them to scan, or send them the invite link.'))+
+ `<div class="invite-qr">${currentInvite().svg}</div><a class="invite-link" href="${currentInvite().url}" data-a="go:joinInvite">${currentInvite().url.replace('https://','')}</a><p class="qr-caption">${L('邀请链接 · 15 分钟内有效','Invite link · valid for 15 minutes')}</p>`+
+ G(R(L('你','You'),L('访问密钥已设置，等待对方加入','Access key ready; waiting for your person'),badge(L('已就绪','Ready'),'good')),R(L('对方','Your person'),S.inviteError?L('邀请已过期，请重新发送','Invite expired; send a new link'):stages[S.inviteStatus],badge(S.inviteError?L('已过期','Expired'):S.inviteStatus===4?L('已加入','Joined'):S.inviteStatus===0?L('待打开','Not opened'):S.inviteStatus===1?L('已打开','Opened'):L('设置中','Setting up'),S.inviteStatus===4?'good':'pending')))+N(L('对方加入后，会自动进入聊天。','You’ll enter chat automatically when they join.'));
+
+ f=S.inviteError?B(L('重新生成邀请','Generate a new invite'),'inviteReset'):B(L('复制邀请链接','Copy invite link'),'shareInvite');break;}
+ case 'tutorials':
+ nav=L('功能说明','Feature guide');
+ c=T(L('需要时，来这里看看','A guide when you need it'))+
+ G(R(L('保存空间入口','Save your entry'),L('主屏幕、书签或复制网址','Home Screen, bookmark or address'),'','go:entry'),R(L('使用自动遮蔽层','Use the automatic cover'),L('练习长按热区，随时开启或关闭','Practice holding; turn it on or off anytime'),'','covertry'),R(L('恢复会话与聊天记录','Recover conversation and history'),L('哪些情况能找回，需要保存什么','When recovery helps and what to save'),'','go:hub'),R(L('了解备份与删除','Backups and deletion'),L('查看备份状态和删除范围','Check backup status and deletion scope'),'','go:hub'));
+ f=B(L('返回聊天','Back to chat'),'go:chat','secondary');break;
+ case 'joinInvite':
+ nav=L('加入空间','Join the space');
+ c=H('people')+T(L('有人为你留了一个空间','A private invitation for you'),L('加入后，这个空间只属于你们两个人。先设置访问密钥，以后用它解锁聊天。','Once you join, this space belongs to the two of you. Set up an access key to unlock your chat later.'));
+ f=B(L('设置访问密钥并加入','Set up an access key and join'),'auth:joincreate')+B(L('暂不加入','Not now'),'go:welcome','text');break;
+ case 'save':
+ nav=L('保存恢复码','Save recovery code');
+ c=T(L('只保管你的一份','Keep your own code'),L('放在浏览器之外、以后仍能找到的安全位置。不要把它发给对方。','Keep it somewhere safe outside this browser where you can find it later. Do not send it to the other person.'))+
+ `<div class="key-paper"><div class="key-label">${L('我的恢复码','My recovery code')}</div><div class="key-code">A7KD-M2PX-4826</div><small>${L('请保存在浏览器之外','Keep it outside the browser')}</small></div>`+
+ G(R(L('复制恢复码','Copy code'),L('内容会进入系统剪贴板','Places the content on the system clipboard'),'','copy:material'),R(L('保存恢复码文本','Save recovery code as text'),L('不要只保存在本网站内','Do not keep the only copy inside this website'),'','download:material'))+
+ N(L('书签不能替代恢复码，请保存在浏览器之外。','A bookmark is not a recovery code. Keep the code outside the browser.'));
+ f=B(L('我已保存，继续校验','Saved, continue to verify'),'go:verify')+B(L('稍后再完成','Finish later'),'go:chat','text');break;
+ case 'verify':
+ nav=L('确认保存','Verify your copy');
+ if(!S.mine){
+ c=T(L('确认你找得到','Check you can find it'),L('从刚才保存的位置取回你的恢复码，输入最后 4 位。','Retrieve your code from where you saved it and enter its last four digits.'))+F('digits',L('最后 4 位','Last four digits'),'••••',S.digits)+Err()+N(L('这一步确认你已保存，不代表最新聊天已经完成备份。','This confirms your saved copy, not that your latest chats are backed up.'));
+ f=B(L('确认保存','Verify saved code'),'verify');
+ }else{
+ c=H('check','success')+T(L('你的一份已准备好','Your code is ready'),L('等待对方完成相同的保存与校验。你可以先继续聊天。','Wait for the other participant to save and verify their code. You can keep chatting.'))+
+ G(R(L('我的恢复码','My recovery code'),'',badge(L('已确认保存','Verified'),'good')),R(L('对方的恢复码','Their code'),'',badge(L('待完成','Pending'),'pending')))+C(L('共同恢复尚未启用','Joint recovery is not active yet'),L('双方都保存并确认恢复码后，才会显示已启用。','Recovery becomes active after both people save and verify their codes.'));
+ f=B(L('返回聊天','Back to chat'),'go:chat');
+ }break;
+ case 'ready':
+ nav=L('共同恢复','Joint recovery');
+ c=H('check','success')+T(L('共同恢复已启用','Joint recovery is ready'),L('你们各自保管一份恢复码，需要找回时共同参与。','You each hold your own code and participate together when recovery is needed.'))+
+ G(R(L('我的恢复码','My code'),'',badge(L('已确认','Verified'),'good')),R(L('对方的恢复码','Their code'),'',badge(L('已确认','Verified'),'good')))+
+ N(L('历史消息和附件的备份进度，请在“恢复会话”中查看。','Check message and attachment backup progress in Recover conversation.'));
+ f=B(L('保存下次进入的入口','Save an entry for next time'),'go:entry')+B(L('进入聊天','Go to chat'),'go:chat','text');break;
+ case 'chat':
+ nav=L('两个人的空间','Our space');back=false;
+ c=`<div class="chat-time">${L('今天','Today')} 14:32</div>`+
+ (needsHistory()?C(L('会话已恢复，可以继续聊天','You’re back. Keep chatting.'),L('之前的聊天记录可随时恢复。','You can restore previous messages whenever you’re ready.'))+B(L('恢复聊天记录','Restore chat history'),'go:history','secondary'):`<div class="bubble">${L('有些话，想留在这里慢慢说。','Some things feel better shared here.')}<small>14:30</small></div><div class="bubble mine">${L('好，这里只有我们。','Yes. A place for us.')}<small>14:32 · ${L('已发送','Sent')}</small></div>`)+
+ (S.recoveryComplete&&targeted(S.activeRole)?S.freshMessages[S.activeRole]:S.messages).map(m=>`<div class="bubble mine">${esc(m)}<small>14:35 · ${L('已发送','Sent')}</small></div>`).join('')+
+ (S.materialsPending?G(R(L('请保存恢复码','Keep your recovery codes'),L('双方各自保存，不要互相发送','Keep your own copy; do not exchange it'),'','go:newkeys')):'')+
+ (S.saveCard?`<aside class="chat-guide"><small>${L('空间小助手 · 仅你可见','Space guide · only visible to you')}</small><h2>${L('给下次见面，留个入口','Keep a shortcut for next time')}</h2><p>${L('保存到主屏幕或书签，下次不用再找网址。','Save to your Home Screen or bookmarks so you can find it again.')}</p>${B(L('看看怎么保存','Show me how'),'go:entry','secondary')}${B(L('暂时不用','Not now'),'dismissCard','text')}</aside>`:'');
+ f=`<div class="composer"><input id="message" aria-label="${L('消息','Message')}" placeholder="${L('说点什么…','Write a message…')}" autocomplete="off"><button data-a="send" aria-label="${L('发送消息','Send message')}">${ic('send')}</button></div>`;break;
+ case 'entry':
+ nav=L('保存入口','Save your entry');
+ c=H('bookmark')+T(L('下次，一点就到','One tap next time'),L('不用记住网址。选择你愿意留下的入口。','No need to remember the address. Choose an entry you are comfortable keeping.'))+
+ G(R(L('添加到主屏幕','Add to Home Screen'),L('方便常用，会出现桌面图标','Convenient for regular use; adds a visible icon'),'','sheet:homescreen'),R(L('保存为浏览器书签','Save a browser bookmark'),L('书签可能被看到或随浏览器同步','Bookmarks may be visible or synced'),'','sheet:bookmark'),R(L('复制正式网址','Copy the public address'),'https://ai.shui.click','','copy:url'))+
+ C(L('保存入口不是备份','An entry is not a backup'),L('请另外保管恢复码，并确认历史备份。','Keep your recovery code separately and check your history backups.'));
+ f=B(L('完成','Done'),'go:chat')+B(L('暂不保存入口','Skip for now'),'go:chat','text');break;
+ case 'home':
+ nav=L('主屏幕入口','Home Screen entry');
+ c=H(S.home?'check':'phone',S.home?'success':'')+T(S.home?L('这个入口已可使用','This entry is ready'):L('连接这个入口','Connect this entry'),S.home?L('以后从图标打开，通过设备验证即可进入。','Open this icon next time and verify with your device.'):L('这是新的打开环境，需要先安全接入你的空间。','This is a new browsing environment. Connect it securely to your space first.'))+
+ G(R(L('打开方式','Opens as'),L('主屏幕 Web App','Home Screen Web App')),R(L('访问状态','Access status'),'',badge(S.home?L('已连接','Connected'):L('待连接','Not connected'),S.home?'good':'pending')),R(L('旧历史','Previous history'),L('不会自动导入，需要另行授权','Not imported automatically; requires separate authorization')))+
+ N(L('删除这个入口的网站数据后，可能需要重新接入或共同恢复。','Deleting this entry’s website data may require reconnection or joint recovery.'));
+ f=B(S.home?L('解锁进入','Unlock and enter'):L('从原入口授权接入','Authorize from original entry'),S.home?'auth:chat':'auth:homeok')+B(L('原入口也无法进入','I cannot access the original entry'),'go:recover','text');break;
+ case 'hub':
+ nav=L('恢复会话','Recover conversation');
+ c=T(L('留好恢复码，一起找回','Keep your codes. Recover together.'),L('清除浏览器数据、关闭无痕窗口、换设备或访问密钥失效时，都可尝试共同恢复。','Try joint recovery after clearing browser data, closing private browsing, changing devices or losing access.'))+
+ G(R(L('我的恢复码','My recovery code'),'',badge(S.mine?L('已保存','Saved'):L('待保存','Not saved'),S.mine?'good':'pending'),'go:save'),R(L('对方的恢复码','Their recovery code'),'',badge(S.peer?L('已保存','Saved'):L('待对方保存','Not saved yet'),S.peer?'good':'pending')))+
+ N(L('双方各自保管，恢复时共同确认。不要互相发送恢复码。','Keep separate copies and confirm together. Do not exchange recovery codes.'))+
+ G(R(L('消息备份','Message backup'),L('导出到系统“文件”，新聊天需重新备份','Export to Files; back up again for new chats'),'','go:backup'),R(L('恢复聊天记录','Restore chat history'),L('选择自己保存的加密备份文件','Choose your saved encrypted backup'),'','go:history'))+
+ `<details class="details"><summary>${L('哪些情况无法找回？','When is recovery unavailable?')}</summary><p>${L('任一方缺少恢复码或无法参与时，不能完成共同恢复。聊天备份丢失或损坏时，无法找回其中记录；未备份的新内容也无法恢复。','Joint recovery needs both codes and both participants. Lost or damaged backups and unbacked-up content cannot be restored.')}</p></details>`;
+ f=B(L('保存我的恢复码','Save my recovery code'),'go:save');break;
+ case 'devices':
+ nav=L('恢复会话','Recover conversation');
+ c=T(L('设备与访问','Devices & access'),L('只保留你认识且仍在使用的设备。','Keep only devices you recognize and still use.'))+
+ G(R(L('我的 iPhone','My iPhone'),L('当前设备 · Safari','This device · Safari'),badge(L('可用','Available'),'good')),R(L('我的旧设备','My old device'),S.revoked?L('不能继续获取新消息','Cannot receive new messages'):L('最近使用：昨天','Last used: yesterday'),badge(S.revoked?L('已撤销','Revoked'):L('可用','Available'),S.revoked?'':'good'),S.revoked?'':'sheet:revoke'))+
+ `<div class="section-label">${L('另一位参与者','OTHER PARTICIPANT')}</div>`+G(R(L('对方的设备','Their device'),L('由对方管理设备访问','Managed by the other participant'),badge(L('可用','Available'),'good')))+N(L('撤销不会擦除设备已读取、导出或独立保存的副本。','Revocation does not erase content already read, exported or saved independently.'));
+ f=B(L('接入主屏幕入口','Connect a Home Screen entry'),'go:home','secondary');break;
+ case 'recover':
+ nav=L('恢复会话','Recover conversation');
+ c=T(L('输入你的恢复码','Enter your recovery code'),L('输入自己的恢复码，再邀请对方确认。无需交换恢复码。','Use the recovery codes you saved. Next, ask the other person to participate with their own code. Do not collect their codes.'))+
+ F('inputA',L('我的恢复码','My recovery code'),L('粘贴保存的恢复码','Paste your saved recovery code'),S.inputA)+Err()+`<fieldset class="scope-options"><legend>${L('这次需要恢复谁的会话？','Who needs access restored?')}</legend>${[['me','只恢复我','Only me'],['peer','只恢复对方','Only the other person'],['both','我们两个人','Both of us']].map(([v,z,e])=>`<label><input type="radio" name="scope" value="${v}" ${S.scope===v?'checked':''}><span>${L(z,e)}</span><span class="scope-check" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m5 12 4 4 10-10"/></svg></span></label>`).join('')}</fieldset>`+
+ N(L('恢复码找回会话；本地备份找回聊天记录。','Use your separate recovery codes to regain access, then import your saved chat backup file.'))+
+ `<details class="details"><summary>${L('找不到恢复码怎么办？','Can’t find your recovery code?')}</summary><p>${L('先查看曾保存恢复码的密码管理器、文件或纸质副本。若仍有正常入口，可以先进入会话处理；若所有正常访问都失效且缺少任何一方恢复码，就无法共同恢复。','Check your password manager, files or paper copy. If a normal entry still works, use it first. If all normal access is lost and either person’s codes are missing, joint recovery is unavailable.')}</p></details>`;
+ f=B(L('继续恢复会话','Continue recovery'),'startrecovery')+B(L('返回首页','Back to start'),'go:welcome','text');break;
+ case 'waiting':
+ nav=L('恢复会话','Recover conversation');
+ c=H('people')+T(S.approved?(S.scopeChanged?L('对方调整了恢复范围','The recovery scope changed'):L('双方已确认','Both participants confirmed')):L('请对方一起参与','Ask them to join recovery'),S.approved?L('请确认本次恢复对象，再一起完成。','Confirm who will recover, then finish together.'):L('把链接发给对方，一起确认恢复。对方已有的会话会保留。','Send the recovery link. Opening it does not sign the other person out of an existing conversation.'))+
+ G(R(L('恢复对象','Restore access for'),scopeLabel()),deviceRows(),R(L('核对编号','Verification code'),'072 941'),R(L('对方参与','Other participant'),'',badge(S.approved?L('已确认','Confirmed'):L('等待中','Waiting'),S.approved?'good':'pending')))+
+ (S.scopeChanged?C(L('请确认调整','Confirm the change'),L('对方调整了需要恢复的人。请核对上方对象和设备，再确认本次请求。','The other person changed who needs recovery. Check the people and devices above before confirming.')):'')+
+ N(L('链接 15 分钟内有效，两人可在一次请求中恢复。','The link is valid for 15 minutes. Restore both people in one joint request; each restores their own history.'));
+ f=S.scope==='none'?B(L('双方都能进入，结束请求','Both can enter; end request'),'endNoRecovery'):B(S.approved?(S.scopeChanged?L('确认范围并恢复','Confirm scope and restore'):L('开始恢复','Restore now')):L('复制恢复链接','Copy recovery link'),S.approved?'restore':'copy:request');f+=B(L('取消本次恢复','Cancel this recovery'),'sheet:cancel','text');break;
+ case 'peer':
+ nav=L('参与恢复','Join recovery');
+ c=T(L('确认是你们的请求','Check the request together'),L('通过熟悉的方式联系对方，核对编号和这次要恢复的设备。','Contact the other person through a familiar channel. Check the code and devices to be restored.'))+
+ `<div class="request-code">072 941</div>`+
+ G(R(L('本次恢复','This request restores'),scopeLabel('b')),deviceRows('b'))+
+ (S.peerAccess?N(L('你仍可正常聊天，本次确认不会退出已有会话。','You can still chat. Confirming keeps your existing access.')):'')+
+ (S.peerAccess&&targeted('b')?B(L('我不用恢复，只协助对方','Keep my conversation; help only'),'assistOnly','secondary'):'')+
+ (!S.peerAccess&&!targeted('b')?B(L('我也需要恢复会话','I also need to recover'),'includePeer','secondary'):'')+
+ F('inputB',L('我的恢复码','My recovery code'),L('粘贴你保存的恢复码','Paste your saved recovery code'),S.inputB)+Err()+
+ N(L('确认即同意本次恢复，不会向对方发送恢复码。','The button below confirms this request and your participation. Your recovery code is not sent to the other person.'));
+ f=B(L('确认并参与恢复','Confirm and participate'),'approve')+B(L('这不是我们的请求','This is not our request'),'block:rejected','text');break;
+ case 'restoring':
+ nav=L('恢复会话','Recover conversation');
+ c=T(L('正在恢复会话','Restoring your conversation'),L('请保持页面打开，完成后会自动进入聊天。','Keep this page open. Chat opens automatically when recovery completes.'))+
+ `<div class="loading-line"><div class="spinner" aria-hidden="true"></div><span>${L('正在处理…','Working…')}</span></div>`+
+ G(R(L('恢复对象','Recovering'),scopeLabel()),R(L('双方确认','Both participants'),'',badge(L('已完成','Complete'),'good')));
+ f=B(L('恢复中…','Restoring…'),'none','',true);break;
+ case 'newkeys':{
+ nav=L('保存恢复码','Save recovery codes');
+ const own=S.activeRole==='a'?S.newMine:S.newPeer,other=S.activeRole==='a'?S.newPeer:S.newMine;
+ c=H('key')+T(L('请保存你的恢复码','Keep your recovery codes'),L('你们各自保存一份，不需要互相发送。双方确认保存后，新恢复码才会启用。','Keep your own copy without sending it to the other person. Updated codes activate after both people verify their copies.'))+
+ `<div class="key-paper"><div class="key-label">${L('我的新恢复码','My updated recovery code')}</div><div class="key-code">${ownNewCode()}</div></div>`+
+ B(L('复制我的恢复码','Copy my recovery code'),'copy:newmaterial','secondary')+
+ G(R(L('我的恢复码','My code'),'',badge(own?L('已确认保存','Saved and verified'):L('待确认','Not verified'),own?'good':'pending'),own?'':'sheet:newmaterial'),R(L('对方的恢复码','Their code'),'',badge(other?L('已确认保存','Saved and verified'):L('待对方确认','Waiting for them'),other?'good':'pending')))+
+ N(L('未完成前请继续保留原恢复码。旧恢复码和旧密文副本无法远程销毁。','Keep the original codes until this completes. Old code and ciphertext copies cannot be remotely erased.'));
+ f=B(L('保存完成，返回聊天','Saved; return to chat'),S.resetContext?'resetdone':'materialsDone','',!(S.newMine&&S.newPeer))+B(L('稍后保存','Save later'),'go:chat','text');break;}
+ case 'history':
+ nav=L('恢复聊天记录','Restore chat history');
+ c=T(L('导入你的聊天备份','Import your chat backup'),L('从系统“文件”中选择之前保存的备份，在本机解密并恢复，不上传服务器。','Choose a saved backup from Files. Decrypt and restore on this device without uploading it.'))+
+ `<button class="btn secondary" data-a="pickArchive">${L('选择聊天备份文件','Choose chat backup file')}</button><input id="archiveFile" type="file" accept=".qrb" hidden>`+
+ (S.archiveName?G(R(L('已选择文件','Selected file'),esc(S.archiveName)),R(L('检查结果','Validation'),S.archiveError?L('无法读取，请选择完整且属于你的备份','Unreadable; choose a complete backup belonging to you'):S.archiveValid?L('已验证 · 128 条消息、12 个附件','Verified · 128 messages, 12 attachments'):L('等待本机校验','Awaiting local validation'))):N(L('尚未选择文件。恢复码用于找回会话，不能替代聊天备份。','No file selected. A recovery code restores access, not your chat backup.')))+
+ N(L('只能恢复备份文件中包含的记录。文件丢失或损坏时，平台无法替你找回。','Only records inside the backup can be restored. The platform cannot replace a lost or damaged file.'));
+ f=B(L('恢复聊天记录','Restore chat history'),'history','',!S.archiveValid);break;
+ case 'historyload':
+ nav=L('恢复聊天记录','Restore chat history');
+ c=T(L('正在本机恢复','Restoring on this device'),L('正在校验、解密并导入所选文件。请保持页面打开。','Validating, decrypting and importing the selected file. Keep this page open.'))+`<div class="progress-track"><span></span></div><div class="number">83 / 128</div>`;
+ f=B(L('恢复中…','Restoring…'),'none','',true);break;
+ case 'result':
+ nav=L('恢复结果','Recovery result');
+ c=H('check','success')+T(L('聊天记录已恢复','Chat history restored'),L('已从你选择的文件恢复到本机。','Restored to this device from your selected file.'))+G(R(L('消息','Messages'),'128'),R(L('附件','Attachments'),'12'))+N(L('备份之后产生的聊天不在此文件中。请继续保留备份文件。','Chats created after the backup are not in this file. Keep your backup.'));
+ f=B(L('返回聊天','Back to chat'),'go:chat');break;
+ case 'backup':
+ nav=L('消息备份','Message backup');
+ c=T(L('给聊天留一份备份','Keep a copy of your chats'),L('将本机聊天导出为加密文件，保存在系统“文件”中，清理浏览器数据后仍可用它恢复。','Chats are stored in this browser. Export an encrypted file outside it to recover after clearing website data.'))+
+ G(R(L('备份内容','Included'),L('当前设备已有的全部聊天记录和附件','All chat records and attachments available on this device')),R(L('保存位置','Save location'),L('系统“文件”、外部存储或你选择的安全位置','Files, external storage or a safe location you choose')))+
+ C(L('新聊天需要重新备份','Back up again for new chats'),L('文件不会自动更新，请定期导出。删除文件或丢失设备仍可能失去备份。','Exported files do not update automatically. Clearing site data does not delete a separately saved file; deleting the file or losing the device can still lose it.'))+
+ N(L('本机压缩后加密，不上传。图片、视频不保证明显缩小。','Compressed then encrypted locally. Already-compressed photos and videos may not shrink much.'))+
+ (S.backup==='complete'?C(L('备份文件已准备好','Backup file ready'),L('请选择保存位置，确认文件已保存后再关闭页面。','Choose a destination and confirm the file is saved before closing.')):'');
+ f=B(S.backup==='complete'?L('保存聊天备份','Save chat backup'):L('生成聊天备份','Create chat backup'),S.backup==='complete'?'saveArchive':'backupnow')+B(L('恢复聊天记录','Restore chat history'),'go:history','text');break;
+ case 'backupload':
+ nav=L('消息备份','Message backup');c=T(L('正在生成备份文件','Creating your backup'),L('在本机整理、压缩并加密聊天记录和附件，不上传服务器。','Preparing, compressing and encrypting chats and attachments locally, without uploading.'))+`<div class="progress-track"><span></span></div>`;f=B(L('处理中…','Working…'),'none','',true);break;
+ case 'data':
+ nav=L('恢复会话','Recover conversation');
+ c=T(L('数据管理','Data management'),L('每个操作影响的范围不同。删除前，先确认它会改变什么。','Each action has a different scope. Check the effect before deleting.'))+
+ `<div class="section-label">${L('带走内容','TAKE YOUR CONTENT')}</div>`+G(R(L('导出我的内容','Export my content'),L('选择加密归档或明文文件','Choose encrypted archives or plain files'),'','sheet:export'))+
+ `<div class="section-label">${L('整理本机','THIS DEVICE')}</div>`+
+ G(R(L('从我的收藏移除','Remove from my collection'),S.removed?L('示例项目已移除，聊天不变','Sample removed; chat unchanged'):L('只改变这台设备的收藏列表','Changes this device’s collection only'),'',S.removed?'':'sheet:collection'),R(L('在本机隐藏消息','Hide a message on this device'),S.hidden?L('示例消息已在本机隐藏','Sample hidden on this device'):L('不影响对方或已导出的备份','Does not affect the other person or exported backups'),'',S.hidden?'':'sheet:local'))+
+ `<div class="section-label">${L('恢复与保留','RECOVERY & RETENTION')}</div>`+
+ C(L('删除已保存的备份','Delete a saved backup'),L('请到系统“文件”或保存位置自行删除。网页不能替你删除已导出的文件，也不会删除对方保管的副本。','Delete the file in Files or wherever you saved it. This page cannot delete exported files or the other person’s copies.'))+
+ N(L('这里不能单方面删除双方全部内容。对方已导出的副本不会因此消失。','You cannot unilaterally delete both participants’ content here. Their exported copies are unaffected.'));
+ f=B(L('返回恢复会话','Back to recovery'),'go:hub','secondary');break;
+ case 'resetkeys':
+ nav=L('共同恢复','Joint recovery');
+ c=T(L('检查恢复准备','Check recovery readiness'),L('确认你们仍能找到各自的恢复码，不必等设备丢失后才检查。','Check that you can both find your code before a device is lost.'))+
+ G(R(L('我的恢复码','My code'),L('最近确认：今天','Last checked: today'),badge(L('已保存','Saved'),'good')),R(L('对方的恢复码','Their code'),L('由对方独立检查','Checked by the other person'),badge(L('已保存','Saved'),'good')))+
+ C(L('有一份找不到了？','Cannot find one code?'),L('如果双方仍能正常验证身份，可以共同重设。不能只由一方更改恢复保护。','If both can still verify valid identities, replace codes together. One person cannot change the protection alone.'))+
+ N(L('正常访问全部失效，同时缺少一份恢复码时，将无法共同恢复。','If all normal access is lost and one code is missing, joint recovery is unavailable.'));
+ f=B(L('共同重新设置恢复码','Replace codes together'),'sheet:resetkeys')+B(L('恢复码都在，返回','Both are safe, go back'),'go:hub','text');break;
+ case 'blocked':{
+ nav=L('恢复会话','Recover conversation');
+ const info={
+ missing:[['缺少恢复码','Recovery code is missing'],['需要双方各自的一份。平台不能代替任何一方，也不能通过客服重置。','Both codes are required. The platform and support cannot substitute for a participant.'],['如果双方仍能正常验证身份，可以共同重设。否则请寻找原有恢复码。','If both identities can still be verified, replace codes together. Otherwise, locate the original code.']],
+ expired:[['这次请求已过期','This request has expired'],['过期请求不能继续授权。可以重新发起，不必因此更换长期恢复码。','An expired request cannot be authorized. Start a new request without changing long-term code.'],['新的请求需要对方重新核对。','The other person must review the new request.']],
+ absent:[['未找到有效备份','No valid backup found'],['恢复码不能重建已不存在的备份。','Recovery codes cannot recreate a missing backup.'],['检查是否还有能进入的设备，或另行保存的导出文件。','Check for an accessible device or independently saved export.']],
+ rejected:[['对方未同意恢复','Recovery was not approved'],['本次请求已结束，没有建立新设备访问。','This request ended without granting access to a new device.'],['先联系对方，确认情况后再发起。','Contact the other person before trying again.']],
+ network:[['连接暂时中断','Connection interrupted'],['中断不代表操作失败。继续前先核实实际进度。','Interruption does not prove failure. Check actual progress before continuing.'],['安全续接已验证进度，不盲目重复替换设备。','Resume verified progress without blindly replacing the device again.']]
+ }[S.reason||'missing'];
+ c=H(S.reason==='network'?'wifi':'lock',S.reason==='network'?'':'danger')+T(L(...info[0]),L(...info[1]))+C(L('可以怎么做','What you can do'),L(...info[2]));
+ f=B(S.reason==='network'?L('检查进度并继续','Check progress and continue'):S.reason==='expired'?L('重新发起恢复','Start a new request'):L('返回恢复入口','Back to recovery'),S.reason==='network'?'resume':'go:recover')+B(L('返回首页','Back to start'),'go:welcome','text');break;}
+ case 'private':
+ nav=L('无痕使用','Private browsing');
+ c=badge(L('探索方案 · 尚待验证','Exploration · not validated'),'pending')+H('lock')+T(L('无痕，也能更好进入？','Easier private access?'),L('无痕会话结束后，本地身份可能不再保留。这里探索使用原通行密钥重新进入。','After a private session ends, local identity may not remain. This concept explores re-entry with the original passkey.'))+
+ G(R(L('原通行密钥仍可用','Original passkey available'),L('验证后尝试取回加密身份包','Verify, then retrieve an encrypted identity package'),'','auth:privateok'),R(L('原通行密钥也不可用','Original passkey unavailable'),L('进入双方共同恢复','Use joint recovery'),'','go:recover'))+
+ C(L('不是自动找回全部历史','Not automatic full-history recovery'),L('便捷进入不能绕过双方历史保护。浏览器能力与通信状态安全仍需验证。','Convenient access must not bypass joint history protection. Browser capabilities and state safety still need validation.'));
+ f=B(L('查看可用凭据的示意','Preview an available credential'),'auth:privateok')+B(L('使用普通浏览入口','Use normal browsing'),'go:welcome','text');break;
+ case 'privateok':
+ nav=L('探索结果','Concept result');
+ c=badge(L('能力示意，非实现承诺','Concept, not an implementation promise'),'pending')+H('face')+T(L('原通行密钥可用','Original passkey available'),L('目标是确认原凭据后重新进入。本原型没有执行真实认证或密钥解密。','The target is re-entry after verifying the original credential. This prototype performs no real authentication or decryption.'))+
+ G(R(L('加密身份包','Encrypted identity package'),L('只展示可解锁的目标状态','Illustrates the intended unlock state')),R(L('完整历史归档','Full history archive'),L('不通过此入口自动解锁','Not automatically unlocked through this entry')))+
+ N(L('无法安全确认访问资格时，必须回到共同恢复。','If access cannot be safely established, return to joint recovery.'));
+ f=B(L('返回方案说明','Back to concept'),'go:private')+B(L('查看共同恢复','View joint recovery'),'go:recover','text');break;
+ case 'privacy':
+ nav=L('恢复会话','Recover conversation');
+ c=T(L('清楚知道保护什么','Know what is protected'))+
+ G(R(L('不用手机号或邮箱账号','No phone or email account'),L('通行密钥访问，双方共同恢复','Passkey access, joint recovery')),R(L('服务器保留加密内容','Encrypted content is retained'),L('必要的加密会话状态与设备、时间等元数据；聊天备份由用户自行保管','Necessary encrypted session state and device/time metadata; users keep chat backups')),R(L('恢复有前提','Recovery has prerequisites'),L('双方恢复码与有效备份缺一不可','Both codes and available backups are required')))+
+ C(L('无法承诺的事情','What cannot be promised'),L('不能防止截图或导出，不能保证永不丢失。设备被控制或网页被恶意替换时，解锁后的内容仍可能暴露。','Screenshots and exports cannot be prevented, nor can zero data loss be guaranteed. A compromised device or malicious page may expose unlocked content.'))+
+ N(L('共同恢复是本次改造目标，上线前需要协议验证、备份迁移与安全检查。','Joint recovery is the redesign target. Protocol validation, backup migration and security review are required before release.'));
+ f=B(L('我了解了','Understood'),'go:hub');break;
+ }
+ return {c,f,nav,back};
+}
+const NOTES={history:[['先选择自己的本地聊天备份文件，再在本机恢复。','Select your local chat backup before restoring.'],['本原型只展示文件名；不读取内容、不验证密码学、不上传。使用评审按钮模拟校验成功或失败，真实实现需验证归属、完整性和解密权限。','Only the filename is displayed. No file reading, cryptography or upload. Review buttons simulate validation.']],
+chat:[['邀请完成后，自动展示成功弹窗。','Show success automatically when the invite is accepted.'],['遮蔽默认关闭；试用后自愿开启。保存入口为仅自己可见的系统卡片，菜单有常驻教程。','Cover is off by default and enabled by choice after practice. Entry saving is a private system card; guides remain in the menu.']],
+invite:[['模拟对方进度：打开、设置设备访问、建立空间、成功。','Simulate invite opened, device setup, connecting and success.'],['二维码、显示地址、复制内容使用同一短链接格式，均为占位邀请；点击只在原型中打开加入页。正式短链接需有效期、一次性、限速及空间绑定，不能截短密钥。','QR, display and copy use the same placeholder short URL. Clicking opens only the prototype join screen. Production requires expiry, one-time use, rate limits, entropy and space binding.']],
+welcome:[['为创建设置访问密钥，为再次进入解锁会话。','Set up an access key on creation; unlock on return.'],['原型按面容、指纹、数字密码呈现设备场景；H5 不能可靠枚举或强制选择生物方式，实际能力与交互由系统决定，网页不收集系统密码。','Device profiles illustrate face, fingerprint and passcode. H5 cannot reliably enumerate or force a biometric type. System prompts determine actual methods; the webpage never collects a device passcode.']],
+default:[['普通用户能否看懂下一步与操作后果？','Can a non-technical person understand the next step and consequences?'],['本原型为目标体验，所有数据与认证均为演示，不证明产品已实现。','This is a target experience. All data and authentication are simulated, not implementation evidence.']],
+prepare:[['任何原因无法进入都可尝试恢复，前提是双方恢复码和加密恢复包可用。','Do not imply that chatting means recovery is ready.'],['双方恢复码和恢复包均就绪才启用；未就绪不静默降级为单码保护。','Activate only when both codes and the package are ready; no silent single-code fallback.']],
+save:[['确认用户能将恢复码保存到聊天之外。','Help the user keep code outside the chat.'],['DEMO 仅为占位格式，真实秘密的格式和密码学设计需另定。','DEMO is a placeholder format. Actual secrets and cryptography require design.']],
+home:[['首次接入与后续解锁分开。','Separate first connection from later unlocks.'],['浏览器与主屏幕存储不可假定共享。历史转移必须单独授权并真机验证。','Do not assume shared browser/Home Screen storage. Authorize history transfer separately and test on device.']],
+recover:[['两份恢复码缺一不可，无需旧设备在线。','Both codes are required; no old device needs to be online.'],['必须改造现有单码解密归档，不能只增加一个输入框。','Existing single-code archive encryption must change, not just the form.']],
+peer:[['双方核对恢复对象和目标设备后，各自使用自己的恢复码参与。','The other person independently reviews the target and participates.'],['角色切换只用于评审，真实流程需要各自在独立受信端完成。不能把双方长期秘密收集到服务器。','Role switching is for review. Actual participation must be separate, without collecting both long-term secrets on the server.']],
+restoring:[['共同授权不等于通信状态已恢复。','Joint authorization is not restored communication state.'],['MLS 状态重建、旧设备撤销、幂等恢复与并发冲突需独立验证。','Validate MLS reconstruction, revocation, idempotency and concurrency.']],
+newkeys:[['双方分别保存新恢复码，不互相传递；两份确认前不启用新恢复码。','Each person saves their updated code without exchanging it.'],['本原型演示双方轮换；实际轮换策略需随协议确定。不能远程销毁旧密文副本。','Both codes rotate in this illustration; actual policy depends on the protocol. Old copies cannot be remotely erased.']],
+backup:[['已发送、已备份、可恢复是不同事实。','Sent, backed up and recoverable are distinct facts.'],['每个备份状态需有版本与范围证据，消息和附件分开报告。原型数字均为虚构。','Each status needs version and scope evidence. Report messages and attachments separately. Numbers are fictional.']],
+data:[['删除前就能理解影响范围。','Make the scope clear before deletion.'],['仅模拟个人操作；不提供单方删除双方所有归档。独立快照与附件原件不宣称一并清除。','Simulate personal actions only. No unilateral deletion of all archives, and no claim that snapshots or originals are erased.']],
+private:[['原通行密钥存在时，探索简化进入。','Explore simpler entry while the original passkey exists.'],['待验证：PRF、无痕凭据可用性、最新状态、防回退。身份包不得绕过双人历史保护。','Unvalidated: PRF, private-mode credentials, freshness and rollback protection. Identity packages must not bypass joint history protection.']]
+};
+function sc(z,e,a){return `<button class="scenario" data-a="${a}">${L(z,e)}</button>`;}
+function controls(){
+ switch(page){
+ case 'welcome':case 'joinInvite':return sc('设备场景：面容 + 数字密码','Device: face and passcode','profile:face')+sc('设备场景：指纹 + 数字密码','Device: fingerprint and passcode','profile:finger')+sc('设备场景：仅数字密码','Device: passcode only','profile:pin')+sc('设备能力未知，由系统选择','Unknown capabilities; let system choose','profile:unknown');
+ case 'invite':return sc('模拟对方扫码并加入','Simulate scanning and joining','peerjoined')+sc('模拟邀请过期','Simulate an expired invite','inviteFail');
+ case 'verify':return S.mine?sc('演示：对方也保存并校验','Demo: other person verifies','peersaved'):sc('填入正确演示值 4826','Fill demo digits 4826','fill:digits')+sc('填入错误值，观察反馈','Fill incorrect digits','fill:wrong');
+ case 'chat':return (S.recoveryComplete?sc('查看发起方的完成结果','View initiator outcome','outcome:a')+sc('查看参与方的完成结果','View participant outcome','outcome:b'):'')+sc('模拟下次打开','Simulate next visit','reopen')+sc('重新查看创建成功','Review creation success','sheet:created')+sc('状态：尚未准备恢复','State: recovery not ready','chat:unready')+sc('状态：双方已准备完成','State: both participants ready','chat:ready');
+ case 'home':return sc('状态：首次接入','State: first connection','home:first')+sc('状态：再次打开','State: returning visit','home:return');
+ case 'history':return sc('模拟选择并校验有效备份','Simulate a valid backup','archiveDemo:valid')+sc('模拟文件损坏或不属于本人','Simulate invalid backup','archiveDemo:invalid');
+ case 'recover':return sc('填入发起方演示恢复码','Fill initiator demo code','fill:inputA')+sc('异常：没有有效备份','Exception: no valid backup','block:absent');
+ case 'waiting':return deviceControls()+sc('切换到对方参与页面','Switch to other participant','go:peer')+sc('异常：请求已过期','Exception: expired request','block:expired');
+ case 'peer':return deviceControls()+sc('对方状态：仍能正常进入','Other person: access still works','peerMode:valid')+sc('对方状态：也无法进入','Other person: access lost','peerMode:lost')+sc('填入对方演示恢复码','Fill other person’s code','fill:inputB')+sc('返回发起方视角','Return to initiator','go:waiting');
+ case 'restoring':return sc('演示：建立访问成功','Demo: access established','finishrestore')+sc('异常：网络中断','Exception: network interrupted','block:network');
+ case 'newkeys':return sc('演示：对方保存并校验新恢复码','Demo: other person verifies new code','newpeer');
+ case 'backup':return sc('有新内容待备份','New content pending','backup:partial')+sc('备份失败','Backup failed','backup:failed')+sc('备份完成','Backup complete','backup:complete')+sc('没有历史备份','No history backup','backup:empty');
+ case 'backupload':return sc('演示：备份中断','Demo: interrupt backup','backup:failed');
+ case 'historyload':return sc('演示：中断后保留进度','Demo: keep progress after interruption','block:network');
+ case 'blocked':return sc('恢复码缺失','Missing code','block:missing')+sc('请求过期','Expired request','block:expired')+sc('备份不存在','No backup','block:absent')+sc('对方拒绝','Declined','block:rejected')+sc('网络中断','Connection interrupted','block:network');
+ case 'resetkeys':return sc('异常：正常身份也不可用','Exception: valid identities unavailable','block:missing');
+ default:return sc('查看对应业务流程','View related business flow','related');
+ }
+}
+function inspector(){
+ const meta=PAGES.find(p=>p[0]===page),n=NOTES[page]||NOTES.default;
+ return `<aside class="inspector"><section><div class="kicker">${L('评审说明 · 不属于产品界面','REVIEW NOTES · OUTSIDE THE PRODUCT')}</div><h2>${meta?L(meta[2],meta[3]):L('处理中','Processing')}</h2><p>${L(...n[0])}</p><div class="review-divider"></div><h3>${L('状态与角色演示','STATE & ROLE CONTROLS')}</h3>${controls()}</section><section><h3>${L('实现边界','IMPLEMENTATION BOUNDARY')}</h3><p>${L(...n[1])}</p><h3>${L('体验方式','HOW TO REVIEW')}</h3><p>${L('点击手机内的按钮推进。右侧仅用于模拟另一方或切换异常，不属于真实产品操作。','Use the phone buttons to proceed. These controls simulate the other person or exceptions, and are not product actions.')}</p>${sc('在流程图中查看','Open related flow','related')}<div class="version">${L('方案原型 v8 · 2026.09.16<br>不代表当前已上线能力','Design prototype v8 · 2026.09.16<br>Not a statement of released capability')}</div></section></aside>`;
+}
+function pageNav(){const groups=[[['创建主线','CREATE'],['welcome','invite','joinInvite','chat','cover','entry','tutorials']], [['恢复支线','RECOVER'],['recover','waiting','peer','history','result']], [['按需了解','ON DEMAND'],['hub','save','backup']]];return groups.map(([title,ids])=>`<div class="nav-group"><h2>${L(...title)}</h2>${ids.map(id=>{const p=PAGES.find(p=>p[0]===id);return `<button class="nav-item ${page===id?'active':''}" data-a="jump:${id}">${L(p[2],p[3])}</button>`}).join('')}</div>`).join('');}
+function phone(){const s=screen();const i=PAGES.findIndex(p=>p[0]===page);return `<main class="stage"><div class="stage-label"><b>${L('交互演示 · 不接入真实服务','Interactive demo · no live service')}</b><span>${L('简化版','Simplified')}</span></div><div class="phone fade" data-page="${page}"><div class="statusbar" aria-hidden="true"><span>9:41</span><span class="status-icons">${ic('wifi')}${ic('battery')}</span></div><div class="phone-nav"><button class="icon-btn ${s.back?'':'blank'}" data-a="${page==='cover'?'coverback':'back'}" aria-label="${L('返回','Back')}" ${s.back?'':'tabindex="-1"'}>${ic('back')}</button><span>${page==='cover'?'':s.nav||'Quiet Room'}</span><button class="icon-btn ${page==='chat'?(!S.ready||S.materialsPending?'shield-unread':''):'blank'}" data-a="go:hub" aria-label="${L('恢复会话：保存恢复码与查看备份','Recover conversation: codes and backups')}" ${page==='chat'?'':'tabindex="-1"'}>${ic('shield')}</button>${page==='chat'?`<button class="icon-btn more-btn" data-a="sheet:menu" aria-label="${L('更多功能','More features')}">${ic('more')}</button>`:''}</div><div class="scroll ${page==='chat'?'chat-scroll':''}" tabindex="-1">${s.c}</div><div class="footer">${s.f}</div></div><div class="review-footer">${L('可点击操作，右侧可切换双方视角与异常状态。<br>示例恢复码不是有效凭据，请勿输入真实秘密。','Click through the flows; switch roles and exceptions in review controls.<br>Sample codes are not credentials. Do not enter real secrets.')}</div></main>`;}
+function render(){
+ document.documentElement.lang=lang==='zh'?'zh-CN':'en';
+ document.title=L('Quiet Room · 双人共同恢复原型','Quiet Room · Joint recovery prototype');
+ $('#app').innerHTML=`<header class="workbar"><div class="brand"><div class="brand-mark">${ic('room')}</div><div><strong>Quiet Room</strong><small>${L('双人共同恢复 · 交互评审','JOINT RECOVERY · DESIGN REVIEW')}</small></div></div><div class="work-tabs" role="tablist" aria-label="${L('评审视图','Review view')}"><button role="tab" aria-selected="${view==='prototype'}" class="${view==='prototype'?'active':''}" data-a="view:prototype">${L('交互原型','Prototype')}</button><button role="tab" aria-selected="${view==='flows'}" class="${view==='flows'?'active':''}" data-a="view:flows">${L('业务流程图','Business flows')}</button></div><button class="reset" data-a="reset">${L('重置演示','Reset demo')}</button><button class="lang" data-a="lang" aria-label="${L('切换为英文','Switch to Chinese')}">${lang==='zh'?'中 / EN':'EN / 中'}</button></header><div class="workspace ${view==='flows'?'flow-mode':''}"><nav class="sidebar" aria-label="${L('原型导航','Prototype navigation')}">${view==='flows'?flowNav():pageNav()}<div class="sidebar-foot">${L('独立设计原型<br>无真实密钥 · 无网络请求<br>所有数据均为演示','Independent design prototype<br>No real keys or network requests<br>All data is illustrative')}</div></nav>${view==='flows'?flowView():phone()+inspector()}</div>`;
+ if(modal&&view==='prototype')drawModal();
+ window.scrollTo(0,0);
+}
+function download(name,text,type='text/plain'){const url=URL.createObjectURL(new Blob([text],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+async function copy(type){const text={invite:currentInvite().url,material:'A7KD-M2PX-4826',newmaterial:ownNewCode(),request:'https://ai.shui.click/r/072941',url:'https://ai.shui.click'}[type];try{await navigator.clipboard.writeText(text);toast('已复制','Copied');}catch{toast('当前环境无法复制，请手动选取','Clipboard unavailable; select the text manually.');}}
+let restoreFocus=null;
+function sheet(id){restoreFocus=document.activeElement;modal=id;drawModal();}
+function close(){modal='';$('.overlay')?.remove();if(restoreFocus?.isConnected)restoreFocus.focus();}
+function drawModal(){
+ $('.overlay')?.remove();let h='',p='',x='',f='';
+ switch(modal){
+ case 'recovered':h=L('会话恢复成功','Your conversation is restored');p=L('你可以继续聊天了。现在找回之前备份的聊天记录？','You can chat again. Bring back your previously backed-up messages?');x=H('check','success')+N(L('记得保存恢复码，之后仍可从“恢复会话”找到。','Keep your recovery codes safe. Find them later in Recover conversation.'));f=B(L('恢复聊天记录','Restore chat history'),'go:history')+B(L('先聊一会儿','Chat for now'),'close','text');break;
+ case 'assisted':h=L('谢谢你，帮助对方回来了','Thank you for helping them return');p=L('对方的会话已恢复。你的会话保持原样，不需要恢复聊天记录。','Their conversation is restored. Yours is unchanged, with no history restoration needed.');x=N(L('请一定保存好自己的恢复码，以后还可能用到。','Keep your own recovery codes safe; you may need them again.'));f=B(L('保存恢复码','Save recovery codes'),'go:newkeys')+B(L('继续聊天','Continue chatting'),'close','text');break;
+ case 'shareFallback':h=S.shareCopied?L('邀请链接已复制','Invite link copied'):L('发送邀请链接','Send the invite link');p=S.shareCopied?L('当前无法打开系统分享，可粘贴链接发给对方。','System sharing is unavailable. Paste the copied link to send it.'):L('当前无法自动复制，请长按下面的链接复制后发送。','Automatic copying is unavailable. Select and copy the link below.');x=`<div class="share-link" tabindex="0">${esc(currentInvite().url)}</div>`;f=B(L('知道了','Got it'),'close');break;
+ case 'created':h=L('空间创建成功','Your space is ready');p=L('这里很重视隐蔽，也藏着一些贴心的小功能。比如自动遮蔽层：暂时离开时，让聊天自动藏起来。','This space values discretion, with small features that help. The automatic cover automatically hides your chat when you step away.');x=H('people','success')+N(L('自动遮蔽默认关闭。先试一下，再决定是否开启。','Automatic cover is off by default. Try it before choosing to enable it.'));f=B(L('试试遮蔽层','Try the cover'),'covertry')+B(L('先开始聊天','Start chatting'),'go:chat','text');break;
+ case 'learned':h=L('恭喜，你已经会用了','You’ve got it!');p=L('长按热区 1 秒，就能揭开遮蔽层。建议开启自动遮蔽，暂时离开时帮你隐藏聊天。','Hold the hotspot for one second to uncover your chat. Enable automatic cover to hide the chat when you step away.');x=N(L('以后可在右上角菜单中关闭。设备锁定后仍需验证。','You can turn it off in the top-right menu. A locked device still needs verification.'));f=B(L('开启自动遮蔽','Enable automatic cover'),'coverEnable')+B(L('暂不开启','Keep it off'),'close','text');break;
+ case 'menu':h=L('空间功能','Space features');p='';x=G(R(L('功能说明','Feature guide'),L('入口保存、遮蔽层、恢复教程','Shortcuts, cover and recovery guides'),'','go:tutorials'))+`<div class="toggle-row"><span><strong>${L('自动遮蔽层','Automatic cover')}</strong><small>${L('离开页面或再次打开时隐藏聊天','Hide chat when leaving or reopening')}</small></span><button class="switch ${S.coverEnabled?'on':''}" role="switch" aria-checked="${S.coverEnabled}" aria-label="${L('自动遮蔽层','Automatic cover')}" data-a="toggleCover"><i></i></button></div>`+B(L('试用遮蔽层','Practice using the cover'),'covertry','text');f=B(L('返回聊天','Back to chat'),'close','secondary');break;
+ case 'auth':{
+ const creating=['create','joincreate'].includes(pendingAuth);
+ h=creating?L('设置访问密钥','Set up your access key'):L('使用访问密钥解锁','Unlock with your access key');
+ p=creating?L('以后用它解锁会话，防止别人直接打开你的聊天。无需注册，也不用另外记一个账号密码。','Use it to unlock your conversation and prevent others from opening your chat. No registration or extra account password to remember.'):L('确认是你本人，才能打开聊天或继续这项操作。','Confirm it’s you to open the chat or continue this action.');
+ const choices=[['face','面容','Face','使用设备的面容识别','Use your device’s face recognition'],['finger','指纹','Fingerprint','使用设备的指纹识别','Use your device’s fingerprint sensor'],['pin','数字密码','Numeric passcode','使用设备已有的解锁密码','Use your existing device passcode']];
+ x=`<div class="access-choices">${choices.map(([id,z,e,d,de])=>{const enabled=S.deviceProfile==='unknown'||id==='pin'||id===S.deviceProfile;return `<button class="access-choice ${S.accessMethod===id?'selected':''}" data-a="method:${id}" aria-pressed="${S.accessMethod===id}" ${enabled?'':'disabled'}><span><strong>${L(z,e)}</strong><small>${enabled?L(d,de):L('当前设备不可用','Unavailable on this device')}</small></span><span>${S.accessMethod===id?'✓':''}</span></button>`}).join('')}</div>`+
+ N(L('跟随设备提示完成即可，不用再记一个新密码。','Follow your device’s prompts. No new password to remember.'));
+ f=B(creating?L('设置并继续','Set up and continue'):L('解锁并继续','Unlock and continue'),'authok')+B(L('取消','Cancel'),'close','text');break;}
+ case 'homescreen':h=L('添加到主屏幕','Add to Home Screen');p=L('使用 Safari 分享菜单中的“添加到主屏幕”。首次从图标打开时，可能需要安全接入。','Use Add to Home Screen in Safari’s share menu. The first launch may need a secure connection.');x=Steps([[L('打开系统分享','Open system sharing'),L('使用浏览器的分享按钮。','Use the browser’s share button.')],[L('添加并确认名称','Add and confirm the name'),L('入口图标会出现在桌面。','An entry icon will appear on your Home Screen.')],[L('完成首次接入','Complete the first connection'),L('接入成功后，下次直接设备验证进入。','After connection, use device verification on future visits.')]]);f=B(L('体验首次打开','Preview first launch'),'go:home')+B(L('返回','Back'),'close','secondary');break;
+ case 'bookmark':h=L('保存为书签','Save a bookmark');p=L('在浏览器分享菜单中选择“添加书签”。书签可能被看到或随浏览器同步。','Choose Add Bookmark in your browser’s share menu. Bookmarks may be visible or synced.');x=C(L('只保存正式入口','Save only the public entry'),'https://ai.shui.click');f=B(L('我已保存入口','I saved the entry'),'entrysaved')+B(L('暂不保存','Not now'),'close','secondary');break;
+ case 'cancel':h=L('取消这次恢复？','Cancel this recovery?');p=L('本次请求将结束。原有设备不因此撤销，之后可重新发起。','This request will end. Existing devices are not revoked by cancellation. You may start again later.');f=B(L('取消本次恢复','Cancel this recovery'),'cancelrecovery','danger')+B(L('继续恢复','Keep recovering'),'close','secondary');break;
+ case 'newmaterial':h=L('确认保存新恢复码','Verify new code');p=L('取回刚保存的新恢复码，输入恢复码最后 4 位。','Retrieve your saved codes and enter the last four digits of the recovery code.');x=F('newdigits',L('最后 4 位','Last four digits'),'••••')+'<div id="newerror" class="field-error" role="alert"></div>';f=B(L('校验并确认','Verify and confirm'),'verifynew')+B(L('稍后','Later'),'close','secondary');break;
+ case 'collection':h=L('从我的收藏移除？','Remove from my collection?');p=L('只改变这台设备的收藏列表。聊天记录、对方设备和已导出的备份不变。','Changes this device’s collection only. Chats, the other person’s devices and exported backups remain unchanged.');f=B(L('移除收藏','Remove from collection'),'delete:collection','danger')+B(L('取消','Cancel'),'close','secondary');break;
+ case 'local':h=L('在本机隐藏这条消息？','Hide this message on this device?');p=L('只改变本机显示。对方和已导出的聊天备份仍可能保留，恢复后也可能重新出现。','Changes local display only. The other person and exported backups may retain it; it may reappear after restoration.');f=B(L('仅在本机隐藏','Hide on this device'),'delete:local','danger')+B(L('取消','Cancel'),'close','secondary');break;
+ case 'deletebackup':h=L('删除我的云端历史归档？','Delete my cloud history archive?');p=L('此在线个人归档将不能再用于恢复。不删除本机聊天、对方归档、附件原件或独立快照。','This online personal archive will no longer be usable for recovery. Local chats, the other person’s archives, attachment originals and independent snapshots are not deleted.');x=`<label class="checkline"><input type="checkbox" id="deletecheck"><span>${L('我理解这会影响自己的历史恢复能力。','I understand this affects my history recovery.')}</span></label>`;f=B(L('验证后删除归档','Verify and delete archive'),'deleteconfirm','danger')+B(L('保留归档','Keep archive'),'close','secondary');break;
+ case 'revoke':h=L('撤销旧设备访问？','Revoke the old device?');p=L('该设备将不能继续获取新消息。已读取、导出或离线保存的内容不会被远程擦除。','This device will no longer receive new messages. Previously read, exported or offline content is not remotely erased.');f=B(L('验证后撤销','Verify and revoke'),'auth:revoked','danger')+B(L('取消','Cancel'),'close','secondary');break;
+ case 'export':h=L('导出我的内容','Export my content');p=L('仅导出你有权访问的内容。本原型只下载说明文件，不包含聊天，不执行真实加密。','Export only authorized content. This prototype downloads a description only, without chats or real encryption.');x=G(R(L('加密归档','Encrypted archive'),L('建议方式，另行保管解锁恢复码','Preferred; keep unlock code separately'),'','download:encrypted'),R(L('明文文件','Plain files'),L('任何取得文件的人可能阅读','Anyone who obtains the files may read them'),'','sheet:plain'));f=B(L('取消','Cancel'),'close','secondary');break;
+ case 'plain':h=L('导出为明文？','Export as plain files?');p=L('文件离开产品后，不再受产品的内容加密保护。演示导出仅包含说明。','Files leaving the product are no longer protected by its content encryption. This demo exports a description only.');f=B(L('下载演示说明','Download demo description'),'download:plain','danger')+B(L('返回','Back'),'sheet:export','secondary');break;
+ case 'resetkeys':h=L('双方共同重设恢复码','Replace codes together');p=L('你们分别使用仍然有效的身份验证。双方核对完成后，才能更新恢复保护。','Each person verifies a still-valid identity. Recovery protection changes only after both have reviewed it.');x=G(R(L('我','Me'),'',badge(L('待验证','Pending'),'pending')),R(L('对方','Other person'),'',badge(L('待验证','Pending'),'pending')));f=B(L('开始我的验证','Start my verification'),'auth:resetwait')+B(L('取消','Cancel'),'close','secondary');break;
+ case 'resetwait':h=L('等待对方核对','Waiting for the other person');p=L('你的身份已验证。对方需要独立验证，不能由你代替。当前尚未更改恢复码。','Your identity is verified. The other person must verify independently. No codes have changed yet.');x=C(L('评审演示','Review demonstration'),L('下方按钮仅模拟对方在自己的设备上完成验证。','The control below only simulates verification on the other person’s device.'));f=B(L('演示对方验证并共同重设','Simulate joint verification and replacement'),'resetapproved')+B(L('暂不继续','Do not continue'),'close','secondary');break;
+ }
+ const el=document.createElement('div');el.className='overlay';el.innerHTML=`<section class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheettitle"><div class="handle" aria-hidden="true"></div><h2 id="sheettitle">${h}</h2><p>${p}</p>${x}${f}</section>`;$('.phone').append(el);if(['created','learned','recovered','assisted'].includes(modal))celebrate(el);el.querySelector('input,button')?.focus();
+}
+let inviteTimer,holdTimer,holdTarget=null;
+function targeted(role){return S.scope==='both'||(role==='a'?S.scope==='me':S.scope==='peer');}
+function needsHistory(){return S.recoveryComplete&&targeted(S.activeRole)&&!S.historyRestored[S.activeRole];}
+function ownNewCode(){return S.activeRole==='a'?'A4TY-K8MV-9052':'B6QU-R3DS-6187';}
+function deviceControls(){return [['pending','尚未打开链接','Link not opened'],['loading','获取中','Loading'],['unavailable','获取失败','Unavailable'],['unknown','型号未知','Unknown model'],['known','已获取','Available']].map(([v,z,e])=>sc('设备信息：'+z,'Device info: '+e,'deviceInfo:'+v)).join('');}
+function deviceRows(role=S.activeRole){
+ const info=S.peerDevice==='pending'?L('等待对方打开恢复链接','Waiting for them to open the recovery link'):S.peerDevice==='loading'?L('正在获取设备信息…','Reading device information…'):S.peerDevice==='unavailable'?L('暂未获取到，请与对方核对','Unavailable; check with the other person'):S.peerDevice==='unknown'?L('设备型号未知 · Chrome','Unknown device · Chrome'):L('Android · Chrome','Android · Chrome');
+ const title=r=>r===role?L('我的设备','My device'):L('对方的设备','Other person’s device');
+ return ['a','b'].filter(targeted).map(r=>R(title(r),r==='a'?'iPhone · Safari':info)).join('');
+}
+function scopeLabel(role=S.activeRole){return S.scope==='both'?L('你们两个人','Both of you'):S.scope==='none'?L('双方均无需恢复','Neither person needs recovery'):(S.scope===(role==='a'?'me':'peer')?L('我','Me'):L('对方','The other person'));}
+function showRecoveryOutcome(){go('chat');sheet(targeted(S.activeRole)?'recovered':'assisted');}
+function completeRecovery(){if(!S.approved||S.scope==='none')return;S.recoveryComplete=true;S.joined=true;S.newMine=false;S.newPeer=false;S.resetContext=false;S.materialsPending=true;S.historyRestored={a:false,b:false};showRecoveryOutcome();}
+async function shareInvite(){
+ if(S.shareBusy)return;S.shareBusy=true;S.shareCopied=false;
+ const url=currentInvite().url;
+ let copyTask;
+ try{copyTask=Promise.resolve(navigator.clipboard.writeText(url)).then(()=>true,()=>false);}catch{copyTask=Promise.resolve(false);}
+ let shareTask;
+ try{shareTask=typeof navigator.share==='function'?Promise.resolve(navigator.share({title:'Quiet Room',url})).then(()=>({ok:true}),error=>({error:error?.name||'Error'})):Promise.resolve({error:'Unsupported'});}catch(error){shareTask=Promise.resolve({error:error?.name||'Error'});}
+ const [copied,shared]=await Promise.all([copyTask,shareTask]);S.shareBusy=false;S.shareCopied=copied;
+ if(copied){toast('已复制链接','Link copied');}
+ else sheet('shareFallback');
+}
+function simulateInvite(){clearTimeout(inviteTimer);S.inviteError='';S.inviteStatus=0;const next=()=>{if(S.inviteError||page!=='invite')return;S.inviteStatus++;if(S.inviteStatus>=4){S.joined=true;go('chat');sheet('created');}else{render();inviteTimer=setTimeout(next,1100);}};next();}
+function celebrate(el){if(matchMedia('(prefers-reduced-motion: reduce)').matches)return;const wrap=document.createElement('div');wrap.className='confetti';wrap.setAttribute('aria-hidden','true');for(let i=0;i<18;i++){const n=document.createElement('i');n.style.cssText=`--x:${8+(i*37)%84}%;--r:${i*41}deg;--delay:${(i%5)*.07}s;background:${['#2464d8','#659676','#dcab5b'][i%3]}`;wrap.append(n);}el.append(wrap);setTimeout(()=>wrap.remove(),1800);}
+function stopHold(){clearTimeout(holdTimer);holdTarget?.classList.remove('holding');holdTarget=null;}
+function startHold(el){if(holdTarget||modal)return;holdTarget=el;el.classList.add('holding');holdTimer=setTimeout(()=>{stopHold();if(page!=='cover')return;if(S.locked){pendingAuth='coverreturn';sheet('auth');return;}S.coverLearned=true;const practice=S.coverPractice;S.coverPractice=false;go('chat');if(practice)sheet('learned');},1000);}
+document.addEventListener('pointerdown',e=>{const el=e.target.closest('#coverHold');if(el&&e.button===0){e.preventDefault();startHold(el);}});
+document.addEventListener('pointerup',stopHold);document.addEventListener('pointercancel',stopHold);
+document.addEventListener('pointerout',e=>{if(e.target.closest?.('#coverHold')&&!e.relatedTarget?.closest?.('#coverHold'))stopHold();});
+document.addEventListener('keydown',e=>{if(e.target.id==='coverHold'&&[' ','Enter'].includes(e.key)){e.preventDefault();if(!e.repeat)startHold(e.target);}});
+document.addEventListener('keyup',e=>{if([' ','Enter'].includes(e.key))stopHold();});
+window.addEventListener('blur',stopHold);
+document.addEventListener('visibilitychange',()=>{stopHold();if(document.hidden&&S.coverEnabled&&page==='chat'&&!modal){S.coverPractice=false;S.locked=true;go('cover');}});
+function act(a){
+ const [k,v]=a.split(':');
+ switch(k){
+ case 'go':if(v==='peer'){S.activeRole='b';if(S.peerDevice==='pending')S.peerDevice='known';}if(v==='waiting')S.activeRole='a';go(v);break;case 'jump':jump(v);break;case 'back':go(parents[page]||'hub');break;
+ case 'view':view=v;render();break;case 'lang':lang=lang==='zh'?'en':'zh';render();break;
+ case 'reset':location.reload();break;case 'sheet':sheet(v);break;case 'close':close();break;
+ case 'covertry':S.coverPractice=true;S.locked=false;go('cover');break;case 'coachskip':go('chat');break;
+ case 'auth':pendingAuth=v;S.accessMethod=S.deviceProfile==='unknown'?'pin':S.deviceProfile;sheet('auth');break;
+ case 'method':if(v==='pin'||v===S.deviceProfile||S.deviceProfile==='unknown'){S.accessMethod=v;drawModal();}break;
+ case 'profile':S.deviceProfile=v;S.accessMethod=v==='unknown'?'pin':v;render();break;
+ case 'authok':close();if(pendingAuth==='joincreate'){S.joined=true;go('chat');sheet('created');}else if(pendingAuth==='create'){S.joined=false;S.inviteStatus=0;go('invite');}else if(pendingAuth==='coverreturn'){S.locked=false;go('chat');}else if(pendingAuth==='homeok'){S.home=true;S.entry=true;go('home');}else if(pendingAuth==='revoked'){S.revoked=true;go('devices');}else if(pendingAuth==='deleted'){S.deleted=true;S.backup='empty';go('data');toast('演示归档已删除','Demo archive deleted');}else if(pendingAuth==='resetwait'){sheet('resetwait');}else if(pendingAuth==='chat'){S.joined=true;go('chat');}else go(pendingAuth||'chat');break;
+ case 'inviteReset':S.inviteVersion++;S.inviteError='';S.inviteStatus=0;go('invite');break;
+ case 'inviteFail':clearTimeout(inviteTimer);S.inviteError='expired';render();break;
+ case 'dismissCard':S.saveCard=false;render();break;
+ case 'coverEnable':S.coverEnabled=true;close();toast('自动遮蔽已开启，可在菜单中关闭','Automatic cover enabled; turn it off in the menu');break;
+ case 'toggleCover':if(S.coverEnabled){S.coverEnabled=false;drawModal();}else if(S.coverLearned){S.coverEnabled=true;drawModal();}else{act('covertry');}break;
+ case 'coverback':if(S.locked){pendingAuth='coverreturn';sheet('auth');}else go('chat');break;
+ case 'reopen':S.locked=true;S.coverPractice=false;if(S.coverEnabled)go('cover');else{pendingAuth='coverreturn';sheet('auth');}break;
+ case 'copy':copy(v);break;
+ case 'download':download('quiet-room-DEMO-'+v+'.txt',v==='material'?'PROTOTYPE ONLY. NOT A VALID RECOVERY SECRET.\nA7KD-M2PX-4826':L('原型说明文件，不是真实归档，不执行加密。\n选择的导出方式：','Prototype description, not a real archive. No encryption performed.\nSelected export mode: ')+v);close();toast('文件已下载，请妥善保存','File downloaded; keep it safe');break;
+ case 'shareInvite':shareInvite();break;
+ case 'deviceInfo':S.peerDevice=v;render();break;
+ case 'peerMode':S.peerAccess=v==='valid';S.activeRole='b';go('peer');break;
+ case 'includePeer':S.scope=S.scope==='me'?'both':'peer';render();break;
+ case 'assistOnly':S.scope=S.scope==='both'?'me':S.scope==='peer'?'none':S.scope;render();break;
+ case 'outcome':if(S.recoveryComplete){S.activeRole=v;showRecoveryOutcome();}else toast('请先完成双方确认','Complete both confirmations first');break;
+ case 'endNoRecovery':S.recoveryComplete=false;go('chat');toast('无需恢复，会话保持不变','No recovery needed; conversations unchanged');break;
+ case 'materialsDone':if(S.newMine&&S.newPeer){S.materialsPending=false;S.ready=true;go('chat');}break;
+ case 'peerjoined':simulateInvite();break;
+ case 'verify':S.digits=$('#digits').value;if(S.digits==='4826'){S.mine=true;S.error='';}else S.error='mismatch';render();break;
+ case 'peersaved':S.peer=true;S.ready=true;S.joined=true;go('ready');break;
+ case 'fill':{const id=v==='wrong'?'digits':v;const val={digits:'4826',wrong:'0000',inputA:'A7KD-M2PX-4826',inputB:'B9RF-N6QW-7314'}[v];S[id]=val;$('#'+id).value=val;break;}
+ case 'chat':S.joined=true;S.ready=v==='ready';S.mine=S.ready;S.peer=S.ready;render();break;
+ case 'send':{const text=$('#message').value.trim();if(text){(S.recoveryComplete&&targeted(S.activeRole)?S.freshMessages[S.activeRole]:S.messages).push(text);render();$('.scroll').scrollTop=$('.scroll').scrollHeight;}break;}
+ case 'entrysaved':S.entry=true;close();toast('入口已标记为保存','Entry marked as saved');break;
+ case 'home':S.home=v==='return';render();break;
+ case 'startrecovery':S.inputA=$('#inputA').value.trim();if(S.inputA==='A7KD-M2PX-4826'){S.approved=false;S.scopeChanged=false;S.requestedScope=S.scope;S.peerDevice='pending';S.peerAccess=S.scope==='me';S.recoveryComplete=false;S.activeRole='a';go('waiting');}else{S.error='invalid';render();}break;
+ case 'approve':if(!S.peerAccess&&!targeted('b')){toast('请先选择同时恢复你的会话','Include your conversation before continuing');break;}S.inputB=$('#inputB').value.trim();if(S.inputB==='B9RF-N6QW-7314'){S.approved=true;S.scopeChanged=S.scope!==S.requestedScope;if(S.scopeChanged){S.activeRole='a';go('waiting');}else{load('restore','chat');}}else{S.error='invalid';render();}break;
+ case 'cancelrecovery':S.approved=false;S.scopeChanged=false;S.scope=S.requestedScope;go('recover');break;
+ case 'restore':if(S.approved&&S.scope!=='none'){S.scopeChanged=false;S.requestedScope=S.scope;load('restore','chat');}break;
+ case 'finishrestore':if(S.approved)completeRecovery();break;
+ case 'verifynew':if($('#newdigits').value===ownNewCode().slice(-4)){if(S.activeRole==='a')S.newMine=true;else S.newPeer=true;modal='';render();}else $('#newerror').textContent=L('不一致，请检查刚保存的恢复码。','No match. Check the recovery code you saved.');break;
+ case 'newpeer':if(S.activeRole==='a')S.newPeer=true;else S.newMine=true;render();break;
+ case 'history':if(S.archiveValid)load('history','result');break;
+ case 'archiveDemo':S.archiveName='Quiet-Room-2026-09-16.qrb';S.archiveValid=v==='valid';S.archiveError=v!=='valid';render();break;
+ case 'pickArchive':$('#archiveFile').click();break;
+ case 'saveArchive':toast('原型未生成真实备份，请勿用于保存数据','Prototype only; no real backup generated');break;
+ case 'retryattachment':S.retried=true;render();toast('网络附件已验证，缺失原件仍不可用','Retried attachment verified; missing original remains unavailable');break;
+ case 'backupnow':load('backup','backup');break;
+ case 'backup':S.deleted=false;S.backup=v;S.ready=true;go('backup');break;
+ case 'block':S.reason=v;go('blocked');break;
+ case 'resume':if(S.loadKind==='history'||S.approved)load(S.loadKind==='history'?'history':'restore',S.loadKind==='history'?'result':'chat');break;
+ case 'delete':if(v==='collection')S.removed=true;if(v==='local')S.hidden=true;go('data');toast('演示操作已完成','Demo action complete');break;
+ case 'deleteconfirm':if($('#deletecheck').checked){pendingAuth='deleted';sheet('auth');}else toast('请先确认删除后果','Confirm the deletion consequences first');break;
+ case 'resetapproved':S.resetContext=true;S.newMine=false;S.newPeer=false;go('newkeys');break;
+ case 'resetdone':S.ready=true;S.materialsPending=false;go('hub');break;
+ case 'node':{
+ const n=FLOWS.find(f=>f.id===flowId).n.find(n=>n.id===v);
+ const reason={missing:'missing',reject:'rejected',network:'network',failure:'network',stop:'missing'}[v];
+ if(n.target==='blocked')S.reason=reason||'missing';
+ jump(n.target);if(flowId==='recovery'&&['target','helper'].includes(v)){S.recoveryComplete=true;S.scope='me';S.activeRole=v==='target'?'a':'b';S.materialsPending=true;showRecoveryOutcome();}if(flowId==='start'&&v==='created')sheet('created');if(flowId==='start'&&v==='cover'){S.coverPractice=true;render();}if(flowId==='start'&&v==='learned'){S.coverLearned=true;sheet('learned');}
+ if(v==='network'||v==='failure'){S.loadKind='restore';S.approved=true;}
+ if(flowId==='materials'&&v==='replace'){S.resetContext=true;render();}
+ break;}
+ case 'flow':flowId=v;view='flows';render();break;
+ case 'related':flowId=related(page);view='flows';render();break;
+ case 'svg':{const svg=$('.flow-svg').cloneNode(true);svg.setAttribute('xmlns','http://www.w3.org/2000/svg');download('quiet-room-'+flowId+'-'+lang+'.svg',new XMLSerializer().serializeToString(svg),'image/svg+xml');break;}
+ case 'print':window.print();break;
+ }
+}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-a]');if(b&&!b.disabled){e.preventDefault();act(b.dataset.a);}});
+document.addEventListener('input',e=>{if(['digits','inputA','inputB'].includes(e.target.id))S[e.target.id]=e.target.value;});
+document.addEventListener('change',e=>{if(e.target.name==='scope')S.scope=e.target.value;if(e.target.id==='archiveFile'){S.archiveName=e.target.files?.[0]?.name||'';S.archiveValid=false;S.archiveError=false;render();}});
+document.addEventListener('keydown',e=>{
+ if(e.key==='Enter'&&e.target.id==='message'){e.preventDefault();act('send');}
+ if(e.key==='Enter'&&e.target.id==='digits'){e.preventDefault();act('verify');}
+ if(e.key==='Escape'&&modal)close();
+ if((e.key==='Enter'||e.key===' ')&&e.target.matches('.flow-node')){e.preventDefault();act(e.target.dataset.a);}
+ if(e.key==='Tab'&&modal){const f=[...$('.sheet').querySelectorAll('button:not(:disabled),input,a')],first=f[0],last=f.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus();}}
+});
+const node=(id,x,y,z,e,target,type='normal')=>({id,x,y,z,e,target,type});
+const FLOWS=[
+{id:'start',title:['创建：邀请后进入双人空间','Create: invite and enter together'],desc:['创建凭据 → 扫码或短链接邀请 → 实时进度 → 成功庆祝。遮蔽默认关闭，试用后自愿开启。保存入口为聊天卡片，菜单内提供教程。','Create credentials, invite with QR or short link, follow progress, then celebrate. Cover is off by default; practice before opting in. A chat card offers entry saving; guides stay in the menu.'],height:1180,
+n:[node('entry',320,20,'首页：创建空间','Home: create a space','welcome','start'),node('auth',320,140,'设置访问密钥','Set up an access key','welcome'),node('invite',320,260,'邀请：二维码 + 短链接','Invite: QR and short link','invite'),node('progress',320,380,'打开链接 → 设置密钥 → 加入','Opened → credentials → joined','invite'),node('fail',30,380,'过期或失败，可重新邀请','Expired or failed: invite again','invite','failure'),node('created',320,500,'自动庆祝：空间创建成功','Automatic success celebration','chat','success'),node('cover',320,630,'试用：长按热区 1 秒','Practice: hold for one second','cover'),node('skip',610,630,'跳过试用，保持关闭','Skip practice; keep cover off','chat'),node('learned',320,760,'恭喜学会，自愿开启遮蔽','Celebrate learning; opt in','chat'),node('chat',320,910,'进入聊天，推送保存入口卡片','Chat and a save-entry card','chat','success'),node('guide',610,1050,'菜单：功能说明 / 遮蔽开关','Menu: guides / cover switch','tutorials')],
+e:[['entry','auth'],['auth','invite'],['invite','progress'],['progress','fail','失败','Failed'],['progress','created','加入成功','Joined'],['created','cover'],['created','skip','稍后','Later'],['cover','learned','长按成功','Hold succeeds'],['cover','chat','返回聊天','Return'],['learned','chat'],['skip','chat'],['chat','guide']]},
+{id:'recovery',title:['一次请求，按需恢复一人或两人','One request for one or both people'],desc:['双方各自使用恢复码，确认相同范围。只协助的一方保留会话；需要恢复的一方自动进入聊天，再按需恢复自己的历史。','Each uses their own codes and confirms the same scope. Helpers keep their conversation; restored people enter chat and can restore their own history.'],height:1170,
+n:[node('start',320,20,'恢复码 + 选择恢复对象','Material + choose targets','recover','start'),node('request',320,150,'发送恢复链接与核对编号','Share recovery link and code','waiting'),node('peer',320,280,'对方核对范围并输入恢复码','Other person checks and participates','peer'),node('change',30,410,'范围有变，发起者重新确认','Changed scope: initiator reconfirms','waiting'),node('restore',320,545,'处理已确认的恢复对象','Process confirmed targets','restoring'),node('failure',610,545,'失败：同一请求续接','Failure: resume same request','blocked','failure'),node('chat',320,680,'完成后，各自自动进入聊天','Each enters chat automatically','chat','success'),node('target',175,825,'需恢复：庆祝并引导找回历史','Restored: celebrate, offer history','chat'),node('helper',610,825,'仅协助：致谢并提醒保存恢复码','Helper: thank and remind to save','chat'),node('history',175,1035,'选择本地备份 → 校验解密 → 导入','Select local backup, validate and import','history')],
+e:[['start','request'],['request','peer'],['peer','change','范围调整','Changed'],['peer','restore','范围一致','Agreed'],['change','restore','发起者确认','Confirmed'],['restore','failure','中断','Interrupted'],['restore','chat'],['chat','target','本人需恢复','Targeted'],['chat','helper','本人不需恢复','Helper'],['target','history','选择恢复历史','Open history']]}
+
+];
+function related(p){return ['recover','waiting','peer','restoring','newkeys','history','result','blocked'].includes(p)?'recovery':'start';}
+function flowNav(){return `<div class="nav-group"><h2>${L('业务流程','BUSINESS FLOWS')}</h2>${FLOWS.map((f,i)=>`<button class="nav-item ${f.id===flowId?'active':''}" data-a="flow:${f.id}"><span class="num">0${i+1}</span><span>${L(...f.title)}</span></button>`).join('')}</div>`;}
+function wrap(t){let arr=lang==='zh'?[...t]:t.split(' '),lines=[''];for(const w of arr){const next=lines.at(-1)+(lang==='en'&&lines.at(-1)?' ':'')+w;if(next.length>(lang==='zh'?15:27)&&lines.at(-1))lines.push(w);else lines[lines.length-1]=next;}return lines;}
+function flowView(){
+const f=FLOWS.find(x=>x.id===flowId)||FLOWS[0],w=230,h=78,m=new Map(f.n.map(n=>[n.id,n]));
+const edges=f.e.map(e=>{
+ const a=m.get(e[0]),b=m.get(e[1]);let x1=a.x+w/2,y1=a.y+h,x2=b.x+w/2,y2=b.y,d;
+ if(f.id==='start'&&e[0]==='cover'&&e[1]==='chat'){x1=a.x;y1=a.y+h/2;x2=b.x;y2=b.y+h/2;d=`M${x1} ${y1}H270V${y2}H${x2}`;}
+ else if(f.id==='start'&&e[0]==='skip'&&e[1]==='chat'){x2=b.x+w;y2=b.y+h/2;d=`M${x1} ${y1}V${y2}H${x2}`;}
+ else if(a.y===b.y){x1=a.x+(b.x>a.x?w:0);y1=a.y+h/2;x2=b.x+(b.x>a.x?0:w);y2=b.y+h/2;d=`M${x1} ${y1}H${x2}`;}
+ else if(e[0]==='data'&&e[1]==='export'){x1=a.x+w;y1=a.y+h/2;x2=b.x+w;y2=b.y+h/2;d=`M${x1} ${y1}H875V${y2}H${x2}`;}
+ else{const mid=(y1+y2)/2;d=`M${x1} ${y1}V${mid}H${x2}V${y2}`;}
+ let lx=(x1+x2)/2,ly=(y1+y2)/2-7;if(f.id==='start'&&e[0]==='cover'&&e[1]==='chat')lx=270;if(e[0]==='data'&&e[1]==='export'){lx=867;ly=668;}
+ const t=e[2]?L(e[2],e[3]):'';
+ return `<path d="${d}" fill="none" stroke="#a4acbc" stroke-width="1.5" marker-end="url(#arrow)"/>${t?`<rect x="${lx-31}" y="${ly-12}" width="62" height="19" rx="5" fill="#fbfbfd"/><text x="${lx}" y="${ly+1}" text-anchor="middle" fill="#606978" font-size="11">${esc(t)}</text>`:''}`;
+}).join('');
+const nodes=f.n.map(n=>{
+ const palette={normal:['#f1f4fa','#b4c4db','#24344d'],start:['#e5edfc','#91aee0','#214f9d'],success:['#e9f3ec','#a0c4aa','#27613d'],failure:['#faeceb','#d6aaa6','#963d35'],decision:['#f3f0e8','#c9bc98','#6c5a31'],future:['#f7f0e1','#c9ac6a','#785c25']};
+ const c=palette[n.type],lines=wrap(L(n.z,n.e)),y=n.y+h/2-(lines.length-1)*9;
+ return `<g class="flow-node" role="button" tabindex="0" data-a="node:${n.id}" aria-label="${esc(L('打开页面：','Open page: ')+L(n.z,n.e))}"><rect x="${n.x}" y="${n.y}" width="${w}" height="${h}" rx="${['start','success'].includes(n.type)?26:12}" fill="${c[0]}" stroke="${c[1]}" stroke-width="1.3" ${n.type==='future'?'stroke-dasharray="5 4"':''}/>${lines.map((t,i)=>`<text x="${n.x+w/2}" y="${y+i*18+4}" text-anchor="middle" fill="${c[2]}" font-size="13" font-weight="500">${esc(t)}</text>`).join('')}</g>`;
+}).join('');
+return `<main class="flow-stage"><div class="flow-heading"><div><h1>${L(...f.title)}</h1><p>${L(...f.desc)}</p></div><div class="flow-actions"><button data-a="svg">${L('下载 SVG','Download SVG')}</button><button data-a="print">${L('打印 / 保存 PDF','Print / Save PDF')}</button></div></div><div class="flow-canvas"><svg class="flow-svg" viewBox="0 0 900 ${f.height}" role="img" aria-label="${esc(L(...f.title))}" style="font-family:-apple-system,BlinkMacSystemFont,'PingFang SC',sans-serif"><title>${L(...f.title)}</title><desc>${L(...f.desc)}</desc><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 10 5 0 10Z" fill="#a4acbc"/></marker></defs>${edges}${nodes}</svg></div><div class="flow-legend"><span><i></i>${L('操作与状态','Action / state')}</span><span><i class="failure"></i>${L('异常与阻断','Exception / blocked')}</span><span><i class="future"></i>${L('待验证能力','Unvalidated capability')}</span></div><p class="flow-caption">${L('点击节点可打开对应原型页面。业务流程表达目标体验，不代表密码学协议或生产实现已经验证。','Click a node to open its prototype page. Business flows show the target experience, not validated protocols or production behavior.')}</p></main>`;
+}
+window.demo={get state(){return S;},get page(){return page;},pages:PAGES,flows:FLOWS,jump,act,render,setLang(v){lang=v;render();}};
+const params=new URLSearchParams(location.search);
+if(params.get('view')==='flows')view='flows';
+if(FLOWS.some(f=>f.id===params.get('flow')))flowId=params.get('flow');
+if(PAGES.some(p=>p[0]===params.get('page')))page=params.get('page');
+render();
+
+</script></body></html>
