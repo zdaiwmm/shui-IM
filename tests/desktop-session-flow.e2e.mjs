@@ -78,7 +78,11 @@ async function createDesktop() {
 }
 
 async function holdF(page) {
-  await page.locator('.cover-trigger, #create-room, [data-device-verify], .pairing-screen, #cloud-recovery-form, #joint-start').first().waitFor();
+  await page.locator('.cover-trigger, #create-room, [data-device-verify], .pairing-screen, #cloud-recovery-form, #joint-start, #passkey-unlock').first().waitFor();
+  if (await page.locator('#passkey-unlock').count()) {
+    await page.locator('#passkey-unlock').click();
+    return;
+  }
   if (await page.locator('.cover-trigger').count() === 0) return;
   await page.keyboard.down('f');
   await page.waitForTimeout(2100);
@@ -221,7 +225,7 @@ try {
 
   await creator.reload();
   await creator.evaluate(() => import('/src/main.ts'));
-  await creator.locator('.cover-trigger').waitFor();
+  await creator.locator('.cover-trigger, #passkey-unlock').first().waitFor();
   const reloaded = await state(creator);
   assert.equal(reloaded.active, false);
   assert.equal(reloaded.retained, false);

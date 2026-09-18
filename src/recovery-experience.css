@@ -65,7 +65,7 @@
 }
 .welcome-actions {
   display: grid;
-  gap: 4px;
+  gap: 16px;
   margin-top: auto;
 }
 .welcome-actions .primary-button { width: 100%; }
@@ -99,7 +99,8 @@
 .recovery-details { margin: 8px 0 0; color: var(--ink-muted); }
 .recovery-details summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
 .recovery-details p { margin: 0 0 8px; line-height: 1.65; }
-.gateway-plain .credential-only-step { margin-top: 28px; }
+.gateway-plain .credential-only-step { margin-top: 40px; gap: 24px; }
+.gateway-plain .credential-only-step + .gateway-back { margin-top: 12px; }
 .pairing-body { gap: 16px; }
 @media (max-height: 760px) {
   #invite-qr, #joint-qr, .invite-qr { width: 200px; height: 200px; }
@@ -112,9 +113,11 @@
 @media (prefers-reduced-motion: reduce) { .recovery-shield.needs-preparation { animation: none; } }
 
 .cover.cover-off { display: grid; place-content: center; gap: 24px; padding: 24px; text-align: center; }
-.cover-off .cover-trigger { position: static; width: 100%; height: 52px; color: var(--ink); background: var(--surface); border-radius: 16px; font: inherit; }
-.recovery-code-confirm { display: grid; gap: 12px; }
-.recovery-code-confirm input { min-height: 48px; width: 100%; font: inherit; padding: 12px; }
+.recovery-code-view { display: grid; gap: 16px; width: 100%; }
+.recovery-code-view .local-recovery-code { margin: 4px 0 0; }
+.recovery-code-view > button { width: 100%; min-height: 48px; }
+.recovery-code-panel { display: grid; }
+.recovery-code-panel > .primary-button { width: 100%; min-height: 48px; }
 .confirm-overlay { position: fixed; inset: 0; z-index: 120; display: grid; place-items: center; padding: max(24px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom)); background: color-mix(in oklch, var(--ink) 28%, transparent); backdrop-filter: blur(8px); }
 .confirm-dialog {
   display: grid;
@@ -306,6 +309,21 @@
   font-variant-numeric: tabular-nums;
 }
 .joint-code { font: 700 .95rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; color: var(--ink) !important; }
+
+.joint-waiting-page { overflow: hidden; }
+.joint-waiting-page .recovery-flow-content { overflow: hidden; padding-bottom: 8px; }
+.joint-waiting-page .joint-progress { gap: 8px; }
+.joint-waiting-page .recovery-flow-hero { width: 36px; height: 36px; margin: 0 0 6px; }
+.joint-waiting-page .recovery-flow-hero svg { width: 20px; height: 20px; }
+.joint-waiting-page h1 { margin: 0 0 4px; font-size: 1.28rem; }
+.joint-waiting-page .recovery-flow-lead { margin: 0 0 6px; font-size: .82rem; line-height: 1.45; }
+.joint-waiting-page #joint-qr, .joint-waiting-page .invite-qr { width: 132px; height: 132px; max-width: 132px; }
+.joint-waiting-page .recovery-flow-group { margin: 6px 0; }
+.joint-waiting-page .recovery-flow-row { min-height: 44px; padding: 8px 12px; }
+.joint-waiting-page .recovery-flow-row small { margin-top: 2px; }
+.joint-waiting-page .recovery-flow-notice { margin: 6px 0; }
+.joint-waiting-page .recovery-flow-note { margin: 4px 2px; font-size: .72rem; line-height: 1.45; }
+.joint-waiting-page .recovery-flow-footer { gap: 4px; padding-top: 6px; }
 
 .cover-practice-page .hold-guide {
   right: max(24px, calc(env(safe-area-inset-right) + 20px));

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 
+const LOCK_SURFACE = '.cover-trigger, #passkey-unlock, .cover.cover-off';
+
 export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirectory }) {
   const errors = [];
   const onError = error => errors.push(error.message);
@@ -131,12 +133,12 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   await creator.locator('.voice-player').first().getByRole('button', { name: '播放语音', exact: true }).click();
   await creator.locator('.voice-player').first().getByRole('button', { name: '暂停语音', exact: true }).waitFor();
   await creator.evaluate(() => window.dispatchEvent(new Event('pagehide')));
-  await creator.locator('.cover-trigger').waitFor();
+  await creator.locator(LOCK_SURFACE).first().waitFor();
   await unlock(creator); await creator.locator('.chat-shell').waitFor();
   assert.equal(await creator.locator('.voice-player').count(), beforeAckLoss + 1);
   await start();
   await creator.evaluate(() => window.dispatchEvent(new Event('pagehide')));
-  await creator.locator('.cover-trigger').waitFor();
+  await creator.locator(LOCK_SURFACE).first().waitFor();
   assert(await creator.evaluate(() => window.__voiceTracks.every(track => track.readyState === 'ended')));
   await unlock(creator); await creator.locator('.chat-shell').waitFor();
 
@@ -172,7 +174,7 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
   assert.equal(await creator.locator('.cover-trigger').count(), 0, 'The first visible native permission blur must retain its requesting UI');
   await creator.evaluate(() => { window.dispatchEvent(new Event('focus')); window.dispatchEvent(new Event('blur')); });
-  assert.equal(await creator.locator('.cover-trigger').count(), 1, 'A later unrelated blur must cover the conversation');
+  await creator.locator(LOCK_SURFACE).first().waitFor();
   await creator.evaluate(async () => {
     window.dispatchEvent(new Event('pagehide'));
     const stream = await window.__voiceGetUserMedia({ audio: true });
@@ -181,7 +183,7 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
     navigator.mediaDevices.getUserMedia = window.__voiceWrappedGetUserMedia;
   });
   await creator.waitForFunction(() => window.__lateVoiceTracks.every(track => track.readyState === 'ended'));
-  assert.equal(await creator.locator('.cover-trigger').count(), 1);
+  assert.ok(await creator.locator(LOCK_SURFACE).count() >= 1);
   await unlock(creator); await creator.locator('.chat-shell').waitFor();
 
   await creator.evaluate(() => {

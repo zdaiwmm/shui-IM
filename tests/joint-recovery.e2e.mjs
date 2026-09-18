@@ -83,6 +83,18 @@ try {
   assert.equal(await a.locator('#joint-participant-badge').count(), 1);
   assert.equal(await a.locator('#joint-retire, #joint-retry, #joint-cancel').count(), 0);
   assert.equal(await a.locator('#joint-qr').evaluate(canvas => canvas.getAttribute('width')), '248');
+  await a.setViewportSize({ width: 390, height: 844 });
+  const waitingLayout = await a.evaluate(() => {
+    const page = document.querySelector('.joint-waiting-page');
+    return {
+      pageScroll: page ? page.scrollHeight > page.clientHeight + 1 : true,
+      docScroll: document.documentElement.scrollHeight > innerHeight + 1,
+      startButton: [...document.querySelectorAll('button')].some(button => (button.textContent ?? '').includes('开始恢复')),
+    };
+  });
+  assert.equal(waitingLayout.pageScroll, false, JSON.stringify(waitingLayout));
+  assert.equal(waitingLayout.docScroll, false, JSON.stringify(waitingLayout));
+  assert.equal(waitingLayout.startButton, false);
   await a.evaluate(() => progressApp.runtimeAbort.abort());
   // Both local states and fresh identities survive an actual unlock before confirmation.
   for (const page of pages) await page.evaluate(async () => { window.session = await v.unlockVault(); window.snapshot = await j.advanceJointRecovery(session, signal); });
