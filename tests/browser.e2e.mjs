@@ -332,14 +332,16 @@ try {
     const more = document.querySelector('.more-menu > summary').getBoundingClientRect();
     return { selfLeft: self.left, selfRight: self.right, peerLeft: peer.left, peerRight: peer.right, summaryLeft: summary.left, summaryRight: summary.right,
       peerCenter: (summary.left + summary.right) / 2, headerCenter: (header.left + header.right) / 2,
-      summaryHeight: summary.height, actionHeight: more.height, statusGap: shield.left - summary.right, shieldRight: shield.right, moreLeft: more.left };
+      summaryHeight: summary.height, actionHeight: more.height, shieldGap: summary.left - shield.right, moreGap: more.left - summary.right,
+      shieldLeft: shield.left, shieldRight: shield.right, moreLeft: more.left, headerLeft: header.left };
   });
   invariant(presenceLayout.selfRight <= presenceLayout.peerLeft + 1, `Self presence is not on the left: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.selfLeft >= presenceLayout.summaryLeft - 1 && presenceLayout.peerRight <= presenceLayout.summaryRight + 1, `Presence labels overflow the capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(Math.abs(presenceLayout.peerCenter - presenceLayout.headerCenter) <= 3, `Combined presence is not centered: ${JSON.stringify(presenceLayout)}`);
-  invariant(presenceLayout.summaryHeight >= 44 && presenceLayout.statusGap >= 8,
+  invariant(presenceLayout.summaryHeight >= 44 && presenceLayout.shieldGap >= 8 && presenceLayout.moreGap >= 8,
     `Header status crowds the actions or is shorter than the hit target: ${JSON.stringify(presenceLayout)}`);
-  invariant(presenceLayout.shieldRight <= presenceLayout.moreLeft + 1, `Recovery shield is not immediately left of the more menu: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.shieldRight <= presenceLayout.summaryLeft + 1, `Recovery shield is not on the left of the status capsule: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.shieldLeft >= presenceLayout.headerLeft - 1, `Recovery shield is not at the left of the header: ${JSON.stringify(presenceLayout)}`);
   invariant(await creator.locator('#message-list > #entrance-card-banner[data-local-system-card="entry"]').count() === 1, 'Save-entry guidance is not a local timeline system card');
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-shield-entry-card-mobile.png') });
   await creator.locator('#dismiss-entrance-card').click();

@@ -1,4 +1,4 @@
-import { prepareJointRecovery, advanceJointRecovery, approveJointRecovery, completeJointRecovery, parseJointRecoveryLink, jointRecoveryUrl, jointRecoveryCode, type JointLink, type JointSnapshot } from './lib/joint-recovery';
+import { prepareJointRecovery, advanceJointRecovery, approveJointRecovery, completeJointRecovery, parseJointRecoveryLink, jointRecoveryUrl, jointRecoveryCode, jointRequest, inviteeScopeChoice, type JointLink, type JointSnapshot } from './lib/joint-recovery';
 import './recovery-experience.css';
 import { mountMediaDeleteConfirm } from './lib/media-delete-confirm';
 import { exportLocalHistory, importLocalHistory, inspectLocalHistoryBackup } from './lib/local-history-backup';
@@ -4118,16 +4118,16 @@ export class QuietRoomApp {
     this.root.innerHTML = `
       <section class="chat-shell">
         <header class="chat-header">
+          <button class="icon-button recovery-shield ${this.session.vault.recoveryExperience?.codeSaved === this.session.vault.backup?.id && this.session.vault.backup && this.session.vault.recoveryExperience?.peerPrepared ? '' : 'needs-preparation'}" id="recovery-shield" type="button" aria-label="恢复私密空间：保存恢复码与查看备份"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3 4 6v5c0 5 4 8 8 10 4-2 8-5 8-10V6z"/><path d="m8 12 3 3 5-6"/></svg></button>
           <div class="peer-summary" ${this.session.vault.role === 'creator' ? 'id="open-gallery" role="button" tabindex="0"' : 'role="status"'} aria-live="polite">
-            ${presenceCircuitMarkup}
-            <div class="presence-status-row">
+            <div class="presence-heading">
               <span class="presence-row" id="self-presence"><span>我</span><i class="presence-dot" aria-hidden="true"></i><strong class="sr-only">同步中</strong></span>
-              <strong class="peer-status">同步中</strong>
+              ${presenceCircuitMarkup}
               <span class="presence-row" id="peer-presence"><i class="presence-dot" aria-hidden="true"></i><span>对方</span></span>
             </div>
+            <strong class="peer-status">同步中</strong>
           </div>
           <nav class="header-actions" aria-label="私密空间操作">
-            <button class="icon-button recovery-shield ${this.session.vault.recoveryExperience?.codeSaved === this.session.vault.backup?.id && this.session.vault.backup && this.session.vault.recoveryExperience?.peerPrepared ? '' : 'needs-preparation'}" id="recovery-shield" type="button" aria-label="恢复私密空间：保存恢复码与查看备份"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3 4 6v5c0 5 4 8 8 10 4-2 8-5 8-10V6z"/><path d="m8 12 3 3 5-6"/></svg></button>
             <details class="more-menu">
               <summary class="icon-button" aria-label="更多操作">${icons.more}</summary>
               <div class="menu-panel">
@@ -8743,13 +8743,13 @@ export class QuietRoomApp {
     this.root.innerHTML = `<main class="recovery-flow-page" id="joint-start">
       <header class="recovery-flow-nav"><button class="icon-button" id="joint-back" type="button" aria-label="${helper ? '返回聊天' : '返回首页'}">${icons.back}</button><strong>${link ? '参与恢复' : '恢复私密空间'}</strong><span></span></header>
       <section class="recovery-flow-content">
-        ${link ? `<p class="recovery-flow-eyebrow">请先用熟悉的方式联系对方</p><h1>确认是你们的请求</h1><p class="recovery-flow-lead">核对编号和这次要恢复的范围，再输入你自己的恢复码。你的恢复码不会发送给对方。</p><div class="joint-request-code" aria-label="核对编号 ${jointRecoveryCode(link)}">${jointRecoveryCode(link)}</div>` : `<h1>找回私密空间</h1><p class="recovery-flow-lead">先选择这次要恢复谁，再输入自己的恢复码。无需交换恢复码。</p>`}
+        ${link ? `<p class="recovery-flow-eyebrow">请先用熟悉的方式联系对方</p><h1>确认是你们的请求</h1><p class="recovery-flow-lead">核对编号后输入你自己的恢复码。范围沿用对方发起时的选择。你的恢复码不会发送给对方。</p><div class="joint-request-code" aria-label="核对编号 ${jointRecoveryCode(link)}">${jointRecoveryCode(link)}</div>` : `<h1>找回私密空间</h1><p class="recovery-flow-lead">先选择这次要恢复谁，再输入自己的恢复码。无需交换恢复码。</p>
         <fieldset class="recovery-scope"><legend>这次需要恢复谁的私密空间？</legend>
           <label class="recovery-scope-option"><input type="radio" name="scope" value="me" required checked /><span>只恢复我</span><span class="scope-check" aria-hidden="true">✓</span></label>
           <label class="recovery-scope-option"><input type="radio" name="scope" value="peer" /><span>只恢复对方</span><span class="scope-check" aria-hidden="true">✓</span></label>
           <label class="recovery-scope-option"><input type="radio" name="scope" value="both" /><span>我们两个人</span><span class="scope-check" aria-hidden="true">✓</span></label>
-        </fieldset>
-        <p class="recovery-flow-note">恢复码找回私密空间；本地备份找回聊天记录。只协助对方时，你现有的本机聊天会保留。</p>
+        </fieldset>`}
+        <p class="recovery-flow-note">${link ? '只协助对方时，你现有的本机聊天会保留。' : '恢复码找回私密空间。只协助对方时，你现有的本机聊天会保留。'}</p>
         <details class="recovery-details"><summary>找不到恢复码怎么办？</summary><p>先查看曾保存恢复码的密码管理器、文件或纸质副本。若仍有正常入口，可以先进入私密空间处理；若所有正常访问都失效且缺少任何一方恢复码，就无法共同恢复。</p></details>
         <p class="form-error" role="alert"></p>
       </section>
@@ -8758,11 +8758,12 @@ export class QuietRoomApp {
     const leave = () => helper ? void this.openSession() : this.renderFirstRun(null);
     this.root.querySelector('#joint-back')?.addEventListener('click', leave);
     this.root.querySelector('#joint-open-code')?.addEventListener('click', () => this.openJointRecoveryCodeDialog(link, helper));
+    if (link) this.openJointRecoveryCodeDialog(link, helper);
   }
 
   private openJointRecoveryCodeDialog(link: JointLink | null, helper: VaultSession | null): void {
     if (this.root.querySelector('#joint-code-form')) return;
-    const scope = (this.root.querySelector<HTMLInputElement>('input[name="scope"]:checked')?.value ?? 'me') as 'me' | 'peer' | 'both';
+    const selectedScope = (this.root.querySelector<HTMLInputElement>('input[name="scope"]:checked')?.value ?? 'me') as 'me' | 'peer' | 'both';
     const sheet = document.createElement('section');
     sheet.className = 'recovery-code-sheet joint-code-sheet';
     sheet.setAttribute('role', 'dialog');
@@ -8811,7 +8812,14 @@ export class QuietRoomApp {
       this.runtimeAbort ??= new AbortController();
       let signal = this.runtimeAbort.signal;
       try {
-        const credential = scope !== 'peer' ? await this.withDeviceVerification(() => createPlatformCredential()) : undefined;
+        const scope = link ? 'inherit' as const : selectedScope;
+        let needsCredential = scope !== 'peer';
+        if (scope === 'inherit' && helper && link) {
+          const snapshot = await jointRequest(link, signal);
+          const offer = snapshot.offers[snapshot.initiator] ?? snapshot.offers[helper.vault.role === 'creator' ? 'joiner' : 'creator'];
+          needsCredential = offer ? inviteeScopeChoice(offer.scope, helper.vault.role) !== 'peer' : true;
+        }
+        const credential = needsCredential ? await this.withDeviceVerification(() => createPlatformCredential()) : undefined;
         if (!form.isConnected || this.privacyCovered || this.runtimeEpoch !== epoch) return;
         this.cleanupRuntime();
         this.session = helper; this.runtimeAbort = new AbortController(); signal = this.runtimeAbort.signal; epoch = this.runtimeEpoch; this.resetIdleLock();
@@ -8951,11 +8959,7 @@ export class QuietRoomApp {
           <div class="recovery-flow-row"><span><strong>对方的恢复码</strong><small>由对方独立保存</small></span><em class="recovery-status-badge" id="peer-recovery-preparation" role="status">状态未知</em></div>
         </div>
         <p class="recovery-flow-note">双方各自保管，恢复时共同确认。不要互相发送恢复码。</p>
-        <div class="recovery-flow-group">
-          <button class="recovery-flow-row" id="open-local-history" type="button"><span><strong>消息备份</strong><small>导出到系统“文件”，新聊天需重新备份</small></span><b aria-hidden="true">›</b></button>
-          <button class="recovery-flow-row" id="import-history-from-hub" type="button"><span><strong>恢复聊天记录</strong><small>选择自己保存的加密备份文件</small></span><b aria-hidden="true">›</b></button>
-        </div>
-        <details class="recovery-details"><summary>哪些情况无法找回？</summary><p>任一方缺少恢复码或无法参与时，不能完成共同恢复。聊天备份丢失或损坏时，无法找回其中记录；未备份的新内容也无法恢复。</p></details>
+        <details class="recovery-details"><summary>哪些情况无法找回？</summary><p>任一方缺少恢复码或无法参与时，不能完成共同恢复。</p></details>
       </section>
       <footer class="recovery-flow-footer"><button class="primary-button" id="save-my-code">保存我的恢复码</button></footer>
     </main>`;
@@ -8976,8 +8980,6 @@ export class QuietRoomApp {
       }
       this.verifyLocalRecoveryCode();
     });
-    this.root.querySelector('#open-local-history')!.addEventListener('click', () => this.renderLocalHistoryBackup('export'));
-    this.root.querySelector('#import-history-from-hub')!.addEventListener('click', () => this.renderLocalHistoryBackup('import'));
   }
 
   private renderCoverPractice(): void {
@@ -9045,20 +9047,33 @@ export class QuietRoomApp {
           <button class="recovery-flow-row" id="entry-bookmark" type="button"><span><strong>保存为浏览器书签</strong><small>书签可能被看到或随浏览器同步</small></span><b aria-hidden="true">›</b></button>
           <button class="recovery-flow-row" id="copy-entry-url" type="button"><span><strong>复制正式网址</strong><small>${location.origin}</small></span><b aria-hidden="true">›</b></button>
         </div>
-        <aside class="recovery-flow-notice"><strong>保存入口不是备份</strong><p>请另外保管恢复码，并确认聊天记录备份。</p></aside>
+        <aside class="recovery-flow-hint"><strong>保存入口不是备份</strong><p>请另外保管恢复码。入口只方便下次打开，不能用来恢复聊天。</p></aside>
         <p class="form-error" role="status"></p>
       </section>
       <footer class="recovery-flow-footer"><button class="primary-button" id="entrance-done" type="button">完成</button><button class="text-button" id="entrance-skip" type="button">暂不保存入口</button></footer>
     </main>`;
-    const showInstructions = (title: string, body: string) => {
+    const shareEntry = async (title: string, fallbackTitle: string, fallbackBody: string) => {
+      const payload = { title: 'Quiet Room', text: title, url: location.origin };
+      try {
+        if (typeof navigator.share === 'function') {
+          await this.withSystemSurface(() => navigator.share(payload), true);
+          return;
+        }
+      } catch (cause) {
+        if (cause instanceof Error && cause.name === 'AbortError') return;
+      }
       const dialog = document.createElement('div'); dialog.className = 'confirm-overlay';
-      dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true'); dialog.setAttribute('aria-label', title);
-      dialog.innerHTML = `<div class="confirm-dialog"><h2>${title}</h2><p>${body}</p><p class="field-hint">只保存正式入口 ${location.origin}。入口不含恢复码。</p><button class="primary-button" type="button">知道了</button></div>`;
+      dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true'); dialog.setAttribute('aria-label', fallbackTitle);
+      dialog.innerHTML = `<div class="confirm-dialog"><h2>${fallbackTitle}</h2><p>${fallbackBody}</p><p class="field-hint">只保存正式入口 ${location.origin}。入口不含恢复码。</p><button class="primary-button" type="button">知道了</button></div>`;
       this.root.append(dialog); mountDialog(dialog, { isActive: () => !this.privacyCovered, signal: this.runtimeAbort?.signal });
       dialog.querySelector('button')!.addEventListener('click', () => closeDialog(dialog));
     };
-    this.root.querySelector('#entry-home')!.addEventListener('click', () => showInstructions('添加到主屏幕', '打开浏览器的系统分享菜单，选择“添加到主屏幕”，再确认名称。首次从图标打开时，可能需要重新安全接入。'));
-    this.root.querySelector('#entry-bookmark')!.addEventListener('click', () => showInstructions('保存为浏览器书签', '打开浏览器的系统分享菜单，选择“添加书签”。书签可能被他人看到或随浏览器同步。'));
+    this.root.querySelector('#entry-home')!.addEventListener('click', () => {
+      void shareEntry('添加到主屏幕', '添加到主屏幕', '打开系统分享菜单，选择“添加到主屏幕”，再确认名称。首次从图标打开时，可能需要重新安全接入。');
+    });
+    this.root.querySelector('#entry-bookmark')!.addEventListener('click', () => {
+      void shareEntry('保存为浏览器书签', '保存为浏览器书签', '打开系统分享菜单，选择“添加书签”。书签可能被他人看到或随浏览器同步。');
+    });
     this.root.querySelector('#copy-entry-url')!.addEventListener('click', async () => {
       try { await this.withSystemSurface(() => navigator.clipboard.writeText(location.origin), true); this.showNotice('链接已复制'); }
       catch { this.showNotice('复制失败，请手动保存当前网址', 'error'); }
