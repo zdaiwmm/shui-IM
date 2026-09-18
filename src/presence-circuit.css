@@ -1,27 +1,30 @@
 .chat-header .peer-summary {
-  width: min(188px, calc(100vw - 232px));
+  width: min(188px, calc(100vw - 132px));
   max-width: 188px;
   height: auto;
   min-height: 44px;
   gap: 2px;
   padding: 5px 10px 6px;
 }
-.chat-header .presence-status-row {
+.chat-header .presence-heading {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: 1fr minmax(48px, 88px) 1fr;
   align-items: center;
-  gap: 4px;
+  gap: 0;
   width: 100%;
   min-width: 0;
 }
-.chat-header .presence-status-row .presence-row {
+.chat-header .presence-heading .presence-row {
   min-width: 0;
-  font-size: 0.6875rem;
+  font-size: 0.8125rem;
   font-weight: 650;
   white-space: nowrap;
 }
-.chat-header .presence-status-row .peer-status {
+.chat-header .presence-heading #self-presence { justify-content: flex-end; }
+.chat-header .presence-heading #peer-presence { justify-content: flex-start; }
+.chat-header .peer-summary > .peer-status {
   min-width: 0;
+  width: 100%;
   margin: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -33,7 +36,7 @@
 .presence-circuit {
   display: block;
   width: 100%;
-  height: 20px;
+  height: 24px;
   overflow: visible;
   pointer-events: none;
   --circuit-idle: oklch(72% 0.012 255);

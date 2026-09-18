@@ -6,7 +6,7 @@ import { createStore } from '../server/storage.mjs';
 import { generateIdentity } from '../src/lib/crypto';
 import { randomBase64Url, toBase64Url } from '../src/lib/base64';
 import { createCreatorMlsState, prepareCreatorWelcome, joinMlsGroup, encryptMlsApplication, decryptMlsApplication, signEcdsa } from '../src/lib/mls';
-import { jointMembers, jointRecoveryCode, verifyJointSnapshot, type JointOffer, type JointProposal, type PendingJointRecovery } from '../src/lib/joint-recovery';
+import { jointMembers, jointRecoveryCode, inviteeScopeChoice, verifyJointSnapshot, type JointOffer, type JointProposal, type PendingJointRecovery } from '../src/lib/joint-recovery';
 import type { Vault } from '../src/lib/types';
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
@@ -39,6 +39,13 @@ async function fixture() {
   return { store, a, b, oldA, fresh, freshPeer, offers, proposal, link, pending, tokenA, tokenB, accessA, accessB };
 }
 describe('joint recovery requires independently authenticated participants', () => {
+  it('maps an invitee onto the initiator’s already chosen recovery scope', () => {
+    expect(inviteeScopeChoice({ creator: true, joiner: false }, 'joiner')).toBe('peer');
+    expect(inviteeScopeChoice({ creator: false, joiner: true }, 'joiner')).toBe('me');
+    expect(inviteeScopeChoice({ creator: true, joiner: true }, 'joiner')).toBe('both');
+    expect(inviteeScopeChoice({ creator: true, joiner: false }, 'creator')).toBe('me');
+  });
+
   it('derives the same six-digit display-only comparison code from a request', () => {
     const link = { roomId: crypto.randomUUID(), requestId: '00000000-0000-4000-8000-000000012345', capability: 'A'.repeat(43) };
     expect(jointRecoveryCode(link)).toBe('074 565');

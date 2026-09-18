@@ -32,7 +32,7 @@ body:has(:where(#app) > .chat-shell) {
   inset: 0 max(0px, calc((100% - 880px) / 2)) auto;
   translate: 0 var(--app-top);
   display: grid;
-  grid-template-columns: minmax(96px, 1fr) auto minmax(96px, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
   min-height: 72px;
   padding: max(8px, env(safe-area-inset-top)) 12px 10px;
@@ -59,11 +59,11 @@ body:has(:where(#app) > .chat-shell) {
   z-index: -1;
   background: linear-gradient(to bottom, color-mix(in oklch, var(--chrome-tint) 18%, transparent), transparent);
 }
-.chat-header::before { inset: 0 0 -28px; }
+.chat-header::before { inset: 0; }
 .peer-summary {
   grid-column: 2;
   justify-self: center;
-  width: clamp(108px, calc(100vw - 232px), 188px);
+  width: clamp(108px, calc(100vw - 132px), 188px);
   max-width: 188px;
   min-width: 0;
   height: auto;
@@ -75,8 +75,10 @@ body:has(:where(#app) > .chat-shell) {
   gap: 2px;
   line-height: 1.2;
 }
-.presence-status-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 4px; width: 100%; min-width: 0; }
-.presence-status-row .presence-row { gap: 4px; color: var(--ink); font-size: 0.6875rem; font-weight: 650; }
+.presence-heading { display: grid; grid-template-columns: 1fr minmax(48px, 88px) 1fr; align-items: center; gap: 0; width: 100%; min-width: 0; }
+.presence-heading .presence-row { gap: 4px; color: var(--ink); font-size: 0.8125rem; font-weight: 650; white-space: nowrap; }
+.presence-heading #self-presence { justify-content: flex-end; }
+.presence-heading #peer-presence { justify-content: flex-start; }
 .chat-header .presence-row[data-state="online"] .presence-dot {
   --presence-green: oklch(61% 0.185 147);
   background: var(--presence-green);
@@ -104,10 +106,9 @@ body:has(:where(#app) > .chat-shell) {
 @media (prefers-reduced-motion: reduce) {
   .chat-header .presence-row[data-state="online"] .presence-dot { animation: none; }
 }
-.peer-summary > .peer-status { flex: none; width: auto; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 0.6875rem; font-weight: 500; }
+.peer-summary > .peer-status { flex: none; width: 100%; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; font-size: 0.6875rem; font-weight: 500; }
+.chat-header > .recovery-shield { grid-column: 1; justify-self: start; align-self: center; }
 .header-actions { grid-column: 3; justify-self: end; gap: 8px; }
-.header-actions .recovery-shield { flex: 0 0 44px; }
-.header-actions .recovery-shield svg { width: 22px; height: 22px; }
 .chat-header .icon-button:disabled {
   opacity: 1;
   color: var(--ink-faint);
@@ -221,8 +222,27 @@ body:has(:where(#app) > .chat-shell) {
 .pinned-recovery-content strong { font-size: 0.78rem; }
 .pinned-recovery-content span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.72rem; }
 .recovery-reminder #dismiss-recovery,
-.pinned-notice [id^="dismiss-"] { width: 44px; min-width: 44px; height: 44px; padding: 11px; border: 0; border-radius: 50%; background: transparent; color: var(--ink-muted); }
-#dismiss-recovery svg { display: block; width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
+.pinned-notice [id^="dismiss-"] {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  padding: 11px;
+  border: 1px solid var(--glass-border);
+  border-radius: 50%;
+  background: var(--surface-raised);
+  color: var(--ink);
+  box-shadow: var(--glass-shadow);
+}
+#dismiss-recovery svg,
+.pinned-notice [id^="dismiss-"] svg {
+  display: block;
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
 .message-list {
   position: relative;
   justify-content: flex-end;
@@ -418,9 +438,8 @@ html[data-keyboard-open='true'] .composer {
 .upload-progress { flex: 0 0 100%; }
 @media (max-width: 360px) {
   .chat-header { padding-inline: 8px; }
-  .presence-status-row { gap: 3px; }
-  .presence-status-row .presence-row,
-  .presence-status-row .peer-status { font-size: 0.625rem; }
+  .presence-heading { gap: 0; }
+  .presence-heading .presence-row { font-size: 0.75rem; }
 }
 
 /* Distinguish the empty-input instruction from actual message text. */

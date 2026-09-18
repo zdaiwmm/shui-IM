@@ -201,7 +201,7 @@ try {
           const r = document.querySelector(selector).getBoundingClientRect();
           return { x: r.x, right: r.right, y: r.y, bottom: r.bottom, width: r.width };
         };
-        return { summary: box('.peer-summary'), heading: box('.presence-status-row'), actions: box('.header-actions'),
+        return { summary: box('.peer-summary'), heading: box('.presence-heading'), actions: box('.header-actions'),
           peer: box('#peer-presence'), dot: box('#peer-presence i'), label: box('#peer-presence span') };
       });
       assert.ok(geometry.summary.right <= geometry.actions.x, JSON.stringify(geometry));

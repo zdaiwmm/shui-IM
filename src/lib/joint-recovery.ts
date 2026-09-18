@@ -60,7 +60,14 @@ export async function jointRequest(link: JointLink, signal: AbortSignal, action?
   return response.json();
 }
 
-export async function prepareJointRecovery(code: string, requestedScope: 'me' | 'peer' | 'both', link: JointLink | null,
+export function inviteeScopeChoice(initiatorScope: RecoveryScope, ownRole: Role): 'me' | 'peer' | 'both' {
+  const other = ownRole === 'creator' ? 'joiner' : 'creator';
+  if (initiatorScope[ownRole] && initiatorScope[other]) return 'both';
+  if (initiatorScope[ownRole]) return 'me';
+  return 'peer';
+}
+
+export async function prepareJointRecovery(code: string, requestedScope: 'me' | 'peer' | 'both' | 'inherit', link: JointLink | null,
   helper: VaultSession | null, credential: PlatformCredentialResult | undefined, deviceName: string, capabilities: string[], signal: AbortSignal): Promise<VaultSession> {
   const expected = await readStoredVault();
   const bundle = await fetchRecoveryBundle(code, signal);
@@ -74,11 +81,16 @@ export async function prepareJointRecovery(code: string, requestedScope: 'me' | 
     checkpointEventSeq: source.mls?.lastEventSeq ?? 0 } }, state);
   if (!state.members.some(member => member.deviceId === source.identity.publicBundle.deviceId && member.role === source.role && member.status === 'active')) throw invalid();
   if (helper && (helper.vault.roomId !== source.roomId || helper.vault.role !== source.role || helper.vault.identity.publicBundle.deviceId !== source.identity.publicBundle.deviceId || helper.vault.pendingJointRecovery)) throw invalid();
-  const scope: RecoveryScope = { creator: requestedScope === 'both', joiner: requestedScope === 'both' };
   const peer = source.role === 'creator' ? 'joiner' : 'creator';
-  if (requestedScope === 'me') scope[source.role] = true;
-  if (requestedScope === 'peer') scope[peer] = true;
-  if (snapshot) { scope[peer] = snapshot.offers[peer]!.recover; scope[source.role] = requestedScope !== 'peer'; }
+  const initiatorOffer = snapshot ? snapshot.offers[snapshot.initiator] ?? snapshot.offers[peer] : undefined;
+  const resolvedScope = requestedScope === 'inherit'
+    ? (initiatorOffer ? inviteeScopeChoice(initiatorOffer.scope, source.role) : undefined)
+    : requestedScope;
+  if (!resolvedScope) throw invalid();
+  const scope: RecoveryScope = { creator: resolvedScope === 'both', joiner: resolvedScope === 'both' };
+  if (resolvedScope === 'me') scope[source.role] = true;
+  if (resolvedScope === 'peer') scope[peer] = true;
+  if (snapshot && requestedScope !== 'inherit') { scope[peer] = snapshot.offers[peer]!.recover; scope[source.role] = resolvedScope !== 'peer'; }
   if (!scope.creator && !scope.joiner) throw new Error('至少一位参与者需要恢复');
   if (!scope[source.role] && !helper) throw new Error('协助恢复需要先解锁自己的现有私密空间');
   const preserveHistory = Boolean(helper && !scope[source.role]);

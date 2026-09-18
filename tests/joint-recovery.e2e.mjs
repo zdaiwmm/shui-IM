@@ -113,7 +113,8 @@ try {
     assert.equal(layout.overflow, false); assert.equal(layout.small, false);
   }
   if (process.argv[2]) await a.screenshot({ path: process.argv[2], fullPage: true });
-  assert.equal(await a.locator('#open-local-history').textContent().then(text => text.includes('消息备份')), true);
+  assert.equal(await a.locator('#open-local-history, #import-history-from-hub').count(), 0);
+  assert.equal(await a.locator('#save-my-code').count(), 1);
   await a.locator('#recovery-center-back').click();
   await a.evaluate(() => app.lockNow()); assert.equal(await a.locator('#recovery-center-back').count(), 0);
   console.log('Joint recovery browser: dual signatures, helper catch-up, atomic history preservation, code rotation, own local import, resumed passkeys and 375/390 UI passed.');
