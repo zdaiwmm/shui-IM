@@ -8,6 +8,7 @@ import { verifyVoiceFlow } from './voice-flow.e2e.mjs';
 import { verifyCallFlow } from './call-flow.e2e.mjs';
 
 const visualQaDirectory = process.argv[2];
+const LOCK_SURFACE = '.cover-trigger, #passkey-unlock, .cover.cover-off';
 
 function invariant(condition, message) {
   if (!condition) throw new Error(message);
@@ -84,13 +85,22 @@ async function blurOutsidePage(page) {
       else delete document.hasFocus;
     }
   });
-  await page.locator('.cover-trigger').waitFor();
+  await page.locator(LOCK_SURFACE).first().waitFor();
 }
 
 async function holdCover(page) {
-  await page.locator('.cover-trigger, #create-room, [data-device-verify], .pairing-screen, #cloud-recovery-form, #joint-start').first().waitFor({ timeout: 120_000 });
+  await page.locator('.cover-trigger, #create-room, [data-device-verify], .pairing-screen, #cloud-recovery-form, #joint-start, #passkey-unlock, .cover.cover-off').first().waitFor({ timeout: 120_000 });
   const trigger = page.locator('.cover-trigger');
-  if (await trigger.count() === 0) return;
+  if (await trigger.count() === 0) {
+    if (await page.locator('.cover.cover-off').count() && await page.locator('#passkey-unlock').count() === 0) {
+      await page.evaluate(() => {
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+        document.dispatchEvent(new Event('visibilitychange'));
+      });
+      await page.locator('#passkey-unlock, #create-room, [data-device-verify]').first().waitFor({ timeout: 15_000 });
+    }
+    return;
+  }
   const box = await trigger.boundingBox();
   invariant(box, 'Privacy-curtain trigger is missing');
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -112,6 +122,10 @@ async function setPasskey(page) {
 }
 
 async function unlock(page, exerciseError = false) {
+  await holdCover(page);
+  const passkey = page.locator('#passkey-unlock');
+  if (await passkey.count() === 0) return;
+  await assertCredentialLayout(page, '#passkey-unlock');
   if (exerciseError) {
     await page.evaluate(() => {
       const get = navigator.credentials.get.bind(navigator.credentials);
@@ -128,7 +142,7 @@ async function unlock(page, exerciseError = false) {
       });
     });
   }
-  await holdCover(page);
+  await passkey.click();
   if (exerciseError) {
     await page.locator('#passkey-unlock', { hasText: '重新验证' }).waitFor();
     invariant(!(await page.locator('.form-error').textContent())?.trim(), 'Cancelling unlock left a red error message');
@@ -300,12 +314,18 @@ try {
   });
   invariant(await joiner.evaluate(() => window.__inviteePasskeyActivation) === true, 'Invitee passkey request lost its trusted click activation');
   for (const page of [creator, joiner]) {
+    const waitAck = page.locator('#pairing-wait-ack');
+    if (await waitAck.waitFor({ timeout: 1_000 }).then(() => true, () => false)) {
+      await waitAck.click();
+      await waitAck.waitFor({ state: 'detached', timeout: 3_000 }).catch(() => undefined);
+    }
     const welcome = page.locator('#welcome-chat');
     if (await welcome.waitFor({ timeout: 5_000 }).then(() => true, () => false)) {
       await welcome.click();
       await welcome.waitFor({ state: 'detached', timeout: 5_000 }).catch(() => undefined);
     }
   }
+  invariant(await creator.locator('.crypto-reminder').count() === 0, 'Pairing still uses the old crypto reminder banner');
   const joinerUsesSyncablePasskey = await joiner.evaluate(async () => {
     const { readStoredVault } = await import('/src/lib/vault.ts');
     const stored = await readStoredVault();
@@ -338,8 +358,8 @@ try {
   invariant(presenceLayout.selfRight <= presenceLayout.peerLeft + 1, `Self presence is not on the left: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.selfLeft >= presenceLayout.summaryLeft - 1 && presenceLayout.peerRight <= presenceLayout.summaryRight + 1, `Presence labels overflow the capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(Math.abs(presenceLayout.peerCenter - presenceLayout.headerCenter) <= 3, `Combined presence is not centered: ${JSON.stringify(presenceLayout)}`);
-  invariant(presenceLayout.summaryHeight >= 44 && presenceLayout.shieldGap >= 8 && presenceLayout.moreGap >= 8,
-    `Header status crowds the actions or is shorter than the hit target: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.summaryHeight >= 44 && presenceLayout.summaryHeight <= 46 && presenceLayout.shieldGap >= 8 && presenceLayout.moreGap >= 8,
+    `Header status crowds the actions or is not 44px tall: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.shieldRight <= presenceLayout.summaryLeft + 1, `Recovery shield is not on the left of the status capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.shieldLeft >= presenceLayout.headerLeft - 1, `Recovery shield is not at the left of the header: ${JSON.stringify(presenceLayout)}`);
   invariant(await creator.locator('#message-list > #entrance-card-banner[data-local-system-card="entry"]').count() === 1, 'Save-entry guidance is not a local timeline system card');
@@ -528,10 +548,10 @@ try {
     document.dispatchEvent(new Event('visibilitychange'));
     window.dispatchEvent(new Event('focus'));
   });
-  await creator.locator('.cover-trigger').waitFor();
+  await creator.locator(LOCK_SURFACE).first().waitFor();
   invariant(await creator.getByText('browser-e2e-live', { exact: true }).count() === 0, 'Blur left plaintext visible');
   await creator.waitForTimeout(200);
-  invariant(await creator.locator('.cover-trigger').count() === 1, 'Focus restored the session without authentication');
+  invariant(await creator.locator(LOCK_SURFACE).count() >= 1 && await creator.locator('.chat-shell').count() === 0, 'Focus restored the session without authentication');
   await unlock(creator, true);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
   invariant(await creator.locator('#entrance-card-banner').count() === 0, 'Dismissed local entry card returned after unlocking');
@@ -621,12 +641,12 @@ try {
     window.dispatchEvent(new Event('focus'));
     window.dispatchEvent(new Event('blur'));
   });
-  await creator.locator('.cover-trigger').waitFor();
+  await creator.locator(LOCK_SURFACE).first().waitFor();
   invariant(await creator.locator('.chat-shell').count() === 0, 'A second browser departure during image selection left the chat exposed');
   await detachedInput.setInputFiles(image);
   await creator.evaluate(() => window.dispatchEvent(new Event('focus')));
   await creator.waitForTimeout(100);
-  invariant(await creator.locator('.cover-trigger').count() === 1, 'Selecting an image reopened chat before authentication');
+  invariant(await creator.locator(LOCK_SURFACE).count() >= 1 && await creator.locator('.chat-shell').count() === 0, 'Selecting an image reopened chat before authentication');
   invariant(await joiner.locator('.message.incoming .image-preview').count() === directImageJoinerIndex, 'A pending image was sent before authentication');
   await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
@@ -821,7 +841,7 @@ try {
     window.dispatchEvent(new Event('focus'));
     window.dispatchEvent(new Event('blur'));
   });
-  await creator.locator('.cover-trigger').waitFor();
+  await creator.locator(LOCK_SURFACE).first().waitFor();
   invariant(await creator.locator('.gallery-shell').count() === 0, 'A second browser departure during gallery selection left private photos exposed');
   let galleryUploadRequests = 0;
   await creator.route('**/chunks/**', async (route) => {
@@ -835,7 +855,7 @@ try {
   ]);
   await creator.evaluate(() => window.dispatchEvent(new Event('focus')));
   await creator.waitForTimeout(100);
-  invariant(await creator.locator('.cover-trigger').count() === 1, 'Gallery selection reopened private photos before authentication');
+  invariant(await creator.locator(LOCK_SURFACE).count() >= 1 && await creator.locator('.gallery-shell, .chat-shell').count() === 0, 'Gallery selection reopened private photos before authentication');
   invariant(galleryUploadRequests === 0, 'Gallery images uploaded before authentication');
   await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
@@ -935,14 +955,14 @@ try {
   await beginSyntheticFilePicker(cancelledInput);
   await cancelledInput.evaluate((input) => input.dispatchEvent(new Event('cancel')));
   await blurOutsidePage(creator);
-  await creator.locator('.cover-trigger').waitFor();
+  await creator.locator(LOCK_SURFACE).first().waitFor();
   await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
 
   const discardedInput = await creator.locator('#image-input').elementHandle();
   await beginSyntheticFilePicker(discardedInput);
   await creator.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
-  await creator.locator('.cover-trigger').waitFor();
+  await creator.locator(LOCK_SURFACE).first().waitFor();
   await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
   await creator.waitForTimeout(800);
@@ -959,7 +979,7 @@ try {
   await resumableFirstInput.setInputFiles(resumableImage);
   await creator.waitForTimeout(80);
   await blurOutsidePage(creator);
-  await creator.locator('.cover-trigger').waitFor();
+  await creator.locator(LOCK_SURFACE).first().waitFor();
   await creator.unroute('**/chunks/**');
   await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
@@ -1053,6 +1073,8 @@ try {
   await creator.locator('.local-recovery-code').waitFor();
   const recoveryCode = await creator.locator('.local-recovery-code').textContent();
   invariant(recoveryCode?.startsWith('QR3-'), 'Local recovery code was not displayed after verification');
+  invariant(await creator.locator('#confirm-code-saved').count() === 1, 'Saved confirmation button is missing');
+  invariant(await creator.locator('input[name="digits"]').count() === 0, 'Last-four confirmation field is still shown');
   const codeIsEncrypted = await creator.evaluate(async code => {
     const { readStoredVault } = await import('/src/lib/vault.ts');
     return !JSON.stringify(await readStoredVault()).includes(code);
@@ -1073,9 +1095,9 @@ try {
   await joiner.locator('#composer').evaluate((form) => form.requestSubmit());
   await creator.getByText('browser-e2e-peer-after-checkpoint', { exact: true }).waitFor({ timeout: 5000 });
   await blurOutsidePage(creator);
-  await creator.locator('.cover-trigger').waitFor();
+  await creator.locator(LOCK_SURFACE).first().waitFor();
   await blurOutsidePage(joiner);
-  await joiner.locator('.cover-trigger').waitFor();
+  await joiner.locator(LOCK_SURFACE).first().waitFor();
   const recoveryContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
   const recovery = await recoveryContext.newPage();
   await enableDeviceVault(recovery);
@@ -1129,7 +1151,7 @@ try {
   });
   invariant(restoredIdentity.id !== sourceIdentity && !restoredIdentity.pending, 'Recovery reused the checkpoint identity or did not finish replacement');
   invariant(restoredIdentity.boundary > 0 && !restoredIdentity.exportedAt, 'Fresh recovery failed to establish a history boundary and require a new backup');
-  if (await recovery.locator('.cover-trigger').count()) {
+  if (await recovery.locator(LOCK_SURFACE).count()) {
     await unlock(recovery);
     await recovery.locator('.chat-shell').waitFor({ timeout: 15_000 });
   }

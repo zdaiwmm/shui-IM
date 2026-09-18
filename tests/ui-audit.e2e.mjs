@@ -265,7 +265,7 @@ try {
     await creator.locator('[data-message-action=copy]').click();
     await creator.waitForFunction(() => typeof window.__rejectAuditCopy === 'function');
     await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
-    await creator.locator('.cover-trigger').waitFor();
+    await creator.locator('.cover-trigger, #passkey-unlock, .cover.cover-off').first().waitFor();
     const before = await creator.locator('body').innerText();
     await creator.evaluate(() => window.__rejectAuditCopy(new Error('Document is not focused')));
     await creator.waitForTimeout(100);

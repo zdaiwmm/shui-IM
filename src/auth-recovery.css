@@ -91,7 +91,7 @@
 
 .credential-only-step + .gateway-secondary,
 .credential-only-step + .gateway-back {
-  margin-top: 8px;
+  margin-top: 12px;
 }
 
 .gateway > .privacy-note {

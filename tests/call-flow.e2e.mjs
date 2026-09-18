@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { writeFile } from 'node:fs/promises';
 
+const LOCK_SURFACE = '.cover-trigger, #passkey-unlock, .cover.cover-off';
+
 /** Exercise the shipped app and its authenticated WebSocket route using synthetic browser devices. */
 export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirectory }) {
   const pages = [creator, joiner];
@@ -155,7 +157,7 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
       if (viewport) await creator.setViewportSize(viewport);
     }
     await joiner.evaluate(() => window.dispatchEvent(new Event('pagehide')));
-    await joiner.locator('.cover-trigger').waitFor();
+    await joiner.locator(LOCK_SURFACE).first().waitFor();
     await tracksStopped(joiner);
     assert.equal(await joiner.locator('.call-view').count(), 0, 'Privacy lock must remove every call media node');
     await phase(creator, 'ended').waitFor({ timeout: 15_000 });
@@ -181,7 +183,7 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
     // Browser suspension is a lock as well, and cannot leave an audio-only call capturing.
     await connect(creator, joiner, 'audio');
     await creator.evaluate(() => document.dispatchEvent(new Event('freeze')));
-    await creator.locator('.cover-trigger').waitFor();
+    await creator.locator(LOCK_SURFACE).first().waitFor();
     await tracksStopped(creator);
     await phase(joiner, 'ended').waitFor({ timeout: 15_000 });
     await tracksStopped(joiner);
@@ -200,7 +202,7 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
       window.dispatchEvent(new Event('focus'));
       window.dispatchEvent(new Event('blur'));
     });
-    await creator.locator('.cover-trigger').waitFor();
+    await creator.locator(LOCK_SURFACE).first().waitFor();
     await creator.evaluate(async () => {
       const state = window.__callFlow;
       const stream = await state.media({ audio: true });
@@ -220,7 +222,7 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
       await start(creator, 'audio');
       await creator.waitForFunction(() => typeof window.__callFlow.resolvePermission === 'function');
       await creator.evaluate(name => (name === 'freeze' ? document : window).dispatchEvent(new Event(name)), lifecycle);
-      await creator.locator('.cover-trigger').waitFor();
+      await creator.locator(LOCK_SURFACE).first().waitFor();
       await creator.evaluate(async () => {
         const state = window.__callFlow, stream = await state.media({ audio: true });
         state.lateTracks = stream.getTracks(); state.tracks.push(...state.lateTracks);
