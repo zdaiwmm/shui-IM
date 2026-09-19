@@ -78,7 +78,8 @@ try {
     progressApp.renderJointProgress();
   });
   assert.equal(await a.locator('#joint-progress h1').textContent(), '请对方一起参与');
-  assert.equal(await a.locator('.joint-code').count(), 0);
+  assert.match(await a.locator('#joint-progress .recovery-flow-lead').textContent() ?? '', /核对你们的编码是一样的/);
+  assert.equal(await a.locator('.joint-request-code').count(), 1);
   assert.equal(await a.locator('#joint-scope-summary').count(), 1);
   assert.equal(await a.locator('#joint-participant-badge').count(), 1);
   assert.equal(await a.locator('#joint-retire, #joint-retry, #joint-cancel').count(), 0);
@@ -129,6 +130,8 @@ try {
   if (process.argv[2]) await a.screenshot({ path: process.argv[2], fullPage: true });
   assert.equal(await a.locator('#open-local-history, #import-history-from-hub').count(), 0);
   assert.equal(await a.locator('#save-my-code').count(), 1);
+  assert.equal(await a.locator('.recovery-flow-list li').count(), 3);
+  assert.equal(await a.locator('#save-my-code').textContent(), '查看我的恢复码');
   await a.locator('#recovery-center-back').click();
   await a.evaluate(() => app.lockNow()); assert.equal(await a.locator('#recovery-center-back').count(), 0);
   console.log('Joint recovery browser: dual signatures, helper catch-up, atomic history preservation, code rotation, own local import, resumed passkeys and 375/390 UI passed.');

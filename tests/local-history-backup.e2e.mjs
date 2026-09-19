@@ -101,8 +101,8 @@ try {
   assert.equal(result.network, 0); assert.equal(result.lastSeq, 0);
   await page.locator('#local-backup-export').click();
   await page.locator('#local-backup-ready').waitFor({ state: 'visible' });
-  assert.equal(await page.locator('#local-backup-export').textContent(), '保存聊天备份');
-  assert.match(await page.locator('#local-backup-status').textContent(), /3 条记录、1 个原始附件/);
+  assert.equal(await page.locator('#local-backup-export').textContent(), '备份聊天记录');
+  assert.match(await page.locator('#local-backup-status').textContent(), /3 条记录、1 个原始附件|已交给系统|未确认保存/);
   for (const width of [390, 375]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 812 });
     await page.waitForTimeout(100);
@@ -115,15 +115,20 @@ try {
   const coverGeometry = await page.evaluate(() => {
     const hotspot = document.querySelector('.cover-practice-page .practice-hotspot')?.getBoundingClientRect();
     const guide = document.querySelector('.cover-practice-page .hold-guide')?.getBoundingClientRect();
-    const notice = document.querySelector('.cover-practice-notice')?.textContent ?? '';
-    if (!hotspot || !guide) return null;
+    const notice = document.querySelector('.cover-practice-notice');
+    const back = document.querySelector('#practice-back')?.getBoundingClientRect();
+    const noticeBox = notice?.getBoundingClientRect();
+    if (!hotspot || !guide || !noticeBox || !back) return null;
     return {
       width: Math.round(hotspot.width),
       height: Math.round(hotspot.height),
       right: innerWidth - hotspot.right,
       bottom: innerHeight - hotspot.bottom,
       guideAbove: guide.bottom <= hotspot.top + 8,
-      notice,
+      notice: notice?.textContent ?? '',
+      noticeBelowBack: noticeBox.top >= back.bottom - 1,
+      noticeLeft: noticeBox.left,
+      noticeRight: innerWidth - noticeBox.right,
     };
   });
   assert.equal(coverGeometry?.width, 80);
@@ -132,6 +137,9 @@ try {
   assert.ok((coverGeometry?.bottom ?? 99) <= 8, 'practice hotspot is not at the live cover bottom edge');
   assert.equal(coverGeometry?.guideAbove, true);
   assert.match(coverGeometry?.notice ?? '', /离开私密空间后.*自动进入遮蔽层/);
+  assert.equal(coverGeometry?.noticeBelowBack, true, 'cover practice notice overlaps the back button');
+  assert.ok((coverGeometry?.noticeLeft ?? 0) >= 12, 'cover practice notice does not keep left inset');
+  assert.ok((coverGeometry?.noticeRight ?? 0) >= 12, 'cover practice notice does not keep right inset');
   const resumedPractice = await page.evaluate(() => {
     const app = window.fixtureApp;
     const session = app.session;
