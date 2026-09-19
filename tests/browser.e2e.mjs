@@ -354,15 +354,18 @@ try {
       peerCenter: (summary.left + summary.right) / 2, headerCenter: (header.left + header.right) / 2,
       summaryHeight: summary.height, actionHeight: more.height, shieldGap: summary.left - shield.right, moreGap: more.left - summary.right,
       shieldLeft: shield.left, shieldRight: shield.right, moreLeft: more.left, headerLeft: header.left,
-      circuitHeight: circuit.height, leftWireGap: circuit.left - selfDot.right, rightWireGap: peerDot.left - circuit.right };
+      circuitHeight: circuit.height, circuitWidth: circuit.width,
+      leftWireGap: circuit.left - selfDot.right, rightWireGap: peerDot.left - circuit.right };
   });
   invariant(presenceLayout.selfRight <= presenceLayout.peerLeft + 1, `Self presence is not on the left: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.selfLeft >= presenceLayout.summaryLeft - 1 && presenceLayout.peerRight <= presenceLayout.summaryRight + 1, `Presence labels overflow the capsule: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.selfLeft >= presenceLayout.summaryLeft + 12, `Presence labels were not pulled toward the circuit: ${JSON.stringify(presenceLayout)}`);
   invariant(Math.abs(presenceLayout.peerCenter - presenceLayout.headerCenter) <= 3, `Combined presence is not centered: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.summaryHeight >= 43 && presenceLayout.summaryHeight <= 45 && presenceLayout.shieldGap >= 8 && presenceLayout.moreGap >= 8,
     `Header status crowds the actions or is not 44px tall: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.circuitHeight >= 22 && presenceLayout.circuitHeight <= 26, `Presence circuit was not restored to 24px: ${JSON.stringify(presenceLayout)}`);
-  invariant(presenceLayout.leftWireGap <= 6 && presenceLayout.rightWireGap <= 6, `Presence wires do not meet the online dots: ${JSON.stringify(presenceLayout)}`);
+  invariant(Math.abs(presenceLayout.circuitWidth / presenceLayout.circuitHeight - 100 / 24) <= 0.08, `Presence circuit was stretched: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.leftWireGap <= 2 && presenceLayout.leftWireGap >= -10 && presenceLayout.rightWireGap <= 2 && presenceLayout.rightWireGap >= -10, `Presence wires do not meet the online dots: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.shieldRight <= presenceLayout.summaryLeft + 1, `Recovery shield is not on the left of the status capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.shieldLeft >= presenceLayout.headerLeft - 1, `Recovery shield is not at the left of the header: ${JSON.stringify(presenceLayout)}`);
   invariant(await creator.locator('#message-list > #entrance-card-banner[data-local-system-card="entry"]').count() === 1, 'Save-entry guidance is not a local timeline system card');
