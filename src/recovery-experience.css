@@ -149,12 +149,21 @@
   white-space: nowrap;
 }
 .invite-badge-ready { color: var(--accent); }
-.pairing-footer .primary-button { width: 100%; }
+.pairing-footer .primary-button {
+  width: 100%;
+  font-size: 1rem;
+}
 .recovery-details { margin: 8px 0 0; color: var(--ink-muted); }
 .recovery-details summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
 .recovery-details p { margin: 0 0 8px; line-height: 1.65; }
-.gateway-plain .credential-only-step { margin-top: 40px; gap: 24px; }
-.gateway-plain .credential-only-step + .gateway-back { margin-top: 12px; }
+.gateway-plain .credential-only-step { margin-top: 40px; gap: 16px; }
+.gateway-plain .credential-only-step > .field-hint { margin-bottom: 8px; }
+.gateway-plain .credential-only-step > .form-error:empty {
+  display: none;
+  min-height: 0;
+  margin: 0;
+}
+.gateway-plain .credential-only-step + .gateway-back { margin-top: 16px; }
 .pairing-body { gap: 16px; }
 @media (max-height: 760px) {
   #invite-qr, #joint-qr, .invite-qr { width: 200px; height: 200px; }
@@ -198,15 +207,20 @@
 .recovery-code-view > button { width: 100%; min-height: 48px; }
 .recovery-code-panel { display: grid; }
 .recovery-code-panel > .primary-button { width: 100%; min-height: 48px; }
-.joint-code-sheet .recovery-flow-label { margin: 4px 0 0; gap: 14px; }
+.joint-code-sheet .recovery-flow-label { margin: 4px 0 0; gap: 8px; }
 .joint-code-sheet .recovery-code-panel,
 .joint-code-sheet.confirm-overlay .confirm-dialog {
   max-height: none;
   overflow: hidden;
   padding: 22px;
-  gap: 12px;
+  gap: 8px;
 }
-.joint-code-sheet .recovery-code-panel > .primary-button { margin-top: 4px; }
+.joint-code-sheet .recovery-code-panel > .primary-button { margin-top: 0; }
+.joint-code-sheet .form-error:empty {
+  display: none;
+  min-height: 0;
+  margin: 0;
+}
 .recovery-flow-list {
   margin: 0 0 12px;
   padding-left: 1.2em;
@@ -234,7 +248,12 @@
 .confirm-dialog h2, .confirm-dialog p { margin: 0; }
 .confirm-dialog p { color: var(--ink-muted); line-height: 1.7; }
 .confirm-dialog button { min-height: 48px; }
-.joint-code-sheet { z-index: 130; }
+.joint-code-sheet {
+  z-index: 130;
+  place-items: end center;
+  align-content: end;
+  padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+}
 
 .recovery-flow-page {
   width: 100%;

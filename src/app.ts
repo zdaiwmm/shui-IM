@@ -1818,6 +1818,25 @@ export class QuietRoomApp {
     }
   }
 
+  private pinOverlayToVisualViewport(sheet: HTMLElement): () => void {
+    const viewport = window.visualViewport;
+    const sync = () => {
+      sheet.style.top = `${viewport?.offsetTop ?? 0}px`;
+      sheet.style.left = `${viewport?.offsetLeft ?? 0}px`;
+      sheet.style.width = `${viewport?.width ?? window.innerWidth}px`;
+      sheet.style.height = `${viewport?.height ?? window.innerHeight}px`;
+      sheet.style.right = 'auto';
+      sheet.style.bottom = 'auto';
+    };
+    sync();
+    viewport?.addEventListener('resize', sync);
+    viewport?.addEventListener('scroll', sync);
+    return () => {
+      viewport?.removeEventListener('resize', sync);
+      viewport?.removeEventListener('scroll', sync);
+    };
+  }
+
   private armRecoveryKeyboardHandoff(container: HTMLElement): void {
     for (const input of container.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input:not([type="radio"]):not([type="checkbox"]), textarea')) {
       input.addEventListener('focus', () => {
@@ -2237,7 +2256,14 @@ export class QuietRoomApp {
     // Recovery/migration have decrypted key material but have not opened a
     // conversation or socket. Their native prompt needs the same bounded
     // protection as first-time enrollment. Never exempt an open conversation.
-    if (this.session && (!this.root.querySelector('.gateway') || this.socket)) return operation();
+    // Recovery-flow pages keep an open session/socket (viewing a recovery code
+    // or exporting a local backup) and still need that protection: otherwise
+    // the passkey sheet blurs the window and locks before the next page.
+    if (
+      !this.root.querySelector('.recovery-flow-page') &&
+      this.session &&
+      (!this.root.querySelector('.gateway') || this.socket)
+    ) return operation();
     const epoch = this.runtimeEpoch;
     const token = Symbol('device-verification');
     const timeout = 65_000;
@@ -3642,11 +3668,15 @@ export class QuietRoomApp {
         }
         return;
       }
+      if (session.vault.mls.phase === 'active' && !session.vault.mls.pendingWelcome) return;
       if (new Set(state.members.filter((member) => member.status === undefined || member.status === 'active').map((member) => member.role)).size < 2) return;
       session.vault.mls = await prepareCreatorWelcome(session.vault);
       await saveVault(session, mutation);
       const pending = session.vault.mls.pendingWelcome;
-      if (!pending) throw new Error('MLS 欢迎消息没有持久化');
+      if (!pending) {
+        if (session.vault.mls.phase === 'active') return;
+        throw new Error('MLS 欢迎消息没有持久化');
+      }
       const published = await publishMlsWelcome(session.vault.roomId, session.vault.accessToken, pending);
       if (!published.mlsWelcome || canonicalStringify(published.mlsWelcome) !== canonicalStringify(pending)) {
         throw new SecurityViolation('服务器没有确认相同的 MLS 欢迎消息');
@@ -8970,10 +9000,12 @@ export class QuietRoomApp {
     this.root.append(sheet);
     const form = sheet.querySelector<HTMLFormElement>('#joint-code-form')!;
     const input = form.querySelector<HTMLTextAreaElement>('textarea[name="code"]')!;
+    const unpinViewport = this.pinOverlayToVisualViewport(sheet);
     const dialog = mountDialog(sheet, {
       isActive: () => !this.privacyCovered && sheet.isConnected,
       initialFocus: input,
       onClose: () => {
+        unpinViewport();
         input.value = '';
       },
     });
