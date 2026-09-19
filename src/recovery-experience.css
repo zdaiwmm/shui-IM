@@ -196,8 +196,8 @@
 .recovery-code-view { display: grid; gap: 16px; width: 100%; }
 .recovery-code-view .local-recovery-code { margin: 16px 0 8px; }
 .recovery-code-view > button { width: 100%; min-height: 48px; }
-.recovery-code-panel { display: grid; gap: 12px; overflow: hidden; }
-.recovery-code-panel > .primary-button { width: 100%; min-height: 48px; margin-top: 0; }
+.recovery-code-panel { display: grid; }
+.recovery-code-panel > .primary-button { width: 100%; min-height: 48px; }
 .joint-code-sheet .recovery-flow-label { margin: 4px 0 0; gap: 14px; }
 .joint-code-sheet .recovery-code-panel,
 .joint-code-sheet.confirm-overlay .confirm-dialog {
