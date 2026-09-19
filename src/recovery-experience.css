@@ -31,11 +31,27 @@
   color: var(--danger);
   background: var(--danger-soft);
   background-image: none;
+  transform: none;
   animation: recovery-breathe 2.8s ease-in-out infinite;
 }
 .cover-practice-page { position: relative; min-height: 100dvh; }
-.cover-practice-header { position: absolute; top: 0; left: 0; z-index: 2; background: transparent; }
+.cover-practice-header { position: absolute; top: 0; left: 0; z-index: 3; background: transparent; }
 .cover-practice-header .icon-button { width: 44px; height: 44px; min-width: 44px; }
+.cover-practice-notice {
+  position: absolute;
+  top: max(52px, calc(env(safe-area-inset-top) + 48px));
+  left: 16px;
+  right: 16px;
+  z-index: 3;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--paper-pure);
+  color: var(--ink);
+  font-size: 0.94rem;
+  line-height: 1.55;
+}
 .cover-practice-actions { position: absolute; left: 16px; right: 16px; bottom: max(108px, calc(env(safe-area-inset-bottom) + 96px)); display: grid; gap: 12px; z-index: 2; }
 .cover-practice-actions p { margin: 0; color: var(--ink-muted); }
 .hold-guide {
@@ -107,12 +123,35 @@
 }
 .backup-content > .secondary-button { margin-top: 12px; width: 100%; }
 @keyframes recovery-breathe {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--danger) 22%, transparent); transform: scale(1); }
-  50% { box-shadow: 0 0 0 7px color-mix(in oklch, var(--danger) 0%, transparent); transform: scale(1.06); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--danger) 22%, transparent); }
+  50% { box-shadow: 0 0 0 8px color-mix(in oklch, var(--danger) 0%, transparent); }
 }
 @media (prefers-reduced-motion: reduce) { .recovery-shield.needs-preparation { animation: none; } }
 
-.cover.cover-off { display: grid; place-content: center; gap: 24px; padding: 24px; text-align: center; }
+.cover.cover-off { display: grid; place-content: center; min-height: 100%; }
+.cover.cover-off .cover-trigger {
+  inset: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+.recovery-code-heading {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+}
+.recovery-code-heading h2 { margin: 0; text-align: center; font-size: 1.15rem; }
+.recovery-code-heading > span { width: 44px; height: 44px; }
+.recovery-flow-textarea {
+  min-height: 96px;
+  resize: none;
+  field-sizing: content;
+  overflow-wrap: anywhere;
+}
 .recovery-code-view { display: grid; gap: 16px; width: 100%; }
 .recovery-code-view .local-recovery-code { margin: 4px 0 0; }
 .recovery-code-view > button { width: 100%; min-height: 48px; }
@@ -310,20 +349,18 @@
 }
 .joint-code { font: 700 .95rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .08em; color: var(--ink) !important; }
 
-.joint-waiting-page { overflow: hidden; }
-.joint-waiting-page .recovery-flow-content { overflow: hidden; padding-bottom: 8px; }
-.joint-waiting-page .joint-progress { gap: 8px; }
-.joint-waiting-page .recovery-flow-hero { width: 36px; height: 36px; margin: 0 0 6px; }
-.joint-waiting-page .recovery-flow-hero svg { width: 20px; height: 20px; }
-.joint-waiting-page h1 { margin: 0 0 4px; font-size: 1.28rem; }
-.joint-waiting-page .recovery-flow-lead { margin: 0 0 6px; font-size: .82rem; line-height: 1.45; }
-.joint-waiting-page #joint-qr, .joint-waiting-page .invite-qr { width: 132px; height: 132px; max-width: 132px; }
-.joint-waiting-page .recovery-flow-group { margin: 6px 0; }
-.joint-waiting-page .recovery-flow-row { min-height: 44px; padding: 8px 12px; }
-.joint-waiting-page .recovery-flow-row small { margin-top: 2px; }
-.joint-waiting-page .recovery-flow-notice { margin: 6px 0; }
-.joint-waiting-page .recovery-flow-note { margin: 4px 2px; font-size: .72rem; line-height: 1.45; }
-.joint-waiting-page .recovery-flow-footer { gap: 4px; padding-top: 6px; }
+.joint-waiting-page .recovery-flow-content { overflow-y: auto; padding-bottom: 12px; }
+.joint-waiting-page .joint-progress { gap: 12px; }
+.joint-waiting-page .recovery-flow-hero { width: 44px; height: 44px; margin: 0 0 8px; }
+.joint-waiting-page .recovery-flow-hero svg { width: 22px; height: 22px; }
+.joint-waiting-page h1 { margin: 0 0 8px; font-size: 1.5rem; }
+.joint-waiting-page .recovery-flow-lead { margin: 0 0 10px; font-size: .94rem; line-height: 1.55; }
+.joint-waiting-page #joint-qr, .joint-waiting-page .invite-qr { width: min(248px, 72vw); height: auto; max-width: min(248px, 72vw); aspect-ratio: 1; }
+.joint-waiting-page .recovery-flow-group { margin: 8px 0; }
+.joint-waiting-page .recovery-flow-row { min-height: 52px; padding: 10px 14px; }
+.joint-waiting-page .recovery-flow-notice { margin: 8px 0; }
+.joint-waiting-page .recovery-flow-note { margin: 6px 2px; font-size: .8rem; line-height: 1.55; }
+.joint-waiting-page .recovery-flow-footer { gap: 8px; padding-top: 8px; }
 
 .cover-practice-page .hold-guide {
   right: max(24px, calc(env(safe-area-inset-right) + 20px));

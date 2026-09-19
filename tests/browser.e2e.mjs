@@ -216,12 +216,13 @@ try {
   await creator.locator('#joint-start').waitFor();
   invariant(await creator.locator('#app > .page-transition-outgoing').count() === 0, 'Welcome copy remained mounted during recovery navigation');
   invariant(await creator.locator('input[name="scope"][value="peer"]:not([disabled])').count() === 1, 'Peer-only recovery cannot be selected');
-  invariant(await creator.locator('#joint-start input[name="code"]').count() === 0, 'Recovery-code field is still on the page');
+  invariant(await creator.locator('#joint-start input[name="code"], #joint-start textarea[name="code"]').count() === 0, 'Recovery-code field is still on the page');
   invariant(await creator.locator('#joint-cancel-entry').count() === 0, 'Home return button is still on the recovery page');
   await creator.locator('#joint-open-code').click();
-  const recoveryCodeInput = creator.locator('#joint-code-form input[name="code"]');
+  const recoveryCodeInput = creator.locator('#joint-code-form textarea[name="code"]');
   await recoveryCodeInput.waitFor();
   invariant(await recoveryCodeInput.evaluate((input) => document.activeElement === input), 'Recovery code input did not take focus');
+  invariant(await creator.locator('#joint-code-back').count() === 1, 'Recovery code sheet is missing a back button');
   await recoveryCodeInput.evaluate((input) => {
     input.blur();
     window.dispatchEvent(new Event('blur'));
@@ -230,7 +231,7 @@ try {
   invariant(await creator.locator('#joint-start').count() === 1, 'Dismissing the recovery keyboard returned to the first entry page');
   await creator.evaluate(() => window.dispatchEvent(new Event('focus')));
   invariant(await creator.locator('#joint-start').count() === 1, 'Returning window focus left the recovery-code page');
-  await creator.locator('.joint-code-sheet').press('Escape');
+  await creator.locator('#joint-code-back').click();
   await creator.locator('#joint-code-form').waitFor({ state: 'detached' });
   await creator.locator('#joint-back').click();
   await creator.locator('#create-room').click();
@@ -350,19 +351,30 @@ try {
     const summary = document.querySelector('.peer-summary').getBoundingClientRect();
     const shield = document.querySelector('#recovery-shield').getBoundingClientRect();
     const more = document.querySelector('.more-menu > summary').getBoundingClientRect();
+    const circuit = document.querySelector('.presence-circuit').getBoundingClientRect();
+    const selfDot = document.querySelector('#self-presence .presence-dot').getBoundingClientRect();
+    const peerDot = document.querySelector('#peer-presence .presence-dot').getBoundingClientRect();
     return { selfLeft: self.left, selfRight: self.right, peerLeft: peer.left, peerRight: peer.right, summaryLeft: summary.left, summaryRight: summary.right,
       peerCenter: (summary.left + summary.right) / 2, headerCenter: (header.left + header.right) / 2,
       summaryHeight: summary.height, actionHeight: more.height, shieldGap: summary.left - shield.right, moreGap: more.left - summary.right,
-      shieldLeft: shield.left, shieldRight: shield.right, moreLeft: more.left, headerLeft: header.left };
+      shieldLeft: shield.left, shieldRight: shield.right, moreLeft: more.left, headerLeft: header.left,
+      circuitHeight: circuit.height, leftWireGap: circuit.left - selfDot.right, rightWireGap: peerDot.left - circuit.right };
   });
   invariant(presenceLayout.selfRight <= presenceLayout.peerLeft + 1, `Self presence is not on the left: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.selfLeft >= presenceLayout.summaryLeft - 1 && presenceLayout.peerRight <= presenceLayout.summaryRight + 1, `Presence labels overflow the capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(Math.abs(presenceLayout.peerCenter - presenceLayout.headerCenter) <= 3, `Combined presence is not centered: ${JSON.stringify(presenceLayout)}`);
-  invariant(presenceLayout.summaryHeight >= 44 && presenceLayout.summaryHeight <= 46 && presenceLayout.shieldGap >= 8 && presenceLayout.moreGap >= 8,
-    `Header status crowds the actions or is not 44px tall: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.summaryHeight >= 44 && presenceLayout.summaryHeight <= 64 && presenceLayout.shieldGap >= 8 && presenceLayout.moreGap >= 8,
+    `Header status crowds the actions or is not at least 44px tall: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.circuitHeight >= 22 && presenceLayout.circuitHeight <= 26, `Presence circuit was not restored to 24px: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.leftWireGap <= 6 && presenceLayout.rightWireGap <= 6, `Presence wires do not meet the online dots: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.shieldRight <= presenceLayout.summaryLeft + 1, `Recovery shield is not on the left of the status capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.shieldLeft >= presenceLayout.headerLeft - 1, `Recovery shield is not at the left of the header: ${JSON.stringify(presenceLayout)}`);
   invariant(await creator.locator('#message-list > #entrance-card-banner[data-local-system-card="entry"]').count() === 1, 'Save-entry guidance is not a local timeline system card');
+  await creator.locator('#recovery-shield').click({ timeout: 8_000 });
+  await creator.locator('#save-my-code').waitFor();
+  invariant(await creator.locator('#recovery-center-back').count() === 1, 'Save recovery-code page is missing a back button');
+  await creator.locator('#recovery-center-back').click();
+  await creator.locator('#app:not([data-page-transition]) > .chat-shell').waitFor();
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-shield-entry-card-mobile.png') });
   await creator.locator('#dismiss-entrance-card').click();
   await creator.locator('#entrance-card-banner').waitFor({ state: 'detached' });
@@ -1064,6 +1076,7 @@ try {
   invariant(await joiner.locator('#app > .chat-shell #message-list .message').filter({ hasText: '仅相册保存.pdf' }).count() === 0, 'Peer chat exposes the private gallery filename');
 
   await creator.locator('.more-menu summary').click();
+  invariant(await creator.locator('#local-history-backup span').textContent() === '备份/恢复聊天记录', 'Local backup menu label was not renamed');
   await creator.locator('#backup-settings').click();
   await creator.locator('#save-my-code').waitFor();
   invariant(await creator.locator('#export-recovery').count() === 0, 'Manual recovery export remains exposed');

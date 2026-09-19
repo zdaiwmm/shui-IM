@@ -313,7 +313,7 @@ try {
   await menu();
   await capture('chat-menu', ['mobile', 'small', 'landscape', 'dark', 'large']);
   await creator.locator('#backup-settings').click();
-  await creator.locator('.backup-page').waitFor();
+  await creator.locator('#save-my-code').waitFor();
   await capture('recovery', ['mobile', 'small', 'landscape', 'dark', 'large']);
   await creator.locator('#recovery-center-back').click();
   await creator.keyboard.press('Escape');
