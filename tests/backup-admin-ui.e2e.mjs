@@ -160,7 +160,9 @@ try {
     } });
     await app.renderUnlock();
   });
-  await page.locator('#passkey-unlock').click();
+  if (!(await page.getByRole('button', { name: '重新验证', exact: true }).count())) {
+    await page.locator('#passkey-unlock').click();
+  }
   await page.getByRole('button', { name: '重新验证', exact: true }).waitFor();
   assert.equal(await page.locator('.gateway-unlock .form-error').textContent(), '', 'cancelled passkey verification left a red error message');
   assert.equal(await page.locator('.gateway-unlock .primary-button').count(), 1, 'unlock contains only one primary passkey action');

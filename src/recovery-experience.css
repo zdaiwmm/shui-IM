@@ -156,19 +156,114 @@
 .recovery-details { margin: 8px 0 0; color: var(--ink-muted); }
 .recovery-details summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; }
 .recovery-details p { margin: 0 0 8px; line-height: 1.65; }
-.gateway-plain .credential-only-step { margin-top: 40px; gap: 16px; }
-.gateway-plain .credential-only-step > .field-hint { margin-bottom: 8px; }
-.gateway-plain .credential-only-step > .form-error:empty {
+.gateway-plain {
+  justify-content: space-between;
+  min-height: 100%;
+  gap: 32px;
+}
+.gateway-plain .setup-follow-hint,
+.gateway-plain .gateway-heading .privacy-note,
+.gateway-plain > .privacy-note {
+  max-width: 36ch;
+  margin: 12px 0 0;
+  padding-top: 0;
+  color: var(--ink-muted);
+  font-size: 0.95rem;
+  font-weight: 400;
+  line-height: 1.65;
+}
+.gateway-plain .welcome-actions {
+  width: 100%;
+  margin-top: auto;
+}
+.gateway-plain .welcome-actions .form-error:empty,
+.welcome-actions .form-error:empty {
   display: none;
   min-height: 0;
   margin: 0;
 }
-.gateway-plain .credential-only-step + .gateway-back { margin-top: 16px; }
-.pairing-body { gap: 16px; }
-@media (max-height: 760px) {
-  #invite-qr, #joint-qr, .invite-qr { width: 200px; height: 200px; }
+.welcome-actions .gateway-back,
+.welcome-actions .text-button {
+  width: 100%;
+  margin-top: 0;
 }
-.backup-content > .secondary-button { margin-top: 12px; width: 100%; }
+.pairing-screen { padding: max(18px, env(safe-area-inset-top)) 22px calc(18px + var(--safe-bottom)); }
+.pairing-header {
+  justify-content: flex-start;
+  min-height: 0;
+}
+.pairing-header h1 { font-size: 1.45rem; }
+.pairing-body { gap: 12px; }
+.pairing-footer {
+  display: grid;
+  gap: 16px;
+  width: 100%;
+  padding-top: 8px;
+}
+.pairing-footer .text-button { width: 100%; margin-top: 0; }
+@media (max-height: 920px) {
+  #invite-qr, #joint-qr, .invite-qr { width: 168px; height: 168px; padding: 8px; }
+  .invite-status-row { min-height: 48px; padding: 8px 14px; }
+}
+.welcome-actions .primary-button:active,
+.welcome-actions .text-button:active,
+.gateway-welcome button:not(:disabled):active,
+.gateway-plain button:not(:disabled):active,
+.pairing-screen button:not(:disabled):active,
+.save-entry-page button:not(:disabled):active,
+.save-entry-page .primary-button:active {
+  transform: none;
+}
+
+.save-entry-page .save-entry-copy {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+.save-entry-page .recovery-flow-list {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.95rem;
+}
+.save-entry-page .recovery-flow-lead,
+.save-entry-page .recovery-flow-note,
+.save-entry-page .recovery-flow-notice p {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 0.95rem;
+  line-height: 1.65;
+}
+.save-entry-page .recovery-flow-notice {
+  margin: 0;
+}
+.save-entry-page .recovery-flow-notice strong {
+  font-size: 0.95rem;
+}
+.save-entry-page .local-recovery-code {
+  margin: 20px 0 0;
+}
+.save-entry-page .welcome-privacy,
+.gateway-plain > .privacy-note {
+  font-size: 0.95rem;
+}
+.history-summary {
+  display: grid;
+  width: 100%;
+}
+
+.history-summary-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.95rem;
+}
+.history-summary-row:last-child { border-bottom: 0; }
+.history-summary-row strong { font-weight: 650; }
+.history-summary-row span { color: var(--ink-muted); font-variant-numeric: tabular-nums; }
 @keyframes recovery-breathe {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--danger) 22%, transparent); }
   50% { box-shadow: 0 0 0 8px color-mix(in oklch, var(--danger) 0%, transparent); }
@@ -203,6 +298,12 @@
   field-sizing: fixed;
 }
 .recovery-code-view { display: grid; gap: 16px; width: 100%; }
+.gateway-plain .recovery-code-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
 .recovery-code-view .local-recovery-code { margin: 16px 0 8px; }
 .recovery-code-view > button { width: 100%; min-height: 48px; }
 .recovery-code-panel { display: grid; }

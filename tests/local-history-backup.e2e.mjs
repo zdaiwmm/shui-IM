@@ -90,24 +90,28 @@ try {
     document.body.className = 'app-mode'; app.revealPrivacySurface(); app.renderLocalHistoryBackup();
     window.fixtureApp = app;
     return { exported, imported, repeated, damagedRejected, cleanAfterDamage, originalEqual, hiddenPreserved,
-      hiddenSurvivesQueuedSave, wrongRole, wrongRoom, wrongIdentity, network, lastSeq: unchangedSeq };
+      hiddenSurvivesQueuedSave, wrongRole, wrongRoom, wrongIdentity, network, lastSeq: unchangedSeq,
+      categories: { text: exported.text, images: exported.images, videos: exported.videos, voice: exported.voice, files: exported.files, expressions: exported.expressions } };
   });
   assert.equal(result.exported.messages, 3);
   assert.equal(result.exported.attachments, 1);
   assert.equal(result.exported.missingAttachments, 1);
+  assert.deepEqual(result.categories, { text: 1, images: 0, videos: 2, voice: 0, files: 0, expressions: 0 });
   assert.equal(result.imported.imported, 3);
   assert.equal(result.repeated.imported, 0);
   for (const key of ['damagedRejected', 'cleanAfterDamage', 'originalEqual', 'hiddenPreserved', 'hiddenSurvivesQueuedSave', 'wrongRole', 'wrongRoom', 'wrongIdentity']) assert.equal(result[key], true, key);
   assert.equal(result.network, 0); assert.equal(result.lastSeq, 0);
   await page.locator('#local-backup-export').click();
-  await page.locator('#local-backup-ready').waitFor({ state: 'visible' });
+  await page.locator('#history-download').waitFor({ state: 'visible' });
+  await page.locator('#history-download').click();
+  await page.locator('#history-download').waitFor({ state: 'detached', timeout: 15_000 }).catch(() => undefined);
   assert.equal(await page.locator('#local-backup-export').textContent(), '备份聊天记录');
-  assert.match(await page.locator('#local-backup-status').textContent(), /3 条记录、1 个原始附件|已交给系统|未确认保存/);
+  assert.equal(await page.locator('#open-local-import, #local-backup-ready').count(), 0);
   for (const width of [390, 375]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 812 });
     await page.waitForTimeout(100);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true);
-    const targets = await page.locator('#local-backup-export, #open-local-import, #local-backup-back').evaluateAll(nodes => nodes.every(node => node.getBoundingClientRect().height >= 44));
+    const targets = await page.locator('#local-backup-export, #local-backup-back').evaluateAll(nodes => nodes.every(node => node.getBoundingClientRect().height >= 44));
     assert.equal(targets, true, '44px controls');
   }
   if (process.argv[2]) await page.screenshot({ path: process.argv[2], fullPage: true });

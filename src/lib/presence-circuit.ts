@@ -66,12 +66,12 @@ export class PresenceCircuit {
 
   sent(): void {
     if (this.self !== true || this.peer === null) return;
-    this.message('left');
+    this.message('right');
   }
 
   received(ownRole = false): void {
     if (this.self !== true || this.peer !== true) return;
-    this.message(ownRole ? 'left' : 'right');
+    this.message(ownRole ? 'right' : 'left');
   }
 
   private message(side: Side): void {

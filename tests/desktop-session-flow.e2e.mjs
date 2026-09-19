@@ -80,7 +80,12 @@ async function createDesktop() {
 async function holdF(page) {
   await page.locator('.cover-trigger, #create-room, [data-device-verify], .pairing-screen, #cloud-recovery-form, #joint-start, #passkey-unlock').first().waitFor();
   if (await page.locator('#passkey-unlock').count()) {
-    await page.locator('#passkey-unlock').click();
+    const passkey = page.locator('#passkey-unlock');
+    if (await passkey.isDisabled()) {
+      await page.locator('.chat-shell, #passkey-unlock:not([disabled])').first().waitFor({ timeout: 15_000 });
+      if (await page.locator('.chat-shell').count()) return;
+    }
+    if (await passkey.count() && await passkey.isEnabled()) await passkey.click();
     return;
   }
   if (await page.locator('.cover-trigger').count() === 0) return;
