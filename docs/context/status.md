@@ -1,5 +1,12 @@
 # Quiet Room 当前状态
 
+## 恢复码、邀请页与创建后 MLS 欢迎修复已合并 main（2026-09-19）
+
+- PR [#178](https://github.com/zdaiwmm/shui-IM/pull/178) 已合并；远端 `main` 提交 `eb93388ac217fed87a54429702b196eac6b9e780`。基线为胶囊合并 `ce902e8ae31698e32d4b6d7b53cb6431264cc8cb`（PR [#177](https://github.com/zdaiwmm/shui-IM/pull/177)）。用户授权 GitHub 合并，明确不发布生产；线上应用 SHA 仍为 `4ae9ff88c057b49edcee3d08f7f4f4f84e3f877a`（版本 `2026.09.15.2`）。
+- 产品：恢复流页面在已有会话／套接字时仍走设备验证保护，通行密钥后可进入本设备恢复码页；恢复码填写弹窗钉到可见视口底部，空错误区不占位；设置访问密钥主按钮与返回间距对齐欢迎页 16px；邀请页「复制邀请链接」与同类主按钮同为 1rem；创建者 MLS 已含加入者时不再提交第二次 Add，避免聊天页 `Commit cannot contain an Add proposal for someone already in the group`。
+- 精确 PR head `badec7fbb3156d9a8ce1995fe3986aff184f9485` 的 CI [35443164556](https://github.com/zdaiwmm/shui-IM/actions/runs/35443164556) 在重试一次表情夹具后全部通过；精确 main CI [35443758094](https://github.com/zdaiwmm/shui-IM/actions/runs/35443758094) 在重试一次 `browser.e2e` WebSocket `ECONNRESET` 后全部通过。本地 `npm run check` 80 文件／658 项通过。实体 iPhone / iOS 27 / Safari 待用户刷新复验。生产未发布。
+- 未改 D-041、胶囊爱心路径或生产入口。详见 [需求记录](../requirements/2026-09-19-recovery-chat-fixes/README.md)。
+
 ## v8 双人恢复与本地备份已合并 main（2026-09-17）
 
 - PR [#169](https://github.com/zdaiwmm/shui-IM/pull/169) 已合并；远端 `main` 提交 `c784e943f187f3ec8eceda08b5c5649060ef43b1`。基线 `d7b33b1d5c63718cc71d30626006588e45d10997`。用户授权 GitHub 合并，明确暂不发布生产；线上应用 SHA 仍为 `4ae9ff88c057b49edcee3d08f7f4f4f84e3f877a`（版本 `2026.09.15.2`）。
