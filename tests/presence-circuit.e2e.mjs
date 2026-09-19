@@ -199,7 +199,7 @@ try {
       const geometry = await page.evaluate(() => {
         const box = selector => {
           const r = document.querySelector(selector).getBoundingClientRect();
-          return { x: r.x, right: r.right, y: r.y, bottom: r.bottom, width: r.width };
+          return { x: r.x, right: r.right, y: r.y, bottom: r.bottom, width: r.width, height: r.height };
         };
         return { summary: box('.peer-summary'), heading: box('.presence-heading'), actions: box('.header-actions'),
           peer: box('#peer-presence'), dot: box('#peer-presence i'), label: box('#peer-presence span') };
@@ -207,6 +207,7 @@ try {
       assert.ok(geometry.summary.right <= geometry.actions.x, JSON.stringify(geometry));
       assert.ok(geometry.peer.right <= geometry.summary.right + 1, JSON.stringify(geometry));
       assert.ok(geometry.label.x > geometry.dot.right, JSON.stringify(geometry));
+      assert.ok(Math.abs(geometry.summary.height - 44) <= 1, JSON.stringify(geometry));
       if (output) await page.screenshot({ path: path.join(output, `presence-${colorScheme}-${width}.png`) });
     }
   }

@@ -150,6 +150,7 @@ export type UiPreferences = {
   recoveryReminderDismissed?: boolean;
   entranceCardDismissed?: boolean;
   historyImportDismissed?: boolean;
+  recoveryShieldHintSeen?: boolean;
   /** Device-local chat projection; it never mutates encrypted room history. */
   hiddenChatMessageIds?: string[];
   /** Device-local Safe ordering/removal projection. */
@@ -1874,6 +1875,7 @@ function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: b
     recoveryReminderDismissed: source.recoveryReminderDismissed === true,
     entranceCardDismissed: source.entranceCardDismissed === true,
     historyImportDismissed: source.historyImportDismissed === true,
+    recoveryShieldHintSeen: source.recoveryShieldHintSeen === true,
     ...(hiddenChatMessageIds.length ? { hiddenChatMessageIds } : {}),
     ...(galleryCuration.length ? { galleryCuration } : {}),
     ...(attachmentFavorites.length ? { attachmentFavorites } : {}),

@@ -222,7 +222,8 @@ try {
   const recoveryCodeInput = creator.locator('#joint-code-form textarea[name="code"]');
   await recoveryCodeInput.waitFor();
   invariant(await recoveryCodeInput.evaluate((input) => document.activeElement === input), 'Recovery code input did not take focus');
-  invariant(await creator.locator('#joint-code-back').count() === 1, 'Recovery code sheet is missing a back button');
+  invariant(await creator.locator('#joint-code-close').count() === 1, 'Recovery code dialog is missing a close button');
+  invariant(await creator.locator('#joint-code-back').count() === 0, 'Recovery code dialog still has a back button');
   await recoveryCodeInput.evaluate((input) => {
     input.blur();
     window.dispatchEvent(new Event('blur'));
@@ -231,7 +232,7 @@ try {
   invariant(await creator.locator('#joint-start').count() === 1, 'Dismissing the recovery keyboard returned to the first entry page');
   await creator.evaluate(() => window.dispatchEvent(new Event('focus')));
   invariant(await creator.locator('#joint-start').count() === 1, 'Returning window focus left the recovery-code page');
-  await creator.locator('#joint-code-back').click();
+  await creator.locator('#joint-code-close').click();
   await creator.locator('#joint-code-form').waitFor({ state: 'detached' });
   await creator.locator('#joint-back').click();
   await creator.locator('#create-room').click();
@@ -315,11 +316,6 @@ try {
   });
   invariant(await joiner.evaluate(() => window.__inviteePasskeyActivation) === true, 'Invitee passkey request lost its trusted click activation');
   for (const page of [creator, joiner]) {
-    const waitAck = page.locator('#pairing-wait-ack');
-    if (await waitAck.waitFor({ timeout: 1_000 }).then(() => true, () => false)) {
-      await waitAck.click();
-      await waitAck.waitFor({ state: 'detached', timeout: 3_000 }).catch(() => undefined);
-    }
     const welcome = page.locator('#welcome-chat');
     if (await welcome.waitFor({ timeout: 5_000 }).then(() => true, () => false)) {
       await welcome.click();
@@ -358,15 +354,15 @@ try {
       peerCenter: (summary.left + summary.right) / 2, headerCenter: (header.left + header.right) / 2,
       summaryHeight: summary.height, actionHeight: more.height, shieldGap: summary.left - shield.right, moreGap: more.left - summary.right,
       shieldLeft: shield.left, shieldRight: shield.right, moreLeft: more.left, headerLeft: header.left,
-      circuitHeight: circuit.height, leftWireGap: circuit.left - selfDot.right, rightWireGap: peerDot.left - circuit.right };
+      leftWireAlign: Math.abs(circuit.left - (selfDot.left + selfDot.width / 2)),
+      rightWireAlign: Math.abs(circuit.right - (peerDot.left + peerDot.width / 2)) };
   });
   invariant(presenceLayout.selfRight <= presenceLayout.peerLeft + 1, `Self presence is not on the left: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.selfLeft >= presenceLayout.summaryLeft - 1 && presenceLayout.peerRight <= presenceLayout.summaryRight + 1, `Presence labels overflow the capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(Math.abs(presenceLayout.peerCenter - presenceLayout.headerCenter) <= 3, `Combined presence is not centered: ${JSON.stringify(presenceLayout)}`);
-  invariant(presenceLayout.summaryHeight >= 44 && presenceLayout.summaryHeight <= 64 && presenceLayout.shieldGap >= 8 && presenceLayout.moreGap >= 8,
-    `Header status crowds the actions or is not at least 44px tall: ${JSON.stringify(presenceLayout)}`);
-  invariant(presenceLayout.circuitHeight >= 22 && presenceLayout.circuitHeight <= 26, `Presence circuit was not restored to 24px: ${JSON.stringify(presenceLayout)}`);
-  invariant(presenceLayout.leftWireGap <= 6 && presenceLayout.rightWireGap <= 6, `Presence wires do not meet the online dots: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.summaryHeight >= 43 && presenceLayout.summaryHeight <= 45 && presenceLayout.shieldGap >= 8 && presenceLayout.moreGap >= 8,
+    `Header status crowds the actions or is not 44px tall: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.leftWireAlign <= 3 && presenceLayout.rightWireAlign <= 3, `Presence wires do not meet the online dots: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.shieldRight <= presenceLayout.summaryLeft + 1, `Recovery shield is not on the left of the status capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.shieldLeft >= presenceLayout.headerLeft - 1, `Recovery shield is not at the left of the header: ${JSON.stringify(presenceLayout)}`);
   invariant(await creator.locator('#message-list > #entrance-card-banner[data-local-system-card="entry"]').count() === 1, 'Save-entry guidance is not a local timeline system card');
@@ -1081,12 +1077,11 @@ try {
   await creator.locator('#save-my-code').waitFor();
   invariant(await creator.locator('#export-recovery').count() === 0, 'Manual recovery export remains exposed');
   await creator.locator('#save-my-code').click();
-  invariant(await creator.locator('.local-recovery-code').count() === 0, 'Recovery code appeared without fresh passkey verification');
-  await creator.locator('#verify-recovery-passkey').click();
-  await creator.locator('.local-recovery-code').waitFor();
+  await creator.locator('.local-recovery-code').waitFor({ timeout: 15_000 });
   const recoveryCode = await creator.locator('.local-recovery-code').textContent();
   invariant(recoveryCode?.startsWith('QR3-'), 'Local recovery code was not displayed after verification');
-  invariant(await creator.locator('#confirm-code-saved').count() === 1, 'Saved confirmation button is missing');
+  invariant(await creator.locator('#confirm-code-saved').count() === 0, 'Saved confirmation button is still shown');
+  invariant(await creator.locator('#copy-local-recovery').evaluate((button) => button.classList.contains('primary-button')), 'Copy recovery-code control is not the primary button');
   invariant(await creator.locator('input[name="digits"]').count() === 0, 'Last-four confirmation field is still shown');
   const codeIsEncrypted = await creator.evaluate(async code => {
     const { readStoredVault } = await import('/src/lib/vault.ts');
