@@ -210,6 +210,8 @@ try {
       assert.ok(geometry.label.x > geometry.dot.right, JSON.stringify(geometry));
       assert.ok(Math.abs(geometry.summary.height - 44) <= 1, JSON.stringify(geometry));
       assert.ok(geometry.circuit.height >= 22 && geometry.circuit.height <= 26, JSON.stringify(geometry));
+      assert.ok(Math.abs(geometry.circuit.width / geometry.circuit.height - 100 / 24) <= 0.08, JSON.stringify(geometry));
+      assert.ok(geometry.dot.x - geometry.circuit.right <= 2, JSON.stringify(geometry));
       if (output) await page.screenshot({ path: path.join(output, `presence-${colorScheme}-${width}.png`) });
     }
   }
