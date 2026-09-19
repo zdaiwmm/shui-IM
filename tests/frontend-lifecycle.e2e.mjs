@@ -2336,13 +2336,15 @@ try {
     for (const colorScheme of ['light', 'dark']) {
       await touchPage.emulateMedia({ colorScheme });
       await touchPage.evaluate(async () => {
-        const controls = [...document.querySelectorAll('.chat-header .icon-button')];
+        const controls = [...document.querySelectorAll('.chat-header .icon-button:not(.recovery-shield)')];
         const picker = document.querySelector('.composer #open-chat-tools');
         for (const control of controls) if (control instanceof HTMLButtonElement) control.disabled = false;
         picker.classList.remove('is-disabled');
         await new Promise(resolve => setTimeout(resolve, 200));
         const expected = getComputedStyle(picker).color;
         if (controls.some(control => getComputedStyle(control).color !== expected)) throw Error('Header and composer icon colors differ');
+        const unsavedShield = document.querySelector('.chat-header .recovery-shield.needs-preparation');
+        if (unsavedShield && getComputedStyle(unsavedShield).color === expected) throw Error('Unsaved recovery shield still uses chrome ink');
         const dot = document.querySelector('#peer-presence .presence-dot');
         if (getComputedStyle(dot).animationName !== 'chat-presence-breathe') throw Error('Online indicator is missing its breathing animation');
         window.regression.app.rolePresence.joiner = false; window.regression.app.updatePeerStatus();
