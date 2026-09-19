@@ -115,6 +115,7 @@ try {
   const coverGeometry = await page.evaluate(() => {
     const hotspot = document.querySelector('.cover-practice-page .practice-hotspot')?.getBoundingClientRect();
     const guide = document.querySelector('.cover-practice-page .hold-guide')?.getBoundingClientRect();
+    const notice = document.querySelector('.cover-practice-notice')?.textContent ?? '';
     if (!hotspot || !guide) return null;
     return {
       width: Math.round(hotspot.width),
@@ -122,6 +123,7 @@ try {
       right: innerWidth - hotspot.right,
       bottom: innerHeight - hotspot.bottom,
       guideAbove: guide.bottom <= hotspot.top + 8,
+      notice,
     };
   });
   assert.equal(coverGeometry?.width, 80);
@@ -129,7 +131,62 @@ try {
   assert.ok((coverGeometry?.right ?? 99) <= 8, 'practice hotspot is not at the live cover right edge');
   assert.ok((coverGeometry?.bottom ?? 99) <= 8, 'practice hotspot is not at the live cover bottom edge');
   assert.equal(coverGeometry?.guideAbove, true);
-  await page.evaluate(() => window.fixtureApp.renderLocalHistoryBackup('export'));
+  assert.match(coverGeometry?.notice ?? '', /离开私密空间后.*自动进入遮蔽层/);
+  const resumedPractice = await page.evaluate(() => {
+    const app = window.fixtureApp;
+    const session = app.session;
+    const hidden = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden') ?? Object.getOwnPropertyDescriptor(document, 'hidden');
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    app.lockNow();
+    if (hidden) Object.defineProperty(document, 'hidden', hidden);
+    else delete document.hidden;
+    app.gatewayRenderEpoch += 1;
+    app.privacyCovered = false;
+    app.session = session;
+    app.runtimeAbort = new AbortController();
+    document.body.className = 'app-mode';
+    app.revealPrivacySurface();
+    app.resumeUnlockedPage();
+    return Boolean(document.querySelector('.cover-practice-page'));
+  });
+  assert.equal(resumedPractice, true, 'Unlock did not return to the cover practice page');
+  await page.evaluate(() => {
+    const app = window.fixtureApp;
+    app.session.vault.recoveryExperience = { ...app.session.vault.recoveryExperience, coverEnabled: true };
+    localStorage.setItem('quiet-room:cover-enabled', '1');
+    app.renderChat();
+  });
+  await page.locator('.more-menu summary').click();
+  await page.locator('#cover-practice-menu').click();
+  await page.locator('#disable-cover-anyway').waitFor();
+  assert.equal(await page.locator('#keep-cover-enabled').textContent(), '我再想想');
+  assert.equal(await page.locator('#disable-cover-anyway').textContent(), '执意关闭');
+  await page.locator('#keep-cover-enabled').click();
+  await page.locator('#disable-cover-dialog').waitFor({ state: 'detached' });
+  await page.locator('.more-menu summary').click();
+  await page.locator('#cover-practice-menu').click();
+  await page.locator('#disable-cover-anyway').click();
+  await page.getByText('关闭成功').waitFor();
+  assert.equal(await page.evaluate(() => localStorage.getItem('quiet-room:cover-enabled')), '0');
+  const brandedCover = await page.evaluate(() => {
+    const app = window.fixtureApp;
+    const session = app.session;
+    const hidden = Object.getOwnPropertyDescriptor(Document.prototype, 'hidden') ?? Object.getOwnPropertyDescriptor(document, 'hidden');
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    app.lockNow();
+    const branded = [...document.querySelectorAll('h1, p')].some(node => /Quiet Room|两个人的私密空间/.test(node.textContent ?? ''));
+    if (hidden) Object.defineProperty(document, 'hidden', hidden);
+    else delete document.hidden;
+    app.gatewayRenderEpoch += 1;
+    app.privacyCovered = false;
+    app.session = session;
+    app.runtimeAbort = new AbortController();
+    document.body.className = 'app-mode';
+    app.revealPrivacySurface();
+    app.renderLocalHistoryBackup('export');
+    return branded;
+  });
+  assert.equal(brandedCover, false, 'Cover-off still shows the Quiet Room entry page');
   if (process.env.V8_VISUAL_DIR) {
     await mkdir(process.env.V8_VISUAL_DIR, { recursive: true });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -150,6 +207,6 @@ try {
     await page.evaluate(() => window.fixtureApp.renderLocalHistoryBackup('export'));
   }
   await page.evaluate(() => window.fixtureApp.lockNow());
-  assert.equal(await page.locator('#local-backup-export').count(), 0);
+  await page.locator('#local-backup-export').waitFor({ state: 'detached' });
   console.log('Local backup browser regression passed: original bytes, OPFS output, no-network import, corruption, lineage, role, room, idempotency and deletion projections.');
 } finally { await browser?.close(); await vite?.close(); }

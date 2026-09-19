@@ -78,22 +78,24 @@ try {
     progressApp.renderJointProgress();
   });
   assert.equal(await a.locator('#joint-progress h1').textContent(), '请对方一起参与');
-  assert.match((await a.locator('.joint-code').textContent()) ?? '', /^\d{3} \d{3}$/);
+  assert.equal(await a.locator('.joint-code').count(), 0);
   assert.equal(await a.locator('#joint-scope-summary').count(), 1);
   assert.equal(await a.locator('#joint-participant-badge').count(), 1);
   assert.equal(await a.locator('#joint-retire, #joint-retry, #joint-cancel').count(), 0);
   assert.equal(await a.locator('#joint-qr').evaluate(canvas => canvas.getAttribute('width')), '248');
   await a.setViewportSize({ width: 390, height: 844 });
   const waitingLayout = await a.evaluate(() => {
-    const page = document.querySelector('.joint-waiting-page');
+    const qr = document.querySelector('#joint-qr')?.getBoundingClientRect();
+    const summary = document.querySelector('#joint-scope-summary');
     return {
-      pageScroll: page ? page.scrollHeight > page.clientHeight + 1 : true,
-      docScroll: document.documentElement.scrollHeight > innerHeight + 1,
+      qrWidth: qr ? Math.round(qr.width) : 0,
+      qrHeight: qr ? Math.round(qr.height) : 0,
+      scopeText: summary?.textContent ?? '',
       startButton: [...document.querySelectorAll('button')].some(button => (button.textContent ?? '').includes('开始恢复')),
     };
   });
-  assert.equal(waitingLayout.pageScroll, false, JSON.stringify(waitingLayout));
-  assert.equal(waitingLayout.docScroll, false, JSON.stringify(waitingLayout));
+  assert.ok(waitingLayout.qrWidth >= 180 && waitingLayout.qrHeight >= 180, JSON.stringify(waitingLayout));
+  assert.ok((waitingLayout.scopeText ?? '').length > 0, JSON.stringify(waitingLayout));
   assert.equal(waitingLayout.startButton, false);
   await a.evaluate(() => progressApp.runtimeAbort.abort());
   // Both local states and fresh identities survive an actual unlock before confirmation.
