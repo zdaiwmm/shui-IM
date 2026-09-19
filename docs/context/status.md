@@ -1,5 +1,12 @@
 # Quiet Room 当前状态
 
+## 保存入口页与备份恢复改版已合并 main（2026-09-20）
+
+- PR [#180](https://github.com/zdaiwmm/shui-IM/pull/180) 已合并；远端 `main` 提交 `cb9d1ba8c398f90eaa36e051bf0a3c546919df59`，产品 head `482039e21d3a41d6f18cf8e202a497955847af4c`。基线 `140450f7817db21dcd3f674bca7d4a33b9b67d77`（PR [#179](https://github.com/zdaiwmm/shui-IM/pull/179)）。用户授权 GitHub 合并，明确不发布生产；线上应用 SHA 仍为 `4ae9ff88c057b49edcee3d08f7f4f4f84e3f877a`（版本 `2026.09.15.2`）。
+- 产品：解锁页保留「无法解锁？一起恢复私密空间」，白屏长按后自动拉起通行密钥，隐藏／失焦与隐私返回不自动解锁；设置访问密钥／邀请／恢复码／备份／恢复页对齐欢迎页底部按钮；邀请「返回」回到设置访问密钥；我的恢复码去掉双方保存状态两行；备份「下载备份」验证通行密钥后走本机文件夹下载。胶囊左侧 TA、右侧我；聊天 toast 在胶囊下方约 10px。
+- 精确 PR head CI [35455341685](https://github.com/zdaiwmm/shui-IM/actions/runs/35455341685) 12 项通过。本地 `npm run check` 80 文件／658 项通过；`tests/browser.e2e.mjs` 通过。精确 main CI [35455604176](https://github.com/zdaiwmm/shui-IM/actions/runs/35455604176) 首次及一次失败重试均卡在旧保险库密码页：`holdCover` 未把 `#unlock-form` 当作解锁面。本文件同批补进该等待。实体 iPhone / iOS 27 / Safari 待用户刷新复验。生产未发布。
+- 未改 D-041、胶囊爱心路径或生产入口。详见 [需求记录](../requirements/2026-09-19-save-entry-pages/README.md)。
+
 ## 恢复码、邀请页与创建后 MLS 欢迎修复已合并 main（2026-09-19）
 
 - PR [#178](https://github.com/zdaiwmm/shui-IM/pull/178) 已合并；远端 `main` 提交 `eb93388ac217fed87a54429702b196eac6b9e780`。基线为胶囊合并 `ce902e8ae31698e32d4b6d7b53cb6431264cc8cb`（PR [#177](https://github.com/zdaiwmm/shui-IM/pull/177)）。用户授权 GitHub 合并，明确不发布生产；线上应用 SHA 仍为 `4ae9ff88c057b49edcee3d08f7f4f4f84e3f877a`（版本 `2026.09.15.2`）。
