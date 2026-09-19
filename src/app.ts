@@ -1,7 +1,7 @@
 import { prepareJointRecovery, advanceJointRecovery, approveJointRecovery, completeJointRecovery, parseJointRecoveryLink, jointRecoveryUrl, jointRecoveryCode, jointRequest, inviteeScopeChoice, type JointLink, type JointSnapshot } from './lib/joint-recovery';
 import './recovery-experience.css';
 import { mountMediaDeleteConfirm } from './lib/media-delete-confirm';
-import { exportLocalHistory, importLocalHistory, inspectLocalHistoryBackup } from './lib/local-history-backup';
+import { exportLocalHistory, HISTORY_CATEGORY_LABELS, importLocalHistory, previewLocalHistoryBackup, summarizeLocalHistory, type LocalHistorySummary } from './lib/local-history-backup';
 import { createLocalBackupFile } from './lib/local-backup-file';
 import { validMediaDimensions } from './lib/media-dimensions';
 import { setChatMediaDimensions } from './lib/chat-media-geometry';
@@ -1691,6 +1691,7 @@ export class QuietRoomApp {
   private passkeySetupMarkup(
     instruction = '跟随设备提示完成即可，不用再记一个新密码。',
     buttonLabel = '设置访问密钥',
+    backLabel?: string,
   ): string {
     const supportError = platformVaultSupported()
       ? ''
@@ -1698,9 +1699,10 @@ export class QuietRoomApp {
         ? '当前浏览器不支持通行密钥。请升级浏览器或改用支持 WebAuthn PRF 的浏览器。'
         : '当前连接不是浏览器信任的 HTTPS 安全环境。局域网测试请先信任开发证书。';
     return `
-      <div class="credential-only-step">
-        <p class="field-hint">${instruction}</p>
+      <p class="setup-follow-hint">${instruction}</p>
+      <div class="welcome-actions">
         <button class="primary-button" type="button" data-device-verify>${buttonLabel}</button>
+        ${backLabel ? `<button class="text-button gateway-back" type="button">${backLabel}</button>` : ''}
         <p class="form-error" role="alert">${supportError}</p>
       </div>
     `;
@@ -2437,14 +2439,22 @@ export class QuietRoomApp {
 
   private renderCreate(): void {
     this.gatewayTemplate('设置访问密钥', '以后用它解锁私密空间，防止别人直接打开你的聊天。无需注册，也不用另外记一个账号密码。', `
-      ${this.passkeySetupMarkup()}
-      <button class="text-button gateway-back" type="button">返回</button>
+      ${this.passkeySetupMarkup('跟随设备提示完成即可，不用再记一个新密码。', '设置访问密钥', '返回')}
     `, false, 'plain');
-    this.mountPasskeySetup(
-      (platformResult) => this.handleCreate(platformResult),
-      '正在创建私密空间…',
-    );
-    this.root.querySelector('.gateway-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderFirstRun(null)));
+    if (this.session) {
+      this.root.querySelector('[data-device-verify]')?.addEventListener('click', () => {
+        this.transitionPage('forward', () => this.renderInviteWait());
+      });
+    } else {
+      this.mountPasskeySetup(
+        (platformResult) => this.handleCreate(platformResult),
+        '正在创建私密空间…',
+      );
+    }
+    this.root.querySelector('.gateway-back')?.addEventListener('click', () => {
+      if (this.session) this.lockNow();
+      else this.transitionPage('backward', () => this.renderFirstRun(null));
+    });
   }
 
   private async handleCreate(platformResult: PlatformCredentialResult): Promise<void> {
@@ -2552,8 +2562,7 @@ export class QuietRoomApp {
     const report = (stage: string) => fetch(`/api/rooms/${invite.roomId}/invitation-progress`, { method: 'POST', headers: { Authorization: `Bearer ${invite.accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ stage }) }).catch(() => undefined);
     void report('opened');
     this.gatewayTemplate('有人为你留了一个私密空间', '加入后，这个私密空间只属于你们两个人。先设置访问密钥，以后用它解锁聊天。', `
-      ${this.passkeySetupMarkup('跟随设备提示完成即可，不用再记一个新密码。', '设置访问密钥并加入')}
-      <button class="text-button gateway-back" type="button">暂不加入</button>
+      ${this.passkeySetupMarkup('跟随设备提示完成即可，不用再记一个新密码。', '设置访问密钥并加入', '暂不加入')}
     `, false, 'plain');
     this.mountPasskeySetup(
       (platformResult) => this.handleJoin(invite, platformResult),
@@ -3954,7 +3963,6 @@ export class QuietRoomApp {
       <section class="pairing-screen">
         <header class="pairing-header">
           <div><h1>邀请重要的那个人</h1></div>
-          <button class="icon-button" id="pairing-lock" type="button" aria-label="锁定并返回白屏">${icons.lock}</button>
         </header>
         <div class="pairing-body">
           <p class="pairing-instruction">让对方扫码，或把邀请链接发给对方。</p>
@@ -3973,6 +3981,7 @@ export class QuietRoomApp {
         </div>
         <footer class="pairing-footer">
           <button class="primary-button" id="copy-invite" type="button">复制邀请链接</button>
+          <button class="text-button" id="pairing-back" type="button">返回</button>
         </footer>
       </section>
     `;
@@ -4008,7 +4017,9 @@ export class QuietRoomApp {
       if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
       this.showNotice(copied ? '链接已复制' : '复制失败', copied ? 'info' : 'error');
     });
-    this.root.querySelector('#pairing-lock')?.addEventListener('click', () => this.lockNow());
+    this.root.querySelector('#pairing-back')?.addEventListener('click', () => {
+      this.transitionPage('backward', () => this.renderCreate());
+    });
     this.updateConnectionStatus();
   }
 
@@ -4146,11 +4157,20 @@ export class QuietRoomApp {
       return;
     }
     const root = this.root;
+    if (root.querySelector('#save-my-code')) {
+      this.unlockResume = 'recovery-center';
+      return;
+    }
+    if (root.querySelector('[data-local-backup-view="import"]')) {
+      this.unlockResume = 'local-backup-import';
+      return;
+    }
+    if (root.querySelector('[data-local-backup-view="export"]')) {
+      this.unlockResume = 'local-backup';
+      return;
+    }
     if (root.querySelector(':scope > .cover, :scope > .gateway')) return;
     this.unlockResume = root.querySelector('.cover-practice-page') ? 'cover-practice'
-      : root.querySelector('#save-my-code') ? 'recovery-center'
-      : root.querySelector('[data-local-backup-view="import"]') ? 'local-backup-import'
-      : root.querySelector('[data-local-backup-view="export"]') ? 'local-backup'
       : root.querySelector('.gallery-shell') ? 'gallery'
       : root.querySelector('.release-history-page') ? 'release-history'
       : root.querySelector('#help-back') ? 'help'
@@ -4213,9 +4233,9 @@ export class QuietRoomApp {
           ${showRecoveryShield ? `<button class="icon-button recovery-shield ${shieldReady ? '' : 'needs-preparation'}" id="recovery-shield" type="button" aria-label="我的恢复码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3 4 6v5c0 5 4 8 8 10 4-2 8-5 8-10V6z"/><path d="m8 12 3 3 5-6"/></svg></button>` : ''}
           <div class="peer-summary" ${this.session.vault.role === 'creator' ? 'id="open-gallery" role="button" tabindex="0"' : 'role="status"'} aria-live="polite">
             <div class="presence-heading">
-              <span class="presence-row" id="self-presence"><span>我</span><i class="presence-dot" aria-hidden="true"></i><strong class="sr-only">同步中</strong></span>
+              <span class="presence-row" id="peer-presence"><span>TA</span><i class="presence-dot" aria-hidden="true"></i></span>
               ${presenceCircuitMarkup}
-              <span class="presence-row" id="peer-presence"><i class="presence-dot" aria-hidden="true"></i><span>对方</span></span>
+              <span class="presence-row" id="self-presence"><i class="presence-dot" aria-hidden="true"></i><span>我</span><strong class="sr-only">同步中</strong></span>
             </div>
             <strong class="peer-status">同步中</strong>
           </div>
@@ -4227,7 +4247,8 @@ export class QuietRoomApp {
                 <p class="protocol-label">${this.session.vault.protocol === 'mls-rfc9420' ? '端到端加密' : '旧版私密空间，建议重新建立'}</p>
                 <button id="manage-devices" type="button">${icons.lock}<span>设备管理</span></button>
                 <button id="backup-settings" type="button">${icons.download}<span>我的恢复码</span></button>
-                <button id="local-history-backup" type="button">${icons.file}<span>备份/恢复聊天记录</span></button>
+                <button id="local-history-backup" type="button">${icons.file}<span>备份数据</span></button>
+                <button id="local-history-restore" type="button">${icons.safe}<span>恢复数据</span></button>
                 <button id="feature-help" type="button">${icons.file}<span>功能说明</span></button>
                 <button id="cover-practice-menu" type="button">${icons.lock}<span>${this.session.vault.recoveryExperience?.coverEnabled ? '关闭自动遮蔽' : '体验或开启遮蔽'}</span></button>
                 <button id="release-history" type="button">${icons.file}<span>更新日志</span></button>
@@ -4682,7 +4703,8 @@ export class QuietRoomApp {
       this.transitionPage('forward', () => this.renderRecoveryCenter());
     });
     this.root.querySelector('#backup-settings')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderRecoveryCenter()));
-    this.root.querySelector('#local-history-backup')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderLocalHistoryBackup()));
+    this.root.querySelector('#local-history-backup')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderLocalHistoryBackup('export')));
+    this.root.querySelector('#local-history-restore')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderLocalHistoryBackup('import')));
     this.root.querySelector('#feature-help')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderFeatureHelp()));
     this.root.querySelector('#cover-practice-menu')?.addEventListener('click', () => {
       if (this.session?.vault.recoveryExperience?.coverEnabled) {
@@ -5832,7 +5854,7 @@ export class QuietRoomApp {
       setStyle(chat.header.style, 'translate', 'none');
       setStyle(chat.composer.style, 'bottom', '0px');
       setStyle(chat.notices.style, 'translate', 'none');
-      setStyle(chat.notice.style, 'translate', '0 calc(var(--chat-header-height) + 8px)');
+      setStyle(chat.notice.style, 'translate', '0 calc(var(--app-top) + var(--chat-header-height) + 10px)');
       return;
     }
     const fixedTop = this.visualClientCoordinates ? -chat.fixedOrigin.getBoundingClientRect().top : viewportTop;
@@ -5845,7 +5867,7 @@ export class QuietRoomApp {
       ? chat.fixedBottom.getBoundingClientRect().top : layoutHeight - fixedTop;
     setStyle(chat.composer.style, 'bottom', `${fixedBottom - viewportHeight}px`);
     setStyle(chat.notices.style, 'translate', `0 ${fixedTop}px`);
-    setStyle(chat.notice.style, 'translate', `0 calc(${fixedTop}px + var(--chat-header-height) + 8px)`);
+    setStyle(chat.notice.style, 'translate', `0 calc(${fixedTop}px + var(--chat-header-height) + 10px)`);
   }
 
   private beginListKeyboardLayout(direction: 'open' | 'closed'): void {
@@ -8613,6 +8635,28 @@ export class QuietRoomApp {
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-backup-ready]')) button.disabled = !ready;
   }
 
+  private historyCategoryRows(summary: LocalHistorySummary, recovered?: LocalHistorySummary): string {
+    return HISTORY_CATEGORY_LABELS.map(([key, label]) => {
+      const total = summary[key];
+      const value = recovered ? `${recovered[key]} / ${total}` : String(total);
+      return `<div class="history-summary-row" data-history-category="${key}"><strong>${label}</strong><span>${value}</span></div>`;
+    }).join('');
+  }
+
+  private saveEntryPage(title: string, subtitle: string, extra: string, actions: string, attrs = ''): string {
+    return `<section class="gateway gateway-welcome save-entry-page" ${attrs}>
+      <div>
+        <div class="gateway-mark" aria-hidden="true">${icons.people}</div>
+        <div class="gateway-heading">
+          <h1>${title}</h1>
+          <p>${subtitle}</p>
+        </div>
+        ${extra}
+      </div>
+      <div class="welcome-actions">${actions}</div>
+    </section>`;
+  }
+
   private renderLocalHistoryBackup(mode: 'export' | 'import' = 'export'): void {
     const session = this.session;
     if (!session || this.privacyCovered || !this.runtimeAbort) return;
@@ -8623,106 +8667,107 @@ export class QuietRoomApp {
     const epoch = this.runtimeEpoch;
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, this.runtimeAbort.signal]);
-    const exportView = `<main class="recovery-flow-page" data-local-backup-view="export">
-      <header class="recovery-flow-nav"><button class="icon-button" id="local-backup-back" type="button" aria-label="返回聊天">${icons.back}</button><strong>消息备份</strong><span></span></header>
-      <section class="recovery-flow-content">
-        <h1>给聊天留一份备份</h1>
-        <p class="recovery-flow-lead">将本机聊天导出为加密文件，保存在系统“文件”中，清理浏览器数据后仍可用它恢复。</p>
-        <div class="recovery-flow-group">
-          <div class="recovery-flow-row"><span><strong>备份内容</strong><small>当前设备已有的全部聊天记录和附件</small></span></div>
-          <div class="recovery-flow-row"><span><strong>保存位置</strong><small>系统“文件”、外部存储或你选择的安全位置</small></span></div>
-        </div>
-        <aside class="recovery-flow-notice"><strong>新聊天需要重新备份</strong><p>导出的文件不会自动更新。清除网站数据不会删除已经另存的文件；删除文件或丢失设备仍可能失去备份。</p></aside>
-        <p class="recovery-flow-note">本机压缩后加密，不上传。图片、视频不保证明显缩小；未下载或缓存已清理的附件不会包含在文件中。</p>
-        <div class="recovery-flow-progress" id="local-backup-progress" hidden><span></span></div>
-        <aside class="recovery-flow-notice success" id="local-backup-ready" hidden><strong>备份文件已准备好</strong><p>请选择保存位置，确认文件已保存后再关闭页面。</p></aside>
-        <p id="local-backup-status" class="recovery-flow-note" role="status" aria-live="polite"></p>
-        <p class="form-error" role="alert"></p>
-      </section>
-      <footer class="recovery-flow-footer"><button class="primary-button" id="local-backup-export" type="button">备份聊天记录</button><button class="text-button" id="open-local-import" type="button">恢复聊天记录</button></footer>
-    </main>`;
-    const importView = `<main class="recovery-flow-page" data-local-backup-view="import">
-      <header class="recovery-flow-nav"><button class="icon-button" id="local-backup-back" type="button" aria-label="返回聊天">${icons.back}</button><strong>恢复聊天记录</strong><span></span></header>
-      <section class="recovery-flow-content">
-        <h1>导入你的聊天备份</h1>
-        <p class="recovery-flow-lead">从系统“文件”中选择之前保存的备份，在本机解密并恢复，不上传服务器。</p>
-        <button class="secondary-button recovery-flow-wide" id="local-backup-import" type="button">选择聊天备份文件</button>
-        <div class="recovery-flow-group" id="local-import-selection" hidden>
-          <div class="recovery-flow-row"><span><strong>已选择文件</strong><small id="local-import-name"></small></span></div>
-          <div class="recovery-flow-row"><span><strong>检查结果</strong><small id="local-import-check">等待本机检查</small></span></div>
-        </div>
-        <p class="recovery-flow-note" id="local-backup-status" role="status" aria-live="polite">尚未选择文件。恢复码用于找回私密空间，不能替代聊天备份。</p>
-        <div class="recovery-flow-progress" id="local-backup-progress" hidden><span></span></div>
-        <p class="form-error" role="alert"></p>
-        <p class="recovery-flow-note">只能恢复备份文件中包含的记录。文件丢失或损坏时，平台无法替你找回。</p>
-      </section>
-      <footer class="recovery-flow-footer"><button class="primary-button" id="local-backup-restore" type="button" disabled>恢复聊天记录</button><button class="text-button" id="open-local-export" type="button">返回消息备份</button></footer>
-    </main>`;
+    const exportView = this.saveEntryPage(
+      '备份数据',
+      '将本机聊天导出为加密文件，保存在你选择的文件夹中。',
+      '<p class="welcome-privacy">本机压缩后加密，不上传。未下载或缓存已清理的附件不会包含在文件中。导出的文件不会自动更新。</p>',
+      `<button class="primary-button" id="local-backup-export" type="button">备份聊天记录</button>
+       <button class="text-button" id="local-backup-back" type="button">返回</button>
+       <p class="form-error" role="alert"></p>`,
+      'data-local-backup-view="export"',
+    );
+    const importView = this.saveEntryPage(
+      '恢复数据',
+      '从系统“文件”中选择之前保存的备份，在本机解密并恢复，不上传服务器。',
+      '<p class="welcome-privacy">只能恢复备份文件中包含的记录。文件丢失或损坏时，平台无法替你找回。</p>',
+      `<button class="primary-button" id="local-backup-import" type="button">选择聊天备份文件</button>
+       <button class="text-button" id="local-backup-back" type="button">返回</button>
+       <p class="form-error" role="alert"></p>`,
+      'data-local-backup-view="import"',
+    );
     this.root.innerHTML = mode === 'export' ? exportView : importView;
-    const status = this.root.querySelector<HTMLElement>('#local-backup-status')!;
-    const progress = this.root.querySelector<HTMLElement>('#local-backup-progress')!;
     const error = this.root.querySelector<HTMLElement>('.form-error')!;
-    const active = () => status.isConnected && this.isRuntimeActive(epoch, session) && !signal.aborted;
-    const back = () => { controller.abort(); this.transitionPage('backward', () => { void this.openSession(); }); };
-    signal.addEventListener('abort', () => { selectedFile = null; void prepared?.dispose(); prepared = null; }, { once: true });
-    this.root.querySelector('#local-backup-back')?.addEventListener('click', back);
-    this.root.querySelector('#open-local-import')?.addEventListener('click', () => { controller.abort(); this.renderLocalHistoryBackup('import'); });
-    this.root.querySelector('#open-local-export')?.addEventListener('click', () => { controller.abort(); this.renderLocalHistoryBackup('export'); });
-
+    const active = () => error.isConnected && this.isRuntimeActive(epoch, session) && !signal.aborted;
+    const back = () => { controller.abort(); this.transitionPage('backward', () => this.renderChat()); };
     let prepared: Awaited<ReturnType<typeof createLocalBackupFile>> | null = null;
-    let selectedFile: File | null = null;
     let busy = false;
+    let restoring = false;
+    signal.addEventListener('abort', () => { void prepared?.dispose(); prepared = null; }, { once: true });
+    this.root.querySelector('#local-backup-back')?.addEventListener('click', back);
+
+    const paintRecovered = (dialog: HTMLElement, preview: LocalHistorySummary, recovered?: LocalHistorySummary) => {
+      const host = dialog.querySelector('.history-summary');
+      if (host) host.innerHTML = this.historyCategoryRows(preview, recovered);
+    };
+
     if (mode === 'export') {
       const action = this.root.querySelector<HTMLButtonElement>('#local-backup-export')!;
-      const ready = this.root.querySelector<HTMLElement>('#local-backup-ready')!;
       action.addEventListener('click', async () => {
         if (busy) return;
-        busy = true; action.disabled = true; error.textContent = ''; progress.hidden = false;
+        busy = true; action.disabled = true; error.textContent = '';
+        const previousLabel = action.dataset.label || action.textContent || '备份聊天记录';
+        setBusy(action, true, '正在统计…');
         try {
-          await this.confirmDeviceCredential();
+          const summary = await summarizeLocalHistory(session, signal);
           if (!active()) return;
-          action.textContent = '正在生成…';
-          await prepared?.dispose(); prepared = null;
-          prepared = await createLocalBackupFile(signal);
-          const summary = await exportLocalHistory(session, prepared.sink, signal, result => {
-            if (active()) status.textContent = `正在整理：${result.messages} 条记录，${result.attachments} 个附件`;
-          });
-          const file = await prepared.finish();
-          if (!active()) return;
-          progress.hidden = true; ready.hidden = false;
-          status.textContent = `已生成 ${summary.messages} 条记录、${summary.attachments} 个原始附件。${summary.missingAttachments ? `另有 ${summary.missingAttachments} 个附件原件不在本机，未写入此文件。` : ''}`;
-          const filename = `quiet-room-${new Date().toISOString().slice(0, 10)}.qrlocal`;
-          const shared = new File([file], filename, { type: 'application/octet-stream' });
-          prepared.handoff(); prepared = null;
-          try {
-            if (typeof navigator.share === 'function' && (!navigator.canShare || navigator.canShare({ files: [shared] }))) {
-              await this.withSystemSurface(() => navigator.share({ files: [shared], title: 'Quiet Room 聊天备份' }), true);
-              if (active()) status.textContent = '已交给系统分享。请确认文件已保存；取消或中断不代表已保存。';
-            } else {
-              await this.withSystemSurface(() => downloadBlob(shared, filename));
-              if (active()) status.textContent = '已交给系统保存。请在“文件”或你选择的位置确认文件存在；取消或中断不代表已保存。';
+          const dialog = document.createElement('div');
+          dialog.className = 'confirm-overlay';
+          dialog.setAttribute('role', 'dialog');
+          dialog.setAttribute('aria-modal', 'true');
+          dialog.setAttribute('aria-label', '备份内容');
+          dialog.innerHTML = `<div class="confirm-dialog">
+            <h2>备份内容</h2>
+            <div class="history-summary">${this.historyCategoryRows(summary)}</div>
+            <p class="form-error" role="alert"></p>
+            <button class="primary-button" id="history-download" type="button">下载备份</button>
+            <button class="text-button" data-history-summary-close type="button">取消</button>
+          </div>`;
+          this.root.append(dialog);
+          mountDialog(dialog, { isActive: () => active() && dialog.isConnected, signal });
+          dialog.querySelector('[data-history-summary-close]')?.addEventListener('click', () => closeDialog(dialog));
+          dialog.querySelector('#history-download')?.addEventListener('click', async () => {
+            const download = dialog.querySelector<HTMLButtonElement>('#history-download')!;
+            const dialogError = dialog.querySelector<HTMLElement>('.form-error')!;
+            if (download.disabled) return;
+            download.disabled = true;
+            dialogError.textContent = '';
+            try {
+              await this.confirmDeviceCredential();
+              if (!active() || !dialog.isConnected) return;
+              setBusy(download, true, '正在生成…');
+              await prepared?.dispose(); prepared = null;
+              prepared = await createLocalBackupFile(signal);
+              await exportLocalHistory(session, prepared.sink, signal);
+              const file = await prepared.finish();
+              if (!active() || !dialog.isConnected) return;
+              const filename = `quiet-room-${new Date().toISOString().slice(0, 10)}.qrlocal`;
+              prepared.handoff(); prepared = null;
+              await this.withSystemSurface(() => downloadBlob(file, filename, { preferShare: false }));
+              if (active()) closeDialog(dialog);
+            } catch (cause) {
+              await prepared?.dispose(); prepared = null;
+              if (!active() || !dialog.isConnected) return;
+              if (isPlatformVaultCancellation(cause)) this.showNotice('未完成验证', 'error');
+              else if (cause instanceof Error && cause.name === 'AbortError') dialogError.textContent = '未确认保存。取消下载不会删除已生成的备份。';
+              else dialogError.textContent = cause instanceof Error ? cause.message : '文件未保存，请重试';
+            } finally {
+              if (download.isConnected) setBusy(download, false);
             }
-          } catch (cause) {
-            if (cause instanceof Error && cause.name === 'AbortError') {
-              if (active()) status.textContent = '未确认保存。取消分享不会删除已生成的备份。';
-            } else if (active()) error.textContent = cause instanceof Error ? cause.message : '文件未保存，请重试';
-          }
-          if (active()) action.textContent = '备份聊天记录';
+          });
         } catch (cause) {
-          await prepared?.dispose(); prepared = null; progress.hidden = true;
           if (!active()) return;
-          if (isPlatformVaultCancellation(cause)) this.showNotice('未完成验证', 'error');
-          else error.textContent = cause instanceof Error ? cause.message : '备份生成失败，请检查可用存储空间';
-          action.textContent = '备份聊天记录';
-        } finally { busy = false; if (active()) action.disabled = false; }
+          error.textContent = cause instanceof Error ? cause.message : '无法统计当前聊天备份';
+        } finally {
+          busy = false;
+          if (active()) { action.disabled = false; setBusy(action, false); action.dataset.label = previousLabel; }
+        }
       });
       return;
     }
 
     const picker = this.root.querySelector<HTMLButtonElement>('#local-backup-import')!;
-    const restore = this.root.querySelector<HTMLButtonElement>('#local-backup-restore')!;
     picker.addEventListener('click', () => {
-      if (busy) return;
+      if (busy || restoring) return;
       const input = document.createElement('input'); input.type = 'file'; input.accept = '.qrlocal'; input.hidden = true;
       this.root.append(input);
       input.addEventListener('cancel', () => { if (input === this.imagePickerInput) void this.finishImagePicker(false); input.remove(); });
@@ -8731,48 +8776,76 @@ export class QuietRoomApp {
         const selected = input.files?.[0];
         const invalidated = await this.finishImagePicker(false); input.remove();
         if (!selected || invalidated || !active()) return;
-        selectedFile = null; restore.disabled = true; error.textContent = '';
-        this.root.querySelector<HTMLElement>('#local-import-selection')!.hidden = false;
-        this.root.querySelector<HTMLElement>('#local-import-name')!.textContent = selected.name;
-        this.root.querySelector<HTMLElement>('#local-import-check')!.textContent = '正在检查文件归属…';
+        error.textContent = '';
+        busy = true; picker.disabled = true;
         try {
-          await inspectLocalHistoryBackup(session, selected);
+          const preview = await previewLocalHistoryBackup(session, selected, signal);
           if (!active()) return;
-          selectedFile = selected; restore.disabled = false;
-          this.root.querySelector<HTMLElement>('#local-import-check')!.textContent = '恢复身份匹配 · 完整性将在恢复前校验';
-          status.textContent = '文件归属已确认。继续后会完整校验、解密并导入。';
+          const dialog = document.createElement('div');
+          dialog.className = 'confirm-overlay';
+          dialog.setAttribute('role', 'dialog');
+          dialog.setAttribute('aria-modal', 'true');
+          dialog.setAttribute('aria-label', '恢复内容');
+          dialog.innerHTML = `<div class="confirm-dialog">
+            <h2>恢复内容</h2>
+            <div class="history-summary">${this.historyCategoryRows(preview)}</div>
+            <p class="form-error" role="alert"></p>
+            <button class="primary-button" id="history-restore-now" type="button">立即恢复</button>
+            <button class="text-button" data-history-summary-close type="button">取消</button>
+          </div>`;
+          this.root.append(dialog);
+          mountDialog(dialog, {
+            isActive: () => active() && dialog.isConnected,
+            signal,
+            beforeClose: () => !restoring,
+          });
+          dialog.querySelector('[data-history-summary-close]')?.addEventListener('click', () => {
+            if (!restoring) closeDialog(dialog);
+          });
+          let restorePhase: 'idle' | 'running' | 'done' = 'idle';
+          dialog.querySelector('#history-restore-now')?.addEventListener('click', async () => {
+            const restore = dialog.querySelector<HTMLButtonElement>('#history-restore-now')!;
+            const dialogError = dialog.querySelector<HTMLElement>('.form-error')!;
+            const cancel = dialog.querySelector<HTMLButtonElement>('[data-history-summary-close]')!;
+            if (restorePhase === 'done') { closeDialog(dialog); back(); return; }
+            if (restorePhase !== 'idle' || restore.disabled) return;
+            restore.disabled = true; dialogError.textContent = '';
+            try {
+              await this.confirmDeviceCredential();
+              if (!active() || !dialog.isConnected) return;
+              restorePhase = 'running'; restoring = true; cancel.hidden = true;
+              setBusy(restore, true, '恢复中 0%');
+              const summary = await importLocalHistory(session, selected, signal, (_stage, result) => {
+                if (!dialog.isConnected) return;
+                const percent = Math.min(100, Math.round(result.messages / Math.max(preview.messages, 1) * 100));
+                restore.textContent = `恢复中 ${percent}%`;
+                paintRecovered(dialog, preview, result);
+              });
+              if (!active() || !dialog.isConnected) return;
+              paintRecovered(dialog, preview, summary);
+              restorePhase = 'done'; restoring = false;
+              restore.disabled = false;
+              setBusy(restore, false);
+              restore.textContent = '已完成，回到聊天';
+            } catch (cause) {
+              restorePhase = 'idle'; restoring = false;
+              if (!active() || !dialog.isConnected) return;
+              cancel.hidden = false;
+              if (isPlatformVaultCancellation(cause)) this.showNotice('未完成验证', 'error');
+              else dialogError.textContent = cause instanceof Error ? cause.message : '导入未完成，可重新选择文件重试';
+              restore.disabled = false;
+              setBusy(restore, false);
+              restore.textContent = '立即恢复';
+            }
+          });
         } catch (cause) {
-          if (active()) {
-            this.root.querySelector<HTMLElement>('#local-import-check')!.textContent = '无法使用';
-            error.textContent = cause instanceof Error ? cause.message : '无法读取此备份文件';
-          }
+          if (active()) error.textContent = cause instanceof Error ? cause.message : '无法读取此备份文件';
+        } finally {
+          busy = false;
+          if (active()) picker.disabled = false;
         }
       });
       if (this.beginImagePicker(input)) input.click(); else input.remove();
-    });
-    restore.addEventListener('click', async () => {
-      if (!selectedFile || busy) return;
-      busy = true; restore.disabled = true; picker.disabled = true; error.textContent = ''; progress.hidden = false;
-      this.root.querySelector('h1')!.textContent = '正在本机恢复';
-      this.root.querySelector<HTMLElement>('.recovery-flow-lead')!.textContent = '正在校验、解密并导入所选文件。请保持页面打开。';
-      try {
-        const summary = await importLocalHistory(session, selectedFile, signal, (stage, result) => {
-          if (active()) status.textContent = `${stage === 'verifying' ? '正在校验' : '正在导入'}：${result.messages} 条记录，${result.attachments} 个附件`;
-        });
-        if (!active()) return;
-        progress.hidden = true;
-        this.root.querySelector<HTMLElement>('.recovery-flow-content')!.innerHTML = `<div class="recovery-flow-hero success">${icons.safe}</div><h1>聊天记录已恢复</h1><p class="recovery-flow-lead">已从你选择的文件恢复到本机。</p>
-          <div class="recovery-flow-group"><div class="recovery-flow-row"><span><strong>消息</strong></span><b>${summary.messages}</b></div><div class="recovery-flow-row"><span><strong>附件</strong></span><b>${summary.attachments}</b></div></div>
-          <p class="recovery-flow-note">本次补入 ${summary.imported} 条记录。${summary.missingAttachments ? `备份不含 ${summary.missingAttachments} 个附件原件。` : '附件原始字节已完成本机回读核验。'}备份之后产生的聊天不在此文件中，请继续保留备份文件。</p>`;
-        const footer = this.root.querySelector<HTMLElement>('.recovery-flow-footer')!;
-        footer.innerHTML = '<button class="primary-button" id="local-import-done" type="button">返回聊天</button>';
-        footer.querySelector('#local-import-done')!.addEventListener('click', back);
-      } catch (cause) {
-        if (active()) error.textContent = cause instanceof Error ? cause.message : '导入未完成，可重新选择文件重试';
-      } finally {
-        busy = false;
-        if (active() && restore.isConnected) { restore.disabled = !selectedFile; picker.disabled = false; }
-      }
     });
   }
 
@@ -8870,27 +8943,33 @@ export class QuietRoomApp {
   private async revealLocalRecoveryCode(unlocked: VaultSession): Promise<void> {
     const backup = unlocked.vault.backup;
     if (!backup?.syncedAt || backup.replaces || unlocked.vault.recoverySource) throw new Error('新恢复码还未完成备份，请先联网完成更新');
-    this.session = unlocked;
+    const live = this.session?.vault.identity.publicBundle.deviceId === unlocked.vault.identity.publicBundle.deviceId
+      ? this.session
+      : unlocked;
+    if (live.vault.backup) live.vault.backup.code = backup.code;
+    this.session = live;
     this.runtimeAbort ??= new AbortController();
     this.resetIdleLock();
     this.privacyCovered = false;
     document.body.className = 'app-mode';
     this.gatewayTemplate('本设备恢复码', '请单独保存。恢复码不会发送到服务器，此页面将在一分钟后锁定。', `
+      <p class="privacy-note">通行密钥和解密密钥不会发送到服务器，丢失后无法代为找回。</p>
       <div data-recovery-keyboard class="recovery-code-view">
       <code class="local-recovery-code"></code>
+      <div class="welcome-actions">
       <button class="primary-button" id="copy-local-recovery" type="button">复制恢复码</button>
       <button class="text-button" id="hide-local-recovery" type="button">返回</button>
-      <p class="field-hint" role="status"></p></div>`);
+      <p class="field-hint" role="status"></p></div></div>`, false, 'plain');
     const codeNode = this.root.querySelector<HTMLElement>('.local-recovery-code')!;
     this.armRecoveryKeyboardHandoff(this.root);
     codeNode.textContent = backup.code;
     const timer = window.setTimeout(() => { if (codeNode.isConnected) this.lockNow(); }, 60_000);
     this.runtimeAbort.signal.addEventListener('abort', () => { window.clearTimeout(timer); codeNode.textContent = ''; }, { once: true });
     try {
-      await withVaultMutation(unlocked, async mutation => {
-        unlocked.vault.recoveryExperience = { ...unlocked.vault.recoveryExperience, codeSaved: backup.id };
-        backup.newCodePending = false;
-        await saveVault(unlocked, mutation);
+      await withVaultMutation(live, async mutation => {
+        live.vault.recoveryExperience = { ...live.vault.recoveryExperience, codeSaved: backup.id };
+        if (live.vault.backup) live.vault.backup.newCodePending = false;
+        await saveVault(live, mutation);
       });
     } catch { /* Viewing still proceeds; persistence can retry on return. */ }
     this.root.querySelector('#copy-local-recovery')?.addEventListener('click', async () => {
@@ -8901,7 +8980,7 @@ export class QuietRoomApp {
     });
     this.root.querySelector('#hide-local-recovery')?.addEventListener('click', async () => {
       window.clearTimeout(timer); codeNode.textContent = '';
-      await this.openSession();
+      this.renderRecoveryCenter();
     });
   }
 
@@ -9188,35 +9267,27 @@ export class QuietRoomApp {
     const session = this.session; if (!session || this.privacyCovered) return;
     this.setActiveSurface('away');
     document.body.className = 'app-mode';
-    const saved = session.vault.backup && session.vault.recoveryExperience?.codeSaved === session.vault.backup.id;
-    this.root.innerHTML = `<main class="recovery-flow-page">
-      <header class="recovery-flow-nav"><button class="icon-button" id="recovery-center-back" aria-label="返回聊天">${icons.back}</button><strong>我的恢复码</strong><span></span></header>
-      <section class="recovery-flow-content">
-        <h1>留好恢复码，一起找回</h1>
+    this.root.innerHTML = this.saveEntryPage(
+      '留好双方恢复码，一起才能找回',
+      '双方各自保管，恢复时共同确认。不要互相发送恢复码，避免两个恢复码同时被泄露，从而泄露隐私。',
+      `<div class="save-entry-copy">
         <ul class="recovery-flow-list">
           <li>清除浏览器数据</li>
-          <li>关闭无痕窗口</li>
-          <li>换设备或访问密钥失效</li>
+          <li>更换其他浏览器进入</li>
+          <li>使用浏览器无痕模式</li>
+          <li>更换设备或访问密钥失效</li>
         </ul>
-        <p class="recovery-flow-lead">以上情况都可尝试共同恢复。</p>
-        <div class="recovery-flow-group">
-          <div class="recovery-flow-row"><span><strong>我的恢复码</strong><small>由我单独保管，不发送给对方</small></span><em class="recovery-status-badge ${saved ? 'ready' : ''}">${saved ? '已保存' : '待保存'}</em></div>
-          <div class="recovery-flow-row"><span><strong>对方的恢复码</strong><small>由对方独立保存</small></span><em class="recovery-status-badge" id="peer-recovery-preparation" role="status">状态未知</em></div>
-        </div>
-        <p class="recovery-flow-note">双方各自保管，恢复时共同确认。不要互相发送恢复码。</p>
-        <aside class="recovery-flow-notice warn"><strong>哪些情况无法找回？</strong><p>任一方缺少恢复码或无法参与时，不能完成共同恢复。</p></aside>
-      </section>
-      <footer class="recovery-flow-footer"><button class="primary-button" id="save-my-code">查看我的恢复码</button></footer>
-    </main>`;
-    const preparationNode = this.root.querySelector<HTMLElement>('#peer-recovery-preparation')!;
-    void getRoomState(session.vault.roomId, session.vault.accessToken).then(state => {
-      if (!preparationNode.isConnected) return;
-      const peers = state.members.filter(member => member.role !== session.vault.role && member.status === 'active');
-      const prepared = peers.some(member => state.recoveryPreparation?.some(item => item.deviceId === member.deviceId && item.saved === 1));
-      preparationNode.textContent = prepared ? '已保存' : state.recoveryPreparation?.some(item => peers.some(member => member.deviceId === item.deviceId)) ? '待对方保存' : '状态未知';
-      preparationNode.classList.toggle('ready', prepared);
-    }).catch(() => undefined);
-    this.root.querySelector('#recovery-center-back')!.addEventListener('click', () => this.renderChat());
+        <p class="recovery-flow-lead">以上情况都会导致无法进入之前使用的私密空间</p>
+        <aside class="recovery-flow-notice warn"><strong>哪些情况无法找回？</strong><p>任一方缺少恢复码，即不能完成共同恢复</p></aside>
+      </div>`,
+      `<button class="primary-button" id="save-my-code" type="button">查看我的恢复码</button>
+       <button class="text-button" id="recovery-center-back" type="button">返回</button>
+       <p class="form-error" role="alert"></p>`,
+    );
+    this.root.querySelector('#recovery-center-back')!.addEventListener('click', () => {
+      if (this.socket) this.transitionPage('backward', () => this.renderChat());
+      else void this.openSession();
+    });
     this.root.querySelector('#save-my-code')!.addEventListener('click', async () => {
       const button = this.root.querySelector<HTMLButtonElement>('#save-my-code')!;
       if (button.disabled) return;
@@ -9228,8 +9299,7 @@ export class QuietRoomApp {
           return;
         }
         const unlocked = await this.confirmDeviceCredential();
-        if (this.privacyCovered || this.session !== session && this.session !== unlocked) return;
-        this.session = unlocked;
+        if (this.privacyCovered || this.session !== session) return;
         await this.revealLocalRecoveryCode(unlocked);
       } catch (cause) {
         if (this.privacyCovered) return;

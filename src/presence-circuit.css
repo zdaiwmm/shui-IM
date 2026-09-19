@@ -27,8 +27,8 @@
   font-weight: 650;
   white-space: nowrap;
 }
-.chat-header .presence-heading #self-presence { justify-content: flex-end; }
-.chat-header .presence-heading #peer-presence { justify-content: flex-start; }
+.chat-header .presence-heading #self-presence { justify-content: center; }
+.chat-header .presence-heading #peer-presence { justify-content: center; }
 .chat-header .peer-summary > .peer-status {
   min-width: 0;
   width: 100%;

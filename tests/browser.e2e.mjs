@@ -50,7 +50,8 @@ async function assertCredentialLayout(page, buttonSelector) {
     const rect = button.getBoundingClientRect();
     const error = document.querySelector('.form-error');
     const errorRect = error?.getBoundingClientRect();
-    const intro = document.querySelector('.credential-only-step .field-hint')
+    const intro = document.querySelector('.setup-follow-hint')
+      ?? document.querySelector('.credential-only-step .field-hint')
       ?? document.querySelector('.gateway-heading > p:last-child');
     const introRect = intro?.getBoundingClientRect();
     return {
@@ -122,10 +123,6 @@ async function setPasskey(page) {
 }
 
 async function unlock(page, exerciseError = false) {
-  await holdCover(page);
-  const passkey = page.locator('#passkey-unlock');
-  if (await passkey.count() === 0) return;
-  await assertCredentialLayout(page, '#passkey-unlock');
   if (exerciseError) {
     await page.evaluate(() => {
       const get = navigator.credentials.get.bind(navigator.credentials);
@@ -142,14 +139,26 @@ async function unlock(page, exerciseError = false) {
       });
     });
   }
-  await passkey.click();
+  await holdCover(page);
+  const passkey = page.locator('#passkey-unlock');
+  if (await passkey.count() === 0) return;
+  await assertCredentialLayout(page, '#passkey-unlock');
   if (exerciseError) {
-    await page.locator('#passkey-unlock', { hasText: '重新验证' }).waitFor();
+    if (!(await page.locator('#passkey-unlock', { hasText: '重新验证' }).count())) {
+      if (await passkey.isEnabled()) await passkey.click();
+      await page.locator('#passkey-unlock', { hasText: '重新验证' }).waitFor();
+    }
     invariant(!(await page.locator('.form-error').textContent())?.trim(), 'Cancelling unlock left a red error message');
     await assertCredentialLayout(page, '#passkey-unlock');
     if (visualQaDirectory) await page.screenshot({ path: path.join(visualQaDirectory, 'unlock-cancel-mobile.png') });
     await page.locator('#passkey-unlock').click();
+    return;
   }
+  if (await passkey.isDisabled()) {
+    await page.locator('.chat-shell, #passkey-unlock:not([disabled])').first().waitFor({ timeout: 15_000 });
+    if (await page.locator('.chat-shell').count()) return;
+  }
+  if (await passkey.count()) await passkey.click();
 }
 
 async function enableDeviceVault(page, backupEligible = false) {
@@ -334,6 +343,8 @@ try {
   invariant(await creator.evaluate(() => window.__inviteShareCalls) === 0, 'Copying the invite link unexpectedly opened system sharing');
   const inviteFont = await creator.locator('#copy-invite').evaluate((button) => getComputedStyle(button).fontSize);
   invariant(inviteFont === welcomeLayout.font, `Invite copy-link font ${inviteFont} does not match welcome primary ${welcomeLayout.font}`);
+  invariant(await creator.locator('#pairing-lock').count() === 0, 'Invite page still has a lock control');
+  invariant(await creator.locator('#pairing-back').count() === 1, 'Invite page is missing a back button');
   await assertStablePage(creator, 'Pairing page');
 
   await joiner.goto(invite);
@@ -390,32 +401,39 @@ try {
     const shield = document.querySelector('#recovery-shield').getBoundingClientRect();
     const more = document.querySelector('.more-menu > summary').getBoundingClientRect();
     const circuit = document.querySelector('.presence-circuit').getBoundingClientRect();
-    const selfDot = document.querySelector('#self-presence .presence-dot').getBoundingClientRect();
-    const peerDot = document.querySelector('#peer-presence .presence-dot').getBoundingClientRect();
     const heart = document.querySelector('.presence-heart').getBoundingClientRect();
+    const heading = document.querySelector('.presence-heading').getBoundingClientRect();
+    const leftColCenter = (heading.left + circuit.left) / 2;
+    const rightColCenter = (circuit.right + heading.right) / 2;
     return { selfLeft: self.left, selfRight: self.right, peerLeft: peer.left, peerRight: peer.right, summaryLeft: summary.left, summaryRight: summary.right,
       peerCenter: (summary.left + summary.right) / 2, headerCenter: (header.left + header.right) / 2,
       heartCenter: (heart.left + heart.right) / 2,
       summaryHeight: summary.height, actionHeight: more.height, shieldGap: summary.left - shield.right, moreGap: more.left - summary.right,
       shieldLeft: shield.left, shieldRight: shield.right, moreLeft: more.left, headerLeft: header.left,
       circuitHeight: circuit.height, circuitWidth: circuit.width,
-      leftWireGap: circuit.left - selfDot.right, rightWireGap: peerDot.left - circuit.right };
+      peerGroupCenter: (peer.left + peer.right) / 2, selfGroupCenter: (self.left + self.right) / 2,
+      leftColCenter, rightColCenter, peerLabel: document.querySelector('#peer-presence span')?.textContent,
+      selfLabel: document.querySelector('#self-presence span')?.textContent };
   });
-  invariant(presenceLayout.selfRight <= presenceLayout.peerLeft + 1, `Self presence is not on the left: ${JSON.stringify(presenceLayout)}`);
-  invariant(presenceLayout.selfLeft >= presenceLayout.summaryLeft - 1 && presenceLayout.peerRight <= presenceLayout.summaryRight + 1, `Presence labels overflow the capsule: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.peerRight <= presenceLayout.selfLeft + 1, `Peer presence is not on the left: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.peerLabel === 'TA' && presenceLayout.selfLabel === '我', `Presence labels are not TA/我: ${JSON.stringify(presenceLayout)}`);
+  invariant(presenceLayout.peerLeft >= presenceLayout.summaryLeft - 1 && presenceLayout.selfRight <= presenceLayout.summaryRight + 1, `Presence labels overflow the capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(Math.abs(presenceLayout.peerCenter - presenceLayout.headerCenter) <= 3, `Combined presence is not centered: ${JSON.stringify(presenceLayout)}`);
   invariant(Math.abs(presenceLayout.heartCenter - presenceLayout.peerCenter) <= 2, `Presence heart is not centered in the capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.summaryHeight >= 43 && presenceLayout.summaryHeight <= 45 && presenceLayout.shieldGap >= 8 && presenceLayout.moreGap >= 8,
     `Header status crowds the actions or is not 44px tall: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.circuitHeight >= 22 && presenceLayout.circuitHeight <= 26, `Presence circuit was not restored to 24px: ${JSON.stringify(presenceLayout)}`);
   invariant(Math.abs(presenceLayout.circuitWidth / presenceLayout.circuitHeight - 100 / 24) <= 0.08, `Presence circuit was stretched: ${JSON.stringify(presenceLayout)}`);
-  invariant(presenceLayout.leftWireGap <= 4 && presenceLayout.leftWireGap >= -1 && presenceLayout.rightWireGap <= 4 && presenceLayout.rightWireGap >= -1, `Presence wires do not meet the online dots: ${JSON.stringify(presenceLayout)}`);
+  invariant(Math.abs(presenceLayout.peerGroupCenter - presenceLayout.leftColCenter) <= 6
+    && Math.abs(presenceLayout.selfGroupCenter - presenceLayout.rightColCenter) <= 6, `Presence groups are not centered in each half: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.shieldRight <= presenceLayout.summaryLeft + 1, `Recovery shield is not on the left of the status capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.shieldLeft >= presenceLayout.headerLeft - 1, `Recovery shield is not at the left of the header: ${JSON.stringify(presenceLayout)}`);
   invariant(await creator.locator('#message-list > #entrance-card-banner[data-local-system-card="entry"]').count() === 1, 'Save-entry guidance is not a local timeline system card');
   await creator.locator('#recovery-shield').click({ timeout: 8_000 });
   await creator.locator('#save-my-code').waitFor();
   invariant(await creator.locator('#recovery-center-back').count() === 1, 'Save recovery-code page is missing a back button');
+  invariant(await creator.locator('.recovery-flow-list li').count() === 4, 'Recovery-code page list is incomplete');
+  invariant(await creator.locator('.recovery-status-badge').count() === 0, 'Recovery-code status rows are still shown');
   await creator.locator('#recovery-center-back').click();
   await creator.locator('#app:not([data-page-transition]) > .chat-shell').waitFor();
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-shield-entry-card-mobile.png') });
@@ -1119,7 +1137,8 @@ try {
   invariant(await joiner.locator('#app > .chat-shell #message-list .message').filter({ hasText: '仅相册保存.pdf' }).count() === 0, 'Peer chat exposes the private gallery filename');
 
   await creator.locator('.more-menu summary').click();
-  invariant(await creator.locator('#local-history-backup span').textContent() === '备份/恢复聊天记录', 'Local backup menu label was not renamed');
+  invariant(await creator.locator('#local-history-backup span').textContent() === '备份数据', 'Local backup menu label was not renamed');
+  invariant(await creator.locator('#local-history-restore span').textContent() === '恢复数据', 'Local restore menu entry is missing');
   await creator.locator('#backup-settings').click();
   await creator.locator('#save-my-code').waitFor();
   invariant(await creator.locator('#export-recovery').count() === 0, 'Manual recovery export remains exposed');
@@ -1137,6 +1156,8 @@ try {
   invariant(codeIsEncrypted, 'Local durable vault leaked the recovery code');
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-code-mobile.png') });
   await creator.locator('#hide-local-recovery').click();
+  await creator.locator('#recovery-center-back').waitFor();
+  await creator.locator('#recovery-center-back').click();
   await creator.locator('.chat-shell').waitFor();
   const sourceIdentity = await creator.evaluate(async () => {
     const { unlockVault } = await import('/src/lib/vault.ts');

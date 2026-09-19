@@ -174,10 +174,10 @@ label[role="button"]:active {
   transform: scale(0.96);
   transition-duration: 60ms;
 }
-
-.file-attachment:not(:disabled):active,
-.message-action-list > button:not(:disabled):active,
-.gallery-actions-menu > button:not(:disabled):active {
+.gateway-welcome button:not(:disabled):active,
+.gateway-plain button:not(:disabled):active,
+.pairing-screen button:not(:disabled):active,
+.save-entry-page button:not(:disabled):active {
   transform: none;
 }
 .more-menu .menu-panel > button:not(:disabled):active { transform: none; }
@@ -1243,23 +1243,23 @@ button:disabled {
   -webkit-backdrop-filter: blur(24px) saturate(170%);
   backdrop-filter: blur(24px) saturate(170%);
   opacity: 0;
-  transform: translateY(-7px) scale(0.985);
+  transform: translateY(-18px);
   transform-origin: top center;
   pointer-events: none;
   transition:
-    opacity var(--motion-notice-in) ease-out,
-    transform var(--motion-notice-in) var(--motion-out);
+    opacity 280ms ease-out,
+    transform 420ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .notice.is-visible {
   opacity: 1;
-  transform: translateY(0) scale(1);
+  transform: translateY(0);
 }
 
 .notice.is-leaving {
   opacity: 0;
-  transform: translateY(-5px) scale(0.99);
-  transition-duration: var(--motion-notice-out);
+  transform: translateY(-10px);
+  transition-duration: 220ms;
   transition-timing-function: cubic-bezier(0.4, 0, 1, 1);
 }
 

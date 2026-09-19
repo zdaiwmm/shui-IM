@@ -81,8 +81,8 @@ body:has(:where(#app) > .chat-shell) {
 }
 .presence-heading { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 0; width: 100%; min-width: 0; height: 24px; flex: none; }
 .presence-heading .presence-row { position: relative; z-index: 1; gap: 4px; color: var(--ink); font-size: 0.8125rem; font-weight: 650; white-space: nowrap; }
-.presence-heading #self-presence { justify-content: flex-end; }
-.presence-heading #peer-presence { justify-content: flex-start; }
+.presence-heading #self-presence { justify-content: center; }
+.presence-heading #peer-presence { justify-content: center; }
 .chat-header .presence-row[data-state="online"] .presence-dot {
   --presence-green: oklch(61% 0.185 147);
   background: var(--presence-green);
@@ -153,10 +153,11 @@ body:has(:where(#app) > .chat-shell) {
   position: fixed;
   top: 0;
   bottom: auto;
-  translate: 0 calc(var(--app-top) + var(--chat-header-height) + 8px);
+  translate: 0 calc(var(--app-top) + var(--chat-header-height) + 10px);
   transform-origin: top center;
+  z-index: 9;
 }
-.chat-shell > .notice.is-visible { transform: none; }
+.chat-shell > .notice.is-visible { transform: translateY(0); }
 .system-notices {
   position: fixed;
   inset: var(--chat-header-height) max(10px, calc((100% - 860px) / 2)) auto;
@@ -360,9 +361,12 @@ body:has(#app > .chat-shell[data-scroll-owner="list"]) {
   flex: 0 0 var(--chat-bottom-space);
   margin-top: -8px;
 }
-.chat-shell[data-scroll-owner="list"] :is(.chat-header, .composer, .system-notices, #notice) {
+.chat-shell[data-scroll-owner="list"] :is(.chat-header, .composer, .system-notices) {
   position: absolute;
   will-change: auto;
+}
+.chat-shell[data-scroll-owner="list"] > .notice {
+  position: fixed;
 }
 .chat-bottom-control {
   position: absolute;

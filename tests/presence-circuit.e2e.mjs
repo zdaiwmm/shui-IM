@@ -56,8 +56,8 @@ try {
   assert.equal(await phase(), 'offline');
   await page.evaluate(async () => window.fixture.app.enqueuePayload({ v: 1, kind: 'text', text: 'Synthetic presence test', sentAt: new Date().toISOString() }));
   await page.waitForTimeout(150);
-  assert.ok(await page.locator('[data-arc="left"]').getAttribute('d'));
-  assert.equal(await page.locator('[data-arc="right"]').getAttribute('d'), null);
+  assert.ok(await page.locator('[data-arc="right"]').getAttribute('d'));
+  assert.equal(await page.locator('[data-arc="left"]').getAttribute('d'), null);
   assert.equal(await phase(), 'offline');
   await state(true, true);
   assert.equal(await phase(), 'charging');
@@ -92,8 +92,8 @@ try {
   await page.locator('.presence-heart').evaluate(element => element.getAnimations()[0].play());
   await page.evaluate(async () => window.fixture.app.enqueuePayload({ v: 1, kind: 'text', text: 'Online local message', sentAt: new Date().toISOString() }));
   await page.waitForTimeout(100);
-  assert.ok(await page.locator('[data-arc="left"]').getAttribute('d'));
-  assert.equal(await page.locator('[data-arc="right"]').getAttribute('d'), null);
+  assert.ok(await page.locator('[data-arc="right"]').getAttribute('d'));
+  assert.equal(await page.locator('[data-arc="left"]').getAttribute('d'), null);
   await page.waitForTimeout(1020);
   assert.equal(await phase(), 'online-pulsing');
   assert.equal(await page.locator('.presence-whole').evaluate(e => getComputedStyle(e).display), 'block');
@@ -113,11 +113,11 @@ try {
     return message.seq;
   }, live);
   await receive(false);
-  assert.equal(await page.locator('[data-arc="right"]').getAttribute('d'), null, 'history sync must stay quiet');
+  assert.equal(await page.locator('[data-arc="left"]').getAttribute('d'), null, 'history sync must stay quiet');
   await receive(true);
   await page.waitForTimeout(100);
-  assert.ok(await page.locator('[data-arc="right"]').getAttribute('d'));
-  assert.equal(await page.locator('[data-arc="left"]').getAttribute('d'), null);
+  assert.ok(await page.locator('[data-arc="left"]').getAttribute('d'));
+  assert.equal(await page.locator('[data-arc="right"]').getAttribute('d'), null);
   await page.waitForTimeout(1020);
   assert.equal(await phase(), 'online-pulsing');
   await page.waitForTimeout(550);
@@ -131,7 +131,7 @@ try {
   assert.equal(await phase(), 'charging');
   await page.waitForTimeout(4350);
   assert.equal(await phase(), 'online');
-  assert.ok(await page.locator('[data-arc="right"]').getAttribute('d'));
+  assert.ok(await page.locator('[data-arc="left"]').getAttribute('d'));
   await page.waitForTimeout(1000);
   assert.equal(await phase(), 'online-pulsing');
   await state(true, false);
@@ -159,7 +159,7 @@ try {
   assert.ok(idleAlpha > 120 && idleAlpha <= 142, `Wire/heart overlap compounded opacity: ${idleAlpha}`);
   await page.evaluate(() => window.fixture.app.presenceCircuit.sent());
   await page.waitForTimeout(100);
-  assert.ok(await page.locator('[data-arc="left"]').getAttribute('d'));
+  assert.ok(await page.locator('[data-arc="right"]').getAttribute('d'));
   await page.waitForTimeout(1050);
   assert.equal(await phase(), 'pulsing');
   assert.notEqual(await page.locator('.presence-heart').evaluate(element => getComputedStyle(element).fill), offlineColor);
@@ -202,18 +202,22 @@ try {
           return { x: r.x, right: r.right, y: r.y, bottom: r.bottom, width: r.width, height: r.height };
         };
         return { summary: box('.peer-summary'), heading: box('.presence-heading'), actions: box('.header-actions'),
-          peer: box('#peer-presence'), circuit: box('.presence-circuit'), heart: box('.presence-heart'),
-          dot: box('#peer-presence i'), label: box('#peer-presence span') };
+          peer: box('#peer-presence'), self: box('#self-presence'), circuit: box('.presence-circuit'), heart: box('.presence-heart'),
+          dot: box('#peer-presence i'), label: box('#peer-presence span'), selfDot: box('#self-presence i') };
       });
       assert.ok(geometry.summary.right <= geometry.actions.x, JSON.stringify(geometry));
-      assert.ok(geometry.peer.right <= geometry.summary.right + 1, JSON.stringify(geometry));
-      assert.ok(geometry.label.x > geometry.dot.right, JSON.stringify(geometry));
+      assert.ok(geometry.self.right <= geometry.summary.right + 1, JSON.stringify(geometry));
+      assert.ok(geometry.peer.x >= geometry.summary.x - 1, JSON.stringify(geometry));
+      assert.ok(geometry.peer.right <= geometry.self.x + 1, JSON.stringify(geometry));
+      assert.ok(geometry.label.right <= geometry.dot.x + 1, JSON.stringify(geometry));
       assert.ok(Math.abs(geometry.summary.height - 44) <= 1, JSON.stringify(geometry));
       assert.ok(geometry.circuit.height >= 22 && geometry.circuit.height <= 26, JSON.stringify(geometry));
       assert.ok(Math.abs(geometry.circuit.width / geometry.circuit.height - 100 / 24) <= 0.08, JSON.stringify(geometry));
       assert.ok(Math.abs((geometry.heart.x + geometry.heart.right) / 2 - (geometry.summary.x + geometry.summary.right) / 2) <= 2, JSON.stringify(geometry));
-      assert.ok(geometry.dot.x - geometry.circuit.right <= 4, JSON.stringify(geometry));
-      assert.ok(geometry.dot.x - geometry.circuit.right >= -1, JSON.stringify(geometry));
+      const leftColCenter = (geometry.heading.x + geometry.circuit.x) / 2;
+      const rightColCenter = (geometry.circuit.right + geometry.heading.right) / 2;
+      assert.ok(Math.abs((geometry.peer.x + geometry.peer.right) / 2 - leftColCenter) <= 6, JSON.stringify(geometry));
+      assert.ok(Math.abs((geometry.self.x + geometry.self.right) / 2 - rightColCenter) <= 6, JSON.stringify(geometry));
       if (output) await page.screenshot({ path: path.join(output, `presence-${colorScheme}-${width}.png`) });
     }
   }

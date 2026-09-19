@@ -47,7 +47,8 @@ async function assertCredentialLayout(page, buttonSelector) {
     const rect = button.getBoundingClientRect();
     const error = document.querySelector('.form-error');
     const errorRect = error?.getBoundingClientRect();
-    const intro = document.querySelector('.credential-only-step .field-hint')
+    const intro = document.querySelector('.setup-follow-hint')
+      ?? document.querySelector('.credential-only-step .field-hint')
       ?? document.querySelector('.gateway-heading > p:last-child');
     const introRect = intro?.getBoundingClientRect();
     return {
@@ -87,8 +88,6 @@ async function setPasskey(page) {
 }
 
 async function unlock(page, exerciseError = false) {
-  await holdCover(page);
-  await assertCredentialLayout(page, '#passkey-unlock');
   if (exerciseError) {
     await page.evaluate(() => {
       const get = navigator.credentials.get.bind(navigator.credentials);
@@ -104,12 +103,26 @@ async function unlock(page, exerciseError = false) {
         },
       });
     });
-    await page.locator('#passkey-unlock').click();
-    await page.locator('.form-error:not(:empty)').waitFor();
+  }
+  await holdCover(page);
+  const passkey = page.locator('#passkey-unlock');
+  if (await passkey.count() === 0) return;
+  await assertCredentialLayout(page, '#passkey-unlock');
+  if (exerciseError) {
+    if (!(await page.locator('#passkey-unlock', { hasText: '重新验证' }).count())) {
+      if (await passkey.isEnabled()) await passkey.click();
+      await page.locator('#passkey-unlock', { hasText: '重新验证' }).waitFor();
+    }
     await assertCredentialLayout(page, '#passkey-unlock');
     if (visualQaDirectory) await page.screenshot({ path: path.join(visualQaDirectory, 'unlock-error-mobile.png') });
+    await page.locator('#passkey-unlock').click();
+    return;
   }
-  await page.locator('#passkey-unlock').click();
+  if (await passkey.isDisabled()) {
+    await page.locator('.chat-shell, #passkey-unlock:not([disabled])').first().waitFor({ timeout: 15_000 });
+    if (await page.locator('.chat-shell').count()) return;
+  }
+  if (await passkey.count()) await passkey.click();
 }
 
 async function enableDeviceVault(page, backupEligible = false) {
