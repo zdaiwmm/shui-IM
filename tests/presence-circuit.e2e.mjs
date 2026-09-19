@@ -202,12 +202,14 @@ try {
           return { x: r.x, right: r.right, y: r.y, bottom: r.bottom, width: r.width, height: r.height };
         };
         return { summary: box('.peer-summary'), heading: box('.presence-heading'), actions: box('.header-actions'),
-          peer: box('#peer-presence'), dot: box('#peer-presence i'), label: box('#peer-presence span') };
+          peer: box('#peer-presence'), circuit: box('.presence-circuit'),
+          dot: box('#peer-presence i'), label: box('#peer-presence span') };
       });
       assert.ok(geometry.summary.right <= geometry.actions.x, JSON.stringify(geometry));
       assert.ok(geometry.peer.right <= geometry.summary.right + 1, JSON.stringify(geometry));
       assert.ok(geometry.label.x > geometry.dot.right, JSON.stringify(geometry));
       assert.ok(Math.abs(geometry.summary.height - 44) <= 1, JSON.stringify(geometry));
+      assert.ok(geometry.circuit.height >= 22 && geometry.circuit.height <= 26, JSON.stringify(geometry));
       if (output) await page.screenshot({ path: path.join(output, `presence-${colorScheme}-${width}.png`) });
     }
   }

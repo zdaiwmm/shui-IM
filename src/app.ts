@@ -11473,23 +11473,10 @@ export class QuietRoomApp {
     const peerOnline = snapshotAvailable ? this.rolePresence![peerRole] : null;
     update(selfRow, selfOnline);
     update(peerRow, peerOnline);
-    const host = summary.querySelector<HTMLElement>('.presence-circuit-host');
     const circuit = summary.querySelector<SVGElement>('.presence-circuit');
     if (circuit && this.activeSurface === 'chat' && !this.privacyCovered) {
       if (!this.presenceCircuit) this.presenceCircuit = new PresenceCircuit(circuit);
       this.presenceCircuit.update(selfOnline, peerOnline);
-      const heading = summary.querySelector<HTMLElement>('.presence-heading');
-      const selfDot = selfRow.querySelector<HTMLElement>('.presence-dot');
-      const peerDot = peerRow.querySelector<HTMLElement>('.presence-dot');
-      if (host && heading && selfDot && peerDot) {
-        const box = heading.getBoundingClientRect();
-        const left = selfDot.getBoundingClientRect();
-        const right = peerDot.getBoundingClientRect();
-        const start = left.left + left.width / 2 - box.left;
-        const end = right.left + right.width / 2 - box.left;
-        host.style.left = `${start}px`;
-        host.style.width = `${Math.max(0, end - start)}px`;
-      }
     }
     const transport = this.connectionState === 'connected'
       ? '实时连接正常'
