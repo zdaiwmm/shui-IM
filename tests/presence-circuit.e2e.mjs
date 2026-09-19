@@ -202,7 +202,7 @@ try {
           return { x: r.x, right: r.right, y: r.y, bottom: r.bottom, width: r.width, height: r.height };
         };
         return { summary: box('.peer-summary'), heading: box('.presence-heading'), actions: box('.header-actions'),
-          peer: box('#peer-presence'), circuit: box('.presence-circuit'),
+          peer: box('#peer-presence'), circuit: box('.presence-circuit'), heart: box('.presence-heart'),
           dot: box('#peer-presence i'), label: box('#peer-presence span') };
       });
       assert.ok(geometry.summary.right <= geometry.actions.x, JSON.stringify(geometry));
@@ -211,7 +211,9 @@ try {
       assert.ok(Math.abs(geometry.summary.height - 44) <= 1, JSON.stringify(geometry));
       assert.ok(geometry.circuit.height >= 22 && geometry.circuit.height <= 26, JSON.stringify(geometry));
       assert.ok(Math.abs(geometry.circuit.width / geometry.circuit.height - 100 / 24) <= 0.08, JSON.stringify(geometry));
-      assert.ok(geometry.dot.x - geometry.circuit.right <= 2, JSON.stringify(geometry));
+      assert.ok(Math.abs((geometry.heart.x + geometry.heart.right) / 2 - (geometry.summary.x + geometry.summary.right) / 2) <= 2, JSON.stringify(geometry));
+      assert.ok(geometry.dot.x - geometry.circuit.right <= 4, JSON.stringify(geometry));
+      assert.ok(geometry.dot.x - geometry.circuit.right >= -1, JSON.stringify(geometry));
       if (output) await page.screenshot({ path: path.join(output, `presence-${colorScheme}-${width}.png`) });
     }
   }
