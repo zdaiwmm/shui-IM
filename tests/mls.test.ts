@@ -235,4 +235,36 @@ describe('RFC 9420 MLS message state', () => {
     expect(openedAfter.payload).toMatchObject({ text: 'after device joined' });
     await expect(decryptMlsApplication(newDevice, before.envelope)).rejects.toThrow();
   }, 30_000);
+
+  it('does not add a joiner who is already in the creator group', async () => {
+    const roomId = crypto.randomUUID();
+    const [creatorIdentity, joinerIdentity] = await Promise.all([generateIdentity(), generateIdentity()]);
+    const members: RoomMember[] = [
+      { ...creatorIdentity.publicBundle, role: 'creator', joinProof: null },
+      { ...joinerIdentity.publicBundle, role: 'joiner', joinProof: 'proof' },
+    ];
+    const creator: Vault = {
+      v: 2,
+      roomId,
+      accessToken: 'a'.repeat(43),
+      role: 'creator',
+      pairingSecret: 'b'.repeat(43),
+      creatorFingerprint: 'fingerprint',
+      identity: creatorIdentity,
+      members,
+      lastSeq: 0,
+      createdAt: new Date().toISOString(),
+      protocol: 'mls-rfc9420',
+      mls: await createCreatorMlsState(roomId, creatorIdentity, members),
+    };
+    expect(creator.mls?.groupState).toBeTruthy();
+    creator.mls = await prepareCreatorWelcome(creator);
+    const groupState = creator.mls.groupState;
+    const { pendingWelcome: _pending, ...active } = creator.mls;
+    creator.mls = active;
+    const again = await prepareCreatorWelcome(creator);
+    expect(again.phase).toBe('active');
+    expect(again.pendingWelcome).toBeUndefined();
+    expect(again.groupState).toBe(groupState);
+  }, 20_000);
 });

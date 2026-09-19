@@ -498,11 +498,22 @@ try {
     hidden(true); covered('Open conversation verification'); hidden(false); focus();
     await conversationVerification;
 
+    await fresh();
+    root.innerHTML = '<main class="recovery-flow-page"></main>';
+    let recoveryVerify;
+    const recoveryVerification = app.withDeviceVerification(() => new Promise(resolve => { recoveryVerify = resolve; }));
+    check(app.deviceVerificationActive, 'Recovery-page passkey skipped device-verification protection');
+    blur(); hidden(true);
+    check(!app.privacyCovered && app.deviceVerificationActive, 'Recovery-page verification was interrupted by its own prompt');
+    hidden(false); focus(); recoveryVerify('verified');
+    check(await recoveryVerification === 'verified' && !app.deviceVerificationActive && !app.privacyCovered,
+      'Recovery-page verification did not finish normally');
+
     // Keep the live mobile fixture for the trusted-pointer keyboard handoff
     // checks below. A Playwright click must happen outside page.evaluate so
     // pointerdown.isTrusted exercises the production authorization boundary.
     window.systemSurfaceKeyboardFixture = { app, fresh, blur, focus, hidden, covered };
-    return { ordinaryBlurDebounced: true, navigationFrames, immediateNavigationWithoutBlankFrame: true, pickerResults, canceledSelectionsCleared: true, explicitLockDiscardsLateSelections: true, galleryMultiple: true, chatAboveNine: true, exportsLock: true, stalePickerCancelIgnored: true, foregroundSelectionsStayInOriginalSession: true, invalidatedSelectionsRequireReselection: true, pendingSystemSurfacesLock: true, decodedPreviewsReuseCache: true, lockingClearsImageCache: true, foregroundPermissionSurvives: true, backgroundPermissionStopsLateGrant: true, permissionReturnAndExpiryBounded: true, gatewayVerificationCompletes: true, verificationSettleBeforeFocusBounded: true, expiredVerificationRejected: true };
+    return { ordinaryBlurDebounced: true, navigationFrames, immediateNavigationWithoutBlankFrame: true, pickerResults, canceledSelectionsCleared: true, explicitLockDiscardsLateSelections: true, galleryMultiple: true, chatAboveNine: true, exportsLock: true, stalePickerCancelIgnored: true, foregroundSelectionsStayInOriginalSession: true, invalidatedSelectionsRequireReselection: true, pendingSystemSurfacesLock: true, decodedPreviewsReuseCache: true, lockingClearsImageCache: true, foregroundPermissionSurvives: true, backgroundPermissionStopsLateGrant: true, permissionReturnAndExpiryBounded: true, gatewayVerificationCompletes: true, verificationSettleBeforeFocusBounded: true, expiredVerificationRejected: true, recoveryPageVerificationCompletes: true };
   });
 
   const armKeyboardHandoff = async () => {

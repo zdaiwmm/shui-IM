@@ -224,6 +224,32 @@ try {
   invariant(await recoveryCodeInput.evaluate((input) => document.activeElement === input), 'Recovery code input did not take focus');
   invariant(await creator.locator('#joint-code-close').count() === 1, 'Recovery code dialog is missing a close button');
   invariant(await creator.locator('#joint-code-back').count() === 0, 'Recovery code dialog still has a back button');
+  const codeSheetLayout = await creator.evaluate(() => {
+    const sheet = document.querySelector('.joint-code-sheet');
+    const input = document.querySelector('#joint-code-form textarea[name="code"]');
+    const button = document.querySelector('#joint-code-form .primary-button');
+    const viewport = window.visualViewport;
+    Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
+    Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 0 });
+    viewport.dispatchEvent(new Event('resize'));
+    const sheetBox = sheet.getBoundingClientRect();
+    const inputBox = input.getBoundingClientRect();
+    const buttonBox = button.getBoundingClientRect();
+    const visibleBottom = (viewport.offsetTop ?? 0) + (viewport.height ?? innerHeight);
+    const layout = {
+      sheetTop: sheetBox.top,
+      sheetBottom: sheetBox.bottom,
+      visibleBottom,
+      inputToButton: buttonBox.top - inputBox.bottom,
+      dialogAboveKeyboard: sheetBox.bottom <= visibleBottom + 1 && buttonBox.bottom <= visibleBottom + 1,
+    };
+    delete viewport.height;
+    delete viewport.offsetTop;
+    viewport.dispatchEvent(new Event('resize'));
+    return layout;
+  });
+  invariant(codeSheetLayout.dialogAboveKeyboard, `Recovery code dialog is not above the keyboard: ${JSON.stringify(codeSheetLayout)}`);
+  invariant(codeSheetLayout.inputToButton >= 0 && codeSheetLayout.inputToButton <= 24, `Recovery code input is too far from submit: ${JSON.stringify(codeSheetLayout)}`);
   await recoveryCodeInput.evaluate((input) => {
     input.blur();
     window.dispatchEvent(new Event('blur'));
@@ -235,12 +261,26 @@ try {
   await creator.locator('#joint-code-close').click();
   await creator.locator('#joint-code-form').waitFor({ state: 'detached' });
   await creator.locator('#joint-back').click();
+  const welcomeLayout = await creator.evaluate(() => {
+    const primary = document.querySelector('#create-room');
+    const secondary = document.querySelector('#restore-cloud');
+    return {
+      font: getComputedStyle(primary).fontSize,
+      gap: secondary.getBoundingClientRect().top - primary.getBoundingClientRect().bottom,
+    };
+  });
   await creator.locator('#create-room').click();
   invariant(await creator.locator('#app > .page-transition-outgoing').count() === 0, 'Welcome copy remained mounted during passkey navigation');
   const incomingCanvas = await creator.locator('#app > .gateway').evaluate((element) => getComputedStyle(element).backgroundColor);
   invariant(incomingCanvas !== 'transparent' && incomingCanvas !== 'rgba(0, 0, 0, 0)', `Passkey page has a transparent transition canvas: ${incomingCanvas}`);
   await assertStablePage(creator, 'Passkey setup page');
   await assertCredentialLayout(creator, '[data-device-verify]');
+  const setupGap = await creator.evaluate(() => {
+    const primary = document.querySelector('[data-device-verify]');
+    const back = document.querySelector('.gateway-back');
+    return back.getBoundingClientRect().top - primary.getBoundingClientRect().bottom;
+  });
+  invariant(Math.abs(setupGap - welcomeLayout.gap) <= 2, `Setup-key button spacing ${setupGap} does not match welcome ${welcomeLayout.gap}`);
   if (visualQaDirectory) {
     await mkdir(visualQaDirectory, { recursive: true });
     await creator.screenshot({ path: path.join(visualQaDirectory, 'passkey-mobile.png') });
@@ -292,6 +332,8 @@ try {
   await creator.locator('#app-toast, .notice').filter({ hasText: '链接已复制' }).waitFor();
   invariant(await creator.locator('.pairing-screen').count() === 1, 'Copying the invite link left the invitation page');
   invariant(await creator.evaluate(() => window.__inviteShareCalls) === 0, 'Copying the invite link unexpectedly opened system sharing');
+  const inviteFont = await creator.locator('#copy-invite').evaluate((button) => getComputedStyle(button).fontSize);
+  invariant(inviteFont === welcomeLayout.font, `Invite copy-link font ${inviteFont} does not match welcome primary ${welcomeLayout.font}`);
   await assertStablePage(creator, 'Pairing page');
 
   await joiner.goto(invite);

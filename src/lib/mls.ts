@@ -476,6 +476,14 @@ export async function prepareCreatorWelcome(vault: Vault): Promise<MlsVaultState
   const joiner = vault.members.find((member) => member.role === 'joiner');
   if (!joiner?.mlsKeyPackage) throw new Error('加入设备缺少 MLS 密钥包');
   const state = decodeState(vault.mls.groupState, vault.members);
+  if (leafIndexForDevice(state, joiner.deviceId) !== null) {
+    return {
+      protocol: 'mls-rfc9420',
+      phase: 'active',
+      groupState: vault.mls.groupState,
+      lastEventSeq: vault.mls.lastEventSeq ?? 0,
+    };
+  }
   const proposal: Proposal = { proposalType: 'add', add: { keyPackage: decodeKeyPackage(joiner.mlsKeyPackage) } };
   const result = await createCommit(
     { state, cipherSuite: await cipherSuite() },
