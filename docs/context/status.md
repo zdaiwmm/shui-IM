@@ -1,24 +1,31 @@
 # Quiet Room 当前状态
 
-## 保存入口页与备份恢复改版已合并 main（2026-09-20）
+## 双人恢复、本地备份与保存入口已发布（2026-09-20 14:49）
 
-- PR [#180](https://github.com/zdaiwmm/shui-IM/pull/180) 已合并；远端 `main` 提交 `cb9d1ba8c398f90eaa36e051bf0a3c546919df59`，产品 head `482039e21d3a41d6f18cf8e202a497955847af4c`。基线 `140450f7817db21dcd3f674bca7d4a33b9b67d77`（PR [#179](https://github.com/zdaiwmm/shui-IM/pull/179)）。用户授权 GitHub 合并，明确不发布生产；线上应用 SHA 仍为 `4ae9ff88c057b49edcee3d08f7f4f4f84e3f877a`（版本 `2026.09.15.2`）。
+- 当前生产应用 SHA 为 `72e85c2c4bce56293baf7b8cb20c9268e277966d`，版本 `2026.09.20.1`；版本元数据 PR [#182](https://github.com/zdaiwmm/shui-IM/pull/182) 已合并。纳入 v8 双人共同恢复、本地加密历史备份、恢复码／邀请／创建后 MLS 修复，以及保存、备份与恢复入口改版。
+- 发布准备提交 `7e1104f74dbb155ce1d07d897df9b26c7815d016` 的本地 `npm run check` 通过 80 个测试文件／658 项；精确 main CI [35494077066](https://github.com/zdaiwmm/shui-IM/actions/runs/35494077066) attempt 2 全部通过。首次 attempt 的单一表情夹具差异在同一文件树有界重试后通过，没有修改产品代码。
+- 固定入口取得 `DEPLOY_OK`、`DEPLOY_VERIFIED`；批次 `20260920T063516Z`，发布目录 `/opt/quiet-room/git-releases/20260920T063516Z-72e85c2c4bce`，切换前冷备份已校验。独立 `READBACK_OK` 于 `2026-09-20T06:49:02Z` 核对线上 SHA、镜像、HTTPS／数据库／存储、公开产物与新建 WebSocket 一致；应用健康，备份容器运行但无健康探针，维护标记不存在。证据 `quiet-room-readback/20260920T064859734Z-72e85c2c4bce-success.json`。
+- 管理员功能开启，通话关闭，TURN 容器不存在。实体 iPhone / iOS 27 / Safari、真实用户恢复材料与生产管理员逐项操作未验证；独立安全审计、异地不可变备份等高安全门槛仍未完成。本次对账不触发再次部署。
+
+## 保存入口页与备份恢复改版已合并 main（已随 2026.09.20.1 发布）
+
+- PR [#180](https://github.com/zdaiwmm/shui-IM/pull/180) 已合并；远端 `main` 提交 `cb9d1ba8c398f90eaa36e051bf0a3c546919df59`，产品 head `482039e21d3a41d6f18cf8e202a497955847af4c`。基线 `140450f7817db21dcd3f674bca7d4a33b9b67d77`（PR [#179](https://github.com/zdaiwmm/shui-IM/pull/179)）。该任务交付时用户明确不发布；后续已按精确 SHA 确认随上方 `2026.09.20.1` 发布。
 - 产品：解锁页保留「无法解锁？一起恢复私密空间」，白屏长按后自动拉起通行密钥，隐藏／失焦与隐私返回不自动解锁；设置访问密钥／邀请／恢复码／备份／恢复页对齐欢迎页底部按钮；邀请「返回」回到设置访问密钥；我的恢复码去掉双方保存状态两行；备份「下载备份」验证通行密钥后走本机文件夹下载。胶囊左侧 TA、右侧我；聊天 toast 在胶囊下方约 10px。
-- 精确 PR head CI [35455341685](https://github.com/zdaiwmm/shui-IM/actions/runs/35455341685) 12 项通过。本地 `npm run check` 80 文件／658 项通过；`tests/browser.e2e.mjs` 通过。精确 main CI [35455604176](https://github.com/zdaiwmm/shui-IM/actions/runs/35455604176) 首次及一次失败重试均卡在旧保险库密码页：`holdCover` 未把 `#unlock-form` 当作解锁面。本文件同批补进该等待。实体 iPhone / iOS 27 / Safari 待用户刷新复验。生产未发布。
+- 精确 PR head CI [35455341685](https://github.com/zdaiwmm/shui-IM/actions/runs/35455341685) 12 项通过。本地 `npm run check` 80 文件／658 项通过；`tests/browser.e2e.mjs` 通过。精确 main CI [35455604176](https://github.com/zdaiwmm/shui-IM/actions/runs/35455604176) 首次及一次失败重试均卡在旧保险库密码页：`holdCover` 未把 `#unlock-form` 当作解锁面；后续补丁与最终发布 CI 证据见上方当前生产记录。实体 iPhone / iOS 27 / Safari 待用户刷新复验。
 - 未改 D-041、胶囊爱心路径或生产入口。详见 [需求记录](../requirements/2026-09-19-save-entry-pages/README.md)。
 
-## 恢复码、邀请页与创建后 MLS 欢迎修复已合并 main（2026-09-19）
+## 恢复码、邀请页与创建后 MLS 欢迎修复已合并 main（已随 2026.09.20.1 发布）
 
-- PR [#178](https://github.com/zdaiwmm/shui-IM/pull/178) 已合并；远端 `main` 提交 `eb93388ac217fed87a54429702b196eac6b9e780`。基线为胶囊合并 `ce902e8ae31698e32d4b6d7b53cb6431264cc8cb`（PR [#177](https://github.com/zdaiwmm/shui-IM/pull/177)）。用户授权 GitHub 合并，明确不发布生产；线上应用 SHA 仍为 `4ae9ff88c057b49edcee3d08f7f4f4f84e3f877a`（版本 `2026.09.15.2`）。
+- PR [#178](https://github.com/zdaiwmm/shui-IM/pull/178) 已合并；远端 `main` 提交 `eb93388ac217fed87a54429702b196eac6b9e780`。基线为胶囊合并 `ce902e8ae31698e32d4b6d7b53cb6431264cc8cb`（PR [#177](https://github.com/zdaiwmm/shui-IM/pull/177)）。该任务交付时用户明确不发布；后续已按精确 SHA 确认随上方 `2026.09.20.1` 发布。
 - 产品：恢复流页面在已有会话／套接字时仍走设备验证保护，通行密钥后可进入本设备恢复码页；恢复码填写弹窗钉到可见视口底部，空错误区不占位；设置访问密钥主按钮与返回间距对齐欢迎页 16px；邀请页「复制邀请链接」与同类主按钮同为 1rem；创建者 MLS 已含加入者时不再提交第二次 Add，避免聊天页 `Commit cannot contain an Add proposal for someone already in the group`。
-- 精确 PR head `badec7fbb3156d9a8ce1995fe3986aff184f9485` 的 CI [35443164556](https://github.com/zdaiwmm/shui-IM/actions/runs/35443164556) 在重试一次表情夹具后全部通过；精确 main CI [35443758094](https://github.com/zdaiwmm/shui-IM/actions/runs/35443758094) 在重试一次 `browser.e2e` WebSocket `ECONNRESET` 后全部通过。本地 `npm run check` 80 文件／658 项通过。实体 iPhone / iOS 27 / Safari 待用户刷新复验。生产未发布。
+- 精确 PR head `badec7fbb3156d9a8ce1995fe3986aff184f9485` 的 CI [35443164556](https://github.com/zdaiwmm/shui-IM/actions/runs/35443164556) 在重试一次表情夹具后全部通过；精确 main CI [35443758094](https://github.com/zdaiwmm/shui-IM/actions/runs/35443758094) 在重试一次 `browser.e2e` WebSocket `ECONNRESET` 后全部通过。本地 `npm run check` 80 文件／658 项通过。实体 iPhone / iOS 27 / Safari 待用户刷新复验；最终生产证据见上方当前记录。
 - 未改 D-041、胶囊爱心路径或生产入口。详见 [需求记录](../requirements/2026-09-19-recovery-chat-fixes/README.md)。
 
-## v8 双人恢复与本地备份已合并 main（2026-09-17）
+## v8 双人恢复与本地备份已合并 main（已随 2026.09.20.1 发布）
 
-- PR [#169](https://github.com/zdaiwmm/shui-IM/pull/169) 已合并；远端 `main` 提交 `c784e943f187f3ec8eceda08b5c5649060ef43b1`。基线 `d7b33b1d5c63718cc71d30626006588e45d10997`。用户授权 GitHub 合并，明确暂不发布生产；线上应用 SHA 仍为 `4ae9ff88c057b49edcee3d08f7f4f4f84e3f877a`（版本 `2026.09.15.2`）。
+- PR [#169](https://github.com/zdaiwmm/shui-IM/pull/169) 已合并；远端 `main` 提交 `c784e943f187f3ec8eceda08b5c5649060ef43b1`。基线 `d7b33b1d5c63718cc71d30626006588e45d10997`。该任务交付时用户明确暂不发布；后续已按精确 SHA 确认随上方 `2026.09.20.1` 发布。
 - 产品：无本机私密空间时进入「有些话，只留给彼此」（创建私密空间主按钮、恢复私密空间次级，无「我有邀请链接」）；设置访问密钥后进入邀请页（二维码、你/对方状态、复制后 toast「链接已复制」，无邀请编号与底部连接文案）；打开邀请链接进入「有人为你留了一个私密空间」。恢复页可选择只恢复对方；恢复码弹窗输入并自动聚焦；等待页去掉核对勾选、取消和手动刷新，1 秒轮询对方进度，二维码与邀请页同款。聊天顶栏「我 / 在线 / 对方」同一行。双方签名后原子撤销旧设备；协助方保留本机历史。
-- 精确 PR head `4b2808a68e6da16db9e2ead7a65893e1cb804c8b` 的 CI [35227818703](https://github.com/zdaiwmm/shui-IM/actions/runs/35227818703) 全部通过。本地 `npm run check` 80 文件 / 656 项通过；浏览器 group 1 1/1、group 2 36/36 通过。实体 iPhone / iOS 27 / Safari 待用户刷新复验。生产未发布。
+- 精确 PR head `4b2808a68e6da16db9e2ead7a65893e1cb804c8b` 的 CI [35227818703](https://github.com/zdaiwmm/shui-IM/actions/runs/35227818703) 全部通过。本地 `npm run check` 80 文件 / 656 项通过；浏览器 group 1 1/1、group 2 36/36 通过。实体 iPhone / iOS 27 / Safari 待用户刷新复验；最终生产证据见上方当前记录。
 - 旧 QR3 自动服务端备份、单码设备恢复和统一历史恢复协议保留，显性入口为 `#legacy-backup` / `#legacy-recovery`。详见 [D-041](decisions.md#d-041双人恢复后其他旧设备必须重新授权)、[需求记录](../requirements/2026-09-16-recovery-local-backup/README.md)。
 
 ## 全需求确认与原型轻量保存规则（2026-09-15）
