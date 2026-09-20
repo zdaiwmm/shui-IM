@@ -190,7 +190,9 @@ label[role="button"]:active {
 #app > .gallery-shell > .gallery-grid,
 #app > .device-shell > .device-content,
 #app > .backup-page > :not(header),
-#app > .gateway > :not(.gateway-heading) {
+#app > .gateway:not(.gateway-intro) > :not(.gateway-heading),
+#app > .gateway.gateway-intro > .gateway-intro-content > :not(.gateway-heading),
+#app > .gateway.gateway-intro > .welcome-actions {
   animation: content-reveal 160ms cubic-bezier(.22, 1, .36, 1);
 }
 @keyframes content-reveal {

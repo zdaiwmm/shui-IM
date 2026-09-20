@@ -101,6 +101,77 @@ try {
   assert.equal(result.repeated.imported, 0);
   for (const key of ['damagedRejected', 'cleanAfterDamage', 'originalEqual', 'hiddenPreserved', 'hiddenSurvivesQueuedSave', 'wrongRole', 'wrongRoom', 'wrongIdentity']) assert.equal(result[key], true, key);
   assert.equal(result.network, 0); assert.equal(result.lastSeq, 0);
+  const introLayouts = await page.evaluate(() => {
+    const app = window.fixtureApp;
+    const session = app.session;
+    const read = () => {
+      const mark = document.querySelector('.gateway-mark');
+      const title = document.querySelector('.gateway-heading h1');
+      const actions = document.querySelector('.welcome-actions');
+      const content = document.querySelector('.gateway-intro-content');
+      const primary = actions?.querySelector('.primary-button');
+      const secondary = actions?.querySelector('.text-button');
+      const box = node => node?.getBoundingClientRect();
+      const markBox = box(mark), titleBox = box(title), actionsBox = box(actions), contentBox = box(content);
+      return {
+        intro: Boolean(document.querySelector('.gateway-intro')),
+        markVisible: Boolean(markBox && markBox.width > 0 && markBox.height > 0),
+        markLeft: markBox?.left, markTop: markBox?.top,
+        titleLeft: titleBox?.left, titleTop: titleBox?.top,
+        actionsLeft: actionsBox?.left, actionsBottom: actionsBox ? innerHeight - actionsBox.bottom : undefined,
+        primaryHeight: box(primary)?.height, secondaryHeight: box(secondary)?.height,
+        contentScrolls: Boolean(contentBox && content.scrollHeight > content.clientHeight + 1),
+      };
+    };
+    app.renderLocalHistoryBackup('export'); const backup = read();
+    app.renderLocalHistoryBackup('import'); const restore = read();
+    app.renderCreate(); const create = read();
+    app.session = null; app.renderFirstRun(null); const welcome = read();
+    app.session = session; app.runtimeAbort = new AbortController(); app.privacyCovered = false;
+    app.renderRecoveryCenter(); const recovery = read();
+    app.renderLocalHistoryBackup('export');
+    return { backup, restore, create, welcome, recovery };
+  });
+  for (const name of ['backup', 'restore', 'create', 'welcome']) {
+    const layout = introLayouts[name];
+    assert.equal(layout.intro, true, `${name}: shared intro layout missing`);
+    assert.equal(Math.round(layout.markLeft), 20, `${name}: icon left anchor`);
+    assert.equal(Math.round(layout.titleLeft), 20, `${name}: title left anchor`);
+    assert.equal(Math.round(layout.actionsLeft), 20, `${name}: actions left anchor`);
+    assert.equal(Math.round(layout.actionsBottom), 30, `${name}: actions bottom anchor`);
+    assert.equal(Math.round(layout.primaryHeight), 52, `${name}: primary height`);
+    assert.ok(Math.round(layout.secondaryHeight) >= 44, `${name}: secondary height`);
+  }
+  for (const name of ['restore', 'create', 'welcome']) {
+    assert.equal(Math.round(introLayouts[name].markTop), Math.round(introLayouts.backup.markTop), `${name}: icon top anchor`);
+    assert.equal(Math.round(introLayouts[name].titleTop), Math.round(introLayouts.backup.titleTop), `${name}: title top anchor`);
+  }
+  assert.equal(introLayouts.recovery.intro, true, 'recovery: shared intro layout missing');
+  assert.equal(introLayouts.recovery.markVisible, false, 'recovery: dense layout retained the icon');
+  assert.equal(Math.round(introLayouts.recovery.titleTop), 56, 'recovery: dense title top anchor');
+  assert.equal(Math.round(introLayouts.recovery.actionsBottom), 30, 'recovery: actions bottom anchor');
+  await page.setViewportSize({ width: 390, height: 520 });
+  const compactLayout = await page.evaluate(() => {
+    window.fixtureApp.renderRecoveryCenter();
+    const mark = document.querySelector('.gateway-mark')?.getBoundingClientRect();
+    const title = document.querySelector('.gateway-heading h1')?.getBoundingClientRect();
+    const actions = document.querySelector('.welcome-actions')?.getBoundingClientRect();
+    const content = document.querySelector('.gateway-intro-content');
+    return {
+      markVisible: Boolean(mark && mark.width > 0 && mark.height > 0),
+      titleTop: title?.top,
+      actionsBottom: actions ? innerHeight - actions.bottom : undefined,
+      contentScrolls: Boolean(content && content.scrollHeight > content.clientHeight + 1),
+      horizontalOverflow: document.documentElement.scrollWidth > innerWidth + 1,
+    };
+  });
+  assert.equal(compactLayout.markVisible, false, 'compact layout retained the icon');
+  assert.equal(Math.round(compactLayout.titleTop), 48, 'compact title top anchor');
+  assert.equal(Math.round(compactLayout.actionsBottom), 18, 'compact actions bottom anchor');
+  assert.equal(compactLayout.contentScrolls, true, 'compact long content did not scroll independently');
+  assert.equal(compactLayout.horizontalOverflow, false, 'compact intro layout overflowed horizontally');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => window.fixtureApp.renderLocalHistoryBackup('export'));
   await page.locator('#local-backup-export').click();
   await page.locator('#history-download').waitFor({ state: 'visible' });
   await page.locator('#history-download').click();
@@ -214,6 +285,11 @@ try {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.evaluate(() => window.fixtureApp.renderLocalHistoryBackup('import'));
     await page.screenshot({ path: path.join(process.env.V8_VISUAL_DIR, 'history-import-390x844.png'), fullPage: true });
+    await page.evaluate(() => window.fixtureApp.renderRecoveryCenter());
+    await page.screenshot({ path: path.join(process.env.V8_VISUAL_DIR, 'recovery-center-390x844.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 620 });
+    await page.screenshot({ path: path.join(process.env.V8_VISUAL_DIR, 'recovery-center-390x620.png'), fullPage: true });
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.evaluate(() => window.fixtureApp.renderCoverPractice());
     await page.screenshot({ path: path.join(process.env.V8_VISUAL_DIR, 'cover-practice-390x844.png'), fullPage: true });
     await page.evaluate(() => window.fixtureApp.renderLocalHistoryBackup('export'));

@@ -1393,6 +1393,23 @@ export class QuietRoomApp {
         <span class="cover-unread sr-only">${this.unreadCounter.count}</span>
       </section>
     `;
+    this.promoteGatewayIntroLayout();
+  }
+
+  private promoteGatewayIntroLayout(): void {
+    const gateway = this.root.querySelector<HTMLElement>(':scope > .gateway');
+    const actions = gateway?.querySelector<HTMLElement>('.welcome-actions');
+    if (!gateway || !actions) return;
+    const content = document.createElement('div');
+    content.className = 'gateway-intro-content';
+    const unread = gateway.querySelector<HTMLElement>(':scope > .cover-unread');
+    for (const child of [...gateway.children]) {
+      if (child !== actions && child !== unread) content.append(child);
+    }
+    gateway.classList.add('gateway-intro');
+    gateway.prepend(content);
+    gateway.append(actions);
+    if (unread) gateway.append(unread);
   }
 
   private async renderUnlock(providedStored?: Awaited<ReturnType<typeof readStoredVault>>, trustedCoverActivation = false, autoUnlock = trustedCoverActivation): Promise<void> {
@@ -2417,14 +2434,14 @@ export class QuietRoomApp {
       return;
     }
     this.root.innerHTML = `
-      <section class="gateway gateway-welcome">
-        <div>
+      <section class="gateway gateway-welcome gateway-intro">
+        <div class="gateway-intro-content">
           <div class="gateway-mark" aria-hidden="true">${icons.people}</div>
           <div class="gateway-heading">
             <h1>有些话，<br>只留给彼此。</h1>
             <p>一个只属于两个人的私密空间。</p>
           </div>
-          <p class="welcome-privacy">无需手机号或邮箱。<br>聊天内容只对你和对方可读，平台无法读取。</p>
+          <div class="welcome-copy"><p>无需手机号或邮箱。</p><p>聊天内容只对你和对方可读，平台无法读取。</p></div>
         </div>
         <div class="welcome-actions">
           <button class="primary-button" id="create-room" type="button">创建私密空间</button>
@@ -8643,9 +8660,9 @@ export class QuietRoomApp {
     }).join('');
   }
 
-  private saveEntryPage(title: string, subtitle: string, extra: string, actions: string, attrs = ''): string {
-    return `<section class="gateway gateway-welcome save-entry-page" ${attrs}>
-      <div>
+  private saveEntryPage(title: string, subtitle: string, extra: string, actions: string, attrs = '', layout: 'standard' | 'dense' = 'standard'): string {
+    return `<section class="gateway gateway-welcome gateway-intro save-entry-page${layout === 'dense' ? ' gateway-intro-dense' : ''}" ${attrs}>
+      <div class="gateway-intro-content">
         <div class="gateway-mark" aria-hidden="true">${icons.people}</div>
         <div class="gateway-heading">
           <h1>${title}</h1>
@@ -9283,6 +9300,8 @@ export class QuietRoomApp {
       `<button class="primary-button" id="save-my-code" type="button">查看我的恢复码</button>
        <button class="text-button" id="recovery-center-back" type="button">返回</button>
        <p class="form-error" role="alert"></p>`,
+      '',
+      'dense',
     );
     this.root.querySelector('#recovery-center-back')!.addEventListener('click', () => {
       if (this.socket) this.transitionPage('backward', () => this.renderChat());
