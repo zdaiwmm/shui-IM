@@ -1,5 +1,13 @@
 # Quiet Room 固定发布流程
 
+## 双人恢复、本地备份与保存入口已发布（2026-09-20 14:49）
+
+- 用户确认发布精确提交 `72e85c2c4bce56293baf7b8cb20c9268e277966d`，版本 `2026.09.20.1`；双人共同恢复、本地加密历史备份、恢复码与邀请修复、保存／备份／恢复入口改版均已纳入。版本元数据由 PR [#182](https://github.com/zdaiwmm/shui-IM/pull/182) 合并，发布准备提交 `7e1104f74dbb155ce1d07d897df9b26c7815d016` 的本地 `npm run check` 通过 80 个测试文件、658 项测试。
+- 精确 main CI [35494077066](https://github.com/zdaiwmm/shui-IM/actions/runs/35494077066) attempt 2 全部通过。首次 attempt 仅 `Browser regression group 2 shard 3/4` 的表情夹具报 `Installed pack original changed`；同一文件树的 PR CI、其他 main 分片及一次有界重试均通过，没有修改产品代码或绕过门禁。
+- 固定入口返回 `DEPLOY_OK`、`DEPLOY_VERIFIED` 并核对精确成功回执。批次 `20260920T063516Z`；发布目录 `/opt/quiet-room/git-releases/20260920T063516Z-72e85c2c4bce`；切换前冷备份 `/opt/quiet-room/backups/predeploy/data-20260920T063516Z-72e85c2c4bce.tar.gz` 已校验。服务器镜像构建耗时约 715 秒，生产切换入口总计约 809 秒。
+- 独立只读回读于 `2026-09-20T06:49:02Z` 返回 `READBACK_OK`：线上 SHA、应用／备份镜像 `sha256:a27be5926d321ad91dd366b5fa8f039024c4abca42aa4b2897fc82ad03a61deb`、HTTPS `ok/database/storage`、公开产物与新建 WebSocket 全部一致；维护标记不存在。应用运行且健康，备份容器运行但无健康探针；管理员功能开启，通话关闭，TURN 容器不存在。证据 `quiet-room-readback/20260920T064859734Z-72e85c2c4bce-success.json`。
+- 实体 iPhone / iOS 27 / Safari、真实用户恢复材料与生产管理员逐项操作未在本次自动回读中验收；独立密码学／应用安全审计、异地不可变备份等高安全门槛仍未完成。本次对账为独立文档变更，不触发再次部署。
+
 ## 保险箱需求复验修复已发布（2026-09-15 10:18）
 
 - 用户确认发布精确提交 `4ae9ff88c057b49edcee3d08f7f4f4f84e3f877a`，PR [#166](https://github.com/zdaiwmm/shui-IM/pull/166) 已合并，版本 `2026.09.15.2`。与验收候选 `0a99bf6f3e9abc7dc026bd59e721dcbeac10794d` 文件树完全一致；本地 `check:full` 通过（78 个测试文件、646 项测试、35/35 浏览器脚本，`clean=true`）。WebKit 文件/保险箱交互专项通过，精确 main CI [34920062374](https://github.com/zdaiwmm/shui-IM/actions/runs/34920062374) 的 12 项检查全部通过。
