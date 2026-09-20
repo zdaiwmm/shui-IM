@@ -150,7 +150,7 @@ try {
   assert.equal(introLayouts.recovery.markVisible, false, 'recovery: dense layout retained the icon');
   assert.equal(Math.round(introLayouts.recovery.titleTop), 56, 'recovery: dense title top anchor');
   assert.equal(Math.round(introLayouts.recovery.actionsBottom), 30, 'recovery: actions bottom anchor');
-  await page.setViewportSize({ width: 390, height: 620 });
+  await page.setViewportSize({ width: 390, height: 520 });
   const compactLayout = await page.evaluate(() => {
     window.fixtureApp.renderRecoveryCenter();
     const mark = document.querySelector('.gateway-mark')?.getBoundingClientRect();
