@@ -1,5 +1,12 @@
 # Quiet Room 固定发布流程
 
+## 入口页版式统一已发布（2026-09-20 21:08）
+
+- 用户确认将当时远端 `main` 发布到生产；精确应用 SHA `b26b5c0953a223e6dee4895fa012cf3168979836`，版本 `2026.09.20.2`。产品来自 PR [#184](https://github.com/zdaiwmm/shui-IM/pull/184)，版本元数据 PR [#185](https://github.com/zdaiwmm/shui-IM/pull/185) 已合并。统一欢迎、访问密钥、邀请、备份与恢复等入口页的图标、标题、说明和底部操作区位置，短屏与长内容自动适配。
+- 精确 main CI [35506242775](https://github.com/zdaiwmm/shui-IM/actions/runs/35506242775) 全部通过。固定入口返回 `DEPLOY_OK`、`DEPLOY_VERIFIED` 并核对精确成功回执。批次 `20260920T130426Z`；发布目录 `/opt/quiet-room/git-releases/20260920T130426Z-b26b5c0953a2`；切换前冷备份 `/opt/quiet-room/backups/predeploy/data-20260920T130426Z-b26b5c0953a2.tar.gz` 已校验。镜像构建约 120 秒，服务器部署总计约 212 秒。
+- 独立只读回读于 `2026-09-20T13:08:08Z` 返回 `READBACK_OK`：线上 SHA、应用／备份镜像 `sha256:b331ac632e7e86a771e719c655361ff84b60343ae5532ba69fe0e8b6c87fadf7`、HTTPS `ok/database/storage`、公开产物与新建 WebSocket 全部一致；维护标记不存在。应用运行且健康，备份容器运行但无健康探针；管理员功能开启，通话关闭，TURN 容器不存在。证据 `quiet-room-readback/20260920T130805091Z-b26b5c0953a2-success.json`。
+- 实体 iPhone / iOS 27 / Safari 与真实用户数据交互未在本次自动回读中验收；独立密码学／应用安全审计、异地不可变备份等高安全门槛仍未完成。本次对账为独立文档变更，不触发再次部署。
+
 ## 双人恢复、本地备份与保存入口已发布（2026-09-20 14:49）
 
 - 用户确认发布精确提交 `72e85c2c4bce56293baf7b8cb20c9268e277966d`，版本 `2026.09.20.1`；双人共同恢复、本地加密历史备份、恢复码与邀请修复、保存／备份／恢复入口改版均已纳入。版本元数据由 PR [#182](https://github.com/zdaiwmm/shui-IM/pull/182) 合并，发布准备提交 `7e1104f74dbb155ce1d07d897df9b26c7815d016` 的本地 `npm run check` 通过 80 个测试文件、658 项测试。
