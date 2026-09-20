@@ -1,10 +1,10 @@
 # Quiet Room 当前状态
 
-## 同类入口页版式统一候选已通过本地回归（2026-09-20）
+## 同类入口页版式统一候选已通过 PR CI（2026-09-20）
 
 - 分支 `codex/unified-intro-layout` 基于远端 `main` 提交 `af92514d49345c33580da7612009593b41e23b8d`，统一欢迎、访问密钥、邀请／设备接入、备份与恢复等共享入口页的图标、标题、说明和底部操作区锚点。标准页保持一致位置；短视口自动隐藏图标并上提标题；长内容由正文区独立滚动，操作区保持完整可见。
 - 本地 `npm run check:full` 通过 80 个测试文件／658 项测试及 37/37 浏览器脚本；入口页布局专项覆盖 390×844、390×520 强制滚动、390×620 截图、844×390、浅色与深色。实体 iPhone／iOS 27／Safari 未验证。
-- 当前证据仅为本地候选，PR、CI 与 main 合并待完成；未授权且未执行生产发布。详见[需求记录](../requirements/2026-09-20-unified-intro-layout/README.md)。
+- PR [#184](https://github.com/zdaiwmm/shui-IM/pull/184) head `0155ba4fbc5a3e3f9048c16a4b66e07364214045` 的 CI [35503440309](https://github.com/zdaiwmm/shui-IM/actions/runs/35503440309) attempt 2 全部通过，等待 main 合并回查。未授权且未执行生产发布。详见[需求记录](../requirements/2026-09-20-unified-intro-layout/README.md)。
 
 ## 双人恢复、本地备份与保存入口已发布（2026-09-20 14:49）
 

@@ -3,7 +3,7 @@
 ## 身份与当前阶段
 
 - 需求编号／标题：2026-09-20-unified-intro-layout／同类入口页版式统一
-- 当前阶段／下一步：本地候选与完整回归已通过；创建 PR、等待 CI 并合并 main
+- 当前阶段／下一步：本地候选与 PR CI 已通过；合并 main 并回查远端提交
 - 规则来源 SHA／任务起始基线／分支：本机 `main` 规则 `749e6af1e05686837dd04028dfb8bf1891cb44c6`；GitHub `main` 与本机 `origin/main` 基线 `af92514d49345c33580da7612009593b41e23b8d`；`codex/unified-intro-layout`
 - 实际任务目录与 HEAD：`/Users/zhouding/ss-worktrees/unified-intro-layout`；开工 HEAD `af92514d49345c33580da7612009593b41e23b8d`
 - 需求类型／是否涉及页面：页面布局优化；涉及欢迎、访问密钥、邀请／设备接入、备份、恢复码等共享入口页
@@ -43,5 +43,5 @@
 
 - 提交前材料检查：需求记录与 Mermaid 流程源码已保存；确认稿为本机轻量材料，不提交大型媒体；差异未包含凭据、真实消息、恢复码或生产配置。
 - 本地验证／浏览器／真机：2026-09-20 在任务工作树运行 `npm run build`、`node tests/local-history-backup.e2e.mjs` 与 `npm run check:full` 均通过；完整回归为 80 个测试文件／658 项测试、37/37 浏览器脚本。短屏自动断言使用 390×520，已人工核对 390×844 浅色／深色、390×620 短屏及 844×390 横屏截图。未进行实体 iPhone／iOS 27／Safari 验收。
-- PR／CI／实际交付终点：等待 PR、CI 与 main 合并回查；生产不在本次授权范围内。
-- 接续所需材料、尚缺证据和下一步：以本记录、`flow.md`、分支 `codex/unified-intro-layout` 及 PR 为准；剩余远端证据为 PR CI 与合并 SHA，真机证据仍缺失。
+- PR／CI／实际交付终点：PR [#184](https://github.com/zdaiwmm/shui-IM/pull/184) 的精确 head `0155ba4fbc5a3e3f9048c16a4b66e07364214045`，CI [35503440309](https://github.com/zdaiwmm/shui-IM/actions/runs/35503440309) attempt 2 全部通过。attempt 1 的短屏断言依赖字体换行，被修正为 390×520 确定溢出夹具；通话浏览器组伴随 WebSocket `ECONNRESET`，仅失败作业有界重试后通过。等待 main 合并回查；生产不在本次授权范围内。
+- 接续所需材料、尚缺证据和下一步：以本记录、`flow.md`、分支 `codex/unified-intro-layout` 及 PR #184 为准；剩余远端证据为合并 SHA，真机证据仍缺失。
