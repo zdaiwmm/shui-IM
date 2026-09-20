@@ -1,14 +1,14 @@
 # Quiet Room 当前状态
 
-## 同类入口页版式统一候选已通过 PR CI（2026-09-20）
+## 入口页版式统一已发布（2026-09-20 21:08）
 
-- 分支 `codex/unified-intro-layout` 基于远端 `main` 提交 `af92514d49345c33580da7612009593b41e23b8d`，统一欢迎、访问密钥、邀请／设备接入、备份与恢复等共享入口页的图标、标题、说明和底部操作区锚点。标准页保持一致位置；短视口自动隐藏图标并上提标题；长内容由正文区独立滚动，操作区保持完整可见。
-- 本地 `npm run check:full` 通过 80 个测试文件／658 项测试及 37/37 浏览器脚本；入口页布局专项覆盖 390×844、390×520 强制滚动、390×620 截图、844×390、浅色与深色。实体 iPhone／iOS 27／Safari 未验证。
-- PR [#184](https://github.com/zdaiwmm/shui-IM/pull/184) head `0155ba4fbc5a3e3f9048c16a4b66e07364214045` 的 CI [35503440309](https://github.com/zdaiwmm/shui-IM/actions/runs/35503440309) attempt 2 全部通过，等待 main 合并回查。未授权且未执行生产发布。详见[需求记录](../requirements/2026-09-20-unified-intro-layout/README.md)。
+- 当前生产应用 SHA 为 `b26b5c0953a223e6dee4895fa012cf3168979836`，版本 `2026.09.20.2`。产品 PR [#184](https://github.com/zdaiwmm/shui-IM/pull/184) 与版本元数据 PR [#185](https://github.com/zdaiwmm/shui-IM/pull/185) 已合并。统一欢迎、访问密钥、邀请、备份与恢复等入口页的图标、标题、说明和底部操作区位置，短屏与长内容自动适配。
+- 精确 main CI [35506242775](https://github.com/zdaiwmm/shui-IM/actions/runs/35506242775) 全部通过。固定入口取得 `DEPLOY_OK`、`DEPLOY_VERIFIED`；批次 `20260920T130426Z`，发布目录 `/opt/quiet-room/git-releases/20260920T130426Z-b26b5c0953a2`，切换前冷备份已校验。独立 `READBACK_OK` 于 `2026-09-20T13:08:08Z` 核对线上 SHA、镜像 `sha256:b331ac632e7e86a771e719c655361ff84b60343ae5532ba69fe0e8b6c87fadf7`、HTTPS／数据库／存储、公开产物与新建 WebSocket 一致；应用健康，备份容器运行但无健康探针，维护标记不存在。证据 `quiet-room-readback/20260920T130805091Z-b26b5c0953a2-success.json`。
+- 管理员功能开启，通话关闭，TURN 容器不存在。实体 iPhone / iOS 27 / Safari 未验证；独立安全审计、异地不可变备份等高安全门槛仍未完成。本次对账不触发再次部署。详见[需求记录](../requirements/2026-09-20-unified-intro-layout/README.md)。
 
 ## 双人恢复、本地备份与保存入口已发布（2026-09-20 14:49）
 
-- 当前生产应用 SHA 为 `72e85c2c4bce56293baf7b8cb20c9268e277966d`，版本 `2026.09.20.1`；版本元数据 PR [#182](https://github.com/zdaiwmm/shui-IM/pull/182) 已合并。纳入 v8 双人共同恢复、本地加密历史备份、恢复码／邀请／创建后 MLS 修复，以及保存、备份与恢复入口改版。
+- 当时生产应用 SHA 为 `72e85c2c4bce56293baf7b8cb20c9268e277966d`，版本 `2026.09.20.1`；版本元数据 PR [#182](https://github.com/zdaiwmm/shui-IM/pull/182) 已合并。纳入 v8 双人共同恢复、本地加密历史备份、恢复码／邀请／创建后 MLS 修复，以及保存、备份与恢复入口改版。后续已由上方 `2026.09.20.2` 接替线上应用 SHA。
 - 发布准备提交 `7e1104f74dbb155ce1d07d897df9b26c7815d016` 的本地 `npm run check` 通过 80 个测试文件／658 项；精确 main CI [35494077066](https://github.com/zdaiwmm/shui-IM/actions/runs/35494077066) attempt 2 全部通过。首次 attempt 的单一表情夹具差异在同一文件树有界重试后通过，没有修改产品代码。
 - 固定入口取得 `DEPLOY_OK`、`DEPLOY_VERIFIED`；批次 `20260920T063516Z`，发布目录 `/opt/quiet-room/git-releases/20260920T063516Z-72e85c2c4bce`，切换前冷备份已校验。独立 `READBACK_OK` 于 `2026-09-20T06:49:02Z` 核对线上 SHA、镜像、HTTPS／数据库／存储、公开产物与新建 WebSocket 一致；应用健康，备份容器运行但无健康探针，维护标记不存在。证据 `quiet-room-readback/20260920T064859734Z-72e85c2c4bce-success.json`。
 - 管理员功能开启，通话关闭，TURN 容器不存在。实体 iPhone / iOS 27 / Safari、真实用户恢复材料与生产管理员逐项操作未验证；独立安全审计、异地不可变备份等高安全门槛仍未完成。本次对账不触发再次部署。
