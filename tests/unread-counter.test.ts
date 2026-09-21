@@ -263,3 +263,14 @@ describe('unread counter lifecycle', () => {
     expect(counter.count).toBe(0);
   });
 });
+
+
+it('exports only this endpoint observer and returns a copy, never a vault credential', async () => {
+  const {counter} = await configured();
+  const snapshot = counter.observerFor(vault)!;
+  expect(snapshot).toEqual({deviceId,token:observer.token,count:3});
+  snapshot.count = 123;
+  expect(counter.count).toBe(3);
+  expect(counter.observerFor({...vault,roomId:crypto.randomUUID()})).toBeUndefined();
+  counter.clear(); expect(counter.observerFor(vault)).toBeUndefined();
+});

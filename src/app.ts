@@ -1,6 +1,6 @@
 import './spaces.css';
-import { mountSpaceDrawer, readPresenceStyle } from './lib/space-drawer';
-import { localSpaces, rememberLocalSpace, syncSpaceDirectory, recoverableSpaces, type PrivateSpace } from './lib/spaces';
+import { mountSpaceDrawer, mountSpaceInvite, readPresenceStyle, spaceIcons } from './lib/space-drawer';
+import { localSpaces, rememberLocalSpace, syncSpaceDirectory, recoverableSpaces, refreshSpaceUnread, spaceMessagePreview, type PrivateSpace } from './lib/spaces';
 import { currentSpaceId, selectLocalSpace, vaultSpaceId } from './lib/vault';
 import { prepareJointRecovery, advanceJointRecovery, approveJointRecovery, completeJointRecovery, parseJointRecoveryLink, jointRecoveryUrl, jointRecoveryCode, jointRequest, inviteeScopeChoice, type JointLink, type JointSnapshot } from './lib/joint-recovery';
 import './recovery-experience.css';
@@ -328,6 +328,7 @@ export class QuietRoomApp {
   private newSpaceCollectionCode: string | undefined;
   private returnSpaceId: string | null = null;
   private spaceDrawerOpen = false;
+  private currentSpaceName = '私密空间';
 
   private readonly desktopBrowser = isDesktopBrowser();
   private readonly appleWebKit = navigator.vendor.includes('Apple')
@@ -2468,7 +2469,7 @@ export class QuietRoomApp {
     this.root.querySelector('#restore-cloud')?.addEventListener('click', () => { if (this.returnSpaceId) void this.returnToSpace(); else this.transitionPage('forward', () => this.renderJointRecovery()); });
   }
 
-  private renderCreate(): void {
+  private renderCreate(prepare?: () => Promise<void>): void {
     this.gatewayTemplate('设置访问密钥', '以后用它解锁私密空间，防止别人直接打开你的聊天。无需注册，也不用另外记一个账号密码。', `
       ${this.passkeySetupMarkup('跟随设备提示完成即可，不用再记一个新密码。', '设置访问密钥', '返回')}
     `, false, 'plain');
@@ -2478,12 +2479,17 @@ export class QuietRoomApp {
       });
     } else {
       this.mountPasskeySetup(
-        (platformResult) => this.handleCreate(platformResult),
+        async (platformResult) => {
+          const epoch = this.runtimeEpoch, session = this.session;
+          if (prepare) await prepare();
+          if (!this.privacyCovered && this.runtimeEpoch === epoch && this.session === session) await this.handleCreate(platformResult);
+        },
         '正在创建私密空间…',
       );
     }
     this.root.querySelector('.gateway-back')?.addEventListener('click', () => {
       if (this.session) this.lockNow();
+      else if (this.returnSpaceId) void this.returnToSpace();
       else this.transitionPage('backward', () => this.renderFirstRun(null));
     });
   }
@@ -3128,6 +3134,7 @@ export class QuietRoomApp {
     const spaces = await rememberLocalSpace(session, this.newSpaceCollectionCode);
     if (!this.isRuntimeActive(openingEpoch, session)) return;
     this.newSpaceCollectionCode = undefined;
+    this.currentSpaceName = spaces.find(space => space.roomId === session.vault.roomId)?.name ?? '私密空间';
     const invitation = classifyInviteHash(location.hash);
     if (invitation.kind !== 'invalid') {
       if (session.vault.roomId !== invitation.invite.roomId) {
@@ -4009,35 +4016,17 @@ export class QuietRoomApp {
       creatorFingerprint: this.session.vault.creatorFingerprint,
     };
     const inviteUrl = makeParticipantInviteUrl(invite);
-    this.root.innerHTML = `
-      <section class="pairing-screen">
-        <header class="pairing-header"><button class="icon-button" id="open-spaces" aria-label="私密空间列表">${icons.people}</button>
-          <div><h1>邀请重要的那个人</h1></div>
-        </header>
-        <div class="pairing-body">
-          <p class="pairing-instruction">让对方扫码，或把邀请链接发给对方。</p>
-          <canvas id="invite-qr" class="invite-qr" width="248" height="248" aria-label="私密空间邀请二维码"></canvas>
-          <label class="invite-link sr-only">邀请链接<input id="invite-url" readonly /></label>
-          <div class="invite-status">
-            <div class="invite-status-row">
-              <span><strong>你</strong><small>访问密钥已设置，等待对方加入</small></span>
-              <span class="invite-badge invite-badge-ready">已就绪</span>
-            </div>
-            <div class="invite-status-row">
-              <span><strong>对方</strong><small id="invitation-progress">等待对方打开邀请</small></span>
-              <span class="invite-badge" id="invite-peer-badge">待打开</span>
-            </div>
-          </div>
-        </div>
-        <footer class="pairing-footer">
-          <button class="primary-button" id="copy-invite" type="button">复制邀请链接</button>
-          <button class="text-button" id="pairing-back" type="button">返回</button>
-        </footer>
-      </section>
-    `;
+    this.renderChat();
+    this.setActiveSurface('away');
+    const signal = this.runtimeAbort?.signal;
+    if (!signal) return;
+    mountSpaceInvite(this.root, {
+      name: this.currentSpaceName, signal,
+      content: `<div class="space-invite-body"><h1 id="space-invite-title">邀请对方加入</h1><p>把邀请链接发给对方，<br>开启只属于你们的对话。</p><div class="space-invite-status"><i aria-hidden="true"></i><span id="invitation-progress">等待对方打开邀请</span></div><label class="invite-link sr-only">邀请链接<input id="invite-url" readonly /></label></div><footer class="space-invite-actions"><button class="primary-button" id="copy-invite" type="button">复制邀请链接</button><p>关闭后，你可以在空间列表中继续邀请。</p></footer>`,
+      closed: () => { if (!signal.aborted && !this.privacyCovered) void this.openPrivateSpaces(); },
+    });
     const input = this.root.querySelector<HTMLInputElement>('#invite-url')!;
     input.value = inviteUrl;
-    this.paintQrCanvas(this.root.querySelector<HTMLCanvasElement>('#invite-qr')!, inviteUrl);
     this.root.querySelector('#copy-invite')?.addEventListener('click', async (event) => {
       const button = event.currentTarget as HTMLButtonElement;
       const session = this.session;
@@ -4067,10 +4056,6 @@ export class QuietRoomApp {
       if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
       this.showNotice(copied ? '链接已复制' : '复制失败', copied ? 'info' : 'error');
     });
-    this.root.querySelector('#pairing-back')?.addEventListener('click', () => {
-      this.transitionPage('backward', () => this.renderChat());
-    });
-    this.root.querySelector('#open-spaces')?.addEventListener('click', () => void this.openPrivateSpaces());
     this.updateConnectionStatus();
   }
 
@@ -4287,12 +4272,47 @@ export class QuietRoomApp {
     else this.renderFirstRun(invitation?.kind === 'participant' ? invitation.invite : null);
   }
 
+  private async rememberSpacePreview(session: VaultSession, signal: AbortSignal): Promise<void> {
+    let preview = '', beforeSeq: number | undefined;
+    // Tail pages, rather than the viewport's older reading anchor. Deletion and
+    // local hiding use the same projection as chat. No gallery/control previews.
+    while (!signal.aborted) {
+      const page = await loadHistoryPage(session, { limit: 200, beforeSeq, signal });
+      if (signal.aborted || this.session !== session || this.privacyCovered) return;
+      const deletions = this.messageDeletions(page);
+      const latest = [...page].sort((a,b) => b.seq - a.seq).find(message =>
+        !this.messageIsUnavailable(message.clientMsgId, deletions) && spaceMessagePreview(message.payload) !== undefined);
+      if (latest) { preview = spaceMessagePreview(latest.payload)!; break; }
+      if (page.length < 200) break;
+      beforeSeq = Math.min(...page.map(message => message.seq));
+    }
+    if (!signal.aborted && this.session === session && !this.privacyCovered) {
+      await rememberLocalSpace(session, undefined, undefined, { preview, observer: this.unreadCounter.observerFor(session.vault) });
+    }
+  }
+
+  private createPrivateSpace(): Promise<void> {
+    const code = this.session?.vault.spaceRecoveryCode, previous = currentSpaceId();
+    // Tear down the old room synchronously, then start WebAuthn in this trusted
+    // click stack. Slot selection/writes finish before consuming its result.
+    const leaving = this.leaveSpace();
+    this.newSpaceCollectionCode = code;
+    this.returnSpaceId = previous;
+    const slot = crypto.randomUUID(), epoch = this.runtimeEpoch;
+    this.resetIdleLock();
+    this.renderCreate(async () => { await leaving; if (!this.privacyCovered && this.runtimeEpoch === epoch && !this.session) await selectLocalSpace(slot); });
+    this.root.querySelector<HTMLButtonElement>('[data-device-verify]')?.click();
+    return Promise.resolve();
+  }
+
   private async openPrivateSpaces(): Promise<void> {
     const session = this.session, signal = this.runtimeAbort?.signal;
     if (!session || !signal || this.spaceDrawerOpen) return;
     this.spaceDrawerOpen = true;
     const previousSurface = this.activeSurface;
     try {
+      await this.rememberSpacePreview(session, signal);
+      if (signal.aborted || this.session !== session || this.privacyCovered) return;
       const spaces = await localSpaces(session);
       if (signal.aborted || this.privacyCovered || this.session !== session) return;
       this.closeChatTools(); this.clearKeyboardHandoff();
@@ -4301,23 +4321,40 @@ export class QuietRoomApp {
       const forward = (render: () => void) => () => this.transitionPage('forward', render);
       mountSpaceDrawer(this.root, {
         spaces, currentRoom: session.vault.roomId, signal,
-        icons: { close: icons.close, plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>', settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 3-1 3-3 1 1 4-1 4 3 1 1 3h6l1-3 3-1-1-4 1-4-3-1-1-3z"/><circle cx="12" cy="11" r="3"/></svg>' },
         actions: [
-          { id: 'manage-devices', label: '设备管理', icon: icons.lock, run: forward(() => void this.renderDeviceManager()) },
-          { id: 'backup-settings', label: '我的恢复码', icon: icons.download, run: forward(() => this.renderRecoveryCenter()) },
-          { id: 'local-history-backup', label: '备份数据', icon: icons.file, run: forward(() => this.renderLocalHistoryBackup('export')) },
-          { id: 'local-history-restore', label: '恢复数据', icon: icons.safe, run: forward(() => this.renderLocalHistoryBackup('import')) },
-          { id: 'recover-other-space', label: '恢复其他空间', icon: icons.people, run: forward(() => this.renderJointRecovery(null)) },
-          { id: 'feature-help', label: '功能说明', icon: icons.file, run: forward(() => this.renderFeatureHelp()) },
-          { id: 'cover-practice-menu', label: session.vault.recoveryExperience?.coverEnabled ? '关闭自动遮蔽' : '体验或开启遮蔽', icon: icons.lock, run: () => session.vault.recoveryExperience?.coverEnabled ? this.confirmDisableCover() : this.renderCoverPractice() },
-          { id: 'release-history', label: '更新日志', icon: icons.file, run: forward(() => this.renderReleaseHistory()) },
+          { id: 'manage-devices', label: '已连接设备', icon: spaceIcons.device, run: () => void this.renderDeviceManager() },
+          { id: 'backup-settings', label: '我的恢复码', icon: spaceIcons.key, run: () => this.renderRecoveryCenter() },
+          { id: 'local-history-backup', label: '备份聊天数据', icon: spaceIcons.upload, run: () => void this.renderLocalHistoryBackup('export') },
+          { id: 'local-history-restore', label: '恢复聊天数据', icon: spaceIcons.download, run: () => void this.renderLocalHistoryBackup('import') },
+          { id: 'recover-other-space', label: '恢复其他空间', icon: spaceIcons.spaces, run: () => this.renderJointRecovery(null) },
+          { id: 'cover-practice-menu', group: '本机', label: session.vault.recoveryExperience?.coverEnabled ? '白屏掩护设置' : '开启白屏掩护', icon: spaceIcons.cover, run: () => this.renderCoverPractice() },
+          { id: 'release-history', group: '关于', label: '更新记录', icon: spaceIcons.history, run: () => this.renderReleaseHistory() },
         ],
-        select: space => this.switchPrivateSpace(space), create: () => this.beginNewSpace(),
-        rename: async (space, name) => { await rememberLocalSpace(session, undefined, { roomId: space.roomId, name }); },
-        styleChanged: () => this.renderChat(),
-        closed: () => { this.spaceDrawerOpen = false; if (!signal.aborted && !this.privacyCovered && this.session === session) { this.setActiveSurface(previousSurface); this.updatePeerStatus(); } },
+        select: space => { if (space.roomId === session.vault.roomId && space.waiting) { this.renderInviteWait(); return Promise.resolve(); } return this.switchPrivateSpace(space); },
+        create: () => { if (spaces.length >= 256) return Promise.reject(new Error('本机空间数量已达上限')); return this.createPrivateSpace(); },
+        rename: async (space, name) => {
+          await rememberLocalSpace(session, undefined, { roomId: space.roomId, name });
+          if (this.session === session && !signal.aborted && space.roomId === session.vault.roomId) {
+            this.currentSpaceName = name;
+            const entry = this.root.querySelector<HTMLElement>('#open-spaces');
+            if (entry) { entry.setAttribute('aria-label', `私密空间列表，当前：${name}`); const label = entry.querySelector('span'); if (label) label.textContent = name; }
+          }
+        },
+        refreshUnread: refreshSignal => refreshSpaceUnread(spaces, refreshSignal),
+        styleChanged: () => this.applyPresenceStyle(),
+        closed: () => { this.spaceDrawerOpen = false; if (!signal.aborted && !this.privacyCovered && this.session === session) { this.setActiveSurface(this.root.querySelector('.chat-shell') ? 'chat' : previousSurface); this.updatePeerStatus(); } },
       });
     } catch (cause) { this.spaceDrawerOpen = false; this.showNotice(cause instanceof Error ? cause.message : '空间列表暂不可用', 'error'); }
+  }
+
+  private applyPresenceStyle(): void {
+    const style = readPresenceStyle();
+    const header = this.root.querySelector<HTMLElement>('.chat-header');
+    if (!header) return;
+    const entry = header.querySelector<HTMLElement>('#open-spaces');
+    if (entry) { entry.setAttribute('aria-label', `私密空间列表，当前：${this.currentSpaceName}`); const label = entry.querySelector('span'); if (label) label.textContent = this.currentSpaceName; }
+    header.dataset.presenceStyle = style;
+    header.querySelector('.presence-circuit')?.setAttribute('viewBox', style === 'heart' ? '34 -4 32 32' : '0 0 100 24');
   }
 
   private renderChat(): void {
@@ -4353,7 +4390,7 @@ export class QuietRoomApp {
     this.root.innerHTML = `
       <section class="chat-shell">
         <header class="chat-header" data-presence-style="${readPresenceStyle()}">
-          <button class="icon-button spaces-entry" id="open-spaces" type="button" aria-label="私密空间列表">${icons.people}</button>
+          <button class="icon-button spaces-entry" id="open-spaces" type="button" aria-label="私密空间列表">${spaceIcons.spaces}<span></span></button>
           <div class="peer-summary" ${this.session.vault.role === 'creator' ? 'id="open-gallery" role="button" tabindex="0"' : 'role="status"'} aria-live="polite">
             <div class="presence-heading">
               <span class="presence-row" id="peer-presence"><span>TA</span><i class="presence-dot" aria-hidden="true"></i></span>
@@ -4413,6 +4450,7 @@ export class QuietRoomApp {
         <section class="voice-recorder" aria-label="录制语音消息" hidden></section>
       </section>
     `;
+    this.applyPresenceStyle();
     this.mountChatLayout();
     this.root.querySelector('#open-memes')?.addEventListener('pointerdown', event => {
       if (!this.memePicker) {
@@ -11732,7 +11770,7 @@ export class QuietRoomApp {
     if (circuit && this.activeSurface === 'chat' && !this.privacyCovered) {
       if (!this.presenceCircuit) this.presenceCircuit = new PresenceCircuit(circuit);
       circuit.dataset.compact = String(readPresenceStyle() === 'heart');
-      circuit.setAttribute('viewBox', readPresenceStyle() === 'heart' ? '32 -5 36 36' : '0 0 100 24');
+      circuit.setAttribute('viewBox', readPresenceStyle() === 'heart' ? '34 -4 32 32' : '0 0 100 24');
       circuit.dataset.self = String(selfOnline === true); circuit.dataset.peer = String(peerOnline === true);
       this.presenceCircuit.update(selfOnline, peerOnline);
     }
@@ -11854,6 +11892,7 @@ export class QuietRoomApp {
     this.newSpaceCollectionCode = undefined;
     this.returnSpaceId = null;
     this.spaceDrawerOpen = false;
+    this.currentSpaceName = '私密空间';
 
     this.closeMemePicker();
     this.clearMemePanelHandoff();

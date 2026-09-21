@@ -71,22 +71,36 @@ try {
   assert.equal(await page.locator('.space-row').count(),2);
   assert.equal(await page.locator('.space-row.is-selected').evaluate(el=>el.getBoundingClientRect().height>=100),true);
   await page.locator('.space-row').first().click({button:'right'}); await page.locator('#space-rename').click();
-  await page.locator('#space-name').fill('慢慢聊'); await page.locator('#space-name-form button').click();
-  await page.getByText('慢慢聊',{exact:true}).waitFor();
+  assert.equal(await page.locator('#space-name').evaluate(el=>document.activeElement===el),true);
+  await page.locator('#space-name').fill('慢慢聊'); await page.locator('#space-name-form button[type=submit]').click();
+  await page.locator('.space-row.is-selected strong').waitFor();
   await page.locator('#space-settings').click(); await page.locator('#presence-style-setting').click();
   await page.locator('[data-style=heart]').click();
+  assert.equal(await page.locator('[data-style=heart]').getAttribute('aria-checked'),'true');
+  await page.locator('#space-style-done').click();
+  await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
   assert.equal(await page.locator('.chat-header').getAttribute('data-presence-style'),'heart');
   const sizes=await page.evaluate(()=>({button:document.querySelector('.peer-summary').getBoundingClientRect().width,svg:document.querySelector('.presence-circuit').getBoundingClientRect().width})); assert.equal(sizes.button,44); assert.equal(sizes.svg,32);
+  const alignment=await page.evaluate(()=>{const outer=document.querySelector('.peer-summary').getBoundingClientRect(),inner=document.querySelector('.presence-circuit').getBoundingClientRect();return {x:inner.x+inner.width/2-outer.x-outer.width/2,y:inner.y+inner.height/2-outer.y-outer.height/2};});
+  assert.ok(Math.abs(alignment.x)<1 && Math.abs(alignment.y)<1,JSON.stringify(alignment));
+  assert.equal(await page.locator('#open-spaces span').innerText(),'慢慢聊');
   const output=process.env.QUIET_ROOM_SPACE_SCREENSHOTS;
   if(output){await mkdir(output,{recursive:true});await page.screenshot({path:path.join(output,'chat-heart.png')});}
   await page.locator('#open-spaces').click(); await page.locator('#space-settings').waitFor();
   if(output){await page.waitForTimeout(400);await page.screenshot({path:path.join(output,'spaces.png')});}
   await page.locator('#space-settings').click(); if(output){await page.waitForTimeout(400);await page.screenshot({path:path.join(output,'settings.png')});}
   await page.locator('.space-back').click(); await page.locator('#space-create').click();
-  await page.locator('#create-room').waitFor(); assert.equal(await page.locator('#restore-cloud').innerText(),'返回');
-  assert.equal(await page.evaluate(()=>app.session),null);
-  await page.locator('#restore-cloud').click(); await page.waitForFunction(() => v.currentSpaceId() === 'current');
-  assert.equal(await page.evaluate(()=>v.currentSpaceId()),'current');
+  await page.locator('#copy-invite').waitFor();
+  assert.equal(await page.locator('#create-room').count(),0);
+  const createdSlot = await page.evaluate(()=>v.currentSpaceId());
+  assert.notEqual(createdSlot,'current');
+  await page.locator('#invite-close').click();
+  await page.locator('.space-row.is-selected').waitFor();
+  assert.equal(await page.locator('.space-row').count(),3);
+  await page.locator('.space-row.is-selected').click();
+  await page.locator('#copy-invite').waitFor();
+  assert.equal(await page.evaluate(()=>v.currentSpaceId()),createdSlot);
+  await page.evaluate(async()=>{ await app.leaveSpace(); await v.selectLocalSpace('current'); });
   // The actual post-unlock router resolves the invitation before rendering chat or opening a socket.
   const routed=await page.evaluate(async()=>{
     app.session=a;app.privacyCovered=false;
@@ -100,7 +114,7 @@ try {
   await page.locator('#joint-code-form textarea').fill(await page.evaluate(()=>a.vault.spaceRecoveryCode));
   await page.locator('#joint-code-form button[type=submit]').click();
   await page.locator('[data-recovery-spaces] select').waitFor();
-  assert.equal(await page.locator('[data-recovery-spaces] option').count(),2);
+  assert.ok(await page.locator('[data-recovery-spaces] option').count()>=2);
   assert.equal(await page.locator('#joint-code-form textarea').inputValue(),'');
   await page.locator('#joint-code-close').click(); await page.locator('#joint-code-form').waitFor({state:'detached'});
   for (const [width,height,scheme] of [[320,568,'light'],[390,844,'dark'],[1280,800,'light']]) {

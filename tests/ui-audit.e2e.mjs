@@ -72,7 +72,7 @@ async function beginSyntheticFilePicker(input) {
 }
 
 async function holdCover(page) {
-  await page.locator('.cover-trigger, #create-room, [data-device-verify], .pairing-screen, #cloud-recovery-form, #joint-start').first().waitFor({ timeout: 120_000 });
+  await page.locator('.cover-trigger, #create-room, [data-device-verify], .space-invite-sheet, #cloud-recovery-form, #joint-start').first().waitFor({ timeout: 120_000 });
   const trigger = page.locator('.cover-trigger');
   if (await trigger.count() === 0) return;
   const box = await trigger.boundingBox();
@@ -250,7 +250,7 @@ try {
   await creator.locator('#create-room').click();
   await capture('passkey', ['mobile', 'small', 'desktop', 'landscape', 'dark', 'large']);
   await creator.locator('[data-device-verify]').click();
-  await creator.locator('.pairing-screen').waitFor({ timeout: 15000 });
+  await creator.locator('.space-invite-sheet').waitFor({ timeout: 15000 });
   await capture('pairing', ['mobile', 'landscape']);
   const invite = await creator.locator('#invite-url').inputValue();
   await joiner.goto(invite);

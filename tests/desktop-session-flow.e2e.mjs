@@ -78,7 +78,7 @@ async function createDesktop() {
 }
 
 async function holdF(page) {
-  await page.locator('.cover-trigger, #create-room, [data-device-verify], .pairing-screen, #cloud-recovery-form, #joint-start, #passkey-unlock').first().waitFor();
+  await page.locator('.cover-trigger, #create-room, [data-device-verify], .space-invite-sheet, #cloud-recovery-form, #joint-start, #passkey-unlock').first().waitFor();
   if (await page.locator('#passkey-unlock').count()) {
     const passkey = page.locator('#passkey-unlock');
     if (await passkey.isDisabled()) {
@@ -164,7 +164,7 @@ try {
   await holdF(creator);
   await creator.locator('#create-room').click();
   await creator.locator('[data-device-verify]').click();
-  await creator.locator('.pairing-screen').waitFor({ timeout: 15_000 });
+  await creator.locator('.space-invite-sheet').waitFor({ timeout: 15_000 });
   const invite = await creator.locator('#invite-url').inputValue();
   await joiner.goto(invite, { waitUntil: 'domcontentloaded' });
   await joiner.evaluate(() => import('/src/main.ts'));

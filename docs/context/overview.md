@@ -18,6 +18,10 @@
 
 需求协作：所有变更先按[需求澄清与设计确认](workflow.md#需求澄清与设计确认)推进；页面需求先原型与业务流程图，参考根 `DESIGN.md` 和实际样式／组件。记录使用[最小需求模板](../requirements/TEMPLATE.md)，保存遵循[轻量规则](workflow.md#需求材料的轻量保存)。
 
+私密空间抽屉与在线样式：`src/lib/space-drawer.ts`、`src/spaces.css`、`src/lib/spaces.ts`；
+本机加密预览与只读未读计数的契约见 `PRODUCT.md`、`SECURITY.md`，专项为
+`tests/spaces.test.ts`、`tests/spaces.e2e.mjs`、`tests/space-drawer-ui.e2e.mjs`。
+
 ## 一分钟认识项目
 
 - 每个新会话先读[固定交付流程](workflow.md#固定交付流程)：统一同步、盘点、集成、验证、PR、发布、回读和对账；[入口生效范围](maintenance.md#新会话入口)说明旧工作树与跨电脑的规则加载。
