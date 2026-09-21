@@ -738,8 +738,12 @@ try {
       grid.scrollTop = grid.scrollHeight;
       grid.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 120 }));
     });
-    await page.waitForFunction(previous => document.querySelectorAll('.gallery-tile').length > previous
-      || document.querySelector('.gallery-scan-status')?.textContent?.startsWith('已加载本机保存的全部'), before);
+    await page.waitForFunction(previous => {
+      const status = document.querySelector('.gallery-scan-status')?.textContent;
+      const complete = status?.startsWith('已加载本机保存的全部');
+      return (status === '上拉继续加载' || complete)
+        && (document.querySelectorAll('.gallery-tile').length > previous || complete);
+    }, before);
     if (++pages > 5) throw Error('Gallery scan did not advance');
   }
   results.gallery = { images: await page.locator('.gallery-tile').count(), olderImage: await page.locator('.gallery-tile[data-blob-id="photo-10"]').count(), pages };
