@@ -120,6 +120,7 @@ try {
         titleLeft: titleBox?.left, titleTop: titleBox?.top,
         actionsLeft: actionsBox?.left, actionsBottom: actionsBox ? innerHeight - actionsBox.bottom : undefined,
         primaryHeight: box(primary)?.height, secondaryHeight: box(secondary)?.height,
+        primaryWidth: box(primary)?.width, secondaryWidth: box(secondary)?.width, actionsWidth: actionsBox?.width,
         contentScrolls: Boolean(contentBox && content.scrollHeight > content.clientHeight + 1),
       };
     };
@@ -132,7 +133,7 @@ try {
     app.renderLocalHistoryBackup('export');
     return { backup, restore, create, welcome, recovery };
   });
-  for (const name of ['backup', 'restore', 'create', 'welcome']) {
+  for (const name of ['backup', 'restore', 'create', 'welcome', 'recovery']) {
     const layout = introLayouts[name];
     assert.equal(layout.intro, true, `${name}: shared intro layout missing`);
     assert.equal(Math.round(layout.markLeft), 20, `${name}: icon left anchor`);
@@ -141,15 +142,14 @@ try {
     assert.equal(Math.round(layout.actionsBottom), 30, `${name}: actions bottom anchor`);
     assert.equal(Math.round(layout.primaryHeight), 52, `${name}: primary height`);
     assert.ok(Math.round(layout.secondaryHeight) >= 44, `${name}: secondary height`);
+    assert.ok(Math.abs(layout.primaryWidth - layout.actionsWidth) < 1 && Math.abs(layout.secondaryWidth - layout.actionsWidth) < 1,
+      `${name}: bottom action widths do not match the shared intro layout`);
   }
-  for (const name of ['restore', 'create', 'welcome']) {
+  for (const name of ['restore', 'create', 'welcome', 'recovery']) {
     assert.equal(Math.round(introLayouts[name].markTop), Math.round(introLayouts.backup.markTop), `${name}: icon top anchor`);
     assert.equal(Math.round(introLayouts[name].titleTop), Math.round(introLayouts.backup.titleTop), `${name}: title top anchor`);
   }
-  assert.equal(introLayouts.recovery.intro, true, 'recovery: shared intro layout missing');
-  assert.equal(introLayouts.recovery.markVisible, false, 'recovery: dense layout retained the icon');
-  assert.equal(Math.round(introLayouts.recovery.titleTop), 56, 'recovery: dense title top anchor');
-  assert.equal(Math.round(introLayouts.recovery.actionsBottom), 30, 'recovery: actions bottom anchor');
+  assert.equal(introLayouts.recovery.markVisible, true, 'recovery: shared intro icon is missing');
   await page.setViewportSize({ width: 390, height: 520 });
   const compactLayout = await page.evaluate(() => {
     window.fixtureApp.renderRecoveryCenter();

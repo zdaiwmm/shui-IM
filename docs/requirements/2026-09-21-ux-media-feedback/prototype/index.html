@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Quiet Room · 交互原型 S2</title>
+  <link rel="stylesheet" href="../../../../src/design-system.css">
+  <link rel="stylesheet" href="./prototype.css">
+  <script defer src="./prototype.js"></script>
+</head>
+<body class="prototype-host">
+  <div class="prototype-layout">
+    <aside class="prototype-panel" aria-label="原型演示控制">
+      <div class="panel-heading">
+        <span class="eyebrow">Quiet Room · S2</span>
+        <h1>交互原型</h1>
+        <p>十五项反馈及本轮三处修订的页面与状态演示，使用模拟数据。</p>
+      </div>
+      <details class="scene-picker" open>
+        <summary>选择演示场景</summary>
+        <nav class="scene-list" aria-label="演示场景">
+          <button type="button" data-scene="welcome">创建私密空间</button>
+          <button type="button" data-scene="setup">设置访问密钥</button>
+          <button type="button" data-scene="invite">邀请重要的人</button>
+          <button type="button" data-scene="join">受邀加入</button>
+          <button type="button" data-scene="cover">遮蔽演示</button>
+          <button type="button" data-scene="recovery">恢复码说明</button>
+          <button type="button" data-scene="code">本设备恢复码</button>
+          <button type="button" data-scene="chat">聊天与输入</button>
+          <button type="button" data-scene="vault">保险箱</button>
+          <button type="button" data-scene="call">实时语音状态</button>
+        </nav>
+        <div class="prototype-switches">
+          <label class="switch-row"><input id="theme-toggle" type="checkbox"><span>预览深色外观</span></label>
+          <label class="switch-row"><input id="offline-toggle" type="checkbox"><span>模拟网络中断</span></label>
+        </div>
+      </details>
+      <p class="panel-note">输入法、通话、附件与保险箱均为模拟。系统键盘和真实设备行为需要正式实施后验证。</p>
+      <a class="flow-link" href="../flow.md" target="_blank" rel="noopener">查看业务流程图</a>
+    </aside>
+    <main class="preview-area">
+      <div class="preview-caption"><span>页面预览</span><span id="scene-caption">创建私密空间</span></div>
+      <div class="app-frame" id="app-frame">
+        <div class="app-screen" id="scene" aria-live="polite"></div>
+        <div class="toast" id="toast" role="status" hidden></div>
+      </div>
+      <p class="preview-footnote">390 × 844 为主要预览尺寸。缩小窗口可查看短屏与窄屏布局。</p>
+    </main>
+  </div>
+</body>
+</html>

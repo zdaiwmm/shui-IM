@@ -646,7 +646,9 @@ try {
     const records = [];
     for (let seq = 1; seq <= 620; seq++) {
       const payload = seq % 10 === 0 ? { v: 1, kind: 'gallery-image', sentAt: '2026-09-04T01:00:00.000Z', image: { blobId: `photo-${seq}`, originalName: `photo-${seq}.png`, originalSize: 10, mimeType: 'image/png' } } : undefined;
-      records.push(message(seq, payload));
+      const record = message(seq, payload);
+      if (payload) record.clientMsgId = `00000000-0000-4000-8000-${seq.toString(16).padStart(12, '0')}`;
+      records.push(record);
     }
     for (let offset = 0; offset < records.length; offset += 40) await Promise.all(records.slice(offset, offset + 40).map(record => vault.saveHistoryMessage(session, record)));
     window.regression.records = records;
@@ -725,21 +727,31 @@ try {
     app.renderGallery();
     return { oldReferenceLoaded: true };
   });
-  await page.locator('[data-gallery-load-more]:not(:disabled)').waitFor();
+  await page.waitForFunction(() => document.querySelector('.gallery-scan-status')?.textContent?.includes('上拉继续加载'));
   const initialSafeImages = await page.locator('.gallery-tile').count();
   await page.waitForFunction(() => document.querySelector('[data-gallery-count="images"]')?.textContent === '62');
   await page.locator('#gallery-toggle-visibility').click();
   let pages = 0;
-  while (await page.locator('[data-gallery-load-more]').isVisible()) {
-    await page.locator('[data-gallery-load-more]').click();
-    await page.waitForFunction(() => !document.querySelector('[data-gallery-load-more]')?.disabled);
+  while (await page.locator('.gallery-scan-status').textContent() === '上拉继续加载') {
+    const before = await page.locator('.gallery-tile').count();
+    await page.locator('#gallery-grid').evaluate(grid => {
+      grid.scrollTop = grid.scrollHeight;
+      grid.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 120 }));
+    });
+    await page.waitForFunction(previous => {
+      const status = document.querySelector('.gallery-scan-status')?.textContent;
+      const complete = status?.startsWith('已加载本机保存的全部');
+      return (status === '上拉继续加载' || complete)
+        && (document.querySelectorAll('.gallery-tile').length > previous || complete);
+    }, before);
     if (++pages > 5) throw Error('Gallery scan did not advance');
   }
   results.gallery = { images: await page.locator('.gallery-tile').count(), olderImage: await page.locator('.gallery-tile[data-blob-id="photo-10"]').count(), pages };
   assert.equal(results.gallery.images, 62);
   assert.equal(results.gallery.olderImage, 1);
   assert.equal(await page.locator('[data-gallery-count="images"]').textContent(), '62', 'Completed safe pagination did not show its loaded count');
-  assert.equal(await page.locator('.gallery-tile[data-revealed="true"]').count(), initialSafeImages, 'Loading older safe images automatically revealed them');
+  assert.ok(initialSafeImages < 62, 'Pagination fixture did not begin with a partial page');
+  assert.equal(await page.locator('.gallery-tile[data-revealed="true"]').count(), 62, 'Loading older safe images did not inherit the visit-wide reveal state');
   results.gallerySpacing = await page.evaluate(() => {
     const grid = document.querySelector('.gallery-grid'); grid.scrollTop = grid.scrollHeight;
     const tile = [...grid.querySelectorAll('.gallery-tile')].at(-1).getBoundingClientRect();
@@ -751,19 +763,35 @@ try {
   if (visualQaDirectory) await page.screenshot({ path: path.join(visualQaDirectory, 'gallery-bottom-spacing.png') });
 
   await page.locator('#gallery-toggle-visibility').click();
+  assert.equal(await page.locator('.gallery-tile[data-revealed="true"]').count(), 0);
+  await page.locator('#gallery-toggle-visibility').click();
   assert.equal(await page.locator('.gallery-tile[data-revealed="true"]').count(), 62);
   await page.locator('#gallery-tab-files').click();
   await page.locator('#gallery-grid[aria-labelledby="gallery-tab-files"]').waitFor();
   await page.locator('#gallery-tab-images').click();
-  await page.locator('[data-gallery-load-more]:not(:disabled)').waitFor();
+  await page.locator('.gallery-tile').first().waitFor();
   assert.equal(await page.locator('#gallery-toggle-visibility').getAttribute('aria-label'), '隐藏全部');
   await page.locator('#gallery-toggle-visibility').click();
-  while (await page.locator('[data-gallery-load-more]').isVisible()) {
-    await page.locator('[data-gallery-load-more]').click();
-    await page.waitForFunction(() => !document.querySelector('[data-gallery-load-more]')?.disabled);
-  }
   assert.equal(await page.locator('.gallery-tile[data-revealed="true"]').count(), 0, 'Hide all left an older unmounted safe page revealed');
   results.galleryPrivacyPagination = { newlyLoadedHidden: true, hideAllIncludesUnmountedPages: true };
+
+  results.gallerySendToChat = await page.evaluate(async () => {
+    const { app } = window.regression;
+    const original = app.enqueuePayload;
+    let sent = null;
+    app.enqueuePayload = async payload => { sent = payload; };
+    document.querySelector('.gallery-tile[data-blob-id="photo-10"]').dispatchEvent(
+      new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
+    const action = document.querySelector('[data-gallery-action="send"]');
+    if (!action) throw Error('Safe media action sheet has no send-to-chat item');
+    action.click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    app.enqueuePayload = original;
+    return { kind: sent?.kind, blobId: sent?.image?.blobId, chat: Boolean(document.querySelector('.chat-shell')),
+      sourceHidden: Boolean(app.uiPreferences.galleryCuration?.some(record => record.hidden)) };
+  });
+  assert.deepEqual(results.gallerySendToChat, { kind: 'image', blobId: 'photo-10', chat: true, sourceHidden: false },
+    'Send-to-chat must reuse the selected encrypted asset and retain the Safe source');
 
   // Delay the first historical lookup, then jump to another visible reference.
   // Finishing the older lookup may not move focus/scroll to an obsolete intent.

@@ -41,6 +41,26 @@ try {
   assert.equal(await page.evaluate(() => document.activeElement.className), 'call-control call-answer');
   await page.keyboard.press('Escape');
   assert.deepEqual(await page.evaluate(() => window.callUi.events), ['decline']);
+  const lateAudio = await page.evaluate(async () => {
+    const ui = window.callUi;
+    const source = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const remote = new MediaStream();
+    const element = document.querySelector('.call-remote-video');
+    const nativePlay = element.play;
+    let plays = 0;
+    element.play = () => { plays += 1; return Promise.resolve(); };
+    ui.state = { ...ui.state, phase: 'connected', kind: 'audio', remoteStream: remote, startedAt: Date.now() };
+    ui.view.update(ui.state);
+    const beforeTrack = plays;
+    remote.addTrack(source.getAudioTracks()[0].clone());
+    ui.view.update(ui.state);
+    const afterTrack = plays;
+    element.play = nativePlay;
+    source.getTracks().forEach(track => track.stop());
+    remote.getTracks().forEach(track => track.stop());
+    return { beforeTrack, afterTrack };
+  });
+  assert.ok(lateAudio.afterTrack > lateAudio.beforeTrack, 'A track added to the bound stream must retry audible playback');
   if (screenshotDirectory) {
     await mkdir(screenshotDirectory, { recursive: true });
     await page.screenshot({ path: path.join(screenshotDirectory, 'call-incoming-390.png') });

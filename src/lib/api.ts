@@ -73,6 +73,11 @@ async function authorizedFetch(path: string, accessToken: string, init: RequestI
   return response;
 }
 
+function boundedSignal(signal: AbortSignal | undefined, milliseconds: number): AbortSignal {
+  const timeout = AbortSignal.timeout(milliseconds);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
 export async function createRoom(
   creatorBundle: unknown,
   accessToken: string,
@@ -291,7 +296,7 @@ export async function reserveBlob(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ blobId, chunkCount, encryptedSize }),
-    signal,
+    signal: boundedSignal(signal, 20_000),
   });
 }
 
@@ -301,7 +306,7 @@ export async function getBlobStatus(
   blobId: string,
   signal?: AbortSignal,
 ): Promise<{ uploadedIndexes: number[]; completed: boolean }> {
-  const response = await authorizedFetch(`/api/rooms/${roomId}/blobs/${blobId}`, accessToken, { signal });
+  const response = await authorizedFetch(`/api/rooms/${roomId}/blobs/${blobId}`, accessToken, { signal: boundedSignal(signal, 15_000) });
   return response.json();
 }
 
@@ -317,12 +322,12 @@ export async function uploadBlobChunk(
     method: 'PUT',
     headers: { 'Content-Type': 'application/octet-stream' },
     body: bytes,
-    signal,
+    signal: boundedSignal(signal, 45_000),
   });
 }
 
 export async function completeBlob(roomId: string, accessToken: string, blobId: string, signal?: AbortSignal): Promise<void> {
-  await authorizedFetch(`/api/rooms/${roomId}/blobs/${blobId}/complete`, accessToken, { method: 'POST', signal });
+  await authorizedFetch(`/api/rooms/${roomId}/blobs/${blobId}/complete`, accessToken, { method: 'POST', signal: boundedSignal(signal, 20_000) });
 }
 
 export async function fetchBlobChunk(

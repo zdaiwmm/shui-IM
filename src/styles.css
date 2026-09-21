@@ -165,13 +165,13 @@ textarea {
 button {
   color: inherit;
   touch-action: manipulation;
-  transition: transform 120ms var(--motion-out), opacity 120ms ease-out, background-color 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out;
+  transition: opacity 120ms ease-out, background-color 120ms ease-out, border-color 120ms ease-out, color 120ms ease-out, filter 120ms ease-out;
 }
 
 button:not(:disabled):active,
 summary:active,
 label[role="button"]:active {
-  transform: scale(0.96);
+  filter: brightness(0.88);
   transition-duration: 60ms;
 }
 .gateway-welcome button:not(:disabled):active,
@@ -498,7 +498,7 @@ button:disabled {
 }
 
 .primary-button:active {
-  transform: scale(0.985);
+  background: var(--accent-hover);
 }
 
 .secondary-button {
@@ -863,7 +863,7 @@ button:disabled {
 .icon-button:active,
 .more-menu summary:active,
 .image-picker:active {
-  transform: scale(0.94);
+  filter: brightness(0.88);
 }
 
 .icon-button:disabled,
@@ -2358,7 +2358,7 @@ button:disabled {
 }
 
 .send-button:active {
-  transform: scale(0.92);
+  filter: brightness(0.88);
 }
 
 .composer:has(textarea:placeholder-shown) .send-button {

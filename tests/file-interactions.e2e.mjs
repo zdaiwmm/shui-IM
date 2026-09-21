@@ -335,7 +335,8 @@ try {
   });
   assert.equal(await page.locator('.message-actions, .message-reaction-picker').count(), 0, 'Gallery-only file opened chat actions');
   assert.equal(await page.evaluate(() => window.fileInteractions.requests.reads), readsBeforeGalleryHold, 'Holding a gallery file fetched bytes before a click');
-  assert.equal(await page.locator('.gallery-actions-menu [data-gallery-action]').count(), 2, 'Safe file actions are incomplete');
+  assert.deepEqual(await page.locator('.gallery-actions-menu [data-gallery-action]').evaluateAll(buttons => buttons.map(button => button.dataset.galleryAction)),
+    ['send', 'pin', 'delete'], 'Safe file actions are incomplete');
   assert.equal((await page.locator('.gallery-actions-menu [data-gallery-action="pin"] span').textContent()).trim(), '置顶', 'Safe file pin action has the wrong initial label');
   const galleryDelete = page.locator('.gallery-actions-menu [data-gallery-action="delete"]');
   assert.equal(await galleryDelete.getAttribute('data-danger'), 'true', 'Safe file delete action lost its danger treatment');
@@ -359,6 +360,21 @@ try {
   await page.locator('.gallery-actions-sheet').waitFor({ state: 'detached' });
   assert.equal(await page.evaluate(() => window.fileInteractions.app.uiPreferences.galleryCuration?.some(record => record.category === 'files') ?? false), false, 'Unpin left a stale Safe file curation record');
   assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Gallery file overflows the mobile viewport');
+  results.galleryFileSend = await page.evaluate(async () => {
+    const { app, gallery } = window.fileInteractions;
+    const original = app.enqueuePayload;
+    let sent = null;
+    app.enqueuePayload = async payload => { sent = payload; };
+    document.querySelector('.gallery-file').dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ContextMenu' }));
+    document.querySelector('[data-gallery-action="send"]').click();
+    await new Promise(resolve => setTimeout(resolve, 0));
+    app.enqueuePayload = original;
+    return { kind: sent?.kind, blobId: sent?.file?.blobId, expectedBlobId: gallery.payload.file.blobId,
+      inChat: Boolean(document.querySelector('.chat-shell')), sourcePreserved: app.pending.has(gallery.clientMsgId) };
+  });
+  assert.deepEqual(results.galleryFileSend,
+    { kind: 'file', blobId: results.galleryFileSend.expectedBlobId, expectedBlobId: results.galleryFileSend.expectedBlobId, inChat: true, sourcePreserved: true },
+    'Sending a Safe file should reuse its encrypted attachment and preserve the source');
   results.galleryHasNoMessageMenu = true;
 
   // Exercise concealment with both the verified cache and real asynchronous
@@ -454,7 +470,7 @@ try {
   assert.equal(await longHeldImage.getAttribute('data-revealed'), 'false', 'A long Safe hold revealed the image after the ordinary click-suppression window');
   assert.equal(await page.locator('.image-viewer').count(), 0, 'A long Safe hold opened the image viewer behind its action sheet');
   assert.deepEqual(await page.locator('.gallery-actions-menu [data-gallery-action]').evaluateAll(buttons => buttons.map(button => button.dataset.galleryAction)),
-    ['details', 'pin', 'delete'], 'Safe image actions are incomplete');
+    ['details', 'send', 'pin', 'delete'], 'Safe image actions are incomplete');
   assert.equal((await page.locator('.gallery-actions-menu [data-gallery-action="pin"] span').textContent()).trim(), '置顶', 'Unpinned Safe image has the wrong action label');
   assert.equal(await page.locator('.gallery-actions-menu [data-gallery-action="delete"]').getAttribute('data-danger'), 'true', 'Safe image delete action lost its danger treatment');
   await page.locator('.gallery-actions-menu [data-gallery-action="pin"]').tap();
@@ -575,13 +591,16 @@ try {
   await assertVisibility(6, 6, 'Same-visit refresh');
   await page.evaluate(async () => { const f = window.galleryPrivacy; await f.addImage({ delayed: true }); f.app.renderGallery(); });
   await page.waitForFunction(() => window.galleryPrivacy.gate.waiting);
-  await assertVisibility(7, 6, 'New image after show all');
+  await assertVisibility(7, 7, 'New image after show all');
+  await page.locator('#gallery-toggle-visibility').tap();
+  await assertVisibility(7, 0, 'Hide all while decoding');
   await page.locator('#gallery-toggle-visibility').tap();
   await assertVisibility(7, 7, 'Show all while decoding');
-  await page.locator('#gallery-toggle-visibility').tap();
   await page.evaluate(() => { const gate = window.galleryPrivacy.gate; gate.blobId = null; gate.release(); });
   await page.waitForFunction(() => document.querySelectorAll('.gallery-tile img').length === 7);
-  await assertVisibility(7, 0, 'Hide all before delayed decode completes');
+  await assertVisibility(7, 7, 'Show all survived delayed decode');
+  await page.locator('#gallery-toggle-visibility').tap();
+  await assertVisibility(7, 0, 'Hide all after delayed decode completes');
   if (visualQaDirectory) {
     await mkdir(visualQaDirectory, { recursive: true });
     const assertToolbarGeometry = async label => {
@@ -665,7 +684,7 @@ try {
   await page.evaluate(() => window.galleryPrivacy.reopen());
   await page.waitForFunction(() => document.querySelectorAll('.gallery-tile img').length === 8);
   await assertVisibility(8, 0, 'Unlock reentry');
-  results.safePrivacy = { cachedImagesHidden: true, revealThenView: true, tabAndViewerStatePreserved: true, newImagesHidden: true, hideDuringDecode: true, leaveAndLockReset: true, staleControlsBlocked: true, countsRetained: true, viewerTimeFollowsIndex: true };
+  results.safePrivacy = { cachedImagesHidden: true, revealThenView: true, tabAndViewerStatePreserved: true, newImagesInheritBulkReveal: true, hideDuringDecode: true, leaveAndLockReset: true, staleControlsBlocked: true, countsRetained: true, viewerTimeFollowsIndex: true };
   await firstTile.tap(); await firstTile.tap();
   await page.locator('.image-viewer .viewer-stage img').waitFor();
   await page.waitForTimeout(300);
