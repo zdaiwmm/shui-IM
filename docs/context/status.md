@@ -1,22 +1,16 @@
 # Quiet Room 当前状态
 
-## 私密空间抽屉精修候选（2026-09-22）
+## 多私密空间与抽屉精修已发布（2026-09-22 02:21）
 
-- 任务：`codex/space-drawer-prototype`，基线 `d2a185ce64eb23a95dd4011dea87d4a78bbe1413`。用户已确认 S6 并授权正式实施，明确排除跨浏览器接入与加密恢复。
-- 工作树实现：悬浮列表、本机加密预览与未读数字、改名弹窗、创建直达邀请半屏、设置图标及在线样式、聊天左侧名称。详细边界与复现见[需求记录](../requirements/2026-09-21-space-drawer-refinement/README.md)。
-- 证据：定向单元、真实空间流程、Chromium / WebKit 组件回归通过；完整候选门禁与远端结果以本任务交付证据及 PR 为准。未进行 iOS 27 真机验证，未部署生产。
-
-
-## 2026-09-21 多私密空间实现候选
-
-- 需求与 S1 设计已确认，任务分支 `codex/multi-space-design-20260921` 基于主线 `88a3e4f22695ceebecf79988148989b0ef147ede` 实施；版本候选 `2026.09.21.2`。参见 [需求与验收](../requirements/2026-09-21-multi-space/README.md)。
-- 包含独立本地空间、邀请优先、左侧抽屉及二级设置、重命名、创建返回、可选心动按钮和 QR4 总恢复码。旧空间及 QR3 兼容保留，恢复仍需逐空间双方确认。
-- 自动验证与远端交付证据见该需求及 PR；物理 iPhone 未验证。此条不代表生产更新，生产仍为下方已有发布事实。
-
+- 当前生产应用 SHA 为 `5cc445d7be86847065f9d6713222fa09581ae38b`，版本 `2026.09.21.3`；PR [#188](https://github.com/zdaiwmm/shui-IM/pull/188) 和 [#189](https://github.com/zdaiwmm/shui-IM/pull/189) 已合并。用户确认集成、合并并发布此批次；跨浏览器便捷接入与加密恢复方案仍排除。
+- 已发布独立本地空间、悬浮列表、本机加密预览与未读数字、改名弹窗、创建直达邀请半屏、设置图标及在线样式、聊天左侧名称。预览是本机上次打开时的快照，未读数字走已有只读观察权限。详见[多空间需求](../requirements/2026-09-21-multi-space/README.md)及[抽屉精修需求](../requirements/2026-09-21-space-drawer-refinement/README.md)。
+- 相同文件树的本地 `check:full` 通过 81 个测试文件／665 项、39/39 浏览器脚本；精确 main CI [35637008372](https://github.com/zdaiwmm/shui-IM/actions/runs/35637008372) 全部通过。
+- 固定入口取得并核对 `DEPLOY_VERIFIED`；批次 `20260921T181833Z`，切换前冷备份已校验。独立 `READBACK_OK` 于 `2026-09-21T18:21:30.855Z` 核对线上 SHA、镜像、HTTPS／数据库／存储、公开产物及新建 WebSocket 一致。应用运行且健康，备份容器运行但无健康探针，维护标记不存在；管理员开启，通话关闭，TURN 不存在。证据 `quiet-room-readback/20260921T182127730Z-5cc445d7be86-success.json`；详细路径与摘要见根目录 `RELEASING.md`。
+- iPhone 15 Pro / iOS 27 / Safari 真机未验证；独立安全审计等既有高安全门槛未完成。知识库在独立文档工作树对账，文档提交可领先线上应用提交，不触发再次部署。
 
 ## 入口页版式统一已发布（2026-09-20 21:08）
 
-- 当前生产应用 SHA 为 `b26b5c0953a223e6dee4895fa012cf3168979836`，版本 `2026.09.20.2`。产品 PR [#184](https://github.com/zdaiwmm/shui-IM/pull/184) 与版本元数据 PR [#185](https://github.com/zdaiwmm/shui-IM/pull/185) 已合并。统一欢迎、访问密钥、邀请、备份与恢复等入口页的图标、标题、说明和底部操作区位置，短屏与长内容自动适配。
+- 当时生产应用 SHA 为 `b26b5c0953a223e6dee4895fa012cf3168979836`，版本 `2026.09.20.2`。产品 PR [#184](https://github.com/zdaiwmm/shui-IM/pull/184) 与版本元数据 PR [#185](https://github.com/zdaiwmm/shui-IM/pull/185) 已合并。统一欢迎、访问密钥、邀请、备份与恢复等入口页的图标、标题、说明和底部操作区位置，短屏与长内容自动适配。
 - 精确 main CI [35506242775](https://github.com/zdaiwmm/shui-IM/actions/runs/35506242775) 全部通过。固定入口取得 `DEPLOY_OK`、`DEPLOY_VERIFIED`；批次 `20260920T130426Z`，发布目录 `/opt/quiet-room/git-releases/20260920T130426Z-b26b5c0953a2`，切换前冷备份已校验。独立 `READBACK_OK` 于 `2026-09-20T13:08:08Z` 核对线上 SHA、镜像 `sha256:b331ac632e7e86a771e719c655361ff84b60343ae5532ba69fe0e8b6c87fadf7`、HTTPS／数据库／存储、公开产物与新建 WebSocket 一致；应用健康，备份容器运行但无健康探针，维护标记不存在。证据 `quiet-room-readback/20260920T130805091Z-b26b5c0953a2-success.json`。
 - 管理员功能开启，通话关闭，TURN 容器不存在。实体 iPhone / iOS 27 / Safari 未验证；独立安全审计、异地不可变备份等高安全门槛仍未完成。本次对账不触发再次部署。详见[需求记录](../requirements/2026-09-20-unified-intro-layout/README.md)。
 
