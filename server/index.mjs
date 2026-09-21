@@ -415,6 +415,26 @@ export async function startServer(options = {}) {
         return;
       }
 
+      const directory = pathname.match(/^\/api\/space-directories\/([A-Za-z0-9_-]{22})$/);
+      if (directory && ['GET', 'PUT'].includes(request.method)) {
+        if (!allowRequest(request, 'space-directories', 60)) { response.setHeader('Retry-After', '60'); json(request, response, 429, { error: '请稍后重试' }); return; }
+        try {
+          const token = bearerToken(request);
+          let result;
+          if (request.method === 'PUT') {
+            const body = JSON.parse((await readBody(request, 140000)).toString('utf8'));
+            requireActiveDevice(request, body.roomId);
+            result = store.spaceDirectories.save(directory[1], token, body);
+          } else result = store.spaceDirectories.fetch(directory[1], token);
+          json(request, response, 200, result);
+        } catch (error) {
+          const code = error instanceof Error ? error.message : '';
+          const status = code === 'BACKUP_UNAVAILABLE' ? 404 : code === 'UNAUTHORIZED' ? 401 : code === 'BACKUP_CONFLICT' ? 409 : code === 'BACKUP_QUOTA' ? 413 : 400;
+          json(request, response, status, { error: '空间目录暂不可用', code });
+        }
+        return;
+      }
+
       const backupWrite = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/backup$`));
       const archiveWrite = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/archives/([A-Za-z0-9_-]{43})/([A-Za-z0-9_-]{43})$`));
       const backupRead = pathname.match(/^\/api\/recovery-backups\/([A-Za-z0-9_-]{22})$/);

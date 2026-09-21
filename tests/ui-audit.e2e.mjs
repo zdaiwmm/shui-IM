@@ -240,8 +240,8 @@ try {
     await variant('mobile');
   }
   async function menu() {
-    await creator.waitForFunction(() => !document.querySelector('.more-menu')?.classList.contains('is-closing'));
-    if (!await creator.locator('.more-menu').evaluate(element => element.open)) await creator.locator('.more-menu summary').click();
+    await creator.locator('#open-spaces').click();
+    await creator.locator('#space-settings').click();
     await creator.waitForTimeout(300);
   }
   await creator.goto(baseUrl);

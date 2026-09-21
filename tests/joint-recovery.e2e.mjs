@@ -56,13 +56,13 @@ try {
     await v.saveHistoryMessage(session, { seq: message.seq, clientMsgId: message.envelope.clientMsgId, senderId: message.envelope.senderId, payload: opened.payload, acceptedAt: message.acceptedAt, status: 'delivered' });
     await v.saveUiPreferences(session, { composerDraft: 'helper draft', hiddenChatMessageIds: [message.envelope.clientMsgId] }); await v.saveVault(session);
   }, initial);
-  for (const page of pages) await page.evaluate(async () => { await b.syncCloudBackup(session, signal); window.oldCode = session.vault.backup.code; });
+  for (const page of pages) await page.evaluate(async () => { await b.syncCloudBackup(session, signal); window.sp = await import('/src/lib/spaces.ts'); await sp.syncSpaceDirectory(session, signal); window.masterCode = session.vault.spaceRecoveryCode; window.oldCode = session.vault.backup.code; const bundle = await b.fetchRecoveryBundle(masterCode, signal, undefined, session.vault.roomId); if (bundle.checkpoint.spaceRecoveryCode) throw new Error('Collection capability leaked into a room checkpoint'); });
   const link = await a.evaluate(async () => {
     const history = await import('/src/lib/local-history-backup.ts'); const chunks = [];
     await history.exportLocalHistory(session, { write: async bytes => chunks.push(bytes.slice()) }, signal); window.localFile = new Blob(chunks);
     window.old = structuredClone(session.vault);
     const { createPlatformCredential } = await import('/src/lib/platform-vault.ts'); const credential = await createPlatformCredential();
-    window.session = await j.prepareJointRecovery(oldCode, 'me', null, null, credential, 'new A', ['joint-recovery-v1'], signal);
+    window.session = await j.prepareJointRecovery(oldCode, 'me', null, null, credential, 'new A', ['joint-recovery-v1'], signal, masterCode); await sp.rememberLocalSpace(session, masterCode);
     await j.advanceJointRecovery(session, signal); return session.vault.pendingJointRecovery.link;
   });
   await b.evaluate(async link => { window.session = await j.prepareJointRecovery(oldCode, 'peer', link, session, undefined, 'new B', ['joint-recovery-v1'], signal); await j.advanceJointRecovery(session, signal); }, link);
@@ -109,7 +109,7 @@ try {
   assert.deepEqual(helper.history, ['before recovery', 'during recovery']); assert.equal(helper.preferences.composerDraft, 'helper draft'); assert.deepEqual(helper.preferences.hiddenChatMessageIds, [initial.envelope.clientMsgId]);
   for (const page of pages) await page.evaluate(async () => {
     await b.syncCloudBackup(session, signal); if (session.vault.recoverySource || session.vault.backup.code === oldCode) throw new Error('Code rotation not finished');
-    let rejected = false; try { await b.fetchRecoveryBundle(oldCode, signal); } catch { rejected = true; } if (!rejected) throw new Error('Old online fetch was not revoked');
+    let rejected = false; try { await b.fetchRecoveryBundle(oldCode, signal); } catch { rejected = true; } if (!rejected) throw new Error('Old online fetch was not revoked'); await sp.syncSpaceDirectory(session, signal); if (session.vault.spaceRecoveryCode !== masterCode) throw new Error('Shared recovery code changed'); const bundle = await b.fetchRecoveryBundle(masterCode, signal, undefined, session.vault.roomId); if (bundle.deviceId !== session.vault.identity.publicBundle.deviceId) throw new Error('Shared code points to a retired identity');
   });
   assert.equal(await a.evaluate(async () => (await (await import('/src/lib/local-history-backup.ts')).importLocalHistory(session, localFile, signal)).imported), 1);
   const next = await a.evaluate(async () => (await m.encryptMlsApplication(session.vault, { v: 1, kind: 'text', text: 'fresh group', sentAt: new Date().toISOString() }, crypto.randomUUID())).envelope);

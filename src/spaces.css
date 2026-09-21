@@ -1,0 +1,55 @@
+.space-drawer-overlay { position:fixed; inset:0; z-index:220; background:oklch(20% .01 250 / .22); opacity:0; transition:opacity 320ms var(--motion-out); }
+.space-drawer-overlay.is-visible { opacity:1; }
+.space-drawer { box-sizing:border-box; width:min(88vw,380px); height:100%; display:flex; flex-direction:column; border-radius:0 28px 28px 0; transform:translateX(-100%); transition:transform 320ms var(--motion-out); padding:max(env(safe-area-inset-top),16px) 20px max(env(safe-area-inset-bottom),20px); }
+.is-visible .space-drawer { transform:translateX(0); }
+.space-drawer-header { display:flex; align-items:center; gap:8px; padding:0 0 22px; flex:none; }
+.space-drawer-header h2 { font-size:21px; flex:1; margin:0; font-weight:650; }
+.space-back svg { transform:rotate(180deg); }
+.space-drawer-scroll { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding-bottom:18px; }
+.space-list { display:flex; flex-direction:column; gap:10px; }
+.space-row { width:100%; min-height:82px; display:flex; align-items:center; text-align:left; gap:14px; padding:18px 14px; border:1px solid transparent; border-radius:var(--radius-surface); background:transparent; color:var(--ink); }
+.space-row.is-selected { min-height:104px; background:var(--accent-soft); border-color:var(--glass-border); }
+.space-avatar { display:grid; place-items:center; flex:none; width:38px; height:38px; border-radius:50%; background:var(--surface-raised); color:var(--accent); font-size:16px; }
+.space-row-copy { flex:1; min-width:0; display:grid; gap:8px; }
+.space-row-copy strong { font-size:16px; font-weight:550; overflow-wrap:anywhere; }
+.space-row-copy small,.space-selected-check { color:var(--accent); }
+.space-row-copy small { font-size:12px; }
+.space-drawer-footer { flex:none; display:grid; gap:14px; padding-top:14px; border-top:1px solid var(--glass-border); }
+.space-create { display:flex; justify-content:center; align-items:center; gap:8px; min-height:44px; color:var(--ink-muted); font-size:14px; }
+.space-create svg,.space-settings-entry svg,.space-setting svg,.space-back svg { width:20px; height:20px; flex:none; }
+.space-settings-entry { display:flex; align-items:center; gap:12px; width:100%; min-height:58px; padding:12px 16px; border:1px solid var(--glass-border); border-radius:var(--radius-control); background:var(--surface-raised); color:var(--ink); font-size:17px; font-weight:600; }
+.space-settings-entry span { flex:1; text-align:left; }
+.space-setting { display:flex; align-items:center; justify-content:space-between; width:100%; min-height:64px; background:transparent; border:0; color:var(--ink); gap:12px; padding:12px 4px; font-size:15px; text-align:left; }
+.space-setting span { display:flex; align-items:center; gap:14px; }
+.space-settings-divider { height:1px; background:var(--glass-border); margin:12px 0; }
+.space-description { color:var(--ink-muted); line-height:1.7; font-size:14px; margin:0 0 24px; }
+.space-name-label { display:block; margin:12px 0; }
+#space-name { width:100%; box-sizing:border-box; min-height:48px; padding:12px; border:1px solid var(--glass-border); border-radius:var(--radius-control); background:var(--surface); color:var(--ink); font:inherit; }
+#space-name-form .primary-button { width:100%; margin-top:24px; }
+.space-style-options { display:grid; gap:16px; }
+.space-style-choice { display:flex; align-items:center; gap:14px; min-height:104px; padding:18px 14px; text-align:left; border:1px solid var(--glass-border); border-radius:var(--radius-surface); background:var(--surface); color:var(--ink); }
+.space-style-choice[aria-checked=true] { background:var(--accent-soft); }
+.space-style-choice small { display:block; color:var(--ink-muted); margin-top:8px; }
+.space-style-choice i { color:var(--accent); margin-left:auto; }
+.space-style-preview { font-size:13px; padding:10px; border-radius:24px; background:var(--glass-control); }
+.space-style-preview.heart { font-size:25px; width:24px; text-align:center; color:var(--accent); }
+.chat-header .spaces-entry { margin-right:auto; flex:none; }
+.chat-header[data-presence-style=heart] .peer-summary { width:44px; height:44px; min-width:44px; min-height:44px; padding:0; flex:none; border-radius:50%; margin-left:auto; }
+.chat-header[data-presence-style=heart] .presence-heading { width:44px; height:44px; display:grid; place-items:center; }
+.chat-header[data-presence-style=heart] .presence-row,.chat-header[data-presence-style=heart] .peer-status { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+.chat-header[data-presence-style=heart] .presence-circuit { width:32px; height:32px; overflow:visible; }
+.chat-header[data-presence-style=heart] .presence-wires { opacity:0; }
+.chat-header[data-presence-style=heart] .presence-circuit[data-self=true] [data-half=right],.chat-header[data-presence-style=heart] .presence-circuit[data-peer=true] [data-half=left] { fill:var(--presence-heart-hot, var(--accent)); stroke:var(--presence-heart-hot, var(--accent)); }
+.chat-header .space-header-balance { width:44px; flex:none; }
+.chat-header[data-presence-style=heart] .space-header-balance { display:none; }
+@media (prefers-reduced-motion:reduce) { .space-drawer-overlay,.space-drawer { transition:none; } }
+@media (prefers-reduced-transparency:reduce),(prefers-contrast:more) { .space-drawer { background:var(--surface); backdrop-filter:none; } }
+@media (forced-colors:active) { .space-drawer { background:Canvas; color:CanvasText; } .space-row.is-selected,.space-style-choice[aria-checked=true] { border:2px solid Highlight; } }
+.chat-header > .spaces-entry { grid-column:1; grid-row:1; align-self:center; justify-self:start; position:relative; z-index:4; pointer-events:auto; }
+.chat-header .space-header-balance { grid-column:3; grid-row:1; height:44px; }
+.chat-header[data-presence-style=heart] .peer-summary { grid-column:3; justify-self:end; }
+.chat-header[data-presence-style=heart] .presence-heading { grid-template-columns:1fr; }
+.chat-header[data-presence-style=heart] .presence-base { opacity:1; }
+.chat-header[data-presence-style=heart] .presence-circuit[data-self=true] [data-half=right],.chat-header[data-presence-style=heart] .presence-circuit[data-peer=true] [data-half=left] { fill:var(--circuit-heart); stroke:none; }
+
+.space-setting svg,.space-settings-entry svg { fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }

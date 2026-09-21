@@ -1,6 +1,6 @@
 # Quiet Room Design System
 
-Quiet Room uses a restrained Liquid Glass inspired system for an encrypted one-to-one chat. The material is a supporting layer: messages, delivery state and privacy state remain the visual priority, and the existing information architecture stays unchanged.
+Quiet Room uses a restrained Liquid Glass inspired system for an encrypted one-to-one chat. The material is a supporting layer: messages, delivery state and privacy state remain the visual priority, and shared visual tokens remain authoritative.
 
 ## Physical Intent
 
@@ -43,3 +43,7 @@ The system preserves keyboard focus rings, semantic colors, native text selectio
 ## Verification
 
 Visual checks should cover the unlocked chat, tools panel, message menu, gallery tabs, device page, light/dark themes, narrow mobile width, desktop width, reduced motion, reduced transparency and forced colors. Behavioral checks remain the existing browser suites because this layer does not change message, attachment, privacy or navigation logic.
+
+## Private-space drawer
+
+Use the existing panel material, system typography, semantic accent and 44px controls. The left drawer is `min(88vw, 380px)`, with a scrolling body and fixed footer. Selected space rows are at least 104px and other rows at least 82px; only pending invitations have a secondary theme-colored line. Settings has a 58px prominent neutral footer button; creation is a lighter text action above it. Settings and name editing reuse the drawer body with back navigation, not tabs or persistent row actions. The header shield and ellipsis are removed. The optional heart reuses the presence SVG and its lifecycle inside a 44px control at the top right; default capsule geometry is unchanged. Reduced motion removes drawer animation and presence motion. Reduced transparency and forced colors use existing opaque materials and explicit selection borders.

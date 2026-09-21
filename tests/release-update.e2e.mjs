@@ -31,7 +31,7 @@ try {
     ]);
     const member = { deviceId: 'release-own', role: 'creator', status: 'active' };
     const session = await vault.createVault({
-      v: 1, roomId: 'release-room', accessToken: 'test', role: 'creator', protocol: 'legacy-v1', lastSeq: 0,
+      v: 1, roomId: crypto.randomUUID(), accessToken: 'test', role: 'creator', protocol: 'legacy-v1', lastSeq: 0,
       members: [member, { deviceId: 'release-peer', role: 'joiner', status: 'active' }], identity: { publicBundle: member },
     }, 'release-update-passphrase', 'password');
     const app = new QuietRoomApp(document.querySelector('#app'));
@@ -83,7 +83,7 @@ try {
     };
   });
   if (seen.stored !== seen.current || seen.repeated) throw new Error(`Release notes did not remain one-time: ${JSON.stringify(seen)}`);
-  await page.getByLabel('更多操作').click();
+  await page.locator('#open-spaces').click(); await page.locator('#space-settings').click();
   await page.locator('#release-history').click();
   await page.locator('.release-history-content h2').first().waitFor();
   const versions = await page.locator('.release-history-content h2').allTextContents();

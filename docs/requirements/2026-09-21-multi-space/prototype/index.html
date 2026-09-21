@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Quiet Room · 多空间交互原型</title>
+  <link rel="stylesheet" href="../../../../src/design-system.css">
+  <link rel="stylesheet" href="./prototype.css">
+  <script defer src="./prototype.js"></script>
+</head>
+<body>
+  <div class="studio">
+    <aside class="controls" aria-label="原型演示控制">
+      <p class="eyebrow">Quiet Room · 设计确认稿</p>
+      <h1>多个私密空间</h1>
+      <p>点击聊天左上角入口体验抽屉；长按空间名称可修改仅自己可见的名称。演示仅使用模拟数据。</p>
+      <div class="control-group">
+        <h2>演示场景</h2>
+        <button data-demo="chat">聊天与空间列表</button>
+        <button data-demo="invite">已有空间时打开新邀请</button>
+        <button data-demo="invalid">无效邀请</button>
+        <button data-demo="lost">本机空间丢失</button>
+      </div>
+      <div class="control-group">
+        <h2>在线状态与外观</h2>
+        <label><span>自己在线</span><input id="self-online" type="checkbox" checked></label>
+        <label><span>对方在线</span><input id="peer-online" type="checkbox"></label>
+        <label><span>深色外观</span><input id="dark-mode" type="checkbox"></label>
+        <button id="simulate-peer-message">模拟对方发消息</button>
+      </div>
+      <a href="../flow.md" target="_blank" rel="noopener">查看业务流程图</a>
+      <p class="small">390 × 844 为主要预览尺寸。系统通行密钥、加密备份和多设备消息均为界面模拟，不会访问真实数据。</p>
+    </aside>
+    <main class="preview">
+      <div class="preview-heading"><span>交互预览</span><strong id="view-title">聊天与空间列表</strong></div>
+      <div class="phone" id="phone"><div id="app"></div><div id="toast" role="status" hidden></div></div>
+    </main>
+  </div>
+</body>
+</html>

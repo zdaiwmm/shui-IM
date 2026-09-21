@@ -34,10 +34,30 @@ import type {
 } from './types';
 
 const DB_NAME = 'quiet-room';
-const DB_VERSION = 9;
+const DB_VERSION = 10;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const PLATFORM_PAYLOAD_AAD = encoder.encode('quiet-room-vault-payload-v2');
+
+const SPACE_SELECTION = 'quiet-room:space';
+function savedSpace(): string {
+  try { return sessionStorage.getItem(SPACE_SELECTION) || localStorage.getItem(SPACE_SELECTION) || 'current'; }
+  catch { return 'current'; }
+}
+let selectedSpace = savedSpace();
+export function currentSpaceId(): string { return selectedSpace; }
+export function vaultSpaceId(stored: StoredVault): string { return stored.spaceId ?? 'current'; }
+export async function selectLocalSpace(id: string): Promise<void> {
+  if (id !== 'current' && !/^[a-zA-Z0-9_-]{1,80}$/.test(id)) throw new Error('空间编号不正确');
+  await withVaultLifecycle(async () => { selectedSpace = id; });
+}
+function rememberSpace(id: string): void {
+  try { sessionStorage.setItem(SPACE_SELECTION, id); localStorage.setItem(SPACE_SELECTION, id); } catch { /* IDB remains authoritative. */ }
+}
+export async function localSpaceExists(id: string): Promise<boolean> {
+  return (await transaction('vault', 'readonly', store => store.get(id))) !== undefined;
+}
+
 
 export type VaultSession = {
   vault: Vault;
@@ -50,8 +70,8 @@ export type VaultMutation = { readonly session: VaultSession; readonly id: symbo
 let vaultLifecycle: Promise<unknown> = Promise.resolve();
 let activeVaultMutation: VaultMutation | undefined;
 
-// All rooms occupy one physical IDB record. Hold this lock across snapshot reads,
-// crypto and commits, including unlock and replacement, and share it across tabs.
+// Serialize read/derive/commit across tabs. Each session keeps its immutable slot;
+// changing this tab's selection never changes an existing session's write target.
 function withVaultLifecycle<T>(operation: () => Promise<T>): Promise<T> {
   const next = vaultLifecycle.catch(() => undefined).then(async () =>
     typeof navigator !== 'undefined' && navigator.locks
@@ -71,11 +91,13 @@ function staleVaultError(): Error {
 
 function putCurrentVault(tx: IDBTransaction, next: StoredVault, expected?: StoredVault): void {
   const store = tx.objectStore('vault');
-  if (!expected) { store.put(next, 'current'); return; }
-  const request = store.get('current');
+  const id = expected ? vaultSpaceId(expected) : next.spaceId ?? selectedSpace;
+  next.spaceId = id;
+  if (!expected) { store.put(next, id); return; }
+  const request = store.get(id);
   request.onsuccess = () => {
     if (!sameStoredVault(request.result, expected)) { tx.abort(); return; }
-    store.put(next, 'current');
+    store.put(next, id);
   };
 }
 
@@ -95,7 +117,7 @@ export async function withVaultMutation<T>(
   operation: (mutation: VaultMutation) => Promise<T>,
 ): Promise<T> {
   return withVaultLifecycle(async () => {
-    if (!sameStoredVault(await readStoredVaultUnlocked(), session.stored)) throw staleVaultError();
+    if (!sameStoredVault(await readStoredVaultUnlocked(vaultSpaceId(session.stored)), session.stored)) throw staleVaultError();
     const mutation: VaultMutation = { session, id: Symbol('vault-mutation') };
     activeVaultMutation = mutation;
     try {
@@ -179,6 +201,7 @@ function openDatabase(): Promise<IDBDatabase> {
         galleryHistory.createIndex('roomSeq', ['roomId', 'seq'], { unique: false });
       }
       if (!database.objectStoreNames.contains('vault')) database.createObjectStore('vault');
+      if (!database.objectStoreNames.contains('spaces')) database.createObjectStore('spaces');
       if (!database.objectStoreNames.contains('history')) {
         const history = database.createObjectStore('history', { keyPath: 'id' });
         history.createIndex('roomId', 'roomId', { unique: false });
@@ -201,12 +224,12 @@ function openDatabase(): Promise<IDBDatabase> {
       if (!database.objectStoreNames.contains('security')) database.createObjectStore('security');
     };
     request.onerror = () => reject(request.error);
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => { request.result.onversionchange = () => request.result.close(); resolve(request.result); };
   });
 }
 
 async function transaction<T>(
-  storeName: 'vault' | 'history' | 'galleryHistory' | 'restoredGallery' | 'mediaChunks' | 'security' | LocalStore,
+  storeName: 'spaces' | 'vault' | 'history' | 'galleryHistory' | 'restoredGallery' | 'mediaChunks' | 'security' | LocalStore,
   mode: IDBTransactionMode,
   action: (store: IDBObjectStore) => IDBRequest<T>,
   expectedVault?: StoredVault,
@@ -215,7 +238,7 @@ async function transaction<T>(
   return new Promise((resolve, reject) => {
     const tx = database.transaction(expectedVault ? [storeName, 'vault'] : storeName, mode);
     if (expectedVault) {
-      const current = tx.objectStore('vault').get('current');
+      const current = tx.objectStore('vault').get(vaultSpaceId(expectedVault));
       current.onsuccess = () => { if (!sameStoredVault(current.result, expectedVault)) tx.abort(); };
     }
     const request = action(tx.objectStore(storeName));
@@ -276,7 +299,7 @@ export async function deleteCachedMediaBlob(session: VaultSession, blobId: strin
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const tx = database.transaction(['mediaChunks', 'vault'], 'readwrite');
-    const current = tx.objectStore('vault').get('current');
+    const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
     current.onsuccess = () => {
       if (!sameStoredVault(current.result, session.stored)) {
         tx.abort();
@@ -520,20 +543,30 @@ export async function hasStoredVault(): Promise<boolean> {
   // Presence, not truthiness, matters here: a truncated/invalid record may be
   // a falsy value and must still reach the recovery/diagnostic screen instead
   // of being mistaken for a first-run vault.
-  return (await transaction('vault', 'readonly', (store) => store.get('current'))) !== undefined;
+  if (await localSpaceExists(selectedSpace)) return true;
+  // A cancelled creation does not displace the last durable room on reload.
+  const fallback = savedSpace();
+  if (fallback !== selectedSpace && await localSpaceExists(fallback)) selectedSpace = fallback;
+  else if (await localSpaceExists('current')) selectedSpace = 'current';
+  else {
+    const keys = await transaction<IDBValidKey[]>('vault', 'readonly', store => store.getAllKeys());
+    const first = keys.find(key => typeof key === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(key));
+    if (typeof first === 'string') selectedSpace = first;
+  }
+  return localSpaceExists(selectedSpace);
 }
 
 export async function readStoredVault(): Promise<StoredVault | null> {
-  return withVaultLifecycle(readStoredVaultUnlocked);
+  return withVaultLifecycle(() => readStoredVaultUnlocked());
 }
 
-async function readStoredVaultUnlocked(): Promise<StoredVault | null> {
-  const value: unknown = await transaction('vault', 'readonly', (store) => store.get('current'));
-  return validateStoredVault(value) ? value : null;
+async function readStoredVaultUnlocked(id = selectedSpace): Promise<StoredVault | null> {
+  const value: unknown = await transaction('vault', 'readonly', (store) => store.get(id));
+  return validateStoredVault(value) && vaultSpaceId(value) === id ? value : null;
 }
 
 export async function deleteCurrentVault(): Promise<void> {
-  await withVaultLifecycle(() => transaction('vault', 'readwrite', (store) => store.delete('current')));
+  await withVaultLifecycle(() => transaction('vault', 'readwrite', (store) => store.delete(selectedSpace)));
 }
 
 /** Remove room-scoped browser data while keeping the current vault record. */
@@ -543,7 +576,7 @@ export async function clearLocalBrowserData(session: VaultSession): Promise<void
     await new Promise<void>((resolve, reject) => {
       const stores = ['history', 'galleryHistory', 'restoredGallery', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
       const tx = database.transaction(['vault', ...stores], 'readwrite');
-      const current = tx.objectStore('vault').get('current');
+      const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
       current.onsuccess = () => {
         if (!sameStoredVault(current.result, session.stored)) tx.abort();
       };
@@ -564,7 +597,7 @@ export async function clearLocalBrowserData(session: VaultSession): Promise<void
 }
 
 export async function downloadVaultDiagnostic(): Promise<void> {
-  const value: unknown = await transaction('vault', 'readonly', (store) => store.get('current'));
+  const value: unknown = await transaction('vault', 'readonly', (store) => store.get(selectedSpace));
   const record = value && typeof value === 'object' ? value as Record<string, unknown> : null;
   const diagnostic = {
     format: 'quiet-room-vault-diagnostic',
@@ -588,7 +621,11 @@ export async function createVault(
   preparedPlatformCredential?: PlatformCredentialResult,
   isActive: () => boolean = () => true,
 ): Promise<VaultSession> {
-  return withVaultLifecycle(() => createVaultLocked(vault, legacySecret, unlockMethod, preparedPlatformCredential, isActive));
+  return withVaultLifecycle(async () => {
+    // A second first-run tab must never replace the first tab's newly created room.
+    if (await localSpaceExists(selectedSpace)) selectedSpace = crypto.randomUUID();
+    return createVaultLocked(vault, legacySecret, unlockMethod, preparedPlatformCredential, isActive);
+  });
 }
 
 /** Explicitly replace this browser's inaccessible vault after the recovery screen's confirmation. */
@@ -610,7 +647,7 @@ export async function discardJointRecovery(session: VaultSession, signal: AbortS
       delete session.vault.pendingJointRecovery;
       await saveVault(session, mutation); return true;
     }
-    await transaction('vault', 'readwrite', store => store.delete('current'));
+    await transaction('vault', 'readwrite', store => store.delete(vaultSpaceId(session.stored)));
     return false;
   });
 }
@@ -666,6 +703,7 @@ async function createVaultLocked(
     const stored = await encryptLegacyVault(vault, key, kdf, 'password');
     if (!isActive()) throw new DOMException('保险库创建流程已经结束', 'AbortError');
     await installStoredVault(stored, expected);
+    rememberSpace(vaultSpaceId(stored));
     await clearUnlockThrottle();
     return { vault, key, stored };
   }
@@ -683,6 +721,7 @@ async function createVaultLocked(
   masterBytes.fill(0);
   if (!isActive()) throw new DOMException('保险库创建流程已经结束', 'AbortError');
   await installStoredVault(stored, expected);
+  rememberSpace(vaultSpaceId(stored));
   await clearUnlockThrottle();
   vault.v = 3;
   return { vault, key, stored };
@@ -723,7 +762,7 @@ export async function unlockVault(secret = '', preparedPlatformProof?: Promise<U
 /** Resume an in-memory capability only from its unchanged, authenticated durable snapshot. */
 export async function resumeVaultSession(session: VaultSession): Promise<VaultSession> {
   return withVaultLifecycle(async () => {
-    const stored = await readStoredVaultUnlocked();
+    const stored = await readStoredVaultUnlocked(vaultSpaceId(session.stored));
     if (!stored || !sameStoredVault(stored, session.stored)) throw staleVaultError();
     if (stored.unlockMethod === 'recovery') throw new Error('恢复保险库尚未绑定到本设备');
     let vault: Vault;
@@ -802,6 +841,7 @@ async function unlockVaultLocked(secret: string, preparedPlatformProof?: Uint8Ar
       }
       masterBytes.fill(0);
     }
+    rememberSpace(vaultSpaceId(unlocked.stored));
     await clearUnlockThrottle();
     return unlocked;
   } catch (error) {
@@ -968,6 +1008,7 @@ async function prepareRecoveryPackageLocked(session: VaultSession, mutation: Vau
   masterBytes.fill(0);
   const exportVault = structuredClone(session.vault);
   delete exportVault.backup;
+  delete exportVault.spaceRecoveryCode;
   delete exportVault.historyRestoreTask;
   delete exportVault.recoverySource;
   const body = JSON.stringify({
@@ -1009,11 +1050,11 @@ async function importRecoveryPackageLocked(file: File): Promise<void> {
       recovery: record.recovery as StoredRecoveryVault['recovery'],
     };
     if (!validateRecoveryStoredVault(stored)) throw new Error('恢复包格式或安全参数不正确');
-    await transaction('vault', 'readwrite', (store) => store.put(stored, 'current'));
+    await transaction('vault', 'readwrite', (store) => store.put({ ...stored, spaceId: selectedSpace }, selectedSpace));
     return;
   }
   if (!validateLegacyStoredVault(record.vault)) throw new Error('这不是有效的 Quiet Room 恢复包');
-  await transaction('vault', 'readwrite', (store) => store.put(record.vault, 'current'));
+  await transaction('vault', 'readwrite', (store) => store.put({ ...(record.vault as LegacyStoredVault), spaceId: selectedSpace }, selectedSpace));
 }
 
 export async function unlockRecoveryVault(recoveryCode: string): Promise<VaultSession> {
@@ -1038,17 +1079,17 @@ export async function installCloudRecovery(bundle: CloudRecoveryBundle, recovery
       const kek = await recoveryKek(recoveryBytes, salt);
       const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv,
         additionalData: encoder.encode(`quiet-room-recovery-v3:${exportedAt}`), tagLength: 128 }, kek, masterBytes);
-      const stored: StoredRecoveryVault = { v: 3, unlockMethod: 'recovery', exportedAt,
+      const stored: StoredRecoveryVault = { spaceId: expected ? vaultSpaceId(expected) : selectedSpace, v: 3, unlockMethod: 'recovery', exportedAt,
         payload: await encryptPayload(vault, key), recovery: { salt: toBase64Url(salt), iv: toBase64Url(iv), ciphertext: toBase64Url(ciphertext) } };
       signal.throwIfAborted();
       const database = await openDatabase();
       await new Promise<void>((resolve, reject) => {
         const tx = database.transaction('vault', 'readwrite');
-        const current = tx.objectStore('vault').get('current');
+        const current = tx.objectStore('vault').get(expected ? vaultSpaceId(expected) : selectedSpace);
         current.onsuccess = () => {
           const actual = validateStoredVault(current.result) ? current.result : null;
           if (signal.aborted || !sameStoredVault(actual, expected)) { tx.abort(); return; }
-          tx.objectStore('vault').put(stored, 'current');
+          tx.objectStore('vault').put(stored, vaultSpaceId(stored));
         };
         const abort = () => { try { tx.abort(); } catch { /* settled */ } };
         signal.addEventListener('abort', abort, { once: true });
@@ -1128,7 +1169,7 @@ export async function importArchivedMessages(
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
       const tx = database.transaction(['vault', storeName, ...(mediaRecords.length ? ['galleryHistory'] : [])], 'readwrite');
-      const current = tx.objectStore('vault').get('current');
+      const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
       current.onsuccess = () => { if (!sameStoredVault(current.result, session.stored) || signal?.aborted) tx.abort(); };
       for (const record of records) tx.objectStore(storeName).put(record);
       for (const record of mediaRecords) tx.objectStore('galleryHistory').put(record);
@@ -1284,7 +1325,7 @@ export async function saveHistoryMessage(session: VaultSession, message: Decrypt
   await new Promise<void>((resolve, reject) => {
     const stores = isGalleryMedia ? ['history', 'galleryHistory', 'vault'] : ['history', 'vault'];
     const tx = database.transaction(stores, 'readwrite');
-    const current = tx.objectStore('vault').get('current');
+    const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
     current.onsuccess = () => {
       if (!sameStoredVault(current.result, session.stored)) {
         tx.abort();
@@ -1541,7 +1582,7 @@ export async function loadMediaHistoryPage(
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
       const tx = database.transaction(['vault', 'galleryHistory'], 'readwrite');
-      const current = tx.objectStore('vault').get('current');
+      const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
       current.onsuccess = () => { if (!sameStoredVault(current.result, session.stored) || signal?.aborted) tx.abort(); };
       for (const { storeName, record } of scan.records) if (storeName === 'history' && legacySequences.has(record.seq)) {
         const existing = tx.objectStore('galleryHistory').get(record.id);
@@ -1749,7 +1790,7 @@ async function commitStickerRecords(session: VaultSession, records: StoredLocalR
     const tx = database.transaction(['vault', 'memeFavorites'], 'readwrite');
     const abort = () => { try { tx.abort(); } catch { /* Transaction already finished. */ } };
     signal.addEventListener('abort', abort, { once: true });
-    const current = tx.objectStore('vault').get('current');
+    const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
     current.onsuccess = () => { if (!sameStoredVault(current.result, session.stored)) tx.abort(); };
     const store = tx.objectStore('memeFavorites');
     for (const record of records) store.put(record);
@@ -1796,7 +1837,7 @@ export async function saveMemeFavorite(session: VaultSession, file: File, signal
       const tx = database.transaction(['vault', 'memeFavorites'], 'readwrite');
       const abort = () => { try { tx.abort(); } catch { /* Already committed. */ } };
       signal.addEventListener('abort', abort, { once: true });
-      const current = tx.objectStore('vault').get('current');
+      const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
       current.onsuccess = () => { if (!sameStoredVault(current.result, session.stored)) tx.abort(); };
       tx.objectStore('memeFavorites').put(original); tx.objectStore('memeFavorites').put(index);
       const cleanup = () => { signal.removeEventListener('abort', abort); database.close(); };
@@ -1819,7 +1860,7 @@ export async function removeMemeFavorite(session: VaultSession, id: string, sign
       const tx = database.transaction(['vault', 'memeFavorites'], 'readwrite');
       const abort = () => { try { tx.abort(); } catch { /* Already committed. */ } };
       signal.addEventListener('abort', abort, { once: true });
-      const current = tx.objectStore('vault').get('current');
+      const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
       current.onsuccess = () => { if (!sameStoredVault(current.result, session.stored)) tx.abort(); };
       tx.objectStore('memeFavorites').delete(`${session.vault.roomId}:${id}`);
       tx.objectStore('memeFavorites').put(index);
@@ -2070,4 +2111,13 @@ export function loadUploadPlans(session: VaultSession): Promise<ImageUploadPlan[
 
 export function deleteUploadPlan(session: VaultSession, blobId: string): Promise<void> {
   return deleteLocalRecord(session, 'uploads', blobId);
+}
+
+/** Encrypted collection data shares the same cross-tab lease as room writes. */
+export async function readLocalSpaceDirectory(id: string): Promise<unknown> {
+  return transaction('spaces', 'readonly', store => store.get(id));
+}
+export async function writeLocalSpaceDirectory(session: VaultSession, id: string, value: unknown, mutation: VaultMutation): Promise<void> {
+  if (!ownsVaultMutation(session, mutation)) throw staleVaultError();
+  await transaction('spaces', 'readwrite', store => store.put(value, id), session.stored);
 }

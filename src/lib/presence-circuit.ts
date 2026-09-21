@@ -129,9 +129,12 @@ export class PresenceCircuit {
     this.frame = null;
     if (!this.element.isConnected || document.hidden) { this.reset(); return; }
     const elapsed = now - this.started;
+    const compact = this.element.dataset.compact === 'true';
+    const wire = (points: Point[]) => compact ? points.map(([x,y]) => [50 + (x-50)*.34,y] as Point) : points;
+    const both = compact && this.self === true && this.peer === true;
     if (elapsed < 1000) {
-      if (this.mode === 'connect' || this.side === 'left') this.arcs[0]!.setAttribute('d', this.arc(leftWire, elapsed / 1000, elapsed));
-      if (this.mode === 'connect' || this.side === 'right') this.arcs[1]!.setAttribute('d', this.arc(rightWire, elapsed / 1000, elapsed));
+      if (this.mode === 'connect' || both || this.side === 'left') this.arcs[0]!.setAttribute('d', this.arc(wire(leftWire), elapsed / 1000, elapsed));
+      if (this.mode === 'connect' || both || this.side === 'right') this.arcs[1]!.setAttribute('d', this.arc(wire(rightWire), elapsed / 1000, elapsed));
     } else if (this.mode === 'send' && elapsed < 1550) {
       this.arcs.forEach(arc => arc.removeAttribute('d'));
       const online = this.self === true && this.peer === true;
@@ -143,7 +146,7 @@ export class PresenceCircuit {
         const scale = 1 + .22 * Math.sin(Math.PI * Math.min(1, t * 3)) + .09 * Math.sin(Math.PI * Math.max(0, (t - .4) / .6));
         this.heart.setAttribute('transform', `translate(${impact * 1.25} ${-Math.abs(impact) * .65}) rotate(${impact * 9}) scale(${scale})`);
       } else {
-        this.left.setAttribute('transform', `translate(${-2 + shake} ${shake * .6}) rotate(${shake * 7})`);
+        (compact && this.side === 'right' ? this.right : this.left).setAttribute('transform', `translate(${(compact && this.side === 'right' ? 2 : -2) + shake} ${shake * .6}) rotate(${shake * 7})`);
       }
     } else if (this.mode === 'connect' && elapsed < 4200) {
       this.arcs.forEach(arc => arc.removeAttribute('d'));

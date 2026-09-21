@@ -30,6 +30,7 @@ export const browserGroups = Object.freeze({
     'tests/reaction-history.e2e.mjs',
     'tests/message-deletion.e2e.mjs',
     'tests/vault-lifecycle.e2e.mjs',
+    'tests/spaces.e2e.mjs',
     'tests/voice-lifecycle.e2e.mjs',
     'tests/voice-submission.e2e.mjs',
     'tests/cloud-backup-lifecycle.e2e.mjs',
