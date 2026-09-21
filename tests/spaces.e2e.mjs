@@ -100,6 +100,7 @@ try {
   await page.locator('.space-row.is-selected').click();
   await page.locator('#copy-invite').waitFor();
   assert.equal(await page.evaluate(()=>v.currentSpaceId()),createdSlot);
+  assert.equal(await page.evaluate(()=>app.activeSurface),'away','The invitation must not announce active chat presence');
   await page.evaluate(async()=>{ await app.leaveSpace(); await v.selectLocalSpace('current'); });
   // The actual post-unlock router resolves the invitation before rendering chat or opening a socket.
   const routed=await page.evaluate(async()=>{

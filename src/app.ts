@@ -4322,13 +4322,13 @@ export class QuietRoomApp {
       mountSpaceDrawer(this.root, {
         spaces, currentRoom: session.vault.roomId, signal,
         actions: [
-          { id: 'manage-devices', label: '已连接设备', icon: spaceIcons.device, run: () => void this.renderDeviceManager() },
-          { id: 'backup-settings', label: '我的恢复码', icon: spaceIcons.key, run: () => this.renderRecoveryCenter() },
-          { id: 'local-history-backup', label: '备份数据', icon: spaceIcons.upload, run: () => void this.renderLocalHistoryBackup('export') },
-          { id: 'local-history-restore', label: '恢复数据', icon: spaceIcons.download, run: () => void this.renderLocalHistoryBackup('import') },
-          { id: 'recover-other-space', label: '恢复其他空间', icon: spaceIcons.spaces, run: () => this.renderJointRecovery(null) },
-          { id: 'cover-practice-menu', group: '本机', label: session.vault.recoveryExperience?.coverEnabled ? '白屏掩护设置' : '开启白屏掩护', icon: spaceIcons.cover, run: () => this.renderCoverPractice() },
-          { id: 'release-history', group: '关于', label: '更新记录', icon: spaceIcons.history, run: () => this.renderReleaseHistory() },
+          { id: 'manage-devices', label: '已连接设备', icon: spaceIcons.device, run: forward(() => void this.renderDeviceManager()) },
+          { id: 'backup-settings', label: '我的恢复码', icon: spaceIcons.key, run: forward(() => this.renderRecoveryCenter()) },
+          { id: 'local-history-backup', label: '备份数据', icon: spaceIcons.upload, run: forward(() => void this.renderLocalHistoryBackup('export')) },
+          { id: 'local-history-restore', label: '恢复数据', icon: spaceIcons.download, run: forward(() => void this.renderLocalHistoryBackup('import')) },
+          { id: 'recover-other-space', label: '恢复其他空间', icon: spaceIcons.spaces, run: forward(() => this.renderJointRecovery(null)) },
+          { id: 'cover-practice-menu', group: '本机', label: session.vault.recoveryExperience?.coverEnabled ? '关闭自动遮蔽' : '体验或开启遮蔽', icon: spaceIcons.cover, run: () => session.vault.recoveryExperience?.coverEnabled ? this.confirmDisableCover() : this.renderCoverPractice() },
+          { id: 'release-history', group: '关于', label: '更新记录', icon: spaceIcons.history, run: forward(() => this.renderReleaseHistory()) },
         ],
         select: space => { if (space.roomId === session.vault.roomId && space.waiting) { this.renderInviteWait(); return Promise.resolve(); } return this.switchPrivateSpace(space); },
         create: () => { if (spaces.length >= 256) return Promise.reject(new Error('本机空间数量已达上限')); return this.createPrivateSpace(); },
@@ -4342,7 +4342,7 @@ export class QuietRoomApp {
         },
         refreshUnread: refreshSignal => refreshSpaceUnread(spaces, refreshSignal),
         styleChanged: () => this.applyPresenceStyle(),
-        closed: () => { this.spaceDrawerOpen = false; if (!signal.aborted && !this.privacyCovered && this.session === session) { this.setActiveSurface(this.root.querySelector('.chat-shell') ? 'chat' : previousSurface); this.updatePeerStatus(); } },
+        closed: () => { this.spaceDrawerOpen = false; if (!signal.aborted && !this.privacyCovered && this.session === session && !this.root.querySelector('.space-invite-overlay:not(.is-closing)')) { this.setActiveSurface(this.root.querySelector('.chat-shell') ? 'chat' : previousSurface); this.updatePeerStatus(); } },
       });
     } catch (cause) { this.spaceDrawerOpen = false; this.showNotice(cause instanceof Error ? cause.message : '空间列表暂不可用', 'error'); }
   }
