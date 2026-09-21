@@ -1,3 +1,7 @@
+import './spaces.css';
+import { mountSpaceDrawer, readPresenceStyle } from './lib/space-drawer';
+import { localSpaces, rememberLocalSpace, syncSpaceDirectory, recoverableSpaces, type PrivateSpace } from './lib/spaces';
+import { currentSpaceId, selectLocalSpace, vaultSpaceId } from './lib/vault';
 import { prepareJointRecovery, advanceJointRecovery, approveJointRecovery, completeJointRecovery, parseJointRecoveryLink, jointRecoveryUrl, jointRecoveryCode, jointRequest, inviteeScopeChoice, type JointLink, type JointSnapshot } from './lib/joint-recovery';
 import './recovery-experience.css';
 import { mountMediaDeleteConfirm } from './lib/media-delete-confirm';
@@ -206,7 +210,7 @@ import {
   type UiPreferences,
   type VaultMutation,
 } from './lib/vault';
-import { recoverFromCloud, syncCloudBackup } from './lib/cloud-backup';
+import { recoverFromCloud, syncCloudBackup, fetchRecoveryBundle } from './lib/cloud-backup';
 import './backup.css';
 
 const CLIENT_CAPABILITIES = ['joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
@@ -321,6 +325,10 @@ function isDesktopBrowser(): boolean {
 
 export class QuietRoomApp {
   private session: VaultSession | null = null;
+  private newSpaceCollectionCode: string | undefined;
+  private returnSpaceId: string | null = null;
+  private spaceDrawerOpen = false;
+
   private readonly desktopBrowser = isDesktopBrowser();
   private readonly appleWebKit = navigator.vendor.includes('Apple')
     && CSS.supports('-webkit-touch-callout', 'none');
@@ -1321,6 +1329,11 @@ export class QuietRoomApp {
       }
       return true;
     };
+    if (/^#(?:invite|device|repair)(?:=|&|$)/.test(location.hash) && classifyInviteHash(location.hash).kind === 'invalid') {
+      this.gatewayTemplate('邀请链接不完整', '请让对方重新发送完整链接。', '<button class="primary-button" id="invalid-invite-back">返回我的空间</button>');
+      this.root.querySelector('#invalid-invite-back')?.addEventListener('click', () => { history.replaceState(null, '', location.pathname + location.search); void this.renderGateway(); });
+      return;
+    }
     const retained = this.retainedSession;
     if (retained) {
       const epoch = this.runtimeEpoch;
@@ -2446,13 +2459,13 @@ export class QuietRoomApp {
         </div>
         <div class="welcome-actions">
           <button class="primary-button" id="create-room" type="button">创建私密空间</button>
-          <button class="text-button" id="restore-cloud" type="button">恢复私密空间</button>
+          <button class="text-button" id="restore-cloud" type="button">${this.returnSpaceId ? '返回' : '恢复私密空间'}</button>
           <p class="form-error" role="alert"></p>
         </div>
       </section>
     `;
     this.root.querySelector('#create-room')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderCreate()));
-    this.root.querySelector('#restore-cloud')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderJointRecovery()));
+    this.root.querySelector('#restore-cloud')?.addEventListener('click', () => { if (this.returnSpaceId) void this.returnToSpace(); else this.transitionPage('forward', () => this.renderJointRecovery()); });
   }
 
   private renderCreate(): void {
@@ -2529,6 +2542,7 @@ export class QuietRoomApp {
       };
       vault.mls = await createCreatorMlsState(room.roomId, identity, [creator]);
       identity.mlsPrivatePackage = undefined;
+      vault.spaceRecoveryCode = this.newSpaceCollectionCode;
       const createdSession = await createVault(vault, '', 'platform', platformResult, active);
       vaultCreated = true;
       if (!active()) return;
@@ -2649,6 +2663,7 @@ export class QuietRoomApp {
           : {}),
       };
       if (initialState.protocol === 'legacy-v1') identity.mlsPrivatePackage = undefined;
+      vault.spaceRecoveryCode = this.newSpaceCollectionCode;
       const createdSession = await createVault(vault, '', 'platform', platformResult, active);
       if (!active()) return;
       this.session = createdSession;
@@ -2709,6 +2724,7 @@ export class QuietRoomApp {
     const createdAt = new Date().toISOString();
     const own: RoomMember = { ...identity.publicBundle, role: source.role, joinProof: null, deviceName: defaultDeviceName(), status: 'pending', addedBy: invite.initiatorId, joinSeq: 0, joinReceiptSeq: 0, revokedAt: null, capabilities: CLIENT_CAPABILITIES, createdAt };
     const vault: Vault = { v: 3, roomId: invite.roomId, accessToken, role: source.role, pairingSecret: '', creatorFingerprint: invite.creatorFingerprint, identity, members: [...status.state.members, own], lastSeq: 0, lastReceiptSeq: 0, pairingState: 'repairing', historyUnavailableBeforeSeq: 0, createdAt, protocol: 'mls-rfc9420', mls: { protocol: 'mls-rfc9420', phase: 'awaiting-welcome', lastEventSeq: status.state.nextMlsEventSeq ?? 0 }, pendingRepair: { linkId: invite.linkId, secret: invite.secret, expiresAt: invite.expiresAt, checkpointEventSeq: status.state.nextMlsEventSeq ?? 0 } };
+    vault.spaceRecoveryCode = this.newSpaceCollectionCode;
     const createdSession = await createVault(vault, '', 'platform', platformResult, active);
     if (!active()) return;
     this.session = createdSession;
@@ -2801,6 +2817,7 @@ export class QuietRoomApp {
       pendingDeviceLinks: [{ linkId: invite.linkId, secret: invite.secret, expiresAt: invite.expiresAt, createdAt }],
       pendingDeviceLinkId: invite.linkId,
     };
+    vault.spaceRecoveryCode = this.newSpaceCollectionCode;
     const createdSession = await createVault(vault, '', 'platform', platformResult, active);
     if (!active()) return;
     this.session = createdSession;
@@ -3107,6 +3124,21 @@ export class QuietRoomApp {
   private async openSession(): Promise<void> {
     const session = this.session;
     if (!session || this.privacyCovered) return;
+    const openingEpoch = this.runtimeEpoch;
+    const spaces = await rememberLocalSpace(session, this.newSpaceCollectionCode);
+    if (!this.isRuntimeActive(openingEpoch, session)) return;
+    this.newSpaceCollectionCode = undefined;
+    const invitation = classifyInviteHash(location.hash);
+    if (invitation.kind !== 'invalid') {
+      if (session.vault.roomId !== invitation.invite.roomId) {
+        const target = spaces.find(space => space.roomId === invitation.invite.roomId && space.localId);
+        if (target) { await this.switchPrivateSpace(target); return; }
+        await this.beginNewSpace(invitation);
+        return;
+      }
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+    this.returnSpaceId = null;
     // Re-opening after an archive restore first commits any already hydrated
     // UI state. A first unlock (or a lock racing this read) must never persist
     // the in-memory empty default over an unread encrypted preference record.
@@ -3979,7 +4011,7 @@ export class QuietRoomApp {
     const inviteUrl = makeParticipantInviteUrl(invite);
     this.root.innerHTML = `
       <section class="pairing-screen">
-        <header class="pairing-header">
+        <header class="pairing-header"><button class="icon-button" id="open-spaces" aria-label="私密空间列表">${icons.people}</button>
           <div><h1>邀请重要的那个人</h1></div>
         </header>
         <div class="pairing-body">
@@ -4036,8 +4068,9 @@ export class QuietRoomApp {
       this.showNotice(copied ? '链接已复制' : '复制失败', copied ? 'info' : 'error');
     });
     this.root.querySelector('#pairing-back')?.addEventListener('click', () => {
-      this.transitionPage('backward', () => this.renderCreate());
+      this.transitionPage('backward', () => this.renderChat());
     });
+    this.root.querySelector('#open-spaces')?.addEventListener('click', () => void this.openPrivateSpaces());
     this.updateConnectionStatus();
   }
 
@@ -4211,6 +4244,82 @@ export class QuietRoomApp {
     else this.renderChat();
   }
 
+  private async leaveSpace(): Promise<void> {
+    this.unreadCounter.clear();
+    this.retainedSession = null;
+    this.coverStoredVault = null;
+    this.cleanupRuntime();
+    await Promise.all([this.preferenceSaveChain.catch(() => undefined), this.membershipChain.catch(() => undefined), this.sendChain.catch(() => undefined)]);
+  }
+
+  private async switchPrivateSpace(space: PrivateSpace): Promise<void> {
+    if (!space.localId) throw new Error('此空间需要先恢复');
+    await this.leaveSpace();
+    if (this.privacyCovered) return;
+    this.gatewayTemplate('正在切换空间', '请使用此空间的访问密钥解锁。', '');
+    await selectLocalSpace(space.localId);
+    if (this.privacyCovered) return;
+    const stored = await readStoredVault();
+    if (!stored) { this.gatewayTemplate('空间暂不可用', '本地数据不可用，请使用恢复码恢复。', '<button class="primary-button" id="space-recover">恢复私密空间</button>'); this.root.querySelector('#space-recover')?.addEventListener('click', () => this.renderJointRecovery(null)); return; }
+    if (!this.privacyCovered) await this.renderUnlock(stored, false, false);
+  }
+
+  private async returnToSpace(): Promise<void> {
+    const id = this.returnSpaceId;
+    if (!id) return;
+    history.replaceState(null, '', location.pathname + location.search);
+    await this.switchPrivateSpace({ roomId: '', name: '', localId: id });
+  }
+
+  private async beginNewSpace(invitation?: Exclude<ReturnType<typeof classifyInviteHash>, { kind: 'invalid' }>): Promise<void> {
+    if (this.session && (await localSpaces(this.session)).length >= 256) throw new Error('本机空间数量已达上限');
+    const code = this.session?.vault.spaceRecoveryCode;
+    const previous = this.session ? vaultSpaceId(this.session.stored) : currentSpaceId();
+    await this.leaveSpace();
+    if (this.privacyCovered) return;
+    await selectLocalSpace(crypto.randomUUID());
+    if (this.privacyCovered) return;
+    this.newSpaceCollectionCode = code;
+    this.returnSpaceId = previous;
+    this.resetIdleLock();
+    if (invitation?.kind === 'device') this.renderJoinDevice(invitation.invite);
+    else if (invitation?.kind === 'repair') this.renderJoinRepair(invitation.invite);
+    else this.renderFirstRun(invitation?.kind === 'participant' ? invitation.invite : null);
+  }
+
+  private async openPrivateSpaces(): Promise<void> {
+    const session = this.session, signal = this.runtimeAbort?.signal;
+    if (!session || !signal || this.spaceDrawerOpen) return;
+    this.spaceDrawerOpen = true;
+    const previousSurface = this.activeSurface;
+    try {
+      const spaces = await localSpaces(session);
+      if (signal.aborted || this.privacyCovered || this.session !== session) return;
+      this.closeChatTools(); this.clearKeyboardHandoff();
+      (document.activeElement as HTMLElement | null)?.blur();
+      this.setActiveSurface('away');
+      const forward = (render: () => void) => () => this.transitionPage('forward', render);
+      mountSpaceDrawer(this.root, {
+        spaces, currentRoom: session.vault.roomId, signal,
+        icons: { close: icons.close, plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>', settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m9 3-1 3-3 1 1 4-1 4 3 1 1 3h6l1-3 3-1-1-4 1-4-3-1-1-3z"/><circle cx="12" cy="11" r="3"/></svg>' },
+        actions: [
+          { id: 'manage-devices', label: '设备管理', icon: icons.lock, run: forward(() => void this.renderDeviceManager()) },
+          { id: 'backup-settings', label: '我的恢复码', icon: icons.download, run: forward(() => this.renderRecoveryCenter()) },
+          { id: 'local-history-backup', label: '备份数据', icon: icons.file, run: forward(() => this.renderLocalHistoryBackup('export')) },
+          { id: 'local-history-restore', label: '恢复数据', icon: icons.safe, run: forward(() => this.renderLocalHistoryBackup('import')) },
+          { id: 'recover-other-space', label: '恢复其他空间', icon: icons.people, run: forward(() => this.renderJointRecovery(null)) },
+          { id: 'feature-help', label: '功能说明', icon: icons.file, run: forward(() => this.renderFeatureHelp()) },
+          { id: 'cover-practice-menu', label: session.vault.recoveryExperience?.coverEnabled ? '关闭自动遮蔽' : '体验或开启遮蔽', icon: icons.lock, run: () => session.vault.recoveryExperience?.coverEnabled ? this.confirmDisableCover() : this.renderCoverPractice() },
+          { id: 'release-history', label: '更新日志', icon: icons.file, run: forward(() => this.renderReleaseHistory()) },
+        ],
+        select: space => this.switchPrivateSpace(space), create: () => this.beginNewSpace(),
+        rename: async (space, name) => { await rememberLocalSpace(session, undefined, { roomId: space.roomId, name }); },
+        styleChanged: () => this.renderChat(),
+        closed: () => { this.spaceDrawerOpen = false; if (!signal.aborted && !this.privacyCovered && this.session === session) { this.setActiveSurface(previousSurface); this.updatePeerStatus(); } },
+      });
+    } catch (cause) { this.spaceDrawerOpen = false; this.showNotice(cause instanceof Error ? cause.message : '空间列表暂不可用', 'error'); }
+  }
+
   private renderChat(): void {
     if (!this.session) return;
     // Replacing the textarea destroys the owner of a consumed native-keyboard
@@ -4228,11 +4337,6 @@ export class QuietRoomApp {
     this.voicePlayback.stop();
     this.setActiveSurface('chat');
     const cryptoReady = this.session.vault.protocol !== 'mls-rfc9420' || this.session.vault.mls?.phase === 'active';
-    const backup = this.session.vault.backup;
-    const experience = this.session.vault.recoveryExperience;
-    const codeSaved = Boolean(backup && experience?.codeSaved === backup.id);
-    const shieldReady = Boolean(codeSaved && experience?.peerPrepared);
-    const showRecoveryShield = !codeSaved || !this.uiPreferences.recoveryShieldHintSeen;
     this.shieldHintCleanup?.();
     this.shieldHintCleanup = null;
     this.galleryObserver?.disconnect();
@@ -4248,8 +4352,8 @@ export class QuietRoomApp {
     document.body.className = 'app-mode';
     this.root.innerHTML = `
       <section class="chat-shell">
-        <header class="chat-header">
-          ${showRecoveryShield ? `<button class="icon-button recovery-shield ${shieldReady ? '' : 'needs-preparation'}" id="recovery-shield" type="button" aria-label="我的恢复码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 3 4 6v5c0 5 4 8 8 10 4-2 8-5 8-10V6z"/><path d="m8 12 3 3 5-6"/></svg></button>` : ''}
+        <header class="chat-header" data-presence-style="${readPresenceStyle()}">
+          <button class="icon-button spaces-entry" id="open-spaces" type="button" aria-label="私密空间列表">${icons.people}</button>
           <div class="peer-summary" ${this.session.vault.role === 'creator' ? 'id="open-gallery" role="button" tabindex="0"' : 'role="status"'} aria-live="polite">
             <div class="presence-heading">
               <span class="presence-row" id="peer-presence"><span>TA</span><i class="presence-dot" aria-hidden="true"></i></span>
@@ -4258,23 +4362,7 @@ export class QuietRoomApp {
             </div>
             <strong class="peer-status">同步中</strong>
           </div>
-          <nav class="header-actions" aria-label="私密空间操作">
-            <details class="more-menu">
-              <summary class="icon-button" aria-label="更多操作">${icons.more}</summary>
-              <div class="menu-panel">
-                <p class="menu-title">本机安全</p>
-                <p class="protocol-label">${this.session.vault.protocol === 'mls-rfc9420' ? '端到端加密' : '旧版私密空间，建议重新建立'}</p>
-                <button id="manage-devices" type="button">${icons.lock}<span>设备管理</span></button>
-                <button id="backup-settings" type="button">${icons.download}<span>我的恢复码</span></button>
-                <button id="local-history-backup" type="button">${icons.file}<span>备份数据</span></button>
-                <button id="local-history-restore" type="button">${icons.safe}<span>恢复数据</span></button>
-                <button id="feature-help" type="button">${icons.file}<span>功能说明</span></button>
-                <button id="cover-practice-menu" type="button">${icons.lock}<span>${this.session.vault.recoveryExperience?.coverEnabled ? '关闭自动遮蔽' : '体验或开启遮蔽'}</span></button>
-                <button id="release-history" type="button">${icons.file}<span>更新日志</span></button>
-                <p class="menu-footnote">新设备只能查看加入后的消息。遮蔽不是认证。</p>
-              </div>
-            </details>
-          </nav>
+          <span class="space-header-balance" aria-hidden="true"></span>
         </header>
         <div class="system-notices" aria-label="本机安全提醒">
           ${this.releaseUpdateBannerMarkup()}
@@ -4754,24 +4842,7 @@ export class QuietRoomApp {
       this.closeChatTools(); this.galleryMode = 'favorites'; this.galleryKnownCounts = {}; this.galleryScrollTop = { images: 0, files: 0 };
       this.transitionPage('forward', () => this.renderGallery());
     });
-    this.root.querySelector('#recovery-shield')?.addEventListener('click', event => {
-      event.preventDefault();
-      event.stopPropagation();
-      this.clearKeyboardHandoff();
-      this.transitionPage('forward', () => this.renderRecoveryCenter());
-    });
-    this.root.querySelector('#backup-settings')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderRecoveryCenter()));
-    this.root.querySelector('#local-history-backup')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderLocalHistoryBackup('export')));
-    this.root.querySelector('#local-history-restore')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderLocalHistoryBackup('import')));
-    this.root.querySelector('#feature-help')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderFeatureHelp()));
-    this.root.querySelector('#cover-practice-menu')?.addEventListener('click', () => {
-      if (this.session?.vault.recoveryExperience?.coverEnabled) {
-        this.confirmDisableCover();
-        return;
-      }
-      this.transitionPage('forward', () => this.renderCoverPractice());
-    });
-    this.root.querySelector('#release-history')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderReleaseHistory()));
+    this.root.querySelector('#open-spaces')?.addEventListener('click', () => void this.openPrivateSpaces());
     this.root.querySelector('#import-own-history')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderLocalHistoryBackup('import')));
     this.root.querySelector('#dismiss-history-import')?.addEventListener('click', () => {
       this.uiPreferences.historyImportDismissed = true;
@@ -4780,7 +4851,6 @@ export class QuietRoomApp {
     });
     this.root.querySelector('#clear-upload-reminder')?.addEventListener('click', () => void this.clearPendingUploadPlans());
     this.bindReleaseUpdateButton();
-    this.root.querySelector('#manage-devices')?.addEventListener('click', () => this.transitionPage('forward', () => void this.renderDeviceManager()));
     const replyClose = this.root.querySelector<HTMLButtonElement>('#reply-draft button');
     let replyCloseRetainsKeyboard = false;
     replyClose?.addEventListener('pointerdown', event => {
@@ -4821,75 +4891,9 @@ export class QuietRoomApp {
     this.updateCallControls();
     void this.updateBackgroundNotificationControl();
     this.showReleaseNotesIfNeeded();
-    if (codeSaved && !this.uiPreferences.recoveryShieldHintSeen) this.playRecoveryShieldHint();
+
   }
 
-  private playRecoveryShieldHint(): void {
-    const shield = this.root.querySelector<HTMLElement>('#recovery-shield');
-    const more = this.root.querySelector<HTMLElement>('.more-menu > summary');
-    const actions = this.root.querySelector<HTMLElement>('.header-actions');
-    if (!shield || !more || !actions || this.privacyCovered) return;
-    this.shieldHintCleanup?.();
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const finish = (flyer?: HTMLElement) => {
-      this.shieldHintCleanup = null;
-      flyer?.remove();
-      shield.remove();
-      this.root.querySelector('#recovery-menu-tip')?.remove();
-      const tip = document.createElement('div');
-      tip.id = 'recovery-menu-tip';
-      tip.className = 'recovery-menu-tip';
-      tip.setAttribute('role', 'status');
-      tip.textContent = '可通过此入口查看恢复码';
-      actions.append(tip);
-      this.uiPreferences.recoveryShieldHintSeen = true;
-      this.flushUiPreferencesSave();
-      const dismiss = () => {
-        tip.remove();
-        document.removeEventListener('pointerdown', dismiss, true);
-      };
-      const timer = window.setTimeout(dismiss, 6_000);
-      document.addEventListener('pointerdown', dismiss, true);
-      this.shieldHintCleanup = () => {
-        window.clearTimeout(timer);
-        document.removeEventListener('pointerdown', dismiss, true);
-        tip.remove();
-      };
-    };
-    if (reduced) { finish(); return; }
-    const from = shield.getBoundingClientRect();
-    const to = more.getBoundingClientRect();
-    const dx = to.left + to.width / 2 - (from.left + from.width / 2);
-    const dy = to.top + to.height / 2 - (from.top + from.height / 2);
-    const flyer = shield.cloneNode(true) as HTMLElement;
-    flyer.removeAttribute('id');
-    flyer.classList.add('is-departing');
-    flyer.style.left = `${from.left}px`;
-    flyer.style.top = `${from.top}px`;
-    flyer.style.width = `${from.width}px`;
-    flyer.style.height = `${from.height}px`;
-    document.body.append(flyer);
-    shield.style.visibility = 'hidden';
-    const animation = flyer.animate([
-      { transform: 'translate(0, 0) rotate(0deg) scale(1)', offset: 0 },
-      { transform: `translate(${dx * 0.18}px, ${dy * 0.18 + 22}px) rotate(-8deg) scale(1)`, offset: 0.3,
-        easing: 'cubic-bezier(0.55, 0, 0.9, 0.25)' },
-      { transform: `translate(${dx * 0.42}px, ${dy * 0.42 + 27}px) rotate(0deg) scale(0.86)`, offset: 0.52,
-        easing: 'cubic-bezier(0.55, 0, 0.9, 0.25)' },
-      { transform: `translate(${dx}px, ${dy}px) rotate(0deg) scale(0.35)`, offset: 1 },
-    ], { duration: 880, fill: 'forwards' });
-    const cancel = () => {
-      animation.cancel();
-      flyer.remove();
-      shield.remove();
-      this.shieldHintCleanup = null;
-    };
-    this.shieldHintCleanup = cancel;
-    animation.finished.then(() => {
-      if (this.shieldHintCleanup !== cancel || this.privacyCovered) return;
-      finish(flyer);
-    }).catch(() => undefined);
-  }
 
   private async confirmDeviceCredential(): Promise<VaultSession> {
     const stored = await readStoredVault();
@@ -8626,12 +8630,14 @@ export class QuietRoomApp {
         if (!button.isConnected || !this.isRuntimeActive(epoch, session)) return;
         const backup = session.vault.backup;
         if (!backup?.syncedAt || backup.replaces || session.vault.recoverySource) throw new Error('新恢复保护尚未保存成功');
-        this.gatewayTemplate('请保存新的恢复码', '设备已恢复。以后恢复历史消息和保险箱，请使用这份新码。旧码已停止在线取件。', `
+        await syncSpaceDirectory(session, this.runtimeAbort!.signal);
+        if (!this.isRuntimeActive(epoch, session)) return;
+        this.gatewayTemplate('恢复保护已更新', '你的空间恢复码保持不变，空间内的设备恢复凭据已更新。', `
           <code class="local-recovery-code"></code><p class="field-hint">恢复码已在本机加密保管，也请单独保存一份。历史内容尚未载入。</p>
           <button class="primary-button" id="confirm-new-recovery" type="button">我已保存，进入私密空间</button>
           <button class="text-button" id="lock-new-recovery" type="button">锁定</button><p class="form-error" role="alert"></p>`);
         const codeNode = this.root.querySelector<HTMLElement>('code')!;
-        codeNode.textContent = backup.code;
+        codeNode.textContent = session.vault.spaceRecoveryCode!;
         const timer = window.setTimeout(() => { if (codeNode.isConnected) this.lockNow(); }, 60_000);
         this.runtimeAbort!.signal.addEventListener('abort', () => { window.clearTimeout(timer); codeNode.textContent = ''; }, { once: true });
         this.root.querySelector('#lock-new-recovery')?.addEventListener('click', () => this.lockNow());
@@ -8666,7 +8672,7 @@ export class QuietRoomApp {
     const signal = this.runtimeAbort?.signal;
     if (!session || !signal || this.privacyCovered || document.hidden) return Promise.resolve();
     const epoch = this.runtimeEpoch;
-    const run = syncCloudBackup(session, signal, { force }).then(() => {
+    const run = syncCloudBackup(session, signal, { force }).then(() => syncSpaceDirectory(session, signal)).then(() => {
       if (this.isRuntimeActive(epoch, session)) {
         this.backupError = '';
         void fetch(`/api/rooms/${session.vault.roomId}/preparation`, { method: 'POST', signal, headers: { Authorization: `Bearer ${session.vault.accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ saved: Boolean(session.vault.backup && session.vault.recoveryExperience?.codeSaved === session.vault.backup.id) }) }).catch(() => undefined);
@@ -9010,10 +9016,12 @@ export class QuietRoomApp {
     if (live.vault.backup) live.vault.backup.code = backup.code;
     this.session = live;
     this.runtimeAbort ??= new AbortController();
+    await syncSpaceDirectory(live, this.runtimeAbort.signal);
+    if (this.privacyCovered || this.session !== live) return;
     this.resetIdleLock();
     this.privacyCovered = false;
     document.body.className = 'app-mode';
-    this.gatewayTemplate('本设备恢复码', '请单独保存。恢复码不会发送到服务器，此页面将在一分钟后锁定。', `
+    this.gatewayTemplate('我的恢复码', '所有本地空间共用此恢复码。请单独保存，此页面将在一分钟后锁定。', `
       <p class="privacy-note">通行密钥和解密密钥不会发送到服务器，丢失后无法代为找回。</p>
       <div data-recovery-keyboard class="recovery-code-view">
       <code class="local-recovery-code"></code>
@@ -9023,7 +9031,7 @@ export class QuietRoomApp {
       <p class="field-hint" role="status"></p></div></div>`, false, 'plain');
     const codeNode = this.root.querySelector<HTMLElement>('.local-recovery-code')!;
     this.armRecoveryKeyboardHandoff(this.root);
-    codeNode.textContent = backup.code;
+    codeNode.textContent = live.vault.spaceRecoveryCode!;
     const timer = window.setTimeout(() => { if (codeNode.isConnected) this.lockNow(); }, 60_000);
     this.runtimeAbort.signal.addEventListener('abort', () => { window.clearTimeout(timer); codeNode.textContent = ''; }, { once: true });
     try {
@@ -9139,6 +9147,8 @@ export class QuietRoomApp {
     </form>`;
     this.root.append(sheet);
     const form = sheet.querySelector<HTMLFormElement>('#joint-code-form')!;
+    let collectionCode = '';
+    let recoveryChoices: PrivateSpace[] = [];
     const input = form.querySelector<HTMLTextAreaElement>('textarea[name="code"]')!;
     const unpinViewport = this.pinOverlayToVisualViewport(sheet);
     const dialog = mountDialog(sheet, {
@@ -9146,7 +9156,7 @@ export class QuietRoomApp {
       initialFocus: input,
       onClose: () => {
         unpinViewport();
-        input.value = '';
+        input.value = ''; collectionCode = ''; recoveryChoices = [];
       },
     });
     this.armRecoveryKeyboardHandoff(sheet);
@@ -9155,7 +9165,7 @@ export class QuietRoomApp {
     form.querySelector('#joint-code-close')?.addEventListener('click', () => dialog.close());
     form.addEventListener('submit', async event => {
       event.preventDefault();
-      const button = form.querySelector<HTMLButtonElement>('button')!;
+      const button = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
       if (button.disabled) return;
       let code = String(new FormData(form).get('code') ?? '').trim();
       const error = form.querySelector<HTMLElement>('.form-error')!;
@@ -9166,22 +9176,45 @@ export class QuietRoomApp {
       this.runtimeAbort ??= new AbortController();
       let signal = this.runtimeAbort.signal;
       try {
+        if (code.startsWith('QR4-')) {
+          recoveryChoices = await recoverableSpaces(code, signal);
+          if (link) recoveryChoices = recoveryChoices.filter(space => space.roomId === link.roomId);
+          if (!recoveryChoices.length) throw new Error('此恢复码没有可恢复的目标空间');
+          if (!form.isConnected || this.privacyCovered || this.runtimeEpoch !== epoch) return;
+          collectionCode = code;
+          input.required = false; input.closest('label')!.hidden = true;
+          form.querySelector('[data-recovery-spaces]')?.remove();
+          const choices = document.createElement('label'); choices.setAttribute('data-recovery-spaces', ''); choices.className = 'recovery-flow-label'; choices.textContent = '选择要恢复的空间';
+          const select = document.createElement('select'); select.name = 'space'; select.className = 'recovery-flow-input';
+          recoveryChoices.forEach((space, index) => { const option = document.createElement('option'); option.value = String(index); option.textContent = space.name; select.append(option); });
+          choices.append(select); input.closest('label')!.after(choices); button.textContent = '恢复此空间'; select.focus();
+          return;
+        }
+        if (collectionCode) code = recoveryChoices[Number(new FormData(form).get('space'))]?.code ?? '';
+        const bundle = await fetchRecoveryBundle(code, signal);
+        if (link && bundle.roomId !== link.roomId) throw new Error('恢复码与本次邀请的空间不一致');
+        const recoveryHelper = helper?.vault.roomId === bundle.roomId ? helper : null;
+        const inheritedCollection = helper?.vault.spaceRecoveryCode ?? (collectionCode || undefined);
         const scope = link ? 'inherit' as const : selectedScope;
         let needsCredential = scope !== 'peer';
-        if (scope === 'inherit' && helper && link) {
+        if (scope === 'inherit' && recoveryHelper && link) {
           const snapshot = await jointRequest(link, signal);
-          const offer = snapshot.offers[snapshot.initiator] ?? snapshot.offers[helper.vault.role === 'creator' ? 'joiner' : 'creator'];
-          needsCredential = offer ? inviteeScopeChoice(offer.scope, helper.vault.role) !== 'peer' : true;
+          const offer = snapshot.offers[snapshot.initiator] ?? snapshot.offers[recoveryHelper.vault.role === 'creator' ? 'joiner' : 'creator'];
+          needsCredential = offer ? inviteeScopeChoice(offer.scope, recoveryHelper.vault.role) !== 'peer' : true;
         }
         const credential = needsCredential ? await this.withDeviceVerification(() => createPlatformCredential()) : undefined;
         if (!form.isConnected || this.privacyCovered || this.runtimeEpoch !== epoch) return;
         this.cleanupRuntime();
-        this.session = helper; this.runtimeAbort = new AbortController(); signal = this.runtimeAbort.signal; epoch = this.runtimeEpoch; this.resetIdleLock();
+        this.session = recoveryHelper; this.runtimeAbort = new AbortController(); signal = this.runtimeAbort.signal; epoch = this.runtimeEpoch; this.resetIdleLock();
         await Promise.all([this.preferenceSaveChain.catch(() => undefined), this.membershipChain.catch(() => undefined), this.sendChain.catch(() => undefined)]);
         signal.throwIfAborted();
-        const session = await prepareJointRecovery(code, scope, link, helper, credential, defaultDeviceName(), CLIENT_CAPABILITIES, signal);
+        if (!recoveryHelper) await selectLocalSpace(crypto.randomUUID());
+        signal.throwIfAborted();
+        const session = await prepareJointRecovery(code, scope, link, recoveryHelper, credential, defaultDeviceName(), CLIENT_CAPABILITIES, signal, inheritedCollection);
         code = '';
         if (signal.aborted || this.privacyCovered || this.runtimeEpoch !== epoch) return;
+        await rememberLocalSpace(session, inheritedCollection, collectionCode ? { roomId: bundle.roomId, name: recoveryChoices.find(space => space.roomId === bundle.roomId)!.name } : undefined);
+        signal.throwIfAborted();
         this.session = session;
         history.replaceState(null, '', `${location.pathname}${location.search}`);
         await this.openSession();
@@ -9315,8 +9348,8 @@ export class QuietRoomApp {
     dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
     dialog.setAttribute('aria-label', kind === 'helper' ? '协助恢复完成' : '私密空间恢复成功');
     dialog.innerHTML = kind === 'helper'
-      ? `<div class="confirm-dialog"><div class="recovery-flow-hero success">${icons.people}</div><h2>感谢您帮 TA 找回了你们的私密空间</h2><p>对方的私密空间已恢复。你的私密空间保持原样，不需要恢复聊天记录。</p><p class="field-hint">请保存新的恢复码。旧恢复码和旧密文副本不能远程销毁。</p><button class="primary-button" id="joint-save-new-code">保存恢复码</button><button class="text-button" id="joint-finish-chat">继续聊天</button></div>`
-      : `<div class="confirm-dialog"><div class="recovery-flow-hero success">${icons.safe}</div><h2>私密空间恢复成功</h2><p>你可以继续聊天了。现在找回之前备份的聊天记录？</p><p class="field-hint">请保存新的恢复码；未导入前不会显示旧聊天。</p><button class="primary-button" id="joint-import-history">恢复聊天记录</button><button class="text-button" id="joint-finish-chat">先聊一会儿</button></div>`;
+      ? `<div class="confirm-dialog"><div class="recovery-flow-hero success">${icons.people}</div><h2>感谢您帮 TA 找回了你们的私密空间</h2><p>对方的私密空间已恢复。你的私密空间保持原样，不需要恢复聊天记录。</p><p class="field-hint">空间恢复码保持不变，请继续妥善保管。旧码与已保存的密文副本不能远程销毁。</p><button class="primary-button" id="joint-save-new-code">保存恢复码</button><button class="text-button" id="joint-finish-chat">继续聊天</button></div>`
+      : `<div class="confirm-dialog"><div class="recovery-flow-hero success">${icons.safe}</div><h2>私密空间恢复成功</h2><p>你可以继续聊天了。现在找回之前备份的聊天记录？</p><p class="field-hint">空间恢复码保持不变；未导入前不会显示旧聊天。</p><button class="primary-button" id="joint-import-history">恢复聊天记录</button><button class="text-button" id="joint-finish-chat">先聊一会儿</button></div>`;
     this.root.append(dialog);
     mountDialog(dialog, { isActive: () => !this.privacyCovered && this.session === session, signal: this.runtimeAbort?.signal });
     dialog.querySelector('#joint-finish-chat')?.addEventListener('click', () => closeDialog(dialog));
@@ -9330,7 +9363,7 @@ export class QuietRoomApp {
     document.body.className = 'app-mode';
     this.root.innerHTML = this.saveEntryPage(
       '留好双方恢复码，找回空间需要一起使用恢复码',
-      '双方各自保管，恢复时共同确认。不要互相发送恢复码，避免两个恢复码同时被泄露，从而泄露隐私。',
+      '本机所有空间共用一个恢复码。双方各自保管，恢复时选择空间并共同确认，不要互相发送恢复码。',
       `<div class="save-entry-copy">
         <ul class="recovery-flow-list">
           <li>清除浏览器数据</li>
@@ -11698,6 +11731,9 @@ export class QuietRoomApp {
     const circuit = summary.querySelector<SVGElement>('.presence-circuit');
     if (circuit && this.activeSurface === 'chat' && !this.privacyCovered) {
       if (!this.presenceCircuit) this.presenceCircuit = new PresenceCircuit(circuit);
+      circuit.dataset.compact = String(readPresenceStyle() === 'heart');
+      circuit.setAttribute('viewBox', readPresenceStyle() === 'heart' ? '32 -5 36 36' : '0 0 100 24');
+      circuit.dataset.self = String(selfOnline === true); circuit.dataset.peer = String(peerOnline === true);
       this.presenceCircuit.update(selfOnline, peerOnline);
     }
     const transport = this.connectionState === 'connected'
@@ -11815,6 +11851,10 @@ export class QuietRoomApp {
   }
 
   private cleanupRuntime(preserveFilePicker = false): void {
+    this.newSpaceCollectionCode = undefined;
+    this.returnSpaceId = null;
+    this.spaceDrawerOpen = false;
+
     this.closeMemePicker();
     this.clearMemePanelHandoff();
     this.clearMemeCache();

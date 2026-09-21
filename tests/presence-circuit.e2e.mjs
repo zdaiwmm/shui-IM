@@ -201,7 +201,7 @@ try {
           const r = document.querySelector(selector).getBoundingClientRect();
           return { x: r.x, right: r.right, y: r.y, bottom: r.bottom, width: r.width, height: r.height };
         };
-        return { summary: box('.peer-summary'), heading: box('.presence-heading'), actions: box('.header-actions'),
+        return { summary: box('.peer-summary'), heading: box('.presence-heading'), actions: box('.space-header-balance'),
           peer: box('#peer-presence'), self: box('#self-presence'), circuit: box('.presence-circuit'), heart: box('.presence-heart'),
           dot: box('#peer-presence i'), label: box('#peer-presence span'), selfDot: box('#self-presence i') };
       });
@@ -221,6 +221,20 @@ try {
       if (output) await page.screenshot({ path: path.join(output, `presence-${colorScheme}-${width}.png`) });
     }
   }
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.evaluate(() => { localStorage.setItem('quiet-room:presence-style','heart'); window.fixture.app.renderChat(); });
+  await state(true, false);
+  const halfColors = await page.evaluate(() => ['left','right'].map(side => getComputedStyle(document.querySelector(`[data-half="${side}"]`)).fill));
+  assert.notEqual(halfColors[0], halfColors[1]);
+  await page.evaluate(() => window.fixture.app.presenceCircuit.sent());
+  await page.waitForTimeout(1150);
+  assert.equal(await page.locator('[data-half="left"]').getAttribute('transform'), 'translate(-2 0)');
+  assert.notEqual(await page.locator('[data-half="right"]').getAttribute('transform'), 'translate(2 0)');
+  await state(true,true);
+  await page.waitForFunction(() => document.querySelector('.presence-circuit').dataset.phase === 'online', null, {timeout:6000});
+  await page.evaluate(() => window.fixture.app.presenceCircuit.sent()); await page.waitForTimeout(100);
+  assert.ok(await page.locator('[data-arc="right"]').getAttribute('d'));
+  assert.ok(await page.locator('[data-arc="left"]').getAttribute('d'));
   await page.evaluate(() => window.fixture.app.cleanupRuntime());
   assert.deepEqual(errors, []);
   console.log('Presence circuit: send, snapshots, fusion, cancellation, reduced motion, layout and themes passed.');

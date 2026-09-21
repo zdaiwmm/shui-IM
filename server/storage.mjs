@@ -1,3 +1,4 @@
+import { createSpaceDirectories } from './space-directories.mjs';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -308,6 +309,7 @@ export async function createStore({
     CREATE TABLE IF NOT EXISTS invitation_progress (room_id TEXT PRIMARY KEY REFERENCES rooms(room_id) ON DELETE CASCADE, stage TEXT NOT NULL, updated_at TEXT NOT NULL);`);
   const jointRecovery = createJointRecovery(db, { roomState, getMember, messagesAfter });
   const cloudBackups = createCloudBackups(db, { authenticatedDevice });
+  const spaceDirectories = createSpaceDirectories(db, { authenticatedDevice });
   const statements = {
     insertRoom: db.prepare('INSERT INTO rooms(room_id, access_hash, created_at, protocol) VALUES (?, ?, ?, ?)'),
     insertMember: db.prepare(`INSERT INTO members(
@@ -1396,6 +1398,7 @@ export async function createStore({
 
   return {
     cloudBackups,
+    spaceDirectories,
     jointRecovery,
     saveRecoveryPreparation: (roomId, deviceId, saved) => db.prepare('INSERT INTO recovery_preparation VALUES(?,?,?) ON CONFLICT(room_id,device_id) DO UPDATE SET saved=excluded.saved').run(roomId, deviceId, saved ? 1 : 0),
     saveInvitationProgress: (roomId, stage) => db.prepare("INSERT INTO invitation_progress VALUES(?,?,?) ON CONFLICT(room_id) DO UPDATE SET stage=CASE WHEN invitation_progress.stage='setting' THEN 'setting' ELSE excluded.stage END,updated_at=excluded.updated_at").run(roomId, stage, nowIso()),

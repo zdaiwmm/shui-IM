@@ -398,8 +398,8 @@ try {
     const self = document.querySelector('#self-presence').getBoundingClientRect();
     const peer = document.querySelector('#peer-presence').getBoundingClientRect();
     const summary = document.querySelector('.peer-summary').getBoundingClientRect();
-    const shield = document.querySelector('#recovery-shield').getBoundingClientRect();
-    const more = document.querySelector('.more-menu > summary').getBoundingClientRect();
+    const shield = document.querySelector('#open-spaces').getBoundingClientRect();
+    const more = document.querySelector('.space-header-balance').getBoundingClientRect();
     const circuit = document.querySelector('.presence-circuit').getBoundingClientRect();
     const heart = document.querySelector('.presence-heart').getBoundingClientRect();
     const heading = document.querySelector('.presence-heading').getBoundingClientRect();
@@ -429,7 +429,7 @@ try {
   invariant(presenceLayout.shieldRight <= presenceLayout.summaryLeft + 1, `Recovery shield is not on the left of the status capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.shieldLeft >= presenceLayout.headerLeft - 1, `Recovery shield is not at the left of the header: ${JSON.stringify(presenceLayout)}`);
   invariant(await creator.locator('#message-list > #entrance-card-banner[data-local-system-card="entry"]').count() === 1, 'Save-entry guidance is not a local timeline system card');
-  await creator.locator('#recovery-shield').click({ timeout: 8_000 });
+  await creator.locator('#open-spaces').click({ timeout: 8_000 }); await creator.locator('#space-settings').click(); await creator.locator('#backup-settings').click();
   await creator.locator('#save-my-code').waitFor();
   invariant(await creator.locator('#recovery-center-back').count() === 1, 'Save recovery-code page is missing a back button');
   invariant(await creator.locator('.recovery-flow-list li').count() === 4, 'Recovery-code page list is incomplete');
@@ -1015,7 +1015,7 @@ try {
   }, null, { timeout: 5000 });
   await creator.waitForTimeout(250);
   invariant(await creator.locator('#message-list').evaluate((list) => document.documentElement.scrollHeight - window.scrollY - window.innerHeight <= 2), 'An ACK or late image render pulled the sender away from the latest message');
-  await creator.locator('.more-menu summary').click();
+  await creator.locator('#open-spaces').click(); await creator.locator('#space-settings').click();
   await creator.locator('#manage-devices').click();
   await creator.locator('.device-shell').waitFor();
   await assertStablePage(creator, 'Device management');
@@ -1136,7 +1136,7 @@ try {
   invariant(await creator.locator('#app > .chat-shell #message-list .message').filter({ hasText: '仅相册保存.pdf' }).count() === 0, 'Creator chat exposes the private gallery filename');
   invariant(await joiner.locator('#app > .chat-shell #message-list .message').filter({ hasText: '仅相册保存.pdf' }).count() === 0, 'Peer chat exposes the private gallery filename');
 
-  await creator.locator('.more-menu summary').click();
+  await creator.locator('#open-spaces').click(); await creator.locator('#space-settings').click();
   invariant(await creator.locator('#local-history-backup span').textContent() === '备份数据', 'Local backup menu label was not renamed');
   invariant(await creator.locator('#local-history-restore span').textContent() === '恢复数据', 'Local restore menu entry is missing');
   await creator.locator('#backup-settings').click();
@@ -1144,8 +1144,9 @@ try {
   invariant(await creator.locator('#export-recovery').count() === 0, 'Manual recovery export remains exposed');
   await creator.locator('#save-my-code').click();
   await creator.locator('.local-recovery-code').waitFor({ timeout: 15_000 });
-  const recoveryCode = await creator.locator('.local-recovery-code').textContent();
-  invariant(recoveryCode?.startsWith('QR3-'), 'Local recovery code was not displayed after verification');
+  const collectionCode = await creator.locator('.local-recovery-code').textContent();
+  invariant(collectionCode?.startsWith('QR4-'), 'Local recovery code was not displayed after verification');
+  const recoveryCode = await creator.evaluate(async code => (await (await import('/src/lib/spaces.ts')).recoverableSpaces(code, new AbortController().signal))[0].code, collectionCode);
   invariant(await creator.locator('#confirm-code-saved').count() === 0, 'Saved confirmation button is still shown');
   invariant(await creator.locator('#copy-local-recovery').evaluate((button) => button.classList.contains('primary-button')), 'Copy recovery-code control is not the primary button');
   invariant(await creator.locator('input[name="digits"]').count() === 0, 'Last-four confirmation field is still shown');
@@ -1201,7 +1202,7 @@ try {
     throw new Error(`Recovery rotation did not finish: ${await recovery.locator('body').innerText()}`, { cause: error });
   });
   const newRecoveryCode = await recovery.locator('.local-recovery-code').textContent();
-  invariant(newRecoveryCode?.startsWith('QR3-') && newRecoveryCode !== recoveryCode, 'Recovery did not rotate its code');
+  invariant(newRecoveryCode?.startsWith('QR4-') && newRecoveryCode !== collectionCode, 'Recovery did not rotate its code');
   const oldCodeRetired = await recovery.evaluate(async code => {
     const { fetchRecoveryBundle } = await import('/src/lib/cloud-backup.ts');
     try { await fetchRecoveryBundle(code, new AbortController().signal); return false; } catch { return true; }
@@ -1244,7 +1245,7 @@ try {
   await recovery.locator('#composer').evaluate((form) => form.requestSubmit());
   await joiner.getByText('browser-e2e-fresh-identity-send', { exact: true }).waitFor({ timeout: 5000 });
 
-  await recovery.locator('.more-menu summary').click();
+  await recovery.locator('#open-spaces').click(); await recovery.locator('#space-settings').click();
   await recovery.evaluate(() => { location.hash = 'legacy-backup'; });
   await recovery.locator('[data-restore="all"]').click();
   await recovery.locator('#history-restore-code').fill(newRecoveryCode);
@@ -1451,7 +1452,7 @@ try {
   const linkedContexts = [];
   const addCreatorDevice = async (route) => {
     if (await recovery.locator('.chat-shell').count()) {
-      await recovery.locator('.more-menu summary').click();
+      await recovery.locator('#open-spaces').click(); await recovery.locator('#space-settings').click();
       await recovery.locator('#manage-devices').click().catch(async error => {
         console.error('Device menu state', await recovery.evaluate(() => ({
           root: document.querySelector('#app')?.className, cover: !!document.querySelector('.cover-trigger'),

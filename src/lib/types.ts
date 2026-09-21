@@ -111,6 +111,8 @@ export type PendingDeviceLink = {
 };
 
 export type Vault = {
+  /** Local collection capability. Never exported in a room recovery checkpoint. */
+  spaceRecoveryCode?: string;
   v: 1 | 2 | 3;
   roomId: string;
   accessToken: string;
@@ -162,6 +164,8 @@ export type VaultKdf = {
 };
 
 export type LegacyStoredVault = {
+  /** Immutable local vault slot; absent only on the pre-multi-space current record. */
+  spaceId?: string;
   v: 1;
   unlockMethod?: 'password' | 'gesture';
   kdf: VaultKdf;
@@ -182,6 +186,8 @@ export type PlatformCredentialRecord = {
 };
 
 export type StoredPlatformVault = {
+  /** Immutable local vault slot; absent only on the pre-multi-space current record. */
+  spaceId?: string;
   /** Version 2 combines a gesture with PRF output. Version 3 uses PRF only. */
   v: 2 | 3;
   unlockMethod: 'platform';
@@ -198,6 +204,8 @@ export type StoredPlatformVault = {
 };
 
 export type StoredRecoveryVault = {
+  /** Immutable local vault slot; absent only on the pre-multi-space current record. */
+  spaceId?: string;
   v: 2 | 3;
   unlockMethod: 'recovery';
   exportedAt: string;

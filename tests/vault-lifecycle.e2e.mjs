@@ -188,7 +188,7 @@ describe('actual IndexedDB vault lifecycle and MLS mutations', () => {
       try { await saveVault(reopened); } catch { crossRoomRejected = true; }
       return { waited, readCommittedSeq, staleRejected, crossRoomRejected, retained: JSON.stringify(await readStoredVault()) === JSON.stringify(next.stored) };
     });
-    expect(result).toEqual({ waited: true, readCommittedSeq: 41, staleRejected: true, crossRoomRejected: true, retained: true });
+    expect(result).toEqual({ waited: true, readCommittedSeq: 41, staleRejected: true, crossRoomRejected: false, retained: true });
   }, 30_000);
 });
 

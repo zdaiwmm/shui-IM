@@ -68,7 +68,7 @@ export function inviteeScopeChoice(initiatorScope: RecoveryScope, ownRole: Role)
 }
 
 export async function prepareJointRecovery(code: string, requestedScope: 'me' | 'peer' | 'both' | 'inherit', link: JointLink | null,
-  helper: VaultSession | null, credential: PlatformCredentialResult | undefined, deviceName: string, capabilities: string[], signal: AbortSignal): Promise<VaultSession> {
+  helper: VaultSession | null, credential: PlatformCredentialResult | undefined, deviceName: string, capabilities: string[], signal: AbortSignal, spaceRecoveryCode?: string): Promise<VaultSession> {
   const expected = await readStoredVault();
   const bundle = await fetchRecoveryBundle(code, signal);
   const source = bundle.checkpoint;
@@ -115,7 +115,7 @@ export async function prepareJointRecovery(code: string, requestedScope: 'me' | 
     await withVaultMutation(session, async mutation => { signal.throwIfAborted(); session.vault.pendingJointRecovery = pending; await saveVault(session, mutation); });
   } else {
     if (!credential) throw new Error('请先为本机创建通行密钥');
-    const vault = { ...source, identity, accessToken, pendingJointRecovery: pending, pairingState: 'ready' as const,
+    const vault = { ...source, spaceRecoveryCode: spaceRecoveryCode ?? helper?.vault.spaceRecoveryCode, identity, accessToken, pendingJointRecovery: pending, pairingState: 'ready' as const,
       mls: { protocol: 'mls-rfc9420' as const, phase: 'awaiting-welcome' as const }, lastSeq: 0, lastReceiptSeq: 0 };
     delete vault.backup; delete vault.pendingRecovery; delete vault.recoverySource;
     session = await createJointRecoveryVault(vault, credential, expected, signal);

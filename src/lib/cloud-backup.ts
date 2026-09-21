@@ -1,3 +1,4 @@
+import { recoverableSpaces, spaceCodeId } from './spaces';
 import { isMessagePayload } from './message-payload';
 import { isGalleryMediaPayload } from './video-media';
 import { galleryCurationKey, normalizeGalleryCurationRecords } from './gallery-curation';
@@ -119,6 +120,7 @@ async function update<T>(session: VaultSession, signal: AbortSignal, change: (st
 function checkpoint(vault: Vault): Vault {
   const value = structuredClone(vault);
   delete value.backup;
+  delete value.spaceRecoveryCode;
   delete value.historyRestoreTask;
   delete value.recoverySource;
   delete value.pendingRecovery;
@@ -325,7 +327,13 @@ export async function syncCloudBackup(session: VaultSession, signal: AbortSignal
   await rememberAutomaticBackup(session);
 }
 
-export async function fetchRecoveryBundle(code: string, signal: AbortSignal, onWait?: (waiting: boolean) => void): Promise<CloudRecoveryBundle> {
+export async function fetchRecoveryBundle(code: string, signal: AbortSignal, onWait?: (waiting: boolean) => void, targetRoom?: string): Promise<CloudRecoveryBundle> {
+  if (code.startsWith('QR4-')) {
+    const spaces = await recoverableSpaces(code, signal);
+    const entry = targetRoom ? spaces.find(space => space.roomId === targetRoom) : spaces.length === 1 ? spaces[0] : undefined;
+    if (!entry?.code) throw new Error('请先选择此恢复码对应的空间');
+    code = entry.code;
+  }
   const { id, secret } = parseCloudRecoveryCode(code);
   secret.fill(0);
   const result = await request<{ revision: number; sealed: SealedBackup }>(`/api/recovery-backups/${id}`, await recoveryFetchToken(code), signal, undefined, onWait);
@@ -346,8 +354,8 @@ export function normalizeRecoveryCodes(input: string | readonly string[]): strin
   if (!codes.length) throw new Error('请输入至少一个恢复码');
   if (codes.length > 6) throw new Error('本会话最多支持 6 个设备恢复码');
   for (const code of codes) {
-    try { parseCloudRecoveryCode(code); }
-    catch { throw new Error('恢复码格式不正确，请输入完整的 QR3 恢复码'); }
+    try { if (code.startsWith('QR4-')) spaceCodeId(code); else parseCloudRecoveryCode(code); }
+    catch { throw new Error('恢复码格式不正确，请输入完整的空间或设备恢复码'); }
   }
   return codes;
 }
@@ -378,7 +386,7 @@ export async function restoreCloudHistory(session: VaultSession, input: string |
   const bundles: CloudRecoveryBundle[] = [];
   const backupIds = new Set<string>();
   for (const code of codes) {
-    const bundle = await fetchRecoveryBundle(code, signal);
+    const bundle = await fetchRecoveryBundle(code, signal, undefined, session.vault.roomId);
     if (bundle.roomId !== session.vault.roomId) throw new Error('恢复码不属于当前会话');
     if (backupIds.has(bundle.backupId)) continue;
     backupIds.add(bundle.backupId);
@@ -428,7 +436,7 @@ export async function restoreUnifiedHistory(session: VaultSession, input: string
   emit();
   const bundles: CloudRecoveryBundle[] = [];
   for (const code of normalizeRecoveryCodes(input)) {
-    const bundle = await fetchRecoveryBundle(code, signal, onWait);
+    const bundle = await fetchRecoveryBundle(code, signal, onWait, session.vault.roomId);
     signal.throwIfAborted();
     if (bundle.roomId !== session.vault.roomId) throw new Error('恢复码不属于当前会话');
     if (!bundles.some(previous => previous.backupId === bundle.backupId)) bundles.push(bundle);
