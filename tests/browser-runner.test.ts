@@ -31,14 +31,14 @@ describe('browser regression groups', () => {
     const expected = [
       'browser', 'frontend-lifecycle', 'release-update', 'chat-bottom-control', 'chat-list-viewport', 'message-timeline', 'message-read', 'desktop-privacy', 'desktop-session-flow',
       'vault-resume', 'system-surfaces', 'file-flow', 'file-outbox', 'file-interactions', 'document-reader', 'meme-picker',
-      'unread-counter', 'reaction-history', 'message-deletion', 'vault-lifecycle', 'voice-lifecycle', 'voice-submission',
+      'unread-counter', 'reaction-history', 'message-deletion', 'vault-lifecycle', 'spaces', 'voice-lifecycle', 'voice-submission',
       'cloud-backup-lifecycle', 'local-history-backup', 'joint-recovery', 'history-restore', 'backup-admin-ui', 'admin-collection-ui',
       'chat-image-privacy', 'gallery-loading', 'photo-details', 'video-flow', 'video-upload', 'media-upload', 'voice-gestures', 'chat-tools', 'presence-circuit',
     ].map(name => `tests/${name}.e2e.mjs`);
     const all = selectBrowserScripts();
     expect(all).toEqual(expected);
     expect([...selectBrowserScripts('1'), ...selectBrowserScripts('2')]).toEqual(all);
-    expect(new Set(all).size).toBe(37);
+    expect(new Set(all).size).toBe(38);
     expect(Object.keys(browserGroups)).toEqual(['1', '2']);
     expect(selectBrowserScripts('1')).toEqual(['tests/browser.e2e.mjs']);
     const main = await readFile(path.join(root, 'tests/browser.e2e.mjs'), 'utf8');
