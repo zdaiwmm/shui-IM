@@ -224,8 +224,11 @@ try {
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.evaluate(() => { localStorage.setItem('quiet-room:presence-style','heart'); window.fixture.app.renderChat(); });
   await state(true, false);
-  const halfColors = await page.evaluate(() => ['left','right'].map(side => getComputedStyle(document.querySelector(`[data-half="${side}"]`)).fill));
-  assert.notEqual(halfColors[0], halfColors[1]);
+  const halves = await page.evaluate(() => ['left','right'].map(side => { const style=getComputedStyle(document.querySelector(`[data-half="${side}"]`)); return {fill:style.fill,opacity:Number(style.opacity)}; }));
+  assert.equal(halves[0].fill,halves[1].fill,'Both halves retain the red heart color');
+  assert.ok(halves[0].opacity<halves[1].opacity,'Only the online self half has full strength');
+  assert.equal(halves[1].opacity,1);
+  assert.notEqual(await page.locator('.presence-electric').evaluate(el=>getComputedStyle(el).visibility),'hidden');
   await page.evaluate(() => window.fixture.app.presenceCircuit.sent());
   await page.waitForTimeout(1150);
   assert.equal(await page.locator('[data-half="left"]').getAttribute('transform'), 'translate(-2 0)');
