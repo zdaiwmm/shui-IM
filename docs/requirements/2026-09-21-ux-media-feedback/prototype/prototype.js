@@ -94,7 +94,7 @@ function pageCover() {
   </section>`;
 }
 function pageRecovery() {
-  return `<section class="page recovery-page"><div class="recovery-main">${mark('people')}
+  return `<section class="page intro-page recovery-page"><div class="intro-main recovery-main">${mark('people')}
     <h1>留好双方恢复码，找回空间需要一起使用恢复码</h1>
     <p>双方各自保管，恢复时共同确认。不要互相发送恢复码。</p>
     <ul class="recovery-list"><li>清除浏览器数据</li><li>更换其他浏览器进入</li><li>使用浏览器无痕模式</li><li>更换设备或访问密钥失效</li></ul>
@@ -132,12 +132,12 @@ function pageChat() {
 function galleryItemMarkup(item) {
   const revealed = state.revealAll || state.revealedIds.has(item.id);
   return `<button class="vault-tile" type="button" data-id="${item.id}" data-revealed="${revealed}" aria-label="${revealed ? item.kind === 'video' ? '播放' : '查看' : '显示'}${escapeHtml(item.name)}，长按打开操作">
-    <span class="tile-art" aria-hidden="true"></span>${item.kind === 'video' ? '<span class="play-mark" aria-hidden="true">▶</span>' : ''}<span class="tile-label">${escapeHtml(item.name)}</span></button>`;
+    <span class="tile-art" aria-hidden="true"></span>${item.kind === 'video' ? '<span class="play-mark" aria-hidden="true">▶</span>' : ''}</button>`;
 }
 function pageVault() {
   const images = state.galleryTab === 'images';
   const body = images ? `<div class="vault-grid">${galleryItems.slice(0, state.galleryLoaded).map(galleryItemMarkup).join('')}</div>
-      ${state.galleryLoaded < galleryItems.length ? '<button class="load-more" type="button" data-action="load-more">加载更早照片和视频</button>' : ''}`
+      ${state.galleryLoaded < galleryItems.length ? '<p class="vault-pull-hint" role="status">上拉继续加载</p>' : ''}`
     : fileItems.map(item => `<button class="vault-file" type="button" data-id="${item.id}" aria-label="${escapeHtml(item.name)}，长按打开操作"><span class="file-icon">${item.format}</span><span>${escapeHtml(item.name)}<small>长按查看操作</small></span></button>`).join('');
   return `<section class="page vault-page"><header class="vault-header">${back('chat')}
     <div class="vault-tabs" role="tablist" aria-label="保险箱分类"><button type="button" role="tab" data-action="tab-images" aria-selected="${images}">相册 <small>12</small></button><button type="button" role="tab" data-action="tab-files" aria-selected="${!images}">文件 <small>3</small></button></div>
@@ -261,6 +261,30 @@ function openItemMenu(item) {
   render();
 }
 function wireVaultHold() {
+  const body = sceneNode.querySelector('.vault-body');
+  if (body && state.galleryTab === 'images' && state.galleryLoaded < galleryItems.length) {
+    let touchStartY = null;
+    const atEnd = () => body.scrollTop + body.clientHeight >= body.scrollHeight - 48;
+    const loadOlder = () => {
+      if (state.galleryLoaded >= galleryItems.length) return;
+      state.galleryLoaded = galleryItems.length;
+      render();
+      toast('更早项目已载入，显示状态保持一致');
+    };
+    body.addEventListener('touchstart', event => { touchStartY = event.touches[0]?.clientY ?? null; }, { passive: true });
+    body.addEventListener('touchend', event => {
+      const endY = event.changedTouches[0]?.clientY;
+      if (touchStartY !== null && endY !== undefined && touchStartY - endY > 40 && atEnd()) loadOlder();
+      touchStartY = null;
+    }, { passive: true });
+    body.addEventListener('wheel', event => { if (event.deltaY > 0 && atEnd()) loadOlder(); }, { passive: true });
+    body.addEventListener('scroll', () => {
+      if (atEnd()) loadOlder();
+    }, { passive: true });
+    body.addEventListener('keydown', event => {
+      if (['ArrowDown', 'PageDown', 'End'].includes(event.key) && atEnd()) loadOlder();
+    });
+  }
   for (const tile of sceneNode.querySelectorAll('.vault-tile, .vault-file')) {
     const item = [...galleryItems, ...fileItems].find(value => value.id === tile.dataset.id);
     if (!item) continue;
@@ -346,7 +370,6 @@ sceneNode.addEventListener('click', event => {
     case 'upload-retry': simulateUpload(actionNode.dataset.id); break;
     case 'tab-images': state.galleryTab = 'images'; render(); break;
     case 'tab-files': state.galleryTab = 'files'; render(); break;
-    case 'load-more': state.galleryLoaded = galleryItems.length; render(); toast('更早项目已继承当前显示状态'); break;
     case 'toggle-all': state.revealAll = !(state.revealAll || galleryItems.every(item => state.revealedIds.has(item.id))); state.revealedIds.clear(); render(); break;
     case 'vault-upload': toast('上传流程在聊天页的演示按钮中查看'); break;
     case 'menu-close': state.selectedItem = null; state.menuError = ''; render(); break;

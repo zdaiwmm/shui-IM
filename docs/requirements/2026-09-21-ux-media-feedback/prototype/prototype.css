@@ -88,8 +88,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 .success-card p { color: var(--ink-muted); font-size: .88rem; line-height: 1.55; }
 .success-card .app-button + .app-button { margin-top: 12px; }
 
-.recovery-page { padding: 55px 20px 30px; }
-.recovery-main { flex: 1; overflow-y: auto; min-height: 0; scrollbar-width: none; }
+.recovery-main { scrollbar-width: none; }
 .recovery-list { margin: 25px 0 18px; padding-left: 20px; color: var(--ink-muted); line-height: 1.8; font-size: .9rem; }
 .recovery-note { padding: 15px; border-radius: 15px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-muted); font-size: .84rem; line-height: 1.55; }
 .recovery-note strong { display: block; margin-bottom: 4px; color: var(--ink); }
@@ -139,12 +138,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
 .vault-tile:nth-child(3n + 2) .tile-art { background: linear-gradient(30deg, var(--surface), var(--ink-faint), var(--accent-soft)); }
 .vault-tile:nth-child(3n) .tile-art { background: radial-gradient(circle at 26% 40%, var(--accent-soft), transparent 35%), linear-gradient(140deg, var(--ink-faint), var(--surface)); }
 .vault-tile[data-revealed="false"] .tile-art { filter: blur(12px); transform: scale(1.14); }
-.vault-tile .tile-label { position: absolute; inset: auto 0 0; padding: 6px 4px; background: color-mix(in oklch, var(--paper-pure) 75%, transparent); color: var(--ink); font-size: .68rem; text-align: center; }
 .vault-tile .play-mark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; background: color-mix(in oklch, var(--paper-pure) 80%, transparent); color: var(--ink); }
 .vault-file { width: 100%; min-height: 62px; display: flex; align-items: center; gap: 10px; margin-bottom: 8px; border: 1px solid var(--line); border-radius: 13px; padding: 9px 12px; background: var(--surface); color: var(--ink); text-align: left; font-size: .84rem; }
 .file-icon { width: 37px; height: 37px; display: grid; place-items: center; border-radius: 9px; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: .65rem; }
 .vault-file small { display: block; margin-top: 2px; color: var(--ink-muted); font-size: .69rem; }
-.load-more { width: 100%; min-height: 44px; margin-top: 15px; border: 0; background: transparent; color: var(--accent); font-weight: 650; }
+.vault-pull-hint { margin: 16px 0 0; color: var(--ink-muted); font-size: .8rem; text-align: center; }
 .visibility-button { position: absolute; right: 16px; bottom: 17px; z-index: 3; }
 .vault-note { margin: 13px 0; color: var(--ink-muted); font-size: .77rem; line-height: 1.5; }
 .action-backdrop { position: absolute; z-index: 20; inset: 0; background: color-mix(in oklch, var(--ink) 25%, transparent); }
@@ -199,13 +197,12 @@ button:focus-visible, textarea:focus-visible, input:focus-visible, a:focus-visib
   .qr-demo { width: 120px; height: 120px; }
   .invite-body { gap: 7px; }
   .invite-row { min-height: 43px; }
-  .recovery-page { padding-top: 38px; }
   .call-avatar { margin-top: 3vh; }
 }
 @media (max-width: 700px) {
   .prototype-layout { display: block; }
   .prototype-panel { position: fixed; z-index: 120; top: 0; left: 0; right: 0; width: 100%; height: 42px; padding: 0; border: 0; border-bottom: 1px solid var(--line); background: var(--paper-pure); }
-  .prototype-panel::before { content: 'Quiet Room · 原型 S1'; position: absolute; top: 12px; left: 12px; color: var(--ink-muted); font-size: .72rem; font-weight: 650; }
+  .prototype-panel::before { content: 'Quiet Room · 原型 S2'; position: absolute; top: 12px; left: 12px; color: var(--ink-muted); font-size: .72rem; font-weight: 650; }
   .panel-heading, .panel-note, .flow-link { display: none; }
   .scene-picker { position: absolute; top: 3px; right: 8px; width: min(230px, calc(100vw - 130px)); max-height: 70dvh; overflow-y: auto; padding: 0; border: 0; border-radius: 12px; background: var(--paper-pure); box-shadow: var(--glass-shadow); }
   .scene-picker summary { min-height: 36px; padding: 9px 12px; color: var(--ink); text-align: right; list-style: none; }

@@ -204,7 +204,10 @@ export class CallView {
     this.bindStream(this.localVideo, active ? state.localStream : null);
     this.bindStream(this.backgroundVideo, localVisible && !remoteVisible ? state.localStream : null);
     const remoteChanged = this.bindStream(this.remoteVideo, active ? state.remoteStream : null);
-    if (remoteChanged && this.remoteVideo.srcObject) void this.playRemote();
+    // The controller attaches tracks to the same MediaStream after binding it.
+    // Retry playback when that previously empty stream receives its first track.
+    if (this.remoteVideo.srcObject && (remoteChanged
+      || this.remoteVideo.paused && state.remoteStream?.getAudioTracks().length)) void this.playRemote();
     if (!active || !state.remoteStream) this.playback.hidden = true;
 
     const entering = (!previous || previous.phase === 'idle') && state.phase !== 'idle';

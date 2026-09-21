@@ -480,6 +480,12 @@
 }
 .image-viewer[data-safe-viewer].video-viewer .viewer-header > :not([data-viewer-close]),
 .image-viewer[data-safe-viewer].video-viewer .viewer-nav { display: none; }
+.image-viewer[data-safe-viewer].video-viewer[data-video-controls="hidden"] .viewer-header,
+.image-viewer[data-safe-viewer].video-viewer[data-video-controls="hidden"] .viewer-video-controls {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
 .image-viewer[data-safe-viewer].video-viewer .viewer-header .viewer-control,
 .viewer-video-controls.has-delete .viewer-control {
   background: linear-gradient(150deg, #ffffff20, #ffffff08), #33333380;

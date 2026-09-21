@@ -1155,9 +1155,8 @@ try {
   }, recoveryCode);
   invariant(codeIsEncrypted, 'Local durable vault leaked the recovery code');
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-code-mobile.png') });
+  invariant(await creator.locator('#hide-local-recovery').textContent() === '我已保存，回到聊天页', 'Recovery-code action has the wrong label');
   await creator.locator('#hide-local-recovery').click();
-  await creator.locator('#recovery-center-back').waitFor();
-  await creator.locator('#recovery-center-back').click();
   await creator.locator('.chat-shell').waitFor();
   const sourceIdentity = await creator.evaluate(async () => {
     const { unlockVault } = await import('/src/lib/vault.ts');

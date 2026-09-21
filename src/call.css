@@ -62,7 +62,7 @@
 .call-control:disabled { cursor: default; }
 .call-control:disabled .call-control-disc { opacity: .4; }
 .call-control:disabled .call-control-label { color: oklch(74% 0.008 255); }
-.call-control:not(:disabled):active .call-control-disc { transform: scale(.92); }
+.call-control:not(:disabled):active .call-control-disc { filter: brightness(.82); }
 .call-view button:focus-visible { outline: 3px solid oklch(96% 0.007 255); outline-offset: 6px; }
 .call-incoming { display: flex; align-items: center; justify-content: space-between; width: min(280px, 100%); padding: 4px 8px 10px; }
 .call-incoming .call-control { gap: 13px; }

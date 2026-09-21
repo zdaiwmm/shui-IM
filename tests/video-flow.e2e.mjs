@@ -177,7 +177,10 @@ try {
   const closePlayer = async () => {
     if (await page.evaluate(() => Boolean(document.fullscreenElement))) {
       await page.evaluate(() => document.exitFullscreen());
-    } else await page.locator('[data-viewer-close]').click();
+    } else {
+      if (await page.locator('.image-viewer[data-video-controls="hidden"]').count()) await page.locator('.viewer-stage').click({ position: { x: 12, y: 120 } });
+      await page.locator('[data-viewer-close]').click();
+    }
     await page.locator('.image-viewer').waitFor({ state: 'detached' });
   };
   const openInReader = async locator => {
@@ -391,6 +394,10 @@ try {
     assert.equal(await page.locator('[data-viewer-close]').isVisible(), true);
     await page.locator('[data-video-play]').click();
     await awaitPlayingVideo();
+    if (safe) {
+      assert.equal(await page.locator('.image-viewer').getAttribute('data-video-controls'), 'hidden');
+      await page.locator('.viewer-stage').click({ position: { x: 12, y: 120 } });
+    }
     await page.locator('[data-video-play]').click();
     assert.equal(await page.locator('.viewer-stage video').evaluate(video => video.paused), true);
     await page.locator('[data-video-mute]').click();
@@ -467,6 +474,12 @@ try {
   assert.equal(await page.locator('.image-viewer').count(), 0, 'First album click played a still-hidden video');
   await safeVideo.click();
   await awaitPlayingVideo();
+  assert.equal(await page.locator('.image-viewer').getAttribute('data-video-controls'), 'hidden', 'Playing a Safe video did not hide its overlay tools');
+  await page.locator('.viewer-stage').click({ position: { x: 12, y: 120 } });
+  assert.equal(await page.locator('.image-viewer').getAttribute('data-video-controls'), 'visible', 'Tapping blank space did not restore video tools');
+  await page.locator('.viewer-stage').click({ position: { x: 12, y: 120 } });
+  assert.equal(await page.locator('.image-viewer').getAttribute('data-video-controls'), 'hidden', 'Tapping blank space again did not hide video tools');
+  await page.locator('.viewer-stage').click({ position: { x: 12, y: 120 } });
   assert.equal(await page.locator('[data-video-fullscreen]').count(), 0, 'Safe added an unrequested minimize/fullscreen button');
   assert.equal(await page.locator('.image-viewer').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(0, 0, 0)', 'Safe video inherited the photo theme instead of the reference black canvas');
   for (const width of [320, 390, 1024]) {
@@ -497,6 +510,8 @@ try {
 
   const safeChatVideo = page.locator(`.gallery-tile[data-blob-id="${ids.chatVideo}"]`);
   await safeChatVideo.click(); await safeChatVideo.click();
+  await awaitPlayingVideo();
+  await page.locator('.viewer-stage').click({ position: { x: 12, y: 120 } });
   await page.locator('[data-video-delete]').waitFor();
   await page.locator('[data-video-delete]').click();
   await page.locator('[data-confirm-media-delete]').click();
@@ -586,6 +601,7 @@ try {
     f.readGate.waiting = false;
     f.readGate.release = null;
   });
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.image-viewer .viewer-header')).opacity === '1');
   const videoSwipeChrome = await page.locator('.viewer-stage').evaluate(stage => {
     const video = stage.querySelector('video');
     window.videoFlow.pagedPlayer = video;

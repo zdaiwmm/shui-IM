@@ -258,6 +258,7 @@ try {
     const count = document.querySelector('[data-gallery-count="images"]');
     return count && !count.hidden && count.textContent === '0';
   });
+  await page.waitForFunction(() => document.querySelector('[data-gallery-count="files"]')?.textContent === '0');
   assert.equal(await page.locator('[data-gallery-count="files"]').textContent(), '0', 'Empty file category did not show its count on entry');
   assert.equal(await page.locator('[data-gallery-count="files"]').isVisible(), true, 'File count required a tab visit');
   await page.evaluate(() => { const f = window.fileFlow; f.choose('gallery', f.fixtures()); });

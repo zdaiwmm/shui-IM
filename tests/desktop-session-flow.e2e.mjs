@@ -181,6 +181,26 @@ try {
   const initialVerifications = await verificationCount(creator);
   assert.equal(await creator.evaluate(() => Number(sessionStorage.getItem('desktop-test-credential-create'))), 1, 'Initial setup must create the real platform credential');
 
+  const imeResult = await creator.evaluate(async () => {
+    const input = document.querySelector('#message-input');
+    const sentBefore = document.querySelectorAll('.message.outgoing').length;
+    input.focus();
+    input.dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }));
+    input.value = 'nihao';
+    input.dispatchEvent(new CompositionEvent('compositionupdate', { bubbles: true, data: 'nihao' }));
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, isComposing: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Enter', isComposing: true }));
+    input.dispatchEvent(new CompositionEvent('compositionend', { bubbles: true, data: '你好' }));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const raw = input.value;
+    const sentAfter = document.querySelectorAll('.message.outgoing').length;
+    input.value = '';
+    input.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    return { raw, sentBefore, sentAfter };
+  });
+  assert.equal(imeResult.raw, 'nihao', 'Enter during IME composition must commit raw preedit');
+  assert.equal(imeResult.sentAfter, imeResult.sentBefore, 'Enter during IME composition must not send');
+
   const firstMessage = 'desktop-session-before-cover';
   await send(creator, firstMessage);
   await joiner.getByText(firstMessage, { exact: true }).waitFor({ timeout: 10_000 });

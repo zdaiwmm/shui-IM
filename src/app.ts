@@ -529,6 +529,7 @@ export class QuietRoomApp {
   private galleryScrollTop: Record<GalleryTab, number> = { images: 0, files: 0 };
   private galleryMode: 'safe' | 'favorites' = 'safe';
   private galleryRevealedAssets = new Set<string>();
+  private galleryRevealAll = false;
   private chatRevealedAssets = new Set<string>();
   private chatExplicitlyConcealedAssets = new Set<string>();
   private mediaReadQueued = new Set<string>();
@@ -4221,6 +4222,7 @@ export class QuietRoomApp {
     if (this.galleryMode === 'favorites') this.galleryKnownCounts = {};
     this.galleryMode = 'safe';
     this.galleryRevealedAssets.clear();
+    this.galleryRevealAll = false;
     this.clearMessageTextSelection();
     this.closeVoiceRecorder();
     this.voicePlayback.stop();
@@ -4303,7 +4305,7 @@ export class QuietRoomApp {
             </div>
             <div class="composer-field">
               <label class="sr-only" for="message-input">输入消息</label>
-              <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '点击输入文字，长按录制语音' : '对方进入聊天页面即可完成私密空间创建'}" autocomplete="off" enterkeyhint="send" ${cryptoReady ? '' : 'disabled'}></textarea>
+              <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '点击输入文字，长按录制语音' : '对方进入聊天页面即可完成私密空间创建'}" autocomplete="off" enterkeyhint="enter" ${cryptoReady ? '' : 'disabled'}></textarea>
               <span class="composer-placeholder" aria-hidden="true">${cryptoReady ? '点击输入文字，长按录制语音' : '对方进入聊天页面即可完成私密空间创建'}</span>
               <button class="meme-toggle" id="open-memes" type="button" aria-label="打开表情" title="表情" aria-expanded="false" aria-controls="meme-panel" ${cryptoReady ? '' : 'disabled'}>${memeIcons.smile}</button>
             </div>
@@ -4476,6 +4478,26 @@ export class QuietRoomApp {
     textarea.addEventListener('paste', event => this.handleComposerPaste(event));
     let nativeShrinkFrame: number | null = null;
     let activeComposition = false;
+    let compositionBefore = '';
+    let compositionAfter = '';
+    let compositionRaw = '';
+    let compositionStart = 0;
+    let rawCommitPending = false;
+    let lastCompositionEndAt = 0;
+    let lastCompositionEndValue = '';
+    const commitRawComposition = () => {
+      if (!rawCommitPending || activeComposition || !ownsActiveChat()) return;
+      rawCommitPending = false;
+      const current = textarea.value;
+      if (!current.startsWith(compositionBefore) || !current.endsWith(compositionAfter)) return;
+      const currentEnd = current.length - compositionAfter.length;
+      const raw = compositionRaw || current.slice(compositionStart, currentEnd);
+      textarea.setRangeText(raw, compositionStart, currentEnd, 'end');
+      this.uiPreferences.composerDraft = textarea.value;
+      this.scheduleUiPreferencesSave();
+      this.syncComposerMode();
+      resizeTextarea();
+    };
     const resizeTextarea = (animate = true, deferNativeShrink = true, composing = false) => {
       if (nativeShrinkFrame !== null) cancelAnimationFrame(nativeShrinkFrame);
       nativeShrinkFrame = null;
@@ -4630,9 +4652,22 @@ export class QuietRoomApp {
       };
       motion.frame = requestAnimationFrame(step);
     };
-    textarea.addEventListener('compositionstart', () => { activeComposition = true; });
+    textarea.addEventListener('compositionstart', () => {
+      activeComposition = true;
+      compositionStart = textarea.selectionStart;
+      compositionBefore = textarea.value.slice(0, compositionStart);
+      compositionAfter = textarea.value.slice(textarea.selectionEnd);
+      compositionRaw = '';
+    });
+    textarea.addEventListener('compositionupdate', event => {
+      // Keep the phonetic preedit before the IME replaces it with a candidate.
+      if (/^[\x20-\x7e]+$/.test(event.data) || !compositionRaw) compositionRaw = event.data;
+    });
     textarea.addEventListener('compositionend', () => {
       activeComposition = false;
+      lastCompositionEndAt = performance.now();
+      lastCompositionEndValue = textarea.value;
+      if (rawCommitPending) requestAnimationFrame(commitRawComposition);
       if (ownsActiveChat()) resizeTextarea();
     });
     textarea.addEventListener('input', event => {
@@ -4645,10 +4680,16 @@ export class QuietRoomApp {
     resizeTextarea(false);
     this.syncComposerMode();
     textarea.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      if (event.key !== 'Enter' || event.shiftKey) return;
+      if (activeComposition || event.isComposing || event.keyCode === 229
+        || performance.now() - lastCompositionEndAt < 30 && textarea.value === lastCompositionEndValue) {
         event.preventDefault();
-        this.root.querySelector<HTMLFormElement>('#composer')?.requestSubmit();
+        rawCommitPending = true;
+        requestAnimationFrame(commitRawComposition);
+        return;
       }
+      event.preventDefault();
+      this.root.querySelector<HTMLFormElement>('#composer')?.requestSubmit();
     });
     textarea.addEventListener('blur', () => {
       if (!ownsActiveChat()) return;
@@ -4831,11 +4872,12 @@ export class QuietRoomApp {
     shield.style.visibility = 'hidden';
     const animation = flyer.animate([
       { transform: 'translate(0, 0) rotate(0deg) scale(1)', offset: 0 },
-      { transform: 'translate(-3px, 0) rotate(-10deg) scale(1)', offset: 0.08 },
-      { transform: 'translate(4px, -2px) rotate(8deg) scale(1)', offset: 0.16 },
-      { transform: `translate(${dx * 0.28}px, ${dy * 0.18}px) rotate(0deg) scale(1)`, offset: 0.42 },
+      { transform: `translate(${dx * 0.18}px, ${dy * 0.18 + 22}px) rotate(-8deg) scale(1)`, offset: 0.3,
+        easing: 'cubic-bezier(0.55, 0, 0.9, 0.25)' },
+      { transform: `translate(${dx * 0.42}px, ${dy * 0.42 + 27}px) rotate(0deg) scale(0.86)`, offset: 0.52,
+        easing: 'cubic-bezier(0.55, 0, 0.9, 0.25)' },
       { transform: `translate(${dx}px, ${dy}px) rotate(0deg) scale(0.35)`, offset: 1 },
-    ], { duration: 1_050, easing: 'cubic-bezier(0.55, 0.02, 0.95, 0.38)', fill: 'forwards' });
+    ], { duration: 880, fill: 'forwards' });
     const cancel = () => {
       animation.cancel();
       flyer.remove();
@@ -6912,15 +6954,17 @@ export class QuietRoomApp {
         }
         const uploadCallbacks: Parameters<typeof encryptImageFile>[1] = {
           includeDimensions: this.activeDevicesSupport('media-dimensions-v1'),
-          reserve: (blobId, chunkCount, encryptedSize) =>
-            reserveBlob(vault.roomId, vault.accessToken, blobId, chunkCount, encryptedSize, signal),
-          status: (blobId) => getBlobStatus(vault.roomId, vault.accessToken, blobId, signal),
+          reserve: (blobId, chunkCount, encryptedSize) => this.retryOperation(
+            () => reserveBlob(vault.roomId, vault.accessToken, blobId, chunkCount, encryptedSize, signal), 3, signal),
+          status: (blobId) => this.retryOperation(
+            () => getBlobStatus(vault.roomId, vault.accessToken, blobId, signal), 3, signal),
           upload: (blobId, chunkIndex, bytes) => this.retryOperation(
             () => uploadBlobChunk(vault.roomId, vault.accessToken, blobId, chunkIndex, bytes, signal),
             3,
             signal,
           ),
-          complete: (blobId) => completeBlob(vault.roomId, vault.accessToken, blobId, signal),
+          complete: (blobId) => this.retryOperation(
+            () => completeBlob(vault.roomId, vault.accessToken, blobId, signal), 3, signal),
           savePlan: async (plan) => {
             await saveUploadPlan(session, plan);
             if (!this.isRuntimeActive(epoch, session)) return;
@@ -8975,7 +9019,7 @@ export class QuietRoomApp {
       <code class="local-recovery-code"></code>
       <div class="welcome-actions">
       <button class="primary-button" id="copy-local-recovery" type="button">复制恢复码</button>
-      <button class="text-button" id="hide-local-recovery" type="button">返回</button>
+      <button class="text-button" id="hide-local-recovery" type="button">我已保存，回到聊天页</button>
       <p class="field-hint" role="status"></p></div></div>`, false, 'plain');
     const codeNode = this.root.querySelector<HTMLElement>('.local-recovery-code')!;
     this.armRecoveryKeyboardHandoff(this.root);
@@ -8997,7 +9041,7 @@ export class QuietRoomApp {
     });
     this.root.querySelector('#hide-local-recovery')?.addEventListener('click', async () => {
       window.clearTimeout(timer); codeNode.textContent = '';
-      this.renderRecoveryCenter();
+      this.renderChat();
     });
   }
 
@@ -9285,7 +9329,7 @@ export class QuietRoomApp {
     this.setActiveSurface('away');
     document.body.className = 'app-mode';
     this.root.innerHTML = this.saveEntryPage(
-      '留好双方恢复码，一起才能找回',
+      '留好双方恢复码，找回空间需要一起使用恢复码',
       '双方各自保管，恢复时共同确认。不要互相发送恢复码，避免两个恢复码同时被泄露，从而泄露隐私。',
       `<div class="save-entry-copy">
         <ul class="recovery-flow-list">
@@ -9301,7 +9345,6 @@ export class QuietRoomApp {
        <button class="text-button" id="recovery-center-back" type="button">返回</button>
        <p class="form-error" role="alert"></p>`,
       '',
-      'dense',
     );
     this.root.querySelector('#recovery-center-back')!.addEventListener('click', () => {
       if (this.socket) this.transitionPage('backward', () => this.renderChat());
@@ -9333,10 +9376,11 @@ export class QuietRoomApp {
     this.setActiveSurface('away');
     document.body.className = 'cover-mode';
     this.root.innerHTML = `<main class="cover-practice-page">
-      <header class="cover-practice-header"><button class="icon-button" id="practice-back" aria-label="返回聊天">${icons.back}</button><h1 class="sr-only">遮蔽体验</h1><p class="cover-practice-notice">离开私密空间后（浏览器进后台或锁屏等）会自动进入遮蔽层保护隐私。</p></header>
+      <header class="cover-practice-header"><button class="icon-button" id="practice-back" aria-label="返回聊天">${icons.back}</button><h1 class="sr-only">遮蔽体验</h1></header>
       <section class="cover" aria-label="遮蔽演练。内容已隐藏，遮蔽本身不是身份验证。">
         ${this.coverErrorMarkup()}
         <div class="hold-guide" id="practice-result">长按色块 1 秒，进入聊天<span aria-hidden="true">↘</span></div>
+        <p class="cover-practice-notice">离开私密空间后（浏览器进后台或锁屏等）会自动进入遮蔽层保护隐私。</p>
         <button class="cover-trigger practice-hotspot" type="button" aria-label="长按一秒练习返回"><span>长按</span></button>
       </section>
     </main>`;
@@ -9528,6 +9572,10 @@ export class QuietRoomApp {
       webkitDisplayingFullscreen?: boolean;
     };
     const viewer = stage.closest<HTMLElement>('.image-viewer')!;
+    const safeInline = Boolean(onDelete);
+    const setControlsVisible = (visible: boolean) => {
+      if (safeInline && live()) viewer.dataset.videoControls = visible ? 'visible' : 'hidden';
+    };
     video.controls = requestNative;
     video.autoplay = autoplay;
     // iPhone may enter its system player as part of play() while its metadata
@@ -9720,7 +9768,16 @@ export class QuietRoomApp {
       else if (nativeEntered) nativeEnded();
     }, { signal: events.signal });
     video.addEventListener('error', showError, { signal: events.signal });
-    video.addEventListener('playing', () => { feedback.hidden = true; }, { signal: events.signal });
+    video.addEventListener('playing', () => {
+      feedback.hidden = true;
+      setControlsVisible(false);
+    }, { signal: events.signal });
+    video.addEventListener('pause', () => setControlsVisible(true), { signal: events.signal });
+    video.addEventListener('ended', () => setControlsVisible(true), { signal: events.signal });
+    viewer.querySelector<HTMLElement>('.viewer-stage')!.addEventListener('click', event => {
+      if (!safeInline || video.paused || event.target instanceof Element && event.target.closest('button, input')) return;
+      setControlsVisible(viewer.dataset.videoControls === 'hidden');
+    }, { signal: events.signal });
     for (const event of ['play', 'pause', 'ended', 'volumechange', 'durationchange', 'loadedmetadata', 'timeupdate']) {
       video.addEventListener(event, updateControls, { signal: events.signal });
     }
@@ -9744,6 +9801,7 @@ export class QuietRoomApp {
     feedback.addEventListener('click', () => { if (requestNative) requestNativePlayer(); play(); }, { signal: events.signal });
     const cleanup = () => {
       active = false;
+      delete viewer.dataset.videoControls;
       deleteCleanup?.();
       events.abort();
       if (nativePendingTimer !== null) window.clearTimeout(nativePendingTimer);
@@ -10794,7 +10852,7 @@ export class QuietRoomApp {
     }
   }
 
-  private mountGalleryCurationActions(source: HTMLElement, target: GalleryCurationTarget, tab: GalleryTab, countKey: string,
+  private mountGalleryCurationActions(source: HTMLElement, target: GalleryCurationTarget, tab: GalleryTab, countKey: string, manifest: ImageManifest,
     openDetails?: () => void, onSaved?: (action: 'pin' | 'unpin' | 'hide') => boolean): void {
     let start: { x: number; y: number; pointerId: number } | null = null;
     const cancel = () => { this.cancelMessageHold(); start = null; };
@@ -10809,7 +10867,7 @@ export class QuietRoomApp {
       this.suppressMediaClickUntil = Date.now() + 650;
       if (fromPointerHold) source.dataset.galleryHoldCommitted = 'true';
       navigator.vibrate?.(18);
-      this.openGalleryCurationActions(source, target, tab, countKey, openDetails, onSaved);
+      this.openGalleryCurationActions(source, target, tab, countKey, manifest, openDetails, onSaved);
     };
     source.addEventListener('pointerdown', event => {
       if (!event.isPrimary || event.button !== 0 || event.pointerType === 'mouse' || this.privacyCovered) return;
@@ -10841,7 +10899,7 @@ export class QuietRoomApp {
     });
   }
 
-  private openGalleryCurationActions(source: HTMLElement, target: GalleryCurationTarget, tab: GalleryTab, countKey: string,
+  private openGalleryCurationActions(source: HTMLElement, target: GalleryCurationTarget, tab: GalleryTab, countKey: string, manifest: ImageManifest,
     openDetails?: () => void, onSaved?: (action: 'pin' | 'unpin' | 'hide') => boolean): void {
     const session = this.session;
     const epoch = this.runtimeEpoch;
@@ -10856,6 +10914,7 @@ export class QuietRoomApp {
     sheet.setAttribute('aria-label', target.category === 'images' ? '照片或视频操作' : '文件操作');
     sheet.innerHTML = `<div class="gallery-actions-menu" role="menu">
       ${openDetails ? '<button type="button" role="menuitem" data-gallery-action="details"><span>查看详情</span></button>' : ''}
+      ${this.galleryMode === 'safe' ? `<button type="button" role="menuitem" data-gallery-action="send">${icons.send}<span>发送至聊天</span></button>` : ''}
       <button type="button" role="menuitem" data-gallery-action="pin">${icons.pin}<span>${pinned ? '取消置顶' : '置顶'}</span></button>
       <button type="button" role="menuitem" data-gallery-action="delete" ${this.galleryMode === 'safe' ? 'data-danger="true"' : ''}>${this.galleryMode === 'favorites' ? memeIcons.star : icons.trash}<span>${this.galleryMode === 'favorites' ? '取消收藏' : '删除'}</span></button>
     </div>`;
@@ -10864,7 +10923,7 @@ export class QuietRoomApp {
       isActive: () => this.isRuntimeActive(epoch, session),
       signal: this.runtimeAbort?.signal,
       returnFocus: source,
-      initialFocus: sheet.querySelector<HTMLButtonElement>('[data-gallery-action="pin"]'),
+      initialFocus: sheet.querySelector<HTMLButtonElement>('[data-gallery-action="send"], [data-gallery-action="pin"]'),
     });
     const details = sheet.querySelector<HTMLButtonElement>('[data-gallery-action="details"]');
     details?.prepend(createElement(Info));
@@ -10882,6 +10941,31 @@ export class QuietRoomApp {
       dialog.close({ animate: false, restoreFocus: false });
     });
     let saving = false;
+    sheet.querySelector('[data-gallery-action="send"]')?.addEventListener('click', () => {
+      if (saving || !this.isRuntimeActive(epoch, session)) return;
+      saving = true;
+      for (const button of sheet.querySelectorAll<HTMLButtonElement>('button')) button.disabled = true;
+      sheet.setAttribute('aria-busy', 'true');
+      void (async () => {
+        try {
+          this.assertImageManifestIdentity(manifest);
+          const sentAt = new Date().toISOString();
+          const payload: MessagePayload = target.category === 'files' || isVideoFile(manifest)
+            ? { v: 1, kind: 'file', file: manifest, sentAt }
+            : { v: 1, kind: 'image', image: manifest, sentAt };
+          await this.enqueuePayload(payload);
+          if (!this.isRuntimeActive(epoch, session)) return;
+          dialog.close({ animate: false, restoreFocus: false });
+          this.renderChat();
+        } catch (cause) {
+          if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected) return;
+          saving = false;
+          sheet.removeAttribute('aria-busy');
+          for (const button of sheet.querySelectorAll<HTMLButtonElement>('button')) button.disabled = false;
+          this.operationalError(cause, '未能发送至聊天，保险箱原项目已保留');
+        }
+      })();
+    });
     const finish = async (action: 'pin' | 'unpin' | 'hide') => {
       if (saving) return;
       saving = true;
@@ -10944,8 +11028,11 @@ export class QuietRoomApp {
       return;
     }
     // Reveals belong to this visit, never to stored preferences or the verified
-    // image cache. Tab changes and upload refreshes retain only explicit reveals.
-    if (!this.root.querySelector('.gallery-shell')) this.galleryRevealedAssets.clear();
+    // image cache. Later pages inherit a visit-wide reveal choice.
+    if (!this.root.querySelector('.gallery-shell')) {
+      this.galleryRevealedAssets.clear();
+      this.galleryRevealAll = false;
+    }
     const cryptoReady = session.vault.protocol !== 'mls-rfc9420' || session.vault.mls?.phase === 'active';
     const filesTab = tab === 'files';
     const favorites = this.galleryMode === 'favorites';
@@ -11046,12 +11133,9 @@ export class QuietRoomApp {
       }
     };
     updateCounts();
-    if (!favorites) {
-      void this.primeGalleryCounts(session, epoch, signal);
-    }
     const visibilityButton = this.root.querySelector<HTMLButtonElement>('#gallery-toggle-visibility');
-    const allImagesRevealed = () => assets.length > 0 && assets.every(asset =>
-      this.galleryRevealedAssets.has(`${asset.clientMsgId}:${asset.assetIndex}`));
+    const allImagesRevealed = () => assets.length > 0 && (this.galleryRevealAll || assets.every(asset =>
+      this.galleryRevealedAssets.has(`${asset.clientMsgId}:${asset.assetIndex}`)));
     const updateVisibilityButton = () => {
       if (!visibilityButton) return;
       visibilityButton.disabled = assets.length === 0;
@@ -11062,7 +11146,7 @@ export class QuietRoomApp {
       visibilityButton.title = label;
     };
     const updateTileVisibility = (button: HTMLButtonElement, key: string, manifest: ImageManifest, animate = true) => {
-      const revealed = this.galleryRevealedAssets.has(key);
+      const revealed = this.galleryRevealAll || this.galleryRevealedAssets.has(key);
       const changed = button.dataset.revealed !== undefined && button.dataset.revealed !== String(revealed);
       button.dataset.revealed = String(revealed);
       button.setAttribute('aria-label', `${isVideoFile(manifest) ? revealed ? '播放视频' : '显示视频' : revealed ? '查看原图' : '显示图片'} ${manifest.originalName}`);
@@ -11077,6 +11161,7 @@ export class QuietRoomApp {
     visibilityButton?.addEventListener('click', () => {
       if (!this.isRuntimeActive(epoch, session) || !grid.isConnected) return;
       const reveal = !allImagesRevealed();
+      this.galleryRevealAll = reveal;
       const buttons = [...grid.querySelectorAll<HTMLButtonElement>('.gallery-tile')];
       // Read geometry together before changing concealment. Older decoded
       // pages still update, but only on-screen pixels need a fade animation.
@@ -11092,7 +11177,6 @@ export class QuietRoomApp {
         const asset = assets[Number(button.dataset.galleryIndex)];
         if (!asset) continue;
         const key = `${asset.clientMsgId}:${asset.assetIndex}`;
-        if (reveal) this.galleryRevealedAssets.add(key);
         updateTileVisibility(button, key, asset.manifest, visible.has(button));
       }
       updateVisibilityButton();
@@ -11136,8 +11220,7 @@ export class QuietRoomApp {
     }
     const footer = document.createElement('div');
     footer.className = 'gallery-pagination';
-    footer.innerHTML = `<p role="status" class="gallery-scan-status">正在查找${category}…</p><button class="secondary-button" type="button" data-gallery-load-more>加载更早${category}</button>`;
-    const more = footer.querySelector<HTMLButtonElement>('button')!;
+    footer.innerHTML = `<p role="status" class="gallery-scan-status">正在查找${category}…</p>`;
     const status = footer.querySelector<HTMLElement>('[role="status"]')!;
     grid.append(footer);
     const removeGalleryAsset = (source: HTMLElement, target: GalleryCurationTarget, key: string,
@@ -11207,6 +11290,7 @@ export class QuietRoomApp {
           if (assetKeys.has(key)) continue;
           assetKeys.add(key);
           const target: GalleryCurationTarget = { category: 'files', clientMsgId: message.clientMsgId, assetIndex: 0 };
+          const fileManifest = message.payload.file;
           if (favorites && (!this.attachmentFavorite(target) || message.payload.kind === 'gallery-file')) continue;
           if (curationRecords.some(record => record.hidden && galleryCurationKey(record) === galleryCurationKey(target))) continue;
           knownCount.keys.add(key);
@@ -11219,12 +11303,12 @@ export class QuietRoomApp {
           time.className = 'gallery-file-time';
           time.textContent = timeLabel(message.payload.sentAt);
           button.querySelector('.file-attachment-copy')!.append(time);
-          this.mountGalleryCurationActions(button, target, tab, key, undefined,
+          this.mountGalleryCurationActions(button, target, tab, key, fileManifest, undefined,
             action => removeGalleryAsset(button, target, key, action));
           if (favorites) button.addEventListener('click', () => {
             if (button.dataset.galleryHoldCommitted === 'true') { delete button.dataset.galleryHoldCommitted; return; }
             if (Date.now() < this.suppressMediaClickUntil) return;
-            this.openGalleryCurationActions(button, target, tab, key);
+            this.openGalleryCurationActions(button, target, tab, key, fileManifest);
           });
           fileButtons.set(key, button);
           grid.insertBefore(button, footer);
@@ -11265,7 +11349,7 @@ export class QuietRoomApp {
               this.mountGalleryThumbnails(grid, assets);
               return;
             }
-            if (!this.galleryRevealedAssets.has(key)) {
+            if (!this.galleryRevealAll && !this.galleryRevealedAssets.has(key)) {
               this.galleryRevealedAssets.add(key);
               updateTileVisibility(button, key, manifest);
               updateVisibilityButton();
@@ -11281,7 +11365,7 @@ export class QuietRoomApp {
               assets.map((asset) => ({ clientMsgId: asset.clientMsgId, assetIndex: asset.assetIndex, source: asset.source })),
             );
           });
-          this.mountGalleryCurationActions(button, target, tab, key, video || favorites ? undefined : () => {
+          this.mountGalleryCurationActions(button, target, tab, key, manifest, video || favorites ? undefined : () => {
             if (!this.isRuntimeActive(epoch, session) || !button.isConnected) return;
             this.galleryScrollTop.images = grid.scrollTop;
             const currentIndex = assets.findIndex(asset => asset.clientMsgId === message.clientMsgId && asset.assetIndex === assetIndex);
@@ -11333,9 +11417,7 @@ export class QuietRoomApp {
     const loadMore = async () => {
       if (loading || !hasMore || !this.isRuntimeActive(epoch, session) || !grid.isConnected) return;
       loading = true;
-      more.disabled = true;
       status.textContent = initial && favorites ? '' : `正在查找${category}…`;
-      const batch: DecryptedMessage[] = [];
       let matchingAssets = 0;
       try {
         // Skip text-only batches without exposing plaintext media metadata in
@@ -11345,7 +11427,9 @@ export class QuietRoomApp {
           if (!this.isRuntimeActive(epoch, session) || !grid.isConnected) return;
           beforeSeq = page.beforeSeq ?? undefined;
           hasMore = page.hasMore;
-          batch.push(...page.messages);
+          addMessages(page.messages);
+          if (assets.length || fileCount) clearPlaceholders();
+          updateCounts();
           for (const message of page.messages) {
             const payload = message.payload;
             const isFile = (payload.kind === 'file' || payload.kind === 'gallery-file') && !isVideoFile(payload.file);
@@ -11360,10 +11444,9 @@ export class QuietRoomApp {
           if (hasMore && matchingAssets < 36) await this.abortableDelay(0, signal);
         } while (hasMore && matchingAssets < 36);
         clearPlaceholders();
-        addMessages(batch);
         knownCount.complete ||= !hasMore;
         updateCounts();
-        status.textContent = hasMore ? '' : assets.length + fileCount ? `已加载本机保存的全部${category}`
+        status.textContent = hasMore ? '上拉继续加载' : assets.length + fileCount ? `已加载本机保存的全部${category}`
           : favorites ? '' : filesTab ? '从保险箱上传的文档、压缩包等文件会显示在这里。' : '聊天中的照片、视频和从保险箱上传的照片、视频会显示在这里。';
         if (assets.length || fileCount) grid.querySelector('.gallery-empty')?.remove();
         if (!hasMore && !assets.length && !fileCount && !grid.querySelector('.gallery-empty')) {
@@ -11372,24 +11455,42 @@ export class QuietRoomApp {
           empty.textContent = favorites ? '暂无收藏' : `还没有${category}`;
           grid.insertBefore(empty, footer);
         }
-        more.hidden = !hasMore;
         if (initial) {
           grid.scrollTop = this.galleryScrollTop[tab];
           initial = false;
+          if (!favorites) window.setTimeout(() => {
+            if (grid.isConnected && this.isRuntimeActive(epoch, session)) void this.primeGalleryCounts(session, epoch, signal);
+          }, 500);
         }
       } catch (cause) {
         if (this.isRuntimeActive(epoch, session) && grid.isConnected) {
           clearPlaceholders();
-          status.textContent = '保险箱记录暂时无法读取';
-          more.textContent = '重试';
+          status.textContent = '保险箱记录暂时无法读取，上拉重试';
           this.operationalError(cause, '保险箱读取失败');
         }
       } finally {
         loading = false;
-        if (grid.isConnected) more.disabled = false;
       }
     };
-    more.addEventListener('click', () => void loadMore());
+    const atEnd = () => grid.scrollTop + grid.clientHeight >= grid.scrollHeight - 64;
+    grid.addEventListener('scroll', () => {
+      if (atEnd()) void loadMore();
+    }, { passive: true });
+    grid.addEventListener('wheel', event => {
+      if (event.deltaY > 0 && atEnd()) void loadMore();
+    }, { passive: true });
+    let touchStartY: number | null = null;
+    grid.addEventListener('touchstart', event => {
+      touchStartY = event.touches[0]?.clientY ?? null;
+    }, { passive: true });
+    grid.addEventListener('touchend', event => {
+      const endY = event.changedTouches[0]?.clientY;
+      if (touchStartY !== null && endY !== undefined && touchStartY - endY > 40 && atEnd()) void loadMore();
+      touchStartY = null;
+    }, { passive: true });
+    grid.addEventListener('keydown', event => {
+      if ((event.key === 'ArrowDown' || event.key === 'PageDown' || event.key === 'End') && atEnd()) void loadMore();
+    });
     void loadMore();
   }
 
@@ -11882,6 +11983,7 @@ export class QuietRoomApp {
     this.restoreChatAnchorOnNextRender = true;
     this.galleryScrollTop = { images: 0, files: 0 };
     this.galleryRevealedAssets.clear();
+    this.galleryRevealAll = false;
     this.chatRevealedAssets.clear();
     this.chatConcealedExpressions.clear();
     this.galleryKnownCounts = {};

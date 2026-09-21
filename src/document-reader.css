@@ -34,7 +34,7 @@
 }
 .reader-control { display: grid; place-items: center; width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 50%; color: var(--ink); flex: 0 0 44px; cursor: pointer; }
 .reader-control:hover:not(:disabled) { background-color: var(--surface-raised); }
-.reader-control:active:not(:disabled) { transform: scale(.94); }
+.reader-control:active:not(:disabled) { filter: brightness(.88); }
 .reader-control:disabled { opacity: .35; cursor: default; }
 .document-reader :is(button, input, select, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .document-reader .reader-search input:focus { outline: none; box-shadow: none; }
