@@ -1,5 +1,12 @@
 # Quiet Room 当前状态
 
+## 私密空间抽屉精修候选（2026-09-22）
+
+- 任务：`codex/space-drawer-prototype`，基线 `d2a185ce64eb23a95dd4011dea87d4a78bbe1413`。用户已确认 S6 并授权正式实施，明确排除跨浏览器接入与加密恢复。
+- 工作树实现：悬浮列表、本机加密预览与未读数字、改名弹窗、创建直达邀请半屏、设置图标及在线样式、聊天左侧名称。详细边界与复现见[需求记录](../requirements/2026-09-21-space-drawer-refinement/README.md)。
+- 证据：定向单元、真实空间流程、Chromium / WebKit 组件回归通过；完整候选门禁与远端结果以本任务交付证据及 PR 为准。未进行 iOS 27 真机验证，未部署生产。
+
+
 ## 2026-09-21 多私密空间实现候选
 
 - 需求与 S1 设计已确认，任务分支 `codex/multi-space-design-20260921` 基于主线 `88a3e4f22695ceebecf79988148989b0ef147ede` 实施；版本候选 `2026.09.21.2`。参见 [需求与验收](../requirements/2026-09-21-multi-space/README.md)。

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Quiet Room · 空间抽屉 S6</title>
+  <link rel="stylesheet" href="../../../../src/design-system.css">
+  <link rel="stylesheet" href="prototype.css">
+  <script defer src="prototype.js"></script>
+</head>
+<body>
+  <aside class="studio">
+    <div class="eyebrow">QUIET ROOM / S6</div>
+    <h1>私密空间</h1>
+    <p>浏览器可交互设计稿</p>
+    <nav aria-label="预览状态">
+      <button data-scene="list">01　空间列表</button>
+      <button data-scene="menu">02　长按菜单</button>
+      <button data-scene="rename">03　修改名称</button>
+      <button data-scene="invite">04　邀请半屏弹窗</button>
+      <button data-scene="settings">05　设置</button>
+      <button data-scene="style">06　在线状态样式</button>
+      <button data-scene="chat">07　聊天与心动按钮</button>
+    </nav>
+    <label>网页预览高度 <output id="height-label">680 px</output><input id="height" type="range" min="340" max="852" value="680"></label>
+    <p class="note">宽度固定 393 CSS px。680px 是桌面审阅高度，并非 iOS 27 实测值。手机打开时直接使用浏览器实际可视区域，地址栏与键盘由系统提供。</p>
+    <a href="?live=1">打开纯网页预览 ↗</a>
+    <p class="note">仅模拟界面，不访问聊天、邀请或恢复数据。</p>
+  </aside>
+  <main class="review">
+    <header class="review-heading"><span id="state-title">空间列表</span><span id="measure">393 × 680 CSS px</span></header>
+    <div class="viewport" id="viewport">
+      <div id="app"></div>
+      <div class="toast" role="status" hidden></div>
+    </div>
+    <p class="review-caption">网页内容区域 · 无模拟 Safari 外框</p>
+  </main>
+</body>
+</html>

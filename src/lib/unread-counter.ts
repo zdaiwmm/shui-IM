@@ -2,7 +2,8 @@ import { randomBase64Url } from './base64';
 import type { Vault } from './types';
 
 const STORAGE_KEY = 'quiet-room-unread-v1';
-type CounterState = { roomId: string; deviceId: string; token: string; count: number };
+export type UnreadObserver = { deviceId: string; token: string; count: number };
+type CounterState = UnreadObserver & { roomId: string };
 const validCount = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 
 /** The persisted observer can read a number only; it cannot open the vault or fetch messages. */
@@ -31,6 +32,13 @@ export class UnreadCounter {
   }
 
   get count(): number { return this.state?.count ?? 0; }
+
+  /** A copy of the count-only capability for this exact local endpoint. */
+  observerFor(vault: Vault): UnreadObserver | undefined {
+    const state = this.state;
+    if (!state || state.roomId !== vault.roomId || state.deviceId !== vault.identity.publicBundle.deviceId) return;
+    return { deviceId: state.deviceId, token: state.token, count: state.count };
+  }
 
   /** Call again on online/visible ticks after an offline registration failure. */
   async ensureConfigured(vault: Vault, signal?: AbortSignal): Promise<boolean> {

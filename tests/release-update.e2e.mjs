@@ -29,10 +29,10 @@ try {
       import('/src/lib/vault.ts'),
       import('/src/lib/release-update.ts'),
     ]);
-    const member = { deviceId: 'release-own', role: 'creator', status: 'active' };
+    const member = { deviceId: crypto.randomUUID(), role: 'creator', status: 'active' };
     const session = await vault.createVault({
       v: 1, roomId: crypto.randomUUID(), accessToken: 'test', role: 'creator', protocol: 'legacy-v1', lastSeq: 0,
-      members: [member, { deviceId: 'release-peer', role: 'joiner', status: 'active' }], identity: { publicBundle: member },
+      members: [member, { deviceId: crypto.randomUUID(), role: 'joiner', status: 'active' }], identity: { publicBundle: member },
     }, 'release-update-passphrase', 'password');
     const app = new QuietRoomApp(document.querySelector('#app'));
     app.session = session;
