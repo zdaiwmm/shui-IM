@@ -4324,8 +4324,8 @@ export class QuietRoomApp {
         actions: [
           { id: 'manage-devices', label: '已连接设备', icon: spaceIcons.device, run: () => void this.renderDeviceManager() },
           { id: 'backup-settings', label: '我的恢复码', icon: spaceIcons.key, run: () => this.renderRecoveryCenter() },
-          { id: 'local-history-backup', label: '备份聊天数据', icon: spaceIcons.upload, run: () => void this.renderLocalHistoryBackup('export') },
-          { id: 'local-history-restore', label: '恢复聊天数据', icon: spaceIcons.download, run: () => void this.renderLocalHistoryBackup('import') },
+          { id: 'local-history-backup', label: '备份数据', icon: spaceIcons.upload, run: () => void this.renderLocalHistoryBackup('export') },
+          { id: 'local-history-restore', label: '恢复数据', icon: spaceIcons.download, run: () => void this.renderLocalHistoryBackup('import') },
           { id: 'recover-other-space', label: '恢复其他空间', icon: spaceIcons.spaces, run: () => this.renderJointRecovery(null) },
           { id: 'cover-practice-menu', group: '本机', label: session.vault.recoveryExperience?.coverEnabled ? '白屏掩护设置' : '开启白屏掩护', icon: spaceIcons.cover, run: () => this.renderCoverPractice() },
           { id: 'release-history', group: '关于', label: '更新记录', icon: spaceIcons.history, run: () => this.renderReleaseHistory() },

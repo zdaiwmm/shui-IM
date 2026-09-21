@@ -1137,8 +1137,8 @@ try {
   invariant(await joiner.locator('#app > .chat-shell #message-list .message').filter({ hasText: '仅相册保存.pdf' }).count() === 0, 'Peer chat exposes the private gallery filename');
 
   await creator.locator('#open-spaces').click(); await creator.locator('#space-settings').click();
-  invariant(await creator.locator('#local-history-backup span').textContent() === '备份数据', 'Local backup menu label was not renamed');
-  invariant(await creator.locator('#local-history-restore span').textContent() === '恢复数据', 'Local restore menu entry is missing');
+  invariant(await creator.locator('#local-history-backup .space-setting-label').textContent() === '备份数据', 'Local backup menu label was not renamed');
+  invariant(await creator.locator('#local-history-restore .space-setting-label').textContent() === '恢复数据', 'Local restore menu entry is missing');
   await creator.locator('#backup-settings').click();
   await creator.locator('#save-my-code').waitFor();
   invariant(await creator.locator('#export-recovery').count() === 0, 'Manual recovery export remains exposed');
