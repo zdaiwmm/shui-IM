@@ -6,7 +6,7 @@
 - 用户确认：沿用项目 HTML/CSS/JS 原型方式，不使用 ImageGen；在 S6 后明确要求“按照刚才确定的交互方案来优化”。据此进入正式实施与远端交付阶段。
 - 本次明确排除：“跨浏览器便捷接入和加密恢复”；既有设备身份、访问密钥、恢复协议和历史权限保持原有契约。
 - 目标：iPhone 15 Pro / iOS 27 / Safari 等浏览器。视觉依据：根 `DESIGN.md` 与 `src/design-system.css`。
-- 当前证据：正式代码与定向自动回归已完成；完整门禁、PR 与 CI 见本任务交付记录。没有生产发布授权，未部署。
+- 当前证据：用户随后确认“集成，合并 发布生产”；PR [#189](https://github.com/zdaiwmm/shui-IM/pull/189) 已合并，精确提交 `5cc445d7be86847065f9d6713222fa09581ae38b` 已发布为 `2026.09.21.3`，独立回读通过。发布证据见 [RELEASING.md](../../../RELEASING.md)。
 
 ## 已确认交互
 
@@ -39,5 +39,5 @@
 - `tests/unread-counter.test.ts`：原有未读语义和精确端点观察令牌副本。
 - `tests/spaces.e2e.mjs`：真实多保险库隔离、创建直达邀请、关闭后保留、再次邀请、改名、配置、聊天名称与爱心居中。
 - `tests/space-drawer-ui.e2e.mjs`：Chromium / WebKit 的角标、hover、设置图标、键盘导航、改名聚焦、320–393px 小屏、键盘高度场景与中断清理。
-- 定向回归已通过；完整候选证据由 `delivery:evidence` 记录，CI 由 PR 提供。
+- 定向回归及完整 `check:full` 通过（81 个文件／665 项测试，39/39 浏览器脚本）；精确 main CI [35637008372](https://github.com/zdaiwmm/shui-IM/actions/runs/35637008372) 通过。
 - 尚未进行 iPhone 15 Pro / iOS 27 / Safari 真机验证；模拟视口和 WebKit 自动化不视为真机证据。
