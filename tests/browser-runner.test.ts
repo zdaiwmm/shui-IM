@@ -16,8 +16,8 @@ describe('browser regression groups', () => {
   it('partitions group 2 into disjoint concurrent runner shards without omissions', async () => {
     const shards = Array.from({ length: 4 }, (_, i) => selectBrowserScripts('2', `${i + 1}/4`));
     expect(shards.flat().sort()).toEqual(selectBrowserScripts('2').sort());
-    expect(new Set(shards.flat()).size).toBe(36);
-    expect(shards.map(shard => shard.length)).toEqual([9, 9, 9, 9]);
+    expect(new Set(shards.flat()).size).toBe(37);
+    expect(shards.map(shard => shard.length)).toEqual([10, 9, 9, 9]);
     for (const shard of ['0/4', '5/4', '1/0', '1/99', 'x', '1/2/3']) {
       expect(() => parseBrowserArguments(['--group', '2', '--shard', shard])).toThrow();
     }
@@ -80,8 +80,8 @@ describe('browser regression groups', () => {
       active--;
     } });
     expect(seen).toEqual(selectBrowserScripts());
-    expect(log.mock.calls.filter(([line]) => line.startsWith('[browser] PASS'))).toHaveLength(37);
-    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 3.70s; 37 passed, 0 failed, 0 not run.');
+    expect(log.mock.calls.filter(([line]) => line.startsWith('[browser] PASS'))).toHaveLength(38);
+    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 3.80s; 38 passed, 0 failed, 0 not run.');
   });
 
   it('stops a failing group, preserves its failure and explicitly reports scripts that did not run', async () => {
@@ -90,7 +90,7 @@ describe('browser regression groups', () => {
     const log = vi.fn();
     await expect(runBrowserTests({ group: '2', run, log, now: () => 0 })).rejects.toBe(failure);
     expect(run.mock.calls.map(([script]) => script)).toEqual(selectBrowserScripts('2').slice(0, 2));
-    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 0.00s; 1 passed, 1 failed, 34 not run.');
+    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 0.00s; 1 passed, 1 failed, 35 not run.');
   });
 
   it('does not start another script after cancellation', async () => {
