@@ -1,8 +1,15 @@
 # Quiet Room 当前状态
 
+## 空间抽屉预览与密钥复用已发布（2026-09-22 14:14）
+
+- 当前生产应用 SHA 为 `013617cc81f96b79a8450543ea4c42471173a190`，版本 `2026.09.22.1`。PR [#191](https://github.com/zdaiwmm/shui-IM/pull/191) 已合并。用户确认合并并发布此提交。
+- 已发布：空间预览为本机已解密的最新可见消息，包含未读；已解锁时创建和同密钥切换不再额外验证通行密钥；标题为“其他空间”；日间描边对齐夜间；右上角爱心按视觉重心对齐按钮。尚未下载到本机的新消息仍要等该空间同步后进入预览。详见[抽屉精修需求](../requirements/2026-09-21-space-drawer-refinement/README.md)。
+- PR CI [35693124006](https://github.com/zdaiwmm/shui-IM/actions/runs/35693124006) 与精确 main CI [35693450384](https://github.com/zdaiwmm/shui-IM/actions/runs/35693450384) 全部通过。固定入口取得 `DEPLOY_VERIFIED`；批次 `20260922T061216Z`。独立 `READBACK_OK` 于 `2026-09-22T06:14:58.888Z` 核对线上 SHA、镜像、HTTPS／数据库／存储、公开产物及新建 WebSocket 一致。应用健康，备份容器运行但无健康探针，维护标记不存在；管理员开启，通话关闭，TURN 不存在。证据 `quiet-room-readback/20260922T061455724Z-013617cc81f9-success.json`；详细路径见根目录 `RELEASING.md`。
+- iPhone / iOS 27 / Safari 真机未验证。本次对账不触发再次部署。
+
 ## 多私密空间与抽屉精修已发布（2026-09-22 02:21）
 
-- 当前生产应用 SHA 为 `5cc445d7be86847065f9d6713222fa09581ae38b`，版本 `2026.09.21.3`；PR [#188](https://github.com/zdaiwmm/shui-IM/pull/188) 和 [#189](https://github.com/zdaiwmm/shui-IM/pull/189) 已合并。用户确认集成、合并并发布此批次；跨浏览器便捷接入与加密恢复方案仍排除。
+- 当时生产应用 SHA 为 `5cc445d7be86847065f9d6713222fa09581ae38b`，版本 `2026.09.21.3`；PR [#188](https://github.com/zdaiwmm/shui-IM/pull/188) 和 [#189](https://github.com/zdaiwmm/shui-IM/pull/189) 已合并。用户确认集成、合并并发布此批次；跨浏览器便捷接入与加密恢复方案仍排除。后续已由上方 `2026.09.22.1` 接替线上应用 SHA。
 - 已发布独立本地空间、悬浮列表、本机加密预览与未读数字、改名弹窗、创建直达邀请半屏、设置图标及在线样式、聊天左侧名称。预览是本机上次打开时的快照，未读数字走已有只读观察权限。详见[多空间需求](../requirements/2026-09-21-multi-space/README.md)及[抽屉精修需求](../requirements/2026-09-21-space-drawer-refinement/README.md)。
 - 相同文件树的本地 `check:full` 通过 81 个测试文件／665 项、39/39 浏览器脚本；精确 main CI [35637008372](https://github.com/zdaiwmm/shui-IM/actions/runs/35637008372) 全部通过。
 - 固定入口取得并核对 `DEPLOY_VERIFIED`；批次 `20260921T181833Z`，切换前冷备份已校验。独立 `READBACK_OK` 于 `2026-09-21T18:21:30.855Z` 核对线上 SHA、镜像、HTTPS／数据库／存储、公开产物及新建 WebSocket 一致。应用运行且健康，备份容器运行但无健康探针，维护标记不存在；管理员开启，通话关闭，TURN 不存在。证据 `quiet-room-readback/20260921T182127730Z-5cc445d7be86-success.json`；详细路径与摘要见根目录 `RELEASING.md`。
