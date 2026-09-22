@@ -169,6 +169,9 @@ import type {
   Vault,
 } from './lib/types';
 import {
+  adoptDeviceCredential,
+  cloneDeviceCredential,
+  releaseDeviceCredential,
   createVault,
   commitMlsReceive,
   commitMlsSend,
@@ -325,6 +328,10 @@ function isDesktopBrowser(): boolean {
 
 export class QuietRoomApp {
   private session: VaultSession | null = null;
+  /** Passkey proof for this unlocked visit. Lets later spaces reuse it without another prompt. */
+  private deviceCredential: PlatformCredentialResult | null = null;
+  private adoptHeldCredential = false;
+  private pendingSpacePreview = '';
   private newSpaceCollectionCode: string | undefined;
   private returnSpaceId: string | null = null;
   private spaceDrawerOpen = false;
@@ -1187,6 +1194,7 @@ export class QuietRoomApp {
     this.gatewayRenderEpoch += 1;
     this.obscurePrivacySurface();
     const retained = retainSession ? this.session : null;
+    if (!retainSession) this.forgetDeviceCredential();
     const deadline = this.idleDeadline;
     const monotonicDeadline = this.idleMonotonicDeadline;
     const picker = preserveFilePicker ? this.imagePickerInput : null;
@@ -1520,6 +1528,7 @@ export class QuietRoomApp {
             const unlocked = await unlockVault(secret, platformProof);
             secret = '';
             if (!current()) return;
+            this.rememberDeviceCredential(unlocked);
             this.session = unlocked;
             if (unlocked.stored.v === 1) this.renderPlatformMigration();
             else await this.openSession();
@@ -1607,6 +1616,8 @@ export class QuietRoomApp {
             void platformProof.catch(() => undefined);
             const unlocked = await unlockVault('', platformProof);
             if (!current()) return;
+            await this.adoptHeldDeviceCredential(unlocked);
+            this.rememberDeviceCredential(unlocked);
             this.session = unlocked;
             await this.openSession();
           } catch (cause) {
@@ -2552,6 +2563,7 @@ export class QuietRoomApp {
       const createdSession = await createVault(vault, '', 'platform', platformResult, active);
       vaultCreated = true;
       if (!active()) return;
+      this.rememberDeviceCredential(createdSession);
       this.session = createdSession;
       await this.openSession();
     } catch (cause) {
@@ -4230,6 +4242,9 @@ export class QuietRoomApp {
   }
 
   private async leaveSpace(): Promise<void> {
+    const session = this.session;
+    const signal = this.runtimeAbort?.signal;
+    if (session && signal && !signal.aborted) await this.rememberSpacePreview(session, signal).catch(() => undefined);
     this.unreadCounter.clear();
     this.retainedSession = null;
     this.coverStoredVault = null;
@@ -4241,12 +4256,22 @@ export class QuietRoomApp {
     if (!space.localId) throw new Error('此空间需要先恢复');
     await this.leaveSpace();
     if (this.privacyCovered) return;
-    this.gatewayTemplate('正在切换空间', '请使用此空间的访问密钥解锁。', '');
     await selectLocalSpace(space.localId);
     if (this.privacyCovered) return;
     const stored = await readStoredVault();
     if (!stored) { this.gatewayTemplate('空间暂不可用', '本地数据不可用，请使用恢复码恢复。', '<button class="primary-button" id="space-recover">恢复私密空间</button>'); this.root.querySelector('#space-recover')?.addEventListener('click', () => this.renderJointRecovery(null)); return; }
-    if (!this.privacyCovered) await this.renderUnlock(stored, false, false);
+    const held = this.deviceCredential;
+    if (held && stored.unlockMethod === 'platform' && stored.v === 3 && stored.platform.credentialId === held.record.credentialId) {
+      const unlocked = await unlockVault('', Promise.resolve(held.prfOutput.slice()));
+      if (this.privacyCovered) return;
+      this.rememberDeviceCredential(unlocked);
+      this.session = unlocked;
+      await this.openSession();
+      return;
+    }
+    this.adoptHeldCredential = Boolean(held);
+    this.gatewayTemplate('正在切换空间', '请使用此空间的访问密钥解锁。', '');
+    if (!this.privacyCovered) await this.renderUnlock(stored, false, true);
   }
 
   private async returnToSpace(): Promise<void> {
@@ -4291,18 +4316,75 @@ export class QuietRoomApp {
     }
   }
 
-  private createPrivateSpace(): Promise<void> {
-    const code = this.session?.vault.spaceRecoveryCode, previous = currentSpaceId();
-    // Tear down the old room synchronously, then start WebAuthn in this trusted
-    // click stack. Slot selection/writes finish before consuming its result.
-    const leaving = this.leaveSpace();
+  /** Latest visible message in a space, including ones that are still unread. */
+  private async latestSpacePreview(session: VaultSession, signal: AbortSignal): Promise<string> {
+    const preferences = await loadUiPreferences(session);
+    const hidden = new Set((preferences.hiddenChatMessageIds ?? []).map(id => id.toLowerCase()));
+    const members = new Map(session.vault.members.map(member => [member.deviceId, member.role]));
+    const seen: DecryptedMessage[] = [];
+    let beforeSeq: number | undefined;
+    while (!signal.aborted) {
+      const page = await loadHistoryPage(session, { limit: 200, beforeSeq, signal });
+      if (signal.aborted) return '';
+      seen.push(...page);
+      const deletions = reduceMessageDeletions(seen, members);
+      const latest = [...page].sort((a, b) => b.seq - a.seq).find(message =>
+        !deletions.has(message.clientMsgId) && !hidden.has(message.clientMsgId.toLowerCase()) && spaceMessagePreview(message.payload) !== undefined);
+      if (latest) return spaceMessagePreview(latest.payload)!;
+      if (page.length < 200) return '';
+      beforeSeq = Math.min(...page.map(message => message.seq));
+    }
+    return '';
+  }
+
+  private async refreshOtherSpacePreviews(session: VaultSession, spaces: PrivateSpace[], signal: AbortSignal): Promise<void> {
+    const held = this.deviceCredential;
+    if (!held) return;
+    const selected = currentSpaceId();
+    try {
+      for (const space of spaces) {
+        if (signal.aborted || this.session !== session || this.privacyCovered || space.roomId === session.vault.roomId || !space.localId) continue;
+        await selectLocalSpace(space.localId);
+        const stored = await readStoredVault();
+        if (!stored || stored.unlockMethod !== 'platform' || stored.v !== 3 || stored.platform.credentialId !== held.record.credentialId) continue;
+        let opened: VaultSession | null = null;
+        try {
+          opened = await unlockVault('', Promise.resolve(held.prfOutput.slice()));
+          const preview = await this.latestSpacePreview(opened, signal);
+          if (signal.aborted || this.session !== session) return;
+          space.preview = preview;
+          await rememberLocalSpace(session, undefined, undefined, { preview, roomId: space.roomId });
+        } catch {
+          continue;
+        } finally {
+          if (opened) releaseDeviceCredential(opened);
+        }
+      }
+    } finally {
+      if (currentSpaceId() !== selected) await selectLocalSpace(selected);
+    }
+  }
+
+  private async createPrivateSpace(): Promise<void> {
+    const code = this.session?.vault.spaceRecoveryCode;
+    const previous = currentSpaceId();
+    const held = this.deviceCredential;
+    const credential = held ? { record: held.record, prfOutput: held.prfOutput.slice() } : null;
+    await this.leaveSpace();
+    if (this.privacyCovered) return;
     this.newSpaceCollectionCode = code;
     this.returnSpaceId = previous;
-    const slot = crypto.randomUUID(), epoch = this.runtimeEpoch;
+    const slot = crypto.randomUUID();
+    const epoch = this.runtimeEpoch;
     this.resetIdleLock();
-    this.renderCreate(async () => { await leaving; if (!this.privacyCovered && this.runtimeEpoch === epoch && !this.session) await selectLocalSpace(slot); });
+    if (credential) {
+      await selectLocalSpace(slot);
+      if (!this.privacyCovered && this.runtimeEpoch === epoch && !this.session) await this.handleCreate(credential);
+      return;
+    }
+    // The first space on this device still needs its passkey created in the click stack.
+    this.renderCreate(async () => { if (!this.privacyCovered && this.runtimeEpoch === epoch && !this.session) await selectLocalSpace(slot); });
     this.root.querySelector<HTMLButtonElement>('[data-device-verify]')?.click();
-    return Promise.resolve();
   }
 
   private async openPrivateSpaces(): Promise<void> {
@@ -4314,6 +4396,7 @@ export class QuietRoomApp {
       await this.rememberSpacePreview(session, signal);
       if (signal.aborted || this.session !== session || this.privacyCovered) return;
       const spaces = await localSpaces(session);
+      await this.refreshOtherSpacePreviews(session, spaces, signal);
       if (signal.aborted || this.privacyCovered || this.session !== session) return;
       this.closeChatTools(); this.clearKeyboardHandoff();
       (document.activeElement as HTMLElement | null)?.blur();
@@ -4354,7 +4437,7 @@ export class QuietRoomApp {
     const entry = header.querySelector<HTMLElement>('#open-spaces');
     if (entry) { entry.setAttribute('aria-label', `私密空间列表，当前：${this.currentSpaceName}`); const label = entry.querySelector('span'); if (label) label.textContent = this.currentSpaceName; }
     header.dataset.presenceStyle = style;
-    header.querySelector('.presence-circuit')?.setAttribute('viewBox', style === 'heart' ? '34 -4 32 32' : '0 0 100 24');
+    header.querySelector('.presence-circuit')?.setAttribute('viewBox', style === 'heart' ? '34 -5.52 32 32' : '0 0 100 24');
   }
 
   private renderChat(): void {
@@ -11770,7 +11853,7 @@ export class QuietRoomApp {
     if (circuit && this.activeSurface === 'chat' && !this.privacyCovered) {
       if (!this.presenceCircuit) this.presenceCircuit = new PresenceCircuit(circuit);
       circuit.dataset.compact = String(readPresenceStyle() === 'heart');
-      circuit.setAttribute('viewBox', readPresenceStyle() === 'heart' ? '34 -4 32 32' : '0 0 100 24');
+      circuit.setAttribute('viewBox', readPresenceStyle() === 'heart' ? '34 -5.52 32 32' : '0 0 100 24');
       circuit.dataset.self = String(selfOnline === true); circuit.dataset.peer = String(peerOnline === true);
       this.presenceCircuit.update(selfOnline, peerOnline);
     }
@@ -11862,7 +11945,31 @@ export class QuietRoomApp {
     return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
   }
 
+  private forgetDeviceCredential(): void {
+    this.deviceCredential?.prfOutput.fill(0);
+    this.deviceCredential = null;
+    this.adoptHeldCredential = false;
+  }
+
+  private rememberDeviceCredential(session: VaultSession): void {
+    if (this.deviceCredential) return;
+    const credential = cloneDeviceCredential(session);
+    if (credential) this.deviceCredential = credential;
+  }
+
+  private async adoptHeldDeviceCredential(session: VaultSession): Promise<void> {
+    const held = this.deviceCredential;
+    if (!this.adoptHeldCredential || !held) {
+      this.adoptHeldCredential = false;
+      return;
+    }
+    this.adoptHeldCredential = false;
+    if (session.stored.unlockMethod !== 'platform' || session.stored.v !== 3 || session.stored.platform.credentialId === held.record.credentialId) return;
+    await adoptDeviceCredential(session, { record: held.record, prfOutput: held.prfOutput.slice() });
+  }
+
   private lockNow({ preserveFilePicker = false }: { preserveFilePicker?: boolean } = {}): void {
+    this.forgetDeviceCredential();
     this.clearMemePanelHandoff();
     this.clearMemeCache();
     this.clearKeyboardHandoff();

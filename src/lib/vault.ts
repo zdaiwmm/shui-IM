@@ -69,6 +69,26 @@ export type VaultSession = {
 export type VaultMutation = { readonly session: VaultSession; readonly id: symbol };
 let vaultLifecycle: Promise<unknown> = Promise.resolve();
 let activeVaultMutation: VaultMutation | undefined;
+const deviceCredentials = new WeakMap<VaultSession, { record: PlatformCredentialRecord; proof: Uint8Array<ArrayBuffer> }>();
+
+function retainDeviceCredential(session: VaultSession, record: PlatformCredentialRecord, proof: Uint8Array<ArrayBuffer>): void {
+  const previous = deviceCredentials.get(session);
+  previous?.proof.fill(0);
+  deviceCredentials.set(session, { record, proof });
+}
+
+/** Copy of the passkey proof that opened this session. The stored copy stays usable. */
+export function cloneDeviceCredential(session: VaultSession): { record: PlatformCredentialRecord; prfOutput: Uint8Array<ArrayBuffer> } | null {
+  const held = deviceCredentials.get(session);
+  return held ? { record: held.record, prfOutput: held.proof.slice() } : null;
+}
+
+export function releaseDeviceCredential(session: VaultSession): void {
+  const held = deviceCredentials.get(session);
+  if (!held) return;
+  held.proof.fill(0);
+  deviceCredentials.delete(session);
+}
 
 // Serialize read/derive/commit across tabs. Each session keeps its immutable slot;
 // changing this tab's selection never changes an existing session's write target.
@@ -708,6 +728,7 @@ async function createVaultLocked(
     return { vault, key, stored };
   }
   const platformResult = preparedPlatformCredential ?? await createPlatformCredential();
+  const retainedProof = platformResult.prfOutput.slice();
   const kek = await derivePasskeyKek(platformResult.prfOutput, platformResult.record);
   const masterBytes = crypto.getRandomValues(new Uint8Array(32));
   const key = await importMasterKey(masterBytes);
@@ -724,7 +745,38 @@ async function createVaultLocked(
   rememberSpace(vaultSpaceId(stored));
   await clearUnlockThrottle();
   vault.v = 3;
-  return { vault, key, stored };
+  const session = { vault, key, stored };
+  retainDeviceCredential(session, platformResult.record, retainedProof);
+  return session;
+}
+
+/** Wrap an already-open vault with the device passkey that is currently unlocked. */
+export async function adoptDeviceCredential(
+  session: VaultSession,
+  credential: { record: PlatformCredentialRecord; prfOutput: Uint8Array<ArrayBuffer> },
+): Promise<void> {
+  const current = session.stored;
+  if (current.unlockMethod !== 'platform' || current.v !== 3) return;
+  if (current.platform.credentialId === credential.record.credentialId) return;
+  await withVaultMutation(session, async () => {
+    const master = new Uint8Array(await crypto.subtle.exportKey('raw', session.key));
+    try {
+      const proof = credential.prfOutput.slice();
+      const kek = await derivePasskeyKek(proof, credential.record);
+      const next: StoredPlatformVault = {
+        v: 3,
+        unlockMethod: 'platform',
+        spaceId: current.spaceId,
+        platform: credential.record,
+        wrappedKey: await wrapMasterKey(master, kek, credential.record),
+        payload: current.payload,
+      };
+      await installStoredVault(next, current);
+      session.stored = next;
+    } finally {
+      master.fill(0);
+    }
+  });
 }
 
 async function readUnlockThrottle(): Promise<UnlockThrottle> {
@@ -816,6 +868,7 @@ async function unlockVaultLocked(secret: string, preparedPlatformProof?: Uint8Ar
       // UI callers prepare WebAuthn before lifecycle/IndexedDB work so Safari
       // keeps trusted activation. Non-UI diagnostics retain the direct path.
       const prfOutput = preparedPlatformProof ?? await unlockPlatformCredential(stored.platform);
+      const retainedProof = prfOutput.slice();
       const migrationPrfOutput = stored.v === 2 ? prfOutput.slice() : null;
       if (stored.v === 2 && !stored.kdf) throw new Error('INVALID_VAULT');
       const kek = stored.v === 2
@@ -839,6 +892,9 @@ async function unlockVaultLocked(secret: string, preparedPlatformProof?: Uint8Ar
       } else {
         unlocked = { vault, key, stored };
       }
+      if (unlocked.stored.unlockMethod === 'platform' && unlocked.stored.v === 3) {
+        retainDeviceCredential(unlocked, unlocked.stored.platform, retainedProof);
+      } else retainedProof.fill(0);
       masterBytes.fill(0);
     }
     rememberSpace(vaultSpaceId(unlocked.stored));
