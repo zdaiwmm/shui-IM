@@ -1,5 +1,14 @@
 # Quiet Room 固定发布流程
 
+## 发布余量门禁 4 GiB 已发布（2026-09-23 07:16）
+
+- 用户确认先合并发布磁盘可用门禁降至 4 GiB，再发布该精确提交，再做安全腾空间。[PR #201](https://github.com/zdaiwmm/shui-IM/pull/201) 已合并；线上应用 SHA `3a9b6eb0a59cdb6740bfbd14cb0e5069a1db1cb3`（与 GitHub `main` 一致）。精确 main 完整 CI [35757370350](https://github.com/zdaiwmm/shui-IM/actions/runs/35757370350) 通过。前一生产 SHA `bc026e399df3e23418c343d53d024c43e48c1565`。
+- 本提交仅调整发布预检可用下限为 `max(4 GiB, 2×最大冷归档 + 2 GiB)`；持续备份准入仍为 8 GiB。应用内 `release.json` 仍为 `2026.09.22.3`（ops 门禁变更，未新增用户可见版本说明），文档对账不触发第二次部署。
+- 切换前使用率 80.45%（`DISK_HIGH`）。安全清理约释放 570 MiB（journal vacuum 约 168 MiB、已轮转旧 messages/kern 日志约 186 MiB、一层悬空镜像层）；之后约 79.0%／可用约 7.9 GiB。官方 `quiet-room-capacity` 清理几乎未释放空间。受保护备份与失败切换归档未删；未做 docker builder prune。
+- 固定入口核对 `DEPLOY_VERIFIED`（`sha=3a9b6eb0a59cdb6740bfbd14cb0e5069a1db1cb3`，`url=https://ai.shui.click`）；批次 `20260922T231448Z`，发布目录 `/opt/quiet-room/git-releases/20260922T231448Z-3a9b6eb0a59c`。
+- 独立 `READBACK_OK` 于 `2026-09-22T23:16:20.209Z`，耗时 2950ms；镜像 `sha256:abeeeede502111674efcd90df76a9bb2e0b267682191bef35c84624de055a1f1`，容器 `quiet-room-app:3a9b6eb0a59cdb6740bfbd14cb0e5069a1db1cb3` 健康；HTTPS／数据库／存储、公开与容器产物、公开 WebSocket 通过。备份容器运行且健康探针为 `none`；维护标记不存在，管理员开启，通话关闭，TURN 不存在。证据：`/Users/achilles/Documents/Codex/shui-IM/.git/quiet-room-readback/20260922T231617258Z-3a9b6eb0a59c-success.json`。
+- iPhone / WeChat 未验证。本次知识库对账不再次部署、不改磁盘门禁、不删服务器数据。
+
 ## 通行密钥命名与管理已发布（2026-09-22 22:14）
 
 - 用户在看到完整提交后确认发布 `bc026e399df3e23418c343d53d024c43e48c1565`，版本 `2026.09.22.3`；产品 [PR #198](https://github.com/zdaiwmm/shui-IM/pull/198) 已合并，精确 main 完整 CI [35737486184](https://github.com/zdaiwmm/shui-IM/actions/runs/35737486184) 通过。
@@ -7,7 +16,7 @@
 - 固定入口取得并核对 `DEPLOY_VERIFIED`；批次 `20260922T141158Z`，发布目录 `/opt/quiet-room/git-releases/20260922T141158Z-bc026e399df3`，冷备份 `data-20260922T141158Z-bc026e399df3.tar.gz` 已校验。入口总耗时 179350ms。
 - 独立 `READBACK_OK` 于 `2026-09-22T14:14:30.371Z` 完成，耗时 3051ms，证据 `quiet-room-readback/20260922T141427319Z-bc026e399df3-success.json`。精确提交、HTTPS／数据库／存储、公开与容器产物、公开 WebSocket 均核对通过；镜像 `sha256:5592fa2f1328db7e690f8f637c06d7bbe2f24447acdd1ee00b711bc6c3a86004`。应用健康，备份容器运行且无健康探针；维护标记不存在，管理员开启，通话关闭，TURN 不存在。
 - 构建前与切换前容量预检通过；切换前可用 9005809664 字节、使用率 77.46%。发布后只读复查可用 8207511552 字节（约 7.64 GiB）、使用率 79.45%、可用内存约 1.32 GiB，因低于 8 GiB 返回 `DISK_HEADROOM_LOW`，下一次发布需先处理余量。本次独立服务回读通过，不因后续容量门禁重新部署或回滚；持续备份与受保护数据未手工清理。既有异地备份、外部通知与独立审计缺口保留。
-- 独立 iPhone 实验已由用户确认系统名称实际变更；正式 UI 的 iPhone 键盘与原生验证流程仍未完成真机验收，发布确认时已披露，不把自动回归记作真机通过。开发树承载当前会话与独立回读证据，文档树仍在执行对账，两者保留。知识库提交不再次部署。
+- 独立 iPhone 实验已由用户确认系统名称实际变更；正式 UI 的 iPhone 键盘与原生验证流程仍未完成真机验收，发布确认时已披露，不把自动回归记作真机通过。开发树承载当前会话与独立回读证据，文档树仍在执行对账，两者保留。知识库提交不再次部署。当前生产已由上方 4 GiB 门禁发布接替。
 
 ## 容量治理发布与独立回读（2026-09-22 19:32）
 

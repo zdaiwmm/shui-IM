@@ -1,5 +1,16 @@
 # Quiet Room 当前状态
 
+## 发布余量门禁 4 GiB 已发布（2026-09-23 07:16）
+
+- 用户要求先把发布磁盘可用门禁降到 4 GiB，再发布，再腾空间。门禁变更 [PR #201](https://github.com/zdaiwmm/shui-IM/pull/201) 已合并；精确线上应用 SHA `3a9b6eb0a59cdb6740bfbd14cb0e5069a1db1cb3`（GitHub `main` 与本次部署一致）。精确 main 完整 CI [35757370350](https://github.com/zdaiwmm/shui-IM/actions/runs/35757370350) 通过。此前生产为 `bc026e399df3e23418c343d53d024c43e48c1565`。
+- 本提交只改发布容量预检（可用下限 `max(4 GiB, 2×最大冷归档 + 2 GiB)`），不改产品说明；应用内 `release.json` 仍为 `2026.09.22.3`，未另开版本条目，也不因文档对账再部署。
+- 切换前使用率 80.45%（`DISK_HIGH`）。安全清理约释放 570 MiB：journal vacuum 约 168 MiB、已轮转旧 messages/kern 日志约 186 MiB，以及一层悬空镜像层；使用率约降至 79.0%，可用约 7.9 GiB。官方 `quiet-room-capacity` 清理本身几乎未释放空间。受保护备份与失败切换归档未删；未执行 docker builder prune。
+- 固定入口取得并核对 `DEPLOY_VERIFIED`（`sha=3a9b6eb0a59cdb6740bfbd14cb0e5069a1db1cb3`，`url=https://ai.shui.click`）；批次 `20260922T231448Z`，发布目录 `/opt/quiet-room/git-releases/20260922T231448Z-3a9b6eb0a59c`。
+- 独立 `READBACK_OK` 于 `2026-09-22T23:16:20.209Z` 完成，耗时 2950ms。精确提交、HTTPS／数据库／存储、公开与容器产物、公开 WebSocket 均核对通过；镜像 `sha256:abeeeede502111674efcd90df76a9bb2e0b267682191bef35c84624de055a1f1`，容器 `quiet-room-app:3a9b6eb0a59cdb6740bfbd14cb0e5069a1db1cb3` 健康。备份容器运行且无健康探针；维护标记不存在，管理员开启，通话关闭，TURN 不存在。证据文件仍在共享仓库公共 Git 目录：`/Users/achilles/Documents/Codex/shui-IM/.git/quiet-room-readback/20260922T231617258Z-3a9b6eb0a59c-success.json`（文件名由发布器报告为 `.git/quiet-room-readback/20260922T231617258Z-3a9b6eb0a59c-success.json`）。
+- iPhone / WeChat 本次未验证。既有异地备份、外部通知与独立审计缺口保留。本次知识库对账不改变线上应用 SHA，不再次部署、不改磁盘门禁、不删服务器数据。
+
+- 完整需求与本地验收见[通行密钥需求](../requirements/2026-09-22-passkey-management/README.md)与[容量治理需求](../requirements/2026-09-22-capacity-governance/README.md)。以下为历史发布快照，当前生产以上述版本为准。
+
 ## 通行密钥命名与管理已发布（2026-09-22 22:14）
 
 - 用户在看到完整提交后确认发布 `bc026e399df3e23418c343d53d024c43e48c1565`，版本 `2026.09.22.3`；产品 [PR #198](https://github.com/zdaiwmm/shui-IM/pull/198) 已合并，精确 main 完整 CI [35737486184](https://github.com/zdaiwmm/shui-IM/actions/runs/35737486184) 通过。
@@ -9,7 +20,7 @@
 - 构建前与切换前容量预检通过；切换前可用 9005809664 字节、使用率 77.46%。发布后只读复查可用 8207511552 字节（约 7.64 GiB）、使用率 79.45%、可用内存约 1.32 GiB，因低于 8 GiB 返回 `DISK_HEADROOM_LOW`，下一次发布需先处理余量。本次独立服务回读通过，不因后续容量门禁重新部署或回滚；持续备份与受保护数据未手工清理。既有异地备份、外部通知与独立审计缺口保留。
 - 独立 iPhone 实验已由用户确认系统名称实际变更；正式 UI 的 iPhone 键盘与原生验证流程仍未完成真机验收，发布确认时已披露，不把自动回归记作真机通过。开发树承载当前会话与独立回读证据，文档树仍在执行对账，两者保留。知识库提交不再次部署。
 
-- 完整需求与本地验收见[需求记录](../requirements/2026-09-22-passkey-management/README.md)。以下为历史发布快照，当前生产以上述版本为准。
+- 完整需求与本地验收见[需求记录](../requirements/2026-09-22-passkey-management/README.md)。本节记录已被上方 4 GiB 门禁发布接替为当前生产。
 
 ## 容量治理已发布（2026-09-22 19:32）
 
