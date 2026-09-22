@@ -10,10 +10,10 @@ normal application deployment must not self-update privileged tools. See
 [the governance requirement](docs/requirements/2026-09-22-capacity-governance/README.md).
 
 - Preflight refuses deployments at 80% disk/inode use, below 400 MiB available
-  memory, or below the larger of 8 GiB and twice the largest retained cold
-  archive plus 6 GiB (4 GiB build reserve and 2 GiB emergency reserve). This is
-  a conservative estimate, not an upper bound on data/build growth. It runs
-  before fetch/build and again before closing business traffic.
+  memory, or below the larger of 4 GiB and twice the largest retained cold
+  archive plus 2 GiB emergency reserve. This is a conservative estimate, not an
+  upper bound on data/build growth. It runs before fetch/build and again before
+  closing business traffic.
 - The five-minute capacity timer records redacted metrics and issue codes in
   `/var/lib/quiet-room-deploy/capacity-status.json` and the system journal.
   Disk warning starts at 75%, urgent at 90%; local backup age is 36 hours,
