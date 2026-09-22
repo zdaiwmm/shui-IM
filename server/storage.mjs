@@ -1,4 +1,5 @@
 import { createSpaceDirectories } from './space-directories.mjs';
+import { createBrowserAccess } from './browser-access.mjs';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
 import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
@@ -310,6 +311,8 @@ export async function createStore({
   const jointRecovery = createJointRecovery(db, { roomState, getMember, messagesAfter });
   const cloudBackups = createCloudBackups(db, { authenticatedDevice });
   const spaceDirectories = createSpaceDirectories(db, { authenticatedDevice });
+  const browserCatalogs = createSpaceDirectories(db, { authenticatedDevice }, true);
+  const browserAccess = createBrowserAccess({ db, getMember, assertDeviceActive, roomState });
   const statements = {
     insertRoom: db.prepare('INSERT INTO rooms(room_id, access_hash, created_at, protocol) VALUES (?, ?, ?, ?)'),
     insertMember: db.prepare(`INSERT INTO members(
@@ -858,9 +861,12 @@ export async function createStore({
       if (envelope.previousEventSeq !== room.next_mls_event_seq) throw new Error('MLS_EVENT_STALE');
       let pendingRepairLinkId = null;
       if (envelope.action === 'add') {
-        if (!target || target.status !== 'pending' || target.addedBy !== sender.deviceId || !envelope.target) {
+        if (!target || target.status !== 'pending' || !envelope.target) {
           throw new Error('INVALID_MLS_EVENT');
         }
+        const browserRequest = db.prepare('SELECT 1 FROM space_access_requests WHERE room_id=? AND target_id=?').get(roomId, target.deviceId);
+        if (browserRequest || envelope.browserAccess) browserAccess.assertCommit(roomId, envelope, sender, target);
+        else if (target.addedBy !== sender.deviceId || target.role !== sender.role) throw new Error('INVALID_MLS_EVENT');
         const expected = canonicalStringify({
           deviceId: target.deviceId,
           encryptionKey: target.encryptionKey,
@@ -928,6 +934,7 @@ export async function createStore({
         if (statements.activateMember.run(room.next_seq, room.next_receipt_seq, roomId, envelope.targetId).changes !== 1) {
           throw new Error('INVALID_MLS_EVENT');
         }
+        browserAccess.complete(roomId, envelope);
         if (envelope.action === 'replace') {
           if (statements.revokeMember.run(acceptedAt, roomId, envelope.replacedDeviceId).changes !== 1) throw new Error('INVALID_RECOVERY_REQUEST');
           statements.deletePushSubscription.run(roomId, envelope.replacedDeviceId);
@@ -1397,6 +1404,8 @@ export async function createStore({
   }
 
   return {
+    browserAccess,
+    browserCatalogs,
     cloudBackups,
     spaceDirectories,
     jointRecovery,

@@ -536,3 +536,9 @@ npm run check:full
 - `video-flow.e2e.mjs`：Safe 黑底、顶部关闭/音量、中央播放和十秒跳转、底部进度及删除/速度排列；320/390/1024 宽度与浮层边界；显式确认删除视频保留聊天存储；聊天/收藏继续其原生播放路径；翻页/锁定释放资源。
 - `cloud-backup-lifecycle.e2e.mjs`：旧备份缺少分类统计时认证解密并补齐，保留片段数量及恢复边界。`backup-admin-ui.e2e.mjs` 从合成加密历史上传到真实测试后台，核对聊天记录数与保险箱资产数。
 - `history-restore.e2e.mjs` 与 `message-deletion.e2e.mjs`：恢复回读与列表都只在聊天中应用聊天撤回；Safe 仅应用自身隐藏状态。以上是自动回归范围，不代表实体 iPhone 验收。
+
+## 浏览器认可与空间对方授权
+
+- `npx vitest run tests/browser-access.test.ts tests/platform-vault.test.ts tests/spaces.test.ts`：验证申请签名链、私钥字段拒绝、来源/房间/公钥/请求篡改、同方绕过拒绝、三设备预约上限、源设备撤销、十分钟边界、拒绝/取消和重放。MLS 验证旧端仍可用且新端不能解密加入前密文。
+- `node tests/browser-access.e2e.mjs` 已加入浏览器全量入口：隔离三个浏览器上下文，真实本机 API/加密/成员提交，虚拟认证器与受控跨端 PRF 同步。检查原页验证取消、浏览器批准不授予消息权限、默认空间、按需申请、同排按钮重开、锁定后续跑、第二空间准备更新、到期弹窗和列表入口清理、跨标签页写冲突与密钥引用清理。
+- 合成 PRF 同步不等于 iCloud、Google 或 WebView 支持。实体 iPhone/iOS/Safari、真实同步密钥与推送仍需独立验收；自动测试不替代安全审计。

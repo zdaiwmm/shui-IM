@@ -1,4 +1,5 @@
 import { decodeMlsMessage } from 'ts-mls';
+import { validAccessProof, canonical } from '../src/lib/browser-access-proof.mjs';
 
 const encoder = new TextEncoder();
 
@@ -112,6 +113,7 @@ export function validateMlsMembershipShape(envelope, expectedRoomId) {
     envelope.signature.length > 512
   ) return false;
   if (envelope.action === 'replace') {
+    if (envelope.browserAccess !== undefined) return false;
     const recovery = envelope.recoveryRequest;
     const repair = envelope.repairRequest;
     const validRequest = (validateRecoveryRequestShape(recovery, expectedRoomId) && !repair) || (validateRepairRequestShape(repair, expectedRoomId) && !recovery);
@@ -136,13 +138,16 @@ export function validateMlsMembershipShape(envelope, expectedRoomId) {
       envelope.target.deviceId === envelope.targetId &&
       ['creator', 'joiner'].includes(envelope.target.role) &&
       envelope.target.status === 'pending' &&
-      envelope.target.addedBy === envelope.senderId &&
+      (envelope.browserAccess === undefined ? envelope.target.addedBy === envelope.senderId :
+        validAccessProof(envelope.browserAccess, expectedRoomId) &&
+        envelope.target.addedBy === envelope.browserAccess.certificate.sourceDeviceId &&
+        canonical(envelope.browserAccess.request.target) === canonical({deviceId:envelope.target.deviceId,encryptionKey:envelope.target.encryptionKey,signingKey:envelope.target.signingKey,mlsKeyPackage:envelope.target.mlsKeyPackage})) &&
       typeof envelope.welcome === 'string' &&
       envelope.welcome.length >= 64 &&
       envelope.welcome.length <= 256 * 1024 &&
       /^[A-Za-z0-9_-]+$/.test(envelope.welcome);
   }
-  return envelope.target === undefined && envelope.welcome === undefined;
+  return envelope.target === undefined && envelope.welcome === undefined && envelope.browserAccess === undefined;
 }
 
 export function validateRecoveryRequestShape(request, expectedRoomId) {

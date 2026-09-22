@@ -1,3 +1,11 @@
+import './browser-access.css';
+import { browserAccessCredential } from './lib/platform-vault';
+import { readBrowserAccessRecord } from './lib/vault';
+import { completeBrowserAccessJoin } from './lib/mls';
+import { newAccessIdentity, accessSafetyCode, verifyAccessProof } from './lib/browser-access-proof.mjs';
+import { accessEscape, accessDeadline, mountAccessApproval } from './lib/browser-access-ui';
+import { browserAccessKeys, loadBrowserProfile, saveBrowserProfile, refreshBrowserCatalog, discoveredCredentialRecord, prepareBrowserAccess, publishPreparedCatalog, preparedMailboxes, approveBrowser, acceptBrowserApproval, prepareSpaceAccess, accessPrivateSpaces, accessApi, mailboxPath, spaceAccessPath,
+  type BrowserProfileSession, type AccessSpace, type PendingSpaceAccess, type AccessStatus, type BrowserRequest, type PeerAccessRequest } from './lib/browser-access';
 import './spaces.css';
 import { mountSpaceDrawer, mountSpaceInvite, readPresenceStyle, spaceIcons } from './lib/space-drawer';
 import { localSpaces, rememberLocalSpace, syncSpaceDirectory, recoverableSpaces, refreshSpaceUnread, spaceMessagePreview, type PrivateSpace } from './lib/spaces';
@@ -1187,6 +1195,7 @@ export class QuietRoomApp {
     this.gatewayRenderEpoch += 1;
     this.obscurePrivacySurface();
     const retained = retainSession ? this.session : null;
+    const retainedAccessPrf = retained?.browserAccessPrf?.slice();
     const deadline = this.idleDeadline;
     const monotonicDeadline = this.idleMonotonicDeadline;
     const picker = preserveFilePicker ? this.imagePickerInput : null;
@@ -1195,6 +1204,7 @@ export class QuietRoomApp {
     if (!this.setActiveSurface('away')) return;
     this.cleanupRuntime(preserveFilePicker);
     if (retained) {
+      retained.browserAccessPrf = retainedAccessPrf;
       this.retainedSession = retained;
       this.idleDeadline = deadline;
       this.idleMonotonicDeadline = monotonicDeadline;
@@ -1389,7 +1399,8 @@ export class QuietRoomApp {
       const inviteLink = classifyInviteHash(location.hash);
       if (inviteLink.kind === 'device') this.renderJoinDevice(inviteLink.invite);
       else if (inviteLink.kind === 'repair') this.renderJoinRepair(inviteLink.invite);
-      else this.renderFirstRun(inviteLink.kind === 'participant' ? inviteLink.invite : null);
+      else if(inviteLink.kind === 'participant') this.renderFirstRun(inviteLink.invite);
+      else {const profile=await readBrowserAccessRecord() as {record?:PlatformCredentialRecord}|undefined;if(!canRender())return;if(profile?.record)this.renderBrowserAccessUnlock(profile.record);else this.renderFirstRun(null);}
     }
   }
 
@@ -2442,6 +2453,206 @@ export class QuietRoomApp {
     this.root.querySelector('#recovery-lock')?.addEventListener('click', () => this.lockNow());
   }
 
+  private browserProfile: BrowserProfileSession | null = null;
+  private browserBindingProof: Uint8Array<ArrayBuffer> | null = null;
+  private browserAccessAbort: AbortController | null = null;
+  private peerAccessRequests: PeerAccessRequest[] = [];
+  private peerAccessHints = new Map<string, number>();
+  private accessDismissed = new Set<string>();
+  private accessDialog: {id:string;close:()=>void} | null = null;
+
+  private renderBrowserAccessUnlock(record: PlatformCredentialRecord): void {
+    this.gatewayTemplate('解锁此浏览器', '使用通行密钥继续查看空间列表。', '<button class="primary-button" id="browser-access-unlock">使用通行密钥继续</button><p class="form-error" role="alert"></p>');
+    const button=this.root.querySelector<HTMLButtonElement>('#browser-access-unlock')!;
+    button.addEventListener('click',()=>void this.beginBrowserAccess(button,record));
+  }
+
+  private async beginBrowserAccess(button: HTMLButtonElement, record?: PlatformCredentialRecord): Promise<void> {
+    if(button.disabled)return;
+    this.browserAccessAbort?.abort();const abort=new AbortController();this.browserAccessAbort=abort;
+    const epoch=this.runtimeEpoch;const active=()=>!abort.signal.aborted&&!this.privacyCovered&&this.runtimeEpoch===epoch;
+    // Start the native prompt before any I/O or page transition.
+    const verification=this.withDeviceVerification(()=>browserAccessCredential(abort.signal,record));
+    setBusy(button,true,'请完成验证…');
+    try {
+      const credential=await verification;if(!active()){credential.prfOutput.fill(0);return;}
+      this.browserBindingProof?.fill(0);this.browserBindingProof=credential.prfOutput;
+      const keys=await browserAccessKeys(credential.prfOutput);
+      const existing=await loadBrowserProfile(credential.prfOutput,credential.credentialId);
+      if(!active())return;
+      if(existing){this.browserProfile=existing;await refreshBrowserCatalog(existing.profile,abort.signal);if(active()){this.resetIdleLock();this.renderBrowserShell();this.pollBrowserSpaceAccess(abort.signal);}return;}
+      const identity=await newAccessIdentity(),requestId=crypto.randomUUID();
+      const request={requestId,browserId:identity.browserId,browserKey:identity.publicKey};
+      const code=await accessSafetyCode(request);
+      const status=await accessApi<AccessStatus>(mailboxPath(keys,requestId),keys.token,abort.signal,'POST',request);
+      if(!active())return;
+      const deadline=accessDeadline(status.expiresAt,status.serverTime);
+      this.gatewayTemplate('等待其他设备批准', '请在其他已授权的在线设备上解锁并完成授权。', `<p class="access-code">${code}</p><p class="field-hint">请核对两边显示的六位码。此步骤仅认可浏览器。</p><p class="access-countdown"></p><button class="text-button" id="browser-access-cancel">取消</button><p class="form-error" role="alert"></p>`);
+      this.root.querySelector('#browser-access-cancel')!.addEventListener('click',()=>{void accessApi(mailboxPath(keys,requestId),keys.token,AbortSignal.timeout(5000),'DELETE').catch(()=>undefined);abort.abort();this.browserBindingProof?.fill(0);this.browserBindingProof=null;this.renderFirstRun(null);});
+      const poll=async()=>{
+        if(!active())return;
+        if(performance.now()>=deadline){this.gatewayTemplate('本次请求已过期','请重新验证后发起接入请求。','<button class="primary-button" id="access-retry">重新验证</button><p class="form-error" role="alert"></p>');const retry=this.root.querySelector<HTMLButtonElement>('#access-retry')!;retry.addEventListener('click',()=>void this.beginBrowserAccess(retry));return;}
+        const label=this.root.querySelector('.access-countdown');if(label)label.textContent=`剩余 ${Math.ceil((deadline-performance.now())/1000)} 秒`;
+        try {
+          const result=await accessApi<AccessStatus>(mailboxPath(keys,requestId),keys.token,abort.signal);
+          if(!active())return;
+          if(result.status==='approved'&&result.sealed){
+            const profile=await acceptBrowserApproval(identity,requestId,keys,result.sealed);
+            await refreshBrowserCatalog(profile,abort.signal);
+            const saved={profile,record:discoveredCredentialRecord(credential),secret:keys.profileKey};
+            await saveBrowserProfile(saved,abort.signal);if(!active())return;
+            this.browserProfile=saved;this.resetIdleLock();this.renderBrowserShell();this.pollBrowserSpaceAccess(abort.signal);return;
+          }
+          if(result.status!=='pending')throw new Error('请求已结束，请重新发起');
+        } catch(cause){if(active()){const error=this.root.querySelector('.form-error');if(error)error.textContent=cause instanceof Error?cause.message:'暂时离线，正在重试';}}
+        if(active())window.setTimeout(()=>void poll(),2000);
+      };void poll();
+    } catch(cause){if(active()){const error=this.root.querySelector('.form-error');if(error)error.textContent=isPlatformVaultCancellation(cause)?'验证已取消，未发送请求。':cause instanceof Error?cause.message:'接入未完成';}}
+    finally{if(active()&&button.isConnected)setBusy(button,false);}
+  }
+
+  private renderBrowserShell(): void {
+    const current=this.browserProfile;if(!current||this.privacyCovered)return;
+    const space=current.profile.spaces.find(s=>s.roomId===current.profile.currentRoom)??current.profile.spaces[0]!;
+    current.profile.currentRoom=space.roomId;
+    const pending=current.profile.pending[space.roomId],waiting=pending?.status==='pending';
+    this.root.innerHTML=`<section class="chat-shell browser-access-shell"><header class="chat-header"><button class="icon-button spaces-entry" id="access-spaces" aria-label="私密空间列表">${spaceIcons.spaces}<span>${accessEscape(space.name)}</span></button><button class="text-button" id="access-lock">锁定</button></header><div class="access-empty"><h2>${waiting?'等待对方授权':'此空间尚未授权'}</h2><p>${waiting?'对方进入空间后会收到授权请求。':space.certificate?'获得对方授权后，即可在此浏览器聊天。':'请先在原设备打开并解锁此空间，完成一次接入准备。'}</p>${waiting?'<p class="access-code" id="space-access-code"></p><p class="access-countdown" id="space-access-countdown"></p>':''}<p>加入前的聊天记录不会同步到此浏览器。</p></div><div class="access-composer"><p class="form-error" role="alert"></p>${pending&&pending.status&&pending.status!=='pending'?`<p class="field-hint">${pending.status==='rejected'?'对方已拒绝本次请求。':'上次请求已结束，请重新验证申请。'}</p>`:''}<button class="primary-button" id="request-space-access" ${waiting?'disabled':''}>${waiting?'等待对方授权':'申请对方授权'}</button>${waiting?'<button class="text-button" id="cancel-space-access">取消申请</button>':''}</div></section>`;
+    this.root.querySelector('#access-lock')!.addEventListener('click',()=>this.lockNow());
+    this.root.querySelector('#access-spaces')!.addEventListener('click',()=>this.openBrowserSpaceList());
+    const button=this.root.querySelector<HTMLButtonElement>('#request-space-access')!;
+    button.addEventListener('click',()=>void this.requestBrowserSpace(space,button));
+    if(pending&&waiting){
+      void accessSafetyCode(pending.proof).then(code=>{if(this.browserProfile===current&&this.root.querySelector('#space-access-code'))this.root.querySelector('#space-access-code')!.textContent=code;});
+      this.root.querySelector('#cancel-space-access')?.addEventListener('click',()=>{const signal=this.browserAccessAbort?.signal;if(!signal)return;void accessApi(spaceAccessPath(space.roomId,pending.proof.request.requestId),pending.token,signal,'DELETE').then(async()=>{pending.status='canceled';await saveBrowserProfile(current,signal);if(!signal.aborted)this.renderBrowserShell();}).catch(cause=>this.showNotice(cause.message,'error'));});
+    }
+  }
+
+  private openBrowserSpaceList():void {
+    const current=this.browserProfile,signal=this.browserAccessAbort?.signal;if(!current||!signal||signal.aborted)return;
+    mountSpaceDrawer(this.root,{spaces:accessPrivateSpaces(current.profile),currentRoom:current.profile.currentRoom,signal,actions:[],
+      select:async space=>{if(space.localId){await this.switchPrivateSpace(space);return;}current.profile.currentRoom=space.roomId;await saveBrowserProfile(current,signal);if(!signal.aborted)this.renderBrowserShell();},
+      create:async()=>{await this.leaveSpace();this.renderCreate();},rename:async()=>{throw new Error('空间授权后可修改名称');},styleChanged:()=>undefined,closed:()=>undefined});
+  }
+
+  private async requestBrowserSpace(space:AccessSpace,button:HTMLButtonElement):Promise<void> {
+    const current=this.browserProfile,signal=this.browserAccessAbort?.signal;if(!current||!signal||button.disabled)return;
+    const verification=this.withDeviceVerification(()=>browserAccessCredential(signal,current.record));
+    setBusy(button,true,'请完成验证…');
+    try{
+      const result=await verification;signal.throwIfAborted();
+      this.browserBindingProof?.fill(0);this.browserBindingProof=result.prfOutput;
+      await refreshBrowserCatalog(current.profile,signal);signal.throwIfAborted();
+      if(!space.certificate)throw new Error('请先在原设备打开并解锁此空间，再申请授权');
+      const previous=current.profile.pending[space.roomId];
+      const pending=previous&&!previous.status?previous:await prepareSpaceAccess(current.profile,space,await generateIdentity());
+      current.profile.pending[space.roomId]=pending;
+      await saveBrowserProfile(current,signal); // Durable independent keys precede the request.
+      const resultStatus=await accessApi<AccessStatus>(spaceAccessPath(space.roomId),pending.token,signal,'POST',{proof:pending.proof,deviceName:defaultDeviceName()});
+      pending.expiresAt=resultStatus.expiresAt;pending.status=resultStatus.status;
+      await saveBrowserProfile(current,signal);if(!signal.aborted)this.renderBrowserShell();
+    }catch(cause){if(!signal.aborted&&button.isConnected){const error=this.root.querySelector('.form-error');if(error)error.textContent=isPlatformVaultCancellation(cause)?'验证已取消，未发送请求。':cause instanceof Error?cause.message:'申请未完成';}}
+    finally{if(!signal.aborted&&button.isConnected)setBusy(button,false);}
+  }
+
+  private pollBrowserSpaceAccess(signal:AbortSignal):void {
+    const poll=async()=>{
+      const current=this.browserProfile;if(signal.aborted||!current)return;
+      for(const space of current.profile.spaces){
+        const pending=current.profile.pending[space.roomId];if(!pending||pending.status&&pending.status!=='pending')continue;
+        try{
+          const result=await accessApi<AccessStatus>(spaceAccessPath(space.roomId,pending.proof.request.requestId),pending.token,signal);
+          if(signal.aborted||this.browserProfile!==current)return;
+          if(result.status==='approved'&&result.state){await this.installBrowserSpace(space,pending,result.state,signal);return;}
+          const changed=pending.status!==result.status;pending.status=result.status;pending.expiresAt=result.expiresAt;
+          if(changed){await saveBrowserProfile(current,signal);if(!signal.aborted)this.renderBrowserShell();}
+          if(current.profile.currentRoom===space.roomId){const label=this.root.querySelector('#space-access-countdown');if(label)label.textContent=`剩余 ${Math.max(0,Math.ceil((Date.parse(result.expiresAt)-Date.parse(result.serverTime))/1000))} 秒`;}
+        }catch{ /* A failed read never grants membership; the durable request remains retryable. */ }
+      }
+      if(!signal.aborted)window.setTimeout(()=>void poll(),2000);
+    };void poll();
+  }
+
+  private async installBrowserSpace(space:AccessSpace,pending:PendingSpaceAccess,state:RoomState,signal:AbortSignal):Promise<void> {
+    const current=this.browserProfile,prf=this.browserBindingProof;if(!current||!prf||!space.members||!space.role||!space.creatorFingerprint)throw new Error('本机接入凭据不完整');
+    const own=state.members.find(m=>m.deviceId===pending.identity.publicBundle.deviceId);
+    if(!own||own.status!=='active')throw new Error('空间加入尚未完成');
+    const vault:Vault={v:3,roomId:space.roomId,accessToken:pending.token,role:space.role,pairingSecret:'',creatorFingerprint:space.creatorFingerprint,identity:pending.identity,
+      members:space.members,lastSeq:own.joinSeq??0,lastReceiptSeq:own.joinReceiptSeq??0,historyUnavailableBeforeSeq:own.joinSeq??0,createdAt:new Date().toISOString(),protocol:'mls-rfc9420',pairingState:'linking',mls:{protocol:'mls-rfc9420',phase:'awaiting-welcome',lastEventSeq:space.eventSeq??0},spaceRecoveryCode:current.profile.collectionCode};
+    await completeBrowserAccessJoin(vault,state,pending.proof);signal.throwIfAborted();
+    await selectLocalSpace(crypto.randomUUID());signal.throwIfAborted();
+    const session=await createVault(vault,'','platform',{record:current.record,prfOutput:prf.slice()},()=>!signal.aborted&&!this.privacyCovered);
+    signal.throwIfAborted();session.browserAccessPrf=prf.slice();this.session=session;
+    space.localId=vaultSpaceId(session.stored);delete current.profile.pending[space.roomId];
+    await saveBrowserProfile(current,signal);signal.throwIfAborted();
+    await rememberLocalSpace(session,undefined,{roomId:space.roomId,name:space.name});
+    this.browserAccessAbort?.abort();this.browserAccessAbort=null;
+    await this.openSession();
+  }
+
+  private async startBrowserAccessServices(session:VaultSession,signal:AbortSignal):Promise<void> {
+    try{
+      if(session.browserAccessPrf&&session.stored.unlockMethod==='platform'){
+        const profile=await loadBrowserProfile(session.browserAccessPrf,session.stored.platform.credentialId);
+        if(profile&&!signal.aborted)this.browserProfile=profile;
+      }
+      await prepareBrowserAccess(session);signal.throwIfAborted();await publishPreparedCatalog(session,signal);
+    }catch{if(signal.aborted)return; /* Existing conversations remain usable while preparation is offline. */}
+    const dismissed=new Set<string>(),deadlines=new Map<string,number>();
+    const poll=async()=>{
+      if(signal.aborted||this.session!==session)return;
+      try{
+        const response=await accessApi<{requests:PeerAccessRequest[];serverTime:string}>(spaceAccessPath(session.vault.roomId),session.vault.accessToken,signal);
+        if(signal.aborted)return;
+        this.peerAccessRequests=response.requests;
+        let latest=0;
+        for(const item of response.requests){const id=item.proof.request.requestId;const deadline=Math.min(deadlines.get(id)??Infinity,accessDeadline(item.expiresAt,response.serverTime));deadlines.set(id,deadline);latest=Math.max(latest,deadline);}
+        if(latest>performance.now())this.peerAccessHints.set(session.vault.roomId,latest);else this.peerAccessHints.delete(session.vault.roomId);
+        if(this.accessDialog?.id.startsWith('space:')&&!response.requests.some(r=>`space:${r.proof.request.requestId}`===this.accessDialog?.id))this.accessDialog.close();
+        const next=response.requests.find(r=>!dismissed.has(r.proof.request.requestId)&&((deadlines.get(r.proof.request.requestId)??0)>performance.now()));
+        if(next&&!this.accessDialog&&!this.root.querySelector('[role="dialog"]')){dismissed.add(next.proof.request.requestId);await this.showPeerAccess(next,deadlines.get(next.proof.request.requestId)!,signal);}
+        const mailboxes=await preparedMailboxes(session);signal.throwIfAborted();
+        if(mailboxes.length){
+          const mail=await accessApi<{results:{id:string;requests:BrowserRequest[];serverTime:string}[]}>('/api/browser-access-poll','',signal,'POST',{mailboxes:mailboxes.map(m=>({id:m.id,token:m.token}))});
+          for(const result of mail.results){const mailbox=mailboxes.find(m=>m.id===result.id)!;
+            const request=result.requests.find(r=>!dismissed.has(r.requestId));
+            if(request&&!this.accessDialog&&!this.root.querySelector('[role="dialog"]')){
+              dismissed.add(request.requestId);const code=await accessSafetyCode({requestId:request.requestId,browserId:request.browserId,browserKey:request.browserKey});signal.throwIfAborted();
+              const id=`browser:${request.requestId}`;
+              const close=mountAccessApproval(this.root,{signal,title:'允许此浏览器继续使用？',description:'仅认可新浏览器并提供空间列表，各空间仍需对方单独授权。',code,deadline:accessDeadline(request.expiresAt,result.serverTime),
+                approve:()=>approveBrowser(session,mailbox,request,signal),reject:async()=>{await accessApi(mailboxPath(mailbox,request.requestId),mailbox.token,signal,'DELETE');},closed:()=>{if(this.accessDialog?.id===id)this.accessDialog=null;}});
+              this.accessDialog={id,close};break;
+            }
+          }
+        }
+      }catch{ /* Offline requests keep their original local deadlines. */ }
+      if(!signal.aborted)window.setTimeout(()=>void poll(),3000);
+    };void poll();
+  }
+
+  private async showPeerAccess(request:PeerAccessRequest,deadline:number,signal:AbortSignal):Promise<void> {
+    const session=this.session;if(!session||signal.aborted||deadline<=performance.now())return;
+    const source=session.vault.members.find(m=>m.deviceId===request.proof.certificate.sourceDeviceId);
+    if(!source||source.role===session.vault.role||!await verifyAccessProof(request.proof,session.vault.roomId,source))return;
+    const code=await accessSafetyCode(request.proof);if(signal.aborted)return;
+    const id=`space:${request.proof.request.requestId}`;
+    const close=mountAccessApproval(this.root,{signal,title:'允许对方的新设备加入？',description:`授权后，对方可在新设备中使用「${this.currentSpaceName}」。加入前的历史不会同步。`,code,deadline,
+      approve:async()=>{
+        await withVaultMutation(session,async mutation=>{
+          signal.throwIfAborted();
+          const existing=session.vault.mls?.pendingMembership;
+          if(existing&&existing.event.targetId!==request.target.deviceId)throw new Error('另一项设备变更尚未完成');
+          const pending=existing??await prepareMlsMembership(session.vault,'add',request.target,request.proof);
+          session.vault.mls!.pendingMembership=pending;await saveVault(session,mutation);signal.throwIfAborted();
+          try{const result=await publishMlsMembership(session.vault.roomId,session.vault.accessToken,pending.event);signal.throwIfAborted();await this.applyRoomState(result.state,mutation);}
+          catch(cause){if(cause instanceof ApiError&&!cause.retryable){session.vault.mls!.pendingMembership=undefined;await saveVault(session,mutation);}throw cause;}
+        });
+        this.peerAccessRequests=this.peerAccessRequests.filter(r=>r!==request);this.peerAccessHints.delete(session.vault.roomId);
+      },
+      reject:async()=>{await accessApi(spaceAccessPath(session.vault.roomId,request.proof.request.requestId),session.vault.accessToken,signal,'DELETE');this.peerAccessRequests=this.peerAccessRequests.filter(r=>r!==request);this.peerAccessHints.delete(session.vault.roomId);},
+      closed:()=>{if(this.accessDialog?.id===id)this.accessDialog=null;}});
+    this.accessDialog={id,close};
+  }
+
   private renderFirstRun(invite: Invite | null): void {
     if (location.hash === '#legacy-recovery') { this.renderCloudRecovery(); return; }
     if (invite) {
@@ -2460,11 +2671,13 @@ export class QuietRoomApp {
         </div>
         <div class="welcome-actions">
           <button class="primary-button" id="create-room" type="button">创建私密空间</button>
+          <button class="secondary-button" id="continue-browser" type="button">在此浏览器继续使用</button>
           <button class="text-button" id="restore-cloud" type="button">${this.returnSpaceId ? '返回' : '恢复私密空间'}</button>
           <p class="form-error" role="alert"></p>
         </div>
       </section>
     `;
+    this.root.querySelector<HTMLButtonElement>('#continue-browser')?.addEventListener('click', event => void this.beginBrowserAccess(event.currentTarget as HTMLButtonElement));
     this.root.querySelector('#create-room')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderCreate()));
     this.root.querySelector('#restore-cloud')?.addEventListener('click', () => { if (this.returnSpaceId) void this.returnToSpace(); else this.transitionPage('forward', () => this.renderJointRecovery()); });
   }
@@ -3294,6 +3507,7 @@ export class QuietRoomApp {
     void this.connectSocket().catch(cause => { if (this.isRuntimeActive(epoch, session)) this.operationalError(cause, '安全通话身份准备失败，请重新解锁'); });
     if (activeRoles.size === 2) { void this.resumeDeferredImage(); this.showPairingWelcome(); }
     this.startAutomaticBackup();
+    void this.startBrowserAccessServices(session,this.runtimeAbort.signal);
   }
 
   private async completePendingJoin(): Promise<void> {
@@ -3441,6 +3655,9 @@ export class QuietRoomApp {
         if (serverEvent.eventSeq <= lastEventSeq) continue;
         if (serverEvent.eventSeq !== lastEventSeq + 1 || !trustedDeviceIds.has(serverEvent.event.senderId)) {
           throw new SecurityViolation('MLS 设备变更链不连续或发送者不可信');
+        }
+        if (serverEvent.event.browserAccess && !trustedDeviceIds.has(serverEvent.event.browserAccess.certificate.sourceDeviceId)) {
+          throw new SecurityViolation('空间接入的原设备已不在可信成员中');
         }
         const pending = session.vault.mls.pendingMembership;
         if (pending && pending.event.eventId === serverEvent.event.eventId) {
@@ -4238,6 +4455,7 @@ export class QuietRoomApp {
   }
 
   private async switchPrivateSpace(space: PrivateSpace): Promise<void> {
+    if (!space.localId && this.browserProfile?.profile.spaces.some(s=>s.roomId===space.roomId)) {const profile=this.browserProfile,prf=(this.browserBindingProof??this.session?.browserAccessPrf)?.slice();await this.leaveSpace();if(this.privacyCovered){prf?.fill(0);return;}this.browserProfile=profile;this.browserBindingProof=prf??null;this.browserAccessAbort=new AbortController();profile.profile.currentRoom=space.roomId;this.resetIdleLock();this.renderBrowserShell();this.pollBrowserSpaceAccess(this.browserAccessAbort.signal);return;}
     if (!space.localId) throw new Error('此空间需要先恢复');
     await this.leaveSpace();
     if (this.privacyCovered) return;
@@ -4314,6 +4532,7 @@ export class QuietRoomApp {
       await this.rememberSpacePreview(session, signal);
       if (signal.aborted || this.session !== session || this.privacyCovered) return;
       const spaces = await localSpaces(session);
+      if(this.browserProfile) for(const item of accessPrivateSpaces(this.browserProfile.profile)) if(!spaces.some(s=>s.roomId===item.roomId)) spaces.push(item);
       if (signal.aborted || this.privacyCovered || this.session !== session) return;
       this.closeChatTools(); this.clearKeyboardHandoff();
       (document.activeElement as HTMLElement | null)?.blur();
@@ -4339,6 +4558,11 @@ export class QuietRoomApp {
             const entry = this.root.querySelector<HTMLElement>('#open-spaces');
             if (entry) { entry.setAttribute('aria-label', `私密空间列表，当前：${name}`); const label = entry.querySelector('span'); if (label) label.textContent = name; }
           }
+        },
+        authorization: space => {
+          const deadline=this.peerAccessHints.get(space.roomId)??0;
+          if(deadline<=performance.now())return undefined;
+          return {deadline,open:async()=>{if(space.roomId!==session.vault.roomId){await this.switchPrivateSpace(space);return;}const request=this.peerAccessRequests[0];if(request)await this.showPeerAccess(request,deadline,signal);}};
         },
         refreshUnread: refreshSignal => refreshSpaceUnread(spaces, refreshSignal),
         styleChanged: () => this.applyPresenceStyle(),
@@ -11863,6 +12087,8 @@ export class QuietRoomApp {
   }
 
   private lockNow({ preserveFilePicker = false }: { preserveFilePicker?: boolean } = {}): void {
+    this.peerAccessHints.clear();
+    this.retainedSession?.browserAccessPrf?.fill(0);
     this.clearMemePanelHandoff();
     this.clearMemeCache();
     this.clearKeyboardHandoff();
@@ -11889,6 +12115,11 @@ export class QuietRoomApp {
   }
 
   private cleanupRuntime(preserveFilePicker = false): void {
+    this.browserAccessAbort?.abort();this.browserAccessAbort=null;
+    this.browserBindingProof?.fill(0);this.browserBindingProof=null;
+    this.session?.browserAccessPrf?.fill(0);
+    this.browserProfile=null;this.peerAccessRequests=[];
+    this.accessDialog?.close();this.accessDialog=null;
     this.newSpaceCollectionCode = undefined;
     this.returnSpaceId = null;
     this.spaceDrawerOpen = false;
@@ -12080,7 +12311,7 @@ export class QuietRoomApp {
   }
 
   private resetIdleLock(): void {
-    if (!this.session || this.privacyCovered || document.hidden || this.expireIdleSession()) return;
+    if ((!this.session && !this.browserProfile) || this.privacyCovered || document.hidden || this.expireIdleSession()) return;
     if (this.idleTimer !== null) window.clearTimeout(this.idleTimer);
     this.idleTimer = null;
     if (!this.desktopBrowser && this.callController?.active) {
@@ -12095,7 +12326,7 @@ export class QuietRoomApp {
   }
 
   private expireIdleSession(): boolean {
-    if ((!this.session && !this.retainedSession) || !this.idleDeadline) return false;
+    if ((!this.session && !this.retainedSession && !this.browserProfile) || !this.idleDeadline) return false;
     if (Date.now() < this.idleDeadline && performance.now() < this.idleMonotonicDeadline) return false;
     this.lockNow();
     return true;
@@ -12106,7 +12337,7 @@ export class QuietRoomApp {
     const remaining = Math.min(this.idleDeadline - Date.now(), this.idleMonotonicDeadline - performance.now());
     this.idleTimer = window.setTimeout(() => {
       this.idleTimer = null;
-      if (!this.expireIdleSession() && (this.session || this.retainedSession)) this.scheduleIdleLock();
+      if (!this.expireIdleSession() && (this.session || this.retainedSession || this.browserProfile)) this.scheduleIdleLock();
     }, Math.max(0, delay ?? remaining));
   }
 

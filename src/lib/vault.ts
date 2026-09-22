@@ -16,6 +16,7 @@ import {
   createPlatformCredential,
   isPlatformVaultCancellation,
   unlockPlatformCredential,
+  takeBrowserAccessPrf,
   type PlatformCredentialResult,
 } from './platform-vault';
 import type {
@@ -60,6 +61,8 @@ export async function localSpaceExists(id: string): Promise<boolean> {
 
 
 export type VaultSession = {
+  /** Ephemeral, client-only rendezvous material from this native unlock. */
+  browserAccessPrf?: Uint8Array<ArrayBuffer>;
   vault: Vault;
   key: CryptoKey;
   stored: StoredVault;
@@ -708,6 +711,7 @@ async function createVaultLocked(
     return { vault, key, stored };
   }
   const platformResult = preparedPlatformCredential ?? await createPlatformCredential();
+  const browserAccessPrf = takeBrowserAccessPrf(platformResult.prfOutput);
   const kek = await derivePasskeyKek(platformResult.prfOutput, platformResult.record);
   const masterBytes = crypto.getRandomValues(new Uint8Array(32));
   const key = await importMasterKey(masterBytes);
@@ -724,7 +728,7 @@ async function createVaultLocked(
   rememberSpace(vaultSpaceId(stored));
   await clearUnlockThrottle();
   vault.v = 3;
-  return { vault, key, stored };
+  return { vault, key, stored, browserAccessPrf };
 }
 
 async function readUnlockThrottle(): Promise<UnlockThrottle> {
@@ -784,7 +788,7 @@ export async function resumeVaultSession(session: VaultSession): Promise<VaultSe
     }
     // Pending operations may have changed the old object before failing to
     // commit. Never let those partial in-memory changes become resumed state.
-    return { vault, key: session.key, stored };
+    return { vault, key: session.key, stored, browserAccessPrf: session.browserAccessPrf };
   });
 }
 
@@ -816,6 +820,7 @@ async function unlockVaultLocked(secret: string, preparedPlatformProof?: Uint8Ar
       // UI callers prepare WebAuthn before lifecycle/IndexedDB work so Safari
       // keeps trusted activation. Non-UI diagnostics retain the direct path.
       const prfOutput = preparedPlatformProof ?? await unlockPlatformCredential(stored.platform);
+      const browserAccessPrf = takeBrowserAccessPrf(prfOutput);
       const migrationPrfOutput = stored.v === 2 ? prfOutput.slice() : null;
       if (stored.v === 2 && !stored.kdf) throw new Error('INVALID_VAULT');
       const kek = stored.v === 2
@@ -835,9 +840,9 @@ async function unlockVaultLocked(secret: string, preparedPlatformProof?: Uint8Ar
           payload: await encryptPayload(vault, key),
         };
         await installStoredVault(migrated, stored);
-        unlocked = { vault, key, stored: migrated };
+        unlocked = { vault, key, stored: migrated, browserAccessPrf };
       } else {
-        unlocked = { vault, key, stored };
+        unlocked = { vault, key, stored, browserAccessPrf };
       }
       masterBytes.fill(0);
     }
@@ -2116,6 +2121,29 @@ export function deleteUploadPlan(session: VaultSession, blobId: string): Promise
 /** Encrypted collection data shares the same cross-tab lease as room writes. */
 export async function readLocalSpaceDirectory(id: string): Promise<unknown> {
   return transaction('spaces', 'readonly', store => store.get(id));
+}
+/** A separate encrypted browser shell, never interpreted as a room vault. */
+export async function readBrowserAccessRecord(): Promise<unknown> {
+  return transaction('spaces', 'readonly', store => store.get('browser-access-profile'));
+}
+export async function writeBrowserAccessRecord(value: unknown, signal: AbortSignal, expected: unknown): Promise<void> {
+  await withVaultLifecycle(async () => {
+    signal.throwIfAborted();
+    const db = await openDatabase();
+    await new Promise<void>((resolve,reject) => {
+      const tx = db.transaction('spaces','readwrite'), store = tx.objectStore('spaces');
+      const abort = () => { try { tx.abort(); } catch { /* Already committed. */ } };
+      signal.addEventListener('abort',abort,{once:true});
+      const request = store.get('browser-access-profile');
+      request.onsuccess = () => {
+        if(signal.aborted || JSON.stringify(request.result ?? null) !== JSON.stringify(expected ?? null)) { abort(); return; }
+        store.put(value,'browser-access-profile');
+      };
+      const cleanup = () => { signal.removeEventListener('abort',abort);db.close(); };
+      tx.oncomplete = () => { cleanup();resolve(); };
+      tx.onabort = () => { cleanup();reject(new Error('接入状态已在其他标签页更新或锁定，请重新验证')); };
+    });
+  });
 }
 export async function writeLocalSpaceDirectory(session: VaultSession, id: string, value: unknown, mutation: VaultMutation): Promise<void> {
   if (!ownsVaultMutation(session, mutation)) throw staleVaultError();

@@ -1,0 +1,17 @@
+import type { PublicBundle, RoomMember } from './types';
+export type AccessIdentity = { browserId: string; publicKey: JsonWebKey; privateKey: JsonWebKey };
+export type AccessCertificate = { v: 1; purpose: 'quiet-room-browser-request-root'; roomId: string; sourceDeviceId: string; rootKey: JsonWebKey; signature: string };
+export type AccessGrant = { v: 1; purpose: 'quiet-room-browser-request-grant'; requestId: string; browserId: string; browserKey: JsonWebKey; signature: string };
+export type AccessRequest = { v: 1; purpose: 'quiet-room-space-access-request'; roomId: string; requestId: string; browserId: string; target: PublicBundle; tokenHash: string; certificateHash: string; grantHash: string; signature: string };
+export type AccessProof = { certificate: AccessCertificate; grant: AccessGrant; request: AccessRequest };
+export const ACCESS_TTL_MS: number;
+export function canonical(value: unknown): string;
+export function publicAccessKey(value: unknown): boolean;
+export function publicAccessBundle(value: unknown): boolean;
+export function signAccess<T extends object>(key: JsonWebKey, value: T): Promise<T & { signature: string }>;
+export function verifyAccess(key: JsonWebKey, value: unknown): Promise<boolean>;
+export function newAccessIdentity(): Promise<AccessIdentity>;
+export function validAccessProof(value: unknown, roomId: string): value is AccessProof;
+export function verifyAccessProof(value: AccessProof, roomId: string, source: RoomMember): Promise<boolean>;
+export function accessDigest(value: unknown): Promise<string>;
+export function accessSafetyCode(value: unknown): Promise<string>;
