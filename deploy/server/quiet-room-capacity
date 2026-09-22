@@ -1,0 +1,214 @@
+#!/usr/bin/env python3
+"""Bounded host capacity checks and project-only retention; no volume pruning."""
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import subprocess
+import sys
+import time
+
+ROOT = Path('/opt/quiet-room')
+STATE = Path('/var/lib/quiet-room-deploy')
+LOCK = Path('/run/lock/quiet-room-deploy.lock')
+GIB = 1024 ** 3
+SHA = re.compile(r'^[0-9a-f]{40}$')
+ARCHIVE = re.compile(r'^data-(\d{8}T\d{6}Z)-([0-9a-f]{12})\.tar\.gz$')
+FAILED = re.compile(r'^failed-cutover-(\d{8}T\d{6}Z)-([0-9a-f]{12})\.tar\.gz$')
+
+
+def run(args, timeout=30):
+    return subprocess.run(args, check=True, text=True, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, timeout=timeout).stdout.strip()
+
+
+def regular(path):
+    return path.is_file() and not path.is_symlink()
+
+
+def current_sha():
+    sha = (ROOT / 'deploy-state/current-sha').read_text().strip()
+    if not SHA.fullmatch(sha):
+        raise ValueError('Invalid current release')
+    return sha
+
+
+def read_successes():
+    rows = (STATE / 'successful-releases').read_text().splitlines()
+    result = []
+    for row in rows:
+        parts = row.split()
+        if len(parts) != 2 or not re.fullmatch(r'\d{8}T\d{6}Z', parts[0]) or not SHA.fullmatch(parts[1]):
+            raise ValueError('Invalid successful release registry')
+        result.append(tuple(parts))
+    return sorted(set(result), reverse=True)
+
+
+def archive_plan(paths, keep=3):
+    """Filename order, never mtime; failed-cutover pair is always protected."""
+    paths = [p for p in paths if regular(p)]
+    failed = {m.groups() for p in paths if (m := FAILED.fullmatch(p.name))}
+    data = sorted([p for p in paths if ARCHIVE.fullmatch(p.name)],
+                  key=lambda p: p.name, reverse=True)
+    return [p for p in data[keep:] if ARCHIVE.fullmatch(p.name).groups() not in failed]
+
+
+def protected_releases(current, successes, failed_prefixes):
+    protected = {current}
+    for _, sha in successes:
+        if sha not in protected:
+            protected.add(sha)
+        if len(protected) >= 3:
+            break
+    return protected, failed_prefixes
+
+
+def metrics():
+    disk = os.statvfs(ROOT)
+    used = disk.f_blocks - disk.f_bfree
+    denominator = used + disk.f_bavail
+    memory = {}
+    for line in Path('/proc/meminfo').read_text().splitlines():
+        fields = line.split()
+        memory[fields[0].rstrip(':')] = int(fields[1]) * 1024
+    return {'availableBytes': disk.f_bavail * disk.f_frsize,
+            'usedPercent': 100 * used / max(1, denominator),
+            'inodeUsedPercent': 100 * (disk.f_files - disk.f_ffree) / max(1, disk.f_files),
+            'memoryAvailableBytes': memory['MemAvailable']}
+
+
+def backup_age(now):
+    stamps = []
+    for p in (ROOT / 'backups/continuous').glob('quiet-room-*'):
+        manifest = p / 'manifest.json'
+        if p.is_symlink() or not p.is_dir() or not regular(manifest):
+            continue
+        # Published snapshot directory mtime only; never read backup contents.
+        stamp = p.stat().st_mtime
+        if stamp <= now:
+            stamps.append(stamp)
+    return now - max(stamps) if stamps else float('inf')
+
+
+def problems(m, preflight=False, reserve=8 * GIB):
+    result = []
+    if m['usedPercent'] >= (80 if preflight else 75):
+        result.append('DISK_CRITICAL' if m['usedPercent'] >= 90 else 'DISK_HIGH')
+    if m['availableBytes'] < reserve:
+        result.append('DISK_HEADROOM_LOW')
+    if m['inodeUsedPercent'] >= 80:
+        result.append('INODES_HIGH')
+    if m['memoryAvailableBytes'] < 400 * 1024 ** 2:
+        result.append('MEMORY_LOW')
+    return result
+
+
+def check(preflight=False):
+    m = metrics()
+    archives = [p.stat().st_size for p in (ROOT / 'backups/predeploy').glob('data-*.tar.gz') if regular(p)]
+    # Two cold archives (normal plus failed cutover), 4 GiB build reserve,
+    # 2 GiB emergency floor. Size growth beyond this estimate needs capacity.
+    reserve = max(8 * GIB, 2 * max(archives, default=GIB) + 6 * GIB)
+    issues = problems(m, preflight, reserve)
+    now = time.time()
+    if not preflight:
+        if backup_age(now) > 36 * 3600:
+            issues.append('LOCAL_BACKUP_STALE_OR_MISSING')
+        offsite = STATE / 'offsite-verified-at'
+        stamp = int(offsite.read_text().strip()) if regular(offsite) else 0
+        if stamp > now or not stamp or now - stamp > 24 * 3600:
+            issues.append('OFFSITE_BACKUP_STALE_OR_MISSING')
+    result = {'checkedAt': int(now), 'mode': 'preflight' if preflight else 'monitor',
+              'metrics': m, 'requiredAvailableBytes': reserve, 'issues': issues}
+    if not preflight:
+        STATE.mkdir(parents=True, exist_ok=True)
+        target = STATE / 'capacity-status.json'
+        temporary = STATE / '.capacity-status.tmp'
+        temporary.write_text(json.dumps(result) + '\n')
+        os.replace(temporary, target)
+    print(json.dumps(result))
+    return 1 if issues else 0
+
+
+def cleanup():
+    # Shares the application deployment lock, but never removes continuous
+    # snapshots/live data, so the online backup worker can safely keep running.
+    with LOCK.open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        if (STATE / 'maintenance').exists():
+            raise ValueError('Maintenance gate present')
+        if metrics()['memoryAvailableBytes'] < 400 * 1024 ** 2:
+            raise ValueError('Insufficient available memory for cleanup')
+        current = current_sha()
+        successes = read_successes()  # Missing registry fails closed.
+        directory = ROOT / 'backups/predeploy'
+        failed = {m[2] for p in directory.iterdir() if regular(p) and (m := FAILED.fullmatch(p.name))}
+        keep, prefixes = protected_releases(current, successes, failed)
+        for sha in keep:
+            run(['docker', 'image', 'inspect', 'quiet-room-app:' + sha, '--format', '{{.Id}}'])
+        containers = run(['docker', 'ps', '-aq']).splitlines()
+        protected_ids = set()
+        if containers:
+            protected_ids.update(run(['docker', 'inspect', '--format', '{{.Image}}', *containers]).splitlines())
+        listing = run(['docker', 'image', 'ls', 'quiet-room-app', '--no-trunc', '--format', '{{.Tag}} {{.ID}}']).splitlines()
+        images = []
+        for row in listing:
+            tag, image = row.split()
+            if SHA.fullmatch(tag) and (tag in keep or tag[:12] in prefixes):
+                protected_ids.add(image)
+            images.append((tag, image))
+        removed_images = 0
+        for tag, image in images:
+            if not SHA.fullmatch(tag) or image in protected_ids:
+                continue
+            # Refuse drift and retain any new container reference; never force.
+            ref = 'quiet-room-app:' + tag
+            if run(['docker', 'image', 'inspect', ref, '--format', '{{.Id}}']) != image:
+                raise ValueError('Image reference changed')
+            run(['docker', 'image', 'rm', ref], timeout=120)
+            removed_images += 1
+        removed_archives = 0
+        for p in archive_plan(directory.iterdir()):
+            if not regular(p):
+                raise ValueError('Archive changed')
+            p.unlink()
+            removed_archives += 1
+        # Only our registered release worktrees; retain current, failed and
+        # unknown paths. Never force removal or follow links.
+        listing = run(['runuser', '-u', 'deploy', '--', 'git', '--git-dir=' + str(ROOT / 'repository.git'),
+                       'worktree', 'list', '--porcelain'])
+        registered = {line[9:] for line in listing.splitlines() if line.startswith('worktree ')}
+        current_path = (ROOT / 'current').resolve()
+        successful_prefixes = {sha[:12] for _, sha in successes}
+        for p in (ROOT / 'git-releases').iterdir():
+            match = re.fullmatch(r'\d{8}T\d{6}Z-([0-9a-f]{12})', p.name)
+            if (not match or p.is_symlink() or not p.is_dir() or str(p) not in registered or
+                    p.resolve() == current_path or match[1] in prefixes or
+                    match[1] in {sha[:12] for sha in keep} or match[1] not in successful_prefixes):
+                continue
+            run(['runuser', '-u', 'deploy', '--', 'git', '--git-dir=' + str(ROOT / 'repository.git'),
+                 'worktree', 'remove', str(p)])
+        # Online builder pruning caused a production outage on this 2 GiB host.
+        # Never run it from the daily timer; cache maintenance requires a
+        # separate supervised window or a remote build host.
+        print(json.dumps({'result': 'CLEANUP_OK', 'imageTagsRemoved': removed_images,
+                          'archivesRemoved': removed_archives, 'metrics': metrics()}))
+    return 0
+
+
+def main():
+    if len(sys.argv) != 2 or sys.argv[1] not in ('check', 'preflight', 'cleanup'):
+        raise ValueError('Usage: quiet-room-capacity check|preflight|cleanup')
+    if sys.argv[1] == 'cleanup':
+        return cleanup()
+    return check(preflight=sys.argv[1] == 'preflight')
+
+
+if __name__ == '__main__':
+    try:
+        sys.exit(main())
+    except Exception as error:
+        # Do not print command stderr, environment values or backup contents.
+        print('CAPACITY_BLOCKED class=' + type(error).__name__, file=sys.stderr)
+        sys.exit(1)

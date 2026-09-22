@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 async function simulate(mode: 'validation-fails' | 'post-open-fails' | 'gate-missing') {
   const directory = await mkdtemp(path.join(tmpdir(), 'quiet-room-cutover-'));
   const source = await readFile(new URL('../deploy/server/quiet-room-deploy', import.meta.url), 'utf8');
-  const flow = source.slice(source.indexOf('rollback()'));
+  const flow = source.slice(source.indexOf('rollback()')).replaceAll('/usr/local/sbin/quiet-room-capacity preflight', 'capacity_preflight');
   const timing = source.slice(source.indexOf('deploy_timing_started='), source.indexOf('# End of timing setup'));
   try {
     await mkdir(path.join(directory, 'new'));
@@ -18,6 +18,8 @@ async function simulate(mode: 'validation-fails' | 'post-open-fails' | 'gate-mis
     const harness = `set -Eeuo pipefail
 cd "$AUDIT_TEST_DIR"
 APP_ROOT="$AUDIT_TEST_DIR"; STATE_DIR="$AUDIT_TEST_DIR"; BACKUP_DIR="$AUDIT_TEST_DIR"
+MAINTENANCE_DIR="$AUDIT_TEST_DIR"
+capacity_preflight() { :; }
 PUBLIC_HEALTH_URL=https://ai.shui.click/api/health
 previous_image=old; new_image=new; previous_compose="$AUDIT_TEST_DIR/previous.yaml"
 release_dir="$AUDIT_TEST_DIR/new"; PROJECT=quiet-room; SHARED_ENV=unused

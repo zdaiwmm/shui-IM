@@ -2,6 +2,52 @@
 
 This service can preserve confidentiality when storage is disclosed, but availability and recovery still depend on ordinary operations. A backup that has never been restored is not a recovery plan.
 
+## Capacity governance
+
+The bounded host tool `deploy/server/quiet-room-capacity` exposes `preflight`,
+`check`, and `cleanup`. Install it separately as root from a reviewed commit;
+normal application deployment must not self-update privileged tools. See
+[the governance requirement](docs/requirements/2026-09-22-capacity-governance/README.md).
+
+- Preflight refuses deployments at 80% disk/inode use, below 400 MiB available
+  memory, or below the larger of 8 GiB and twice the largest retained cold
+  archive plus 6 GiB (4 GiB build reserve and 2 GiB emergency reserve). This is
+  a conservative estimate, not an upper bound on data/build growth. It runs
+  before fetch/build and again before closing business traffic.
+- The five-minute capacity timer records redacted metrics and issue codes in
+  `/var/lib/quiet-room-deploy/capacity-status.json` and the system journal.
+  Disk warning starts at 75%, urgent at 90%; local backup age is 36 hours,
+  offsite verified receipt age 24 hours. A failed unit/local log is not proof
+  that a person received a notification; external alert routing is separate.
+- The daily retention timer shares the deployment lock. It keeps current plus
+  two distinct successful application versions, every container image reference,
+  and all image prefixes associated with failed-cutover archives. A missing or
+  malformed root-owned successful-release registry blocks cleanup. Bootstrap
+  that registry only from independently verified deployment records.
+- Only exact project SHA image tags and registered successful release worktrees
+  are removed. No force removal, volume pruning, live-data cleanup or continuous
+  snapshot deletion is performed. Keep the latest three predeploy archives plus
+  any archive paired with a failed cutover; failed/special archives require a
+  separate case closure and verified offsite retention before deletion.
+- Online backup can continue because cleanup never touches its source/target.
+  Daily cleanup is serialized with deployment; the online backup worker's
+  existing 14-snapshot policy is unchanged until offsite recovery is verified.
+- Do not run automated `docker system df`, global prune, or builder prune on
+  this 2 GiB host. A filtered builder prune caused management/public timeouts
+  during this incident. Cache growth must hit the capacity gate rather than
+  trigger another unsupervised heavy cleanup; use a supervised maintenance
+  window or move builds off the serving host.
+- Checked-in journal and nginx rotation settings cap journal at 300 MiB/7 days
+  and rotate nginx daily or at 20 MiB with seven files. Container logs rotate at
+  10 MiB with three files per container after controlled recreation. Never
+  remove open log files directly; preserve needed incident evidence first.
+
+Install the service/timer files only after checks pass. Root helper, journal,
+nginx rotation and Compose changes have separate activation/verification steps.
+The source files alone do not mean production policy is enabled. Current disk
+capacity must be measured after cleanup and a full readback must verify service
+recovery; 40 GiB cannot support unlimited business-data growth.
+
 ## Backup policy
 
 The included backup worker uses SQLite's online backup API against the live WAL database, removes incomplete attachment reservations from the snapshot, copies only completed immutable ciphertext chunks, verifies SQLite with `PRAGMA quick_check`, and writes SHA-256 checksums for the database and every chunk. It stages into a partial directory and publishes the backup by atomic rename only after verification.
