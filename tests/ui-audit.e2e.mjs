@@ -248,8 +248,6 @@ try {
   await holdCover(creator);
   await capture('welcome', ['mobile', 'small', 'landscape', 'large']);
   await creator.locator('#create-room').click();
-  await capture('passkey', ['mobile', 'small', 'desktop', 'landscape', 'dark', 'large']);
-  await creator.locator('[data-device-verify]').click();
   await creator.locator('.space-invite-sheet').waitFor({ timeout: 15000 });
   await capture('pairing', ['mobile', 'landscape']);
   const invite = await creator.locator('#invite-url').inputValue();

@@ -278,30 +278,6 @@ try {
       gap: secondary.getBoundingClientRect().top - primary.getBoundingClientRect().bottom,
     };
   });
-  await creator.locator('#create-room').click();
-  invariant(await creator.locator('#app > .page-transition-outgoing').count() === 0, 'Welcome copy remained mounted during passkey navigation');
-  const incomingCanvas = await creator.locator('#app > .gateway').evaluate((element) => getComputedStyle(element).backgroundColor);
-  invariant(incomingCanvas !== 'transparent' && incomingCanvas !== 'rgba(0, 0, 0, 0)', `Passkey page has a transparent transition canvas: ${incomingCanvas}`);
-  await assertStablePage(creator, 'Passkey setup page');
-  await assertCredentialLayout(creator, '[data-device-verify]');
-  const setupGap = await creator.evaluate(() => {
-    const primary = document.querySelector('[data-device-verify]');
-    const back = document.querySelector('.gateway-back');
-    return back.getBoundingClientRect().top - primary.getBoundingClientRect().bottom;
-  });
-  invariant(Math.abs(setupGap - welcomeLayout.gap) <= 2, `Setup-key button spacing ${setupGap} does not match welcome ${welcomeLayout.gap}`);
-  if (visualQaDirectory) {
-    await mkdir(visualQaDirectory, { recursive: true });
-    await creator.screenshot({ path: path.join(visualQaDirectory, 'passkey-mobile.png') });
-    await creator.setViewportSize({ width: 320, height: 720 });
-    await assertCredentialLayout(creator, '[data-device-verify]');
-    await creator.screenshot({ path: path.join(visualQaDirectory, 'passkey-small-mobile.png') });
-    await creator.setViewportSize({ width: 1280, height: 900 });
-    await assertCredentialLayout(creator, '[data-device-verify]');
-    await creator.screenshot({ path: path.join(visualQaDirectory, 'passkey-desktop.png') });
-    await creator.setViewportSize({ width: 390, height: 844 });
-  }
-  invariant(await creator.locator('.gesture-pad').count() === 0, 'A new vault still asks for a gesture');
   await creator.evaluate(() => {
     const originalCreate = navigator.credentials.create.bind(navigator.credentials);
     let failOnce = true;
@@ -319,12 +295,12 @@ try {
       },
     });
   });
-  await creator.locator('[data-device-verify]').click();
-  await creator.locator('[data-device-verify]', { hasText: '重新验证' }).waitFor();
-  invariant((await creator.locator('.form-error').textContent())?.includes('未完成设备安全验证'), 'Passkey cancellation did not provide a browser-neutral retry message');
-  await assertCredentialLayout(creator, '[data-device-verify]');
+  await creator.locator('#create-room').click();
+  await creator.locator('#create-room').waitFor();
+  invariant((await creator.locator('.form-error').textContent()) === '', 'Closing the passkey dialog left a cancellation message');
+  invariant(await creator.locator('#new-passkey-name').count() === 0, 'Creating a space still asks for a passkey name');
   invariant(await creator.locator('.cover-trigger').count() === 0, 'Passkey prompt blur unexpectedly activated the privacy curtain');
-  await creator.locator('[data-device-verify]').click();
+  await creator.locator('#create-room').click();
   await creator.locator('.space-invite-sheet').waitFor({ timeout: 15_000 }).catch(async (error) => {
     const visibleError = await creator.locator('.form-error').textContent().catch(() => '');
     throw new Error(`Creator setup did not finish: ${visibleError || await creator.locator('body').innerText()}`, { cause: error });
@@ -338,9 +314,9 @@ try {
     Object.defineProperty(navigator, 'share', { configurable: true, value: async () => { window.__inviteShareCalls++; } });
   });
   await creator.locator('#copy-invite').click();
-  await creator.locator('#app-toast, .notice').filter({ hasText: '链接已复制' }).waitFor();
+  await creator.waitForFunction(() => window.__inviteShareCalls === 1);
   invariant(await creator.locator('.space-invite-sheet').count() === 1, 'Copying the invite link left the invitation page');
-  invariant(await creator.evaluate(() => window.__inviteShareCalls) === 0, 'Copying the invite link unexpectedly opened system sharing');
+  invariant(await creator.locator('#app-toast, .notice').filter({ hasText: '链接已复制' }).count() === 0, 'System share still showed a copy toast');
   const inviteFont = await creator.locator('#copy-invite').evaluate((button) => getComputedStyle(button).fontSize);
   invariant(Number.parseFloat(inviteFont) >= 14, `Invite copy-link font ${inviteFont} does not match welcome primary ${welcomeLayout.font}`);
   invariant(await creator.locator('#pairing-lock').count() === 0, 'Invite page still has a lock control');
