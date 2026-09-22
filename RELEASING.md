@@ -1,5 +1,14 @@
 # Quiet Room 固定发布流程
 
+## 空间抽屉预览与密钥复用已发布（2026-09-22 14:14）
+
+- 用户确认合并并发布生产。PR [#191](https://github.com/zdaiwmm/shui-IM/pull/191) 已合并，线上应用 SHA `013617cc81f96b79a8450543ea4c42471173a190`，版本 `2026.09.22.1`。产品提交 `5f74da7da4187a3322e180be93fa3045a8ae13d8` 与发布提交文件树一致。
+- 空间列表预览改为本机已解密的最新可见消息，包含未读；已解锁时，创建空间和切换同一设备密钥的空间不再额外验证通行密钥。列表标题改为“其他空间”，日间描边对齐夜间，右上角爱心按视觉重心对齐按钮。
+- PR CI [35693124006](https://github.com/zdaiwmm/shui-IM/actions/runs/35693124006) 与精确 main CI [35693450384](https://github.com/zdaiwmm/shui-IM/actions/runs/35693450384) 全部通过。产品提交前本地 `npm run check` 通过 81 个文件／665 项，`tests/spaces.e2e.mjs` 通过。
+- 固定入口取得 `DEPLOY_OK`、`DEPLOY_VERIFIED` 并核对精确回执。批次 `20260922T061216Z`，发布目录 `/opt/quiet-room/git-releases/20260922T061216Z-013617cc81f9`，切换前冷备份 `/opt/quiet-room/backups/predeploy/data-20260922T061216Z-013617cc81f9.tar.gz` 已校验。镜像构建 46 秒，冷备份 53 秒，服务器部署 139 秒，固定入口总耗时 366417ms，其中等待 main CI 170836ms。
+- 独立 `READBACK_OK` 于 `2026-09-22T06:14:58.888Z` 核对线上 SHA、镜像 `sha256:1108c9cd33e723437316cf802f3992367fcdef060ec30c83cf10df19f3791f84`、HTTPS／数据库／存储、公开产物及新建 WebSocket 一致。应用运行且健康，备份容器运行但无健康探针，维护标记不存在；管理员开启，通话关闭，TURN 不存在。脱敏证据 `quiet-room-readback/20260922T061455724Z-013617cc81f9-success.json`，回读耗时 3163ms。
+- iPhone / iOS 27 / Safari 真机尚未验证。本次对账不触发再次部署。
+
 ## 多私密空间与抽屉精修已发布（2026-09-22 02:21）
 
 - 用户确认集成、合并并发布；PR [#188](https://github.com/zdaiwmm/shui-IM/pull/188) 的多空间能力及 PR [#189](https://github.com/zdaiwmm/shui-IM/pull/189) 的 S6 交互已随精确提交 `5cc445d7be86847065f9d6713222fa09581ae38b` 上线，版本 `2026.09.21.3`。本次不包含跨浏览器便捷接入与加密恢复方案。
