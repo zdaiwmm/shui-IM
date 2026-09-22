@@ -69,7 +69,13 @@ try {
   let freshRequests=0;fresh.page.on('request',r=>{if(r.method()==='POST'&&/browser-access/.test(r.url()))freshRequests++;});
   await fresh.page.evaluate(()=>{window.cancelNext=true;});await fresh.page.locator('#continue-browser').click();
   await fresh.page.getByText('验证已取消，未发送请求。').waitFor();assert.equal(freshRequests,0);
-  await fresh.page.locator('#continue-browser').click();await fresh.page.getByRole('heading',{name:'等待其他设备批准'}).waitFor();
+  await fresh.page.locator('#continue-browser').click();await fresh.page.getByRole('heading',{name:'等待原浏览器批准'}).waitFor();
+  let canceledRequests=0;fresh.page.on('request',r=>{if(r.method()==='DELETE'&&/browser-access/.test(r.url()))canceledRequests++;});
+  await fresh.page.evaluate(()=>{window.cancelNext=true;});
+  await fresh.page.locator('#browser-access-reselect').click();
+  await fresh.page.getByText('验证已取消，未发送请求。').waitFor();
+  assert.equal(canceledRequests,1);
+  await fresh.page.locator('#continue-browser').click();await fresh.page.getByRole('heading',{name:'等待原浏览器批准'}).waitFor();
   assert.equal(await fresh.page.getByText('私密空间 1',{exact:true}).count(),0);
   await old.page.locator('.browser-access-modal').waitFor();
   assert.equal(await old.page.locator('.browser-access-modal .access-code').textContent(),await fresh.page.locator('.access-code').textContent());

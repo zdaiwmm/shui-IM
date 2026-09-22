@@ -1,4 +1,6 @@
 import './browser-access.css';
+import { openPasskeyManagement } from './lib/passkey-management';
+import { defaultPasskeyName, normalizePasskeyName, verifyPasskeyDetails } from './lib/platform-vault';
 import { browserAccessCredential } from './lib/platform-vault';
 import { readBrowserAccessRecord } from './lib/vault';
 import { completeBrowserAccessJoin } from './lib/mls';
@@ -477,6 +479,7 @@ export class QuietRoomApp {
   private gatewayUnlockAbort: AbortController | null = null;
   private gatewayFocusAbort: AbortController | null = null;
   private deviceVerificationActive = false;
+  private deviceVerificationForegroundOnly = false;
   private systemSurfaceTokens = new Set<symbol>();
   private systemSurfaceHandoff: {
     runtimeEpoch: number;
@@ -1020,6 +1023,7 @@ export class QuietRoomApp {
     document.addEventListener('visibilitychange', () => {
       this.cancelCoverTimer();
       if (this.expireDeviceVerification()) return;
+      if (document.hidden && this.deviceVerificationForegroundOnly && this.deviceVerificationActive) { this.expireDeviceVerification(true); return; }
       if (document.hidden) {
         this.coverEntryEpoch += 1;
         this.clearKeyboardHandoff();
@@ -1753,6 +1757,8 @@ export class QuietRoomApp {
         ? '当前浏览器不支持通行密钥。请升级浏览器或改用支持 WebAuthn PRF 的浏览器。'
         : '当前连接不是浏览器信任的 HTTPS 安全环境。局域网测试请先信任开发证书。';
     return `
+      <label class="passkey-name-field">通行密钥名称<input id="new-passkey-name" value="${accessEscape(defaultPasskeyName())}" autocomplete="off" spellcheck="false"></label>
+      <p class="field-hint">用于在系统中辨认这把密钥，请勿填写聊天隐私。</p>
       <p class="setup-follow-hint">${instruction}</p>
       <div class="welcome-actions">
         <button class="primary-button" type="button" data-device-verify>${buttonLabel}</button>
@@ -1773,6 +1779,10 @@ export class QuietRoomApp {
     let busy = false;
     verifyButton.addEventListener('click', () => {
       if (busy) return;
+      const nameInput = this.root.querySelector<HTMLInputElement>('#new-passkey-name');
+      let name: string;
+      try { name = normalizePasskeyName(nameInput?.value ?? defaultPasskeyName()); }
+      catch (cause) { error.textContent = (cause as Error).message; nameInput?.focus(); return; }
       const epoch = this.runtimeEpoch;
       const session = this.session;
       const active = () => verifyButton.isConnected && !this.privacyCovered && this.runtimeEpoch === epoch && this.session === session;
@@ -1787,7 +1797,7 @@ export class QuietRoomApp {
               record: createdPlatformRecord!,
               prfOutput: await unlockPlatformCredential(createdPlatformRecord!),
             }))
-          : this.withDeviceVerification(() => createPlatformCredential(record => { createdPlatformRecord = record; }));
+          : this.withDeviceVerification(() => createPlatformCredential(record => { createdPlatformRecord = record; if (nameInput) nameInput.readOnly = true; }, name));
       void platformProof.catch(() => undefined);
       setBusy(verifyButton, true, preparedPlatformCredential ? '正在重试…' : '正在验证…');
       void (async () => {
@@ -2023,7 +2033,7 @@ export class QuietRoomApp {
     const viewportHeight = Math.max(1, window.visualViewport?.height ?? window.innerHeight);
     const keyboardSpace = Math.max(0, layoutHeight - viewportHeight);
     if (!event.isTrusted || event.button !== 0 || !event.isPrimary || this.desktopBrowser
-      || this.privacyCovered || !this.session || this.activeSurface !== 'chat'
+      || this.privacyCovered || !this.session || (this.activeSurface !== 'chat' && !input.closest('.passkey-name-overlay'))
       || document.hidden || !document.hasFocus() || !input.isConnected || input.disabled
       || document.documentElement.dataset.keyboardOpen === 'true' || keyboardSpace > 120
       || this.nativeSurfaceActive() || this.expireIdleSession()) return false;
@@ -2047,7 +2057,7 @@ export class QuietRoomApp {
 
   private keyboardHandoffValid(handoff: NonNullable<QuietRoomApp['keyboardHandoff']>): boolean {
     return this.keyboardHandoff === handoff && handoff.runtimeEpoch === this.runtimeEpoch
-      && handoff.session === this.session && !this.privacyCovered && this.activeSurface === 'chat'
+      && handoff.session === this.session && !this.privacyCovered && (this.activeSurface === 'chat' || Boolean(handoff.input.closest('.passkey-name-overlay')))
       && handoff.input.isConnected && !handoff.input.disabled && !this.nativeSurfaceActive();
   }
 
@@ -2308,7 +2318,9 @@ export class QuietRoomApp {
     }
   }
 
-  private async withDeviceVerification<T>(operation: () => Promise<T>): Promise<T> {
+  private async withDeviceVerification<T>(operation: () => Promise<T>, foregroundOnly = false): Promise<T> {
+    // A keyboard handoff must not be inherited by a fresh native verification.
+    if (foregroundOnly && this.invalidateKeyboardHandoff()) throw new DOMException('设备验证流程已经结束', 'AbortError');
     // Recovery/migration have decrypted key material but have not opened a
     // conversation or socket. Their native prompt needs the same bounded
     // protection as first-time enrollment. Never exempt an open conversation.
@@ -2316,7 +2328,7 @@ export class QuietRoomApp {
     // or exporting a local backup) and still need that protection: otherwise
     // the passkey sheet blurs the window and locks before the next page.
     if (
-      !this.root.querySelector('.recovery-flow-page') &&
+      !foregroundOnly && !this.root.querySelector('.recovery-flow-page') &&
       this.session &&
       (!this.root.querySelector('.gateway') || this.socket)
     ) return operation();
@@ -2327,6 +2339,7 @@ export class QuietRoomApp {
     this.deviceVerificationFocusSettle = null;
     this.deviceVerificationToken = token;
     this.deviceVerificationActive = true;
+    this.deviceVerificationForegroundOnly = foregroundOnly;
     this.deviceVerificationDeadline = performance.now() + timeout;
     this.deviceVerificationWallDeadline = Date.now() + timeout;
     const timer = window.setTimeout(() => {
@@ -2498,11 +2511,18 @@ export class QuietRoomApp {
       const status=await accessApi<AccessStatus>(mailboxPath(keys,requestId),keys.token,abort.signal,'POST',request);
       if(!active())return;
       const deadline=accessDeadline(status.expiresAt,status.serverTime);
-      this.gatewayTemplate('等待其他设备批准', '请在其他已授权的在线设备上解锁并完成授权。', `<p class="access-code">${code}</p><p class="field-hint">请核对两边显示的六位码。此步骤仅认可浏览器。</p><p class="access-countdown"></p><button class="text-button" id="browser-access-cancel">取消</button><p class="form-error" role="alert"></p>`);
+      this.gatewayTemplate('等待原浏览器批准', '请打开之前使用的浏览器，解锁空间并批准本次接入。', `<p class="access-code">${code}</p><p class="field-hint">请核对两边显示的六位码。此步骤只接入空间列表，聊天仍需对方授权。</p><p class="access-countdown"></p><button class="secondary-button" id="browser-access-reselect">重新选择通行密钥</button><button class="text-button" id="browser-access-cancel">取消接入</button><p class="form-error" role="alert"></p>`);
+      this.root.querySelector('#browser-access-reselect')!.addEventListener('click', () => {
+        abort.abort();
+        void accessApi(mailboxPath(keys,requestId),keys.token,AbortSignal.timeout(5000),'DELETE').catch(()=>undefined);
+        this.browserBindingProof?.fill(0);this.browserBindingProof=null;
+        this.renderFirstRun(null);
+        void this.beginBrowserAccess(this.root.querySelector<HTMLButtonElement>('#continue-browser')!);
+      });
       this.root.querySelector('#browser-access-cancel')!.addEventListener('click',()=>{void accessApi(mailboxPath(keys,requestId),keys.token,AbortSignal.timeout(5000),'DELETE').catch(()=>undefined);abort.abort();this.browserBindingProof?.fill(0);this.browserBindingProof=null;this.renderFirstRun(null);});
       const poll=async()=>{
         if(!active())return;
-        if(performance.now()>=deadline){this.gatewayTemplate('本次请求已过期','请重新验证后发起接入请求。','<button class="primary-button" id="access-retry">重新验证</button><p class="form-error" role="alert"></p>');const retry=this.root.querySelector<HTMLButtonElement>('#access-retry')!;retry.addEventListener('click',()=>void this.beginBrowserAccess(retry));return;}
+        if(performance.now()>=deadline){this.gatewayTemplate('暂未收到批准','原浏览器可能未在线或未解锁，也可能选择了另一把通行密钥。请确认后重新接入。','<button class="primary-button" id="access-retry">重新验证</button><p class="form-error" role="alert"></p>');const retry=this.root.querySelector<HTMLButtonElement>('#access-retry')!;retry.addEventListener('click',()=>void this.beginBrowserAccess(retry));return;}
         const label=this.root.querySelector('.access-countdown');if(label)label.textContent=`剩余 ${Math.ceil((deadline-performance.now())/1000)} 秒`;
         try {
           const result=await accessApi<AccessStatus>(mailboxPath(keys,requestId),keys.token,abort.signal);
@@ -2682,7 +2702,7 @@ export class QuietRoomApp {
         </div>
         <div class="welcome-actions">
           <button class="primary-button" id="create-room" type="button">创建私密空间</button>
-          <button class="secondary-button" id="continue-browser" type="button">在此浏览器继续使用</button>
+          <button class="secondary-button" id="continue-browser" type="button">接入本设备现存私密空间</button>
           <button class="text-button" id="restore-cloud" type="button">${this.returnSpaceId ? '返回' : '恢复私密空间'}</button>
           <p class="form-error" role="alert"></p>
         </div>
@@ -4631,6 +4651,11 @@ export class QuietRoomApp {
           { id: 'local-history-backup', label: '备份数据', icon: spaceIcons.upload, run: forward(() => void this.renderLocalHistoryBackup('export')) },
           { id: 'local-history-restore', label: '恢复数据', icon: spaceIcons.download, run: forward(() => void this.renderLocalHistoryBackup('import')) },
           { id: 'recover-other-space', label: '恢复其他空间', icon: spaceIcons.spaces, run: forward(() => this.renderJointRecovery(null)) },
+          { id: 'passkey-management', group: '本机', label: '通行密钥管理', icon: spaceIcons.key, keepOpen: true, run: () => {
+            const credential = this.deviceCredential;
+            if (!credential) return Promise.reject(new Error('请先完成通行密钥绑定'));
+            return openPasskeyManagement(this.root, { session, credential, signal, prepareKeyboard: (input, event) => { this.beginKeyboardHandoff(input, event); }, verify: verificationSignal => this.withDeviceVerification(() => verifyPasskeyDetails(credential, verificationSignal), true) });
+          } },
           { id: 'cover-practice-menu', group: '本机', label: session.vault.recoveryExperience?.coverEnabled ? '关闭自动遮蔽' : '体验或开启遮蔽', icon: spaceIcons.cover, run: () => session.vault.recoveryExperience?.coverEnabled ? this.confirmDisableCover() : this.renderCoverPractice() },
           { id: 'release-history', group: '关于', label: '更新记录', icon: spaceIcons.history, run: forward(() => this.renderReleaseHistory()) },
         ],

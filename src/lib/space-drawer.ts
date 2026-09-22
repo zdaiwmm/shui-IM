@@ -13,10 +13,10 @@ export const spaceIcons = {
 const arrow = createElement(ChevronRight).outerHTML, check = createElement(Check).outerHTML, heart = createElement(Heart).outerHTML;
 const closeIcon = createElement(X).outerHTML;
 const escape = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-type Action = { id: string; label: string; icon: string; group?: '当前空间' | '本机' | '关于'; run: () => void };
+type Action = { id: string; label: string; icon: string; group?: '当前空间' | '本机' | '关于'; keepOpen?: boolean; run: () => void | Promise<void> };
 
 /** Follow the visual viewport when the native keyboard opens, without resizing the chat. */
-function fitViewport(element: HTMLElement, signal: AbortSignal) {
+export function fitViewport(element: HTMLElement, signal: AbortSignal) {
   const fit = () => {
     const viewport = window.visualViewport;
     element.style.top = `${viewport?.offsetTop ?? 0}px`;
@@ -40,7 +40,7 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
   const sheet = document.createElement('div'); sheet.className = 'space-drawer-overlay'; sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', '私密空间');
   root.append(sheet);
   let styleDirty = false, busy = false, listScrollTop = 0;
-  const dialog = mountDialog(sheet, { signal: options.signal, isActive: () => !options.signal.aborted, onClose: () => {
+  const dialog = mountDialog(sheet, { signal: options.signal, isActive: () => !options.signal.aborted, beforeClose: () => !busy, onClose: () => {
     lifetime.abort(); options.closed();
     if (styleDirty && !options.signal.aborted) options.styleChanged(readPresenceStyle());
   } });
@@ -117,7 +117,7 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
     const setting = (a: Action) => `<button class="space-setting" id="${a.id}"><span class="space-setting-icon" aria-hidden="true">${a.icon}</span><span class="space-setting-label">${escape(a.label)}</span>${arrow}</button>`;
     page('设置', `${(['当前空间','本机','关于'] as const).map(group => `<section class="space-setting-group"><h3>${group}</h3>${group === '本机' ? `<button class="space-setting" id="presence-style-setting"><span class="space-setting-icon" aria-hidden="true">${heart}</span><span class="space-setting-label">在线状态样式<small>${readPresenceStyle() === 'heart' ? '心动按钮' : '在线胶囊'}</small></span>${arrow}</button>` : ''}${options.actions.filter(a => (a.group ?? '当前空间') === group).map(setting).join('')}</section>`).join('')}`, '', list);
     sheet.querySelector('#presence-style-setting')!.addEventListener('click', () => { styles(); sheet.querySelector<HTMLButtonElement>('[aria-checked=true]')?.focus(); });
-    for (const action of options.actions) sheet.querySelector(`#${action.id}`)!.addEventListener('click', () => { dialog.close({ animate: false }); action.run(); });
+    for (const action of options.actions) sheet.querySelector(`#${action.id}`)!.addEventListener('click', () => { if (action.keepOpen) void run(async () => { await action.run(); }); else { dialog.close({ animate: false }); void action.run(); } });
   }
   function authorizations() {
     sheet.querySelectorAll<HTMLButtonElement>('[data-access]').forEach(button=>{const space=options.spaces[Number(button.dataset.access)];const action=space&&options.authorization?.(space);button.hidden=!action||action.deadline<=performance.now();});

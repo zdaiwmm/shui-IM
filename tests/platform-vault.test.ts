@@ -259,3 +259,77 @@ describe('platform vault WebAuthn cancellation', () => {
     expect(output.every(value => value === 0)).toBe(true);
   });
 });
+
+describe('passkey names and identity-bound management', () => {
+  beforeEach(() => {
+    vi.stubGlobal('location', { hostname: 'ai.shui.click', origin: 'https://ai.shui.click' });
+    vi.stubGlobal('PublicKeyCredential', FakePublicKeyCredential);
+    vi.stubGlobal('AuthenticatorAttestationResponse', FakeAttestationResponse);
+    vi.stubGlobal('AuthenticatorAssertionResponse', FakeAssertionResponse);
+    vi.stubGlobal('window', { isSecureContext: true, PublicKeyCredential: FakePublicKeyCredential });
+  });
+  afterEach(() => { vi.unstubAllGlobals(); delete (FakePublicKeyCredential as any).signalCurrentUserDetails; });
+  it('counts graphemes, trims, and rejects blank/control/long names', async () => {
+    const { normalizePasskeyName } = await import('../src/lib/platform-vault');
+    expect(normalizePasskeyName('  我的密钥  ')).toBe('我的密钥');
+    expect(normalizePasskeyName('👨‍👩‍👧'.repeat(40))).toBe('👨‍👩‍👧'.repeat(40));
+    for (const value of ['', ' ', 'x'.repeat(41), 'x\ny', '\nx', 'x\u202ey']) expect(() => normalizePasskeyName(value)).toThrow();
+  });
+  it('sets both authenticator labels and persists the original user ID', async () => {
+    const create = vi.fn().mockResolvedValue(new FakePublicKeyCredential(new FakeAttestationResponse(), { prf: { enabled: true, results: { first: new Uint8Array(32).buffer } } } as any));
+    vi.stubGlobal('navigator', { credentials: { create } });
+    const result = await createPlatformCredential(undefined, '我的通行密钥');
+    expect(create.mock.calls[0]![0].publicKey.user.name).toBe('我的通行密钥');
+    expect(create.mock.calls[0]![0].publicKey.user.displayName).toBe('我的通行密钥');
+    expect(result.record.userName).toBe('我的通行密钥');
+    expect(result.record.userId).toHaveLength(43);
+  });
+  function assertion(userId?: Uint8Array) {
+    const response = new FakeAssertionResponse();
+    Object.assign(response, { userHandle: userId?.buffer ?? null });
+    const get = vi.fn().mockImplementation(async () => new FakePublicKeyCredential(response, { prf: { results: { first: new Uint8Array(32).fill(7).buffer } } } as any));
+    vi.stubGlobal('navigator', { credentials: { get } });
+    return get;
+  }
+  it('recovers a legacy user handle and does not substitute the credential ID', async () => {
+    const { verifyPasskeyDetails } = await import('../src/lib/platform-vault');
+    const get = assertion(new Uint8Array([8, 9]));
+    expect(await verifyPasskeyDetails({ record, prfOutput: new Uint8Array(32).fill(7) }, new AbortController().signal)).toBe('CAk');
+    expect(get.mock.calls[0]![0].publicKey.allowCredentials).toHaveLength(1);
+  });
+  it('rejects a different derived proof and a different user handle', async () => {
+    const { verifyPasskeyDetails } = await import('../src/lib/platform-vault');
+    assertion(new Uint8Array([8, 9]));
+    await expect(verifyPasskeyDetails({ record, prfOutput: new Uint8Array(32) }, new AbortController().signal)).rejects.toThrow('不匹配');
+    await expect(verifyPasskeyDetails({ record: { ...record, userId: 'AAAA' }, prfOutput: new Uint8Array(32).fill(7) }, new AbortController().signal)).rejects.toThrow('标识不匹配');
+  });
+  it('does not invent a user ID when an old provider omits it', async () => {
+    const { verifyPasskeyDetails } = await import('../src/lib/platform-vault');
+    assertion();
+    expect(await verifyPasskeyDetails({ record, prfOutput: new Uint8Array(32).fill(7) }, new AbortController().signal)).toBeUndefined();
+  });
+  it('fences late results after cancellation', async () => {
+    const { verifyPasskeyDetails } = await import('../src/lib/platform-vault');
+    assertion(new Uint8Array([8, 9]));
+    const abort = new AbortController();
+    const pending = verifyPasskeyDetails({ record, prfOutput: new Uint8Array(32).fill(7) }, abort.signal); abort.abort();
+    await expect(pending).rejects.toThrow();
+  });
+  it('signals only label fields on the original user ID without mutating crypto metadata', async () => {
+    const { signalPasskeyName } = await import('../src/lib/platform-vault');
+    assertion();
+    const signal = vi.fn().mockResolvedValue(undefined); (FakePublicKeyCredential as any).signalCurrentUserDetails = signal;
+    const before = structuredClone(record);
+    await signalPasskeyName(record, 'CAk', '新名称', new AbortController().signal);
+    expect(signal).toHaveBeenCalledWith({ rpId: 'ai.shui.click', userId: 'CAk', name: '新名称', displayName: '新名称' });
+    expect(record).toEqual(before);
+  });
+  it('fails closed for unsupported environments and aborted operations', async () => {
+    const { signalPasskeyName, passkeyNamingSupported } = await import('../src/lib/platform-vault');
+    assertion(); expect(passkeyNamingSupported()).toBe(false);
+    await expect(signalPasskeyName(record, 'CAk', '新名称', new AbortController().signal)).rejects.toThrow('不支持');
+    const signal = vi.fn(); (FakePublicKeyCredential as any).signalCurrentUserDetails = signal;
+    const abort = new AbortController(); abort.abort();
+    await expect(signalPasskeyName(record, 'CAk', '新名称', abort.signal)).rejects.toThrow(); expect(signal).not.toHaveBeenCalled();
+  });
+});

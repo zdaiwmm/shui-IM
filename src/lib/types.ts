@@ -176,6 +176,9 @@ export type LegacyStoredVault = {
 
 export type PlatformCredentialRecord = {
   credentialId: string;
+  /** Public authenticator labels, never authentication or encryption material. */
+  userId?: string;
+  userName?: string;
   /** The RP ID used at registration. Optional only for pre-migration vaults. */
   rpId?: string;
   origin?: string;

@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 通行密钥命名与管理本地验收完成（2026-09-22）
+
+- 用户确认 D2 并要求“按照方案实施”；独立分支 `codex/passkey-management-design-20260922`，基线 `675e2b3`。详见[需求与验收记录](../requirements/2026-09-22-passkey-management/README.md)。
+- 已实现可读命名、设置入口直接验证、改名弹窗与独立保存验证，以及接入重选；构建及 85 文件／701 项单测通过，41 组浏览器检查在修正后定向重跑及续跑中全部覆盖通过。版本候选 `2026.09.22.3`，进入 PR 交付，未发布。
+- 已有独立 iPhone 实验确认系统改名可行；正式 UI 真机验收待补，本轮未检测到 USB iPhone。生产状态仍以下方既有回读为准。
+
 ## 容量治理已发布（2026-09-22 19:32）
 
 - 用户确认精确提交 `52c582c646f1b3c760337dcf6f58a17927b2a92c`，PR [#196](https://github.com/zdaiwmm/shui-IM/pull/196) 与 main 完整 CI 通过；本地最终 85 文件／693 项测试通过。固定入口返回 `DEPLOY_VERIFIED`，独立回读返回 `READBACK_OK`，证据 `quiet-room-readback/20260922T113221167Z-52c582c646f1-success.json`。本节取代下方此前时点的未安装状态。
