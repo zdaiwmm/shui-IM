@@ -1,10 +1,11 @@
 .browser-access-shell .access-empty{display:flex;flex:1;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px 24px;color:var(--ink-muted);gap:12px;overflow:auto;min-height:0}
-.browser-access-shell .access-empty h2{font-size:20px;color:var(--ink);margin:0}
-.browser-access-shell .access-empty p{max-width:28em;line-height:1.65;margin:0}
-.browser-access-shell .access-composer{display:flex;flex-direction:column;gap:8px;padding:16px 20px calc(16px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--surface)}
-.browser-access-shell .access-composer .primary-button{width:100%}
+.browser-access-shell .access-empty .gateway-mark{margin:0 0 8px}
+.browser-access-shell .access-empty h2{font-size:22px;font-weight:700;color:var(--ink);margin:0}
+.browser-access-shell .access-empty p{max-width:22em;line-height:1.65;margin:0}
+.browser-access-shell .access-composer{display:flex;flex-direction:column;gap:12px;padding:8px 20px calc(16px + env(safe-area-inset-bottom));background:transparent}
+.browser-access-shell .access-composer .primary-button,.browser-access-shell .access-composer .text-button{width:100%}
 .access-code{font-size:28px;letter-spacing:.22em;font-variant-numeric:tabular-nums;text-align:center;margin:20px 0}
-.access-countdown{font-variant-numeric:tabular-nums;text-align:center;color:var(--ink-muted);font-size:13px}
+.access-countdown{font-variant-numeric:tabular-nums;text-align:center;color:var(--accent);font-size:15px;font-weight:650;margin:8px 0 0}
 .browser-access-modal .space-name-dialog>p{line-height:1.6}
 .browser-access-modal .access-close{align-self:flex-end;margin-left:auto;min-height:44px}
 .space-access-row{display:flex;align-items:center;gap:8px}

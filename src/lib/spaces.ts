@@ -117,6 +117,15 @@ export async function rememberLocalSpace(session: VaultSession, inheritedCode?: 
     return spaces;
   });
 }
+export async function forgetLocalSpace(session: VaultSession, roomId: string): Promise<PrivateSpace[]> {
+  return withVaultMutation(session, async mutation => {
+    const code = session.vault.spaceRecoveryCode;
+    if (!code) return [];
+    const spaces = (await read(code)).filter(space => space.roomId !== roomId);
+    await writeLocalSpaceDirectory(session, spaceCodeId(code), await sealSpaceDirectory(code, spaces), mutation);
+    return spaces;
+  });
+}
 export async function localSpaces(session: VaultSession): Promise<PrivateSpace[]> {
   const spaces = await rememberLocalSpace(session);
   const present = await Promise.all(spaces.map(s => s.localId ? localSpaceExists(s.localId) : false));

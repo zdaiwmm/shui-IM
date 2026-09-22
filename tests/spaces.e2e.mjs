@@ -104,6 +104,9 @@ try {
   assert.notEqual(createdSlot,'current');
   assert.equal(await page.evaluate(() => app.session.browserAccessPrf?.some(byte => byte !== 0) && JSON.stringify(Array.from(app.session.browserAccessPrf)) === JSON.stringify(expectedAccessProof)), true, 'Creating with the unlocked credential must preserve the separate browser-request proof');
   await page.locator('#invite-close').click();
+  await page.locator('.space-invite-sheet').waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(() => app.activeSurface), 'chat', 'Closing the invite must return to chat');
+  await page.locator('#open-spaces').click();
   await page.locator('.space-row.is-selected').waitFor();
   assert.equal(await page.locator('.space-row').count(),3);
   await page.locator('.space-row.is-selected').click();
