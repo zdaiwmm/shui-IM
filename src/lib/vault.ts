@@ -366,6 +366,8 @@ function validatePlatformRecord(value: unknown): value is PlatformCredentialReco
     isBoundedBase64(record.credentialId, 16, 2048) &&
     (record.rpId === undefined || (typeof record.rpId === 'string' && record.rpId.length >= 1 && record.rpId.length <= 253)) &&
     (record.origin === undefined || (typeof record.origin === 'string' && record.origin.length >= 1 && record.origin.length <= 2048)) &&
+    (record.userId === undefined || isBoundedBase64(record.userId, 1, 86)) &&
+    (record.userName === undefined || (typeof record.userName === 'string' && record.userName.length <= 4096)) &&
     isBoundedBase64(record.prfSalt, 20, 128) &&
     Array.isArray(record.transports) && record.transports.length <= 8 &&
     record.transports.every((transport) => typeof transport === 'string' && transport.length <= 32) &&
@@ -2204,4 +2206,30 @@ export async function writeBrowserAccessRecord(value: unknown, signal: AbortSign
 export async function writeLocalSpaceDirectory(session: VaultSession, id: string, value: unknown, mutation: VaultMutation): Promise<void> {
   if (!ownsVaultMutation(session, mutation)) throw staleVaultError();
   await transaction('spaces', 'readwrite', store => store.put(value, id), session.stored);
+}
+
+
+/** Public label only. Shared by local spaces, never sent to room/catalog APIs. */
+export async function readPasskeyName(record: PlatformCredentialRecord): Promise<string | undefined> {
+  const saved = await transaction('security', 'readonly', store => store.get(`passkey-name:${record.credentialId}`));
+  return typeof saved === 'string' ? saved : record.userName;
+}
+export async function writePasskeyName(session: VaultSession, record: PlatformCredentialRecord, name: string, signal: AbortSignal): Promise<void> {
+  await withVaultLifecycle(async () => {
+    signal.throwIfAborted();
+    const db = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(['security', 'vault'], 'readwrite');
+      const abort = () => { try { tx.abort(); } catch { /* Already committed. */ } };
+      signal.addEventListener('abort', abort, { once: true });
+      const request = tx.objectStore('vault').get(vaultSpaceId(session.stored));
+      request.onsuccess = () => {
+        if (signal.aborted || !sameStoredVault(request.result, session.stored)) { abort(); return; }
+        tx.objectStore('security').put(name, `passkey-name:${record.credentialId}`);
+      };
+      const cleanup = () => { signal.removeEventListener('abort', abort); db.close(); };
+      tx.oncomplete = () => { cleanup(); resolve(); };
+      tx.onabort = () => { cleanup(); reject(staleVaultError()); };
+    });
+  });
 }

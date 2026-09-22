@@ -28,6 +28,7 @@ type PrfCredentialRequestOptions = CredentialRequestOptions & {
 
 const encoder = new TextEncoder();
 export const browserAccessPrfSalt = () => encoder.encode('quiet-room-browser-access-rendezvous-v1');
+const assertionUsers = new WeakMap<Uint8Array<ArrayBuffer>, string>();
 const accessPrfs = new WeakMap<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>>();
 /** Move the second PRF into the unlocked session; never persist it in a vault. */
 export function takeBrowserAccessPrf(output: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> | undefined {
@@ -147,6 +148,9 @@ async function evaluatePrf(record: PlatformCredentialRecord, signal?: AbortSigna
   if (backupEligible !== record.backupEligible) throw new Error('通行密钥属性发生异常变化');
   const output = prfBytes(assertion);
   if (!output) throw new Error('该通行密钥不支持保险库密钥派生');
+  const user = assertion.response.userHandle;
+  if (user?.byteLength && user.byteLength <= 64) assertionUsers.set(output, toBase64Url(user));
+  if (signal?.aborted) { output.fill(0); takeBrowserAccessPrf(output)?.fill(0); signal.throwIfAborted(); }
   return output;
 }
 
@@ -163,8 +167,10 @@ export type PlatformCredentialResult = {
 
 export async function createPlatformCredential(
   onCreated?: (record: PlatformCredentialRecord) => void,
+  requestedName = defaultPasskeyName(),
 ): Promise<PlatformCredentialResult> {
   requireWebAuthn();
+  const userName = normalizePasskeyName(requestedName), userId = randomBytes(32);
   const prfSalt = randomBytes(32);
   try {
     const credential = await runWebAuthnCeremony(() => navigator.credentials.create({
@@ -172,9 +178,9 @@ export async function createPlatformCredential(
         challenge: randomBytes(32),
         rp: { id: location.hostname, name: 'Quiet Room' },
         user: {
-          id: randomBytes(32),
-          name: `vault-${crypto.randomUUID()}`,
-          displayName: 'Quiet Room 本机保险库',
+          id: userId,
+          name: userName,
+          displayName: userName,
         },
         pubKeyCredParams: [
           { type: 'public-key', alg: -7 },
@@ -202,6 +208,8 @@ export async function createPlatformCredential(
     const response = credential.response;
     const record: PlatformCredentialRecord = {
       credentialId: toBase64Url(credential.rawId),
+      userId: toBase64Url(userId),
+      userName,
       rpId: location.hostname,
       origin: location.origin,
       prfSalt: toBase64Url(prfSalt),
@@ -213,6 +221,7 @@ export async function createPlatformCredential(
     // Registration is already durable in the authenticator at this point. Give
     // the caller the exact record before a possible fallback assertion so a
     // canceled PRF read can be retried without creating another orphan passkey.
+    try { localStorage.setItem('quiet-room:passkey-sequence', String(passkeySequence())); } catch { /* Label hints are optional. */ }
     onCreated?.(structuredClone(record));
     const output = prfBytes(credential) ?? await evaluatePrf(record);
     return { record, prfOutput: output };
@@ -289,4 +298,53 @@ export function platformCredentialLabel(record: PlatformCredentialRecord): strin
   if (record.backupEligible) return '可同步通行密钥';
   if (record.authenticatorAttachment === 'platform') return '本机通行密钥';
   return '通行密钥';
+}
+
+
+export function normalizePasskeyName(value: string): string {
+  if (value.length > 4096) throw new Error('名称过长，请使用简短名称');
+  const name = value.trim();
+  const length = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(name)].length;
+  if (!length || length > 40 || /[\p{Cc}\p{Zl}\p{Zp}\u200b\u202a-\u202e\u2066-\u2069]/u.test(value)) {
+    throw new Error('请输入 1–40 个字符的名称，不包含控制字符');
+  }
+  return name;
+}
+function passkeySequence(): number {
+  try { const previous = Number(localStorage.getItem('quiet-room:passkey-sequence')); return Number.isSafeInteger(previous) && previous >= 0 && previous < 9999 ? previous + 1 : 1; }
+  catch { return 1; }
+}
+export function defaultPasskeyName(): string {
+  const date = new Date();
+  // A readable local hint, never a device fingerprint or a uniqueness claim.
+  const suffix = String(passkeySequence()).padStart(2, '0');
+  return `Quiet Room · ${String(date.getMonth() + 1).padStart(2, '0')}月${String(date.getDate()).padStart(2, '0')}日 · ${suffix}`;
+}
+type UserDetailsApi = typeof PublicKeyCredential & {
+  signalCurrentUserDetails?: (details: { rpId: string; userId: string; name: string; displayName: string }) => Promise<void>;
+};
+export function passkeyNamingSupported(): boolean {
+  return platformVaultSupported() && typeof (PublicKeyCredential as UserDetailsApi).signalCurrentUserDetails === 'function';
+}
+/** Fresh assertion, bound to the credential AND the proof which unlocked the vault. */
+export async function verifyPasskeyDetails(current: PlatformCredentialResult, signal: AbortSignal): Promise<string | undefined> {
+  if (current.record.origin && current.record.origin !== location.origin) throw new Error('通行密钥来源不匹配');
+  const output = await unlockPlatformCredential(current.record, signal);
+  try {
+    signal.throwIfAborted();
+    let difference = output.length ^ current.prfOutput.length;
+    for (let i = 0; i < output.length; i++) difference |= output[i]! ^ (current.prfOutput[i] ?? 0);
+    if (difference) throw new Error('通行密钥验证结果不匹配');
+    const userId = assertionUsers.get(output);
+    if (current.record.userId && userId && current.record.userId !== userId) throw new Error('通行密钥用户标识不匹配');
+    return current.record.userId ?? userId;
+  } finally { output.fill(0); takeBrowserAccessPrf(output)?.fill(0); assertionUsers.delete(output); }
+}
+export async function signalPasskeyName(record: PlatformCredentialRecord, userId: string, value: string, signal: AbortSignal): Promise<void> {
+  const name = normalizePasskeyName(value);
+  if (!passkeyNamingSupported()) throw new Error('当前浏览器不支持修改系统通行密钥名称');
+  if (!userId || fromBase64Url(userId).length > 64) throw new Error('无法取得通行密钥用户标识');
+  if ((record.rpId ?? location.hostname) !== location.hostname || (record.origin && record.origin !== location.origin)) throw new Error('通行密钥来源不匹配');
+  signal.throwIfAborted();
+  await (PublicKeyCredential as UserDetailsApi).signalCurrentUserDetails!({ rpId: record.rpId ?? location.hostname, userId, name, displayName: name });
 }
