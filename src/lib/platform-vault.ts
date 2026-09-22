@@ -157,6 +157,8 @@ export function platformVaultSupported(): boolean {
 export type PlatformCredentialResult = {
   record: PlatformCredentialRecord;
   prfOutput: Uint8Array<ArrayBuffer>;
+  /** Auxiliary purpose proof retained only for the current unlocked visit. */
+  browserAccessPrf?: Uint8Array<ArrayBuffer>;
 };
 
 export async function createPlatformCredential(

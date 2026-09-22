@@ -67,7 +67,12 @@ try {
     app.showReleaseNotesIfNeeded=()=>{}; app.renderChat();
   });
   assert.equal(await page.locator('#recovery-shield').count(),0); assert.equal(await page.locator('.more-menu').count(),0);
+  await page.evaluate(() => { app.deviceCredential = v.cloneDeviceCredential(a); window.expectedAccessProof = Array.from(a.browserAccessPrf); });
   await page.locator('#open-spaces').click(); await page.locator('.space-row').first().waitFor();
+  assert.equal(await page.locator('.space-preview-hint').count(), 0);
+  const heading = await page.locator('.space-list-heading').innerText();
+  assert.match(heading, /其他空间/);
+  assert.doesNotMatch(heading, /切换空间/);
   assert.equal(await page.locator('.space-row').count(),2);
   assert.equal(await page.locator('.space-row.is-selected').evaluate(el=>el.getBoundingClientRect().height>=100),true);
   await page.locator('.space-row').first().click({button:'right'}); await page.locator('#space-rename').click();
@@ -75,14 +80,16 @@ try {
   await page.locator('#space-name').fill('慢慢聊'); await page.locator('#space-name-form button[type=submit]').click();
   await page.locator('.space-row.is-selected strong').waitFor();
   await page.locator('#space-settings').click(); await page.locator('#presence-style-setting').click();
+  if (process.env.QUIET_ROOM_SPACE_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.QUIET_ROOM_SPACE_SCREENSHOTS, 'style-light.png') });
   await page.locator('[data-style=heart]').click();
   assert.equal(await page.locator('[data-style=heart]').getAttribute('aria-checked'),'true');
   await page.locator('#space-style-done').click();
   await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
   assert.equal(await page.locator('.chat-header').getAttribute('data-presence-style'),'heart');
   const sizes=await page.evaluate(()=>({button:document.querySelector('.peer-summary').getBoundingClientRect().width,svg:document.querySelector('.presence-circuit').getBoundingClientRect().width})); assert.equal(sizes.button,44); assert.equal(sizes.svg,32);
-  const alignment=await page.evaluate(()=>{const outer=document.querySelector('.peer-summary').getBoundingClientRect(),inner=document.querySelector('.presence-circuit').getBoundingClientRect();return {x:inner.x+inner.width/2-outer.x-outer.width/2,y:inner.y+inner.height/2-outer.y-outer.height/2};});
-  assert.ok(Math.abs(alignment.x)<1 && Math.abs(alignment.y)<1,JSON.stringify(alignment));
+  const alignment=await page.evaluate(()=>{const outer=document.querySelector('.peer-summary').getBoundingClientRect(),inner=document.querySelector('.presence-heart').getBoundingClientRect();return {x:inner.x+inner.width/2-outer.x-outer.width/2,y:inner.y+inner.height/2-outer.y-outer.height/2};});
+  // The heart's filled center sits about 1.5px above its box, so a visually centered glyph reports a positive box offset.
+  assert.ok(Math.abs(alignment.x)<1 && alignment.y>1.1 && alignment.y<2,JSON.stringify(alignment));
   assert.equal(await page.locator('#open-spaces span').innerText(),'慢慢聊');
   const output=process.env.QUIET_ROOM_SPACE_SCREENSHOTS;
   if(output){await mkdir(output,{recursive:true});await page.screenshot({path:path.join(output,'chat-heart.png')});}
@@ -93,7 +100,9 @@ try {
   await page.locator('#copy-invite').waitFor();
   assert.equal(await page.locator('#create-room').count(),0);
   const createdSlot = await page.evaluate(()=>v.currentSpaceId());
+  assert.equal(await page.evaluate(() => v.readStoredVault().then(stored => stored.platform.credentialId)), await page.evaluate(() => a.stored.platform.credentialId));
   assert.notEqual(createdSlot,'current');
+  assert.equal(await page.evaluate(() => app.session.browserAccessPrf?.some(byte => byte !== 0) && JSON.stringify(Array.from(app.session.browserAccessPrf)) === JSON.stringify(expectedAccessProof)), true, 'Creating with the unlocked credential must preserve the separate browser-request proof');
   await page.locator('#invite-close').click();
   await page.locator('.space-row.is-selected').waitFor();
   assert.equal(await page.locator('.space-row').count(),3);
@@ -126,6 +135,15 @@ try {
       mountSpaceDrawer(document.querySelector('#app'),{spaces:Array.from({length:40},(_,i)=>({roomId:String(i),name:'私密空间 '+(i+1)})),currentRoom:'0',signal:new AbortController().signal,actions:[],icons:{close:'×',plus:'+',settings:'⚙'},select:async()=>{},create:async()=>{},rename:async()=>{},styleChanged:()=>{},closed:()=>{}});
     });
     await page.locator('#space-settings').waitFor();
+    if (scheme === 'light') {
+      const edge = await page.locator('.space-list-heading').evaluate(el => {
+        const style = getComputedStyle(el);
+        const ink = style.borderTopColor.match(/[\d.]+/g)?.map(Number) ?? [];
+        return { color: style.borderTopColor, alpha: ink[3] ?? 1, rgb: ink.slice(0, 3) };
+      });
+      const distance = Math.hypot(...edge.rgb.map(channel => channel - 250));
+      assert.ok(edge.alpha > 0.12 && distance > 40, JSON.stringify(edge));
+    }
     const layout=await page.evaluate(()=>{const scroll=document.querySelector('.space-drawer-scroll');scroll.scrollTop=1200;return {footer:document.querySelector('.space-drawer-footer').getBoundingClientRect().bottom,viewport:innerHeight,scroll:scroll.scrollTop,overflow:document.documentElement.scrollWidth>innerWidth};});
     assert.ok(layout.footer<=height && layout.scroll>0 && !layout.overflow,JSON.stringify(layout));
     await page.locator('#space-settings').click(); await page.locator('.space-back').click();

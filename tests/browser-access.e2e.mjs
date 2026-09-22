@@ -101,7 +101,7 @@ try {
     try{await access.saveBrowserProfile(b,signal);return false;}catch{return true;}
   },expectedPrf);assert.equal(profileRace,true);
   // Lock discards all shell secrets and approval surfaces.
-  await fresh.page.evaluate(()=>app.lockNow());assert.equal(await fresh.page.evaluate(()=>app.browserProfile===null&&app.browserBindingProof===null),true);
+  await fresh.page.evaluate(()=>app.lockNow());assert.equal(await fresh.page.evaluate(()=>app.browserProfile===null&&app.browserBindingProof===null&&app.deviceCredential===null),true);
   await peer.page.evaluate(async()=>{
     app.runtimeAbort.abort();app.accessDialog?.close();
     const {mountAccessApproval}=await import('/src/lib/browser-access-ui.ts');

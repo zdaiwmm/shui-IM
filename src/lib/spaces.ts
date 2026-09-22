@@ -88,7 +88,7 @@ async function read(code: string): Promise<PrivateSpace[]> {
   return sealed ? openSpaceDirectory(code, sealed as SealedBackup) : [];
 }
 /** Directory read/merge/write uses the vault's cross-tab lease; only ciphertext is durable. */
-export async function rememberLocalSpace(session: VaultSession, inheritedCode?: string, rename?: { roomId: string; name: string }, summary?: { preview: string; observer?: UnreadObserver }): Promise<PrivateSpace[]> {
+export async function rememberLocalSpace(session: VaultSession, inheritedCode?: string, rename?: { roomId: string; name: string }, summary?: { preview: string; observer?: UnreadObserver; roomId?: string }): Promise<PrivateSpace[]> {
   return withVaultMutation(session, async mutation => {
     if (!session.vault.spaceRecoveryCode) {
       session.vault.spaceRecoveryCode = inheritedCode ?? newSpaceRecoveryCode();
@@ -101,7 +101,10 @@ export async function rememberLocalSpace(session: VaultSession, inheritedCode?: 
     // A replaced endpoint must not inherit this browser's older endpoint preview.
     if (entry.localId && entry.localId !== localId || entry.previewDeviceId && entry.previewDeviceId !== vault.identity.publicBundle.deviceId) { delete entry.preview; delete entry.observer; }
     entry.localId = localId;
-    if (summary) { entry.preview = summary.preview; entry.previewDeviceId = vault.identity.publicBundle.deviceId; entry.observer = summary.observer; }
+    if (summary?.roomId && summary.roomId !== vault.roomId) {
+      const target = spaces.find(item => item.roomId === summary.roomId);
+      if (target) { target.preview = summary.preview; target.previewDeviceId = vault.identity.publicBundle.deviceId; }
+    } else if (summary) { entry.preview = summary.preview; entry.previewDeviceId = vault.identity.publicBundle.deviceId; entry.observer = summary.observer; }
 
     entry.waiting = !vault.members.some(m => m.role !== vault.role && (m.status === undefined || m.status === 'active'));
     if (vault.backup?.syncedAt && !vault.backup.replaces && !vault.recoverySource) entry.code = vault.backup.code;
