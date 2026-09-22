@@ -50,7 +50,16 @@ try {
   assert.equal(await page.locator('#passkey-name').evaluate(e => document.activeElement === e), true);
   for (const [width, height, colorScheme] of [[393, 852, 'light'], [320, 450, 'light'], [393, 520, 'dark']]) {
     await page.setViewportSize({ width, height }); await page.emulateMedia({ colorScheme });
-    await page.waitForFunction(() => getComputedStyle(document.querySelector('.passkey-name-overlay')).opacity === '1');
+    // setViewportSize may finish before visualViewport dispatches its resize.
+    // Require the real viewport-fit callback and the unchanged bounds contract.
+    await page.waitForFunction(() => {
+      const overlay = document.querySelector('.passkey-name-overlay');
+      const viewport = window.visualViewport;
+      const box = overlay.querySelector('form').getBoundingClientRect();
+      return getComputedStyle(overlay).opacity === '1'
+        && Math.abs(parseFloat(overlay.style.height) - (viewport?.height ?? innerHeight)) < 1
+        && box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight;
+    });
     assert.equal(await page.locator('.passkey-name-overlay').evaluate(el => { const b=el.querySelector('form').getBoundingClientRect(); return b.left >= 0 && b.right <= innerWidth && b.top >= 0 && b.bottom <= innerHeight; }), true);
     if (process.env.PASSKEY_SCREENSHOTS) { await mkdir(process.env.PASSKEY_SCREENSHOTS, { recursive: true }); await page.screenshot({ path: path.join(process.env.PASSKEY_SCREENSHOTS, `rename-${width}-${colorScheme}.png`) }); }
   }
