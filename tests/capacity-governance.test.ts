@@ -10,6 +10,8 @@ describe('capacity governance protection', () => {
     const result = spawnSync('python3', ['-c', `
 import runpy, tempfile
 from pathlib import Path
+import ast
+ast.parse(Path('deploy/server/quiet-room-capacity').read_text(), feature_version=6)
 m=runpy.run_path('deploy/server/quiet-room-capacity')
 with tempfile.TemporaryDirectory() as d:
  p=Path(d)
