@@ -32,6 +32,10 @@ normal application deployment must not self-update privileged tools. See
 - Online backup can continue because cleanup never touches its source/target.
   Daily cleanup is serialized with deployment; the online backup worker's
   existing 14-snapshot policy is unchanged until offsite recovery is verified.
+  Before each online snapshot the worker checks destination free space (8 GiB),
+  utilization (below 80%) and inodes (below 80%). Refusal leaves existing
+  snapshots untouched and retries later; the stale-backup alert remains active.
+  This admission floor is not a bound on arbitrarily growing snapshot sizes.
 - Do not run automated `docker system df`, global prune, or builder prune on
   this 2 GiB host. A filtered builder prune caused management/public timeouts
   during this incident. Cache growth must hit the capacity gate rather than

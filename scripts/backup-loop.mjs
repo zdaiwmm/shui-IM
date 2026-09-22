@@ -1,5 +1,6 @@
-import { readdir, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { checkBackupCapacity } from './backup-capacity.mjs';
 import { createConsistentBackup } from '../server/backup.mjs';
 
 const dataDir = path.resolve(process.env.DATA_DIR ?? './data');
@@ -23,6 +24,8 @@ async function pruneVerifiedBackups() {
 }
 
 async function runOnce() {
+  await mkdir(backupRoot, { recursive: true });
+  await checkBackupCapacity(backupRoot);
   const result = await createConsistentBackup({ dataDir, backupRoot });
   process.stdout.write(`${JSON.stringify({ event: 'backup_verified', ...result })}\n`);
   await pruneVerifiedBackups();
