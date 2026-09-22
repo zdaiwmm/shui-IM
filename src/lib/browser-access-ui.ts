@@ -1,6 +1,13 @@
 import { mountDialog } from './dialog';
 export const accessEscape=(value:string)=>value.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 /** Deadlines are monotonic offsets from server time, never the local wall clock. */
+export function formatAccessRemaining(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
 export function accessDeadline(expiresAt:string,serverTime:string):number {
   const remaining=Date.parse(expiresAt)-Date.parse(serverTime);
   return performance.now()+Math.max(0,Math.min(600000,Number.isFinite(remaining)?remaining:0));

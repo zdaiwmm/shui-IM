@@ -135,16 +135,14 @@
 
 /* Passkey management keeps the settings drawer beneath its verified surface. */
 .passkey-manager { position: fixed; inset: 0; z-index: 225; background: var(--paper); color: var(--ink); display: flex; flex-direction: column; }
-.passkey-header { display: flex; align-items: center; gap: 12px; padding: max(12px, env(safe-area-inset-top)) 16px 12px; border-bottom: 1px solid var(--line); }
-.passkey-header h1 { font-size: 17px; font-weight: 600; margin: 0; }
-.passkey-body { padding: 30px 24px max(24px, env(safe-area-inset-bottom)); width: 100%; max-width: 520px; margin: auto; flex: 1; overflow: auto; display: flex; flex-direction: column; }
+.passkey-body { padding: max(28px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom)); width: min(calc(100dvw - 40px), 420px); margin: auto; flex: 1; overflow: auto; display: flex; flex-direction: column; }
 .passkey-mark { color: var(--accent); background: var(--accent-soft); border-radius: 16px; width: 50px; height: 50px; display: grid; place-items: center; margin-bottom: 24px; }
 .passkey-mark svg { width: 24px; height: 24px; }
 .passkey-body h2 { font-size: 24px; overflow-wrap: anywhere; margin: 6px 0 12px; }
 .passkey-current { width: fit-content; padding: 5px 9px; color: var(--accent); background: var(--accent-soft); border-radius: 8px; font-size: 11px; }
 .passkey-purpose { border-block: 1px solid var(--line); padding: 22px 0; margin: 26px 0 12px; font-size: 13px; line-height: 1.8; }
 .passkey-purpose p { color: var(--ink-muted); margin-bottom: 0; }
-.passkey-bottom { margin-top: auto; padding-top: 24px; }
+.passkey-bottom { margin-top: auto; padding-top: 24px; display: grid; gap: 16px; }
 .passkey-bottom button { width: 100%; }
 .passkey-name-overlay { z-index: 230; }
 .passkey-name-field { display: grid; gap: 10px; margin: 24px 0 12px; color: var(--ink-muted); font-size: 12px; }

@@ -66,7 +66,7 @@ try {
   await page.setViewportSize({ width: 393, height: 852 }); await page.emulateMedia({ colorScheme: 'light' });
   await page.locator('#passkey-name').fill('新的密钥名称');
   await page.locator('.passkey-name-overlay [type=submit]').click();
-  await page.waitForFunction(() => document.querySelector('#passkey-feedback')?.textContent.includes('名称已保存'));
+  await page.waitForFunction(() => document.querySelector('#app-toast')?.textContent === '修改成功');
   assert.equal(await page.evaluate(() => getCount), 3);
   assert.equal(await page.locator('#passkey-current-name').textContent(), '新的密钥名称');
   assert.equal(await page.evaluate(() => JSON.stringify(session.stored) === original && JSON.stringify(Array.from(credential.prfOutput)) === JSON.stringify(beforeProof)), true);

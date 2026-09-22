@@ -120,6 +120,7 @@
   padding-top: max(var(--gateway-intro-top), calc(env(safe-area-inset-top, 0px) + 32px));
   padding-bottom: var(--gateway-intro-bottom);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 24px;
   overflow: hidden;
@@ -188,7 +189,13 @@
   gap: 16px;
   margin-top: auto;
 }
-.welcome-actions .primary-button { width: 100%; }
+.gateway.gateway-intro,
+.gateway.gateway-welcome {
+  width: min(calc(100dvw - 40px), 420px);
+  margin-inline: auto;
+}
+.welcome-actions .primary-button,
+.welcome-actions .secondary-button { width: 100%; }
 .invite-status {
   display: grid;
   border: 1px solid var(--line);

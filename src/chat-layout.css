@@ -439,6 +439,8 @@ html:has(.chat-shell[inert]) { overflow: hidden; }
   border-block: 10px solid transparent;
 }
 .composer .composer-placeholder { position: absolute; inset: 0 48px 0 15px; display: none; align-items: center; pointer-events: none; color: var(--composer-placeholder-ink); font-size: 13px; line-height: 1.4; }
+.composer textarea:disabled { height: 22px; min-height: 22px; max-height: 22px; padding-top: 0; padding-bottom: 0; line-height: 22px; overflow: hidden; }
+.composer textarea:disabled + .composer-placeholder { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .composer textarea:placeholder-shown + .composer-placeholder { display: flex; }
 .composer textarea::placeholder { color: transparent; }
 /* The home-indicator safe area is already inside the docked keyboard. */
