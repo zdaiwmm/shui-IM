@@ -272,7 +272,7 @@ try {
   await creator.locator('#joint-back').click();
   const welcomeLayout = await creator.evaluate(() => {
     const primary = document.querySelector('#create-room');
-    const secondary = document.querySelector('#restore-cloud');
+    const secondary = document.querySelector('#continue-browser');
     return {
       font: getComputedStyle(primary).fontSize,
       gap: secondary.getBoundingClientRect().top - primary.getBoundingClientRect().bottom,
