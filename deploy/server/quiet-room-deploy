@@ -54,8 +54,8 @@ readonly PUBLIC_ORIGIN="https://$PUBLIC_HOST"
 readonly PUBLIC_HEALTH_URL="$PUBLIC_ORIGIN/api/health"
 readonly PUBLIC_WEBSOCKET_URL="wss://$PUBLIC_HOST/ws"
 readonly GIT_SSH_COMMAND_VALUE='ssh -o BatchMode=yes -o IdentitiesOnly=yes -i /home/deploy/.ssh/github_shui_im'
-readonly RELEASE_RETENTION_COUNT="${QUIET_ROOM_RELEASE_RETENTION_COUNT:-5}"
-readonly PREDEPLOY_BACKUP_RETENTION_COUNT="${QUIET_ROOM_PREDEPLOY_BACKUP_RETENTION_COUNT:-14}"
+readonly RELEASE_RETENTION_COUNT="${QUIET_ROOM_RELEASE_RETENTION_COUNT:-3}"
+readonly PREDEPLOY_BACKUP_RETENTION_COUNT="${QUIET_ROOM_PREDEPLOY_BACKUP_RETENTION_COUNT:-3}"
 
 readonly REQUESTED_SHA="${1:-}"
 if [[ ! "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
@@ -101,6 +101,10 @@ install -d -m 0750 "$STATE_DIR" "$BACKUP_DIR"
 # Nginx workers must be able to stat this root-owned, persistent marker.
 # Keep it separate from the private deployment-state directory.
 install -d -o root -g root -m 0755 "$MAINTENANCE_DIR"
+
+# Installed separately from the exact reviewed governance commit. Fail closed
+# before fetching/building if capacity protection is missing or unhealthy.
+/usr/local/sbin/quiet-room-capacity preflight
 
 deploy_phase_start fetch-source
 runuser -u deploy -- env GIT_SSH_COMMAND="$GIT_SSH_COMMAND_VALUE" \
@@ -460,23 +464,8 @@ restore_data_archive() {
 }
 
 prune_successful_deployments() {
-  local current_release
-  current_release="$(readlink -f "$APP_ROOT/current" 2>/dev/null || true)"
-
-  # Only remove release directories that are known Git worktrees. Keep the
-  # current target plus the newest configured number of releases for rollback.
-  mapfile -t old_releases < <(
-    find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' |
-      sort -nr |
-      tail -n +$((RELEASE_RETENTION_COUNT + 1)) |
-      cut -d' ' -f2-
-  )
-  for release in "${old_releases[@]}"; do
-    [[ -n "$release" && "$release" != "$current_release" ]] || continue
-    runuser -u deploy -- git --git-dir="$REPOSITORY" worktree remove --force "$release" ||
-      printf 'WARNING: could not prune release %s\n' "$release" >&2
-  done
-
+  # Release worktrees and images are pruned by the bounded daily governor,
+  # using the successful-release registry and failed-cutover protection.
   # Pre-deploy archives are ciphertext-only rollback points. Retain a bounded
   # number by mtime and never touch continuous/off-host backups.
   mapfile -t old_backups < <(
@@ -487,6 +476,7 @@ prune_successful_deployments() {
   )
   for backup in "${old_backups[@]}"; do
     [[ -n "$backup" ]] || continue
+    [[ -e "$BACKUP_DIR/failed-cutover-${backup##*/data-}" ]] && continue
     rm -f -- "$backup"
   done
 }
@@ -585,6 +575,7 @@ fi
 # Validate the installed proxy, not merely the checked-in Nginx file. Nothing
 # has stopped or changed data yet, so a missing gate aborts without downtime.
 deploy_phase_start gate-traffic
+/usr/local/sbin/quiet-room-capacity preflight
 close_business_traffic
 if ! probe_public_maintenance || ! wait_for_public_health 3; then
   open_business_traffic
@@ -635,6 +626,10 @@ if ! wait_for_public_websocket; then
   printf 'POST_OPEN_CHECK_FAILED sha=%s; current database retained; automatic data rollback is disabled.\n' "$REQUESTED_SHA" >&2
   exit 70
 fi
+
+# The registry only advances after the open-service validation passed.
+# Independent readback is still required by the publisher before task completion.
+printf '%s %s\n' "$stamp" "$REQUESTED_SHA" >> "$MAINTENANCE_DIR/successful-releases"
 
 deploy_phase_start prune
 prune_successful_deployments || {

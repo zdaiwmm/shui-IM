@@ -1,5 +1,10 @@
 x-quiet-room-image: &quiet-room-image
   image: ${QUIET_ROOM_IMAGE:-quiet-room:local}
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
   build:
     context: .
     args:

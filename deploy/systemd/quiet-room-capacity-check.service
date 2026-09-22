@@ -1,0 +1,12 @@
+[Unit]
+Description=Check Quiet Room capacity and backup freshness
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/quiet-room-capacity check
+User=root
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/quiet-room-deploy

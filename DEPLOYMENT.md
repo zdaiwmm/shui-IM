@@ -391,6 +391,31 @@ require full verification. GitHub has no production SSH
 private key and no login or root capability on the Alibaba Cloud server. Passing
 CI does not publish automatically.
 
+## Installing capacity governance
+
+The deployment helper now requires `/usr/local/sbin/quiet-room-capacity` before
+it can build or stop production. Install this Python 3 tool first using the
+same reviewed-commit, SHA-256, root ownership and atomic replacement procedure
+below; validate Python syntax without executing cleanup. Run `preflight` and
+inspect its metrics before installing the changed deployment helper.
+
+Bootstrap `/var/lib/quiet-room-deploy/successful-releases` as a root-owned file,
+one verified `YYYYMMDDTHHMMSSZ full-40-character-SHA` per line. Only include
+known successful production releases. The helper appends after its public
+WebSocket validation; the fixed independent production readback remains a
+separate mandatory release step.
+
+Install the capacity-check and retention systemd units from `deploy/systemd/`;
+check their syntax, reload units, and enable timers only after a supervised
+cleanup verifies the protected images and backups. Check return codes and
+`capacity-status.json`: missing offsite backup must remain an explicit alert.
+Install the journal drop-in from `deploy/journald/` and replace the existing
+nginx logrotate stanza with `deploy/logrotate/quiet-room-nginx` (do not install
+a duplicate matching stanza). Check logrotate syntax and verify active limits.
+Compose logging settings take effect only on container recreation through a
+controlled deployment. Never claim they changed a running container by merely
+editing a defaults file. No production self-update is introduced.
+
 ## Upgrading the root-owned deployment helper
 
 Pushing this repository does not replace `/usr/local/sbin/quiet-room-deploy` on

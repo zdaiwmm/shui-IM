@@ -1,0 +1,8 @@
+[Unit]
+Description=Check nginx log size and rotate with bounded retention
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/logrotate /etc/logrotate.d/nginx
+User=root
+Nice=19
+IOSchedulingClass=idle
