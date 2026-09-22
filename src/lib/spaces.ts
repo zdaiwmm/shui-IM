@@ -13,6 +13,8 @@ export type PrivateSpace = {
   preview?: string; previewDeviceId?: string; observer?: UnreadObserver;
   /** Ephemeral server-confirmed count used by the open drawer. */
   unread?: number;
+  /** Transient shell presentation; never a membership or recovery capability. */
+  accessState?: 'unprepared' | 'restricted';
 };
 export function spaceMessagePreview(payload: MessagePayload): string | undefined {
   switch (payload.kind) {

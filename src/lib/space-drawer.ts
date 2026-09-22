@@ -32,6 +32,7 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
   spaces: PrivateSpace[]; currentRoom: string; signal: AbortSignal; actions: Action[]; icons?: { close: string; plus: string; settings: string };
   select: (space: PrivateSpace) => Promise<void>; create: () => Promise<void>; rename: (space: PrivateSpace, name: string) => Promise<void>;
   refreshUnread?: (signal: AbortSignal) => Promise<void>;
+  authorization?: (space: PrivateSpace) => {deadline:number;open:()=>Promise<void>} | undefined;
   styleChanged: (style: PresenceStyle) => void; closed: () => void;
 }): void {
   const lifetime = new AbortController();
@@ -86,7 +87,7 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
     input.focus({ preventScroll: true }); input.select();
   }
   function menu(space: PrivateSpace, origin: HTMLButtonElement) {
-    if (busy || signal.aborted || root.querySelector('.space-context-overlay')) return;
+    if (busy || signal.aborted || space.accessState || root.querySelector('.space-context-overlay')) return;
     const overlay = document.createElement('div'); overlay.className = 'space-context-overlay'; overlay.setAttribute('role','dialog'); overlay.setAttribute('aria-modal','true'); overlay.setAttribute('aria-label',space.name);
     overlay.innerHTML = `<div class="space-context-menu"><button id="space-rename">${createElement(Pencil).outerHTML}<span>编辑空间名称</span></button></div>`;
     root.append(overlay);
@@ -118,6 +119,9 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
     sheet.querySelector('#presence-style-setting')!.addEventListener('click', () => { styles(); sheet.querySelector<HTMLButtonElement>('[aria-checked=true]')?.focus(); });
     for (const action of options.actions) sheet.querySelector(`#${action.id}`)!.addEventListener('click', () => { dialog.close({ animate: false }); action.run(); });
   }
+  function authorizations() {
+    sheet.querySelectorAll<HTMLButtonElement>('[data-access]').forEach(button=>{const space=options.spaces[Number(button.dataset.access)];const action=space&&options.authorization?.(space);button.hidden=!action||action.deadline<=performance.now();});
+  }
   function badges() {
     sheet.querySelectorAll<HTMLElement>('[data-unread]').forEach(node => {
       const count = options.spaces[Number(node.dataset.unread)]?.unread ?? 0;
@@ -126,12 +130,13 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
   }
   function row(s: PrivateSpace) {
     const i = options.spaces.indexOf(s), selected = s.roomId === options.currentRoom;
-    return `<button class="space-row ${selected ? 'is-selected' : ''}" data-space="${i}" aria-current="${selected ? 'true' : 'false'}"><span class="space-row-copy">${selected ? '<small class="space-current-label">当前空间</small>' : ''}<strong>${escape(s.name)}</strong>${selected ? '' : `<small class="space-message-preview ${s.waiting ? 'is-waiting' : ''}">${escape(s.waiting ? '等待对方加入' : s.preview || '打开空间查看消息')}</small>`}</span>${selected ? `<span class="space-selected-check" aria-hidden="true">${check}</span>` : `<span class="space-row-trailing"><span class="space-unread" data-unread="${i}" hidden></span><span class="space-row-arrow" aria-hidden="true">${arrow}</span></span>`}</button>`;
+    return `<div class="space-access-row"><button class="space-row ${selected ? 'is-selected' : ''}" data-space="${i}" aria-current="${selected ? 'true' : 'false'}"><span class="space-row-copy">${selected ? '<small class="space-current-label">当前空间</small>' : ''}<strong>${escape(s.name)}</strong>${selected ? '' : `<small class="space-message-preview ${s.waiting ? 'is-waiting' : ''}">${escape(s.accessState === 'unprepared' ? '请先在原设备打开此空间' : s.accessState === 'restricted' ? '待对方授权' : s.waiting ? '等待对方加入' : s.preview || '打开空间查看消息')}</small>`}</span>${selected ? `<span class="space-selected-check" aria-hidden="true">${check}</span>` : `<span class="space-row-trailing"><span class="space-unread" data-unread="${i}" hidden></span><span class="space-row-arrow" aria-hidden="true">${arrow}</span></span>`}</button><button class="space-access-action" data-access="${i}" hidden>授权</button></div>`;
   }
   function list() {
     const current = options.spaces.find(s => s.roomId === options.currentRoom), others = options.spaces.filter(s => s !== current);
     page('私密空间', `<div class="space-list">${current ? row(current) : ''}<div class="space-list-heading"><span>其他空间</span><span>${others.length}</span></div>${others.map(row).join('')}${!others.length ? '<p class="space-empty">想和另一个人聊聊？<br>从下方创建一个新空间。</p>' : ''}</div>`, `<button class="space-create" id="space-create">${createElement(Plus).outerHTML}创建新空间</button><button class="space-settings-entry" id="space-settings" aria-label="设置">${spaceIcons.settings}</button>`);
-    sheet.querySelector('.space-drawer-scroll')!.scrollTop = listScrollTop; badges();
+    sheet.querySelector('.space-drawer-scroll')!.scrollTop = listScrollTop; badges();authorizations();
+    sheet.querySelectorAll<HTMLButtonElement>('[data-access]').forEach(button=>button.addEventListener('click',()=>{const space=options.spaces[Number(button.dataset.access)]!;const action=options.authorization?.(space);if(action&&action.deadline>performance.now()){dialog.close({animate:false});void action.open();}}));
     sheet.querySelector('#space-settings')!.addEventListener('click', () => { settings(); sheet.querySelector<HTMLButtonElement>('.space-back')?.focus(); });
     sheet.querySelector('#space-create')!.addEventListener('click', () => void run(async () => { await options.create(); dialog.close({ animate: false }); }));
     sheet.querySelectorAll<HTMLButtonElement>('[data-space]').forEach(button => {
@@ -148,6 +153,7 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
     });
   }
   list();
+  if(options.authorization){const timer=window.setInterval(authorizations,250);signal.addEventListener('abort',()=>window.clearInterval(timer),{once:true});}
   if (options.refreshUnread) {
     const poll = async () => {
       if (signal.aborted) return;

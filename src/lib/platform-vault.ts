@@ -3,7 +3,7 @@ import type { PlatformCredentialRecord } from './types';
 
 type PrfOutput = {
   enabled?: boolean;
-  results?: { first?: ArrayBuffer };
+  results?: { first?: ArrayBuffer; second?: ArrayBuffer };
 };
 
 type CredentialExtensionResults = AuthenticationExtensionsClientOutputs & {
@@ -13,7 +13,7 @@ type CredentialExtensionResults = AuthenticationExtensionsClientOutputs & {
 type PrfCredentialCreationOptions = CredentialCreationOptions & {
   publicKey: PublicKeyCredentialCreationOptions & {
     extensions: AuthenticationExtensionsClientInputs & {
-      prf: { eval: { first: Uint8Array<ArrayBuffer> } };
+      prf: { eval: { first: Uint8Array<ArrayBuffer>; second?: Uint8Array<ArrayBuffer> } };
     };
   };
 };
@@ -21,12 +21,18 @@ type PrfCredentialCreationOptions = CredentialCreationOptions & {
 type PrfCredentialRequestOptions = CredentialRequestOptions & {
   publicKey: PublicKeyCredentialRequestOptions & {
     extensions: AuthenticationExtensionsClientInputs & {
-      prf: { eval: { first: Uint8Array<ArrayBuffer> } };
+      prf: { eval: { first: Uint8Array<ArrayBuffer>; second?: Uint8Array<ArrayBuffer> } };
     };
   };
 };
 
 const encoder = new TextEncoder();
+export const browserAccessPrfSalt = () => encoder.encode('quiet-room-browser-access-rendezvous-v1');
+const accessPrfs = new WeakMap<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>>();
+/** Move the second PRF into the unlocked session; never persist it in a vault. */
+export function takeBrowserAccessPrf(output: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> | undefined {
+  const access = accessPrfs.get(output); accessPrfs.delete(output); return access;
+}
 
 /**
  * A WebAuthn ceremony ended without a credential because the user or platform
@@ -80,7 +86,9 @@ function extensionResults(credential: PublicKeyCredential): CredentialExtensionR
 function prfBytes(credential: PublicKeyCredential): Uint8Array<ArrayBuffer> | null {
   const output = extensionResults(credential).prf?.results?.first;
   if (!output || output.byteLength !== 32) return null;
-  return new Uint8Array(output);
+  const first = new Uint8Array(output), second = extensionResults(credential).prf?.results?.second;
+  if (second?.byteLength === 32) accessPrfs.set(first, new Uint8Array(second.slice(0)));
+  return first;
 }
 
 function authenticatorFlags(response: AuthenticatorAttestationResponse): number {
@@ -122,7 +130,7 @@ async function evaluatePrf(record: PlatformCredentialRecord, signal?: AbortSigna
       }],
       userVerification: 'required',
       timeout: 60_000,
-      extensions: { prf: { eval: { first: fromBase64Url(record.prfSalt) } } },
+      extensions: { prf: { eval: { first: fromBase64Url(record.prfSalt), second: browserAccessPrfSalt() } } },
     },
   } as PrfCredentialRequestOptions));
   if (
@@ -149,6 +157,8 @@ export function platformVaultSupported(): boolean {
 export type PlatformCredentialResult = {
   record: PlatformCredentialRecord;
   prfOutput: Uint8Array<ArrayBuffer>;
+  /** Auxiliary purpose proof retained only for the current unlocked visit. */
+  browserAccessPrf?: Uint8Array<ArrayBuffer>;
 };
 
 export async function createPlatformCredential(
@@ -177,7 +187,7 @@ export async function createPlatformCredential(
         },
         timeout: 60_000,
         attestation: 'none',
-        extensions: { prf: { eval: { first: prfSalt } } },
+        extensions: { prf: { eval: { first: prfSalt, second: browserAccessPrfSalt() } } },
       },
     } as PrfCredentialCreationOptions));
     if (!(credential instanceof PublicKeyCredential) || !(credential.response instanceof AuthenticatorAttestationResponse)) {
@@ -214,6 +224,64 @@ export async function createPlatformCredential(
 export async function unlockPlatformCredential(record: PlatformCredentialRecord, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
   requireWebAuthn();
   return evaluatePrf(record, signal);
+}
+
+/**
+ * Client-only material for the browser-access rendezvous. This is not a room
+ * authorization or a remotely verified WebAuthn assertion. The PRF output must
+ * never be sent to the service or reused as a vault wrapping key.
+ *
+ * With no local record, let the authenticator discover a credential for this RP.
+ * A trusted endpoint can use its known record to prepare the same rendezvous.
+ * Call directly from the user's click handler: no network or page transition
+ * precedes the native ceremony, and cancellation never selects a fallback.
+ */
+export async function browserAccessCredential(
+  signal?: AbortSignal,
+  record?: PlatformCredentialRecord,
+): Promise<{
+  credentialId: string;
+  rpId: string;
+  origin: string;
+  backupEligible: boolean;
+  prfOutput: Uint8Array<ArrayBuffer>;
+}> {
+  requireWebAuthn();
+  const rpId = location.hostname;
+  if (record?.rpId && record.rpId !== rpId || record?.origin && record.origin !== location.origin) {
+    throw new Error('此通行密钥绑定的来源与当前网站不一致');
+  }
+  const assertion = await runWebAuthnCeremony(() => navigator.credentials.get({
+    signal,
+    publicKey: {
+      challenge: randomBytes(32),
+      rpId,
+      ...(record ? { allowCredentials: [{
+        type: 'public-key', id: fromBase64Url(record.credentialId), transports: record.transports,
+      }] } : {}),
+      userVerification: 'required',
+      timeout: 60_000,
+      extensions: { prf: { eval: { first: browserAccessPrfSalt() } } },
+    },
+  } as PrfCredentialRequestOptions));
+  if (!(assertion instanceof PublicKeyCredential) || assertion.type !== 'public-key' ||
+    !(assertion.response instanceof AuthenticatorAssertionResponse) ||
+    assertion.rawId.byteLength < 1 || assertion.rawId.byteLength > 1024) {
+    throw new Error('通行密钥验证没有返回有效凭据');
+  }
+  const credentialId = toBase64Url(assertion.rawId);
+  if (record && credentialId !== record.credentialId) throw new Error('设备安全凭据不匹配');
+  const flags = assertionFlags(assertion.response);
+  requireUserVerification(flags);
+  const backupEligible = Boolean(flags & 0x08);
+  if (record && backupEligible !== record.backupEligible) throw new Error('通行密钥属性发生异常变化');
+  const prfOutput = prfBytes(assertion);
+  if (!prfOutput) throw new Error('该通行密钥不支持安全接入，请在支持 WebAuthn PRF 的浏览器中重试');
+  if (signal?.aborted) {
+    prfOutput.fill(0);
+    throw new PlatformVaultCancellationError();
+  }
+  return { credentialId, rpId, origin: location.origin, backupEligible, prfOutput };
 }
 
 export function platformCredentialLabel(record: PlatformCredentialRecord): string {

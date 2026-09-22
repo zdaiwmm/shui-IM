@@ -1,0 +1,21 @@
+.browser-access-shell .access-empty{display:flex;flex:1;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px 24px;color:var(--ink-muted);gap:12px;overflow:auto;min-height:0}
+.browser-access-shell .access-empty h2{font-size:20px;color:var(--ink);margin:0}
+.browser-access-shell .access-empty p{max-width:28em;line-height:1.65;margin:0}
+.browser-access-shell .access-composer{display:flex;flex-direction:column;gap:8px;padding:16px 20px calc(16px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--surface)}
+.browser-access-shell .access-composer .primary-button{width:100%}
+.access-code{font-size:28px;letter-spacing:.22em;font-variant-numeric:tabular-nums;text-align:center;margin:20px 0}
+.access-countdown{font-variant-numeric:tabular-nums;text-align:center;color:var(--ink-muted);font-size:13px}
+.browser-access-modal .space-name-dialog>p{line-height:1.6}
+.browser-access-modal .access-close{align-self:flex-end;margin-left:auto;min-height:44px}
+.space-access-row{display:flex;align-items:center;gap:8px}
+.space-access-row>.space-row{flex:1;min-width:0}
+.space-access-action{flex:none;white-space:nowrap;min-width:56px;min-height:44px;font-size:14px;color:var(--accent);border:0;background:transparent;padding:8px}
+.space-access-action[hidden]{display:none}
+html:has(#app>.browser-access-shell),body:has(#app>.browser-access-shell){height:100%;overflow:hidden}
+.app-mode #app:has(>.browser-access-shell){height:var(--app-height,100dvh);overflow:hidden}
+.chat-shell.browser-access-shell{height:var(--app-height,100dvh);min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.browser-access-shell>.chat-header{position:relative;inset:auto;translate:none;grid-template-columns:minmax(0,1fr) auto;flex:none}
+.browser-access-shell>.chat-header>.spaces-entry{max-width:100%;width:max-content}
+.browser-access-shell #access-lock{grid-column:2;grid-row:1;min-height:44px}
+.browser-access-shell .access-composer{flex:none}
+.browser-access-modal .access-close{display:block;padding:0 0 12px;min-height:32px}

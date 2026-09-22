@@ -242,3 +242,11 @@ Do not resemble a neon cyber-security dashboard, hacker terminal, crypto trading
 - Mobile screens prefer portrait. The manifest and supported orientation APIs request portrait; browsers that cannot lock orientation display a portrait-return guard in physical landscape. Soft-keyboard viewport changes alone never activate it. This does not promise control of Safari or operating-system orientation, and desktop layouts remain responsive.
 
 Target WCAG 2.2 AA for the unlocked experience. Support keyboard navigation, visible focus, screen-reader labels, sufficient contrast, touch targets of at least 44 by 44 CSS pixels, reduced-motion preferences, clear non-color-only status communication, and resilient layouts from small mobile screens through desktop browsers.
+
+## 多浏览器便捷接入
+
+欢迎页提供“在此浏览器继续使用”，点击直接唤起通行密钥验证。验证后提示到其他已授权在线设备解锁并认可浏览器，不枚举浏览器或唤起宿主 App。旧端认可仅提供必要加密目录和默认选中空间，不授予任何空间消息权限。
+
+新浏览器进入聊天外壳，默认选择批准旧端当前空间。未授权时没有消息、历史预览、在线状态或输入框；底部“申请对方授权”再次直接验证，成功后向该空间对方发起请求。对方进入并解锁空间自动弹窗；关闭后从空间列表同一行右侧“授权”重开。十分钟到期后，对方弹窗、按钮与提示全部移除；申请方可重新验证发起新请求。对方批准且 MLS 安全加入完成后才开放聊天。
+
+已有空间在旧设备正常解锁时自动完成一次接入准备。未准备空间提示先在原设备打开，准备目录更新后新浏览器可继续申请，无需重新认可浏览器。各空间独立批准，原设备继续使用，每人每空间三设备上限及新设备无加入前历史的规则保留。恢复码与双方恢复属于独立流程。详见 [S5 确认记录](docs/requirements/2026-09-22-browser-access/README.md)。

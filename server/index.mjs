@@ -415,17 +415,64 @@ export async function startServer(options = {}) {
         return;
       }
 
-      const directory = pathname.match(/^\/api\/space-directories\/([A-Za-z0-9_-]{22})$/);
+      if (pathname==='/api/browser-access-poll' && request.method==='POST') {
+        if (!allowRequest(request,'browser-access-poll',30)) { json(request,response,429,{error:'请稍后重试'}); return; }
+        const body=JSON.parse((await readBody(request,40000)).toString('utf8'));
+        if(!Array.isArray(body.mailboxes)||body.mailboxes.length>256) throw new Error('INVALID_BROWSER_ACCESS');
+        const results=[];
+        for(const m of body.mailboxes) {
+          try { results.push({id:m.id,...store.browserAccess.mail(m.id,m.token,null,'list')}); }
+          catch { /* A revoked or unknown capability cannot disclose another inbox. */ }
+        }
+        json(request,response,200,{results});return;
+      }
+      const accessMail = pathname.match(/^\/api\/browser-access\/([A-Za-z0-9_-]{43})(?:\/([a-f0-9-]{36}))?$/i);
+      if (accessMail && ['GET','POST','DELETE','PUT'].includes(request.method)) {
+        if (!allowRequest(request, 'browser-access', 90)) { json(request,response,429,{error:'请求过于频繁',code:'RATE_LIMITED'}); return; }
+        try {
+          const [,mailbox,id] = accessMail;
+          const body = ['POST','PUT'].includes(request.method) ? JSON.parse((await readBody(request, 1050000)).toString('utf8')) : undefined;
+          const action = request.method === 'GET' ? (id ? 'status' : 'list') : request.method === 'POST' ? 'create' : request.method === 'PUT' ? 'approve' : 'cancel';
+          if (!id && action !== 'list') throw new Error('INVALID_BROWSER_ACCESS');
+          json(request,response,200,store.browserAccess.mail(mailbox,bearerToken(request),id,action,body));
+        } catch(error) { const code=error instanceof Error?error.message:''; json(request,response,code==='UNAUTHORIZED'?401:code==='ACCESS_EXPIRED'?410:400,{error:'浏览器接入请求不可用',code}); }
+        return;
+      }
+      const spaceAccess = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/browser-access(?:/(${ID_PATTERN}))?$`));
+      if (spaceAccess && ['GET','POST','DELETE'].includes(request.method)) {
+        if (!allowRequest(request, 'space-access', 90)) { json(request,response,429,{error:'请求过于频繁',code:'RATE_LIMITED'}); return; }
+        try {
+          const [,roomId,id] = spaceAccess;
+          let result;
+          if (request.method==='POST' && !id) {
+            const body=JSON.parse((await readBody(request,100000)).toString('utf8'));
+            if (!validatePublicBundle(body.proof?.request?.target)) throw new Error('INVALID_BROWSER_ACCESS');
+            result=await store.browserAccess.create(roomId,body.proof,bearerToken(request),body.deviceName);
+            if (result.status==='pending') void notifyOtherDevices(roomId,body.proof.certificate.sourceDeviceId);
+          } else if(request.method==='GET') {
+            result=id ? store.browserAccess.status(roomId,id,bearerToken(request)) : store.browserAccess.list(roomId,requireActiveDevice(request,roomId).deviceId);
+          } else if(request.method==='DELETE' && id) {
+            const peer=store.authenticatedDevice(roomId,bearerToken(request));
+            result=store.browserAccess.dismiss(roomId,id,peer?.deviceId,bearerToken(request));
+          } else throw new Error('INVALID_BROWSER_ACCESS');
+          json(request,response,200,result);
+        } catch(error) { const code=error instanceof Error?error.message:''; json(request,response,code==='UNAUTHORIZED'?401:code==='ACCESS_EXPIRED'?410:409,{error:code==='DEVICE_LIMIT'?'此空间已达到三台设备上限':code==='PEER_NOT_READY'?'请等待对方完成空间建立':'空间授权请求未完成',code}); }
+        return;
+      }
+
+      const directory = pathname.match(/^\/api\/(?:space-directories|browser-access-catalogs)\/([A-Za-z0-9_-]{22})$/);
       if (directory && ['GET', 'PUT'].includes(request.method)) {
         if (!allowRequest(request, 'space-directories', 60)) { response.setHeader('Retry-After', '60'); json(request, response, 429, { error: '请稍后重试' }); return; }
         try {
           const token = bearerToken(request);
+          const catalog = pathname.startsWith('/api/browser-access-catalogs/');
+          const directoryStore = catalog ? store.browserCatalogs : store.spaceDirectories;
           let result;
           if (request.method === 'PUT') {
-            const body = JSON.parse((await readBody(request, 140000)).toString('utf8'));
+            const body = JSON.parse((await readBody(request, catalog ? 4300000 : 140000)).toString('utf8'));
             requireActiveDevice(request, body.roomId);
-            result = store.spaceDirectories.save(directory[1], token, body);
-          } else result = store.spaceDirectories.fetch(directory[1], token);
+            result = directoryStore.save(directory[1], token, body);
+          } else result = directoryStore.fetch(directory[1], token);
           json(request, response, 200, result);
         } catch (error) {
           const code = error instanceof Error ? error.message : '';
@@ -1386,6 +1433,7 @@ export async function startServer(options = {}) {
     const cutoff = new Date(Date.now() - incompleteBlobTtlMs).toISOString();
     try {
       store.cleanupExpiredDeviceLinks();
+      store.browserAccess.sweep();
       store.cleanupExpiredRecoveryRequests();
     } catch (error) {
       console.error('Expired device-link cleanup failed:', error instanceof Error ? error.message : 'unknown');

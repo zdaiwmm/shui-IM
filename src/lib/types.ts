@@ -43,6 +43,7 @@ export type MlsWelcomeEnvelope = {
 };
 
 export type MlsMembershipEnvelope = {
+  browserAccess?: import('./browser-access-proof.mjs').AccessProof;
   v: 1;
   protocol: 'mls-rfc9420';
   roomId: string;

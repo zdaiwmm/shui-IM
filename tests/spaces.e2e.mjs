@@ -67,7 +67,7 @@ try {
     app.showReleaseNotesIfNeeded=()=>{}; app.renderChat();
   });
   assert.equal(await page.locator('#recovery-shield').count(),0); assert.equal(await page.locator('.more-menu').count(),0);
-  await page.evaluate(() => { app.deviceCredential = v.cloneDeviceCredential(a); });
+  await page.evaluate(() => { app.deviceCredential = v.cloneDeviceCredential(a); window.expectedAccessProof = Array.from(a.browserAccessPrf); });
   await page.locator('#open-spaces').click(); await page.locator('.space-row').first().waitFor();
   assert.equal(await page.locator('.space-preview-hint').count(), 0);
   const heading = await page.locator('.space-list-heading').innerText();
@@ -102,6 +102,7 @@ try {
   const createdSlot = await page.evaluate(()=>v.currentSpaceId());
   assert.equal(await page.evaluate(() => v.readStoredVault().then(stored => stored.platform.credentialId)), await page.evaluate(() => a.stored.platform.credentialId));
   assert.notEqual(createdSlot,'current');
+  assert.equal(await page.evaluate(() => app.session.browserAccessPrf?.some(byte => byte !== 0) && JSON.stringify(Array.from(app.session.browserAccessPrf)) === JSON.stringify(expectedAccessProof)), true, 'Creating with the unlocked credential must preserve the separate browser-request proof');
   await page.locator('#invite-close').click();
   await page.locator('.space-row.is-selected').waitFor();
   assert.equal(await page.locator('.space-row').count(),3);
