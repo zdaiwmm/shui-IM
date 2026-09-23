@@ -1,6 +1,7 @@
 import { mountDialog } from './dialog';
 import type { PrivateSpace } from './spaces';
 import { createElement, Settings2, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2 } from 'lucide';
+import { formatPendingCountdown, pendingSpaceExpiry } from './spaces';
 export type PresenceStyle = 'capsule' | 'heart';
 export function readPresenceStyle(): PresenceStyle { try { return localStorage.getItem('quiet-room:presence-style') === 'heart' ? 'heart' : 'capsule'; } catch { return 'capsule'; } }
 export function writePresenceStyle(style: PresenceStyle): void { localStorage.setItem('quiet-room:presence-style', style); }
@@ -31,7 +32,7 @@ export function fitViewport(element: HTMLElement, signal: AbortSignal) {
 export function mountSpaceDrawer(root: HTMLElement, options: {
   spaces: PrivateSpace[]; currentRoom: string; signal: AbortSignal; actions: Action[]; icons?: { close: string; plus: string; settings: string };
   select: (space: PrivateSpace) => Promise<void>; create: () => Promise<void>; rename: (space: PrivateSpace, name: string) => Promise<void>;
-  remove?: (space: PrivateSpace) => Promise<void>;
+remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace) => void;
   refreshUnread?: (signal: AbortSignal) => Promise<void>;
   authorization?: (space: PrivateSpace) => {deadline:number;open:()=>Promise<void>} | undefined;
   styleChanged: (style: PresenceStyle) => void; closed: () => void;
@@ -90,17 +91,26 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
   function menu(space: PrivateSpace, origin: HTMLButtonElement) {
     if (busy || signal.aborted || space.accessState || root.querySelector('.space-context-overlay')) return;
     const overlay = document.createElement('div'); overlay.className = 'space-context-overlay'; overlay.setAttribute('role','dialog'); overlay.setAttribute('aria-modal','true'); overlay.setAttribute('aria-label',space.name);
-    const removable = Boolean(options.remove && space.waiting && !space.accessState);
-    overlay.innerHTML = `<div class="space-context-menu"><button id="space-rename">${createElement(Pencil).outerHTML}<span>编辑空间名称</span></button>${removable ? `<button id="space-delete">${createElement(Trash2).outerHTML}<span>删除空间</span></button>` : ''}</div>`;
+const removable = Boolean(options.remove && space.waiting && !space.accessState);
+    overlay.innerHTML = `<div class="space-context-menu"><button id="space-rename">${createElement(Pencil).outerHTML}<span>编辑空间名称</span></button>${removable ? `<button id="space-delete" class="is-danger">${createElement(Trash2).outerHTML}<span>删除空间</span></button>` : ''}</div>`;
     root.append(overlay);
     const dialog = mountDialog(overlay, { signal, isActive: () => !signal.aborted, returnFocus: origin });
     const rect = origin.getBoundingClientRect(), popup = overlay.firstElementChild as HTMLElement;
     const viewport = visualViewport, top = viewport?.offsetTop ?? 0, bottom = top + (viewport?.height ?? innerHeight);
     popup.style.left = `${Math.max(12, Math.min(rect.left, innerWidth - 212))}px`;
-    popup.style.top = `${Math.max(top + 12, Math.min(rect.bottom - 6, bottom - (removable ? 124 : 70)))}px`;
+popup.style.top = `${Math.max(top + 12, Math.min(rect.bottom - 6, bottom - (removable ? 124 : 70)))}px`;
     overlay.addEventListener('click', e => { if (e.target === overlay) dialog.close({ animate: false }); });
     overlay.querySelector('#space-rename')!.addEventListener('click', () => { dialog.close({ animate: false, restoreFocus: false }); rename(space, origin); });
-    overlay.querySelector('#space-delete')?.addEventListener('click', () => { dialog.close({ animate: false, restoreFocus: false }); void run(async () => { await options.remove!(space); }); });
+    overlay.querySelector('#space-delete')?.addEventListener('click', () => {
+      dialog.close({ animate: false, restoreFocus: false });
+      void run(async () => {
+        await options.remove!(space);
+        if (signal.aborted) return;
+        const index = options.spaces.indexOf(space);
+        if (index >= 0) options.spaces.splice(index, 1);
+        list();
+      });
+    });
   }
   function styles() {
     const value = readPresenceStyle();
@@ -133,10 +143,12 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
   }
   function row(s: PrivateSpace) {
     const i = options.spaces.indexOf(s), selected = s.roomId === options.currentRoom;
-    const status = s.accessState === 'unprepared' ? '请先在原设备打开此空间' : s.accessState === 'restricted' ? '待对方授权' : s.waiting ? '等待对方加入' : s.preview || '打开空间查看消息';
+const expiry = pendingSpaceExpiry(s);
+    const waitingCopy = `等待对方加入${expiry ? ` · 剩余 ${formatPendingCountdown(expiry - Date.now())}` : ''}`;
+    const status = s.accessState === 'unprepared' ? '请先在原设备打开此空间' : s.accessState === 'restricted' ? '待对方授权' : s.waiting ? waitingCopy : s.preview || '打开空间查看消息';
     const statusLine = s.waiting && !s.accessState
-      ? `<small class="space-message-preview is-waiting">等待对方加入</small>`
-      : selected ? '' : `<small class="space-message-preview ${s.waiting ? 'is-waiting' : ''}">${escape(status)}</small>`;
+      ? `<small class="space-message-preview is-waiting" ${expiry ? `data-expires="${expiry}" data-countdown="${i}"` : ''}>${escape(waitingCopy)}</small>`
+      : selected ? '' : `<small class="space-message-preview">${escape(status)}</small>`;
     return `<div class="space-access-row"><button class="space-row ${selected ? 'is-selected' : ''}" data-space="${i}" aria-current="${selected ? 'true' : 'false'}"><span class="space-row-copy">${selected ? '<small class="space-current-label">当前空间</small>' : ''}<strong>${escape(s.name)}</strong>${statusLine}</span>${selected ? `<span class="space-selected-check" aria-hidden="true">${check}</span>` : `<span class="space-row-trailing"><span class="space-unread" data-unread="${i}" hidden></span><span class="space-row-arrow" aria-hidden="true">${arrow}</span></span>`}</button><button class="space-access-action" data-access="${i}" hidden>授权</button></div>`;
   }
   function list() {
@@ -150,16 +162,45 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
       const space = options.spaces[Number(button.dataset.space)]!;
       let timer: number | undefined, pressed = false, x = 0, y = 0;
       const cancel = () => { window.clearTimeout(timer); timer = undefined; };
-      button.addEventListener('pointerdown', e => { if (e.button !== 0) return; pressed = false; x = e.clientX; y = e.clientY; timer = window.setTimeout(() => { pressed = true; menu(space, button); }, 550); });
-      button.addEventListener('pointermove', e => { if (Math.hypot(e.clientX-x,e.clientY-y) > 10) cancel(); });
-      ['pointerup','pointercancel','pointerleave'].forEach(type => button.addEventListener(type,cancel));
-      signal.addEventListener('abort', cancel, { once: true });
-      button.addEventListener('contextmenu', e => { e.preventDefault(); cancel(); pressed = true; menu(space, button); });
+      button.addEventListener('pointerdown', e => {
+        if (e.button !== 0) return;
+        pressed = false; x = e.clientX; y = e.clientY;
+        const started = performance.now();
+        let moved = false;
+        const gesture = new AbortController();
+        try { button.setPointerCapture(e.pointerId); } catch { /* Capture is a hint; the timer still runs. */ }
+        const finish = (open: boolean) => {
+          if (gesture.signal.aborted) return;
+          gesture.abort();
+          window.clearTimeout(timer); timer = undefined;
+          if (open && !moved && !signal.aborted) { pressed = true; menu(space, button); }
+        };
+        timer = window.setTimeout(() => finish(true), 500);
+        button.addEventListener('pointermove', event => { if (Math.hypot(event.clientX - x, event.clientY - y) > 12) { moved = true; finish(false); } }, { signal: gesture.signal });
+        button.addEventListener('pointerup', () => finish(false), { signal: gesture.signal });
+        button.addEventListener('pointercancel', event => finish(!moved && performance.now() - started >= 350 && event.pointerId === e.pointerId), { signal: gesture.signal });
+        signal.addEventListener('abort', () => finish(false), { signal: gesture.signal });
+      });
+      button.addEventListener('contextmenu', e => { e.preventDefault(); window.clearTimeout(timer); timer = undefined; pressed = true; menu(space, button); });
       button.addEventListener('keydown', e => { if (e.key === 'F2' || e.key === 'ContextMenu' || e.shiftKey && e.key === 'F10') { e.preventDefault(); menu(space, button); } });
       button.addEventListener('click', () => { cancel(); if (pressed) { pressed = false; return; } if (space.roomId === options.currentRoom && !space.waiting) close(); else void run(async () => { await options.select(space); dialog.close({ animate: false }); }); });
     });
   }
   list();
+  const expiredRooms = new Set<string>();
+  const paintCountdowns = () => {
+    const now = Date.now();
+    sheet.querySelectorAll<HTMLElement>('[data-expires]').forEach(node => {
+      const expiry = Number(node.dataset.expires);
+      const remaining = expiry - now;
+      const space = options.spaces[Number(node.dataset.countdown)];
+      node.textContent = remaining <= 0 ? '等待对方加入 · 已到期' : `等待对方加入 · 剩余 ${formatPendingCountdown(remaining)}`;
+      if (remaining <= 0 && space && !expiredRooms.has(space.roomId)) { expiredRooms.add(space.roomId); options.expired?.(space); }
+    });
+  };
+  paintCountdowns();
+  const countdownTimer = window.setInterval(paintCountdowns, 1000);
+  signal.addEventListener('abort', () => window.clearInterval(countdownTimer), { once: true });
   if(options.authorization){const timer=window.setInterval(authorizations,250);signal.addEventListener('abort',()=>window.clearInterval(timer),{once:true});}
   if (options.refreshUnread) {
     const poll = async () => {

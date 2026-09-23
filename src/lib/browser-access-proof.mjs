@@ -54,6 +54,18 @@ export async function verifyAccessProof(proof, roomId, source) {
     await verifyAccess(proof.grant.browserKey, proof.request) &&
     proof.request.certificateHash === await accessDigest(proof.certificate) && proof.request.grantHash === await accessDigest(proof.grant);
 }
+export function validAccessIntroduction(body, roomId) {
+  const certificate = body?.certificate, grant = body?.grant;
+  return Boolean(body && Object.keys(body).every(key => key === 'certificate' || key === 'grant') &&
+    fields(certificate, ['v', 'purpose', 'roomId', 'sourceDeviceId', 'rootKey', 'signature']) && certificate.v === 1 &&
+    certificate.purpose === 'quiet-room-browser-request-root' && certificate.roomId === roomId && uuid(certificate.sourceDeviceId) && publicAccessKey(certificate.rootKey) && b64(certificate.signature, 86) &&
+    fields(grant, ['v', 'purpose', 'requestId', 'browserId', 'browserKey', 'signature']) && grant.v === 1 &&
+    grant.purpose === 'quiet-room-browser-request-grant' && uuid(grant.requestId) && uuid(grant.browserId) && publicAccessKey(grant.browserKey) && b64(grant.signature, 86));
+}
+export async function verifyAccessIntroduction(body, roomId, source) {
+  if (!validAccessIntroduction(body, roomId) || source?.deviceId !== body.certificate.sourceDeviceId || source.status !== 'active') return false;
+  return await verifyAccess(source.signingKey, body.certificate) && await verifyAccess(body.certificate.rootKey, body.grant);
+}
 export async function accessSafetyCode(value) {
   const bytes = decode(await accessDigest(value));
   return (new DataView(bytes.buffer).getUint32(0) % 1000000).toString().padStart(6, '0');

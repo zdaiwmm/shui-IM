@@ -9,6 +9,8 @@ import { localSpaceExists, readLocalSpaceDirectory, saveVault, vaultSpaceId, wit
 
 export type PrivateSpace = {
   roomId: string; name: string; localId?: string; code?: string; waiting?: boolean;
+  /** When this participant created the space. Used only for the one-hour waiting limit. */
+  createdAt?: string;
   /** Local encrypted directory only. Never part of a recoverable directory. */
   preview?: string; previewDeviceId?: string; observer?: UnreadObserver;
   /** Ephemeral server-confirmed count used by the open drawer. */
@@ -16,6 +18,23 @@ export type PrivateSpace = {
   /** Transient shell presentation; never a membership or recovery capability. */
   accessState?: 'unprepared' | 'restricted';
 };
+export const PENDING_SPACE_TTL_MS = 60 * 60 * 1000;
+
+/** Waiting spaces expire one hour after creation. Joined spaces have no deadline. */
+export function pendingSpaceExpiry(space: Pick<PrivateSpace, 'waiting' | 'createdAt'>): number | null {
+  if (!space.waiting || !space.createdAt) return null;
+  const created = Date.parse(space.createdAt);
+  if (!Number.isFinite(created)) return null;
+  return created + PENDING_SPACE_TTL_MS;
+}
+
+export function formatPendingCountdown(remainingMs: number): string {
+  const total = Math.max(0, Math.ceil(remainingMs / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}
+
 export function spaceMessagePreview(payload: MessagePayload): string | undefined {
   switch (payload.kind) {
     case 'text': return payload.text.replace(/\s+/g, ' ').trim().slice(0, 160);
@@ -69,7 +88,7 @@ export async function spaceCapability(code: string, purpose: 'fetch' | 'write' |
 }
 function validate(value: unknown): Directory {
   const data = value as Directory;
-  if (data?.v !== 1 || !Array.isArray(data.spaces) || data.spaces.length > 256 || data.spaces.some(s => !uuid.test(s.roomId) || typeof s.name !== 'string' || !s.name.trim() || s.name.length > 40 || s.code !== undefined && !/^QR3-[A-Za-z0-9_-]{64}$/.test(s.code) || s.localId !== undefined && !/^[\w-]{1,80}$/.test(s.localId)) || new Set(data.spaces.map(s => s.roomId)).size !== data.spaces.length) throw new Error('空间目录不完整，已停止读取');
+  if (data?.v !== 1 || !Array.isArray(data.spaces) || data.spaces.length > 256 || data.spaces.some(s => !uuid.test(s.roomId) || typeof s.name !== 'string' || !s.name.trim() || s.name.length > 40 || s.code !== undefined && !/^QR3-[A-Za-z0-9_-]{64}$/.test(s.code) || s.localId !== undefined && !/^[\w-]{1,80}$/.test(s.localId) || s.waiting !== undefined && typeof s.waiting !== 'boolean' || s.createdAt !== undefined && !Number.isFinite(Date.parse(s.createdAt))) || new Set(data.spaces.map(s => s.roomId)).size !== data.spaces.length) throw new Error('空间目录不完整，已停止读取');
   if (data.spaces.some(s => s.preview !== undefined && (typeof s.preview !== 'string' || s.preview.length > 160)
     || s.previewDeviceId !== undefined && !uuid.test(s.previewDeviceId)
     || s.observer !== undefined && (!s.observer || !uuid.test(s.observer.deviceId) || !/^[A-Za-z0-9_-]{43,128}$/.test(s.observer.token)
@@ -96,7 +115,8 @@ export async function rememberLocalSpace(session: VaultSession, inheritedCode?: 
     }
     const code = session.vault.spaceRecoveryCode, spaces = await read(code), vault = session.vault;
     let entry = spaces.find(s => s.roomId === vault.roomId);
-    if (!entry) { entry = { roomId: vault.roomId, name: `私密空间 ${spaces.length + 1}` }; spaces.push(entry); }
+    if (!entry) { entry = { roomId: vault.roomId, name: `私密空间 ${spaces.length + 1}`, createdAt: vault.createdAt }; spaces.push(entry); }
+    if (!entry.createdAt && Number.isFinite(Date.parse(vault.createdAt))) entry.createdAt = vault.createdAt;
     const localId = vaultSpaceId(session.stored);
     // A replaced endpoint must not inherit this browser's older endpoint preview.
     if (entry.localId && entry.localId !== localId || entry.previewDeviceId && entry.previewDeviceId !== vault.identity.publicBundle.deviceId) { delete entry.preview; delete entry.observer; }
