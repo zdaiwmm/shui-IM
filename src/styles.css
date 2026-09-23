@@ -1268,7 +1268,7 @@ button:disabled {
 .notice.app-toast {
   position: fixed;
   top: max(14px, env(safe-area-inset-top));
-  z-index: 200;
+  z-index: 400;
 }
 
 .notice[data-tone="error"] {

@@ -1,6 +1,6 @@
 import { mountDialog } from './dialog';
 import type { PrivateSpace } from './spaces';
-import { createElement, Settings2, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Trash2, Check, X, Plus, ChevronRight } from 'lucide';
+import { createElement, Settings2, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2 } from 'lucide';
 import { formatPendingCountdown, pendingSpaceExpiry } from './spaces';
 export type PresenceStyle = 'capsule' | 'heart';
 export function readPresenceStyle(): PresenceStyle { try { return localStorage.getItem('quiet-room:presence-style') === 'heart' ? 'heart' : 'capsule'; } catch { return 'capsule'; } }
@@ -32,7 +32,7 @@ export function fitViewport(element: HTMLElement, signal: AbortSignal) {
 export function mountSpaceDrawer(root: HTMLElement, options: {
   spaces: PrivateSpace[]; currentRoom: string; signal: AbortSignal; actions: Action[]; icons?: { close: string; plus: string; settings: string };
   select: (space: PrivateSpace) => Promise<void>; create: () => Promise<void>; rename: (space: PrivateSpace, name: string) => Promise<void>;
-  remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace) => void;
+remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace) => void;
   refreshUnread?: (signal: AbortSignal) => Promise<void>;
   authorization?: (space: PrivateSpace) => {deadline:number;open:()=>Promise<void>} | undefined;
   styleChanged: (style: PresenceStyle) => void; closed: () => void;
@@ -91,14 +91,14 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
   function menu(space: PrivateSpace, origin: HTMLButtonElement) {
     if (busy || signal.aborted || space.accessState || root.querySelector('.space-context-overlay')) return;
     const overlay = document.createElement('div'); overlay.className = 'space-context-overlay'; overlay.setAttribute('role','dialog'); overlay.setAttribute('aria-modal','true'); overlay.setAttribute('aria-label',space.name);
-    const canDelete = Boolean(space.waiting && options.remove);
-    overlay.innerHTML = `<div class="space-context-menu"><button id="space-rename">${createElement(Pencil).outerHTML}<span>编辑空间名称</span></button>${canDelete ? `<button id="space-delete" class="is-danger">${createElement(Trash2).outerHTML}<span>删除空间</span></button>` : ''}</div>`;
+const removable = Boolean(options.remove && space.waiting && !space.accessState);
+    overlay.innerHTML = `<div class="space-context-menu"><button id="space-rename">${createElement(Pencil).outerHTML}<span>编辑空间名称</span></button>${removable ? `<button id="space-delete" class="is-danger">${createElement(Trash2).outerHTML}<span>删除空间</span></button>` : ''}</div>`;
     root.append(overlay);
     const dialog = mountDialog(overlay, { signal, isActive: () => !signal.aborted, returnFocus: origin });
     const rect = origin.getBoundingClientRect(), popup = overlay.firstElementChild as HTMLElement;
     const viewport = visualViewport, top = viewport?.offsetTop ?? 0, bottom = top + (viewport?.height ?? innerHeight);
     popup.style.left = `${Math.max(12, Math.min(rect.left, innerWidth - 212))}px`;
-    popup.style.top = `${Math.max(top + 12, Math.min(rect.bottom - 6, bottom - (canDelete ? 120 : 70)))}px`;
+popup.style.top = `${Math.max(top + 12, Math.min(rect.bottom - 6, bottom - (removable ? 124 : 70)))}px`;
     overlay.addEventListener('click', e => { if (e.target === overlay) dialog.close({ animate: false }); });
     overlay.querySelector('#space-rename')!.addEventListener('click', () => { dialog.close({ animate: false, restoreFocus: false }); rename(space, origin); });
     overlay.querySelector('#space-delete')?.addEventListener('click', () => {
@@ -143,12 +143,12 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
   }
   function row(s: PrivateSpace) {
     const i = options.spaces.indexOf(s), selected = s.roomId === options.currentRoom;
-    const expiry = pendingSpaceExpiry(s);
-    const waitingCopy = s.waiting ? `等待对方加入${expiry ? ` · 剩余 ${formatPendingCountdown(expiry - Date.now())}` : ''}` : '';
-    const preview = s.accessState === 'unprepared' ? '请先在原设备打开此空间' : s.accessState === 'restricted' ? '待对方授权' : s.waiting ? waitingCopy : s.preview || '打开空间查看消息';
-    const statusLine = !selected || s.waiting
-      ? `<small class="space-message-preview ${s.waiting ? 'is-waiting' : ''}" ${expiry ? `data-expires="${expiry}" data-countdown="${i}"` : ''}>${escape(preview)}</small>`
-      : '';
+const expiry = pendingSpaceExpiry(s);
+    const waitingCopy = `等待对方加入${expiry ? ` · 剩余 ${formatPendingCountdown(expiry - Date.now())}` : ''}`;
+    const status = s.accessState === 'unprepared' ? '请先在原设备打开此空间' : s.accessState === 'restricted' ? '待对方授权' : s.waiting ? waitingCopy : s.preview || '打开空间查看消息';
+    const statusLine = s.waiting && !s.accessState
+      ? `<small class="space-message-preview is-waiting" ${expiry ? `data-expires="${expiry}" data-countdown="${i}"` : ''}>${escape(waitingCopy)}</small>`
+      : selected ? '' : `<small class="space-message-preview">${escape(status)}</small>`;
     return `<div class="space-access-row"><button class="space-row ${selected ? 'is-selected' : ''}" data-space="${i}" aria-current="${selected ? 'true' : 'false'}"><span class="space-row-copy">${selected ? '<small class="space-current-label">当前空间</small>' : ''}<strong>${escape(s.name)}</strong>${statusLine}</span>${selected ? `<span class="space-selected-check" aria-hidden="true">${check}</span>` : `<span class="space-row-trailing"><span class="space-unread" data-unread="${i}" hidden></span><span class="space-row-arrow" aria-hidden="true">${arrow}</span></span>`}</button><button class="space-access-action" data-access="${i}" hidden>授权</button></div>`;
   }
   function list() {

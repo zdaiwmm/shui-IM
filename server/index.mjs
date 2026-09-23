@@ -1454,7 +1454,9 @@ export async function startServer(options = {}) {
       console.error('Incomplete blob cleanup failed:', error instanceof Error ? error.message : 'unknown');
     });
     const orphanCutoff = new Date(Date.now() - orphanRoomTtlMs).toISOString();
+    const unjoinedCutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     try {
+      store.cleanupOrphanRooms(unjoinedCutoff);
       store.cleanupOrphanRooms(orphanCutoff);
     } catch (error) {
       console.error('Orphan room cleanup failed:', error instanceof Error ? error.message : 'unknown');

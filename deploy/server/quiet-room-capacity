@@ -91,7 +91,7 @@ def backup_age(now):
     return now - max(stamps) if stamps else float('inf')
 
 
-def problems(m, preflight=False, reserve=8 * GIB):
+def problems(m, preflight=False, reserve=4 * GIB):
     result = []
     if m['usedPercent'] >= (80 if preflight else 75):
         result.append('DISK_CRITICAL' if m['usedPercent'] >= 90 else 'DISK_HIGH')
@@ -107,9 +107,10 @@ def problems(m, preflight=False, reserve=8 * GIB):
 def check(preflight=False):
     m = metrics()
     archives = [p.stat().st_size for p in (ROOT / 'backups/predeploy').glob('data-*.tar.gz') if regular(p)]
-    # Two cold archives (normal plus failed cutover), 4 GiB build reserve,
-    # 2 GiB emergency floor. Size growth beyond this estimate needs capacity.
-    reserve = max(8 * GIB, 2 * max(archives, default=GIB) + 6 * GIB)
+    # Require 4 GiB free before publish/check. Scale with two cold archives
+    # plus a 2 GiB emergency floor when archives grow. Size growth beyond
+    # this estimate needs host capacity.
+    reserve = max(4 * GIB, 2 * max(archives, default=GIB) + 2 * GIB)
     issues = problems(m, preflight, reserve)
     now = time.time()
     if not preflight:

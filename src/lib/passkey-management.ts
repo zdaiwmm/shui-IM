@@ -8,6 +8,7 @@ export async function openPasskeyManagement(root: HTMLElement, options: {
   session: VaultSession; credential: PlatformCredentialResult; signal: AbortSignal;
   prepareKeyboard?: (input: HTMLInputElement, event: PointerEvent) => void;
   verify: (signal: AbortSignal) => Promise<string | undefined>;
+  onRenamed?: () => void;
 }): Promise<void> {
   // Invoked directly in the settings click stack, before storage or rendering.
   const entry = root.querySelector('#passkey-management');
@@ -20,7 +21,8 @@ export async function openPasskeyManagement(root: HTMLElement, options: {
   const page = document.createElement('section');
   page.className = 'passkey-manager'; page.setAttribute('role', 'dialog'); page.setAttribute('aria-modal', 'true'); page.setAttribute('aria-label', '通行密钥管理');
   const supported = passkeyNamingSupported() && Boolean(userId);
-  page.innerHTML = `<header class="passkey-header"><button class="text-button" id="passkey-back">返回</button><h1>通行密钥管理</h1></header><div class="passkey-body"><div class="passkey-mark" aria-hidden="true">${spaceIcons.key}</div><p class="field-hint">当前通行密钥名称</p><h2 id="passkey-current-name">${escape(name ?? '尚未设置名称')}</h2><span class="passkey-current">当前使用</span><div class="passkey-purpose"><strong>一把通行密钥，访问多个空间</strong><p>从已解锁空间继续创建时，会复用这把通行密钥。</p><p>修改名称不会更换密钥，也不会影响空间和聊天记录。</p></div><p class="field-hint">此处显示应用保存的名称。系统中的手工改名不会自动更新到这里。</p><div class="passkey-bottom"><p class="form-error" role="status" id="passkey-feedback"></p><button class="primary-button" id="passkey-rename" ${supported ? '' : 'disabled'}>修改名称</button><p class="field-hint">${supported ? '保存修改时，需要再次验证通行密钥。' : !userId ? '未能取得这把密钥的用户标识，暂时无法改名。' : '当前浏览器不支持修改系统通行密钥名称，请升级浏览器后再试。'}</p></div></div>`;
+  const blocked = !supported ? (!userId ? '未能取得这把密钥的用户标识，暂时无法改名。' : '当前浏览器不支持修改系统通行密钥名称，请升级浏览器后再试。') : '';
+  page.innerHTML = `<div class="passkey-body"><div class="passkey-mark" aria-hidden="true">${spaceIcons.key}</div><p class="field-hint">当前通行密钥名称</p><h2 id="passkey-current-name">${escape(name ?? '尚未设置名称')}</h2><span class="passkey-current">当前使用</span><div class="passkey-purpose"><strong>一把通行密钥，访问多个空间</strong><p>从已解锁空间继续创建时，会复用这把通行密钥。</p><p>修改名称不会更换密钥，也不会影响空间和聊天记录。</p></div><div class="passkey-bottom"><p class="form-error" role="status" id="passkey-feedback">${escape(blocked)}</p><button class="primary-button" id="passkey-rename" ${supported ? '' : 'disabled'}>修改通行密钥名称</button><button class="text-button" id="passkey-back" type="button">返回</button></div></div>`;
   root.append(page);
   const manager = mountDialog(page, { signal, isActive: () => !signal.aborted, onClose: () => lifetime.abort() });
   page.querySelector('#passkey-back')!.addEventListener('click', () => manager.close({ animate: false }));
@@ -61,8 +63,9 @@ export async function openPasskeyManagement(root: HTMLElement, options: {
         signal.throwIfAborted();
         name = next;
         page.querySelector('#passkey-current-name')!.textContent = name;
-        page.querySelector('#passkey-feedback')!.textContent = '名称已保存，已通知系统更新显示名称。';
+        page.querySelector('#passkey-feedback')!.textContent = '';
         modal.close({ animate: false });
+        options.onRenamed?.();
       } catch (cause) {
         if (!signal.aborted) error.textContent = submitted
           ? '结果待确认：已通知系统更新，但应用名称未保存。请再次验证，重试保存同一名称。'
