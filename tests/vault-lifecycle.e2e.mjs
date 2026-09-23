@@ -190,6 +190,70 @@ describe('actual IndexedDB vault lifecycle and MLS mutations', () => {
     });
     expect(result).toEqual({ waited: true, readCommittedSeq: 41, staleRejected: true, crossRoomRejected: false, retained: true });
   }, 30_000);
+
+  it('keeps password guessing delays and does not apply them to passkey vault failures', async () => {
+    const result = await page.evaluate(async () => {
+      const importBrowser = new Function('path', 'return import(path)');
+      const { unlockVault, createVault } = await importBrowser('/src/lib/vault.ts');
+      const readThrottle = () => new Promise((resolve, reject) => {
+        const request = indexedDB.open('quiet-room');
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const database = request.result;
+          const tx = database.transaction('security', 'readonly');
+          const get = tx.objectStore('security').get('unlock-throttle');
+          get.onsuccess = () => { database.close(); resolve(get.result ?? null); };
+          get.onerror = () => reject(get.error);
+        };
+      });
+      const writeThrottle = record => new Promise((resolve, reject) => {
+        const request = indexedDB.open('quiet-room');
+        request.onerror = () => reject(request.error);
+        request.onsuccess = () => {
+          const database = request.result;
+          const tx = database.transaction('security', 'readwrite');
+          tx.objectStore('security').put(record, 'unlock-throttle');
+          tx.oncomplete = () => { database.close(); resolve(); };
+          tx.onerror = () => reject(tx.error);
+        };
+      });
+      const stamp = { failures: 9, nextAllowedAt: Date.now() + 60_000 };
+      await writeThrottle(stamp);
+      let stage = null;
+      try {
+        await unlockVault('', Promise.resolve(crypto.getRandomValues(new Uint8Array(32))));
+      } catch (error) {
+        stage = { name: error.name, stage: error.stage, code: error.code, message: error.message };
+      }
+      const afterFailure = await readThrottle();
+      await unlockVault();
+      const afterSuccess = await readThrottle();
+      const session = await unlockVault();
+      const passwordVault = structuredClone(session.vault);
+      passwordVault.roomId = crypto.randomUUID();
+      await createVault(passwordVault, 'correct-password', 'password');
+      const passwordMessages = [];
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        try { await unlockVault('wrong-password'); }
+        catch (error) { passwordMessages.push(error.message); }
+      }
+      return {
+        stage,
+        failureCount: afterFailure?.failures,
+        failureWait: afterFailure?.nextAllowedAt,
+        successCount: afterSuccess?.failures,
+        passwordMessages,
+      };
+    });
+    assert.equal(result.stage.name, 'UnlockStageError');
+    assert.equal(result.stage.stage, 'S4');
+    assert.match(result.stage.code, /^S4-\d+$/);
+    assert.equal(result.stage.message.includes('无法用这次验证结果打开'), true);
+    assert.equal(result.failureCount, 9);
+    assert.equal(result.successCount, 9);
+    assert.deepEqual(result.passwordMessages.slice(0, 4).map(message => message.startsWith('密码不正确')), [true, true, true, true]);
+    assert.equal(result.passwordMessages[4].startsWith('尝试次数过多'), true);
+  }, 30_000);
 });
 
 try {

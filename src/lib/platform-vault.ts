@@ -54,6 +54,26 @@ export function isPlatformVaultCancellation(error: unknown): error is PlatformVa
   return error instanceof PlatformVaultCancellationError;
 }
 
+export type UnlockStage = 'S1' | 'S2' | 'S3' | 'S4' | 'S5';
+
+/** Local diagnostic for one unlock stage. The code is only the stage and elapsed milliseconds. */
+export class UnlockStageError extends Error {
+  readonly stage: UnlockStage;
+  readonly code: string;
+
+  constructor(message: string, stage: UnlockStage, elapsedMs: number) {
+    super(message);
+    this.name = 'UnlockStageError';
+    this.stage = stage;
+    const elapsed = Number.isFinite(elapsedMs) ? Math.max(0, Math.min(99_999, Math.round(elapsedMs))) : 0;
+    this.code = `${stage}-${elapsed}`;
+  }
+}
+
+function unlockStage(stage: UnlockStage, message: string, started: number): UnlockStageError {
+  return new UnlockStageError(message, stage, performance.now() - started);
+}
+
 function isNativeWebAuthnCancellation(error: unknown): boolean {
   return error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'AbortError');
 }
@@ -117,37 +137,55 @@ function requireUserVerification(flags: number): void {
 }
 
 async function evaluatePrf(record: PlatformCredentialRecord, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
+  const started = performance.now();
   const rpId = record.rpId ?? location.hostname;
-  if (rpId !== location.hostname) throw new Error(`此保险库绑定到 ${rpId}，当前域名无法使用原设备凭据`);
-  const assertion = await runWebAuthnCeremony(() => navigator.credentials.get({
-    signal,
-    publicKey: {
-      challenge: randomBytes(32),
-      rpId,
-      allowCredentials: [{
-        type: 'public-key',
-        id: fromBase64Url(record.credentialId),
-        transports: record.transports,
-      }],
-      userVerification: 'required',
-      timeout: 60_000,
-      extensions: { prf: { eval: { first: fromBase64Url(record.prfSalt), second: browserAccessPrfSalt() } } },
-    },
-  } as PrfCredentialRequestOptions));
+  if (rpId !== location.hostname) throw unlockStage('S1', `此保险库绑定到 ${rpId}，当前域名无法使用原设备凭据`, started);
+  let assertion: Credential | null;
+  try {
+    assertion = await runWebAuthnCeremony(() => navigator.credentials.get({
+      signal,
+      publicKey: {
+        challenge: randomBytes(32),
+        rpId,
+        allowCredentials: [{
+          type: 'public-key',
+          id: fromBase64Url(record.credentialId),
+          transports: record.transports,
+        }],
+        userVerification: 'required',
+        timeout: 60_000,
+        extensions: { prf: { eval: { first: fromBase64Url(record.prfSalt), second: browserAccessPrfSalt() } } },
+      },
+    } as PrfCredentialRequestOptions));
+  } catch (error) {
+    if (isPlatformVaultCancellation(error)) throw error;
+    throw unlockStage('S1', '系统通行密钥没有完成。请重试。', started);
+  }
   if (
     !(assertion instanceof PublicKeyCredential) ||
     assertion.type !== 'public-key' ||
     !(assertion.response instanceof AuthenticatorAssertionResponse)
   ) {
-    throw new Error('通行密钥验证没有返回有效凭据');
+    throw unlockStage('S3', '通行密钥验证没有返回有效凭据。请重试。', started);
   }
-  if (toBase64Url(assertion.rawId) !== record.credentialId) throw new Error('设备安全凭据不匹配');
-  const flags = assertionFlags(assertion.response);
-  requireUserVerification(flags);
+  if (toBase64Url(assertion.rawId) !== record.credentialId) {
+    throw unlockStage('S3', '这次验证的通行密钥与本机保险库不一致。请重试或一起恢复。', started);
+  }
+  let flags: number;
+  try {
+    flags = assertionFlags(assertion.response);
+  } catch {
+    throw unlockStage('S3', '通行密钥返回的数据不完整。请重试。', started);
+  }
+  if ((flags & 0x01) === 0 || (flags & 0x04) === 0) {
+    throw unlockStage('S3', '通行密钥没有完成用户验证。请重试。', started);
+  }
   const backupEligible = Boolean(flags & 0x08);
-  if (backupEligible !== record.backupEligible) throw new Error('通行密钥属性发生异常变化');
+  if (backupEligible !== record.backupEligible) {
+    throw unlockStage('S3', '通行密钥属性发生了变化。请重试或一起恢复。', started);
+  }
   const output = prfBytes(assertion);
-  if (!output) throw new Error('该通行密钥不支持保险库密钥派生');
+  if (!output) throw unlockStage('S3', '通行密钥没有返回可用的本机保护数据。请重试；若仍失败，使用一起恢复。', started);
   const user = assertion.response.userHandle;
   if (user?.byteLength && user.byteLength <= 64) assertionUsers.set(output, toBase64Url(user));
   if (signal?.aborted) { output.fill(0); takeBrowserAccessPrf(output)?.fill(0); signal.throwIfAborted(); }
