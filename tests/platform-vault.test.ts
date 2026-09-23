@@ -171,13 +171,25 @@ describe('platform vault WebAuthn cancellation', () => {
   it('does not classify policy failures or post-assertion credential mismatches as cancellation', async () => {
     const policyFailure = new DOMException('RP policy failure', 'SecurityError');
     installCredentials({ get: vi.fn().mockRejectedValue(policyFailure) });
-    await expect(unlockPlatformCredential(record)).rejects.toBe(policyFailure);
-    expect(isPlatformVaultCancellation(policyFailure)).toBe(false);
+    const policyError = await unlockPlatformCredential(record).catch((cause: unknown) => cause);
+    expect(policyError).toMatchObject({ name: 'UnlockStageError', stage: 'S1' });
+    expect(isPlatformVaultCancellation(policyError)).toBe(false);
+    expect(String((policyError as Error).message)).not.toContain('RP policy');
+    expect((policyError as { code: string }).code).toMatch(/^S1-\d+$/);
 
     const wrongCredential = new FakePublicKeyCredential(new FakeAssertionResponse());
     Object.defineProperty(wrongCredential, 'rawId', { value: new Uint8Array([9, 9, 9, 9]) });
     installCredentials({ get: vi.fn().mockResolvedValue(wrongCredential as unknown as Credential) });
-    await expect(unlockPlatformCredential(record)).rejects.toThrow('设备安全凭据不匹配');
+    const mismatch = await unlockPlatformCredential(record).catch((cause: unknown) => cause);
+    expect(mismatch).toMatchObject({ stage: 'S3' });
+    expect(String((mismatch as Error).message)).toContain('本机保险库不一致');
+    expect((mismatch as { code: string }).code).toMatch(/^S3-\d+$/);
+
+    installCredentials({ get: vi.fn().mockResolvedValue(new FakePublicKeyCredential(new FakeAssertionResponse()) as unknown as Credential) });
+    const missingPrf = await unlockPlatformCredential(record).catch((cause: unknown) => cause);
+    expect(missingPrf).toMatchObject({ stage: 'S3' });
+    expect(String((missingPrf as Error).message)).toContain('没有返回可用的本机保护数据');
+    expect(JSON.stringify((missingPrf as { code: string }).code)).not.toMatch(/prf|password|passcode/i);
   });
 
   it('only recognizes the explicit normalized cancellation type', () => {

@@ -16,6 +16,7 @@ import {
   createPlatformCredential,
   isPlatformVaultCancellation,
   unlockPlatformCredential,
+  UnlockStageError,
   takeBrowserAccessPrf,
   type PlatformCredentialResult,
 } from './platform-vault';
@@ -846,11 +847,17 @@ export async function resumeVaultSession(session: VaultSession): Promise<VaultSe
   });
 }
 
+function isPasskeyOnlyVault(stored: { v?: number; unlockMethod?: string }): boolean {
+  return stored.v === 3 && stored.unlockMethod === 'platform';
+}
+
 async function unlockVaultLocked(secret: string, preparedPlatformProof?: Uint8Array<ArrayBuffer>): Promise<VaultSession> {
   const stored = await readStoredVaultUnlocked();
   if (!stored) throw new Error('本机没有可解锁的会话');
   if (stored.unlockMethod === 'recovery') throw new Error('恢复包需要先输入独立恢复码');
-  await enforceUnlockThrottle();
+  const passkeyOnly = isPasskeyOnlyVault(stored);
+  if (!passkeyOnly) await enforceUnlockThrottle();
+  const decryptStarted = performance.now();
   try {
     let unlocked: VaultSession;
     if (stored.v === 1) {
@@ -905,14 +912,17 @@ async function unlockVaultLocked(secret: string, preparedPlatformProof?: Uint8Ar
       masterBytes.fill(0);
     }
     rememberSpace(vaultSpaceId(unlocked.stored));
-    await clearUnlockThrottle();
+    if (!passkeyOnly) await clearUnlockThrottle();
     return unlocked;
   } catch (error) {
-    if (isPlatformVaultCancellation(error)) throw error;
+    if (isPlatformVaultCancellation(error) || error instanceof UnlockStageError) throw error;
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    if (passkeyOnly) {
+      preparedPlatformProof?.fill(0);
+      throw new UnlockStageError('本机保险库无法用这次验证结果打开。请重试或一起恢复。', 'S4', performance.now() - decryptStarted);
+    }
     await recordUnlockFailure().catch(() => undefined);
-    throw new Error(stored.v === 3
-      ? '设备安全验证未通过，或本机保险库已经损坏'
-      : stored.v === 2
+    throw new Error(stored.v === 2
       ? '手势、设备安全凭据不正确，或本机保险库已经损坏'
       : stored.unlockMethod === 'gesture'
         ? '手势不正确，或本机保险库已经损坏'

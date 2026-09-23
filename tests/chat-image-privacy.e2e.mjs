@@ -417,32 +417,28 @@ try {
   const transient = await page.evaluate(() => {
     const f = window.chatPrivacy;
     const element = [...document.querySelectorAll('.message .image-preview')].find(preview => preview.dataset.revealed === 'true');
-    const bubble = element.closest('.message-bubble');
     for (const [type, y] of [['pointerdown', 200], ['pointermove', 280]]) element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 64, isPrimary: true, button: 0, clientX: y, clientY: 200 }));
     window.dispatchEvent(new Event('blur'));
-    const buttons = [...document.querySelectorAll('.message .image-preview')];
-    const immediatelyHidden = buttons.length === 5 && buttons.every(button => button.dataset.revealed === 'false'
-      && (!button.querySelector('img') || Number(getComputedStyle(button.querySelector('img')).opacity) === 0));
-    const curtainVisible = getComputedStyle(document.querySelector('.privacy-curtain')).visibility === 'visible';
+    const locked = f.app.privacyCovered && !document.querySelector('.message, .image-viewer, .message-text-selection');
     window.dispatchEvent(new Event('focus'));
-    element.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch', pointerId: 64, isPrimary: true, button: 0, clientX: 120, clientY: 280 }));
-    return { immediatelyHidden, curtainVisible, unlockedAfterFocus: !f.app.privacyCovered, gestureReleased: getComputedStyle(bubble).transform === 'none' && bubble.getAnimations().length === 0 };
+    const stayedLocked = f.app.privacyCovered && !document.querySelector('.message, .image-viewer');
+    return { locked, stayedLocked };
   });
-  assert.deepEqual(transient, { immediatelyHidden: true, curtainVisible: true, unlockedAfterFocus: true, gestureReleased: true }, 'Transient privacy cover did not conceal thumbnails and release active pull motion synchronously');
-  await assertVisibility(5, 0, 'Rapid foreground restoration');
-  await page.waitForTimeout(300);
-  await assertVisibility(5, 0, 'After blur debounce');
+  assert.deepEqual(transient, { locked: true, stayedLocked: true }, 'Unowned blur left revealed media mounted after focus returned');
+  await page.evaluate(() => window.chatPrivacy.reopen());
+  await assertVisibility(5, 0, 'Relocked chat reopened with concealed media');
   await waitForClicks(); await delayed.click();
   await delayed.click();
   await page.locator('.image-viewer.is-visible .viewer-stage img').waitFor();
   const coveredViewer = await page.evaluate(() => {
     window.dispatchEvent(new Event('blur'));
-    const viewerGone = document.querySelector('.image-viewer') === null;
+    const viewerGone = document.querySelector('.image-viewer, .message') === null && window.chatPrivacy.app.privacyCovered;
     window.dispatchEvent(new Event('focus'));
-    return viewerGone;
+    return viewerGone && window.chatPrivacy.app.privacyCovered;
   });
-  assert(coveredViewer, 'Transient privacy cover retained the full-resolution viewer');
-  await assertVisibility(5, 0, 'Rapid foreground restoration from viewer');
+  assert(coveredViewer, 'Unowned blur retained the viewer or restored chat on focus');
+  await page.evaluate(() => window.chatPrivacy.reopen());
+  await assertVisibility(5, 0, 'Chat after viewer lock');
 
   if (visualQaDirectory) {
     await mkdir(visualQaDirectory, { recursive: true });

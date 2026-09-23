@@ -156,6 +156,7 @@ import {
   isPlatformVaultCancellation,
   platformVaultSupported,
   unlockPlatformCredential,
+  UnlockStageError,
   type PlatformCredentialResult,
 } from './lib/platform-vault';
 import type {
@@ -229,6 +230,11 @@ import './backup.css';
 const CLIENT_CAPABILITIES = ['joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
 const PASSKEY_UNAVAILABLE_NOTICE = '当前浏览器无法获取到本设备的通行密钥信息，建议使用系统浏览器';
 const SPACE_DEVICE_LIMIT_NOTICE = '该空间接入设备已达上限。';
+function formatUnlockFailure(cause: unknown): string {
+  if (cause instanceof UnlockStageError) return `${cause.message} ${cause.code}`;
+  if (cause instanceof Error && cause.message) return cause.message;
+  return '无法解锁。请重试。';
+}
 function passkeyLookupFailed(cause: unknown): boolean {
   if (cause instanceof DOMException && (cause.name === 'NotSupportedError' || cause.name === 'SecurityError' || cause.name === 'InvalidStateError' || cause.name === 'UnknownError')) return true;
   return cause instanceof Error && /不支持通行密钥|通行密钥验证没有返回|不支持安全接入|安全环境/.test(cause.message);
@@ -238,6 +244,7 @@ function passkeyLookupFailed(cause: unknown): boolean {
 // from chooser/media handoffs so every hard lifecycle signal still locks.
 const KEYBOARD_NATIVE_HANDOFF_MS = 1_200;
 const SYSTEM_SURFACE_RETURN_MS = 1_500;
+const RECOVERY_KEYBOARD_HANDOFF_MS = 60_000;
 // Tapping the expression toggle may dismiss the iOS keyboard through a short
 // visible window blur before the panel's click handler runs.
 const MEME_PANEL_HANDOFF_MS = 2_500;
@@ -516,6 +523,8 @@ export class QuietRoomApp {
     runtimeEpoch: number;
     blurred: boolean;
     timer: number;
+    deadline: number;
+    wallDeadline: number;
   } | null = null;
   private nativeHandoff: {
     kind: 'picker' | 'microphone' | 'camera';
@@ -1056,7 +1065,10 @@ export class QuietRoomApp {
         this.abandonImagePicker();
       }
       if (document.hidden) this.obscurePrivacySurface();
-      else { this.expireIdleSession(); this.revealPrivacySurface(); refreshUnread(); }
+      else {
+        this.revealReturningForeground();
+        refreshUnread();
+      }
       if (document.hidden && !this.deviceVerificationActive) {
         if (!this.retainBrowserAccessWait()) this.coverOnDeparture();
       } else if (!document.hidden && this.browserAccessHold) {
@@ -1069,15 +1081,21 @@ export class QuietRoomApp {
       // Capture must not confuse an input/button losing focus with the
       // browser window leaving the foreground.
       if (event.target !== window) return;
-      // A foreground chooser or permission sheet can take window focus while
-      // the document remains visible. Only the operation that we just opened
-      // owns this bounded departure; hidden/pagehide/freeze still lock below.
-      if (this.consumeRecoveryKeyboardBlur()) return;
-      if (this.consumeSystemSurfaceBlur()) return;
-      if (this.consumeMemePanelHandoffBlur()) return;
-      if (this.consumeKeyboardHandoffBlur()) return;
-      if (this.consumeNativeHandoffBlur()) return;
-      if (this.retainBrowserAccessWait()) return;
+      // Show the curtain before classifying a handoff so an unowned departure
+      // cannot leave chat painted. A still-valid handoff may clear it in this
+      // same turn; hidden, pagehide and freeze never use that exemption.
+      if (!this.desktopBrowser) this.showPrivacyCurtain();
+      const owned = this.consumeRecoveryKeyboardBlur()
+        || this.consumeSystemSurfaceBlur()
+        || this.consumeMemePanelHandoffBlur()
+        || this.consumeKeyboardHandoffBlur()
+        || this.consumeNativeHandoffBlur();
+      if (owned || this.retainBrowserAccessWait()) {
+        if (!this.desktopBrowser && !this.privacyCovered && !document.hidden && !this.deviceVerificationActive) {
+          this.revealPrivacySurface();
+        }
+        return;
+      }
       this.coverEntryEpoch += 1;
       this.cancelCoverTimer();
       this.obscurePrivacySurface();
@@ -1094,12 +1112,7 @@ export class QuietRoomApp {
         this.coverOnDeparture();
         return;
       }
-      if (this.blurLockTimer !== null) window.clearTimeout(this.blurLockTimer);
-      this.blurLockTimer = window.setTimeout(() => {
-        this.blurLockTimer = null;
-        if (!document.hasFocus() && !this.deviceVerificationActive) this.lockNow();
-        else if (!document.hidden) this.revealPrivacySurface();
-      }, 250);
+      this.lockNow();
     }, { capture: true });
     window.addEventListener('focus', event => {
       if (event.target !== window) return;
@@ -1150,8 +1163,7 @@ export class QuietRoomApp {
       if (this.blurLockTimer !== null) window.clearTimeout(this.blurLockTimer);
       this.blurLockTimer = null;
       this.finishFileExport();
-      this.expireIdleSession();
-      this.revealPrivacySurface();
+      this.revealReturningForeground();
       if (!document.hidden && !this.privacyCovered && this.session) void this.resumeDeferredImage();
       // Some mobile browsers report focus before dispatching the picker's
       // change/cancel event. Give that event one short return edge, then detach
@@ -1165,18 +1177,27 @@ export class QuietRoomApp {
       }
       refreshUnread();
     }, { capture: true });
-    document.addEventListener('freeze', () => { if (this.retainBrowserAccessWait()) return; this.clearMemePanelHandoff(); this.abandonImagePicker(); this.lockNow(); }, { capture: true });
+    document.addEventListener('freeze', () => {
+      if (this.retainBrowserAccessWait()) return;
+      this.obscurePrivacySurface();
+      this.clearMemePanelHandoff();
+      this.abandonImagePicker();
+      this.lockNow();
+      if (!document.hidden) this.revealPrivacySurface();
+    }, { capture: true });
     window.addEventListener('pageshow', event => {
       if (event.persisted) this.lockNow();
       refreshUnread();
     }, { capture: true });
     window.addEventListener('pagehide', () => {
       if (this.retainBrowserAccessWait()) return;
+      this.obscurePrivacySurface();
       this.clearRecoveryKeyboardHandoff();
       this.clearSystemSurfaceHandoff();
       this.clearMemePanelHandoff();
       this.abandonImagePicker();
       this.lockNow({ preserveFilePicker: false });
+      if (!document.hidden) this.revealPrivacySurface();
     }, { capture: true });
   }
 
@@ -1203,10 +1224,41 @@ export class QuietRoomApp {
     </div>`;
   }
 
+  private foregroundHandoffStillOwned(): boolean {
+    if (this.deviceVerificationActive || this.retainBrowserAccessWait()) return true;
+    const recovery = this.recoveryKeyboardHandoff;
+    if (recovery && !this.recoveryKeyboardHandoffExpired(recovery)) return true;
+    const keyboard = this.keyboardHandoff;
+    if (keyboard && this.keyboardHandoffValid(keyboard) && !this.keyboardHandoffExpired(keyboard)) return true;
+    const meme = this.memePanelHandoff;
+    if (meme && this.memePanelHandoffValid(meme) && !this.memePanelHandoffExpired(meme)) return true;
+    const native = this.nativeHandoff;
+    if (native && !this.nativeHandoffExpired(native)) return true;
+    const surface = this.systemSurfaceHandoff;
+    if (surface && performance.now() < surface.deadline && Date.now() < surface.wallDeadline) return true;
+    return false;
+  }
+
+  private revealReturningForeground(): void {
+    this.expireIdleSession();
+    if (document.hidden) return;
+    const obscured = document.documentElement.classList.contains('privacy-obscured');
+    if (!obscured || this.privacyCovered || !this.session || this.foregroundHandoffStillOwned()) {
+      this.revealPrivacySurface();
+      return;
+    }
+    this.lockNow();
+    if (!document.hidden) this.revealPrivacySurface();
+  }
+
+  private showPrivacyCurtain(): void {
+    document.documentElement.classList.add('privacy-obscured');
+  }
+
   private obscurePrivacySurface(): void {
     this.clearMemePanelHandoff();
     this.closeMemePicker();
-    document.documentElement.classList.add('privacy-obscured');
+    this.showPrivacyCurtain();
     this.concealChatImages();
     this.closeImageViewer(true);
   }
@@ -1581,7 +1633,7 @@ export class QuietRoomApp {
                 error.textContent = '';
                 instruction.textContent = '验证已取消，请重新绘制手势重试。';
               } else {
-                error.textContent = cause instanceof Error ? cause.message : '无法解锁';
+                error.textContent = formatUnlockFailure(cause);
                 instruction.textContent = '请重新绘制手势。';
               }
             }
@@ -1650,6 +1702,7 @@ export class QuietRoomApp {
         error.textContent = '';
         setBusy(button, true, '正在验证…');
         void (async () => {
+          let openStarted = 0;
           try {
             // Start without another storage wait. Browser-owned sheet timing
             // is separate from invoking this request; teardown must cancel it
@@ -1661,11 +1714,18 @@ export class QuietRoomApp {
             await this.adoptHeldDeviceCredential(unlocked);
             this.rememberDeviceCredential(unlocked);
             this.session = unlocked;
+            openStarted = performance.now();
             await this.openSession();
           } catch (cause) {
             if (current()) {
               if (isPlatformVaultCancellation(cause)) button.dataset.label = '重新验证';
-              else error.textContent = cause instanceof Error ? cause.message : '无法解锁';
+              else if (this.session && !(cause instanceof UnlockStageError)) {
+                error.textContent = formatUnlockFailure(new UnlockStageError(
+                  '验证已通过，但私密空间没有打开。请重试。',
+                  'S5',
+                  performance.now() - openStarted,
+                ));
+              } else error.textContent = formatUnlockFailure(cause);
             }
           } finally {
             if (this.gatewayUnlockAbort === abort) this.gatewayUnlockAbort = null;
@@ -1935,9 +1995,15 @@ export class QuietRoomApp {
       input.addEventListener('focus', () => {
         this.clearRecoveryKeyboardHandoff();
         if (document.hidden || this.privacyCovered || !input.isConnected || !input.closest('[data-recovery-keyboard]')) return;
-        this.recoveryKeyboardHandoff = { input, runtimeEpoch: this.runtimeEpoch, blurred: false, timer: 0 };
+        this.recoveryKeyboardHandoff = {
+          input, runtimeEpoch: this.runtimeEpoch, blurred: false, timer: 0, deadline: 0, wallDeadline: 0,
+        };
       });
     }
+  }
+
+  private recoveryKeyboardHandoffExpired(handoff: NonNullable<QuietRoomApp['recoveryKeyboardHandoff']>): boolean {
+    return handoff.deadline > 0 && (performance.now() >= handoff.deadline || Date.now() >= handoff.wallDeadline);
   }
 
   private consumeRecoveryKeyboardBlur(): boolean {
@@ -1945,14 +2011,25 @@ export class QuietRoomApp {
     if (!handoff || document.hidden || this.privacyCovered ||
         handoff.runtimeEpoch !== this.runtimeEpoch || !handoff.input.isConnected ||
         !handoff.input.closest('[data-recovery-keyboard]') || this.nativeSurfaceActive()) return false;
+    if (this.recoveryKeyboardHandoffExpired(handoff)) {
+      this.clearRecoveryKeyboardHandoff();
+      return false;
+    }
     if (this.blurLockTimer !== null) window.clearTimeout(this.blurLockTimer);
     this.blurLockTimer = null;
-    window.clearTimeout(handoff.timer);
-    handoff.timer = 0;
-    // Keyboard dismissal often leaves the window unfocused while the recovery
-    // page stays visible. Keep swallowing later visible blurs until a hard
-    // lifecycle event, explicit lock, or this form is replaced.
+    if (handoff.blurred) return true;
     handoff.blurred = true;
+    handoff.deadline = performance.now() + RECOVERY_KEYBOARD_HANDOFF_MS;
+    handoff.wallDeadline = Date.now() + RECOVERY_KEYBOARD_HANDOFF_MS;
+    window.clearTimeout(handoff.timer);
+    handoff.timer = window.setTimeout(() => {
+      if (this.recoveryKeyboardHandoff !== handoff || !this.recoveryKeyboardHandoffExpired(handoff)) return;
+      this.clearRecoveryKeyboardHandoff();
+      if (!this.privacyCovered && this.session && !document.hidden && !document.hasFocus()) {
+        this.obscurePrivacySurface();
+        this.lockNow();
+      }
+    }, RECOVERY_KEYBOARD_HANDOFF_MS);
     return true;
   }
 
@@ -2383,40 +2460,59 @@ export class QuietRoomApp {
     }, timeout);
     try {
       const result = await operation();
-      if (this.deviceVerificationToken !== token || this.runtimeEpoch !== epoch || this.privacyCovered ||
-          performance.now() >= this.deviceVerificationDeadline || Date.now() >= this.deviceVerificationWallDeadline) {
+      const ceremonyEnded = this.deviceVerificationToken !== token || this.runtimeEpoch !== epoch || this.privacyCovered
+        || performance.now() >= this.deviceVerificationDeadline || Date.now() >= this.deviceVerificationWallDeadline;
+      if (ceremonyEnded) {
+        if (result instanceof Uint8Array) result.fill(0);
         if (this.deviceVerificationToken === token) this.expireDeviceVerification(true);
         throw new DOMException('设备验证流程已经结束', 'AbortError');
       }
-      return result;
-    } finally {
-      window.clearTimeout(timer);
-      if (this.deviceVerificationToken !== token) {
-        // Never allow an already computed credential/PRF result to cross a
-        // manual lock, pagehide, freeze, timeout, or replacement ceremony.
-        throw new DOMException('设备验证流程已经结束', 'AbortError');
-      }
       if (!document.hidden && !document.hasFocus()) {
+        const focusStarted = performance.now();
         const returned = await this.waitForDeviceVerificationFocus(token);
         if (!returned) {
-          if (this.deviceVerificationToken === token) this.expireDeviceVerification(true);
-          throw new DOMException('设备验证流程已经结束', 'AbortError');
+          if (result instanceof Uint8Array) result.fill(0);
+          if (document.hidden || this.privacyCovered || this.deviceVerificationToken !== token) {
+            if (this.deviceVerificationToken === token) this.expireDeviceVerification(true);
+            throw new DOMException('设备验证流程已经结束', 'AbortError');
+          }
+          throw new UnlockStageError(
+            '系统验证已结束，但页面还没有回到前台。请回到 Safari 后重新验证。',
+            'S2',
+            performance.now() - focusStarted,
+          );
         }
       }
-      if (this.deviceVerificationToken !== token) {
+      if (this.deviceVerificationToken !== token || this.runtimeEpoch !== epoch || this.privacyCovered
+          || performance.now() >= this.deviceVerificationDeadline || Date.now() >= this.deviceVerificationWallDeadline
+          || document.hidden || !document.hasFocus()) {
+        if (result instanceof Uint8Array) result.fill(0);
+        if (this.deviceVerificationToken === token) this.expireDeviceVerification(true);
         throw new DOMException('设备验证流程已经结束', 'AbortError');
-      } else if (performance.now() >= this.deviceVerificationDeadline || Date.now() >= this.deviceVerificationWallDeadline ||
-            document.hidden || !document.hasFocus()) {
-          this.expireDeviceVerification(true);
-          throw new DOMException('设备验证流程已经结束', 'AbortError');
-      } else {
+      }
+      this.deviceVerificationToken = null;
+      this.deviceVerificationActive = false;
+      this.deviceVerificationForegroundOnly = false;
+      this.deviceVerificationDeadline = 0;
+      this.deviceVerificationWallDeadline = 0;
+      if (document.hidden) this.lockNow({ preserveFilePicker: false });
+      else if (document.hasFocus()) this.revealPrivacySurface();
+      return result;
+    } catch (cause) {
+      if (this.deviceVerificationToken === token) {
+        const ended = cause instanceof DOMException && cause.name === 'AbortError';
+        if (ended || document.hidden || this.privacyCovered) this.expireDeviceVerification(true);
+        else {
           this.deviceVerificationToken = null;
           this.deviceVerificationActive = false;
+          this.deviceVerificationForegroundOnly = false;
           this.deviceVerificationDeadline = 0;
           this.deviceVerificationWallDeadline = 0;
-          if (document.hidden) this.lockNow({ preserveFilePicker: false });
-          else if (document.hasFocus()) this.revealPrivacySurface();
+        }
       }
+      throw cause;
+    } finally {
+      window.clearTimeout(timer);
     }
   }
 

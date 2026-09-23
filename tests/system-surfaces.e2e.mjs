@@ -123,9 +123,9 @@ try {
     };
 
     await fresh(); blur(); focus();
-    await new Promise(resolve => setTimeout(resolve, 300));
-    check(!app.privacyCovered, 'Ordinary transient blur unexpectedly locked');
-    blur(); await new Promise(resolve => setTimeout(resolve, 300)); covered('Ordinary sustained blur'); focus();
+    covered('Ordinary unowned blur');
+    await fresh();
+    blur(); covered('Ordinary sustained blur'); focus(); covered('Focus after ordinary blur stays locked');
 
     // Navigation changes the destination synchronously and keeps both painted
     // layers during the reference iOS-style push/pop. Repeated transitions
@@ -426,9 +426,8 @@ try {
     app.setMediaPermission('camera', false);
     check(!app.privacyCovered, 'Camera completion before focus did not get its bounded return edge');
     focus(); blur();
-    check(document.documentElement.classList.contains('privacy-obscured'), 'Completed camera handoff suppressed a later privacy curtain');
-    await new Promise(resolve => setTimeout(resolve, 300));
     covered('Camera completion cannot exempt another departure'); focus();
+    covered('Camera completion return stays locked');
     await fresh(); app.setMediaPermission('camera', true); blur(); app.setMediaPermission('camera', false);
     await new Promise(resolve => setTimeout(resolve, 300));
     covered('Settled permission without foreground return'); focus();
@@ -476,9 +475,54 @@ try {
     let abandonVerification;
     const missingFocusVerification = app.withDeviceVerification(() => new Promise(resolve => { abandonVerification = resolve; }));
     blur(); abandonVerification('late-without-focus');
-    await checkRejects(missingFocusVerification, 'Missing focus verification unexpectedly completed');
-    covered('Verification settled without focus return');
-    focus(); covered('Verification timeout focus return');
+    const missingFocus = await missingFocusVerification.then(() => null, cause => cause);
+    check(missingFocus?.stage === 'S2' && /^S2-\d+$/.test(missingFocus.code), 'Visible focus timeout did not keep a stage diagnostic');
+    check(!app.privacyCovered && !app.deviceVerificationActive, 'Visible focus timeout locked the gateway instead of staying retryable');
+    focus();
+    check(!app.privacyCovered, 'Focus after a visible verification timeout unlocked or relocked unexpectedly');
+
+    await fresh(); app.session = null; root.innerHTML = '<section class="gateway"></section>';
+    let rejectFailure;
+    const failedVerification = app.withDeviceVerification(() => new Promise((_, reject) => { rejectFailure = reject; }));
+    blur();
+    const originalFailure = new Error('stage-detail-must-survive-focus-gap');
+    rejectFailure(originalFailure);
+    const preserved = await failedVerification.then(() => null, cause => cause);
+    check(preserved === originalFailure, 'An unfocused passkey failure was replaced by the focus wait');
+    check(!app.privacyCovered && !app.deviceVerificationActive, 'A visible passkey failure locked the gateway');
+    focus();
+
+    for (const destination of ['chat', 'gallery']) {
+      await fresh(destination);
+      blur();
+      covered(`${destination} unowned blur`);
+      focus();
+      covered(`${destination} focus after unowned blur`);
+      if (destination === 'chat') {
+        await fresh('chat');
+        window.dispatchEvent(new Event('pagehide'));
+        covered('Chat pagehide');
+        await fresh('chat');
+        hidden(true);
+        covered('Chat hidden');
+        hidden(false);
+        covered('Chat hidden return');
+        await fresh('chat');
+        document.dispatchEvent(new Event('freeze'));
+        covered('Chat freeze');
+      }
+    }
+    await fresh('chat');
+    root.insertAdjacentHTML('beforeend', '<form id="recovery-keyboard-fixture" data-recovery-keyboard><textarea></textarea></form>');
+    const recoveryForm = root.querySelector('#recovery-keyboard-fixture');
+    app.armRecoveryKeyboardHandoff(recoveryForm);
+    recoveryForm.querySelector('textarea').dispatchEvent(new Event('focus'));
+    blur();
+    check(!app.privacyCovered && !!root.querySelector('.chat-shell'), 'Owned recovery blur locked chat');
+    app.recoveryKeyboardHandoff.deadline = performance.now() - 1;
+    app.recoveryKeyboardHandoff.wallDeadline = Date.now() - 1;
+    blur();
+    covered('Recovery keyboard handoff cap');
 
     await fresh(); app.session = null; root.innerHTML = '<section class="gateway"></section>';
     let expiredVerificationResult;
@@ -539,15 +583,16 @@ try {
     };
   }), { consumed: true, obscured: false, covered: false }, 'The first owned visible keyboard blur exposed the privacy curtain');
   assert.equal(await page.evaluate(() => {
-    window.systemSurfaceKeyboardFixture.blur();
-    return document.documentElement.classList.contains('privacy-obscured');
-  }), true, 'A second keyboard blur did not obscure synchronously');
+    const fixture = window.systemSurfaceKeyboardFixture;
+    fixture.blur();
+    return fixture.app.privacyCovered && !document.querySelector('.chat-shell');
+  }), true, 'A second keyboard blur did not lock synchronously');
   await page.waitForTimeout(300);
   assert.equal(await page.evaluate(() => {
     const fixture = window.systemSurfaceKeyboardFixture;
     return fixture.app.privacyCovered && !fixture.app.keyboardHandoff
       && Boolean(document.querySelector('.cover-trigger')) && !document.querySelector('.chat-shell');
-  }), true, 'A second keyboard blur did not lock after the mobile debounce');
+  }), true, 'A second keyboard blur did not stay locked');
 
   // Focus alone is not authorization: only the trusted composer pointerdown
   // above may create the one-use handoff.
@@ -559,9 +604,9 @@ try {
     fixture.blur();
     return {
       armed,
-      obscured: document.documentElement.classList.contains('privacy-obscured'),
+      covered: fixture.app.privacyCovered && !document.querySelector('.chat-shell'),
     };
-  }), { armed: false, obscured: true }, 'Programmatic composer focus acquired a keyboard handoff');
+  }), { armed: false, covered: true }, 'Programmatic composer focus acquired a keyboard handoff');
 
   const hardDepartures = ['hidden', 'pagehide', 'freeze', 'lock'];
   for (const departure of hardDepartures) {
@@ -731,7 +776,7 @@ try {
   assert.equal(await page.evaluate(() => {
     const fixture = window.systemSurfaceKeyboardFixture;
     fixture.blur();
-    return document.documentElement.classList.contains('privacy-obscured');
+    return fixture.app.privacyCovered && !document.querySelector('.chat-shell');
   }), true, 'Fresh keyboard geometry left a reusable second-blur exception');
 
   // A keyboard-sized viewport already present before the tap is a baseline,
@@ -754,7 +799,7 @@ try {
   assert.equal(await page.evaluate(() => {
     const fixture = window.systemSurfaceKeyboardFixture;
     fixture.blur();
-    return document.documentElement.classList.contains('privacy-obscured');
+    return fixture.app.privacyCovered && !document.querySelector('.chat-shell');
   }), true, 'Pre-arm keyboard geometry excused an unowned blur');
 
   await page.evaluate(async () => {
