@@ -93,7 +93,7 @@ def backup_age(now):
 
 def problems(m, preflight=False, reserve=4 * GIB):
     result = []
-    if m['usedPercent'] >= (80 if preflight else 75):
+    if m['usedPercent'] >= (90 if preflight else 75):
         result.append('DISK_CRITICAL' if m['usedPercent'] >= 90 else 'DISK_HIGH')
     if m['availableBytes'] < reserve:
         result.append('DISK_HEADROOM_LOW')
