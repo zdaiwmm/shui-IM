@@ -90,6 +90,7 @@ describe('browser access two-party authorization',()=>{
     }
     const second=await nextProof();await f.store.browserAccess.create(f.roomId,second,f.token,'第二浏览器');
     const third=await nextProof();await expect(f.store.browserAccess.create(f.roomId,third,f.token,'超额浏览器')).rejects.toThrow('DEVICE_LIMIT');
+    expect(await f.store.browserAccess.capacity(f.roomId,{certificate:f.proof.certificate,grant:f.proof.grant})).toMatchObject({full:true,count:3});
     f.store.browserAccess.dismiss(f.roomId,second.request.requestId,null,f.token);
     await expect(f.store.browserAccess.create(f.roomId,third,f.token,'第三浏览器')).resolves.toMatchObject({status:'pending'});
     const {signature:_signature,...unsigned}=f.proof.request;
@@ -107,6 +108,13 @@ describe('browser access two-party authorization',()=>{
     expect(f.store.browserAccess.list(f.roomId,f.peer.publicBundle.deviceId).requests).toHaveLength(0);
     expect(f.store.browserAccess.status(f.roomId,f.proof.request.requestId,f.token).status).toBe('revoked');
     expect(f.store.authenticatedDevice(f.roomId,f.token)).toBeNull();
+  });
+  it('stores the requesting browser capabilities before that browser opens chat', async () => {
+    const f = await fixture();
+    await f.store.browserAccess.create(f.roomId, f.proof, f.token, '新浏览器', ['voice-message-v1', 'reply-v2']);
+    expect(f.store.getMember(f.roomId, f.target.publicBundle.deviceId).capabilities).toEqual(['voice-message-v1', 'reply-v2']);
+    expect(await f.store.browserAccess.capacity(f.roomId, { certificate: f.proof.certificate, grant: f.proof.grant })).toMatchObject({ full: false, count: 2 });
+    await expect(f.store.browserAccess.capacity(f.roomId, { certificate: f.proof.certificate })).rejects.toThrow('UNAUTHORIZED');
   });
   it('keeps browser mailbox approval entirely separate from room access',async()=>{
     const f=await fixture(),id='m'.repeat(43),token='t'.repeat(43),request={requestId:crypto.randomUUID(),browserId:f.browser.browserId,browserKey:f.browser.publicKey};

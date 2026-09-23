@@ -1,5 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { ACCESS_TTL_MS, canonical, publicAccessKey, validAccessProof, verifyAccessProof } from '../src/lib/browser-access-proof.mjs';
+import { ACCESS_TTL_MS, canonical, publicAccessKey, validAccessProof, verifyAccessProof, verifyAccessIntroduction } from '../src/lib/browser-access-proof.mjs';
 const digest = token => createHash('sha256').update(token).digest();
 const secret = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/.test(value);
 const uuid = value => typeof value === 'string' && /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i.test(value);
@@ -55,9 +55,10 @@ export function createBrowserAccess({ db, getMember, assertDeviceActive, roomSta
     row = db.prepare('SELECT * FROM browser_access_mail WHERE mailbox=? AND request_id=?').get(mailbox, requestId);
     return { status: row.status, expiresAt: row.expires_at, serverTime: now(), ...(row.status === 'approved' ? { sealed: JSON.parse(row.reply) } : {}) };
   }
-  async function create(roomId, proof, token, deviceName) {
+  async function create(roomId, proof, token, deviceName, capabilities = []) {
     if (!validAccessProof(proof, roomId) || !secret(token) || digest(token).toString('base64url') !== proof.request.tokenHash ||
-      typeof deviceName !== 'string' || deviceName.length > 80) fail();
+      typeof deviceName !== 'string' || deviceName.length > 80 ||
+      !Array.isArray(capabilities) || capabilities.length > 16 || capabilities.some(value => typeof value !== 'string' || !/^[a-z0-9-]{1,40}$/.test(value))) fail();
     const source = getMember(roomId, proof.certificate.sourceDeviceId);
     if (!source || !await verifyAccessProof(proof, roomId, source)) fail('UNAUTHORIZED');
     sweep();
@@ -76,8 +77,8 @@ export function createBrowserAccess({ db, getMember, assertDeviceActive, roomSta
         if (db.prepare('SELECT COUNT(*) AS n FROM space_access_requests WHERE room_id=?').get(roomId).n >= 10000) fail('ACCESS_QUOTA');
         const t = proof.request.target;
         if (getMember(roomId, t.deviceId)) fail('ACCESS_CONFLICT');
-        db.prepare(`INSERT INTO members(room_id,device_id,role,encryption_jwk,signing_jwk,mls_key_package,access_hash,device_name,status,added_by,created_at)
-          VALUES(?,?,?,?,?,?,?,?, 'pending',?,?)`).run(roomId,t.deviceId,source.role,JSON.stringify(t.encryptionKey),JSON.stringify(t.signingKey),t.mlsKeyPackage,digest(token),deviceName,source.deviceId,now());
+        db.prepare(`INSERT INTO members(room_id,device_id,role,encryption_jwk,signing_jwk,mls_key_package,access_hash,device_name,status,added_by,capabilities,created_at)
+          VALUES(?,?,?,?,?,?,?,?, 'pending',?,?,?)`).run(roomId,t.deviceId,source.role,JSON.stringify(t.encryptionKey),JSON.stringify(t.signingKey),t.mlsKeyPackage,digest(token),deviceName,source.deviceId,JSON.stringify(capabilities),now());
         db.prepare('INSERT INTO space_access_requests(room_id,request_id,source_id,target_id,token_hash,proof,proof_hash,expires_at) VALUES(?,?,?,?,?,?,?,?)')
           .run(roomId,proof.request.requestId,source.deviceId,t.deviceId,digest(token),canonical(proof),digest(canonical(proof)).toString('base64url'),new Date(Date.now()+ACCESS_TTL_MS).toISOString());
       }
@@ -119,5 +120,12 @@ export function createBrowserAccess({ db, getMember, assertDeviceActive, roomSta
     return row;
   }
   function complete(roomId,envelope) { if(envelope.browserAccess) db.prepare("UPDATE space_access_requests SET status='approved' WHERE room_id=? AND request_id=? AND status='pending'").run(roomId,envelope.browserAccess.request.requestId); }
-  return {mail,create,status,list,dismiss,assertCommit,complete,sweep};
+  async function capacity(roomId, body) {
+    sweep();
+    const source = getMember(roomId, body?.certificate?.sourceDeviceId);
+    if (!source || !await verifyAccessIntroduction(body, roomId, source)) fail('UNAUTHORIZED');
+    const count = db.prepare("SELECT COUNT(*) AS n FROM members WHERE room_id=? AND role=? AND status IN ('active','pending')").get(roomId, source.role).n;
+    return { full: count >= 3, count };
+  }
+  return {mail,create,status,list,dismiss,assertCommit,complete,sweep,capacity};
 }

@@ -6,7 +6,7 @@ import { accessDigest, newAccessIdentity, signAccess, verifyAccess, publicAccess
 import { spaceCapability, spaceCodeId, localSpaces, newSpaceRecoveryCode, type PrivateSpace } from './spaces';
 import { readLocalSpaceDirectory, writeLocalSpaceDirectory, withVaultMutation, readBrowserAccessRecord, writeBrowserAccessRecord, type VaultSession } from './vault';
 import type { PlatformCredentialRecord, PrivateIdentity, RoomMember, RoomState } from './types';
-export type AccessSpace = { roomId:string; name:string; certificate?:AccessCertificate; members?:RoomMember[]; eventSeq?:number; creatorFingerprint?:string; role?:'creator'|'joiner'; localId?:string };
+export type AccessSpace = { roomId:string; name:string; certificate?:AccessCertificate; members?:RoomMember[]; eventSeq?:number; creatorFingerprint?:string; role?:'creator'|'joiner'; localId?:string; waiting?:boolean; createdAt?:string; deviceCount?:number };
 export type AccessStatus = {status:'pending'|'approved'|'expired'|'canceled'|'rejected'|'revoked';expiresAt:string;serverTime:string;state?:RoomState;sealed?:SealedBackup};
 export type PendingSpaceAccess = {identity:PrivateIdentity;token:string;proof:AccessProof;expiresAt?:string;status?:AccessStatus['status']};
 export type AccessCatalog = {id:string;token:string;key:string};
@@ -15,7 +15,38 @@ export type AccessMailbox = {id:string;token:string;transferKey:string};
 export type BrowserProfileSession = {profile:BrowserProfile;record:PlatformCredentialRecord;secret:string;stored?:unknown};
 export type BrowserRequest = {requestId:string;browserId:string;browserKey:JsonWebKey;expiresAt:string};
 export type PeerAccessRequest = {proof:AccessProof;target:RoomMember;expiresAt:string};
-type Prepared = {v:1;root:AccessIdentity;spaces:AccessSpace[];catalogCode:string;mailboxes?:AccessMailbox[]};
+type Prepared = {v:1;root:AccessIdentity;spaces:AccessSpace[];catalogCode:string;mailboxes?:AccessMailbox[];removed?:string[]};
+const catalogSpaceKeys = ['roomId','name','certificate','members','eventSeq','creatorFingerprint','role','waiting','createdAt','deviceCount'];
+export function catalogSpaceAllowed(space: AccessSpace): boolean {
+  return /^[a-f0-9-]{36}$/i.test(space.roomId) && typeof space.name === 'string' && Boolean(space.name.trim()) && space.name.length <= 40
+    && Object.keys(space).every(key => catalogSpaceKeys.includes(key))
+    && (space.waiting === undefined || typeof space.waiting === 'boolean')
+    && (space.createdAt === undefined || Number.isFinite(Date.parse(space.createdAt)))
+    && (space.deviceCount === undefined || Number.isSafeInteger(space.deviceCount) && space.deviceCount >= 0 && space.deviceCount <= 16);
+}
+/** Own-device catalog merge. Names and waiting state stay inside this participant's encrypted directory. */
+export function mergeCatalogSpaces(remote: AccessSpace[], local: AccessSpace[], removed: readonly string[] = []): AccessSpace[] {
+  const gone = new Set(removed);
+  const byId = new Map<string, AccessSpace>();
+  for (const space of remote) if (!gone.has(space.roomId) && catalogSpaceAllowed(space)) byId.set(space.roomId, { ...space });
+  for (const space of local) {
+    if (gone.has(space.roomId)) { byId.delete(space.roomId); continue; }
+    const previous = byId.get(space.roomId);
+    const merged: AccessSpace = {
+      ...(previous ?? {}),
+      roomId: space.roomId,
+      name: space.name,
+      ...(space.waiting ? { waiting: true } : {}),
+      ...(space.createdAt ? { createdAt: space.createdAt } : previous?.createdAt ? { createdAt: previous.createdAt } : {}),
+      ...(space.deviceCount !== undefined ? { deviceCount: space.deviceCount } : previous?.deviceCount !== undefined ? { deviceCount: previous.deviceCount } : {}),
+      ...(space.certificate ? { certificate: space.certificate, members: space.members, eventSeq: space.eventSeq, creatorFingerprint: space.creatorFingerprint, role: space.role }
+        : previous?.certificate ? { certificate: previous.certificate, members: previous.members, eventSeq: previous.eventSeq, creatorFingerprint: previous.creatorFingerprint, role: previous.role } : {}),
+    };
+    if (!space.waiting) delete merged.waiting;
+    byId.set(space.roomId, merged);
+  }
+  return [...byId.values()].filter(space => !gone.has(space.roomId) && catalogSpaceAllowed(space));
+}
 const encoder=new TextEncoder();
 export async function browserAccessKeys(prf:Uint8Array<ArrayBuffer>):Promise<AccessMailbox & {profileKey:string}> {
   const material=await crypto.subtle.importKey('raw',prf,'HKDF',false,['deriveBits']);
@@ -80,7 +111,7 @@ export async function acceptBrowserApproval(identity:AccessIdentity,requestId:st
     await accessDigest(data.grant.browserKey)!==await accessDigest(identity.publicKey) || !Array.isArray(data.spaces) || !data.spaces.length || data.spaces.length>256 ||
     new Set(data.spaces.map(s=>s.roomId)).size!==data.spaces.length || !data.spaces.some(s=>s.roomId===data.currentRoom)) throw new Error('浏览器授权与本次请求不一致');
   for(const s of data.spaces) {
-    if(!/^[a-f0-9-]{36}$/i.test(s.roomId) || typeof s.name!=='string' || !s.name.trim() || s.name.length>40 || Object.keys(s).some(k=>!['roomId','name','certificate','members','eventSeq','creatorFingerprint','role'].includes(k))) throw new Error('空间目录不完整');
+    if(!catalogSpaceAllowed(s)) throw new Error('空间目录不完整');
     if(s.certificate) {
       const source=s.members?.find(m=>m.deviceId===s.certificate!.sourceDeviceId);
       if(!source || s.certificate.roomId!==s.roomId || source.role!==s.role || !Number.isSafeInteger(s.eventSeq) || s.eventSeq!<0 ||
@@ -120,19 +151,33 @@ export async function prepareSpaceAccess(profile:BrowserProfile,space:AccessSpac
     target:identity.publicBundle,tokenHash:await accessDigest(token),certificateHash:await accessDigest(space.certificate),grantHash:await accessDigest(profile.grant)});
   return {identity,token,proof:{certificate:space.certificate,grant:profile.grant,request}};
 }
-export function accessPrivateSpaces(profile:BrowserProfile):PrivateSpace[] { return profile.spaces.map(s=>({roomId:s.roomId,name:s.name,...(s.localId?{localId:s.localId}:{accessState:s.certificate?'restricted' as const:'unprepared' as const})})); }
+export function accessPrivateSpaces(profile:BrowserProfile):PrivateSpace[] {
+  return profile.spaces.map(s => ({
+    roomId: s.roomId, name: s.name,
+    ...(s.createdAt ? { createdAt: s.createdAt } : {}),
+    ...(s.waiting ? { waiting: true } : {}),
+    ...(s.localId ? { localId: s.localId } : s.waiting ? {} : { accessState: s.certificate ? 'restricted' as const : 'unprepared' as const }),
+  }));
+}
 
 async function catalogCapability(code:string):Promise<AccessCatalog> {
   return {id:spaceCodeId(code),token:await spaceCapability(code,'fetch'),key:await spaceCapability(code,'encryption')};
 }
-async function syncBrowserCatalog(session:VaultSession,prepared:Prepared,spaces:AccessSpace[],signal:AbortSignal):Promise<void> {
+async function syncBrowserCatalog(session:VaultSession,prepared:Prepared,local:AccessSpace[],signal:AbortSignal):Promise<void> {
   const catalog=await catalogCapability(prepared.catalogCode),path=`/api/browser-access-catalogs/${catalog.id}`;
   for(let attempt=0;attempt<3;attempt++) {
     signal.throwIfAborted();
     const response=await fetch(path,{headers:{Authorization:`Bearer ${catalog.token}`},credentials:'omit',cache:'no-store',signal});
     if(!response.ok && response.status!==404) throw new Error('接入目录暂不可用');
     const old=response.ok?await response.json():{revision:0};
-    const sealed=await sealJson({v:1,spaces},catalog.key,`quiet-room-browser-catalog-v1:${catalog.id}`);
+    let remote: AccessSpace[] = [], remoteRemoved: string[] = [];
+    if(old.sealed) {
+      const data=await openJson(old.sealed,catalog.key,`quiet-room-browser-catalog-v1:${catalog.id}`) as {v:number;spaces:AccessSpace[];removed?:string[]};
+      if(data.v===1 && Array.isArray(data.spaces)) { remote=data.spaces; remoteRemoved=Array.isArray(data.removed)?data.removed:[]; }
+    }
+    const removed=[...new Set([...remoteRemoved,...(prepared.removed??[])])].slice(-256);
+    const spaces=mergeCatalogSpaces(remote,local,removed);
+    const sealed=await sealJson({v:1,spaces,removed},catalog.key,`quiet-room-browser-catalog-v1:${catalog.id}`);
     signal.throwIfAborted();
     const write=await fetch(path,{method:'PUT',headers:{Authorization:`Bearer ${session.vault.accessToken}`,'Content-Type':'application/json'},credentials:'omit',signal,
       body:JSON.stringify({roomId:session.vault.roomId,revision:old.revision+1,fetchToken:catalog.token,writeToken:await spaceCapability(prepared.catalogCode,'write'),sealed})});
@@ -141,30 +186,71 @@ async function syncBrowserCatalog(session:VaultSession,prepared:Prepared,spaces:
   }
   throw new Error('接入目录正在更新，请稍后重试');
 }
-export async function publishPreparedCatalog(session:VaultSession,signal:AbortSignal):Promise<void> {
+export async function publishPreparedCatalog(session:VaultSession,signal:AbortSignal,excludeRoomId?:string):Promise<void> {
   const code=session.vault.spaceRecoveryCode;
   if(!code) return;
   const id=rootId(code),sealed=await readLocalSpaceDirectory(id);
   if(!sealed) return;
   const prepared=await openJson(sealed as SealedBackup,await spaceCapability(code,'encryption'),id) as Prepared;
-  const local=await localSpaces(session);
-  const spaces=local.map(s=>{const p=prepared.spaces.find(p=>p.roomId===s.roomId);return p?{...p,name:s.name}:{roomId:s.roomId,name:s.name};});
+  const local=(await localSpaces(session)).filter(space => space.roomId !== excludeRoomId);
+  const deviceCount=session.vault.members.filter(member => member.role===session.vault.role && member.status!=='revoked').length;
+  const spaces=local.map(s=>{
+    const preparedSpace=prepared.spaces.find(p=>p.roomId===s.roomId);
+    const entry:AccessSpace=preparedSpace?{...preparedSpace,name:s.name}:{roomId:s.roomId,name:s.name};
+    if(s.waiting) entry.waiting=true;
+    if(s.createdAt) entry.createdAt=s.createdAt;
+    if(s.roomId===session.vault.roomId) entry.deviceCount=deviceCount;
+    delete entry.localId;
+    return entry;
+  });
   await syncBrowserCatalog(session,prepared,spaces,signal);
 }
 export async function refreshBrowserCatalog(profile:BrowserProfile,signal:AbortSignal):Promise<void> {
   const c=profile.catalog;
   const result=await accessApi<{sealed:SealedBackup}>(`/api/browser-access-catalogs/${c.id}`,c.token,signal);
-  const data=await openJson(result.sealed,c.key,`quiet-room-browser-catalog-v1:${c.id}`) as {v:number;spaces:AccessSpace[]};
-  if(data.v!==1 || !Array.isArray(data.spaces) || data.spaces.length>256) throw new Error('空间目录不完整');
-  // Only refresh spaces disclosed by the user's explicit browser approval.
+  const data=await openJson(result.sealed,c.key,`quiet-room-browser-catalog-v1:${c.id}`) as {v:number;spaces:AccessSpace[];removed?:string[]};
+  if(data.v!==1 || !Array.isArray(data.spaces) || data.spaces.length>256 || data.removed!==undefined && (!Array.isArray(data.removed) || data.removed.length>256)) throw new Error('空间目录不完整');
+  const removed=new Set(data.removed??[]);
+  const next:AccessSpace[]=[];
   for(const previous of profile.spaces) {
+    if(removed.has(previous.roomId)) continue;
     const s=data.spaces.find(s=>s.roomId===previous.roomId);
-    if(!s?.certificate) continue;
-    const source=s.members?.find(m=>m.deviceId===s.certificate!.sourceDeviceId);
-    if(!source || s.certificate.roomId!==s.roomId || source.role!==s.role || !Number.isSafeInteger(s.eventSeq) || s.eventSeq!<0 ||
-      !await verifyAccess(source.signingKey,s.certificate) || !await verifyAccess(s.certificate.rootKey,profile.grant)) throw new Error('空间身份准备凭据不正确');
-    Object.assign(previous,{certificate:s.certificate,members:s.members,eventSeq:s.eventSeq,creatorFingerprint:s.creatorFingerprint,role:s.role});
+    if(!s) { next.push(previous); continue; }
+    if(!catalogSpaceAllowed(s)) throw new Error('空间目录不完整');
+    if(s.certificate) {
+      const source=s.members?.find(m=>m.deviceId===s.certificate!.sourceDeviceId);
+      if(!source || s.certificate.roomId!==s.roomId || source.role!==s.role || !Number.isSafeInteger(s.eventSeq) || s.eventSeq!<0 ||
+        !await verifyAccess(source.signingKey,s.certificate) || !await verifyAccess(s.certificate.rootKey,profile.grant)) throw new Error('空间身份准备凭据不正确');
+    }
+    const merged: AccessSpace = {...previous,name:s.name,deviceCount:s.deviceCount??previous.deviceCount,certificate:s.certificate??previous.certificate,members:s.members??previous.members,eventSeq:s.eventSeq??previous.eventSeq,creatorFingerprint:s.creatorFingerprint??previous.creatorFingerprint,role:s.role??previous.role};
+    if(s.createdAt){merged.createdAt=s.createdAt;merged.waiting=s.waiting;}
+    else if(s.waiting) merged.waiting=true;
+    next.push(merged);
   }
+  for(const s of data.spaces) {
+    if(removed.has(s.roomId) || next.some(space=>space.roomId===s.roomId)) continue;
+    if(!catalogSpaceAllowed(s)) throw new Error('空间目录不完整');
+    if(s.certificate) {
+      const certificate=s.certificate;
+      const source=s.members?.find(m=>m.deviceId===certificate.sourceDeviceId);
+      if(!source || certificate.roomId!==s.roomId || source.role!==s.role || !Number.isSafeInteger(s.eventSeq) || s.eventSeq!<0 ||
+        !await verifyAccess(source.signingKey,certificate) || !await verifyAccess(certificate.rootKey,profile.grant)) throw new Error('空间身份准备凭据不正确');
+    }
+    next.push({roomId:s.roomId,name:s.name,waiting:s.waiting,createdAt:s.createdAt,deviceCount:s.deviceCount,certificate:s.certificate,members:s.members,eventSeq:s.eventSeq,creatorFingerprint:s.creatorFingerprint,role:s.role});
+  }
+  profile.spaces=next;
+}
+
+export async function rememberCatalogRemoval(session:VaultSession,roomId:string):Promise<void> {
+  const code=session.vault.spaceRecoveryCode;if(!code)return;
+  await withVaultMutation(session,async mutation=>{
+    const id=rootId(code),sealed=await readLocalSpaceDirectory(id);if(!sealed)return;
+    const key=await spaceCapability(code,'encryption');
+    const saved=await openJson(sealed as SealedBackup,key,id) as Prepared;
+    saved.removed=[...new Set([...(saved.removed??[]),roomId])].slice(-256);
+    saved.spaces=(saved.spaces??[]).filter(space=>space.roomId!==roomId);
+    await writeLocalSpaceDirectory(session,id,await sealJson(saved,key,id),mutation);
+  });
 }
 
 export async function preparedMailboxes(session:VaultSession):Promise<AccessMailbox[]> {

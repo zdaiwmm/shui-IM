@@ -57,6 +57,23 @@ try {
     await page.locator('.space-back').click(); assert.ok(await page.locator('.space-drawer-scroll').evaluate(el=>el.scrollTop>=390));
     await page.locator('.space-close').click(); await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
     assert.equal(await page.evaluate(()=>window.style),'heart');
+    await page.evaluate(()=>{
+      window.removed='';
+      window.abort=new AbortController();
+      const createdAt=new Date(Date.now()+90_000-60*60*1000).toISOString();
+      const spaces=[{roomId:'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',name:'等待中的空间',waiting:true,createdAt}];
+      ui.mountSpaceDrawer(document.querySelector('#app'),{spaces,currentRoom:'other',signal:abort.signal,actions:[],
+        select:async()=>{},create:async()=>{},rename:async()=>{},remove:async space=>{window.removed=space.roomId;},styleChanged:()=>{},closed:()=>{}});
+    });
+    await page.locator('.space-drawer-overlay.is-visible').waitFor();
+    assert.match(await page.locator('.space-message-preview').innerText(),/等待对方加入 · 剩余 01:/);
+    const row=page.locator('[data-space="0"]');
+    await row.dispatchEvent('pointerdown',{pointerType:'touch',isPrimary:true,button:0});
+    await page.waitForTimeout(420);
+    await row.dispatchEvent('pointercancel',{pointerType:'touch',isPrimary:true});
+    await page.locator('#space-delete').click();
+    assert.equal(await page.evaluate(()=>window.removed),'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
+    await page.evaluate(()=>abort.abort());
     for (const size of [{width:320,height:480},{width:393,height:390},{width:393,height:852}]) {
       await page.setViewportSize(size); await page.evaluate(()=>mount()); await page.locator('.space-drawer-overlay.is-visible').waitFor();
       await page.emulateMedia({reducedMotion:'reduce'});

@@ -225,7 +225,7 @@ export async function startServer(options = {}) {
   const socketSessions = new WeakMap();
   const rateLimits = new Map();
   const incompleteBlobTtlMs = numericOption(options.incompleteBlobTtlMs ?? process.env.INCOMPLETE_BLOB_TTL_MS, 24 * 60 * 60 * 1000);
-  const orphanRoomTtlMs = numericOption(options.orphanRoomTtlMs ?? process.env.ORPHAN_ROOM_TTL_MS, 24 * 60 * 60 * 1000);
+  const orphanRoomTtlMs = numericOption(options.orphanRoomTtlMs ?? process.env.ORPHAN_ROOM_TTL_MS, 60 * 60 * 1000);
   const maxConnectionsPerRoom = numericOption(options.maxConnectionsPerRoom ?? process.env.MAX_CONNECTIONS_PER_ROOM, 8);
   const maxConnectionsTotal = numericOption(options.maxConnectionsTotal ?? process.env.MAX_CONNECTIONS_TOTAL, 1000);
   const webSocketHeartbeatMs = numericOption(options.webSocketHeartbeatMs ?? process.env.WEBSOCKET_HEARTBEAT_MS, 30_000);
@@ -438,6 +438,18 @@ export async function startServer(options = {}) {
         } catch(error) { const code=error instanceof Error?error.message:''; json(request,response,code==='UNAUTHORIZED'?401:code==='ACCESS_EXPIRED'?410:400,{error:'浏览器接入请求不可用',code}); }
         return;
       }
+      const spaceCapacity = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/browser-access-capacity$`));
+      if (spaceCapacity && request.method === 'POST') {
+        if (!allowRequest(request, 'space-access', 90)) { json(request,response,429,{error:'请求过于频繁',code:'RATE_LIMITED'}); return; }
+        try {
+          const body = JSON.parse((await readBody(request, 20000)).toString('utf8'));
+          json(request, response, 200, await store.browserAccess.capacity(spaceCapacity[1], body));
+        } catch (error) {
+          const code = error instanceof Error ? error.message : '';
+          json(request, response, code === 'UNAUTHORIZED' ? 401 : 400, { error: '无法确认此空间的设备数量', code: code || 'INVALID_BROWSER_ACCESS' });
+        }
+        return;
+      }
       const spaceAccess = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/browser-access(?:/(${ID_PATTERN}))?$`));
       if (spaceAccess && ['GET','POST','DELETE'].includes(request.method)) {
         if (!allowRequest(request, 'space-access', 90)) { json(request,response,429,{error:'请求过于频繁',code:'RATE_LIMITED'}); return; }
@@ -447,7 +459,7 @@ export async function startServer(options = {}) {
           if (request.method==='POST' && !id) {
             const body=JSON.parse((await readBody(request,100000)).toString('utf8'));
             if (!validatePublicBundle(body.proof?.request?.target)) throw new Error('INVALID_BROWSER_ACCESS');
-            result=await store.browserAccess.create(roomId,body.proof,bearerToken(request),body.deviceName);
+            result=await store.browserAccess.create(roomId,body.proof,bearerToken(request),body.deviceName,body.capabilities);
             if (result.status==='pending') void notifyOtherDevices(roomId,body.proof.certificate.sourceDeviceId);
           } else if(request.method==='GET') {
             result=id ? store.browserAccess.status(roomId,id,bearerToken(request)) : store.browserAccess.list(roomId,requireActiveDevice(request,roomId).deviceId);
@@ -1449,6 +1461,11 @@ export async function startServer(options = {}) {
     }
   }, Math.min(incompleteBlobTtlMs, 60 * 60 * 1000));
   cleanupTimer.unref?.();
+  const orphanTimer = setInterval(() => {
+    try { store.cleanupOrphanRooms(new Date(Date.now() - orphanRoomTtlMs).toISOString()); }
+    catch (error) { console.error('Orphan room cleanup failed:', error instanceof Error ? error.message : 'unknown'); }
+  }, 60_000);
+  orphanTimer.unref?.();
 
   return {
     host,
@@ -1456,6 +1473,7 @@ export async function startServer(options = {}) {
     store,
     close: async () => {
       clearInterval(cleanupTimer);
+      clearInterval(orphanTimer);
       clearInterval(webSocketHeartbeatTimer);
       callService.close();
       for (const clients of clientsByRoom.values()) {
