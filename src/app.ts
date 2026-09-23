@@ -2675,7 +2675,7 @@ export class QuietRoomApp {
       const keys=await browserAccessKeys(credential.prfOutput);
       const existing=await loadBrowserProfile(credential.prfOutput,credential.credentialId);
       if(!active())return;
-      if(existing){this.browserProfile=existing;await refreshBrowserCatalog(existing.profile,abort.signal);if(active()){await this.noticeSpaceDeviceLimit(existing.profile,abort.signal);this.resetIdleLock();this.renderBrowserShell();this.pollBrowserSpaceAccess(abort.signal);}return;}
+      if(existing){this.browserProfile=existing;await refreshBrowserCatalog(existing.profile,abort.signal);if(active()){const pending=existing.profile.pending[existing.profile.currentRoom];if(!pending||pending.status&&pending.status!=='pending')await this.noticeSpaceDeviceLimit(existing.profile,abort.signal);this.resetIdleLock();this.renderBrowserShell();this.pollBrowserSpaceAccess(abort.signal);}return;}
       const identity=await newAccessIdentity(),requestId=crypto.randomUUID();
       const request={requestId,browserId:identity.browserId,browserKey:identity.publicKey};
       const code=await accessSafetyCode(request);
