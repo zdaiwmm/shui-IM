@@ -37,9 +37,11 @@ import runpy
 m=runpy.run_path('deploy/server/quiet-room-capacity'); G=1024**3
 healthy=dict(availableBytes=12*G, usedPercent=50, inodeUsedPercent=10, memoryAvailableBytes=G)
 assert m['problems'](healthy,True)==[]
-for field,value in [('availableBytes',3*G),('usedPercent',80),('inodeUsedPercent',80),('memoryAvailableBytes',300*1024**2)]:
+for field,value in [('availableBytes',3*G),('usedPercent',90),('inodeUsedPercent',80),('memoryAvailableBytes',300*1024**2)]:
  assert m['problems'](dict(healthy,**{field:value}),True)
 assert m['problems'](dict(healthy,availableBytes=7*G),True)==[]
+assert m['problems'](dict(healthy,usedPercent=80),True)==[]
+assert m['problems'](dict(healthy,usedPercent=89),True)==[]
 assert m['problems'](dict(healthy,usedPercent=75),True)==[]
 assert m['problems'](dict(healthy,usedPercent=75),False)
 assert m['problems'].__defaults__[1]==4*G

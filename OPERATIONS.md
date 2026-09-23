@@ -9,7 +9,7 @@ The bounded host tool `deploy/server/quiet-room-capacity` exposes `preflight`,
 normal application deployment must not self-update privileged tools. See
 [the governance requirement](docs/requirements/2026-09-22-capacity-governance/README.md).
 
-- Preflight refuses deployments at 80% disk/inode use, below 400 MiB available
+- Preflight refuses deployments at 90% disk use or 80% inode use, below 400 MiB available
   memory, or below the larger of 4 GiB and twice the largest retained cold
   archive plus 2 GiB emergency reserve. This is a conservative estimate, not an
   upper bound on data/build growth. It runs before fetch/build and again before
