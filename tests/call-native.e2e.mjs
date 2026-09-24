@@ -15,7 +15,7 @@ try {
   await server.listen();
   const executable = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' };
   const args = ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'];
-  if (process.env.QUIET_ROOM_CALL_TEST_CONFIG) args.push('--allow-loopback-in-peer-connection');
+  if (process.env.QUIET_ROOM_CALL_TEST_CONFIG) args.push('--allow-loopback-in-peer-connection', '--disable-features=LocalNetworkAccessChecks,LocalNetworkAccessChecksForWebRTC,BlockInsecurePrivateNetworkRequests');
   browser = await chromium.launch({ ...executable, headless: true, args });
   const page = await browser.newPage();
   const errors = [];
