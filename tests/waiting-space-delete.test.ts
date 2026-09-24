@@ -27,3 +27,18 @@ it('atomically deletes an unjoined room and updates its encrypted catalog while 
     expect(store.roomState(joined.roomId)).not.toBeNull();
   } finally { store.close();await rm(dataDir,{recursive:true,force:true}); }
 });
+
+it('authenticates before reading a deletion catalog and rejects malformed JSON without mutation', async () => {
+  const {startServer}=await import('../server/index.mjs');
+  const dataDir=await mkdtemp(path.join(tmpdir(),'qr-delete-http-'));
+  const server=await startServer({host:'127.0.0.1',port:0,dataDir,quiet:true});
+  try {
+    const token='a'.repeat(43),room=server.store.createRoom(bundle(),token);
+    const url=`http://127.0.0.1:${server.port}/api/rooms/${room.roomId}`;
+    expect((await fetch(url,{method:'DELETE',headers:{Authorization:'Bearer '+'z'.repeat(43)},body:'{broken'})).status).toBe(401);
+    expect((await fetch(url,{method:'DELETE',headers:{Authorization:`Bearer ${token}`},body:'{broken'})).status).toBe(400);
+    expect(server.store.roomState(room.roomId)).not.toBeNull();
+    expect((await fetch(url,{method:'DELETE',headers:{Authorization:`Bearer ${token}`}})).status).toBe(200);
+    expect(server.store.roomState(room.roomId)).toBeNull();
+  } finally {await server.close();await rm(dataDir,{recursive:true,force:true});}
+});
