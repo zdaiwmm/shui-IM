@@ -6,11 +6,12 @@ import { accessDigest, newAccessIdentity, signAccess, verifyAccess, publicAccess
 import { spaceCapability, spaceCodeId, localSpaces, newSpaceRecoveryCode, type PrivateSpace } from './spaces';
 import { readLocalSpaceDirectory, writeLocalSpaceDirectory, withVaultMutation, readBrowserAccessRecord, writeBrowserAccessRecord, type VaultSession } from './vault';
 import type { PlatformCredentialRecord, PrivateIdentity, RoomMember, RoomState } from './types';
+import { deleteRoom } from './api';
 export type AccessSpace = { roomId:string; name:string; certificate?:AccessCertificate; members?:RoomMember[]; eventSeq?:number; creatorFingerprint?:string; role?:'creator'|'joiner'; localId?:string; waiting?:boolean; createdAt?:string; deviceCount?:number };
 export type AccessStatus = {status:'pending'|'approved'|'expired'|'canceled'|'rejected'|'revoked';expiresAt:string;serverTime:string;state?:RoomState;sealed?:SealedBackup};
 export type PendingSpaceAccess = {identity:PrivateIdentity;token:string;proof:AccessProof;expiresAt?:string;status?:AccessStatus['status']};
 export type AccessCatalog = {id:string;token:string;key:string};
-export type BrowserProfile = {v:1;catalog:AccessCatalog; identity:AccessIdentity; grant:AccessGrant; spaces:AccessSpace[];currentRoom:string;collectionCode:string;pending:Record<string,PendingSpaceAccess>};
+export type BrowserProfile = {v:1;catalog:AccessCatalog; identity:AccessIdentity; grant:AccessGrant; spaces:AccessSpace[];currentRoom:string;collectionCode:string;pending:Record<string,PendingSpaceAccess>;removed?:string[]};
 export type AccessMailbox = {id:string;token:string;transferKey:string};
 export type BrowserProfileSession = {profile:BrowserProfile;record:PlatformCredentialRecord;secret:string;stored?:unknown};
 export type BrowserRequest = {requestId:string;browserId:string;browserKey:JsonWebKey;expiresAt:string};
@@ -163,7 +164,7 @@ export function accessPrivateSpaces(profile:BrowserProfile):PrivateSpace[] {
 async function catalogCapability(code:string):Promise<AccessCatalog> {
   return {id:spaceCodeId(code),token:await spaceCapability(code,'fetch'),key:await spaceCapability(code,'encryption')};
 }
-async function syncBrowserCatalog(session:VaultSession,prepared:Prepared,local:AccessSpace[],signal:AbortSignal):Promise<void> {
+async function syncBrowserCatalog(session:VaultSession,prepared:Prepared,local:AccessSpace[],signal:AbortSignal,deletion?:VaultSession):Promise<void> {
   const catalog=await catalogCapability(prepared.catalogCode),path=`/api/browser-access-catalogs/${catalog.id}`;
   for(let attempt=0;attempt<3;attempt++) {
     signal.throwIfAborted();
@@ -176,22 +177,30 @@ async function syncBrowserCatalog(session:VaultSession,prepared:Prepared,local:A
       if(data.v===1 && Array.isArray(data.spaces)) { remote=data.spaces; remoteRemoved=Array.isArray(data.removed)?data.removed:[]; }
     }
     const removed=[...new Set([...remoteRemoved,...(prepared.removed??[])])].slice(-256);
+    // A previous atomic delete may have committed even if its response was lost.
+    if (deletion && remoteRemoved.includes(deletion.vault.roomId)) return;
     const spaces=mergeCatalogSpaces(remote,local,removed);
     const sealed=await sealJson({v:1,spaces,removed},catalog.key,`quiet-room-browser-catalog-v1:${catalog.id}`);
     signal.throwIfAborted();
-    const write=await fetch(path,{method:'PUT',headers:{Authorization:`Bearer ${session.vault.accessToken}`,'Content-Type':'application/json'},credentials:'omit',signal,
-      body:JSON.stringify({roomId:session.vault.roomId,revision:old.revision+1,fetchToken:catalog.token,writeToken:await spaceCapability(prepared.catalogCode,'write'),sealed})});
+    const owner=deletion??session;
+    const value={roomId:owner.vault.roomId,revision:old.revision+1,fetchToken:catalog.token,writeToken:await spaceCapability(prepared.catalogCode,'write'),sealed};
+    const write=await fetch(deletion?`/api/rooms/${deletion.vault.roomId}`:path,{method:deletion?'DELETE':'PUT',headers:{Authorization:`Bearer ${owner.vault.accessToken}`,'Content-Type':'application/json'},credentials:'omit',signal,
+      body:JSON.stringify(deletion?{catalog:{id:catalog.id,value}}:value)});
     if(write.ok) return;
-    if(write.status!==409) throw new Error('接入目录未能保存');
+    if(write.status===409) {
+      const error=await write.json().catch(()=>null);
+      if(error?.code==='ROOM_SEALED' || error?.error==='ROOM_SEALED') throw new Error('对方已经加入，这个空间不能再销毁');
+    } else throw new Error(deletion?'空间未能删除，请联网后重试':'接入目录未能保存');
   }
   throw new Error('接入目录正在更新，请稍后重试');
 }
-export async function publishPreparedCatalog(session:VaultSession,signal:AbortSignal,excludeRoomId?:string):Promise<void> {
+export async function publishPreparedCatalog(session:VaultSession,signal:AbortSignal,excludeRoomId?:string,deletion?:VaultSession):Promise<void> {
   const code=session.vault.spaceRecoveryCode;
-  if(!code) return;
+  if(!code) { if(deletion)await deleteRoom(deletion.vault.roomId,deletion.vault.accessToken);return; }
   const id=rootId(code),sealed=await readLocalSpaceDirectory(id);
-  if(!sealed) return;
+  if(!sealed) { if(deletion)await deleteRoom(deletion.vault.roomId,deletion.vault.accessToken);return; }
   const prepared=await openJson(sealed as SealedBackup,await spaceCapability(code,'encryption'),id) as Prepared;
+  if(deletion) prepared.removed=[...new Set([...(prepared.removed??[]),deletion.vault.roomId])];
   const local=(await localSpaces(session)).filter(space => space.roomId !== excludeRoomId);
   const deviceCount=session.vault.members.filter(member => member.role===session.vault.role && member.status!=='revoked').length;
   const spaces=local.map(s=>{
@@ -203,7 +212,7 @@ export async function publishPreparedCatalog(session:VaultSession,signal:AbortSi
     delete entry.localId;
     return entry;
   });
-  await syncBrowserCatalog(session,prepared,spaces,signal);
+  await syncBrowserCatalog(session,prepared,spaces,signal,deletion);
 }
 export async function refreshBrowserCatalog(profile:BrowserProfile,signal:AbortSignal):Promise<void> {
   const c=profile.catalog;
@@ -238,7 +247,10 @@ export async function refreshBrowserCatalog(profile:BrowserProfile,signal:AbortS
     }
     next.push({roomId:s.roomId,name:s.name,waiting:s.waiting,createdAt:s.createdAt,deviceCount:s.deviceCount,certificate:s.certificate,members:s.members,eventSeq:s.eventSeq,creatorFingerprint:s.creatorFingerprint,role:s.role});
   }
+  signal.throwIfAborted();
   profile.spaces=next;
+  profile.removed=[...removed];
+  for(const roomId of removed) delete profile.pending[roomId];
 }
 
 export async function rememberCatalogRemoval(session:VaultSession,roomId:string):Promise<void> {

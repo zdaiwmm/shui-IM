@@ -595,6 +595,17 @@ export async function deleteCurrentVault(): Promise<void> {
   await withVaultLifecycle(() => transaction('vault', 'readwrite', (store) => store.delete(selectedSpace)));
 }
 
+/** Delete the verified target, independent of concurrent selected-space changes. */
+export async function deleteSpaceVault(session: VaultSession): Promise<void> {
+  await withVaultLifecycle(async () => {
+    const id = vaultSpaceId(session.stored);
+    const stored = await readStoredVaultUnlocked(id);
+    if (!stored) return;
+    if (!sameStoredVault(stored, session.stored)) throw new Error('空间状态已变化，请重新打开后重试');
+    await transaction('vault', 'readwrite', store => store.delete(id));
+  });
+}
+
 /** Remove room-scoped browser data while keeping the current vault record. */
 export async function clearLocalBrowserData(session: VaultSession): Promise<void> {
   await withVaultLifecycle(async () => {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { chromium } from 'playwright';
+import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
 
 let vite, browser;
@@ -13,7 +13,7 @@ try {
       });
     } }] });
   await vite.listen();
-  browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
+  browser = process.env.BACKUP_BROWSER === 'webkit' ? await webkit.launch() : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   const page = await browser.newPage();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`http://localhost:${vite.httpServer.address().port}/__local`);
@@ -48,9 +48,10 @@ try {
     for (const message of messages) await v.saveHistoryMessage(session, message);
     await v.saveUiPreferences(session, { hiddenChatMessageIds: [messages[0].clientMsgId] });
     const controller = new AbortController();
-    const output = await createLocalBackupFile(controller.signal);
-    const exported = await b.exportLocalHistory(session, output.sink, controller.signal);
-    const file = await output.finish();
+    const stage = async (name, run) => { try { return await run(); } catch (error) { throw new Error(`${name}: ${error.name}: ${error.message}`); } };
+    const output = await stage('create temporary file', () => createLocalBackupFile(controller.signal));
+    const exported = await stage('export archive', () => b.exportLocalHistory(session, output.sink, controller.signal));
+    const file = await stage('finish temporary file', () => output.finish());
     // Synthetic fixture keeps an independent browser Blob, modeling a file saved outside site storage.
     const saved = new Blob([await file.arrayBuffer()]);
     await output.dispose();
@@ -174,8 +175,19 @@ try {
   await page.evaluate(() => window.fixtureApp.renderLocalHistoryBackup('export'));
   await page.locator('#local-backup-export').click();
   await page.locator('#history-download').waitFor({ state: 'visible' });
+  const downloadReady = page.waitForEvent('download', { timeout: 15_000 });
   await page.locator('#history-download').click();
-  await page.locator('#history-download').waitFor({ state: 'detached', timeout: 15_000 }).catch(() => undefined);
+  const download = await downloadReady;
+  assert.equal(await download.failure(), null, 'backup download failed');
+  assert.match(download.suggestedFilename(), /^quiet-room-\d{4}-\d{2}-\d{2}\.qrlocal$/);
+  const downloaded = await readFile(await download.path());
+  assert.equal(downloaded.subarray(0, 4).toString(), 'QRL1');
+  const downloadedSummary = await page.evaluate(async bytes => {
+    const { previewLocalHistoryBackup } = await import('/src/lib/local-history-backup.ts');
+    return previewLocalHistoryBackup(window.fixtureApp.session, new Blob([new Uint8Array(bytes)]), new AbortController().signal);
+  }, [...downloaded]);
+  assert.equal(downloadedSummary.messages, 3, 'saved file must authenticate and contain the expected history');
+  await page.locator('#history-download').waitFor({ state: 'detached', timeout: 15_000 });
   assert.equal(await page.locator('#local-backup-export').textContent(), '备份聊天记录');
   assert.equal(await page.locator('#open-local-import, #local-backup-ready').count(), 0);
   for (const width of [390, 375]) {

@@ -101,6 +101,64 @@ try {
   const installed=await fresh.page.evaluate(()=>({id:app.session.vault.identity.publicBundle.deviceId,ready:app.session.vault.pairingState,localId:app.session.stored.spaceId,history:app.session.vault.historyUnavailableBeforeSeq}));
   assert.equal(installed.ready,'ready');assert.notEqual(installed.id,peerVault.identity.publicBundle.deviceId);
   assert.equal(service.store.roomState(peerVault.roomId).members.filter(m=>m.status==='active').length,3);
+  // Use the actual long-press menu on the original device while an independently
+  // authorized browser keeps its drawer open. Network failure must not remove a row.
+  const originalSlot = await old.page.evaluate(() => v.vaultSpaceId(app.session.stored));
+  await old.page.evaluate(() => app.createPrivateSpace());
+  await old.page.locator('#copy-invite').waitFor();
+  const waitingRoom = await old.page.evaluate(() => app.session.vault.roomId);
+  await old.page.waitForFunction(async () => (await access.preparedMailboxes(app.session)).length > 0);
+  await old.page.evaluate(async () => {
+    await access.prepareBrowserAccess(app.session);
+    await access.publishPreparedCatalog(app.session, app.runtimeAbort.signal);
+  });
+  await old.page.evaluate(async localId => { await app.switchPrivateSpace({roomId:'',name:'',localId}); }, originalSlot);
+  await old.page.locator('#message-input').waitFor();
+  await fresh.page.locator('#open-spaces').click();
+  await fresh.page.waitForFunction(roomId => app.browserProfile.profile.spaces.some(s => s.roomId === roomId), waitingRoom);
+  await fresh.page.getByText(/等待对方加入 · 剩余/).waitFor();
+  await old.page.locator('#open-spaces').click();
+  const waitingRow = old.page.locator('.space-row').filter({hasText:'等待对方加入'});
+  await waitingRow.click({button:'right'});
+  await old.page.route(`**/api/rooms/${waitingRoom}`, route => route.request().method() === 'DELETE' ? route.abort('failed') : route.continue());
+  await old.page.locator('#space-delete').click();
+  await old.page.locator('.space-drawer-overlay .form-error').filter({hasText:/./}).waitFor();
+  assert.ok(service.store.roomState(waitingRoom), 'failed deletion must keep the room');
+  assert.equal(await waitingRow.count(), 1);
+  await old.page.unroute(`**/api/rooms/${waitingRoom}`);
+  // Receiver is offline when deletion commits; reconnect must reconcile the open list.
+  await fresh.page.route('**/api/browser-access-catalogs/**', route => route.abort('failed'));
+  await waitingRow.click({button:'right'});await old.page.locator('#space-delete').click();
+  await waitingRow.waitFor({state:'detached'});
+  assert.equal(service.store.roomState(waitingRoom), null);
+  assert.equal(await old.page.evaluate(() => v.currentSpaceId()), originalSlot, 'deleting another room preserves the active slot');
+  await fresh.page.unroute('**/api/browser-access-catalogs/**');
+  await fresh.page.waitForFunction(roomId => !app.browserProfile.profile.spaces.some(s => s.roomId === roomId), waitingRoom);
+  await fresh.page.getByText(/等待对方加入 · 剩余/).waitFor({state:'detached'});
+  await old.page.evaluate(async () => { await access.publishPreparedCatalog(app.session, app.runtimeAbort.signal); });
+  await fresh.page.evaluate(async () => { await app.refreshSpaceCatalog(app.runtimeAbort.signal); });
+  assert.equal(await fresh.page.evaluate(roomId => app.browserProfile.profile.spaces.some(s => s.roomId === roomId), waitingRoom), false);
+  await fresh.page.locator('.space-close').click();
+  await old.page.locator('.space-close').click();
+  // Current-room deletion must publish before its token disappears. Lose the
+  // successful response and retry using the authenticated catalog tombstone.
+  await old.page.evaluate(() => app.createPrivateSpace());await old.page.locator('#copy-invite').waitFor();
+  const currentWaiting = await old.page.evaluate(() => app.session.vault.roomId);
+  await old.page.evaluate(async () => { await access.prepareBrowserAccess(app.session);await access.publishPreparedCatalog(app.session,app.runtimeAbort.signal); });
+  await old.page.locator('#invite-close').click();await old.page.locator('.space-invite-sheet').waitFor({state:'detached'});
+  await old.page.locator('#open-spaces').click();
+  await old.page.route(`**/api/rooms/${currentWaiting}`, async route => {
+    if(route.request().method() !== 'DELETE') return route.continue();
+    await route.fetch();await route.abort('failed');
+  });
+  await old.page.locator('.space-row.is-selected').click({button:'right'});await old.page.locator('#space-delete').click();
+  await old.page.locator('.space-drawer-overlay .form-error').filter({hasText:/./}).waitFor();
+  assert.equal(service.store.roomState(currentWaiting), null);
+  await old.page.unroute(`**/api/rooms/${currentWaiting}`);
+  await old.page.locator('.space-row.is-selected').click({button:'right'});await old.page.locator('#space-delete').click();
+  await old.page.locator('.space-drawer-overlay').waitFor({state:'detached'});
+  assert.notEqual(await old.page.evaluate(() => app.session?.vault.roomId), currentWaiting);
+  await fresh.page.waitForFunction(roomId => !app.browserProfile.profile.spaces.some(s => s.roomId === roomId), currentWaiting);
   const profileRace=await fresh.page.evaluate(async bytes=>{
     const saved=await v.readBrowserAccessRecord(),prf=new Uint8Array(bytes);
     const a=await access.loadBrowserProfile(prf,saved.record.credentialId),b=await access.loadBrowserProfile(prf,saved.record.credentialId),signal=new AbortController().signal;

@@ -575,7 +575,16 @@ export async function startServer(options = {}) {
           json(request, response, 400, { error: 'INVALID_ROOM_ID' });
           return;
         }
-        json(request, response, 200, store.deleteRoom(roomId, bearerToken(request)));
+        const raw = (await readBody(request, 4300000)).toString('utf8');
+        const body = raw ? JSON.parse(raw) : {};
+        if (!body || Object.keys(body).some(key => key !== 'catalog')) throw new Error('INVALID_BACKUP');
+        try {
+          json(request, response, 200, store.deleteRoom(roomId, bearerToken(request), body.catalog));
+        } catch (cause) {
+          if (cause instanceof Error && cause.message === 'BACKUP_CONFLICT') {
+            json(request, response, 409, { error: '空间目录正在更新，请重试', code: 'BACKUP_CONFLICT' });
+          } else throw cause;
+        }
         return;
       }
       if (request.method === 'GET' && roomMatch) {
