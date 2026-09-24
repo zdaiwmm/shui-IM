@@ -11,7 +11,7 @@ export TURN_SECRET="$(node -e 'process.stdout.write(require("node:crypto").rando
 mkdir "$TURN_TLS_DIR"
 cp deploy/turnserver.conf "$lab_dir/turnserver.conf"
 sed -i.bak '/^no-stdout-log$/d;/^log-file=/d' "$lab_dir/turnserver.conf"
-printf '\nlistening-ip=127.0.0.1\nrelay-ip=127.0.0.1\nallow-loopback-peers\nlog-file=stdout\n' >> "$lab_dir/turnserver.conf"
+printf '\nlistening-ip=127.0.0.1\nrelay-ip=127.0.0.1\nallow-loopback-peers\nverbose\nlog-file=stdout\n' >> "$lab_dir/turnserver.conf"
 cat > "$lab_dir/compose.lab.yaml" <<YAML
 services:
   quiet-room-turn:
@@ -23,6 +23,7 @@ cleanup() { "${compose[@]}" down --remove-orphans >/dev/null 2>&1 || true; rm -r
 trap cleanup EXIT
 "${compose[@]}" up --detach --no-deps quiet-room-turn
 if ! node --input-type=module <<'JS'
+import dgram from 'node:dgram';
 import net from 'node:net';
 for (let i = 0; ; i++) {
   const ready = await new Promise(resolve => {
@@ -34,6 +35,16 @@ for (let i = 0; ; i++) {
   if (i >= 30) throw new Error('Isolated TURN listener did not start');
   await new Promise(resolve => setTimeout(resolve, 250));
 }
+const stun = Buffer.alloc(20);
+stun.writeUInt16BE(0x0001, 0);
+stun.writeUInt32BE(0x2112A442, 4);
+const udp = await new Promise((resolve, reject) => {
+  const socket = dgram.createSocket('udp4');
+  const timer = setTimeout(() => { socket.close(); reject(new Error('Isolated TURN UDP listener did not answer STUN')); }, 2000);
+  socket.once('message', () => { clearTimeout(timer); socket.close(); resolve(true); });
+  socket.send(stun, 3478, '127.0.0.1');
+});
+if (!udp) throw new Error('Isolated TURN UDP listener did not answer STUN');
 JS
 then
   "${compose[@]}" logs --no-color quiet-room-turn >&2 || true
