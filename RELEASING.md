@@ -1,5 +1,14 @@
 # Quiet Room 固定发布流程
 
+## 备份与空间同步已发布（2026-09-24 11:49）
+
+- 用户在本任务修复交付后要求发布生产；固定发布目标为 `15c40a6d8c1c00e99699442f8ad61c8edfde1d08`，版本 `2026.09.24.1`，对应 [PR #206](https://github.com/zdaiwmm/shui-IM/pull/206)。精确 main 完整 CI [35951685969](https://github.com/zdaiwmm/shui-IM/actions/runs/35951685969) 通过。预检读取的前一生产 SHA 为 `ce50265df16be500cc6c2649dd3e96095390c455`。
+- 已上线：WebKit 临时文件存储不可用时的有界密文备份输出、待对方加入空间的原子删除与加密目录删除标记、本人在线已解锁设备的列表刷新及离线重连同步。浏览器认可不单独授予空间删除权限；此同步不代表远程销毁历史备份。
+- 固定入口取得并核对 `DEPLOY_VERIFIED`；批次 `20260924T034624Z`，发布目录 `/opt/quiet-room/git-releases/20260924T034624Z-15c40a6d8c1c`。切换前冷备份 `data-20260924T034624Z-15c40a6d8c1c.tar.gz` 已校验；切换前容量预检通过，可用 6757474304 字节，使用率 83.08%。此为切换前读数，不是发布后剩余空间。
+- 独立 `READBACK_OK` 于 `2026-09-24T03:49:10.665Z` 完成，耗时 2947ms。精确线上 SHA、镜像 `sha256:7a2623c0b698bf8b0025ae778961890259bf05b9673e7d27377fc4c3152c97bc`、HTTPS／数据库／存储、公开与容器产物、公开 WebSocket 均通过。应用运行且健康；备份容器运行，无健康探针；维护标记不存在，管理员开启，通话关闭，TURN 不存在。
+- 脱敏回读证据：`/Users/zhouding/ss/.git/worktrees/backup-space-sync-20260924/quiet-room-readback/20260924T034907717Z-15c40a6d8c1c-success.json`。固定发布副本的精确回执位于 `/private/var/folders/kx/xvfkgvzn5cb2t23mnc9518kr0000gn/T/quiet-room-publish-KbzKHp/.git/quiet-room-verified-sha`。
+- Chromium／WebKit 自动备份下载与多设备删除同步回归已通过；iPhone / iOS 27 / Safari 真机仍未验证。下方记录均为历史发布；此次对账只更新文档，不再次发布。当前开发树承载活动会话、依赖与证据，文档树承载本轮对账，保留并按固定清理入口核验。
+
 ## 发布余量门禁 4 GiB 已发布（2026-09-23 07:16）
 
 - 用户确认先合并发布磁盘可用门禁降至 4 GiB，再发布该精确提交，再做安全腾空间。[PR #201](https://github.com/zdaiwmm/shui-IM/pull/201) 已合并；线上应用 SHA `3a9b6eb0a59cdb6740bfbd14cb0e5069a1db1cb3`（与 GitHub `main` 一致）。精确 main 完整 CI [35757370350](https://github.com/zdaiwmm/shui-IM/actions/runs/35757370350) 通过。前一生产 SHA `bc026e399df3e23418c343d53d024c43e48c1565`。
