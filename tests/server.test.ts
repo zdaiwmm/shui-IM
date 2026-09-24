@@ -106,7 +106,7 @@ describe('HTTP and WebSocket integration', () => {
     await expect(request(`${baseUrl}/api/rooms`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ creatorBundle: creatorIdentity.publicBundle, accessToken: creatorToken, inviteToken,
-        capabilities: Array.from({ length: 17 }, (_, index) => `cap-${index}`) }),
+        capabilities: Array.from({ length: 33 }, (_, index) => `cap-${index}`) }),
     })).rejects.toThrow('INVALID_ROOM_REQUEST');
     const room = await request(`${baseUrl}/api/rooms`, {
       method: 'POST',

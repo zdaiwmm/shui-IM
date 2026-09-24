@@ -36,7 +36,7 @@ export function createJointRecovery(db, { roomState, getMember, messagesAfter })
         !fields(offer.scope, 'creator joiner') || roles.some(role => typeof offer.scope[role] !== 'boolean') ||
         offer.scope[offer.role] !== offer.recover || !Object.values(offer.scope).some(Boolean) ||
         typeof offer.deviceName !== 'string' || offer.deviceName.length > 80 || !offer.deviceName.trim() ||
-        !Array.isArray(offer.capabilities) || offer.capabilities.length > 16 ||
+        !Array.isArray(offer.capabilities) || offer.capabilities.length > 32 ||
         offer.capabilities.some(item => typeof item !== 'string' || !/^[a-z0-9-]{1,40}$/.test(item)) ||
         !offer.capabilities.includes('joint-recovery-v1') || getMember(value.room_id, offer.target.deviceId)) fail();
     const source = getMember(value.room_id, offer.sourceDeviceId);
@@ -137,7 +137,7 @@ export function createJointRecovery(db, { roomState, getMember, messagesAfter })
           db.prepare('INSERT INTO joint_recovery_replacements VALUES(?,?,?,?)').run(roomId, id, offer.sourceDeviceId, target.deviceId);
         }
         const eventSeq = state.nextMlsEventSeq + 1;
-        db.prepare('UPDATE rooms SET mls_welcome=?,next_mls_event_seq=?,mls_epoch_offset=? WHERE room_id=?')
+        db.prepare('UPDATE rooms SET window_enabled=0,window_from_seq=0,mls_welcome=?,next_mls_event_seq=?,mls_epoch_offset=? WHERE room_id=?')
           .run(JSON.stringify(JSON.parse(value.proposal).welcome), eventSeq, eventSeq, roomId);
         const result = { eventSeq, nextSeq: state.nextSeq, nextReceiptSeq: state.nextReceiptSeq, completedAt: now };
         db.prepare('UPDATE joint_recoveries SET result=? WHERE room_id=? AND request_id=?').run(JSON.stringify(result), roomId, id);

@@ -5,7 +5,7 @@ import { constants as fsConstants } from 'node:fs';
 import { access, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
-import { canonicalStringify, isCanonicalUtcTimestamp } from './protocol.mjs';
+import { canonicalStringify, isCanonicalUtcTimestamp, validRetentionBoundary, validMessageRetention } from './protocol.mjs';
 import { createCloudBackups } from './cloud-backups.mjs';
 import { createJointRecovery } from './joint-recovery.mjs';
 
@@ -29,6 +29,9 @@ export async function createStore({
   maxIncompleteBlobsPerRoom = 4,
   maxMessagesPerRoom = 100_000,
   maxRoomMessageBytes = 512 * 1024 * 1024,
+  maxTotalMessageBytes = 1024 * 1024 * 1024,
+  maxWindowEvents = 1024,
+  maxWindowEventBytes = 8 * 1024 * 1024,
 } = {}) {
   await mkdir(dataDir, { recursive: true });
   const blobDir = path.join(dataDir, 'blobs');
@@ -159,7 +162,7 @@ export async function createStore({
       event_id TEXT NOT NULL,
       sender_device_id TEXT NOT NULL,
       target_device_id TEXT NOT NULL,
-      action TEXT NOT NULL CHECK(action IN ('add', 'remove', 'replace')),
+      action TEXT NOT NULL CHECK(action IN ('add', 'remove', 'replace', 'update')),
       envelope TEXT NOT NULL,
       accepted_at TEXT NOT NULL,
       PRIMARY KEY(room_id, event_seq),
@@ -198,13 +201,13 @@ export async function createStore({
   `);
 
   const eventsSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mls_events'").get()?.sql ?? '';
-  if (!eventsSchema.includes("'replace'")) {
+  if (!eventsSchema.includes("'update'")) {
     db.exec(`BEGIN IMMEDIATE;
       ALTER TABLE mls_events RENAME TO mls_events_before_recovery;
       CREATE TABLE mls_events (
         room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
         event_seq INTEGER NOT NULL, event_id TEXT NOT NULL, sender_device_id TEXT NOT NULL,
-        target_device_id TEXT NOT NULL, action TEXT NOT NULL CHECK(action IN ('add', 'remove', 'replace')),
+        target_device_id TEXT NOT NULL, action TEXT NOT NULL CHECK(action IN ('add', 'remove', 'replace', 'update')),
         envelope TEXT NOT NULL, accepted_at TEXT NOT NULL,
         PRIMARY KEY(room_id, event_seq), UNIQUE(room_id, event_id)
       );
@@ -308,6 +311,10 @@ export async function createStore({
 
   db.exec(`CREATE TABLE IF NOT EXISTS recovery_preparation (room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE, device_id TEXT NOT NULL, saved INTEGER NOT NULL, PRIMARY KEY(room_id,device_id));
     CREATE TABLE IF NOT EXISTS invitation_progress (room_id TEXT PRIMARY KEY REFERENCES rooms(room_id) ON DELETE CASCADE, stage TEXT NOT NULL, updated_at TEXT NOT NULL);`);
+  for (const [table, column] of [['rooms', 'window_from_seq'], ['rooms', 'window_enabled'], ['members', 'send_watermark'], ['messages', 'window_message']]) {
+    if (!hasColumn(db, table, column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS window_message_eviction ON messages(room_id, window_message, server_seq)');
   const jointRecovery = createJointRecovery(db, { roomState, getMember, messagesAfter });
   const cloudBackups = createCloudBackups(db, { authenticatedDevice });
   const spaceDirectories = createSpaceDirectories(db, { authenticatedDevice });
@@ -320,7 +327,7 @@ export async function createStore({
       device_name, status, added_by, join_seq, join_receipt_seq, capabilities, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
     room: db.prepare(`SELECT room_id, access_hash, next_seq, next_receipt_seq, next_mls_event_seq,
-      message_count, message_bytes, created_at, sealed_at, mls_welcome, protocol, mls_epoch_offset
+      message_count, message_bytes, created_at, sealed_at, mls_welcome, protocol, mls_epoch_offset, window_from_seq, window_enabled
       FROM rooms WHERE room_id = ?`),
     members: db.prepare(`SELECT device_id, role, encryption_jwk, signing_jwk, mls_key_package, join_proof,
       device_name, status, added_by, join_seq, join_receipt_seq, last_seen_at, revoked_at, capabilities, created_at
@@ -498,6 +505,7 @@ export async function createStore({
   function updateMemberCapabilities(roomId, deviceId, capabilities) {
     assertDeviceActive(roomId, deviceId);
     const normalized = [...new Set(capabilities)];
+    if (statements.room.get(roomId)?.window_enabled && !normalized.includes('message-window-v1')) throw new Error('MESSAGE_WINDOW_UPGRADE_REQUIRED');
     const result = statements.updateMemberCapabilities.run(JSON.stringify(normalized), roomId, deviceId);
     if (result.changes !== 1) throw new Error('MEMBER_NOT_FOUND');
     return getMember(roomId, deviceId);
@@ -622,6 +630,7 @@ export async function createStore({
       invitationProgress: db.prepare('SELECT stage, updated_at AS updatedAt FROM invitation_progress WHERE room_id=?').get(roomId) ?? null,
       nextSeq: room.next_seq,
       nextReceiptSeq: room.next_receipt_seq,
+      messageWindow: { enabled: Boolean(room.window_enabled), fromSeq: room.window_from_seq, count: room.window_enabled ? room.next_seq - room.window_from_seq + 1 : 0 },
       nextMlsEventSeq: room.next_mls_event_seq,
       mlsEpochOffset: room.mls_epoch_offset ?? 0,
       createdAt: room.created_at,
@@ -865,6 +874,15 @@ export async function createStore({
       if (!room || room.protocol !== 'mls-rfc9420') throw new Error('PROTOCOL_MISMATCH');
       if (!sender || sender.status !== 'active' || deviceRecoveryPending(roomId, sender.deviceId)) throw new Error('UNAUTHORIZED');
       if (envelope.previousEventSeq !== room.next_mls_event_seq) throw new Error('MLS_EVENT_STALE');
+      if (room.window_enabled || envelope.action === 'update') {
+        const boundary = envelope.retention;
+        if (!validRetentionBoundary(boundary) || boundary.afterSeq !== room.next_seq ||
+          boundary.fromSeq !== (room.window_enabled ? room.window_from_seq : room.next_seq + 1)) throw new Error('MLS_EVENT_STALE');
+        const controls = db.prepare('SELECT server_seq FROM messages WHERE room_id = ? AND server_seq >= ? AND window_message = 0 ORDER BY server_seq')
+          .all(roomId, boundary.fromSeq).map(row => row.server_seq);
+        if (canonicalStringify(controls) !== canonicalStringify(boundary.controls)) throw new Error('INVALID_MLS_EVENT');
+        if (statements.members.all(roomId).map(memberRow).some(member => member.status === 'active' && !member.capabilities.includes('message-window-v1'))) throw new Error('MESSAGE_WINDOW_UPGRADE_REQUIRED');
+      } else if (envelope.retention !== undefined) throw new Error('INVALID_MLS_EVENT');
       let pendingRepairLinkId = null;
       if (envelope.action === 'add') {
         if (!target || target.status !== 'pending' || !envelope.target) {
@@ -891,6 +909,7 @@ export async function createStore({
           createdAt: target.createdAt,
         });
         if (canonicalStringify(envelope.target) !== expected || !envelope.welcome) throw new Error('INVALID_MLS_EVENT');
+        if (room.window_enabled && !target.capabilities.includes('message-window-v1')) throw new Error('MESSAGE_WINDOW_UPGRADE_REQUIRED');
         if (statements.memberCountForRole.get(roomId, target.role).count >= 3) throw new Error('DEVICE_LIMIT');
       } else if (envelope.action === 'replace') {
         const pendingRecovery = db.prepare("SELECT * FROM recovery_requests WHERE room_id = ? AND request_id = ? AND status = 'pending' AND expires_at > ?")
@@ -907,6 +926,7 @@ export async function createStore({
           pendingRepair.source_device_id === source?.deviceId && source.status === 'active' && target?.status === 'pending' && target.role === source.role && target.addedBy === sender.deviceId &&
           canonicalStringify(JSON.parse(JSON.stringify(repair.replacement))) === canonicalStringify({ deviceId: target?.deviceId, encryptionKey: target?.encryptionKey, signingKey: target?.signingKey, mlsKeyPackage: target?.mlsKeyPackage }) &&
           timingSafeEqual(Buffer.from(pendingRepair.secret_hash), Buffer.from(repair.tokenHash, 'base64url'));
+        if (room.window_enabled && !target?.capabilities.includes('message-window-v1')) throw new Error('MESSAGE_WINDOW_UPGRADE_REQUIRED');
         if ((!validRecovery && !validRepair) || canonicalStringify(target) !== canonicalStringify(envelope.target) || !envelope.welcome) {
           throw new Error('INVALID_RECOVERY_REQUEST');
         }
@@ -914,6 +934,8 @@ export async function createStore({
           member.status === 'active' && member.deviceId !== source.deviceId && !member.capabilities.includes('recovery-replace-v1'))) {
           throw new Error('RECOVERY_REQUIRES_UPGRADE');
         }
+      } else if (envelope.action === 'update') {
+        if (envelope.targetId !== sender.deviceId || envelope.target || envelope.welcome) throw new Error('INVALID_MLS_EVENT');
       } else {
         if (
           !target || target.status !== 'active' || target.deviceId === sender.deviceId ||
@@ -950,11 +972,25 @@ export async function createStore({
         const link = db.prepare('SELECT link_id FROM device_links WHERE room_id = ? AND claimed_device_id = ? AND used_at IS NULL')
           .get(roomId, envelope.targetId);
         if (link) statements.useDeviceLink.run(acceptedAt, link.link_id);
-      } else {
+      } else if (envelope.action === 'remove') {
         if (statements.revokeMember.run(acceptedAt, roomId, envelope.targetId).changes !== 1) {
           throw new Error('INVALID_MLS_EVENT');
         }
         statements.deletePushSubscription.run(roomId, envelope.targetId);
+      }
+      if (envelope.retention) {
+        db.prepare('UPDATE rooms SET window_enabled = 1, window_from_seq = ? WHERE room_id = ?').run(room.next_seq + 1, roomId);
+        // A bounded chain makes indefinite-offline devices explicitly repair instead
+        // of silently trusting a server-provided new membership checkpoint.
+        const events = db.prepare('SELECT event_seq, envelope, LENGTH(CAST(envelope AS BLOB)) AS bytes FROM mls_events WHERE room_id = ? ORDER BY event_seq DESC').all(roomId);
+        if (events[0].bytes > maxWindowEventBytes) throw new Error('MESSAGE_QUOTA');
+        let keptBytes = 0;
+        const expired = events.find((event, index) => { keptBytes += event.bytes; return index >= maxWindowEvents || keptBytes > maxWindowEventBytes; });
+        if (expired) {
+          const last = JSON.parse(expired.envelope).retention;
+          if (last) evictWindowBefore(roomId, last.afterSeq + 1);
+          db.prepare('DELETE FROM mls_events WHERE room_id = ? AND event_seq <= ?').run(roomId, expired.event_seq);
+        }
       }
       db.exec('COMMIT');
       return { eventSeq: advanced.next_mls_event_seq, event: envelope, acceptedAt, duplicate: false };
@@ -1133,6 +1169,31 @@ export async function createStore({
     return { count: statements.unreadCount.get(roomId, Math.max(observer.read_seq, member.joinSeq ?? 0), member.role).count };
   }
 
+  function assertFreshWindowSend(roomId, envelope) {
+    if (!statements.room.get(roomId)?.window_enabled) return;
+    if (!validMessageRetention(envelope.retention)) throw new Error('MESSAGE_WINDOW_UPGRADE_REQUIRED');
+    const watermark = db.prepare('SELECT send_watermark FROM members WHERE room_id = ? AND device_id = ?').get(roomId, envelope.senderId)?.send_watermark;
+    if (watermark === undefined || envelope.retention.sendSequence <= watermark) throw new Error('MESSAGE_RETRY_EXPIRED');
+  }
+
+  function evictStoredMessage(roomId, row) {
+    db.prepare('DELETE FROM receipts WHERE room_id = ? AND message_seq = ?').run(roomId, row.server_seq);
+    db.prepare('DELETE FROM messages WHERE room_id = ? AND server_seq = ?').run(roomId, row.server_seq);
+    db.prepare('UPDATE rooms SET message_count = message_count - 1, message_bytes = message_bytes - ? WHERE room_id = ?').run(row.bytes, roomId);
+  }
+  function evictWindowBefore(roomId, before) {
+    for (const row of db.prepare('SELECT server_seq, LENGTH(CAST(envelope AS BLOB)) AS bytes FROM messages WHERE room_id = ? AND server_seq < ?').all(roomId, before)) evictStoredMessage(roomId, row);
+  }
+  function evictOneWindowMessage(roomId) {
+    const room = statements.room.get(roomId);
+    if (!room?.window_enabled) return false;
+    // Prefer ordinary messages. Control loss is never skipped by the client.
+    const row = db.prepare('SELECT server_seq, window_message, LENGTH(CAST(envelope AS BLOB)) AS bytes FROM messages WHERE room_id = ? AND server_seq < ? ORDER BY window_message DESC, server_seq LIMIT 1').get(roomId, room.window_from_seq);
+    if (!row) return false;
+    if (!row.window_message && db.prepare('SELECT 1 FROM messages WHERE room_id = ? AND server_seq >= ? AND window_message = 1 LIMIT 1').get(roomId, room.window_from_seq)) return false;
+    evictStoredMessage(roomId, row); return true;
+  }
+
   function insertMessage(roomId, envelope, countUnread = true) {
     if (typeof countUnread !== 'boolean') throw new Error('INVALID_MESSAGE');
     db.exec('BEGIN IMMEDIATE');
@@ -1154,9 +1215,28 @@ export async function createStore({
       }
       const serializedEnvelope = JSON.stringify(envelope);
       const envelopeBytes = Buffer.byteLength(serializedEnvelope, 'utf8');
-      const usage = statements.roomMessageUsage.get(roomId);
-      if (usage.count >= maxMessagesPerRoom || usage.bytes + envelopeBytes > maxRoomMessageBytes) {
-        throw new Error('MESSAGE_QUOTA');
+      const room = statements.room.get(roomId);
+      if (envelopeBytes > maxRoomMessageBytes || envelopeBytes > maxTotalMessageBytes) throw new Error('MESSAGE_QUOTA');
+      if (room.window_enabled) {
+        assertFreshWindowSend(roomId, envelope);
+        if (room.next_seq - room.window_from_seq + 1 >= 128) throw new Error('MLS_UPDATE_REQUIRED');
+        while (true) {
+          const usage = statements.roomMessageUsage.get(roomId);
+          if (usage.count < maxMessagesPerRoom && usage.bytes + envelopeBytes <= maxRoomMessageBytes) break;
+          if (!evictOneWindowMessage(roomId)) throw new Error('MLS_UPDATE_REQUIRED');
+        }
+        while (db.prepare('SELECT COALESCE(SUM(message_bytes), 0) AS bytes FROM rooms').get().bytes + envelopeBytes > maxTotalMessageBytes) {
+          const candidate = db.prepare('SELECT room_id FROM rooms WHERE window_enabled = 1 AND message_count > 0 ORDER BY EXISTS(SELECT 1 FROM messages WHERE messages.room_id = rooms.room_id AND window_message = 1 AND server_seq < window_from_seq) DESC, message_bytes DESC').all()
+            .find(item => evictOneWindowMessage(item.room_id));
+          if (!candidate) {
+            if (room.next_seq >= room.window_from_seq) throw new Error('MLS_UPDATE_REQUIRED');
+            throw new Error('MESSAGE_QUOTA');
+          }
+        }
+      } else {
+        const usage = statements.roomMessageUsage.get(roomId);
+        if (usage.count >= maxMessagesPerRoom || usage.bytes + envelopeBytes > maxRoomMessageBytes ||
+            db.prepare('SELECT COALESCE(SUM(message_bytes), 0) AS bytes FROM rooms').get().bytes + envelopeBytes > maxTotalMessageBytes) throw new Error('MESSAGE_QUOTA');
       }
       const { next_seq: seq } = statements.nextSeq.get(roomId);
       const acceptedAt = nowIso();
@@ -1170,6 +1250,10 @@ export async function createStore({
         countUnread ? 1 : 0,
       );
       statements.incrementMessageUsage.run(envelopeBytes, roomId);
+      if (validMessageRetention(envelope.retention)) {
+        db.prepare('UPDATE members SET send_watermark = MAX(send_watermark, ?) WHERE room_id = ? AND device_id = ?').run(envelope.retention.sendSequence, roomId, envelope.senderId);
+        db.prepare('UPDATE messages SET window_message = ? WHERE room_id = ? AND server_seq = ?').run(envelope.retention.message ? 1 : 0, roomId, seq);
+      }
       db.exec('COMMIT');
       return { seq, acceptedAt, envelope, duplicate: false };
     } catch (error) {
@@ -1238,10 +1322,15 @@ export async function createStore({
     const member = deviceId ? getMember(roomId, deviceId) : null;
     const joinReceiptSeq = deviceId ? member?.joinReceiptSeq ?? Number.MAX_SAFE_INTEGER : 0;
     const joinSeq = member?.joinSeq ?? 0;
-    return statements.receiptsAfter.all(roomId, afterReceiptSeq, joinReceiptSeq, Math.min(Math.max(limit, 1), 500)).map((row) =>
-      deviceId && row.message_seq <= joinSeq
-        ? { receiptSeq: row.receipt_seq, skipped: true, acceptedAt: row.accepted_at }
-        : { receiptSeq: row.receipt_seq, receipt: JSON.parse(row.receipt), acceptedAt: row.accepted_at });
+    const after = Math.max(afterReceiptSeq, joinReceiptSeq);
+    const until = Math.min(statements.room.get(roomId)?.next_receipt_seq ?? 0, after + Math.min(Math.max(limit, 1), 500));
+    const rows = new Map(statements.receiptsAfter.all(roomId, after, joinReceiptSeq, 500).map(row => [row.receipt_seq, row]));
+    return Array.from({ length: Math.max(0, until - after) }, (_, i) => {
+      const seq = after + i + 1, row = rows.get(seq);
+      return !row || (deviceId && row.message_seq <= joinSeq)
+        ? { receiptSeq: seq, skipped: true, acceptedAt: row?.accepted_at ?? nowIso() }
+        : { receiptSeq: seq, receipt: JSON.parse(row.receipt), acceptedAt: row.accepted_at };
+    });
   }
 
   function createBlob(roomId, blobId, chunkCount, expectedBytes, actorId) {
@@ -1450,6 +1539,8 @@ export async function createStore({
     repairLinkStatus,
     deviceLinksForRoom,
     messagesAfter,
+    assertFreshWindowSend,
+    currentMlsEpoch(roomId) { const room = statements.room.get(roomId); return room ? room.next_mls_event_seq - room.mls_epoch_offset + 1 : null; },
     mlsEventsAfter,
     putBlobChunk,
     pushSubscriptionsForRoom,

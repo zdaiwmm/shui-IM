@@ -31,7 +31,7 @@ normal application deployment must not self-update privileged tools. See
   separate case closure and verified offsite retention before deletion.
 - Online backup can continue because cleanup never touches its source/target.
   Daily cleanup is serialized with deployment; the online backup worker's
-  existing 14-snapshot policy is unchanged until offsite recovery is verified.
+  three-date verified snapshot policy is described below; offsite recovery remains separate.
   Before each online snapshot the worker checks destination free space (8 GiB),
   utilization (below 80%) and inodes (below 80%). Refusal leaves existing
   snapshots untouched and retries later; the stale-backup alert remains active.
@@ -56,7 +56,9 @@ recovery; 40 GiB cannot support unlimited business-data growth.
 
 The included backup worker uses SQLite's online backup API against the live WAL database, removes incomplete attachment reservations from the snapshot, copies only completed immutable ciphertext chunks, verifies SQLite with `PRAGMA quick_check`, and writes SHA-256 checksums for the database and every chunk. It stages into a partial directory and publishes the backup by atomic rename only after verification.
 
-Compose runs that worker once at startup and then every 24 hours by default. It retains 14 completed snapshots. Configure `QUIET_ROOM_BACKUP_DIR` as a mount whose data is replicated to a different failure domain. A second directory on the same disk is not disaster recovery.
+Compose runs that worker once at startup and then every 24 hours by default. It retains the latest verified snapshot for each of three distinct UTC dates by default (minimum two). Invalid/unknown points are retained for investigation. Configure `QUIET_ROOM_BACKUP_DIR` as a mount whose data is replicated to a different failure domain. A second directory on the same disk is not disaster recovery.
+
+Unchanged completed attachment chunks may share inodes **between backup points only**, after checking actual bytes; live chunks and restored files never share those inodes. Databases stay independent. Creation, verification and retention share a process lock, and failed creation removes its own staging directory. Older interrupted directories require a separate reviewed inventory. This reduces duplicate attachment space but does not protect against shared-block corruption or disk loss. See the [storage contract](docs/requirements/2026-09-24-storage-calls/storage-contract.md) for migration, online-message windows and cache limits.
 
 The public expression catalog stores its original images and publication state in the same SQLite database,
 so online snapshots and restore include it. Public catalog bytes are separate from encrypted chat attachments.
@@ -65,7 +67,7 @@ Interrupted acquisition jobs remain interrupted after restart and require a new 
 Recommended minimum production policy:
 
 - RPO: 24 hours or less; reduce `BACKUP_INTERVAL_MS` if that loss window is unacceptable.
-- Retention: 14 daily snapshots, plus storage-provider lifecycle copies if required.
+- Retention: three distinct daily recovery points, plus separately configured offsite lifecycle copies if required.
 - Off-host copy: encrypted storage in another account/project or region, with versioning and deletion protection.
 - Access: the application can read the live data volume; the backup worker mounts it read-only. Backup operators should not have application deployment privileges unless necessary.
 - Alerting: alert if no `backup_verified` event is recorded within 1.5 backup intervals, if the target is nearly full, or if off-host replication lags.

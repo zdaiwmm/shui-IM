@@ -1,3 +1,5 @@
+import { isWindowMessage, expiredMessage } from './message-window';
+import { mediaCacheBudget, mediaCacheEvictions, MEDIA_CACHE_FILE_BYTES, type MediaCacheEntry } from './media-cache-policy';
 import { argon2id } from 'hash-wasm';
 import { fromBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
@@ -36,7 +38,7 @@ import type {
 } from './types';
 
 const DB_NAME = 'quiet-room';
-const DB_VERSION = 10;
+const DB_VERSION = 11;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const PLATFORM_PAYLOAD_AAD = encoder.encode('quiet-room-vault-payload-v2');
@@ -179,6 +181,8 @@ type StoredMediaChunk = {
   index: number;
   bytes: ArrayBuffer;
   cachedAt: number;
+  iv?: Uint8Array<ArrayBuffer>;
+  mimeType?: string;
 };
 
 type LocalStore = 'outbox' | 'receiptOutbox' | 'uploads' | 'preferences' | 'memeFavorites';
@@ -239,6 +243,31 @@ function openDatabase(): Promise<IDBDatabase> {
         mediaChunks.createIndex('roomId', 'roomId', { unique: false });
         mediaChunks.createIndex('blobKey', 'blobKey', { unique: false });
       }
+      if (!database.objectStoreNames.contains('mediaCacheEntries')) {
+        const entries = database.createObjectStore('mediaCacheEntries', { keyPath: 'id' });
+        entries.createIndex('roomId', 'roomId', { unique: false });
+        const grouped = new Map<string, MediaCacheEntry>();
+        const scan = request.transaction!.objectStore('mediaChunks').openCursor();
+        scan.onsuccess = () => {
+          const cursor = scan.result;
+          if (!cursor) {
+            let total = [...grouped.values()].reduce((sum, entry) => sum + entry.bytes, 0);
+            for (const entry of [...grouped.values()].sort((a, b) => a.usedAt - b.usedAt)) {
+              if (total <= 1024 ** 3) { entries.put(entry); continue; }
+              total -= entry.bytes;
+              const old = request.transaction!.objectStore('mediaChunks');
+              const remove = old.index('blobKey').openKeyCursor(IDBKeyRange.only(entry.id));
+              remove.onsuccess = () => { const item = remove.result; if (item) { old.delete(item.primaryKey); item.continue(); } };
+            }
+            return;
+          }
+          const record = cursor.value as StoredMediaChunk;
+          const entry = grouped.get(record.blobKey) ?? { id: record.blobKey, roomId: record.roomId, bytes: 0, usedAt: 0 };
+          entry.bytes += record.bytes?.byteLength ?? 0;
+          entry.usedAt = Math.max(entry.usedAt, record.cachedAt || 0);
+          grouped.set(entry.id, entry); cursor.continue();
+        };
+      }
       for (const storeName of ['outbox', 'receiptOutbox', 'uploads', 'preferences', 'memeFavorites'] as const) {
         if (!database.objectStoreNames.contains(storeName)) {
           const store = database.createObjectStore(storeName, { keyPath: 'id' });
@@ -253,7 +282,7 @@ function openDatabase(): Promise<IDBDatabase> {
 }
 
 async function transaction<T>(
-  storeName: 'spaces' | 'vault' | 'history' | 'galleryHistory' | 'restoredGallery' | 'mediaChunks' | 'security' | LocalStore,
+  storeName: 'spaces' | 'vault' | 'history' | 'galleryHistory' | 'restoredGallery' | 'mediaChunks' | 'mediaCacheEntries' | 'security' | LocalStore,
   mode: IDBTransactionMode,
   action: (store: IDBObjectStore) => IDBRequest<T>,
   expectedVault?: StoredVault,
@@ -297,6 +326,7 @@ export async function loadCachedMediaChunk(
     store.get(mediaChunkId(session.vault.roomId, blobId, index)), session.stored);
   if (!record || record.roomId !== session.vault.roomId || record.blobId !== blobId || record.index !== index ||
       !(record.bytes instanceof ArrayBuffer) || record.bytes.byteLength !== expectedBytes) return null;
+  await touchMediaCache(session, record.blobKey).catch(() => undefined);
   return record.bytes.slice(0);
 }
 
@@ -305,6 +335,7 @@ export async function saveCachedMediaChunk(
   blobId: string,
   index: number,
   bytes: ArrayBuffer,
+  signal?: AbortSignal,
 ): Promise<void> {
   const roomId = session.vault.roomId;
   const record: StoredMediaChunk = {
@@ -316,19 +347,133 @@ export async function saveCachedMediaChunk(
     bytes: bytes.slice(0),
     cachedAt: Date.now(),
   };
-  await transaction('mediaChunks', 'readwrite', store => store.put(record), session.stored);
+  await writeMediaCacheRecord(session, record, signal);
+}
+
+async function touchMediaCache(session: VaultSession, id: string): Promise<void> {
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction(['mediaCacheEntries', 'vault'], 'readwrite');
+    const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
+    current.onsuccess = () => {
+      if (!sameStoredVault(current.result, session.stored)) { tx.abort(); return; }
+      const entries = tx.objectStore('mediaCacheEntries'); const read = entries.get(id);
+      read.onsuccess = () => { if (read.result && Date.now() - read.result.usedAt > 60_000) entries.put({ ...read.result, usedAt: Date.now() }); };
+    };
+    tx.oncomplete = () => { database.close(); resolve(); };
+    tx.onabort = () => { database.close(); reject(tx.error ?? staleVaultError()); };
+  });
+}
+
+// After an unexpected quota failure, leave space for durable history and stop
+// filling it again during this unlocked session. Only disposable stores are cleared.
+const mediaCacheQuotaBlocked = new WeakSet<VaultSession>();
+async function releaseMediaCachePressure(session: VaultSession): Promise<void> {
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction(['vault', 'mediaChunks', 'mediaCacheEntries'], 'readwrite');
+    const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
+    current.onsuccess = () => {
+      if (!sameStoredVault(current.result, session.stored)) { tx.abort(); return; }
+      tx.objectStore('mediaChunks').clear(); tx.objectStore('mediaCacheEntries').clear();
+    };
+    tx.oncomplete = () => { database.close(); resolve(); };
+    tx.onabort = () => { database.close(); reject(tx.error ?? staleVaultError()); };
+  });
+}
+
+async function writeMediaCacheRecord(session: VaultSession, record: StoredMediaChunk, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  if (mediaCacheQuotaBlocked.has(session)) return;
+  const estimate = await navigator.storage?.estimate?.().catch(() => undefined);
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction(['mediaChunks', 'mediaCacheEntries', 'vault'], 'readwrite');
+    const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
+    current.onsuccess = () => {
+      if (signal?.aborted || !sameStoredVault(current.result, session.stored)) { tx.abort(); return; }
+      const chunks = tx.objectStore('mediaChunks'), entries = tx.objectStore('mediaCacheEntries');
+      const all = entries.getAll(); const old = chunks.get(record.id);
+      old.onsuccess = () => {
+        const rows = all.result as MediaCacheEntry[];
+        const previous = rows.find(item => item.id === record.blobKey);
+        const delta = record.bytes.byteLength - (record.index === -1 ? previous?.bytes ?? 0 : old.result?.bytes.byteLength ?? 0);
+        const next = { id: record.blobKey, roomId: record.roomId, bytes: (previous?.bytes ?? 0) + delta, usedAt: Date.now() };
+        const total = rows.reduce((sum, item) => sum + item.bytes, 0);
+        const budget = mediaCacheBudget(estimate, total);
+        const remove = (id: string) => {
+          entries.delete(id);
+          const request = chunks.index('blobKey').openKeyCursor(IDBKeyRange.only(id));
+          request.onsuccess = () => { const cursor = request.result; if (cursor) { chunks.delete(cursor.primaryKey); cursor.continue(); } };
+        };
+        if (next.bytes > MEDIA_CACHE_FILE_BYTES + 1024 ** 2 || next.bytes > budget) { remove(next.id); return; }
+        for (const id of mediaCacheEvictions(rows, { ...next, bytes: delta }, budget)) remove(id);
+        if (record.index === -1) {
+          const request = chunks.index('blobKey').openCursor(IDBKeyRange.only(record.blobKey));
+          request.onsuccess = () => { const cursor = request.result; if (cursor) { if (cursor.value.index >= 0) cursor.delete(); cursor.continue(); } };
+        }
+        chunks.put(record); entries.put(next);
+      };
+    };
+    const abort = () => { try { tx.abort(); } catch { /* already closed */ } };
+    signal?.addEventListener('abort', abort, { once: true });
+    const finish = () => { signal?.removeEventListener('abort', abort); database.close(); };
+    tx.oncomplete = () => { finish(); resolve(); };
+    tx.onabort = () => { finish(); reject(tx.error ?? staleVaultError()); };
+  }).catch(async error => {
+    if (error?.name !== 'QuotaExceededError') throw error;
+    mediaCacheQuotaBlocked.add(session);
+    await releaseMediaCachePressure(session).catch(() => undefined);
+  });
+}
+
+async function mediaPreviewKey(session: VaultSession): Promise<CryptoKey> {
+  const raw = new Uint8Array(await crypto.subtle.exportKey('raw', session.key));
+  try {
+    const material = await crypto.subtle.importKey('raw', raw, 'HKDF', false, ['deriveKey']);
+    return await crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256',
+      salt: encoder.encode(session.vault.roomId), info: encoder.encode('quiet-room-media-preview-v1') },
+      material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  } finally { raw.fill(0); }
+}
+
+/** Derived bytes are authenticated to the complete original manifest and local room. */
+export async function saveMediaPreview(session: VaultSession, manifest: import('./types').ImageManifest, blob: Blob, signal?: AbortSignal): Promise<void> {
+  if (blob.size > 8 * 1024 ** 2 || !['image/jpeg', 'image/png', 'image/webp'].includes(blob.type)) return;
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-preview-v1', roomId: session.vault.roomId, manifest, mimeType: blob.type }));
+  const bytes = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData }, await mediaPreviewKey(session), await blob.arrayBuffer());
+  signal?.throwIfAborted();
+  await writeMediaCacheRecord(session, { id: mediaChunkId(session.vault.roomId, manifest.blobId, -1), roomId: session.vault.roomId, blobKey: mediaBlobKey(session.vault.roomId, manifest.blobId), blobId: manifest.blobId, index: -1, bytes, iv, mimeType: blob.type, cachedAt: Date.now() }, signal);
+}
+
+export async function loadMediaPreview(session: VaultSession, manifest: import('./types').ImageManifest, signal?: AbortSignal): Promise<Blob | null> {
+  const record = await transaction<StoredMediaChunk | undefined>('mediaChunks', 'readonly', store => store.get(mediaChunkId(session.vault.roomId, manifest.blobId, -1)), session.stored);
+  if (!record?.iv || !record.mimeType || !['image/jpeg', 'image/png', 'image/webp'].includes(record.mimeType)) return null;
+  try {
+    const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-preview-v1', roomId: session.vault.roomId, manifest, mimeType: record.mimeType }));
+    const bytes = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: record.iv, additionalData }, await mediaPreviewKey(session), record.bytes);
+    signal?.throwIfAborted();
+    await touchMediaCache(session, record.blobKey).catch(() => undefined);
+    return new Blob([bytes], { type: record.mimeType });
+  } catch (error) {
+    signal?.throwIfAborted();
+    await deleteCachedMediaBlob(session, manifest.blobId).catch(() => undefined);
+    return null;
+  }
 }
 
 export async function deleteCachedMediaBlob(session: VaultSession, blobId: string): Promise<void> {
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const tx = database.transaction(['mediaChunks', 'vault'], 'readwrite');
+    const tx = database.transaction(['mediaChunks', 'mediaCacheEntries', 'vault'], 'readwrite');
     const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
     current.onsuccess = () => {
       if (!sameStoredVault(current.result, session.stored)) {
         tx.abort();
         return;
       }
+      tx.objectStore('mediaCacheEntries').delete(mediaBlobKey(session.vault.roomId, blobId));
       const request = tx.objectStore('mediaChunks').index('blobKey')
         .openKeyCursor(IDBKeyRange.only(mediaBlobKey(session.vault.roomId, blobId)));
       request.onsuccess = () => {
@@ -611,7 +756,7 @@ export async function clearLocalBrowserData(session: VaultSession): Promise<void
   await withVaultLifecycle(async () => {
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
-      const stores = ['history', 'galleryHistory', 'restoredGallery', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
+      const stores = ['history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
       const tx = database.transaction(['vault', ...stores], 'readwrite');
       const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
       current.onsuccess = () => {
@@ -701,11 +846,11 @@ export async function finishJointRecovery(session: VaultSession, nextVault: Vaul
     signal.throwIfAborted();
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
-      const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
+      const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
       const tx = database.transaction(stores, 'readwrite');
       putCurrentVault(tx, nextStored, session.stored);
       for (const name of stores.slice(1)) {
-        if (pending.preserveHistory && ['history', 'galleryHistory', 'restoredGallery', 'mediaChunks'].includes(name)) continue;
+        if (pending.preserveHistory && ['history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks'].includes(name)) continue;
         const store = tx.objectStore(name);
         const request = store.index('roomId').openCursor(IDBKeyRange.only(nextVault.roomId));
         request.onsuccess = () => {
@@ -1576,9 +1721,11 @@ export async function loadMessageEventHistory(
       .sort((left, right) => left - right);
     let expected = boundary + 1;
     for (const seq of sequences) {
+      while (expected < seq && expiredMessage(session.vault, expected)) expected += 1;
       if (seq !== expected) throw new Error(`本机加密历史记录 ${expected} 缺失，已停止显示以避免撤回内容重新出现`);
       expected += 1;
     }
+    while (expected <= session.vault.lastSeq && expiredMessage(session.vault, expected)) expected += 1;
     if (expected <= session.vault.lastSeq) throw new Error(`本机加密历史记录 ${expected} 缺失，已停止显示以避免撤回内容重新出现`);
   }
   const ordered = [...eventsBySequence.values()].sort((left, right) => left.seq - right.seq);
@@ -2075,6 +2222,13 @@ async function commitMlsVaultAndRecords(
   const nextVault = structuredClone(session.vault);
   if (!nextVault.mls) throw new Error('MLS 本机状态不存在');
   nextVault.mls.groupState = nextGroupState;
+  if (records.outbox?.envelope?.v === 2 && records.outbox.envelope.retention) {
+    nextVault.mls.sendSequence = records.outbox.envelope.retention.sendSequence;
+    if (nextVault.mls.window) nextVault.mls.window.generated += 1;
+  }
+  if (records.history && nextVault.mls.window && !isWindowMessage(records.history.payload)) {
+    nextVault.mls.window.controls.push(records.history.seq);
+  }
   const nextStored: StoredPlatformVault = {
     ...session.stored,
     payload: await encryptPayload(nextVault, session.key),
@@ -2146,7 +2300,7 @@ export async function finishVaultRecovery(session: VaultSession, nextVault: Vaul
   const nextStored: StoredPlatformVault = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
+    const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];
     const tx = database.transaction(stores, 'readwrite');
     putCurrentVault(tx, nextStored, session.stored);
     for (const name of stores.slice(1)) {

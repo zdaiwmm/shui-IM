@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 
@@ -18,7 +19,8 @@ try {
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__call_native`);
-  const result = await page.evaluate(async () => {
+  const relayConfiguration = process.env.QUIET_ROOM_CALL_TEST_CONFIG ? JSON.parse(await readFile(process.env.QUIET_ROOM_CALL_TEST_CONFIG, 'utf8')) : null;
+  const result = await page.evaluate(async relayConfiguration => {
     const { CallController } = await import('/src/lib/call-controller.ts');
     const { generateIdentity } = await import('/src/lib/crypto.ts');
     const { CALL_CAPABILITY } = await import('/src/lib/call-types.ts');
@@ -55,7 +57,7 @@ try {
       getVault: () => vault,
       getIceConfig: async () => {
         configRequests += 1;
-        return { iceServers: [], iceTransportPolicy: 'all', relayConfigured: false, verifiedPeerIds: await verifyCallIdentityAttestations(vault, callIdentities) };
+        return { ...(relayConfiguration ?? { iceServers: [], iceTransportPolicy: 'all', relayConfigured: false }), verifiedPeerIds: await verifyCallIdentityAttestations(vault, callIdentities) };
       },
       onChange: () => {}, onPermissionChange: () => {},
     });
@@ -105,16 +107,23 @@ try {
       await caller.accept();
       await wait(() => caller.state.phase === 'connected' && callee.state.phase === 'connected', 'Initial video connection failed');
       await wait(() => [caller, callee].every((controller) => controller.state.remoteStream?.getVideoTracks().some((track) => track.readyState === 'live' && !track.muted)), () => `Initial video tracks missing: ${JSON.stringify([caller, callee].map((controller) => ({ phase: controller.state.phase, localVideo: controller.state.cameraEnabled, remoteVideo: controller.state.remoteVideoEnabled, transceivers: controller.pc?.getTransceivers().map((item) => ({ direction: item.currentDirection, senderKind: item.sender.track?.kind, senderState: item.sender.track?.readyState, receiverKind: item.receiver.track.kind, receiverMuted: item.receiver.track.muted })) })))}`);
+      if (relayConfiguration) {
+        for (const endpoint of [caller, callee]) {
+          const stats = await endpoint.pc.getStats();
+          const pairs = [...stats.values()].filter(item => item.type === 'candidate-pair' && item.state === 'succeeded' && item.nominated);
+          check(pairs.some(pair => stats.get(pair.localCandidateId)?.candidateType === 'relay' && pair.bytesReceived > 0 && pair.bytesSent > 0), 'Actual encrypted media did not cross an authenticated TURN allocation');
+        }
+      }
       const videoStreams = [caller.state.localStream, callee.state.localStream];
       await callee.hangup();
       await wait(() => !caller.active, 'Reverse video end was not received');
       check(videoStreams.every((stream) => stream.getTracks().every((track) => track.readyState === 'ended')), 'Initial video capture remained after hangup');
-      return { nativeDtlsConnection: true, audioToVideoUpgrade: true, cameraOffStopsCapture: true, iceRestartRefreshesBothEndpoints: true, initialBidirectionalVideo: true, hangupStopsBothEnds: true, actions };
+      return { authenticatedRelayMedia: Boolean(relayConfiguration), nativeDtlsConnection: true, audioToVideoUpgrade: true, cameraOffStopsCapture: true, iceRestartRefreshesBothEndpoints: true, initialBidirectionalVideo: true, hangupStopsBothEnds: true, actions };
     } finally {
       caller.destroy();
       callee.destroy();
     }
-  });
+  }, relayConfiguration);
   assert.deepEqual(errors, []);
   process.stdout.write(`Native call E2E passed: ${JSON.stringify(result)}\n`);
 } finally {

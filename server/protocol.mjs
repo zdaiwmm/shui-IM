@@ -52,7 +52,7 @@ export function validateEnvelopeShape(envelope, expectedRoomId) {
   if (!envelope || envelope.roomId !== expectedRoomId) return false;
   if (!isUuid(envelope.clientMsgId) || !isUuid(envelope.senderId)) return false;
   if (envelope.v === 2) {
-    return envelope.protocol === 'mls-rfc9420' &&
+    return (envelope.retention === undefined || validMessageRetention(envelope.retention)) && envelope.protocol === 'mls-rfc9420' &&
       typeof envelope.ciphertext === 'string' && envelope.ciphertext.length >= 32 && envelope.ciphertext.length <= 128 * 1024 &&
       /^[A-Za-z0-9_-]+$/.test(envelope.ciphertext) &&
       typeof envelope.signature === 'string' && envelope.signature.length > 0 && envelope.signature.length <= 512;
@@ -92,6 +92,16 @@ export function validateMlsWelcomeShape(envelope, expectedRoomId) {
   );
 }
 
+export function validMessageRetention(value) {
+  return Boolean(value && value.v === 1 && Number.isSafeInteger(value.sendSequence) && value.sendSequence > 0 && typeof value.message === 'boolean');
+}
+export function validRetentionBoundary(b) {
+  return Boolean(b && b.v === 1 && Number.isSafeInteger(b.fromSeq) && b.fromSeq >= 1 &&
+    Number.isSafeInteger(b.afterSeq) && b.afterSeq >= b.fromSeq - 1 && b.afterSeq - b.fromSeq < 128 &&
+    Array.isArray(b.controls) && b.controls.length <= 128 && b.controls.every((seq, i) =>
+      Number.isSafeInteger(seq) && seq >= b.fromSeq && seq <= b.afterSeq && (i === 0 || seq > b.controls[i - 1])));
+}
+
 export function validateMlsMembershipShape(envelope, expectedRoomId) {
   if (!envelope || envelope.v !== 1 || envelope.protocol !== 'mls-rfc9420' || envelope.roomId !== expectedRoomId) {
     return false;
@@ -100,10 +110,11 @@ export function validateMlsMembershipShape(envelope, expectedRoomId) {
     !isUuid(envelope.eventId) ||
     !Number.isSafeInteger(envelope.previousEventSeq) ||
     envelope.previousEventSeq < 0 ||
-    !['add', 'remove', 'replace'].includes(envelope.action) ||
+    !['add', 'remove', 'replace', 'update'].includes(envelope.action) ||
     !isUuid(envelope.senderId) ||
     !isUuid(envelope.targetId) ||
-    envelope.senderId === envelope.targetId ||
+    (envelope.senderId === envelope.targetId && envelope.action !== 'update') ||
+    (envelope.retention !== undefined && !validRetentionBoundary(envelope.retention)) ||
     typeof envelope.commit !== 'string' ||
     envelope.commit.length < 32 ||
     envelope.commit.length > 256 * 1024 ||
@@ -112,6 +123,8 @@ export function validateMlsMembershipShape(envelope, expectedRoomId) {
     envelope.signature.length < 1 ||
     envelope.signature.length > 512
   ) return false;
+  if (envelope.action === 'update') return envelope.senderId === envelope.targetId && validRetentionBoundary(envelope.retention) &&
+    ['target', 'welcome', 'replacedDeviceId', 'recoveryRequest', 'repairRequest', 'browserAccess'].every(key => envelope[key] === undefined);
   if (envelope.action === 'replace') {
     if (envelope.browserAccess !== undefined) return false;
     const recovery = envelope.recoveryRequest;

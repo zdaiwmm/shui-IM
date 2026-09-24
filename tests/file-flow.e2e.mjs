@@ -211,7 +211,12 @@ try {
   // Locking while a chunk is in flight must stop the late download; stale card
   // listeners must also be unable to start another read after the UI is gone.
   const staleCard = await page.locator('.message .file-attachment').filter({ hasText: '说明书.txt' }).elementHandle();
-  await page.evaluate(() => { window.fileFlow.readGate.enabled = true; });
+  await page.evaluate(async () => {
+    const f = window.fileFlow; const { deleteCachedMediaBlob } = await import('/src/lib/vault.ts');
+    const manifest = f.sent.find(item => item.payload.file?.originalName === '说明书.txt').payload.file;
+    // This case exercises an in-flight server read; the earlier open now caches it.
+    await deleteCachedMediaBlob(f.app.session, manifest.blobId); f.readGate.enabled = true;
+  });
   const beforeLockDownloads = downloads.length;
   await staleCard.evaluate(card => card.click());
   await page.waitForFunction(() => window.fileFlow.readGate.release !== null);

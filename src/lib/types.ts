@@ -42,6 +42,8 @@ export type MlsWelcomeEnvelope = {
   signature: string;
 };
 
+export type MlsRetentionBoundary = { v: 1; fromSeq: number; afterSeq: number; controls: number[] };
+
 export type MlsMembershipEnvelope = {
   browserAccess?: import('./browser-access-proof.mjs').AccessProof;
   v: 1;
@@ -49,7 +51,8 @@ export type MlsMembershipEnvelope = {
   roomId: string;
   eventId: string;
   previousEventSeq: number;
-  action: 'add' | 'remove' | 'replace';
+  action: 'add' | 'remove' | 'replace' | 'update';
+  retention?: MlsRetentionBoundary;
   senderId: string;
   targetId: string;
   target?: RoomMember;
@@ -98,6 +101,8 @@ export type MlsVaultState = {
   groupState?: string;
   pendingWelcome?: MlsWelcomeEnvelope;
   lastEventSeq?: number;
+  sendSequence?: number;
+  window?: { fromSeq: number; controls: number[]; generated: number };
   pendingMembership?: {
     event: MlsMembershipEnvelope;
     nextGroupState: string;
@@ -142,6 +147,8 @@ export type Vault = {
   /** Only carried through an explicitly decrypted device recovery. */
   recoverySource?: RecoverySource;
   historyUnavailableBeforeSeq?: number;
+  /** Authenticated, locally committed gaps; never inferred from a server cursor. */
+  expiredMessageRanges?: [number, number][];
   createdAt: string;
   protocol?: 'legacy-v1' | 'mls-rfc9420';
   mls?: MlsVaultState;
@@ -390,6 +397,7 @@ export type LegacyMessageEnvelope = {
 };
 
 export type MlsMessageEnvelope = {
+  retention?: { v: 1; sendSequence: number; message: boolean };
   v: 2;
   protocol: 'mls-rfc9420';
   roomId: string;
@@ -470,6 +478,7 @@ export type RoomState = {
   members: RoomMember[];
   recoveryPreparation?: { deviceId: string; saved: number }[];
   invitationProgress?: { stage: 'opened' | 'setting'; updatedAt: string } | null;
+  messageWindow?: { enabled: boolean; fromSeq: number; count: number };
   mlsEpochOffset?: number;
   mlsWelcome?: MlsWelcomeEnvelope | null;
   nextMlsEventSeq?: number;

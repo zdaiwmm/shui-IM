@@ -118,7 +118,11 @@ function normalizeError(error) {
     ['TOO_MANY_UPLOADS', [429, '未完成的图片上传过多，请先续传或等待清理']],
     ['INVALID_RECEIPT', [400, '送达回执与消息不匹配']],
     ['RECEIPT_CONFLICT', [409, '送达回执与已记录内容冲突']],
+    ['INVALID_MESSAGE', [400, '消息格式不正确']],
     ['MESSAGE_CONFLICT', [409, '消息标识与已记录消息冲突']],
+    ['MESSAGE_WINDOW_UPGRADE_REQUIRED', [409, '请先让所有设备打开最新版，再继续同步']],
+    ['MESSAGE_RETRY_EXPIRED', [410, '这条消息的在线确认记录已过期，请核对本机历史后处理，系统不会自动重发为新消息']],
+    ['MLS_UPDATE_REQUIRED', [409, '正在更新消息密钥']],
     ['MESSAGE_QUOTA', [507, '会话消息存储配额已用尽']],
     ['MLS_WELCOME_CONFLICT', [409, 'MLS 会话欢迎消息与已保存内容冲突']],
     ['PROTOCOL_MISMATCH', [409, '加入设备不支持该会话的加密协议']],
@@ -156,12 +160,13 @@ function publicState(state) {
     recoveryPreparation: state.recoveryPreparation ?? [],
     invitationProgress: state.invitationProgress ?? null,
     mlsEvents: state.mlsEvents,
+    messageWindow: state.messageWindow,
     recoveryRequests: state.recoveryRequests,
   };
 }
 
 function validCapabilities(capabilities) {
-  return Array.isArray(capabilities) && capabilities.length <= 16 &&
+  return Array.isArray(capabilities) && capabilities.length <= 32 &&
     capabilities.every((value) => typeof value === 'string' && /^[a-z0-9-]{1,40}$/.test(value));
 }
 
@@ -215,6 +220,7 @@ export async function startServer(options = {}) {
     maxIncompleteBlobsPerRoom: numericOption(options.maxIncompleteBlobsPerRoom ?? process.env.MAX_INCOMPLETE_BLOBS, 4),
     maxMessagesPerRoom: numericOption(options.maxMessagesPerRoom ?? process.env.MAX_MESSAGES_PER_ROOM, 100_000),
     maxRoomMessageBytes: numericOption(options.maxRoomMessageBytes ?? process.env.MAX_ROOM_MESSAGE_BYTES, 512 * 1024 * 1024),
+    maxTotalMessageBytes: numericOption(options.maxTotalMessageBytes ?? process.env.MAX_TOTAL_MESSAGE_BYTES, 1024 * 1024 * 1024),
   });
   const pushService = options.pushService ?? createPushService({
     publicKey: options.vapidPublicKey,
@@ -877,6 +883,17 @@ export async function startServer(options = {}) {
         return;
       }
 
+      const windowSyncMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/window-sync$`));
+      if (windowSyncMatch && request.method === 'GET') {
+        const roomId = windowSyncMatch[1];
+        const device = store.authenticatedDevice(roomId, bearerToken(request));
+        if (!device) { json(request, response, 401, { error: 'UNAUTHORIZED' }); return; }
+        const after = Number(url.searchParams.get('after') ?? 0);
+        if (!Number.isSafeInteger(after) || after < 0) throw new Error('INVALID_MESSAGE');
+        json(request, response, 200, { messages: store.messagesAfter(roomId, after, 500, device.deviceId) });
+        return;
+      }
+
       const mlsEventsMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/mls-events$`));
       if (mlsEventsMatch && request.method === 'PUT') {
         const roomId = mlsEventsMatch[1];
@@ -1190,8 +1207,10 @@ export async function startServer(options = {}) {
         return;
       }
       processing = processing.then(async () => {
+        let rejectedClientMsgId;
         try {
           const message = JSON.parse(raw.toString());
+          if (message.type === 'send' && isUuid(message.envelope?.clientMsgId)) rejectedClientMsgId = message.envelope.clientMsgId;
           if (!session) {
             const hasValidCapabilities = message.type === 'auth' &&
               (message.capabilities === undefined || validCapabilities(message.capabilities));
@@ -1216,6 +1235,10 @@ export async function startServer(options = {}) {
                 socket.close(4401, 'Authentication failed');
                 return;
               }
+            }
+            if (store.roomState(message.roomId).messageWindow?.enabled && !message.capabilities?.includes('message-window-v1')) {
+              send(socket, { type: 'error', code: 'MESSAGE_WINDOW_UPGRADE_REQUIRED', message: '此会话已启用新版消息同步，请刷新页面后重新连接' });
+              socket.close(4403, 'Client upgrade required'); return;
             }
             clearTimeout(authTimeout);
             const offeredCapabilities = Array.isArray(message.capabilities) ? message.capabilities : null;
@@ -1388,8 +1411,8 @@ export async function startServer(options = {}) {
             send(socket, { type: 'ack', clientMsgId: message.envelope.clientMsgId, seq: existingMessage.seq });
             return;
           }
+          store.assertFreshWindowSend(session.roomId, message.envelope);
           if (message.envelope.v === 2) {
-            const state = store.roomState(session.roomId);
             const messageEpoch = mlsPrivateMessageEpoch(message.envelope.ciphertext);
             if (messageEpoch === null) {
               send(socket, {
@@ -1400,8 +1423,8 @@ export async function startServer(options = {}) {
               });
               return;
             }
-            if (messageEpoch !== state.nextMlsEventSeq - (state.mlsEpochOffset ?? 0) + 1) {
-              send(socket, { type: 'membership', state: publicState(state) });
+            if (messageEpoch !== store.currentMlsEpoch(session.roomId)) {
+              send(socket, { type: 'membership', state: publicState(store.roomState(session.roomId)) });
               send(socket, {
                 type: 'error',
                 code: 'MLS_EPOCH_STALE',
@@ -1426,7 +1449,7 @@ export async function startServer(options = {}) {
           }
         } catch (error) {
           const [, message, code] = normalizeError(error);
-          send(socket, { type: 'error', code, message });
+          send(socket, { type: 'error', code, message, ...(rejectedClientMsgId ? { clientMsgId: rejectedClientMsgId } : {}) });
         }
       });
     });

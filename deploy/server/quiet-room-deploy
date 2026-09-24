@@ -134,6 +134,23 @@ fi
 deploy_phase_start prepare-release
 runuser -u deploy -- git --git-dir="$REPOSITORY" worktree add --detach "$release_dir" "$REQUESTED_SHA"
 
+# Once ciphertext has been evicted, an older client/server cannot consume the
+# signed gaps. Reject a downgrade before build, downtime, or data restoration.
+if ! grep -Fxq '{"mlsWindow":1}' "$release_dir/server/storage-capabilities.json" 2>/dev/null; then
+  if ! docker exec quiet-room-quiet-room-1 node --input-type=module -e '
+    import { DatabaseSync } from "node:sqlite";
+    import path from "node:path";
+    const db = new DatabaseSync(path.join(process.env.DATA_DIR || "/app/data", "quiet-room.sqlite"), { readOnly: true });
+    try {
+      const hasWindow = db.prepare("PRAGMA table_info(rooms)").all().some(column => column.name === "window_enabled");
+      if (hasWindow && db.prepare("SELECT 1 FROM rooms WHERE window_enabled = 1 LIMIT 1").get()) process.exitCode = 78;
+    } finally { db.close(); }
+  '; then
+    printf 'MESSAGE_WINDOW_DOWNGRADE_BLOCKED: keep a release that supports signed message windows.\n' >&2
+    exit 78
+  fi
+fi
+
 deploy_phase_start build-image
 docker build \
   --build-arg NPM_REGISTRY=https://registry.npmmirror.com \

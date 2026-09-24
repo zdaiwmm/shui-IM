@@ -1,10 +1,15 @@
+import { withBackupLock } from './backup-lock.mjs';
+import { pruneDailyBackups } from './backup-retention.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import {
   cp,
+  link,
+  lstat,
   mkdir,
   readFile,
   readdir,
+  realpath,
   rename,
   rm,
   stat,
@@ -69,8 +74,19 @@ function validateBackupLocation(dataDir, backupRoot) {
   return { data, destination };
 }
 
-export async function createConsistentBackup({ dataDir, backupRoot, now = new Date() }) {
-  const { data, destination } = validateBackupLocation(dataDir, backupRoot);
+export async function createConsistentBackup({ dataDir, backupRoot, now = new Date(), retentionDays }) {
+  const { destination } = validateBackupLocation(dataDir, backupRoot);
+  await mkdir(destination, { recursive: true, mode: 0o700 });
+  validateBackupLocation(await realpath(dataDir), await realpath(destination));
+  return withBackupLock(destination, async () => {
+    const result = await createBackupLocked({ dataDir, backupRoot, now });
+    if (retentionDays !== undefined) await pruneDailyBackups(destination, retentionDays, verifyBackup);
+    return result;
+  });
+}
+
+async function createBackupLocked({ dataDir, backupRoot, now }) {
+  const { data, destination } = validateBackupLocation(await realpath(dataDir), await realpath(backupRoot));
   const sourceDatabase = path.join(data, DATABASE_NAME);
   if (!(await pathExists(sourceDatabase))) throw new Error('找不到生产数据库');
   await mkdir(destination, { recursive: true, mode: 0o700 });
@@ -81,17 +97,19 @@ export async function createConsistentBackup({ dataDir, backupRoot, now = new Da
   if (await pathExists(finalDir)) throw new Error('同名备份已经存在');
   await mkdir(path.join(stagingDir, 'blobs'), { recursive: true, mode: 0o700 });
 
-  const backupDatabase = path.join(stagingDir, DATABASE_NAME);
-  const source = new DatabaseSync(sourceDatabase, { readOnly: true, timeout: 10_000 });
+  let snapshot;
   try {
-    await sqliteBackup(source, backupDatabase, { rate: 256 });
-  } finally {
-    source.close();
-  }
+    const previous = (await readdir(destination, { withFileTypes: true })).filter(entry => entry.isDirectory() && /^quiet-room-\d{4}-\d{2}-\d{2}T/.test(entry.name)).map(entry => entry.name).sort().reverse()[0];
+    const backupDatabase = path.join(stagingDir, DATABASE_NAME);
+    const source = new DatabaseSync(sourceDatabase, { readOnly: true, timeout: 10_000 });
+    try {
+      await sqliteBackup(source, backupDatabase, { rate: 256 });
+    } finally {
+      source.close();
+    }
 
-  const snapshot = new DatabaseSync(backupDatabase, { timeout: 10_000 });
-  const blobManifest = [];
-  try {
+    snapshot = new DatabaseSync(backupDatabase, { timeout: 10_000 });
+    const blobManifest = [];
     snapshot.exec('PRAGMA foreign_keys = ON; BEGIN IMMEDIATE; DELETE FROM blobs WHERE completed = 0; COMMIT;');
     snapshot.exec('PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode = DELETE;');
     const quickCheck = snapshot.prepare('PRAGMA quick_check').all();
@@ -119,7 +137,21 @@ export async function createConsistentBackup({ dataDir, backupRoot, now = new Da
         const destinationChunk = path.join(destinationBlobDir, fileName);
         const info = await stat(sourceChunk);
         if (!info.isFile() || info.size !== chunk.byte_length) throw new Error(`附件分块大小不一致：${blobId}/${index}`);
-        await cp(sourceChunk, destinationChunk, { errorOnExist: true, force: false });
+        const sourceDigest = await sha256File(sourceChunk);
+        let reused = false;
+        if (previous) {
+          const candidate = path.join(destination, previous, 'blobs', roomId, blobId, fileName);
+          const previousInfo = await lstat(candidate).catch(() => null);
+          const resolvedCandidate = await realpath(candidate).catch(() => null);
+          // Never link a live inode; never trust an old manifest without hashing bytes.
+          if (resolvedCandidate === candidate && previousInfo?.isFile() && previousInfo.size === info.size &&
+              !(previousInfo.dev === info.dev && previousInfo.ino === info.ino) &&
+              await sha256File(candidate) === sourceDigest) {
+            try { await link(candidate, destinationChunk); reused = true; }
+            catch (error) { if (!['EXDEV', 'ENOENT', 'EMLINK', 'ENOTSUP'].includes(error?.code)) throw error; }
+          }
+        }
+        if (!reused) await cp(sourceChunk, destinationChunk, { errorOnExist: true, force: false });
         copiedChunks.push({
           index,
           bytes: info.size,
@@ -152,15 +184,15 @@ export async function createConsistentBackup({ dataDir, backupRoot, now = new Da
       mode: 0o600,
       flag: 'wx',
     });
+    snapshot.close(); snapshot = null;
+    const verification = await verifyBackup(stagingDir);
+    await rename(stagingDir, finalDir);
+    return { ...verification, backupDir: finalDir };
   } catch (error) {
-    snapshot.close();
+    snapshot?.close();
     await rm(stagingDir, { recursive: true, force: true });
     throw error;
   }
-  snapshot.close();
-
-  await rename(stagingDir, finalDir);
-  return verifyBackup(finalDir);
 }
 
 function validateManifest(value) {

@@ -1,3 +1,4 @@
+import { retentionBoundary, validRetentionBoundary, isWindowMessage, MLS_WINDOW_MESSAGES } from './message-window';
 import {
   createApplicationMessage,
   createCommit,
@@ -65,6 +66,7 @@ type ApplicationPlaintext = {
   clientMsgId: string;
   senderId: string;
   payload: MessagePayload;
+  retention?: MlsMessageEnvelope['retention'];
 };
 
 function bindingBody(value: Omit<CredentialBinding, 'bindingSignature'>) {
@@ -203,14 +205,16 @@ function membershipUnsigned(envelope: MlsMembershipEnvelope): Omit<MlsMembership
   return unsigned;
 }
 
-async function verifyMembershipEnvelope(vault: Vault, envelope: MlsMembershipEnvelope): Promise<RoomMember> {
+export async function verifyMembershipEnvelope(vault: Vault, envelope: MlsMembershipEnvelope): Promise<RoomMember> {
   if (
     envelope.v !== 1 ||
     envelope.protocol !== 'mls-rfc9420' ||
     envelope.roomId !== vault.roomId ||
     !Number.isSafeInteger(envelope.previousEventSeq) ||
     envelope.previousEventSeq < 0 ||
-    !['add', 'remove', 'replace'].includes(envelope.action)
+    !['add', 'remove', 'replace', 'update'].includes(envelope.action) ||
+    (envelope.retention !== undefined && !validRetentionBoundary(envelope.retention)) ||
+    (envelope.action === 'update' && (!envelope.retention || envelope.senderId !== envelope.targetId || envelope.target || envelope.welcome || envelope.browserAccess || envelope.recoveryRequest || envelope.repairRequest || envelope.replacedDeviceId))
   ) throw new Error('MLS 设备变更格式不正确');
   const sender = vault.members.find((member) => member.deviceId === envelope.senderId);
   // `vault.members` may already reflect the latest server snapshot while an
@@ -254,7 +258,7 @@ export async function browserAccessCheckpoint(vault: Vault, state: RoomState, pr
     } else if(event.action==='remove') {
       if(trusted.get(event.targetId)?.role!==sender.role || event.targetId===sender.deviceId) throw new Error('空间成员移除授权不正确');
       trusted.delete(event.targetId);
-    } else {
+    } else if (event.action === 'replace') {
       verifyReplacementTarget(event,members);
       if(event.recoveryRequest) await verifyRecoveryRequest({...vault,members},event.recoveryRequest);
       else if(event.repairRequest) await verifyRepairRequest({...vault,members},event.repairRequest);
@@ -273,21 +277,25 @@ export async function completeBrowserAccessJoin(vault: Vault, state: RoomState, 
   const trusted=new Map(checkpoint.map(m=>[m.deviceId,m]));
   for(const {eventSeq,event} of [...(state.mlsEvents??[])].sort((a,b)=>a.eventSeq-b.eventSeq)) {
     if(eventSeq<=(vault.mls?.lastEventSeq??0))continue;
+    // Finish the authenticated join first. Subsequent window epochs must be
+    // interleaved with application messages by the durable sync pipeline.
+    if(vault.mls?.groupState && event.retention) break;
     if(!trusted.has(event.senderId) || event.browserAccess&&!trusted.has(event.browserAccess.certificate.sourceDeviceId)) throw new Error('空间成员授权已撤销');
     const sender=trusted.get(event.senderId)!;
     if(event.action==='add'&&(!event.target||trusted.has(event.targetId)||!event.browserAccess&&(event.target.role!==sender.role||event.target.addedBy!==sender.deviceId)))throw new Error('空间成员加入授权不正确');
     if(event.action==='remove'&&(trusted.get(event.targetId)?.role!==sender.role||event.targetId===sender.deviceId))throw new Error('空间成员移除授权不正确');
     vault.members=[...trusted.values(),...(event.target?[event.target]:[])];
     if(!vault.mls?.groupState) vault.mls=await joinMlsMembership(vault,event,eventSeq);
-    else {vault.mls.groupState=await processMlsMembership(vault,event,eventSeq);vault.mls.lastEventSeq=eventSeq;}
+    else {vault.mls.groupState=await processMlsMembership(vault,event,eventSeq);vault.mls.lastEventSeq=eventSeq;if(event.retention)vault.mls.window={fromSeq:event.retention.afterSeq+1,controls:[],generated:0};}
     if(event.action==='remove')trusted.delete(event.targetId);
-    else {if(event.replacedDeviceId)trusted.delete(event.replacedDeviceId);trusted.set(event.targetId,{...event.target!,status:'active'});}
+    else if(event.action !== 'update') {if(event.replacedDeviceId)trusted.delete(event.replacedDeviceId);trusted.set(event.targetId,{...event.target!,status:'active'});}
   }
-  if(vault.mls?.phase!=='active'||vault.mls.lastEventSeq!==state.nextMlsEventSeq)throw new Error('空间加入尚未完整提交');
-  assertAuthenticatedRoomRoster([...trusted.values()],state.members);
+  if(vault.mls?.phase!=='active')throw new Error('空间加入尚未完整提交');
+  const caughtUp=vault.mls.lastEventSeq===state.nextMlsEventSeq;
+  if(caughtUp)assertAuthenticatedRoomRoster([...trusted.values()],state.members);
   const own=state.members.find(m=>m.deviceId===vault.identity.publicBundle.deviceId);
   if(!own||own.status!=='active')throw new Error('此设备的授权已撤销');
-  vault.identity.mlsPrivatePackage=undefined;vault.members=state.members;vault.pairingState='ready';
+  vault.identity.mlsPrivatePackage=undefined;vault.members=caughtUp?state.members:[...trusted.values()];vault.pairingState='ready';
 }
 
 export async function createRecoveryRequest(
@@ -394,7 +402,7 @@ export async function verifyRecoveryMembershipChain(vault: Vault, state: RoomSta
     } else if (event.action === 'remove') {
       if (trusted.get(event.targetId)?.role !== sender.role || event.targetId === sender.deviceId) throw new Error('恢复成员移除授权不正确');
       trusted.delete(event.targetId);
-    } else {
+    } else if (event.action === 'replace') {
       verifyReplacementTarget(event, members);
       await verifyRecoveryRequest({ roomId: vault.roomId, members }, event.recoveryRequest!);
       trusted.delete(event.replacedDeviceId!);
@@ -440,7 +448,8 @@ export async function prepareMlsRecoveryReplacement(
     if (!result.welcome || result.commit.wireformat !== 'mls_public_message') throw new Error('恢复替换未生成有效欢迎消息');
     const unsigned: Omit<MlsMembershipEnvelope, 'signature'> = {
       v: 1, protocol: 'mls-rfc9420', roomId: vault.roomId, eventId: crypto.randomUUID(),
-      previousEventSeq: vault.mls.lastEventSeq ?? 0, action: 'replace',
+      previousEventSeq: vault.mls.lastEventSeq ?? 0,
+      ...(vault.mls.window ? { retention: retentionBoundary(vault) } : {}), action: 'replace',
       senderId: vault.identity.publicBundle.deviceId, targetId: target.deviceId, target,
       replacedDeviceId: request.sourceDeviceId, recoveryRequest: request,
       commit: toBase64Url(encodeMlsMessage(result.commit)),
@@ -472,7 +481,8 @@ export async function prepareMlsRepairReplacement(
     if (!result.welcome || result.commit.wireformat !== 'mls_public_message') throw new Error('修复替换未生成有效欢迎消息');
     const unsigned: Omit<MlsMembershipEnvelope, 'signature'> = {
       v: 1, protocol: 'mls-rfc9420', roomId: vault.roomId, eventId: crypto.randomUUID(),
-      previousEventSeq: vault.mls.lastEventSeq ?? 0, action: 'replace', senderId: vault.identity.publicBundle.deviceId,
+      previousEventSeq: vault.mls.lastEventSeq ?? 0,
+      ...(vault.mls.window ? { retention: retentionBoundary(vault) } : {}), action: 'replace', senderId: vault.identity.publicBundle.deviceId,
       targetId: target.deviceId, target, replacedDeviceId: request.sourceDeviceId, repairRequest: request,
       commit: toBase64Url(encodeMlsMessage(result.commit)),
       welcome: toBase64Url(encodeMlsMessage({ welcome: result.welcome, wireformat: 'mls_welcome', version: 'mls10' })),
@@ -655,6 +665,7 @@ export async function prepareMlsMembership(
       roomId: vault.roomId,
       eventId: crypto.randomUUID(),
       previousEventSeq: vault.mls.lastEventSeq ?? 0,
+      ...(vault.mls.window ? { retention: retentionBoundary(vault) } : {}),
       action,
       senderId: vault.identity.publicBundle.deviceId,
       targetId: target.deviceId,
@@ -676,6 +687,25 @@ export async function prepareMlsMembership(
   } finally {
     clearConsumed(result.consumed);
   }
+}
+
+/** A standard MLS self-update, with a signed application ordering boundary. */
+export async function prepareMlsWindowUpdate(vault: Vault): Promise<{ event: MlsMembershipEnvelope; nextGroupState: string }> {
+  if (vault.protocol !== 'mls-rfc9420' || vault.mls?.phase !== 'active' || !vault.mls.groupState) throw new Error('MLS 会话尚未安全建立');
+  const retention = retentionBoundary(vault);
+  if (!validRetentionBoundary(retention)) throw new Error('消息窗口边界无效');
+  const state = decodeState(vault.mls.groupState, vault.members);
+  const result = await createCommit({ state, cipherSuite: await cipherSuite() }, { extraProposals: [], wireAsPublicMessage: true });
+  try {
+    if (result.commit.wireformat !== 'mls_public_message') throw new Error('MLS 更新必须使用公开提交');
+    const unsigned: Omit<MlsMembershipEnvelope, 'signature'> = {
+      v: 1, protocol: 'mls-rfc9420', roomId: vault.roomId, eventId: crypto.randomUUID(),
+      previousEventSeq: vault.mls.lastEventSeq ?? 0, action: 'update',
+      senderId: vault.identity.publicBundle.deviceId, targetId: vault.identity.publicBundle.deviceId,
+      retention, commit: toBase64Url(encodeMlsMessage(result.commit)),
+    };
+    return { event: { ...unsigned, signature: await signEcdsa(vault.identity.signingPrivateKey, unsigned) }, nextGroupState: encodeState(result.newState) };
+  } finally { clearConsumed(result.consumed); }
 }
 
 export async function processMlsMembership(
@@ -705,10 +735,11 @@ export async function processMlsMembership(
     emptyPskIndex,
     await cipherSuite(),
     (incoming) => {
-      if (incoming.kind !== 'commit' || incoming.proposals.length !== (envelope.action === 'replace' ? 2 : 1)) return 'reject';
+      if (incoming.kind !== 'commit' || incoming.proposals.length !== (envelope.action === 'replace' ? 2 : envelope.action === 'update' ? 0 : 1)) return 'reject';
       if (incoming.senderLeafIndex === undefined || deviceIdAtLeaf(state, incoming.senderLeafIndex) !== envelope.senderId) {
         return 'reject';
       }
+      if (envelope.action === 'update') return 'accept';
       const proposal = incoming.proposals[0]?.proposal;
       if (envelope.action === 'replace') {
         const add = incoming.proposals[1]?.proposal;
@@ -776,6 +807,7 @@ export async function joinMlsMembership(
     phase: 'active',
     groupState: encodeState(state),
     lastEventSeq: eventSeq,
+    ...(envelope.retention ? { window: { fromSeq: envelope.retention.afterSeq + 1, controls: [], generated: 0 } } : {}),
   };
 }
 
@@ -796,11 +828,14 @@ export async function encryptMlsApplication(
   if (vault.mls?.phase !== 'active' || !vault.mls.groupState) throw new Error('MLS 会话尚未安全建立');
   const state = decodeState(vault.mls.groupState, vault.members);
   const senderId = vault.identity.publicBundle.deviceId;
-  const plaintext: ApplicationPlaintext = { v: 1, roomId: vault.roomId, clientMsgId, senderId, payload };
+  if (vault.mls.window && vault.mls.window.generated >= MLS_WINDOW_MESSAGES) throw new Error('MLS_UPDATE_REQUIRED');
+  const retention = { v: 1 as const, sendSequence: (vault.mls.sendSequence ?? 0) + 1, message: isWindowMessage(payload) };
+  const plaintext: ApplicationPlaintext = { v: 1, roomId: vault.roomId, clientMsgId, senderId, payload, retention };
   const result = await createApplicationMessage(state, encoder.encode(JSON.stringify(plaintext)), await cipherSuite());
   try {
     const unsigned: Omit<MlsMessageEnvelope, 'signature'> = {
       v: 2,
+      retention,
       protocol: 'mls-rfc9420',
       roomId: vault.roomId,
       clientMsgId,
@@ -850,7 +885,9 @@ export async function decryptMlsApplication(
       plaintext.roomId !== envelope.roomId ||
       plaintext.clientMsgId !== envelope.clientMsgId ||
       plaintext.senderId !== envelope.senderId ||
-      !isMessagePayload(plaintext.payload)
+      !isMessagePayload(plaintext.payload) ||
+      canonicalStringify(plaintext.retention ?? null) !== canonicalStringify(envelope.retention ?? null) ||
+      (envelope.retention !== undefined && (envelope.retention.v !== 1 || !Number.isSafeInteger(envelope.retention.sendSequence) || envelope.retention.sendSequence < 1 || envelope.retention.message !== isWindowMessage(plaintext.payload)))
     ) throw new Error('MLS 明文与外层消息绑定不一致');
     return { payload: plaintext.payload, nextGroupState: encodeState(result.newState) };
   } finally {

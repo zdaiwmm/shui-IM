@@ -121,6 +121,8 @@ jobs:
       - run: npx playwright install --with-deps chromium
       # The unit/integration job already runs every call unit test.
       - run: npm run test:calls:e2e
+      - name: Verify authenticated TURN UDP and TCP media using the production overlay
+        run: bash scripts/test-turn-relay.sh
 
   audit:
     name: Audit production dependencies

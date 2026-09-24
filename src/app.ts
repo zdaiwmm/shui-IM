@@ -1,3 +1,9 @@
+import { MESSAGE_WINDOW_CAPABILITY, MLS_WINDOW_MESSAGES, maySkipWindowMessage, appendExpiredRange, expiredMessage } from './lib/message-window';
+import { getWindowMessages } from './lib/api';
+import { prepareMlsWindowUpdate, verifyMembershipEnvelope } from './lib/mls';
+import { createMediaPreview } from './lib/media-preview';
+import { MEDIA_CACHE_FILE_BYTES } from './lib/media-cache-policy';
+import { loadMediaPreview, saveMediaPreview } from './lib/vault';
 import './browser-access.css';
 import { openPasskeyManagement } from './lib/passkey-management';
 import { browserAccessCredential, defaultPasskeyName, normalizePasskeyName, verifyPasskeyDetails } from './lib/platform-vault';
@@ -228,7 +234,7 @@ import {
 import { recoverFromCloud, syncCloudBackup, fetchRecoveryBundle } from './lib/cloud-backup';
 import './backup.css';
 
-const CLIENT_CAPABILITIES = ['joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
+const CLIENT_CAPABILITIES = [MESSAGE_WINDOW_CAPABILITY, 'joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
 const PASSKEY_UNAVAILABLE_NOTICE = '当前浏览器无法获取到本设备的通行密钥信息，建议使用系统浏览器';
 const SPACE_DEVICE_LIMIT_NOTICE = '该空间接入设备已达上限。';
 function formatUnlockFailure(cause: unknown): string {
@@ -253,7 +259,7 @@ const CHAT_COMPOSER_MOTION_MS = 280;
 const CHAT_KEYBOARD_DISMISS_MS = 420;
 const CHAT_COMPOSER_VIEWPORT_SETTLE_MS = 500;
 
-type CachedImage = { blob: Blob; url: string; bytes: number; lastUsedAt: number; width?: number; height?: number; posterUrl?: string; posterPromise?: Promise<void>; posterUnavailable?: boolean; concealedUrl?: string; concealedPromise?: Promise<void> };
+type CachedImage = { previewOnly?: boolean; blob: Blob; url: string; bytes: number; lastUsedAt: number; width?: number; height?: number; posterUrl?: string; posterPromise?: Promise<void>; posterUnavailable?: boolean; concealedUrl?: string; concealedPromise?: Promise<void> };
 const MAX_IMAGE_CACHE_BYTES = 96 * 1024 * 1024;
 
 const encoder = new TextEncoder();
@@ -3965,7 +3971,6 @@ export class QuietRoomApp {
       );
       session.vault.mls.lastEventSeq = ownAdd ? ownAdd.eventSeq - 1 : (state.nextMlsEventSeq ?? 0);
     }
-    session.vault.members = state.members;
     if (localProtocol === 'mls-rfc9420' && session.vault.mls) {
       const trustedDeviceIds = new Set(previousMembers
         .filter((member) => member.status === undefined || member.status === 'active')
@@ -3984,6 +3989,13 @@ export class QuietRoomApp {
         if (serverEvent.event.browserAccess && !trustedDeviceIds.has(serverEvent.event.browserAccess.certificate.sourceDeviceId)) {
           throw new SecurityViolation('空间接入的原设备已不在可信成员中');
         }
+        session.vault.members = state.members.map(member => ({ ...member, status: expectedMembers.has(member.deviceId) ? 'active' : member.status === 'pending' ? 'pending' : 'revoked' }));
+        await verifyMembershipEnvelope(session.vault, serverEvent.event);
+        if (serverEvent.event.retention && session.vault.mls.groupState) {
+          if (session.vault.mls.window && serverEvent.event.retention.fromSeq !== session.vault.mls.window.fromSeq) throw new SecurityViolation('消息密钥更新边界不连续，需要修复设备');
+          await this.consumeWindowBoundary(serverEvent.event.retention, mutation);
+          if (!this.isRuntimeActive(epoch, session)) return;
+        } else if (session.vault.mls.window) throw new SecurityViolation('消息密钥更新缺少签名顺序边界');
         const pending = session.vault.mls.pendingMembership;
         if (pending && pending.event.eventId === serverEvent.event.eventId) {
           if (canonicalStringify(pending.event) !== canonicalStringify(serverEvent.event)) {
@@ -4018,10 +4030,13 @@ export class QuietRoomApp {
           expectedMembers.delete(serverEvent.event.replacedDeviceId);
           if (!serverEvent.event.target) throw new SecurityViolation('设备替换证明缺少公钥');
           expectedMembers.set(serverEvent.event.targetId, { ...serverEvent.event.target, status: 'active' });
-        } else {
+        } else if (serverEvent.event.action === 'remove') {
           trustedDeviceIds.delete(serverEvent.event.targetId);
           expectedMembers.delete(serverEvent.event.targetId);
         }
+        if (serverEvent.event.retention) session.vault.mls.window = { fromSeq: serverEvent.event.retention.afterSeq + 1, controls: [], generated: 0 };
+        session.vault.members = state.members.map(member => ({ ...member, status: expectedMembers.has(member.deviceId) ? 'active' : member.status === 'pending' ? 'pending' : 'revoked' }));
+        await saveVault(session, mutation);
       }
       if ((state.nextMlsEventSeq ?? 0) !== (session.vault.mls.lastEventSeq ?? 0)) {
         throw new SecurityViolation('服务器未提供完整的 MLS 设备变更记录');
@@ -4029,6 +4044,7 @@ export class QuietRoomApp {
       try { assertAuthenticatedRoomRoster([...expectedMembers.values()], state.members); }
       catch { throw new SecurityViolation('设备名单与已验证的加密成员不一致，已停止连接'); }
     }
+    session.vault.members = state.members;
     session.vault.protocol = localProtocol;
     session.vault.recoveryExperience = { ...session.vault.recoveryExperience, peerPrepared: state.members.some(member => member.role !== session.vault.role && member.status === 'active' && state.recoveryPreparation?.some(item => item.deviceId === member.deviceId && item.saved === 1)) };
     const shield = this.root.querySelector('#recovery-shield');
@@ -4121,14 +4137,18 @@ export class QuietRoomApp {
         },
         error: async (message, code, clientMsgId, rejectedEnvelope) => {
           if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
-          if (code === 'MLS_EPOCH_STALE' && clientMsgId) {
+          if (code === 'MESSAGE_RETRY_EXPIRED' && clientMsgId) {
+            this.clearRetry(clientMsgId); const item = this.pending.get(clientMsgId); if (item) item.status = 'failed';
+            this.showNotice(message, 'error'); this.renderMessages(); return;
+          }
+          if ((code === 'MLS_EPOCH_STALE' || code === 'MLS_UPDATE_REQUIRED') && clientMsgId) {
             if (!rejectedEnvelope) {
               this.fatalSecurityError(new SecurityViolation('服务器拒绝了无法绑定到已发送密文的消息，已停止继续推进加密状态'));
               return;
             }
             try {
               await this.membershipChain.catch(() => undefined);
-              await this.reencryptOutboxItem(clientMsgId, rejectedEnvelope);
+              await this.reencryptOutboxItem(clientMsgId, rejectedEnvelope, code === 'MLS_UPDATE_REQUIRED');
               return;
             } catch (cause) {
               this.operationalError(cause, '设备状态已更新，但待发消息重新加密失败');
@@ -4302,6 +4322,80 @@ export class QuietRoomApp {
     await saveVault(session, mutation);
   }
 
+  private async consumeWindowBoundary(boundary: import('./lib/types').MlsRetentionBoundary, mutation: VaultMutation): Promise<void> {
+    const session = this.session;
+    if (!session) return;
+    const epoch = this.runtimeEpoch;
+    let skipped = false;
+    while (session.vault.lastSeq < boundary.afterSeq) {
+      const page = await getWindowMessages(session.vault.roomId, session.vault.accessToken, session.vault.lastSeq, this.runtimeAbort?.signal);
+      if (!this.isRuntimeActive(epoch, session)) return;
+      for (const message of page) if (message.seq <= boundary.afterSeq) this.serverQueue.set(message.seq, message);
+      const before = session.vault.lastSeq;
+      await this.drainServerQueueLocked(false, mutation, boundary.afterSeq);
+      if (!this.isRuntimeActive(epoch, session)) return;
+      if (session.vault.lastSeq === boundary.afterSeq) break;
+      const missing = session.vault.lastSeq + 1;
+      if (!maySkipWindowMessage(boundary, missing)) throw new SecurityViolation('在线历史已超出可安全同步的范围，需要另一台已授权设备帮助修复；本机历史仍保留');
+      let through = missing;
+      while (through < boundary.afterSeq && !this.serverQueue.has(through + 1) && maySkipWindowMessage(boundary, through + 1)) through += 1;
+      const priorVault = structuredClone(session.vault);
+      appendExpiredRange(session.vault, missing, through);
+      skipped = true;
+      session.vault.lastSeq = through;
+      try { await saveVault(session, mutation); } catch (error) { session.vault = priorVault; throw error; }
+      if (session.vault.lastSeq <= before) throw new SecurityViolation('在线消息同步没有推进');
+    }
+    if (session.vault.mls?.window && canonicalStringify(session.vault.mls.window.controls) !== canonicalStringify(boundary.controls)) throw new SecurityViolation('消息控制记录与设备签名边界不一致');
+    if (skipped) this.showNotice('部分旧消息已超过在线保留范围，未下载到本机的内容无法补齐');
+  }
+
+  private async ensureMessageWindow(mutation: VaultMutation, force = false, conflicts = 0): Promise<void> {
+    const session = this.session;
+    if (!session || session.vault.protocol !== 'mls-rfc9420' || session.vault.mls?.phase !== 'active') return;
+    // Until the authenticated roster supports the protocol, preserve legacy sending.
+    if (!session.vault.mls.window && !session.vault.mls.pendingMembership && session.vault.members.some(m => m.status !== 'revoked' && !m.capabilities?.includes(MESSAGE_WINDOW_CAPABILITY))) return;
+    const epoch = this.runtimeEpoch;
+    if (!force && session.vault.mls.window && !session.vault.mls.pendingMembership && session.vault.mls.window.generated < MLS_WINDOW_MESSAGES && session.vault.lastSeq - session.vault.mls.window.fromSeq + 1 < MLS_WINDOW_MESSAGES) return;
+    const state = await getRoomState(session.vault.roomId, session.vault.accessToken);
+    if (!this.isRuntimeActive(epoch, session)) return;
+    await this.applyRoomState(state, mutation);
+    if (!this.isRuntimeActive(epoch, session) || !session.vault.mls) return;
+    const capable = state.members.filter(m => m.status === 'active').every(m => m.capabilities?.includes(MESSAGE_WINDOW_CAPABILITY));
+    if (!capable) { if (session.vault.mls.window) throw new Error('请先让所有设备打开最新版'); return; }
+    if (!force && session.vault.mls.window && (state.messageWindow?.count ?? 0) < MLS_WINDOW_MESSAGES && session.vault.mls.window.generated < MLS_WINDOW_MESSAGES) return;
+    // No deletion claim is trusted here. Catch up every current-epoch record first.
+    while (session.vault.lastSeq < state.nextSeq) {
+      const page = await getWindowMessages(session.vault.roomId, session.vault.accessToken, session.vault.lastSeq, this.runtimeAbort?.signal);
+      if (!this.isRuntimeActive(epoch, session)) return;
+      for (const message of page) this.serverQueue.set(message.seq, message);
+      const before = session.vault.lastSeq;
+      await this.drainServerQueueLocked(false, mutation, state.nextSeq);
+      if (session.vault.lastSeq <= before) throw new Error('当前消息尚未同步完成，暂不能更新密钥');
+    }
+    let pending = session.vault.mls.pendingMembership;
+    if (pending && pending.event.action !== 'update') throw new Error('设备变更尚未确认，请稍后重试');
+    if (!pending) {
+      pending = await prepareMlsWindowUpdate(session.vault);
+      session.vault.mls.pendingMembership = pending;
+      try { await saveVault(session, mutation); } catch (error) { session.vault.mls.pendingMembership = undefined; throw error; }
+    }
+    try {
+      const result = await publishMlsMembership(session.vault.roomId, session.vault.accessToken, pending.event);
+      if (this.isRuntimeActive(epoch, session)) await this.applyRoomState(result.state, mutation);
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'MLS_EVENT_STALE') {
+        session.vault.mls.pendingMembership = undefined; await saveVault(session, mutation);
+        const latest = await getRoomState(session.vault.roomId, session.vault.accessToken);
+        if (this.isRuntimeActive(epoch, session)) {
+          await this.applyRoomState(latest, mutation);
+          if (conflicts >= 2) throw new Error('消息更新繁忙，请稍后重试');
+          await this.ensureMessageWindow(mutation, false, conflicts + 1);
+        }
+      } else throw error;
+    }
+  }
+
   private async drainServerQueue(requestMore = false): Promise<void> {
     const session = this.session;
     const epoch = this.runtimeEpoch;
@@ -4312,7 +4406,7 @@ export class QuietRoomApp {
     if (this.isRuntimeActive(epoch, session)) await this.drainReceiptQueue();
   }
 
-  private async drainServerQueueLocked(requestMore: boolean, mutation: VaultMutation): Promise<void> {
+  private async drainServerQueueLocked(requestMore: boolean, mutation: VaultMutation, throughSeq = Number.MAX_SAFE_INTEGER): Promise<void> {
     const session = this.session;
     if (this.draining || !session || this.privacyCovered) return;
     const epoch = this.runtimeEpoch;
@@ -4320,8 +4414,9 @@ export class QuietRoomApp {
     this.draining = true;
     try {
       let expected = session.vault.lastSeq + 1;
-      while (this.serverQueue.has(expected)) {
+      while (expected <= throughSeq && this.serverQueue.has(expected)) {
         const serverMessage = this.serverQueue.get(expected)!;
+        const durableBeforeMessage = session.vault.lastSeq;
         let payload: MessagePayload;
         let nextMlsGroupState: string | null = null;
         const ownDevice = serverMessage.envelope.senderId === session.vault.identity.publicBundle.deviceId;
@@ -4370,9 +4465,9 @@ export class QuietRoomApp {
           }
           const previousSeq = session.vault.lastSeq;
           session.vault.lastSeq = message.seq;
-          if (nextMlsGroupState) {
+          if (nextMlsGroupState || (serverMessage.envelope.v === 2 && session.vault.mls?.groupState)) {
             try {
-              await commitMlsReceive(session, message, nextMlsGroupState, receipt ?? undefined, mutation);
+              await commitMlsReceive(session, message, nextMlsGroupState ?? session.vault.mls!.groupState!, receipt ?? undefined, mutation);
             } catch (cause) {
               session.vault.lastSeq = previousSeq;
               throw cause;
@@ -4409,9 +4504,7 @@ export class QuietRoomApp {
           }
           expected += 1;
         } catch (cause) {
-          let durableSeq = session.vault.historyUnavailableBeforeSeq ?? 0;
-          while (this.messages.has(durableSeq + 1)) durableSeq += 1;
-          session.vault.lastSeq = durableSeq;
+          session.vault.lastSeq = durableBeforeMessage;
           if (!this.isRuntimeActive(epoch, session)) return;
           this.operationalError(cause);
           break;
@@ -4426,7 +4519,7 @@ export class QuietRoomApp {
         if (gallery && (galleryTab === 'images' || galleryTab === 'files')) this.renderGallery(galleryTab);
         else this.renderMessages();
       }
-      if (requestMore || [...this.serverQueue.keys()].some((seq) => seq > session.vault.lastSeq + 1)) {
+      if (throughSeq === Number.MAX_SAFE_INTEGER && (requestMore || [...this.serverQueue.keys()].some((seq) => seq > session.vault.lastSeq + 1))) {
         this.socket?.requestSync(session.vault.lastSeq);
       }
     } finally {
@@ -4476,6 +4569,12 @@ export class QuietRoomApp {
         if (!this.isRuntimeActive(epoch, session)) return;
         const sender = message ? this.memberForMessage(message) : undefined;
         const receiver = session.vault.members.find((member) => member.deviceId === receipt.receiverId);
+        if (!message && expiredMessage(session.vault, receipt.seq)) {
+          const before = session.vault.lastReceiptSeq;
+          session.vault.lastReceiptSeq = expected;
+          try { await saveVault(session, mutation); } catch (error) { session.vault.lastReceiptSeq = before; throw error; }
+          this.receiptQueue.delete(expected); expected += 1; continue;
+        }
         if (!message) {
           if (receipt.seq <= session.vault.lastSeq) {
             this.fatalSecurityError(new SecurityViolation('送达回执对应的本机加密历史缺失，已停止同步'));
@@ -4710,7 +4809,7 @@ export class QuietRoomApp {
     this.closeMessageActions(false, false);
     this.showNotice('正在收藏…');
     try {
-      const cached = await this.loadImage(manifest);
+      const cached = await this.loadImage(manifest, false, true);
       if (!this.isRuntimeActive(epoch, session) || this.messageIsUnavailable(message.clientMsgId)) return;
       const file = await validateMemeFile(cached.blob, manifest.originalName || '梗图', signal);
       if (!this.isRuntimeActive(epoch, session) || this.messageIsUnavailable(message.clientMsgId)) return;
@@ -7160,7 +7259,10 @@ export class QuietRoomApp {
     if (!session || this.privacyCovered) return;
     await withVaultMutation(session, async (mutation) => {
       signal?.throwIfAborted();
-      if (this.isRuntimeActive(epoch, session)) await this.sendPayloadLocked(payload, existingClientMsgId, mutation);
+      if (this.isRuntimeActive(epoch, session)) {
+        await this.ensureMessageWindow(mutation);
+        if (this.isRuntimeActive(epoch, session)) await this.sendPayloadLocked(payload, existingClientMsgId, mutation);
+      }
     });
   }
 
@@ -7245,14 +7347,14 @@ export class QuietRoomApp {
     }
   }
 
-  private reencryptOutboxItem(clientMsgId: string, rejectedEnvelope: MessageEnvelope): Promise<void> {
+  private reencryptOutboxItem(clientMsgId: string, rejectedEnvelope: MessageEnvelope, forceUpdate = false): Promise<void> {
     const existing = this.outboxReencryptions.get(clientMsgId);
     if (existing) return existing;
     const session = this.session;
     const epoch = this.runtimeEpoch;
     if (!session || this.privacyCovered) return Promise.resolve();
     const operation = withVaultMutation(session, async (mutation) => {
-      if (this.isRuntimeActive(epoch, session)) await this.reencryptOutboxItemLocked(clientMsgId, mutation, rejectedEnvelope);
+      if (this.isRuntimeActive(epoch, session)) await this.reencryptOutboxItemLocked(clientMsgId, mutation, rejectedEnvelope, forceUpdate);
     }).finally(() => {
       if (this.outboxReencryptions.get(clientMsgId) === operation) this.outboxReencryptions.delete(clientMsgId);
     });
@@ -7260,7 +7362,7 @@ export class QuietRoomApp {
     return operation;
   }
 
-  private async reencryptOutboxItemLocked(clientMsgId: string, mutation: VaultMutation, rejectedEnvelope: MessageEnvelope): Promise<void> {
+  private async reencryptOutboxItemLocked(clientMsgId: string, mutation: VaultMutation, rejectedEnvelope: MessageEnvelope, forceUpdate = false): Promise<void> {
     const session = this.session;
     const epoch = this.runtimeEpoch;
     const item = this.outbox.get(clientMsgId);
@@ -7272,6 +7374,8 @@ export class QuietRoomApp {
     if (!item.envelope || canonicalStringify(item.envelope) !== canonicalStringify(rejectedEnvelope)) return;
     if (this.deferUnsupportedPayload(item)) return;
     this.clearRetry(clientMsgId);
+    await this.ensureMessageWindow(mutation, forceUpdate);
+    if (!this.isRuntimeActive(epoch, session)) return;
     const encrypted = await encryptMlsApplication(session.vault, item.payload, clientMsgId);
     const nextItem: OutboxItem = { ...item, envelope: encrypted.envelope };
     await commitMlsSend(session, nextItem, encrypted.nextGroupState, mutation);
@@ -7860,7 +7964,7 @@ export class QuietRoomApp {
     }
   }
 
-  private cacheLocalImage(manifest: ImageManifest, blob: Blob): void {
+  private cacheLocalImage(manifest: ImageManifest, blob: Blob, previewOnly = false): void {
     this.assertImageManifestIdentity(manifest);
     if (this.imageCache.has(manifest.blobId)) return;
     while (this.imageCacheBytes + blob.size > MAX_IMAGE_CACHE_BYTES && this.imageCache.size > 0) {
@@ -7874,9 +7978,10 @@ export class QuietRoomApp {
       this.imageCacheBytes -= oldest[1].bytes;
       this.imageCache.delete(oldest[0]);
     }
-    const type = videoMimeType(manifest);
+    const type = previewOnly ? undefined : videoMimeType(manifest);
     const displayBlob = type ? blob.slice(0, blob.size, type) : blob;
-    const cached = { blob, url: URL.createObjectURL(displayBlob), bytes: blob.size, lastUsedAt: Date.now() };
+    const cached: CachedImage = { blob, url: URL.createObjectURL(displayBlob), bytes: blob.size, lastUsedAt: Date.now(), previewOnly };
+    if (previewOnly && isVideoFile(manifest)) cached.posterUrl = cached.url;
     this.imageCache.set(manifest.blobId, cached);
     this.imageCacheBytes += cached.bytes;
   }
@@ -9177,8 +9282,7 @@ export class QuietRoomApp {
         if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
         if (this.voiceRecorder) throw new Error('请先结束录音');
         const signal = AbortSignal.any([playbackSignal, this.runtimeAbort!.signal]);
-        const blob = await decryptAudioFile(payload.audio,
-          (blobId, index) => voiceRequest('VOICE_DOWNLOAD_INTERRUPTED', attemptSignal => fetchBlobChunk(session.vault.roomId, session.vault.accessToken, blobId, index, attemptSignal), signal), undefined, signal);
+        const blob = await this.loadVerifiedFile(session, payload.audio, signal, undefined, true);
         signal.throwIfAborted();
         if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
         return blob;
@@ -9297,6 +9401,32 @@ export class QuietRoomApp {
     return meta;
   }
 
+  private async loadVerifiedFile(session: VaultSession, manifest: FileManifest, signal?: AbortSignal, progress?: (ratio: number) => void, audio = false): Promise<Blob> {
+    const eligible = manifest.originalSize <= MEDIA_CACHE_FILE_BYTES;
+    let usedCache = false;
+    const attempt = (allowCache: boolean) => (audio ? decryptAudioFile : decryptFileAttachment)(manifest, async (blobId, index) => {
+      signal?.throwIfAborted();
+      if (eligible && allowCache) {
+        const expected = Math.min(manifest.chunkSize, manifest.originalSize - index * manifest.chunkSize) + 16;
+        const chunk = await loadCachedMediaChunk(session, blobId, index, expected).catch(() => null);
+        if (chunk) { usedCache = true; return chunk; }
+      }
+      const bytes = audio
+        ? await voiceRequest('VOICE_DOWNLOAD_INTERRUPTED', attemptSignal => fetchBlobChunk(session.vault.roomId, session.vault.accessToken, blobId, index, attemptSignal), signal)
+        : await fetchBlobChunk(session.vault.roomId, session.vault.accessToken, blobId, index, signal);
+      signal?.throwIfAborted();
+      if (eligible) await saveCachedMediaChunk(session, blobId, index, bytes, signal).catch(() => undefined);
+      return bytes;
+    }, progress, signal);
+    try { return await attempt(true); }
+    catch (error) {
+      await deleteCachedMediaBlob(session, manifest.blobId).catch(() => undefined);
+      signal?.throwIfAborted(); if (!usedCache) throw error;
+      try { return await attempt(false); }
+      catch (retryError) { await deleteCachedMediaBlob(session, manifest.blobId).catch(() => undefined); throw retryError; }
+    }
+  }
+
   private createFileAttachment(manifest: FileManifest, allowExport = true, source?: DecryptedMessage): HTMLButtonElement {
     const button = document.createElement('button');
     button.type = 'button';
@@ -9361,12 +9491,11 @@ export class QuietRoomApp {
       void (async () => {
         try {
           this.assertImageManifestIdentity(manifest);
-          const blob = await decryptFileAttachment(manifest,
-            (blobId, index) => fetchBlobChunk(session.vault.roomId, session.vault.accessToken, blobId, index, signal),
+          const blob = await this.loadVerifiedFile(session, manifest, signal,
             ratio => {
               if (this.isRuntimeActive(epoch, session) && button.isConnected) meta.textContent = `${size} · 正在读取 ${Math.round(ratio * 100)}%`;
               reader?.progress(ratio);
-            }, signal);
+            });
           if (!this.isRuntimeActive(epoch, session) || !button.isConnected || signal?.aborted) return;
           if (reader) {
             await reader.load(blob);
@@ -10364,6 +10493,8 @@ export class QuietRoomApp {
       try {
         const poster = await this.withImageLoadSlot(() => createVideoPoster(cached.url, signal));
         if (!this.isRuntimeActive(epoch, session) || this.imageCache.get(manifest.blobId) !== cached) return;
+        await saveMediaPreview(session, manifest, poster.blob, signal).catch(() => undefined);
+        if (!this.isRuntimeActive(epoch, session)) return;
         cached.posterUrl = URL.createObjectURL(poster.blob);
         cached.width = poster.width;
         cached.height = poster.height;
@@ -10872,7 +11003,7 @@ export class QuietRoomApp {
     if (!button.querySelector('.media-load-status')) this.mountChatImageLoadingFeedback(button, isVideoFile(manifest));
     this.renderChatImageLoadFeedback(button, isVideoFile(manifest), this.imageLoadStatus.get(manifest.blobId) ?? { stage: 'queued' });
     try {
-      const cached = await this.loadImage(manifest);
+      const cached = await this.loadImage(manifest, true);
       if (!button.isConnected || this.privacyCovered) return;
       await this.renderImageIntoButton(button, manifest, cached);
     } catch (cause) {
@@ -10929,15 +11060,15 @@ export class QuietRoomApp {
     pending.forEach((button) => this.chatImageObserver?.observe(button));
   }
 
-  private async loadImage(manifest: ImageManifest): Promise<CachedImage> {
+  private async loadImage(manifest: ImageManifest, previewOnly = false, requireOriginal = false): Promise<CachedImage> {
     this.assertImageManifestIdentity(manifest);
     const existing = this.imageCache.get(manifest.blobId);
-    if (existing) {
+    if (existing && (!existing.previewOnly || (!requireOriginal && (!isVideoFile(manifest) || previewOnly)))) {
       existing.lastUsedAt = Date.now();
       return existing;
     }
     const inFlight = this.imageLoadPromises.get(manifest.blobId);
-    if (inFlight) return inFlight;
+    if (inFlight) { await inFlight; return this.loadImage(manifest, previewOnly, requireOriginal); }
     const session = this.session;
     if (!session || this.privacyCovered) throw new Error('会话已锁定');
     const epoch = this.runtimeEpoch;
@@ -10945,6 +11076,10 @@ export class QuietRoomApp {
     const { roomId, accessToken } = session.vault;
     const operation = this.withImageLoadSlot(async () => {
       signal?.throwIfAborted();
+      if (!requireOriginal && (previewOnly || !isVideoFile(manifest))) {
+        const preview = await loadMediaPreview(session, manifest, signal).catch(() => null);
+        if (preview && this.isRuntimeActive(epoch, session)) { this.cacheLocalImage(manifest, preview, true); return this.imageCache.get(manifest.blobId)!; }
+      }
       const decrypt = isVideoFile(manifest) ? decryptFileAttachment : decryptImageFile;
       let usedPersistentCiphertext = false;
       const decryptWithCiphertextCache = (allowCache: boolean) => decrypt(
@@ -10970,7 +11105,7 @@ export class QuietRoomApp {
             signal?.throwIfAborted();
             // Cache only the already encrypted server chunk. A lock still
             // revokes every plaintext object URL and clears decoded media.
-            await saveCachedMediaChunk(session, blobId, chunkIndex, chunk).catch(() => undefined);
+            if (!isVideoFile(manifest) && manifest.originalSize <= MEDIA_CACHE_FILE_BYTES) await saveCachedMediaChunk(session, blobId, chunkIndex, chunk, signal).catch(() => undefined);
             this.updateChatImageLoadFeedback(manifest, 'decrypt', chunkIndex / manifest.chunkCount);
             return chunk;
           },
@@ -10995,7 +11130,18 @@ export class QuietRoomApp {
         }
       }
       if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
-      this.cacheLocalImage(manifest, blob);
+      const previous = this.imageCache.get(manifest.blobId);
+      if (previous?.previewOnly) {
+        const original = videoMimeType(manifest) ? blob.slice(0, blob.size, videoMimeType(manifest) ?? undefined) : blob;
+        previous.posterUrl ??= previous.url;
+        previous.url = URL.createObjectURL(original); previous.blob = blob; previous.previewOnly = false;
+        previous.bytes += blob.size; this.imageCacheBytes += blob.size;
+      } else this.cacheLocalImage(manifest, blob);
+      if (!isVideoFile(manifest)) {
+        const preview = await createMediaPreview(blob, signal).catch(() => null);
+        if (preview && this.isRuntimeActive(epoch, session)) await saveMediaPreview(session, manifest, preview, signal).catch(() => undefined);
+      }
+      if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
       const cached = this.imageCache.get(manifest.blobId);
       if (!cached) throw new Error('媒体缓存失败');
       return cached;
@@ -11143,7 +11289,7 @@ export class QuietRoomApp {
       const manifest = manifests[current]!;
       this.viewerDetailsCleanup = mountPhotoDetails(viewer, {
         manifest, sentAt: sentAt[current], signal: workAbort.signal,
-        load: () => this.loadImage(manifest), close: () => closeDetails(),
+        load: () => this.loadImage(manifest, false, true), close: () => closeDetails(),
       });
     };
     detailsButton?.addEventListener('click', () => {
@@ -11304,7 +11450,7 @@ export class QuietRoomApp {
           loading.innerHTML = `${video ? icons.video : icons.image}<span class="sr-only">正在加载${video ? '视频' : '图片'}</span>`;
           stage.replaceChildren(loading);
         }
-        const loaded = cached ?? await this.loadImage(manifest);
+        const loaded = cached && (!isVideoFile(manifest) || !cached.previewOnly) ? cached : await this.loadImage(manifest);
         if (!viewer.isConnected || viewer.classList.contains('is-closing') || token !== renderToken) {
           finishTransitionState();
           return;
@@ -12390,7 +12536,7 @@ export class QuietRoomApp {
       const loading = tile.querySelector<HTMLElement>('.tile-loading');
       if (loading) { loading.classList.add('sr-only'); loading.textContent = isVideoFile(manifest) ? '正在加载视频' : '正在加载图片'; }
       try {
-        const cached = await this.loadImage(manifest);
+        const cached = await this.loadImage(manifest, true);
         if (!this.isRuntimeActive(epoch, session) || !tile.isConnected) return;
         if (isVideoFile(manifest)) {
           await this.ensureVideoPoster(manifest, cached);
@@ -12466,7 +12612,7 @@ export class QuietRoomApp {
     this.root.querySelector<HTMLElement>('#detail-name')!.textContent = manifest.originalName || '原图';
     this.root.querySelector('#detail-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderGallery()));
     try {
-      const cached = await this.loadImage(manifest);
+      const cached = await this.loadImage(manifest, false, true);
       if (!this.isRuntimeActive(epoch, session)) return;
       const image = document.createElement('img');
       image.src = cached.url;
