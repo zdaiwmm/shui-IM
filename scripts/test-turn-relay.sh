@@ -23,7 +23,7 @@ cleanup() { "${compose[@]}" down --remove-orphans >/dev/null 2>&1 || true; sudo 
 trap cleanup EXIT
 sudo ip address add 192.0.2.1/32 dev lo
 "${compose[@]}" up --detach --no-deps quiet-room-turn
-node --input-type=module <<'JS'
+if ! node --input-type=module <<'JS'
 import net from 'node:net';
 for (let i = 0; ; i++) {
   const ready = await new Promise(resolve => {
@@ -36,6 +36,10 @@ for (let i = 0; ; i++) {
   await new Promise(resolve => setTimeout(resolve, 250));
 }
 JS
+then
+  "${compose[@]}" logs --no-color quiet-room-turn >&2 || true
+  exit 1
+fi
 for transport in udp tcp; do
   export TURN_URLS="turn:192.0.2.1:3478?transport=$transport"
   export QUIET_ROOM_CALL_TEST_CONFIG="$lab_dir/ice.json"

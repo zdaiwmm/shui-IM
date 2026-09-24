@@ -52,7 +52,9 @@ try {
         try { await v.saveMediaPreview(session, fixture.manifest, new Blob(['x'], { type: 'image/png' }), controller.signal); } catch { aborted = true; }
         const afterAbort = await v.loadMediaPreview(session, fixture.manifest);
         // Under storage pressure, disposable data is skipped while the encrypted vault remains writable.
-        Object.defineProperty(navigator.storage, 'estimate', { configurable: true, value: async () => ({ quota: 1024, usage: 1024 }) });
+        const exhausted = { estimate: async () => ({ quota: 1024, usage: 1024 }) };
+        if (navigator.storage && typeof navigator.storage === 'object') Object.defineProperty(navigator.storage, 'estimate', { configurable: true, value: exhausted.estimate });
+        else Object.defineProperty(navigator, 'storage', { configurable: true, value: exhausted });
         await v.saveCachedMediaChunk(session, fixture.manifest.blobId, 0, new Uint8Array(fixture.chunks[0]).buffer);
         const quotaCached = await v.loadCachedMediaChunk(session, fixture.manifest.blobId, 0, fixture.chunks[0].length);
         await v.withVaultMutation(session, mutation => v.saveVault(session, mutation));
