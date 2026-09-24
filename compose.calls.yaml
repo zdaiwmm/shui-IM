@@ -23,7 +23,7 @@ services:
       - /tmp:rw,noexec,nosuid,size=16m,mode=1777
       # The image binary carries file capabilities. no-new-privileges then
       # rejects exec with EPERM. A plain copy has none; ports stay above 1024.
-      - /opt/turn:rw,nosuid,nodev,size=32m,mode=1777
+      - /opt/turn:rw,exec,nosuid,nodev,size=32m,mode=1777
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     pids_limit: 64
@@ -61,4 +61,5 @@ services:
           *) exit 1;;
         esac
         cp "$(command -v turnserver)" /opt/turn/turnserver
+        chmod 755 /opt/turn/turnserver
         exec /opt/turn/turnserver -c /tmp/turnserver.conf
