@@ -58,7 +58,7 @@ export function createBrowserAccess({ db, getMember, assertDeviceActive, roomSta
   async function create(roomId, proof, token, deviceName, capabilities = []) {
     if (!validAccessProof(proof, roomId) || !secret(token) || digest(token).toString('base64url') !== proof.request.tokenHash ||
       typeof deviceName !== 'string' || deviceName.length > 80 ||
-      !Array.isArray(capabilities) || capabilities.length > 16 || capabilities.some(value => typeof value !== 'string' || !/^[a-z0-9-]{1,40}$/.test(value))) fail();
+      !Array.isArray(capabilities) || capabilities.length > 32 || capabilities.some(value => typeof value !== 'string' || !/^[a-z0-9-]{1,40}$/.test(value))) fail();
     const source = getMember(roomId, proof.certificate.sourceDeviceId);
     if (!source || !await verifyAccessProof(proof, roomId, source)) fail('UNAUTHORIZED');
     sweep();

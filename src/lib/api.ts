@@ -103,6 +103,11 @@ export async function getRoomState(roomId: string, accessToken: string): Promise
   return response.json();
 }
 
+export async function getWindowMessages(roomId: string, accessToken: string, after: number, signal?: AbortSignal): Promise<ServerMessage[]> {
+  const response = await authorizedFetch(`/api/rooms/${roomId}/window-sync?after=${after}`, accessToken, { signal: boundedSignal(signal, 15_000), cache: 'no-store' });
+  return (await response.json()).messages;
+}
+
 export async function getCallConfiguration(roomId: string, accessToken: string, signal?: AbortSignal): Promise<CallIceConfiguration> {
   // Four attempts, including the initial request. Each deadline includes body decoding.
   for (let attempt = 0; ; attempt += 1) {

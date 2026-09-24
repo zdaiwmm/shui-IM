@@ -17,7 +17,7 @@ ENV NODE_ENV=production \
     DATA_DIR=/app/data
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --registry="$NPM_REGISTRY" && npm cache clean --force
+RUN apk add --no-cache util-linux && npm ci --omit=dev --registry="$NPM_REGISTRY" && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY server ./server
 COPY scripts ./scripts

@@ -546,3 +546,7 @@ data deletion.
 6. 正式启用依旧必须先合并、明确完整目标提交和用户发布授权，再运行 `RELEASING.md` 的固定入口。部署前验证 Compose 配置，禁止打印已解析的秘密。维护门实际探测包括 `https://admin.mijiu.cloud/admin-api/rooms` 必须返回 503；缺 DNS/TLS/代理门时拒绝切换。上线后单独验收 HTTPS 登录、TOTP、元数据、退出、来源隔离及配置挂载权限。
 
 管理员 JSON 不随数据卷冷备份回滚；常规升级不会重新生成密码或验证器。更换管理员配置须通过受信任主机维护，重启进程使现有管理会话失效。先保管好独立的验证器应急副本；忘记管理员因素只能在主机上重新设置管理员，不构成用户聊天恢复途径。不要通过删除 `admin.env` 临时停用已启用的后台；有意停用需在独立维护中关闭 vhost、移除覆盖并同步状态，正常发布遇到文件意外丢失将失败关闭。
+
+## Message-window deployment compatibility
+
+Before enabling the message window, install the reviewed helper from the exact release candidate using the existing root-owned-helper procedure. Its read-only prebuild guard rejects releases without `server/storage-capabilities.json` once any room has enabled the window. This protects existing signed gap/epoch semantics; do not bypass it by removing the marker or restoring a database after traffic opened. The initial guarded cutover retains the existing cold-backup rollback boundary. Set the persistent backup retention override to three and verify a new restore point; a Compose default does not override an existing production environment value. Full rollout and capacity conditions are in the [storage contract](docs/requirements/2026-09-24-storage-calls/storage-contract.md).

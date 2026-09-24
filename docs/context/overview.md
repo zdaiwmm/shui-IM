@@ -93,6 +93,8 @@
 
 浏览器脚本本地默认使用 Chrome，可通过 `CHROME_PATH` 指定程序；CI 使用安装的 Chromium。若受限环境不能监听本地端口，应把它记录为环境限制，不能记作产品失败或测试通过。
 
+- 存储循环、三日快照和媒体缓存：[实施契约](../requirements/2026-09-24-storage-calls/storage-contract.md)。定向回归为 `message-window.test.ts`／`message-window.e2e.mjs`、`backup-retention.test.ts`、`media-cache.e2e.mjs`；`scripts/test-turn-relay.sh` 仅在隔离 Linux CI 验证真实 TURN。
+
 ## 详细资料索引
 
 - **系统栏与明暗主题**：`src/lib/system-chrome.ts` 同步系统明暗状态并保持透明 theme-color 提示，查看器不另设不透明色值；浏览器原生工具栏仍由系统控制。

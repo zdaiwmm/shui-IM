@@ -5,7 +5,7 @@ import path from 'node:path';
 import {createStore} from '../server/storage.mjs';
 import {generateIdentity} from '../src/lib/crypto';
 import {newAccessIdentity,signAccess,accessDigest,verifyAccessProof,validAccessProof} from '../src/lib/browser-access-proof.mjs';
-import {prepareMlsMembership,createCreatorMlsState,prepareCreatorWelcome,joinMlsGroup,completeBrowserAccessJoin,processMlsMembership,encryptMlsApplication,decryptMlsApplication} from '../src/lib/mls';
+import {prepareMlsWindowUpdate,prepareMlsMembership,createCreatorMlsState,prepareCreatorWelcome,joinMlsGroup,completeBrowserAccessJoin,processMlsMembership,encryptMlsApplication,decryptMlsApplication} from '../src/lib/mls';
 import {validateMlsMembershipShape} from '../server/protocol.mjs';
 import type {Vault} from '../src/lib/types';
 import {discoveredCredentialRecord} from '../src/lib/browser-access';
@@ -141,6 +141,7 @@ describe('browser access two-party authorization',()=>{
     f.store.saveMlsEvent(f.roomId,commit.event);peer.mls.groupState=commit.nextGroupState;peer.mls.lastEventSeq=1;
     const state=f.store.roomState(f.roomId);
     const newVault:Vault={...common,role:'creator',identity:f.target,mls:{protocol:'mls-rfc9420',phase:'awaiting-welcome',lastEventSeq:0}};
+    const delayedVault = structuredClone(newVault);
     await completeBrowserAccessJoin(newVault,state,f.proof);
     expect(newVault.pairingState).toBe('ready');expect(newVault.identity.mlsPrivatePackage).toBeUndefined();
     await expect(decryptMlsApplication(newVault,old.envelope)).rejects.toThrow();
@@ -148,5 +149,33 @@ describe('browser access two-party authorization',()=>{
     const fresh=await encryptMlsApplication(peer,{v:1,kind:'text',text:'new',sentAt:new Date().toISOString()},crypto.randomUUID());
     expect((await decryptMlsApplication(newVault,fresh.envelope)).payload).toMatchObject({text:'new'});
     expect((await decryptMlsApplication(source,fresh.envelope)).payload).toMatchObject({text:'new'});
+    // A delayed first open must persist its own Welcome before processing enough
+    // update epochs to discard earlier application keys.
+    for (const member of state.members) f.store.updateMemberCapabilities(f.roomId, member.deviceId, ['mls-multidevice-v1', 'message-window-v1']);
+    peer.members = f.store.roomState(f.roomId).members;
+    const retained = [];
+    for (let i = 0; i < 6; i++) {
+      const update = await prepareMlsWindowUpdate(peer);
+      const accepted = f.store.saveMlsEvent(f.roomId, update.event);
+      peer.mls.groupState = update.nextGroupState; peer.mls.lastEventSeq = accepted.eventSeq;
+      peer.mls.window = { fromSeq: peer.lastSeq + 1, controls: [], generated: 0 };
+      const encrypted = await encryptMlsApplication(peer, { v: 1, kind: 'text', text: `epoch-${i}`, sentAt: new Date().toISOString() }, crypto.randomUUID());
+      const message = f.store.insertMessage(f.roomId, encrypted.envelope); retained.push(message);
+      peer.lastSeq = message.seq; peer.mls.groupState = encrypted.nextGroupState;
+      peer.mls.sendSequence = encrypted.envelope.retention!.sendSequence; peer.mls.window.generated++;
+    }
+    const delayedState = f.store.roomState(f.roomId);
+    await completeBrowserAccessJoin(delayedVault, delayedState, f.proof);
+    expect(delayedVault.mls!.lastEventSeq).toBe(1);
+    for (const row of delayedState.mlsEvents.filter(row => row.eventSeq > 1)) {
+      for (const message of retained.filter(message => message.seq > delayedVault.lastSeq && message.seq <= row.event.retention!.afterSeq)) {
+        delayedVault.mls!.groupState = (await decryptMlsApplication(delayedVault, message.envelope)).nextGroupState;
+        delayedVault.lastSeq = message.seq;
+      }
+      delayedVault.mls!.groupState = await processMlsMembership(delayedVault, row.event, row.eventSeq);
+      delayedVault.mls!.lastEventSeq = row.eventSeq;
+    }
+    expect((await decryptMlsApplication(delayedVault, retained.at(-1)!.envelope)).payload).toMatchObject({ text: 'epoch-5' });
+
   });
 });

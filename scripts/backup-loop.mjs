@@ -1,4 +1,4 @@
-import { mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { checkBackupCapacity } from './backup-capacity.mjs';
 import { createConsistentBackup } from '../server/backup.mjs';
@@ -6,29 +6,15 @@ import { createConsistentBackup } from '../server/backup.mjs';
 const dataDir = path.resolve(process.env.DATA_DIR ?? './data');
 const backupRoot = path.resolve(process.env.BACKUP_DIR ?? './backups');
 const intervalMs = Math.max(60_000, Number(process.env.BACKUP_INTERVAL_MS ?? 24 * 60 * 60 * 1000));
-const retentionCount = Math.max(2, Math.floor(Number(process.env.BACKUP_RETENTION_COUNT ?? 14)));
+const retentionCount = Math.max(2, Math.floor(Number(process.env.BACKUP_RETENTION_COUNT ?? 3)));
 
-async function pruneVerifiedBackups() {
-  const candidates = [];
-  for (const name of await readdir(backupRoot).catch(() => [])) {
-    if (!/^quiet-room-\d{4}-\d{2}-\d{2}T/.test(name)) continue;
-    const target = path.join(backupRoot, name);
-    const info = await stat(target).catch(() => null);
-    if (info?.isDirectory()) candidates.push({ name, target });
-  }
-  candidates.sort((left, right) => right.name.localeCompare(left.name));
-  for (const candidate of candidates.slice(retentionCount)) {
-    await rm(candidate.target, { recursive: true });
-    process.stdout.write(`Pruned expired backup ${candidate.name}\n`);
-  }
-}
+if (!Number.isSafeInteger(intervalMs) || !Number.isSafeInteger(retentionCount)) throw new Error('INVALID_BACKUP_CONFIGURATION');
 
 async function runOnce() {
   await mkdir(backupRoot, { recursive: true });
   await checkBackupCapacity(backupRoot);
-  const result = await createConsistentBackup({ dataDir, backupRoot });
+  const result = await createConsistentBackup({ dataDir, backupRoot, retentionDays: retentionCount });
   process.stdout.write(`${JSON.stringify({ event: 'backup_verified', ...result })}\n`);
-  await pruneVerifiedBackups();
 }
 
 let stopping = false;
