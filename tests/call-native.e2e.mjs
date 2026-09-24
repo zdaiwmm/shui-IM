@@ -28,6 +28,13 @@ try {
     const { CALL_CAPABILITY } = await import('/src/lib/call-types.ts');
     const { authenticatedMlsCallMembers, signCallIdentityAttestation, verifyCallIdentityAttestations } = await import('/src/lib/call-membership.ts');
     const { createCreatorMlsState, prepareCreatorWelcome, joinMlsGroup } = await import('/src/lib/mls.ts');
+    const iceErrors = [];
+    const NativePeerConnection = RTCPeerConnection;
+    window.RTCPeerConnection = function (...args) {
+      const pc = new NativePeerConnection(...args);
+      pc.addEventListener('icecandidateerror', event => iceErrors.push({ url: event.url, code: event.errorCode, text: event.errorText, address: event.address }));
+      return pc;
+    };
     const check = (value, label) => { if (!value) throw new Error(label); };
     const wait = async (predicate, label, limit = 10_000) => {
       const deadline = Date.now() + limit;
@@ -80,7 +87,7 @@ try {
       await wait(() => callee.state.phase === 'incoming', `Incoming invite missing: ${caller.state.statusText}`);
       check(callee.state.localStream === null, 'Incoming media started before acceptance');
       await callee.accept();
-      await wait(() => caller.state.phase === 'connected' && callee.state.phase === 'connected', () => `Native DTLS connection failed: ${JSON.stringify({ caller: caller.state.phase, callee: callee.state.phase, callerStatus: caller.state.statusText, calleeStatus: callee.state.statusText, callerIce: caller.pc?.iceConnectionState, calleeIce: callee.pc?.iceConnectionState, callerConn: caller.pc?.connectionState, calleeConn: callee.pc?.connectionState })}`);
+      await wait(() => caller.state.phase === 'connected' && callee.state.phase === 'connected', () => `Native DTLS connection failed: ${JSON.stringify({ caller: caller.state.phase, callee: callee.state.phase, callerGathering: caller.pc?.iceGatheringState, calleeGathering: callee.pc?.iceGatheringState, callerIce: caller.pc?.iceConnectionState, calleeIce: callee.pc?.iceConnectionState, servers: caller.pc?.getConfiguration().iceServers, iceErrors })}`);
 
       await caller.toggleCamera();
       await wait(() => callee.state.remoteVideoEnabled, 'Remote camera state was not delivered');
