@@ -19,9 +19,13 @@ services:
       - $lab_dir/turnserver.conf:/etc/coturn/quiet-room.conf:ro
 YAML
 compose=(docker compose --project-name quiet-room-relay-test --file compose.yaml --file compose.calls.yaml --file "$lab_dir/compose.lab.yaml" --profile calls)
-cleanup() { "${compose[@]}" down --remove-orphans >/dev/null 2>&1 || true; sudo ip address del 192.0.2.1/32 dev lo >/dev/null 2>&1 || true; rm -rf "$lab_dir"; }
+cleanup() { "${compose[@]}" down --remove-orphans >/dev/null 2>&1 || true; sudo ip link del quiet-room-lab >/dev/null 2>&1 || true; rm -rf "$lab_dir"; }
 trap cleanup EXIT
-sudo ip address add 192.0.2.1/32 dev lo
+# A loopback alias is not a usable relay peer: coturn and the browsers then
+# cannot exchange the allocated media. A dummy device keeps the RFC 5737 address.
+sudo ip link add quiet-room-lab type dummy
+sudo ip address add 192.0.2.1/32 dev quiet-room-lab
+sudo ip link set quiet-room-lab up
 "${compose[@]}" up --detach --no-deps quiet-room-turn
 if ! node --input-type=module <<'JS'
 import net from 'node:net';
