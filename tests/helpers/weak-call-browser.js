@@ -103,7 +103,7 @@ export async function runWeakCall(profile) {
           }
           return map;
         };
-        for (let i = 0; i < 15; i++) await caller.inspectQuality(caller.context);
+        for (let i = 0; i < 36; i++) await caller.inspectQuality(caller.context);
         check(caller.state.quality === 'audio-only', 'Video did not degrade to audio-only');
         check(audio.every(track => track.enabled && track.readyState === 'live'), 'Quality adaptation lost audio');
         poor = false;
