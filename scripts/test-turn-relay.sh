@@ -11,7 +11,8 @@ export TURN_MIN_PORT=49160 TURN_MAX_PORT=49200
 export TURN_SECRET="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("base64url"))')"
 mkdir "$TURN_TLS_DIR"
 cp deploy/turnserver.conf "$lab_dir/turnserver.conf"
-printf '\nlistening-ip=192.0.2.1\nrelay-ip=192.0.2.1\n' >> "$lab_dir/turnserver.conf"
+sed -i.bak '/^no-stdout-log$/d;/^log-file=/d' "$lab_dir/turnserver.conf"
+printf '\nlistening-ip=192.0.2.1\nrelay-ip=192.0.2.1\nallow-loopback-peers\nlog-file=stdout\n' >> "$lab_dir/turnserver.conf"
 cat > "$lab_dir/compose.lab.yaml" <<YAML
 services:
   quiet-room-turn:
@@ -52,6 +53,9 @@ import { writeFileSync } from 'node:fs';
 import { callIceConfiguration } from './server/calls.mjs';
 writeFileSync(process.env.QUIET_ROOM_CALL_TEST_CONFIG, JSON.stringify(callIceConfiguration({ callRelayOnly: true })), { mode: 0o600 });
 JS
-  node tests/call-native.e2e.mjs
+  if ! node tests/call-native.e2e.mjs; then
+    "${compose[@]}" logs --no-color quiet-room-turn >&2 || true
+    exit 1
+  fi
   printf 'PASS authenticated TURN %s encrypted audio/video, bidirectional media, and ICE restart\n' "$transport"
 done

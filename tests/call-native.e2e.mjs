@@ -78,7 +78,7 @@ try {
       await wait(() => callee.state.phase === 'incoming', `Incoming invite missing: ${caller.state.statusText}`);
       check(callee.state.localStream === null, 'Incoming media started before acceptance');
       await callee.accept();
-      await wait(() => caller.state.phase === 'connected' && callee.state.phase === 'connected', 'Native DTLS connection failed');
+      await wait(() => caller.state.phase === 'connected' && callee.state.phase === 'connected', () => `Native DTLS connection failed: ${JSON.stringify({ caller: caller.state.phase, callee: callee.state.phase, callerStatus: caller.state.statusText, calleeStatus: callee.state.statusText, callerIce: caller.pc?.iceConnectionState, calleeIce: callee.pc?.iceConnectionState, callerConn: caller.pc?.connectionState, calleeConn: callee.pc?.connectionState })}`);
 
       await caller.toggleCamera();
       await wait(() => callee.state.remoteVideoEnabled, 'Remote camera state was not delivered');
