@@ -189,6 +189,7 @@ import {
   deleteOutboxItem,
   deleteCachedMediaBlob,
   deleteCurrentVault,
+  deleteSpaceVault,
   clearLocalBrowserData,
   downloadVaultDiagnostic,
   deletePendingReceipt,
@@ -2613,7 +2614,6 @@ export class QuietRoomApp {
   private browserAccessAbort: AbortController | null = null;
   private browserAccessHold = false;
   private browserAccessResume: (() => void) | null = null;
-  private unjoinedExpiryTimer: number | null = null;
   private peerAccessRequests: PeerAccessRequest[] = [];
   private peerAccessHints = new Map<string, number>();
   private accessDismissed = new Set<string>();
@@ -2696,56 +2696,10 @@ export class QuietRoomApp {
     this.showNotice(copied ? fallback : '复制失败', copied ? 'info' : 'error');
   }
 
-  private clearUnjoinedExpiry(): void {
-    if (this.unjoinedExpiryTimer !== null) window.clearTimeout(this.unjoinedExpiryTimer);
-    this.unjoinedExpiryTimer = null;
-  }
-
-  private scheduleUnjoinedSpaceExpiry(): void {
-    this.clearUnjoinedExpiry();
-    const session = this.session;
-    if (!session || this.privacyCovered) return;
-    const waiting = !session.vault.members.some(member => member.role !== session.vault.role && (member.status === undefined || member.status === 'active'));
-    if (!waiting) return;
-    const due = Date.parse(session.vault.createdAt) + 60 * 60 * 1000;
-    if (!Number.isFinite(due)) return;
-    this.unjoinedExpiryTimer = window.setTimeout(() => { void this.destroyUnjoinedSpace(session); }, Math.max(0, due - Date.now()));
-  }
-
-  private async destroyUnjoinedSpace(session: VaultSession, nextLocalId?: string): Promise<void> {
-    const waiting = !session.vault.members.some(member => member.role !== session.vault.role && (member.status === undefined || member.status === 'active'));
-    if (!waiting) return;
-    try { await deleteRoom(session.vault.roomId, session.vault.accessToken); }
-    catch (cause) {
-      if (cause instanceof ApiError && (cause.code === 'ROOM_SEALED' || cause.status === 409)) return;
-    }
-    const remaining = await forgetLocalSpace(session, session.vault.roomId).catch(() => [] as PrivateSpace[]);
-    await deleteCurrentVault().catch(() => undefined);
-    const held = this.deviceCredential;
-    if (this.session === session) this.session = null;
-    this.cleanupRuntime();
-    if (held) this.deviceCredential = held;
-    const next = nextLocalId ?? remaining.find(space => space.localId)?.localId;
-    if (next) await this.switchPrivateSpace({ roomId: '', name: '', localId: next });
-    else if (!this.privacyCovered) this.renderFirstRun(null);
-  }
-
-  private async deleteWaitingSpace(space: PrivateSpace, current: VaultSession): Promise<void> {
-    if (!space.waiting || space.accessState) throw new Error('已建立的空间暂不能删除');
-    if (space.roomId === current.vault.roomId) {
-      await this.destroyUnjoinedSpace(current);
-      return;
-    }
-    if (!space.localId) throw new Error('请先打开此空间');
-    const held = this.deviceCredential;
-    if (!held || current.stored.unlockMethod !== 'platform') throw new Error('请先完成通行密钥绑定');
-    const returnId = vaultSpaceId(current.stored);
-    await this.leaveSpace();
-    if (this.privacyCovered) return;
-    await selectLocalSpace(space.localId);
-    const unlocked = await unlockVault('', Promise.resolve(held.prfOutput.slice()));
-    this.deviceCredential = held;
-    await this.destroyUnjoinedSpace(unlocked, returnId);
+  private async destroyUnjoinedSpace(session: VaultSession): Promise<void> {
+    if (this.peerHasJoined(session)) return;
+    await this.destroyWaitingSpace(session, { roomId: session.vault.roomId, name: this.currentSpaceName,
+      waiting: true, createdAt: session.vault.createdAt, localId: vaultSpaceId(session.stored) });
   }
 
   private retainBrowserAccessWait(): boolean {
@@ -2839,6 +2793,7 @@ export class QuietRoomApp {
 
   private renderBrowserShell(): void {
     const current=this.browserProfile;if(!current||this.privacyCovered)return;
+    if (!current.profile.spaces.length) { this.renderFirstRun(null); return; }
     const space=current.profile.spaces.find(s=>s.roomId===current.profile.currentRoom)??current.profile.spaces[0]!;
     current.profile.currentRoom=space.roomId;
     const pending=current.profile.pending[space.roomId],waiting=pending?.status==='pending',spaceWaiting=Boolean(space.waiting);
@@ -2872,8 +2827,14 @@ export class QuietRoomApp {
       select:async space=>{if(space.localId){await this.switchPrivateSpace(space);return;}current.profile.currentRoom=space.roomId;await saveBrowserProfile(current,signal);if(!signal.aborted)this.renderBrowserShell();},
       create:async()=>{await this.leaveSpace();this.renderCreate();},rename:async()=>{throw new Error('空间授权后可修改名称');},
       remove: async space => {
-        current.profile.spaces = current.profile.spaces.filter(item => item.roomId !== space.roomId);
-        await saveBrowserProfile(current, signal);
+        if (!space.localId) throw new Error('请在创建此空间的原设备删除');
+        await this.switchPrivateSpace(space);
+        if (!this.session) throw new Error('请先解锁此空间');
+        await this.destroyWaitingSpace(this.session, space);
+      },
+      refreshSpaces: async refreshSignal => {
+        await this.refreshSpaceCatalog(refreshSignal);
+        return accessPrivateSpaces(current.profile);
       },
       styleChanged:()=>undefined,closed:()=>undefined});
   }
@@ -2903,6 +2864,14 @@ export class QuietRoomApp {
   private pollBrowserSpaceAccess(signal:AbortSignal):void {
     const poll=async()=>{
       const current=this.browserProfile;if(signal.aborted||!current)return;
+      try {
+        if (!this.root.querySelector('.space-drawer-overlay')) {
+          const before=JSON.stringify(current.profile.spaces);
+          await this.refreshSpaceCatalog(signal);
+          if (signal.aborted) return;
+          if (before!==JSON.stringify(current.profile.spaces)) this.renderBrowserShell();
+        }
+      } catch { /* Offline catalog reads cannot change authorization. */ }
       for(const space of current.profile.spaces){
         const pending=current.profile.pending[space.roomId];if(!pending||pending.status&&pending.status!=='pending')continue;
         try{
@@ -2944,12 +2913,10 @@ export class QuietRoomApp {
       await prepareBrowserAccess(session);signal.throwIfAborted();await publishPreparedCatalog(session,signal);
     }catch{if(signal.aborted)return; /* Existing conversations remain usable while preparation is offline. */}
     const dismissed=new Set<string>(),deadlines=new Map<string,number>();
-    let catalogTicks=0;
     const poll=async()=>{
       if(signal.aborted||this.session!==session)return;
       try{
-        catalogTicks += 1;
-        if(this.browserProfile && catalogTicks % 5 === 0) await refreshBrowserCatalog(this.browserProfile.profile,signal).catch(()=>undefined);
+        if(this.browserProfile && !this.root.querySelector('.space-drawer-overlay')) await this.refreshSpaceCatalog(signal).catch(()=>undefined);
         const response=await accessApi<{requests:PeerAccessRequest[];serverTime:string}>(spaceAccessPath(session.vault.roomId),session.vault.accessToken,signal);
         if(signal.aborted)return;
         this.peerAccessRequests=response.requests;
@@ -4614,7 +4581,9 @@ export class QuietRoomApp {
       label.textContent = remaining <= 0 ? '邀请已到期' : `剩余 ${formatPendingCountdown(remaining)}`;
       if (remaining <= 0 && !inviteExpired && this.session) {
         inviteExpired = true;
-        void this.destroyUnjoinedSpace(this.session);
+        void this.destroyUnjoinedSpace(this.session).catch(cause => {
+          if (!signal.aborted) this.showNotice(cause instanceof Error ? cause.message : '空间未能销毁，请重试', 'error');
+        });
       }
     };
     paintInviteCountdown();
@@ -4947,7 +4916,7 @@ export class QuietRoomApp {
     for (const space of spaces) {
       if (signal.aborted || this.session !== session) return;
       const expiry = pendingSpaceExpiry(space);
-      if (expiry !== null && expiry <= Date.now()) await this.deleteWaitingSpace(space, session);
+      if (expiry !== null && expiry <= Date.now()) await this.destroyWaitingSpace(session, space);
     }
   }
 
@@ -4975,43 +4944,40 @@ export class QuietRoomApp {
     }, delay);
   }
 
-  private async deleteWaitingRoom(roomId: string, accessToken: string): Promise<void> {
-    try { await deleteRoom(roomId, accessToken); }
-    catch (cause) {
-      if (cause instanceof ApiError && (cause.status === 404 || cause.code === 'ROOM_NOT_FOUND')) return;
-      if (cause instanceof ApiError && cause.code === 'ROOM_SEALED') throw new Error('对方已经加入，这个空间不能再销毁');
-      throw cause;
-    }
-  }
-
   private async destroyWaitingSpace(session: VaultSession, space: PrivateSpace): Promise<void> {
-    if (this.destroyingWaitingSpace) return;
-    if (!space.waiting) throw new Error('只有还在等待对方加入的空间可以删除');
+    if (this.destroyingWaitingSpace) throw new Error('正在删除空间，请稍候');
+    if (!space.waiting || space.accessState) throw new Error('只有还在等待对方加入的空间可以删除');
     this.destroyingWaitingSpace = true;
     const current = space.roomId === session.vault.roomId;
+    const signal = AbortSignal.any([this.runtimeAbort?.signal ?? new AbortController().signal, AbortSignal.timeout(15000)]);
+    let target: VaultSession | null = null;
     try {
-      if (current) await this.deleteWaitingRoom(session.vault.roomId, session.vault.accessToken);
-      else if (space.localId && this.deviceCredential) {
-        const selected = currentSpaceId();
+      if (current) target = session;
+      else {
         const held = this.deviceCredential;
+        if (!space.localId || !held) throw new Error('请在创建此空间的原设备删除');
+        const selected = currentSpaceId();
         try {
           await selectLocalSpace(space.localId);
           const stored = await readStoredVault();
-          if (stored?.unlockMethod === 'platform' && stored.v === 3 && stored.platform.credentialId === held.record.credentialId) {
-            const opened = await unlockVault('', Promise.resolve(held.prfOutput.slice()));
-            try { if (opened.vault.roomId === space.roomId) await this.deleteWaitingRoom(opened.vault.roomId, opened.vault.accessToken); }
-            finally { releaseDeviceCredential(opened); }
-          }
+          if (stored?.unlockMethod !== 'platform' || stored.v !== 3 || stored.platform.credentialId !== held.record.credentialId) throw new Error('请在创建此空间的原设备删除');
+          target = await unlockVault('', Promise.resolve(held.prfOutput.slice()));
         } finally { if (currentSpaceId() !== selected) await selectLocalSpace(selected); }
       }
-      await rememberCatalogRemoval(session, space.roomId).catch(() => undefined);
-      await publishPreparedCatalog(session, AbortSignal.timeout(8000), space.roomId).catch(() => undefined);
-      const remaining = await forgetLocalSpace(session, space.roomId).catch(() => []);
+      signal.throwIfAborted();
+      if (target.vault.roomId !== space.roomId || this.peerHasJoined(target)) throw new Error('对方已经加入，这个空间不能再销毁');
+      await publishPreparedCatalog(session, signal, space.roomId, target);
+      signal.throwIfAborted();
+      await rememberCatalogRemoval(session, space.roomId);
+      const remaining = await forgetLocalSpace(session, space.roomId);
       if (this.browserProfile) {
-        this.browserProfile.profile.spaces = this.browserProfile.profile.spaces.filter(item => item.roomId !== space.roomId);
-        const browserSignal = this.browserAccessAbort?.signal ?? this.runtimeAbort?.signal;
-        if (browserSignal && !browserSignal.aborted) await saveBrowserProfile(this.browserProfile, browserSignal).catch(() => undefined);
+        const profile = this.browserProfile.profile;
+        profile.spaces = profile.spaces.filter(item => item.roomId !== space.roomId);
+        profile.removed = [...new Set([...(profile.removed ?? []), space.roomId])];
+        delete profile.pending[space.roomId];
+        await saveBrowserProfile(this.browserProfile, signal);
       }
+      await deleteSpaceVault(target);
       if (!current || this.session !== session || this.privacyCovered) return;
       const next = remaining.find(item => item.localId);
       if (next?.localId) await this.switchPrivateSpace(next);
@@ -5022,7 +4988,10 @@ export class QuietRoomApp {
           this.renderFirstRun(null);
         }
       }
-    } finally { this.destroyingWaitingSpace = false; }
+    } finally {
+      if (target && target !== session) releaseDeviceCredential(target);
+      this.destroyingWaitingSpace = false;
+    }
   }
 
   private async openPrivateSpaces(): Promise<void> {
@@ -5049,6 +5018,8 @@ export class QuietRoomApp {
   private applyCatalogToSpaces(spaces: PrivateSpace[]): void {
     const profile = this.browserProfile?.profile;
     if (!profile) return;
+    const removed = new Set(profile.removed ?? []);
+    for (let index = spaces.length - 1; index >= 0; index--) if (removed.has(spaces[index]!.roomId)) spaces.splice(index, 1);
     for (const space of spaces) {
       const remote = profile.spaces.find(item => item.roomId === space.roomId);
       if (!remote) continue;
@@ -5058,6 +5029,16 @@ export class QuietRoomApp {
         space.waiting = Boolean(remote.waiting);
       } else if (remote.waiting) space.waiting = true;
     }
+  }
+
+  private async refreshSpaceCatalog(signal: AbortSignal): Promise<void> {
+    const current = this.browserProfile;
+    if (!current) return;
+    const before = JSON.stringify(current.profile);
+    await refreshBrowserCatalog(current.profile, signal);
+    signal.throwIfAborted();
+    if (this.browserProfile !== current) return;
+    if (before !== JSON.stringify(current.profile)) await saveBrowserProfile(current, signal);
   }
 
   private paintSpacePreviews(spaces: PrivateSpace[]): void {
@@ -5100,14 +5081,23 @@ export class QuietRoomApp {
           if (entry) { entry.setAttribute('aria-label', `私密空间列表，当前：${name}`); const label = entry.querySelector('span'); if (label) label.textContent = name; }
         }
       },
-      remove: space => this.deleteWaitingSpace(space, session),
-      expired: space => { if (space.roomId === session.vault.roomId) void this.destroyUnjoinedSpace(session); },
+      remove: space => this.destroyWaitingSpace(session, space),
+      expired: space => { if (space.roomId === session.vault.roomId) void this.destroyUnjoinedSpace(session).catch(() => undefined); },
       authorization: space => {
         const deadline=this.peerAccessHints.get(space.roomId)??0;
         if(deadline<=performance.now())return undefined;
         return {deadline,open:async()=>{if(space.roomId!==session.vault.roomId){await this.switchPrivateSpace(space);return;}const request=this.peerAccessRequests[0];if(request)await this.showPeerAccess(request,deadline,signal);}};
       },
       refreshUnread: refreshSignal => refreshSpaceUnread(spaces, refreshSignal),
+      refreshSpaces: async refreshSignal => {
+        await this.refreshSpaceCatalog(refreshSignal);
+        const fresh = await localSpaces(session);
+        this.applyCatalogToSpaces(fresh);
+        if (this.browserProfile) for (const item of accessPrivateSpaces(this.browserProfile.profile)) {
+          if (!fresh.some(space => space.roomId === item.roomId)) fresh.push(item);
+        }
+        return fresh;
+      },
       styleChanged: () => this.applyPresenceStyle(),
       closed: () => { this.spaceDrawerOpen = false; if (!signal.aborted && !this.privacyCovered && this.session === session && !this.root.querySelector('.space-invite-overlay:not(.is-closing)')) { this.setActiveSurface(this.root.querySelector('.chat-shell') ? 'chat' : previousSurface); this.updatePeerStatus(); } },
     });
@@ -5140,7 +5130,7 @@ export class QuietRoomApp {
     this.voicePlayback.stop();
     this.setActiveSurface('chat');
     const cryptoReady = this.session.vault.protocol !== 'mls-rfc9420' || this.session.vault.mls?.phase === 'active';
-    this.scheduleUnjoinedSpaceExpiry();
+    this.scheduleWaitingSpaceExpiry(this.session);
     this.shieldHintCleanup?.();
     this.shieldHintCleanup = null;
     this.galleryObserver?.disconnect();
@@ -12693,7 +12683,6 @@ export class QuietRoomApp {
   private cleanupRuntime(preserveFilePicker = false): void {
     if (this.waitingSpaceTimer !== null) window.clearTimeout(this.waitingSpaceTimer);
     this.waitingSpaceTimer = null;
-    this.clearUnjoinedExpiry();
     this.browserAccessHold = false;
     this.browserAccessResume = null;
     this.browserAccessAbort?.abort();this.browserAccessAbort=null;

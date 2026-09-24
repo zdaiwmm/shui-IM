@@ -34,6 +34,7 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
   select: (space: PrivateSpace) => Promise<void>; create: () => Promise<void>; rename: (space: PrivateSpace, name: string) => Promise<void>;
 remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace) => void;
   refreshUnread?: (signal: AbortSignal) => Promise<void>;
+  refreshSpaces?: (signal: AbortSignal) => Promise<PrivateSpace[]>;
   authorization?: (space: PrivateSpace) => {deadline:number;open:()=>Promise<void>} | undefined;
   styleChanged: (style: PresenceStyle) => void; closed: () => void;
 }): void {
@@ -187,6 +188,25 @@ const expiry = pendingSpaceExpiry(s);
     });
   }
   list();
+  if (options.refreshSpaces) {
+    let refreshTimer: number | undefined;
+    const refresh = async () => {
+      if (signal.aborted) return;
+      try {
+        if (!busy && !document.hidden && !root.querySelector('.space-context-overlay,.space-modal-overlay')) {
+          const spaces = await options.refreshSpaces!(signal);
+          if (signal.aborted) return;
+          if (!busy && !root.querySelector('.space-context-overlay,.space-modal-overlay') && JSON.stringify(spaces) !== JSON.stringify(options.spaces)) {
+            options.spaces.splice(0, options.spaces.length, ...spaces);
+            if (sheet.querySelector('.space-list')) list();
+          }
+        }
+      } catch { /* Retain confirmed rows while offline; retry without closing the drawer. */ }
+      if (!signal.aborted) refreshTimer = window.setTimeout(refresh, 3000);
+    };
+    signal.addEventListener('abort', () => window.clearTimeout(refreshTimer), { once: true });
+    refreshTimer = window.setTimeout(refresh, 3000);
+  }
   const expiredRooms = new Set<string>();
   const paintCountdowns = () => {
     const now = Date.now();

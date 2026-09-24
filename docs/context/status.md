@@ -1,5 +1,9 @@
 # Quiet Room 当前状态
 
+## 备份下载与空间删除同步修复（2026-09-24，未发布）
+
+- 本任务从实时主线 `0d44430` 开始，用户已确认实施。实现 WebKit 临时存储失败的有界密文备用输出、待加入空间原子删除与加密目录同步、在线列表刷新。首轮本地 709 项单元、41/41 浏览器及 CI 通过，删除 HTTP 入口保护补丁另通过定向回归；最终提交与 CI/合并回执见 [PR #206](https://github.com/zdaiwmm/shui-IM/pull/206)。版本 `2026.09.24.1`，尚未发布；真机未验证。详见[需求与证据](../requirements/2026-09-24-backup-space-sync/README.md)。
+
 ## 发布余量门禁 4 GiB 已发布（2026-09-23 07:16）
 
 - 用户要求先把发布磁盘可用门禁降到 4 GiB，再发布，再腾空间。门禁变更 [PR #201](https://github.com/zdaiwmm/shui-IM/pull/201) 已合并；精确线上应用 SHA `3a9b6eb0a59cdb6740bfbd14cb0e5069a1db1cb3`（GitHub `main` 与本次部署一致）。精确 main 完整 CI [35757370350](https://github.com/zdaiwmm/shui-IM/actions/runs/35757370350) 通过。此前生产为 `bc026e399df3e23418c343d53d024c43e48c1565`。

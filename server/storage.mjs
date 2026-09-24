@@ -545,13 +545,19 @@ export async function createStore({
     }
   }
 
-  function deleteRoom(roomId, accessToken) {
+  function deleteRoom(roomId, accessToken, catalog) {
     db.exec('BEGIN IMMEDIATE');
     try {
       const room = statements.room.get(roomId);
       if (!room || !authenticatedDevice(roomId, accessToken)) throw new Error('UNAUTHORIZED');
       const { count } = statements.memberCount.get(roomId);
       if (count > 1 || room.sealed_at) throw new Error('ROOM_SEALED');
+      // Commit the participant's opaque catalog tombstone while the room token
+      // is still valid. Any revision conflict or failed deletion rolls both back.
+      if (catalog !== undefined) {
+        if (!catalog || Object.keys(catalog).sort().join(',') !== 'id,value' || catalog.value?.roomId !== roomId) throw new Error('INVALID_BACKUP');
+        browserCatalogs.save(catalog.id, accessToken, catalog.value);
+      }
       const deleted = db.prepare('DELETE FROM rooms WHERE room_id = ?').run(roomId).changes > 0;
       db.exec('COMMIT');
       return { deleted };

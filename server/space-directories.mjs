@@ -27,12 +27,12 @@ export function createSpaceDirectories(db, { authenticatedDevice }, browserCatal
           !/^[A-Za-z0-9_-]{16}$/.test(value.sealed?.iv ?? '') || typeof value.sealed?.ciphertext !== 'string' || value.sealed.ciphertext.length > maxCiphertext || !/^[A-Za-z0-9_-]{22,}$/.test(value.sealed.ciphertext) ||
           Object.keys(value).some(k => !['roomId','revision','fetchToken','writeToken','sealed'].includes(k)) || Object.keys(value.sealed).sort().join(',') !== 'ciphertext,iv') fail('INVALID_BACKUP');
       const fingerprint = hash(JSON.stringify(value));
-      db.exec('BEGIN IMMEDIATE');
+      db.exec('SAVEPOINT space_directory_write');
       try {
         const current = row(id);
         if (current) {
           if (!matches(value.writeToken, current.write_hash) || !matches(value.fetchToken, current.fetch_hash)) fail('UNAUTHORIZED');
-          if (value.revision === current.revision && timingSafeEqual(fingerprint, current.request_hash)) { db.exec('COMMIT'); return { revision: current.revision }; }
+          if (value.revision === current.revision && timingSafeEqual(fingerprint, current.request_hash)) { db.exec('RELEASE space_directory_write'); return { revision: current.revision }; }
           if (value.revision !== current.revision + 1) fail('BACKUP_CONFLICT');
           db.prepare(`UPDATE ${table} SET revision=?, sealed=?, request_hash=? WHERE id=?`).run(value.revision, JSON.stringify(value.sealed), fingerprint, id);
         } else {
@@ -40,8 +40,8 @@ export function createSpaceDirectories(db, { authenticatedDevice }, browserCatal
           if (db.prepare(`SELECT count(*) AS n FROM ${table} WHERE owner_room=? AND owner_device=?`).get(value.roomId, member.deviceId).n >= 4) fail('BACKUP_QUOTA');
           db.prepare(`INSERT INTO ${table} VALUES(?,?,?,?,?,?,?,?)`).run(id, value.roomId, member.deviceId, value.revision, hash(value.fetchToken), hash(value.writeToken), JSON.stringify(value.sealed), fingerprint);
         }
-        db.exec('COMMIT'); return { revision: value.revision };
-      } catch (cause) { db.exec('ROLLBACK'); throw cause; }
+        db.exec('RELEASE space_directory_write'); return { revision: value.revision };
+      } catch (cause) { db.exec('ROLLBACK TO space_directory_write'); db.exec('RELEASE space_directory_write'); throw cause; }
     },
   };
 }
