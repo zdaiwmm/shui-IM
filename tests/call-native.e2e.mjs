@@ -114,7 +114,7 @@ try {
       await callee.start('video');
       await wait(() => caller.state.phase === 'incoming', 'Reverse video invite missing');
       await caller.accept();
-      await wait(() => caller.state.phase === 'connected' && callee.state.phase === 'connected', 'Initial video connection failed');
+      await wait(() => caller.state.phase === 'connected' && callee.state.phase === 'connected', () => `Initial video connection failed: ${JSON.stringify({ caller: caller.state.phase, callee: callee.state.phase, callerIce: caller.pc?.iceConnectionState, calleeIce: callee.pc?.iceConnectionState, iceErrors })}`, relayConfiguration ? 20_000 : 10_000);
       await wait(() => [caller, callee].every((controller) => controller.state.remoteStream?.getVideoTracks().some((track) => track.readyState === 'live' && !track.muted)), () => `Initial video tracks missing: ${JSON.stringify([caller, callee].map((controller) => ({ phase: controller.state.phase, localVideo: controller.state.cameraEnabled, remoteVideo: controller.state.remoteVideoEnabled, transceivers: controller.pc?.getTransceivers().map((item) => ({ direction: item.currentDirection, senderKind: item.sender.track?.kind, senderState: item.sender.track?.readyState, receiverKind: item.receiver.track.kind, receiverMuted: item.receiver.track.muted })) })))}`);
       if (relayConfiguration) {
         for (const endpoint of [caller, callee]) {
