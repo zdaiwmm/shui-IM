@@ -1133,7 +1133,7 @@ try {
   await creator.locator('#backup-retry').click();
   await creator.waitForFunction(() => /已保存 [1-9]\d* 条/.test(document.querySelector('#backup-status')?.textContent ?? ''));
   await creator.locator('#backup-back').click();
-  await creator.locator('#open-spaces').click(); await creator.locator('#space-settings').click();
+  await creator.locator('.space-drawer-overlay[aria-label="设置"].is-restored').waitFor();
   await creator.locator('#backup-settings').click();
   await creator.locator('#save-my-code').waitFor();
   invariant(await creator.locator('#export-recovery').count() === 0, 'Manual recovery export remains exposed');
