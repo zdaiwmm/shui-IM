@@ -10135,7 +10135,7 @@ export class QuietRoomApp {
       <code class="local-recovery-code"></code>
       <div class="welcome-actions">
       <button class="primary-button" id="copy-local-recovery" type="button">复制恢复码</button>
-      <button class="text-button" id="hide-local-recovery" type="button">我已保存，回到聊天页</button>
+      <button class="text-button" id="hide-local-recovery" type="button">${this.settingsReturn?.session === live ? '我已保存，返回设置' : '我已保存，回到聊天页'}</button>
       <p class="field-hint" role="status"></p></div></div>`, false, 'plain');
     const codeNode = this.root.querySelector<HTMLElement>('.local-recovery-code')!;
     this.armRecoveryKeyboardHandoff(this.root);
