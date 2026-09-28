@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Quiet Room · 聊天连续性原型</title>
+  <link rel="stylesheet" href="../../../../src/design-system.css">
+  <link rel="stylesheet" href="prototype.css">
+  <script src="prototype.js" defer></script>
+</head>
+<body>
+  <main class="review">
+    <aside class="review-tools">
+      <p class="eyebrow">QUIET ROOM / 交互审阅 · V1</p>
+      <h1>让对话<br>自然接续。</h1>
+      <p class="intro">保留正在看的位置，接续每一次输入。此处仅使用模拟消息，不连接真实聊天。</p>
+      <nav aria-label="体验场景" class="scenarios">
+        <button data-scenario="typing"><span>01</span><div>边看前文，边输入<small>聚焦输入框后保留阅读位置</small></div></button>
+        <button data-scenario="send"><span>02</span><div>连续发送<small>多行收缩与消息进入一起完成</small></div></button>
+        <button data-scenario="reply"><span>03</span><div>查看引用，再回来<small>点击引用后，返回刚才位置</small></div></button>
+        <button data-scenario="incoming"><span>04</span><div>阅读时收到新消息<small>保持位置，仅提示新消息数量</small></div></button>
+        <button data-scenario="media"><span>05</span><div>长按与图片查看<small>按住消息，或打开图片再关闭</small></div></button>
+        <button data-scenario="expressions"><span>06</span><div>键盘与表情切换<small>保留草稿和面板浏览位置</small></div></button>
+      </nav>
+      <div class="review-options">
+        <label><input id="simulate-keyboard" type="checkbox" checked> 演示键盘占位</label>
+        <label><input id="reduce-motion" type="checkbox"> 减少动态效果</label>
+        <label><input id="offline" type="checkbox"> 模拟离线</label>
+        <label><input id="fail-save" type="checkbox"> 下次本地保存失败</label>
+        <div class="review-actions"><button id="receive">收到一条消息</button><button id="lock">立即锁定</button><button id="reset">重置演示</button></div>
+      </div>
+      <p class="review-note">键盘是占位模拟。原型用于确认交互，不代表 iPhone Safari 真机性能或正式产品已完成。</p>
+      <a class="flow-link" href="flow.html">查看交互流程与验收边界 ↗</a>
+    </aside>
+    <section class="preview-area" aria-label="聊天原型">
+      <div class="phone">
+        <section class="chat" aria-label="Quiet Room 模拟聊天">
+          <header class="chat-top"><span class="space-name">我们的空间⌄</span><span class="presence">● 对方在线</span><button id="more" class="icon" aria-label="聊天操作">•••</button></header>
+          <div class="timeline-area">
+            <div id="timeline" role="region" aria-label="消息记录" tabindex="0"></div>
+            <div class="floating-controls"><button id="return" hidden>↩ 返回刚才位置</button><button id="latest" hidden>↓ 最新消息</button></div>
+            <div id="notice" role="status" hidden></div>
+          </div>
+          <form id="composer" class="input-area">
+            <div id="reply-draft" hidden><div><strong>回复对方</strong><span id="reply-text"></span></div><button id="cancel-reply" type="button" class="icon" aria-label="取消回复">×</button></div>
+            <div class="input-row"><button id="attach" class="icon" type="button" aria-label="发送模拟图片">＋</button><div class="text-stack"><textarea id="draft" rows="1" aria-label="消息" placeholder="消息"></textarea><button id="expressions" class="icon" type="button" aria-label="打开表情" aria-expanded="false">☺</button></div><button id="send" class="send icon" type="submit" aria-label="发送消息">↑</button></div>
+          </form>
+          <section id="deck" hidden aria-label="输入面板">
+            <div id="keyboard" hidden><div class="panel-top"><small>键盘占位模拟</small><button id="dismiss-keyboard" aria-label="收起键盘">收起⌄</button></div><div class="key-rows" aria-hidden="true"><div>Q W E R T Y U I O P</div><div>A S D F G H J K L</div><div>Z X C V B N M</div><div class="space-key">空格</div></div></div>
+            <div id="picker" hidden><div class="panel-top"><div class="categories" role="group" aria-label="表情分类"><button data-category="recent" aria-pressed="true">最近</button><button data-category="favorites" aria-pressed="false">收藏</button></div><button id="to-keyboard" aria-label="返回键盘">键盘⌨</button></div><div id="expression-grid" aria-label="表情列表"></div><p class="picker-note">演示表情 · 可连续发送</p></div>
+          </section>
+        </section>
+        <div id="privacy" hidden><p>聊天已锁定</p><small>过渡与临时预览已立即清理</small><button id="unlock">重新开始模拟聊天</button></div>
+        <dialog id="menu" aria-label="消息操作"><div class="menu-reactions"><button data-react="👍" aria-label="回应赞">👍</button><button data-react="❤️" aria-label="回应爱心">❤️</button><button data-react="🙂" aria-label="回应微笑">🙂</button></div><button id="menu-reply">↩ 回复</button><button id="menu-select">选择文字</button><button id="menu-close">关闭</button></dialog>
+        <dialog id="viewer" aria-label="模拟图片查看器"><div class="viewer-toolbar"><button id="close-viewer" class="icon" aria-label="关闭图片">×</button><span>模拟图片</span><button id="favorite" class="icon" aria-label="收藏图片" aria-pressed="false">☆</button></div><div class="viewer-art" role="img" aria-label="蓝色山景示意图"></div><p>下滑关闭，回到刚才的位置</p></dialog>
+      </div>
+      <p id="scenario-caption" class="caption" aria-live="polite">可直接输入并发送；长按或右键打开消息菜单。</p>
+    </section>
+  </main>
+</body>
+</html>
