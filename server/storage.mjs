@@ -8,6 +8,7 @@ import path from 'node:path';
 import { canonicalStringify, isCanonicalUtcTimestamp, validRetentionBoundary, validMessageRetention } from './protocol.mjs';
 import { createCloudBackups } from './cloud-backups.mjs';
 import { createJointRecovery } from './joint-recovery.mjs';
+import { verifyPendingDeletion } from '../src/lib/pending-space-proof.mjs';
 
 function nowIso() {
   return new Date().toISOString();
@@ -551,6 +552,21 @@ export async function createStore({
       db.exec('ROLLBACK');
       throw error;
     }
+  }
+
+  async function deletePendingRoom(roomId, proof, catalog) {
+    const source = getMember(roomId, proof?.certificate?.sourceDeviceId);
+    if (catalog?.value?.roomId !== roomId || !await verifyPendingDeletion(roomId, proof, catalog, source)) throw new Error('UNAUTHORIZED');
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const current = getMember(roomId, source.deviceId), room = statements.room.get(roomId);
+      if (!room || !current || current.status !== 'active' || canonicalStringify(current.signingKey) !== canonicalStringify(source.signingKey)) throw new Error('UNAUTHORIZED');
+      if (room.sealed_at || statements.memberCount.get(roomId).count > 1) throw new Error('ROOM_SEALED');
+      browserCatalogs.saveForMember(catalog.id, current, catalog.value);
+      db.prepare('DELETE FROM rooms WHERE room_id = ?').run(roomId);
+      db.exec('COMMIT');
+      return { deleted: true };
+    } catch (cause) { db.exec('ROLLBACK'); throw cause; }
   }
 
   function deleteRoom(roomId, accessToken, catalog) {
@@ -1525,6 +1541,7 @@ export async function createStore({
     createDeviceLink,
     createRepairLink,
     deleteRoom,
+    deletePendingRoom,
     getBlobChunk,
     getMember,
     getMessage,

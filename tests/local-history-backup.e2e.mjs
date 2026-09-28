@@ -48,6 +48,25 @@ try {
     for (const message of messages) await v.saveHistoryMessage(session, message);
     await v.saveUiPreferences(session, { hiddenChatMessageIds: [messages[0].clientMsgId] });
     const controller = new AbortController();
+    // IDB open yields while a normal vault save commits. The same live session
+    // must read its latest snapshot, while an independently stale session fails.
+    const oldSession = { ...session };
+    const realOpen = IDBFactory.prototype.open;
+    IDBFactory.prototype.open = function (...args) {
+      IDBFactory.prototype.open = realOpen;
+      const request = realOpen.apply(this, args);
+      request.addEventListener('success', async event => {
+        event.stopImmediatePropagation();
+        await v.saveVault(session);
+        request.onsuccess?.call(request, event);
+      }, { once: true });
+      return request;
+    };
+    const chunkBytes = Math.min(manifest.chunkSize, manifest.originalSize) + 16;
+    const concurrentRead = await v.loadCachedMediaChunk(session, manifest.blobId, 0, chunkBytes);
+    let staleRejected = false;
+    try { await v.loadCachedMediaChunk(oldSession, manifest.blobId, 0, chunkBytes); }
+    catch (error) { staleRejected = error.name !== 'AbortError' && error.message.includes('本机会话'); }
     const stage = async (name, run) => { try { return await run(); } catch (error) { throw new Error(`${name}: ${error.name}: ${error.message}`); } };
     const output = await stage('create temporary file', () => createLocalBackupFile(controller.signal));
     const exported = await stage('export archive', () => b.exportLocalHistory(session, output.sink, controller.signal));
@@ -90,11 +109,13 @@ try {
     app.session = session; app.privacyCovered = false; app.runtimeAbort = new AbortController();
     document.body.className = 'app-mode'; app.revealPrivacySurface(); app.renderLocalHistoryBackup();
     window.fixtureApp = app;
-    return { exported, imported, repeated, damagedRejected, cleanAfterDamage, originalEqual, hiddenPreserved,
+    return { concurrentRead: concurrentRead?.byteLength === chunkBytes, staleRejected, exported, imported, repeated, damagedRejected, cleanAfterDamage, originalEqual, hiddenPreserved,
       hiddenSurvivesQueuedSave, wrongRole, wrongRoom, wrongIdentity, network, lastSeq: unchangedSeq,
       categories: { text: exported.text, images: exported.images, videos: exported.videos, voice: exported.voice, files: exported.files, expressions: exported.expressions } };
   });
   assert.equal(result.exported.messages, 3);
+  assert.equal(result.concurrentRead, true, 'same-session save interrupted a cache read');
+  assert.equal(result.staleRejected, true, 'independent stale session must remain rejected with its actual cause');
   assert.equal(result.exported.attachments, 1);
   assert.equal(result.exported.missingAttachments, 1);
   assert.deepEqual(result.categories, { text: 1, images: 0, videos: 2, voice: 0, files: 0, expressions: 0 });

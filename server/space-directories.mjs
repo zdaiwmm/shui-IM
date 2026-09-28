@@ -13,16 +13,12 @@ export function createSpaceDirectories(db, { authenticatedDevice }, browserCatal
     sealed TEXT NOT NULL, request_hash BLOB NOT NULL
   )`);
   const row = id => db.prepare(`SELECT * FROM ${table} WHERE id=?`).get(id);
-  return {
-    fetch(id, capability) {
-      const current = row(id);
-      if (!current || !matches(capability, current.fetch_hash)) fail('BACKUP_UNAVAILABLE');
-      return { revision: current.revision, sealed: JSON.parse(current.sealed) };
-    },
-    save(id, deviceToken, value) {
-      if (!value || typeof value.roomId !== 'string') fail('INVALID_BACKUP');
-      const member = authenticatedDevice(value.roomId, deviceToken);
+  function saveForMember(id, member, value) {
       if (!member) fail('UNAUTHORIZED');
+      if (!value || typeof value.roomId !== 'string') fail('INVALID_BACKUP');
+      return save(id, member, value);
+  }
+  function save(id, member, value) {
       if (!/^[A-Za-z0-9_-]{22}$/.test(id) || !token(value.fetchToken) || !token(value.writeToken) || !Number.isSafeInteger(value.revision) || value.revision < 1 ||
           !/^[A-Za-z0-9_-]{16}$/.test(value.sealed?.iv ?? '') || typeof value.sealed?.ciphertext !== 'string' || value.sealed.ciphertext.length > maxCiphertext || !/^[A-Za-z0-9_-]{22,}$/.test(value.sealed.ciphertext) ||
           Object.keys(value).some(k => !['roomId','revision','fetchToken','writeToken','sealed'].includes(k)) || Object.keys(value.sealed).sort().join(',') !== 'ciphertext,iv') fail('INVALID_BACKUP');
@@ -42,6 +38,18 @@ export function createSpaceDirectories(db, { authenticatedDevice }, browserCatal
         }
         db.exec('RELEASE space_directory_write'); return { revision: value.revision };
       } catch (cause) { db.exec('ROLLBACK TO space_directory_write'); db.exec('RELEASE space_directory_write'); throw cause; }
+  }
+  return {
+    // Internal only: callers must authenticate the signed room management proof.
+    saveForMember,
+    fetch(id, capability) {
+      const current = row(id);
+      if (!current || !matches(capability, current.fetch_hash)) fail('BACKUP_UNAVAILABLE');
+      return { revision: current.revision, sealed: JSON.parse(current.sealed) };
+    },
+    save(id, deviceToken, value) {
+      if (!value || typeof value.roomId !== 'string') fail('INVALID_BACKUP');
+      return saveForMember(id, authenticatedDevice(value.roomId, deviceToken), value);
     },
   };
 }

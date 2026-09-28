@@ -115,6 +115,17 @@ try {
   await old.page.evaluate(async localId => { await app.switchPrivateSpace({roomId:'',name:'',localId}); }, originalSlot);
   await old.page.locator('#message-input').waitFor();
   await fresh.page.locator('#open-spaces').click();
+  const pendingPreparation=await old.page.evaluate(async roomId=>{
+    const spaces=await (await import('/src/lib/spaces.ts')).localSpaces(app.session);
+    const slot=spaces.find(s=>s.roomId===roomId).localId,selected=v.currentSpaceId();
+    const target=await v.unlockOwnedPendingSpace(slot,app.deviceCredential);
+    const correct=target?.vault.roomId===roomId && v.currentSpaceId()===selected;
+    if(target)v.releaseDeviceCredential(target);
+    const wrong=await v.unlockOwnedPendingSpace(slot,{...app.deviceCredential,record:{...app.deviceCredential.record,credentialId:'unrelated'}});
+    const established=await v.unlockOwnedPendingSpace(selected,app.deviceCredential);
+    return correct && wrong===null && established===null && v.currentSpaceId()===selected;
+  },waitingRoom);
+  assert.equal(pendingPreparation,true,'pending migration must preserve selection and exclude other credentials/established rooms');
   await fresh.page.waitForFunction(roomId => app.browserProfile.profile.spaces.some(s => s.roomId === roomId), waitingRoom);
   await fresh.page.getByText(/等待对方加入 · 剩余/).waitFor();
   await old.page.locator('#open-spaces').click();
@@ -153,12 +164,34 @@ try {
   });
   await old.page.locator('.space-row.is-selected').click({button:'right'});await old.page.locator('#space-delete').click();
   await old.page.locator('.space-drawer-overlay .form-error').filter({hasText:/./}).waitFor();
-  assert.equal(service.store.roomState(currentWaiting), null);
+  assert.equal(Boolean(service.store.roomState(currentWaiting)), false, await old.page.locator('.space-drawer-overlay .form-error').textContent());
   await old.page.unroute(`**/api/rooms/${currentWaiting}`);
   await old.page.locator('.space-row.is-selected').click({button:'right'});await old.page.locator('#space-delete').click();
   await old.page.locator('.space-drawer-overlay').waitFor({state:'detached'});
   assert.notEqual(await old.page.evaluate(() => app.session?.vault.roomId), currentWaiting);
   await fresh.page.waitForFunction(roomId => !app.browserProfile.profile.spaces.some(s => s.roomId === roomId), currentWaiting);
+  // A room created on the newly approved device appears on the original
+  // device, which can delete it without possessing that room's vault/token.
+  const freshSlot=await fresh.page.evaluate(()=>v.currentSpaceId());
+  await fresh.page.evaluate(()=>app.createPrivateSpace());await fresh.page.locator('#copy-invite').waitFor();
+  const remoteWaiting=await fresh.page.evaluate(()=>app.session.vault.roomId);
+  await fresh.page.waitForFunction(async()=>{
+    await app.refreshSpaceCatalog(app.runtimeAbort.signal);
+    return !!app.browserProfile?.profile.spaces.find(s=>s.roomId===app.session.vault.roomId)?.pendingManagement;
+  });
+  await fresh.page.evaluate(async localId=>app.switchPrivateSpace({roomId:'',name:'',localId}),freshSlot);
+  await fresh.page.locator('#message-input').waitFor();
+  await fresh.page.locator('#open-spaces').click();
+  await old.page.locator('#open-spaces').click();
+  await old.page.waitForFunction(id=>app.browserProfile.profile.spaces.some(s=>s.roomId===id),remoteWaiting);
+  const remoteRow=old.page.locator('.space-row').filter({hasText:'等待对方加入'});
+  assert.equal(await old.page.evaluate(async id=>(await (await import('/src/lib/spaces.ts')).localSpaces(app.session)).some(s=>s.roomId===id),remoteWaiting),false);
+  await remoteRow.click({button:'right'});await old.page.locator('#space-delete').click();
+  await remoteRow.waitFor({state:'detached'});
+  assert.equal(Boolean(service.store.roomState(remoteWaiting)),false);
+  await fresh.page.waitForFunction(id=>app.browserProfile.profile.removed.includes(id),remoteWaiting);
+  await fresh.page.getByText(/等待对方加入 · 剩余/).waitFor({state:'detached'});
+  await old.page.locator('.space-close').click();await fresh.page.locator('.space-close').click();
   const profileRace=await fresh.page.evaluate(async bytes=>{
     const saved=await v.readBrowserAccessRecord(),prf=new Uint8Array(bytes);
     const a=await access.loadBrowserProfile(prf,saved.record.credentialId),b=await access.loadBrowserProfile(prf,saved.record.credentialId),signal=new AbortController().signal;
