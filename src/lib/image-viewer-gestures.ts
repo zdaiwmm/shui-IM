@@ -1,3 +1,4 @@
+import { motion } from './motion';
 type Point = { x: number; y: number };
 type Axis = 'x' | 'y' | null;
 type ActivePointer = Point & { pointerType: string };
@@ -56,8 +57,8 @@ const PINCH_UNDERSCALE_LIMIT = 0.28;
 const PINCH_OVERSCALE_LIMIT = 5.42;
 const DRAG_SHRINK_LIMIT = 1 / 2;
 const ZOOM_DURATION = 340;
-const RETURN_DURATION = 180;
-const MOTION_EASING = 'cubic-bezier(.22,.72,.2,1)';
+const RETURN_DURATION = 260;
+const MOTION_EASING = motion.settle;
 
 function resistEdgeDistance(distance: number, extent: number): number {
   const safeExtent = Math.max(extent, 1);
@@ -82,8 +83,8 @@ export function bindImageViewerGestures(options: ImageViewerGestureOptions): Ima
   const { stage, viewer } = options;
   const events = new AbortController();
   const now = options.now ?? (() => performance.now());
-  const reducedMotion = options.reducedMotion ??
-    (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const preference = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+  let reducedMotion = options.reducedMotion ?? Boolean(preference?.matches);
   const pointers = new Map<number, ActivePointer>();
   const blockedPointers = new Set<number>();
   const previousTouchAction = stage.style.touchAction;
@@ -157,12 +158,20 @@ export function bindImageViewerGestures(options: ImageViewerGestureOptions): Ima
     syncTransformSuppression();
     if (!animation) return;
     if (finish) {
-      try { animation.finish(); } catch { /* A detached target has no finishable effect. */ }
+      const target = (animation.effect as KeyframeEffect | null)?.target;
+      if (target && target instanceof HTMLElement && target.isConnected) {
+        const painted = getComputedStyle(target).transform;
+        const matrix = new DOMMatrixReadOnly(painted);
+        pan = { x: matrix.m41, y: matrix.m42 };
+        scale = Math.hypot(matrix.m11, matrix.m12);
+        target.style.transform = painted;
+      }
     }
     animation.cancel();
   };
   const animateTransform = (target: ViewerMedia, next: string, duration: number, from = target.style.transform || 'none') => {
-    cancelTransformAnimation(true);
+    if (transformAnimation) from = getComputedStyle(target).transform;
+    cancelTransformAnimation();
     // The stylesheet owns a transform transition for double-click zoom. Keep it
     // suppressed for the entire WAAPI transaction so only one animator ever
     // owns transform, including on WebKit.
@@ -769,6 +778,11 @@ export function bindImageViewerGestures(options: ImageViewerGestureOptions): Ima
     if (now() < suppressDblClickUntil) return;
     lastTap = null;
     beginProgrammaticZoom({ x: event.clientX, y: event.clientY });
+  }, { signal: events.signal });
+
+  if (options.reducedMotion === undefined) preference?.addEventListener?.('change', () => {
+    reducedMotion = Boolean(preference.matches);
+    if (reducedMotion) cancelTransformAnimation();
   }, { signal: events.signal });
 
   return {

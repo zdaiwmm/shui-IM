@@ -1,3 +1,5 @@
+import { afterMotion, motion, retargetMotion } from './motion';
+
 type DialogOptions = {
   isActive: () => boolean;
   signal?: AbortSignal;
@@ -13,6 +15,7 @@ type CloseOptions = { animate?: boolean; restoreFocus?: boolean };
 // owner releases a background surface, preserving any pre-existing inert state.
 const inertOwners = new WeakMap<HTMLElement, { count: number; wasInert: boolean }>();
 const dialogClosers = new WeakMap<HTMLElement, (options?: CloseOptions) => void>();
+const dialogOrigins = new WeakMap<HTMLElement, HTMLElement | null>();
 
 export function closeDialog(sheet: HTMLElement, options?: CloseOptions): boolean {
   const close = dialogClosers.get(sheet);
@@ -22,13 +25,25 @@ export function closeDialog(sheet: HTMLElement, options?: CloseOptions): boolean
 }
 
 export function mountDialog(sheet: HTMLElement, options: DialogOptions) {
+  // Reopening a retiring shared surface transfers only presentation values,
+  // never old content, callbacks or focus ownership.
+  const kind = sheet.classList[0];
+  const retiring = kind ? [...(sheet.parentElement?.children ?? [])].find((node): node is HTMLElement =>
+    node instanceof HTMLElement && node !== sheet && node.classList.contains(kind) && node.classList.contains('is-closing')) : undefined;
+  const retiringChild = retiring?.firstElementChild;
+  const retiringOrigin = retiring ? dialogOrigins.get(retiring) : undefined;
+  const fromOpacity = retiring ? getComputedStyle(retiring).opacity : undefined;
+  const fromTransform = retiringChild instanceof HTMLElement ? getComputedStyle(retiringChild).transform : undefined;
+  if (retiring) closeDialog(retiring, { animate: false, restoreFocus: false });
+  const arrival: Animation[] = [];
   const focusAtMount = document.activeElement;
   let closed = false;
   let finished = false;
-  let timer: number | undefined;
+  let cancelFinish: (() => void) | undefined;
   let detachObserver: MutationObserver | null = null;
   const parent = sheet.parentElement;
-  const origin = options.returnFocus ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  const origin = options.returnFocus ?? retiringOrigin ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  dialogOrigins.set(sheet, origin);
   const backgrounds = [...(sheet.parentElement?.children ?? [])]
     .filter((node): node is HTMLElement => node instanceof HTMLElement && node !== sheet);
   const releaseBackgrounds = () => {
@@ -54,10 +69,12 @@ export function mountDialog(sheet: HTMLElement, options: DialogOptions) {
   const finish = (restoreFocus: boolean) => {
     if (finished) return;
     finished = true;
+    arrival.forEach(animation => animation.cancel());
     detachObserver?.disconnect();
     detachObserver = null;
     dialogClosers.delete(sheet);
-    if (timer !== undefined) window.clearTimeout(timer);
+    dialogOrigins.delete(sheet);
+    cancelFinish?.();
     options.signal?.removeEventListener('abort', onAbort);
     sheet.removeEventListener('keydown', onKeyDown);
     sheet.remove();
@@ -72,13 +89,24 @@ export function mountDialog(sheet: HTMLElement, options: DialogOptions) {
     if (animate && options.beforeClose && !options.beforeClose()) return;
     closed = true;
     sheet.inert = true;
+    const painted = arrival.flatMap(animation => {
+      const target = (animation.effect as KeyframeEffect | null)?.target;
+      if (!(target instanceof HTMLElement) || animation.playState === 'finished') return [];
+      const property = target === sheet ? 'opacity' : 'transform';
+      return [{ target, property, value: getComputedStyle(target).getPropertyValue(property) }];
+    });
+    for (const item of painted) item.target.style.setProperty(item.property, item.value);
+    arrival.forEach(animation => animation.cancel());
+    arrival.length = 0;
+    if (painted.length) void sheet.offsetHeight;
     sheet.classList.remove('is-visible');
     sheet.classList.add('is-closing');
+    for (const item of painted) item.target.style.removeProperty(item.property);
     options.onClose?.();
     if (!animate || !options.isActive() || !sheet.isConnected || matchMedia('(prefers-reduced-motion: reduce)').matches) {
       finish(restoreFocus);
     } else {
-      timer = window.setTimeout(() => finish(restoreFocus), 320);
+      cancelFinish = afterMotion(sheet, () => finish(restoreFocus));
     }
   };
   const onAbort = () => close({ animate: false, restoreFocus: false });
@@ -115,6 +143,22 @@ export function mountDialog(sheet: HTMLElement, options: DialogOptions) {
   else requestAnimationFrame(() => {
     if (closed || !sheet.isConnected || !options.isActive()) return;
     sheet.classList.add('is-visible');
+    if (fromOpacity !== undefined) {
+      const fade = retargetMotion(sheet, null, { opacity: fromOpacity }, { opacity: 1 }, motion.panel);
+      if (fade) arrival.push(fade);
+      if (fromTransform && sheet.firstElementChild instanceof HTMLElement) {
+        const child = sheet.firstElementChild;
+        // is-visible may have just started a CSS transition. Its painted
+        // transform is not the destination; let this WAAPI effect own the
+        // property and read the visible rule after cancelling that transition.
+        for (const animation of child.getAnimations()) {
+          if (animation instanceof CSSTransition && animation.transitionProperty === 'transform') animation.cancel();
+        }
+        const slide = retargetMotion(child, null, { transform: fromTransform },
+          { transform: getComputedStyle(child).transform }, motion.panel, motion.settle);
+        if (slide) arrival.push(slide);
+      }
+    }
     // An early click/fill can focus an input before this deferred frame runs.
     // Preserve that interaction: stealing focus can turn Enter into Back/Close.
     if (document.activeElement !== focusAtMount && sheet.contains(document.activeElement)) return;

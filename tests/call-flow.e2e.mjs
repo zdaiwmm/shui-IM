@@ -32,7 +32,29 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
     await phase(callee, 'incoming').waitFor({ timeout: 15_000 });
     assert.equal(await callee.evaluate(() => window.__callFlow.requests), before, 'An incoming call must not capture before user acceptance');
     await callee.locator('.call-answer').click();
-    await Promise.all(pages.map((page) => phase(page, 'connected').waitFor({ timeout: 20_000 })));
+    await Promise.all(pages.map((page) => phase(page, 'connected').waitFor({ timeout: 20_000 }))).catch(async cause => {
+      // Report only synthetic state/counters, never SDP, addresses or ICE credentials.
+      const participants = await Promise.all(pages.map(page => page.evaluate(async () => {
+        const view = document.querySelector('.call-view');
+        const peers = await Promise.all(window.__callFlow.peers.map(async peer => {
+          const reports = [...(await peer.getStats()).values()];
+          return {
+            connection: peer.connectionState, ice: peer.iceConnectionState,
+            gathering: peer.iceGatheringState, signaling: peer.signalingState,
+            localDescription: peer.localDescription?.type, remoteDescription: peer.remoteDescription?.type,
+            candidates: reports.filter(report => /^(local|remote)-candidate$/.test(report.type))
+              .map(report => ({ side: report.type, type: report.candidateType, protocol: report.protocol })),
+            pairs: reports.filter(report => report.type === 'candidate-pair')
+              .map(report => ({ state: report.state, nominated: report.nominated, requestsSent: report.requestsSent,
+                responsesReceived: report.responsesReceived, bytesSent: report.bytesSent, bytesReceived: report.bytesReceived })),
+          };
+        }));
+        return { phase: view?.dataset.phase, status: view?.querySelector('.call-status')?.textContent,
+          hidden: document.hidden, captureRequests: window.__callFlow.requests, peers };
+      })));
+      process.stderr.write(`Call connection failure: ${JSON.stringify({ errors, participants })}\n`);
+      throw cause;
+    });
   };
   const dismiss = async (page) => {
     await phase(page, 'ended').waitFor();

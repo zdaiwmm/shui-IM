@@ -304,8 +304,12 @@ try {
   await page.evaluate(() => {
     const f = window.fixture; f.batchLimit = 1; f.rateLimit = true; f.rateLimitAt = f.requests + 3; f.retryAfter = 1;
   });
+  // Keep the exact submitted input: replacing a retiring shared surface may
+  // remove it before the next browser command. Even detached inputs must clear.
+  const submittedCodeInput = await page.locator('.history-restore-sheet:not(.is-closing) textarea').elementHandle();
   await page.locator('[type=submit]').click();
-  assert.equal(await page.locator('.history-restore-sheet.is-closing textarea').inputValue(), '', 'code is cleared during exit animation');
+  assert.equal(await submittedCodeInput.evaluate(input => input.value), '', 'code is cleared synchronously before exit or replacement');
+  await submittedCodeInput.dispose();
   await page.getByText('备份服务繁忙，等待后自动继续', { exact: true }).waitFor();
   assert.equal(await page.locator('[data-count=chat]').textContent(), '待恢复 1 条');
   assert.equal(await page.locator('[data-count=gallery]').textContent(), '待恢复 1 条');

@@ -1,3 +1,4 @@
+import { motion, retargetMotion } from './motion';
 import { createElement, Image as ImageIcon, Video, RotateCcw, X } from 'lucide';
 import { setChatMediaDimensions } from './chat-media-geometry';
 import { readMediaDimensions, type MediaDimensions } from './media-dimensions';
@@ -20,6 +21,7 @@ export class MediaUploadView {
   private readonly status = document.createElement('div');
   private readonly tile = document.createElement('div');
   private readonly kind: string;
+  private statusMotion: Animation | null = null;
 
   constructor(id: string, files: File[], expression: boolean, autoHide: boolean,
     retry: () => void, remove: () => void, changed: () => void, gif = false) {
@@ -100,8 +102,11 @@ export class MediaUploadView {
     const value = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
     this.percent.textContent = `${value}%`;
     this.percent.hidden = state !== 'uploading';
+    const previousLabel = this.label.textContent;
     this.label.textContent = state === 'preparing' ? '准备中' : state === 'finishing' ? '发送中'
       : state === 'failed' ? '上传失败' : '上传中';
+    if (previousLabel !== this.label.textContent) this.statusMotion = retargetMotion(this.label, this.statusMotion,
+      { opacity: .6 }, { opacity: 1 }, motion.feedback);
     this.ring.hidden = state === 'failed';
     this.ring.style.setProperty('--upload-progress', `${value}%`);
     if (state === 'uploading') this.ring.setAttribute('aria-valuenow', String(value));
@@ -211,6 +216,7 @@ export class MediaUploadView {
 
   destroy(force = false): void {
     if (this.handedOff && !force) { this.element.remove(); return; }
+    this.statusMotion?.cancel(); this.statusMotion = null;
     this.abort.abort();
     for (const image of this.element.querySelectorAll('img')) image.removeAttribute('src');
     for (const url of this.urls) URL.revokeObjectURL(url);

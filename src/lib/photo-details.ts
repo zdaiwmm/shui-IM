@@ -1,3 +1,4 @@
+import { afterMotion, motion } from './motion';
 import { createElement, X } from 'lucide';
 import type { ImageManifest } from './types';
 import { photoDetailGroups, type PhotoTags } from './photo-detail-model';
@@ -66,11 +67,11 @@ export function mountPhotoDetails(viewer: HTMLElement, options: {
     content.replaceChildren(...sections);
   };
   let closing = false;
-  let closeTimer: ReturnType<typeof setTimeout> | undefined;
+  let cancelFinish: (() => void) | undefined;
   let resizeAnimation: Animation | undefined;
   let suppressExpandClickUntil = 0;
   const destroy = () => {
-    clearTimeout(closeTimer);
+    cancelFinish?.();
     resizeAnimation?.cancel();
     options.signal.removeEventListener('abort', destroy);
     controller.abort();
@@ -90,7 +91,7 @@ export function mountPhotoDetails(viewer: HTMLElement, options: {
     panel.inert = true;
     panel.classList.add('is-closing');
     backdrop.classList.add('is-closing');
-    closeTimer = setTimeout(destroy, 520);
+    cancelFinish = afterMotion(panel, destroy);
   };
   options.signal.addEventListener('abort', destroy, { once: true });
   const expand = () => {
@@ -102,7 +103,7 @@ export function mountPhotoDetails(viewer: HTMLElement, options: {
     expandButton.setAttribute('aria-disabled', 'true');
     if (!reducedMotion) resizeAnimation = panel.animate([
       { transform: `translateY(${top - panel.getBoundingClientRect().top}px)` }, { transform: 'translateY(0)' },
-    ], { duration: 620, easing: 'cubic-bezier(.22,.7,.18,1)' });
+    ], { duration: motion.panel, easing: motion.settle });
   };
   expandButton.addEventListener('click', () => { if (performance.now() >= suppressExpandClickUntil) expand(); });
   let drag: { x: number; y: number; offset: number; distance: number; content: boolean; allowed: boolean } | undefined;

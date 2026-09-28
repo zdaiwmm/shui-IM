@@ -217,7 +217,7 @@ try {
     }
     return { duration, offsets };
   });
-  assert.equal(animation.duration, 0.52);
+  assert.equal(animation.duration, 0.26);
   assert.ok(animation.offsets.length > 8 && animation.offsets.at(-1) > 200);
   assert.ok(animation.offsets.every((offset, index) => !index || offset >= animation.offsets[index - 1] - 1), 'dismissal must slide continuously downward');
   await page.locator('[data-viewer-details]').click(); await settle();
@@ -226,7 +226,7 @@ try {
     duration: getComputedStyle(panel).transitionDuration,
   }));
   assert.match(glass.filter, /blur\(/);
-  assert.equal(glass.duration, '0.52s');
+  assert.equal(glass.duration, '0.32s');
   assert.equal(await page.locator('.photo-details-content').evaluate(content => getComputedStyle(content).scrollbarWidth), 'none');
   await page.locator('.photo-details-backdrop').click({ position: { x: 15, y: 180 } });
   await page.waitForSelector('.photo-details', { state: 'detached' });

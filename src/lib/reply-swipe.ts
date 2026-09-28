@@ -22,6 +22,7 @@ export function bindReplySwipe(options: {
   enabled: () => boolean;
   exclude: (target: EventTarget | null) => boolean;
   maxOffset: () => number;
+  currentOffset?: () => number;
   move: (offset: number, armed: boolean) => void;
   settle: (activated: boolean) => void;
   gestureStart?: () => void;
@@ -33,6 +34,10 @@ export function bindReplySwipe(options: {
     x: number;
     y: number;
     startedAt: number;
+    lastX: number;
+    lastAt: number;
+    velocity: number;
+    originOffset: number;
     axis: 'horizontal' | 'vertical' | null;
     armed: boolean;
   } | null = null;
@@ -53,21 +58,31 @@ export function bindReplySwipe(options: {
     const vertical = event.clientY - active.y;
     if (!active.axis && Math.hypot(horizontal, vertical) > 8) {
       active.axis = horizontal > 0 && Math.abs(horizontal) > Math.abs(vertical) * 1.15 ? 'horizontal' : 'vertical';
-      if (active.axis === 'horizontal') options.gestureStart?.();
+      if (active.axis === 'horizontal') {
+        active.originOffset = options.currentOffset?.() ?? 0;
+        options.gestureStart?.();
+      }
     }
     if (active.axis !== 'horizontal') return;
     if (event.cancelable) event.preventDefault();
     const distance = Math.max(0, horizontal);
-    active.armed = distance >= REPLY_SWIPE_THRESHOLD_PX;
-    options.move(replySwipeOffset(distance, options.maxOffset()), active.armed);
+    const at = performance.now();
+    const elapsed = at - active.lastAt;
+    if (elapsed > 0) active.velocity = (distance - active.lastX) / elapsed;
+    active.lastX = distance;
+    active.lastAt = at;
+    active.armed = distance >= (active.armed ? REPLY_SWIPE_THRESHOLD_PX - 14 : REPLY_SWIPE_THRESHOLD_PX);
+    const maximum = options.maxOffset();
+    const originDistance = maximum > 0 ? maximum * Math.atanh(Math.min(.99, active.originOffset / maximum)) : 0;
+    options.move(replySwipeOffset(distance + originDistance, maximum), active.armed);
   };
 
   const end = (event: PointerEvent, cancelled: boolean) => {
     const active = gesture;
     if (!active || active.pointerId !== event.pointerId) return;
     const distance = active.x - event.clientX;
-    const elapsed = Math.max(1, performance.now() - active.startedAt);
-    const fastCommit = active.axis === 'horizontal' && distance > 44 && distance / elapsed > 0.72;
+    const velocity = performance.now() - active.lastAt < 90 ? active.velocity : 0;
+    const fastCommit = active.axis === 'horizontal' && distance > 44 && velocity > 0.72;
     const activated = !cancelled && active.axis === 'horizontal' && (active.armed || fastCommit);
     reset(activated);
   };
@@ -80,6 +95,7 @@ export function bindReplySwipe(options: {
       x: event.clientX,
       y: event.clientY,
       startedAt: performance.now(),
+      lastX: 0, lastAt: performance.now(), velocity: 0, originOffset: 0,
       axis: null,
       armed: false,
     };

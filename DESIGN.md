@@ -34,7 +34,7 @@ Use `.glass-surface`, `.glass-control`, and `.glass-panel` for future bounded co
 
 ## Motion
 
-Existing lifecycle and keyboard motion remain authoritative. The design layer only adds visual feedback and uses the existing `--motion-out` curve. Decorative transitions are disabled when `prefers-reduced-motion: reduce` is active. CSS layout properties are not animated.
+Lifecycle and native keyboard geometry remain authoritative. Shared presentation tokens live in `src/motion.css`; finite effects, interrupted transitions and gesture settling use `src/lib/motion.ts`. Controls, message layout, navigation and media have distinct timing and easing. Reply and invitation gestures settle with critical damping; repeated navigation and media gestures continue from the painted state. Decorative motion is disabled for reduced motion. Privacy cleanup, recording/call termination and business success never wait for animation. CSS layout properties are not animated. Root/browser sampling surfaces match the active page; native Safari toolbar transparency is not guaranteed.
 
 ## Accessibility and Performance
 

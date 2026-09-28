@@ -10,6 +10,7 @@ import { QuietRoomApp } from './app';
 import { startReleaseUpdateDetection } from './lib/release-update';
 import { mountSystemChrome } from './lib/system-chrome';
 import { mountPortraitOrientation } from './lib/portrait-orientation';
+import './motion.css';
 
 // Keep zooming inside purpose-built media viewers instead of allowing a
 // double tap/click to scale the whole browser page. The viewport declaration

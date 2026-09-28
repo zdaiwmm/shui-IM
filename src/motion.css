@@ -1,0 +1,80 @@
+/* Shared presentation vocabulary; keyboard geometry and privacy keep their own lifecycle. */
+:root {
+  --motion-out: cubic-bezier(.18, .88, .24, 1);
+  --motion-settle: cubic-bezier(.2, .82, .22, 1);
+  --motion-travel: cubic-bezier(.24, .72, .18, 1);
+  --motion-feedback: 180ms;
+  --motion-local: 220ms;
+  --motion-panel: 320ms;
+  --motion-page: 340ms;
+  --motion-menu-in: 280ms;
+  --motion-menu-out: 220ms;
+  --chrome-tint: var(--paper);
+}
+
+/* root/body are the browser's sampled canvas, including both safe areas. */
+html, body { background-color: var(--chrome-tint); }
+html:has(#app > :is(.backup-page, .cover)) { --chrome-tint: var(--paper-pure); }
+
+/* Bounded controls compress; large rows and media retain their geometry. */
+:is(.icon-button, .send-button, .viewer-control, .voice-control, .voice-toggle, .call-control-disc) {
+  transition: scale var(--motion-feedback) var(--motion-settle),
+    background-color var(--motion-feedback) var(--motion-out),
+    color var(--motion-feedback) var(--motion-out), filter var(--motion-feedback) var(--motion-out);
+}
+:is(.icon-button, .send-button, .viewer-control, .voice-control, .voice-toggle):not(:disabled):active,
+.call-control:not(:disabled):active .call-control-disc { scale: .94; transition-duration: 70ms; }
+:is(button, [role="switch"], summary, label[role="button"]):focus-visible {
+  outline: 2px solid var(--focus); outline-offset: 3px;
+}
+button[aria-busy="true"] { cursor: progress; }
+button:disabled { cursor: default; }
+
+/* Spring owns the swipe offset; CSS must not add a second lagging interpolator. */
+.message.is-reply-settling > :not(.message-reply-swipe-indicator) { transition: none; }
+.message.is-reply-settling .message-reply-swipe-indicator { transition: opacity 120ms ease-out; }
+
+.gallery-tabs::before { transition: transform 280ms var(--motion-settle); }
+.photo-details { transition: transform var(--motion-panel) var(--motion-settle); }
+.photo-details.is-opening { animation-duration: var(--motion-panel); animation-timing-function: var(--motion-settle); }
+.photo-details.is-closing { animation-duration: 260ms; animation-timing-function: var(--motion-travel); }
+.photo-details.is-dragging { transition: none; }
+.notice { transition: opacity 180ms ease-out, transform 260ms var(--motion-settle); }
+.notice.is-leaving { transition-duration: 180ms; }
+.release-update-reminder { animation-duration: 300ms; }
+
+/* State changes are local; no replay on every progress/timer update. */
+.voice-waveform > * { transition: background-color 120ms ease-out, color 120ms ease-out; }
+.voice-play svg { animation: motion-icon-in 160ms var(--motion-out); }
+.voice-record-button.is-pressing { transform: scale(1.08); }
+.voice-recorder[data-hold-action="cancel"] .voice-hold-orb { border-color: var(--danger); }
+.voice-hold-orb { transition: background-color 160ms ease-out, border-color 160ms ease-out; }
+.call-control-disc svg { animation: motion-icon-in 160ms var(--motion-out); }
+.call-status { min-height: 1.5em; }
+:is(.field-error, .form-error, .recovery-flow-notice, .backup-result):not(:empty) {
+  animation: motion-state-in 180ms var(--motion-out);
+}
+:is(input, textarea, select) { transition: border-color 160ms ease-out, background-color 160ms ease-out; }
+:is(.space-row, .device-row, .recovery-scope-option, .backup-option) {
+  transition: background-color var(--motion-feedback) var(--motion-out), border-color var(--motion-feedback) var(--motion-out);
+}
+@keyframes motion-icon-in { from { opacity: .65; scale: .92; } to { opacity: 1; scale: 1; } }
+@keyframes motion-state-in { from { opacity: .7; } to { opacity: 1; } }
+
+/* Do not replay decorative motion after an OS accessibility change. */
+@media (prefers-reduced-motion: reduce) {
+  #app *, #app *::before, #app *::after, .notice, .release-update-reminder {
+    animation: none !important; transition: none !important; scroll-behavior: auto !important;
+  }
+  :is(.icon-button, .send-button, .viewer-control, .voice-control, .voice-toggle):active,
+  .call-control:active .call-control-disc { scale: 1; }
+}
+
+.space-invite-overlay.is-visible .space-invite-sheet { transform: translateY(var(--invite-drag, 0px)); }
+.space-invite-sheet.is-dragging { transition: none; }
+.space-invite-handle { touch-action: none; }
+.backup-toggle::before { transition: background-color var(--motion-feedback) var(--motion-out); }
+.backup-toggle span { transition: transform var(--motion-feedback) var(--motion-settle); }
+@media (prefers-reduced-motion: reduce) {
+  .space-invite-sheet, .backup-toggle span, .backup-toggle::before { transition: none; }
+}

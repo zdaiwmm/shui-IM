@@ -19,6 +19,7 @@ export class VoicePlayer {
   private url: string | null = null;
   private request: AbortController | null = null;
   private loading = false;
+  private displayedIcon = '';
   private error = '';
   private readonly button: HTMLButtonElement;
   private readonly seek: HTMLInputElement;
@@ -86,7 +87,8 @@ export class VoicePlayer {
     const current = Math.min(this.payload.durationMs, this.audio.currentTime * 1000 || 0);
     this.element.dataset.playing = String(!this.audio.paused);
     this.element.setAttribute('aria-busy', String(this.loading));
-    this.button.innerHTML = this.loading ? voiceIcons.stop : this.audio.paused ? voiceIcons.play : voiceIcons.pause;
+    const icon = this.loading ? voiceIcons.stop : this.audio.paused ? voiceIcons.play : voiceIcons.pause;
+    if (icon !== this.displayedIcon) { this.displayedIcon = icon; this.button.innerHTML = icon; }
     this.button.setAttribute('aria-label', this.loading ? '取消加载语音' : this.error ? '重试播放语音' : this.audio.paused ? '播放语音' : '暂停语音');
     this.seek.disabled = !this.url || !Number.isFinite(this.audio.duration);
     this.seek.value = String(current);

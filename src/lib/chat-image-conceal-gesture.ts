@@ -1,3 +1,4 @@
+import { motion } from './motion';
 type Point = { x: number; y: number };
 type Pull = {
   id: number;
@@ -88,7 +89,7 @@ export function bindChatImageConcealGesture(options: {
     target.classList.add('is-media-returning');
     const animation = target.animate(
       [{ transform: `translate3d(${ended.displaced}px, 0, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
-      { duration: 240, easing: 'cubic-bezier(.2, .72, .2, 1)' },
+      { duration: 260, easing: motion.settle },
     );
     settling = { target, animation };
     const release = () => {
