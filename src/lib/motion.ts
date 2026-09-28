@@ -73,14 +73,14 @@ export function settleValue(from: number, velocity: number, paint: (value: numbe
   let cancelled = false;
   let previous = performance.now();
   const started = previous;
-  let state = { position: from, velocity };
+  let state = { position: from, velocity: Math.max(-2000, Math.min(2000, velocity)) };
   const tick = (now: number) => {
     if (cancelled || !active()) return;
     if (reducedMotion() || document.hidden || now - started > 600
       || (Math.abs(state.position) < .15 && Math.abs(state.velocity) < 3)) {
       paint(0); finish(); return;
     }
-    state = dampedStep(state.position, state.velocity, 0, Math.min(.064, (now - previous) / 1000));
+    state = dampedStep(state.position, state.velocity, 0, Math.min(.064, (now - previous) / 1000), 32);
     previous = now;
     // A return-to-rest must not overshoot through the opposite gesture edge.
     state.position = Math.max(0, state.position);

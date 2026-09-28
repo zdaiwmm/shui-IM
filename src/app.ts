@@ -8413,7 +8413,10 @@ export class QuietRoomApp {
       },
       move: (offset, armed) => {
         const now = performance.now();
-        swipeVelocity = (offset - swipeOffset) / Math.max(1, now - swipeAt) * 1000;
+        const elapsed = now - swipeAt;
+        // Axis acquisition and its first paint can share a timestamp. That
+        // is not a measured fling; never amplify it into a long return tail.
+        swipeVelocity = elapsed >= 4 ? Math.max(-2000, Math.min(2000, (offset - swipeOffset) / elapsed * 1000)) : 0;
         swipeAt = now; swipeOffset = offset;
         article.style.setProperty('--reply-swipe-offset', `${offset}px`);
         const activationOffset = replySwipeOffset(REPLY_SWIPE_THRESHOLD_PX, replySwipeMaxOffset(window.visualViewport?.width ?? window.innerWidth));
