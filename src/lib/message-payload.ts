@@ -134,7 +134,9 @@ export function isMessagePayload(value: unknown): value is MessagePayload {
     if ('presentation' in payload && payload.presentation !== 'expression' && payload.presentation !== 'expression-hidden') return false;
     if ('expressionAutoHide' in payload && (typeof payload.expressionAutoHide !== 'boolean' ||
       (payload.presentation !== 'expression' && payload.presentation !== 'expression-hidden'))) return false;
-    const keys = ['v', 'kind', 'image', 'sentAt', 'presentation', 'expressionAutoHide'];
+    if ('expressionKind' in payload && ((payload.expressionKind !== 'gifs' && payload.expressionKind !== 'stickers') ||
+      (payload.presentation !== 'expression' && payload.presentation !== 'expression-hidden'))) return false;
+    const keys = ['v', 'kind', 'image', 'sentAt', 'presentation', 'expressionAutoHide', 'expressionKind'];
     if (payload.v === 1) return hasOnlyKeys(payload, keys);
     return hasOnlyKeys(payload, [...keys, 'replyTo']) && isReplyReference(payload.replyTo);
   }
