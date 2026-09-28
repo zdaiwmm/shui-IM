@@ -184,8 +184,8 @@
   }
 }
 
-/* Photos enter at their final size. Paging and dismissal use opacity only,
-   while pointer transforms belong exclusively to the image zoom/pan gesture. */
+/* Source expansion and paging belong to the media layer; zoom/pan belongs
+   to its image child. The viewer shell only fades. */
 #app > .image-viewer.is-visible,
 #app > .image-viewer.is-closing {
   transform: none;

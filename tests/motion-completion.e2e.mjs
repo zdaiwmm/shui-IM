@@ -17,7 +17,7 @@ const server = await createServer({
 let browser;
 try {
   await server.listen();
-  browser = process.env.QUIET_ROOM_TEST_BROWSER === 'webkit' ? await webkit.launch() : await chromium.launch({ channel: 'chrome' });
+  browser = process.env.QUIET_ROOM_TEST_BROWSER === 'webkit' ? await webkit.launch() : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   const evidence = process.env.MOTION_EVIDENCE_DIR;
   if (evidence) await mkdir(evidence, { recursive: true });
   const page = await browser.newPage({ ...(evidence ? { recordVideo: { dir: evidence, size: { width: 393, height: 695 } } } : {}), viewport: { width: 393, height: 695 }, isMobile: true, hasTouch: true,
@@ -113,9 +113,32 @@ try {
     const shortTap = Number.parseFloat(getComputedStyle(button).scale) || 1;
     await pause(250);
     const tapRest = Number.parseFloat(getComputedStyle(button).scale) || 1;
+    button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 31, isPrimary: true, button: 0 }));
+    await pause(80);
+    button.dispatchEvent(new PointerEvent('pointerout', { bubbles: true, pointerId: 31, relatedTarget: root }));
+    await pause(220);
+    const slideOutRest = Number.parseFloat(getComputedStyle(button).scale) || 1;
+    button.disabled = true;
+    button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 32, isPrimary: true, button: 0 }));
+    const disabledIgnored = !button.dataset.motionPressed;
+    button.disabled = false;
+    button.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: ' ' }));
+    button.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: ' ' }));
+    await new Promise(requestAnimationFrame);
+    const keyboardTap = Number.parseFloat(getComputedStyle(button).scale) || 1;
+    await pause(220);
+    const large = document.createElement('button'); large.textContent = 'Example action'; root.append(large);
+    let activated = false; large.addEventListener('click', () => { activated = true; });
+    large.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 33, isPrimary: true, button: 0 }));
+    await pause(80);
+    const largePressed = { opacity: Number(getComputedStyle(large).opacity), scale: getComputedStyle(large).scale };
+    large.click();
+    large.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: 33 }));
+    await pause(220);
+    const controls = { slideOutRest, disabledIgnored, keyboardTap, largePressed, activated, cancelRest: Number(getComputedStyle(large).opacity) };
     sampling = false; observers.forEach(observer => observer.disconnect());
     app.runtimeAbort.abort();
-    return { sends, removal, repeatedNotice, navigation, shortTap, tapRest,
+    return { sends, removal, repeatedNotice, navigation, shortTap, tapRest, controls,
       performance: { frameIntervals: frames.slice(1), longTasks, shifts, supported } };
   });
   if (!process.env.MOTION_BASELINE) {
@@ -125,6 +148,13 @@ try {
     assert.ok(result.navigation.duration < 340, JSON.stringify(result.navigation));
     assert.ok(result.shortTap < 1, `Short tap lost feedback: ${result.shortTap}`);
     assert.equal(result.tapRest, 1);
+    assert.equal(result.controls.slideOutRest, 1);
+    assert.equal(result.controls.disabledIgnored, true);
+    assert.ok(result.controls.keyboardTap < 1);
+    assert.ok(result.controls.largePressed.opacity < 1);
+    assert.ok(['none', '1'].includes(result.controls.largePressed.scale));
+    assert.equal(result.controls.activated, true);
+    assert.equal(result.controls.cancelRest, 1);
   }
   assert.deepEqual(errors, []);
   if (evidence) {

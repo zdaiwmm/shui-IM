@@ -1026,8 +1026,11 @@ try {
   const resumableFirstInput = await creator.locator('#image-input').elementHandle();
   invariant(resumableFirstInput, 'Initial resumable upload input is missing');
   await beginSyntheticFilePicker(resumableFirstInput);
+  // A chunk request proves the encrypted resume plan is durably saved. A fixed
+  // delay can lock before that stage on CI and test a different lifecycle.
+  const uploadingChunk = creator.waitForRequest(request => request.method() === 'PUT' && request.url().includes('/chunks/'));
   await resumableFirstInput.setInputFiles(resumableImage);
-  await creator.waitForTimeout(80);
+  await uploadingChunk;
   await blurOutsidePage(creator);
   await creator.locator(LOCK_SURFACE).first().waitFor();
   await creator.unroute('**/chunks/**');

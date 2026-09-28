@@ -105,6 +105,7 @@ try {
     }
     assert.equal(await draft.getAttribute('data-concealed'), String(!variant.includes('expression') || variant === 'hidden-expression'));
     assert.equal(await page.locator('#upload-progress').isVisible(), false, 'No global progress for chat media');
+    assert.ok(await page.locator('#upload-progress span').evaluate(bar => getComputedStyle(bar).width !== '0px'), 'Preparation must not zero the shared progress track for later file uploads');
     assert.equal(await draft.locator('.message-delivery').count(), 0, 'Upload is not a sent message');
     const width = await draft.locator('img').first().evaluate(image => image.naturalWidth);
     assert.equal(width <= 128, !variant.includes('expression') || variant === 'hidden-expression', 'Only concealed derivatives may be painted for private media');

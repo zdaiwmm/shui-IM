@@ -357,14 +357,28 @@ function setBusy(button: HTMLButtonElement, busy: boolean, busyLabel = '处理�
 }
 
 function viewerSourceTransform(source: HTMLElement | null | undefined, image: HTMLElement): string | null {
-  if (!source?.isConnected || !image.isConnected) return null;
-  const thumbnail = source.querySelector('img') ?? source;
-  const origin = thumbnail.getBoundingClientRect();
+  const layer = image.closest<HTMLElement>('.viewer-media-layer');
+  if (!source?.isConnected || !image.isConnected || !layer) return null;
+  const origin = (source.querySelector('img') ?? source).getBoundingClientRect();
   const target = image.getBoundingClientRect();
   if (origin.width < 1 || origin.height < 1 || target.width < 1 || target.height < 1
     || origin.bottom <= 0 || origin.top >= innerHeight || origin.right <= 0 || origin.left >= innerWidth) return null;
-  const scale = Math.min(origin.width / target.width, origin.height / target.height);
-  return `translate3d(${origin.left + origin.width / 2 - target.left - target.width / 2}px, ${origin.top + origin.height / 2 - target.top - target.height / 2}px, 0) scale(${scale})`;
+  // The image element fills the stage, but contain paints only its intrinsic
+  // aspect ratio. Include both its zoom/pan and the interrupted layer transform.
+  const ratio = image instanceof HTMLImageElement && image.naturalWidth && image.naturalHeight
+    ? image.naturalWidth / image.naturalHeight : target.width / target.height;
+  const width = Math.min(target.width, target.height * ratio);
+  const height = width / ratio;
+  const relativeScale = Math.min(origin.width / width, origin.height / height);
+  const current = new DOMMatrixReadOnly(getComputedStyle(layer).transform);
+  const bounds = layer.getBoundingClientRect();
+  const centerX = bounds.left + bounds.width / 2 - current.m41;
+  const centerY = bounds.top + bounds.height / 2 - current.m42;
+  const x = origin.left + origin.width / 2 - centerX
+    - relativeScale * (target.left + target.width / 2 - centerX - current.m41);
+  const y = origin.top + origin.height / 2 - centerY
+    - relativeScale * (target.top + target.height / 2 - centerY - current.m42);
+  return `translate3d(${x}px, ${y}px, 0) scale(${relativeScale * Math.hypot(current.m11, current.m12)})`;
 }
 
 function inferredMediaFile(file: File): File {
@@ -7971,7 +7985,7 @@ export class QuietRoomApp {
           progress.hidden = false;
           progress.setAttribute('aria-busy', 'true');
           if (output) output.textContent = '正在准备附件…';
-          if (bar) bar.style.width = '0%';
+          if (bar) bar.style.transform = 'scaleX(0)';
         }
         await mediaUpload.view.ready;
         if (!this.isRuntimeActive(epoch, session)) return false;
@@ -11897,6 +11911,7 @@ export class QuietRoomApp {
     const paintedImageTransform = currentImage ? getComputedStyle(currentImage).transform : null;
     const sourceReturn = !immediate && !dragged && viewer?.dataset.atSource === 'true' && currentImage
       ? viewerSourceTransform(this.viewerReturnFocus, currentImage) : null;
+    if (currentImage) currentImage.style.transition = 'none';
     const departingImage = dragged ? currentImage : null;
     const departingTransform = departingImage?.style.transform;
     if (this.viewerKeyHandler) document.removeEventListener('keydown', this.viewerKeyHandler);
@@ -11944,8 +11959,14 @@ export class QuietRoomApp {
     }
     if (sourceReturn && currentImage?.isConnected) {
       const layer = currentImage.closest<HTMLElement>('.viewer-media-layer');
-      if (layer) retargetMotion(layer, layer.getAnimations()[0],
-        { transform: 'translate3d(0,0,0) scale(1)' }, { transform: sourceReturn }, 220, motion.settle);
+      if (layer) {
+        const painted = getComputedStyle(layer);
+        const from = { transform: painted.transform, opacity: painted.opacity };
+        const previous = layer.getAnimations()[0];
+        layer.style.transform = sourceReturn;
+        layer.style.opacity = '1';
+        retargetMotion(layer, previous, from, { transform: sourceReturn, opacity: 1 }, 220, motion.settle);
+      }
     }
     afterMotion(viewer, finish, 450);
   }
