@@ -35,6 +35,10 @@ try {
     const { root, app, render } = fixture;
     app.transitionPage('forward', () => render('gallery-shell'));
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    // Freeze only the test clock at an intermediate position. WebKit's
+    // compositor can advance between two synchronous style reads otherwise.
+    root.getAnimations({ subtree: true }).forEach(animation => animation.pause());
+    await new Promise(requestAnimationFrame);
     const incoming = root.querySelector('.page-transition-incoming');
     const current = new DOMMatrixReadOnly(getComputedStyle(incoming).transform).m41;
     app.transitionPage('backward', () => render('device-shell'));
@@ -78,6 +82,13 @@ try {
     const next = make();
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
     if (old.sheet.isConnected || !document.querySelector('#origin').inert) throw new Error('Reopen retained retiring content or released inert too early');
+    const panel = next.sheet.firstElementChild;
+    const arrivals = panel.getAnimations().filter(animation => animation.effect.getKeyframes().some(frame => frame.transform));
+    if (!arrivals.length) throw new Error('Reopened panel has no arrival motion');
+    for (const arrival of arrivals) {
+      const endpoint = arrival.effect.getKeyframes().at(-1).transform;
+      if (!endpoint || Math.abs(new DOMMatrixReadOnly(endpoint).m42) > .5) throw new Error(`Reopened panel must settle at its visible position: ${endpoint}`);
+    }
     next.dialog.close();
     window.reopened = next.sheet;
   });

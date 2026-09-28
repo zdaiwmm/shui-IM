@@ -770,6 +770,22 @@ try {
   assert.equal(await page.locator('.gallery-tile[data-revealed="true"]').count(), 0, 'Hide all left an older unmounted safe page revealed');
   results.galleryPrivacyPagination = { newlyLoadedHidden: true, hideAllIncludesUnmountedPages: true };
 
+  // A tab remount starts from a partial page. Explicitly reload the older
+  // selected asset rather than racing the scroll-restoration load event.
+  await page.waitForFunction(() => /上拉继续加载|已加载本机保存的全部/.test(document.querySelector('.gallery-scan-status')?.textContent ?? ''));
+  while (await page.locator('.gallery-tile[data-blob-id="photo-10"]').count() === 0) {
+    assert.equal(await page.locator('.gallery-scan-status').textContent(), '上拉继续加载', 'Selected historical asset must remain available');
+    const before = await page.locator('.gallery-tile').count();
+    await page.locator('#gallery-grid').evaluate(grid => {
+      grid.scrollTop = grid.scrollHeight;
+      grid.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 120 }));
+    });
+    await page.waitForFunction(previous => {
+      const status = document.querySelector('.gallery-scan-status')?.textContent ?? '';
+      return /上拉继续加载|已加载本机保存的全部/.test(status)
+        && document.querySelectorAll('.gallery-tile').length > previous;
+    }, before);
+  }
   results.gallerySendToChat = await page.evaluate(async () => {
     const { app } = window.regression;
     const original = app.enqueuePayload;

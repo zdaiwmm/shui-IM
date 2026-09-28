@@ -148,6 +148,12 @@ export function mountDialog(sheet: HTMLElement, options: DialogOptions) {
       if (fade) arrival.push(fade);
       if (fromTransform && sheet.firstElementChild instanceof HTMLElement) {
         const child = sheet.firstElementChild;
+        // is-visible may have just started a CSS transition. Its painted
+        // transform is not the destination; let this WAAPI effect own the
+        // property and read the visible rule after cancelling that transition.
+        for (const animation of child.getAnimations()) {
+          if (animation instanceof CSSTransition && animation.transitionProperty === 'transform') animation.cancel();
+        }
         const slide = retargetMotion(child, null, { transform: fromTransform },
           { transform: getComputedStyle(child).transform }, motion.panel, motion.settle);
         if (slide) arrival.push(slide);
