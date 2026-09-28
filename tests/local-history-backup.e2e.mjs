@@ -157,7 +157,7 @@ try {
   for (const name of ['create', 'welcome', 'recovery']) {
     const layout = introLayouts[name];
     assert.equal(layout.intro, true, `${name}: shared intro layout missing`);
-    assert.equal(Math.round(layout.markLeft), 20, `${name}: icon left anchor`);
+    if (name !== 'recovery') assert.equal(Math.round(layout.markLeft), 20, `${name}: icon left anchor`);
     assert.equal(Math.round(layout.titleLeft), 20, `${name}: title left anchor`);
     assert.equal(Math.round(layout.actionsLeft), 20, `${name}: actions left anchor`);
     assert.equal(Math.round(layout.actionsBottom), 30, `${name}: actions bottom anchor`);
@@ -166,11 +166,12 @@ try {
     assert.ok(Math.abs(layout.primaryWidth - layout.actionsWidth) < 1 && Math.abs(layout.secondaryWidth - layout.actionsWidth) < 1,
       `${name}: bottom action widths do not match the shared intro layout`);
   }
-  for (const name of ['welcome', 'recovery']) {
+  for (const name of ['welcome']) {
     assert.equal(Math.round(introLayouts[name].markTop), Math.round(introLayouts.create.markTop), `${name}: icon top anchor`);
     assert.equal(Math.round(introLayouts[name].titleTop), Math.round(introLayouts.create.titleTop), `${name}: title top anchor`);
   }
-  assert.equal(introLayouts.recovery.markVisible, true, 'recovery: shared intro icon is missing');
+  assert.equal(introLayouts.recovery.markVisible, false, 'recovery: decorative icon must not displace the instructions');
+  assert.ok(introLayouts.recovery.titleTop < introLayouts.create.titleTop, 'recovery instructions use the freed icon space');
   await page.setViewportSize({ width: 390, height: 520 });
   const compactLayout = await page.evaluate(() => {
     window.fixtureApp.renderRecoveryCenter();

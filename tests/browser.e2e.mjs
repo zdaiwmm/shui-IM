@@ -411,6 +411,9 @@ try {
   invariant(await creator.locator('.recovery-flow-list li').count() === 4, 'Recovery-code page list is incomplete');
   invariant(await creator.locator('.recovery-status-badge').count() === 0, 'Recovery-code status rows are still shown');
   await creator.locator('#recovery-center-back').click();
+  await creator.locator('.space-drawer-overlay[aria-label="设置"].is-restored').waitFor();
+  await creator.locator('.space-close').click();
+  await creator.locator('.space-drawer-overlay').waitFor({state:'detached'});
   await creator.locator('#app:not([data-page-transition]) > .chat-shell').waitFor();
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-shield-entry-card-mobile.png') });
   await creator.locator('#dismiss-entrance-card').click();
@@ -998,6 +1001,9 @@ try {
   await assertStablePage(creator, 'Device management');
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'devices-mobile.png') });
   await creator.locator('#device-back').click();
+  await creator.locator('.space-drawer-overlay[aria-label="设置"].is-restored').waitFor();
+  await creator.locator('.space-close').click();
+  await creator.locator('.space-drawer-overlay').waitFor({state:'detached'});
   await creator.locator('.chat-shell').waitFor();
   await assertStablePage(creator, 'Chat return from devices');
 
@@ -1130,7 +1136,7 @@ try {
   await creator.locator('#backup-retry').click();
   await creator.waitForFunction(() => /已保存 [1-9]\d* 条/.test(document.querySelector('#backup-status')?.textContent ?? ''));
   await creator.locator('#backup-back').click();
-  await creator.locator('#open-spaces').click(); await creator.locator('#space-settings').click();
+  await creator.locator('.space-drawer-overlay[aria-label="设置"].is-restored').waitFor();
   await creator.locator('#backup-settings').click();
   await creator.locator('#save-my-code').waitFor();
   invariant(await creator.locator('#export-recovery').count() === 0, 'Manual recovery export remains exposed');
@@ -1148,8 +1154,11 @@ try {
   }, recoveryCode);
   invariant(codeIsEncrypted, 'Local durable vault leaked the recovery code');
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-code-mobile.png') });
-  invariant(await creator.locator('#hide-local-recovery').textContent() === '我已保存，回到聊天页', 'Recovery-code action has the wrong label');
+  invariant(await creator.locator('#hide-local-recovery').textContent() === '我已保存，返回设置', 'Recovery-code action has the wrong label');
   await creator.locator('#hide-local-recovery').click();
+  await creator.locator('.space-drawer-overlay[aria-label="设置"].is-restored').waitFor();
+  await creator.locator('.space-close').click();
+  await creator.locator('.space-drawer-overlay').waitFor({state:'detached'});
   await creator.locator('.chat-shell').waitFor();
   const sourceIdentity = await creator.evaluate(async () => {
     const { unlockVault } = await import('/src/lib/vault.ts');
@@ -1255,7 +1264,9 @@ try {
   await recovery.locator('#history-restore-code').fill(recoveryCode);
   await recovery.locator('.history-restore-sheet:not(.is-closing) .history-restore-form').evaluate(form => form.requestSubmit());
   await recovery.getByText(/^找不到可用备份/).waitFor();
-  await recovery.locator('[data-change-code]').click();
+  await recovery.locator('[data-close]').click();
+  await recovery.locator('.history-restore-sheet').waitFor({state:'detached'});
+  await recovery.locator('[data-restore="all"]').click();
   await recovery.locator('#history-restore-code').fill(newRecoveryCode);
   await recovery.locator('.history-restore-sheet:not(.is-closing) .history-restore-form').evaluate(form => form.requestSubmit());
   await recovery.locator('[data-approve]').click();

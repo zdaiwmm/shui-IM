@@ -312,3 +312,9 @@
 }
 @media (prefers-reduced-motion: reduce) { .backup-toggle::before { content: ""; position: absolute; inset: 7px 0; border-radius: 20px; background: var(--ink-faint); }
 .backup-toggle span { position: relative; transition: none; } }
+
+/* Disclosure paragraphs must not inherit form-label negative spacing. */
+.backup-privacy-panel details { min-width: 0; }
+.backup-privacy-panel summary { min-height: 44px; padding-block: 10px; line-height: 1.5; }
+.backup-privacy-panel details .field-hint { margin: 0 0 12px; line-height: 1.65; }
+.history-restore-counts dd { min-width: 0; text-align: right; overflow-wrap: anywhere; }

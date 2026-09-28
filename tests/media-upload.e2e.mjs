@@ -114,8 +114,14 @@ try {
     await page.evaluate(() => { const g = window.mediaFixture.gate; g.fail = true; g.release(); });
     await page.waitForFunction(() => document.querySelector('.media-upload')?.dataset.uploadState === 'failed');
     assert.equal(await draft.getAttribute('data-client-msg-id'), id);
-    const retryRect = await draft.getByRole('button', { name: '重试', exact: true }).boundingBox();
-    assert.ok(retryRect.height >= 44 && retryRect.width >= 44);
+    // Measure within one renderer task: CDP's transformed quad can round its
+    // two Y coordinates differently while a neighbouring row is translating.
+    // Keep both the real painted size and the layout target at least 44px.
+    const retryRect = await draft.getByRole('button', { name: '重试', exact: true }).evaluate(button => {
+      const rect = button.getBoundingClientRect();
+      return { width: rect.width, height: rect.height, layoutWidth: button.offsetWidth, layoutHeight: button.offsetHeight };
+    });
+    assert.ok(Object.values(retryRect).every(size => size >= 44), `${variant}: ${JSON.stringify(retryRect)}`);
     assert.equal(await draft.getAttribute('data-concealed'), String(!variant.includes('expression') || variant === 'hidden-expression'));
     if (process.argv[2]) {
       await mkdir(process.argv[2], { recursive: true });

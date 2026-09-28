@@ -156,3 +156,6 @@
 .passkey-bottom .field-hint { margin: 12px 0 0; }
 .passkey-bottom .form-error { margin: 0 0 12px; }
 .passkey-manager .primary-button, .passkey-name-overlay .primary-button { color: var(--on-accent); }
+
+/* Returning from a settings page restores an already-open drawer. */
+.space-drawer-overlay.is-restored:not(.is-closing), .space-drawer-overlay.is-restored:not(.is-closing) > .space-drawer { animation: none; transition: none; }

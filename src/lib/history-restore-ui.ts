@@ -27,6 +27,7 @@ export function attachHistoryRestore(options: Options): () => void {
   let disposeDialog: (() => void) | undefined;
   let dialogSequence = 0;
   let approve: (() => void) | undefined;
+  let cancelProgress: (() => void) | undefined;
   const active = () => !disposed && !signal.aborted && isActive() && entry.isConnected;
   const setEntry = () => {
     if (!active()) return;
@@ -39,7 +40,7 @@ export function attachHistoryRestore(options: Options): () => void {
     sheet.className = 'recovery-code-sheet history-restore-sheet';
     sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true');
     sheet.setAttribute('aria-labelledby', titleId);
-    sheet.innerHTML = `<div class="recovery-code-panel history-restore-panel" tabindex="-1"><div class="history-restore-heading"><h2 id="${titleId}"></h2><button class="icon-button" type="button" data-close aria-label="收起弹窗">×</button></div>${content}</div>`;
+    sheet.innerHTML = `<div class="recovery-code-panel history-restore-panel" tabindex="-1"><div class="history-restore-heading"><h2 id="${titleId}"></h2><button class="icon-button" type="button" data-close aria-label="关闭弹窗">×</button></div>${content}</div>`;
     sheet.querySelector('h2')!.textContent = title;
     root.append(sheet);
     const viewport = window.visualViewport;
@@ -51,6 +52,10 @@ export function attachHistoryRestore(options: Options): () => void {
     position(); viewport?.addEventListener('resize', position); viewport?.addEventListener('scroll', position);
     const focus = sheet.querySelector<HTMLElement>(initial ?? '.history-restore-panel')!;
     const dialog = mountDialog(sheet, { signal, isActive: active, returnFocus: entry, initialFocus: focus,
+      beforeClose: () => {
+        if (progressSheet === sheet && (view?.phase !== 'complete' || Boolean(error)) && active()) { cancelProgress?.(); return false; }
+        return !cancelling;
+      },
       onClose: () => {
         viewport?.removeEventListener('resize', position); viewport?.removeEventListener('scroll', position);
         const input = sheet.querySelector<HTMLTextAreaElement>('textarea'); if (input) { input.value = ''; input.removeAttribute('id'); }
@@ -104,15 +109,14 @@ export function attachHistoryRestore(options: Options): () => void {
       }
     }
     const detail = progressSheet.querySelector<HTMLElement>('[data-detail]')!;
-    detail.textContent = approve ? `${view?.unavailableSources ? `还有 ${view.unavailableSources} 份旧备份暂不可用，未计入下方范围。可以补充旧恢复码，或先恢复已找到的记录。` : '已找到你在这个空间的备份。'}重复记录不会再次添加，删除和隐藏状态保留。照片和文件需要原文件仍可下载。`
+    detail.textContent = approve ? `${view?.unavailableSources ? `还有 ${view.unavailableSources} 份旧备份暂不可用，未计入下方范围。可以先恢复已找到的记录；关闭后可重新输入恢复码。` : '已找到你在这个空间的备份。'}重复记录不会再次添加，删除和隐藏状态保留。照片和文件需要原文件仍可下载。`
       : error ? `${error}。${reading ? '本次尚未开始恢复，之前找回的记录会保留。' : '已找回的记录会保留。'}重试只补缺失内容。` : complete
       ? '已检查恢复结果。回到聊天，往前翻就能看到记录；删除或隐藏的内容仍保持原样。'
-      : `${reading ? '正在检查备份并对比已有记录。' : '正在保存找回的记录。'}收起后继续；离开页面或锁定会暂停，回来可继续。`;
+      : `${reading ? '正在检查备份并对比已有记录。' : '正在保存找回的记录。'}关闭弹窗会取消本次恢复，已找回的记录会保留。`;
     detail.classList.toggle('form-error', Boolean(error));
     const retry = progressSheet.querySelector<HTMLButtonElement>('[data-retry]')!;
     retry.hidden = !error;
     retry.disabled = cancelling;
-    progressSheet.querySelector<HTMLButtonElement>('[data-change-code]')!.hidden = !error && !approve;
     const confirmation = progressSheet.querySelector<HTMLButtonElement>('[data-approve]')!;
     confirmation.hidden = !approve;
     confirmation.textContent = view?.unavailableSources ? '先恢复已找到的记录' : '确认恢复';
@@ -123,28 +127,25 @@ export function attachHistoryRestore(options: Options): () => void {
         if (count) count.textContent = `本次找回 ${view?.[kind]?.total ?? 0} 条`;
       }
     }
-    const cancel = progressSheet.querySelector<HTMLButtonElement>('[data-cancel]')!;
-    cancel.hidden = complete && !error;
-    cancel.disabled = cancelling;
-    progressSheet.querySelector('[data-dismiss]')!.textContent = complete ? '完成' : '收起进度';
+    progressSheet.querySelector<HTMLButtonElement>('[data-dismiss]')!.hidden = !complete;
   };
   const openProgress = () => {
     if (progressSheet?.isConnected || !active()) return;
     const { sheet, dialog } = mount('正在恢复历史记录', `<div class="history-restore-progress-copy" role="status"><span data-phase></span><strong data-percent></strong></div>
       <progress class="history-restore-progress" max="100" aria-label="恢复进度"></progress><dl class="history-restore-counts"><div><dt>聊天记录</dt><dd><span data-count="chat"></span><small data-inventory="chat" hidden></small><small data-audit="chat" hidden></small></dd></div>
       ${session.vault.role === 'creator' ? '<div><dt>保险库</dt><dd><span data-count="gallery"></span><small data-inventory="gallery" hidden></small><small data-audit="gallery" hidden></small></dd></div>' : ''}</dl>
-      <p class="field-hint" data-detail></p><div class="history-restore-actions"><button type="button" class="primary-button" data-approve hidden>确认恢复</button><button type="button" class="primary-button" data-retry hidden>重试恢复</button><button type="button" class="secondary-button" data-dismiss>收起进度</button><button type="button" class="text-button" data-change-code hidden>补充或更换恢复码</button><button type="button" class="text-button" data-cancel>取消恢复</button></div>`);
+      <p class="field-hint" data-detail></p><div class="history-restore-actions"><button type="button" class="primary-button" data-approve hidden>确认恢复</button><button type="button" class="primary-button" data-retry hidden>重试恢复</button><button type="button" class="primary-button" data-dismiss hidden>完成</button></div>`);
     progressSheet = sheet;
     sheet.querySelector('[data-dismiss]')!.addEventListener('click', () => dialog.close());
     sheet.querySelector('[data-approve]')!.addEventListener('click', () => approve?.());
     sheet.querySelector('[data-retry]')!.addEventListener('click', () => { if (retryCodes && !operation) void run(retryCodes); });
-    const cancel = async (replace: boolean) => {
+    const cancel = async () => {
       if (cancelling || !active()) return;
       cancelling = true; operation?.abort(); paintProgress();
       try {
         await clearHistoryRestoreTask(session, signal);
         retryCodes = ''; error = ''; view = undefined;
-        if (active()) { setEntry(); dialog.dispose(); if (replace) openInput(); }
+        if (active()) { setEntry(); dialog.dispose(); }
       } catch (cause) {
         if (active()) {
           retryCodes = session.vault.historyRestoreTask?.codes.join('\n') ?? retryCodes;
@@ -152,8 +153,7 @@ export function attachHistoryRestore(options: Options): () => void {
         }
       } finally { cancelling = false; if (active()) paintProgress(); }
     };
-    sheet.querySelector('[data-change-code]')!.addEventListener('click', () => void cancel(true));
-    sheet.querySelector('[data-cancel]')!.addEventListener('click', () => void cancel(false));
+    cancelProgress = () => { void cancel(); };
     paintProgress();
   };
   const run = async (codes: string) => {
@@ -209,7 +209,7 @@ export function attachHistoryRestore(options: Options): () => void {
       void run(codes);
     });
   };
-  entry.addEventListener('click', () => { if (operation || retryCodes && error) openProgress(); else openInput(); }, { signal });
+  entry.addEventListener('click', () => { if (cancelling) return; if (operation || retryCodes && error) openProgress(); else openInput(); }, { signal });
   const dispose = () => { disposed = true; retryCodes = ''; operation?.abort(); disposeDialog?.(); };
   signal.addEventListener('abort', dispose, { once: true });
   setEntry();

@@ -91,6 +91,9 @@ try {
   if (dates.some(date => !/\d{2}:\d{2}/.test(date))) throw Error('Release history is missing minute precision');
   if (JSON.stringify(versions) !== JSON.stringify(await page.evaluate(() => window.releaseFixture.release.releaseLog.map(item => item.id)))) throw new Error('Release log order mismatch');
   await page.getByRole('button', { name: '返回聊天' }).click();
+  await page.locator('.space-drawer-overlay[aria-label="设置"].is-restored').waitFor();
+  await page.locator('.space-close').click();
+  await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
   await page.locator('.chat-shell:not(.is-page-outgoing)').waitFor();
 
   await page.evaluate(() => window.releaseFixture.release.acceptReleaseWorkerMessage({ type: 'quiet-room-release-ready', releaseId: 'next-release' }));
