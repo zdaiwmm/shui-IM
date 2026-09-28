@@ -38,3 +38,11 @@
 补充 `MEME_WEBKIT=1 node tests/meme-picker.e2e.mjs`、`QUIET_ROOM_TEST_BROWSER=webkit node tests/media-upload.e2e.mjs` 均通过；前者截图在本机 `/private/tmp/qr-emoji-webkit/`，日志为 `/private/tmp/qr-emoji-webkit.log`、`/private/tmp/qr-emoji-media-webkit.log`。实际截图已检查面板高度、紧凑 Tab 及五列贴纸布局，均沿用既有视觉体系。
 
 iPhone / iOS 27 / Safari 真机未验收；桌面 WebKit 不能替代真机。GitHub CI、PR、合并及生产均未执行。
+
+## 通话测试发布阻断修复（2026-09-28）
+
+用户在 PR #215 已合并但发布门禁失败后明确“解决通话测试阻断，解决后发布”。本轮从精确主线 `2bbdf923eae63cd9ff604a69cccddc83123e3e58` 修复必要测试同步，沿用本任务推送、PR 和合并授权；生产仍按最终精确提交确认。独占原工作树改用分支 `codex/call-quality-test-sync`，版本继续为尚未发布的 `2026.09.28.4`。
+
+主线 CI `36404809611` 中 `Video did not degrade to audio-only` 与 PR 首轮相同。原测试在后台 `getStats` 尚未完成时连续调用 `inspectQuality`，控制器的 `statsBusy` 保护跳过所有重叠请求，循环次数不等于实际样本数。受控挂起首个统计请求 75ms 后，旧循环稳定失败并报告 `1/36` 样本。测试改为每次等待空闲（13 秒有界，覆盖生产统计 12 秒超时），并断言实际读取新统计数据；保留挂起场景及原有降级、逐级恢复、音频存活、轨道清理和下一次通话断言。同一受控场景修复后通过。
+
+仅修改测试同步，不修改正式通话代码、质量阈值、协议或版本说明。完整通话专项、本地构建／单元及精确 CI 结果随 PR 记录。iPhone 真机与真实 TURN 弱网仍未验收。
