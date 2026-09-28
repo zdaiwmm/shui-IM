@@ -134,7 +134,7 @@ try {
   await assertBackupSpacing('restore-gallery-mobile');
   await page.setViewportSize({ width: 320, height: 740 });
   await assertBackupSpacing('restore-gallery-small-mobile');
-  const restoreSubmit = page.getByRole('button', { name: '确认恢复', exact: true });
+  const restoreSubmit = page.getByRole('button', { name: '查找备份', exact: true });
   await restoreSubmit.scrollIntoViewIfNeeded();
   assert.equal(await restoreSubmit.evaluate(button => {
     const box = button.getBoundingClientRect();
