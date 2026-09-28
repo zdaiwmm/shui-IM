@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+## 全站动效 V2 已发布（2026-09-28 19:09）
+
+- 用户在完整实施交付后明确“发布生产”，随后更新 IP 白名单并要求重试。固定发布目标为 `3e67f3a1a0bb66034430f6f3c8b194ac9123254a`，版本 `2026.09.28.5`；[PR #217](https://github.com/zdaiwmm/shui-IM/pull/217) 已合并，精确 main [完整 CI 36410952833](https://github.com/zdaiwmm/shui-IM/actions/runs/36410952833) 通过。预检读取前一生产为 `6736d3818aadfb152ae8a8c4ec0f50c5a88ac598`。此前 SSH 超时均发生在只读预检，未执行切换；连接恢复后仅执行一次正式发布。
+- 已上线完整方案 M01–M22：共享曲线与阻尼回位、导航／弹层／查看器中断接续、消息布局协同、控件及语音／通话状态反馈、网页根背景与安全区匹配。实施和刻意保留的边界见[覆盖清单](docs/requirements/2026-09-28-motion-system/coverage.md)。需求记录中的“生产未授权／未发布”为当时阶段，由本节更新；不补造旧原型确认或真机通过。
+- 本地冻结产品候选 `6f94156` 通过构建、734 项单元／集成及 46/46 浏览器脚本，WebKit 动效与生命周期、20 个通话弱网场景另通过。后续 `d4374d5` 仅补测试失败诊断与验证文档，受影响回归及 PR CI 通过；合并产品源码与冻结候选相同。真实 iPhone 键盘、Safari 系统栏、手势质感与真实双端媒体未验收；网页不能保证原生 Safari 工具栏透明。
+- 固定入口取得 `DEPLOY_VERIFIED`，外层核对精确回执成功；批次 `20260928T110629Z`，发布目录 `/opt/quiet-room/git-releases/20260928T110629Z-3e67f3a1a0bb`。冷备份 `data-20260928T110629Z-3e67f3a1a0bb.tar.gz` 已校验；切换前容量检查通过，可用 4974055424 字节、使用率 87.55%，并非发布后余量。服务器发布 136 秒，固定入口总耗时 191307ms。
+- 独立 `READBACK_OK` 于 `2026-09-28T11:09:02.704Z` 完成，耗时 3135ms。精确 SHA、镜像 `sha256:e9841b21ca5b41b99991b4f849cbcae85dfebe2557bcf3a35220a23697724d88`、HTTPS／数据库／存储、公开与容器产物及新 WebSocket 一致。应用运行且健康，备份与 TURN 运行但无健康探针；维护标记不存在，管理员与通话开启。
+- 脱敏证据 `/Users/zhouding/ss/.git/worktrees/motion-prototype-20260928/quiet-room-readback/20260928T110859567Z-3e67f3a1a0bb-success.json`；精确回执 `/private/var/folders/kx/xvfkgvzn5cb2t23mnc9518kr0000gn/T/quiet-room-publish-uwAbRu/.git/quiet-room-verified-sha`。独立文档工作树未复制部署配置；文档对账不改变线上应用 SHA、不再次部署。
+- 资源保留：`motion-prototype-20260928`／`codex/motion-prototype-20260928` 承载本会话、原型和独立回读证据；`motion-release-record`／`codex/motion-release-record` 承载本轮对账。发布隔离副本保留回执；不清理其他任务或服务器备份。以下均为历史发布快照。
+
 ## Emoji 与表情面板已发布（2026-09-28 18:11）
 
 - 用户确认本次精确 SHA `6736d3818aadfb152ae8a8c4ec0f50c5a88ac598`，版本 `2026.09.28.4`。表情功能 [PR #215](https://github.com/zdaiwmm/shui-IM/pull/215) 与通话测试同步修复 [PR #216](https://github.com/zdaiwmm/shui-IM/pull/216) 均已合并。发布前线上为 `e8b9c5309944355bd1c22ad508f81370593cdbb1`。
