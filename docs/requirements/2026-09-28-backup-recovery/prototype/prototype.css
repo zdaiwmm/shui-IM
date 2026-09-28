@@ -7,3 +7,45 @@ html[data-theme="dark"]{color-scheme:dark;--paper:oklch(20.5% .024 252);--paper-
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 @media(prefers-reduced-transparency:reduce),(prefers-contrast:more){.secondary{background:var(--surface-raised);box-shadow:none}}
 @media(forced-colors:active){button,.node,.status,.privacy,.error-box{border:1px solid CanvasText}.switch input{appearance:auto}.switch i{display:none}.progress>span{background:Highlight}}
+/* v2: compact pages, native half-height privacy sheet, independent cloud status. */
+[hidden]{display:none!important}
+.app{height:740px;min-height:0;display:flex;flex-direction:column}
+.app-header{flex:none}
+.content{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+.compact-lede{margin:4px 0 24px}
+.app[data-page="backup"] .section{padding:20px 0}
+.app[data-page="backup"] .section:first-of-type{padding-top:0}
+.app[data-page="backup"] .section:last-of-type{border-bottom:0}
+.app[data-page="backup"] .section p{margin:8px 0 12px}
+.app[data-page="backup"] .section .text{font-size:13px}
+.compact-footnote{margin-top:10px;font-size:12px}
+.cloud-status{color:var(--ink-muted);font-size:13px!important}
+.selected-file{font-size:13px;color:var(--ink-muted);overflow-wrap:anywhere;margin:14px 0}
+.privacy-sheet{position:fixed;inset:auto 0 0;width:min(100%,460px);height:min(56dvh,480px);max-height:calc(100dvh - 20px);margin:0 auto;padding:0;border:1px solid var(--glass-border);border-bottom:0;border-radius:24px 24px 0 0;background:var(--paper-pure);color:var(--ink);box-shadow:var(--shadow);overflow:hidden}
+.privacy-sheet[open]{display:flex;flex-direction:column;animation:sheet-in .22s ease-out}
+.privacy-sheet::backdrop{background:oklch(12% .02 250 / .35)}
+.sheet-handle{width:34px;height:4px;min-height:4px;border-radius:4px;background:var(--line-strong);margin:9px auto 3px}
+.sheet-heading{display:flex;align-items:center;justify-content:space-between;padding:0 20px 3px;flex:none;gap:12px}
+.sheet-heading h2{font-size:19px}
+.sheet-close{border:0;background:transparent;width:44px;padding:0;font-size:24px}
+.sheet-body{overflow-y:auto;min-height:0;padding:0 22px;overscroll-behavior:contain;font-size:13px;line-height:1.55}
+.sheet-intro{margin:5px 0 13px}.sheet-intro strong{display:block;font-weight:600}
+.privacy-points{padding:0;list-style:none;margin:0}.privacy-points li{margin:0 0 12px}.privacy-points strong{display:block;font-size:14px;margin-bottom:3px}.privacy-points span{display:block;color:var(--ink-muted)}
+.sheet-body details{margin:0;font-size:12px}.sheet-body summary{min-height:44px;display:flex;align-items:center;color:var(--accent);cursor:pointer}.sheet-body summary:after{content:'＋';margin-left:8px}.sheet-body details[open] summary:after{content:'−'}.sheet-body details p{color:var(--ink-muted);margin:0 0 10px}
+.sheet-actions{flex:none;padding:10px 22px max(10px,env(safe-area-inset-bottom));background:var(--paper-pure)}.sheet-actions .primary{min-height:46px}.sheet-actions .text{min-height:38px;padding:6px 0}
+.preview-only .review,.preview-only .preview-label{display:none}
+.preview-only .review-layout{display:block;padding:0;max-width:760px}
+.preview-only .app{height:100dvh;border:0;border-radius:0;box-shadow:none}
+.preview-only .app-header{padding-top:max(16px,env(safe-area-inset-top))}
+@keyframes sheet-in{from{transform:translateY(30%);opacity:.5}to{transform:translateY(0);opacity:1}}
+@media(max-width:650px){.app{height:740px;min-height:0}.content{padding:12px 22px 20px}.privacy-sheet{border-radius:22px 22px 0 0}.app[data-page="backup"] .section{padding:16px 0}}
+@media(max-height:650px){.privacy-sheet{height:65dvh}.sheet-heading h2{font-size:17px}.sheet-body{font-size:12px}.sheet-actions{padding-top:6px}}
+@media(prefers-reduced-motion:reduce){.privacy-sheet[open]{animation:none}}
+@media(forced-colors:active){.privacy-sheet{border:1px solid CanvasText}}
+
+.sr-only{top:0;left:0;margin:0}
+.privacy-sheet{max-width:100%}
+.preview-only body{height:100dvh;overflow:hidden}
+@media(prefers-color-scheme:dark){.primary{color:oklch(20.5% .024 252)}}
+html[data-theme="light"] .primary{color:var(--on-accent)}
+html[data-theme="dark"] .primary{color:oklch(20.5% .024 252)}
