@@ -116,12 +116,14 @@ try {
     assert.equal(await draft.getAttribute('data-client-msg-id'), id);
     // Measure within one renderer task: CDP's transformed quad can round its
     // two Y coordinates differently while a neighbouring row is translating.
-    // Keep both the real painted size and the layout target at least 44px.
+    // Keep the layout target at least 44px; tolerate only floating-point
+    // subtraction noise (e.g. 43.99994px) in the painted rectangle.
     const retryRect = await draft.getByRole('button', { name: '重试', exact: true }).evaluate(button => {
       const rect = button.getBoundingClientRect();
       return { width: rect.width, height: rect.height, layoutWidth: button.offsetWidth, layoutHeight: button.offsetHeight };
     });
-    assert.ok(Object.values(retryRect).every(size => size >= 44), `${variant}: ${JSON.stringify(retryRect)}`);
+    assert.ok(retryRect.layoutWidth >= 44 && retryRect.layoutHeight >= 44
+      && retryRect.width >= 44 - 0.001 && retryRect.height >= 44 - 0.001, `${variant}: ${JSON.stringify(retryRect)}`);
     assert.equal(await draft.getAttribute('data-concealed'), String(!variant.includes('expression') || variant === 'hidden-expression'));
     if (process.argv[2]) {
       await mkdir(process.argv[2], { recursive: true });
