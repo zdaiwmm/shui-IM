@@ -44,10 +44,9 @@ remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace)
   const signal = AbortSignal.any([options.signal, lifetime.signal]);
   const sheet = document.createElement('div'); sheet.className = 'space-drawer-overlay' + (options.initialSettings ? ' is-visible is-restored' : ''); sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', '私密空间');
   root.append(sheet);
-  let styleDirty = false, busy = false, listScrollTop = 0;
+  let busy = false, listScrollTop = 0;
   const dialog = mountDialog(sheet, { signal: options.signal, isActive: () => !options.signal.aborted, beforeClose: () => !busy, onClose: () => {
     lifetime.abort(); options.closed();
-    if (styleDirty && !options.signal.aborted) options.styleChanged(readPresenceStyle());
   } });
   const close = () => dialog.close();
   sheet.addEventListener('click', e => { if (e.target === sheet && !busy) close(); });
@@ -125,9 +124,9 @@ popup.style.top = `${Math.max(top + 12, Math.min(rect.bottom - 6, bottom - (remo
   }
   function styles() {
     const value = readPresenceStyle();
-    page('在线状态样式', `<p class="space-description">选择聊天页顶部的显示方式。</p><div class="space-style-options" role="radiogroup" aria-label="在线状态样式">${(['capsule','heart'] as const).map(s => `<button class="space-style-choice" role="radio" tabindex="${s === value ? 0 : -1}" aria-checked="${s === value}" data-style="${s}"><span class="space-style-preview ${s}" aria-hidden="true">${s === 'capsule' ? `<span>TA</span>${heart}<span>我</span>` : heart}</span><span class="space-style-copy"><strong>${s === 'capsule' ? '在线胶囊' : '心动按钮'}</strong><small>${s === 'capsule' ? '居中显示双方状态 · 默认样式' : '红色爱心，显示在聊天页右上角'}</small></span><i class="space-radio" aria-hidden="true">${check}</i></button>`).join('')}</div><div class="space-presence-note"><p>左半颗代表对方，右半颗代表你。</p><p>在线状态不代表消息已读。</p></div>`, '<button class="primary-button" id="space-style-done">查看聊天效果</button>', settings);
+    page('在线状态样式', `<p class="space-description">选择聊天页顶部的显示方式。</p><div class="space-style-options" role="radiogroup" aria-label="在线状态样式">${(['capsule','heart'] as const).map(s => `<button class="space-style-choice" role="radio" tabindex="${s === value ? 0 : -1}" aria-checked="${s === value}" data-style="${s}"><span class="space-style-preview ${s}" aria-hidden="true">${s === 'capsule' ? `<span>TA</span>${heart}<span>我</span>` : heart}</span><span class="space-style-copy"><strong>${s === 'capsule' ? '在线胶囊' : '心动按钮'}</strong><small>${s === 'capsule' ? '居中显示双方状态 · 默认样式' : '红色爱心，显示在聊天页右上角'}</small></span><i class="space-radio" aria-hidden="true">${check}</i></button>`).join('')}</div><div class="space-presence-note"><p>左半颗代表对方，右半颗代表你。</p><p>在线状态不代表消息已读。</p></div>`, '', settings);
     const choose = (button: HTMLButtonElement) => {
-      try { writePresenceStyle(button.dataset.style as PresenceStyle); styleDirty = true; }
+      try { writePresenceStyle(button.dataset.style as PresenceStyle); options.styleChanged(readPresenceStyle()); }
       catch { sheet.querySelector('.form-error')!.textContent = '浏览器未能保存设置，请重试'; return; }
       sheet.querySelectorAll<HTMLButtonElement>('[data-style]').forEach(b => { b.setAttribute('aria-checked',String(b === button)); b.tabIndex = b === button ? 0 : -1; });
     };
@@ -135,7 +134,6 @@ popup.style.top = `${Math.max(top + 12, Math.min(rect.bottom - 6, bottom - (remo
       button.addEventListener('click', () => choose(button));
       button.addEventListener('keydown', e => { if (['ArrowDown','ArrowUp','ArrowLeft','ArrowRight','Home','End'].includes(e.key)) { e.preventDefault(); const buttons = [...sheet.querySelectorAll<HTMLButtonElement>('[data-style]')]; const next = e.key === 'Home' ? buttons[0]! : e.key === 'End' ? buttons.at(-1)! : buttons.find(b => b !== button)!; choose(next); next.focus(); } });
     });
-    sheet.querySelector('#space-style-done')!.addEventListener('click', close);
   }
   function settings() {
     const setting = (a: Action) => `<button class="space-setting" id="${a.id}"><span class="space-setting-icon" aria-hidden="true">${a.icon}</span><span class="space-setting-label">${escape(a.label)}</span>${arrow}</button>`;

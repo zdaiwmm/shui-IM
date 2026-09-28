@@ -81,7 +81,10 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   // encrypted attachment/outbox path and produce exactly one peer message.
   const beforeHold = await creator.locator('.voice-player').count();
   const beforePeerHold = await joiner.locator('.message.incoming .voice-player').count();
-  const microphone = await creator.locator('#message-input').boundingBox();
+  // Viewport screenshots can still be settling the anchored composer. Resolve
+  // a stable visible trigger before sampling coordinates for the held pointer.
+  await creator.locator('#record-voice').hover();
+  const microphone = await creator.locator('#record-voice').boundingBox();
   assert(microphone, 'Microphone trigger must be visible for held recording');
   await creator.mouse.move(microphone.x + microphone.width / 2, microphone.y + microphone.height / 2);
   await creator.mouse.down();

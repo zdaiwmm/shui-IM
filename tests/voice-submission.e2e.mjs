@@ -149,6 +149,18 @@ try {
   await page.mouse.up(); await assertBusy('processing');
   await page.waitForFunction(() => typeof window.voiceSubmission.decode === 'function');
   await page.evaluate(() => window.voiceSubmission.decode());
+  await page.waitForFunction(() => !window.voiceSubmission.active);
+  assert.match(await page.evaluate(() => window.voiceSubmission.failure), /录音太短/);
+  assert.equal(await page.evaluate(() => window.voiceSubmission.attempts.length), 2, 'A short hold bypassed the minimum recording duration');
+
+  // Deliberate pause, unlike release-to-send, retains a short segment so the
+  // user can continue recording without losing it.
+  await page.keyboard.press('Enter');
+  await page.waitForFunction(() => window.voiceSubmission.active?.state === 'recording');
+  await page.evaluate(() => { window.voiceSubmission.active.startedAt = performance.now() - 100; });
+  await page.locator('.voice-toggle').click();
+  await page.waitForFunction(() => typeof window.voiceSubmission.decode === 'function');
+  await page.evaluate(() => window.voiceSubmission.decode());
   await page.waitForFunction(() => window.voiceSubmission.active?.state === 'paused');
   assert.equal(await page.locator('.voice-send').isDisabled(), true);
   assert.equal(await page.locator('.voice-toggle').isEnabled(), true);
@@ -156,5 +168,5 @@ try {
   assert.equal(await page.evaluate(() => window.voiceSubmission.attempts.length), 2, 'A short hold bypassed the minimum recording duration');
   await page.locator('.voice-discard').click();
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ pointerFocusQuiet: true, keyboardFocusVisible: true, processingAndSendingFrames: snapshots.length, draftControlsDuringSubmission: 0, failedDraftRestored: true, retryRetainsSameDraftFileAndId: true, explicitPauseReview: true, shortRecordingReview: true, browserErrors: 0 }));
+  console.log(JSON.stringify({ pointerFocusQuiet: true, keyboardFocusVisible: true, processingAndSendingFrames: snapshots.length, draftControlsDuringSubmission: 0, failedDraftRestored: true, retryRetainsSameDraftFileAndId: true, explicitPauseReview: true, shortHoldDiscarded: true, shortPausedRecordingReview: true, browserErrors: 0 }));
 } finally { await browser?.close(); await server.close(); }

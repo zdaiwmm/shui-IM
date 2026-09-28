@@ -38,7 +38,8 @@ try {
     app.renderChat();app.renderMessages({scroll:'bottom'});
     window.fixture={app,vault,session,messages};
   });
-  assert.equal(await page.locator('#record-voice,.send-button,.chat-header .call-actions,.gallery-button').count(),0);
+  assert.equal(await page.locator('#record-voice,#send-text').count(),2);
+  assert.equal(await page.locator('.chat-header .call-actions,.gallery-button').count(),0);
   assert.equal(await page.locator('#open-memes').count(),1);
   await page.locator('#message-input').fill('保留草稿');
   await page.locator('#open-chat-tools').click();

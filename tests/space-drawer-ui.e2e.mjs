@@ -53,6 +53,8 @@ try {
     await page.locator('#presence-style-setting').click();
     await page.locator('[data-style=capsule]').focus(); await page.locator('[data-style=capsule]').press('ArrowRight');
     assert.equal(await page.locator('[data-style=heart]').getAttribute('aria-checked'),'true');
+    assert.equal(await page.evaluate(()=>window.style),'heart', 'style applies before closing');
+    assert.equal(await page.locator('#space-style-done').count(),0);
     await page.locator('.space-back').click(); assert.ok((await page.locator('#presence-style-setting').innerText()).includes('心动按钮'));
     await page.locator('.space-back').click(); assert.ok(await page.locator('.space-drawer-scroll').evaluate(el=>el.scrollTop>=390));
     await page.locator('.space-close').click(); await page.locator('.space-drawer-overlay').waitFor({state:'detached'});

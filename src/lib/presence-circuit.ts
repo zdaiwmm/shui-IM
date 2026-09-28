@@ -82,6 +82,8 @@ export class PresenceCircuit {
     this.start('send');
   }
 
+  suspend(): void { this.reset(); }
+
   destroy(): void {
     this.self = this.peer = null;
     this.reset();

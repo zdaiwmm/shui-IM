@@ -51,6 +51,25 @@ try {
   assert.equal(await page.locator('#app > section').count(), 1);
   assert.equal(await page.locator('.page-transition-outgoing').count(), 0);
 
+  // Authenticated pages with a bottom Back action use the same push/pop.
+  // Unauthenticated gateway replacement still retires old content immediately.
+  for (const className of ['gateway save-entry-page', 'gateway authenticated-fixture']) {
+    const entry = await page.evaluate(className => {
+      const { root, app, render } = fixture;
+      render('chat-shell');
+      app.transitionPage('forward', () => { render(className); root.firstElementChild.dataset.authenticatedPage = ''; });
+      return { direction: root.dataset.pageTransition, outgoing: root.querySelectorAll('.page-transition-outgoing').length };
+    }, className);
+    assert.deepEqual(entry, { direction: 'forward', outgoing: 1 });
+    await page.waitForFunction(() => !fixture.root.dataset.pageTransition);
+    assert.equal(await page.evaluate(() => { fixture.app.transitionPage('backward', () => fixture.render('chat-shell')); return fixture.root.dataset.pageTransition; }), 'backward');
+    await page.waitForFunction(() => !fixture.root.dataset.pageTransition);
+  }
+  assert.equal(await page.evaluate(() => {
+    fixture.app.transitionPage('forward', () => fixture.render('gateway'));
+    return fixture.root.querySelectorAll('.page-transition-outgoing').length;
+  }), 0);
+
   // Child transition controls dialog cleanup, not a guessed 320ms timer.
   await page.evaluate(async () => {
     const { mountDialog } = await import('/src/lib/dialog.ts');

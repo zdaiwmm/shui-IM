@@ -19,7 +19,7 @@ import './spaces.css';
 import { mountSpaceDrawer, mountSpaceInvite, readPresenceStyle, spaceIcons } from './lib/space-drawer';
 import { forgetLocalSpace, localSpaces, rememberLocalSpace, syncSpaceDirectory, recoverableSpaces, refreshSpaceUnread, spaceMessagePreview, pendingSpaceExpiry, formatPendingCountdown, type PrivateSpace } from './lib/spaces';
 import { capabilityGateMembers } from './lib/member-capabilities';
-import { currentSpaceId, selectLocalSpace, vaultSpaceId, unlockOwnedPendingSpace } from './lib/vault';
+import { currentSpaceId, selectLocalSpace, vaultSpaceId, unlockOwnedPendingSpace, unlockSpaceForRemoval } from './lib/vault';
 import { prepareJointRecovery, advanceJointRecovery, approveJointRecovery, completeJointRecovery, parseJointRecoveryLink, jointRecoveryUrl, jointRecoveryCode, jointRequest, inviteeScopeChoice, type JointLink, type JointSnapshot } from './lib/joint-recovery';
 import './recovery-experience.css';
 import { mountMediaDeleteConfirm } from './lib/media-delete-confirm';
@@ -39,6 +39,7 @@ import { isExpressionPayload } from './lib/expression-media';
 import { loadStickerPacks, installStickerPack, removeStickerPack, reorderStickerPacks } from './lib/vault';
 import './memes.css';
 import './chat-tools.css';
+import './voice-messages.css';
 import './design-system.css';
 import { normalizeAttachmentFavorites, sortFavoriteAssets } from './lib/attachment-favorites';
 import { validateMemeFile, MEME_TYPES } from './lib/meme-media';
@@ -82,7 +83,7 @@ import {
 } from './lib/crypto';
 import { decryptAudioFile, encryptAudioFile, decryptImageFile, encryptImageFile, encryptFileAttachment, decryptFileAttachment, MAX_IMAGE_BYTES } from './lib/file-crypto';
 import { VoiceRecorder } from './lib/voice-recorder';
-import { bindVoiceInputGesture } from './lib/voice-gesture';
+import { bindVoiceRecordGesture } from './lib/voice-gesture';
 import { bindImageViewerGestures } from './lib/image-viewer-gestures';
 import { prepareImageMotion, type ImageMotion } from './lib/image-animation';
 import { createConcealedImage } from './lib/concealed-image';
@@ -668,7 +669,7 @@ export class QuietRoomApp {
   private replyReturnAnchors: ChatScrollAnchor[] = [];
   private chatNewMessageIds = new Set<string>();
   private voiceRecorder: VoiceRecorder | null = null;
-  private voiceGesture: ReturnType<typeof bindVoiceInputGesture> | null = null;
+  private voiceGesture: ReturnType<typeof bindVoiceRecordGesture> | null = null;
   private microphonePromptActive = false;
   private voicePlayback = new VoicePlayback();
   private callController: CallController | null = null;
@@ -5089,7 +5090,7 @@ export class QuietRoomApp {
     for (const space of spaces) {
       if (signal.aborted || this.session !== session) return;
       const expiry = pendingSpaceExpiry(space);
-      if (expiry !== null && expiry <= Date.now()) await this.destroyWaitingSpace(session, space);
+      if (expiry !== null && expiry <= Date.now()) await this.destroyWaitingSpace(session, space, false);
     }
   }
 
@@ -5128,12 +5129,12 @@ export class QuietRoomApp {
     await saveBrowserProfile(profile, signal);
   }
 
-  private async destroyWaitingSpace(session: VaultSession, space: PrivateSpace): Promise<void> {
+  private async destroyWaitingSpace(session: VaultSession, space: PrivateSpace, allowVerification = true): Promise<void> {
     if (this.destroyingWaitingSpace) throw new Error('正在删除空间，请稍候');
     if (!space.waiting || space.accessState) throw new Error('只有还在等待对方加入的空间可以删除');
     this.destroyingWaitingSpace = true;
     const current = space.roomId === session.vault.roomId;
-    const signal = AbortSignal.any([this.runtimeAbort?.signal ?? new AbortController().signal, AbortSignal.timeout(15000)]);
+    const signal = AbortSignal.any([this.runtimeAbort?.signal ?? new AbortController().signal, AbortSignal.timeout(75000)]);
     let target: VaultSession | null = null;
     try {
       if (current) target = session;
@@ -5145,14 +5146,16 @@ export class QuietRoomApp {
           await forgetLocalSpace(session,space.roomId);
           return;
         }
-        if (!space.localId || !held) throw new Error('请先完成本机设备验证');
-        const selected = currentSpaceId();
-        try {
-          await selectLocalSpace(space.localId);
-          const stored = await readStoredVault();
-          if (stored?.unlockMethod !== 'platform' || stored.v !== 3 || stored.platform.credentialId !== held.record.credentialId) throw new Error('请在创建此空间的原设备删除');
-          target = await unlockVault('', Promise.resolve(held.prfOutput.slice()));
-        } finally { if (currentSpaceId() !== selected) await selectLocalSpace(selected); }
+        if (!space.localId) throw new Error('请先完成本机设备验证');
+        if (allowVerification) {
+          target = await unlockSpaceForRemoval(space.localId, held, record =>
+            this.withDeviceVerification(() => unlockPlatformCredential(record, signal), true));
+        } else {
+          // Background expiry must never open a verification prompt for a
+          // different space. The next deliberate deletion can verify its key.
+          target = held ? await unlockOwnedPendingSpace(space.localId, held) : null;
+          if (!target) return;
+        }
       }
       signal.throwIfAborted();
       if (target.vault.roomId !== space.roomId || this.peerHasJoined(target)) throw new Error('对方已经加入，这个空间不能再销毁');
@@ -5242,7 +5245,7 @@ export class QuietRoomApp {
   private mountPrivateSpaceDrawer(session: VaultSession, spaces: PrivateSpace[], signal: AbortSignal, previousSurface: QuietRoomApp['activeSurface'], settingsScrollTop?: number): void {
     this.closeChatTools(); this.clearKeyboardHandoff();
     (document.activeElement as HTMLElement | null)?.blur();
-    this.setActiveSurface('away');
+    this.setActiveSurface('away', true);
     const forward = (render: () => void) => () => this.transitionPage('forward', render);
     mountSpaceDrawer(this.root, {
       spaces, currentRoom: session.vault.roomId, signal,
@@ -5303,7 +5306,11 @@ export class QuietRoomApp {
     const entry = header.querySelector<HTMLElement>('#open-spaces');
     if (entry) { entry.setAttribute('aria-label', `私密空间列表，当前：${this.currentSpaceName}`); const label = entry.querySelector('span'); if (label) label.textContent = this.currentSpaceName; }
     header.dataset.presenceStyle = style;
-    header.querySelector('.presence-circuit')?.setAttribute('viewBox', style === 'heart' ? '34 -5.52 32 32' : '0 0 100 24');
+    const circuit = header.querySelector<SVGElement>('.presence-circuit');
+    if (circuit) {
+      circuit.dataset.compact = String(style === 'heart');
+      circuit.setAttribute('viewBox', style === 'heart' ? '34 -5.52 32 32' : '0 0 100 24');
+    }
   }
 
   private renderChat(): void {
@@ -5374,6 +5381,8 @@ export class QuietRoomApp {
           <input id="image-input" type="file" accept="image/*,video/*" multiple ${cryptoReady ? '' : 'disabled'} hidden />
           <input id="camera-input" type="file" accept="image/*,video/*" capture="environment" ${cryptoReady ? '' : 'disabled'} hidden />
           <input id="file-input" type="file" multiple ${cryptoReady ? '' : 'disabled'} hidden />
+          <div class="composer-row">
+          <button class="icon-button" id="open-chat-tools" type="button" aria-label="更多功能" aria-expanded="false" aria-controls="chat-tools">${createElement(Plus).outerHTML}</button>
           <div class="composer-input-stack">
             <div class="reply-draft" id="reply-draft" hidden>
               <div><strong>回复对方</strong><span></span></div>
@@ -5381,11 +5390,15 @@ export class QuietRoomApp {
             </div>
             <div class="composer-field">
               <label class="sr-only" for="message-input">输入消息</label>
-              <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '点击输入文字，长按录制语音' : '对方进入聊天页面即可完成私密空间创建'}" autocomplete="off" enterkeyhint="enter" ${cryptoReady ? '' : 'disabled'}></textarea>
+              <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '输入消息' : '对方进入聊天页面即可完成私密空间创建'}" autocomplete="off" enterkeyhint="enter" ${cryptoReady ? '' : 'disabled'}></textarea>
+              <button class="send-button composer-send" id="send-text" type="submit" aria-label="发送消息" disabled tabindex="-1">${voiceIcons.paperPlane}</button>
               <button class="meme-toggle" id="open-memes" type="button" aria-label="打开表情" title="表情" aria-expanded="false" aria-controls="meme-panel" ${cryptoReady ? '' : 'disabled'}>${memeIcons.smile}</button>
             </div>
           </div>
-          <button class="icon-button" id="open-chat-tools" type="button" aria-label="更多功能" aria-expanded="false" aria-controls="chat-tools">${createElement(Plus).outerHTML}</button>
+          <button class="icon-button voice-record-button" id="record-voice" type="button" aria-label="语音，长按录音，上滑锁定" title="语音" ${cryptoReady ? '' : 'disabled'}>${voiceIcons.mic}</button>
+          <section class="voice-recorder" aria-label="录制语音消息" hidden></section>
+          <span class="voice-discard-feedback" aria-hidden="true"><i></i>${voiceIcons.remove}</span>
+          </div>
           <div class="chat-tools" id="chat-tools" hidden>
             <button id="open-image-picker" type="button" ${cryptoReady ? '' : 'disabled'}><span>${icons.image}</span>图片</button>
             <button id="open-camera-picker" type="button" ${cryptoReady ? '' : 'disabled'}><span>${createElement(Camera).outerHTML}</span>拍摄</button>
@@ -5397,7 +5410,6 @@ export class QuietRoomApp {
           </div>
           <div class="upload-progress" id="upload-progress" hidden><span></span><output></output></div>
         </form>
-        <section class="voice-recorder" aria-label="录制语音消息" hidden></section>
       </section>
     `;
     this.applyPresenceStyle();
@@ -5413,7 +5425,11 @@ export class QuietRoomApp {
     this.root.querySelector('#open-memes')?.addEventListener('click', () => {
       if (this.memePicker) this.closeMemePicker(true, true); else this.openMemePicker();
     });
-    this.root.querySelector('#composer')?.addEventListener('submit', (event) => void this.handleSendText(event));
+    this.root.querySelector('#composer')?.addEventListener('submit', (event) => {
+      if (this.root.querySelector('#message-input')?.getAttribute('data-composing') === 'true') { event.preventDefault(); return; }
+      void this.handleSendText(event);
+    });
+    this.root.querySelector('#send-text')?.addEventListener('pointerdown', event => event.preventDefault());
     const list = this.root.querySelector<HTMLElement>('#message-list')!;
     const textarea = this.root.querySelector<HTMLTextAreaElement>('#message-input')!;
     const ownsActiveChat = () => !this.privacyCovered && this.activeSurface === 'chat'
@@ -5517,8 +5533,7 @@ export class QuietRoomApp {
       const tap = focusTap;
       focusTap = null;
       if (!this.usesListScrolling || !ownsActiveChat() || event.touches.length
-        || !tap || !textarea.value || document.activeElement === textarea || !event.cancelable) return;
-      // Empty-input releases belong to the voice gesture, which focuses short taps.
+        || !tap || document.activeElement === textarea || !event.cancelable) return;
       // Native tap focus pans Safari's root even when the list owns scrolling.
       // Keep focus in the trusted touch gesture and suppress only that root pan.
       event.preventDefault();
@@ -5724,7 +5739,7 @@ export class QuietRoomApp {
       motion.frame = requestAnimationFrame(step);
     };
     textarea.addEventListener('compositionstart', () => {
-      activeComposition = true;
+      activeComposition = true; textarea.dataset.composing = 'true';
       compositionStart = textarea.selectionStart;
       compositionBefore = textarea.value.slice(0, compositionStart);
       compositionAfter = textarea.value.slice(textarea.selectionEnd);
@@ -5735,7 +5750,7 @@ export class QuietRoomApp {
       if (/^[\x20-\x7e]+$/.test(event.data) || !compositionRaw) compositionRaw = event.data;
     });
     textarea.addEventListener('compositionend', () => {
-      activeComposition = false;
+      activeComposition = false; delete textarea.dataset.composing;
       lastCompositionEndAt = performance.now();
       lastCompositionEndValue = textarea.value;
       if (rawCommitPending) requestAnimationFrame(commitRawComposition);
@@ -5752,6 +5767,7 @@ export class QuietRoomApp {
     resizeTextarea(false);
     this.syncComposerMode();
     textarea.addEventListener('keydown', (event) => {
+      if (event.altKey && event.key.toLowerCase() === 'r' && !event.repeat && !textarea.value) { event.preventDefault(); this.beginVoiceRecording('locked'); return; }
       if (event.key !== 'Enter' || event.shiftKey) return;
       if (activeComposition || event.isComposing || event.keyCode === 229
         || performance.now() - lastCompositionEndAt < 30 && textarea.value === lastCompositionEndValue) {
@@ -5795,7 +5811,7 @@ export class QuietRoomApp {
     });
     const imageInput = this.root.querySelector<HTMLInputElement>('#image-input');
     this.voiceGesture?.destroy();
-    this.voiceGesture = bindVoiceInputGesture(textarea, mode => this.beginVoiceRecording(mode));
+    this.voiceGesture = bindVoiceRecordGesture(this.root.querySelector<HTMLButtonElement>('#record-voice')!, mode => this.beginVoiceRecording(mode));
     this.root.querySelector('#open-chat-tools')?.addEventListener('click', () => this.toggleChatTools());
     textarea.addEventListener('focus', () => this.closeChatTools());
     this.root.querySelector('#message-list')?.addEventListener('click', event => {
@@ -6679,7 +6695,8 @@ export class QuietRoomApp {
     const outgoing = !reducedMotion && this.root.firstElementChild instanceof HTMLElement
       ? this.root.firstElementChild : null;
     const outgoingScrollY = this.usesListScrolling && outgoing?.classList.contains('chat-shell') ? 0 : window.scrollY;
-    const replaceGateway = outgoing?.classList.contains('gateway') ?? false;
+    const privateGateway = (node: HTMLElement | null) => Boolean(node?.classList.contains('gateway') && !node.matches('.save-entry-page, [data-authenticated-page]'));
+    const replaceGateway = privateGateway(outgoing);
     outgoing?.remove();
     this.root.dataset.pageTransition = direction;
     render();
@@ -6692,7 +6709,7 @@ export class QuietRoomApp {
     // Authentication and first-run choices replace one another as private
     // screens. Retaining the previous gateway beside them makes its copy look
     // like leaked or overlapping content on a phone.
-    if (replaceGateway || incoming.classList.contains('gateway')) {
+    if (replaceGateway || privateGateway(incoming)) {
       delete this.root.dataset.pageTransition;
       return;
     }
@@ -6806,7 +6823,7 @@ export class QuietRoomApp {
     });
   }
 
-  private setActiveSurface(surface: 'away' | 'chat'): boolean {
+  private setActiveSurface(surface: 'away' | 'chat', preservePresence = false): boolean {
     if (surface === 'away' && this.invalidateKeyboardHandoff()) return false;
     if (surface === 'away') { this.closeMemePicker(); this.memeCache.view = undefined; }
     this.stopViewerMedia();
@@ -6814,8 +6831,8 @@ export class QuietRoomApp {
       this.replyJumpVersion += 1;
       this.replyReturnAnchors = [];
       this.chatNewMessageIds.clear();
-      this.presenceCircuit?.destroy();
-      this.presenceCircuit = null;
+      if (preservePresence) this.presenceCircuit?.suspend();
+      else { this.presenceCircuit?.destroy(); this.presenceCircuit = null; }
       this.clearKeyboardHandoff();
       this.chatImageConcealGesture?.reset();
       this.cancelViewportWork();
@@ -7656,7 +7673,18 @@ export class QuietRoomApp {
 
   private syncComposerMode(): void {
     const input = this.root.querySelector<HTMLTextAreaElement>('#message-input');
-    if (input) input.dataset.voiceEligible = String(!input.value);
+    const composer = this.root.querySelector<HTMLElement>('#composer');
+    const send = this.root.querySelector<HTMLButtonElement>('#send-text');
+    const voice = this.root.querySelector<HTMLButtonElement>('#record-voice');
+    if (!input || !composer || !send || !voice) return;
+    const hasText = Boolean(input.value.trim());
+    composer.classList.toggle('has-text', hasText);
+    send.disabled = !hasText || input.disabled;
+    send.tabIndex = hasText ? 0 : -1;
+    send.setAttribute('aria-hidden', String(!hasText));
+    voice.disabled = hasText || input.disabled;
+    voice.tabIndex = hasText ? -1 : 0;
+    voice.setAttribute('aria-hidden', String(hasText));
   }
 
   private closeChatTools(): void {
@@ -7699,6 +7727,8 @@ export class QuietRoomApp {
     const epoch = this.runtimeEpoch;
     const host = this.root.querySelector<HTMLElement>('.voice-recorder');
     if (!session || this.privacyCovered || !host || this.voiceRecorder) return null;
+    this.root.querySelectorAll('.voice-retiring').forEach(node => node.remove());
+    this.root.querySelector('.voice-discard-feedback')?.getAnimations({ subtree: true }).forEach(animation => animation.cancel());
     if (session.vault.protocol === 'mls-rfc9420' && session.vault.mls?.phase !== 'active') return null;
     if (!this.activeDevicesSupport('voice-message-v1')) {
       this.showNotice('请先让所有已授权设备打开一次最新版，再发送语音', 'error');
@@ -7726,7 +7756,25 @@ export class QuietRoomApp {
         return false;
       },
       cancel: () => {
-        if (this.voiceRecorder === recorder) this.closeVoiceRecorder(true);
+        if (this.voiceRecorder === recorder) {
+          this.closeVoiceRecorder(true);
+          const feedback = this.root.querySelector<HTMLElement>('.voice-discard-feedback');
+          if (feedback && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+            feedback.getAnimations({ subtree: true }).forEach(animation => animation.cancel());
+            feedback.animate([{ opacity: 1 }, { opacity: 1, offset: .8 }, { opacity: 0 }], { duration: 900 });
+            feedback.querySelector('i')?.animate([
+              { opacity: 1, transform: 'translateY(-22px) scale(1)' },
+              { opacity: 1, transform: 'translateY(4px) scale(.4)', offset: .75 },
+              { opacity: 0, transform: 'translateY(7px) scale(0)' },
+            ], { duration: 360, fill: 'forwards', easing: 'ease-in' });
+            feedback.querySelector('svg')?.animate([
+              { opacity: 0, transform: 'translateY(8px) scale(.6)' },
+              { opacity: 1, transform: 'translateY(0) scale(1)', offset: .3 },
+              { opacity: 1, transform: 'rotate(-8deg)', offset: .6 },
+              { opacity: 0, transform: 'translateY(5px) scale(.8)' },
+            ], { duration: 900, easing: 'ease-out' });
+          }
+        }
       },
       fail: message => {
         if (!this.isRuntimeActive(epoch, session) || this.voiceRecorder !== recorder) return;
@@ -7760,7 +7808,7 @@ export class QuietRoomApp {
         this.closeVoiceRecorder(true);
         if (this.replyTarget === replyTarget) { this.replyTarget = null; this.renderReplyDraft(); }
       },
-    }, mode, true);
+    }, mode, false);
     this.voiceRecorder = recorder;
     void recorder.start();
     return recorder;
@@ -10270,14 +10318,17 @@ export class QuietRoomApp {
     this.resetIdleLock();
     this.privacyCovered = false;
     document.body.className = 'app-mode';
-    this.gatewayTemplate('我的恢复码', '所有本地空间共用此恢复码。请单独保存，此页面将在一分钟后锁定。', `
-      <p class="privacy-note">通行密钥和解密密钥不会发送到服务器，丢失后无法代为找回。</p>
-      <div data-recovery-keyboard class="recovery-code-view">
-      <code class="local-recovery-code"></code>
-      <div class="welcome-actions">
-      <button class="primary-button" id="copy-local-recovery" type="button">复制恢复码</button>
-      <button class="text-button" id="hide-local-recovery" type="button">${this.settingsReturn?.session === live ? '我已保存，返回设置' : '我已保存，回到聊天页'}</button>
-      <p class="field-hint" role="status"></p></div></div>`, false, 'plain');
+    this.transitionPage('forward', () => {
+      this.gatewayTemplate('我的恢复码', '所有本地空间共用此恢复码。请单独保存，此页面将在一分钟后锁定。', `
+        <p class="privacy-note">通行密钥和解密密钥不会发送到服务器，丢失后无法代为找回。</p>
+        <div data-recovery-keyboard class="recovery-code-view">
+        <code class="local-recovery-code"></code>
+        <div class="welcome-actions">
+        <button class="primary-button" id="copy-local-recovery" type="button">复制恢复码</button>
+        <button class="text-button" id="hide-local-recovery" type="button">${this.settingsReturn?.session === live ? '我已保存，返回设置' : '我已保存，回到聊天页'}</button>
+        <p class="field-hint" role="status"></p></div></div>`, false, 'plain');
+      this.root.querySelector('.gateway')?.setAttribute('data-authenticated-page', '');
+    });
     const codeNode = this.root.querySelector<HTMLElement>('.local-recovery-code')!;
     this.armRecoveryKeyboardHandoff(this.root);
     codeNode.textContent = live.vault.spaceRecoveryCode!;
@@ -10298,7 +10349,7 @@ export class QuietRoomApp {
     });
     this.root.querySelector('#hide-local-recovery')?.addEventListener('click', async () => {
       window.clearTimeout(timer); codeNode.textContent = '';
-      this.renderChat();
+      this.transitionPage('backward', () => this.renderChat());
     });
   }
 
@@ -10707,7 +10758,7 @@ export class QuietRoomApp {
 
   private renderEntranceCard(): void {
     this.setActiveSurface('away');
-    const returnToChat = () => this.session ? this.renderChat() : this.renderRecoveryCenter();
+    const returnToChat = () => this.transitionPage('backward', () => this.session ? this.renderChat() : this.renderRecoveryCenter());
     this.root.innerHTML = `<main class="recovery-flow-page">
       <header class="recovery-flow-nav"><button class="icon-button" id="entrance-back" type="button" aria-label="返回聊天">${icons.back}</button><strong>保存入口</strong><span></span></header>
       <section class="recovery-flow-content">
@@ -13028,8 +13079,10 @@ export class QuietRoomApp {
       if (!this.presenceCircuit) this.presenceCircuit = new PresenceCircuit(circuit);
       circuit.dataset.compact = String(readPresenceStyle() === 'heart');
       circuit.setAttribute('viewBox', readPresenceStyle() === 'heart' ? '34 -5.52 32 32' : '0 0 100 24');
-      circuit.dataset.self = String(selfOnline === true); circuit.dataset.peer = String(peerOnline === true);
-      this.presenceCircuit.update(selfOnline, peerOnline);
+      if (snapshotAvailable || this.connectionState !== 'connected') {
+        circuit.dataset.self = String(selfOnline === true); circuit.dataset.peer = String(peerOnline === true);
+        this.presenceCircuit.update(selfOnline, peerOnline);
+      }
     }
     const transport = this.connectionState === 'connected'
       ? '实时连接正常'

@@ -57,6 +57,32 @@ try {
     return { count:(await sp.localSpaces(a)).length, sameCode:a.vault.spaceRecoveryCode === b.vault.spaceRecoveryCode, legacyCode:a.vault.backup.code === legacyCode, oldHistory:(await v.loadHistory(a)).map(x=>x.payload.text), bHistory, rawEncrypted:!JSON.stringify(raw).includes('旧空间'), remoteRooms:remote.map(s=>s.roomId).sort(), rooms:[a.vault.roomId,b.vault.roomId].sort(), slot:v.vaultSpaceId(a.stored), bUnchanged };
   });
   assert.equal(result.count,2); assert.equal(result.sameCode,true); assert.equal(result.legacyCode,true); assert.deepEqual(result.oldHistory,['A 的历史']); assert.equal(result.bHistory,0); assert.equal(result.rawEncrypted,true); assert.deepEqual(result.remoteRooms,result.rooms); assert.equal(result.slot,'current'); assert.equal(result.bUnchanged,true);
+  // A different local passkey is verifiable on this device; deleting its
+  // space must not select that slot or reuse A's proof against B's wrapper.
+  const removal = await page.evaluate(async () => {
+    const { unlockPlatformCredential } = await import('/src/lib/platform-vault.ts');
+    const slot = v.vaultSpaceId(b.stored), selected = v.currentSpaceId();
+    const held = v.cloneDeviceCredential(a);
+    if (held.record.credentialId === b.stored.platform.credentialId) throw Error('Fixture needs independent passkeys');
+    const before = JSON.stringify(await v.readStoredVault());
+    let verified = 0, proof;
+    const reopened = await v.unlockSpaceForRemoval(slot, held, async record => {
+      verified++; proof = await unlockPlatformCredential(record); return proof;
+    });
+    const correct = reopened.vault.roomId === b.vault.roomId && v.currentSpaceId() === selected;
+    v.releaseDeviceCredential(reopened);
+    let cancelled = false;
+    try { await v.unlockSpaceForRemoval(slot, held, async () => { throw new DOMException('Cancelled', 'NotAllowedError'); }); }
+    catch (error) { cancelled = error.name === 'NotAllowedError'; }
+    const unchanged = before === JSON.stringify(await v.readStoredVault());
+    let stale = false, staleProof;
+    try { await v.unlockSpaceForRemoval(slot, held, async () => {
+      staleProof = v.cloneDeviceCredential(b).prfOutput;
+      b.vault.lastSeq++; await v.saveVault(b); return staleProof;
+    }); } catch (error) { stale = /重新|变化|失效/.test(error.message); }
+    return { verified, correct, cancelled, unchanged, stale, wiped: proof.every(x => x === 0) && staleProof.every(x => x === 0), selected: v.currentSpaceId() === selected };
+  });
+  assert.deepEqual(removal, { verified: 1, correct: true, cancelled: true, unchanged: true, stale: true, wiped: true, selected: true });
   const other = await context.newPage(); await other.goto(url);
   assert.equal(await other.evaluate(async () => { const v=await import('/src/lib/vault.ts');await v.selectLocalSpace('current');const a=await v.readStoredVault();return a.spaceId === 'current'; }),true);
   await other.close(); await page.bringToFront();
@@ -83,7 +109,8 @@ try {
   if (process.env.QUIET_ROOM_SPACE_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.QUIET_ROOM_SPACE_SCREENSHOTS, 'style-light.png') });
   await page.locator('[data-style=heart]').click();
   assert.equal(await page.locator('[data-style=heart]').getAttribute('aria-checked'),'true');
-  await page.locator('#space-style-done').click();
+  assert.equal(await page.locator('#space-style-done').count(), 0);
+  await page.locator('.space-close').click();
   await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
   assert.equal(await page.locator('.chat-header').getAttribute('data-presence-style'),'heart');
   const sizes=await page.evaluate(()=>({button:document.querySelector('.peer-summary').getBoundingClientRect().width,svg:document.querySelector('.presence-circuit').getBoundingClientRect().width})); assert.equal(sizes.button,44); assert.equal(sizes.svg,32);
@@ -91,6 +118,18 @@ try {
   // The heart's filled center sits about 1.5px above its box, so a visually centered glyph reports a positive box offset.
   assert.ok(Math.abs(alignment.x)<1 && alignment.y>1.1 && alignment.y<2,JSON.stringify(alignment));
   assert.equal(await page.locator('#open-spaces span').innerText(),'慢慢聊');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => { app.connectionState = 'connected'; app.rolePresence = { creator: true, joiner: true }; app.updatePeerStatus(); window.heartBeforeDrawer = app.presenceCircuit; });
+  assert.equal(await page.locator('.chat-header .presence-circuit').getAttribute('data-phase'), 'online');
+  await page.locator('#open-spaces').click(); await page.locator('.space-close').click();
+  await page.locator('.space-drawer-overlay').waitFor({ state: 'detached' });
+  assert.equal(await page.evaluate(() => heartBeforeDrawer === app.presenceCircuit), true, 'Drawer closing retains the painted heart controller');
+  assert.equal(await page.locator('.chat-header .presence-circuit').getAttribute('data-phase'), 'online', 'Awaiting a fresh snapshot must not flash the heart into unknown');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  assert.equal(await page.locator('.chat-header .presence-electric').evaluate(el => getComputedStyle(el).display), 'none');
+  await page.evaluate(() => { const header = document.querySelector('.chat-header'); header.dataset.presenceStyle = 'circuit'; });
+  assert.notEqual(await page.locator('.chat-header .presence-electric').evaluate(el => getComputedStyle(el).display), 'none', 'Electricity is retained outside the compact heart style');
+  await page.evaluate(() => { app.applyPresenceStyle(); app.connectionState = 'disconnected'; });
   const output=process.env.QUIET_ROOM_SPACE_SCREENSHOTS;
   if(output){await mkdir(output,{recursive:true});await page.screenshot({path:path.join(output,'chat-heart.png')});}
   await page.locator('#open-spaces').click(); await page.locator('#space-settings').waitFor();
@@ -130,6 +169,15 @@ try {
   assert.ok(await page.locator('[data-recovery-spaces] option').count()>=2);
   assert.equal(await page.locator('#joint-code-form textarea').inputValue(),'');
   await page.locator('#joint-code-close').click(); await page.locator('#joint-code-form').waitFor({state:'detached'});
+  const deleted = await page.evaluate(async () => {
+    await v.selectLocalSpace(v.vaultSpaceId(a.stored));
+    app.session = a; app.privacyCovered = false; app.runtimeAbort = new AbortController();
+    app.deviceCredential = v.cloneDeviceCredential(a);
+    const slot = v.vaultSpaceId(b.stored), selected = v.currentSpaceId();
+    await app.destroyWaitingSpace(a, { roomId: b.vault.roomId, localId: slot, name: '独立凭据的待建立空间', waiting: true });
+    return { selected: v.currentSpaceId() === selected, exists: await v.localSpaceExists(slot), listed: (await sp.localSpaces(a)).some(space => space.roomId === b.vault.roomId) };
+  });
+  assert.deepEqual(deleted, { selected: true, exists: false, listed: false });
   for (const [width,height,scheme] of [[320,568,'light'],[390,844,'dark'],[1280,800,'light']]) {
     await page.setViewportSize({width,height}); await page.emulateMedia({colorScheme:scheme,reducedMotion:'reduce'});
     await page.evaluate(async()=>{

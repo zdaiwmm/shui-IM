@@ -75,7 +75,7 @@ export class MediaUploadView {
       const ratio = dimensions.width / dimensions.height;
       this.tile.style.aspectRatio = String(ratio);
       this.tile.style.setProperty('--media-upload-ratio', String(ratio));
-      this.tile.style.setProperty('--media-upload-natural-width', `${dimensions.width * (expression ? (gif ? 0.4 : 2 / 3) : 1)}px`);
+      this.tile.style.setProperty('--media-upload-natural-width', `${dimensions.width * (expression ? (gif ? 0.24 : 2 / 3) : 1)}px`);
     }) : Promise.resolve();
     this.preparation = this.ready.catch(() => {});
     for (const [index, file] of files.entries()) {

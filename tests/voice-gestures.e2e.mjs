@@ -52,7 +52,7 @@ try {
   };
   const reset = async () => { await page.evaluate(() => window.fixture.fresh()); await page.waitForTimeout(200); };
   const hold = async (waitForMedia = true) => {
-    const box = await page.locator('#message-input').boundingBox(); origin = { x: box.x + 35, y: box.y + box.height / 2 };
+    const box = await page.locator('#record-voice').boundingBox(); origin = { x: box.x + box.width/2, y: box.y + box.height / 2 };
     await touch('touchStart');
     await page.locator('.voice-recorder:not([hidden])').waitFor();
     if (waitForMedia) await page.waitForFunction(() => document.querySelector('.voice-recorder').dataset.state === 'recording');
@@ -60,7 +60,7 @@ try {
   const count = () => page.evaluate(() => window.fixture.sends.length);
   const stopped = () => page.waitForFunction(() => window.fixture.tracks.every(t => t.readyState === 'ended'));
   const closed = () => page.waitForFunction(() => !window.fixture.app.voiceRecorder);
-  const cancelPoint = () => page.locator('.voice-cancel-zone').evaluate(e => { const r=e.getBoundingClientRect(); return { x:r.x+r.width/2,y:r.y+r.height*.43 }; });
+  const cancelPoint = async () => ({ x: origin.x - 110, y: origin.y });
 
   await page.locator('#message-input').tap();
   assert.equal(await count(),0); assert.equal(await page.locator('.voice-recorder').isVisible(),false);
@@ -79,10 +79,42 @@ try {
   assert.equal(await page.locator('.voice-recorder').isVisible(),false);
   assert.equal(await page.locator('#message-input').inputValue(),'已有草稿');
 
+  await reset();
+  const composerStart = await page.evaluate(() => {
+    window.originalComposerInput = document.querySelector('#message-input');
+    const input = originalComposerInput, field = input.closest('.composer-input-stack').getBoundingClientRect();
+    const plus = document.querySelector('#open-chat-tools').getBoundingClientRect();
+    const voice = document.querySelector('#record-voice').getBoundingClientRect();
+    const style = getComputedStyle(input), placeholder = getComputedStyle(input, '::placeholder');
+    return { left: field.left, right: field.right, plusRight: plus.right, voiceLeft: voice.left,
+      balanced: style.paddingTop === style.paddingBottom, font: style.fontSize, placeholderFont: placeholder.fontSize, line: style.lineHeight, placeholderLine: placeholder.lineHeight };
+  });
+  assert(composerStart.plusRight <= composerStart.left && composerStart.right <= composerStart.voiceLeft);
+  assert(composerStart.balanced && composerStart.font === composerStart.placeholderFont && composerStart.line === composerStart.placeholderLine);
+  await page.locator('#message-input').fill('输入后显示发送按钮');
+  await page.waitForTimeout(260);
+  const composerText = await page.evaluate(() => {
+    const field = document.querySelector('.composer-input-stack').getBoundingClientRect(), send = document.querySelector('#send-text').getBoundingClientRect();
+    return { left: field.left, right: field.right, sendInside: send.left >= field.left && send.right <= field.right,
+      sameInput: originalComposerInput === document.querySelector('#message-input'), hiddenVoice: document.querySelector('#record-voice').disabled };
+  });
+  assert.equal(composerText.left, composerStart.left);
+  assert(composerText.right > composerStart.right && composerText.sendInside && composerText.sameInput && composerText.hiddenVoice);
+  await page.locator('#message-input').fill(''); await page.waitForTimeout(260);
+  assert.equal(await page.locator('.composer-input-stack').evaluate(el => el.getBoundingClientRect().right), composerStart.right);
+
+  await page.locator('#open-chat-tools').click();
+  const panelGeometry = await page.evaluate(() => {
+    const input = document.querySelector('.composer-input-stack').getBoundingClientRect();
+    const voice = document.querySelector('#record-voice').getBoundingClientRect();
+    const panel = document.querySelector('#chat-tools').getBoundingClientRect();
+    return { aligned: Math.abs(input.bottom - voice.bottom) < 2, abovePanel: voice.bottom < panel.top };
+  });
+  assert.deepEqual(panelGeometry, { aligned: true, abovePanel: true });
   await reset(); await hold(); await page.waitForTimeout(700);
-  assert.equal(await page.locator('.voice-hold-bed > svg').evaluate(el=>getComputedStyle(el).animationName),'voice-bed-breathe');
+  assert.equal(await page.locator('.voice-recording-dot').evaluate(el=>getComputedStyle(el).animationName),'voice-recording-pulse');
   await page.emulateMedia({reducedMotion:'reduce'});
-  assert.equal(await page.locator('.voice-hold-bed > svg').evaluate(el=>getComputedStyle(el).animationName),'none');
+  assert.equal(await page.locator('.voice-recording-dot').evaluate(el=>getComputedStyle(el).animationName),'none');
   await page.emulateMedia({reducedMotion:'no-preference'});
   await touch('touchEnd'); await closed(); await stopped(); assert.equal(await count(),1);
   await reset(); await hold(); await page.waitForTimeout(650);
@@ -95,12 +127,22 @@ try {
   assert.equal(await page.locator('.voice-recorder').getAttribute('data-hold-action'),'send');
   await touch('touchEnd'); await closed(); assert.equal(await count(),2);
 
-  // The box corners are outside the rounded arc and must not cancel.
-  await reset(); await hold();
-  const corner=await page.locator('.voice-cancel-zone').evaluate(e=>{ const r=e.getBoundingClientRect(); return {x:r.x+1,y:r.y+1}; });
-  await touch('touchMove',corner);
-  assert.equal(await page.locator('.voice-recorder').getAttribute('data-hold-action'),'send');
-  await touch('touchCancel'); await closed(); await stopped(); assert.equal(await count(),2);
+  // Vertical travel locks recording. Release cannot send; pause, preview and
+  // resume remain deliberate actions, using the real synthetic microphone.
+  await reset(); await hold(); await page.waitForTimeout(650);
+  await touch('touchMove',{x:origin.x,y:origin.y-85});
+  assert.equal(await page.locator('.voice-recorder').getAttribute('data-mode'),'locked');
+  await touch('touchEnd');
+  assert.equal(await count(),2);
+  await page.getByRole('button',{name:'暂停录音',exact:true}).click();
+  await page.locator('.voice-recorder[data-state="paused"]').waitFor(); await stopped();
+  await page.getByRole('button',{name:'试听录音',exact:true}).click();
+  await page.getByRole('button',{name:'暂停试听',exact:true}).waitFor();
+  await page.getByRole('button',{name:'继续录音',exact:true}).click();
+  await page.locator('.voice-recorder[data-state="recording"]').waitFor();
+  await page.locator('.voice-cancel').click(); await closed(); await stopped();
+  assert.equal(await count(),2);
+  await reset(); await hold(); await touch('touchCancel'); await closed(); await stopped();
 
   // A release before permission settles cannot start capture after a late grant.
   await reset();
@@ -116,12 +158,12 @@ try {
     await page.emulateMedia({colorScheme});
     await page.setViewportSize({width,height}); await reset(); await hold();
     const geometry=await page.evaluate(()=>{
-      const zone=document.querySelector('.voice-cancel-zone').getBoundingClientRect();
-      const bed=document.querySelector('.voice-hold-bed').getBoundingClientRect();
-      const card=document.querySelector('.voice-live-card').getBoundingClientRect();
-      return {left:zone.left,right:zone.right,width:innerWidth,bedHeight:bed.height,cardBottom:card.bottom,zoneTop:zone.top};
+      const orb=document.querySelector('.voice-hold-orb').getBoundingClientRect();
+      const bar=document.querySelector('.voice-recording-bar').getBoundingClientRect();
+      const guide=document.querySelector('.voice-lock-guide').getBoundingClientRect();
+      return {left:orb.left,right:orb.right,bottom:orb.bottom,width:innerWidth,height:innerHeight,guideTop:guide.top,barTop:bar.top};
     });
-    assert(geometry.left>0 && geometry.right<geometry.width && geometry.bedHeight>=(height<=600?100:150) && geometry.cardBottom<geometry.zoneTop);
+    assert(geometry.left>=0 && geometry.right<=geometry.width+1 && geometry.bottom<=geometry.height+1 && geometry.guideTop>=0 && geometry.guideTop<geometry.barTop,JSON.stringify(geometry));
     const suffix=colorScheme==='dark'?`${width}-dark`:width;
     if(process.argv[2]) await page.screenshot({path:path.join(process.argv[2],`voice-${suffix}.png`)});
     await touch('touchMove',await cancelPoint());
@@ -129,5 +171,5 @@ try {
     await touch('touchEnd'); await closed(); await stopped();
   }
   assert.deepEqual(errors,[]);
-  console.log('Voice input gestures passed: tap/edit, hold/send, curved hit testing, cancel/reentry, interruption, late grant and responsive geometry.');
+  console.log('Voice button gestures passed: input/edit, hold/send, cancel/reentry, slide-lock, pause/preview/resume, interruption, late grant and responsive geometry.');
 } finally { await browser?.close(); await server.close(); }
