@@ -541,6 +541,7 @@ try {
     const fullTileWidth=await page.locator('.meme-grid').evaluate(el => Math.min(132, (el.getBoundingClientRect().width - 16) / 5));
     if (width < 1024) assert.ok(Math.abs(fullTileWidth-halfTileWidth)<1, `Tile width changed between half/full search at ${width}px: ${halfTileWidth}/${fullTileWidth}`);
     else assert.ok(fullTileWidth >= halfTileWidth && fullTileWidth <= 132, 'Desktop search retains the bounded five-column grid');
+    await page.waitForFunction(() => !document.querySelector('.meme-search-dialog .meme-panel')?.getAnimations().some(animation => animation.playState === 'running'));
     const searchPanel = await page.locator('.meme-search-dialog .meme-panel').boundingBox();
     assert.ok(Math.abs(searchPanel.x - full.x) <= 1 && Math.abs(searchPanel.width - full.width) <= 1 && Math.abs(searchPanel.height - full.height) <= 1, JSON.stringify({full,searchPanel}));
     assert.ok(Math.abs(full.height-height)<=1&&full.y===0&&full.width===width,JSON.stringify(full));
