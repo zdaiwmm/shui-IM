@@ -105,3 +105,5 @@
   .presence-circuit .presence-wires { transition: none; }
   .presence-electric { display: none; }
 }
+
+.chat-header[data-presence-style="heart"] .presence-electric { display: none; }

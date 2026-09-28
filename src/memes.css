@@ -132,18 +132,18 @@
 .meme-panel[data-kind="emoji"] .meme-pack-shortcuts button { font-size: 22px; }
 
 /* Scale every limiting dimension together; stickers and unclassified history retain their geometry. */
-.chat-shell .message-bubble.expression-bubble.gif-expression { max-width: min(115.2px, 60%); }
-.chat-shell .expression-bubble.gif-expression .image-preview { max-width: 115.2px; }
-.chat-shell .expression-bubble.gif-expression .image-preview img { max-height: min(16.8svh, 128px); }
+.chat-shell .message-bubble.expression-bubble.gif-expression { max-width: min(69.12px, 36%); }
+.chat-shell .expression-bubble.gif-expression .image-preview { max-width: 69.12px; }
+.chat-shell .expression-bubble.gif-expression .image-preview img { max-height: min(10.08svh, 76.8px); }
 .chat-shell .expression-bubble.gif-expression[data-media-dimensions='known'],
 .chat-shell .expression-bubble.gif-expression > .image-preview[data-media-dimensions='known'] {
-  --chat-media-max-width: 115.2px;
-  --chat-media-max-height: min(16.8svh, 128px);
-  --chat-media-natural-width: calc(var(--chat-media-source-width) * 0.4);
-  --chat-media-width-at-max-height: calc(min(16.8svh, 128px) * var(--chat-media-ratio));
+  --chat-media-max-width: 69.12px;
+  --chat-media-max-height: min(10.08svh, 76.8px);
+  --chat-media-natural-width: calc(var(--chat-media-source-width) * 0.24);
+  --chat-media-width-at-max-height: calc(min(10.08svh, 76.8px) * var(--chat-media-ratio));
 }
 .message.outgoing .media-upload-expression.gif-expression {
-  --media-upload-max-width: 115.2px;
-  --media-upload-max-height: min(16.8svh, 128px);
-  max-width: 60%;
+  --media-upload-max-width: 69.12px;
+  --media-upload-max-height: min(10.08svh, 76.8px);
+  max-width: 36%;
 }

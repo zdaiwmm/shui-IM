@@ -102,7 +102,7 @@ export function bindVoiceRecordGesture(
   begin: (mode: 'hold' | 'locked') => VoiceRecorder | null,
 ): { cancel: () => void; destroy: () => void } {
   const binding = new AbortController();
-  const composer = button.parentElement!;
+  const composer = button.closest<HTMLElement>('.composer') ?? button.parentElement!;
   let suppressPointerClick = false;
   let gesture: AbortController | null = null;
   let timer: number | null = null;
@@ -161,7 +161,7 @@ export function bindVoiceRecordGesture(
       activeRecorder = begin('hold');
       activeRecorder?.animateHoldFrom(inflatedOrigin);
       button.classList.remove('is-pressing');
-    }, 90);
+    }, 350);
 
     window.addEventListener('pointermove', move => {
       if (move.pointerId !== pointerId) return;
@@ -169,7 +169,7 @@ export function bindVoiceRecordGesture(
       const dx = move.clientX - startX;
       const dy = move.clientY - startY;
       if (!held && Math.hypot(dx, dy) > 12) { cancel(); return; }
-      activeRecorder?.moveHold(dx);
+      activeRecorder?.moveHold(dx, dy);
     }, { signal, passive: false });
 
     window.addEventListener('pointerup', up => {
@@ -177,11 +177,11 @@ export function bindVoiceRecordGesture(
       up.preventDefault();
       const recorder = activeRecorder;
       // Use release coordinates too; a browser may coalesce the final move.
-      recorder?.moveHold(up.clientX - startX);
+      recorder?.moveHold(up.clientX - startX, up.clientY - startY);
       cancel();
       if (held) recorder?.releaseHold();
       else if (button.isConnected && !button.disabled && up.clientX >= bounds.left && up.clientX <= bounds.right
-        && up.clientY >= bounds.top && up.clientY <= bounds.bottom) begin('locked');
+        && up.clientY >= bounds.top && up.clientY <= bounds.bottom) button.focus({ preventScroll: true });
     }, { signal, passive: false });
 
     const interrupt = () => {

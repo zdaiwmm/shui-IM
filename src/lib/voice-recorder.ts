@@ -1,13 +1,14 @@
 import { afterMotion, motion, retargetMotion } from './motion';
 import { AUDIO_MIME_TYPES, MAX_AUDIO_BYTES, MAX_AUDIO_DURATION_MS, MIN_AUDIO_DURATION_MS } from './message-payload';
 import { encodeVoiceWav, MAX_VOICE_SAMPLES, VOICE_SAMPLE_RATE, voiceIcons, voiceTime, voiceWaveform, waveformMarkup } from './voice-audio';
-import { createElement, X } from 'lucide';
+import { createElement, X, LockKeyhole, LockKeyholeOpen, ChevronUp } from 'lucide';
 
 export type VoiceDraft = { file: File; durationMs: number; waveform: number[]; clientMsgId: string };
 type State = 'requesting' | 'recording' | 'processing' | 'paused' | 'sending';
 type Mode = 'hold' | 'locked';
-const CANCEL_DISTANCE = 220;
-const CANCEL_RESET_DISTANCE = 196;
+const CANCEL_DISTANCE = 96;
+const LOCK_DISTANCE = 72;
+const CANCEL_RESET_DISTANCE = 76;
 
 export class VoiceRecorder {
   readonly signal: AbortSignal;
@@ -73,13 +74,14 @@ export class VoiceRecorder {
       <span class="voice-recording-state" role="status" aria-live="polite"></span>
       <button type="button" class="voice-control voice-discard" aria-label="取消录音">${voiceIcons.remove}</button>
       <button type="button" class="voice-control voice-toggle" aria-label="暂停录音">${voiceIcons.pause}</button>
+      <div class="voice-lock-guide" aria-hidden="true">${createElement(LockKeyholeOpen).outerHTML}${createElement(ChevronUp).outerHTML}</div>
       <div class="voice-hold-orb" aria-hidden="true">${voiceIcons.mic}</div>
       <button type="button" class="voice-control voice-send" aria-label="发送语音">${voiceIcons.send}</button>
       <p class="voice-recording-hint" role="status" aria-live="polite"></p>`;
     this.waveBars = Array.from(host.querySelectorAll<HTMLElement>('.voice-recording-wave i'));
     this.resetDrag();
     host.querySelector('.voice-discard')!.addEventListener('click', () => this.cancel());
-    host.querySelector('.voice-cancel')!.addEventListener('click', () => this.cancel());
+    host.querySelector('.voice-cancel')!.addEventListener('click', () => this.cancel(true));
     host.querySelector('.voice-toggle')!.addEventListener('click', () => {
       if (this.state === 'recording') this.pause();
       else if (this.state === 'paused') void this.start();
@@ -107,17 +109,36 @@ export class VoiceRecorder {
     motion.onfinish = () => { if (this.holdEntryMotion === motion) this.holdEntryMotion = null; };
   }
 
-  moveHold(deltaX: number): void {
+  moveHold(deltaX: number, deltaY = 0): void {
     if (this.signal.aborted || this.mode !== 'hold' || this.holdReleased || !['requesting', 'recording'].includes(this.state)) return;
     const left = Math.max(0, -deltaX);
-    // Keep the microphone visibly attached to the finger for a longer travel.
-    // The logarithmic tail still prevents it from leaving the composer, but the
-    // larger resistance length avoids the earlier near-stop after a short drag.
-    const resistance = deltaX < 0 ? 220 : 72;
-    const drag = Math.sign(deltaX) * resistance * Math.log1p(Math.abs(deltaX) / resistance);
+    const up = Math.max(0, -deltaY);
+    const progress = Math.min(1, left / CANCEL_DISTANCE);
     this.cancelReady = this.cancelReady ? left >= CANCEL_RESET_DISTANCE : left >= CANCEL_DISTANCE;
-    this.host.style.setProperty('--voice-drag-x', `${drag}px`);
-    this.host.style.setProperty('--voice-cancel-progress', String(Math.min(1, left / CANCEL_DISTANCE)));
+    this.host.style.setProperty('--voice-drag-x', `${-Math.min(left, CANCEL_DISTANCE)}px`);
+    this.host.style.setProperty('--voice-drag-y', `${-Math.min(up, LOCK_DISTANCE)}px`);
+    this.host.style.setProperty('--voice-cancel-progress', String(progress));
+    this.host.style.setProperty('--voice-lock-progress', String(Math.min(1, up / LOCK_DISTANCE)));
+    this.holdEntryMotion?.cancel(); this.holdEntryMotion = null;
+    if (up >= LOCK_DISTANCE && up > left && this.state === 'recording') {
+      const bounds = this.host.querySelector<HTMLElement>('.voice-hold-orb')!.getBoundingClientRect();
+      this.mode = 'locked';
+      this.resetDrag();
+      this.update();
+      if (!this.reducedMotion) {
+        const lock = this.host.querySelector<HTMLElement>('.voice-lock-guide')!.cloneNode(false) as HTMLElement;
+        lock.hidden = false;
+        lock.innerHTML = createElement(LockKeyhole).outerHTML;
+        this.host.append(lock);
+        const settle = lock.animate([{ opacity: 1, transform: 'translateY(12px)' },
+          { opacity: 0, transform: 'translateY(-12px) scale(.65)' }], { duration: 240, easing: 'ease-in' });
+        settle.onfinish = () => lock.remove();
+      }
+      const send = this.host.querySelector<HTMLElement>('.voice-send')!.getBoundingClientRect();
+      this.animateSend(`translate3d(${bounds.x - send.x}px, ${bounds.y - send.y}px, 0)`);
+      if (!this.reducedMotion) this.host.querySelector('.voice-send svg')?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220 });
+      return;
+    }
     this.updateHoldFeedback();
   }
 
@@ -148,6 +169,8 @@ export class VoiceRecorder {
     this.cancelReady = false;
     this.host.dataset.gesture = 'hold';
     this.host.style.setProperty('--voice-drag-x', '0px');
+    this.host.style.setProperty('--voice-drag-y', '0px');
+    this.host.style.setProperty('--voice-lock-progress', '0');
     this.host.style.setProperty('--voice-cancel-progress', '0');
     this.updateHoldFeedback();
   }
@@ -159,7 +182,7 @@ export class VoiceRecorder {
     this.host.dataset.holdAction = action;
     const text = action === 'pending' ? '等待麦克风…'
       : action === 'cancel' ? '松手取消录制'
-        : '松手发送，左滑取消录制';
+        : '滑动以取消';
     if (label.textContent !== text) {
       label.textContent = text;
       retargetMotion(label, label.getAnimations()[0], { opacity: .65 }, { opacity: 1 }, motion.feedback);
@@ -185,7 +208,7 @@ export class VoiceRecorder {
         this.cancelExit = null;
         this.host.replaceChildren();
         this.callbacks.cancel();
-      }, 450);
+      }, 240);
       return;
     }
     this.callbacks.cancel();
@@ -366,7 +389,7 @@ export class VoiceRecorder {
     const shouldSend = this.sendAfterProcessing;
     this.sendAfterProcessing = false;
     if (shouldSend && this.durationMs >= MIN_AUDIO_DURATION_MS) await this.send();
-    else if (shouldSend && this.fullscreen) this.fail('录音太短，请重新录制');
+    else if (shouldSend) this.fail('录音太短，请重新录制');
     else this.update();
   }
 
@@ -445,6 +468,7 @@ export class VoiceRecorder {
     this.host.querySelector<HTMLElement>('.voice-recording-info')!.hidden = drafting || submitting;
     this.host.querySelector<HTMLElement>('.voice-slide-hint')!.hidden = !holding;
     this.host.querySelector<HTMLElement>('.voice-hold-orb')!.hidden = !holding;
+    this.host.querySelector<HTMLElement>('.voice-lock-guide')!.hidden = !holding;
     this.host.querySelector<HTMLElement>('.voice-draft-timeline')!.hidden = !drafting;
     this.host.querySelector<HTMLElement>('.voice-cancel')!.hidden = holding || drafting || submitting;
     const submitLabel = this.host.querySelector<HTMLElement>('.voice-submit-label')!;

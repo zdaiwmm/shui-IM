@@ -100,7 +100,7 @@ try {
     assert.equal(new Set(uploadBox.corners).size, 1, 'Upload has four equal corners');
     if (variant.includes('gif-')) {
       const box = await geometry(draft.locator('.message-bubble'));
-      const expected = variant === 'tall-gif-expression' ? { width: 64, height: 128 } : { width: 115.2, height: 115.2 };
+      const expected = variant === 'tall-gif-expression' ? { width: 38.4, height: 76.8 } : { width: 69.12, height: 69.12 };
       assert.ok(Math.abs(box.width - expected.width) < 1 && Math.abs(box.height - expected.height) < 1, `GIF not reduced to 60%: ${JSON.stringify(box)}`);
     }
     assert.equal(await draft.getAttribute('data-concealed'), String(!variant.includes('expression') || variant === 'hidden-expression'));

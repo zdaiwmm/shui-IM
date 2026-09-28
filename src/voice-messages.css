@@ -1,10 +1,5 @@
 /* Voice recording follows the composer's system theme and glass treatment. */
 #composer > [hidden], .voice-recorder[hidden], .voice-recorder [hidden] { display: none !important; }
-.has-voice-draft > .composer-input-stack:has(.reply-draft[hidden]),
-.has-voice-draft .composer-field,
-.has-voice-draft > .image-picker,
-.has-voice-draft > .send-button,
-.has-voice-draft > .voice-record-button { display: none; }
 .voice-record-button {
   flex: 0 0 44px;
   color: var(--ink-muted);
@@ -140,8 +135,8 @@
 }
 .voice-toggle { width: 48px; height: 48px; }
 .voice-toggle svg { width: 26px; height: 26px; }
-.voice-cancel-bar { transform-origin: right center; animation: voice-bar-out 360ms cubic-bezier(.22, 1, .36, 1) both; pointer-events: none; }
-.voice-cancel-orb { animation: voice-orb-out 360ms cubic-bezier(.22, 1, .36, 1) both; pointer-events: none; }
+.voice-cancel-bar { transform-origin: right center; animation: voice-bar-out 180ms cubic-bezier(.22, 1, .36, 1) both; pointer-events: none; }
+.voice-cancel-orb { animation: voice-orb-out 180ms cubic-bezier(.22, 1, .36, 1) both; pointer-events: none; }
 .voice-waveform { display: flex; align-items: center; justify-content: space-between; gap: 2px; height: 40px; pointer-events: none; }
 .voice-waveform i { display: block; flex: 1 1 0; max-width: 4px; min-width: 1px; height: var(--level, 6%); border-radius: 4px; background: currentColor; }
 .voice-recorder:is([data-state="paused"], [data-state="processing"], [data-state="sending"]) .voice-recording-bar { left: 54px; padding: 1px 52px 1px 1px; }
@@ -196,3 +191,43 @@
 .voice-play-status { grid-column: 1 / -1; padding-left: 8px; font-size: 0.75rem; line-height: 1.5; }
 .voice-play-status:empty { display: none; }
 .voice-bubble .message-reply-quote { margin-left: 6px; }
+
+/* Inline recorder: one anchored input row throughout hold, lock and preview. */
+.composer-row { position: relative; display: flex; align-items: flex-end; gap: 8px; flex: 1 0 100%; min-width: 0; }
+.composer-row > .composer-input-stack { margin-right: 52px; transition: margin-right 220ms var(--motion-out), border-color 120ms ease-out, background 120ms ease-out, border-radius 180ms var(--motion-out); }
+.composer.has-text .composer-input-stack { margin-right: 0; }
+.composer .composer-field { position: relative; padding-right: 40px; transition: padding-right 220ms var(--motion-out); }
+.composer.has-text .composer-field { padding-right: 84px; }
+.composer #message-input { min-width: 0; }
+.composer .meme-toggle { position: absolute; right: 0; bottom: 0; transition: translate 220ms var(--motion-out); }
+.composer.has-text .meme-toggle { translate: -44px 0; }
+.composer .composer-send { position: absolute; right: 0; bottom: 0; width: 44px; height: 44px; opacity: 0; scale: .4; pointer-events: none; transition: opacity 180ms var(--motion-out), scale 220ms var(--motion-out); }
+.composer.has-text .composer-send { opacity: 1; scale: 1; pointer-events: auto; }
+.composer .composer-send svg { width: 23px; height: 23px; }
+.composer #record-voice { position: absolute; right: 0; bottom: 1px; transition: translate 220ms var(--motion-out), opacity 160ms var(--motion-out), transform 180ms var(--motion-out); }
+.composer.has-text #record-voice { translate: 44px 0; opacity: 0; pointer-events: none; }
+.composer.has-voice-draft .composer-row > :is(.composer-input-stack, #open-chat-tools, #record-voice) { visibility: hidden; }
+.composer-row > .voice-recorder { position: absolute; inset: auto 0 0; height: 46px; z-index: 10; }
+.voice-recorder:not([data-fullscreen="true"]) .voice-recording-bar { inset: 0; height: 46px; padding-left: 14px; padding-right: 76px; gap: 8px; animation: voice-guide-in 180ms var(--motion-out); }
+.voice-recorder:not([data-fullscreen="true"]) .voice-recording-time { font-size: 13px; }
+.voice-recorder:not([data-fullscreen="true"]) .voice-recording-info { gap: 8px; }
+.voice-recorder:not([data-fullscreen="true"]) .voice-slide-hint { right: 92px; width: auto; font-size: 12px; opacity: calc(1 - var(--voice-cancel-progress)); transform: translateX(calc(var(--voice-drag-x) * .45)); }
+.voice-recorder:not([data-fullscreen="true"]) :is(.voice-hold-orb,.voice-cancel-orb,.voice-send) { width: 88px; height: 88px; right: -12px; bottom: -8px; background: var(--accent); }
+.voice-recorder:not([data-fullscreen="true"]) .voice-hold-orb { transform: translate3d(var(--voice-drag-x), var(--voice-drag-y), 0) scale(calc(1 - var(--voice-cancel-progress) * .5)); }
+.voice-recorder:not([data-fullscreen="true"]) .voice-hold-orb::before { display: none; }
+.voice-recorder:not([data-fullscreen="true"]) .voice-hold-orb svg { width: 29px; height: 29px; }
+.voice-recorder:not([data-fullscreen="true"]) .voice-toggle { right: 10px; bottom: 88px; width: 44px; height: 44px; }
+.voice-lock-guide { position: absolute; right: 12px; bottom: 90px; width: 40px; height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border-radius: 24px; background: var(--glass-panel); border: 1px solid var(--glass-border); backdrop-filter: var(--glass-filter); transform: translateY(calc(var(--voice-lock-progress) * 12px)); animation: voice-guide-in 220ms var(--motion-out); pointer-events: none; }
+.voice-lock-guide svg { width: 20px; height: 20px; }
+.voice-lock-guide svg:last-child { width: 16px; height: 16px; opacity: calc(1 - var(--voice-lock-progress)); }
+.voice-recorder:not([data-fullscreen="true"]):is([data-state="paused"], [data-state="processing"], [data-state="sending"]) .voice-recording-bar { left: 52px; padding: 1px 46px 1px 1px; }
+.voice-recorder:not([data-fullscreen="true"]):is([data-state="paused"], [data-state="processing"], [data-state="sending"]) .voice-send { right: 1px; bottom: 1px; width: 44px; height: 44px; }
+.voice-recorder:not([data-fullscreen="true"]):is([data-state="paused"], [data-state="processing"], [data-state="sending"]) .voice-toggle { right: 0; bottom: 60px; }
+.voice-recorder .voice-draft-timeline { animation: voice-guide-in 220ms var(--motion-out); }
+.voice-recorder:not([data-fullscreen="true"])[data-submitting="true"] .voice-recording-bar { left: 0; padding: 0 14px; }
+.voice-discard-feedback { position: absolute; left: 0; bottom: 0; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: var(--danger); background: var(--surface-raised); opacity: 0; pointer-events: none; z-index: 12; }
+.voice-discard-feedback svg { width: 23px; height: 23px; }
+.voice-discard-feedback i { position: absolute; width: 9px; height: 9px; border-radius: 50%; background: var(--danger); }
+@media (prefers-reduced-motion: reduce) {
+  .composer :is(#record-voice, .meme-toggle, .composer-send, .composer-input-stack, .composer-field) { transition: none; }
+}

@@ -495,7 +495,8 @@ try {
   );
   const startedAt = Date.now();
   await creator.locator('#message-input').fill('browser-e2e-live');
-  await creator.locator('#message-input').press('Enter');
+  await creator.locator('#send-text').click();
+  invariant(await creator.locator('#message-input').evaluate(input => document.activeElement === input), 'Inline send dismissed composer focus');
   invariant(await creator.evaluate(() => document.activeElement?.id === 'message-input'), 'Send button dismissed the composer keyboard focus');
   await joiner.getByText('browser-e2e-live', { exact: true }).waitFor({ timeout: 3000 });
   await creator.locator('.message.outgoing.is-delivered').filter({ hasText: 'browser-e2e-live' }).waitFor({ timeout: 3000 });

@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 录屏语音交互与聊天细节候选（2026-09-28）
+
+- 基线 `e76545915bd06ef0350b4f4a856e1fc8271a9585`，任务分支 `codex/voice-composer-refinement`；用户明确直接实施并免原型，详见[需求 V2](../requirements/2026-09-28-voice-composer-refinement/README.md)。
+- 工作树包含行内长按录音／滑动取消／上滑锁定／暂停试听、加号与文字发送切换、GIF 再缩至当前 60%、不同本机凭据的待建立空间删除、底部返回页转场、爱心连续与样式即时生效。
+- 定向手势、空间／密钥边界、GIF 发送周期、转场与抽屉测试通过；抽屉含 Chromium／WebKit。完整候选门禁和 PR 结果以交付证据为准。未真机验收，未发布生产；下方线上记录保持原有证据范围。
+
 ## 动效欠项补齐已发布（2026-09-28 21:11）
 
 - 当前线上应用 SHA `afbaa885e938f3063b9336952739778dd8025c37`，版本 `2026.09.28.7`；用户已确认该精确提交。[PR #221](https://github.com/zdaiwmm/shui-IM/pull/221) 已合并，精确 main [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36425750038) 全部通过。文档对账提交可以领先线上应用 SHA，不再次部署。
