@@ -20,6 +20,9 @@ export type MemePickerCache = {
   searches: Map<string, { result: MediaSearchResult; expiresAt: number }>;
   packs: Map<string, { result: RemotePackDetail; expiresAt: number }>;
   usage: Map<string, number>;
+  // Unlocked-session navigation only; no search text or media URLs.
+  view?: { kind: MediaKind; favorite: boolean; positions: Map<string, number>; shortcutLeft: number };
+
 };
 
 export const createMemePickerCache = (): MemePickerCache => {
@@ -94,6 +97,8 @@ export class MemePicker {
   private recentGrid: HTMLElement | null = null;
   private browseGrid: HTMLElement | null = null;
   private recentCount = 0;
+  private localReady = false;
+  private restoringPosition = false;
 
   constructor(private options: MemePickerOptions) {
     this.cache = options.cache ?? createMemePickerCache();
@@ -480,7 +485,10 @@ export class MemePicker {
       if (!this.overlay && !this.preview && !options.host.contains(event.target as Node)) options.close(false);
     }, { signal: this.signal });
     this.signal.addEventListener('abort', () => this.dispose(), { once: true });
-    void this.switchKind('gifs');
+    this.panel.querySelector('.meme-scroll')!.addEventListener('scroll', () => this.rememberView(), { passive: true, signal: this.signal });
+    this.panel.querySelector('.meme-pack-shortcuts')!.addEventListener('scroll', () => this.rememberView(), { passive: true, signal: this.signal });
+    const view = this.cache.view;
+    void this.switchKind(view?.kind ?? 'gifs', view?.favorite ?? false);
   }
   private active() { return !this.disposed && !this.signal.aborted && this.options.isActive() && this.panel.isConnected; }
   private animateSheet(from: number, to: number, property: 'height' | 'translate', finish = () => {}) {
@@ -501,6 +509,7 @@ export class MemePicker {
   }
   close(finish: () => void) {
     if (this.closing) return;
+    this.rememberView();
     this.closing = true; this.panel.inert = true; this.input.blur();
     const bounds = this.panel.getBoundingClientRect();
     const translate = new DOMMatrixReadOnly(getComputedStyle(this.panel).transform).m42;
@@ -598,6 +607,7 @@ export class MemePicker {
     } catch { /* Cache storage is an optional acceleration; memory remains authoritative. */ }
   }
   private clear() {
+    this.localReady = false;
     this.generation++; this.request?.abort(); this.operation?.abort(); this.searching = false; this.observer.disconnect();
     for (const tile of this.tiles.keys()) if (!tile.closest('.meme-pack-shortcuts')) { this.unload(tile); this.tiles.delete(tile); }
     this.grid.replaceChildren(); this.status.replaceChildren(); this.more.hidden = true; this.nextPage = null;
@@ -605,8 +615,39 @@ export class MemePicker {
     this.recentGrid = null; this.browseGrid = null; this.recentCount = 0;
     this.panel.querySelector('.meme-source')!.textContent = '';
   }
-  private async switchKind(kind: MediaKind) {
-    this.kind = kind; this.favoriteView = false; this.panel.dataset.kind = kind;
+  private rememberView() {
+    if (!this.localReady || this.restoringPosition || this.panel.dataset.view !== 'local') return;
+    const view = this.cache.view ?? { kind: this.kind, favorite: this.favoriteView, positions: new Map<string, number>(), shortcutLeft: 0 };
+    view.kind = this.kind; view.favorite = this.favoriteView;
+    view.positions.set(`${this.kind}:${this.favoriteView}`, this.panel.querySelector('.meme-scroll')!.scrollTop);
+    view.shortcutLeft = this.panel.querySelector('.meme-pack-shortcuts')!.scrollLeft;
+    this.cache.view = view;
+  }
+  private async restoreView() {
+    if (!this.active() || this.panel.dataset.view !== 'local') return;
+    const generation = this.generation;
+    const view = this.cache.view;
+    const top = view?.positions.get(`${this.kind}:${this.favoriteView}`) ?? 0;
+    this.restoringPosition = true;
+    const scroll = this.panel.querySelector('.meme-scroll')!;
+    // Only refill enough cached catalog pages for the old position, bounded
+    // to avoid unbounded acquisition when a catalog was removed or reshaped.
+    for (let page = 0; page < 8 && scroll.scrollHeight - scroll.clientHeight < top && this.nextPage && !this.favoriteView; page++) {
+      const next = this.nextPage;
+      await this.search();
+      if (!this.active() || generation !== this.generation) return;
+      if (next === this.nextPage) break;
+    }
+    if (!this.active() || generation !== this.generation) return;
+    scroll.scrollTop = top;
+    this.panel.querySelector('.meme-pack-shortcuts')!.scrollLeft = view?.shortcutLeft ?? 0;
+    this.restoringPosition = false;
+    this.localReady = true;
+    this.rememberView();
+  }
+  private async switchKind(kind: MediaKind, favorite = false) {
+    this.rememberView();
+    this.kind = kind; this.favoriteView = favorite; this.panel.dataset.kind = kind;
     this.panel.querySelectorAll<HTMLButtonElement>('[role="tab"]').forEach(button => { const selected = button.dataset.kind === kind; button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1; });
     const label = kind === 'gifs' ? '搜索 GIFs' : '搜索贴纸合集';
     this.input.placeholder = label; this.panel.querySelector('label')!.textContent = label;
@@ -622,7 +663,7 @@ export class MemePicker {
       button.addEventListener('click', action); bar.append(button); return button;
     };
     control('search', '查找贴纸合集', createElement(Plus).outerHTML, () => { void this.switchKind('stickers').then(() => this.openSearch()); });
-    control('favorites', '收藏', memeIcons.star, () => { this.favoriteView = !this.favoriteView; void this.local(); }).setAttribute('aria-pressed', String(this.favoriteView));
+    control('favorites', '收藏', memeIcons.star, () => { this.rememberView(); this.favoriteView = !this.favoriteView; void this.local(); }).setAttribute('aria-pressed', String(this.favoriteView));
     for (const node of bar.querySelectorAll<HTMLElement>('[data-shortcut^="pack:"]')) {
       if (!this.hasPack(node.dataset.shortcut!.slice(5))) { this.unload(node); this.tiles.delete(node); node.remove(); }
     }
@@ -645,19 +686,22 @@ export class MemePicker {
     scroll.scrollTo({ top: section.getBoundingClientRect().top - scroll.getBoundingClientRect().top + scroll.scrollTop, behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
   }
   private async local() {
+    this.restoringPosition = false;
     this.clear(); this.panel.dataset.view = 'local'; const generation = this.generation;
     try {
       const [favorites, packs] = await Promise.all([this.options.list(), this.options.packs()]);
       if (!this.active() || generation !== this.generation) return;
       this.favorites = favorites; this.packs = packs; this.clear(); this.renderLocalItems(); this.shortcuts();
+      const localGeneration = this.generation;
       if (!this.favoriteView && this.kind === 'gifs') {
         this.query = ''; this.nextPage = 1;
         // Fill the ten-item recent section in the same open operation so the
         // first paint does not briefly show a partial catalog while the
         // sentinel waits for an intersection event.
-        do { await this.search(); }
+        do { await this.search(); if (!this.active() || this.generation !== localGeneration) return; }
         while (this.nextPage && !this.searching && (this.recentGrid?.querySelectorAll('.meme-tile').length ?? 0) < 10);
       }
+      await this.restoreView();
     } catch { if (generation === this.generation) { this.shortcuts(); this.say('本地收藏或合集读取失败，请重新打开'); } }
   }
   private renderLocalItems() {
@@ -932,7 +976,9 @@ export class MemePicker {
     catch { if (!controller.signal.aborted) sheet.querySelector('.meme-preview-image')!.textContent = '图片加载失败，可关闭后重试'; }
   }
   dispose() {
-    if (this.disposed) return; this.disposed = true; this.controller.abort();
+    if (this.disposed) return;
+    this.rememberView();
+    this.disposed = true; this.controller.abort();
     this.sheetAnimation?.cancel();
     if (this.preview) closeDialog(this.preview, { animate: false, restoreFocus: false }); if (this.overlay) closeDialog(this.overlay, { animate: false, restoreFocus: false });
     this.observer.disconnect(); this.autoPage.disconnect(); this.request?.abort(); for (const tile of this.tiles.keys()) this.unload(tile);

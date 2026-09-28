@@ -113,6 +113,9 @@ try {
 
   await page.locator('#message-input').tap();
   assert.equal(await page.locator('#message-input').evaluate(input => input === document.activeElement), true);
+  assert.ok(Math.abs((await geometry()).scroll - history.scroll) <= 2, 'Focusing from history changed the reading position');
+  // The remaining keyboard compositor assertions deliberately exercise bottom follow.
+  await page.evaluate(() => window.listFixture.app.scrollChatToBottom());
   await page.evaluate(() => {
     Object.defineProperty(visualViewport, 'height', { configurable: true, value: 319 });
     visualViewport.dispatchEvent(new Event('resize'));

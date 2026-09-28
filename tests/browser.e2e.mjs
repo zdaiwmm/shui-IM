@@ -580,6 +580,7 @@ try {
     const form = document.querySelector('#composer');
     for (let index = 0; index < 10; index++) {
       input.value = `browser-e2e-concurrent-${side}-${index}`;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
       form.requestSubmit();
     }
   }, side)));

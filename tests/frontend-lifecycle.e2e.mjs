@@ -1652,7 +1652,7 @@ try {
     const alignChatBottom = app.alignChatBottom;
     const touch = (type, positions) => {
       const event = new Event(type, { bubbles: true, cancelable: true });
-      Object.defineProperty(event, 'touches', { value: positions.map(clientY => ({ clientY })) });
+      Object.defineProperty(event, 'touches', { value: positions.map(clientY => ({ clientX: 0, clientY })) });
       target.dispatchEvent(event); return event;
     };
     const position = async (height, top) => {
@@ -1735,15 +1735,20 @@ try {
       for (const y of [450, 340, 500]) {
         const event = touch('touchmove', [y]);
         await frame();
-        if (!event.defaultPrevented || document.activeElement !== input || window.scrollY !== scrollY
+        if (event.defaultPrevented || document.activeElement !== input || window.scrollY !== scrollY
           || Math.abs(header.getBoundingClientRect().top - 180) > 1) throw Error('Keyboard-open finger movement scrolled history, blurred the draft, or displaced the title');
       }
       for (let index = 0; index < 8; index++) await frame();
-      if (!composer.dataset.viewportMotion || !pointer.defaultPrevented || getComputedStyle(list).touchAction !== 'none') throw Error('Held keyboard gesture did not retain exclusive scroll ownership');
+      if (!composer.dataset.viewportMotion || !pointer.defaultPrevented || getComputedStyle(list).touchAction !== 'pan-y') throw Error('Keyboard gesture blocked native vertical scrolling');
       target.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch' }));
       if (document.activeElement !== input) throw Error('Pointer release blurred before the remaining touch ended');
       touch('touchend', []);
-      if (document.activeElement === input || list.dataset.keyboardGesture) throw Error('Final release did not dismiss the keyboard');
+      if (document.activeElement !== input || list.dataset.keyboardGesture) throw Error('Scrolling dismissed the keyboard or retained the gesture');
+      // A separate stationary background tap still dismisses on final release.
+      target.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, pointerType: 'touch', clientX: 0, clientY: 400 }));
+      touch('touchstart', [400]);
+      touch('touchend', []);
+      if (document.activeElement === input) throw Error('Stationary background tap did not dismiss the keyboard');
       for (const [height, top] of [[540, 100], [680, 40], [layoutHeight, 0]]) await position(height, top);
       await settled();
       if (input.value !== '保留这份草稿' || app.uiPreferences.composerDraft !== input.value) throw Error('Keyboard gesture changed the draft');

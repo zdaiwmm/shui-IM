@@ -549,6 +549,8 @@ try {
       input.blur();
       if (app.nativeKeyboardDismiss) throw Error('Keyboard dismissal forced a history reader toward the bottom');
       resize(844); await wait(700);
+      // Return explicitly before exercising bottom-follow keyboard motion.
+      app.scrollChatToBottom();
       input.focus({ preventScroll: true });
       const openingRow = app.renderedMessageOrder.at(-1);
       const openingBubble = openingRow.firstElementChild;
@@ -957,27 +959,25 @@ try {
     return { pageCursors, latest: 620, reusedExistingLoad: true, keyboard: true };
   });
 
-  results.nativeFocusLoadsLatest = await page.evaluate(async () => {
+  results.nativeFocusPreservesHistory = await page.evaluate(async () => {
     const f = window.bottomFixture; const { app } = f;
     const mode = app.visualClientCoordinates;
     const height = Object.getOwnPropertyDescriptor(visualViewport, 'height');
     try {
       await f.restoreMiddle(); app.visualClientCoordinates = true;
+      const anchor = app.captureChatAnchor();
+      const cursor = app.historyForwardCursor;
       const input = document.querySelector('#message-input'); input.focus({ preventScroll: true });
       Object.defineProperty(visualViewport, 'height', { configurable: true, value: 430 });
       visualViewport.dispatchEvent(new Event('resize'));
-      const deadline = performance.now() + 10000;
-      while (app.historyHasNewer && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 20));
-      await new Promise(resolve => setTimeout(resolve, 750));
-      if (app.historyHasNewer || app.renderedMessageOrder.at(-1).dataset.clientMsgId !== 'bottom-620'
-        || app.chatBottomGap() > 2 || document.activeElement !== input) {
-        throw Error(`Native input focus stopped at an intermediate loaded history page: ${JSON.stringify({
-          hasNewer: app.historyHasNewer, cursor: app.historyForwardCursor, latest: app.renderedMessageOrder.at(-1).dataset.clientMsgId,
-          gap: app.chatBottomGap(), pinned: app.chatPinnedToBottom, intent: app.chatScrollIntent,
-          focused: document.activeElement === input })}`);
+      await new Promise(resolve => setTimeout(resolve, 850));
+      const restored = app.captureChatAnchor();
+      if (!app.historyHasNewer || app.historyForwardCursor !== cursor || restored.clientMsgId !== anchor.clientMsgId
+        || Math.abs(restored.offset - anchor.offset) > 2 || document.activeElement !== input) {
+        throw Error(`Native input focus displaced history: ${JSON.stringify({ anchor, restored, cursor: app.historyForwardCursor })}`);
       }
       input.blur();
-      return { latest: 620, preservesFocus: true, aboveComposer: true };
+      return { historyPreserved: true, preservesFocus: true, noAutomaticNewerRead: true };
     } finally {
       app.commitNativeChatFollow(); app.visualClientCoordinates = mode;
       if (height) Object.defineProperty(visualViewport, 'height', height); else delete visualViewport.height;

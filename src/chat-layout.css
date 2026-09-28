@@ -320,8 +320,7 @@ body:has(:where(#app) > .chat-shell) {
 /* Motion defers interaction and document bookkeeping, never painting. Keep
    focus, selection and the draft mounted throughout keyboard/toolbar motion. */
 .chat-shell .composer[data-viewport-motion] * { pointer-events: none; }
-html[data-keyboard-open='true'] .message-list:not(:has(.is-selecting-text)),
-.message-list[data-keyboard-gesture='true'] { touch-action: none; }
+.message-list[data-keyboard-gesture='true'] { touch-action: pan-y; }
 .chat-header, .system-notices { will-change: translate; }
 .chat-shell[data-native-chrome="true"] .composer { transform: none; }
 .chat-shell[data-native-chrome="true"] .composer[data-viewport-motion] {
@@ -460,4 +459,41 @@ html[data-keyboard-open='true'] .composer {
 .composer { --composer-placeholder-ink: oklch(58% 0.006 255); }
 @media (prefers-color-scheme: dark) {
   .composer { --composer-placeholder-ink: oklch(64% 0.006 255); }
+}
+
+/* Both controls use the composer's existing viewport owner. */
+.chat-reply-return {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: max(12px, calc((100% - 680px) / 2));
+  max-width: calc(100% - 96px);
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  color: var(--ink);
+  background: var(--paper-pure);
+  box-shadow: var(--glass-shadow);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: auto;
+}
+.chat-reply-return[hidden], .chat-new-count[hidden] { display: none; }
+.chat-new-count {
+  position: absolute;
+  top: -7px;
+  right: -5px;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 5px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--paper-pure);
+  font-size: 11px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
