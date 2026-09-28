@@ -1,5 +1,13 @@
 # Quiet Room 固定发布流程
 
+## PC 交互适配已发布（2026-09-29 06:35）
+
+- 用户确认生产发布，并在容量阻塞后明确授权清理和继续完成发布；固定应用 SHA `888a10085a54b169c9541610cd32bdd7e6870a82`，版本 `2026.09.28.9`。[PR #226](https://github.com/zdaiwmm/shui-IM/pull/226) 已合并，精确 main [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36462960183) 全部通过；94 文件 / 738 项单元、48 项浏览器入口及通话专项通过。需求范围见 [PC 适配记录](docs/requirements/2026-09-28-desktop-ui/README.md)。
+- 首次在只读 CI 查询阶段停止，同一核验器随后通过；之后在构建后的容量门禁停止，均未切换。SSH 访问恢复后确认获批 8 个旧镜像已不存在；既有定时保留任务执行过但最终报错，不能认定整轮成功。保留失败切换恢复点、当前与回滚版本，清理 DNF 可再下载缓存后恢复容量；未手工删除备份或执行 Docker 构建缓存清理。
+- 固定入口核对精确回执并取得 `DEPLOY_VERIFIED`；批次 `20260928T223250Z`，发布目录 `/opt/quiet-room/git-releases/20260928T223250Z-888a10085a54`，冷备份 `data-20260928T223250Z-888a10085a54.tar.gz` 已校验。服务器发布 93 秒，固定入口总耗时 113737ms。前一生产为 `df2e0c265c1d74a862b3d8e32e6a119f14a3ef96`。
+- 独立回读于 `2026-09-28T22:35:00.427Z` 完成 `READBACK_OK`：提交、镜像、HTTPS／数据库／存储、公开与容器产物及新 WebSocket 一致，维护标记不存在。应用 healthy；备份与 TURN 运行但无健康探针。发布后容量复查可用 `4371894272` 字节（约 4.07 GiB）、使用率 89.06%，4 GiB 门禁通过，余量仍紧。
+- 脱敏回读证据 `quiet-room-readback/20260928T223457422Z-888a10085a54-success.json` 位于实施工作树独立 Git 元数据目录，副本保存在公共 Git 目录 `quiet-room-deliveries`；固定入口回执位于 `/private/var/folders/nb/srcr2n5d2l58l5nq123qb8xm0000gn/T/quiet-room-publish-MUOrvy/.git/quiet-room-verified-sha`。真实 iPhone／iOS 27／Safari、Windows 触屏及系统验证仍未验收。独立文档分支只对账，不再次部署。
+
 ## 录屏语音交互与聊天细节已发布（2026-09-29 00:49）
 
 - 用户在 [PR #224](https://github.com/zdaiwmm/shui-IM/pull/224) 合并交付后明确“确认并发布生产”，批准应用提交 `df2e0c265c1d74a862b3d8e32e6a119f14a3ef96`，版本 `2026.09.28.8`。精确 main [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36452865169) 首次全部通过；合并树与本地已验证候选一致。
