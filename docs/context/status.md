@@ -1,10 +1,11 @@
 # Quiet Room 当前状态
 
-## Emoji 与表情面板待发布（2026-09-28）
+## Emoji 与表情面板已发布（2026-09-28）
 
-- 表情功能已通过 [PR #215](https://github.com/zdaiwmm/shui-IM/pull/215) 合并至 `2bbdf923eae63cd9ff604a69cccddc83123e3e58`，版本 `2026.09.28.4`，尚未发布。本地精确候选构建、732 项单元／集成与 45/45 浏览器通过，PR CI 重跑失败通话项一次后通过；主线弱网通话统计竞态再次失败。
-- 用户明确要求解决通话测试阻断后发布。本轮 `codex/call-quality-test-sync` 仅修正测试采样同步，受控复现旧循环 `1/36` 样本，修复后通过；完整门禁与后续发布证据以 PR 和发布记录为准。
-- Emoji 目录／搜索、GIF 七列与 60% 消息尺寸、贴纸五列与原尺寸、六成屏高面板和紧凑 Tab 的范围及旧端边界见[需求记录](../requirements/2026-09-28-emoji-picker/README.md)。iPhone 真机未验收；下方线上状态未改变。
+- 当前线上应用 SHA `6736d3818aadfb152ae8a8c4ec0f50c5a88ac598`，版本 `2026.09.28.4`，用户已确认精确提交。表情 [PR #215](https://github.com/zdaiwmm/shui-IM/pull/215) 和通话测试同步 [PR #216](https://github.com/zdaiwmm/shui-IM/pull/216) 已合并，精确主线 [CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36406612791) 全部通过。
+- 上线完整 Emoji 目录／本地中文搜索／草稿插入、GIF 七列与可靠分类的新消息 60% 尺寸、贴纸五列与原尺寸、约六成屏高面板和紧凑 Tab。旧端与历史消息边界见[需求记录](../requirements/2026-09-28-emoji-picker/README.md)。通话阻断确认为测试采样竞态，修复未修改正式通话行为。
+- 固定入口核对精确发布回执，独立回读于 `2026-09-28T10:11:32.788Z` 返回 `READBACK_OK`，提交、镜像、HTTPS／数据库／存储、公开与容器产物及 WebSocket 一致。应用健康，备份和 TURN 运行但无健康探针。完整验证与发布证据见 [RELEASING.md](../../RELEASING.md#emoji-与表情面板已发布2026-09-28-1811)。
+- iPhone 真机和真实 TURN 弱网未验收；自动回归与线上健康不代替真机验收。文档对账使用独立工作树，不再次发布；下方为历史快照。
 
 ## 备份与恢复双入口已发布（2026-09-28 17:13）
 

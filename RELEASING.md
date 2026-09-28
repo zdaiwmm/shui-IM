@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+## Emoji 与表情面板已发布（2026-09-28 18:11）
+
+- 用户确认本次精确 SHA `6736d3818aadfb152ae8a8c4ec0f50c5a88ac598`，版本 `2026.09.28.4`。表情功能 [PR #215](https://github.com/zdaiwmm/shui-IM/pull/215) 与通话测试同步修复 [PR #216](https://github.com/zdaiwmm/shui-IM/pull/216) 均已合并。发布前线上为 `e8b9c5309944355bd1c22ad508f81370593cdbb1`。
+- 新增完整 Unicode Emoji 分类与本地中文搜索、草稿插入；面板约六成屏高、紧凑 Tab；GIF 七列、可靠分类的新 GIF 聊天宽高为旧尺寸 60%，贴纸五列及原尺寸保持。旧消息与旧设备兼容边界见[需求记录](docs/requirements/2026-09-28-emoji-picker/README.md)。
+- 表情候选干净工作树通过构建、732 项单元／集成、45/45 浏览器；WebKit 表情与媒体专项通过。通话测试修复另通过精确候选构建、732 项单元及 20 场景完整通话专项。修复的是测试重叠采样被跳过的竞态，保留原断言，未改正式通话实现。PR #216 CI 首次完整通过；精确主线 [CI 36406612791](https://github.com/zdaiwmm/shui-IM/actions/runs/36406612791) 全部通过，通话专项首次通过，独立的上传提醒超时保留日志并仅重跑失败分片一次后通过。
+- 固定入口取得并核对 `DEPLOY_VERIFIED` 及精确成功回执。批次 `20260928T100838Z`，发布目录 `/opt/quiet-room/git-releases/20260928T100838Z-6736d3818aad`，冷备份 `data-20260928T100838Z-6736d3818aad.tar.gz` 已校验。切换前容量门禁通过，可用 5187244032 字节、使用率 87.01%；此值不是发布后容量。服务器发布 139 秒，入口总耗时 213180ms。
+- 独立 `READBACK_OK` 于 `2026-09-28T10:11:32.788Z` 完成，耗时 3147ms。线上 SHA、镜像 `sha256:15982c7bf421b97b4d433e655c2997aa916efd1895683a222be9092af897ea20`、HTTPS／数据库／存储、公开与容器产物以及新 WebSocket 均一致。应用健康，备份和 TURN 运行但无健康探针；维护标记不存在，管理员与通话开启。
+- 脱敏证据 `/Users/zhouding/ss/.git/worktrees/emoji-picker/quiet-room-readback/20260928T101129640Z-6736d3818aad-success.json`；入口回执 `/private/var/folders/kx/xvfkgvzn5cb2t23mnc9518kr0000gn/T/quiet-room-publish-Lx34ok/.git/quiet-room-verified-sha`。
+- iPhone 真机及真实 TURN 弱网未验收。对账在无部署配置的独立文档树 `codex/emoji-release-record` 完成，不再次部署。开发树承载当前会话、依赖和回读证据，文档树承载本轮对账，均保留待后续清理；不清理其他任务及服务器资源。下方为历史发布记录。
+
 ## 备份与恢复双入口已发布（2026-09-28 17:13）
 
 - 用户在已交付 [PR #213](https://github.com/zdaiwmm/shui-IM/pull/213) 及精确合并提交后明确“发布”，本次目标为 `e8b9c5309944355bd1c22ad508f81370593cdbb1`，版本 `2026.09.28.3`。发布前生产为 `a428df932afbf3e7f277b906535555171501abf4`。本地 92 文件 / 729 项单元与分段 45/45 浏览器通过；精确 main [CI 36400466603](https://github.com/zdaiwmm/shui-IM/actions/runs/36400466603) attempt 1 全部通过。PR CI 曾有未改动表情用例失败，保留原失败并仅重跑失败分片一次后通过，main 全量未再复现。
