@@ -313,9 +313,16 @@ try {
   await page.getByText('备份服务繁忙，等待后自动继续', { exact: true }).waitFor();
   assert.equal(await page.locator('[data-count=chat]').textContent(), '待恢复 1 条');
   assert.equal(await page.locator('[data-count=gallery]').textContent(), '待恢复 1 条');
-  await page.locator('[data-dismiss]').click();
-  assert.match(await page.locator('[data-restore]').textContent(), /正在恢复/);
+  assert.equal(await page.locator('[data-change-code],[data-cancel]').count(), 0);
+  await page.locator('[data-close]').click();
+  await page.locator('.history-restore-sheet').waitFor({state:'detached'});
+  await page.waitForFunction(() => !window.fixture.target().vault.historyRestoreTask);
+  const canceledRequests = await page.evaluate(() => window.fixture.requests);
+  await page.waitForTimeout(1100);
+  assert.equal(await page.evaluate(() => window.fixture.requests), canceledRequests, 'close cancels cooldown and further requests');
   await page.locator('[data-restore]').click();
+  await page.locator('textarea').fill(await page.evaluate(() => window.fixture.code));
+  await page.locator('[type=submit]').click();
   await page.locator('[data-approve]').click();
   await page.getByRole('heading', { name: '恢复完成', exact: true }).waitFor();
   assert.equal(await page.locator('[data-count=gallery]').count(), 1);
@@ -335,9 +342,8 @@ try {
   assert.match(await page.locator('[data-detail]').textContent(), /找回的记录会保留/);
   assert.equal(await page.locator('[data-count=gallery]').count(), 0);
   assert.equal(await page.locator('[data-retry]').isVisible(), true);
-  await page.locator('[data-dismiss]').click();
-  await page.locator('[data-restore]').click();
-  assert.equal(await page.locator('textarea').count(), 0, 'reopening a failed task does not request the code again');
+  // Retry in the open dialog retains the submitted code. Closing cancels it.
+  assert.equal(await page.locator('textarea').count(), 0);
   await page.locator('[data-retry]').click();
   await page.getByRole('heading', { name: '恢复未完成', exact: true }).waitFor();
   assert.equal(await page.evaluate(() => Boolean(window.fixture.target().vault.historyRestoreTask)), true);
@@ -359,7 +365,7 @@ try {
   assert.equal(await page.locator('.history-restore-sheet').count(), 0, 'lock removes dialogs synchronously and pauses the durable task');
   await page.evaluate(() => window.fixture.reopen());
   await page.locator('[data-restore]').click();
-  await page.locator('[data-cancel]').click();
+  await page.locator('[data-close]').click();
   await page.waitForFunction(() => !window.fixture.target().vault.historyRestoreTask);
   // The in-memory task clears before the encrypted vault save resolves.
   await page.locator('.history-restore-sheet').waitFor({ state: 'detached' });

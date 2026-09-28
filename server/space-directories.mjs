@@ -40,12 +40,20 @@ export function createSpaceDirectories(db, { authenticatedDevice }, browserCatal
       } catch (cause) { db.exec('ROLLBACK TO space_directory_write'); db.exec('RELEASE space_directory_write'); throw cause; }
   }
   return {
+    // Existing catalog writes need its independent write capability, not the
+    // continued availability of the device that first created the directory.
+    updateExisting(id, capability, value) {
+      const current = row(id);
+      if (!browserCatalog || !current || !matches(capability, current.write_hash) ||
+          !value || value.roomId !== current.owner_room) fail('UNAUTHORIZED');
+      return save(id, { deviceId: current.owner_device }, value);
+    },
     // Internal only: callers must authenticate the signed room management proof.
     saveForMember,
     fetch(id, capability) {
       const current = row(id);
       if (!current || !matches(capability, current.fetch_hash)) fail('BACKUP_UNAVAILABLE');
-      return { revision: current.revision, sealed: JSON.parse(current.sealed) };
+      return { revision: current.revision, sealed: JSON.parse(current.sealed), ...(browserCatalog ? { ownerRoom: current.owner_room } : {}) };
     },
     save(id, deviceToken, value) {
       if (!value || typeof value.roomId !== 'string') fail('INVALID_BACKUP');

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,rm,mkdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {chromium} from 'playwright';
@@ -192,6 +192,76 @@ try {
   await fresh.page.waitForFunction(id=>app.browserProfile.profile.removed.includes(id),remoteWaiting);
   await fresh.page.getByText(/等待对方加入 · 剩余/).waitFor({state:'detached'});
   await old.page.locator('.space-close').click();await fresh.page.locator('.space-close').click();
+  // Legacy pending entry: the original device is permanently unavailable.
+  const legacyRoom=service.store.createRoom({deviceId:crypto.randomUUID(),encryptionKey:{kty:'EC'},signingKey:{kty:'EC'}},'l'.repeat(43));
+  await fresh.page.evaluate(async roomId=>{
+    const profile=app.browserProfile.profile,c=profile.catalog;
+    const {openJson,sealJson}=await import('/src/lib/backup-crypto.ts');
+    const {spaceCapability}=await import('/src/lib/spaces.ts');
+    const path=`/api/browser-access-catalogs/${c.id}`,signal=app.runtimeAbort.signal;
+    const previous=await access.accessApi(path,c.token,signal);
+    const data=await openJson(previous.sealed,c.key,`quiet-room-browser-catalog-v1:${c.id}`);
+    data.spaces.push({roomId,name:'旧设备丢失的空间',waiting:true});
+    const writeToken=await spaceCapability(profile.management.catalogCode,'write');
+    await access.accessApi(path,writeToken,signal,'PATCH',{roomId:previous.ownerRoom,revision:previous.revision+1,fetchToken:c.token,writeToken,sealed:await sealJson(data,c.key,`quiet-room-browser-catalog-v1:${c.id}`)});
+    await access.refreshBrowserCatalog(profile,signal);
+  },legacyRoom.roomId);
+  await fresh.page.locator('#open-spaces').click();
+  const legacyRow=fresh.page.locator('.space-row').filter({hasText:'旧设备丢失的空间'});
+  await legacyRow.click({button:'right'});
+  assert.equal(await fresh.page.locator('#space-delete').innerText(),'从我的空间列表移除');
+  await fresh.page.route('**/api/browser-access-catalogs/**',route=>route.request().method()==='PATCH'?route.abort('failed'):route.continue());
+  await fresh.page.locator('#space-delete').click();
+  await fresh.page.locator('.space-drawer-overlay .form-error').filter({hasText:/./}).waitFor();
+  assert.equal(await legacyRow.count(),1,'offline removal keeps the row until confirmed');
+  await fresh.page.unroute('**/api/browser-access-catalogs/**');
+  await legacyRow.click({button:'right'});await fresh.page.locator('#space-delete').click();
+  await legacyRow.waitFor({state:'detached'});
+  assert.ok(service.store.roomState(legacyRoom.roomId),'catalog removal must not destroy the room');
+  await fresh.page.locator('.space-close').click();
+  await fresh.page.evaluate(async bytes=>{
+    const stored=await v.readBrowserAccessRecord();
+    const saved=await access.loadBrowserProfile(new Uint8Array(bytes),stored.record.credentialId);
+    await access.refreshBrowserCatalog(saved.profile,new AbortController().signal);
+    window.reloadRemoved=saved.profile.removed;
+  },expectedPrf);
+  assert.ok(await fresh.page.evaluate(id=>reloadRemoved.includes(id),legacyRoom.roomId));
+  await old.page.evaluate(async()=>access.refreshBrowserCatalog(app.browserProfile.profile,app.runtimeAbort.signal));
+  assert.ok(await old.page.evaluate(id=>app.browserProfile.profile.removed.includes(id),legacyRoom.roomId),'other own device reconciles without source-device approval');
+
+  if(process.argv[2]) await mkdir(process.argv[2],{recursive:true});
+  // All page settings return to the settings drawer with no new entrance motion.
+  await old.page.evaluate(async()=>{
+    for(const file of ['/src/backup.css','/src/recovery-experience.css','/src/auth-recovery.css','/src/spaces.css','/src/design-system.css'])await import(file);
+  });
+  await old.page.locator('#open-spaces').click();await old.page.locator('#space-settings').click();
+  for(const [entry,back] of [['local-history-backup','#local-backup-back'],['local-history-restore','#local-backup-back'],['backup-settings','#recovery-center-back'],['release-history','#release-history-back'],['manage-devices','#device-back'],['recover-other-space','#joint-back'],['cover-practice-menu','#practice-back']]) {
+    await old.page.locator(`#${entry}`).click();
+    await old.page.locator(back).waitFor();
+    if(entry==='backup-settings') {
+      assert.equal(await old.page.locator('.gateway-mark').isVisible(),false);
+      await old.page.locator('.gateway-intro-content').evaluate(el=>el.scrollTop=el.scrollHeight);
+      assert.ok(await old.page.locator('.recovery-flow-notice').evaluate(el=>el.getBoundingClientRect().bottom<=document.querySelector('.welcome-actions').getBoundingClientRect().top),'final notice scrolls fully above actions');
+    }
+    if(entry==='local-history-backup') {
+      await old.page.locator('[data-cloud-switch]').waitFor();
+      await old.page.waitForFunction(()=>!document.querySelector('[data-cloud-switch]').disabled);
+      if(await old.page.locator('[data-cloud-switch]').getAttribute('aria-checked')==='true')await old.page.locator('[data-cloud-switch]').click();
+      await old.page.locator('[data-cloud-switch]').click();
+      await old.page.locator('.backup-privacy-panel summary').click();
+      assert.ok(await old.page.locator('.backup-privacy-panel details').evaluate(el=>{
+        const nodes=[el.querySelector('summary'),...el.querySelectorAll('p')];
+        return nodes.every((node,i)=>!i||node.getBoundingClientRect().top>=nodes[i-1].getBoundingClientRect().bottom-1);
+      }),'expanded privacy paragraphs do not overlap');
+      if(process.argv[2])await old.page.screenshot({path:`${process.argv[2]}/backup-privacy.png`});
+      await old.page.locator('.backup-privacy-panel [data-cancel]').click();
+    }
+    if(process.argv[2]&&entry==='backup-settings')await old.page.screenshot({path:`${process.argv[2]}/recovery-intro.png`});
+    await old.page.locator(back).click();
+    await old.page.locator('.space-drawer-overlay[aria-label="设置"]').waitFor();
+    assert.ok(await old.page.locator('.space-drawer-overlay').evaluate(el=>el.classList.contains('is-restored')&&getComputedStyle(el).transitionDuration==='0s'));
+  }
+  await old.page.locator('.space-close').click();
   const profileRace=await fresh.page.evaluate(async bytes=>{
     const saved=await v.readBrowserAccessRecord(),prf=new Uint8Array(bytes);
     const a=await access.loadBrowserProfile(prf,saved.record.credentialId),b=await access.loadBrowserProfile(prf,saved.record.credentialId),signal=new AbortController().signal;

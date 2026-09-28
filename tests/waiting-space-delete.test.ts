@@ -19,7 +19,7 @@ it('atomically deletes an unjoined room and updates its encrypted catalog while 
     expect(store.browserCatalogs.fetch(id,value.fetchToken).revision).toBe(1);
     expect(store.deleteRoom(room.roomId,token,{id,value:changed})).toEqual({deleted:true});
     expect(store.roomState(room.roomId)).toBeNull();
-    expect(store.browserCatalogs.fetch(id,value.fetchToken)).toEqual({revision:2,sealed:changed.sealed});
+    expect(store.browserCatalogs.fetch(id,value.fetchToken)).toEqual({revision:2,sealed:changed.sealed,ownerRoom:room.roomId});
     const joined=store.createRoom(bundle(),token);
     store.joinRoom(joined.roomId,bundle(),'proof');
     expect(()=>store.deleteRoom(joined.roomId,token,{id,value:{...changed,roomId:joined.roomId,revision:3}})).toThrow('ROOM_SEALED');
@@ -81,4 +81,33 @@ it('allows a catalog management key to delete only its certified unjoined room, 
     await expect(store.deletePendingRoom(joined.roomId,{certificate:joinedCertificate,request:joinedRequest},joinedCatalog)).rejects.toThrow('ROOM_SEALED');
     expect(store.browserCatalogs.fetch(id,value.fetchToken).revision).toBe(2);
   } finally {store.close();await rm(dataDir,{recursive:true,force:true});}
+});
+
+it('updates an existing catalog after its original device is lost, without room destruction or read-capability escalation', async () => {
+  const {startServer}=await import('../server/index.mjs');
+  const dataDir=await mkdtemp(path.join(tmpdir(),'qr-catalog-remove-'));
+  const server=await startServer({host:'127.0.0.1',port:0,dataDir,quiet:true});
+  try {
+    const token='a'.repeat(43), room=server.store.createRoom(bundle(),token), id='x'.repeat(22);
+    const value={roomId:room.roomId,revision:1,fetchToken:'f'.repeat(43),writeToken:'w'.repeat(43),sealed:{iv:'i'.repeat(16),ciphertext:'c'.repeat(43)}};
+    server.store.browserCatalogs.save(id,token,value);
+    const target=server.store.createRoom(bundle(),'b'.repeat(43));
+    // No original room/device is left to authenticate a normal directory PUT.
+    server.store.deleteRoom(room.roomId,token);
+    const url=`http://127.0.0.1:${server.port}/api/browser-access-catalogs/${id}`;
+    const update={...value,revision:2,sealed:{...value.sealed,ciphertext:'d'.repeat(43)}};
+    const patch=(cap,body=update,address=url)=>fetch(address,{method:'PATCH',headers:{Authorization:`Bearer ${cap}`,'Content-Type':'application/json'},body:JSON.stringify(body)});
+    expect((await patch(value.fetchToken)).status).toBe(401);
+    expect((await patch('z'.repeat(43))).status).toBe(401);
+    expect((await patch(value.writeToken,update,url.replace(id,'y'.repeat(22)))).status).toBe(401);
+    expect((await patch(value.writeToken,update,url.replace('browser-access-catalogs','space-directories'))).status).toBe(401);
+    expect((await patch(value.writeToken,{...update,roomId:target.roomId})).status).toBe(401);
+    expect((await patch(value.writeToken,{...update,revision:3})).status).toBe(409);
+    expect(server.store.browserCatalogs.fetch(id,value.fetchToken).revision).toBe(1);
+    expect((await patch(value.writeToken)).status).toBe(200);
+    expect((await patch(value.writeToken)).status).toBe(200);
+    expect(server.store.roomState(target.roomId)).not.toBeNull();
+    expect(server.store.browserCatalogs.fetch(id,value.fetchToken).revision).toBe(2);
+    expect((await fetch(`http://127.0.0.1:${server.port}/api/rooms/${target.roomId}`,{method:'DELETE',headers:{Authorization:`Bearer ${value.writeToken}`}})).status).toBe(401);
+  } finally {await server.close();await rm(dataDir,{recursive:true,force:true});}
 });
