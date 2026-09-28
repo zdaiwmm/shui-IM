@@ -103,7 +103,7 @@ try {
     session.vault.backup.archives = [archive];
     const unchangedSeq = session.vault.lastSeq;
     session.vault.lastSeq = 3; await v.saveVault(session);
-    await Promise.all(['/src/styles.css', '/src/chat-layout.css', '/src/auth-recovery.css', '/src/chat-interactions.css', '/src/cover.css', '/src/recovery-experience.css'].map(file => import(file)));
+    await Promise.all(['/src/styles.css', '/src/backup.css', '/src/chat-layout.css', '/src/auth-recovery.css', '/src/chat-interactions.css', '/src/cover.css', '/src/recovery-experience.css'].map(file => import(file)));
     const { QuietRoomApp } = await import('/src/app.ts');
     const app = new QuietRoomApp(document.querySelector('#app')); await app.start();
     app.session = session; app.privacyCovered = false; app.runtimeAbort = new AbortController();
@@ -146,16 +146,15 @@ try {
         contentScrolls: Boolean(contentBox && content.scrollHeight > content.clientHeight + 1),
       };
     };
-    app.renderLocalHistoryBackup('export'); const backup = read();
-    app.renderLocalHistoryBackup('import'); const restore = read();
+
     app.renderCreate(); const create = read();
     app.session = null; app.renderFirstRun(null); const welcome = read();
     app.session = session; app.runtimeAbort = new AbortController(); app.privacyCovered = false;
     app.renderRecoveryCenter(); const recovery = read();
     app.renderLocalHistoryBackup('export');
-    return { backup, restore, create, welcome, recovery };
+    return { create, welcome, recovery };
   });
-  for (const name of ['backup', 'restore', 'create', 'welcome', 'recovery']) {
+  for (const name of ['create', 'welcome', 'recovery']) {
     const layout = introLayouts[name];
     assert.equal(layout.intro, true, `${name}: shared intro layout missing`);
     assert.equal(Math.round(layout.markLeft), 20, `${name}: icon left anchor`);
@@ -167,9 +166,9 @@ try {
     assert.ok(Math.abs(layout.primaryWidth - layout.actionsWidth) < 1 && Math.abs(layout.secondaryWidth - layout.actionsWidth) < 1,
       `${name}: bottom action widths do not match the shared intro layout`);
   }
-  for (const name of ['restore', 'create', 'welcome', 'recovery']) {
-    assert.equal(Math.round(introLayouts[name].markTop), Math.round(introLayouts.backup.markTop), `${name}: icon top anchor`);
-    assert.equal(Math.round(introLayouts[name].titleTop), Math.round(introLayouts.backup.titleTop), `${name}: title top anchor`);
+  for (const name of ['welcome', 'recovery']) {
+    assert.equal(Math.round(introLayouts[name].markTop), Math.round(introLayouts.create.markTop), `${name}: icon top anchor`);
+    assert.equal(Math.round(introLayouts[name].titleTop), Math.round(introLayouts.create.titleTop), `${name}: title top anchor`);
   }
   assert.equal(introLayouts.recovery.markVisible, true, 'recovery: shared intro icon is missing');
   await page.setViewportSize({ width: 390, height: 520 });
@@ -209,8 +208,24 @@ try {
   }, [...downloaded]);
   assert.equal(downloadedSummary.messages, 3, 'saved file must authenticate and contain the expected history');
   await page.locator('#history-download').waitFor({ state: 'detached', timeout: 15_000 });
-  assert.equal(await page.locator('#local-backup-export').textContent(), '备份聊天记录');
+  assert.equal(await page.locator('#local-backup-export').textContent(), '下载备份文件');
   assert.equal(await page.locator('#open-local-import, #local-backup-ready').count(), 0);
+  await page.evaluate(() => window.fixtureApp.renderLocalHistoryBackup('import'));
+  const chooserReady = page.waitForEvent('filechooser');
+  await page.locator('#local-backup-import').click();
+  await (await chooserReady).setFiles({ name: 'synthetic.qrlocal', mimeType: 'application/octet-stream', buffer: downloaded });
+  await page.getByRole('heading', { name: '验证恢复码', exact: true }).waitFor();
+  assert.equal(await page.locator('#history-restore-now').count(), 0, 'file selection must go straight to code validation');
+  await page.locator('#local-restore-code').fill('invalid-code');
+  await page.locator('.backup-code-page [type=submit]').click();
+  await page.getByText(/恢复码格式不正确/).waitFor();
+  await page.locator('#local-restore-code').fill(await page.evaluate(() => window.fixtureApp.session.vault.backup.code));
+  await page.locator('.backup-code-page [type=submit]').click();
+  await page.locator('#history-restore-now').waitFor();
+  assert.equal(await page.locator('#local-restore-code').count(), 0, 'validated code field must be removed');
+  await page.locator('[data-history-summary-close]').click();
+  await page.locator('#history-restore-now').waitFor({ state: 'detached' });
+  await page.evaluate(() => window.fixtureApp.renderLocalHistoryBackup('export'));
   for (const width of [390, 375]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 812 });
     await page.waitForTimeout(100);

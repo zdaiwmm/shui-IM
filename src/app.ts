@@ -21,6 +21,7 @@ import { currentSpaceId, selectLocalSpace, vaultSpaceId, unlockOwnedPendingSpace
 import { prepareJointRecovery, advanceJointRecovery, approveJointRecovery, completeJointRecovery, parseJointRecoveryLink, jointRecoveryUrl, jointRecoveryCode, jointRequest, inviteeScopeChoice, type JointLink, type JointSnapshot } from './lib/joint-recovery';
 import './recovery-experience.css';
 import { mountMediaDeleteConfirm } from './lib/media-delete-confirm';
+import { attachCloudBackupSwitch, paintCloudBackup, requestLocalBackupCode } from './lib/backup-settings-ui';
 import { exportLocalHistory, HISTORY_CATEGORY_LABELS, importLocalHistory, previewLocalHistoryBackup, summarizeLocalHistory, type LocalHistorySummary } from './lib/local-history-backup';
 import { createLocalBackupFile } from './lib/local-backup-file';
 import { validMediaDimensions } from './lib/media-dimensions';
@@ -234,7 +235,7 @@ import {
 import { recoverFromCloud, syncCloudBackup, fetchRecoveryBundle } from './lib/cloud-backup';
 import './backup.css';
 
-const CLIENT_CAPABILITIES = [MESSAGE_WINDOW_CAPABILITY, 'joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
+const CLIENT_CAPABILITIES = [MESSAGE_WINDOW_CAPABILITY, 'joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'expression-kind-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
 const PASSKEY_UNAVAILABLE_NOTICE = '当前浏览器无法获取到本设备的通行密钥信息，建议使用系统浏览器';
 const SPACE_DEVICE_LIMIT_NOTICE = '该空间接入设备已达上限。';
 function formatUnlockFailure(cause: unknown): string {
@@ -404,7 +405,7 @@ export class QuietRoomApp {
   private messages = new Map<number, DecryptedMessage>();
   private messageEventHistory = new Map<number, DecryptedMessage>();
   private readCompatibility = '';
-  private mediaUploads = new Map<string, { view: MediaUploadView; files: File[]; expression: boolean; autoHide: boolean; reply: DecryptedMessage | null; sentAt: string; busy: boolean }>();
+  private mediaUploads = new Map<string, { view: MediaUploadView; files: File[]; expression: boolean; autoHide: boolean; expressionKind?: 'gifs' | 'stickers'; reply: DecryptedMessage | null; sentAt: string; busy: boolean }>();
   private selectedMessageId: string | null = null;
   private privacyCurtain: HTMLElement;
   private unreadCounter: UnreadCounter;
@@ -2450,7 +2451,7 @@ export class QuietRoomApp {
     // or exporting a local backup) and still need that protection: otherwise
     // the passkey sheet blurs the window and locks before the next page.
     if (
-      !foregroundOnly && !this.root.querySelector('.recovery-flow-page') &&
+      !foregroundOnly && !this.root.querySelector('.recovery-flow-page, [data-local-backup-view]') &&
       this.session &&
       (!this.root.querySelector('.gateway') || this.socket)
     ) return operation();
@@ -4779,13 +4780,22 @@ export class QuietRoomApp {
             typeof item?.id !== 'string' || !/^[0-9a-f-]{36}$/.test(item.id) || typeof item.title !== 'string' || item.title.length > 120 || (item as { autoHide?: unknown }).autoHide !== undefined && typeof (item as { autoHide?: unknown }).autoHide !== 'boolean')) throw new Error('合集格式不受支持');
         return { id: result.id, title: result.title, autoHide: result.autoHide, items: result.items.map((item: { id: string; title: string; autoHide?: boolean }) => ({ id: item.id, title: item.title, autoHide: item.autoHide ?? result.autoHide })) };
       },
-      send: async (file, autoHide, signal) => {
+      insertEmoji: emoji => {
+        if (!isActive()) return;
+        const input = host.querySelector<HTMLTextAreaElement>('#message-input');
+        if (!input || input.disabled) return;
+        const start = input.selectionStart; const end = input.selectionEnd;
+        if (input.value.length - (end - start) + emoji.length > input.maxLength) { this.showNotice('消息最多 4000 个字符'); return; }
+        input.setRangeText(emoji, start, end, 'end');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      },
+      send: async (file, autoHide, signal, kind) => {
         signal.throwIfAborted();
         if (!isActive()) throw new Error('会话已关闭');
         if (this.imageBatchUploading) throw new Error('另一个附件正在发送，请稍后重试');
         this.imageBatchUploading = true;
         try {
-          if (!await this.processImageBatch([file], 'chat', undefined, true, undefined, autoHide)) throw new Error('发送未完成，请查看聊天中的状态后重试');
+          if (!await this.processImageBatch([file], 'chat', undefined, true, undefined, autoHide, kind)) throw new Error('发送未完成，请查看聊天中的状态后重试');
         } finally { if (this.isRuntimeActive(epoch, session)) this.imageBatchUploading = false; }
       },
       search: async (keyword, page, signal, kind) => {
@@ -7805,7 +7815,7 @@ export class QuietRoomApp {
     }
   }
 
-  private async processImageBatch(files: File[], destination: 'chat' | 'gallery', operationSignal?: AbortSignal, expression = false, mediaRetryId?: string, expressionAutoHide = false): Promise<boolean> {
+  private async processImageBatch(files: File[], destination: 'chat' | 'gallery', operationSignal?: AbortSignal, expression = false, mediaRetryId?: string, expressionAutoHide = false, expressionKind?: 'gifs' | 'stickers'): Promise<boolean> {
     const session = this.session;
     if (!session || this.privacyCovered || files.length === 0) return false;
     if (expression && (destination !== 'chat' || files.length !== 1 || !files[0]!.type.startsWith('image/'))) return false;
@@ -7865,6 +7875,7 @@ export class QuietRoomApp {
     if (progress) progress.hidden = inlineMedia;
     const existingMedia = mediaRetryId ? this.mediaUploads.get(mediaRetryId) : undefined;
     const replyTarget = existingMedia ? existingMedia.reply : destination === 'chat' ? this.replyTarget : null;
+    expressionKind = existingMedia ? existingMedia.expressionKind : this.activeDevicesSupport('expression-kind-v1') ? expressionKind : undefined;
     const clientMsgId = mediaRetryId ?? crypto.randomUUID();
     let mediaUpload = existingMedia;
     if (inlineMedia) {
@@ -7873,15 +7884,15 @@ export class QuietRoomApp {
           const draft = this.mediaUploads.get(clientMsgId);
           if (!draft || draft.busy || !this.isRuntimeActive(epoch, session)) return;
           if (this.root.querySelector('#composer.is-uploading')) { this.showNotice('请等当前文件上传结束后再重试'); return; }
-          void this.processImageBatch(draft.files, 'chat', undefined, draft.expression, clientMsgId, draft.autoHide);
+          void this.processImageBatch(draft.files, 'chat', undefined, draft.expression, clientMsgId, draft.autoHide, draft.expressionKind);
         }, () => {
           const draft = this.mediaUploads.get(clientMsgId);
           if (!draft || draft.busy) return;
           draft.view.destroy(); this.mediaUploads.delete(clientMsgId); this.renderMessages({ scroll: 'position' });
         }, () => {
           if (this.isRuntimeActive(epoch, session)) this.renderMessages({ scroll: 'preserve' });
-        });
-        mediaUpload = { view, files, expression, autoHide: expressionAutoHide, reply: replyTarget, sentAt: new Date().toISOString(), busy: true };
+        }, expressionKind === 'gifs');
+        mediaUpload = { view, files, expression, autoHide: expressionAutoHide, expressionKind, reply: replyTarget, sentAt: new Date().toISOString(), busy: true };
         this.mediaUploads.set(clientMsgId, mediaUpload);
       }
       mediaUpload.busy = true;
@@ -7979,6 +7990,7 @@ export class QuietRoomApp {
       if (expression && payload.kind === 'image') {
         payload.presentation = expressionAutoHide ? 'expression-hidden' : 'expression';
         payload.expressionAutoHide = Boolean(expressionAutoHide);
+        if (expressionKind) payload.expressionKind = expressionKind;
       }
       signal?.throwIfAborted();
       mediaUpload?.view.update('finishing');
@@ -8150,7 +8162,10 @@ export class QuietRoomApp {
     if (payload.kind === 'image-album' && !this.activeDevicesSupport('image-album-v1')) {
       return '请先让所有已授权设备打开一次最新版，再发送多张图片';
     }
-    if (payload.kind === 'image' && payload.presentation === 'expression' && !this.activeDevicesSupport('expression-image-v1')) {
+    if (payload.kind === 'image' && payload.expressionKind && !this.activeDevicesSupport('expression-kind-v1')) {
+      return '请先让所有已授权设备打开一次最新版，再继续发送此表情';
+    }
+    if (payload.kind === 'image' && (payload.presentation === 'expression' || payload.presentation === 'expression-hidden') && !this.activeDevicesSupport('expression-image-v1')) {
       return '请先让所有已授权设备打开一次最新版，再发送表情';
     }
     if ('replyTo' in payload && payload.replyTo && !this.activeDevicesSupport('reply-v2')) {
@@ -9398,6 +9413,7 @@ export class QuietRoomApp {
       bubble.classList.add('image-bubble');
       const expression = isExpressionPayload(message.payload);
       if (expression) bubble.classList.add('expression-bubble');
+      if (expression && message.payload.kind === 'image' && message.payload.expressionKind === 'gifs') bubble.classList.add('gif-expression');
       const preview = this.createImagePreview(message.payload.image, [message.payload.image], 0, message.clientMsgId);
       if (expression) {
         preview.dataset.expression = 'true';
@@ -9698,6 +9714,7 @@ export class QuietRoomApp {
   }
 
   private updateBackupStatus(): void {
+    if (this.session) paintCloudBackup(this.root, this.session, this.backupError, Boolean(this.backupRun));
     const status = this.root.querySelector<HTMLElement>('#backup-status');
     if (!status || !this.session) return;
     const backup = this.session.vault.backup;
@@ -9743,33 +9760,32 @@ export class QuietRoomApp {
     const epoch = this.runtimeEpoch;
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, this.runtimeAbort.signal]);
-    const exportView = this.saveEntryPage(
-      '备份数据',
-      '将本机聊天导出为加密文件，保存在你选择的文件夹中。',
-      '<p class="welcome-privacy">本机压缩后加密，不上传。未下载或缓存已清理的附件不会包含在文件中。导出的文件不会自动更新。</p>',
-      `<button class="primary-button" id="local-backup-export" type="button">备份聊天记录</button>
-       <button class="text-button" id="local-backup-back" type="button">返回</button>
-       <p class="form-error" role="alert"></p>`,
-      'data-local-backup-view="export"',
-    );
-    const importView = this.saveEntryPage(
-      '恢复数据',
-      '从系统“文件”中选择之前保存的备份，在本机解密并恢复，不上传服务器。',
-      '<p class="welcome-privacy">只能恢复备份文件中包含的记录。文件丢失或损坏时，平台无法替你找回。</p>',
-      `<button class="primary-button" id="local-backup-import" type="button">选择聊天备份文件</button>
-       <button class="text-button" id="local-backup-back" type="button">返回</button>
-       <p class="form-error" role="alert"></p>`,
-      'data-local-backup-view="import"',
-    );
+    const entryPage = (title: string, content: string) => `<main class="backup-page backup-hub" data-local-backup-view="${mode}">
+      <header class="subpage-header backup-header"><button class="icon-button" id="local-backup-back" type="button" aria-label="返回聊天">${icons.back}</button><h1>${title}</h1><span class="backup-header-spacer" aria-hidden="true"></span></header>
+      <section class="backup-hub-content">${content}<p class="form-error" role="alert"></p></section></main>`;
+    const exportView = entryPage('备份数据', `
+      <p class="backup-hub-intro">为重要的聊天留一份备份。</p>
+      <section class="backup-option"><h2>下载备份文件</h2><p>保存这台设备已有的聊天和文件。</p><button class="primary-button" id="local-backup-export" type="button">下载备份文件</button><small>文件已加密，不会自动更新。恢复时需要恢复码。</small></section>
+      <section class="backup-option"><div class="backup-switch-row"><div><h2 id="cloud-backup-label">自动加密备份到云端</h2><p>打开并解锁页面时自动备份。</p></div><button class="backup-toggle" data-cloud-switch type="button" role="switch" aria-labelledby="cloud-backup-label" aria-checked="false" disabled><span></span></button></div>
+        <p class="backup-small-status" data-cloud-status role="status">正在读取设置…</p><button class="text-button" data-cloud-retry type="button" hidden>重试</button></section>
+      <p class="backup-hub-footnote">两种方式可同时使用。关闭云备份不会删除已有备份。</p>`);
+    const importView = entryPage('恢复数据', `
+      <p class="backup-hub-intro">找回你在这个空间的记录，换设备也可以。</p>
+      <section class="backup-option"><h2>从本地文件恢复</h2><p>选择之前下载的备份文件。</p><button class="primary-button" id="local-backup-import" type="button">从本地文件恢复</button></section>
+      <section class="backup-option"><h2>从云端加密备份恢复</h2><p>用恢复码找回云端保存的记录。</p><button class="secondary-button" data-restore="all" data-restore-label="从云端加密备份恢复" type="button">从云端加密备份恢复</button></section>
+      <p class="backup-hub-footnote">已有记录会保留，重复内容不会再次添加。<br>文件不会上传，恢复也不会让其他设备退出。</p>`);
     this.root.innerHTML = mode === 'export' ? exportView : importView;
     const error = this.root.querySelector<HTMLElement>('.form-error')!;
     const active = () => error.isConnected && this.isRuntimeActive(epoch, session) && !signal.aborted;
-    const back = () => { controller.abort(); this.transitionPage('backward', () => this.renderChat()); };
+    let historyChanged = false;
+    const back = () => { controller.abort(); this.transitionPage('backward', () => { if (historyChanged) void this.openSession(); else this.renderChat(); }); };
     let prepared: Awaited<ReturnType<typeof createLocalBackupFile>> | null = null;
     let busy = false;
     let restoring = false;
     signal.addEventListener('abort', () => { void prepared?.dispose(); prepared = null; }, { once: true });
     this.root.querySelector('#local-backup-back')?.addEventListener('click', back);
+    if (mode === 'export') attachCloudBackupSwitch({ root: this.root, session, signal, isActive: active, onChanged: () => { void this.runAutomaticBackup(); } });
+    else attachHistoryRestore({ root: this.root, session, signal, isActive: active, onChanged: () => { historyChanged = true; } });
 
     const paintRecovered = (dialog: HTMLElement, preview: LocalHistorySummary, recovered?: LocalHistorySummary) => {
       const host = dialog.querySelector('.history-summary');
@@ -9794,6 +9810,7 @@ export class QuietRoomApp {
           dialog.innerHTML = `<div class="confirm-dialog">
             <h2>备份内容</h2>
             <div class="history-summary">${this.historyCategoryRows(summary)}</div>
+            <p class="field-hint">包含 ${summary.attachments} 个原文件；${summary.missingAttachments} 个文件不在这台设备上，无法包含。请保管好恢复码。</p>
             <p class="form-error" role="alert"></p>
             <button class="primary-button" id="history-download" type="button">下载备份</button>
             <button class="text-button" data-history-summary-close type="button">取消</button>
@@ -9821,7 +9838,7 @@ export class QuietRoomApp {
               prepared.handoff(); prepared = null;
               saving = true;
               await this.withSystemSurface(() => downloadBlob(file, filename, { preferShare: false }));
-              if (active()) closeDialog(dialog);
+              if (active()) { closeDialog(dialog); error.textContent = '已交给系统，请到保存位置确认文件已保存。'; }
             } catch (cause) {
               await prepared?.dispose(); prepared = null;
               if (!active() || !dialog.isConnected) return;
@@ -9848,6 +9865,9 @@ export class QuietRoomApp {
     const picker = this.root.querySelector<HTMLButtonElement>('#local-backup-import')!;
     picker.addEventListener('click', () => {
       if (busy || restoring) return;
+      if (session.vault.historyRestoreTask || this.root.querySelector('[data-restore].is-restoring')) {
+        error.textContent = '还有一项云端恢复未完成，请先继续或取消它。'; return;
+      }
       const input = document.createElement('input'); input.type = 'file'; input.accept = '.qrlocal'; input.hidden = true;
       this.root.append(input);
       input.addEventListener('cancel', () => { if (input === this.imagePickerInput) void this.finishImagePicker(false); input.remove(); });
@@ -9859,7 +9879,9 @@ export class QuietRoomApp {
         error.textContent = '';
         busy = true; picker.disabled = true;
         try {
-          const preview = await previewLocalHistoryBackup(session, selected, signal);
+          const access = await requestLocalBackupCode({ root: this.root, session, file: selected, signal, isActive: active });
+          if (!active()) return;
+          const preview = await previewLocalHistoryBackup(session, selected, signal, access);
           if (!active()) return;
           const dialog = document.createElement('div');
           dialog.className = 'confirm-overlay';
@@ -9893,6 +9915,7 @@ export class QuietRoomApp {
             try {
               await this.confirmDeviceCredential();
               if (!active() || !dialog.isConnected) return;
+              historyChanged = true;
               restorePhase = 'running'; restoring = true; cancel.hidden = true;
               setBusy(restore, true, '恢复中 0%');
               const summary = await importLocalHistory(session, selected, signal, (_stage, result) => {
@@ -9900,7 +9923,7 @@ export class QuietRoomApp {
                 const percent = Math.min(100, Math.round(result.messages / Math.max(preview.messages, 1) * 100));
                 restore.textContent = `恢复中 ${percent}%`;
                 paintRecovered(dialog, preview, result);
-              });
+              }, access);
               if (!active() || !dialog.isConnected) return;
               paintRecovered(dialog, preview, summary);
               restorePhase = 'done'; restoring = false;
@@ -9919,7 +9942,7 @@ export class QuietRoomApp {
             }
           });
         } catch (cause) {
-          if (active()) error.textContent = cause instanceof Error ? cause.message : '无法读取此备份文件';
+          if (active() && !(cause instanceof Error && cause.name === 'AbortError')) error.textContent = cause instanceof Error ? cause.message : '无法读取此备份文件';
         } finally {
           busy = false;
           if (active()) picker.disabled = false;

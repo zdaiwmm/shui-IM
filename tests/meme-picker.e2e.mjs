@@ -146,12 +146,36 @@ try {
     await mkdir(process.argv[2], { recursive: true });
     await page.screenshot({ path: path.join(process.argv[2], 'recent-390.png') });
   }
+  await page.getByRole('tab', { name: 'Emoji', exact: true }).click();
+  await page.locator('.emoji-tile').first().waitFor();
+  const panelHeight = await page.locator('.meme-panel').evaluate(el => el.getBoundingClientRect().height);
+  assert.ok(Math.abs(panelHeight - 844 * .6) < 2, `Panel height ${panelHeight}`);
+  const tabHeight = await page.locator('.meme-tabs [role="tablist"]').evaluate(el => el.getBoundingClientRect().height);
+  assert.ok(tabHeight <= 38, `Tab too tall ${tabHeight}`);
+  const callsBeforeEmoji = await page.evaluate(() => window.fixture.requests.length);
+  await page.evaluate(() => { const input = document.querySelector('#message-input'); input.setSelectionRange(2, 4); });
+  const initialDraft = await page.locator('#message-input').inputValue();
+  const inserted = await page.locator('.emoji-tile').first().textContent();
+  await page.locator('.emoji-tile').first().click();
+  assert.equal(await page.locator('#message-input').inputValue(), initialDraft.slice(0, 2) + inserted + initialDraft.slice(4));
+  assert.equal(await page.locator('#meme-panel').count(), 1);
+  if (process.argv[2]) await page.screenshot({ path: path.join(process.argv[2], 'emoji-390.png') });
+  await page.locator('.meme-open-search').click();
+  await page.locator('#meme-query').fill('中国'); await page.locator('#meme-query').press('Enter');
+  await page.waitForFunction(() => [...document.querySelectorAll('.emoji-tile')].some(el => el.textContent === '🇨🇳'));
+  assert.equal(await page.evaluate(() => window.fixture.requests.length), callsBeforeEmoji, 'Emoji search must stay offline');
+  await page.locator('#meme-query').fill('no-such-emoji-1234'); await page.locator('#meme-query').press('Enter');
+  await page.getByText('没有找到相关 Emoji', { exact: true }).waitFor();
+  await page.locator('.meme-back').click();
+  await page.getByRole('tab', { name: 'GIFs', exact: true }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.meme-tile').length === 12);
+  await page.evaluate(value => { const input = document.querySelector('#message-input'); input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); }, initialDraft);
   const firstAnimation=page.locator('.meme-tile img').first(); await firstAnimation.waitFor();
   await assertMoving(firstAnimation, 'Panel animation pixels did not move');
   const tileBounds=await page.locator('.meme-tile').first().boundingBox();
   assert.ok(tileBounds.width <= 132.5, `GIF tile grew beyond its stable cell: ${JSON.stringify(tileBounds)}`);
   const gridColumns = await page.locator('.meme-recent-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
-  assert.equal(gridColumns, 5);
+  assert.equal(gridColumns, 7);
   const imageBounds=await firstAnimation.boundingBox();
   await page.mouse.move(tileBounds.x+tileBounds.width/2,tileBounds.y+tileBounds.height/2); await page.mouse.down();
   await page.locator('.meme-preview img').waitFor(); await page.mouse.up();
@@ -241,7 +265,8 @@ try {
   assert.equal(await page.locator('#meme-query').evaluate(input => input === document.activeElement), true, 'Delayed initial focus stole search input before Enter');
   await page.locator('#meme-query').press('Enter');
   await page.waitForFunction(()=>document.querySelector('.meme-pack-add')?.textContent==='添加');
-  assert.ok(Math.abs((await page.locator('.meme-pack-cover').boundingBox()).width-tileBounds.width)<1, 'Sticker search cover size differs');
+  const expectedStickerWidth = await page.locator('.meme-grid').evaluate(el => Math.min(132, (el.getBoundingClientRect().width - 16) / 5));
+  assert.ok(Math.abs((await page.locator('.meme-pack-cover').boundingBox()).width-expectedStickerWidth)<1, 'Sticker search must retain five-column cover size');
   assert.equal(await page.locator('.meme-pack-add').isDisabled(),false,'A formerly bundled pack is now managed by the catalog');
   await page.locator('#meme-query').fill('合集'); await page.locator('#meme-query').press('Enter');
   await page.waitForFunction(()=>window.fixture.requests.at(-1).kind==='stickers'&&window.fixture.requests.at(-1).keyword==='合集');
@@ -400,7 +425,7 @@ try {
   await page.locator('button[data-kind="stickers"]').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);
   assert.equal((await page.locator('.meme-pack-shortcuts img').first().boundingBox()).width,24);
-  assert.ok(Math.abs((await page.locator('.meme-pack-grid .meme-tile').first().boundingBox()).width-tileBounds.width)<1, 'Sticker tile size differs');
+  assert.ok(Math.abs((await page.locator('.meme-pack-grid .meme-tile').first().boundingBox()).width-expectedStickerWidth)<1, 'Sticker tile size differs');
   await page.evaluate(async () => {
     const { vault, session, files, controller } = window.fixture;
     await vault.installStickerPack(session, 'b'.repeat(32), '第二合集', [files[1]], controller.signal);

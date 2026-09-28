@@ -1,4 +1,4 @@
-import { recoverableSpaces, spaceCodeId } from './spaces';
+import { recoverableSpaces, spaceCodeId, rememberHistorySources } from './spaces';
 import { isMessagePayload } from './message-payload';
 import { isGalleryMediaPayload } from './video-media';
 import { galleryCurationKey, normalizeGalleryCurationRecords } from './gallery-curation';
@@ -20,6 +20,21 @@ const MAX_RETRY_AFTER_MS = 60_000;
 type BackupFingerprint = { value: string; material: string };
 type BackupObservation = { fingerprint: string; observedAt: number };
 const automaticBackupObservations = new WeakMap<VaultSession, BackupObservation>();
+
+export async function cloudBackupPreference(session: VaultSession, signal: AbortSignal, enabled?: boolean): Promise<{ enabled: boolean; revision: number }> {
+  const previous = session.vault.cloudBackupPreference;
+  const value = await request<{ enabled: boolean; revision: number }>(`/api/rooms/${session.vault.roomId}/backup-preference`, session.vault.accessToken, signal,
+    enabled === undefined ? undefined : { enabled, revision: (previous?.revision ?? 0) + 1 });
+  if (typeof value.enabled !== 'boolean' || !Number.isSafeInteger(value.revision) || value.revision < 0) throw new Error('备份设置读取失败，请重试');
+  await withVaultMutation(session, async mutation => {
+    signal.throwIfAborted();
+    const current = session.vault.cloudBackupPreference;
+    if (current && current.revision >= value.revision) return;
+    session.vault.cloudBackupPreference = value;
+    try { await saveVault(session, mutation); } catch (cause) { session.vault.cloudBackupPreference = current; throw cause; }
+  });
+  return session.vault.cloudBackupPreference!;
+}
 
 function backupInventory(messages: readonly DecryptedMessage[]): { chatCount: number; galleryCount: number } {
   let chatCount = 0;
@@ -123,6 +138,7 @@ function checkpoint(vault: Vault): Vault {
   delete value.spaceRecoveryCode;
   delete value.historyRestoreTask;
   delete value.recoverySource;
+  delete value.cloudBackupPreference;
   delete value.pendingRecovery;
   delete value.pendingJointRecovery;
   delete value.recoveryExperience;
@@ -159,8 +175,8 @@ async function backupFingerprint(session: VaultSession, state: LocalBackupState)
 
 function isCleanlySynced(session: VaultSession): boolean {
   const state = session.vault.backup;
-  return Boolean(state?.syncedAt && !state.pending && !state.pendingPart && !state.replaces
-    && !state.newCodePending && !session.vault.recoverySource && state.cursor >= session.vault.lastSeq);
+  return Boolean(state?.syncedAt && !state.pending && !state.replaces
+    && !state.newCodePending && !session.vault.recoverySource && (!session.vault.cloudBackupPreference?.enabled || !state.pendingPart && state.cursor >= session.vault.lastSeq));
 }
 
 async function galleryHiddenSnapshot(session: VaultSession) {
@@ -171,6 +187,7 @@ async function galleryHiddenSnapshot(session: VaultSession) {
 }
 
 async function hiddenSnapshotCurrent(session: VaultSession) {
+  if (!session.vault.cloudBackupPreference?.enabled) return true;
   return JSON.stringify(session.vault.backup?.galleryHidden ?? []) === JSON.stringify(await galleryHiddenSnapshot(session));
 }
 
@@ -208,10 +225,10 @@ async function rememberAutomaticBackup(session: VaultSession): Promise<void> {
 async function stageEnvelope(session: VaultSession, signal: AbortSignal): Promise<void> {
   await update(session, signal, async state => {
     if (state.pending) return;
-    state.galleryHidden = await galleryHiddenSnapshot(session);
+    if (session.vault.cloudBackupPreference?.enabled) state.galleryHidden = await galleryHiddenSnapshot(session);
     const bundle: CloudRecoveryBundle = { v: 1, backupId: state.id, roomId: session.vault.roomId,
       deviceId: session.vault.identity.publicBundle.deviceId, checkpoint: checkpoint(session.vault), archives: state.archives,
-      ...(session.vault.role === 'creator' ? { galleryHidden: state.galleryHidden } : {}) };
+      ...(session.vault.role === 'creator' && state.galleryHidden ? { galleryHidden: state.galleryHidden } : {}) };
     const sealed = await sealRecovery(bundle, state.code);
     // Validate the exact new envelope before it can replace any online recovery route.
     const verified = await openRecovery(sealed, state.code);
@@ -274,12 +291,14 @@ async function backfillArchiveInventory(session: VaultSession, signal: AbortSign
 export async function syncCloudBackup(session: VaultSession, signal: AbortSignal, { force = true }: CloudBackupSyncOptions = {}): Promise<void> {
   if (session.vault.protocol !== 'mls-rfc9420' || session.stored.unlockMethod !== 'platform' || session.vault.pairingState === 'recovering') return;
   signal.throwIfAborted();
+  const policy = await cloudBackupPreference(session, signal);
   if (!force && await shouldSkipAutomaticBackup(session)) {
     signal.throwIfAborted();
     return;
   }
   await stageEnvelope(session, signal);
   await sendEnvelope(session, signal);
+  if (!policy.enabled) { await rememberAutomaticBackup(session); return; }
   // Bound each foreground pass; the next pass continues from the durable cursor.
   for (let batch = 0; batch < 20; batch += 1) {
     await update(session, signal, async state => {
@@ -325,6 +344,7 @@ export async function syncCloudBackup(session: VaultSession, signal: AbortSignal
     await sendEnvelope(session, signal);
   }
   await rememberAutomaticBackup(session);
+  if (session.vault.backup!.cursor >= session.vault.lastSeq) await update(session, signal, state => { state.historySyncedAt = state.syncedAt; });
 }
 
 export async function fetchRecoveryBundle(code: string, signal: AbortSignal, onWait?: (waiting: boolean) => void, targetRoom?: string): Promise<CloudRecoveryBundle> {
@@ -360,6 +380,53 @@ export function normalizeRecoveryCodes(input: string | readonly string[]): strin
   return codes;
 }
 
+/** A recovery secret alone is not proof that the source belongs to this participant.
+ * Verify possession of a signing key already authenticated in the live membership. */
+export async function assertHistoryOwner(session: VaultSession, bundle: CloudRecoveryBundle): Promise<void> {
+  const vault = session.vault;
+  if (bundle.roomId !== vault.roomId || bundle.checkpoint.role !== vault.role) throw new Error('这不是你在当前空间的备份');
+  const member = vault.members.find(item => item.deviceId === bundle.deviceId && item.role === vault.role)
+    ?? (bundle.deviceId === vault.identity.publicBundle.deviceId ? { ...vault.identity.publicBundle, role: vault.role } : undefined);
+  if (!member) throw new Error('尚无法确认这份备份属于你，请先联网更新空间成员后重试');
+  try {
+    const privateKey = await crypto.subtle.importKey('jwk', bundle.checkpoint.identity.signingPrivateKey, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+    const publicKey = await crypto.subtle.importKey('jwk', member.signingKey, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+    const challenge = crypto.getRandomValues(new Uint8Array(32));
+    const signature = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, privateKey, challenge);
+    if (!await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, publicKey, signature, challenge)) throw new Error();
+  } catch { throw new Error('无法验证备份的本人身份，已停止恢复'); }
+}
+
+export async function authorizedHistorySources(session: VaultSession, input: string | readonly string[], signal: AbortSignal,
+  onWait?: (waiting: boolean) => void): Promise<{ bundles: CloudRecoveryBundle[]; codes: string[]; unavailable: number }> {
+  const codes = new Set<string>();
+  for (const code of normalizeRecoveryCodes(input)) {
+    if (code.startsWith('QR4-')) {
+      const entry = (await recoverableSpaces(code, signal)).find(space => space.roomId === session.vault.roomId);
+      if (!entry?.code) throw new Error('这份恢复码没有当前空间的备份');
+      codes.add(entry.code);
+      for (const source of entry.historyCodes ?? []) codes.add(source);
+    } else codes.add(code);
+  }
+  const bundles: CloudRecoveryBundle[] = [], accepted: string[] = [];
+  let unavailable = 0;
+  for (const code of codes) {
+    let bundle: CloudRecoveryBundle;
+    try { bundle = await fetchRecoveryBundle(code, signal, onWait, session.vault.roomId); }
+    catch (cause) {
+      signal.throwIfAborted();
+      // Only a definitively unavailable source may be offered as a partial set.
+      // Network failures and tampered ciphertext fail the whole discovery pass.
+      if (cause instanceof Error && cause.message.startsWith('找不到可用备份。') && codes.size > 1) { unavailable++; continue; }
+      throw cause;
+    }
+    await assertHistoryOwner(session, bundle);
+    if (!bundles.some(item => item.backupId === bundle.backupId)) { bundles.push(bundle); accepted.push(code); }
+  }
+  if (!bundles.length) throw new Error('找不到可用备份，请检查恢复码或补充之前保存的恢复码');
+  return { bundles, codes: accepted, unavailable };
+}
+
 /** Keep authenticated index failures separate from unsupported record formats. */
 function validateArchivePart(value: unknown, roomId: string, part: ArchivePart): DecryptedMessage[] {
   const archive = value as { v?: unknown; roomId?: unknown; messages?: unknown } | null;
@@ -382,16 +449,8 @@ export async function restoreCloudHistory(session: VaultSession, input: string |
   progress: (count: number, changed: boolean) => void = () => undefined): Promise<number> {
   if (!session.vault.backup?.syncedAt || session.vault.backup.replaces || session.vault.recoverySource) throw new Error('请先完成新恢复码的备份更新');
   if (scope === 'gallery' && session.vault.role !== 'creator') throw new Error('此参与方没有相册入口');
-  const codes = normalizeRecoveryCodes(input);
-  const bundles: CloudRecoveryBundle[] = [];
-  const backupIds = new Set<string>();
-  for (const code of codes) {
-    const bundle = await fetchRecoveryBundle(code, signal, undefined, session.vault.roomId);
-    if (bundle.roomId !== session.vault.roomId) throw new Error('恢复码不属于当前会话');
-    if (backupIds.has(bundle.backupId)) continue;
-    backupIds.add(bundle.backupId);
-    bundles.push(bundle);
-  }
+  const { bundles, unavailable } = await authorizedHistorySources(session, input, signal);
+  if (unavailable) throw new Error('有备份暂不可用，请从恢复数据页面确认可恢复范围');
   let restored = 0;
   let changed = false;
   for (const bundle of bundles) for (const archive of bundle.archives) {
@@ -418,6 +477,7 @@ export type HistoryRestoreProgress = {
   changed: boolean;
   inventory?: { chat: { backup: number; existing: number }; gallery?: { backup: number; existing: number } };
   audit?: RestoreAudit;
+  unavailableSources?: number;
 };
 
 /** Discover exact content totals before importing, retaining at most 16 MiB of ciphertext.
@@ -425,7 +485,8 @@ export type HistoryRestoreProgress = {
  * lives for only one part. Deletion projections are retained and commit before content.
  */
 export async function restoreUnifiedHistory(session: VaultSession, input: string, signal: AbortSignal,
-  onProgress: (value: HistoryRestoreProgress) => void): Promise<HistoryRestoreProgress> {
+  onProgress: (value: HistoryRestoreProgress) => void,
+  confirm?: (value: HistoryRestoreProgress) => Promise<void>): Promise<HistoryRestoreProgress> {
   if (!session.vault.backup?.syncedAt || session.vault.backup.replaces || session.vault.recoverySource) throw new Error('请先完成新恢复码的备份更新');
   const creator = session.vault.role === 'creator';
   const status: HistoryRestoreProgress = { phase: 'reading', scannedParts: 0, totalParts: 0,
@@ -434,16 +495,14 @@ export async function restoreUnifiedHistory(session: VaultSession, input: string
   const emit = () => { signal.throwIfAborted(); onProgress(structuredClone(status)); };
   const onWait = (waiting: boolean) => { status.waitingForService = waiting; emit(); };
   emit();
-  const bundles: CloudRecoveryBundle[] = [];
-  for (const code of normalizeRecoveryCodes(input)) {
-    const bundle = await fetchRecoveryBundle(code, signal, onWait, session.vault.roomId);
-    signal.throwIfAborted();
-    if (bundle.roomId !== session.vault.roomId) throw new Error('恢复码不属于当前会话');
-    if (!bundles.some(previous => previous.backupId === bundle.backupId)) bundles.push(bundle);
-  }
+  const sources = await authorizedHistorySources(session, input, signal, onWait);
+  const { bundles } = sources;
+  status.unavailableSources = sources.unavailable;
+  if (sources.unavailable && !confirm) throw new Error('有备份暂不可用，请先确认可恢复范围');
   const hidden = new Map((await galleryHiddenSnapshot(session)).map(record => [galleryCurationKey(record), record]));
   if (creator) for (const bundle of bundles) for (const record of bundle.galleryHidden ?? []) hidden.set(galleryCurationKey(record), record);
   const parts = bundles.flatMap(bundle => bundle.archives.flatMap(archive => archive.parts.map(part => ({ bundle, archive, part }))));
+  if (!parts.length) throw new Error('还没有找到聊天备份，可以选择本地文件或补充旧恢复码');
   status.totalParts = parts.length;
   const cache = new Map<number, SealedBackup>();
   // At most 8 MiB retained across passes plus an 8 MiB UTF-16 batch window.
@@ -523,6 +582,9 @@ export async function restoreUnifiedHistory(session: VaultSession, input: string
       status.scannedParts = index + 1; emit();
     }
     signal.throwIfAborted();
+    if (confirm) await confirm(structuredClone(status));
+    signal.throwIfAborted();
+    await rememberHistorySources(session, sources.codes, signal);
     status.phase = 'restoring'; status.percent = 0; emit();
     if (creator) status.changed = await restoreGalleryHidden(session, [...hidden.values()], signal);
     for (let index = 0; index < deletes.length; index += 100) await importArchivedMessages(session, deletes.slice(index, index + 100), scope, signal, committed);

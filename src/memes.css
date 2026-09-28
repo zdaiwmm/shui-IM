@@ -2,8 +2,8 @@
 .composer #message-input { padding-right: 48px; }
 .meme-toggle { position: absolute; right: 2px; bottom: 0; width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: transparent; color: var(--ink-muted); padding: 10px; }
 .meme-toggle[aria-expanded="true"] { color: var(--accent); }
-.composer.has-meme-panel { --meme-sheet-height: min(48svh, 430px); padding-bottom: calc(var(--meme-sheet-height) + 12px); will-change: auto; }
-.meme-panel { position: absolute; inset: auto 0 0; height: min(48svh, 430px); display: grid; grid-template-rows: 56px 44px minmax(0, 1fr); padding: 0 12px; border: 1px solid var(--glass-border); border-bottom: 0; border-radius: 22px 22px 0 0; background: var(--glass-sheen), var(--glass-panel); box-shadow: var(--glass-shadow), 0 -8px 32px oklch(15% 0.01 255 / 0.12); -webkit-backdrop-filter: var(--glass-filter); backdrop-filter: var(--glass-filter); color: var(--ink); overflow: hidden; }
+.composer.has-meme-panel { --meme-sheet-height: min(60svh, 640px); padding-bottom: calc(var(--meme-sheet-height) + 12px); will-change: auto; }
+.meme-panel { position: absolute; inset: auto 0 0; height: min(60svh, 640px); display: grid; grid-template-rows: 56px 44px minmax(0, 1fr); padding: 0 12px; border: 1px solid var(--glass-border); border-bottom: 0; border-radius: 22px 22px 0 0; background: var(--glass-sheen), var(--glass-panel); box-shadow: var(--glass-shadow), 0 -8px 32px oklch(15% 0.01 255 / 0.12); -webkit-backdrop-filter: var(--glass-filter); backdrop-filter: var(--glass-filter); color: var(--ink); overflow: hidden; }
 .meme-panel button { font: inherit; cursor: pointer; color: inherit; }
 .meme-panel button:disabled { cursor: default; }
 .meme-panel svg, .meme-toggle svg, .meme-preview svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
@@ -33,13 +33,13 @@
 .meme-expanded-dialog .meme-panel { grid-template-rows: 56px 44px minmax(0, 1fr); }
 .meme-expanded-dialog .meme-pack-shortcuts { display: flex; }
 .meme-expanded-dialog .meme-open-search, .meme-expanded-dialog .meme-tabs { display: flex; }
-.meme-expanded-dialog .meme-scroll { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+.meme-expanded-dialog .meme-scroll { padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
 .meme-pack-shortcuts button { flex: 0 0 44px; height: 44px; padding: 5px; border: 0; border-radius: 12px; background: transparent; display: grid; place-items: center; color: var(--ink-muted); }
 .meme-pack-shortcuts button[aria-pressed="true"] { background: var(--glass-control); color: var(--accent); }
 .meme-pack-shortcuts img { width: 24px; height: 24px; object-fit: contain; border-radius: 6px; }
 .meme-open-search { display: flex; align-items: center; gap: 10px; min-width: 0; width: 100%; height: 44px; padding: 0 14px; color: var(--ink-muted) !important; text-align: left; }
 .meme-open-search, .meme-search, .meme-tabs [role="tablist"], .meme-collapse, .meme-preview-actions, .meme-preview-close { border: 1px solid var(--glass-border); border-radius: 24px; background: var(--glass-sheen), var(--glass-strong); box-shadow: var(--glass-shadow); -webkit-backdrop-filter: var(--glass-filter); backdrop-filter: var(--glass-filter); }
-.meme-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding: 8px 0 calc(76px + env(safe-area-inset-bottom)); scrollbar-width: none; }
+.meme-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; padding: 8px 0 calc(60px + env(safe-area-inset-bottom)); scrollbar-width: none; }
 .meme-scroll::-webkit-scrollbar, .meme-pack-shortcuts::-webkit-scrollbar { display: none; }
 .meme-grid, .meme-pack-grid, .meme-recent-grid, .meme-browse-grid { --meme-tile-size: min(132px, calc((100% - 16px) / 5)); display: grid; grid-template-columns: repeat(5, minmax(0, var(--meme-tile-size))); justify-content: center; gap: 4px; }
 .meme-grid.meme-catalog-sections { display: flex; flex-direction: column; gap: 16px; }
@@ -57,8 +57,8 @@
 .meme-more { display: block; min-height: 44px; margin: 8px auto; padding: 8px 20px; border: 0; background: transparent; color: var(--accent) !important; }
 .meme-panel [hidden] { display: none !important; }
 .meme-tabs { position: absolute; bottom: max(12px, env(safe-area-inset-bottom)); left: 12px; right: 12px; display: flex; justify-content: center; align-items: center; pointer-events: none; }
-.meme-tabs [role="tablist"] { display: flex; padding: 4px; pointer-events: auto; }
-.meme-tabs [role="tab"] { min-width: 80px; height: 44px; border: 0; border-radius: 24px; padding: 8px 18px; background: transparent; color: var(--ink-muted); }
+.meme-tabs [role="tablist"] { display: flex; padding: 2px; pointer-events: auto; }
+.meme-tabs [role="tab"] { position: relative; min-width: 80px; height: 32px; border: 0; border-radius: 24px; padding: 4px 18px; background: transparent; color: var(--ink-muted); }
 .meme-tabs [aria-selected="true"] { color: var(--ink); background: var(--glass-control); box-shadow: inset 0 1px 0 var(--glass-border); font-weight: 600; }
 .meme-collapse { position: absolute; right: 0; width: 44px; height: 44px; padding: 10px; pointer-events: auto; }
 .composer > .meme-panel .meme-collapse { display: none; }
@@ -116,9 +116,34 @@
 .chat-shell .expression-bubble .image-preview img { border-radius: 12px; max-height: min(28svh, 213.333px); }
 .message-bubble.expression-bubble > .message-meta { position: absolute; margin-top: 0; }
 .message-bubble.expression-bubble > .message-meta time { color: inherit; }
-@media (max-height: 480px) { .composer.has-meme-panel { --meme-sheet-height: 52svh; } .meme-panel { height: 52svh; grid-template-rows: 44px 44px minmax(0,1fr); } }
+@media (max-height: 480px) { .composer.has-meme-panel { --meme-sheet-height: 60svh; } .meme-panel { height: 60svh; grid-template-rows: 44px 44px minmax(0,1fr); } }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { .meme-panel, .meme-open-search, .meme-search, .meme-tabs [role="tablist"], .meme-collapse, .meme-preview, .meme-preview-actions, .meme-preview-close { background: var(--paper-pure); backdrop-filter: none; -webkit-backdrop-filter: none; } }
 @media (prefers-reduced-motion: reduce) { .meme-pack-shortcuts[data-reordering="true"] button, .meme-shortcut-float { animation: none; } }
 .meme-expanded-dialog .meme-panel { grid-template-rows: 56px 44px minmax(0, 1fr); }
 .meme-expanded-dialog .meme-pack-shortcuts, .meme-expanded-dialog .meme-open-search, .meme-expanded-dialog .meme-tabs { display: flex; }
-.meme-expanded-dialog .meme-scroll { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+.meme-expanded-dialog .meme-scroll { padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
+
+.meme-tabs [role="tab"]::after { content: ''; position: absolute; inset: -6px 0; }
+.meme-panel[data-kind="gifs"] :is(.meme-grid:not(.meme-catalog-sections), .meme-recent-grid, .meme-browse-grid) { --meme-tile-size: min(132px, calc((100% - 24px) / 7)); grid-template-columns: repeat(7, minmax(0, var(--meme-tile-size))); justify-content: space-between; }
+.meme-grid.emoji-sections { display: flex; flex-direction: column; gap: 8px; }
+.emoji-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.emoji-tile { min-width: 0; min-height: 44px; padding: 2px; border: 0; border-radius: 8px; background: transparent; font-size: 28px !important; line-height: 1.4 !important; }
+.emoji-tile:active { background: var(--glass-control); }
+.meme-panel[data-kind="emoji"] .meme-pack-shortcuts button { font-size: 22px; }
+
+/* Scale every limiting dimension together; stickers and unclassified history retain their geometry. */
+.chat-shell .message-bubble.expression-bubble.gif-expression { max-width: min(115.2px, 60%); }
+.chat-shell .expression-bubble.gif-expression .image-preview { max-width: 115.2px; }
+.chat-shell .expression-bubble.gif-expression .image-preview img { max-height: min(16.8svh, 128px); }
+.chat-shell .expression-bubble.gif-expression[data-media-dimensions='known'],
+.chat-shell .expression-bubble.gif-expression > .image-preview[data-media-dimensions='known'] {
+  --chat-media-max-width: 115.2px;
+  --chat-media-max-height: min(16.8svh, 128px);
+  --chat-media-natural-width: calc(var(--chat-media-source-width) * 0.4);
+  --chat-media-width-at-max-height: calc(min(16.8svh, 128px) * var(--chat-media-ratio));
+}
+.message.outgoing .media-upload-expression.gif-expression {
+  --media-upload-max-width: 115.2px;
+  --media-upload-max-height: min(16.8svh, 128px);
+  max-width: 60%;
+}

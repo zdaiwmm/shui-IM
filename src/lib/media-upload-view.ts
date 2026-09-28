@@ -22,7 +22,7 @@ export class MediaUploadView {
   private readonly kind: string;
 
   constructor(id: string, files: File[], expression: boolean, autoHide: boolean,
-    retry: () => void, remove: () => void, changed: () => void) {
+    retry: () => void, remove: () => void, changed: () => void, gif = false) {
     const video = isVideoFile({ mimeType: files[0]!.type, originalName: files[0]!.name });
     this.kind = video ? '视频' : expression ? '表情' : files.length > 1 ? '图片相册' : '图片';
     this.element.className = `message outgoing has-media media-upload${video ? ' video-upload' : ''}`;
@@ -30,6 +30,7 @@ export class MediaUploadView {
     this.element.dataset.concealed = String(!expression || autoHide);
     this.element.setAttribute('aria-label', `正在发送${this.kind}`);
     this.tile.className = `message-bubble media-upload-tile${expression ? ' media-upload-expression' : ''}`;
+    this.tile.classList.toggle('gif-expression', gif);
     const previews = document.createElement('div');
     previews.className = files.length > 1
       ? `media-upload-previews image-album album-count-${files.length <= 4 ? files.length : 'many'}`
@@ -72,7 +73,7 @@ export class MediaUploadView {
       const ratio = dimensions.width / dimensions.height;
       this.tile.style.aspectRatio = String(ratio);
       this.tile.style.setProperty('--media-upload-ratio', String(ratio));
-      this.tile.style.setProperty('--media-upload-natural-width', `${dimensions.width * (expression ? 2 / 3 : 1)}px`);
+      this.tile.style.setProperty('--media-upload-natural-width', `${dimensions.width * (expression ? (gif ? 0.4 : 2 / 3) : 1)}px`);
     }) : Promise.resolve();
     this.preparation = this.ready.catch(() => {});
     for (const [index, file] of files.entries()) {
