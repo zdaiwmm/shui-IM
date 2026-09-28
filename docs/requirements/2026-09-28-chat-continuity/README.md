@@ -3,7 +3,7 @@
 ## 身份与当前阶段
 
 - 需求编号：2026-09-28-chat-continuity。
-- 当前阶段：V1 已确认并完成正式实现，进入 D 送审。本文为送审快照；最终门禁、CI 和合并回执以本任务 PR 为准，未发布生产。
+- 当前阶段：V1 已实施、合并并发布生产，版本 `2026.09.28.2`，线上 SHA `a428df932afbf3e7f277b906535555171501abf4`。已取得独立回读；真机缺口仍保留。
 - 原型起始基线：`933586ec81810f264d6f1249b967ab6b6388b30f`。实施规则来源与最新基线：`03fbb83152c78752c7cebd4b879b2ecf1805853d`，已核对本机 main、origin/main 和实时 GitHub main 一致。未推送的原型提交已接到该基线，原型文件内容不变。
 - 开工核验：本机 main、origin/main 与 GitHub 实时 main 一致，原 main 工作区干净。
 - 本任务独立分支：`codex/chat-interaction-continuity`。
@@ -81,7 +81,7 @@
 ## 材料与交付检查
 
 - 原型材料为本需求 6 个 Markdown、HTML、CSS、JavaScript 文件，总大小约 62 KB；无截图、视频、Base64、打包产物、字体或外部资源进入版本控制。JS 语法、材料路径与空白检查通过。
-- 原型阶段只保存设计分支；用户确认后进入正式实现、测试与远端交付。没有生产发布授权。
+- 原型阶段只保存设计分支；用户确认后进入正式实现、测试与远端交付。原型阶段没有生产发布授权；后续本会话明确授权见下文。
 
 ## 生产发布授权
 
@@ -105,4 +105,5 @@
 - 首轮单元门禁发现浏览器清单数量断言仍为旧值，已与新增入口一起更新；全量并发发送夹具直接改 `.value` 而未触发 `input`，已补齐实际编辑事件以覆盖草稿版本与真实加密收发。没有放宽消息送达、几何或隐私断言。
 - 本机临时日志：`/private/tmp/chat-continuity-full-retry.log`（构建与单元）、`/private/tmp/chat-continuity-browser-final.log`（浏览器诊断）、`/private/tmp/chat-continuity-final-gate.log`（最终完整门禁）；截图在 `/private/tmp/quiet-room-chat-continuity-qa/implemented/`，不提交日志或媒体文件。
 - USB 设备诊断无可用 iPhone，iOS 27 Safari 原生键盘、浏览器栏与合成层闪烁仍未真机验收。桌面 WebKit／Chrome 模拟不等于真机通过。
-- 交付状态以本任务 PR 与精确提交 CI 为准；未发布生产，未调整生产配置。
+- [PR #211](https://github.com/zdaiwmm/shui-IM/pull/211) 已合并并按本次明确授权发布。最终 `check:full` 通过（724 项单元／集成、44/44 浏览器，495.42s）；版本元数据另通过构建及 17 项发布测试；PR 和精确 main 完整 CI 均通过。
+- 线上 SHA `a428df932afbf3e7f277b906535555171501abf4`、版本 `2026.09.28.2`，固定入口与独立回读分别取得 `DEPLOY_VERIFIED`、`READBACK_OK`；回读时间 `2026-09-28T07:00:41.624Z`。发布记录及证据见根目录 `RELEASING.md`，未更改生产配置，不把自动回归写成真机通过。
