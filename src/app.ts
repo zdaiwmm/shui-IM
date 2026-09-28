@@ -39,6 +39,7 @@ import { isExpressionPayload } from './lib/expression-media';
 import { loadStickerPacks, installStickerPack, removeStickerPack, reorderStickerPacks } from './lib/vault';
 import './memes.css';
 import './chat-tools.css';
+import './voice-messages.css';
 import './design-system.css';
 import { normalizeAttachmentFavorites, sortFavoriteAssets } from './lib/attachment-favorites';
 import { validateMemeFile, MEME_TYPES } from './lib/meme-media';
@@ -7726,6 +7727,8 @@ export class QuietRoomApp {
     const epoch = this.runtimeEpoch;
     const host = this.root.querySelector<HTMLElement>('.voice-recorder');
     if (!session || this.privacyCovered || !host || this.voiceRecorder) return null;
+    this.root.querySelectorAll('.voice-retiring').forEach(node => node.remove());
+    this.root.querySelector('.voice-discard-feedback')?.getAnimations({ subtree: true }).forEach(animation => animation.cancel());
     if (session.vault.protocol === 'mls-rfc9420' && session.vault.mls?.phase !== 'active') return null;
     if (!this.activeDevicesSupport('voice-message-v1')) {
       this.showNotice('请先让所有已授权设备打开一次最新版，再发送语音', 'error');

@@ -1207,8 +1207,9 @@ try {
     const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
     await frame(); await frame();
     const input = document.querySelector('#message-input');
-    input.value = '发送时标题与输入栏保持稳定'; input.dispatchEvent(new Event('input'));
+    input.value = '发送保持稳定'; input.dispatchEvent(new Event('input'));
     await frame(); await frame();
+    if (input.getBoundingClientRect().height >= 50) throw Error('Single-line send fixture unexpectedly wrapped');
     const header = document.querySelector('.chat-header'); const composer = document.querySelector('#composer');
     const headerTop = header.getBoundingClientRect().top; const composerTop = composer.getBoundingClientRect().top;
     const previous = document.querySelector('[data-client-msg-id="message-40"]');
@@ -2453,7 +2454,8 @@ try {
           if (getComputedStyle(header).position !== 'fixed' || getComputedStyle(composer).position !== 'fixed') throw Error('Desktop controls no longer use fixed positioning');
           if (Math.abs(headerBounds.top) > 1 || Math.abs(composerBounds.bottom - innerHeight) > 1) throw Error('Document scrolling moved a desktop bar away from the window edge');
           if (headerBounds.width > 881 || composerBounds.width > 881 || Math.abs(headerBounds.left - composerBounds.left) > 1 || Math.abs(headerBounds.right - composerBounds.right) > 1) throw Error('Desktop bars escaped their shared 880px conversation width');
-          if (input.width < 560 || document.documentElement.scrollWidth > innerWidth) throw Error('Desktop composer shrank or overflowed as the browser grew wider');
+          const row = document.querySelector('.composer-row').getBoundingClientRect();
+          if (row.width < 640 || input.width < row.width * .75 || document.documentElement.scrollWidth > innerWidth) throw Error('Desktop composer shrank or overflowed as the browser grew wider');
           if (Math.abs(window.scrollY - target) > 2) throw Error(`Desktop scroll position was pulled away from its target: ${JSON.stringify({ fraction, target, scrollY })}`);
           samples.push({ fraction, scrollY, firstMessageTop: document.querySelector('.message').getBoundingClientRect().top, headerTop: headerBounds.top, composerBottom: composerBounds.bottom, inputWidth: input.width, barWidth: composerBounds.width });
         }

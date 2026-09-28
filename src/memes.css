@@ -1,5 +1,5 @@
 .composer-field { position: relative; }
-.composer #message-input { padding-right: 48px; }
+.composer #message-input { padding-right: 4px; }
 .meme-toggle { position: absolute; right: 2px; bottom: 0; width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: transparent; color: var(--ink-muted); padding: 10px; }
 .meme-toggle[aria-expanded="true"] { color: var(--accent); }
 .composer.has-meme-panel { --meme-sheet-height: min(60svh, 640px); padding-bottom: calc(var(--meme-sheet-height) + 12px); will-change: auto; }

@@ -44,7 +44,6 @@ export class VoiceRecorder {
   private renderedSendIcon = '';
   private sendMotion: Animation | null = null;
   private holdEntryMotion: Animation | null = null;
-  private cancelExit: (() => void) | null = null;
 
   constructor(private readonly host: HTMLElement, private readonly callbacks: {
     permission: (active: boolean) => boolean | void | Promise<boolean | void>;
@@ -197,21 +196,24 @@ export class VoiceRecorder {
     if (this.signal.aborted || this.state === 'sending') return;
     const animateExit = animate && this.host.isConnected && !this.reducedMotion;
     const dragX = this.host.style.getPropertyValue('--voice-drag-x');
+    const parent = this.host.parentElement;
+    const retiring = animateExit ? this.host.cloneNode(false) as HTMLElement : null;
     // Capture and plaintext end synchronously. The optional retiring shapes
     // contain no duration, waveform, recording, or actionable controls.
     this.destroy();
-    if (animateExit) {
-      this.host.dataset.gesture = 'cancelling';
-      this.host.style.setProperty('--voice-drag-x', dragX);
-      this.host.innerHTML = `<div class="voice-cancel-bar" aria-hidden="true"></div><div class="voice-cancel-orb" aria-hidden="true">${voiceIcons.mic}</div>`;
-      this.cancelExit = afterMotion(this.host, () => {
-        this.cancelExit = null;
-        this.host.replaceChildren();
-        this.callbacks.cancel();
-      }, 240);
-      return;
-    }
     this.callbacks.cancel();
+    if (retiring && parent?.isConnected) {
+      retiring.classList.add('voice-retiring');
+      retiring.setAttribute('aria-hidden', 'true');
+      retiring.removeAttribute('aria-label');
+      delete retiring.dataset.state;
+      delete retiring.dataset.mode;
+      retiring.dataset.gesture = 'cancelling';
+      retiring.style.setProperty('--voice-drag-x', dragX);
+      retiring.innerHTML = `<div class="voice-cancel-bar"></div><div class="voice-cancel-orb">${voiceIcons.mic}</div>`;
+      parent.append(retiring);
+      afterMotion(retiring, () => retiring.remove(), 240);
+    }
   }
 
   async start(): Promise<void> {
@@ -532,9 +534,6 @@ export class VoiceRecorder {
   }
 
   destroy(): void {
-    // Teardown must also remove an already-aborted cancellation animation.
-    this.cancelExit?.();
-    this.cancelExit = null;
     this.host.replaceChildren();
     if (this.signal.aborted) return;
     this.abort.abort(); this.endPermission(); this.stopTimer();

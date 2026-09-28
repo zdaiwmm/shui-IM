@@ -172,7 +172,7 @@ try {
     content: input.scrollHeight, visible: input.clientHeight, height: input.getBoundingClientRect().height,
     inset: getComputedStyle(input).paddingRight,
   }));
-  assert.equal(wrapped.inset, '48px');
+  assert.equal(wrapped.inset, '4px');
   assert.ok(wrapped.height > 70 && wrapped.content <= wrapped.visible + 1, JSON.stringify(wrapped));
   await page.evaluate(async () => {
     const input = document.querySelector('#message-input');
@@ -208,7 +208,14 @@ try {
     await mkdir(process.argv[2], { recursive: true });
     await page.screenshot({ path: path.join(process.argv[2], 'list-keyboard-open-393.png') });
   }
-  await page.locator('#message-list').tap({ position: { x: 5, y: 130 } });
+  const dismissPoint = await page.evaluate(() => {
+    const list = document.querySelector('#message-list').getBoundingClientRect();
+    const header = document.querySelector('.chat-header').getBoundingClientRect();
+    const composer = document.querySelector('#composer').getBoundingClientRect();
+    if (composer.top <= header.bottom + 2) throw Error('No exposed message area above capped composer');
+    return { x: list.left + 5, y: (header.bottom + composer.top) / 2 };
+  });
+  await page.touchscreen.tap(dismissPoint.x, dismissPoint.y);
   await page.evaluate(() => {
     const app = window.listFixture.app;
     const motions = app.chatKeyboardSurfaceMotion.animations;
@@ -316,7 +323,7 @@ try {
     input.dispatchEvent(end);
     return { focused: document.activeElement === input, root: scrollY };
   });
-  assert.equal(holdRelease.focused, false, 'The keyboard touchend fallback must not steal an empty-input voice release');
+  assert.equal(holdRelease.focused, true, 'Empty-input touch release now enters typing; voice owns its separate button');
   assert.equal(holdRelease.root, 0);
 
   const shortRelease = await page.evaluate(() => {
@@ -325,6 +332,9 @@ try {
     input.blur();
     const pointer = { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 91, isPrimary: true, button: 0, clientX: 40, clientY: 340 };
     input.dispatchEvent(new PointerEvent('pointerdown', pointer));
+    const start = new Event('touchstart', { bubbles: true });
+    Object.defineProperty(start, 'touches', { value: [{ clientX: 40, clientY: 340 }] });
+    input.dispatchEvent(start);
     input.dispatchEvent(new PointerEvent('pointerup', pointer));
     owner.dispatchEvent(new PointerEvent('lostpointercapture', pointer));
     const beforeTouchEnd = document.activeElement === input;
