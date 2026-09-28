@@ -6213,7 +6213,8 @@ export class QuietRoomApp {
     const session = this.session;
     if (!session || this.privacyCovered) return;
     if (!this.setActiveSurface('away')) return;
-    this.root.innerHTML = `
+    const existingPage = this.root.querySelector<HTMLElement>(':scope > .device-shell');
+    if (!existingPage) this.root.innerHTML = `
       <section class="device-shell">
         <header class="subpage-header device-header">
           <button class="icon-button" id="device-back" type="button" aria-label="返回聊天">${icons.back}</button>
@@ -6227,17 +6228,62 @@ export class QuietRoomApp {
         </main>
       </section>
     `;
-    const devicePage = this.root.querySelector<HTMLElement>('.device-shell')!;
-    this.root.querySelector('#device-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderChat()));
-    this.root.querySelector('#refresh-devices')?.addEventListener('click', () => void this.renderDeviceManager());
+    const devicePage = this.root.querySelector<HTMLElement>(':scope > .device-shell')!;
+    if (!existingPage) {
+      devicePage.querySelector('#device-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderChat()));
+      devicePage.querySelector('#refresh-devices')?.addEventListener('click', () => void this.renderDeviceManager());
+    }
+    const request = crypto.randomUUID();
+    devicePage.dataset.presentationRequest = request;
+    const current = () => this.session === session && !this.privacyCovered
+      && this.root.querySelector(':scope > .device-shell') === devicePage
+      && devicePage.dataset.presentationRequest === request;
+    const previousContent = devicePage.querySelector<HTMLElement>('.device-content')!;
+    const restoreFocus = previousContent.contains(document.activeElement);
+    const positions = () => new Map(Array.from(previousContent.querySelectorAll<HTMLElement>('[data-device-id]'),
+      card => [card.dataset.deviceId!, card.getBoundingClientRect().top]));
+    const moveCards = (host: HTMLElement, origins: Map<string, number>) => {
+      const cards = Array.from(host.querySelectorAll<HTMLElement>('[data-device-id]'));
+      // Origins include the painted in-flight offset. Cancel before measuring
+      // destinations so the next layout change does not overwrite that offset.
+      for (const card of cards) for (const animation of card.getAnimations()) {
+        if ((animation.effect as KeyframeEffect).getKeyframes().some(frame => frame.transform)) animation.cancel();
+      }
+      const moves = cards.map(card => {
+        const top = card.getBoundingClientRect().top;
+        return { card, delta: (origins.get(card.dataset.deviceId!) ?? top) - top };
+      }).filter(item => Math.abs(item.delta) > .5);
+      const duration = layoutMotionDuration(Math.max(0, ...moves.map(item => Math.abs(item.delta))));
+      for (const { card, delta } of moves) retargetMotion(card, null,
+        { transform: `translateY(${delta}px)` }, { transform: 'translateY(0)' }, duration);
+    };
+    // A confirmed revocation disappears immediately, before the refresh fetch.
+    const removedOrigins = positions();
+    for (const card of previousContent.querySelectorAll<HTMLElement>('[data-device-id]')) {
+      if (session.vault.members.find(member => member.deviceId === card.dataset.deviceId)?.status === 'revoked') card.remove();
+    }
+    moveCards(previousContent, removedOrigins);
+    const loading = previousContent.querySelector<HTMLElement>('.device-loading') ?? document.createElement('div');
+    loading.className = 'device-loading'; loading.setAttribute('role', 'status');
+    loading.textContent = '正在验证设备状态…';
+    if (!loading.isConnected) previousContent.append(loading);
+    for (const control of previousContent.querySelectorAll<HTMLButtonElement>('button')) {
+      control.dataset.refreshWasDisabled ??= String(control.disabled);
+      control.disabled = true;
+    }
+    previousContent.setAttribute('aria-busy', 'true');
+    const refresh = devicePage.querySelector<HTMLButtonElement>('#refresh-devices')!;
+    setBusy(refresh, true);
     try {
       const result = await listDeviceLinks(session.vault.roomId, session.vault.accessToken);
-      if (this.session !== session || this.privacyCovered || !devicePage.isConnected) return;
+      if (!current()) return;
       await this.applyRoomStateQueued(result.state);
-      if (this.session !== session || this.privacyCovered || !devicePage.isConnected) return;
-      const content = this.root.querySelector<HTMLElement>('.device-content');
-      if (!content) return;
-      content.querySelector('.device-loading')?.remove();
+      if (!current()) return;
+      const content = document.createElement('main');
+      content.className = 'device-content';
+      // Only the static security explanation is copied, never retiring cards.
+      const explanation = previousContent.querySelector('.device-security-note');
+      if (explanation) content.append(explanation.cloneNode(true));
 
       const ownId = session.vault.identity.publicBundle.deviceId;
       const active = session.vault.members.filter((member) => member.status === undefined || member.status === 'active');
@@ -6254,7 +6300,7 @@ export class QuietRoomApp {
       const repairStatus = pendingRepair
         ? await getRepairLinkStatus(pendingRepair.linkId, pendingRepair.secret, session.vault.accessToken).catch(() => null)
         : null;
-      if (this.session !== session || this.privacyCovered || !devicePage.isConnected) return;
+      if (!current()) return;
       const repairClaim = repairStatus && !repairStatus.link.usedAt && repairStatus.link.claimedDeviceId
         ? {
             link: repairStatus.link,
@@ -6356,18 +6402,36 @@ export class QuietRoomApp {
         peerSection.append(card);
       }
       content.append(peerSection);
-      retargetMotion(content, null, { opacity: .75 }, { opacity: 1 }, motion.local);
+      if (!current()) return;
+      const origins = positions();
+      previousContent.replaceWith(content);
+      moveCards(content, origins);
+      if (restoreFocus && document.activeElement === document.body) refresh.focus({ preventScroll: true });
+      if (!existingPage) retargetMotion(content, null, { opacity: .75 }, { opacity: 1 }, motion.local);
+      else for (const card of content.querySelectorAll<HTMLElement>('[data-device-id]')) {
+        if (!origins.has(card.dataset.deviceId!)) retargetMotion(card, null, { opacity: .65 }, { opacity: 1 }, motion.local);
+      }
     } catch (cause) {
-      if (this.session !== session || this.privacyCovered || !devicePage.isConnected) return;
+      if (!current()) return;
       this.operationalError(cause, '设备状态载入失败');
-      const loading = this.root.querySelector<HTMLElement>('.device-loading');
-      if (loading) loading.textContent = cause instanceof Error ? cause.message : '设备状态载入失败';
+      loading.textContent = cause instanceof Error ? cause.message : '设备状态载入失败';
+    } finally {
+      if (current()) {
+        const content = devicePage.querySelector<HTMLElement>('.device-content')!;
+        content.removeAttribute('aria-busy');
+        for (const control of content.querySelectorAll<HTMLButtonElement>('button[data-refresh-was-disabled]')) {
+          control.disabled = control.dataset.refreshWasDisabled === 'true';
+          delete control.dataset.refreshWasDisabled;
+        }
+        setBusy(refresh, false);
+      }
     }
   }
 
   private deviceCard(member: RoomMember, current: boolean): HTMLElement {
     const card = document.createElement('article');
     card.className = 'device-card';
+    card.dataset.deviceId = member.deviceId;
     const copy = document.createElement('div');
     const title = document.createElement('strong');
     title.textContent = member.deviceName ?? '未命名设备';

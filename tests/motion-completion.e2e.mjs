@@ -156,6 +156,64 @@ try {
     assert.equal(result.controls.activated, true);
     assert.equal(result.controls.cancelRest, 1);
   }
+  if (!process.env.MOTION_BASELINE) {
+    const devices = await page.evaluate(async () => {
+      const app = listFixture.app;
+      app.runtimeAbort = new AbortController();
+      app.session.vault.members.splice(1, 0, { deviceId: 'list-other', role: 'creator', status: 'active' });
+      let applied = 0;
+      app.applyRoomStateQueued = async () => { applied++; };
+      const realFetch = window.fetch;
+      const requests = [];
+      let hold = false, fail = false;
+      window.fetch = async (input, init) => {
+        if (!String(input).includes('/device-links')) return realFetch(input, init);
+        if (hold) await new Promise(resolve => requests.push(resolve));
+        return Response.json(fail ? { error: 'Synthetic device refresh failure' } : { links: [], state: {} }, { status: fail ? 503 : 200 });
+      };
+      const requested = async count => {
+        for (let tick = 0; requests.length < count && tick < 100; tick++) await new Promise(resolve => setTimeout(resolve, 10));
+        if (requests.length < count) throw Error('Device refresh did not reach its fetch');
+      };
+      await app.renderDeviceManager();
+      const root = app.root, shell = root.querySelector('.device-shell');
+      const original = root.querySelector('[data-device-id="list-own"]');
+      hold = true;
+      let refresh = app.renderDeviceManager(); await requested(1);
+      const retained = shell === root.querySelector('.device-shell') && original === root.querySelector('[data-device-id="list-own"]');
+      const busy = root.querySelector('.device-content').getAttribute('aria-busy') === 'true';
+      requests.shift()(); await refresh;
+      const refreshed = shell === root.querySelector('.device-shell') && !root.querySelector('#refresh-devices').disabled;
+      const removed = root.querySelector('[data-device-id="list-other"]');
+      app.session.vault.members.find(member => member.deviceId === 'list-other').status = 'revoked';
+      refresh = app.renderDeviceManager();
+      const immediateRemoval = !removed.isConnected;
+      const neighbours = [...root.querySelectorAll('[data-device-id]')].some(card => card.getAnimations().some(animation => animation.effect.getKeyframes().some(frame => frame.transform)));
+      await requested(1); requests.shift()(); await refresh;
+      fail = true;
+      const retainedBeforeError = root.querySelector('[data-device-id="list-own"]');
+      refresh = app.renderDeviceManager(); await requested(1); requests.shift()(); await refresh;
+      const failedInPlace = retainedBeforeError === root.querySelector('[data-device-id="list-own"]') && !root.querySelector('#refresh-devices').disabled
+        && Boolean(root.querySelector('.device-loading').textContent);
+      fail = false;
+      const first = app.renderDeviceManager(); await requested(1);
+      const second = app.renderDeviceManager(); await requested(2);
+      const beforeOldResult = applied;
+      requests.shift()(); await first;
+      const oldResultIgnored = applied === beforeOldResult && root.querySelector('#refresh-devices').disabled;
+      requests.shift()(); await second;
+      const latestReady = !root.querySelector('#refresh-devices').disabled && !root.querySelector('.device-loading');
+      refresh = app.renderDeviceManager(); await requested(1);
+      const beforeLeave = applied;
+      root.innerHTML = '<section class="gallery-shell">Example destination</section>';
+      requests.shift()(); await refresh;
+      const departedIgnored = applied === beforeLeave && Boolean(root.querySelector('.gallery-shell')) && !root.querySelector('.device-shell');
+      window.fetch = realFetch; app.runtimeAbort.abort();
+      return { retained, busy, refreshed, immediateRemoval, neighbours, failedInPlace, oldResultIgnored, latestReady, departedIgnored };
+    });
+    assert.ok(Object.values(devices).every(Boolean), JSON.stringify(devices));
+    result.devices = devices;
+  }
   assert.deepEqual(errors, []);
   if (evidence) {
     await page.screenshot({ path: path.join(evidence, 'endpoint.png') });
