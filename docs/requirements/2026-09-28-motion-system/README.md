@@ -1,12 +1,12 @@
 # 全局动效交互评审 · 原型 V1 / 完整方案 V2
 
-## 本次补齐交付（产品候选自动验证通过，真机受阻）
+## 本次补齐交付（已发布，真机受阻）
 
-用户在源聊天 `01a0e6e2-aec3-7d63-8e00-3c85978ade80` 明确要求对 V2 与 22 项欠项逐一实施、验收、合并并发布。本新任务沿用此授权，不再次等待新增原型；生产仍须确认本次精确 SHA。基线 `509444485ca49bd12b659d599476253a3a0d9ab3`，分支 `codex/motion-completion`，应用独占树 `/Users/zhouding/ss/motion-completion/ss`。
+用户在源聊天 `01a0e6e2-aec3-7d63-8e00-3c85978ade80` 明确要求对 V2 与 22 项欠项逐一实施、验收、合并并发布。本新任务沿用此授权，不再次等待新增原型；用户已确认发布精确 SHA `afbaa885e938f3063b9336952739778dd8025c37`。基线 `509444485ca49bd12b659d599476253a3a0d9ab3`，分支 `codex/motion-completion`，应用独占树 `/Users/zhouding/ss/motion-completion/ss`。
 
 上一轮代码已随 PR #217 发布，文档 PR #219 已合并；这不代表 22 类体验达标。下面“未授权生产／未发布”等表述仅为旧阶段历史。唯一当前实施与验收台账为 [coverage.md](coverage.md)，旧覆盖结论已注明证据边界。USB 主机诊断未找到可用 iPhone；真机验收受阻，不能写全部体验完成。
 
-产品候选 `dd735a81859dde15ce06abec2747eeac0afa06e8` 已通过完整自动门禁、桌面 WebKit 及通话专项；版本 `2026.09.28.7`。当前基线同步到 `8d340c8`，恢复弹窗关闭取消、设置返回等行为沿用该主线。后续仅更新隐私测试采样与验收记录，产品代码不变。远端交付见 [PR #221](https://github.com/zdaiwmm/shui-IM/pull/221)，生产需最终精确 SHA 确认。
+产品候选 `dd735a81859dde15ce06abec2747eeac0afa06e8` 已通过完整自动门禁、桌面 WebKit 及通话专项；版本 `2026.09.28.7`。产品候选已同步 `8d340c8` 的功能，最终 PR 另同步 `a08a908` 的发布记录，恢复弹窗关闭取消、设置返回等行为沿用该主线。后续仅更新隐私测试采样与验收记录，产品代码不变。远端交付见 [PR #221](https://github.com/zdaiwmm/shui-IM/pull/221)，已合并并发布该精确 main SHA，完整 main CI、固定入口精确回执与独立生产回读均通过。发布证据见 [RELEASING.md](../../../RELEASING.md#动效欠项补齐已发布2026-09-28-2111)；下方旧阶段记录不代表当前发布状态。
 
 ## 当前方案入口
 
@@ -16,9 +16,9 @@
 - 下方十组及验证记录仍是原型 V1 的历史事实。语音、通话和浏览器背景不在旧原型中，但已纳入 V2 的适用优化／验证范围；旧的范围排除不再作为实施依据。
 - 方案形成时 main、origin/main 与 GitHub main 核验一致，为 `e8b9c5309944355bd1c22ad508f81370593cdbb1`。正式实施前重新同步 `2bbdf923eae63cd9ff604a69cccddc83123e3e58`，包含 Emoji 与备份／恢复新入口。
 
-## 身份与阶段
+## 历史身份与阶段（原型／实施时点）
 
-- 编号：2026-09-28-motion-system；当前为 I/D 完整实施与验证，生产未授权。以下原型记录保留历史事实，当前阶段以覆盖清单为准。
+- 编号：2026-09-28-motion-system；当时为 I/D 完整实施与验证，尚未授权生产。以下原型记录保留历史事实，当前阶段以覆盖清单为准。
 - 规则来源与起始基线：`bfb7facfa4bad491833d75d8bddd78135c7ab9fe`。创建前本机 main、origin/main 与 GitHub 实时 main 一致。
 - 独立分支：`codex/motion-prototype-20260928`。
 - 本机目录：`/Users/zhouding/ss-worktrees/motion-prototype-20260928`，本会话新建。应用 worktree 工具返回 Not a git repository 后，按工作流受控创建 linked worktree；共享主目录未改写。
