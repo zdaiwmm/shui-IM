@@ -234,7 +234,7 @@ import {
 import { recoverFromCloud, syncCloudBackup, fetchRecoveryBundle } from './lib/cloud-backup';
 import './backup.css';
 
-const CLIENT_CAPABILITIES = [MESSAGE_WINDOW_CAPABILITY, 'joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
+const CLIENT_CAPABILITIES = [MESSAGE_WINDOW_CAPABILITY, 'joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'expression-kind-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
 const PASSKEY_UNAVAILABLE_NOTICE = '当前浏览器无法获取到本设备的通行密钥信息，建议使用系统浏览器';
 const SPACE_DEVICE_LIMIT_NOTICE = '该空间接入设备已达上限。';
 function formatUnlockFailure(cause: unknown): string {
@@ -404,7 +404,7 @@ export class QuietRoomApp {
   private messages = new Map<number, DecryptedMessage>();
   private messageEventHistory = new Map<number, DecryptedMessage>();
   private readCompatibility = '';
-  private mediaUploads = new Map<string, { view: MediaUploadView; files: File[]; expression: boolean; autoHide: boolean; reply: DecryptedMessage | null; sentAt: string; busy: boolean }>();
+  private mediaUploads = new Map<string, { view: MediaUploadView; files: File[]; expression: boolean; autoHide: boolean; expressionKind?: 'gifs' | 'stickers'; reply: DecryptedMessage | null; sentAt: string; busy: boolean }>();
   private selectedMessageId: string | null = null;
   private privacyCurtain: HTMLElement;
   private unreadCounter: UnreadCounter;
@@ -4779,13 +4779,22 @@ export class QuietRoomApp {
             typeof item?.id !== 'string' || !/^[0-9a-f-]{36}$/.test(item.id) || typeof item.title !== 'string' || item.title.length > 120 || (item as { autoHide?: unknown }).autoHide !== undefined && typeof (item as { autoHide?: unknown }).autoHide !== 'boolean')) throw new Error('合集格式不受支持');
         return { id: result.id, title: result.title, autoHide: result.autoHide, items: result.items.map((item: { id: string; title: string; autoHide?: boolean }) => ({ id: item.id, title: item.title, autoHide: item.autoHide ?? result.autoHide })) };
       },
-      send: async (file, autoHide, signal) => {
+      insertEmoji: emoji => {
+        if (!isActive()) return;
+        const input = host.querySelector<HTMLTextAreaElement>('#message-input');
+        if (!input || input.disabled) return;
+        const start = input.selectionStart; const end = input.selectionEnd;
+        if (input.value.length - (end - start) + emoji.length > input.maxLength) { this.showNotice('消息最多 4000 个字符'); return; }
+        input.setRangeText(emoji, start, end, 'end');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      },
+      send: async (file, autoHide, signal, kind) => {
         signal.throwIfAborted();
         if (!isActive()) throw new Error('会话已关闭');
         if (this.imageBatchUploading) throw new Error('另一个附件正在发送，请稍后重试');
         this.imageBatchUploading = true;
         try {
-          if (!await this.processImageBatch([file], 'chat', undefined, true, undefined, autoHide)) throw new Error('发送未完成，请查看聊天中的状态后重试');
+          if (!await this.processImageBatch([file], 'chat', undefined, true, undefined, autoHide, kind)) throw new Error('发送未完成，请查看聊天中的状态后重试');
         } finally { if (this.isRuntimeActive(epoch, session)) this.imageBatchUploading = false; }
       },
       search: async (keyword, page, signal, kind) => {
@@ -7805,7 +7814,7 @@ export class QuietRoomApp {
     }
   }
 
-  private async processImageBatch(files: File[], destination: 'chat' | 'gallery', operationSignal?: AbortSignal, expression = false, mediaRetryId?: string, expressionAutoHide = false): Promise<boolean> {
+  private async processImageBatch(files: File[], destination: 'chat' | 'gallery', operationSignal?: AbortSignal, expression = false, mediaRetryId?: string, expressionAutoHide = false, expressionKind?: 'gifs' | 'stickers'): Promise<boolean> {
     const session = this.session;
     if (!session || this.privacyCovered || files.length === 0) return false;
     if (expression && (destination !== 'chat' || files.length !== 1 || !files[0]!.type.startsWith('image/'))) return false;
@@ -7865,6 +7874,7 @@ export class QuietRoomApp {
     if (progress) progress.hidden = inlineMedia;
     const existingMedia = mediaRetryId ? this.mediaUploads.get(mediaRetryId) : undefined;
     const replyTarget = existingMedia ? existingMedia.reply : destination === 'chat' ? this.replyTarget : null;
+    expressionKind = existingMedia ? existingMedia.expressionKind : this.activeDevicesSupport('expression-kind-v1') ? expressionKind : undefined;
     const clientMsgId = mediaRetryId ?? crypto.randomUUID();
     let mediaUpload = existingMedia;
     if (inlineMedia) {
@@ -7873,15 +7883,15 @@ export class QuietRoomApp {
           const draft = this.mediaUploads.get(clientMsgId);
           if (!draft || draft.busy || !this.isRuntimeActive(epoch, session)) return;
           if (this.root.querySelector('#composer.is-uploading')) { this.showNotice('请等当前文件上传结束后再重试'); return; }
-          void this.processImageBatch(draft.files, 'chat', undefined, draft.expression, clientMsgId, draft.autoHide);
+          void this.processImageBatch(draft.files, 'chat', undefined, draft.expression, clientMsgId, draft.autoHide, draft.expressionKind);
         }, () => {
           const draft = this.mediaUploads.get(clientMsgId);
           if (!draft || draft.busy) return;
           draft.view.destroy(); this.mediaUploads.delete(clientMsgId); this.renderMessages({ scroll: 'position' });
         }, () => {
           if (this.isRuntimeActive(epoch, session)) this.renderMessages({ scroll: 'preserve' });
-        });
-        mediaUpload = { view, files, expression, autoHide: expressionAutoHide, reply: replyTarget, sentAt: new Date().toISOString(), busy: true };
+        }, expressionKind === 'gifs');
+        mediaUpload = { view, files, expression, autoHide: expressionAutoHide, expressionKind, reply: replyTarget, sentAt: new Date().toISOString(), busy: true };
         this.mediaUploads.set(clientMsgId, mediaUpload);
       }
       mediaUpload.busy = true;
@@ -7979,6 +7989,7 @@ export class QuietRoomApp {
       if (expression && payload.kind === 'image') {
         payload.presentation = expressionAutoHide ? 'expression-hidden' : 'expression';
         payload.expressionAutoHide = Boolean(expressionAutoHide);
+        if (expressionKind) payload.expressionKind = expressionKind;
       }
       signal?.throwIfAborted();
       mediaUpload?.view.update('finishing');
@@ -8150,7 +8161,10 @@ export class QuietRoomApp {
     if (payload.kind === 'image-album' && !this.activeDevicesSupport('image-album-v1')) {
       return '请先让所有已授权设备打开一次最新版，再发送多张图片';
     }
-    if (payload.kind === 'image' && payload.presentation === 'expression' && !this.activeDevicesSupport('expression-image-v1')) {
+    if (payload.kind === 'image' && payload.expressionKind && !this.activeDevicesSupport('expression-kind-v1')) {
+      return '请先让所有已授权设备打开一次最新版，再继续发送此表情';
+    }
+    if (payload.kind === 'image' && (payload.presentation === 'expression' || payload.presentation === 'expression-hidden') && !this.activeDevicesSupport('expression-image-v1')) {
       return '请先让所有已授权设备打开一次最新版，再发送表情';
     }
     if ('replyTo' in payload && payload.replyTo && !this.activeDevicesSupport('reply-v2')) {
@@ -9398,6 +9412,7 @@ export class QuietRoomApp {
       bubble.classList.add('image-bubble');
       const expression = isExpressionPayload(message.payload);
       if (expression) bubble.classList.add('expression-bubble');
+      if (expression && message.payload.kind === 'image' && message.payload.expressionKind === 'gifs') bubble.classList.add('gif-expression');
       const preview = this.createImagePreview(message.payload.image, [message.payload.image], 0, message.clientMsgId);
       if (expression) {
         preview.dataset.expression = 'true';

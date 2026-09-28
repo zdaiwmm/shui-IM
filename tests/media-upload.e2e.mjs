@@ -18,7 +18,7 @@ try {
     const { QuietRoomApp } = await import('/src/app.ts');
     const vault = await import('/src/lib/vault.ts');
     const app = new QuietRoomApp(document.querySelector('#app'));
-    const own = { deviceId: crypto.randomUUID(), role: 'creator', status: 'active', capabilities: ['file-message-v1', 'image-album-v1', 'media-dimensions-v1', 'expression-image-v1'] };
+    const own = { deviceId: crypto.randomUUID(), role: 'creator', status: 'active', capabilities: ['file-message-v1', 'image-album-v1', 'media-dimensions-v1', 'expression-image-v1', 'expression-kind-v1'] };
     const peer = { ...own, deviceId: crypto.randomUUID(), role: 'joiner' };
     const session = await vault.createVault({ v: 1, roomId: crypto.randomUUID(), accessToken: 'media-upload-fixture', role: 'creator', protocol: 'legacy-v1', lastSeq: 0, members: [own, peer], identity: { publicBundle: own } }, 'media-upload-password', 'password');
     app.session = session; app.privacyCovered = false; app.runtimeAbort = new AbortController();
@@ -63,7 +63,19 @@ try {
     app.renderChat();
     const enqueue = app.enqueuePayload.bind(app);
     app.enqueuePayload = async (...args) => { if (gate.failCommit) throw Error('Synthetic local commit failure'); return enqueue(...args); };
-    window.mediaFixture = { app, session, own, files, gate, blobs, vault, run: null, fileFor(variant) { return variant === 'tall-photo' ? files[3] : variant === 'wide-photo' ? files[4] : variant === 'small-photo' ? files[5] : variant === 'tall-expression' ? files[6] : variant.includes('expression') ? files[2] : files[0]; }, start(files, expression = false, autoHide = false) { this.run = app.processImageBatch(files, 'chat', undefined, expression, undefined, autoHide); } };
+    window.mediaFixture = { app, session, own, files, gate, blobs, vault, run: null, fileFor(variant) { return variant === 'tall-photo' ? files[3] : variant === 'wide-photo' ? files[4] : variant === 'small-photo' ? files[5] : variant === 'tall-expression' || variant === 'tall-gif-expression' ? files[6] : variant.includes('expression') ? files[2] : files[0]; }, start(files, expression = false, autoHide = false, kind) { this.run = app.processImageBatch(files, 'chat', undefined, expression, undefined, autoHide, kind); } };
+  });
+  await page.evaluate(() => {
+    const { app, session } = window.mediaFixture;
+    const payload = { v: 1, kind: 'image', image: {}, presentation: 'expression', expressionKind: 'gifs' };
+    if (app.payloadCapabilityError(payload)) throw Error('Upgraded devices rejected GIF classification');
+    const members = session.vault.members;
+    try {
+      session.vault.members = members.map(member => ({ ...member, capabilities: member.capabilities.filter(value => value !== 'expression-kind-v1') }));
+      if (!app.payloadCapabilityError(payload)) throw Error('Typed GIF was allowed to reach a legacy device');
+      const { expressionKind, ...legacy } = payload;
+      if (app.payloadCapabilityError(legacy)) throw Error('Legacy expression format lost compatibility');
+    } finally { session.vault.members = members; }
   });
   const geometry = async locator => locator.evaluate(node => {
     const box = node.getBoundingClientRect(), style = getComputedStyle(node);
@@ -73,11 +85,11 @@ try {
     assert.ok(Math.abs(before.width - after.width) < 1 && Math.abs(before.height - after.height) < 1, `${label}: ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
     assert.equal(new Set(after.corners).size, 1, `${label}: four equal corners`);
   };
-  for (const variant of ['photo', 'tall-photo', 'wide-photo', 'small-photo', 'album', 'expression', 'hidden-expression', 'tall-expression']) {
+  for (const variant of ['photo', 'tall-photo', 'wide-photo', 'small-photo', 'album', 'expression', 'hidden-expression', 'tall-expression', 'gif-expression', 'tall-gif-expression']) {
     await page.evaluate(variant => {
       const f = window.mediaFixture;
       f.gate.release = null; f.gate.hold = true; f.gate.fail = false;
-      f.start(variant === 'album' ? f.files.slice(0, 2) : [f.fileFor(variant)], variant.includes('expression'), variant === 'hidden-expression');
+      f.start(variant === 'album' ? f.files.slice(0, 2) : [f.fileFor(variant)], variant.includes('expression'), variant === 'hidden-expression', variant.includes('gif-') ? 'gifs' : undefined);
     }, variant);
     const draft = page.locator('.media-upload');
     await draft.waitFor();
@@ -86,6 +98,11 @@ try {
     const id = await draft.getAttribute('data-client-msg-id');
     const uploadBox = await geometry(draft.locator('.message-bubble'));
     assert.equal(new Set(uploadBox.corners).size, 1, 'Upload has four equal corners');
+    if (variant.includes('gif-')) {
+      const box = await geometry(draft.locator('.message-bubble'));
+      const expected = variant === 'tall-gif-expression' ? { width: 64, height: 128 } : { width: 115.2, height: 115.2 };
+      assert.ok(Math.abs(box.width - expected.width) < 1 && Math.abs(box.height - expected.height) < 1, `GIF not reduced to 60%: ${JSON.stringify(box)}`);
+    }
     assert.equal(await draft.getAttribute('data-concealed'), String(!variant.includes('expression') || variant === 'hidden-expression'));
     assert.equal(await page.locator('#upload-progress').isVisible(), false, 'No global progress for chat media');
     assert.equal(await draft.locator('.message-delivery').count(), 0, 'Upload is not a sent message');
@@ -131,6 +148,7 @@ try {
       const entries = (await f.vault.loadOutbox(f.session)).filter(item => item.clientMsgId === id);
       if (entries.length !== 1) throw Error('Retry duplicated or lost message ID');
       const payload = entries[0].payload;
+      if (variant.includes('gif-') && payload.expressionKind !== 'gifs') throw Error('Retry lost GIF classification');
       if (variant.includes('expression') && payload.expressionAutoHide !== (variant === 'hidden-expression')) throw Error('Retry lost expression visibility policy');
       const { decryptImageFile } = await import('/src/lib/file-crypto.ts');
       const manifests = payload.kind === 'image-album' ? payload.images : [payload.image];

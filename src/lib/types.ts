@@ -292,6 +292,7 @@ export type ImagePayload = {
   image: ImageManifest;
   presentation?: 'expression' | 'expression-hidden';
   expressionAutoHide?: boolean;
+  expressionKind?: 'gifs' | 'stickers';
   sentAt: string;
   replyTo?: ReplyReference;
 };

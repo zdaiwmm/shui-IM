@@ -1,3 +1,4 @@
+import { emojiGroups, searchEmoji } from './emoji-catalog';
 import { mountDialog, closeDialog } from './dialog';
 import { CHAT_KEYBOARD_LAYOUT_MS, chatKeyboardLayoutProgress } from './chat-keyboard-layout';
 import { validateMemeFile, type MemeFavorite } from './meme-media';
@@ -10,6 +11,7 @@ export const memeIcons = {
   search: createElement(Search).outerHTML, keyboard: createElement(Keyboard).outerHTML,
   down: createElement(ChevronDown).outerHTML, image: createElement(Image).outerHTML,
 };
+type PickerKind = MediaKind | 'emoji';
 const MAX_MEME_CACHE_BYTES = 16 * 1024 * 1024;
 const MEME_CATALOG_CACHE_MS = 5 * 60 * 1000;
 const MAX_MEME_SEARCH_CACHE_ENTRIES = 32;
@@ -21,7 +23,7 @@ export type MemePickerCache = {
   packs: Map<string, { result: RemotePackDetail; expiresAt: number }>;
   usage: Map<string, number>;
   // Unlocked-session navigation only; no search text or media URLs.
-  view?: { kind: MediaKind; favorite: boolean; positions: Map<string, number>; shortcutLeft: number };
+  view?: { kind: PickerKind; favorite: boolean; positions: Map<string, number>; shortcutLeft: number; emojiGroup?: number };
 
 };
 
@@ -49,7 +51,8 @@ export type MemePickerOptions = {
   removePack: (id: string, signal: AbortSignal) => Promise<void>;
   reorderPacks: (ids: string[], signal: AbortSignal) => Promise<void>;
   pack: (id: string, signal: AbortSignal) => Promise<RemotePackDetail>;
-  send: (file: File, autoHide: boolean, signal: AbortSignal) => Promise<void>;
+  send: (file: File, autoHide: boolean, signal: AbortSignal, kind?: MediaKind) => Promise<void>;
+  insertEmoji?: (emoji: string) => void;
   search: (query: string, page: number, signal: AbortSignal, kind: MediaKind) => Promise<MediaSearchResult>;
   media: (id: string, signal: AbortSignal) => Promise<Blob>;
   cache?: MemePickerCache;
@@ -76,7 +79,9 @@ export class MemePicker {
   private persistentCachePromise?: Promise<Cache | null>;
   private favorites: MemeFavorite[] = [];
   private packs: StickerPack[] = [];
-  private kind: MediaKind = 'gifs';
+  private kind: PickerKind = 'gifs';
+  private emojiGroup = 0;
+  private emojiOffset = 0;
   private favoriteView = false;
   private query = '';
   private nextPage: number | null = null;
@@ -112,7 +117,7 @@ export class MemePicker {
         <form class="meme-search"><label class="sr-only" for="meme-query">搜索 GIFs</label><input id="meme-query" type="search" maxlength="80" placeholder="搜索 GIFs" autocomplete="off" enterkeyhint="search" /><button type="submit" aria-label="搜索" title="搜索">${memeIcons.search}</button></form>
         <button type="button" class="meme-close" aria-label="关闭表情" title="关闭">${createElement(X).outerHTML}</button></header>
       <div class="meme-scroll"><div class="meme-grid"></div><p class="meme-status" role="status"></p><button type="button" class="meme-more" hidden>加载更多</button><p class="meme-source"></p></div>
-      <nav class="meme-tabs" aria-label="表情分类"><div role="tablist" aria-label="表情类型"><button type="button" role="tab" aria-selected="true" data-kind="gifs">GIFs</button><button type="button" role="tab" aria-selected="false" tabindex="-1" data-kind="stickers">贴纸</button></div><button type="button" class="meme-collapse" aria-label="收起表情" title="收起">${memeIcons.down}</button></nav>`;
+      <nav class="meme-tabs" aria-label="表情分类"><div role="tablist" aria-label="表情类型"><button type="button" role="tab" aria-selected="false" tabindex="-1" data-kind="emoji">Emoji</button><button type="button" role="tab" aria-selected="true" data-kind="gifs">GIFs</button><button type="button" role="tab" aria-selected="false" tabindex="-1" data-kind="stickers">贴纸</button></div><button type="button" class="meme-collapse" aria-label="收起表情" title="收起">${memeIcons.down}</button></nav>`;
     this.grid = this.panel.querySelector('.meme-grid')!; this.status = this.panel.querySelector('.meme-status')!;
     this.input = this.panel.querySelector('input')!; this.more = this.panel.querySelector('.meme-more')!;
     this.input.addEventListener('pointerdown', event => options.onSearchPointer(this.input, event));
@@ -121,18 +126,19 @@ export class MemePicker {
     this.panel.querySelector('.meme-back')!.addEventListener('click', () => this.back());
     for (const selector of ['.meme-close', '.meme-collapse']) this.panel.querySelector(selector)!.addEventListener('click', () => options.close(false));
     this.panel.addEventListener('keydown', event => { if (event.key === 'Escape' && !this.overlay) { event.preventDefault(); options.close(false); } });
-    this.panel.querySelectorAll<HTMLButtonElement>('[data-kind]').forEach(button => button.addEventListener('click', () => void this.switchKind(button.dataset.kind as MediaKind)));
+    this.panel.querySelectorAll<HTMLButtonElement>('[data-kind]').forEach(button => button.addEventListener('click', () => void this.switchKind(button.dataset.kind as PickerKind)));
     this.panel.querySelector('[role="tablist"]')!.addEventListener('keydown', event => {
       const key = (event as KeyboardEvent).key;
       if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(key)) return;
-      event.preventDefault(); const kind = key === 'Home' ? 'gifs' : key === 'End' ? 'stickers' : this.kind === 'gifs' ? 'stickers' : 'gifs';
+      event.preventDefault(); const kinds: PickerKind[] = ['emoji', 'gifs', 'stickers'];
+      const kind = key === 'Home' ? 'emoji' : key === 'End' ? 'stickers' : kinds[(kinds.indexOf(this.kind) + (key === 'ArrowLeft' ? 2 : 1)) % 3]!;
       void this.switchKind(kind); this.panel.querySelector<HTMLButtonElement>(`[data-kind="${kind}"]`)!.focus();
     });
     this.more.addEventListener('click', () => void this.search());
     this.sentinel.className = 'meme-page-sentinel';
     this.more.before(this.sentinel);
     this.autoPage = new IntersectionObserver(entries => {
-      if (entries.some(entry => entry.isIntersecting) && this.more.hidden) void this.search();
+      if (entries.some(entry => entry.isIntersecting) && (this.more.hidden || this.kind === 'emoji')) void this.search();
     }, { root: this.panel.querySelector('.meme-scroll'), rootMargin: '120px' });
     this.autoPage.observe(this.sentinel);
     const shortcuts = this.panel.querySelector<HTMLElement>('.meme-pack-shortcuts')!;
@@ -488,6 +494,7 @@ export class MemePicker {
     this.panel.querySelector('.meme-scroll')!.addEventListener('scroll', () => this.rememberView(), { passive: true, signal: this.signal });
     this.panel.querySelector('.meme-pack-shortcuts')!.addEventListener('scroll', () => this.rememberView(), { passive: true, signal: this.signal });
     const view = this.cache.view;
+    this.emojiGroup = view?.emojiGroup ?? 0;
     void this.switchKind(view?.kind ?? 'gifs', view?.favorite ?? false);
   }
   private active() { return !this.disposed && !this.signal.aborted && this.options.isActive() && this.panel.isConnected; }
@@ -618,8 +625,8 @@ export class MemePicker {
   private rememberView() {
     if (!this.localReady || this.restoringPosition || this.panel.dataset.view !== 'local') return;
     const view = this.cache.view ?? { kind: this.kind, favorite: this.favoriteView, positions: new Map<string, number>(), shortcutLeft: 0 };
-    view.kind = this.kind; view.favorite = this.favoriteView;
-    view.positions.set(`${this.kind}:${this.favoriteView}`, this.panel.querySelector('.meme-scroll')!.scrollTop);
+    view.kind = this.kind; view.favorite = this.favoriteView; view.emojiGroup = this.emojiGroup;
+    view.positions.set(`${this.kind}:${this.favoriteView}${this.kind === 'emoji' ? `:${this.emojiGroup}` : ''}`, this.panel.querySelector('.meme-scroll')!.scrollTop);
     view.shortcutLeft = this.panel.querySelector('.meme-pack-shortcuts')!.scrollLeft;
     this.cache.view = view;
   }
@@ -627,7 +634,7 @@ export class MemePicker {
     if (!this.active() || this.panel.dataset.view !== 'local') return;
     const generation = this.generation;
     const view = this.cache.view;
-    const top = view?.positions.get(`${this.kind}:${this.favoriteView}`) ?? 0;
+    const top = view?.positions.get(`${this.kind}:${this.favoriteView}${this.kind === 'emoji' ? `:${this.emojiGroup}` : ''}`) ?? 0;
     this.restoringPosition = true;
     const scroll = this.panel.querySelector('.meme-scroll')!;
     // Only refill enough cached catalog pages for the old position, bounded
@@ -645,16 +652,20 @@ export class MemePicker {
     this.localReady = true;
     this.rememberView();
   }
-  private async switchKind(kind: MediaKind, favorite = false) {
+  private async switchKind(kind: PickerKind, favorite = false) {
     this.rememberView();
     this.kind = kind; this.favoriteView = favorite; this.panel.dataset.kind = kind;
     this.panel.querySelectorAll<HTMLButtonElement>('[role="tab"]').forEach(button => { const selected = button.dataset.kind === kind; button.setAttribute('aria-selected', String(selected)); button.tabIndex = selected ? 0 : -1; });
-    const label = kind === 'gifs' ? '搜索 GIFs' : '搜索贴纸合集';
+    const label = kind === 'emoji' ? '搜索 Emoji' : kind === 'gifs' ? '搜索 GIFs' : '搜索贴纸合集';
+    const bar = this.panel.querySelector('.meme-pack-shortcuts')!;
+    for (const node of bar.querySelectorAll<HTMLElement>('button')) { this.unload(node); this.tiles.delete(node); }
+    bar.replaceChildren();
     this.input.placeholder = label; this.panel.querySelector('label')!.textContent = label;
     this.panel.querySelector('.meme-open-search span')!.textContent = label; await this.local();
   }
   private shortcuts() {
     const bar = this.panel.querySelector('.meme-pack-shortcuts')!;
+    bar.setAttribute('aria-label', '贴纸合集');
     const control = (key: string, label: string, icon: string, action: () => void) => {
       const existing = [...bar.querySelectorAll<HTMLButtonElement>('button')].find(node => node.dataset.shortcut === key);
       if (existing) { existing.title = label; existing.setAttribute('aria-label', label); return existing; }
@@ -688,6 +699,9 @@ export class MemePicker {
   private async local() {
     this.restoringPosition = false;
     this.clear(); this.panel.dataset.view = 'local'; const generation = this.generation;
+    if (this.kind === 'emoji') {
+      this.query = ''; this.emojiOffset = 0; this.emojiShortcuts(); this.renderEmoji(); await this.restoreView(); return;
+    }
     try {
       const [favorites, packs] = await Promise.all([this.options.list(), this.options.packs()]);
       if (!this.active() || generation !== this.generation) return;
@@ -738,7 +752,7 @@ export class MemePicker {
     if (!this.active() || this.overlay) return;
     const height = this.panel.getBoundingClientRect().height;
     this.halfHeight = height;
-    const overlay = document.createElement('div'); overlay.className = 'meme-search-dialog'; overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', this.kind === 'gifs' ? '搜索 GIFs' : '搜索贴纸合集');
+    const overlay = document.createElement('div'); overlay.className = 'meme-search-dialog'; overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', this.kind === 'emoji' ? '搜索 Emoji' : this.kind === 'gifs' ? '搜索 GIFs' : '搜索贴纸合集');
     this.overlay = overlay; this.options.root.append(overlay); overlay.append(this.panel);
     const view = visualViewport; overlay.style.setProperty('--meme-height', `${view?.height ?? innerHeight}px`); overlay.style.setProperty('--meme-top', `${view?.offsetTop ?? 0}px`);
     this.panel.dataset.view = 'search'; (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = false;
@@ -780,10 +794,11 @@ export class MemePicker {
     this.panel.querySelector<HTMLButtonElement>('.meme-open-search')!.focus({ preventScroll: true });
   }
   private async submit() {
-    this.packDetail = false; this.input.blur(); this.query = this.input.value.trim(); this.clear(); this.panel.dataset.view = 'search'; this.nextPage = 1; await this.search();
+    this.packDetail = false; this.input.blur(); this.query = this.input.value.trim(); this.clear(); this.panel.dataset.view = 'search'; this.nextPage = 1; this.emojiOffset = 0; await this.search();
   }
   private async search() {
     if (!this.active() || this.searching || !this.nextPage) return;
+    if (this.kind === 'emoji') { this.renderEmoji(); return; }
     const page = this.nextPage;
     this.request = new AbortController(); const signal = AbortSignal.any([this.signal, this.request.signal]); const generation = this.generation;
     this.searching = true; this.more.hidden = true; this.say('正在搜索…');
@@ -811,6 +826,36 @@ export class MemePicker {
         }
       }
     }
+  }
+  private emojiShortcuts() {
+    const bar = this.panel.querySelector('.meme-pack-shortcuts')!;
+    bar.replaceChildren(); bar.setAttribute('aria-label', 'Emoji 分类');
+    emojiGroups.forEach((group, index) => {
+      const button = document.createElement('button'); button.type = 'button';
+      button.textContent = group.items[0]![0]!; button.title = group.name;
+      button.setAttribute('aria-label', group.name); button.setAttribute('aria-pressed', String(index === this.emojiGroup));
+      button.addEventListener('click', () => { this.rememberView(); this.emojiGroup = index; void this.local(); }); bar.append(button);
+    });
+  }
+  private renderEmoji() {
+    const items = searchEmoji(this.query, this.emojiGroup);
+    this.grid.className = 'meme-grid emoji-sections';
+    let grid = this.grid.querySelector('.emoji-grid');
+    if (!grid) {
+      const title = document.createElement('h3'); title.textContent = this.query ? '搜索结果' : emojiGroups[this.emojiGroup]!.name;
+      grid = document.createElement('div'); grid.className = 'emoji-grid'; this.grid.append(title, grid);
+    }
+    for (const [emoji, name] of items.slice(this.emojiOffset, this.emojiOffset + 84)) {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'emoji-tile';
+      button.textContent = emoji!; button.title = name!; button.setAttribute('aria-label', name!);
+      button.addEventListener('pointerdown', event => event.preventDefault());
+      button.addEventListener('click', () => { if (this.active()) this.options.insertEmoji?.(emoji!); }); grid.append(button);
+    }
+    this.emojiOffset += 84; this.nextPage = this.emojiOffset < items.length ? 1 : null;
+    if (this.nextPage) { this.autoPage.unobserve(this.sentinel); this.autoPage.observe(this.sentinel); }
+    // Keep an explicit accessible continuation in addition to intersection paging.
+    this.more.textContent = '加载更多'; this.more.hidden = !this.nextPage;
+    this.say(items.length ? '' : '没有找到相关 Emoji');
   }
   private appendCatalog(items: MediaItem[]) {
     if (!this.recentGrid || !this.browseGrid) {
@@ -954,7 +999,7 @@ export class MemePicker {
             const remoteItem = detail.items.find(candidate => candidate.id === item.id);
             autoHide = Boolean(remoteItem?.autoHide ?? detail.autoHide ?? item.autoHide);
           }
-          await this.options.send(file, autoHide, this.signal); this.recordUsage(item.id);
+          await this.options.send(file, autoHide, this.signal, item.pack ? 'stickers' : item.animatedOnly ? 'gifs' : undefined); this.recordUsage(item.id);
         } else this.say(await this.options.save(file, this.signal) ? '已收藏到本机' : '已在收藏中');
       }
       // Sending is non-modal: keep the picker open so repeated expressions can

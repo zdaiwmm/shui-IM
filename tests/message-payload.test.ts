@@ -66,6 +66,18 @@ describe('shared encrypted message payload validation', () => {
     expect(isMessagePayload({ v: 1, kind: 'text', text: 'hello', sentAt: image.sentAt, presentation: 'expression' })).toBe(false);
   });
 
+  it('validates expression classification only inside expression image payloads', () => {
+    const image = { v: 1, kind: 'image', image: imageManifest(), sentAt: new Date().toISOString() };
+    for (const expressionKind of ['gifs', 'stickers']) {
+      expect(isMessagePayload({ ...image, presentation: 'expression', expressionKind })).toBe(true);
+      expect(isMessagePayload({ ...image, presentation: 'expression-hidden', expressionKind })).toBe(true);
+      expect(isMessagePayload({ ...image, expressionKind })).toBe(false);
+    }
+    for (const expressionKind of ['emoji', '', null, 1, {}]) {
+      expect(isMessagePayload({ ...image, presentation: 'expression', expressionKind })).toBe(false);
+    }
+  });
+
   it('keeps reply references inside a strictly validated encrypted payload', () => {
     const reply = {
       v: 2,

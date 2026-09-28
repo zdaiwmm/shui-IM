@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## Emoji 与表情面板本地实施（2026-09-28）
+
+- 本任务分支 `codex/emoji-picker`，起始基线 `bfb7fac`；用户最新明确要求“只完成本地实施”，未推送、未创建 PR、未合并、未发布。
+- 已实现 Emoji 本地目录与中文搜索、GIF 七列／贴纸五列、约六成屏高面板及紧凑 Tab；可靠分类的新 GIF 聊天宽高缩至原尺寸 60%。旧设备兼容和旧消息边界见[需求记录](../requirements/2026-09-28-emoji-picker/README.md)。
+- 本地构建、727 项单元／集成测试及 44/44 浏览器脚本通过。WebKit 专项以需求记录中的最终结果为准；iPhone 真机尚未验收。下方生产状态没有因本任务改变。
+
 ## 聊天连续性 V1 已发布（2026-09-28 15:00）
 
 - 当前线上应用 SHA `a428df932afbf3e7f277b906535555171501abf4`，版本 `2026.09.28.2`；[PR #211](https://github.com/zdaiwmm/shui-IM/pull/211) 已合并，用户明确“合并并发布生产”。PR 与精确 main 完整 CI 均通过；固定入口和独立回读分别取得 `DEPLOY_VERIFIED`、`READBACK_OK`。
