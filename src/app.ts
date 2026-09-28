@@ -1,3 +1,5 @@
+import { DesktopWorkspace, desktopWidth } from './lib/desktop-workspace';
+import './desktop.css';
 import { bindControlFeedback } from './lib/control-feedback';
 import { afterMotion, layoutMotionDuration, motion, retargetMotion, settleValue, travelMotion, travelVelocity } from './lib/motion';
 import { MESSAGE_WINDOW_CAPABILITY, MLS_WINDOW_MESSAGES, maySkipWindowMessage, appendExpiredRange, expiredMessage } from './lib/message-window';
@@ -416,6 +418,7 @@ export class QuietRoomApp {
   private newSpaceCollectionCode: string | undefined;
   private returnSpaceId: string | null = null;
   private spaceDrawerOpen = false;
+  private desktopWorkspace: DesktopWorkspace;
   private settingsReturn: { session: VaultSession; spaces: PrivateSpace[]; scrollTop: number } | null = null;
   private waitingSpaceTimer: number | null = null;
   private destroyingWaitingSpace = false;
@@ -427,7 +430,7 @@ export class QuietRoomApp {
   // iOS reports client rectangles against its moving visual viewport. A desktop
   // WebKit window (including a mobile UA without touch) keeps layout coordinates.
   private readonly visualClientCoordinates = this.appleWebKit && !this.desktopBrowser && navigator.maxTouchPoints > 0;
-  private readonly usesListScrolling = this.visualClientCoordinates;
+  private usesListScrolling = this.visualClientCoordinates || matchMedia(desktopWidth).matches;
   private availableReleaseId = pendingReleaseUpdate();
   // Memory only. Cover teardown still clears media, rendered history and sockets.
   private retainedSession: VaultSession | null = null;
@@ -679,6 +682,36 @@ export class QuietRoomApp {
   private callReturnFocus: HTMLElement | null = null;
 
   constructor(private readonly root: HTMLElement) {
+    this.desktopWorkspace = new DesktopWorkspace(root, {
+      context: () => this.privacyCovered ? null : this.session && this.runtimeAbort ? { owner: this.session, signal: this.runtimeAbort.signal }
+        : this.browserProfile && this.browserAccessAbort ? { owner: this.browserProfile, signal: this.browserAccessAbort.signal } : null,
+      mount: async (host, signal) => {
+        const session = this.session;
+        if (!session) { this.openBrowserSpaceList(host, signal); return; }
+        const spaces = await localSpaces(session);
+        if (signal.aborted || this.session !== session || this.privacyCovered || !host.isConnected) return;
+        this.applyCatalogToSpaces(spaces);
+        if (this.browserProfile) for (const item of accessPrivateSpaces(this.browserProfile.profile)) if (!spaces.some(s => s.roomId === item.roomId)) spaces.push(item);
+        this.mountPrivateSpaceDrawer(session, spaces, signal, this.activeSurface, undefined, 'sidebar', host);
+      },
+      beforeLayout: () => {
+        const list = this.chatLayoutElements?.list;
+        const changingScrollOwner = this.usesListScrolling !== (this.visualClientCoordinates || matchMedia(desktopWidth).matches);
+        const anchor = list?.isConnected ? changingScrollOwner ? this.uiPreferences.chatAnchor ?? this.captureChatAnchor() : this.captureChatAnchor() : null;
+        return () => {
+          this.usesListScrolling = this.visualClientCoordinates || matchMedia(desktopWidth).matches;
+          if (this.usesListScrolling && window.scrollY) window.scrollTo(0, 0);
+          const shell = this.chatLayoutElements?.shell;
+          if (shell?.isConnected) shell.dataset.scrollOwner = this.usesListScrolling ? 'list' : 'document';
+          this.syncViewport();
+          this.syncChatLayout();
+          if (list?.isConnected) {
+            list.dispatchEvent(new Event('desktoplayoutchange'));
+            this.restoreChatAnchor(list, anchor);
+          }
+        };
+      },
+    });
     bindControlFeedback(root);
     root.inert = root.classList.contains('portrait-blocked');
     root.addEventListener('portraitvisibilitychange', () => {
@@ -721,7 +754,7 @@ export class QuietRoomApp {
     });
     const isNativeVideo = (event: Event) => event.target instanceof HTMLVideoElement
       || document.fullscreenElement instanceof HTMLVideoElement;
-    const preventZoom = (event: Event) => { if (!isNativeVideo(event)) event.preventDefault(); };
+    const preventZoom = (event: Event) => { if (!matchMedia('(any-pointer: fine)').matches && !isNativeVideo(event)) event.preventDefault(); };
     let viewportFrame: number | null = null;
     let nativeViewportFrame: number | null = null;
     let trackingFrame: number | null = null;
@@ -733,11 +766,17 @@ export class QuietRoomApp {
     let previousViewportWidth = 0;
     let previousChatGeneration = -1;
     let viewportWidthChanged = false;
+    let desktopWidthAnchor: ChatScrollAnchor | null = null;
     const finishViewportSync = () => {
       viewportFrame = null;
       const reflowSelection = viewportWidthChanged;
       viewportWidthChanged = false;
-      if (this.activeSurface !== 'chat') return;
+      if (this.activeSurface !== 'chat') { desktopWidthAnchor = null; return; }
+      const resizedList = this.chatLayoutElements?.list;
+      if (desktopWidthAnchor && resizedList?.isConnected) {
+        this.restoreChatAnchor(resizedList, desktopWidthAnchor);
+        desktopWidthAnchor = null;
+      }
       const selection = this.root.querySelector<HTMLTextAreaElement>('.message-text-selection');
       if (selection && reflowSelection) {
         selection.style.height = '0px';
@@ -770,6 +809,12 @@ export class QuietRoomApp {
       const chatGeneration = chat ? this.chatLayoutGeneration : 0;
       const resized = previousViewportHeight !== viewportHeight || previousLayoutHeight !== layoutHeight;
       const widthChanged = previousViewportWidth !== viewportWidth;
+      if (chat && widthChanged && previousViewportWidth > 0 && !this.visualClientCoordinates
+        && (this.desktopBrowser || viewportWidth >= 1024 || previousViewportWidth >= 1024)) {
+        // CSS has already reflowed by the resize event. Use the last observed
+        // reading anchor rather than sampling a different row at the old scrollTop.
+        desktopWidthAnchor ??= this.uiPreferences.chatAnchor ?? null;
+      }
       const viewportGeometryChanged = resized || widthChanged || previousViewportTop !== viewportTop;
       if (viewportGeometryChanged) this.visualViewportGeometryGeneration += 1;
       const generationChanged = previousChatGeneration !== chatGeneration;
@@ -1001,7 +1046,7 @@ export class QuietRoomApp {
       if (!(event.target instanceof Element && event.target.closest('.is-selecting-text'))) preventZoom(event);
     }, { capture: true, passive: false });
     document.addEventListener('wheel', (event) => {
-      if ((event.ctrlKey || event.metaKey) && !isNativeVideo(event)) event.preventDefault();
+      if (!matchMedia('(any-pointer: fine)').matches && (event.ctrlKey || event.metaKey) && !isNativeVideo(event)) event.preventDefault();
     }, { passive: false });
     // App surfaces own their long-press actions. Explicit text selection is
     // still available from the message menu; an incidental hold opens no OS menu.
@@ -1009,7 +1054,7 @@ export class QuietRoomApp {
       if (!(event.target instanceof Element && event.target.closest('.is-selecting-text'))) event.preventDefault();
     }, { capture: true });
     document.addEventListener('selectstart', event => {
-      if (!(event.target instanceof Element && event.target.closest('input, textarea, .is-selecting-text'))) event.preventDefault();
+      if (!matchMedia('(any-pointer: fine)').matches && !(event.target instanceof Element && event.target.closest('input, textarea, .is-selecting-text'))) event.preventDefault();
     }, { capture: true });
     const recordActivity = (event: Event) => {
       if (!this.desktopBrowser && event.type !== 'pointerdown' && event.type !== 'keydown') return;
@@ -1028,6 +1073,8 @@ export class QuietRoomApp {
     document.addEventListener('pointerdown', (event) => {
       const menu = this.root.querySelector<HTMLDetailsElement>('.more-menu[open]');
       if (menu && event.target instanceof Node && !menu.contains(event.target)) this.closeMoreMenu(menu);
+      const tools = this.root.querySelector<HTMLElement>('#chat-tools');
+      if (tools && !tools.hidden && event.target instanceof Element && !event.target.closest('#chat-tools,#open-chat-tools')) this.closeChatTools();
       const composer = this.root.querySelector<HTMLElement>('#composer');
       const textarea = this.root.querySelector<HTMLTextAreaElement>('#message-input');
       const keyboardGesture = event.pointerType === 'touch' && event.target instanceof Element
@@ -2868,9 +2915,9 @@ export class QuietRoomApp {
     }
   }
 
-  private openBrowserSpaceList():void {
-    const current=this.browserProfile,signal=this.browserAccessAbort?.signal;if(!current||!signal||signal.aborted)return;
-    mountSpaceDrawer(this.root,{spaces:accessPrivateSpaces(current.profile),currentRoom:current.profile.currentRoom,signal,actions:[],
+  private openBrowserSpaceList(container?: HTMLElement, presentationSignal?: AbortSignal):void {
+    const current=this.browserProfile,signal=presentationSignal ?? this.browserAccessAbort?.signal;if(!current||!signal||signal.aborted)return;
+    mountSpaceDrawer(this.root,{container,presentation:container ? 'sidebar' : undefined, spaces:accessPrivateSpaces(current.profile),currentRoom:current.profile.currentRoom,signal,actions:[],
       select:async space=>{if(space.localId){await this.switchPrivateSpace(space);return;}current.profile.currentRoom=space.roomId;await saveBrowserProfile(current,signal);if(!signal.aborted)this.renderBrowserShell();},
       create:async()=>{await this.leaveSpace();this.renderCreate();},rename:async()=>{throw new Error('空间授权后可修改名称');},
       removeLabel: space => this.catalogRemovalLabel(space),
@@ -2884,7 +2931,7 @@ export class QuietRoomApp {
         await this.refreshSpaceCatalog(refreshSignal);
         return accessPrivateSpaces(current.profile);
       },
-      styleChanged:()=>undefined,closed:()=>undefined});
+      styleChanged:()=>undefined,closed:()=>{if(container)this.desktopWorkspace.collapse();}});
   }
 
   private async requestBrowserSpace(space:AccessSpace,button:HTMLButtonElement):Promise<void> {
@@ -5242,13 +5289,16 @@ export class QuietRoomApp {
     });
   }
 
-  private mountPrivateSpaceDrawer(session: VaultSession, spaces: PrivateSpace[], signal: AbortSignal, previousSurface: QuietRoomApp['activeSurface'], settingsScrollTop?: number): void {
-    this.closeChatTools(); this.clearKeyboardHandoff();
-    (document.activeElement as HTMLElement | null)?.blur();
-    this.setActiveSurface('away', true);
+  private mountPrivateSpaceDrawer(session: VaultSession, spaces: PrivateSpace[], signal: AbortSignal, previousSurface: QuietRoomApp['activeSurface'], settingsScrollTop?: number, presentation?: 'sidebar' | 'settings', container?: HTMLElement): void {
+    if (presentation !== 'sidebar') {
+      this.closeChatTools(); this.clearKeyboardHandoff();
+      (document.activeElement as HTMLElement | null)?.blur();
+      this.setActiveSurface('away', true);
+    }
     const forward = (render: () => void) => () => this.transitionPage('forward', render);
     mountSpaceDrawer(this.root, {
-      spaces, currentRoom: session.vault.roomId, signal,
+      spaces, currentRoom: session.vault.roomId, signal, presentation, container,
+      openSettings: presentation === 'sidebar' ? () => this.renderDesktopSettings(spaces) : undefined,
       initialSettings: settingsScrollTop !== undefined, settingsScrollTop,
       onSettingsLeave: scrollTop => { this.settingsReturn = { session, spaces, scrollTop }; },
       removeLabel: space => this.catalogRemovalLabel(space),
@@ -5266,7 +5316,7 @@ export class QuietRoomApp {
         { id: 'cover-practice-menu', group: '本机', label: session.vault.recoveryExperience?.coverEnabled ? '关闭自动遮蔽' : '体验或开启遮蔽', icon: spaceIcons.cover, run: () => session.vault.recoveryExperience?.coverEnabled ? this.confirmDisableCover() : this.renderCoverPractice() },
         { id: 'release-history', group: '关于', label: '更新记录', icon: spaceIcons.history, run: forward(() => this.renderReleaseHistory()) },
       ],
-      select: space => { if (space.roomId === session.vault.roomId && space.waiting) { this.renderInviteWait(); return Promise.resolve(); } return this.switchPrivateSpace(space); },
+      select: space => { if (presentation === 'sidebar' && space.roomId === session.vault.roomId && !space.waiting) { if (!this.root.querySelector(':scope > .chat-shell')) { this.settingsReturn = null; this.renderChat(); } return Promise.resolve(); } if (space.roomId === session.vault.roomId && space.waiting) { this.renderInviteWait(); return Promise.resolve(); } return this.switchPrivateSpace(space); },
       create: () => { if (spaces.length >= 256) return Promise.reject(new Error('本机空间数量已达上限')); return this.createPrivateSpace(); },
       rename: async (space, name) => {
         await rememberLocalSpace(session, undefined, { roomId: space.roomId, name });
@@ -5295,8 +5345,20 @@ export class QuietRoomApp {
         return fresh;
       },
       styleChanged: () => this.applyPresenceStyle(),
-      closed: () => { this.spaceDrawerOpen = false; if (!signal.aborted && !this.privacyCovered && this.session === session && !this.root.querySelector('.space-invite-overlay:not(.is-closing)')) { this.setActiveSurface(this.root.querySelector('.chat-shell') ? 'chat' : previousSurface); this.updatePeerStatus(); } },
+      closed: () => { if (presentation === 'sidebar') { this.desktopWorkspace.collapse(); return; } if (presentation === 'settings') { this.settingsReturn = null; this.renderChat(); return; } this.spaceDrawerOpen = false; if (!signal.aborted && !this.privacyCovered && this.session === session && !this.root.querySelector('.space-invite-overlay:not(.is-closing)')) { this.setActiveSurface(this.root.querySelector('.chat-shell') ? 'chat' : previousSurface); this.updatePeerStatus(); } },
     });
+  }
+
+  private renderDesktopSettings(spaces: PrivateSpace[], scrollTop = 0): void {
+    const session = this.session, signal = this.runtimeAbort?.signal;
+    if (!session || !signal || this.privacyCovered) return;
+    this.settingsReturn = null;
+    if (this.root.querySelector(':scope > .chat-shell')) {
+      this.captureChatAnchor(true); this.restoreChatAnchorOnNextRender = true;
+    }
+    this.setActiveSurface('away');
+    this.root.innerHTML = '<section class="desktop-settings-page" aria-label="设置"></section>';
+    this.mountPrivateSpaceDrawer(session, spaces, signal, 'away', scrollTop, 'settings', this.root.firstElementChild as HTMLElement);
   }
 
   private applyPresenceStyle(): void {
@@ -5454,7 +5516,8 @@ export class QuietRoomApp {
           : document.documentElement.scrollHeight - window.innerHeight) - 2) this.chatPinnedToBottom = true;
     };
     let touchY: number | null = null;
-    if (this.usesListScrolling) list.addEventListener('scroll', () => {
+    list.addEventListener('scroll', () => {
+      if (!this.usesListScrolling) return;
       if (ownsActiveChat()) this.scheduleChatScroll();
     }, { passive: true });
     list.addEventListener('touchstart', event => {
@@ -5765,6 +5828,14 @@ export class QuietRoomApp {
     });
     textarea.value = this.uiPreferences.composerDraft ?? '';
     resizeTextarea(false);
+    let editorWidth = textarea.clientWidth;
+    const editorObserver = new ResizeObserver(() => {
+      if (!textarea.isConnected) { editorObserver.disconnect(); return; }
+      if (editorWidth !== textarea.clientWidth) { editorWidth = textarea.clientWidth; resizeTextarea(false); }
+    });
+    editorObserver.observe(textarea);
+    this.runtimeAbort?.signal.addEventListener('abort', () => editorObserver.disconnect(), { once: true });
+    list.addEventListener('desktoplayoutchange', () => resizeTextarea(false));
     this.syncComposerMode();
     textarea.addEventListener('keydown', (event) => {
       if (event.altKey && event.key.toLowerCase() === 'r' && !event.repeat && !textarea.value) { event.preventDefault(); this.beginVoiceRecording('locked'); return; }
@@ -5812,13 +5883,13 @@ export class QuietRoomApp {
     const imageInput = this.root.querySelector<HTMLInputElement>('#image-input');
     this.voiceGesture?.destroy();
     this.voiceGesture = bindVoiceRecordGesture(this.root.querySelector<HTMLButtonElement>('#record-voice')!, mode => this.beginVoiceRecording(mode));
-    this.root.querySelector('#open-chat-tools')?.addEventListener('click', () => this.toggleChatTools());
+    this.root.querySelector('#open-chat-tools')?.addEventListener('click', event => { this.toggleChatTools(); if ((event as MouseEvent).detail === 0) this.root.querySelector<HTMLButtonElement>('#chat-tools:not([hidden]) button:not(:disabled)')?.focus(); });
     textarea.addEventListener('focus', () => this.closeChatTools());
     this.root.querySelector('#message-list')?.addEventListener('click', event => {
       if (event.target === event.currentTarget) this.closeChatTools();
     });
     this.root.querySelector('#chat-tools')?.addEventListener('keydown', event => {
-      if ((event as KeyboardEvent).key === 'Escape') { this.closeChatTools(); this.root.querySelector<HTMLButtonElement>('#open-chat-tools')?.focus(); }
+      if ((event as KeyboardEvent).key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.closeChatTools(); this.root.querySelector<HTMLButtonElement>('#open-chat-tools')?.focus(); }
     });
     this.root.querySelector('#start-video-call')?.addEventListener('click', () => { this.closeChatTools(); void this.startCall('video'); });
     this.root.querySelector('#start-audio-call')?.addEventListener('click', () => { this.closeChatTools(); void this.startCall('audio'); });
@@ -5900,8 +5971,9 @@ export class QuietRoomApp {
     const returning = this.settingsReturn;
     this.settingsReturn = null;
     if (returning && returning.session === this.session && this.runtimeAbort && !this.privacyCovered) {
-      this.spaceDrawerOpen = true;
-      this.mountPrivateSpaceDrawer(this.session, returning.spaces, this.runtimeAbort.signal, 'chat', returning.scrollTop);
+      if (matchMedia(desktopWidth).matches) this.renderDesktopSettings(returning.spaces, returning.scrollTop);
+      else { this.spaceDrawerOpen = true;
+      this.mountPrivateSpaceDrawer(this.session, returning.spaces, this.runtimeAbort.signal, 'chat', returning.scrollTop); }
     } else this.showReleaseNotesIfNeeded();
 
   }
@@ -6754,7 +6826,7 @@ export class QuietRoomApp {
     const session = this.session;
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!session || this.privacyCovered || document.hidden || !document.hasFocus() || document.documentElement.classList.contains('privacy-obscured')
-      || this.root.classList.contains('portrait-blocked') || this.activeSurface !== 'chat' || this.callView || this.memePicker || !list || this.chatRestoreAnchor) return;
+      || this.root.classList.contains('portrait-blocked') || this.activeSurface !== 'chat' || this.callView || this.memePicker || !list || list.closest('[inert]') || this.chatRestoreAnchor) return;
     const top = this.root.querySelector('.chat-header')?.getBoundingClientRect().bottom ?? list.getBoundingClientRect().top;
     const composer = this.root.querySelector<HTMLElement>('#composer');
     const bottom = composer ? this.chatComposerLayoutTop(composer) : list.getBoundingClientRect().bottom;
@@ -6997,6 +7069,16 @@ export class QuietRoomApp {
     };
     const nativeChrome = String(this.visualClientCoordinates);
     if (chat.shell.dataset.nativeChrome !== nativeChrome) chat.shell.dataset.nativeChrome = nativeChrome;
+    if (this.usesListScrolling && !this.visualClientCoordinates) {
+      // Desktop resizing and zoom have no native-keyboard animation owner.
+      setStyle(chat.shell.style, 'top', '0px');
+      setStyle(chat.shell.style, 'height', `${viewportHeight}px`);
+      setStyle(chat.header.style, 'top', '0px');
+      setStyle(chat.header.style, 'translate', 'none');
+      setStyle(chat.composer.style, 'bottom', '0px');
+      setStyle(chat.notices.style, 'translate', 'none');
+      return;
+    }
     if (this.usesListScrolling) {
       setStyle(chat.shell.style, 'top', `${window.scrollY}px`);
       const height = this.listKeyboardLayout.sample({ height: viewportHeight, layoutHeight,
@@ -7047,7 +7129,7 @@ export class QuietRoomApp {
 
   private beginListKeyboardLayout(direction: 'open' | 'closed'): void {
     const chat = this.chatLayoutElements;
-    if (!this.usesListScrolling || !chat?.shell.isConnected || this.privacyCovered || this.activeSurface !== 'chat') return;
+    if (!this.visualClientCoordinates || !chat?.shell.isConnected || this.privacyCovered || this.activeSurface !== 'chat') return;
     const viewport = window.visualViewport;
     if (direction === 'closed' && this.chatResumeBottomOnFocus) {
       this.chatPinnedToBottom = true;
@@ -8502,7 +8584,7 @@ export class QuietRoomApp {
   }
 
   private mountMessageActions(article: HTMLElement, message: DecryptedMessage): void {
-    article.addEventListener('selectstart', event => { if (!article.classList.contains('is-selecting-text')) event.preventDefault(); });
+    article.addEventListener('selectstart', event => { if (!matchMedia('(any-pointer: fine)').matches && !article.classList.contains('is-selecting-text')) event.preventDefault(); });
     article.addEventListener('dragstart', event => { if (!article.classList.contains('is-selecting-text')) event.preventDefault(); });
     article.addEventListener('contextmenu', event => { if (!article.classList.contains('is-selecting-text')) event.preventDefault(); });
     article.addEventListener('click', event => {
@@ -8522,6 +8604,11 @@ export class QuietRoomApp {
       selectedBlobId = target instanceof Element ? target.closest<HTMLElement>('[data-blob-id]')?.dataset.blobId : undefined;
     };
     const open = () => this.openMessageActions(article, currentMessage(), selectedBlobId);
+    const more = document.createElement('button');
+    more.type = 'button'; more.className = 'desktop-message-more icon-button'; more.setAttribute('aria-label', '消息操作');
+    more.innerHTML = icons.more;
+    more.addEventListener('click', event => { event.stopPropagation(); open(); });
+    article.append(more);
     article.addEventListener('pointerdown', (event) => {
       selectImage(event.target);
       if (article.classList.contains('is-selecting-text')) return;
@@ -12461,6 +12548,7 @@ export class QuietRoomApp {
       this.root.querySelector<HTMLElement>('.gallery-shell')!.style.animation = 'none';
     }
     this.mountGalleryViewport();
+    this.desktopWorkspace.sync();
     const tabs = this.root.querySelector<HTMLElement>('.gallery-tabs')!;
     tabs.dataset.activeTab = tab;
     for (const kind of ['images', 'files'] as const) {
@@ -13311,6 +13399,7 @@ export class QuietRoomApp {
     if (this.preferenceSaveTimer !== null) window.clearTimeout(this.preferenceSaveTimer);
     this.preferenceSaveTimer = null;
     if (this.uiPreferencesHydrated) this.flushUiPreferencesSave();
+    this.desktopWorkspace.clear();
     this.runtimeEpoch += 1;
     this.runtimeAbort?.abort();
     this.runtimeAbort = null;

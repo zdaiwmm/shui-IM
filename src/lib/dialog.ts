@@ -121,9 +121,13 @@ export function mountDialog(sheet: HTMLElement, options: DialogOptions) {
       if (controls.length === 0) {
         event.preventDefault();
         sheet.focus({ preventScroll: true });
-      } else if ((event.shiftKey && index <= 0) || (!event.shiftKey && (index === controls.length - 1 || index === -1))) {
+      } else {
+        // Safari may omit buttons from its native Tab order. Own every step,
+        // not only the wrap, so focus cannot leave a modal from an inner button.
         event.preventDefault();
-        controls[event.shiftKey ? controls.length - 1 : 0]?.focus({ preventScroll: true });
+        const next = index < 0 ? (event.shiftKey ? controls.length - 1 : 0)
+          : (index + (event.shiftKey ? -1 : 1) + controls.length) % controls.length;
+        controls[next]?.focus({ preventScroll: true });
       }
     }
   };
