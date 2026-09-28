@@ -713,6 +713,27 @@ try {
     return { connectedList: true, renderCalls, errorCalls, retainedMessages: app.messages.size };
   });
 
+  const toggleSafeVisibility = async reveal => {
+    const button = page.locator('#gallery-toggle-visibility');
+    await button.evaluate(button => {
+      window.safeVisibilityClick = null;
+      // Registered after the application handler: sample in the same click
+      // dispatch, not in a protocol request that can overtake WebKit input.
+      button.addEventListener('click', () => {
+        window.safeVisibilityClick = {
+          revealAll: regression.app.galleryRevealAll,
+          visible: document.querySelectorAll('.gallery-tile[data-revealed="true"]').length,
+          total: document.querySelectorAll('.gallery-tile').length,
+        };
+      }, { once: true });
+    });
+    await button.click();
+    await page.waitForFunction(() => window.safeVisibilityClick !== null);
+    const state = await page.evaluate(() => window.safeVisibilityClick);
+    assert.equal(state.revealAll, reveal, 'Visibility choice must apply in the click handler');
+    assert.equal(state.visible, reveal ? state.total : 0, 'All mounted tiles must update synchronously in the click handler');
+  };
+
   results.localHistory = await page.evaluate(async () => {
     const { app, fresh, records } = window.regression;
     fresh(); app.messages = new Map(records.filter(record => record.seq > 420).map(record => [record.seq, record])); app.renderMessages();
@@ -725,7 +746,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.gallery-scan-status')?.textContent?.includes('上拉继续加载'));
   const initialSafeImages = await page.locator('.gallery-tile').count();
   await page.waitForFunction(() => document.querySelector('[data-gallery-count="images"]')?.textContent === '62');
-  await page.locator('#gallery-toggle-visibility').click();
+  await toggleSafeVisibility(true);
   let pages = 0;
   while (await page.locator('.gallery-scan-status').textContent() === '上拉继续加载') {
     const before = await page.locator('.gallery-tile').count();
@@ -757,16 +778,16 @@ try {
   });
   if (visualQaDirectory) await page.screenshot({ path: path.join(visualQaDirectory, 'gallery-bottom-spacing.png') });
 
-  await page.locator('#gallery-toggle-visibility').click();
+  await toggleSafeVisibility(false);
   assert.equal(await page.locator('.gallery-tile[data-revealed="true"]').count(), 0);
-  await page.locator('#gallery-toggle-visibility').click();
+  await toggleSafeVisibility(true);
   assert.equal(await page.locator('.gallery-tile[data-revealed="true"]').count(), 62);
   await page.locator('#gallery-tab-files').click();
   await page.locator('#gallery-grid[aria-labelledby="gallery-tab-files"]').waitFor();
   await page.locator('#gallery-tab-images').click();
   await page.locator('.gallery-tile').first().waitFor();
   assert.equal(await page.locator('#gallery-toggle-visibility').getAttribute('aria-label'), '隐藏全部');
-  await page.locator('#gallery-toggle-visibility').click();
+  await toggleSafeVisibility(false);
   assert.equal(await page.locator('.gallery-tile[data-revealed="true"]').count(), 0, 'Hide all left an older unmounted safe page revealed');
   results.galleryPrivacyPagination = { newlyLoadedHidden: true, hideAllIncludesUnmountedPages: true };
 
@@ -2268,8 +2289,8 @@ try {
     const flipBadge = animatedArticle.querySelector('.message-reaction');
     const flipAnimation = followerContent.getAnimations().find(animation =>
       animation.effect?.getKeyframes().some(frame => typeof frame.translate === 'string'));
-    if (!flipBadge || !flipAnimation || Number(flipAnimation.effect.getTiming().duration) !== 300) {
-      throw Error('Reaction insertion did not create the 300ms follower FLIP animation');
+    if (!flipBadge || !flipAnimation || (Number(flipAnimation.effect.getTiming().duration) < 180 || Number(flipAnimation.effect.getTiming().duration) > 320)) {
+      throw Error('Reaction insertion did not create a bounded distance-based follower FLIP animation');
     }
     const followerImmediateTop = followerContent.getBoundingClientRect().top;
     const heldAtOldPosition = Math.abs(followerImmediateTop - followerTop) < 3;
@@ -2292,7 +2313,7 @@ try {
     const removalAnimation = followerContent.getAnimations().find(animation =>
       animation.effect?.getKeyframes().some(frame => typeof frame.translate === 'string'));
     if (animatedArticle.querySelector('.message-reaction') || !removalAnimation
-      || Number(removalAnimation.effect.getTiming().duration) !== 300) {
+      || (Number(removalAnimation.effect.getTiming().duration) < 180 || Number(removalAnimation.effect.getTiming().duration) > 320)) {
       throw Error('Removing the last reaction did not smoothly return following rows');
     }
     await new Promise(resolve => setTimeout(resolve, 180));
@@ -2301,14 +2322,14 @@ try {
       initialEmojiFocus: false, keyboardNavigation: true, smoothBackdropClose: true,
       badgeRetainedAcrossAckAndSync: true, followerHeldAtOldPosition: heldAtOldPosition,
       followerImmediateDelta: followerImmediateTop - followerTop,
-      followerTravel: finalTop - followerTop, insertionDuration: 300, removalDuration: 300,
+      followerTravel: finalTop - followerTop, insertionDuration: Number(flipAnimation.effect.getTiming().duration), removalDuration: Number(removalAnimation.effect.getTiming().duration),
     };
   });
   assert.equal(results.reactionPresentation.followerHeldAtOldPosition, true,
     `Reaction reflow jumped before its FLIP animation began: ${JSON.stringify(results.reactionPresentation)}`);
   // The badge's exact line-box contribution varies with the runner's CJK and
   // emoji fallback fonts. Require a clear multi-pixel downward reflow while
-  // the assertions above continue to verify the 300ms FLIP and zero jump.
+  // the assertions above continue to verify the bounded FLIP and zero jump.
   assert(results.reactionPresentation.followerTravel > 3, `Reaction fixture did not move the following bubble: ${JSON.stringify(results.reactionPresentation)}`);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   results.reactionReducedMotion = await page.evaluate(async () => {

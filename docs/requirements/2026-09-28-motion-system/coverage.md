@@ -4,7 +4,40 @@
 
 实施基线为实时核验的 main `2bbdf923eae63cd9ff604a69cccddc83123e3e58`，已合入原独占任务分支，合入后 HEAD `fad1f076a3f08ca34b77cb94d44190d6020509d7`。包含最新 Emoji、备份恢复功能。正式生产发布未授权。
 
-## 逐项覆盖
+## 补齐轮次（2026-09-28，产品候选自动验证通过，真机受阻）
+
+本轮基线与规则来源 `509444485ca49bd12b659d599476253a3a0d9ab3`。用户通过新任务明确授权按 V2 和 M01–M22 欠项一次性实施、验收、PR、CI、合并并准备生产发布；精确生产 SHA 仍须届时确认。来源聊天 `01a0e6e2-aec3-7d63-8e00-3c85978ade80`。任务树 `/Users/zhouding/ss/motion-completion/ss`，分支 `codex/motion-completion`，由应用独占分配。
+
+旧表是上一轮文件覆盖及自动验证摘要，**不能证明 22 类体验全部达标**。上一应用已发布的事实保留，体验完成结论撤回。以下补齐轮次的产品候选已通过自动验证，远端交付与生产以末尾记录及 PR 为准。原正常速度原型是模拟，不能充当正式产品前后对比。本轮两次 USB 主机诊断未发现可用 iPhone，真机触摸、键盘、系统栏均受阻待验证。
+
+| 项目／组件与入口 | 原问题／现状证据 | 本轮动作与正常速度目标 | 验收状态 |
+| --- | --- | --- | --- |
+| M01 消息 renderMessages，全部类型／日期／输入恢复 | 重排固定 300ms，连续操作仅保位置 | 已改位移时长及连续接续；同事务同步，不缩放长气泡 | motion-completion 同机对照、chat-continuity、message-*、media/video-upload 自动通过；真机键盘叠加受阻待验证 |
+| M02 回复 bindReplySwipe、引用定位与返回 | 阻力及滞回存在，协同证据不足 | 保留阈值／速度／纵向仲裁；回复栏变化后协同可见消息，退出清空旧引用文本 | motion-system、reply-swipe、chat-continuity、frontend-lifecycle 自动通过；真机连续手势受阻待验证 |
+| M03 菜单／回应／删除 renderMessages | 删除未触发邻近 FLIP | 同步移除敏感节点，仅存邻近坐标并收拢；回应共用位移时长 | motion-completion 正常速度对照、frontend-lifecycle、reaction-history、message-deletion 自动通过；真机长按受阻待验证 |
+| M04 composer／键盘／表情 | 已有高度和原生视口控制 | 保留原生归属，不对 composer 叠加 transform；保留草稿与选区 | chat-list-viewport、frontend-lifecycle、chat-continuity、meme-picker 自动通过；iOS 组合态与键盘中间帧受阻待验证 |
+| M05 transitionPage 所有普通导航 | 反向仍固定 340ms | 已按剩余路程与当前速度接续，认证即时，旧页面不可交互 | 反向对照 340→140ms；motion-system、system-surfaces、desktop-session-flow 自动通过；真机往返受阻待验证 |
+| M06 mountDialog／抽屉／邀请 | 邀请忽略速度，回拉不能抵消接管偏移 | 接入末段速度、方向取消及接管偏移；保留实际完成清理和焦点锁 | motion-system 快甩／反向／重开、space-drawer-ui、spaces、passkey-management、backup-access、history-restore 自动通过；真机系统返回受阻 |
+| M07 图片视频查看器／详情 | 缺来源展开返回 | 来源层与手势层独立；返回计入 contain 内容比例、当前缩放平移及展开进度；失效来源简单退出 | photo-details 新增正常／放大／展开中关闭起终点通过；分页、原字节、详情、隐私通过；最终门禁及真机原生全屏待验证 |
+| M08 相册／文件／收藏／表情 | 标签已有，网格删除缺少协同 | 新增移除邻居 FLIP；保留标签接续、缓存不重播、表情排序与归属校验 | gallery-loading、file-interactions、chat-tools、meme-picker：空／加载／错误／缓存／排序／回滚自动通过；真机放下受阻 |
+| M09 文档阅读器 | 翻页已有，搜索关闭仍独立时序 | 搜索／目录改受控接续；关闭使旧搜索失效；保留 PDF、净化及分页 | document-reader 搜索／目录／无结果、主题／窄屏、PDF 像素、worker 清理自动通过；真机阅读手势受阻 |
+| M10 通知／进度／结果 | 重复通知重新入场 | 已原位更新；忙碌 aria-busy；进度仅取真实任务，保留失败／重试语义 | 通知对照、media-upload、file-outbox、release-update、local-history-backup 自动通过；共享进度条修复待完整复验 |
+| M11 控件 | CSS active 短点反馈可能不可见 | 小控件缩放、大按钮透明度；短点补反馈；滑出／cancel／失焦／后台清理，不延迟点击 | 短点对照 .97→1，公共表单／焦点自动通过；真机滑出与 hover 受阻待验证 |
+| M12 录音 | 既有阻力与取消手势 | 取消提示局部接续；保留阈值／滞回、立即停轨与不误发送 | voice-gestures、voice-lifecycle、voice-submission、voice-flow：拒绝／cancel／后台／迟到授权自动通过；真机长按受阻 |
+| M13 VoicePlayer | 局部状态转换不足 | 新增加载／播放／暂停／失败／结束局部淡入；timeupdate 不重播，seek 仍同步真实音频 | voice-flow、voice-lifecycle 自动通过；真机播放与 seek 受阻待验证 |
+| M14 CallView | 仅状态文案动画 | 头像／文案／有效控制区同阶段反馈，计时不重播，媒体操作先执行 | call-view、browser 主流程及首轮 CI 原生／视图通过；最终本地专项待执行，真机双端受阻待验证 |
+| M15 聊天定位与锚点 | 已有可中断定位 | 保留单一滚动归属、历史插入锚点、阅读不拉底和手动接管 | chat-bottom-control、chat-list-viewport、chat-continuity、frontend-lifecycle 自动通过；真实键盘叠加滚动受阻 |
+| M16 隐藏与隐私 | 回位中再拖动缺当前位置接管 | 已采样矩阵并还原阻力输入；正式阈值不变；遮挡／销毁即时 | chat-image-privacy、desktop-privacy、vault-lifecycle、frontend-lifecycle：旧回调不重显、资源清理自动通过；真机手势受阻 |
+| M17 附件准备／预览／移除 | 慢 metadata 反馈与移除协同不足 | 即时显示本地准备状态；尺寸确认再挂稳定几何；预览淡入、移除先销毁后收拢，无假进度 | media/video-upload、file-outbox、system-surfaces 主体自动通过；新增共享轨道回归待复验；原生选择器真机受阻 |
+| M18 设置／设备／表单 | 迟到响应缺页面归属，刷新整页退回加载态 | 原位刷新、当前请求归属校验；确认撤销立即移除并移动邻居；新条目淡入，已有条目不重播；失败保留列表可重试 | motion-completion 新增保留页面、失败重试、连续请求、离页与立即撤销几何；Chromium 通过，最终 WebKit／门禁待验；原设置／表单专项通过，真机认证返回受阻 |
+| M19 备份／恢复／引导 | 主要公共弹层 | 恢复阶段变化同步标题／说明；百分比不重播；重开显示现状，保留安全和回读契约 | backup-access、local-history-backup、history-restore、joint-recovery、cloud-backup-lifecycle 自动通过；真机后台／认证受阻 |
+| M20 连接与在线 | 缺失 transport 快照的文字不明确 | 明确连接中／已断开，原位淡入且断线即时；不把 transport 当对方在线 | presence-circuit 状态路径通过、颜色终点断言失败；改等实际过渡后完整复验，未记整体通过 |
+| M21 主题／视口／生命周期 | 部分共享效果可收敛 | 共享 WAAPI 对运行时 reduce／隐藏立即收敛并释放监听；保留独立手势清理 | motion-system 新增导航运行时 reduce、system-surfaces、desktop-privacy 和主题／窄屏自动通过；最终 WebKit、真机待验证 |
+| M22 页面背景／安全区 | root/body 匹配，原生材质不可由网页证明 | 保留页面表面、透明主题提示和原安全间距；不改聊天滚动归属 | system-surfaces、motion-system、chat-list-viewport 网页层通过；原生工具栏／安全区受阻待真机，不承诺全透明 |
+
+每项结论最终须附入口／状态／实现或保留理由／正常速度证据；正常、取消反向、连续为共同门槛，异步追加失败、重试、过期结果，数据页追加空、加载、内容、错误。未验证不得写通过。
+
+## 上一轮逐项覆盖（历史）
 
 以下“保留”均为刻意保留已满足目标的行为，不表示省略检查。测试名称是验证入口，执行结果另见本文件末尾，不能由表格推断通过。
 
@@ -51,3 +84,47 @@
 - PR CI 曾在应用主流程的通话连接等待处超时，未放宽断言、屏蔽测试或据本地通过直接合并。最终 CI、受影响复验与合并事实汇总到 [PR #217](https://github.com/zdaiwmm/shui-IM/pull/217)。
 - 无真实 iPhone 验收证据；桌面 WebKit／Chromium 不等于真实键盘、系统工具栏或双端设备体验通过。不承诺固定帧率；本轮不新增第三方性能采集。
 - USB 设备检查未发现可用 iPhone；未执行生产发布。最终自动测试／CI／合并以同一 PR 的精确候选与交付证据为准，不为补自动汇总再创建产品 PR。
+
+
+## 补齐轮次：开发验证记录
+
+- 类型检查通过；新增策略与回复、语音、图片手势共 51 项定向单元测试通过。浏览器入口增加 motion-completion，runner 的 12 项测试通过。
+- Chromium 动效专项（含邀请快速甩动／反向取消／运行时减少动态）、阅读器、CallView、隐私图片、照片详情、恢复、连接在线专项通过。桌面 WebKit 聊天连续性与新增 motion-completion 通过。均为本任务未冻结文件树的开发证据，最终门禁与 SHA 另记。
+- frontend-lifecycle 在回应增／删两处旧固定 300ms 断言处中断。已明确分类为方案变化后的旧时长断言；改为 180–320ms 有界时长，原位置、ACK 不重启和节点身份断言保留。未把该套件记作通过，不继续开发期盲目重跑；冻结后执行完整门禁。
+- 正常速度同机同数据对照：基线 `5094444` 的只读源码快照与当前源码使用同一 `tests/motion-completion.e2e.mjs`，393×695 桌面 Chromium。基线短／长／连续发送均 300ms，当前分别 265／296／245ms；基线删除无邻近动效，当前删除节点立即移除且 10 个邻近内容收拢；反向导航 340→140ms；重复通知重新入场→原位保持；极短点击 scale 1→.97 后回到 1。它们是实际组件路径，不是原型。
+- 对照样本两轮帧间隔最大约 16.8ms，均无 >34ms 帧间隔、长任务和布局位移；仅该桌面短路径，不外推全站或真机帧率。WebKit 当前样本有 1 次约43ms帧间隔；该引擎不提供 longtask/layout-shift 观测，不把空数组写作性能通过。
+- 本地正常速度录屏与数值：`/private/tmp/motion-completion-before/`、`/private/tmp/motion-completion-after/`。仅测试文案和模拟身份；媒体不提交仓库。已抽查当前消息帧，气泡、输入区与布局无明显重叠。尚不能据单帧证明全部质感。
+- 工程交付、完整自动门禁、全场景视觉验收及精确生产提交确认尚未完成。不得将上述局部证据写成全部 22 项体验完成。
+
+## 冻结候选与失败归因
+
+- `a0909f86b4f2c84b066527a869f6c431d0ebd460` 干净候选 `check:full`：构建与 737 项单元／集成通过，浏览器 46/47 通过，509480ms。唯一失败 presence-circuit 的离线颜色基准取在 CSS 过渡尾段，得到 oklab 中间色；终点 oklch 与其字符串不同。已改等待真实动画完成，颜色相等断言保留。该完整门禁结果为失败。
+- [PR #221](https://github.com/zdaiwmm/shui-IM/pull/221) 首轮 CI：同一颜色问题；另主流程锁屏测试固定等待 80ms，未保证续传计划已落盘。已改等首个 PUT 分块请求（加密流程先 await savePlan，之后才 upload），不降低恢复断言，不改加密／存储代码。
+- 审查修复准备提示的共享进度轨道宽度污染；改回已有 scaleX 控制并补轨道宽度回归。照片来源返回改计算 contain 内容与当前层／图片变换；新增正常、放大平移、展开途中、来源删除用例，专项已通过。
+- 上述修复仍在同一 PR，不创建下一批。最终候选复验完成前不合并或发布；自动通过和真实 iPhone 体验受阻继续分别记录。
+
+### 主线组合与第二轮
+
+- 验证期间 PR #220 合入 `8d340c8edb3a1de5466ebafa0df860621d2778cc`。本任务同步该主线；代码自动合并，版本号冲突按固定 release:prepare 工具生成 `2026.09.28.7`，保留主线 `.6` 历史。
+- M06／M18／M19 按主线新契约验收：设置返回立即恢复设置抽屉；关闭未完成的恢复弹窗即取消任务，强制生命周期清理仍暂停。上表“重开显示现状”仅指已有任务／失败后入口，不恢复旧的“收起后继续”产品语义。旧历史表中的收起描述只适用于上一版本。
+- `fc80d8f5cbed659dc6171b0df7b653de61b97035` 第二次干净完整门禁：构建与 737 项单元／集成通过，浏览器前 43 项通过，media-upload 的重试按钮 44px 触达断言失败，后三项未执行，459819ms。结果仍为失败。
+- 为触达失败增加诊断后，10 类媒体的重试按钮均测为 63×44px，未稳定复现缩小。移动行的 CDP 四角坐标可能存在不同舍入；改为同一页面任务读取真实 getBoundingClientRect 和 offset 尺寸，仍要求四项全部至少 44px，不扩大容差、不降低触达要求。随后定向及组合完整门禁以实际结果为准。
+
+### 组合门禁与 M18 补齐
+
+- `f6401a33056f1edc98dca89175423bf885ed906a` 干净组合候选完整 `check:full` 通过：94 个测试文件、738 项单元／集成、47/47 浏览器，515436ms。CI run `36421531593` 全部通过。前述颜色与触达问题在该候选通过，失败历史仍保留。
+- 逐入口复核发现设备刷新／移除仍整页退回加载态，M18 再补原位刷新。请求只更新所属页面与最新操作；确认撤销的节点在再次请求前立即移除，邻居接续；失败保留列表与重试入口，新条目淡入，已有条目不重播。期间按钮禁用但状态提示保持可访问，不改设备授权／撤销事务。
+- 新增设备展示夹具隔离网络，验证保留原页面、忙碌、原位失败／重试、立即移除与邻居运动、连续请求归属、离页失效；Chromium 定向通过。真实设备授权仍由原双端主流程和安全测试验证，不能以该夹具替代。
+- 同机基线副本 `5094444` 的 WebKit frontend-lifecycle，以及 Chromium 阅读器／通话 UI 同路径录屏已完成：`/private/tmp/motion-visual-before-webkit/`、`motion-visual-before-reader/`、`motion-visual-before-call/`；当前候选对应录屏／验证另记。仅合成数据，录屏与截图不提交仓库。
+
+## 最终产品候选验收
+
+本节覆盖上表中的“最终门禁／专项待执行”状态；真机受阻状态不变，不据此宣布 22 类体验全部完成。
+
+- 产品候选 `dd735a81859dde15ce06abec2747eeac0afa06e8`，文件树 `57b2e715fe9f45f3373690e3e73ed2eec1f0b867`，版本 `2026.09.28.7`。干净 `check:full` 通过：94 个测试文件、738 项单元／集成、47/47 浏览器，518706ms。[候选 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36422983727) 全绿。
+- 同 SHA 独立验证树 `/Users/zhouding/ss/motion-validation/ss` 的原生通话、CallView、20 个弱网场景通过，`test:calls:e2e` 94729ms；交付工具保存 head／tree／clean／结果。它是桌面原生 Chrome 媒体及合成信令／统计、CDP 网络条件，不是真实 iPhone 或真实 TURN 故障。
+- 桌面 WebKit 动效专项、照片查看器／详情、消息／控件／设备专项通过。完整 frontend-lifecycle 首轮在点击隐藏后立即跨进程计数处失败；诊断显示处理器实际执行后同步隐藏。将该段改为在同一点击事件、应用监听器之后采样，严格要求该事件内全部隐藏或显示，再检查后续加载。修订后的完整 WebKit 生命周期通过；未改隐私产品代码、未把等待最终隐藏当作“立即隐藏”。该测试修订与结果文档随后提交，产品代码保持候选不变。
+- M07 来源起终点、M10／M17 共享进度轨道、M11 短点／滑出／cancel／键盘／禁用、M18 原位刷新／错误／重试／最新请求／离页／立即撤销、M20 颜色终点均已通过最终适用专项或完整门禁。
+- 正常速度产品证据（全部合成数据）：WebKit 前端流程当前录屏及截图在 `/private/tmp/motion-visual-after-webkit-final/`；阅读器、恢复和通话在 `/private/tmp/motion-visual-after-reader/`、`motion-visual-after-restore/`、`motion-visual-after-call/`；来源查看器截图在 `/private/tmp/motion-completion-visual/photo/`。各目录 `recordings.json` 对应当次录屏；旧失败录屏不充作通过证据。已抽查聊天长内容、相册底部、窄屏／横屏照片、恢复短视口及通话布局；静态抽帧不能单独证明全场景质感。
+- 同机同数据短路径前后：消息 300／300／300ms → 265／296／约245ms；删除敏感节点立即移除并新增邻居收拢；反向导航 340→140ms；重复通知不重新入场；极短小按钮点击 .97→1，大按钮只变透明度。基线／当前 Chromium 样本最大帧间隔约16.8ms，无所测长任务／布局位移；最终 WebKit 样本有一次37ms间隔，且不支持 longtask／layout-shift，不能把空数组解释为这些指标通过。只证明所测桌面短路径，不保证全站 60／120fps。
+- 当前阻塞：USB iPhone 不可用，真实中文组合态、键盘连续帧、触摸接管、系统认证／文件选择器返回、原生视频全屏、后台恢复及 Safari 原生工具栏／安全区仍受阻待验证。M04／M22 尤其不能用桌面模拟替代。未进行生产发布；精确合并 SHA 仍需用户确认。

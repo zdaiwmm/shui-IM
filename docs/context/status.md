@@ -1,5 +1,12 @@
 # Quiet Room 当前状态
 
+## 动效欠项补齐（2026-09-28，产品候选自动验收完成）
+
+- 沿用完整 V2 和 M01–M22 一次性交付授权，独占分支 `codex/motion-completion`；已同步主线 `8d340c8`，保留关闭恢复弹窗取消任务及设置返回语义。逐项实现、保留理由与验证见[同一需求清单](../requirements/2026-09-28-motion-system/coverage.md)。
+- 产品候选 `dd735a81859dde15ce06abec2747eeac0afa06e8`（版本 `2026.09.28.7`）干净完整门禁通过：738 项单元／集成、47/47 浏览器；独立同 SHA 通话专项及20个弱网场景通过，桌面 WebKit 专项与录屏已完成。随后仅修订隐私测试采样和结果文档，产品代码不变；最终 CI／合并见 [PR #221](https://github.com/zdaiwmm/shui-IM/pull/221)。
+- 两次 USB 诊断无 iPhone，真实键盘、手势、系统弹层和 Safari 原生栏受阻待验证，不能认定 22 类体验全部达标。本任务尚未发布生产，仍须确认本次精确合并 SHA；下方线上记录是此前发布快照。
+
+
 ## 空间移除与恢复交互已发布（2026-09-28 20:19）
 
 - 当前线上应用 SHA `8d340c8edb3a1de5466ebafa0df860621d2778cc`，版本 `2026.09.28.6`；[PR #220](https://github.com/zdaiwmm/shui-IM/pull/220) 已合并，精确 main [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36420221479) 通过。用户明确“合并并发布生产”。

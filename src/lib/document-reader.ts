@@ -68,6 +68,8 @@ export class DocumentReader {
   private turn = 0;
   private pageAnimation?: Animation;
   private searchAnimation?: Animation;
+  private directoryAnimation?: Animation;
+  private searchPresentation = 0;
   private scrollTimer?: number;
   private pdfSlots: HTMLElement[] = [];
   private pdfRendered = new Set<number>();
@@ -102,10 +104,13 @@ export class DocumentReader {
     };
     const close = button('关闭阅读器', X, () => this.onClose());
     const search = button('搜索', Search, () => {
-      this.searchAnimation?.cancel();
+      this.searchPresentation++;
+      const previous = this.searchAnimation;
       this.searchForm.hidden = false;
       el.classList.add('reader-searching');
       search.setAttribute('aria-expanded', 'true');
+      this.searchAnimation = retargetMotion(this.searchForm, previous, { opacity: .6, translate: '8px 0' },
+        { opacity: 1, translate: '0 0' }, motion.feedback) ?? undefined;
       this.query.focus({ preventScroll: true });
     });
     search.setAttribute('aria-expanded', 'false');
@@ -121,20 +126,17 @@ export class DocumentReader {
     this.searchForm = el.querySelector('form')!;
     el.querySelector('header')!.append(this.searchForm);
     this.searchForm.prepend(button('关闭搜索', X, () => {
+      const presentation = ++this.searchPresentation;
+      this.searchVersion++;
       const finish = () => {
-        if (this.signal.aborted) return;
+        if (this.signal.aborted || presentation !== this.searchPresentation) return;
         this.searchForm.hidden = true; el.classList.remove('reader-searching');
         search.setAttribute('aria-expanded', 'false'); search.focus({ preventScroll: true });
       };
-      if (matchMedia('(prefers-reduced-motion: reduce)').matches) finish();
-      else {
-        this.searchAnimation?.cancel();
-        this.searchAnimation = this.searchForm.animate([
-          { clipPath: 'inset(0 round 24px)', opacity: 1 },
-          { clipPath: 'inset(0 0 0 calc(100% - 44px) round 24px)', opacity: 0 },
-        ], { duration: 180, easing: 'ease-out' });
-        this.searchAnimation.onfinish = finish;
-      }
+      this.searchAnimation = retargetMotion(this.searchForm, this.searchAnimation,
+        { opacity: 1, translate: '0 0' }, { opacity: 0, translate: '8px 0' }, motion.feedback) ?? undefined;
+      if (this.searchAnimation) void this.searchAnimation.finished.then(finish, () => {});
+      else finish();
     }));
     this.previous = button('上一页', ChevronLeft, () => this.step(-1));
     this.next = button('下一页', ChevronRight, () => this.step(1));
@@ -282,7 +284,10 @@ export class DocumentReader {
   }
 
   private toggleDirectory(open = this.directory.hidden, focus = true): void {
+    this.directoryAnimation?.cancel();
     this.directory.hidden = !open;
+    if (open) this.directoryAnimation = retargetMotion(this.directory, null,
+      { opacity: .7, translate: '0 6px' }, { opacity: 1, translate: '0 0' }, motion.feedback) ?? undefined;
     this.directoryButton.setAttribute('aria-expanded', String(open));
     if (!focus) return;
     if (open) this.directory.querySelector<HTMLButtonElement>(`[data-chapter="${this.page}"]`)?.focus({ preventScroll: true });
@@ -555,7 +560,7 @@ export class DocumentReader {
     this.renderVersion++;
     clearTimeout(this.deadline);
     clearTimeout(this.resizeTimer);
-    clearTimeout(this.scrollTimer); this.pageAnimation?.cancel(); this.searchAnimation?.cancel(); this.pdfSlots = [];
+    clearTimeout(this.scrollTimer); this.pageAnimation?.cancel(); this.searchAnimation?.cancel(); this.directoryAnimation?.cancel(); this.pdfSlots = [];
     this.observer.disconnect();
     this.pdf?.destroy(); this.pdf = undefined;
     this.epub?.destroy(); this.epub = undefined;

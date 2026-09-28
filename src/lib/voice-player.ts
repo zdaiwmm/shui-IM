@@ -1,3 +1,4 @@
+import { motion, retargetMotion } from './motion';
 import { VoiceNetworkError, VOICE_FAILURE_TEXT } from './voice-network';
 import type { AudioPayload } from './types';
 import { voiceIcons, voiceTime, waveformMarkup } from './voice-audio';
@@ -20,6 +21,7 @@ export class VoicePlayer {
   private request: AbortController | null = null;
   private loading = false;
   private displayedIcon = '';
+  private stateMotion: Animation | null = null;
   private error = '';
   private readonly button: HTMLButtonElement;
   private readonly seek: HTMLInputElement;
@@ -85,6 +87,12 @@ export class VoicePlayer {
 
   private update(): void {
     const current = Math.min(this.payload.durationMs, this.audio.currentTime * 1000 || 0);
+    const state = this.loading ? 'loading' : this.error ? 'error' : this.audio.ended ? 'ended' : this.audio.paused ? 'paused' : 'playing';
+    if (this.element.dataset.playbackState !== state) {
+      this.element.dataset.playbackState = state;
+      this.stateMotion = retargetMotion(this.button, this.stateMotion,
+        { opacity: .65 }, { opacity: 1 }, motion.feedback);
+    }
     this.element.dataset.playing = String(!this.audio.paused);
     this.element.setAttribute('aria-busy', String(this.loading));
     const icon = this.loading ? voiceIcons.stop : this.audio.paused ? voiceIcons.play : voiceIcons.pause;
@@ -102,6 +110,7 @@ export class VoicePlayer {
   }
 
   release(): void {
+    this.stateMotion?.cancel(); this.stateMotion = null;
     this.request?.abort(); this.request = null; this.loading = false;
     this.audio.pause(); this.audio.removeAttribute('src'); this.audio.load();
     if (this.url) URL.revokeObjectURL(this.url);

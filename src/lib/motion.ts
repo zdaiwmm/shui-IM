@@ -16,13 +16,13 @@ export function retargetMotion(element: HTMLElement, previous: Animation | null 
     const style = getComputedStyle(element);
     from = { ...from };
     for (const property of Object.keys(to)) {
-      if (property === 'transform' || property === 'translate' || property === 'opacity') {
+      if (property === 'transform' || property === 'translate' || property === 'opacity' || property === 'scale') {
         from[property] = style.getPropertyValue(property);
       }
     }
   }
   previous?.cancel();
-  if (reducedMotion() || !element.isConnected) return null;
+  if (reducedMotion() || document.hidden || !element.isConnected) return null;
   const animation = element.animate([from, to], { duration, easing, fill: 'backwards' });
   animation.currentTime = 0;
   const preference = matchMedia('(prefers-reduced-motion: reduce)');
@@ -89,4 +89,58 @@ export function settleValue(from: number, velocity: number, paint: (value: numbe
   };
   frame = requestAnimationFrame(tick);
   return () => { cancelled = true; cancelAnimationFrame(frame); };
+}
+
+/** Keep one layout transaction in phase; short/repeated travel settles sooner. */
+export function layoutMotionDuration(distance: number, continuing = false): number {
+  const travel = Math.min(1, Math.abs(distance) / 240);
+  return Math.round(Math.max(180, 220 + 100 * Math.sqrt(travel) - (continuing ? 40 : 0)));
+}
+
+/** Recent release velocity is in CSS pixels/second; reversing always cancels. */
+export function dismissDraggedPanel(offset: number, velocity: number, height: number): boolean {
+  if (velocity < -120) return false;
+  return offset >= Math.min(120, Math.max(45, height * .18))
+    || (offset >= 14 && velocity > 450);
+}
+
+const travelEffects = new WeakMap<HTMLElement, { animation: Animation; positions: number[]; duration: number }>();
+
+/** Sample the velocity of our own linear keyframe path before replacing its DOM. */
+export function travelVelocity(element: HTMLElement | null): number {
+  const effect = element && travelEffects.get(element);
+  if (!effect || effect.animation.playState === 'finished' || effect.animation.playState === 'idle') return 0;
+  const time = Number(effect.animation.currentTime ?? 0);
+  const index = Math.min(effect.positions.length - 2, Math.max(0, Math.floor(time / effect.duration * (effect.positions.length - 1))));
+  return (effect.positions[index + 1]! - effect.positions[index]!) * (effect.positions.length - 1) * 1000 / effect.duration;
+}
+
+/** Bounded Hermite travel preserves the sampled start velocity and stops at rest. */
+export function travelFrames(from: number, to: number, velocity: number, duration: number): number[] {
+  const tangent = velocity * duration / 1000;
+  return Array.from({ length: 61 }, (_, index) => {
+    const t = index / 60;
+    return (2*t*t*t - 3*t*t + 1)*from + (t*t*t - 2*t*t + t)*tangent + (-2*t*t*t + 3*t*t)*to;
+  });
+}
+
+export function travelMotion(element: HTMLElement, from: number, to: number, velocity: number,
+  duration: number, opacityFrom = 1, opacityTo = 1): Animation | null {
+  if (reducedMotion() || document.hidden || !element.isConnected) return null;
+  const positions = travelFrames(from, to, velocity, duration);
+  const animation = element.animate(positions.map((x, index) => ({
+    transform: `translate3d(${x}px,0,0)`, opacity: opacityFrom + (opacityTo - opacityFrom) * index / 60,
+  })), { duration, easing: 'linear', fill: 'backwards' });
+  animation.currentTime = 0;
+  travelEffects.set(element, { animation, positions, duration });
+  const preference = matchMedia('(prefers-reduced-motion: reduce)');
+  const finish = () => { if (preference.matches || document.hidden) animation.finish(); };
+  preference.addEventListener('change', finish);
+  document.addEventListener('visibilitychange', finish);
+  const release = () => {
+    preference.removeEventListener('change', finish); document.removeEventListener('visibilitychange', finish);
+    if (travelEffects.get(element)?.animation === animation) travelEffects.delete(element);
+  };
+  void animation.finished.then(release, release);
+  return animation;
 }

@@ -343,6 +343,51 @@ try {
   assert.equal(await page.locator('.photo-details').count(), 0, 'Escape first closes properties');
   assert.equal(await page.locator('.image-viewer').count(), 1);
 
+  // Source return must preserve the painted zoom/pan and land on the actual
+  // image content, including when closing during source expansion.
+  for (const mode of ['rest', 'zoomed', 'arriving', 'removed-source']) {
+    await page.evaluate(() => {
+      const { app, records } = window.photoFixture;
+      app.closeImageViewer(true);
+      const source = document.createElement('button');
+      source.id = 'motion-source';
+      source.style.cssText = 'position:fixed;left:24px;top:180px;width:120px;height:80px;padding:0;border:0';
+      document.body.append(source);
+      app.openImageViewer([records[0].payload.image], 0, source);
+    });
+    await page.waitForSelector('.viewer-media-layer img');
+    const geometry = await page.evaluate(mode => {
+      const layer = document.querySelector('.viewer-media-layer');
+      const image = layer.querySelector('img');
+      const source = document.querySelector('#motion-source');
+      const arrival = layer.getAnimations()[0];
+      if (arrival) { arrival.pause(); arrival.currentTime = mode === 'arriving' ? 80 : arrival.effect.getTiming().duration; }
+      image.style.transition = 'none';
+      if (mode === 'zoomed') image.style.transform = 'translate3d(35px,-28px,0) scale(2)';
+      const content = () => {
+        const box = image.getBoundingClientRect(), ratio = image.naturalWidth / image.naturalHeight;
+        const width = Math.min(box.width, box.height * ratio);
+        return { x: box.left + box.width / 2, y: box.top + box.height / 2, width, height: width / ratio };
+      };
+      const before = content(), origin = source.getBoundingClientRect();
+      if (mode === 'removed-source') source.remove();
+      window.photoFixture.app.closeImageViewer();
+      const closing = layer.getAnimations().find(animation => animation.effect.getKeyframes().some(frame => frame.transform));
+      if (closing) { closing.pause(); closing.currentTime = 0; }
+      const start = content();
+      if (closing) closing.currentTime = closing.effect.getTiming().duration - .01;
+      const end = content();
+      window.photoFixture.app.closeImageViewer(true); source.remove();
+      return { before, start, end, source: { x: origin.x + origin.width / 2, y: origin.y + origin.height / 2, width: Math.min(origin.width, origin.height * image.naturalWidth / image.naturalHeight), height: Math.min(origin.height, origin.width * image.naturalHeight / image.naturalWidth) }, closing: Boolean(closing) };
+    }, mode);
+    if (mode !== 'removed-source') {
+      assert.equal(geometry.closing, true, mode);
+      for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(geometry.before[key] - geometry.start[key]) < 1, `${mode}: close jumped ${key}: ${JSON.stringify(geometry)}`);
+      for (const key of ['x', 'y', 'width', 'height']) assert.ok(Math.abs(geometry.end[key] - geometry.source[key]) < 1, `${mode}: source endpoint ${key}: ${JSON.stringify(geometry)}`);
+    }
+  }
+  await page.evaluate(() => window.photoFixture.open(4)); await ready();
+
   // A delayed parser must not repaint after closing, reopening or privacy teardown.
   await page.evaluate(() => {
     const NativeWorker = window.Worker;

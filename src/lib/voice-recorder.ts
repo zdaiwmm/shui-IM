@@ -1,4 +1,4 @@
-import { afterMotion } from './motion';
+import { afterMotion, motion, retargetMotion } from './motion';
 import { AUDIO_MIME_TYPES, MAX_AUDIO_BYTES, MAX_AUDIO_DURATION_MS, MIN_AUDIO_DURATION_MS } from './message-payload';
 import { encodeVoiceWav, MAX_VOICE_SAMPLES, VOICE_SAMPLE_RATE, voiceIcons, voiceTime, voiceWaveform, waveformMarkup } from './voice-audio';
 import { createElement, X } from 'lucide';
@@ -160,7 +160,10 @@ export class VoiceRecorder {
     const text = action === 'pending' ? '等待麦克风…'
       : action === 'cancel' ? '松手取消录制'
         : '松手发送，左滑取消录制';
-    if (label.textContent !== text) label.textContent = text;
+    if (label.textContent !== text) {
+      label.textContent = text;
+      retargetMotion(label, label.getAnimations()[0], { opacity: .65 }, { opacity: 1 }, motion.feedback);
+    }
     const liveLabel = this.host.querySelector('.voice-live-label');
     if (liveLabel) liveLabel.textContent = action === 'pending' ? '等待麦克风…' : action === 'cancel' ? '松手取消' : '松手发送';
     const cancelLabel = this.host.querySelector('.voice-cancel-label');

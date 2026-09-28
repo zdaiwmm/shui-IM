@@ -114,6 +114,29 @@ try {
   assert.ok(invite.offset > 10 && invite.offset < 40, JSON.stringify(invite));
   assert.ok(Math.abs(invite.rest) < .5 && invite.connected && invite.removed, JSON.stringify(invite));
 
+  const inviteRelease = await page.evaluate(async () => {
+    const { mountSpaceInvite } = await import('/src/lib/space-drawer.ts');
+    const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const exercise = async reverse => {
+      const abort = new AbortController();
+      const sheet = mountSpaceInvite(fixture.root, { name: 'Sample', content: '<p>Sample invite</p>', signal: abort.signal, closed() {} });
+      await pause(350);
+      const handle = sheet.querySelector('.space-invite-handle'); handle.setPointerCapture = () => {};
+      const fire = (type, y) => handle.dispatchEvent(new PointerEvent(type, { pointerId: 20, isPrimary: true, button: 0, clientY: y }));
+      fire('pointerdown', 400); await pause(20); fire('pointermove', reverse ? 510 : 430);
+      if (reverse) { await pause(20); fire('pointermove', 480); }
+      fire('pointerup', reverse ? 480 : 430);
+      const closing = sheet.classList.contains('is-closing');
+      await pause(650);
+      const offset = sheet.isConnected ? new DOMMatrixReadOnly(getComputedStyle(sheet.firstElementChild).transform).m42 : 0;
+      abort.abort(); return { closing, offset };
+    };
+    return { flick: await exercise(false), reversal: await exercise(true) };
+  });
+  assert.equal(inviteRelease.flick.closing, true);
+  assert.equal(inviteRelease.reversal.closing, false);
+  assert.ok(Math.abs(inviteRelease.reversal.offset) < .5);
+
   const swipe = await page.evaluate(async () => {
     const { bindReplySwipe } = await import('/src/lib/reply-swipe.ts');
     const target = document.createElement('div'); fixture.root.append(target);
@@ -158,7 +181,12 @@ try {
   });
   assert.ok(Math.abs(zoom.before - zoom.after) < .08, JSON.stringify(zoom));
 
+  await page.evaluate(() => {
+    fixture.render('device-shell');
+    fixture.app.transitionPage('forward', () => fixture.render('gallery-shell'));
+  });
   await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
+  await page.waitForFunction(() => !fixture.root.dataset.pageTransition);
   const reduced = await page.evaluate(() => {
     fixture.render('device-shell');
     fixture.app.transitionPage('forward', () => fixture.render('gallery-shell'));

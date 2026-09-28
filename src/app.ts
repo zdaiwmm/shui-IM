@@ -1,4 +1,5 @@
-import { afterMotion, motion, retargetMotion, settleValue } from './lib/motion';
+import { bindControlFeedback } from './lib/control-feedback';
+import { afterMotion, layoutMotionDuration, motion, retargetMotion, settleValue, travelMotion, travelVelocity } from './lib/motion';
 import { MESSAGE_WINDOW_CAPABILITY, MLS_WINDOW_MESSAGES, maySkipWindowMessage, appendExpiredRange, expiredMessage } from './lib/message-window';
 import { getWindowMessages } from './lib/api';
 import { prepareMlsWindowUpdate, verifyMembershipEnvelope } from './lib/mls';
@@ -347,7 +348,37 @@ function setBusy(button: HTMLButtonElement, busy: boolean, busyLabel = '处理�
   if (!button.dataset.label) button.dataset.label = button.textContent ?? '';
   button.disabled = busy;
   button.setAttribute('aria-busy', String(busy));
-  button.textContent = busy ? busyLabel : button.dataset.label;
+  const nextLabel = busy ? busyLabel : button.dataset.label;
+  if (button.textContent !== nextLabel) {
+    button.textContent = nextLabel;
+    retargetMotion(button, button.getAnimations().find(animation => animation.effect instanceof KeyframeEffect
+      && animation.effect.getKeyframes().some(frame => frame.opacity !== undefined)), { opacity: .65 }, { opacity: 1 }, motion.feedback);
+  }
+}
+
+function viewerSourceTransform(source: HTMLElement | null | undefined, image: HTMLElement): string | null {
+  const layer = image.closest<HTMLElement>('.viewer-media-layer');
+  if (!source?.isConnected || !image.isConnected || !layer) return null;
+  const origin = (source.querySelector('img') ?? source).getBoundingClientRect();
+  const target = image.getBoundingClientRect();
+  if (origin.width < 1 || origin.height < 1 || target.width < 1 || target.height < 1
+    || origin.bottom <= 0 || origin.top >= innerHeight || origin.right <= 0 || origin.left >= innerWidth) return null;
+  // The image element fills the stage, but contain paints only its intrinsic
+  // aspect ratio. Include both its zoom/pan and the interrupted layer transform.
+  const ratio = image instanceof HTMLImageElement && image.naturalWidth && image.naturalHeight
+    ? image.naturalWidth / image.naturalHeight : target.width / target.height;
+  const width = Math.min(target.width, target.height * ratio);
+  const height = width / ratio;
+  const relativeScale = Math.min(origin.width / width, origin.height / height);
+  const current = new DOMMatrixReadOnly(getComputedStyle(layer).transform);
+  const bounds = layer.getBoundingClientRect();
+  const centerX = bounds.left + bounds.width / 2 - current.m41;
+  const centerY = bounds.top + bounds.height / 2 - current.m42;
+  const x = origin.left + origin.width / 2 - centerX
+    - relativeScale * (target.left + target.width / 2 - centerX - current.m41);
+  const y = origin.top + origin.height / 2 - centerY
+    - relativeScale * (target.top + target.height / 2 - centerY - current.m42);
+  return `translate3d(${x}px, ${y}px, 0) scale(${relativeScale * Math.hypot(current.m11, current.m12)})`;
 }
 
 function inferredMediaFile(file: File): File {
@@ -647,6 +678,7 @@ export class QuietRoomApp {
   private callReturnFocus: HTMLElement | null = null;
 
   constructor(private readonly root: HTMLElement) {
+    bindControlFeedback(root);
     root.inert = root.classList.contains('portrait-blocked');
     root.addEventListener('portraitvisibilitychange', () => {
       root.inert = root.classList.contains('portrait-blocked') || Boolean(this.callView);
@@ -6181,7 +6213,8 @@ export class QuietRoomApp {
     const session = this.session;
     if (!session || this.privacyCovered) return;
     if (!this.setActiveSurface('away')) return;
-    this.root.innerHTML = `
+    const existingPage = this.root.querySelector<HTMLElement>(':scope > .device-shell');
+    if (!existingPage) this.root.innerHTML = `
       <section class="device-shell">
         <header class="subpage-header device-header">
           <button class="icon-button" id="device-back" type="button" aria-label="返回聊天">${icons.back}</button>
@@ -6195,16 +6228,62 @@ export class QuietRoomApp {
         </main>
       </section>
     `;
-    this.root.querySelector('#device-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderChat()));
-    this.root.querySelector('#refresh-devices')?.addEventListener('click', () => void this.renderDeviceManager());
+    const devicePage = this.root.querySelector<HTMLElement>(':scope > .device-shell')!;
+    if (!existingPage) {
+      devicePage.querySelector('#device-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderChat()));
+      devicePage.querySelector('#refresh-devices')?.addEventListener('click', () => void this.renderDeviceManager());
+    }
+    const request = crypto.randomUUID();
+    devicePage.dataset.presentationRequest = request;
+    const current = () => this.session === session && !this.privacyCovered
+      && this.root.querySelector(':scope > .device-shell') === devicePage
+      && devicePage.dataset.presentationRequest === request;
+    const previousContent = devicePage.querySelector<HTMLElement>('.device-content')!;
+    const restoreFocus = previousContent.contains(document.activeElement);
+    const positions = () => new Map(Array.from(previousContent.querySelectorAll<HTMLElement>('[data-device-id]'),
+      card => [card.dataset.deviceId!, card.getBoundingClientRect().top]));
+    const moveCards = (host: HTMLElement, origins: Map<string, number>) => {
+      const cards = Array.from(host.querySelectorAll<HTMLElement>('[data-device-id]'));
+      // Origins include the painted in-flight offset. Cancel before measuring
+      // destinations so the next layout change does not overwrite that offset.
+      for (const card of cards) for (const animation of card.getAnimations()) {
+        if ((animation.effect as KeyframeEffect).getKeyframes().some(frame => frame.transform)) animation.cancel();
+      }
+      const moves = cards.map(card => {
+        const top = card.getBoundingClientRect().top;
+        return { card, delta: (origins.get(card.dataset.deviceId!) ?? top) - top };
+      }).filter(item => Math.abs(item.delta) > .5);
+      const duration = layoutMotionDuration(Math.max(0, ...moves.map(item => Math.abs(item.delta))));
+      for (const { card, delta } of moves) retargetMotion(card, null,
+        { transform: `translateY(${delta}px)` }, { transform: 'translateY(0)' }, duration);
+    };
+    // A confirmed revocation disappears immediately, before the refresh fetch.
+    const removedOrigins = positions();
+    for (const card of previousContent.querySelectorAll<HTMLElement>('[data-device-id]')) {
+      if (session.vault.members.find(member => member.deviceId === card.dataset.deviceId)?.status === 'revoked') card.remove();
+    }
+    moveCards(previousContent, removedOrigins);
+    const loading = previousContent.querySelector<HTMLElement>('.device-loading') ?? document.createElement('div');
+    loading.className = 'device-loading'; loading.setAttribute('role', 'status');
+    loading.textContent = '正在验证设备状态…';
+    if (!loading.isConnected) previousContent.append(loading);
+    for (const control of previousContent.querySelectorAll<HTMLButtonElement>('button')) {
+      control.dataset.refreshWasDisabled ??= String(control.disabled);
+      control.disabled = true;
+    }
+    previousContent.setAttribute('aria-busy', 'true');
+    const refresh = devicePage.querySelector<HTMLButtonElement>('#refresh-devices')!;
+    setBusy(refresh, true);
     try {
       const result = await listDeviceLinks(session.vault.roomId, session.vault.accessToken);
-      if (this.session !== session || this.privacyCovered) return;
+      if (!current()) return;
       await this.applyRoomStateQueued(result.state);
-      if (this.session !== session || this.privacyCovered) return;
-      const content = this.root.querySelector<HTMLElement>('.device-content');
-      if (!content) return;
-      content.querySelector('.device-loading')?.remove();
+      if (!current()) return;
+      const content = document.createElement('main');
+      content.className = 'device-content';
+      // Only the static security explanation is copied, never retiring cards.
+      const explanation = previousContent.querySelector('.device-security-note');
+      if (explanation) content.append(explanation.cloneNode(true));
 
       const ownId = session.vault.identity.publicBundle.deviceId;
       const active = session.vault.members.filter((member) => member.status === undefined || member.status === 'active');
@@ -6221,6 +6300,7 @@ export class QuietRoomApp {
       const repairStatus = pendingRepair
         ? await getRepairLinkStatus(pendingRepair.linkId, pendingRepair.secret, session.vault.accessToken).catch(() => null)
         : null;
+      if (!current()) return;
       const repairClaim = repairStatus && !repairStatus.link.usedAt && repairStatus.link.claimedDeviceId
         ? {
             link: repairStatus.link,
@@ -6322,16 +6402,36 @@ export class QuietRoomApp {
         peerSection.append(card);
       }
       content.append(peerSection);
+      if (!current()) return;
+      const origins = positions();
+      previousContent.replaceWith(content);
+      moveCards(content, origins);
+      if (restoreFocus && document.activeElement === document.body) refresh.focus({ preventScroll: true });
+      if (!existingPage) retargetMotion(content, null, { opacity: .75 }, { opacity: 1 }, motion.local);
+      else for (const card of content.querySelectorAll<HTMLElement>('[data-device-id]')) {
+        if (!origins.has(card.dataset.deviceId!)) retargetMotion(card, null, { opacity: .65 }, { opacity: 1 }, motion.local);
+      }
     } catch (cause) {
+      if (!current()) return;
       this.operationalError(cause, '设备状态载入失败');
-      const loading = this.root.querySelector<HTMLElement>('.device-loading');
-      if (loading) loading.textContent = cause instanceof Error ? cause.message : '设备状态载入失败';
+      loading.textContent = cause instanceof Error ? cause.message : '设备状态载入失败';
+    } finally {
+      if (current()) {
+        const content = devicePage.querySelector<HTMLElement>('.device-content')!;
+        content.removeAttribute('aria-busy');
+        for (const control of content.querySelectorAll<HTMLButtonElement>('button[data-refresh-was-disabled]')) {
+          control.disabled = control.dataset.refreshWasDisabled === 'true';
+          delete control.dataset.refreshWasDisabled;
+        }
+        setBusy(refresh, false);
+      }
     }
   }
 
   private deviceCard(member: RoomMember, current: boolean): HTMLElement {
     const card = document.createElement('article');
     card.className = 'device-card';
+    card.dataset.deviceId = member.deviceId;
     const copy = document.createElement('div');
     const title = document.createElement('strong');
     title.textContent = member.deviceName ?? '未命名设备';
@@ -6568,6 +6668,8 @@ export class QuietRoomApp {
     const foregroundFrom = foregroundStyle ? { transform: foregroundStyle.transform, opacity: foregroundStyle.opacity } : null;
     const backgroundStyle = oldBackground ? getComputedStyle(oldBackground) : null;
     const backgroundFrom = backgroundStyle ? { transform: backgroundStyle.transform, opacity: backgroundStyle.opacity } : null;
+    const foregroundVelocity = travelVelocity(oldForeground);
+    const backgroundVelocity = travelVelocity(oldBackground);
     const previousDirection = this.root.dataset.pageTransition;
     this.cancelPageTransition?.();
     this.root.querySelectorAll(':scope > .page-transition-outgoing').forEach(node => node.remove());
@@ -6609,14 +6711,17 @@ export class QuietRoomApp {
     incoming.classList.add('page-transition-incoming');
     this.root.append(outgoingFrame);
     const reverse = previousDirection && previousDirection !== direction;
-    const incomingFrom = reverse && backgroundFrom ? backgroundFrom : {
-      transform: direction === 'forward' ? 'translate3d(100%,0,0)' : 'translate3d(-28%,0,0)',
-      opacity: direction === 'forward' ? 1 : .92,
-    };
-    const entering = retargetMotion(incoming, null, incomingFrom, { transform: 'translate3d(0,0,0)', opacity: 1 }, motion.page, motion.travel);
-    const leaving = retargetMotion(outgoingFrame, null, foregroundFrom ?? { transform: 'translate3d(0,0,0)', opacity: 1 }, {
-      transform: direction === 'forward' ? 'translate3d(-28%,0,0)' : 'translate3d(100%,0,0)', opacity: direction === 'forward' ? .92 : 1,
-    }, motion.page, motion.travel);
+    const width = incoming.getBoundingClientRect().width;
+    const enteringX = reverse && backgroundFrom ? new DOMMatrixReadOnly(backgroundFrom.transform).m41
+      : direction === 'forward' ? width : -.28 * width;
+    const leavingX = foregroundFrom ? new DOMMatrixReadOnly(foregroundFrom.transform).m41 : 0;
+    const targetX = direction === 'forward' ? -.28 * width : width;
+    const remaining = Math.max(Math.abs(enteringX), Math.abs(targetX - leavingX));
+    const duration = Math.round(Math.min(motion.page, Math.max(140, motion.page * Math.sqrt(remaining / Math.max(1, width)))));
+    const entering = travelMotion(incoming, enteringX, 0, reverse ? backgroundVelocity : 0, duration,
+      reverse && backgroundFrom ? Number(backgroundFrom.opacity) : direction === 'forward' ? 1 : .92);
+    const leaving = travelMotion(outgoingFrame, leavingX, targetX, foregroundVelocity, duration,
+      foregroundFrom ? Number(foregroundFrom.opacity) : 1, direction === 'forward' ? .92 : 1);
     const cleanup = () => {
       entering?.cancel(); leaving?.cancel();
       outgoingFrame.remove();
@@ -7932,7 +8037,14 @@ export class QuietRoomApp {
         }, () => {
           const draft = this.mediaUploads.get(clientMsgId);
           if (!draft || draft.busy) return;
+          const origins = new Map<HTMLElement, number>();
+          for (const row of this.renderedMessageOrder) {
+            const rect = row.getBoundingClientRect();
+            if (rect.bottom < this.chatViewportTop || rect.top > this.chatViewportTop + this.chatViewportHeight) continue;
+            for (const child of row.children) if (child instanceof HTMLElement) origins.set(child, child.getBoundingClientRect().top);
+          }
           draft.view.destroy(); this.mediaUploads.delete(clientMsgId); this.renderMessages({ scroll: 'position' });
+          this.animateChatReactionReflow(origins);
         }, () => {
           if (this.isRuntimeActive(epoch, session)) this.renderMessages({ scroll: 'preserve' });
         }, expressionKind === 'gifs');
@@ -7950,8 +8062,18 @@ export class QuietRoomApp {
     const encryptFile = isFile ? encryptFileAttachment : encryptImageFile;
     try {
       if (mediaUpload) {
+        // Original dimensions must be known before mounting the media-shaped
+        // row. A local preparation status acknowledges slow metadata decoding
+        // immediately without inserting a wrongly sized bubble or fake progress.
+        if (progress && !mediaUpload.view.geometryReady) {
+          progress.hidden = false;
+          progress.setAttribute('aria-busy', 'true');
+          if (output) output.textContent = '正在准备附件…';
+          if (bar) bar.style.transform = 'scaleX(0)';
+        }
         await mediaUpload.view.ready;
         if (!this.isRuntimeActive(epoch, session)) return false;
+        if (progress) { progress.hidden = true; progress.removeAttribute('aria-busy'); }
         this.renderMessages({ scroll: 'send' });
       }
       const vault = session.vault;
@@ -8291,13 +8413,25 @@ export class QuietRoomApp {
   private renderReplyDraft(): void {
     const draft = this.root.querySelector<HTMLElement>('#reply-draft');
     if (!draft) return;
+    const origins = new Map<HTMLElement, number>();
+    for (const row of this.renderedMessageOrder) {
+      const rect = row.getBoundingClientRect();
+      if (rect.bottom < this.chatViewportTop || rect.top > this.chatViewportTop + this.chatViewportHeight) continue;
+      for (const child of row.children) if (child instanceof HTMLElement) origins.set(child, child.getBoundingClientRect().top);
+    }
     if (!this.replyTarget) {
       draft.hidden = true;
-      return;
+      draft.querySelector('span')!.textContent = '';
+    } else {
+      draft.querySelector('strong')!.textContent = this.isOwnMessage(this.replyTarget) ? '回复自己' : '回复对方';
+      draft.querySelector('span')!.textContent = this.replyPreviewForMessage(this.replyTarget);
+      draft.hidden = false;
+      retargetMotion(draft, draft.getAnimations()[0], { opacity: .65 }, { opacity: 1 }, motion.feedback);
     }
-    draft.querySelector('strong')!.textContent = this.isOwnMessage(this.replyTarget) ? '回复自己' : '回复对方';
-    draft.querySelector('span')!.textContent = this.replyPreviewForMessage(this.replyTarget);
-    draft.hidden = false;
+    if (!this.chatViewportMotion?.moving && !this.composerHeightMotion) {
+      this.syncChatLayout();
+      this.animateChatReactionReflow(origins, motion.local);
+    }
   }
 
   private beginReply(message: DecryptedMessage): void {
@@ -9011,6 +9145,8 @@ export class QuietRoomApp {
   private renderMessages({ scroll = 'preserve' }: { scroll?: 'preserve' | 'position' | 'bottom' | 'send' | 'restore' } = {}): void {
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!list || !this.session) return;
+    const continuingMotion = this.chatMessageAnimations.size > 0;
+    const previousMessageIds = new Set(this.renderedMessages.keys());
     const reflowOrigins = new Map<HTMLElement, number>();
     if (scroll === 'preserve' || scroll === 'send') {
       // Capture the pixels the user currently sees, including an in-flight
@@ -9259,7 +9395,10 @@ export class QuietRoomApp {
         }
       }
     }
-    if (reactionLayoutChanged || followSend || followArrival) this.animateChatReactionReflow(reflowOrigins, motion.message);
+    const removedMessage = [...previousMessageIds].some(id => !visibleMessageIds.has(id));
+    if (reactionLayoutChanged || followSend || followArrival || removedMessage) {
+      this.animateChatReactionReflow(reflowOrigins, undefined, continuingMotion);
+    }
     this.updateChatBottomControl();
   }
 
@@ -9296,30 +9435,32 @@ export class QuietRoomApp {
       const contents = row.classList.contains('message-date') ? [row] : row.children;
       for (const content of contents) {
         if (!(content instanceof HTMLElement)) continue;
-        const animation = content.animate(
-          [{ translate: `0 ${offset + (offsets.get(content) ?? 0)}px` }, { translate: '0 0' }],
-          { duration, easing, fill: 'backwards' },
-        );
-        animation.currentTime = 0;
+        const animation = retargetMotion(content, null,
+          { translate: `0 ${offset + (offsets.get(content) ?? 0)}px` }, { translate: '0 0' }, duration, easing);
+        if (!animation) continue;
         this.chatMessageAnimations.add(animation);
         animation.finished.then(() => this.chatMessageAnimations.delete(animation), () => this.chatMessageAnimations.delete(animation));
       }
     }
   }
 
-  private animateChatReactionReflow(origins: ReadonlyMap<HTMLElement, number>, duration = 300): void {
+  private animateChatReactionReflow(origins: ReadonlyMap<HTMLElement, number>, duration?: number, continuing = false): void {
     if (!origins.size || matchMedia('(prefers-reduced-motion: reduce)').matches || this.privacyCovered) return;
     this.cancelChatMessageMotion();
-    for (const [content, previousTop] of origins) {
-      if (!content.isConnected) continue;
+    // Read every destination before starting effects: no read/write layout loop.
+    const changes = [...origins].flatMap(([content, previousTop]) => {
+      if (!content.isConnected) return [];
       const rect = content.getBoundingClientRect();
       const distance = previousTop - rect.top;
-      if (Math.abs(distance) < 0.5) continue;
-      if (rect.bottom < this.chatViewportTop - 32 || rect.top > this.chatViewportTop + this.chatViewportHeight + 32) continue;
-      const animation = content.animate(
-        [{ translate: `0 ${distance}px` }, { translate: '0 0' }],
-        { duration, easing: motion.settle, fill: 'backwards' },
-      );
+      if (Math.abs(distance) < .5 || rect.bottom < this.chatViewportTop - 32
+        || rect.top > this.chatViewportTop + this.chatViewportHeight + 32) return [];
+      return [{ content, distance }];
+    });
+    duration ??= layoutMotionDuration(Math.max(0, ...changes.map(item => Math.abs(item.distance))), continuing);
+    for (const { content, distance } of changes) {
+      const animation = retargetMotion(content, null,
+        { translate: `0 ${distance}px` }, { translate: '0 0' }, duration, motion.settle);
+      if (!animation) continue;
       // Force the inverse position onto the same rendering frame as the
       // reaction layout mutation. A pending WAAPI animation may otherwise
       // expose one destination frame before its first timeline sample.
@@ -11513,6 +11654,7 @@ export class QuietRoomApp {
     });
     this.viewerGestureCleanup = gestures.destroy;
     const updateMetadata = (index: number) => {
+      viewer.dataset.atSource = String(index === startIndex);
       const manifest = manifests[index]!;
       const identity = identities[index];
       const video = isVideoFile(manifest);
@@ -11699,10 +11841,11 @@ export class QuietRoomApp {
           this.viewerMediaCleanup = incomingCleanup;
           updateMetadata(current);
           gestures.reset();
-          if (!reducedMotion) layer.animate([
-            { opacity: 0.72 },
-            { opacity: 1 },
-          ], { duration: 260, easing: 'cubic-bezier(.16, 1, .3, 1)' });
+          const image = layer.querySelector<HTMLElement>('img');
+          const fromSource = options.reason === 'initial' && image
+            ? viewerSourceTransform(returnFocus, image) : null;
+          retargetMotion(layer, null, fromSource ? { transform: fromSource, opacity: .72 } : { opacity: .72 },
+            fromSource ? { transform: 'translate3d(0,0,0) scale(1)', opacity: 1 } : { opacity: 1 }, motion.media);
         } else {
           outgoingLayer.inert = true;
           outgoingLayer.setAttribute('aria-hidden', 'true');
@@ -11848,7 +11991,12 @@ export class QuietRoomApp {
   private closeImageViewer(immediate = false, dragged = false): void {
     this.closeDocumentReader(immediate);
     const viewer = this.root.querySelector<HTMLElement>('.image-viewer');
-    const departingImage = dragged ? viewer?.querySelector<HTMLImageElement>('.viewer-stage img') : null;
+    const currentImage = viewer?.querySelector<HTMLImageElement>('.viewer-stage img');
+    const paintedImageTransform = currentImage ? getComputedStyle(currentImage).transform : null;
+    const sourceReturn = !immediate && !dragged && viewer?.dataset.atSource === 'true' && currentImage
+      ? viewerSourceTransform(this.viewerReturnFocus, currentImage) : null;
+    if (currentImage) currentImage.style.transition = 'none';
+    const departingImage = dragged ? currentImage : null;
     const departingTransform = departingImage?.style.transform;
     if (this.viewerKeyHandler) document.removeEventListener('keydown', this.viewerKeyHandler);
     this.viewerKeyHandler = null;
@@ -11885,6 +12033,7 @@ export class QuietRoomApp {
     }
     viewer.classList.remove('is-visible', 'is-dragging');
     viewer.classList.add('is-closing');
+    if (currentImage && paintedImageTransform) currentImage.style.transform = paintedImageTransform;
     if (departingImage && departingTransform) {
       departingImage.style.transform = departingTransform;
       departingImage.animate([
@@ -11892,7 +12041,18 @@ export class QuietRoomApp {
         { transform: `translate3d(0, ${viewer.clientHeight}px, 0) scale(.35)` },
       ], { duration: 220, easing: 'cubic-bezier(.2,.65,.3,1)', fill: 'forwards' });
     }
-    window.setTimeout(finish, 220);
+    if (sourceReturn && currentImage?.isConnected) {
+      const layer = currentImage.closest<HTMLElement>('.viewer-media-layer');
+      if (layer) {
+        const painted = getComputedStyle(layer);
+        const from = { transform: painted.transform, opacity: painted.opacity };
+        const previous = layer.getAnimations()[0];
+        layer.style.transform = sourceReturn;
+        layer.style.opacity = '1';
+        retargetMotion(layer, previous, from, { transform: sourceReturn, opacity: 1 }, 220, motion.settle);
+      }
+    }
+    afterMotion(viewer, finish, 450);
   }
 
   private closeViewerIfProjectionDeleted(): boolean {
@@ -12390,6 +12550,7 @@ export class QuietRoomApp {
         const moving = [...grid.querySelectorAll<HTMLElement>('.gallery-tile, .gallery-file')];
         const sourceIndex = moving.indexOf(source);
         const before = new Map(moving.filter(node => node !== source).map(node => [node, node.getBoundingClientRect()]));
+        for (const node of before.keys()) node.getAnimations().forEach(animation => animation.cancel());
         this.galleryObserver?.unobserve(source);
         source.remove();
         assetKeys.delete(key);
@@ -12411,13 +12572,14 @@ export class QuietRoomApp {
           grid.insertBefore(empty, footer);
         }
         if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+          const destinations = new Map(remaining.map(node => [node, node.getBoundingClientRect()]));
           for (const node of remaining) {
             const start = before.get(node); if (!start) continue;
-            const end = node.getBoundingClientRect();
+            const end = destinations.get(node)!;
             const x = start.left - end.left; const y = start.top - end.top;
             if (Math.abs(x) < 0.5 && Math.abs(y) < 0.5) continue;
-            node.animate([{ transform: `translate3d(${x}px, ${y}px, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
-              { duration: 260, easing: 'cubic-bezier(.16, 1, .3, 1)' });
+            retargetMotion(node, null, { transform: `translate3d(${x}px, ${y}px, 0)` },
+              { transform: 'translate3d(0, 0, 0)' }, layoutMotionDuration(Math.hypot(x, y)), motion.settle);
           }
         }
         remaining[Math.min(Math.max(0, sourceIndex), remaining.length - 1)]?.focus({ preventScroll: true });
@@ -12848,7 +13010,14 @@ export class QuietRoomApp {
       const state = value === null ? 'syncing' : value ? 'online' : 'offline';
       row.dataset.state = state;
       const label = row === peerRow ? summary.querySelector<HTMLElement>('.peer-status') : row.querySelector<HTMLElement>('strong');
-      if (label) label.textContent = value === null ? '同步中' : value ? '在线' : row === peerRow ? lastSeenText(this.roleLastSeen[peerRole]) : '离线';
+      if (label) {
+        const text = value === null ? this.connectionState === 'disconnected' ? '连接已断开' : '连接中' : value ? '在线' : row === peerRow ? lastSeenText(this.roleLastSeen[peerRole]) : '离线';
+        if (label.textContent !== text) {
+          label.textContent = text;
+          // Facts change synchronously; only the new label receives feedback.
+          retargetMotion(label, label.getAnimations()[0], { opacity: .7 }, { opacity: 1 }, motion.feedback);
+        }
+      }
     };
     const selfOnline = snapshotAvailable ? this.rolePresence![selfRole] : null;
     const peerOnline = snapshotAvailable ? this.rolePresence![peerRole] : null;
@@ -12899,8 +13068,11 @@ export class QuietRoomApp {
     notice.hidden = false;
     notice.dataset.tone = tone;
     notice.textContent = message;
-    notice.classList.remove('is-visible', 'is-leaving');
-    requestAnimationFrame(() => notice.classList.add('is-visible'));
+    const alreadyVisible = notice.classList.contains('is-visible');
+    notice.classList.remove('is-leaving');
+    if (!alreadyVisible) requestAnimationFrame(() => {
+      if (notice.isConnected && !notice.hidden) notice.classList.add('is-visible');
+    });
     this.noticeTimer = window.setTimeout(() => {
       if (notice.textContent !== message) return;
       notice.classList.remove('is-visible');

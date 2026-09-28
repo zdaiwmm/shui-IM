@@ -137,7 +137,10 @@ try {
   await state(true, false);
   assert.equal(await phase(), 'offline');
   assert.equal(await page.locator('.presence-heart').getAttribute('transform'), null);
-  await page.waitForTimeout(250);
+  await page.locator('.presence-heart').evaluate(async element => {
+    getComputedStyle(element).fill;
+    await Promise.all(element.getAnimations().map(animation => animation.finished));
+  });
   const offlineColor = await page.locator('.presence-heart').evaluate(element => getComputedStyle(element).fill);
   const idleAlpha = await circuit.evaluate(async element => {
     const copy = element.cloneNode(true);

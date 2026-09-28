@@ -39,7 +39,7 @@
 .document-reader :is(button, input, select, [tabindex]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .document-reader .reader-search input:focus { outline: none; box-shadow: none; }
 .reader-search:focus-within { border-color: var(--ink-muted); box-shadow: var(--glass-shadow), 0 0 0 1px var(--ink-muted); }
-.reader-search { position: absolute; inset: auto 12px 10px 68px; height: 44px; display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 0; margin: 0; border-radius: 24px; padding: 0; transform-origin: right center; animation: reader-search-expand 220ms var(--motion-out); }
+.reader-search { position: absolute; inset: auto 12px 10px 68px; height: 44px; display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; align-items: center; gap: 0; margin: 0; border-radius: 24px; padding: 0; transform-origin: right center;  }
 .reader-searching .reader-title, .reader-searching .reader-header > .reader-control:last-of-type { visibility: hidden; }
 .reader-search input { width: 100%; min-width: 0; min-height: 44px; padding: 0; background: transparent; border: 0; color: var(--ink); font-size: 16px; }
 .reader-search output { position: absolute; right: 12px; top: 48px; font-size: 12px; color: var(--ink-muted); white-space: nowrap; background: var(--paper); border-radius: 6px; padding: 0 6px; }
@@ -53,7 +53,7 @@
 .reader-pdf-slot { position: relative; min-width: 100%; }
 .reader-content { width: max-content; min-width: 100%; }
 .reader-stage.reader-swipe { touch-action: pan-y pinch-zoom; overflow-x: hidden; }
-.reader-directory { position: absolute; bottom: calc(84px + env(safe-area-inset-bottom)); right: 12px; width: min(340px, calc(100% - 24px)); max-height: min(55%, 420px); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border: 1px solid var(--glass-border); border-radius: 8px; background: var(--paper-pure); box-shadow: var(--glass-shadow); color: var(--ink); z-index: 3; animation: reader-directory-in 180ms var(--motion-out); }
+.reader-directory { position: absolute; bottom: calc(84px + env(safe-area-inset-bottom)); right: 12px; width: min(340px, calc(100% - 24px)); max-height: min(55%, 420px); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border: 1px solid var(--glass-border); border-radius: 8px; background: var(--paper-pure); box-shadow: var(--glass-shadow); color: var(--ink); z-index: 3;  }
 .reader-directory button { display: block; width: 100%; min-height: 44px; padding: 10px 12px; border: 0; border-radius: 6px; background: transparent; text-align: left; font-size: 14px; overflow-wrap: anywhere; }
 .reader-directory button[aria-current="true"] { background: var(--glass-control); color: var(--accent); }
 .reader-measure { position: absolute; inset: 0 auto auto 0; visibility: hidden; pointer-events: none; overflow: hidden; contain: layout paint; }
