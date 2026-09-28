@@ -60,7 +60,7 @@
   .message.outgoing .desktop-message-more { right: 100%; }
   .message:hover .desktop-message-more, .message:focus-within .desktop-message-more { opacity: 1; }
   #app[data-desktop-workspace='true'] .composer.has-meme-panel { padding-bottom: 18px; }
-  #app[data-desktop-workspace='true'] .meme-panel { inset: auto 28px calc(100% + 8px) auto; width: min(480px, calc(100% - 56px)); height: min(60svh, 580px); max-height: max(100px, calc(100dvh - var(--chat-header-height) - var(--chat-bottom-space) - 16px)); border-bottom: 1px solid var(--glass-border); border-radius: 22px; }
+  #app[data-desktop-workspace='true'] .composer > .meme-panel { inset: auto 28px calc(100% + 8px) auto; width: min(480px, calc(100% - 56px)); height: min(60svh, 580px); max-height: max(100px, calc(100dvh - var(--chat-header-height) - var(--chat-bottom-space) - 16px)); border-bottom: 1px solid var(--glass-border); border-radius: 22px; }
 }
 
 @media (min-width: 1024px) {

@@ -430,7 +430,8 @@ export class QuietRoomApp {
   // iOS reports client rectangles against its moving visual viewport. A desktop
   // WebKit window (including a mobile UA without touch) keeps layout coordinates.
   private readonly visualClientCoordinates = this.appleWebKit && !this.desktopBrowser && navigator.maxTouchPoints > 0;
-  private usesListScrolling = this.visualClientCoordinates || matchMedia(desktopWidth).matches;
+  private desktopLayoutWide = matchMedia(desktopWidth).matches;
+  private usesListScrolling = this.visualClientCoordinates || this.desktopLayoutWide;
   private availableReleaseId = pendingReleaseUpdate();
   // Memory only. Cover teardown still clears media, rendered history and sockets.
   private retainedSession: VaultSession | null = null;
@@ -696,10 +697,16 @@ export class QuietRoomApp {
       },
       beforeLayout: () => {
         const list = this.chatLayoutElements?.list;
-        const changingScrollOwner = this.usesListScrolling !== (this.visualClientCoordinates || matchMedia(desktopWidth).matches);
+        const wide = matchMedia(desktopWidth).matches;
+        const changingScrollOwner = this.desktopLayoutWide !== wide;
         const anchor = list?.isConnected ? changingScrollOwner ? this.uiPreferences.chatAnchor ?? this.captureChatAnchor() : this.captureChatAnchor() : null;
         return () => {
-          this.usesListScrolling = this.visualClientCoordinates || matchMedia(desktopWidth).matches;
+          // A page/sidebar redraw must not reselect the mobile scroll strategy.
+          // Only crossing the desktop breakpoint transfers scroll ownership.
+          if (changingScrollOwner) {
+            this.desktopLayoutWide = wide;
+            this.usesListScrolling = this.visualClientCoordinates || wide;
+          }
           if (this.usesListScrolling && window.scrollY) window.scrollTo(0, 0);
           const shell = this.chatLayoutElements?.shell;
           if (shell?.isConnected) shell.dataset.scrollOwner = this.usesListScrolling ? 'list' : 'document';
@@ -7129,7 +7136,7 @@ export class QuietRoomApp {
 
   private beginListKeyboardLayout(direction: 'open' | 'closed'): void {
     const chat = this.chatLayoutElements;
-    if (!this.visualClientCoordinates || !chat?.shell.isConnected || this.privacyCovered || this.activeSurface !== 'chat') return;
+    if (!this.usesListScrolling || !this.visualClientCoordinates || !chat?.shell.isConnected || this.privacyCovered || this.activeSurface !== 'chat') return;
     const viewport = window.visualViewport;
     if (direction === 'closed' && this.chatResumeBottomOnFocus) {
       this.chatPinnedToBottom = true;
