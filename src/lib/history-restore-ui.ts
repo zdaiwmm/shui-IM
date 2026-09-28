@@ -1,3 +1,4 @@
+import { motion, retargetMotion } from './motion';
 import { mountDialog } from './dialog';
 import { restoreUnifiedHistory, type HistoryRestoreProgress } from './cloud-backup';
 import type { VaultSession } from './vault';
@@ -67,6 +68,17 @@ export function attachHistoryRestore(options: Options): () => void {
     if (!progressSheet?.isConnected || !active()) return;
     const reading = !view || view.phase === 'reading';
     const complete = view?.phase === 'complete';
+    const phase = approve ? 'approve' : error ? 'error' : view?.phase ?? 'reading';
+    const previousPhase = progressSheet.dataset.presentationPhase;
+    progressSheet.dataset.presentationPhase = phase;
+    // A reopened sheet paints the current task immediately. Only an in-place
+    // stage change animates; percentages never restart it.
+    if (previousPhase && previousPhase !== phase) {
+      for (const node of progressSheet.querySelectorAll<HTMLElement>('h2,[data-phase],[data-detail]')) {
+        retargetMotion(node, node.getAnimations()[0], { opacity: .65, translate: '0 3px' },
+          { opacity: 1, translate: '0 0' }, motion.feedback);
+      }
+    }
     progressSheet.querySelector('h2')!.textContent = approve ? '确认恢复范围' : error ? '恢复未完成' : complete ? '恢复完成' : '正在恢复历史记录';
     progressSheet.querySelector('[data-phase]')!.textContent = error ? !view ? '恢复任务已暂停' : reading ? '检查备份时中断' : view.phase === 'verifying' ? '恢复结果未检查完成，已找回的记录会保留' : '恢复已暂停，已找回的记录会保留' : view?.waitingForService ? '备份服务繁忙，等待后自动继续' : reading
       ? view?.totalParts ? `正在检查备份（${view.scannedParts}/${view.totalParts}）` : '正在读取备份…'

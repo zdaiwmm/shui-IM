@@ -22,8 +22,8 @@ html:has(#app > :is(.backup-page, .cover)) { --chrome-tint: var(--paper-pure); }
     background-color var(--motion-feedback) var(--motion-out),
     color var(--motion-feedback) var(--motion-out), filter var(--motion-feedback) var(--motion-out);
 }
-:is(.icon-button, .send-button, .viewer-control, .voice-control, .voice-toggle):not(:disabled):active,
-.call-control:not(:disabled):active .call-control-disc { scale: .94; transition-duration: 70ms; }
+:is(.icon-button, .send-button, .viewer-control, .voice-control, .voice-toggle):not(:disabled)[data-motion-pressed="true"],
+.call-control:not(:disabled)[data-motion-pressed="true"] .call-control-disc { scale: .94; transition-duration: 70ms; }
 :is(button, [role="switch"], summary, label[role="button"]):focus-visible {
   outline: 2px solid var(--focus); outline-offset: 3px;
 }
@@ -67,7 +67,8 @@ button:disabled { cursor: default; }
     animation: none !important; transition: none !important; scroll-behavior: auto !important;
   }
   :is(.icon-button, .send-button, .viewer-control, .voice-control, .voice-toggle):active,
-  .call-control:active .call-control-disc { scale: 1; }
+  .call-control:active .call-control-disc,
+  [data-motion-pressed="true"], [data-motion-pressed="true"] .call-control-disc { scale: 1; }
 }
 
 .space-invite-overlay.is-visible .space-invite-sheet { transform: translateY(var(--invite-drag, 0px)); }
@@ -78,3 +79,6 @@ button:disabled { cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   .space-invite-sheet, .backup-toggle span, .backup-toggle::before { transition: none; }
 }
+
+.space-invite-overlay { background-color: oklch(20% .01 250 / var(--invite-backdrop, .22)); }
+button[data-motion-pressed="true"]:not(.icon-button,.send-button,.viewer-control,.voice-control,.voice-toggle,.call-control) { opacity: .78; }

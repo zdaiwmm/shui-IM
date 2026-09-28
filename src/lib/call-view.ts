@@ -1,3 +1,4 @@
+import { bindControlFeedback } from './control-feedback';
 import { motion, retargetMotion } from './motion';
 import type { CallState, CallViewActions } from './call-types';
 
@@ -62,6 +63,8 @@ export class CallView {
   private state: CallState | null = null;
   private destroyed = false;
   private statusMotion: Animation | null = null;
+  private feedbackCleanup: (() => void) | undefined;
+  private phaseMotions = new Map<HTMLElement, Animation>();
   private focusFrame: number | null = null;
   private readonly tick: ReturnType<typeof setInterval>;
 
@@ -149,6 +152,7 @@ export class CallView {
     window.addEventListener('resize', this.updateViewport);
     this.tick = setInterval(() => this.updateTimer(), 1000);
     this.updateViewport();
+    this.feedbackCleanup = bindControlFeedback(this.element);
   }
 
   update(state: CallState): void {
@@ -219,13 +223,24 @@ export class CallView {
     const entering = (!previous || previous.phase === 'idle') && state.phase !== 'idle';
     const enteringEnd = previous?.phase !== 'ended' && state.phase === 'ended';
     const controlsReplaced = previous?.phase === 'incoming' && state.phase !== 'incoming';
+    if (previous?.phase !== state.phase) {
+      for (const node of [this.avatar, this.toolbar, this.incoming, this.ended]) {
+        const old = this.phaseMotions.get(node);
+        if (node.hidden || state.phase === 'idle') { old?.cancel(); this.phaseMotions.delete(node); continue; }
+        const effect = retargetMotion(node, old, { opacity: .7, translate: '0 6px' },
+          { opacity: 1, translate: '0 0' }, motion.local);
+        if (effect) this.phaseMotions.set(node, effect);
+      }
+    }
     if (entering || enteringEnd || controlsReplaced) this.scheduleFocus();
   }
 
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.feedbackCleanup?.(); this.feedbackCleanup = undefined;
     this.statusMotion?.cancel(); this.statusMotion = null;
+    this.phaseMotions.forEach(effect => effect.cancel()); this.phaseMotions.clear();
     clearInterval(this.tick);
     if (this.focusFrame !== null) cancelAnimationFrame(this.focusFrame);
     document.removeEventListener('keydown', this.onKeyDown, true);

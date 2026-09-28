@@ -150,6 +150,7 @@ export class MediaUploadView {
       preview.alt = `${this.kind}${count > 1 ? ` ${index + 1}/${count}` : ''}${conceal ? '（已模糊）' : ''}`;
       preview.draggable = false;
       cell.replaceChildren(preview);
+      retargetMotion(cell, null, { opacity: .55 }, { opacity: 1 }, motion.feedback);
       if (video) {
         const badge = document.createElement('span');
         badge.className = 'media-upload-video-label';

@@ -1,4 +1,4 @@
-import { motion } from './motion';
+import { motion, retargetMotion } from './motion';
 type Point = { x: number; y: number };
 type Pull = {
   id: number;
@@ -8,6 +8,7 @@ type Pull = {
   target: HTMLElement | null;
   intent: 'undecided' | 'pull' | 'native';
   displaced: number;
+  initialOffset: number;
   moved: boolean;
 };
 
@@ -40,14 +41,21 @@ export function bindChatImageConcealGesture(options: {
     }
   };
   const start = (id: number, source: Pull['source'], point: Point, origin: EventTarget | null) => {
+    const preview = origin instanceof Element ? origin.closest<HTMLElement>('.image-preview[data-revealed="true"]') : null;
+    const target = preview?.closest<HTMLElement>('.message-bubble') ?? null;
+    const initialOffset = target && (settling?.target === target || pull?.target === target)
+      ? Math.max(0, new DOMMatrixReadOnly(getComputedStyle(target).transform).m41) : 0;
     reset();
     touchActive = source === 'touch';
     if (!options.active() || !options.canStart()) return;
-    const preview = origin instanceof Element ? origin.closest<HTMLElement>('.image-preview[data-revealed="true"]') : null;
+    if (initialOffset && target) {
+      target.classList.add('is-media-pulling');
+      target.style.setProperty('--media-pull-offset', `${initialOffset}px`);
+    }
     pull = {
       id, source, origin: point, latest: point,
       target: preview?.closest<HTMLElement>('.message-bubble') ?? null,
-      intent: 'undecided', displaced: 0, moved: false,
+      intent: 'undecided', displaced: initialOffset, initialOffset, moved: false,
     };
   };
   const move = (point: Point, event: Event) => {
@@ -68,7 +76,7 @@ export function bindChatImageConcealGesture(options: {
     // Reserve rightward media pulls. Vertical scrolling and leftward reply
     // gestures keep their existing ownership.
     if (event.cancelable) event.preventDefault();
-    current.displaced = 76 * Math.log1p(Math.max(0, dx) / 100);
+    current.displaced = 76 * Math.log1p(Math.max(0, dx + 100 * Math.expm1(current.initialOffset / 76)) / 100);
     current.target!.classList.add('is-media-pulling');
     current.target!.style.setProperty('--media-pull-offset', `${current.displaced}px`);
   };
@@ -87,10 +95,10 @@ export function bindChatImageConcealGesture(options: {
     if (cancelled || !options.active() || !ended.target?.isConnected || ended.displaced < 1 || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const target = ended.target;
     target.classList.add('is-media-returning');
-    const animation = target.animate(
-      [{ transform: `translate3d(${ended.displaced}px, 0, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
-      { duration: 260, easing: motion.settle },
-    );
+    const animation = retargetMotion(target, null,
+      { transform: `translate3d(${ended.displaced}px, 0, 0)` }, { transform: 'translate3d(0, 0, 0)' },
+      260, motion.settle);
+    if (!animation) { clearTarget(target); return; }
     settling = { target, animation };
     const release = () => {
       if (settling?.animation !== animation) return;

@@ -1,4 +1,4 @@
-import { motion, retargetMotion, settleValue } from './motion';
+import { dismissDraggedPanel, motion, retargetMotion, settleValue } from './motion';
 import { mountDialog } from './dialog';
 import type { PrivateSpace } from './spaces';
 import { createElement, Settings2, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2 } from 'lucide';
@@ -253,19 +253,22 @@ export function mountSpaceInvite(root: HTMLElement, options: { name: string; sig
   overlay.addEventListener('click', e => { if (e.target === overlay) dialog.close(); });
   const handle = overlay.querySelector<HTMLElement>('.space-invite-handle')!;
   const panel = overlay.querySelector<HTMLElement>('.space-invite-sheet')!;
-  let drag: { id: number; y: number; offset: number } | null = null;
+  let drag: { id: number; y: number; offset: number; lastY: number; at: number; velocity: number } | null = null;
   let offset = 0;
   let cancelSettle: (() => void) | undefined;
-  const paint = (value: number) => { offset = value; panel.style.setProperty('--invite-drag', `${value}px`); };
+  const paint = (value: number) => {
+    offset = value; panel.style.setProperty('--invite-drag', `${value}px`);
+    overlay.style.setProperty('--invite-backdrop', String(.22 * Math.max(.2, 1 - value / Math.max(1, panel.clientHeight))));
+  };
   const release = (e: PointerEvent, cancelled: boolean) => {
     if (!drag || e.pointerId !== drag.id) return;
-    const distance = e.clientY - drag.y;
+    const velocity = performance.now() - drag.at < 100 ? drag.velocity : 0;
     drag = null;
-    if (!cancelled && distance > 45) {
+    if (!cancelled && dismissDraggedPanel(offset, velocity, panel.clientHeight)) {
       panel.classList.remove('is-dragging');
       dialog.close();
     } else {
-      cancelSettle = settleValue(offset, 0, paint, () => panel.classList.remove('is-dragging'),
+      cancelSettle = settleValue(offset, cancelled ? 0 : velocity, paint, () => panel.classList.remove('is-dragging'),
         () => panel.isConnected && !options.signal.aborted && !overlay.classList.contains('is-closing'));
     }
   };
@@ -273,15 +276,19 @@ export function mountSpaceInvite(root: HTMLElement, options: { name: string; sig
     if (e.button !== 0 || !e.isPrimary || overlay.classList.contains('is-closing')) return;
     cancelSettle?.();
     offset = new DOMMatrixReadOnly(getComputedStyle(panel).transform).m42;
-    drag = { id: e.pointerId, y: e.clientY, offset };
+    drag = { id: e.pointerId, y: e.clientY, offset, lastY: e.clientY, at: performance.now(), velocity: 0 };
     panel.classList.add('is-dragging'); paint(offset);
     handle.setPointerCapture(e.pointerId);
   });
   handle.addEventListener('pointermove', e => {
     if (!drag || e.pointerId !== drag.id) return;
-    const distance = Math.max(0, e.clientY - drag.y);
+    const now = performance.now();
+    const elapsed = now - drag.at;
+    if (elapsed > 0) drag.velocity = Math.max(-2000, Math.min(2000, (e.clientY - drag.lastY) * 1000 / elapsed));
+    drag.lastY = e.clientY; drag.at = now;
     const limit = Math.max(1, panel.clientHeight);
-    paint(Math.max(0, drag.offset + limit * Math.tanh(distance / limit)));
+    const distance = Math.max(0, drag.offset + e.clientY - drag.y);
+    paint(limit * Math.tanh(distance / limit));
   });
   handle.addEventListener('pointerup', e => release(e, false));
   handle.addEventListener('pointercancel', e => release(e, true));

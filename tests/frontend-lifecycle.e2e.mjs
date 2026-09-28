@@ -2268,8 +2268,8 @@ try {
     const flipBadge = animatedArticle.querySelector('.message-reaction');
     const flipAnimation = followerContent.getAnimations().find(animation =>
       animation.effect?.getKeyframes().some(frame => typeof frame.translate === 'string'));
-    if (!flipBadge || !flipAnimation || Number(flipAnimation.effect.getTiming().duration) !== 300) {
-      throw Error('Reaction insertion did not create the 300ms follower FLIP animation');
+    if (!flipBadge || !flipAnimation || (Number(flipAnimation.effect.getTiming().duration) < 180 || Number(flipAnimation.effect.getTiming().duration) > 320)) {
+      throw Error('Reaction insertion did not create a bounded distance-based follower FLIP animation');
     }
     const followerImmediateTop = followerContent.getBoundingClientRect().top;
     const heldAtOldPosition = Math.abs(followerImmediateTop - followerTop) < 3;
@@ -2292,7 +2292,7 @@ try {
     const removalAnimation = followerContent.getAnimations().find(animation =>
       animation.effect?.getKeyframes().some(frame => typeof frame.translate === 'string'));
     if (animatedArticle.querySelector('.message-reaction') || !removalAnimation
-      || Number(removalAnimation.effect.getTiming().duration) !== 300) {
+      || (Number(removalAnimation.effect.getTiming().duration) < 180 || Number(removalAnimation.effect.getTiming().duration) > 320)) {
       throw Error('Removing the last reaction did not smoothly return following rows');
     }
     await new Promise(resolve => setTimeout(resolve, 180));
@@ -2301,14 +2301,14 @@ try {
       initialEmojiFocus: false, keyboardNavigation: true, smoothBackdropClose: true,
       badgeRetainedAcrossAckAndSync: true, followerHeldAtOldPosition: heldAtOldPosition,
       followerImmediateDelta: followerImmediateTop - followerTop,
-      followerTravel: finalTop - followerTop, insertionDuration: 300, removalDuration: 300,
+      followerTravel: finalTop - followerTop, insertionDuration: Number(flipAnimation.effect.getTiming().duration), removalDuration: Number(removalAnimation.effect.getTiming().duration),
     };
   });
   assert.equal(results.reactionPresentation.followerHeldAtOldPosition, true,
     `Reaction reflow jumped before its FLIP animation began: ${JSON.stringify(results.reactionPresentation)}`);
   // The badge's exact line-box contribution varies with the runner's CJK and
   // emoji fallback fonts. Require a clear multi-pixel downward reflow while
-  // the assertions above continue to verify the 300ms FLIP and zero jump.
+  // the assertions above continue to verify the bounded FLIP and zero jump.
   assert(results.reactionPresentation.followerTravel > 3, `Reaction fixture did not move the following bubble: ${JSON.stringify(results.reactionPresentation)}`);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   results.reactionReducedMotion = await page.evaluate(async () => {
