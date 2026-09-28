@@ -1,5 +1,14 @@
 # Quiet Room 固定发布流程
 
+## 备份与恢复双入口已发布（2026-09-28 17:13）
+
+- 用户在已交付 [PR #213](https://github.com/zdaiwmm/shui-IM/pull/213) 及精确合并提交后明确“发布”，本次目标为 `e8b9c5309944355bd1c22ad508f81370593cdbb1`，版本 `2026.09.28.3`。发布前生产为 `a428df932afbf3e7f277b906535555171501abf4`。本地 92 文件 / 729 项单元与分段 45/45 浏览器通过；精确 main [CI 36400466603](https://github.com/zdaiwmm/shui-IM/actions/runs/36400466603) attempt 1 全部通过。PR CI 曾有未改动表情用例失败，保留原失败并仅重跑失败分片一次后通过，main 全量未再复现。
+- 上线本地／云端备份恢复双入口、自动加密备份开关和半屏隐私确认、静默备份、下载直接系统通行密钥验证、选文件后恢复码校验，以及本人授权的跨设备恢复。身份恢复材料独立维护，旧来源缺少授权时仍须补码，不改变普通新设备无旧历史的边界。详见[需求记录](docs/requirements/2026-09-28-backup-recovery/README.md)。
+- 首次只读预检因任务树未配置部署目标退出；复用本机既有配置后通过，未更改配置。固定入口取得并核对 `DEPLOY_VERIFIED` 与精确回执；批次 `20260928T091035Z`，发布目录 `/opt/quiet-room/git-releases/20260928T091035Z-e8b9c5309944`，冷备份 `data-20260928T091035Z-e8b9c5309944.tar.gz` 已校验。切换前可用 5428510720 字节、使用率 86.41%，容量预检通过；不是发布后容量。服务器发布 139 秒，入口总耗时 197470ms。
+- 独立 `READBACK_OK` 于 `2026-09-28T09:13:49.879Z` 完成，耗时 2933ms。精确 SHA、镜像 `sha256:db7cecaaa77f416c2c81da8f50824dec83e47f74a4dae996ba8081ee31a1d59d`、HTTPS／数据库／存储、公开与容器产物及新 WebSocket 一致。应用运行且健康，备份与 TURN 运行但无健康探针；维护标记不存在，管理员与通话开启。
+- 脱敏证据 `/Users/zhouding/ss/.git/worktrees/backup-recovery-prototype/quiet-room-readback/20260928T091346945Z-e8b9c5309944-success.json`；入口精确回执 `/private/var/folders/kx/xvfkgvzn5cb2t23mnc9518kr0000gn/T/quiet-room-publish-0f53PN/.git/quiet-room-verified-sha`。
+- iPhone / iOS Safari 系统验证与选择器未真机验收。对账在不含部署配置的独立文档树 `codex/backup-release-record` 完成，不再次发布。开发树承载活动原型服务、依赖及回读证据，文档树用于本轮对账，均保留；不清理其他任务或服务器资源。下方为历史发布记录。
+
 ## 聊天连续性 V1 已发布（2026-09-28 15:00）
 
 - 用户在本会话明确“合并并发布生产”，随后要求“继续”；[PR #211](https://github.com/zdaiwmm/shui-IM/pull/211) 已合并。精确线上应用 SHA `a428df932afbf3e7f277b906535555171501abf4`，版本 `2026.09.28.2`，与发布候选 `56f9a5f7311a88b04f2482b619e9b299fb9a2700` 文件树一致。聊天实现 `ebb771b` 的完整本地门禁通过（724 项单元／集成、44/44 浏览器）；发布元数据另通过构建及 17 项发布测试。候选 PR CI [36388186770](https://github.com/zdaiwmm/shui-IM/actions/runs/36388186770)、精确 main CI [36388668442](https://github.com/zdaiwmm/shui-IM/actions/runs/36388668442) 完整通过。
