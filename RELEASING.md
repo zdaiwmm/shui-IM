@@ -1,5 +1,14 @@
 # Quiet Room 固定发布流程
 
+## 录屏语音交互与聊天细节已发布（2026-09-29 00:49）
+
+- 用户在 [PR #224](https://github.com/zdaiwmm/shui-IM/pull/224) 合并交付后明确“确认并发布生产”，批准应用提交 `df2e0c265c1d74a862b3d8e32e6a119f14a3ef96`，版本 `2026.09.28.8`。精确 main [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36452865169) 首次全部通过；合并树与本地已验证候选一致。
+- 已上线行内长按录音、左滑取消、上滑锁定、暂停试听与继续录制；同步修复加号／语音／发送布局、占位对齐、可靠分类 GIF 再缩至上一版 60%、不同本机凭据的待建立空间删除、底部返回页转场、顶部爱心闪动与局部电流，以及在线样式选择即生效。边界见[需求 V2](docs/requirements/2026-09-28-voice-composer-refinement/README.md)。
+- 最终候选 `49396a118f0e969c6f9a98ebfddb1b00d01428cb` 的本地 `check:full` 通过：构建、738 项单元／集成、47/47 浏览器专项。PR CI 在通话连接超时后，同一提交仅重跑失败分组一次通过；精确 main CI 未重跑。真实 iPhone／iOS 27 的键盘、权限、音频路由和动画手感尚未验收。
+- 固定入口取得 `DEPLOY_VERIFIED` 并核对精确 SHA 回执；发布批次 `20260928T164711Z`，目录 `/opt/quiet-room/git-releases/20260928T164711Z-df2e0c265c1d`，冷备份 `data-20260928T164711Z-df2e0c265c1d.tar.gz` 已校验。切换前第二次容量检查通过：可用 4316536832 字节、使用率 89.19%；这是切换前读数，不代表发布后余量。服务器发布 135 秒；固定入口含等待 CI 总耗时 356342ms。前一生产为 `afbaa885e938f3063b9336952739778dd8025c37`。
+- 独立 `READBACK_OK` 于 `2026-09-28T16:49:58.470Z` 完成，耗时 3002ms。线上 SHA、镜像 `sha256:5bb2691242c5247c074af78e5670956297152ddd709225408d903c6a9ae7af90`、HTTPS／数据库／存储、公开与容器产物及新 WebSocket 一致。应用运行且健康；备份和 TURN 运行但无健康探针；维护标记不存在，管理员与通话开关均为 1。
+- 脱敏证据位于 `/private/tmp/quiet-room-voice-ui/.git/quiet-room-readback/20260928T164955467Z-df2e0c265c1d-success.json`；精确入口回执位于 `/private/var/folders/nb/srcr2n5d2l58l5nq123qb8xm0000gn/T/quiet-room-publish-1cwL14/.git/quiet-room-verified-sha`。独立文档克隆 `codex/voice-release-record` 未复制部署配置，仅对账发布、状态和同一需求记录；文档合并不再次部署。
+
 ## 动效欠项补齐已发布（2026-09-28 21:11）
 
 - 用户确认发布精确 main 提交 `afbaa885e938f3063b9336952739778dd8025c37`，版本 `2026.09.28.7`；[PR #221](https://github.com/zdaiwmm/shui-IM/pull/221) 已合并，精确 main [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36425750038) 首次运行全部通过，合并树与已验证候选一致。
