@@ -171,6 +171,9 @@ try {
   const cachedMediaRequests = await page.evaluate(() => window.fixture.mediaRequests.length);
   await page.locator('#open-memes').click();
   await page.locator('#open-memes').click();
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===9);
+  assert.equal(await page.getByRole('button',{name:'收藏',exact:true}).getAttribute('aria-pressed'),'true','Reopening did not retain the selected collection');
+  await page.getByRole('button',{name:'收藏',exact:true}).click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===12);
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile img[src]').length>=3);
   assert.equal(await page.evaluate(() => window.fixture.requests.length), cachedSearchRequests, 'Reopening the picker refetched the catalog');
@@ -602,6 +605,29 @@ try {
     app.openMemePicker(); await verifyMotion('transform');
     document.querySelector('#open-memes').click(); await verifyMotion('transform');
     if (document.querySelector('.meme-panel')) throw Error('Half close retained the panel');
+  });
+  await page.evaluate(async () => {
+    const { app } = window.fixture;
+    const style=document.createElement('style');style.id='scroll-restore-probe';style.textContent='.meme-panel .meme-scroll { max-height: 60px !important; }';document.head.append(style);
+    app.openMemePicker();await app.memePicker.switchKind('gifs');
+    const scroll=document.querySelector('.meme-scroll');scroll.scrollTop=90;scroll.dispatchEvent(new Event('scroll'));
+    const position=scroll.scrollTop;if(position<1)throw Error('Scroll restoration probe has no scrollable content');
+    window.fixture.pickerScrollPosition=position;
+    app.closeMemePicker();app.openMemePicker();
+  });
+  await page.waitForFunction(()=>window.fixture.app.memePicker?.localReady);
+  assert.equal(await page.locator('.meme-scroll').evaluate(e=>e.scrollTop),await page.evaluate(()=>window.fixture.pickerScrollPosition),'Reopening the picker lost its scroll position');
+  await page.evaluate(()=>{document.querySelector('#scroll-restore-probe').remove();window.fixture.app.closeMemePicker();});
+  await page.evaluate(async () => {
+    const { app } = window.fixture;
+    app.openMemePicker();
+    const old = app.memePicker;
+    app.closeMemePicker(false, true);
+    app.openMemePicker();
+    const current = app.memePicker;
+    await new Promise(resolve => setTimeout(resolve, 700));
+    if (old === current || app.memePicker !== current || !document.querySelector('.meme-panel')) throw Error('An old closing callback removed the reopened picker');
+    app.closeMemePicker();
   });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.evaluate(() => {

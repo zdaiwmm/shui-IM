@@ -111,3 +111,5 @@
 - [本机局域网测试与跨电脑同步](../workflows/local-lan-testing.md)：本机 `main` 集成、服务回读、局域网 HTTPS 真机验收及 GitHub 同步边界。
 - [iPhone 真机调试](../workflows/iphone-debug.md)：持久 USB 工具、自动录制与键盘操作、数值探针、证据限制及媒体清理。
 - [audit/](../../audit/)：特定日期和代码基线的审查证据；不能自动外推到当前工作树。
+
+聊天连续性（历史键盘、引用往返、发送动画接续、表情状态）的专项为 `tests/chat-continuity.e2e.mjs`，与既有 `chat-list-viewport`、`chat-bottom-control`、`frontend-lifecycle` 和 `meme-picker` 一起随 `npm run check:full` 执行。确认与证据见[需求记录](../requirements/2026-09-28-chat-continuity/README.md)。

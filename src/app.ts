@@ -91,7 +91,7 @@ import { bindChatImageConcealGesture } from './lib/chat-image-conceal-gesture';
 import { CHAT_LATEST_GAP, mountChatBottomControl } from './lib/chat-bottom-control';
 import { CHAT_KEYBOARD_LAYOUT_MS, chatKeyboardLayoutProgress, createChatKeyboardLayout } from './lib/chat-keyboard-layout';
 import { bindChatKeyboardGesture, CHAT_VIEWPORT_SETTLE_MS, createChatViewportMotion } from './lib/chat-viewport-motion';
-import { bindReplySwipe, replySwipeMaxOffset } from './lib/reply-swipe';
+import { bindReplySwipe, replySwipeMaxOffset, replySwipeOffset, REPLY_SWIPE_THRESHOLD_PX } from './lib/reply-swipe';
 import {
   classifyInviteHash,
   makeDeviceInviteUrl,
@@ -436,7 +436,8 @@ export class QuietRoomApp {
   private coverStoredVaultPreparation = 0;
   private idleTimer: number | null = null;
   private blurLockTimer: number | null = null;
-  private sendingTextDrafts = new Set<string>();
+  private sendingTextDrafts = new Set<number>();
+  private composerDraftVersion = 0;
   private chatPinnedToBottom = true;
   private entranceGuideCard: HTMLElement | null = null;
   private chatViewportTop = 0;
@@ -628,6 +629,8 @@ export class QuietRoomApp {
   private suppressMediaClickUntil = 0;
   private messageHighlightTimer: number | null = null;
   private replyJumpVersion = 0;
+  private replyReturnAnchors: ChatScrollAnchor[] = [];
+  private chatNewMessageIds = new Set<string>();
   private voiceRecorder: VoiceRecorder | null = null;
   private voiceGesture: ReturnType<typeof bindVoiceInputGesture> | null = null;
   private microphonePromptActive = false;
@@ -4505,6 +4508,11 @@ export class QuietRoomApp {
           }
           if (!this.isRuntimeActive(epoch, session)) return;
           this.messages.set(message.seq, message);
+          if (!ownRole && this.livePresenceMessages.has(serverMessage) && this.activeSurface === 'chat'
+            && !this.chatPinnedToBottom && ['text', 'image', 'image-album', 'file', 'audio'].includes(payload.kind)) {
+            this.chatNewMessageIds.add(message.clientMsgId);
+          }
+
           if (!ownDevice && this.livePresenceMessages.has(serverMessage)
             && ['text', 'image', 'image-album', 'file', 'audio'].includes(payload.kind)) {
             this.presenceCircuit?.received(ownRole);
@@ -4716,7 +4724,7 @@ export class QuietRoomApp {
     if (this.keyboardHandoff?.input.id === 'meme-query' && this.invalidateKeyboardHandoff()) return;
     if (animate && picker && !this.privacyCovered) {
       if (keyboard) this.root.querySelector<HTMLTextAreaElement>('#message-input')?.focus({ preventScroll: true });
-      picker.close(() => this.closeMemePicker(keyboard));
+      picker.close(() => { if (this.memePicker === picker) this.closeMemePicker(keyboard); });
       return;
     }
     this.memePicker = null;
@@ -5301,6 +5309,7 @@ export class QuietRoomApp {
         <div class="notice" id="notice" role="status" hidden></div>
         <section class="message-list" id="message-list" aria-label="聊天消息"></section>
         <form class="composer" id="composer" autocomplete="off">
+          <button class="chat-reply-return" id="chat-reply-return" type="button" hidden>↩ 返回刚才位置</button>
           <button class="chat-bottom-control" id="chat-bottom-control" type="button" aria-label="回到最新消息" aria-hidden="true" tabindex="-1"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></button>
           <input id="image-input" type="file" accept="image/*,video/*" multiple ${cryptoReady ? '' : 'disabled'} hidden />
           <input id="camera-input" type="file" accept="image/*,video/*" capture="environment" ${cryptoReady ? '' : 'disabled'} hidden />
@@ -5350,11 +5359,10 @@ export class QuietRoomApp {
     const ownsActiveChat = () => !this.privacyCovered && this.activeSurface === 'chat'
       && this.chatLayoutElements?.list === list && this.chatLayoutElements.composer.contains(textarea)
       && list.isConnected && textarea.isConnected;
-    let keyboardHistoryRead: AbortController | null = null;
     this.mountChatImageConcealGesture(list);
     const scrollIntent = (direction: 'up' | 'down') => {
       if (!ownsActiveChat()) return;
-      keyboardHistoryRead?.abort();
+      this.replyJumpVersion += 1;
       this.chatBottomControl?.cancel();
       this.cancelChatMessageMotion();
       this.chatResumeBottomOnFocus = false;
@@ -5385,7 +5393,7 @@ export class QuietRoomApp {
       const y = event.touches[0]?.clientY;
       if (touchY !== null && y !== undefined && Math.abs(y - touchY) > 2) {
         this.chatViewportMotion?.move();
-        if (!this.chatKeyboardGesture?.held) scrollIntent(y > touchY ? 'up' : 'down');
+        scrollIntent(y > touchY ? 'up' : 'down');
         touchY = y;
       }
       this.trackChatViewport();
@@ -5460,21 +5468,10 @@ export class QuietRoomApp {
       if (!ownsActiveChat()) return;
       this.cancelNativeKeyboardDismiss();
       delete this.chatLayoutElements?.composer.dataset.keyboardDismissReveal;
-      if (this.visualClientCoordinates) {
-        this.nativeKeyboardOpening = true;
-        this.chatRestoreAnchor = null;
-        this.scrollChatToBottom();
-        if (this.historyHasNewer && this.runtimeAbort) {
-          keyboardHistoryRead?.abort();
-          const read = new AbortController();
-          keyboardHistoryRead = read;
-          const signal = AbortSignal.any([read.signal, this.runtimeAbort.signal]);
-          void this.prepareChatBottomScroll(list, signal).then(ready => {
-            if (ready && !signal.aborted && ownsActiveChat() && document.activeElement === textarea
-              && this.chatScrollIntent !== 'up') this.scrollChatToBottom();
-          }).finally(() => { if (keyboardHistoryRead === read) keyboardHistoryRead = null; });
-        }
-      }
+      if (this.visualClientCoordinates) this.nativeKeyboardOpening = true;
+      // Focus belongs to the current reader. Opening the keyboard must not
+      // discard a history anchor or fetch unrelated newer history pages.
+      if (!this.chatPinnedToBottom) this.captureChatAnchor(true);
       this.beginListKeyboardLayout('open');
       prepareKeyboardTarget();
       if (!this.desktopBrowser && (document.documentElement.dataset.keyboardOpen !== 'true'
@@ -5685,6 +5682,7 @@ export class QuietRoomApp {
       if (ownsActiveChat()) resizeTextarea();
     });
     textarea.addEventListener('input', event => {
+      this.composerDraftVersion += 1;
       resizeTextarea(true, true, event instanceof InputEvent && event.isComposing);
       this.uiPreferences.composerDraft = textarea.value;
       this.scheduleUiPreferencesSave();
@@ -5707,7 +5705,7 @@ export class QuietRoomApp {
     });
     textarea.addEventListener('blur', () => {
       if (!ownsActiveChat()) return;
-      keyboardHistoryRead?.abort();
+      this.replyJumpVersion += 1;
       if ((this.bottomControlRetainsKeyboard || replyCloseRetainsKeyboard) && !this.privacyCovered && this.activeSurface === 'chat') {
         // A few mobile browser builds still transfer focus after a prevented
         // pointerdown on the floating return control. Restore it before the
@@ -5751,6 +5749,13 @@ export class QuietRoomApp {
     this.root.querySelector('#chat-bottom-control')?.addEventListener('pointerdown', event => {
       this.bottomControlRetainsKeyboard = document.activeElement === textarea;
       this.retainComposerKeyboard(event as PointerEvent, textarea);
+    });
+    this.root.querySelector('#chat-reply-return')?.addEventListener('pointerdown', event => {
+      this.retainComposerKeyboard(event as PointerEvent, textarea);
+    });
+    this.root.querySelector('#chat-reply-return')?.addEventListener('click', () => {
+      const anchor = this.replyReturnAnchors.at(-1);
+      if (anchor) void this.jumpToReplyTarget(anchor.clientMsgId, anchor.seq, anchor);
     });
     this.mountImagePicker(imageInput, 'chat', this.root.querySelector<HTMLButtonElement>('#open-image-picker'));
     this.mountImagePicker(this.root.querySelector<HTMLInputElement>('#camera-input'), 'chat', this.root.querySelector<HTMLButtonElement>('#open-camera-picker'));
@@ -6010,8 +6015,9 @@ export class QuietRoomApp {
         this.chatBottomFollowPending = false;
         this.chatViewportFollowUntil = 0;
       },
-      release: () => {
+      release: dismiss => {
         this.chatViewportMotion?.touchEnd();
+        if (!dismiss) { this.chatResumeBottomOnFocus = false; this.trackChatViewport(); return; }
         this.beginNativeKeyboardDismiss();
         this.chatViewportMotion?.keyboard('closed');
         this.keepComposerKeyboard = false;
@@ -6036,6 +6042,7 @@ export class QuietRoomApp {
       measure: () => !this.chatViewportMotion?.moving && !this.composerHeightMotion,
       begin: () => {
         this.replyJumpVersion += 1;
+        this.replyReturnAnchors = [];
         this.chatViewportMotion?.automaticScroll();
         this.cancelChatMessageMotion();
         this.chatRestoreAnchor = null;
@@ -6642,9 +6649,12 @@ export class QuietRoomApp {
 
   private setActiveSurface(surface: 'away' | 'chat'): boolean {
     if (surface === 'away' && this.invalidateKeyboardHandoff()) return false;
-    if (surface === 'away') this.closeMemePicker();
+    if (surface === 'away') { this.closeMemePicker(); this.memeCache.view = undefined; }
     this.stopViewerMedia();
     if (surface === 'away') {
+      this.replyJumpVersion += 1;
+      this.replyReturnAnchors = [];
+      this.chatNewMessageIds.clear();
       this.presenceCircuit?.destroy();
       this.presenceCircuit = null;
       this.clearKeyboardHandoff();
@@ -6922,11 +6932,24 @@ export class QuietRoomApp {
     this.chatBottomControl?.cancel();
     this.chatScrollIntent = null;
     this.chatPinnedToBottom = true;
+    this.chatNewMessageIds.clear();
     this.alignChatBottom();
+    this.updateChatBottomControl();
     if (this.chatBottomFollowPending) this.trackChatViewport();
   }
 
   private updateChatBottomControl(): void {
+    const returning = this.root.querySelector<HTMLButtonElement>('#chat-reply-return');
+    if (returning) returning.hidden = this.replyReturnAnchors.length === 0;
+    if (this.chatPinnedToBottom && this.chatScrollIntent !== 'up') this.chatNewMessageIds.clear();
+    const bottom = this.root.querySelector<HTMLButtonElement>('#chat-bottom-control');
+    if (bottom) {
+      const count = this.chatNewMessageIds.size;
+      let badge = bottom.querySelector<HTMLElement>('.chat-new-count');
+      if (count && !badge) { badge = document.createElement('span'); badge.className = 'chat-new-count'; bottom.append(badge); }
+      if (badge) { badge.hidden = count === 0; badge.textContent = count > 99 ? '99+' : String(count); }
+      bottom.setAttribute('aria-label', count ? `${count} 条新消息，回到最新消息` : '回到最新消息');
+    }
     if (this.chatViewportMotion?.moving) return;
     this.chatBottomControl?.update();
   }
@@ -7214,7 +7237,8 @@ export class QuietRoomApp {
     if (!session || this.privacyCovered || this.voiceRecorder) return;
     const input = this.root.querySelector<HTMLTextAreaElement>('#message-input');
     const originalDraft = input?.value ?? '';
-    if (this.sendingTextDrafts.has(originalDraft)) return;
+    const draftVersion = this.composerDraftVersion;
+    if (this.sendingTextDrafts.has(draftVersion)) return;
     const text = originalDraft.trim();
     const retainKeyboard = Boolean(input && (document.activeElement === input || this.keepComposerKeyboard));
     if (!text) {
@@ -7238,12 +7262,12 @@ export class QuietRoomApp {
           replyTo: this.replyReference(replyTarget),
         }
       : { v: 1, kind: 'text', text, sentAt: new Date().toISOString() };
-    this.sendingTextDrafts.add(originalDraft);
+    this.sendingTextDrafts.add(draftVersion);
     try {
       await this.enqueuePayload(payload);
       if (!this.isRuntimeActive(epoch, session)) return;
       if (this.chatPinnedToBottom && this.chatScrollIntent !== 'up') this.trackChatViewport(!this.desktopBrowser);
-      if (input?.isConnected && input.value === originalDraft) {
+      if (input?.isConnected && this.composerDraftVersion === draftVersion && input.value === originalDraft) {
         // The optimistic row is inserted before the draft is cleared. Own the
         // ensuing programmatic scroll/caret adjustment for single-line sends
         // too; it is not a keyboard transition and must never hide the bar.
@@ -7256,20 +7280,20 @@ export class QuietRoomApp {
         this.flushUiPreferencesSave();
         if (retainKeyboard) this.restoreComposerFocus();
       }
-      if (this.replyTarget?.clientMsgId === replyTarget?.clientMsgId) {
+      if (this.replyTarget === replyTarget) {
         this.replyTarget = null;
         this.renderReplyDraft();
       }
     } catch (cause) {
       if (!this.isRuntimeActive(epoch, session)) return;
-      if (input?.isConnected && !input.value) {
+      if (input?.isConnected && this.composerDraftVersion === draftVersion && !input.value) {
         input.value = text;
         input.dispatchEvent(new Event('input'));
       }
       this.showNotice(cause instanceof Error ? cause.message : '消息未能安全保存', 'error');
       return;
     } finally {
-      if (this.isRuntimeActive(epoch, session)) this.sendingTextDrafts.delete(originalDraft);
+      if (this.isRuntimeActive(epoch, session)) this.sendingTextDrafts.delete(draftVersion);
     }
   }
 
@@ -7962,7 +7986,7 @@ export class QuietRoomApp {
       if (!this.isRuntimeActive(epoch, session)) return false;
       mediaUpload?.view.destroy();
       this.mediaUploads.delete(clientMsgId);
-      if (this.replyTarget?.clientMsgId === replyTarget?.clientMsgId) {
+      if (this.replyTarget === replyTarget) {
         this.replyTarget = null;
         this.renderReplyDraft();
       }
@@ -8340,7 +8364,8 @@ export class QuietRoomApp {
       },
       move: (offset, armed) => {
         article.style.setProperty('--reply-swipe-offset', `${offset}px`);
-        article.style.setProperty('--reply-swipe-progress', String(Math.min(1, offset / 52)));
+        const activationOffset = replySwipeOffset(REPLY_SWIPE_THRESHOLD_PX, replySwipeMaxOffset(window.visualViewport?.width ?? window.innerWidth));
+        article.style.setProperty('--reply-swipe-progress', String(armed ? 1 : Math.min(.99, offset / Math.max(1, activationOffset))));
         article.classList.toggle('is-reply-armed', armed);
         if (armed && !swipeWasArmed) navigator.vibrate?.(12);
         swipeWasArmed = armed;
@@ -8810,61 +8835,73 @@ export class QuietRoomApp {
     }
   }
 
-  private async jumpToReplyTarget(clientMsgId: string, seq?: number): Promise<void> {
+  private async jumpToReplyTarget(clientMsgId: string, seq?: number, returning?: ChatScrollAnchor): Promise<void> {
     const jumpVersion = ++this.replyJumpVersion;
     const session = this.session;
     const epoch = this.runtimeEpoch;
-    const list = this.root.querySelector<HTMLElement>('#message-list');
-    if (!session || this.privacyCovered || !list) return;
-    if (this.messageIsUnavailable(clientMsgId)) {
-      this.showNotice('原消息已删除');
-      return;
+    const list = this.chatLayoutElements?.list;
+    if (!session || this.privacyCovered || !list?.isConnected) return;
+    const active = () => this.isRuntimeActive(epoch, session) && this.activeSurface === 'chat'
+      && this.chatLayoutElements?.list === list && list.isConnected && this.replyJumpVersion === jumpVersion;
+    if (!returning && this.messageIsUnavailable(clientMsgId)) { this.showNotice('原消息已删除'); return; }
+    const source = this.captureChatAnchor();
+    let target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(clientMsgId)}"]`);
+    if (!target && seq !== undefined) {
+      try {
+        const signal = this.runtimeAbort?.signal;
+        const saved = await loadHistoryMessage(session, seq, signal);
+        if (!active()) return;
+        const readable = saved?.clientMsgId === clientMsgId && ['text', 'image', 'image-album', 'file', 'audio'].includes(saved.payload.kind);
+        if (readable || returning) {
+          const nearby = await loadHistoryPage(session, { limit: 200, beforeSeq: Math.min(seq + 101, Number.MAX_SAFE_INTEGER), signal });
+          if (!active()) return;
+          for (const message of nearby) this.messages.set(message.seq, message);
+          if (readable) this.messages.set(saved!.seq, saved!);
+          if (nearby.some(message => message.seq > 1)) this.historyHasMore = true;
+          this.renderMessages({ scroll: 'position' });
+          target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(clientMsgId)}"]`);
+        }
+      } catch (cause) {
+        if (active()) this.operationalError(cause, '原消息暂时无法读取，请重试');
+        return;
+      }
     }
+    if (!active()) return;
+    if (!target && returning) {
+      // A deleted origin returns to the nearest readable row without revealing
+      // a stale quote or silently moving the reader to the newest message.
+      target = this.renderedMessageOrder.reduce<HTMLElement | null>((best, row) => {
+        const distance = Math.abs((this.renderedMessageSeq.get(row.dataset.clientMsgId ?? '') ?? Infinity) - returning.seq);
+        const previous = best ? Math.abs((this.renderedMessageSeq.get(best.dataset.clientMsgId ?? '') ?? Infinity) - returning.seq) : Infinity;
+        return distance < previous ? row : best;
+      }, null);
+    }
+    if (!target) { this.showNotice('这台设备未保存可读取的原消息'); return; }
     this.chatBottomControl?.cancel();
     this.cancelChatMessageMotion();
+    this.chatViewportMotion?.automaticScroll();
     this.chatRestoreAnchor = null;
     this.chatScrollIntent = 'up';
     this.chatPinnedToBottom = false;
     this.chatBottomFollowPending = false;
     this.chatViewportFollowUntil = 0;
     this.chatResumeBottomOnFocus = false;
-    let target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(clientMsgId)}"]`);
-    if (!target && seq !== undefined) {
-      try {
-        const signal = this.runtimeAbort?.signal;
-        const saved = await loadHistoryMessage(session, seq, signal);
-        if (!this.isRuntimeActive(epoch, session) || !list.isConnected || this.replyJumpVersion !== jumpVersion) return;
-        if (saved?.clientMsgId === clientMsgId && saved.payload.kind !== 'gallery-image' && saved.payload.kind !== 'gallery-file'
-          && saved.payload.kind !== 'reaction' && saved.payload.kind !== 'message-delete' && saved.payload.kind !== 'media-read' && saved.payload.kind !== 'message-read') {
-          const nearby = await loadHistoryPage(session, { limit: 200, beforeSeq: Math.min(seq + 101, Number.MAX_SAFE_INTEGER), signal });
-          if (!this.isRuntimeActive(epoch, session) || !list.isConnected || this.replyJumpVersion !== jumpVersion) return;
-          for (const message of nearby) this.messages.set(message.seq, message);
-          this.messages.set(saved.seq, saved);
-          if (saved.seq > 1) this.historyHasMore = true;
-          this.renderMessages({ scroll: 'position' });
-          target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(clientMsgId)}"]`);
-        }
-      } catch (cause) {
-        if (this.isRuntimeActive(epoch, session) && list.isConnected && this.replyJumpVersion === jumpVersion) this.operationalError(cause, '原消息暂时无法读取，请重试');
-        return;
-      }
-    }
-    if (!target) {
-      this.showNotice('这台设备未保存可读取的原消息');
-      return;
-    }
-    const behavior = matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
-    if (this.usesListScrolling) {
+    if (returning) {
+      this.replyReturnAnchors.pop();
+      this.restoreChatAnchor(list, { ...returning, clientMsgId: target.dataset.clientMsgId! });
+    } else {
+      if (source) this.replyReturnAnchors.push(source);
+      if (this.replyReturnAnchors.length > 10) this.replyReturnAnchors.shift();
+      // A bounded direct jump avoids animating through unrelated private history.
       const rect = target.getBoundingClientRect();
-      list.scrollTo({ top: list.scrollTop + rect.top + rect.height / 2
-        - list.getBoundingClientRect().top - list.clientHeight / 2, behavior });
-    } else target.scrollIntoView({ block: 'center', behavior });
+      this.setChatScrollTop(this.chatScrollTop + rect.top - this.chatViewportTop - Math.max(72, (this.chatViewportHeight - rect.height) / 2));
+    }
+    this.captureChatAnchor(true);
+    this.updateChatBottomControl();
+    this.root.querySelectorAll('.message.is-highlighted').forEach(row => row.classList.remove('is-highlighted'));
     target.classList.add('is-highlighted');
     if (this.messageHighlightTimer !== null) window.clearTimeout(this.messageHighlightTimer);
-    this.messageHighlightTimer = window.setTimeout(() => {
-      target.classList.remove('is-highlighted');
-      this.messageHighlightTimer = null;
-    }, 1400);
+    this.messageHighlightTimer = window.setTimeout(() => { target?.classList.remove('is-highlighted'); this.messageHighlightTimer = null; }, 1400);
   }
 
   private createEntranceGuideCard(): HTMLElement | null {
@@ -8898,7 +8935,7 @@ export class QuietRoomApp {
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!list || !this.session) return;
     const reflowOrigins = new Map<HTMLElement, number>();
-    if (scroll === 'preserve') {
+    if (scroll === 'preserve' || scroll === 'send') {
       // Capture the pixels the user currently sees, including an in-flight
       // earlier FLIP. Rows themselves do not carry that transform—their
       // visible children do—so row bounds would make a rapid second reaction
@@ -8931,6 +8968,7 @@ export class QuietRoomApp {
     const previousLatest = followSend ? this.renderedMessageOrder.at(-1) : null;
     const previousLatestTop = previousLatest?.isConnected ? previousLatest.querySelector('.message-bubble')?.getBoundingClientRect().top ?? null : null;
     if (followSend) {
+      this.replyReturnAnchors = [];
       // A send can commit while IME wrapping is still animating. Preserve the
       // painted input height before committing the new row; otherwise the old
       // height owner blocks bottom alignment after its row animations cancel.
@@ -9127,9 +9165,22 @@ export class QuietRoomApp {
     this.restoreChatAnchorOnNextRender = false;
     this.markVisibleMessagesRead();
     if (followSend && previousLatestTop !== null && previousLatest?.isConnected) {
-      this.animateChatMessageShift(previousLatestTop - previousLatest.getBoundingClientRect().top);
+      const offset = Math.max(0, Math.min(120, previousLatestTop - previousLatest.getBoundingClientRect().top));
+      // New nodes join the same FLIP; existing nodes retain their own painted
+      // origins when a second send interrupts the first one.
+      for (let index = list.children.length - 1; index >= 0; index -= 1) {
+        const row = list.children[index] as HTMLElement;
+        const bounds = row.getBoundingClientRect();
+        if (bounds.bottom < this.chatViewportTop - 160) break;
+        if (bounds.top > this.chatViewportTop + this.chatViewportHeight) continue;
+        const contents = row.classList.contains('message-date') ? [row] : row.children;
+        for (const child of contents) if (child instanceof HTMLElement && !reflowOrigins.has(child)
+          && !child.classList.contains('message-reply-swipe-indicator')) {
+          reflowOrigins.set(child, child.getBoundingClientRect().top + offset);
+        }
+      }
     }
-    if (reactionLayoutChanged) this.animateChatReactionReflow(reflowOrigins);
+    if (reactionLayoutChanged || followSend) this.animateChatReactionReflow(reflowOrigins, followSend ? 280 : 300);
     this.updateChatBottomControl();
   }
 
@@ -9162,13 +9213,14 @@ export class QuietRoomApp {
           [{ translate: `0 ${offset}px` }, { translate: '0 0' }],
           { duration, easing, fill: 'backwards' },
         );
+        animation.currentTime = 0;
         this.chatMessageAnimations.add(animation);
         animation.finished.then(() => this.chatMessageAnimations.delete(animation), () => this.chatMessageAnimations.delete(animation));
       }
     }
   }
 
-  private animateChatReactionReflow(origins: ReadonlyMap<HTMLElement, number>): void {
+  private animateChatReactionReflow(origins: ReadonlyMap<HTMLElement, number>, duration = 300): void {
     if (!origins.size || matchMedia('(prefers-reduced-motion: reduce)').matches || this.privacyCovered) return;
     this.cancelChatMessageMotion();
     for (const [content, previousTop] of origins) {
@@ -9179,7 +9231,7 @@ export class QuietRoomApp {
       if (rect.bottom < this.chatViewportTop - 32 || rect.top > this.chatViewportTop + this.chatViewportHeight + 32) continue;
       const animation = content.animate(
         [{ translate: `0 ${distance}px` }, { translate: '0 0' }],
-        { duration: 300, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'backwards' },
+        { duration, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'backwards' },
       );
       // Force the inverse position onto the same rendering frame as the
       // reaction layout mutation. A pending WAAPI animation may otherwise
@@ -12797,6 +12849,7 @@ export class QuietRoomApp {
     this.memeCache.mediaBytes = 0;
     this.memeCache.searches.clear();
     this.memeCache.packs.clear();
+    this.memeCache.view = undefined;
   }
 
   private fileSize(bytes: number): string {
@@ -12923,6 +12976,10 @@ export class QuietRoomApp {
       composer.value = '';
     }
     this.sendingTextDrafts.clear();
+    this.composerDraftVersion += 1;
+    this.replyJumpVersion += 1;
+    this.replyReturnAnchors = [];
+    this.chatNewMessageIds.clear();
     if (this.composerHeightMotion?.frame != null) cancelAnimationFrame(this.composerHeightMotion.frame);
     this.composerHeightMotion = null;
     this.composerViewportSettleUntil = 0;

@@ -1,5 +1,12 @@
 # Quiet Room 当前状态
 
+## 聊天连续性 V1 实施送审（2026-09-28）
+
+- 用户已确认原型并要求“实施”；本任务基于 `03fbb83152c78752c7cebd4b879b2ecf1805853d`，独占分支 `codex/chat-interaction-continuity`，工作树 `/Users/zhouding/ss-worktrees/chat-interaction-continuity`。本节为送审时快照，最终 CI／合并状态查看该分支关联 PR，不能据此推断上线。
+- 已实现历史聚焦保位、键盘打开时原生纵向滚动、连续发送动效与草稿版本保护、引用返回／删除回退、本页新消息提示及表情面板位置保留。沿用媒体占位、菜单与重试，临时位置在离开聊天／锁定时清理。产品契约覆盖原 D-032 的历史聚焦行为，见[需求及确认记录](../requirements/2026-09-28-chat-continuity/README.md)。
+- 送审前构建、724 项单元／集成与相关 WebKit 专项通过；新增连续性用例已纳入 44 组浏览器门禁。全量诊断发现跨午夜日期条动效遗漏，定向修复后时间线专项通过；最终完整门禁与精确 CI 回执记录在本任务 PR。
+- USB 无可用 iPhone，原生键盘、浏览器栏及合成层未真机验收；320／393／844px 产品夹具截图与桌面 WebKit 模拟不能代替真机。未发布生产，当前生产仍以下方最近独立回读为准；任务树保留用于后续真机核验。
+
 ## iPhone 输入、待建立空间与备份修复已发布（2026-09-28 14:06）
 
 - 当前线上应用 SHA `4aae55b30f924540760dc80f77b2d232abb9a00e`，版本 `2026.09.28.1`；[PR #209](https://github.com/zdaiwmm/shui-IM/pull/209) 已合并，精确 main CI [36378582482 attempt 2](https://github.com/zdaiwmm/shui-IM/actions/runs/36378582482/attempts/2) 完整通过。用户明确发布生产；固定入口与独立回读分别取得 `DEPLOY_VERIFIED`、`READBACK_OK`。

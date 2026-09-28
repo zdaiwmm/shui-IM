@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>聊天连续性 · 交互流程</title><link rel="stylesheet" href="../../../../src/design-system.css"><style>
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:15px/1.75 var(--font-ui)}main{max-width:980px;margin:auto;padding:40px 28px}a{color:var(--accent)}h1{font-size:32px;font-weight:600;letter-spacing:-.03em}h2{font-size:20px;margin-top:40px}p{color:var(--ink-muted)}.flow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:20px 0}.step{border:1px solid var(--line);border-radius:14px;padding:14px 18px;background:var(--surface-raised);max-width:230px}.step small{display:block;color:var(--ink-muted);font-size:12px}.arrow{color:var(--accent)}.split{display:grid;grid-template-columns:1fr 1fr;gap:22px}.branch{padding:16px 0;border-top:1px solid var(--line)}.branch strong{font-weight:600}.note{font-size:13px}.checks{padding-left:20px}.checks li{margin:10px 0}@media(max-width:600px){.split{grid-template-columns:1fr}.flow{gap:8px}.step{max-width:100%;font-size:13px;padding:10px}main{padding:24px 20px}}
+</style></head><body><main>
+<a href="index.html">← 返回可交互原型</a><p>QUIET ROOM / V1 · 待设计确认</p><h1>每次操作，都有连续的去向。</h1>
+<p>以下为 flow.md 的可视化阅读版。入口为已解锁聊天；所有消息和回执均为模拟。</p>
+<h2>01 · 阅读与输入</h2>
+<div class="flow"><div class="step">用户浏览消息<small>历史位置 / 最新消息</small></div><span class="arrow">→</span><div class="step">输入或切换面板<small>原输入框持续挂载</small></div><span class="arrow">→</span><div class="step">保留草稿与锚点<small>不因聚焦跳回最新消息</small></div></div>
+<h2>02 · 发送与重试</h2>
+<div class="flow"><div class="step">点击发送<small>立即给按下反馈</small></div><span class="arrow">→</span><div class="step">本地安全保存<small>正式实现仍使用原子事务</small></div></div>
+<div class="split"><div class="branch"><strong>成功</strong><div class="flow"><div class="step">消息进入列表<small>只清除提交的草稿；保留新输入</small></div><span class="arrow">→</span><div class="step">等待服务端确认<small>离线等待；重连复用原 ID</small></div><span class="arrow">→</span><div class="step">原位更新回执<small>不重建气泡</small></div></div></div><div class="branch"><strong>失败</strong><div class="flow"><div class="step">保留草稿和回复<small>显示明确错误</small></div><span class="arrow">→</span><div class="step">再次发送<small>不要求重新输入</small></div></div></div></div>
+<h2>03 · 引用往返</h2>
+<div class="flow"><div class="step">点击引用<small>记录来源消息与位置</small></div><span class="arrow">→</span><div class="step">读取本机原消息<small>不可用则留在来源并提示</small></div><span class="arrow">→</span><div class="step">定位并高亮<small>可继续查看其他引用</small></div><span class="arrow">→</span><div class="step">返回刚才位置<small>恢复来源锚点</small></div></div>
+<h2>04 · 收到新消息</h2>
+<div class="split"><div class="branch"><strong>正在看历史</strong><p>保持位置 → 新消息数量提示 → 用户点击后再返回最新消息。</p></div><div class="branch"><strong>正在底部聊天</strong><p>新气泡进入 → 保持贴底。用户向上滚动立即解除底部跟随。</p></div></div>
+<h2>05 · 菜单、媒体与表情</h2>
+<div class="flow"><div class="step">长按 / 打开图片<small>选中消息不隐藏</small></div><span class="arrow">→</span><div class="step">执行操作或取消<small>手势取消不提交</small></div><span class="arrow">→</span><div class="step">返回原位置<small>来源存在时恢复焦点</small></div></div>
+<div class="flow"><div class="step">打开表情<small>保留文字草稿</small></div><span class="arrow">→</span><div class="step">连续发送<small>面板保留；媒体提前占位</small></div><span class="arrow">→</span><div class="step">切回键盘<small>保留分类与滚动位置</small></div></div>
+<h2>06 · 任意阶段的隐私清理</h2>
+<div class="flow"><div class="step">锁定 / 页面隐藏</div><span class="arrow">→</span><div class="step">立即取消动画与迟到任务<small>不等待退出动效</small></div><span class="arrow">→</span><div class="step">清除可见消息与临时预览<small>正式恢复沿用现有加密草稿契约</small></div></div>
+<h2>无闪屏与位置稳定的验收边界</h2><ul class="checks"><li>键盘与面板切换时输入框持续可见，顶部栏不移动；同一元素只由一套位置控制逻辑管理。</li><li>连续发送或中途反向操作，从当前已绘制位置接续；旧动画结束事件不能移除新画面。</li><li>消息、媒体、时间与回执预留稳定尺寸；回执变化不重建原气泡。</li><li>历史位置的输入、收到消息和面板开合，保留可见消息相对列表顶部的位置。</li><li>窗口大小、浅深色、减少动态效果、文字选择、取消手势和隐私清理均覆盖。</li></ul>
+<p class="note">真实系统键盘、WebKit 合成层、真实媒体解码、加密持久化和多设备回执不由原型证明。正式实现还需浏览器专项与 iPhone 真机逐帧检查；不承诺跨设备绝对零掉帧。</p>
+</main></body></html>

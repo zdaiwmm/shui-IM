@@ -192,54 +192,57 @@ type KeyboardGestureOptions = {
   input: HTMLTextAreaElement;
   active: () => boolean;
   begin: () => void;
-  release: () => void;
+  release: (dismiss: boolean) => void;
 };
 
-// A keyboard-open history touch belongs to keyboard dismissal until release.
-// Preventing the pointer focus default and touch scrolling keeps both the
-// focused draft and the visible reading position intact throughout the drag.
+// Keep focus on touch-down, but leave native vertical scrolling available.
+// A stationary background tap dismisses on release; a scroll, reply, long
+// press or cancelled gesture never consumes a second tap to start reading.
 export function bindChatKeyboardGesture(options: KeyboardGestureOptions) {
   const events = new AbortController();
   let held = false;
   let touchCount = 0;
+  let origin: { x: number; y: number; at: number } | null = null;
+  let moved = false;
+  let interactive = false;
   const start = (event: Event) => {
     if (event.target instanceof Element && event.target.closest('.is-selecting-text')) return false;
     if (!options.active() || document.documentElement.dataset.keyboardOpen !== 'true') return false;
     if (event.type === 'touchstart') touchCount = (event as TouchEvent).touches.length;
     if (!held) {
       held = true;
+      const point = event.type === 'touchstart' ? (event as TouchEvent).touches[0] : event as PointerEvent;
+      origin = point ? { x: point.clientX, y: point.clientY, at: performance.now() } : null;
+      moved = false;
+      interactive = event.target instanceof Element && Boolean(event.target.closest('button, a, input, video, audio'));
       options.list.dataset.keyboardGesture = 'true';
       options.begin();
     }
-    if (event.type === 'pointerdown' && event.cancelable) event.preventDefault();
+    // Cancel focus transfer only. touch-action: pan-y continues to own scroll.
+    if (event.type === 'pointerdown' && event.cancelable && !interactive) event.preventDefault();
     return true;
   };
-  const release = () => {
+  const move = (x: number, y: number) => {
+    if (origin && Math.hypot(x - origin.x, y - origin.y) > 8) moved = true;
+  };
+  const reset = () => { held = false; touchCount = 0; origin = null; moved = false; delete options.list.dataset.keyboardGesture; };
+  const release = (cancelled = false) => {
     if (!held) return;
-    held = false;
-    delete options.list.dataset.keyboardGesture;
+    const dismiss = !cancelled && !moved && !interactive && origin !== null && performance.now() - origin.at < 400;
+    reset();
     if (!options.active()) return;
-    options.release();
-    // Opacity-only concealment does not remove focus or the encrypted draft.
-    // Blur happens exclusively on release, never while the finger is moving.
-    if (document.activeElement === options.input) options.input.blur();
+    options.release(dismiss);
+    if (dismiss && document.activeElement === options.input) options.input.blur();
   };
   options.list.addEventListener('touchstart', start, { passive: true, signal: events.signal });
   options.list.addEventListener('touchmove', event => {
-    if (held && event.cancelable) event.preventDefault();
-  }, { passive: false, signal: events.signal });
-  // Pointer release may precede touchend; the shared held flag makes this once.
-  const pointerRelease = () => { if (!touchCount) release(); };
-  document.addEventListener('pointerup', pointerRelease, { capture: true, signal: events.signal });
-  document.addEventListener('pointercancel', pointerRelease, { capture: true, signal: events.signal });
-  const touchRelease = (event: TouchEvent) => { touchCount = event.touches.length; if (!touchCount) release(); };
+    const point = event.touches[0]; if (held && point) move(point.clientX, point.clientY);
+  }, { passive: true, signal: events.signal });
+  document.addEventListener('pointermove', event => { if (held) move(event.clientX, event.clientY); }, { passive: true, signal: events.signal });
+  document.addEventListener('pointerup', () => { if (!touchCount) release(); }, { capture: true, signal: events.signal });
+  document.addEventListener('pointercancel', () => { if (!touchCount) release(true); }, { capture: true, signal: events.signal });
+  const touchRelease = (event: TouchEvent) => { touchCount = event.touches.length; if (!touchCount) release(event.type === 'touchcancel'); };
   document.addEventListener('touchend', touchRelease, { capture: true, signal: events.signal });
   document.addEventListener('touchcancel', touchRelease, { capture: true, signal: events.signal });
-  const reset = () => { held = false; touchCount = 0; delete options.list.dataset.keyboardGesture; };
-  return {
-    start,
-    get held() { return held; },
-    reset,
-    destroy() { reset(); events.abort(); },
-  };
+  return { start, get held() { return held; }, reset, destroy() { reset(); events.abort(); } };
 }
