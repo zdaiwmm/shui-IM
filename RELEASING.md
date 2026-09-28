@@ -1,5 +1,13 @@
 # Quiet Room 固定发布流程
 
+## 空间移除与恢复交互已发布（2026-09-28 20:19）
+
+- 用户在五项修复交付后明确“合并并发布生产”。[PR #220](https://github.com/zdaiwmm/shui-IM/pull/220) 已合并；本批固定应用 SHA `8d340c8edb3a1de5466ebafa0df860621d2778cc`，版本 `2026.09.28.6`。精确 main [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36420221479) 通过，合并树与已验证候选一致。
+- 已上线持本人目录写能力移除旧待建立条目、说明布局修复、恢复计数右对齐与关闭取消、设置返回保留抽屉、恢复码说明页空间调整。目录移除不销毁服务端空间；目录写能力仍是前提。方案及权限边界见[需求记录](docs/requirements/2026-09-28-space-recovery-fixes/README.md)。本地构建、735 项单元／集成、分段 46/46 浏览器及 WebKit 专项通过；iPhone 真机未验收。
+- 固定入口取得 `DEPLOY_VERIFIED`，外层精确回执核对成功；批次 `20260928T121626Z`，发布目录 `/opt/quiet-room/git-releases/20260928T121626Z-8d340c8edb3a`。冷备份 `data-20260928T121626Z-8d340c8edb3a.tar.gz` 已校验；切换前容量检查通过，可用 4758732800 字节、使用率 88.09%，并非发布后余量。服务器发布 139 秒。前一生产 SHA 为 `3e67f3a1a0bb66034430f6f3c8b194ac9123254a`。
+- 独立 `READBACK_OK` 于 `2026-09-28T12:19:27.951Z` 通过，耗时 3481ms：精确提交、镜像、HTTPS／数据库／存储、公开与容器产物、新 WebSocket 一致。应用健康；备份与 TURN 运行但无健康探针；维护标记不存在，管理员与通话开启。镜像 `sha256:daf60450501aebae4344e40943652701d182db19f3d8820748185b41e8f26253`。
+- 脱敏证据 `/Users/zhouding/ss/.git/worktrees/space-recovery-fixes/quiet-room-readback/20260928T121924469Z-8d340c8edb3a-success.json`；精确回执 `/private/var/folders/kx/xvfkgvzn5cb2t23mnc9518kr0000gn/T/quiet-room-publish-Sv4saA/.git/quiet-room-verified-sha`。独立文档工作树未复制部署配置；文档对账不再次部署。开发树承载当前会话及回读证据、文档树承载本轮对账，均保留。
+
 ## 全站动效 V2 已发布（2026-09-28 19:09）
 
 - 用户在完整实施交付后明确“发布生产”，随后更新 IP 白名单并要求重试。固定发布目标为 `3e67f3a1a0bb66034430f6f3c8b194ac9123254a`，版本 `2026.09.28.5`；[PR #217](https://github.com/zdaiwmm/shui-IM/pull/217) 已合并，精确 main [完整 CI 36410952833](https://github.com/zdaiwmm/shui-IM/actions/runs/36410952833) 通过。预检读取前一生产为 `6736d3818aadfb152ae8a8c4ec0f50c5a88ac598`。此前 SSH 超时均发生在只读预检，未执行切换；连接恢复后仅执行一次正式发布。
