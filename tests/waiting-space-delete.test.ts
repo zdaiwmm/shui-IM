@@ -42,3 +42,43 @@ it('authenticates before reading a deletion catalog and rejects malformed JSON w
     expect(server.store.roomState(room.roomId)).toBeNull();
   } finally {await server.close();await rm(dataDir,{recursive:true,force:true});}
 });
+
+it('allows a catalog management key to delete only its certified unjoined room, atomically', async () => {
+  const {generateIdentity}=await import('../src/lib/crypto');
+  const {newAccessIdentity,signAccess,accessDigest}=await import('../src/lib/browser-access-proof.mjs');
+  const dataDir=await mkdtemp(path.join(tmpdir(),'qr-pending-management-'));
+  const store=await createStore({dataDir});
+  try {
+    const creator=await generateIdentity(),management=await newAccessIdentity(),attacker=await newAccessIdentity();
+    const token='a'.repeat(43),room=store.createRoom(creator.publicBundle,token),id='x'.repeat(22);
+    const value={roomId:room.roomId,revision:1,fetchToken:'f'.repeat(43),writeToken:'w'.repeat(43),sealed:{iv:'i'.repeat(16),ciphertext:'c'.repeat(43)}};
+    store.browserCatalogs.save(id,token,value);
+    const certificate=await signAccess(creator.signingPrivateKey,{v:1,purpose:'quiet-room-pending-management',roomId:room.roomId,sourceDeviceId:creator.publicBundle.deviceId,catalogId:id,rootKey:management.publicKey});
+    const catalog={id,value:{...value,revision:2,sealed:{...value.sealed,ciphertext:'d'.repeat(43)}}};
+    const request=await signAccess(management.privateKey,{v:1,purpose:'quiet-room-pending-delete',roomId:room.roomId,catalogHash:await accessDigest(catalog),expiresAt:Date.now()+45000});
+    const proof={certificate,request};
+    const {signature:_requestSignature,...unsignedRequest}=request;
+    const {signature:_certificateSignature,...unsignedCertificate}=certificate;
+    for(const changed of [
+      {certificate:{...certificate,roomId:crypto.randomUUID()},request},
+      {certificate,request:{...request,expiresAt:Date.now()-1}},
+      {certificate,request:await signAccess(attacker.privateKey,unsignedRequest)},
+    ]) await expect(store.deletePendingRoom(room.roomId,changed,catalog)).rejects.toThrow('UNAUTHORIZED');
+    await expect(store.deletePendingRoom(room.roomId,proof,{...catalog,value:{...catalog.value,writeToken:'z'.repeat(43)}})).rejects.toThrow('UNAUTHORIZED');
+    const conflict={...catalog,value:{...catalog.value,revision:3}};
+    const conflictProof={certificate,request:await signAccess(management.privateKey,{...unsignedRequest,catalogHash:await accessDigest(conflict)})};
+    await expect(store.deletePendingRoom(room.roomId,conflictProof,conflict)).rejects.toThrow('BACKUP_CONFLICT');
+    expect(store.roomState(room.roomId)).not.toBeNull();
+    expect(store.browserCatalogs.fetch(id,value.fetchToken).revision).toBe(1);
+    await expect(store.deletePendingRoom(room.roomId,proof,catalog)).resolves.toEqual({deleted:true});
+    expect(store.roomState(room.roomId)).toBeNull();
+    expect(store.browserCatalogs.fetch(id,value.fetchToken).revision).toBe(2);
+    const joined=store.createRoom(creator.publicBundle,token);
+    const joinedCatalog={id,value:{...value,roomId:joined.roomId,revision:3}};
+    const joinedCertificate=await signAccess(creator.signingPrivateKey,{...unsignedCertificate,roomId:joined.roomId});
+    const joinedRequest=await signAccess(management.privateKey,{...unsignedRequest,roomId:joined.roomId,catalogHash:await accessDigest(joinedCatalog)});
+    store.joinRoom(joined.roomId,(await generateIdentity()).publicBundle,'proof');
+    await expect(store.deletePendingRoom(joined.roomId,{certificate:joinedCertificate,request:joinedRequest},joinedCatalog)).rejects.toThrow('ROOM_SEALED');
+    expect(store.browserCatalogs.fetch(id,value.fetchToken).revision).toBe(2);
+  } finally {store.close();await rm(dataDir,{recursive:true,force:true});}
+});

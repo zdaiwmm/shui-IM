@@ -480,7 +480,10 @@ export async function startServer(options = {}) {
 
       const directory = pathname.match(/^\/api\/(?:space-directories|browser-access-catalogs)\/([A-Za-z0-9_-]{22})$/);
       if (directory && ['GET', 'PUT'].includes(request.method)) {
-        if (!allowRequest(request, 'space-directories', 60)) { response.setHeader('Retry-After', '60'); json(request, response, 429, { error: '请稍后重试' }); return; }
+        // Six endpoints behind one home IP can poll their two own catalogs.
+        // Keep writes/recovery separately bounded so polling cannot starve them.
+        const catalogRead = request.method === 'GET' && pathname.startsWith('/api/browser-access-catalogs/');
+        if (!allowRequest(request, catalogRead ? 'browser-catalog-read' : 'space-directories', catalogRead ? 240 : 60)) { response.setHeader('Retry-After', '60'); json(request, response, 429, { error: '请稍后重试' }); return; }
         try {
           const token = bearerToken(request);
           const catalog = pathname.startsWith('/api/browser-access-catalogs/');
@@ -571,6 +574,24 @@ export async function startServer(options = {}) {
           body.capabilities ?? [],
         );
         json(request, response, 201, room);
+        return;
+      }
+
+      const pendingDeletion = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/pending-deletion$`));
+      if (request.method === 'POST' && pendingDeletion) {
+        if (!allowRequest(request, 'delete-waiting-room', 30)) { json(request, response, 429, { error: '请稍后重试', code: 'RATE_LIMITED' }); return; }
+        try {
+          const catalogId = request.headers['x-catalog-id'];
+          if (typeof catalogId !== 'string') throw new Error('UNAUTHORIZED');
+          try { store.browserCatalogs.fetch(catalogId, bearerToken(request)); } catch { throw new Error('UNAUTHORIZED'); }
+          const body = JSON.parse((await readBody(request, 4300000)).toString('utf8'));
+          if (!body || body.catalog?.id !== catalogId || Object.keys(body).sort().join(',') !== 'catalog,proof') throw new Error('INVALID_JSON');
+          json(request, response, 200, await store.deletePendingRoom(pendingDeletion[1], body.proof, body.catalog));
+        } catch (cause) {
+          const code = cause instanceof Error ? cause.message : '';
+          json(request, response, code === 'UNAUTHORIZED' ? 401 : ['ROOM_SEALED', 'BACKUP_CONFLICT'].includes(code) ? 409 : 400,
+            { error: code === 'ROOM_SEALED' ? '对方已经加入，这个空间不能再销毁' : '空间未能删除，请刷新后重试', code });
+        }
         return;
       }
 

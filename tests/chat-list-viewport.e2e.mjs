@@ -162,6 +162,15 @@ try {
   assert.equal(state.bottom, 319);
   assert.equal(state.root, 0);
   assert.ok(state.gap <= 2, JSON.stringify(state));
+  // Soft wrapping must use the real editor width, including its emoji inset.
+  await page.locator('#message-input').fill('测试输入区域'.repeat(6));
+  await settled();
+  const wrapped = await page.locator('#message-input').evaluate(input => ({
+    content: input.scrollHeight, visible: input.clientHeight, height: input.getBoundingClientRect().height,
+    inset: getComputedStyle(input).paddingRight,
+  }));
+  assert.equal(wrapped.inset, '48px');
+  assert.ok(wrapped.height > 70 && wrapped.content <= wrapped.visible + 1, JSON.stringify(wrapped));
   await page.evaluate(async () => {
     const input = document.querySelector('#message-input');
     const height = input.getBoundingClientRect().height;

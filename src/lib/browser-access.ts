@@ -7,17 +7,19 @@ import { spaceCapability, spaceCodeId, localSpaces, newSpaceRecoveryCode, type P
 import { readLocalSpaceDirectory, writeLocalSpaceDirectory, withVaultMutation, readBrowserAccessRecord, writeBrowserAccessRecord, type VaultSession } from './vault';
 import type { PlatformCredentialRecord, PrivateIdentity, RoomMember, RoomState } from './types';
 import { deleteRoom } from './api';
-export type AccessSpace = { roomId:string; name:string; certificate?:AccessCertificate; members?:RoomMember[]; eventSeq?:number; creatorFingerprint?:string; role?:'creator'|'joiner'; localId?:string; waiting?:boolean; createdAt?:string; deviceCount?:number };
+export type PendingManagement = { v:1; purpose:'quiet-room-pending-management'; roomId:string; sourceDeviceId:string; catalogId:string; rootKey:JsonWebKey; signature:string };
+type CatalogManagement = {key:AccessIdentity;catalogCode:string};
+export type AccessSpace = { pendingManagement?:PendingManagement; roomId:string; name:string; certificate?:AccessCertificate; members?:RoomMember[]; eventSeq?:number; creatorFingerprint?:string; role?:'creator'|'joiner'; localId?:string; waiting?:boolean; createdAt?:string; deviceCount?:number };
 export type AccessStatus = {status:'pending'|'approved'|'expired'|'canceled'|'rejected'|'revoked';expiresAt:string;serverTime:string;state?:RoomState;sealed?:SealedBackup};
 export type PendingSpaceAccess = {identity:PrivateIdentity;token:string;proof:AccessProof;expiresAt?:string;status?:AccessStatus['status']};
 export type AccessCatalog = {id:string;token:string;key:string};
-export type BrowserProfile = {v:1;catalog:AccessCatalog; identity:AccessIdentity; grant:AccessGrant; spaces:AccessSpace[];currentRoom:string;collectionCode:string;pending:Record<string,PendingSpaceAccess>;removed?:string[]};
+export type BrowserProfile = {v:1;management?:CatalogManagement;catalog:AccessCatalog; identity:AccessIdentity; grant:AccessGrant; spaces:AccessSpace[];currentRoom:string;collectionCode:string;pending:Record<string,PendingSpaceAccess>;removed?:string[]};
 export type AccessMailbox = {id:string;token:string;transferKey:string};
 export type BrowserProfileSession = {profile:BrowserProfile;record:PlatformCredentialRecord;secret:string;stored?:unknown};
 export type BrowserRequest = {requestId:string;browserId:string;browserKey:JsonWebKey;expiresAt:string};
 export type PeerAccessRequest = {proof:AccessProof;target:RoomMember;expiresAt:string};
-type Prepared = {v:1;root:AccessIdentity;spaces:AccessSpace[];catalogCode:string;mailboxes?:AccessMailbox[];removed?:string[]};
-const catalogSpaceKeys = ['roomId','name','certificate','members','eventSeq','creatorFingerprint','role','waiting','createdAt','deviceCount'];
+type Prepared = {v:1;root:AccessIdentity;management?:AccessIdentity;spaces:AccessSpace[];catalogCode:string;mailboxes?:AccessMailbox[];removed?:string[]};
+const catalogSpaceKeys = ['roomId','name','certificate','members','eventSeq','creatorFingerprint','role','waiting','createdAt','deviceCount','pendingManagement'];
 export function catalogSpaceAllowed(space: AccessSpace): boolean {
   return /^[a-f0-9-]{36}$/i.test(space.roomId) && typeof space.name === 'string' && Boolean(space.name.trim()) && space.name.length <= 40
     && Object.keys(space).every(key => catalogSpaceKeys.includes(key))
@@ -35,6 +37,7 @@ export function mergeCatalogSpaces(remote: AccessSpace[], local: AccessSpace[], 
     const previous = byId.get(space.roomId);
     const merged: AccessSpace = {
       ...(previous ?? {}),
+      ...(space.pendingManagement ? {pendingManagement:space.pendingManagement} : {}),
       roomId: space.roomId,
       name: space.name,
       ...(space.waiting ? { waiting: true } : {}),
@@ -43,7 +46,7 @@ export function mergeCatalogSpaces(remote: AccessSpace[], local: AccessSpace[], 
       ...(space.certificate ? { certificate: space.certificate, members: space.members, eventSeq: space.eventSeq, creatorFingerprint: space.creatorFingerprint, role: space.role }
         : previous?.certificate ? { certificate: previous.certificate, members: previous.members, eventSeq: previous.eventSeq, creatorFingerprint: previous.creatorFingerprint, role: previous.role } : {}),
     };
-    if (!space.waiting) delete merged.waiting;
+    if (!space.waiting) { delete merged.waiting; delete merged.pendingManagement; }
     byId.set(space.roomId, merged);
   }
   return [...byId.values()].filter(space => !gone.has(space.roomId) && catalogSpaceAllowed(space));
@@ -67,10 +70,10 @@ function cleanMembers(members:RoomMember[]):RoomMember[] {
   return members.filter(m=>m.status!=='pending').map(m=>({deviceId:m.deviceId,role:m.role,encryptionKey:m.encryptionKey,signingKey:m.signingKey,
     ...(m.mlsKeyPackage?{mlsKeyPackage:m.mlsKeyPackage}:{}),...(m.addedBy?{addedBy:m.addedBy}:{}),joinProof:m.joinProof??null,status:m.status,createdAt:m.createdAt}));
 }
-/** Called only after this room is unlocked. Other locked vaults are never read. */
-export async function prepareBrowserAccess(session:VaultSession):Promise<void> {
+/** Established rooms require normal unlock; owned pending slots may use the held matching passkey. */
+export async function prepareBrowserAccess(session:VaultSession,profile?:BrowserProfile):Promise<void> {
   const v=session.vault,code=v.spaceRecoveryCode;
-  if(!code || v.protocol!=='mls-rfc9420' || v.mls?.phase!=='active' || v.pairingState && v.pairingState!=='ready') return;
+  if(!code || v.protocol!=='mls-rfc9420' || !['active','awaiting-peer'].includes(v.mls?.phase??'') || v.pairingState && v.pairingState!=='ready') return;
   const own=v.members.find(m=>m.deviceId===v.identity.publicBundle.deviceId);
   if(!own || own.status==='revoked' || own.status==='pending') return;
   const spaces=await localSpaces(session);
@@ -78,9 +81,16 @@ export async function prepareBrowserAccess(session:VaultSession):Promise<void> {
     const id=rootId(code),key=await spaceCapability(code,'encryption'),sealed=await readLocalSpaceDirectory(id);
     const saved:Prepared=sealed?await openJson(sealed as SealedBackup,key,id) as Prepared:{v:1,root:await newAccessIdentity(),spaces:[],catalogCode:newSpaceRecoveryCode()};
     if(saved.v!==1 || !Array.isArray(saved.spaces) || !publicAccessKey(saved.root?.publicKey)) throw new Error('浏览器接入准备数据不完整');
+    if(profile?.management) { saved.management=profile.management.key;saved.catalogCode=profile.management.catalogCode; }
+    saved.management??=await newAccessIdentity();
     const certificate=await signAccess(v.identity.signingPrivateKey,{v:1 as const,purpose:'quiet-room-browser-request-root' as const,roomId:v.roomId,sourceDeviceId:own.deviceId,rootKey:saved.root.publicKey});
     const entry:AccessSpace={roomId:v.roomId,name:spaces.find(s=>s.roomId===v.roomId)?.name??'私密空间',certificate,members:cleanMembers(v.members),eventSeq:v.mls?.lastEventSeq??0,creatorFingerprint:v.creatorFingerprint,role:v.role};
     saved.catalogCode??=newSpaceRecoveryCode();
+    if(v.role==='creator' && v.mls?.phase==='awaiting-peer') {
+      entry.waiting=true;entry.createdAt=v.createdAt;
+      entry.pendingManagement=await signAccess(v.identity.signingPrivateKey,{v:1 as const,purpose:'quiet-room-pending-management' as const,roomId:v.roomId,sourceDeviceId:own.deviceId,catalogId:spaceCodeId(saved.catalogCode),rootKey:saved.management.publicKey});
+      delete entry.certificate;
+    }
     if(session.browserAccessPrf) {
       const {profileKey:_discard,...mailbox}=await browserAccessKeys(session.browserAccessPrf);
       saved.mailboxes=[...(saved.mailboxes??[]).filter(m=>m.id!==mailbox.id),mailbox].slice(-256);
@@ -97,7 +107,10 @@ export async function approveBrowser(session:VaultSession,mailbox:AccessMailbox,
   const grant=await signAccess(prepared.root.privateKey,{v:1 as const,purpose:'quiet-room-browser-request-grant' as const,requestId:request.requestId,browserId:request.browserId,browserKey:request.browserKey});
   const approved=spaces.map(s=>{
     const p=prepared.spaces.find(p=>p.roomId===s.roomId);
-    return p?{roomId:s.roomId,name:s.name,certificate:p.certificate,members:p.members,eventSeq:p.eventSeq,creatorFingerprint:p.creatorFingerprint,role:p.role}:{roomId:s.roomId,name:s.name};
+    const entry:AccessSpace=p?{...p,name:s.name}:{roomId:s.roomId,name:s.name};
+    if(s.waiting)entry.waiting=true;
+    if(s.createdAt)entry.createdAt=s.createdAt;
+    return entry;
   });
   await syncBrowserCatalog(session,prepared,approved,signal);
   const catalog=await catalogCapability(prepared.catalogCode);
@@ -180,7 +193,7 @@ async function syncBrowserCatalog(session:VaultSession,prepared:Prepared,local:A
     // A previous atomic delete may have committed even if its response was lost.
     if (deletion && remoteRemoved.includes(deletion.vault.roomId)) return;
     const spaces=mergeCatalogSpaces(remote,local,removed);
-    const sealed=await sealJson({v:1,spaces,removed},catalog.key,`quiet-room-browser-catalog-v1:${catalog.id}`);
+    const sealed=await sealJson({v:1,spaces,removed,...(prepared.management?{management:{key:prepared.management,catalogCode:prepared.catalogCode}}:{})},catalog.key,`quiet-room-browser-catalog-v1:${catalog.id}`);
     signal.throwIfAborted();
     const owner=deletion??session;
     const value={roomId:owner.vault.roomId,revision:old.revision+1,fetchToken:catalog.token,writeToken:await spaceCapability(prepared.catalogCode,'write'),sealed};
@@ -217,8 +230,13 @@ export async function publishPreparedCatalog(session:VaultSession,signal:AbortSi
 export async function refreshBrowserCatalog(profile:BrowserProfile,signal:AbortSignal):Promise<void> {
   const c=profile.catalog;
   const result=await accessApi<{sealed:SealedBackup}>(`/api/browser-access-catalogs/${c.id}`,c.token,signal);
-  const data=await openJson(result.sealed,c.key,`quiet-room-browser-catalog-v1:${c.id}`) as {v:number;spaces:AccessSpace[];removed?:string[]};
+  const data=await openJson(result.sealed,c.key,`quiet-room-browser-catalog-v1:${c.id}`) as {v:number;spaces:AccessSpace[];removed?:string[];management?:CatalogManagement};
   if(data.v!==1 || !Array.isArray(data.spaces) || data.spaces.length>256 || data.removed!==undefined && (!Array.isArray(data.removed) || data.removed.length>256)) throw new Error('空间目录不完整');
+  if(data.management) {
+    const management=data.management,catalog=await catalogCapability(management.catalogCode);
+    if(!publicAccessKey(management.key?.publicKey) || !management.key.privateKey?.d || JSON.stringify(catalog)!==JSON.stringify(profile.catalog)) throw new Error('空间目录管理授权不正确');
+    profile.management=management;
+  }
   const removed=new Set(data.removed??[]);
   const next:AccessSpace[]=[];
   for(const previous of profile.spaces) {
@@ -229,9 +247,10 @@ export async function refreshBrowserCatalog(profile:BrowserProfile,signal:AbortS
     if(s.certificate) {
       const source=s.members?.find(m=>m.deviceId===s.certificate!.sourceDeviceId);
       if(!source || s.certificate.roomId!==s.roomId || source.role!==s.role || !Number.isSafeInteger(s.eventSeq) || s.eventSeq!<0 ||
-        !await verifyAccess(source.signingKey,s.certificate) || !await verifyAccess(s.certificate.rootKey,profile.grant)) throw new Error('空间身份准备凭据不正确');
+        !await verifyAccess(source.signingKey,s.certificate)) throw new Error('空间身份准备凭据不正确');
+      if(!await verifyAccess(s.certificate.rootKey,profile.grant)) delete s.certificate;
     }
-    const merged: AccessSpace = {...previous,name:s.name,deviceCount:s.deviceCount??previous.deviceCount,certificate:s.certificate??previous.certificate,members:s.members??previous.members,eventSeq:s.eventSeq??previous.eventSeq,creatorFingerprint:s.creatorFingerprint??previous.creatorFingerprint,role:s.role??previous.role};
+    const merged: AccessSpace = {...previous,pendingManagement:s.pendingManagement,name:s.name,deviceCount:s.deviceCount??previous.deviceCount,certificate:s.certificate??previous.certificate,members:s.members??previous.members,eventSeq:s.eventSeq??previous.eventSeq,creatorFingerprint:s.creatorFingerprint??previous.creatorFingerprint,role:s.role??previous.role};
     if(s.createdAt){merged.createdAt=s.createdAt;merged.waiting=s.waiting;}
     else if(s.waiting) merged.waiting=true;
     next.push(merged);
@@ -243,9 +262,10 @@ export async function refreshBrowserCatalog(profile:BrowserProfile,signal:AbortS
       const certificate=s.certificate;
       const source=s.members?.find(m=>m.deviceId===certificate.sourceDeviceId);
       if(!source || certificate.roomId!==s.roomId || source.role!==s.role || !Number.isSafeInteger(s.eventSeq) || s.eventSeq!<0 ||
-        !await verifyAccess(source.signingKey,certificate) || !await verifyAccess(certificate.rootKey,profile.grant)) throw new Error('空间身份准备凭据不正确');
+        !await verifyAccess(source.signingKey,certificate)) throw new Error('空间身份准备凭据不正确');
+      if(!await verifyAccess(certificate.rootKey,profile.grant)) delete s.certificate;
     }
-    next.push({roomId:s.roomId,name:s.name,waiting:s.waiting,createdAt:s.createdAt,deviceCount:s.deviceCount,certificate:s.certificate,members:s.members,eventSeq:s.eventSeq,creatorFingerprint:s.creatorFingerprint,role:s.role});
+    next.push({pendingManagement:s.pendingManagement,roomId:s.roomId,name:s.name,waiting:s.waiting,createdAt:s.createdAt,deviceCount:s.deviceCount,certificate:s.certificate,members:s.members,eventSeq:s.eventSeq,creatorFingerprint:s.creatorFingerprint,role:s.role});
   }
   signal.throwIfAborted();
   profile.spaces=next;
@@ -270,4 +290,47 @@ export async function preparedMailboxes(session:VaultSession):Promise<AccessMail
   const id=rootId(code),sealed=await readLocalSpaceDirectory(id);if(!sealed)return [];
   const prepared=await openJson(sealed as SealedBackup,await spaceCapability(code,'encryption'),id) as Prepared;
   return prepared.mailboxes??[];
+}
+
+/** The original endpoint also needs a catalog subscriber; room keys stay local. */
+export async function createOriginBrowserProfile(session:VaultSession,signal:AbortSignal):Promise<BrowserProfileSession|null> {
+  if(!session.browserAccessPrf || session.stored.unlockMethod!=='platform' || !session.vault.spaceRecoveryCode) return null;
+  const code=session.vault.spaceRecoveryCode,id=rootId(code),sealed=await readLocalSpaceDirectory(id);
+  if(!sealed)return null;
+  const prepared=await openJson(sealed as SealedBackup,await spaceCapability(code,'encryption'),id) as Prepared;
+  const identity=await newAccessIdentity();
+  const grant=await signAccess(prepared.root.privateKey,{v:1 as const,purpose:'quiet-room-browser-request-grant' as const,requestId:crypto.randomUUID(),browserId:identity.browserId,browserKey:identity.publicKey});
+  const keys=await browserAccessKeys(session.browserAccessPrf);
+  const current:BrowserProfileSession={record:session.stored.platform,secret:keys.profileKey,profile:{v:1,identity,grant,catalog:await catalogCapability(prepared.catalogCode),management:{key:prepared.management!,catalogCode:prepared.catalogCode},spaces:[],currentRoom:session.vault.roomId,collectionCode:code,pending:{}}};
+  await refreshBrowserCatalog(current.profile,signal);
+  await saveBrowserProfile(current,signal);
+  return current;
+}
+
+/** One signed operation atomically removes the pending room and publishes its tombstone. */
+export async function deleteCatalogPendingSpace(profile:BrowserProfile,roomId:string,signal:AbortSignal):Promise<void> {
+  for(let attempt=0;attempt<3;attempt++) {
+    await refreshBrowserCatalog(profile,signal);
+    if(profile.removed?.includes(roomId))return;
+    const space=profile.spaces.find(s=>s.roomId===roomId),management=profile.management;
+    if(!space?.waiting)throw new Error('对方已经加入或空间状态已变化，请刷新后重试');
+    if(!space.pendingManagement || !management)throw new Error('此空间尚未同步管理授权，请让原设备联网更新后重试');
+    const c=profile.catalog,path=`/api/browser-access-catalogs/${c.id}`;
+    const previous=await accessApi<{revision:number;sealed:SealedBackup}>(path,c.token,signal);
+    const data=await openJson(previous.sealed,c.key,`quiet-room-browser-catalog-v1:${c.id}`) as {v:1;spaces:AccessSpace[];removed?:string[];management:CatalogManagement};
+    if(data.removed?.includes(roomId)){await refreshBrowserCatalog(profile,signal);return;}
+    const removed=[...new Set([...(data.removed??[]),roomId])].slice(-256);
+    const sealed=await sealJson({...data,spaces:data.spaces.filter(s=>s.roomId!==roomId),removed},c.key,`quiet-room-browser-catalog-v1:${c.id}`);
+    const catalog={id:c.id,value:{roomId,revision:previous.revision+1,fetchToken:c.token,writeToken:await spaceCapability(management.catalogCode,'write'),sealed}};
+    const request=await signAccess(management.key.privateKey,{v:1,purpose:'quiet-room-pending-delete',roomId,catalogHash:await accessDigest(catalog),expiresAt:Date.now()+45_000});
+    const response=await fetch(`/api/rooms/${roomId}/pending-deletion`,{method:'POST',credentials:'omit',signal,headers:{Authorization:`Bearer ${c.token}`,'X-Catalog-Id':c.id,'Content-Type':'application/json'},body:JSON.stringify({catalog,proof:{certificate:space.pendingManagement,request}})});
+    if(response.ok){await refreshBrowserCatalog(profile,signal);return;}
+    const failure=await response.json().catch(()=>null);
+    if(response.status===409&&failure?.code==='BACKUP_CONFLICT')continue;
+    // A response may have been lost after an earlier successful deletion.
+    await refreshBrowserCatalog(profile,signal);
+    if(profile.removed?.includes(roomId))return;
+    throw new Error(failure?.code==='ROOM_SEALED'?'对方已经加入，这个空间不能再销毁':'空间未能删除，请联网后重试');
+  }
+  throw new Error('空间目录正在更新，请稍后重试');
 }

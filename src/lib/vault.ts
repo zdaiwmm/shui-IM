@@ -285,18 +285,21 @@ async function transaction<T>(
   storeName: 'spaces' | 'vault' | 'history' | 'galleryHistory' | 'restoredGallery' | 'mediaChunks' | 'mediaCacheEntries' | 'security' | LocalStore,
   mode: IDBTransactionMode,
   action: (store: IDBObjectStore) => IDBRequest<T>,
-  expectedVault?: StoredVault,
+  expectedVault?: StoredVault | (() => StoredVault),
 ): Promise<T> {
   const database = await openDatabase();
   return new Promise((resolve, reject) => {
     const tx = database.transaction(expectedVault ? [storeName, 'vault'] : storeName, mode);
+    let stale = false;
     if (expectedVault) {
-      const current = tx.objectStore('vault').get(vaultSpaceId(expectedVault));
-      current.onsuccess = () => { if (!sameStoredVault(current.result, expectedVault)) tx.abort(); };
+      const snapshot = () => typeof expectedVault === 'function' ? expectedVault() : expectedVault;
+      const current = tx.objectStore('vault').get(vaultSpaceId(snapshot()));
+      current.onsuccess = () => { if (!sameStoredVault(current.result, snapshot())) { stale = true; tx.abort(); } };
     }
     const request = action(tx.objectStore(storeName));
-    request.onerror = () => reject(request.error);
-    tx.onabort = () => { database.close(); reject(tx.error ?? staleVaultError()); };
+    // An explicit stale-session abort also aborts requests. Let the transaction
+    // report its cause instead of turning it into a misleading AbortError.
+    tx.onabort = () => { database.close(); reject(stale ? staleVaultError() : tx.error ?? request.error ?? new Error('本机数据读取失败')); };
     tx.oncomplete = () => {
       resolve(request.result);
       database.close();
@@ -323,7 +326,7 @@ export async function loadCachedMediaChunk(
   expectedBytes: number,
 ): Promise<ArrayBuffer | null> {
   const record = await transaction<StoredMediaChunk | undefined>('mediaChunks', 'readonly', store =>
-    store.get(mediaChunkId(session.vault.roomId, blobId, index)), session.stored);
+    store.get(mediaChunkId(session.vault.roomId, blobId, index)), () => session.stored);
   if (!record || record.roomId !== session.vault.roomId || record.blobId !== blobId || record.index !== index ||
       !(record.bytes instanceof ArrayBuffer) || record.bytes.byteLength !== expectedBytes) return null;
   await touchMediaCache(session, record.blobKey).catch(() => undefined);
@@ -448,7 +451,7 @@ export async function saveMediaPreview(session: VaultSession, manifest: import('
 }
 
 export async function loadMediaPreview(session: VaultSession, manifest: import('./types').ImageManifest, signal?: AbortSignal): Promise<Blob | null> {
-  const record = await transaction<StoredMediaChunk | undefined>('mediaChunks', 'readonly', store => store.get(mediaChunkId(session.vault.roomId, manifest.blobId, -1)), session.stored);
+  const record = await transaction<StoredMediaChunk | undefined>('mediaChunks', 'readonly', store => store.get(mediaChunkId(session.vault.roomId, manifest.blobId, -1)), () => session.stored);
   if (!record?.iv || !record.mimeType || !['image/jpeg', 'image/png', 'image/webp'].includes(record.mimeType)) return null;
   try {
     const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-preview-v1', roomId: session.vault.roomId, manifest, mimeType: record.mimeType }));
@@ -974,6 +977,19 @@ export async function unlockVault(secret = '', preparedPlatformProof?: Promise<U
   return withVaultLifecycle(() => unlockVaultLocked(secret, platformProof));
 }
 
+/** Prepare management of already-owned pending slots without changing selection. */
+export async function unlockOwnedPendingSpace(id: string, credential: PlatformCredentialResult): Promise<VaultSession | null> {
+  return withVaultLifecycle(async () => {
+    const stored = await readStoredVaultUnlocked(id);
+    if (!stored || stored.v !== 3 || stored.unlockMethod !== 'platform' || stored.platform.credentialId !== credential.record.credentialId) return null;
+    const session = await unlockVaultLocked('', credential.prfOutput.slice(), stored);
+    if (session.vault.role === 'creator' && session.vault.mls?.phase === 'awaiting-peer' &&
+        session.vault.members.every(member => member.role === 'creator')) return session;
+    releaseDeviceCredential(session);
+    return null;
+  });
+}
+
 /** Resume an in-memory capability only from its unchanged, authenticated durable snapshot. */
 export async function resumeVaultSession(session: VaultSession): Promise<VaultSession> {
   return withVaultLifecycle(async () => {
@@ -1007,8 +1023,8 @@ function isPasskeyOnlyVault(stored: { v?: number; unlockMethod?: string }): bool
   return stored.v === 3 && stored.unlockMethod === 'platform';
 }
 
-async function unlockVaultLocked(secret: string, preparedPlatformProof?: Uint8Array<ArrayBuffer>): Promise<VaultSession> {
-  const stored = await readStoredVaultUnlocked();
+async function unlockVaultLocked(secret: string, preparedPlatformProof?: Uint8Array<ArrayBuffer>, explicitStored?: StoredVault): Promise<VaultSession> {
+  const stored = explicitStored ?? await readStoredVaultUnlocked();
   if (!stored) throw new Error('本机没有可解锁的会话');
   if (stored.unlockMethod === 'recovery') throw new Error('恢复包需要先输入独立恢复码');
   const passkeyOnly = isPasskeyOnlyVault(stored);
@@ -1067,7 +1083,7 @@ async function unlockVaultLocked(secret: string, preparedPlatformProof?: Uint8Ar
       } else retainedProof.fill(0);
       masterBytes.fill(0);
     }
-    rememberSpace(vaultSpaceId(unlocked.stored));
+    if (!explicitStored) rememberSpace(vaultSpaceId(unlocked.stored));
     if (!passkeyOnly) await clearUnlockThrottle();
     return unlocked;
   } catch (error) {

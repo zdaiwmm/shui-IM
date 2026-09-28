@@ -11,13 +11,13 @@ import { readBrowserAccessRecord } from './lib/vault';
 import { completeBrowserAccessJoin } from './lib/mls';
 import { newAccessIdentity, accessSafetyCode, verifyAccessProof } from './lib/browser-access-proof.mjs';
 import { accessEscape, accessDeadline, formatAccessRemaining, mountAccessApproval } from './lib/browser-access-ui';
-import { browserAccessKeys, loadBrowserProfile, saveBrowserProfile, refreshBrowserCatalog, discoveredCredentialRecord, prepareBrowserAccess, publishPreparedCatalog, preparedMailboxes, approveBrowser, acceptBrowserApproval, prepareSpaceAccess, accessPrivateSpaces, accessApi, mailboxPath, spaceAccessPath, rememberCatalogRemoval,
+import { browserAccessKeys, createOriginBrowserProfile, deleteCatalogPendingSpace, loadBrowserProfile, saveBrowserProfile, refreshBrowserCatalog, discoveredCredentialRecord, prepareBrowserAccess, publishPreparedCatalog, preparedMailboxes, approveBrowser, acceptBrowserApproval, prepareSpaceAccess, accessPrivateSpaces, accessApi, mailboxPath, spaceAccessPath, rememberCatalogRemoval,
   type BrowserProfileSession, type AccessSpace, type PendingSpaceAccess, type AccessStatus, type BrowserRequest, type PeerAccessRequest } from './lib/browser-access';
 import './spaces.css';
 import { mountSpaceDrawer, mountSpaceInvite, readPresenceStyle, spaceIcons } from './lib/space-drawer';
 import { forgetLocalSpace, localSpaces, rememberLocalSpace, syncSpaceDirectory, recoverableSpaces, refreshSpaceUnread, spaceMessagePreview, pendingSpaceExpiry, formatPendingCountdown, type PrivateSpace } from './lib/spaces';
 import { capabilityGateMembers } from './lib/member-capabilities';
-import { currentSpaceId, selectLocalSpace, vaultSpaceId } from './lib/vault';
+import { currentSpaceId, selectLocalSpace, vaultSpaceId, unlockOwnedPendingSpace } from './lib/vault';
 import { prepareJointRecovery, advanceJointRecovery, approveJointRecovery, completeJointRecovery, parseJointRecoveryLink, jointRecoveryUrl, jointRecoveryCode, jointRequest, inviteeScopeChoice, type JointLink, type JointSnapshot } from './lib/joint-recovery';
 import './recovery-experience.css';
 import { mountMediaDeleteConfirm } from './lib/media-delete-confirm';
@@ -2833,7 +2833,7 @@ export class QuietRoomApp {
       select:async space=>{if(space.localId){await this.switchPrivateSpace(space);return;}current.profile.currentRoom=space.roomId;await saveBrowserProfile(current,signal);if(!signal.aborted)this.renderBrowserShell();},
       create:async()=>{await this.leaveSpace();this.renderCreate();},rename:async()=>{throw new Error('空间授权后可修改名称');},
       remove: async space => {
-        if (!space.localId) throw new Error('请在创建此空间的原设备删除');
+        if (!space.localId) { await deleteCatalogPendingSpace(current.profile,space.roomId,signal);await saveBrowserProfile(current,signal);return; }
         await this.switchPrivateSpace(space);
         if (!this.session) throw new Error('请先解锁此空间');
         await this.destroyWaitingSpace(this.session, space);
@@ -2916,7 +2916,25 @@ export class QuietRoomApp {
         const profile=await loadBrowserProfile(session.browserAccessPrf,session.stored.platform.credentialId);
         if(profile&&!signal.aborted)this.browserProfile=profile;
       }
-      await prepareBrowserAccess(session);signal.throwIfAborted();await publishPreparedCatalog(session,signal);
+      if(this.browserProfile)await refreshBrowserCatalog(this.browserProfile.profile,signal);
+      await prepareBrowserAccess(session,this.browserProfile?.profile);signal.throwIfAborted();await publishPreparedCatalog(session,signal);
+      if(!this.browserProfile)this.browserProfile=await createOriginBrowserProfile(session,signal);
+      // Older pending rooms had no management certificate. Reuse only this
+      // endpoint's already-verified passkey; never change the active space.
+      const held=this.deviceCredential;
+      if(held && this.browserProfile) {
+        const spaces=await localSpaces(session);
+        let prepared=false;
+        for(const space of spaces) {
+          if(!space.waiting || !space.localId || space.roomId===session.vault.roomId || this.browserProfile.profile.spaces.find(s=>s.roomId===space.roomId)?.pendingManagement)continue;
+          signal.throwIfAborted();
+          const target=await unlockOwnedPendingSpace(space.localId,held);
+          if(!target)continue;
+          try {signal.throwIfAborted();await prepareBrowserAccess(target,this.browserProfile.profile);prepared=true;}
+          finally {releaseDeviceCredential(target);}
+        }
+        if(prepared)await publishPreparedCatalog(session,signal);
+      }
     }catch{if(signal.aborted)return; /* Existing conversations remain usable while preparation is offline. */}
     const dismissed=new Set<string>(),deadlines=new Map<string,number>();
     const poll=async()=>{
@@ -5012,6 +5030,7 @@ export class QuietRoomApp {
 
   private async expireWaitingSpaces(session: VaultSession, signal: AbortSignal): Promise<void> {
     const spaces = await localSpaces(session);
+    this.applyCatalogToSpaces(spaces);
     for (const space of spaces) {
       if (signal.aborted || this.session !== session) return;
       const expiry = pendingSpaceExpiry(space);
@@ -5054,7 +5073,14 @@ export class QuietRoomApp {
       if (current) target = session;
       else {
         const held = this.deviceCredential;
-        if (!space.localId || !held) throw new Error('请在创建此空间的原设备删除');
+        if (!space.localId && this.browserProfile) {
+          await deleteCatalogPendingSpace(this.browserProfile.profile,space.roomId,signal);
+          await saveBrowserProfile(this.browserProfile,signal);
+          await rememberCatalogRemoval(session,space.roomId);
+          await forgetLocalSpace(session,space.roomId);
+          return;
+        }
+        if (!space.localId || !held) throw new Error('请先完成本机设备验证');
         const selected = currentSpaceId();
         try {
           await selectLocalSpace(space.localId);
@@ -5287,7 +5313,6 @@ export class QuietRoomApp {
             <div class="composer-field">
               <label class="sr-only" for="message-input">输入消息</label>
               <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '点击输入文字，长按录制语音' : '对方进入聊天页面即可完成私密空间创建'}" autocomplete="off" enterkeyhint="enter" ${cryptoReady ? '' : 'disabled'}></textarea>
-              <span class="composer-placeholder" aria-hidden="true">${cryptoReady ? '点击输入文字，长按录制语音' : '对方进入聊天页面即可完成私密空间创建'}</span>
               <button class="meme-toggle" id="open-memes" type="button" aria-label="打开表情" title="表情" aria-expanded="false" aria-controls="meme-panel" ${cryptoReady ? '' : 'disabled'}>${memeIcons.smile}</button>
             </div>
           </div>
@@ -5485,6 +5510,13 @@ export class QuietRoomApp {
       nativeShrinkFrame = null;
       const measure = textarea.cloneNode() as HTMLTextAreaElement;
       measure.removeAttribute('id');
+      // ID-scoped rules reserve room for the expression button. A clone without
+      // those insets wraps later than the editor and can hide its last line.
+      const editorStyle = getComputedStyle(textarea);
+      for (const property of ['font', 'line-height', 'letter-spacing', 'word-spacing', 'text-indent',
+        'padding', 'border-width', 'border-style', 'box-sizing', 'white-space', 'word-break', 'overflow-wrap']) {
+        measure.style.setProperty(property, editorStyle.getPropertyValue(property));
+      }
       measure.setAttribute('aria-hidden', 'true');
       measure.tabIndex = -1;
       measure.value = textarea.value;
@@ -9723,6 +9755,7 @@ export class QuietRoomApp {
             if (download.disabled) return;
             download.disabled = true;
             dialogError.textContent = '';
+            let saving = false;
             try {
               await this.confirmDeviceCredential();
               if (!active() || !dialog.isConnected) return;
@@ -9734,13 +9767,16 @@ export class QuietRoomApp {
               if (!active() || !dialog.isConnected) return;
               const filename = `quiet-room-${new Date().toISOString().slice(0, 10)}.qrlocal`;
               prepared.handoff(); prepared = null;
+              saving = true;
               await this.withSystemSurface(() => downloadBlob(file, filename, { preferShare: false }));
               if (active()) closeDialog(dialog);
             } catch (cause) {
               await prepared?.dispose(); prepared = null;
               if (!active() || !dialog.isConnected) return;
               if (isPlatformVaultCancellation(cause)) this.showNotice('未完成验证', 'error');
-              else if (cause instanceof Error && cause.name === 'AbortError') dialogError.textContent = '未确认保存。取消下载不会删除已生成的备份。';
+              else if (cause instanceof Error && cause.name === 'AbortError') dialogError.textContent = saving
+                ? '未确认保存，请重新下载备份。'
+                : '备份生成被中断，请重试。';
               else dialogError.textContent = cause instanceof Error ? cause.message : '文件未保存，请重试';
             } finally {
               if (download.isConnected) setBusy(download, false);
