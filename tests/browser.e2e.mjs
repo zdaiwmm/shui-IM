@@ -1446,7 +1446,11 @@ try {
   invariant(accessibility.headerGradient.includes('linear-gradient') && accessibility.composerGradient.includes('linear-gradient'), `Chat bars do not have translucent gradient masks: ${JSON.stringify(accessibility)}`);
   invariant(accessibility.messageRegion && accessibility.shellRegion && Math.abs(accessibility.messageRegion.top - accessibility.shellRegion.top) <= 1 && Math.abs(accessibility.messageRegion.bottom - accessibility.shellRegion.bottom) <= 1, 'Messages do not scroll underneath the top and bottom bars');
   invariant(accessibility.viewport.includes('user-scalable=no') && accessibility.viewport.includes('maximum-scale=1'), 'Browser zoom is not disabled');
-  invariant(await creator.evaluate(() => !document.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true }))), 'Browser double-click zoom event was not prevented');
+  for (const client of [creator, joiner]) {
+    const zoom = await client.evaluate(() => ({ finePointer: matchMedia('(any-pointer: fine)').matches,
+      allowed: document.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })) }));
+    invariant(zoom.allowed === zoom.finePointer, `Zoom must be native for fine pointers and suppressed for touch-only input: ${JSON.stringify(zoom)}`);
+  }
   invariant(accessibility.faintTextContrast >= 4.5, `Faint text contrast is ${accessibility.faintTextContrast}`);
   invariant(accessibility.strongLineContrast >= 3, `Control boundary contrast is ${accessibility.strongLineContrast}`);
   invariant(accessibility.undersized.length === 0, `A visible control is smaller than 44 by 44 CSS pixels: ${JSON.stringify(accessibility.undersized)}`);
