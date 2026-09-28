@@ -20,6 +20,7 @@ export const browserGroups = Object.freeze({
     'tests/chat-continuity.e2e.mjs',
     'tests/message-timeline.e2e.mjs',
     'tests/message-read.e2e.mjs',
+    'tests/desktop-layout.e2e.mjs',
     'tests/desktop-privacy.e2e.mjs',
     'tests/desktop-session-flow.e2e.mjs',
     'tests/vault-resume.e2e.mjs',

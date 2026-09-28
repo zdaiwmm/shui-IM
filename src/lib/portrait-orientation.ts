@@ -10,6 +10,7 @@ export function mountPortraitOrientation(root: HTMLElement): () => void {
   guard.append(createElement(Smartphone), label); document.body.append(guard);
   const orientation = screen.orientation as ScreenOrientation & { lock?: (value: string) => Promise<void> };
   const mobile = matchMedia('(pointer: coarse)');
+  const mobileDevice = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
   let blocked = false;
   let previousInert = false;
   const sync = () => {
@@ -17,7 +18,7 @@ export function mountPortraitOrientation(root: HTMLElement): () => void {
     const angle = (window as Window & { orientation?: number }).orientation;
     const landscape = typeof angle === 'number' ? Math.abs(angle) === 90
       : screen.width > screen.height && (!orientation?.type || orientation.type.startsWith('landscape'));
-    const next = mobile.matches && landscape;
+    const next = mobileDevice && mobile.matches && landscape;
     if (next === blocked) return;
     blocked = next; guard.hidden = !next;
     if (next) { previousInert = root.inert; root.inert = true; }
@@ -26,7 +27,7 @@ export function mountPortraitOrientation(root: HTMLElement): () => void {
     root.dispatchEvent(new Event('portraitvisibilitychange'));
   };
   const lock = () => {
-    if (!mobile.matches || document.hidden) return;
+    if (!mobileDevice || !mobile.matches || document.hidden) return;
     try { void orientation?.lock?.('portrait').catch(() => undefined); } catch { /* Unsupported browser. */ }
   };
   orientation?.addEventListener('change', sync, { signal });

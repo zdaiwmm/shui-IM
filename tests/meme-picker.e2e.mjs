@@ -527,14 +527,23 @@ try {
       }
       throw new Error('Meme panel geometry did not settle');
     });
-    assert.ok(geometry.left>=0 && geometry.right<=width && geometry.top>=height*0.4 && Math.abs(geometry.bottom-height)<=1 && !geometry.overflow,JSON.stringify(geometry));
+    assert.ok(geometry.left>=0 && geometry.right<=width && geometry.top>=0 && geometry.bottom<=height && !geometry.overflow,JSON.stringify(geometry));
+    if (width >= 1024) {
+      const composer = await page.locator('#composer').boundingBox();
+      assert.ok(Math.abs(geometry.right - (composer.x + composer.width - 28)) <= 2 && Math.abs(composer.y - geometry.bottom - 8) <= 2, JSON.stringify({geometry,composer}));
+      assert.ok(geometry.right - geometry.left <= 480, JSON.stringify(geometry));
+    } else assert.ok(geometry.top>=height*0.4 && Math.abs(geometry.bottom-height)<=1,JSON.stringify(geometry));
     if(out) await page.screenshot({path:path.join(out,`memes-${width}.png`)});
     const halfTileWidth=(await page.locator('.meme-tile').first().boundingBox()).width;
     await page.locator('.meme-open-search').click();
     await page.waitForFunction(()=>getComputedStyle(document.querySelector('.meme-search-dialog')).opacity==='1'&&getComputedStyle(document.querySelector('.meme-panel')).opacity==='1');
     const full=await page.locator('.meme-search-dialog').boundingBox();
     const fullTileWidth=await page.locator('.meme-grid').evaluate(el => Math.min(132, (el.getBoundingClientRect().width - 16) / 5));
-    assert.ok(Math.abs(fullTileWidth-halfTileWidth)<1, `Tile width changed between half/full search at ${width}px: ${halfTileWidth}/${fullTileWidth}`);
+    if (width < 1024) assert.ok(Math.abs(fullTileWidth-halfTileWidth)<1, `Tile width changed between half/full search at ${width}px: ${halfTileWidth}/${fullTileWidth}`);
+    else assert.ok(fullTileWidth >= halfTileWidth && fullTileWidth <= 132, 'Desktop search retains the bounded five-column grid');
+    await page.waitForFunction(() => !document.querySelector('.meme-search-dialog .meme-panel')?.getAnimations().some(animation => animation.playState === 'running'));
+    const searchPanel = await page.locator('.meme-search-dialog .meme-panel').boundingBox();
+    assert.ok(Math.abs(searchPanel.x - full.x) <= 1 && Math.abs(searchPanel.width - full.width) <= 1 && Math.abs(searchPanel.height - full.height) <= 1, JSON.stringify({full,searchPanel}));
     assert.ok(Math.abs(full.height-height)<=1&&full.y===0&&full.width===width,JSON.stringify(full));
     if(out) await page.screenshot({path:path.join(out,`search-${width}.png`)});
     await page.locator('.meme-back').click();

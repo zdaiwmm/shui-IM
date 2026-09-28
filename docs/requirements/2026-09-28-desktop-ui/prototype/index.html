@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Quiet Room · PC 交互原型 V1.2</title><link rel="stylesheet" href="../../../../src/design-system.css"><link rel="stylesheet" href="prototype.css"></head>
+<body>
+<header class="review-bar"><div class="review-title"><b>Quiet Room</b><span>PC 交互原型 · V1.2</span></div><nav aria-label="原型演示"><button id="layout-toggle">窄窗口</button><button id="theme-toggle">切换主题</button><button id="simulate">收到消息</button><button id="privacy-demo">隐私遮蔽</button><button id="flows-toggle">业务流程</button></nav><span class="demo-label">模拟数据 · 不连接真实空间</span></header>
+<main id="frame"><div class="workspace" id="workspace">
+<aside class="sidebar" id="space-sidebar" aria-label="私密空间"><header class="side-heading"><div class="brand-mark">q<span>r</span></div><span>私密空间</span><button class="icon desktop-collapse" id="collapse-sidebar" aria-label="收起左侧栏" title="收起左侧栏" aria-controls="space-sidebar" aria-expanded="true"></button><button class="icon mobile-only" id="close-nav" aria-label="关闭空间列表"></button></header><div id="space-list" class="space-list"></div><footer class="side-footer"><button id="create-space" class="create"><span>＋</span> 创建新空间</button><button id="settings" class="settings-button"></button><small>有些话，只留给彼此。</small></footer></aside>
+<button class="nav-backdrop" id="nav-backdrop" aria-label="关闭空间列表" hidden></button>
+<section id="content" class="content" aria-label="当前空间"></section>
+</div></main>
+<aside id="flow-page" hidden><div class="flow-heading"><span>DESKTOP / V1.2</span><h1>从空间，到对话。</h1><p>桌面改变信息的摆放方式，授权、消息与隐私规则继续沿用。</p></div><div id="flow-cards"></div><p class="flow-note">虚线说明和演示按钮仅用于审阅，不属于正式产品。此原型不验证加密、真实授权或生产安全。</p></aside>
+<dialog id="modal" aria-labelledby="modal-title"></dialog><div id="menu" class="context-menu" hidden></div><div id="toast" role="status"></div>
+<section id="curtain" hidden aria-label="隐私遮蔽演示"><div><span class="eyebrow">QUIET ROOM</span><h1>暂时离开，安心回来。</h1><p>整个工作区已遮蔽，包括空间列表。</p><button id="resume" class="primary">返回原型</button><small>演示状态，不代表已经锁定或完成身份验证</small></div></section>
+<script src="prototype.js"></script>
+</body></html>

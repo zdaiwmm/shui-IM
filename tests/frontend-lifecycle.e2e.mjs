@@ -2443,32 +2443,36 @@ try {
         await settle();
         const samples = [];
         for (const fraction of [0, 0.5, 1]) {
-          const target = (document.documentElement.scrollHeight - innerHeight) * fraction;
-          window.scrollTo(0, target);
+          const list = document.querySelector('#message-list');
+          const target = (list.scrollHeight - list.clientHeight) * fraction;
+          list.dispatchEvent(new WheelEvent('wheel', { deltaY: fraction === 0 ? -100 : 100, bubbles: true }));
+          list.scrollTop = target;
           await settle();
           const header = document.querySelector('.chat-header');
           const composer = document.querySelector('#composer');
           const headerBounds = header.getBoundingClientRect();
           const composerBounds = window.composerBaseBounds();
           const input = document.querySelector('#message-input').getBoundingClientRect();
-          if (getComputedStyle(header).position !== 'fixed' || getComputedStyle(composer).position !== 'fixed') throw Error('Desktop controls no longer use fixed positioning');
+          if (getComputedStyle(header).position !== 'absolute' || getComputedStyle(composer).position !== 'absolute' || document.querySelector('.chat-shell').dataset.scrollOwner !== 'list') throw Error('Desktop bars must be anchored inside the independently scrolling chat pane');
           if (Math.abs(headerBounds.top) > 1 || Math.abs(composerBounds.bottom - innerHeight) > 1) throw Error('Document scrolling moved a desktop bar away from the window edge');
-          if (headerBounds.width > 881 || composerBounds.width > 881 || Math.abs(headerBounds.left - composerBounds.left) > 1 || Math.abs(headerBounds.right - composerBounds.right) > 1) throw Error('Desktop bars escaped their shared 880px conversation width');
+          const shellBounds = document.querySelector('.chat-shell').getBoundingClientRect();
+          if (Math.abs(headerBounds.left - shellBounds.left) > 2 || Math.abs(headerBounds.right - shellBounds.right) > 2 || Math.abs(headerBounds.left - composerBounds.left) > 1 || Math.abs(headerBounds.right - composerBounds.right) > 1) throw Error('Desktop bars escaped their shared content pane');
           const row = document.querySelector('.composer-row').getBoundingClientRect();
           if (row.width < 640 || input.width < row.width * .75 || document.documentElement.scrollWidth > innerWidth) throw Error('Desktop composer shrank or overflowed as the browser grew wider');
-          if (Math.abs(window.scrollY - target) > 2) throw Error(`Desktop scroll position was pulled away from its target: ${JSON.stringify({ fraction, target, scrollY })}`);
-          samples.push({ fraction, scrollY, firstMessageTop: document.querySelector('.message').getBoundingClientRect().top, headerTop: headerBounds.top, composerBottom: composerBounds.bottom, inputWidth: input.width, barWidth: composerBounds.width });
+          if (Math.abs(list.scrollTop - target) > 2) throw Error(`Desktop scroll position was pulled away from its target: ${JSON.stringify({ fraction, target, listScroll:list.scrollTop })}`);
+          if (window.scrollY !== 0) throw Error('Desktop content scrolled the whole document');
+          samples.push({ fraction, scrollY:list.scrollTop, firstMessageTop: document.querySelector('.message').getBoundingClientRect().top, headerTop: headerBounds.top, composerBottom: composerBounds.bottom, inputWidth: input.width, barWidth: composerBounds.width });
         }
         if (samples[2].scrollY <= samples[0].scrollY || samples[2].firstMessageTop >= samples[0].firstMessageTop) throw Error('Desktop fixture never scrolled its message content');
         return samples;
       });
       await desktopPage.mouse.move(width / 2, height / 2);
       for (const deltaY of [-620, 240]) {
-        const before = await desktopPage.evaluate(() => scrollY);
+        const before = await desktopPage.evaluate(() => document.querySelector('#message-list').scrollTop);
         const framesPromise = desktopPage.evaluate(() => new Promise(resolve => {
           const frames = [];
           const sample = () => {
-            frames.push({ scrollY, top: document.querySelector('.chat-header').getBoundingClientRect().top, bottom: window.composerBaseBounds().bottom });
+            frames.push({ scrollY:document.querySelector('#message-list').scrollTop, top: document.querySelector('.chat-header').getBoundingClientRect().top, bottom: window.composerBaseBounds().bottom });
             if (frames.length === 16) resolve(frames);
             else requestAnimationFrame(sample);
           };
@@ -2476,7 +2480,7 @@ try {
         }));
         await desktopPage.mouse.wheel(0, deltaY);
         const frames = await framesPromise;
-        if (Math.abs(frames.at(-1).scrollY - before) < 100) throw Error('Desktop wheel did not move the actual document');
+        if (Math.abs(frames.at(-1).scrollY - before) < 100) throw Error('Desktop wheel did not move the actual message list');
         if (frames.some(frame => Math.abs(frame.top) > 1 || Math.abs(frame.bottom - height) > 1)) throw Error('Desktop bars moved during an actual wheel frame');
       }
       await desktopPage.locator('.message.incoming').last().hover();
@@ -2487,7 +2491,7 @@ try {
     await desktopPage.locator('[data-message-action="reply"]').click();
     await desktopPage.locator('#reply-draft').waitFor({ state: 'visible' });
     assert.equal(await desktopPage.evaluate(() => window.regression.app.replyTarget?.clientMsgId), 'message-120');
-    results.desktopDocumentScroll = { desktopIdentity: true, samples, contextMenuReply: true };
+    results.desktopPaneScroll = { desktopIdentity: true, samples, contextMenuReply: true };
   } finally { await desktopPage.close(); }
   assert.deepEqual(errors, []);
   console.log(JSON.stringify(results, null, 2));

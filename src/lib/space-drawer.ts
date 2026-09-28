@@ -1,7 +1,7 @@
 import { dismissDraggedPanel, motion, retargetMotion, settleValue } from './motion';
 import { mountDialog } from './dialog';
 import type { PrivateSpace } from './spaces';
-import { createElement, Settings2, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2 } from 'lucide';
+import { createElement, Settings2, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2, PanelLeftClose } from 'lucide';
 import { formatPendingCountdown, pendingSpaceExpiry } from './spaces';
 export type PresenceStyle = 'capsule' | 'heart';
 export function readPresenceStyle(): PresenceStyle { try { return localStorage.getItem('quiet-room:presence-style') === 'heart' ? 'heart' : 'capsule'; } catch { return 'capsule'; } }
@@ -31,6 +31,7 @@ export function fitViewport(element: HTMLElement, signal: AbortSignal) {
 }
 
 export function mountSpaceDrawer(root: HTMLElement, options: {
+  presentation?: 'sidebar' | 'settings'; container?: HTMLElement; openSettings?: () => void;
   spaces: PrivateSpace[]; currentRoom: string; signal: AbortSignal; actions: Action[]; icons?: { close: string; plus: string; settings: string };
   select: (space: PrivateSpace) => Promise<void>; create: () => Promise<void>; rename: (space: PrivateSpace, name: string) => Promise<void>;
 removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; settingsScrollTop?: number; onSettingsLeave?: (scrollTop: number) => void;
@@ -43,12 +44,15 @@ remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace)
   const lifetime = new AbortController();
   const signal = AbortSignal.any([options.signal, lifetime.signal]);
   const sheet = document.createElement('div'); sheet.className = 'space-drawer-overlay' + (options.initialSettings ? ' is-visible is-restored' : ''); sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', '私密空间');
-  root.append(sheet);
+  const embedded = Boolean(options.presentation);
+  if (embedded) { sheet.className = `space-embedded space-${options.presentation}`; sheet.removeAttribute('aria-modal'); sheet.setAttribute('role', 'region'); }
+  (options.container ?? root).append(sheet);
   let busy = false, listScrollTop = 0;
-  const dialog = mountDialog(sheet, { signal: options.signal, isActive: () => !options.signal.aborted, beforeClose: () => !busy, onClose: () => {
+  const dialog = embedded ? { close: (_options?: { animate?: boolean; restoreFocus?: boolean }) => { /* Embedded navigation owns its page lifetime. */ } } : mountDialog(sheet, { signal: options.signal, isActive: () => !options.signal.aborted, beforeClose: () => !busy, onClose: () => {
     lifetime.abort(); options.closed();
   } });
-  const close = () => dialog.close();
+  if (embedded) signal.addEventListener('abort', () => sheet.remove(), { once: true });
+  const close = () => { if (embedded) { if (!busy) options.closed(); } else dialog.close(); };
   sheet.addEventListener('click', e => { if (e.target === sheet && !busy) close(); });
   function page(title: string, body: string, footer = '', back?: () => void) {
     if (sheet.querySelector('.space-list')) listScrollTop = sheet.querySelector('.space-drawer-scroll')!.scrollTop;
@@ -56,7 +60,7 @@ remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace)
     const previousBody = sheet.querySelector<HTMLElement>('.space-drawer-scroll');
     const previousPaint = previousBody ? getComputedStyle(previousBody).translate : '0 0';
     sheet.setAttribute('aria-label', title);
-    sheet.innerHTML = `<section class="space-drawer"><header class="space-drawer-header">${back ? `<button class="icon-button space-back" aria-label="返回">${arrow}</button>` : ''}<h2>${title}</h2><button class="icon-button space-close" aria-label="关闭">${closeIcon}</button></header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${footer ? `<footer class="space-drawer-footer">${footer}</footer>` : ''}</section>`;
+    sheet.innerHTML = `<section class="space-drawer"><header class="space-drawer-header">${back ? `<button class="icon-button space-back" aria-label="返回">${arrow}</button>` : ''}<h2>${title}</h2><button class="icon-button space-close" aria-label="${options.presentation === 'sidebar' ? '收起空间侧栏' : '关闭'}">${options.presentation === 'sidebar' ? createElement(PanelLeftClose).outerHTML : closeIcon}</button></header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${footer ? `<footer class="space-drawer-footer">${footer}</footer>` : ''}</section>`;
     if (previousBody && priorTitle !== title) {
       const content = sheet.querySelector<HTMLElement>('.space-drawer-scroll')!;
       retargetMotion(content, null, { opacity: .8, translate: previousPaint === 'none' || previousPaint === '0px' ? `${back ? 16 : -16}px 0` : previousPaint },
@@ -137,7 +141,7 @@ popup.style.top = `${Math.max(top + 12, Math.min(rect.bottom - 6, bottom - (remo
   }
   function settings() {
     const setting = (a: Action) => `<button class="space-setting" id="${a.id}"><span class="space-setting-icon" aria-hidden="true">${a.icon}</span><span class="space-setting-label">${escape(a.label)}</span>${arrow}</button>`;
-    page('设置', `${(['当前空间','本机','关于'] as const).map(group => `<section class="space-setting-group"><h3>${group}</h3>${group === '本机' ? `<button class="space-setting" id="presence-style-setting"><span class="space-setting-icon" aria-hidden="true">${heart}</span><span class="space-setting-label">在线状态样式<small>${readPresenceStyle() === 'heart' ? '心动按钮' : '在线胶囊'}</small></span>${arrow}</button>` : ''}${options.actions.filter(a => (a.group ?? '当前空间') === group).map(setting).join('')}</section>`).join('')}`, '', list);
+    page('设置', `${(['当前空间','本机','关于'] as const).map(group => `<section class="space-setting-group"><h3>${group}</h3>${group === '本机' ? `<button class="space-setting" id="presence-style-setting"><span class="space-setting-icon" aria-hidden="true">${heart}</span><span class="space-setting-label">在线状态样式<small>${readPresenceStyle() === 'heart' ? '心动按钮' : '在线胶囊'}</small></span>${arrow}</button>` : ''}${options.actions.filter(a => (a.group ?? '当前空间') === group).map(setting).join('')}</section>`).join('')}`, '', options.presentation === 'settings' ? close : list);
     sheet.querySelector('#presence-style-setting')!.addEventListener('click', () => { styles(); sheet.querySelector<HTMLButtonElement>('[aria-checked=true]')?.focus(); });
     for (const action of options.actions) sheet.querySelector(`#${action.id}`)!.addEventListener('click', () => { if (action.keepOpen) void run(async () => { await action.run(); }); else { options.onSettingsLeave?.(sheet.querySelector('.space-drawer-scroll')!.scrollTop); dialog.close({ animate: false }); void action.run(); } });
   }
@@ -161,11 +165,16 @@ const expiry = pendingSpaceExpiry(s);
     return `<div class="space-access-row"><button class="space-row ${selected ? 'is-selected' : ''}" data-space="${i}" aria-current="${selected ? 'true' : 'false'}"><span class="space-row-copy">${selected ? '<small class="space-current-label">当前空间</small>' : ''}<strong>${escape(s.name)}</strong>${statusLine}</span>${selected ? `<span class="space-selected-check" aria-hidden="true">${check}</span>` : `<span class="space-row-trailing"><span class="space-unread" data-unread="${i}" hidden></span><span class="space-row-arrow" aria-hidden="true">${arrow}</span></span>`}</button><button class="space-access-action" data-access="${i}" hidden>授权</button></div>`;
   }
   function list() {
+    const focused = sheet.contains(document.activeElement) && document.activeElement instanceof HTMLButtonElement ? document.activeElement : null;
+    const focusedRoom = focused?.dataset.space ? options.spaces[Number(focused.dataset.space)]?.roomId : undefined;
+    const focusedId = focused?.id;
     const current = options.spaces.find(s => s.roomId === options.currentRoom), others = options.spaces.filter(s => s !== current);
     page('私密空间', `<div class="space-list">${current ? row(current) : ''}<div class="space-list-heading"><span>其他空间</span><span>${others.length}</span></div>${others.map(row).join('')}${!others.length ? '<p class="space-empty">想和另一个人聊聊？<br>从下方创建一个新空间。</p>' : ''}</div>`, `<button class="space-create" id="space-create">${createElement(Plus).outerHTML}创建新空间</button><button class="space-settings-entry" id="space-settings" aria-label="设置">${spaceIcons.settings}</button>`);
     sheet.querySelector('.space-drawer-scroll')!.scrollTop = listScrollTop; badges();authorizations();
+    if (focusedRoom) sheet.querySelector<HTMLButtonElement>(`[data-space="${options.spaces.findIndex(s => s.roomId === focusedRoom)}"]`)?.focus({ preventScroll: true });
+    else if (focusedId) sheet.querySelector<HTMLElement>(`#${CSS.escape(focusedId)}`)?.focus({ preventScroll: true });
     sheet.querySelectorAll<HTMLButtonElement>('[data-access]').forEach(button=>button.addEventListener('click',()=>{const space=options.spaces[Number(button.dataset.access)]!;const action=options.authorization?.(space);if(action&&action.deadline>performance.now()){dialog.close({animate:false});void action.open();}}));
-    sheet.querySelector('#space-settings')!.addEventListener('click', () => { settings(); sheet.querySelector<HTMLButtonElement>('.space-back')?.focus(); });
+    sheet.querySelector('#space-settings')!.addEventListener('click', () => { if (options.openSettings) options.openSettings(); else { settings(); sheet.querySelector<HTMLButtonElement>('.space-back')?.focus(); } });
     sheet.querySelector('#space-create')!.addEventListener('click', () => void run(async () => { await options.create(); dialog.close({ animate: false }); }));
     sheet.querySelectorAll<HTMLButtonElement>('[data-space]').forEach(button => {
       const space = options.spaces[Number(button.dataset.space)]!;
@@ -192,8 +201,13 @@ const expiry = pendingSpaceExpiry(s);
       });
       button.addEventListener('contextmenu', e => { e.preventDefault(); window.clearTimeout(timer); timer = undefined; pressed = true; menu(space, button); });
       button.addEventListener('keydown', e => { if (e.key === 'F2' || e.key === 'ContextMenu' || e.shiftKey && e.key === 'F10') { e.preventDefault(); menu(space, button); } });
-      button.addEventListener('click', () => { cancel(); if (pressed) { pressed = false; return; } if (space.roomId === options.currentRoom && !space.waiting) close(); else void run(async () => { await options.select(space); dialog.close({ animate: false }); }); });
+      button.addEventListener('click', () => { cancel(); if (pressed) { pressed = false; return; } if (space.roomId === options.currentRoom && !space.waiting && options.presentation !== 'sidebar') close(); else void run(async () => { await options.select(space); dialog.close({ animate: false }); }); });
     });
+  }
+  if (embedded) {
+    const observer = new MutationObserver(() => { if (!sheet.isConnected) lifetime.abort(); });
+    observer.observe(root, { childList: true });
+    signal.addEventListener('abort', () => observer.disconnect(), { once: true });
   }
   if (options.initialSettings) { settings(); sheet.querySelector('.space-drawer-scroll')!.scrollTop = options.settingsScrollTop ?? 0; } else list();
   if (options.refreshSpaces) {

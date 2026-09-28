@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## PC 交互适配候选验证完成（2026-09-29）
+
+- 用户在 V1.2 原型及审计后正式授权实施，起始远端基线 `df2e0c2`，独占分支 `codex/desktop-interactions`；仅文档主线已同步至 `3f07eff`。范围和确认见[PC 适配记录](../requirements/2026-09-28-desktop-ui/README.md)。
+- 桌面新增可收起空间侧栏、右侧设置和辅助页布局；聊天两侧对齐、独立滚动、宽窄保位和输入上方浮层。沿用单空间授权与隐私生命周期，未更改桌面密钥保留分类。
+- 产品候选 `5c64c1c` 的[完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36460850848) 通过：构建、94 文件 / 738 项单元、48 项浏览器入口、通话媒体及弱网专项、文档/依赖/秘密扫描；本机 Chromium/WebKit 桌面、手机键盘/列表、抽屉及表情专项通过。交付见 [PR #226](https://github.com/zdaiwmm/shui-IM/pull/226)，合并状态以 PR 回执为准。真机未验收，未发布生产，生产状态仍以下方既有发布证据为准。
+
 ## 录屏语音交互与聊天细节已发布（2026-09-29 00:49）
 
 - 当前线上应用 SHA `df2e0c265c1d74a862b3d8e32e6a119f14a3ef96`，版本 `2026.09.28.8`；用户在 [PR #224](https://github.com/zdaiwmm/shui-IM/pull/224) 合并交付后明确确认发布。精确 main [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36452865169) 首次全部通过，最终候选本地构建、738 项单元／集成、47/47 浏览器通过。

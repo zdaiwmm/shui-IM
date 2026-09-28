@@ -108,6 +108,8 @@ try {
   await page.evaluate(async () => {
     const { mountPortraitOrientation } = await import('/src/lib/portrait-orientation.ts');
     const nativeMatch = window.matchMedia;
+    const nativeAgent = navigator.userAgent;
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1' });
     const mobile = new EventTarget(); mobile.matches = true;
     window.matchMedia = query => query === '(pointer: coarse)' ? mobile : nativeMatch(query);
     Object.defineProperty(screen.orientation, 'type', { configurable: true, value: 'portrait-primary' });
@@ -133,7 +135,15 @@ try {
     Object.defineProperty(screen, 'height', { configurable: true, value: 844 });
     screen.orientation.dispatchEvent(new Event('change'));
     if (root.inert || !document.querySelector('.portrait-orientation-guard').hidden) throw Error('Portrait failed to restore');
-    dispose(); window.matchMedia = nativeMatch;
+    dispose();
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0 Safari/537.36' });
+    Object.defineProperty(screen.orientation, 'type', { configurable: true, value: 'landscape-primary' });
+    Object.defineProperty(screen, 'width', { configurable: true, value: 1366 });
+    Object.defineProperty(screen, 'height', { configurable: true, value: 768 });
+    const disposeDesktop = mountPortraitOrientation(root);
+    if (root.inert || !document.querySelector('.portrait-orientation-guard').hidden) throw Error('Touch-capable desktop was incorrectly blocked in landscape');
+    disposeDesktop(); window.matchMedia = nativeMatch;
+    Object.defineProperty(navigator, 'userAgent', { configurable: true, value: nativeAgent });
     window.releaseFixture.app.socket = null;
     window.releaseFixture.app.unreadCounter.markRead = originalRead;
   });

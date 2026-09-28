@@ -288,3 +288,11 @@ The bottom tabs are Emoji, GIFs, 贴纸 in that order, with a compact 38px visib
 ## Settings and recovery layout follow-up
 
 Returning from a settings child page restores the settings drawer and its scroll position immediately without entrance animation; privacy teardown clears this return state. Recovery counts align right. Backup disclosure paragraphs use independent positive spacing. The recovery-code introduction uses the existing dense layout without its decorative icon; the final notice remains scrollable above the action area.
+
+## Desktop workspace
+
+At 1024 CSS pixels and wider, the unlocked workspace uses a 280px space sidebar and a full remaining-width content pane. The sidebar can be hidden and reopened from every supported page header; the page session remembers that choice across narrow-window visits. Narrow windows retain the existing modal drawer. Resizing or collapsing preserves the mounted chat, draft, reply and reading position. Messages align to the content pane's 28px side insets, with individual text bubbles bounded to 640px. Chat and space lists scroll independently; the header and composer stay within the visible viewport, including short windows.
+
+Desktop Settings occupies the content pane and reuses the same actions and verification boundaries. Auxiliary pages keep the space navigation. Tools and expressions float above the editor and stay within the available height; they do not cover multiline draft text. Fine-pointer clients support direct message-text selection and normal browser zoom; right-click, the visible-on-hover/focus message menu button and keyboard open the shared message actions. Keyboard activation enters the tools panel, Escape closes it and restores the trigger. Dialogs own every Tab/Shift+Tab step, including Safari's reduced native tab order.
+
+The sidebar only reads the encrypted local directory and the existing count-only observers. It does not unlock another vault, load another room's history, mark sidebar previews read or broaden new-device access. Background chat under a modal cannot generate visible-message read acknowledgements. Privacy cleanup removes the entire workspace and stops its observers; desktop retention eligibility remains based on the existing platform/lifecycle policy, never this layout breakpoint. Touch-capable desktop PCs are not forced into the mobile portrait guard.

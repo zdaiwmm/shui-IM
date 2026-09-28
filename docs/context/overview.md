@@ -20,6 +20,8 @@
 
 需求协作：所有变更先按[需求澄清与设计确认](workflow.md#需求澄清与设计确认)推进；页面需求先原型与业务流程图，参考根 `DESIGN.md` 和实际样式／组件。记录使用[最小需求模板](../requirements/TEMPLATE.md)，保存遵循[轻量规则](workflow.md#需求材料的轻量保存)。
 
+桌面双栏与收展：`src/lib/desktop-workspace.ts`、`src/desktop.css`；验证 `tests/desktop-layout.e2e.mjs`，复用下方空间/隐私回归。
+
 私密空间抽屉与在线样式：`src/lib/space-drawer.ts`、`src/spaces.css`、`src/lib/spaces.ts`；
 本机加密预览与只读未读计数的契约见 `PRODUCT.md`、`SECURITY.md`，专项为
 `tests/spaces.test.ts`、`tests/spaces.e2e.mjs`、`tests/space-drawer-ui.e2e.mjs`。
