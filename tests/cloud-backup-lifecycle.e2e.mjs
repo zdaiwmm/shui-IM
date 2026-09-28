@@ -39,6 +39,9 @@ try {
     for (let seq = 1; seq <= 2; seq++) await v.saveHistoryMessage(session, { seq, clientMsgId: crypto.randomUUID(), senderId: identity.publicBundle.deviceId,
       payload: { v: 1, kind: 'text', text: `private-history-${seq}`, sentAt: new Date().toISOString() }, acceptedAt: new Date().toISOString(), status: 'stored' });
     await b.syncCloudBackup(session, new AbortController().signal);
+    if (session.vault.cloudBackupPreference.enabled || !session.vault.backup.syncedAt || session.vault.backup.archives.some(a => a.parts.length)) throw new Error('Default-off must preserve identity without uploading history');
+    await b.cloudBackupPreference(session, new AbortController().signal, true);
+    await b.syncCloudBackup(session, new AbortController().signal);
     const code = session.vault.backup.code;
     const tasks = await import('/src/lib/history-restore-task.ts');
     const taskCode = (await import('/src/lib/backup-crypto.ts')).newRecoveryCode().code;
@@ -56,7 +59,7 @@ try {
     window.fetch = async (...args) => { noOpRequests++; return original(...args); };
     await b.syncCloudBackup(session, new AbortController().signal, { force: false });
     window.fetch = original;
-    const noOpSkipped = noOpRequests === 0 && session.vault.backup.revision === noOpRevision;
+    const noOpSkipped = noOpRequests === 1 && session.vault.backup.revision === noOpRevision;
     session.vault.lastReceiptSeq = 3;
     let changedStateRequests = 0;
     window.fetch = async (...args) => { changedStateRequests++; return original(...args); };
@@ -204,6 +207,58 @@ try {
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
   assert.equal(await page.locator('.local-recovery-code').count(), 0);
   assert.equal(await page.evaluate(() => window.fixtureApp.session === null && window.fixtureApp.retainedSession === null), true);
+  await page.evaluate(async () => {
+    await Promise.all(['/src/styles.css','/src/auth-recovery.css','/src/chat-interactions.css','/src/recovery-experience.css'].map(file => import(file)));
+    const app = window.fixtureApp;
+    app.session = await (await import('/src/lib/vault.ts')).unlockVault(); app.privacyCovered = false; app.runtimeAbort = new AbortController();
+    // Earlier identity-replacement probes deliberately recreated the vault with a new master key.
+    // Remove their stale synthetic local ciphertext before exercising a fresh export.
+    await (await import('/src/lib/vault.ts')).clearLocalBrowserData(app.session);
+    document.body.className = 'app-mode'; app.revealPrivacySurface(); app.renderLocalHistoryBackup('export');
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator('[data-cloud-switch][aria-checked=true]').waitFor();
+  await page.locator('[data-cloud-switch]').click();
+  await page.locator('[data-cloud-switch][aria-checked=false]:not(:disabled)').waitFor();
+  await page.locator('[data-cloud-switch]').click();
+  await page.getByRole('heading', { name: '开启前，请了解这些' }).waitFor();
+  assert.equal(await page.locator('[data-cloud-switch]').getAttribute('aria-checked'), 'false');
+  await page.locator('.backup-privacy-sheet [data-cancel]').click();
+  await page.locator('.backup-privacy-sheet').waitFor({ state: 'detached' });
+  assert.equal(await page.locator('[data-cloud-switch]').getAttribute('aria-checked'), 'false');
+  await page.locator('[data-cloud-switch]').click();
+  await page.locator('.backup-privacy-sheet.is-visible').waitFor();
+  await page.waitForTimeout(350);
+  const privacyBox = await page.locator('.backup-privacy-panel').boundingBox();
+  await page.screenshot({ path: path.join(tmpdir(), 'quiet-backup-sheet.png') });
+  assert(privacyBox.height < 844 * .65 && privacyBox.y > 844 * .35, `privacy disclosure stays in a bottom half sheet: ${JSON.stringify(privacyBox)}`);
+  await page.locator('[data-enable]').click();
+  await page.locator('.backup-privacy-sheet').waitFor({ state: 'detached' });
+  await page.locator('[data-cloud-switch][aria-checked=true]').waitFor();
+  assert.equal(await page.locator('[data-local-backup-view=export]').count(), 1, 'enabling stays on the entry page');
+  assert.equal(await page.locator('progress').count(), 0, 'automatic backup has no progress page');
+  for (const size of [{ width: 390, height: 844 }, { width: 320, height: 568 }]) {
+    await page.setViewportSize(size);
+    const fits = await page.locator('.backup-hub-content').evaluate(node => node.scrollHeight <= node.clientHeight + 1 && document.documentElement.scrollWidth <= innerWidth + 1);
+    assert(fits, `backup entry fits ${size.width}x${size.height}`);
+  }
+  await page.evaluate(() => {
+    window.passkeyCalls = 0;
+    Object.defineProperty(navigator.credentials, 'get', { configurable: true, value: (...args) => {
+      window.passkeyCalls++;
+      if (document.querySelector('#verify-recovery-passkey')) throw new Error('Download introduced an authentication page');
+      return window.originalCredentialGet(...args);
+    } });
+  });
+  await page.locator('#local-backup-export').click();
+  await page.waitForFunction(() => document.querySelector('#history-download') || document.querySelector('.form-error')?.textContent);
+  assert.equal(await page.locator('.form-error').first().textContent(), '', 'download summary must open before native verification');
+  const fileReady = page.waitForEvent('download', { timeout: 10000 }).then(() => true, () => false);
+  await page.locator('#history-download').click();
+  const gotDownload = await fileReady;
+  assert(gotDownload, `native calls=${await page.evaluate(() => window.passkeyCalls)}; error=${await page.locator('.form-error').allTextContents()}`);
+  assert.equal(await page.evaluate(() => window.passkeyCalls), 1, 'download directly invokes a fresh native passkey verification');
+  await page.evaluate(() => window.fixtureApp.lockNow());
   const mediaRestore = await page.evaluate(async () => {
     const v = await import('/src/lib/vault.ts');
     const { reduceMessageDeletions } = await import('/src/lib/message-deletions.ts');

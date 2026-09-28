@@ -3,22 +3,25 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { createCloudBackups } from '../server/cloud-backups.mjs';
+import { newSpaceRecoveryCode, sealSpaceDirectory } from '../src/lib/spaces';
 import { createStore } from '../server/storage.mjs';
 import { generateIdentity } from '../src/lib/crypto';
 import { newRecoveryCode, recoveryFetchToken, sealRecovery, openRecovery, randomBackupSecret, sealJson, openJson } from '../src/lib/backup-crypto';
-import { BACKUP_REQUEST_TIMEOUT_MS, fetchRecoveryBundle, normalizeRecoveryCodes } from '../src/lib/cloud-backup';
+import { BACKUP_REQUEST_TIMEOUT_MS, fetchRecoveryBundle, normalizeRecoveryCodes, assertHistoryOwner, authorizedHistorySources } from '../src/lib/cloud-backup';
 import type { CloudRecoveryBundle, BackupUpload } from '../src/lib/backup-types';
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const fn of cleanups.splice(0)) await fn(); });
 
-async function fixture() {
+async function fixture(enabled = true) {
   const dir = await mkdtemp(path.join(tmpdir(), 'cloud-backup-test-'));
   const store = await createStore({ dataDir: dir });
   cleanups.push(async () => { store.close(); await rm(dir, { recursive: true, force: true }); });
   const identity = await generateIdentity();
   const token = randomBackupSecret();
   const { roomId } = store.createRoom(identity.publicBundle, token, randomBackupSecret(), 'source', ['recovery-replace-v1']);
+  if (enabled) store.cloudBackups.preference(roomId, token, { enabled: true, revision: 1 });
   const recovery = newRecoveryCode();
   const archive = { id: randomBackupSecret(), key: randomBackupSecret(), token: randomBackupSecret(), parts: [] };
   const bundle: CloudRecoveryBundle = { v: 1, backupId: recovery.id, roomId, deviceId: identity.publicBundle.deviceId,
@@ -30,6 +33,86 @@ async function fixture() {
 }
 
 describe('cloud recovery encryption and atomic storage', () => {
+  it('keeps identity checkpoints available while default-off and rejects history even from old clients', async () => {
+    const f = await fixture(false);
+    expect(f.store.cloudBackups.preference(f.roomId, f.token)).toEqual({ enabled: false, revision: 0 });
+    f.store.cloudBackups.save(f.roomId, f.token, f.upload);
+    expect(f.store.cloudBackups.fetch(f.recovery.id, f.upload.fetchToken).revision).toBe(1);
+    const part = randomBackupSecret(), sealed = await sealJson({ private: 'history' }, f.archive.key, 'fixture');
+    expect(() => f.store.cloudBackups.putPart(f.roomId, f.token, f.archive.id, part, sealed)).toThrow('BACKUP_DISABLED');
+    f.store.cloudBackups.preference(f.roomId, f.token, { enabled: true, revision: 1 });
+    f.store.cloudBackups.putPart(f.roomId, f.token, f.archive.id, part, sealed);
+    f.store.cloudBackups.preference(f.roomId, f.token, { enabled: false, revision: 2 });
+    expect(() => f.store.cloudBackups.putPart(f.roomId, f.token, f.archive.id, randomBackupSecret(), sealed)).toThrow('BACKUP_DISABLED');
+    expect(f.store.cloudBackups.putPart(f.roomId, f.token, f.archive.id, part, sealed)).toEqual({ stored: true });
+    expect(f.store.cloudBackups.getPart(f.archive.id, part, f.archive.token)).toEqual(sealed);
+    expect(() => f.store.cloudBackups.preference(f.roomId, f.token, { enabled: true, revision: 2 })).toThrow('CONFLICT');
+    expect(() => f.store.cloudBackups.preference(f.roomId, randomBackupSecret())).toThrow('UNAUTHORIZED');
+  });
+
+  it('shares settings across own active devices without changing the other participant', async () => {
+    const f = await fixture(false), identity = await generateIdentity(), token = randomBackupSecret();
+    f.store.joinRoom(f.roomId, identity.publicBundle, 'proof', token, 'other', ['recovery-replace-v1']);
+    const db = new DatabaseSync(path.join(f.dir, 'quiet-room.sqlite'));
+    db.prepare("UPDATE members SET status='active' WHERE device_id=?").run(identity.publicBundle.deviceId);
+    try {
+      f.store.cloudBackups.preference(f.roomId, f.token, { enabled: true, revision: 1 });
+      expect(f.store.cloudBackups.preference(f.roomId, token).enabled).toBe(false);
+      db.prepare("UPDATE members SET role='creator' WHERE device_id=?").run(identity.publicBundle.deviceId);
+      expect(f.store.cloudBackups.preference(f.roomId, token)).toEqual({ enabled: true, revision: 1 });
+      f.store.cloudBackups.preference(f.roomId, token, { enabled: false, revision: 2 });
+      expect(f.store.cloudBackups.preference(f.roomId, f.token).enabled).toBe(false);
+      expect(() => f.store.cloudBackups.preference(f.roomId, f.token, { enabled: true, revision: 2 })).toThrow('CONFLICT');
+    } finally { db.close(); }
+  });
+
+  it('authorizes another own device only with a trusted signing identity, not room/role claims', async () => {
+    const f = await fixture(), target = await generateIdentity();
+    const session = { vault: { ...f.bundle.checkpoint, identity: target,
+      members: [{ ...f.identity.publicBundle, role: 'creator' }] } } as any;
+    await expect(assertHistoryOwner(session, f.bundle)).resolves.toBeUndefined();
+    await expect(assertHistoryOwner(session, { ...f.bundle, checkpoint: { ...f.bundle.checkpoint, role: 'joiner' } })).rejects.toThrow('不是你');
+    const fake = { ...f.bundle, checkpoint: { ...f.bundle.checkpoint, identity: { ...f.identity, signingPrivateKey: target.signingPrivateKey } } };
+    await expect(assertHistoryOwner(session, fake)).rejects.toThrow('本人身份');
+    await expect(assertHistoryOwner({ vault: { ...session.vault, members: [] } } as any, f.bundle)).rejects.toThrow('确认');
+  });
+
+  it('migrates existing automatic backups once and never re-enables an explicit off setting', async () => {
+    const f = await fixture(false);
+    f.store.cloudBackups.save(f.roomId, f.token, f.upload);
+    const db = new DatabaseSync(path.join(f.dir, 'quiet-room.sqlite'));
+    try {
+      db.prepare('DELETE FROM history_backup_preferences').run();
+      const legacy = createCloudBackups(db, { authenticatedDevice: f.store.authenticatedDevice });
+      expect(legacy.preference(f.roomId, f.token)).toEqual({ enabled: true, revision: 1 });
+      legacy.preference(f.roomId, f.token, { enabled: false, revision: 2 });
+      const restarted = createCloudBackups(db, { authenticatedDevice: f.store.authenticatedDevice });
+      expect(restarted.preference(f.roomId, f.token)).toEqual({ enabled: false, revision: 2 });
+    } finally { db.close(); }
+  });
+
+  it('discovers all explicitly authorized own sources in an encrypted QR4 directory and reports unavailable legacy sources', async () => {
+    const f = await fixture(), identity = await generateIdentity(), other = newRecoveryCode(), unavailable = newRecoveryCode();
+    const code = newSpaceRecoveryCode();
+    const second = { ...f.bundle, backupId: other.id, deviceId: identity.publicBundle.deviceId, checkpoint: { ...f.bundle.checkpoint, identity } };
+    const directory = await sealSpaceDirectory(code, [{ roomId: f.roomId, name: 'Synthetic', code: f.recovery.code, historyCodes: [other.code, unavailable.code] }]);
+    const sealedSecond = await sealRecovery(second, other.code);
+    const mock = vi.spyOn(globalThis, 'fetch').mockImplementation(async url => {
+      const route = String(url);
+      if (route.includes('space-directories')) return new Response(JSON.stringify({ sealed: directory }));
+      if (route.endsWith(f.recovery.id)) return new Response(JSON.stringify({ sealed: f.upload.sealed }));
+      if (route.endsWith(other.id)) return new Response(JSON.stringify({ sealed: sealedSecond }));
+      return new Response('{}', { status: 401 });
+    });
+    try {
+      const session = { vault: { ...f.bundle.checkpoint, members: [{ ...identity.publicBundle, role: 'creator' }] } } as any;
+      const result = await authorizedHistorySources(session, code, new AbortController().signal);
+      expect(result.bundles).toHaveLength(2); expect(result.unavailable).toBe(1);
+      expect(result.codes).toEqual([f.recovery.code, other.code]);
+      expect(JSON.stringify(directory)).not.toContain(other.code);
+    } finally { mock.mockRestore(); }
+  });
+
   it('normalizes one or more device recovery codes for session-wide restore', () => {
     const first = newRecoveryCode();
     const second = newRecoveryCode();

@@ -1116,6 +1116,18 @@ try {
   await creator.locator('#open-spaces').click(); await creator.locator('#space-settings').click();
   invariant(await creator.locator('#local-history-backup .space-setting-label').textContent() === '备份数据', 'Local backup menu label was not renamed');
   invariant(await creator.locator('#local-history-restore .space-setting-label').textContent() === '恢复数据', 'Local restore menu entry is missing');
+  await creator.locator('#local-history-backup').click();
+  await creator.locator('[data-cloud-switch]:not(:disabled)').waitFor();
+  await creator.locator('[data-cloud-switch]').click();
+  await creator.locator('[data-enable]').click();
+  await creator.locator('.backup-privacy-sheet').waitFor({ state: 'detached' });
+  // Explicit consent now precedes this historical recovery fixture. Force its
+  // first batch through the retained diagnostic entry before taking a checkpoint.
+  await creator.evaluate(() => { location.hash = 'legacy-backup'; });
+  await creator.locator('#backup-retry').click();
+  await creator.waitForFunction(() => /已保存 [1-9]\d* 条/.test(document.querySelector('#backup-status')?.textContent ?? ''));
+  await creator.locator('#backup-back').click();
+  await creator.locator('#open-spaces').click(); await creator.locator('#space-settings').click();
   await creator.locator('#backup-settings').click();
   await creator.locator('#save-my-code').waitFor();
   invariant(await creator.locator('#export-recovery').count() === 0, 'Manual recovery export remains exposed');
@@ -1227,6 +1239,7 @@ try {
   await recovery.locator('[data-restore="all"]').click();
   await recovery.locator('#history-restore-code').fill(newRecoveryCode);
   await recovery.locator('.history-restore-sheet:not(.is-closing) .history-restore-form').evaluate(form => form.requestSubmit());
+  await recovery.locator('[data-approve]').click();
   await recovery.getByRole('heading', { name: '恢复完成', exact: true }).waitFor();
   await recovery.locator('[data-dismiss]').click();
   const galleryIsolation = await recovery.evaluate(async () => {
@@ -1242,6 +1255,7 @@ try {
   await recovery.locator('[data-change-code]').click();
   await recovery.locator('#history-restore-code').fill(newRecoveryCode);
   await recovery.locator('.history-restore-sheet:not(.is-closing) .history-restore-form').evaluate(form => form.requestSubmit());
+  await recovery.locator('[data-approve]').click();
   await recovery.getByRole('heading', { name: '恢复完成', exact: true }).waitFor();
   await recovery.locator('[data-dismiss]').click();
   await recovery.locator('#backup-back').click();

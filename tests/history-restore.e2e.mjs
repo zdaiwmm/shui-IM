@@ -64,6 +64,10 @@ try {
         await v.deleteCurrentVault();
         target = await v.createVault({ ...checkpoint, role, lastSeq: 0, protocol: 'legacy-v1' }, 'synthetic-restore-password', 'password');
         target.vault.backup = { v: 1, ...c.newRecoveryCode(), revision: 1, cursor: 0, archives: [], syncedAt: sentAt };
+        const source = { ...bundle, checkpoint: { ...checkpoint, role }, ...(role === 'creator' ? { galleryHidden: [hidden] } : {}) };
+        if (role !== 'creator') delete source.galleryHidden;
+        responses.set(`/api/recovery-backups/${recovery.id}`, { revision: 1, sealed: await c.sealRecovery(source, recovery.code) });
+        target.vault.members = [{ ...identity.publicBundle, role, status: 'active', joinProof: null }];
         mountUi();
       },
       async reopen() {
@@ -215,7 +219,7 @@ try {
     await f.setup();
     let conflict = false, wrongRoom = false;
     try { await f.restore(`${f.code}\n${await f.extraCode({ conflict: true })}`); } catch (error) { conflict = error.message.includes('冲突'); }
-    try { await f.restore(await f.extraCode({ wrongRoom: true })); } catch (error) { wrongRoom = error.message.includes('不属于当前会话'); }
+    try { await f.restore(await f.extraCode({ wrongRoom: true })); } catch (error) { wrongRoom = error.message.includes('不是你在当前空间'); }
     return { result, count, conflict, wrongRoom, noPartialWrites: (await f.history()).length === 0 };
   });
   assert.equal(merged.count, 6); assert.equal(merged.result.gallery.total, 4);
@@ -306,8 +310,9 @@ try {
   assert.equal(await page.locator('[data-count=chat]').textContent(), '待恢复 1 条');
   assert.equal(await page.locator('[data-count=gallery]').textContent(), '待恢复 1 条');
   await page.locator('[data-dismiss]').click();
-  assert.match(await page.locator('[data-restore]').textContent(), /正在恢复中/);
+  assert.match(await page.locator('[data-restore]').textContent(), /正在恢复/);
   await page.locator('[data-restore]').click();
+  await page.locator('[data-approve]').click();
   await page.getByRole('heading', { name: '恢复完成', exact: true }).waitFor();
   assert.equal(await page.locator('[data-count=gallery]').count(), 1);
   assert.match(await page.locator('[data-inventory=chat]').textContent(), /备份共 3 条 · 本机原有 0 条/);
@@ -322,8 +327,8 @@ try {
   await page.evaluate(() => { window.fixture.fail = true; });
   await page.locator('[type=submit]').click();
   await page.getByRole('heading', { name: '恢复未完成', exact: true }).waitFor();
-  assert.equal(await page.locator('[data-phase]').textContent(), '备份核验中断');
-  assert.match(await page.locator('[data-detail]').textContent(), /尚未开始导入/);
+  assert.equal(await page.locator('[data-phase]').textContent(), '检查备份时中断');
+  assert.match(await page.locator('[data-detail]').textContent(), /找回的记录会保留/);
   assert.equal(await page.locator('[data-count=gallery]').count(), 0);
   assert.equal(await page.locator('[data-retry]').isVisible(), true);
   await page.locator('[data-dismiss]').click();
@@ -337,6 +342,7 @@ try {
   assert.equal(await page.locator('textarea').count(), 0, 'task resumes from the encrypted vault after reauthentication');
   await page.evaluate(() => { window.fixture.fail = false; });
   await page.locator('[data-retry]').click();
+  await page.locator('[data-approve]').click();
   await page.getByRole('heading', { name: '恢复完成', exact: true }).waitFor();
   await page.waitForFunction(() => !window.fixture.target().vault.historyRestoreTask);
   await page.locator('[data-dismiss]').click();

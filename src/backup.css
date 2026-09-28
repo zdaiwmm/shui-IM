@@ -275,3 +275,40 @@
   .history-restore-panel { background: var(--paper-pure); }
 }
 .history-restore-form [type="submit"]:disabled { background: var(--surface); color: var(--ink-faint); box-shadow: none; opacity: 1; }
+
+/* Backup/recovery entry pages share the existing subpage and dialog tokens. */
+.backup-hub { max-width: 40rem; margin: 0 auto; }
+.backup-hub .backup-header h1 { margin: 0; font-size: 20px; }
+.backup-hub-content { min-height: 0; overflow-y: auto; align-content: start; display: grid; gap: 16px; padding: 12px 20px 24px; }
+.backup-hub-intro, .backup-hub-footnote { color: var(--ink-muted); margin: 0; font-size: 14px; line-height: 1.6; }
+.backup-option { padding: 20px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); }
+.backup-option h2 { margin: 0 0 6px; font-size: 17px; }
+.backup-option p { margin: 0 0 16px; color: var(--ink-muted); font-size: 14px; line-height: 1.6; }
+.backup-option > button:not(.text-button) { width: 100%; }
+.backup-option small { display: block; margin-top: 12px; color: var(--ink-muted); font-size: 12px; line-height: 1.5; }
+.backup-switch-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.backup-switch-row p { margin-bottom: 0; }
+.backup-toggle { flex: 0 0 48px; width: 48px; position: relative; height: 44px; border: 0; border-radius: 20px; padding: 10px 3px; background: transparent; cursor: pointer; }
+.backup-toggle::before { content: ""; position: absolute; inset: 7px 0; border-radius: 20px; background: var(--ink-faint); }
+.backup-toggle span { position: relative; display: block; width: 24px; height: 24px; border-radius: 50%; background: white; box-shadow: 0 1px 4px #0002; transition: transform 160ms; }
+.backup-toggle[aria-checked="true"]::before { background: var(--accent); }
+.backup-toggle[aria-checked="true"] span { transform: translateX(18px); }
+.backup-toggle:disabled { opacity: .55; cursor: default; }
+.backup-option .backup-small-status { margin: 12px 0 0; font-size: 12px; }
+.recovery-code-sheet.backup-privacy-sheet { place-items: end center; padding: 0; }
+.recovery-code-panel.backup-privacy-panel { border-radius: 28px 28px 0 0; padding-bottom: max(20px, env(safe-area-inset-bottom)); width: min(100%, 40rem); max-height: min(75dvh, 34rem); overflow-y: auto; }
+.backup-privacy-panel h2 { margin: 0 0 16px; font-size: 20px; }
+.backup-privacy-panel ul { margin: 0 0 16px; padding-left: 20px; display: grid; gap: 12px; font-size: 14px; line-height: 1.65; }
+.backup-privacy-panel > button { width: 100%; }
+.backup-code-page { width: 100%; }
+.backup-code-page form { display: grid; gap: 12px; width: 100%; }
+.backup-code-page textarea { box-sizing: border-box; width: 100%; resize: vertical; font: inherit; overflow-wrap: anywhere; }
+.backup-code-page [data-filename] { overflow-wrap: anywhere; }
+.backup-hub[hidden] { display: none; }
+@media (max-height: 650px) {
+  .backup-hub-content { gap: 12px; padding-top: 0; }
+  .backup-option { padding: 16px; }
+  .backup-option p { margin-bottom: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { .backup-toggle::before { content: ""; position: absolute; inset: 7px 0; border-radius: 20px; background: var(--ink-faint); }
+.backup-toggle span { position: relative; transition: none; } }

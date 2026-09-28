@@ -25,10 +25,11 @@ export function attachHistoryRestore(options: Options): () => void {
   let inputSheet: HTMLElement | undefined;
   let disposeDialog: (() => void) | undefined;
   let dialogSequence = 0;
+  let approve: (() => void) | undefined;
   const active = () => !disposed && !signal.aborted && isActive() && entry.isConnected;
   const setEntry = () => {
     if (!active()) return;
-    entry.textContent = operation ? '正在恢复中，点击查看进度' : retryCodes && error ? '恢复未完成，点击查看并重试' : '恢复历史记录';
+    entry.textContent = operation ? '正在恢复，查看进度' : retryCodes && error ? '恢复未完成，点击继续' : entry.dataset.restoreLabel || '恢复历史记录';
     entry.classList.toggle('is-restoring', Boolean(operation));
   };
   const mount = (title: string, content: string, initial?: string) => {
@@ -66,10 +67,10 @@ export function attachHistoryRestore(options: Options): () => void {
     if (!progressSheet?.isConnected || !active()) return;
     const reading = !view || view.phase === 'reading';
     const complete = view?.phase === 'complete';
-    progressSheet.querySelector('h2')!.textContent = error ? '恢复未完成' : complete ? '恢复完成' : '正在恢复历史记录';
-    progressSheet.querySelector('[data-phase]')!.textContent = error ? !view ? '恢复任务已暂停' : reading ? '备份核验中断' : view.phase === 'verifying' ? '本机回读核验未通过，已写入记录会保留' : '历史导入中断，已写入记录会保留' : view?.waitingForService ? '备份服务繁忙，等待后自动继续' : reading
-      ? view?.totalParts ? `正在核验备份（${view.scannedParts}/${view.totalParts}）` : '正在读取备份…'
-      : complete ? '本机回读核验通过' : view?.phase === 'verifying' ? '正在回读本机记录并核对显示状态…' : '正在恢复…';
+    progressSheet.querySelector('h2')!.textContent = approve ? '确认恢复范围' : error ? '恢复未完成' : complete ? '恢复完成' : '正在恢复历史记录';
+    progressSheet.querySelector('[data-phase]')!.textContent = error ? !view ? '恢复任务已暂停' : reading ? '检查备份时中断' : view.phase === 'verifying' ? '恢复结果未检查完成，已找回的记录会保留' : '恢复已暂停，已找回的记录会保留' : view?.waitingForService ? '备份服务繁忙，等待后自动继续' : reading
+      ? view?.totalParts ? `正在检查备份（${view.scannedParts}/${view.totalParts}）` : '正在读取备份…'
+      : complete ? '恢复结果已检查完成' : view?.phase === 'verifying' ? '正在检查恢复结果…' : '正在恢复…';
     progressSheet.querySelector('[data-percent]')!.textContent = view?.percent == null ? '—' : `${view.percent}%`;
     const bar = progressSheet.querySelector<HTMLProgressElement>('progress')!;
     if (view?.percent == null) bar.removeAttribute('value'); else bar.value = view.percent;
@@ -80,7 +81,7 @@ export function attachHistoryRestore(options: Options): () => void {
       if (inventory) {
         const counts = view?.inventory?.[kind];
         inventory.hidden = !counts;
-        inventory.textContent = counts ? `${reading ? '已核验' : '备份共'} ${counts.backup} 条 · 本机原有 ${counts.existing} 条` : '';
+        inventory.textContent = counts ? `${reading ? '已检查' : '备份共'} ${counts.backup} 条 · 本机原有 ${counts.existing} 条` : '';
       }
       const audit = progressSheet.querySelector<HTMLElement>(`[data-audit="${kind}"]`);
       if (audit) {
@@ -91,14 +92,25 @@ export function attachHistoryRestore(options: Options): () => void {
       }
     }
     const detail = progressSheet.querySelector<HTMLElement>('[data-detail]')!;
-    detail.textContent = error ? `${error}。${reading ? '本轮尚未开始导入新的记录，之前已导入的内容会保留。' : '已写入的记录会保留。'}连接恢复后可点击重试，只补缺失内容。` : complete
-      ? '已从本机重新读回并核验。旧记录保留在原时间位置，不会追加到聊天底部；撤回或隐藏状态保持不变。保险库按记录计数，相册记录可能包含多张图片。'
-      : `${reading ? '正在核验并对比本机，待恢复总数尚未确定。' : '每批写入后立即保存。'}收起弹窗后继续；离开页面或锁定会暂停，回来可继续，直到完成或取消。`;
+    detail.textContent = approve ? `${view?.unavailableSources ? `还有 ${view.unavailableSources} 份旧备份暂不可用，未计入下方范围。可以补充旧恢复码，或先恢复已找到的记录。` : '已找到你在这个空间的备份。'}重复记录不会再次添加，删除和隐藏状态保留。照片和文件需要原文件仍可下载。`
+      : error ? `${error}。${reading ? '本次尚未开始恢复，之前找回的记录会保留。' : '已找回的记录会保留。'}重试只补缺失内容。` : complete
+      ? '已检查恢复结果。回到聊天，往前翻就能看到记录；删除或隐藏的内容仍保持原样。'
+      : `${reading ? '正在检查备份并对比已有记录。' : '正在保存找回的记录。'}收起后继续；离开页面或锁定会暂停，回来可继续。`;
     detail.classList.toggle('form-error', Boolean(error));
     const retry = progressSheet.querySelector<HTMLButtonElement>('[data-retry]')!;
     retry.hidden = !error;
     retry.disabled = cancelling;
-    progressSheet.querySelector<HTMLButtonElement>('[data-change-code]')!.hidden = !error;
+    progressSheet.querySelector<HTMLButtonElement>('[data-change-code]')!.hidden = !error && !approve;
+    const confirmation = progressSheet.querySelector<HTMLButtonElement>('[data-approve]')!;
+    confirmation.hidden = !approve;
+    confirmation.textContent = view?.unavailableSources ? '先恢复已找到的记录' : '确认恢复';
+    if (approve) {
+      progressSheet.querySelector('[data-phase]')!.textContent = '检查完成，确认后开始恢复';
+      for (const kind of ['chat', 'gallery'] as const) {
+        const count = progressSheet.querySelector(`[data-count="${kind}"]`);
+        if (count) count.textContent = `本次找回 ${view?.[kind]?.total ?? 0} 条`;
+      }
+    }
     const cancel = progressSheet.querySelector<HTMLButtonElement>('[data-cancel]')!;
     cancel.hidden = complete && !error;
     cancel.disabled = cancelling;
@@ -109,9 +121,10 @@ export function attachHistoryRestore(options: Options): () => void {
     const { sheet, dialog } = mount('正在恢复历史记录', `<div class="history-restore-progress-copy" role="status"><span data-phase></span><strong data-percent></strong></div>
       <progress class="history-restore-progress" max="100" aria-label="恢复进度"></progress><dl class="history-restore-counts"><div><dt>聊天记录</dt><dd><span data-count="chat"></span><small data-inventory="chat" hidden></small><small data-audit="chat" hidden></small></dd></div>
       ${session.vault.role === 'creator' ? '<div><dt>保险库</dt><dd><span data-count="gallery"></span><small data-inventory="gallery" hidden></small><small data-audit="gallery" hidden></small></dd></div>' : ''}</dl>
-      <p class="field-hint" data-detail></p><div class="history-restore-actions"><button type="button" class="primary-button" data-retry hidden>重试恢复</button><button type="button" class="secondary-button" data-dismiss>收起进度</button><button type="button" class="text-button" data-change-code hidden>更换恢复码</button><button type="button" class="text-button" data-cancel>取消恢复</button></div>`);
+      <p class="field-hint" data-detail></p><div class="history-restore-actions"><button type="button" class="primary-button" data-approve hidden>确认恢复</button><button type="button" class="primary-button" data-retry hidden>重试恢复</button><button type="button" class="secondary-button" data-dismiss>收起进度</button><button type="button" class="text-button" data-change-code hidden>补充或更换恢复码</button><button type="button" class="text-button" data-cancel>取消恢复</button></div>`);
     progressSheet = sheet;
     sheet.querySelector('[data-dismiss]')!.addEventListener('click', () => dialog.close());
+    sheet.querySelector('[data-approve]')!.addEventListener('click', () => approve?.());
     sheet.querySelector('[data-retry]')!.addEventListener('click', () => { if (retryCodes && !operation) void run(retryCodes); });
     const cancel = async (replace: boolean) => {
       if (cancelling || !active()) return;
@@ -143,6 +156,15 @@ export function attachHistoryRestore(options: Options): () => void {
       await restoreUnifiedHistory(session, codes, taskSignal, progress => {
         if (!active() || operation !== current) return;
         view = progress; paintProgress();
+      }, async preview => {
+        view = preview;
+        await new Promise<void>((resolve, reject) => {
+          const abort = () => { approve = undefined; reject(taskSignal.reason); };
+          taskSignal.throwIfAborted();
+          taskSignal.addEventListener('abort', abort, { once: true });
+          approve = () => { approve = undefined; taskSignal.removeEventListener('abort', abort); resolve(); };
+          openProgress(); paintProgress();
+        });
       });
       await clearHistoryRestoreTask(session, taskSignal);
       retryCodes = '';
@@ -150,6 +172,7 @@ export function attachHistoryRestore(options: Options): () => void {
       if (active() && !current.signal.aborted) error = cause instanceof Error ? cause.message : '网络异常，请检查连接后重试';
     } finally {
       codes = '';
+      approve = undefined;
       if (!active()) retryCodes = '';
       if (operation === current) operation = undefined;
       if (active()) { setEntry(); paintProgress(); }
@@ -157,9 +180,9 @@ export function attachHistoryRestore(options: Options): () => void {
   };
   const openInput = () => {
     if (!active() || inputSheet?.isConnected) return;
-    const { sheet, dialog } = mount('恢复历史记录', `<form class="history-restore-form"><label for="history-restore-code">恢复码</label>
+    const { sheet, dialog } = mount('验证恢复码', `<form class="history-restore-form"><label for="history-restore-code">恢复码（多个旧码请分行）</label>
       <div class="history-restore-input"><textarea id="history-restore-code" name="code" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="粘贴空间恢复码" required></textarea></div>
-      <button class="primary-button" type="submit" disabled>确认恢复</button></form>`, 'textarea');
+      <button class="primary-button" type="submit" disabled>查找备份</button></form>`, 'textarea');
     inputSheet = sheet;
     const input = sheet.querySelector('textarea')!;
     const submit = sheet.querySelector<HTMLButtonElement>('[type="submit"]')!;

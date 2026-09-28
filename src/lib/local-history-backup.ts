@@ -5,6 +5,8 @@ import { normalizeGalleryCurationRecords } from './gallery-curation';
 import { isExpressionPayload } from './expression-media';
 import { isMessagePayload } from './message-payload';
 import { isVideoFile } from './video-media';
+import { authorizedHistorySources, normalizeRecoveryCodes } from './cloud-backup';
+import type { HistoryArchive } from './backup-types';
 import { readLocalArchive, writeLocalArchive, type ArchiveRecord, type ArchiveSink } from './local-archive';
 import { findMissingArchivedMessages, importArchivedMessages, loadCachedMediaChunk, loadHistoryPageAfter,
   loadUiPreferences, restoreGalleryHidden, saveUiPreferences, saveCachedMediaChunk, type VaultSession } from './vault';
@@ -70,6 +72,29 @@ function ownArchives(session: VaultSession) {
   return session.vault.backup.archives;
 }
 
+export type LocalHistoryAccess = { roomId: string; role: string; archives: Pick<HistoryArchive, 'id' | 'key'>[] };
+function readableArchives(session: VaultSession, access?: LocalHistoryAccess) {
+  if (!access) return ownArchives(session);
+  if (access.roomId !== session.vault.roomId || access.role !== session.vault.role) throw new Error('这不是你在当前空间的备份');
+  return access.archives;
+}
+
+/** Retained local keys work offline. Other devices' legacy files need an explicit
+ * recovery capability, authenticated against this participant, never identity replacement. */
+export async function authorizeLocalHistoryBackup(session: VaultSession, file: Blob, input: string, signal: AbortSignal): Promise<LocalHistoryAccess> {
+  const codes = normalizeRecoveryCodes(input);
+  const prefix = decoder.decode(await file.slice(0, PREFIX_SIZE).arrayBuffer());
+  if (!/^QRL1[A-Za-z0-9_-]{43}\n$/.test(prefix)) throw new Error('请选择有效的聊天备份文件');
+  const own = session.vault.backup;
+  const local = codes.some(code => code === own?.code || code === session.vault.spaceRecoveryCode)
+    ? own?.archives.find(item => item.id === prefix.slice(4, 47)) : undefined;
+  const archives = local ? [local] : (await authorizedHistorySources(session, codes, signal)).bundles.flatMap(bundle => bundle.archives);
+  const access = { roomId: session.vault.roomId, role: session.vault.role, archives };
+  await inspectLocalHistoryBackup(session, file, access);
+  signal.throwIfAborted();
+  return access;
+}
+
 export async function summarizeLocalHistory(
   session: VaultSession,
   signal: AbortSignal,
@@ -109,10 +134,11 @@ export async function previewLocalHistoryBackup(
   session: VaultSession,
   file: Blob,
   signal: AbortSignal,
+  access?: LocalHistoryAccess,
 ): Promise<LocalHistorySummary> {
-  await inspectLocalHistoryBackup(session, file);
+  await inspectLocalHistoryBackup(session, file, access);
   const prefix = decoder.decode(await file.slice(0, PREFIX_SIZE).arrayBuffer());
-  const archive = ownArchives(session).find(item => item.id === prefix.slice(4, 47))!;
+  const archive = readableArchives(session, access).find(item => item.id === prefix.slice(4, 47))!;
   const body = file.slice(PREFIX_SIZE);
   const summary = emptySummary();
   const iterator = readLocalArchive(body, archive.key, signal)[Symbol.asyncIterator]();
@@ -154,11 +180,11 @@ export async function previewLocalHistoryBackup(
   return summary;
 }
 
-export async function inspectLocalHistoryBackup(session: VaultSession, file: Blob): Promise<void> {
+export async function inspectLocalHistoryBackup(session: VaultSession, file: Blob, access?: LocalHistoryAccess): Promise<void> {
   const prefix = decoder.decode(await file.slice(0, PREFIX_SIZE).arrayBuffer());
   if (!/^QRL1[A-Za-z0-9_-]{43}\n$/.test(prefix)) throw new Error('请选择有效的聊天备份文件');
-  if (!ownArchives(session).some(item => item.id === prefix.slice(4, 47))) {
-    throw new Error('此备份不属于本设备的恢复身份，请先恢复导出备份的本人身份');
+  if (!readableArchives(session, access).some(item => item.id === prefix.slice(4, 47))) {
+    throw new Error('这份文件需要备份时的恢复码，请检查或补充旧恢复码');
   }
 }
 
@@ -238,10 +264,11 @@ export async function exportLocalHistory(session: VaultSession, sink: ArchiveSin
 
 /** Pass 1 validates the entire file and local conflicts; pass 2 applies deletion events; pass 3 imports. */
 export async function importLocalHistory(session: VaultSession, file: Blob, signal: AbortSignal,
-  progress: (stage: 'verifying' | 'importing', summary: LocalHistorySummary) => void = () => undefined): Promise<LocalHistorySummary> {
-  await inspectLocalHistoryBackup(session, file);
+  progress: (stage: 'verifying' | 'importing', summary: LocalHistorySummary) => void = () => undefined,
+  access?: LocalHistoryAccess): Promise<LocalHistorySummary> {
+  await inspectLocalHistoryBackup(session, file, access);
   const prefix = decoder.decode(await file.slice(0, PREFIX_SIZE).arrayBuffer());
-  const archive = ownArchives(session).find(item => item.id === prefix.slice(4, 47))!;
+  const archive = readableArchives(session, access).find(item => item.id === prefix.slice(4, 47))!;
   const body = file.slice(PREFIX_SIZE);
   let final = emptySummary();
   for (const pass of [0, 1, 2, 3]) {

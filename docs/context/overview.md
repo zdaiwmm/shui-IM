@@ -1,5 +1,7 @@
 # Quiet Room 项目地图
 
+备份与恢复双入口：`src/lib/backup-settings-ui.ts`、`src/lib/history-restore-ui.ts`；跨设备授权在 `cloud-backup.ts` / `local-history-backup.ts`，角色级开关在 `server/cloud-backups.mjs`。验证含 `tests/backup-access.e2e.mjs`；边界见 [恢复契约](../../RECOVERY_BACKUPS.md) 与 [需求记录](../requirements/2026-09-28-backup-recovery/README.md)。
+
 后台组件层：`src/admin/ui.ts`、`src/admin.css`，页面与验证契约见
 [后台组件与页面](../workflows/admin-ui.md)。后台页面由 `src/admin.ts` 编排，共用表格、分页、状态与错误处理组件。
 
