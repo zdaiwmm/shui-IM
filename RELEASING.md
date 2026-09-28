@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+## iPhone 输入、空间与备份修复已发布（2026-09-28 14:06）
+
+- 用户在四项修复交付后明确“发布生产”，批准精确提交 `4aae55b30f924540760dc80f77b2d232abb9a00e`，版本 `2026.09.28.1`；[PR #209](https://github.com/zdaiwmm/shui-IM/pull/209) 已合并。精确 main CI [36378582482 attempt 2](https://github.com/zdaiwmm/shui-IM/actions/runs/36378582482/attempts/2) 完整成功；首次通话浏览器用例超时，检查失败日志后仅重跑失败任务，未改代码或断言。PR CI、本地 724 项单元／集成、43/43 浏览器及 WebKit 备份专项均通过。
+- 发布前只读核验实际生产为 `933586ec81810f264d6f1249b967ab6b6388b30f`，已高于下方历史文档记录。本次增量为输入框高度测量、原生占位提示、本人设备待建立空间管理授权及目录同步、备份读取竞态和错误分类；沿用已有生产配置。
+- 首次入口在本地配置预检退出，未接触生产；引用本机既有配置后，固定入口取得并核对 `DEPLOY_VERIFIED`。批次 `20260928T060415Z`，发布目录 `/opt/quiet-room/git-releases/20260928T060415Z-4aae55b30f92`，冷备份 `data-20260928T060415Z-4aae55b30f92.tar.gz` 已校验。切换前可用 5947326464 字节、使用率 85.11%，容量预检通过；该值不是发布后容量。服务器部署 139 秒，固定入口总耗时 201242ms。
+- 独立 `READBACK_OK` 于 `2026-09-28T06:06:45.694Z` 完成，耗时 3227ms；精确提交、镜像 `sha256:812d48d8bff5708dbd98b46f88192802a981fceb3341d63b09b62afd5bd928db`、HTTPS／数据库／存储、公开与容器产物及新 WebSocket 均核对通过。应用健康；备份与 TURN 容器运行但无健康探针；维护标记不存在，管理员和通话开关均为 1。运行状态不代替真实通话媒体验收。
+- 脱敏证据 `/Users/zhouding/ss/.git/worktrees/iphone-composer-space-backup/quiet-room-readback/20260928T060642466Z-4aae55b30f92-success.json`；精确发布回执位于 `/private/var/folders/kx/xvfkgvzn5cb2t23mnc9518kr0000gn/T/quiet-room-publish-VxfTYD/.git/quiet-room-verified-sha`。
+- 原线上第 4 项已由 iPhone 真机复现；修复版尚未真机验收。旧待建立空间需原设备更新并验证一次以自动补齐管理授权。需求记录中的候选／未发布为当时阶段，以本节为后续发布事实；详见[需求记录](docs/requirements/2026-09-28-iphone-composer-space-backup/README.md)。
+- 对账在不含部署配置的独立工作树进行，仅修改发布与状态文档，不再次部署。开发树保留活动会话、依赖和独立回读证据；文档树仍承载本轮对账，发布隔离副本保留精确回执，不清理其他任务资源。
+
 ## 备份与空间同步已发布（2026-09-24 11:49）
 
 - 用户在本任务修复交付后要求发布生产；固定发布目标为 `15c40a6d8c1c00e99699442f8ad61c8edfde1d08`，版本 `2026.09.24.1`，对应 [PR #206](https://github.com/zdaiwmm/shui-IM/pull/206)。精确 main 完整 CI [35951685969](https://github.com/zdaiwmm/shui-IM/actions/runs/35951685969) 通过。预检读取的前一生产 SHA 为 `ce50265df16be500cc6c2649dd3e96095390c455`。
