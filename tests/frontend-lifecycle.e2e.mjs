@@ -713,6 +713,27 @@ try {
     return { connectedList: true, renderCalls, errorCalls, retainedMessages: app.messages.size };
   });
 
+  const toggleSafeVisibility = async reveal => {
+    const button = page.locator('#gallery-toggle-visibility');
+    await button.evaluate(button => {
+      window.safeVisibilityClick = null;
+      // Registered after the application handler: sample in the same click
+      // dispatch, not in a protocol request that can overtake WebKit input.
+      button.addEventListener('click', () => {
+        window.safeVisibilityClick = {
+          revealAll: regression.app.galleryRevealAll,
+          visible: document.querySelectorAll('.gallery-tile[data-revealed="true"]').length,
+          total: document.querySelectorAll('.gallery-tile').length,
+        };
+      }, { once: true });
+    });
+    await button.click();
+    await page.waitForFunction(() => window.safeVisibilityClick !== null);
+    const state = await page.evaluate(() => window.safeVisibilityClick);
+    assert.equal(state.revealAll, reveal, 'Visibility choice must apply in the click handler');
+    assert.equal(state.visible, reveal ? state.total : 0, 'All mounted tiles must update synchronously in the click handler');
+  };
+
   results.localHistory = await page.evaluate(async () => {
     const { app, fresh, records } = window.regression;
     fresh(); app.messages = new Map(records.filter(record => record.seq > 420).map(record => [record.seq, record])); app.renderMessages();
@@ -725,7 +746,7 @@ try {
   await page.waitForFunction(() => document.querySelector('.gallery-scan-status')?.textContent?.includes('上拉继续加载'));
   const initialSafeImages = await page.locator('.gallery-tile').count();
   await page.waitForFunction(() => document.querySelector('[data-gallery-count="images"]')?.textContent === '62');
-  await page.locator('#gallery-toggle-visibility').click();
+  await toggleSafeVisibility(true);
   let pages = 0;
   while (await page.locator('.gallery-scan-status').textContent() === '上拉继续加载') {
     const before = await page.locator('.gallery-tile').count();
@@ -757,16 +778,16 @@ try {
   });
   if (visualQaDirectory) await page.screenshot({ path: path.join(visualQaDirectory, 'gallery-bottom-spacing.png') });
 
-  await page.locator('#gallery-toggle-visibility').click();
+  await toggleSafeVisibility(false);
   assert.equal(await page.locator('.gallery-tile[data-revealed="true"]').count(), 0);
-  await page.locator('#gallery-toggle-visibility').click();
+  await toggleSafeVisibility(true);
   assert.equal(await page.locator('.gallery-tile[data-revealed="true"]').count(), 62);
   await page.locator('#gallery-tab-files').click();
   await page.locator('#gallery-grid[aria-labelledby="gallery-tab-files"]').waitFor();
   await page.locator('#gallery-tab-images').click();
   await page.locator('.gallery-tile').first().waitFor();
   assert.equal(await page.locator('#gallery-toggle-visibility').getAttribute('aria-label'), '隐藏全部');
-  await page.locator('#gallery-toggle-visibility').click();
+  await toggleSafeVisibility(false);
   assert.equal(await page.locator('.gallery-tile[data-revealed="true"]').count(), 0, 'Hide all left an older unmounted safe page revealed');
   results.galleryPrivacyPagination = { newlyLoadedHidden: true, hideAllIncludesUnmountedPages: true };
 
