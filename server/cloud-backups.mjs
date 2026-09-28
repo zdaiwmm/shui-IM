@@ -45,6 +45,13 @@ export function createCloudBackups(db, { authenticatedDevice }) {
       sealed TEXT NOT NULL,
       PRIMARY KEY(archive_id, part_id)
     );
+    CREATE TABLE IF NOT EXISTS history_backup_preferences (
+      room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+      role TEXT NOT NULL CHECK(role IN ('creator','joiner')),
+      enabled INTEGER NOT NULL,
+      revision INTEGER NOT NULL,
+      PRIMARY KEY(room_id, role)
+    );
     CREATE TABLE IF NOT EXISTS admin_events (
       id INTEGER PRIMARY KEY,
       action TEXT NOT NULL,
@@ -54,11 +61,34 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     CREATE TABLE IF NOT EXISTS pending_room_cleanup (room_id TEXT PRIMARY KEY);
     CREATE TABLE IF NOT EXISTS admin_totp_counters (config_id TEXT PRIMARY KEY, counter INTEGER NOT NULL);
   `);
+  // Migration only: participants with an existing backup keep their actual setting.
+  // New checkpoints must never implicitly turn history uploads on.
+  db.exec(`INSERT OR IGNORE INTO history_backup_preferences(room_id,role,enabled,revision)
+    SELECT DISTINCT b.room_id,m.role,1,1 FROM recovery_backups b
+    JOIN members m ON m.room_id=b.room_id AND m.device_id=b.device_id WHERE b.active=1`);
   const archiveColumns = db.prepare('PRAGMA table_info(history_archives)').all().map(column => column.name);
   if (!archiveColumns.includes('chat_count')) db.exec('ALTER TABLE history_archives ADD COLUMN chat_count INTEGER NOT NULL DEFAULT 0');
   if (!archiveColumns.includes('gallery_count')) db.exec('ALTER TABLE history_archives ADD COLUMN gallery_count INTEGER NOT NULL DEFAULT 0');
   const row = id => db.prepare('SELECT * FROM recovery_backups WHERE backup_id = ?').get(id);
   const archiveRow = id => db.prepare('SELECT * FROM history_archives WHERE archive_id = ?').get(id);
+
+  function preference(roomId, deviceToken, change) {
+    const member = authenticatedDevice(roomId, deviceToken);
+    if (!member) fail('UNAUTHORIZED');
+    const current = db.prepare('SELECT enabled,revision FROM history_backup_preferences WHERE room_id=? AND role=?').get(roomId, member.role);
+    const state = current ? { enabled: Boolean(current.enabled), revision: current.revision } : { enabled: false, revision: 0 };
+    if (change === undefined) return state;
+    if (!change || typeof change.enabled !== 'boolean' || !Number.isSafeInteger(change.revision) ||
+        Object.keys(change).sort().join(',') !== 'enabled,revision') fail('INVALID_BACKUP');
+    if (change.revision !== state.revision + 1) {
+      if (change.revision === state.revision && change.enabled === state.enabled) return state;
+      fail('BACKUP_PREFERENCE_CONFLICT');
+    }
+    db.prepare(`INSERT INTO history_backup_preferences VALUES(?,?,?,?)
+      ON CONFLICT(room_id,role) DO UPDATE SET enabled=excluded.enabled,revision=excluded.revision`)
+      .run(roomId, member.role, Number(change.enabled), change.revision);
+    return change;
+  }
 
   function save(roomId, deviceToken, value) {
     const member = authenticatedDevice(roomId, deviceToken);
@@ -75,6 +105,9 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     const requestHash = createHash('sha256').update(JSON.stringify(value)).digest('hex');
     db.exec('BEGIN IMMEDIATE');
     try {
+      // Persist the default before creating the first identity checkpoint. This
+      // also prevents the next server restart from treating it as a legacy opt-in.
+      db.prepare('INSERT OR IGNORE INTO history_backup_preferences VALUES(?,?,0,0)').run(roomId, member.role);
       const current = row(value.id);
       if (current) {
         if (current.room_id !== roomId || current.device_id !== member.deviceId || !current.active) fail('BACKUP_CONFLICT');
@@ -135,6 +168,9 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     const sealed = sealedValue(sealedInput);
     const previous = db.prepare('SELECT sealed FROM history_archive_parts WHERE archive_id = ? AND part_id = ?').get(archiveId, partId);
     if (previous) { if (previous.sealed !== sealed) fail('BACKUP_CONFLICT'); return { stored: true }; }
+    // Applies to old clients too. Already stored exact retries can still finish
+    // their index; disabling never removes existing recoverable ciphertext.
+    if (!preference(roomId, deviceToken).enabled) fail('BACKUP_DISABLED');
     const bytes = Buffer.byteLength(sealed);
     const roomBytes = db.prepare('SELECT COALESCE(SUM(byte_count),0) AS size FROM history_archives WHERE room_id = ?').get(roomId).size;
     const totalBytes = db.prepare('SELECT COALESCE(SUM(byte_count),0) AS size FROM history_archives').get().size;
@@ -212,7 +248,7 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     } catch (error) { db.exec('ROLLBACK'); throw error; }
   }
 
-  return { save, fetch, putPart, getPart, getParts, rooms, room, deleteRoom,
+  return { save, fetch, putPart, getPart, getParts, preference, rooms, room, deleteRoom,
     adminCounter: id => db.prepare('SELECT counter FROM admin_totp_counters WHERE config_id=?').get(id)?.counter ?? -1,
     consumeAdminCounter: (id, counter) => Boolean(db.prepare(`INSERT INTO admin_totp_counters VALUES(?,?)
       ON CONFLICT(config_id) DO UPDATE SET counter=excluded.counter WHERE excluded.counter > admin_totp_counters.counter`).run(id, counter).changes),

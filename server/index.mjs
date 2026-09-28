@@ -503,6 +503,22 @@ export async function startServer(options = {}) {
         return;
       }
 
+      const backupPreference = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/backup-preference$`));
+      if (backupPreference && ['GET', 'PUT'].includes(request.method)) {
+        if (!allowRequest(request, 'backup-preference', 120)) {
+          json(request, response, 429, { error: '请稍后重试' }); return;
+        }
+        try {
+          requireActiveDevice(request, backupPreference[1]);
+          const change = request.method === 'PUT' ? await readJson(request) : undefined;
+          json(request, response, 200, store.cloudBackups.preference(backupPreference[1], bearerToken(request), change));
+        } catch (error) {
+          const code = error instanceof Error ? error.message : '';
+          if (!/^(INVALID_BACKUP|BACKUP_|UNAUTHORIZED)/.test(code) && !(error instanceof SyntaxError)) throw error;
+          json(request, response, code === 'UNAUTHORIZED' ? 401 : code.includes('CONFLICT') ? 409 : 400, { code, error: '设置未保存，请重试' });
+        }
+        return;
+      }
       const backupWrite = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/backup$`));
       const archiveWrite = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/archives/([A-Za-z0-9_-]{43})/([A-Za-z0-9_-]{43})$`));
       const backupRead = pathname.match(/^\/api\/recovery-backups\/([A-Za-z0-9_-]{22})$/);

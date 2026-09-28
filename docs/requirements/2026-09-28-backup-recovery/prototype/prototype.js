@@ -100,9 +100,6 @@ function render() {
   if(state.page==='export') {
     shell('下载备份文件',`<span class="pill">加密文件 · .qrlocal</span><h2>这次会备份哪些内容？</h2><p class="lede">保存这台设备已有的聊天记录和文件。</p><div class="list">${row('聊天记录','1,120 条')}${row('原始附件','86 个 · 128 MB')}${row('未包含的附件','4 个')}${row('时间范围','9 月 1 日至 9 月 28 日')}</div><p class="subtle">4 个文件不在这台设备上，本次无法备份。其他设备独有的记录也不会包含在内。</p><p class="subtle">请把恢复码也保管好，恢复时需要用到。</p><div class="actions">${btn('export-auth','验证并生成备份')}${btn('backup','返回','text full')}</div>`,'backup');return;
   }
-  if(state.page==='auth-export') {
-    shell('验证身份',`<p class="step-label">系统验证 · 模拟</p><h2>验证一下，确认是你</h2><p class="lede">按系统提示完成面容、指纹或设备密码验证。此处仅演示。</p><div class="actions">${btn('export-start','模拟验证成功')}${btn('export','取消','text full')}</div>`,'export');return;
-  }
   if(state.page==='export-ready') {
     shell('文件已生成',`<div class="state-icon">↓</div><h2>选择保存位置</h2><p class="lede">备份文件已准备好，尚未保存到你的文件夹。</p><div class="list">${row('文件名','山间小屋-20260928.qrlocal')}${row('预计大小','128 MB')}</div><div class="actions">${btn('save','打开系统保存')}${btn('backup','暂不保存','text full')}</div><p class="footnote">本次演示不会生成或下载真实文件。</p>`,'backup');return;
   }
@@ -182,8 +179,12 @@ function action(name) {
     case 'close-privacy':closePrivacy();break;
     case 'privacy-info':openPrivacy(true);break;
     case 'cloud-retry':startCloudBackup();break;
-    case 'export-auth':page('auth-export');break;
-    case 'export-start':start('export');break;
+    case 'export-auth': {
+      sheetReturn=document.activeElement;
+      sheet.innerHTML=`<header class="sheet-heading"><h2>通行密钥验证 · 模拟</h2></header><p>正式产品会直接唤起系统验证，不跳转页面。</p><footer class="sheet-actions">${btn('export-start','模拟验证成功')}${btn('close-privacy','取消','text full')}</footer>`;
+      sheet.querySelectorAll('[data-action]').forEach(el=>el.onclick=()=>action(el.dataset.action));sheet.showModal();break;
+    }
+    case 'export-start':closePrivacy();start('export');break;
     case 'cloud':if(state.task?.kind==='restore'){state.notice='已有一项恢复任务，请先查看进度或取消后再开始新的恢复。';render();break;}state.source='cloud';state.supplemented=false;page('auth');break;
     case 'local':chooseLocalFile();break;
     case 'restore-start':start('restore');break;
