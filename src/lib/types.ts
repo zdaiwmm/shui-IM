@@ -119,6 +119,8 @@ export type PendingDeviceLink = {
 export type Vault = {
   /** Local collection capability. Never exported in a room recovery checkpoint. */
   spaceRecoveryCode?: string;
+  /** Last server-confirmed participant-wide history policy; identity checkpoints are independent. */
+  cloudBackupPreference?: { enabled: boolean; revision: number };
   v: 1 | 2 | 3;
   roomId: string;
   accessToken: string;

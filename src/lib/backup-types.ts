@@ -46,6 +46,7 @@ export type LocalBackupState = {
   cursor: number;
   revision: number;
   syncedAt?: string;
+  historySyncedAt?: string;
   /** First foreground observation of an incomplete automatic history batch. */
   historyBatchStartedAt?: number;
   galleryHidden?: GalleryCurationRecord[];

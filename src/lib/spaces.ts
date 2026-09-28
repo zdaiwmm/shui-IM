@@ -9,6 +9,8 @@ import { localSpaceExists, readLocalSpaceDirectory, saveVault, vaultSpaceId, wit
 
 export type PrivateSpace = {
   roomId: string; name: string; localId?: string; code?: string; waiting?: boolean;
+  /** Explicitly authorized history sources, inside the encrypted recovery directory only. */
+  historyCodes?: string[];
   /** When this participant created the space. Used only for the one-hour waiting limit. */
   createdAt?: string;
   /** Local encrypted directory only. Never part of a recoverable directory. */
@@ -47,7 +49,7 @@ export function spaceMessagePreview(payload: MessagePayload): string | undefined
 }
 /** Explicit allowlist: no endpoint IDs, previews or observer capabilities leave this browser. */
 export function recoveryDirectoryEntries(spaces: PrivateSpace[]): PrivateSpace[] {
-  return spaces.map(s => ({ roomId: s.roomId, name: s.name, ...(s.code ? { code: s.code } : {}) }));
+  return spaces.map(s => ({ roomId: s.roomId, name: s.name, ...(s.code ? { code: s.code } : {}), ...(s.historyCodes?.length ? { historyCodes: s.historyCodes } : {}) }));
 }
 export async function refreshSpaceUnread(spaces: PrivateSpace[], signal: AbortSignal): Promise<void> {
   // Bound concurrency for large local collections; this endpoint only returns a number.
@@ -88,6 +90,8 @@ export async function spaceCapability(code: string, purpose: 'fetch' | 'write' |
 }
 function validate(value: unknown): Directory {
   const data = value as Directory;
+  if (Array.isArray(data?.spaces) && data.spaces.some(s => s.historyCodes !== undefined &&
+    (!Array.isArray(s.historyCodes) || s.historyCodes.length > 32 || s.historyCodes.some(code => typeof code !== 'string' || !/^QR3-[A-Za-z0-9_-]{64}$/.test(code))))) throw new Error('备份目录不完整，请重试');
   if (data?.v !== 1 || !Array.isArray(data.spaces) || data.spaces.length > 256 || data.spaces.some(s => !uuid.test(s.roomId) || typeof s.name !== 'string' || !s.name.trim() || s.name.length > 40 || s.code !== undefined && !/^QR3-[A-Za-z0-9_-]{64}$/.test(s.code) || s.localId !== undefined && !/^[\w-]{1,80}$/.test(s.localId) || s.waiting !== undefined && typeof s.waiting !== 'boolean' || s.createdAt !== undefined && !Number.isFinite(Date.parse(s.createdAt))) || new Set(data.spaces.map(s => s.roomId)).size !== data.spaces.length) throw new Error('空间目录不完整，已停止读取');
   if (data.spaces.some(s => s.preview !== undefined && (typeof s.preview !== 'string' || s.preview.length > 160)
     || s.previewDeviceId !== undefined && !uuid.test(s.previewDeviceId)
@@ -164,6 +168,17 @@ export async function recoverableSpaces(code: string, signal: AbortSignal): Prom
   const data = await response.json();
   return recoveryDirectoryEntries(await openSpaceDirectory(code, data.sealed)).filter(s => s.code);
 }
+/** Call only after authenticating every source against the current participant. */
+export async function rememberHistorySources(session: VaultSession, codes: string[], signal: AbortSignal): Promise<void> {
+  await rememberLocalSpace(session);
+  await withVaultMutation(session, async mutation => {
+    signal.throwIfAborted();
+    const code = session.vault.spaceRecoveryCode!, spaces = await read(code);
+    const entry = spaces.find(s => s.roomId === session.vault.roomId)!;
+    entry.historyCodes = [...new Set([...(entry.historyCodes ?? []), ...codes])].filter(value => value !== entry.code).slice(-32);
+    await writeLocalSpaceDirectory(session, spaceCodeId(code), await sealSpaceDirectory(code, spaces), mutation);
+  });
+}
 export async function syncSpaceDirectory(session: VaultSession, signal: AbortSignal): Promise<void> {
   await rememberLocalSpace(session);
   const code = session.vault.spaceRecoveryCode!;
@@ -176,7 +191,9 @@ export async function syncSpaceDirectory(session: VaultSession, signal: AbortSig
     const local = await rememberLocalSpace(session);
     const current = local.find(s => s.roomId === session.vault.roomId)!;
     const spaces = previous.filter(s => s.roomId !== current.roomId);
-    spaces.push({ roomId: current.roomId, name: current.name, code: current.code });
+    const historyCodes = [...new Set([...(previous.find(s => s.roomId === current.roomId)?.historyCodes ?? []), ...(current.historyCodes ?? [])])]
+      .filter(value => value !== current.code).slice(-32);
+    spaces.push({ roomId: current.roomId, name: current.name, code: current.code, ...(historyCodes.length ? { historyCodes } : {}) });
     if (JSON.stringify(previous.find(s => s.roomId === current.roomId)) === JSON.stringify(spaces.at(-1))) return;
     const result = await request(code, signal, session, { roomId: session.vault.roomId, revision: remote.revision + 1, fetchToken: await spaceCapability(code, 'fetch'), writeToken: await spaceCapability(code, 'write'), sealed: await sealSpaceDirectory(code, spaces) });
     if (result.ok) return;

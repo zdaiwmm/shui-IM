@@ -42,7 +42,7 @@ try {
     await Promise.all(['/src/styles.css', '/src/chat-layout.css', '/src/auth-recovery.css', '/src/chat-interactions.css', '/src/cover.css', '/src/voice-messages.css', '/src/call.css'].map(file => import(file)));
     document.documentElement.dataset.colorScheme = 'light';
     const v = await import('/src/lib/vault.ts');
-    const { syncCloudBackup } = await import('/src/lib/cloud-backup.ts');
+    const { syncCloudBackup, cloudBackupPreference } = await import('/src/lib/cloud-backup.ts');
     const { QuietRoomApp } = await import('/src/app.ts');
     const { generateIdentity } = await import('/src/lib/crypto.ts');
     const { createRoom } = await import('/src/lib/api.ts');
@@ -60,6 +60,7 @@ try {
     for (const [index,payload] of payloads.entries()) await v.saveHistoryMessage(session,{seq:index+1,clientMsgId:crypto.randomUUID(),senderId:identity.publicBundle.deviceId,
       payload:{v:1,sentAt,...payload},acceptedAt:sentAt,status:'stored'});
     session.vault.lastSeq=3;await v.saveVault(session);
+    await cloudBackupPreference(session, new AbortController().signal, true);
     await syncCloudBackup(session, new AbortController().signal);
     const app = new QuietRoomApp(document.querySelector('#app')); await app.start();
     app.session = session; app.privacyCovered = false; app.runtimeAbort = new AbortController(); app.resetIdleLock();
@@ -133,7 +134,7 @@ try {
   await assertBackupSpacing('restore-gallery-mobile');
   await page.setViewportSize({ width: 320, height: 740 });
   await assertBackupSpacing('restore-gallery-small-mobile');
-  const restoreSubmit = page.getByRole('button', { name: '确认恢复', exact: true });
+  const restoreSubmit = page.getByRole('button', { name: '查找备份', exact: true });
   await restoreSubmit.scrollIntoViewIfNeeded();
   assert.equal(await restoreSubmit.evaluate(button => {
     const box = button.getBoundingClientRect();

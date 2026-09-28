@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>备份与恢复 · Quiet Room 原型 v2</title>
+<link rel="stylesheet" href="../../../../src/design-system.css">
+<link rel="stylesheet" href="prototype.css">
+<body>
+<div class="review-layout">
+  <aside class="review">
+    <p class="eyebrow">QUIET ROOM · DESIGN REVIEW</p>
+    <h1>让记录安心留下，<br>也能在别处找回。</h1>
+    <p>备份与恢复 · v2 已确认 · 已进入实施</p>
+    <p class="muted">聊天内容均为示例。选择文件时只显示文件名，不读取内容或上传。</p>
+    <nav aria-label="评审入口">
+      <button data-review="backup">查看备份页</button>
+      <button data-review="restore">查看恢复页</button>
+      <a href="?preview=1">打开单屏预览 ↗</a>
+      <a href="flow.html">查看业务流程图 ↗</a>
+    </nav>
+    <details class="review-tools" open><summary>演示设置</summary>
+      <label>主题<select id="theme"><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+      <label>使用情形<select id="scenario">
+        <option value="normal">正常 · 从另一台设备恢复</option>
+        <option value="existing">已有用户 · 云备份已开启</option>
+        <option value="empty">云端尚无历史备份</option>
+        <option value="legacy">旧备份需要补充恢复码</option>
+        <option value="wrong">备份不属于当前空间或本人</option>
+        <option value="corrupt">备份损坏 / 完整性失败</option>
+        <option value="conflict">本机内容冲突</option>
+        <option value="failure">上传 / 恢复途中失败一次</option>
+        <option value="quota">云端空间不足</option>
+      </select></label>
+      <label>参与身份<select id="role"><option value="creator">创建者</option><option value="participant">受邀者</option></select></label>
+      <label class="check"><input id="offline" type="checkbox"> 模拟离线</label>
+      <button id="lock">模拟锁定</button><button id="reset">重置演示</button>
+    </details>
+    <p class="review-note">建议体验：开启云备份 → 阅读隐私说明 → 下载本地文件 → 从云端或本地恢复。云备份不会跳转页面；恢复时可演示断网和锁定。</p>
+  </aside>
+  <div class="stage"><div class="preview-label">交互预览 <span>示例空间 · 山间小屋</span></div>
+    <main id="app" class="app" aria-label="备份与恢复原型"></main>
+    <p id="announcement" class="sr-only" role="status" aria-live="polite"></p>
+  </div>
+</div>
+<input id="backup-file" type="file" accept=".qrlocal" hidden>
+<dialog id="privacy-sheet" class="privacy-sheet" aria-labelledby="privacy-title"></dialog>
+<script>if(new URLSearchParams(location.search).has("preview"))document.documentElement.classList.add("preview-only");</script>
+<script src="prototype.js"></script>
+</body>
+</html>

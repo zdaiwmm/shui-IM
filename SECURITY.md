@@ -2,6 +2,14 @@
 
 Quiet Room is a two-person, multi-device encrypted chat. Each participant may authorize up to three independent devices. The browser encrypts message, reply metadata, album membership, and image content before upload. The Node service stores public device keys and MLS key packages, opaque signed MLS welcome/Add/Remove/replacement messages and recovery authorization proofs, opaque message envelopes, per-device token hashes, device activation boundaries, signed delivery receipts, ordering metadata, push subscriptions, and encrypted image chunks. It also temporarily processes each authenticated socket's chat/away view for presence, but does not persist that state in the application database. It does not receive WebAuthn PRF output, vault master keys, recovery codes, pairing secrets, MLS private state, plaintext messages, reply targets or previews, album ordering, filenames, MIME types, or original image hashes.
 
+## Explicit backup and history-recovery consent
+
+The history-backup preference is versioned per room and participant, authenticated with an active device token. New participants default off; migration preserves existing backup owners' prior behavior. Disabling rejects new history-part uploads at the server, including older clients, while keeping previously stored ciphertext and independent encrypted identity checkpoints. The service sees this preference and necessary backup metadata, never the recovery codes or archive keys.
+
+History restoration is separate from identity replacement. A source must match the current room and participant and prove possession of the private signing key corresponding to an already authenticated member key. A room/role string or a source public key inside an untrusted recovery payload alone is insufficient. Valid QR3/QR4 capabilities unlock the encrypted archive keys; another own device may then explicitly import records without adopting the source identity or writable archive lineage. The encrypted QR4 directory may retain explicitly authorized source codes; the ordinary browser-access catalog's allowlist excludes them. Revocation and replacement continue to gate online fetching and rotate capabilities; downloaded copies cannot be remotely erased.
+
+Local QRL1 file bytes never leave the importing browser. Legacy files can need an online encrypted key-wrapper fetch when the target does not retain that archive key; a valid local retained lineage can be used offline. Both flows preserve integrity checks, conflicts, deletion projections and readback checks. See [RECOVERY_BACKUPS.md](RECOVERY_BACKUPS.md) for limits and interruption behavior.
+
 ## Device-local Attachment Favorites
 
 The administrator-managed public expression catalog is separate from private chat attachments. Public originals,
