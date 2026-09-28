@@ -1,3 +1,4 @@
+import { motion, retargetMotion } from './motion';
 import { emojiGroups, searchEmoji } from './emoji-catalog';
 import { mountDialog, closeDialog } from './dialog';
 import { CHAT_KEYBOARD_LAYOUT_MS, chatKeyboardLayoutProgress } from './chat-keyboard-layout';
@@ -225,16 +226,20 @@ export class MemePicker {
       };
       shortcutAnimation = requestAnimationFrame(tick);
     };
+    const positionMotions = new WeakMap<HTMLElement, Animation>();
     const capturePositions = () => new Map([...shortcuts.querySelectorAll<HTMLElement>('button[data-shortcut]')].map(node => [node, node.getBoundingClientRect()]));
     const animatePositions = (before: Map<HTMLElement, DOMRect>) => {
       if (reducedMotion()) return;
+      for (const node of before.keys()) positionMotions.get(node)?.cancel();
+      const ends = new Map([...before.keys()].map(node => [node, node.getBoundingClientRect()]));
       for (const [node, start] of before) {
         if (!node.isConnected) continue;
-        const end = node.getBoundingClientRect();
+        const end = ends.get(node)!;
         const x = start.left - end.left; const y = start.top - end.top;
         if (Math.abs(x) < 0.5 && Math.abs(y) < 0.5) continue;
-        node.animate([{ transform: `translate3d(${x}px, ${y}px, 0)` }, { transform: 'translate3d(0, 0, 0)' }],
-          { duration: 240, easing: 'cubic-bezier(.16, 1, .3, 1)' });
+        const animation = retargetMotion(node, null, { transform: `translate3d(${x}px, ${y}px, 0)` },
+          { transform: 'translate3d(0, 0, 0)' }, motion.local, motion.settle);
+        if (animation) positionMotions.set(node, animation);
       }
     };
     const cancelHold = () => {

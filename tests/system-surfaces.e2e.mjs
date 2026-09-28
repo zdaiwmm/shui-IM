@@ -138,8 +138,10 @@ try {
       const shell = root.querySelector(gallery ? '.gallery-shell' : '.chat-shell');
       check(shell && root.dataset.pageTransition === (gallery ? 'forward' : 'backward'), 'Navigation did not enter its requested direction');
       check(root.querySelector('.page-transition-outgoing'), 'Navigation removed the old painted page before its push/pop');
-      const transitionName = getComputedStyle(shell).animationName;
-      check(transitionName.includes(gallery ? 'page-forward-in' : 'page-back-in'), `New navigation page has no directional transition: ${transitionName}; style=${shell.getAttribute('style')}; class=${shell.className}; root=${root.dataset.pageTransition}`);
+      const transition = shell.getAnimations().find(animation => animation.effect?.target === shell);
+      const frames = transition?.effect.getKeyframes();
+      check(frames?.length >= 2 && frames[0].transform !== frames.at(-1).transform,
+        `New navigation page has no moving presentation effect: ${shell.className}`);
       for (let frame = 0; frame < 4; frame++) {
         await new Promise(requestAnimationFrame);
         const header = shell.querySelector('header');

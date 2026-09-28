@@ -1,3 +1,4 @@
+import { motion, retargetMotion, settleValue } from './motion';
 import { mountDialog } from './dialog';
 import type { PrivateSpace } from './spaces';
 import { createElement, Settings2, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2 } from 'lucide';
@@ -51,8 +52,16 @@ remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace)
   sheet.addEventListener('click', e => { if (e.target === sheet && !busy) close(); });
   function page(title: string, body: string, footer = '', back?: () => void) {
     if (sheet.querySelector('.space-list')) listScrollTop = sheet.querySelector('.space-drawer-scroll')!.scrollTop;
+    const priorTitle = sheet.getAttribute('aria-label');
+    const previousBody = sheet.querySelector<HTMLElement>('.space-drawer-scroll');
+    const previousPaint = previousBody ? getComputedStyle(previousBody).translate : '0 0';
     sheet.setAttribute('aria-label', title);
     sheet.innerHTML = `<section class="space-drawer"><header class="space-drawer-header">${back ? `<button class="icon-button space-back" aria-label="返回">${arrow}</button>` : ''}<h2>${title}</h2><button class="icon-button space-close" aria-label="关闭">${closeIcon}</button></header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${footer ? `<footer class="space-drawer-footer">${footer}</footer>` : ''}</section>`;
+    if (previousBody && priorTitle !== title) {
+      const content = sheet.querySelector<HTMLElement>('.space-drawer-scroll')!;
+      retargetMotion(content, null, { opacity: .8, translate: previousPaint === 'none' || previousPaint === '0px' ? `${back ? 16 : -16}px 0` : previousPaint },
+        { opacity: 1, translate: '0 0' }, motion.local);
+    }
     sheet.querySelector('.space-close')?.addEventListener('click', close);
     sheet.querySelector('.space-back')?.addEventListener('click', () => { back!(); sheet.querySelector<HTMLButtonElement>('.space-back,.space-close')?.focus(); });
   }
@@ -243,9 +252,39 @@ export function mountSpaceInvite(root: HTMLElement, options: { name: string; sig
   overlay.querySelector('#invite-close')!.addEventListener('click', () => dialog.close());
   overlay.addEventListener('click', e => { if (e.target === overlay) dialog.close(); });
   const handle = overlay.querySelector<HTMLElement>('.space-invite-handle')!;
-  let start: number | null = null;
-  handle.addEventListener('pointerdown', e => { start = e.clientY; handle.setPointerCapture(e.pointerId); });
-  handle.addEventListener('pointerup', e => { if (start !== null && e.clientY - start > 45) dialog.close(); start = null; });
-  handle.addEventListener('pointercancel', () => { start = null; });
+  const panel = overlay.querySelector<HTMLElement>('.space-invite-sheet')!;
+  let drag: { id: number; y: number; offset: number } | null = null;
+  let offset = 0;
+  let cancelSettle: (() => void) | undefined;
+  const paint = (value: number) => { offset = value; panel.style.setProperty('--invite-drag', `${value}px`); };
+  const release = (e: PointerEvent, cancelled: boolean) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const distance = e.clientY - drag.y;
+    drag = null;
+    if (!cancelled && distance > 45) {
+      panel.classList.remove('is-dragging');
+      dialog.close();
+    } else {
+      cancelSettle = settleValue(offset, 0, paint, () => panel.classList.remove('is-dragging'),
+        () => panel.isConnected && !options.signal.aborted && !overlay.classList.contains('is-closing'));
+    }
+  };
+  handle.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || !e.isPrimary || overlay.classList.contains('is-closing')) return;
+    cancelSettle?.();
+    offset = new DOMMatrixReadOnly(getComputedStyle(panel).transform).m42;
+    drag = { id: e.pointerId, y: e.clientY, offset };
+    panel.classList.add('is-dragging'); paint(offset);
+    handle.setPointerCapture(e.pointerId);
+  });
+  handle.addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    const distance = Math.max(0, e.clientY - drag.y);
+    const limit = Math.max(1, panel.clientHeight);
+    paint(Math.max(0, drag.offset + limit * Math.tanh(distance / limit)));
+  });
+  handle.addEventListener('pointerup', e => release(e, false));
+  handle.addEventListener('pointercancel', e => release(e, true));
+  options.signal.addEventListener('abort', () => { cancelSettle?.(); drag = null; }, { once: true });
   return overlay;
 }

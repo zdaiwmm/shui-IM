@@ -1,3 +1,4 @@
+import { motion, retargetMotion } from './motion';
 import { createElement, X, Search, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize, ArrowDownUp, ArrowLeftRight, Send, List } from 'lucide';
 import type { PdfReader } from './pdf-reader';
 import type { EpubReader } from './epub-reader';
@@ -359,13 +360,11 @@ export class DocumentReader {
     this.previous.disabled = this.pdf ? this.page <= 1 : this.screen === 0 && (!this.epub || this.page === 1);
     this.next.disabled = this.pdf ? this.page >= pages : this.screen >= this.screens - 1 && (!this.epub || this.page === this.epub.pages);
     if (this.turn && !this.pdf && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
-      this.pageAnimation?.cancel();
       const target = this.content;
       const end = target.style.transform || 'translate3d(0,0,0)';
-      this.pageAnimation = target.animate([
-        { transform: `${end} translateX(${this.turn * Math.min(this.stage.clientWidth * .2, 100)}px)`, opacity: .55 },
-        { transform: end, opacity: 1 },
-      ], { duration: 260, easing: 'cubic-bezier(.16,1,.3,1)' });
+      this.pageAnimation = retargetMotion(target, this.pageAnimation,
+        { transform: `${end} translateX(${this.turn * Math.min(this.stage.clientWidth * .2, 100)}px)`, opacity: .8 },
+        { transform: end, opacity: 1 }, motion.message) ?? undefined;
     }
     this.turn = 0;
   }

@@ -1,3 +1,4 @@
+import { motion, retargetMotion } from './motion';
 import type { CallState, CallViewActions } from './call-types';
 
 const icons = {
@@ -60,6 +61,7 @@ export class CallView {
   private readonly playback: HTMLButtonElement;
   private state: CallState | null = null;
   private destroyed = false;
+  private statusMotion: Animation | null = null;
   private focusFrame: number | null = null;
   private readonly tick: ReturnType<typeof setInterval>;
 
@@ -170,7 +172,11 @@ export class CallView {
       connected: '通话中', reconnecting: '网络不稳定，正在重连…', ended: '通话已结束',
     }[state.phase];
     const statusText = state.statusText || fallbackStatus;
-    if (this.status.textContent !== statusText) this.status.textContent = statusText;
+    if (this.status.textContent !== statusText) {
+      this.status.textContent = statusText;
+      this.statusMotion = retargetMotion(this.status, this.statusMotion,
+        { opacity: .65, translate: '0 3px' }, { opacity: 1, translate: '0 0' }, motion.feedback);
+    }
     this.avatar.hidden = remoteVisible;
     this.preview.hidden = !localVisible;
     this.previewMuted.hidden = !state.micMuted;
@@ -219,6 +225,7 @@ export class CallView {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.statusMotion?.cancel(); this.statusMotion = null;
     clearInterval(this.tick);
     if (this.focusFrame !== null) cancelAnimationFrame(this.focusFrame);
     document.removeEventListener('keydown', this.onKeyDown, true);

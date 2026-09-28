@@ -1,9 +1,14 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import {
   bindImageViewerGestures,
   type ImageViewerGestureBinding,
   type ImageViewerPageGesture,
 } from '../src/lib/image-viewer-gestures';
+
+beforeEach(() => {
+  vi.stubGlobal('getComputedStyle', (element: { style: { transform: string } }) => ({ transform: element.style.transform || 'none' }));
+});
+afterEach(() => vi.unstubAllGlobals());
 
 class FakeClassList {
   private readonly values = new Set<string>();
@@ -325,7 +330,7 @@ describe('image viewer horizontal paging', () => {
     const slowShort = new GestureHarness();
     slowShort.drag(200, 150, 500);
     expect(slowShort.pages).toEqual([]);
-    expect(slowShort.media.animationCalls.at(-1)?.options.duration).toBe(180);
+    expect(slowShort.media.animationCalls.at(-1)?.options.duration).toBe(260);
 
     const fast = new GestureHarness();
     fast.drag(200, 170, 50);
@@ -524,7 +529,7 @@ describe('image viewer dismissal and cancellation', () => {
     expect(harness.pages).toEqual([]);
     expect(harness.dismissals).toEqual([]);
     expect(harness.viewer.classList.contains('is-paging')).toBe(false);
-    expect(harness.media.animationCalls.at(-1)?.options.duration).toBe(180);
+    expect(harness.media.animationCalls.at(-1)?.options.duration).toBe(260);
 
     if (eventType === 'lostpointercapture') {
       harness.pointer('pointerup', { pointerId: 1, clientX: 190, clientY: 300 });
@@ -651,7 +656,7 @@ describe('image viewer zoom', () => {
     harness.pointer('pointerup', { pointerId: 1, clientX: 100, clientY: 300 });
     const settledScale = Number(harness.media.style.transform.match(/scale\(([-\d.]+)\)/)?.[1]);
     expect(settledScale).toBe(1);
-    expect(harness.media.animationCalls.at(-1)?.options.duration).toBe(180);
+    expect(harness.media.animationCalls.at(-1)?.options.duration).toBe(260);
   });
 
   it('keeps a pinch enlargement after both fingers are released', () => {
@@ -674,7 +679,7 @@ describe('image viewer zoom', () => {
     expect(harness.viewer.classList.contains('is-pinching')).toBe(true);
     expect(harness.media.animationCalls).toHaveLength(1);
     const first = harness.media.animationCalls[0]!;
-    expect(first.options).toMatchObject({ duration: 340, easing: 'cubic-bezier(.22,.72,.2,1)', fill: 'both' });
+    expect(first.options).toMatchObject({ duration: 340, easing: 'cubic-bezier(.2,.82,.22,1)', fill: 'both' });
     expect(first.keyframes).toHaveLength(2);
     expect(first.keyframes[0]?.transform).not.toBe(first.keyframes[1]?.transform);
     expect(first.keyframes[1]?.transform).toContain('scale(2.5)');
@@ -738,7 +743,7 @@ describe('image viewer zoom', () => {
     harness.drag(200, 150, 500);
     expect(harness.media.animationCalls).toHaveLength(1);
     const settle = harness.media.animationCalls[0]!;
-    expect(settle.options.duration).toBe(180);
+    expect(settle.options.duration).toBe(260);
     expect(harness.viewer.classList.contains('is-pinching')).toBe(true);
 
     settle.animation.finish();

@@ -1,3 +1,4 @@
+import { afterMotion } from './motion';
 import { AUDIO_MIME_TYPES, MAX_AUDIO_BYTES, MAX_AUDIO_DURATION_MS, MIN_AUDIO_DURATION_MS } from './message-payload';
 import { encodeVoiceWav, MAX_VOICE_SAMPLES, VOICE_SAMPLE_RATE, voiceIcons, voiceTime, voiceWaveform, waveformMarkup } from './voice-audio';
 import { createElement, X } from 'lucide';
@@ -7,7 +8,6 @@ type State = 'requesting' | 'recording' | 'processing' | 'paused' | 'sending';
 type Mode = 'hold' | 'locked';
 const CANCEL_DISTANCE = 220;
 const CANCEL_RESET_DISTANCE = 196;
-const CANCEL_MOTION_MS = 140;
 
 export class VoiceRecorder {
   readonly signal: AbortSignal;
@@ -43,7 +43,7 @@ export class VoiceRecorder {
   private renderedSendIcon = '';
   private sendMotion: Animation | null = null;
   private holdEntryMotion: Animation | null = null;
-  private cancelMotionTimer: number | null = null;
+  private cancelExit: (() => void) | null = null;
 
   constructor(private readonly host: HTMLElement, private readonly callbacks: {
     permission: (active: boolean) => boolean | void | Promise<boolean | void>;
@@ -102,7 +102,7 @@ export class VoiceRecorder {
     const motion = orb.animate([
       { translate: `${x}px ${y}px`, scale: String(origin.width / destination.width), opacity: 0.75 },
       { translate: '0px 0px', scale: '1', opacity: 1 },
-    ], { duration: 120, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' });
+    ], { duration: 180, easing: 'cubic-bezier(.2,.82,.22,1)' });
     this.holdEntryMotion = motion;
     motion.onfinish = () => { if (this.holdEntryMotion === motion) this.holdEntryMotion = null; };
   }
@@ -178,11 +178,11 @@ export class VoiceRecorder {
       this.host.dataset.gesture = 'cancelling';
       this.host.style.setProperty('--voice-drag-x', dragX);
       this.host.innerHTML = `<div class="voice-cancel-bar" aria-hidden="true"></div><div class="voice-cancel-orb" aria-hidden="true">${voiceIcons.mic}</div>`;
-      this.cancelMotionTimer = window.setTimeout(() => {
-        this.cancelMotionTimer = null;
+      this.cancelExit = afterMotion(this.host, () => {
+        this.cancelExit = null;
         this.host.replaceChildren();
         this.callbacks.cancel();
-      }, CANCEL_MOTION_MS);
+      }, 450);
       return;
     }
     this.callbacks.cancel();
@@ -506,8 +506,8 @@ export class VoiceRecorder {
 
   destroy(): void {
     // Teardown must also remove an already-aborted cancellation animation.
-    if (this.cancelMotionTimer !== null) window.clearTimeout(this.cancelMotionTimer);
-    this.cancelMotionTimer = null;
+    this.cancelExit?.();
+    this.cancelExit = null;
     this.host.replaceChildren();
     if (this.signal.aborted) return;
     this.abort.abort(); this.endPermission(); this.stopTimer();

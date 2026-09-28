@@ -1,3 +1,4 @@
+import { afterMotion, motion, retargetMotion, settleValue } from './lib/motion';
 import { MESSAGE_WINDOW_CAPABILITY, MLS_WINDOW_MESSAGES, maySkipWindowMessage, appendExpiredRange, expiredMessage } from './lib/message-window';
 import { getWindowMessages } from './lib/api';
 import { prepareMlsWindowUpdate, verifyMembershipEnvelope } from './lib/mls';
@@ -234,6 +235,7 @@ import {
 } from './lib/vault';
 import { recoverFromCloud, syncCloudBackup, fetchRecoveryBundle } from './lib/cloud-backup';
 import './backup.css';
+import './motion.css';
 
 const CLIENT_CAPABILITIES = [MESSAGE_WINDOW_CAPABILITY, 'joint-recovery-v1', 'mls-multidevice-v1', 'reply-v2', 'passkey-only-v3', 'image-album-v1', 'expression-image-v1', 'expression-kind-v1', 'recovery-replace-v1', 'voice-message-v1', 'message-reactions-v1', 'message-delete-v1', 'media-read-v1', 'message-read-v1', 'file-message-v1', 'media-dimensions-v1', CALL_CAPABILITY];
 const PASSKEY_UNAVAILABLE_NOTICE = '当前浏览器无法获取到本设备的通行密钥信息，建议使用系统浏览器';
@@ -344,6 +346,7 @@ function memberBundle(member: RoomMember) {
 function setBusy(button: HTMLButtonElement, busy: boolean, busyLabel = '处理中…'): void {
   if (!button.dataset.label) button.dataset.label = button.textContent ?? '';
   button.disabled = busy;
+  button.setAttribute('aria-busy', String(busy));
   button.textContent = busy ? busyLabel : button.dataset.label;
 }
 
@@ -584,7 +587,7 @@ export class QuietRoomApp {
   private composerSelection: { start: number; end: number } | null = null;
   private noticeTimer: number | null = null;
   private noticeRemovalTimer: number | null = null;
-  private pageTransitionTimer: number | null = null;
+  private cancelPageTransition: (() => void) | null = null;
   private preferenceSaveTimer: number | null = null;
   private preferenceSaveChain: Promise<void> = Promise.resolve();
   private clipboardWriteChain: Promise<void> = Promise.resolve();
@@ -6537,7 +6540,16 @@ export class QuietRoomApp {
       this.captureChatAnchor(true);
       this.restoreChatAnchorOnNextRender = true;
     }
-    if (this.pageTransitionTimer !== null) window.clearTimeout(this.pageTransitionTimer);
+    // Sample both painted planes before cancelling a push/pop. A reverse
+    // navigation can reuse the old background position without reusing its DOM.
+    const oldForeground = this.root.querySelector<HTMLElement>(':scope > .page-transition-incoming');
+    const oldBackground = this.root.querySelector<HTMLElement>(':scope > .page-transition-outgoing');
+    const foregroundStyle = oldForeground ? getComputedStyle(oldForeground) : null;
+    const foregroundFrom = foregroundStyle ? { transform: foregroundStyle.transform, opacity: foregroundStyle.opacity } : null;
+    const backgroundStyle = oldBackground ? getComputedStyle(oldBackground) : null;
+    const backgroundFrom = backgroundStyle ? { transform: backgroundStyle.transform, opacity: backgroundStyle.opacity } : null;
+    const previousDirection = this.root.dataset.pageTransition;
+    this.cancelPageTransition?.();
     this.root.querySelectorAll(':scope > .page-transition-outgoing').forEach(node => node.remove());
     this.root.querySelector(':scope > .page-transition-incoming')?.classList.remove('page-transition-incoming');
     const epoch = this.runtimeEpoch;
@@ -6576,12 +6588,24 @@ export class QuietRoomApp {
     incoming.dataset.pageNavigation = '';
     incoming.classList.add('page-transition-incoming');
     this.root.append(outgoingFrame);
-    this.pageTransitionTimer = window.setTimeout(() => {
+    const reverse = previousDirection && previousDirection !== direction;
+    const incomingFrom = reverse && backgroundFrom ? backgroundFrom : {
+      transform: direction === 'forward' ? 'translate3d(100%,0,0)' : 'translate3d(-28%,0,0)',
+      opacity: direction === 'forward' ? 1 : .92,
+    };
+    const entering = retargetMotion(incoming, null, incomingFrom, { transform: 'translate3d(0,0,0)', opacity: 1 }, motion.page, motion.travel);
+    const leaving = retargetMotion(outgoingFrame, null, foregroundFrom ?? { transform: 'translate3d(0,0,0)', opacity: 1 }, {
+      transform: direction === 'forward' ? 'translate3d(-28%,0,0)' : 'translate3d(100%,0,0)', opacity: direction === 'forward' ? .92 : 1,
+    }, motion.page, motion.travel);
+    const cleanup = () => {
+      entering?.cancel(); leaving?.cancel();
       outgoingFrame.remove();
       incoming.classList.remove('page-transition-incoming');
       delete this.root.dataset.pageTransition;
-      this.pageTransitionTimer = null;
-    }, 400);
+      this.cancelPageTransition = null;
+    };
+    const cancelFinish = afterMotion(incoming, cleanup);
+    this.cancelPageTransition = () => { cancelFinish(); cleanup(); };
   }
 
   private markVisibleMessagesRead(): void {
@@ -8344,6 +8368,10 @@ export class QuietRoomApp {
     swipeIndicator.innerHTML = icons.reply;
     article.append(swipeIndicator);
     let swipeWasArmed = false;
+    let cancelSettle: (() => void) | undefined;
+    let swipeOffset = 0;
+    let swipeAt = 0;
+    let swipeVelocity = 0;
     const finishSwipeVisual = () => {
       article.classList.remove('is-reply-swiping', 'is-reply-armed', 'is-reply-settling');
       article.style.removeProperty('--reply-swipe-offset');
@@ -8362,7 +8390,13 @@ export class QuietRoomApp {
         'input, textarea, audio, video, .message-reactions, .message-reply-quote, button:not(.image-preview):not(.album-cell):not(.file-attachment)',
       )),
       maxOffset: () => replySwipeMaxOffset(window.visualViewport?.width ?? window.innerWidth),
+      currentOffset: () => swipeOffset,
       gestureStart: () => {
+        cancelSettle?.();
+        article.classList.remove('is-reply-settling');
+        swipeOffset = Number.parseFloat(article.style.getPropertyValue('--reply-swipe-offset')) || 0;
+        swipeAt = performance.now();
+        swipeVelocity = 0;
         this.cancelMessageHold();
         // A clearly horizontal bubble gesture belongs to reply, even while the
         // keyboard is already open. Release the list-level dismissal gesture
@@ -8378,6 +8412,9 @@ export class QuietRoomApp {
         article.classList.add('is-reply-swiping');
       },
       move: (offset, armed) => {
+        const now = performance.now();
+        swipeVelocity = (offset - swipeOffset) / Math.max(1, now - swipeAt) * 1000;
+        swipeAt = now; swipeOffset = offset;
         article.style.setProperty('--reply-swipe-offset', `${offset}px`);
         const activationOffset = replySwipeOffset(REPLY_SWIPE_THRESHOLD_PX, replySwipeMaxOffset(window.visualViewport?.width ?? window.innerWidth));
         article.style.setProperty('--reply-swipe-progress', String(armed ? 1 : Math.min(.99, offset / Math.max(1, activationOffset))));
@@ -8391,11 +8428,13 @@ export class QuietRoomApp {
           this.suppressMediaClickUntil = Date.now() + 500;
           article.classList.remove('is-reply-armed');
           article.classList.add('is-reply-settling');
-          requestAnimationFrame(() => {
-            article.style.setProperty('--reply-swipe-offset', '0px');
-            article.style.setProperty('--reply-swipe-progress', '0');
-          });
-          window.setTimeout(finishSwipeVisual, matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 280);
+          cancelSettle?.();
+          const start = swipeOffset;
+          cancelSettle = settleValue(start, performance.now() - swipeAt < 90 ? swipeVelocity : 0, value => {
+            swipeOffset = value;
+            article.style.setProperty('--reply-swipe-offset', `${value}px`);
+            article.style.setProperty('--reply-swipe-progress', String(Math.min(1, value / Math.max(1, start))));
+          }, finishSwipeVisual, () => article.isConnected && !this.privacyCovered && this.activeSurface === 'chat');
         } else finishSwipeVisual();
         if (activated) this.beginReply(currentMessage());
       },
@@ -8843,7 +8882,7 @@ export class QuietRoomApp {
     actions.classList.add('is-closing');
     actions.inert = true;
     backdrops.forEach(element => { element.classList.remove('is-visible'); element.classList.add('is-closing'); });
-    if (animate && !this.privacyCovered && !matchMedia('(prefers-reduced-motion: reduce)').matches) window.setTimeout(finish, 320);
+    if (animate && !this.privacyCovered && !matchMedia('(prefers-reduced-motion: reduce)').matches) afterMotion(actions, finish);
     else finish();
     if (restoreFocus && sourceId) {
       if (!this.privacyCovered) this.root.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(sourceId)}"]`)?.focus({ preventScroll: true });
@@ -8980,7 +9019,7 @@ export class QuietRoomApp {
     }
     const sendRequested = scroll === 'send';
     const followSend = sendRequested;
-    const previousLatest = followSend ? this.renderedMessageOrder.at(-1) : null;
+    const previousLatest = this.renderedMessageOrder.at(-1) ?? null;
     const previousLatestTop = previousLatest?.isConnected ? previousLatest.querySelector('.message-bubble')?.getBoundingClientRect().top ?? null : null;
     if (followSend) {
       this.replyReturnAnchors = [];
@@ -9179,7 +9218,9 @@ export class QuietRoomApp {
       && (this.chatBottomFollowPending || this.chatBottomGap() <= 2);
     this.restoreChatAnchorOnNextRender = false;
     this.markVisibleMessagesRead();
-    if (followSend && previousLatestTop !== null && previousLatest?.isConnected) {
+    const followArrival = scroll === 'preserve' && Boolean(anchor?.pinnedToBottom) && this.chatScrollIntent !== 'up'
+      && Boolean(previousLatest?.isConnected) && this.renderedMessageOrder.at(-1) !== previousLatest;
+    if ((followSend || followArrival) && previousLatestTop !== null && previousLatest?.isConnected) {
       const offset = Math.max(0, Math.min(120, previousLatestTop - previousLatest.getBoundingClientRect().top));
       // New nodes join the same FLIP; existing nodes retain their own painted
       // origins when a second send interrupts the first one.
@@ -9195,7 +9236,7 @@ export class QuietRoomApp {
         }
       }
     }
-    if (reactionLayoutChanged || followSend) this.animateChatReactionReflow(reflowOrigins, followSend ? 280 : 300);
+    if (reactionLayoutChanged || followSend || followArrival) this.animateChatReactionReflow(reflowOrigins, motion.message);
     this.updateChatBottomControl();
   }
 
@@ -9206,9 +9247,17 @@ export class QuietRoomApp {
     this.chatMessageTranslations.clear();
   }
 
-  private animateChatMessageShift(distance: number, duration = 280,
+  private animateChatMessageShift(distance: number, duration: number = motion.message,
     maximumOffset = Math.min(280, this.chatViewportHeight * 0.45),
-    easing = 'cubic-bezier(0.16, 1, 0.3, 1)'): void {
+    easing: string = motion.out): void {
+    const offsets = new Map<HTMLElement, number>();
+    for (const animation of this.chatMessageAnimations) {
+      const target = (animation.effect as KeyframeEffect | null)?.target;
+      if (target instanceof HTMLElement) {
+        const parts = getComputedStyle(target).translate.split(' ');
+        offsets.set(target, Number.parseFloat(parts[1] ?? '0') || 0);
+      }
+    }
     this.cancelChatMessageMotion();
     if (distance < 1 || matchMedia('(prefers-reduced-motion: reduce)').matches || this.chatBottomFollowPending) return;
     const offset = Math.min(distance, maximumOffset);
@@ -9225,7 +9274,7 @@ export class QuietRoomApp {
       for (const content of contents) {
         if (!(content instanceof HTMLElement)) continue;
         const animation = content.animate(
-          [{ translate: `0 ${offset}px` }, { translate: '0 0' }],
+          [{ translate: `0 ${offset + (offsets.get(content) ?? 0)}px` }, { translate: '0 0' }],
           { duration, easing, fill: 'backwards' },
         );
         animation.currentTime = 0;
@@ -9246,7 +9295,7 @@ export class QuietRoomApp {
       if (rect.bottom < this.chatViewportTop - 32 || rect.top > this.chatViewportTop + this.chatViewportHeight + 32) continue;
       const animation = content.animate(
         [{ translate: `0 ${distance}px` }, { translate: '0 0' }],
-        { duration, easing: 'cubic-bezier(0.16, 1, 0.3, 1)', fill: 'backwards' },
+        { duration, easing: motion.settle, fill: 'backwards' },
       );
       // Force the inverse position onto the same rendering frame as the
       // reaction layout mutation. A pending WAAPI animation may otherwise
@@ -12267,18 +12316,18 @@ export class QuietRoomApp {
       }
       updateVisibilityButton();
     });
-    let switchTimer: number | null = null;
+    let cancelSwitch: (() => void) | null = null;
+    let switchAnimation: Animation | null = null;
     const switchTab = (next: GalleryTab) => {
       if (!this.isRuntimeActive(epoch, session) || !grid.isConnected || this.imageBatchUploading) return;
-      if (switchTimer !== null) window.clearTimeout(switchTimer);
+      cancelSwitch?.();
       tabs.dataset.activeTab = next;
       for (const kind of ['images', 'files'] as const) {
         const button = tabs.querySelector<HTMLButtonElement>(`#gallery-tab-${kind}`)!;
         button.setAttribute('aria-selected', String(kind === next));
         button.tabIndex = kind === next ? 0 : -1;
       }
-      grid.getAnimations().forEach(animation => animation.cancel());
-      if (next === tab) return;
+      if (next === tab) { switchAnimation?.cancel(); switchAnimation = null; return; }
       this.galleryScrollTop[tab] = grid.scrollTop;
       const finish = () => {
         if (!this.isRuntimeActive(epoch, session) || !grid.isConnected) return;
@@ -12287,8 +12336,8 @@ export class QuietRoomApp {
       };
       if (matchMedia('(prefers-reduced-motion: reduce)').matches) finish();
       else {
-        grid.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 100, easing: 'ease-in', fill: 'forwards' });
-        switchTimer = window.setTimeout(finish, 100);
+        switchAnimation = retargetMotion(grid, switchAnimation, { opacity: 1 }, { opacity: .35 }, 120);
+        cancelSwitch = afterMotion(grid, finish, 200);
       }
     };
     for (const next of ['images', 'files'] as const) {
@@ -12352,10 +12401,11 @@ export class QuietRoomApp {
       };
       if (matchMedia('(prefers-reduced-motion: reduce)').matches) finish();
       else {
-        const animation = source.animate([
-          { opacity: 1, transform: 'scale(1)' },
-          { opacity: 0, transform: 'scale(.92)' },
-        ], { duration: 140, easing: 'cubic-bezier(.4, 0, 1, 1)', fill: 'forwards' });
+        // Conceal synchronously; retiring layout must never retain visible media.
+        source.inert = true;
+        source.querySelectorAll<HTMLElement>('img, video').forEach(media => { media.style.visibility = 'hidden'; });
+        const animation = source.animate([{ opacity: 1 }, { opacity: 0 }],
+          { duration: 140, easing: motion.out, fill: 'forwards' });
         void animation.finished.then(finish, finish);
       }
       return true;
@@ -13061,10 +13111,10 @@ export class QuietRoomApp {
     this.historyLoading = false;
     if (this.noticeTimer !== null) window.clearTimeout(this.noticeTimer);
     if (this.noticeRemovalTimer !== null) window.clearTimeout(this.noticeRemovalTimer);
-    if (this.pageTransitionTimer !== null) window.clearTimeout(this.pageTransitionTimer);
+    this.cancelPageTransition?.();
     this.noticeTimer = null;
     this.noticeRemovalTimer = null;
-    this.pageTransitionTimer = null;
+    this.cancelPageTransition = null;
     document.getElementById('app-toast')?.remove();
     if (this.viewerKeyHandler) document.removeEventListener('keydown', this.viewerKeyHandler);
     this.viewerKeyHandler = null;
