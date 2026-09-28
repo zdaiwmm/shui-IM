@@ -33,6 +33,7 @@ export function fitViewport(element: HTMLElement, signal: AbortSignal) {
 export function mountSpaceDrawer(root: HTMLElement, options: {
   spaces: PrivateSpace[]; currentRoom: string; signal: AbortSignal; actions: Action[]; icons?: { close: string; plus: string; settings: string };
   select: (space: PrivateSpace) => Promise<void>; create: () => Promise<void>; rename: (space: PrivateSpace, name: string) => Promise<void>;
+removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; settingsScrollTop?: number; onSettingsLeave?: (scrollTop: number) => void;
 remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace) => void;
   refreshUnread?: (signal: AbortSignal) => Promise<void>;
   refreshSpaces?: (signal: AbortSignal) => Promise<PrivateSpace[]>;
@@ -41,7 +42,7 @@ remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace)
 }): void {
   const lifetime = new AbortController();
   const signal = AbortSignal.any([options.signal, lifetime.signal]);
-  const sheet = document.createElement('div'); sheet.className = 'space-drawer-overlay'; sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', '私密空间');
+  const sheet = document.createElement('div'); sheet.className = 'space-drawer-overlay' + (options.initialSettings ? ' is-visible is-restored' : ''); sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', '私密空间');
   root.append(sheet);
   let styleDirty = false, busy = false, listScrollTop = 0;
   const dialog = mountDialog(sheet, { signal: options.signal, isActive: () => !options.signal.aborted, beforeClose: () => !busy, onClose: () => {
@@ -102,7 +103,7 @@ remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace)
     if (busy || signal.aborted || space.accessState || root.querySelector('.space-context-overlay')) return;
     const overlay = document.createElement('div'); overlay.className = 'space-context-overlay'; overlay.setAttribute('role','dialog'); overlay.setAttribute('aria-modal','true'); overlay.setAttribute('aria-label',space.name);
 const removable = Boolean(options.remove && space.waiting && !space.accessState);
-    overlay.innerHTML = `<div class="space-context-menu"><button id="space-rename">${createElement(Pencil).outerHTML}<span>编辑空间名称</span></button>${removable ? `<button id="space-delete" class="is-danger">${createElement(Trash2).outerHTML}<span>删除空间</span></button>` : ''}</div>`;
+    overlay.innerHTML = `<div class="space-context-menu"><button id="space-rename">${createElement(Pencil).outerHTML}<span>编辑空间名称</span></button>${removable ? `<button id="space-delete" class="is-danger">${createElement(Trash2).outerHTML}<span>${escape(options.removeLabel?.(space) ?? '删除空间')}</span></button>` : ''}</div>`;
     root.append(overlay);
     const dialog = mountDialog(overlay, { signal, isActive: () => !signal.aborted, returnFocus: origin });
     const rect = origin.getBoundingClientRect(), popup = overlay.firstElementChild as HTMLElement;
@@ -140,7 +141,7 @@ popup.style.top = `${Math.max(top + 12, Math.min(rect.bottom - 6, bottom - (remo
     const setting = (a: Action) => `<button class="space-setting" id="${a.id}"><span class="space-setting-icon" aria-hidden="true">${a.icon}</span><span class="space-setting-label">${escape(a.label)}</span>${arrow}</button>`;
     page('设置', `${(['当前空间','本机','关于'] as const).map(group => `<section class="space-setting-group"><h3>${group}</h3>${group === '本机' ? `<button class="space-setting" id="presence-style-setting"><span class="space-setting-icon" aria-hidden="true">${heart}</span><span class="space-setting-label">在线状态样式<small>${readPresenceStyle() === 'heart' ? '心动按钮' : '在线胶囊'}</small></span>${arrow}</button>` : ''}${options.actions.filter(a => (a.group ?? '当前空间') === group).map(setting).join('')}</section>`).join('')}`, '', list);
     sheet.querySelector('#presence-style-setting')!.addEventListener('click', () => { styles(); sheet.querySelector<HTMLButtonElement>('[aria-checked=true]')?.focus(); });
-    for (const action of options.actions) sheet.querySelector(`#${action.id}`)!.addEventListener('click', () => { if (action.keepOpen) void run(async () => { await action.run(); }); else { dialog.close({ animate: false }); void action.run(); } });
+    for (const action of options.actions) sheet.querySelector(`#${action.id}`)!.addEventListener('click', () => { if (action.keepOpen) void run(async () => { await action.run(); }); else { options.onSettingsLeave?.(sheet.querySelector('.space-drawer-scroll')!.scrollTop); dialog.close({ animate: false }); void action.run(); } });
   }
   function authorizations() {
     sheet.querySelectorAll<HTMLButtonElement>('[data-access]').forEach(button=>{const space=options.spaces[Number(button.dataset.access)];const action=space&&options.authorization?.(space);button.hidden=!action||action.deadline<=performance.now();});
@@ -196,7 +197,7 @@ const expiry = pendingSpaceExpiry(s);
       button.addEventListener('click', () => { cancel(); if (pressed) { pressed = false; return; } if (space.roomId === options.currentRoom && !space.waiting) close(); else void run(async () => { await options.select(space); dialog.close({ animate: false }); }); });
     });
   }
-  list();
+  if (options.initialSettings) { settings(); sheet.querySelector('.space-drawer-scroll')!.scrollTop = options.settingsScrollTop ?? 0; } else list();
   if (options.refreshSpaces) {
     let refreshTimer: number | undefined;
     const refresh = async () => {

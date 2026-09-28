@@ -15,7 +15,7 @@ export async function saveHistoryRestoreTask(session: VaultSession, input: strin
   signal.throwIfAborted();
 }
 
-/** Called only on completion, explicit cancellation, or explicit code replacement. */
+/** Called on completion or user dismissal/cancellation; lifecycle teardown still pauses. */
 export async function clearHistoryRestoreTask(session: VaultSession, signal: AbortSignal): Promise<void> {
   await withVaultMutation(session, async mutation => {
     signal.throwIfAborted();

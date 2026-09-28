@@ -12,7 +12,7 @@ import { readBrowserAccessRecord } from './lib/vault';
 import { completeBrowserAccessJoin } from './lib/mls';
 import { newAccessIdentity, accessSafetyCode, verifyAccessProof } from './lib/browser-access-proof.mjs';
 import { accessEscape, accessDeadline, formatAccessRemaining, mountAccessApproval } from './lib/browser-access-ui';
-import { browserAccessKeys, createOriginBrowserProfile, deleteCatalogPendingSpace, loadBrowserProfile, saveBrowserProfile, refreshBrowserCatalog, discoveredCredentialRecord, prepareBrowserAccess, publishPreparedCatalog, preparedMailboxes, approveBrowser, acceptBrowserApproval, prepareSpaceAccess, accessPrivateSpaces, accessApi, mailboxPath, spaceAccessPath, rememberCatalogRemoval,
+import { browserAccessKeys, createOriginBrowserProfile, deleteCatalogPendingSpace, removeCatalogSpace, loadBrowserProfile, saveBrowserProfile, refreshBrowserCatalog, discoveredCredentialRecord, prepareBrowserAccess, publishPreparedCatalog, preparedMailboxes, approveBrowser, acceptBrowserApproval, prepareSpaceAccess, accessPrivateSpaces, accessApi, mailboxPath, spaceAccessPath, rememberCatalogRemoval,
   type BrowserProfileSession, type AccessSpace, type PendingSpaceAccess, type AccessStatus, type BrowserRequest, type PeerAccessRequest } from './lib/browser-access';
 import './spaces.css';
 import { mountSpaceDrawer, mountSpaceInvite, readPresenceStyle, spaceIcons } from './lib/space-drawer';
@@ -384,6 +384,7 @@ export class QuietRoomApp {
   private newSpaceCollectionCode: string | undefined;
   private returnSpaceId: string | null = null;
   private spaceDrawerOpen = false;
+  private settingsReturn: { session: VaultSession; spaces: PrivateSpace[]; scrollTop: number } | null = null;
   private waitingSpaceTimer: number | null = null;
   private destroyingWaitingSpace = false;
   private currentSpaceName = '私密空间';
@@ -2839,8 +2840,9 @@ export class QuietRoomApp {
     mountSpaceDrawer(this.root,{spaces:accessPrivateSpaces(current.profile),currentRoom:current.profile.currentRoom,signal,actions:[],
       select:async space=>{if(space.localId){await this.switchPrivateSpace(space);return;}current.profile.currentRoom=space.roomId;await saveBrowserProfile(current,signal);if(!signal.aborted)this.renderBrowserShell();},
       create:async()=>{await this.leaveSpace();this.renderCreate();},rename:async()=>{throw new Error('空间授权后可修改名称');},
+      removeLabel: space => this.catalogRemovalLabel(space),
       remove: async space => {
-        if (!space.localId) { await deleteCatalogPendingSpace(current.profile,space.roomId,signal);await saveBrowserProfile(current,signal);return; }
+        if (!space.localId) { await this.removeRemoteWaitingSpace(current,space,signal);return; }
         await this.switchPrivateSpace(space);
         if (!this.session) throw new Error('请先解锁此空间');
         await this.destroyWaitingSpace(this.session, space);
@@ -5083,6 +5085,17 @@ export class QuietRoomApp {
     }, delay);
   }
 
+  private catalogRemovalLabel(space: PrivateSpace): string {
+    return !space.localId && !this.browserProfile?.profile.spaces.find(item => item.roomId === space.roomId)?.pendingManagement
+      ? '从我的空间列表移除' : '删除空间';
+  }
+
+  private async removeRemoteWaitingSpace(profile: BrowserProfileSession, space: PrivateSpace, signal: AbortSignal): Promise<void> {
+    if (this.catalogRemovalLabel(space) === '从我的空间列表移除') await removeCatalogSpace(profile.profile, space.roomId, signal);
+    else await deleteCatalogPendingSpace(profile.profile, space.roomId, signal);
+    await saveBrowserProfile(profile, signal);
+  }
+
   private async destroyWaitingSpace(session: VaultSession, space: PrivateSpace): Promise<void> {
     if (this.destroyingWaitingSpace) throw new Error('正在删除空间，请稍候');
     if (!space.waiting || space.accessState) throw new Error('只有还在等待对方加入的空间可以删除');
@@ -5095,8 +5108,7 @@ export class QuietRoomApp {
       else {
         const held = this.deviceCredential;
         if (!space.localId && this.browserProfile) {
-          await deleteCatalogPendingSpace(this.browserProfile.profile,space.roomId,signal);
-          await saveBrowserProfile(this.browserProfile,signal);
+          await this.removeRemoteWaitingSpace(this.browserProfile,space,signal);
           await rememberCatalogRemoval(session,space.roomId);
           await forgetLocalSpace(session,space.roomId);
           return;
@@ -5195,13 +5207,16 @@ export class QuietRoomApp {
     });
   }
 
-  private mountPrivateSpaceDrawer(session: VaultSession, spaces: PrivateSpace[], signal: AbortSignal, previousSurface: QuietRoomApp['activeSurface']): void {
+  private mountPrivateSpaceDrawer(session: VaultSession, spaces: PrivateSpace[], signal: AbortSignal, previousSurface: QuietRoomApp['activeSurface'], settingsScrollTop?: number): void {
     this.closeChatTools(); this.clearKeyboardHandoff();
     (document.activeElement as HTMLElement | null)?.blur();
     this.setActiveSurface('away');
     const forward = (render: () => void) => () => this.transitionPage('forward', render);
     mountSpaceDrawer(this.root, {
       spaces, currentRoom: session.vault.roomId, signal,
+      initialSettings: settingsScrollTop !== undefined, settingsScrollTop,
+      onSettingsLeave: scrollTop => { this.settingsReturn = { session, spaces, scrollTop }; },
+      removeLabel: space => this.catalogRemovalLabel(space),
       actions: [
         { id: 'manage-devices', label: '已连接设备', icon: spaceIcons.device, run: forward(() => void this.renderDeviceManager()) },
         { id: 'backup-settings', label: '我的恢复码', icon: spaceIcons.key, run: forward(() => this.renderRecoveryCenter()) },
@@ -5834,7 +5849,12 @@ export class QuietRoomApp {
     this.updatePeerStatus();
     this.updateCallControls();
     void this.updateBackgroundNotificationControl();
-    this.showReleaseNotesIfNeeded();
+    const returning = this.settingsReturn;
+    this.settingsReturn = null;
+    if (returning && returning.session === this.session && this.runtimeAbort && !this.privacyCovered) {
+      this.spaceDrawerOpen = true;
+      this.mountPrivateSpaceDrawer(this.session, returning.spaces, this.runtimeAbort.signal, 'chat', returning.scrollTop);
+    } else this.showReleaseNotesIfNeeded();
 
   }
 
@@ -10115,7 +10135,7 @@ export class QuietRoomApp {
       <code class="local-recovery-code"></code>
       <div class="welcome-actions">
       <button class="primary-button" id="copy-local-recovery" type="button">复制恢复码</button>
-      <button class="text-button" id="hide-local-recovery" type="button">我已保存，回到聊天页</button>
+      <button class="text-button" id="hide-local-recovery" type="button">${this.settingsReturn?.session === live ? '我已保存，返回设置' : '我已保存，回到聊天页'}</button>
       <p class="field-hint" role="status"></p></div></div>`, false, 'plain');
     const codeNode = this.root.querySelector<HTMLElement>('.local-recovery-code')!;
     this.armRecoveryKeyboardHandoff(this.root);
@@ -10465,7 +10485,7 @@ export class QuietRoomApp {
       `<button class="primary-button" id="save-my-code" type="button">查看我的恢复码</button>
        <button class="text-button" id="recovery-center-back" type="button">返回</button>
        <p class="form-error" role="alert"></p>`,
-      '',
+      '', 'dense',
     );
     this.root.querySelector('#recovery-center-back')!.addEventListener('click', () => {
       if (this.socket) this.transitionPage('backward', () => this.renderChat());
@@ -13005,6 +13025,7 @@ export class QuietRoomApp {
     this.newSpaceCollectionCode = undefined;
     this.returnSpaceId = null;
     this.spaceDrawerOpen = false;
+    this.settingsReturn = null;
     this.currentSpaceName = '私密空间';
 
     this.closeMemePicker();

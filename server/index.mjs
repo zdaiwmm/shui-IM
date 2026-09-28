@@ -479,7 +479,7 @@ export async function startServer(options = {}) {
       }
 
       const directory = pathname.match(/^\/api\/(?:space-directories|browser-access-catalogs)\/([A-Za-z0-9_-]{22})$/);
-      if (directory && ['GET', 'PUT'].includes(request.method)) {
+      if (directory && ['GET', 'PUT', 'PATCH'].includes(request.method)) {
         // Six endpoints behind one home IP can poll their two own catalogs.
         // Keep writes/recovery separately bounded so polling cannot starve them.
         const catalogRead = request.method === 'GET' && pathname.startsWith('/api/browser-access-catalogs/');
@@ -489,7 +489,11 @@ export async function startServer(options = {}) {
           const catalog = pathname.startsWith('/api/browser-access-catalogs/');
           const directoryStore = catalog ? store.browserCatalogs : store.spaceDirectories;
           let result;
-          if (request.method === 'PUT') {
+          if (request.method === 'PATCH') {
+            if (!catalog) throw new Error('UNAUTHORIZED');
+            const body = JSON.parse((await readBody(request, 4300000)).toString('utf8'));
+            result = directoryStore.updateExisting(directory[1], token, body);
+          } else if (request.method === 'PUT') {
             const body = JSON.parse((await readBody(request, catalog ? 4300000 : 140000)).toString('utf8'));
             requireActiveDevice(request, body.roomId);
             result = directoryStore.save(directory[1], token, body);
