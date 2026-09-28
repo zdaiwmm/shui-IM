@@ -1,5 +1,16 @@
 # Quiet Room 固定发布流程
 
+## 动效欠项补齐已发布（2026-09-28 21:11）
+
+- 用户确认发布精确 main 提交 `afbaa885e938f3063b9336952739778dd8025c37`，版本 `2026.09.28.7`；[PR #221](https://github.com/zdaiwmm/shui-IM/pull/221) 已合并，精确 main [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36425750038) 首次运行全部通过，合并树与已验证候选一致。
+- 已上线消息位移节奏与删除收拢、回复协同、导航速度接续、邀请释放判断、图片来源展开返回、阅读器搜索／目录、控件短点、语音／通话／恢复阶段反馈，以及设备原位刷新和过期响应防护。M01–M22 的改动、保留理由和边界见[逐项清单](docs/requirements/2026-09-28-motion-system/coverage.md)。隐私移除、授权、持久化、媒体释放与真实进度不等待动效。
+- 产品候选本地 738 项单元／集成、47/47 浏览器通过；独立同 SHA 原生通话、CallView 与20个合成弱网场景、桌面 WebKit 专项通过。PR 最终 CI 首次在冻结／恢复后的再次呼出断言超时，原样本地复现通过；未修改产品或断言，失败 CI 单次重跑通过（run `36424670526` attempt 2），根因未确认。
+- 固定入口取得 `DEPLOY_VERIFIED`，外层核对精确回执成功；批次 `20260928T130905Z`，目录 `/opt/quiet-room/git-releases/20260928T130905Z-afbaa885e938`。切换前冷备份 `data-20260928T130905Z-afbaa885e938.tar.gz` 已校验。切换前容量预检通过，可用 4544483328 字节，使用率 88.62%；此为切换前读数。服务器部署 138 秒，固定入口总耗时 176868ms。
+- 独立 `READBACK_OK` 于 `2026-09-28T13:11:33.079Z` 完成，耗时 2845ms；精确 SHA、镜像 `sha256:8ea58d93874187d64b2a362a1fd402bc6be9f5aabf599229a125e0aa6e461319`、HTTPS／数据库／存储、公开与容器产物及新 WebSocket 一致。应用运行且健康；备份与 TURN 运行但无健康探针；维护标记不存在，管理员和通话开关均为 1。
+- 脱敏证据 `/Users/zhouding/ss/.git/worktrees/ss10/quiet-room-readback/20260928T131130232Z-afbaa885e938-success.json`；精确入口回执 `/private/var/folders/kx/xvfkgvzn5cb2t23mnc9518kr0000gn/T/quiet-room-publish-WPbO3N/.git/quiet-room-verified-sha`。必要脱敏证据另存公共 Git 目录 `quiet-room-deliveries/motion-completion-release/`。
+- USB 无可用 iPhone：真实中文键盘、连续手势、系统弹层返回、原生视频全屏与 Safari 原生栏／安全区仍受阻待验证，不能认定 22 类体验全部完成。发布及线上健康不代替真机验收。
+- 对账使用不含部署配置的独立文档树，仅更新发布、状态和同一需求记录，不再次发布。独立验证树已归档；开发树保留本会话、依赖及证据；对账树在文档 PR 合并后可归档。下方均为此前发布快照。
+
 ## 空间移除与恢复交互已发布（2026-09-28 20:19）
 
 - 用户在五项修复交付后明确“合并并发布生产”。[PR #220](https://github.com/zdaiwmm/shui-IM/pull/220) 已合并；本批固定应用 SHA `8d340c8edb3a1de5466ebafa0df860621d2778cc`，版本 `2026.09.28.6`。精确 main [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36420221479) 通过，合并树与已验证候选一致。
