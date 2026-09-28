@@ -93,8 +93,10 @@ export async function runWeakCall(profile) {
       if (profile.quality) {
         // Inject only the stats input; native media continues. Synthetic metrics are never presented as real RTP shaping.
         const pc = caller.pc, originalStats = pc.getStats.bind(pc);
-        let poor = true, counter = 0;
+        let poor = true, counter = 0, samples = 0;
         pc.getStats = async () => {
+          samples += 1;
+          if (samples === 1) await delay(75); // Keep a native stats request in flight across manual sampling.
           const map = new Map(await originalStats());
           for (const [id, report] of map) {
             if (report.type === 'candidate-pair') map.set(id, { ...report, currentRoundTripTime: poor ? 0.9 : 0.05, availableOutgoingBitrate: poor ? 90_000 : 3_000_000 });
@@ -103,13 +105,25 @@ export async function runWeakCall(profile) {
           }
           return map;
         };
-        for (let i = 0; i < 36; i++) await caller.inspectQuality(caller.context);
+        await wait(() => !caller.statsBusy, 'Initial quality sampling did not settle', 13_000);
+        const pendingSample = caller.inspectQuality(caller.context);
+        const inspectSamples = async count => {
+          for (let i = 0; i < count; i++) {
+            await wait(() => !caller.statsBusy, 'Quality sampling did not settle', 13_000);
+            const before = samples;
+            await caller.inspectQuality(caller.context);
+            check(samples > before, 'Quality inspection skipped the stats input');
+          }
+        };
+        await inspectSamples(36);
+        check(samples >= 36, `Overlapping quality calls skipped samples: ${samples}/36`);
+        await pendingSample;
         check(caller.state.quality === 'audio-only', 'Video did not degrade to audio-only');
         check(audio.every(track => track.enabled && track.readyState === 'live'), 'Quality adaptation lost audio');
         poor = false;
-        for (let i = 0; i < 8; i++) await caller.inspectQuality(caller.context);
+        await inspectSamples(8);
         check(caller.state.quality === 'recovering' && caller.state.cameraEnabled, 'Low-quality video did not resume');
-        for (let i = 0; i < 24; i++) await caller.inspectQuality(caller.context);
+        await inspectSamples(24);
         check(caller.state.quality === 'good', 'Video failed gradual restoration');
         pc.getStats = originalStats;
       }
