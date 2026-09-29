@@ -258,6 +258,8 @@ function passkeyLookupFailed(cause: unknown): boolean {
 // a direct textarea tap. Keep this exception short, one-use and independent
 // from chooser/media handoffs so every hard lifecycle signal still locks.
 const KEYBOARD_NATIVE_HANDOFF_MS = 1_200;
+const KEYBOARD_ACCESSORY_HANDOFF_MS = 2_500;
+const KEYBOARD_ACCESSORY_DISMISS_MS = 600;
 const SYSTEM_SURFACE_RETURN_MS = 1_500;
 const RECOVERY_KEYBOARD_HANDOFF_MS = 60_000;
 // Tapping the expression toggle may dismiss the iOS keyboard through a short
@@ -598,6 +600,19 @@ export class QuietRoomApp {
     openingEvidence: boolean;
     timer: number;
   } | null = null;
+  private keyboardAccessoryInput: HTMLTextAreaElement | null = null;
+  private keyboardAccessoryNeedsFocusReturn = false;
+  private keyboardAccessoryClosedAt = 0;
+  private keyboardAccessoryClosedWallAt = 0;
+  private keyboardAccessoryHandoff: {
+    input: HTMLTextAreaElement;
+    runtimeEpoch: number;
+    session: VaultSession;
+    deadline: number;
+    wallDeadline: number;
+    focusSamples: number;
+    timer: number;
+  } | null = null;
   private memePanelHandoff: {
     deadline: number;
     wallDeadline: number;
@@ -739,6 +754,16 @@ export class QuietRoomApp {
     this.privacyCurtain.setAttribute('aria-hidden', 'true');
     this.privacyCurtain.innerHTML = this.coverErrorMarkup();
     document.body.append(this.privacyCurtain);
+    this.privacyCurtain.addEventListener('pointerdown', event => {
+      const handoff = this.keyboardAccessoryHandoff;
+      if (!handoff || !event.isTrusted || event.button !== 0 || !event.isPrimary
+        || !this.keyboardAccessoryHandoffValid(handoff) || this.keyboardAccessoryHandoffExpired(handoff)) return;
+      // Safari's keyboard accessory is outside the DOM. A fresh touch on the
+      // opaque curtain may return its focus without exposing chat while the
+      // browser still owns it.
+      handoff.input.focus({ preventScroll: true });
+      if (document.hasFocus()) this.finishKeyboardAccessoryHandoff(handoff);
+    });
     const refreshUnread = () => {
       if (document.hidden) return;
       // A visible chat may have nothing new to acknowledge. Keep its cached
@@ -833,6 +858,14 @@ export class QuietRoomApp {
           ? 'open'
           : 'intermediate';
       const previousKeyboardOpen = Math.max(0, previousLayoutHeight - previousViewportHeight) > 120;
+      if (keyboardOpen) {
+        this.keyboardAccessoryClosedAt = 0;
+        this.keyboardAccessoryClosedWallAt = 0;
+        if (document.hasFocus()) this.keyboardAccessoryNeedsFocusReturn = false;
+      } else if (previousKeyboardOpen && this.keyboardAccessoryInput) {
+        this.keyboardAccessoryClosedAt = performance.now();
+        this.keyboardAccessoryClosedWallAt = Date.now();
+      }
       if (chat && this.visualClientCoordinates && previousKeyboardOpen && viewportHeight > previousViewportHeight + 72) {
         this.beginNativeKeyboardDismiss(previousViewportHeight);
       }
@@ -1078,6 +1111,13 @@ export class QuietRoomApp {
     for (const type of ['pointerdown', 'keydown', 'wheel', 'touchmove', 'input']) {
       document.addEventListener(type, recordActivity, { capture: true });
     }
+    document.addEventListener('pointerdown', event => {
+      if (event.target !== this.keyboardAccessoryInput) this.keyboardAccessoryInput = null;
+    }, { capture: true });
+    document.addEventListener('focusin', event => {
+      if (this.keyboardAccessoryInput && event.target instanceof Node && this.root.contains(event.target)
+        && event.target !== this.keyboardAccessoryInput) this.keyboardAccessoryInput = null;
+    }, { capture: true });
     document.addEventListener('pointerdown', (event) => {
       const menu = this.root.querySelector<HTMLDetailsElement>('.more-menu[open]');
       if (menu && event.target instanceof Node && !menu.contains(event.target)) this.closeMoreMenu(menu);
@@ -1161,6 +1201,9 @@ export class QuietRoomApp {
       if (document.hidden && this.deviceVerificationForegroundOnly && this.deviceVerificationActive) { this.expireDeviceVerification(true); return; }
       if (document.hidden) {
         this.coverEntryEpoch += 1;
+        this.clearKeyboardAccessoryHandoff();
+        this.keyboardAccessoryInput = null;
+        this.keyboardAccessoryNeedsFocusReturn = false;
         this.clearKeyboardHandoff();
         this.clearRecoveryKeyboardHandoff();
         this.clearSystemSurfaceHandoff();
@@ -1188,17 +1231,24 @@ export class QuietRoomApp {
       // cannot leave chat painted. A still-valid handoff may clear it in this
       // same turn; hidden, pagehide and freeze never use that exemption.
       if (!this.desktopBrowser) this.showPrivacyCurtain();
-      const owned = this.consumeRecoveryKeyboardBlur()
+      // A second departure cannot reuse a still-unfocused native accessory.
+      if (this.keyboardAccessoryHandoff) {
+        this.invalidateKeyboardAccessoryHandoff();
+        return;
+      }
+      const otherOwned = this.consumeRecoveryKeyboardBlur()
         || this.consumeSystemSurfaceBlur()
-        || this.consumeMemePanelHandoffBlur()
-        || this.consumeKeyboardHandoffBlur()
-        || this.consumeNativeHandoffBlur();
+        || this.consumeMemePanelHandoffBlur();
+      const keyboardOwned = !otherOwned && this.consumeKeyboardHandoffBlur();
+      const owned = otherOwned || keyboardOwned || this.consumeNativeHandoffBlur();
+      if (keyboardOwned) this.keyboardAccessoryNeedsFocusReturn = true;
       if (owned || this.retainBrowserAccessWait()) {
         if (!this.desktopBrowser && !this.privacyCovered && !document.hidden && !this.deviceVerificationActive) {
           this.revealPrivacySurface();
         }
         return;
       }
+      if (this.beginKeyboardAccessoryHandoff()) return;
       this.coverEntryEpoch += 1;
       this.cancelCoverTimer();
       this.obscurePrivacySurface();
@@ -1219,12 +1269,21 @@ export class QuietRoomApp {
     }, { capture: true });
     window.addEventListener('focus', event => {
       if (event.target !== window) return;
+      if (document.hasFocus()) this.keyboardAccessoryNeedsFocusReturn = false;
       if (!this.root.querySelector('[data-recovery-keyboard]')) this.clearRecoveryKeyboardHandoff();
       this.clearSystemSurfaceHandoff();
       if (this.expireDeviceVerification()) {
         refreshUnread();
         return;
       }
+      const accessoryHandoff = this.keyboardAccessoryHandoff;
+      if (accessoryHandoff && (this.keyboardAccessoryHandoffExpired(accessoryHandoff)
+        || !this.keyboardAccessoryHandoffValid(accessoryHandoff))) {
+        this.invalidateKeyboardAccessoryHandoff();
+        refreshUnread();
+        return;
+      }
+      if (accessoryHandoff && document.hasFocus()) this.finishKeyboardAccessoryHandoff(accessoryHandoff);
       const memePanelHandoff = this.memePanelHandoff;
       if (memePanelHandoff) {
         if (this.expireMemePanelHandoff(memePanelHandoff)) {
@@ -1282,6 +1341,7 @@ export class QuietRoomApp {
     }, { capture: true });
     document.addEventListener('freeze', () => {
       if (this.retainBrowserAccessWait()) return;
+      this.clearKeyboardAccessoryHandoff();
       this.obscurePrivacySurface();
       this.clearMemePanelHandoff();
       this.abandonImagePicker();
@@ -1294,6 +1354,7 @@ export class QuietRoomApp {
     }, { capture: true });
     window.addEventListener('pagehide', () => {
       if (this.retainBrowserAccessWait()) return;
+      this.clearKeyboardAccessoryHandoff();
       this.obscurePrivacySurface();
       this.clearRecoveryKeyboardHandoff();
       this.clearSystemSurfaceHandoff();
@@ -1329,6 +1390,8 @@ export class QuietRoomApp {
 
   private foregroundHandoffStillOwned(): boolean {
     if (this.deviceVerificationActive || this.retainBrowserAccessWait()) return true;
+    const accessory = this.keyboardAccessoryHandoff;
+    if (accessory && this.keyboardAccessoryHandoffValid(accessory) && !this.keyboardAccessoryHandoffExpired(accessory)) return true;
     const recovery = this.recoveryKeyboardHandoff;
     if (recovery && !this.recoveryKeyboardHandoffExpired(recovery)) return true;
     const keyboard = this.keyboardHandoff;
@@ -1345,6 +1408,13 @@ export class QuietRoomApp {
   private revealReturningForeground(): void {
     this.expireIdleSession();
     if (document.hidden) return;
+    const accessory = this.keyboardAccessoryHandoff;
+    if (accessory) {
+      if (!this.keyboardAccessoryHandoffValid(accessory) || this.keyboardAccessoryHandoffExpired(accessory)) {
+        this.invalidateKeyboardAccessoryHandoff();
+      } else if (document.hasFocus()) this.finishKeyboardAccessoryHandoff(accessory);
+      return;
+    }
     const obscured = document.documentElement.classList.contains('privacy-obscured');
     if (!obscured || this.privacyCovered || !this.session || this.foregroundHandoffStillOwned()) {
       this.revealPrivacySurface();
@@ -2346,6 +2416,81 @@ export class QuietRoomApp {
     if (!handoff) return;
     window.clearTimeout(handoff.timer);
     this.keyboardHandoff = null;
+  }
+
+  private beginKeyboardAccessoryHandoff(): boolean {
+    const input = this.keyboardAccessoryInput;
+    const layoutHeight = document.documentElement.clientHeight || window.innerHeight;
+    const keyboardSpace = Math.max(0, layoutHeight - (window.visualViewport?.height ?? window.innerHeight));
+    const recentlyDismissed = this.keyboardAccessoryClosedAt > 0
+      && performance.now() - this.keyboardAccessoryClosedAt <= KEYBOARD_ACCESSORY_DISMISS_MS
+      && Date.now() - this.keyboardAccessoryClosedWallAt <= KEYBOARD_ACCESSORY_DISMISS_MS;
+    if (!input || this.keyboardAccessoryNeedsFocusReturn || this.desktopBrowser || this.privacyCovered || !this.session || this.activeSurface !== 'chat'
+      || document.hidden || document.hasFocus() || !input.isConnected || this.root.querySelector('#message-input') !== input
+      || this.memePicker || this.nativeSurfaceActive()
+      || !(keyboardSpace > 120 && document.documentElement.dataset.keyboardOpen === 'true' || recentlyDismissed)) return false;
+    if (this.expireIdleSession()) return true;
+    const handoff = {
+      input, runtimeEpoch: this.runtimeEpoch, session: this.session,
+      deadline: performance.now() + KEYBOARD_ACCESSORY_HANDOFF_MS,
+      wallDeadline: Date.now() + KEYBOARD_ACCESSORY_HANDOFF_MS,
+      focusSamples: 0, timer: 0,
+    };
+    this.keyboardAccessoryHandoff = handoff;
+    this.concealChatImages();
+    const sampleFocus = () => {
+      if (this.keyboardAccessoryHandoff !== handoff) return;
+      if (!this.keyboardAccessoryHandoffValid(handoff) || this.keyboardAccessoryHandoffExpired(handoff)) {
+        this.invalidateKeyboardAccessoryHandoff();
+        return;
+      }
+      if (this.expireIdleSession()) return;
+      handoff.focusSamples = document.hasFocus() ? handoff.focusSamples + 1 : 0;
+      if (handoff.focusSamples >= 2) {
+        this.finishKeyboardAccessoryHandoff(handoff);
+        return;
+      }
+      handoff.timer = window.setTimeout(sampleFocus, 80);
+    };
+    handoff.timer = window.setTimeout(sampleFocus, 80);
+    return true;
+  }
+
+  private keyboardAccessoryHandoffValid(handoff: NonNullable<QuietRoomApp['keyboardAccessoryHandoff']>): boolean {
+    return this.keyboardAccessoryHandoff === handoff && handoff.runtimeEpoch === this.runtimeEpoch
+      && handoff.session === this.session && !this.privacyCovered && this.activeSurface === 'chat'
+      && !document.hidden && handoff.input.isConnected && this.root.querySelector('#message-input') === handoff.input
+      && !this.nativeSurfaceActive();
+  }
+
+  private keyboardAccessoryHandoffExpired(handoff: NonNullable<QuietRoomApp['keyboardAccessoryHandoff']>): boolean {
+    return performance.now() >= handoff.deadline || Date.now() >= handoff.wallDeadline;
+  }
+
+  private finishKeyboardAccessoryHandoff(handoff: NonNullable<QuietRoomApp['keyboardAccessoryHandoff']>): void {
+    if (!this.keyboardAccessoryHandoffValid(handoff) || this.keyboardAccessoryHandoffExpired(handoff)) {
+      this.invalidateKeyboardAccessoryHandoff();
+      return;
+    }
+    if (!document.hasFocus() || this.expireIdleSession()) return;
+    this.clearKeyboardAccessoryHandoff();
+    this.keyboardAccessoryInput = document.activeElement === handoff.input ? handoff.input : null;
+    this.revealPrivacySurface();
+  }
+
+  private invalidateKeyboardAccessoryHandoff(): boolean {
+    if (!this.keyboardAccessoryHandoff) return false;
+    this.clearKeyboardAccessoryHandoff();
+    this.obscurePrivacySurface();
+    this.lockNow({ preserveFilePicker: false });
+    return true;
+  }
+
+  private clearKeyboardAccessoryHandoff(): void {
+    const handoff = this.keyboardAccessoryHandoff;
+    if (!handoff) return;
+    window.clearTimeout(handoff.timer);
+    this.keyboardAccessoryHandoff = null;
   }
 
   private beginNativeHandoff(kind: 'picker' | 'microphone' | 'camera', timeout: number): boolean {
@@ -4927,9 +5072,8 @@ export class QuietRoomApp {
         if (input) this.beginKeyboardHandoff(input, event);
       },
     });
-    // Once the picker owns the gesture, a delayed Safari blur must not be
-    // mistaken for a fresh departure and lock an actively used panel.
-    this.clearMemePanelHandoff();
+    // Safari may publish the keyboard dismissal blur after the picker opens.
+    // Keep the one-use owner until that blur returns focus or its deadline.
   }
 
   private async favoriteChatMeme(message: DecryptedMessage, manifest: ImageManifest): Promise<void> {
@@ -5586,6 +5730,10 @@ export class QuietRoomApp {
     // then cancels the very tap that was meant to open the keyboard.
     textarea.addEventListener('pointerdown', event => {
       if (!ownsActiveChat()) return;
+      if (event.isTrusted && event.button === 0 && event.isPrimary && document.hasFocus() && !document.hidden) {
+        this.keyboardAccessoryInput = textarea;
+        this.keyboardAccessoryNeedsFocusReturn = false;
+      }
       if (this.memePicker) this.closeMemePicker(true, true);
       if (this.beginKeyboardHandoff(textarea, event)) this.chatViewportMotion?.anticipateKeyboard('open');
       prepareKeyboardTarget();
@@ -6905,9 +7053,11 @@ export class QuietRoomApp {
 
   private setActiveSurface(surface: 'away' | 'chat', preservePresence = false): boolean {
     if (surface === 'away' && this.invalidateKeyboardHandoff()) return false;
+    if (surface === 'away' && this.invalidateKeyboardAccessoryHandoff()) return false;
     if (surface === 'away') { this.closeMemePicker(); this.memeCache.view = undefined; }
     this.stopViewerMedia();
     if (surface === 'away') {
+      this.keyboardAccessoryInput = null;
       this.replyJumpVersion += 1;
       this.replyReturnAnchors = [];
       this.chatNewMessageIds.clear();
@@ -8349,23 +8499,34 @@ export class QuietRoomApp {
   private cacheLocalImage(manifest: ImageManifest, blob: Blob, previewOnly = false, displayCopy = false): void {
     this.assertImageManifestIdentity(manifest);
     if (this.imageCache.has(manifest.blobId)) return;
-    while (this.imageCacheBytes + blob.size > MAX_IMAGE_CACHE_BYTES && this.imageCache.size > 0) {
-      const oldest = [...this.imageCache.entries()]
-        .filter(([blobId]) => !this.root.querySelector(`[data-blob-id="${CSS.escape(blobId)}"]`))
-        .sort(([, left], [, right]) => left.lastUsedAt - right.lastUsedAt)[0];
-      if (!oldest) break;
-      URL.revokeObjectURL(oldest[1].url);
-      if (oldest[1].posterUrl) URL.revokeObjectURL(oldest[1].posterUrl);
-      if (oldest[1].concealedUrl) URL.revokeObjectURL(oldest[1].concealedUrl);
-      this.imageCacheBytes -= oldest[1].bytes;
-      this.imageCache.delete(oldest[0]);
-    }
+    this.evictUnusedImages(blob.size);
     const type = previewOnly ? undefined : blob.type.startsWith('video/') ? blob.type : videoMimeType(manifest);
     const displayBlob = type ? blob.slice(0, blob.size, type) : blob;
     const cached: CachedImage = { blob, url: URL.createObjectURL(displayBlob), bytes: blob.size, lastUsedAt: Date.now(), previewOnly, displayCopy };
     if (previewOnly && isVideoFile(manifest)) cached.posterUrl = cached.url;
     this.imageCache.set(manifest.blobId, cached);
     this.imageCacheBytes += cached.bytes;
+  }
+
+  private evictUnusedImages(incomingBytes = 0): void {
+    if (this.imageCacheBytes + incomingBytes <= MAX_IMAGE_CACHE_BYTES) return;
+    const protectedIds = new Set<string>();
+    this.root.querySelectorAll<HTMLElement>('[data-blob-id]').forEach(node => {
+      const blobId = node.dataset.blobId;
+      if (blobId && (!node.classList.contains('gallery-tile')
+        || node.dataset.thumbnailState === 'loading' || Boolean(node.querySelector('img')))) protectedIds.add(blobId);
+    });
+    const unused = [...this.imageCache.entries()]
+      .filter(([blobId]) => !protectedIds.has(blobId))
+      .sort(([, left], [, right]) => left.lastUsedAt - right.lastUsedAt);
+    for (const [blobId, cached] of unused) {
+      if (this.imageCacheBytes + incomingBytes <= MAX_IMAGE_CACHE_BYTES) break;
+      URL.revokeObjectURL(cached.url);
+      if (cached.posterUrl) URL.revokeObjectURL(cached.posterUrl);
+      if (cached.concealedUrl) URL.revokeObjectURL(cached.concealedUrl);
+      this.imageCacheBytes -= cached.bytes;
+      this.imageCache.delete(blobId);
+    }
   }
 
   private assertImageManifestIdentity(manifest: ImageManifest): void {
@@ -13059,16 +13220,20 @@ export class QuietRoomApp {
       const index = Number(tile.dataset.galleryIndex);
       const manifest = Number.isSafeInteger(index) ? assets[index]?.manifest : undefined;
       if (!manifest || tile.dataset.thumbnailState === 'loading' || tile.dataset.thumbnailState === 'loaded') return;
+      const generation = String(Number(tile.dataset.thumbnailGeneration ?? 0) + 1);
+      tile.dataset.thumbnailGeneration = generation;
       tile.dataset.thumbnailState = 'loading';
       tile.setAttribute('aria-busy', 'true');
+      const stillLoading = () => this.isRuntimeActive(epoch, session) && tile.isConnected
+        && tile.dataset.thumbnailGeneration === generation && tile.dataset.thumbnailState === 'loading';
       const loading = tile.querySelector<HTMLElement>('.tile-loading');
       if (loading) { loading.classList.add('sr-only'); loading.textContent = isVideoFile(manifest) ? '正在加载视频' : '正在加载图片'; }
       try {
         const cached = await this.loadImage(manifest, true);
-        if (!this.isRuntimeActive(epoch, session) || !tile.isConnected) return;
+        if (!stillLoading()) return;
         if (isVideoFile(manifest)) {
           await this.ensureVideoPoster(manifest, cached);
-          if (!this.isRuntimeActive(epoch, session) || !tile.isConnected) return;
+          if (!stillLoading()) return;
           if (!cached.posterUrl) {
             tile.replaceChildren(this.videoPlayBadge());
             tile.dataset.thumbnailState = 'loaded';
@@ -13081,7 +13246,7 @@ export class QuietRoomApp {
         image.alt = manifest.originalName || '保险箱图片';
         image.decoding = 'async';
         await image.decode();
-        if (!this.isRuntimeActive(epoch, session) || !tile.isConnected) return;
+        if (!stillLoading()) return;
         cached.width = image.naturalWidth;
         cached.height = image.naturalHeight;
         tile.replaceChildren(image);
@@ -13089,7 +13254,7 @@ export class QuietRoomApp {
         tile.dataset.thumbnailState = 'loaded';
         tile.setAttribute('aria-busy', 'false');
       } catch {
-        if (!this.isRuntimeActive(epoch, session) || !tile.isConnected) return;
+        if (!stillLoading()) return;
         tile.dataset.thumbnailState = 'error';
         tile.setAttribute('aria-busy', 'false');
         const label = tile.querySelector<HTMLElement>('.tile-loading');
@@ -13099,6 +13264,16 @@ export class QuietRoomApp {
         }
       }
     };
+    const unloadThumbnail = (tile: HTMLButtonElement) => {
+      if (tile.dataset.thumbnailState !== 'loaded' && tile.dataset.thumbnailState !== 'loading') return;
+      const index = Number(tile.dataset.galleryIndex);
+      const manifest = Number.isSafeInteger(index) ? assets[index]?.manifest : undefined;
+      tile.dataset.thumbnailGeneration = String(Number(tile.dataset.thumbnailGeneration ?? 0) + 1);
+      tile.dataset.thumbnailState = 'pending';
+      tile.setAttribute('aria-busy', 'true');
+      tile.innerHTML = `<span class="gallery-skeleton" aria-hidden="true"></span><span class="tile-loading sr-only" role="status">正在加载${manifest && isVideoFile(manifest) ? '视频' : '图片'}</span>`;
+      this.evictUnusedImages();
+    };
 
     if (!('IntersectionObserver' in window)) {
       grid.querySelectorAll<HTMLButtonElement>('.gallery-tile').forEach((tile) => void loadThumbnail(tile));
@@ -13107,10 +13282,9 @@ export class QuietRoomApp {
     this.galleryObserver?.disconnect();
     this.galleryObserver = new IntersectionObserver((entries) => {
       for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
         const tile = entry.target as HTMLButtonElement;
-        this.galleryObserver?.unobserve(tile);
-        void loadThumbnail(tile);
+        if (entry.isIntersecting) void loadThumbnail(tile);
+        else unloadThumbnail(tile);
       }
     }, { root: grid, rootMargin: '240px 0px', threshold: 0.01 });
     grid.querySelectorAll<HTMLButtonElement>('.gallery-tile').forEach((tile) => this.galleryObserver?.observe(tile));
@@ -13343,6 +13517,9 @@ export class QuietRoomApp {
     this.retainedSession?.browserAccessPrf?.fill(0);
     this.forgetDeviceCredential();
     this.clearMemePanelHandoff();
+    this.clearKeyboardAccessoryHandoff();
+    this.keyboardAccessoryInput = null;
+    this.keyboardAccessoryNeedsFocusReturn = false;
     this.clearMemeCache();
     this.clearKeyboardHandoff();
     this.clearRecoveryKeyboardHandoff();
@@ -13386,6 +13563,9 @@ export class QuietRoomApp {
 
     this.closeMemePicker();
     this.clearMemePanelHandoff();
+    this.clearKeyboardAccessoryHandoff();
+    this.keyboardAccessoryInput = null;
+    this.keyboardAccessoryNeedsFocusReturn = false;
     this.clearMemeCache();
     this.shieldHintCleanup?.();
     this.shieldHintCleanup = null;

@@ -782,7 +782,8 @@ try {
   }), true, 'Fresh keyboard geometry left a reusable second-blur exception');
 
   // A keyboard-sized viewport already present before the tap is a baseline,
-  // not post-arm evidence. It must neither arm nor excuse the next blur.
+  // not post-arm opening evidence. The new accessory path owns only a real
+  // unfocused departure behind the opaque curtain and cannot be reused.
   await page.evaluate(async () => {
     const fixture = window.systemSurfaceKeyboardFixture;
     fixture.app.lockNow();
@@ -798,11 +799,17 @@ try {
   await page.locator('#message-input').click();
   assert.equal(await page.evaluate(() => Boolean(window.systemSurfaceKeyboardFixture.app.keyboardHandoff)), false,
     'Pre-arm keyboard geometry was accepted as fresh opening evidence');
+  assert.deepEqual(await page.evaluate(() => {
+    const fixture = window.systemSurfaceKeyboardFixture;
+    fixture.blur();
+    return { covered: fixture.app.privacyCovered, accessory: Boolean(fixture.app.keyboardAccessoryHandoff),
+      obscured: document.documentElement.classList.contains('privacy-obscured') };
+  }), { covered: false, accessory: true, obscured: true }, 'Open-keyboard accessory departure lacked an opaque bounded owner');
   assert.equal(await page.evaluate(() => {
     const fixture = window.systemSurfaceKeyboardFixture;
     fixture.blur();
     return fixture.app.privacyCovered && !document.querySelector('.chat-shell');
-  }), true, 'Pre-arm keyboard geometry excused an unowned blur');
+  }), true, 'Unfocused accessory owner was reused for a second blur');
 
   await page.evaluate(async () => {
     const fixture = window.systemSurfaceKeyboardFixture;
