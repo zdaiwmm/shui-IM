@@ -510,14 +510,93 @@ try {
     viewport.dispatchEvent(new Event('resize')); await frame();
     if (app.keyboardHandoff || document.documentElement.dataset.keyboardOpen !== 'true'
       || document.documentElement.classList.contains('privacy-obscured')) throw Error('Keyboard viewport target did not settle the one-use handoff token');
-    window.dispatchEvent(new Event('blur'));
-    if (!app.privacyCovered || document.querySelector('.chat-shell, .message')) throw Error('Second window blur after keyboard handoff did not lock synchronously');
+    let focused = true;
+    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => focused });
     window.dispatchEvent(new Event('focus'));
+    focused = false;
+    window.dispatchEvent(new Event('blur'));
+    if (app.privacyCovered || !app.keyboardAccessoryHandoff
+      || !document.documentElement.classList.contains('privacy-obscured')) throw Error('Open-keyboard native accessory blur did not retain an opaque, bounded handoff');
+    focused = true;
+    window.dispatchEvent(new Event('focus'));
+    if (app.privacyCovered || app.keyboardAccessoryHandoff
+      || document.documentElement.classList.contains('privacy-obscured')) throw Error('Real focus return did not restore the covered chat');
+    focused = false;
+    window.dispatchEvent(new Event('blur'));
+    if (!app.keyboardAccessoryHandoff || app.privacyCovered) throw Error('Second deliberate native accessory interaction could not own its first blur');
+    window.dispatchEvent(new Event('blur'));
+    if (!app.privacyCovered || document.querySelector('.chat-shell, .message')) throw Error('Second blur without focus return did not lock synchronously');
+    focused = true;
+    window.dispatchEvent(new Event('focus'));
+    delete document.hasFocus;
     input.blur(); delete viewport.height; delete viewport.offsetTop;
     viewport.dispatchEvent(new Event('resize')); await frame();
     app.lockNow();
-    return { trustedTextareaPointer: true, firstBlurConsumed: true, targetClearedToken: true, secondBlurCoveredSynchronously: true };
+    return { trustedTextareaPointer: true, firstBlurConsumed: true, targetClearedToken: true,
+      accessoryCurtainUntilFocus: true, repeatedUnfocusedBlurCoveredSynchronously: true };
   });
+
+  const prepareAccessoryBlur = async () => {
+    await page.evaluate(() => window.regression.fresh());
+    await page.locator('#message-input').click();
+    await page.evaluate(async () => {
+      const app = window.regression.app, viewport = window.visualViewport;
+      window.dispatchEvent(new Event('blur'));
+      Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
+      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 180 });
+      viewport.dispatchEvent(new Event('resize'));
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      window.accessoryFocused = true;
+      Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => window.accessoryFocused });
+      window.dispatchEvent(new Event('focus'));
+      window.accessoryFocused = false;
+      window.dispatchEvent(new Event('blur'));
+      if (!app.keyboardAccessoryHandoff || !document.documentElement.classList.contains('privacy-obscured')) {
+        throw Error('Native accessory fixture did not enter the opaque handoff');
+      }
+    });
+  };
+  const restoreAccessoryFixture = async () => page.evaluate(() => {
+    delete document.hasFocus;
+    delete window.visualViewport.height;
+    delete window.visualViewport.offsetTop;
+    window.visualViewport.dispatchEvent(new Event('resize'));
+  });
+
+  await prepareAccessoryBlur();
+  await page.evaluate(() => document.querySelector('.privacy-curtain').addEventListener('pointerdown', () => {
+    window.accessoryFocused = true;
+  }, { capture: true, once: true }));
+  await page.locator('.privacy-curtain').click({ position: { x: 10, y: 10 } });
+  results.keyboardAccessoryCurtainReturn = await page.evaluate(() => {
+    const app = window.regression.app;
+    if (app.privacyCovered || app.keyboardAccessoryHandoff || document.documentElement.classList.contains('privacy-obscured')) {
+      throw Error('A trusted touch on the opaque curtain failed to restore real focus');
+    }
+    return true;
+  });
+  await restoreAccessoryFixture();
+
+  await prepareAccessoryBlur();
+  results.keyboardAccessoryHidden = await page.evaluate(() => {
+    const app = window.regression.app;
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    try { document.dispatchEvent(new Event('visibilitychange')); }
+    finally { delete document.hidden; }
+    if (!app.privacyCovered || app.keyboardAccessoryHandoff) throw Error('Backgrounding kept an accessory handoff or private chat');
+    document.dispatchEvent(new Event('visibilitychange'));
+    return true;
+  });
+  await restoreAccessoryFixture();
+
+  await prepareAccessoryBlur();
+  await page.waitForTimeout(2_700);
+  results.keyboardAccessoryTimeout = await page.evaluate(() => {
+    const app = window.regression.app;
+    if (!app.privacyCovered || app.keyboardAccessoryHandoff) throw Error('Unfocused native accessory exceeded its short deadline');
+    return true;
+  });
+  await restoreAccessoryFixture();
 
   await page.setViewportSize({ width: 320, height: 720 });
   await page.evaluate(async () => {

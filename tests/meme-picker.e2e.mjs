@@ -672,6 +672,18 @@ try {
     if (document.querySelector('.meme-panel')) throw Error('Reduced motion delayed closing');
   });
   await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // WebKit can deliver the window blur after the click has already mounted
+  // the expression panel. The gesture's one-use owner must survive that edge.
+  await page.evaluate(() => window.fixture.app.renderChat());
+  await page.locator('#message-input').focus();
+  await page.locator('#open-memes').click();
+  await page.locator('.meme-panel').waitFor();
+  await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+  assert.deepEqual(await page.evaluate(() => ({
+    covered: window.fixture.app.privacyCovered,
+    owned: window.fixture.app.memePanelHandoff?.blurred === true,
+  })), { covered: false, owned: true }, 'A delayed keyboard blur locked the opened expression panel');
+  await page.evaluate(() => { window.dispatchEvent(new Event('focus')); window.fixture.app.closeMemePicker(); });
   await page.evaluate(()=>{window.fixture.app.renderChat();window.fixture.app.openMemePicker();});
   await page.locator('.meme-panel').waitFor();
   await page.evaluate(()=> {

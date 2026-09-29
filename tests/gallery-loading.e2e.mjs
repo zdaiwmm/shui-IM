@@ -59,7 +59,7 @@ try {
         upload: async (blobId, part, bytes) => { chunks.set(`${blobId}:${part}`, bytes); },
         complete: async () => {}, savePlan: async () => {},
       });
-      const sentAt = `2026-09-04T10:0${index}:00.000Z`;
+      const sentAt = `2026-09-04T10:${String(index).padStart(2, '0')}:00.000Z`;
       const record = { seq: Number.MAX_SAFE_INTEGER - index, clientMsgId: crypto.randomUUID(), senderId: own.deviceId, payload: { v: 1, kind: 'gallery-image', image: manifest, sentAt }, acceptedAt: sentAt, status: 'delivered' };
       records.push(record);
       if (cached) app.cacheLocalImage(manifest, file);
@@ -235,6 +235,46 @@ try {
   assert.equal(await page.evaluate(id=>window.galleryLoading.app.orderedMessages().some(m=>m.clientMsgId===id),independence.ids[2]),true,'Safe deletion removed chat');
   const durable=await page.evaluate(async()=>{const f=window.galleryLoading;const prefs=await f.v.loadUiPreferences(f.session);return prefs.galleryCuration?.some(item=>item.hidden&&item.clientMsgId===f.saved[2].clientMsgId);});
   assert(durable,'Safe deletion did not persist');
+
+  // A long Safe list must release decoded thumbnails outside the viewport.
+  // Offscreen tile metadata remains in the DOM, but cannot pin every blob in
+  // the 96 MiB plaintext cache.
+  await page.evaluate(async () => {
+    const f = window.galleryLoading;
+    for (let index = 0; index < 14; index++) await f.addImage({ cached: true });
+    f.app.renderGallery();
+    document.querySelector('#gallery-grid').style.height = '160px';
+  });
+  await page.waitForFunction(() => document.querySelectorAll('.gallery-tile').length >= 16);
+  const cacheTargets = await page.evaluate(() => {
+    const grid = document.querySelector('#gallery-grid');
+    const tiles = [...grid.querySelectorAll('.gallery-tile')];
+    const first = tiles[0].dataset.blobId, last = tiles.at(-1).dataset.blobId;
+    grid.scrollTop = grid.scrollHeight;
+    return { first, last };
+  });
+  await page.waitForFunction(({ first, last }) => {
+    const head = document.querySelector(`.gallery-tile[data-blob-id="${first}"]`);
+    const tail = document.querySelector(`.gallery-tile[data-blob-id="${last}"]`);
+    return head?.dataset.thumbnailState === 'pending' && !head.querySelector('img')
+      && tail?.dataset.thumbnailState === 'loaded' && !!tail.querySelector('img');
+  }, cacheTargets);
+  const bounded = await page.evaluate(({ first, last }) => {
+    const app = window.galleryLoading.app;
+    const firstEntry = app.imageCache.get(first), lastEntry = app.imageCache.get(last);
+    if (!firstEntry || !lastEntry) throw Error('Long-list cache fixture lost its endpoints');
+    app.imageCacheBytes -= firstEntry.bytes + lastEntry.bytes;
+    firstEntry.bytes = 60 * 1024 * 1024; firstEntry.lastUsedAt = 0;
+    lastEntry.bytes = 60 * 1024 * 1024;
+    app.imageCacheBytes += firstEntry.bytes + lastEntry.bytes;
+    app.evictUnusedImages();
+    return { firstRetained: app.imageCache.has(first), lastRetained: app.imageCache.has(last), bytes: app.imageCacheBytes };
+  }, cacheTargets);
+  assert.equal(bounded.firstRetained, false, 'An offscreen Safe tile pinned its plaintext blob beyond the cache limit');
+  assert.equal(bounded.lastRetained, true, 'Cache eviction removed the visible Safe thumbnail');
+  assert(bounded.bytes <= 96 * 1024 * 1024, 'Long-list media cache stayed above its advertised limit');
+  await page.evaluate(() => { document.querySelector('#gallery-grid').scrollTop = 0; });
+  await page.waitForFunction(first => !!document.querySelector(`.gallery-tile[data-blob-id="${first}"][data-thumbnail-state="loaded"] img`), cacheTargets.first);
 
   await page.evaluate(async () => { const f = window.galleryLoading; f.late = await f.addImage({ delayed: true }); f.app.renderGallery(); });
   await page.waitForFunction(() => window.galleryLoading.gates.get(window.galleryLoading.late).waiting);
