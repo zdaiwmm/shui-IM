@@ -203,6 +203,8 @@ export type UiPreferences = {
   recoveryShieldHintSeen?: boolean;
   /** Device-local chat projection; it never mutates encrypted room history. */
   hiddenChatMessageIds?: string[];
+  /** GIFs sent without expressionKind still use the GIF box on this device. */
+  gifChatMessageIds?: string[];
   /** Device-local Safe ordering/removal projection. */
   galleryCuration?: GalleryCurationRecord[];
   attachmentFavorites?: AttachmentFavorite[];
@@ -442,7 +444,7 @@ async function mediaPreviewKey(session: VaultSession): Promise<CryptoKey> {
 
 /** Derived bytes are authenticated to the complete original manifest and local room. */
 export async function saveMediaPreview(session: VaultSession, manifest: import('./types').ImageManifest, blob: Blob, signal?: AbortSignal): Promise<void> {
-  if (blob.size > 8 * 1024 ** 2 || !['image/jpeg', 'image/png', 'image/webp'].includes(blob.type)) return;
+  if (blob.size > 16 * 1024 ** 2 || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(blob.type)) return;
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-preview-v1', roomId: session.vault.roomId, manifest, mimeType: blob.type }));
   const bytes = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData }, await mediaPreviewKey(session), await blob.arrayBuffer());
@@ -452,9 +454,37 @@ export async function saveMediaPreview(session: VaultSession, manifest: import('
 
 export async function loadMediaPreview(session: VaultSession, manifest: import('./types').ImageManifest, signal?: AbortSignal): Promise<Blob | null> {
   const record = await transaction<StoredMediaChunk | undefined>('mediaChunks', 'readonly', store => store.get(mediaChunkId(session.vault.roomId, manifest.blobId, -1)), () => session.stored);
-  if (!record?.iv || !record.mimeType || !['image/jpeg', 'image/png', 'image/webp'].includes(record.mimeType)) return null;
+  if (!record?.iv || !record.mimeType || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(record.mimeType)) return null;
   try {
     const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-preview-v1', roomId: session.vault.roomId, manifest, mimeType: record.mimeType }));
+    const bytes = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: record.iv, additionalData }, await mediaPreviewKey(session), record.bytes);
+    signal?.throwIfAborted();
+    await touchMediaCache(session, record.blobKey).catch(() => undefined);
+    return new Blob([bytes], { type: record.mimeType });
+  } catch (error) {
+    signal?.throwIfAborted();
+    await deleteCachedMediaBlob(session, manifest.blobId).catch(() => undefined);
+    return null;
+  }
+}
+
+const playbackMimes = ['video/mp4', 'video/webm'];
+
+/** Authenticated local playback file. It does not replace the poster or the server original. */
+export async function saveMediaPlayback(session: VaultSession, manifest: import('./types').ImageManifest, blob: Blob, signal?: AbortSignal): Promise<void> {
+  if (blob.size > 48 * 1024 ** 2 || !playbackMimes.includes(blob.type)) return;
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-playback-v1', roomId: session.vault.roomId, manifest, mimeType: blob.type }));
+  const bytes = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData }, await mediaPreviewKey(session), await blob.arrayBuffer());
+  signal?.throwIfAborted();
+  await writeMediaCacheRecord(session, { id: mediaChunkId(session.vault.roomId, manifest.blobId, -2), roomId: session.vault.roomId, blobKey: mediaBlobKey(session.vault.roomId, manifest.blobId), blobId: manifest.blobId, index: -2, bytes, iv, mimeType: blob.type, cachedAt: Date.now() }, signal);
+}
+
+export async function loadMediaPlayback(session: VaultSession, manifest: import('./types').ImageManifest, signal?: AbortSignal): Promise<Blob | null> {
+  const record = await transaction<StoredMediaChunk | undefined>('mediaChunks', 'readonly', store => store.get(mediaChunkId(session.vault.roomId, manifest.blobId, -2)), () => session.stored);
+  if (!record?.iv || !record.mimeType || !playbackMimes.includes(record.mimeType)) return null;
+  try {
+    const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-playback-v1', roomId: session.vault.roomId, manifest, mimeType: record.mimeType }));
     const bytes = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: record.iv, additionalData }, await mediaPreviewKey(session), record.bytes);
     signal?.throwIfAborted();
     await touchMediaCache(session, record.blobKey).catch(() => undefined);
@@ -2160,6 +2190,10 @@ function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: b
   if (strict && !validHidden) throw new Error('本机删除偏好记录格式不正确');
   const hiddenChatMessageIds = Array.isArray(rawHidden) && validHidden
     ? [...new Set(rawHidden.map((id) => id.toLowerCase()))] : [];
+  const rawGifs = source.gifChatMessageIds;
+  const gifChatMessageIds = Array.isArray(rawGifs)
+    ? [...new Set(rawGifs.filter((id): id is string => typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)).map(id => id.toLowerCase()))].slice(-400)
+    : [];
   let galleryCuration: GalleryCurationRecord[] = [];
   let attachmentFavorites: AttachmentFavorite[] = [];
   try {
@@ -2182,6 +2216,7 @@ function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: b
     historyImportDismissed: source.historyImportDismissed === true,
     recoveryShieldHintSeen: source.recoveryShieldHintSeen === true,
     ...(hiddenChatMessageIds.length ? { hiddenChatMessageIds } : {}),
+    ...(gifChatMessageIds.length ? { gifChatMessageIds } : {}),
     ...(galleryCuration.length ? { galleryCuration } : {}),
     ...(attachmentFavorites.length ? { attachmentFavorites } : {}),
   };

@@ -2213,9 +2213,9 @@ button:disabled {
 
 .composer-input-stack:focus-within {
   outline: none;
-  border-color: color-mix(in oklch, var(--accent) 34%, var(--glass-border));
+  border-color: var(--glass-border);
   background-color: var(--composer-surface-current);
-  box-shadow: var(--glass-shadow), 0 0 0 3px color-mix(in oklch, var(--accent) 8%, transparent);
+  box-shadow: var(--glass-shadow);
 }
 
 .composer-input-stack:has(.reply-draft:not([hidden])) { border-radius: 22px; }
@@ -2323,6 +2323,7 @@ button:disabled {
   outline: 2px solid transparent;
   outline-offset: -2px;
   caret-color: var(--accent);
+  -webkit-tap-highlight-color: transparent;
   /* Height motion is coordinated with the timeline by the composer controller. */
 }
 
@@ -2330,6 +2331,7 @@ button:disabled {
 .composer textarea:focus-visible {
   outline: 2px solid transparent;
   outline-offset: -2px;
+  box-shadow: none;
 }
 
 .composer textarea::placeholder {

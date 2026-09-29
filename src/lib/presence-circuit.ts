@@ -79,6 +79,7 @@ export class PresenceCircuit {
     // Keep the fusion intact and bound visual work during bursts.
     if (this.mode) { if (this.queued.length < 2) this.queued.push(side); return; }
     this.side = side;
+    if (this.element.dataset.compact === 'true') this.element.dataset.phase = 'pulsing';
     this.start('send');
   }
 
@@ -134,6 +135,18 @@ export class PresenceCircuit {
     const compact = this.element.dataset.compact === 'true';
     const wire = (points: Point[]) => compact ? points.map(([x,y]) => [50 + (x-50)*.34,y] as Point) : points;
     const both = compact && this.self === true && this.peer === true;
+    // The corner heart has no wire to wait on. Shake the sender's half immediately.
+    if (this.mode === 'send' && compact && elapsed < 1600) {
+      this.arcs.forEach(arc => arc.removeAttribute('d'));
+      this.element.dataset.phase = 'pulsing';
+      const t = elapsed / 1600;
+      const shake = Math.sin(t * Math.PI * 14) * (1 - t);
+      const part = this.side === 'right' ? this.right : this.left;
+      const base = this.side === 'right' ? 2 : -2;
+      part.setAttribute('transform', `translate(${base + shake * 2.6} ${shake * 1.5}) rotate(${shake * 18}) scale(${1 + Math.abs(shake) * .2})`);
+      this.frame = requestAnimationFrame(this.tick);
+      return;
+    }
     if (elapsed < 1000) {
       if (this.mode === 'connect' || both || this.side === 'left') this.arcs[0]!.setAttribute('d', this.arc(wire(leftWire), elapsed / 1000, elapsed));
       if (this.mode === 'connect' || both || this.side === 'right') this.arcs[1]!.setAttribute('d', this.arc(wire(rightWire), elapsed / 1000, elapsed));

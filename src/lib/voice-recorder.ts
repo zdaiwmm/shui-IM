@@ -9,6 +9,17 @@ type Mode = 'hold' | 'locked';
 const CANCEL_DISTANCE = 96;
 const LOCK_DISTANCE = 72;
 const CANCEL_RESET_DISTANCE = 76;
+/** Visual travel is much longer than the arming point so the pull keeps resisting. */
+const CANCEL_TRAVEL = 280;
+const LOCK_TRAVEL = 220;
+
+/** 1:1 at the start, then a long resistive approach that never quite reaches the limit. */
+export function dampedDrag(distance: number, travel: number): number {
+  const raw = Math.max(0, Number.isFinite(distance) ? distance : 0);
+  const limit = Math.max(0, Number.isFinite(travel) ? travel : 0);
+  if (limit === 0) return 0;
+  return limit * Math.tanh(raw / limit);
+}
 
 export class VoiceRecorder {
   readonly signal: AbortSignal;
@@ -114,8 +125,8 @@ export class VoiceRecorder {
     const up = Math.max(0, -deltaY);
     const progress = Math.min(1, left / CANCEL_DISTANCE);
     this.cancelReady = this.cancelReady ? left >= CANCEL_RESET_DISTANCE : left >= CANCEL_DISTANCE;
-    this.host.style.setProperty('--voice-drag-x', `${-Math.min(left, CANCEL_DISTANCE)}px`);
-    this.host.style.setProperty('--voice-drag-y', `${-Math.min(up, LOCK_DISTANCE)}px`);
+    this.host.style.setProperty('--voice-drag-x', `${-dampedDrag(left, CANCEL_TRAVEL)}px`);
+    this.host.style.setProperty('--voice-drag-y', `${-dampedDrag(up, LOCK_TRAVEL)}px`);
     this.host.style.setProperty('--voice-cancel-progress', String(progress));
     this.host.style.setProperty('--voice-lock-progress', String(Math.min(1, up / LOCK_DISTANCE)));
     this.holdEntryMotion?.cancel(); this.holdEntryMotion = null;
