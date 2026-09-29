@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## iPhone 原生键盘栏与媒体列表误锁修复已发布（2026-09-29 22:20）
+
+- 当前线上应用 SHA `824dcba1ea9cdb59dca41ac87b7fbe537ed15705`，版本 `2026.09.29.2`；用户确认本次精确提交及容量清理。[修复 PR #230](https://github.com/zdaiwmm/shui-IM/pull/230) 和[发布元数据 PR #231](https://github.com/zdaiwmm/shui-IM/pull/231) 已合并，精确 main [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36575565908) 通过。已上线 iPhone 原生键盘栏失焦交接、表情延迟失焦归属和保险箱屏外缩略图回收；安全边界见[需求记录](../requirements/2026-09-29-mobile-focus-lock/README.md)。
+- 固定入口取得 `DEPLOY_VERIFIED`，独立回读于 `2026-09-29T14:20:17.945Z` 取得 `READBACK_OK`，核对提交、镜像、HTTPS／数据库／存储、公开产物和 WebSocket 一致。冷备份已校验，应用健康；完整批次与证据见[发布记录](../../RELEASING.md#iphone-原生键盘栏与媒体列表误锁修复已发布2026-09-29-2220)。
+- 清理旧发布工作树和无验证清单的过期备份临时目录后完成发布；发布后可用约 4.09 GiB、使用率 89.00%。日常本地与异地备份仍过期，现行连续备份容量准入条件无法满足，需单独恢复备份链路。本次发布冷备份不能替代日常恢复点；修复版实体 iPhone 尚未复测。下方均为历史发布快照，文档对账不再次发布。
+
 ## 聊天手感与媒体显示副本已发布（2026-09-29 14:15）
 
 - 当前线上应用 SHA `8e7dab9eb0c1d659894728e66b8c3d184809b183`，版本 `2026.09.29.1`；用户确认本次精确提交。[PR #228](https://github.com/zdaiwmm/shui-IM/pull/228) 已合并，精确 main [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36525237029) 通过。已上线语音拖动阻尼、输入与发送布局、爱心反馈、GIF／贴图尺寸和时间布局、本机压缩显示副本；原件下载和导出路径保留。

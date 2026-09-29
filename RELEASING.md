@@ -1,5 +1,13 @@
 # Quiet Room 固定发布流程
 
+## iPhone 原生键盘栏与媒体列表误锁修复已发布（2026-09-29 22:20）
+
+- 用户确认精确 main 提交 `824dcba1ea9cdb59dca41ac87b7fbe537ed15705`、版本 `2026.09.29.2` 的生产发布，并授权必要容量清理。[修复 PR #230](https://github.com/zdaiwmm/shui-IM/pull/230) 与[发布元数据 PR #231](https://github.com/zdaiwmm/shui-IM/pull/231) 已合并；精确 main [完整 CI 36575565908](https://github.com/zdaiwmm/shui-IM/actions/runs/36575565908) 通过。范围见[需求记录](docs/requirements/2026-09-29-mobile-focus-lock/README.md)。
+- 首次发布在镜像构建后的第二次容量预检以 `DISK_HEADROOM_LOW` 停止，未切换流量，旧版独立回读通过。随后核对成功发布登记与 Git 状态，正常移除三处无改动且不属当前／两版回退的旧发布工作树；持备份锁核对并移除四处 9 月 22 日遗留、没有验证清单和软链接的未完成备份临时目录。保留有效连续备份、失败切换快照、特殊归档、脏工作树、当前与回退镜像；未运行 Docker builder prune。再次发布前预检可用 `4431540224` 字节，构建后切换门禁可用 `4419444736` 字节，均通过 4 GiB 门槛。
+- 固定入口取得精确回执 `DEPLOY_VERIFIED`：批次 `20260929T141826Z`，发布目录 `/opt/quiet-room/git-releases/20260929T141826Z-824dcba1ea9c`，已校验冷备份 `data-20260929T141826Z-824dcba1ea9c.tar.gz`。前一生产为 `8e7dab9eb0c1d659894728e66b8c3d184809b183`；服务器切换 92 秒，固定入口总耗时 133540 毫秒。
+- 独立 `READBACK_OK` 于 `2026-09-29T14:20:17.945Z` 完成：线上提交、镜像 `sha256:654941db81736de587271794ac391e3f50170dfef04510a7277986ba8b2d7bcf`、HTTPS／数据库／存储、公开与容器产物及新 WebSocket 一致；应用健康，备份与 TURN 容器运行，维护标记不存在。脱敏证据位于 Git 元数据目录 `quiet-room-readback/20260929T142014696Z-824dcba1ea9c-success.json`；发布隔离副本精确回执位于 `/private/var/folders/kx/xvfkgvzn5cb2t23mnc9518kr0000gn/T/quiet-room-publish-Op2LBS/.git/quiet-room-verified-sha`。
+- 发布后容量可用 `4395470848` 字节（约 4.09 GiB）、使用率 89.00%；监控仍报 `DISK_HIGH`、`LOCAL_BACKUP_STALE_OR_MISSING`、`OFFSITE_BACKUP_STALE_OR_MISSING`。最新正式连续备份仍为 9 月 22 日；已校验的本次发布冷备份不等于日常连续／异地备份恢复。按现行备份脚本的 8 GiB 且低于 80% 占用准入条件，当前容量无法恢复新一轮连续备份；需单独处理容量与备份链路。修复版实体 iPhone 键盘栏、表情和保险箱长列表尚未复测。此文档对账不再次部署应用。
+
 ## 聊天手感与媒体显示副本已发布（2026-09-29 14:15）
 
 - 用户确认将 [PR #228](https://github.com/zdaiwmm/shui-IM/pull/228) 合并后的精确 main 提交 `8e7dab9eb0c1d659894728e66b8c3d184809b183` 发布生产，版本 `2026.09.29.1`。新增语音拖动阻尼、输入框与发送按钮布局、爱心反馈、GIF／贴图尺寸和时间位置，以及图片、GIF、贴图和短视频的本机压缩显示副本；下载与导出仍使用原件。PR 修复提交 `cff808d294244d9d16c4ecf99b57e185d262e8d1` 修复两项浏览器断言；本地构建和 740 项单元／集成、两项失败浏览器脚本通过，PR CI 与精确 main [完整 CI 36525237029](https://github.com/zdaiwmm/shui-IM/actions/runs/36525237029) 全部通过。
