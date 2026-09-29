@@ -147,7 +147,8 @@ body:has(:where(#app) > .chat-shell) {
 }
 .composer-input-stack:focus-within {
   background-color: var(--composer-surface-current);
-  border-color: color-mix(in oklch, var(--accent) 22%, var(--glass-border));
+  border-color: var(--glass-border);
+  box-shadow: var(--glass-shadow);
 }
 .chat-shell > .notice {
   position: fixed;
@@ -406,7 +407,7 @@ body:has(#app > .chat-shell[data-scroll-owner="list"]) {
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
-  .composer-input-stack:focus-within { border-color: var(--accent); }
+  .composer-input-stack:focus-within { border-color: var(--line-strong); box-shadow: none; }
   .composer :is(.image-picker, .voice-record-button):hover { border-color: var(--line-strong); }
   .chat-guide { background: var(--paper-pure); }
 }

@@ -100,7 +100,7 @@ try {
     assert.equal(new Set(uploadBox.corners).size, 1, 'Upload has four equal corners');
     if (variant.includes('gif-')) {
       const box = await geometry(draft.locator('.message-bubble'));
-      const expected = variant === 'tall-gif-expression' ? { width: 38.4, height: 76.8 } : { width: 69.12, height: 69.12 };
+      const expected = variant === 'tall-gif-expression' ? { width: 64, height: 128 } : { width: 115.2, height: 115.2 };
       assert.ok(Math.abs(box.width - expected.width) < 1 && Math.abs(box.height - expected.height) < 1, `GIF not reduced to 60%: ${JSON.stringify(box)}`);
     }
     assert.equal(await draft.getAttribute('data-concealed'), String(!variant.includes('expression') || variant === 'hidden-expression'));
@@ -147,7 +147,19 @@ try {
     const message = page.locator(`.message[data-client-msg-id="${id}"]`);
     await message.locator('.image-preview[data-image-state="loaded"]').first().waitFor();
     assert.equal(await message.count(), 1);
-    sameSize(uploadBox, await geometry(message.locator('.message-bubble')), `${variant} upload to pending`);
+    const delivered = variant.includes('expression') ? message.locator('.image-preview') : message.locator('.message-bubble');
+    sameSize(uploadBox, await geometry(delivered), `${variant} upload to pending`);
+    if (variant.includes('expression')) {
+      const placed = await message.locator('.image-preview').evaluate(preview => {
+        const media = preview.getBoundingClientRect();
+        const meta = preview.parentElement.querySelector('.message-meta');
+        const time = meta?.querySelector('time')?.getBoundingClientRect();
+        const status = meta?.querySelector('.message-pending, .message-delivery')?.getBoundingClientRect();
+        const box = meta?.getBoundingClientRect();
+        return Boolean(box && time && status && box.top >= media.bottom - 1 && Math.abs(time.top - status.top) < 2);
+      });
+      assert.equal(placed, true, `${variant}: time and status stay on one line under the image`);
+    }
     if (variant !== 'album') sameSize(uploadBox, await geometry(message.locator('.image-preview')), `${variant} content fills bubble`);
     assert.match(await message.locator('.message-meta').innerText(), /发送中/);
     assert.equal(await message.locator('.message-delivery').count(), 0, '100% upload is not server confirmation');
@@ -178,7 +190,7 @@ try {
       return manifests.length;
     }, { id, variant });
     assert.equal(await message.locator('.media-send-meta').count(), 0);
-    sameSize(uploadBox, await geometry(message.locator('.message-bubble')), `${variant} server confirmation`);
+    sameSize(uploadBox, await geometry(variant.includes('expression') ? message.locator('.image-preview') : message.locator('.message-bubble')), `${variant} server confirmation`);
     await page.waitForFunction(id => !document.querySelector(`[data-client-msg-id="${id}"] .media-upload-handoff`), id);
     const animation = await page.evaluate(() => window.mediaFixture.confirmationFade);
     assert.ok(animation.some(item => item.duration === 320 && item.keyframes.join(',') === '1,0'), 'Status fades out instead of vanishing');

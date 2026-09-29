@@ -105,7 +105,8 @@
 .chat-header[data-presence-style=heart] .presence-wires { visibility:hidden; }
 .chat-header[data-presence-style=heart] .presence-base { opacity:1; }
 .chat-header[data-presence-style=heart] .presence-heart { fill:var(--space-heart-red); }
-.chat-header[data-presence-style=heart] .presence-half { opacity:.35; }
+.chat-header[data-presence-style=heart] .presence-circuit .presence-half { display:block; opacity:.35; }
+.chat-header[data-presence-style=heart] .presence-circuit .presence-whole { display:none; }
 .chat-header[data-presence-style=heart] .presence-circuit[data-self=true] [data-half=right],.chat-header[data-presence-style=heart] .presence-circuit[data-peer=true] [data-half=left] { opacity:1; }
 .chat-header[data-presence-style=heart] .space-header-balance { display:none; }
 @media(hover:hover) and (pointer:fine) { .space-row:hover strong { color:var(--accent); } .space-row:hover .space-row-arrow { color:var(--accent); opacity:.8; transform:translateX(2px); } .space-row strong,.space-row-arrow { transition:color 140ms ease-out,opacity 140ms ease-out,transform 140ms ease-out; } }

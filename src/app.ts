@@ -6,8 +6,9 @@ import { MESSAGE_WINDOW_CAPABILITY, MLS_WINDOW_MESSAGES, maySkipWindowMessage, a
 import { getWindowMessages } from './lib/api';
 import { prepareMlsWindowUpdate, verifyMembershipEnvelope } from './lib/mls';
 import { createMediaPreview } from './lib/media-preview';
+import { createAnimatedDisplayCopy, createVideoPlaybackCopy } from './lib/display-copy';
 import { MEDIA_CACHE_FILE_BYTES } from './lib/media-cache-policy';
-import { loadMediaPreview, saveMediaPreview } from './lib/vault';
+import { loadMediaPlayback, loadMediaPreview, saveMediaPlayback, saveMediaPreview } from './lib/vault';
 import './browser-access.css';
 import { openPasskeyManagement } from './lib/passkey-management';
 import { browserAccessCredential, defaultPasskeyName, normalizePasskeyName, verifyPasskeyDetails } from './lib/platform-vault';
@@ -29,7 +30,7 @@ import { attachCloudBackupSwitch, paintCloudBackup, requestLocalBackupCode } fro
 import { exportLocalHistory, HISTORY_CATEGORY_LABELS, importLocalHistory, previewLocalHistoryBackup, summarizeLocalHistory, type LocalHistorySummary } from './lib/local-history-backup';
 import { createLocalBackupFile } from './lib/local-backup-file';
 import { validMediaDimensions } from './lib/media-dimensions';
-import { setChatMediaDimensions } from './lib/chat-media-geometry';
+import { applyGifDisplayGeometry, setChatMediaDimensions } from './lib/chat-media-geometry';
 import { attachHistoryRestore } from './lib/history-restore-ui';
 import { voiceRequest, confirmVoiceUpload, VOICE_FAILURE_TEXT } from './lib/voice-network';
 import QRCode from 'qrcode';
@@ -266,7 +267,7 @@ const CHAT_COMPOSER_MOTION_MS = 280;
 const CHAT_KEYBOARD_DISMISS_MS = 420;
 const CHAT_COMPOSER_VIEWPORT_SETTLE_MS = 500;
 
-type CachedImage = { previewOnly?: boolean; blob: Blob; url: string; bytes: number; lastUsedAt: number; width?: number; height?: number; posterUrl?: string; posterPromise?: Promise<void>; posterUnavailable?: boolean; concealedUrl?: string; concealedPromise?: Promise<void> };
+type CachedImage = { previewOnly?: boolean; displayCopy?: boolean; blob: Blob; url: string; bytes: number; lastUsedAt: number; width?: number; height?: number; posterUrl?: string; posterPromise?: Promise<void>; posterUnavailable?: boolean; concealedUrl?: string; concealedPromise?: Promise<void> };
 const MAX_IMAGE_CACHE_BYTES = 96 * 1024 * 1024;
 
 const encoder = new TextEncoder();
@@ -7425,6 +7426,14 @@ export class QuietRoomApp {
     }
   }
 
+  private rememberGifMessage(clientMsgId: string): void {
+    const id = clientMsgId.toLowerCase();
+    const current = this.uiPreferences.gifChatMessageIds ?? [];
+    if (current.includes(id)) return;
+    this.uiPreferences.gifChatMessageIds = [...current, id].slice(-400);
+    this.scheduleUiPreferencesSave();
+  }
+
   private scheduleUiPreferencesSave(): void {
     if (this.preferenceSaveTimer !== null) window.clearTimeout(this.preferenceSaveTimer);
     this.preferenceSaveTimer = window.setTimeout(() => {
@@ -8161,8 +8170,10 @@ export class QuietRoomApp {
     if (progress) progress.hidden = inlineMedia;
     const existingMedia = mediaRetryId ? this.mediaUploads.get(mediaRetryId) : undefined;
     const replyTarget = existingMedia ? existingMedia.reply : destination === 'chat' ? this.replyTarget : null;
+    const requestedKind = existingMedia ? existingMedia.expressionKind : expressionKind;
     expressionKind = existingMedia ? existingMedia.expressionKind : this.activeDevicesSupport('expression-kind-v1') ? expressionKind : undefined;
     const clientMsgId = mediaRetryId ?? crypto.randomUUID();
+    if (requestedKind === 'gifs') this.rememberGifMessage(clientMsgId);
     let mediaUpload = existingMedia;
     if (inlineMedia) {
       if (!mediaUpload) {
@@ -8335,7 +8346,7 @@ export class QuietRoomApp {
     }
   }
 
-  private cacheLocalImage(manifest: ImageManifest, blob: Blob, previewOnly = false): void {
+  private cacheLocalImage(manifest: ImageManifest, blob: Blob, previewOnly = false, displayCopy = false): void {
     this.assertImageManifestIdentity(manifest);
     if (this.imageCache.has(manifest.blobId)) return;
     while (this.imageCacheBytes + blob.size > MAX_IMAGE_CACHE_BYTES && this.imageCache.size > 0) {
@@ -8349,9 +8360,9 @@ export class QuietRoomApp {
       this.imageCacheBytes -= oldest[1].bytes;
       this.imageCache.delete(oldest[0]);
     }
-    const type = previewOnly ? undefined : videoMimeType(manifest);
+    const type = previewOnly ? undefined : blob.type.startsWith('video/') ? blob.type : videoMimeType(manifest);
     const displayBlob = type ? blob.slice(0, blob.size, type) : blob;
-    const cached: CachedImage = { blob, url: URL.createObjectURL(displayBlob), bytes: blob.size, lastUsedAt: Date.now(), previewOnly };
+    const cached: CachedImage = { blob, url: URL.createObjectURL(displayBlob), bytes: blob.size, lastUsedAt: Date.now(), previewOnly, displayCopy };
     if (previewOnly && isVideoFile(manifest)) cached.posterUrl = cached.url;
     this.imageCache.set(manifest.blobId, cached);
     this.imageCacheBytes += cached.bytes;
@@ -9768,13 +9779,14 @@ export class QuietRoomApp {
       bubble.classList.add('image-bubble');
       const expression = isExpressionPayload(message.payload);
       if (expression) bubble.classList.add('expression-bubble');
-      if (expression && message.payload.kind === 'image' && message.payload.expressionKind === 'gifs') bubble.classList.add('gif-expression');
+      const rememberedGif = message.payload.kind === 'image' && this.uiPreferences.gifChatMessageIds?.includes(message.clientMsgId.toLowerCase());
+      if (expression && message.payload.kind === 'image' && (message.payload.expressionKind === 'gifs' || rememberedGif)) bubble.classList.add('gif-expression');
       const preview = this.createImagePreview(message.payload.image, [message.payload.image], 0, message.clientMsgId);
       if (expression) {
         preview.dataset.expression = 'true';
         if (message.payload.kind === 'image' && message.payload.expressionAutoHide !== undefined) preview.dataset.expressionAutoHide = String(message.payload.expressionAutoHide);
         const image = preview.querySelector('img');
-        if (image && !preview.dataset.mediaDimensions) image.style.width = `${image.width * 2 / 3}px`;
+        if (image && !preview.dataset.mediaDimensions) image.style.width = `${image.width * (bubble.classList.contains('gif-expression') ? 0.4 : 2 / 3)}px`;
         this.updateChatImageVisibility(preview);
       }
       bubble.append(preview);
@@ -9786,6 +9798,10 @@ export class QuietRoomApp {
         '--chat-media-aspect', '--chat-media-ratio', '--chat-media-source-width',
         '--chat-expression-natural-width', '--chat-media-height-width', '--chat-expression-height-width',
       ]) bubble.style.setProperty(property, dimensionedPreview.style.getPropertyValue(property));
+      if (bubble.classList.contains('gif-expression')) {
+        applyGifDisplayGeometry(bubble);
+        applyGifDisplayGeometry(dimensionedPreview);
+      }
     }
     bubble.append(this.createMessageMeta(message));
     article.append(bubble);
@@ -11440,8 +11456,9 @@ export class QuietRoomApp {
     if (!button.isConnected || this.privacyCovered || signal?.aborted || this.imageCache.get(manifest.blobId) !== cached) return;
     cached.width = image.width = image.naturalWidth;
     cached.height = image.height = image.naturalHeight;
+    const expressionBubble = button.closest('.gif-expression');
     if (button.dataset.expression === 'true' && !button.dataset.mediaDimensions) {
-      image.style.width = `${image.naturalWidth * 2 / 3}px`;
+      image.style.width = `${image.naturalWidth * (expressionBubble ? 0.4 : 2 / 3)}px`;
     }
     const anchor = ownerList() ? this.captureChatAnchor() : null;
     if (!button.dataset.mediaDimensions) {
@@ -11449,6 +11466,10 @@ export class QuietRoomApp {
       setChatMediaDimensions(button, dimensions);
       const bubble = button.parentElement;
       if (bubble?.classList.contains('image-bubble')) setChatMediaDimensions(bubble, dimensions);
+      if (bubble?.classList.contains('gif-expression')) {
+        applyGifDisplayGeometry(button);
+        applyGifDisplayGeometry(bubble);
+      }
       image.style.removeProperty('width');
     }
     this.setChatImagePreviewSource(button, cached.concealedUrl);
@@ -11532,7 +11553,7 @@ export class QuietRoomApp {
   private async loadImage(manifest: ImageManifest, previewOnly = false, requireOriginal = false): Promise<CachedImage> {
     this.assertImageManifestIdentity(manifest);
     const existing = this.imageCache.get(manifest.blobId);
-    if (existing && (!existing.previewOnly || (!requireOriginal && (!isVideoFile(manifest) || previewOnly)))) {
+    if (existing && !(requireOriginal && existing.displayCopy) && (!existing.previewOnly || (!requireOriginal && (!isVideoFile(manifest) || previewOnly)))) {
       existing.lastUsedAt = Date.now();
       return existing;
     }
@@ -11545,6 +11566,10 @@ export class QuietRoomApp {
     const { roomId, accessToken } = session.vault;
     const operation = this.withImageLoadSlot(async () => {
       signal?.throwIfAborted();
+      if (!requireOriginal && isVideoFile(manifest) && !previewOnly) {
+        const playback = await loadMediaPlayback(session, manifest, signal).catch(() => null);
+        if (playback && this.isRuntimeActive(epoch, session)) { this.cacheLocalImage(manifest, playback, false, true); return this.imageCache.get(manifest.blobId)!; }
+      }
       if (!requireOriginal && (previewOnly || !isVideoFile(manifest))) {
         const preview = await loadMediaPreview(session, manifest, signal).catch(() => null);
         if (preview && this.isRuntimeActive(epoch, session)) { this.cacheLocalImage(manifest, preview, true); return this.imageCache.get(manifest.blobId)!; }
@@ -11600,15 +11625,26 @@ export class QuietRoomApp {
       }
       if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
       const previous = this.imageCache.get(manifest.blobId);
-      if (previous?.previewOnly) {
+      if (previous?.displayCopy) {
+        if (previous.url !== previous.posterUrl) URL.revokeObjectURL(previous.url);
+        this.imageCacheBytes -= previous.bytes;
+        this.imageCache.delete(manifest.blobId);
+      }
+      if (previous && !previous.displayCopy && previous.previewOnly) {
         const original = videoMimeType(manifest) ? blob.slice(0, blob.size, videoMimeType(manifest) ?? undefined) : blob;
         previous.posterUrl ??= previous.url;
         previous.url = URL.createObjectURL(original); previous.blob = blob; previous.previewOnly = false;
         previous.bytes += blob.size; this.imageCacheBytes += blob.size;
       } else this.cacheLocalImage(manifest, blob);
       if (!isVideoFile(manifest)) {
-        const preview = await createMediaPreview(blob, signal).catch(() => null);
+        const preview = await createMediaPreview(blob, signal).catch(() => null)
+          ?? await createAnimatedDisplayCopy(blob, signal).catch(() => null);
         if (preview && this.isRuntimeActive(epoch, session)) await saveMediaPreview(session, manifest, preview, signal).catch(() => undefined);
+      } else if (this.isRuntimeActive(epoch, session)) {
+        void createVideoPlaybackCopy(blob, signal).then(playback => {
+          if (playback && this.isRuntimeActive(epoch, session)) return saveMediaPlayback(session, manifest, playback, signal);
+          return undefined;
+        }).catch(() => undefined);
       }
       if (!this.isRuntimeActive(epoch, session)) throw new DOMException('Session locked', 'AbortError');
       const cached = this.imageCache.get(manifest.blobId);

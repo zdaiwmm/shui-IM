@@ -201,7 +201,7 @@
 .composer #message-input { min-width: 0; }
 .composer .meme-toggle { position: absolute; right: 0; bottom: 0; transition: translate 220ms var(--motion-out); }
 .composer.has-text .meme-toggle { translate: -44px 0; }
-.composer .composer-send { position: absolute; right: 0; bottom: 0; width: 44px; height: 44px; opacity: 0; scale: .4; pointer-events: none; transition: opacity 180ms var(--motion-out), scale 220ms var(--motion-out); }
+.composer .composer-send { position: absolute; right: 5px; bottom: 5px; width: 34px; height: 34px; opacity: 0; scale: .4; pointer-events: none; transition: opacity 180ms var(--motion-out), scale 220ms var(--motion-out); }
 .composer.has-text .composer-send { opacity: 1; scale: 1; pointer-events: auto; }
 .composer .composer-send svg { width: 23px; height: 23px; }
 .composer #record-voice { position: absolute; right: 0; bottom: 1px; transition: translate 220ms var(--motion-out), opacity 160ms var(--motion-out), transform 180ms var(--motion-out); }

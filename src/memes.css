@@ -114,8 +114,53 @@
 .message-bubble.expression-bubble > .image-preview[data-revealed='true']::before { background: none; box-shadow: none; }
 .chat-shell .expression-bubble .image-preview { max-width: min(192px, 100%); }
 .chat-shell .expression-bubble .image-preview img { border-radius: 12px; max-height: min(28svh, 213.333px); }
-.message-bubble.expression-bubble > .message-meta { position: absolute; margin-top: 0; }
-.message-bubble.expression-bubble > .message-meta time { color: inherit; }
+.chat-shell .message-bubble.image-bubble.expression-bubble {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: max-content;
+  max-width: min(192px, 100%);
+}
+.message.outgoing .message-bubble.expression-bubble { align-items: flex-end; }
+.chat-shell .message-bubble.image-bubble.expression-bubble[data-media-dimensions='known'] {
+  width: max-content;
+  max-width: 100%;
+  height: auto;
+  max-height: none;
+  aspect-ratio: auto;
+}
+.chat-shell .message-bubble.image-bubble.expression-bubble > .image-preview { flex: none; }
+.chat-shell .message-bubble.image-bubble.expression-bubble > .image-preview[data-media-dimensions='known']:not(.album-cell) {
+  width: min(var(--chat-expression-natural-width), 192px, var(--chat-expression-height-width), 100%);
+}
+.chat-shell .message-bubble.image-bubble.expression-bubble.gif-expression > .image-preview[data-media-dimensions='known']:not(.album-cell) {
+  width: min(var(--chat-media-natural-width), var(--chat-media-max-width), var(--chat-media-width-at-max-height), 100%);
+}
+.message-bubble.image-bubble.expression-bubble > :is(.message-meta, .message-meta.media-send-meta, .media-status-departing) {
+  position: static;
+  right: auto;
+  bottom: auto;
+  width: max-content;
+  max-width: none;
+  min-height: 0;
+  margin: 4px 0 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--ink-muted);
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.outgoing .message-bubble.image-bubble.expression-bubble > :is(.message-meta, .media-send-meta, .media-status-departing),
+.outgoing .message-bubble.image-bubble.expression-bubble > .message-meta time,
+.message-bubble.image-bubble.expression-bubble > :is(.media-send-meta, .media-status-departing) > time {
+  color: var(--message-time);
+}
+.message-bubble.expression-bubble > :is(.media-send-meta, .media-status-departing) > time { display: inline; }
+.message.is-failed .expression-bubble > .message-meta { pointer-events: auto; }
 @media (max-height: 480px) { .composer.has-meme-panel { --meme-sheet-height: 60svh; } .meme-panel { height: 60svh; grid-template-rows: 44px 44px minmax(0,1fr); } }
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) { .meme-panel, .meme-open-search, .meme-search, .meme-tabs [role="tablist"], .meme-collapse, .meme-preview, .meme-preview-actions, .meme-preview-close { background: var(--paper-pure); backdrop-filter: none; -webkit-backdrop-filter: none; } }
 @media (prefers-reduced-motion: reduce) { .meme-pack-shortcuts[data-reordering="true"] button, .meme-shortcut-float { animation: none; } }
@@ -131,19 +176,19 @@
 .emoji-tile:active { background: var(--glass-control); }
 .meme-panel[data-kind="emoji"] .meme-pack-shortcuts button { font-size: 22px; }
 
-/* Scale every limiting dimension together; stickers and unclassified history retain their geometry. */
-.chat-shell .message-bubble.expression-bubble.gif-expression { max-width: min(69.12px, 36%); }
-.chat-shell .expression-bubble.gif-expression .image-preview { max-width: 69.12px; }
-.chat-shell .expression-bubble.gif-expression .image-preview img { max-height: min(10.08svh, 76.8px); }
-.chat-shell .expression-bubble.gif-expression[data-media-dimensions='known'],
-.chat-shell .expression-bubble.gif-expression > .image-preview[data-media-dimensions='known'] {
-  --chat-media-max-width: 69.12px;
-  --chat-media-max-height: min(10.08svh, 76.8px);
-  --chat-media-natural-width: calc(var(--chat-media-source-width) * 0.24);
-  --chat-media-width-at-max-height: calc(min(10.08svh, 76.8px) * var(--chat-media-ratio));
+/* Classified GIFs are 60% of the sticker box, including newly sent history rows. */
+.chat-shell .message-bubble.expression-bubble.gif-expression { max-width: min(115.2px, 60%); }
+.chat-shell .expression-bubble.gif-expression .image-preview { max-width: 115.2px; }
+.chat-shell .expression-bubble.gif-expression .image-preview img { max-height: min(16.8svh, 128px); }
+.chat-shell .message-bubble.expression-bubble.gif-expression[data-media-dimensions='known'],
+.chat-shell .message-bubble.expression-bubble.gif-expression > .image-preview[data-media-dimensions='known'] {
+  --chat-media-max-width: 115.2px;
+  --chat-media-max-height: min(16.8svh, 128px);
+  --chat-media-natural-width: calc(var(--chat-media-source-width) * 0.4);
+  --chat-media-width-at-max-height: calc(min(16.8svh, 128px) * var(--chat-media-ratio));
 }
 .message.outgoing .media-upload-expression.gif-expression {
-  --media-upload-max-width: 69.12px;
-  --media-upload-max-height: min(10.08svh, 76.8px);
-  max-width: 36%;
+  --media-upload-max-width: 115.2px;
+  --media-upload-max-height: min(16.8svh, 128px);
+  max-width: 60%;
 }

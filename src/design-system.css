@@ -213,8 +213,8 @@ body {
 }
 
 .composer-input-stack:focus-within {
-  border-color: color-mix(in oklch, var(--accent) 50%, var(--glass-border));
-  box-shadow: var(--glass-shadow), 0 0 0 3px color-mix(in oklch, var(--accent) 16%, transparent);
+  border-color: var(--glass-border);
+  box-shadow: var(--glass-shadow);
 }
 
 .composer textarea {
@@ -247,8 +247,8 @@ body {
 }
 
 .chat-tools > button:hover > span {
-  border-color: color-mix(in oklch, var(--accent) 38%, var(--glass-border));
-  background-color: color-mix(in oklch, var(--accent-soft) 48%, var(--glass-control));
+  border-color: var(--glass-border);
+  background-color: var(--glass-control);
 }
 
 .message-actions .message-action-list > button:hover,
