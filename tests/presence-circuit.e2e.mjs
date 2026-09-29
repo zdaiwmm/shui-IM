@@ -239,8 +239,8 @@ try {
   await state(true,true);
   await page.waitForFunction(() => document.querySelector('.presence-circuit').dataset.phase === 'online', null, {timeout:6000});
   await page.evaluate(() => window.fixture.app.presenceCircuit.sent()); await page.waitForTimeout(100);
-  assert.ok(await page.locator('[data-arc="right"]').getAttribute('d'));
-  assert.ok(await page.locator('[data-arc="left"]').getAttribute('d'));
+  assert.notEqual(await page.locator('[data-half="right"]').getAttribute('transform'), 'translate(2 0)');
+  assert.equal(await page.locator('[data-half="left"]').getAttribute('transform'), 'translate(-2 0)');
   await page.evaluate(() => window.fixture.app.cleanupRuntime());
   assert.deepEqual(errors, []);
   console.log('Presence circuit: send, snapshots, fusion, cancellation, reduced motion, layout and themes passed.');
