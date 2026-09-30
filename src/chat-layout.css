@@ -316,11 +316,14 @@ body:has(:where(#app) > .chat-shell) {
   transition: none;
 }
 .composer[data-viewport-motion] {
-  pointer-events: none;
+  pointer-events: auto;
 }
 /* Motion defers interaction and document bookkeeping, never painting. Keep
    focus, selection and the draft mounted throughout keyboard/toolbar motion. */
 .chat-shell .composer[data-viewport-motion] * { pointer-events: none; }
+/* Voice styles enable these controls later in the cascade. Keep their hit
+   testing deferred during motion so clicks wait for the stable toolbar. */
+.chat-shell .composer[data-viewport-motion] :is(#send-text, #record-voice) { pointer-events: none; }
 .message-list[data-keyboard-gesture='true'] { touch-action: pan-y; }
 .chat-header, .system-notices { will-change: translate; }
 .chat-shell[data-native-chrome="true"] .composer { transform: none; }

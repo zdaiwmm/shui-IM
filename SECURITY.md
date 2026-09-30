@@ -190,6 +190,8 @@ Page-level double-tap/gesture zoom suppression, transparent application bars, an
 
 An endpoint compromise, malicious browser extension, screen recorder, operating-system compromise, or unlocked physical device can read plaintext. The hidden long-press entry is a privacy curtain, not an authentication boundary.
 
+User-opened native pickers, microphone/camera requests, clipboard/share/confirmation, notification permission and explicit exports have bounded session/epoch ownership. Registration does not conceal, and an owned visible window blur may keep chat visible beneath a partially covering native tool. Ownership is application evidence, not browser authentication of the blur cause. Unowned blur still conceals immediately; hidden visibility, pagehide, freeze, explicit lock and expiry always override tool ownership. Completion checks actual foreground and the original absolute clocks, and late results cannot enter a newer runtime. Gateway passkey and management-verification concealment retain their separate existing rules.
+
 The browser-load-failure cover is visual concealment. A website cannot guarantee when the operating system captures a task-switcher or tab thumbnail, remove an already cached snapshot, or prevent screenshots. Synchronous blur/visibility concealment minimizes the time sensitive content remains visible after lifecycle notification; it does not provide native screenshot-protection APIs. Native text selection remains browser-owned as well: selecting the inline read-only control cannot guarantee that every iOS version immediately opens its edit toolbar.
 
 ## Deployment requirements
