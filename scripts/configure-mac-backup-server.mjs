@@ -6,10 +6,14 @@ import { loadConfig, validateConfig, assertKeyFiles } from './deploy-config.mjs'
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const config = assertKeyFiles(validateConfig(loadConfig(root).config));
 const helper = readFileSync(path.join(root, 'deploy/server/quiet-room-mac-backup')).toString('base64');
-const script = `import os, stat, base64, hashlib, tempfile, subprocess
+const script = `import os, stat, base64, hashlib, tempfile, subprocess, fcntl
 helper = base64.b64decode('${helper}')
 user = '${config.serverUser}'
 assert os.geteuid() == 0
+lock = None
+if '${process.argv.includes('--apply')}' == 'true':
+ lock = open('/run/lock/quiet-room-deploy.lock', 'a')
+ fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 parent = '/opt/quiet-room/shared'
 env = parent + '/production.env'
 assert not os.path.islink(parent) and not os.path.islink(env)

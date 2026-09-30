@@ -5,6 +5,8 @@ PATH=/usr/sbin:/usr/bin:/sbin:/bin
 export PATH
 [ "$(id -u)" -eq 0 ] || exit 1
 [ "$#" -eq 0 ] || exit 2
+exec 9>/run/lock/quiet-room-deploy.lock
+flock -n 9 || exit 75
 container=$(docker ps -q --filter label=com.docker.compose.service=quiet-room-backup --filter label=com.docker.compose.project=quiet-room)
 [ -n "$container" ] && [ "$(printf '%s\n' "$container" | wc -l)" -eq 1 ] || exit 1
 exec docker exec -i "$container" node scripts/backup-stream.mjs
