@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RoomSocket } from '../src/lib/api';
 import type { RoomState } from '../src/lib/types';
 
-type Listener = (event: { data?: string }) => void;
+type Listener = (event: { data?: string; code?: number }) => void;
 
 class FakeWebSocket {
   static readonly CONNECTING = 0;
@@ -11,6 +11,7 @@ class FakeWebSocket {
 
   readyState = FakeWebSocket.CONNECTING;
   sent: string[] = [];
+  closeCodes: number[] = [];
   private listeners = new Map<string, Listener[]>();
 
   constructor(readonly url: string) {
@@ -27,14 +28,15 @@ class FakeWebSocket {
     this.sent.push(value);
   }
 
-  close(): void {
+  close(code = 1000): void {
+    this.closeCodes.push(code);
     this.readyState = 3;
   }
 
-  emit(type: string, data?: string): void {
+  emit(type: string, data?: string, code?: number): void {
     if (type === 'open') this.readyState = FakeWebSocket.OPEN;
     if (type === 'close') this.readyState = 3;
-    for (const listener of this.listeners.get(type) ?? []) listener({ data });
+    for (const listener of this.listeners.get(type) ?? []) listener({ data, code });
   }
 }
 
@@ -42,9 +44,57 @@ afterEach(() => {
   FakeWebSocket.instances = [];
   vi.unstubAllGlobals();
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('RoomSocket membership ordering', () => {
+  const handlers = () => ({ connection: vi.fn(), presence: vi.fn(), ready: vi.fn(), membership: vi.fn(),
+    message: vi.fn(), sync: vi.fn(), receipt: vi.fn(), receiptSync: vi.fn(), ack: vi.fn(), receiptAck: vi.fn(), error: vi.fn() });
+  function environment() {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'quiet-room.test' });
+    vi.stubGlobal('window', { setTimeout, clearTimeout, setInterval, clearInterval });
+    vi.stubGlobal('WebSocket', FakeWebSocket);
+  }
+  it('uses explicit hasMore and falls back to the legacy 500-count rule', async () => {
+    environment(); const callbacks = handlers();
+    const socket = new RoomSocket('room', 'token', () => 7, () => 4, callbacks);
+    socket.connect(); const transport = FakeWebSocket.instances[0]!; transport.emit('open');
+    expect(JSON.parse(transport.sent[0]!)).toMatchObject({ syncProtocol: 'byte-pages-v1', afterSeq: 7, afterReceiptSeq: 4 });
+    transport.emit('message', JSON.stringify({ type: 'sync', messages: [{ seq: 8 }], hasMore: true, nextSeq: 9999 }));
+    await vi.waitFor(() => expect(callbacks.sync).toHaveBeenCalledWith([{ seq: 8 }], true));
+    transport.emit('message', JSON.stringify({ type: 'sync', messages: Array.from({ length: 500 }, () => ({ seq: 9 })) }));
+    transport.emit('message', JSON.stringify({ type: 'receiptSync', receipts: [], hasMore: false }));
+    await vi.waitFor(() => expect(callbacks.receiptSync).toHaveBeenCalledWith([], false));
+    expect(callbacks.sync.mock.calls[1]![1]).toBe(true);
+    socket.close();
+  });
+  it('abandons queued frames after close and reconnects with the durable cursor and jitter', async () => {
+    vi.useFakeTimers(); environment(); vi.spyOn(Math, 'random').mockReturnValue(0);
+    const callbacks = handlers(); let cursor = 10, finish!: () => void;
+    callbacks.ready.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+    const socket = new RoomSocket('room', 'token', () => cursor, () => 0, callbacks);
+    socket.connect(); const first = FakeWebSocket.instances[0]!; first.emit('open');
+    first.emit('message', JSON.stringify({ type: 'ready', state: {} })); await Promise.resolve();
+    first.emit('message', JSON.stringify({ type: 'sync', messages: [{ seq: 11 }], hasMore: false }));
+    first.emit('close', undefined, 4413); cursor = 12;
+    finish(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(callbacks.sync).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(749); expect(FakeWebSocket.instances).toHaveLength(1);
+    vi.advanceTimersByTime(1); const second = FakeWebSocket.instances[1]!; second.emit('open');
+    expect(JSON.parse(second.sent[0]!)).toMatchObject({ afterSeq: 12 }); socket.close();
+  });
+  it('bounds frames waiting on membership and releases them without late delivery', async () => {
+    environment(); const callbacks = handlers(); let finish!: () => void;
+    callbacks.ready.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+    const socket = new RoomSocket('room', 'token', () => 0, () => 0, callbacks);
+    socket.connect(); const transport = FakeWebSocket.instances[0]!; transport.emit('open');
+    transport.emit('message', JSON.stringify({ type: 'ready', state: {} })); await Promise.resolve();
+    for (let index = 0; index < 130; index++) transport.emit('message', JSON.stringify({ type: 'message', seq: index + 1 }));
+    expect(transport.closeCodes).toContain(4413);
+    socket.close(); finish();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(callbacks.message).not.toHaveBeenCalled();
+  });
   it('holds messages and receipts until async membership verification completes', async () => {
     vi.stubGlobal('location', { protocol: 'http:', host: 'quiet-room.test' });
     vi.stubGlobal('window', {

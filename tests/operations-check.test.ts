@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 const script = path.resolve('deploy/server/quiet-room-check-operations');
 type Scenario = 'healthy' | 'manual-hook' | 'certificate-expired' | 'manual-no-hook'
-  | 'timer-disabled' | 'timer-inactive' | 'receipt-missing' | 'receipt-stale';
+  | 'timer-disabled' | 'timer-inactive' | 'receipt-missing' | 'receipt-stale' | 'snapshot-stale' | 'snapshot-future' | 'snapshot-missing';
 
 async function simulate(scenario: Scenario) {
   const directory = await mkdtemp(path.join(tmpdir(), 'quiet-room-operations-check-'));
@@ -25,6 +25,10 @@ async function simulate(scenario: Scenario) {
     if (scenario !== 'receipt-missing') {
       const age = scenario === 'receipt-stale' ? maximumAge + 60 : 60;
       await writeFile(path.join(state, 'offsite-verified-at'), `${Math.floor(Date.now() / 1000) - age}\n`);
+    }
+    if (scenario !== 'snapshot-missing') {
+      const snapshot = Math.floor(Date.now() / 1000) + (scenario === 'snapshot-future' ? 60 : scenario === 'snapshot-stale' ? -maximumAge - 60 : scenario === 'receipt-stale' ? -maximumAge - 60 : -120);
+      await writeFile(path.join(state, 'offsite-snapshot-at'), `${snapshot}\n`);
     }
     const stubs = {
       openssl: `#!/usr/bin/env bash
@@ -89,6 +93,9 @@ describe('isolated operational readiness check', () => {
     ['timer-inactive', 'TLS_RENEWAL_TIMER_NOT_ENABLED_OR_ACTIVE'],
     ['receipt-missing', 'OFFSITE_BACKUP_MISSING_OR_STALE'],
     ['receipt-stale', 'OFFSITE_BACKUP_MISSING_OR_STALE'],
+    ['snapshot-stale', 'OFFSITE_BACKUP_MISSING_OR_STALE'],
+    ['snapshot-future', 'OFFSITE_BACKUP_MISSING_OR_STALE'],
+    ['snapshot-missing', 'OFFSITE_BACKUP_MISSING_OR_STALE'],
   ] as const)('fails closed for %s', async (scenario, reason) => {
     const result = await simulate(scenario);
     expect(result.status).toBe(1);

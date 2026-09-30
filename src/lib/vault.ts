@@ -1,4 +1,5 @@
 import { isWindowMessage, expiredMessage } from './message-window';
+import { mergeHistoryProjection } from './history-projection';
 import { mediaCacheBudget, mediaCacheEvictions, MEDIA_CACHE_FILE_BYTES, type MediaCacheEntry } from './media-cache-policy';
 import { argon2id } from 'hash-wasm';
 import { fromBase64Url, toBase64Url } from './base64';
@@ -1736,64 +1737,60 @@ async function loadHistoryRecordsAfter(
 
 /**
  * Rebuild timeline projection events beyond the visible history page without
- * a plaintext index. Raw sequence progress lets a corrupt cache page be
- * skipped without hiding valid events in later pages.
+ * a plaintext index. All ciphertext is strictly verified, including paged-out ordinary rows;
+ * only projection events survive the bounded three-way merge.
  */
 export async function loadMessageEventHistory(
   session: VaultSession,
   { signal }: { signal?: AbortSignal } = {},
 ): Promise<DecryptedMessage[]> {
-  // Restored Safe media remains isolated from chat rows, but its deletion
-  // events are part of the same projection. Prefer ordinary history when the
-  // same server sequence exists in both stores and collapse a replayed event
-  // ID before reducers see it.
-  const messagesBySequence = new Map<number, DecryptedMessage>();
-  const eventsBySequence = new Map<number, DecryptedMessage>();
-  const liveHistorySequences = new Set<number>();
-  const limit = 200;
-  for (const storeName of ['galleryHistory', 'restoredGallery', 'history'] as const) {
+  const expectedStored = session.stored;
+  const assertCurrent = async () => {
+    signal?.throwIfAborted();
+    if (expectedStored && !sameStoredVault(await readStoredVaultUnlocked(vaultSpaceId(expectedStored)), expectedStored)) throw staleVaultError();
+    signal?.throwIfAborted();
+  };
+  await assertCurrent();
+  const boundary = session.vault.historyUnavailableBeforeSeq ?? 0;
+  const throughSeq = session.vault.lastSeq;
+  const coverage = Number.isSafeInteger(throughSeq) && throughSeq >= boundary;
+  let expected = boundary + 1;
+  const missing = () => { throw new Error(`本机加密历史记录 ${expected} 缺失，已停止显示以避免撤回内容重新出现`); };
+  async function* stream(storeName: 'history' | 'galleryHistory' | 'restoredGallery') {
     let afterSeq = 0;
     for (;;) {
       signal?.throwIfAborted();
-      const records = await loadHistoryRecordsAfter(session, { limit, afterSeq, signal }, storeName);
-      if (!records.length) break;
+      const records = await loadHistoryRecordsAfter(session, { limit: 200, afterSeq, signal }, storeName);
+      if (!records.length) return;
       const page = await decryptHistoryRecords(session, records, signal, { strict: true });
-      for (const message of page) {
-        if (storeName === 'history') liveHistorySequences.add(message.seq);
-        const existing = messagesBySequence.get(message.seq);
-        if (existing && !sameHistoryMessage(existing, message)) throw new Error('本机加密历史记录存在冲突');
-        // Ordinary history is scanned second and is the canonical copy when
-        // both stores contain the exact same restored record.
-        messagesBySequence.set(message.seq, message);
-        if ((message?.payload?.kind === 'reaction' || message?.payload?.kind === 'message-delete' || message?.payload?.kind === 'media-read' || message?.payload?.kind === 'message-read') && isMessagePayload(message.payload)) {
-          eventsBySequence.set(message.seq, message);
+      for (let index = 0; index < records.length; index++) {
+        const record = records[index]!;
+        const message = page[index]!;
+        if (!Number.isSafeInteger(record.seq) || record.seq <= afterSeq || message.seq !== record.seq) {
+          throw new Error('本机加密历史记录序号存在冲突');
         }
+        afterSeq = record.seq;
+        yield message;
       }
-      afterSeq = records.at(-1)!.seq;
-      if (records.length < limit) break;
+      if (records.length < 200) return;
     }
   }
-  // Every post-join server sequence is persisted locally, including hidden
-  // gallery and projection events. Detect a physically removed ciphertext row
-  // as well as AEAD corruption; otherwise lastSeq would permanently suppress
-  // refetch and a removed delete tombstone could revive its target.
-  const boundary = session.vault.historyUnavailableBeforeSeq ?? 0;
-  if (Number.isSafeInteger(session.vault.lastSeq) && session.vault.lastSeq >= boundary) {
-    const sequences = [...liveHistorySequences]
-      .filter(seq => seq > boundary && seq <= session.vault.lastSeq)
-      .sort((left, right) => left - right);
-    let expected = boundary + 1;
-    for (const seq of sequences) {
-      while (expected < seq && expiredMessage(session.vault, expected)) expected += 1;
-      if (seq !== expected) throw new Error(`本机加密历史记录 ${expected} 缺失，已停止显示以避免撤回内容重新出现`);
-      expected += 1;
-    }
-    while (expected <= session.vault.lastSeq && expiredMessage(session.vault, expected)) expected += 1;
-    if (expected <= session.vault.lastSeq) throw new Error(`本机加密历史记录 ${expected} 缺失，已停止显示以避免撤回内容重新出现`);
-  }
-  const ordered = [...eventsBySequence.values()].sort((left, right) => left.seq - right.seq);
-  const eventsById = new Map(ordered.map((message) => [message.clientMsgId, message]));
-  return [...eventsById.values()].sort((left, right) => left.seq - right.seq);
+  const events = await mergeHistoryProjection(
+    ['galleryHistory', 'restoredGallery', 'history'].map(name => stream(name as 'history' | 'galleryHistory' | 'restoredGallery')),
+    { signal, same: sameHistoryMessage,
+      event: message => ['reaction', 'message-delete', 'media-read', 'message-read'].includes(message.payload?.kind) && isMessagePayload(message.payload),
+      live: message => {
+        if (!coverage || message.seq <= boundary || message.seq > throughSeq) return;
+        while (expected < message.seq && expiredMessage(session.vault, expected)) expected++;
+        if (message.seq !== expected) missing();
+        expected++;
+      },
+    },
+  );
+  while (coverage && expected <= throughSeq && expiredMessage(session.vault, expected)) expected++;
+  if (coverage && expected <= throughSeq) missing();
+  await assertCurrent();
+  return events;
 }
 
 /** Backward-compatible narrow reader used by reaction-specific diagnostics. */

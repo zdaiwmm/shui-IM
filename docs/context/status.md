@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 架构资源优化候选（2026-09-30）
+
+- 用户已明确按复审方案实施并要求逐项验收、本次不制作原型。任务分支 `codex/architecture-resource-optimization-20260930`，起点为实时主线 `5bb99efe862794f1abfd9a86b9ff4acbb3371091`；候选版本 `2026.09.30.1`，当前尚未 PR／CI／合并／发布。
+- 候选已实现按字节查询分页、连接／全局积压预算、表情采集整体预约、三路严格历史归并、备份健康状态与异地快照时间对账。定向验证和合成测量已通过；完整候选门禁待运行。[逐项验收](../requirements/2026-09-30-architecture-resource-optimization/README.md)与[收益限制](../requirements/2026-09-30-architecture-resource-optimization/measurements.md)是本任务证据来源。
+- SQLite 计数器／采集进程拆分没有足够净收益证据，本轮按确认方案延期。生产容量选择、备份实际恢复、通知送达和 iPhone 实测尚未验收；下方最近生产应用仍为 `824dcba1ea9cdb59dca41ac87b7fbe537ed15705`，候选不更新生产事实。
+
 ## iPhone 原生键盘栏与媒体列表误锁修复已发布（2026-09-29 22:20）
 
 - 当前线上应用 SHA `824dcba1ea9cdb59dca41ac87b7fbe537ed15705`，版本 `2026.09.29.2`；用户确认本次精确提交及容量清理。[修复 PR #230](https://github.com/zdaiwmm/shui-IM/pull/230) 和[发布元数据 PR #231](https://github.com/zdaiwmm/shui-IM/pull/231) 已合并，精确 main [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36575565908) 通过。已上线 iPhone 原生键盘栏失焦交接、表情延迟失焦归属和保险箱屏外缩略图回收；安全边界见[需求记录](../requirements/2026-09-29-mobile-focus-lock/README.md)。

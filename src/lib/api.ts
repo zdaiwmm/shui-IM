@@ -104,7 +104,7 @@ export async function getRoomState(roomId: string, accessToken: string): Promise
 }
 
 export async function getWindowMessages(roomId: string, accessToken: string, after: number, signal?: AbortSignal): Promise<ServerMessage[]> {
-  const response = await authorizedFetch(`/api/rooms/${roomId}/window-sync?after=${after}`, accessToken, { signal: boundedSignal(signal, 15_000), cache: 'no-store' });
+  const response = await authorizedFetch(`/api/rooms/${roomId}/window-sync?after=${after}&syncProtocol=byte-pages-v1`, accessToken, { signal: boundedSignal(signal, 15_000), cache: 'no-store' });
   return (await response.json()).messages;
 }
 
@@ -370,9 +370,9 @@ type SocketHandlers = {
   ready: (state: RoomState) => AsyncSocketHandler;
   membership: (state: RoomState) => AsyncSocketHandler;
   message: (message: ServerMessage) => AsyncSocketHandler;
-  sync: (messages: ServerMessage[]) => AsyncSocketHandler;
+  sync: (messages: ServerMessage[], hasMore: boolean) => AsyncSocketHandler;
   receipt: (receipt: ServerReceipt) => AsyncSocketHandler;
-  receiptSync: (receipts: ServerReceipt[]) => AsyncSocketHandler;
+  receiptSync: (receipts: ServerReceipt[], hasMore: boolean) => AsyncSocketHandler;
   ack: (clientMsgId: string, seq: number) => void;
   receiptAck: (clientMsgId: string, receiptSeq: number) => void;
   error: (message: string, code?: string, clientMsgId?: string, rejectedEnvelope?: MessageEnvelope) => AsyncSocketHandler;
@@ -393,6 +393,8 @@ export class RoomSocket {
   private heartbeatTimer: number | null = null;
   private lastPongAt = 0;
   private membershipBarrier: Promise<void> = Promise.resolve();
+  private queuedFrameBytes = 0;
+  private queuedFrames = 0;
   private desiredPresenceView: 'chat' | 'away' = 'away';
   private authenticated = false;
   private lastSentPresenceView: 'chat' | 'away' | null = null;
@@ -428,6 +430,7 @@ export class RoomSocket {
       this.lastSentPresenceView = null;
       this.socket?.send(JSON.stringify({
         type: 'auth',
+        syncProtocol: 'byte-pages-v1',
         roomId: this.roomId,
         accessToken: this.accessToken,
         deviceId: this.deviceId,
@@ -456,6 +459,7 @@ export class RoomSocket {
   private handleFrame(raw: string): void {
     try {
       const frame = JSON.parse(raw) as Record<string, unknown>;
+      const frameBytes = new TextEncoder().encode(raw).byteLength;
       if (frame.type === 'ready') {
         if (this.connectionDeadline) clearTimeout(this.connectionDeadline);
         this.connectionDeadline = null;
@@ -465,9 +469,9 @@ export class RoomSocket {
         this.handlers.connection('connected');
         this.flushChatPresence();
         this.callSignals.flush(true);
-        this.queueMembershipUpdate(() => this.handlers.ready(frame.state as RoomState));
+        this.queueMembershipUpdate(() => this.handlers.ready(frame.state as RoomState), frameBytes);
       } else if (frame.type === 'membership') {
-        this.queueMembershipUpdate(() => this.handlers.membership(frame.state as RoomState));
+        this.queueMembershipUpdate(() => this.handlers.membership(frame.state as RoomState), frameBytes);
       } else if (frame.type === 'presence') {
         if (!isRoomPresence(frame.roles)) throw new Error('Invalid presence frame');
         const rawLastSeen = frame.lastSeen as Record<string, unknown> | undefined;
@@ -477,13 +481,13 @@ export class RoomSocket {
         };
         this.handlers.presence(frame.roles, { creator: timestamp('creator'), joiner: timestamp('joiner') });
       } else if (frame.type === 'message') {
-        this.runAfterMembershipUpdate(() => this.handlers.message(frame as unknown as ServerMessage & { type: string }));
+        this.runAfterMembershipUpdate(() => this.handlers.message(frame as unknown as ServerMessage & { type: string }), frameBytes);
       } else if (frame.type === 'sync') {
-        this.runAfterMembershipUpdate(() => this.handlers.sync((frame.messages ?? []) as ServerMessage[]));
+        this.runAfterMembershipUpdate(() => this.handlers.sync((frame.messages ?? []) as ServerMessage[], typeof frame.hasMore === 'boolean' ? frame.hasMore : (frame.messages as unknown[])?.length === 500), frameBytes);
       } else if (frame.type === 'receipt') {
-        this.runAfterMembershipUpdate(() => this.handlers.receipt(frame as unknown as ServerReceipt));
+        this.runAfterMembershipUpdate(() => this.handlers.receipt(frame as unknown as ServerReceipt), frameBytes);
       } else if (frame.type === 'receiptSync') {
-        this.runAfterMembershipUpdate(() => this.handlers.receiptSync((frame.receipts ?? []) as ServerReceipt[]));
+        this.runAfterMembershipUpdate(() => this.handlers.receiptSync((frame.receipts ?? []) as ServerReceipt[], typeof frame.hasMore === 'boolean' ? frame.hasMore : (frame.receipts as unknown[])?.length === 500), frameBytes);
       } else if (frame.type === 'ack') {
         const clientMsgId = String(frame.clientMsgId);
         this.sentEnvelopes.delete(clientMsgId);
@@ -493,12 +497,12 @@ export class RoomSocket {
       } else if (frame.type === 'pong') {
         this.lastPongAt = Date.now();
       } else if (frame.type === 'call') {
-        this.runAfterMembershipUpdate(() => this.handlers.call?.(frame.envelope as CallEnvelope));
+        this.runAfterMembershipUpdate(() => this.handlers.call?.(frame.envelope as CallEnvelope), frameBytes);
       } else if (frame.type === 'call-ack') {
         if (typeof frame.callId === 'string' && typeof frame.eventId === 'string') this.callSignals.acknowledge(frame.callId, frame.eventId);
       } else if (frame.type === 'call-state') {
         if (frame.state === 'error' && typeof frame.callId === 'string' && typeof frame.eventId === 'string' && typeof frame.code === 'string') this.callSignals.reject(frame.callId, frame.eventId, frame.code);
-        this.runAfterMembershipUpdate(() => this.handlers.callState?.(frame as CallServerEvent));
+        this.runAfterMembershipUpdate(() => this.handlers.callState?.(frame as CallServerEvent), frameBytes);
       } else if (frame.type === 'error') {
         const clientMsgId = typeof frame.clientMsgId === 'string' ? frame.clientMsgId : undefined;
         const sent = clientMsgId ? this.sentEnvelopes.get(clientMsgId) : undefined;
@@ -516,22 +520,32 @@ export class RoomSocket {
     }
   }
 
-  private queueMembershipUpdate(operation: () => AsyncSocketHandler): void {
-    this.membershipBarrier = this.membershipBarrier
-      .then(
-        () => operation(),
-        (cause) => {
-          this.reportHandlerFailure(cause);
-          return operation();
-        },
-      )
-      .catch((cause) => {
-        this.reportHandlerFailure(cause);
-      });
+  private reserveFrame(operation: () => AsyncSocketHandler, bytes: number): (() => Promise<void>) | null {
+    if (this.queuedFrameBytes + bytes > 20 * 1024 ** 2 || this.queuedFrames >= 128) {
+      this.reconnectForBackpressure(); return null;
+    }
+    const generation = this.socket;
+    this.queuedFrameBytes += bytes; this.queuedFrames++;
+    return async () => {
+      try { if (!this.closed && this.socket === generation && generation?.readyState === WebSocket.OPEN) await operation(); }
+      finally { this.queuedFrameBytes -= bytes; this.queuedFrames--; }
+    };
   }
 
-  private runAfterMembershipUpdate(operation: () => AsyncSocketHandler): void {
-    void this.membershipBarrier.then(operation).catch((cause) => this.reportHandlerFailure(cause));
+  private queueMembershipUpdate(operation: () => AsyncSocketHandler, bytes = 0): void {
+    const run = this.reserveFrame(operation, bytes);
+    if (!run) return;
+    this.membershipBarrier = this.membershipBarrier.then(run, cause => { this.reportHandlerFailure(cause); return run(); })
+      .catch(cause => this.reportHandlerFailure(cause));
+  }
+
+  private runAfterMembershipUpdate(operation: () => AsyncSocketHandler, bytes = 0): void {
+    const run = this.reserveFrame(operation, bytes);
+    if (run) void this.membershipBarrier.then(run, run).catch(cause => this.reportHandlerFailure(cause));
+  }
+
+  reconnectForBackpressure(): void {
+    this.socket?.close(4413, 'Receive capacity exceeded');
   }
 
   private reportHandlerFailure(cause: unknown): void {
@@ -543,7 +557,8 @@ export class RoomSocket {
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer !== null) return;
-    const delay = Math.min(1000 * 2 ** this.retry, 15000);
+    const ceiling = Math.min(1000 * 2 ** Math.min(this.retry, 4), 15000);
+    const delay = ceiling * (0.75 + Math.random() * 0.25);
     this.retry += 1;
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;

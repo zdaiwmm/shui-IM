@@ -75,6 +75,35 @@ async function request(url: string, options: RequestInit = {}) {
 }
 
 describe('HTTP and WebSocket integration', () => {
+  it('negotiates byte pages and stops oversized legacy backlog with an explicit upgrade', async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-byte-sync-'));
+    const server = await startServer({ port: 0, host: '127.0.0.1', dataDir, quiet: true });
+    cleanup.push(async () => { await server.close(); await rm(dataDir, { recursive: true, force: true }); });
+    const deviceId = crypto.randomUUID(), accessToken = randomBase64Url(32);
+    const { roomId } = server.store.createRoom({ deviceId, encryptionKey: {}, signingKey: {} }, accessToken);
+    for (let index = 0; index < 100; index++) server.store.insertMessage(roomId,
+      { v: 1, roomId, senderId: deviceId, clientMsgId: crypto.randomUUID(), ciphertext: 'a'.repeat(128 * 1024) });
+    const base = `http://127.0.0.1:${server.port}`;
+    const page = await request(`${base}/api/rooms/${roomId}/window-sync?syncProtocol=byte-pages-v1`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    expect(page.hasMore).toBe(true); expect(page.messages.length).toBeLessThan(100);
+    expect(Buffer.byteLength(JSON.stringify({ type: 'sync', ...page }))).toBeLessThanOrEqual(1024 ** 2);
+    const legacyHttp = await fetch(`${base}/api/rooms/${roomId}/window-sync`, { headers: { Authorization: `Bearer ${accessToken}` } });
+    expect(legacyHttp.status).toBe(409); expect(await legacyHttp.json()).toMatchObject({ code: 'SYNC_UPGRADE_REQUIRED' });
+    const modern = await FrameClient.connect(`ws://127.0.0.1:${server.port}/ws`);
+    modern.send({ type: 'auth', roomId, accessToken, deviceId, syncProtocol: 'byte-pages-v1' });
+    await modern.waitFor(frame => frame.type === 'ready');
+    const first = await modern.waitFor(frame => frame.type === 'sync');
+    expect(first).toMatchObject({ hasMore: true, nextSeq: first.messages.at(-1).seq });
+    modern.send({ type: 'sync', afterSeq: first.nextSeq });
+    const next = await modern.waitFor(frame => frame.type === 'sync');
+    expect(next.messages[0].seq).toBe(first.nextSeq + 1);
+    modern.close();
+    const legacy = await FrameClient.connect(`ws://127.0.0.1:${server.port}/ws`);
+    const closed = new Promise<number>(resolve => legacy.socket.once('close', code => resolve(code)));
+    legacy.send({ type: 'auth', roomId, accessToken, deviceId });
+    expect(await legacy.waitFor(frame => frame.type === 'error')).toMatchObject({ code: 'SYNC_UPGRADE_REQUIRED' });
+    expect(await closed).toBe(4403);
+  });
   it('pairs two participants with device-bound credentials, verifies signed ciphertext, and commits a total order', async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-server-'));
     const server = await startServer({
