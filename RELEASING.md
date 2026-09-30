@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+## 架构资源优化与Mac备份已发布（2026-09-30 18:10）
+
+- 用户明确确认精确提交 `f775ff985aab69f1118b0ef1ae5462ebea966471`，版本 `2026.09.30.3`。[PR #238](https://github.com/zdaiwmm/shui-IM/pull/238) 已合并，包含此前架构PR #235；合并树 `5e76c2a5c96466d2ce81fb068e67c73b075e7206` 与最终head `88f5021313ad1176585d5442134ca068f4a26bab` 完全一致。本地构建／787项单元与集成18.037秒通过，精确[PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36697233908)及[主线完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36698050871)首轮全部通过。
+- 固定入口取得并核对精确 `DEPLOY_VERIFIED`，本次仅调用一次生产切换。批次 `20260930T095353Z`，发布目录 `/opt/quiet-room/git-releases/20260930T095353Z-f775ff985aab`，已校验冷备份 `data-20260930T095353Z-f775ff985aab.tar.gz`。镜像构建451秒（运行依赖下载较慢）、冷备份59秒、容器启动31秒、服务器总计548秒，入口总计593797毫秒。切换前第二次容量门禁可用 `5018333184` 字节、占用87.44%，4GiB门禁通过；没有降低门槛或另行删除业务数据／受保护备份。
+- 独立 `READBACK_OK` 于 `2026-09-30T10:10:05.448Z` 起执行，总计6797毫秒：精确SHA、维护门不存在、HTTPS／数据库／存储、公开与容器产物和WebSocket一致。应用和备份均healthy，TURN运行且健康探针为none；应用／备份镜像均为 `sha256:2a566d66d3dd1cc5b66252fc777694a0d5a55ff8c95536311563f9a9860f9cf2`。原始脱敏证据位于任务Git元数据 `quiet-room-readback/20260930T101005448Z-f775ff985aab-success.json`；精确发布回执位于隔离发布副本 `.git/quiet-room-verified-sha`。两者与Mac校验／恢复回执另存公共Git目录 `quiet-room-production-evidence/20260930-f775ff985aab/`，避免工作树清理丢失证据。
+- 用户另行明确批准root固定无参数备份入口、仅调用该入口的sudo规则及持久Mac模式／384MiB临时盘；安装时持发布锁、保留旧root私有环境文件，不重启旧应用。独立安装回读确认脚本摘要、root0755、环境root0600及sudoers有效。Mac用户级LaunchAgent已启用，每5分钟检查、距最新成功快照12小时再拉取、一小时截止；私有运行器不依赖任务worktree。现场确认 `mac-pull`、512MiB内存与384MiB tmpfs，成功回执后Docker周期健康探针实际变为healthy。
+- Mac首次真实在线快照于 `2026-09-30T10:04:30.179Z` 创建，大小 `923477294` 字节，`2026-09-30T10:07:01.617Z` 独立校验／服务器回执完成；存于用户目录 `quiet-room-backups/production/continuous/`。既有发布前恢复点保留。再次启动定时任务退出0且快照创建时间不变，验证新鲜快照跳过重复拉取；首轮周期退出0。长期12小时周期与跨睡眠补跑尚未实测，不能声称已经积累三天恢复点。
+- 真实快照恢复到Mac私有隔离目录，独立验证数据库及全部密文附件，通过仅127.0.0.1临时服务健康检查后关闭。数据恢复／复验2620毫秒，至服务健康2643毫秒；回执 `recovery-drills/20260930-f775ff985aab.receipt.json`。没有解密真实消息或更改生产；此时间不是重建生产基础设施、TLS、凭据及设备恢复的完整RTO。合成两端／密码学回归以CI分别取证。
+- 当前Mac内置盘开启FileVault、容量准入通过；不是独立物理盘或不可变异地存储。Mac睡眠／退出登录／断网中断拉取，36小时快照过期会不健康。外部告警送达、长期周期、异地不可变保护、整站灾难恢复、iPhone真机／真实双端TURN弱网仍未验证；原架构A04保留部分通过状态。逐项见[Mac清单](docs/requirements/2026-09-30-mac-production-backup/README.md)和[架构清单](docs/requirements/2026-09-30-architecture-resource-optimization/README.md)。本次独立文档对账不再次部署；以下为历史发布记录。
+
 ## H5 遮蔽 V2 已发布（2026-09-30）
 
 - [PR #234](https://github.com/zdaiwmm/shui-IM/pull/234) 已合并为 `e2102c92685d0ce49d0a663f9fdeb0d088aee490`，版本 `2026.09.30.1`；准备后的 [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36679287902) 和该精确提交的 [main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36679854092) 均通过。用户在当前会话明确确认该完整 SHA 的生产发布；同一目标无需重复确认。
