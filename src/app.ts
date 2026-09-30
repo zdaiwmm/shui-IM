@@ -10623,10 +10623,10 @@ export class QuietRoomApp {
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, this.runtimeAbort.signal]);
     const entryPage = (title: string, content: string) => `<main class="backup-page backup-hub" data-local-backup-view="${mode}">
-      <header class="subpage-header backup-header"><button class="icon-button" id="local-backup-back" type="button" aria-label="返回聊天">${icons.back}</button><h1>${title}</h1><span class="backup-header-spacer" aria-hidden="true"></span></header>
+      <header class="subpage-header backup-header"><button class="icon-button" id="local-backup-back" type="button" aria-label="返回聊天">${icons.back}</button><h1>${title}</h1><button class="icon-button" id="backup-help" type="button" aria-label="备份说明">说明</button></header>
       <section class="backup-hub-content">${content}<p class="form-error" role="alert"></p></section></main>`;
     const exportView = entryPage('备份数据', `
-      <p class="backup-hub-intro">为重要的聊天留一份备份。</p><button class="text-button" id="backup-help" type="button">备份说明</button>
+      <p class="backup-hub-intro">为重要的聊天留一份备份。</p>
       <section class="backup-option"><h2>下载备份文件</h2><p>保存这台设备已有的聊天和文件。</p><button class="primary-button" id="local-backup-export" type="button">下载备份文件</button><small>文件已加密，不会自动更新。恢复时需要恢复码。</small></section>
       <section class="backup-option"><div class="backup-switch-row"><div><h2 id="cloud-backup-label">自动加密备份到云端</h2><p>打开并解锁页面时自动备份。</p></div><button class="backup-toggle" data-cloud-switch type="button" role="switch" aria-labelledby="cloud-backup-label" aria-checked="false" disabled><span></span></button></div>
         <p class="backup-small-status" data-cloud-status role="status">正在读取设置…</p><button class="text-button" data-cloud-retry type="button" hidden>重试</button></section>
@@ -10637,7 +10637,7 @@ export class QuietRoomApp {
       <section class="backup-option"><h2>从云端加密备份恢复</h2><p>用恢复码找回云端保存的记录。</p><button class="secondary-button" data-restore="all" data-restore-label="从云端加密备份恢复" type="button">从云端加密备份恢复</button></section>
       <p class="backup-hub-footnote">已有记录会保留，重复内容不会再次添加。<br>文件不会上传，恢复也不会让其他设备退出。</p>`);
     this.root.innerHTML = mode === 'export' ? exportView : importView;
-    this.root.querySelector('#backup-help')?.addEventListener('click', () => this.renderFeatureHelp());
+    this.root.querySelector('#backup-help')?.addEventListener('click', () => { controller.abort(); this.renderFeatureHelp(() => this.renderLocalHistoryBackup(mode)); });
     const error = this.root.querySelector<HTMLElement>('.form-error')!;
     const active = () => error.isConnected && this.isRuntimeActive(epoch, session) && !signal.aborted;
     let historyChanged = false;
@@ -11349,16 +11349,16 @@ export class QuietRoomApp {
     this.root.querySelector('#practice-back')!.addEventListener('click', () => this.renderChat());
   }
 
-  private renderFeatureHelp(): void {
+  private renderFeatureHelp(returnToBackup?: () => void): void {
     this.setActiveSurface('away');
-    this.root.innerHTML = `<main class="backup-page"><header class="subpage-header"><button class="icon-button" id="help-back" aria-label="返回聊天">${icons.back}</button><h1>功能说明</h1></header>
+    this.root.innerHTML = `<main class="backup-page"><header class="subpage-header"><button class="icon-button" id="help-back" aria-label="${returnToBackup ? '返回备份设置' : '返回聊天'}">${icons.back}</button><h1>功能说明</h1></header>
       <section class="backup-content"><div class="backup-settings-group">
         <section class="backup-setting"><h2>保存私密空间入口</h2><p>主屏幕、书签或复制网址。入口不是备份，恢复码请另外保存。</p></section>
         <section class="backup-setting"><h2>使用自动遮蔽层</h2><p>练习长按热区，随时开启或关闭。遮蔽不是认证，进入仍需设备验证。</p></section>
         <section class="backup-setting"><h2>恢复私密空间与聊天记录</h2><p>双方各自保管自己的恢复码。一起恢复时每人只输入自己的码。需要重建的一方另行导入自己的历史备份；协助方保留本机聊天。</p></section>
         <section class="backup-setting"><h2>云端加密备份</h2><p>新空间默认关闭。开启后，仅在页面打开、已解锁且联网时自动备份；关闭不会删除已有云端备份。</p></section><section class="backup-setting"><h2>了解备份与删除</h2><p>把当前设备已有的聊天压缩加密后保存到你选择的文件位置。清除网站数据不会删除已经另存的文件；新聊天需要重新导出。</p></section>
       </div></section></main>`;
-    this.root.querySelector('#help-back')!.addEventListener('click', () => this.renderChat());
+    this.root.querySelector('#help-back')!.addEventListener('click', returnToBackup ?? (() => this.renderChat()));
   }
 
   private renderEntranceCard(): void {

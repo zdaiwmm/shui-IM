@@ -134,6 +134,7 @@ try {
   await a.locator('#history-download').waitFor(); assert.equal(await a.locator('#history-download').textContent(), '导出备份');
   await capture(a, 'F04-backup-summary'); await a.locator('[data-history-summary-close]').click();
   await a.locator('#backup-help').click(); await capture(a, 'F13-backup-help'); await a.locator('#help-back').click();
+  await a.locator('[data-local-backup-view=export]').waitFor();
   await a.evaluate(() => app.renderRecoveryCenter()); await capture(a, 'F07-recovery-code-guide');
   await a.locator('#save-my-code').click(); await a.locator('.password-form').waitFor(); await a.locator('[data-password-cancel]').click();
   await a.locator('.password-form').waitFor({ state: 'detached' });
