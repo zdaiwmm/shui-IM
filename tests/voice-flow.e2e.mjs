@@ -177,6 +177,8 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
   assert.equal(await creator.locator('.cover-trigger').count(), 0, 'The first visible native permission blur must retain its requesting UI');
   await creator.evaluate(() => { window.dispatchEvent(new Event('focus')); window.dispatchEvent(new Event('blur')); });
+  assert.equal(await creator.evaluate(() => document.documentElement.classList.contains('privacy-obscured')), true, 'Repeated permission blur uncovered the page');
+  await creator.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   await creator.locator(LOCK_SURFACE).first().waitFor();
   await creator.evaluate(async () => {
     window.dispatchEvent(new Event('pagehide'));

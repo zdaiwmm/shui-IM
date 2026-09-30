@@ -223,6 +223,8 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
     await creator.evaluate(() => {
       window.dispatchEvent(new Event('focus'));
       window.dispatchEvent(new Event('blur'));
+      if (!document.documentElement.classList.contains('privacy-obscured')) throw Error('Repeated call permission blur uncovered the page');
+      window.dispatchEvent(new Event('pagehide'));
     });
     await creator.locator(LOCK_SURFACE).first().waitFor();
     await creator.evaluate(async () => {

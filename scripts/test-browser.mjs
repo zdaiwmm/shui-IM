@@ -25,6 +25,7 @@ export const browserGroups = Object.freeze({
     'tests/desktop-session-flow.e2e.mjs',
     'tests/vault-resume.e2e.mjs',
     'tests/system-surfaces.e2e.mjs',
+    'tests/privacy-surface.e2e.mjs',
     'tests/file-flow.e2e.mjs',
     'tests/file-outbox.e2e.mjs',
     'tests/file-interactions.e2e.mjs',

@@ -74,12 +74,14 @@ try {
       throw Error(message);
     };
     const covered = label => check(app.privacyCovered && !!root.querySelector('.cover-trigger') && !root.querySelector('.chat-shell, .gallery-shell'), `${label}: private content remained visible`);
+    const paused = label => check(!app.privacyCovered && !!app.session && document.documentElement.classList.contains('privacy-obscured')
+      && getComputedStyle(app.privacyCurtain).visibility === 'visible', `${label}: bounded session was lost or content uncovered`);
     let focused = true;
     Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => focused });
     const blur = () => { focused = false; window.dispatchEvent(new Event('blur')); };
     const focus = () => { focused = true; window.dispatchEvent(new Event('focus')); };
     const loseFocusWithoutEvent = () => { focused = false; };
-    const externalDeparture = () => { blur(); focus(); blur(); };
+    const externalDeparture = () => { blur(); hidden(true); hidden(false); };
     const hidden = value => {
       Object.defineProperty(document, 'hidden', { configurable: true, get: () => value });
       document.dispatchEvent(new Event('visibilitychange'));
@@ -110,7 +112,7 @@ try {
       check(app.imagePickerActive, `${destination}: picker was not registered`);
       check(!app.privacyCovered && !!root.querySelector(destination === 'chat' ? '.chat-shell' : '.gallery-shell'), `${destination}: clicking upload covered the page before window departure`);
       input.dispatchEvent(new FocusEvent('blur', { bubbles: false }));
-      check(!app.privacyCovered && !document.documentElement.classList.contains('privacy-obscured'), `${destination}: a control blur was confused with a browser departure`);
+      paused(`${destination}: proactive picker veil survived control blur`);
       return input;
     };
     const select = async (input, count = 12) => {
@@ -123,9 +125,10 @@ try {
     };
 
     await fresh(); blur(); focus();
-    covered('Ordinary unowned blur');
+    paused('Ordinary unowned blur');
     await fresh();
-    blur(); covered('Ordinary sustained blur'); focus(); covered('Focus after ordinary blur stays locked');
+    blur(); paused('Ordinary sustained blur'); focus(); paused('Focus alone stays concealed');
+    await new Promise(resolve => setTimeout(resolve, 2600)); covered('Unowned pause reached its absolute limit');
 
     // Navigation changes the destination synchronously and keeps both painted
     // layers during the reference iOS-style push/pop. Repeated transitions
@@ -206,7 +209,7 @@ try {
         await fresh(destination);
         const input = beginPicker(destination);
         blur();
-        check(!app.privacyCovered && !document.documentElement.classList.contains('privacy-obscured'), `${destination}: foreground native chooser locked or obscured chat`);
+        paused(`${destination}: foreground native chooser`);
         check(!!app.session && input.isConnected, `${destination}: foreground chooser lost its owner (session=${Boolean(app.session)}, inputConnected=${input.isConnected}, pickerActive=${app.imagePickerActive}, handoff=${app.nativeHandoff?.kind ?? 'none'})`);
         if (order === 'focus-before-change') focus();
         await select(input);
@@ -308,11 +311,13 @@ try {
       await fresh(destination);
       beginPicker(destination);
       // Missing blur/cancel must not leave an exception after focus returns.
-      focus(); blur(); covered(`${destination} focus without blur consumed handoff`); focus();
+      focus(); blur(); paused(`${destination} focus without result retains concealment`);
+      hidden(true); covered(`${destination} confirmed departure locks pending picker`); hidden(false); focus();
 
       await fresh(destination);
       beginPicker(destination); blur(); blur();
-      covered(`${destination} repeated departure without focus`); focus();
+      paused(`${destination} repeated blur preserves original owner`); focus();
+      hidden(true); covered(`${destination} repeated blur then background`); hidden(false); focus();
 
       await fresh(destination);
       beginPicker(destination);
@@ -406,7 +411,7 @@ try {
     check(app.microphonePromptActive && recorder, 'Microphone permission was not pending');
     blur();
     check(!app.privacyCovered && !recorder.signal.aborted && app.microphonePromptActive, 'Foreground microphone permission discarded its recorder');
-    focus(); blur(); covered('Microphone second departure'); focus(); covered('Microphone prompt return after departure');
+    focus(); blur(); paused('Microphone repeated blur'); hidden(true); covered('Microphone background departure'); hidden(false); focus(); covered('Microphone prompt return after departure');
     check(recorder.signal.aborted && !app.voiceRecorder, 'Locked microphone prompt retained its recorder');
     let stopped = 0;
     grant({ getTracks: () => [{ stop: () => stopped++ }] });
@@ -428,8 +433,9 @@ try {
     app.setMediaPermission('camera', false);
     check(!app.privacyCovered, 'Camera completion before focus did not get its bounded return edge');
     focus(); blur();
-    covered('Camera completion cannot exempt another departure'); focus();
-    covered('Camera completion return stays locked');
+    paused('Camera completion cannot uncover another departure'); focus();
+    paused('Camera completion return requires continuation');
+    hidden(true); covered('Camera later background locks'); hidden(false); focus();
     await fresh(); app.setMediaPermission('camera', true); blur(); app.setMediaPermission('camera', false);
     await new Promise(resolve => setTimeout(resolve, 300));
     covered('Settled permission without foreground return'); focus();
@@ -449,7 +455,7 @@ try {
     await fresh(); app.session = null; root.innerHTML = '<section class="gateway"></section>';
     let verify;
     const verification = app.withDeviceVerification(() => new Promise(resolve => { verify = resolve; }));
-    blur(); hidden(true);
+    hidden(true); blur();
     check(!app.privacyCovered && app.deviceVerificationActive, 'Gateway verification was interrupted by its own prompt');
     hidden(false); focus(); verify('verified');
     check(await verification === 'verified' && !app.deviceVerificationActive && !app.privacyCovered, 'Gateway verification did not finish normally');
@@ -497,9 +503,9 @@ try {
     for (const destination of ['chat', 'gallery']) {
       await fresh(destination);
       blur();
-      covered(`${destination} unowned blur`);
+      paused(`${destination} unowned blur`);
       focus();
-      covered(`${destination} focus after unowned blur`);
+      paused(`${destination} focus after unowned blur`);
       if (destination === 'chat') {
         await fresh('chat');
         window.dispatchEvent(new Event('pagehide'));
@@ -572,8 +578,7 @@ try {
     }), true, 'A trusted primary composer click did not arm the keyboard handoff');
   };
 
-  // One visible Safari-style window blur belongs to the directly tapped
-  // keyboard. Reusing that ownership for a second departure must fail closed.
+  // Repeated visible blur keeps one bounded owner and an opaque veil.
   await armKeyboardHandoff();
   assert.deepEqual(await page.evaluate(() => {
     const fixture = window.systemSurfaceKeyboardFixture;
@@ -583,18 +588,17 @@ try {
       obscured: document.documentElement.classList.contains('privacy-obscured'),
       covered: fixture.app.privacyCovered,
     };
-  }), { consumed: true, obscured: false, covered: false }, 'The first owned visible keyboard blur exposed the privacy curtain');
+  }), { consumed: true, obscured: true, covered: false }, 'Owned keyboard blur did not retain an opaque veil');
   assert.equal(await page.evaluate(() => {
     const fixture = window.systemSurfaceKeyboardFixture;
     fixture.blur();
-    return fixture.app.privacyCovered && !document.querySelector('.chat-shell');
-  }), true, 'A second keyboard blur did not lock synchronously');
+    return !fixture.app.privacyCovered && fixture.app.keyboardHandoff?.blurred && document.documentElement.classList.contains('privacy-obscured');
+  }), true, 'Repeated keyboard blur lost its original owner or uncovered content');
   await page.waitForTimeout(300);
   assert.equal(await page.evaluate(() => {
     const fixture = window.systemSurfaceKeyboardFixture;
-    return fixture.app.privacyCovered && !fixture.app.keyboardHandoff
-      && Boolean(document.querySelector('.cover-trigger')) && !document.querySelector('.chat-shell');
-  }), true, 'A second keyboard blur did not stay locked');
+    return !fixture.app.privacyCovered && fixture.app.keyboardHandoff?.blurred && document.documentElement.classList.contains('privacy-obscured');
+  }), true, 'Repeated keyboard blur did not stay concealed');
 
   // Focus alone is not authorization: only the trusted composer pointerdown
   // above may create the one-use handoff.
@@ -606,7 +610,7 @@ try {
     fixture.blur();
     return {
       armed,
-      covered: fixture.app.privacyCovered && !document.querySelector('.chat-shell'),
+      covered: !fixture.app.privacyCovered && document.documentElement.classList.contains('privacy-obscured'),
     };
   }), { armed: false, covered: true }, 'Programmatic composer focus acquired a keyboard handoff');
 
@@ -666,7 +670,7 @@ try {
   await page.evaluate(() => window.systemSurfaceKeyboardFixture.fresh());
   await page.locator('#open-chat-tools').click();
   await page.locator('#open-image-picker').click();
-  await page.locator('#message-input').click();
+  await page.locator('.privacy-curtain').click({ position: { x: 10, y: 10 } });
   assert.deepEqual(await page.evaluate(() => {
     const app = window.systemSurfaceKeyboardFixture.app;
     return { keyboard: Boolean(app.keyboardHandoff), native: app.nativeHandoff?.kind ?? null };
@@ -684,7 +688,7 @@ try {
     await fixture.fresh();
     await fixture.app.setMediaPermission('camera', true);
   });
-  await page.locator('#message-input').click();
+  await page.locator('.privacy-curtain').click({ position: { x: 10, y: 10 } });
   assert.deepEqual(await page.evaluate(() => {
     const app = window.systemSurfaceKeyboardFixture.app;
     return { keyboard: Boolean(app.keyboardHandoff), native: app.nativeHandoff?.kind ?? null };
@@ -703,15 +707,16 @@ try {
     }, owner);
     assert.equal(await page.evaluate(owner => {
       const app = window.systemSurfaceKeyboardFixture.app;
-      return !app.nativeHandoff && (owner === 'camera' ? app.callPermissionActive : app.imagePickerActive);
+      return !!app.nativeHandoff && (owner === 'camera' ? app.callPermissionActive : app.imagePickerActive)
+        && document.documentElement.classList.contains('privacy-obscured');
     }, owner), true, `${owner}: native active flag did not outlive its focus-return token fixture`);
-    await page.locator('#message-input').click();
+    await page.locator('.privacy-curtain').click({ position: { x: 10, y: 10 } });
     assert.equal(await page.evaluate(() => Boolean(window.systemSurfaceKeyboardFixture.app.keyboardHandoff)), false,
       `${owner}: composer stole ownership from a still-active native surface`);
     assert.equal(await page.evaluate(() => {
       const fixture = window.systemSurfaceKeyboardFixture;
       fixture.blur();
-      return fixture.app.privacyCovered && Boolean(document.querySelector('.cover-trigger'));
+      return !fixture.app.privacyCovered && !!fixture.app.nativeHandoff && document.documentElement.classList.contains('privacy-obscured');
     }), true, `${owner}: unowned departure with an active native surface did not fail closed`);
   }
 
@@ -772,14 +777,16 @@ try {
     document.querySelector('#message-input').focus({ preventScroll: true });
     const targetAttached = fixture.app.chatViewportMotion?.keyboardMoving === true;
     fixture.blur();
-    return evidenceBeforeFocus && targetAttached && !fixture.app.keyboardHandoff
-      && !fixture.app.privacyCovered && !document.documentElement.classList.contains('privacy-obscured');
-  }), true, 'Resize-before-focus keyboard evidence did not complete exactly one visible blur');
+    return evidenceBeforeFocus && targetAttached && !!fixture.app.keyboardHandoff
+      && !fixture.app.privacyCovered && document.documentElement.classList.contains('privacy-obscured');
+  }), true, 'Resize alone incorrectly completed a still-unfocused keyboard handoff');
   assert.equal(await page.evaluate(() => {
     const fixture = window.systemSurfaceKeyboardFixture;
     fixture.blur();
-    return fixture.app.privacyCovered && !document.querySelector('.chat-shell');
-  }), true, 'Fresh keyboard geometry left a reusable second-blur exception');
+    const concealed = !fixture.app.privacyCovered && !!fixture.app.keyboardHandoff && document.documentElement.classList.contains('privacy-obscured');
+    fixture.focus();
+    return concealed && !fixture.app.keyboardHandoff && !document.documentElement.classList.contains('privacy-obscured');
+  }), true, 'Repeated blur or real focus return violated the keyboard boundary');
 
   // A keyboard-sized viewport already present before the tap is a baseline,
   // not post-arm opening evidence. The new accessory path owns only a real
@@ -808,8 +815,8 @@ try {
   assert.equal(await page.evaluate(() => {
     const fixture = window.systemSurfaceKeyboardFixture;
     fixture.blur();
-    return fixture.app.privacyCovered && !document.querySelector('.chat-shell');
-  }), true, 'Unfocused accessory owner was reused for a second blur');
+    return !fixture.app.privacyCovered && !!fixture.app.keyboardAccessoryHandoff && document.documentElement.classList.contains('privacy-obscured');
+  }), true, 'Repeated accessory blur lost its owner or uncovered content');
 
   await page.evaluate(async () => {
     const fixture = window.systemSurfaceKeyboardFixture;
@@ -822,8 +829,8 @@ try {
     delete window.systemSurfaceKeyboardFixture;
   });
   results.keyboardNativeHandoff = {
-    trustedFirstBlur: 'visible',
-    secondBlur: 'fail-closed',
+    trustedFirstBlur: 'opaque veil',
+    secondBlur: 'same bounded owner',
     hardDepartures,
     programmaticFocus: 'unowned',
     expiry: 'dual-clock',

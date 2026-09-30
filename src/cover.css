@@ -84,7 +84,8 @@ svg.cover-error-icon {
   animation: none;
 }
 
-html.privacy-obscured #app { visibility: hidden; }
+/* A soft veil must preserve native editing focus and selection. Hard locking
+   still tears down the runtime and its private DOM synchronously. */
 
 html.privacy-obscured .privacy-curtain {
   visibility: visible;
