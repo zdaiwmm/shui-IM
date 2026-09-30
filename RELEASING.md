@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+## 体验优化 F01–F15 已发布（2026-09-30 23:40）
+
+- 用户在发布接续会话明确授权精确提交 `a0bc5e6ff835d81aa9386a05b12c55c320ab04d4`，版本 `2026.09.30.5`；来源对话串 `01a0f068-edd8-7d43-ae02-7f8e0f489662`。[集成 PR #243](https://github.com/zdaiwmm/shui-IM/pull/243) 的源 head `53f7bf10a39836708980dbf23e6d7af34a27a4ae` 已合并；精确[主线完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36729686445)及同次 verify 全部成功。此前 CI 安装依赖作业取消后仅续跑受影响作业一次，最终结果由该运行回执核对。
+- 上线范围为已确认的 F01–F15，包括共同恢复、聊天入口与提示、消息信息、部分备份说明、表情与收藏、设备名称、后台布局、动效及新空间密码兜底；逐项实现、产品取舍及本地 790 项测试／50 个浏览器入口证据见[需求记录](docs/requirements/2026-09-30-experience-optimization/README.md)。该记录的“生产未授权／未发布”为旧阶段，由本次精确授权及回读更新，不改写历史确认。
+- 固定入口取得 `DEPLOY_VERIFIED`，外层精确回执核对成功；实际切换一次。前一生产为 `e16328b34f03da47770de132d41f2f4c8a49f8f9`。批次 `20260930T153249Z`，发布目录 `/opt/quiet-room/git-releases/20260930T153249Z-a0bc5e6ff835`，已校验冷备份 `data-20260930T153249Z-a0bc5e6ff835.tar.gz`。构建46秒、冷备份55秒、启动32秒、服务器总计141秒，固定入口总计180510毫秒。切换前容量可用4534022144字节、占用88.65%，发布门禁通过；此值不是发布后容量。未修改 root helper 或清理受保护数据。
+- 初次及启动等待期内独立回读均因备份探针 `starting` 未通过，应用已 healthy、维护门已解除；等待既有五分钟探针后仅重跑只读回读。最终 `READBACK_OK` 于 `2026-09-30T15:40:10.680Z` 完成，2934毫秒：精确 SHA、镜像、HTTPS／数据库／存储、公开与容器产物、新 WebSocket 一致。应用与备份均 healthy；TURN 运行且探针 none。镜像 `sha256:ca10fb9f107a2a86c0a2e285252889fb8feb746727a8b69caa09e4319e5fb30e`；管理员及通话启用，维护门不存在。
+- 精确回执、初次失败和最终脱敏回读已另存本机持久目录 `/Users/zhouding/ss-worktrees/.delivery-evidence/20260930-a0bc5e6ff835/`；原最终回读位于任务 Git 元数据 `quiet-room-readback/20260930T154007745Z-a0bc5e6ff835-success.json`。独立文档树不含部署配置，仅对账发布记录与状态页，文档提交不改变线上应用 SHA、不再次部署。
+- 发布前专项开发方安全自审及42项相关测试／双端密码流程通过，覆盖内未确认验证绕过；不能替代外部独立密码学或应用安全审计。真机键盘／系统验证／工具栏／动效手感、首次使用理解测试、密码派生真机性能及整个进程内存确定擦除仍未验证，既有运维与高安全声明门禁保留。
+- 资源收尾：开发树 `experience-optimization-20260930` 有活动进程及忽略的依赖／构建产物；集成树 `experience-optimization-integration-20260930` 承载本批接续与回读证据，未核实所有使用者退出；文档树承载当前收尾。三者保留，不删除其他任务资源。
+
 ## 系统工具与发送区误锁修复已发布（2026-09-30 21:38）
 
 - 用户在本会话确认精确提交 `e16328b34f03da47770de132d41f2f4c8a49f8f9`，版本 `2026.09.30.4`。[修复PR #240](https://github.com/zdaiwmm/shui-IM/pull/240)与[版本PR #242](https://github.com/zdaiwmm/shui-IM/pull/242)均已合并。版本候选 `a319b97bd4452096ee7b75afb7e02c99c94d1c10` 完整本地门禁通过：787项单元/集成、49个浏览器入口，565454毫秒；合并树与该候选相同。精确[PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36718181330)及[主线完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36719268893)全部通过。系统工具交接与发送区边界沿用D-048，外观不变，无原型。
