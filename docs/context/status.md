@@ -2,7 +2,7 @@
 
 ## 架构资源优化候选（2026-09-30）
 
-- 用户已明确按复审方案实施并要求逐项验收、本次不制作原型。任务分支 `codex/architecture-resource-optimization-20260930`，起点为实时主线 `5bb99efe862794f1abfd9a86b9ff4acbb3371091`；原候选 [PR #233](https://github.com/zdaiwmm/shui-IM/pull/233) 的精确 head `cefa3c64f6c4bdda5d8115a028cbc3f491d7f0e2` 已通过全部门禁。交付前主线新增 [PR #234](https://github.com/zdaiwmm/shui-IM/pull/234)，冻结新主线 `e2102c92685d0ce49d0a663f9fdeb0d088aee490`；独立集成分支 `codex/architecture-resource-integration-20260930`，组合版本 `2026.09.30.2` 待重新验收／合并，不发布生产。
+- 用户已明确按复审方案实施并要求逐项验收、本次不制作原型。任务分支 `codex/architecture-resource-optimization-20260930`，起点为实时主线 `5bb99efe862794f1abfd9a86b9ff4acbb3371091`；原候选 [PR #233](https://github.com/zdaiwmm/shui-IM/pull/233) 的精确 head `cefa3c64f6c4bdda5d8115a028cbc3f491d7f0e2` 已通过全部门禁。交付前主线新增 [PR #234](https://github.com/zdaiwmm/shui-IM/pull/234)，冻结新主线 `e2102c92685d0ce49d0a663f9fdeb0d088aee490`；独立集成分支 `codex/architecture-resource-integration-20260930`、[集成 PR #235](https://github.com/zdaiwmm/shui-IM/pull/235)，组合版本 `2026.09.30.2` 待重新验收／合并，不发布生产。
 - 候选已实现按字节查询分页、连接／全局积压预算、表情采集整体预约、三路严格历史归并、备份健康状态与异地快照时间对账。历史竞态修复的构建／762 项单元／48 项浏览器全部通过；补充批量补发复现后新增 8 条／512 KiB ACK 窗口，40 条签名消息及 40 条回执、加密窗口定向通过，源候选构建／767 项／48 项浏览器与20种弱网通话全部通过；组合门禁待运行。[逐项验收](../requirements/2026-09-30-architecture-resource-optimization/README.md)与[收益限制](../requirements/2026-09-30-architecture-resource-optimization/measurements.md)是本任务证据来源。
 - SQLite 计数器／采集进程拆分没有足够净收益证据，本轮按确认方案延期。生产容量选择、备份实际恢复、通知送达和 iPhone 实测尚未验收；下方最近生产应用仍为 `824dcba1ea9cdb59dca41ac87b7fbe537ed15705`，候选不更新生产事实。
 
