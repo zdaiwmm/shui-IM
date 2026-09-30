@@ -569,6 +569,7 @@ export class QuietRoomApp {
   private systemSurfaceTokens = new Set<symbol>();
   private systemSurfaceHandoff: {
     runtimeEpoch: number;
+    session: VaultSession;
     deadline: number;
     wallDeadline: number;
     blurred: boolean;
@@ -585,6 +586,8 @@ export class QuietRoomApp {
   } | null = null;
   private nativeHandoff: {
     kind: 'picker' | 'microphone' | 'camera';
+    runtimeEpoch: number;
+    session: VaultSession;
     deadline: number;
     wallDeadline: number;
     blurred: boolean;
@@ -1255,8 +1258,13 @@ export class QuietRoomApp {
       // Capture must not confuse an input/button losing focus with the
       // browser window leaving the foreground.
       if (event.target !== window) return;
-      // Conceal synchronously before interpreting browser/tool event order.
-      // Tool ownership retains a session, never an uncovered page.
+      // A user-opened native tool is a bounded foreground handoff. Its
+      // visible focus transfer must not cover the page or disrupt recording.
+      // Hidden/hard lifecycle events retain their independent lock path.
+      if (!document.hidden && !this.privacySurface.hold && !this.expireIdleSession()
+          && (this.consumeSystemSurfaceBlur() || this.consumeNativeHandoffBlur())) return;
+      // Unowned blur and keyboard handoffs still conceal synchronously
+      // before interpreting browser event order.
       this.showPrivacyCurtain();
       this.concealChatImages();
       this.closeImageViewer(true);
@@ -1449,9 +1457,9 @@ export class QuietRoomApp {
     const meme = this.memePanelHandoff;
     if (meme && this.memePanelHandoffValid(meme) && !this.memePanelHandoffExpired(meme)) return true;
     const native = this.nativeHandoff;
-    if (native && !this.nativeHandoffExpired(native)) return true;
+    if (native && this.isRuntimeActive(native.runtimeEpoch, native.session) && !this.nativeHandoffExpired(native)) return true;
     const surface = this.systemSurfaceHandoff;
-    if (surface && performance.now() < surface.deadline && Date.now() < surface.wallDeadline) return true;
+    if (surface && this.systemSurfaceHandoffValid(surface)) return true;
     return false;
   }
 
@@ -2199,9 +2207,17 @@ export class QuietRoomApp {
   }
 
   private armSystemSurfaceHandoff(): void {
+    const existing = this.systemSurfaceHandoff;
+    if (existing && !existing.completed && this.systemSurfaceHandoffValid(existing)) return;
+    if (existing && (performance.now() >= existing.deadline || Date.now() >= existing.wallDeadline)) {
+      this.expireSystemSurfaceHandoff(existing);
+      return;
+    }
     this.clearSystemSurfaceHandoff();
+    if (!this.session || this.privacyCovered || this.privacySurface.hold || document.hidden || !document.hasFocus()) return;
     const handoff = {
       runtimeEpoch: this.runtimeEpoch,
+      session: this.session,
       deadline: performance.now() + 60_000,
       wallDeadline: Date.now() + 60_000,
       blurred: false,
@@ -2210,14 +2226,16 @@ export class QuietRoomApp {
     };
     handoff.timer = window.setTimeout(() => this.expireSystemSurfaceHandoff(handoff), 60_000);
     this.systemSurfaceHandoff = handoff;
-    this.beginPrivacyHold('system', handoff);
+  }
+
+  private systemSurfaceHandoffValid(handoff: NonNullable<QuietRoomApp['systemSurfaceHandoff']>): boolean {
+    return this.systemSurfaceHandoff === handoff && this.isRuntimeActive(handoff.runtimeEpoch, handoff.session)
+      && !document.hidden && performance.now() < handoff.deadline && Date.now() < handoff.wallDeadline;
   }
 
   private consumeSystemSurfaceBlur(): boolean {
     const handoff = this.systemSurfaceHandoff;
-    if (!handoff || handoff.runtimeEpoch !== this.runtimeEpoch || document.hidden || this.privacyCovered || !this.session ||
-        performance.now() >= handoff.deadline || Date.now() >= handoff.wallDeadline ||
-        this.fileExportActive || this.expireIdleSession()) return false;
+    if (!handoff || !this.systemSurfaceHandoffValid(handoff) || this.expireIdleSession()) return false;
     handoff.blurred = true;
     return true;
   }
@@ -2227,7 +2245,7 @@ export class QuietRoomApp {
       if (this.systemSurfaceHandoff === handoff) this.clearSystemSurfaceHandoff();
       return;
     }
-    const shouldLock = handoff.blurred && !this.privacyCovered;
+    const shouldLock = (handoff.blurred || this.systemSurfaceTokens.size > 0) && !this.privacyCovered;
     this.clearSystemSurfaceHandoff();
     if (shouldLock) this.lockNow({ preserveFilePicker: false });
   }
@@ -2240,6 +2258,8 @@ export class QuietRoomApp {
 
   private completeSystemSurface(handoff: QuietRoomApp['systemSurfaceHandoff']): void {
     if (!handoff || this.systemSurfaceHandoff !== handoff) return;
+    if (this.systemSurfaceTokens.size > 0) return;
+    if (!this.isRuntimeActive(handoff.runtimeEpoch, handoff.session)) { this.clearSystemSurfaceHandoff(); return; }
     if (performance.now() >= handoff.deadline || Date.now() >= handoff.wallDeadline || this.expireIdleSession()) {
       this.lockNow();
       return;
@@ -2267,20 +2287,20 @@ export class QuietRoomApp {
     evaluate();
   }
 
-  private async withSystemSurface<T>(operation: () => Promise<T>, preserveVisibleBlur = false): Promise<T> {
+  private async withSystemSurface<T>(operation: () => Promise<T>): Promise<T> {
+    const startedWithSession = Boolean(this.session);
     const token = Symbol('system-surface');
     this.systemSurfaceTokens.add(token);
-    if (preserveVisibleBlur) this.armSystemSurfaceHandoff();
-    else this.showPrivacyCurtain();
+    this.armSystemSurfaceHandoff();
     const owned = this.systemSurfaceHandoff;
     try {
-      return await operation();
+      if (startedWithSession && !owned) throw new DOMException('系统操作已失效', 'AbortError');
+      const result = await operation();
+      if (owned && !this.systemSurfaceHandoffValid(owned)) throw new DOMException('系统操作已失效', 'AbortError');
+      return result;
     } finally {
       this.systemSurfaceTokens.delete(token);
-      if (preserveVisibleBlur) this.completeSystemSurface(owned);
-      else {
-        this.revealReturningForeground();
-      }
+      this.completeSystemSurface(owned);
     }
   }
 
@@ -2638,9 +2658,11 @@ export class QuietRoomApp {
   private beginNativeHandoff(kind: 'picker' | 'microphone' | 'camera', timeout: number): boolean {
     if (this.invalidateKeyboardHandoff()) return false;
     this.clearNativeHandoff();
-    if (!this.session || this.privacyCovered || document.hidden || !document.hasFocus()) return false;
+    if (!this.session || this.privacyCovered || this.privacySurface.hold || document.hidden || !document.hasFocus()) return false;
     const handoff = {
       kind,
+      runtimeEpoch: this.runtimeEpoch,
+      session: this.session,
       deadline: performance.now() + timeout,
       wallDeadline: Date.now() + timeout,
       blurred: false,
@@ -2655,7 +2677,6 @@ export class QuietRoomApp {
       }
     }, timeout);
     this.nativeHandoff = handoff;
-    this.beginPrivacyHold(kind, handoff);
     return true;
   }
 
@@ -2684,7 +2705,7 @@ export class QuietRoomApp {
 
   private consumeNativeHandoffBlur(): boolean {
     const handoff = this.nativeHandoff;
-    if (!handoff || this.privacyCovered || !this.session || document.hidden || this.fileExportActive || this.systemSurfaceTokens.size > 0 ||
+    if (!handoff || !this.isRuntimeActive(handoff.runtimeEpoch, handoff.session) || document.hidden || this.fileExportActive || this.systemSurfaceTokens.size > 0 ||
         this.nativeHandoffExpired(handoff) || this.expireIdleSession()) return false;
     handoff.blurred = true;
     return true;
@@ -2706,6 +2727,11 @@ export class QuietRoomApp {
   private finishNativeHandoff(kind: 'picker' | 'microphone' | 'camera'): Promise<boolean> {
     const handoff = this.nativeHandoff;
     if (!handoff || handoff.kind !== kind) return Promise.resolve(false);
+    if (!this.isRuntimeActive(handoff.runtimeEpoch, handoff.session)) {
+      this.clearNativeHandoff(kind);
+      this.lockNow({ preserveFilePicker: false });
+      return Promise.resolve(true);
+    }
     if (this.expireNativeHandoff(handoff)) return Promise.resolve(true);
     if (!document.hidden && document.hasFocus()) {
       this.clearNativeHandoff(kind, false);
@@ -3067,7 +3093,7 @@ export class QuietRoomApp {
     if (typeof navigator.share === 'function') {
       try {
         const share = () => navigator.share({ url });
-        if (this.session) await this.withSystemSurface(share, true);
+        if (this.session) await this.withSystemSurface(share);
         else await share();
         return;
       } catch (cause) {
@@ -5822,6 +5848,28 @@ export class QuietRoomApp {
     const ownsActiveChat = () => !this.privacyCovered && this.activeSurface === 'chat'
       && this.chatLayoutElements?.list === list && this.chatLayoutElements.composer.contains(textarea)
       && list.isConnected && textarea.isConnected;
+    // Own the entire composer, including its lower safe-area padding. A miss
+    // next to Send must neither dismiss the editor nor pass through a moving
+    // toolbar. The blank area is inert; only the actual send target submits.
+    const composer = this.root.querySelector<HTMLFormElement>('#composer')!;
+    composer.addEventListener('pointerdown', event => {
+      if (!event.isPrimary || event.button !== 0 || !ownsActiveChat()
+          || !(event.target instanceof Element)) return;
+      // These navigation controls sit above the input bar and already own
+      // explicit scrolling through viewport motion.
+      if (event.target.closest('#chat-bottom-control, #chat-reply-return')) return;
+      const moving = composer.hasAttribute('data-viewport-motion');
+      if (moving) {
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      if (event.target.closest('button, input, textarea, select, a, [role="button"], .chat-tools, .meme-panel')) return;
+      if (document.activeElement !== textarea || this.voiceRecorder || this.nativeSurfaceActive()) return;
+      event.preventDefault();
+      event.stopPropagation();
+      this.keepComposerKeyboard = true;
+    }, { capture: true });
     this.mountChatImageConcealGesture(list);
     const scrollIntent = (direction: 'up' | 'down') => {
       if (!ownsActiveChat()) return;
@@ -7004,7 +7052,7 @@ export class QuietRoomApp {
       try {
         const write = this.clipboardWriteChain.catch(() => undefined).then(() => navigator.clipboard.writeText(url));
         this.clipboardWriteChain = write.catch(() => undefined);
-        await this.withSystemSurface(() => write, true);
+        await this.withSystemSurface(() => write);
         if (!this.isRuntimeActive(epoch, session) || !sheet.isConnected || generation !== this.deviceInviteGeneration) return;
         this.showNotice('链接已复制');
       } catch {
@@ -7813,7 +7861,7 @@ export class QuietRoomApp {
     button.disabled = true;
     try {
       if (wasEnabled) await disableBackgroundNotifications(session.vault);
-      else await enableBackgroundNotifications(session.vault);
+      else await this.withSystemSurface(() => enableBackgroundNotifications(session.vault));
       this.showNotice(wasEnabled
         ? '后台通知已关闭'
         : '后台通知已开启；通知只包含通用提醒，不含发送者、正文或附件信息');
@@ -9458,7 +9506,7 @@ export class QuietRoomApp {
     const isCurrent = () => this.isRuntimeActive(epoch, session)
       && this.root.querySelector('.message-actions:not(.is-closing)') === source;
     try {
-      await this.withSystemSurface(() => navigator.clipboard.writeText(text), true);
+      await this.withSystemSurface(() => navigator.clipboard.writeText(text));
       if (!isCurrent()) return;
       this.closeMessageActions(true);
       this.showNotice('已复制');
@@ -10791,7 +10839,7 @@ export class QuietRoomApp {
     } catch { /* Viewing still proceeds; persistence can retry on return. */ }
     this.root.querySelector('#copy-local-recovery')?.addEventListener('click', async () => {
       try {
-        await this.withSystemSurface(() => navigator.clipboard.writeText(codeNode.textContent ?? ''), true);
+        await this.withSystemSurface(() => navigator.clipboard.writeText(codeNode.textContent ?? ''));
         if (codeNode.isConnected) this.showNotice('恢复码已复制，请妥善保管');
       } catch { if (codeNode.isConnected) this.showNotice('复制失败，请手动保存。', 'error'); }
     });
@@ -11004,7 +11052,7 @@ export class QuietRoomApp {
     const url = jointRecoveryUrl(pending.link);
     this.paintQrCanvas(this.root.querySelector<HTMLCanvasElement>('#joint-qr')!, url);
     copy.addEventListener('click', () => {
-      void this.withSystemSurface(() => navigator.clipboard.writeText(url), true)
+      void this.withSystemSurface(() => navigator.clipboard.writeText(url))
         .then(() => { if (active()) this.showNotice('链接已复制'); })
         .catch(() => { if (active()) this.showNotice('复制失败，请让对方扫描二维码', 'error'); });
     });
@@ -11227,7 +11275,7 @@ export class QuietRoomApp {
       const payload = { title: 'Quiet Room', text: title, url: location.origin };
       try {
         if (typeof navigator.share === 'function') {
-          await this.withSystemSurface(() => navigator.share(payload), true);
+          await this.withSystemSurface(() => navigator.share(payload));
           return;
         }
       } catch (cause) {
@@ -11246,7 +11294,7 @@ export class QuietRoomApp {
       void shareEntry('保存为浏览器书签', '保存为浏览器书签', '打开系统分享菜单，选择“添加书签”。书签可能被他人看到或随浏览器同步。');
     });
     this.root.querySelector('#copy-entry-url')!.addEventListener('click', async () => {
-      try { await this.withSystemSurface(() => navigator.clipboard.writeText(location.origin), true); this.showNotice('链接已复制'); }
+      try { await this.withSystemSurface(() => navigator.clipboard.writeText(location.origin)); this.showNotice('链接已复制'); }
       catch { this.showNotice('复制失败，请手动保存当前网址', 'error'); }
     });
     this.root.querySelector('#entrance-back')!.addEventListener('click', returnToChat);

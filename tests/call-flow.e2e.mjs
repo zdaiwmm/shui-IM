@@ -25,12 +25,11 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
     await page.locator('#open-chat-tools').click();
     await page.locator(`#chat-tools #start-${kind}-call`).click();
     if (pendingPermission) {
-      // The pending native prompt owns the runtime, but its call view must
-      // remain concealed. Do not race its pre-concealment for a visible frame.
+      // The pending native prompt retains its original visible foreground UI.
       await phase(page, 'outgoing').waitFor({ state: 'attached' });
       await page.waitForFunction(() => typeof window.__callFlow.resolvePermission === 'function');
-      await page.locator('.privacy-curtain').waitFor();
-      assert.equal(await phase(page, 'outgoing').isVisible(), false, 'Pending native permission must conceal the call view');
+      assert.equal(await page.evaluate(() => document.documentElement.classList.contains('privacy-obscured')), false, 'Pending native permission must preserve the call view');
+      assert.equal(await phase(page, 'outgoing').isVisible(), true, 'Pending native permission obscured the call view');
       assert.equal(await page.locator('.cover-trigger').count(), 0, 'Pending native permission must retain its original runtime');
     } else await phase(page, 'outgoing').waitFor();
   };
@@ -231,7 +230,7 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
     await creator.evaluate(() => {
       window.dispatchEvent(new Event('focus'));
       window.dispatchEvent(new Event('blur'));
-      if (!document.documentElement.classList.contains('privacy-obscured')) throw Error('Repeated call permission blur uncovered the page');
+      if (document.documentElement.classList.contains('privacy-obscured')) throw Error('Repeated call permission blur obscured the foreground tool');
       window.dispatchEvent(new Event('pagehide'));
     });
     await creator.locator(LOCK_SURFACE).first().waitFor();

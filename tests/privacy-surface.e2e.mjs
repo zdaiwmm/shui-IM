@@ -19,11 +19,11 @@ try {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__privacy`);
   await page.evaluate(async () => {
-    for (const style of ['styles', 'cover', 'chat-layout', 'chat-interactions', 'call']) await import(`/src/${style}.css`);
+    for (const style of ['styles', 'cover', 'chat-layout', 'chat-interactions', 'voice-messages', 'call']) await import(`/src/${style}.css`);
     const { QuietRoomApp } = await import('/src/app.ts');
     const { createVault } = await import('/src/lib/vault.ts');
     const app = new QuietRoomApp(document.querySelector('#app'));
-    const own = { deviceId: 'privacy-own', role: 'creator', status: 'active', capabilities: [] };
+    const own = { deviceId: 'privacy-own', role: 'creator', status: 'active', capabilities: ['voice-message-v1'] };
     const session = await createVault({ v: 1, roomId: 'privacy-fixture', accessToken: 'fixture', role: 'creator', protocol: 'legacy-v1', lastSeq: 0, members: [own], identity: { publicBundle: own } }, 'privacy-fixture-password', 'password');
     app.updateSafetyCode = async () => {}; app.updateBackgroundNotificationControl = async () => {};
     app.uiPreferencesHydrated = true; app.uiPreferences = { recoveryReminderDismissed: true, entranceCardDismissed: true };
@@ -53,24 +53,104 @@ try {
     const invalidated = await app.finishNativeHandoff('picker');
     return { retained, focusStillCovered, invalidated, restored: !document.documentElement.classList.contains('privacy-obscured') };
   });
-  assert.deepEqual(retained, { retained: true, focusStillCovered: true, invalidated: false, restored: true });
+  assert.deepEqual(retained, { retained: true, focusStillCovered: false, invalidated: false, restored: true });
   assert.equal(await page.evaluate(async () => {
     const { app, fresh, blur, focus } = window.fixture; fresh();
     app.beginNativeHandoff('camera', 30000); blur();
     const result = app.finishNativeHandoff('camera');
     const covered = document.documentElement.classList.contains('privacy-obscured');
     focus();
-    return covered && !(await result) && !document.documentElement.classList.contains('privacy-obscured');
-  }), true, 'Result-before-focus did not remain covered until settlement');
+    return !covered && !(await result) && !document.documentElement.classList.contains('privacy-obscured');
+  }), true, 'Result-before-focus interrupted the visible foreground tool');
   assert.equal(await page.evaluate(async () => {
     const { app, fresh, blur, silentFocus } = window.fixture; fresh();
     let complete;
-    const operation = app.withSystemSurface(() => new Promise(resolve => { complete = resolve; }), true);
+    const operation = app.withSystemSurface(() => new Promise(resolve => { complete = resolve; }));
     blur(); blur(); complete(); await operation;
     const held = document.documentElement.classList.contains('privacy-obscured');
     silentFocus(); await new Promise(resolve => setTimeout(resolve, 100));
-    return held && !app.privacyCovered && !document.documentElement.classList.contains('privacy-obscured');
+    return !held && !app.privacyCovered && !document.documentElement.classList.contains('privacy-obscured');
   }), true, 'Silent actual focus after a completed system operation remained stuck');
+
+  // No proactive flash, including rejected/cancelled APIs and overlapping
+  // operations. An earlier completion cannot release a newer operation.
+  for (const outcome of ['success', 'failure', 'overlap', 'stale', 'timeout']) {
+    assert.equal(await page.evaluate(async outcome => {
+      const { app, fresh, blur, focus } = window.fixture; fresh();
+      let flashed = false;
+      const observer = new MutationObserver(records => {
+        flashed ||= records.some(record => record.oldValue?.includes('privacy-obscured'))
+          || document.documentElement.classList.contains('privacy-obscured');
+      });
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+      let complete;
+      const first = app.withSystemSurface(() => new Promise((resolve, reject) => { complete = outcome === 'failure' ? reject : resolve; }));
+      const caught = first.then(() => false, () => true);
+      const owner = app.systemSurfaceHandoff;
+      blur(); blur();
+      let second;
+      if (outcome === 'overlap') {
+        focus(); second = app.withSystemSurface(() => new Promise(resolve => { window.finishSecondTool = resolve; }));
+        if (app.systemSurfaceHandoff !== owner) return false;
+      }
+      if (outcome === 'stale') { app.lockNow(); focus(); fresh(); }
+      if (outcome === 'timeout') { owner.wallDeadline = Date.now() - 1; app.expireSystemSurfaceHandoff(owner); }
+      complete(outcome === 'failure' ? new DOMException('Cancelled', 'AbortError') : 'done');
+      const rejected = await caught;
+      if (second) {
+        if (!app.systemSurfaceHandoff || app.systemSurfaceTokens.size !== 1) return false;
+        window.finishSecondTool(); await second;
+      }
+      focus(); await new Promise(resolve => requestAnimationFrame(resolve)); observer.disconnect();
+      if (outcome === 'timeout') return rejected && app.privacyCovered && !app.session;
+      if (outcome === 'stale') return rejected && app.session && !app.privacyCovered && !app.systemSurfaceHandoff;
+      return !flashed && !app.privacyCovered && !app.systemSurfaceHandoff && !app.systemSurfaceTokens.size
+        && rejected === (outcome === 'failure');
+    }, outcome), true, `Foreground system ${outcome} broke its owner or flashed a curtain`);
+  }
+
+  // The unchanged circle has a larger hit region. Its lower miss area and
+  // toolbar motion absorb real pointer clicks without blur or submission.
+  for (const width of [320, 390, 1024]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.evaluate(() => {
+      window.fixture.fresh(); window.sendCount = 0;
+      window.fixture.app.handleSendText = event => { event.preventDefault(); window.sendCount++; };
+
+    });
+    await page.locator('#message-input').fill('发送区合成草稿');
+    await page.waitForTimeout(260);
+    await page.waitForFunction(() => !document.querySelector('#composer').hasAttribute('data-viewport-motion'));
+    const points = await page.evaluate(() => {
+      const send = document.querySelector('#send-text'), bounds = send.getBoundingClientRect();
+      const composer = document.querySelector('#composer').getBoundingClientRect();
+      const x = bounds.left + bounds.width / 2;
+      const edge = { x, y: bounds.bottom + 3 };
+      const blank = { x, y: composer.bottom - 2 };
+      return { edge, blank, hit: document.elementFromPoint(edge.x, edge.y)?.closest('#send-text') === send,
+        size: [bounds.width, bounds.height] };
+    });
+    assert.deepEqual(points.size, [34, 34]); assert.equal(points.hit, true, '44px hit region missing');
+    await page.mouse.click(points.blank.x, points.blank.y);
+    assert.equal(await page.evaluate(() => window.sendCount === 0 && document.activeElement?.id === 'message-input'
+      && !document.documentElement.classList.contains('privacy-obscured')), true, `Lower composer miss blurred/submitted at ${width}`);
+    await page.mouse.click(points.edge.x, points.edge.y);
+    assert.equal(await page.evaluate(() => window.sendCount), 1, `Send edge missed at ${width}`);
+    await page.evaluate(() => document.querySelector('#composer').dataset.viewportMotion = 'keyboard');
+    await page.mouse.click(points.edge.x, points.edge.y);
+    assert.equal(await page.evaluate(() => window.sendCount === 1 && document.activeElement?.id === 'message-input'), true,
+      `Moving composer passed through a click at ${width}`);
+    assert.equal(await page.evaluate(() => {
+      const app = window.fixture.app;
+      const input = document.querySelector('#image-input');
+      input.addEventListener('click', event => event.preventDefault(), { capture: true, once: true });
+      input.click();
+      const owned = app.imagePickerInput === input && app.imagePickerActive && !!app.nativeHandoff;
+      app.abandonImagePicker();
+      return owned;
+    }), true, `Moving composer intercepted native file activation at ${width}`);
+    await page.evaluate(() => delete document.querySelector('#composer').dataset.viewportMotion);
+  }
 
   for (const width of [320, 390, 1024]) {
     await page.setViewportSize({ width, height: width === 1024 ? 480 : 844 });

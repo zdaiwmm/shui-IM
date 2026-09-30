@@ -676,7 +676,7 @@ try {
   await creator.locator('#open-image-picker').click();
   invariant(await creator.evaluate(() => document.activeElement?.id !== 'message-input'), 'Tool panel did not dismiss the keyboard');
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
-  invariant(await creator.locator('.chat-shell').count() === 1 && await creator.evaluate(() => document.documentElement.classList.contains('privacy-obscured')), 'Owned foreground picker blur lost the retained session or uncovered the conversation');
+  invariant(await creator.locator('.chat-shell').count() === 1 && await creator.evaluate(() => !document.documentElement.classList.contains('privacy-obscured')), 'Owned foreground picker blur obscured the conversation or lost its session');
   await creator.evaluate(() => window.dispatchEvent(new Event('focus')));
   const retainedFocusImageIndex = await creator.locator('.message.outgoing .image-preview').count();
   await creator.locator('#image-input').setInputFiles({ ...image, name: 'keyboard-retained.svg' });

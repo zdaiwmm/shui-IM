@@ -21,8 +21,21 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
     };
   });
   const start = async () => {
+    await creator.evaluate(() => {
+      window.__voicePermissionFlashed = false;
+      window.__voicePermissionObserver = new MutationObserver(records => {
+        window.__voicePermissionFlashed ||= records.some(record => record.oldValue?.includes('privacy-obscured'))
+          || document.documentElement.classList.contains('privacy-obscured');
+      });
+      window.__voicePermissionObserver.observe(document.documentElement,
+        { attributes: true, attributeFilter: ['class'], attributeOldValue: true });
+    });
     await creator.locator('#message-input').press('Alt+r');
     await creator.locator('.voice-recorder[data-state="recording"]').waitFor();
+    assert.equal(await creator.evaluate(() => {
+      window.__voicePermissionObserver.disconnect();
+      return window.__voicePermissionFlashed;
+    }), false, 'Granted microphone permission flashed the curtain');
   };
   const pause = async () => {
     await creator.getByRole('button', { name: '暂停录音', exact: true }).click();
@@ -177,7 +190,7 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
   assert.equal(await creator.locator('.cover-trigger').count(), 0, 'The first visible native permission blur must retain its requesting UI');
   await creator.evaluate(() => { window.dispatchEvent(new Event('focus')); window.dispatchEvent(new Event('blur')); });
-  assert.equal(await creator.evaluate(() => document.documentElement.classList.contains('privacy-obscured')), true, 'Repeated permission blur uncovered the page');
+  assert.equal(await creator.evaluate(() => document.documentElement.classList.contains('privacy-obscured')), false, 'Repeated permission blur obscured the foreground recorder');
   await creator.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   await creator.locator(LOCK_SURFACE).first().waitFor();
   await creator.evaluate(async () => {
