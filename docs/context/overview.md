@@ -73,6 +73,8 @@
 
 ## 测试命令的准确含义
 
+架构资源边界：`server/byte-budget.mjs`、`server/socket-budget.mjs`、`src/lib/history-projection.ts`、`scripts/backup-state.mjs`／`backup-health.mjs`。构建新增 `tsconfig.resource-boundaries.json` 严格 checkJs；定向回归为 `tests/resource-bounds.test.ts`，加密历史对照测量是手动 `node tests/history-memory.benchmark.mjs`，不属于正确性门禁。协议、预算与实际证据见[逐项验收](../requirements/2026-09-30-architecture-resource-optimization/README.md)和[测量限制](../requirements/2026-09-30-architecture-resource-optimization/measurements.md)。
+
 本地聊天备份：`LOCAL_HISTORY_BACKUPS.md`、`src/lib/local-archive.ts`、`src/lib/local-history-backup.ts`、`src/lib/local-backup-file.ts`；回归为 `tests/local-archive.test.ts` 和 `tests/local-history-backup.e2e.mjs`。双人恢复协议为 `src/lib/joint-recovery.ts` 与 `tests/joint-recovery.test.ts` / `tests/joint-recovery.e2e.mjs`。旧自动备份隐藏入口为 `#legacy-backup` 与 `#legacy-recovery`。
 
 聊天遮蔽位图实现见 `src/lib/concealed-image.ts`；高斯像素验证为

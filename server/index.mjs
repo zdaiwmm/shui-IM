@@ -1,3 +1,4 @@
+import { createSocketBudget, SOCKET_LIMITS } from './socket-budget.mjs';
 import { createServer as createHttpServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
@@ -293,8 +294,30 @@ export async function startServer(options = {}) {
     return current.count <= limit;
   }
 
-  function send(socket, value) {
-    if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(value));
+  function closeOverloaded(socket, notify = false) {
+    const legacy = socketSessions.get(socket)?.bytePages === false;
+    if (legacy && notify) send(socket, { type: 'error', code: 'SYNC_UPGRADE_REQUIRED',
+      message: '积压数据超过旧版传输容量，请刷新页面后连接' });
+    socket.close(legacy ? 4403 : 4413, legacy ? 'Client upgrade required: capacity exceeded' : 'Transport capacity exceeded');
+  }
+  const transportBudget = createSocketBudget({}, socket => closeOverloaded(socket));
+  const send = (socket, value) => transportBudget.send(socket, value);
+
+  function sendSync(socket, session, afterSeq) {
+    const page = store.messagePage(session.roomId, afterSeq, session.deviceId,
+      session.bytePages ? 1024 ** 2 : SOCKET_LIMITS.outputPerSocket - 256);
+    if (!session.bytePages && page.hasMore && page.messages.length < 500) {
+      send(socket, { type: 'error', code: 'SYNC_UPGRADE_REQUIRED', message: '积压消息超过旧版同步容量，请刷新页面后连接' });
+      socket.close(4403, 'Client upgrade required'); return;
+    }
+    send(socket, session.bytePages ? { type: 'sync', ...page } : { type: 'sync', messages: page.messages });
+  }
+
+  function sendReceiptSync(socket, session, afterReceiptSeq) {
+    const receipts = store.receiptsAfter(session.roomId, afterReceiptSeq, 500, session.deviceId);
+    const nextReceiptSeq = receipts.at(-1)?.receiptSeq ?? afterReceiptSeq;
+    send(socket, { type: 'receiptSync', receipts, ...(session.bytePages ? { nextReceiptSeq,
+      hasMore: receipts.length === 500 } : {}) });
   }
 
   const callService = createCallService({
@@ -931,7 +954,12 @@ export async function startServer(options = {}) {
         if (!device) { json(request, response, 401, { error: 'UNAUTHORIZED' }); return; }
         const after = Number(url.searchParams.get('after') ?? 0);
         if (!Number.isSafeInteger(after) || after < 0) throw new Error('INVALID_MESSAGE');
-        json(request, response, 200, { messages: store.messagesAfter(roomId, after, 500, device.deviceId) });
+        const bytePages = url.searchParams.get('syncProtocol') === 'byte-pages-v1';
+        const page = store.messagePage(roomId, after, device.deviceId, bytePages ? 1024 ** 2 : SOCKET_LIMITS.outputPerSocket - 256);
+        if (!bytePages && page.hasMore && page.messages.length < 500) {
+          json(request, response, 409, { error: '积压消息超过旧版同步容量，请刷新页面', code: 'SYNC_UPGRADE_REQUIRED' }); return;
+        }
+        json(request, response, 200, bytePages ? page : { messages: page.messages });
         return;
       }
 
@@ -1247,7 +1275,10 @@ export async function startServer(options = {}) {
         socket.close(4429, 'Rate limit exceeded');
         return;
       }
+      const releaseInput = transportBudget.reserveInput(socket, raw.length);
+      if (!releaseInput) { closeOverloaded(socket, true); return; }
       processing = processing.then(async () => {
+        if (socket.readyState !== WebSocket.OPEN) return;
         let rejectedClientMsgId;
         try {
           const message = JSON.parse(raw.toString());
@@ -1286,7 +1317,7 @@ export async function startServer(options = {}) {
             const capabilitiesChanged = offeredCapabilities !== null &&
               JSON.stringify(device.capabilities ?? []) !== JSON.stringify([...new Set(offeredCapabilities)]);
             if (capabilitiesChanged) store.updateMemberCapabilities(message.roomId, device.deviceId, offeredCapabilities);
-            session = { roomId: message.roomId, deviceId: device.deviceId, role: device.role, view: 'away',
+            session = { bytePages: message.syncProtocol === 'byte-pages-v1', roomId: message.roomId, deviceId: device.deviceId, role: device.role, view: 'away',
               ...(message.callIdentity ? { callIdentity: message.callIdentity } : {}) };
             if ((clientsByRoom.get(session.roomId)?.size ?? 0) >= maxConnectionsPerRoom) {
               socket.close(4429, 'Room connection limit exceeded');
@@ -1298,24 +1329,8 @@ export async function startServer(options = {}) {
             const state = store.roomState(session.roomId);
             send(socket, { type: 'ready', state: publicState(state) });
             callService.rebind(socket, session);
-            send(socket, {
-              type: 'sync',
-              messages: store.messagesAfter(
-                session.roomId,
-                Number.isSafeInteger(message.afterSeq) && message.afterSeq >= 0 ? message.afterSeq : 0,
-                500,
-                session.deviceId,
-              ),
-            });
-            send(socket, {
-              type: 'receiptSync',
-              receipts: store.receiptsAfter(
-                session.roomId,
-                Number.isSafeInteger(message.afterReceiptSeq) && message.afterReceiptSeq >= 0 ? message.afterReceiptSeq : 0,
-                500,
-                session.deviceId,
-              ),
-            });
+            sendSync(socket, session, Number.isSafeInteger(message.afterSeq) && message.afterSeq >= 0 ? message.afterSeq : 0);
+            sendReceiptSync(socket, session, Number.isSafeInteger(message.afterReceiptSeq) && message.afterReceiptSeq >= 0 ? message.afterReceiptSeq : 0);
             send(socket, presenceFrame(session.roomId));
             if (capabilitiesChanged) broadcast(session.roomId, { type: 'membership', state: publicState(state) });
             return;
@@ -1349,28 +1364,11 @@ export async function startServer(options = {}) {
           }
 
           if (message.type === 'sync') {
-            send(socket, {
-              type: 'sync',
-              messages: store.messagesAfter(
-                session.roomId,
-                Number.isSafeInteger(message.afterSeq) && message.afterSeq >= 0 ? message.afterSeq : 0,
-                500,
-                session.deviceId,
-              ),
-            });
+            sendSync(socket, session, Number.isSafeInteger(message.afterSeq) && message.afterSeq >= 0 ? message.afterSeq : 0);
             return;
           }
-
           if (message.type === 'receiptSync') {
-            send(socket, {
-              type: 'receiptSync',
-              receipts: store.receiptsAfter(
-                session.roomId,
-                Number.isSafeInteger(message.afterReceiptSeq) && message.afterReceiptSeq >= 0 ? message.afterReceiptSeq : 0,
-                500,
-                session.deviceId,
-              ),
-            });
+            sendReceiptSync(socket, session, Number.isSafeInteger(message.afterReceiptSeq) && message.afterReceiptSeq >= 0 ? message.afterReceiptSeq : 0);
             return;
           }
 
@@ -1430,6 +1428,10 @@ export async function startServer(options = {}) {
           if (!sender || sender.status !== 'active' || sender.deviceId !== session.deviceId || !(await verifyEnvelopeSignature(message.envelope, sender.signingKey))) {
             send(socket, { type: 'error', code: 'INVALID_SIGNATURE', message: '消息签名验证失败' });
             return;
+          }
+          if (socket.readyState !== WebSocket.OPEN) return;
+          if (store.getMember(session.roomId, session.deviceId)?.status !== 'active' || store.deviceRecoveryPending(session.roomId, session.deviceId)) {
+            socket.close(4403, 'Device no longer active'); return;
           }
           // A reconnect may replay an envelope that the server accepted before
           // the sender durably removed its local outbox row. A later membership
@@ -1492,7 +1494,7 @@ export async function startServer(options = {}) {
           const [, message, code] = normalizeError(error);
           send(socket, { type: 'error', code, message, ...(rejectedClientMsgId ? { clientMsgId: rejectedClientMsgId } : {}) });
         }
-      });
+      }).finally(releaseInput);
     });
 
     socket.on('close', () => clearTimeout(authTimeout));

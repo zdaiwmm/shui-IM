@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 架构资源优化候选验收完成（2026-09-30）
+
+- 用户明确按复审方案实施并逐项验收，本次不制作原型。源分支起点 `5bb99efe862794f1abfd9a86b9ff4acbb3371091`，源 head `cefa3c64f6c4bdda5d8115a028cbc3f491d7f0e2` 的全部门禁通过，旧 [PR #233](https://github.com/zdaiwmm/shui-IM/pull/233) 已关闭，由独立集成分支 `codex/architecture-resource-integration-20260930`、[PR #235](https://github.com/zdaiwmm/shui-IM/pull/235) 交付。先固定 H5 主线 `e2102c92685d0ce49d0a663f9fdeb0d088aee490` 组合验收；合并前新增的发布对账主线 `aaae1818b2d6d34506339306c227e6eb218e7bd3` 仅改三个文档，因 status 冲突在同一集成树保留双方事实，没有改变产品／测试代码。组合版本 `2026.09.30.2`；本任务不发布生产。
+- 已实现按字节查询分页、连接／全局积压预算、8条／512KiB持久补发窗口、表情采集整体预约、三路严格历史归并、备份健康与异地快照时间对账。产品与测试候选 `2575cdf92c5a97cb30eda4a48c37fa0303948658` 的本地构建／774项／49个浏览器入口全部通过（567.139秒），原生通话／视图／20种合成弱网通过（95.236秒），[精确候选完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36683710450)全部通过。后续仅文档合并，比较产品／测试文件树不变并运行文档检查及精确PR必需CI；合并与主线回查完成前不将F02算通过。
+- [17项逐条清单](../requirements/2026-09-30-architecture-resource-optimization/README.md)当前15项通过、A04生产灾备未验证、F02交付回查待完成。历史夹具与产品失败均保留；[收益及限制](../requirements/2026-09-30-architecture-resource-optimization/measurements.md)记录合成历史采样JS堆增量约32%改善，不是RSS或稳定延迟承诺。SQLite计数器／进程拆分按测量延期。生产容量、本地／异地实际恢复、告警送达与iPhone实测未验收；下方H5发布记录为另一任务证据，本任务没有重新访问生产，也不继承其发布授权。
+
 ## H5 遮蔽 V2 已发布，真机验收待完成（2026-09-30）
 
 - 独立分支 `codex/h5-privacy-v2`，基线 `5bb99efe862794f1abfd9a86b9ff4acbb3371091`。用户明确执行方案并逐项验收，随后纠正本次无新页面/交互、无需原型；相关原型已移除，沿用现有外观与入口。局部改造分离临时遮蔽和真正锁定，已归属工具也持续遮蔽，重复失焦不续期，后台/超时/显式锁始终优先。详细修改与 A01–A12 结果见[需求记录](../requirements/2026-09-30-h5-privacy-v2/README.md)。

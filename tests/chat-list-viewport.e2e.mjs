@@ -188,7 +188,7 @@ try {
     input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromComposition' }));
   });
   await settled();
-  await page.waitForTimeout(50);
+  await page.waitForFunction(() => document.querySelector('#message-input').getBoundingClientRect().height < 50);
   assert.ok(await page.locator('#message-input').evaluate(input => input.getBoundingClientRect().height < 50));
   await page.locator('#message-input').fill('First line\nSecond line\nThird line\nFourth line\nFifth line\nSixth line');
   await settled();

@@ -1287,6 +1287,23 @@ export async function createStore({
     }));
   }
 
+  // iterate reads at most one candidate beyond the byte/count boundary. Never
+  // materialize 500 large envelopes before deciding that a page is too large.
+  function messagePage(roomId, afterSeq, deviceId, maxBytes = 1024 ** 2) {
+    const joinSeq = getMember(roomId, deviceId)?.joinSeq ?? Number.MAX_SAFE_INTEGER;
+    const messages = [];
+    let bytes = 256; // Frame keys/cursor reserve, final serialized size is checked by transport too.
+    let hasMore = false;
+    for (const row of statements.messagesAfter.iterate(roomId, afterSeq, joinSeq, 501)) {
+      const size = Buffer.byteLength(row.envelope) + Buffer.byteLength(row.accepted_at) + 96;
+      if (messages.length >= 500 || bytes + size > maxBytes) { hasMore = true; break; }
+      messages.push({ seq: row.server_seq, envelope: JSON.parse(row.envelope), acceptedAt: row.accepted_at });
+      bytes += size;
+    }
+    if (hasMore && !messages.length) throw new Error('SYNC_RECORD_TOO_LARGE');
+    return { messages, hasMore, nextSeq: messages.at(-1)?.seq ?? Math.max(afterSeq, joinSeq) };
+  }
+
   function insertReceipt(roomId, receipt) {
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -1556,6 +1573,7 @@ export async function createStore({
     repairLinkStatus,
     deviceLinksForRoom,
     messagesAfter,
+    messagePage,
     assertFreshWindowSend,
     currentMlsEpoch(roomId) { const room = statements.room.get(roomId); return room ? room.next_mls_event_seq - room.mls_epoch_offset + 1 : null; },
     mlsEventsAfter,

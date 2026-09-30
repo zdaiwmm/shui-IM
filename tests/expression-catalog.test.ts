@@ -8,7 +8,7 @@ import { createExpressionCatalog } from '../server/expression-catalog.mjs';
 import { wastickers } from './fixtures/wastickers.mjs';
 
 const cleanup: (() => Promise<void>)[] = [];
-afterEach(async () => { for (const close of cleanup.splice(0)) await close(); });
+afterEach(async () => { for (const close of cleanup.splice(0)) await close(); vi.useRealTimers(); });
 const gif = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAAAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
 const id = 'a'.repeat(32), key = 'ab'.repeat(32);
 const schema = protobuf.parse('syntax="proto2"; message Pack { message Sticker { optional uint32 id=1; } repeated Sticker stickers=4; }').root.lookupType('Pack');
@@ -21,7 +21,7 @@ function seal(bytes: Buffer) {
 async function fixture() {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'expression-catalog-'));
   const manifest = seal(Buffer.from(schema.encode(schema.create({ stickers: [{ id: 0 }, { id: 1 }] })).finish()));
-  const fetchResource = vi.fn(async (url: string) => url.endsWith('/packs/') ? Buffer.from(JSON.stringify([
+  const fetchResource = vi.fn(async (url: string, _maximum?: number, _signal?: AbortSignal) => url.endsWith('/packs/') ? Buffer.from(JSON.stringify([
     { meta: { id, key, animated: true, tags: ['cat'] }, manifest: { title: 'Cat collection', author: 'Fixture' } },
   ])) : url.endsWith('manifest.proto') ? manifest : seal(gif));
   let service = createExpressionCatalog({ dataDir, fetchResource });
@@ -35,6 +35,35 @@ async function finished(service: ReturnType<typeof createExpressionCatalog>) {
   return service.jobs()[0];
 }
 describe('managed expression catalog', () => {
+  it('times out active and budget-waiting acquisitions and releases every reservation', async () => {
+    vi.useFakeTimers(); const f = await fixture(); const original = f.fetchResource.getMockImplementation()!;
+    f.fetchResource.mockImplementation(async (url, maximum, signal) => {
+      if (url.includes('/full/')) return new Promise<Buffer>((_resolve, reject) => {
+        if (signal?.aborted) reject(signal.reason);
+        else signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+      return original(url, maximum, signal);
+    });
+    for (let index = 0; index < 10; index++) f.service.start({ kind: 'stickers', keyword: 'cat', target: 1 });
+    await vi.waitFor(() => expect(f.service.resourceUsage().waiting).toBe(9));
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
+    expect(f.service.jobs().every(job => job.status === 'failed' && job.error === '采集超时，请重试')).toBe(true);
+    expect(f.service.resourceUsage()).toMatchObject({ used: 0, waiting: 0 });
+  });
+  it('shuts down active and budget-waiting jobs without later writes', async () => {
+    const f = await fixture(); const original = f.fetchResource.getMockImplementation()!;
+    f.fetchResource.mockImplementation(async (url, maximum, signal) => {
+      if (url.includes('/full/')) return new Promise<Buffer>((_resolve, reject) => {
+        if (signal?.aborted) reject(signal.reason);
+        else signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+      return original(url, maximum, signal);
+    });
+    for (let index = 0; index < 10; index++) f.service.start({ kind: 'stickers', keyword: 'cat', target: 1 });
+    await vi.waitFor(() => expect(f.service.resourceUsage().waiting).toBe(9));
+    await f.service.close();
+    expect(f.service.resourceUsage()).toMatchObject({ used: 0, waiting: 0 });
+  });
   it('updates selected statuses atomically without overwriting metadata and revokes public access', async () => {
     const f = await fixture();
     const a = await f.service.create(upload('gifs', 'First'));
@@ -206,9 +235,13 @@ describe('managed expression catalog', () => {
     for (let index = 0; index < 7; index++) f.service.start({ kind: 'gifs', keyword: 'cat', target: 1 });
     expect(f.service.jobs().filter(job => job.status === 'running')).toHaveLength(10);
     expect(f.service.jobs().filter(job => job.status === 'queued')).toHaveLength(1);
+    expect(f.service.resourceUsage().used).toBeLessThanOrEqual(f.service.resourceUsage().limit);
+    expect(f.service.resourceUsage().waiting).toBeGreaterThan(0);
+    expect(f.service.jobs().filter(job => job.resourceState === 'active')).toHaveLength(1);
     expect(f.service.list({ ...search('stickers'), status: 'published' }).total).toBe(0);
     release();
     await vi.waitFor(() => expect(f.service.jobs().every(job => !['running', 'queued'].includes(job.status))).toBe(true));
+    expect(f.service.resourceUsage()).toMatchObject({ used: 0, waiting: 0 });
     expect(f.service.detail(id).status).toBe('published');
     const completed = f.service.jobs().find(job => job.id === first.id);
     expect(completed).toMatchObject({ downloadedFiles: 2, totalFiles: 2, downloadedBytes: gif.length * 2 });
@@ -236,6 +269,7 @@ describe('managed expression catalog', () => {
     release();
     await vi.waitFor(() => expect(f.service.jobs().every(job => !['running', 'queued'].includes(job.status))).toBe(true));
     expect(f.service.jobs().every(job => ['completed', 'cancelled', 'failed'].includes(job.status))).toBe(true);
+    expect(f.service.resourceUsage()).toMatchObject({ used: 0, waiting: 0 });
   });
   it('deduplicates and caches validated source previews and uses stored covers after collection', async () => {
     const f = await fixture();

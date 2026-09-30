@@ -499,9 +499,18 @@ try {
     const restoredGif=await vault.loadMemeFavoriteFile(session,gifItem,controller.signal);
     if(restoredGif.size!==gif.size || restoredGif.type!=='image/gif') throw new Error('GIF bytes or type changed');
     await vault.removeMemeFavorite(session,gifItem.id,controller.signal);
-    const installed=(await vault.loadStickerPacks(session))[0];
-    const restored=await vault.loadMemeFavoriteFile(session,installed.items[0],controller.signal);
-    if(restored.size!==files[0].size) throw new Error('Installed pack original changed');
+    const installed=(await vault.loadStickerPacks(session)).find(pack=>pack.id==='a'.repeat(32));
+    if(!installed || installed.items.length!==3) throw new Error('Installed source pack missing');
+    // Shortcut reordering and unrelated favorites do not identify an original.
+    // Verify all three exact source files through their authenticated digest.
+    for(const original of files.slice(0,3)) {
+      const bytes=new Uint8Array(await original.arrayBuffer());
+      const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(byte=>byte.toString(16).padStart(2,'0')).join('');
+      const member=installed.items.find(item=>item.digest===digest);
+      if(!member) throw new Error(`Installed pack source missing: ${original.name}`);
+      const restored=await vault.loadMemeFavoriteFile(session,member,controller.signal);
+      if(restored.size!==original.size || JSON.stringify([...new Uint8Array(await restored.arrayBuffer())])!==JSON.stringify([...bytes])) throw new Error('Installed pack original changed');
+    }
     try { await vault.installStickerPack(stale,'b'.repeat(32),'Stale pack',[files[0]],controller.signal); throw new Error('Stale pack install succeeded'); }
     catch(error) { if(error.message==='Stale pack install succeeded') throw error; }
     try { await vault.removeStickerPack(session,installed.id,cancelled.signal); throw new Error('Cancelled pack removal succeeded'); }

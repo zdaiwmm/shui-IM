@@ -1,3 +1,4 @@
+import { createByteBudget } from './byte-budget.mjs';
 import { createNotoSource } from './noto-source.mjs';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
@@ -11,6 +12,9 @@ const MAX_PACK = 50 * 1024 * 1024;
 const MAX_STORAGE = 1024 * 1024 * 1024;
 const MAX_RUNNING_JOBS = 10;
 const PACK_DOWNLOAD_CONCURRENCY = 4;
+// Retained package + raw/concat/decryption per downloader + one SQLite bind.
+const STICKER_JOB_BYTES = MAX_PACK + PACK_DOWNLOAD_CONCURRENCY * (3 * MAX_IMAGE + 64) + MAX_IMAGE;
+const GIF_JOB_BYTES = 4 * MAX_IMAGE + 64;
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const fail = code => { throw new Error(code); };
 
@@ -27,7 +31,7 @@ function metadata(body) {
   return [body.title.trim(), body.tags, body.status];
 }
 
-export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeResource, now = Date.now }) {
+export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeResource, now = Date.now, acquisitionBudgetBytes = 192 * 1024 ** 2 }) {
   // The existing online SQLite snapshot includes public catalog originals too.
   const db = new DatabaseSync(path.join(dataDir, 'quiet-room.sqlite'), { timeout: 5000 });
   db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
@@ -46,6 +50,7 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
   for (const row of db.prepare('SELECT * FROM jobs').all()) {
     const job = JSON.parse(row.body);
     if (['running', 'queued'].includes(job.status)) {
+      job.resourceState = 'released';
       job.status = 'failed'; job.error = '服务重启，任务未完成，可重试'; job.finished = now(); job.phase = 'finished';
       db.prepare('UPDATE jobs SET body=? WHERE id=?').run(JSON.stringify(job), row.id);
     } else if (job.status === 'exists') {
@@ -60,6 +65,7 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
   const entryId = (row, kind, itemId = 0) => row.id.startsWith('noto-') ? row.id : kind === 'gifs' ? `gif-${row.id}-${itemId}` : row.id;
   const grants = new Map();
   const running = new Set();
+  const acquisitionBudget = createByteBudget(acquisitionBudgetBytes);
   const controllers = new Map();
   let closing = false;
   const queue = [];
@@ -117,11 +123,13 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
         job.downloadedFiles++; job.downloadedBytes += bytes.length; saveJob(job);
       }
     };
+    const workers = Array.from({ length: Math.min(PACK_DOWNLOAD_CONCURRENCY, pack.items.length) }, worker);
     try {
-      await Promise.all(Array.from({ length: Math.min(PACK_DOWNLOAD_CONCURRENCY, pack.items.length) }, worker));
+      await Promise.all(workers);
       return files;
     } catch (error) {
       packController.abort(error);
+      await Promise.allSettled(workers); // Keep the reservation until every downloader has released its buffers.
       throw error;
     }
   }
@@ -187,13 +195,29 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       job.status = 'running'; job.started = now(); job.phase = 'directory'; saveJob(job);
       const controller = new AbortController(); controllers.set(job.id, controller);
       const timeout = setTimeout(() => controller.abort('timeout'), 10 * 60_000);
-      const promise = collect(job, body, controller.signal).finally(() => {
+      job.resourceState = 'waiting'; saveJob(job);
+      const promise = (async () => {
+        let release;
+        try {
+          release = await acquisitionBudget.acquire(body.kind === 'stickers' ? STICKER_JOB_BYTES : GIF_JOB_BYTES, controller.signal);
+          controller.signal.throwIfAborted();
+          job.resourceState = 'active'; saveJob(job);
+          await collect(job, body, controller.signal);
+        } catch (error) {
+          job.status = controller.signal.reason === 'cancelled' ? 'cancelled' : 'failed';
+          job.error = job.status === 'cancelled' ? '' : controller.signal.reason === 'timeout' ? '采集超时，请重试' : '采集未完成，请重试';
+          job.finished = now(); job.phase = 'finished';
+        } finally {
+          release?.(); job.resourceState = 'released'; saveJob(job);
+        }
+      })().finally(() => {
         clearTimeout(timeout); running.delete(promise); controllers.delete(job.id); runNext();
       });
       running.add(promise);
     }
   }
   const service = {
+    resourceUsage: () => acquisitionBudget.snapshot(),
     async sourceSearch(body, signal) {
       query(body);
       const rows = matchStickerPacks(await channelSource(body.channel).list(signal), body.keyword, body.kind === 'gifs');
@@ -401,6 +425,7 @@ export function createExpressionCatalog({ dataDir, fetchResource = fetchMemeReso
       return service.start({ channel: job.channel, sourceId: job.sourceId, keyword: job.keyword ?? '', kind: job.kind, target: job.target });
     },
     async close() {
+      if (closing) { await Promise.all(running); return; }
       closing = true;
       for (const { job } of queue.splice(0)) { job.status = 'failed'; job.error = '服务停止，任务未完成，可重试'; job.finished = now(); job.phase = 'finished'; saveJob(job); }
       for (const controller of controllers.values()) controller.abort('shutdown');

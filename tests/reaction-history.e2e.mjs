@@ -83,6 +83,28 @@ try {
     const reactions = await loadReactionHistory(session);
     const badges = reduceMessageReactions([target, ...reactions], new Map([[senderId, 'creator']]));
 
+    // Compare duplicate ordinary bodies as well as events, before releasing
+    // each sequence. Status-only duplicates remain compatible across restore.
+    const copiesDb = await new Promise((resolve, reject) => { const request = indexedDB.open('quiet-room'); request.onsuccess = () => resolve(request.result); request.onerror = () => reject(request.error); });
+    const mutate = operations => new Promise((resolve, reject) => {
+      const tx = copiesDb.transaction(['history', 'galleryHistory', 'restoredGallery'], 'readwrite');
+      operations(tx); tx.oncomplete = resolve; tx.onerror = () => reject(tx.error);
+    });
+    await mutate(tx => { tx.objectStore('galleryHistory').put(validRecords[4]); tx.objectStore('restoredGallery').put(validRecords[404]); });
+    const duplicated = await loadReactionHistory(session);
+    const conflict = { ...target, payload: { ...target.payload, text: 'conflicting restored body' } };
+    const conflictIv = crypto.getRandomValues(new Uint8Array(12));
+    const conflictCipher = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: conflictIv, additionalData: encoder.encode(`quiet-room-history-v1:${roomId}:1`) }, key, encoder.encode(JSON.stringify(conflict)));
+    await mutate(tx => tx.objectStore('galleryHistory').put({ ...validRecords[0], iv: toBase64Url(conflictIv), ciphertext: toBase64Url(conflictCipher) }));
+    let conflictClosed = false;
+    try { await loadReactionHistory(session); } catch (error) { conflictClosed = error.message.includes('冲突'); }
+    await mutate(tx => { tx.objectStore('galleryHistory').delete(`${roomId}:1`); tx.objectStore('history').delete(`${roomId}:300`); });
+    session.vault.lastSeq = 450;
+    let missingClosed = false;
+    try { await loadReactionHistory(session); } catch (error) { missingClosed = error.message.includes('300 缺失'); }
+    await mutate(tx => { tx.objectStore('history').put(validRecords[299]); tx.objectStore('galleryHistory').clear(); tx.objectStore('restoredGallery').clear(); });
+    copiesDb.close();
+
     const controller = new AbortController();
     const originalDecrypt = crypto.subtle.decrypt.bind(crypto.subtle);
     let decryptions = 0;
@@ -96,6 +118,9 @@ try {
     catch (error) { abortName = error.name; }
     finally { Object.defineProperty(crypto.subtle, 'decrypt', { configurable: true, value: originalDecrypt }); }
     return {
+      duplicateEvents: duplicated.length,
+      conflictClosed,
+      missingClosed,
       corruptPageCount: corruptPage.length,
       integrityFailedClosed: integrityError.includes('已损坏') && integrityError.includes('停止显示'),
       reactionSequences: reactions.map((message) => message.seq),
@@ -105,6 +130,9 @@ try {
     };
   });
   assert.deepEqual(result, {
+    duplicateEvents: 2,
+    conflictClosed: true,
+    missingClosed: true,
     corruptPageCount: 0,
     integrityFailedClosed: true,
     reactionSequences: [5, 405],
@@ -217,6 +245,23 @@ try {
     },
   });
   console.log('PASS session restore and ACK projection: trailing reactions restore, and stored+MAX keeps the optimistic badge mounted');
+  const queueBound = await page.evaluate(async () => {
+    const { QuietRoomApp } = await (new Function('path', 'return import(path)'))('/src/app.ts');
+    const root = document.createElement('div'), app = new QuietRoomApp(root);
+    let reconnects = 0; app.socket = { reconnectForBackpressure: () => { reconnects++; } };
+    const frame = { seq: 1, envelope: { ciphertext: 'small' }, acceptedAt: 'fixture' };
+    app.serverQueue.set(1, frame);
+    const tooLarge = app.enqueueSocketFrames([{ seq: 2, envelope: { ciphertext: 'x'.repeat(4 * 1024 ** 2) } }]);
+    const retained = app.serverQueue.size;
+    const small = app.enqueueSocketFrames([{ ...frame, seq: 2 }]);
+    const tooMany = app.enqueueSocketFrames(Array.from({ length: 2049 }, (_, index) => ({ ...frame, seq: index + 1 })));
+    const total = app.serverQueue.size;
+    app.socket = null;
+    return { tooLarge, retained, small, tooMany, total, reconnects };
+  });
+  assert.deepEqual(queueBound, { tooLarge: false, retained: 1, small: true, tooMany: false, total: 2, reconnects: 2 });
+  console.log('PASS bounded decoded socket queue: atomic rejection, byte/count caps and reconnect');
+
 } finally {
   await browser?.close();
   await server.close();

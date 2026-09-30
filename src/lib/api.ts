@@ -104,7 +104,7 @@ export async function getRoomState(roomId: string, accessToken: string): Promise
 }
 
 export async function getWindowMessages(roomId: string, accessToken: string, after: number, signal?: AbortSignal): Promise<ServerMessage[]> {
-  const response = await authorizedFetch(`/api/rooms/${roomId}/window-sync?after=${after}`, accessToken, { signal: boundedSignal(signal, 15_000), cache: 'no-store' });
+  const response = await authorizedFetch(`/api/rooms/${roomId}/window-sync?after=${after}&syncProtocol=byte-pages-v1`, accessToken, { signal: boundedSignal(signal, 15_000), cache: 'no-store' });
   return (await response.json()).messages;
 }
 
@@ -370,11 +370,12 @@ type SocketHandlers = {
   ready: (state: RoomState) => AsyncSocketHandler;
   membership: (state: RoomState) => AsyncSocketHandler;
   message: (message: ServerMessage) => AsyncSocketHandler;
-  sync: (messages: ServerMessage[]) => AsyncSocketHandler;
+  sync: (messages: ServerMessage[], hasMore: boolean) => AsyncSocketHandler;
   receipt: (receipt: ServerReceipt) => AsyncSocketHandler;
-  receiptSync: (receipts: ServerReceipt[]) => AsyncSocketHandler;
-  ack: (clientMsgId: string, seq: number) => void;
-  receiptAck: (clientMsgId: string, receiptSeq: number) => void;
+  receiptSync: (receipts: ServerReceipt[], hasMore: boolean) => AsyncSocketHandler;
+  ack: (clientMsgId: string, seq: number) => AsyncSocketHandler;
+  receiptAck: (clientMsgId: string, receiptSeq: number) => AsyncSocketHandler;
+  writable?: () => void;
   error: (message: string, code?: string, clientMsgId?: string, rejectedEnvelope?: MessageEnvelope) => AsyncSocketHandler;
 };
 
@@ -393,6 +394,8 @@ export class RoomSocket {
   private heartbeatTimer: number | null = null;
   private lastPongAt = 0;
   private membershipBarrier: Promise<void> = Promise.resolve();
+  private queuedFrameBytes = 0;
+  private queuedFrames = 0;
   private desiredPresenceView: 'chat' | 'away' = 'away';
   private authenticated = false;
   private lastSentPresenceView: 'chat' | 'away' | null = null;
@@ -403,6 +406,10 @@ export class RoomSocket {
    * rejected, never a newer re-encryption of the same logical message.
    */
   private sentEnvelopes = new Map<string, MessageEnvelope[]>();
+  // Durable queues belong to the vault. Only retain a small acknowledged-send
+  // window here, leaving room in the server input budget for control frames.
+  private pendingSends = new Map<string, { bytes: number; deadline: ReturnType<typeof setTimeout> }>();
+  private pendingSendBytes = 0;
 
   constructor(
     private readonly roomId: string,
@@ -428,6 +435,7 @@ export class RoomSocket {
       this.lastSentPresenceView = null;
       this.socket?.send(JSON.stringify({
         type: 'auth',
+        syncProtocol: 'byte-pages-v1',
         roomId: this.roomId,
         accessToken: this.accessToken,
         deviceId: this.deviceId,
@@ -444,6 +452,8 @@ export class RoomSocket {
       this.connectionDeadline = null;
       if ([4401, 4403].includes(event.code)) { this.closed = true; this.callSignals.close(); this.handlers.callTransport?.('WS_AUTH_FAILED'); }
       this.stopHeartbeat();
+      this.clearPendingSends();
+      this.sentEnvelopes.clear();
       this.authenticated = false;
       this.lastSentPresenceView = null;
       this.socket = null;
@@ -456,6 +466,7 @@ export class RoomSocket {
   private handleFrame(raw: string): void {
     try {
       const frame = JSON.parse(raw) as Record<string, unknown>;
+      const frameBytes = new TextEncoder().encode(raw).byteLength;
       if (frame.type === 'ready') {
         if (this.connectionDeadline) clearTimeout(this.connectionDeadline);
         this.connectionDeadline = null;
@@ -465,9 +476,9 @@ export class RoomSocket {
         this.handlers.connection('connected');
         this.flushChatPresence();
         this.callSignals.flush(true);
-        this.queueMembershipUpdate(() => this.handlers.ready(frame.state as RoomState));
+        this.queueMembershipUpdate(() => this.handlers.ready(frame.state as RoomState), frameBytes);
       } else if (frame.type === 'membership') {
-        this.queueMembershipUpdate(() => this.handlers.membership(frame.state as RoomState));
+        this.queueMembershipUpdate(() => this.handlers.membership(frame.state as RoomState), frameBytes);
       } else if (frame.type === 'presence') {
         if (!isRoomPresence(frame.roles)) throw new Error('Invalid presence frame');
         const rawLastSeen = frame.lastSeen as Record<string, unknown> | undefined;
@@ -477,33 +488,35 @@ export class RoomSocket {
         };
         this.handlers.presence(frame.roles, { creator: timestamp('creator'), joiner: timestamp('joiner') });
       } else if (frame.type === 'message') {
-        this.runAfterMembershipUpdate(() => this.handlers.message(frame as unknown as ServerMessage & { type: string }));
+        this.runAfterMembershipUpdate(() => this.handlers.message(frame as unknown as ServerMessage & { type: string }), frameBytes);
       } else if (frame.type === 'sync') {
-        this.runAfterMembershipUpdate(() => this.handlers.sync((frame.messages ?? []) as ServerMessage[]));
+        this.runAfterMembershipUpdate(() => this.handlers.sync((frame.messages ?? []) as ServerMessage[], typeof frame.hasMore === 'boolean' ? frame.hasMore : (frame.messages as unknown[])?.length === 500), frameBytes);
       } else if (frame.type === 'receipt') {
-        this.runAfterMembershipUpdate(() => this.handlers.receipt(frame as unknown as ServerReceipt));
+        this.runAfterMembershipUpdate(() => this.handlers.receipt(frame as unknown as ServerReceipt), frameBytes);
       } else if (frame.type === 'receiptSync') {
-        this.runAfterMembershipUpdate(() => this.handlers.receiptSync((frame.receipts ?? []) as ServerReceipt[]));
+        this.runAfterMembershipUpdate(() => this.handlers.receiptSync((frame.receipts ?? []) as ServerReceipt[], typeof frame.hasMore === 'boolean' ? frame.hasMore : (frame.receipts as unknown[])?.length === 500), frameBytes);
       } else if (frame.type === 'ack') {
         const clientMsgId = String(frame.clientMsgId);
         this.sentEnvelopes.delete(clientMsgId);
-        this.handlers.ack(clientMsgId, Number(frame.seq));
+        this.completeSend(`message:${clientMsgId}`, () => this.handlers.ack(clientMsgId, Number(frame.seq)));
       } else if (frame.type === 'receiptAck') {
-        this.handlers.receiptAck(String(frame.clientMsgId), Number(frame.receiptSeq));
+        const clientMsgId = String(frame.clientMsgId);
+        this.completeSend(`receipt:${clientMsgId}`, () => this.handlers.receiptAck(clientMsgId, Number(frame.receiptSeq)));
       } else if (frame.type === 'pong') {
         this.lastPongAt = Date.now();
       } else if (frame.type === 'call') {
-        this.runAfterMembershipUpdate(() => this.handlers.call?.(frame.envelope as CallEnvelope));
+        this.runAfterMembershipUpdate(() => this.handlers.call?.(frame.envelope as CallEnvelope), frameBytes);
       } else if (frame.type === 'call-ack') {
         if (typeof frame.callId === 'string' && typeof frame.eventId === 'string') this.callSignals.acknowledge(frame.callId, frame.eventId);
       } else if (frame.type === 'call-state') {
         if (frame.state === 'error' && typeof frame.callId === 'string' && typeof frame.eventId === 'string' && typeof frame.code === 'string') this.callSignals.reject(frame.callId, frame.eventId, frame.code);
-        this.runAfterMembershipUpdate(() => this.handlers.callState?.(frame as CallServerEvent));
+        this.runAfterMembershipUpdate(() => this.handlers.callState?.(frame as CallServerEvent), frameBytes);
       } else if (frame.type === 'error') {
         const clientMsgId = typeof frame.clientMsgId === 'string' ? frame.clientMsgId : undefined;
         const sent = clientMsgId ? this.sentEnvelopes.get(clientMsgId) : undefined;
         const rejectedEnvelope = sent?.shift();
         if (clientMsgId && sent?.length === 0) this.sentEnvelopes.delete(clientMsgId);
+        if (clientMsgId) this.releaseSend(`message:${clientMsgId}`, false);
         this.runAfterMembershipUpdate(() => this.handlers.error(
           String(frame.message ?? '实时连接发生错误'),
           String(frame.code ?? 'SOCKET_ERROR'),
@@ -516,22 +529,32 @@ export class RoomSocket {
     }
   }
 
-  private queueMembershipUpdate(operation: () => AsyncSocketHandler): void {
-    this.membershipBarrier = this.membershipBarrier
-      .then(
-        () => operation(),
-        (cause) => {
-          this.reportHandlerFailure(cause);
-          return operation();
-        },
-      )
-      .catch((cause) => {
-        this.reportHandlerFailure(cause);
-      });
+  private reserveFrame(operation: () => AsyncSocketHandler, bytes: number): (() => Promise<void>) | null {
+    if (this.queuedFrameBytes + bytes > 20 * 1024 ** 2 || this.queuedFrames >= 128) {
+      this.reconnectForBackpressure(); return null;
+    }
+    const generation = this.socket;
+    this.queuedFrameBytes += bytes; this.queuedFrames++;
+    return async () => {
+      try { if (!this.closed && this.socket === generation && generation?.readyState === WebSocket.OPEN) await operation(); }
+      finally { this.queuedFrameBytes -= bytes; this.queuedFrames--; }
+    };
   }
 
-  private runAfterMembershipUpdate(operation: () => AsyncSocketHandler): void {
-    void this.membershipBarrier.then(operation).catch((cause) => this.reportHandlerFailure(cause));
+  private queueMembershipUpdate(operation: () => AsyncSocketHandler, bytes = 0): void {
+    const run = this.reserveFrame(operation, bytes);
+    if (!run) return;
+    this.membershipBarrier = this.membershipBarrier.then(run, cause => { this.reportHandlerFailure(cause); return run(); })
+      .catch(cause => this.reportHandlerFailure(cause));
+  }
+
+  private runAfterMembershipUpdate(operation: () => AsyncSocketHandler, bytes = 0): void {
+    const run = this.reserveFrame(operation, bytes);
+    if (run) void this.membershipBarrier.then(run, run).catch(cause => this.reportHandlerFailure(cause));
+  }
+
+  reconnectForBackpressure(): void {
+    this.socket?.close(4413, 'Receive capacity exceeded');
   }
 
   private reportHandlerFailure(cause: unknown): void {
@@ -543,7 +566,8 @@ export class RoomSocket {
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer !== null) return;
-    const delay = Math.min(1000 * 2 ** this.retry, 15000);
+    const ceiling = Math.min(1000 * 2 ** Math.min(this.retry, 4), 15000);
+    const delay = ceiling * (0.75 + Math.random() * 0.25);
     this.retry += 1;
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
@@ -581,17 +605,65 @@ export class RoomSocket {
     this.lastSentPresenceView = this.desiredPresenceView;
   }
 
-  sendEnvelope(envelope: MessageEnvelope, countUnread = true): void {
-    if (this.socket?.readyState !== WebSocket.OPEN) throw new Error('实时连接尚未恢复');
-    this.socket.send(JSON.stringify({ type: 'send', envelope, countUnread }));
+  sendEnvelope(envelope: MessageEnvelope, countUnread = true): boolean {
+    const key = `message:${envelope.clientMsgId}`;
+    if (this.pendingSends.has(key)) return true;
+    if (!this.sendDurable(key, { type: 'send', envelope, countUnread })) return false;
     const sent = this.sentEnvelopes.get(envelope.clientMsgId) ?? [];
     sent.push(structuredClone(envelope));
     this.sentEnvelopes.set(envelope.clientMsgId, sent);
+    return true;
   }
 
-  sendReceipt(receipt: DeliveryReceipt): void {
-    if (this.socket?.readyState !== WebSocket.OPEN) throw new Error('实时连接尚未恢复');
-    this.socket.send(JSON.stringify({ type: 'receipt', receipt }));
+  sendReceipt(receipt: DeliveryReceipt): boolean {
+    return this.sendDurable(`receipt:${receipt.clientMsgId}`, { type: 'receipt', receipt });
+  }
+
+  private sendDurable(key: string, frame: unknown): boolean {
+    const socket = this.socket;
+    if (socket?.readyState !== WebSocket.OPEN) throw new Error('实时连接尚未恢复');
+    if (this.pendingSends.has(key)) return true;
+    const serialized = JSON.stringify(frame);
+    const bytes = new TextEncoder().encode(serialized).byteLength;
+    if (this.pendingSends.size >= 8 || this.pendingSendBytes + bytes > 512 * 1024
+      || socket.bufferedAmount > 512 * 1024) return false;
+    const deadline = setTimeout(() => {
+      if (this.socket === socket && this.pendingSends.has(key)) socket.close(4000, 'Send acknowledgement timeout');
+    }, 15_000);
+    this.pendingSends.set(key, { bytes, deadline }); this.pendingSendBytes += bytes;
+    try { socket.send(serialized); }
+    catch (cause) { this.releaseSend(key, false); throw cause; }
+    return true;
+  }
+
+  private releaseSend(key: string, notify = true): void {
+    const pending = this.pendingSends.get(key);
+    if (!pending) return;
+    clearTimeout(pending.deadline); this.pendingSends.delete(key); this.pendingSendBytes -= pending.bytes;
+    // Refill after the ACK handler has had a turn to reconcile the durable
+    // queue; never create a second transport-owned backlog.
+    if (notify) {
+      const generation = this.socket;
+      queueMicrotask(() => {
+        if (!this.closed && this.socket === generation && generation?.readyState === WebSocket.OPEN) this.handlers.writable?.();
+      });
+    }
+  }
+
+  private completeSend(key: string, operation: () => AsyncSocketHandler): void {
+    const generation = this.socket;
+    const pending = this.pendingSends.get(key);
+    if (pending) clearTimeout(pending.deadline);
+    void Promise.resolve().then(() => {
+      if (!this.closed && this.socket === generation) return operation();
+    }).catch(cause => this.reportHandlerFailure(cause)).finally(() => {
+      if (!this.closed && this.socket === generation) this.releaseSend(key);
+    });
+  }
+
+  private clearPendingSends(): void {
+    for (const pending of this.pendingSends.values()) clearTimeout(pending.deadline);
+    this.pendingSends.clear(); this.pendingSendBytes = 0;
   }
 
   requestSync(afterSeq: number): void {
@@ -632,6 +704,7 @@ export class RoomSocket {
     if (this.connectionDeadline) clearTimeout(this.connectionDeadline);
     this.connectionDeadline = null;
     this.sentEnvelopes.clear();
+    this.clearPendingSends();
     this.stopHeartbeat();
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.socket?.close(1000, 'Locked');
