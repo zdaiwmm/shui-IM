@@ -61,6 +61,12 @@ try {
       return { top: rect.top - y, bottom: rect.bottom - y, left: rect.left, right: rect.right,
         width: rect.width, height: rect.height };
     };
+    // The bottom contract includes the trailing timeline row's outer margin.
+    // Measure independently of the app so a local guide can remain after bubbles.
+    window.timelineBottom = () => {
+      const last = document.querySelector('#message-list').lastElementChild;
+      return last.getBoundingClientRect().bottom + (parseFloat(getComputedStyle(last).marginBottom) || 0);
+    };
     fresh();
   };
   await page.evaluate(initializeRegression);
@@ -1294,6 +1300,8 @@ try {
     const header = document.querySelector('.chat-header'); const composer = document.querySelector('#composer');
     const headerTop = header.getBoundingClientRect().top; const composerTop = composer.getBoundingClientRect().top;
     const previous = document.querySelector('[data-client-msg-id="message-40"]');
+    const guide = document.querySelector('.chat-guide');
+    if (!guide || guide !== document.querySelector('#message-list').lastElementChild) throw Error('Entrance guide left the approved timeline tail');
     const previousBubble = previous.querySelector('.message-bubble');
     const previousTop = previousBubble.getBoundingClientRect().top;
     const outgoing = { ...message(41), senderId: session.vault.identity.publicBundle.deviceId, status: 'pending' };
@@ -1309,6 +1317,7 @@ try {
     const newest = document.querySelector('[data-client-msg-id="message-41"]');
     app.messages.set(41, { ...outgoing, status: 'delivered' }); app.renderMessages();
     if (document.querySelector('[data-client-msg-id="message-41"]') !== newest || !animated.some(animation => animation.playState === 'running')) throw Error('Receipt interrupted an active send animation');
+    if (guide !== document.querySelector('#message-list').lastElementChild || guide.getAnimations({ subtree: true }).length) throw Error('Send moved or animated the entrance guide');
     await Promise.all(animated.map(animation => animation.finished));
     const topAtEnd = previousBubble.getBoundingClientRect().top;
     if (!(topAtStart > topDuring && topDuring > topAtEnd)) throw Error(`Send did not translate smoothly upward: ${topAtStart}, ${topDuring}, ${topAtEnd}`);
@@ -1619,7 +1628,7 @@ try {
       if (alignments !== 1 || forcedScrolls > 1 || bottomReads !== 1) {
         throw Error(`${label} did not perform exactly one endpoint alignment and control measurement: ${JSON.stringify({ alignments, forcedScrolls, bottomReads })}`);
       }
-      const gap = window.composerBaseBounds().top - list.lastElementChild.getBoundingClientRect().bottom;
+      const gap = window.composerBaseBounds().top - window.timelineBottom();
       if (!app.chatPinnedToBottom || Math.abs(gap - 64) > 2) throw Error(`${label} failed its final bottom alignment: gap=${gap}`);
       return { before, after, listWrites: [...listWrites], alignments, forcedScrolls, bottomReads, gap };
     };
@@ -1822,7 +1831,7 @@ try {
       if (document.activeElement !== input || !composer.dataset.viewportMotion || !app.chatViewportMotion?.keyboardMoving) throw Error('Focus after the first resize did not attach the explicit open target');
       for (const [height, top] of [[540, 100], [420, 180]]) await position(height, top);
       await settled();
-      const gap = window.composerBaseBounds().top - target.getBoundingClientRect().bottom;
+      const gap = window.composerBaseBounds().top - window.timelineBottom();
       const buttonGap = window.composerBaseBounds().top - document.querySelector('#chat-bottom-control').getBoundingClientRect().bottom;
       if (Math.abs(gap - 64) > 2 || Math.abs(buttonGap - 8) > 1) {
         throw Error(`Settled keyboard spacing changed: ${JSON.stringify({
@@ -1901,7 +1910,7 @@ try {
         throw Error(`Same-DOM return used away time or stale composer geometry: ${JSON.stringify({ state: composer.dataset.viewportMotion, opacity: getComputedStyle(composer).opacity, resumeAlignments, composerBottom: window.composerBaseBounds().bottom })}`);
       }
       await settled();
-      const resumeGap = window.composerBaseBounds().top - target.getBoundingClientRect().bottom;
+      const resumeGap = window.composerBaseBounds().top - window.timelineBottom();
       if (resumeAlignments !== 1 || Math.abs(resumeGap - 64) > 2) {
         throw Error(`Same-DOM return did not settle once at current geometry: ${JSON.stringify({ resumeAlignments, resumeGap })}`);
       }
@@ -2049,7 +2058,7 @@ try {
       const deadline = performance.now() + 1200;
       while ((composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) && performance.now() < deadline) await frame();
       const settledComposer = window.composerBaseBounds();
-      const gap = settledComposer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
+      const gap = settledComposer.top - window.timelineBottom();
       if (composer.dataset.viewportMotion || Math.abs(gap - 64) > 2) throw Error(`Keyboard after collapsed toolbar did not settle content: ${JSON.stringify({ gap })}`);
       return { staleLayoutFrames: samples, subsequentKeyboardFrames: 3 };
     } finally {
@@ -2089,7 +2098,7 @@ try {
       // Closing from a message leaves an upward gesture intent and may leave
       // a native scroll gap. A fresh composer tap must restore prior follow.
       input.focus({ preventScroll: true }); resize(420);
-      const gap = window.composerBaseBounds().top - list.lastElementChild.getBoundingClientRect().bottom;
+      const gap = window.composerBaseBounds().top - window.timelineBottom();
       if (!app.chatPinnedToBottom || Math.abs(gap - 64) > 2) throw Error(`Reopening the keyboard retained stale history intent: gap=${gap}`);
       await settle();
       await dismissFromMessage();
@@ -2137,7 +2146,7 @@ try {
       viewport.dispatchEvent(new Event('resize'));
       await settleViewport();
       const composer = window.composerBaseBounds();
-      const gap = composer.top - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
+      const gap = composer.top - window.timelineBottom();
       if (!app.chatPinnedToBottom || Math.abs(gap - 64) > 2) throw Error(`Native focus scroll lost the latest message: gap=${gap}`);
       // A delayed native adjustment can also arrive after the final resize.
       // With no further viewport changes, follow still needs to recover it.
@@ -2145,7 +2154,7 @@ try {
       window.dispatchEvent(new Event('scroll'));
       for (let i = 0; i < 4; i++) await frame();
       const settledGap = window.composerBaseBounds().top
-        - document.querySelector('#message-list').lastElementChild.getBoundingClientRect().bottom;
+        - window.timelineBottom();
       if (!app.chatPinnedToBottom || Math.abs(settledGap - 64) > 2) throw Error(`Native scroll after the final keyboard resize lost follow: gap=${settledGap}`);
       return { scrollBeforeResize: true, scrollAfterFinalResize: true, bottomFollowRetained: true, latestGap: gap, settledGap };
     } finally {
@@ -2185,7 +2194,7 @@ try {
       for (let i = 0; i < 4; i++) await frame();
       const composer = window.composerBaseBounds();
       const latest = document.querySelector('[data-client-msg-id="message-71"]').getBoundingClientRect();
-      const gap = composer.top - latest.bottom;
+      const gap = composer.top - window.timelineBottom();
       if (Math.abs(gap - 64) > 2 || !app.chatPinnedToBottom) throw Error(`A deferred send scroll left the latest message under the composer: ${JSON.stringify({ gap, attempts, ignored, pinned: app.chatPinnedToBottom })}`);
       app.messages.set(71, { ...app.messages.get(71), status: 'stored' }); app.renderMessages();
       await frame();
@@ -2193,7 +2202,7 @@ try {
       window.scrollBy(0, -96); window.dispatchEvent(new Event('scroll'));
       for (let i = 0; i < 4; i++) await frame();
       const lateScrollGap = window.composerBaseBounds().top
-        - document.querySelector('[data-client-msg-id="message-71"]').getBoundingClientRect().bottom;
+        - window.timelineBottom();
       if (!app.chatPinnedToBottom || Math.abs(lateScrollGap - 64) > 2) throw Error(`Native scroll overrode an already completed send alignment: gap=${lateScrollGap}`);
       return { ignoredAttempts: ignored, totalAttempts: attempts, latestGap: gap, lateScrollGap, ackFollowRetained: true };
     } finally {
@@ -2224,7 +2233,7 @@ try {
         });
         const checkEndpoint = (phase, height, top) => {
           const composer = window.composerBaseBounds();
-          const gap = composer.top - list.lastElementChild.getBoundingClientRect().bottom;
+          const gap = composer.top - window.timelineBottom();
           if (Math.abs(composer.bottom - height - top) > 1 || Math.abs(gap - 64) > 2
             || Number(getComputedStyle(composerElement).opacity) !== 1) {
             throw Error(`Short history did not settle at the ${phase} endpoint: ${JSON.stringify({ count, height, top, composerBottom: composer.bottom, gap })}`);

@@ -6137,6 +6137,7 @@ export class QuietRoomApp {
           const rect = row.getBoundingClientRect();
           if (rect.bottom < this.chatViewportTop - 320) break;
           if (rect.top > this.chatViewportTop + this.chatViewportHeight + 320) continue;
+          if (!row.matches('.message, .message-date')) continue;
           const contents = row.classList.contains('message-date') ? [row] : [...row.children];
           for (const content of contents) {
             if (content instanceof HTMLElement && !content.classList.contains('message-reply-swipe-indicator')) {
@@ -9826,6 +9827,8 @@ export class QuietRoomApp {
       for (let index = first; index < list.children.length; index += 1) {
         const row = list.children[index] as HTMLElement;
         if (row.getBoundingClientRect().top > captureBottom) break;
+        // Local guidance stays in the timeline but does not own message motion.
+        if (!row.matches('.message, .message-date')) continue;
         const contents = row.classList.contains('message-date') ? [row] : [...row.children];
         for (const content of contents) {
           if (content instanceof HTMLElement && !content.classList.contains('message-reply-swipe-indicator')) {
@@ -10046,6 +10049,7 @@ export class QuietRoomApp {
         const bounds = row.getBoundingClientRect();
         if (bounds.bottom < this.chatViewportTop - 160) break;
         if (bounds.top > this.chatViewportTop + this.chatViewportHeight) continue;
+        if (!row.matches('.message, .message-date')) continue;
         const contents = row.classList.contains('message-date') ? [row] : row.children;
         for (const child of contents) if (child instanceof HTMLElement && !reflowOrigins.has(child)
           && !child.classList.contains('message-reply-swipe-indicator')) {
@@ -10088,6 +10092,7 @@ export class QuietRoomApp {
       const rect = row.getBoundingClientRect();
       if (rect.bottom < this.chatViewportTop - offset) break;
       if (rect.top > this.chatViewportTop + this.chatViewportHeight) continue;
+      if (!row.matches('.message, .message-date')) continue;
       // A newly introduced day belongs to the same visual movement as its
       // messages. It remains outside message/sequence bookkeeping.
       const contents = row.classList.contains('message-date') ? [row] : row.children;

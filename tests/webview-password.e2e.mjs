@@ -52,7 +52,13 @@ try {
     } else {
       await page.waitForFunction(() => !document.querySelector('#create-room')?.disabled);
       assert.equal(await page.locator('.password-sheet').count(), 0, `${name} incorrectly offered a new password`);
-      if (['insecure-context', 'missing-crypto', 'missing-storage', 'storage-quota'].includes(name)) assert.match(await page.locator('.form-error').textContent(), /安全连接|本机加密|存储权限|容量/, `${name} needs an actionable error`);
+      const environmentErrors = {
+        'insecure-context': /浏览器信任的 HTTPS 安全环境.*信任开发证书/,
+        'missing-crypto': /无法使用所需的本机加密.*换用支持的浏览器/,
+        'missing-storage': /无法保存本机加密数据.*检查存储权限/,
+        'storage-quota': /暂时无法保存本机加密数据.*存储权限或可用容量/,
+      };
+      if (environmentErrors[name]) assert.match(await page.locator('.form-error').textContent(), environmentErrors[name], `${name} needs its actionable environment error`);
       if (evidence) await page.screenshot({ path: path.join(evidence, `F15-webview-${name}.png`) });
     }
     assert.equal(roomWrites, 0, 'No room or wrapper may be created before valid password confirmation');
