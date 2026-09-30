@@ -82,7 +82,17 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
   }
 
   // Voice references remain ordinary encrypted replies, not copied transcripts.
-  await joiner.locator('.message.incoming:has(.voice-player)').last().dispatchEvent('contextmenu');
+  // Exercise the mobile hold used by the rest of this journey. A synthetic
+  // immediate contextmenu after seeking can precede the viewport settlement.
+  const voiceMessage = joiner.locator('.message.incoming:has(.voice-player)').last();
+  await voiceMessage.scrollIntoViewIfNeeded();
+  const bounds = await voiceMessage.boundingBox();
+  const point = { pointerType: 'touch', pointerId: 81, button: 0, clientX: bounds.x + 12, clientY: bounds.y + Math.min(28, bounds.height / 2) };
+  await voiceMessage.dispatchEvent('pointerdown', point);
+  await joiner.waitForTimeout(220);
+  assert.equal(await joiner.locator('.message-actions').count(), 0, 'Voice actions opened before the hold threshold');
+  await joiner.waitForTimeout(320);
+  await voiceMessage.dispatchEvent('pointerup', point);
   await joiner.getByRole('menuitem', { name: '回复', exact: true }).click();
   await joiner.locator('#message-input').fill('语音收到了');
   await joiner.locator('#composer').evaluate(form => form.requestSubmit());
