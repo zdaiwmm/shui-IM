@@ -53,7 +53,7 @@ services:
     restart: unless-stopped
     read_only: true
     tmpfs:
-      - /tmp:rw,noexec,nosuid,size=64m
+      - /tmp:rw,noexec,nosuid,size=${BACKUP_TMPFS_SIZE:-64m}
     cap_drop:
       - ALL
     security_opt:
@@ -73,6 +73,7 @@ services:
     environment:
       DATA_DIR: /app/data
       BACKUP_DIR: /app/backups
+      BACKUP_MODE: ${BACKUP_MODE:-local}
       BACKUP_INTERVAL_MS: ${BACKUP_INTERVAL_MS:-86400000}
       BACKUP_MAX_AGE_MS: ${BACKUP_MAX_AGE_MS:-129600000}
       BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-3}

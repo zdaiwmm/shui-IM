@@ -1,3 +1,5 @@
+运维Mac主动拉取备份：`scripts/mac-backup.mjs`、`server/backup-transfer.mjs`；安装入口 `scripts/install-mac-backup.mjs`、`scripts/configure-mac-backup-server.mjs`。独立回执与健康、资源上限及离线限制见 [OPERATIONS.md](../../OPERATIONS.md#mac-主动拉取模式)，专项 `tests/backup-transfer.test.ts`。
+
 # Quiet Room 项目地图
 
 备份与恢复双入口：`src/lib/backup-settings-ui.ts`、`src/lib/history-restore-ui.ts`；跨设备授权在 `cloud-backup.ts` / `local-history-backup.ts`，角色级开关在 `server/cloud-backups.mjs`。验证含 `tests/backup-access.e2e.mjs`；边界见 [恢复契约](../../RECOVERY_BACKUPS.md) 与 [需求记录](../requirements/2026-09-28-backup-recovery/README.md)。
