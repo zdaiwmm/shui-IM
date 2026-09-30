@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 2026-09-30 体验优化 F01–F15：正式实施中
+
+- 用户本会话要求按完整方案实施并验收，含密码兜底 v7；独立分支 `codex/experience-optimization-20260930`，基线 `61cc401caa69cc3732063c6133e8459cee79d6b7`。验收与确认由[需求记录](../requirements/2026-09-30-experience-optimization/README.md)维护。生产发布未授权。
+- 工作树已实现，定向验证继续进行；不得把此条当作最终验收、CI 或部署证据。
+- 2026-09-30 iPhone Debug doctor（本机服务权限下）未发现可连接 USB iPhone；真机键盘、浏览器原生工具栏及动效手感未验证。浏览器模拟不替代真机门禁。
+
 ## 架构资源优化与Mac备份已发布（2026-09-30 18:10）
 
 - 当前生产精确SHA `f775ff985aab69f1118b0ef1ae5462ebea966471`，版本 `2026.09.30.3`；用户本会话明确确认该提交。[PR238](https://github.com/zdaiwmm/shui-IM/pull/238)及精确[主线完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36698050871)通过，包含架构PR235。最终head88f5021本地完整构建／787项通过，合并树与head相同。

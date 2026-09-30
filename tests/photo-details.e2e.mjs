@@ -226,7 +226,7 @@ try {
     duration: getComputedStyle(panel).transitionDuration,
   }));
   assert.match(glass.filter, /blur\(/);
-  assert.equal(glass.duration, '0.32s');
+  assert.equal(glass.duration, '0.24s');
   assert.equal(await page.locator('.photo-details-content').evaluate(content => getComputedStyle(content).scrollbarWidth), 'none');
   await page.locator('.photo-details-backdrop').click({ position: { x: 15, y: 180 } });
   await page.waitForSelector('.photo-details', { state: 'detached' });

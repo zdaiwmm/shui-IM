@@ -3,6 +3,7 @@ import {
   createPlatformCredential,
   browserAccessCredential,
   isPlatformVaultCancellation,
+  isPlatformVaultUnavailable,
   PlatformVaultCancellationError,
   unlockPlatformCredential,
 } from '../src/lib/platform-vault';
@@ -74,6 +75,21 @@ describe('platform vault WebAuthn cancellation', () => {
     vi.stubGlobal('navigator', { credentials });
     vi.stubGlobal('window', { isSecureContext: true, PublicKeyCredential: FakePublicKeyCredential });
   }
+
+  it('permits new-password fallback only on positive unsupported capability evidence', async () => {
+    installCredentials({ create: vi.fn().mockResolvedValue(new FakePublicKeyCredential(new FakeAttestationResponse(), { prf: { enabled: false } } as AuthenticationExtensionsClientOutputs)) });
+    let failure: unknown;
+    try { await createPlatformCredential(); } catch (cause) { failure = cause; }
+    expect(isPlatformVaultUnavailable(failure)).toBe(true);
+    installCredentials({ create: vi.fn().mockResolvedValue(new FakePublicKeyCredential(new FakeAttestationResponse(), {})) });
+    try { await createPlatformCredential(); } catch (cause) { failure = cause; }
+    expect(isPlatformVaultUnavailable(failure)).toBe(false);
+    for (const name of ['NotAllowedError', 'AbortError', 'SecurityError']) {
+      installCredentials({ create: vi.fn().mockRejectedValue(new DOMException('synthetic', name)) });
+      try { await createPlatformCredential(); } catch (cause) { failure = cause; }
+      expect(isPlatformVaultUnavailable(failure)).toBe(false);
+    }
+  });
 
   it.each(['NotAllowedError', 'AbortError'] as const)(
     'normalizes %s from credential creation without retaining native details',

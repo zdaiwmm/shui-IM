@@ -1,6 +1,6 @@
 /** Presentation-only motion. Business operations never await these helpers. */
 export const motion = {
-  feedback: 180, local: 220, message: 300, panel: 320, page: 340, media: 320,
+  feedback: 100, local: 220, message: 300, panel: 240, page: 280, media: 320,
   out: 'cubic-bezier(.18,.88,.24,1)',
   settle: 'cubic-bezier(.2,.82,.22,1)',
   travel: 'cubic-bezier(.24,.72,.18,1)',

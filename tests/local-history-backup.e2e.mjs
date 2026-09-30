@@ -103,7 +103,7 @@ try {
     session.vault.backup.archives = [archive];
     const unchangedSeq = session.vault.lastSeq;
     session.vault.lastSeq = 3; await v.saveVault(session);
-    await Promise.all(['/src/styles.css', '/src/backup.css', '/src/chat-layout.css', '/src/auth-recovery.css', '/src/chat-interactions.css', '/src/cover.css', '/src/recovery-experience.css'].map(file => import(file)));
+    await Promise.all(['/src/styles.css', '/src/backup.css', '/src/chat-layout.css', '/src/auth-recovery.css', '/src/chat-interactions.css', '/src/cover.css', '/src/recovery-experience.css', '/src/experience.css'].map(file => import(file)));
     const { QuietRoomApp } = await import('/src/app.ts');
     const app = new QuietRoomApp(document.querySelector('#app')); await app.start();
     app.session = session; app.privacyCovered = false; app.runtimeAbort = new AbortController();
@@ -198,6 +198,8 @@ try {
   await page.locator('#history-download').waitFor({ state: 'visible' });
   const downloadReady = page.waitForEvent('download', { timeout: 15_000 });
   await page.locator('#history-download').click();
+  await page.locator('.password-form [name=password]').fill('synthetic-local-backup-password');
+  await page.locator('.password-form [type=submit]').click();
   const download = await downloadReady;
   assert.equal(await download.failure(), null, 'backup download failed');
   assert.match(download.suggestedFilename(), /^quiet-room-\d{4}-\d{2}-\d{2}\.qrlocal$/);
@@ -291,8 +293,8 @@ try {
   await page.locator('#open-spaces').click(); await page.locator('#space-settings').click();
   await page.locator('#cover-practice-menu').click();
   await page.locator('#disable-cover-anyway').waitFor();
-  assert.equal(await page.locator('#keep-cover-enabled').textContent(), '我再想想');
-  assert.equal(await page.locator('#disable-cover-anyway').textContent(), '执意关闭');
+  assert.equal(await page.locator('#keep-cover-enabled').textContent(), '保持开启');
+  assert.equal(await page.locator('#disable-cover-anyway').textContent(), '关闭自动遮蔽');
   await page.locator('#keep-cover-enabled').click();
   await page.locator('#disable-cover-dialog').waitFor({ state: 'detached' });
   await page.locator('#open-spaces').click(); await page.locator('#space-settings').click();

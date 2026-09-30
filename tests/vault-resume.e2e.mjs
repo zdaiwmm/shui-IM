@@ -98,7 +98,8 @@ try {
       await vault.deleteCurrentVault();
       const deletedRejected = await rejected(() => vault.resumeVaultSession(other));
 
-      const legacy = await vault.createVault(fixture(), 'resume-legacy-passphrase', 'password');
+      const { createLegacyVault } = await import('/tests/fixtures/legacy-vault.ts');
+      const legacy = await createLegacyVault(fixture(), 'resume-legacy-passphrase');
       legacy.vault.lastSeq = 123;
       const legacyResume = await vault.resumeVaultSession(legacy);
       return {

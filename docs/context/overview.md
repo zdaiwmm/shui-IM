@@ -121,3 +121,6 @@
 - [audit/](../../audit/)：特定日期和代码基线的审查证据；不能自动外推到当前工作树。
 
 聊天连续性（历史键盘、引用往返、发送动画接续、表情状态）的专项为 `tests/chat-continuity.e2e.mjs`，与既有 `chat-list-viewport`、`chat-bottom-control`、`frontend-lifecycle` 和 `meme-picker` 一起随 `npm run check:full` 执行。确认与证据见[需求记录](../requirements/2026-09-28-chat-continuity/README.md)。
+
+
+体验优化 F01–F15：新增本机密码保护位于 `src/lib/password-protection.ts`、`password-dialog.ts` 与 `vault.ts`，界面共用 `src/experience.css`；新密码与原设备密钥的混合恢复沿用 `joint-recovery.ts`。回归入口为 `password-protection.test.ts`、`platform-vault.test.ts`、`password-fallback.e2e.mjs`、`joint-recovery.e2e.mjs`、`local-history-backup.e2e.mjs`、`meme-picker.e2e.mjs` 和 `backup-admin-ui.e2e.mjs`。确认与验收由[本次需求记录](../requirements/2026-09-30-experience-optimization/README.md)维护，长期边界见 PRODUCT.md、SECURITY.md 和 RECOVERY_BACKUPS.md。

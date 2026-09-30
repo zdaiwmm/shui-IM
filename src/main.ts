@@ -12,6 +12,7 @@ import { mountSystemChrome } from './lib/system-chrome';
 import { mountPortraitOrientation } from './lib/portrait-orientation';
 import './motion.css';
 import './desktop.css';
+import './experience.css';
 
 // Keep zooming inside purpose-built media viewers instead of allowing a
 // double tap/click to scale the whole browser page. The viewport declaration

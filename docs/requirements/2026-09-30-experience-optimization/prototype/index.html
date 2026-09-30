@@ -1,0 +1,984 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Quiet Room · 自动兜底与访问闭环原型 v7</title>
+<style>
+:root{color-scheme:light;--paper:oklch(97.9% .008 248);--pure:oklch(99.4% .004 248);--surface:oklch(94.8% .014 248);--raised:oklch(99.1% .006 248);--ink:oklch(22.5% .022 250);--muted:oklch(43.5% .024 250);--faint:oklch(56% .018 250);--line:oklch(78% .025 245 / .58);--accent:oklch(58.5% .205 254);--accent-soft:oklch(92.8% .045 242);--danger:oklch(54% .18 28);--danger-soft:oklch(94% .038 28);--on-accent:oklch(99.3% .004 250);--shadow:0 22px 70px oklch(28% .03 248 / .16);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif}
+:root[data-theme=dark]{color-scheme:dark;--paper:oklch(20.5% .024 252);--pure:oklch(23.5% .025 252);--surface:oklch(27% .028 252);--raised:oklch(29% .029 252);--ink:oklch(95% .012 245);--muted:oklch(76% .022 245);--faint:oklch(64% .018 245);--line:oklch(58% .03 250 / .48);--accent:oklch(74% .17 245);--accent-soft:oklch(33% .07 250);--danger:oklch(75% .15 28);--danger-soft:oklch(31% .065 28);--on-accent:oklch(18% .02 250);--shadow:0 26px 80px oklch(3% .02 252 / .52)}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--surface);color:var(--ink)}button,input,select,textarea{font:inherit}button{cursor:pointer}button:disabled{opacity:.46;cursor:not-allowed}button,input,select,textarea{min-height:44px}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid var(--accent);outline-offset:2px}.layout{min-height:100vh;max-width:1380px;margin:auto;padding:clamp(20px,4vw,52px);display:grid;grid-template-columns:minmax(250px,330px) minmax(0,1fr);gap:clamp(28px,6vw,86px)}.review{position:sticky;top:28px;align-self:start}.eyebrow{font-size:11px;letter-spacing:.13em;color:var(--accent);font-weight:750}.review h1{font-size:clamp(29px,3vw,42px);letter-spacing:-.045em;line-height:1.12;margin:14px 0}.review p{color:var(--muted);line-height:1.55;font-size:14px}.nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:24px 0}.nav button,.tool{border:1px solid var(--line);background:var(--raised);color:var(--ink);border-radius:14px;padding:10px 12px;text-align:left}.nav button.active{border-color:var(--accent);background:var(--accent-soft);font-weight:700}.tools{border-top:1px solid var(--line);padding-top:16px;display:grid;gap:11px}.tools label{display:grid;gap:6px;font-size:13px;color:var(--muted)}.tools select{width:100%;border:1px solid var(--line);background:var(--raised);color:var(--ink);border-radius:12px;padding:8px}.toolrow{display:flex;gap:8px}.toolrow button{flex:1;text-align:center;padding:7px}.note{font-size:12px!important}.stage{min-width:0;grid-template-columns:minmax(0,1fr);display:grid;place-items:start center;align-content:start;gap:12px}.stagebar{width:min(100%,420px);display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted)}.phone{border-radius:0;width:min(100%,420px);height:min(844px,calc(100dvh - 80px));min-height:560px;background:var(--paper);border:1px solid var(--line);box-shadow:var(--shadow);overflow:hidden;position:relative}.app{height:100%;overflow:hidden}.gateway{height:100%;padding:clamp(40px,10svh,86px) 24px calc(26px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:16px;overflow:auto}.gateway.intro{justify-content:space-between;gap:24px}.intro-content{overflow:auto;min-height:0}.mark{width:58px;height:58px;display:grid;place-items:center;color:var(--accent);background:var(--accent-soft);border-radius:20px;margin-bottom:34px}.mark svg{width:30px;height:30px}.gateway h2{font-size:32px;line-height:1.12;letter-spacing:-.045em;margin:0 0 12px}.gateway p{font-size:15px;line-height:1.55;color:var(--muted);margin:0}.welcome-copy{display:grid;gap:16px;margin-top:24px}.actions{display:grid;gap:12px;margin-top:auto}.actions>.annotated{display:grid;gap:12px}.primary,.secondary,.textbtn{width:100%;min-height:52px;padding:11px 16px;border-radius:14px;font-weight:650;line-height:1.4}.primary{background:var(--accent);color:var(--on-accent);border:1px solid var(--accent)}.secondary{background:var(--raised);color:var(--ink);border:1px solid var(--line)}.textbtn{background:transparent;color:var(--accent);border:1px solid transparent;min-height:44px}.quiet{font-weight:500}.action-hint{color:var(--muted);font-size:13px;line-height:1.4;text-align:center;margin:-4px 4px 0}.form-error{min-height:1.4em;font-size:13px!important;color:var(--danger)!important;line-height:1.4}.form-error:empty{display:none}.notice{background:var(--accent-soft);padding:12px 14px;border-radius:14px;color:var(--ink)!important;font-size:13px!important}.warning{background:var(--danger-soft);color:var(--danger)!important;padding:12px 14px;border-radius:14px;font-size:13px!important}.field{display:grid;gap:7px;font-size:14px;font-weight:650;margin:3px 0 8px}.field input,.field textarea{width:100%;border:1px solid var(--line);background:var(--raised);color:var(--ink);border-radius:14px;padding:10px 13px;font-size:16px}.field textarea{resize:vertical;min-height:86px}.fieldhint{font-size:13px!important;color:var(--muted)}.checkbox{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--muted);line-height:1.4}.checkbox input{width:18px;height:18px;min-height:auto;accent-color:var(--accent)}.unlock{justify-content:flex-end;padding-top:20px}.unlock .actions{margin-top:0}.unlock .form-error{order:-1}.unlock p{text-align:center}.appheader{height:70px;padding:12px 22px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--line)}.back{width:44px;height:44px;border:1px solid var(--line);border-radius:50%;background:var(--raised);color:var(--ink);font-size:24px}.appheader strong{font-size:15px}.page{height:calc(100% - 70px);padding:24px 24px calc(24px + env(safe-area-inset-bottom));overflow:auto;display:flex;flex-direction:column;gap:14px}.page h2{font-size:30px;line-height:1.14;letter-spacing:-.04em;margin:12px 0 0}.page p{font-size:15px;color:var(--muted);line-height:1.52;margin:0}.grow{flex:1}.row{border:1px solid var(--line);border-radius:18px;background:var(--raised);padding:16px}.row strong{display:block}.row small{display:block;color:var(--muted);font-size:13px;line-height:1.45;margin-top:5px}.radio{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 0;border-bottom:1px solid var(--line);font-size:15px}.radio:last-child{border-bottom:0}.radio input{min-height:auto;accent-color:var(--accent)}.sheet-scene{height:100%;background:var(--paper);position:relative}.chat-top{height:70px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-size:14px;font-weight:700}.chat-empty{padding:72px 25px;text-align:center;color:var(--muted);line-height:1.5}.scrim{position:absolute;inset:0;background:color-mix(in oklch,var(--ink) 20%,transparent)}.invite-sheet{position:absolute;bottom:0;left:0;right:0;min-height:53%;background:var(--raised);border-radius:22px 22px 0 0;box-shadow:var(--shadow);padding:12px 24px calc(24px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:12px}.handle{width:38px;height:4px;background:var(--line);border-radius:4px;margin:0 auto 7px}.invite-sheet h2{font-size:27px;letter-spacing:-.04em;margin:7px 0 0}.invite-sheet p{color:var(--muted);line-height:1.5;margin:0}.status{display:flex;gap:10px;align-items:center;color:var(--muted);font-size:14px;padding:8px 0}.status i{width:10px;height:10px;border-radius:50%;background:var(--accent)}.invite-sheet footer{margin-top:auto;display:grid;gap:8px}.invite-sheet footer p{text-align:center;font-size:12px}.demo-sheet{position:absolute;inset:0;background:color-mix(in oklch,var(--ink) 23%,transparent);display:flex;align-items:flex-end;padding:12px}.demo-dialog{background:var(--raised);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:22px 22px 12px 12px;padding:14px 18px 18px;width:100%;display:grid;gap:10px}.demo-dialog h2{font-size:24px;margin:5px 0}.demo-dialog p{color:var(--muted);font-size:14px;line-height:1.45;margin:0}.demo-dialog .mark{margin:2px 0 4px}.spinner{width:42px;height:42px;border:4px solid var(--accent-soft);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:30px auto}@keyframes spin{to{transform:rotate(360deg)}}.center{text-align:center;justify-content:center}.center h2{margin:0}.flowstep{border:1px solid var(--line);border-radius:16px;background:var(--raised);padding:14px;font-size:14px;line-height:1.45}.flowstep b{display:block;margin-bottom:5px}.flowstep span{color:var(--muted)}.code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center;padding:14px;border:1px dashed var(--line);border-radius:14px;background:var(--surface);overflow-wrap:anywhere}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:760px){.layout{display:block;max-width:420px;padding:0}.review{position:relative;top:auto;padding:17px 16px 12px}.review h1{font-size:23px;margin:8px 0}.review p{font-size:12px}.nav{grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin:12px 0}.nav button{font-size:11px;text-align:center;padding:6px 2px;min-height:44px}.tools{grid-template-columns:1fr 1fr}.toolrow{grid-column:1/-1}.stagebar{padding:0 16px}.phone{width:100%;height:min(844px,100dvh);box-shadow:none;border-left:0;border-right:0}.gateway{padding-top:56px}}
+@media(max-height:650px){.gateway.intro{padding-top:24px;padding-bottom:12px;gap:10px}.gateway.intro .mark{display:none}.gateway h2{font-size:27px}.gateway .welcome-copy{margin-top:12px;gap:7px}.gateway .field[style]{margin-top:12px!important}.gateway .actions{gap:5px}.gateway .primary,.gateway .secondary{min-height:46px}.gateway .action-hint{font-size:12px;margin:-2px 3px 0}}
+@media(max-width:350px){.nav{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(prefers-reduced-motion:reduce){.spinner{animation:none;border-color:var(--accent)}}
+@media(prefers-contrast:more){.primary,.secondary,.field input,.field textarea,.row,.phone{border-width:2px}}
+@media(forced-colors:active){.primary,.secondary,.row,.notice,.warning{border:1px solid CanvasText}}
+
+/* Review annotations are outside the shipping UI. */
+:root{--new:oklch(48% .12 152);--new-soft:oklch(94% .028 152)}
+:root[data-theme=dark]{--new:oklch(78% .12 152);--new-soft:oklch(30% .035 152)}
+.review{max-height:calc(100dvh - 56px);overflow:auto;padding:0 5px 16px}.review h1{font-size:32px}.nav{margin:18px 0}.nav button{display:grid;gap:3px;font-size:12px}.nav small{font-size:10px;color:var(--muted);font-weight:500}.tools summary{font-size:13px;cursor:pointer;min-height:44px;display:flex;align-items:center}.tools details{grid-column:1/-1}.controls{display:grid;gap:10px}.marker-control{display:flex!important;align-items:center;gap:8px!important;font-size:13px!important;color:var(--ink)!important}.marker-control input{min-height:0;width:18px;height:18px;accent-color:var(--accent)}
+.stagebar{align-items:center;min-height:44px}.stagebar strong{color:var(--ink)}.page-status{display:flex;gap:7px;align-items:center;flex-wrap:wrap}.status-tag{padding:3px 7px;border:1px solid var(--line);border-radius:6px;font-size:11px}.status-tag.changed{color:var(--accent);border-color:var(--accent)}.status-tag.new{color:var(--new);border-color:var(--new)}
+.annotation{width:min(100%,620px);background:var(--raised);border:1px solid var(--line);border-radius:14px;padding:18px}.annotation h2{font-size:17px;line-height:1.4;margin:0 0 8px}.annotation p{font-size:13px;line-height:1.55;color:var(--muted);margin:6px 0}.annotation article{border-top:1px solid var(--line);padding-top:12px;margin-top:14px}.annotation h3{font-size:14px;margin:0 0 8px;line-height:1.4}.annotation dl{margin:0;display:grid;grid-template-columns:52px 1fr;gap:7px 10px;font-size:13px;line-height:1.55}.annotation dt{color:var(--muted)}.annotation dd{margin:0}.annotation .review-caption{font-size:11px;color:var(--faint)}.change-id{color:var(--accent);font-weight:750}.change-id.new{color:var(--new)}
+.annotated{position:relative}.change-marker{display:none;position:absolute;z-index:4;top:-8px;right:7px;padding:2px 5px;background:var(--raised);border:1px solid var(--accent);color:var(--accent);font-size:10px;font-weight:800;line-height:1.3;pointer-events:none;border-radius:4px}.phone[data-markers=on] [data-change]{outline:1px dashed var(--accent);outline-offset:3px;border-radius:12px}.phone[data-markers=on] .change-marker{display:block}.phone[data-markers=on] [data-kind=new]{outline-color:var(--new)}[data-kind=new]>.change-marker{border-color:var(--new);color:var(--new)}.phone[data-markers=on] .new-page{box-shadow:inset 0 0 0 2px var(--new)}
+.flow-mode{min-width:0;width:100%;height:auto;min-height:0;overflow:visible}.flow-mode .app{height:auto;overflow:visible}.flow-mode .page{height:auto;gap:18px}.flow-mode .appheader{display:none}.flow-mode .page h2{font-size:28px}.flow-tabs{display:flex;gap:7px;flex-wrap:wrap}.flow-tabs button{border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--raised);color:var(--ink);font-size:13px}.flow-tabs button.active{border-color:var(--accent);background:var(--accent-soft)}.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted)}.legend i{display:inline-block;width:12px;height:12px;border:1.5px solid var(--line);background:var(--raised);border-radius:3px;margin-right:4px}.legend .changed i{border-color:var(--accent);background:var(--accent-soft)}.legend .new i{border-color:var(--new);background:var(--new-soft)}.graph-scroll{overflow:auto;width:100%;min-width:0;max-width:100%}.flow-svg{display:block;width:100%;min-width:580px;height:auto}.flow-svg rect{fill:var(--raised);stroke:var(--line);stroke-width:1.5}.flow-svg .changed rect{fill:var(--accent-soft);stroke:var(--accent)}.flow-svg .new rect{fill:var(--new-soft);stroke:var(--new)}.flow-svg text{fill:var(--ink);font-family:inherit;font-size:14px}.flow-svg .node-id{font-size:12px;fill:var(--muted);font-weight:750}.flow-svg .changed .node-id{fill:var(--accent)}.flow-svg .new .node-id{fill:var(--new)}.flow-svg .edge{fill:none;stroke:var(--muted);stroke-width:1.5;marker-end:url(#arrow)}.flow-svg .edge-label{font-size:12px;fill:var(--muted);paint-order:stroke;stroke:var(--paper);stroke-width:5px;stroke-linejoin:round}.flow-svg a{cursor:pointer}.flow-svg a:focus-visible{outline:2px solid var(--accent)}.flow-note{border-top:1px solid var(--line);padding-top:12px;font-size:13px!important}.stage:has(.flow-mode) .stagebar{width:100%}.stage:has(.flow-mode) .annotation{width:100%;max-width:none}
+@media(max-width:760px){.review{max-height:none;overflow:visible;padding:17px 16px 12px}.review h1{font-size:23px}.nav{grid-template-columns:repeat(3,minmax(0,1fr))}.nav button{font-size:11px;padding:5px}.annotation{border-radius:0;border-left:0;border-right:0}.stagebar{padding:4px 12px}.stagebar #scenario-summary{display:none}.tools details{border-top:1px solid var(--line)}.controls{grid-template-columns:1fr 1fr}.flow-mode .page{padding:20px 14px}.flow-mode .page h2{font-size:24px}.flow-tabs button{flex:1;padding:7px 4px;font-size:11px}}
+
+.auth-tools{width:min(100%,620px);background:var(--raised);border:1px solid var(--line);border-radius:14px;padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:10px}.auth-tools[hidden]{display:none}.auth-tools label{font-size:12px;display:grid;gap:6px;color:var(--muted)}.auth-tools select{width:100%;min-width:0;border:1px solid var(--line);border-radius:10px;background:var(--paper);color:var(--ink);padding:8px;font-size:13px}.auth-tools p{grid-column:1/-1;margin:0;color:var(--muted);font-size:12px;line-height:1.4}.reauth-mode{height:min(844px,calc(100dvh - 80px));min-height:560px}.auth-context{padding:9px 12px;border:1px solid var(--line);border-radius:12px;font-size:13px;line-height:1.5}.auth-context span{display:block;color:var(--muted)}.auth-context strong{display:block}.auth-dialog{max-height:100%;overflow:hidden;display:flex;flex-direction:column}.auth-dialog>.handle,.auth-dialog>h2{flex-shrink:0}.auth-dialog>.annotated{display:flex;flex-direction:column;gap:10px;min-height:0}.auth-body{overflow:auto;min-height:0;display:grid;gap:10px;padding:3px 3px 0}.auth-footer{display:grid;gap:4px;flex-shrink:0}.auth-backdrop{height:100%}.auth-backdrop .form-error{display:none}.auth-dialog .field{margin-top:0}.auth-dialog .checkbox{padding:2px 0}.backup-page .row h3{font-size:18px;line-height:1.4;margin:0 0 6px}.backup-page .row p{font-size:13px;margin-bottom:14px}.backup-page .row .textbtn{font-size:14px}.backup-page .row small{margin-top:10px}.backup-page h2{font-size:27px}.backup-page .status{padding:0}.auth-dialog .form-error{margin:2px 0}.auth-dialog .notice{font-size:13px!important}
+@media(max-width:760px){.auth-tools{width:100%;border-radius:0;border-left:0;border-right:0}.reauth-mode{height:min(844px,100dvh);min-height:560px}.auth-tools select{font-size:12px}}
+
+.joint-page{padding:0;gap:0;overflow:hidden}.joint-content{flex:1;min-height:0;overflow:auto;padding:24px;display:grid;align-content:start;gap:14px}.joint-content .mark{margin:0}.joint-content h2{margin:0}.joint-actions{flex-shrink:0;display:grid;gap:8px;padding:12px 24px calc(20px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--paper)}
+@media(max-height:650px){.joint-content{padding:18px 24px}.joint-content .mark{display:none}.joint-content h2{font-size:27px}.actions>.annotated{gap:5px}}
+
+.unlock-context{display:flex;flex-direction:column;justify-content:center;gap:10px;min-height:0}.unlock-context .mark{margin-bottom:12px}.unlock-context h2{font-size:30px}.unlock-context p{text-align:left}.unlock .actions{gap:8px}@media(max-height:650px){.unlock-context .mark{display:none}.unlock-context{gap:6px}.unlock-context h2{font-size:27px}.unlock .actions{gap:4px}}
+</style>
+</head>
+<body>
+<div class="layout">
+  <aside class="review" id="review" aria-label="原型控制">
+    <div class="eyebrow">QUIET ROOM · <span id="eyebrow"></span></div>
+    <h1 id="review-title"></h1><p id="review-desc"></p>
+    <nav class="nav" id="nav" aria-label="页面导航"></nav>
+    <div class="tools"><label class="marker-control"><input id="markers" type="checkbox" checked><span id="markers-label"></span></label><details><summary id="controls-title"></summary><div class="controls">
+      <label><span id="scenario-label"></span><select id="scenario"></select></label>
+      <label><span id="detection-label"></span><select id="detection"></select></label>
+      <label><span id="environment-label"></span><select id="environment"></select></label>
+      <label><span id="method-label"></span><select id="method"></select></label>
+
+    </div></details>
+      <div class="toolrow"><button class="tool" id="theme"></button><button class="tool" id="language"></button><button class="tool" id="reset"></button></div>
+    </div>
+    <p class="note" id="review-note"></p>
+  </aside>
+  <div class="stage"><div class="stagebar"><span class="page-status" id="preview-label"></span><span id="scenario-summary"></span></div><section class="auth-tools" id="reauth-tools" hidden></section><section class="auth-tools" id="recovery-tools" hidden></section><div class="phone" role="region" aria-label="Quiet Room 交互原型"><main class="app" id="app"></main></div><section class="annotation" id="annotations" aria-live="polite"></section><div id="announce" class="sr-only" role="status" aria-live="polite"></div></div>
+</div>
+<script>
+(()=>{
+'use strict';
+const words={
+  "zh": {
+    "eyebrow": "统一找回入口 · v6",
+    "reviewTitle": "减少预告与选择，让业务自然继续",
+    "reviewDesc": "C01 / C02 移除解锁方式预告；欢迎页统一找回文案；C07 去掉恢复对象选择，C08 展示双方自动判定结果并确认。P06 密码验证继续保留。",
+    "welcomeNav": "P01 初次创建",
+    "joinNav": "P02 受邀加入",
+    "unlockNav": "P04 再次解锁",
+    "spacesNav": "R01 空间列表",
+    "restoreNav": "R03 / P05 找回",
+    "centerNav": "R04 / P06 恢复码",
+    "flowNav": "业务流程图",
+    "scenarioLabel": "设备情形",
+    "envLabel": "环境",
+    "methodLabel": "已有空间保护方式",
+    "bioPrf": "面容／指纹；PRF 可用",
+    "bioOnly": "面容／指纹；PRF 不可用",
+    "pinPrf": "无生物识别；PRF 可用",
+    "neither": "无生物识别；PRF 不可用",
+    "normal": "正常",
+    "offline": "离线",
+    "unsafe": "安全环境不可用",
+    "methodSystem": "系统验证",
+    "methodPassword": "空间密码",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "language": "中 / EN",
+    "reset": "重置",
+    "reviewNote": "系统弹层、建房、邀请和恢复都是模拟。密码请只输入 DEMO-ONLY-123，恢复码请只输入 DEMO-ONLY；不要输入真实材料。",
+    "preview": "交互预览 · v7",
+    "prototype": "模拟原型",
+    "welcomeTitle": "有些话，<br>只留给彼此。",
+    "welcomeLead": "一个只属于两个人的私密空间。",
+    "welcomeCopy1": "无需手机号或邮箱。",
+    "welcomeCopy2": "聊天内容只对你和对方可读，平台无法读取。",
+    "create": "创建私密空间",
+    "continueBrowser": "使用设备密钥找回空间",
+    "restore": "使用恢复码找回空间",
+    "systemUnsupported": "本机系统保护不可用。",
+    "systemCanceled": "已取消系统验证。可点击原按钮重试。",
+    "unsafeMessage": "当前浏览器缺少创建加密空间所需的安全环境。请使用安全连接并检查加密与本地存储能力。",
+    "offlineMessage": "当前离线，暂时无法完成创建或加入。联网后请重试。",
+    "createFailed": "未能连接，空间没有创建。联网后重试。",
+    "joinFailed": "未能连接，尚未加入空间。联网后重试。",
+    "recoverFailed": "暂时无法继续恢复。联网后重试。",
+    "joinTitle": "有人为你留了一个私密空间",
+    "joinLead": "加入后，这个私密空间只属于你们两个人。先为这台设备设置保护。",
+    "deviceName": "通行密钥名称",
+    "deviceNameHint": "用于在系统中辨认这把密钥，请勿填写聊天隐私。",
+    "notJoin": "暂不加入",
+    "passwordTitle": "设置空间密码",
+    "passwordLead": "以后打开此空间时输入这个密码。它不是手机锁屏密码。",
+    "password1": "空间密码",
+    "password2": "再次输入",
+    "showPassword": "显示密码",
+    "passwordHint": "可使用密码管理器生成、填写或保存。原型长度 12–128 字符仅为示意，请只输入 DEMO-ONLY-123。",
+    "passwordShort": "密码至少需要 12 个字符。",
+    "passwordLong": "密码不能超过 128 个字符。",
+    "passwordRecoveryHint": "忘记密码时，需要双方参与找回。",
+    "passwordMismatch": "两次输入不一致。",
+    "passwordUse": "设置密码并继续",
+    "back": "返回",
+    "unlockSystem": "用面容、指纹或锁屏密码打开",
+    "unlockPassword": "打开私密空间",
+    "unlockInput": "空间密码",
+    "unlockPasswordTitle": "打开私密空间",
+    "unlockPasswordLead": "输入此空间已有的密码。",
+    "unlockPasswordHelp": "需要双方参与，旧记录另行恢复。",
+    "forgotPassword": "忘记密码？使用恢复码找回",
+    "unlockWrong": "空间密码不正确，请重试。",
+    "recoverTogether": "无法解锁？一起恢复私密空间",
+    "oldSystemUnavailable": "此空间原来使用系统验证，目前无法读取。新设空间密码不能打开旧空间；请在原设备重试，或一起恢复。",
+    "systemSheet": "模拟系统验证弹层",
+    "systemSheetLead": "真实提示由系统控制，可能要求面容、指纹或锁屏密码。",
+    "systemSuccess": "模拟系统操作完成",
+    "systemNoSupport": "模拟明确不支持",
+    "cancel": "取消",
+    "busyCreate": "正在创建私密空间…",
+    "busyJoin": "正在加入…",
+    "busyRecover": "正在准备恢复…",
+    "busyUnlock": "正在打开空间…",
+    "busyHelp": "请稍候。",
+    "inviteTitle": "邀请对方加入",
+    "inviteLead": "把邀请链接发给对方，<br>开启只属于你们的对话。",
+    "inviteWaiting": "等待对方打开邀请",
+    "inviteCountdown": "剩余 09:59",
+    "copyInvite": "复制邀请链接",
+    "inviteCloseNote": "关闭后，你可以在空间列表中继续邀请。",
+    "close": "关闭",
+    "copied": "已模拟复制邀请链接",
+    "chatTitle": "演示空间",
+    "chatEmpty": "空间已创建。此处仅模拟返回空间后的状态。",
+    "openSpaces": "打开空间列表",
+    "spaceListTitle": "私密空间",
+    "spaceListLead": "当前空间",
+    "newSpace": "创建新空间",
+    "settings": "设置",
+    "newSpaceGateway": "设置访问密钥",
+    "newSpaceLead": "为这台设备设置保护，防止别人直接打开你的聊天。",
+    "newSpaceDirect": "继续创建新空间",
+    "waitingTitle": "等待对方完成加入",
+    "waitingLead": "本机保护已准备好。对方确认后进入空间，加入前的历史不会自动出现。",
+    "approve": "模拟对方确认",
+    "reject": "模拟拒绝／超时",
+    "rejected": "对方尚未批准，或邀请已到期。请重新获取邀请。",
+    "restoreTitle": "找回私密空间",
+    "restoreLead": "无论哪一方丢失空间，都可以在双方参与下找回。请各自在自己的设备上输入恢复码，无需交换。",
+    "restoreNote": "仍可正常使用的本机聊天会保留。找回空间后，旧聊天记录需要另行恢复。",
+    "restoreWarn": "找不到恢复码怎么办？",
+    "restoreWarnBody": "先查看曾保存恢复码的密码管理器、文件或纸质副本。若所有正常入口都失效且缺少恢复码，就无法共同恢复。",
+    "restoreAction": "输入我的恢复码",
+    "codeTitle": "输入恢复码",
+    "codeLabel": "我的恢复码",
+    "codePlaceholder": "DEMO-ONLY",
+    "codeAction": "继续",
+    "codeWrong": "演示码不正确。",
+    "recoveryWaiting": "请对方一起参与",
+    "recoveryWaitingLead": "把恢复链接发给对方，请对方在自己的设备输入恢复码，并核对相同编号。",
+    "finishRecovery": "确认并找回空间",
+    "recoverSuccess": "私密空间已找回",
+    "recoverSuccessLead": "空间已找回。需要找回的一方可继续恢复旧记录；仍可使用的一方保留原本机聊天。",
+    "centerTitle": "留好双方恢复码，找回空间需要一起使用恢复码",
+    "centerLead": "本机所有空间共用一个恢复码。双方各自保管，不要互相发送恢复码。",
+    "centerList": "清除浏览器数据、更换浏览器或设备，都可能使原本的本机入口失效。",
+    "centerView": "查看我的恢复码",
+    "centerBackup": "首次备份尚未完成，请保持解锁并稍后重试。",
+    "centerAuth": "输入空间密码以查看恢复码",
+    "centerCode": "DEMO-ONLY-RECOVERY-CODE",
+    "centerCodeNote": "这只是演示文本，不是真实恢复材料。",
+    "centerBack": "返回",
+    "flowTitle": "业务流程 · 自动分流变动点",
+    "flowLead": "灰色复用、蓝色修改、绿色新增。系统决定保护路径，页面不提供方式选择。C 编号与页面标记一致。",
+    "demoOnly": "仅供交互评审",
+    "errorTitle": "暂时无法继续",
+    "returnHome": "返回欢迎页",
+    "retry": "重试",
+    "centerPageTitle": "我的恢复码",
+    "markersLabel": "显示页面改动标记",
+    "controlsTitle": "设备、环境与外观模拟",
+    "changed": "修改",
+    "new": "新增",
+    "reused": "复用",
+    "mixed": "局部修改",
+    "before": "原来",
+    "after": "调整",
+    "why": "原因",
+    "annotationTitle": "本页具体改动",
+    "annotationNote": "虚线和 C 编号仅供评审，不会出现在产品中。页面成功后的业务步骤继续复用。",
+    "noChange": "本页结构和业务步骤复用。下面仅说明与密码路径的衔接。",
+    "createNav": "P02 新建设置",
+    "deviceNav": "P02 添加设备",
+    "repairNav": "P02 修复设备",
+    "passwordNav": "P03 兜底密码页",
+    "inviteNav": "R02 邀请半屏",
+    "setupContinue": "用面容、指纹或锁屏密码继续",
+    "deviceTitle": "添加这台设备",
+    "deviceLead": "新设备会生成独立密钥，只能读取获准加入之后的新消息。",
+    "deviceHint": "完成后，请回到已有设备核对六位安全码并批准加入。",
+    "repairTitle": "修复这台设备",
+    "repairLead": "旧设备会被安全替换，新设备只会收到修复完成后的新消息。",
+    "repairHint": "完成后请保持页面打开，回到发起修复的设备核对六位安全码并批准。",
+    "browserNeedsCredential": "未找到可用于识别原空间列表的设备密钥。请回到保存该密钥的环境重试，或使用恢复码找回空间。空间密码不能用于此目录识别。",
+    "browserWaitingTitle": "等待原浏览器批准",
+    "browserWaitingLead": "核对两边的六位码。此步骤只接入空间列表，聊天仍需对方授权。",
+    "browserApprove": "模拟原浏览器批准",
+    "verifyPassword": "验证并继续",
+    "flowCreate": "F1 创建 / 加入",
+    "flowUnlock": "F2 解锁 / 再验证",
+    "flowRecovery": "F3 共同恢复",
+    "flowScroll": "窄屏可横向滑动查看完整分支。",
+    "flowCreateNote": "进入页面先检查；明确不支持时，原业务主按钮进入密码设置。不能提前确定时，点击后请求本机系统验证；PRF 明确不可用才自动兜底。取消、超时或临时故障仍回原页重试。空间列表有可复用材料时直接创建。",
+    "flowUnlockNote": "P04 解锁与 P06 业务再验证共用密码校验能力。P06 仅输入原密码，成功只继续发起的操作；取消、错误、锁定或目标变化不执行。原系统空间 PRF 失效不得新设密码强开。",
+    "flowRecoveryNote": "C07 去掉“恢复谁”的选择。各自在自己的设备输入恢复码，系统绑定目标后判断本机状态。可用的一方保留聊天；需重建的一方自动准备本机保护。C08 复用共同恢复页显示结果，双方确认同一请求后执行；未知状态不默认重建。",
+    "nEntry": "欢迎 / 设置入口",
+    "nEntrySub": "P01 / P02 · 保留当前位置",
+    "nChoices": "自动判定新设备保护路径",
+    "nChoicesSub": "C01 / C02 · 保留单一业务动作",
+    "nSystem": "按系统提示完成验证",
+    "nSystemSub": "既有本机凭据 / PRF",
+    "nPassword": "设置兜底空间密码",
+    "nPasswordSub": "P03 · C03 · 仅自动兜底进入",
+    "nFailure": "自动转入密码设置",
+    "nFailureSub": "C01 / C02 · PRF 明确不可用",
+    "nProtection": "形成可用本机保护材料",
+    "nProtectionSub": "共享后续建房 / 加入接口",
+    "nBusiness": "建房 / 加入 / 独立设备授权",
+    "nBusinessSub": "复用原业务与失败重试",
+    "nSuccess": "邀请半屏 / 等待双方批准",
+    "nSuccessSub": "R02 / R05 · 不增加步骤",
+    "nAvailable": "可能支持；点击后验证",
+    "nUsePassword": "已明确不支持 → 自动兜底",
+    "nAutoFallback": "自动兜底",
+    "nPrfFailure": "缺少 PRF",
+    "nPrfValid": "验证与 PRF 有效",
+    "nValid": "密码有效",
+    "nCancel": "取消／临时失败 → 原页重试",
+    "nExisting": "打开本机已有空间",
+    "nExistingSub": "按储存的原保护方式分流",
+    "nUnlockSystem": "原底部系统解锁按钮",
+    "nUnlockSystemSub": "P04 · C04 · 具体动作文案",
+    "nUnlockPassword": "同一底部区域输入密码",
+    "nUnlockPasswordSub": "P04 · C04 · 增加密码分支",
+    "nOpen": "打开空间",
+    "nOpenSub": "错误密码 / 验证失败不显示内容",
+    "nCannot": "原环境重试 / 一起恢复",
+    "nCannotSub": "复用既有恢复，不新设密码强开",
+    "nSensitive": "恢复码 / 备份下载 / 本地恢复",
+    "nSensitiveSub": "R04 / R09 / R10 · 原业务入口",
+    "nReauth": "按原保护方式再次验证",
+    "nReauthSub": "P06 · C06 · 共用密码确认弹层",
+    "nReveal": "验证通过，继续原业务操作",
+    "nRevealSub": "复用准备检查与显示生命周期",
+    "nSystemMethod": "系统保护",
+    "nPasswordMethod": "密码保护",
+    "nSuccessEdge": "成功",
+    "nUnavailableEdge": "PRF 不可用",
+    "nRestore": "统一找回说明 + 输入我的恢复码",
+    "nRestoreSub": "R03 / P05 · C07 · 移除对象选择",
+    "nNeedsProtection": "目标绑定后，本机是否需要重建？",
+    "nNeedsProtectionSub": "C07 · 由已验证本机状态判定",
+    "nRecoveryChoice": "自动准备恢复设备保护",
+    "nRecoveryChoiceSub": "P05 · C05 · 移除方式选择",
+    "nOriginalSystem": "原系统凭据设置",
+    "nOriginalSystemSub": "P02 · 原有方式",
+    "nRecoveryPassword": "共用设置密码表单",
+    "nRecoveryPasswordSub": "P03 · C03 · 回到原恢复流程",
+    "nJoint": "双方校验恢复码 / 确认找回结果",
+    "nJointSub": "R06 · C08 · 展示结果，不再选对象",
+    "nRecovered": "找回完成 / 保留或另行恢复历史",
+    "nRecoveredSub": "可用一方保留；找回一方另恢复历史",
+    "nYes": "是",
+    "nNo": "否，保留现有聊天",
+    "nChooseSystem": "系统可能可用",
+    "nChoosePassword": "明确不可用 → 自动兜底",
+    "flowOverview": "C01 / C02 自动分流且不预告解锁方式；C03 密码仅兜底；C04 / C06 原方式验证；C05 自动保护；C07 统一找回；C08 结果确认。",
+    "passwordFallbackPrecheck": "当前浏览器无法使用本机系统保护，请设置空间密码继续。",
+    "passwordFallbackResult": "系统验证未提供保护聊天所需的能力，已转为空间密码设置。",
+    "systemRetryError": "本次验证未完成，请重试。尚未切换保护方式。",
+    "detectionLabel": "不支持的发现时机（模拟）",
+    "onEntry": "进入页面检查时明确不支持",
+    "afterPrompt": "完成系统操作后确认不支持",
+    "joinContinue": "继续加入",
+    "deviceContinue": "继续添加设备",
+    "repairContinue": "继续修复设备",
+    "systemRetry": "模拟临时错误／超时",
+    "reauthNav": "P06 验证已有密码",
+    "backupNav": "R09 备份数据",
+    "importNav": "R10 恢复数据",
+    "authPurposeLabel": "验证调用场景（仅评审）",
+    "authStateLabel": "验证状态（仅评审）",
+    "authPreviewNote": "直接预览 P06 模拟已有密码空间。通常输入 DEMO-ONLY-123；目标待建立空间输入 DEMO-TARGET-123。",
+    "authTitle": "输入空间密码",
+    "authLead": "请输入此空间已有的密码，确认后继续本次操作。",
+    "authForRecovery": "查看我的恢复码",
+    "authForExport": "下载备份文件",
+    "authForImport": "从本地备份恢复数据",
+    "authForLegacy": "查看本设备恢复码（旧版入口）",
+    "authForPending": "删除另一个待建立空间（需要目标凭据时）",
+    "authRecoveryButton": "验证并查看恢复码",
+    "authExportButton": "验证并下载备份",
+    "authImportButton": "验证并恢复数据",
+    "authPendingButton": "验证并继续删除",
+    "authTarget": "本次操作的空间",
+    "authNormal": "正常",
+    "authLimited": "尝试过多",
+    "authExpired": "会话失效",
+    "authLimitedError": "尝试次数过多，请稍后重试。",
+    "authExpiredError": "当前空间已锁定，请重新打开后再操作。",
+    "authVerifying": "正在验证…",
+    "authCancel": "取消操作",
+    "authCancelLock": "取消并锁定",
+    "authRetry": "返回重新打开空间",
+    "authPendingRoom": "待建立空间",
+    "backupTitle": "备份数据",
+    "backupIntro": "为重要的聊天留一份备份。",
+    "backupDownload": "下载备份文件",
+    "backupDownloadLead": "保存这台设备已有的聊天和文件。",
+    "backupEncryptedNote": "文件已加密，不会自动更新。恢复时需要恢复码。",
+    "cloudBackup": "自动加密备份到云端",
+    "cloudBackupLead": "打开并解锁页面时自动备份。",
+    "backupFootnote": "两种方式可同时使用。关闭云备份不会删除已有备份。",
+    "backupSummaryTitle": "备份内容",
+    "backupSummaryLead": "演示：12 条消息，2 个原文件。实际内容以本机统计为准。",
+    "backupSummaryNote": "请保管好恢复码。这里仅模拟业务步骤，不生成文件。",
+    "backupConfirm": "下载备份",
+    "importTitle": "恢复数据",
+    "importIntro": "找回你在这个空间的记录，换设备也可以。",
+    "importLocal": "从本地文件恢复",
+    "importLocalLead": "选择之前下载的备份文件。",
+    "importCloud": "从云端加密备份恢复",
+    "importCloudLead": "用恢复码找回云端保存的记录。",
+    "importFootnote": "已有记录会保留，重复内容不会再次添加。文件不会上传。",
+    "importSummaryTitle": "恢复内容",
+    "importSummaryLead": "演示文件与恢复码已通过预览校验，可恢复 12 条记录。",
+    "importSummaryNote": "这个演示不会读取真实文件或导入真实记录。",
+    "importConfirm": "立即恢复",
+    "backupResultTitle": "备份验证通过",
+    "backupResultLead": "已模拟继续生成备份并交给系统保存。实际保存结果仍需确认。",
+    "importResultTitle": "恢复验证通过",
+    "importResultLead": "已模拟继续原恢复任务。真实导入仍需执行原有校验和进度流程。",
+    "pendingResultTitle": "目标凭据验证通过",
+    "pendingResultLead": "已模拟继续原删除流程。执行前仍检查对方是否已加入、授权及目标保险库是否变化。",
+    "legacyTitle": "查看本设备恢复码",
+    "legacyLead": "需要再次验证此空间的原保护方式。恢复码只在本机显示。",
+    "legacyVerify": "再次验证并查看",
+    "resultBack": "回到原入口",
+    "cloudDemo": "原云备份入口继续复用，本演示仅展开本地文件流程。",
+    "recoveryNoNeedTitle": "无需找回",
+    "recoveryReturnSpace": "返回原空间",
+    "recoveryCaseLabel": "双方本机状态（评审模拟）",
+    "recoveryCaseNote": "此控件只模拟系统判定依据，不是产品中的选择。双方分别输入自己的恢复码；仅演示可用、丢失与无法确认状态。",
+    "meLost": "我方需找回，对方空间可用",
+    "peerLost": "我方空间可用，对方需找回",
+    "bothLost": "双方都需找回",
+    "bothReady": "双方空间均可用",
+    "uncertain": "本机状态暂时无法确认",
+    "recoveryNotNeeded": "双方空间均可正常使用，无需找回。请返回原空间。",
+    "recoveryStateUnknown": "暂时无法确认本机空间状态。请先打开已有空间完成解锁与同步后重试，尚未执行找回。",
+    "peerEnterCode": "模拟对方验证恢复码",
+    "recoveryReadyTitle": "确认本次找回",
+    "recoveryReadyLead": "双方已各自验证恢复码。请核对相同编号和下方结果，再共同确认。",
+    "recoveryMine": "我的空间",
+    "recoveryPeer": "对方的空间",
+    "recoveryRebuild": "需要找回，旧记录可在完成后另行恢复。",
+    "recoveryKeep": "可以正常使用，保留现有本机聊天。",
+    "recoveryConsequence": "完成后，其他旧设备需要重新授权。恢复码请各自保管。",
+    "recoveryCancel": "取消找回",
+    "recoveryResultKeep": "你的空间继续使用，现有本机聊天已保留。对方已找回空间。",
+    "recoveryResultRebuild": "你的空间已找回。旧聊天记录需要按原流程另行恢复。",
+    "recoveryPeerWaiting": "等待对方在自己的设备验证恢复码。"
+  },
+  "en": {
+    "eyebrow": "Unified recovery entry · v6",
+    "reviewTitle": "Fewer promises and choices, one business flow",
+    "reviewDesc": "C01 / C02 remove unlock-method previews. Rename recovery entries. C07 removes recovery-target selection; C08 shows automatically derived outcomes for confirmation. Keep P06 verification.",
+    "welcomeNav": "P01 First create",
+    "joinNav": "P02 Join",
+    "unlockNav": "P04 Unlock",
+    "spacesNav": "R01 Space list",
+    "restoreNav": "R03 / P05 Recovery",
+    "centerNav": "R04 / P06 Code",
+    "flowNav": "Business flows",
+    "scenarioLabel": "Device scenario",
+    "envLabel": "Environment",
+    "methodLabel": "Existing protection",
+    "bioPrf": "Biometrics; PRF available",
+    "bioOnly": "Biometrics; no PRF",
+    "pinPrf": "No biometrics; PRF available",
+    "neither": "No biometrics; no PRF",
+    "normal": "Normal",
+    "offline": "Offline",
+    "unsafe": "Secure environment unavailable",
+    "methodSystem": "System verification",
+    "methodPassword": "Space password",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "language": "中 / EN",
+    "reset": "Reset",
+    "reviewNote": "System prompts, space creation, invitation, and recovery are simulated. Enter only DEMO-ONLY-123 for passwords and DEMO-ONLY for recovery. Never enter real secrets.",
+    "preview": "Interactive preview · v7",
+    "prototype": "Prototype",
+    "welcomeTitle": "Some words are<br>just for the two of you.",
+    "welcomeLead": "A private space for two people.",
+    "welcomeCopy1": "No phone number or email needed.",
+    "welcomeCopy2": "Only you and the other person can read the conversation.",
+    "create": "Create private space",
+    "continueBrowser": "Find spaces with device key",
+    "restore": "Find spaces with recovery code",
+    "systemUnsupported": "Local system protection is unavailable.",
+    "systemCanceled": "System verification canceled. Select the original action to retry.",
+    "unsafeMessage": "This browser lacks the secure environment required for an encrypted space. Use a secure connection and check encryption and local storage support.",
+    "offlineMessage": "You are offline. Creation or joining cannot finish yet. Connect and retry.",
+    "createFailed": "Could not connect. No space was created. Retry when online.",
+    "joinFailed": "Could not connect. You have not joined. Retry when online.",
+    "recoverFailed": "Recovery cannot continue right now. Connect and retry.",
+    "joinTitle": "Someone saved a private space for you",
+    "joinLead": "Once you join, this space belongs to the two of you. First protect this device.",
+    "deviceName": "Passkey name",
+    "deviceNameHint": "Identify this key in system settings. Do not include private chat details.",
+    "notJoin": "Not now",
+    "passwordTitle": "Set a space password",
+    "passwordLead": "Enter it to open this space later. It is separate from your screen PIN.",
+    "password1": "Space password",
+    "password2": "Enter it again",
+    "showPassword": "Show password",
+    "passwordHint": "You may use a password manager. The prototype’s 12–128 character limit is illustrative. Enter only DEMO-ONLY-123.",
+    "passwordShort": "Use at least 12 characters.",
+    "passwordLong": "Use no more than 128 characters.",
+    "passwordRecoveryHint": "If you forget it, both people need to take part in recovery.",
+    "passwordMismatch": "The passwords do not match.",
+    "passwordUse": "Set password and continue",
+    "back": "Back",
+    "unlockSystem": "Open with face, fingerprint, or screen PIN",
+    "unlockPassword": "Open private space",
+    "unlockInput": "Space password",
+    "unlockPasswordTitle": "Open private space",
+    "unlockPasswordLead": "Enter this space’s existing password.",
+    "unlockPasswordHelp": "Both people take part. Restore old history separately.",
+    "forgotPassword": "Forgot password? Recover with your code",
+    "unlockWrong": "Incorrect space password. Try again.",
+    "recoverTogether": "Cannot unlock? Recover together",
+    "oldSystemUnavailable": "This space used system verification, which cannot be read now. A new password cannot open its encrypted data. Retry on the original device or recover together.",
+    "systemSheet": "Simulated system prompt",
+    "systemSheetLead": "The real prompt is controlled by the system and may ask for face, fingerprint, or screen PIN.",
+    "systemSuccess": "Simulate completed system operation",
+    "systemNoSupport": "Simulate confirmed unsupported",
+    "cancel": "Cancel",
+    "busyCreate": "Creating private space…",
+    "busyJoin": "Joining…",
+    "busyRecover": "Preparing recovery…",
+    "busyUnlock": "Opening space…",
+    "busyHelp": "Please wait.",
+    "inviteTitle": "Invite someone",
+    "inviteLead": "Send the invitation link<br>to start your conversation.",
+    "inviteWaiting": "Waiting for the other person to open the invitation",
+    "inviteCountdown": "09:59 remaining",
+    "copyInvite": "Copy invitation link",
+    "inviteCloseNote": "After closing, you can invite again from the space list.",
+    "close": "Close",
+    "copied": "Invitation copy simulated",
+    "chatTitle": "Demo space",
+    "chatEmpty": "The space exists. This screen only simulates returning to it.",
+    "openSpaces": "Open space list",
+    "spaceListTitle": "Private spaces",
+    "spaceListLead": "Current space",
+    "newSpace": "Create new space",
+    "settings": "Settings",
+    "newSpaceGateway": "Set access key",
+    "newSpaceLead": "Protect this device so others cannot directly open your chats.",
+    "newSpaceDirect": "Continue creating space",
+    "waitingTitle": "Waiting for the other person",
+    "waitingLead": "Local protection is ready. They must approve joining. Earlier history will not appear automatically.",
+    "approve": "Simulate approval",
+    "reject": "Simulate rejection / timeout",
+    "rejected": "The other person has not approved, or the invitation expired. Request another invitation.",
+    "restoreTitle": "Recover private space",
+    "restoreLead": "Either person can regain a lost space with both people participating. Each enters their own recovery code on their own device. Do not exchange codes.",
+    "restoreNote": "Usable local chats are retained. A recovered space requires separate history restoration.",
+    "restoreWarn": "Cannot find the recovery code?",
+    "restoreWarnBody": "Check your password manager, saved files, or paper copy. If all normal access is lost and the code is missing, joint recovery cannot finish.",
+    "restoreAction": "Enter my recovery code",
+    "codeTitle": "Enter recovery code",
+    "codeLabel": "My recovery code",
+    "codePlaceholder": "DEMO-ONLY",
+    "codeAction": "Continue",
+    "codeWrong": "Incorrect demo code.",
+    "recoveryWaiting": "Ask the other person to join",
+    "recoveryWaitingLead": "Share the recovery link. Ask the other person to enter their own code on their device and compare the same number.",
+    "finishRecovery": "Confirm and recover space",
+    "recoverSuccess": "Space recovered",
+    "recoverSuccessLead": "The lost side can restore old history separately. The usable side keeps existing local chats.",
+    "centerTitle": "Keep both recovery codes to recover the space together",
+    "centerLead": "All spaces on this device share one recovery code. Keep your own copy and do not exchange codes.",
+    "centerList": "Clearing browser data or changing browsers or devices may remove local access.",
+    "centerView": "View my recovery code",
+    "centerBackup": "Initial backup is incomplete. Keep the space unlocked and retry later.",
+    "centerAuth": "Enter space password to view recovery code",
+    "centerCode": "DEMO-ONLY-RECOVERY-CODE",
+    "centerCodeNote": "This is demo text, not real recovery material.",
+    "centerBack": "Back",
+    "flowTitle": "Business flows · automatic routing",
+    "flowLead": "Gray is reused, blue changed, green new. The system routes protection; pages offer no method choice. C IDs match page markers.",
+    "demoOnly": "For interaction review only",
+    "errorTitle": "Cannot continue yet",
+    "returnHome": "Back to welcome",
+    "retry": "Retry",
+    "centerPageTitle": "My recovery code",
+    "markersLabel": "Show change markers",
+    "controlsTitle": "Device, environment and appearance",
+    "changed": "Changed",
+    "new": "New",
+    "reused": "Reused",
+    "mixed": "Partial change",
+    "before": "Before",
+    "after": "After",
+    "why": "Reason",
+    "annotationTitle": "Changes on this page",
+    "annotationNote": "Dashed outlines and C IDs are review aids, excluded from the product. Successful paths continue into existing business steps.",
+    "noChange": "The page structure and business steps are reused. Notes below explain the password path connection.",
+    "createNav": "P02 Create setup",
+    "deviceNav": "P02 Add device",
+    "repairNav": "P02 Repair device",
+    "passwordNav": "P03 Fallback password",
+    "inviteNav": "R02 Invite sheet",
+    "setupContinue": "Continue with face, fingerprint, or screen PIN",
+    "deviceTitle": "Add this device",
+    "deviceLead": "This device creates independent keys and can read only new messages after approval.",
+    "deviceHint": "Return to the existing device, compare the six-digit code and approve.",
+    "repairTitle": "Repair this device",
+    "repairLead": "The old device is securely replaced. This device receives only new messages after repair.",
+    "repairHint": "Keep this page open, compare the code on the initiating device and approve.",
+    "browserNeedsCredential": "No device key was found to identify the original space collection. Retry where that key was saved, or use recovery codes. Space passwords cannot identify this collection.",
+    "browserWaitingTitle": "Waiting for the original browser",
+    "browserWaitingLead": "Compare both six-digit codes. This accesses the space list only; each chat still needs the other person’s authorization.",
+    "browserApprove": "Simulate original browser approval",
+    "verifyPassword": "Verify and continue",
+    "flowCreate": "F1 Create / join",
+    "flowUnlock": "F2 Unlock / verify",
+    "flowRecovery": "F3 Joint recovery",
+    "flowScroll": "On narrow screens, scroll horizontally to view branches.",
+    "flowCreateNote": "Check on entry. If unsupported, the original action enters password setup. If uncertain, clicking starts system verification; confirmed missing PRF triggers fallback. Cancellation, timeout and temporary failure stay retryable. Reuse available protection material for new spaces.",
+    "flowUnlockNote": "P04 unlock and P06 business verification share password checking. P06 takes only the existing password and continues only its caller. Errors, cancellation, locking or target changes execute nothing. New password never opens an existing system vault.",
+    "flowRecoveryNote": "C07 removes recovery-target selection. Each person enters their own code. Bind the target and derive the local state. Usable devices retain chats; devices needing recovery prepare protection automatically. C08 reuses joint progress to show the outcome for both people to confirm. Unknown state never defaults to rebuilding.",
+    "nEntry": "Welcome / setup entry",
+    "nEntrySub": "P01 / P02 · existing location",
+    "nChoices": "Automatically route local protection",
+    "nChoicesSub": "C01 / C02 · one business action",
+    "nSystem": "Follow system verification",
+    "nSystemSub": "Existing local credential / PRF",
+    "nPassword": "Set fallback space password",
+    "nPasswordSub": "P03 · C03 · automatic fallback only",
+    "nFailure": "Automatically open password setup",
+    "nFailureSub": "C01 / C02 · confirmed missing PRF",
+    "nProtection": "Usable local protection material",
+    "nProtectionSub": "Shared create / join interface",
+    "nBusiness": "Create / join / authorize device",
+    "nBusinessSub": "Reuse business logic and retries",
+    "nSuccess": "Invite sheet / await approval",
+    "nSuccessSub": "R02 / R05 · no extra step",
+    "nAvailable": "May work; verify after click",
+    "nUsePassword": "Confirmed unsupported → fallback",
+    "nAutoFallback": "Auto fallback",
+    "nPrfFailure": "No PRF",
+    "nPrfValid": "Valid verification + PRF",
+    "nValid": "Valid password",
+    "nCancel": "Cancel / temporary error → retry",
+    "nExisting": "Open an existing local space",
+    "nExistingSub": "Route by stored protection method",
+    "nUnlockSystem": "Original bottom system button",
+    "nUnlockSystemSub": "P04 · C04 · clearer action copy",
+    "nUnlockPassword": "Password in the same bottom area",
+    "nUnlockPasswordSub": "P04 · C04 · password branch",
+    "nOpen": "Open space",
+    "nOpenSub": "Invalid verification reveals no content",
+    "nCannot": "Retry original / joint recovery",
+    "nCannotSub": "Existing recovery; no password bypass",
+    "nSensitive": "Recovery code / backup / local restore",
+    "nSensitiveSub": "R04 / R09 / R10 · existing entries",
+    "nReauth": "Verify the original method again",
+    "nReauthSub": "P06 · C06 · shared password prompt",
+    "nReveal": "Continue the original operation",
+    "nRevealSub": "Reuse readiness and display lifecycle",
+    "nSystemMethod": "System vault",
+    "nPasswordMethod": "Password vault",
+    "nSuccessEdge": "Success",
+    "nUnavailableEdge": "PRF unavailable",
+    "nRestore": "One recovery entry + own code",
+    "nRestoreSub": "R03 / P05 · C07 · No target selection",
+    "nNeedsProtection": "Does the bound device need rebuilding?",
+    "nNeedsProtectionSub": "C07 · Derive from verified local state",
+    "nRecoveryChoice": "Automatically protect recovered device",
+    "nRecoveryChoiceSub": "P05 · C05 · remove method choice",
+    "nOriginalSystem": "Original system credential setup",
+    "nOriginalSystemSub": "P02 · existing method",
+    "nRecoveryPassword": "Shared password setup form",
+    "nRecoveryPasswordSub": "P03 · C03 · return to recovery",
+    "nJoint": "Verify both codes / confirm outcome",
+    "nJointSub": "R06 · C08 · Result, no target selection",
+    "nRecovered": "Complete / retain or restore history",
+    "nRecoveredSub": "Usable: retain. Recovered: import history.",
+    "nYes": "Yes",
+    "nNo": "No, retain local chats",
+    "nChooseSystem": "System may be available",
+    "nChoosePassword": "Unavailable → automatic fallback",
+    "flowOverview": "C01 / C02 automatic routing with no unlock preview; C03 fallback only; C04 / C06 stored method; C05 protection; C07 unified recovery; C08 outcome confirmation.",
+    "passwordFallbackPrecheck": "Local system protection is unavailable in this browser. Set a space password to continue.",
+    "passwordFallbackResult": "System verification did not provide the required protection. Password setup is now the fallback.",
+    "systemRetryError": "Verification did not finish. Retry; the protection method has not changed.",
+    "detectionLabel": "When support failure is found (simulation)",
+    "onEntry": "Confirmed during entry checks",
+    "afterPrompt": "Confirmed after system operation",
+    "joinContinue": "Continue joining",
+    "deviceContinue": "Continue adding device",
+    "repairContinue": "Continue repairing device",
+    "systemRetry": "Simulate temporary error / timeout",
+    "reauthNav": "P06 Verify password",
+    "backupNav": "R09 Back up data",
+    "importNav": "R10 Restore data",
+    "authPurposeLabel": "Verification caller (review only)",
+    "authStateLabel": "Verification state (review only)",
+    "authPreviewNote": "Direct P06 preview simulates a password vault. Use DEMO-ONLY-123, or DEMO-TARGET-123 for the pending target space.",
+    "authTitle": "Enter space password",
+    "authLead": "Enter this space’s existing password to confirm and continue this operation.",
+    "authForRecovery": "View my recovery code",
+    "authForExport": "Download backup file",
+    "authForImport": "Restore from a local backup",
+    "authForLegacy": "View device recovery code (legacy entry)",
+    "authForPending": "Delete another pending space (if target proof is needed)",
+    "authRecoveryButton": "Verify and view recovery code",
+    "authExportButton": "Verify and download backup",
+    "authImportButton": "Verify and restore data",
+    "authPendingButton": "Verify and continue deletion",
+    "authTarget": "Space for this operation",
+    "authNormal": "Normal",
+    "authLimited": "Too many attempts",
+    "authExpired": "Session expired",
+    "authLimitedError": "Too many attempts. Try again later.",
+    "authExpiredError": "This space is locked. Open it again before continuing.",
+    "authVerifying": "Verifying…",
+    "authCancel": "Cancel operation",
+    "authCancelLock": "Cancel and lock",
+    "authRetry": "Return and reopen space",
+    "authPendingRoom": "Pending space",
+    "backupTitle": "Back up data",
+    "backupIntro": "Keep a backup of important conversations.",
+    "backupDownload": "Download backup file",
+    "backupDownloadLead": "Save chat and files available on this device.",
+    "backupEncryptedNote": "The file is encrypted and does not update automatically. Recovery requires your recovery code.",
+    "cloudBackup": "Automatic encrypted cloud backup",
+    "cloudBackupLead": "Back up while the page is open and unlocked.",
+    "backupFootnote": "Both methods can be used together. Disabling cloud backup does not delete saved backups.",
+    "backupSummaryTitle": "Backup contents",
+    "backupSummaryLead": "Demo: 12 messages and 2 original files. Real contents depend on local statistics.",
+    "backupSummaryNote": "Keep your recovery code. This demo simulates the flow and generates no file.",
+    "backupConfirm": "Download backup",
+    "importTitle": "Restore data",
+    "importIntro": "Recover records in this space, including on a new device.",
+    "importLocal": "Restore from a local file",
+    "importLocalLead": "Select a previously downloaded backup file.",
+    "importCloud": "Restore encrypted cloud backup",
+    "importCloudLead": "Use the recovery code to locate cloud records.",
+    "importFootnote": "Existing records remain and duplicates are skipped. The file is not uploaded.",
+    "importSummaryTitle": "Restore contents",
+    "importSummaryLead": "The demo file and recovery code passed preview checks; 12 records can be restored.",
+    "importSummaryNote": "This demo reads no real file and imports no real records.",
+    "importConfirm": "Restore now",
+    "backupResultTitle": "Backup verification passed",
+    "backupResultLead": "Simulated backup generation and system save handoff. Actual saving must still be confirmed.",
+    "importResultTitle": "Restore verification passed",
+    "importResultLead": "Simulated continuation of the restore task. Real import still needs existing checks and progress.",
+    "pendingResultTitle": "Target credential verified",
+    "pendingResultLead": "Simulated continuation of the original deletion flow. Recheck joining status, authority and vault changes before execution.",
+    "legacyTitle": "View device recovery code",
+    "legacyLead": "Verify this space’s original method again. Recovery code is shown only locally.",
+    "legacyVerify": "Verify again and view",
+    "resultBack": "Return to original entry",
+    "cloudDemo": "The cloud entry is reused. This demo expands the local file flow only.",
+    "recoveryNoNeedTitle": "No recovery needed",
+    "recoveryReturnSpace": "Return to original space",
+    "recoveryCaseLabel": "Local states (review simulation)",
+    "recoveryCaseNote": "This control simulates evidence for automatic routing, not a product choice. Each person enters their own code. Cases cover usable, lost and uncertain states.",
+    "meLost": "My space lost; other space usable",
+    "peerLost": "My space usable; other space lost",
+    "bothLost": "Both spaces lost",
+    "bothReady": "Both spaces usable",
+    "uncertain": "Local state cannot yet be confirmed",
+    "recoveryNotNeeded": "Both spaces are usable. Recovery is unnecessary. Return to the original space.",
+    "recoveryStateUnknown": "Local state could not be confirmed. Open the existing space, unlock and synchronize it, then retry. Recovery has not run.",
+    "peerEnterCode": "Simulate other code verification",
+    "recoveryReadyTitle": "Confirm this recovery",
+    "recoveryReadyLead": "Both people have verified their own codes. Compare the number and outcomes below, then confirm together.",
+    "recoveryMine": "My space",
+    "recoveryPeer": "Other person’s space",
+    "recoveryRebuild": "Recover this space; restore old history separately afterward.",
+    "recoveryKeep": "Space usable; retain existing local chats.",
+    "recoveryConsequence": "Other old devices need authorization again. Keep your codes private.",
+    "recoveryCancel": "Cancel recovery",
+    "recoveryResultKeep": "Your space remains usable with its local chats retained. The other person’s space is recovered.",
+    "recoveryResultRebuild": "Your space is recovered. Restore old history separately through the existing flow.",
+    "recoveryPeerWaiting": "Waiting for the other person to verify their own code on their device."
+  }
+};
+const changeNotes={
+  "zh": {
+    "C01": [
+      "欢迎页自动判定，保留单一创建动作",
+      "主按钮直接唤起系统凭据；不支持时无法创建。",
+      "进入页面静默检查能力；用户只点击“创建私密空间”。明确不可用则进入密码设置；无法预判时先走系统验证，PRF 明确不可用后自动兜底。取消与临时失败保留重试。 删除面容／指纹／锁屏密码预告和欢迎页的路径说明，找回入口改为“使用设备密钥找回空间”“使用恢复码找回空间”。",
+      "由系统承担保护路径决策，用户无需选择加密方式。"
+    ],
+    "C02": [
+      "共用设置组件自动分流",
+      "创建、受邀、添加设备和修复设备共用系统凭据组件。",
+      "保留一个继续业务的主按钮。自动选择本机系统保护或密码兜底；移除方式选择。系统凭据名称沿用默认值，仅系统路径显示。 不再在继续按钮下预告具体验证动作或兜底说明；实际进入 P03 后解释原因。",
+      "同一个组件覆盖四个入口，授权与历史边界继续沿用。"
+    ],
+    "C03": [
+      "新增共用密码兜底表单",
+      "没有可独立完成新建的空间密码表单；旧 v1 密码是迁移输入。",
+      "仅明确无法使用系统保护时自动进入。解释原因，支持密码管理器、准确长度与不一致反馈、显示切换与Enter；返回原入口，成功接原业务。",
+      "新增一个完整页面模板；不作为用户主动选择的保护方式。"
+    ],
+    "C04": [
+      "在原底部区域按原保护方式解锁",
+      "v3 空间只有系统验证按钮。",
+      "系统空间保留原按钮；密码空间补充目标空间、已有密码输入、显示切换、Enter和明确的忘记密码入口。错误原位反馈，统一找回保留。",
+      "按储存的原方式解密；不允许新设密码打开旧系统空间。"
+    ],
+    "C05": [
+      "恢复新设备自动判定保护路径",
+      "恢复新设备时必须创建系统凭据。",
+      "原恢复码弹层保留一个“继续”主按钮。自动判定新设备保护；明确不可用才转共用 P03。仅协助对方时跳过。",
+      "恢复码与共同批准保持；本机保护需求由已验证本机状态判断。"
+    ],
+    "C06": [
+      "共用“验证已有密码”弹层，所有调用入口明确可见",
+      "查看恢复码、下载备份、立即恢复本地文件以系统方式再次验证；旧版恢复码与另一个待建立空间有各自验证边界。",
+      "P06 只输入原空间密码，显示目标空间与本次操作；验证按钮说明后续动作。错误原位重试；取消回原入口；验证中可取消。旧版取消仍锁定，目标待建立空间使用目标凭据。导航和流程图可直接预览 P06。",
+      "使用同一组件补齐密码路径；每次只继续发起的操作，不复用一次验证放行其他业务。"
+    ],
+    "C07": [
+      "统一找回入口，移除恢复对象选择",
+      "找回前选择“只恢复我／只恢复对方／我们两个人”。",
+      "保留说明页和输入恢复码按钮。双方分别输入自己的码，目标绑定后各自判断本机空间是否可用；可用则协助并保留聊天，需要找回则准备保护。状态未知先停止，不默认双方重建。",
+      "删除一项前置决策，仍保留空间身份、历史与本机状态边界。"
+    ],
+    "C08": [
+      "复用双方参与页展示结果并确认",
+      "原双方参与页展示恢复对象；范围未变化时可自动签署完成，变化或失败时才显示确认按钮。",
+      "复用现有确认按钮；双方恢复码通过后，展示各自“保留聊天／找回后另恢复历史”的结果，再确认同一请求。其他旧设备仍需重新授权；取消不执行找回。",
+      "前置选择被移除后，双方仍需知道实际结果并批准，不增加新的选择页面。"
+    ]
+  },
+  "en": {
+    "C01": [
+      "Automatically route one Create action",
+      "Create directly invokes a system credential; unsupported devices cannot continue.",
+      "Check silently on entry. Keep Create as the only creation action. Confirmed unsupported devices get password setup; uncertain cases try system verification and fall back only after confirmed missing PRF. Cancellation and temporary failure remain retryable. Remove biometric/lock-password previews and entry routing explanations. Rename the device-key and recovery-code entries.",
+      "The system chooses the protection route; users do not choose encryption methods."
+    ],
+    "C02": [
+      "Automatically route the shared setup component",
+      "Create, invited join, device join and repair share system credential setup.",
+      "Keep one business continuation action. Route to local system protection or password fallback. Remove method selection. Keep the default credential name for the system path only. Do not preview a specific unlock method or fallback below Continue. Explain fallback only after entering P03.",
+      "One component covers four entries; approval and history boundaries remain."
+    ],
+    "C03": [
+      "One shared password fallback form",
+      "No complete new-space password form exists; legacy v1 password is a migration input.",
+      "Enter automatically only when local system protection is confirmed unavailable. Explain why. Support password managers, distinct length/mismatch errors, show/hide and Enter. Return to the original entry or continue its business flow.",
+      "The only new full page template; not a user-selected protection alternative."
+    ],
+    "C04": [
+      "Unlock in the existing bottom area",
+      "v3 spaces have only system verification.",
+      "Keep the original system action. Password vaults show the target space, existing password, show/hide, Enter and an explicit forgotten-password entry to unified recovery.",
+      "Decrypt by the stored method. A new password never opens an existing system vault."
+    ],
+    "C05": [
+      "Automatically protect the recovering device",
+      "Recovery onto a new device requires a system credential.",
+      "Keep one Continue action in the existing code dialog. Automatically route new-device protection. Confirmed lack of support enters P03. Helping the other person skips setup.",
+      "Keep code authentication and joint approval. Derive protection needs from verified local state."
+    ],
+    "C06": [
+      "Shared existing-password verification with visible callers",
+      "Recovery-code viewing, backup download and local restore verify the system method again. Legacy viewing and another pending space have distinct verification boundaries.",
+      "P06 takes only the existing password and shows the target space and operation. Its button names the continuation. Errors retry inline; cancellation returns; pending verification can be canceled. Legacy cancellation locks. Pending spaces use the target credential. Navigation and flow links open P06 directly.",
+      "One shared component completes password callers. Each verification continues only its originating operation."
+    ],
+    "C07": [
+      "One recovery entry with no target choice",
+      "Choose only me, only the other person, or both before entering a code.",
+      "Keep the explanation and own-code entry. Each person derives local usability after target binding. Usable spaces retain chats; lost spaces prepare protection. Unknown states stop, never default to rebuilding both.",
+      "Remove one upfront decision while retaining identity, history and local-state boundaries."
+    ],
+    "C08": [
+      "Reuse joint progress to confirm the outcome",
+      "The progress page shows recovery scope. Stable scope may complete automatically; changed or failed scope exposes confirmation.",
+      "Reuse the existing confirmation button. After both codes verify, show each retain/recover outcome and confirm the same request. Old devices need authorization again; cancel does not recover.",
+      "With upfront target selection removed, both people must see and approve the actual outcome. No new selection page."
+    ]
+  }
+};
+const pageCatalog={
+ welcome:['P01','welcomeNav','changed',['C01']],join:['P02','joinNav','changed',['C02']],joinDevice:['P02','deviceNav','changed',['C02']],repair:['P02','repairNav','changed',['C02']],newSpaceGateway:['P02','createNav','changed',['C02']],password:['P03','passwordNav','new',['C03']],unlock:['P04','unlockNav','changed',['C04']],spaces:['R01','spacesNav','reused',[]],invite:['R02','inviteNav','reused',[]],restore:['R03','restoreNav','changed',['C07']],recoverCode:['P05','restoreNav','changed',['C05','C07']],center:['R04','centerNav','reused',[]],centerAuth:['P06','reauthNav','changed',['C06']],reauth:['P06','reauthNav','changed',['C06']],backup:['R09','backupNav','reused',[]],backupSummary:['R09','backupNav','reused',[]],backupResult:['R09','backupNav','reused',[]],restoreData:['R10','importNav','reused',[]],importSummary:['R10','importNav','reused',[]],importResult:['R10','importNav','reused',[]],legacyRecovery:['P06','reauthNav','changed',['C06']],pendingResult:['R01','spacesNav','reused',[]],codeView:['R04','centerNav','reused',[]],waiting:['R05','joinNav','reused',[]],browserWaiting:['R07','continueBrowser','reused',[]],recoveryWaiting:['R06','restoreNav','changed',['C08']],recovered:['R06','restoreNav','changed',['C08']],chat:['R08','openSpaces','reused',[]],busy:['R08','preview','reused',[]],flow:['F1–F3','flowNav','reused',['C01','C02','C03','C04','C05','C06','C07','C08']]
+};
+const reuseNotes={zh:{spaces:'新建时有可复用保护材料就直接创建；没有材料时回 P02。密码路径复用临时派生材料，不保留明文密码。',invite:'创建成功仍进入原邀请半屏，不插入恢复码页面或邀请前新门槛。现有邀请二维码不属于通行密钥的扫码验证。',restore:'统一说明与各自码输入；按已验证本机状态自动判断，不选择恢复对象。',center:'恢复码说明、准备检查与查看入口复用。点击查看后，密码空间进入 P06 / C06 再验证。备份导出复用同一确认组件。',browserWaiting:'原浏览器识别协议继续依赖原系统凭据。新增密码不替代目录发现，设备邀请和共同恢复仍可用于接入。'},en:{spaces:'With retained protection material, create directly; otherwise return to P02. Retain temporary derived material, never plaintext password.',invite:'Creation still opens the original invitation sheet. No inserted recovery page or new invitation gate. Invitation QR is separate from passkey QR verification.',restore:'One explanation and own-code entry. Derive local recovery needs without target choice.',center:'Reuse explanation, readiness and View entry. Password spaces open P06 / C06 for fresh verification. Backup export uses the same confirmation component.',browserWaiting:'Browser identification still requires the original system credential. Password does not replace catalog discovery; device invitations and joint recovery remain available.'}};
+
+const state={authPurpose:'recovery',authCondition:'normal',authBusy:false,authShow:false,authToken:0,detection:'onEntry',unsupportedSeen:false,fallbackReason:'precheck',markers:true,flowTab:'create',lang:'zh',theme:'light',scenario:'bioPrf',env:'normal',method:'system',page:'welcome',origin:'create',returnPage:'welcome',error:'',show:false,created:false,recoveryCase:'meLost',peerCodeVerified:false,recoveryConfirmed:false,newSpace:false,codeValue:'',inviteFrom:'create'};
+const $=s=>document.querySelector(s),t=k=>words[state.lang][k]||k,canSystem=()=>state.scenario==='bioPrf'||state.scenario==='pinPrf';
+const tryNewSystem=()=>!state.unsupportedSeen&&(canSystem()||state.detection==='afterPrompt');
+const peopleIcon='<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="11" r="4"/><path d="M3 25c0-5 3.5-8 9-8s9 3 9 8M22 8c3 0 5 2 5 5s-2 5-5 5M23 20c3 0 5 2 6 5"/></svg>';
+const lockIcon='<svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="6" y="14" width="20" height="15" rx="4"/><path d="M10 14V9a6 6 0 0 1 12 0v5"/></svg>';
+const mark=icon=>`<div class="mark" aria-hidden="true">${icon}</div>`;
+const btn=(key,action,kind='primary',disabled=false)=>`<button class="${kind}" type="button" data-action="${action}" ${disabled?'disabled':''}>${t(key)}</button>`;
+const annotate=(id,html,kind='changed')=>`<div class="annotated" data-change="${id}" data-kind="${kind}"><span class="change-marker" aria-hidden="true">${id}</span>${html}</div>`;
+function metadata(){
+ let info=pageCatalog[state.page]||pageCatalog.welcome;
+ if(state.page==='system')info=pageCatalog[state.returnPage]||pageCatalog.welcome;
+ const [id,label,kind,changes]=info;
+ $('#preview-label').innerHTML=`<strong>${id}</strong> ${t(label).replace(/^P\d+\s|^R\d+\s/,'')} <span class="status-tag ${kind}">${t(kind)}</span>`;
+ const notes=changeNotes[state.lang];
+ $('#annotations').innerHTML=`<h2>${t('annotationTitle')} · ${id}</h2><p class="review-caption">${t('annotationNote')}</p>${changes.length?changes.map(c=>`<article><h3><span class="change-id ${c==='C03'?'new':''}">${c}</span> ${notes[c][0]}</h3><dl><dt>${t('before')}</dt><dd>${notes[c][1]}</dd><dt>${t('after')}</dt><dd>${notes[c][2]}</dd><dt>${t('why')}</dt><dd>${notes[c][3]}</dd></dl></article>`).join(''):`<p>${t('noChange')}</p><p>${reuseNotes[state.lang][state.page]||t('annotationNote')}</p>`}`;
+ $('.phone').dataset.markers=state.markers?'on':'off';$('.phone').classList.toggle('flow-mode',state.page==='flow');$('.phone').classList.toggle('reauth-mode',['reauth','centerAuth'].includes(state.page));document.body.dataset.page=state.page;
+ $('#markers-label').textContent=t('markersLabel');$('#markers').checked=state.markers;$('#controls-title').textContent=t('controlsTitle');
+}
+const alert=()=>state.error?`<p class="form-error" role="alert">${t(state.error)}</p>`:'';
+function shell(){
+ document.documentElement.lang=state.lang==='zh'?'zh-CN':'en';document.documentElement.dataset.theme=state.theme;document.title=`Quiet Room · ${t('preview')}`;
+ $('#review').setAttribute('aria-label',t('prototype'));$('#eyebrow').textContent=t('eyebrow');$('#review-title').textContent=t('reviewTitle');$('#review-desc').textContent=t('reviewDesc');$('#scenario-label').textContent=t('scenarioLabel');$('#environment-label').textContent=t('envLabel');$('#method-label').textContent=t('methodLabel');$('#review-note').textContent=t('reviewNote');$('#preview-label').textContent=t('preview');$('#scenario-summary').textContent=t(state.scenario);$('.phone').setAttribute('aria-label',`Quiet Room ${t('prototype')}`);
+ const routes=[['welcome','welcomeNav'],['newSpaceGateway','createNav'],['join','joinNav'],['joinDevice','deviceNav'],['repair','repairNav'],['password','passwordNav'],['unlock','unlockNav'],['reauth','reauthNav'],['spaces','spacesNav'],['invite','inviteNav'],['restore','restoreNav'],['center','centerNav'],['backup','backupNav'],['restoreData','importNav'],['flow','flowNav']];$('#nav').innerHTML=routes.map(([p,k])=>`<button type="button" data-route="${p}" class="${state.page===p?'active':''}" ${state.page===p?'aria-current="page"':''}>${t(k)}<small>${t(p==='restore'||p==='center'?'mixed':p==='flow'?'preview':pageCatalog[p][2])}</small></button>`).join('');$('#nav').setAttribute('aria-label',t('prototype'));
+ $('#detection-label').textContent=t('detectionLabel');$('#detection').innerHTML=['onEntry','afterPrompt'].map(k=>`<option value="${k}" ${state.detection===k?'selected':''}>${t(k)}</option>`).join('');
+ $('#scenario').innerHTML=['bioPrf','bioOnly','pinPrf','neither'].map(k=>`<option value="${k}" ${state.scenario===k?'selected':''}>${t(k)}</option>`).join('');$('#environment').innerHTML=['normal','offline','unsafe'].map(k=>`<option value="${k}" ${state.env===k?'selected':''}>${t(k)}</option>`).join('');$('#method').innerHTML=['system','password'].map(k=>`<option value="${k}" ${state.method===k?'selected':''}>${t(k==='system'?'methodSystem':'methodPassword')}</option>`).join('');$('#theme').textContent=t(state.theme==='light'?'themeDark':'themeLight');$('#language').textContent=t('language');$('#reset').textContent=t('reset');
+ $('#app').innerHTML=renderPage();metadata();paintAuthTools();paintRecoveryTools();
+}
+
+
+function welcome(){const blocked=state.env!=='normal';return `<section class="gateway intro"><div class="intro-content">${mark(peopleIcon)}<h2>${t('welcomeTitle')}</h2><p>${t('welcomeLead')}</p><div class="welcome-copy"><p>${t('welcomeCopy1')}</p><p>${t('welcomeCopy2')}</p></div>${state.env==='unsafe'?`<p class="warning" style="margin-top:22px">${t('unsafeMessage')}</p>`:''}${state.env==='offline'?`<p class="warning" style="margin-top:22px">${t('offlineMessage')}</p>`:''}</div><div class="actions">${alert()}${annotate('C01',`${btn('create','startCreate','primary',blocked)}${btn('continueBrowser','continueBrowser','secondary')}${btn('restore','showRestore','textbtn')}`)}</div></section>`}
+function join(){const context=state.page==='system'?state.returnPage:state.page,systemPath=tryNewSystem();const blocked=state.env!=='normal',device=context==='joinDevice',repairing=context==='repair';return `<section class="gateway intro"><div class="intro-content">${mark(peopleIcon)}<h2>${t(device?'deviceTitle':repairing?'repairTitle':'joinTitle')}</h2><p>${t(device?'deviceLead':repairing?'repairLead':'joinLead')}</p>${systemPath?`<label class="field" style="margin-top:26px">${t('deviceName')}<input id="device-name" value="${state.lang==='zh'?'我的设备':'My device'}" autocomplete="off" spellcheck="false"></label><p class="fieldhint">${t('deviceNameHint')}</p>`:''}${device||repairing?`<p class="fieldhint" style="margin-top:14px">${t(device?'deviceHint':'repairHint')}</p>`:''}${state.env==='unsafe'?`<p class="warning">${t('unsafeMessage')}</p>`:''}${state.env==='offline'?`<p class="warning">${t('offlineMessage')}</p>`:''}</div><div class="actions">${alert()}${annotate('C02',`${btn(device?'deviceContinue':repairing?'repairContinue':'joinContinue','joinSystem','primary',blocked)}`)}${btn(device||repairing?'back':'notJoin','showWelcome','textbtn')}</div></section>`}
+function password(){return `<section class="gateway intro new-page"><div class="intro-content">${mark(lockIcon)}<h2>${t('passwordTitle')}</h2><p class="notice">${t(state.fallbackReason==='result'?'passwordFallbackResult':'passwordFallbackPrecheck')}</p><p style="margin-top:12px">${t('passwordLead')}</p>${alert()}${annotate('C03',`<label class="field" style="margin-top:26px">${t('password1')}<input id="password1" type="${state.show?'text':'password'}" autocomplete="new-password" autocapitalize="none" spellcheck="false" placeholder="DEMO-ONLY-123"></label><label class="field">${t('password2')}<input id="password2" type="${state.show?'text':'password'}" autocomplete="new-password" autocapitalize="none" spellcheck="false" placeholder="DEMO-ONLY-123"></label><label class="checkbox"><input id="show" type="checkbox" ${state.show?'checked':''}>${t('showPassword')}</label><p class="fieldhint">${t('passwordHint')}</p><p class="fieldhint">${t('passwordRecoveryHint')}</p>`,'new')}</div><div class="actions">${btn('passwordUse','savePassword')}${btn('back','passwordBack','textbtn')}</div></section>`}
+function unlock(){const unsafe=state.env==='unsafe',unavailable=state.method==='system'&&!canSystem();return `<section class="gateway unlock">${state.method==='password'?`<div class="unlock-context grow annotated" data-change="C04"><span class="change-marker" aria-hidden="true">C04</span>${mark(lockIcon)}<h2>${t('unlockPasswordTitle')}</h2><strong>${t('chatTitle')}</strong><p>${t('unlockPasswordLead')}</p></div>`:'<div class="grow"></div>'}<div class="actions">${alert()}${unsafe?`<p class="warning">${t('unsafeMessage')}</p>`:''}${unavailable?`<p class="warning">${t('oldSystemUnavailable')}</p>`:''}${annotate('C04',state.method==='system'?btn('unlockSystem','unlockSystem','primary',unsafe||unavailable):`<label class="field">${t('unlockInput')}<input id="unlock-password" type="${state.show?'text':'password'}" name="space-password" autocomplete="current-password" autocapitalize="none" spellcheck="false" placeholder="DEMO-ONLY-123"></label><label class="checkbox"><input id="show" type="checkbox" ${state.show?'checked':''}>${t('showPassword')}</label>${btn('unlockPassword','submitUnlock','primary',unsafe)}`)}${btn(state.method==='password'?'forgotPassword':'recoverTogether','showRestore','textbtn')}${state.method==='password'?`<p class="fieldhint">${t('unlockPasswordHelp')}</p>`:''}</div></section>`}
+function header(title,back='showWelcome'){return `<header class="appheader"><button class="back" type="button" aria-label="${t('back')}" data-action="${back}">‹</button><strong>${title}</strong></header>`}
+function spaces(){return `${header(t('spaceListTitle'),'showChat')}<section class="page"><h2>${t('spaceListTitle')}</h2><p>${t('spaceListLead')}</p><div class="row"><strong>${t('chatTitle')}</strong><small>${t(state.method==='system'?'methodSystem':'methodPassword')}</small></div><div class="grow"></div>${state.error?`<p class="warning">${t(state.error)}</p>`:''}${btn('newSpace','createFromSpaces','secondary')}${btn('centerPageTitle','showCenter','textbtn')}</section>`}
+function newSpaceGateway(){const blocked=state.env!=='normal',systemPath=tryNewSystem();return `<section class="gateway intro"><div class="intro-content">${mark(peopleIcon)}<h2>${t('newSpaceGateway')}</h2><p>${t('newSpaceLead')}</p>${systemPath?`<label class="field" style="margin-top:26px">${t('deviceName')}<input id="device-name" value="${state.lang==='zh'?'我的设备':'My device'}" autocomplete="off"></label><p class="fieldhint">${t('deviceNameHint')}</p>`:''}${alert()}</div><div class="actions">${annotate('C02',`${btn('newSpaceDirect','newSpaceSystem','primary',blocked)}`)}${btn('back','showSpaces','textbtn')}</div></section>`}
+function chat(){return `<div class="sheet-scene"><div class="chat-top"><button class="back" data-action="showSpaces" aria-label="${t('openSpaces')}">‹</button><span>${t('chatTitle')}</span><span>◇</span></div><div class="chat-empty">${t('chatEmpty')}</div><div style="position:absolute;bottom:calc(24px + env(safe-area-inset-bottom));left:24px;right:24px">${btn('openSpaces','showSpaces','secondary')}</div></div>`}
+function invite(){return `<div class="sheet-scene"><div class="chat-top"><button class="back" data-action="closeInvite" aria-label="${t('close')}">‹</button><span>${t('chatTitle')}</span><span>◇</span></div><div class="chat-empty">${t('chatEmpty')}</div><div class="scrim" data-action="closeInvite"></div><div class="invite-sheet"><div class="handle"></div><h2>${t('inviteTitle')}</h2><p>${t('inviteLead')}</p><div class="status"><i></i><span>${t('inviteWaiting')}</span></div><p>${t('inviteCountdown')}</p><footer>${btn('copyInvite','copyInvite')}<p>${t('inviteCloseNote')}</p>${btn('close','closeInvite','textbtn')}</footer></div></div>`}
+function waiting(){return `${header(t('waitingTitle'),'showWelcome')}<section class="page">${mark(peopleIcon)}<h2>${t('waitingTitle')}</h2><p>${t('waitingLead')}</p>${alert()}<div class="grow"></div>${btn('approve','approveJoin')}${btn('reject','rejectJoin','secondary')}</section>`}
+const recoveryCases=['meLost','peerLost','bothLost','bothReady','uncertain'];
+const needsOwnRecovery=()=>['meLost','bothLost'].includes(state.recoveryCase);
+function paintRecoveryTools(){const el=$('#recovery-tools'),visible=['restore','recoverCode','recoveryWaiting','recovered'].includes(state.page)||(state.page==='password'&&state.origin==='recover');el.hidden=!visible;if(!visible)return;el.innerHTML=`<label>${t('recoveryCaseLabel')}<select id="recovery-case">${recoveryCases.map(id=>`<option value="${id}" ${state.recoveryCase===id?'selected':''}>${t(id)}</option>`).join('')}</select></label><p>${t('recoveryCaseNote')}</p>`}
+function restore(){return `${header(t('restore'),'showWelcome')}<section class="page"><h2>${t('restoreTitle')}</h2>${annotate('C07',`<p>${t('restoreLead')}</p><p style="margin-top:14px">${t('restoreNote')}</p>`)}<div class="row"><strong>${t('restoreWarn')}</strong><small>${t('restoreWarnBody')}</small></div><div class="grow"></div>${state.error?`<p class="warning">${t(state.error)}</p>`:''}${btn('restoreAction','openCode')}</section>`}
+function recoverCode(){const blocked=state.env!=='normal';return `${restore()}<div class="demo-sheet"><div class="demo-dialog" role="dialog" aria-modal="true" aria-label="${t('codeTitle')}"><div class="handle"></div><h2>${t('codeTitle')}</h2><label class="field">${t('codeLabel')}<textarea id="recovery-code" autocomplete="off" spellcheck="false" placeholder="${t('codePlaceholder')}">${state.codeValue}</textarea></label>${alert()}${annotate('C05',btn('codeAction','codeSystem','primary',blocked))}${btn('cancel','closeCode','textbtn')}</div></div>`}
+function recoveryWaiting(){const ready=state.peerCodeVerified,noRecovery=ready&&state.recoveryCase==='bothReady';return `${header(t('restore'),'showRestore')}<section class="page joint-page"><div class="joint-content">${mark(peopleIcon)}<h2>${t(noRecovery?'recoveryNoNeedTitle':ready?'recoveryReadyTitle':'recoveryWaiting')}</h2><p>${t(noRecovery?'recoveryNotNeeded':ready?'recoveryReadyLead':'recoveryWaitingLead')}</p><div class="code">482 719</div>${annotate('C08',ready?`<div class="row"><strong>${t('recoveryMine')}</strong><small>${t(needsOwnRecovery()?'recoveryRebuild':'recoveryKeep')}</small></div><div class="row" style="margin-top:10px"><strong>${t('recoveryPeer')}</strong><small>${t(['peerLost','bothLost'].includes(state.recoveryCase)?'recoveryRebuild':'recoveryKeep')}</small></div>${!noRecovery?`<p class="fieldhint" style="margin-top:10px">${t('recoveryConsequence')}</p>`:''}`:`<p>${t('recoveryPeerWaiting')}</p>`)}</div><footer class="joint-actions">${btn(noRecovery?'recoveryReturnSpace':ready?'finishRecovery':'peerEnterCode',noRecovery?'showChat':ready?'finishRecovery':'peerEnterCode')}${btn('recoveryCancel','showRestore','textbtn')}</footer></section>`}
+function recovered(){const unusable=['uncertain','bothReady'].includes(state.recoveryCase);return `${header(t('restore'),'showChat')}<section class="page">${mark(peopleIcon)}<h2>${t(unusable?state.recoveryCase==='uncertain'?'errorTitle':'recoveryNoNeedTitle':'recoverSuccess')}</h2>${annotate('C08',`<p>${t(unusable?state.recoveryCase==='uncertain'?'recoveryStateUnknown':'recoveryNotNeeded':needsOwnRecovery()?'recoveryResultRebuild':'recoveryResultKeep')}</p>`)}<div class="grow"></div>${btn('centerBack','showChat')}</section>`}
+
+function centerBase(){return `${header(t('centerPageTitle'),'showSpaces')}<section class="page">${mark(lockIcon)}<h2>${t('centerTitle')}</h2><p>${t('centerLead')}</p><div class="row"><small>${t('centerList')}</small></div>${alert()}<div class="grow"></div>${btn('centerView','viewCode','primary',state.env==='unsafe')}${btn('centerBack','showSpaces','textbtn')}</section>`}
+
+const authUses={
+ recovery:{label:'authForRecovery',button:'authRecoveryButton',parent:'center',result:'codeView'},
+ export:{label:'authForExport',button:'authExportButton',parent:'backupSummary',result:'backupResult'},
+ import:{label:'authForImport',button:'authImportButton',parent:'importSummary',result:'importResult'},
+ legacy:{label:'authForLegacy',button:'authRecoveryButton',parent:'legacyRecovery',result:'codeView'},
+ pending:{label:'authForPending',button:'authPendingButton',parent:'spaces',result:'pendingResult'}
+};
+function paintAuthTools(){const el=$('#reauth-tools'),visible=['reauth','centerAuth'].includes(state.page);el.hidden=!visible;if(!visible)return;el.innerHTML=`<label>${t('authPurposeLabel')}<select id="auth-purpose">${Object.entries(authUses).map(([id,use])=>`<option value="${id}" ${state.authPurpose===id?'selected':''}>${t(use.label)}</option>`).join('')}</select></label><label>${t('authStateLabel')}<select id="auth-state">${[['normal','authNormal'],['limited','authLimited'],['expired','authExpired']].map(([id,key])=>`<option value="${id}" ${state.authCondition===id?'selected':''}>${t(key)}</option>`).join('')}</select></label><p>${t('authPreviewNote')}</p>`}
+function center(){return state.page==='centerAuth'?reauth():centerBase()}
+function backup(){return `${header(t('backupTitle'),'showSpaces')}<section class="page backup-page"><h2>${t('backupTitle')}</h2><p>${t('backupIntro')}</p><div class="row"><h3>${t('backupDownload')}</h3><p>${t('backupDownloadLead')}</p>${btn('backupDownload','openBackupSummary')}<small>${t('backupEncryptedNote')}</small></div><div class="row"><h3>${t('cloudBackup')}</h3><p>${t('cloudBackupLead')}</p><small>${t('cloudDemo')}</small></div><p class="fieldhint">${t('backupFootnote')}</p><div class="grow"></div>${btn('back','showSpaces','textbtn')}</section>`}
+function restoreData(){return `${header(t('importTitle'),'showSpaces')}<section class="page backup-page"><h2>${t('importTitle')}</h2><p>${t('importIntro')}</p><div class="row"><h3>${t('importLocal')}</h3><p>${t('importLocalLead')}</p>${btn('importLocal','openImportSummary')}</div><div class="row"><h3>${t('importCloud')}</h3><p>${t('importCloudLead')}</p><small>${t('cloudDemo')}</small></div><p class="fieldhint">${t('importFootnote')}</p><div class="grow"></div>${btn('back','showSpaces','textbtn')}</section>`}
+function backupSummary(importing=false){return `${importing?restoreData():backup()}<div class="demo-sheet"><div class="demo-dialog" role="dialog" aria-modal="true" aria-label="${t(importing?'importSummaryTitle':'backupSummaryTitle')}"><h2>${t(importing?'importSummaryTitle':'backupSummaryTitle')}</h2><p>${t(importing?'importSummaryLead':'backupSummaryLead')}</p><p class="fieldhint">${t(importing?'importSummaryNote':'backupSummaryNote')}</p>${alert()}${btn(importing?'importConfirm':'backupConfirm',importing?'confirmImport':'confirmExport','primary',state.env==='unsafe')}${btn('cancel',importing?'showRestoreData':'showBackup','textbtn')}</div></div>`}
+function legacyRecovery(){return `<section class="gateway intro"><div class="intro-content">${mark(lockIcon)}<h2>${t('legacyTitle')}</h2><p>${t('legacyLead')}</p>${alert()}</div><div class="actions">${btn('legacyVerify','verifyLegacy','primary',state.env==='unsafe')}${btn('authCancelLock','showUnlock','textbtn')}</div></section>`}
+function authBackground(){return state.authPurpose==='export'?backup():state.authPurpose==='import'?restoreData():state.authPurpose==='legacy'?legacyRecovery():state.authPurpose==='pending'?spaces():centerBase()}
+function reauth(){const use=authUses[state.authPurpose],blocked=state.env==='unsafe'||state.authCondition!=='normal'||state.authBusy;const message=state.env==='unsafe'?'unsafeMessage':state.authCondition==='limited'?'authLimitedError':state.authCondition==='expired'?'authExpiredError':'';return `<div class="auth-backdrop" aria-hidden="true" inert>${authBackground()}</div><div class="demo-sheet"><div class="demo-dialog auth-dialog" role="dialog" aria-modal="true" aria-label="${t('authTitle')}"><div class="handle"></div><h2>${t('authTitle')}</h2>${annotate('C06',`<div class="auth-body"><p>${t('authLead')}</p><div class="auth-context"><span>${t('authTarget')}</span><strong>${t(state.authPurpose==='pending'?'authPendingRoom':'chatTitle')}</strong><span>${t(use.label)}</span></div><label class="field">${t('unlockInput')}<input id="auth-password" name="space-password" type="${state.authShow?'text':'password'}" autocomplete="current-password" autocapitalize="none" spellcheck="false" placeholder="${state.authPurpose==='pending'?'DEMO-TARGET-123':'DEMO-ONLY-123'}" ${blocked?'disabled':''}></label><label class="checkbox"><input id="auth-show" type="checkbox" ${state.authShow?'checked':''} ${state.authBusy?'disabled':''}>${t('showPassword')}</label>${message?`<p class="warning" role="alert">${t(message)}</p>`:alert()}</div><div class="auth-footer">${btn(state.authBusy?'authVerifying':use.button,'verifyExistingPassword','primary',blocked)}${btn(state.authCondition==='expired'?'authRetry':state.authPurpose==='legacy'?'authCancelLock':'authCancel','cancelAuth','textbtn')}</div>`)}</div></div>`}
+
+function authResult(){const purpose=state.page==='backupResult'?'export':state.page==='importResult'?'import':'pending';const prefix=purpose==='export'?'backup':purpose==='import'?'import':'pending';return `${header(t(authUses[purpose].label),'returnAuthEntry')}<section class="page">${mark(lockIcon)}<h2>${t(prefix+'ResultTitle')}</h2><p>${t(prefix+'ResultLead')}</p><div class="grow"></div>${btn('resultBack','returnAuthEntry')}</section>`}
+function beginReauth(purpose){const use=authUses[purpose];state.authPurpose=purpose;state.authCondition='normal';state.authBusy=false;state.authShow=false;state.authToken++;if(state.env==='unsafe'){fail('unsafeMessage',use.parent);return}if(purpose==='recovery'&&state.env==='offline'){fail('centerBackup',use.parent);return}if(state.method==='system')startSystem('reauth',use.parent);else go('reauth')}
+function finishAuth(){const purpose=state.authPurpose;go(authUses[purpose].result)}
+function cancelAuth(){const use=authUses[state.authPurpose];go(state.authPurpose==='legacy'||state.authCondition==='expired'?'unlock':use.parent)}
+function previewRoute(page){if(page==='reauth'){state.method='password';state.created=true;state.authCondition='normal';state.authPurpose=authUses[state.authPurpose]?state.authPurpose:'recovery';}if(page==='password'){state.origin=state.flowTab==='recovery'?'recover':'create';state.fallbackReason='precheck';}go(page)}
+function browserWaiting(){return `${header(t('continueBrowser'),'showWelcome')}<section class="page"><h2>${t('browserWaitingTitle')}</h2><p>${t('browserWaitingLead')}</p><div class="code">482 719</div><div class="grow"></div>${btn('browserApprove','browserApprove')}${btn('cancel','showWelcome','textbtn')}</section>`}
+function codeView(){return `${header(t('centerPageTitle'),'showCenter')}<section class="page">${mark(lockIcon)}<h2>${t('centerView')}</h2><div class="code">${t('centerCode')}</div><p>${t('centerCodeNote')}</p><div class="grow"></div>${btn('centerBack','showCenter')}</section>`}
+
+function graphNode(x,y,w,h,title,sub,kind='reused',route=''){
+ const text=`<g class="${kind}"><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="12"/><text class="node-id" x="${x+w/2}" y="${y+24}" text-anchor="middle">${t(sub)}</text><text x="${x+w/2}" y="${y+49}" text-anchor="middle">${t(title)}</text></g>`;
+ return route?`<a href="#${route}" data-route="${route}" aria-label="${t(title)}">${text}</a>`:text;
+}
+function edge(path,label='',x=0,y=0,dash=false){return `<path class="edge" d="${path}" ${dash?'stroke-dasharray="5 4"':''}/>${label?`<text class="edge-label" x="${x}" y="${y}" text-anchor="middle">${t(label)}</text>`:''}`}
+function flowGraph(){
+ const start=`<svg class="flow-svg" role="img" aria-label="${t(state.flowTab==='create'?'flowCreate':state.flowTab==='unlock'?'flowUnlock':'flowRecovery')}" viewBox="0 0 720 ${state.flowTab==='unlock'?950:870}"><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs>`;
+ if(state.flowTab==='create')return start+
+ edge('M360 86V122')+edge('M290 198V226H165V266','nAvailable',162,245)+edge('M430 198V226H555V266','nUsePassword',538,245)+edge('M165 342V388','nPrfFailure',165,372)+edge('M290 432H395V306H420','nAutoFallback',355,420)+edge('M290 306H340V522','nPrfValid',333,486)+edge('M555 342V486H395V522','nValid',539,414)+edge('M360 598V652')+edge('M360 728V782')+edge('M40 300H15V160H230','nCancel',114,147,true)+
+ graphNode(230,10,260,76,'nEntry','nEntrySub','reused','welcome')+graphNode(230,122,260,76,'nChoices','nChoicesSub','changed','join')+graphNode(40,266,250,76,'nSystem','nSystemSub')+graphNode(420,266,250,76,'nPassword','nPasswordSub','new','password')+graphNode(40,388,250,88,'nFailure','nFailureSub','changed','welcome')+graphNode(210,522,300,76,'nProtection','nProtectionSub')+graphNode(210,652,300,76,'nBusiness','nBusinessSub')+graphNode(210,782,300,76,'nSuccess','nSuccessSub','reused','invite')+'</svg>';
+ if(state.flowTab==='unlock')return start+
+ edge('M290 86V122H165V170','nSystemMethod',165,145)+edge('M430 86V122H555V170','nPasswordMethod',555,145)+edge('M290 208H360V334','nSuccessEdge',341,294)+edge('M555 246V292H400V334','nSuccessEdge',538,281)+edge('M165 246V280H125V430','nUnavailableEdge',109,343)+edge('M360 410V522')+edge('M360 598V662')+edge('M360 750V838','nSuccessEdge',416,803)+
+ graphNode(210,10,300,76,'nExisting','nExistingSub')+graphNode(40,170,250,76,'nUnlockSystem','nUnlockSystemSub','changed','unlock')+graphNode(420,170,250,76,'nUnlockPassword','nUnlockPasswordSub','changed','unlock')+graphNode(230,334,260,76,'nOpen','nOpenSub','reused','spaces')+graphNode(10,430,270,76,'nCannot','nCannotSub','reused','restore')+graphNode(210,522,300,76,'nSensitive','nSensitiveSub','reused','center')+graphNode(180,662,360,88,'nReauth','nReauthSub','changed','reauth')+graphNode(180,838,360,76,'nReveal','nRevealSub')+'</svg>';
+ return start+
+ edge('M360 86V128')+edge('M360 204V248','nYes',382,230)+edge('M510 166H694V654H510','nNo',612,217)+edge('M290 324V358H165V402','nChooseSystem',158,381)+edge('M430 324V358H555V402','nChoosePassword',544,381)+edge('M290 440H420','nPrfFailure',355,425)+edge('M165 478V552H320V616')+edge('M555 478V552H400V616')+edge('M360 692V780')+
+ graphNode(190,10,340,76,'nRestore','nRestoreSub','changed','restore')+graphNode(160,128,400,76,'nNeedsProtection','nNeedsProtectionSub','changed')+graphNode(210,248,300,76,'nRecoveryChoice','nRecoveryChoiceSub','changed','restore')+graphNode(40,402,250,76,'nOriginalSystem','nOriginalSystemSub','reused','newSpaceGateway')+graphNode(420,402,250,76,'nRecoveryPassword','nRecoveryPasswordSub','new','password')+graphNode(180,616,360,76,'nJoint','nJointSub','changed','recoveryWaiting')+graphNode(190,780,340,76,'nRecovered','nRecoveredSub','changed','recovered')+'</svg>';
+}
+function flow(){return `<section class="page"><h2>${t('flowTitle')}</h2><p>${t('flowLead')}</p><div class="legend"><span><i></i>${t('reused')}</span><span class="changed"><i></i>${t('changed')}</span><span class="new"><i></i>${t('new')}</span></div><div class="flow-tabs">${[['create','flowCreate'],['unlock','flowUnlock'],['recovery','flowRecovery']].map(([id,key])=>`<button type="button" data-flow="${id}" class="${state.flowTab===id?'active':''}" ${state.flowTab===id?'aria-pressed="true"':'aria-pressed="false"'}>${t(key)}</button>`).join('')}</div><p class="fieldhint">${t('flowScroll')}</p><div class="graph-scroll">${flowGraph()}</div><p class="flow-note">${t(state.flowTab==='create'?'flowCreateNote':state.flowTab==='unlock'?'flowUnlockNote':'flowRecoveryNote')}</p><p class="flow-note">${t('flowOverview')}</p></section>`}
+function renderAuthParent(){const parent=authUses[state.authPurpose].parent;return parent==='backupSummary'?backupSummary():parent==='importSummary'?backupSummary(true):parent==='legacyRecovery'?legacyRecovery():parent==='spaces'?spaces():centerBase()}
+function system(){return `${state.returnPage==='welcome'?welcome():['join','joinDevice','repair'].includes(state.returnPage)?join():state.returnPage==='unlock'?unlock():state.returnPage==='recoverCode'?recoverCode():state.origin==='reauth'?renderAuthParent():state.returnPage==='center'?center():newSpaceGateway()}<div class="demo-sheet"><div class="demo-dialog" role="dialog" aria-modal="true" aria-label="${t('systemSheet')}"><div class="handle"></div>${mark(lockIcon)}<h2>${t('systemSheet')}</h2><p>${t('systemSheetLead')}</p>${btn('systemSuccess','systemSuccess')}${btn('systemNoSupport','systemUnsupported','secondary')}${btn('systemRetry','systemRetry','secondary')}${btn('cancel','systemCancel','textbtn')}</div></div>`}
+function busy(){return `<section class="gateway center"><div class="spinner" role="status" aria-label="${t('busyHelp')}"></div><h2>${t(state.origin==='join'?'busyJoin':state.origin==='recover'?'busyRecover':state.origin==='unlock'?'busyUnlock':'busyCreate')}</h2><p>${t('busyHelp')}</p></section>`}
+function renderPage(){switch(state.page){case 'welcome':return welcome();case 'join':case 'joinDevice':case 'repair':return join();case 'password':return password();case 'unlock':return unlock();case 'spaces':return spaces();case 'newSpaceGateway':return newSpaceGateway();case 'chat':return chat();case 'invite':return invite();case 'waiting':return waiting();case 'browserWaiting':return browserWaiting();case 'restore':return restore();case 'recoverCode':return recoverCode();case 'recoveryWaiting':return recoveryWaiting();case 'recovered':return recovered();case 'center':case 'centerAuth':return center();case 'reauth':return reauth();case 'backup':return backup();case 'backupSummary':return backupSummary();case 'restoreData':return restoreData();case 'importSummary':return backupSummary(true);case 'legacyRecovery':return legacyRecovery();case 'backupResult':case 'importResult':case 'pendingResult':return authResult();case 'codeView':return codeView();case 'flow':return flow();case 'system':return system();case 'busy':return busy();default:return welcome()}}
+function go(page){state.authToken++;state.authBusy=false;state.authShow=false;state.show=false;state.page=page;state.error='';shell()}
+function fail(key,page){state.page=page;state.error=key;shell()}
+function startSystem(origin,returnPage){state.origin=origin;state.returnPage=returnPage;go('system')}
+function finish(method){state.method=method;state.created=true;go('busy');const origin=state.origin,token=state.authToken;setTimeout(()=>{if(state.page!=='busy'||state.authToken!==token)return;if(state.env!=='normal'){fail(state.env==='unsafe'?'unsafeMessage':origin==='join'?'joinFailed':origin==='recover'?'recoverFailed':'createFailed',origin==='join'?'join':origin==='recover'?'restore':'welcome');return}if(origin==='create'||origin==='drawer'){state.inviteFrom=origin;go('invite')}else if(['join','joinDevice','repair'].includes(origin))go('waiting');else if(origin==='recover')go('recoveryWaiting');else if(origin==='center')go('codeView');else go('chat')},650)}
+function enterPassword(reason='precheck'){state.fallbackReason=reason;go('password')}
+function beginNewProtection(origin,entry){if(state.env!=='normal')return;state.origin=origin;state.returnPage=entry;if(tryNewSystem())startSystem(origin,entry);else enterPassword('precheck')}
+function unsupportedResult(){
+ if(state.origin==='browser'){fail('browserNeedsCredential',state.returnPage);return}
+ if(state.origin==='unlock'||state.origin==='center'||state.origin==='reauth'){fail('oldSystemUnavailable',state.returnPage);return}
+ state.unsupportedSeen=true;enterPassword('result');
+}
+function validCode(){const value=$('#recovery-code')?.value.trim()||'';if(value!=='DEMO-ONLY'){state.error='codeWrong';shell();return false}state.codeValue=value;return true}
+function action(name){switch(name){
+case 'showWelcome':go('welcome');break;case 'showJoin':go('join');break;case 'showRestore':state.peerCodeVerified=false;state.recoveryConfirmed=false;state.codeValue='';go('restore');break;case 'showSpaces':go('spaces');break;case 'showChat':go('chat');break;case 'showCenter':go('center');break;
+case 'startCreate':beginNewProtection('create','welcome');break;
+case 'joinSystem':beginNewProtection(state.page,state.page);break;
+case 'passwordBack':go(['join','joinDevice','repair'].includes(state.origin)?state.origin:state.origin==='recover'?'recoverCode':state.origin==='drawer'?'newSpaceGateway':'welcome');break;
+case 'savePassword':{if(state.env!=='normal'){fail(state.env==='unsafe'?'unsafeMessage':'createFailed','password');return}const a=$('#password1')?.value||'',b=$('#password2')?.value||'';const length=Array.from(a).length;if(length<12||length>128||a!==b){state.error=length<12?'passwordShort':length>128?'passwordLong':'passwordMismatch';shell();$('#password1').value=a;$('#password2').value=b;return}finish('password');break}
+case 'systemCancel':fail('systemCanceled',state.returnPage);break;case 'systemRetry':fail('systemRetryError',state.returnPage);break;case 'systemUnsupported':unsupportedResult();break;
+case 'systemSuccess':if(!canSystem()){unsupportedResult();break}if(state.origin==='browser'){go('browserWaiting')}else if(state.origin==='reauth'){finishAuth()}else if(state.origin==='center'){go('codeView')}else if(state.origin==='unlock'){go('chat')}else finish('system');break;
+case 'unlockSystem':if(state.env!=='unsafe'&&canSystem())startSystem('unlock','unlock');break;
+case 'submitUnlock':if($('#unlock-password')?.value==='DEMO-ONLY-123')go('chat');else fail('unlockWrong','unlock');break;
+case 'continueBrowser':if(state.created){go('unlock')}else if(!canSystem()){fail('browserNeedsCredential','welcome')}else{startSystem('browser','welcome')}break;case 'browserApprove':go('spaces');break;
+case 'createFromSpaces':state.origin='drawer';if(state.env==='unsafe'){fail('unsafeMessage','spaces');return}if(state.env==='offline'){fail('createFailed','spaces');return}if(state.method==='password'||canSystem())finish(state.method);else go('newSpaceGateway');break;
+case 'newSpaceSystem':beginNewProtection('drawer','newSpaceGateway');break;
+case 'closeInvite':go(state.inviteFrom==='drawer'?'spaces':'chat');break;case 'copyInvite':$('#announce').textContent=t('copied');break;
+case 'approveJoin':go('chat');break;case 'rejectJoin':fail('rejected','waiting');break;
+case 'openCode':go('recoverCode');break;case 'closeCode':state.codeValue='';go('restore');break;
+case 'codeSystem':if(!validCode())return;if(state.recoveryCase==='uncertain'){fail('recoveryStateUnknown','recoverCode');return}state.origin='recover';state.peerCodeVerified=false;state.recoveryConfirmed=false;if(!needsOwnRecovery()){go('recoveryWaiting')}else beginNewProtection('recover','recoverCode');break;
+case 'peerEnterCode':state.peerCodeVerified=true;go('recoveryWaiting');break;
+case 'finishRecovery':if(!state.peerCodeVerified||['bothReady','uncertain'].includes(state.recoveryCase))return;state.recoveryConfirmed=true;go('recovered');break;
+
+case 'viewCode':beginReauth('recovery');break;
+case 'openBackupSummary':go('backupSummary');break;case 'openImportSummary':go('importSummary');break;
+case 'showBackup':go('backup');break;case 'showRestoreData':go('restoreData');break;case 'showUnlock':go('unlock');break;
+case 'confirmExport':beginReauth('export');break;case 'confirmImport':beginReauth('import');break;case 'verifyLegacy':beginReauth('legacy');break;
+case 'cancelAuth':cancelAuth();break;
+case 'returnAuthEntry':go(state.page==='backupResult'?'backup':state.page==='importResult'?'restoreData':'spaces');break;
+case 'verifyExistingPassword':{
+ if(state.authBusy||state.env==='unsafe'||state.authCondition!=='normal')return;
+ const valid=$('#auth-password')?.value===(state.authPurpose==='pending'?'DEMO-TARGET-123':'DEMO-ONLY-123'),purpose=state.authPurpose,token=++state.authToken;
+ state.authBusy=true;state.error='';shell();
+ setTimeout(()=>{if(state.page!=='reauth'||state.authToken!==token||state.authPurpose!==purpose)return;state.authBusy=false;if(!valid){state.error='unlockWrong';shell();$('#auth-password')?.focus();return}finishAuth()},500);break;
+}
+
+}}
+$('#app').addEventListener('click',e=>{const flowButton=e.target.closest('[data-flow]');if(flowButton){state.flowTab=flowButton.dataset.flow;shell();return}const route=e.target.closest('[data-route]');if(route){e.preventDefault();previewRoute(route.dataset.route);return}const button=e.target.closest('[data-action]');if(button&&!button.disabled)action(button.dataset.action)});
+$('#app').addEventListener('keydown',e=>{if(e.key==='Enter'&&state.page==='password'&&['password1','password2'].includes(e.target.id)){e.preventDefault();if(e.target.id==='password1')$('#password2').focus();else action('savePassword');return}if(e.key==='Enter'&&state.page==='unlock'&&e.target.id==='unlock-password'){e.preventDefault();action('submitUnlock');return}if(!['reauth','centerAuth'].includes(state.page))return;if(e.key==='Enter'&&e.target.id==='auth-password'){e.preventDefault();action('verifyExistingPassword')}if(e.key==='Escape'){e.preventDefault();cancelAuth()}});
+$('#app').addEventListener('change',e=>{if(e.target.id==='auth-show'){const value=$('#auth-password')?.value||'';state.authShow=e.target.checked;shell();$('#auth-password').value=value;return}if(e.target.id==='show'){const a=$('#password1')?.value||'',b=$('#password2')?.value||'',u=$('#unlock-password')?.value;state.show=e.target.checked;shell();if(u!==undefined)$('#unlock-password').value=u;else{$('#password1').value=a;$('#password2').value=b}}});
+$('#nav').addEventListener('click',e=>{const b=e.target.closest('[data-route]');if(b){previewRoute(b.dataset.route)}});
+$('#recovery-tools').addEventListener('change',e=>{if(e.target.id!=='recovery-case')return;state.recoveryCase=e.target.value;state.peerCodeVerified=false;state.recoveryConfirmed=false;state.codeValue='';state.error='';state.authToken++;if(['recoveryWaiting','recovered','password'].includes(state.page))go('restore');else shell()});
+$('#reauth-tools').addEventListener('change',e=>{state.authToken++;state.authBusy=false;state.authShow=false;state.error='';if(e.target.id==='auth-purpose')state.authPurpose=e.target.value;if(e.target.id==='auth-state')state.authCondition=e.target.value;shell()});
+$('#markers').addEventListener('change',e=>{state.markers=e.target.checked;metadata()});
+$('#detection').addEventListener('change',e=>{state.detection=e.target.value;state.unsupportedSeen=false;shell()});
+$('#scenario').addEventListener('change',e=>{state.scenario=e.target.value;state.unsupportedSeen=false;shell()});$('#environment').addEventListener('change',e=>{state.env=e.target.value;state.authToken++;state.authBusy=false;shell()});$('#method').addEventListener('change',e=>{state.method=e.target.value;state.created=true;state.authToken++;state.authBusy=false;if(state.page==='reauth'&&state.method==='system')go(authUses[state.authPurpose].parent);else shell()});$('#theme').addEventListener('click',()=>{state.theme=state.theme==='light'?'dark':'light';shell()});$('#language').addEventListener('click',()=>{state.lang=state.lang==='zh'?'en':'zh';shell()});$('#reset').addEventListener('click',()=>{const lang=state.lang,theme=state.theme;Object.assign(state,{authPurpose:'recovery',authCondition:'normal',authBusy:false,authShow:false,authToken:state.authToken+1,detection:'onEntry',unsupportedSeen:false,fallbackReason:'precheck',scenario:'bioPrf',env:'normal',method:'system',page:'welcome',origin:'create',returnPage:'welcome',error:'',show:false,created:false,recoveryCase:'meLost',peerCodeVerified:false,recoveryConfirmed:false,newSpace:false,codeValue:'',inviteFrom:'create',lang,theme});shell()});
+const params=new URLSearchParams(location.search),requested=params.get('page');if(['system','password'].includes(params.get('method'))){state.method=params.get('method');state.created=true;}if(['create','unlock','recovery'].includes(params.get('flow')))state.flowTab=params.get('flow');if(recoveryCases.includes(params.get('recovery')))state.recoveryCase=params.get('recovery');if(authUses[params.get('purpose')])state.authPurpose=params.get('purpose');if(requested&&pageCatalog[requested])state.page=requested;if(['reauth','centerAuth'].includes(state.page)){state.method='password';state.created=true;}
+shell();
+})();
+</script>
+</body>
+</html>

@@ -224,7 +224,7 @@ try {
   await creator.locator('#restore-cloud').click();
   await creator.locator('#joint-start').waitFor();
   invariant(await creator.locator('#app > .page-transition-outgoing').count() === 0, 'Welcome copy remained mounted during recovery navigation');
-  invariant(await creator.locator('input[name="scope"][value="peer"]:not([disabled])').count() === 1, 'Peer-only recovery cannot be selected');
+  invariant(await creator.locator('input[name="scope"]').count() === 0, 'Recovery still asks users to predict which side needs rebuilding');
   invariant(await creator.locator('#joint-start input[name="code"], #joint-start textarea[name="code"]').count() === 0, 'Recovery-code field is still on the page');
   invariant(await creator.locator('#joint-cancel-entry').count() === 0, 'Home return button is still on the recovery page');
   await creator.locator('#joint-open-code').click();
@@ -1301,7 +1301,8 @@ try {
     const pairingSecret = base64Module.randomBase64Url(32);
     const room = await apiModule.createRoom(legacyPublicBundle, accessToken);
     if (room.protocol !== 'legacy-v1') throw new Error('Legacy migration fixture did not create a legacy room');
-    const session = await vaultModule.createVault({
+    const { createLegacyVault } = await import('/tests/fixtures/legacy-vault.ts');
+    const session = await createLegacyVault({
       v: 1,
       roomId: room.roomId,
       accessToken,
