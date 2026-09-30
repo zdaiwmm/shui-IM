@@ -1,5 +1,12 @@
 # Quiet Room 当前状态
 
+## H5 遮蔽 V2 已实施，真机验收待完成（2026-09-30）
+
+- 独立分支 `codex/h5-privacy-v2`，基线 `5bb99efe862794f1abfd9a86b9ff4acbb3371091`。用户明确执行方案并逐项验收，随后纠正本次无新页面/交互、无需原型；相关原型已移除，沿用现有外观与入口。局部改造分离临时遮蔽和真正锁定，已归属工具也持续遮蔽，重复失焦不续期，后台/超时/显式锁始终优先。详细修改与 A01–A12 结果见[需求记录](../requirements/2026-09-30-h5-privacy-v2/README.md)。
+- 冻结产品版本的 `npm run check:full` 通过：745 单元、49 浏览器入口全部通过；桌面 WebKit 新专项通过。自动证据包含输入焦点/选区、全 H5 边界、两个返回顺序、无焦点事件、取消/超时/旧结果、加密草稿/唯一消息/附件/视频及通话。
+- USB 查询为空。实体 iPhone 的工具内部区域、原生全屏、动态切后台和系统缩略图仍未验证，不宣称全部修复。用户在此缺口已说明后要求“合并并发布”。产品候选 `df55cfa8fc7d2068bc5559f185b693f85baec27b` 的[完整 PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36677914908) 已通过；版本 `2026.09.30.1` 准备后的构建与 745 单元通过，纳入 [PR #234](https://github.com/zdaiwmm/shui-IM/pull/234) 后继续核对合并与精确 main CI。只读发布连接预检通过，但容量可用约 3.89 GiB，低于 4 GiB 门禁，尚未部署。生产切换待最终 SHA 确认及容量恢复。下方保留原有历史发布快照。
+
+
 ## iPhone 原生键盘栏与媒体列表误锁修复已发布（2026-09-29 22:20）
 
 - 当前线上应用 SHA `824dcba1ea9cdb59dca41ac87b7fbe537ed15705`，版本 `2026.09.29.2`；用户确认本次精确提交及容量清理。[修复 PR #230](https://github.com/zdaiwmm/shui-IM/pull/230) 和[发布元数据 PR #231](https://github.com/zdaiwmm/shui-IM/pull/231) 已合并，精确 main [完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36575565908) 通过。已上线 iPhone 原生键盘栏失焦交接、表情延迟失焦归属和保险箱屏外缩略图回收；安全边界见[需求记录](../requirements/2026-09-29-mobile-focus-lock/README.md)。

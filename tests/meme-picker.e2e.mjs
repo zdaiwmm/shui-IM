@@ -137,7 +137,7 @@ try {
   assert.deepEqual(await page.evaluate(() => ({
     covered: window.fixture.app.privacyCovered,
     obscured: document.documentElement.classList.contains('privacy-obscured'),
-  })), { covered: false, obscured: false }, 'Opening the expression panel treated its keyboard handoff as a departure');
+  })), { covered: false, obscured: true }, 'Opening the expression panel lost its owner or uncovered private content');
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   assert.equal((await page.locator('.meme-recent-section h3').textContent()).trim(), '最近使用');
   assert.equal(await page.locator('.meme-recent-grid .meme-tile').count(), 10, 'Recent usage must contain at most ten expressions');

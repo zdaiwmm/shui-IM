@@ -348,6 +348,9 @@ try {
         f.check(!f.app.privacyCovered && input.isConnected && input.hidden, 'Owned foreground picker blur locked or detached its selection input');
         f.focus();
         f.blur();
+        f.check(!f.app.privacyCovered && document.documentElement.classList.contains('privacy-obscured'),
+          'Repeated picker blur discarded its bounded owner or uncovered the page');
+        f.app.lockNow();
         f.check(f.app.privacyCovered && !input.isConnected && !f.app.imagePickerActive,
           'A later departure retained a stale native selection input behind the cover');
         if (order === 'focus-before-change') f.focus();

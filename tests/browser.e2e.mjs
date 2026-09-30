@@ -676,7 +676,7 @@ try {
   await creator.locator('#open-image-picker').click();
   invariant(await creator.evaluate(() => document.activeElement?.id !== 'message-input'), 'Tool panel did not dismiss the keyboard');
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
-  invariant(await creator.locator('.chat-shell').count() === 1 && !await creator.evaluate(() => document.documentElement.classList.contains('privacy-obscured')), 'Owned foreground picker blur covered the conversation');
+  invariant(await creator.locator('.chat-shell').count() === 1 && await creator.evaluate(() => document.documentElement.classList.contains('privacy-obscured')), 'Owned foreground picker blur lost the retained session or uncovered the conversation');
   await creator.evaluate(() => window.dispatchEvent(new Event('focus')));
   const retainedFocusImageIndex = await creator.locator('.message.outgoing .image-preview').count();
   await creator.locator('#image-input').setInputFiles({ ...image, name: 'keyboard-retained.svg' });
@@ -694,6 +694,7 @@ try {
     window.dispatchEvent(new Event('blur'));
     window.dispatchEvent(new Event('focus'));
     window.dispatchEvent(new Event('blur'));
+    window.dispatchEvent(new Event('pagehide'));
   });
   await creator.locator(LOCK_SURFACE).first().waitFor();
   invariant(await creator.locator('.chat-shell').count() === 0, 'A second browser departure during image selection left the chat exposed');
@@ -894,6 +895,7 @@ try {
     window.dispatchEvent(new Event('blur'));
     window.dispatchEvent(new Event('focus'));
     window.dispatchEvent(new Event('blur'));
+    window.dispatchEvent(new Event('pagehide'));
   });
   await creator.locator(LOCK_SURFACE).first().waitFor();
   invariant(await creator.locator('.gallery-shell').count() === 0, 'A second browser departure during gallery selection left private photos exposed');
@@ -1038,7 +1040,9 @@ try {
   const uploadingChunk = creator.waitForRequest(request => request.method() === 'PUT' && request.url().includes('/chunks/'));
   await resumableFirstInput.setInputFiles(resumableImage);
   await uploadingChunk;
-  await blurOutsidePage(creator);
+  // A temporary veil preserves authorized upload work. Interrupt the upload
+  // with a hard departure to verify its durable encrypted resume plan.
+  await creator.evaluate(() => window.dispatchEvent(new Event('pagehide')));
   await creator.locator(LOCK_SURFACE).first().waitFor();
   await creator.unroute('**/chunks/**');
   await unlock(creator);

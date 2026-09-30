@@ -71,15 +71,17 @@ try {
     // Bound prompt lifetime even if the user leaves permission unanswered.
     fresh();
     const originalTimeout = window.setTimeout;
-    const expirations = [];
+    const expirations = new Map();
     window.setTimeout = (fn, delay, ...args) => {
-      if (delay === 30_000) { expirations.push(fn); return 0; }
+      if (delay === 30_000) { const id = 1_000_000 + expirations.size; expirations.set(id, fn); return id; }
       return originalTimeout(fn, delay, ...args);
     };
     app.beginVoiceRecording();
-    while (expirations.length < 2) await Promise.resolve();
+    // Other lifecycle owners also have timers. Target the recorder's timer
+    // itself instead of relying on how many timers happened to be registered.
+    while (app.voiceRecorder.permissionTimer === null) await Promise.resolve();
     window.setTimeout = originalTimeout;
-    expirations.at(-1)();
+    expirations.get(app.voiceRecorder.permissionTimer)();
     check(!app.voiceRecorder && !app.microphonePromptActive, 'Prompt timeout left a recorder active');
     check(document.querySelector('#notice').textContent.includes('超时'), 'Prompt timeout has no explanation');
 

@@ -419,9 +419,10 @@ try {
     const element = [...document.querySelectorAll('.message .image-preview')].find(preview => preview.dataset.revealed === 'true');
     for (const [type, y] of [['pointerdown', 200], ['pointermove', 280]]) element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 64, isPrimary: true, button: 0, clientX: y, clientY: 200 }));
     window.dispatchEvent(new Event('blur'));
-    const locked = f.app.privacyCovered && !document.querySelector('.message, .image-viewer, .message-text-selection');
+    const locked = !f.app.privacyCovered && document.documentElement.classList.contains('privacy-obscured') && !document.querySelector('.image-viewer');
     window.dispatchEvent(new Event('focus'));
-    const stayedLocked = f.app.privacyCovered && !document.querySelector('.message, .image-viewer');
+    const stayedLocked = document.documentElement.classList.contains('privacy-obscured');
+    f.app.lockNow();
     return { locked, stayedLocked };
   });
   assert.deepEqual(transient, { locked: true, stayedLocked: true }, 'Unowned blur left revealed media mounted after focus returned');
@@ -432,9 +433,11 @@ try {
   await page.locator('.image-viewer.is-visible .viewer-stage img').waitFor();
   const coveredViewer = await page.evaluate(() => {
     window.dispatchEvent(new Event('blur'));
-    const viewerGone = document.querySelector('.image-viewer, .message') === null && window.chatPrivacy.app.privacyCovered;
+    const viewerGone = !document.querySelector('.image-viewer') && document.documentElement.classList.contains('privacy-obscured');
     window.dispatchEvent(new Event('focus'));
-    return viewerGone && window.chatPrivacy.app.privacyCovered;
+    const stillConcealed = document.documentElement.classList.contains('privacy-obscured');
+    window.chatPrivacy.app.lockNow();
+    return viewerGone && stillConcealed;
   });
   assert(coveredViewer, 'Unowned blur retained the viewer or restored chat on focus');
   await page.evaluate(() => window.chatPrivacy.reopen());

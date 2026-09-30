@@ -45,7 +45,7 @@ export function mountDialog(sheet: HTMLElement, options: DialogOptions) {
   const origin = options.returnFocus ?? retiringOrigin ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
   dialogOrigins.set(sheet, origin);
   const backgrounds = [...(sheet.parentElement?.children ?? [])]
-    .filter((node): node is HTMLElement => node instanceof HTMLElement && node !== sheet);
+    .filter((node): node is HTMLElement => node instanceof HTMLElement && node !== sheet && !node.classList.contains('privacy-curtain'));
   const releaseBackgrounds = () => {
     for (const node of backgrounds) {
       const owner = inertOwners.get(node);
