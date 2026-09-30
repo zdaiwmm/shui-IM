@@ -48,8 +48,9 @@ try {
  await page.setViewportSize({width:320,height:844});await page.emulateMedia({colorScheme:'light',reducedMotion:'reduce'});
  await page.evaluate(()=>{document.documentElement.style.fontSize='200%';app.renderFeatureHelp(()=>app.renderChat());});await shot(page,'F13-help-320-text-200');
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);
- await page.evaluate(()=>{document.documentElement.style.fontSize='';app.renderChat();app.renderMessages({scroll:'bottom'});document.querySelector('#message-input').value='周六上午见！';});
+ await page.evaluate(()=>{document.documentElement.style.fontSize='';app.renderChat();app.renderMessages({scroll:'bottom'});});
  await page.setViewportSize({width:390,height:844});await page.emulateMedia({reducedMotion:'no-preference'});
+ await page.locator('#message-input').fill('周六上午见！');
  const timeline=[];
  await shot(page,'F14-before');
  await page.evaluate(()=>{window.panelStart=performance.now();document.querySelector('#open-chat-tools').click();});
