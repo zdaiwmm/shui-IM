@@ -20,6 +20,7 @@ export type LocalHistorySummary = {
   messages: number;
   attachments: number;
   missingAttachments: number;
+  missingByKind?: Record<string, number>;
   imported: number;
   text: number;
   images: number;
@@ -54,6 +55,12 @@ function tallyPayload(summary: LocalHistorySummary, payload: MessagePayload): vo
     if (isVideoFile(payload.file)) summary.videos++;
     else summary.files++;
   }
+}
+
+function missingKind(payload: MessagePayload): string {
+  if (isExpressionPayload(payload)) return 'expression';
+  if (payload.kind === 'file' && isVideoFile(payload.file)) return 'video';
+  return payload.kind;
 }
 
 function attachments(payload: MessagePayload): ImageManifest[] {
@@ -121,7 +128,11 @@ export async function summarizeLocalHistory(
           const size = Math.min(manifest.chunkSize, manifest.originalSize - index * manifest.chunkSize) + 16;
           if (!await loadCachedMediaChunk(session, manifest.blobId, index, size)) { available = false; break; }
         }
-        if (!available) summary.missingAttachments++;
+        if (!available) {
+          summary.missingAttachments++;
+          const counts = summary.missingByKind ??= {};
+          const kind = missingKind(message.payload); counts[kind] = (counts[kind] ?? 0) + 1;
+        }
         else summary.attachments++;
       }
       progress({ ...summary });
@@ -171,7 +182,12 @@ export async function previewLocalHistoryBackup(
       for (const manifest of attachments(message.payload)) {
         const status = await next(3);
         if (status.length !== 1 || status[0]! > 1) throw new Error('附件状态不正确');
-        if (!status[0]) { summary.missingAttachments++; continue; }
+        if (!status[0]) {
+          summary.missingAttachments++;
+          const counts = summary.missingByKind ??= {};
+          const kind = missingKind(message.payload); counts[kind] = (counts[kind] ?? 0) + 1;
+          continue;
+        }
         for (let index = 0; index < manifest.chunkCount; index++) await next(4);
         summary.attachments++;
       }
@@ -241,7 +257,12 @@ export async function exportLocalHistory(session: VaultSession, sink: ArchiveSin
             if (!await loadCachedMediaChunk(session, manifest.blobId, index, size)) { available = false; break; }
           }
           yield { type: 3, bytes: new Uint8Array([available ? 1 : 0]) };
-          if (!available) { summary.missingAttachments++; continue; }
+          if (!available) {
+            summary.missingAttachments++;
+            const counts = summary.missingByKind ??= {};
+            const kind = missingKind(message.payload); counts[kind] = (counts[kind] ?? 0) + 1;
+            continue;
+          }
           const verify = await attachmentVerifier(manifest);
           for (let index = 0; index < manifest.chunkCount; index++) {
             signal.throwIfAborted();

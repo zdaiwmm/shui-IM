@@ -2,6 +2,7 @@ import { isWindowMessage, expiredMessage } from './message-window';
 import { mergeHistoryProjection } from './history-projection';
 import { mediaCacheBudget, mediaCacheEvictions, MEDIA_CACHE_FILE_BYTES, type MediaCacheEntry } from './media-cache-policy';
 import { argon2id } from 'hash-wasm';
+import { derivePasswordCredential, isPasswordCredential, validPasswordKdf, wrapPasswordMaster, unwrapPasswordMaster, type LocalCredentialResult } from './password-protection';
 import { fromBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
 import { normalizeMemeIndex, MAX_MEME_FAVORITES, MAX_MEME_LIBRARY_BYTES, MAX_MEME_BYTES, MEME_TYPES, type MemeFavorite } from './meme-media';
@@ -32,6 +33,7 @@ import type {
   PlatformCredentialRecord,
   RecoveryExport,
   StoredPlatformVault,
+  StoredPasswordVault,
   StoredRecoveryVault,
   StoredVault,
   Vault,
@@ -39,7 +41,7 @@ import type {
 } from './types';
 
 const DB_NAME = 'quiet-room';
-const DB_VERSION = 11;
+const DB_VERSION = 12;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const PLATFORM_PAYLOAD_AAD = encoder.encode('quiet-room-vault-payload-v2');
@@ -200,6 +202,7 @@ export type UiPreferences = {
   chatAnchor?: ChatScrollAnchor;
   recoveryReminderDismissed?: boolean;
   entranceCardDismissed?: boolean;
+  hiddenAlbumHintDismissed?: boolean;
   historyImportDismissed?: boolean;
   recoveryShieldHintSeen?: boolean;
   /** Device-local chat projection; it never mutates encrypted room history. */
@@ -598,7 +601,11 @@ function validateRecoveryStoredVault(value: unknown): value is StoredRecoveryVau
 }
 
 function validateStoredVault(value: unknown): value is StoredVault {
-  return validateLegacyStoredVault(value) || validatePlatformStoredVault(value) || validateRecoveryStoredVault(value);
+  const stored = value as StoredPasswordVault | null;
+  const password = stored?.v === 3 && stored.unlockMethod === 'password' && validPasswordKdf(stored.kdf) &&
+    isBoundedBase64(stored.wrappedKey?.iv, 16, 16) && isBoundedBase64(stored.wrappedKey?.ciphertext, 64, 64) &&
+    isBoundedBase64(stored.payload?.iv, 16, 16) && isBoundedBase64(stored.payload?.ciphertext);
+  return Boolean(password) || validateLegacyStoredVault(value) || validatePlatformStoredVault(value) || validateRecoveryStoredVault(value);
 }
 
 async function deriveGestureBytes(secret: string, existing?: VaultKdf): Promise<{ bytes: Uint8Array<ArrayBuffer>; kdf: VaultKdf }> {
@@ -834,7 +841,7 @@ export async function createVault(
   vault: Vault,
   legacySecret = '',
   unlockMethod: 'password' | 'platform' = 'platform',
-  preparedPlatformCredential?: PlatformCredentialResult,
+  preparedPlatformCredential?: LocalCredentialResult,
   isActive: () => boolean = () => true,
 ): Promise<VaultSession> {
   return withVaultLifecycle(async () => {
@@ -845,7 +852,7 @@ export async function createVault(
 }
 
 /** Explicitly replace this browser's inaccessible vault after the recovery screen's confirmation. */
-export async function createJointRecoveryVault(vault: Vault, credential: PlatformCredentialResult, expected: StoredVault | null, signal: AbortSignal): Promise<VaultSession> {
+export async function createJointRecoveryVault(vault: Vault, credential: LocalCredentialResult, expected: StoredVault | null, signal: AbortSignal): Promise<VaultSession> {
   return withVaultLifecycle(async () => {
     signal.throwIfAborted();
     if (!sameStoredVault(await readStoredVaultUnlocked(), expected)) throw staleVaultError();
@@ -872,11 +879,11 @@ export async function discardJointRecovery(session: VaultSession, signal: AbortS
 export async function finishJointRecovery(session: VaultSession, nextVault: Vault, signal: AbortSignal): Promise<void> {
   return withVaultMutation(session, async () => {
     const pending = session.vault.pendingJointRecovery;
-    if (!pending || session.stored.unlockMethod !== 'platform') throw new Error('双人恢复状态不存在');
+    if (!pending || (session.stored.unlockMethod !== 'platform' && !(session.stored.v === 3 && session.stored.unlockMethod === 'password'))) throw new Error('双人恢复状态不存在');
     const preferences = pending.preserveHistory ? await loadUiPreferences(session) : {};
     const nextSession = { ...session, vault: nextVault };
     const preferenceRecord = await encryptLocalRecord(nextSession, 'preferences', uiPreferenceId(nextSession), preferences);
-    const nextStored: StoredPlatformVault = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
+    const nextStored: StoredPlatformVault | StoredPasswordVault = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
     signal.throwIfAborted();
     const database = await openDatabase();
     await new Promise<void>((resolve, reject) => {
@@ -907,21 +914,24 @@ async function createVaultLocked(
   vault: Vault,
   legacySecret = '',
   unlockMethod: 'password' | 'platform' = 'platform',
-  preparedPlatformCredential?: PlatformCredentialResult,
+  preparedPlatformCredential?: LocalCredentialResult,
   isActive: () => boolean = () => true,
   expected?: StoredVault,
 ): Promise<VaultSession> {
   if (!isActive()) throw new DOMException('保险库创建流程已经结束', 'AbortError');
-  if (unlockMethod === 'password') {
-    const { bytes, kdf } = await deriveGestureBytes(legacySecret);
-    const key = await importMasterKey(bytes);
-    bytes.fill(0);
-    const stored = await encryptLegacyVault(vault, key, kdf, 'password');
-    if (!isActive()) throw new DOMException('保险库创建流程已经结束', 'AbortError');
-    await installStoredVault(stored, expected);
-    rememberSpace(vaultSpaceId(stored));
-    await clearUnlockThrottle();
-    return { vault, key, stored };
+  if (unlockMethod === 'password' || (preparedPlatformCredential && isPasswordCredential(preparedPlatformCredential))) {
+    const credential = preparedPlatformCredential && isPasswordCredential(preparedPlatformCredential)
+      ? preparedPlatformCredential : await derivePasswordCredential(legacySecret);
+    const master = crypto.getRandomValues(new Uint8Array(32));
+    try {
+      const key = await importMasterKey(master);
+      const stored: StoredPasswordVault = { v: 3, unlockMethod: 'password', spaceId: selectedSpace, kdf: credential.kdf,
+        wrappedKey: await wrapPasswordMaster(master, credential, selectedSpace), payload: await encryptPayload(vault, key) };
+      if (!isActive()) throw new DOMException('保险库创建流程已经结束', 'AbortError');
+      await installStoredVault(stored, expected);
+      rememberSpace(vaultSpaceId(stored)); await clearUnlockThrottle(); vault.v = 3;
+      return { vault, key, stored };
+    } finally { master.fill(0); }
   }
   const platformResult = preparedPlatformCredential ?? await createPlatformCredential();
   const browserAccessPrf = takeBrowserAccessPrf(platformResult.prfOutput) ?? platformResult.browserAccessPrf?.slice();
@@ -1023,8 +1033,17 @@ export async function unlockOwnedPendingSpace(id: string, credential: PlatformCr
 
 /** Verify only the requested local slot, without changing the selected space. */
 export async function unlockSpaceForRemoval(id: string, credential: PlatformCredentialResult | null,
-  verify: (record: PlatformCredentialRecord) => Promise<Uint8Array<ArrayBuffer>>): Promise<VaultSession> {
+  verify: (record: PlatformCredentialRecord) => Promise<Uint8Array<ArrayBuffer>>,
+  passwordVerification?: (verify: (password: string) => Promise<VaultSession>) => Promise<VaultSession>): Promise<VaultSession> {
   const stored = await withVaultLifecycle(() => readStoredVaultUnlocked(id));
+  if (stored?.v === 3 && stored.unlockMethod === 'password' && passwordVerification) {
+    return passwordVerification(password => withVaultLifecycle(async () => {
+      if (!sameStoredVault(await readStoredVaultUnlocked(id), stored)) throw staleVaultError();
+      const session = await unlockVaultLocked(password, undefined, stored);
+      if (!sameStoredVault(await readStoredVaultUnlocked(id), stored)) throw staleVaultError();
+      return session;
+    }));
+  }
   if (!stored || stored.v !== 3 || stored.unlockMethod !== 'platform') {
     throw new Error('请先打开此空间完成访问密钥升级，再删除');
   }
@@ -1067,6 +1086,19 @@ export async function resumeVaultSession(session: VaultSession): Promise<VaultSe
   });
 }
 
+/** Re-read and authenticate the original wrapper for this exact operation/slot. */
+export async function reauthenticateVault(session: VaultSession, secret = '', signal?: AbortSignal): Promise<VaultSession> {
+  return withVaultLifecycle(async () => {
+    signal?.throwIfAborted();
+    const stored = await readStoredVaultUnlocked(vaultSpaceId(session.stored));
+    if (!stored || !sameStoredVault(stored, session.stored)) throw staleVaultError();
+    const verified = await unlockVaultLocked(secret, undefined, stored);
+    signal?.throwIfAborted();
+    if (!sameStoredVault(await readStoredVaultUnlocked(vaultSpaceId(stored)), stored)) throw staleVaultError();
+    return verified;
+  });
+}
+
 function isPasskeyOnlyVault(stored: { v?: number; unlockMethod?: string }): boolean {
   return stored.v === 3 && stored.unlockMethod === 'platform';
 }
@@ -1097,6 +1129,12 @@ async function unlockVaultLocked(secret: string, preparedPlatformProof?: Uint8Ar
       const vault = JSON.parse(decoder.decode(plaintext)) as Vault;
       if (vault.v !== 1 || !vault.roomId || !vault.identity?.publicBundle?.deviceId) throw new Error('INVALID_VAULT');
       unlocked = { vault, key, stored };
+    } else if (stored.unlockMethod === 'password') {
+      const master = await unwrapPasswordMaster(stored, secret);
+      try {
+        const key = await importMasterKey(master);
+        unlocked = { vault: await decryptPayload(stored.payload, key), key, stored };
+      } finally { master.fill(0); }
     } else {
       // UI callers prepare WebAuthn before lifecycle/IndexedDB work so Safari
       // keeps trusted activation. Non-UI diagnostics retain the direct path.
@@ -1277,7 +1315,7 @@ export async function prepareRecoveryPackage(session: VaultSession): Promise<Pre
 }
 
 async function prepareRecoveryPackageLocked(session: VaultSession, mutation: VaultMutation): Promise<PreparedRecoveryExport> {
-  if ((session.stored.v !== 2 && session.stored.v !== 3) || session.stored.unlockMethod !== 'platform') {
+  if ((session.stored.v !== 2 && session.stored.v !== 3) || (session.stored.unlockMethod !== 'platform' && session.stored.unlockMethod !== 'password')) {
     throw new Error('请先完成设备保险库升级');
   }
   await saveVault(session, mutation);
@@ -2216,6 +2254,7 @@ function normalizeUiPreferences(value: unknown, { strict = false }: { strict?: b
     ...(chatAnchor ? { chatAnchor } : {}),
     recoveryReminderDismissed: source.recoveryReminderDismissed === true,
     entranceCardDismissed: source.entranceCardDismissed === true,
+    hiddenAlbumHintDismissed: source.hiddenAlbumHintDismissed === true,
     historyImportDismissed: source.historyImportDismissed === true,
     recoveryShieldHintSeen: source.recoveryShieldHintSeen === true,
     ...(hiddenChatMessageIds.length ? { hiddenChatMessageIds } : {}),
@@ -2287,7 +2326,7 @@ async function commitMlsVaultAndRecords(
   mutation?: VaultMutation,
 ): Promise<void> {
   if (!ownsVaultMutation(session, mutation)) throw new Error('MLS 状态变更必须在完整保险库事务中执行');
-  if ((session.stored.v !== 2 && session.stored.v !== 3) || session.stored.unlockMethod !== 'platform' || !session.vault.mls) {
+  if ((session.stored.v !== 2 && session.stored.v !== 3) || (session.stored.unlockMethod !== 'platform' && session.stored.unlockMethod !== 'password') || !session.vault.mls) {
     throw new Error('MLS 状态只能写入通行密钥保险库');
   }
   const nextVault = structuredClone(session.vault);
@@ -2300,7 +2339,7 @@ async function commitMlsVaultAndRecords(
   if (records.history && nextVault.mls.window && !isWindowMessage(records.history.payload)) {
     nextVault.mls.window.controls.push(records.history.seq);
   }
-  const nextStored: StoredPlatformVault = {
+  const nextStored: StoredPlatformVault | StoredPasswordVault = {
     ...session.stored,
     payload: await encryptPayload(nextVault, session.key),
   };
@@ -2365,10 +2404,10 @@ export function commitMlsReceive(
 
 /** Replace the old room cache and install the new identity's authenticated join boundary atomically. */
 export async function finishVaultRecovery(session: VaultSession, nextVault: Vault, mutation: VaultMutation): Promise<void> {
-  if (!ownsVaultMutation(session, mutation) || session.stored.unlockMethod !== 'platform' || !session.vault.pendingRecovery) {
+  if (!ownsVaultMutation(session, mutation) || (session.stored.unlockMethod !== 'platform' && !(session.stored.v === 3 && session.stored.unlockMethod === 'password')) || !session.vault.pendingRecovery) {
     throw new Error('恢复完成操作没有有效的保险库事务');
   }
-  const nextStored: StoredPlatformVault = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
+  const nextStored: StoredPlatformVault | StoredPasswordVault = { ...session.stored, payload: await encryptPayload(nextVault, session.key) };
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const stores = ['vault', 'history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks', 'outbox', 'receiptOutbox', 'uploads', 'preferences'];

@@ -230,7 +230,16 @@ export type StoredRecoveryVault = {
   };
 };
 
-export type StoredVault = LegacyStoredVault | StoredPlatformVault | StoredRecoveryVault;
+export type StoredPasswordVault = {
+  spaceId?: string;
+  v: 3;
+  unlockMethod: 'password';
+  kdf: VaultKdf;
+  wrappedKey: { iv: string; ciphertext: string };
+  payload: StoredPlatformVault['payload'];
+};
+
+export type StoredVault = LegacyStoredVault | StoredPlatformVault | StoredRecoveryVault | StoredPasswordVault;
 
 export type RecoveryExport = {
   exportedAt: string;

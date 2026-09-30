@@ -343,8 +343,8 @@ try {
   assert.ok(Buffer.byteLength(packageBytes.toString('base64')) > 12 * 1024 * 1024, 'upload crosses the old proxy limit');
   await admin.locator('#expression-upload [name=files]').setInputFiles({ name: 'fixture.wastickers', mimeType: 'application/octet-stream', buffer: packageBytes });
   await admin.getByText('合成贴图包', { exact: true }).waitFor();
-  await admin.getByText('2 张', { exact: true }).waitFor();
-  await admin.locator('#expression-list').getByText('已上架', { exact: true }).waitFor();
+  await admin.locator('.expression-mobile-meta').filter({ hasText: '2 张' }).first().waitFor();
+  await admin.locator('.expression-mobile-meta').filter({ hasText: '已上架 · 2 张' }).first().waitFor();
   await admin.getByRole('button', { name: '编辑 合成贴图包', exact: true }).click();
   await admin.locator('.expression-gallery img').nth(1).waitFor();
   assert.equal(await admin.locator('.expression-gallery img').count(), 2);
@@ -366,12 +366,12 @@ try {
   await admin.getByText('第 1 / 3 页 · 共 49 项', { exact: true }).waitFor();
   assert.equal(await admin.getByRole('button', { name: '批量上架', exact: true }).isDisabled(), true);
   await admin.getByRole('checkbox', { name: '全选本页', exact: true }).check();
-  await admin.getByText('已选 24 项', { exact: true }).waitFor();
+  await admin.getByText('已选本页 24 项', { exact: true }).waitFor();
   await admin.getByRole('checkbox', { name: /^选择 分页示例/ }).first().uncheck();
   assert.equal(await admin.getByRole('checkbox', { name: '全选本页', exact: true }).evaluate(input => input.indeterminate), true);
   await admin.getByRole('button', { name: '尾页', exact: true }).click();
   await admin.getByText('第 3 / 3 页 · 共 49 项', { exact: true }).waitFor();
-  await admin.getByText('已选 0 项', { exact: true }).waitFor();
+  await admin.getByText('已选本页 0 项', { exact: true }).waitFor();
   assert.equal(await admin.getByRole('button', { name: '下一页', exact: true }).isDisabled(), true);
   await admin.getByRole('spinbutton', { name: '指定页码' }).fill('2');
   await admin.getByRole('button', { name: '跳转', exact: true }).click();
@@ -384,21 +384,37 @@ try {
   await admin.getByRole('checkbox', { name: '全选本页', exact: true }).check();
   await admin.route('**/admin-api/expressions/status', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: '批量操作暂时失败' }) }));
   await admin.getByRole('button', { name: '批量上架', exact: true }).click();
+  await admin.locator('.resource-confirm button[value=confirm]').click();
   await admin.getByText('批量操作暂时失败', { exact: true }).waitFor();
   assert.equal(await admin.getByRole('checkbox', { name: '全选本页', exact: true }).isChecked(), true);
   await admin.unroute('**/admin-api/expressions/status');
   await admin.getByRole('button', { name: '批量上架', exact: true }).click();
+  await admin.locator('.resource-confirm button[value=confirm]').click();
   await admin.getByText('已上架 24 项', { exact: true }).waitFor();
   assert.equal(await admin.getByRole('button', { name: '下架', exact: true }).count(), 24);
   await admin.getByRole('checkbox', { name: '全选本页', exact: true }).check();
   for (const width of [1280, 390, 320]) {
     await admin.setViewportSize({ width, height: 900 });
-    await snapshot(admin, `admin-bulk-pagination-${width}`);
+    await snapshot(admin, `admin-bulk-pagination-${width}`, false);
+    if (width <= 390) {
+      const metrics = await admin.evaluate(() => {
+        const rows = [...document.querySelectorAll('.expression-table tbody tr')].map(row => row.getBoundingClientRect().height);
+        const bar = document.querySelector('.expression-bulk').getBoundingClientRect();
+        const sidebar = document.querySelector('.admin-sidebar').getBoundingClientRect();
+        const navFits = [...document.querySelectorAll('.sidebar-nav button')].every(button => button.getBoundingClientRect().bottom <= sidebar.bottom + 1);
+        return { rows, navFits, barBottom: bar.bottom, viewport: innerHeight, overflow: document.documentElement.scrollWidth > innerWidth + 1 };
+      });
+      assert.ok(metrics.rows.every(height => height >= 80 && height <= 96), `Compact rows: ${JSON.stringify(metrics)}`);
+      assert.ok(Math.abs(metrics.barBottom - metrics.viewport) < 1, `Selection bar detached from viewport: ${JSON.stringify(metrics)}`);
+      assert.equal(metrics.overflow, false);
+      assert.equal(metrics.navFits, true, 'Mobile navigation overlaps the page heading');
+    }
   }
   await admin.emulateMedia({ colorScheme: 'dark' });
-  await snapshot(admin, 'admin-bulk-pagination-dark-320');
+  await snapshot(admin, 'admin-bulk-pagination-dark-320', false);
   await admin.emulateMedia({ colorScheme: 'light' });
   await admin.getByRole('button', { name: '批量下架', exact: true }).click();
+  await admin.locator('.resource-confirm button[value=confirm]').click();
   await admin.getByText('已下架 24 项', { exact: true }).waitFor();
   await admin.evaluate(async ids => {
     const { csrf } = await (await fetch('/admin-api/session')).json();

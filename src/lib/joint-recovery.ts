@@ -5,7 +5,7 @@ import { fetchRecoveryBundle } from './cloud-backup';
 import { getRoomState } from './api';
 import { createCreatorMlsState, decryptMlsApplication, prepareCreatorWelcome, joinMlsGroup, signEcdsa, verifyEcdsa, verifyRecoveryMembershipChain } from './mls';
 import { createJointRecoveryVault, discardJointRecovery, commitMlsReceive, finishJointRecovery, loadOutbox, loadUploadPlans, readStoredVault, saveVault, withVaultMutation, type VaultSession } from './vault';
-import type { PlatformCredentialResult } from './platform-vault';
+import type { LocalCredentialResult } from './password-protection';
 import type { Vault, RoomMember, RoomState, PrivateIdentity, PublicBundle, ServerMessage, MlsWelcomeEnvelope, MlsVaultState } from './types';
 import type { RecoverySource } from './backup-types';
 
@@ -67,8 +67,8 @@ export function inviteeScopeChoice(initiatorScope: RecoveryScope, ownRole: Role)
   return 'peer';
 }
 
-export async function prepareJointRecovery(code: string, requestedScope: 'me' | 'peer' | 'both' | 'inherit', link: JointLink | null,
-  helper: VaultSession | null, credential: PlatformCredentialResult | undefined, deviceName: string, capabilities: string[], signal: AbortSignal, spaceRecoveryCode?: string): Promise<VaultSession> {
+export async function prepareJointRecovery(code: string, requestedScope: 'me' | 'peer' | 'both' | 'inherit' | 'auto', link: JointLink | null,
+  helper: VaultSession | null, credential: LocalCredentialResult | undefined, deviceName: string, capabilities: string[], signal: AbortSignal, spaceRecoveryCode?: string): Promise<VaultSession> {
   const expected = await readStoredVault();
   const bundle = await fetchRecoveryBundle(code, signal);
   const source = bundle.checkpoint;
@@ -83,15 +83,25 @@ export async function prepareJointRecovery(code: string, requestedScope: 'me' | 
   if (helper && (helper.vault.roomId !== source.roomId || helper.vault.role !== source.role || helper.vault.identity.publicBundle.deviceId !== source.identity.publicBundle.deviceId || helper.vault.pendingJointRecovery)) throw invalid();
   const peer = source.role === 'creator' ? 'joiner' : 'creator';
   const initiatorOffer = snapshot ? snapshot.offers[snapshot.initiator] ?? snapshot.offers[peer] : undefined;
-  const resolvedScope = requestedScope === 'inherit'
+  const resolvedScope = requestedScope === 'auto' ? (helper ? 'peer' : 'me') : requestedScope === 'inherit'
     ? (initiatorOffer ? inviteeScopeChoice(initiatorOffer.scope, source.role) : undefined)
     : requestedScope;
   if (!resolvedScope) throw invalid();
   const scope: RecoveryScope = { creator: resolvedScope === 'both', joiner: resolvedScope === 'both' };
   if (resolvedScope === 'me') scope[source.role] = true;
   if (resolvedScope === 'peer') scope[peer] = true;
-  if (snapshot && requestedScope !== 'inherit') { scope[peer] = snapshot.offers[peer]!.recover; scope[source.role] = resolvedScope !== 'peer'; }
-  if (!scope.creator && !scope.joiner) throw new Error('至少一位参与者需要恢复');
+  if (snapshot && requestedScope !== 'inherit') {
+    const offer = snapshot.offers[peer];
+    if (!offer) throw invalid();
+    const signer = state.members.find(member => member.deviceId === offer.sourceDeviceId && member.role === peer && member.status === 'active');
+    const { signature, ...unsigned } = offer;
+    const hash = toBase64Url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(link!.capability)));
+    if (!signer || offer.roomId !== source.roomId || offer.requestId !== link!.requestId || offer.role !== peer ||
+        offer.capabilityHash !== hash || offer.baseEventSeq !== snapshot.baseEventSeq || offer.expiresAt !== snapshot.expiresAt ||
+        offer.recover !== offer.scope[peer] || !await verifyEcdsa(signer.signingKey, signature, unsigned)) throw invalid();
+    scope[peer] = offer.recover; scope[source.role] = resolvedScope !== 'peer';
+  }
+  if (!scope.creator && !scope.joiner) throw new Error('双方空间均可正常使用，无需重建。请返回原空间继续聊天');
   if (!scope[source.role] && !helper) throw new Error('协助恢复需要先解锁自己的现有私密空间');
   const preserveHistory = Boolean(helper && !scope[source.role]);
   if (preserveHistory && (helper!.vault.mls?.lastEventSeq ?? 0) !== (state.nextMlsEventSeq ?? 0)) throw new Error('设备变更尚未同步，请回到私密空间完成同步后重试');

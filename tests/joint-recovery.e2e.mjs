@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright';
@@ -57,15 +57,32 @@ try {
     await v.saveUiPreferences(session, { composerDraft: 'helper draft', hiddenChatMessageIds: [message.envelope.clientMsgId] }); await v.saveVault(session);
   }, initial);
   for (const page of pages) await page.evaluate(async () => { await b.syncCloudBackup(session, signal); window.sp = await import('/src/lib/spaces.ts'); await sp.syncSpaceDirectory(session, signal); window.masterCode = session.vault.spaceRecoveryCode; window.oldCode = session.vault.backup.code; const bundle = await b.fetchRecoveryBundle(masterCode, signal, undefined, session.vault.roomId); if (bundle.checkpoint.spaceRecoveryCode) throw new Error('Collection capability leaked into a room checkpoint'); });
+  const unnecessary = await a.evaluate(async () => {
+    const originalId = session.vault.identity.publicBundle.deviceId;
+    window.session = await j.prepareJointRecovery(oldCode, 'auto', null, session, undefined, 'usable A', ['joint-recovery-v1'], signal);
+    await j.advanceJointRecovery(session, signal);
+    return { link: session.vault.pendingJointRecovery.link, originalId };
+  });
+  await b.evaluate(async link => {
+    const before = JSON.stringify(await v.readStoredVault());
+    let rejected = false;
+    try { await j.prepareJointRecovery(oldCode, 'auto', link, session, undefined, 'usable B', ['joint-recovery-v1'], signal); }
+    catch (cause) { rejected = cause.message.includes('均可正常使用'); }
+    if (!rejected || before !== JSON.stringify(await v.readStoredVault())) throw new Error('Two usable endpoints changed their vaults');
+  }, unnecessary.link);
+  await a.evaluate(async originalId => {
+    const result = await j.cancelJointRecovery(session, signal);
+    if (result !== 'helper' || session.vault.identity.publicBundle.deviceId !== originalId || session.vault.pendingJointRecovery) throw new Error('Cancelling helper staging changed its identity');
+  }, unnecessary.originalId);
   const link = await a.evaluate(async () => {
     const history = await import('/src/lib/local-history-backup.ts'); const chunks = [];
     await history.exportLocalHistory(session, { write: async bytes => chunks.push(bytes.slice()) }, signal); window.localFile = new Blob(chunks);
     window.old = structuredClone(session.vault);
-    const { createPlatformCredential } = await import('/src/lib/platform-vault.ts'); const credential = await createPlatformCredential();
-    window.session = await j.prepareJointRecovery(oldCode, 'me', null, null, credential, 'new A', ['joint-recovery-v1'], signal, masterCode); await sp.rememberLocalSpace(session, masterCode);
+    const { derivePasswordCredential } = await import('/src/lib/password-protection.ts'); const credential = await derivePasswordCredential('joint-new-password');
+    window.session = await j.prepareJointRecovery(oldCode, 'auto', null, null, credential, 'new A', ['joint-recovery-v1'], signal, masterCode); await sp.rememberLocalSpace(session, masterCode);
     await j.advanceJointRecovery(session, signal); return session.vault.pendingJointRecovery.link;
   });
-  await b.evaluate(async link => { window.session = await j.prepareJointRecovery(oldCode, 'peer', link, session, undefined, 'new B', ['joint-recovery-v1'], signal); await j.advanceJointRecovery(session, signal); }, link);
+  await b.evaluate(async link => { window.session = await j.prepareJointRecovery(oldCode, 'auto', link, session, undefined, 'new B', ['joint-recovery-v1'], signal); await j.advanceJointRecovery(session, signal); }, link);
   // The helper must retain messages arriving while the restoration screen owns the UI.
   await sendOld('during recovery');
   await a.evaluate(async () => { window.snapshot = await j.advanceJointRecovery(session, signal); });
@@ -85,6 +102,8 @@ try {
   assert.equal(await a.locator('#joint-retire, #joint-retry, #joint-cancel').count(), 0);
   assert.equal(await a.locator('#joint-qr').evaluate(canvas => canvas.getAttribute('width')), '248');
   await a.setViewportSize({ width: 390, height: 844 });
+  await a.getByRole('button', { name: '确认并找回空间', exact: true }).waitFor();
+  if (process.argv[2]) { await mkdir(process.argv[2], { recursive: true }); await a.screenshot({ path: path.join(process.argv[2], 'F01-auto-recovery-390.png'), animations: 'disabled' }); }
   const waitingLayout = await a.evaluate(() => {
     const qr = document.querySelector('#joint-qr')?.getBoundingClientRect();
     const summary = document.querySelector('#joint-scope-summary');
@@ -100,7 +119,7 @@ try {
   assert.equal(waitingLayout.startButton, false);
   await a.evaluate(() => progressApp.runtimeAbort.abort());
   // Both local states and fresh identities survive an actual unlock before confirmation.
-  for (const page of pages) await page.evaluate(async () => { window.session = await v.unlockVault(); window.snapshot = await j.advanceJointRecovery(session, signal); });
+  for (const page of pages) await page.evaluate(async () => { window.session = await v.unlockVault((await v.readStoredVault())?.unlockMethod === 'password' ? 'joint-new-password' : ''); window.snapshot = await j.advanceJointRecovery(session, signal); });
   await a.evaluate(async () => { window.snapshot = await j.approveJointRecovery(session, snapshot, signal); if (snapshot.result) throw new Error('Single signature committed'); });
   await b.evaluate(async () => { window.snapshot = await j.approveJointRecovery(session, snapshot, signal); await j.completeJointRecovery(session, snapshot, signal); });
   await a.evaluate(async () => { window.snapshot = await j.advanceJointRecovery(session, signal); await j.completeJointRecovery(session, snapshot, signal); });
@@ -127,7 +146,7 @@ try {
     const layout = await a.evaluate(() => ({ overflow: document.documentElement.scrollWidth > innerWidth, small: [...document.querySelectorAll('button')].some(x => x.getBoundingClientRect().height < 44) }));
     assert.equal(layout.overflow, false); assert.equal(layout.small, false);
   }
-  if (process.argv[2]) await a.screenshot({ path: process.argv[2], fullPage: true });
+  if (process.argv[2]) await a.screenshot({ path: path.join(process.argv[2], 'F07-recovery-center-390.png'), animations: 'disabled' });
   assert.equal(await a.locator('#open-local-history, #import-history-from-hub').count(), 0);
   assert.equal(await a.locator('#save-my-code').count(), 1);
   assert.equal(await a.locator('.recovery-flow-list li').count(), 4);
@@ -135,5 +154,5 @@ try {
   assert.equal(await a.locator('.recovery-status-badge').count(), 0);
   await a.locator('#recovery-center-back').click();
   await a.evaluate(() => app.lockNow()); assert.equal(await a.locator('#recovery-center-back').count(), 0);
-  console.log('Joint recovery browser: dual signatures, helper catch-up, atomic history preservation, code rotation, own local import, resumed passkeys and 375/390 UI passed.');
+  console.log('Joint recovery browser: dual signatures, helper catch-up, atomic history preservation, code rotation, own local import, resumed original protections and 375/390 UI passed.');
 } finally { await browser?.close(); await vite?.close(); await service?.close(); await rm(dataDir, { recursive: true, force: true }); }
