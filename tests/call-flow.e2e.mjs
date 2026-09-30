@@ -20,11 +20,19 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
       return button instanceof HTMLButtonElement && !button.disabled;
     }, null, { timeout: 15_000 });
   };
-  const start = async (page, kind) => {
+  const start = async (page, kind, { pendingPermission = false } = {}) => {
     await ready(page);
     await page.locator('#open-chat-tools').click();
     await page.locator(`#chat-tools #start-${kind}-call`).click();
-    await phase(page, 'outgoing').waitFor();
+    if (pendingPermission) {
+      // The pending native prompt owns the runtime, but its call view must
+      // remain concealed. Do not race its pre-concealment for a visible frame.
+      await phase(page, 'outgoing').waitFor({ state: 'attached' });
+      await page.waitForFunction(() => typeof window.__callFlow.resolvePermission === 'function');
+      await page.locator('.privacy-curtain').waitFor();
+      assert.equal(await phase(page, 'outgoing').isVisible(), false, 'Pending native permission must conceal the call view');
+      assert.equal(await page.locator('.cover-trigger').count(), 0, 'Pending native permission must retain its original runtime');
+    } else await phase(page, 'outgoing').waitFor();
   };
   const connect = async (caller, callee, kind) => {
     const before = await callee.evaluate(() => window.__callFlow.requests);
@@ -216,7 +224,7 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
     // An unanswered native permission request may resolve after the app locks; its tracks must be discarded.
     await creator.bringToFront();
     await creator.evaluate(() => { window.__callFlow.deferNext = true; });
-    await start(creator, 'audio');
+    await start(creator, 'audio', { pendingPermission: true });
     await creator.waitForFunction(() => typeof window.__callFlow.resolvePermission === 'function');
     await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
     assert.equal(await creator.locator('.cover-trigger').count(), 0, 'The owned foreground call permission prompt must not lock the app');
@@ -243,7 +251,7 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
     for (const lifecycle of ['pagehide', 'freeze']) {
       await creator.bringToFront();
       await creator.evaluate(() => { window.__callFlow.deferNext = true; });
-      await start(creator, 'audio');
+      await start(creator, 'audio', { pendingPermission: true });
       await creator.waitForFunction(() => typeof window.__callFlow.resolvePermission === 'function');
       await creator.evaluate(name => (name === 'freeze' ? document : window).dispatchEvent(new Event(name)), lifecycle);
       await creator.locator(LOCK_SURFACE).first().waitFor();
