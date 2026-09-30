@@ -1742,8 +1742,14 @@ async function loadHistoryRecordsAfter(
  */
 export async function loadMessageEventHistory(
   session: VaultSession,
-  { signal }: { signal?: AbortSignal } = {},
+  { signal, mutation }: { signal?: AbortSignal; mutation?: VaultMutation } = {},
 ): Promise<DecryptedMessage[]> {
+  if (mutation && !ownsVaultMutation(session, mutation)) throw new Error('历史快照读取必须使用当前保险库事务');
+  if (session.stored && !mutation) {
+    // Snapshot acquisition joins the existing lifecycle queue. Capturing a
+    // version outside this lock races a normal same-session atomic commit.
+    return withVaultMutation(session, held => loadMessageEventHistory(session, { signal, mutation: held }));
+  }
   const expectedStored = session.stored;
   const assertCurrent = async () => {
     signal?.throwIfAborted();
