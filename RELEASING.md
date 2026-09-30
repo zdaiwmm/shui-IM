@@ -1,5 +1,27 @@
 # Quiet Room 固定发布流程
 
+## H5 遮蔽 V2 已发布（2026-09-30）
+
+- [PR #234](https://github.com/zdaiwmm/shui-IM/pull/234) 已合并为 `e2102c92685d0ce49d0a663f9fdeb0d088aee490`，版本 `2026.09.30.1`；准备后的 [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36679287902) 和该精确提交的 [main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36679854092) 均通过。用户在当前会话明确确认该完整 SHA 的生产发布；同一目标无需重复确认。
+- 清理可再下载的系统包缓存后，构建前容量可用 `4359532544` 字节，镜像构建成功；构建后第二次容量门禁可用 `4148113408` 字节，低于 `4294967296` 字节的 4 GiB 门槛，差 `146853888` 字节（约 140.05 MiB），返回 `DISK_HEADROOM_LOW`。首次固定入口在关闭业务流量前停止，总耗时 86735 毫秒；未切换应用、未生成本次冷备份、未取得 `DEPLOY_VERIFIED`，未绕过容量门禁或盲目重试。
+- 归档迁移校验及授权清理恢复容量后，对同一 SHA 续跑固定入口，取得精确 `DEPLOY_VERIFIED`。批次 `20260930T072634Z`，发布目录 `/opt/quiet-room/git-releases/20260930T072634Z-e2102c92685d`，冷备份 `data-20260930T072634Z-e2102c92685d.tar.gz` 已校验；切换前容量可用 `5734694912` 字节，服务器发布 96 秒，固定入口总耗时 135632 毫秒。精确成功回执位于隔离副本 `/private/var/folders/kx/xvfkgvzn5cb2t23mnc9518kr0000gn/T/quiet-room-publish-roibid/.git/quiet-room-verified-sha`。
+- 独立生产 `READBACK_OK` 于 `2026-09-30T07:28:40.553Z` 完成：线上 SHA 为 `e2102c92685d0ce49d0a663f9fdeb0d088aee490`，应用与备份镜像均为 `sha256:3d188a45acdd2b6ede766edfee7d8a287d1f25aeb058dbbcda9c35ff1c71a048`，HTTPS／数据库／存储、公开与容器产物和新 WebSocket 一致。应用健康，备份与 TURN 运行且无健康探针，维护标记不存在。脱敏证据位于任务 Git 元数据目录 `quiet-room-readback/20260930T072837762Z-e2102c92685d-success.json`；发布后容量可用 `5695500288` 字节（约 5.30 GiB）、使用率 85.74%，发布容量预检通过。下列阻塞与审阅为本次首次尝试的过程记录，不能据此认为当前仍未发布。
+- 旧版 `824dcba1ea9cdb59dca41ac87b7fbe537ed15705` 于 `2026-09-30T06:55:46.806Z` 独立回读取得 `READBACK_OK`：HTTPS／数据库／存储、公开与容器产物和新 WebSocket 一致；应用健康，备份与 TURN 运行，维护标记不存在。脱敏证据位于任务 Git 元数据目录 `quiet-room-readback/20260930T065543743Z-824dcba1ea9c-success.json`。发布失败日志 `/private/tmp/h5-privacy-v2-publish.log` 不能视为成功回执。
+- 用户选择“先审阅其他历史资源”；本轮仅核对资源元数据、成功登记、归属和保护条件，审阅时未删除历史资源。审阅结果如下，容量为当时测量值，不保证实际回收量。
+
+| 资源 | 审阅结果 | 处理边界 |
+| --- | --- | --- |
+| 普通旧目录 | 已登记且干净的 `df2e0c265c1d` 工作树约 11.1 MiB；旧上传目录约 0.63 MiB；无清单备份临时目录约 3.7 MiB | 合计不足补齐缺口；另有脏工作树和未登记旧版本，保留 |
+| 日志、系统临时目录 | 未压缩轮转日志约 15 MiB；系统临时目录合计不足 0.1 MiB；journal 总占用约 112 MiB，含活动日志 | 小项叠加仍不足；journal 总量不等于可清理量，保留证据 |
+| 历史镜像 | 构建前旧镜像均属当前、两版成功回退或失败切换保留；新目标构建产物保留待发布 | 标签大小含共享层，不能当作净回收量；不执行在线 builder prune |
+| 特殊 catalog 归档 | 两份 9 月 8 日归档合计约 265.7 MiB | 特殊恢复点，无已核实异地保留与事件关闭证据，保留 |
+| 失败切换配对归档 | `data-20260922T065859Z-9cf595c9f670.tar.gz` 与 `failed-cutover-20260922T065859Z-9cf595c9f670.tar.gz` 各 `799539803` 字节，合计约 1.49 GiB | 迁移前不以大小判断内容；后续 SHA-256 校验一致，本机分别保留，完成事件关闭后已按授权释放服务器副本 |
+| 最近三份冷备份、有效连续备份 | 属于现行恢复保留范围 | 保留 |
+
+- 用户选择迁移归档，并要求指定安全位置。已采用本机仓库外独立目录 `/Users/zhouding/quiet-room-archives/2026-09-22-failed-cutover-9cf595c9f670/`；已核实 FileVault 开启及本机空间充足，目录权限 `0700`、文件权限 `0600`、逐份 gzip 完整性及源／目标 SHA-256 校验。用户明确确认该目录及校验后清理；两份归档均经源／目标 SHA-256 与 gzip 完整性检查，随后独立重读本机文件复验。恢复归属、历史缺失模块修复与健康回读证据已记录；持发布锁再次核对源文件及最新三份冷备份后，移除两份确切服务器副本，实际释放 `1599074304` 字节。迁移回执 `migration-receipt.json` 保存在上述本机目录，服务器关闭记录为 `/var/lib/quiet-room-deploy/closed-incidents/20260922T065859Z-9cf595c9f670.json`。
+- 本次仅完成历史事件的异机保留与关闭，不等于持续异地备份链路。迁移后容量预检可用 `5746950144` 字节且 issues 为空；约 1.49 GiB 回收不证明满足连续备份的 8 GiB／低于 80% 准入条件，日常备份链路仍需另行恢复。规则依据见 [OPERATIONS.md 容量治理](OPERATIONS.md#capacity-governance)。
+- 实体 iPhone 的系统工具内部操作、原生全屏与动态切后台／系统缩略图仍未验证，见[逐项验收](docs/requirements/2026-09-30-h5-privacy-v2/README.md#验收逐项记录)。独立文档对账不改变发布目标或再次部署；活动开发树及本轮对账树保留用于当前会话和证据对账，不清理其他任务资源。
+
 ## iPhone 原生键盘栏与媒体列表误锁修复已发布（2026-09-29 22:20）
 
 - 用户确认精确 main 提交 `824dcba1ea9cdb59dca41ac87b7fbe537ed15705`、版本 `2026.09.29.2` 的生产发布，并授权必要容量清理。[修复 PR #230](https://github.com/zdaiwmm/shui-IM/pull/230) 与[发布元数据 PR #231](https://github.com/zdaiwmm/shui-IM/pull/231) 已合并；精确 main [完整 CI 36575565908](https://github.com/zdaiwmm/shui-IM/actions/runs/36575565908) 通过。范围见[需求记录](docs/requirements/2026-09-29-mobile-focus-lock/README.md)。
