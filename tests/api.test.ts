@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { RoomSocket } from '../src/lib/api';
-import type { RoomState } from '../src/lib/types';
+import type { DeliveryReceipt, MessageEnvelope, RoomState } from '../src/lib/types';
 
 type Listener = (event: { data?: string; code?: number }) => void;
 
@@ -10,6 +10,7 @@ class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
 
   readyState = FakeWebSocket.CONNECTING;
+  bufferedAmount = 0;
   sent: string[] = [];
   closeCodes: number[] = [];
   private listeners = new Map<string, Listener[]>();
@@ -55,6 +56,66 @@ describe('RoomSocket membership ordering', () => {
     vi.stubGlobal('window', { setTimeout, clearTimeout, setInterval, clearInterval });
     vi.stubGlobal('WebSocket', FakeWebSocket);
   }
+  it('paces a durable receipt backlog instead of overflowing the server input queue', () => {
+    environment(); const callbacks = handlers();
+    const socket = new RoomSocket('room', 'token', () => 0, () => 0, callbacks);
+    socket.connect(); const transport = FakeWebSocket.instances[0]!; transport.emit('open');
+    transport.emit('message', JSON.stringify({ type: 'ready', state: {} }));
+    for (let index = 0; index < 40; index++) socket.sendReceipt({ clientMsgId: String(index) } as DeliveryReceipt);
+    const sent = transport.sent.map(value => JSON.parse(value)).filter(frame => frame.type === 'receipt');
+    socket.close();
+    expect(sent.length).toBeLessThanOrEqual(8);
+  });
+  it('drains all 40 receipts through ACK refills, retaining no duplicate transport queue', async () => {
+    environment(); const callbacks = handlers();
+    const pending = new Map(Array.from({ length: 40 }, (_, index) => [String(index), { clientMsgId: String(index) } as DeliveryReceipt]));
+    const refill = () => { for (const receipt of pending.values()) socket.sendReceipt(receipt); };
+    const socket = new RoomSocket('room', 'token', () => 0, () => 0, {
+      ...callbacks, writable: refill, receiptAck: id => { pending.delete(id); },
+    });
+    socket.connect(); const transport = FakeWebSocket.instances[0]!; transport.emit('open');
+    transport.emit('message', JSON.stringify({ type: 'ready', state: {} })); refill();
+    for (let batch = 0; batch < 5; batch++) {
+      const sent = transport.sent.map(value => JSON.parse(value)).filter(frame => frame.type === 'receipt');
+      expect(sent).toHaveLength((batch + 1) * 8);
+      for (const frame of sent.slice(batch * 8)) transport.emit('message', JSON.stringify({ type: 'receiptAck', clientMsgId: frame.receipt.clientMsgId, receiptSeq: 1 }));
+      await vi.waitFor(() => expect(pending.size).toBe(40 - (batch + 1) * 8));
+      await Promise.resolve(); await Promise.resolve();
+    }
+    expect(new Set(transport.sent.map(value => JSON.parse(value)).filter(frame => frame.type === 'receipt').map(frame => frame.receipt.clientMsgId)).size).toBe(40);
+    expect(transport.closeCodes).toEqual([]); socket.close();
+  });
+  it('shares byte capacity across message and receipt sends and abandons ACK work after locking', async () => {
+    environment(); const callbacks = handlers(); let finish!: () => void;
+    const writable = vi.fn();
+    const socket = new RoomSocket('room', 'token', () => 0, () => 0, { ...callbacks, writable,
+      ack: () => new Promise<void>(resolve => { finish = resolve; }),
+    });
+    socket.connect(); const transport = FakeWebSocket.instances[0]!; transport.emit('open');
+    transport.emit('message', JSON.stringify({ type: 'ready', state: {} }));
+    const envelope = { clientMsgId: 'large', ciphertext: 'a'.repeat(400 * 1024) } as MessageEnvelope;
+    expect(socket.sendEnvelope(envelope)).toBe(true);
+    expect(socket.sendEnvelope(envelope)).toBe(true);
+    expect(socket.sendReceipt({ clientMsgId: 'receipt', signature: 'a'.repeat(120 * 1024) } as DeliveryReceipt)).toBe(false);
+    expect(transport.sent.filter(value => JSON.parse(value).type === 'send')).toHaveLength(1);
+    transport.emit('message', JSON.stringify({ type: 'ack', clientMsgId: 'large', seq: 1 }));
+    await Promise.resolve(); socket.close(); finish();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    expect(writable).not.toHaveBeenCalled();
+  });
+  it('reconnects on an unacknowledged send and clears the old generation reservation', () => {
+    vi.useFakeTimers(); environment(); const callbacks = handlers();
+    const socket = new RoomSocket('room', 'token', () => 0, () => 0, callbacks);
+    socket.connect(); const first = FakeWebSocket.instances[0]!; first.emit('open');
+    first.emit('message', JSON.stringify({ type: 'ready', state: {} }));
+    socket.sendReceipt({ clientMsgId: 'same-id' } as DeliveryReceipt);
+    vi.advanceTimersByTime(15_000); expect(first.closeCodes).toContain(4000);
+    first.emit('close', undefined, 4000); vi.advanceTimersByTime(1000);
+    const next = FakeWebSocket.instances[1]!; next.emit('open');
+    next.emit('message', JSON.stringify({ type: 'ready', state: {} }));
+    expect(socket.sendReceipt({ clientMsgId: 'same-id' } as DeliveryReceipt)).toBe(true);
+    expect(next.sent.some(value => JSON.parse(value).type === 'receipt')).toBe(true); socket.close();
+  });
   it('uses explicit hasMore and falls back to the legacy 500-count rule', async () => {
     environment(); const callbacks = handlers();
     const socket = new RoomSocket('room', 'token', () => 7, () => 4, callbacks);

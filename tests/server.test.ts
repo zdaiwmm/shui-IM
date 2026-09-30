@@ -1,7 +1,8 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { RoomSocket } from '../src/lib/api';
 import WebSocket from 'ws';
 import { startServer } from '../server/index.mjs';
 import { randomBase64Url } from '../src/lib/base64';
@@ -18,6 +19,7 @@ const cleanup: Array<() => Promise<void>> = [];
 
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((operation) => operation()));
+  vi.unstubAllGlobals();
 });
 
 class FrameClient {
@@ -75,6 +77,47 @@ async function request(url: string, options: RequestInit = {}) {
 }
 
 describe('HTTP and WebSocket integration', () => {
+  it('drains 40 signed outbox messages and their receipts without exceeding ingress capacity', async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-bulk-replay-'));
+    const server = await startServer({ port: 0, host: '127.0.0.1', dataDir, quiet: true });
+    cleanup.push(async () => { await server.close(); await rm(dataDir, { recursive: true, force: true }); });
+    const [creator, joiner] = await Promise.all([generateIdentity(), generateIdentity()]);
+    const creatorToken = randomBase64Url(32), joinerToken = randomBase64Url(32), secret = randomBase64Url(32);
+    const { roomId } = server.store.createRoom(creator.publicBundle, creatorToken, randomBase64Url(32));
+    const state = server.store.joinRoom(roomId, joiner.publicBundle, await createJoinProof(secret, joiner.publicBundle), joinerToken);
+    const common = { v: 1 as const, roomId, pairingSecret: secret, members: state.members,
+      creatorFingerprint: await bundleFingerprint(creator.publicBundle), lastSeq: 0, createdAt: new Date().toISOString() };
+    const creatorVault: Vault = { ...common, accessToken: creatorToken, role: 'creator', identity: creator };
+    const joinerVault: Vault = { ...common, accessToken: joinerToken, role: 'joiner', identity: joiner };
+    const envelopes = await Promise.all(Array.from({ length: 40 }, (_, index) => encryptMessage(creatorVault,
+      { v: 1, kind: 'text', text: `durable bulk ${index}`, sentAt: new Date().toISOString() })));
+    const outbox = new Map(envelopes.map(envelope => [envelope.clientMsgId, envelope]));
+    const receipts = new Map<string, Awaited<ReturnType<typeof createDeliveryReceipt>>>();
+    const errors: string[] = [], connections: string[] = [];
+    vi.stubGlobal('location', { protocol: 'http:', host: `127.0.0.1:${server.port}` });
+    vi.stubGlobal('window', { setTimeout, clearTimeout, setInterval, clearInterval }); vi.stubGlobal('WebSocket', WebSocket);
+    const callbacks = { connection: (value: string) => connections.push(value), presence: () => undefined,
+      membership: () => undefined, message: () => undefined, sync: () => undefined, receipt: () => undefined,
+      receiptSync: () => undefined, ack: () => undefined, receiptAck: () => undefined,
+      error: (_message: string, code?: string) => { errors.push(code ?? 'unknown'); } };
+    const sendMessages = () => { for (const envelope of outbox.values()) creatorSocket.sendEnvelope(envelope); };
+    const sendReceipts = () => { for (const receipt of receipts.values()) joinerSocket.sendReceipt(receipt); };
+    const creatorSocket = new RoomSocket(roomId, creatorToken, () => 0, () => 0, { ...callbacks,
+      ready: sendMessages, writable: sendMessages, ack: id => { outbox.delete(id); },
+    }, creator.publicBundle.deviceId);
+    const joinerSocket = new RoomSocket(roomId, joinerToken, () => 0, () => 0, { ...callbacks,
+      ready: () => undefined, writable: sendReceipts, receiptAck: id => { receipts.delete(id); },
+      message: async message => { const receipt = await createDeliveryReceipt(joinerVault, message); receipts.set(receipt.clientMsgId, receipt); sendReceipts(); },
+    }, joiner.publicBundle.deviceId);
+    cleanup.unshift(async () => { creatorSocket.close(); joinerSocket.close(); });
+    joinerSocket.connect(); await vi.waitFor(() => expect(connections).toContain('connected'));
+    creatorSocket.connect();
+    await vi.waitFor(() => {
+      expect(outbox.size).toBe(0); expect(receipts.size).toBe(0);
+      expect(server.store.roomState(roomId)).toMatchObject({ nextSeq: 40, nextReceiptSeq: 40 });
+    }, { timeout: 10_000 });
+    expect(connections).not.toContain('disconnected'); expect(errors).toEqual([]);
+  });
   it('negotiates byte pages and stops oversized legacy backlog with an explicit upgrade', async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-byte-sync-'));
     const server = await startServer({ port: 0, host: '127.0.0.1', dataDir, quiet: true });

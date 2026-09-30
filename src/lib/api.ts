@@ -373,8 +373,9 @@ type SocketHandlers = {
   sync: (messages: ServerMessage[], hasMore: boolean) => AsyncSocketHandler;
   receipt: (receipt: ServerReceipt) => AsyncSocketHandler;
   receiptSync: (receipts: ServerReceipt[], hasMore: boolean) => AsyncSocketHandler;
-  ack: (clientMsgId: string, seq: number) => void;
-  receiptAck: (clientMsgId: string, receiptSeq: number) => void;
+  ack: (clientMsgId: string, seq: number) => AsyncSocketHandler;
+  receiptAck: (clientMsgId: string, receiptSeq: number) => AsyncSocketHandler;
+  writable?: () => void;
   error: (message: string, code?: string, clientMsgId?: string, rejectedEnvelope?: MessageEnvelope) => AsyncSocketHandler;
 };
 
@@ -405,6 +406,10 @@ export class RoomSocket {
    * rejected, never a newer re-encryption of the same logical message.
    */
   private sentEnvelopes = new Map<string, MessageEnvelope[]>();
+  // Durable queues belong to the vault. Only retain a small acknowledged-send
+  // window here, leaving room in the server input budget for control frames.
+  private pendingSends = new Map<string, { bytes: number; deadline: ReturnType<typeof setTimeout> }>();
+  private pendingSendBytes = 0;
 
   constructor(
     private readonly roomId: string,
@@ -447,6 +452,8 @@ export class RoomSocket {
       this.connectionDeadline = null;
       if ([4401, 4403].includes(event.code)) { this.closed = true; this.callSignals.close(); this.handlers.callTransport?.('WS_AUTH_FAILED'); }
       this.stopHeartbeat();
+      this.clearPendingSends();
+      this.sentEnvelopes.clear();
       this.authenticated = false;
       this.lastSentPresenceView = null;
       this.socket = null;
@@ -491,9 +498,10 @@ export class RoomSocket {
       } else if (frame.type === 'ack') {
         const clientMsgId = String(frame.clientMsgId);
         this.sentEnvelopes.delete(clientMsgId);
-        this.handlers.ack(clientMsgId, Number(frame.seq));
+        this.completeSend(`message:${clientMsgId}`, () => this.handlers.ack(clientMsgId, Number(frame.seq)));
       } else if (frame.type === 'receiptAck') {
-        this.handlers.receiptAck(String(frame.clientMsgId), Number(frame.receiptSeq));
+        const clientMsgId = String(frame.clientMsgId);
+        this.completeSend(`receipt:${clientMsgId}`, () => this.handlers.receiptAck(clientMsgId, Number(frame.receiptSeq)));
       } else if (frame.type === 'pong') {
         this.lastPongAt = Date.now();
       } else if (frame.type === 'call') {
@@ -508,6 +516,7 @@ export class RoomSocket {
         const sent = clientMsgId ? this.sentEnvelopes.get(clientMsgId) : undefined;
         const rejectedEnvelope = sent?.shift();
         if (clientMsgId && sent?.length === 0) this.sentEnvelopes.delete(clientMsgId);
+        if (clientMsgId) this.releaseSend(`message:${clientMsgId}`, false);
         this.runAfterMembershipUpdate(() => this.handlers.error(
           String(frame.message ?? '实时连接发生错误'),
           String(frame.code ?? 'SOCKET_ERROR'),
@@ -596,17 +605,65 @@ export class RoomSocket {
     this.lastSentPresenceView = this.desiredPresenceView;
   }
 
-  sendEnvelope(envelope: MessageEnvelope, countUnread = true): void {
-    if (this.socket?.readyState !== WebSocket.OPEN) throw new Error('实时连接尚未恢复');
-    this.socket.send(JSON.stringify({ type: 'send', envelope, countUnread }));
+  sendEnvelope(envelope: MessageEnvelope, countUnread = true): boolean {
+    const key = `message:${envelope.clientMsgId}`;
+    if (this.pendingSends.has(key)) return true;
+    if (!this.sendDurable(key, { type: 'send', envelope, countUnread })) return false;
     const sent = this.sentEnvelopes.get(envelope.clientMsgId) ?? [];
     sent.push(structuredClone(envelope));
     this.sentEnvelopes.set(envelope.clientMsgId, sent);
+    return true;
   }
 
-  sendReceipt(receipt: DeliveryReceipt): void {
-    if (this.socket?.readyState !== WebSocket.OPEN) throw new Error('实时连接尚未恢复');
-    this.socket.send(JSON.stringify({ type: 'receipt', receipt }));
+  sendReceipt(receipt: DeliveryReceipt): boolean {
+    return this.sendDurable(`receipt:${receipt.clientMsgId}`, { type: 'receipt', receipt });
+  }
+
+  private sendDurable(key: string, frame: unknown): boolean {
+    const socket = this.socket;
+    if (socket?.readyState !== WebSocket.OPEN) throw new Error('实时连接尚未恢复');
+    if (this.pendingSends.has(key)) return true;
+    const serialized = JSON.stringify(frame);
+    const bytes = new TextEncoder().encode(serialized).byteLength;
+    if (this.pendingSends.size >= 8 || this.pendingSendBytes + bytes > 512 * 1024
+      || socket.bufferedAmount > 512 * 1024) return false;
+    const deadline = setTimeout(() => {
+      if (this.socket === socket && this.pendingSends.has(key)) socket.close(4000, 'Send acknowledgement timeout');
+    }, 15_000);
+    this.pendingSends.set(key, { bytes, deadline }); this.pendingSendBytes += bytes;
+    try { socket.send(serialized); }
+    catch (cause) { this.releaseSend(key, false); throw cause; }
+    return true;
+  }
+
+  private releaseSend(key: string, notify = true): void {
+    const pending = this.pendingSends.get(key);
+    if (!pending) return;
+    clearTimeout(pending.deadline); this.pendingSends.delete(key); this.pendingSendBytes -= pending.bytes;
+    // Refill after the ACK handler has had a turn to reconcile the durable
+    // queue; never create a second transport-owned backlog.
+    if (notify) {
+      const generation = this.socket;
+      queueMicrotask(() => {
+        if (!this.closed && this.socket === generation && generation?.readyState === WebSocket.OPEN) this.handlers.writable?.();
+      });
+    }
+  }
+
+  private completeSend(key: string, operation: () => AsyncSocketHandler): void {
+    const generation = this.socket;
+    const pending = this.pendingSends.get(key);
+    if (pending) clearTimeout(pending.deadline);
+    void Promise.resolve().then(() => {
+      if (!this.closed && this.socket === generation) return operation();
+    }).catch(cause => this.reportHandlerFailure(cause)).finally(() => {
+      if (!this.closed && this.socket === generation) this.releaseSend(key);
+    });
+  }
+
+  private clearPendingSends(): void {
+    for (const pending of this.pendingSends.values()) clearTimeout(pending.deadline);
+    this.pendingSends.clear(); this.pendingSendBytes = 0;
   }
 
   requestSync(afterSeq: number): void {
@@ -647,6 +704,7 @@ export class RoomSocket {
     if (this.connectionDeadline) clearTimeout(this.connectionDeadline);
     this.connectionDeadline = null;
     this.sentEnvelopes.clear();
+    this.clearPendingSends();
     this.stopHeartbeat();
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.socket?.close(1000, 'Locked');

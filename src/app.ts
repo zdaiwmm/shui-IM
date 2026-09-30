@@ -4352,7 +4352,7 @@ export class QuietRoomApp {
     if (!this.isRuntimeActive(epoch, session)) return;
     this.socket?.close();
     this.ensureCallController();
-    const roomSocket = new RoomSocket(
+    const roomSocket: RoomSocket = new RoomSocket(
       session.vault.roomId,
       session.vault.accessToken,
       () => session.vault.lastSeq,
@@ -4413,10 +4413,15 @@ export class QuietRoomApp {
           const item = this.pending.get(clientMsgId);
           if (item) item.status = 'stored';
           this.renderMessages();
-          void this.reconcileMessageAck(clientMsgId, seq, roomSocket, epoch, session);
+          return this.reconcileMessageAck(clientMsgId, seq, roomSocket, epoch, session);
         },
         receiptAck: (clientMsgId) => {
-          if (this.isRuntimeActive(epoch, session) && this.socket === roomSocket) void this.acknowledgeReceipt(clientMsgId);
+          if (this.isRuntimeActive(epoch, session) && this.socket === roomSocket) return this.acknowledgeReceipt(clientMsgId);
+        },
+        writable: () => {
+          if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
+          void this.resumeOutbox();
+          void this.resendPendingReceipts();
         },
         error: async (message, code, clientMsgId, rejectedEnvelope) => {
           if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
@@ -7913,7 +7918,11 @@ export class QuietRoomApp {
   }
 
   private async resumeOutbox(): Promise<void> {
-    for (const clientMsgId of this.outbox.keys()) void this.attemptSend(clientMsgId);
+    for (const clientMsgId of this.outbox.keys()) {
+      // An ACK may arrive before its message is durably projected. The existing
+      // reconciliation retry owns that case; a capacity refill must not resend it.
+      if (this.pending.get(clientMsgId)?.status !== 'stored') void this.attemptSend(clientMsgId);
+    }
   }
 
   private sendPendingReceipt(receipt: DeliveryReceipt): void {
