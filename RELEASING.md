@@ -1,5 +1,14 @@
 # Quiet Room 固定发布流程
 
+## 原型还原与微信密码闭环已发布（2026-10-01 04:13）
+
+- 用户在本会话列明版本、完整提交、CI、预检及未验证项后，明确「若存在问题，则解决问题发布生产」，确认发布精确 main SHA `84c0d3724a240355a996cd2bf96628169a6d4afb`、版本 `2026.09.30.6`；此前尚无最终 SHA 的发布意图不作为本次精确确认。[代码 PR #246](https://github.com/zdaiwmm/shui-IM/pull/246) 的源 head 为 `c7818dae0524ce811d14132357c8100dc719aa67`，合并文件树 `26a688eecf85b487111e3ebb89cb8ed34e4e88e1` 与已验收候选的文件树一致。精确[PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36766001147)及[主线完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36767393082)全部 12 项通过，原生发布门禁另核对最新 run 与同次 verify。
+- 上线范围为 F01–F15 的确认界面还原、实际后加载 GIF 五列、移动管理层级、微信新空间保护能力分类及密码创建／回访／敏感操作。密码页按每次渲染独立取消和忙碌状态，旧页退场后不阻塞新页，实际迟到解密不能安装证明；仅明确新建保护不支持时提供密码，旧空间解锁不降级。逐项范围、失败历史、确认版本与安全边界见[同一需求记录](docs/requirements/2026-10-01-prototype-wechat-fix/README.md)。干净源 head 的构建、793 项单元／集成及 52/52 串行浏览器入口通过，完整门禁 591481 毫秒。
+- 固定入口取得 `DEPLOY_VERIFIED`，外层核对精确 SHA 回执成功；本次实际切换一次。前一生产为 `a0bc5e6ff835d81aa9386a05b12c55c320ab04d4`。批次 `20260930T200545Z`，发布目录 `/opt/quiet-room/git-releases/20260930T200545Z-84c0d3724a24`，冷备份 `data-20260930T200545Z-84c0d3724a24.tar.gz` 已校验。镜像构建 47 秒、冷备份 58 秒、启动 31 秒，服务器总计 144 秒，固定入口总计 183508 毫秒。切换前第二次容量预检可用 4330070016 字节、占用 89.16%，4 GiB 门禁通过；此为切换前读数。
+- 初次独立回读中应用已 healthy、维护门解除，备份探针仍 starting；只读观察到既有五分钟探针实际变为 healthy 后，只续跑同一 SHA 的回读，未再次部署。最终 `READBACK_OK` 于 `2026-09-30T20:13:58.349Z` 完成，2958 毫秒：精确 SHA、镜像、HTTPS／数据库／存储、公开与容器产物、新 WebSocket 全部一致。应用与备份均 healthy，TURN 运行且探针 none，管理员与通话启用，维护门不存在。镜像为 `sha256:4fc59d677253d4b21796a09c5afd246b69bf08b33dafc0f6d586f5edfafaab2c`。
+- 精确回执、启动期失败、最终脱敏回读及发布摘要另存公共 Git 目录 `quiet-room-production-evidence/20261001-84c0d3724a24/`；最终原回读位于任务 Git 元数据 `quiet-room-readback/20260930T201355391Z-84c0d3724a24-success.json`。前后对照与自动验收证据另存本机 `/Users/zhouding/ss-worktrees/audits/prototype-wechat-fix-20261001/`。独立文档工作树不含部署配置，只对账发布、状态与同一需求记录；文档提交不改变线上应用 SHA，不再次部署。
+- 真实微信 WebView／物理 iPhone、原生键盘／工具栏／验证器、密码派生真机性能与动效手感、五人首次使用理解及独立安全审计未验证。生产回读和桌面模拟不替代这些证据；既有运维与高安全声明门禁保留。活动开发树与本轮文档收尾树按清理规则核验，未达到条件的资源保留。
+
 ## 体验优化 F01–F15 已发布（2026-09-30 23:40）
 
 - 用户在发布接续会话明确授权精确提交 `a0bc5e6ff835d81aa9386a05b12c55c320ab04d4`，版本 `2026.09.30.5`；来源对话串 `01a0f068-edd8-7d43-ae02-7f8e0f489662`。[集成 PR #243](https://github.com/zdaiwmm/shui-IM/pull/243) 的源 head `53f7bf10a39836708980dbf23e6d7af34a27a4ae` 已合并；精确[主线完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36729686445)及同次 verify 全部成功。此前 CI 安装依赖作业取消后仅续跑受影响作业一次，最终结果由该运行回执核对。
