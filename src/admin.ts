@@ -1,5 +1,5 @@
 import './admin.css';
-import { createElement, Pencil, Trash2, ArrowLeft, LayoutDashboard, Images, RefreshCw, LogOut, Upload, Save, X, Download } from 'lucide';
+import { createElement, Pencil, Trash2, ArrowLeft, LayoutDashboard, Images, RefreshCw, LogOut, Upload, Save, X, Download, Menu, MoreHorizontal } from 'lucide';
 import { table, row, badge, iconButton, pageToolbar, loadingState, emptyState, errorState, pagination } from './admin/ui';
 
 type Room = { roomId: string; createdAt: string; lastSeenAt: string | null; devices: number; backups: number; messageCount: number; backupChatCount: number; backupGalleryCount: number };
@@ -110,12 +110,14 @@ function frame(title: string) {
   try { sessionStorage.setItem('quiet-admin-view', title === '采集任务' ? 'collection-jobs' : title === '表情采集' ? 'collection' : 'rooms'); } catch { /* Storage may be unavailable. */ }
   const expressionView = title === '表情管理' || title === '资源详情';
   const collectionView = title === '表情采集' || title === '采集任务';
-  root.innerHTML = `<div class="admin-shell tabler-shell"><aside class="admin-sidebar navbar navbar-vertical"><div class="brand"><span class="brand-mark avatar bg-primary text-white">Q</span><div><strong>Quiet Room</strong><small>管理控制台</small></div></div>
-    <nav class="sidebar-nav" aria-label="后台导航"><button id="rooms-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>会话管理</span></button><button id="expressions-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>表情管理</span></button><button id="collection-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>表情采集</span></button></nav>
+  root.innerHTML = `<div class="admin-shell tabler-shell"><aside class="admin-sidebar navbar navbar-vertical"><div class="brand"><span class="brand-mark avatar bg-primary text-white">Q</span><div><strong>Quiet Room</strong><small>管理控制台</small></div><button class="admin-mobile-menu" id="admin-menu" type="button" aria-label="打开后台导航" aria-expanded="false" aria-controls="admin-nav"></button></div>
+    <nav class="sidebar-nav" id="admin-nav" aria-label="后台导航"><button id="rooms-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>会话管理</span></button><button id="expressions-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>表情管理</span></button><button id="collection-nav" class="nav-item"><span class="nav-icon" aria-hidden="true"></span><span>表情采集</span></button></nav>
     <div class="sidebar-note">管理员会话</div></aside>
     <main class="admin-main"><header class="topbar navbar navbar-expand-md"><div><p class="eyebrow">QUIET ROOM / ADMIN</p><h1></h1></div><button id="logout" class="logout-button btn btn-outline-secondary" type="button">退出后台</button></header>
     <div class="content-wrap"><div id="content"></div></div><div id="status" role="status" aria-live="polite"></div></main></div>`;
   root.querySelector('h1')!.textContent = title;
+  const mobileMenu = root.querySelector<HTMLButtonElement>('#admin-menu')!; mobileMenu.append(createElement(Menu));
+  mobileMenu.addEventListener('click', () => { const open = mobileMenu.getAttribute('aria-expanded') !== 'true'; mobileMenu.setAttribute('aria-expanded', String(open)); mobileMenu.setAttribute('aria-label', open ? '关闭后台导航' : '打开后台导航'); root.querySelector('.admin-sidebar')!.classList.toggle('navigation-open', open); });
   root.querySelector('.nav-icon')!.replaceChildren(createElement(LayoutDashboard));
   root.querySelectorAll('.nav-icon')[1]!.replaceChildren(createElement(Images));
   root.querySelectorAll('.nav-icon')[2]!.replaceChildren(createElement(Download));
@@ -528,7 +530,8 @@ async function expressions() {
       checkboxes.push(checkbox); preview.append(checkbox, image);
       const name = document.createElement('div'); const title = document.createElement('strong'); title.textContent = entry.title;
       const author = document.createElement('p'); author.textContent = entry.author; name.append(title, author);
-      const mobileMeta = document.createElement('small'); mobileMeta.className = 'expression-mobile-meta'; mobileMeta.textContent = `${entry.status === 'published' ? '已上架' : '待上架'} · ${entry.count} 张`; name.append(mobileMeta);
+      const mobileMeta = document.createElement('small'); mobileMeta.className = 'expression-mobile-meta'; mobileMeta.textContent = `来源：${entry.source === 'local' ? '本地上传' : entry.source || '未记录'} · ${entry.count} 张`;
+      const mobileStatus = document.createElement('small'); mobileStatus.className = 'expression-mobile-status'; mobileStatus.dataset.status = entry.status; mobileStatus.textContent = entry.status === 'published' ? '已上架' : '已下架'; name.append(mobileStatus); name.append(mobileMeta);
       const autoHide = document.createElement('label'); autoHide.className = 'toggle-field';
       const autoHideInput = document.createElement('input'); autoHideInput.type = 'checkbox'; autoHideInput.className = 'toggle-input'; autoHideInput.checked = Boolean(entry.autoHide); autoHideInput.setAttribute('aria-label', `${entry.title} 自动隐藏`);
       const autoHideTrack = document.createElement('span'); autoHideTrack.className = 'toggle-track'; autoHideTrack.setAttribute('aria-hidden', 'true');
@@ -538,7 +541,16 @@ async function expressions() {
       const toggle = document.createElement('button'); toggle.textContent = entry.status === 'published' ? '下架' : '上架';
       toggle.className = entry.status === 'published' ? 'unpublish' : 'publish';
       toggle.addEventListener('click', () => void changeStatus([entry.id], entry.status === 'published' ? 'pending' : 'published'));
-      actions.append(toggle); row(list.body, [preview, name, badge(entry.status === 'published' ? '已上架' : '待上架', entry.status === 'published' ? 'success' : 'warning'), `${entry.count} 张`, autoHide, actions]);
+      actions.append(toggle);
+      const menu = document.createElement('details'); menu.className = 'expression-more';
+      const menuButton = document.createElement('summary'); menuButton.setAttribute('aria-label', `${entry.title} 更多操作`); menuButton.append(createElement(MoreHorizontal));
+      const menuItems = document.createElement('div'); menuItems.className = 'expression-menu-items';
+      const mobileEdit = document.createElement('button'); mobileEdit.type = 'button'; mobileEdit.textContent = '编辑'; mobileEdit.setAttribute('aria-label', `编辑 ${entry.title}`); mobileEdit.addEventListener('click', () => void editExpression(entry.id));
+      const mobileToggle = document.createElement('button'); mobileToggle.type = 'button'; mobileToggle.textContent = toggle.textContent; mobileToggle.addEventListener('click', () => void changeStatus([entry.id], entry.status === 'published' ? 'pending' : 'published'));
+      const mobileAutoHide = autoHide.cloneNode(true) as HTMLLabelElement; const mobileInput = mobileAutoHide.querySelector<HTMLInputElement>('input')!;
+      mobileInput.addEventListener('change', () => { void changeAutoHide(entry, mobileInput).finally(() => { autoHideInput.checked = mobileInput.checked; }); });
+      menuItems.append(mobileEdit, mobileToggle, mobileAutoHide); menu.append(menuButton, menuItems); actions.append(menu);
+      row(list.body, [preview, name, badge(entry.status === 'published' ? '已上架' : '待上架', entry.status === 'published' ? 'success' : 'warning'), `${entry.count} 张`, autoHide, actions]);
     }
     updateSelection();
     list.wrapper.classList.add('expression-table');
@@ -570,7 +582,7 @@ async function editExpression(id: string) {
     });
     const saveIcon = createElement(Save); saveIcon.setAttribute('aria-hidden', 'true'); form.querySelector('button')!.prepend(saveIcon);
     editor.append(form);
-    const source = document.createElement('p'); source.className = 'resource-attribution'; source.textContent = `作者：${entry.author || '未记录'} · 来源：${entry.source || '未记录'}`; editor.append(source);
+    const source = document.createElement('p'); source.className = 'resource-attribution'; source.textContent = `作者：${entry.author || '未记录'} · 来源：${entry.source || '未记录'} · ${entry.count} 张`; editor.append(source);
     const gallery = document.createElement('div'); gallery.className = 'expression-gallery';
     for (const item of entry.items ?? []) { const tile = document.createElement('label'); tile.className = 'expression-item'; const checkbox = document.createElement('input'); checkbox.type = 'checkbox'; checkbox.setAttribute('aria-label', `选择 ${item.title}`); const image = document.createElement('img'); image.alt = item.title; image.dataset.position = String(item.position); loadPreview(image, `/admin-api/expressions/${id}/media/${item.position}`); tile.append(checkbox, image); gallery.append(tile); }
     const removeSelected = document.createElement('button'); removeSelected.type = 'button'; removeSelected.textContent = '删除选中资源'; removeSelected.className = 'danger'; removeSelected.disabled = true; preview.append(removeSelected);

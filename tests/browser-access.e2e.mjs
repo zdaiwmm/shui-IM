@@ -19,7 +19,7 @@ try {
     const {authenticatorId}=await cdp.send('WebAuthn.addVirtualAuthenticator',{options:{protocol:'ctap2',ctap2Version:'ctap2_1',transport:'internal',hasResidentKey:true,hasUserVerification:true,hasPrf:true,automaticPresenceSimulation:true,isUserVerified:true}});
     await page.goto(`http://localhost:${vite.httpServer.address().port}/__access`);
     await page.evaluate(async()=>{
-      await import('/src/styles.css');await import('/src/chat-layout.css');await import('/src/chat-interactions.css');await import('/src/cover.css');
+      await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
       const {QuietRoomApp}=await import('/src/app.ts');window.app=new QuietRoomApp(document.querySelector('#app'));app.privacyCovered=false;
       // Isolate authorization from unrelated backup prompts and release notes.
       app.startAutomaticBackup=()=>{};app.showPairingWelcome=()=>{};app.showReleaseNotesIfNeeded=()=>{};app.updateBackgroundNotificationControl=async()=>{};
@@ -240,8 +240,10 @@ try {
     await old.page.locator(back).waitFor();
     if(entry==='backup-settings') {
       assert.equal(await old.page.locator('.gateway-mark').isVisible(),false);
-      await old.page.locator('.gateway-intro-content').evaluate(el=>el.scrollTop=el.scrollHeight);
-      assert.ok(await old.page.locator('.recovery-flow-notice').evaluate(el=>el.getBoundingClientRect().bottom<=document.querySelector('.welcome-actions').getBoundingClientRect().top),'final notice scrolls fully above actions');
+      assert.equal(await old.page.locator('.recovery-center-page .recovery-flow-nav strong').textContent(),'我的恢复码');
+      assert.equal(await old.page.locator('.recovery-explanation:not([open])').count(),2);
+      await old.page.locator('.recovery-flow-content').evaluate(el=>el.scrollTop=el.scrollHeight);
+      assert.ok(await old.page.locator('.recovery-flow-note').evaluate(el=>el.getBoundingClientRect().bottom<=document.querySelector('.recovery-flow-footer').getBoundingClientRect().top),'shared-code notice scrolls fully above actions');
     }
     if(entry==='local-history-backup') {
       await old.page.locator('[data-cloud-switch]').waitFor();

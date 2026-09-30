@@ -287,6 +287,27 @@ function openDatabase(): Promise<IDBDatabase> {
   });
 }
 
+/** Probe an atomic temporary write before offering new local protection. */
+export async function assertPasswordProtectionEnvironment(): Promise<void> {
+  if (!window.isSecureContext) throw new Error('请通过浏览器信任的安全连接打开此页面');
+  if (!globalThis.crypto?.subtle || typeof globalThis.crypto.getRandomValues !== 'function' || typeof globalThis.crypto.randomUUID !== 'function') throw new Error('此浏览器无法使用所需的本机加密，请换用支持的浏览器');
+  if (typeof indexedDB === 'undefined') throw new Error('此浏览器无法保存本机加密数据，请检查存储权限');
+  try {
+    const database = await openDatabase();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = database.transaction('vault', 'readwrite');
+        tx.oncomplete = () => resolve();
+        tx.onabort = () => reject(tx.error ?? new Error('无法保存本机数据'));
+        try {
+          const store = tx.objectStore('vault'), key = `quiet-room:storage-probe:${crypto.randomUUID()}`;
+          store.put(1, key); store.delete(key);
+        } catch (cause) { tx.abort(); reject(cause); }
+      });
+    } finally { database.close(); }
+  } catch { throw new Error('此浏览器暂时无法保存本机加密数据，请检查存储权限或可用容量后重试'); }
+}
+
 async function transaction<T>(
   storeName: 'spaces' | 'vault' | 'history' | 'galleryHistory' | 'restoredGallery' | 'mediaChunks' | 'mediaCacheEntries' | 'security' | LocalStore,
   mode: IDBTransactionMode,

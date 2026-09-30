@@ -88,22 +88,25 @@ try {
   await a.evaluate(async () => { window.snapshot = await j.advanceJointRecovery(session, signal); });
   await b.evaluate(async () => { window.snapshot = await j.advanceJointRecovery(session, signal); });
   await a.evaluate(async () => {
-    await Promise.all(['/src/styles.css', '/src/recovery-experience.css'].map(file => import(file)));
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     const { QuietRoomApp } = await import('/src/app.ts');
     window.progressApp = new QuietRoomApp(document.querySelector('#app'));
     progressApp.session = session; progressApp.privacyCovered = false; progressApp.runtimeAbort = new AbortController();
     progressApp.renderJointProgress();
   });
-  assert.equal(await a.locator('#joint-progress h1').textContent(), '请对方一起参与');
-  assert.match(await a.locator('#joint-progress .recovery-flow-lead').textContent() ?? '', /核对你们的编码是一样的/);
+  assert.equal(await a.locator('#joint-progress h1').textContent(), '确认找回结果');
+  assert.match(await a.locator('#joint-progress .recovery-flow-lead').textContent() ?? '', /核对双方页面的编号与结果/);
   assert.equal(await a.locator('.joint-request-code').count(), 1);
   assert.equal(await a.locator('#joint-scope-summary').count(), 1);
   assert.equal(await a.locator('#joint-participant-badge').count(), 1);
-  assert.equal(await a.locator('#joint-retire, #joint-retry, #joint-cancel').count(), 0);
+  assert.equal(await a.locator('#joint-retire, #joint-retry').count(), 0);
   assert.equal(await a.locator('#joint-qr').evaluate(canvas => canvas.getAttribute('width')), '248');
   await a.setViewportSize({ width: 390, height: 844 });
   await a.getByRole('button', { name: '确认并找回空间', exact: true }).waitFor();
   if (process.argv[2]) { await mkdir(process.argv[2], { recursive: true }); await a.screenshot({ path: path.join(process.argv[2], 'F01-auto-recovery-390.png'), animations: 'disabled' }); }
+  assert.equal(await a.locator('#joint-qr').isVisible(), false, 'Invitation is secondary to the verified result');
+  assert.equal(await a.locator('.recovery-steps [aria-current=step]').textContent(), '2共同确认');
+  await a.locator('.joint-invite-details summary').click();
   const waitingLayout = await a.evaluate(() => {
     const qr = document.querySelector('#joint-qr')?.getBoundingClientRect();
     const summary = document.querySelector('#joint-scope-summary');
@@ -114,7 +117,7 @@ try {
       startButton: [...document.querySelectorAll('button')].some(button => (button.textContent ?? '').includes('开始恢复')),
     };
   });
-  assert.ok(waitingLayout.qrWidth >= 180 && waitingLayout.qrHeight >= 180, JSON.stringify(waitingLayout));
+  assert.ok(waitingLayout.qrWidth >= 160 && waitingLayout.qrHeight >= 160, JSON.stringify(waitingLayout));
   assert.ok((waitingLayout.scopeText ?? '').length > 0, JSON.stringify(waitingLayout));
   assert.equal(waitingLayout.startButton, false);
   await a.evaluate(() => progressApp.runtimeAbort.abort());
@@ -135,7 +138,7 @@ try {
   assert.equal(await b.evaluate(async envelope => (await m.decryptMlsApplication(session.vault, envelope)).payload.text, next), 'fresh group');
   // Verify the actual application accepts the authenticated post-reset server roster.
   await a.evaluate(async () => {
-    await import('/src/styles.css'); const { QuietRoomApp } = await import('/src/app.ts'); window.app = new QuietRoomApp(document.querySelector('#app'));
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles(); const { QuietRoomApp } = await import('/src/app.ts'); window.app = new QuietRoomApp(document.querySelector('#app'));
     app.session = session; app.privacyCovered = false; app.runtimeAbort = new AbortController();
     const state = await api.getRoomState(session.vault.roomId, session.vault.accessToken);
     await v.withVaultMutation(session, mutation => app.applyRoomState(state, mutation));

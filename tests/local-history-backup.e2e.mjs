@@ -103,7 +103,7 @@ try {
     session.vault.backup.archives = [archive];
     const unchangedSeq = session.vault.lastSeq;
     session.vault.lastSeq = 3; await v.saveVault(session);
-    await Promise.all(['/src/styles.css', '/src/backup.css', '/src/chat-layout.css', '/src/auth-recovery.css', '/src/chat-interactions.css', '/src/cover.css', '/src/recovery-experience.css', '/src/experience.css'].map(file => import(file)));
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     const { QuietRoomApp } = await import('/src/app.ts');
     const app = new QuietRoomApp(document.querySelector('#app')); await app.start();
     app.session = session; app.privacyCovered = false; app.runtimeAbort = new AbortController();
@@ -150,11 +150,23 @@ try {
     app.renderCreate(); const create = read();
     app.session = null; app.renderFirstRun(null); const welcome = read();
     app.session = session; app.runtimeAbort = new AbortController(); app.privacyCovered = false;
-    app.renderRecoveryCenter(); const recovery = read();
+    app.renderRecoveryCenter();
+    const recovery = {
+      page: Boolean(document.querySelector('.recovery-center-page')),
+      title: document.querySelector('.recovery-flow-nav strong')?.textContent,
+      titleTop: document.querySelector('.recovery-flow-content h1')?.getBoundingClientRect().top,
+      markVisible: Boolean(document.querySelector('.gateway-mark')),
+      principles: document.querySelectorAll('.recovery-principles li').length,
+      collapsed: document.querySelectorAll('.recovery-explanation:not([open])').length,
+      actionHeight: document.querySelector('#save-my-code')?.getBoundingClientRect().height,
+      backHeight: document.querySelector('#recovery-center-back')?.getBoundingClientRect().height,
+      sharedCode: document.querySelector('.recovery-flow-note')?.textContent,
+      verification: document.querySelector('.recovery-flow-footer small')?.textContent,
+    };
     app.renderLocalHistoryBackup('export');
     return { create, welcome, recovery };
   });
-  for (const name of ['create', 'welcome', 'recovery']) {
+  for (const name of ['create', 'welcome']) {
     const layout = introLayouts[name];
     assert.equal(layout.intro, true, `${name}: shared intro layout missing`);
     if (name !== 'recovery') assert.equal(Math.round(layout.markLeft), 20, `${name}: icon left anchor`);
@@ -172,24 +184,38 @@ try {
   }
   assert.equal(introLayouts.recovery.markVisible, false, 'recovery: decorative icon must not displace the instructions');
   assert.ok(introLayouts.recovery.titleTop < introLayouts.create.titleTop, 'recovery instructions use the freed icon space');
+  assert.equal(introLayouts.recovery.page, true);
+  assert.equal(introLayouts.recovery.title, '我的恢复码');
+  assert.equal(introLayouts.recovery.principles, 2);
+  assert.equal(introLayouts.recovery.collapsed, 2);
+  assert.ok(introLayouts.recovery.actionHeight >= 48 && introLayouts.recovery.backHeight >= 44);
+  assert.match(introLayouts.recovery.sharedCode, /各个空间使用同一个恢复码/);
+  assert.equal(introLayouts.recovery.verification, '查看前需要再次验证');
   await page.setViewportSize({ width: 390, height: 520 });
   const compactLayout = await page.evaluate(() => {
     window.fixtureApp.renderRecoveryCenter();
     const mark = document.querySelector('.gateway-mark')?.getBoundingClientRect();
-    const title = document.querySelector('.gateway-heading h1')?.getBoundingClientRect();
-    const actions = document.querySelector('.welcome-actions')?.getBoundingClientRect();
-    const content = document.querySelector('.gateway-intro-content');
+    const nav = document.querySelector('.recovery-flow-nav')?.getBoundingClientRect();
+    const title = document.querySelector('.recovery-flow-content h1')?.getBoundingClientRect();
+    const actions = document.querySelector('.recovery-flow-footer')?.getBoundingClientRect();
+    const content = document.querySelector('.recovery-flow-content');
+    document.querySelectorAll('.recovery-explanation').forEach(details => { details.open = true; });
+    content.scrollTop = content.scrollHeight;
+    const note = document.querySelector('.recovery-flow-note').getBoundingClientRect();
     return {
       markVisible: Boolean(mark && mark.width > 0 && mark.height > 0),
       titleTop: title?.top,
+      navBottom: nav?.bottom,
       actionsBottom: actions ? innerHeight - actions.bottom : undefined,
+      noteAboveActions: note.bottom <= actions.top + 1,
       contentScrolls: Boolean(content && content.scrollHeight > content.clientHeight + 1),
       horizontalOverflow: document.documentElement.scrollWidth > innerWidth + 1,
     };
   });
   assert.equal(compactLayout.markVisible, false, 'compact layout retained the icon');
-  assert.equal(Math.round(compactLayout.titleTop), 48, 'compact title top anchor');
-  assert.equal(Math.round(compactLayout.actionsBottom), 18, 'compact actions bottom anchor');
+  assert.ok(compactLayout.titleTop >= compactLayout.navBottom + 16, 'compact title overlaps navigation');
+  assert.equal(Math.round(compactLayout.actionsBottom), 0, 'compact footer leaves the viewport');
+  assert.equal(compactLayout.noteAboveActions, true, 'expanded recovery explanation cannot scroll clear of actions');
   assert.equal(compactLayout.contentScrolls, true, 'compact long content did not scroll independently');
   assert.equal(compactLayout.horizontalOverflow, false, 'compact intro layout overflowed horizontally');
   await page.setViewportSize({ width: 390, height: 844 });

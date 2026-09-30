@@ -26,11 +26,7 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}/__list_viewport`);
   await page.evaluate(async () => {
-    await import('/src/styles.css');
-    await import('/src/chat-layout.css');
-    await import('/src/chat-interactions.css');
-    await import('/src/cover.css');
-    await import('/src/gallery.css');
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     const { QuietRoomApp } = await import('/src/app.ts');
     const { createVault } = await import('/src/lib/vault.ts');
     const app = new QuietRoomApp(document.querySelector('#app'));

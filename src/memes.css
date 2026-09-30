@@ -169,7 +169,7 @@
 .meme-expanded-dialog .meme-scroll { padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
 
 .meme-tabs [role="tab"]::after { content: ''; position: absolute; inset: -6px 0; }
-.meme-panel[data-kind="gifs"] :is(.meme-grid:not(.meme-catalog-sections), .meme-recent-grid, .meme-browse-grid) { --meme-tile-size: min(132px, calc((100% - 24px) / 7)); grid-template-columns: repeat(7, minmax(0, var(--meme-tile-size))); justify-content: space-between; }
+.meme-panel[data-kind="gifs"] :is(.meme-grid:not(.meme-catalog-sections), .meme-recent-grid, .meme-browse-grid) { --meme-tile-size: min(132px, calc((100% - 16px) / 5)); grid-template-columns: repeat(5, minmax(0, var(--meme-tile-size))); justify-content: center; }
 .meme-grid.emoji-sections { display: flex; flex-direction: column; gap: 8px; }
 .emoji-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
 .emoji-tile { min-width: 0; min-height: 44px; padding: 2px; border: 0; border-radius: 8px; background: transparent; font-size: 28px !important; line-height: 1.4 !important; }

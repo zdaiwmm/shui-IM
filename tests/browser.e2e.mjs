@@ -1478,7 +1478,7 @@ try {
       });
     }
     await recovery.locator('.device-shell').waitFor();
-    const activeSection = recovery.locator('.device-section').filter({ hasText: '已授权设备' });
+    const activeSection = recovery.locator('.device-section').filter({ has: recovery.getByRole('heading', { name: '你的设备', exact: true }) });
     await activeSection.waitFor();
     const activeBefore = await activeSection.locator('.device-card').count();
     await recovery.getByRole('button', { name: '添加设备', exact: true }).click();
@@ -1558,7 +1558,7 @@ try {
   invariant((await repairCard.locator('.device-inline-code').textContent())?.trim() === repairCode,
     'Initiator and replacement device disagreed on the repair safety code');
   await repairCard.getByRole('button', { name: '安全码一致，批准修复', exact: true }).click();
-  await recovery.getByRole('heading', { name: '已授权设备', exact: true }).waitFor();
+  await recovery.locator('.device-section').filter({ has: recovery.getByRole('heading', { name: '你的设备', exact: true }) }).waitFor();
   await repairPage.locator('#retry-repair').click().catch(() => undefined);
   await repairPage.locator('.chat-shell').waitFor({ timeout: 15_000 }).catch(async error => {
     console.error('Repair completion state', await repairPage.evaluate(() => ({

@@ -2,6 +2,12 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 
+async function navigateAdmin(page, name) {
+  const button = page.getByRole('button', { name, exact: true });
+  if (!await button.isVisible()) await page.getByRole('button', { name: '打开后台导航', exact: true }).click();
+  await button.click();
+}
+
 const vite = await createServer({
   configFile: false,
   appType: 'custom',
@@ -49,7 +55,7 @@ try {
 
   await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/__admin_collection`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   await page.evaluate(() => import('/src/admin.ts'));
-  await page.getByRole('button', { name: '表情采集', exact: true }).click();
+  await navigateAdmin(page, '表情采集');
   const toolbarOrder = await page.locator('.resource-toolbar .actions > button').allTextContents();
   assert.deepEqual(toolbarOrder, ['采集任务', '管理已入库资源'], 'Task entry must sit immediately before catalog management');
   await page.getByRole('button', { name: '采集任务', exact: true }).click();
