@@ -4465,6 +4465,29 @@ export class QuietRoomApp {
     return !this.privacyCovered && this.runtimeEpoch === epoch && this.session === session;
   }
 
+  private socketFrameSizes = new WeakMap<object, number>();
+
+  private enqueueSocketFrames(messages: ServerMessage[], receipts: ServerReceipt[] = []): boolean {
+    // Bound decoded records while crypto/IndexedDB work is slower than transport.
+    // Reject the whole new batch and replay from durable cursors after reconnect.
+    const nextMessages = new Map(this.serverQueue);
+    const nextReceipts = new Map(this.receiptQueue);
+    for (const message of messages) nextMessages.set(message.seq, message);
+    for (const receipt of receipts) nextReceipts.set(receipt.receiptSeq, receipt);
+    const bytes = [...nextMessages.values(), ...nextReceipts.values()]
+      .reduce((sum, frame) => {
+        let size = this.socketFrameSizes.get(frame);
+        if (size === undefined) { size = new TextEncoder().encode(JSON.stringify(frame)).byteLength; this.socketFrameSizes.set(frame, size); }
+        return sum + size;
+      }, 0);
+    if (bytes > 4 * 1024 ** 2 || nextMessages.size + nextReceipts.size > 2048) {
+      this.socket?.reconnectForBackpressure(); return false;
+    }
+    for (const message of messages) this.serverQueue.set(message.seq, message);
+    for (const receipt of receipts) this.receiptQueue.set(receipt.receiptSeq, receipt);
+    return true;
+  }
+
   private async connectSocket(): Promise<void> {
     const session = this.session;
     if (!session || this.privacyCovered) return;
@@ -4473,7 +4496,7 @@ export class QuietRoomApp {
     if (!this.isRuntimeActive(epoch, session)) return;
     this.socket?.close();
     this.ensureCallController();
-    const roomSocket = new RoomSocket(
+    const roomSocket: RoomSocket = new RoomSocket(
       session.vault.roomId,
       session.vault.accessToken,
       () => session.vault.lastSeq,
@@ -4507,26 +4530,26 @@ export class QuietRoomApp {
         },
         message: (message) => {
           if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
+          if (!this.enqueueSocketFrames([message])) return;
           this.livePresenceMessages.add(message);
-          this.serverQueue.set(message.seq, message);
           if (new Set(this.session?.vault.members.filter((member) => member.status !== 'pending' && member.status !== 'revoked').map((member) => member.role)).size === 2) {
-            void this.drainServerQueue();
+            return this.drainServerQueue();
           }
         },
-        sync: (messages) => {
+        sync: (messages, hasMore) => {
           if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
-          for (const message of messages) this.serverQueue.set(message.seq, message);
-          void this.drainServerQueue(messages.length === 500);
+          if (!this.enqueueSocketFrames(messages)) return;
+          return this.drainServerQueue(hasMore);
         },
         receipt: (receipt) => {
           if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
-          this.receiptQueue.set(receipt.receiptSeq, receipt);
-          void this.drainReceiptQueue();
+          if (!this.enqueueSocketFrames([], [receipt])) return;
+          return this.drainReceiptQueue();
         },
-        receiptSync: (receipts) => {
+        receiptSync: (receipts, hasMore) => {
           if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
-          for (const receipt of receipts) this.receiptQueue.set(receipt.receiptSeq, receipt);
-          void this.drainReceiptQueue(receipts.length === 500);
+          if (!this.enqueueSocketFrames([], receipts)) return;
+          return this.drainReceiptQueue(hasMore);
         },
         ack: (clientMsgId, seq) => {
           if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
@@ -4534,10 +4557,15 @@ export class QuietRoomApp {
           const item = this.pending.get(clientMsgId);
           if (item) item.status = 'stored';
           this.renderMessages();
-          void this.reconcileMessageAck(clientMsgId, seq, roomSocket, epoch, session);
+          return this.reconcileMessageAck(clientMsgId, seq, roomSocket, epoch, session);
         },
         receiptAck: (clientMsgId) => {
-          if (this.isRuntimeActive(epoch, session) && this.socket === roomSocket) void this.acknowledgeReceipt(clientMsgId);
+          if (this.isRuntimeActive(epoch, session) && this.socket === roomSocket) return this.acknowledgeReceipt(clientMsgId);
+        },
+        writable: () => {
+          if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
+          void this.resumeOutbox();
+          void this.resendPendingReceipts();
         },
         error: async (message, code, clientMsgId, rejectedEnvelope) => {
           if (!this.isRuntimeActive(epoch, session) || this.socket !== roomSocket) return;
@@ -8035,7 +8063,11 @@ export class QuietRoomApp {
   }
 
   private async resumeOutbox(): Promise<void> {
-    for (const clientMsgId of this.outbox.keys()) void this.attemptSend(clientMsgId);
+    for (const clientMsgId of this.outbox.keys()) {
+      // An ACK may arrive before its message is durably projected. The existing
+      // reconciliation retry owns that case; a capacity refill must not resend it.
+      if (this.pending.get(clientMsgId)?.status !== 'stored') void this.attemptSend(clientMsgId);
+    }
   }
 
   private sendPendingReceipt(receipt: DeliveryReceipt): void {

@@ -11,7 +11,7 @@
     "device:debug": "python3 tools/iphone-debug/scripts/device.py",
     "dev": "node scripts/dev.mjs",
     "dev:lan": "node scripts/dev-lan.mjs",
-    "build": "tsc --noEmit && vite build",
+    "build": "tsc --noEmit && tsc --project tsconfig.resource-boundaries.json && vite build",
     "start": "node server/index.mjs",
     "test": "vitest run",
     "test:browser": "node scripts/test-browser.mjs",

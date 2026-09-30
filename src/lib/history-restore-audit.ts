@@ -24,11 +24,11 @@ export async function historyRecordDigest(message: DecryptedMessage): Promise<st
  */
 export async function auditRestoredHistory(session: VaultSession, expected: ReadonlyMap<number, RestoreAuditRecord>,
   imported: ReadonlySet<number>, signal: AbortSignal): Promise<RestoreAudit> {
-  return withVaultMutation(session, async () => {
+  return withVaultMutation(session, async mutation => {
     signal.throwIfAborted();
     const count = (): RestoreAuditCount => ({ backup: 0, existing: 0, imported: 0, visible: 0, hidden: 0, available: 0 });
     const result: RestoreAudit = { chat: count(), ...(session.vault.role === 'creator' ? { gallery: count() } : {}) };
-    const events = await loadMessageEventHistory(session, { signal });
+    const events = await loadMessageEventHistory(session, { signal, mutation });
     const preferences = await loadUiPreferences(session);
     const hiddenChat = new Set(preferences.hiddenChatMessageIds ?? []);
     const hiddenSafe = new Set((preferences.galleryCuration ?? []).filter(item => item.hidden).map(galleryCurationKey));

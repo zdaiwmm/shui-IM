@@ -22,8 +22,9 @@ if ! systemctl is-enabled --quiet "$CERTBOT_TIMER" || ! systemctl is-active --qu
   failed=1
 fi
 receipt="$(cat "$OPS_STATE/offsite-verified-at" 2>/dev/null || true)"
+snapshot="$(cat "$OPS_STATE/offsite-snapshot-at" 2>/dev/null || true)"
 now="$(date +%s)"
-if ! [[ "$receipt" =~ ^[0-9]+$ ]] || (( receipt > now || now - receipt > MAX_BACKUP_AGE )); then
+if ! [[ "$receipt" =~ ^[0-9]+$ && "$snapshot" =~ ^[0-9]+$ ]] || (( receipt > now || snapshot > receipt || now - snapshot > MAX_BACKUP_AGE )); then
   printf 'OFFSITE_BACKUP_MISSING_OR_STALE\n' >&2
   failed=1
 fi

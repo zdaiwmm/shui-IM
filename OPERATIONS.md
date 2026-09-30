@@ -72,6 +72,16 @@ Recommended minimum production policy:
 - Access: the application can read the live data volume; the backup worker mounts it read-only. Backup operators should not have application deployment privileges unless necessary.
 - Alerting: alert if no `backup_verified` event is recorded within 1.5 backup intervals, if the target is nearly full, or if off-host replication lags.
 
+The worker now atomically records `.backup-state.json` with the last verified
+snapshot creation time and last attempt result. Compose probes
+`scripts/backup-health.mjs` every five minutes; missing, invalid, future, stale
+state or a failed latest attempt is unhealthy. `BACKUP_MAX_AGE_MS` defaults to
+36 hours. This reports the worker's verification evidence, not a fresh checksum
+scan on every probe or actual delivery of an external alert. Successful cycles
+are scheduled from their start time; failures wait up to five minutes after
+completion. A 24-hour schedule plus generation/export delay does not prove a
+24-hour RPO; measure the end-to-end age and shorten intervals accordingly.
+
 Manual commands:
 
 ```bash
@@ -192,6 +202,15 @@ and never mounts the live data volume. Remote versioning/immutability must still
 be enforced by the storage provider. See the official [rclone check
 semantics](https://rclone.org/commands/rclone_check/) and [immutable copy
 option](https://rclone.org/docs/#immutable).
+
+The exporter also records `offsite-snapshot-at` after remote comparison. The
+operations checker requires both that snapshot time and `offsite-verified-at`,
+and checks age from the snapshot, so copying an old point cannot refresh its
+RPO. Install the paired exporter/checker and run a verified export when
+activating this version; an old receipt without a snapshot time fails closed.
+Installation, capacity expansion, independent storage and actual notification
+delivery still require operational evidence. Candidate acceptance and synthetic
+measurements are tracked in the [architecture optimization record](docs/requirements/2026-09-30-architecture-resource-optimization/README.md).
 
 For certificate renewal, first select an unattended authenticator that actually
 works for the installed certificate: a verified HTTP-01 webroot path or a

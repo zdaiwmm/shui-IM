@@ -61,7 +61,11 @@ services:
     pids_limit: 128
     mem_limit: 512m
     healthcheck:
-      disable: true
+      test: ["CMD", "node", "scripts/backup-health.mjs"]
+      interval: 5m
+      timeout: 10s
+      retries: 1
+      start_period: 5m
     depends_on:
       quiet-room:
         condition: service_healthy
@@ -70,6 +74,7 @@ services:
       DATA_DIR: /app/data
       BACKUP_DIR: /app/backups
       BACKUP_INTERVAL_MS: ${BACKUP_INTERVAL_MS:-86400000}
+      BACKUP_MAX_AGE_MS: ${BACKUP_MAX_AGE_MS:-129600000}
       BACKUP_RETENTION_COUNT: ${BACKUP_RETENTION_COUNT:-3}
     volumes:
       - quiet-room-data:/app/data:ro
