@@ -5855,6 +5855,9 @@ export class QuietRoomApp {
     composer.addEventListener('pointerdown', event => {
       if (!event.isPrimary || event.button !== 0 || !ownsActiveChat()
           || !(event.target instanceof Element)) return;
+      // These navigation controls sit above the input bar and already own
+      // explicit scrolling through viewport motion.
+      if (event.target.closest('#chat-bottom-control, #chat-reply-return')) return;
       const moving = composer.hasAttribute('data-viewport-motion');
       if (moving) {
         event.preventDefault();
@@ -5866,14 +5869,6 @@ export class QuietRoomApp {
       event.preventDefault();
       event.stopPropagation();
       this.keepComposerKeyboard = true;
-    }, { capture: true });
-    composer.addEventListener('click', event => {
-      if (!composer.hasAttribute('data-viewport-motion')) return;
-      // Native picker activation is an internal input.click() in the trusted
-      // tool action. It is not a pointer hit on the moving composer.
-      if (event.target instanceof HTMLInputElement && event.target.type === 'file') return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
     }, { capture: true });
     this.mountChatImageConcealGesture(list);
     const scrollIntent = (direction: 'up' | 'down') => {
