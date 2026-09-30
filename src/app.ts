@@ -5869,6 +5869,9 @@ export class QuietRoomApp {
     }, { capture: true });
     composer.addEventListener('click', event => {
       if (!composer.hasAttribute('data-viewport-motion')) return;
+      // Native picker activation is an internal input.click() in the trusted
+      // tool action. It is not a pointer hit on the moving composer.
+      if (event.target instanceof HTMLInputElement && event.target.type === 'file') return;
       event.preventDefault();
       event.stopImmediatePropagation();
     }, { capture: true });

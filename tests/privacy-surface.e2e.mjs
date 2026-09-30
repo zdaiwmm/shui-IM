@@ -140,6 +140,15 @@ try {
     await page.mouse.click(points.edge.x, points.edge.y);
     assert.equal(await page.evaluate(() => window.sendCount === 1 && document.activeElement?.id === 'message-input'), true,
       `Moving composer passed through a click at ${width}`);
+    assert.equal(await page.evaluate(() => {
+      const app = window.fixture.app;
+      const input = document.querySelector('#image-input');
+      input.addEventListener('click', event => event.preventDefault(), { capture: true, once: true });
+      input.click();
+      const owned = app.imagePickerInput === input && app.imagePickerActive && !!app.nativeHandoff;
+      app.abandonImagePicker();
+      return owned;
+    }), true, `Moving composer intercepted native file activation at ${width}`);
     await page.evaluate(() => delete document.querySelector('#composer').dataset.viewportMotion);
   }
 
