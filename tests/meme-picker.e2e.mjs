@@ -35,7 +35,7 @@ try {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__memes`);
   await page.evaluate(async (animation) => {
-    for (const css of ['styles','chat-layout','gallery','chat-interactions','cover','call','memes']) await import(`/src/${css}.css`);
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles(); await import('/src/memes.css');
     const { QuietRoomApp } = await import('/src/app.ts');
     // Bounded synthetic-fixture diagnostics make intermittent CI navigation races actionable.
     const { MemePicker } = await import('/src/lib/meme-picker.ts');
@@ -148,6 +148,10 @@ try {
   assert.equal(await page.locator('.meme-browse-grid .meme-tile').count(), 2, 'Catalog continuation duplicated or dropped recent expressions');
   if (process.argv[2]) {
     await mkdir(process.argv[2], { recursive: true });
+    await page.evaluate(async () => {
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      await Promise.allSettled(document.getAnimations().filter(animation => animation.effect?.getTiming().iterations !== Infinity).map(animation => animation.finished));
+    });
     await page.screenshot({ path: path.join(process.argv[2], 'recent-390.png') });
   }
   await page.getByRole('tab', { name: 'Emoji', exact: true }).click();
@@ -179,7 +183,7 @@ try {
   const tileBounds=await page.locator('.meme-tile').first().boundingBox();
   assert.ok(tileBounds.width <= 132.5, `GIF tile grew beyond its stable cell: ${JSON.stringify(tileBounds)}`);
   const gridColumns = await page.locator('.meme-recent-grid').evaluate(el => getComputedStyle(el).gridTemplateColumns.split(' ').length);
-  assert.equal(gridColumns, 7);
+  assert.equal(gridColumns, 5, 'GIFs use the approved five-column product cascade');
   const imageBounds=await firstAnimation.boundingBox();
   await page.mouse.move(tileBounds.x+tileBounds.width/2,tileBounds.y+tileBounds.height/2); await page.mouse.down();
   await page.locator('.meme-preview img').waitFor(); await page.mouse.up();

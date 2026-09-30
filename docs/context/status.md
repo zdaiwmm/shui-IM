@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 原型还原与微信密码闭环代码修复批次（2026-10-01）
+
+- 本轮按用户授权修复 F01–F15 的界面差距、微信创建入口及密码回访重复渲染，沿用最终密码 v7；[需求与逐项证据](../requirements/2026-10-01-prototype-wechat-fix/README.md)接续旧记录。独立任务分支 `codex/prototype-wechat-fix-20260930`，起始 main `61ec6e80dfc13aad8560e8cd20492538bbcbcf1a`，共享开发现场未纳入。
+- 新版本 `2026.09.30.6` 仅为代码交付候选；精确候选门禁、PR、CI 与合并以本需求关联 PR 回执为准。此次未获生产发布授权，未执行发布或生产写入，下方 `2026.09.30.5` 仍为历史生产记录，本轮未独立回读生产。
+- 本地证据分别标注真实合成业务、呈现夹具和桌面微信 UA。当前未连接 USB iPhone；真实微信、iOS 键盘／系统验证／工具栏、密码派生性能、首次使用理解测试及独立安全审计仍未验证。
+
 ## 体验优化 F01–F15 已发布（2026-09-30 23:40）
 
 - 当前生产精确 SHA 为 `a0bc5e6ff835d81aa9386a05b12c55c320ab04d4`，版本 `2026.09.30.5`；用户明确确认该提交。[集成 PR #243](https://github.com/zdaiwmm/shui-IM/pull/243) 已合并，源 head `53f7bf10a39836708980dbf23e6d7af34a27a4ae`；精确[主线完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36729686445)及 verify 成功。本地候选790项测试／50个浏览器入口及逐项范围见[需求记录](../requirements/2026-09-30-experience-optimization/README.md)。

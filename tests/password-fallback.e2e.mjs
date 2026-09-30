@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import { chromium } from 'playwright';
@@ -19,7 +19,7 @@ let browser;
 const css = ['styles', 'chat-layout', 'gallery', 'auth-recovery', 'chat-interactions', 'cover', 'voice-messages', 'call', 'motion', 'desktop', 'experience'];
 async function boot(page) {
   await page.evaluate(async css => {
-    await Promise.all(css.map(name => import(`/src/${name}.css`)));
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     const { mountSystemChrome } = await import('/src/lib/system-chrome.ts'); mountSystemChrome();
     const { QuietRoomApp } = await import('/src/app.ts'); window.app = new QuietRoomApp(document.querySelector('#app')); await app.start();
   }, css);
@@ -60,7 +60,7 @@ try {
   await vite.listen(); const url = `http://localhost:${vite.httpServer.address().port}/__password_acceptance`;
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   const contexts = await Promise.all([0, 1].map(() => browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true,
-    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1' })));
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 MicroMessenger/8.0.65' })));
   for (const context of contexts) await context.addInitScript(() => { delete window.PublicKeyCredential; });
   const [a, b] = await Promise.all(contexts.map(context => context.newPage()));
   // A real successful server response arriving after navigation cannot install
@@ -119,7 +119,16 @@ try {
   });
   await a.locator('[data-info-status]').waitFor(); await capture(a, 'F05-message-information');
   assert.match(await a.locator('[data-info-status]').textContent(), /已读|已送达|已保存/);
-  await a.locator('.message-info-sheet button').click();
+  await a.locator('.message-info-sheet [data-info-done]').click();
+  await a.locator('.message-info-sheet').waitFor({state:'detached'});
+  // Ten actual MLS sends exercise rapid sequencing, draft clearing and peer delivery.
+  for (let index=1;index<=10;index++) {
+    await a.locator('#message-input').fill(`连续发送验收 ${index}`); await a.locator('#send-text').click();
+    await b.getByText(`连续发送验收 ${index}`, {exact:true}).waitFor();
+  }
+  const rapidSend = await a.evaluate(() => { const rows=[...app.messages.values()].filter(m=>m.payload.kind==='text'&&m.payload.text.startsWith('连续发送验收 ')); return {count:rows.length,uniqueIds:new Set(rows.map(m=>m.clientMsgId)).size,draft:document.querySelector('#message-input').value}; });
+  assert.deepEqual(rapidSend,{count:10,uniqueIds:10,draft:''});
+  if(screenshots)await writeFile(path.join(screenshots,'F14-real-send.json'),JSON.stringify({engine:'desktop Chromium',protocol:'MLS',...rapidSend},null,2));
   // Every sensitive proof is fresh and bound to this original slot and operation.
   await a.evaluate(() => { window.proofResult = null; app.confirmDeviceCredential('合成验收操作').then(() => { window.proofResult = 'verified'; }, () => { window.proofResult = 'cancelled'; }); });
   await password(a, 'joiner password 🔑'); await a.waitForFunction(() => document.querySelector('.password-form .form-error')?.textContent.includes('密码不正确')); assert.match(await a.locator('.password-form .form-error').textContent(), /密码不正确/);
@@ -128,11 +137,13 @@ try {
   await a.waitForFunction(() => proofResult === 'cancelled');
   await a.evaluate(() => { window.proofResult = null; app.confirmDeviceCredential('合成验收操作').then(() => { window.proofResult = 'verified'; }, () => { window.proofResult = 'cancelled'; }); });
   await password(a, '🔐'.repeat(12)); await a.waitForFunction(() => proofResult === 'verified');
-  assert.equal(await b.evaluate(() => app.session.vault.members.find(member => member.role === 'joiner').deviceName), 'iPhone · Safari · 测试 B');
+  assert.equal(await b.evaluate(() => app.session.vault.members.find(member => member.role === 'joiner').deviceName), 'iPhone · 微信 · 测试 B');
   await a.evaluate(() => app.renderDeviceManager()); await a.locator('#device-back').waitFor(); await capture(a, 'F11-device-labels'); await a.locator('#device-back').click();
   await a.evaluate(() => app.renderLocalHistoryBackup()); await a.locator('#local-backup-export').click();
   await a.locator('#history-download').waitFor(); assert.equal(await a.locator('#history-download').textContent(), '导出备份');
-  await capture(a, 'F04-backup-summary'); await a.locator('[data-history-summary-close]').click();
+  await capture(a, 'F04-backup-summary'); await a.locator('#history-download').click();
+  await capture(a, 'F15-backup-reauth'); assert.equal(await a.locator('.password-operation-sheet [type=submit]').textContent(), '验证并下载备份');
+  await a.locator('[data-password-cancel]').click(); await a.locator('.password-sheet').waitFor({ state: 'detached' }); await a.locator('[data-history-summary-close]').click();
   await a.locator('#backup-help').click(); await capture(a, 'F13-backup-help'); await a.locator('#help-back').click();
   await a.locator('[data-local-backup-view=export]').waitFor();
   await a.evaluate(() => app.renderRecoveryCenter()); await capture(a, 'F07-recovery-code-guide');
@@ -168,8 +179,35 @@ try {
   await a.evaluate(() => { document.documentElement.style.fontSize = ''; });
   await a.emulateMedia({ reducedMotion: 'no-preference' });
   await a.evaluate(() => app.lockNow());
-  await a.evaluate(() => app.renderGateway({ trustedCoverActivation: true, autoUnlock: false }));
-  await a.locator('#password-unlock').click(); await capture(a, 'F15-password-unlock');
+  await a.bringToFront(); await a.evaluate(() => app.renderGateway({ trustedCoverActivation: true, autoUnlock: false }));
+  await a.locator('.password-return .password-form').waitFor();
+  await a.locator('.password-return [name=password]').fill('retired page input must be cleared');
+  await a.evaluate(() => app.renderGateway({trustedCoverActivation:true,autoUnlock:false}));
+  await a.locator('.password-return .password-form').waitFor();assert.equal(await a.locator('.password-sheet').count(),1);assert.equal(await a.locator('.password-return [name=password]').inputValue(),'');
+  // Hold an actual successful decrypt, replace its page, then release the old
+  // proof. A successor must open immediately and remain locked after it arrives.
+  await a.evaluate(async () => {
+    const {readStoredVault} = await import('/src/lib/vault.ts');
+    window.retiredPageStored = await readStoredVault();
+    const decrypt = crypto.subtle.decrypt.bind(crypto.subtle);
+    window.retiredDecryptReady = false;
+    crypto.subtle.decrypt = async (...args) => {
+      crypto.subtle.decrypt = decrypt;
+      const result = await decrypt(...args);
+      window.retiredDecryptReady = true;
+      await new Promise(resolve => { window.releaseRetiredDecrypt = resolve; });
+      return result;
+    };
+  });
+  await password(a, '🔐'.repeat(12)); await a.waitForFunction(() => retiredDecryptReady);
+  await a.evaluate(() => app.renderUnlock(retiredPageStored,true,false));
+  await a.locator('.password-return .password-form').waitFor();
+  await a.evaluate(() => releaseRetiredDecrypt()); await a.waitForTimeout(150);
+  assert.equal(await a.locator('.password-sheet').count(),1);assert.equal(await a.locator('.password-return [name=password]').inputValue(),'');
+  assert.equal(await a.evaluate(() => Boolean(app.session)),false,'Retired password page installed a late proof');
+  assert.equal(await a.locator('#message-input').count(),0,'Retired proof exposed private UI');
+  await a.setViewportSize({width:390,height:844});
+  await capture(a, 'F15-password-unlock');
   await password(a, '🔐'.repeat(12)); await a.locator('#message-input').waitFor();
   await a.evaluate(() => { const v = app.session; window.proofResult = null; app.confirmDeviceCredential('取消后不得继续').then(() => { window.proofResult = 'verified'; }, () => { window.proofResult = 'cancelled'; }); });
   await a.locator('.password-form [name=password]').fill('🔐'.repeat(12));
@@ -200,13 +238,13 @@ try {
   for (const summary of summaries) assert.deepEqual(summary, { text: 6, images: 4, attachments: 0, missingAttachments: 4, missingByKind: { image: 4 } });
   await partial.locator('#local-backup-export').click(); await partial.locator('#history-download').waitFor();
   assert.equal(await partial.locator('#history-download').textContent(), '继续导出部分备份');
-  await partial.locator('.backup-completeness summary').click();
-  assert.match(await partial.locator('.backup-completeness').textContent(), /图片：4 个原文件缺失/);
+  await partial.locator('.backup-original-summary summary').click();
+  assert.match(await partial.locator('.backup-original-summary').textContent(), /图片：4 个原文件缺失/);
   await capture(partial, 'F04-partial-backup-6-text-4-images'); await partialContext.close();
   // The remaining creation entrances use the same actual password wrapper,
   // with the existing source device approving the real membership event.
-  await a.evaluate(() => app.renderGateway({ trustedCoverActivation: true, autoUnlock: false }));
-  await a.locator('#password-unlock').click(); await password(a, '🔐'.repeat(12)); await a.locator('#message-input').waitFor();
+  await a.bringToFront(); await a.evaluate(() => app.renderGateway({ trustedCoverActivation: true, autoUnlock: false }));
+  await a.locator('.password-return .password-form').waitFor(); await password(a, '🔐'.repeat(12)); await a.locator('#message-input').waitFor();
   await a.evaluate(() => app.renderDeviceManager());
   for (const repair of [false, true]) {
     if (repair) await a.locator('.peer-device-section').getByRole('button', { name: '修复此设备', exact: true }).first().click();

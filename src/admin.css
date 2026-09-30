@@ -280,3 +280,41 @@ summary { cursor: pointer; min-height: 44px; padding-block: 10px; }
 }
 
 @media (max-width: 700px) { #expression-list .expression-table .expression-preview { min-width: 44px; } }
+.admin-mobile-menu, .expression-more, .expression-mobile-status { display: none; }
+@media (max-width: 700px) {
+  .admin-sidebar { position: relative; height: auto; min-height: 56px; padding: 0 12px; z-index: 30; }
+  .admin-sidebar .brand { display: flex; align-items: center; min-height: 56px; padding: 0; gap: 10px; }
+  .admin-sidebar .brand strong { font-size: .875rem; }
+  .admin-sidebar .brand small { display: none; }
+  .admin-sidebar .brand strong::after { content: ' 管理'; }
+  .brand-mark { width: 30px; height: 30px; }
+  .admin-mobile-menu { display: grid; place-items: center; width: 44px; height: 44px; margin-left: auto; border: 0; background: transparent; color: var(--ink); }
+  .admin-mobile-menu svg { width: 20px; height: 20px; }
+  .admin-sidebar .sidebar-nav { display: none; height: auto; padding: 8px 0 12px; }
+  .admin-sidebar.navigation-open .sidebar-nav { display: grid; }
+  .tabler-shell .topbar { min-height: 56px; padding: 8px 16px; }
+  .tabler-shell .topbar .eyebrow { display: none; }
+  .topbar h1 { font-size: 1.25rem; }
+  .content-wrap { padding: 12px 12px 112px; }
+  #expression-list .expression-table tr { grid-template-columns: 88px minmax(0, 1fr) 44px; grid-template-rows: minmax(76px, auto); padding: 4px; gap: 0 8px; }
+  #expression-list .expression-table td:nth-child(1), #expression-list .expression-table td:nth-child(2), #expression-list .expression-table td:nth-child(6) { grid-row: 1; }
+  #expression-list .expression-table td:nth-child(5) { display: none; }
+  #expression-list .expression-table .expression-preview { flex-direction: row; gap: 8px; }
+  #expression-list .expression-table .expression-preview input { width: 20px; height: 20px; margin: 0; }
+  #expression-list .expression-table .expression-thumbnail { width: 52px; height: 52px; }
+  #expression-list .expression-table td:last-child .actions { width: 44px; }
+  #expression-list .expression-table td:last-child .actions > button { display: none; }
+  .expression-mobile-meta { font-size: .6875rem; margin-top: 2px; }
+  .expression-mobile-status { display: block; width: fit-content; color: var(--muted); font-size: .6875rem; margin-top: 2px; }
+  .expression-mobile-status[data-status=published] { color: var(--success); background: var(--selected); border-radius: 4px; padding: 0 4px; }
+  .expression-more { position: relative; display: block; }
+  .expression-more summary { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid var(--border); border-radius: 6px; list-style: none; cursor: pointer; }
+  .expression-more summary::-webkit-details-marker { display: none; }
+  .expression-more summary svg { width: 20px; height: 20px; }
+  .expression-menu-items { position: absolute; top: 44px; right: 0; min-width: 148px; padding: 6px; display: grid; gap: 4px; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgb(24 36 51 / 14%); background: var(--surface); z-index: 10; }
+  .expression-menu-items button { text-align: left; }
+  .expression-menu-items .toggle-field { min-height: 44px; padding-inline: 8px; }
+  .expression-bulk { justify-content: space-between; padding-inline: 12px; gap: 4px; }
+  .expression-bulk > span { margin-right: auto; }
+  .expression-bulk > .expression-select { font-size: .75rem; }
+}

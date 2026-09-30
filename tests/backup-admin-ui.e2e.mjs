@@ -10,6 +10,12 @@ import { makeAdminConfig, totp } from '../server/admin-auth.mjs';
 import { animatedGif } from './fixtures/photo-fixtures.mjs';
 import { wastickers } from './fixtures/wastickers.mjs';
 
+async function navigateAdmin(page, name) {
+  const button = page.getByRole('button', { name, exact: true });
+  if (!await button.isVisible()) await page.getByRole('button', { name: '打开后台导航', exact: true }).click();
+  await button.click();
+}
+
 const directory = await mkdtemp(path.join(tmpdir(), 'quiet-backup-ui-'));
 const screenshots = process.argv[2];
 let service, vite, browser;
@@ -39,7 +45,7 @@ try {
     hasUserVerification: true, hasPrf: true, automaticPresenceSimulation: true, isUserVerified: true } });
   await page.goto(`http://localhost:${vite.httpServer.address().port}/__fixture`);
   const roomId = await page.evaluate(async () => {
-    await Promise.all(['/src/styles.css', '/src/chat-layout.css', '/src/auth-recovery.css', '/src/chat-interactions.css', '/src/cover.css', '/src/voice-messages.css', '/src/call.css'].map(file => import(file)));
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     document.documentElement.dataset.colorScheme = 'light';
     const v = await import('/src/lib/vault.ts');
     const { syncCloudBackup, cloudBackupPreference } = await import('/src/lib/cloud-backup.ts');
@@ -204,7 +210,7 @@ try {
   const sourcePackId = 'a'.repeat(32);
   // First task read is a user navigation, not an automatic renewal poll.
   await admin.evaluate(() => { Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => false }); });
-  await admin.getByRole('button', { name: '表情采集', exact: true }).click();
+  await navigateAdmin(admin, '表情采集');
   await admin.getByRole('button', { name: '采集任务', exact: true }).click();
   await admin.getByText('暂无进行中任务', { exact: true }).waitFor({ timeout: 3000 });
   await admin.evaluate(() => { delete document.hasFocus; });
@@ -220,9 +226,9 @@ try {
       await new Promise(resolve => setTimeout(resolve, 1000));
       await route.abort().catch(() => {});
     });
-    if (kind === 'resources') await admin.getByRole('button', { name: '表情管理', exact: true }).click();
+    if (kind === 'resources') await navigateAdmin(admin, '表情管理');
     else {
-      await admin.getByRole('button', { name: '表情采集', exact: true }).click();
+      await navigateAdmin(admin, '表情采集');
       if (kind === 'jobs') await admin.getByRole('button', { name: '采集任务', exact: true }).click();
       else await admin.getByRole('button', { name: '搜索', exact: true }).click();
     }
@@ -245,12 +251,12 @@ try {
     previewRequests++; await previewGate;
     await route.fulfill({ status: 200, contentType: 'image/gif', body: animatedGif }).catch(() => {});
   });
-  await admin.getByRole('button', { name: '表情采集', exact: true }).click();
+  await navigateAdmin(admin, '表情采集');
   await admin.getByRole('button', { name: '搜索', exact: true }).click();
   await admin.getByText('Slow preview 23', { exact: true }).waitFor();
   await admin.waitForTimeout(300);
   assert.equal(previewRequests, 3, 'Slow previews leave connections available for navigation and API reads');
-  await admin.getByRole('button', { name: '表情管理', exact: true }).click();
+  await navigateAdmin(admin, '表情管理');
   await admin.locator('#expression-list .empty-state').waitFor();
   releasePreviews();
   await admin.waitForTimeout(100);
@@ -269,7 +275,7 @@ try {
     const status = collectionPayload ? 'completed' : 'running';
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ jobs: collectionPayload ? [{ id: 'fixture-job', sourceId: sourcePackId, status, added: status === 'completed' ? 1 : 0, scanned: 1, failed: 0 }] : [] }) });
   });
-  await admin.getByRole('button', { name: '表情采集', exact: true }).click();
+  await navigateAdmin(admin, '表情采集');
   await admin.getByRole('heading', { name: '表情采集', exact: true }).waitFor();
   await snapshot(admin, 'admin-expression-collection-desktop');
   await admin.setViewportSize({ width: 390, height: 844 });
@@ -289,7 +295,7 @@ try {
   await admin.unroute('**/admin-api/expressions/source*');
   await admin.unroute('**/admin-api/expressions/collect');
   await admin.unroute('**/admin-api/expressions/jobs');
-  await admin.getByRole('button', { name: '表情管理', exact: true }).click();
+  await navigateAdmin(admin, '表情管理');
   await admin.getByText('暂无符合条件的资源').waitFor();
   for (const failure of [
     { status: 413, contentType: 'text/html', body: '<html><h1>413 Request Entity Too Large</h1></html>', message: '上传请求超过服务器大小限制' },
@@ -328,7 +334,7 @@ try {
   await admin.getByRole('button', { name: '返回资源列表', exact: true }).click();
   await admin.getByText('审核后的 GIF', { exact: true }).waitFor();
   await snapshot(admin, 'admin-expressions-mobile');
-  await admin.getByRole('button', { name: '编辑 审核后的 GIF', exact: true }).click();
+  await admin.locator('.expression-more summary').first().click(); await admin.getByRole('button', { name: '编辑 审核后的 GIF', exact: true }).click();
   await admin.getByText('删除资源', { exact: true }).click();
   await admin.getByRole('button', { name: '确认删除资源', exact: true }).click();
   await admin.getByText('暂无符合条件的资源').waitFor();
@@ -344,8 +350,8 @@ try {
   await admin.locator('#expression-upload [name=files]').setInputFiles({ name: 'fixture.wastickers', mimeType: 'application/octet-stream', buffer: packageBytes });
   await admin.getByText('合成贴图包', { exact: true }).waitFor();
   await admin.locator('.expression-mobile-meta').filter({ hasText: '2 张' }).first().waitFor();
-  await admin.locator('.expression-mobile-meta').filter({ hasText: '已上架 · 2 张' }).first().waitFor();
-  await admin.getByRole('button', { name: '编辑 合成贴图包', exact: true }).click();
+  await admin.locator('.expression-mobile-status[data-status=published]').first().waitFor();
+  await admin.locator('.expression-more summary').first().click(); await admin.getByRole('button', { name: '编辑 合成贴图包', exact: true }).click();
   await admin.locator('.expression-gallery img').nth(1).waitFor();
   assert.equal(await admin.locator('.expression-gallery img').count(), 2);
   await admin.getByText('删除资源', { exact: true }).click();
@@ -391,7 +397,10 @@ try {
   await admin.getByRole('button', { name: '批量上架', exact: true }).click();
   await admin.locator('.resource-confirm button[value=confirm]').click();
   await admin.getByText('已上架 24 项', { exact: true }).waitFor();
-  assert.equal(await admin.getByRole('button', { name: '下架', exact: true }).count(), 24);
+  assert.equal(await admin.locator('.expression-mobile-status[data-status=published]').count(), 24, 'All selected page items were published');
+  await admin.locator('.expression-more summary').first().click();assert.equal(await admin.getByRole('button',{name:'下架',exact:true}).isVisible(),true);
+  await admin.locator('.expression-more summary').first().click();
+  assert.equal(await admin.locator('.expression-bulk').textContent().then(text=>text.includes('已选本页 0 项')),true);
   await admin.getByRole('checkbox', { name: '全选本页', exact: true }).check();
   for (const width of [1280, 390, 320]) {
     await admin.setViewportSize({ width, height: 900 });
@@ -410,6 +419,9 @@ try {
       assert.equal(metrics.navFits, true, 'Mobile navigation overlaps the page heading');
     }
   }
+  await admin.setViewportSize({ width: 390, height: 844 });
+  await snapshot(admin, 'F12-admin-390x844', false);
+  await admin.setViewportSize({ width: 320, height: 900 });
   await admin.emulateMedia({ colorScheme: 'dark' });
   await snapshot(admin, 'admin-bulk-pagination-dark-320', false);
   await admin.emulateMedia({ colorScheme: 'light' });
@@ -427,7 +439,7 @@ try {
   await admin.getByText('第 1 / 1 页 · 共 0 项', { exact: true }).waitFor();
   await admin.emulateMedia({ colorScheme: 'light' });
   await admin.setViewportSize({ width: 1280, height: 900 });
-  await admin.getByRole('button', { name: '会话管理', exact: true }).click();
+  await navigateAdmin(admin, '会话管理');
   await admin.getByRole('button', { name: roomId }).waitFor();
   await admin.getByRole('button', { name: roomId }).click();
   await admin.getByRole('heading', { name: '清理整个会话' }).waitFor();
@@ -460,7 +472,7 @@ try {
   let jobReads = 0;
   admin.on('request', request => { if (request.url().endsWith('/expressions/jobs')) jobReads++; });
   const firstJobRead = admin.waitForResponse(response => response.url().endsWith('/expressions/jobs'));
-  await admin.getByRole('button', { name: '表情采集', exact: true }).click();
+  await navigateAdmin(admin, '表情采集');
   await admin.getByRole('button', { name: '采集任务', exact: true }).click();
   await admin.clock.runFor(2000); await firstJobRead;
   await admin.clock.fastForward(6 * 60_000);

@@ -99,11 +99,32 @@ function randomBytes(length: number): Uint8Array<ArrayBuffer> {
   return crypto.getRandomValues(new Uint8Array(length));
 }
 
-function requireWebAuthn(): void {
+let clientCapability: { credential: typeof PublicKeyCredential; probe: typeof PublicKeyCredential.getClientCapabilities; prf?: boolean } | null = null;
+
+/** Warm the optional probe without postponing a trusted-click ceremony. */
+export async function probePlatformVaultCapabilities(): Promise<void> {
+  const credential = window.PublicKeyCredential;
+  if (!window.isSecureContext || !credential || typeof credential.getClientCapabilities !== 'function') return;
+  const result = { credential, probe: credential.getClientCapabilities, prf: undefined as boolean | undefined };
+  clientCapability = result;
+  try {
+    const capabilities = await credential.getClientCapabilities();
+    // Missing keys and rejected probes remain unknown. A platform-only probe
+    // cannot rule out a resident PRF-capable hardware security key.
+    if (typeof capabilities['extension:prf'] === 'boolean') result.prf = capabilities['extension:prf'];
+  } catch { /* Unknown: attempt the normal ceremony from the next click. */ }
+}
+
+function requireWebAuthn(operation: 'create' | 'get' = 'get'): void {
   if (!window.isSecureContext) {
     throw new Error('当前连接不是浏览器信任的 HTTPS 安全环境。局域网测试请先信任开发证书，再重新打开此页面');
   }
-  if (!window.PublicKeyCredential || !navigator.credentials) {
+  if (!window.PublicKeyCredential || typeof navigator.credentials?.get !== 'function' ||
+      (operation === 'create' && typeof navigator.credentials?.create !== 'function')) {
+    throw new PlatformVaultUnavailableError();
+  }
+  if (operation === 'create' && clientCapability?.credential === window.PublicKeyCredential
+    && clientCapability.probe === window.PublicKeyCredential.getClientCapabilities && clientCapability.prf === false) {
     throw new PlatformVaultUnavailableError();
   }
 }
@@ -144,7 +165,7 @@ function requireUserVerification(flags: number): void {
   }
 }
 
-async function evaluatePrf(record: PlatformCredentialRecord, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
+async function evaluatePrf(record: PlatformCredentialRecord, signal?: AbortSignal, newProtection = false): Promise<Uint8Array<ArrayBuffer>> {
   const started = performance.now();
   const rpId = record.rpId ?? location.hostname;
   if (rpId !== location.hostname) throw unlockStage('S1', `此保险库绑定到 ${rpId}，当前域名无法使用原设备凭据`, started);
@@ -167,6 +188,7 @@ async function evaluatePrf(record: PlatformCredentialRecord, signal?: AbortSigna
     } as PrfCredentialRequestOptions));
   } catch (error) {
     if (isPlatformVaultCancellation(error)) throw error;
+    if (newProtection && error instanceof DOMException && error.name === 'NotSupportedError') throw new PlatformVaultUnavailableError();
     throw unlockStage('S1', '系统通行密钥没有完成。请重试。', started);
   }
   if (
@@ -193,6 +215,8 @@ async function evaluatePrf(record: PlatformCredentialRecord, signal?: AbortSigna
     throw unlockStage('S3', '通行密钥属性发生了变化。请重试或一起恢复。', started);
   }
   const output = prfBytes(assertion);
+  if (!output && newProtection && extensionResults(assertion).prf?.enabled === false &&
+      extensionResults(assertion).prf?.results?.first === undefined) throw new PlatformVaultUnavailableError();
   if (!output) throw unlockStage('S3', '通行密钥没有返回可用的本机保护数据。请重试；若仍失败，使用一起恢复。', started);
   const user = assertion.response.userHandle;
   if (user?.byteLength && user.byteLength <= 64) assertionUsers.set(output, toBase64Url(user));
@@ -201,7 +225,7 @@ async function evaluatePrf(record: PlatformCredentialRecord, signal?: AbortSigna
 }
 
 export function platformVaultSupported(): boolean {
-  return Boolean(window.isSecureContext && window.PublicKeyCredential && navigator.credentials);
+  return Boolean(window.isSecureContext && window.PublicKeyCredential && typeof navigator.credentials?.get === 'function');
 }
 
 export type PlatformCredentialResult = {
@@ -215,7 +239,7 @@ export async function createPlatformCredential(
   onCreated?: (record: PlatformCredentialRecord) => void,
   requestedName = defaultPasskeyName(),
 ): Promise<PlatformCredentialResult> {
-  requireWebAuthn();
+  requireWebAuthn('create');
   const userName = normalizePasskeyName(requestedName), userId = randomBytes(32);
   const prfSalt = randomBytes(32);
   try {
@@ -270,7 +294,7 @@ export async function createPlatformCredential(
     // canceled PRF read can be retried without creating another orphan passkey.
     try { localStorage.setItem('quiet-room:passkey-sequence', String(passkeySequence())); } catch { /* Label hints are optional. */ }
     onCreated?.(structuredClone(record));
-    const output = prfBytes(credential) ?? await evaluatePrf(record);
+    const output = prfBytes(credential) ?? await evaluatePrf(record, undefined, true);
     return { record, prfOutput: output };
   } catch (cause) {
     if (cause instanceof DOMException && cause.name === 'NotSupportedError') throw new PlatformVaultUnavailableError();

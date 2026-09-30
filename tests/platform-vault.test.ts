@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createPlatformCredential,
+  probePlatformVaultCapabilities,
   browserAccessCredential,
   isPlatformVaultCancellation,
   isPlatformVaultUnavailable,
@@ -72,9 +73,46 @@ describe('platform vault WebAuthn cancellation', () => {
   });
 
   function installCredentials(credentials: Partial<CredentialsContainer>): void {
-    vi.stubGlobal('navigator', { credentials });
+    vi.stubGlobal('navigator', { credentials: { get: vi.fn().mockResolvedValue(new FakePublicKeyCredential(new FakeAssertionResponse(), { prf: { enabled: false } } as AuthenticationExtensionsClientOutputs)), ...credentials } });
     vi.stubGlobal('window', { isSecureContext: true, PublicKeyCredential: FakePublicKeyCredential });
   }
+
+  it('treats missing credential methods as unavailable in secure WebViews', async () => {
+    for (const credentials of [{ create: undefined }, { get: undefined }]) {
+      installCredentials(credentials);
+      const failure = await createPlatformCredential().catch(cause => cause);
+      expect(isPlatformVaultUnavailable(failure)).toBe(true);
+    }
+  });
+
+  it('uses only explicit negative PRF client capability and never downgrades stored credentials', async () => {
+    for (const capabilities of [{ 'extension:prf': false }, { 'extension:prf': true }, {}]) {
+      const create = vi.fn().mockRejectedValue(new DOMException('cancel', 'NotAllowedError'));
+      installCredentials({ create });
+      Object.defineProperty(FakePublicKeyCredential, 'getClientCapabilities', { configurable: true, value: vi.fn().mockResolvedValue(capabilities) });
+      await probePlatformVaultCapabilities();
+      const failure = await createPlatformCredential().catch(cause => cause);
+      expect(isPlatformVaultUnavailable(failure)).toBe(capabilities['extension:prf'] === false);
+      expect(create).toHaveBeenCalledTimes(capabilities['extension:prf'] === false ? 0 : 1);
+      const unlockFailure = await unlockPlatformCredential(record).catch(cause => cause);
+      expect(isPlatformVaultUnavailable(unlockFailure)).toBe(false);
+      delete (FakePublicKeyCredential as typeof FakePublicKeyCredential & { getClientCapabilities?: unknown }).getClientCapabilities;
+    }
+    installCredentials({ create: vi.fn().mockRejectedValue(new DOMException('cancel', 'NotAllowedError')) });
+    Object.defineProperty(FakePublicKeyCredential, 'getClientCapabilities', { configurable: true, value: vi.fn().mockRejectedValue(new Error('probe unavailable')) });
+    await probePlatformVaultCapabilities();
+    expect(isPlatformVaultCancellation(await createPlatformCredential().catch(cause => cause))).toBe(true);
+    delete (FakePublicKeyCredential as typeof FakePublicKeyCredential & { getClientCapabilities?: unknown }).getClientCapabilities;
+  });
+
+  it('permits explicit unsupported PRF only during new setup, preserving old-wrapper failure', async () => {
+    installCredentials({create:vi.fn().mockResolvedValue(new FakePublicKeyCredential(new FakeAttestationResponse(),{prf:{enabled:true}} as AuthenticationExtensionsClientOutputs)),get:vi.fn().mockRejectedValue(new DOMException('unsupported','NotSupportedError'))});
+    expect(isPlatformVaultUnavailable(await createPlatformCredential().catch(cause=>cause))).toBe(true);
+    expect(isPlatformVaultUnavailable(await unlockPlatformCredential(record).catch(cause=>cause))).toBe(false);
+    installCredentials({create:vi.fn().mockResolvedValue(new FakePublicKeyCredential(new FakeAttestationResponse(),{prf:{enabled:true}} as AuthenticationExtensionsClientOutputs)),get:vi.fn().mockResolvedValue(new FakePublicKeyCredential(new FakeAssertionResponse(),{prf:{enabled:false}} as AuthenticationExtensionsClientOutputs))});
+    expect(isPlatformVaultUnavailable(await createPlatformCredential().catch(cause=>cause))).toBe(true);
+    expect(isPlatformVaultUnavailable(await unlockPlatformCredential(record).catch(cause=>cause))).toBe(false);
+  });
 
   it('permits new-password fallback only on positive unsupported capability evidence', async () => {
     installCredentials({ create: vi.fn().mockResolvedValue(new FakePublicKeyCredential(new FakeAttestationResponse(), { prf: { enabled: false } } as AuthenticationExtensionsClientOutputs)) });
@@ -305,7 +343,7 @@ describe('passkey names and identity-bound management', () => {
   });
   it('sets both authenticator labels and persists the original user ID', async () => {
     const create = vi.fn().mockResolvedValue(new FakePublicKeyCredential(new FakeAttestationResponse(), { prf: { enabled: true, results: { first: new Uint8Array(32).buffer } } } as any));
-    vi.stubGlobal('navigator', { credentials: { create } });
+    vi.stubGlobal('navigator', { credentials: { create, get: vi.fn() } });
     const result = await createPlatformCredential(undefined, '我的通行密钥');
     expect(create.mock.calls[0]![0].publicKey.user.name).toBe('我的通行密钥');
     expect(create.mock.calls[0]![0].publicKey.user.displayName).toBe('我的通行密钥');
