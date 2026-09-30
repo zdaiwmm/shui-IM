@@ -102,7 +102,8 @@ export class MemePicker {
   private closing = false;
   private recentGrid: HTMLElement | null = null;
   private browseGrid: HTMLElement | null = null;
-  private recentCount = 0;
+  private catalogItems = new Map<string, MediaItem>();
+  private catalogTiles = new Map<string, HTMLElement>();
   private localReady = false;
   private restoringPosition = false;
 
@@ -624,7 +625,7 @@ export class MemePicker {
     for (const tile of this.tiles.keys()) if (!tile.closest('.meme-pack-shortcuts')) { this.unload(tile); this.tiles.delete(tile); }
     this.grid.replaceChildren(); this.status.replaceChildren(); this.more.hidden = true; this.nextPage = null;
     this.grid.className = 'meme-grid'; this.panel.querySelector('.meme-scroll')!.scrollTop = 0;
-    this.recentGrid = null; this.browseGrid = null; this.recentCount = 0;
+    this.recentGrid = null; this.browseGrid = null; this.catalogItems.clear(); this.catalogTiles.clear();
     this.panel.querySelector('.meme-source')!.textContent = '';
   }
   private rememberView() {
@@ -714,11 +715,14 @@ export class MemePicker {
       const localGeneration = this.generation;
       if (!this.favoriteView && this.kind === 'gifs') {
         this.query = ''; this.nextPage = 1;
-        // Fill the ten-item recent section in the same open operation so the
-        // first paint does not briefly show a partial catalog while the
-        // sentinel waits for an intersection event.
-        do { await this.search(); if (!this.active() || this.generation !== localGeneration) return; }
-        while (this.nextPage && !this.searching && (this.recentGrid?.querySelectorAll('.meme-tile').length ?? 0) < 10);
+        await this.search(); if (!this.active() || this.generation !== localGeneration) return;
+        const seen = new Set([1]);
+        while (this.nextPage && !seen.has(this.nextPage)) {
+          const cached = this.cachedSearch(this.searchCacheKey('', this.nextPage, 'gifs'));
+          if (!cached) break;
+          seen.add(this.nextPage); this.appendCatalog(cached.items); this.nextPage = cached.nextPage;
+        }
+        this.more.hidden = !this.nextPage;
       }
       await this.restoreView();
     } catch { if (generation === this.generation) { this.shortcuts(); this.say('本地收藏或合集读取失败，请重新打开'); } }
@@ -820,7 +824,8 @@ export class MemePicker {
         if (!this.query && this.panel.dataset.view === 'local') this.appendCatalog(result.items);
         else this.append(result.items);
       } else this.appendPacks(result.packs ?? []);
-      this.nextPage = result.nextPage; this.more.hidden = true;
+      this.nextPage = result.nextPage; this.more.textContent = '加载更多';
+      this.more.hidden = !(this.nextPage && this.kind === 'gifs' && !this.query && this.panel.dataset.view === 'local');
       this.panel.querySelector('.meme-source')!.textContent = result.source === '表情资源库' ? '' : result.source ?? ''; this.say(!this.grid.querySelector('.meme-tile, .meme-pack-result') ? '没有找到相关内容' : '');
     } catch (error) { if (!signal.aborted && generation === this.generation) { this.say(error instanceof Error ? error.message : '搜索失败，请重试'); this.more.textContent = '重试'; this.more.hidden = false; } }
     finally {
@@ -866,25 +871,30 @@ export class MemePicker {
     if (!this.recentGrid || !this.browseGrid) {
       this.grid.classList.add('meme-catalog-sections');
       const recent = document.createElement('section'); recent.className = 'meme-recent-section'; recent.setAttribute('aria-labelledby', 'meme-recent-title');
-      recent.innerHTML = '<h3 id="meme-recent-title">最近使用</h3><div class="meme-recent-grid"></div>';
+      recent.innerHTML = '<h3 id="meme-recent-title">推荐 GIFs</h3><div class="meme-recent-grid"></div>';
       const browse = document.createElement('section'); browse.className = 'meme-browse-section'; browse.setAttribute('aria-labelledby', 'meme-browse-title'); browse.hidden = true;
       browse.innerHTML = '<h3 id="meme-browse-title">更多 GIFs</h3><div class="meme-browse-grid"></div>';
       this.grid.append(recent, browse);
       this.recentGrid = recent.querySelector('.meme-recent-grid');
       this.browseGrid = browse.querySelector('.meme-browse-grid');
     }
-    const ranked = [...items].sort((a, b) => (this.cache.usage.get(b.id) ?? 0) - (this.cache.usage.get(a.id) ?? 0));
-    const renderedRecent = this.recentGrid?.querySelectorAll('.meme-tile').length ?? this.recentCount;
-    const recent = ranked.slice(0, Math.max(0, 10 - renderedRecent));
-    const recentIds = new Set(recent.map(item => item.id));
-    const remaining = items.filter(item => !recentIds.has(item.id));
-    this.append(recent, this.recentGrid!);
-    this.recentCount += recent.length;
-    if (remaining.length) {
-      this.browseGrid!.closest<HTMLElement>('.meme-browse-section')!.hidden = false;
-      this.append(remaining, this.browseGrid!);
+    for (const item of items) {
+      if (this.catalogItems.has(item.id)) continue;
+      this.catalogItems.set(item.id, item);
+      this.append([item], this.browseGrid!);
+      this.catalogTiles.set(item.id, this.browseGrid!.lastElementChild as HTMLElement);
     }
+    const loaded = [...this.catalogItems.values()];
+    const used = loaded.filter(item => (this.cache.usage.get(item.id) ?? 0) > 0)
+      .sort((a, b) => (this.cache.usage.get(b.id) ?? 0) - (this.cache.usage.get(a.id) ?? 0));
+    const featured = (used.length ? used : loaded).slice(0, 10);
+    const ids = new Set(featured.map(item => item.id));
+    this.panel.querySelector('#meme-recent-title')!.textContent = used.length ? '常用 GIFs' : '推荐 GIFs';
+    for (const item of featured) this.recentGrid!.append(this.catalogTiles.get(item.id)!);
+    for (const item of loaded.filter(item => !ids.has(item.id))) this.browseGrid!.append(this.catalogTiles.get(item.id)!);
+    this.browseGrid!.closest<HTMLElement>('.meme-browse-section')!.hidden = loaded.length === featured.length;
   }
+
   private appendPacks(packs: RemotePack[]) {
     this.grid.classList.add('meme-pack-results');
     for (const pack of packs) {
@@ -965,7 +975,7 @@ export class MemePicker {
       void this.getFile(state.item, signal).then(file => { if (!this.active() || signal.aborted || !state.visible) return; state.url = URL.createObjectURL(file); state.file = file; tile.querySelector('img')!.src = state.url; tile.classList.remove('is-error'); })
         .catch(error => {
           if (signal.aborted) return;
-          if (error instanceof Error && error.message === 'NON_ANIMATED_RESULT') { this.observer.unobserve(tile); this.tiles.delete(tile); tile.remove(); }
+          if (error instanceof Error && error.message === 'NON_ANIMATED_RESULT') { this.observer.unobserve(tile); this.tiles.delete(tile); this.catalogItems.delete(state.item.id); this.catalogTiles.delete(state.item.id); tile.remove(); }
           else tile.classList.add('is-error');
         }).finally(() => { this.loading--; this.hydrate(); });
     }

@@ -289,7 +289,7 @@ async function backfillArchiveInventory(session: VaultSession, signal: AbortSign
 }
 
 export async function syncCloudBackup(session: VaultSession, signal: AbortSignal, { force = true }: CloudBackupSyncOptions = {}): Promise<void> {
-  if (session.vault.protocol !== 'mls-rfc9420' || session.stored.unlockMethod !== 'platform' || session.vault.pairingState === 'recovering') return;
+  if (session.vault.protocol !== 'mls-rfc9420' || (session.stored.unlockMethod !== 'platform' && !(session.stored.v === 3 && session.stored.unlockMethod === 'password')) || session.vault.pairingState === 'recovering') return;
   signal.throwIfAborted();
   const policy = await cloudBackupPreference(session, signal);
   if (!force && await shouldSkipAutomaticBackup(session)) {

@@ -3,10 +3,10 @@
   --motion-out: cubic-bezier(.18, .88, .24, 1);
   --motion-settle: cubic-bezier(.2, .82, .22, 1);
   --motion-travel: cubic-bezier(.24, .72, .18, 1);
-  --motion-feedback: 180ms;
+  --motion-feedback: 100ms;
   --motion-local: 220ms;
-  --motion-panel: 320ms;
-  --motion-page: 340ms;
+  --motion-panel: 240ms;
+  --motion-page: 280ms;
   --motion-menu-in: 280ms;
   --motion-menu-out: 220ms;
   --chrome-tint: var(--paper);

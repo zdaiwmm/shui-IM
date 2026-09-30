@@ -400,6 +400,15 @@ async function collection() {
   content.querySelector<HTMLFormElement>('#source-search')!.addEventListener('submit', event => { event.preventDefault(); page = 1; void search(); });
 }
 
+function confirmResourceStatus(count: number, status: 'pending' | 'published'): Promise<boolean> {
+  return new Promise(resolve => {
+    const dialog = document.createElement('dialog'); dialog.className = 'resource-confirm';
+    const action = status === 'published' ? '上架' : '下架';
+    dialog.innerHTML = `<form method="dialog"><h2>确认${action}资源？</h2><p>本次仅${action}本页选中的 ${count} 项资源。</p><div class="actions"><button value="cancel">取消</button><button class="primary" value="confirm">确认${action} ${count} 项</button></div></form>`;
+    document.body.append(dialog); dialog.addEventListener('close', () => { resolve(dialog.returnValue === 'confirm'); dialog.remove(); }, { once: true }); dialog.showModal();
+  });
+}
+
 async function expressions() {
   frame('表情管理'); const epoch = view;
   const content = root.querySelector<HTMLElement>('#content')!;
@@ -471,7 +480,7 @@ async function expressions() {
     const checkboxes: HTMLInputElement[] = [];
     let busy = false;
     const updateSelection = () => {
-      selectedCount.textContent = `已选 ${selection.size} 项`;
+      selectedCount.textContent = `已选本页 ${selection.size} 项`;
       selectAll.checked = data.entries.length > 0 && selection.size === data.entries.length;
       selectAll.indeterminate = selection.size > 0 && selection.size < data.entries.length;
       publish.disabled = busy || !data.entries.some(entry => selection.has(entry.id) && entry.status !== 'published');
@@ -482,8 +491,10 @@ async function expressions() {
       for (const checkbox of checkboxes) { checkbox.checked = selectAll.checked; if (checkbox.checked) selection.add(checkbox.value); }
       updateSelection();
     });
-    const changeStatus = async (ids: string[], status: 'pending' | 'published') => {
+    const changeStatus = async (ids: string[], status: 'pending' | 'published', confirm = false) => {
       if (busy || !ids.length) return;
+      if (confirm && !await confirmResourceStatus(ids.length, status)) return;
+      if (view !== epoch) return;
       busy = true;
       const controls = [...content.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>('button, input, select')];
       const disabled = controls.map(control => control.disabled);
@@ -505,8 +516,8 @@ async function expressions() {
         if (view === epoch) report(error);
       } finally { if (input.isConnected) input.disabled = false; }
     };
-    publish.addEventListener('click', () => void changeStatus(data.entries.filter(entry => selection.has(entry.id) && entry.status !== 'published').map(entry => entry.id), 'published'));
-    unpublish.addEventListener('click', () => void changeStatus(data.entries.filter(entry => selection.has(entry.id) && entry.status !== 'pending').map(entry => entry.id), 'pending'));
+    publish.addEventListener('click', () => void changeStatus(data.entries.filter(entry => selection.has(entry.id) && entry.status !== 'published').map(entry => entry.id), 'published', true));
+    unpublish.addEventListener('click', () => void changeStatus(data.entries.filter(entry => selection.has(entry.id) && entry.status !== 'pending').map(entry => entry.id), 'pending', true));
     bulk.append(selectLabel, selectedCount, publish, unpublish); host.append(bulk);
     const list = table(['预览', '名称 / 作者', '状态', '数量', '自动隐藏', '操作']);
     for (const entry of data.entries) {
@@ -517,6 +528,7 @@ async function expressions() {
       checkboxes.push(checkbox); preview.append(checkbox, image);
       const name = document.createElement('div'); const title = document.createElement('strong'); title.textContent = entry.title;
       const author = document.createElement('p'); author.textContent = entry.author; name.append(title, author);
+      const mobileMeta = document.createElement('small'); mobileMeta.className = 'expression-mobile-meta'; mobileMeta.textContent = `${entry.status === 'published' ? '已上架' : '待上架'} · ${entry.count} 张`; name.append(mobileMeta);
       const autoHide = document.createElement('label'); autoHide.className = 'toggle-field';
       const autoHideInput = document.createElement('input'); autoHideInput.type = 'checkbox'; autoHideInput.className = 'toggle-input'; autoHideInput.checked = Boolean(entry.autoHide); autoHideInput.setAttribute('aria-label', `${entry.title} 自动隐藏`);
       const autoHideTrack = document.createElement('span'); autoHideTrack.className = 'toggle-track'; autoHideTrack.setAttribute('aria-hidden', 'true');
@@ -529,6 +541,7 @@ async function expressions() {
       actions.append(toggle); row(list.body, [preview, name, badge(entry.status === 'published' ? '已上架' : '待上架', entry.status === 'published' ? 'success' : 'warning'), `${entry.count} 张`, autoHide, actions]);
     }
     updateSelection();
+    list.wrapper.classList.add('expression-table');
     host.append(list.wrapper);
     if (!data.entries.length) host.append(emptyState('暂无符合条件的资源'));
     host.append(pagination({ page: expressionPage, total: data.total, pageSize: 24, label: '资源分页', change: page => { expressionPage = page; void expressions(); } }));

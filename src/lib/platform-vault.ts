@@ -54,6 +54,14 @@ export function isPlatformVaultCancellation(error: unknown): error is PlatformVa
   return error instanceof PlatformVaultCancellationError;
 }
 
+/** Only positive capability failures permit creating a new password wrapper. */
+export class PlatformVaultUnavailableError extends Error {
+  readonly code = 'PLATFORM_VAULT_UNAVAILABLE';
+  constructor() { super('当前浏览器不支持通行密钥'); }
+}
+
+export const isPlatformVaultUnavailable = (error: unknown): error is PlatformVaultUnavailableError => error instanceof PlatformVaultUnavailableError;
+
 export type UnlockStage = 'S1' | 'S2' | 'S3' | 'S4' | 'S5';
 
 /** Local diagnostic for one unlock stage. The code is only the stage and elapsed milliseconds. */
@@ -96,7 +104,7 @@ function requireWebAuthn(): void {
     throw new Error('当前连接不是浏览器信任的 HTTPS 安全环境。局域网测试请先信任开发证书，再重新打开此页面');
   }
   if (!window.PublicKeyCredential || !navigator.credentials) {
-    throw new Error('当前浏览器不支持通行密钥，请升级浏览器或改用支持 WebAuthn PRF 的浏览器');
+    throw new PlatformVaultUnavailableError();
   }
 }
 
@@ -241,7 +249,8 @@ export async function createPlatformCredential(
     requireUserVerification(flags);
     const backupEligible = Boolean(flags & 0x08);
     if (extensionResults(credential).prf?.enabled !== true) {
-      throw new Error('该通行密钥不支持 WebAuthn PRF，无法保护本机保险库');
+      if (extensionResults(credential).prf?.enabled === false) throw new PlatformVaultUnavailableError();
+      throw new Error('设备未返回明确的 PRF 支持结果，请重试或升级浏览器');
     }
     const response = credential.response;
     const record: PlatformCredentialRecord = {
@@ -263,6 +272,9 @@ export async function createPlatformCredential(
     onCreated?.(structuredClone(record));
     const output = prfBytes(credential) ?? await evaluatePrf(record);
     return { record, prfOutput: output };
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === 'NotSupportedError') throw new PlatformVaultUnavailableError();
+    throw cause;
   } finally {
     prfSalt.fill(0);
   }

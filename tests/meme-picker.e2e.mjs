@@ -119,6 +119,9 @@ try {
   assert.equal(await page.locator('button[data-kind="gifs"]').getAttribute('aria-selected'),'true');
   assert.equal(await page.locator('.meme-grip').count(),0);
   assert.equal(await page.locator('.chat-shell').evaluate(el=>el.inert),false);
+  await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===6);
+  assert.equal(await page.evaluate(()=>window.fixture.requests.length),1);
+  await page.locator('.meme-more').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-tile').length===12);
   assert.equal(await page.evaluate(()=>window.fixture.requests.length),2);
   // iOS Safari can publish one visible window blur while the keyboard is
@@ -139,8 +142,9 @@ try {
     obscured: document.documentElement.classList.contains('privacy-obscured'),
   })), { covered: false, obscured: true }, 'Opening the expression panel lost its owner or uncovered private content');
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-  assert.equal((await page.locator('.meme-recent-section h3').textContent()).trim(), '最近使用');
-  assert.equal(await page.locator('.meme-recent-grid .meme-tile').count(), 10, 'Recent usage must contain at most ten expressions');
+  assert.equal((await page.locator('.meme-recent-section h3').textContent()).trim(), '推荐 GIFs');
+  await page.waitForFunction(() => document.querySelectorAll('.meme-recent-grid .meme-tile').length === 10);
+  assert.equal(await page.locator('.meme-recent-grid .meme-tile').count(), 10, 'Recommendations are bounded by ten loaded unique candidates');
   assert.equal(await page.locator('.meme-browse-grid .meme-tile').count(), 2, 'Catalog continuation duplicated or dropped recent expressions');
   if (process.argv[2]) {
     await mkdir(process.argv[2], { recursive: true });
