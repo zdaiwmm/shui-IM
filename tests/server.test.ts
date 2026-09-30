@@ -20,6 +20,7 @@ const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {
   await Promise.all(cleanup.splice(0).map((operation) => operation()));
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 class FrameClient {
@@ -81,16 +82,27 @@ describe('HTTP and WebSocket integration', () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-legacy-ingress-'));
     const server = await startServer({ port: 0, host: '127.0.0.1', dataDir, quiet: true });
     cleanup.push(async () => { await server.close(); await rm(dataDir, { recursive: true, force: true }); });
-    const deviceId = crypto.randomUUID(), accessToken = randomBase64Url(32);
-    const { roomId } = server.store.createRoom({ deviceId, encryptionKey: {}, signingKey: {} }, accessToken);
+    const identity = await generateIdentity(), deviceId = identity.publicBundle.deviceId, accessToken = randomBase64Url(32);
+    const { roomId } = server.store.createRoom(identity.publicBundle, accessToken);
     for (const modern of [false, true]) {
       const client = await FrameClient.connect(`ws://127.0.0.1:${server.port}/ws`);
       const closed = new Promise<number>(resolve => client.socket.once('close', code => resolve(code)));
       client.send({ type: 'auth', roomId, accessToken, deviceId, ...(modern ? { syncProtocol: 'byte-pages-v1' } : {}) });
       await client.waitFor(frame => frame.type === 'ready');
-      for (let index = 0; index < 40; index++) client.send({ type: 'ping', at: index });
-      if (!modern) expect(await client.waitFor(frame => frame.type === 'error')).toMatchObject({ code: 'SYNC_UPGRADE_REQUIRED' });
-      expect(await closed).toBe(modern ? 4413 : 4403);
+      // Hold real asynchronous admission while frames arrive. TCP may split a
+      // burst differently on Linux/macOS, so coalescing alone cannot prove a
+      // full pending-input queue. The held signature always rejects and writes nothing.
+      let entered = false, release!: () => void;
+      const held = new Promise<void>(resolve => { release = resolve; });
+      const verify = vi.spyOn(crypto.subtle, 'verify').mockImplementation(async () => { entered = true; await held; return false; });
+      try {
+        client.send({ type: 'receipt', receipt: { v: 1, roomId, clientMsgId: crypto.randomUUID(), seq: 1,
+          receiverId: deviceId, receivedAt: new Date().toISOString(), signature: 'a'.repeat(86) } });
+        await vi.waitFor(() => expect(entered).toBe(true), { timeout: 3000 });
+        for (let index = 0; index < 40; index++) client.send({ type: 'ping', at: index });
+        if (!modern) expect(await client.waitFor(frame => frame.type === 'error')).toMatchObject({ code: 'SYNC_UPGRADE_REQUIRED' });
+        expect(await closed).toBe(modern ? 4413 : 4403);
+      } finally { release(); verify.mockRestore(); client.close(); }
     }
   });
   it('drains 40 signed outbox messages and their receipts without exceeding ingress capacity', async () => {
