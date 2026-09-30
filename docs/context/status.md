@@ -1,16 +1,18 @@
 # Quiet Room 当前状态
 
-## 架构资源优化候选（2026-09-30）
+## 架构资源优化候选验收完成（2026-09-30）
 
-- 用户已明确按复审方案实施并要求逐项验收、本次不制作原型。任务分支 `codex/architecture-resource-optimization-20260930`，起点为实时主线 `5bb99efe862794f1abfd9a86b9ff4acbb3371091`；原候选 [PR #233](https://github.com/zdaiwmm/shui-IM/pull/233) 的精确 head `cefa3c64f6c4bdda5d8115a028cbc3f491d7f0e2` 已通过全部门禁。交付前主线新增 [PR #234](https://github.com/zdaiwmm/shui-IM/pull/234)，冻结新主线 `e2102c92685d0ce49d0a663f9fdeb0d088aee490`；独立集成分支 `codex/architecture-resource-integration-20260930`、[集成 PR #235](https://github.com/zdaiwmm/shui-IM/pull/235)，组合版本 `2026.09.30.2` 待重新验收／合并，不发布生产。
-- 候选已实现按字节查询分页、连接／全局积压预算、表情采集整体预约、三路严格历史归并、备份健康状态与异地快照时间对账。旧端超限4403升级停止、新端4413受控重连；49254b9 的本地构建／774 项／49 项浏览器全部通过，CI 三类夹具失败经一次定向修正并重验通过，最终候选完整／通话及精确 CI 待重验。失败与各候选证据保留在[逐项验收](../requirements/2026-09-30-architecture-resource-optimization/README.md)，收益口径见[测量限制](../requirements/2026-09-30-architecture-resource-optimization/measurements.md)。
-- SQLite 计数器／采集进程拆分没有足够净收益证据，本轮按确认方案延期。生产容量选择、备份实际恢复、通知送达和 iPhone 实测尚未验收；下方最近生产应用仍为 `824dcba1ea9cdb59dca41ac87b7fbe537ed15705`，候选不更新生产事实。
+- 用户明确按复审方案实施并逐项验收，本次不制作原型。源分支起点 `5bb99efe862794f1abfd9a86b9ff4acbb3371091`，源 head `cefa3c64f6c4bdda5d8115a028cbc3f491d7f0e2` 的全部门禁通过，旧 [PR #233](https://github.com/zdaiwmm/shui-IM/pull/233) 已关闭，由独立集成分支 `codex/architecture-resource-integration-20260930`、[PR #235](https://github.com/zdaiwmm/shui-IM/pull/235) 交付。先固定 H5 主线 `e2102c92685d0ce49d0a663f9fdeb0d088aee490` 组合验收；合并前新增的发布对账主线 `aaae1818b2d6d34506339306c227e6eb218e7bd3` 仅改三个文档，因 status 冲突在同一集成树保留双方事实，没有改变产品／测试代码。组合版本 `2026.09.30.2`；本任务不发布生产。
+- 已实现按字节查询分页、连接／全局积压预算、8条／512KiB持久补发窗口、表情采集整体预约、三路严格历史归并、备份健康与异地快照时间对账。产品与测试候选 `2575cdf92c5a97cb30eda4a48c37fa0303948658` 的本地构建／774项／49个浏览器入口全部通过（567.139秒），原生通话／视图／20种合成弱网通过（95.236秒），[精确候选完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36683710450)全部通过。后续仅文档合并，比较产品／测试文件树不变并运行文档检查及精确PR必需CI；合并与主线回查完成前不将F02算通过。
+- [17项逐条清单](../requirements/2026-09-30-architecture-resource-optimization/README.md)当前15项通过、A04生产灾备未验证、F02交付回查待完成。历史夹具与产品失败均保留；[收益及限制](../requirements/2026-09-30-architecture-resource-optimization/measurements.md)记录合成历史采样JS堆增量约32%改善，不是RSS或稳定延迟承诺。SQLite计数器／进程拆分按测量延期。生产容量、本地／异地实际恢复、告警送达与iPhone实测未验收；下方H5发布记录为另一任务证据，本任务没有重新访问生产，也不继承其发布授权。
 
-## H5 遮蔽 V2 已实施，真机验收待完成（2026-09-30）
+## H5 遮蔽 V2 已发布，真机验收待完成（2026-09-30）
 
 - 独立分支 `codex/h5-privacy-v2`，基线 `5bb99efe862794f1abfd9a86b9ff4acbb3371091`。用户明确执行方案并逐项验收，随后纠正本次无新页面/交互、无需原型；相关原型已移除，沿用现有外观与入口。局部改造分离临时遮蔽和真正锁定，已归属工具也持续遮蔽，重复失焦不续期，后台/超时/显式锁始终优先。详细修改与 A01–A12 结果见[需求记录](../requirements/2026-09-30-h5-privacy-v2/README.md)。
 - 冻结产品版本的 `npm run check:full` 通过：745 单元、49 浏览器入口全部通过；桌面 WebKit 新专项通过。自动证据包含输入焦点/选区、全 H5 边界、两个返回顺序、无焦点事件、取消/超时/旧结果、加密草稿/唯一消息/附件/视频及通话。
-- USB 查询为空。实体 iPhone 的工具内部区域、原生全屏、动态切后台和系统缩略图仍未验证，不宣称全部修复。用户在此缺口已说明后要求“合并并发布”。产品候选 `df55cfa8fc7d2068bc5559f185b693f85baec27b` 的[完整 PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36677914908) 已通过；版本 `2026.09.30.1` 准备后的构建与 745 单元通过，纳入 [PR #234](https://github.com/zdaiwmm/shui-IM/pull/234) 后继续核对合并与精确 main CI。只读发布连接预检通过，但容量可用约 3.89 GiB，低于 4 GiB 门禁，尚未部署。生产切换待最终 SHA 确认及容量恢复。下方保留原有历史发布快照。
+- USB 查询为空。实体 iPhone 的工具内部区域、原生全屏、动态切后台和系统缩略图仍未验证，不宣称全部修复。[PR #234](https://github.com/zdaiwmm/shui-IM/pull/234) 已合并为 `e2102c92685d0ce49d0a663f9fdeb0d088aee490`、版本 `2026.09.30.1`；准备后的 [PR 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36679287902) 与[精确 main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36679854092) 通过。用户已确认该完整 SHA 的生产发布。
+- 首次固定入口在构建后因容量低于 4 GiB、差约 140 MiB 停止，未切换。用户明确批准两份 9 月 22 日失败归档迁移到本机 FileVault 加密磁盘的仓库外独立目录；源／目标 SHA-256、gzip 及独立重读复验通过，记录事件关闭后移除确切服务器副本，释放约 1.49 GiB。普通旧目录、特殊归档及现行恢复点没有为补缺口而删除。
+- 同一目标续跑取得 `DEPLOY_VERIFIED`，独立 `READBACK_OK` 于 `2026-09-30T07:28:40.553Z` 确认线上为 `e2102c92685d0ce49d0a663f9fdeb0d088aee490`，镜像、HTTPS／数据库／存储、公开与容器产物和新 WebSocket 一致；应用健康，备份与 TURN 运行，维护标记不存在。发布后可用约 5.30 GiB、使用率 85.74%，发布容量门禁通过；连续备份的 8 GiB／低于 80% 准入仍不满足，不宣称持续异地备份已恢复。详见[本次发布与归档审阅](../../RELEASING.md#h5-遮蔽-v2-已发布2026-09-30)。独立文档对账不再次部署；活动开发树和对账树保留。下方为历史快照。
 
 
 ## iPhone 原生键盘栏与媒体列表误锁修复已发布（2026-09-29 22:20）
