@@ -85,7 +85,14 @@ export async function createConsistentBackup({ dataDir, backupRoot, now = new Da
   });
 }
 
-async function createBackupLocked({ dataDir, backupRoot, now }) {
+// Streaming exports stage only SQLite in bounded tmpfs. The receiver, not the
+// source, verifies and publishes the complete snapshot before acknowledging it.
+export async function exportConsistentBackup({ dataDir, backupRoot, exportFile, maxDatabaseBytes = 256 * 1024 ** 2 }) {
+  await mkdir(backupRoot, { recursive: true, mode: 0o700 });
+  return createBackupLocked({ dataDir, backupRoot, now: new Date(), exportFile, maxDatabaseBytes });
+}
+
+async function createBackupLocked({ dataDir, backupRoot, now, exportFile, maxDatabaseBytes }) {
   const { data, destination } = validateBackupLocation(await realpath(dataDir), await realpath(backupRoot));
   const sourceDatabase = path.join(data, DATABASE_NAME);
   if (!(await pathExists(sourceDatabase))) throw new Error('找不到生产数据库');
@@ -103,7 +110,12 @@ async function createBackupLocked({ dataDir, backupRoot, now }) {
     const backupDatabase = path.join(stagingDir, DATABASE_NAME);
     const source = new DatabaseSync(sourceDatabase, { readOnly: true, timeout: 10_000 });
     try {
+      if (exportFile) {
+        const bytes = Number(source.prepare('PRAGMA page_count').get().page_count) * Number(source.prepare('PRAGMA page_size').get().page_size);
+        if (!Number.isSafeInteger(maxDatabaseBytes) || maxDatabaseBytes < 1 || bytes > maxDatabaseBytes) throw new Error('BACKUP_DATABASE_LIMIT');
+      }
       await sqliteBackup(source, backupDatabase, { rate: 256 });
+      if (exportFile && (await stat(backupDatabase)).size > maxDatabaseBytes) throw new Error('BACKUP_DATABASE_LIMIT');
     } finally {
       source.close();
     }
@@ -114,6 +126,7 @@ async function createBackupLocked({ dataDir, backupRoot, now }) {
     snapshot.exec('PRAGMA wal_checkpoint(TRUNCATE); PRAGMA journal_mode = DELETE;');
     const quickCheck = snapshot.prepare('PRAGMA quick_check').all();
     if (quickCheck.length !== 1 || quickCheck[0].quick_check !== 'ok') throw new Error('备份数据库完整性检查失败');
+    if (exportFile) await exportFile(DATABASE_NAME, backupDatabase);
 
     for (const blob of completedBlobs(snapshot)) {
       const roomId = safeId(blob.room_id, 'ROOM_ID');
@@ -135,9 +148,15 @@ async function createBackupLocked({ dataDir, backupRoot, now }) {
         const fileName = `${String(index).padStart(8, '0')}.bin`;
         const sourceChunk = path.join(sourceBlobDir, fileName);
         const destinationChunk = path.join(destinationBlobDir, fileName);
-        const info = await stat(sourceChunk);
+        const info = await lstat(sourceChunk);
+        if (await realpath(sourceChunk) !== sourceChunk) throw new Error('BACKUP_SOURCE_SYMLINK');
         if (!info.isFile() || info.size !== chunk.byte_length) throw new Error(`附件分块大小不一致：${blobId}/${index}`);
         const sourceDigest = await sha256File(sourceChunk);
+        if (exportFile) {
+          await exportFile(path.posix.join('blobs', roomId, blobId, fileName), sourceChunk);
+          copiedChunks.push({ index, bytes: info.size, sha256: sourceDigest });
+          continue;
+        }
         let reused = false;
         if (previous) {
           const candidate = path.join(destination, previous, 'blobs', roomId, blobId, fileName);
@@ -185,6 +204,11 @@ async function createBackupLocked({ dataDir, backupRoot, now }) {
       flag: 'wx',
     });
     snapshot.close(); snapshot = null;
+    if (exportFile) {
+      await exportFile(MANIFEST_NAME, path.join(stagingDir, MANIFEST_NAME));
+      await rm(stagingDir, { recursive: true });
+      return { createdAt: manifest.createdAt, exported: true };
+    }
     const verification = await verifyBackup(stagingDir);
     await rename(stagingDir, finalDir);
     return { ...verification, backupDir: finalDir };

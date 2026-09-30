@@ -260,3 +260,43 @@ interruption survives reboot and requires inspection before another deployment.
 `admin.mijiu.cloud` 后台默认关闭，配置步骤见 `DEPLOYMENT.md`。管理员配置在聊天数据卷之外，只读挂载给应用，需独立安全保管并保持服务器时钟准确。后台密码哈希与 TOTP 种子不具备用户内容解密能力。备份工作人员仍不得记录 Authorization、请求正文、恢复码、凭据二维码或归档读取令牌。发布维护门必须同时覆盖普通应用和后台写入，不能让管理员在可回滚的验证窗口修改数据库。
 
 数据快照可能包含历史恢复包装和旧取件哈希。恢复旧服务器快照会恢复当时的权限/版本状态，不应把在线轮换当作不可回滚的全局吊销；在受信任维护中评估快照时点、客户端更新与需重新建立的恢复保护，不能静默对外宣称旧码永远无法再次使用。
+
+## Mac 主动拉取模式
+
+没有常在线异地存储时，可将当前 Mac 作为独立于生产服务器的恢复副本。
+这是过渡方案：Mac睡眠、退出登录、断网或损坏会中断备份；FileVault保护静态磁盘，
+不会防止已登录用户或恶意管理员删除文件，也不构成不可变／异地存储。
+
+服务器持久生产环境设置 `BACKUP_MODE=mac-pull`、`BACKUP_TMPFS_SIZE=384m`。
+local模式保持原有容量门槛；mac-pull不在根盘生成完整副本，仅将最大256MiB数据库
+快照放在备份容器的受限tmpfs，附件密文直接经严格校验的SSH流到Mac。
+超过数据库限制、缺少附件或传输错误均失败；容器仍限制512MiB内存。
+备份健康只认可Mac完成落盘独立验证后与本次会话／清单绑定的回执，36小时过期失败。
+
+按部署规则分别审阅并安装root拥有、0755的
+`deploy/server/quiet-room-mac-backup` 到 `/usr/local/sbin/quiet-room-mac-backup`，
+仅授权运维用户无参数调用此固定入口；不可授予通用Docker／shell新权限。
+普通生产发布不会自动更新该helper。可使用 `scripts/configure-mac-backup-server.mjs`
+只读输出计划，审阅后用 `--apply` 原子安装固定helper、无参数sudo规则与持久环境设置，
+保留root私有旧环境文件。设置不重启旧版应用；新容器启用模式后才执行新入口。
+
+在Mac已提交且干净的任务版本，使用已有配置运行：
+
+```sh
+QUIET_ROOM_DEPLOY_CONFIG=/absolute/path/to/existing-config.json node scripts/install-mac-backup.mjs
+# 审阅同一计划后添加 --apply；安装不会启动任务
+launchctl bootstrap gui/$(id -u) "$HOME/Library/LaunchAgents/click.shui.quiet-room-backup.plist"
+```
+
+安装器把精确提交的纯Node运行文件保存到用户Library，避免依赖任务worktree或node_modules。
+LaunchAgent每5分钟检查，距离最近成功快照12小时才再次拉取；任务使用caffeinate防止执行期间
+闲置睡眠，一小时截止、互斥防重入。强制手动运行同一runner的 `scripts/mac-backup.mjs`
+（不传 `--scheduled`）可立即拉取。需要Mac当前用户登录；唤醒后的补跑不代表睡眠时仍备份。
+日志只含操作状态及快照大小／目录，不含生产记录，需定期检查与清理日志。
+
+Mac目标目录必须为真实私有目录，文件0600、目录0700，仍应用8GiB／低于80%容量与inode门槛。
+落盘逐文件SHA-256、独立重读SQLite quick_check／索引／附件校验通过后原子发布；服务器
+确认成功退出后才执行三个不同UTC日期的保留策略。未知、损坏、发布前恢复点保留。
+备份没有成功或已过期时不得放宽独立生产回读门槛。发布后等待首次真实快照及容器健康
+探针通过，再运行固定独立回读；若回读失败只续跑回读，不再次切换。
+Mac目录与同一Mac上的另一个APFS卷都不等于独立物理备份盘；后续有外置盘后另行迁移与验收。

@@ -25,7 +25,14 @@ const stop = () => { stopping = true; };
 process.once('SIGTERM', stop);
 process.once('SIGINT', stop);
 
+const mode = process.env.BACKUP_MODE ?? 'local';
+if (!['local', 'mac-pull'].includes(mode)) throw new Error('INVALID_BACKUP_CONFIGURATION');
+
 while (!stopping) {
+  if (mode === 'mac-pull') {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    continue;
+  }
   let nextDelay = intervalMs;
   const startedAt = Date.now();
   let succeeded = false;

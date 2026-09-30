@@ -7,7 +7,7 @@ export async function readBackupState(root) {
   catch { return null; }
 }
 
-/** @typedef {{lastVerifiedAt?: string, snapshotCreatedAt?: string, lastAttemptAt?: string, lastAttemptSucceeded?: boolean}} BackupState */
+/** @typedef {{lastVerifiedAt?: string, snapshotCreatedAt?: string, lastAttemptAt?: string, lastAttemptSucceeded?: boolean, destination?: string}} BackupState */
 /** @param {string} root @param {BackupState} state */
 export async function writeBackupState(root, state) {
   const destination = path.join(root, '.backup-state.json');

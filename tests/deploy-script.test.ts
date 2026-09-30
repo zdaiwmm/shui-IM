@@ -17,6 +17,9 @@ describe('production deployment rollback safety contract', () => {
     const buildStage = source.slice(0, source.indexOf('FROM node:24-alpine AS runtime'));
 
     expect(buildStage).toContain('COPY tsconfig.json vite.config.ts index.html admin.html release.json ./');
+    expect(buildStage).toContain('tsconfig.resource-boundaries.json');
+    expect(buildStage.indexOf('COPY server ./server')).toBeLessThan(buildStage.indexOf('RUN npm run build'));
+    expect(buildStage.indexOf('COPY scripts ./scripts')).toBeLessThan(buildStage.indexOf('RUN npm run build'));
     expect(buildStage.indexOf('release.json')).toBeLessThan(buildStage.indexOf('RUN npm run build'));
     expect(buildStage.indexOf('COPY release-history.json')).toBeLessThan(buildStage.indexOf('RUN npm run build'));
   });
