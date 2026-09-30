@@ -1,5 +1,13 @@
 # Quiet Room 固定发布流程
 
+## 系统工具与发送区误锁修复已发布（2026-09-30 21:38）
+
+- 用户在本会话确认精确提交 `e16328b34f03da47770de132d41f2f4c8a49f8f9`，版本 `2026.09.30.4`。[修复PR #240](https://github.com/zdaiwmm/shui-IM/pull/240)与[版本PR #242](https://github.com/zdaiwmm/shui-IM/pull/242)均已合并。版本候选 `a319b97bd4452096ee7b75afb7e02c99c94d1c10` 完整本地门禁通过：787项单元/集成、49个浏览器入口，565454毫秒；合并树与该候选相同。精确[PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36718181330)及[主线完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36719268893)全部通过。系统工具交接与发送区边界沿用D-048，外观不变，无原型。
+- 最初两次入口在CI证据读取阶段分别遇到GitHub HTTP 504、502，尚未调用服务器切换；原版本独立回读通过。用户要求解决后，接口恢复，重新核验同一精确提交最新CI与同次verify成功，沿用原授权续跑固定入口，未改源码、认证或发布门槛。此为临时外部服务恢复，不宣称已永久消除GitHub故障。
+- 固定入口取得并核对精确 `DEPLOY_VERIFIED`，实际生产切换仅一次。批次 `20260930T133038Z`，发布目录 `/opt/quiet-room/git-releases/20260930T133038Z-e16328b34f03`，冷备份 `data-20260930T133038Z-e16328b34f03.tar.gz` 已校验；镜像构建45秒、冷备份56秒、启动31秒、服务器总计141秒，入口总计179293毫秒。既有容量及维护门检查通过，没有安装或修改root helper，没有另行删除受保护数据或备份。
+- 首次独立回读时应用healthy、维护门不存在，备份探针仍starting；按既有五分钟启动周期等待实际变为healthy后，仅续跑只读回读。最终 `READBACK_OK` 于 `2026-09-30T13:38:33.592Z` 完成，2867毫秒：精确SHA、维护门、HTTPS/数据库/存储、公开与容器产物、新WebSocket全部一致。应用与备份均healthy，TURN运行且探针none；两容器镜像均为 `sha256:9171d7b30981ab998f60896435add660eb6cc0baa9f03a6ccb48b5e30503a4e5`。脱敏回读为任务Git元数据 `quiet-room-readback/20260930T133830725Z-e16328b34f03-success.json`；精确回执、回读及摘要另存公共Git目录 `quiet-room-production-evidence/20260930-e16328b34f03/`。前述失败记录另存同目录父级的 `20260930-e16328b34f03-blocked/`，不能据此认为当前仍未上线。
+- iPhone/iOS27/Safari真实系统工具、原生全屏、系统缩略图与真实双端TURN弱网仍未验证。此次回读不重新验证Mac长期备份、异地保护或整站恢复能力；既有运维缺口保留。本次独立文档对账不再次部署，以下均为历史发布记录。
+
 ## 架构资源优化与Mac备份已发布（2026-09-30 18:10）
 
 - 用户明确确认精确提交 `f775ff985aab69f1118b0ef1ae5462ebea966471`，版本 `2026.09.30.3`。[PR #238](https://github.com/zdaiwmm/shui-IM/pull/238) 已合并，包含此前架构PR #235；合并树 `5e76c2a5c96466d2ce81fb068e67c73b075e7206` 与最终head `88f5021313ad1176585d5442134ca068f4a26bab` 完全一致。本地构建／787项单元与集成18.037秒通过，精确[PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36697233908)及[主线完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/36698050871)首轮全部通过。
