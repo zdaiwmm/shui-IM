@@ -46,6 +46,12 @@ class SlowSocket extends EventEmitter {
 }
 describe('socket budgets', () => {
   const limits = { outputPerSocket: 100, outputTotal: 150, inputPerSocket: 100, inputTotal: 150, inputFrames: 2 };
+  it('lets the service stop unsupported transports without relaxing output budgets', () => {
+    const budget = createSocketBudget(limits, socket => socket.close(4403, 'Client upgrade required'));
+    const socket = new SlowSocket();
+    expect(budget.send(socket, 'x'.repeat(110))).toBe(false);
+    expect(socket.codes).toEqual([4403]); expect(budget.snapshot().output).toBe(0);
+  });
   it('closes a slow socket before adding more output and frees global bytes once', () => {
     const budget = createSocketBudget(limits), a = new SlowSocket(), b = new SlowSocket();
     expect(budget.send(a, 'x'.repeat(80))).toBe(true);

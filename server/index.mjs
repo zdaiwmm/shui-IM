@@ -294,7 +294,13 @@ export async function startServer(options = {}) {
     return current.count <= limit;
   }
 
-  const transportBudget = createSocketBudget();
+  function closeOverloaded(socket, notify = false) {
+    const legacy = socketSessions.get(socket)?.bytePages === false;
+    if (legacy && notify) send(socket, { type: 'error', code: 'SYNC_UPGRADE_REQUIRED',
+      message: '积压数据超过旧版传输容量，请刷新页面后连接' });
+    socket.close(legacy ? 4403 : 4413, legacy ? 'Client upgrade required: capacity exceeded' : 'Transport capacity exceeded');
+  }
+  const transportBudget = createSocketBudget({}, socket => closeOverloaded(socket));
   const send = (socket, value) => transportBudget.send(socket, value);
 
   function sendSync(socket, session, afterSeq) {
@@ -1270,7 +1276,7 @@ export async function startServer(options = {}) {
         return;
       }
       const releaseInput = transportBudget.reserveInput(socket, raw.length);
-      if (!releaseInput) { socket.close(4413, 'Input capacity exceeded'); return; }
+      if (!releaseInput) { closeOverloaded(socket, true); return; }
       processing = processing.then(async () => {
         if (socket.readyState !== WebSocket.OPEN) return;
         let rejectedClientMsgId;

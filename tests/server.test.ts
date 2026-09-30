@@ -77,6 +77,22 @@ async function request(url: string, options: RequestInit = {}) {
 }
 
 describe('HTTP and WebSocket integration', () => {
+  it('stops an overloaded legacy sender with an upgrade while modern senders may reconnect', async () => {
+    const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-legacy-ingress-'));
+    const server = await startServer({ port: 0, host: '127.0.0.1', dataDir, quiet: true });
+    cleanup.push(async () => { await server.close(); await rm(dataDir, { recursive: true, force: true }); });
+    const deviceId = crypto.randomUUID(), accessToken = randomBase64Url(32);
+    const { roomId } = server.store.createRoom({ deviceId, encryptionKey: {}, signingKey: {} }, accessToken);
+    for (const modern of [false, true]) {
+      const client = await FrameClient.connect(`ws://127.0.0.1:${server.port}/ws`);
+      const closed = new Promise<number>(resolve => client.socket.once('close', code => resolve(code)));
+      client.send({ type: 'auth', roomId, accessToken, deviceId, ...(modern ? { syncProtocol: 'byte-pages-v1' } : {}) });
+      await client.waitFor(frame => frame.type === 'ready');
+      for (let index = 0; index < 40; index++) client.send({ type: 'ping', at: index });
+      if (!modern) expect(await client.waitFor(frame => frame.type === 'error')).toMatchObject({ code: 'SYNC_UPGRADE_REQUIRED' });
+      expect(await closed).toBe(modern ? 4413 : 4403);
+    }
+  });
   it('drains 40 signed outbox messages and their receipts without exceeding ingress capacity', async () => {
     const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-room-bulk-replay-'));
     const server = await startServer({ port: 0, host: '127.0.0.1', dataDir, quiet: true });

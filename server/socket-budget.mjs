@@ -2,8 +2,9 @@
 export const SOCKET_LIMITS = Object.freeze({ outputPerSocket: 12 * 1024 ** 2, outputTotal: 32 * 1024 ** 2,
   inputPerSocket: 2 * 1024 ** 2, inputTotal: 8 * 1024 ** 2, inputFrames: 32, outputFrames: 256,
   inputFramesTotal: 2048, outputFramesTotal: 4096 });
-/** @param {Partial<typeof SOCKET_LIMITS>} [overrides] */
-export function createSocketBudget(overrides = {}) {
+/** @param {Partial<typeof SOCKET_LIMITS>} [overrides]
+ * @param {(socket: import('ws').WebSocket) => void} [onOverload] */
+export function createSocketBudget(overrides = {}, onOverload = socket => socket.close(4413, 'Transport capacity exceeded')) {
   const limits = { ...SOCKET_LIMITS, ...overrides };
   /** @type {WeakMap<import('ws').WebSocket, {input: number, output: number, inputFrames: number, outputFrames: number}>} */
   const states = new WeakMap();
@@ -55,7 +56,7 @@ export function createSocketBudget(overrides = {}) {
       if (socket.readyState !== 1) return false;
       const serialized = JSON.stringify(value);
       const release = reserve(socket, Buffer.byteLength(serialized), 'output');
-      if (!release) { socket.close(4413, 'Transport capacity exceeded'); return false; }
+      if (!release) { onOverload(socket); return false; }
       // close may precede the ws callback; release exactly once on either path.
       // A single close listener per socket avoids one listener per small frame.
       const cleanup = pendingFor(socket);
