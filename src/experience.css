@@ -116,6 +116,9 @@ body:has(.confirm-overlay, .call-overlay, .call-sheet, .message-actions) .hidden
 .hidden-album-hint strong { font-size: .875rem; }
 .hidden-album-hint span { font-size: .75rem; color: var(--ink-muted); }
 .hidden-album-hint button { width: 100%; color: var(--accent); font-weight: 650; }
+
+#access-failure > div { min-width: 0; overflow-wrap: anywhere; }
+#access-failure button { flex: 0 0 auto; min-height: 44px; max-width: 100px; white-space: normal; }
 .chat-guide { padding: 6px 8px 6px 12px; min-height: 56px; }
 .chat-guide-icon { width: 36px; height: 36px; display: grid; place-items: center; flex: none; border-radius: 10px; background: var(--accent-soft); color: var(--accent); }
 .chat-guide-icon svg { width: 20px; height: 20px; }

@@ -1,4 +1,5 @@
 import { recoverableSpaces, spaceCodeId, rememberHistorySources } from './spaces';
+import { ApiError } from './api';
 import { isMessagePayload } from './message-payload';
 import { isGalleryMediaPayload } from './video-media';
 import { galleryCurationKey, normalizeGalleryCurationRecords } from './gallery-curation';
@@ -91,12 +92,12 @@ async function request<T>(url: string, token: string, signal: AbortSignal, body?
       if (response.ok) return await response.json() as T;
     } catch (cause) {
       signal.throwIfAborted();
-      if (timeout.signal.aborted) throw timeout.signal.reason;
-      if (cause instanceof TypeError) throw new Error('网络连接中断，请检查网络后重试');
+      if (timeout.signal.aborted) throw new ApiError('备份请求超时，请检查网络后重试', 0, 'BACKUP_TIMEOUT');
+      if (cause instanceof TypeError) throw new ApiError('网络连接中断，请检查网络后重试', 0, 'NETWORK_FAILED');
       throw cause;
     } finally { clearTimeout(timer); }
     if (response.status === 429) {
-      if (retry >= MAX_RATE_LIMIT_RETRIES) throw new Error('备份请求过于频繁，请稍后再试；已恢复的记录会保留，可继续重试');
+      if (retry >= MAX_RATE_LIMIT_RETRIES) throw new ApiError('备份请求过于频繁，请稍后再试；已恢复的记录会保留，可继续重试', 429, 'RATE_LIMITED', retryAfterMs(response));
       onWait?.(true);
       try { await waitForRetry(retryAfterMs(response), signal); }
       finally { if (!signal.aborted) onWait?.(false); }
@@ -107,7 +108,7 @@ async function request<T>(url: string, token: string, signal: AbortSignal, body?
       : '找不到可用备份。设备恢复并换码后，旧码会停用，请使用新生成的恢复码；也请确认码输入完整、对应设备未撤销且备份未清理');
     if (response.status === 409) throw new Error('备份版本冲突，请锁定后重新解锁再试');
     if (response.status === 413) throw new Error('备份空间已满，请联系管理员处理');
-    throw new Error('备份服务暂时不可用，请稍后重试');
+    throw new ApiError('备份服务暂时不可用，请稍后重试', response.status, 'BACKUP_UNAVAILABLE');
   }
 }
 

@@ -305,3 +305,13 @@ At 1024 CSS pixels and wider, the unlocked workspace uses a 280px space sidebar 
 Desktop Settings occupies the content pane and reuses the same actions and verification boundaries. Auxiliary pages keep the space navigation. Tools and expressions float above the editor and stay within the available height; they do not cover multiline draft text. Fine-pointer clients support direct message-text selection and normal browser zoom; right-click, the visible-on-hover/focus message menu button and keyboard open the shared message actions. Keyboard activation enters the tools panel, Escape closes it and restores the trigger. Dialogs own every Tab/Shift+Tab step, including Safari's reduced native tab order.
 
 The sidebar only reads the encrypted local directory and the existing count-only observers. It does not unlock another vault, load another room's history, mark sidebar previews read or broaden new-device access. Background chat under a modal cannot generate visible-message read acknowledgements. Privacy cleanup removes the entire workspace and stops its observers; desktop retention eligibility remains based on the existing platform/lifecycle policy, never this layout breakpoint. Touch-capable desktop PCs are not forced into the mobile portrait guard.
+
+## 邀请、恢复与设备接入反馈（2026-10-08）
+
+初次打开和已开标签页收到参与者、设备、修复、共同恢复链接时，沿相同的入口校验规则进入对应任务。进入页面后消费链接，取消后可重新打开同一链接。已有空间先按原本机保护验证；未提交恢复返回原空间并保留草稿、位置与焦点。已持久化的加入／修复／恢复任务不被新邀请覆盖，新邀请需在当前任务结束后重新打开。链接不改变签名双方、授权范围或设备密钥关系。
+
+普通断网继续本机排队并重连。设备接入被服务拒绝时，显示此空间接入暂停，停止新消息加密、发送与无效重试；草稿可复制，本机历史和加密待发材料保留。通用拒绝不猜测移除者或替换原因；明确的客户端升级和空间删除反馈分别提示重新加载或返回空间列表。网络反馈只控制呈现与发送，不修改已认证成员链。重新接入沿已有添加设备链接与安全码批准流程，使用独立新密钥，不自动迁移原待发箱和历史。
+
+添加设备等待页在前台单链检查原申请，正常间隔3秒，网络失败退避至最多24秒，并保留“立即检查”。服务限流按 Retry-After 等待；隐藏、锁定中止当前请求，解锁后继续原身份和申请。期限结束仍先查询服务最终结果，已经按期批准的设备可以完成安装；未批准且已过期则明确停止。只有验证并安装欢迎消息、保存新设备边界后才进入聊天。
+
+需求确认、原型与验收见[本次记录](docs/requirements/2026-10-08-interaction-audit/README.md)。

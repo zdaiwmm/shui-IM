@@ -42,9 +42,12 @@ export function jointRecoveryCode(link: JointLink): string {
 export function parseJointRecoveryLink(value: string): JointLink | null {
   try {
     const url = new URL(value, location.origin);
-    const data = JSON.parse(new URLSearchParams(url.hash.slice(1)).get('recover') ?? 'null') as JointLink | null;
+    if (url.hash.length > 2048) return null;
+    const params = new URLSearchParams(url.hash.slice(1));
+    if ([...params.keys()].length !== 1 || params.getAll('recover').length !== 1) return null;
+    const data = JSON.parse(params.get('recover') ?? 'null') as JointLink | null;
     const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
-    return data && uuid.test(data.roomId) && uuid.test(data.requestId) && /^[A-Za-z0-9_-]{43}$/.test(data.capability) ? data : null;
+    return data && Object.keys(data).sort().join(',') === 'capability,requestId,roomId' && uuid.test(data.roomId) && uuid.test(data.requestId) && /^[A-Za-z0-9_-]{43}$/.test(data.capability) ? data : null;
   } catch { return null; }
 }
 export async function jointRequest(link: JointLink, signal: AbortSignal, action?: string, value?: unknown): Promise<JointSnapshot> {
@@ -120,12 +123,15 @@ export async function prepareJointRecovery(code: string, requestedScope: 'me' | 
     recoverySource: { ...(preserveHistory ? { resumeCursor: Math.max(0, ...bundle.archives.flatMap(archive => archive.parts.map(part => part.lastSeq))) } : {}), backupId: bundle.backupId, archives: bundle.archives, galleryHidden: bundle.galleryHidden } };
   signal.throwIfAborted();
   let session: VaultSession;
+  const retainedCollection = spaceRecoveryCode ?? helper?.vault.spaceRecoveryCode;
+  const recoveryExperience = { ...(helper?.vault.recoveryExperience ?? source.recoveryExperience),
+    jointMaterial: retainedCollection ? 'retained' as const : 'new' as const };
   if (preserveHistory) {
     session = helper!;
-    await withVaultMutation(session, async mutation => { signal.throwIfAborted(); session.vault.pendingJointRecovery = pending; await saveVault(session, mutation); });
+    await withVaultMutation(session, async mutation => { signal.throwIfAborted(); session.vault.pendingJointRecovery = pending; session.vault.recoveryExperience = recoveryExperience; await saveVault(session, mutation); });
   } else {
     if (!credential) throw new Error('请先为本机创建通行密钥');
-    const vault = { ...source, spaceRecoveryCode: spaceRecoveryCode ?? helper?.vault.spaceRecoveryCode, identity, accessToken, pendingJointRecovery: pending, pairingState: 'ready' as const,
+    const vault = { ...source, spaceRecoveryCode: retainedCollection, recoveryExperience, identity, accessToken, pendingJointRecovery: pending, pairingState: 'ready' as const,
       mls: { protocol: 'mls-rfc9420' as const, phase: 'awaiting-welcome' as const }, lastSeq: 0, lastReceiptSeq: 0 };
     delete vault.backup; delete vault.pendingRecovery; delete vault.recoverySource;
     session = await createJointRecoveryVault(vault, credential, expected, signal);
