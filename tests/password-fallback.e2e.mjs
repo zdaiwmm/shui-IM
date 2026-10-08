@@ -9,7 +9,11 @@ import { startServer } from '../server/index.mjs';
 const screenshots = process.argv[2];
 const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-password-acceptance-'));
 const backend = await startServer({ port: 0, host: '127.0.0.1', dataDir, quiet: true });
-const vite = await createServer({ configFile: false, root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0, hmr: false,
+const vite = await createServer({ configFile: false, root: process.cwd(), logLevel: 'error', plugins: [{
+  name: 'observe-password-product-bootstrap', enforce: 'pre', transform(code, id) {
+    if (id === path.join(process.cwd(), 'src/main.ts')) return code.replace('void app.start();', 'window.app = app; window.productStartup = app.start();');
+  },
+}], server: { host: '127.0.0.1', port: 0, hmr: false,
   proxy: { '/api': `http://127.0.0.1:${backend.port}`, '/ws': { target: `ws://127.0.0.1:${backend.port}`, ws: true } } } });
 vite.middlewares.use('/__password_acceptance', (_req, res) => {
   res.setHeader('Content-Type', 'text/html');
@@ -19,6 +23,9 @@ let browser;
 const css = ['styles', 'chat-layout', 'gallery', 'auth-recovery', 'chat-interactions', 'cover', 'voice-messages', 'call', 'motion', 'desktop', 'experience'];
 async function boot(page) {
   await page.evaluate(async css => {
+    // Invite URLs land on the actual index/main entry, which already owns an
+    // App. A second bootstrap would discard its correctly consumed invitation.
+    if (window.productStartup) { await window.productStartup; return; }
     await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     const { mountSystemChrome } = await import('/src/lib/system-chrome.ts'); mountSystemChrome();
     const { QuietRoomApp } = await import('/src/app.ts'); window.app = new QuietRoomApp(document.querySelector('#app')); await app.start();
