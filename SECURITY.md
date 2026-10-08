@@ -251,3 +251,9 @@ Disposable media cache shares a 1 GiB origin budget with a 64 MiB reserve for du
 ### Expression display classification
 
 The optional encrypted expressionKind field is limited to gifs/stickers on expression image payloads and requires expression-kind-v1 across active devices when emitted. Legacy-device sends omit the field; already-encrypted outbox items retain their payload and ID and defer if membership loses support. It changes display geometry only, not original bytes, visibility, receipts, keys or access. Emoji search uses bundled Unicode/CLDR metadata locally and selected characters follow the existing text payload path.
+
+## Interaction task boundaries (2026-10-08)
+
+Unsubmitted recovery read retries retain validated material only in the current foreground dialog, for at most two minutes. Closing, navigation, hiding or locking aborts reads and releases input, capability and decrypted choice references; stale responses cannot install another space. Submitted recovery continues only from its original encrypted durable task. Device-link polling shares one check/install operation for the same session and identity, honors server cooldowns, and does not treat approval presentation as MLS installation.
+
+Terminal WebSocket access feedback suspends new send/encryption and transport retry; it never changes trusted membership, restores access or moves an encrypted outbox to another endpoint. Unknown denial cannot establish a remover or replacement cause. Existing local history and pending ciphertext remain in their original browser vault. Ordinary new-browser admission still uses independent keys, existing-device approval, and the existing post-join history boundary.

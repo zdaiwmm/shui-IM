@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Quiet Room · 交互优化原型 v1</title>
+  <link rel="stylesheet" href="../../../../src/styles.css">
+  <link rel="stylesheet" href="../../../../src/chat-layout.css">
+  <link rel="stylesheet" href="../../../../src/spaces.css">
+  <link rel="stylesheet" href="../../../../src/recovery-experience.css">
+  <link rel="stylesheet" href="../../../../src/design-system.css">
+  <link rel="stylesheet" href="../../../../src/auth-recovery.css">
+  <link rel="stylesheet" href="../../../../src/experience.css">
+  <link rel="stylesheet" href="prototype.css">
+  <script defer src="prototype.js"></script>
+</head>
+<body class="prototype-body">
+  <div class="review-layout">
+    <details class="review-console" open>
+      <summary>交互优化原型 <span>v1 · 模拟</span></summary>
+      <div class="review-body">
+        <p>以下控制台用于审阅，不属于产品界面。使用合成数据，不连接聊天或恢复服务。</p>
+        <label>审阅任务<select id="flow"><option value="nav">I1 · 邀请导航与返回</option><option value="access">I5 · 断网与接入失效</option><option value="recovery">I2 / I4 · 恢复重试与结果</option><option value="device">I3 · 新设备等待批准</option></select></label>
+        <div id="conditions"></div>
+        <button class="secondary-button" id="reset" type="button">重置当前演示</button>
+        <p class="review-note" id="review-note"></p>
+        <a href="../flow.html" target="_blank">查看业务流程图 ↗</a>
+        <p class="review-limit">系统验证、加密、持久化与授权均为模拟；不能作为安全、真机或产品通过证据。页面隐藏会清除临时恢复输入。</p>
+      </div>
+    </details>
+    <main id="preview" aria-label="产品原型预览">
+      <aside id="space-sidebar" aria-label="私密空间"></aside>
+      <div id="surface"></div>
+    </main>
+  </div>
+  <div class="sr-only" id="announcement" role="status" aria-live="polite"></div>
+</body>
+</html>

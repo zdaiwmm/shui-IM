@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { RoomSocket } from '../src/lib/api';
+import { RoomSocket, responseError } from '../src/lib/api';
 import type { DeliveryReceipt, MessageEnvelope, RoomState } from '../src/lib/types';
 
-type Listener = (event: { data?: string; code?: number }) => void;
+type Listener = (event: { data?: string; code?: number; reason?: string }) => void;
 
 class FakeWebSocket {
   static readonly CONNECTING = 0;
@@ -34,10 +34,10 @@ class FakeWebSocket {
     this.readyState = 3;
   }
 
-  emit(type: string, data?: string, code?: number): void {
+  emit(type: string, data?: string, code?: number, reason?: string): void {
     if (type === 'open') this.readyState = FakeWebSocket.OPEN;
     if (type === 'close') this.readyState = 3;
-    for (const listener of this.listeners.get(type) ?? []) listener({ data, code });
+    for (const listener of this.listeners.get(type) ?? []) listener({ data, code, reason });
   }
 }
 
@@ -56,6 +56,26 @@ describe('RoomSocket membership ordering', () => {
     vi.stubGlobal('window', { setTimeout, clearTimeout, setInterval, clearInterval });
     vi.stubGlobal('WebSocket', FakeWebSocket);
   }
+  it.each([
+    [4401, '', 'denied'], [4403, 'Device no longer active', 'denied'],
+    [4403, 'unknown future reason', 'denied'], [4403, 'Room removed', 'space-unavailable'],
+    [4403, 'Client upgrade required', 'upgrade'], [4403, 'Client upgrade required: capacity exceeded', 'upgrade'],
+  ])('stops retrying terminal access failures (%s / %s) without claiming a removal cause', (code, reason, expected) => {
+    vi.useFakeTimers(); environment(); const callbacks = { ...handlers(), accessFailure: vi.fn(), callTransport: vi.fn() };
+    const socket = new RoomSocket('room', 'token', () => 0, () => 0, callbacks);
+    socket.connect(); const transport = FakeWebSocket.instances[0]!; transport.emit('open');
+    transport.emit('message', JSON.stringify({ type: 'ready', state: {} }));
+    transport.emit('close', undefined, Number(code), String(reason));
+    expect(callbacks.accessFailure).toHaveBeenCalledExactlyOnceWith(expected);
+    expect(callbacks.callTransport).toHaveBeenCalledWith('WS_AUTH_FAILED');
+    expect(() => socket.sendEnvelope({ clientMsgId: 'retained' } as MessageEnvelope)).toThrow('实时连接尚未恢复');
+    vi.advanceTimersByTime(60000); expect(FakeWebSocket.instances).toHaveLength(1);
+    socket.close();
+  });
+  it('preserves server cooldown metadata for recovery and device status retry', async () => {
+    const error = await responseError(new Response(JSON.stringify({ error: 'busy', code: 'RATE_LIMITED' }), { status: 429, headers: { 'Retry-After': '60' } }));
+    expect(error.retryable).toBe(true); expect(error.retryAfterMs).toBe(60000); expect(error.code).toBe('RATE_LIMITED');
+  });
   it('paces a durable receipt backlog instead of overflowing the server input queue', () => {
     environment(); const callbacks = handlers();
     const socket = new RoomSocket('room', 'token', () => 0, () => 0, callbacks);
