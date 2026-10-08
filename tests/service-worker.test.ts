@@ -9,12 +9,13 @@ async function worker(fetchResponse: () => Promise<Response>, cached?: Response,
   const waiting: Promise<unknown>[] = [];
   const posted: unknown[] = [];
   const deleted: string[] = [];
+  const notifications: unknown[] = [];
   vm.runInNewContext(await readFile(new URL('../public/sw.js', import.meta.url), 'utf8'), {
-    self: { location: { origin: 'https://ai.shui.click' }, addEventListener: (type: string, handler: any) => handlers.set(type, handler), skipWaiting() {}, clients: { claim: async () => {}, matchAll: async () => [{ postMessage: (message: unknown) => posted.push(message) }] } },
+    self: { registration: { showNotification: async (title: string, options: unknown) => { notifications.push({ title, options }); } }, location: { origin: 'https://ai.shui.click' }, addEventListener: (type: string, handler: any) => handlers.set(type, handler), skipWaiting() {}, clients: { claim: async () => {}, matchAll: async () => [{ postMessage: (message: unknown) => posted.push(message) }] } },
     URL, Response, fetch: fetchResponse,
     caches: {
       match: async (key: string) => stored.get(key)?.clone(),
-      open: async () => ({ put: async (key: string, response: Response) => { stored.set(key, response); } }),
+      open: async () => ({ match: async (key: string) => stored.get(key)?.clone(), put: async (key: string, response: Response) => { stored.set(key, response); } }),
       keys: async () => cacheKeys,
       delete: async (key: string) => { deleted.push(key); return true; },
     },
@@ -30,7 +31,8 @@ async function worker(fetchResponse: () => Promise<Response>, cached?: Response,
     handlers.get('activate')!({ waitUntil: (value: Promise<unknown>) => waiting.push(value) });
     await Promise.all(waiting.splice(0));
   };
-  return { navigate, activate, stored, posted, deleted };
+  const push = async () => { handlers.get('push')!({ waitUntil: (value: Promise<unknown>) => waiting.push(value) }); await Promise.all(waiting.splice(0)); };
+  return { navigate, activate, push, notifications, stored, posted, deleted };
 }
 
 const shell = () => new Response('<html>working offline shell</html>', { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
@@ -76,5 +78,22 @@ describe('offline shell response validation', () => {
     expect(online.stored.size).toBe(0);
     const offline = await worker(async () => { throw new Error('offline'); });
     expect((await offline.navigate()).type).toBe('error');
+  });
+});
+
+
+describe('generic notifications and durable device opt-out', () => {
+  it('preserves opt-out through worker upgrades and suppresses queued wakes', async () => {
+    const app = await worker(async () => shell(), undefined, ['quiet-room-old', 'quiet-room-notification-policy-v1']);
+    app.stored.set('/__quiet-room-notification-policy', new Response('off'));
+    await app.activate();
+    expect(app.deleted).toEqual(['quiet-room-old']);
+    await app.push(); expect(app.notifications).toEqual([]);
+    app.stored.set('/__quiet-room-notification-policy', new Response('on'));
+    await app.push();
+    expect(app.notifications).toEqual([{ title: 'Quiet Room', options: { body: '有一条新消息，解锁后查看。', icon: '/icon.svg', badge: '/icon.svg', tag: 'quiet-room-wake', renotify: false, silent: false, data: { url: '/' } } }]);
+  });
+  it('retains generic wakes for existing subscribers until settings are migrated', async () => {
+    const app = await worker(async () => shell()); await app.push(); expect(app.notifications).toHaveLength(1);
   });
 });

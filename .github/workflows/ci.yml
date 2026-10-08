@@ -82,6 +82,11 @@ jobs:
     if: needs.scope.outputs.mode == 'full'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Use the official image to avoid downloading OS dependencies from slow
+    # runner apt mirrors. Keep the tag and digest aligned with package-lock.json.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
+      options: --init --ipc=host
     strategy:
       fail-fast: false
       matrix:
@@ -98,9 +103,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci --no-audit
-      - run: npx playwright install --with-deps chromium
-      - if: matrix.group == 2
-        run: npx playwright install --with-deps webkit
+      - name: Check the preinstalled Playwright version
+        run: node -e "if (require('playwright/package.json').version !== '1.62.1') throw new Error('Playwright image must match package-lock.json')"
       # The backup/admin browser fixture serves dist/admin.html.
       - run: npm run build
       - run: npm run test:browser -- --group ${{ matrix.group }} --shard ${{ matrix.shard }}

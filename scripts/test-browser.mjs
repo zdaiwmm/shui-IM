@@ -42,6 +42,7 @@ export const browserGroups = Object.freeze({
     'tests/passkey-management.e2e.mjs',
     'tests/browser-access.e2e.mjs',
     'tests/space-drawer-ui.e2e.mjs',
+    'tests/notifications.e2e.mjs',
     'tests/voice-lifecycle.e2e.mjs',
     'tests/voice-submission.e2e.mjs',
     'tests/cloud-backup-lifecycle.e2e.mjs',

@@ -241,6 +241,16 @@ fi
 
 # Resolve both graphs before maintenance. --quiet avoids printing interpolated
 # TURN secrets. Download the separately reviewed TURN image before downtime.
+if (( calls_enabled )); then
+  # Git checkout inherits the deployment umask. This tracked file is public
+  # configuration, mounted read-only by the unprivileged TURN container.
+  turn_public_config="$release_dir/deploy/turnserver.conf"
+  if [[ ! -f "$turn_public_config" || -L "$turn_public_config" ]]; then
+    printf 'TURN public configuration must be a regular, non-symlink file.\n' >&2
+    exit 66
+  fi
+  chmod 0644 "$turn_public_config"
+fi
 QUIET_ROOM_IMAGE="$new_image" docker compose "${new_compose_args[@]}" config --quiet
 if [[ -f "$previous_compose" ]]; then
   QUIET_ROOM_IMAGE="${previous_image:-$new_image}" docker compose "${previous_compose_args[@]}" config --quiet

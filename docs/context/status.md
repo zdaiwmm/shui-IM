@@ -1,5 +1,12 @@
 # Quiet Room 当前状态
 
+
+## 2026-10-08 本机通知管理：实施候选
+
+- 用户确认只实施通知，备份与恢复提案不纳入。独立任务基线 `82497d95fd6c587304ad2fbc4bd677b1805c1434`，分支 `codex/device-notifications-20261008`；[需求与验证入口](../requirements/2026-10-08-device-notifications/README.md)维护范围。
+- 本机单页管理总开关及全部空间，区分系统／服务／网络能力，无测试通知；通知仍为通用提醒。共享端点按空间隔离及旧表原子迁移有定向证据；Chromium、WebKit 合成交互专项通过。完整门禁与 PR／CI 以本候选交付回执为准，尚未发布生产。
+- 真机 iPhone/iOS27/Safari 的安装、系统权限与真实 Web Push 送达未验证；现有生产事实仍以以下发布记录为准。
+
 ## 草稿刷新与邀请返回修复已发布（2026-10-08 11:45）
 
 - 当前生产精确 SHA `3b969f8ceb1501380e8cb69d816bb18543ac8798`，版本 `2026.10.08.1`，用户已在本会话确认该完整提交；[PR #248](https://github.com/zdaiwmm/shui-IM/pull/248) 与此前[PR #249](https://github.com/zdaiwmm/shui-IM/pull/249) 已合并，精确[main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37711657679) attempt 1 全部 12 项成功。已上线即时刷新草稿保护、邀请返回列表，以及邀请／恢复／设备接入／访问失效等交互优化；[草稿需求](../requirements/2026-10-08-audit-bugfix/README.md)与[交互需求](../requirements/2026-10-08-interaction-audit/README.md)中的未发布表述保留为实施阶段，本节接续实际发布结果。

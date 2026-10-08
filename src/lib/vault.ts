@@ -1062,8 +1062,8 @@ export async function unlockOwnedPendingSpace(id: string, credential: PlatformCr
   });
 }
 
-/** Verify only the requested local slot, without changing the selected space. */
-export async function unlockSpaceForRemoval(id: string, credential: PlatformCredentialResult | null,
+/** Verify only the requested local slot for explicit management, without changing selection. */
+export async function unlockLocalSpaceForManagement(id: string, credential: PlatformCredentialResult | null,
   verify: (record: PlatformCredentialRecord) => Promise<Uint8Array<ArrayBuffer>>,
   passwordVerification?: (verify: (password: string) => Promise<VaultSession>) => Promise<VaultSession>): Promise<VaultSession> {
   const stored = await withVaultLifecycle(() => readStoredVaultUnlocked(id));
@@ -1076,7 +1076,7 @@ export async function unlockSpaceForRemoval(id: string, credential: PlatformCred
     }));
   }
   if (!stored || stored.v !== 3 || stored.unlockMethod !== 'platform') {
-    throw new Error('请先打开此空间完成访问密钥升级，再删除');
+    throw new Error('请先打开此空间完成访问密钥升级');
   }
   const proof = credential?.record.credentialId === stored.platform.credentialId
     ? credential.prfOutput.slice() : await verify(stored.platform);
@@ -1087,6 +1087,8 @@ export async function unlockSpaceForRemoval(id: string, credential: PlatformCred
     });
   } finally { proof.fill(0); }
 }
+
+export const unlockSpaceForRemoval = unlockLocalSpaceForManagement;
 
 /** Resume an in-memory capability only from its unchanged, authenticated durable snapshot. */
 export async function resumeVaultSession(session: VaultSession): Promise<VaultSession> {

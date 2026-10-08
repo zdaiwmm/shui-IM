@@ -1,13 +1,13 @@
 import { dismissDraggedPanel, motion, retargetMotion, settleValue } from './motion';
 import { mountDialog } from './dialog';
 import type { PrivateSpace } from './spaces';
-import { createElement, Settings2, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2, PanelLeftClose } from 'lucide';
+import { createElement, Bell, Settings2, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2, PanelLeftClose } from 'lucide';
 import { formatPendingCountdown, pendingSpaceExpiry } from './spaces';
 export type PresenceStyle = 'capsule' | 'heart';
 export function readPresenceStyle(): PresenceStyle { try { return localStorage.getItem('quiet-room:presence-style') === 'heart' ? 'heart' : 'capsule'; } catch { return 'capsule'; } }
 export function writePresenceStyle(style: PresenceStyle): void { localStorage.setItem('quiet-room:presence-style', style); }
 export const spaceIcons = {
-  settings: createElement(Settings2).outerHTML, spaces: createElement(PanelsTopLeft).outerHTML,
+  bell: createElement(Bell).outerHTML, settings: createElement(Settings2).outerHTML, spaces: createElement(PanelsTopLeft).outerHTML,
   device: createElement(Smartphone).outerHTML, key: createElement(KeyRound).outerHTML,
   upload: createElement(Upload).outerHTML, download: createElement(Download).outerHTML,
   cover: createElement(EyeOff).outerHTML, history: createElement(History).outerHTML,
