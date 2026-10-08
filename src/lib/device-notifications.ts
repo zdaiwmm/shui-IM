@@ -60,8 +60,10 @@ export class DeviceNotifications {
       const previous = this.scopedPolicy(readNotificationPolicy() ?? initial());
       if (!enabled) {
         await setNotificationGate(false);
-        this.signal.throwIfAborted();
+        // Explicit opt-out remains durable even if privacy shutdown follows the gate write.
+        // This only closes delivery; it cannot enable or touch a replacement vault.
         saveNotificationPolicy({ ...previous, enabled: false });
+        this.signal.throwIfAborted();
         if ('serviceWorker' in navigator) {
           const registration = await notificationRegistration(this.signal);
           const subscription = await registration.pushManager.getSubscription();

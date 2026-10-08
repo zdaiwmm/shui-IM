@@ -51,6 +51,14 @@ describe('device-wide notification control', () => {
     expect(readNotificationPolicy()).toEqual({ v: 1, enabled: false, spaces: { [second]: false } });
     expect(push.registerSpaceNotification).not.toHaveBeenCalled();
   });
+  it('persists explicit master opt-out if privacy shutdown races the durable gate write', async () => {
+    saveNotificationPolicy({ v: 1, enabled: true, spaces: { [second]: false } });
+    vi.stubGlobal('caches', { open: async () => ({ put: async (_key: string, value: Response) => { gate = await value.text(); abort.abort(); } }) });
+    await expect(manager().setMaster(false)).rejects.toThrow();
+    expect(gate).toBe('off');
+    expect(readNotificationPolicy()).toEqual({ v: 1, enabled: false, spaces: { [second]: false } });
+    expect(subscription.unsubscribe).not.toHaveBeenCalled();
+  });
   it('does not claim enabled after a partial server failure or unsubscribe an existing shared endpoint', async () => {
     vi.mocked(push.unregisterSpaceNotification).mockRejectedValue(new Error('offline'));
     await expect(manager().setMaster(true)).rejects.toThrow('offline');
