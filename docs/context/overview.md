@@ -125,3 +125,7 @@
 
 
 体验优化 F01–F15：新增本机密码保护位于 `src/lib/password-protection.ts`、`password-dialog.ts` 与 `vault.ts`，界面共用 `src/experience.css`；新密码与原设备密钥的混合恢复沿用 `joint-recovery.ts`。回归入口为 `password-protection.test.ts`、`platform-vault.test.ts`、`password-fallback.e2e.mjs`、`joint-recovery.e2e.mjs`、`local-history-backup.e2e.mjs`、`meme-picker.e2e.mjs` 和 `backup-admin-ui.e2e.mjs`。确认与验收由[本次需求记录](../requirements/2026-09-30-experience-optimization/README.md)维护，长期边界见 PRODUCT.md、SECURITY.md 和 RECOVERY_BACKUPS.md。
+
+### 邀请、恢复及接入状态定向回归
+
+`tests/audit-interactions.e2e.mjs` 使用本地合成服务、独立浏览器密钥和虚拟认证器，覆盖同标签邀请取消重开、恢复读取重试／关闭／限流／隐藏、添加设备批准自动安装、锁定续接、返回草稿与设备撤销发送守卫；已纳入 `npm run test:browser` 第二组。可附目录参数保存脱敏截图；不代表 iPhone 真机或跨平台通行密钥同步验证。

@@ -135,7 +135,7 @@ export type Vault = {
   lastReceiptSeq?: number;
   pairingState?: 'joining' | 'linking' | 'recovering' | 'repairing' | 'ready';
   pendingJointRecovery?: import('./joint-recovery').PendingJointRecovery;
-  recoveryExperience?: { peerPrepared?: boolean; codeSaved?: string; completed?: 'recovered' | 'helper'; welcomePending?: boolean; coverEnabled?: boolean };
+  recoveryExperience?: { peerPrepared?: boolean; codeSaved?: string; completed?: 'recovered' | 'helper'; jointMaterial?: 'retained' | 'new'; welcomePending?: boolean; coverEnabled?: boolean };
   pendingRecovery?: {
     request: RecoveryRequest;
     checkpointMembers: RoomMember[];

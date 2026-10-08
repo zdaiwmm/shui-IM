@@ -42,22 +42,29 @@ export class ApiError extends Error {
     message: string,
     readonly status: number,
     readonly code: string,
+    readonly retryAfterMs = 0,
   ) {
     super(message);
     this.name = 'ApiError';
   }
 
   get retryable(): boolean {
-    return this.status === 429 || this.status >= 500;
+    return this.status === 0 || this.status === 429 || this.status >= 500;
   }
 }
 
-async function responseError(response: Response): Promise<Error> {
+export function responseRetryAfterMs(response: Response): number {
+  const value = response.headers.get('Retry-After')?.trim() ?? '';
+  const delay = /^\d+$/.test(value) ? Number(value) * 1000 : Date.parse(value) - Date.now();
+  return Number.isFinite(delay) ? Math.max(0, delay) : 1000;
+}
+
+export async function responseError(response: Response): Promise<ApiError> {
   try {
     const body = await response.json() as { error?: string; code?: string };
-    return new ApiError(body.error || `请求失败（${response.status}）`, response.status, body.code ?? 'REQUEST_FAILED');
+    return new ApiError(body.error || `请求失败（${response.status}）`, response.status, body.code ?? 'REQUEST_FAILED', responseRetryAfterMs(response));
   } catch {
-    return new ApiError(`请求失败（${response.status}）`, response.status, 'REQUEST_FAILED');
+    return new ApiError(`请求失败（${response.status}）`, response.status, 'REQUEST_FAILED', responseRetryAfterMs(response));
   }
 }
 
@@ -209,8 +216,10 @@ export async function claimDeviceLink(
   deviceAccessToken: string,
   deviceName: string,
   capabilities: string[],
+  signal?: AbortSignal,
 ): Promise<DeviceLinkState> {
   const response = await fetch(`/api/device-links/${linkId}/claim`, {
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ secret, bundle, deviceAccessToken, deviceName, capabilities }),
@@ -223,8 +232,10 @@ export async function getDeviceLinkStatus(
   linkId: string,
   secret: string,
   deviceAccessToken?: string,
+  signal?: AbortSignal,
 ): Promise<DeviceLinkState> {
   const response = await fetch(`/api/device-links/${linkId}/status`, {
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000),
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -362,6 +373,7 @@ function isRoomPresence(value: unknown): value is RoomPresence {
 }
 
 type SocketHandlers = {
+  accessFailure?: (reason: 'denied' | 'upgrade' | 'space-unavailable') => void;
   call?: (envelope: CallEnvelope) => AsyncSocketHandler;
   callTransport?: (code: string) => void;
   callState?: (event: CallServerEvent) => AsyncSocketHandler;
@@ -450,7 +462,15 @@ export class RoomSocket {
       if (this.socket !== socket) return;
       if (this.connectionDeadline) clearTimeout(this.connectionDeadline);
       this.connectionDeadline = null;
-      if ([4401, 4403].includes(event.code)) { this.closed = true; this.callSignals.close(); this.handlers.callTransport?.('WS_AUTH_FAILED'); }
+      if ([4401, 4403].includes(event.code)) {
+        this.closed = true;
+        this.callSignals.close();
+        // Transport feedback is not a signed membership event. Never infer who
+        // removed/replaced a device, or change local keys/roster from this text.
+        this.handlers.accessFailure?.(event.reason === 'Room removed' ? 'space-unavailable'
+          : event.reason === 'Client upgrade required' || event.reason === 'Client upgrade required: capacity exceeded' ? 'upgrade' : 'denied');
+        this.handlers.callTransport?.('WS_AUTH_FAILED');
+      }
       this.stopHeartbeat();
       this.clearPendingSends();
       this.sentEnvelopes.clear();

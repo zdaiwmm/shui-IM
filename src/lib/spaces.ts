@@ -4,6 +4,7 @@ import { isVideoFile } from './video-media';
 import type { UnreadObserver } from './unread-counter';
 import { fromBase64Url, toBase64Url } from './base64';
 import { newRecoveryCode, openJson, sealJson } from './backup-crypto';
+import { ApiError, responseRetryAfterMs } from './api';
 import type { SealedBackup } from './backup-types';
 import { localSpaceExists, readLocalSpaceDirectory, saveVault, vaultSpaceId, withVaultMutation, writeLocalSpaceDirectory, type VaultSession } from './vault';
 
@@ -159,7 +160,7 @@ async function request(code: string, signal: AbortSignal, session?: VaultSession
   const response = await fetch(`/api/space-directories/${spaceCodeId(code)}`, { method: session ? 'PUT' : 'GET', cache: 'no-store', credentials: 'omit', signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]), headers: {
     Authorization: `Bearer ${session ? session.vault.accessToken : await spaceCapability(code, 'fetch')}`, ...(session ? { 'Content-Type': 'application/json' } : {}),
   }, ...(session ? { body: JSON.stringify(value) } : {}) });
-  if (!response.ok && response.status !== 404 && response.status !== 409) throw new Error('空间目录备份暂不可用，请联网后重试');
+  if (!response.ok && response.status !== 404 && response.status !== 409) throw new ApiError('空间目录备份暂不可用，请联网后重试', response.status, 'DIRECTORY_UNAVAILABLE', responseRetryAfterMs(response));
   return response;
 }
 export async function recoverableSpaces(code: string, signal: AbortSignal): Promise<PrivateSpace[]> {
