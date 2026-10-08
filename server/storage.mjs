@@ -130,7 +130,7 @@ export async function createStore({
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       PRIMARY KEY(room_id, device_id),
-      UNIQUE(endpoint),
+      UNIQUE(room_id, endpoint),
       FOREIGN KEY(room_id, device_id) REFERENCES members(room_id, device_id) ON DELETE CASCADE
     );
 
@@ -200,6 +200,24 @@ export async function createStore({
       FOREIGN KEY(room_id, source_device_id) REFERENCES members(room_id, device_id) ON DELETE CASCADE
     );
   `);
+
+  // One origin-wide browser endpoint can serve several independent rooms.
+  // Keep device ownership and endpoint uniqueness inside each room; migrate old rows atomically.
+  const pushSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'push_subscriptions'").get()?.sql ?? '';
+  if (/UNIQUE\s*\(\s*endpoint\s*\)/i.test(pushSchema)) {
+    db.exec(`BEGIN IMMEDIATE;
+      CREATE TABLE push_subscriptions_v2 (
+        room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE,
+        device_id TEXT NOT NULL, endpoint TEXT NOT NULL, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        PRIMARY KEY(room_id, device_id), UNIQUE(room_id, endpoint),
+        FOREIGN KEY(room_id, device_id) REFERENCES members(room_id, device_id) ON DELETE CASCADE
+      );
+      INSERT INTO push_subscriptions_v2 SELECT * FROM push_subscriptions;
+      DROP TABLE push_subscriptions;
+      ALTER TABLE push_subscriptions_v2 RENAME TO push_subscriptions;
+      COMMIT;`);
+  }
 
   const eventsSchema = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'mls_events'").get()?.sql ?? '';
   if (!eventsSchema.includes("'update'")) {
@@ -400,6 +418,7 @@ export async function createStore({
       updated_at = excluded.updated_at`),
     pushSubscriptionsForRoom: db.prepare(`SELECT device_id, endpoint, p256dh, auth, updated_at
       FROM push_subscriptions WHERE room_id = ? AND device_id <> ? ORDER BY device_id`),
+    pushSubscription: db.prepare('SELECT endpoint FROM push_subscriptions WHERE room_id = ? AND device_id = ?'),
     deletePushSubscription: db.prepare('DELETE FROM push_subscriptions WHERE room_id = ? AND device_id = ?'),
     deletePushSubscriptionByEndpoint: db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?'),
     unreadObserver: db.prepare('SELECT token_hash, read_seq FROM unread_observers WHERE room_id = ? AND device_id = ?'),
@@ -1149,6 +1168,11 @@ export async function createStore({
     }));
   }
 
+  function pushSubscriptionStatus(roomId, deviceId) {
+    assertDeviceActive(roomId, deviceId);
+    return { endpoint: statements.pushSubscription.get(roomId, deviceId)?.endpoint ?? null };
+  }
+
   function deletePushSubscription(roomId, deviceId) {
     assertDeviceActive(roomId, deviceId);
     return statements.deletePushSubscription.run(roomId, deviceId).changes > 0;
@@ -1579,6 +1603,7 @@ export async function createStore({
     mlsEventsAfter,
     putBlobChunk,
     pushSubscriptionsForRoom,
+    pushSubscriptionStatus,
     receiptsAfter,
     roomState,
     savePushSubscription,

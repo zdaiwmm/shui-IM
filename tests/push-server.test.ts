@@ -98,6 +98,10 @@ describe('background wake-up integration', () => {
         keys: { p256dh: 'A'.repeat(43), auth: 'B'.repeat(22) },
       }, authorization: await createPushAuthorization(joinerVault, 'subscribe', endpoint) }),
     });
+    const pushUrl = `${baseUrl}/api/rooms/${room.roomId}/push/${joinerIdentity.publicBundle.deviceId}`;
+    expect((await fetch(pushUrl)).status).toBe(401);
+    expect((await fetch(pushUrl, { headers: { Authorization: `Bearer ${creatorToken}` } })).status).toBe(401);
+    expect(await jsonRequest(pushUrl, { headers: { Authorization: `Bearer ${joinerToken}` } })).toEqual({ endpoint });
     const envelope = await encryptMessage(vault, {
       v: 1,
       kind: 'text',
@@ -131,5 +135,12 @@ describe('background wake-up integration', () => {
     socket.send(JSON.stringify({ type: 'send', envelope }));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(wakes).toHaveLength(1);
+    await jsonRequest(pushUrl, { method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${joinerToken}` }, body: JSON.stringify({ authorization: await createPushAuthorization(joinerVault, 'unsubscribe', endpoint) }) });
+    expect(await jsonRequest(pushUrl, { headers: { Authorization: `Bearer ${joinerToken}` } })).toEqual({ endpoint: null });
+    const next = await encryptMessage(vault, { v: 1, kind: 'text', text: 'opted out', sentAt: new Date().toISOString() });
+    socket.send(JSON.stringify({ type: 'send', envelope: next }));
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(wakes).toHaveLength(1);
+
   }, 20_000);
 });

@@ -1019,7 +1019,7 @@ export async function startServer(options = {}) {
       }
 
       const pushMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/push/(${ID_PATTERN})$`));
-      if (pushMatch && (request.method === 'PUT' || request.method === 'DELETE')) {
+      if (pushMatch && ['GET', 'PUT', 'DELETE'].includes(request.method)) {
         const [, roomId, deviceId] = pushMatch;
         if (!store.authenticatedDevice(roomId, bearerToken(request), deviceId)) {
           json(request, response, 401, { error: 'UNAUTHORIZED' });
@@ -1028,6 +1028,11 @@ export async function startServer(options = {}) {
         const member = store.getMember(roomId, deviceId);
         if (!member) {
           json(request, response, 404, { error: 'MEMBER_NOT_FOUND' });
+          return;
+        }
+        if (request.method === 'GET') {
+          requireActiveDevice(request, roomId, deviceId);
+          json(request, response, 200, store.pushSubscriptionStatus(roomId, deviceId));
           return;
         }
         const body = await readJson(request);

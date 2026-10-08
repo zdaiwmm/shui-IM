@@ -114,7 +114,7 @@ loopback, private, link-local, reserved, multicast, and other non-public
 targets. This is defense in depth; production egress should also be restricted
 with a firewall or outbound proxy.
 
-Permission is requested only after the user selects the notification control. A push is only a wake-up hint: it is not a delivery receipt, does not unlock the vault, and must never promote a message to “delivered.” iOS requires an installed home-screen web app for Web Push.
+Permission is requested only after the user explicitly enables the device-wide master control in Settings → 本机 → 通知管理. This page manages all locally joined spaces; per-space opt-out keeps the shared browser subscription, and master opt-out preserves space preferences while unsubscribing the browser. There is no test-notification action. A push is only a wake-up hint: it is not a delivery receipt, does not unlock the vault, and must never promote a message to “delivered.” iOS requires an installed home-screen web app for Web Push.
 
 ## Release and incident basics
 

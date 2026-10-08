@@ -1,5 +1,7 @@
 const RELEASE_ID = '__QUIET_ROOM_RELEASE_ID__';
 const CACHE = `quiet-room-shell-${RELEASE_ID}`;
+const NOTIFICATION_POLICY_CACHE = 'quiet-room-notification-policy-v1';
+const NOTIFICATION_POLICY_URL = '/__quiet-room-notification-policy';
 const SHELL = ['/', '/manifest.webmanifest', '/icon.svg'];
 
 function isCacheableAsset(url) {
@@ -17,7 +19,7 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    await Promise.all((await caches.keys()).filter((key) => key !== CACHE).map((key) => caches.delete(key)));
+    await Promise.all((await caches.keys()).filter((key) => key !== CACHE && key !== NOTIFICATION_POLICY_CACHE).map((key) => caches.delete(key)));
     await self.clients.claim();
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
     await Promise.all(windows.map(client => client.postMessage({
@@ -66,15 +68,19 @@ self.addEventListener('fetch', (event) => {
 });
 
 self.addEventListener('push', (event) => {
-  event.waitUntil(self.registration.showNotification('Quiet Room', {
-    body: '有一条新消息，解锁后查看。',
-    icon: '/icon.svg',
-    badge: '/icon.svg',
-    tag: 'quiet-room-wake',
-    renotify: false,
-    silent: false,
-    data: { url: '/' },
-  }));
+  event.waitUntil((async () => {
+    const policy = await (await caches.open(NOTIFICATION_POLICY_CACHE)).match(NOTIFICATION_POLICY_URL);
+    if (policy && await policy.text() !== 'on') return;
+    await self.registration.showNotification('Quiet Room', {
+      body: '有一条新消息，解锁后查看。',
+      icon: '/icon.svg',
+      badge: '/icon.svg',
+      tag: 'quiet-room-wake',
+      renotify: false,
+      silent: false,
+      data: { url: '/' },
+    });
+  })());
 });
 
 self.addEventListener('notificationclick', (event) => {

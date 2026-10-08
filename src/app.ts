@@ -28,7 +28,7 @@ import { mountSpaceDrawer, mountSpaceInvite, readPresenceStyle, spaceIcons } fro
 import { forgetLocalSpace, localSpaces, rememberLocalSpace, syncSpaceDirectory, recoverableSpaces, spaceCodeId, refreshSpaceUnread, spaceMessagePreview, pendingSpaceExpiry, formatPendingCountdown, type PrivateSpace } from './lib/spaces';
 import { parseCloudRecoveryCode } from './lib/backup-crypto';
 import { capabilityGateMembers } from './lib/member-capabilities';
-import { currentSpaceId, selectLocalSpace, vaultSpaceId, unlockOwnedPendingSpace, unlockSpaceForRemoval } from './lib/vault';
+import { currentSpaceId, selectLocalSpace, vaultSpaceId, unlockOwnedPendingSpace, unlockSpaceForRemoval, unlockLocalSpaceForManagement } from './lib/vault';
 import { prepareJointRecovery, advanceJointRecovery, approveJointRecovery, completeJointRecovery, parseJointRecoveryLink, jointRecoveryUrl, jointRecoveryCode, jointRequest, inviteeScopeChoice, type JointLink, type JointSnapshot } from './lib/joint-recovery';
 import './recovery-experience.css';
 import { mountMediaDeleteConfirm } from './lib/media-delete-confirm';
@@ -165,11 +165,9 @@ import {
   createRepairRequest,
   verifyRecoveryMembershipChain,
 } from './lib/mls';
-import {
-  backgroundNotificationStatus,
-  disableBackgroundNotifications,
-  enableBackgroundNotifications,
-} from './lib/push';
+import { DeviceNotifications, reconcileSpaceNotifications } from './lib/device-notifications';
+import { mountNotificationSettings } from './lib/notification-settings';
+import './notifications.css';
 import {
   createPlatformCredential,
   isPlatformVaultCancellation,
@@ -668,7 +666,7 @@ export class QuietRoomApp {
   private uiPreferencesHydrated = false;
   private composerCheckpoint: DraftCheckpoint | null = null;
   private shieldHintCleanup: (() => void) | null = null;
-  private unlockResume: 'chat' | 'recovery-center' | 'cover-practice' | 'local-backup' | 'local-backup-import' | 'gallery' | 'devices' | 'help' | 'release-history' | null = null;
+  private unlockResume: 'chat' | 'recovery-center' | 'cover-practice' | 'local-backup' | 'local-backup-import' | 'gallery' | 'devices' | 'help' | 'release-history' | 'notifications' | null = null;
   private restoreChatAnchorOnNextRender = true;
   private galleryScrollTop: Record<GalleryTab, number> = { images: 0, files: 0 };
   private galleryMode: 'safe' | 'favorites' = 'safe';
@@ -4322,6 +4320,7 @@ export class QuietRoomApp {
     this.runtimeAbort?.abort();
     this.runtimeAbort = new AbortController();
     this.resetIdleLock();
+    void reconcileSpaceNotifications(session.vault, this.runtimeAbort.signal).catch(() => undefined);
     if (session.vault.pendingJointRecovery) { this.renderJointProgress(); return; }
     if (jointEntry) { this.renderJointRecovery(jointEntry); return; }
     if (session.vault.pairingState === 'recovering') {
@@ -5523,6 +5522,7 @@ export class QuietRoomApp {
     if (root.querySelector(':scope > .cover, :scope > .gateway')) return;
     this.unlockResume = root.querySelector('.cover-practice-page') ? 'cover-practice'
       : root.querySelector('.gallery-shell') ? 'gallery'
+      : root.querySelector('.notification-page') ? 'notifications'
       : root.querySelector('.release-history-page') ? 'release-history'
       : root.querySelector('#help-back') ? 'help'
       : root.querySelector('.device-shell') ? 'devices'
@@ -5541,6 +5541,7 @@ export class QuietRoomApp {
     else if (resume === 'devices') void this.renderDeviceManager();
     else if (resume === 'help') this.renderFeatureHelp();
     else if (resume === 'release-history') this.renderReleaseHistory();
+    else if (resume === 'notifications') void this.renderNotificationSettings();
     else this.renderChat();
   }
 
@@ -5873,6 +5874,7 @@ export class QuietRoomApp {
         { id: 'local-history-backup', label: '备份数据', icon: spaceIcons.upload, run: forward(() => void this.renderLocalHistoryBackup('export')) },
         { id: 'local-history-restore', label: '恢复数据', icon: spaceIcons.download, run: forward(() => void this.renderLocalHistoryBackup('import')) },
         { id: 'recover-other-space', label: '恢复其他空间', icon: spaceIcons.spaces, run: forward(() => this.renderJointRecovery(null)) },
+        { id: 'notification-settings', group: '本机', label: '通知管理', icon: spaceIcons.bell, run: forward(() => void this.renderNotificationSettings()) },
         { id: 'passkey-management', group: '本机', label: '通行密钥管理', icon: spaceIcons.key, keepOpen: true, run: () => {
           const credential = this.deviceCredential;
           if (!credential) return Promise.reject(new Error('请先完成通行密钥绑定'));
@@ -6570,7 +6572,7 @@ export class QuietRoomApp {
     this.renderReplyDraft();
     this.updateConnectionStatus();
     this.updateCallControls();
-    void this.updateBackgroundNotificationControl();
+
     const returning = this.settingsReturn;
     this.settingsReturn = null;
     if (returning && returning.session === this.session && this.runtimeAbort && !this.privacyCovered) {
@@ -8084,45 +8086,40 @@ export class QuietRoomApp {
     return this.queueUiPreferencesSave();
   }
 
-  private async updateBackgroundNotificationControl(): Promise<void> {
-    const button = this.root.querySelector<HTMLButtonElement>('#toggle-notifications');
-    if (!button || !this.session || this.privacyCovered) return;
-    const label = button.querySelector('span')!;
-    const status = await backgroundNotificationStatus();
-    if (!button.isConnected) return;
-    button.dataset.pushStatus = status;
-    label.textContent = status === 'enabled'
-      ? '后台通知：已开启'
-      : status === 'blocked'
-        ? '后台通知：浏览器已阻止'
-        : status === 'unavailable'
-          ? '后台通知：服务器未配置'
-          : status === 'unsupported'
-            ? '后台通知：当前环境不支持'
-            : '开启隐私后台通知';
-    button.disabled = status === 'blocked' || status === 'unavailable' || status === 'unsupported';
-  }
-
-  private async toggleBackgroundNotifications(): Promise<void> {
-    const session = this.session;
-    const button = this.root.querySelector<HTMLButtonElement>('#toggle-notifications');
-    if (!session || !button || this.privacyCovered) return;
-    const wasEnabled = button.dataset.pushStatus === 'enabled';
-    button.disabled = true;
+  private async renderNotificationSettings(): Promise<void> {
+    const session = this.session, epoch = this.runtimeEpoch, runtimeSignal = this.runtimeAbort?.signal;
+    if (!session || !runtimeSignal || this.privacyCovered || !this.setActiveSurface('away')) return;
+    const pageAbort = new AbortController();
+    const signal = AbortSignal.any([runtimeSignal, pageAbort.signal]);
+    this.root.innerHTML = `<section class="device-shell notification-page"><header class="subpage-header device-header"><button class="icon-button" id="notifications-back" type="button" aria-label="返回设置">${icons.back}</button><div><h1>通知</h1></div><span></span></header><main class="device-content notification-content"><p>正在读取本机空间…</p></main></section>`;
+    const page = this.root.querySelector<HTMLElement>('.notification-content')!;
+    this.root.querySelector('#notifications-back')!.addEventListener('click', () => {
+      pageAbort.abort(); this.transitionPage('backward', () => this.renderChat());
+    }, { signal });
+    const active = () => this.isRuntimeActive(epoch, session) && !signal.aborted && page.isConnected;
     try {
-      if (wasEnabled) await disableBackgroundNotifications(session.vault);
-      else await this.withSystemSurface(() => enableBackgroundNotifications(session.vault));
-      this.showNotice(wasEnabled
-        ? '后台通知已关闭'
-        : '后台通知已开启；通知只包含通用提醒，不含发送者、正文或附件信息');
-    } catch (cause) {
-      this.operationalError(cause, '后台通知设置失败');
-    } finally {
-      if (button.isConnected) {
-        button.disabled = false;
-        await this.updateBackgroundNotificationControl();
-      }
-    }
+      const spaces = await localSpaces(session);
+      this.applyCatalogToSpaces(spaces);
+      if (this.browserProfile) for (const item of accessPrivateSpaces(this.browserProfile.profile)) if (!spaces.some(space => space.roomId === item.roomId)) spaces.push(item);
+      if (!active()) return;
+      const manager = new DeviceNotifications(spaces.map(space => ({ roomId: space.roomId, name: space.name,
+        ...(!space.localId || space.accessState ? { unavailable: '完成本机空间访问后即可设置' } : {}) })), async (roomId, verify, action) => {
+        signal.throwIfAborted();
+        if (!active()) throw new DOMException('通知操作已失效', 'AbortError');
+        const space = spaces.find(item => item.roomId === roomId);
+        if (!space?.localId || space.accessState) throw new Error('请先完成此空间的本机访问');
+        let opened: VaultSession | null = null;
+        try {
+          const target = roomId === session.vault.roomId ? session : (opened = await unlockLocalSpaceForManagement(space.localId, this.deviceCredential,
+            record => verify ? this.withDeviceVerification(() => unlockPlatformCredential(record, signal), true) : Promise.reject(new Error('开启时需要验证本机访问')),
+            verify ? passwordVerify => requestPassword(this.root, { title: '验证空间访问', context: '验证后即可在这里管理此空间的通知。', spaceName: space.name, operation: '管理本机通知', signal, isActive: active, verify: passwordVerify }) : undefined));
+          signal.throwIfAborted();
+          if (!active() || target.vault.roomId !== roomId) throw new DOMException('通知操作已失效', 'AbortError');
+          return await action(target.vault);
+        } finally { if (opened) releaseDeviceCredential(opened); }
+      }, signal);
+      mountNotificationSettings(page, manager, { systemSurface: operation => this.withSystemSurface(operation) });
+    } catch (error) { if (active()) page.textContent = error instanceof Error ? error.message : '本机通知设置未能读取，请重试'; }
   }
 
   private async handleSendText(event: Event): Promise<void> {
