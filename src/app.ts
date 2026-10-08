@@ -223,6 +223,7 @@ import {
   loadPendingReceipts,
   loadUploadPlans,
   loadUiPreferences,
+  prepareComposerDraft,
   loadCachedMediaChunk,
   migrateVaultToPlatform,
   readStoredVault,
@@ -243,6 +244,7 @@ import {
   type UiPreferences,
   type VaultMutation,
 } from './lib/vault';
+import type { DraftCheckpoint, DraftSubmission } from './lib/draft-checkpoint';
 import { recoverFromCloud, syncCloudBackup, fetchRecoveryBundle } from './lib/cloud-backup';
 import './backup.css';
 import './motion.css';
@@ -422,6 +424,8 @@ export class QuietRoomApp {
   private pendingSpacePreview = '';
   private newSpaceCollectionCode: string | undefined;
   private returnSpaceId: string | null = null;
+  private inviteReturnToSpaces = false;
+  private inviteListScrollTop = 0;
   private spaceDrawerOpen = false;
   private desktopWorkspace: DesktopWorkspace;
   private settingsReturn: { session: VaultSession; spaces: PrivateSpace[]; scrollTop: number } | null = null;
@@ -662,6 +666,7 @@ export class QuietRoomApp {
   private deviceInviteGeneration = 0;
   private uiPreferences: UiPreferences = {};
   private uiPreferencesHydrated = false;
+  private composerCheckpoint: DraftCheckpoint | null = null;
   private shieldHintCleanup: (() => void) | null = null;
   private unlockResume: 'chat' | 'recovery-center' | 'cover-practice' | 'local-backup' | 'local-backup-import' | 'gallery' | 'devices' | 'help' | 'release-history' | null = null;
   private restoreChatAnchorOnNextRender = true;
@@ -724,7 +729,7 @@ export class QuietRoomApp {
         if (signal.aborted || this.session !== session || this.privacyCovered || !host.isConnected) return;
         this.applyCatalogToSpaces(spaces);
         if (this.browserProfile) for (const item of accessPrivateSpaces(this.browserProfile.profile)) if (!spaces.some(s => s.roomId === item.roomId)) spaces.push(item);
-        this.mountPrivateSpaceDrawer(session, spaces, signal, this.activeSurface, undefined, 'sidebar', host);
+        this.mountPrivateSpaceDrawer(session, spaces, signal, this.activeSurface, undefined, 'sidebar', host, this.inviteListScrollTop);
       },
       beforeLayout: () => {
         const list = this.chatLayoutElements?.list;
@@ -4286,6 +4291,7 @@ export class QuietRoomApp {
     if (!this.isRuntimeActive(openingEpoch, session)) return;
     this.newSpaceCollectionCode = undefined;
     this.currentSpaceName = spaces.find(space => space.roomId === session.vault.roomId)?.name ?? '私密空间';
+    this.inviteReturnToSpaces ||= spaces.length > 1;
     if (hasIncomingIntent &&
         (session.vault.pendingJointRecovery || session.vault.pendingRepair || session.vault.pendingRecovery ||
         (session.vault.pairingState && session.vault.pairingState !== 'ready'))) {
@@ -4350,6 +4356,11 @@ export class QuietRoomApp {
     if (!this.isRuntimeActive(epoch, session)) return;
     const preferences = await loadUiPreferences(session);
     if (!this.isRuntimeActive(epoch, session)) return;
+    this.composerCheckpoint?.dispose(); this.composerCheckpoint = null;
+    const checkpoint = await prepareComposerDraft(session, preferences.composerDraft ?? '', () => this.isRuntimeActive(epoch, session));
+    if (!this.isRuntimeActive(epoch, session)) { checkpoint.dispose(); return; }
+    this.composerCheckpoint = checkpoint;
+    preferences.composerDraft = checkpoint.draft;
     this.uiPreferences = preferences;
     this.uiPreferencesHydrated = true;
     // Projection events can sit far beyond a restored reading anchor. Start
@@ -5315,10 +5326,21 @@ export class QuietRoomApp {
     this.setActiveSurface('away');
     const signal = this.runtimeAbort?.signal;
     if (!signal) return;
+    const session = this.session, epoch = this.runtimeEpoch;
+    const returnToSpaces = this.inviteReturnToSpaces;
     mountSpaceInvite(this.root, {
       name: this.currentSpaceName, signal,
       content: `<div class="space-invite-body"><h1 id="space-invite-title">邀请对方加入</h1><p>把邀请链接发给对方，<br>开启只属于你们的对话。</p><div class="space-invite-status"><i aria-hidden="true"></i><span id="invitation-progress">等待对方打开邀请</span></div><p class="space-invite-countdown" id="invite-countdown"></p><label class="invite-link sr-only">邀请链接<input id="invite-url" readonly /></label></div><footer class="space-invite-actions"><button class="primary-button" id="copy-invite" type="button">复制邀请链接</button><p>关闭后，你可以在空间列表中继续邀请。</p></footer>`,
-      closed: () => { if (!signal.aborted && !this.privacyCovered) this.setActiveSurface('chat'); },
+      closed: () => {
+        if (!this.isRuntimeActive(epoch, session) || this.peerHasJoined(session)) return;
+        this.setActiveSurface('chat');
+        if (returnToSpaces) {
+          if (matchMedia(desktopWidth).matches) this.desktopWorkspace.expand();
+          else void this.openPrivateSpaces(() => this.isRuntimeActive(epoch, session) && !this.peerHasJoined(session), this.inviteListScrollTop).then(() => {
+            if (this.isRuntimeActive(epoch, session) && !this.peerHasJoined(session)) this.root.querySelector<HTMLElement>('.space-drawer-overlay .space-row.is-selected')?.focus({ preventScroll: true });
+          });
+        }
+      },
     });
     const input = this.root.querySelector<HTMLInputElement>('#invite-url')!;
     input.value = inviteUrl;
@@ -5652,9 +5674,12 @@ export class QuietRoomApp {
     const code = this.session?.vault.spaceRecoveryCode;
     const previous = currentSpaceId();
     const held = this.deviceCredential;
+    const listScrollTop = this.root.querySelector('.space-drawer-scroll')?.scrollTop ?? 0;
     const credential = held ? { record: held.record, prfOutput: held.prfOutput.slice(), browserAccessPrf: held.browserAccessPrf?.slice() } : null;
     await this.leaveSpace();
     if (this.privacyCovered) return;
+    this.inviteReturnToSpaces = true;
+    this.inviteListScrollTop = listScrollTop;
     this.newSpaceCollectionCode = code;
     this.returnSpaceId = previous;
     const slot = crypto.randomUUID();
@@ -5774,19 +5799,19 @@ export class QuietRoomApp {
     }
   }
 
-  private async openPrivateSpaces(): Promise<void> {
+  private async openPrivateSpaces(shouldOpen: () => boolean = () => true, listScrollTop = 0): Promise<void> {
     const session = this.session, signal = this.runtimeAbort?.signal;
-    if (!session || !signal || this.spaceDrawerOpen) return;
+    if (!session || !signal || this.spaceDrawerOpen || !shouldOpen()) return;
     this.spaceDrawerOpen = true;
     const previousSurface = this.activeSurface;
     try {
       if (this.browserProfile) await refreshBrowserCatalog(this.browserProfile.profile, signal).catch(() => undefined);
-      if (signal.aborted || this.session !== session || this.privacyCovered) { this.spaceDrawerOpen = false; return; }
+      if (signal.aborted || this.session !== session || this.privacyCovered || !shouldOpen()) { this.spaceDrawerOpen = false; return; }
       const spaces = await localSpaces(session);
       this.applyCatalogToSpaces(spaces);
       if (this.browserProfile) for (const item of accessPrivateSpaces(this.browserProfile.profile)) if (!spaces.some(s => s.roomId === item.roomId)) spaces.push(item);
-      if (signal.aborted || this.privacyCovered || this.session !== session) { this.spaceDrawerOpen = false; return; }
-      this.mountPrivateSpaceDrawer(session, spaces, signal, previousSurface);
+      if (signal.aborted || this.privacyCovered || this.session !== session || !shouldOpen()) { this.spaceDrawerOpen = false; return; }
+      this.mountPrivateSpaceDrawer(session, spaces, signal, previousSurface, undefined, undefined, undefined, listScrollTop);
       void this.rememberSpacePreview(session, signal)
         .then(() => this.refreshOtherSpacePreviews(session, spaces, signal))
         .then(() => { if (!signal.aborted && this.spaceDrawerOpen) this.paintSpacePreviews(spaces); })
@@ -5829,7 +5854,7 @@ export class QuietRoomApp {
     });
   }
 
-  private mountPrivateSpaceDrawer(session: VaultSession, spaces: PrivateSpace[], signal: AbortSignal, previousSurface: QuietRoomApp['activeSurface'], settingsScrollTop?: number, presentation?: 'sidebar' | 'settings', container?: HTMLElement): void {
+  private mountPrivateSpaceDrawer(session: VaultSession, spaces: PrivateSpace[], signal: AbortSignal, previousSurface: QuietRoomApp['activeSurface'], settingsScrollTop?: number, presentation?: 'sidebar' | 'settings', container?: HTMLElement, listScrollTop = 0): void {
     if (presentation !== 'sidebar') {
       this.closeChatTools(); this.clearKeyboardHandoff();
       (document.activeElement as HTMLElement | null)?.blur();
@@ -5837,7 +5862,7 @@ export class QuietRoomApp {
     }
     const forward = (render: () => void) => () => this.transitionPage('forward', render);
     mountSpaceDrawer(this.root, {
-      spaces, currentRoom: session.vault.roomId, signal, presentation, container,
+      spaces, currentRoom: session.vault.roomId, signal, presentation, container, listScrollTop,
       openSettings: presentation === 'sidebar' ? () => this.renderDesktopSettings(spaces) : undefined,
       initialSettings: settingsScrollTop !== undefined, settingsScrollTop,
       onSettingsLeave: scrollTop => { this.settingsReturn = { session, spaces, scrollTop }; },
@@ -5856,7 +5881,7 @@ export class QuietRoomApp {
         { id: 'cover-practice-menu', group: '本机', label: session.vault.recoveryExperience?.coverEnabled ? '关闭自动遮蔽' : '体验或开启遮蔽', icon: spaceIcons.cover, run: () => session.vault.recoveryExperience?.coverEnabled ? this.confirmDisableCover() : this.renderCoverPractice() },
         { id: 'release-history', group: '关于', label: '更新记录', icon: spaceIcons.history, run: forward(() => this.renderReleaseHistory()) },
       ],
-      select: space => { if (presentation === 'sidebar' && space.roomId === session.vault.roomId && !space.waiting) { if (!this.root.querySelector(':scope > .chat-shell')) { this.settingsReturn = null; this.renderChat(); } return Promise.resolve(); } if (space.roomId === session.vault.roomId && space.waiting) { this.renderInviteWait(); return Promise.resolve(); } return this.switchPrivateSpace(space); },
+      select: space => { if (presentation === 'sidebar' && space.roomId === session.vault.roomId && !space.waiting) { if (!this.root.querySelector(':scope > .chat-shell')) { this.settingsReturn = null; this.renderChat(); } return Promise.resolve(); } if (space.roomId === session.vault.roomId && space.waiting) { this.inviteReturnToSpaces = true; this.inviteListScrollTop = (container ?? this.root).querySelector('.space-drawer-scroll')?.scrollTop ?? 0; this.renderInviteWait(); return Promise.resolve(); } return this.switchPrivateSpace(space); },
       create: () => { if (spaces.length >= 256) return Promise.reject(new Error('本机空间数量已达上限')); return this.createPrivateSpace(); },
       rename: async (space, name) => {
         await rememberLocalSpace(session, undefined, { roomId: space.roomId, name });
@@ -6205,6 +6230,10 @@ export class QuietRoomApp {
       const raw = compositionRaw || current.slice(compositionStart, currentEnd);
       textarea.setRangeText(raw, compositionStart, currentEnd, 'end');
       this.uiPreferences.composerDraft = textarea.value;
+      if (this.composerCheckpoint && ownsActiveChat()) {
+        try { this.composerCheckpoint.write(textarea.value); }
+        catch (cause) { this.operationalError(cause, '草稿未能保存到本机，请勿刷新并重新解锁重试'); }
+      }
       this.scheduleUiPreferencesSave();
       this.syncComposerMode();
       resizeTextarea();
@@ -6393,6 +6422,10 @@ export class QuietRoomApp {
       this.composerDraftVersion += 1;
       resizeTextarea(true, true, event instanceof InputEvent && event.isComposing);
       this.uiPreferences.composerDraft = textarea.value;
+      if (this.composerCheckpoint && ownsActiveChat()) {
+        try { this.composerCheckpoint.write(textarea.value); }
+        catch (cause) { this.operationalError(cause, '草稿未能保存到本机，请勿刷新并重新解锁重试'); }
+      }
       this.scheduleUiPreferencesSave();
       this.syncComposerMode();
     });
@@ -8126,7 +8159,8 @@ export class QuietRoomApp {
       : { v: 1, kind: 'text', text, sentAt: new Date().toISOString() };
     this.sendingTextDrafts.add(draftVersion);
     try {
-      await this.enqueuePayload(payload);
+      this.composerCheckpoint?.write(originalDraft);
+      await this.enqueuePayload(payload, undefined, undefined, this.composerCheckpoint?.submission());
       if (!this.isRuntimeActive(epoch, session)) return;
       if (this.chatPinnedToBottom && this.chatScrollIntent !== 'up') this.trackChatViewport(!this.desktopBrowser);
       if (input?.isConnected && this.composerDraftVersion === draftVersion && input.value === originalDraft) {
@@ -8159,19 +8193,19 @@ export class QuietRoomApp {
     }
   }
 
-  private enqueuePayload(payload: MessagePayload, existingClientMsgId?: string, signal?: AbortSignal): Promise<void> {
+  private enqueuePayload(payload: MessagePayload, existingClientMsgId?: string, signal?: AbortSignal, draft?: DraftSubmission): Promise<void> {
     const session = this.session;
     const epoch = this.runtimeEpoch;
     const operation = this.sendChain.catch(() => undefined).then(() => {
       signal?.throwIfAborted();
       if (!session || !this.isRuntimeActive(epoch, session)) return;
-      return this.sendPayload(payload, existingClientMsgId, signal);
+      return this.sendPayload(payload, existingClientMsgId, signal, draft);
     });
     this.sendChain = operation.catch(() => undefined);
     return operation;
   }
 
-  private async sendPayload(payload: MessagePayload, existingClientMsgId?: string, signal?: AbortSignal): Promise<void> {
+  private async sendPayload(payload: MessagePayload, existingClientMsgId?: string, signal?: AbortSignal, draft?: DraftSubmission): Promise<void> {
     const session = this.session;
     const epoch = this.runtimeEpoch;
     if (!session || this.privacyCovered) return;
@@ -8180,12 +8214,12 @@ export class QuietRoomApp {
       signal?.throwIfAborted();
       if (this.isRuntimeActive(epoch, session)) {
         await this.ensureMessageWindow(mutation);
-        if (this.isRuntimeActive(epoch, session)) await this.sendPayloadLocked(payload, existingClientMsgId, mutation);
+        if (this.isRuntimeActive(epoch, session)) await this.sendPayloadLocked(payload, existingClientMsgId, mutation, draft);
       }
     });
   }
 
-  private async sendPayloadLocked(payload: MessagePayload, existingClientMsgId: string | undefined, mutation: VaultMutation): Promise<void> {
+  private async sendPayloadLocked(payload: MessagePayload, existingClientMsgId: string | undefined, mutation: VaultMutation, draft?: DraftSubmission): Promise<void> {
     const session = this.session;
     if (!session || this.privacyCovered) return;
     if (this.accessFailure) throw new Error('此设备当前无法接入此空间，内容没有发送。');
@@ -8212,10 +8246,10 @@ export class QuietRoomApp {
         const encrypted = await encryptMlsApplication(session.vault, payload, clientMsgId);
         if (this.accessFailure) throw new Error('此设备接入已中止，内容没有写入待发箱。');
         outboxItem.envelope = encrypted.envelope;
-        await commitMlsSend(session, outboxItem, encrypted.nextGroupState, mutation);
+        await commitMlsSend(session, outboxItem, encrypted.nextGroupState, mutation, draft);
       } else {
         if (this.accessFailure) throw new Error('此设备接入已中止，内容没有写入待发箱。');
-        await saveOutboxItem(session, outboxItem, mutation);
+        await saveOutboxItem(session, outboxItem, mutation, draft);
       }
     } catch (cause) {
       this.operationalError(cause, '消息未能写入本机加密待发箱，因此没有发送');
@@ -14236,6 +14270,8 @@ export class QuietRoomApp {
     this.accessDialog?.close();this.accessDialog=null;
     this.newSpaceCollectionCode = undefined;
     this.returnSpaceId = null;
+    this.inviteReturnToSpaces = false;
+    this.inviteListScrollTop = 0;
     this.spaceDrawerOpen = false;
     this.settingsReturn = null;
     this.currentSpaceName = '私密空间';
@@ -14285,8 +14321,11 @@ export class QuietRoomApp {
     const composer = this.root.querySelector<HTMLTextAreaElement>('#message-input');
     if (composer && this.uiPreferencesHydrated) {
       this.uiPreferences.composerDraft = composer.value;
+      try { this.composerCheckpoint?.write(composer.value); }
+      catch { /* Input already reported a failed checkpoint; locking must not wait. */ }
       composer.value = '';
     }
+    this.composerCheckpoint?.dispose(); this.composerCheckpoint = null;
     this.sendingTextDrafts.clear();
     this.composerDraftVersion += 1;
     this.replyJumpVersion += 1;

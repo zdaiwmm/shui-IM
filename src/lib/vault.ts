@@ -5,6 +5,7 @@ import { argon2id } from 'hash-wasm';
 import { derivePasswordCredential, isPasswordCredential, validPasswordKdf, wrapPasswordMaster, unwrapPasswordMaster, type LocalCredentialResult } from './password-protection';
 import { fromBase64Url, toBase64Url } from './base64';
 import { canonicalStringify } from './canonical';
+import { clearDraftCheckpoints, openDraftCheckpoint, type DraftSubmission } from './draft-checkpoint';
 import { normalizeMemeIndex, MAX_MEME_FAVORITES, MAX_MEME_LIBRARY_BYTES, MAX_MEME_BYTES, MEME_TYPES, type MemeFavorite } from './meme-media';
 import { MAX_PACK_BYTES, MAX_PACK_ITEMS, MAX_PACK_LIBRARY_BYTES, MAX_STICKER_PACKS, type StickerPack } from './sticker-library';
 import { downloadBlob } from './download';
@@ -799,7 +800,11 @@ async function readStoredVaultUnlocked(id = selectedSpace): Promise<StoredVault 
 }
 
 export async function deleteCurrentVault(): Promise<void> {
-  await withVaultLifecycle(() => transaction('vault', 'readwrite', (store) => store.delete(selectedSpace)));
+  await withVaultLifecycle(async () => {
+    const id = selectedSpace;
+    await transaction('vault', 'readwrite', store => store.delete(id));
+    clearDraftCheckpoints(id);
+  });
 }
 
 /** Delete the verified target, independent of concurrent selected-space changes. */
@@ -810,6 +815,7 @@ export async function deleteSpaceVault(session: VaultSession): Promise<void> {
     if (!stored) return;
     if (!sameStoredVault(stored, session.stored)) throw new Error('空间状态已变化，请重新打开后重试');
     await transaction('vault', 'readwrite', store => store.delete(id));
+    clearDraftCheckpoints(id);
   });
 }
 
@@ -837,6 +843,10 @@ export async function clearLocalBrowserData(session: VaultSession): Promise<void
       tx.onabort = () => { database.close(); reject(tx.error ?? new Error('本地数据清理失败')); };
       tx.onerror = () => reject(tx.error ?? new Error('本地数据清理失败'));
     });
+    // An authenticated empty checkpoint also fences older queued preference
+    // saves. Removing it alone would let their legacy draft become the fallback.
+    const cleared = await openDraftCheckpoint(session.key, composerDraftScope(session), '', undefined, localStorage, true);
+    cleared.dispose();
   });
 }
 
@@ -2289,6 +2299,26 @@ function uiPreferenceId(session: VaultSession): string {
   return `ui:${session.vault.identity.publicBundle.deviceId}`;
 }
 
+function draftCommitId(session: VaultSession): string { return `composer-commit:${session.vault.identity.publicBundle.deviceId}`; }
+
+function composerDraftScope(session: VaultSession) {
+  return { origin: location.origin, spaceId: vaultSpaceId(session.stored), roomId: session.vault.roomId,
+    deviceId: session.vault.identity.publicBundle.deviceId };
+}
+
+export async function prepareComposerDraft(session: VaultSession, fallback: string, isActive: () => boolean = () => true) {
+  // Claiming the writer and reading its committed revision share the existing
+  // cross-tab lifecycle lock with send, clearing and vault replacement.
+  return withVaultLifecycle(async () => {
+    if (!sameStoredVault(await readStoredVaultUnlocked(vaultSpaceId(session.stored)), session.stored)) throw staleVaultError();
+    const record = await transaction<StoredLocalRecord | undefined>('preferences', 'readonly', store =>
+      store.get(`${session.vault.roomId}:${draftCommitId(session)}`));
+    const committed = record ? await decryptLocalRecord<DraftSubmission>(session, 'preferences', record) : undefined;
+    if (record && (!committed || typeof committed.revision !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(committed.revision))) throw new Error('本机草稿提交记录已损坏');
+    return openDraftCheckpoint(session.key, composerDraftScope(session), fallback, committed, localStorage, false, isActive);
+  });
+}
+
 export async function loadUiPreferences(session: VaultSession): Promise<UiPreferences> {
   const id = uiPreferenceId(session);
   const record = await transaction<StoredLocalRecord | undefined>('preferences', 'readonly', (store) =>
@@ -2336,14 +2366,27 @@ export function saveUiPreferences(session: VaultSession, preferences: UiPreferen
   });
 }
 
-export function saveOutboxItem(session: VaultSession, item: OutboxItem, mutation?: VaultMutation): Promise<void> {
-  return putLocalRecord(session, 'outbox', item.clientMsgId, item, mutation);
+export async function saveOutboxItem(session: VaultSession, item: OutboxItem, mutation?: VaultMutation, draft?: DraftSubmission): Promise<void> {
+  if (!draft) return putLocalRecord(session, 'outbox', item.clientMsgId, item, mutation);
+  if (!ownsVaultMutation(session, mutation)) return withVaultMutation(session, lease => saveOutboxItem(session, item, lease, draft));
+  const outbox = await encryptLocalRecord(session, 'outbox', item.clientMsgId, item);
+  const committed = await encryptLocalRecord(session, 'preferences', draftCommitId(session), draft);
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction(['vault', 'outbox', 'preferences'], 'readwrite');
+    const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
+    current.onsuccess = () => { if (!sameStoredVault(current.result, session.stored)) tx.abort(); };
+    tx.objectStore('outbox').put(outbox); tx.objectStore('preferences').put(committed);
+    tx.oncomplete = () => { database.close(); resolve(); };
+    tx.onabort = () => { database.close(); reject(tx.error ?? staleVaultError()); };
+    tx.onerror = () => reject(tx.error);
+  });
 }
 
 async function commitMlsVaultAndRecords(
   session: VaultSession,
   nextGroupState: string,
-  records: { outbox?: OutboxItem; history?: DecryptedMessage; pendingReceipt?: DeliveryReceipt },
+  records: { outbox?: OutboxItem; history?: DecryptedMessage; pendingReceipt?: DeliveryReceipt; draft?: DraftSubmission },
   mutation?: VaultMutation,
 ): Promise<void> {
   if (!ownsVaultMutation(session, mutation)) throw new Error('MLS 状态变更必须在完整保险库事务中执行');
@@ -2375,6 +2418,7 @@ async function commitMlsVaultAndRecords(
   const receiptRecord = records.pendingReceipt
     ? await encryptLocalRecord(session, 'receiptOutbox', records.pendingReceipt.clientMsgId, records.pendingReceipt)
     : null;
+  const draftRecord = records.draft ? await encryptLocalRecord(session, 'preferences', draftCommitId(session), records.draft) : null;
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const stores = [
@@ -2383,6 +2427,7 @@ async function commitMlsVaultAndRecords(
       ...(historyRecord ? ['history'] : []),
       ...(historyRecord && records.history && isGalleryMediaPayload(records.history.payload) ? ['galleryHistory'] : []),
       ...(receiptRecord ? ['receiptOutbox'] : []),
+      ...(draftRecord ? ['preferences'] : []),
     ];
     const tx = database.transaction(stores, 'readwrite');
     putCurrentVault(tx, nextStored, session.stored);
@@ -2390,6 +2435,7 @@ async function commitMlsVaultAndRecords(
     if (historyRecord) tx.objectStore('history').put(historyRecord);
     if (historyRecord && records.history && isGalleryMediaPayload(records.history.payload)) tx.objectStore('galleryHistory').put(historyRecord);
     if (receiptRecord) tx.objectStore('receiptOutbox').put(receiptRecord);
+    if (draftRecord) tx.objectStore('preferences').put(draftRecord);
     tx.oncomplete = () => {
       database.close();
       session.vault = nextVault;
@@ -2409,8 +2455,9 @@ export function commitMlsSend(
   item: OutboxItem,
   nextGroupState: string,
   mutation?: VaultMutation,
+  draft?: DraftSubmission,
 ): Promise<void> {
-  return commitMlsVaultAndRecords(session, nextGroupState, { outbox: item }, mutation);
+  return commitMlsVaultAndRecords(session, nextGroupState, { outbox: item, draft }, mutation);
 }
 
 export function commitMlsReceive(
@@ -2448,6 +2495,7 @@ export async function finishVaultRecovery(session: VaultSession, nextVault: Vaul
     tx.onabort = () => { database.close(); reject(tx.error ?? new Error('恢复本机事务失败')); };
     tx.onerror = () => reject(tx.error ?? new Error('恢复本机事务失败'));
   });
+  clearDraftCheckpoints(vaultSpaceId(session.stored));
 }
 
 export function loadOutbox(session: VaultSession): Promise<OutboxItem[]> {

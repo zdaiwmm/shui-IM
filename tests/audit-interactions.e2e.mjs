@@ -219,11 +219,17 @@ try {
   results.recoveryReturnPreservesDraftAndFocus = true;
   await f.waitForFunction(() => app.connectionState === 'connected');
   // Ordinary offline sending still commits the original ID/ciphertext once.
-  await fEndpoint.context.setOffline(true);
   // Chromium offline emulation does not close an already open WebSocket.
-  // Explicitly close that transport while HTTP remains offline.
-  await f.evaluate(() => { app.socket.socket.close(); });
+  // Observe a real close before disabling HTTP: dropping the network first
+  // can leave a graceful close waiting for the browser's handshake timeout.
+  results.offlineTransportClose = await f.evaluate(() => new Promise(resolve => {
+    const socket = app.socket.socket;
+    socket.addEventListener('close', event => resolve({ event: event.type, code: event.code, readyState: socket.readyState }), { once: true });
+    socket.close();
+  }));
   await f.waitForFunction(() => app.connectionState !== 'connected');
+  assert.equal(results.offlineTransportClose.readyState, 3, 'The actual WebSocket must be closed before offline sending');
+  await fEndpoint.context.setOffline(true);
   await f.locator('#message-input').fill('合成待发内容'); await f.locator('#send-text').click();
   await f.waitForFunction(() => app.outbox.size === 1);
   const queued = await f.evaluate(async () => JSON.stringify(await v.loadOutbox(app.session)));

@@ -1,0 +1,16 @@
+.demo-chat { box-sizing:border-box; min-height:100dvh; padding:24px; background:var(--paper); color:var(--ink); }
+.demo-chat header { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.demo-chat header>span { font-size:12px; color:var(--ink-muted); }
+.demo-chat .spaces-entry { min-height:44px; padding:0 14px; border:1px solid var(--glass-border); border-radius:24px; background:var(--glass-control); color:var(--ink-muted); }
+.demo-message { display:table; margin-top:70px; padding:14px 18px; border-radius:18px; background:var(--incoming); font-size:16px; }
+.demo-note { margin-top:40px; max-width:42ch; color:var(--ink-muted); font-size:12px; line-height:1.8; }
+.demo-tools { display:flex; flex-wrap:wrap; gap:10px; margin-top:30px; max-width:560px; }
+.demo-tools button,.demo-tools a { display:inline-flex; align-items:center; min-height:44px; padding:0 14px; border:1px solid var(--line); border-radius:12px; color:var(--ink); background:var(--surface); font-size:12px; text-decoration:none; }
+#demo-status { font-size:12px; color:var(--ink-muted); line-height:1.8; max-width:60ch; }
+.demo-chat.is-locked>* { visibility:hidden; }
+.demo-chat.is-locked::after { content:'已锁定 · 点击空白处重新开始模拟'; position:absolute; top:45%; left:24px; right:24px; text-align:center; color:var(--ink-muted); font-size:13px; }
+.demo-close { font-size:24px; font-weight:300; }
+.demo-flow { max-width:65ch; margin:40px auto; padding:24px; color:var(--ink); }
+.demo-flow p { line-height:1.8; }
+.demo-flow svg { width:100%; height:auto; color:var(--ink); }
+@media(min-width:1024px) { .demo-chat { padding-left:320px; } .space-embedded { position:fixed; left:0; top:0; bottom:0; width:280px; } }

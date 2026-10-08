@@ -220,6 +220,14 @@ Do not include real messages, invitations, recovery packages, private keys, or s
 
 ## Local media upload drafts
 
+### Device-local text checkpoints
+
+Text input uses a synchronous AES-256-GCM ciphertext checkpoint in origin-local Storage, separate from debounced IndexedDB UI preferences. HKDF-SHA-256 derives its key from the existing device master key, with canonical origin/immutable slot/room/device salt and `quiet-room-composer-draft-v1` info. Each changed input uses a fresh random 96-bit nonce; AAD additionally binds its unique writer. Text and its random revision are encrypted; storage exposes room/device/slot/writer identifiers and ciphertext length, never the key or text. Derived bytes are held only in the unlocked runtime and filled with zero on disposal; JavaScript reference cleanup is not a guarantee of engine memory zeroization. A replaced/cancelled unlock cannot claim a writer. A new owner supersedes old tabs; an old runtime cannot publish into the new owner's record. A failed write retains the last successful checkpoint and reports failure, without plaintext downgrade.
+
+The encrypted submitted-revision record commits in the same IndexedDB transaction as the outbox and, for MLS, its next ratchet state. Unlock suppresses only that exact checkpoint revision; editing away and back produces a different revision. Late preference writes cannot override a checkpoint. Explicit local-data clearing replaces prior text with an authenticated empty checkpoint so an older preference snapshot cannot restore it; removing a vault removes its scoped checkpoints. Damaged authenticated records fail closed instead of restoring old text. Checkpoints and commit markers are not included in recovery/history exports or uploaded. This mechanism preserves local draft intent; it adds no identity, membership or server authority and has automated validation, not an independent cryptographic audit.
+
+### Media upload drafts
+
 Complete user-selected images, albums, expressions and videos may generate bounded, memory-only previews before upload; these are not partially downloaded remote attachments. Photos, videos and auto-hidden expressions paint only concealed derivatives from the first frame, while explicitly non-hidden expressions may paint their complete local original. File references and original/poster/derived object URLs remain in the unlocked runtime and are cleared on teardown, including late callbacks. At most three drafts totaling 256 MiB are retained. Only the normal committed encrypted outbox item becomes a message, using the same client ID across upload completion and retries. Chunk acknowledgements drive progress; the existing content-bound resume plan, original-byte encryption, hash validation and capability gates remain unchanged. Received media still require full authentication and original-length/hash verification before decoding.
 
 ## Multi-space collection capability

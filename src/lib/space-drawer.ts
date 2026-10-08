@@ -35,7 +35,8 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
   spaces: PrivateSpace[]; currentRoom: string; signal: AbortSignal; actions: Action[]; icons?: { close: string; plus: string; settings: string };
   select: (space: PrivateSpace) => Promise<void>; create: () => Promise<void>; rename: (space: PrivateSpace, name: string) => Promise<void>;
 removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; settingsScrollTop?: number; onSettingsLeave?: (scrollTop: number) => void;
-remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace) => void;
+  remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace) => void;
+  listScrollTop?: number;
   refreshUnread?: (signal: AbortSignal) => Promise<void>;
   refreshSpaces?: (signal: AbortSignal) => Promise<PrivateSpace[]>;
   authorization?: (space: PrivateSpace) => {deadline:number;open:()=>Promise<void>} | undefined;
@@ -47,7 +48,7 @@ remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace)
   const embedded = Boolean(options.presentation);
   if (embedded) { sheet.className = `space-embedded space-${options.presentation}`; sheet.removeAttribute('aria-modal'); sheet.setAttribute('role', 'region'); }
   (options.container ?? root).append(sheet);
-  let busy = false, listScrollTop = 0;
+  let busy = false, listScrollTop = options.listScrollTop ?? 0;
   const dialog = embedded ? { close: (_options?: { animate?: boolean; restoreFocus?: boolean }) => { /* Embedded navigation owns its page lifetime. */ } } : mountDialog(sheet, { signal: options.signal, isActive: () => !options.signal.aborted, beforeClose: () => !busy, onClose: () => {
     lifetime.abort(); options.closed();
   } });

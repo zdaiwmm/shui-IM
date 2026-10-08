@@ -157,7 +157,11 @@ try {
   const currentWaiting = await old.page.evaluate(() => app.session.vault.roomId);
   await old.page.evaluate(async () => { await access.prepareBrowserAccess(app.session);await access.publishPreparedCatalog(app.session,app.runtimeAbort.signal); });
   await old.page.locator('#invite-close').click();await old.page.locator('.space-invite-sheet').waitFor({state:'detached'});
-  await old.page.locator('#open-spaces').click();
+  // PRODUCT.md requires invite closing to return to this list. The old extra
+  // navigation click relied on the bug and targets an inert background now.
+  await old.page.locator('.space-drawer-overlay .space-row.is-selected').waitFor();
+  assert.equal(await old.page.evaluate(() => app.activeSurface), 'away');
+  assert.equal(await old.page.evaluate(() => app.session.vault.roomId), currentWaiting);
   await old.page.route(`**/api/rooms/${currentWaiting}`, async route => {
     if(route.request().method() !== 'DELETE') return route.continue();
     await route.fetch();await route.abort('failed');
