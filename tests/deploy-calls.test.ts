@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, stat as fileStat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-type Mode = 'disabled' | 'enabled' | 'first-enable' | 'missing-settings' | 'missing-overlay' | 'missing-previous-overlay' | 'unsafe-settings' | 'unsafe-directory';
+type Mode = 'disabled' | 'enabled' | 'first-enable' | 'missing-settings' | 'missing-overlay' | 'missing-previous-overlay' | 'unsafe-settings' | 'unsafe-directory' | 'missing-public-config' | 'symlink-public-config';
 
 // Run the real Compose selection/preflight block against isolated files and
 // command stand-ins. Never invokes Docker, SSH, root helpers, or production.
@@ -20,7 +20,10 @@ async function simulate(mode: Mode) {
     for (const name of ['new/compose.yaml', 'old/compose.yaml']) await writeFile(path.join(directory, name), 'services: {}\n');
     if (mode !== 'missing-overlay') await writeFile(path.join(directory, 'new/compose.calls.yaml'), 'services: {}\n');
     if (mode !== 'first-enable' && mode !== 'missing-previous-overlay') await writeFile(path.join(directory, 'old/compose.calls.yaml'), 'services: {}\n');
-    if (mode !== 'disabled' && mode !== 'missing-settings') await writeFile(path.join(directory, 'shared/calls.env'), 'TURN_SECRET=test-only-never-print-this-value\n');
+    if (mode !== 'disabled' && mode !== 'missing-settings') await writeFile(path.join(directory, 'shared/calls.env'), 'TURN_SECRET=test-only-never-print-this-value\n', { mode: 0o600 });
+    await mkdir(path.join(directory, 'new/deploy'));
+    if (mode === 'symlink-public-config') await symlink(path.join(directory, 'shared/calls.env'), path.join(directory, 'new/deploy/turnserver.conf'));
+    else if (mode !== 'missing-public-config') await writeFile(path.join(directory, 'new/deploy/turnserver.conf'), 'realm=ai.shui.click\n', { mode: 0o640 });
     if (['enabled', 'missing-settings', 'missing-overlay', 'missing-previous-overlay'].includes(mode)) await writeFile(path.join(directory, 'state/calls-enabled'), '1\n');
     const harness = `set -Eeuo pipefail
 cd "$CALL_DEPLOY_TEST_DIR"
@@ -52,7 +55,8 @@ printf '%s\\n' "\${previous_compose_args[@]}" > old-args
 `;
     const result = spawnSync('bash', [], { input: harness, encoding: 'utf8', env: { ...process.env, CALL_DEPLOY_TEST_DIR: directory, CALL_DEPLOY_TEST_MODE: mode } });
     const read = async (file: string) => readFile(path.join(directory, file), 'utf8').catch(() => '');
-    return { status: result.status, output: result.stdout + result.stderr, trace: await read('trace'), enabled: (await read('enabled')).trim(), previousEnabled: (await read('previous-enabled')).trim(), newArgs: await read('new-args'), oldArgs: await read('old-args') };
+    const modeOf = async (file: string) => fileStat(path.join(directory, file)).then(value => value.mode & 0o777, () => null);
+    return { status: result.status, output: result.stdout + result.stderr, trace: await read('trace'), enabled: (await read('enabled')).trim(), previousEnabled: (await read('previous-enabled')).trim(), newArgs: await read('new-args'), oldArgs: await read('old-args'), publicMode: await modeOf('new/deploy/turnserver.conf'), privateMode: await modeOf('shared/calls.env'), publicContent: await read('new/deploy/turnserver.conf') };
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
@@ -93,7 +97,16 @@ describe('persistent optional calling deployment', () => {
     expect(result.oldArgs).not.toContain('--profile');
   });
 
-  it.each(['missing-settings', 'missing-overlay', 'missing-previous-overlay', 'unsafe-settings', 'unsafe-directory'] as const)('refuses %s before starting or removing any container', async (mode) => {
+  it('makes a restrictive-umask public TURN mount readable without changing its bytes or secret-file permissions', async () => {
+    const result = await simulate('enabled');
+    expect(result.status).toBe(0);
+    expect(result.publicMode).toBe(0o644);
+    expect(result.publicContent).toBe('realm=ai.shui.click\n');
+    expect(result.privateMode).toBe(0o600);
+    expect(result.trace).toContain('config --quiet');
+  });
+
+  it.each(['missing-settings', 'missing-overlay', 'missing-previous-overlay', 'unsafe-settings', 'unsafe-directory', 'missing-public-config', 'symlink-public-config'] as const)('refuses %s before starting or removing any container', async (mode) => {
     const result = await simulate(mode);
     expect(result.status).toBe(66);
     expect(result.trace).not.toContain(' up ');
