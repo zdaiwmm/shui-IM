@@ -52,6 +52,16 @@ try {
     await r.locator('#joint-back').click(); await r.locator('#joint-start').waitFor({ state: 'detached' });
   }
   results.sameTabRecoveryAndReturn = true;
+  const first = await r.evaluate(() => {
+    const original = { ...recoveryLink, requestId: crypto.randomUUID() };
+    location.hash = `recover=${encodeURIComponent(JSON.stringify(original))}`; window.dispatchEvent(new HashChangeEvent('hashchange'));
+    location.hash = `recover=${encodeURIComponent(JSON.stringify({ ...original, requestId: crypto.randomUUID() }))}`; window.dispatchEvent(new HashChangeEvent('hashchange'));
+    return original;
+  });
+  await r.locator('#joint-start').waitFor();
+  assert.equal(await r.locator('.joint-request-code').textContent(), await r.evaluate(async link => (await import('/src/lib/joint-recovery.ts')).jointRecoveryCode(link), first));
+  await r.locator('#joint-back').click();
+  results.firstIntentSurvivesRejectedConcurrentLink = true;
   for (const kind of ['repair', 'device', 'participant']) {
     const url = await r.evaluate(kind => {
       const base = { v: 1, roomId: crypto.randomUUID(), creatorFingerprint: 'a'.repeat(43) };
@@ -138,6 +148,27 @@ try {
     const fingerprint = await c.bundleFingerprint(ai.publicBundle);
     return { v: 1, kind: 'device-link', roomId: room.roomId, linkId, secret: linkSecret, role: 'creator', authorizerId: ai.publicBundle.deviceId, authorizerFingerprint: fingerprint, creatorFingerprint: fingerprint, expiresAt };
   });
+  // A synthetically sealed checkpoint for an unavailable other room reaches
+  // preparation, then fails the real service lookup before any signed request.
+  const unavailable = await a.evaluate(async () => {
+    const backup = await import('/src/lib/backup-crypto.ts'); const code = backup.newRecoveryCode();
+    const checkpoint = structuredClone(session.vault); checkpoint.roomId = crypto.randomUUID();
+    for (const field of ['backup', 'spaceRecoveryCode', 'historyRestoreTask', 'recoverySource', 'pendingJointRecovery', 'pendingRecovery', 'recoveryExperience']) delete checkpoint[field];
+    return { code: code.code, sealed: await backup.sealRecovery({ v: 1, backupId: code.id, roomId: checkpoint.roomId, deviceId: checkpoint.identity.publicBundle.deviceId, checkpoint, archives: [] }, code.code) };
+  });
+  await a.route('**/api/recovery-backups/*', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ revision: 1, sealed: unavailable.sealed }) }));
+  await a.locator('#message-input').fill('原空间的合成草稿');
+  await a.evaluate(() => { app.uiPreferences.composerDraft = document.querySelector('#message-input').value; app.flushUiPreferencesSave(); app.renderJointRecovery(null); });
+  await a.locator('#joint-open-code').click(); await a.locator('#joint-code-form textarea').fill(unavailable.code);
+  await a.locator('#joint-code-form button[type=submit]').click();
+  await a.waitForFunction(() => document.querySelector('#joint-code-form .form-error')?.textContent.length > 0);
+  await a.locator('#joint-code-close').click(); await a.locator('#joint-code-form').waitFor({ state: 'detached' });
+  await a.locator('#joint-back').click(); await a.locator('#message-input').waitFor();
+  assert.equal(await a.evaluate(() => app.session.vault.roomId), setup.roomId);
+  assert.equal(await a.locator('#message-input').inputValue(), '原空间的合成草稿');
+  assert.equal(await a.evaluate(() => app.session.vault.pendingJointRecovery), undefined);
+  await a.unroute('**/api/recovery-backups/*');
+  results.crossSpacePreparationFailureReturnsOriginalVault = true;
   let statusRequests = 0, simultaneous = 0, maxSimultaneous = 0;
   f.on('request', request => { if (request.url().includes('/status')) { statusRequests += 1; simultaneous += 1; maxSimultaneous = Math.max(maxSimultaneous, simultaneous); } });
   const finished = request => { if (request.url().includes('/status')) simultaneous -= 1; };
@@ -159,6 +190,19 @@ try {
   results.lockResumesOriginalDeviceRequest = true;
   await f.evaluate(async () => { await Promise.all(Array.from({ length: 10 }, () => app.completePendingDeviceLink())); });
   assert.equal(maxSimultaneous, 1);
+  await f.evaluate(async () => { await app.renderPendingDeviceLink(new api.ApiError('合成服务已确认邀请过期', 410, 'DEVICE_LINK_EXPIRED')); });
+  assert.equal(await f.locator('#retry-device-link').textContent(), '本次接入未完成');
+  assert.equal(await f.locator('#retry-device-link').isDisabled(), true);
+  const replacement = await a.evaluate(async original => {
+    const fresh = { ...original, linkId: crypto.randomUUID(), secret: (await import('/src/lib/base64.ts')).randomBase64Url(32), expiresAt: new Date(Date.now() + 600000).toISOString() };
+    await api.createDeviceLink(fresh.roomId, session.vault.accessToken, fresh.authorizerId, fresh.linkId, fresh.secret, fresh.expiresAt);
+    return links.makeDeviceInviteUrl(fresh);
+  }, setup);
+  await f.evaluate(url => { location.hash = new URL(url).hash; }, replacement);
+  await f.waitForFunction(() => document.querySelector('.gateway h1')?.textContent === '添加这台设备');
+  await f.locator('.gateway-back').click(); await f.locator('#retry-device-link').waitFor();
+  assert.equal(await f.evaluate(() => app.session.vault.identity.publicBundle.deviceId), fId);
+  results.endedDeviceTaskAllowsExplicitNewInviteAndSafeReturn = true;
   await a.evaluate(async () => { await app.renderDeviceManager(); });
   await a.getByRole('button', { name: '安全码一致，允许加入' }).click();
   await f.locator('#message-input').waitFor();
