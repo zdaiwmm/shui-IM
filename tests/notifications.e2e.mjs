@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { chromium, webkit } from 'playwright';
@@ -111,7 +111,8 @@ try {
     assert.equal(await page.evaluate(async () => (await (await caches.open(np.NOTIFICATION_POLICY_CACHE)).match(np.NOTIFICATION_POLICY_URL)).text()), 'off');
     if (engine === chromium) assert.equal(await page.evaluate(() => v.currentSpaceId() === v.vaultSpaceId(a.stored)), true);
     const prototype = await context.newPage();
-    await prototype.goto(url.replace('/__notifications', '/docs/requirements/2026-10-08-device-notifications/prototype/index.html'));
+    // The custom Vite fixture has no HTML fallback; load the exact standalone artifact.
+    await prototype.setContent(await readFile(new URL('../docs/requirements/2026-10-08-device-notifications/prototype/index.html', import.meta.url), 'utf8'));
     assert.equal(await prototype.locator('#status').innerText(), '本机支持通知');
     await prototype.locator('#master').click(); assert.equal(await prototype.locator('#master').getAttribute('aria-checked'), 'true');
     await prototype.locator('#master').click(); await prototype.locator('#scenario').selectOption('blocked');
