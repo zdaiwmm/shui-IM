@@ -1,15 +1,17 @@
 # Quiet Room 当前状态
 
 
-## 2026-10-08 本机通知管理：实施候选
+## 本机统一通知管理已发布（2026-10-08 21:02）
 
-- 用户确认只实施通知，备份与恢复提案不纳入。独立任务基线 `82497d95fd6c587304ad2fbc4bd677b1805c1434`，分支 `codex/device-notifications-20261008`；[需求与验证入口](../requirements/2026-10-08-device-notifications/README.md)维护范围。
-- 本机单页管理总开关及全部空间，区分系统／服务／网络能力，无测试通知；通知仍为通用提醒。共享端点按空间隔离及旧表原子迁移有定向证据；Chromium、WebKit 合成交互专项通过。完整门禁与 PR／CI 以本候选交付回执为准，尚未发布生产。
-- 真机 iPhone/iOS27/Safari 的安装、系统权限与真实 Web Push 送达未验证；现有生产事实仍以以下发布记录为准。
+- 当前生产精确 SHA `60561372147c6c1bb939eb85fc0ee17b9186fd67`，版本 `2026.10.08.2`；用户确认本次完整提交及指定旧归档迁移。[PR #251](https://github.com/zdaiwmm/shui-IM/pull/251) 已合并，源 head `a031a414d2cf04a8c8241ff31ce8a253afd75218` 与合并树一致，精确[main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37775682851) attempt 2 全部 12 项通过。通知产品候选完整门禁 830 项／55 个浏览器入口，最终源提交构建与 833 项测试通过；没有混入备份／恢复产品提案。
+- 本机单页显示通知能力与限制，并管理总开关及全部空间；总关闭保留选择，单空间退订不取消共享端点，权限与服务器确认分别判断，提醒仍为通用内容。[需求与验收](../requirements/2026-10-08-device-notifications/README.md)保留运行时取消、旧表迁移及真实设备缺口。
+- 固定入口精确 `DEPLOY_VERIFIED` 与独立 `READBACK_OK` 均完成，实际切换一次。最终回读 `2026-10-08T13:02:51.254Z`：应用与备份 healthy，TURN 运行且探针 none，维护门不存在；SHA、镜像、HTTPS／数据库／存储、公开与容器产物及 WebSocket 一致。公网通知 enabled true，TURN 重启计数未增长，公共配置 `0644`。启动等待期只续跑只读回读，批次、镜像和持久证据见[发布记录](../../RELEASING.md#本机统一通知管理已发布2026-10-08-2102)。
+- 经精确摘要核验独立安装 root helper 权限修复，推送密钥仅在服务器生成和保管、私密配置 `0600`。指定旧冷归档经用户授权和两端独立完整性校验迁至 FileVault 本机，持锁移除仅该服务器副本；其余恢复点、回滚镜像及连续备份保留。发布后可用 `3830853632` 字节、占用 90.41%，下一次发布受 `DISK_CRITICAL`／`DISK_HEADROOM_LOW` 阻断，容量仍需后续治理；旧修改源码保留，不声称定向清理整轮成功。
+- 物理 iPhone／iOS 27／Safari 的安装、原生授权、真实推送送达及独立安全审计未验证。独立文档树只对账、不含部署配置、不再次部署，仓库文档 main 可以领先线上应用 SHA；本批开发／对账树按固定清理规则记录保留，其他任务不清理。下方均为历史发布与验收快照。
 
 ## 草稿刷新与邀请返回修复已发布（2026-10-08 11:45）
 
-- 当前生产精确 SHA `3b969f8ceb1501380e8cb69d816bb18543ac8798`，版本 `2026.10.08.1`，用户已在本会话确认该完整提交；[PR #248](https://github.com/zdaiwmm/shui-IM/pull/248) 与此前[PR #249](https://github.com/zdaiwmm/shui-IM/pull/249) 已合并，精确[main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37711657679) attempt 1 全部 12 项成功。已上线即时刷新草稿保护、邀请返回列表，以及邀请／恢复／设备接入／访问失效等交互优化；[草稿需求](../requirements/2026-10-08-audit-bugfix/README.md)与[交互需求](../requirements/2026-10-08-interaction-audit/README.md)中的未发布表述保留为实施阶段，本节接续实际发布结果。
+- 该次历史生产精确 SHA `3b969f8ceb1501380e8cb69d816bb18543ac8798`，版本 `2026.10.08.1`，用户已在本会话确认该完整提交；[PR #248](https://github.com/zdaiwmm/shui-IM/pull/248) 与此前[PR #249](https://github.com/zdaiwmm/shui-IM/pull/249) 已合并，精确[main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37711657679) attempt 1 全部 12 项成功。已上线即时刷新草稿保护、邀请返回列表，以及邀请／恢复／设备接入／访问失效等交互优化；[草稿需求](../requirements/2026-10-08-audit-bugfix/README.md)与[交互需求](../requirements/2026-10-08-interaction-audit/README.md)中的未发布表述保留为实施阶段，本节接续实际发布结果。
 - 固定入口精确 `DEPLOY_VERIFIED` 与独立 `READBACK_OK` 均完成，实际切换一次。最终回读于 `2026-10-08T03:45:40.461Z` 完成：应用与备份 healthy，TURN 运行且探针 none，维护门不存在，管理员与通话启用；SHA、镜像、HTTPS／数据库／存储、公开与容器产物及新 WebSocket 一致。TURN 公开配置权限已持锁恢复为 `0644`，内容及应用提交不变；备份启动等待期只续跑回读。批次、冷备份、诊断和持久脱敏证据见[发布记录](../../RELEASING.md#草稿刷新与邀请返回修复已发布2026-10-08-1145)。
 - 两份特殊 catalog 归档经用户确认迁至 FileVault Mac，完整性与独立重读通过后释放确切服务器副本；三份符合保留规则的旧服务器工作树及可再生成包缓存已清理，关闭 journal 仅回收零块且字节摘要不变。发布后容量可用 `4179415040` 字节、使用率 89.54%，下一次发布预检仍为 `DISK_HEADROOM_LOW`；固定入口的 TURN 配置读取权限防复发待后续修复。迁移不等于持续异地不可变备份，现有运维缺口保留。
 - 真实 iPhone／iOS 27／Safari、系统面板／后台、用户理解和外部独立安全审计未验证；自动 CI 与生产回读不替代真机验收。独立文档对账不含部署配置、不再次部署，main 文档可领先线上应用 SHA。准备树与对账树承载本轮收尾，其他任务归属／退出未核实，保留。下方均为历史发布与验收快照。
