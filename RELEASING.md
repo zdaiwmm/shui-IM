@@ -1,5 +1,16 @@
 # Quiet Room 固定发布流程
 
+## 本机统一通知管理已发布（2026-10-08 21:02）
+
+- 用户在本会话明确确认版本 `2026.10.08.2`、精确 main SHA `60561372147c6c1bb939eb85fc0ee17b9186fd67` 及已列明的旧恢复归档迁移方案后，执行本次生产发布。[PR #251](https://github.com/zdaiwmm/shui-IM/pull/251) 已合并，源 head `a031a414d2cf04a8c8241ff31ce8a253afd75218` 与合并提交的完整文件树一致。精确[源提交 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37774722912) attempt 1 及[main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37775682851) attempt 2 全部 12 项成功；main 首次 WebKit 测试数据初始化失败，仅定向重跑失败分片与汇总门禁后通过，断言未改。固定发布入口另核对最新精确 CI 与同次 verify。
+- 本次产品范围仅通知：设置中的本机通知管理统一显示可用性、总开关和所有空间开关；总关闭保留空间选择，单空间关闭不移除共享浏览器端点。通知保持通用提醒，显式开启才请求权限，服务器确认后开放提醒；迟到授权、跨标签并发和隐私退出有关闭门禁。备份／恢复原型提案未纳入。[需求与验收映射](docs/requirements/2026-10-08-device-notifications/README.md)保留产品边界。通知产品源码沿用干净候选 `b10537eea7967a898931cc23aa2d995034c18abb` 的完整门禁：830 项单元／集成、55 个浏览器入口全部通过，711345 毫秒；最终源提交构建与 833 项测试、发布相关 51 项专项通过，产品源码未再变更，因此未重复本地全量。
+- 必要交付修复将浏览器 CI 切至固定摘要、与依赖版本一致的官方 Playwright 容器；独立安装经审阅、语法和摘要核验的 root 发布 helper `703511b41a06aa9596a40a5e591c559cd7e20809040ac484f08140787e5c2f7b`，属主 `root:root`、模式 `0755`，同盘原子替换并保留旧版。helper 只将已跟踪的非符号链接 TURN 公共配置设为 `0644`，不修改内容或私密文件。VAPID 密钥只在服务器生成、验证和持久配置，配置保持 `0600`，保留原联系信息及其他设置；不在本机或知识库保存密钥。
+- 容量准备保留含本机修改的旧服务器发布源码，定向清理途中失败不写为整轮成功；15 份已关闭系统日志压缩后逐字节校验保留。用户另行确认旧冷归档 `data-20260930T153249Z-a0bc5e6ff835.tar.gz`（`900749276` 字节）迁至 FileVault 本机目录 `/Users/zhouding/ss-worktrees/.delivery-evidence/20261008-device-notifications/archives/`。源／目标 SHA-256、gzip 及独立两端复读一致后，持锁记录 `/var/lib/quiet-room-deploy/archive-migrations/20261008-device-notifications-a0bc5e6ff835.json` 并移除仅此服务器副本；本机目录 `0700`、文件 `0600`。其余恢复点、回滚镜像、仍被 TURN 引用的镜像及连续备份保留；未做全局或构建缓存 prune、业务数据删除。迁移后预检可用 `5084618752` 字节，门槛通过。
+- 固定入口取得 `DEPLOY_VERIFIED`，外层核对精确 SHA 回执后又独立读取并持久保存；实际切换一次，前一生产为 `3b969f8ceb1501380e8cb69d816bb18543ac8798`。批次 `20261008T125352Z`，发布目录 `/opt/quiet-room/git-releases/20261008T125352Z-60561372147c`，冷归档 `data-20261008T125352Z-60561372147c.tar.gz` 已校验。构建 45 秒、冷备份 64 秒、启动 31 秒，服务器总计 153 秒，固定入口总计 192638 毫秒；切换前第二次预检可用 `4870856704` 字节、占用 87.81%，4 GiB 门禁通过。
+- 首次独立回读中应用 healthy、备份探针 starting，未再次部署；只读观察既有五分钟探针变为 healthy 后，仅续跑同一 SHA 的回读。最终 `READBACK_OK` 于 `2026-10-08T13:02:51.254Z` 完成，6168 毫秒：精确 SHA、镜像、HTTPS／数据库／存储、公开与容器产物和新 WebSocket 一致，维护门不存在；应用与备份 healthy，TURN 运行且探针 none，管理员与通话启用。镜像 `sha256:2c80e16c7312138420eea906d04e05125b6c43c0cfdc2eb88c08ed25463bdaa2`。公网 `/api/push/public-key` 返回 200、enabled true、已配置公钥；两次只读观察 TURN 非重启状态且重启计数均为 0，公共配置摘要 `f18ea9e05da61b1836cc07ea467a8467a536ff308045356220168ae2ce9a954a`、模式 `0644`。
+- 发布后 `2026-10-08T13:01:49.303Z` 容量可用 `3830853632` 字节、占用 90.41%，新冷归档写入后再次低于下一次发布门槛，须记录 `DISK_CRITICAL` 与 `DISK_HEADROOM_LOW`；不把切换前通过写成持续容量充足，不绕过门禁再发版。精确回执、迁移、启动期失败、最终脱敏回读及运行状态摘要持久保存在 `/Users/zhouding/ss-worktrees/.delivery-evidence/20261008-device-notifications/`，最终回读为 `20261008T130245086Z-60561372147c-success.json`。独立文档树不含部署配置，只同步发布、状态及同一需求，不再次部署；当前收尾资源按固定清理规则核验，不删除其他任务资源。
+- 物理 iPhone／iOS 27／Safari 的主屏幕安装、原生权限和真实推送送达尚未验证；服务已启用与合成自动验收不证明真实系统送达。外部独立安全审计及既有长期灾备缺口仍未验证。以下为历史发布记录。
+
 ## 草稿刷新与邀请返回修复已发布（2026-10-08 11:45）
 
 - 用户在本会话确认精确 main SHA `3b969f8ceb1501380e8cb69d816bb18543ac8798`，版本 `2026.10.08.1`；[PR #248](https://github.com/zdaiwmm/shui-IM/pull/248) 已合并并包含此前[交互 PR #249](https://github.com/zdaiwmm/shui-IM/pull/249)。精确[main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37711657679) attempt 1 全部 12 项成功，固定发布入口再次核对最新运行与同次 verify。
