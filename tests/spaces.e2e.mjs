@@ -144,14 +144,49 @@ try {
   assert.equal(await page.evaluate(() => app.session.browserAccessPrf?.some(byte => byte !== 0) && JSON.stringify(Array.from(app.session.browserAccessPrf)) === JSON.stringify(expectedAccessProof)), true, 'Creating with the unlocked credential must preserve the separate browser-request proof');
   await page.locator('#invite-close').click();
   await page.locator('.space-invite-sheet').waitFor({ state: 'detached' });
-  assert.equal(await page.evaluate(() => app.activeSurface), 'chat', 'Closing the invite must return to chat');
-  await page.locator('#open-spaces').click();
+  // PRODUCT.md and the confirmed S6 flow require the invitation to return to
+  // the list, preserving the pending room; the previous chat assertion was wrong.
+  await page.locator('.space-drawer-overlay').waitFor();
+  assert.equal(await page.evaluate(() => app.activeSurface), 'away', 'Closing the invite must return to the space list');
   await page.locator('.space-row.is-selected').waitFor();
   assert.equal(await page.locator('.space-row').count(),3);
   await page.locator('.space-row.is-selected').click();
   await page.locator('#copy-invite').waitFor();
   assert.equal(await page.evaluate(()=>v.currentSpaceId()),createdSlot);
   assert.equal(await page.evaluate(()=>app.activeSurface),'away','The invitation must not announce active chat presence');
+  for (const method of ['backdrop', 'escape', 'drag']) {
+    await page.waitForFunction(() => {
+      const sheet = document.querySelector('.space-invite-sheet');
+      return sheet && document.querySelector('.space-invite-overlay')?.contains(document.activeElement)
+        && sheet.getAnimations().every(animation => animation.playState === 'finished');
+    });
+    if (process.env.QUIET_ROOM_SPACE_TRACE) console.log('INVITE_CLOSE_PHASE', method, await page.evaluate(() => ({ focused: document.activeElement?.className, inInvite: document.querySelector('.space-invite-overlay')?.contains(document.activeElement), handleY: document.querySelector('.space-invite-handle')?.getBoundingClientRect().y })));
+    if (method === 'backdrop') await page.locator('.space-invite-overlay').click({ position: { x: 5, y: 5 } });
+    else if (method === 'escape') {
+      // The phase gate above waits for the key's real target and stable geometry.
+      await page.keyboard.press('Escape');
+    }
+    else {
+      await page.locator('.space-invite-handle').hover();
+      const handle = await page.locator('.space-invite-handle').boundingBox();
+      await page.mouse.move(handle.x + handle.width / 2, handle.y + 10); await page.mouse.down();
+      await page.mouse.move(handle.x + handle.width / 2, handle.y + 180, { steps: 5 }); await page.mouse.up();
+    }
+    await page.locator('.space-invite-overlay').waitFor({ state: 'detached' });
+    await page.locator('.space-drawer-overlay .space-row.is-selected').waitFor();
+    if (process.env.QUIET_ROOM_SPACE_TRACE) console.log('INVITE_RETURN_PHASE', method, await page.evaluate(() => ({ slot: v.currentSpaceId(), session: app.session?.stored?.spaceId, selected: document.querySelector('.space-drawer-overlay .space-row.is-selected')?.textContent })));
+    assert.equal(await page.locator('.space-row').count(), 3, `${method}: pending room must stay in the list`);
+    assert.equal(await page.evaluate(() => v.currentSpaceId()), createdSlot);
+    assert.equal(await page.locator('.space-row.is-selected').evaluate(el => el === document.activeElement), true);
+    await page.locator('.space-row.is-selected').click(); await page.locator('#copy-invite').waitFor();
+  }
+  await page.setViewportSize({ width: 1280, height: 844 });
+  await page.locator('#invite-close').click(); await page.locator('.space-invite-overlay').waitFor({ state: 'detached' });
+  await page.locator('.desktop-sidebar .space-row.is-selected').waitFor();
+  assert.equal(await page.locator('.space-drawer-overlay').count(), 0, 'Desktop returns to the existing sidebar');
+  assert.equal(await page.locator('.desktop-sidebar').isVisible(), true);
+  assert.equal(await page.locator('.desktop-sidebar .space-row.is-selected').evaluate(el => el === document.activeElement), true);
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(async()=>{ await app.leaveSpace(); await v.selectLocalSpace('current'); });
   // The actual post-unlock router resolves the invitation before rendering chat or opening a socket.
   const routed=await page.evaluate(async()=>{

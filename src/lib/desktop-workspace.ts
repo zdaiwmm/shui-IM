@@ -10,6 +10,7 @@ export class DesktopWorkspace {
   private lifetime: AbortController | null = null;
   private owner: object | null = null;
   private collapsed = false;
+  private focusSelected = false;
   private page: HTMLElement | null = null;
   constructor(private root: HTMLElement, private options: {
     context: () => { owner: object; signal: AbortSignal } | null;
@@ -24,6 +25,11 @@ export class DesktopWorkspace {
     }, { capture: true });
   }
   get active() { return this.root.dataset.desktopWorkspace === 'true'; }
+  expand() { this.collapsed = false; this.focusSelected = true; this.sync(); this.restoreSelectedFocus(); }
+  private restoreSelectedFocus() {
+    const row = this.host?.querySelector<HTMLElement>('.space-row.is-selected');
+    if (this.focusSelected && row && !this.host?.hidden && !this.host?.inert) { row.focus({ preventScroll: true }); this.focusSelected = false; }
+  }
   collapse() { this.collapsed = true; this.sync(); this.focusToggle(); }
   private toggle() { this.collapsed = !this.collapsed; this.sync(); this.focusToggle(); }
   private focusToggle() {
@@ -33,6 +39,7 @@ export class DesktopWorkspace {
   clear() {
     this.lifetime?.abort(); this.lifetime = null; this.host?.remove(); this.host = null;
     this.owner = null; this.page = null; delete this.root.dataset.desktopWorkspace; delete this.root.dataset.sidebarCollapsed;
+    this.focusSelected = false;
   }
   sync() {
     const context = this.options.context();
@@ -54,7 +61,7 @@ export class DesktopWorkspace {
       const signal = AbortSignal.any([context.signal, this.lifetime.signal]);
       signal.addEventListener('abort', () => host.remove(), { once: true });
       this.root.append(host);
-      void this.options.mount(host, signal).catch(() => {
+      void this.options.mount(host, signal).then(() => { if (!signal.aborted && this.host === host) this.restoreSelectedFocus(); }).catch(() => {
         if (signal.aborted || !host.isConnected) return;
         host.innerHTML = '<p role="alert">空间列表暂不可用</p><button type="button" class="secondary-button">重试</button>';
         host.querySelector('button')!.addEventListener('click', () => { this.lifetime?.abort(); this.host = null; this.sync(); });
