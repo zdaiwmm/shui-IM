@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+## 通知文案与提醒过滤已发布（2026-10-09）
+
+- 用户在列明版本 `2026.10.09.1`、精确 main SHA `261da69bbf4e7c9baf5beeef4286ffd1e6d192c7` 与唯一指定旧备份迁移方案后明确「确认」。[PR #253](https://github.com/zdaiwmm/shui-IM/pull/253) 按 main 有效规则以 merge commit 合并，源 head `ac0675ecdb52efaabfd843a8468aa9a197846ca1` 与合并文件树一致（`3e871fe1e32a031c32561a91f2facf8571779c9d`）。精确[PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37917937332) attempt 1 与[main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37918742751) attempt 2 均全部12项成功；main 首轮通知 WebKit 用例初始化抛出 NotSupportedError，只原样重跑失败分片与 verify 一次，原因未确认，断言与超时不变。
+- 已上线设置中的本机固定通知标题／正文、系统来源行说明和原图裁切预览；所有本机空间共用，文案不上传或自动读取聊天内容。对方上线不提醒，`countUnread=false` 的已读／反应／撤回／相册专用同步不触发聊天推送；真实新聊天与浏览器接入请求保留原流程。[需求与验收](docs/requirements/2026-10-09-notification-copy/README.md)保留范围与真机缺口。产品候选完整本地门禁通过：构建、840项单元／集成、55个浏览器入口，701448毫秒。交付时修正密码回退测试将对端收到误当作发送端已持久确认的时序假设，等待实际保存后执行原断言；完整密码专项本机通过，产品代码未因此改变。
+- 容量预检起初不通过。用户确认唯一旧归档 `data-20260930T200545Z-84c0d3724a24.tar.gz`（`901491715` 字节）迁至 FileVault 本机 `/Users/zhouding/ss-worktrees/.delivery-evidence/notification-copy-20261009/archives/`；目录0700、文件0600。两端 gzip、SHA-256 与独立复读一致，摘要 `8dca65ee15331fc67c194d12c7e90fab52c05736eedf7df73d6a3febccb58ef9`。持发布锁再次核验源文件、生产提交、无失败切换配对及其他恢复点后，仅移除指定服务器副本，账本 `/var/lib/quiet-room-deploy/archive-migrations/20261009-notification-copy-84c0d3724a24.json` 已独立回读。其余备份、业务数据和回滚镜像保留，未做全局或 builder prune。迁移后可用4554211328字节，预检通过；这不是持续异地不可变备份。
+- 固定入口第一次在隔离 clone 阶段因 GitHub SSH 通道拒绝退出，未调用服务器切换。只读验证既有 GitHub CLI 的 HTTPS 通道后，以临时私有配置选择固定入口原生支持的 HTTPS 路径，同一提交继续；原配置、发布门禁和 root helper 未修改。成功取得 `DEPLOY_VERIFIED`，外层核对精确回执并独立复读；实际生产切换一次，前一生产 `60561372147c6c1bb939eb85fc0ee17b9186fd67`。批次 `20261009T110616Z`，发布目录 `/opt/quiet-room/git-releases/20261009T110616Z-261da69bbf4e`，冷归档 `data-20261009T110616Z-261da69bbf4e.tar.gz` 已校验。构建47秒、冷备份67秒、启动31秒、服务器总计158秒、固定入口总计187100毫秒。切换前第二次容量检查可用4340387840字节、占用89.13%，4 GiB门槛通过。
+- 首次独立回读中应用healthy、备份探针starting，仅等待现有五分钟探针变healthy，再续跑只读回读，没有再次部署。最终 `READBACK_OK` 于 `2026-10-09T11:14:28.944Z` 完成，3121毫秒：SHA、镜像、HTTPS／数据库／存储、公开与容器产物和新WebSocket一致，维护门不存在；应用与备份healthy，TURN运行且探针none，管理员与通话启用。镜像 `sha256:984565a023ddfbd73d3c56b4faa51434533a5994b08d50b6a404a5c8763ef9c0`；只读观察TURN无重启增长。
+- 发布后容量可用3300728832字节（约3.07 GiB）、占用91.74%，`DISK_CRITICAL`／`DISK_HEADROOM_LOW` 仍阻断下一次发布，需后续容量治理；不绕过或扩大清理。迁移、精确回执、启动期失败及最终脱敏回读保存在 `/Users/zhouding/ss-worktrees/.delivery-evidence/notification-copy-20261009/`，成功回读文件 `20261009T111425821Z-261da69bbf4e-success.json`。独立文档树无部署配置，仅对账发布／状态／同一需求，不再次部署；文档main可以领先线上应用SHA。原型与正式审阅服务仍使用开发树，当前文档树承载收尾，按清理规则保留；其他任务资源不清理。
+- 物理iPhone／iOS27／主屏幕应用的原生键盘、真实推送送达及自填排版尚未验证，系统来源行不允许任意改写；自动验收与生产回读不替代真机或外部独立安全审计。以下为历史发布记录。
+
 ## 本机统一通知管理已发布（2026-10-08 21:02）
 
 - 用户在本会话明确确认版本 `2026.10.08.2`、精确 main SHA `60561372147c6c1bb939eb85fc0ee17b9186fd67` 及已列明的旧恢复归档迁移方案后，执行本次生产发布。[PR #251](https://github.com/zdaiwmm/shui-IM/pull/251) 已合并，源 head `a031a414d2cf04a8c8241ff31ce8a253afd75218` 与合并提交的完整文件树一致。精确[源提交 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37774722912) attempt 1 及[main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37775682851) attempt 2 全部 12 项成功；main 首次 WebKit 测试数据初始化失败，仅定向重跑失败分片与汇总门禁后通过，断言未改。固定发布入口另核对最新精确 CI 与同次 verify。
