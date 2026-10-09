@@ -1,5 +1,10 @@
 # Quiet Room 当前状态
 
+## 通知文案与非聊天推送过滤实施中（2026-10-09）
+
+- 用户批准 v4 并明确立即实施；本任务独立分支 `codex/notification-copy-prototype-20261009`，基线 main `2112a871b70c68305a2bd00a739b9fea66cd3841`。新增本机固定标题／正文、系统来源说明与原图裁切预览，过滤 `countUnread=false` 同步唤醒，保留接入请求。
+- 构建及定向16项测试、Chromium与WebKit交互通过；完整门禁与远端交付待完成。生产仍以此前已发布批次为准，本任务无生产发布授权。iPhone/iOS27 原生展示及键盘待真机验证；[需求记录](../requirements/2026-10-09-notification-copy/README.md)保存确认与证据。
+
 
 ## 本机统一通知管理已发布（2026-10-08 21:02）
 
