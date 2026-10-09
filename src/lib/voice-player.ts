@@ -6,6 +6,9 @@ import { voiceIcons, voiceTime, waveformMarkup } from './voice-audio';
 /** Only one decrypted audio source, including pending downloads, is retained. */
 export class VoicePlayback {
   private current: VoicePlayer | null = null;
+  constructor(private readonly useChanged: () => void = () => {}) {}
+  get playing(): boolean { return this.current?.playing ?? false; }
+  changed(): void { this.useChanged(); }
   activate(player: VoicePlayer): void {
     if (this.current === player) return;
     this.stop(); this.current = player;
@@ -17,6 +20,8 @@ export class VoicePlayback {
 export class VoicePlayer {
   readonly element = document.createElement('div');
   private audio = new Audio();
+  private actualPlayback = false;
+  get playing(): boolean { return this.element.isConnected && this.actualPlayback && !this.audio.paused && !this.audio.ended && !this.audio.loop && Number.isFinite(this.audio.duration) && this.audio.duration > 0; }
   private url: string | null = null;
   private request: AbortController | null = null;
   private loading = false;
@@ -44,6 +49,8 @@ export class VoicePlayer {
     this.time = this.element.querySelector('time')!;
     this.status = this.element.querySelector('.voice-play-status')!;
     this.audio.preload = 'metadata';
+    this.audio.addEventListener('playing', () => { this.actualPlayback = true; this.playback.changed(); });
+    for (const event of ['pause', 'waiting', 'stalled', 'ended', 'error', 'emptied']) this.audio.addEventListener(event, () => { this.actualPlayback = false; this.playback.changed(); });
     this.button.addEventListener('click', () => void this.toggle());
     this.seek.addEventListener('input', () => {
       if (!this.url || !Number.isFinite(this.audio.duration)) return;

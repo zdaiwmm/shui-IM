@@ -1,215 +1,137 @@
 import assert from 'node:assert/strict';
-import { chromium, webkit } from 'playwright';
-import { createServer } from 'vite';
-
-const server = await createServer({ configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error',
-  server: { host: '127.0.0.1', port: 0, hmr: false }, plugins: [{ name: 'privacy-fixture', configureServer(vite) {
-    vite.middlewares.use('/__privacy', (_req, res) => {
-      res.setHeader('Content-Type', 'text/html');
-      res.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><main id="app"></main>');
-    });
-  } }] });
-let browser;
+import { privacyFixture } from './helpers/privacy-fixture.mjs';
+const fixture = await privacyFixture(); const { page, errors } = fixture;
+const state = () => page.evaluate(() => ({ locked: window.fixture.app.privacyCovered, remaining: window.fixture.app.idleLease.remaining,
+  prompt: !!document.querySelector('.idle-lock-prompt:not([hidden])'), obscured: document.documentElement.classList.contains('privacy-obscured') }));
 try {
-  await server.listen();
-  browser = process.env.QUIET_ROOM_TEST_BROWSER === 'webkit' ? await webkit.launch()
-    : await chromium.launch(process.env.CI ? {} : { channel: 'chrome' });
-  const page = await browser.newPage({ viewport: { width: 390, height: 844 },
-    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile Safari/604.1' });
-  const errors = []; page.on('pageerror', error => errors.push(error.message));
-  await page.goto(`http://localhost:${server.httpServer.address().port}/__privacy`);
-  await page.evaluate(async () => {
-    for (const style of ['styles', 'cover', 'chat-layout', 'chat-interactions', 'voice-messages', 'call']) await import(`/src/${style}.css`);
-    const { QuietRoomApp } = await import('/src/app.ts');
-    const { createVault } = await import('/src/lib/vault.ts');
-    const app = new QuietRoomApp(document.querySelector('#app'));
-    const own = { deviceId: 'privacy-own', role: 'creator', status: 'active', capabilities: ['voice-message-v1'] };
-    const session = await createVault({ v: 1, roomId: 'privacy-fixture', accessToken: 'fixture', role: 'creator', protocol: 'legacy-v1', lastSeq: 0, members: [own], identity: { publicBundle: own } }, 'privacy-fixture-password', 'password');
-    app.updateSafetyCode = async () => {}; app.updateBackgroundNotificationControl = async () => {};
-    app.uiPreferencesHydrated = true; app.uiPreferences = { recoveryReminderDismissed: true, entranceCardDismissed: true };
-    let focused = true;
-    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => focused });
-    const focus = () => { focused = true; window.dispatchEvent(new Event('focus')); };
-    const silentFocus = () => { focused = true; };
-    const blur = () => { focused = false; window.dispatchEvent(new Event('blur')); };
-    const fresh = () => {
-      app.lockNow(); delete document.hidden; focus();
-      app.session = session; app.privacyCovered = false; app.runtimeEpoch++;
-      app.runtimeAbort = new AbortController(); app.renderChat(); app.resetIdleLock();
-    };
-    fresh(); window.fixture = { app, session, fresh, focus, silentFocus, blur };
-  });
-  await page.locator('#message-input').fill('合成草稿，保留选区');
-  const retained = await page.evaluate(async () => {
-    const { app, blur, focus } = window.fixture;
-    app.clearKeyboardHandoff();
-    const input = document.querySelector('#message-input'); input.setSelectionRange(2, 6);
-    app.beginNativeHandoff('picker', 300000); blur(); blur();
-    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const retained = !app.privacyCovered && document.activeElement === input
-      && input.selectionStart === 2 && input.selectionEnd === 6 && input.value === '合成草稿，保留选区';
-    focus();
-    const focusStillCovered = document.documentElement.classList.contains('privacy-obscured');
-    const invalidated = await app.finishNativeHandoff('picker');
-    return { retained, focusStillCovered, invalidated, restored: !document.documentElement.classList.contains('privacy-obscured') };
-  });
-  assert.deepEqual(retained, { retained: true, focusStillCovered: false, invalidated: false, restored: true });
-  assert.equal(await page.evaluate(async () => {
-    const { app, fresh, blur, focus } = window.fixture; fresh();
-    app.beginNativeHandoff('camera', 30000); blur();
-    const result = app.finishNativeHandoff('camera');
-    const covered = document.documentElement.classList.contains('privacy-obscured');
-    focus();
-    return !covered && !(await result) && !document.documentElement.classList.contains('privacy-obscured');
-  }), true, 'Result-before-focus interrupted the visible foreground tool');
-  assert.equal(await page.evaluate(async () => {
-    const { app, fresh, blur, silentFocus } = window.fixture; fresh();
-    let complete;
-    const operation = app.withSystemSurface(() => new Promise(resolve => { complete = resolve; }));
-    blur(); blur(); complete(); await operation;
-    const held = document.documentElement.classList.contains('privacy-obscured');
-    silentFocus(); await new Promise(resolve => setTimeout(resolve, 100));
-    return !held && !app.privacyCovered && !document.documentElement.classList.contains('privacy-obscured');
-  }), true, 'Silent actual focus after a completed system operation remained stuck');
-
-  // No proactive flash, including rejected/cancelled APIs and overlapping
-  // operations. An earlier completion cannot release a newer operation.
-  for (const outcome of ['success', 'failure', 'overlap', 'stale', 'timeout']) {
-    assert.equal(await page.evaluate(async outcome => {
-      const { app, fresh, blur, focus } = window.fixture; fresh();
-      let flashed = false;
-      const observer = new MutationObserver(records => {
-        flashed ||= records.some(record => record.oldValue?.includes('privacy-obscured'))
-          || document.documentElement.classList.contains('privacy-obscured');
-      });
-      observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'], attributeOldValue: true });
-      let complete;
-      const first = app.withSystemSurface(() => new Promise((resolve, reject) => { complete = outcome === 'failure' ? reject : resolve; }));
-      const caught = first.then(() => false, () => true);
-      const owner = app.systemSurfaceHandoff;
-      blur(); blur();
-      let second;
-      if (outcome === 'overlap') {
-        focus(); second = app.withSystemSurface(() => new Promise(resolve => { window.finishSecondTool = resolve; }));
-        if (app.systemSurfaceHandoff !== owner) return false;
-      }
-      if (outcome === 'stale') { app.lockNow(); focus(); fresh(); }
-      if (outcome === 'timeout') { owner.wallDeadline = Date.now() - 1; app.expireSystemSurfaceHandoff(owner); }
-      complete(outcome === 'failure' ? new DOMException('Cancelled', 'AbortError') : 'done');
-      const rejected = await caught;
-      if (second) {
-        if (!app.systemSurfaceHandoff || app.systemSurfaceTokens.size !== 1) return false;
-        window.finishSecondTool(); await second;
-      }
-      focus(); await new Promise(resolve => requestAnimationFrame(resolve)); observer.disconnect();
-      if (outcome === 'timeout') return rejected && app.privacyCovered && !app.session;
-      if (outcome === 'stale') return rejected && app.session && !app.privacyCovered && !app.systemSurfaceHandoff;
-      return !flashed && !app.privacyCovered && !app.systemSurfaceHandoff && !app.systemSurfaceTokens.size
-        && rejected === (outcome === 'failure');
-    }, outcome), true, `Foreground system ${outcome} broke its owner or flashed a curtain`);
-  }
-
-  // The unchanged circle has a larger hit region. Its lower miss area and
-  // toolbar motion absorb real pointer clicks without blur or submission.
-  for (const width of [320, 390, 1024]) {
-    await page.setViewportSize({ width, height: 844 });
-    await page.evaluate(() => {
-      window.fixture.fresh(); window.sendCount = 0;
-      window.fixture.app.handleSendText = event => { event.preventDefault(); window.sendCount++; };
-
-    });
-    await page.locator('#message-input').fill('发送区合成草稿');
-    await page.waitForTimeout(260);
-    await page.waitForFunction(() => !document.querySelector('#composer').hasAttribute('data-viewport-motion'));
-    const points = await page.evaluate(() => {
-      const send = document.querySelector('#send-text'), bounds = send.getBoundingClientRect();
-      const composer = document.querySelector('#composer').getBoundingClientRect();
-      const x = bounds.left + bounds.width / 2;
-      const edge = { x, y: bounds.bottom + 3 };
-      const blank = { x, y: composer.bottom - 2 };
-      return { edge, blank, hit: document.elementFromPoint(edge.x, edge.y)?.closest('#send-text') === send,
-        size: [bounds.width, bounds.height] };
-    });
-    assert.deepEqual(points.size, [34, 34]); assert.equal(points.hit, true, '44px hit region missing');
-    await page.mouse.click(points.blank.x, points.blank.y);
-    assert.equal(await page.evaluate(() => window.sendCount === 0 && document.activeElement?.id === 'message-input'
-      && !document.documentElement.classList.contains('privacy-obscured')), true, `Lower composer miss blurred/submitted at ${width}`);
-    await page.mouse.click(points.edge.x, points.edge.y);
-    assert.equal(await page.evaluate(() => window.sendCount), 1, `Send edge missed at ${width}`);
-    await page.evaluate(() => document.querySelector('#composer').dataset.viewportMotion = 'keyboard');
-    await page.mouse.click(points.edge.x, points.edge.y);
-    assert.equal(await page.evaluate(() => window.sendCount === 1 && document.activeElement?.id === 'message-input'), true,
-      `Moving composer passed through a click at ${width}`);
-    assert.equal(await page.evaluate(() => {
-      const app = window.fixture.app;
-      const input = document.querySelector('#image-input');
-      input.addEventListener('click', event => event.preventDefault(), { capture: true, once: true });
-      input.click();
-      const owned = app.imagePickerInput === input && app.imagePickerActive && !!app.nativeHandoff;
-      app.abandonImagePicker();
-      return owned;
-    }), true, `Moving composer intercepted native file activation at ${width}`);
-    await page.evaluate(() => delete document.querySelector('#composer').dataset.viewportMotion);
-  }
-
-  for (const width of [320, 390, 1024]) {
-    await page.setViewportSize({ width, height: width === 1024 ? 480 : 844 });
-    assert.equal(await page.evaluate(() => {
-      const { fresh, blur } = window.fixture; fresh(); blur();
-      const call = document.createElement('section'); call.className = 'call-view'; call.style.visibility = 'visible';
-      call.innerHTML = '<button style="visibility:visible">合成通话</button>'; document.body.append(call);
-      const curtain = document.querySelector('.privacy-curtain');
-      const points = [[1,1],[innerWidth-1,1],[1,innerHeight-1],[innerWidth-1,innerHeight-1],[innerWidth/2,innerHeight/2]];
-      const ctx = document.createElement('canvas').getContext('2d');
-      ctx.fillStyle = getComputedStyle(curtain).backgroundColor; ctx.fillRect(0, 0, 1, 1);
-      const opaque = ctx.getImageData(0, 0, 1, 1).data[3] === 255 && getComputedStyle(curtain).opacity === '1';
-      const covered = points.every(([x,y]) => curtain.contains(document.elementFromPoint(x,y)));
-      call.remove(); return opaque && covered;
-    }), true, `Curtain missed an edge/body sibling at ${width}px`);
-  }
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.evaluate(() => { const f = window.fixture; f.fresh(); f.blur(); f.focus(); });
-  assert.equal(await page.evaluate(() => !window.fixture.app.privacyCovered && document.documentElement.classList.contains('privacy-obscured')), true,
-    'Unknown focus return exposed private content');
-  const corner = page.locator('.privacy-curtain .privacy-continue');
-  const bounds = await corner.boundingBox(); assert.ok(bounds);
-  await page.mouse.move(bounds.x + 30, bounds.y + 30); await page.mouse.down();
-  await page.waitForFunction(() => !document.documentElement.classList.contains('privacy-obscured'));
-  await page.mouse.up();
-  assert.equal(await page.evaluate(() => Boolean(window.fixture.app.session) && !window.fixture.app.privacyCovered), true,
-    'Existing continuation corner did not retain the original runtime');
-
-  for (const departure of ['hidden', 'pagehide', 'freeze', 'expired-wall', 'expired-monotonic']) {
-    assert.equal(await page.evaluate(departure => {
-      const { app, fresh, blur, focus } = window.fixture; fresh(); app.beginNativeHandoff('camera', 30000); blur();
-      if (departure === 'hidden') {
-        Object.defineProperty(document, 'hidden', { configurable: true, value: true }); document.dispatchEvent(new Event('visibilitychange'));
-      } else if (departure === 'pagehide') window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
-      else if (departure === 'freeze') document.dispatchEvent(new Event('freeze'));
-      else {
-        if (departure === 'expired-wall') app.nativeHandoff.wallDeadline = Date.now() - 1;
-        else app.nativeHandoff.deadline = performance.now() - 1;
-        focus();
-      }
-      const locked = app.privacyCovered && !app.session && !document.querySelector('.chat-shell, .call-view:not([hidden])');
-      delete document.hidden; focus();
-      return locked && app.privacyCovered && !app.session;
-    }, departure), true, `Late foreground revived ${departure}`);
+  for (const seconds of [30, 60, 120, 300]) {
+    await page.evaluate(seconds => window.fixture.fresh(seconds), seconds);
+    assert.equal((await state()).remaining, seconds * 1000);
+    await page.clock.runFor(seconds * 1000 - 10001); assert.equal((await state()).prompt, false);
+    await page.clock.runFor(101); assert.equal((await state()).prompt, true);
+    const dimensions = await page.locator('.idle-lock-prompt').evaluate(button => ({ hit: button.getBoundingClientRect().height,
+      visual: button.firstElementChild.getBoundingClientRect().height, action: button.querySelector('.idle-lock-extend').getBoundingClientRect().height,
+      fill: button.querySelector('.idle-lock-fill').getBoundingClientRect().width, capsule: button.firstElementChild.clientWidth }));
+    assert.equal(dimensions.hit, 44); assert.equal(dimensions.visual, 28); assert.equal(dimensions.action, 20);
+    assert.ok(dimensions.fill > dimensions.capsule * .96);
+    await page.clock.runFor(3000);
+    await page.waitForTimeout(150); // CSS compositor time is independent of the mocked JS clocks.
+    const ratio = await page.locator('.idle-lock-fill').evaluate(fill => fill.getBoundingClientRect().width / fill.parentElement.clientWidth);
+    assert.ok(ratio > .65 && ratio < .73, `Entire capsule fill must shrink: ${ratio}`);
+    const before = await page.locator('#message-list').boundingBox();
+    await page.locator('.idle-lock-prompt').click();
+    assert.equal((await state()).remaining, seconds * 1000); assert.equal((await state()).prompt, false);
+    assert.deepEqual(await page.locator('#message-list').boundingBox(), before, 'Prompt must consume no chat layout space');
   }
   await page.evaluate(() => window.fixture.fresh());
-  await page.evaluate(() => { const app = window.fixture.app; app.idleDeadline = Date.now() + 5000; app.idleMonotonicDeadline = performance.now() + 5000; });
-  await page.locator('#message-input').fill('真实输入');
-  const activity = await page.evaluate(() => {
-    const app = window.fixture.app;
-    const renewed = app.idleDeadline > Date.now() + 590000;
-    app.idleDeadline = Date.now() + 5000; app.idleMonotonicDeadline = performance.now() + 5000;
-    window.scrollTo(0, 0); document.dispatchEvent(new Event('scroll')); document.dispatchEvent(new Event('input'));
-    return { renewed, syntheticDidNotRenew: app.idleDeadline < Date.now() + 6000 };
+  await page.locator('#message-input').fill('长消息草稿'); await page.locator('#message-input').focus();
+  await page.clock.runFor(51_000); await page.locator('.idle-lock-prompt').click();
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'message-input', 'Extension must preserve keyboard focus');
+  await page.clock.runFor(51_000); await page.locator('#message-input').press('a');
+  assert.equal((await state()).remaining, 60_000); assert.equal((await state()).prompt, false);
+  const unchanged = await page.evaluate(() => {
+    const { app, blur, focus } = window.fixture; const before = app.idleDeadline;
+    blur(); focus(); document.dispatchEvent(new Event('input')); document.dispatchEvent(new Event('scroll'));
+    app.renderMessages(); return { same: before === app.idleDeadline, covered: app.privacyCovered, obscured: document.documentElement.classList.contains('privacy-obscured') };
   });
-  assert.deepEqual(activity, { renewed: true, syntheticDidNotRenew: true });
-  await page.evaluate(() => { const app = window.fixture.app; app.idleDeadline = Date.now() - 1; });
-  await page.locator('#message-input').press('a');
-  assert.equal(await page.evaluate(() => window.fixture.app.privacyCovered), true, 'First input renewed an expired session');
-  assert.deepEqual(errors, []);
-  console.log('H5 privacy surface: retained editor, repeated owned blur, both settlement orders, opaque edges, explicit continuation, hard departure/clock expiry, trusted input passed');
-} finally { await browser?.close(); await server.close(); }
+  assert.deepEqual(unchanged, { same: true, covered: false, obscured: false });
+  // Settings save / cancel / denied persistence; the warning remains fixed at 10 seconds.
+  await page.evaluate(() => window.fixture.app.renderAutoLockSettings());
+  await page.locator('[value="120"]').check(); await page.locator('#auto-lock-back').click(); await page.clock.runFor(400);
+  assert.equal(await page.evaluate(() => localStorage.getItem('quiet-room:auto-lock-seconds')), '60');
+  await page.evaluate(() => window.fixture.app.renderAutoLockSettings());
+  await page.locator('[value="120"]').check(); await page.locator('#auto-lock-form button[type="submit"]').click(); await page.clock.runFor(400);
+  assert.equal(await page.evaluate(() => localStorage.getItem('quiet-room:auto-lock-seconds')), '120');
+  await page.evaluate(() => {
+    window.fixture.app.renderAutoLockSettings(); window.originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function(key, value) { if (key === 'quiet-room:auto-lock-seconds') throw Error('denied'); return window.originalSetItem.call(this,key,value); };
+  });
+  await page.locator('[value="300"]').check(); await page.locator('#auto-lock-form button[type="submit"]').click();
+  assert.equal(await page.locator('.form-error').textContent(), '未能保存，请重试');
+  assert.equal(await page.evaluate(() => localStorage.getItem('quiet-room:auto-lock-seconds')), '120');
+  await page.evaluate(() => { Storage.prototype.setItem = window.originalSetItem; window.fixture.fresh(); });
+  // An authenticated navigation still owns secrets between room runtimes.
+  await page.evaluate(async () => { const {app}=window.fixture; await app.leaveSpace(); app.newSpaceCollectionCode='synthetic-code'; app.root.innerHTML='<section class="gateway" data-authenticated-page>创建空间</section>'; });
+  await page.clock.runFor(51_000);
+  assert.equal((await state()).prompt, true, 'Navigation without a room session must retain the global deadline');
+  await page.clock.runFor(9000);
+  assert.equal((await state()).locked, true);
+  assert.equal(await page.evaluate(() => window.fixture.app.newSpaceCollectionCode), undefined);
+  await page.evaluate(() => {
+    const {app,fresh}=window.fixture;fresh();
+    app.rememberSpacePreview=async()=>{};
+    app.preferenceSaveChain=new Promise(resolve=>window.resolveNavigation=resolve);
+    window.pendingNavigation=app.leaveSpace();
+  });
+  await page.evaluate(() => {window.fixture.app.lockNow();window.fixture.fresh();window.resolveNavigation();});
+  assert.equal(await page.evaluate(() => window.pendingNavigation),false,'Late navigation must reject a replacement runtime');
+  assert.equal((await state()).locked,false,'Late navigation must not tear down the new runtime');
+  // Real cross-tab preference storage does not renew this tab or share unlock proof.
+  await page.evaluate(() => window.fixture.fresh()); await page.clock.runFor(20_000);
+  const sibling=await page.context().newPage(); await sibling.goto(page.url());
+  const deadline=await page.evaluate(() => window.fixture.app.idleDeadline);
+  await sibling.evaluate(() => localStorage.setItem('quiet-room:auto-lock-seconds','300'));
+  await page.waitForTimeout(50);
+  assert.equal(await page.evaluate(() => window.fixture.app.idleDeadline),deadline);
+  await page.locator('#message-input').press('a'); assert.equal((await state()).remaining,300_000);
+  await sibling.evaluate(() => localStorage.setItem('quiet-room:manual-lock',JSON.stringify({space:'other-vault',nonce:'1'})));
+  await page.waitForTimeout(50); assert.equal((await state()).locked,false);
+  const ownSpace=await page.evaluate(async () => { const {vaultSpaceId}=await import('/src/lib/vault.ts'); return vaultSpaceId(window.fixture.session.stored); });
+  await sibling.evaluate(space => localStorage.setItem('quiet-room:manual-lock',JSON.stringify({space,nonce:'2'})),ownSpace);
+  await page.waitForTimeout(50); assert.equal((await state()).locked,true); await sibling.close();
+  await page.evaluate(() => window.fixture.fresh());
+  // A keyboard-sized viewport keeps the capsule above the composer with no extra row.
+  await page.setViewportSize({width:390,height:400}); await page.clock.runFor(51_000);
+  const promptBox=await page.locator('.idle-lock-prompt').boundingBox(), composerBox=await page.locator('#composer').boundingBox();
+  assert.ok(promptBox.y>=0 && promptBox.y+promptBox.height<=composerBox.y);
+  await page.screenshot({path:'/private/tmp/quiet-room-idle-chat-small.png'});
+  await page.setViewportSize({width:390,height:844}); await page.evaluate(() => {window.fixture.fresh();window.fixture.app.renderAutoLockSettings();});
+  await page.clock.runFor(51_000); await page.screenshot({path:'/private/tmp/quiet-room-idle-settings.png'});
+  assert.ok((await page.locator('.idle-lock-prompt').boundingBox()).y<844-44);
+  await page.evaluate(() => window.fixture.fresh());
+  // Modal ownership, accessible single action, no click-through or modal dismissal.
+  await page.evaluate(async () => {
+    const { mountDialog } = await import('/src/lib/dialog.ts');
+    const modal = document.createElement('section'); modal.id = 'test-modal'; modal.setAttribute('role','dialog'); modal.setAttribute('aria-modal','true');
+    modal.style.cssText = 'position:fixed;inset:0;z-index:17000;background:var(--paper);';
+    modal.innerHTML = '<input id="modal-input"><footer style="position:absolute;bottom:0"><button id="underlying">保存</button></footer>';
+    document.body.append(modal); window.underlyingCount = 0; modal.querySelector('button').onclick = () => window.underlyingCount++;
+    window.testDialog = mountDialog(modal, { isActive: () => true, initialFocus: modal.querySelector('input') });
+  });
+  await page.clock.runFor(51_000);
+  assert.equal(await page.locator('#test-modal .idle-lock-prompt').count(), 1);
+  await page.locator('.idle-lock-prompt').click();
+  assert.equal(await page.evaluate(() => window.underlyingCount), 0);
+  assert.equal(await page.locator('#test-modal').count(), 1);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'modal-input');
+  await page.evaluate(() => window.testDialog.dispose());
+  // A more restrictive recovery exposure cannot be renewed by typing / extension.
+  await page.evaluate(() => {
+    const { app, fresh } = window.fixture; fresh(300);
+    const anchor = document.createElement('code'); anchor.id='exposure'; document.querySelector('#app').append(anchor);
+    app.exposureAnchor=anchor; app.idleLease.limitExposure(60_000); app.scheduleIdleLock();
+  });
+  await page.clock.runFor(51_000);
+  assert.equal(await page.locator('.idle-lock-prompt').getAttribute('aria-disabled'), 'true');
+  assert.equal(await page.locator('.idle-lock-extend').isVisible(), false);
+  await page.locator('#message-input').fill('仍在操作'); await page.clock.runFor(9000);
+  assert.equal((await state()).locked, true);
+  for (const reason of ['hidden', 'pagehide', 'freeze', 'bfcache', 'wall', 'monotonic']) {
+    await page.evaluate(reason => {
+      const { app, fresh, visibility, focus } = window.fixture; fresh();
+      if (reason === 'hidden') visibility(true);
+      else if (reason === 'pagehide') window.dispatchEvent(new PageTransitionEvent('pagehide'));
+      else if (reason === 'freeze') document.dispatchEvent(new Event('freeze'));
+      else if (reason === 'bfcache') window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));
+      else { if (reason === 'wall') app.idleDeadline=Date.now()-1; else app.idleMonotonicDeadline=performance.now()-1; app.resetIdleLock(); }
+      visibility(false); focus();
+    }, reason);
+    assert.equal((await state()).locked, true, `${reason} must require new verification`);
+    assert.equal(await page.locator('.chat-shell,.image-viewer,.idle-lock-prompt').count(), 0);
+  }
+  // A retained late action cannot unlock, including an already-mounted extension control.
+  await page.evaluate(() => { const { app,fresh }=window.fixture; fresh(); app.idleDeadline=Date.now()+5000; app.idleMonotonicDeadline=performance.now()+5000; app.scheduleIdleLock(); window.lateExtend=app.idlePrompt.element; });
+  await page.clock.runFor(5000); await page.evaluate(() => window.lateExtend.click());
+  assert.equal((await state()).locked, true); assert.deepEqual(errors, []);
+  console.log('Global idle E2E passed: all durations, fixed warning, whole capsule progress, zero layout cost, focus, settings failures, modal ownership, sensitive cap and hard lifecycle priority.');
+} finally { await fixture.close(); }

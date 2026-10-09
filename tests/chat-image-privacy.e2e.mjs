@@ -419,13 +419,13 @@ try {
     const element = [...document.querySelectorAll('.message .image-preview')].find(preview => preview.dataset.revealed === 'true');
     for (const [type, y] of [['pointerdown', 200], ['pointermove', 280]]) element.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerType: 'touch', pointerId: 64, isPrimary: true, button: 0, clientX: y, clientY: 200 }));
     window.dispatchEvent(new Event('blur'));
-    const locked = !f.app.privacyCovered && document.documentElement.classList.contains('privacy-obscured') && !document.querySelector('.image-viewer');
+    const locked = !f.app.privacyCovered && !document.documentElement.classList.contains('privacy-obscured') && element.dataset.revealed === 'true';
     window.dispatchEvent(new Event('focus'));
-    const stayedLocked = document.documentElement.classList.contains('privacy-obscured');
+    const stayedLocked = !document.documentElement.classList.contains('privacy-obscured') && element.dataset.revealed === 'true';
     f.app.lockNow();
     return { locked, stayedLocked };
   });
-  assert.deepEqual(transient, { locked: true, stayedLocked: true }, 'Unowned blur left revealed media mounted after focus returned');
+  assert.deepEqual(transient, { locked: true, stayedLocked: true }, 'Visible blur must preserve revealed media until a true lock');
   await page.evaluate(() => window.chatPrivacy.reopen());
   await assertVisibility(5, 0, 'Relocked chat reopened with concealed media');
   await waitForClicks(); await delayed.click();
@@ -433,13 +433,13 @@ try {
   await page.locator('.image-viewer.is-visible .viewer-stage img').waitFor();
   const coveredViewer = await page.evaluate(() => {
     window.dispatchEvent(new Event('blur'));
-    const viewerGone = !document.querySelector('.image-viewer') && document.documentElement.classList.contains('privacy-obscured');
+    const viewerGone = !!document.querySelector('.image-viewer') && !document.documentElement.classList.contains('privacy-obscured');
     window.dispatchEvent(new Event('focus'));
-    const stillConcealed = document.documentElement.classList.contains('privacy-obscured');
+    const stillConcealed = !document.documentElement.classList.contains('privacy-obscured');
     window.chatPrivacy.app.lockNow();
     return viewerGone && stillConcealed;
   });
-  assert(coveredViewer, 'Unowned blur retained the viewer or restored chat on focus');
+  assert(coveredViewer, 'Visible blur must preserve the viewer through focus return');
   await page.evaluate(() => window.chatPrivacy.reopen());
   await assertVisibility(5, 0, 'Chat after viewer lock');
 

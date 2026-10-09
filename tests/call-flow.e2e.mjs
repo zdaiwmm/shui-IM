@@ -103,12 +103,12 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
 
   for (const page of pages) {
     page.on('pageerror', onError);
-    await page.evaluate(() => {
+    await page.evaluate(async () => {
+      const { IdleLease } = await import('/src/lib/idle-lock.ts');
+      const persistentUse = IdleLease.prototype.setPersistentUse;
       const media = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-      const setTimer = window.setTimeout.bind(window);
-      const clearTimer = window.clearTimeout.bind(window);
       const peerConstructor = window.RTCPeerConnection;
-      window.__callFlow = { media, setTimer, clearTimer, peerConstructor, peers: [], tracks: [], requests: 0, idleTimers: new Set(), deferNext: false, resolvePermission: null };
+      window.__callFlow = { media, persistentUse, IdleLease, lease: null, peerConstructor, peers: [], tracks: [], requests: 0, deferNext: false, resolvePermission: null };
       window.RTCPeerConnection = new Proxy(peerConstructor, { construct(target, args, newTarget) {
         const peer = Reflect.construct(target, args, newTarget);
         window.__callFlow.peers.push(peer);
@@ -125,15 +125,11 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
         state.tracks.push(...stream.getTracks());
         return stream;
       };
-      // Observe actual app idle-lock scheduling without accelerating clocks, signaling expiry or media timers.
-      window.setTimeout = (callback, delay, ...args) => {
-        const id = setTimer(callback, delay, ...args);
-        if (delay === 10 * 60_000) window.__callFlow.idleTimers.add(id);
-        return id;
-      };
-      window.clearTimeout = (id) => {
-        window.__callFlow.idleTimers.delete(id);
-        return clearTimer(id);
+      // Observe the real global lease without accelerating signaling or media clocks.
+      IdleLease.prototype.setPersistentUse = function (...args) {
+        const result = persistentUse.apply(this, args);
+        window.__callFlow.lease = this;
+        return result;
       };
     });
   }
@@ -145,7 +141,8 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
     await connect(creator, joiner, 'audio');
     assert.equal(await creator.locator('.call-type').innerText(), '语音通话');
     await creator.evaluate(() => document.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
-    assert.equal(await creator.evaluate(() => window.__callFlow.idleTimers.size), 0, 'An active call must suspend the ten-minute idle lock, including after activity');
+    await creator.waitForFunction(() => window.__callFlow.lease?.paused === true);
+    assert.equal(await creator.evaluate(() => window.__callFlow.lease.remaining), Infinity, 'Live connected media must pause the global idle deadline');
     await capture(creator, 'call-audio-connected-mobile.png');
     await creator.locator('.call-mic').click();
     await creator.locator('.call-mic[aria-pressed="true"]').waitFor();
@@ -165,7 +162,9 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
     await creator.locator('.call-hangup').click();
     await Promise.all(pages.map((page) => phase(page, 'ended').waitFor()));
     await Promise.all(pages.map(tracksStopped));
-    assert((await creator.evaluate(() => window.__callFlow.idleTimers.size)) > 0, 'The idle lock must resume once the call ends');
+    await creator.waitForFunction(() => window.__callFlow.lease?.paused === false);
+    const remaining = await creator.evaluate(() => window.__callFlow.lease.remaining);
+    assert(remaining > 58_000 && remaining <= 60_000, `Call end must start the configured one-minute lease: ${remaining}`);
     await dismiss(creator);
     await dismiss(joiner);
 
@@ -273,8 +272,7 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
         if (!state) return;
         navigator.mediaDevices.getUserMedia = state.media;
         window.RTCPeerConnection = state.peerConstructor;
-        window.setTimeout = state.setTimer;
-        window.clearTimeout = state.clearTimer;
+        state.IdleLease.prototype.setPersistentUse = state.persistentUse;
         // Ensure test failures cannot leave synthetic capture running before the suite's browser teardown.
         state.tracks.forEach((track) => { if (track.readyState === 'live') track.stop(); });
       }).catch(() => {});

@@ -191,7 +191,7 @@ try {
     input.dispatchEvent(new Event('input'));
     window.dispatchEvent(new Event('blur'));
     window.dispatchEvent(new Event('focus'));
-    if (app.privacyCovered || !document.documentElement.classList.contains('privacy-obscured') || input.value !== '未发送的草稿\n继续输入') throw Error('Unowned pause lost the draft or exposed the conversation');
+    if (app.privacyCovered || document.documentElement.classList.contains('privacy-obscured') || input.value !== '未发送的草稿\n继续输入') throw Error('Visible blur must preserve the conversation and draft');
     app.lockNow();
     await app.preferenceSaveChain;
     const saved = await vault.loadUiPreferences(session);
@@ -208,7 +208,7 @@ try {
     const last = list.querySelector('.message:last-of-type').getBoundingClientRect();
     const composer = window.composerBaseBounds();
     if (last.bottom > composer.top) throw Error(`Latest message is covered by composer: ${JSON.stringify({ lastBottom: last.bottom, composerTop: composer.top, composerHeight: composer.height, padding: getComputedStyle(list).paddingBottom, scrollY, scrollHeight: document.documentElement.scrollHeight, pinned: app.chatPinnedToBottom })}`);
-    return { transientBlur: 'concealed without draft loss', encryptedDraft: 'restored after hard lock', latestMessage: 'above composer' };
+    return { transientBlur: 'unchanged without draft loss', encryptedDraft: 'restored after hard lock', latestMessage: 'above composer' };
   });
 
   results.imagePaste = await page.evaluate(async () => {
@@ -480,9 +480,9 @@ try {
     if (document.documentElement.classList.contains('privacy-obscured') || app.privacyCovered) throw Error('Moving focus between an input and a message triggered the browser privacy curtain');
     app.openMessageTextSelection(source);
     window.dispatchEvent(new Event('blur'));
-    if (app.privacyCovered || !document.documentElement.classList.contains('privacy-obscured')) throw Error('Unowned blur did not conceal the retained chat');
+    if (app.privacyCovered || document.documentElement.classList.contains('privacy-obscured')) throw Error('Visible blur interrupted chat');
     window.dispatchEvent(new Event('focus'));
-    if (!document.documentElement.classList.contains('privacy-obscured')) throw Error('Focus after an unowned blur restored chat');
+    if (document.documentElement.classList.contains('privacy-obscured')) throw Error('Visible focus return introduced a curtain');
     Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
     try { document.dispatchEvent(new Event('visibilitychange')); }
     finally { delete document.hidden; }
@@ -492,7 +492,7 @@ try {
     window.dispatchEvent(new Event('focus'));
     if (!app.privacyCovered || !document.querySelector('.cover-trigger') || document.querySelector('.message, .message-text-selection')) throw Error('Returning from background exposed message content or native selection');
     if (app.messages.size || app.pending.size || app.messageEventHistory.size) throw Error('Background lock retained decrypted message state');
-    return { blurCoverage: 'same event stack', transientFocus: 'stays concealed', backgroundReturn: 'authentication required', selection: 'cleared on hard lock' };
+    return { visibleBlur: 'no privacy effect', transientFocus: 'same runtime', backgroundReturn: 'authentication required', selection: 'cleared on hard lock' };
   });
 
   await page.evaluate(async () => {
@@ -500,111 +500,21 @@ try {
     app.messages = new Map([[1, message(1)]]); app.renderMessages({ scroll: 'bottom' });
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
   });
-  // Playwright's pointer sequence is trusted. A synthetic PointerEvent cannot
-  // authorize the narrowly scoped native-keyboard focus handoff.
   await page.locator('#message-input').click();
-  results.keyboardNativeHandoff = await page.evaluate(async () => {
-    const { app } = window.regression;
-    const input = document.querySelector('#message-input');
-    const viewport = window.visualViewport;
-    const frame = () => new Promise(resolve => requestAnimationFrame(resolve));
-    if (document.activeElement !== input || !app.keyboardHandoff || app.keyboardHandoff.blurred) throw Error('Trusted primary textarea click did not authorize one keyboard handoff');
+  results.keyboardVisibleBlur = await page.evaluate(async () => {
+    const { app } = window.regression, input = document.querySelector('#message-input'), viewport = window.visualViewport;
+    const deadline = app.idleDeadline;
     window.dispatchEvent(new Event('blur'));
-    if (app.privacyCovered || !document.documentElement.classList.contains('privacy-obscured')
-      || !app.keyboardHandoff?.blurred) throw Error('First native-keyboard blur lost its owner or uncovered chat');
     Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
     Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 180 });
-    viewport.dispatchEvent(new Event('resize')); await frame();
-    if (app.keyboardHandoff || document.documentElement.dataset.keyboardOpen !== 'true'
-      || document.documentElement.classList.contains('privacy-obscured')) throw Error('Keyboard viewport target did not settle the one-use handoff token');
-    let focused = true;
-    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => focused });
-    window.dispatchEvent(new Event('focus'));
-    focused = false;
-    window.dispatchEvent(new Event('blur'));
-    if (app.privacyCovered || !app.keyboardAccessoryHandoff
-      || !document.documentElement.classList.contains('privacy-obscured')) throw Error('Open-keyboard native accessory blur did not retain an opaque, bounded handoff');
-    focused = true;
-    window.dispatchEvent(new Event('focus'));
-    if (app.privacyCovered || app.keyboardAccessoryHandoff
-      || document.documentElement.classList.contains('privacy-obscured')) throw Error('Real focus return did not restore the covered chat');
-    focused = false;
-    window.dispatchEvent(new Event('blur'));
-    if (!app.keyboardAccessoryHandoff || app.privacyCovered) throw Error('Second deliberate native accessory interaction could not own its first blur');
-    window.dispatchEvent(new Event('blur'));
-    if (app.privacyCovered || !app.keyboardAccessoryHandoff || !document.documentElement.classList.contains('privacy-obscured')) throw Error('Repeated accessory blur discarded its owner or uncovered chat');
-    focused = true;
-    window.dispatchEvent(new Event('focus'));
-    delete document.hasFocus;
-    input.blur(); delete viewport.height; delete viewport.offsetTop;
-    viewport.dispatchEvent(new Event('resize')); await frame();
-    app.lockNow();
-    return { trustedTextareaPointer: true, firstBlurConsumed: true, targetClearedToken: true,
-      accessoryCurtainUntilFocus: true, repeatedUnfocusedBlurCoveredSynchronously: true };
+    viewport.dispatchEvent(new Event('resize'));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    if (app.privacyCovered || document.documentElement.classList.contains('privacy-obscured') || document.activeElement !== input) throw Error('Keyboard geometry plus visible blur interrupted the input');
+    window.dispatchEvent(new Event('blur')); window.dispatchEvent(new Event('focus'));
+    if (app.idleDeadline !== deadline) throw Error('Focus events renewed idle time');
+    input.blur(); delete viewport.height; delete viewport.offsetTop; viewport.dispatchEvent(new Event('resize'));
+    return { keyboardGeometry: 'preserved', repeatedVisibleBlur: 'no privacy effect', focus: 'no renewal' };
   });
-
-  const prepareAccessoryBlur = async () => {
-    await page.evaluate(() => window.regression.fresh());
-    await page.locator('#message-input').click();
-    await page.evaluate(async () => {
-      const app = window.regression.app, viewport = window.visualViewport;
-      window.dispatchEvent(new Event('blur'));
-      Object.defineProperty(viewport, 'height', { configurable: true, value: 420 });
-      Object.defineProperty(viewport, 'offsetTop', { configurable: true, value: 180 });
-      viewport.dispatchEvent(new Event('resize'));
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      window.accessoryFocused = true;
-      Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => window.accessoryFocused });
-      window.dispatchEvent(new Event('focus'));
-      window.accessoryFocused = false;
-      window.dispatchEvent(new Event('blur'));
-      if (!app.keyboardAccessoryHandoff || !document.documentElement.classList.contains('privacy-obscured')) {
-        throw Error('Native accessory fixture did not enter the opaque handoff');
-      }
-    });
-  };
-  const restoreAccessoryFixture = async () => page.evaluate(() => {
-    delete document.hasFocus;
-    window.dispatchEvent(new Event('focus'));
-    delete window.visualViewport.height;
-    delete window.visualViewport.offsetTop;
-    window.visualViewport.dispatchEvent(new Event('resize'));
-  });
-
-  await prepareAccessoryBlur();
-  await page.evaluate(() => document.querySelector('.privacy-curtain').addEventListener('pointerdown', () => {
-    window.accessoryFocused = true;
-  }, { capture: true, once: true }));
-  await page.locator('.privacy-curtain').click({ position: { x: 10, y: 10 } });
-  results.keyboardAccessoryCurtainReturn = await page.evaluate(() => {
-    const app = window.regression.app;
-    if (app.privacyCovered || app.keyboardAccessoryHandoff || document.documentElement.classList.contains('privacy-obscured')) {
-      throw Error('A trusted touch on the opaque curtain failed to restore real focus');
-    }
-    return true;
-  });
-  await restoreAccessoryFixture();
-
-  await prepareAccessoryBlur();
-  results.keyboardAccessoryHidden = await page.evaluate(() => {
-    const app = window.regression.app;
-    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
-    try { document.dispatchEvent(new Event('visibilitychange')); }
-    finally { delete document.hidden; }
-    if (!app.privacyCovered || app.keyboardAccessoryHandoff) throw Error('Backgrounding kept an accessory handoff or private chat');
-    document.dispatchEvent(new Event('visibilitychange'));
-    return true;
-  });
-  await restoreAccessoryFixture();
-
-  await prepareAccessoryBlur();
-  await page.waitForTimeout(2_700);
-  results.keyboardAccessoryTimeout = await page.evaluate(() => {
-    const app = window.regression.app;
-    if (!app.privacyCovered || app.keyboardAccessoryHandoff) throw Error('Unfocused native accessory exceeded its short deadline');
-    return true;
-  });
-  await restoreAccessoryFixture();
 
   await page.setViewportSize({ width: 320, height: 720 });
   await page.evaluate(async () => {
@@ -1054,13 +964,13 @@ try {
     fresh(); const hasFocus = document.hasFocus.bind(document);
     Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => false });
     app.beginFileExport(); window.dispatchEvent(new Event('blur'));
-    if (!app.privacyCovered) throw Error('Export blur did not cover private content');
+    if (app.privacyCovered || document.documentElement.classList.contains('privacy-obscured')) throw Error('Visible export blur interrupted private content');
     app.finishFileExport(true);
     Object.defineProperty(document, 'hasFocus', { configurable: true, value: hasFocus });
-    if (!app.privacyCovered || !document.querySelector('.cover-trigger')) throw Error('Suppressed export blur was not covered on completion');
+    if (app.privacyCovered || !document.querySelector('.chat-shell')) throw Error('Export completion interrupted the runtime');
     window.dispatchEvent(new Event('focus'));
-    if (!app.privacyCovered) throw Error('Export return revealed private content');
-    return { immediateBlurCovered: true };
+    if (app.privacyCovered) throw Error('Export return locked private content');
+    return { visibleBlurDoesNotLock: true };
   });
 
   // Measure structural work rather than relying on machine-specific timing.

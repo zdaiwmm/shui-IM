@@ -23,6 +23,13 @@ export function dampedDrag(distance: number, travel: number): number {
 
 export class VoiceRecorder {
   readonly signal: AbortSignal;
+  private previousUse = false;
+  private previewPlaying = false;
+  get persistentUse(): boolean {
+    return !this.signal.aborted && this.host.isConnected && (this.state === 'recording' && this.recorder?.state === 'recording'
+      && Boolean(this.stream?.getAudioTracks().some(track => track.readyState === 'live' && track.enabled))
+      || this.previewPlaying && !this.preview.paused && !this.preview.ended && !this.preview.loop && Number.isFinite(this.preview.duration) && this.preview.duration > 0);
+  }
   private readonly abort = new AbortController();
   private state: State = 'requesting';
   private stream: MediaStream | null = null;
@@ -57,6 +64,7 @@ export class VoiceRecorder {
   private holdEntryMotion: Animation | null = null;
 
   constructor(private readonly host: HTMLElement, private readonly callbacks: {
+    useChanged?: () => void;
     permission: (active: boolean) => boolean | void | Promise<boolean | void>;
     cancel: () => void;
     fail: (message: string) => void;
@@ -98,6 +106,8 @@ export class VoiceRecorder {
     });
     host.querySelector('.voice-preview')!.addEventListener('click', () => void this.playPreview());
     host.querySelector('.voice-send')!.addEventListener('click', () => void this.send());
+    this.preview.addEventListener('playing', () => { this.previewPlaying = true; this.update(); });
+    for (const event of ['pause', 'waiting', 'stalled', 'ended', 'error', 'emptied']) this.preview.addEventListener(event, () => { this.previewPlaying = false; this.update(); });
     for (const event of ['play', 'pause', 'ended', 'timeupdate']) this.preview.addEventListener(event, () => this.update());
     this.update();
   }
@@ -452,6 +462,8 @@ export class VoiceRecorder {
   private update(): void {
     if (this.signal.aborted) return;
     this.host.dataset.state = this.state;
+    const using = this.persistentUse;
+    if (using !== this.previousUse) { this.previousUse = using; this.callbacks.useChanged?.(); }
     this.host.dataset.mode = this.mode;
     const submitting = this.state === 'sending' || (this.state === 'processing' && this.sendAfterProcessing);
     this.host.dataset.submitting = String(submitting);

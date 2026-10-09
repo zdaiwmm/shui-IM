@@ -275,7 +275,7 @@ try {
     await received.dispatchEvent('contextmenu');
     await creator.locator('[data-message-action=copy]').click();
     await creator.waitForFunction(() => typeof window.__rejectAuditCopy === 'function');
-    await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
+    await creator.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
     await creator.locator('.cover-trigger, #passkey-unlock, .cover.cover-off').first().waitFor();
     const before = await creator.locator('body').innerText();
     await creator.evaluate(() => window.__rejectAuditCopy(new Error('Document is not focused')));
@@ -387,7 +387,7 @@ try {
   await creator.locator('[data-viewer-close]').click();
   await creator.locator('.image-viewer').waitFor({ state: 'detached' });
   await creator.locator('#gallery-back').click();
-  await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
+  await creator.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
   await holdCover(creator);
   await capture('unlock', ['mobile', 'small', 'landscape', 'large']);
   process.stdout.write(`UI audit finished: ${evidence.length} screenshots; ${auditPageErrors.length} browser errors.\n`);
