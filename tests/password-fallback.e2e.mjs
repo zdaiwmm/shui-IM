@@ -120,6 +120,8 @@ try {
   assert.equal(await b.locator('.hidden-album-hint').count(), 0, 'Participant received the creator-only album hint');
   await a.locator('#message-input').fill('密码空间的真实加密消息'); await a.locator('#send-text').click();
   await b.getByText('密码空间的真实加密消息', { exact: true }).waitFor();
+  // Peer delivery may beat the sender's own persisted acknowledgement.
+  await a.waitForFunction(() => [...app.messages.values()].some(item => item.payload.kind === 'text' && item.payload.text === '密码空间的真实加密消息'));
   await a.evaluate(() => {
     const message = [...app.messages.values()].find(item => item.payload.kind === 'text' && item.payload.text === '密码空间的真实加密消息');
     app.showMessageInfo(message);
@@ -133,6 +135,7 @@ try {
     await a.locator('#message-input').fill(`连续发送验收 ${index}`); await a.locator('#send-text').click();
     await b.getByText(`连续发送验收 ${index}`, {exact:true}).waitFor();
   }
+  await a.waitForFunction(() => [...app.messages.values()].filter(m => m.payload.kind === 'text' && m.payload.text.startsWith('连续发送验收 ')).length === 10);
   const rapidSend = await a.evaluate(() => { const rows=[...app.messages.values()].filter(m=>m.payload.kind==='text'&&m.payload.text.startsWith('连续发送验收 ')); return {count:rows.length,uniqueIds:new Set(rows.map(m=>m.clientMsgId)).size,draft:document.querySelector('#message-input').value}; });
   assert.deepEqual(rapidSend,{count:10,uniqueIds:10,draft:''});
   if(screenshots)await writeFile(path.join(screenshots,'F14-real-send.json'),JSON.stringify({engine:'desktop Chromium',protocol:'MLS',...rapidSend},null,2));
@@ -267,7 +270,14 @@ try {
     await a.locator('#refresh-devices').click();
     const pendingCard = a.locator('.pending-device-card').filter({ hasText: code });
     await pendingCard.getByRole('button', { name: /安全码一致/ }).click();
-    await pendingCard.waitFor({ state: 'detached' });
+    await pendingCard.waitFor({ state: 'detached' }).catch(async error => {
+      console.error('Password approval diagnostic', await a.evaluate(() => ({
+        focused: document.hasFocus(), hidden: document.hidden, covered: app.privacyCovered,
+        phase: app.session?.vault.mls?.phase, pending: app.session?.vault.mls?.pendingMembership?.event.action,
+        errors: [...document.querySelectorAll('.app-toast.error')].map(el => el.textContent),
+      })));
+      throw error;
+    });
     if (await retry.count()) await retry.click().catch(() => undefined);
     await extra.locator('.chat-shell').waitFor();
     await extra.waitForFunction(() => app.session?.vault.mls?.phase === 'active');
