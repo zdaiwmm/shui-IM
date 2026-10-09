@@ -126,7 +126,27 @@ describe('background wake-up integration', () => {
         resolve();
       });
     });
-    socket.send(JSON.stringify({ type: 'send', envelope }));
+    const commit = (value: typeof envelope, countUnread?: boolean) => new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => { socket.off('message', receive); reject(new Error('Timed out waiting for commit')); }, 3000);
+      const receive = (raw: WebSocket.RawData) => {
+        const frame = JSON.parse(raw.toString());
+        if (frame.type !== 'ack' || frame.clientMsgId !== value.clientMsgId) return;
+        clearTimeout(timer); socket.off('message', receive); resolve();
+      };
+      socket.on('message', receive); socket.send(JSON.stringify({ type: 'send', envelope: value, ...(countUnread === undefined ? {} : { countUnread }) }));
+    });
+    // Online/away transitions and accepted non-chat events must not wake a subscribed peer.
+    socket.send(JSON.stringify({ type: 'presence', view: 'chat' }));
+    socket.send(JSON.stringify({ type: 'presence', view: 'away' }));
+    const sync = await encryptMessage(vault, { v: 1, kind: 'text', text: 'opaque sync fixture', sentAt: new Date().toISOString() });
+    await commit(sync, false);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(wakes).toHaveLength(0);
+    // A duplicate cannot be reclassified into a notification-producing commit.
+    await commit(sync, true);
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(wakes).toHaveLength(0);
+    await commit(envelope);
     for (let attempt = 0; attempt < 30 && wakes.length === 0; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 10));
     }

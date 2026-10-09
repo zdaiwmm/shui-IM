@@ -104,7 +104,7 @@ npm run push:keys
 
 Store `VAPID_PRIVATE_KEY` in the deployment secret manager, configure a real security contact in `VAPID_SUBJECT`, and expose only the public key to the client. Rotating the VAPID key invalidates existing subscriptions, so users must enable notifications again.
 
-The server sends a Web Push request with no payload and excludes the sending device. The service worker creates a generic local notification only after the push arrives. The push provider can still observe the subscription endpoint, source service, timing, and traffic volume; it does not receive room ID, device ID, sender, message kind, text, attachment metadata, or unread count from the notification request.
+The server sends a Web Push request with no payload and excludes the sending device. The service worker creates a local notification only after the push arrives, using the device’s saved fixed title/body or generic defaults. Custom copy is stored only in that browser’s durable cache and never sent to the server or provider. Worker upgrades preserve both the copy and master gate; clearing site data removes them. Accepted non-chat sync frames (`countUnread=false`) and presence transitions do not trigger chat wakes; real countable messages and browser-access requests retain their existing paths. The push provider can still observe the subscription endpoint, source service, timing, and traffic volume; it does not receive room ID, device ID, sender, message kind, text, attachment metadata, or unread count from the notification request.
 
 Push subscriptions are accepted only for the provider hosts in
 `PUSH_ALLOWED_HOSTS` (the Compose default covers FCM, Mozilla, Apple, and

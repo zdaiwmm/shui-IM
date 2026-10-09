@@ -102,6 +102,16 @@ try {
     assert.equal(await master.isDisabled(), true);
     await page.evaluate(() => { Object.defineProperty(navigator, 'userAgent', { configurable: true, value: originalUserAgent }); });
     await page.locator('.notification-refresh').click(); await page.waitForFunction(() => !document.querySelector('#notification-master').disabled);
+    if (engine === chromium) {
+      // Exercise the actual app entry, shared transition and return path.
+      await page.locator('#notification-copy-entry').click();
+      await page.waitForFunction(() => !document.querySelector('#notification-copy-title')?.disabled);
+      await page.locator('#notification-copy-title').fill('本机提醒');
+      await page.locator('#notification-copy-save').click();
+      await page.waitForFunction(() => document.querySelector('.notification-copy-feedback')?.textContent === '已保存');
+      await page.locator('#notification-copy-back').click();
+      await page.waitForFunction(() => document.querySelector('[data-notification-copy-summary]')?.textContent.includes('本机提醒'));
+    }
     // A late native permission result cannot enable notifications after the runtime ends.
     await page.evaluate(() => { deferPermission = true; }); await master.click();
     await page.waitForFunction(() => !!window.releasePermission);
@@ -110,6 +120,61 @@ try {
     assert.equal(await page.evaluate(() => np.readNotificationPolicy().enabled), false);
     assert.equal(await page.evaluate(async () => (await (await caches.open(np.NOTIFICATION_POLICY_CACHE)).match(np.NOTIFICATION_POLICY_URL)).text()), 'off');
     if (engine === chromium) assert.equal(await page.evaluate(() => v.currentSpaceId() === v.vaultSpaceId(a.stored)), true);
+    // Direct component coverage also runs in WebKit; no physical iPhone is simulated by this fixture.
+    await page.evaluate(async () => {
+      window.copyAbort = new AbortController(); window.copyBack = 0;
+      window.copyModule = await import('/src/lib/notification-copy-ui.ts');
+      window.mountCopy = () => copyModule.mountNotificationCopy(document.querySelector('#app'), { signal: copyAbort.signal, isActive: () => true, backIcon: '‹', onBack: () => { copyBack++; } });
+      mountCopy();
+    });
+    const titleInput = page.locator('#notification-copy-title'), bodyInput = page.locator('#notification-copy-body'), saveCopy = page.locator('#notification-copy-save');
+    await page.waitForFunction(() => !document.querySelector('#notification-copy-title').disabled);
+    assert.equal(await page.locator('[data-copy-paused]').isVisible(), true);
+    await titleInput.fill('<img src=x onerror=alert(1)>');
+    assert.equal(await saveCopy.isDisabled(), true, 'overlong draft stays editable but cannot save');
+    await titleInput.fill('<b>提醒</b>'); await bodyInput.fill('稍后查看');
+    assert.equal(await page.locator('[data-copy-title]').innerText(), '<b>提醒</b>');
+    assert.equal(await page.locator('.notification-copy-text b').count(), 0);
+    await page.locator('#notification-copy-back').click();
+    await page.locator('[data-continue]').waitFor();
+    await page.waitForFunction(() => document.querySelector('[data-continue]') === document.activeElement);
+    assert.equal(await page.locator('.notification-copy-page').evaluate(el => el.inert), true);
+    await page.locator('[data-continue]').click();
+    await page.locator('.notification-copy-discard').waitFor({ state: 'detached' });
+    assert.equal(await titleInput.inputValue(), '<b>提醒</b>');
+    await page.evaluate(() => { window.originalCacheOpen = caches.open.bind(caches); caches.open = async () => { throw new Error('quota fixture'); }; });
+    await saveCopy.click();
+    await page.waitForFunction(() => document.querySelector('.notification-copy-feedback').textContent.includes('保存失败'));
+    assert.equal(await bodyInput.inputValue(), '稍后查看');
+    await page.evaluate(() => { caches.open = originalCacheOpen; });
+    await saveCopy.click();
+    await page.waitForFunction(() => document.querySelector('.notification-copy-feedback').textContent === '已保存');
+    assert.equal(await page.evaluate(async () => (await (await caches.open(np.NOTIFICATION_POLICY_CACHE)).match(np.NOTIFICATION_POLICY_URL)).text()), 'off');
+    await page.evaluate(() => { copyAbort.abort('navigation'); copyAbort = new AbortController(); mountCopy(); });
+    await page.waitForFunction(() => !document.querySelector('#notification-copy-title').disabled);
+    assert.equal(await titleInput.inputValue(), '<b>提醒</b>');
+    for (const [width, height, colorScheme] of [[320, 480, 'light'], [393, 520, 'dark'], [1280, 800, 'light']]) {
+      await page.setViewportSize({ width, height }); await page.emulateMedia({ colorScheme, reducedMotion: 'reduce' });
+      await page.locator('summary').click();
+      const geometry = await page.locator('.notification-copy-page').evaluate(el => { const r = el.getBoundingClientRect(), main = el.querySelector('main'), card = el.querySelector('figure'); return { left: r.left, right: r.right, height: r.height, innerWidth, innerHeight, overflow: el.scrollWidth > el.clientWidth, scrolling: main.scrollHeight > main.clientHeight, image: card.querySelector('img').naturalWidth, ratio: card.clientWidth / card.clientHeight }; });
+      assert.ok(geometry.left >= 0 && geometry.right <= geometry.innerWidth && geometry.height <= geometry.innerHeight && !geometry.overflow, JSON.stringify(geometry));
+      assert.equal(geometry.image, 722); assert.ok(Math.abs(geometry.ratio - 4.6) < .1);
+      if (width < 400) assert.equal(geometry.scrolling, true);
+      await page.locator('#notification-copy-reset').scrollIntoViewIfNeeded();
+      if (process.env.NOTIFICATION_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.NOTIFICATION_SCREENSHOTS, `${engine.name()}-copy-${width}-${colorScheme}.png`) });
+    }
+    await page.locator('#notification-copy-reset').click();
+    await saveCopy.click(); await page.waitForFunction(() => document.querySelector('.notification-copy-feedback').textContent === '已保存');
+    assert.equal(await titleInput.inputValue(), 'Quiet Room');
+    assert.equal(await page.locator('.notification-copy-text').isVisible(), false, 'default uses the unchanged cropped source pixels');
+    await page.setViewportSize({ width: 393, height: 852 }); await page.emulateMedia({ colorScheme: 'light' });
+    if (await page.locator('details').evaluate(el => el.open)) await page.locator('summary').click();
+    await titleInput.scrollIntoViewIfNeeded();
+    if (process.env.NOTIFICATION_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.NOTIFICATION_SCREENSHOTS, `${engine.name()}-copy-default.png`) });
+    await titleInput.fill('未保存'); await page.locator('#notification-copy-back').click();
+    await page.locator('[data-discard]').click(); assert.equal(await page.evaluate(() => copyBack), 1);
+    await titleInput.fill('隐私草稿'); await page.evaluate(() => copyAbort.abort());
+    assert.equal(await titleInput.inputValue(), '');
     const prototype = await context.newPage();
     // The custom Vite fixture has no HTML fallback; load the exact standalone artifact.
     await prototype.setContent(await readFile(new URL('../docs/requirements/2026-10-08-device-notifications/prototype/index.html', import.meta.url), 'utf8'));

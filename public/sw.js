@@ -2,6 +2,7 @@ const RELEASE_ID = '__QUIET_ROOM_RELEASE_ID__';
 const CACHE = `quiet-room-shell-${RELEASE_ID}`;
 const NOTIFICATION_POLICY_CACHE = 'quiet-room-notification-policy-v1';
 const NOTIFICATION_POLICY_URL = '/__quiet-room-notification-policy';
+const NOTIFICATION_COPY_URL = '/__quiet-room-notification-copy';
 const SHELL = ['/', '/manifest.webmanifest', '/icon.svg'];
 
 function isCacheableAsset(url) {
@@ -71,8 +72,17 @@ self.addEventListener('push', (event) => {
   event.waitUntil((async () => {
     const policy = await (await caches.open(NOTIFICATION_POLICY_CACHE)).match(NOTIFICATION_POLICY_URL);
     if (policy && await policy.text() !== 'on') return;
-    await self.registration.showNotification('Quiet Room', {
-      body: '有一条新消息，解锁后查看。',
+    let copy = { title: 'Quiet Room', body: '有一条新消息，解锁后查看。' };
+    try {
+      const response = await (await caches.open(NOTIFICATION_POLICY_CACHE)).match(NOTIFICATION_COPY_URL);
+      const value = response ? await response.json() : null;
+      const count = text => [...new Intl.Segmenter('zh-CN', { granularity: 'grapheme' }).segment(text)].length;
+      if (value?.v === 1 && typeof value.title === 'string' && typeof value.body === 'string' && count(value.title) <= 24 && count(value.body) <= 80 && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value.title + value.body)) {
+        copy = { title: value.title.trim() || copy.title, body: value.body.trim() || copy.body };
+      }
+    } catch { /* Corrupt/missing local copy must not suppress an otherwise allowed wake. */ }
+    await self.registration.showNotification(copy.title, {
+      body: copy.body,
       icon: '/icon.svg',
       badge: '/icon.svg',
       tag: 'quiet-room-wake',
