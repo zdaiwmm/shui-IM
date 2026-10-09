@@ -165,6 +165,7 @@ import {
   createRepairRequest,
   verifyRecoveryMembershipChain,
 } from './lib/mls';
+import { mountNotificationCopy } from './lib/notification-copy-ui';
 import { DeviceNotifications, reconcileSpaceNotifications } from './lib/device-notifications';
 import { mountNotificationSettings } from './lib/notification-settings';
 import './notifications.css';
@@ -666,7 +667,7 @@ export class QuietRoomApp {
   private uiPreferencesHydrated = false;
   private composerCheckpoint: DraftCheckpoint | null = null;
   private shieldHintCleanup: (() => void) | null = null;
-  private unlockResume: 'chat' | 'recovery-center' | 'cover-practice' | 'local-backup' | 'local-backup-import' | 'gallery' | 'devices' | 'help' | 'release-history' | 'notifications' | null = null;
+  private unlockResume: 'chat' | 'recovery-center' | 'cover-practice' | 'local-backup' | 'local-backup-import' | 'gallery' | 'devices' | 'help' | 'release-history' | 'notifications' | 'notification-copy' | null = null;
   private restoreChatAnchorOnNextRender = true;
   private galleryScrollTop: Record<GalleryTab, number> = { images: 0, files: 0 };
   private galleryMode: 'safe' | 'favorites' = 'safe';
@@ -5522,6 +5523,7 @@ export class QuietRoomApp {
     if (root.querySelector(':scope > .cover, :scope > .gateway')) return;
     this.unlockResume = root.querySelector('.cover-practice-page') ? 'cover-practice'
       : root.querySelector('.gallery-shell') ? 'gallery'
+      : root.querySelector('.notification-copy-page') ? 'notification-copy'
       : root.querySelector('.notification-page') ? 'notifications'
       : root.querySelector('.release-history-page') ? 'release-history'
       : root.querySelector('#help-back') ? 'help'
@@ -5542,6 +5544,7 @@ export class QuietRoomApp {
     else if (resume === 'help') this.renderFeatureHelp();
     else if (resume === 'release-history') this.renderReleaseHistory();
     else if (resume === 'notifications') void this.renderNotificationSettings();
+    else if (resume === 'notification-copy') this.renderNotificationCopy();
     else this.renderChat();
   }
 
@@ -8086,6 +8089,17 @@ export class QuietRoomApp {
     return this.queueUiPreferencesSave();
   }
 
+  private renderNotificationCopy(): void {
+    const session = this.session, epoch = this.runtimeEpoch, runtimeSignal = this.runtimeAbort?.signal;
+    if (!session || !runtimeSignal || this.privacyCovered || !this.setActiveSurface('away')) return;
+    const pageAbort = new AbortController();
+    const signal = AbortSignal.any([runtimeSignal, pageAbort.signal]);
+    mountNotificationCopy(this.root, { signal, backIcon: icons.back,
+      isActive: () => this.isRuntimeActive(epoch, session) && !this.privacyCovered,
+      onBack: () => { pageAbort.abort('navigation'); this.transitionPage('backward', () => void this.renderNotificationSettings()); },
+    });
+  }
+
   private async renderNotificationSettings(): Promise<void> {
     const session = this.session, epoch = this.runtimeEpoch, runtimeSignal = this.runtimeAbort?.signal;
     if (!session || !runtimeSignal || this.privacyCovered || !this.setActiveSurface('away')) return;
@@ -8118,7 +8132,7 @@ export class QuietRoomApp {
           return await action(target.vault);
         } finally { if (opened) releaseDeviceCredential(opened); }
       }, signal);
-      mountNotificationSettings(page, manager, { systemSurface: operation => this.withSystemSurface(operation) });
+      mountNotificationSettings(page, manager, { systemSurface: operation => this.withSystemSurface(operation), openCopy: () => { pageAbort.abort(); this.transitionPage('forward', () => this.renderNotificationCopy()); } });
     } catch (error) { if (active()) page.textContent = error instanceof Error ? error.message : '本机通知设置未能读取，请重试'; }
   }
 

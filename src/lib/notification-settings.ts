@@ -1,3 +1,4 @@
+import { readNotificationCopy } from './notification-copy';
 import { DeviceNotifications, type NotificationSnapshot, type SpaceNotificationState } from './device-notifications';
 import { spaceNotificationEnabled } from './notification-policy';
 import { type NotificationCapability } from './push';
@@ -17,13 +18,19 @@ function errorCopy(error: unknown): string {
 const stateCopy: Record<SpaceNotificationState, string> = { on: '通知已开启', off: '通知已关闭', paused: '总开关已关闭，保留原有选择', unknown: '状态待确认，可重新开启总开关或稍后刷新', unavailable: '完成本机空间访问后即可设置' };
 export function mountNotificationSettings(page: HTMLElement, manager: DeviceNotifications, options: {
   systemSurface: (operation: () => Promise<void>) => Promise<void>;
+  openCopy?: () => void;
 }): void {
   const signal = manager.signal;
   page.innerHTML = `<p class="notification-scope">本机所有空间</p><h2>通知管理</h2><p class="notification-lead">统一管理本机所有空间的新消息提醒。</p>
     <section class="notification-capability" aria-label="本机通知能力"><span>本机通知能力</span><strong id="notification-status" role="status">正在确认…</strong><p id="notification-explanation"></p><button class="notification-refresh" type="button">刷新状态</button></section>
     <section class="notification-controls" aria-label="通知总开关"><div class="notification-row"><div><strong id="notification-master-label">允许本机通知</strong><p>只影响当前浏览器或主屏幕应用。</p></div><button id="notification-master" class="notification-switch" role="switch" type="button" aria-checked="false" aria-labelledby="notification-master-label" disabled><span></span></button></div></section>
+    <button id="notification-copy-entry" class="notification-copy-entry" type="button"><span><strong>通知文案</strong><span data-notification-copy-summary>标题与正文</span></span><span aria-hidden="true">›</span></button>
     <section class="notification-spaces" aria-labelledby="notification-spaces-heading"><div class="notification-section-heading"><h3 id="notification-spaces-heading">各空间通知</h3><span>共 ${manager.spaces.length} 个空间</span></div><p class="notification-space-help">总开关关闭时暂停全部通知，保留每个空间的选择。</p><div class="notification-space-list"></div></section>
-    <p class="notification-feedback" role="status" aria-live="polite"></p><aside class="notification-privacy"><strong>只显示通用的新消息提醒</strong><p>通知不显示空间名、发送者、聊天文字或附件内容。点击后仍需解锁。</p><p>提醒可能受网络、系统专注模式及后台限制影响。</p></aside>`;
+    <p class="notification-feedback" role="status" aria-live="polite"></p><aside class="notification-privacy"><strong>只提醒新的聊天消息</strong><p>对方上线、已读与自动同步不提醒。不会自动加入空间名、发送者或聊天内容。点击后仍需解锁。</p><p>提醒可能受网络、系统专注模式及后台限制影响。</p></aside>`;
+  const copyEntry = page.querySelector<HTMLButtonElement>('#notification-copy-entry')!;
+  copyEntry.hidden = !options.openCopy;
+  copyEntry.addEventListener('click', () => options.openCopy?.(), { signal });
+  void readNotificationCopy().then(value => { if (!signal.aborted && page.isConnected) page.querySelector('[data-notification-copy-summary]')!.textContent = `${value.title} · ${value.body}`; }).catch(() => {});
   const master = page.querySelector<HTMLButtonElement>('#notification-master')!;
   const refresh = page.querySelector<HTMLButtonElement>('.notification-refresh')!;
   const feedback = page.querySelector<HTMLElement>('.notification-feedback')!;

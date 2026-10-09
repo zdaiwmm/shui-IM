@@ -1493,7 +1493,7 @@ export async function startServer(options = {}) {
               envelope: stored.envelope,
               acceptedAt: stored.acceptedAt,
             });
-            void notifyOtherDevices(session.roomId, message.envelope.senderId);
+            if (message.countUnread !== false) void notifyOtherDevices(session.roomId, message.envelope.senderId);
           }
         } catch (error) {
           const [, message, code] = normalizeError(error);
