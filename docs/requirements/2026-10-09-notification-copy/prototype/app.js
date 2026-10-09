@@ -19,7 +19,7 @@ const rawDraft = () => ({ title: $('#title').value, body: $('#body').value });
 const effective = () => Object.fromEntries(Object.entries(rawDraft()).map(([key, value]) => [key, value.trim() || defaults[key]]));
 const dirty = () => Object.entries(rawDraft()).some(([key, value]) => value !== saved[key]);
 const invalid = (key, value) => count(value) > limits[key] ? `请将${key === 'title' ? '标题' : '正文'}缩短到 ${limits[key]} 个字以内。` : /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value) ? '请移除不可显示的控制字符。' : '';
-function status(message, kind = '') { $('#save-status').textContent = message; $('#save-status').className = kind; }
+function status(message, kind = '') { $('#save-status').hidden = !message; $('#save-status').textContent = message; $('#save-status').className = kind; }
 function render() {
   const draft = rawDraft();
   const display = effective();
@@ -34,14 +34,15 @@ function render() {
     $(`#${key}-count`).classList.toggle('invalid', Boolean(error));
     $(`#preview-${key}`).textContent = display[key];
   }
-  $('#preview-state').textContent = dirty() ? '编辑中 · 尚未保存' : '当前已保存';
+  $('#preview-state').textContent = dirty() ? '预览 · 未保存' : '通知预览';
   $('#preview-state').className = dirty() ? 'draft' : '';
   $('#save').disabled = !dirty() || hasError || saving || composing;
   $('#save').textContent = saving ? '保存中' : '保存';
   $('#reset').disabled = saving;
   $('#back').disabled = saving;
   for (const key of ['title', 'body']) $(`#${key}`).disabled = saving;
-  $('#enabled-note').textContent = enabled ? '当前本机通知已开启。保存后用于之后收到的新通知。' : '当前本机通知已关闭。可以先保存文案，重新开启通知后生效。';
+  $('#enabled-note').hidden = enabled;
+  $('#enabled-note').textContent = enabled ? '' : '本机通知已关闭，开启后生效。';
   $('#master').setAttribute('aria-checked', String(enabled));
   $('#saved-summary').textContent = `${saved.title} · ${saved.body}`;
   renderPreview();
@@ -55,10 +56,10 @@ function renderPreview() {
   $('#show-reference').setAttribute('aria-pressed', String(previewMode === 'reference'));
   $('#show-preview').setAttribute('aria-pressed', String(previewMode === 'preview'));
   $('#calibration-note').textContent = previewMode === 'reference' && referenceLoaded
-    ? '用户提供的原截图，仅含通知文字区域。'
+    ? '原截图 · 通知文字区域'
     : referenceLoaded
-      ? '文字区域按原图校准，完整卡片与自填文字排版待真机核对。'
-      : '当前无法读取原截图，文字区域为模拟效果，待真机核对。';
+      ? '文字区域预览 · 样式待真机核对'
+      : '模拟预览 · 原截图暂不可用';
 }
 function setPage(next) {
   const previous = page;
@@ -76,7 +77,7 @@ function setPage(next) {
   if (next === 'copy') {
     for (const key of ['title', 'body']) $(`#${key}`).value = saved[key];
     previewMode = 'preview';
-    status('修改后，点右上角保存。');
+    status('');
   }
   render();
   $('#header-title').setAttribute('tabindex', '-1');
@@ -89,7 +90,7 @@ function requestBack() {
   setPage(page === 'copy' ? 'notifications' : 'settings');
 }
 for (const key of ['title', 'body']) {
-  $(`#${key}`).addEventListener('input', () => { previewMode = 'preview'; status('预览已更新，保存后才会用于通知'); render(); });
+  $(`#${key}`).addEventListener('input', () => { previewMode = 'preview'; status(''); render(); });
   $(`#${key}`).addEventListener('focus', () => {
     lastField = key;
     requestAnimationFrame(() => $(`#${key}`).scrollIntoView({ block: 'nearest' }));
@@ -109,22 +110,22 @@ $('#copy-form').addEventListener('submit', async event => {
   if ($('#save').disabled) return;
   document.activeElement?.blur();
   saving = true;
-  status('正在保存原型中的设置…');
+  status('');
   render();
   await new Promise(resolve => setTimeout(resolve, 550));
   saving = false;
-  if (failSave) { render(); status('保存失败，已保留本次编辑。请重试。', 'error'); return; }
+  if (failSave) { render(); status('保存失败，请重试。修改已保留。', 'error'); return; }
   saved = effective();
   for (const key of ['title', 'body']) $(`#${key}`).value = saved[key];
   previewMode = 'preview';
   render();
-  status(enabled ? '已保存到原型，用于之后的新通知。' : '已保存到原型，开启本机通知后生效。', 'success');
+  status('已保存', 'success');
 });
 $('#reset').addEventListener('click', () => {
   for (const key of ['title', 'body']) $(`#${key}`).value = defaults[key];
   previewMode = 'preview';
   render();
-  status(dirty() ? '已恢复默认预览，保存后生效' : '当前已经使用默认文案');
+  status(dirty() ? '已恢复默认，保存后生效。' : '');
 });
 $('#back').addEventListener('click', requestBack);
 $('#continue').addEventListener('click', () => { $('#leave-dialog').close(); $(`#${lastField}`).focus(); });
