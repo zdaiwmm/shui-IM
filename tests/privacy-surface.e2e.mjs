@@ -57,6 +57,15 @@ try {
   await page.clock.runFor(9000);
   assert.equal((await state()).locked, true);
   assert.equal(await page.evaluate(() => window.fixture.app.newSpaceCollectionCode), undefined);
+  await page.evaluate(() => {
+    const {app,fresh}=window.fixture;fresh();
+    app.rememberSpacePreview=async()=>{};
+    app.preferenceSaveChain=new Promise(resolve=>window.resolveNavigation=resolve);
+    window.pendingNavigation=app.leaveSpace();
+  });
+  await page.evaluate(() => {window.fixture.app.lockNow();window.fixture.fresh();window.resolveNavigation();});
+  assert.equal(await page.evaluate(() => window.pendingNavigation),false,'Late navigation must reject a replacement runtime');
+  assert.equal((await state()).locked,false,'Late navigation must not tear down the new runtime');
   // Real cross-tab preference storage does not renew this tab or share unlock proof.
   await page.evaluate(() => window.fixture.fresh()); await page.clock.runFor(20_000);
   const sibling=await page.context().newPage(); await sibling.goto(page.url());

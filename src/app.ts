@@ -2573,7 +2573,7 @@ export class QuietRoomApp {
     const current=this.browserProfile,signal=presentationSignal ?? this.browserAccessAbort?.signal;if(!current||!signal||signal.aborted)return;
     mountSpaceDrawer(this.root,{container,presentation:container ? 'sidebar' : undefined, spaces:accessPrivateSpaces(current.profile),currentRoom:current.profile.currentRoom,signal,actions:[{id:'auto-lock-settings',group:'本机',label:'自动锁定',icon:spaceIcons.cover,run:()=>this.renderAutoLockSettings()},{id:'lock-now',group:'本机',label:'立即锁定',icon:spaceIcons.cover,run:()=>this.manualLock()}],
       select:async space=>{if(space.localId){await this.switchPrivateSpace(space);return;}current.profile.currentRoom=space.roomId;await saveBrowserProfile(current,signal);if(!signal.aborted)this.renderBrowserShell();},
-      create:async()=>{await this.leaveSpace();this.renderCreate();},rename:async()=>{throw new Error('空间授权后可修改名称');},
+      create:async()=>{if(await this.leaveSpace())this.renderCreate();},rename:async()=>{throw new Error('空间授权后可修改名称');},
       removeLabel: space => this.catalogRemovalLabel(space),
       remove: async space => {
         if (!space.localId) { await this.removeRemoteWaitingSpace(current,space,signal);return; }
@@ -4777,24 +4777,28 @@ export class QuietRoomApp {
     else this.renderChat();
   }
 
-  private async leaveSpace(): Promise<void> {
-    const session = this.session;
+  private async leaveSpace(): Promise<boolean> {
+    if (this.privacyCovered || this.expireIdleSession()) return false;
+    const session = this.session, profile = this.browserProfile, epoch = this.runtimeEpoch;
     const signal = this.runtimeAbort?.signal;
     if (session && signal && !signal.aborted) await this.rememberSpacePreview(session, signal).catch(() => undefined);
+    if (this.runtimeEpoch !== epoch || this.session !== session || this.browserProfile !== profile
+      || this.privacyCovered || this.expireIdleSession()) return false;
     this.unreadCounter.clear();
     this.coverStoredVault = null;
     // Navigation may retain this browser's credential or a recovery code.
     // Its existing authority must keep expiring even between room runtimes.
     this.cleanupRuntime(false, true);
     this.scheduleIdleLock();
+    const nextEpoch = this.runtimeEpoch;
     await Promise.all([this.preferenceSaveChain.catch(() => undefined), this.membershipChain.catch(() => undefined), this.sendChain.catch(() => undefined)]);
+    return this.runtimeEpoch === nextEpoch && !this.privacyCovered && !this.expireIdleSession();
   }
 
   private async switchPrivateSpace(space: PrivateSpace): Promise<void> {
-    if (!space.localId && this.browserProfile?.profile.spaces.some(s=>s.roomId===space.roomId)) {const profile=this.browserProfile,prf=(this.browserBindingProof??this.session?.browserAccessPrf)?.slice();await this.leaveSpace();if(this.privacyCovered){prf?.fill(0);return;}this.browserProfile=profile;this.browserBindingProof=prf??null;this.browserAccessAbort=new AbortController();profile.profile.currentRoom=space.roomId;this.resetIdleLock();this.renderBrowserShell();this.pollBrowserSpaceAccess(this.browserAccessAbort.signal);return;}
+    if (!space.localId && this.browserProfile?.profile.spaces.some(s=>s.roomId===space.roomId)) {const profile=this.browserProfile,prf=(this.browserBindingProof??this.session?.browserAccessPrf)?.slice();if(!await this.leaveSpace()){prf?.fill(0);return;}this.browserProfile=profile;this.browserBindingProof=prf??null;this.browserAccessAbort=new AbortController();profile.profile.currentRoom=space.roomId;this.scheduleIdleLock();this.renderBrowserShell();this.pollBrowserSpaceAccess(this.browserAccessAbort.signal);return;}
     if (!space.localId) throw new Error('此空间需要先恢复');
-    await this.leaveSpace();
-    if (this.privacyCovered) return;
+    if (!await this.leaveSpace()) return;
     await selectLocalSpace(space.localId);
     if (this.privacyCovered) return;
     const stored = await readStoredVault();
@@ -4825,13 +4829,12 @@ export class QuietRoomApp {
     if (this.session && (await localSpaces(this.session)).length >= 256) throw new Error('本机空间数量已达上限');
     const code = this.session?.vault.spaceRecoveryCode;
     const previous = this.session ? vaultSpaceId(this.session.stored) : currentSpaceId();
-    await this.leaveSpace();
-    if (this.privacyCovered) return;
+    if (!await this.leaveSpace()) return;
     await selectLocalSpace(crypto.randomUUID());
     if (this.privacyCovered) return;
     this.newSpaceCollectionCode = code;
     this.returnSpaceId = previous;
-    this.resetIdleLock();
+    this.scheduleIdleLock();
     if (invitation?.kind === 'device') this.renderJoinDevice(invitation.invite);
     else if (invitation?.kind === 'repair') this.renderJoinRepair(invitation.invite);
     else this.renderFirstRun(invitation?.kind === 'participant' ? invitation.invite : null);
@@ -4911,18 +4914,18 @@ export class QuietRoomApp {
     const held = this.deviceCredential;
     const listScrollTop = this.root.querySelector('.space-drawer-scroll')?.scrollTop ?? 0;
     const credential = held ? { record: held.record, prfOutput: held.prfOutput.slice(), browserAccessPrf: held.browserAccessPrf?.slice() } : null;
-    await this.leaveSpace();
-    if (this.privacyCovered) return;
+    if (!await this.leaveSpace()) { credential?.prfOutput.fill(0); credential?.browserAccessPrf?.fill(0); return; }
     this.inviteReturnToSpaces = true;
     this.inviteListScrollTop = listScrollTop;
     this.newSpaceCollectionCode = code;
     this.returnSpaceId = previous;
     const slot = crypto.randomUUID();
     const epoch = this.runtimeEpoch;
-    this.resetIdleLock();
+    this.scheduleIdleLock();
     if (credential) {
       await selectLocalSpace(slot);
-      if (!this.privacyCovered && this.runtimeEpoch === epoch && !this.session) await this.handleCreate(credential);
+      if (!this.privacyCovered && this.runtimeEpoch === epoch && !this.session && !this.expireIdleSession()) await this.handleCreate(credential);
+      else { credential.prfOutput.fill(0); credential.browserAccessPrf?.fill(0); }
       return;
     }
     // The first space on this device still needs its passkey created in the click stack.
@@ -5022,8 +5025,7 @@ export class QuietRoomApp {
       const next = remaining.find(item => item.localId);
       if (next?.localId) await this.switchPrivateSpace(next);
       else {
-        await this.leaveSpace();
-        if (!this.privacyCovered) {
+        if (await this.leaveSpace()) {
           await selectLocalSpace(crypto.randomUUID());
           this.renderFirstRun(null);
         }

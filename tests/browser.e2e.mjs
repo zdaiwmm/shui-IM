@@ -86,17 +86,19 @@ async function hideOutsidePage(page) {
 
 async function holdCover(page) {
   await page.locator('.cover-trigger, #create-room, [data-device-verify], .space-invite-sheet, #cloud-recovery-form, #joint-start, #passkey-unlock, #unlock-form, .cover.cover-off').first().waitFor({ timeout: 120_000 });
-  const trigger = page.locator('.cover-trigger');
-  if (await trigger.count() === 0) {
-    if (await page.locator('.cover.cover-off').count() && await page.locator('#passkey-unlock, #unlock-form').count() === 0) {
-      await page.evaluate(() => {
-        Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
-        document.dispatchEvent(new Event('visibilitychange'));
-      });
-      await page.locator('#passkey-unlock, #unlock-form, #create-room, [data-device-verify]').first().waitFor({ timeout: 15_000 });
-    }
+  // With the fake cover disabled, visibility return replaces the temporary
+  // hidden-page trigger asynchronously. Wait for the authentication gateway,
+  // rather than measuring a trigger which can disappear between two reads.
+  if (await page.locator('.cover.cover-off').count()) {
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await page.locator('#passkey-unlock, #unlock-form, #create-room, [data-device-verify]').first().waitFor({ timeout: 15_000 });
     return;
   }
+  const trigger = page.locator('.cover-trigger');
+  if (await trigger.count() === 0) return;
   const box = await trigger.boundingBox();
   invariant(box, 'Privacy-curtain trigger is missing');
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
