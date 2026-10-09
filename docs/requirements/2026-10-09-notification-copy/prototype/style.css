@@ -22,10 +22,12 @@ svg { width: 20px; height: 20px; flex: none; }
 .preview-tabs { display: flex; gap: 10px; }
 .preview-tabs button { min-height: 44px; padding: 0; border: 0; background: transparent; color: var(--ink-muted); font-size: 13px; }
 .preview-tabs button[aria-pressed=true] { color: var(--accent); }
-.notification-crop { position: relative; width: 100%; aspect-ratio: 376 / 140; container-type: inline-size; margin: 0; overflow: hidden; }
-.notification-crop img { display: block; width: 100%; height: 100%; object-fit: contain; }
-/* Only the supplied text crop is modelled. No invented icon, time, card edge or material. */
-.notification-text { position: absolute; inset: 0; background: linear-gradient(180deg, rgb(171 172 173), rgb(169 170 170) 14.3%, rgb(174 174 174) 50%, rgb(175 175 175)); padding: 5.05319149cqw 7.44680851cqw 0; color: rgb(241 241 241); font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif; font-size: 7.44680851cqw; font-weight: 700; letter-spacing: 0; line-height: 8.77659574cqw; }
+/* The original 722×184 screenshot is rendered without bitmap edits.
+   Crop to the card at (21,14), 690×150; clip the exterior page background. */
+.notification-crop { position: relative; width: 100%; aspect-ratio: 690 / 150; container-type: inline-size; margin: 0; overflow: hidden; border-radius: 6.52173913% / 30%; background: rgb(172 172 172); }
+.notification-crop img { position: absolute; display: block; width: 104.63768116%; height: 122.66666667%; max-width: none; left: -3.04347826%; top: -9.33333333%; }
+/* Custom-copy overlay preserves the original Safari icon and card image. */
+.notification-text { position: absolute; inset: 16% 3% 12% 16.95652174%; background: linear-gradient(180deg, rgb(171 171 172), rgb(173 173 173)); color: rgb(241 241 241); font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', system-ui, sans-serif; font-size: 4.05797101cqw; font-weight: 700; letter-spacing: 0; line-height: 4.92753623cqw; }
 .notification-text strong { display: block; font: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .calibration-note { font-size: 13px; line-height: 1.6; color: var(--ink-muted); margin-top: 7px; }
 .page-scroll { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; padding: 20px 24px calc(24px + env(safe-area-inset-bottom, 0px)); scroll-padding-block: 18px; }

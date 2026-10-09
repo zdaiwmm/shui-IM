@@ -1,4 +1,4 @@
-# 通知文案 v3 业务流程
+# 通知文案 v4 业务流程
 
 [可查看的流程图](prototype/flow.html) · [原型](prototype/index.html)
 

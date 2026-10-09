@@ -50,15 +50,16 @@ function render() {
 function renderPreview() {
   const display = effective();
   const useOriginal = referenceLoaded && (previewMode === 'reference' || (display.title === defaults.title && display.body === defaults.body));
-  $('#reference-image').hidden = !useOriginal;
+  $('#reference-image').hidden = !referenceLoaded;
+  $('#reference-image').setAttribute('aria-hidden', String(!useOriginal));
   $('#dynamic-preview').hidden = useOriginal;
   $('#show-reference').disabled = !referenceLoaded;
   $('#show-reference').setAttribute('aria-pressed', String(previewMode === 'reference'));
   $('#show-preview').setAttribute('aria-pressed', String(previewMode === 'preview'));
   $('#calibration-note').textContent = previewMode === 'reference' && referenceLoaded
-    ? '原截图 · 通知文字区域'
+    ? '原图通知 · 外围背景已裁切'
     : referenceLoaded
-      ? '文字区域预览 · 样式待真机核对'
+      ? '自填文案排版待真机核对'
       : '模拟预览 · 原截图暂不可用';
 }
 function setPage(next) {

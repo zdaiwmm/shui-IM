@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <title>通知文案 · H5 原型 v3</title>
+  <title>通知文案 · H5 原型 v4</title>
   <link rel="stylesheet" href="../../../../src/design-system.css">
   <link rel="stylesheet" href="../../../../src/notifications.css">
   <link rel="stylesheet" href="style.css">
@@ -18,11 +18,11 @@
     </header>
     <section id="preview-dock" class="preview-dock" aria-label="通知预览">
       <div class="preview-heading"><span id="preview-state">通知预览</span><div class="preview-tabs" role="group" aria-label="通知预览对照"><button id="show-preview" type="button" aria-pressed="true">编辑效果</button><button id="show-reference" type="button" aria-pressed="false">原截图</button></div></div>
-      <figure class="notification-crop" aria-label="用户提供的通知文字区域">
-        <img id="reference-image" src=".local-reference/notification.png" width="376" height="140" alt="原通知截图文字区域：Quiet Room，ai.shui.click，有一条新消息，解锁后查看。">
+      <figure class="notification-crop" aria-label="用户提供的完整通知卡片">
+        <img id="reference-image" src=".local-reference/notification-full.png" width="722" height="184" alt="原通知卡片：Quiet Room，ai.shui.click，有一条新消息，解锁后查看。">
         <div id="dynamic-preview" class="notification-text" hidden><strong id="preview-title">Quiet Room</strong><strong class="preview-source">ai.shui.click</strong><strong id="preview-body">有一条新消息，解锁后查看。</strong></div>
       </figure>
-      <p id="calibration-note" class="calibration-note">文字区域预览 · 样式待真机核对</p>
+      <p id="calibration-note" class="calibration-note">自填文案排版待真机核对</p>
     </section>
     <main id="page-scroll" class="page-scroll">
       <section id="copy-page">
@@ -55,7 +55,7 @@
         <h3 class="settings-subtitle">各空间通知</h3><div id="spaces"></div><p class="scope-note notification-filter-note">仅提醒新消息，对方上线和自动同步不提醒。</p>
       </section>
       <section id="settings-page" hidden><h2 class="settings-title">本机</h2><button id="open-notifications" class="setting-entry"><div><strong>通知管理</strong><p>提醒开关、各空间与通知文案</p></div><span aria-hidden="true">›</span></button></section>
-      <details class="review-tools"><summary>原型工具</summary><p>v3 · 保存仅在本次预览有效，不发送通知。完整通知外观仍待原图与真机核对。</p><label for="theme">界面主题</label><select id="theme"><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select><button id="failure" type="button" aria-pressed="false">模拟保存失败</button><a href="flow.html">查看业务流程</a></details>
+      <details class="review-tools"><summary>原型工具</summary><p>v4 · 保存仅在本次预览有效，不发送通知。通知使用用户原图，外围背景已裁切；自填文案排版待真机核对。</p><label for="theme">界面主题</label><select id="theme"><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select><button id="failure" type="button" aria-pressed="false">模拟保存失败</button><a href="flow.html">查看业务流程</a></details>
     </main>
   </div>
   <dialog id="leave-dialog" class="action-sheet" aria-labelledby="leave-heading"><div class="sheet-content"><h2 id="leave-heading">放弃未保存的修改？</h2><button type="button" id="discard" class="discard-button">放弃修改并返回</button></div><button type="button" id="continue" class="cancel-button">继续编辑</button></dialog>
