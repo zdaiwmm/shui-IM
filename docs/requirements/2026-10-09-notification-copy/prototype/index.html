@@ -2,61 +2,53 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
-  <title>通知文案 · Quiet Room 原型</title>
+  <title>通知文案 · H5 原型 v2</title>
   <link rel="stylesheet" href="../../../../src/design-system.css">
   <link rel="stylesheet" href="../../../../src/notifications.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <aside class="review-bar" aria-label="原型审阅工具">
-    <span><b>原型 v1</b><span class="review-detail"> · 仅模拟，不发送通知</span></span>
-    <div><label><span class="sr-only">原型主题</span><select id="theme"><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label><button id="failure" aria-pressed="false">模拟保存失败</button><a href="flow.html">业务流程 ↗</a></div>
-  </aside>
   <div class="app-shell">
-    <header class="page-header"><button id="back" class="icon-button" aria-label="返回通知管理"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m14 6-6 6 6 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button><h1 id="header-title">通知文案</h1><span class="header-mark">本机</span></header>
-    <main>
+    <header class="page-header">
+      <button id="back" class="icon-button" aria-label="返回通知管理"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m14 6-6 6 6 6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <h1 id="header-title">通知文案</h1>
+      <button type="submit" form="copy-form" id="save" class="nav-save" disabled>保存</button>
+    </header>
+    <section id="preview-dock" class="preview-dock" aria-label="通知预览">
+      <div class="preview-heading"><span id="preview-state">当前文案</span><div class="preview-tabs" role="group" aria-label="通知预览对照"><button id="show-preview" type="button" aria-pressed="true">编辑效果</button><button id="show-reference" type="button" aria-pressed="false">原截图</button></div></div>
+      <figure class="notification-crop" aria-label="用户提供的通知文字区域">
+        <img id="reference-image" src=".local-reference/notification.png" width="376" height="140" alt="原通知截图文字区域：Quiet Room，ai.shui.click，有一条新消息，解锁后查看。">
+        <div id="dynamic-preview" class="notification-text" hidden><strong id="preview-title">Quiet Room</strong><strong class="preview-source">ai.shui.click</strong><strong id="preview-body">有一条新消息，解锁后查看。</strong></div>
+      </figure>
+      <p id="calibration-note" class="calibration-note">按原截图的文字区域校准，完整通知卡片待原图核准。</p>
+    </section>
+    <main id="page-scroll" class="page-scroll">
       <section id="copy-page">
-        <div class="page-intro"><p class="eyebrow">本机所有空间</p><h2>让提醒用你的话说</h2><p>设置这台设备收到新消息时显示的文字。</p></div>
-        <div class="copy-layout">
-          <section class="preview-section" aria-labelledby="preview-heading">
-            <div class="section-head"><h3 id="preview-heading">通知预览</h3><span id="preview-state">当前已保存</span></div>
-            <div class="notification-stage">
-              <div class="notification-example" aria-label="通知示意，点击各行查看对应设置">
-                <button class="preview-line title-line" data-target="title" aria-label="第1行，通知标题，点击编辑"><span class="line-index" aria-hidden="true">1</span><strong id="preview-title">Quiet Room</strong><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15v5Z" stroke="currentColor" stroke-width="1.5"/></svg></button>
-                <button class="preview-line source-line" data-target="source" aria-label="第2行，网站来源由系统显示，点击查看说明"><span class="line-index" aria-hidden="true">2</span><strong>ai.shui.click</strong><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="6" y="10" width="12" height="10" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3" stroke="currentColor" stroke-width="1.5"/></svg></button>
-                <button class="preview-line body-line" data-target="body" aria-label="第3行，通知正文，点击编辑"><span class="line-index" aria-hidden="true">3</span><span id="preview-body">有一条新消息，解锁后查看。</span><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m15 5 4 4M4 20l4-1L20 7a2.8 2.8 0 0 0-4-4L4 15v5Z" stroke="currentColor" stroke-width="1.5"/></svg></button>
-              </div>
-            </div>
-            <p class="preview-note">点击任意一行，定位对应设置。编号与图标仅用于说明。</p>
-            <p class="system-note">按截图示意，系统可能调整行序、应用名、换行与截断。</p>
-            <div class="scope-summary"><h3>只影响这台设备的新通知</h3><p>本机所有已开启提醒的空间共用，<strong>不改变对方或其他设备的设置</strong>。</p><details><summary>更多影响说明</summary><p>保存后，用于当前浏览器或主屏幕应用之后收到的新消息通知。聊天内容、主屏幕图标名称、网站来源与已显示的旧通知保持原样。</p></details></div>
-          </section>
-          <form id="copy-form" novalidate>
-            <div class="section-head"><h3>编辑文案</h3><div class="editor-actions"><button type="button" id="view-preview" class="text-button preview-jump">查看预览 ↑</button><button type="button" id="reset" class="text-button">恢复默认</button></div></div>
-            <div class="field-group" id="title-group"><div class="field-heading"><label for="title">通知标题</label><span>第 1 行 · 可编辑</span></div><input id="title" name="title" value="Quiet Room" placeholder="Quiet Room" autocomplete="off" aria-describedby="title-help title-error"><div class="field-meta"><p id="title-help">替换图中的「Quiet Room」。留空使用默认标题。</p><span id="title-count">10/24</span></div><p id="title-error" class="field-error" hidden></p></div>
-            <div class="field-group fixed-field" id="source-group" tabindex="-1"><div class="field-heading"><label for="source">网站来源</label><span class="system-tag">第 2 行 · 系统显示</span></div><div class="source-value"><input id="source" value="ai.shui.click" readonly aria-describedby="source-help"><span aria-hidden="true">不可修改</span></div><p id="source-help" class="field-help">这行用来标识通知来自哪个网站，由浏览器与系统显示，无法通过文案设置修改或隐藏。</p></div>
-            <div class="field-group" id="body-group"><div class="field-heading"><label for="body">通知正文</label><span>第 3 行 · 可编辑</span></div><textarea id="body" name="body" rows="3" placeholder="有一条新消息，解锁后查看。" autocomplete="off" aria-describedby="body-help body-error">有一条新消息，解锁后查看。</textarea><div class="field-meta"><p id="body-help">替换下方的提醒文字。留空使用默认正文，较长内容可能换行或被系统截断。</p><span id="body-count"></span></div><p id="body-error" class="field-error" hidden></p></div>
-            <div class="disclosure"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3 4 6v6c0 5 8 9 8 9s8-4 8-9V6l-8-3Z" stroke="currentColor" stroke-width="1.5"/><path d="M12 8v5m0 3v.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><p>填写的文字可能直接显示在锁屏上，请勿填写隐私信息。这里只使用你填写的固定文字，不自动插入姓名、空间名或聊天内容。</p></div>
-            <p id="enabled-note" class="enabled-note"></p>
-            <div id="leave-prompt" class="leave-prompt" hidden><strong>还有未保存的修改</strong><p>返回会放弃这次编辑，已保存的通知文案不变。</p><div><button type="button" id="continue" class="secondary-button">继续编辑</button><button type="button" id="discard" class="text-button danger">放弃并返回</button></div></div>
-            <div class="save-bar"><p id="save-status" role="status" aria-live="polite">当前使用已保存的文案</p><button type="submit" id="save" class="primary-button" disabled>保存文案</button></div>
-          </form>
-        </div>
+        <form id="copy-form" novalidate>
+          <div class="field-group"><div class="field-heading"><label for="title">通知标题</label><span>第 1 行</span></div><input id="title" name="title" value="Quiet Room" placeholder="Quiet Room" autocomplete="off" enterkeyhint="next" aria-describedby="title-help title-error"><div class="field-meta"><p id="title-help">替换第一行文字，留空使用默认标题。</p><span id="title-count"></span></div><p id="title-error" class="field-error" hidden></p></div>
+          <div class="source-group"><div><strong>网站来源</strong><p>第 2 行，由系统显示，无法修改或隐藏。</p></div><span>ai.shui.click</span></div>
+          <div class="field-group"><div class="field-heading"><label for="body">通知正文</label><span>第 3 行</span></div><textarea id="body" name="body" rows="2" placeholder="有一条新消息，解锁后查看。" autocomplete="off" enterkeyhint="done" aria-describedby="body-help body-error">有一条新消息，解锁后查看。</textarea><div class="field-meta"><p id="body-help">替换第三行提醒，留空使用默认正文。</p><span id="body-count"></span></div><p id="body-error" class="field-error" hidden></p></div>
+          <p class="scope-note">仅影响这台设备之后收到的新通知，本机所有已开启提醒的空间共用。不会改变对方或其他设备的设置。</p>
+          <details class="impact-details"><summary>更多影响说明</summary><p>不改变聊天内容、主屏幕图标名称或已显示的旧通知。自填文字可能显示在锁屏上，请勿填写隐私信息；不会自动插入姓名、空间名或聊天内容。</p></details>
+          <button type="button" id="reset" class="reset-button">恢复默认文案</button>
+          <p id="enabled-note" class="enabled-note"></p>
+          <p id="save-status" role="status" aria-live="polite">修改后，点右上角保存。</p>
+        </form>
       </section>
       <section id="notifications-page" class="notification-content" hidden>
         <p class="notification-scope">本机所有空间</p><h2>通知管理</h2><p class="notification-lead">统一管理本机所有空间的新消息提醒。</p>
-        <div class="notification-capability"><span>模拟的本机状态</span><strong>本机支持通知</strong><p>文案与开关均为原型演示，不会改变真实通知设置。</p></div>
-        <div class="notification-controls"><div class="notification-row"><div><strong id="master-label">允许本机通知</strong><p>关闭时暂停提醒，保留空间选择与通知文案。</p></div><button class="notification-switch" id="master" type="button" role="switch" aria-labelledby="master-label" aria-checked="true"><span></span></button></div></div>
-        <button id="open-copy" class="setting-entry"><div><strong>通知文案</strong><p id="saved-summary">Quiet Room · 有一条新消息，解锁后查看。</p></div><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 6 6 6-6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
-        <h3 class="settings-subtitle">各空间通知</h3><div id="spaces"></div>
-        <div class="notification-privacy"><strong>只有新聊天消息才提醒</strong><p>对方上线、已读同步、反应、撤回与相册专用更新不触发新消息通知。</p></div>
+        <div class="notification-capability"><span>模拟的本机状态</span><strong>本机支持通知</strong><p>原型不会改变真实通知设置。</p></div>
+        <div class="notification-controls"><div class="notification-row"><div><strong id="master-label">允许本机通知</strong><p>关闭时暂停提醒，保留空间选择与文案。</p></div><button class="notification-switch" id="master" type="button" role="switch" aria-labelledby="master-label" aria-checked="true"><span></span></button></div></div>
+        <button id="open-copy" class="setting-entry"><div><strong>通知文案</strong><p id="saved-summary">Quiet Room · 有一条新消息，解锁后查看。</p></div><span aria-hidden="true">›</span></button>
+        <h3 class="settings-subtitle">各空间通知</h3><div id="spaces"></div><div class="notification-privacy"><strong>只有新聊天消息才提醒</strong><p>对方上线、已读同步、反应、撤回与相册专用更新不触发新消息通知。</p></div>
       </section>
-      <section id="settings-page" class="simple-settings" hidden><p class="eyebrow">设置</p><h2>本机</h2><button id="open-notifications" class="setting-entry"><div><strong>通知管理</strong><p>提醒开关、各空间与通知文案</p></div><span aria-hidden="true">›</span></button><p class="field-help">原型仅展示本次涉及的设置路径。</p></section>
+      <section id="settings-page" hidden><h2 class="settings-title">本机</h2><button id="open-notifications" class="setting-entry"><div><strong>通知管理</strong><p>提醒开关、各空间与通知文案</p></div><span aria-hidden="true">›</span></button></section>
+      <details class="review-tools"><summary>原型 v2 · 审阅工具</summary><p>H5 单页交互。通知原图只提供了文字裁剪区域；动态文字布局仍待完整原图与真机核对。这里的保存仅在本次原型会话有效，不发送通知。</p><label for="theme">界面主题</label><select id="theme"><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select><button id="failure" type="button" aria-pressed="false">模拟保存失败</button><a href="flow.html">查看业务流程</a></details>
     </main>
-    <footer class="prototype-footer">设计预览 · 修改仅在本次原型会话中保留，刷新恢复默认。</footer>
   </div>
+  <dialog id="leave-dialog" class="action-sheet" aria-labelledby="leave-heading"><div class="sheet-content"><h2 id="leave-heading">放弃未保存的修改？</h2><p>已保存的通知文案保持不变。</p><button type="button" id="discard" class="discard-button">放弃修改并返回</button></div><button type="button" id="continue" class="cancel-button">继续编辑</button></dialog>
   <script src="app.js"></script>
 </body>
 </html>
