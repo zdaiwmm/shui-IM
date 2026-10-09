@@ -1,5 +1,13 @@
 # Quiet Room 当前状态
 
+## 全局自动锁定已合并，待生产发布（2026-10-10）
+
+- V6 需求、原型及完整旧触发改造已获用户确认并授权实施/合并。[PR #255](https://github.com/zdaiwmm/shui-IM/pull/255)已合并，源head `fb7c310dd7e47391a7c5923362454c6961c95f95`，应用候选/精确合并提交 `2877c2ae42822763fac812e636405f13196e56bd`，独立fetch核对两者文件树相同（`c94b4ca960a5b23e8423a257cc74837749a70da2`）。版本 `2026.10.09.2`，长期契约见D-053及[需求记录](../requirements/2026-10-09-global-lock-countdown/README.md)。
+- 默认60秒、四档本机设置、真实操作续期、固定最后10秒整气泡背景进度；普通可见失焦不遮/不锁，确定离开及到期真正锁定并重新验证。已退出旧短期续接及桌面免验证恢复，恢复码固定上限、迟到结果拒绝及加密草稿/待发箱边界保留。
+- 精确[PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37967823473)全部12项通过，含103文件/847项单元集成、55浏览器入口及通话/TURN。最终干净候选构建、桌面WebKit三项隐私专项、真实PRF/MLS桌面会话与空间导航、本机通话及20种合成弱网通过。开发期本地55入口全过，但期间有候选修订，自动证据已标为不适用于最终树；最终完整验证以精确CI为准。本机10项备份单测受97%磁盘/80%门槛阻断，未削弱门禁；iPhone/iOS27/Safari尚未真机验证。
+- 精确[main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37968726220)独立执行，其结果不由PR推断。此记录只对交付时点有效，不是实时监控。
+- **未发布此候选**。只读部署连接正常，生产仍为下节 `261da69b`；容量预检约3.06GiB可用/91.77%，触发DISK_CRITICAL及DISK_HEADROOM_LOW（要求至少4GiB且低于90%）。现存三个发布前归档均在保留范围，未删除/迁移生产备份或修改门槛。后续先解决容量并取得用户对上述完整应用SHA的本次发布确认，再按固定发布/独立回读流程继续；本记录不授权新提交或生产切换。
+
 ## 通知文案与提醒过滤已发布（2026-10-09）
 
 - 当前生产精确SHA `261da69bbf4e7c9baf5beeef4286ffd1e6d192c7`，版本 `2026.10.09.1`；用户确认完整提交与唯一指定旧归档迁移。[PR #253](https://github.com/zdaiwmm/shui-IM/pull/253) 已合并，源head `ac0675ecdb52efaabfd843a8468aa9a197846ca1` 与合并树一致。精确[PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37917937332) attempt1及[main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37918742751) attempt2全部12项成功；main WebKit初始化失败仅原样重跑失败作业一次。历史密码测试阻塞与发送方持久确认等待修正见[需求记录](../requirements/2026-10-09-notification-copy/README.md)，原断言、超时和产品逻辑保留。
