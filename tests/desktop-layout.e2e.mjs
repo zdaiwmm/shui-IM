@@ -133,7 +133,7 @@ try {
     await page.emulateMedia({colorScheme:'dark'});
     await page.setViewportSize({width:1440,height:900});
     await page.screenshot({path:`${screenshots}/${engine.name()}-dark.png`});
-    await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
     assert.equal(await page.locator('.desktop-sidebar').count(), 0, 'Privacy teardown must remove space names and previews');
     assert.equal(await page.locator('.message').count(), 0);
     await page.evaluate(() => {

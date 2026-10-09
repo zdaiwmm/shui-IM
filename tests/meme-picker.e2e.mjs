@@ -140,7 +140,7 @@ try {
   assert.deepEqual(await page.evaluate(() => ({
     covered: window.fixture.app.privacyCovered,
     obscured: document.documentElement.classList.contains('privacy-obscured'),
-  })), { covered: false, obscured: true }, 'Opening the expression panel lost its owner or uncovered private content');
+  })), { covered: false, obscured: false }, 'Opening the expression panel must preserve visible chat without a privacy hold');
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   assert.equal((await page.locator('.meme-recent-section h3').textContent()).trim(), '推荐 GIFs');
   await page.waitForFunction(() => document.querySelectorAll('.meme-recent-grid .meme-tile').length === 10);
@@ -698,8 +698,8 @@ try {
   await page.evaluate(() => window.dispatchEvent(new Event('blur')));
   assert.deepEqual(await page.evaluate(() => ({
     covered: window.fixture.app.privacyCovered,
-    owned: window.fixture.app.memePanelHandoff?.blurred === true,
-  })), { covered: false, owned: true }, 'A delayed keyboard blur locked the opened expression panel');
+    obscured: document.documentElement.classList.contains('privacy-obscured'),
+  })), { covered: false, obscured: false }, 'A delayed visible keyboard blur must preserve the opened expression panel');
   await page.evaluate(() => { window.dispatchEvent(new Event('focus')); window.fixture.app.closeMemePicker(); });
   await page.evaluate(()=>{window.fixture.app.renderChat();window.fixture.app.openMemePicker();});
   await page.locator('.meme-panel').waitFor();

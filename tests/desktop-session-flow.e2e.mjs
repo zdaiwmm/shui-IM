@@ -111,7 +111,7 @@ const state = page => page.evaluate(() => {
     retained: Boolean(app.retainedSession),
     socket: Boolean(app.socket),
     messages: app.messages.size,
-    protocol: (app.session ?? app.retainedSession)?.vault.protocol,
+    protocol: app.session?.vault.protocol,
     fatal: Boolean(document.querySelector('#fatal-lock')),
   };
 });
@@ -128,9 +128,9 @@ async function depart(page, reason) {
   }, reason);
   await page.locator('.cover-trigger').waitFor({ state: 'attached' });
   assert.deepEqual(await state(page), {
-    desktop: true, covered: true, active: false, retained: true,
-    socket: false, messages: 0, protocol: 'mls-rfc9420', fatal: false,
-  }, `${reason} must stop private runtime and keep only a retained session`);
+    desktop: true, covered: true, active: false, retained: false,
+    socket: false, messages: 0, protocol: undefined, fatal: false,
+  }, `${reason} must stop private runtime and require new device authentication`);
   assert.equal(await page.locator('.chat-shell, .message, #message-input').count(), 0, 'Covered page must remove private markup');
 }
 
@@ -205,7 +205,11 @@ try {
   await joiner.getByText(firstMessage, { exact: true }).waitFor({ timeout: 10_000 });
   await creator.locator('.message.outgoing.is-delivered').filter({ hasText: firstMessage }).waitFor({ timeout: 10_000 });
 
-  for (const reason of ['blur', 'hidden']) {
+  await creator.evaluate(() => { window.__desktopFocused=false; window.dispatchEvent(new Event('blur')); });
+  assert.equal((await state(creator)).active,true,'Visible blur must preserve the real MLS runtime');
+  await returnToPage(creator);
+  let expectedVerifications = initialVerifications;
+  for (const reason of ['hidden']) {
     trace(`Checking real retained-session restore after ${reason}`);
     const draft = `桌面 ${reason} 恢复后的加密草稿`;
     const queuedMessage = `desktop-peer-message-while-${reason}`;
@@ -216,10 +220,11 @@ try {
     await returnToPage(creator);
     await holdF(creator);
     await expectChat(creator);
+    expectedVerifications++;
     await creator.getByText(firstMessage, { exact: true }).waitFor({ timeout: 10_000 });
     await creator.getByText(queuedMessage, { exact: true }).waitFor({ timeout: 10_000 });
     assert.equal(await creator.locator('#message-input').inputValue(), draft, 'Encrypted composer preferences must restore the unsent draft');
-    assert.equal(await verificationCount(creator), initialVerifications, 'Resuming a retained session must not request the device credential again');
+    assert.equal(await verificationCount(creator), expectedVerifications, 'Returning after hidden must request fresh device verification');
     const resumed = await state(creator);
     assert.equal(resumed.active, true);
     assert.equal(resumed.retained, false);
@@ -232,7 +237,7 @@ try {
     await creator.locator('#message-input').press('Enter');
     await joiner.getByText(draft, { exact: true }).waitFor({ timeout: 10_000 });
     await creator.locator('.message.outgoing.is-delivered').filter({ hasText: draft }).waitFor({ timeout: 10_000 });
-    assert.equal(await verificationCount(creator), initialVerifications);
+    assert.equal(await verificationCount(creator), expectedVerifications);
   }
 
   trace('Checking manual lock and reload require new device verification');
@@ -244,7 +249,7 @@ try {
   assert.equal(manuallyLocked.retained, false);
   await holdF(creator);
   await expectChat(creator);
-  assert.equal(await verificationCount(creator), initialVerifications + 1, 'Manual lock must start fresh device verification directly from the trusted F hold');
+  assert.equal(await verificationCount(creator), expectedVerifications + 1, 'Manual lock must start fresh device verification directly from the trusted F hold');
   await creator.getByText(firstMessage, { exact: true }).waitFor();
 
   await creator.reload();
@@ -255,13 +260,13 @@ try {
   assert.equal(reloaded.retained, false);
   await holdF(creator);
   await expectChat(creator);
-  assert.equal(await verificationCount(creator), initialVerifications + 2, 'Reload must start fresh device verification directly from the trusted F hold');
+  assert.equal(await verificationCount(creator), expectedVerifications + 2, 'Reload must start fresh device verification directly from the trusted F hold');
   await send(creator, 'desktop-session-after-fresh-verification');
   await joiner.getByText('desktop-session-after-fresh-verification', { exact: true }).waitFor({ timeout: 10_000 });
   assert.equal((await state(creator)).fatal, false);
   assert.equal((await state(joiner)).fatal, false);
   assert.deepEqual(errors, []);
-  console.log('Desktop session flow E2E passed: real PRF vaults, MLS pairing and messages, blur/hidden private-runtime teardown, F resume without repeated verification, encrypted draft/history restore, peer catchup, resumed sending, and fresh verification after manual lock/reload.');
+  console.log('Desktop session flow E2E passed: real PRF vaults, MLS pairing and messages, visible-blur continuity, hidden private-runtime teardown and fresh F verification, encrypted draft/history restore, peer catchup, resumed sending, and fresh verification after manual lock/reload.');
 } finally {
   await browser?.close();
   await vite.close();

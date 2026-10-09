@@ -74,17 +74,12 @@ async function beginSyntheticFilePicker(input) {
   });
 }
 
-async function blurOutsidePage(page) {
-  await page.evaluate(async () => {
-    const descriptor = Object.getOwnPropertyDescriptor(document, 'hasFocus');
-    Object.defineProperty(document, 'hasFocus', { configurable: true, value: () => false });
-    try {
-      window.dispatchEvent(new Event('blur'));
-      await new Promise((resolve) => setTimeout(resolve, 320));
-    } finally {
-      if (descriptor) Object.defineProperty(document, 'hasFocus', descriptor);
-      else delete document.hasFocus;
-    }
+async function hideOutsidePage(page) {
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    delete document.hidden;
+    document.dispatchEvent(new Event('visibilitychange'));
   });
   await page.locator(LOCK_SURFACE).first().waitFor();
 }
@@ -618,7 +613,7 @@ try {
   // submit alone is not an outbox commit; concealment must begin after the
   // pending row proves persistence, otherwise this tests an unsubmitted draft.
   await creator.locator('.message.outgoing').filter({ hasText: 'browser-e2e-outbox' }).waitFor({ timeout: 5000 });
-  await blurOutsidePage(creator);
+  await hideOutsidePage(creator);
   await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
   await joiner.getByText('browser-e2e-outbox', { exact: true }).waitFor({ timeout: 5000 });
@@ -1013,7 +1008,7 @@ try {
   const cancelledInput = await creator.locator('#image-input').elementHandle();
   await beginSyntheticFilePicker(cancelledInput);
   await cancelledInput.evaluate((input) => input.dispatchEvent(new Event('cancel')));
-  await blurOutsidePage(creator);
+  await hideOutsidePage(creator);
   await creator.locator(LOCK_SURFACE).first().waitFor();
   await unlock(creator);
   await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
@@ -1176,9 +1171,9 @@ try {
   await joiner.locator('#message-input').fill('browser-e2e-peer-after-checkpoint');
   await joiner.locator('#composer').evaluate((form) => form.requestSubmit());
   await creator.getByText('browser-e2e-peer-after-checkpoint', { exact: true }).waitFor({ timeout: 5000 });
-  await blurOutsidePage(creator);
+  await hideOutsidePage(creator);
   await creator.locator(LOCK_SURFACE).first().waitFor();
-  await blurOutsidePage(joiner);
+  await hideOutsidePage(joiner);
   await joiner.locator(LOCK_SURFACE).first().waitFor();
   const recoveryContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
   const recovery = await recoveryContext.newPage();
@@ -1343,7 +1338,7 @@ try {
   });
   await setPasskey(legacy);
   await legacy.locator('.space-invite-sheet').waitFor({ timeout: 15_000 });
-  await blurOutsidePage(legacy);
+  await hideOutsidePage(legacy);
   await unlock(legacy);
   await legacy.locator('.space-invite-sheet').waitFor({ timeout: 15_000 });
   const migratedLocalData = await legacy.evaluate(async () => {

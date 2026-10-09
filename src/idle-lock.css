@@ -1,0 +1,28 @@
+.idle-lock-prompt {
+  position: fixed; z-index: 18000; transform: translateX(-50%);
+  display: flex; align-items: center; justify-content: center; min-height: 44px;
+  padding: 8px 0; border: 0; background: transparent; color: var(--ink);
+  font: inherit; font-size: 12px; line-height: 1; cursor: pointer; touch-action: manipulation;
+  max-width: calc(100vw - 24px);
+}
+.idle-lock-prompt[hidden], .idle-lock-extend[hidden] { display: none; }
+.idle-lock-capsule {
+  height: 28px; display: inline-flex; align-items: center; gap: 8px;
+  position: relative; overflow: hidden; isolation: isolate; padding: 0 4px 0 10px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface-raised); box-shadow: 0 2px 8px color-mix(in oklch, var(--ink) 8%, transparent);
+}
+.idle-lock-fill {
+  position: absolute; inset: 0; z-index: -1; background: color-mix(in oklch, var(--accent) 12%, var(--surface-raised));
+  transform-origin: left center; transition: transform 100ms linear; pointer-events: none;
+}
+.idle-lock-label { white-space: nowrap; }
+.idle-lock-extend {
+  display: inline-flex; align-items: center; justify-content: center; height: 20px;
+  min-width: 34px; padding: 0 7px; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-size: 11px;
+}
+.idle-lock-prompt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 999px; }
+.idle-lock-prompt[aria-disabled="true"] { cursor: default; }
+.auto-lock-options { border: 0; padding: 0; min-width: 0; display: grid; gap: 4px; margin-block: 16px; }
+.auto-lock-options label { display: flex; align-items: center; justify-content: space-between; min-height: 48px; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+@media (prefers-reduced-motion: reduce) { .idle-lock-fill { transition: none; } }

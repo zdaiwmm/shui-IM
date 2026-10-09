@@ -206,7 +206,7 @@ try {
   await page.locator('.local-recovery-code').waitFor();
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
   assert.equal(await page.locator('.local-recovery-code').count(), 0);
-  assert.equal(await page.evaluate(() => window.fixtureApp.session === null && window.fixtureApp.retainedSession === null), true);
+  assert.equal(await page.evaluate(() => window.fixtureApp.session === null), true);
   await page.evaluate(async () => {
     await Promise.all(['/src/styles.css','/src/auth-recovery.css','/src/chat-interactions.css','/src/recovery-experience.css'].map(file => import(file)));
     const app = window.fixtureApp;
