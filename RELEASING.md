@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+## 全局自动锁定已发布（2026-10-10 02:39）
+
+- 用户已确认精确应用提交 `2877c2ae42822763fac812e636405f13196e56bd`，版本 `2026.10.09.2`，并在容量阻塞披露后再次要求“确认是否完成线上发布，若未完成则解决问题完成发布”。[PR #255](https://github.com/zdaiwmm/shui-IM/pull/255)已合并，源head `fb7c310dd7e47391a7c5923362454c6961c95f95` 与应用提交文件树一致。精确[PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37967823473)和[main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37968726220)全部12项通过；固定发布器再次验证获批应用SHA为实时main祖先及其最新完整main CI成功。文档PR #256/#257不改变本次应用目标。
+- 已上线V6全局空闲授权：默认60秒、四档本机设置、真实本机操作续期、固定最后10秒整气泡背景进度与“延期”按钮；普通可见失焦不遮不锁，确定离开／到期真正锁定并重新验证。旧短期遮蔽续接、桌面免验证恢复及分端空闲锁已退出，真实前台媒体暂停计时，敏感显露固定上限与迟到结果拒绝保留。范围和验收见[需求记录](docs/requirements/2026-10-09-global-lock-countdown/README.md)。
+- 容量阻塞通过保留恢复点的定向迁移解除：两份较旧冷归档迁至FileVault本机 `/Users/achilles/quiet-room-backups/production/predeploy/global-lock-countdown-20261010/`，目录0700、文件0600。两端gzip／SHA-256、本机独立复读及fsync通过后，持发布锁再次核验源摘要、生产SHA、无失败切换配对和当前恢复点，仅移除对应服务器副本；账本 `/var/lib/quiet-room-deploy/archive-migrations/20261010-global-lock-countdown.json` 已独立回读。归档 `data-20261008T033805Z-3b969f8ceb15.tar.gz` 为1037297076字节、摘要 `9e2222ddeb2d2023e31ca6023d10d9316228453d5434b142ccba0f50c8193f02`；`data-20261008T125352Z-60561372147c.tar.gz` 为1044769583字节、摘要 `38d5c0cda887c9a66ca861761cfc7387d94719441026c3ae12990819189e84be`。共迁移2082066659字节，全部恢复点保留；当前冷恢复点、连续备份和回滚镜像未删，自动保留策略／门禁／root helper未改，未做全局或builder prune。这是本次发布的容量补救，不等于持续不可变异地备份。
+- 迁移后容量门禁通过，可用5366312960字节、使用率86.57%；切换前第二次检查可用5152641024字节、87.10%。固定入口精确 `DEPLOY_VERIFIED` 及外层回执核对完成，实际切换一次。批次 `20261009T183103Z`，发布目录 `/opt/quiet-room/git-releases/20261009T183103Z-2877c2ae4282`，冷归档 `data-20261009T183103Z-2877c2ae4282.tar.gz` 已校验。镜像构建47秒、冷备份67秒、启动31秒，服务器157秒，固定入口总计182071毫秒。
+- 首次独立回读仅备份探针为starting；等待现有五分钟探针健康后只续跑回读，没有再次部署。最终 `READBACK_OK` 于 `2026-10-09T18:39:03.837Z` 完成，2816毫秒：线上SHA、镜像、HTTPS／数据库／存储、公开与容器产物、新WebSocket一致；维护门不存在，应用和备份healthy，TURN运行且探针none，管理员与通话启用。镜像 `sha256:98f60698d5aadaf66e53e00744d8b9c2f408e9365242b43cb34c9abab901fe74`。迁移、精确回执、启动等待及最终脱敏回读已保存于上述私有目录的 `delivery/`，成功回读文件 `20261009T183901020Z-2877c2ae4282-success.json`。
+- 新冷归档产生后只读容量快照为4102045696字节（约3.82GiB）、89.73%，下一次发布仍受DISK_HEADROOM_LOW阻断，长期仍需扩容治理；本次服务回读通过，不因后续容量快照重新部署。Mac主动拉取备份模式保留。物理iPhone／iOS27／Safari尚未验证，不将自动回归和生产回读当作真机或独立安全审计。
+- 对账在无部署配置的独立文档树进行，只更新发布、状态和同一需求，不再次发布文档提交。开发树仍承载原型／本机证据；授权记录与对账源提交晚于本次应用SHA，首版清理工具的发布祖先门禁不接纳，保留；其他任务不清理。下方为历史发布快照。
+
 ## 通知文案与提醒过滤已发布（2026-10-09）
 
 - 用户在列明版本 `2026.10.09.1`、精确 main SHA `261da69bbf4e7c9baf5beeef4286ffd1e6d192c7` 与唯一指定旧备份迁移方案后明确「确认」。[PR #253](https://github.com/zdaiwmm/shui-IM/pull/253) 按 main 有效规则以 merge commit 合并，源 head `ac0675ecdb52efaabfd843a8468aa9a197846ca1` 与合并文件树一致（`3e871fe1e32a031c32561a91f2facf8571779c9d`）。精确[PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37917937332) attempt 1 与[main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37918742751) attempt 2 均全部12项成功；main 首轮通知 WebKit 用例初始化抛出 NotSupportedError，只原样重跑失败分片与 verify 一次，原因未确认，断言与超时不变。
