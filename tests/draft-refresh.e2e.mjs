@@ -12,6 +12,24 @@ import { startServer } from '../server/index.mjs';
 const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-draft-refresh-'));
 const root = process.cwd(); let service, vite, browser, database;
 const password = 'synthetic draft regression password';
+async function waitForState(page, stage, predicate) {
+  try { await page.waitForFunction(predicate); }
+  catch (error) {
+    // Only state flags: never include messages, invitations or vault contents.
+    console.error('DRAFT_REGRESSION_STATE', stage, await page.evaluate(() => ({
+      visibility: document.visibilityState, focused: document.hasFocus(),
+      covered: app.privacyCovered, surface: app.activeSurface,
+      session: Boolean(app.session), mls: app.session?.vault.mls?.phase,
+      connection: app.connectionState, accessFailure: Boolean(app.accessFailure),
+      inputPresent: Boolean(document.querySelector('#message-input')),
+      inputDisabled: document.querySelector('#message-input')?.disabled,
+      sending: app.sendingTextDrafts.size, fault: Boolean(window.draftFault?.injected),
+      welcome: Boolean(document.querySelector('#welcome-chat')),
+      overlays: document.querySelectorAll('.confirm-overlay').length,
+    })).catch(() => ({ unavailable: true })));
+    throw error;
+  }
+}
 async function protect(page) {
   const form = page.locator('.password-form'); await form.waitFor();
   await form.locator('[name=password]').fill(password);
@@ -22,7 +40,7 @@ async function ready(page) {
   await page.locator('.chat-shell').waitFor();
   if (await page.locator('#welcome-chat').waitFor({ timeout: 1500 }).then(() => true, () => false)) await page.locator('#welcome-chat').click();
   await page.locator('.confirm-overlay').waitFor({ state: 'detached' });
-  await page.waitForFunction(() => window.app?.session?.vault.mls?.phase === 'active' && !document.querySelector('#message-input')?.disabled);
+  await waitForState(page, 'chat-ready', () => window.app?.session?.vault.mls?.phase === 'active' && !document.querySelector('#message-input')?.disabled);
 }
 async function unlock(page) {
   await page.locator('.password-form,.cover-trigger').first().waitFor();
@@ -94,7 +112,7 @@ try {
       };
     });
     await reopened.locator('#message-input').fill('failed transaction draft'); await reopened.locator('#send-text').click();
-    await reopened.waitForFunction(() => window.draftFault?.injected && app.sendingTextDrafts.size === 0);
+    await waitForState(reopened, 'outbox-abort', () => window.draftFault?.injected && app.sendingTextDrafts.size === 0);
     assert.equal(await reopened.evaluate(async () => (await (await import('/src/lib/vault.ts')).loadOutbox(app.session)).length), 0);
     await reload(reopened); assert.equal(await reopened.locator('#message-input').inputValue(), 'failed transaction draft');
 
