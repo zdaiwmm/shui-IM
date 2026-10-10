@@ -36,6 +36,8 @@ The normal header is 48px plus the top safe area; the keyboard state is 40px plu
 
 The composer starts at 52px plus any bottom safe-area contribution. Its controls have 44px targets and a capsule input. Multiline text grows to 88px and then scrolls internally, retaining native caret and composition behavior. Growth reads the CSS cap rather than maintaining a different JavaScript limit. Reply drafts, recording and expression tools keep their existing state owners.
 
+Desktop input uses the same compact vertical scale; its floating tools keep an 8px gap above the input row. The mobile expression panel retains its occupied height so it cannot cover the keyboard toggle. Held recording uses a 72px feedback disc inside the viewport; cancel feedback remains destructive red.
+
 The existing VisualViewport, keyboard gesture, list/document scrolling and bottom-following controllers remain authoritative. A header inset change must compensate a history reader's scroll in the same task before paint; latest-following retains its existing endpoint alignment. Group spacing must not alter the established latest-message/composer gap. Keyboard open/close, interrupted motion, Chinese composition and browser toolbar movement need regression coverage. A desktop short-viewport simulation is not evidence of real iPhone keyboard behavior, and native Safari toolbar transparency is not promised.
 
 Outgoing dark bubbles sample one gradient field across the rendered timeline, using layout coordinates so in-flight FLIP transforms do not move their colors. Media and expression bubbles preserve their intrinsic geometry, concealment state and contrasting metadata overlays; expressions retain their transparent exterior.
@@ -43,6 +45,8 @@ Outgoing dark bubbles sample one gradient field across the rendered timeline, us
 ## Long press and other overlays
 
 Long press uses the approved reaction / selected message / action-list hierarchy. The six existing reactions and their protocol stay unchanged. Replies lead the current actions, destructive deletion is red, and text selection is last behind a divider. Availability still depends on message kind, ownership and confirmation; this design adds no pin, forward or report functions.
+
+A sheet's visible handle is 32 × 4px. Interactive invitation handles retain a full-width 44px drag area around that mark. Restoring an already-open drawer from settings is immediate; a fresh open or close keeps its transition. Increased contrast retains explicit strong input/control boundaries.
 
 The selected bubble is an inert, aria-hidden clone above an 8px blurred focus backdrop. It retains media concealment and removes duplicate element IDs. Placement keeps the reactions above the preview and a scrollable 216px action card below it. If the visible viewport is too short, only the inert preview is clipped; the real message is unchanged. Closing, Escape, keyboard traversal, deletion choices and privacy teardown retain their existing lifecycle.
 

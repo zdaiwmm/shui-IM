@@ -35,12 +35,12 @@
   #app[data-desktop-workspace='true'] .chat-shell .chat-header { inset-inline: 0; padding-inline: 28px; }
   #app[data-desktop-workspace='true'] .chat-shell .message-list { padding-inline: 28px; }
   #app[data-desktop-workspace='true'] .chat-shell .message-bubble:not(.image-bubble):not(.album-bubble) { max-width: 100%; }
-  #app[data-desktop-workspace='true'] .chat-shell .composer { inset-inline: 0; padding: 10px 28px 18px; }
+  #app[data-desktop-workspace='true'] .chat-shell .composer { inset-inline: 0; padding: 4px 28px; }
   #app[data-desktop-workspace='true'] .chat-shell .composer-row { width: 100%; max-width: none; }
   #app[data-desktop-workspace='true'] .chat-shell .system-notices { inset-inline: 28px; }
   #app[data-desktop-workspace='true'] .chat-shell .chat-bottom-control { right: 28px; }
   #app[data-desktop-workspace='true'] .composer:has(.chat-tools:not([hidden])) { background: transparent; isolation: auto; }
-  #app[data-desktop-workspace='true'] .chat-tools { position: absolute; left: 28px; bottom: calc(100% - 2px); width: min(340px, calc(100% - 56px)); box-sizing: border-box; max-height: max(80px, calc(100dvh - var(--chat-header-height) - var(--chat-bottom-space) - 16px)); overflow-y: auto; overscroll-behavior: contain; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px 8px; padding: 16px; border: 1px solid var(--glass-border); border-radius: 22px; background: var(--surface-raised); box-shadow: var(--glass-shadow); }
+  #app[data-desktop-workspace='true'] .chat-tools { position: absolute; left: 28px; bottom: calc(100% + 4px); width: min(340px, calc(100% - 56px)); box-sizing: border-box; max-height: max(80px, calc(100dvh - var(--chat-header-height) - var(--chat-bottom-space) - 16px)); overflow-y: auto; overscroll-behavior: contain; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px 8px; padding: 12px; border: 1px solid var(--glass-border); border-radius: 16px; background: var(--surface-raised); box-shadow: var(--glass-shadow); }
   #app[data-desktop-workspace='true'] :is(.gallery-header,.device-header) { padding-inline: 28px; grid-template-columns: 44px 44px minmax(0,1fr) auto; }
   #app[data-desktop-workspace='true'] :is(.gallery-grid,.device-content) { padding-inline: 28px; }
   #app[data-desktop-workspace='true'] .gallery-grid { grid-template-columns: repeat(auto-fill,minmax(160px,1fr)); align-content: start; }
@@ -58,8 +58,8 @@
   .message.incoming .desktop-message-more { left: 100%; }
   .message.outgoing .desktop-message-more { right: 100%; }
   .message:hover .desktop-message-more, .message:focus-within .desktop-message-more { opacity: 1; }
-  #app[data-desktop-workspace='true'] .composer.has-meme-panel { padding-bottom: 18px; }
-  #app[data-desktop-workspace='true'] .composer > .meme-panel { inset: auto 28px calc(100% + 8px) auto; width: min(480px, calc(100% - 56px)); height: min(60svh, 580px); max-height: max(100px, calc(100dvh - var(--chat-header-height) - var(--chat-bottom-space) - 16px)); border-bottom: 1px solid var(--glass-border); border-radius: 22px; }
+  #app[data-desktop-workspace='true'] .composer.has-meme-panel { padding-bottom: 4px; }
+  #app[data-desktop-workspace='true'] .composer > .meme-panel { inset: auto 28px calc(100% + 8px) auto; width: min(480px, calc(100% - 56px)); height: min(60svh, 580px); max-height: max(100px, calc(100dvh - var(--chat-header-height) - var(--chat-bottom-space) - 16px)); border-bottom: 1px solid var(--glass-border); border-radius: 16px; }
 }
 
 @media (min-width: 1024px) {

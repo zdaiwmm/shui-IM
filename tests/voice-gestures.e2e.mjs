@@ -120,6 +120,13 @@ try {
   await reset(); await hold(); await page.waitForTimeout(650);
   await touch('touchMove',await cancelPoint());
   assert.equal(await page.locator('.voice-recorder').getAttribute('data-hold-action'),'cancel');
+  assert.equal(await page.locator('.voice-hold-orb').evaluate(async el => {
+    await Promise.allSettled(el.getAnimations().map(animation => animation.finished));
+    return getComputedStyle(el).backgroundColor;
+  }), await page.evaluate(() => {
+    const probe = document.createElement('div'); probe.style.background = 'var(--danger-fill)'; document.body.append(probe);
+    const color = getComputedStyle(probe).backgroundColor; probe.remove(); return color;
+  }), 'Slide-to-cancel retains the destructive action color');
   await touch('touchEnd'); await closed(); await stopped(); assert.equal(await count(),1);
   await reset(); await hold(); await page.waitForTimeout(650);
   await touch('touchMove',await cancelPoint());
