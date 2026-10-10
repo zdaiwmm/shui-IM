@@ -110,6 +110,23 @@ try {
       await a.locator('#message-input').fill(text); await reload(a);
       assert.equal(await a.locator('#message-input').inputValue(), text, `${engine}: immediate refresh must restore the latest value`);
     }
+    // The update button navigates immediately and checkpoints current input,
+    // including when no input event has yet reached the preference queue.
+    await a.evaluate(() => {
+      document.querySelector('#message-input').value = '更新按钮保留当前草稿';
+      app.availableReleaseId = 'synthetic-next-release'; app.renderReleaseUpdateBanner();
+      window.updateConfirmations = 0;
+      const observer = new MutationObserver(records => {
+        for (const record of records) for (const node of record.addedNodes)
+          if (node instanceof Element && (node.matches('.confirm-overlay') || node.querySelector('.confirm-overlay'))) window.updateConfirmations++;
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+      addEventListener('beforeunload', () => sessionStorage.setItem('update-confirmations', String(window.updateConfirmations)), { once: true });
+    });
+    await Promise.all([a.waitForNavigation(), a.getByRole('button', { name: '更新', exact: true }).click()]);
+    assert.equal(await a.evaluate(() => sessionStorage.getItem('update-confirmations')), '0', 'Update must reload without a second confirmation');
+    await unlock(a);
+    assert.equal(await a.locator('#message-input').inputValue(), '更新按钮保留当前草稿');
     await a.evaluate(() => {
       const input = document.querySelector('#message-input'); input.dispatchEvent(new CompositionEvent('compositionstart'));
       input.value = '中文输入中'; input.dispatchEvent(new InputEvent('input', { inputType: 'insertCompositionText', isComposing: true, data: '中文输入中' }));

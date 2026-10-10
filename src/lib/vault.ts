@@ -1091,7 +1091,7 @@ export async function unlockLocalSpaceForManagement(id: string, credential: Plat
 export const unlockSpaceForRemoval = unlockLocalSpaceForManagement;
 
 /** Resume an in-memory capability only from its unchanged, authenticated durable snapshot. */
-export async function resumeVaultSession(session: VaultSession): Promise<VaultSession> {
+export async function resumeVaultSession(session: Pick<VaultSession, 'key' | 'stored' | 'browserAccessPrf'>): Promise<VaultSession> {
   return withVaultLifecycle(async () => {
     const stored = await readStoredVaultUnlocked(vaultSpaceId(session.stored));
     if (!stored || !sameStoredVault(stored, session.stored)) throw staleVaultError();

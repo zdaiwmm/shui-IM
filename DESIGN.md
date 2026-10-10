@@ -51,3 +51,7 @@ Use the existing panel material, system typography, semantic accent and 44px con
 ## Desktop presentation
 
 The confirmed PC layout begins at 1024 CSS px with a 280px collapsible sidebar. It uses the same tokens, 44px controls and single-space business state. Content fills the remaining width, with 28px chat insets and 640px maximum individual text bubbles. Desktop header and composer have opaque page backgrounds; only bounded controls retain glass. Settings and auxiliary content use readable inner widths. Tools and expression panels are anchored above the composer and scroll when short windows constrain their height. Narrow windows continue the modal drawer. See the [confirmed requirement](docs/requirements/2026-09-28-desktop-ui/README.md).
+
+## Local appearance and preferences
+
+The existing blue palette is the default. `src/appearance.css` adds pine green, purple and apricot through the shared tokens while preserving semantic danger/success colors, geometry, materials and system light/dark selection. Preferences use a readable 560px maximum content width, an explanatory introduction and native radio rows with at least 44px targets. Selection applies immediately with inline status/error feedback; no Save footer. Settings are a flat list without local/space group labels. The update banner uses an accent-filled 44px 更新 action. See the [confirmed implementation requirement](docs/requirements/2026-10-10-settings-appearance-desktop/README.md).

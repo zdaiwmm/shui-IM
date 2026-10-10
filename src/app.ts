@@ -8,6 +8,10 @@ import { bindControlFeedback } from './lib/control-feedback';
 import { afterMotion, layoutMotionDuration, motion, retargetMotion, settleValue, travelMotion, travelVelocity } from './lib/motion';
 import { IdleLease, IDLE_DURATIONS, IDLE_PREFERENCE_KEY, readIdleSeconds, saveIdleSeconds } from './lib/idle-lock';
 import { IdleLockPrompt } from './lib/idle-lock-prompt';
+import { DesktopAccess } from './lib/desktop-access';
+import { mountAppearance, readTheme, saveTheme, THEMES } from './lib/appearance';
+import { AppAccess } from './lib/app-access';
+import './appearance.css';
 import { bindBlankDoubleLock } from './lib/blank-double-lock';
 import { MESSAGE_WINDOW_CAPABILITY, MLS_WINDOW_MESSAGES, maySkipWindowMessage, appendExpiredRange, expiredMessage } from './lib/message-window';
 import { getWindowMessages } from './lib/api';
@@ -403,9 +407,15 @@ function isDesktopBrowser(): boolean {
   // iPad desktop mode also reports Macintosh, but retains touch capabilities.
   if (agent.userAgentData?.mobile || /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(agent.userAgent)) return false;
   if (/Macintosh/i.test(agent.userAgent) && agent.maxTouchPoints > 1) return false;
-  if (agent.standalone || matchMedia('(display-mode: standalone), (display-mode: minimal-ui), (display-mode: fullscreen)').matches) return false;
   return /Windows NT|Macintosh|X11|CrOS/i.test(agent.userAgent);
 }
+
+type DesktopReturn = {
+  vault?: Pick<VaultSession, 'key' | 'stored' | 'browserAccessPrf'>;
+  credential?: PlatformCredentialResult | null;
+  browser?: { proof: Uint8Array<ArrayBuffer>; record: PlatformCredentialRecord };
+  settled: Promise<unknown>;
+};
 
 export class QuietRoomApp {
   private session: VaultSession | null = null;
@@ -425,6 +435,12 @@ export class QuietRoomApp {
   private currentSpaceName = '私密空间';
 
   private readonly desktopBrowser = isDesktopBrowser();
+  private desktopAccess = new DesktopAccess<DesktopReturn>(() => ({ wall: Date.now(), monotonic: performance.now() }), held => {
+    held.credential?.prfOutput.fill(0); held.credential?.browserAccessPrf?.fill(0);
+    held.vault?.browserAccessPrf?.fill(0); held.browser?.proof.fill(0);
+  });
+  private desktopReturning = false;
+  private appAccess: AppAccess;
   private readonly appleWebKit = navigator.vendor.includes('Apple')
     && CSS.supports('-webkit-touch-callout', 'none');
   // iOS reports client rectangles against its moving visual viewport. A desktop
@@ -615,7 +631,7 @@ export class QuietRoomApp {
   private uiPreferencesHydrated = false;
   private composerCheckpoint: DraftCheckpoint | null = null;
   private shieldHintCleanup: (() => void) | null = null;
-  private unlockResume: 'chat' | 'recovery-center' | 'cover-practice' | 'local-backup' | 'local-backup-import' | 'gallery' | 'devices' | 'help' | 'release-history' | 'notifications' | 'notification-copy' | null = null;
+  private unlockResume: 'chat' | 'recovery-center' | 'cover-practice' | 'local-backup' | 'local-backup-import' | 'gallery' | 'devices' | 'help' | 'release-history' | 'notifications' | 'notification-copy' | 'auto-lock' | 'appearance' | 'app-access' | null = null;
   private restoreChatAnchorOnNextRender = true;
   private galleryScrollTop: Record<GalleryTab, number> = { images: 0, files: 0 };
   private galleryMode: 'safe' | 'favorites' = 'safe';
@@ -666,6 +682,8 @@ export class QuietRoomApp {
   private callReturnFocus: HTMLElement | null = null;
 
   constructor(private readonly root: HTMLElement) {
+    mountAppearance();
+    this.appAccess = new AppAccess();
     this.resetBlankLockGesture = bindBlankDoubleLock(root, {
       active: () => !this.privacyCovered && !document.hidden && Boolean(this.idleDeadline) && !this.expireIdleSession(),
       generation: () => this.runtimeEpoch,
@@ -730,8 +748,9 @@ export class QuietRoomApp {
     window.addEventListener('storage', event => {
       // Reading another tab's preference is not local activity or unlock proof.
       if (event.key === IDLE_PREFERENCE_KEY) this.updateIdlePrompt();
-      if (event.key === 'quiet-room:manual-lock' && event.newValue && this.session) {
-        try { if (JSON.parse(event.newValue).space === vaultSpaceId(this.session.stored)) this.lockNow(); } catch { /* Invalid notifications never unlock. */ }
+      if (event.key === 'quiet-room:manual-lock' && event.newValue) {
+        const stored = this.session?.stored ?? this.desktopAccess.peek()?.vault?.stored;
+        try { if (stored && JSON.parse(event.newValue).space === vaultSpaceId(stored)) this.lockNow(); } catch { /* Invalid notifications never unlock. */ }
       }
     });
     const refreshUnread = () => {
@@ -1160,7 +1179,7 @@ export class QuietRoomApp {
         this.showPrivacyCurtain();
         // Only a still-unverified gateway may own the bounded native ceremony.
         if (!this.session && !this.browserProfile && !this.idleDeadline && this.deviceVerificationActive && !this.deviceVerificationForegroundOnly) return;
-        this.lockNow({ preserveFilePicker: false });
+        this.lockNow({ preserveFilePicker: false, desktopContinuation: true });
       } else {
         if (this.expireDeviceVerification() || this.expireIdleSession()) return;
         this.revealReturningForeground(); refreshUnread();
@@ -1174,7 +1193,7 @@ export class QuietRoomApp {
       this.cancelCoverTimer();
       if (document.hidden) {
         if (!this.session && !this.browserProfile && !this.idleDeadline && this.deviceVerificationActive && !this.deviceVerificationForegroundOnly) return;
-        this.lockNow({ preserveFilePicker: false }); return;
+        this.lockNow({ preserveFilePicker: false, desktopContinuation: true }); return;
       }
       if (this.expireIdleSession()) return;
       // Ordinary visible blur is not a privacy event. Keep read/focus semantics
@@ -1411,6 +1430,14 @@ export class QuietRoomApp {
   }
 
   private async renderGateway({ trustedCoverActivation = false, autoUnlock = trustedCoverActivation }: { trustedCoverActivation?: boolean; autoUnlock?: boolean } = {}): Promise<void> {
+    if (this.desktopAccess.peek()) {
+      if (trustedCoverActivation && autoUnlock) { await this.resumeDesktopAccess(); return; }
+      if (!document.hidden) {
+        this.root.innerHTML = '<section class="gateway gateway-unlock"><button class="primary-button" id="desktop-continue" type="button">继续进入</button></section>';
+        this.root.querySelector('#desktop-continue')!.addEventListener('click', () => void this.resumeDesktopAccess());
+      }
+      return;
+    }
     const entryHash = location.hash;
     const jointEntry = parseJointRecoveryLink(location.href);
     const inviteLink = classifyInviteHash(entryHash);
@@ -2561,7 +2588,7 @@ export class QuietRoomApp {
       : space.certificate ? '获得对方授权后，<br>即可在此浏览器聊天。' : '请先在原设备打开并解锁此空间，完成一次接入准备。';
     const title = waiting ? '等待对方授权' : spaceWaiting ? '等待对方加入' : '此空间尚未授权';
     this.root.innerHTML=`<section class="chat-shell browser-access-shell"><header class="chat-header"><button class="icon-button spaces-entry" id="access-spaces" aria-label="私密空间列表">${spaceIcons.spaces}<span>${accessEscape(space.name)}</span></button><button class="icon-button" id="access-lock" type="button" aria-label="锁定">${shield}</button></header><div class="message-list access-empty"><div class="gateway-mark" aria-hidden="true">${icons.people}</div><h2>${title}</h2><p>${detail}</p>${waiting?'<p class="access-code" id="space-access-code"></p><p class="access-countdown" id="space-access-countdown"></p>':spaceWaiting&&space.createdAt?'<p class="access-countdown" id="space-waiting-countdown"></p>':''}<p>加入前的历史记录不会同步。</p></div><div class="access-composer"><p class="form-error" role="alert"></p>${pending&&pending.status&&pending.status!=='pending'?`<p class="field-hint">${pending.status==='rejected'?'对方已拒绝本次请求。':'上次请求已结束，请重新验证申请。'}</p>`:''}${spaceWaiting&&!waiting?'':`<button class="primary-button" id="request-space-access" ${waiting?'disabled':''}>${waiting?'等待对方授权':'申请对方授权'}</button>`}${waiting?'<button class="text-button" id="cancel-space-access">取消申请</button>':''}</div></section>`;
-    this.root.querySelector('#access-lock')!.addEventListener('click',()=>this.lockNow());
+    this.root.querySelector('#access-lock')!.addEventListener('click',()=>this.lockNow({desktopContinuation:true}));
     this.root.querySelector('#access-spaces')!.addEventListener('click',()=>this.openBrowserSpaceList());
     const button=this.root.querySelector<HTMLButtonElement>('#request-space-access');
     button?.addEventListener('click',()=>void this.requestBrowserSpace(space,button));
@@ -2578,9 +2605,12 @@ export class QuietRoomApp {
     }
   }
 
-  private openBrowserSpaceList(container?: HTMLElement, presentationSignal?: AbortSignal):void {
+  private openBrowserSpaceList(container?: HTMLElement, presentationSignal?: AbortSignal, initialSettings = false):void {
     const current=this.browserProfile,signal=presentationSignal ?? this.browserAccessAbort?.signal;if(!current||!signal||signal.aborted)return;
-    mountSpaceDrawer(this.root,{container,presentation:container ? 'sidebar' : undefined, spaces:accessPrivateSpaces(current.profile),currentRoom:current.profile.currentRoom,signal,actions:[{id:'auto-lock-settings',group:'本机',label:'自动锁定',icon:spaceIcons.cover,run:()=>this.renderAutoLockSettings()}],
+    mountSpaceDrawer(this.root,{container,presentation:container ? 'sidebar' : undefined, initialSettings, spaces:accessPrivateSpaces(current.profile),currentRoom:current.profile.currentRoom,signal,actions:[
+      {id:'appearance-settings',label:'主题外观',icon:spaceIcons.appearance,run:()=>this.renderAppearanceSettings()},
+      {id:'auto-lock-settings',label:'自动锁定',icon:spaceIcons.cover,run:()=>this.renderAutoLockSettings()},
+      ...(this.desktopBrowser ? [{id:'app-access-settings',label:'在应用中打开',icon:spaceIcons.app,run:()=>this.renderAppAccess()}] : [])],
       select:async space=>{if(space.localId){await this.switchPrivateSpace(space);return;}current.profile.currentRoom=space.roomId;await saveBrowserProfile(current,signal);if(!signal.aborted)this.renderBrowserShell();},
       create:async()=>{if(await this.leaveSpace())this.renderCreate();},rename:async()=>{throw new Error('空间授权后可修改名称');},
       removeLabel: space => this.catalogRemovalLabel(space),
@@ -4759,7 +4789,10 @@ export class QuietRoomApp {
       return;
     }
     if (root.querySelector(':scope > .cover, :scope > .gateway')) return;
-    this.unlockResume = root.querySelector('.cover-practice-page') ? 'cover-practice'
+    this.unlockResume = root.querySelector('.auto-lock-page') ? 'auto-lock'
+      : root.querySelector('.appearance-page') ? 'appearance'
+      : root.querySelector('.app-access-page') ? 'app-access'
+      : root.querySelector('.cover-practice-page') ? 'cover-practice'
       : root.querySelector('.gallery-shell') ? 'gallery'
       : root.querySelector('.notification-copy-page') ? 'notification-copy'
       : root.querySelector('.notification-page') ? 'notifications'
@@ -4783,6 +4816,9 @@ export class QuietRoomApp {
     else if (resume === 'release-history') this.renderReleaseHistory();
     else if (resume === 'notifications') void this.renderNotificationSettings();
     else if (resume === 'notification-copy') this.renderNotificationCopy();
+    else if (resume === 'auto-lock') this.renderAutoLockSettings();
+    else if (resume === 'appearance') this.renderAppearanceSettings();
+    else if (resume === 'app-access') this.renderAppAccess();
     else this.renderChat();
   }
 
@@ -5114,6 +5150,8 @@ export class QuietRoomApp {
       onSettingsLeave: scrollTop => { this.settingsReturn = { session, spaces, scrollTop }; },
       removeLabel: space => this.catalogRemovalLabel(space),
       actions: [
+        { id: 'appearance-settings', label: '主题外观', icon: spaceIcons.appearance, run: forward(() => this.renderAppearanceSettings()) },
+        ...(this.desktopBrowser ? [{ id: 'app-access-settings', label: '在应用中打开', icon: spaceIcons.app, run: forward(() => this.renderAppAccess()) }] : []),
         { id: 'manage-devices', label: '已连接设备', icon: spaceIcons.device, run: forward(() => void this.renderDeviceManager()) },
         { id: 'backup-settings', label: '我的恢复码', icon: spaceIcons.key, run: forward(() => this.renderRecoveryCenter()) },
         { id: 'local-history-backup', label: '备份数据', icon: spaceIcons.upload, run: forward(() => void this.renderLocalHistoryBackup('export')) },
@@ -5843,19 +5881,22 @@ export class QuietRoomApp {
     return this.availableReleaseId ? `
       <aside class="release-update-reminder" role="status">
         <span aria-hidden="true">${createElement(Info).outerHTML}</span><strong>有新版本</strong>
-        <button type="button" data-release-update>查看</button>
+        <button type="button" data-release-update>更新</button>
       </aside>
     ` : '';
   }
 
   private bindReleaseUpdateButton(): void {
-    this.root.querySelector('[data-release-update]')?.addEventListener('click', () => {
-      const session = this.session; if (!session || this.privacyCovered) return;
-      const dialog = document.createElement('section'); dialog.className = 'confirm-overlay'; dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true'); dialog.setAttribute('aria-label', '有新版本');
-      dialog.innerHTML = `<div class="confirm-dialog"><h2>有新版本</h2><p>更新会重新打开页面。请先完成当前操作，草稿会保留在这台设备。</p><button class="primary-button" data-update-now type="button">立即更新</button><button class="text-button" data-update-later type="button">稍后</button></div>`;
-      this.root.append(dialog); mountDialog(dialog, { isActive: () => this.session === session && !this.privacyCovered, signal: this.runtimeAbort?.signal });
-      dialog.querySelector('[data-update-now]')!.addEventListener('click', () => window.location.reload());
-      dialog.querySelector('[data-update-later]')!.addEventListener('click', () => closeDialog(dialog));
+    this.root.querySelector<HTMLButtonElement>('[data-release-update]')?.addEventListener('click', event => {
+      if (!this.session || this.privacyCovered) return;
+      const button = event.currentTarget as HTMLButtonElement;
+      if (button.disabled) return;
+      const input = this.root.querySelector<HTMLTextAreaElement>('#message-input');
+      try { if (input) this.composerCheckpoint?.write(input.value); }
+      catch { this.showNotice('草稿未能保存，请重试更新', 'error'); return; }
+      button.disabled = true;
+      this.desktopAccess.clear();
+      window.location.reload();
     });
   }
 
@@ -7342,24 +7383,89 @@ export class QuietRoomApp {
   private renderAutoLockSettings(): void {
     if (this.privacyCovered || (!this.session && !this.browserProfile && !this.idleDeadline) || this.expireIdleSession()) return;
     this.setActiveSurface('away');
-    const original = readIdleSeconds(localStorage);
-    this.root.innerHTML = `<section class="device-shell auto-lock-page"><header class="subpage-header device-header">
-      <button class="icon-button" id="auto-lock-back" type="button" aria-label="取消并返回设置">${icons.back}</button><div><h1>自动锁定</h1></div><span></span></header>
-      <main class="device-content"><form id="auto-lock-form"><p>无操作时自动锁定</p><fieldset class="auto-lock-options"><legend class="sr-only">自动锁定时间</legend>
-      ${IDLE_DURATIONS.map(value => `<label>${value === 30 ? '30 秒' : `${value / 60} 分钟`}<input type="radio" name="idle-seconds" value="${value}" ${value === original ? 'checked' : ''}></label>`).join('')}
-      </fieldset><p class="field-hint">最后 10 秒会显示“即将锁定”，可点延期。此提醒时间固定。设置仅保存在当前浏览器，适用于所有本机空间。</p>
-      <p class="form-error" role="alert"></p><button class="primary-button" type="submit">保存</button></form></main></section>`;
-    const back = () => this.transitionPage('backward', () => { if (this.session) this.renderChat(); else this.renderBrowserShell(); });
-    this.root.querySelector('#auto-lock-back')!.addEventListener('click', back);
-    const form = this.root.querySelector<HTMLFormElement>('#auto-lock-form')!;
-    form.addEventListener('submit', event => {
-      event.preventDefault();
-      if (!form.isConnected || this.privacyCovered || this.expireIdleSession()) return;
+    let selected = readIdleSeconds(localStorage);
+    this.preferencePage('自动锁定', 'auto-lock-page', 'auto-lock-back', `
+      <p class="preference-intro">选择无操作多久后锁屏，选择后立即生效。</p>
+      <fieldset class="preference-options auto-lock-options"><legend class="sr-only">自动锁定时间</legend>
+      ${IDLE_DURATIONS.map(value => `<label class="preference-choice"><span>${value === 0 ? '永不' : value < 60 ? `${value} 秒` : `${value / 60} 分钟`}</span><input type="radio" name="idle-seconds" value="${value}" ${value === selected ? 'checked' : ''}></label>`).join('')}
+      </fieldset><p class="preference-note">最后 10 秒会显示“即将锁定”，可点延期。“永不”仅关闭无操作锁屏，离开页面和安全验证仍按原规则处理。设置仅适用于本机。</p>
+      <p class="preference-status" role="status" aria-live="polite"></p><p class="form-error" role="alert"></p>`);
+    const page = this.root.querySelector<HTMLElement>('.auto-lock-page')!;
+    page.querySelectorAll<HTMLInputElement>('[name="idle-seconds"]').forEach(input => input.addEventListener('change', () => {
+      if (!page.isConnected || this.privacyCovered || this.expireIdleSession()) return;
       try {
-        const seconds = Number(new FormData(form).get('idle-seconds')) as typeof IDLE_DURATIONS[number];
-        saveIdleSeconds(localStorage, seconds); this.resetIdleLock(); back();
-      } catch { form.querySelector('.form-error')!.textContent = '未能保存，请重试'; }
-    });
+        const seconds = Number(input.value) as typeof IDLE_DURATIONS[number];
+        saveIdleSeconds(localStorage, seconds); selected = seconds; this.resetIdleLock();
+        page.querySelector('.form-error')!.textContent = '';
+        page.querySelector('.preference-status')!.textContent = '已生效';
+      } catch {
+        page.querySelectorAll<HTMLInputElement>('[name="idle-seconds"]').forEach(option => { option.checked = Number(option.value) === selected; });
+        page.querySelector('.preference-status')!.textContent = '';
+        page.querySelector('.form-error')!.textContent = '未能保存，已保留原设置，请重试';
+      }
+    }));
+  }
+
+  private preferencePage(title: string, className: string, backId: string, content: string): void {
+    this.root.innerHTML = `<section class="device-shell ${className}"><header class="subpage-header device-header"><button class="icon-button" id="${backId}" type="button" aria-label="返回设置">${icons.back}</button><div><h1>${title}</h1></div><span></span></header><main class="device-content preference-content">${content}</main></section>`;
+    this.root.querySelector(`#${backId}`)!.addEventListener('click', () => this.transitionPage('backward', () => {
+      if (this.session) this.renderChat();
+      else { this.renderBrowserShell(); this.openBrowserSpaceList(undefined, undefined, true); }
+    }));
+  }
+
+  private renderAppearanceSettings(): void {
+    if (this.privacyCovered || (!this.session && !this.browserProfile) || !this.setActiveSurface('away')) return;
+    let selected = readTheme(localStorage);
+    this.preferencePage('主题外观', 'appearance-page', 'appearance-back', `<p class="preference-intro">选择你喜欢的配色，明暗随系统变化。</p>
+      <fieldset class="preference-options"><legend class="sr-only">主题配色</legend>${THEMES.map(theme => `<label class="preference-choice"><i class="theme-swatch" style="background:${theme.color}" aria-hidden="true"></i><span>${theme.name}</span><input type="radio" name="appearance" value="${theme.id}" ${theme.id === selected ? 'checked' : ''}></label>`).join('')}</fieldset>
+      <p class="preference-note">选择后立即生效，仅保存在本机。</p><p class="preference-status" role="status" aria-live="polite"></p><p class="form-error" role="alert"></p>`);
+    const page = this.root.querySelector<HTMLElement>('.appearance-page')!;
+    page.querySelectorAll<HTMLInputElement>('[name="appearance"]').forEach(input => input.addEventListener('change', () => {
+      if (!page.isConnected || this.privacyCovered || this.expireIdleSession()) return;
+      try {
+        const theme = THEMES.find(theme => theme.id === input.value)!.id;
+        saveTheme(localStorage, theme); selected = theme; document.documentElement.dataset.theme = theme;
+        page.querySelector('.form-error')!.textContent = ''; page.querySelector('.preference-status')!.textContent = '已生效';
+      } catch {
+        page.querySelectorAll<HTMLInputElement>('[name="appearance"]').forEach(option => { option.checked = option.value === selected; });
+        page.querySelector('.preference-status')!.textContent = '';
+        page.querySelector('.form-error')!.textContent = '未能保存，已保留原配色，请重试';
+      }
+    }));
+  }
+
+  private renderAppAccess(): void {
+    if (!this.desktopBrowser || this.privacyCovered || (!this.session && !this.browserProfile) || !this.setActiveSurface('away')) return;
+    this.preferencePage('在应用中打开', 'app-access-page', 'app-access-back', '<div id="app-access-content"></div>');
+    const content = this.root.querySelector<HTMLElement>('#app-access-content')!;
+    const signal = this.runtimeAbort?.signal ?? this.browserAccessAbort?.signal;
+    if (!signal) return;
+    const paint = () => {
+      if (!content.isConnected || signal.aborted || this.privacyCovered) return;
+      const state = this.appAccess.state;
+      if (state === 'standalone') content.innerHTML = '<p class="preference-intro">你已在 Quiet Room 应用中。</p><p class="preference-note">下次可从桌面、程序坞或开始菜单直接打开。</p>';
+      else if (state === 'installable') content.innerHTML = '<p class="preference-intro">将 Quiet Room 添加到电脑，下次从应用图标直接进入。</p><div class="app-access-actions"><button class="primary-button" id="install-app" type="button">添加应用</button></div><p class="preference-status" role="status"></p>';
+      else if (state === 'installed') content.innerHTML = '<p class="preference-intro">Quiet Room 已添加到这台电脑。</p><div class="app-access-actions"><a class="primary-button" href="web+quietroom:open">在应用中打开</a></div><p class="preference-note">也可从桌面、程序坞或开始菜单打开。如果应用已移除，请使用浏览器菜单重新安装。</p>';
+      else {
+        const safari = /Safari/.test(navigator.userAgent) && !/Chrome|Chromium|Edg\//.test(navigator.userAgent);
+        content.innerHTML = `<p class="preference-intro">为 Quiet Room 添加应用入口。</p><ol class="app-access-steps">${safari ? '<li>在 Safari 的“文件”或分享菜单中选择“添加到程序坞”。</li><li>点击“添加”，以后从程序坞打开 Quiet Room。</li>' : '<li>打开浏览器地址栏旁的安装入口，或在浏览器菜单中查找“安装”或“将此页面作为应用安装”。</li><li>安装后从桌面或开始菜单打开 Quiet Room。</li>'}</ol><p class="preference-note">${safari ? 'Safari 应用使用独立的本机数据，首次打开可能需要重新接入空间；原浏览器历史不会自动复制。' : '若浏览器未提供安装选项，可保存书签，或使用支持安装的 Chrome / Edge。'}</p>`;
+      }
+      content.querySelector('#install-app')?.addEventListener('click', async () => {
+        try {
+          const accepted = await this.appAccess.install();
+          if (!content.isConnected || signal.aborted || this.privacyCovered) return;
+          if (this.appAccess.state !== 'installed') {
+            paint();
+            const status = document.createElement('p'); status.className = 'preference-status'; status.setAttribute('role', 'status');
+            status.textContent = accepted ? '请完成浏览器安装，之后从应用图标打开。' : '已取消添加，可从浏览器安装入口重试。'; content.append(status);
+          }
+        } catch {
+          if (content.isConnected && !signal.aborted && !this.privacyCovered) { paint(); const error = document.createElement('p'); error.className = 'form-error'; error.setAttribute('role', 'alert'); error.textContent = '暂时无法添加，请使用浏览器菜单重试'; content.append(error); }
+        }
+      });
+    };
+    paint(); this.appAccess.subscribe(paint, signal);
   }
 
   private async renderNotificationSettings(): Promise<void> {
@@ -13505,12 +13611,30 @@ export class QuietRoomApp {
 
   private manualLock(): void {
     const space = this.session ? vaultSpaceId(this.session.stored) : null;
-    this.lockNow();
+    this.lockNow({ desktopContinuation: true });
     if (space) try { localStorage.setItem('quiet-room:manual-lock', JSON.stringify({ space, nonce: crypto.randomUUID() })); } catch { /* Local lock already completed. */ }
   }
 
-  private lockNow({ preserveFilePicker = false }: { preserveFilePicker?: boolean } = {}): void {
+  private lockNow({ preserveFilePicker = false, desktopContinuation = false }: { preserveFilePicker?: boolean; desktopContinuation?: boolean } = {}): void {
     if (this.locking) return;
+    // Repeated hidden/idle signals cannot renew or discard an existing return lease.
+    if (desktopContinuation && this.privacyCovered) { this.desktopAccess.peek(); return; }
+    const original = this.session;
+    let held: DesktopReturn | null = null;
+    if (desktopContinuation && this.desktopBrowser && !this.deviceVerificationActive && !this.exposureAnchor) {
+      if (original && original.stored.unlockMethod !== 'recovery' && !original.vault.pendingJointRecovery
+        && !original.vault.pendingRepair && !original.vault.pendingRecovery
+        && (!original.vault.pairingState || original.vault.pairingState === 'ready')) {
+        const credential = this.deviceCredential;
+        held = { vault: { key: original.key, stored: original.stored, browserAccessPrf: original.browserAccessPrf?.slice() },
+          credential: credential ? { record: credential.record, prfOutput: credential.prfOutput.slice(), browserAccessPrf: credential.browserAccessPrf?.slice() } : cloneDeviceCredential(original),
+          settled: Promise.allSettled([this.membershipChain, this.sendChain]) };
+      } else if (!original && this.browserProfile && this.browserBindingProof) {
+        held = { browser: { proof: this.browserBindingProof.slice(), record: this.browserProfile.record }, settled: Promise.resolve() };
+      }
+    }
+    this.desktopAccess.clear();
+    if (held) this.desktopAccess.hold(held);
     this.locking = true;
     this.resetBlankLockGesture();
     try {
@@ -13538,7 +13662,48 @@ export class QuietRoomApp {
         return;
       }
       this.renderCover(preserveFilePicker);
-    } finally { this.locking = false; }
+    } finally {
+      this.locking = false;
+      if (held) {
+        // Teardown queues the last encrypted draft. Ratchet writes must settle
+        // before recording the exact durable snapshot used for resumption.
+        held.settled = Promise.all([held.settled, this.preferenceSaveChain]).then(() => {
+          if (held.vault && original && this.desktopAccess.peek() === held) held.vault.stored = original.stored;
+        });
+      }
+    }
+  }
+
+  private async resumeDesktopAccess(): Promise<void> {
+    const held = this.desktopAccess.peek();
+    if (!held || this.desktopReturning || document.hidden || !document.hasFocus()) return;
+    this.desktopReturning = true;
+    const epoch = this.runtimeEpoch, entry = this.coverEntryEpoch;
+    const current = () => this.desktopAccess.peek() === held && this.runtimeEpoch === epoch
+      && this.coverEntryEpoch === entry && this.privacyCovered && !document.hidden && document.hasFocus();
+    try {
+      await held.settled;
+      if (!current()) return;
+      const session = held.vault ? await resumeVaultSession(held.vault) : null;
+      const profile = held.browser ? await loadBrowserProfile(held.browser.proof, held.browser.record.credentialId) : null;
+      if (!current()) return;
+      if (!session && !profile) throw new Error('本机访问数据已变化');
+      if (held.credential) this.deviceCredential = { record: held.credential.record, prfOutput: held.credential.prfOutput.slice(), browserAccessPrf: held.credential.browserAccessPrf?.slice() };
+      if (session) session.browserAccessPrf = held.vault?.browserAccessPrf?.slice();
+      if (profile && held.browser) this.browserBindingProof = held.browser.proof.slice();
+      this.desktopAccess.clear();
+      this.privacyCovered = false; document.body.className = 'app-mode'; this.revealPrivacySurface();
+      if (session) { this.session = session; await this.openSession(); }
+      else if (profile) {
+        this.browserProfile = profile; this.browserAccessAbort = new AbortController(); this.resetIdleLock();
+        this.renderBrowserShell(); this.pollBrowserSpaceAccess(this.browserAccessAbort.signal);
+      }
+    } catch {
+      if (this.runtimeEpoch !== epoch || this.coverEntryEpoch !== entry || document.hidden) return;
+      this.desktopAccess.clear();
+      this.privacyCovered = false;
+      await this.renderGateway({ trustedCoverActivation: true, autoUnlock: false });
+    } finally { this.desktopReturning = false; }
   }
 
   private cleanupRuntime(preserveFilePicker = false, preserveIdle = false): void {
@@ -13764,7 +13929,7 @@ export class QuietRoomApp {
     }
     if (!this.session && !this.browserProfile && !this.idleDeadline) return false;
     if (!document.hidden && !this.idleLease.expired) return false;
-    this.lockNow({ preserveFilePicker: false }); return true;
+    this.lockNow({ preserveFilePicker: false, desktopContinuation: true }); return true;
   }
 
   private persistentForegroundUse(): boolean {

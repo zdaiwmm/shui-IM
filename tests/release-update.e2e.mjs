@@ -103,7 +103,7 @@ try {
     text: element.textContent.replace(/\s+/g, ' ').trim(),
     buttonHeight: element.querySelector('button').getBoundingClientRect().height,
   }));
-  if (layout.text !== '有新版本 查看' || layout.buttonHeight < 44 - 0.01) throw new Error(`Update banner is incomplete: ${JSON.stringify(layout)}`);
+  if (layout.text !== '有新版本 更新' || layout.buttonHeight < 44 - 0.01) throw new Error(`Update banner is incomplete: ${JSON.stringify(layout)}`);
   if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`);
   await page.evaluate(async () => {
     const { mountPortraitOrientation } = await import('/src/lib/portrait-orientation.ts');

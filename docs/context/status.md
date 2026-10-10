@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 即时设置与桌面续接候选（2026-10-10）
+
+- 用户确认六项V1并明确免除原型／流程图，独立分支实现；[确认与风险矩阵](../requirements/2026-10-10-settings-appearance-desktop/README.md)记录范围。默认30秒十档即时选择、四套本机明暗配色、平铺设置、直接刷新更新、桌面PWA入口与30分钟内存续接已接入。旧默认60秒／桌面每次锁后验证由D-055取代。
+- 定向单元、真实PRF／MLS桌面、移动隐私、Chromium／WebKit加密草稿更新及设置外观浏览器专项通过；冻结后的完整本地门禁与精确CI以本任务交付回执为准。真实系统安装／协议打开及iPhone未验证。
+- 本项尚未发布，不改变下方最近一次生产精确SHA及容量风险记录。
+
 ## 聊天定位稳定性已发布（2026-10-10 18:13）
 
 - 用户确认定位规则并明确免除原型／流程图，随后要求“合并并发布线上”，并确认本次精确应用 SHA `a27d932300406ca46f8853fbc69df673d3fd9c57`、版本 `2026.10.10.2` 及唯一旧归档迁存。[PR #260](https://github.com/zdaiwmm/shui-IM/pull/260) 已合并，源 head `96c1b7f314825505f370fc3fb40207ba363ad683` 与应用树 `6e13c39eef133151e239e0f87d6f28407b3fd4fa` 一致。[精确PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38041287112) 和[精确main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38041731768) 全部12项成功，含57浏览器入口与原生通话／TURN；本机main已快进，不声称本机服务或真机回读。

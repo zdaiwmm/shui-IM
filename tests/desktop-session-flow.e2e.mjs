@@ -78,7 +78,11 @@ async function createDesktop() {
 }
 
 async function holdF(page) {
-  await page.locator('.cover-trigger, #create-room, [data-device-verify], .space-invite-sheet, #cloud-recovery-form, #joint-start, #passkey-unlock').first().waitFor();
+  await page.locator('.cover-trigger, #desktop-continue, #create-room, [data-device-verify], .space-invite-sheet, #cloud-recovery-form, #joint-start, #passkey-unlock').first().waitFor();
+  if (await page.locator('#desktop-continue').count()) {
+    await page.locator('#desktop-continue').click();
+    return;
+  }
   if (await page.locator('#passkey-unlock').count()) {
     const passkey = page.locator('#passkey-unlock');
     if (await passkey.isDisabled()) {
@@ -108,7 +112,7 @@ const state = page => page.evaluate(() => {
     desktop: app.desktopBrowser,
     covered: app.privacyCovered,
     active: Boolean(app.session),
-    retained: Boolean(app.retainedSession),
+    retained: Boolean(app.desktopAccess.peek()),
     socket: Boolean(app.socket),
     messages: app.messages.size,
     protocol: app.session?.vault.protocol,
@@ -128,9 +132,9 @@ async function depart(page, reason) {
   }, reason);
   await page.locator('.cover-trigger').waitFor({ state: 'attached' });
   assert.deepEqual(await state(page), {
-    desktop: true, covered: true, active: false, retained: false,
+    desktop: true, covered: true, active: false, retained: true,
     socket: false, messages: 0, protocol: undefined, fatal: false,
-  }, `${reason} must stop private runtime and require new device authentication`);
+  }, `${reason} must stop private runtime while retaining only the bounded return capability`);
   assert.equal(await page.locator('.chat-shell, .message, #message-input').count(), 0, 'Covered page must remove private markup');
 }
 
@@ -220,11 +224,11 @@ try {
     await returnToPage(creator);
     await holdF(creator);
     await expectChat(creator);
-    expectedVerifications++;
+
     await creator.getByText(firstMessage, { exact: true }).waitFor({ timeout: 10_000 });
     await creator.getByText(queuedMessage, { exact: true }).waitFor({ timeout: 10_000 });
     assert.equal(await creator.locator('#message-input').inputValue(), draft, 'Encrypted composer preferences must restore the unsent draft');
-    assert.equal(await verificationCount(creator), expectedVerifications, 'Returning after hidden must request fresh device verification');
+    assert.equal(await verificationCount(creator), expectedVerifications, 'Returning within 30 minutes must not request device verification');
     const resumed = await state(creator);
     assert.equal(resumed.active, true);
     assert.equal(resumed.retained, false);
@@ -240,7 +244,19 @@ try {
     assert.equal(await verificationCount(creator), expectedVerifications);
   }
 
-  trace('Checking manual lock and reload require new device verification');
+  trace('Checking double-click lock returns without verification');
+  await creator.evaluate(() => window.__desktopSessionApp.manualLock());
+  assert.equal((await state(creator)).retained, true);
+  await holdF(creator); await expectChat(creator);
+  assert.equal(await verificationCount(creator),expectedVerifications);
+  trace('Checking 30-minute absence clears the return capability');
+  await depart(creator,'hidden');
+  await creator.clock.install(); await creator.clock.fastForward(30 * 60 * 1000);
+  assert.equal((await state(creator)).retained,false);
+  await returnToPage(creator); await holdF(creator); await expectChat(creator);
+  expectedVerifications++;
+  assert.equal(await verificationCount(creator),expectedVerifications);
+  trace('Checking security lock and reload require new device verification');
   // Explicit locking remains a lifecycle boundary, though the menu shortcut
   // is intentionally absent from the streamlined local-safety UI.
   await creator.evaluate(() => window.__desktopSessionApp.lockNow());
@@ -266,7 +282,7 @@ try {
   assert.equal((await state(creator)).fatal, false);
   assert.equal((await state(joiner)).fatal, false);
   assert.deepEqual(errors, []);
-  console.log('Desktop session flow E2E passed: real PRF vaults, MLS pairing and messages, visible-blur continuity, hidden private-runtime teardown and fresh F verification, encrypted draft/history restore, peer catchup, resumed sending, and fresh verification after manual lock/reload.');
+  console.log('Desktop session flow E2E passed: real PRF vaults, MLS pairing and messages, visible-blur continuity, hidden private-runtime teardown and 30-minute F continuation, encrypted draft/history restore, peer catchup, resumed sending, and fresh verification after manual lock/reload.');
 } finally {
   await browser?.close();
   await vite.close();
