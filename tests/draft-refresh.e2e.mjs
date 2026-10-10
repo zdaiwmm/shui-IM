@@ -13,7 +13,9 @@ const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-draft-refresh-'));
 const root = process.cwd(); let service, vite, browser, database;
 const password = 'synthetic draft regression password';
 async function waitForState(page, stage, predicate) {
-  try { await page.waitForFunction(predicate); }
+  // Storage/network completion must not depend on WebKit scheduling a paint
+  // for another participant's page. Keep the page's existing 15s deadline.
+  try { await page.waitForFunction(predicate, undefined, { polling: 100 }); }
   catch (error) {
     // Only state flags: never include messages, invitations or vault contents.
     console.error('DRAFT_REGRESSION_STATE', stage, await page.evaluate(() => ({
@@ -38,9 +40,15 @@ async function protect(page) {
 }
 async function ready(page) {
   await page.locator('.chat-shell').waitFor();
-  if (await page.locator('#welcome-chat').waitFor({ timeout: 1500 }).then(() => true, () => false)) await page.locator('#welcome-chat').click();
+  // MLS may become active before the pairing render/welcome is installed.
+  // Observe that transition instead of guessing a 1.5s welcome window.
+  await waitForState(page, 'chat-ready', () => {
+    const input = document.querySelector('#message-input');
+    return window.app?.session?.vault.mls?.phase === 'active' && input && !input.disabled
+      && app.session.vault.recoveryExperience?.welcomePending !== true;
+  });
+  if (await page.locator('#welcome-chat').count()) await page.locator('#welcome-chat').click();
   await page.locator('.confirm-overlay').waitFor({ state: 'detached' });
-  await waitForState(page, 'chat-ready', () => window.app?.session?.vault.mls?.phase === 'active' && !document.querySelector('#message-input')?.disabled);
 }
 async function unlock(page) {
   await page.locator('.password-form,.cover-trigger').first().waitFor();
@@ -79,6 +87,20 @@ try {
     const [ac, bc] = await Promise.all([browser.newContext(options), browser.newContext(options)]);
     await ac.addInitScript(() => { delete window.PublicKeyCredential; }); await bc.addInitScript(() => { delete window.PublicKeyCredential; });
     const [a, b] = await Promise.all([ac.newPage(), bc.newPage()]); a.setDefaultTimeout(15000); b.setDefaultTimeout(15000);
+    // A durable state change can finish while animation frames are paused.
+    // Navigation below restores the real frame scheduler before app startup.
+    await a.evaluate(() => {
+      window.requestAnimationFrame = () => 0;
+      window.draftStateProbe = false;
+      window.draftStateProbeObserved = false;
+    });
+    const probe = waitForState(a, 'state-without-animation-frame', () => {
+      window.draftStateProbeObserved = true;
+      return window.draftStateProbe;
+    });
+    await a.waitForFunction(() => window.draftStateProbeObserved, undefined, { polling: 100 });
+    await a.evaluate(() => { window.draftStateProbe = true; });
+    await probe;
     await a.goto(url); await a.locator('#create-room').click(); await protect(a);
     await a.locator('#invite-url').waitFor(); await b.goto(await a.locator('#invite-url').inputValue());
     await b.locator('[data-device-verify]').click(); await protect(b); await ready(a); await ready(b);
@@ -118,7 +140,7 @@ try {
 
     // Stop AFTER durable commit, before the submit handler can clear the input.
     await barrier(reopened); await reopened.locator('#message-input').fill('committed before refresh'); await reopened.locator('#send-text').click();
-    await reopened.waitForFunction(() => window.durableSend && app.outbox.has(window.durableSend));
+    await waitForState(reopened, 'durable-send', () => window.durableSend && app.outbox.has(window.durableSend));
     const sentId = await reopened.evaluate(() => window.durableSend);
     assert.equal(await reopened.locator('#message-input').inputValue(), 'committed before refresh');
     await reload(reopened); assert.equal(await reopened.locator('#message-input').inputValue(), '', 'A durably submitted draft must not resurrect');
@@ -128,7 +150,7 @@ try {
 
     for (const newer of ['new input during send', 'same text ABA']) {
       await barrier(reopened); await reopened.locator('#message-input').fill('same text ABA'); await reopened.locator('#send-text').click();
-      await reopened.waitForFunction(() => window.durableSend && app.outbox.has(window.durableSend));
+      await waitForState(reopened, 'durable-send-newer-input', () => window.durableSend && app.outbox.has(window.durableSend));
       await reopened.locator('#message-input').fill('intermediate edit'); await reopened.locator('#message-input').fill(newer);
       await reopened.evaluate(() => window.releaseSend());
       await reload(reopened); assert.equal(await reopened.locator('#message-input').inputValue(), newer, 'Sending must retain newer input, including ABA');
@@ -172,7 +194,7 @@ try {
         window.releaseInviteReturn = async () => { app.openPrivateSpaces = original; await original(guard, scroll); resolve(); };
       });
     });
-    await second.locator('#invite-close').click(); await second.waitForFunction(() => window.inviteReturnRequested);
+    await second.locator('#invite-close').click(); await waitForState(second, 'invitation-return', () => window.inviteReturnRequested);
     // A fresh peer browser follows initial invite enrollment. Reusing B's
     // already-protected browser would require its existing-vault unlock route.
     const joiningContext = await browser.newContext(options);
