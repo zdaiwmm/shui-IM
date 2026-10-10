@@ -194,14 +194,14 @@
 
 /* Inline recorder: one anchored input row throughout hold, lock and preview. */
 .composer-row { position: relative; display: flex; align-items: flex-end; gap: 8px; flex: 1 0 100%; min-width: 0; }
-.composer-row > .composer-input-stack { margin-right: 52px; transition: margin-right 220ms var(--motion-out), border-color 120ms ease-out, background 120ms ease-out, border-radius 180ms var(--motion-out); }
+.composer-row > .composer-input-stack { margin-right: 52px; transition: border-color var(--motion-feedback) ease-out, background-color var(--motion-feedback) ease-out; }
 .composer.has-text .composer-input-stack { margin-right: 0; }
-.composer .composer-field { position: relative; padding-right: 40px; transition: padding-right 220ms var(--motion-out); }
+.composer .composer-field { position: relative; padding-right: 40px; }
 .composer.has-text .composer-field { padding-right: 92px; }
 .composer #message-input { min-width: 0; }
-.composer .meme-toggle { position: absolute; right: 0; bottom: 0; transition: translate 220ms var(--motion-out); }
+.composer .meme-toggle { position: absolute; right: 0; bottom: 0; transition: translate var(--motion-local) var(--motion-out); }
 .composer.has-text .meme-toggle { translate: -44px 0; }
-.composer .composer-send { position: absolute; right: 5px; bottom: 5px; width: 34px; height: 34px; opacity: 0; scale: .4; pointer-events: none; transition: opacity 180ms var(--motion-out), scale 220ms var(--motion-out); }
+.composer .composer-send { position: absolute; right: 5px; bottom: 5px; width: 34px; height: 34px; opacity: 0; scale: .4; pointer-events: none; transition: opacity var(--motion-local) var(--motion-out), scale var(--motion-local) var(--motion-out); }
 .composer.has-text .composer-send { opacity: 1; scale: 1; pointer-events: auto; }
 .composer .composer-send svg { width: 23px; height: 23px; }
 /* Keep the painted 34px circle and expand only the effective touch target. */

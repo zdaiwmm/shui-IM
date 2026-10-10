@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { auditUiDetails } from './helpers/ui-detail-audit.mjs';
 const root = process.cwd();
 const out = process.argv[2]; if (out) await mkdir(out, {recursive:true});
 const metrics = [];
@@ -73,6 +74,7 @@ try {
  await page.evaluate(()=>app.closeChatTools());await page.waitForTimeout(340);assert.equal(await page.locator('#message-input').inputValue(),'周六上午见！');
  await page.evaluate(()=>app.lockNow());assert.equal(await page.locator('#message-input').count(),0,'Explicit lock must clear private UI immediately');
  if(out)await writeFile(path.join(out,'fidelity-layouts.json'),JSON.stringify({engine:'desktop Chromium',realDevice:false,syntheticPresentationFixture:true,metrics,timeline},null,2));
+ await auditUiDetails(page,out);
  const prototype=await browser.newPage({viewport:{width:390,height:844}});
  for(const [name,query] of [['P03','page=password'],['P04','page=unlock&method=password'],['P06','page=reauth&purpose=export'],['R03','page=restore'],['R06','page=recoveryWaiting']]){
   await prototype.goto(url+'/docs/requirements/2026-09-30-experience-optimization/prototype/index.html?'+query+'&v=7');

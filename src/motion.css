@@ -7,6 +7,7 @@
   --motion-local: 180ms;
   --motion-panel: 240ms;
   --motion-page: 180ms;
+  --motion-media: 280ms;
   --motion-menu-in: 180ms;
   --motion-menu-out: 140ms;
   --chrome-tint: var(--paper);
@@ -37,11 +38,11 @@ button:disabled { cursor: default; }
 .gallery-tabs::before { transition: transform 280ms var(--motion-settle); }
 .photo-details { transition: transform var(--motion-panel) var(--motion-settle); }
 .photo-details.is-opening { animation-duration: var(--motion-panel); animation-timing-function: var(--motion-settle); }
-.photo-details.is-closing { animation-duration: 260ms; animation-timing-function: var(--motion-travel); }
+.photo-details.is-closing { animation-duration: var(--motion-panel); animation-timing-function: var(--motion-travel); }
 .photo-details.is-dragging { transition: none; }
-.notice { transition: opacity 180ms ease-out, transform 260ms var(--motion-settle); }
-.notice.is-leaving { transition-duration: 180ms; }
-.release-update-reminder { animation-duration: 300ms; }
+.notice { transition: opacity var(--motion-local) ease-out, transform var(--motion-local) var(--motion-settle); }
+.notice.is-leaving { transition-duration: var(--motion-menu-out); }
+.release-update-reminder { animation-duration: var(--motion-local); }
 
 /* State changes are local; no replay on every progress/timer update. */
 .voice-waveform > * { transition: background-color 120ms ease-out, color 120ms ease-out; }

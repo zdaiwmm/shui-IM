@@ -38,6 +38,8 @@ The composer starts at 52px plus any bottom safe-area contribution. Its controls
 
 Desktop input uses the same compact vertical scale; its floating tools keep an 8px gap above the input row. The mobile expression panel retains its occupied height so it cannot cover the keyboard toggle. Held recording uses a 72px feedback disc inside the viewport; cancel feedback remains destructive red.
 
+Tool tiles use a 48×44px icon surface in a 64px row. Locked recording keeps the 72px send disc; paused previews return to a 44px send control. Composer text/tool changes do not animate margins, padding or width: only bounded opacity and transform effects run while the viewport controller measures the final input geometry.
+
 The existing VisualViewport, keyboard gesture, list/document scrolling and bottom-following controllers remain authoritative. A header inset change must compensate a history reader's scroll in the same task before paint; latest-following retains its existing endpoint alignment. Group spacing must not alter the established latest-message/composer gap. Keyboard open/close, interrupted motion, Chinese composition and browser toolbar movement need regression coverage. A desktop short-viewport simulation is not evidence of real iPhone keyboard behavior, and native Safari toolbar transparency is not promised.
 
 Outgoing dark bubbles sample one gradient field across the rendered timeline, using layout coordinates so in-flight FLIP transforms do not move their colors. Media and expression bubbles preserve their intrinsic geometry, concealment state and contrasting metadata overlays; expressions retain their transparent exterior.
@@ -52,17 +54,25 @@ The selected bubble is an inert, aria-hidden clone above an 8px blurred focus ba
 
 Confirmation dialogs use opaque surfaces, 16px corners, 20px padding, a 17px heading and compact 44px actions. Half sheets use 18px top corners, a 32×4px handle and scrolling content; invitation drag thresholds and damping are unchanged. Recovery/history input panels keep their viewport-owned placement and security lifecycle. Toasts and tips use opaque 12px-radius surfaces, 13px text and semantic error colors. Successful operations and privacy cleanup never wait for a toast or transition.
 
+Operation verification sheets meet the viewport bottom, including its safe area. Message-information stages are read-only 40px rows; their actions retain 44px targets. Photo details have a 64×44px handle target and square outer edges when expanded to the full viewport. Update notes remain a centered 16px-radius dialog with a single 20px horizontal inset, a fixed header and independently scrolling content.
+
 ## Settings and desktop
 
 Settings remains the existing flat functional list, with 52px rows and native immediate-choice radios. Private-space drawers use compact rows, a 24px selected-space title and a fixed footer. The scrolling body must keep all security, backup, device and appearance controls reachable. Full-screen password, recovery and device pages share the same colors and smaller bounded controls without changing their authorization or storage behavior.
 
+Two-line settings and recovery-entry rows use 14px labels, 12px supporting text and 6px vertical padding; text enlargement or wrapping may grow the row. Drawer headings are 17px. Backup-code input uses the shared 12px-radius surface, 16px input text and an 88px minimum textarea. Cover-practice navigation uses the same compact header scale while retaining the existing practice gesture target.
+
 The confirmed desktop layout still begins at 1024 CSS px with its 280px collapsible sidebar and a 640px maximum text bubble. Embedded drawers have square outer edges; their selected-row titles stay 19px. Auxiliary content retains readable widths. Media viewers and recording keep their viewport and gesture owners. Call chrome uses the same opaque surfaces, 48px control discs, a compact 24px peer title and 80px identity mark; video overlays retain contrasting dark controls over unpredictable video. The reader uses 52px header chrome, 44px controls and a 16px toolbar; reading typography, pagination and file sanitization remain independent. Administration uses the same foundations, 44px actions and 12px control corners.
+
+Call toolbars retain 18px corners and video previews 16px corners at narrow and landscape breakpoints; the base peer title stays 24px, with the existing 28px desktop variant. Administration switches use a 46×26px track and 20px thumb inside a 44px target; native confirmation dialogs use the shared 16px/20px/17px dialog scale, 14px body text and 12px content gaps without page-form margins. Reader search-result tips share the 13px text and 12px surface radius.
 
 All existing routes are in scope: welcome and access verification; invitation, device joining and repair; browser access and passkey management; chat, space lists and settings; notifications, appearance and lock timing; devices; backup import/export and recovery; gallery, favorites and media details; document reading; voice and calls; help, releases and cover practice. Confirmations, bottom sheets, menus, inputs, switches, radios, empty/loading/error feedback and toasts share the component scale. Cover and privacy curtains preserve their immediate concealment and quiet browser-error presentation.
 
 ## Motion, accessibility and verification
 
 Shared motion tokens live in `src/motion.css` and finite effects in `src/lib/motion.ts`: press feedback 100ms at .96 scale, local/message/page effects 180ms, half sheets 240ms, media 280ms, menu exit 140ms. Gesture settling remains critically damped and keyboard travel remains coordinated with the native viewport. Do not animate layout properties or restart progress/connection animations on every update.
+
+Photo-detail sheet entry and exit use 240ms; viewer fade, zoom and return-to-source use 280ms. Toast entry uses 180ms and exit 140ms. Message/reaction and gallery menus exit in 140ms. Centered update notes use 180ms entry and 140ms exit, without inheriting half-sheet timing.
 
 Reduced motion disables decorative motion. Reduced transparency and increased contrast remove the focus backdrop blur and wallpaper; forced colors uses system surfaces and explicit borders. Preserve keyboard focus, screen-reader state, 44px targets, at least 4.5:1 small-text contrast and the original media privacy lifecycle. No analytics, remote assets or runtime observers are added.
 

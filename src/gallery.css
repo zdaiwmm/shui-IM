@@ -189,7 +189,7 @@
 #app > .image-viewer.is-visible,
 #app > .image-viewer.is-closing {
   transform: none;
-  transition: opacity 220ms ease-in-out;
+  transition: opacity var(--motion-media, 280ms) ease-in-out;
 }
 
 .image-viewer .viewer-stage { touch-action: none; }
@@ -198,7 +198,7 @@
 .image-viewer .viewer-media-layer.is-image > img,
 .image-viewer:not(.video-viewer) .viewer-stage > img {
   animation: none;
-  transition: transform 340ms cubic-bezier(.16, 1, .3, 1);
+  transition: transform var(--motion-media, 280ms) cubic-bezier(.16, 1, .3, 1);
   touch-action: none;
   transform-origin: center;
 }

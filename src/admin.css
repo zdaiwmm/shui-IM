@@ -157,10 +157,10 @@ input:user-invalid { border-color: var(--danger); }
 .resource-editor form { margin-top: 0; }
 .toggle-field { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
 .toggle-field .toggle-input { position: absolute; width: 1px; height: 1px; margin: -1px; opacity: 0; clip: rect(0 0 0 0); }
-.toggle-track { position: relative; width: 42px; height: 24px; flex: 0 0 42px; border: 1px solid var(--border); border-radius: 999px; background: var(--subtle); transition: background .16s ease, border-color .16s ease; }
-.toggle-track::after { content: ''; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--muted); transition: transform .16s ease, background .16s ease; }
+.toggle-track { position: relative; width: 46px; height: 26px; flex: 0 0 46px; border: 1px solid var(--border); border-radius: 999px; background: var(--subtle); transition: background-color var(--duration), border-color var(--duration); }
+.toggle-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; background: var(--muted); transition: transform var(--duration), background-color var(--duration); }
 .toggle-input:checked + .toggle-track { border-color: var(--accent-fill); background: var(--accent-fill); }
-.toggle-input:checked + .toggle-track::after { background: var(--on-accent); transform: translateX(18px); }
+.toggle-input:checked + .toggle-track::after { background: var(--on-accent); transform: translateX(20px); }
 .toggle-input:focus-visible + .toggle-track { outline: 2px solid var(--focus); outline-offset: 2px; }
 .toggle-input:disabled + .toggle-track { opacity: .6; }
 .resource-attribution { font-size: .75rem; color: var(--muted); overflow-wrap: anywhere; }
@@ -237,7 +237,10 @@ summary { cursor: pointer; min-height: 44px; padding-block: 10px; }
 .preview-retry { font-size: 12px; }
 
 .expression-mobile-meta { display: none; }
-.resource-confirm { width: min(400px, calc(100% - 32px)); padding: 24px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--ink); }
+.resource-confirm { width: min(400px, calc(100% - 32px)); padding: 20px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); color: var(--ink); }
+.resource-confirm form { margin: 0; gap: 12px; }
+.resource-confirm h2 { margin: 0; font-size: 1.0625rem; line-height: 1.4; }
+.resource-confirm p { margin: 0; font-size: .875rem; line-height: 1.6; }
 .resource-confirm::backdrop { background: oklch(0% 0 0 / .4); }
 .resource-confirm button { min-height: 44px; }
 @media (max-width: 700px) {

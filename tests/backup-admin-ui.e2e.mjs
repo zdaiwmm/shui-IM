@@ -316,6 +316,12 @@ try {
   await admin.getByText('审核示例', { exact: true }).waitFor();
   await admin.locator('.expression-thumbnail').evaluate(image => image.decode());
   await snapshot(admin, 'admin-expressions-desktop');
+  const toggleScale = await admin.locator('.toggle-track').first().evaluate(track => ({
+    width: track.getBoundingClientRect().width, height: track.getBoundingClientRect().height,
+    thumb: getComputedStyle(track, '::after').width,
+    target: track.closest('label').getBoundingClientRect().height,
+  }));
+  assert.deepEqual(toggleScale, { width: 46, height: 26, thumb: '20px', target: 44 });
   await admin.getByText('已上架', { exact: true }).last().waitFor();
   await admin.getByRole('combobox', { name: '上架状态' }).selectOption('pending');
   await admin.getByText('暂无符合条件的资源').waitFor();
@@ -390,6 +396,19 @@ try {
   await admin.getByRole('checkbox', { name: '全选本页', exact: true }).check();
   await admin.route('**/admin-api/expressions/status', route => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: '批量操作暂时失败' }) }));
   await admin.getByRole('button', { name: '批量上架', exact: true }).click();
+  for (const colorScheme of ['light', 'dark']) {
+    await admin.emulateMedia({ colorScheme });
+    const dialogStyle = await admin.locator('.resource-confirm').evaluate(dialog => ({
+      radius: getComputedStyle(dialog).borderRadius,
+      padding: getComputedStyle(dialog).padding,
+      heading: getComputedStyle(dialog.querySelector('h2')).fontSize,
+      filter: getComputedStyle(dialog).backdropFilter,
+    }));
+    assert.deepEqual(dialogStyle, { radius: '16px', padding: '20px', heading: '17px', filter: 'none' });
+    assert.ok((await admin.locator('.resource-confirm').boundingBox()).height < 210, 'confirmation must not inherit page-form margins');
+    await snapshot(admin, `admin-confirm-${colorScheme}`, false);
+  }
+  await admin.emulateMedia({ colorScheme: 'light' });
   await admin.locator('.resource-confirm button[value=confirm]').click();
   await admin.getByText('批量操作暂时失败', { exact: true }).waitFor();
   assert.equal(await admin.getByRole('checkbox', { name: '全选本页', exact: true }).isChecked(), true);

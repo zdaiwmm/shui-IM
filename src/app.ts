@@ -12453,7 +12453,7 @@ export class QuietRoomApp {
       departingImage.animate([
         { transform: departingTransform },
         { transform: `translate3d(0, ${viewer.clientHeight}px, 0) scale(.35)` },
-      ], { duration: 220, easing: 'cubic-bezier(.2,.65,.3,1)', fill: 'forwards' });
+      ], { duration: motion.media, easing: 'cubic-bezier(.2,.65,.3,1)', fill: 'forwards' });
     }
     if (sourceReturn && currentImage?.isConnected) {
       const layer = currentImage.closest<HTMLElement>('.viewer-media-layer');
@@ -12463,7 +12463,7 @@ export class QuietRoomApp {
         const previous = layer.getAnimations()[0];
         layer.style.transform = sourceReturn;
         layer.style.opacity = '1';
-        retargetMotion(layer, previous, from, { transform: sourceReturn, opacity: 1 }, 220, motion.settle);
+        retargetMotion(layer, previous, from, { transform: sourceReturn, opacity: 1 }, motion.media, motion.settle);
       }
     }
     afterMotion(viewer, finish, 450);

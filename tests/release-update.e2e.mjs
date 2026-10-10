@@ -1,5 +1,7 @@
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
 
 const server = await createServer({
   configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error',
@@ -22,8 +24,7 @@ try {
   await page.goto(`http://localhost:${server.httpServer.address().port}/__release_update`);
   await page.evaluate(async () => {
     localStorage.setItem('quiet-room.current-release', 'previous-release');
-    await import('/src/styles.css');
-    await import('/src/chat-layout.css');
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     const [{ QuietRoomApp }, vault, release] = await Promise.all([
       import('/src/app.ts'),
       import('/src/lib/vault.ts'),
@@ -48,6 +49,17 @@ try {
 
   await page.locator('.release-notes-sheet.is-visible').waitFor();
   await page.waitForTimeout(400);
+  const notesStyle=await page.locator('.release-notes-panel').evaluate(panel=>({radius:getComputedStyle(panel).borderRadius,padding:getComputedStyle(panel).padding,
+    headerPadding:getComputedStyle(panel.querySelector('.release-notes-header')).paddingLeft,titleSize:getComputedStyle(panel.querySelector('h2')).fontSize}));
+  if(notesStyle.radius!=='16px'||notesStyle.padding!=='0px'||notesStyle.headerPadding!=='20px'||notesStyle.titleSize!=='17px')throw Error(`P1 update dialog: ${JSON.stringify(notesStyle)}`);
+  if (process.argv[2]) {
+    await mkdir(process.argv[2], { recursive: true });
+    for (const colorScheme of ['light', 'dark']) {
+      await page.emulateMedia({ colorScheme });
+      await page.screenshot({ path: path.join(process.argv[2], `update-dialog-${colorScheme}.png`) });
+    }
+    await page.emulateMedia({ colorScheme: 'light' });
+  }
   const fixedNotes = await page.evaluate(async () => {
     const panel = document.querySelector('.release-notes-panel');
     const header = panel.querySelector('.release-notes-header');
