@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+## 空白双击锁定与引用反馈已发布（2026-10-10 17:08）
+
+- 用户明确确认精确应用提交 `e73d465af88926c31f709d9d6e68ebb528d46925`、版本 `2026.10.10.1`，并授权唯一指定旧归档迁存、完整校验后仅移除服务器副本、保留最新恢复点。[PR #259](https://github.com/zdaiwmm/shui-IM/pull/259) 完成交互，[PR #261](https://github.com/zdaiwmm/shui-IM/pull/261) 完成 WebKit 草稿回归等待修复；后者源 head `8b3b7389ce34e0c26edf41231a323c763b5b0b31` 与应用合并树一致。精确 [PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38036878803) 与 [main 完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38037527796) attempt 2 全部12项成功，固定发布器再次核实该提交属于实时 main 且最新完整 CI 成功。文档 PR #262 及本次对账不改变应用目标。
+- 已上线：移除“返回刚才位置”，设置去掉立即锁定，已解锁页面空白处快速双击调用完整主动锁；引用定位改为整个消息气泡短暂高亮。范围、误触与隐私边界、WebKit 停帧控制实验及原失败不能定性为引擎缺陷的限制见[需求与验收](docs/requirements/2026-10-10-blank-double-lock-reply/README.md)。产品干净候选完整本地门禁847项／56个浏览器入口通过；最终修复候选构建、847项及 Chromium／WebKit 完整草稿场景通过。独立通话媒体、桌面解锁 CI 失败分别仅原样重跑失败作业一次通过，未修改对应代码、超时或断言。
+- 指定旧归档 `data-20261009T110616Z-261da69bbf4e.tar.gz`（1044387192字节）已迁至 FileVault 本机 `/Users/zhouding/quiet-room-backups/production/predeploy/blank-double-lock-reply-20261010/`，目录0700、文件0600。两端 gzip／tar、SHA-256、本机独立复读及 fsync 通过，摘要 `3a86f7d08b8ef55625419067262df93ccfbcad50dd95bd4ebfe761126628cabb`。持原发布锁再次核验生产 SHA、源身份／摘要、无失败切换配对及最新恢复点后，仅移除该服务器副本；账本 `/var/lib/quiet-room-deploy/archive-migrations/20261010-blank-double-lock-reply.json` 独立回读通过。首次删除前因迁存脚本纳秒时间数字精度丢失停止，未删除或写账本；独立复核文件编号及完整摘要未变，改为无损字符串后继续。原最新恢复点 `data-20261009T183103Z-2877c2ae4282.tar.gz`（1055678428字节，摘要 `12fe76d86c86aadb80d295941d2f7701e9dbc9a4b0d2e04c3c4ee0ec0a28ff23`）保留。
+- 迁存后容量可用5087481856字节，固定入口构建前5087391744字节、切换前4873486336字节，三次预检通过。唯一固定入口取得精确 `DEPLOY_VERIFIED`，外层核对隔离副本精确回执，实际切换一次。批次 `20261010T090018Z`，发布目录 `/opt/quiet-room/git-releases/20261010T090018Z-e73d465af889`，新冷归档 `data-20261010T090018Z-e73d465af889.tar.gz`（1080319123字节）已校验。镜像构建47秒、服务器157秒、固定入口总计203084毫秒；精确回执来自 `/private/var/folders/kx/xvfkgvzn5cb2t23mnc9518kr0000gn/T/quiet-room-publish-jiqbTR/.git/quiet-room-verified-sha`。
+- 首次独立回读只因备份健康探针 starting 停止；等待原五分钟探针后只续跑回读，没有再次切换。最终 `READBACK_OK` 于 `2026-10-10T09:08:24.693Z` 完成，3187毫秒：应用／备份 healthy，TURN 运行且探针 none，维护门不存在；精确 SHA、镜像、HTTPS／数据库／存储、公开与容器产物及新 WebSocket 一致，管理员与通话启用。镜像 `sha256:25e0f285266338d726c7c4bd64739475a7e344b2038039dd0bd7dd1c3ba53dbf`。成功脱敏证据 `20261010T090821504Z-e73d465af889-success.json`、精确回执、发布日志及启动等待记录已保存在上述私有目录的 `delivery/`。
+- 回读后容量快照可用3793510400字节、使用率90.50%，当前所需4308121894字节，下一次发布受 `DISK_CRITICAL`／`DISK_HEADROOM_LOW` 阻断，仍需后续容量治理。本次迁存保留全部恢复点；连续备份、回滚镜像、自动保留策略和 root helper 保留，未做全局或 builder prune。Mac 主动拉取模式保留，单次 FileVault 迁存不等于持续不可变异地备份。
+- 对账在无部署配置的独立文档树进行，不再次部署文档提交，文档 main 可以领先线上应用 SHA。本批两棵开发／修复树含忽略缓存，CI 对账提交晚于应用 SHA，当前文档树承载收尾，按固定清理规则保留并记录核验结果；其他任务资源不动。物理 iPhone／iOS27／Safari 与本机局域网服务尚未回读。下方为历史发布快照。
+
 ## 全局自动锁定已发布（2026-10-10 02:39）
 
 - 用户已确认精确应用提交 `2877c2ae42822763fac812e636405f13196e56bd`，版本 `2026.10.09.2`，并在容量阻塞披露后再次要求“确认是否完成线上发布，若未完成则解决问题完成发布”。[PR #255](https://github.com/zdaiwmm/shui-IM/pull/255)已合并，源head `fb7c310dd7e47391a7c5923362454c6961c95f95` 与应用提交文件树一致。精确[PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37967823473)和[main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37968726220)全部12项通过；固定发布器再次验证获批应用SHA为实时main祖先及其最新完整main CI成功。文档PR #256/#257不改变本次应用目标。
