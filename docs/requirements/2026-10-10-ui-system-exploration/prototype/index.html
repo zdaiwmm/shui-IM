@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#BEEAA1">
+  <title>Quiet Room · 交互原型 P1</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./app.js"></script>
+</head>
+<body>
+  <header class="studio-header">
+    <a class="studio-brand" href="./" aria-label="重开原型">Quiet Room <span>交互原型 P1</span></a>
+    <div class="studio-actions">
+      <div class="theme-control" role="group" aria-label="原型主题"><button data-action="theme" data-value="light" aria-pressed="true"><i data-icon="Sun"></i>浅色</button><button data-action="theme" data-value="dark" aria-pressed="false"><i data-icon="Moon"></i>深色</button></div>
+      <button class="studio-reset" data-action="reset" title="重置模拟对话">重置</button>
+    </div>
+  </header>
+  <main class="studio">
+    <aside class="inspector">
+      <div class="intro"><span class="eyebrow">TELEGRAM 视觉方向</span><h1>让对话<br>留在视野里。</h1><p>柔绿与黑底紫蓝，<br>精炼的控件，有分寸的动效。</p></div>
+      <nav class="scene-list" aria-label="体验场景">
+        <button class="scene active" data-action="chat"><i data-icon="MessagesSquare"></i><span>聊天<small>输入、回复、消息操作</small></span><i data-icon="ChevronRight"></i></button>
+        <button class="scene" data-action="settings"><i data-icon="Settings2"></i><span>设置<small>外观与本机偏好</small></span><i data-icon="ChevronRight"></i></button>
+        <button class="scene" data-action="demo-dialog"><i data-icon="Square"></i><span>弹窗<small>确认、取消与撤销</small></span><i data-icon="ChevronRight"></i></button>
+        <button class="scene" data-action="tools"><i data-icon="PanelBottom"></i><span>半屏面板<small>拖动关闭，连续操作</small></span><i data-icon="ChevronRight"></i></button>
+      </nav>
+      <section class="keyboard-controls"><h2>浏览器键盘空间</h2><div class="segmented" role="group" aria-label="模拟键盘高度"><button data-action="keyboard" data-value="closed" aria-pressed="true">收起</button><button data-action="keyboard" data-value="standard" aria-pressed="false">标准</button><button data-action="keyboard" data-value="tall" aria-pressed="false">较高</button></div><p>模拟底部工具栏与输入工具条。<br>也可直接点聊天输入框。</p></section>
+      <div class="motion-control"><label for="reduce-motion">减弱动效</label><input id="reduce-motion" type="checkbox" role="switch"></div>
+      <p class="studio-disclaimer">仅模拟数据与交互。<br>语音、通话及消息回执为演示。</p>
+    </aside>
+    <section class="preview-column" aria-label="手机浏览器原型">
+      <div class="preview-caption"><span><i class="live-dot"></i>浏览器预览</span><span id="viewport-metric">浅色 · 聊天</span></div>
+      <div class="device" id="device">
+        <div class="app-viewport" id="app-viewport">
+          <div class="app-views" id="app-views">
+            <section class="chat-screen screen" id="chat-screen" aria-label="与晚风聊天">
+              <header class="chat-header">
+                <button class="peer-button" data-action="settings" aria-label="打开设置"><span class="avatar">晚</span><span class="peer-label"><strong>晚风</strong><small id="peer-status">在线</small></span></button>
+                <button class="icon-button tip" data-action="call" data-tip="语音通话" aria-label="语音通话"><i data-icon="Phone"></i></button>
+                <button class="icon-button tip" data-action="chat-menu" data-tip="更多" aria-label="聊天菜单"><i data-icon="MoreVertical"></i></button>
+              </header>
+              <div class="connection-banner" id="connection-banner" hidden><i data-icon="WifiOff"></i><span>连接已断开</span><button data-action="reconnect">重新连接</button></div>
+              <div class="message-list" id="message-list" tabindex="0" aria-label="消息列表"></div>
+              <button class="jump-latest icon-button" id="jump-latest" data-action="latest" aria-label="回到最新消息" hidden><i data-icon="ChevronDown"></i><span id="new-count" hidden></span></button>
+              <form class="composer" id="composer">
+                <div class="reply-preview" id="reply-preview" hidden><i data-icon="Reply"></i><span><strong id="reply-name"></strong><small id="reply-text"></small></span><button class="icon-button" type="button" data-action="cancel-reply" aria-label="取消回复"><i data-icon="X"></i></button></div>
+                <div class="composer-line">
+                  <button class="icon-button tip" type="button" data-action="tools" data-tip="发送内容" aria-label="发送内容"><i data-icon="Paperclip"></i></button>
+                  <div class="input-field"><textarea id="message-input" rows="1" maxlength="2000" placeholder="发消息…" aria-label="消息"></textarea><button class="icon-button expression-button" type="button" data-action="expressions" aria-label="打开表情"><i data-icon="Smile"></i></button></div>
+                  <button class="icon-button primary-send" id="send-button" type="submit" aria-label="发送消息" hidden><i data-icon="ArrowUp"></i></button>
+                  <button class="icon-button" id="voice-button" type="button" data-action="voice" aria-label="语音消息"><i data-icon="Mic"></i></button>
+                </div>
+              </form>
+            </section>
+            <section class="settings-screen screen" id="settings-screen" aria-label="设置" hidden>
+              <header class="settings-header"><button class="icon-button" data-action="back" aria-label="返回聊天"><i data-icon="ChevronLeft"></i></button><h2>设置</h2><span></span></header>
+              <div class="settings-content">
+                <div class="settings-person"><span class="avatar">晚</span><div><strong>晚风</strong><small>当前对话</small></div></div>
+                <div class="setting-group">
+                  <button class="setting-row" data-action="appearance"><span class="setting-icon"><i data-icon="SunMoon"></i></span><span>主题外观</span><small id="appearance-value">浅色</small><i data-icon="ChevronRight"></i></button>
+                  <button class="setting-row" data-action="auto-lock"><span class="setting-icon"><i data-icon="Clock3"></i></span><span>自动锁定</span><small id="lock-value">30 秒</small><i data-icon="ChevronRight"></i></button>
+                  <div class="setting-row"><span class="setting-icon"><i data-icon="Bell"></i></span><label for="notifications">消息通知</label><input id="notifications" type="checkbox" role="switch" checked></div>
+                  <div class="setting-row"><span class="setting-icon"><i data-icon="Volume2"></i></span><label for="sound">声音与反馈</label><input id="sound" type="checkbox" role="switch" checked></div>
+                </div>
+                <p class="setting-note">选择即时生效。自动锁定仅适用于本机。</p>
+                <div class="setting-group"><button class="setting-row" data-action="clear-draft"><span class="setting-icon neutral"><i data-icon="Eraser"></i></span><span>清空输入草稿</span><i data-icon="ChevronRight"></i></button><button class="setting-row" data-action="about"><span class="setting-icon neutral"><i data-icon="Info"></i></span><span>关于此原型</span><small>P1</small><i data-icon="ChevronRight"></i></button></div>
+              </div>
+            </section>
+          </div>
+          <div class="overlay-root" id="overlay-root"></div>
+          <div class="toast-region" id="toast-region" aria-live="polite" aria-atomic="true"></div>
+        </div>
+        <div class="browser-bar" id="browser-bar" aria-label="模拟浏览器工具栏"><i data-icon="ChevronLeft"></i><i data-icon="ChevronRight"></i><span><i data-icon="LockKeyhole"></i>原型 · 本地预览</span><i data-icon="Share2"></i></div>
+        <div class="keyboard-stack" id="keyboard-stack" hidden><div class="keyboard-accessory"><span>浏览器输入工具条 · 模拟</span><button data-action="keyboard" data-value="closed">完成</button></div><div class="keyboard-suggestion"><button data-action="quick-text" data-value="一会儿见">一会儿见</button><button data-action="quick-text" data-value="好呀">好呀</button><button data-action="quick-text" data-value="在路上">在路上</button></div><div class="keyboard-keys" id="keyboard-keys"></div><div class="keyboard-bottom"><button data-action="quick-text" data-value="😊" aria-label="插入微笑">😊</button><button class="space-key" data-action="quick-text" data-value=" ">空格</button><button data-action="send-key">发送</button></div><div class="keyboard-footnote">键盘与工具条为尺寸情境模拟</div></div>
+      </div>
+      <p class="preview-footnote">桌面可模拟键盘；手机打开时使用系统键盘。</p>
+    </section>
+    <aside class="experience-notes">
+      <span class="eyebrow">建议这样体验</span><ol><li><span>01</span><p>先发一条消息<small>观察出现与发送状态</small></p></li><li><span>02</span><p>长按或右键消息<small>回复、复制、删除与撤销</small></p></li><li><span>03</span><p>切换较高键盘<small>观察单行标题与阅读位置</small></p></li><li><span>04</span><p>打开底部面板<small>拖动手柄向下关闭</small></p></li></ol>
+      <section class="state-controls"><h2>状态演示</h2><button data-action="incoming"><i data-icon="MessageSquarePlus"></i>收到一条消息</button><button data-action="history"><i data-icon="History"></i>翻看历史消息</button><button data-action="failure"><i data-icon="CircleAlert"></i>发送失败与重试</button><button data-action="offline" id="offline-control"><i data-icon="WifiOff"></i>断线与重连</button><button data-action="empty"><i data-icon="MessageSquare"></i>空对话</button><button data-action="loading"><i data-icon="LoaderCircle"></i>加载状态</button></section>
+      <p class="motion-note">按压 100ms · 消息 180ms<br>弹窗 180ms · 面板 240ms<br>减少动态效果时保留状态反馈。</p>
+    </aside>
+  </main>
+  <input type="file" id="photo-picker" accept="image/*,video/*" multiple hidden>
+  <input type="file" id="camera-picker" accept="image/*,video/*" capture="environment" hidden>
+  <input type="file" id="file-picker" multiple hidden>
+</body>
+</html>

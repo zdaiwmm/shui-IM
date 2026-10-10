@@ -4,11 +4,11 @@
   --motion-settle: cubic-bezier(.2, .82, .22, 1);
   --motion-travel: cubic-bezier(.24, .72, .18, 1);
   --motion-feedback: 100ms;
-  --motion-local: 220ms;
+  --motion-local: 180ms;
   --motion-panel: 240ms;
-  --motion-page: 280ms;
-  --motion-menu-in: 280ms;
-  --motion-menu-out: 220ms;
+  --motion-page: 180ms;
+  --motion-menu-in: 180ms;
+  --motion-menu-out: 140ms;
   --chrome-tint: var(--paper);
 }
 
@@ -23,7 +23,7 @@ html:has(#app > :is(.backup-page, .cover)) { --chrome-tint: var(--paper-pure); }
     color var(--motion-feedback) var(--motion-out), filter var(--motion-feedback) var(--motion-out);
 }
 :is(.icon-button, .send-button, .viewer-control, .voice-control, .voice-toggle):not(:disabled)[data-motion-pressed="true"],
-.call-control:not(:disabled)[data-motion-pressed="true"] .call-control-disc { scale: .94; transition-duration: 70ms; }
+.call-control:not(:disabled)[data-motion-pressed="true"] .call-control-disc { scale: .96; transition-duration: 100ms; }
 :is(button, [role="switch"], summary, label[role="button"]):focus-visible {
   outline: 2px solid var(--focus); outline-offset: 3px;
 }

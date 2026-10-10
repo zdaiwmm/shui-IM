@@ -6,6 +6,7 @@ import { DesktopWorkspace, desktopWidth } from './lib/desktop-workspace';
 import './desktop.css';
 import { bindControlFeedback } from './lib/control-feedback';
 import { afterMotion, layoutMotionDuration, motion, retargetMotion, settleValue, travelMotion, travelVelocity } from './lib/motion';
+import { messageActionLayout, syncChatBubbleGradient, syncChatBubbleStyle } from './lib/chat-visuals';
 import { IdleLease, IDLE_DURATIONS, IDLE_PREFERENCE_KEY, readIdleSeconds, saveIdleSeconds } from './lib/idle-lock';
 import { IdleLockPrompt } from './lib/idle-lock-prompt';
 import { DesktopAccess } from './lib/desktop-access';
@@ -5550,7 +5551,8 @@ export class QuietRoomApp {
         && textarea.scrollHeight > textarea.clientHeight + 1) {
         contentHeight = Math.max(contentHeight, textarea.scrollHeight + borderHeight);
       }
-      const targetHeight = Math.min(contentHeight, 128);
+      const maximumHeight = parseFloat(editorStyle.maxHeight);
+      const targetHeight = Math.min(contentHeight, Number.isFinite(maximumHeight) ? maximumHeight : 88);
       measure.remove();
       if (this.composerHeightMotion?.targetHeight === targetHeight) return;
 
@@ -6131,11 +6133,14 @@ export class QuietRoomApp {
       const headerHeight = header.offsetHeight;
       const noticesHeight = notices.offsetHeight;
       const composerHeight = composer.offsetHeight;
+      syncChatBubbleGradient(list);
       const measurements = `${headerHeight}:${noticesHeight}:${composerHeight}`;
       if (measurements === previousMeasurements) return;
       previousMeasurements = measurements;
       const pinned = this.chatPinnedToBottom;
       const anchor = position ? this.captureChatAnchor() : null;
+      const priorTopSpace = parseFloat(getComputedStyle(list).paddingTop);
+      const priorScroll = this.chatScrollTop;
       shell.style.setProperty('--chat-header-height', `${headerHeight}px`);
       shell.style.setProperty('--chat-top-space', `${headerHeight + noticesHeight + 14}px`);
       shell.style.setProperty('--chat-bottom-space', `${composerHeight + CHAT_LATEST_GAP}px`);
@@ -6144,6 +6149,13 @@ export class QuietRoomApp {
       // Padding changes can clamp native document scrolling even for a reader
       // who has not requested bottom following. Correct chrome in this task.
       this.refreshNativeChatChrome();
+      // A compact keyboard header changes the flow inset at the viewport
+      // endpoint. Bottom following has its own owner; a history reader needs
+      // the equal scroll correction in this same task, before the next paint.
+      if (!position && !pinned && Number.isFinite(priorTopSpace)) {
+        const topDelta = parseFloat(getComputedStyle(list).paddingTop) - priorTopSpace;
+        if (Math.abs(topDelta) > .1) this.setChatScrollTop(priorScroll + topDelta);
+      }
       if (position) {
         if (pinned) this.scrollChatToBottom();
         else if (anchor) this.restoreChatAnchor(list, anchor);
@@ -8848,13 +8860,12 @@ export class QuietRoomApp {
       list.append(button);
       actionButtons.push(button);
     };
+    if (confirmed) addAction('reply', '回复', icons.reply, () => this.beginReply(message));
     if (this.isOwnMessage(message)) addAction('info', '消息信息', createElement(Info).outerHTML, () => this.showMessageInfo(message));
     if (message.payload.kind === 'text') {
       const text = message.payload.text;
       addAction('copy', '拷贝', '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>', () => void this.copyMessageText(text, message));
-      addAction('select', '选择文字', '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5h8M12 5v14M9 19h6M4 3v18M20 3v18"/></svg>', () => this.openMessageTextSelection(message));
     }
-    if (confirmed) addAction('reply', '回复', icons.reply, () => this.beginReply(message));
     const image = message.payload.kind === 'image' ? message.payload.image
       : message.payload.kind === 'image-album' ? message.payload.images.find(item => item.blobId === selectedBlobId) : undefined;
     if (image && MEME_TYPES.includes(image.mimeType)) addAction('favorite-meme', '收藏为表情', memeIcons.star, () => void this.favoriteChatMeme(message, image));
@@ -8867,6 +8878,7 @@ export class QuietRoomApp {
     // outbox-backed message can be hidden without mutating its durable outbox
     // item. "For everyone" remains limited to confirmed own messages below.
     addAction('delete', '删除', icons.trash, () => this.openMessageDeleteChoices(actions, article, message), true);
+    if (message.payload.kind === 'text') addAction('select', '选择文字', '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5h8M12 5v14M9 19h6M4 3v18M20 3v18"/></svg>', () => this.openMessageTextSelection(message));
     if (list.childElementCount) actions.append(list);
     if (!actionButtons.length) { article.classList.remove('is-action-source'); return; }
     this.root.append(backdrop, actions);
@@ -8879,6 +8891,9 @@ export class QuietRoomApp {
       preview.inert = true;
       preview.style.cssText = `left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;height:${rect.height}px`;
       const clone = sourceBubble.cloneNode(true) as HTMLElement;
+      // Short viewports clip the inert wrapper, keeping the cloned content's
+      // painted geometry and concealment independent of the available space.
+      clone.style.height = `${rect.height}px`;
       clone.querySelectorAll('[id]').forEach(element => element.removeAttribute('id'));
       if (sourceBubble.classList.contains('image-bubble')) {
         const originals = sourceBubble.querySelectorAll<HTMLElement>('.image-preview, .image-album, .image-preview > img');
@@ -8951,7 +8966,7 @@ export class QuietRoomApp {
       note.className = 'message-delete-note';
       note.setAttribute('role', 'note');
       note.textContent = '这条消息尚未送达；隐藏后仍会在连接恢复时尝试发送。';
-      actions.insertBefore(note, list);
+      list.append(note);
     }
     add('delete-local', remainsInOutbox ? '仅本机隐藏（仍会发送）' : '仅为我删除', () => void this.deleteMessageForThisDevice(message));
     this.positionMessageActions(actions, article);
@@ -9035,28 +9050,18 @@ export class QuietRoomApp {
     const height = viewport?.height ?? window.innerHeight;
     const list = actions.querySelector<HTMLElement>('.message-action-list');
     const picker = actions.querySelector<HTMLElement>('.message-reaction-picker');
-    const menuWidth = list?.offsetWidth ?? 212;
+    const menuWidth = list?.offsetWidth ?? 216;
     const pickerHeight = picker?.offsetHeight ?? 0;
-    if (list) list.style.maxHeight = `${Math.max(48, height - pickerHeight - 32)}px`;
+    if (list) list.style.maxHeight = 'none';
     const menuHeight = list?.offsetHeight ?? 0;
+    const placement = messageActionLayout({ left, top, width, height }, rect, pickerHeight, menuHeight);
+    if (list) list.style.maxHeight = `${placement.listHeight}px`;
     const x = Math.max(left + 12, Math.min(rect.left, left + width - menuWidth - 12));
-    const below = rect.bottom + 12;
-    const above = rect.top - pickerHeight - 12;
-    let y = below;
-    let pickerY = above;
-    if (above >= top + 8 && below + menuHeight <= top + height - 8) {
-      // Keep the selected bubble between its reaction bar and action list.
-    } else if (rect.top - menuHeight - pickerHeight - 32 >= top + 8) {
-      y = rect.top - menuHeight - 12;
-      pickerY = y - pickerHeight - 8;
-    } else if (below + pickerHeight + menuHeight + 8 <= top + height - 8) {
-      pickerY = below;
-      y = below + pickerHeight + 8;
-    } else {
-      // Tall messages leave no free edge. Keep both controls accessible in a
-      // single stack instead of independently clamping them into one another.
-      pickerY = top + 8;
-      y = picker ? pickerY + pickerHeight + 8 : top + 8;
+    const y = placement.listTop;
+    const preview = this.root.querySelector<HTMLElement>('.message-action-preview');
+    if (preview) {
+      preview.style.top = `${placement.previewTop}px`;
+      preview.style.height = `${placement.previewHeight}px`;
     }
     actions.style.setProperty('--message-action-x', `${Math.round(x)}px`);
     actions.style.setProperty('--message-action-y', `${Math.round(y)}px`);
@@ -9067,7 +9072,7 @@ export class QuietRoomApp {
     if (picker) {
       const pickerX = Math.max(left + 8, Math.min(rect.left, left + width - picker.offsetWidth - 8));
       actions.style.setProperty('--message-reaction-x', `${Math.round(pickerX)}px`);
-      actions.style.setProperty('--message-reaction-y', `${Math.round(pickerY)}px`);
+      actions.style.setProperty('--message-reaction-y', `${Math.round(placement.pickerTop)}px`);
     }
   }
 
@@ -9589,7 +9594,9 @@ export class QuietRoomApp {
       this.renderedMessageOrder = this.mediaUploads.size ? timeline.filter(element => element.classList.contains('message')) : elements;
       this.renderedMessageSeq = sequences;
     }
+    syncChatBubbleStyle(list);
     const reactionLayoutChanged = this.renderMessageReactions();
+    syncChatBubbleGradient(list);
     this.mountChatImageObserver(list);
     this.voicePlayback.prune();
     if (scroll === 'bottom' || followSend || !anchor) {

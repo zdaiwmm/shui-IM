@@ -538,7 +538,9 @@ try {
     if (!preview || preview.textContent !== source.textContent) throw Error('Selected text must be copied above the blur layer');
     const originalRect = source.getBoundingClientRect();
     const previewRect = preview.getBoundingClientRect();
-    if (Math.abs(originalRect.left - previewRect.left) > 1 || Math.abs(originalRect.top - previewRect.top) > 1 || Math.abs(originalRect.width - previewRect.width) > 1) throw Error('Menu preview must preserve the original bubble position and width');
+    if (Math.abs(originalRect.left - previewRect.left) > 1 || Math.abs(originalRect.width - previewRect.width) > 1 || Math.abs(originalRect.height - previewRect.height) > 1) throw Error('Menu preview must preserve the original horizontal position and content geometry');
+    const visiblePreview = rect('.message-action-preview');
+    if (picker.bottom > visiblePreview.top || visiblePreview.bottom > actions.top || visiblePreview.top < 0 || visiblePreview.bottom > innerHeight || visiblePreview.height < 44) throw Error(`P1 reactions, clipped preview and menu must stay ordered in the viewport: ${JSON.stringify({ picker, visiblePreview, actions })}`);
     if (getComputedStyle(preview).visibility !== 'visible' || getComputedStyle(preview).backgroundColor !== getComputedStyle(source).backgroundColor) throw Error('Menu preview must remain visible in the source bubble color');
     for (const box of [picker, actions]) {
       if (box.left < 0 || box.right > innerWidth || box.top < 0 || box.bottom > innerHeight || !box.width || !box.height) throw Error(`Long message actions are clipped at 320px: ${JSON.stringify({ picker, actions })}`);
@@ -1398,8 +1400,9 @@ try {
     const padding = getComputedStyle(list).paddingBottom;
     const scrollTo = window.scrollTo; const scrollBy = window.scrollBy;
     let corrections = 0;
-    window.scrollTo = (...args) => { corrections++; scrollTo.apply(window, args); };
-    window.scrollBy = (...args) => { corrections++; scrollBy.apply(window, args); };
+    const correctionDeltas = [];
+    window.scrollTo = (...args) => { const before = scrollY; corrections++; scrollTo.apply(window, args); correctionDeltas.push(scrollY - before); };
+    window.scrollBy = (...args) => { const before = scrollY; corrections++; scrollBy.apply(window, args); correctionDeltas.push(scrollY - before); };
     try {
       // A viewport pan, even while pinned, must not change document extent or
       // force-scroll. This used to feed Safari's pan back into itself.
@@ -1427,10 +1430,13 @@ try {
       const textarea = document.querySelector('#message-input');
       textarea.value = '多行草稿\n'.repeat(5); textarea.dispatchEvent(new Event('input')); await settle();
       if (app.captureChatAnchor().clientMsgId !== anchor.clientMsgId || Math.abs(app.captureChatAnchor().offset - anchor.offset) > 1) throw Error('Composer growth moved an unpinned reader');
-      corrections = 0;
+      corrections = 0; correctionDeltas.length = 0;
+      const keyboardTopInset = parseFloat(getComputedStyle(list).paddingTop);
       delete viewport.height; delete viewport.offsetTop;
       viewport.dispatchEvent(new Event('resize')); await settleViewport();
-      if (app.chatPinnedToBottom || corrections) throw Error('Keyboard dismissal forced bottom-follow after upward intent');
+      const headerInsetDelta = parseFloat(getComputedStyle(list).paddingTop) - keyboardTopInset;
+      if (app.chatPinnedToBottom || corrections !== (Math.abs(headerInsetDelta) > .1 ? 1 : 0)
+        || correctionDeltas.some(delta => Math.abs(delta - headerInsetDelta) > 1)) throw Error(`Keyboard dismissal must only compensate compact-header growth after upward intent: ${JSON.stringify({ pinned: app.chatPinnedToBottom, corrections, correctionDeltas, headerInsetDelta })}`);
       scrollTo.call(window, 0, document.documentElement.scrollHeight); await settle();
       list.dispatchEvent(new WheelEvent('wheel', { deltaY: 12, bubbles: true }));
       if (!app.captureChatAnchor().pinnedToBottom) throw Error('Downward intent at the clamped bottom did not resume follow');
@@ -1442,9 +1448,12 @@ try {
       if (document.activeElement !== textarea) throw Error('History pointerdown prematurely blurred the keyboard');
       list.lastElementChild.dispatchEvent(new PointerEvent('pointerup', { pointerType: 'touch', bubbles: true }));
       const gestureStart = { beforeGesture, pinned: app.chatPinnedToBottom, intent: app.chatScrollIntent, focused: document.activeElement?.id, keyboard: document.documentElement.dataset.keyboardOpen };
-      corrections = 0;
+      corrections = 0; correctionDeltas.length = 0;
+      const gestureTopInset = parseFloat(getComputedStyle(list).paddingTop);
       delete viewport.height; viewport.dispatchEvent(new Event('resize')); await settleViewport();
-      if (app.chatPinnedToBottom || corrections) throw Error(`Keyboard blur before touchmove stole the gesture position: ${JSON.stringify({ gestureStart, pinned: app.chatPinnedToBottom, intent: app.chatScrollIntent, corrections })}`);
+      const gestureInsetDelta = parseFloat(getComputedStyle(list).paddingTop) - gestureTopInset;
+      if (app.chatPinnedToBottom || corrections !== (Math.abs(gestureInsetDelta) > .1 ? 1 : 0)
+        || correctionDeltas.some(delta => Math.abs(delta - gestureInsetDelta) > 1)) throw Error(`Keyboard blur before touchmove stole the gesture position: ${JSON.stringify({ gestureStart, pinned: app.chatPinnedToBottom, intent: app.chatScrollIntent, corrections, correctionDeltas, gestureInsetDelta })}`);
     } finally {
       window.scrollTo = scrollTo; window.scrollBy = scrollBy;
       delete viewport.height; delete viewport.offsetTop;

@@ -221,12 +221,14 @@ try {
   assert.ok(animation.offsets.length > 8 && animation.offsets.at(-1) > 200);
   assert.ok(animation.offsets.every((offset, index) => !index || offset >= animation.offsets[index - 1] - 1), 'dismissal must slide continuously downward');
   await page.locator('[data-viewer-details]').click(); await settle();
-  const glass = await page.locator('.photo-details').evaluate(panel => ({
+  const surface = await page.locator('.photo-details').evaluate(panel => ({
     filter: getComputedStyle(panel).backdropFilter || getComputedStyle(panel).webkitBackdropFilter,
+    background: getComputedStyle(panel).backgroundColor,
     duration: getComputedStyle(panel).transitionDuration,
   }));
-  assert.match(glass.filter, /blur\(/);
-  assert.equal(glass.duration, '0.24s');
+  assert.equal(surface.filter, 'none');
+  assert.match(surface.background, /^rgb\([\d,\s]+\)$/);
+  assert.equal(surface.duration, '0.24s');
   assert.equal(await page.locator('.photo-details-content').evaluate(content => getComputedStyle(content).scrollbarWidth), 'none');
   await page.locator('.photo-details-backdrop').click({ position: { x: 15, y: 180 } });
   await page.waitForSelector('.photo-details', { state: 'detached' });

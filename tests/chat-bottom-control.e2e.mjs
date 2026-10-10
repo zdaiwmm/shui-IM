@@ -1141,16 +1141,16 @@ try {
       await fresh();
       await up(24);
       await waitForComposerReveal();
-      const idle = assertSurfaceSet(`${scheme} idle`, 0.84);
+      const idle = assertSurfaceSet(`${scheme} idle`, 1);
       const input = document.querySelector('#message-input');
       input.focus({ preventScroll: true });
       await waitForComposerReveal();
-      const focused = assertSurfaceSet(`${scheme} focused`, 0.92);
+      const focused = assertSurfaceSet(`${scheme} focused`, 1);
       if (focused.input.backgroundColor === idle.input.backgroundColor) {
         throw Error(`${scheme} focused composer surface did not reach its focus token`);
       }
       document.querySelector('#open-chat-tools').disabled = true;
-      const disabled = assertSurfaceSet(`${scheme} disabled actions`, 0.92);
+      const disabled = assertSurfaceSet(`${scheme} disabled actions`, 1);
       document.querySelector('#open-chat-tools').disabled = false;
       input.blur();
       await waitForComposerReveal();

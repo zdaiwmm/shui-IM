@@ -198,9 +198,9 @@ try {
     return { height: input.getBoundingClientRect().height, scroll: input.scrollTop,
       insets: [style.borderTopWidth, style.borderBottomWidth] };
   });
-  assert.equal(cappedInput.height, 128);
+  assert.equal(cappedInput.height, 88);
   assert.ok(cappedInput.scroll > 0, JSON.stringify(cappedInput));
-  assert.deepEqual(cappedInput.insets, ['10px', '10px']);
+  assert.deepEqual(cappedInput.insets, ['7px', '7px']);
   state = await geometry();
   assert.ok(state.pinned && state.gap <= 2, JSON.stringify(state));
 

@@ -1,55 +1,66 @@
-/* Theme palettes reuse the current geometry, materials and semantic state colors. */
-:root[data-theme="green"] { --palette-hue: 155; --palette-accent: 44% .12; }
-:root[data-theme="purple"] { --palette-hue: 300; --palette-accent: 50% .16; }
-:root[data-theme="apricot"] { --palette-hue: 58; --palette-accent: 49% .12; }
+/* Additional local palettes share P1 geometry and opaque materials. The stored
+   blue identifier remains the confirmed classic palette for compatibility. */
+:root[data-theme="green"] {
+  --palette-hue: 160; --palette-accent: 43% .09;
+  --outgoing: #d6f4e4; --message-time-outgoing: #326a50;
+  --header-surface: #c7dfd3; --composer-surface: #c8e4db; --composer-surface-focused: #d5ece3;
+  --wall-a: #cad9ac; --wall-b: #65a695; --wall-c: #84b89c; --wall-d: #bed3bd;
+  --outgoing-start: #24644a; --outgoing-middle: #326f68; --outgoing-end: #235b79;
+}
+:root[data-theme="purple"] {
+  --palette-hue: 300; --palette-accent: 43% .12;
+  --outgoing: #eee1fb; --message-time-outgoing: #67517d;
+  --header-surface: #dfd0ed; --composer-surface: #e4dbee; --composer-surface-focused: #eee6f5;
+  --wall-a: #d6c5cc; --wall-b: #a296b5; --wall-c: #b0b6c3; --wall-d: #cfc7da;
+  --outgoing-start: #734786; --outgoing-middle: #6a40a1; --outgoing-end: #4356a7;
+}
+:root[data-theme="apricot"] {
+  --palette-hue: 58; --palette-accent: 43% .09;
+  --outgoing: #f6e6cf; --message-time-outgoing: #796044;
+  --header-surface: #e7d9bd; --composer-surface: #ecddcb; --composer-surface-focused: #f4e7d8;
+  --wall-a: #d6cc9d; --wall-b: #baaa87; --wall-c: #c4ba9c; --wall-d: #d9c9b0;
+  --outgoing-start: #784936; --outgoing-middle: #7d493d; --outgoing-end: #6f3f51;
+}
 :root[data-theme]:not([data-theme="blue"]) {
-  --chrome-tint: oklch(96% .01 var(--palette-hue));
-  --paper: oklch(98% .007 var(--palette-hue));
-  --paper-pure: oklch(99.4% .003 var(--palette-hue));
-  --surface: oklch(95% .012 var(--palette-hue));
-  --surface-raised: oklch(99% .005 var(--palette-hue));
+  --paper: oklch(97% .009 var(--palette-hue));
+  --paper-pure: oklch(99.5% .002 var(--palette-hue));
+  --surface: oklch(93% .015 var(--palette-hue));
+  --surface-raised: oklch(99.5% .002 var(--palette-hue));
   --ink: oklch(23% .018 var(--palette-hue));
   --ink-muted: oklch(43% .018 var(--palette-hue));
-  --ink-faint: oklch(52% .015 var(--palette-hue));
-  --line: oklch(78% .02 var(--palette-hue) / .58);
+  --ink-faint: oklch(49% .015 var(--palette-hue));
+  --line: oklch(87% .015 var(--palette-hue));
   --line-strong: oklch(61% .025 var(--palette-hue));
   --accent: oklch(var(--palette-accent) var(--palette-hue));
   --accent-hover: color-mix(in oklch, var(--accent) 86%, var(--ink));
   --accent-soft: oklch(93% .035 var(--palette-hue));
-  --incoming: oklch(99% .004 var(--palette-hue) / .76);
-  --outgoing: var(--accent);
-  --on-accent: oklch(99.4% .003 var(--palette-hue));
+  --incoming: var(--paper-pure);
+  --on-accent: var(--ink);
   --message-time: oklch(48% .015 var(--palette-hue));
-  --message-time-outgoing: oklch(92% .01 var(--palette-hue));
-  --focus: var(--accent);
-  --glass: oklch(99% .006 var(--palette-hue) / .58);
-  --glass-strong: oklch(98.5% .008 var(--palette-hue) / .76);
-  --glass-control: oklch(97% .012 var(--palette-hue) / .68);
-  --glass-panel: oklch(98.2% .01 var(--palette-hue) / .84);
 }
 @media (prefers-color-scheme: dark) {
   :root[data-theme]:not([data-theme="blue"]) {
-    --chrome-tint: oklch(19.5% .018 var(--palette-hue));
-    --paper: oklch(20.5% .018 var(--palette-hue));
-    --paper-pure: oklch(23.5% .02 var(--palette-hue));
+    --paper: oklch(19% .012 var(--palette-hue));
+    --paper-pure: oklch(24% .018 var(--palette-hue));
     --surface: oklch(27% .022 var(--palette-hue));
-    --surface-raised: oklch(29% .024 var(--palette-hue));
+    --surface-raised: oklch(27% .018 var(--palette-hue));
     --ink: oklch(95% .008 var(--palette-hue));
     --ink-muted: oklch(77% .016 var(--palette-hue));
-    --ink-faint: oklch(66% .014 var(--palette-hue));
-    --line: oklch(58% .025 var(--palette-hue) / .48);
-    --line-strong: oklch(72% .024 var(--palette-hue));
-    --accent: oklch(77% .12 var(--palette-hue));
-    --accent-hover: oklch(83% .10 var(--palette-hue));
-    --accent-soft: oklch(33% .05 var(--palette-hue));
-    --incoming: oklch(29% .022 var(--palette-hue) / .9);
-    --outgoing: oklch(var(--palette-accent) var(--palette-hue));
+    --ink-faint: oklch(70% .014 var(--palette-hue));
+    --line: oklch(36% .02 var(--palette-hue));
+    --line-strong: oklch(65% .024 var(--palette-hue));
+    --accent: oklch(78% .10 var(--palette-hue));
+    --accent-hover: oklch(46% .08 var(--palette-hue));
+    --accent-soft: oklch(33% .04 var(--palette-hue));
+    --action-surface: oklch(44% .10 var(--palette-hue));
+    --incoming: oklch(27% .025 var(--palette-hue));
+    --outgoing: var(--outgoing-middle);
+    --on-accent: #fff;
     --message-time: oklch(80% .014 var(--palette-hue));
-    --focus: var(--accent);
-    --glass: oklch(29% .022 var(--palette-hue) / .58);
-    --glass-strong: oklch(28% .024 var(--palette-hue) / .76);
-    --glass-control: oklch(27% .022 var(--palette-hue) / .68);
-    --glass-panel: oklch(28% .022 var(--palette-hue) / .84);
+    --message-time-outgoing: #fefeff;
+    --header-surface: var(--paper-pure);
+    --composer-surface: var(--paper-pure);
+    --composer-surface-focused: var(--surface);
   }
 }
 .preference-content { width: min(100%, 560px); margin-inline: auto; padding: 24px 24px 40px; }

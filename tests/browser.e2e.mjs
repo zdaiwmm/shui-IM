@@ -421,7 +421,7 @@ try {
     const input = document.querySelector('#message-input')?.getBoundingClientRect();
     return {
       composerVisible: Boolean(composer && composer.height >= 44 && composer.bottom <= innerHeight + 1),
-      inputVisible: Boolean(input && input.width > 0 && input.height >= 42 && input.bottom <= innerHeight + 1),
+      inputVisible: Boolean(input && input.width > 0 && input.height >= 44 && input.bottom <= innerHeight + 1),
       composer: composer ? { top: composer.top, bottom: composer.bottom, width: composer.width, height: composer.height } : null,
       input: input ? { top: input.top, bottom: input.bottom, width: input.width, height: input.height } : null,
       innerHeight,
@@ -521,7 +521,7 @@ try {
   await joiner.waitForTimeout(320);
   invariant(await joiner.locator('.message-reaction-picker button[data-reaction]').count() === 6, 'Long press did not expose the six quick message reactions');
   const incomingActions = await joiner.locator('.message-action-list [data-message-action] span').allTextContents();
-  invariant(JSON.stringify(incomingActions) === JSON.stringify(['拷贝', '选择文字', '回复', '删除']),
+  invariant(JSON.stringify(incomingActions) === JSON.stringify(['回复', '拷贝', '删除', '选择文字']),
     `Incoming text action menu is missing copy, select, reply, or delete: ${JSON.stringify(incomingActions)}`);
   const actionGeometry = await joiner.locator('.message-action-list, .message-reaction-picker').evaluateAll(elements => elements.map(element => {
     const rect = element.getBoundingClientRect();
@@ -1412,8 +1412,10 @@ try {
       messageOverflow: messageList ? getComputedStyle(messageList).overflowY : 'missing',
       headerBackground: header ? getComputedStyle(document.querySelector('.chat-header')).backgroundColor : 'missing',
       composerBackground: composer ? getComputedStyle(document.querySelector('.composer')).backgroundColor : 'missing',
-      headerGradient: getComputedStyle(document.querySelector('.chat-header'), '::before').backgroundImage,
-      composerGradient: getComputedStyle(document.querySelector('.composer'), '::before').backgroundImage,
+      headerSheenDisplay: getComputedStyle(document.querySelector('.chat-header'), '::before').display,
+      headerBackdrop: getComputedStyle(document.querySelector('.chat-header')).backdropFilter,
+      headerOpaque: (() => { context.clearRect(0,0,1,1); context.fillStyle=getComputedStyle(document.querySelector('.chat-header')).backgroundColor; context.fillRect(0,0,1,1); return context.getImageData(0,0,1,1).data[3] === 255; })(),
+      composerSheenDisplay: getComputedStyle(document.querySelector('.composer'), '::before').display,
       messageRegion: messageList ? { top: messageList.getBoundingClientRect().top, bottom: messageList.getBoundingClientRect().bottom } : null,
       shellRegion: shell ? { top: shell.top, bottom: shell.bottom } : null,
       viewport: document.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? '',
@@ -1443,9 +1445,9 @@ try {
   invariant(accessibility.composerFieldOutline === 'none', 'Composer field retained the second focus outline');
   invariant(accessibility.headerOffset < 1 && accessibility.composerOffset < 1, 'Chat header or composer is not fixed to the visual viewport');
   invariant(accessibility.messageOverflow === 'visible', 'Messages are clipped in a nested scroll region');
-  invariant(accessibility.headerBackground === 'rgba(0, 0, 0, 0)', `Chat header is not transparent: ${accessibility.headerBackground}`);
+  invariant(accessibility.headerOpaque && accessibility.headerBackdrop === 'none', `P1 header must be opaque with no glass blur: ${accessibility.headerBackground}`);
   invariant(accessibility.composerBackground === 'rgba(0, 0, 0, 0)', `Composer bar is not transparent: ${accessibility.composerBackground}`);
-  invariant(accessibility.headerGradient.includes('linear-gradient') && accessibility.composerGradient.includes('linear-gradient'), `Chat bars do not have translucent gradient masks: ${JSON.stringify(accessibility)}`);
+  invariant(accessibility.headerSheenDisplay === 'none' && accessibility.composerSheenDisplay === 'none', `P1 chrome must not retain translucent gradient masks: ${JSON.stringify(accessibility)}`);
   invariant(accessibility.messageRegion && accessibility.shellRegion && Math.abs(accessibility.messageRegion.top - accessibility.shellRegion.top) <= 1 && Math.abs(accessibility.messageRegion.bottom - accessibility.shellRegion.bottom) <= 1, 'Messages do not scroll underneath the top and bottom bars');
   invariant(accessibility.viewport.includes('user-scalable=no') && accessibility.viewport.includes('maximum-scale=1'), 'Browser zoom is not disabled');
   for (const client of [creator, joiner]) {

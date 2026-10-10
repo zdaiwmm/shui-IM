@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quiet Room · 截图配色校准 V5</title>
+<style>
+*{box-sizing:border-box}html{color-scheme:light}body{margin:0;background:#f5f5f7;color:#202124;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+.board{width:1224px;margin:auto;padding:38px 48px 30px}h1{margin:0;font-size:28px;font-weight:650;letter-spacing:-.6px}.intro{margin:10px 0 28px;color:#757579;font-size:14px;line-height:1.6}.columns{display:grid;grid-template-columns:360px 360px 360px;gap:24px}.caption{display:flex;align-items:baseline;gap:10px;margin:0 0 12px;font-size:14px;font-weight:600}.caption span{font-size:12px;color:#85858a;font-weight:400}
+.theme{--accent:#529d68;--bar:#beeaa1;--chat:#a9c790;--surface:#fff;--text:#000;--secondary:#738677;--divider:#a7c89d;--incoming:#fff;--outgoing:#e0ffc6;--bubble-text:#000;--out-meta:#2ea22f;--input:#bce8cf;--input-stroke:#a5d4b8;--service:#8bab77;--service-text:#fff;--toggle:#529d68;--chrome-icon:#111;--composer:#bce8cf;--avatar:#736eff;--settings-bg:#e9efea;color:var(--text)}
+.dark{color-scheme:dark;--accent:#9465ed;--bar:#252525;--chat:#000;--surface:#2c252e;--text:#fff;--secondary:#9c939e;--divider:#473a49;--incoming:#342234;--outgoing:#9349f4;--bubble-text:#fff;--out-meta:rgba(255,255,255,.58);--input:#242424;--input-stroke:#444047;--service:#2b242e;--service-text:#c2bac5;--toggle:#9465ed;--chrome-icon:#fff;--composer:#252525;--avatar:#736eff;--settings-bg:#19151b}
+.chat{height:642px;display:flex;flex-direction:column;background:var(--chat);overflow:hidden;outline:1px solid #d9dadd}.dark.chat{outline-color:#342e36}.titlebar{height:48px;flex:none;display:flex;align-items:center;padding:0 8px 0 14px;background:var(--bar);border-bottom:1px solid color-mix(in srgb,var(--divider) 55%,transparent)}.avatar{height:28px;width:28px;border-radius:50%;display:grid;place-items:center;background:var(--avatar);color:white;font-size:14px;font-weight:500;margin-right:9px}.person{flex:1;min-width:0}.name{font-size:15px;font-weight:600;line-height:20px}.status{color:var(--secondary);font-size:11px;line-height:15px}.icon{height:44px;width:40px;display:grid;place-items:center;color:var(--chrome-icon);flex:none}.icon svg{height:21px;width:21px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
+.timeline{position:relative;isolation:isolate;background:radial-gradient(ellipse at 0% 0%,#cad381 0%,transparent 68%),radial-gradient(ellipse at 100% 0%,#89be87 0%,transparent 65%),radial-gradient(ellipse at 0% 100%,#66ab84 0%,transparent 65%),linear-gradient(110deg,#abc883,#d0d7b2);display:flex;flex-direction:column;justify-content:flex-end;gap:3px;flex:1;padding:18px 13px 14px;min-height:0;overflow:hidden}.timeline:before{content:"";position:absolute;inset:0;z-index:-1;background:#517e4c;opacity:.19;mask-image:var(--wallpaper-pattern,none);mask-repeat:repeat;mask-size:470px auto;mask-position:center -20px}.dark .timeline{background:#000}.dark .timeline:before{background:linear-gradient(140deg,#5d3068 0%,#543837 43%,#30234b 66%,#1e4260 100%);opacity:.72}.date{align-self:center;background:var(--service);color:var(--service-text);font-size:11px;border-radius:12px;padding:4px 10px;line-height:15px;margin:0 0 14px}.bubble{position:relative;align-self:flex-start;max-width:87%;padding:8px 11px 7px;font-size:16px;line-height:22px;border-radius:16px;background:var(--incoming);color:var(--bubble-text);overflow-wrap:anywhere;box-shadow:0 .5px 1px #0000000d}.bubble.out{align-self:flex-end;background:var(--outgoing)}.dark .bubble.out{background-image:linear-gradient(180deg,#944cd5 0%,#9349f4 45%,#3768ff 100%);background-size:100% var(--gradient-span,500px);background-position:0 var(--gradient-offset,0);background-repeat:no-repeat}.bubble.group-gap{margin-top:12px}.bubble.start{border-bottom-left-radius:8px}.bubble.middle{border-top-left-radius:8px;border-bottom-left-radius:8px}.bubble.end{border-top-left-radius:8px;border-bottom-left-radius:5px}.bubble.out.start{border-bottom-left-radius:16px;border-bottom-right-radius:8px}.bubble.out.end{border-top-left-radius:16px;border-top-right-radius:8px;border-bottom-left-radius:16px;border-bottom-right-radius:5px}.bubble.tail:before{content:"";position:absolute;bottom:0;left:-5px;width:10px;height:12px;background:var(--incoming);clip-path:polygon(100% 0,100% 100%,0 100%,55% 65%)}.bubble.out.tail:before{left:auto;right:-5px;background:var(--tail-color,var(--outgoing));transform:scaleX(-1)}.meta{font-size:11px;line-height:13px;float:right;margin:8px -2px -2px 13px;color:#979797;white-space:nowrap;font-variant-numeric:tabular-nums}.out .meta{color:var(--out-meta)}.dark .meta{color:rgba(255,255,255,.5)}.ticks{font-size:12px;letter-spacing:-5px;margin:0 3px 0 5px}.voice{display:flex;align-items:center;gap:9px;min-width:206px;padding-bottom:9px}.play{width:29px;height:29px;display:grid;place-items:center;background:var(--accent);color:white;border-radius:50%;font-size:12px;flex:none}.wave{height:22px;display:flex;align-items:center;gap:2px;color:var(--accent)}.wave i{width:2px;height:var(--h);background:currentColor;border-radius:1px}.duration{font-size:12px;color:var(--secondary)}
+.composer{height:52px;padding:4px 5px;display:flex;align-items:center;background:var(--composer);border-top:1px solid color-mix(in srgb,var(--divider) 50%,transparent);flex:none}.composer .icon{width:40px;color:var(--text)}.composer .microphone{color:var(--chrome-icon)}.field{display:flex;align-items:center;height:36px;flex:1;border:1px solid var(--input-stroke);border-radius:18px;background:var(--input);padding:0 10px 0 12px;min-width:0}.placeholder{font-size:16px;line-height:22px;color:var(--secondary);flex:1}.field svg{height:20px;width:20px;fill:none;stroke:var(--secondary);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.swatches{display:flex;gap:15px;margin-top:16px}.swatch{width:60px;font-size:10px;color:#7b7b80;line-height:16px}.swatch i{display:block;height:22px;margin-bottom:5px;border-radius:4px;border:1px solid #00000012;background:var(--c)}.swatch b{font-family:ui-monospace,SFMono-Regular,monospace;font-size:9px;font-weight:400;display:block}
+.settings{background:var(--settings-bg);padding:0 14px 14px;outline:1px solid #d9dadd}.settings-title{height:44px;display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:600}.settings-group{background:var(--surface);border-radius:10px;overflow:hidden}.row{height:44px;display:flex;gap:11px;align-items:center;padding:0 12px;font-size:14px}.row+.row{border-top:1px solid color-mix(in srgb,var(--divider) 45%,transparent)}.row .glyph{width:24px;height:24px;border-radius:6px;background:var(--accent);color:#fff;display:grid;place-items:center}.glyph svg{height:17px;width:17px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}.row label{flex:1}.value{font-size:12px;color:var(--secondary)}.chevron{font-size:19px;color:var(--secondary);margin-left:-3px;font-weight:300}.toggle{height:23px;width:39px;background:var(--toggle);border-radius:12px;padding:2px;display:flex;justify-content:flex-end}.toggle i{height:19px;width:19px;border-radius:50%;background:white;box-shadow:0 1px 3px #00000021}.dark-detail{margin-top:12px;padding:0;background:var(--settings-bg);border-radius:10px;overflow:hidden}.sidebar h2{margin-top:24px}.short.chat{height:274px}.short .titlebar{height:40px;padding-left:14px}.short .person{display:flex;align-items:center;gap:8px}.short .name{font-size:14px}.short .status{font-size:11px;line-height:20px}.short .timeline{padding-top:10px;padding-bottom:10px}.short .bubble{font-size:15px;line-height:21px;padding-top:6px;padding-bottom:6px}.short .bubble.group-gap{margin-top:8px}.short .meta{margin-top:6px}.short .composer{height:52px}.note{font-size:12px;line-height:1.7;color:#7b7b80;margin:14px 0 0;max-width:390px}.foundations{display:flex;gap:30px;align-items:center;margin:27px 0 0;padding-top:18px;border-top:1px solid #dedee3;font-size:12px;color:#68686d}.foundations strong{font-weight:500;color:#35353a}.source{font-size:10px;color:#919197;margin-top:12px;line-height:1.7}
+@media(max-width:1223px){.board{margin:0}}
+</style>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs>
+<symbol id="call" viewBox="0 0 24 24"><path d="m7 3 3 5-2 2c1.4 2.7 3.3 4.6 6 6l2-2 5 3c.2 2.3-1 4-3 4C10 20.5 3.5 14 3 6c0-2 1.7-3.2 4-3Z"/></symbol>
+<symbol id="more" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="19" r="1" fill="currentColor"/></symbol>
+<symbol id="clip" viewBox="0 0 24 24"><path d="m8 13 7-7a3 3 0 0 1 4 4l-9 9a5 5 0 0 1-7-7l10-10"/></symbol>
+<symbol id="mic" viewBox="0 0 24 24"><rect x="9" y="2" width="6" height="13" rx="3"/><path d="M6 10v2a6 6 0 0 0 12 0v-2M12 18v4M9 22h6"/></symbol>
+<symbol id="smile" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 14.5a5 5 0 0 0 8 0"/><circle cx="9" cy="9" r=".7" fill="currentColor"/><circle cx="15" cy="9" r=".7" fill="currentColor"/></symbol>
+<symbol id="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5"/></symbol>
+<symbol id="clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></symbol>
+<symbol id="bell" viewBox="0 0 24 24"><path d="M5 17c2-3 1-5 2-8a5 5 0 0 1 10 0c1 3 0 5 2 8ZM10 20h4M12 3V2"/></symbol>
+<symbol id="sound" viewBox="0 0 24 24"><path d="m11 4-6 5H2v6h3l6 5ZM15 8a6 6 0 0 1 0 8M18 5a10 10 0 0 1 0 14"/></symbol>
+<symbol id="moon" viewBox="0 0 24 24"><path d="M20 14A9 9 0 0 1 10 3a9 9 0 1 0 10 11Z"/></symbol>
+</defs></svg>
+<main class="board">
+<h1>以你的 Telegram 截图为准</h1>
+<p class="intro">浅色保留柔绿壁纸与白／浅绿气泡，深色回到黑底与紫蓝渐变；只校准视觉，暂不制作交互原型。</p>
+<div class="columns">
+<section><h2 class="caption">浅色 <span>柔绿壁纸 · 白色 / 浅绿气泡</span></h2>
+<div class="theme chat">
+<div class="titlebar"><span class="avatar">晚</span><div class="person"><div class="name">晚风</div><div class="status">在线</div></div><span class="icon"><svg><use href="#call"/></svg></span><span class="icon"><svg><use href="#more"/></svg></span></div>
+<div class="timeline"><span class="date">10月10日</span>
+<div class="bubble start">周六下午见？<span class="meta">14:32</span></div>
+<div class="bubble end tail">还是上次那家咖啡店。<span class="meta">14:32</span></div>
+<div class="bubble out tail group-gap">好呀，靠窗的位置 😊<span class="meta">14:33<span class="ticks">✓✓</span></span></div>
+<div class="bubble start group-gap">我把时间空出来了。<span class="meta">14:34</span></div>
+<div class="bubble end tail">慢慢聊，不着急。<span class="meta">14:34</span></div>
+<div class="bubble out start group-gap">我大概三点到。<span class="meta">14:35<span class="ticks">✓✓</span></span></div>
+<div class="bubble out end tail">要不要帮你点杯拿铁？<span class="meta">14:35<span class="ticks">✓✓</span></span></div>
+<div class="bubble tail group-gap">好，少冰就行。<span class="meta">14:36</span></div>
+<div class="bubble out tail group-gap">那一会儿见 ☕<span class="meta">14:37<span class="ticks">✓✓</span></span></div>
+</div>
+<div class="composer"><span class="icon"><svg><use href="#clip"/></svg></span><div class="field"><span class="placeholder">发消息…</span><svg><use href="#smile"/></svg></div><span class="icon microphone"><svg><use href="#mic"/></svg></span></div>
+</div>
+<div class="swatches"><span class="swatch"><i style="--c:#cad381"></i>壁纸黄绿<b>#CAD381</b></span><span class="swatch"><i style="--c:#66ab84"></i>壁纸青绿<b>#66AB84</b></span><span class="swatch"><i style="--c:#fff"></i>接收消息<b>#FFFFFF</b></span><span class="swatch"><i style="--c:#e0ffc6"></i>发送消息<b>#E0FFC6</b></span><span class="swatch"><i style="--c:#2ea22f"></i>发送时间<b>#2EA22F</b></span></div>
+</section>
+<section><h2 class="caption">深色 <span>黑底 · 暖紫灰 / 紫蓝渐变</span></h2>
+<div class="theme dark chat">
+<div class="titlebar"><span class="avatar">晚</span><div class="person"><div class="name">晚风</div><div class="status">在线</div></div><span class="icon"><svg><use href="#call"/></svg></span><span class="icon"><svg><use href="#more"/></svg></span></div>
+<div class="timeline"><span class="date">10月10日</span>
+<div class="bubble start">周六下午见？<span class="meta">14:32</span></div>
+<div class="bubble end tail">还是上次那家咖啡店。<span class="meta">14:32</span></div>
+<div class="bubble out tail group-gap">好呀，靠窗的位置 😊<span class="meta">14:33<span class="ticks">✓✓</span></span></div>
+<div class="bubble start group-gap">我把时间空出来了。<span class="meta">14:34</span></div>
+<div class="bubble end tail">慢慢聊，不着急。<span class="meta">14:34</span></div>
+<div class="bubble out start group-gap">我大概三点到。<span class="meta">14:35<span class="ticks">✓✓</span></span></div>
+<div class="bubble out end tail">要不要帮你点杯拿铁？<span class="meta">14:35<span class="ticks">✓✓</span></span></div>
+<div class="bubble tail group-gap">好，少冰就行。<span class="meta">14:36</span></div>
+<div class="bubble out tail group-gap">那一会儿见 ☕<span class="meta">14:37<span class="ticks">✓✓</span></span></div>
+</div>
+<div class="composer"><span class="icon"><svg><use href="#clip"/></svg></span><div class="field"><span class="placeholder">发消息…</span><svg><use href="#smile"/></svg></div><span class="icon microphone"><svg><use href="#mic"/></svg></span></div>
+</div>
+<div class="swatches"><span class="swatch"><i style="--c:#000"></i>壁纸底色<b>#000000</b></span><span class="swatch"><i style="--c:#342234"></i>接收消息<b>#342234</b></span><span class="swatch"><i style="--c:#944cd5"></i>发送 · 上<b>#944CD5</b></span><span class="swatch"><i style="--c:#9349f4"></i>发送 · 中<b>#9349F4</b></span><span class="swatch"><i style="--c:#3768ff"></i>发送 · 下<b>#3768FF</b></span></div>
+</section>
+<aside class="sidebar"><h2 class="caption">控件延展 <span>沿用截图色相</span></h2>
+<div class="theme settings"><div class="settings-title">设置</div><div class="settings-group">
+<div class="row"><span class="glyph"><svg><use href="#sun"/></svg></span><label>外观</label><span class="value">跟随系统</span><span class="chevron">›</span></div>
+<div class="row"><span class="glyph"><svg><use href="#clock"/></svg></span><label>自动遮罩</label><span class="value">30 秒</span><span class="chevron">›</span></div>
+<div class="row"><span class="glyph"><svg><use href="#bell"/></svg></span><label>消息通知</label><span class="toggle"><i></i></span></div>
+<div class="row"><span class="glyph"><svg><use href="#sound"/></svg></span><label>声音与反馈</label><span class="chevron">›</span></div>
+</div><div class="theme dark dark-detail"><div class="row"><span class="glyph"><svg><use href="#moon"/></svg></span><label>外观</label><span class="value">深色模式</span><span class="chevron">›</span></div></div></div>
+<h2 class="caption">键盘态 <span>保留对话空间</span></h2>
+<div class="theme dark short chat"><div class="titlebar"><div class="person"><div class="name">晚风</div><div class="status">在线</div></div><span class="icon"><svg><use href="#call"/></svg></span><span class="icon"><svg><use href="#more"/></svg></span></div>
+<div class="timeline"><div class="bubble out tail">要不要帮你点杯拿铁？<span class="meta">14:35<span class="ticks">✓✓</span></span></div><div class="bubble tail group-gap">好，少冰就行。<span class="meta">14:36</span></div><div class="bubble out tail group-gap">那一会儿见 ☕<span class="meta">14:37<span class="ticks">✓✓</span></span></div></div>
+<div class="composer"><span class="icon"><svg><use href="#clip"/></svg></span><div class="field"><span class="placeholder">发消息…</span><svg><use href="#smile"/></svg></div><span class="icon microphone"><svg><use href="#mic"/></svg></span></div></div>
+<p class="note">标题与状态收进一行，输入区保持紧凑。<br>渐变沿对话连续变化，纹样低对比。<br>导航和输入区改用不透明材质，避免液态玻璃依赖。</p>
+</aside>
+</div>
+<div class="foundations"><strong>紧凑尺度</strong><span>正文 16 px</span><span>气泡圆角 16 / 8 px</span><span>设置行高 44 px</span><span>输入区 52 px</span><span>键盘态标题 40 px</span></div>
+<p class="source">V5 静态视觉样式板 · 以用户提供的两张截图取色（Display P3 转 sRGB）；壁纸纹样取自 Telegram Web K 官方素材。<br>壁纸组合、控件延展与不透明导航为浏览器适配；尚未进行真实 Safari 键盘验证。</p>
+</main>
+<script>
+/* One continuous gradient field across outgoing messages; no interaction events. */
+function alignOutgoingGradient() {
+  const stops = [[0,[148,76,213]],[.45,[147,73,244]],[1,[55,104,255]]];
+  const colorAt = t => {
+    const pair = t <= .45 ? [stops[0],stops[1]] : [stops[1],stops[2]];
+    const f = Math.min(1,Math.max(0,(t-pair[0][0])/(pair[1][0]-pair[0][0])));
+    return "rgb("+pair[0][1].map((v,i)=>Math.round(v+(pair[1][1][i]-v)*f)).join(",")+")";
+  };
+  document.querySelectorAll(".dark.chat .timeline").forEach(timeline => {
+    const bubbles = [...timeline.querySelectorAll(".bubble.out")];
+    if (!bubbles.length) return;
+    const top = bubbles[0].getBoundingClientRect().top;
+    const bottom = bubbles.at(-1).getBoundingClientRect().bottom;
+    const span = Math.max(1,bottom-top);
+    bubbles.forEach(bubble => {
+      const rect = bubble.getBoundingClientRect();
+      bubble.style.setProperty("--gradient-span",span+"px");
+      bubble.style.setProperty("--gradient-offset",-(rect.top-top)+"px");
+      bubble.style.setProperty("--tail-color",colorAt((rect.bottom-top)/span));
+    });
+  });
+}
+document.fonts.ready.then(alignOutgoingGradient);
+</script>
+</html>
