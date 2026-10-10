@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 聊天定位稳定性已实施，未发布（2026-10-10）
+
+- [PR #260](https://github.com/zdaiwmm/shui-IM/pull/260) 承载本次交付，精确合并状态以 PR 回查为准。用户确认统一定位规则并明确跳过交互原型／流程图；旧异步发送与上传完成不能覆盖更新的用户滚动，媒体预览只消费一次发送定位，重试保持阅读意图；删除阅读锚点回退到本机可读邻近消息。确认范围、实现与证据见[需求记录](../requirements/2026-10-10-chat-scroll-stability/README.md)。
+- 产品候选 `3dfb4a43359a198c9345405eb58562904d9ebfa1` 构建及 847 项单元／集成通过，56 个本地浏览器入口均已覆盖通过；其中图片长按菜单首次超时，原样定向重跑及余下入口通过，完整命令自动记录保留 failed。[该候选 PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38033956845) 12 项全成功。后续事实对账仅改 Markdown，最终 head CI 在合并前核验。组合专项覆盖 WebKit／Chromium 手机与桌面，逐帧检查阅读位置、顶部栏、输入框和原气泡节点。
+- USB iPhone 数量为 0，iPhone／iOS 27 Safari 原生键盘与合成层闪屏未真机验证。本项没有生产发布授权；下方生产记录仍为已发布版本，不将合并或浏览器检查写作上线／真机验收。
+
 ## 全局自动锁定已发布（2026-10-10）
 
 - 当前生产精确SHA `2877c2ae42822763fac812e636405f13196e56bd`，版本 `2026.10.09.2`；用户已确认此完整提交并再次要求解除阻塞完成发布。[PR #255](https://github.com/zdaiwmm/shui-IM/pull/255)已合并，源head `fb7c310dd7e47391a7c5923362454c6961c95f95` 与应用树一致。精确[PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37967823473)和[main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37968726220)全部12项通过，含103文件／847项单元集成、55浏览器入口及通话／TURN；长期契约见D-053及[需求记录](../requirements/2026-10-09-global-lock-countdown/README.md)。

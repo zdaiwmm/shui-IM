@@ -5,7 +5,7 @@
 - 需求编号：2026-10-10-chat-scroll-stability。
 - 规则来源：本机 main `1fdab36ba909bb12d7de322f4f3a5539ca63e64c` 的 AGENTS 与固定交付流程；实时 main 起始基线 `afb7acbefa5ded02e9a88fe292e8d9208c053172`。开工时本机 origin/main 已同步至实时基线，本机 main 保留旧快照。
 - 本任务新建独占目录 `/Users/zhouding/ss-worktrees/chat-scroll-stability-20261010`，分支 `codex/chat-scroll-stability-20261010`；开工工作区干净。接续需重新核验路径、HEAD 与状态。
-- 当前阶段：正式实施与风险匹配验证；后续按持续远端交付授权进入 PR／CI／合并，不包含生产发布。
+- 当前阶段：本地实施与验收完成，远端交付由 [PR #260](https://github.com/zdaiwmm/shui-IM/pull/260) 及其精确 head 检查记录承载；合并提交与最终状态以 PR 回查为准。不包含生产发布。
 
 ## 已确认方案
 
@@ -27,9 +27,11 @@
 
 - 新增 `tests/chat-scroll-stability.e2e.mjs`：WebKit／Chromium，手机列表与桌面布局；使用合成聊天、真实本机加密待发箱、附件加密上传流程及可控网络等待，不连接真实空间或生产。
 - 修复前复现：发送队列等待时上滑，放行后原阅读消息从 -1px 移至 -750px，顶部栏与输入框未动；旧发送完成覆盖新滚动意图。
-- 专项覆盖：发送等待／本地发送完成后上滑及状态更新、媒体准备期间上滑、上传期间翻历史、失败重试保留位置、历史与底部收消息同时弹键盘、删除锚点邻近回退、重新进入恢复、主动发送补齐后续本地历史。
+- 专项覆盖：发送等待／本地发送完成后上滑及状态更新、原生滚动条指针与发送竞争、媒体准备期间上滑、上传期间翻历史、失败重试保留位置、历史与底部收消息同时弹键盘、删除锚点邻近回退、重新进入恢复、主动发送补齐后续本地历史。
 - 逐帧检查：历史阅读消息偏移不超过 2px；顶部栏不超过 1px；非键盘变化时输入框底边不超过 1px；原气泡节点保留、输入框 opacity=1、不出现隐私遮罩。键盘场景另外检查输入框落在目标可视区域、运动方向与底部跟随。
-- 本地专项初轮四种浏览器／布局组合通过；既有 chat-continuity、chat-list-viewport、chat-bottom-control 专项通过。最终完整门禁结果待补。
-- USB iPhone doctor 返回无可选择的 USB iPhone；iPhone／iOS 27 Safari 原生键盘、浏览器工具栏及合成层闪屏未真机验证。桌面 WebKit 与合成 visualViewport 事件不代表原生键盘证据。
+- 本地专项四种浏览器／布局组合通过；既有 chat-continuity、chat-list-viewport、chat-bottom-control、media-upload、voice-submission 专项通过。开发期完整回归发现重复键盘聚焦时底部意图丢失，修复后原 frontend-lifecycle 专项与最终候选该专项通过，未放宽断言或超时。
+- 产品冻结候选 `3dfb4a43359a198c9345405eb58562904d9ebfa1`，文件树 `c55ed9a2289b3b7b39bd22a5bc64688a7b18520f`：构建、103 文件／847 项单元集成通过；56 个浏览器入口全部覆盖通过。`check:full` 在第 48 个 chat-image-privacy 的长按菜单首次超时，前 47 个通过；该项原样定向重跑通过，随后顺序完成余下 8 个入口。该完整命令的自动证据仍记录 failed，不将续跑拼写为一次性全绿。没有为该超时修改产品或测试。对应[精确 PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38033956845) 12 项全部成功；本次事实对账只更新 Markdown，最终 PR head 检查仍需在合并前回查。
+- USB iPhone doctor 无可用设备，随后仅计数核验 USB iPhone=0；iPhone／iOS 27 Safari 原生键盘、浏览器工具栏及合成层闪屏未真机验证。桌面 WebKit 与合成 visualViewport 事件不代表原生键盘证据。
 - 本地合成截图 `/private/tmp/chat-scroll-stability-qa/`；不纳入 Git，不假定跨电脑存在。
+- 本地日志：`/private/tmp/chat-scroll-stability-final-full.log`、`chat-scroll-stability-image-retry.log` 与 `chat-scroll-stability-remaining.log`（均在同一临时目录）；自动文件树证据保留在本工作树 Git 管理目录。日志／截图不入库。
 - 交付材料仅必要源码和简短 Markdown；截图、日志、依赖、构建产物及真实数据不入库。PR／CI 与最终提交以实际交付结果为准，未发布生产。
