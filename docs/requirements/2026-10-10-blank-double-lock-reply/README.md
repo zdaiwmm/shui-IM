@@ -2,7 +2,7 @@
 
 ## 身份、范围与授权
 
-- 需求编号：2026-10-10-blank-double-lock-reply。阶段：D 已合并（PR #259），本次未执行生产发布。
+- 需求编号：2026-10-10-blank-double-lock-reply。阶段：P 已发布并独立回读（2026-10-10 17:08）；应用精确SHA `e73d465af88926c31f709d9d6e68ebb528d46925`，版本 `2026.10.10.1`。下方实施阶段的未发布表述为历史事实，最终结果见本文发布对账。
 - 规则来源：本机 main `1fdab36ba909bb12d7de322f4f3a5539ca63e64c` 的 AGENTS 与固定流程；实时 main 的规则一致。开工本机 main 为该提交，origin/main 与 GitHub main 均为 `afb7acbefa5ded02e9a88fe292e8d9208c053172`。
 - 起始基线：`afb7acbefa5ded02e9a88fe292e8d9208c053172`；独立分支 `codex/blank-double-lock-reply-20261010`，本机目录 `/Users/zhouding/ss-worktrees/blank-double-lock-reply-20261010`，本会话新建。跨电脑需重新核验实际目录及 HEAD。
 - 用户于 2026-10-10 确认方案 V1，补充引用定位应短暂高亮整个气泡，并明确“按你给我的方案直接实施，无需制作原型和流程图”。当前会话消息为确认依据，未提供独立消息定位。此次例外只跳过本需求原型和流程图，允许 I/D；不含生产发布。
@@ -41,3 +41,11 @@
 - 最小修复限于 `tests/draft-refresh.e2e.mjs`：持久／网络状态以 100ms 间隔轮询，保留原15秒截止和全部业务断言；聊天就绪要求真实存在且启用的输入框、MLS active、欢迎状态已安装，再操作欢迎按钮，不再猜测1.5秒窗口。失败仅输出布尔值、阶段和状态枚举，不输出消息、邀请或保险库内容。
 - 控制实验确认：暂停 WebKit 动画帧后，默认 RAF 等待在状态已完成时仍超时；相同异步状态由间隔轮询观察成功。新增 Chromium／WebKit 回归探针先确认谓词已读到 false，再改变状态并等待成功，防止预先完成造成假阳性；导航恢复真实调度后运行完整原应用场景。诊断版本机 WebKit及 Linux CI 的草稿场景通过，原失败本轮未重现，不将控制实验扩大为已证实的引擎根因。
 - 修复候选验证、合并及生产状态以后续精确提交证据更新；生产只读预检确认原 SHA `2877c2ae42822763fac812e636405f13196e56bd`，容量门禁报 `DISK_HEADROOM_LOW`（可用4044185600字节，要求4294967296字节）。未执行生产切换、归档迁移或清理。
+
+## 发布与交付对账（2026-10-10）
+
+- 用户明确确认发布完整提交 `e73d465af88926c31f709d9d6e68ebb528d46925`，授权唯一旧归档迁存至本机FileVault、完整校验后仅移除服务器副本、保留最新恢复点，并要求完成独立回读和对账。本轮规则来源为干净main `b4bb4302fd39a8773ccbd358c7c81adb0a48fbc5`；对账树 `/Users/zhouding/ss-worktrees/blank-double-lock-production-record-20261010`、分支 `codex/blank-double-lock-production-record-20261010` 为本会话新建，无部署配置。
+- WebKit最终源head `8b3b7389ce34e0c26edf41231a323c763b5b0b31` 构建／847项与 Chromium／WebKit完整草稿场景通过；[PR #261](https://github.com/zdaiwmm/shui-IM/pull/261) 合并为获准应用SHA，树 `970e57b317bd08647d991a68c4e686c83023fc89` 与源一致。精确[PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38036878803)和[main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38037527796) attempt 2 全部12项通过；WebKit用例在最终PR/main均通过。独立通话媒体与桌面解锁失败只原样重跑失败作业一次，不放宽断言或超时。
+- `data-20261009T110616Z-261da69bbf4e.tar.gz`（1044387192字节）迁存FileVault私有目录，0700／0600；两端gzip／tar、SHA-256、独立本机复读及fsync通过后持发布锁复核，移除仅指定服务器副本，账本独立回读通过。原最新恢复点和本次新冷归档保留，详细摘要、容量快照和首次元数据精度保护停止见[发布记录](../../../RELEASING.md#空白双击锁定与引用反馈已发布2026-10-10-1708)。
+- 固定入口精确 `DEPLOY_VERIFIED` 与外层回执成功，实际切换一次；批次 `20261010T090018Z`。备份探针starting期间只等待并续跑回读，最终 `READBACK_OK` 于 `2026-10-10T09:08:24.693Z` 完成：应用／备份healthy，TURN运行且探针none，维护门不存在；精确SHA、镜像、HTTPS／数据库／存储、公开及容器产物、新WebSocket一致。成功证据 `20261010T090821504Z-e73d465af889-success.json` 与发布回执已保存在本机私有迁存目录的 `delivery/`。
+- 发布后磁盘90.50%、可用3793510400字节，下一次发布受DISK_CRITICAL／DISK_HEADROOM_LOW阻断；本轮保留恢复点、连续备份、回滚镜像和既有门禁，后续容量治理另行处理。物理iPhone／iOS27／Safari及本机局域网服务尚未回读。本批含忽略缓存或晚于应用SHA的文档／开发树按固定规则保留，其他任务资源不动；本次对账提交不再次发布。

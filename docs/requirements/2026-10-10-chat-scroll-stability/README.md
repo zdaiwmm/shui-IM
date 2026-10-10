@@ -49,3 +49,6 @@
 
 - 用户在本会话明确“合并并发布线上”，批准继续合并 PR #260，并授权完成发布准备。生产切换仍按固定流程，在精确最终应用 SHA、版本、CI 与预检齐备后确认；此消息不自动批准删除服务器恢复点或扩大清理。
 - 接续规则来源为本机 main `b4bb4302fd39a8773ccbd358c7c81adb0a48fbc5`，本机 main／origin/main／GitHub main 一致，任务 HEAD `9f0429f53f9de89b8ca7a97922142676caf9395b`，工作区干净。该候选[完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38036024003) 12 项全成功。新增 main 只含交付记录与 WebKit 草稿测试等待修正，产品代码未变；仅状态页冲突，保留双方证据。
+- 准备期间同步 main `269d69680548e6d26e872fda2e1ab91f057c8b0a` 的上一版本生产对账。当前生产实测为 `e73d465af88926c31f709d9d6e68ebb528d46925`、版本 `2026.10.10.1`，维护门不存在；该任务已独立发布，不继承其归档处置授权。本批唯一版本为 `2026.10.10.2`，按 release:prepare 计划生成新 ID／时间及说明，旧版本对象原样保留，新标题为“聊天定位稳定性”。产品代码与 `e62b539` 一致，新增主线差异仅 WebKit 测试修正、版本及记录；组合 CI 和受影响专项在冻结后核验。
+- 固定 doctor 首次因任务树无本机配置停止；复用既有 `/Users/zhouding/ss/.deploy.local.json` 后 GitHub、SSH 与 helper 只读检查通过，未改配置或复制密钥。容量只读预检为可用 3793473536 字节、使用率 90.50%，要求 4308121894 字节，报 DISK_CRITICAL／DISK_HEADROOM_LOW；未执行本批生产切换。
+- 待确认容量方案：仅将 `data-20261009T183103Z-2877c2ae4282.tar.gz`（1055678428 字节）迁存到 FileVault 本机 `/Users/zhouding/quiet-room-backups/production/predeploy/chat-scroll-stability-20261010/`，目录0700／文件0600；两端完整性、SHA-256、本机独立复读及fsync校验后，持发布锁再次复核源身份／摘要、当前生产、无失败切换配对与最新恢复点，仅移除服务器重复副本并写脱敏迁存账本。最新 `data-20261010T090018Z-e73d465af889.tar.gz`（1080319123 字节）保留，连续备份与回滚镜像保留。本机 FileVault On、可用约201GiB。当前仅完成元数据盘点，未复制或删除归档；单次迁存不等于长期容量治理。
