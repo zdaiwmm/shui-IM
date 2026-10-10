@@ -135,12 +135,12 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
   background: var(--action-surface); color: var(--action-ink); box-shadow: none;
 }
 #app :is(.primary-button, .secondary-button) { min-height: 44px; border-radius: 12px; font-size: .875rem; font-weight: 600; }
-#app .primary-button:hover { background: color-mix(in srgb, var(--action-surface) 88%, #000); }
+#app .primary-button:hover:not(:disabled) { background: color-mix(in srgb, var(--action-surface) 88%, #000); }
 #app .secondary-button { border-color: var(--line); background: var(--surface); color: var(--ink); box-shadow: none; }
 #app .chat-tools { margin-top: 6px; padding: 12px 8px 8px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-raised); box-shadow: var(--shadow); -webkit-backdrop-filter: none; backdrop-filter: none; }
 #app .chat-tools > button > span { width: 48px; height: 44px; border: 0; border-radius: 12px; background: var(--accent-soft); box-shadow: none; color: var(--accent); }
 #app .chat-tools > button > span svg { width: 22px; height: 22px; }
-#app .chat-tools > button { font-size: .6875rem; }
+#app .chat-tools > button { min-height: 64px; gap: 4px; font-size: .75rem; line-height: 1.4; }
 #app .chat-bottom-control { border-color: var(--line); background: var(--composer-surface-current); box-shadow: 0 2px 8px #0002; color: var(--ink); -webkit-backdrop-filter: none; backdrop-filter: none; }
 #app :is(.device-content, .preference-content) { padding-inline: 20px; }
 #app .preference-content { padding-top: 20px; }
@@ -149,20 +149,24 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app :is(.device-card, .device-security-note, .device-safety-code) { border-radius: 14px; }
 #app .space-drawer { border-radius: 18px; padding-inline: 20px; transition-duration: var(--motion-panel); }
 #app .space-drawer-header { min-height: 60px; }
+#app .space-drawer-header h2 { font-size: 1.0625rem; letter-spacing: 0; }
 #app .space-row { min-height: 68px; padding-block: 12px; }
 #app .space-row.is-selected { min-height: 92px; padding-block: 8px 20px; }
 #app .space-row.is-selected strong { font-size: 1.5rem; letter-spacing: -.02em; }
-#app .space-setting { min-height: 52px; }
+#app .space-setting { min-height: 52px; padding-block: 6px; gap: 12px; }
 #app .space-setting-group { margin-bottom: 16px; }
-#app .space-setting-label small { font-size: .6875rem; }
+#app .space-setting-label small { margin-top: 2px; font-size: .75rem; line-height: 1.25; }
 #app .space-drawer-footer .space-settings-entry { min-height: 48px; border-radius: 12px; }
 #app .space-style-choice { padding: 16px; border-radius: 14px; gap: 12px; }
 #app .space-style-choice[aria-checked='true'] { background: var(--accent-soft); border-color: var(--accent); }
 #app :is(.confirm-dialog, .space-name-dialog, .device-link-panel, .message-copy-panel, .recovery-code-panel) { padding: 20px; border-radius: 16px; box-shadow: var(--shadow); }
 #app :is(.confirm-dialog, .space-name-dialog, .message-copy-panel) h2 { font-size: 1.0625rem; line-height: 1.4; margin-bottom: 12px; }
-#app :is(.space-invite-sheet, .message-info-panel, .password-operation-sheet .password-form, .release-notes-panel) { border-radius: 18px 18px 0 0; padding-inline: 20px; background: var(--surface-raised); }
+#app :is(.space-invite-sheet, .message-info-panel, .password-operation-sheet .password-form) { border-radius: 18px 18px 0 0; padding-inline: 20px; background: var(--surface-raised); }
 #app .space-invite-sheet { transition-duration: var(--motion-panel); }
-#app .message-info-panel h2, #app .password-operation-sheet h2 { font-size: 1.125rem; }
+#app .message-info-panel h2, #app .password-operation-sheet h2 { font-size: 1.0625rem; }
+#app .message-info-heading h2 { margin: 0; }
+#app .password-operation-sheet.confirm-overlay { padding: 0; }
+#app .password-operation-sheet .password-form { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
 #app .sheet-handle, #app .space-invite-handle span { width: 32px; height: 4px; }
 #app .space-invite-handle { width: auto; height: 44px; margin-inline: -20px; }
 #app .password-page .password-form { background: var(--paper); border-radius: 0; }
@@ -179,7 +183,7 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .gallery-tabs::before { background: var(--paper-pure); box-shadow: 0 1px 3px #0001; }
 #app .gallery-visibility-button { background: var(--surface); border-color: var(--line); color: var(--ink); box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
 /* All entry, settings and recovery routes use the same compact UI scale. */
-#app :is(.gateway-heading h1, .pairing-header h1, .fatal-screen h1, .recovery-flow-content > h1) { font-size: 1.625rem; line-height: 1.25; letter-spacing: -.025em; font-weight: 600; }
+#app :is(.gateway-heading h1, .gateway-intro-content > h1, .pairing-header h1, .fatal-screen h1, .recovery-flow-content > h1) { font-size: 1.625rem; line-height: 1.25; letter-spacing: -.025em; font-weight: 600; }
 #app .gateway { padding-top: clamp(32px, 8svh, 64px); padding-bottom: calc(24px + var(--safe-bottom)); }
 #app .gateway.gateway-intro { --gateway-intro-top: clamp(32px, 8svh, 64px); --gateway-intro-bottom: calc(20px + var(--safe-bottom)); padding-top: max(var(--gateway-intro-top), calc(env(safe-area-inset-top) + 24px)); padding-bottom: var(--gateway-intro-bottom); gap: 20px; }
 #app .gateway.gateway-unlock { padding-top: 20px; }
@@ -187,14 +191,17 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .gateway-mark { border-radius: 14px; background: var(--accent-soft); margin-bottom: 24px; }
 #app .gateway-form { gap: 14px; margin-top: 28px; }
 #app :is(.gateway-heading > p:last-child, .welcome-copy, .welcome-privacy, .setup-follow-hint, .recovery-flow-lead, .credential-only-step > .field-hint) { font-size: .875rem; line-height: 1.6; }
-#app :is(.gateway-form input, .gateway-form textarea, .gateway-form select, .invite-link input, .password-form input:not([type='checkbox']), .backup-page input, .recovery-flow-input, #space-name, #passkey-name) { min-height: 44px; padding: 10px 12px; border-radius: 12px; background: var(--surface); color: var(--ink); font-size: 16px; line-height: 1.4; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+#app :is(.gateway-form input, .gateway-form textarea, .gateway-form select, .invite-link input, .password-form input:not([type='checkbox']), .backup-page input, .backup-code-page textarea, .recovery-flow-input, #space-name, #passkey-name) { min-height: 44px; padding: 10px 12px; border-radius: 12px; background: var(--surface); color: var(--ink); font-size: 16px; line-height: 1.4; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+#app .backup-code-page textarea { min-height: 88px; border: 1px solid var(--line-strong); }
+#app .backup-code-page :is(.gateway-intro-content > p, form > label) { font-size: .875rem; line-height: 1.6; }
 #app :is(.gateway-form > .primary-button, .credential-only-step > .primary-button, .welcome-actions .primary-button, .recovery-code-actions > button, .recovery-confirm, .recovery-code-view > button, .recovery-code-panel > .primary-button, .recovery-flow-footer button, .recovery-flow-wide, .joint-progress button, .backup-content > button) { min-height: 44px; padding-block: 10px; line-height: 1.4; }
 #app .gateway > .privacy-note { padding-top: 24px; }
 #app .eyebrow { font-weight: 600; letter-spacing: .04em; }
 #app :is(.recovery-flow-group, .backup-settings-group, .backup-option, .notification-capability) { border-radius: 16px; background: var(--surface-raised); }
 #app :is(.backup-option, .notification-capability) { padding: 16px; }
 #app .backup-option h2 { font-size: .9375rem; }
-#app :is(.backup-hub .backup-header h1, .notification-content h2, .browser-access-shell .access-empty h2) { font-size: 1.25rem; letter-spacing: -.015em; }
+#app :is(.notification-content h2, .browser-access-shell .access-empty h2) { font-size: 1.25rem; letter-spacing: -.015em; }
+#app .backup-hub .backup-header h1 { font-size: 1.0625rem; }
 #app .notification-content { padding: 20px 20px 32px; }
 #app .notification-lead { margin-bottom: 20px; }
 #app .notification-controls { margin-block: 12px 24px; }
@@ -206,7 +213,10 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app :is(.notification-switch, .backup-toggle) span { position: absolute; top: 12px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform var(--motion-local) var(--motion-out); }
 #app :is(.notification-switch, .backup-toggle)[aria-checked='true']::before { background: var(--action-surface); }
 #app :is(.notification-switch, .backup-toggle)[aria-checked='true'] span { transform: translateX(20px); }
-#app :is(.recovery-flow-row, .invite-status-row) { min-height: 52px; padding: 10px 14px; }
+#app .recovery-flow-row { min-height: 52px; padding: 6px 14px; }
+#app .recovery-flow-row strong { font-size: .875rem; }
+#app .recovery-flow-row small { margin-top: 2px; font-size: .75rem; line-height: 1.25; }
+#app .invite-status-row { min-height: 52px; padding: 10px 14px; }
 #app .recovery-flow-nav { min-height: calc(52px + env(safe-area-inset-top)); padding-block: max(4px, env(safe-area-inset-top)) 4px; }
 #app .recovery-flow-hero { width: 44px; height: 44px; border-radius: 14px; }
 #app .recovery-flow-hero svg { width: 22px; height: 22px; }
@@ -230,13 +240,17 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .gallery-actions-menu > button { min-height: 44px; padding-inline: 16px; font-size: .875rem; }
 #app :is(.gallery-actions-sheet, .gallery-actions-menu) { transition-duration: var(--motion-menu-in); }
 #app .space-context-menu button { min-height: 44px; }
-#app .message-info-stages li { min-height: 56px; }
+#app .message-info-stages { padding-inline: 2px; }
+#app .message-info-stages li { min-height: 40px; gap: 12px; }
 #app :is(.message-info-panel > button, .cover-disable-panel button:not(.icon-button), .favorites-empty .primary-button) { min-height: 44px; }
 #app .message-info-stages li[data-complete='true'] > span { background: var(--action-surface); color: var(--action-ink); border-color: var(--action-surface); }
 #app .favorites-empty-mark { width: 48px; height: 48px; margin-bottom: 16px; color: var(--accent); }
 #app .favorites-empty-mark svg { width: 32px; height: 32px; }
 #app .favorites-empty p { font-size: .875rem; }
 #app .photo-details { border-radius: 18px 18px 0 0; }
+#app .photo-details.is-expanded { border-radius: 0; }
+#app .photo-details-handle { height: 44px; min-height: 44px; flex-basis: 44px; margin-bottom: -16px; }
+#app .photo-details > header { flex-basis: 44px; }
 #app :is(.meme-panel, .meme-preview-actions) { border-radius: 16px; }
 #app :is(.meme-open-search, .meme-search, .meme-pack-add, .meme-preview-close) { border-radius: 12px; }
 #app .meme-tabs [role='tab'] { min-height: 44px; height: 44px; border-radius: 12px; font-size: .8125rem; }
@@ -245,6 +259,7 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app :is(.voice-hold-orb, .voice-send) { color: var(--action-ink); background: var(--action-surface); }
 #app .voice-cancel-orb, #app .voice-recorder:not([data-fullscreen="true"]) .voice-cancel-orb { color: #fff; background: var(--danger-fill); }
 #app .voice-recorder:not([data-fullscreen='true']) :is(.voice-hold-orb, .voice-cancel-orb) { width: 72px; height: 72px; right: 0; bottom: 0; }
+#app .voice-recorder:not([data-fullscreen='true'])[data-state='recording'] .voice-send { width: 72px; height: 72px; right: 0; bottom: 0; }
 #app .voice-record-button.is-pressing { transform: scale(1.06); }
 #app .voice-recording-hint { border-radius: 12px; }
 #app .voice-preview { color: var(--action-ink); }
@@ -257,9 +272,18 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app :is(.viewer-header .viewer-control, .viewer-video-controls .viewer-control, .viewer-motion-toggle, .viewer-video-timeline) { background: #242124; color: #fff; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
 #app :is(.photo-details > header .viewer-control, .detail-header .icon-button) { background: var(--surface); color: var(--ink); box-shadow: none; }
 #app .cover-practice-page .practice-hotspot { border-radius: 16px; }
+#app .cover-practice-header { flex-direction: row; align-items: center; gap: 12px; }
+#app .cover-practice-header h1 { margin: 0; font-size: 1.0625rem; line-height: 1.4; }
 #app .cover-practice-notice { font-size: .8125rem; border-radius: 12px; }
+/* Update notes are a centered dialog, with one inset rather than nested padding. */
+#app .release-notes-panel { padding: 0; border-radius: 16px; }
+#app .release-notes-header { padding: 20px 20px 12px; }
+#app .release-notes-details { padding: 0 20px 24px; font-size: .875rem; }
+#app .release-notes-panel h2 { font-size: 1.0625rem; }
+#app .release-notes-sheet, #app .release-notes-panel { transition-duration: var(--motion-local); }
+#app .release-notes-sheet.is-closing, #app .release-notes-sheet.is-closing .release-notes-panel { transition-duration: var(--motion-menu-out); }
 #app :is(.gallery-tabs::before, .space-modal-overlay, .space-context-overlay, .space-drawer-overlay, .space-invite-overlay) { transition-duration: var(--motion-local); }
-#app :is(.space-drawer, .space-invite-sheet, .release-notes-panel) { transition-duration: var(--motion-panel); }
+#app :is(.space-drawer, .space-invite-sheet) { transition-duration: var(--motion-panel); }
 /* A restored drawer is already open; only a fresh open/close should animate. */
 #app .space-drawer-overlay.is-restored:not(.is-closing),
 #app .space-drawer-overlay.is-restored:not(.is-closing) > .space-drawer { animation: none; transition: none; }
@@ -279,6 +303,9 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .message-reaction-picker { padding: 3px; border-radius: 26px; gap: 0; }
 #app .message-reaction-picker button { width: 44px; height: 44px; min-width: 44px; font-size: 1.625rem; }
 #app .message-actions-backdrop { transition-duration: var(--motion-menu-in); }
+#app .message-actions.is-closing, #app .message-actions.is-closing :is(.message-action-list, .message-reaction-picker),
+#app .message-actions-backdrop.is-closing, #app .gallery-actions-sheet.is-closing,
+#app .gallery-actions-sheet.is-closing .gallery-actions-menu { transition-duration: var(--motion-menu-out); }
 #app .message-actions-backdrop.is-visible { background: #16101a40; -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
 #app .message-action-preview { overflow: hidden; border-radius: 16px; }
 #app .message-action-preview > .message-bubble { height: auto; min-height: 100%; box-shadow: none; }

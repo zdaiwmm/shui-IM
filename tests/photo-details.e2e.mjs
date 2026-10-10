@@ -22,7 +22,7 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__photo_details`);
   await page.evaluate(async fixture => {
-    for (const sheet of ['styles', 'chat-layout', 'gallery', 'auth-recovery', 'chat-interactions', 'cover', 'voice-messages']) await import(`/src/${sheet}.css`);
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     const { QuietRoomApp } = await import('/src/app.ts');
     const { mountSystemChrome } = await import('/src/lib/system-chrome.ts');
     mountSystemChrome();
@@ -217,7 +217,7 @@ try {
     }
     return { duration, offsets };
   });
-  assert.equal(animation.duration, 0.26);
+  assert.equal(animation.duration, 0.24);
   assert.ok(animation.offsets.length > 8 && animation.offsets.at(-1) > 200);
   assert.ok(animation.offsets.every((offset, index) => !index || offset >= animation.offsets[index - 1] - 1), 'dismissal must slide continuously downward');
   await page.locator('[data-viewer-details]').click(); await settle();
@@ -240,9 +240,13 @@ try {
   await settle();
   const expanded = await page.locator('.photo-details').evaluate(panel => {
     const bounds = panel.getBoundingClientRect(), parent = panel.parentElement.getBoundingClientRect();
-    return { expanded: panel.classList.contains('is-expanded'), top: bounds.top - parent.top, height: bounds.height - parent.height };
+    const handle=panel.querySelector('.photo-details-handle').getBoundingClientRect();
+    return { expanded: panel.classList.contains('is-expanded'), top: bounds.top - parent.top, height: bounds.height - parent.height,
+      radius:getComputedStyle(panel).borderRadius, handleWidth:handle.width, handleHeight:handle.height };
   });
   assert.equal(expanded.expanded, true);
+  assert.equal(expanded.radius,'0px','expanded details must not inherit sheet corners');
+  assert.ok(expanded.handleWidth>=44&&expanded.handleHeight>=44,'detail handle must retain a full touch target');
   assert.ok(Math.abs(expanded.top) < 1 && Math.abs(expanded.height) < 1, JSON.stringify(expanded));
   await page.locator('.photo-details-content').focus(); await page.keyboard.press('Tab');
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('photo-details-handle')), true, 'fullscreen focus must stay in the sheet');

@@ -18,7 +18,7 @@ try {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__voice_gestures`);
   await page.evaluate(async () => {
-    for (const style of ['styles','chat-layout','gallery','chat-interactions','cover','voice-messages','call','chat-tools']) await import(`/src/${style}.css`);
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     const { QuietRoomApp } = await import('/src/app.ts');
     const app = new QuietRoomApp(document.querySelector('#app'));
     app.updateSafetyCode = async () => {}; app.flushUiPreferencesSave = () => {};
@@ -139,10 +139,13 @@ try {
   await reset(); await hold(); await page.waitForTimeout(650);
   await touch('touchMove',{x:origin.x,y:origin.y-85});
   assert.equal(await page.locator('.voice-recorder').getAttribute('data-mode'),'locked');
+  assert.equal(await page.locator('.voice-send').evaluate(e=>e.getBoundingClientRect().width),72,'locked send disc keeps the compact recording scale');
   await touch('touchEnd');
   assert.equal(await count(),2);
   await page.getByRole('button',{name:'暂停录音',exact:true}).click();
   await page.locator('.voice-recorder[data-state="paused"]').waitFor(); await stopped();
+  await page.waitForFunction(()=>Math.abs(document.querySelector('.voice-send').getBoundingClientRect().width-44)<.1);
+  assert.equal(await page.locator('.voice-send').evaluate(e=>getComputedStyle(e).width),'44px','paused send must retain the input-row scale');
   await page.getByRole('button',{name:'试听录音',exact:true}).click();
   await page.getByRole('button',{name:'暂停试听',exact:true}).waitFor();
   await page.getByRole('button',{name:'继续录音',exact:true}).click();

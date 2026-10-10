@@ -103,6 +103,14 @@ try {
       });
     });
     assert.ok(bounds.every(button => button.fits && button.wide && button.tall), `Controls must fit at ${viewport.width}×${viewport.height}: ${JSON.stringify(bounds)}`);
+    const geometry = await page.evaluate(() => ({
+      toolbar: getComputedStyle(document.querySelector('.call-toolbar')).borderRadius,
+      preview: getComputedStyle(document.querySelector('.call-local-preview')).borderRadius,
+      heading: parseFloat(getComputedStyle(document.querySelector('.call-peer-name')).fontSize),
+    }));
+    assert.equal(geometry.toolbar, '18px', 'narrow and landscape toolbars retain the shared surface radius');
+    assert.equal(geometry.preview, '16px');
+    assert.ok(geometry.heading <= 28, 'landscape must not restore the old 32px name');
     if (screenshotDirectory) await page.screenshot({ path: path.join(screenshotDirectory, `call-connected-${viewport.width}.png`) });
   }
 
