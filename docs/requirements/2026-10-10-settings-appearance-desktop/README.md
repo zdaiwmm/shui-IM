@@ -23,12 +23,12 @@
 
 | 风险域 | 定向验证与结果 | 依赖／完整门禁 | 真机缺口 |
 | --- | --- | --- | --- |
-| 空闲／生命周期 | idle-lock与desktop-access单测；mobile privacy、desktop privacy、真实PRF＋MLS desktop-session专项通过；验证30分钟、硬锁、草稿与离线消息恢复 | 共享app生命周期与vault，冻结后check:full | 原生系统验证、系统冻结与iPhone未验收 |
+| 空闲／生命周期 | idle-lock与desktop-access单测；mobile privacy、desktop privacy、真实PRF＋MLS desktop-session专项通过；验证30分钟、硬锁、草稿与离线消息恢复、已知接入拒绝及历史读取失败清理 | 共享app生命周期与vault，冻结后check:full | 原生系统验证、系统冻结与iPhone未验收 |
 | 即时设置／主题 | settings-appearance浏览器专项通过：十档、永不＋敏感上限、存储失败回退、四配色明暗对比度、390/800/1440宽度与跨标签持久化 | 共享token／drawer，完整浏览器回归 | iPhone Safari和高对比系统实际呈现未验收 |
 | 更新／草稿 | draft-refresh在Chromium＋WebKit通过：直接点击更新实际导航、无confirm-overlay、当前输入恢复；原草稿／待发箱／双端MLS断言保留 | 加密checkpoint、发布提示、SW完整门禁 | 实际线上SW升级由发布后验收 |
 | PWA安装入口 | settings-appearance验证install/cancel/installed/standalone能力状态；PNG图标与SW precache | manifest／浏览器能力，service-worker单测通过 | OS实际安装、程序坞数据隔离、协议启动未实测 |
 
-开发中仅修正夹具旧入口／即时单选回退预期；原产品安全与期限断言保留。跨域组合冻结后执行一次完整门禁，失败按产品／夹具／基础设施分类，不用定向通过替代完整证据。
+开发中修正夹具旧入口／即时单选回退预期；首个干净候选完整门禁构建和860项单元通过，浏览器入口的通话结束期限仍断言旧默认60秒而失败，已按新默认30秒更新并定向复验通过，原范围与容差保留。收尾补强已知接入拒绝和部分历史重开失败的清理，再冻结最终候选。跨域组合冻结后执行一次完整门禁，失败按产品／夹具／基础设施分类，不用定向通过替代完整证据。
 
 ## 交付证据
 

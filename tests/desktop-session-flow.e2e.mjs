@@ -249,6 +249,26 @@ try {
   assert.equal((await state(creator)).retained, true);
   await holdF(creator); await expectChat(creator);
   assert.equal(await verificationCount(creator),expectedVerifications);
+  trace('Checking rejected access cannot retain a return capability');
+  await creator.evaluate(() => { const app = window.__desktopSessionApp; app.accessFailure = 'denied'; app.manualLock(); });
+  assert.equal((await state(creator)).retained, false);
+  await holdF(creator); await expectChat(creator); expectedVerifications++;
+  assert.equal(await verificationCount(creator), expectedVerifications);
+  trace('Checking a failed history reopen clears its partial runtime');
+  await creator.evaluate(() => {
+    const app = window.__desktopSessionApp;
+    window.savedDesktopOpenSession = app.openSession;
+    app.manualLock();
+    app.openSession = async () => { throw new Error('synthetic history read failure'); };
+  });
+  await holdF(creator);
+  await creator.waitForFunction(() => !window.__desktopSessionApp.desktopReturning);
+  assert.equal((await state(creator)).active, false);
+  assert.equal((await state(creator)).retained, false);
+  assert.equal(await creator.locator('.chat-shell, .message, #message-input').count(), 0);
+  await creator.evaluate(() => { window.__desktopSessionApp.openSession = window.savedDesktopOpenSession; });
+  await holdF(creator); await expectChat(creator); expectedVerifications++;
+  assert.equal(await verificationCount(creator), expectedVerifications);
   trace('Checking 30-minute absence clears the return capability');
   await depart(creator,'hidden');
   await creator.clock.install(); await creator.clock.fastForward(30 * 60 * 1000);

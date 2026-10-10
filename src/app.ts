@@ -13621,7 +13621,7 @@ export class QuietRoomApp {
     if (desktopContinuation && this.privacyCovered) { this.desktopAccess.peek(); return; }
     const original = this.session;
     let held: DesktopReturn | null = null;
-    if (desktopContinuation && this.desktopBrowser && !this.deviceVerificationActive && !this.exposureAnchor) {
+    if (desktopContinuation && this.desktopBrowser && !this.deviceVerificationActive && !this.exposureAnchor && !this.accessFailure) {
       if (original && original.stored.unlockMethod !== 'recovery' && !original.vault.pendingJointRecovery
         && !original.vault.pendingRepair && !original.vault.pendingRecovery
         && (!original.vault.pairingState || original.vault.pairingState === 'ready')) {
@@ -13701,6 +13701,9 @@ export class QuietRoomApp {
     } catch {
       if (this.runtimeEpoch !== epoch || this.coverEntryEpoch !== entry || document.hidden) return;
       this.desktopAccess.clear();
+      // A failed history/profile reopen must not leave a half-started private
+      // runtime behind the authentication gateway.
+      if (this.session || this.browserProfile) { this.lockNow(); return; }
       this.privacyCovered = false;
       await this.renderGateway({ trustedCoverActivation: true, autoUnlock: false });
     } finally { this.desktopReturning = false; }

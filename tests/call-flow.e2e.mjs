@@ -164,7 +164,7 @@ export async function verifyCallFlow({ creator, joiner, unlock, visualQaDirector
     await Promise.all(pages.map(tracksStopped));
     await creator.waitForFunction(() => window.__callFlow.lease?.paused === false);
     const remaining = await creator.evaluate(() => window.__callFlow.lease.remaining);
-    assert(remaining > 58_000 && remaining <= 60_000, `Call end must start the configured one-minute lease: ${remaining}`);
+    assert(remaining > 28_000 && remaining <= 30_000, `Call end must start the default thirty-second lease: ${remaining}`);
     await dismiss(creator);
     await dismiss(joiner);
 
