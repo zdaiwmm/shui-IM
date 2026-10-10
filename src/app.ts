@@ -487,6 +487,9 @@ export class QuietRoomApp {
   private sendingTextDrafts = new Set<number>();
   private composerDraftVersion = 0;
   private chatPinnedToBottom = true;
+  // User navigation invalidates older asynchronous send positioning. Content
+  // may still commit, but only the newest explicit action owns the viewport.
+  private chatScrollRevision = 0;
   private entranceGuideCard: HTMLElement | null = null;
   private chatViewportTop = 0;
   private chatViewportHeight = 0;
@@ -5187,6 +5190,7 @@ export class QuietRoomApp {
 
   private renderChat(): void {
     if (!this.session) return;
+    this.chatScrollRevision += 1;
     // Replacing the textarea destroys the owner of a consumed native-keyboard
     // blur. Treat that as a departure; an unused pre-focus arm is just cleared.
     this.closeMemePicker();
@@ -5323,6 +5327,7 @@ export class QuietRoomApp {
     this.mountChatImageConcealGesture(list);
     const scrollIntent = (direction: 'up' | 'down') => {
       if (!ownsActiveChat()) return;
+      this.chatScrollRevision += 1;
       this.replyJumpVersion += 1;
       this.chatBottomControl?.cancel();
       this.cancelChatMessageMotion();
@@ -5375,7 +5380,13 @@ export class QuietRoomApp {
       if (event.deltaY) { this.chatViewportMotion?.move(); scrollIntent(event.deltaY < 0 ? 'up' : 'down'); }
       this.trackChatViewport();
     }, { passive: true });
-    list.addEventListener('pointerdown', () => { if (ownsActiveChat()) this.chatRestoreAnchor = null; }, { passive: true });
+    list.addEventListener('pointerdown', () => {
+      if (!ownsActiveChat()) return;
+      // Native scrollbar drags/selection do not necessarily emit wheel or
+      // touchmove. The new pointer interaction supersedes pending send jumps.
+      this.chatScrollRevision += 1;
+      this.chatRestoreAnchor = null;
+    }, { passive: true });
     list.addEventListener('keydown', event => {
       if (!ownsActiveChat()) return;
       this.commitNativeChatFollow();
@@ -5390,7 +5401,7 @@ export class QuietRoomApp {
       // A tap in history cancels follow before blur to protect a possible drag.
       // On the next focus, resume a bottom reader who only dismissed the
       // keyboard. An actual touch/wheel/key scroll clears this saved intent.
-      if (!this.chatRestoreAnchor && (this.chatResumeBottomOnFocus || this.chatBottomGap() <= 2)) {
+      if (!this.chatRestoreAnchor && (this.chatResumeBottomOnFocus || this.chatScrollIntent !== 'up' && this.chatBottomGap() <= 2)) {
         this.scrollChatToBottom();
       }
       this.chatResumeBottomOnFocus = false;
@@ -6008,7 +6019,10 @@ export class QuietRoomApp {
         this.chatViewportMotion?.touchStart();
         this.chatBottomControl?.cancel();
         this.cancelChatMessageMotion();
-        this.chatResumeBottomOnFocus = this.chatPinnedToBottom && this.chatBottomGap() <= 2;
+        // A keyboard endpoint may not have aligned yet. Preserve an existing
+        // follow intent, including a stationary dismissal, without treating an
+        // actual upward history gesture as a request to follow again.
+        this.chatResumeBottomOnFocus = this.chatScrollIntent !== 'up' && (this.chatPinnedToBottom || this.chatBottomGap() <= 2);
         this.chatRestoreAnchor = null;
         this.chatScrollIntent = 'up';
         this.chatPinnedToBottom = false;
@@ -6042,6 +6056,7 @@ export class QuietRoomApp {
       measure: () => !this.chatViewportMotion?.moving && !this.composerHeightMotion,
       begin: () => {
         this.replyJumpVersion += 1;
+        this.chatScrollRevision += 1;
         this.chatViewportMotion?.automaticScroll();
         this.cancelChatMessageMotion();
         this.chatRestoreAnchor = null;
@@ -6745,6 +6760,7 @@ export class QuietRoomApp {
   }
 
   private setActiveSurface(surface: 'away' | 'chat', preservePresence = false): boolean {
+    if (surface !== this.activeSurface) this.chatScrollRevision += 1;
     if (surface === 'away') { this.closeMemePicker(); this.memeCache.view = undefined; }
     this.stopViewerMedia();
     if (surface === 'away') {
@@ -6824,12 +6840,12 @@ export class QuietRoomApp {
       && (gap <= 2 || this.chatBottomFollowPending || (this.chatPinnedToBottom && (!documentMoved || performance.now() < this.chatViewportFollowUntil)));
     if (this.chatScrollTop < 80) void this.loadOlderHistory(list);
     if (gap < 80) void this.loadNewerHistory(list);
-    this.captureChatAnchor(true, false, gap);
+    this.captureChatAnchor(true);
     this.markVisibleMessagesRead();
     this.updateChatBottomControl();
   }
 
-  private captureChatAnchor(persist = false, preservePosition = false, knownBottomGap?: number): ChatScrollAnchor | null {
+  private captureChatAnchor(persist = false, preservePosition = false): ChatScrollAnchor | null {
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!list) return this.uiPreferences.chatAnchor ?? null;
     // A tall photo can temporarily become a short placeholder after unlock.
@@ -6839,8 +6855,9 @@ export class QuietRoomApp {
       ? this.renderedMessageOrder
       : [...list.querySelectorAll<HTMLElement>('.message[data-client-msg-id]')];
     if (articles.length === 0) return null;
-    const pinnedToBottom = !preservePosition && this.chatPinnedToBottom && this.chatScrollIntent !== 'up'
-      && (this.chatBottomFollowPending || performance.now() < this.chatViewportFollowUntil || (knownBottomGap ?? this.chatBottomGap()) <= 48);
+    // Follow intent survives content growth and keyboard geometry. Only user
+    // navigation or settled scroll bookkeeping changes that intent.
+    const pinnedToBottom = !preservePosition && this.chatPinnedToBottom && this.chatScrollIntent !== 'up';
     const listTop = this.chatViewportTop;
     // Message rows are laid out monotonically. Avoid reading every older row
     // (and sorting every payload) on each touch-scroll event.
@@ -6875,10 +6892,20 @@ export class QuietRoomApp {
       this.scrollChatToBottom();
       return;
     }
-    const target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(anchor.clientMsgId)}"]`);
+    let target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(anchor.clientMsgId)}"]`);
     if (!target) {
-      this.scrollChatToBottom();
-      return;
+      // Deleted/hidden anchors retain their screen offset on the nearest
+      // locally readable neighbour. Never promote failed history restoration
+      // into an implicit request to return to latest.
+      let distance = Number.POSITIVE_INFINITY;
+      for (const row of this.renderedMessageOrder) {
+        const seq = this.renderedMessageSeq.get(row.dataset.clientMsgId ?? '');
+        if (seq === undefined || seq >= Number.MAX_SAFE_INTEGER || row.parentElement !== list) continue;
+        const delta = Math.abs(seq - anchor.seq);
+        if (delta < distance || delta === distance && seq > anchor.seq) { target = row; distance = delta; }
+      }
+      if (target && this.chatRestoreAnchor) this.chatRestoreAnchor = { ...anchor,
+        clientMsgId: target.dataset.clientMsgId!, seq: this.renderedMessageSeq.get(target.dataset.clientMsgId!)! };
     }
     // A temporary empty/cold list may have queued bottom follow during restore.
     // Once the history target exists, that fallback must not replace its anchor.
@@ -6888,6 +6915,7 @@ export class QuietRoomApp {
     // Page-transition transforms can temporarily move fixed composer geometry.
     // A restored history position remains a reading intent until user action.
     if (this.chatRestoreAnchor) this.chatScrollIntent = 'up';
+    if (!target) return;
     const delta = target.getBoundingClientRect().top - this.chatViewportTop - anchor.offset;
     if (Math.abs(delta) > 1) this.setChatScrollTop(this.chatScrollTop + delta);
   }
@@ -7056,10 +7084,11 @@ export class QuietRoomApp {
     this.chatBottomControl?.update();
   }
 
-  private async prepareChatBottomScroll(list: HTMLElement, signal: AbortSignal): Promise<boolean> {
+  private async prepareChatBottomScroll(list: HTMLElement, signal: AbortSignal, scrollRevision?: number): Promise<boolean> {
     const session = this.session;
     const epoch = this.runtimeEpoch;
-    const active = () => Boolean(session && this.isRuntimeActive(epoch, session) && list.isConnected && this.activeSurface === 'chat' && !signal.aborted);
+    const active = () => Boolean(session && this.isRuntimeActive(epoch, session) && list.isConnected && this.activeSurface === 'chat' && !signal.aborted
+      && (scrollRevision === undefined || scrollRevision === this.chatScrollRevision));
     while (active() && this.historyHasNewer) {
       // Cooperate with a page already requested by ordinary scrolling. Abort
       // wakes this wait even if privacy/backgrounding stops animation frames.
@@ -7437,19 +7466,26 @@ export class QuietRoomApp {
     }
   }
 
-  private enqueuePayload(payload: MessagePayload, existingClientMsgId?: string, signal?: AbortSignal, draft?: DraftSubmission): Promise<void> {
+  private beginChatSendScroll(): number {
+    this.replyJumpVersion += 1;
+    this.chatBottomControl?.cancel();
+    return ++this.chatScrollRevision;
+  }
+
+  private enqueuePayload(payload: MessagePayload, existingClientMsgId?: string, signal?: AbortSignal, draft?: DraftSubmission,
+    scrollRevision: number | null = ['text', 'image', 'image-album', 'file', 'audio'].includes(payload.kind) ? this.beginChatSendScroll() : null): Promise<void> {
     const session = this.session;
     const epoch = this.runtimeEpoch;
     const operation = this.sendChain.catch(() => undefined).then(() => {
       signal?.throwIfAborted();
       if (!session || !this.isRuntimeActive(epoch, session)) return;
-      return this.sendPayload(payload, existingClientMsgId, signal, draft);
+      return this.sendPayload(payload, existingClientMsgId, signal, draft, scrollRevision);
     });
     this.sendChain = operation.catch(() => undefined);
     return operation;
   }
 
-  private async sendPayload(payload: MessagePayload, existingClientMsgId?: string, signal?: AbortSignal, draft?: DraftSubmission): Promise<void> {
+  private async sendPayload(payload: MessagePayload, existingClientMsgId?: string, signal?: AbortSignal, draft?: DraftSubmission, scrollRevision: number | null = null): Promise<void> {
     const session = this.session;
     const epoch = this.runtimeEpoch;
     if (!session || this.privacyCovered) return;
@@ -7458,12 +7494,12 @@ export class QuietRoomApp {
       signal?.throwIfAborted();
       if (this.isRuntimeActive(epoch, session)) {
         await this.ensureMessageWindow(mutation);
-        if (this.isRuntimeActive(epoch, session)) await this.sendPayloadLocked(payload, existingClientMsgId, mutation, draft);
+        if (this.isRuntimeActive(epoch, session)) await this.sendPayloadLocked(payload, existingClientMsgId, mutation, draft, scrollRevision);
       }
     });
   }
 
-  private async sendPayloadLocked(payload: MessagePayload, existingClientMsgId: string | undefined, mutation: VaultMutation, draft?: DraftSubmission): Promise<void> {
+  private async sendPayloadLocked(payload: MessagePayload, existingClientMsgId: string | undefined, mutation: VaultMutation, draft?: DraftSubmission, scrollRevision: number | null = null): Promise<void> {
     const session = this.session;
     if (!session || this.privacyCovered) return;
     if (this.accessFailure) throw new Error('此设备当前无法接入此空间，内容没有发送。');
@@ -7512,8 +7548,13 @@ export class QuietRoomApp {
     this.pending.set(clientMsgId, pending);
     if (['text', 'image', 'image-album', 'file', 'audio'].includes(payload.kind)) this.presenceCircuit?.sent();
     const projectionEvent = payload.kind === 'reaction' || payload.kind === 'message-delete' || payload.kind === 'media-read' || payload.kind === 'message-read';
-    this.renderMessages({ scroll: projectionEvent ? 'preserve' : 'send' });
-    if (!projectionEvent) this.trackChatViewport(!this.desktopBrowser);
+    let followSend = !projectionEvent && scrollRevision !== null && scrollRevision === this.chatScrollRevision && this.activeSurface === 'chat';
+    if (followSend && this.historyHasNewer && this.chatLayoutElements?.list.isConnected && this.runtimeAbort) {
+      followSend = await this.prepareChatBottomScroll(this.chatLayoutElements.list, this.runtimeAbort.signal, scrollRevision!);
+      if (!this.isRuntimeActive(epoch, session)) return;
+    }
+    this.renderMessages({ scroll: followSend ? 'send' : 'preserve' });
+    if (followSend) this.trackChatViewport(!this.desktopBrowser);
     await this.attemptSend(clientMsgId);
   }
 
@@ -7761,6 +7802,7 @@ export class QuietRoomApp {
         if (replyTarget === undefined) replyTarget = this.replyTarget;
         if (!this.activeDevicesSupport('voice-message-v1')) throw new Error('有设备尚未更新，请先让所有设备打开最新版');
         const signal = AbortSignal.any([draftSignal, this.runtimeAbort!.signal]);
+        const scrollRevision = payload || plan ? null : this.beginChatSendScroll();
         const { roomId, accessToken } = session.vault;
         uploaded ??= await encryptAudioFile(draft.file, {
           reserve: (blobId, count, size) => voiceRequest('VOICE_CONNECT_FAILED', attemptSignal => reserveBlob(roomId, accessToken, blobId, count, size, attemptSignal), signal),
@@ -7779,7 +7821,7 @@ export class QuietRoomApp {
           durationMs: draft.durationMs, waveform: draft.waveform, sentAt: new Date().toISOString(),
           ...(replyTarget ? { replyTo: this.replyReference(replyTarget) } : {}),
         };
-        await this.enqueuePayload(payload, draft.clientMsgId);
+        await this.enqueuePayload(payload, draft.clientMsgId, undefined, undefined, scrollRevision);
         if (!this.isRuntimeActive(epoch, session) || this.voiceRecorder !== recorder) return;
         this.closeVoiceRecorder(true);
         if (this.replyTarget === replyTarget) { this.replyTarget = null; this.renderReplyDraft(); }
@@ -8035,6 +8077,7 @@ export class QuietRoomApp {
       return false;
     }
     const uploadScope = this.root.querySelector<HTMLElement>(destination === 'gallery' ? '.gallery-shell' : '#composer');
+    const scrollRevision = destination === 'chat' && !mediaRetryId ? this.beginChatSendScroll() : null;
     const progress = this.root.querySelector<HTMLElement>('#upload-progress');
     const bar = progress?.querySelector<HTMLElement>('span');
     const output = progress?.querySelector<HTMLOutputElement>('output');
@@ -8100,7 +8143,12 @@ export class QuietRoomApp {
         await mediaUpload.view.ready;
         if (!this.isRuntimeActive(epoch, session)) return false;
         if (progress) { progress.hidden = true; progress.removeAttribute('aria-busy'); }
-        this.renderMessages({ scroll: 'send' });
+        let followMediaSend = scrollRevision !== null && scrollRevision === this.chatScrollRevision && this.activeSurface === 'chat';
+        if (followMediaSend && this.historyHasNewer && this.chatLayoutElements?.list.isConnected && signal) {
+          followMediaSend = await this.prepareChatBottomScroll(this.chatLayoutElements.list, signal, scrollRevision!);
+          if (!this.isRuntimeActive(epoch, session)) return false;
+        }
+        this.renderMessages({ scroll: followMediaSend ? 'send' : 'preserve' });
       }
       const vault = session.vault;
       for (const [index, file] of files.entries()) {
@@ -8186,7 +8234,9 @@ export class QuietRoomApp {
       }
       signal?.throwIfAborted();
       mediaUpload?.view.update('finishing');
-      await this.enqueuePayload(payload, clientMsgId, operationSignal);
+      // The inline preview already consumed the explicit send positioning.
+      // Upload completion/retry only replaces that row and follows current intent.
+      await this.enqueuePayload(payload, clientMsgId, operationSignal, undefined, inlineMedia ? null : scrollRevision);
       if (!this.isRuntimeActive(epoch, session)) return false;
       mediaUpload?.view.destroy();
       this.mediaUploads.delete(clientMsgId);
@@ -9090,6 +9140,7 @@ export class QuietRoomApp {
   }
 
   private async jumpToReplyTarget(clientMsgId: string, seq?: number): Promise<void> {
+    this.chatScrollRevision += 1;
     const jumpVersion = ++this.replyJumpVersion;
     const session = this.session;
     const epoch = this.runtimeEpoch;
@@ -13491,6 +13542,7 @@ export class QuietRoomApp {
   }
 
   private cleanupRuntime(preserveFilePicker = false, preserveIdle = false): void {
+    this.chatScrollRevision += 1;
     if (!preserveIdle) this.idleLease.clear();
     this.idlePrompt?.hide(); this.exposureAnchor = null; this.idleLease.clearExposureLimit();
     if (this.waitingSpaceTimer !== null) window.clearTimeout(this.waitingSpaceTimer);

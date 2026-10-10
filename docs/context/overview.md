@@ -125,6 +125,8 @@
 
 聊天连续性（历史键盘、引用往返、发送动画接续、表情状态）的专项为 `tests/chat-continuity.e2e.mjs`，与既有 `chat-list-viewport`、`chat-bottom-control`、`frontend-lifecycle` 和 `meme-picker` 一起随 `npm run check:full` 执行。确认与证据见[需求记录](../requirements/2026-09-28-chat-continuity/README.md)。
 
+聊天定位的异步发送／上传与用户滚动竞争、收消息同时弹键盘、邻近锚点恢复及发送补齐本地尾部，由 `tests/chat-scroll-stability.e2e.mjs` 在 WebKit／Chromium 手机与桌面布局检查并纳入完整浏览器门禁。规则及真机限制见[定位稳定性需求](../requirements/2026-10-10-chat-scroll-stability/README.md)。
+
 
 体验优化 F01–F15：新增本机密码保护位于 `src/lib/password-protection.ts`、`password-dialog.ts` 与 `vault.ts`，界面共用 `src/experience.css`；新密码与原设备密钥的混合恢复沿用 `joint-recovery.ts`。回归入口为 `password-protection.test.ts`、`platform-vault.test.ts`、`password-fallback.e2e.mjs`、`joint-recovery.e2e.mjs`、`local-history-backup.e2e.mjs`、`meme-picker.e2e.mjs` 和 `backup-admin-ui.e2e.mjs`。确认与验收由[本次需求记录](../requirements/2026-09-30-experience-optimization/README.md)维护，长期边界见 PRODUCT.md、SECURITY.md 和 RECOVERY_BACKUPS.md。
 
