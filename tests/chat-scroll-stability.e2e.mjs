@@ -127,6 +127,19 @@ try {
       await page.evaluate(async () => { const f = window.scrollFixture; f.releaseSend(); await f.send; });
       await stable(`${engine}/${desktop}: scrollbar competing with send`);
 
+      // Direct quote navigation from the latest main is also a newer user
+      // action; the older durable send must not pull the reader away from it.
+      await page.evaluate(async () => {
+        const f = window.scrollFixture; f.app.scrollChatToBottom();
+        f.app.sendChain = new Promise(resolve => { f.releaseSend = resolve; });
+        f.send = f.app.enqueuePayload({ v: 1, kind: 'text', text: 'send competing with quote', sentAt: new Date().toISOString() });
+        await f.app.jumpToReplyTarget('scroll-90', 90);
+      });
+      await settle();
+      await page.evaluate(() => { const f = window.scrollFixture; f.watch = f.observe(); });
+      await page.evaluate(async () => { const f = window.scrollFixture; f.releaseSend(); await f.send; });
+      await stable(`${engine}/${desktop}: direct quote competing with send`);
+
       // Explicit fresh sends still restore following from history.
       await page.evaluate(async () => { const f = window.scrollFixture; await f.app.enqueuePayload({ v: 1, kind: 'text', text: 'fresh send', sentAt: new Date().toISOString() }); });
       await settle();
@@ -228,6 +241,27 @@ try {
       assert.deepEqual(await page.evaluate(() => { const a = window.scrollFixture.app;
         return [a.historyHasNewer, a.historyForwardCursor, a.messages.has(184), a.chatPinnedToBottom, a.chatBottomGap() <= 2];
       }), [false, 184, true, true, true]);
+
+      // Media consumes the same fresh-send navigation at preview time, before
+      // uploading. It must load the tail too, then respect subsequent scrolling.
+      await page.evaluate(() => {
+        const f = window.scrollFixture;
+        for (let seq = 182; seq <= 184; seq++) f.app.messages.delete(seq);
+        f.app.historyForwardCursor = 181; f.app.historyHasNewer = true;
+        f.app.renderMessages({ scroll: 'preserve' }); f.up(700);
+        f.gate.hold = true; f.gate.release = null;
+        f.upload = f.app.processImageBatch([f.file], 'chat');
+      });
+      await page.waitForFunction(() => window.scrollFixture.gate.release !== null);
+      await settle();
+      assert.deepEqual(await page.evaluate(() => { const a = window.scrollFixture.app;
+        return [a.historyHasNewer, a.historyForwardCursor, a.messages.has(184), a.chatPinnedToBottom, a.chatBottomGap() <= 2];
+      }), [false, 184, true, true, true]);
+      await page.evaluate(() => { const f = window.scrollFixture; f.up(700); f.watch = f.observe(); f.gate.hold = false; f.gate.release(); });
+      assert.equal(await page.evaluate(() => window.scrollFixture.upload), true);
+      await stable(`${engine}/${desktop}: media from partial history then scroll during upload`);
+      await page.evaluate(() => { window.scrollFixture.app.scrollChatToBottom(); });
+      await settle();
 
       // At the bottom the same arrival/keyboard race should retain following.
       await page.locator('#message-input').focus();

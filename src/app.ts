@@ -8,6 +8,7 @@ import { bindControlFeedback } from './lib/control-feedback';
 import { afterMotion, layoutMotionDuration, motion, retargetMotion, settleValue, travelMotion, travelVelocity } from './lib/motion';
 import { IdleLease, IDLE_DURATIONS, IDLE_PREFERENCE_KEY, readIdleSeconds, saveIdleSeconds } from './lib/idle-lock';
 import { IdleLockPrompt } from './lib/idle-lock-prompt';
+import { bindBlankDoubleLock } from './lib/blank-double-lock';
 import { MESSAGE_WINDOW_CAPABILITY, MLS_WINDOW_MESSAGES, maySkipWindowMessage, appendExpiredRange, expiredMessage } from './lib/message-window';
 import { getWindowMessages } from './lib/api';
 import { prepareMlsWindowUpdate, verifyMembershipEnvelope } from './lib/mls';
@@ -652,7 +653,7 @@ export class QuietRoomApp {
   private suppressMediaClickUntil = 0;
   private messageHighlightTimer: number | null = null;
   private replyJumpVersion = 0;
-  private replyReturnAnchors: ChatScrollAnchor[] = [];
+  private resetBlankLockGesture: () => void = () => {};
   private chatNewMessageIds = new Set<string>();
   private voiceRecorder: VoiceRecorder | null = null;
   private voiceGesture: ReturnType<typeof bindVoiceRecordGesture> | null = null;
@@ -665,6 +666,11 @@ export class QuietRoomApp {
   private callReturnFocus: HTMLElement | null = null;
 
   constructor(private readonly root: HTMLElement) {
+    this.resetBlankLockGesture = bindBlankDoubleLock(root, {
+      active: () => !this.privacyCovered && !document.hidden && Boolean(this.idleDeadline) && !this.expireIdleSession(),
+      generation: () => this.runtimeEpoch,
+      lock: () => this.manualLock(),
+    });
     this.desktopWorkspace = new DesktopWorkspace(root, {
       context: () => this.privacyCovered ? null : this.session && this.runtimeAbort ? { owner: this.session, signal: this.runtimeAbort.signal }
         : this.browserProfile && this.browserAccessAbort ? { owner: this.browserProfile, signal: this.browserAccessAbort.signal } : null,
@@ -2574,7 +2580,7 @@ export class QuietRoomApp {
 
   private openBrowserSpaceList(container?: HTMLElement, presentationSignal?: AbortSignal):void {
     const current=this.browserProfile,signal=presentationSignal ?? this.browserAccessAbort?.signal;if(!current||!signal||signal.aborted)return;
-    mountSpaceDrawer(this.root,{container,presentation:container ? 'sidebar' : undefined, spaces:accessPrivateSpaces(current.profile),currentRoom:current.profile.currentRoom,signal,actions:[{id:'auto-lock-settings',group:'本机',label:'自动锁定',icon:spaceIcons.cover,run:()=>this.renderAutoLockSettings()},{id:'lock-now',group:'本机',label:'立即锁定',icon:spaceIcons.cover,run:()=>this.manualLock()}],
+    mountSpaceDrawer(this.root,{container,presentation:container ? 'sidebar' : undefined, spaces:accessPrivateSpaces(current.profile),currentRoom:current.profile.currentRoom,signal,actions:[{id:'auto-lock-settings',group:'本机',label:'自动锁定',icon:spaceIcons.cover,run:()=>this.renderAutoLockSettings()}],
       select:async space=>{if(space.localId){await this.switchPrivateSpace(space);return;}current.profile.currentRoom=space.roomId;await saveBrowserProfile(current,signal);if(!signal.aborted)this.renderBrowserShell();},
       create:async()=>{if(await this.leaveSpace())this.renderCreate();},rename:async()=>{throw new Error('空间授权后可修改名称');},
       removeLabel: space => this.catalogRemovalLabel(space),
@@ -5114,7 +5120,6 @@ export class QuietRoomApp {
         { id: 'local-history-restore', label: '恢复数据', icon: spaceIcons.download, run: forward(() => void this.renderLocalHistoryBackup('import')) },
         { id: 'recover-other-space', label: '恢复其他空间', icon: spaceIcons.spaces, run: forward(() => this.renderJointRecovery(null)) },
         { id: 'auto-lock-settings', group: '本机', label: '自动锁定', icon: spaceIcons.cover, run: forward(() => this.renderAutoLockSettings()) },
-        { id: 'lock-now', group: '本机', label: '立即锁定', icon: spaceIcons.cover, run: () => this.manualLock() },
         { id: 'notification-settings', group: '本机', label: '通知管理', icon: spaceIcons.bell, run: forward(() => void this.renderNotificationSettings()) },
         { id: 'passkey-management', group: '本机', label: '通行密钥管理', icon: spaceIcons.key, keepOpen: true, run: () => {
           const credential = this.deviceCredential;
@@ -5246,7 +5251,6 @@ export class QuietRoomApp {
         <div class="notice" id="notice" role="status" hidden></div>
         <section class="message-list" id="message-list" aria-label="聊天消息"></section>
         <form class="composer" id="composer" autocomplete="off">
-          <button class="chat-reply-return" id="chat-reply-return" type="button" hidden>↩ 返回刚才位置</button>
           <button class="chat-bottom-control" id="chat-bottom-control" type="button" aria-label="回到最新消息" aria-hidden="true" tabindex="-1"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></button>
           <input id="image-input" type="file" accept="image/*,video/*" multiple ${cryptoReady ? '' : 'disabled'} hidden />
           <input id="camera-input" type="file" accept="image/*,video/*" capture="environment" ${cryptoReady ? '' : 'disabled'} hidden />
@@ -5307,7 +5311,7 @@ export class QuietRoomApp {
           || !(event.target instanceof Element)) return;
       // These navigation controls sit above the input bar and already own
       // explicit scrolling through viewport motion.
-      if (event.target.closest('#chat-bottom-control, #chat-reply-return')) return;
+      if (event.target.closest('#chat-bottom-control')) return;
       const moving = composer.hasAttribute('data-viewport-motion');
       if (moving) {
         event.preventDefault();
@@ -5737,13 +5741,6 @@ export class QuietRoomApp {
       this.bottomControlRetainsKeyboard = document.activeElement === textarea;
       this.retainComposerKeyboard(event as PointerEvent, textarea);
     });
-    this.root.querySelector('#chat-reply-return')?.addEventListener('pointerdown', event => {
-      this.retainComposerKeyboard(event as PointerEvent, textarea);
-    });
-    this.root.querySelector('#chat-reply-return')?.addEventListener('click', () => {
-      const anchor = this.replyReturnAnchors.at(-1);
-      if (anchor) void this.jumpToReplyTarget(anchor.clientMsgId, anchor.seq, anchor);
-    });
     this.mountImagePicker(imageInput, 'chat', this.root.querySelector<HTMLButtonElement>('#open-image-picker'));
     this.mountImagePicker(this.root.querySelector<HTMLInputElement>('#camera-input'), 'chat', this.root.querySelector<HTMLButtonElement>('#open-camera-picker'));
     this.mountImagePicker(this.root.querySelector<HTMLInputElement>('#file-input'), 'chat', this.root.querySelector<HTMLButtonElement>('#open-file-picker'));
@@ -6060,7 +6057,6 @@ export class QuietRoomApp {
       begin: () => {
         this.replyJumpVersion += 1;
         this.chatScrollRevision += 1;
-        this.replyReturnAnchors = [];
         this.chatViewportMotion?.automaticScroll();
         this.cancelChatMessageMotion();
         this.chatRestoreAnchor = null;
@@ -6769,7 +6765,6 @@ export class QuietRoomApp {
     this.stopViewerMedia();
     if (surface === 'away') {
       this.replyJumpVersion += 1;
-      this.replyReturnAnchors = [];
       this.chatNewMessageIds.clear();
       if (preservePresence) this.presenceCircuit?.suspend();
       else { this.presenceCircuit?.destroy(); this.presenceCircuit = null; }
@@ -7076,8 +7071,6 @@ export class QuietRoomApp {
   }
 
   private updateChatBottomControl(): void {
-    const returning = this.root.querySelector<HTMLButtonElement>('#chat-reply-return');
-    if (returning) returning.hidden = this.replyReturnAnchors.length === 0;
     if (this.chatPinnedToBottom && this.chatScrollIntent !== 'up') this.chatNewMessageIds.clear();
     const bottom = this.root.querySelector<HTMLButtonElement>('#chat-bottom-control');
     if (bottom) {
@@ -8150,7 +8143,12 @@ export class QuietRoomApp {
         await mediaUpload.view.ready;
         if (!this.isRuntimeActive(epoch, session)) return false;
         if (progress) { progress.hidden = true; progress.removeAttribute('aria-busy'); }
-        this.renderMessages({ scroll: scrollRevision !== null && scrollRevision === this.chatScrollRevision ? 'send' : 'preserve' });
+        let followMediaSend = scrollRevision !== null && scrollRevision === this.chatScrollRevision && this.activeSurface === 'chat';
+        if (followMediaSend && this.historyHasNewer && this.chatLayoutElements?.list.isConnected && signal) {
+          followMediaSend = await this.prepareChatBottomScroll(this.chatLayoutElements.list, signal, scrollRevision!);
+          if (!this.isRuntimeActive(epoch, session)) return false;
+        }
+        this.renderMessages({ scroll: followMediaSend ? 'send' : 'preserve' });
       }
       const vault = session.vault;
       for (const [index, file] of files.entries()) {
@@ -9141,7 +9139,7 @@ export class QuietRoomApp {
     }
   }
 
-  private async jumpToReplyTarget(clientMsgId: string, seq?: number, returning?: ChatScrollAnchor): Promise<void> {
+  private async jumpToReplyTarget(clientMsgId: string, seq?: number): Promise<void> {
     this.chatScrollRevision += 1;
     const jumpVersion = ++this.replyJumpVersion;
     const session = this.session;
@@ -9150,8 +9148,7 @@ export class QuietRoomApp {
     if (!session || this.privacyCovered || !list?.isConnected) return;
     const active = () => this.isRuntimeActive(epoch, session) && this.activeSurface === 'chat'
       && this.chatLayoutElements?.list === list && list.isConnected && this.replyJumpVersion === jumpVersion;
-    if (!returning && this.messageIsUnavailable(clientMsgId)) { this.showNotice('原消息已删除'); return; }
-    const source = this.captureChatAnchor();
+    if (this.messageIsUnavailable(clientMsgId)) { this.showNotice('原消息已删除'); return; }
     let target = list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(clientMsgId)}"]`);
     if (!target && seq !== undefined) {
       try {
@@ -9159,7 +9156,7 @@ export class QuietRoomApp {
         const saved = await loadHistoryMessage(session, seq, signal);
         if (!active()) return;
         const readable = saved?.clientMsgId === clientMsgId && ['text', 'image', 'image-album', 'file', 'audio'].includes(saved.payload.kind);
-        if (readable || returning) {
+        if (readable) {
           const nearby = await loadHistoryPage(session, { limit: 200, beforeSeq: Math.min(seq + 101, Number.MAX_SAFE_INTEGER), signal });
           if (!active()) return;
           for (const message of nearby) this.messages.set(message.seq, message);
@@ -9174,15 +9171,6 @@ export class QuietRoomApp {
       }
     }
     if (!active()) return;
-    if (!target && returning) {
-      // A deleted origin returns to the nearest readable row without revealing
-      // a stale quote or silently moving the reader to the newest message.
-      target = this.renderedMessageOrder.reduce<HTMLElement | null>((best, row) => {
-        const distance = Math.abs((this.renderedMessageSeq.get(row.dataset.clientMsgId ?? '') ?? Infinity) - returning.seq);
-        const previous = best ? Math.abs((this.renderedMessageSeq.get(best.dataset.clientMsgId ?? '') ?? Infinity) - returning.seq) : Infinity;
-        return distance < previous ? row : best;
-      }, null);
-    }
     if (!target) { this.showNotice('这台设备未保存可读取的原消息'); return; }
     this.chatBottomControl?.cancel();
     this.cancelChatMessageMotion();
@@ -9193,19 +9181,14 @@ export class QuietRoomApp {
     this.chatBottomFollowPending = false;
     this.chatViewportFollowUntil = 0;
     this.chatResumeBottomOnFocus = false;
-    if (returning) {
-      this.replyReturnAnchors.pop();
-      this.restoreChatAnchor(list, { ...returning, clientMsgId: target.dataset.clientMsgId! });
-    } else {
-      if (source) this.replyReturnAnchors.push(source);
-      if (this.replyReturnAnchors.length > 10) this.replyReturnAnchors.shift();
-      // A bounded direct jump avoids animating through unrelated private history.
-      const rect = target.getBoundingClientRect();
-      this.setChatScrollTop(this.chatScrollTop + rect.top - this.chatViewportTop - Math.max(72, (this.chatViewportHeight - rect.height) / 2));
-    }
+    // Jump directly without animating through unrelated private history.
+    const rect = target.getBoundingClientRect();
+    this.setChatScrollTop(this.chatScrollTop + rect.top - this.chatViewportTop - Math.max(72, (this.chatViewportHeight - rect.height) / 2));
     this.captureChatAnchor(true);
     this.updateChatBottomControl();
     this.root.querySelectorAll('.message.is-highlighted').forEach(row => row.classList.remove('is-highlighted'));
+    // Flush the removed effect so repeated quote activation restarts the flash.
+    void target.offsetWidth;
     target.classList.add('is-highlighted');
     if (this.messageHighlightTimer !== null) window.clearTimeout(this.messageHighlightTimer);
     this.messageHighlightTimer = window.setTimeout(() => { target?.classList.remove('is-highlighted'); this.messageHighlightTimer = null; }, 1400);
@@ -9320,7 +9303,6 @@ export class QuietRoomApp {
     const previousLatest = this.renderedMessageOrder.at(-1) ?? null;
     const previousLatestTop = previousLatest?.isConnected ? previousLatest.querySelector('.message-bubble')?.getBoundingClientRect().top ?? null : null;
     if (followSend) {
-      this.replyReturnAnchors = [];
       // A send can commit while IME wrapping is still animating. Preserve the
       // painted input height before committing the new row; otherwise the old
       // height owner blocks bottom alignment after its row animations cancel.
@@ -13530,6 +13512,7 @@ export class QuietRoomApp {
   private lockNow({ preserveFilePicker = false }: { preserveFilePicker?: boolean } = {}): void {
     if (this.locking) return;
     this.locking = true;
+    this.resetBlankLockGesture();
     try {
       this.idleLease.clear(); this.idlePrompt?.hide(); this.exposureAnchor = null;
       this.showPrivacyCurtain();
@@ -13624,7 +13607,6 @@ export class QuietRoomApp {
     this.sendingTextDrafts.clear();
     this.composerDraftVersion += 1;
     this.replyJumpVersion += 1;
-    this.replyReturnAnchors = [];
     this.chatNewMessageIds.clear();
     if (this.composerHeightMotion?.frame != null) cancelAnimationFrame(this.composerHeightMotion.frame);
     this.composerHeightMotion = null;

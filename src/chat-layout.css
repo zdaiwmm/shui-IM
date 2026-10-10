@@ -466,25 +466,7 @@ html[data-keyboard-open='true'] .composer {
 }
 
 /* Both controls use the composer's existing viewport owner. */
-.chat-reply-return {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: max(12px, calc((100% - 680px) / 2));
-  max-width: calc(100% - 96px);
-  min-height: 44px;
-  padding: 0 14px;
-  border: 1px solid var(--glass-border);
-  border-radius: 24px;
-  color: var(--ink);
-  background: var(--paper-pure);
-  box-shadow: var(--glass-shadow);
-  font-size: 12px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: auto;
-}
-.chat-reply-return[hidden], .chat-new-count[hidden] { display: none; }
+.chat-new-count[hidden] { display: none; }
 .chat-new-count {
   position: absolute;
   top: -7px;

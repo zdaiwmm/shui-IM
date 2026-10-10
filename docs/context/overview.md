@@ -22,6 +22,8 @@
 
 需求协作：所有变更先按[需求澄清与设计确认](workflow.md#需求澄清与设计确认)推进；页面需求先原型与业务流程图，参考根 `DESIGN.md` 和实际样式／组件。记录使用[最小需求模板](../requirements/TEMPLATE.md)，保存遵循[轻量规则](workflow.md#需求材料的轻量保存)。
 
+空白双击主动锁定：`src/lib/blank-double-lock.ts`、`src/app.ts`；验证 `tests/blank-double-lock.e2e.mjs`（Chromium／桌面 WebKit），引用定位整气泡反馈由 `tests/chat-continuity.e2e.mjs` 验证。契约见 D-054。
+
 桌面双栏与收展：`src/lib/desktop-workspace.ts`、`src/desktop.css`；验证 `tests/desktop-layout.e2e.mjs`，复用下方空间/隐私回归。
 
 私密空间抽屉与在线样式：`src/lib/space-drawer.ts`、`src/spaces.css`、`src/lib/spaces.ts`；
