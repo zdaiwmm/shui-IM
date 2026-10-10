@@ -2,7 +2,7 @@
 
 ## 身份、范围与授权
 
-- 需求编号：2026-10-10-blank-double-lock-reply。阶段：已授权实施，候选验证中。
+- 需求编号：2026-10-10-blank-double-lock-reply。阶段：D 已合并（PR #259），本次未执行生产发布。
 - 规则来源：本机 main `1fdab36ba909bb12d7de322f4f3a5539ca63e64c` 的 AGENTS 与固定流程；实时 main 的规则一致。开工本机 main 为该提交，origin/main 与 GitHub main 均为 `afb7acbefa5ded02e9a88fe292e8d9208c053172`。
 - 起始基线：`afb7acbefa5ded02e9a88fe292e8d9208c053172`；独立分支 `codex/blank-double-lock-reply-20261010`，本机目录 `/Users/zhouding/ss-worktrees/blank-double-lock-reply-20261010`，本会话新建。跨电脑需重新核验实际目录及 HEAD。
 - 用户于 2026-10-10 确认方案 V1，补充引用定位应短暂高亮整个气泡，并明确“按你给我的方案直接实施，无需制作原型和流程图”。当前会话消息为确认依据，未提供独立消息定位。此次例外只跳过本需求原型和流程图，允许 I/D；不含生产发布。
@@ -21,12 +21,23 @@
 | 验收项 | 实现与验证 | 限制 |
 | --- | --- | --- |
 | 来源返回功能完全移除，引用定位／不可读提示／最新消息仍有效 | `tests/chat-continuity.e2e.mjs`，桌面 WebKit 触摸模拟通过 | 不代表实体 iPhone |
-| 空白双击完整锁定，内容与控件不误锁 | `src/lib/blank-double-lock.ts`、`tests/blank-double-lock.e2e.mjs`；Chromium／桌面 WebKit 鼠标／触摸通过 | 全量门禁继续 |
+| 空白双击完整锁定，内容与控件不误锁 | `src/lib/blank-double-lock.ts`、`tests/blank-double-lock.e2e.mjs`；Chromium／桌面 WebKit 鼠标／触摸通过 | 完整门禁通过，真机未验证 |
 | 整气泡短暂高亮且恢复，不改变几何 | `src/styles.css`；明暗主题、重复定位、减少动态效果、定时清理通过，截图目视核验 | 真机手感未验证 |
 
-- 版本 `2026.10.10.1` 由固定 release:prepare 生成。构建、Chromium／桌面 WebKit 双击专项及既有全局自动锁定专项通过；定向浏览器通过。完整本地／PR CI／main CI 尚待取证，不写为已合并或已发布。
+- 版本 `2026.10.10.1` 由固定 release:prepare 生成。最终精确干净候选 `faefbdc4456c11d036db13133ed1ba54f9771260` 的 `check:full` 通过：103文件／847项单元集成、56个浏览器入口，690.200秒；文件树 `b3fd0e7a7620c44ce67df2a9f1a4b2f80913a9fa`。Chromium／桌面 WebKit 双击、自动锁定和整气泡反馈定向核验通过。
 - 发送气泡附加夹具曾把同一消息ID的发送方原地改写，违反既有不可变消息及相同payload复用契约；改为独立发送消息验证，保留整面填充断言，不修改产品缓存。
 - 环境限制：首次依赖安装受限网络未完成，受控权限安装后成功；Git元数据探测EPERM经同样权限重跑通过。未放宽产品测试或改变依赖。
 - 需求材料仅本文必要文字；无原型、二进制、Base64、真实消息、密钥或生产数据。依赖与构建产物不入 Git。
 - 首轮干净候选 `1e65f022acd1a5ef6ce6b66cd460c1471f11d402` 完整门禁在单测阶段发现4项浏览器入口清单计数未更新（843项通过）；新增专项使总入口55→56、第二组54→55，按现有顺序同步清单与分片／汇总预期，保留不遗漏和不重复断言后定向复验。
-- 下一步：完成风险匹配验证、任务提交、PR/CI与合并；生产发布需另行精确SHA确认。
+- [PR #259](https://github.com/zdaiwmm/shui-IM/pull/259) 已合并；源head为上述最终候选，实际合并 `87574b739abf90e5047c3a3dfec2223e01d1211c`，独立fetch确认合并树与已验证候选完全一致。[精确PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38034005811) attempt 1全部12项成功；[精确主线CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38034700248)独立核验，结论以该运行记录及交付报告为准，不用PR CI替代。
+- 本次交付终点为main合并，实体iPhone／iOS27／Safari未验证，未执行生产发布或生产回读。后续发布仍须用户确认精确SHA。开发树与独立文档收尾树保留，不清理其他任务资源。
+- 试运行：交互调整；实际模型／强度、主动处理与外部等待耗时、token及口径未知。完整本地额外一次原因为新增浏览器入口计数未同步；产品断言未放宽，发送气泡夹具问题见上文，CI首轮陈旧head被新推送自动取消，最终head attempt 1通过。
+
+## WebKit 回归续修与发布准备（2026-10-10）
+
+- 用户追加“解决WebKit 回归重复超时的问题，并完成合并，发布线上”，授权继续修复和合并。生产仍按仓库规则在冻结、完整 CI 与预检后确认精确 SHA；前述未发布为此前阶段事实。
+- 复用本任务独占收尾树 `codex/blank-double-lock-delivery-record-20261010`，起始 head `2fafe0b36423bf04340a2d4fbcdc2f70b4cab451`、基线 `87574b739abf90e5047c3a3dfec2223e01d1211c`；本机 main、origin/main、实时 GitHub main 及规则来源一致。
+- 原文档 PR #261 的 CI `38034940884`：attempt 1 的 draft-refresh 在 WebKit 初次聊天就绪超时；仅原样重跑失败作业一次后，attempt 2 在 IDB 中止观察超时。首轮通话环境连接失败在该次重跑通过；不修改通话代码。旧日志没有终态诊断，不能据此断言引擎缺陷或产品数据丢失。
+- 最小修复限于 `tests/draft-refresh.e2e.mjs`：持久／网络状态以 100ms 间隔轮询，保留原15秒截止和全部业务断言；聊天就绪要求真实存在且启用的输入框、MLS active、欢迎状态已安装，再操作欢迎按钮，不再猜测1.5秒窗口。失败仅输出布尔值、阶段和状态枚举，不输出消息、邀请或保险库内容。
+- 控制实验确认：暂停 WebKit 动画帧后，默认 RAF 等待在状态已完成时仍超时；相同异步状态由间隔轮询观察成功。新增 Chromium／WebKit 回归探针先确认谓词已读到 false，再改变状态并等待成功，防止预先完成造成假阳性；导航恢复真实调度后运行完整原应用场景。诊断版本机 WebKit及 Linux CI 的草稿场景通过，原失败本轮未重现，不将控制实验扩大为已证实的引擎根因。
+- 修复候选验证、合并及生产状态以后续精确提交证据更新；生产只读预检确认原 SHA `2877c2ae42822763fac812e636405f13196e56bd`，容量门禁报 `DISK_HEADROOM_LOW`（可用4044185600字节，要求4294967296字节）。未执行生产切换、归档迁移或清理。
