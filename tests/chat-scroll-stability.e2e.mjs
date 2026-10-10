@@ -88,8 +88,14 @@ try {
         const a = window.scrollFixture.app;
         return !a.chatViewportMotion?.moving && !a.composerHeightMotion && !a.listKeyboardLayout.moving && !a.chatMessageAnimations.size;
       }, undefined, { timeout: 10_000 });
+      const sampleSettledFrames = async () => {
+        const start = await page.evaluate(() => window.scrollFixture.watch.samples.length);
+        // CI WebKit may draw fewer than four frames in 120 ms. Wait for actual
+        // frame samples, preserving every geometry/node/visibility assertion.
+        await page.waitForFunction(start => window.scrollFixture.watch.samples.length >= start + 8, start, { timeout: 5_000 });
+      };
       const stable = async (label, keyboard = false) => {
-        await settle(); await page.waitForTimeout(120);
+        await settle(); await sampleSettledFrames();
         const result = await page.evaluate(() => {
           const f = window.scrollFixture; f.watch.stop();
           return { ...f.watch, savedAnchor: f.watch.anchor, anchor: f.app.captureChatAnchor(), stop: undefined };
@@ -270,7 +276,7 @@ try {
         if (!f.app.desktopLayoutWide) { Object.defineProperty(visualViewport, 'height', { configurable: true, value: 450 }); visualViewport.dispatchEvent(new Event('resize')); }
         f.app.messages.set(185, f.message(185)); f.app.renderMessages({ scroll: 'preserve' });
       });
-      await settle(); await page.waitForTimeout(120);
+      await settle(); await sampleSettledFrames();
       const bottomRace = await page.evaluate(() => {
         const f = window.scrollFixture; f.watch.stop();
         return { samples: f.watch.samples, pinned: f.app.chatPinnedToBottom, gap: f.app.chatBottomGap() };
