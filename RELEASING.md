@@ -1,12 +1,15 @@
 # Quiet Room 固定发布流程
 
-## 全产品 P1 发布准备与连接阻塞（2026-10-11 04:38）
+## 全产品 P1 发布续跑与回读待完成（2026-10-11 05:11）
 
 - 用户“确认，发布线上”确认精确应用 SHA `84d5ed89472580ef21a105de9bc4ec13d1daae23`、版本 `2026.10.10.4` 及唯一指定旧归档迁存；该授权保留，续跑不得改发后续文档提交。[PR #267](https://github.com/zdaiwmm/shui-IM/pull/267) 的全产品P1及[PR #268](https://github.com/zdaiwmm/shui-IM/pull/268)的逐页细节均已纳入；源 `852d494fe7862c25867b801766151902f37a39e2` 与批准合并提交的文件树 `de71004930ddd20a75577886c4e290889258a932` 一致。[精确PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38081946755)与[精确main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38082858525) attempt 1 全部12项成功，含106文件／863项单元集成及58个浏览器入口。
 - 唯一指定 `data-20261010T100532Z-a27d93230040.tar.gz`（1080280894字节）迁至 FileVault 本机 `/Users/achilles/quiet-room-backups/production/predeploy/ui-detail-audit-20261011/`，目录0700／文件0600。两端gzip／tar／SHA-256、本机独立复读与fsync通过，摘要 `0211eb70aeeb04004c324e81b1c35cd0dcc703dfbe308e268c72673263b64d0b`。持原发布锁，以无损纳秒身份再次复核源、生产及最新恢复点后，仅移除该服务器重复副本；账本 `/var/lib/quiet-room-deploy/archive-migrations/20261011-ui-detail-audit.json` 独立回读通过。最新 `data-20261010T122704Z-0f3b993bb74a.tar.gz`（1081513422字节）原身份／摘要保留；未改保留策略、容量门禁或root helper，未做全局／builder prune。迁存后 `2026-10-10T20:30:07.324Z` 可用4372537344字节、使用率89.05%，要求4310510492字节，构建前容量门禁通过；这不等于构建后门禁或持续不可变异地备份。
-- 固定入口四次均在只读阶段被本机GitHub传输阻断：首次publish verify-main API EOF；第二次隔离副本release verify-main Git HTTPS SSL_ERROR_SYSCALL；采用已配置系统代理后publish verify-main API EOF；本进程关闭HTTP/2且两项只读API探针通过后，publish wait-ci API仍EOF。没有调用服务器发布helper，没有镜像构建／维护门／冷备份／容器切换，也没有目标 `DEPLOY_VERIFIED` 或精确成功回执。停止重复发布，连接故障未定位解决，不将单次只读探针通过记作网络已修复。
-- 另对旧应用执行独立只读回读，`2026-10-10T20:37:56.864Z` 得到 `READBACK_OK`（2873毫秒）：生产仍为 `0f3b993bb74ab0692bf4e9fbad886fa731bddefe`、版本 `2026.10.10.3`；应用／备份healthy，TURN运行且探针none，维护标记不存在，管理员／通话启用；镜像、HTTPS／数据库／存储、公开与容器产物及新WebSocket一致。证据 `20261010T203753990Z-0f3b993bb74a-success.json` 证明旧版健康，不是P1已发布证据。
-- 迁存账本、本机私有交接、脱敏失败阶段及旧版回读已保存到上述FileVault目录的 `delivery/`。独立无部署配置文档树仅同步这次阻塞事实；后续先修复GitHub连接，复核实时main／精确CI／生产／容量，再沿用同一获批SHA的固定入口。迁存已完成，不重复迁存或删除恢复点；取得目标精确回执后才独立回读目标、再次对账并清理。当前任务／发布诊断树保留，其他任务资源不动。iPhone／iOS27／Safari原生键盘及工具栏仍未真机验证。
+- 前四次固定入口仅在只读GitHub核验阶段被EOF／Git HTTPS SSL连接故障阻断，未调用服务器发布helper。用户再次要求解决问题完成发布后，本次进程沿用现有系统代理，并仅为明确白名单内的GitHub GET及幂等Git读取提供有界传输重试；只返回真实成功响应，不缓存／合成CI，不重试切换，不修改源码、全局代理、主机校验或门禁。固定入口随后通过实时main祖先、精确SHA最新完整CI与隔离核验；GitHub连接永久根因未确定，不记为已彻底解决。
+- 第五次入口构建成功，镜像 `sha256:9b532841b5abcf1b142b2a5569749111f96f6de71ddebc03d5a4fc1927092294`，构建47秒；构建后可用4157378560字节，低于要求4310510492字节，返回DISK_HEADROOM_LOW，在关闭业务流量前停止，未产生本轮冷备份或切换。只读确认旧生产与最新0f3归档原身份仍在。持原发布锁仅执行 `dnf clean all` 回收可再下载系统包缓存225959936字节，未删除恢复点、业务数据、镜像或构建缓存。独立预检 `2026-10-10T20:59:15.083Z` 可用4383010816字节、issues为空，原SHA与保留归档身份未变。
+- 第六次同SHA固定入口再次完成全部GitHub／CI核验，服务器构建前预检可用4382941184字节、门禁通过；随后SSH连接被远端关闭，入口退出1／SSH255，最后收到的阶段为fetch-source之前，无法据此认定服务器停止执行。隔离目录 `/private/var/folders/nb/srcr2n5d2l58l5nq123qb8xm0000gn/T/quiet-room-publish-kPfOZy` 未取得精确成功回执或DEPLOY_VERIFIED，保留现场，**不再次调用发布入口**。
+- `2026-10-10T21:06:30.832Z` 公网首页、SW、两份脚本及CSS摘要逐项匹配批准源的本地构建，已不匹配旧版0f3产物；公开健康ok／database／storage均true，新WebSocket可连接。这证明新版公开资源已可访问，不能替代最终服务器SHA、镜像、维护门和容器健康回读。目标独立回读三次仅因SSH连接故障停止，最新证据 `20261010T211036532Z-84d5ed894725-failure.json`；直连在密钥认证前关闭，已有本机HTTP代理返回503。**PRODUCTION_STATE_UNRESOLVED：实际生产最终状态未知，完整发布核验尚未完成**，不能继续把旧版称为当前已确认生产，也不能记为完整回读通过。
+- 最后一次完整成功的服务器回读是旧版 `0f3b993bb74ab0692bf4e9fbad886fa731bddefe`／`2026.10.10.3` 的 `2026-10-10T20:37:56.864Z` READBACK_OK（2873毫秒）：当时应用／备份healthy、TURN运行且探针none、维护标记不存在、管理员／通话启用，镜像／HTTPS／产物／WebSocket一致。该历史回执不代表断连后的当前状态。
+- 迁存、包缓存回收、脱敏发布失败与公开产物证据保存于上述FileVault目录的 `delivery/`。独立无部署配置对账树仅记录实际证据，文档提交不进入本批发布。下一步恢复原受信任SSH通路，检查原发布进程／锁和实际元数据，**只续跑同一目标的独立只读回读**；已经切换时不得为补回执重新发布。管理页面检查受Mac锁屏阻断，已请求解锁；该请求不是重复发布确认。未更改防火墙、发布helper或保留策略。资源继续保留，iPhone／iOS27／Safari原生键盘与工具栏仍未真机验证。
 
 ## 设置与桌面体验已发布（2026-10-10 20:36）
 
