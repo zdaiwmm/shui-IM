@@ -39,7 +39,22 @@ async function protect(page) {
   await form.locator('[type=submit]').click();
 }
 async function ready(page) {
-  await page.locator('.chat-shell').waitFor();
+  try { await page.locator('.chat-shell').waitFor(); }
+  catch (error) {
+    console.error('DRAFT_REGRESSION_UNLOCK_STATE', await page.evaluate(() => ({
+      visibility: document.visibilityState, focused: document.hasFocus(),
+      covered: app.privacyCovered, surface: app.activeSurface,
+      session: Boolean(app.session), unlocking: app.unlocking,
+      runtimeEpoch: app.runtimeEpoch, gatewayEpoch: app.gatewayRenderEpoch,
+      hydrated: app.uiPreferencesHydrated, accessFailure: Boolean(app.accessFailure),
+      passwordForm: Boolean(document.querySelector('.password-form')),
+      cover: Boolean(document.querySelector('.cover-trigger')),
+      formError: Boolean(document.querySelector('.form-error')?.textContent),
+      staleVault: /其他|重新解锁/.test(document.querySelector('.form-error')?.textContent ?? ''),
+      wrongPassword: /密码.*不|密码.*错/.test(document.querySelector('.form-error')?.textContent ?? ''),
+    })).catch(() => ({ unavailable: true })));
+    throw error;
+  }
   // MLS may become active before the pairing render/welcome is installed.
   // Observe that transition instead of guessing a 1.5s welcome window.
   await waitForState(page, 'chat-ready', () => {
