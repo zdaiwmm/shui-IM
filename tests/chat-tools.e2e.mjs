@@ -46,8 +46,9 @@ try {
   assert.equal(await page.locator('#chat-tools > button').count(),6);
   assert.equal(await page.locator('#call-availability-note').innerText(), '连接恢复后可发起通话');
   assert.equal(await page.locator('#start-video-call').getAttribute('aria-describedby'), 'call-availability-note');
-  assert.equal(await page.locator('.composer').evaluate(el => getComputedStyle(el).backgroundColor), await page.evaluate(() => {
-    const probe=document.createElement('div'); probe.style.background='var(--paper-pure)';document.body.append(probe);
+  assert.equal(await page.locator('.composer').evaluate(el => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)');
+  assert.equal(await page.locator('#chat-tools').evaluate(el => getComputedStyle(el).backgroundColor), await page.evaluate(() => {
+    const probe=document.createElement('div'); probe.style.background='var(--surface-raised)';document.body.append(probe);
     const color=getComputedStyle(probe).backgroundColor;probe.remove();return color;
   }));
   await page.evaluate(() => window.fixture.app.showNotice('已收藏'));

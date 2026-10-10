@@ -172,8 +172,8 @@ try {
     if (name !== 'recovery') assert.equal(Math.round(layout.markLeft), 20, `${name}: icon left anchor`);
     assert.equal(Math.round(layout.titleLeft), 20, `${name}: title left anchor`);
     assert.equal(Math.round(layout.actionsLeft), 20, `${name}: actions left anchor`);
-    assert.equal(Math.round(layout.actionsBottom), 30, `${name}: actions bottom anchor`);
-    assert.equal(Math.round(layout.primaryHeight), 52, `${name}: primary height`);
+    assert.equal(Math.round(layout.actionsBottom), 20, `${name}: actions bottom anchor`);
+    assert.equal(Math.round(layout.primaryHeight), 44, `${name}: primary height`);
     assert.ok(Math.round(layout.secondaryHeight) >= 44, `${name}: secondary height`);
     assert.ok(Math.abs(layout.primaryWidth - layout.actionsWidth) < 1 && Math.abs(layout.secondaryWidth - layout.actionsWidth) < 1,
       `${name}: bottom action widths do not match the shared intro layout`);
@@ -188,7 +188,7 @@ try {
   assert.equal(introLayouts.recovery.title, '我的恢复码');
   assert.equal(introLayouts.recovery.principles, 2);
   assert.equal(introLayouts.recovery.collapsed, 2);
-  assert.ok(introLayouts.recovery.actionHeight >= 48 && introLayouts.recovery.backHeight >= 44);
+  assert.ok(introLayouts.recovery.actionHeight >= 44 && introLayouts.recovery.backHeight >= 44);
   assert.match(introLayouts.recovery.sharedCode, /各个空间使用同一个恢复码/);
   assert.equal(introLayouts.recovery.verification, '查看前需要再次验证');
   await page.setViewportSize({ width: 390, height: 520 });

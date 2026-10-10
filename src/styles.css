@@ -447,8 +447,8 @@ button:disabled {
   font-weight: 450;
   resize: vertical;
   box-shadow: inset 0 1px 0 var(--glass-border);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
-  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .gateway-form input:hover,
@@ -511,8 +511,8 @@ button:disabled {
   font-weight: 700;
   cursor: pointer;
   box-shadow: var(--glass-shadow);
-  -webkit-backdrop-filter: blur(20px) saturate(170%);
-  backdrop-filter: blur(20px) saturate(170%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .secondary-button:hover {
@@ -981,8 +981,8 @@ button:disabled {
   font-size: 0.74rem;
   font-weight: 680;
   pointer-events: auto;
-  -webkit-backdrop-filter: blur(34px) saturate(190%);
-  backdrop-filter: blur(34px) saturate(190%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .peer-summary:has(.presence-stack) {
@@ -1114,8 +1114,8 @@ button:disabled {
   background: var(--glass);
   box-shadow: var(--glass-shadow);
   color: var(--ink-muted);
-  -webkit-backdrop-filter: blur(34px) saturate(190%);
-  backdrop-filter: blur(34px) saturate(190%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .more-menu {
@@ -1242,8 +1242,8 @@ button:disabled {
   line-height: 1.45;
   z-index: 10;
   box-shadow: inset 0 1px 0 var(--glass-border), 0 8px 24px oklch(24% 0.02 255 / 0.08);
-  -webkit-backdrop-filter: blur(24px) saturate(170%);
-  backdrop-filter: blur(24px) saturate(170%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   opacity: 0;
   transform: translateY(-18px);
   transform-origin: top center;
@@ -1605,8 +1605,8 @@ button:disabled {
   transform: translateY(-4px) scale(0.96);
   transform-origin: top left;
   transition: opacity 140ms ease-out, transform 180ms var(--motion-out);
-  -webkit-backdrop-filter: blur(34px) saturate(190%);
-  backdrop-filter: blur(34px) saturate(190%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .message-actions.is-visible {
@@ -1726,8 +1726,8 @@ button:disabled {
   border-radius: 24px;
   background: color-mix(in oklch, var(--surface) 92%, transparent);
   color: var(--ink);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   font-size: .75rem;
   line-height: 1.2;
 }
@@ -2188,8 +2188,8 @@ button:disabled {
   font-size: 1.2rem;
   font-variant-numeric: tabular-nums;
   font-weight: 720;
-  -webkit-backdrop-filter: blur(3px);
-  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .composer {
@@ -2224,8 +2224,8 @@ button:disabled {
   box-shadow: var(--glass-shadow);
   overflow: hidden;
   transition: border-color 120ms ease-out, background 120ms ease-out, border-radius 180ms var(--motion-out);
-  -webkit-backdrop-filter: blur(34px) saturate(195%);
-  backdrop-filter: blur(34px) saturate(195%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .composer-input-stack:focus-within {
@@ -2369,8 +2369,8 @@ button:disabled {
   cursor: pointer;
   box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.34), 0 5px 15px color-mix(in oklch, var(--accent) 24%, transparent);
   transition: background 120ms ease-out, transform 120ms var(--motion-out);
-  -webkit-backdrop-filter: blur(34px) saturate(190%);
-  backdrop-filter: blur(34px) saturate(190%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .send-button:hover {
@@ -2394,8 +2394,8 @@ button:disabled {
   background-color: var(--composer-surface-current);
   box-shadow: var(--glass-shadow);
   color: var(--ink-muted);
-  -webkit-backdrop-filter: blur(34px) saturate(190%);
-  backdrop-filter: blur(34px) saturate(190%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .composer :is(.image-picker, .voice-record-button):hover {
@@ -2419,8 +2419,8 @@ button:disabled {
   border-radius: 14px;
   background: var(--glass-strong);
   box-shadow: var(--glass-shadow);
-  -webkit-backdrop-filter: blur(22px) saturate(180%);
-  backdrop-filter: blur(22px) saturate(180%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .upload-progress span {
@@ -2649,8 +2649,8 @@ button:disabled {
   display: grid;
   place-items: center;
   background: oklch(10% 0.01 255 / 0.46);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .recovery-authorization-sheet {
@@ -2661,8 +2661,8 @@ button:disabled {
   place-items: center;
   padding: max(20px, env(safe-area-inset-top)) 16px max(20px, var(--safe-bottom));
   background: oklch(10% 0.01 255 / 0.46);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .recovery-authorization-panel {
@@ -2773,8 +2773,8 @@ button:disabled {
   z-index: -1;
   pointer-events: none;
   background: linear-gradient(to bottom, color-mix(in oklch, var(--chrome-tint) 72%, transparent), transparent);
-  -webkit-backdrop-filter: blur(12px);
-  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   -webkit-mask-image: linear-gradient(to bottom, black 45%, transparent);
   mask-image: linear-gradient(to bottom, black 45%, transparent);
 }
@@ -2927,8 +2927,8 @@ button:disabled {
   color: var(--media-foreground);
   font-size: 0.72rem;
   z-index: 3;
-  -webkit-backdrop-filter: blur(12px) saturate(150%);
-  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .tile-loading {
@@ -2975,8 +2975,8 @@ button:disabled {
   background: oklch(20% 0.014 255 / 0.34);
   color: oklch(96% 0.006 255);
   box-shadow: 0 5px 18px oklch(4% 0.01 255 / 0.2);
-  -webkit-backdrop-filter: blur(24px) saturate(130%);
-  backdrop-filter: blur(24px) saturate(130%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .detail-stage {
@@ -3127,8 +3127,8 @@ button:disabled {
   color: oklch(96% 0.006 255);
   box-shadow: 0 5px 18px oklch(4% 0.01 255 / 0.2);
   cursor: pointer;
-  -webkit-backdrop-filter: blur(24px) saturate(130%);
-  backdrop-filter: blur(24px) saturate(130%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .viewer-control svg,
@@ -3246,8 +3246,8 @@ button:disabled {
   background: oklch(20% 0.014 255 / 0.3);
   color: oklch(96% 0.006 255);
   cursor: pointer;
-  -webkit-backdrop-filter: blur(20px);
-  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .viewer-prev {
@@ -3332,8 +3332,8 @@ button:disabled {
   display: grid;
   place-items: center;
   background: oklch(18% 0.018 255 / 0.3);
-  -webkit-backdrop-filter: blur(16px) saturate(120%);
-  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
 .recovery-code-panel {
@@ -3345,8 +3345,8 @@ button:disabled {
   border-radius: 28px;
   background: var(--glass-strong);
   box-shadow: var(--shadow), inset 0 1px 0 var(--glass-border);
-  -webkit-backdrop-filter: blur(38px) saturate(190%);
-  backdrop-filter: blur(38px) saturate(190%);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
   animation: glass-sheet-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 

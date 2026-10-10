@@ -855,6 +855,12 @@ try {
     return { focus: true, selection: [2, 5], finishedPinned: true, fixedHeader: true, visibleComposerFrames: window.bottomMotionFrames.length };
   });
 
+  // The following distance-only scenario owns a closed-keyboard viewport.
+  // P1 restores 8px of header height when the native transition settles.
+  await page.waitForFunction(() => document.documentElement.dataset.keyboardOpen !== 'true'
+    && !window.bottomFixture.app.chatViewportMotion?.moving
+    && !document.querySelector('#composer').dataset.viewportMotion);
+  await page.evaluate(() => window.bottomFixture.settle());
   results.distanceMotion = await page.evaluate(async () => {
     const { app, up, button } = window.bottomFixture;
     const animate = async distance => {
@@ -874,7 +880,7 @@ try {
       app.chatBottomScrollTop = originalTarget;
       if (!frames.some(frame => frame.y > start + 1 && frame.y < target - 2)) throw Error('Scroll had no intermediate positions');
       if (frames.some((frame, index) => index && frame.y < frames[index - 1].y - 1)) throw Error('Return animation moved backwards');
-      if (Math.abs(window.scrollY - target) > 2) throw Error('Return animation missed its target');
+      if (Math.abs(window.scrollY - target) > 2) throw Error(`Return animation missed its target: ${JSON.stringify({ target, currentTarget: app.chatBottomScrollTop(), scrollY: window.scrollY, headerHeight: document.querySelector('.chat-header').getBoundingClientRect().height, viewportMotion: document.querySelector('#composer').dataset.viewportMotion, frames: frames.slice(-3) })}`);
       if (targetReads > 4) throw Error(`Return animation forced target layout on ${targetReads} frames`);
       return { distance: target - start, duration: frames.at(-1).elapsed, frames: frames.length, targetReads };
     };
@@ -1141,16 +1147,16 @@ try {
       await fresh();
       await up(24);
       await waitForComposerReveal();
-      const idle = assertSurfaceSet(`${scheme} idle`, 0.84);
+      const idle = assertSurfaceSet(`${scheme} idle`, 1);
       const input = document.querySelector('#message-input');
       input.focus({ preventScroll: true });
       await waitForComposerReveal();
-      const focused = assertSurfaceSet(`${scheme} focused`, 0.92);
+      const focused = assertSurfaceSet(`${scheme} focused`, 1);
       if (focused.input.backgroundColor === idle.input.backgroundColor) {
         throw Error(`${scheme} focused composer surface did not reach its focus token`);
       }
       document.querySelector('#open-chat-tools').disabled = true;
-      const disabled = assertSurfaceSet(`${scheme} disabled actions`, 0.92);
+      const disabled = assertSurfaceSet(`${scheme} disabled actions`, 1);
       document.querySelector('#open-chat-tools').disabled = false;
       input.blur();
       await waitForComposerReveal();

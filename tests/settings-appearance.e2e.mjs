@@ -71,6 +71,77 @@ try {
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'green');
   await sibling.close();
 
+  // Confirmed P1: actual product components, including a browser-height keyboard
+  // viewport, must keep the source readable and all message actions reachable.
+  for (const scheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme: scheme });
+    await page.setViewportSize({ width: 390, height: 695 });
+    await page.evaluate(() => {
+      const { app, session, fresh } = window.fixture; fresh(0);
+      document.documentElement.dataset.theme = 'blue';
+      app.messages = new Map(Array.from({ length: 18 }, (_, index) => {
+        const seq = index + 1;
+        return [seq, { seq, clientMsgId: `visual-${seq}`, senderId: index % 3 === 0 ? 'visual-peer' : session.vault.identity.publicBundle.deviceId,
+          payload: { v: 1, kind: 'text', text: index === 17 ? '明天见，记得带上相机。' : `周末散步 · 合成消息 ${seq}`, sentAt: '2026-10-10T02:00:00Z' }, status: 'delivered' }];
+      }));
+      app.renderMessages({ scroll: 'bottom' });
+    });
+    await page.clock.runFor(500);
+    const normal = await page.locator('.chat-header').boundingBox();
+    assert.ok(normal.height <= 49, `${scheme}: normal header must be compact`);
+    await screenshot(`p1-chat-${scheme}`);
+    await page.evaluate(() => {
+      const app = window.fixture.app;
+      const message = app.messages.get(18);
+      const article = document.querySelector('[data-client-msg-id="visual-18"]');
+      app.openMessageActions(article, message);
+    });
+    await page.clock.runFor(300);
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('.message-action-list')).transform === 'none');
+    assert.deepEqual(await page.locator('.message-action-list > button').evaluateAll(nodes => nodes.map(node => node.dataset.messageAction)), ['reply', 'info', 'copy', 'delete', 'select']);
+    const menu = await page.locator('.message-action-list').evaluate(node => ({ filter: getComputedStyle(node).backdropFilter,
+      background: getComputedStyle(node).backgroundColor, targets: [...node.querySelectorAll('button')].map(button => button.getBoundingClientRect().height) }));
+    assert.equal(menu.filter, 'none');
+    assert.ok(menu.targets.every(height => height >= 44), JSON.stringify(menu));
+    assert.equal(await page.locator('.message-reaction-picker button').count(), 6);
+    await screenshot(`p1-long-press-${scheme}`);
+    await page.evaluate(() => window.fixture.app.closeMessageActions(false, false));
+    await page.setViewportSize({ width: 320, height: 270 });
+    await page.clock.runFor(500);
+    const compact = await page.evaluate(() => {
+      // This is the CSS keyboard state at a 270px browser viewport. The actual
+      // detector, caret pan and opening/closing frames run in list-viewport E2E.
+      document.documentElement.dataset.keyboardOpen = 'true';
+      const header = document.querySelector('.chat-header').getBoundingClientRect();
+      const composer = document.querySelector('.composer').getBoundingClientRect();
+      const style = getComputedStyle(document.querySelector('#message-input'));
+      return { header: header.height, visibleChat: composer.top - header.bottom,
+        max: parseFloat(style.maxHeight), font: parseFloat(style.fontSize) };
+    });
+    assert.ok(compact.header <= 41);
+    assert.equal(compact.max, 88); assert.ok(compact.font >= 16);
+    assert.ok(compact.visibleChat >= 170, `short browser viewport must retain >=170px of conversation, got ${compact.visibleChat}`);
+    await screenshot(`p1-keyboard-${scheme}`);
+    await page.evaluate(() => {
+      delete document.documentElement.dataset.keyboardOpen;
+      window.fixture.app.syncChatLayout();
+      window.fixture.app.scrollChatToBottom();
+    });
+    await page.clock.runFor(500);
+    await page.evaluate(() => {
+      const app = window.fixture.app;
+      app.openMessageActions(document.querySelector('[data-client-msg-id="visual-18"]'), app.messages.get(18));
+    });
+    await page.clock.runFor(300);
+    await page.waitForFunction(() => getComputedStyle(document.querySelector('.message-action-list')).transform === 'none');
+    const placements = await page.evaluate(() => ['.message-reaction-picker', '.message-action-preview', '.message-action-list'].map(selector => {
+      const rect = document.querySelector(selector).getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
+    }));
+    for (const rect of placements) assert.ok(rect.top >= -1 && rect.bottom <= 271 && rect.left >= -1 && rect.right <= 321, JSON.stringify(placements));
+    assert.ok(placements[0].bottom <= placements[1].top && placements[1].bottom <= placements[2].top);
+    await page.evaluate(() => { window.fixture.app.closeMessageActions(false, false); delete document.documentElement.dataset.keyboardOpen; });
+  }
+
   await page.evaluate(() => { window.fixture.focus(); window.fixture.app.renderAppAccess(); });
   await page.locator('.app-access-steps').waitFor();
   for (const outcome of ['dismissed','accepted']) {

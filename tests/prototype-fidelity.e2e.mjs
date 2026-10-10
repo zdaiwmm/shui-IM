@@ -37,11 +37,16 @@ try {
   await page.emulateMedia({colorScheme:theme});
   for(const width of [320,390,768,1440]) {
    await page.setViewportSize({width,height:844});
-   const screens=[['F01-recovery-entry',()=>app.renderJointRecovery(null)],['F07-recovery-guide',()=>{app.session=session;app.renderRecoveryCenter();}],['F13-backup-help',()=>{app.session=session;app.renderFeatureHelp(()=>app.renderLocalHistoryBackup());}],['F10-favorites-empty',()=>{app.session=session;app.galleryMode='favorites';app.renderGallery('images');}],['F09-chat-sample',()=>{app.session=session;app.renderChat();app.renderMessages({scroll:'bottom'});}]];
+   const screens=[['P1-welcome',()=>app.renderFirstRun(null)],['P1-access-key',()=>app.renderCreate()],['P1-appearance',()=>{app.session=session;app.renderAppearanceSettings();}],['P1-auto-lock',()=>{app.session=session;app.renderAutoLockSettings();}],['P1-backup-export',()=>{app.session=session;app.renderLocalHistoryBackup('export');}],['P1-backup-import',()=>{app.session=session;app.renderLocalHistoryBackup('import');}],['P1-release-history',()=>{app.session=session;app.renderReleaseHistory();}],['F01-recovery-entry',()=>app.renderJointRecovery(null)],['F07-recovery-guide',()=>{app.session=session;app.renderRecoveryCenter();}],['F13-backup-help',()=>{app.session=session;app.renderFeatureHelp(()=>app.renderLocalHistoryBackup());}],['F10-favorites-empty',()=>{app.session=session;app.galleryMode='favorites';app.renderGallery('images');}],['F09-chat-sample',()=>{app.session=session;app.renderChat();app.renderMessages({scroll:'bottom'});}]];
    for(const [name,render] of screens){
     await page.evaluate(render);if(name==='F10-favorites-empty')await page.locator('.favorites-empty').waitFor();await page.waitForTimeout(60);await shot(page,`${name}-${width}-${theme}`);
     const value=await page.evaluate(()=>({width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth+1,controls:[...document.querySelectorAll('button:not([hidden])')].filter(b=>b.getClientRects().length&&!b.closest('[hidden]')).map(b=>({label:b.getAttribute('aria-label')||b.textContent.trim(),width:b.getBoundingClientRect().width,height:b.getBoundingClientRect().height}))}));
-    assert.equal(value.overflow,false,`${name} ${width} ${theme} overflows`); metrics.push({name,theme,...value});
+    assert.equal(value.overflow,false,`${name} ${width} ${theme} overflows`);
+    const chrome=await page.evaluate(()=>[...document.querySelectorAll('#app .gateway-heading h1, #app .recovery-flow-content > h1, #app .subpage-header h1, #app .gateway-form input, #app .backup-option, #app .primary-button, #app .secondary-button')].filter(n=>n.getClientRects().length).map(n=>({tag:n.tagName,filter:getComputedStyle(n).backdropFilter||getComputedStyle(n).webkitBackdropFilter,size:parseFloat(getComputedStyle(n).fontSize),height:n.getBoundingClientRect().height})));
+    assert.ok(chrome.every(n=>!n.filter||n.filter==='none'),`${name}: opaque product chrome`);
+    assert.ok(chrome.filter(n=>n.tag==='H1').every(n=>n.size<=26),`${name}: compact page hierarchy`);
+    assert.ok(chrome.filter(n=>n.tag==='BUTTON').every(n=>n.height>=44),`${name}: full touch target`);
+    metrics.push({name,theme,...value});
    }
   }
  }
@@ -74,5 +79,5 @@ try {
   await prototype.addStyleTag({content:'.review,.stagebar,.annotation,.auth-tools,#announce{display:none!important}.layout{display:block!important;padding:0!important;margin:0!important}.stage{display:block!important}.phone{width:100vw!important;height:100dvh!important;min-height:0!important;border:0!important;box-shadow:none!important}.change-marker{display:none!important}.annotated{outline:0!important}'});
   await shot(prototype,'prototype-'+name);
  }
- console.log('PASS full product cascade, F01/F03/F05/F07/F08/F09/F10/F13 responsive surfaces, draft-preserving panel reversal and immediate lock. Synthetic presentation fixture; desktop Chromium.');
+ console.log('PASS full product cascade, P1 welcome/access/settings/backup/release and F01/F03/F05/F07/F08/F09/F10/F13 responsive surfaces, draft-preserving panel reversal and immediate lock. Synthetic presentation fixture; desktop Chromium.');
 }finally{await browser?.close();await vite.close();}

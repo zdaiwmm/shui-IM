@@ -1,5 +1,5 @@
 export const THEMES = [
-  { id: 'blue', name: '默认蓝', color: 'oklch(48% .2 254)' },
+  { id: 'blue', name: '经典', color: '#89be87' },
   { id: 'green', name: '松绿', color: 'oklch(44% .12 155)' },
   { id: 'purple', name: '雾紫', color: 'oklch(50% .16 300)' },
   { id: 'apricot', name: '暖杏', color: 'oklch(49% .12 58)' },

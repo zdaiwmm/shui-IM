@@ -159,7 +159,9 @@ try {
   const panelHeight = await page.locator('.meme-panel').evaluate(el => el.getBoundingClientRect().height);
   assert.ok(Math.abs(panelHeight - 844 * .6) < 2, `Panel height ${panelHeight}`);
   const tabHeight = await page.locator('.meme-tabs [role="tablist"]').evaluate(el => el.getBoundingClientRect().height);
-  assert.ok(tabHeight <= 38, `Tab too tall ${tabHeight}`);
+  // A 44px target plus 2px inner padding and 1px border on each side.
+  assert.ok(tabHeight <= 50, `Tab too tall ${tabHeight}`);
+  assert.ok(await page.locator('.meme-tabs [role="tab"]').evaluateAll(tabs => tabs.every(tab => tab.getBoundingClientRect().height >= 44)), 'Tabs retain 44px touch targets');
   const callsBeforeEmoji = await page.evaluate(() => window.fixture.requests.length);
   await page.evaluate(() => { const input = document.querySelector('#message-input'); input.setSelectionRange(2, 4); });
   const initialDraft = await page.locator('#message-input').inputValue();
