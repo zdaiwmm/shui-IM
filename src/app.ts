@@ -13622,7 +13622,7 @@ export class QuietRoomApp {
     const original = this.session;
     let held: DesktopReturn | null = null;
     if (desktopContinuation && this.desktopBrowser && !this.deviceVerificationActive && !this.exposureAnchor && !this.accessFailure) {
-      if (original && original.stored.unlockMethod !== 'recovery' && !original.vault.pendingJointRecovery
+      if (original?.key && original.stored && original.stored.unlockMethod !== 'recovery' && !original.vault.pendingJointRecovery
         && !original.vault.pendingRepair && !original.vault.pendingRecovery
         && (!original.vault.pairingState || original.vault.pairingState === 'ready')) {
         const credential = this.deviceCredential;
