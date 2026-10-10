@@ -109,21 +109,59 @@ try {
   const opened = await page.evaluate(() => window.listFixture.app.captureChatAnchor());
   assert.equal(opened.clientMsgId, anchor.clientMsgId);
   assert.ok(Math.abs(opened.offset-anchor.offset)<2, JSON.stringify({anchor,opened}));
-  await page.evaluate(() => window.listFixture.app.jumpToReplyTarget('list-message-10',10));
-  assert.equal(await page.locator('#chat-reply-return').isVisible(),true);
-  await page.locator('#chat-reply-return').click();
-  const restored=await page.evaluate(()=>window.listFixture.app.captureChatAnchor());
-  assert.equal(restored.clientMsgId,opened.clientMsgId);
-  assert.ok(Math.abs(restored.offset-opened.offset)<2,JSON.stringify({opened,restored}));
-  // A deleted source falls back to a nearby readable row, never the bottom.
-  await page.evaluate(async()=>{
-    const app=window.listFixture.app;
-    await app.jumpToReplyTarget('list-message-10',10);
-    const origin=app.replyReturnAnchors.at(-1);
-    app.messages.delete(origin.seq);app.renderMessages({scroll:'position'});
-    await app.jumpToReplyTarget(origin.clientMsgId,origin.seq,origin);
-    if(app.chatPinnedToBottom || app.replyReturnAnchors.length)throw Error('Deleted return source lost history intent');
+  await page.evaluate(sourceId => {
+    const app = window.listFixture.app;
+    const source = [...app.messages.values()].find(message => message.clientMsgId === sourceId);
+    source.payload = { ...source.payload, v: 2, replyTo: { clientMsgId: 'list-message-10', serverSeq: 10, senderId: 'list-peer', kind: 'text' } };
+    app.renderMessages({ scroll: 'position' });
+  }, opened.clientMsgId);
+  await page.locator(`[data-client-msg-id="${opened.clientMsgId}"] .message-reply-quote`).click();
+  const target = page.locator('[data-client-msg-id="list-message-10"]');
+  await target.waitFor({ state: 'visible' });
+  assert.equal(await target.evaluate(row => row.classList.contains('is-highlighted')), true);
+  assert.equal(await page.locator('#chat-reply-return').count(), 0);
+  const beforeFlash = await target.boundingBox();
+  for (const colorScheme of ['light', 'dark']) {
+    await page.emulateMedia({ colorScheme });
+    await page.evaluate(() => window.listFixture.app.jumpToReplyTarget('list-message-10', 10));
+    const flash = await target.locator('.message-bubble').evaluate(bubble => {
+      const overlay = getComputedStyle(bubble, '::after');
+      return { content: overlay.content, inset: [overlay.top, overlay.right, overlay.bottom, overlay.left],
+        opacity: Number(overlay.opacity), pointer: overlay.pointerEvents, background: overlay.backgroundColor };
+    });
+    assert.equal(flash.content, '""'); assert.deepEqual(flash.inset, ['0px', '0px', '0px', '0px']);
+    assert.ok(flash.opacity > .2); assert.equal(flash.pointer, 'none');
+    assert.notEqual(flash.background, 'rgba(0, 0, 0, 0)');
+    await page.screenshot({ path: `/private/tmp/quiet-room-reply-flash-${colorScheme}.png` });
+  }
+  assert.deepEqual(await target.boundingBox(), beforeFlash, 'Whole-bubble flash must not change geometry');
+  await page.evaluate(async () => {
+    const app = window.listFixture.app;
+    app.messages.set(181, { seq: 181, clientMsgId: 'own-reply-target', senderId: 'list-own',
+      payload: { v: 1, kind: 'text', text: 'Outgoing reference target', sentAt: '2026-09-08T01:00:00.000Z' },
+      acceptedAt: '2026-09-08T01:00:00.000Z', status: 'delivered' });
+    app.renderMessages({ scroll: 'position' }); await app.jumpToReplyTarget('own-reply-target', 181);
   });
+  const outgoingTarget = page.locator('[data-client-msg-id="own-reply-target"]');
+  assert.equal(await outgoingTarget.evaluate(row => row.classList.contains('outgoing')), true);
+  assert.equal(await outgoingTarget.locator('.message-bubble').evaluate(bubble => {
+    const paint = getComputedStyle(bubble, '::after').backgroundColor;
+    const reference = document.createElement('i'); reference.style.color = 'var(--on-accent)'; bubble.append(reference);
+    const expected = getComputedStyle(reference).color; reference.remove(); return paint === expected;
+  }), true, 'Outgoing bubbles need a light full fill over their accent surface');
+  await page.screenshot({ path: '/private/tmp/quiet-room-reply-flash-outgoing.png' });
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.evaluate(() => window.listFixture.app.jumpToReplyTarget('list-message-10', 10));
+  assert.equal(await target.locator('.message-bubble').evaluate(bubble => getComputedStyle(bubble, '::after').animationName), 'none');
+  await page.waitForTimeout(1500);
+  assert.equal(await page.locator('.message.is-highlighted').count(), 0);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  // An unavailable target retains the current position and explains the boundary.
+  const reading = await page.evaluate(() => window.listFixture.app.chatScrollTop);
+  await page.evaluate(() => window.listFixture.app.jumpToReplyTarget('not-on-this-device'));
+  assert.equal(await page.evaluate(() => window.listFixture.app.chatScrollTop), reading);
+  assert.match(await page.locator('#notice').textContent(), /未保存可读取的原消息/);
   // Same-text ABA editing is a different draft even if its string is equal.
   await page.evaluate(async()=>{
     const app=window.listFixture.app,input=document.querySelector('#message-input');
@@ -175,7 +213,7 @@ try {
   await page.emulateMedia({reducedMotion:'reduce'});
   await page.evaluate(async()=>{const app=window.listFixture.app;await app.jumpToReplyTarget('list-message-10',10);app.memeCache.view={kind:'gifs',favorite:false,positions:new Map(),shortcutLeft:0};app.lockNow();});
   assert.equal(await page.locator('.chat-shell').count(),0);
-  assert.deepEqual(await page.evaluate(()=>{const a=window.listFixture.app;return[a.replyReturnAnchors.length,a.chatNewMessageIds.size,a.memeCache.view===undefined,a.chatMessageAnimations.size];}),[0,0,true,0]);
+  assert.deepEqual(await page.evaluate(()=>{const a=window.listFixture.app;return[a.chatNewMessageIds.size,a.memeCache.view===undefined,a.chatMessageAnimations.size];}),[0,true,0]);
   assert.deepEqual(errors,[]);
-  console.log('Chat continuity: history keyboard anchor, reply return/deleted source, draft ABA/failure, interrupted sends, chrome geometry, new-message label and privacy cleanup passed (desktop WebKit emulation).');
+  console.log('Chat continuity: history keyboard anchor, quote jump/whole-bubble flash/unavailable target, draft ABA/failure, interrupted sends, chrome geometry, new-message label and privacy cleanup passed (desktop WebKit emulation).');
 } finally { await browser?.close(); await server.close(); }
