@@ -7,6 +7,16 @@
 - USB iPhone 数量为 0，iPhone／iOS 27 Safari 原生键盘与合成层闪屏未真机验证。本项没有生产发布授权；下方生产记录仍为已发布版本，不将合并或浏览器检查写作上线／真机验收。
 - 最终产品组合 `e62b539` 本地构建／847 项、56/57 浏览器入口通过；chat-image-privacy 在同一图片菜单处第二次超时，完整命令仍为 failed，未继续重试；最后 8 项顺序补验通过，远端同候选该图片专项通过。[组合初轮 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38035152418) 另有采样不足和 WebKit 邀请竞态超时；后续只将新专项改为等待实际 8 帧，并更新证据文档，产品代码不变。最终精确 head CI 与合并状态由 PR #260 回执核验；失败历史保留在需求记录。
 
+## 空白双击锁定、引用反馈与 WebKit 回归已验证（2026-10-10，待发布确认）
+
+- [PR #259](https://github.com/zdaiwmm/shui-IM/pull/259) 已合并为 `87574b739abf90e5047c3a3dfec2223e01d1211c`，版本 `2026.10.10.1`；源head `faefbdc4456c11d036db13133ed1ba54f9771260`，独立fetch核对合并树与已验证候选一致。用户明确直接实施并跳过本需求原型和流程图，记录见[需求与验收](../requirements/2026-10-10-blank-double-lock-reply/README.md)，契约见D-054。
+- 移除“返回刚才位置”入口与来源返回栈；引用仍定位本机可读原消息，短暂填充整个气泡。设置去掉立即锁定，已解锁页面空白处快速双击调用既有完整主动锁及同保险库标签页失效；文字、气泡、控件、媒体手势和滚动／拖动／长按／多指不误锁，完成事件不穿透锁定页。原自动锁定与历史边界保留。
+- 最终干净候选完整本地门禁通过：847项单元集成、56浏览器入口，690.200秒；Chromium／桌面WebKit鼠标与触摸、设置／弹窗、跨运行期和误触边界、整气泡明暗／减少动态效果及几何专项通过。[精确PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38034005811) attempt 1全部12项成功；[精确主线CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38034700248)单独核验，最终结论以该运行及交付报告为准。新增入口清单计数失败已同步预期，不放宽产品断言。
+- 用户追加要求解决 WebKit 重复超时、合并并发布。[PR #261](https://github.com/zdaiwmm/shui-IM/pull/261) 已合并为 `e73d465af88926c31f709d9d6e68ebb528d46925`，冻结版本仍为 `2026.10.10.1`。修复只调整草稿回归的异步状态等待与欢迎页就绪时序，保留15秒上限和业务断言；新增先读false再异步完成的停帧探针。控制实验及原失败不能定性为引擎缺陷的边界见[需求记录](../requirements/2026-10-10-blank-double-lock-reply/README.md#webkit-回归续修与发布准备2026-10-10)。
+- 最终源head `8b3b7389ce34e0c26edf41231a323c763b5b0b31` 干净树构建／847项测试、Chromium／WebKit完整草稿场景通过；合并树 `970e57b317bd08647d991a68c4e686c83023fc89` 与源完全一致。[精确PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38036878803) attempt 2 和[精确main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38037527796) attempt 2 全部12项成功，含56浏览器入口及原生通话／TURN。PR的独立通话媒体连接、main的桌面返回解锁用例分别保留日志后仅原样重跑失败作业一次通过，未修改对应代码、超时或断言；WebKit修复用例在最终PR/main均通过。本机main已快进，不声称本机服务或真机已回读。
+- 冻结应用发布目标为上述 `e73d465af88926c31f709d9d6e68ebb528d46925`，后续本状态对账不改变应用目标。生产尚未切换、未取得本批生产回读；用户仍需确认精确SHA及容量处置。只读预检确认生产仍为 `2877c2ae42822763fac812e636405f13196e56bd`，可用4044185600字节低于4294967296字节门槛。已准备仅迁存旧归档 `data-20261009T110616Z-261da69bbf4e.tar.gz`（1044387192字节）至本机私有FileVault目录、两端与独立复读校验后仅移除服务器重复副本的方案；最新冷恢复点、连续备份和镜像保留。此方案待用户明确授权，未复制或删除归档，也未放宽容量门禁。
+- iPhone／iOS27／Safari未做真机验证。本任务工作树及分支按未发布规则保留，不清理其他任务资源。后续知识库提交不再次发布；下方为既有生产快照。
+
 ## 全局自动锁定已发布（2026-10-10）
 
 - 当前生产精确SHA `2877c2ae42822763fac812e636405f13196e56bd`，版本 `2026.10.09.2`；用户已确认此完整提交并再次要求解除阻塞完成发布。[PR #255](https://github.com/zdaiwmm/shui-IM/pull/255)已合并，源head `fb7c310dd7e47391a7c5923362454c6961c95f95` 与应用树一致。精确[PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37967823473)和[main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/37968726220)全部12项通过，含103文件／847项单元集成、55浏览器入口及通话／TURN；长期契约见D-053及[需求记录](../requirements/2026-10-09-global-lock-countdown/README.md)。

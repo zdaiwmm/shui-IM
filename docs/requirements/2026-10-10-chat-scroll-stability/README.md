@@ -44,3 +44,8 @@
 - 冻结组合 `e62b5395789d1e2ba21c5abe18a32edc1811ed70`（树 `66b31ceb10605888de52edc05eaeae72b582a0db`）本地构建／847 项通过；完整浏览器回归前 48 项通过，第 49 项 chat-image-privacy 与历史候选在同一菜单等待处再次超时。自动证据 clean=true、failed、611202 毫秒；按有界规则不再次重跑该项。随后顺序补跑最后 8 项全部通过。该候选共 56/57 入口本地通过，不能写作完整门禁全绿；同一候选远端该图片专项所在 shard 4/4 通过。日志为 `/private/tmp/chat-scroll-stability-combined-full.log` 与 `chat-scroll-stability-combined-remaining.log`。
 - [组合初轮 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38035152418) 的两个失败保留：新专项固定等 120ms 未取得足够帧；既有 draft-refresh 的 WebKit 邀请竞态等待对端消息 15 秒超时。采样改为稳定后继续取得 8 个实际帧，位置／节点／可见性断言及阈值不变；邀请竞态不修改代码或断言，最终候选 CI 原样复验。其他成功作业不作为失败作业通过的证据。最终精确 head 检查及合并结论以 PR #260 回执核验，不将初轮结果改写为成功。
 - 实际帧采样修正后四种浏览器／布局专项全部通过，日志 `/private/tmp/chat-scroll-stability-frame-sampling.log`。后续提交仅包含此测试修正及两份 Markdown 事实对账，产品代码逐文件与 `e62b539` 相同；按影响范围补验新专项和文档，最终完整 CI 在精确 PR head 上核验。
+
+## 合并与发布准备（2026-10-10）
+
+- 用户在本会话明确“合并并发布线上”，批准继续合并 PR #260，并授权完成发布准备。生产切换仍按固定流程，在精确最终应用 SHA、版本、CI 与预检齐备后确认；此消息不自动批准删除服务器恢复点或扩大清理。
+- 接续规则来源为本机 main `b4bb4302fd39a8773ccbd358c7c81adb0a48fbc5`，本机 main／origin/main／GitHub main 一致，任务 HEAD `9f0429f53f9de89b8ca7a97922142676caf9395b`，工作区干净。该候选[完整 CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38036024003) 12 项全成功。新增 main 只含交付记录与 WebKit 草稿测试等待修正，产品代码未变；仅状态页冲突，保留双方证据。
