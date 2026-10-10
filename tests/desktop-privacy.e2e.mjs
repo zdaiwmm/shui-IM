@@ -9,7 +9,9 @@ try {
   assert.equal(await page.evaluate(()=>document.documentElement.classList.contains('privacy-obscured')),false);
   await page.clock.runFor(60_000);
   assert.equal(await page.evaluate(()=>window.fixture.app.privacyCovered&&!window.fixture.app.session),true);
-  // Every desktop entry goes to authentication; no retained-session restoration remains.
+  // Daily lock retains only a bounded capability; explicit security lock clears it.
+  assert.equal(await page.evaluate(()=>Boolean(window.fixture.app.desktopAccess.peek())),true);
+  await page.evaluate(()=>window.fixture.app.lockNow());
   await page.evaluate(()=>{window.fixture.app.renderUnlock=async()=>{document.querySelector('#app').innerHTML='<section data-auth-required>设备验证</section>';};});
   await page.keyboard.down('f');await page.clock.runFor(900);await page.keyboard.down('f');await page.clock.runFor(1099);
   assert.equal(await page.locator('[data-auth-required]').count(),0);

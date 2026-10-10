@@ -1,7 +1,7 @@
 import { dismissDraggedPanel, motion, retargetMotion, settleValue } from './motion';
 import { mountDialog } from './dialog';
 import type { PrivateSpace } from './spaces';
-import { createElement, Bell, Settings2, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2, PanelLeftClose } from 'lucide';
+import { createElement, Bell, Settings2, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2, PanelLeftClose, Palette, MonitorDown } from 'lucide';
 import { formatPendingCountdown, pendingSpaceExpiry } from './spaces';
 export type PresenceStyle = 'capsule' | 'heart';
 export function readPresenceStyle(): PresenceStyle { try { return localStorage.getItem('quiet-room:presence-style') === 'heart' ? 'heart' : 'capsule'; } catch { return 'capsule'; } }
@@ -11,6 +11,7 @@ export const spaceIcons = {
   device: createElement(Smartphone).outerHTML, key: createElement(KeyRound).outerHTML,
   upload: createElement(Upload).outerHTML, download: createElement(Download).outerHTML,
   cover: createElement(EyeOff).outerHTML, history: createElement(History).outerHTML,
+  appearance: createElement(Palette).outerHTML, app: createElement(MonitorDown).outerHTML,
 };
 const arrow = createElement(ChevronRight).outerHTML, check = createElement(Check).outerHTML, heart = createElement(Heart).outerHTML;
 const closeIcon = createElement(X).outerHTML;
@@ -142,7 +143,9 @@ popup.style.top = `${Math.max(top + 12, Math.min(rect.bottom - 6, bottom - (remo
   }
   function settings() {
     const setting = (a: Action) => `<button class="space-setting" id="${a.id}"><span class="space-setting-icon" aria-hidden="true">${a.icon}</span><span class="space-setting-label">${escape(a.label)}</span>${arrow}</button>`;
-    page('设置', `${(['当前空间','本机','关于'] as const).map(group => `<section class="space-setting-group"><h3>${group}</h3>${group === '本机' ? `<button class="space-setting" id="presence-style-setting"><span class="space-setting-icon" aria-hidden="true">${heart}</span><span class="space-setting-label">在线状态样式<small>${readPresenceStyle() === 'heart' ? '心动按钮' : '在线胶囊'}</small></span>${arrow}</button>` : ''}${options.actions.filter(a => (a.group ?? '当前空间') === group).map(setting).join('')}</section>`).join('')}`, '', options.presentation === 'settings' ? close : list);
+    const order = ['appearance-settings', 'auto-lock-settings', 'app-access-settings', 'notification-settings', 'manage-devices', 'passkey-management', 'backup-settings', 'local-history-backup', 'local-history-restore', 'recover-other-space', 'cover-practice-menu', 'release-history'];
+    const actions = [...options.actions].sort((a, b) => (order.indexOf(a.id) < 0 ? 99 : order.indexOf(a.id)) - (order.indexOf(b.id) < 0 ? 99 : order.indexOf(b.id)));
+    page('设置', `<div class="space-settings-list">${actions.map(setting).join('')}<button class="space-setting" id="presence-style-setting"><span class="space-setting-icon" aria-hidden="true">${heart}</span><span class="space-setting-label">在线状态样式<small>${readPresenceStyle() === 'heart' ? '心动按钮' : '在线胶囊'}</small></span>${arrow}</button></div>`, '', options.presentation === 'settings' ? close : list);
     sheet.querySelector('#presence-style-setting')!.addEventListener('click', () => { styles(); sheet.querySelector<HTMLButtonElement>('[aria-checked=true]')?.focus(); });
     for (const action of options.actions) sheet.querySelector(`#${action.id}`)!.addEventListener('click', () => { if (action.keepOpen) void run(async () => { await action.run(); }); else { options.onSettingsLeave?.(sheet.querySelector('.space-drawer-scroll')!.scrollTop); dialog.close({ animate: false }); void action.run(); } });
   }

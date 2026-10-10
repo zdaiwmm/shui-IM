@@ -1,13 +1,14 @@
-export const IDLE_DURATIONS = [30, 60, 120, 300] as const;
+/** Zero disables idle expiry, never lifecycle or security invalidation. */
+export const IDLE_DURATIONS = [20, 30, 40, 50, 60, 120, 180, 240, 300, 0] as const;
 export const IDLE_WARNING_MS = 10_000;
 export const IDLE_PREFERENCE_KEY = 'quiet-room:auto-lock-seconds';
 export type IdleSeconds = typeof IDLE_DURATIONS[number];
 export type LeaseClock = { wall: number; monotonic: number };
 export function idleSeconds(value: unknown): IdleSeconds {
-  return IDLE_DURATIONS.includes(Number(value) as IdleSeconds) ? Number(value) as IdleSeconds : 60;
+  return value !== null && value !== undefined && value !== '' && IDLE_DURATIONS.includes(Number(value) as IdleSeconds) ? Number(value) as IdleSeconds : 30;
 }
 export function readIdleSeconds(storage: Pick<Storage, 'getItem'>): IdleSeconds {
-  try { return idleSeconds(storage.getItem(IDLE_PREFERENCE_KEY)); } catch { return 60; }
+  try { return idleSeconds(storage.getItem(IDLE_PREFERENCE_KEY)); } catch { return 30; }
 }
 export function saveIdleSeconds(storage: Pick<Storage, 'setItem'>, seconds: IdleSeconds): void {
   if (!IDLE_DURATIONS.includes(seconds)) throw new Error('请选择有效的自动锁定时间');
@@ -32,8 +33,8 @@ export class IdleLease {
   }
   private setDeadline(seconds: IdleSeconds): void {
     const now = this.clock();
-    this.wallDeadline = now.wall + seconds * 1000;
-    this.monotonicDeadline = now.monotonic + seconds * 1000;
+    this.wallDeadline = seconds === 0 ? Infinity : now.wall + seconds * 1000;
+    this.monotonicDeadline = seconds === 0 ? Infinity : now.monotonic + seconds * 1000;
   }
   get remaining(): number {
     if (!this.active) return Infinity;

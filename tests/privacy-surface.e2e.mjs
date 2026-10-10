@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { privacyFixture } from './helpers/privacy-fixture.mjs';
-const fixture = await privacyFixture(); const { page, errors } = fixture;
+const fixture = await privacyFixture({userAgent:"Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1",hasTouch:true}); const { page, errors } = fixture;
 const state = () => page.evaluate(() => ({ locked: window.fixture.app.privacyCovered, remaining: window.fixture.app.idleLease.remaining,
   prompt: !!document.querySelector('.idle-lock-prompt:not([hidden])'), obscured: document.documentElement.classList.contains('privacy-obscured') }));
 try {
-  for (const seconds of [30, 60, 120, 300]) {
+  for (const seconds of [20, 30, 40, 50, 60, 120, 180, 240, 300]) {
     await page.evaluate(seconds => window.fixture.fresh(seconds), seconds);
     assert.equal((await state()).remaining, seconds * 1000);
     await page.clock.runFor(seconds * 1000 - 10001); assert.equal((await state()).prompt, false);
@@ -35,19 +35,20 @@ try {
     app.renderMessages(); return { same: before === app.idleDeadline, covered: app.privacyCovered, obscured: document.documentElement.classList.contains('privacy-obscured') };
   });
   assert.deepEqual(unchanged, { same: true, covered: false, obscured: false });
-  // Settings save / cancel / denied persistence; the warning remains fixed at 10 seconds.
+  // Immediate persistence, navigation and failed-write rollback.
   await page.evaluate(() => window.fixture.app.renderAutoLockSettings());
-  await page.locator('[value="120"]').check(); await page.locator('#auto-lock-back').click(); await page.clock.runFor(400);
-  assert.equal(await page.evaluate(() => localStorage.getItem('quiet-room:auto-lock-seconds')), '60');
-  await page.evaluate(() => window.fixture.app.renderAutoLockSettings());
-  await page.locator('[value="120"]').check(); await page.locator('#auto-lock-form button[type="submit"]').click(); await page.clock.runFor(400);
+  assert.equal(await page.locator('button[type="submit"]').count(), 0);
+  await page.locator('[value="120"]').check();
   assert.equal(await page.evaluate(() => localStorage.getItem('quiet-room:auto-lock-seconds')), '120');
+  assert.equal((await state()).remaining,120_000);
+  await page.locator('#auto-lock-back').click(); await page.clock.runFor(400);
   await page.evaluate(() => {
     window.fixture.app.renderAutoLockSettings(); window.originalSetItem = Storage.prototype.setItem;
     Storage.prototype.setItem = function(key, value) { if (key === 'quiet-room:auto-lock-seconds') throw Error('denied'); return window.originalSetItem.call(this,key,value); };
   });
-  await page.locator('[value="300"]').check(); await page.locator('#auto-lock-form button[type="submit"]').click();
-  assert.equal(await page.locator('.form-error').textContent(), '未能保存，请重试');
+  await page.locator('[value="300"]').click();
+  assert.equal(await page.locator('.form-error').textContent(), '未能保存，已保留原设置，请重试');
+  assert.equal(await page.locator('[value="120"]').isChecked(), true);
   assert.equal(await page.evaluate(() => localStorage.getItem('quiet-room:auto-lock-seconds')), '120');
   await page.evaluate(() => { Storage.prototype.setItem = window.originalSetItem; window.fixture.fresh(); });
   // An authenticated navigation still owns secrets between room runtimes.
