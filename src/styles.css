@@ -51,8 +51,7 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
+:root[data-color-scheme="dark"] {
     --chrome-tint: oklch(25% 0.014 255);
     --paper: oklch(20.5% 0.012 255);
     --paper-pure: oklch(23.5% 0.012 255);
@@ -82,7 +81,6 @@
     --glass-shadow: inset 0 0.5px 0 oklch(94% 0.006 255 / 0.2), inset 0 -0.5px 0 oklch(8% 0.008 255 / 0.35), 0 3px 12px oklch(8% 0.012 255 / 0.22);
     --shadow: 0 24px 64px oklch(5% 0.02 255 / 0.54);
   }
-}
 
 * {
   box-sizing: border-box;

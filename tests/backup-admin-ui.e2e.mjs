@@ -1,3 +1,4 @@
+import { auditP1Surface } from './helpers/p1-surface-audit.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, rm, readFile } from 'node:fs/promises';
 import { createServer as createNetServer } from 'node:net';
@@ -74,6 +75,7 @@ try {
     return room.roomId;
   });
   const snapshot = async (page, name, fullPage = true) => {
+    await auditP1Surface(page,`backup-admin-${name}`);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), true, `${name}: horizontal overflow`);
     if (screenshots) {
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
@@ -321,7 +323,7 @@ try {
     thumb: getComputedStyle(track, '::after').width,
     target: track.closest('label').getBoundingClientRect().height,
   }));
-  assert.deepEqual(toggleScale, { width: 46, height: 26, thumb: '20px', target: 44 });
+  assert.deepEqual(toggleScale, { width: 36, height: 22, thumb: '18px', target: 44 });
   await admin.getByText('已上架', { exact: true }).last().waitFor();
   await admin.getByRole('combobox', { name: '上架状态' }).selectOption('pending');
   await admin.getByText('暂无符合条件的资源').waitFor();

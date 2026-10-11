@@ -1,3 +1,4 @@
+import { auditP1Surface } from './helpers/p1-surface-audit.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -22,7 +23,8 @@ try {
     }
     await page.goto(url);
     await page.evaluate(async mode => {
-      for (const css of ['/src/styles.css', '/src/chat-layout.css', '/src/chat-interactions.css', '/src/design-system.css', '/src/spaces.css', '/src/notifications.css']) await import(css);
+      await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
+      (await import('/src/lib/appearance.ts')).mountAppearance();
       document.body.className = 'app-mode';
       window.permission = 'default'; window.prompts = 0; window.unsubscribed = 0; window.subscribeCount = 0; window.endpoint = null;
       const subscription = () => ({ endpoint, toJSON: () => ({ endpoint, keys: { p256dh: 'A'.repeat(43), auth: 'B'.repeat(22) } }), unsubscribe: async () => { unsubscribed++; endpoint = null; return true; } });
@@ -62,6 +64,7 @@ try {
     const first = page.locator('[data-notification-space]').nth(0), second = page.locator('[data-notification-space]').nth(1);
     assert.equal(await first.getAttribute('aria-checked'), 'true'); assert.equal(await second.getAttribute('aria-checked'), 'true');
     await second.click(); await page.waitForFunction(() => document.querySelectorAll('[data-notification-space]')[1].getAttribute('aria-checked') === 'false' && !document.querySelector('#notification-master').disabled);
+    await auditP1Surface(page,`notifications-${engine.name()}`,'.notification-page');
     assert.equal(await page.evaluate(() => unsubscribed), 0);
     assert.equal(await first.getAttribute('aria-checked'), 'true');
     await master.click(); await page.waitForFunction(() => document.querySelector('#notification-master').getAttribute('aria-checked') === 'false' && !document.querySelector('#notification-master').disabled);

@@ -4,6 +4,11 @@ import path from 'node:path';
 import { privacyFixture } from './helpers/privacy-fixture.mjs';
 const fixture = await privacyFixture({ viewport: { width: 1440, height: 900 } });
 const { page, errors } = fixture;
+// Chromium queues media-query changes on a real rendering turn. Deliver that
+// turn before advancing the paused fixture clock; the assertions remain exact.
+const systemAppearance = async colorScheme => {
+  await page.emulateMedia({ colorScheme }); await page.waitForTimeout(40); await page.clock.runFor(80);
+};
 const evidence = process.env.QUIET_ROOM_UI_EVIDENCE;
 const screenshot = async name => { if (evidence) { await mkdir(evidence, { recursive: true }); await page.screenshot({ path: path.join(evidence, `${name}.png`) }); } };
 try {
@@ -59,6 +64,28 @@ try {
     }
   }
   assert.equal(palettes.size, 8);
+  assert.equal(await page.locator('[name="color-scheme"][value="system"]').isChecked(), true, 'Old installs default to system');
+  await page.locator('[name="color-scheme"][value="light"]').check();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.colorScheme), 'light');
+  const manualLight = await page.evaluate(() => [getComputedStyle(document.body).backgroundColor, getComputedStyle(document.documentElement).getPropertyValue('--space-heart-red')]);
+  await systemAppearance('dark');
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.colorScheme), 'light', 'Manual light overrides OS dark');
+  assert.deepEqual(await page.evaluate(() => [getComputedStyle(document.body).backgroundColor, getComputedStyle(document.documentElement).getPropertyValue('--space-heart-red')]), manualLight, 'Manual scheme owns loaded colors, including space status');
+  await page.locator('[name="color-scheme"][value="dark"]').check();
+  const manualDark = await page.evaluate(() => [getComputedStyle(document.body).backgroundColor, getComputedStyle(document.documentElement).getPropertyValue('--space-heart-red')]);
+  await systemAppearance('light');
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.colorScheme), 'dark', 'Manual dark overrides OS light');
+  assert.deepEqual(await page.evaluate(() => [getComputedStyle(document.body).backgroundColor, getComputedStyle(document.documentElement).getPropertyValue('--space-heart-red')]), manualDark);
+  await page.evaluate(() => { window.schemeSetItem = Storage.prototype.setItem; Storage.prototype.setItem = function(key,value) { if(key==='quiet-room:color-scheme')throw Error('denied'); return window.schemeSetItem.call(this,key,value); }; });
+  await page.locator('[name="color-scheme"][value="light"]').click();
+  assert.equal(await page.locator('[name="color-scheme"][value="dark"]').isChecked(), true);
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.colorScheme), 'dark');
+  assert.match(await page.locator('.form-error').textContent(), /已保留原明暗模式/);
+  await page.evaluate(() => { Storage.prototype.setItem = window.schemeSetItem; });
+  await page.locator('[name="color-scheme"][value="system"]').check();
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.colorScheme), 'light');
+  await systemAppearance('dark');
+  assert.equal(await page.evaluate(() => document.documentElement.dataset.colorScheme), 'dark', 'System follows OS again');
   await page.evaluate(() => { window.themeSetItem = Storage.prototype.setItem; Storage.prototype.setItem = function(key,value) { if(key==='quiet-room:appearance')throw Error('denied'); return window.themeSetItem.call(this,key,value); }; });
   await page.locator('[name="appearance"][value="green"]').click();
   assert.equal(await page.locator('[name="appearance"][value="apricot"]').isChecked(), true);
@@ -69,6 +96,14 @@ try {
   assert.equal(await sibling.evaluate(async () => { const {mountAppearance}=await import('/src/lib/appearance.ts'); mountAppearance(); return document.documentElement.dataset.theme; }), 'apricot');
   await sibling.evaluate(() => localStorage.setItem('quiet-room:appearance','green'));
   await page.waitForFunction(() => document.documentElement.dataset.theme === 'green');
+  assert.equal(await page.locator('[name="appearance"][value="green"]').isChecked(), true, 'Open preferences sync across tabs');
+  await sibling.evaluate(() => localStorage.setItem('quiet-room:color-scheme','light'));
+  await page.waitForFunction(() => document.documentElement.dataset.colorScheme === 'light');
+  assert.equal(await page.locator('[name="color-scheme"][value="light"]').isChecked(), true);
+  await sibling.evaluate(() => localStorage.setItem('quiet-room:color-scheme','invalid'));
+  await page.waitForFunction(() => document.documentElement.dataset.colorSchemePreference === 'system');
+  assert.equal(await page.locator('[name="color-scheme"][value="system"]').isChecked(), true);
+  await sibling.evaluate(() => localStorage.removeItem('quiet-room:color-scheme'));
   await sibling.close();
 
   // Confirmed P1: actual product components, including a browser-height keyboard

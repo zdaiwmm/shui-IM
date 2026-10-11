@@ -1,3 +1,4 @@
+import { auditP1Surface } from './helpers/p1-surface-audit.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { chromium, webkit } from 'playwright';
@@ -18,7 +19,8 @@ try {
   page.on('pageerror', error => console.error('Fixture page error:', error.stack));
   await page.goto(`http://localhost:${vite.httpServer.address().port}/__restore`);
   await page.evaluate(async () => {
-    await Promise.all(['/src/styles.css', '/src/design-system.css', '/src/chat-layout.css', '/src/auth-recovery.css', '/src/chat-interactions.css', '/src/backup.css'].map(file => import(file)));
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
+    (await import('/src/lib/appearance.ts')).mountAppearance();
     const v = await import('/src/lib/vault.ts');
     const b = await import('/src/lib/cloud-backup.ts');
     const c = await import('/src/lib/backup-crypto.ts');
@@ -329,6 +331,7 @@ try {
   assert.match(await page.locator('[data-inventory=chat]').textContent(), /备份共 3 条 · 本机原有 0 条/);
   assert.match(await page.locator('[data-audit=chat]').textContent(), /本次补入 3 条：可见 2 条，隐藏 1 条/);
   assert.match(await page.locator('[data-audit=gallery]').textContent(), /本次补入 3 条：可见 2 条，隐藏 1 条/);
+  await auditP1Surface(page,'history-restore-progress','.history-restore-panel');
   if (screenshots) await page.screenshot({ path: `${screenshots}/progress-dark.png` });
   await page.locator('[data-dismiss]').click();
   const participant = await page.evaluate(async () => { window.fixture.delay = 0; await window.fixture.setup('joiner'); const result = await window.fixture.restore(); return { result, direct: (await window.fixture.history()).some(m => m.payload.kind === 'gallery-image') }; });
@@ -342,6 +345,7 @@ try {
   assert.match(await page.locator('[data-detail]').textContent(), /找回的记录会保留/);
   assert.equal(await page.locator('[data-count=gallery]').count(), 0);
   assert.equal(await page.locator('[data-retry]').isVisible(), true);
+  await auditP1Surface(page,'history-restore-discovery-error','.history-restore-panel');
   // Retry in the open dialog retains the submitted code. Closing cancels it.
   assert.equal(await page.locator('textarea').count(), 0);
   await page.locator('[data-retry]').click();

@@ -1,3 +1,4 @@
+import { auditP1Surface } from './helpers/p1-surface-audit.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -25,7 +26,8 @@ try {
   page.on('request', request => { const url = new URL(request.url()); if (url.protocol !== 'blob:' && !['localhost', '127.0.0.1'].includes(url.hostname)) external.push(request.url()); });
   await page.goto(`http://localhost:${server.httpServer.address().port}/__reader`);
   await page.evaluate(async pdf => {
-    await import('/src/styles.css');
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
+    (await import('/src/lib/appearance.ts')).mountAppearance();
     const { DocumentReader } = await import('/src/lib/document-reader.ts');
     const { EpubReader } = await import('/src/lib/epub-reader.ts');
     for (const method of ['load', 'render']) {
@@ -59,6 +61,7 @@ try {
     assert.equal(await page.locator('.document-reader').getAttribute('data-state'), 'ready', await page.evaluate(() => window.readerDiagnostic ?? document.querySelector('.reader-status')?.textContent));
   };
   await ready();
+  await auditP1Surface(page,'pdf-reader','.document-reader');
   assert.equal(await page.locator('#underlying').evaluate(node => node.inert), true);
   assert.match(await page.locator('.reader-text-layer').textContent(), /Quiet Room/);
   const pixels = await page.locator('.reader-pdf-page canvas').evaluate(canvas => {
@@ -169,6 +172,7 @@ try {
     assert.equal(await page.locator('.reader-epub script, .reader-epub iframe, .reader-epub style, .reader-epub [onclick], .reader-epub [id]').count(), 0);
     assert.equal(await page.evaluate(() => window.readerExecuted), undefined);
     await page.locator('.reader-epub img').evaluate(image => image.decode());
+    if(!epub2)await auditP1Surface(page,'epub-reader','.document-reader');
     assert(await page.locator('.reader-epub img').evaluate(image => image.naturalWidth > 0));
     if (screenshotDirectory && !epub2) {
       for (const colorScheme of ['light', 'dark']) {

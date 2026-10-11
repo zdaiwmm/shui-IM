@@ -1,3 +1,4 @@
+import { auditP1Surface } from './helpers/p1-surface-audit.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -23,8 +24,8 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__call_view`);
   await page.evaluate(async () => {
-    await import('/src/styles.css');
-    await import('/src/call.css');
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
+    (await import('/src/lib/appearance.ts')).mountAppearance();
     const { CallView } = await import('/src/lib/call-view.ts');
     const events = [];
     const view = new CallView(Object.fromEntries(['accept', 'decline', 'hangup', 'toggleMicrophone', 'toggleCamera', 'switchCamera', 'dismiss'].map(name => [name, () => events.push(name)])));
@@ -34,6 +35,7 @@ try {
     window.callUi = { view, state, events };
   });
   await page.locator('.call-answer').waitFor();
+  await auditP1Surface(page,'call-incoming','.call-view');
   await page.waitForFunction(() => document.activeElement?.classList.contains('call-answer'));
   await page.keyboard.press('Tab');
   assert.equal(await page.evaluate(() => document.activeElement.className), 'call-control call-decline');
@@ -41,6 +43,13 @@ try {
   assert.equal(await page.evaluate(() => document.activeElement.className), 'call-control call-answer');
   await page.keyboard.press('Escape');
   assert.deepEqual(await page.evaluate(() => window.callUi.events), ['decline']);
+  if(process.env.QUIET_ROOM_P1_EVIDENCE) {
+  for (const phase of ['outgoing','connecting']) {
+    await page.evaluate(phase=>{const ui=window.callUi;ui.view.update({...ui.state,phase,statusText:phase==='outgoing'?'正在呼叫…':'正在安全连接…'});},phase);
+    await auditP1Surface(page,`call-${phase}`,'.call-view');
+  }
+  await page.evaluate(()=>window.callUi.view.update(window.callUi.state));
+  }
   const lateAudio = await page.evaluate(async () => {
     const ui = window.callUi;
     const source = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -114,17 +123,20 @@ try {
     if (screenshotDirectory) await page.screenshot({ path: path.join(screenshotDirectory, `call-connected-${viewport.width}.png`) });
   }
 
+  await auditP1Surface(page,'call-connected','.call-view');
   await page.evaluate(() => {
     window.callUi.state = { ...window.callUi.state, facingMode: 'environment', phase: 'reconnecting', statusText: '正在重新连接…' };
     window.callUi.view.update(window.callUi.state);
   });
   assert.equal(await page.locator('.call-local-video').evaluate(video => getComputedStyle(video).transform), 'none');
+  await auditP1Surface(page,'call-reconnecting','.call-view');
   await page.evaluate(() => {
     const ui = window.callUi;
     ui.state = { ...ui.state, phase: 'ended', statusText: '对方已挂断' };
     ui.view.update(ui.state);
   });
   await page.waitForFunction(() => document.activeElement?.classList.contains('call-dismiss'));
+  await auditP1Surface(page,'call-ended','.call-view');
   assert.equal(await page.locator('.call-timer').isVisible(), false);
   assert.equal(await page.locator('.call-status').textContent(), '对方已挂断');
   assert.equal(await page.locator('.call-remote-video').evaluate(video => video.srcObject), null);

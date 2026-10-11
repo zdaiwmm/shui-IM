@@ -5,7 +5,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { auditUiDetails } from './helpers/ui-detail-audit.mjs';
 const root = process.cwd();
-const out = process.argv[2]; if (out) await mkdir(out, {recursive:true});
+const out = process.argv[2] ?? process.env.QUIET_ROOM_P1_EVIDENCE; if (out) await mkdir(out, {recursive:true});
 const metrics = [];
 const vite = await createServer({configFile:false,root,logLevel:'error',server:{host:'127.0.0.1',port:0,hmr:false}});
 vite.middlewares.use('/__audit',(_req,res)=>{res.setHeader('Content-Type','text/html');res.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><div id="app"></div>');});

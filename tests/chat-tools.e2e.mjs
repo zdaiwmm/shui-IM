@@ -42,11 +42,38 @@ try {
   assert.equal(await page.locator('.chat-header .call-actions,.gallery-button').count(),0);
   assert.equal(await page.locator('#open-memes').count(),1);
   await page.locator('#message-input').fill('保留草稿');
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.composer')).backgroundColor
+    === getComputedStyle(document.querySelector('.composer-input-stack')).backgroundColor);
+  const continuousSurface = await page.evaluate(async () => {
+    const input = document.querySelector('#message-input'), composer = document.querySelector('.composer');
+    const samples = [];
+    const sample = () => samples.push({background:getComputedStyle(composer).backgroundColor,
+      surfaces:[...composer.querySelectorAll('.composer-input-stack, .icon-button')].map(el=>getComputedStyle(el).backgroundColor)});
+    for (const focused of [false,true]) {
+      if (focused) input.focus(); else input.blur();
+      sample();
+      for(let frame=0;frame<4;frame++){await new Promise(requestAnimationFrame);sample();}
+    }
+    return samples;
+  });
+  assert.ok(continuousSurface.every(sample=>sample.surfaces.every(color=>color===sample.background)),
+    `P1 composer surfaces must remain continuous during focus changes: ${JSON.stringify(continuousSurface)}`);
   await page.locator('#open-chat-tools').click();
   assert.equal(await page.locator('#chat-tools > button').count(),6);
   assert.equal(await page.locator('#call-availability-note').innerText(), '连接恢复后可发起通话');
   assert.equal(await page.locator('#start-video-call').getAttribute('aria-describedby'), 'call-availability-note');
-  assert.equal(await page.locator('.composer').evaluate(el => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)');
+  const composerSurface = await page.locator('.composer').evaluate(el => {
+    const style = getComputedStyle(el), canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext('2d');
+    context.fillStyle = style.backgroundColor; context.fillRect(0, 0, 1, 1);
+    return { opaque: context.getImageData(0, 0, 1, 1).data[3] === 255,
+      backdrop: style.backdropFilter, background: style.backgroundColor,
+      inputBackground: getComputedStyle(el.querySelector('.composer-input-stack')).backgroundColor };
+  });
+  assert.ok(composerSurface.opaque && composerSurface.backdrop === 'none'
+    && composerSurface.background === composerSurface.inputBackground,
+  `P1 V1 composer and input must share an opaque surface with no glass blur: ${JSON.stringify(composerSurface)}`);
   assert.equal(await page.locator('#chat-tools').evaluate(el => getComputedStyle(el).backgroundColor), await page.evaluate(() => {
     const probe=document.createElement('div'); probe.style.background='var(--surface-raised)';document.body.append(probe);
     const color=getComputedStyle(probe).backgroundColor;probe.remove();return color;

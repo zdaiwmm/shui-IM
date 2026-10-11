@@ -1,9 +1,19 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import {writeFile} from 'node:fs/promises';
 
 /** Actual product renderers and mount functions, with synthetic local data.
  * This checks presentation contracts, not authorization or real Safari chrome. */
 export async function auditUiDetails(page, out) {
+  const reference = await page.context().browser().newPage();
+  let referenceType;
+  try {
+    await reference.goto(new URL('/docs/requirements/2026-10-10-ui-system-exploration/prototype/index.html', page.url()).href);
+    referenceType = await reference.evaluate(() => {
+      const row = getComputedStyle(document.querySelector('.setting-row')), title = getComputedStyle(document.querySelector('.settings-header h2'));
+      return { font: row.fontSize, weight: row.fontWeight, family: row.fontFamily, smoothing: row.webkitFontSmoothing, titleWeight: title.fontWeight };
+    });
+  } finally { await reference.close(); }
   const screens = {
     welcome: '.gateway-intro', create: '.gateway', invite: '#paste-form',
     corrupt: '.corrupt-vault-panel', recoveryUnlock: '#recovery-code-form',
@@ -67,7 +77,8 @@ export async function auditUiDetails(page, out) {
       }
       if(name==='settings'||name==='presenceStyle'||name==='errorToast') {
         const {mountSpaceDrawer,spaceIcons}=await import('/src/lib/space-drawer.ts');
-        mountSpaceDrawer(root,{spaces:[{roomId:session.vault.roomId,name:'两个人的空间'}],currentRoom:session.vault.roomId,signal,initialSettings:true,actions:[{id:'appearance',label:'主题外观',icon:spaceIcons.appearance,run:()=>{}}],select:async()=>{},create:async()=>{},rename:async()=>{},styleChanged:()=>{},closed:()=>{}});
+        const actions=[['appearance-settings','主题外观','appearance'],['auto-lock-settings','自动锁定','key'],['notification-settings','通知','bell'],['manage-devices','设备管理','device'],['passkey-management','通行密钥','key'],['backup-settings','备份与恢复','history'],['local-history-backup','导出聊天备份','download'],['local-history-restore','导入聊天备份','upload'],['cover-practice-menu','自动遮蔽','cover'],['release-history','更新记录','history']].map(([id,label,icon])=>({id,label,icon:spaceIcons[icon],run:()=>{}}));
+        mountSpaceDrawer(root,{spaces:[{roomId:session.vault.roomId,name:'两个人的空间'}],currentRoom:session.vault.roomId,signal,initialSettings:true,actions,select:async()=>{},create:async()=>{},rename:async()=>{},styleChanged:()=>{},closed:()=>{}});
         if(name==='presenceStyle')root.querySelector('#presence-style-setting').click();
         if(name==='errorToast')app.showNotice('未能保存，请重试','error');
       }
@@ -82,10 +93,10 @@ export async function auditUiDetails(page, out) {
       await Promise.allSettled(document.getAnimations().filter(a=>a.effect?.getTiming().iterations!==Infinity).map(a=>a.finished));
     });
   };
-  let checked=0;
+  let checked=0;const presentations=[];
   for(const scheme of ['light','dark']) {
     await page.emulateMedia({colorScheme:scheme});
-    for(const width of [320,390,1440]) {
+    for(const width of [320,390,768,1024,1440]) {
       await page.setViewportSize({width,height:700});
       for(const name of Object.keys(screens)) {
         await setup(name);
@@ -101,7 +112,26 @@ export async function auditUiDetails(page, out) {
           const input=await page.locator('#local-restore-code').evaluate(e=>({radius:getComputedStyle(e).borderRadius,background:getComputedStyle(e).backgroundColor,font:getComputedStyle(e).fontSize,height:e.clientHeight}));
           assert.equal(input.radius,'12px');assert.equal(input.font,'16px');assert.ok(input.height>=86);assert.notEqual(input.background,'rgb(255, 255, 255)');
         }
-        if(name==='settings')assert.ok((await page.locator('.space-setting').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height))).every(h=>h>=52&&h<=53),'two-line settings rows must keep the 52px scale');
+        if(name==='settings') {
+          assert.ok((await page.locator('.space-setting').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height))).every(h=>h>=44&&h<=45),'P1 single-line settings rows are 44px');
+          assert.ok(Math.abs((await page.locator('.space-drawer-header').boundingBox()).height-48)<1,'P1 settings header is 48px');
+          assert.equal(await page.locator('.space-setting').first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize)),14,'P1 settings copy is 14px');
+          const actualType=await page.evaluate(()=>{
+            const row=getComputedStyle(document.querySelector('.space-setting')), title=getComputedStyle(document.querySelector('.space-drawer-header h2'));
+            return {font:row.fontSize,weight:row.fontWeight,family:row.fontFamily,smoothing:row.webkitFontSmoothing,titleWeight:title.fontWeight};
+          });
+          assert.deepEqual(actualType,referenceType,'settings typography follows the confirmed P1 renderer');
+          const rect=await page.locator('.space-drawer').boundingBox();assert.ok(rect.x===0&&Math.abs(rect.width-width)<1,'mobile settings presentation fills the page');
+        }
+        if(name==='create') {
+          const fields=await page.locator('#new-passkey-name,#new-device-alias').evaluateAll(es=>es.map(e=>({width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height,font:parseFloat(getComputedStyle(e).fontSize)})));
+          assert.equal(fields.length,2);assert.ok(Math.abs(fields[0].width-fields[1].width)<1&&fields.every(e=>e.height>=44&&e.font>=16),'both device fields share the full width and readable size');
+        }
+        if(name==='spaceInvite') { assert.equal(await page.locator('#space-invite-title').textContent(),'邀请对方加入');assert.ok((await page.locator('#invite-url').inputValue()).includes('#'));assert.equal(await page.locator('#copy-invite').count(),1); }
+        if(name==='coverConfirm') {
+          const box=await page.locator('.simple-confirm').boundingBox();assert.ok(box.width<=281);
+          const actions=await page.locator('.simple-confirm-actions button').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().toJSON()));assert.ok(Math.abs(actions[0].y-actions[1].y)<1,'simple confirmation actions share a row');
+        }
         if(name==='entrance')assert.ok((await page.locator('.recovery-flow-row').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height))).every(h=>h>=52&&h<=53),'entry settings rows must keep the 52px scale');
         if(name==='tools')assert.ok((await page.locator('.chat-tools>button').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height))).every(h=>h>=44&&h<=65),'tool buttons must not retain 80px rows');
         if(name==='info') {
@@ -111,15 +141,30 @@ export async function auditUiDetails(page, out) {
         if(name==='passwordOperation') {
           const rect=await page.locator('.password-form').boundingBox();assert.ok(Math.abs(rect.y+rect.height-700)<1,'half sheet must meet the viewport bottom');
         }
+        if(['jointCode','historyCode','backupPrivacy'].includes(name)) {
+          const panel=await page.locator(`${screens[name]} .recovery-code-panel, ${screens[name]}.recovery-code-panel`).first().boundingBox();
+          if(width<1024)assert.ok(Math.abs(panel.y+panel.height-700)<1,`${name}: secondary recovery sheet meets the viewport bottom`);
+          assert.equal(await page.locator(`${screens[name]} h2`).first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize)),17,'secondary recovery heading shares the compact scale');
+        }
         if(name==='notice'||name==='errorToast') {
           const style=await page.locator(screens[name]).evaluate(e=>({radius:getComputedStyle(e).borderRadius,font:getComputedStyle(e).fontSize,filter:getComputedStyle(e).backdropFilter}));
           assert.deepEqual(style,{radius:'12px',font:'13px',filter:'none'});
         }
-        if(out&&width===390)await page.screenshot({path:path.join(out,`detail-${name}-${scheme}.png`)});
+        presentations.push({name,scheme,width,...result});
+        if(out)await page.screenshot({path:path.join(out,`detail-${name}-${width===390?'':width+'-'}${scheme}.png`)});
         checked++;
       }
     }
   }
+  await page.setViewportSize({width:320,height:844});await page.emulateMedia({colorScheme:'light',reducedMotion:'reduce'});
+  await page.evaluate(()=>document.documentElement.style.fontSize='200%');
+  for(const name of Object.keys(screens)) {
+    await setup(name);
+    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false,`${name}: 200% text must reflow`);
+    if(out)await page.screenshot({path:path.join(out,`detail-${name}-text200.png`)});
+  }
+  await page.evaluate(()=>document.documentElement.style.fontSize='');await page.emulateMedia({reducedMotion:'no-preference'});
+  if(out)await writeFile(path.join(out,'ui-details.json'),JSON.stringify({synthetic:true,realDevice:false,presentations,text200:Object.keys(screens)},null,2));
   // Theme variants must share the fixed field geometry and semantic surface.
   for(const scheme of ['light','dark'])for(const theme of ['blue','green','purple','apricot']) {
     await page.emulateMedia({colorScheme:scheme});await page.setViewportSize({width:320,height:700});

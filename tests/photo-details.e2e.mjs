@@ -1,3 +1,4 @@
+import { auditP1Surface } from './helpers/p1-surface-audit.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -393,6 +394,29 @@ try {
     }
   }
   await page.evaluate(() => window.photoFixture.open(4)); await ready();
+
+  // Keep the responsive capture pass after the touch/zoom assertions. It
+  // reconstructs each real presentation through its existing entry point.
+  if(process.env.QUIET_ROOM_P1_EVIDENCE) {
+    await page.evaluate(()=>window.photoFixture.gallery());
+    await page.waitForFunction(()=>document.querySelectorAll('.gallery-tile').length===5);
+    await auditP1Surface(page,'gallery-populated','.gallery-shell');
+    const camera=page.locator(`.gallery-tile[data-blob-id="${cameraId}"]`);await camera.scrollIntoViewIfNeeded();
+    await camera.dispatchEvent('pointerdown',{isPrimary:true,button:0,pointerType:'touch',pointerId:311,clientX:30,clientY:90});
+    await page.waitForSelector('[data-gallery-action="details"]');await camera.dispatchEvent('pointerup',{isPrimary:true,button:0,pointerType:'touch',pointerId:311});
+    await auditP1Surface(page,'gallery-context-menu');
+    await page.locator('[data-gallery-action="details"]').click();await ready();
+    await page.waitForFunction(()=>document.querySelector('.photo-details')?.textContent.includes('Fixture Camera Test Model'));
+    await auditP1Surface(page,'photo-details','.photo-details');
+    const header=await page.locator('.photo-details > header').boundingBox();
+    await page.mouse.move(header.x+80,header.y+20);await page.mouse.down();await page.mouse.move(header.x+80,header.y-180,{steps:14});await page.mouse.up();await settle();
+    assert.equal(await page.locator('.photo-details').evaluate(e=>e.classList.contains('is-expanded')),true);
+    await auditP1Surface(page,'photo-details-expanded','.photo-details');
+    await page.locator('[data-photo-details-close]').click();await page.waitForSelector('.photo-details',{state:'detached'});
+    await auditP1Surface(page,'photo-viewer','.image-viewer');
+    await page.evaluate(()=>window.photoFixture.open(1));await ready();await auditP1Surface(page,'animated-image-paused','.image-viewer');
+    await page.evaluate(()=>window.photoFixture.open(4));await ready();
+  }
 
   // A delayed parser must not repaint after closing, reopening or privacy teardown.
   await page.evaluate(() => {

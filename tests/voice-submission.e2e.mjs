@@ -1,3 +1,4 @@
+import { auditP1Surface } from './helpers/p1-surface-audit.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -27,7 +28,8 @@ try {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__voice_submission`);
   await page.evaluate(async () => {
-    for (const style of ['styles', 'chat-layout', 'gallery', 'auth-recovery', 'chat-interactions', 'cover', 'voice-messages', 'call']) await import(`/src/${style}.css`);
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
+    (await import('/src/lib/appearance.ts')).mountAppearance();
     const { VoiceRecorder } = await import('/src/lib/voice-recorder.ts');
     const { bindVoiceRecordGesture } = await import('/src/lib/voice-gesture.ts');
     const { voiceIcons } = await import('/src/lib/voice-audio.ts');
@@ -83,7 +85,7 @@ try {
     window.voiceSubmission = fixture;
   });
   if (directory) await mkdir(directory, { recursive: true });
-  const screenshot = async name => { if (directory) await page.screenshot({ path: path.join(directory, `${name}.png`) }); };
+  const screenshot = async name => { if (/^(hold-release-processing|hold-release-sending|failed-draft-recovered)$/.test(name)) await auditP1Surface(page,name); if (directory) await page.screenshot({ path: path.join(directory, `${name}.png`) }); };
   const hold = async () => {
     const box = await page.locator('#record-voice').boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);

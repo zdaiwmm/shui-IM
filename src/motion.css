@@ -1,6 +1,6 @@
 /* Shared presentation vocabulary; keyboard geometry and privacy keep their own lifecycle. */
 :root {
-  --motion-out: cubic-bezier(.18, .88, .24, 1);
+  --motion-out: cubic-bezier(.22, 1, .36, 1);
   --motion-settle: cubic-bezier(.2, .82, .22, 1);
   --motion-travel: cubic-bezier(.24, .72, .18, 1);
   --motion-feedback: 100ms;
@@ -12,6 +12,9 @@
   --motion-menu-out: 140ms;
   --chrome-tint: var(--paper);
 }
+/* Match the explicit scheme selector so legacy dark defaults cannot override
+   the browser canvas independently of the effective P1 page surface. */
+:root[data-color-scheme] { --chrome-tint: var(--paper); }
 
 /* root/body are the browser's sampled canvas, including both safe areas. */
 html, body { background-color: var(--chrome-tint); }
@@ -23,8 +26,9 @@ html:has(#app > :is(.backup-page, .cover)) { --chrome-tint: var(--paper-pure); }
     background-color var(--motion-feedback) var(--motion-out),
     color var(--motion-feedback) var(--motion-out), filter var(--motion-feedback) var(--motion-out);
 }
-:is(.icon-button, .send-button, .viewer-control, .voice-control, .voice-toggle):not(:disabled)[data-motion-pressed="true"],
-.call-control:not(:disabled)[data-motion-pressed="true"] .call-control-disc { scale: .96; transition-duration: 100ms; }
+/* WAAPI owns press scale/opacity; CSS only paints color and focus. */
+[data-control-feedback="true"] button:not(.voice-record-button):not(:disabled):active { transform: none; filter: none; }
+[data-control-feedback="true"] .call-control:not(:disabled):active .call-control-disc { filter: none; }
 :is(button, [role="switch"], summary, label[role="button"]):focus-visible {
   outline: 2px solid var(--focus); outline-offset: 3px;
 }
@@ -82,4 +86,3 @@ button:disabled { cursor: default; }
 }
 
 .space-invite-overlay { background-color: oklch(20% .01 250 / var(--invite-backdrop, .22)); }
-button[data-motion-pressed="true"]:not(.icon-button,.send-button,.viewer-control,.voice-control,.voice-toggle,.call-control) { opacity: .78; }

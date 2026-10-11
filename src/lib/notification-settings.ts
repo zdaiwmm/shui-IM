@@ -21,7 +21,7 @@ export function mountNotificationSettings(page: HTMLElement, manager: DeviceNoti
   openCopy?: () => void;
 }): void {
   const signal = manager.signal;
-  page.innerHTML = `<p class="notification-scope">本机所有空间</p><h2>通知管理</h2><p class="notification-lead">统一管理本机所有空间的新消息提醒。</p>
+  page.innerHTML = `<p class="notification-lead">统一管理本机所有空间的新消息提醒。</p>
     <section class="notification-capability" aria-label="本机通知能力"><span>本机通知能力</span><strong id="notification-status" role="status">正在确认…</strong><p id="notification-explanation"></p><button class="notification-refresh" type="button">刷新状态</button></section>
     <section class="notification-controls" aria-label="通知总开关"><div class="notification-row"><div><strong id="notification-master-label">允许本机通知</strong><p>只影响当前浏览器或主屏幕应用。</p></div><button id="notification-master" class="notification-switch" role="switch" type="button" aria-checked="false" aria-labelledby="notification-master-label" disabled><span></span></button></div></section>
     <button id="notification-copy-entry" class="notification-copy-entry" type="button"><span><strong>通知文案</strong><span data-notification-copy-summary>标题与正文</span></span><span aria-hidden="true">›</span></button>

@@ -92,14 +92,12 @@
   20% { transform: scale(.98); }
   27% { transform: scale(1.085); }
 }
-@media (prefers-color-scheme: dark) {
-  .presence-circuit {
+:root[data-color-scheme="dark"] .presence-circuit {
     --circuit-idle: oklch(74% 0.012 255);
     --circuit-idle-opacity: .48;
     --circuit-live: oklch(73% 0.18 147);
     --circuit-heart: oklch(71% 0.18 14);
   }
-}
 @media (prefers-reduced-motion: reduce) {
   .presence-circuit[data-phase] .presence-heart { animation: none; transition: none; }
   .presence-circuit .presence-wires { transition: none; }

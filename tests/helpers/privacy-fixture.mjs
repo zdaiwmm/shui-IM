@@ -15,7 +15,7 @@ export async function privacyFixture(options = {}) {
   await page.clock.pauseAt(new Date('2026-10-10T02:00:01Z'));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__privacy`);
   await page.evaluate(async () => {
-    for (const style of ['styles', 'cover', 'chat-layout', 'gallery', 'auth-recovery', 'chat-interactions', 'voice-messages', 'call', 'desktop', 'experience']) await import(`/src/${style}.css`);
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     const { QuietRoomApp } = await import('/src/app.ts');
     const { createVault } = await import('/src/lib/vault.ts');
     const app = new QuietRoomApp(document.querySelector('#app'));

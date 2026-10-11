@@ -1,3 +1,4 @@
+import { auditP1Surface } from './helpers/p1-surface-audit.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -109,6 +110,7 @@ try {
   if (process.argv[2]) { await mkdir(process.argv[2], { recursive: true }); await a.screenshot({ path: path.join(process.argv[2], 'F01-auto-recovery-390.png'), animations: 'disabled' }); }
   assert.equal(await a.locator('#joint-qr').isVisible(), false, 'Invitation is secondary to the verified result');
   assert.equal(await a.locator('.recovery-steps [aria-current=step]').textContent(), '2共同确认');
+  await auditP1Surface(a,'joint-recovery-confirm','.joint-waiting-page');
   await a.locator('.joint-invite-details summary').click();
   const waitingLayout = await a.evaluate(() => {
     const qr = document.querySelector('#joint-qr')?.getBoundingClientRect();

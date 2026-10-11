@@ -20,7 +20,7 @@ try {
   page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__motion`);
   await page.evaluate(async () => {
-    for (const css of ['styles', 'chat-layout', 'gallery', 'chat-interactions', 'voice-messages', 'call']) await import(`/src/${css}.css`);
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     const { QuietRoomApp } = await import('/src/app.ts');
     const root = document.querySelector('#app');
     const app = new QuietRoomApp(root);
@@ -205,15 +205,18 @@ try {
     fixture.app.transitionPage('forward', () => fixture.render('gallery-shell'));
   });
   await page.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'dark' });
+  await page.waitForFunction(() => document.documentElement.dataset.colorScheme === 'dark');
   await page.waitForFunction(() => !fixture.root.dataset.pageTransition);
   const reduced = await page.evaluate(() => {
     fixture.render('device-shell');
     fixture.app.transitionPage('forward', () => fixture.render('gallery-shell'));
     return { outgoing: document.querySelectorAll('.page-transition-outgoing').length,
-      canvas: getComputedStyle(document.body).backgroundColor, page: getComputedStyle(fixture.root.firstElementChild).backgroundColor };
+      canvas: getComputedStyle(document.body).backgroundColor, rootCanvas: getComputedStyle(document.documentElement).backgroundColor,
+      page: getComputedStyle(fixture.root.firstElementChild).backgroundColor };
   });
   assert.equal(reduced.outgoing, 0);
   assert.equal(reduced.canvas, reduced.page);
+  assert.equal(reduced.rootCanvas, reduced.page);
   assert.deepEqual(errors, []);
   console.log('Motion: navigation reversal, dialog completion/focus, swipe hysteresis/cancel, spring cancellation, interrupted zoom, reduced motion and dark canvas passed.');
 } finally { await browser?.close(); await server.close(); }

@@ -5,12 +5,13 @@ import { reauthenticateVault, assertPasswordProtectionEnvironment } from './lib/
 import { DesktopWorkspace, desktopWidth } from './lib/desktop-workspace';
 import './desktop.css';
 import { bindControlFeedback } from './lib/control-feedback';
+import { bindTooltips } from './lib/tooltips';
 import { afterMotion, layoutMotionDuration, motion, retargetMotion, settleValue, travelMotion, travelVelocity } from './lib/motion';
 import { messageActionLayout, syncChatBubbleGradient, syncChatBubbleStyle } from './lib/chat-visuals';
 import { IdleLease, IDLE_DURATIONS, IDLE_PREFERENCE_KEY, readIdleSeconds, saveIdleSeconds } from './lib/idle-lock';
 import { IdleLockPrompt } from './lib/idle-lock-prompt';
 import { DesktopAccess } from './lib/desktop-access';
-import { mountAppearance, readTheme, saveTheme, THEMES } from './lib/appearance';
+import { applyAppearance, mountAppearance, saveTheme, saveColorScheme, THEMES, type ColorSchemePreference } from './lib/appearance';
 import { AppAccess } from './lib/app-access';
 import './appearance.css';
 import { bindBlankDoubleLock } from './lib/blank-double-lock';
@@ -727,6 +728,8 @@ export class QuietRoomApp {
       },
     });
     bindControlFeedback(root);
+    bindTooltips(root);
+    window.addEventListener('appearancechange', () => this.syncAppearanceSettings());
     root.inert = root.classList.contains('portrait-blocked');
     root.addEventListener('portraitvisibilitychange', () => {
       root.inert = root.classList.contains('portrait-blocked') || Boolean(this.callView);
@@ -1255,6 +1258,7 @@ export class QuietRoomApp {
   }
 
   private obscurePrivacySurface(): void {
+    this.root.dispatchEvent(new Event('tooltipdismiss'));
     this.closeMemePicker();
     this.showPrivacyCurtain();
     this.concealChatImages();
@@ -1865,7 +1869,7 @@ export class QuietRoomApp {
     const supportError = window.isSecureContext ? '' : '当前连接不是浏览器信任的 HTTPS 安全环境。局域网测试请先信任开发证书。';
     return `
       <label class="passkey-name-field">通行密钥名称<input id="new-passkey-name" value="${accessEscape(defaultPasskeyName())}" autocomplete="off" spellcheck="false"></label>
-      <p class="field-hint">用于在系统中辨认这把密钥，请勿填写聊天隐私。</p><label>设备备注（选填）<input id="new-device-alias" autocomplete="off" placeholder="例如：工作电脑" /></label>
+      <p class="field-hint">用于在系统中辨认这把密钥，请勿填写聊天隐私。</p><label class="passkey-name-field">设备备注（选填）<input id="new-device-alias" autocomplete="off" placeholder="例如：工作电脑" /></label>
       <p class="setup-follow-hint">${instruction}</p>
       <div class="welcome-actions">
         <button class="primary-button" type="button" data-device-verify>${buttonLabel}</button>
@@ -5609,8 +5613,11 @@ export class QuietRoomApp {
       const composer = this.chatLayoutElements?.composer;
       const currentComposerHeight = composer?.getBoundingClientRect().height ?? currentHeight;
       const follow = this.chatPinnedToBottom && this.chatScrollIntent !== 'up';
+      // An interrupted resize can retain visible message offsets even when
+      // the new field height is almost identical. Idle no-op edits returned
+      // above; a live transition still needs to preserve and settle its origins.
       if (!animate || matchMedia('(prefers-reduced-motion: reduce)').matches
-        || !ownsActiveChat() || Math.abs(targetHeight - currentHeight) < 0.5) {
+        || !ownsActiveChat()) {
         textarea.style.height = `${targetHeight}px`;
         void textarea.offsetHeight;
         textarea.style.removeProperty('transition');
@@ -6225,7 +6232,7 @@ export class QuietRoomApp {
         </header>
         <div class="notice device-notice" id="notice" role="status" hidden></div>
         <main class="device-content">
-          <aside class="device-security-note">${createElement(Info).outerHTML}<span title="新设备只看加入后的消息；移除后不再接收新消息。">添加时可填写便于辨认的设备名称。</span></aside>
+          <aside class="device-security-note">${createElement(Info).outerHTML}<span>添加时可填写便于辨认的设备名称。新设备只看加入后的消息；移除后不再接收新消息。</span></aside>
           <div class="device-loading">正在验证设备状态…</div>
         </main>
       </section>
@@ -7426,23 +7433,37 @@ export class QuietRoomApp {
     }));
   }
 
+  private syncAppearanceSettings(): void {
+    const page = this.root.querySelector('.appearance-page');
+    if (!page) return;
+    const state = document.documentElement.dataset;
+    page.querySelectorAll<HTMLInputElement>('[name="appearance"]').forEach(input => { input.checked = input.value === state.theme; });
+    page.querySelectorAll<HTMLInputElement>('[name="color-scheme"]').forEach(input => { input.checked = input.value === state.colorSchemePreference; });
+    const effective = page.querySelector('[data-effective-scheme]');
+    if (effective) effective.textContent = `当前为${state.colorScheme === 'dark' ? '深色' : '浅色'}模式`;
+  }
+
   private renderAppearanceSettings(): void {
     if (this.privacyCovered || (!this.session && !this.browserProfile) || !this.setActiveSurface('away')) return;
-    let selected = readTheme(localStorage);
-    this.preferencePage('主题外观', 'appearance-page', 'appearance-back', `<p class="preference-intro">选择你喜欢的配色，明暗随系统变化。</p>
-      <fieldset class="preference-options"><legend class="sr-only">主题配色</legend>${THEMES.map(theme => `<label class="preference-choice"><i class="theme-swatch" style="background:${theme.color}" aria-hidden="true"></i><span>${theme.name}</span><input type="radio" name="appearance" value="${theme.id}" ${theme.id === selected ? 'checked' : ''}></label>`).join('')}</fieldset>
-      <p class="preference-note">选择后立即生效，仅保存在本机。</p><p class="preference-status" role="status" aria-live="polite"></p><p class="form-error" role="alert"></p>`);
+    const selected = document.documentElement.dataset.theme, preference = document.documentElement.dataset.colorSchemePreference;
+    this.preferencePage('主题外观', 'appearance-page', 'appearance-back', `<div class="appearance-preview" role="img" aria-label="合成聊天预览，不包含真实消息">
+      <div class="appearance-preview-header">周末散步<span data-effective-scheme></span></div><div class="appearance-preview-messages"><span>明天一起去散步吧。</span><span>好呀，记得带上相机。</span></div><div class="appearance-preview-composer" aria-hidden="true">消息</div></div>
+      <fieldset class="scheme-options preference-options"><legend>明暗模式</legend>${([['system', '跟随系统'], ['light', '浅色'], ['dark', '深色']] as const).map(([id, name]) => `<label class="scheme-choice"><span class="scheme-swatch scheme-${id}" aria-hidden="true"><i></i><i></i></span><span>${name}</span><input type="radio" name="color-scheme" value="${id}" ${id === preference ? 'checked' : ''}></label>`).join('')}</fieldset>
+      <fieldset class="preference-options theme-options"><legend>主题配色</legend>${THEMES.map(theme => `<label class="preference-choice"><i class="theme-swatch" style="background:${theme.color}" aria-hidden="true"></i><span>${theme.name}</span><input type="radio" name="appearance" value="${theme.id}" ${theme.id === selected ? 'checked' : ''}></label>`).join('')}</fieldset>
+      <p class="preference-note">选择后立即生效，仅保存在当前浏览器或应用的数据空间。同一数据空间的标签页会同步，不会同步到其他设备。</p><p class="preference-status" role="status" aria-live="polite"></p><p class="form-error" role="alert"></p>`);
     const page = this.root.querySelector<HTMLElement>('.appearance-page')!;
-    page.querySelectorAll<HTMLInputElement>('[name="appearance"]').forEach(input => input.addEventListener('change', () => {
+    this.syncAppearanceSettings();
+    page.querySelectorAll<HTMLInputElement>('[name="appearance"], [name="color-scheme"]').forEach(input => input.addEventListener('change', () => {
       if (!page.isConnected || this.privacyCovered || this.expireIdleSession()) return;
       try {
-        const theme = THEMES.find(theme => theme.id === input.value)!.id;
-        saveTheme(localStorage, theme); selected = theme; document.documentElement.dataset.theme = theme;
+        if (input.name === 'appearance') saveTheme(localStorage, THEMES.find(theme => theme.id === input.value)!.id);
+        else saveColorScheme(localStorage, input.value as ColorSchemePreference);
+        applyAppearance();
         page.querySelector('.form-error')!.textContent = ''; page.querySelector('.preference-status')!.textContent = '已生效';
       } catch {
-        page.querySelectorAll<HTMLInputElement>('[name="appearance"]').forEach(option => { option.checked = option.value === selected; });
+        this.syncAppearanceSettings();
         page.querySelector('.preference-status')!.textContent = '';
-        page.querySelector('.form-error')!.textContent = '未能保存，已保留原配色，请重试';
+        page.querySelector('.form-error')!.textContent = input.name === 'appearance' ? '未能保存，已保留原配色，请重试' : '未能保存，已保留原明暗模式，请重试';
       }
     }));
   }
@@ -10572,7 +10593,7 @@ export class QuietRoomApp {
     session.vault.recoveryExperience.welcomePending = false;
     void saveVault(session).catch(() => undefined);
     const dialog = document.createElement('div'); dialog.className = 'confirm-overlay'; dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true'); dialog.setAttribute('aria-label', '私密空间创建成功');
-    dialog.innerHTML = `<div class="confirm-dialog"><h2>私密空间创建成功</h2><p>这里很重视隐蔽，也藏着一些贴心的小功能。比如自动遮蔽层：暂时离开时，让聊天自动藏起来。</p><p class="field-hint">自动遮蔽默认关闭。先试一下，再决定是否开启。</p><button class="primary-button" id="welcome-chat">开始聊天</button><button class="text-button" id="welcome-practice">了解自动遮蔽</button></div>`;
+    dialog.innerHTML = `<div class="confirm-dialog simple-confirm"><h2>私密空间创建成功</h2><p>这里很重视隐蔽，也藏着一些贴心的小功能。比如自动遮蔽层：暂时离开时，让聊天自动藏起来。</p><p class="field-hint">自动遮蔽默认关闭。先试一下，再决定是否开启。</p><div class="simple-confirm-actions"><button class="primary-button" id="welcome-chat">开始聊天</button><button class="text-button" id="welcome-practice">了解自动遮蔽</button></div></div>`;
     this.root.append(dialog); mountDialog(dialog, { isActive: () => !this.privacyCovered && this.session === session, signal: this.runtimeAbort?.signal });
     dialog.querySelector('#welcome-chat')?.addEventListener('click', () => { closeDialog(dialog); afterMotion(dialog, () => this.showHiddenAlbumHint()); });
     dialog.querySelector('#welcome-practice')?.addEventListener('click', () => { closeDialog(dialog); this.renderCoverPractice(); });
@@ -10589,11 +10610,11 @@ export class QuietRoomApp {
     dialog.setAttribute('role', 'dialog');
     dialog.setAttribute('aria-modal', 'true');
     dialog.setAttribute('aria-label', '关闭遮蔽层');
-    dialog.innerHTML = `<div class="confirm-dialog cover-disable-panel"><button class="icon-button cover-disable-close" type="button" aria-label="关闭">${icons.close}</button>
+    dialog.innerHTML = `<div class="confirm-dialog cover-disable-panel simple-confirm"><button class="icon-button cover-disable-close" type="button" aria-label="关闭">${icons.close}</button>
       <h2>关闭自动遮蔽？</h2><p>关闭后，将不再使用伪装遮蔽层。离开页面或锁定后的验证规则保持不变。</p>
       <div class="cover-disable-path">${createElement(Settings).outerHTML}<span>空间 → 设置 → 自动遮蔽</span></div>
-      <button class="primary-button" id="keep-cover-enabled" type="button">保持开启</button>
-      <button class="secondary-button" id="disable-cover-anyway" type="button">关闭自动遮蔽</button></div>`;
+      <div class="simple-confirm-actions"><button class="primary-button" id="keep-cover-enabled" type="button">保持开启</button>
+      <button class="secondary-button" id="disable-cover-anyway" type="button">关闭自动遮蔽</button></div></div>`;
     this.root.append(dialog);
     mountDialog(dialog, { isActive: () => !this.privacyCovered && this.session === session, signal: this.runtimeAbort?.signal });
     dialog.querySelector('#keep-cover-enabled')!.addEventListener('click', () => closeDialog(dialog));
@@ -11056,7 +11077,7 @@ export class QuietRoomApp {
       dialog.setAttribute('role', 'dialog');
       dialog.setAttribute('aria-modal', 'true');
       dialog.setAttribute('aria-label', '恭喜，你已经会用了');
-      dialog.innerHTML = `<div class="confirm-dialog"><h2>恭喜，你已经会用了</h2><p>长按热区 1 秒，就能揭开遮蔽层。建议开启自动遮蔽，暂时离开时帮你隐藏聊天。</p><p class="field-hint">以后可在「空间 → 设置 → 关闭自动遮蔽」中关闭。设备锁定后仍需验证。</p><button class="primary-button" id="enable-cover">开启自动遮蔽</button><button class="text-button" id="skip-cover">暂不开启</button></div>`;
+      dialog.innerHTML = `<div class="confirm-dialog simple-confirm"><h2>恭喜，你已经会用了</h2><p>长按热区 1 秒，就能揭开遮蔽层。建议开启自动遮蔽，暂时离开时帮你隐藏聊天。</p><p class="field-hint">以后可在「空间 → 设置 → 关闭自动遮蔽」中关闭。设备锁定后仍需验证。</p><div class="simple-confirm-actions"><button class="primary-button" id="enable-cover">开启自动遮蔽</button><button class="text-button" id="skip-cover">暂不开启</button></div></div>`;
       this.root.append(dialog);
       mountDialog(dialog, { isActive: () => !this.privacyCovered && this.session === session, signal: this.runtimeAbort?.signal });
       dialog.querySelector('#enable-cover')!.addEventListener('click', () => void save(true));
@@ -13544,9 +13565,9 @@ export class QuietRoomApp {
         if (notice.textContent === message && !notice.classList.contains('is-visible')) notice.hidden = true;
         notice.classList.remove('is-leaving');
         this.noticeRemovalTimer = null;
-      }, 280);
+      }, motion.menuOut);
       this.noticeTimer = null;
-    }, 5000);
+    }, tone === 'error' ? 5000 : 2600);
   }
 
   private showFormError(cause: unknown): void {

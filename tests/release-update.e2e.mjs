@@ -84,6 +84,7 @@ try {
   if (!notes.length || JSON.stringify(notes) !== JSON.stringify(expectedNotes) || notes.some(note => !note.trim())) {
     throw new Error(`Release notes were not rendered as the manifest's ordered list: ${JSON.stringify({ notes, expectedNotes })}`);
   }
+  await auditP1Surface(page, 'release-notes', '.release-notes-panel');
   await page.getByRole('button', { name: '关闭更新说明' }).click();
   await page.locator('.release-notes-sheet').waitFor({ state: 'detached' });
   const seen = await page.evaluate(() => {
@@ -164,3 +165,4 @@ try {
   await browser?.close();
   await server.close();
 }
+import { auditP1Surface } from './helpers/p1-surface-audit.mjs';

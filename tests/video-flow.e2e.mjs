@@ -1,3 +1,4 @@
+import { auditP1Surface } from './helpers/p1-surface-audit.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -151,6 +152,7 @@ try {
   });
 
   const capture = async name => {
+    if (/^(video-chat-390|video-viewer-390|inline-video-controls-dark-390|safe-video-confirm-390)$/.test(name)) await auditP1Surface(page,name);
     if (!visualQaDirectory) return;
     await mkdir(visualQaDirectory, { recursive: true });
     await page.screenshot({ path: path.join(visualQaDirectory, `${name}.png`), fullPage: true, animations: 'disabled' });

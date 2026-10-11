@@ -757,11 +757,22 @@ try {
     // The first position after each edit must retain the last painted position.
     input.value = '第一行\n第二行\n第三行\n第四行'; input.dispatchEvent(new Event('input'));
     await collect(3);
+    // Reproduce the CI boundary independently of presentation cadence: a live
+    // resize can be within half a pixel of the next two-line editing height
+    // while message translations still belong to the interrupted transition.
+    const liveResize = app.composerHeightMotion;
+    if (!liveResize) throw Error('Expected a live composer resize before retarget');
+    if (liveResize.frame != null) cancelAnimationFrame(liveResize.frame);
+    const editorStyle = getComputedStyle(input);
+    const twoLineHeight = 2 * parseFloat(editorStyle.lineHeight)
+      + parseFloat(editorStyle.paddingTop) + parseFloat(editorStyle.paddingBottom)
+      + parseFloat(editorStyle.borderTopWidth) + parseFloat(editorStyle.borderBottomWidth);
+    input.style.height = `${twoLineHeight + 0.25}px`;
     const beforeRetarget = sample();
     input.value = '重新组词\n第二行'; input.dispatchEvent(new Event('input'));
     const retarget = sample();
     if (Math.abs(retarget.messageTop - beforeRetarget.messageTop) > 1.25
-      || Math.abs(retarget.inputHeight - beforeRetarget.inputHeight) > 1.25) throw Error('Live wrap retarget jumped before paint');
+      || Math.abs(retarget.inputHeight - beforeRetarget.inputHeight) > 1.25) throw Error(`Live wrap retarget jumped before paint: ${JSON.stringify({beforeRetarget, retarget})}`);
     await collect(24);
     input.value = ''; input.dispatchEvent(new Event('input')); await collect(24);
     input.value = '快速发送第一行\n第二行\n第三行'; input.dispatchEvent(new Event('input'));

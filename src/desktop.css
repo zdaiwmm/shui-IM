@@ -71,10 +71,11 @@
 }
 
 @media (min-width: 1024px) {
-  #app[data-desktop-workspace='true'] .chat-header, #app[data-desktop-workspace='true'] .chat-shell .composer { background: var(--paper); }
+  #app[data-desktop-workspace='true'] .chat-header { background: var(--paper); }
+  #app[data-desktop-workspace='true'] .chat-shell .composer { background: var(--composer-surface-current); }
   #app[data-desktop-workspace='true'] .chat-header::before, #app[data-desktop-workspace='true'] .composer::before { display: none; }
   #app[data-desktop-workspace='true'] .chat-header { border-bottom: 1px solid var(--line); }
-  #app[data-desktop-workspace='true'] .composer:has(.chat-tools:not([hidden])) { background: var(--paper); }
+  #app[data-desktop-workspace='true'] .composer:has(.chat-tools:not([hidden])) { background: var(--composer-surface-current); }
 }
 
 .message-actions .desktop-message-more { display: none; }

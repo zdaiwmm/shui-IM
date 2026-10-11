@@ -1,3 +1,4 @@
+import { auditP1Surface } from './helpers/p1-surface-audit.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -154,8 +155,10 @@ try {
     });
     await page.screenshot({ path: path.join(process.argv[2], 'recent-390.png') });
   }
+  await auditP1Surface(page,'expression-recent','.meme-panel');
   await page.getByRole('tab', { name: 'Emoji', exact: true }).click();
   await page.locator('.emoji-tile').first().waitFor();
+  await auditP1Surface(page,'expression-emoji','.meme-panel');
   const panelHeight = await page.locator('.meme-panel').evaluate(el => el.getBoundingClientRect().height);
   assert.ok(Math.abs(panelHeight - 844 * .6) < 2, `Panel height ${panelHeight}`);
   const tabHeight = await page.locator('.meme-tabs [role="tablist"]').evaluate(el => el.getBoundingClientRect().height);
@@ -173,6 +176,7 @@ try {
   await page.locator('.meme-open-search').click();
   await page.locator('#meme-query').fill('中国'); await page.locator('#meme-query').press('Enter');
   await page.waitForFunction(() => [...document.querySelectorAll('.emoji-tile')].some(el => el.textContent === '🇨🇳'));
+  await auditP1Surface(page,'expression-search','.meme-panel');
   assert.equal(await page.evaluate(() => window.fixture.requests.length), callsBeforeEmoji, 'Emoji search must stay offline');
   await page.locator('#meme-query').fill('no-such-emoji-1234'); await page.locator('#meme-query').press('Enter');
   await page.getByText('没有找到相关 Emoji', { exact: true }).waitFor();

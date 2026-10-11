@@ -1,4 +1,8 @@
 import './admin.css';
+import './appearance.css';
+import { mountAppearance } from './lib/appearance';
+import { bindTooltips } from './lib/tooltips';
+import { bindControlFeedback } from './lib/control-feedback';
 import { createElement, Pencil, Trash2, ArrowLeft, LayoutDashboard, Images, RefreshCw, LogOut, Upload, Save, X, Download, Menu, MoreHorizontal } from 'lucide';
 import { table, row, badge, iconButton, pageToolbar, loadingState, emptyState, errorState, pagination } from './admin/ui';
 
@@ -6,6 +10,9 @@ type Room = { roomId: string; createdAt: string; lastSeenAt: string | null; devi
 type Detail = { roomId: string; devices: { deviceId: string; role: string; name: string; status: string; lastSeenAt: string | null }[];
   backups: { id: string; deviceId: string; revision: number; active: number; updatedAt: string; recoveryBytes: number; historyBytes: number; chatCount: number; galleryCount: number }[] };
 const root = document.querySelector<HTMLElement>('#admin')!;
+mountAppearance();
+bindTooltips(root);
+bindControlFeedback(root);
 let csrf = '';
 let offset = 0;
 let view = 0;
