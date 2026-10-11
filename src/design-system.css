@@ -397,9 +397,12 @@ body:has(#app > .chat-shell:not([data-scroll-owner="list"])) { background: trans
 #app .password-operation-sheet .password-actions > :is([data-password-forgot], .field-hint) { grid-column: 1 / -1; }
 #app .password-operation-sheet [data-password-cancel] { grid-column: 1; grid-row: 1; }
 #app .password-operation-sheet .password-actions > [type='submit'] { grid-column: 2; grid-row: 1; }
-#app :is(.joint-code-sheet, .history-restore-sheet, .backup-privacy-sheet) { padding: 0; place-items: end center; align-content: end; }
+/* Resolve the panel's percentage height against the viewport, not its intrinsic content row. */
+#app :is(.joint-code-sheet, .history-restore-sheet, .backup-privacy-sheet) { padding: 0; grid-template-rows: minmax(0, 1fr); place-items: end center; align-content: end; }
 #app :is(.joint-code-sheet, .history-restore-sheet, .backup-privacy-sheet) > .recovery-code-panel { width: min(100%, 440px); max-height: calc(100% - 12px); overflow-y: auto; border-radius: 18px 18px 0 0; padding: 16px 20px max(16px, env(safe-area-inset-bottom)); gap: 12px; }
 #app :is(.joint-code-sheet, .history-restore-sheet, .backup-privacy-sheet) > .recovery-code-panel::before { content: ''; display: block; width: 32px; height: 4px; margin: 0 auto 4px; border-radius: 4px; background: var(--line-strong); }
+#app .history-restore-form { margin-top: 4px; }
+#app .history-restore-input textarea { height: clamp(48px, calc(var(--restore-viewport-height, 100dvh) - 240px), 96px); }
 @media (max-width: 1023px) {
   #app .chat-tools { position: relative; margin: 4px -8px -4px; padding: 20px 8px max(8px, env(safe-area-inset-bottom)); border: 0; border-top: 1px solid var(--line); border-radius: 18px 18px 0 0; box-shadow: none; }
   #app .chat-tools::before { content: ''; position: absolute; top: 7px; left: calc(50% - 16px); width: 32px; height: 4px; border-radius: 4px; background: var(--line-strong); pointer-events: none; }
