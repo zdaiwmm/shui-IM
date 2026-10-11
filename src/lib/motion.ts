@@ -1,7 +1,7 @@
 /** Presentation-only motion. Business operations never await these helpers. */
 export const motion = {
-  feedback: 100, local: 180, message: 180, panel: 240, page: 180, media: 280,
-  out: 'cubic-bezier(.18,.88,.24,1)',
+  feedback: 100, local: 180, message: 180, panel: 240, page: 180, media: 280, menuOut: 140,
+  out: 'cubic-bezier(.22,1,.36,1)',
   settle: 'cubic-bezier(.2,.82,.22,1)',
   travel: 'cubic-bezier(.24,.72,.18,1)',
 } as const;

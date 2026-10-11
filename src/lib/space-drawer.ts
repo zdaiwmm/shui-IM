@@ -62,6 +62,7 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; settin
     const previousBody = sheet.querySelector<HTMLElement>('.space-drawer-scroll');
     const previousPaint = previousBody ? getComputedStyle(previousBody).translate : '0 0';
     sheet.setAttribute('aria-label', title);
+    sheet.classList.toggle('is-settings-page', title === '设置' || title === '在线状态样式');
     sheet.innerHTML = `<section class="space-drawer"><header class="space-drawer-header">${back ? `<button class="icon-button space-back" aria-label="返回">${arrow}</button>` : ''}<h2>${title}</h2><button class="icon-button space-close" aria-label="${options.presentation === 'sidebar' ? '收起空间侧栏' : '关闭'}">${options.presentation === 'sidebar' ? createElement(PanelLeftClose).outerHTML : closeIcon}</button></header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${footer ? `<footer class="space-drawer-footer">${footer}</footer>` : ''}</section>`;
     if (previousBody && priorTitle !== title) {
       const content = sheet.querySelector<HTMLElement>('.space-drawer-scroll')!;
@@ -142,10 +143,21 @@ popup.style.top = `${Math.max(top + 12, Math.min(rect.bottom - 6, bottom - (remo
     });
   }
   function settings() {
-    const setting = (a: Action) => `<button class="space-setting" id="${a.id}"><span class="space-setting-icon" aria-hidden="true">${a.icon}</span><span class="space-setting-label">${escape(a.label)}</span>${arrow}</button>`;
+    const setting = (a: Action) => `<button class="space-setting" id="${a.id}"><span class="space-setting-icon" data-setting="${a.id}" aria-hidden="true">${a.icon}</span><span class="space-setting-label">${escape(a.label)}</span>${arrow}</button>`;
     const order = ['appearance-settings', 'auto-lock-settings', 'app-access-settings', 'notification-settings', 'manage-devices', 'passkey-management', 'backup-settings', 'local-history-backup', 'local-history-restore', 'recover-other-space', 'cover-practice-menu', 'release-history'];
     const actions = [...options.actions].sort((a, b) => (order.indexOf(a.id) < 0 ? 99 : order.indexOf(a.id)) - (order.indexOf(b.id) < 0 ? 99 : order.indexOf(b.id)));
-    page('设置', `<div class="space-settings-list">${actions.map(setting).join('')}<button class="space-setting" id="presence-style-setting"><span class="space-setting-icon" aria-hidden="true">${heart}</span><span class="space-setting-label">在线状态样式<small>${readPresenceStyle() === 'heart' ? '心动按钮' : '在线胶囊'}</small></span>${arrow}</button></div>`, '', options.presentation === 'settings' ? close : list);
+    const groups = [
+      ['appearance-settings', 'presence-style-setting', 'notification-settings', 'app-access-settings'],
+      ['auto-lock-settings', 'manage-devices', 'passkey-management', 'cover-practice-menu'],
+      ['backup-settings', 'local-history-backup', 'local-history-restore', 'recover-other-space'],
+      ['release-history'],
+    ];
+    const presence = `<button class="space-setting" id="presence-style-setting"><span class="space-setting-icon" data-setting="presence-style-setting" aria-hidden="true">${heart}</span><span class="space-setting-label">在线状态样式</span><small class="space-setting-value">${readPresenceStyle() === 'heart' ? '心动按钮' : '在线胶囊'}</small>${arrow}</button>`;
+    const known = new Set(groups.flat());
+    const cards = groups.map(ids => ids.map(id => id === 'presence-style-setting' ? presence : actions.filter(a => a.id === id).map(setting).join('')).join('')).filter(Boolean);
+    const other = actions.filter(a => !known.has(a.id)).map(setting).join('');
+    if (other) cards.push(other);
+    page('设置', `<div class="space-settings-list">${cards.map(card => `<div class="space-setting-card">${card}</div>`).join('')}</div>`, '', options.presentation === 'settings' ? close : list);
     sheet.querySelector('#presence-style-setting')!.addEventListener('click', () => { styles(); sheet.querySelector<HTMLButtonElement>('[aria-checked=true]')?.focus(); });
     for (const action of options.actions) sheet.querySelector(`#${action.id}`)!.addEventListener('click', () => { if (action.keepOpen) void run(async () => { await action.run(); }); else { options.onSettingsLeave?.(sheet.querySelector('.space-drawer-scroll')!.scrollTop); dialog.close({ animate: false }); void action.run(); } });
   }

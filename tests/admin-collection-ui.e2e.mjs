@@ -1,3 +1,4 @@
+import { auditP1Surface } from './helpers/p1-surface-audit.mjs';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
@@ -56,6 +57,7 @@ try {
   await page.goto(`http://127.0.0.1:${vite.httpServer.address().port}/__admin_collection`, { waitUntil: 'domcontentloaded', timeout: 120_000 });
   await page.evaluate(() => import('/src/admin.ts'));
   await navigateAdmin(page, '表情采集');
+  await auditP1Surface(page,'admin-collection-tasks','#admin');
   const toolbarOrder = await page.locator('.resource-toolbar .actions > button').allTextContents();
   assert.deepEqual(toolbarOrder, ['采集任务', '管理已入库资源'], 'Task entry must sit immediately before catalog management');
   await page.getByRole('button', { name: '采集任务', exact: true }).click();

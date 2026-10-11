@@ -17,9 +17,7 @@ body { background: var(--paper); }
 }
 #app :is(.chat-shell, .gallery-shell, .device-shell) { border-color: var(--line); background-color: var(--paper); }
 #app .chat-shell {
-  background-image: radial-gradient(ellipse at 0 0, var(--wall-a), transparent 64%),
-    radial-gradient(ellipse at 100% 25%, var(--wall-b), transparent 66%),
-    radial-gradient(ellipse at 18% 100%, var(--wall-c), transparent 64%);
+  background-image: var(--chat-wallpaper);
   background-color: var(--wall-d);
 }
 #app .chat-shell::before {
@@ -29,8 +27,8 @@ body { background: var(--paper); }
   background: var(--wall-pattern-color);
   -webkit-mask: url('./assets/chat-pattern.svg') repeat;
   mask: url('./assets/chat-pattern.svg') repeat;
-  -webkit-mask-size: 320px 400px;
-  mask-size: 320px 400px;
+  -webkit-mask-size: 200px 250px;
+  mask-size: 200px 250px;
   opacity: var(--wall-pattern-opacity);
   pointer-events: none;
 }
@@ -75,7 +73,7 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
   min-height: 52px;
   padding: 4px 8px max(4px, env(safe-area-inset-bottom));
   border: 0;
-  background: transparent;
+  background: var(--composer-surface-current);
   box-shadow: none;
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -91,7 +89,7 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 }
 #app .composer .composer-input-stack { min-height: 44px; border: 0; border-radius: 22px; background-color: var(--composer-surface-current); }
 #app .composer .composer-field { min-height: 44px; }
-#app .composer textarea { min-height: 44px; max-height: 88px; padding-block: 0; border-block: 7px solid transparent; font-size: 16px; line-height: 22px; }
+#app .composer textarea { min-height: 44px; max-height: 88px; padding-block: 0; border-block: 11px solid transparent; font-size: 16px; line-height: 22px; }
 #app .composer :is(.icon-button, .meme-toggle) { color: var(--ink); }
 #app .composer .icon-button { width: 44px; height: 44px; border: 0; background-color: var(--composer-surface-current); }
 #app .composer .icon-button svg { width: 23px; height: 23px; }
@@ -121,14 +119,12 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .outgoing .message-bubble:not(.image-bubble):not(.video-bubble) .message-meta time { color: var(--message-time-outgoing); }
 #app .message-bubble.expression-bubble { background: transparent; border: 0; box-shadow: none; }
 #app .message-date { border: 0; border-radius: 12px; padding: 4px 10px; background: var(--paper-pure); color: var(--ink-muted); box-shadow: none; font-size: .6875rem; }
-@media (prefers-color-scheme: dark) {
-  #app .outgoing .message-bubble:not(:is(.image-bubble, .video-bubble, .media-upload-tile, .expression-bubble)) {
+:root[data-color-scheme="dark"] #app .outgoing .message-bubble:not(:is(.image-bubble, .video-bubble, .media-upload-tile, .expression-bubble)) {
     background-image: linear-gradient(var(--outgoing-start), var(--outgoing-middle) 45%, var(--outgoing-end));
     background-size: 100% var(--bubble-gradient-span, 100%);
     background-position: 0 var(--bubble-gradient-offset, 0px);
     background-repeat: no-repeat;
   }
-}
 #app :is(.primary-button, .send-button, .space-selected-check, .space-unread),
 #app .recovery-steps [aria-current='step'] b,
 #app [aria-checked='true'] .space-radio {
@@ -153,7 +149,7 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .space-row { min-height: 68px; padding-block: 12px; }
 #app .space-row.is-selected { min-height: 92px; padding-block: 8px 20px; }
 #app .space-row.is-selected strong { font-size: 1.5rem; letter-spacing: -.02em; }
-#app .space-setting { min-height: 52px; padding-block: 6px; gap: 12px; }
+#app .space-setting { min-height: 44px; padding-block: 8px; gap: 12px; }
 #app .space-setting-group { margin-bottom: 16px; }
 #app .space-setting-label small { margin-top: 2px; font-size: .75rem; line-height: 1.25; }
 #app .space-drawer-footer .space-settings-entry { min-height: 48px; border-radius: 12px; }
@@ -205,14 +201,14 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .notification-content { padding: 20px 20px 32px; }
 #app .notification-lead { margin-bottom: 20px; }
 #app .notification-controls { margin-block: 12px 24px; }
-#app .notification-row { min-height: 64px; padding-block: 12px; gap: 12px; }
-#app .notification-copy-entry { min-height: 60px; padding-block: 12px; }
+#app .notification-row { min-height: 44px; padding-block: 6px; gap: 12px; }
+#app .notification-copy-entry { min-height: 44px; padding-block: 8px; }
 #app .notification-copy-entry strong { font-size: .9375rem; }
-#app :is(.notification-switch, .backup-toggle) { flex: 0 0 46px; width: 46px; height: 44px; padding: 0; }
-#app :is(.notification-switch, .backup-toggle)::before { inset: 9px 0; width: 46px; height: 26px; border-radius: 14px; background: var(--line-strong); opacity: 1; }
-#app :is(.notification-switch, .backup-toggle) span { position: absolute; top: 12px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform var(--motion-local) var(--motion-out); }
+#app :is(.notification-switch, .backup-toggle) { flex: 0 0 44px; width: 44px; height: 44px; padding: 0; }
+#app :is(.notification-switch, .backup-toggle)::before { inset: 11px 4px; width: 36px; height: 22px; border-radius: 14px; background: var(--line-strong); opacity: 1; }
+#app :is(.notification-switch, .backup-toggle) span { position: absolute; top: 13px; left: 6px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform var(--motion-local) var(--motion-out); }
 #app :is(.notification-switch, .backup-toggle)[aria-checked='true']::before { background: var(--action-surface); }
-#app :is(.notification-switch, .backup-toggle)[aria-checked='true'] span { transform: translateX(20px); }
+#app :is(.notification-switch, .backup-toggle)[aria-checked='true'] span { transform: translateX(14px); }
 #app .recovery-flow-row { min-height: 52px; padding: 6px 14px; }
 #app .recovery-flow-row strong { font-size: .875rem; }
 #app .recovery-flow-row small { margin-top: 2px; font-size: .75rem; line-height: 1.25; }
@@ -230,7 +226,7 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .backup-privacy-panel h2 { font-size: 1.0625rem; }
 #app .joint-code-sheet .recovery-code-panel { padding: 16px; }
 #app .access-code, #app .joint-request-code { font-size: 1.5rem; }
-#app .browser-access-modal .access-close { min-height: 44px; }
+#app .browser-access-modal .access-close { min-width: 44px; min-height: 44px; padding: 0 8px; font-size: .875rem; }
 #app .space-drawer-header .icon-button { width: 44px; min-width: 44px; }
 #app .space-create { min-height: 44px; border-radius: 12px; }
 #app .space-style-copy small, #app .space-setting-group h3 { font-size: .6875rem; }
@@ -359,6 +355,63 @@ body:has(#app > .chat-shell:not([data-scroll-owner="list"])) { background: trans
 #app .media-delete-confirm { border: 1px solid var(--line); border-radius: 16px; padding: 16px; background: var(--surface-raised); box-shadow: var(--shadow); -webkit-backdrop-filter: none; backdrop-filter: none; }
 #app .media-delete-confirm p { font-size: .875rem; margin: 0 0 12px; }
 #app .media-delete-confirm button { font-size: .875rem; min-height: 44px; border-radius: 12px; }
+
+/* V1: P1 page hierarchy and compact visuals with independent 44px hit areas. */
+#app .text-button { min-height: 44px; font-size: .875rem; }
+#app .simple-confirm { width: min(100%, 280px); padding: 20px 16px 0; border-radius: 14px; gap: 12px; }
+#app .simple-confirm-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 4px -16px 0; border-top: 1px solid var(--line); }
+#app .simple-confirm-actions button { min-width: 0; padding: 10px 6px; border: 0; border-radius: 0; background: transparent; color: var(--accent); font-size: .875rem; line-height: 1.4; box-shadow: none; }
+#app .simple-confirm-actions button + button { border-left: 1px solid var(--line); }
+#app .simple-confirm-actions button:hover:not(:disabled) { background: var(--accent-soft); }
+#app .is-settings-page.space-drawer-overlay { background: var(--paper); }
+#app .is-settings-page > .space-drawer { inset: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: var(--paper); }
+#app .is-settings-page .space-drawer-header { min-height: calc(48px + env(safe-area-inset-top)); padding: env(safe-area-inset-top) 8px 0; border-bottom: 1px solid var(--line); background: var(--paper); }
+#app .is-settings-page { -webkit-font-smoothing: antialiased; }
+#app .is-settings-page .space-drawer-header h2 { text-align: center; color: var(--ink); font-weight: 600; }
+#app .is-settings-page .space-drawer-scroll { padding: 18px 16px max(16px, env(safe-area-inset-bottom)); }
+#app .space-setting-card { overflow: hidden; border-radius: 10px; background: var(--surface-raised); }
+#app .space-setting-card .space-setting { padding: 8px 12px; font-size: .875rem; font-weight: 400; line-height: normal; text-align: left; }
+#app .space-setting-label { overflow-wrap: anywhere; line-height: normal; }
+#app .space-setting-value { margin-left: auto; font-size: .75rem; color: var(--ink-muted); white-space: normal; text-align: right; }
+#app .space-setting-icon { width: 24px; height: 24px; border-radius: 6px; background: #617fca; color: #fff; }
+#app .space-setting-icon svg { width: 17px; height: 17px; }
+#app [data-setting='presence-style-setting'] { background: #c45271; }
+#app [data-setting='notification-settings'] { background: #bf5b48; }
+#app [data-setting='auto-lock-settings'], #app [data-setting='manage-devices'], #app [data-setting='passkey-management'] { background: #527e70; }
+#app [data-setting='backup-settings'], #app [data-setting='local-history-backup'], #app [data-setting='local-history-restore'], #app [data-setting='recover-other-space'] { background: #8766af; }
+#app [data-setting='cover-practice-menu'] { background: #a06f33; }
+#app [data-setting='release-history'] { background: #697b8b; }
+#app .notification-lead { margin-top: 0; }
+#app .notification-controls, #app .notification-space-list { padding-inline: 12px; border-radius: 10px; background: var(--surface-raised); }
+#app .notification-row:last-child { border-bottom: 0; }
+#app .notification-copy-entry { padding-inline: 12px; margin-bottom: 20px; border-radius: 10px; background: var(--surface-raised); }
+#app .notification-row strong { font-size: .875rem; }
+#app .password-operation-sheet .password-form { display: flex; flex-direction: column; overflow: hidden; max-height: calc(100% - 12px); gap: 12px; }
+#app .password-operation-sheet .password-page-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+#app .password-operation-sheet .password-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 0; }
+#app .password-operation-sheet .password-actions > :is([data-password-forgot], .field-hint) { grid-column: 1 / -1; }
+#app .password-operation-sheet [data-password-cancel] { grid-column: 1; grid-row: 1; }
+#app .password-operation-sheet .password-actions > [type='submit'] { grid-column: 2; grid-row: 1; }
+#app :is(.joint-code-sheet, .history-restore-sheet, .backup-privacy-sheet) { padding: 0; place-items: end center; align-content: end; }
+#app :is(.joint-code-sheet, .history-restore-sheet, .backup-privacy-sheet) > .recovery-code-panel { width: min(100%, 440px); max-height: calc(100% - 12px); overflow-y: auto; border-radius: 18px 18px 0 0; padding: 16px 20px max(16px, env(safe-area-inset-bottom)); gap: 12px; }
+#app :is(.joint-code-sheet, .history-restore-sheet, .backup-privacy-sheet) > .recovery-code-panel::before { content: ''; display: block; width: 32px; height: 4px; margin: 0 auto 4px; border-radius: 4px; background: var(--line-strong); }
+@media (max-width: 1023px) {
+  #app .chat-tools { position: relative; margin: 4px -8px -4px; padding: 20px 8px max(8px, env(safe-area-inset-bottom)); border: 0; border-top: 1px solid var(--line); border-radius: 18px 18px 0 0; box-shadow: none; }
+  #app .chat-tools::before { content: ''; position: absolute; top: 7px; left: calc(50% - 16px); width: 32px; height: 4px; border-radius: 4px; background: var(--line-strong); pointer-events: none; }
+}
+@media (min-width: 1024px) {
+  #app :is(.joint-code-sheet, .history-restore-sheet, .backup-privacy-sheet) { padding: 24px; place-items: center; align-content: center; }
+  #app :is(.joint-code-sheet, .history-restore-sheet, .backup-privacy-sheet) > .recovery-code-panel { border-radius: 16px; }
+  #app :is(.joint-code-sheet, .history-restore-sheet, .backup-privacy-sheet) > .recovery-code-panel::before { display: none; }
+  #app .desktop-settings-page .space-drawer-scroll { width: min(100%, 600px); }
+  #app .desktop-settings-page .space-drawer-header { padding-inline: 28px; }
+}
+@media (forced-colors: active) {
+  #app .space-setting-card, #app .notification-controls, #app .notification-space-list, #app .notification-copy-entry { background: Canvas; color: CanvasText; border: 1px solid CanvasText; }
+  #app .space-setting-icon { background: ButtonFace; color: ButtonText; border: 1px solid ButtonText; }
+  #app .is-settings-page.space-drawer-overlay, #app .is-settings-page > .space-drawer { background: Canvas; color: CanvasText; }
+  #app .chat-tools { background: Canvas; border-color: CanvasText; }
+}
 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   html:has(#app > .chat-shell:not([data-scroll-owner="list"])) { background: var(--paper); }

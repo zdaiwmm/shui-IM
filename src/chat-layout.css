@@ -89,11 +89,9 @@ body:has(:where(#app) > .chat-shell) {
   box-shadow: 0 0 0 2px color-mix(in oklch, var(--presence-green) 13%, transparent);
   animation: chat-presence-breathe 2.4s ease-in-out infinite;
 }
-@media (prefers-color-scheme: dark) {
-  .chat-header .presence-row[data-state="online"] .presence-dot {
+:root[data-color-scheme="dark"] .chat-header .presence-row[data-state="online"] .presence-dot {
     --presence-green: oklch(73% 0.18 147);
   }
-}
 @keyframes chat-presence-breathe {
   0%, 100% {
     opacity: 0.48;
@@ -461,9 +459,7 @@ html[data-keyboard-open='true'] .composer {
 
 /* Distinguish the empty-input instruction from actual message text. */
 .composer { --composer-placeholder-ink: oklch(58% 0.006 255); }
-@media (prefers-color-scheme: dark) {
-  .composer { --composer-placeholder-ink: oklch(64% 0.006 255); }
-}
+:root[data-color-scheme="dark"] .composer { --composer-placeholder-ink: oklch(64% 0.006 255); }
 
 /* Both controls use the composer's existing viewport owner. */
 .chat-new-count[hidden] { display: none; }

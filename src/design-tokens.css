@@ -1,7 +1,7 @@
 /* Shared P1 foundations for the app, media chrome and standalone administration. */
 :root {
   color-scheme: light dark;
-  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --font-ui: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --radius-control: 12px;
   --radius-surface: 16px;
@@ -33,7 +33,7 @@
   --header-surface: #c6e6b7;
   --composer-surface: #bce8cf;
   --composer-surface-focused: #c8edda;
-  --chat-wallpaper: radial-gradient(ellipse at 0 0, var(--wall-a), transparent 64%), radial-gradient(ellipse at 100% 25%, var(--wall-b), transparent 66%), radial-gradient(ellipse at 18% 100%, var(--wall-c), transparent 64%);
+  --chat-wallpaper: radial-gradient(ellipse at 0 0, var(--wall-a), transparent 68%), radial-gradient(ellipse at 100% 0, var(--wall-c), transparent 65%), radial-gradient(ellipse at 0 100%, var(--wall-b), transparent 65%), linear-gradient(110deg, var(--wall-a), var(--wall-d));
   --wall-a: #cad381;
   --wall-b: #66ab84;
   --wall-c: #89be87;
@@ -55,8 +55,7 @@
   --material-blur-strong: none;
   --shadow: 0 8px 28px #18231c24;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
+:root[data-color-scheme="dark"] {
     --paper: #141214;
     --paper-pure: #242124;
     --surface: #2c282d;
@@ -90,4 +89,3 @@
     --wall-pattern-color: #9d6ca8;
     --shadow: 0 8px 28px #0006;
   }
-}

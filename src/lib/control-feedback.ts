@@ -2,6 +2,7 @@ import { motion, retargetMotion } from './motion';
 
 /** Presentation only: never captures pointers, delays clicks or consumes editing keys. */
 export function bindControlFeedback(root: HTMLElement): () => void {
+  root.dataset.controlFeedback = 'true';
   const events = new AbortController();
   const signal = events.signal;
   const activeEffects = new Set<Animation>();
@@ -20,19 +21,19 @@ export function bindControlFeedback(root: HTMLElement): () => void {
     // Even a very short tap receives a bounded acknowledgement after release.
     // Sliding off only restores the current position and never looks activated.
     const effect = retargetMotion(state.target, null,
-      { [property]: cancelled ? value : Math.min(.97, value) }, { [property]: 1 }, motion.feedback);
+      { [property]: cancelled ? value : Math.min(state.small ? .96 : .78, value) }, { [property]: 1 }, motion.feedback);
     if (effect) { effects.set(state.target, effect); track(effect); }
   };
   const press = (event: Event, pointer?: number) => {
     if (!(event.target instanceof Element)) return;
     const button = event.target.closest<HTMLButtonElement>('button');
-    if (!button || !root.contains(button) || button.disabled || button.closest('[inert]')) return;
+    if (!button || !root.contains(button) || button.disabled || button.closest('[inert]') || button.classList.contains('voice-record-button')) return;
     release(true);
     const target = button.querySelector<HTMLElement>('.call-control-disc') ?? button;
     const small = button.matches(selector);
     pressed = { button, target, pointer, small };
     button.dataset.motionPressed = 'true';
-    const effect = retargetMotion(target, effects.get(target), small ? { scale: 1 } : { opacity: 1 }, small ? { scale: .94 } : { opacity: .78 }, 70);
+    const effect = retargetMotion(target, effects.get(target), small ? { scale: 1 } : { opacity: 1 }, small ? { scale: .96 } : { opacity: .78 }, motion.feedback);
     if (effect) { effects.set(target, effect); track(effect); }
   };
   root.addEventListener('pointerdown', event => { if (event.isPrimary && event.button === 0) press(event, event.pointerId); }, { signal });
@@ -48,6 +49,7 @@ export function bindControlFeedback(root: HTMLElement): () => void {
   document.addEventListener('visibilitychange', () => { if (document.hidden) release(true); }, { signal });
   return () => {
     events.abort();
+    delete root.dataset.controlFeedback;
     if (pressed) delete pressed.button.dataset.motionPressed;
     pressed = null;
     activeEffects.forEach(effect => effect.cancel()); activeEffects.clear();

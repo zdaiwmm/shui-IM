@@ -1,3 +1,4 @@
+import { auditP1Surface } from './helpers/p1-surface-audit.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -141,9 +142,11 @@ try {
   assert.equal(await page.locator('.voice-recorder').getAttribute('data-mode'),'locked');
   assert.equal(await page.locator('.voice-send').evaluate(e=>e.getBoundingClientRect().width),72,'locked send disc keeps the compact recording scale');
   await touch('touchEnd');
+  await auditP1Surface(page,'voice-locked-recording','.voice-recorder');
   assert.equal(await count(),2);
   await page.getByRole('button',{name:'暂停录音',exact:true}).click();
   await page.locator('.voice-recorder[data-state="paused"]').waitFor(); await stopped();
+  await auditP1Surface(page,'voice-paused','.voice-recorder');
   await page.waitForFunction(()=>Math.abs(document.querySelector('.voice-send').getBoundingClientRect().width-44)<.1);
   assert.equal(await page.locator('.voice-send').evaluate(e=>getComputedStyle(e).width),'44px','paused send must retain the input-row scale');
   await page.getByRole('button',{name:'试听录音',exact:true}).click();

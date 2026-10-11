@@ -479,12 +479,10 @@
   opacity: 0.6;
 }
 
-@media (prefers-color-scheme: dark) {
-  .message-actions-backdrop.is-visible { background: oklch(7% 0.01 255 / 0.42); }
-  .message-action-list,
-  .message-reaction-picker { background: color-mix(in oklch, var(--surface-raised) 92%, transparent); }
-  .message-reaction[data-own='true'] { --reaction-fill: oklch(61% 0.15 148); }
-}
+:root[data-color-scheme="dark"] .message-actions-backdrop.is-visible { background: oklch(7% 0.01 255 / 0.42); }
+:root[data-color-scheme="dark"] .message-action-list,
+:root[data-color-scheme="dark"] .message-reaction-picker { background: color-mix(in oklch, var(--surface-raised) 92%, transparent); }
+:root[data-color-scheme="dark"] .message-reaction[data-own='true'] { --reaction-fill: oklch(61% 0.15 148); }
 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
   .message-action-list,

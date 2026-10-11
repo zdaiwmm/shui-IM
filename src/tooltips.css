@@ -1,0 +1,2 @@
+.control-tooltip { position: fixed; z-index: 1000; max-width: min(240px, calc(100vw - 16px)); padding: 7px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-raised); color: var(--ink); box-shadow: var(--shadow); font: .8125rem/1.4 var(--font-ui); overflow-wrap: anywhere; pointer-events: none; }
+@media (forced-colors: active) { .control-tooltip { background: Canvas; color: CanvasText; border-color: CanvasText; } }

@@ -110,11 +110,10 @@
 .chat-header[data-presence-style=heart] .presence-circuit[data-self=true] [data-half=right],.chat-header[data-presence-style=heart] .presence-circuit[data-peer=true] [data-half=left] { opacity:1; }
 .chat-header[data-presence-style=heart] .space-header-balance { display:none; }
 @media(hover:hover) and (pointer:fine) { .space-row:hover strong { color:var(--accent); } .space-row:hover .space-row-arrow { color:var(--accent); opacity:.8; transform:translateX(2px); } .space-row strong,.space-row-arrow { transition:color 140ms ease-out,opacity 140ms ease-out,transform 140ms ease-out; } }
-@media(prefers-color-scheme:dark) { :root { --space-heart-red:oklch(73% .18 24); } }
+:root[data-color-scheme="dark"] { --space-heart-red:oklch(73% .18 24); }
 /* Daytime glass borders are nearly white and disappear on the light drawer.
    Match the night hairline so groups, cards and buttons keep their edges. */
-@media (prefers-color-scheme: light) {
-  .space-drawer,
+:root[data-color-scheme="light"] :is(.space-drawer,
   .space-list-heading,
   .space-settings-entry,
   .space-style-choice,
@@ -124,13 +123,12 @@
   #space-name,
   #passkey-name,
   .space-context-menu,
-  .space-invite-sheet {
+  .space-invite-sheet) {
     border-color: color-mix(in oklch, var(--ink) 18%, transparent);
   }
-  .space-style-choice[aria-checked=true] {
+:root[data-color-scheme="light"] .space-style-choice[aria-checked=true] {
     border-color: color-mix(in oklch, var(--accent) 48%, color-mix(in oklch, var(--ink) 18%, transparent));
   }
-}
 @media(prefers-reduced-motion:reduce) { .space-drawer-overlay,.space-modal-overlay,.space-context-overlay,.space-invite-overlay,.space-drawer,.space-invite-sheet,.space-row strong,.space-row-arrow { transition:none; } }
 @media(forced-colors:active) { .space-drawer,.space-name-dialog,.space-context-menu,.space-invite-sheet { background:Canvas; color:CanvasText; } .space-row.is-selected,.space-style-choice[aria-checked=true] { outline:1px solid Highlight; } }
 
