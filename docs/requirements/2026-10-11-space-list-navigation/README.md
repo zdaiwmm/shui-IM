@@ -3,7 +3,7 @@
 ## 阶段与来源
 
 - 需求编号：2026-10-11-space-list-navigation。
-- 当前阶段：D 远端交付与发布准备。2026-10-11 用户明确要求“结合这几个改动直接实施吧，不需要再出原型”，并继续补充聊天输入区去外框、顶部入口仅显示头像；2026-10-12 又明确“合并，发布”。授权范围含下方正式验收清单及交付，生产切换仍待用户确认本次完整 SHA。PR／CI、合并及发布结果以本任务远端回执为准。
+- 当前阶段：P 生产发布与独立回读已完成；本页接续独立知识库对账。2026-10-11 用户明确要求“结合这几个改动直接实施吧，不需要再出原型”，并继续补充聊天输入区去外框、顶部入口仅显示头像；2026-10-12 又明确“合并，发布”，随后确认两份冷归档迁存及“确认发布 2026.10.11.3 到生产，精确提交 05e868086454192e7f06f52c63f812df1b5d84a3”。最终证据见下方正式交付记录。
 - 规则来源：本机 main `4356531cea264dd01bd9110da90b9ff62cfd7a59` 的 AGENTS 与 workflow。
 - 起始核验：本机 main 为上述旧提交，origin/main 原为 `5565992c7d15da83db2d07d7b4b7388dff1179c6`；GitHub 实时 main 为 `80499feddc6ed8234bd9fa24220cdbc6fffe239d`。只同步 origin/main 至实时提交，本机 main 和共享目录内容保持原状。
 - 独占分支：`codex/space-list-navigation-prototype-20261011`，基线 `80499feddc6ed8234bd9fa24220cdbc6fffe239d`。本任务新建工作树，本机位置为 `/Users/achilles/Documents/Codex/shui-IM/.worktrees/space-list-navigation-prototype-20261011`；跨电脑接续需重新核验实际路径、分支与 HEAD。
@@ -26,7 +26,15 @@
 
 实现入口：`src/lib/space-profile-ui.ts`、`space-avatar.ts`、`avatar-crop.ts`、`half-sheet.ts`、`space-drawer.ts`、`spaces.ts`、`browser-access.ts`、`src/space-profile.css` 与 `src/app.ts`。头像目录沿用既有认证／CAS／限流；QR4 密文上限调至 2 MiB 以容纳有界缩略图，单头像与条目数上限仍独立验证。
 
-开发中已通过头像／目录／裁剪定向单测、Chromium／WebKit 头像与列表交互、空间切换与密码兜底回归；冻结候选的完整门禁另由交付证据记录。没有新增 iPhone／iOS 27／Safari 真机证据；没有生产发布授权或上线证据。历史原型源码保持原版本，不把本次正式代码改动回写成新原型。
+开发中已通过头像／目录／裁剪定向单测、Chromium／WebKit 头像与列表交互、空间切换与密码兜底回归；冻结候选及发布证据见下节。没有新增 iPhone／iOS 27／Safari 真机证据。历史原型源码保持原版本，不把本次正式代码改动回写成新原型。
+
+## 正式交付与发布证据（2026-10-12）
+
+- [PR #273](https://github.com/zdaiwmm/shui-IM/pull/273) 已合并为 `05e868086454192e7f06f52c63f812df1b5d84a3`，版本 `2026.10.11.3`；最终源 `7a0a850cb0973f919e32c2c2c4e54f7686e542de` 与合并提交同树 `ce9e68c4aca4ca63bb1e42a17b55894cffcbbd31`。精确 [PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38154338382) 和 [main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38155181158) attempt 1 全部12项成功，含870项单元／集成、60个浏览器入口及原生通话／TURN。
+- `4632c4d` 的本机完整浏览器60/60及370组UI展示通过，正式产品源码与最终源相同。早期本机 check:full 构建通过，但10项备份传输检查受98%磁盘触发 BACKUP_CAPACITY_LOW，原完整命令仍为失败；另4项浏览器入口计数断言已随新增头像专项更新。未弱化容量门禁。
+- 旧候选CI的跨标签解锁在一次有界重跑后仍拒绝陈旧保险库；可控实验确认两个可见活动标签间的提交会使新解锁快照失效，保护行为按预期。最终测试增加明确的竞态拒绝断言，模拟旧标签后台隐私清理、排空已开始的本机写入后再重新解锁；Chromium／WebKit定向通过，保留原双向草稿／MLS／邀请断言，不增加超时。最后这次测试修订未改正式认证或存储代码。
+- 用户精确确认后，固定入口完成一次真实切换并核对回执；首次隔离clone超时发生于服务器调用前，一次有界重试成功。独立 `READBACK_OK` 于 `2026-10-11T17:19:57.410Z` 完成，应用／备份healthy，TURN运行且探针none，维护门不存在，SHA／镜像／HTTPS／产物／WebSocket一致；备份启动等待期只续跑回读。迁存、容量及详细发布事实由[发布记录](../../../RELEASING.md#空间导航与私有头像已发布2026-10-12-0119)拥有。
+- 真实iPhone／iOS27／Safari工具栏、相册／双指裁剪、动画性能与系统减少动态效果、客户端SW升级体验仍未验证；自动CI、桌面WebKit和生产健康回读不能替代真机。独立文档对账不再次部署，历史S阶段的模拟边界继续保留。
 
 ## 历史原型方向（V1.1）
 
