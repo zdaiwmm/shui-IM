@@ -42,6 +42,22 @@ try {
   assert.equal(await page.locator('.chat-header .call-actions,.gallery-button').count(),0);
   assert.equal(await page.locator('#open-memes').count(),1);
   await page.locator('#message-input').fill('保留草稿');
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.composer')).backgroundColor
+    === getComputedStyle(document.querySelector('.composer-input-stack')).backgroundColor);
+  const continuousSurface = await page.evaluate(async () => {
+    const input = document.querySelector('#message-input'), composer = document.querySelector('.composer');
+    const samples = [];
+    const sample = () => samples.push({background:getComputedStyle(composer).backgroundColor,
+      surfaces:[...composer.querySelectorAll('.composer-input-stack, .icon-button')].map(el=>getComputedStyle(el).backgroundColor)});
+    for (const focused of [false,true]) {
+      if (focused) input.focus(); else input.blur();
+      sample();
+      for(let frame=0;frame<4;frame++){await new Promise(requestAnimationFrame);sample();}
+    }
+    return samples;
+  });
+  assert.ok(continuousSurface.every(sample=>sample.surfaces.every(color=>color===sample.background)),
+    `P1 composer surfaces must remain continuous during focus changes: ${JSON.stringify(continuousSurface)}`);
   await page.locator('#open-chat-tools').click();
   assert.equal(await page.locator('#chat-tools > button').count(),6);
   assert.equal(await page.locator('#call-availability-note').innerText(), '连接恢复后可发起通话');

@@ -5613,8 +5613,11 @@ export class QuietRoomApp {
       const composer = this.chatLayoutElements?.composer;
       const currentComposerHeight = composer?.getBoundingClientRect().height ?? currentHeight;
       const follow = this.chatPinnedToBottom && this.chatScrollIntent !== 'up';
+      // An interrupted resize can retain visible message offsets even when
+      // the new field height is almost identical. Idle no-op edits returned
+      // above; a live transition still needs to preserve and settle its origins.
       if (!animate || matchMedia('(prefers-reduced-motion: reduce)').matches
-        || !ownsActiveChat() || Math.abs(targetHeight - currentHeight) < 0.5) {
+        || !ownsActiveChat()) {
         textarea.style.height = `${targetHeight}px`;
         void textarea.offsetHeight;
         textarea.style.removeProperty('transition');

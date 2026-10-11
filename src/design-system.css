@@ -92,6 +92,11 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .composer textarea { min-height: 44px; max-height: 88px; padding-block: 0; border-block: 11px solid transparent; font-size: 16px; line-height: 22px; }
 #app .composer :is(.icon-button, .meme-toggle) { color: var(--ink); }
 #app .composer .icon-button { width: 44px; height: 44px; border: 0; background-color: var(--composer-surface-current); }
+/* Focus changes paint the continuous plane together. Keep the existing press
+   owners and non-background transitions on each control. */
+#app .composer .composer-input-stack { transition: border-color 120ms ease-out, border-radius 180ms var(--motion-out); }
+#app .composer .icon-button:not(.voice-record-button) { transition-property: scale, color, filter; }
+#app .composer .voice-record-button { transition-property: transform, color, border-color; }
 #app .composer .icon-button svg { width: 23px; height: 23px; }
 #app .composer .send-button { background: var(--action-surface); color: var(--action-ink); }
 #app .reply-draft { min-height: 44px; }

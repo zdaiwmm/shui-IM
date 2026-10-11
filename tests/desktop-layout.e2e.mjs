@@ -46,7 +46,13 @@ try {
       const rect = selector => { const r = [...document.querySelectorAll(selector)].at(-1).getBoundingClientRect(); return { x:r.x, y:r.y, right:r.right, bottom:r.bottom, width:r.width, height:r.height }; };
       return { shell:rect('.chat-shell'), input:rect('#composer'), row:rect('.composer-row'), list:rect('#message-list'), incoming:rect('.message.incoming'), outgoing:rect('.message.outgoing'), rootScroll:scrollY, overflow:document.documentElement.scrollWidth > innerWidth };
     });
+    const assertComposerSurface = async () => {
+      const surface = await page.locator('#composer').evaluate(el => ({ background:getComputedStyle(el).backgroundColor,
+        controls:[...el.querySelectorAll('.composer-input-stack,.icon-button')].map(control=>getComputedStyle(control).backgroundColor) }));
+      assert.ok(surface.controls.every(color=>color===surface.background), `P1 continuous composer surface: ${JSON.stringify(surface)}`);
+    };
     let geometry = await dimensions();
+    await assertComposerSurface();
     assert.equal(geometry.shell.x, 280, JSON.stringify(geometry));
     assert.equal(geometry.rootScroll, 0);
     assert.ok(!geometry.overflow && geometry.input.bottom <= 900, JSON.stringify(geometry));
@@ -66,6 +72,7 @@ try {
     const after = await page.evaluate(() => window.fixture.app.captureChatAnchor());
     assert.equal(after.clientMsgId, anchor.clientMsgId); assert.ok(Math.abs(after.offset - anchor.offset) <= 2, JSON.stringify({ anchor, after }));
     await page.locator('#open-chat-tools').press('Enter');
+    await assertComposerSurface();
     assert.equal(await page.locator('#chat-tools button:not(:disabled)').first().evaluate(el => el === document.activeElement), true);
     const toolGeometry = await page.evaluate(() => {
       const tools = document.querySelector('#chat-tools').getBoundingClientRect(), row = document.querySelector('.composer-row').getBoundingClientRect(), plus = document.querySelector('#open-chat-tools').getBoundingClientRect();
@@ -90,6 +97,7 @@ try {
     for (const size of [{width:1920,height:1080},{width:1024,height:600},{width:1366,height:420},{width:800,height:600},{width:390,height:680},{width:1440,height:900}]) {
       const beforeResize = await page.evaluate(() => fixture.app.captureChatAnchor());
       await page.setViewportSize(size); await settle();
+      await assertComposerSurface();
       const afterResize = await page.evaluate(() => fixture.app.captureChatAnchor());
       assert.equal(afterResize?.clientMsgId, beforeResize?.clientMsgId, JSON.stringify({size,beforeResize,afterResize}));
       if (!beforeResize?.pinnedToBottom) assert.ok(Math.abs(afterResize.offset-beforeResize.offset)<=2, JSON.stringify({size,beforeResize,afterResize}));
