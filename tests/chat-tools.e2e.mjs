@@ -46,7 +46,18 @@ try {
   assert.equal(await page.locator('#chat-tools > button').count(),6);
   assert.equal(await page.locator('#call-availability-note').innerText(), '连接恢复后可发起通话');
   assert.equal(await page.locator('#start-video-call').getAttribute('aria-describedby'), 'call-availability-note');
-  assert.equal(await page.locator('.composer').evaluate(el => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)');
+  const composerSurface = await page.locator('.composer').evaluate(el => {
+    const style = getComputedStyle(el), canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext('2d');
+    context.fillStyle = style.backgroundColor; context.fillRect(0, 0, 1, 1);
+    return { opaque: context.getImageData(0, 0, 1, 1).data[3] === 255,
+      backdrop: style.backdropFilter, background: style.backgroundColor,
+      inputBackground: getComputedStyle(el.querySelector('.composer-input-stack')).backgroundColor };
+  });
+  assert.ok(composerSurface.opaque && composerSurface.backdrop === 'none'
+    && composerSurface.background === composerSurface.inputBackground,
+  `P1 V1 composer and input must share an opaque surface with no glass blur: ${JSON.stringify(composerSurface)}`);
   assert.equal(await page.locator('#chat-tools').evaluate(el => getComputedStyle(el).backgroundColor), await page.evaluate(() => {
     const probe=document.createElement('div'); probe.style.background='var(--surface-raised)';document.body.append(probe);
     const color=getComputedStyle(probe).backgroundColor;probe.remove();return color;

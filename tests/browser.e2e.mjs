@@ -1412,6 +1412,9 @@ try {
       messageOverflow: messageList ? getComputedStyle(messageList).overflowY : 'missing',
       headerBackground: header ? getComputedStyle(document.querySelector('.chat-header')).backgroundColor : 'missing',
       composerBackground: composer ? getComputedStyle(document.querySelector('.composer')).backgroundColor : 'missing',
+      composerInputBackground: getComputedStyle(document.querySelector('.composer-input-stack')).backgroundColor,
+      composerBackdrop: getComputedStyle(document.querySelector('.composer')).backdropFilter,
+      composerOpaque: (() => { context.clearRect(0,0,1,1); context.fillStyle=getComputedStyle(document.querySelector('.composer')).backgroundColor; context.fillRect(0,0,1,1); return context.getImageData(0,0,1,1).data[3] === 255; })(),
       headerSheenDisplay: getComputedStyle(document.querySelector('.chat-header'), '::before').display,
       headerBackdrop: getComputedStyle(document.querySelector('.chat-header')).backdropFilter,
       headerOpaque: (() => { context.clearRect(0,0,1,1); context.fillStyle=getComputedStyle(document.querySelector('.chat-header')).backgroundColor; context.fillRect(0,0,1,1); return context.getImageData(0,0,1,1).data[3] === 255; })(),
@@ -1446,7 +1449,9 @@ try {
   invariant(accessibility.headerOffset < 1 && accessibility.composerOffset < 1, 'Chat header or composer is not fixed to the visual viewport');
   invariant(accessibility.messageOverflow === 'visible', 'Messages are clipped in a nested scroll region');
   invariant(accessibility.headerOpaque && accessibility.headerBackdrop === 'none', `P1 header must be opaque with no glass blur: ${accessibility.headerBackground}`);
-  invariant(accessibility.composerBackground === 'rgba(0, 0, 0, 0)', `Composer bar is not transparent: ${accessibility.composerBackground}`);
+  invariant(accessibility.composerOpaque && accessibility.composerBackdrop === 'none'
+    && accessibility.composerBackground === accessibility.composerInputBackground,
+  `P1 V1 composer and input must share an opaque surface with no glass blur: ${JSON.stringify(accessibility)}`);
   invariant(accessibility.headerSheenDisplay === 'none' && accessibility.composerSheenDisplay === 'none', `P1 chrome must not retain translucent gradient masks: ${JSON.stringify(accessibility)}`);
   invariant(accessibility.messageRegion && accessibility.shellRegion && Math.abs(accessibility.messageRegion.top - accessibility.shellRegion.top) <= 1 && Math.abs(accessibility.messageRegion.bottom - accessibility.shellRegion.bottom) <= 1, 'Messages do not scroll underneath the top and bottom bars');
   invariant(accessibility.viewport.includes('user-scalable=no') && accessibility.viewport.includes('maximum-scale=1'), 'Browser zoom is not disabled');

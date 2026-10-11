@@ -12,6 +12,9 @@
   --motion-menu-out: 140ms;
   --chrome-tint: var(--paper);
 }
+/* Match the explicit scheme selector so legacy dark defaults cannot override
+   the browser canvas independently of the effective P1 page surface. */
+:root[data-color-scheme] { --chrome-tint: var(--paper); }
 
 /* root/body are the browser's sampled canvas, including both safe areas. */
 html, body { background-color: var(--chrome-tint); }

@@ -761,7 +761,7 @@ try {
     input.value = '重新组词\n第二行'; input.dispatchEvent(new Event('input'));
     const retarget = sample();
     if (Math.abs(retarget.messageTop - beforeRetarget.messageTop) > 1.25
-      || Math.abs(retarget.inputHeight - beforeRetarget.inputHeight) > 1.25) throw Error('Live wrap retarget jumped before paint');
+      || Math.abs(retarget.inputHeight - beforeRetarget.inputHeight) > 1.25) throw Error(`Live wrap retarget jumped before paint: ${JSON.stringify({beforeRetarget, retarget})}`);
     await collect(24);
     input.value = ''; input.dispatchEvent(new Event('input')); await collect(24);
     input.value = '快速发送第一行\n第二行\n第三行'; input.dispatchEvent(new Event('input'));

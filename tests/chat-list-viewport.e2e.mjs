@@ -200,7 +200,7 @@ try {
   });
   assert.equal(cappedInput.height, 88);
   assert.ok(cappedInput.scroll > 0, JSON.stringify(cappedInput));
-  assert.deepEqual(cappedInput.insets, ['7px', '7px']);
+  assert.deepEqual(cappedInput.insets, ['11px', '11px']);
   state = await geometry();
   assert.ok(state.pinned && state.gap <= 2, JSON.stringify(state));
 
