@@ -66,15 +66,16 @@ async function ready(page) {
   if (await page.locator('#welcome-chat').count()) await page.locator('#welcome-chat').click();
   await page.locator('.confirm-overlay').waitFor({ state: 'detached' });
 }
-async function unlock(page) {
+async function submitUnlock(page) {
   await page.locator('.password-form,.cover-trigger').first().waitFor();
   if (await page.locator('.cover-trigger').count()) {
     const box = await page.locator('.cover-trigger').boundingBox();
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
     await page.locator('.password-form').waitFor(); await page.mouse.up();
   }
-  await protect(page); await ready(page);
+  await protect(page);
 }
+async function unlock(page) { await submitUnlock(page); await ready(page); }
 async function reload(page) { await page.reload(); await unlock(page); }
 async function receive(page, text) { await page.locator('.message-text').filter({ hasText: text }).waitFor(); }
 async function barrier(page) {
@@ -206,9 +207,45 @@ try {
     });
     assert.deepEqual(clearResult, { draft: '', stale: true }); await clearContext.close();
 
-    // Same-browser case is separate from the isolated A/B participant contexts.
+    // Headless pages can both stay visible/focused. Reproduce the unsupported
+    // concurrent identity writer explicitly before modelling a real tab switch.
     await reopened.locator('#message-input').fill('before another tab');
-    const second = await ac.newPage(); second.setDefaultTimeout(15000); await second.goto(url); await unlock(second);
+    const second = await ac.newPage(); second.setDefaultTimeout(15000); await second.goto(url);
+    await second.evaluate(() => {
+      const original = app.openSession.bind(app);
+      app.openSession = async () => {
+        app.openSession = original;
+        window.concurrentOpening = true;
+        await new Promise(resolve => { window.releaseConcurrentOpening = resolve; });
+        return original();
+      };
+    });
+    await submitUnlock(second);
+    await waitForState(second, 'concurrent-opening', () => window.concurrentOpening);
+    await reopened.evaluate(async () => {
+      const { withVaultMutation, saveVault } = await import('/src/lib/vault.ts');
+      await withVaultMutation(app.session, mutation => saveVault(app.session, mutation));
+    });
+    await second.evaluate(() => window.releaseConcurrentOpening());
+    await waitForState(second, 'stale-opening-refused', () => /重新解锁/.test(document.querySelector('.form-error')?.textContent ?? ''));
+    assert.equal(await second.locator('.chat-shell, #message-input').count(), 0, 'A changed vault must reject the stale opening');
+
+    // A real switch hides the previous tab; Linux headless does not reliably
+    // produce that event. Dispatch the actual privacy lifecycle, then drain
+    // its already queued writes before freshly verifying the second tab.
+    await reopened.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+      Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    await waitForState(reopened, 'previous-tab-covered', () => app.privacyCovered && !app.session);
+    assert.equal(await reopened.locator('.chat-shell, #message-input').count(), 0);
+    await reopened.evaluate(async () => {
+      await Promise.allSettled([app.preferenceSaveChain, app.membershipChain, app.sendChain]);
+      await (await import('/src/lib/vault.ts')).readStoredVault();
+    });
+    await second.evaluate(() => app.lockNow());
+    await unlock(second);
     assert.equal(await second.locator('#message-input').inputValue(), 'before another tab');
     await second.locator('#message-input').fill('latest from second tab');
     await reload(second); assert.equal(await second.locator('#message-input').inputValue(), 'latest from second tab');
@@ -239,7 +276,7 @@ try {
     assert.equal(await second.locator('.space-drawer-overlay').count(), 0, 'Late return must not cover the completed peer join');
     await second.locator('#message-input').fill(`after invitation race ${engine}`); await second.locator('#send-text').click(); await receive(joiningPeer, `after invitation race ${engine}`);
     await joiningContext.close();
-    console.log(`PASS draft-refresh ${engine}: actual refresh/close, IME, IDB abort, post-commit unload, new input/ABA, clear fence, separate same-browser tabs, bidirectional MLS, peer-join before delayed invite return`);
+    console.log(`PASS draft-refresh ${engine}: actual refresh/close, IME, IDB abort, post-commit unload, new input/ABA, clear fence, stale concurrent opening refused, hidden same-browser tab handoff, bidirectional MLS, peer-join before delayed invite return`);
     await ac.close(); await bc.close(); await browser.close(); browser = undefined;
   }
 } finally { database?.close(); await browser?.close(); await vite?.close(); await service?.close(); await rm(dataDir, { recursive: true, force: true }); }

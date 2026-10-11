@@ -3,7 +3,7 @@
 ## 阶段与来源
 
 - 需求编号：2026-10-11-space-list-navigation。
-- 当前阶段：I 正式实施，完成验证后按持续授权进入 D 远端交付。2026-10-11 用户明确要求“结合这几个改动直接实施吧，不需要再出原型”，并继续补充聊天输入区去外框、顶部入口仅显示头像。授权范围含下方正式验收清单；不含生产发布。PR／CI 与合并结果以本任务远端回执为准。
+- 当前阶段：D 远端交付与发布准备。2026-10-11 用户明确要求“结合这几个改动直接实施吧，不需要再出原型”，并继续补充聊天输入区去外框、顶部入口仅显示头像；2026-10-12 又明确“合并，发布”。授权范围含下方正式验收清单及交付，生产切换仍待用户确认本次完整 SHA。PR／CI、合并及发布结果以本任务远端回执为准。
 - 规则来源：本机 main `4356531cea264dd01bd9110da90b9ff62cfd7a59` 的 AGENTS 与 workflow。
 - 起始核验：本机 main 为上述旧提交，origin/main 原为 `5565992c7d15da83db2d07d7b4b7388dff1179c6`；GitHub 实时 main 为 `80499feddc6ed8234bd9fa24220cdbc6fffe239d`。只同步 origin/main 至实时提交，本机 main 和共享目录内容保持原状。
 - 独占分支：`codex/space-list-navigation-prototype-20261011`，基线 `80499feddc6ed8234bd9fa24220cdbc6fffe239d`。本任务新建工作树，本机位置为 `/Users/achilles/Documents/Codex/shui-IM/.worktrees/space-list-navigation-prototype-20261011`；跨电脑接续需重新核验实际路径、分支与 HEAD。
