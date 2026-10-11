@@ -1,3 +1,4 @@
+import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -39,7 +40,7 @@ try {
       if (name === 'missing-storage') Object.defineProperty(window, 'indexedDB', { configurable: true, value: undefined });
       if (name === 'storage-quota') { const put = IDBObjectStore.prototype.put; IDBObjectStore.prototype.put = function(value, key) { if (String(key).startsWith('quiet-room:storage-probe:')) throw new DOMException('synthetic quota', 'QuotaExceededError'); return put.call(this, value, key); }; }
     }, name);
-    await page.locator('#create-room').click();
+    await page.locator('#create-room').click(); await completeSpaceProfile(page);
     if (fallback) {
       await page.locator('.password-create .password-form').waitFor();
       assert.equal(await page.locator('[name=password]').getAttribute('autocomplete'), 'new-password');
@@ -50,7 +51,7 @@ try {
       if (evidence) { await page.locator('[name=password]').fill(''); await page.screenshot({ path: path.join(evidence, `F15-webview-${name}.png`) }); }
       await page.locator('[data-password-cancel]').click(); await page.locator('.password-sheet').waitFor({ state: 'detached' });
     } else {
-      await page.waitForFunction(() => !document.querySelector('#create-room')?.disabled);
+      await page.waitForFunction(() => !document.querySelector('[data-device-verify]')?.disabled);
       assert.equal(await page.locator('.password-sheet').count(), 0, `${name} incorrectly offered a new password`);
       const environmentErrors = {
         'insecure-context': /浏览器信任的 HTTPS 安全环境.*信任开发证书/,

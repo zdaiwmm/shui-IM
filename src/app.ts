@@ -33,6 +33,9 @@ import { browserAccessKeys, createOriginBrowserProfile, deleteCatalogPendingSpac
   type BrowserProfileSession, type AccessSpace, type PendingSpaceAccess, type AccessStatus, type BrowserRequest, type PeerAccessRequest } from './lib/browser-access';
 import './spaces.css';
 import { mountSpaceDrawer, mountSpaceInvite, readPresenceStyle, spaceIcons } from './lib/space-drawer';
+import { createSpaceProfile } from './lib/space-profile-ui';
+import { spaceAvatarMarkup, bindSpaceAvatarPlayback, type SpaceAvatar, type SpaceProfile } from './lib/space-avatar';
+import './space-profile.css';
 import { forgetLocalSpace, localSpaces, rememberLocalSpace, syncSpaceDirectory, recoverableSpaces, spaceCodeId, refreshSpaceUnread, spaceMessagePreview, pendingSpaceExpiry, formatPendingCountdown, type PrivateSpace } from './lib/spaces';
 import { parseCloudRecoveryCode } from './lib/backup-crypto';
 import { capabilityGateMembers } from './lib/member-capabilities';
@@ -435,6 +438,9 @@ export class QuietRoomApp {
   private waitingSpaceTimer: number | null = null;
   private destroyingWaitingSpace = false;
   private currentSpaceName = '私密空间';
+  private currentSpaceAvatar?: SpaceAvatar;
+  private spaceCreationAbort: AbortController | null = null;
+  private headerAvatarAbort: AbortController | null = null;
 
   private readonly desktopBrowser = isDesktopBrowser();
   private desktopAccess = new DesktopAccess<DesktopReturn>(() => ({ wall: Date.now(), monotonic: performance.now() }), held => {
@@ -2436,35 +2442,6 @@ export class QuietRoomApp {
     return true;
   }
 
-  private beginWelcomePasskey(): void {
-    this.newDeviceAlias = '';
-    const trigger = this.root.querySelector<HTMLButtonElement>('#create-room');
-    if (!trigger || trigger.disabled) return;
-    trigger.disabled = true;
-    const proof = this.withDeviceVerification(() => createPlatformCredential());
-    void proof.catch(() => undefined);
-    const epoch = this.runtimeEpoch;
-    const active = () => Boolean(trigger?.isConnected) && !this.privacyCovered && this.runtimeEpoch === epoch && !this.session;
-    void (async () => {
-      try {
-        let result: LocalCredentialResult;
-        try { result = await proof; } catch (cause) {
-          if (!isPlatformVaultUnavailable(cause)) throw cause;
-          if (!active()) return;
-          result = await this.preparePasswordProtection(active);
-        }
-        if (!active()) return;
-        await this.handleCreate(result, active);
-      } catch (cause) {
-        if (this.privacyCovered || this.runtimeEpoch !== epoch || isPlatformVaultCancellation(cause)) return;
-        const error = this.root.querySelector<HTMLElement>('.form-error');
-        if (error) error.textContent = cause instanceof Error ? cause.message : '通行密钥设置失败';
-      } finally {
-        if (trigger.isConnected) trigger.disabled = false;
-      }
-    })();
-  }
-
   private async shareInviteLink(url: string, fallback = '链接已复制'): Promise<void> {
     if (typeof navigator.share === 'function') {
       try {
@@ -2592,9 +2569,13 @@ export class QuietRoomApp {
       : spaceWaiting ? '把邀请发给对方后，这个空间会在一小时内保留。'
       : space.certificate ? '获得对方授权后，<br>即可在此浏览器聊天。' : '请先在原设备打开并解锁此空间，完成一次接入准备。';
     const title = waiting ? '等待对方授权' : spaceWaiting ? '等待对方加入' : '此空间尚未授权';
-    this.root.innerHTML=`<section class="chat-shell browser-access-shell"><header class="chat-header"><button class="icon-button spaces-entry" id="access-spaces" aria-label="私密空间列表">${spaceIcons.spaces}<span>${accessEscape(space.name)}</span></button><button class="icon-button" id="access-lock" type="button" aria-label="锁定">${shield}</button></header><div class="message-list access-empty"><div class="gateway-mark" aria-hidden="true">${icons.people}</div><h2>${title}</h2><p>${detail}</p>${waiting?'<p class="access-code" id="space-access-code"></p><p class="access-countdown" id="space-access-countdown"></p>':spaceWaiting&&space.createdAt?'<p class="access-countdown" id="space-waiting-countdown"></p>':''}<p>加入前的历史记录不会同步。</p></div><div class="access-composer"><p class="form-error" role="alert"></p>${pending&&pending.status&&pending.status!=='pending'?`<p class="field-hint">${pending.status==='rejected'?'对方已拒绝本次请求。':'上次请求已结束，请重新验证申请。'}</p>`:''}${spaceWaiting&&!waiting?'':`<button class="primary-button" id="request-space-access" ${waiting?'disabled':''}>${waiting?'等待对方授权':'申请对方授权'}</button>`}${waiting?'<button class="text-button" id="cancel-space-access">取消申请</button>':''}</div></section>`;
+    this.root.innerHTML=`<section class="chat-shell browser-access-shell"><header class="chat-header"><button class="icon-button spaces-entry" id="access-spaces" aria-label="私密空间列表">${spaceAvatarMarkup(space.avatar,space.name)}</button><button class="icon-button chat-settings-entry" id="access-settings" type="button" aria-label="设置">${spaceIcons.settings}</button><button class="icon-button" id="access-lock" type="button" aria-label="锁定">${shield}</button></header><div class="message-list access-empty"><div class="gateway-mark" aria-hidden="true">${icons.people}</div><h2>${title}</h2><p>${detail}</p>${waiting?'<p class="access-code" id="space-access-code"></p><p class="access-countdown" id="space-access-countdown"></p>':spaceWaiting&&space.createdAt?'<p class="access-countdown" id="space-waiting-countdown"></p>':''}<p>加入前的历史记录不会同步。</p></div><div class="access-composer"><p class="form-error" role="alert"></p>${pending&&pending.status&&pending.status!=='pending'?`<p class="field-hint">${pending.status==='rejected'?'对方已拒绝本次请求。':'上次请求已结束，请重新验证申请。'}</p>`:''}${spaceWaiting&&!waiting?'':`<button class="primary-button" id="request-space-access" ${waiting?'disabled':''}>${waiting?'等待对方授权':'申请对方授权'}</button>`}${waiting?'<button class="text-button" id="cancel-space-access">取消申请</button>':''}</div></section>`;
     this.root.querySelector('#access-lock')!.addEventListener('click',()=>this.lockNow({desktopContinuation:true}));
+    this.root.querySelector('#access-spaces')!.setAttribute('aria-label',`私密空间列表，当前：${space.name}`);
+    this.headerAvatarAbort?.abort(); this.headerAvatarAbort = new AbortController();
+    bindSpaceAvatarPlayback(this.root.querySelector('#access-spaces')!, AbortSignal.any([this.headerAvatarAbort.signal,this.browserAccessAbort!.signal]));
     this.root.querySelector('#access-spaces')!.addEventListener('click',()=>this.openBrowserSpaceList());
+    this.root.querySelector('#access-settings')!.addEventListener('click',()=>this.openBrowserSpaceList(undefined,undefined,true));
     const button=this.root.querySelector<HTMLButtonElement>('#request-space-access');
     button?.addEventListener('click',()=>void this.requestBrowserSpace(space,button));
     if(spaceWaiting && space.createdAt){
@@ -2617,7 +2598,7 @@ export class QuietRoomApp {
       {id:'auto-lock-settings',label:'自动锁定',icon:spaceIcons.cover,run:()=>this.renderAutoLockSettings()},
       ...(this.desktopBrowser ? [{id:'app-access-settings',label:'在应用中打开',icon:spaceIcons.app,run:()=>this.renderAppAccess()}] : [])],
       select:async space=>{if(space.localId){await this.switchPrivateSpace(space);return;}current.profile.currentRoom=space.roomId;await saveBrowserProfile(current,signal);if(!signal.aborted)this.renderBrowserShell();},
-      create:async()=>{if(await this.leaveSpace())this.renderCreate();},rename:async()=>{throw new Error('空间授权后可修改名称');},
+      create:async()=>this.renderCreate(),rename:async()=>{throw new Error('空间授权后可修改名称');},
       removeLabel: space => this.catalogRemovalLabel(space),
       remove: async space => {
         if (!space.localId) { await this.removeRemoteWaitingSpace(current,space,signal);return; }
@@ -2692,7 +2673,7 @@ export class QuietRoomApp {
     signal.throwIfAborted();session.browserAccessPrf=prf.slice();this.session=session;
     space.localId=vaultSpaceId(session.stored);delete current.profile.pending[space.roomId];
     await saveBrowserProfile(current,signal);signal.throwIfAborted();
-    await rememberLocalSpace(session,undefined,{roomId:space.roomId,name:space.name});
+    await rememberLocalSpace(session,undefined,{roomId:space.roomId,name:space.name,avatar:space.avatar});
     this.browserAccessAbort?.abort();this.browserAccessAbort=null;
     await this.openSession();
   }
@@ -2809,13 +2790,48 @@ export class QuietRoomApp {
       void this.beginBrowserAccess(event.currentTarget as HTMLButtonElement);
     });
     this.root.querySelector('#create-room')?.addEventListener('click', () => {
-      if (this.session) { this.transitionPage('forward', () => this.renderCreate()); return; }
-      this.beginWelcomePasskey();
+      this.renderCreate();
     });
     this.root.querySelector('#restore-cloud')?.addEventListener('click', () => { if (this.returnSpaceId) void this.returnToSpace(); else this.transitionPage('forward', () => this.renderJointRecovery()); });
   }
 
-  private renderCreate(prepare?: () => Promise<void>): void {
+  private renderCreate(): void {
+    if (this.spaceCreationAbort || this.privacyCovered) return;
+    const lifetime = new AbortController(); this.spaceCreationAbort = lifetime;
+    const epoch = this.runtimeEpoch, session = this.session, previousSurface = this.activeSurface;
+    const returnToList = this.spaceDrawerOpen;
+    const listScrollTop = this.root.querySelector('.space-drawer-scroll')?.scrollTop ?? 0;
+    const active = () => !lifetime.signal.aborted && !this.privacyCovered && this.runtimeEpoch === epoch && this.session === session;
+    this.closeChatTools(); this.setActiveSurface('away', true);
+    void createSpaceProfile(this.root, {
+      signal: lifetime.signal, active, hasCredential: Boolean(this.deviceCredential),
+      picker: async operation => {
+        if (!active()) throw new DOMException('选图已结束', 'AbortError');
+        if (!session) return operation();
+        if (!this.beginNativeHandoff('picker', 60_000)) throw new DOMException('选图已结束', 'AbortError');
+        try {
+          const value = await operation();
+          if (await this.finishNativeHandoff('picker') || !active()) throw new DOMException('选图已结束', 'AbortError');
+          return value;
+        } finally { this.clearNativeHandoff('picker'); }
+      },
+    }).then(async profile => {
+      if (!active()) return;
+      this.spaceCreationAbort = null;
+      if (!profile) {
+        if (session && returnToList) await this.openPrivateSpaces(() => true, listScrollTop);
+        else { this.setActiveSurface(this.root.querySelector('.chat-shell') ? 'chat' : previousSurface); this.updatePeerStatus(); }
+        return;
+      }
+      this.newDeviceAlias = '';
+      if (session || this.browserProfile) await this.createPrivateSpace(profile);
+      else this.renderCreateProtection(profile);
+    }).catch(cause => {
+      if (active()) this.showNotice(cause instanceof Error ? cause.message : '空间未能创建，请重试', 'error');
+    }).finally(() => { if (this.spaceCreationAbort === lifetime) this.spaceCreationAbort = null; lifetime.abort(); });
+  }
+
+  private renderCreateProtection(profile: SpaceProfile, prepare?: () => Promise<void>): void {
     this.gatewayTemplate('设置访问密钥', '以后用它解锁私密空间，防止别人直接打开你的聊天。无需注册，也不用另外记一个账号密码。', `
       ${this.passkeySetupMarkup('跟随设备提示完成即可，不用再记一个新密码。', '设置访问密钥', '返回')}
     `, false, 'plain');
@@ -2828,7 +2844,7 @@ export class QuietRoomApp {
         async (platformResult, flowActive) => {
           const epoch = this.runtimeEpoch, session = this.session;
           if (prepare) await prepare();
-          if (flowActive() && !this.privacyCovered && this.runtimeEpoch === epoch && this.session === session) await this.handleCreate(platformResult, flowActive);
+          if (flowActive() && !this.privacyCovered && this.runtimeEpoch === epoch && this.session === session) await this.handleCreate(platformResult, flowActive, profile);
         },
         '正在创建私密空间…',
       );
@@ -2840,7 +2856,7 @@ export class QuietRoomApp {
     });
   }
 
-  private async handleCreate(platformResult: LocalCredentialResult, flowActive = () => true): Promise<void> {
+  private async handleCreate(platformResult: LocalCredentialResult, flowActive = () => true, profile?: SpaceProfile): Promise<void> {
     const epoch = this.runtimeEpoch;
     const initialSession = this.session;
     const active = () => flowActive() && !this.privacyCovered && this.runtimeEpoch === epoch && this.session === initialSession;
@@ -2897,6 +2913,8 @@ export class QuietRoomApp {
       vault.spaceRecoveryCode = this.newSpaceCollectionCode;
       const createdSession = await createVault(vault, '', 'platform', platformResult, active);
       vaultCreated = true;
+      if (!active()) return;
+      if (profile) await rememberLocalSpace(createdSession, this.newSpaceCollectionCode, { roomId: vault.roomId, ...profile });
       if (!active()) return;
       this.rememberDeviceCredential(createdSession);
       this.session = createdSession;
@@ -3565,6 +3583,7 @@ export class QuietRoomApp {
     if (!this.isRuntimeActive(openingEpoch, session)) return;
     this.newSpaceCollectionCode = undefined;
     this.currentSpaceName = spaces.find(space => space.roomId === session.vault.roomId)?.name ?? '私密空间';
+    this.currentSpaceAvatar = spaces.find(space => space.roomId === session.vault.roomId)?.avatar;
     this.inviteReturnToSpaces ||= spaces.length > 1;
     if (hasIncomingIntent &&
         (session.vault.pendingJointRecovery || session.vault.pendingRepair || session.vault.pendingRecovery ||
@@ -4958,9 +4977,9 @@ export class QuietRoomApp {
     }
   }
 
-  private async createPrivateSpace(): Promise<void> {
-    const code = this.session?.vault.spaceRecoveryCode;
-    const previous = currentSpaceId();
+  private async createPrivateSpace(profile: SpaceProfile): Promise<void> {
+    const code = this.session?.vault.spaceRecoveryCode ?? this.browserProfile?.profile.collectionCode;
+    const previous = this.session ? currentSpaceId() : null;
     const held = this.deviceCredential;
     const listScrollTop = this.root.querySelector('.space-drawer-scroll')?.scrollTop ?? 0;
     const credential = held ? { record: held.record, prfOutput: held.prfOutput.slice(), browserAccessPrf: held.browserAccessPrf?.slice() } : null;
@@ -4973,14 +4992,21 @@ export class QuietRoomApp {
     const epoch = this.runtimeEpoch;
     this.scheduleIdleLock();
     if (credential) {
-      await selectLocalSpace(slot);
-      if (!this.privacyCovered && this.runtimeEpoch === epoch && !this.session && !this.expireIdleSession()) await this.handleCreate(credential);
-      else { credential.prfOutput.fill(0); credential.browserAccessPrf?.fill(0); }
+      this.gatewayTemplate('正在创建空间', '马上就好。', '<p role="status">正在准备你的私密空间…</p>', false, 'plain');
+      try {
+        await selectLocalSpace(slot);
+        if (!this.privacyCovered && this.runtimeEpoch === epoch && !this.session && !this.expireIdleSession()) await this.handleCreate(credential, () => true, profile);
+        else { credential.prfOutput.fill(0); credential.browserAccessPrf?.fill(0); }
+      } catch (cause) {
+        credential.prfOutput.fill(0); credential.browserAccessPrf?.fill(0);
+        if (this.privacyCovered || this.runtimeEpoch !== epoch || this.session) return;
+        this.gatewayTemplate('空间未能创建', cause instanceof Error ? cause.message : '请稍后重试。', `<button class="primary-button" id="return-space">${previous ? '返回原空间' : '返回'}</button>`, false, 'plain');
+        this.root.querySelector('#return-space')?.addEventListener('click', () => { if (previous) void this.returnToSpace(); else void this.renderGateway({ autoUnlock: false }); });
+      }
       return;
     }
     // The first space on this device still needs its passkey created in the click stack.
-    this.renderCreate(async () => { if (!this.privacyCovered && this.runtimeEpoch === epoch && !this.session) await selectLocalSpace(slot); });
-    this.root.querySelector<HTMLButtonElement>('[data-device-verify]')?.click();
+    this.renderCreateProtection(profile, async () => { if (!this.privacyCovered && this.runtimeEpoch === epoch && !this.session) await selectLocalSpace(slot); });
   }
 
   private async expireWaitingSpaces(session: VaultSession, signal: AbortSignal): Promise<void> {
@@ -5086,7 +5112,7 @@ export class QuietRoomApp {
     }
   }
 
-  private async openPrivateSpaces(shouldOpen: () => boolean = () => true, listScrollTop = 0): Promise<void> {
+  private async openPrivateSpaces(shouldOpen: () => boolean = () => true, listScrollTop = 0, initialSettings = false): Promise<void> {
     const session = this.session, signal = this.runtimeAbort?.signal;
     if (!session || !signal || this.spaceDrawerOpen || !shouldOpen()) return;
     this.spaceDrawerOpen = true;
@@ -5098,7 +5124,7 @@ export class QuietRoomApp {
       this.applyCatalogToSpaces(spaces);
       if (this.browserProfile) for (const item of accessPrivateSpaces(this.browserProfile.profile)) if (!spaces.some(s => s.roomId === item.roomId)) spaces.push(item);
       if (signal.aborted || this.privacyCovered || this.session !== session || !shouldOpen()) { this.spaceDrawerOpen = false; return; }
-      this.mountPrivateSpaceDrawer(session, spaces, signal, previousSurface, undefined, undefined, undefined, listScrollTop);
+      this.mountPrivateSpaceDrawer(session, spaces, signal, previousSurface, initialSettings ? 0 : undefined, undefined, undefined, listScrollTop);
       void this.rememberSpacePreview(session, signal)
         .then(() => this.refreshOtherSpacePreviews(session, spaces, signal))
         .then(() => { if (!signal.aborted && this.spaceDrawerOpen) this.paintSpacePreviews(spaces); })
@@ -5116,6 +5142,7 @@ export class QuietRoomApp {
       const remote = profile.spaces.find(item => item.roomId === space.roomId);
       if (!remote) continue;
       space.name = remote.name;
+      space.avatar = remote.avatar ?? space.avatar;
       if (remote.createdAt) {
         space.createdAt = remote.createdAt;
         space.waiting = Boolean(remote.waiting);
@@ -5173,14 +5200,14 @@ export class QuietRoomApp {
         { id: 'release-history', group: '关于', label: '更新记录', icon: spaceIcons.history, run: forward(() => this.renderReleaseHistory()) },
       ],
       select: space => { if (presentation === 'sidebar' && space.roomId === session.vault.roomId && !space.waiting) { if (!this.root.querySelector(':scope > .chat-shell')) { this.settingsReturn = null; this.renderChat(); } return Promise.resolve(); } if (space.roomId === session.vault.roomId && space.waiting) { this.inviteReturnToSpaces = true; this.inviteListScrollTop = (container ?? this.root).querySelector('.space-drawer-scroll')?.scrollTop ?? 0; this.renderInviteWait(); return Promise.resolve(); } return this.switchPrivateSpace(space); },
-      create: () => { if (spaces.length >= 256) return Promise.reject(new Error('本机空间数量已达上限')); return this.createPrivateSpace(); },
+      create: async () => { if (spaces.length >= 256) throw new Error('本机空间数量已达上限'); this.renderCreate(); },
       rename: async (space, name) => {
         await rememberLocalSpace(session, undefined, { roomId: space.roomId, name });
         await publishPreparedCatalog(session, signal).catch(() => undefined);
         if (this.session === session && !signal.aborted && space.roomId === session.vault.roomId) {
           this.currentSpaceName = name;
           const entry = this.root.querySelector<HTMLElement>('#open-spaces');
-          if (entry) { entry.setAttribute('aria-label', `私密空间列表，当前：${name}`); const label = entry.querySelector('span'); if (label) label.textContent = name; }
+          if (entry) entry.setAttribute('aria-label', `私密空间列表，当前：${name}`);
         }
       },
       remove: space => this.destroyWaitingSpace(session, space),
@@ -5201,7 +5228,7 @@ export class QuietRoomApp {
         return fresh;
       },
       styleChanged: () => this.applyPresenceStyle(),
-      closed: () => { if (presentation === 'sidebar') { this.desktopWorkspace.collapse(); return; } if (presentation === 'settings') { this.settingsReturn = null; this.renderChat(); return; } this.spaceDrawerOpen = false; if (!signal.aborted && !this.privacyCovered && this.session === session && !this.root.querySelector('.space-invite-overlay:not(.is-closing)')) { this.setActiveSurface(this.root.querySelector('.chat-shell') ? 'chat' : previousSurface); this.updatePeerStatus(); } },
+      closed: () => { if (presentation === 'sidebar') { this.desktopWorkspace.collapse(); return; } if (presentation === 'settings') { this.settingsReturn = null; this.renderChat(); return; } this.spaceDrawerOpen = false; if (!signal.aborted && !this.privacyCovered && this.session === session && !this.root.querySelector('.space-invite-overlay:not(.is-closing),.space-profile-overlay')) { this.setActiveSurface(this.root.querySelector('.chat-shell') ? 'chat' : previousSurface); this.updatePeerStatus(); } },
     });
   }
 
@@ -5222,7 +5249,12 @@ export class QuietRoomApp {
     const header = this.root.querySelector<HTMLElement>('.chat-header');
     if (!header) return;
     const entry = header.querySelector<HTMLElement>('#open-spaces');
-    if (entry) { entry.setAttribute('aria-label', `私密空间列表，当前：${this.currentSpaceName}`); const label = entry.querySelector('span'); if (label) label.textContent = this.currentSpaceName; }
+    if (entry) {
+      entry.setAttribute('aria-label', `私密空间列表，当前：${this.currentSpaceName}`);
+      entry.innerHTML = spaceAvatarMarkup(this.currentSpaceAvatar, this.currentSpaceName);
+      this.headerAvatarAbort?.abort(); this.headerAvatarAbort = new AbortController();
+      bindSpaceAvatarPlayback(entry, AbortSignal.any([this.headerAvatarAbort.signal, this.runtimeAbort!.signal]));
+    }
     header.dataset.presenceStyle = style;
     const circuit = header.querySelector<SVGElement>('.presence-circuit');
     if (circuit) {
@@ -5265,7 +5297,7 @@ export class QuietRoomApp {
     this.root.innerHTML = `
       <section class="chat-shell">
         <header class="chat-header" data-presence-style="${readPresenceStyle()}">
-          <button class="icon-button spaces-entry" id="open-spaces" type="button" aria-label="私密空间列表">${spaceIcons.spaces}<span></span></button>
+          <button class="icon-button spaces-entry" id="open-spaces" type="button" aria-label="私密空间列表">${spaceAvatarMarkup(this.currentSpaceAvatar, this.currentSpaceName)}</button>
           <div class="peer-summary" ${this.session.vault.role === 'creator' ? 'id="open-gallery" role="button" tabindex="0"' : 'role="status"'} aria-live="polite">
             <div class="presence-heading">
               <span class="presence-row" id="peer-presence"><span>TA</span><i class="presence-dot" aria-hidden="true"></i></span>
@@ -5274,7 +5306,7 @@ export class QuietRoomApp {
             </div>
             <strong class="peer-status">同步中</strong>
           </div>
-          <span class="space-header-balance" aria-hidden="true"></span>
+          <button class="icon-button chat-settings-entry" id="chat-settings" type="button" aria-label="设置">${spaceIcons.settings}</button>
         </header>
         <div class="system-notices" aria-label="本机安全提醒">
           ${this.releaseUpdateBannerMarkup()}
@@ -5805,6 +5837,7 @@ export class QuietRoomApp {
       this.transitionPage('forward', () => this.renderGallery());
     });
     this.root.querySelector('#open-spaces')?.addEventListener('click', () => void this.openPrivateSpaces());
+    this.root.querySelector('#chat-settings')?.addEventListener('click', () => void this.openPrivateSpaces(() => true, 0, true));
     this.root.querySelector('#import-own-history')?.addEventListener('click', () => this.transitionPage('forward', () => this.renderLocalHistoryBackup('import')));
     this.root.querySelector('#dismiss-history-import')?.addEventListener('click', () => {
       this.uiPreferences.historyImportDismissed = true;
@@ -10814,7 +10847,7 @@ export class QuietRoomApp {
           const existing = !helper ? await readStoredVault() : null;
           if (known || (existing && this.jointUnavailableSlot !== vaultSpaceId(existing))) throw new Error('本机空间尚未验证可用状态，请先解锁并同步原空间，再继续共同恢复');
         }
-        const selectedName = collectionCode ? recoveryChoices.find(space => space.roomId === bundle.roomId)?.name : undefined;
+        const selectedProfile = collectionCode ? recoveryChoices.find(space => space.roomId === bundle.roomId) : undefined;
         const inheritedCollection = helper?.vault.spaceRecoveryCode ?? (collectionCode || undefined);
         const scope = 'auto' as const;
         let credential: LocalCredentialResult | undefined;
@@ -10841,7 +10874,7 @@ export class QuietRoomApp {
         this.session = session;
         retryCode = ''; collectionCode = ''; recoveryChoices = [];
         window.clearTimeout(expiryTimer);
-        await rememberLocalSpace(session, inheritedCollection, selectedName ? { roomId: bundle.roomId, name: selectedName } : undefined);
+        await rememberLocalSpace(session, inheritedCollection, selectedProfile ? { roomId: bundle.roomId, name: selectedProfile.name, avatar: selectedProfile.avatar } : undefined);
         signal.throwIfAborted();
         await withVaultMutation(session, async mutation => {
           signal.throwIfAborted();
@@ -13758,6 +13791,9 @@ export class QuietRoomApp {
     this.spaceDrawerOpen = false;
     this.settingsReturn = null;
     this.currentSpaceName = '私密空间';
+    this.currentSpaceAvatar = undefined;
+    this.spaceCreationAbort?.abort(); this.spaceCreationAbort = null;
+    this.headerAvatarAbort?.abort(); this.headerAvatarAbort = null;
 
     this.closeMemePicker();
     this.clearMemeCache();

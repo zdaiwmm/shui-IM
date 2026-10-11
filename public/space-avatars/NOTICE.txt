@@ -1,0 +1,11 @@
+Space avatar animations and first-frame stills
+Author: Google Noto Emoji
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+https://creativecommons.org/licenses/by/4.0/
+Project: https://googlefonts.github.io/noto-emoji-animation/
+Documentation: https://googlefonts.github.io/noto-emoji-files/
+
+Modified for Quiet Room: resized to 96 pixels and compressed as WebP;
+first-frame static derivatives support reduced motion and hidden surfaces.
+Individual original URLs, integrity hashes, and derivative hashes/sizes are
+recorded in src/lib/space-avatar-catalog.json. No endorsement is implied.

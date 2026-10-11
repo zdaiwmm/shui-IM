@@ -1,3 +1,4 @@
+import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -166,7 +167,7 @@ try {
   await creator.goto(baseUrl, { waitUntil: 'domcontentloaded' });
   await creator.evaluate(() => import('/src/main.ts'));
   await holdF(creator);
-  await creator.locator('#create-room').click();
+  await creator.locator('#create-room').click(); await completeSpaceProfile(creator);
   await creator.locator('.space-invite-sheet').waitFor({ timeout: 15_000 });
   const invite = await creator.locator('#invite-url').inputValue();
   await joiner.goto(invite, { waitUntil: 'domcontentloaded' });

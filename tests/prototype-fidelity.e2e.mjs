@@ -1,3 +1,4 @@
+import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import { createServer } from 'vite';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
@@ -21,7 +22,7 @@ try {
   await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
   const {QuietRoomApp}=await import('/src/app.ts');window.app=new QuietRoomApp(document.querySelector('#app'));await app.start();
  });
- await shot(page,'F15-wechat-welcome');await page.locator('#create-room').click(); await page.locator('.password-create').waitFor(); await shot(page,'F15-wechat-create-click');
+ await shot(page,'F15-wechat-welcome');await page.locator('#create-room').click(); await completeSpaceProfile(page); await page.locator('.password-create').waitFor(); await shot(page,'F15-wechat-create-click');
  assert.equal(await page.locator('.password-page').count(),1); await page.locator('[data-password-cancel]').click(); await page.locator('.password-sheet').waitFor({state:'detached'});
  await page.evaluate(()=>app.renderJointRecovery(null));await shot(page,'F01-recovery-entry'); assert.equal(await page.locator('.recovery-steps [aria-current=step]').textContent(),'1验证恢复码');await page.locator('#joint-open-code').click();await shot(page,'F01-recovery-code'); await page.locator('#joint-code-close').click(); await page.locator('.joint-code-sheet').waitFor({state:'detached'});
  await page.evaluate(async()=>{

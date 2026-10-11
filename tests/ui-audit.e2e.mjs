@@ -1,3 +1,4 @@
+import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -247,7 +248,7 @@ try {
   await creator.goto(baseUrl);
   await holdCover(creator);
   await capture('welcome', ['mobile', 'small', 'landscape', 'large']);
-  await creator.locator('#create-room').click();
+  await creator.locator('#create-room').click(); await completeSpaceProfile(creator);
   await creator.locator('.space-invite-sheet').waitFor({ timeout: 15000 });
   await capture('pairing', ['mobile', 'landscape']);
   const invite = await creator.locator('#invite-url').inputValue();

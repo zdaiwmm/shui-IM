@@ -1,3 +1,4 @@
+import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -116,7 +117,7 @@ try {
     await a.waitForFunction(() => window.draftStateProbeObserved, undefined, { polling: 100 });
     await a.evaluate(() => { window.draftStateProbe = true; });
     await probe;
-    await a.goto(url); await a.locator('#create-room').click(); await protect(a);
+    await a.goto(url); await a.locator('#create-room').click(); await completeSpaceProfile(a); await protect(a);
     await a.locator('#invite-url').waitFor(); await b.goto(await a.locator('#invite-url').inputValue());
     await b.locator('[data-device-verify]').click(); await protect(b); await ready(a); await ready(b);
 
@@ -217,7 +218,7 @@ try {
     const opaque = await second.evaluate(() => Object.entries(localStorage).filter(([id]) => id.startsWith('quiet-room:composer-draft:')));
     assert.ok(!JSON.stringify(opaque).includes('latest from second tab'));
     // Real peer enrollment wins over a delayed invitation-close return.
-    await second.locator('#open-spaces').click(); await second.locator('#space-create').click(); await protect(second);
+    await second.locator('#open-spaces').click(); await second.locator('#space-create').click(); await completeSpaceProfile(second,'第二空间'); await protect(second);
     await second.locator('#invite-url').waitFor(); const nextInvite = await second.locator('#invite-url').inputValue();
     await second.evaluate(() => {
       const original = app.openPrivateSpaces.bind(app);

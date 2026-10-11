@@ -1,3 +1,4 @@
+import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -292,12 +293,12 @@ try {
       },
     });
   });
-  await creator.locator('#create-room').click();
-  await creator.locator('#create-room').waitFor();
+  await creator.locator('#create-room').click(); await completeSpaceProfile(creator);
+  await creator.locator('[data-device-verify]:not(:disabled)').waitFor();
   invariant((await creator.locator('.form-error').textContent()) === '', 'Closing the passkey dialog left a cancellation message');
-  invariant(await creator.locator('#new-passkey-name').count() === 0, 'Creating a space still asks for a passkey name');
+  invariant(await creator.locator('#new-passkey-name').count() === 1, 'First-device protection must remain configurable');
   invariant(await creator.locator('.cover-trigger').count() === 0, 'Passkey prompt blur unexpectedly activated the privacy curtain');
-  await creator.locator('#create-room').click();
+  await creator.locator('[data-device-verify]').click();
   await creator.locator('.space-invite-sheet').waitFor({ timeout: 15_000 }).catch(async (error) => {
     const visibleError = await creator.locator('.form-error').textContent().catch(() => '');
     throw new Error(`Creator setup did not finish: ${visibleError || await creator.locator('body').innerText()}`, { cause: error });
@@ -372,7 +373,7 @@ try {
     const peer = document.querySelector('#peer-presence').getBoundingClientRect();
     const summary = document.querySelector('.peer-summary').getBoundingClientRect();
     const shield = document.querySelector('#open-spaces').getBoundingClientRect();
-    const more = document.querySelector('.space-header-balance').getBoundingClientRect();
+    const more = document.querySelector('#chat-settings').getBoundingClientRect();
     const circuit = document.querySelector('.presence-circuit').getBoundingClientRect();
     const heart = document.querySelector('.presence-heart').getBoundingClientRect();
     const heading = document.querySelector('.presence-heading').getBoundingClientRect();
@@ -1404,7 +1405,8 @@ try {
       overflow: document.documentElement.scrollWidth > innerWidth,
       verticalOverflow: document.documentElement.scrollHeight > innerHeight,
       outline: textarea ? getComputedStyle(textarea).outlineStyle : 'missing',
-      outlineColor: textarea ? getComputedStyle(textarea).outlineColor : 'missing',
+      focusLine: textarea ? getComputedStyle(textarea).boxShadow : 'none',
+      bottomEdge: getComputedStyle(document.documentElement).backgroundColor,
       composerFieldOutline: composerField ? getComputedStyle(composerField).outlineStyle : 'missing',
       headerOffset: header ? Math.abs(header.top - (visualViewport?.offsetTop ?? 0)) : Number.POSITIVE_INFINITY,
       composerOffset: composer ? Math.abs(composer.bottom - ((visualViewport?.offsetTop ?? 0) + (visualViewport?.height ?? innerHeight))) : Number.POSITIVE_INFINITY,
@@ -1443,15 +1445,15 @@ try {
   });
   invariant(!accessibility.overflow, 'Mobile layout has horizontal overflow');
   invariant(accessibility.documentOverflow === 'auto', 'The document cannot scroll behind Safari chrome');
-  invariant(accessibility.outline !== 'none', 'Composer focus is not visible');
-  invariant(accessibility.outlineColor === 'rgba(0, 0, 0, 0)', `Composer textarea retained a colored focus outline: ${accessibility.outlineColor}`);
+  invariant(accessibility.outline === 'none' && accessibility.focusLine.includes('inset'), 'Composer keyboard focus needs a quiet underline without an outer frame');
+  invariant(accessibility.bottomEdge === accessibility.composerBackground, 'Bottom browser edge must match the composer surface');
   invariant(accessibility.composerFieldOutline === 'none', 'Composer field retained the second focus outline');
   invariant(accessibility.headerOffset < 1 && accessibility.composerOffset < 1, 'Chat header or composer is not fixed to the visual viewport');
   invariant(accessibility.messageOverflow === 'visible', 'Messages are clipped in a nested scroll region');
   invariant(accessibility.headerOpaque && accessibility.headerBackdrop === 'none', `P1 header must be opaque with no glass blur: ${accessibility.headerBackground}`);
   invariant(accessibility.composerOpaque && accessibility.composerBackdrop === 'none'
-    && accessibility.composerBackground === accessibility.composerInputBackground,
-  `P1 V1 composer and input must share an opaque surface with no glass blur: ${JSON.stringify(accessibility)}`);
+    && accessibility.composerInputBackground === 'rgba(0, 0, 0, 0)',
+  `P1 composer must be opaque and its frameless input must be transparent with no glass blur: ${JSON.stringify(accessibility)}`);
   invariant(accessibility.headerSheenDisplay === 'none' && accessibility.composerSheenDisplay === 'none', `P1 chrome must not retain translucent gradient masks: ${JSON.stringify(accessibility)}`);
   invariant(accessibility.messageRegion && accessibility.shellRegion && Math.abs(accessibility.messageRegion.top - accessibility.shellRegion.top) <= 1 && Math.abs(accessibility.messageRegion.bottom - accessibility.shellRegion.bottom) <= 1, 'Messages do not scroll underneath the top and bottom bars');
   invariant(accessibility.viewport.includes('user-scalable=no') && accessibility.viewport.includes('maximum-scale=1'), 'Browser zoom is not disabled');

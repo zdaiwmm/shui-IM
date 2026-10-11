@@ -26,9 +26,10 @@
 
 桌面双栏与收展：`src/lib/desktop-workspace.ts`、`src/desktop.css`；验证 `tests/desktop-layout.e2e.mjs`，复用下方空间/隐私回归。
 
-私密空间抽屉与在线样式：`src/lib/space-drawer.ts`、`src/spaces.css`、`src/lib/spaces.ts`；
+私密空间列表与在线样式：`src/lib/space-drawer.ts`、`src/spaces.css`、`src/lib/spaces.ts`；
 本机加密预览与只读未读计数的契约见 `PRODUCT.md`、`SECURITY.md`，专项为
 `tests/spaces.test.ts`、`tests/spaces.e2e.mjs`、`tests/space-drawer-ui.e2e.mjs`。
+空间私有头像与创建编辑：`src/lib/space-profile-ui.ts`、`space-avatar.ts`、`avatar-crop.ts`、`half-sheet.ts`、`src/space-profile.css`；资源 `public/space-avatars/`，来源 `src/lib/space-avatar-catalog.json`；验证 `tests/space-avatar.test.ts`、`tests/space-profile.e2e.mjs`。
 
 ## 一分钟认识项目
 
