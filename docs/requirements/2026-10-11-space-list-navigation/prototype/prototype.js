@@ -1,4 +1,5 @@
 /* Standalone, synthetic prototype. No application imports, APIs, storage or SW. */
+import { avatarCatalog } from './avatar-catalog.mjs';
 (() => {
   'use strict';
   const $ = (selector, root = document) => root.querySelector(selector);
@@ -52,12 +53,73 @@
   if (['light', 'dark'].includes(parameters.get('scheme'))) scheme = parameters.get('scheme');
   if (['blue', 'green', 'purple', 'apricot'].includes(parameters.get('theme'))) theme = parameters.get('theme');
   let nextId = 7, toastTimer, operationToken = 0, dialogCancel = null, returnFocus = null;
-  const blankCreation = () => ({ name: '', avatar: 'spaces', photo: null, passkeyName: 'Quiet Room · 本机', deviceNote: '', busy: false, message: '', failed: false, photoBusy: false, photoError: '' });
-  let creation = blankCreation(), creationAttempt = 0, photoAttempt = 0;
+  const blankCreation = () => ({ name: '', avatar: 'spaces', emoji: null, avatarBg: null, photo: null, photoCrop: null, passkeyName: 'Quiet Room · 本机', deviceNote: '', busy: false, message: '', failed: false, photoBusy: false, photoError: '' });
+  let creation = blankCreation(), creationAttempt = 0, photoAttempt = 0, avatarEdit = null;
   const photoUrls = new Set();
   const avatarOptions = [['spaces', '默认'], ['heart', '爱心'], ['book', '书本'], ['home', '小屋']];
-  const avatarMarkup = (space, cls = '') => `<span class="space-avatar ${cls}" aria-hidden="true">${space.photo ? `<img src="${escape(space.photo)}" alt="">` : icon(space.avatar || 'spaces')}</span>`;
+  const emojiOptions = avatarCatalog.map(({emoji, label}) => [emoji, label]);
+  const emojiMarkup = emoji => {
+    const item = avatarCatalog.find(entry => entry.emoji === emoji);
+    return `<span class="avatar-emoji">${item ? `<span class="emoji-fallback">${escape(emoji)}</span><img class="emoji-motion" data-emoji-motion="${item.codepoint}" alt="" hidden>` : escape(emoji)}</span>`;
+  };
+  // Color is confined to personal avatar artwork; page chrome keeps P1 tokens.
+  const avatarBackgrounds = [
+    ['sky', '晴空', '#61c9c7', '#4e8dd3'], ['mint', '薄荷', '#6ed5b2', '#3f9fae'],
+    ['leaf', '草木', '#b9cf55', '#55ae70'], ['lilac', '丁香', '#cf80c7', '#8a66cf'],
+    ['rose', '玫瑰', '#ed9870', '#db658d'], ['orange', '暖橙', '#efb66a', '#e17a50'],
+    ['gold', '日光', '#ecd172', '#dba04c'], ['slate', '雾灰', '#9baab9', '#64798a'],
+  ];
+  const avatarBackground = id => avatarBackgrounds.find(item => item[0] === id) || avatarBackgrounds[0];
+  const backgroundStyle = id => { const [, , from, to] = avatarBackground(id); return `linear-gradient(160deg, ${from}, ${to})`; };
+  function photoStyle(crop = {}) {
+    const ratio = crop.ratio || 1, zoom = crop.zoom || 1, w = 100 * Math.max(1, ratio) * zoom, h = 100 * Math.max(1, 1 / ratio) * zoom;
+    return `width:${w}%;height:${h}%;left:${50 + (crop.x || 0) * (w - 100) / 2}%;top:${50 + (crop.y || 0) * (h - 100) / 2}%;`;
+  }
+  const avatarMarkup = (space, cls = '') => `<span class="space-avatar ${cls} ${space.photo ? 'has-photo' : ''} ${space.avatarBg && !space.photo ? 'has-artwork' : ''}" ${space.avatarBg && !space.photo ? `style="background:${backgroundStyle(space.avatarBg)}"` : ''} aria-hidden="true">${space.photo ? `<img src="${escape(space.photo)}" style="${photoStyle(space.photoCrop)}" alt="">` : space.emoji ? emojiMarkup(space.emoji) : icon(space.avatar || 'spaces')}</span>`;
   const scrollPositions = new Map(), focusPositions = new Map(), drafts = new Map(), chatPages = new Map();
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)'), animationStills = new Map(), stillPending = new Set(), animationNodes = new Map(), failedAnimations = new Set();
+  function updateAnimation(node) {
+    const code = node.dataset.emojiMotion, visible = animationNodes.get(node) && !document.hidden && !failedAnimations.has(code);
+    const reduce = reducedMotion.matches || parameters.get('motion') === 'reduce';
+    const playing = visible && !reduce, preparing = visible && reduce && !animationStills.has(code);
+    const source = playing || preparing ? new URL(`avatars/${code}.webp`, import.meta.url).href : animationStills.get(code);
+    node.dataset.playback = playing ? 'playing' : preparing ? 'preparing-still' : source ? 'paused' : 'fallback';
+    if (source && node.getAttribute('src') !== source) node.src = source;
+    if (!source) node.removeAttribute('src');
+    node.hidden = !source || preparing;
+    $('.emoji-fallback', node.parentElement).hidden = Boolean(source) && !preparing;
+  }
+  const animationObserver = new IntersectionObserver(entries => {
+    entries.forEach(({ target, isIntersecting }) => { const node = $('.emoji-motion', target); if (node && animationNodes.has(node)) { animationNodes.set(node, isIntersecting); updateAnimation(node); } });
+  });
+  function syncAnimatedEmoji() {
+    const nodes = new Set([...document.querySelectorAll('[data-emoji-motion]')].filter(node => !node.closest('dialog') || node.closest('dialog').open));
+    animationNodes.forEach((_, node) => { if (!nodes.has(node)) { animationObserver.unobserve(node.parentElement); node.removeAttribute('src'); animationNodes.delete(node); } });
+    nodes.forEach(node => {
+      if (animationNodes.has(node)) return;
+      animationNodes.set(node, false);
+      node.onload = () => {
+        const code = node.dataset.emojiMotion;
+        if (!['playing', 'preparing-still'].includes(node.dataset.playback) || animationStills.has(code) || stillPending.has(code)) return;
+        stillPending.add(code);
+        // Freeze a decoded local frame in memory; no upload or data-URL payload.
+        const canvas = document.createElement('canvas'); canvas.width = canvas.height = 128;
+        canvas.getContext('2d').drawImage(node, 0, 0, 128, 128);
+        canvas.toBlob(blob => {
+          stillPending.delete(code);
+          if (!blob) return;
+          animationStills.set(code, URL.createObjectURL(blob));
+          animationNodes.forEach((_, image) => { if (image.dataset.emojiMotion === code && image.dataset.playback !== 'playing') updateAnimation(image); });
+        }, 'image/png');
+      };
+      node.onerror = () => { if (node.getAttribute('src')) { failedAnimations.add(node.dataset.emojiMotion); updateAnimation(node); } };
+      updateAnimation(node); animationObserver.observe(node.parentElement);
+    });
+  }
+  document.addEventListener('visibilitychange', () => animationNodes.forEach((_, node) => updateAnimation(node)));
+  reducedMotion.addEventListener('change', () => animationNodes.forEach((_, node) => updateAnimation(node)));
+  window.addEventListener('pagehide', () => { animationObserver.disconnect(); animationStills.forEach(url => URL.revokeObjectURL(url)); animationStills.clear(); });
+  window.addEventListener('pageshow', event => { if (event.persisted) { animationNodes.clear(); syncAnimatedEmoji(); } });
   const spaceById = id => spaces.find(space => space.id === id);
   const selectedSpace = () => spaceById(current);
   const button = (label, name, action, cls = '') => `<button class="icon-button ${cls}" type="button" aria-label="${escape(label)}" title="${escape(label)}" data-action="${action}">${icon(name)}</button>`;
@@ -80,8 +142,9 @@
     const root = document.documentElement;
     root.style.setProperty('--prototype-edge-top', getComputedStyle(top).backgroundColor);
     root.style.setProperty('--prototype-edge-bottom', getComputedStyle(bottom).backgroundColor);
-    const fullPage = new URLSearchParams({ fullscreen: '1', view: route === 'create-access' ? 'create' : route, scheme, theme, credential: $('#preview-credential').value });
+    const fullPage = new URLSearchParams({ fullscreen: '1', view: ['create-access', 'avatar-editor', 'photo-crop'].includes(route) ? 'create' : route, scheme, theme, credential: $('#preview-credential').value });
     if (parameters.get('text') === '200') fullPage.set('text', '200');
+    if (parameters.get('motion') === 'reduce') fullPage.set('motion', 'reduce');
     $('#preview-fullscreen').href = `?${fullPage}`;
   }
   function savePosition() {
@@ -95,6 +158,7 @@
   }
   function navigate(next, { replace = false, pop = false, source } = {}) {
     if (route === 'create-access' && next !== route && creation.busy) { creationAttempt++; creation.busy = false; }
+    if (['avatar-editor', 'photo-crop'].includes(route) && next !== route) discardAvatarEdit();
     savePosition();
     if (source && ui.main.contains(source)) {
       const entry = ['setting', 'space', 'action'].find(key => source.dataset[key]);
@@ -137,6 +201,7 @@
     ui.sidebar.innerHTML = listPage(true);
     $('.page-scroll', ui.sidebar).scrollTop = previous;
     bindList(ui.sidebar);
+    syncAnimatedEmoji();
   }
   function sampleMessages(id) {
     if (id === 'demo-2') return [
@@ -205,7 +270,18 @@
     return `<section class="page">${header('设备管理')}<div class="page-scroll"><div class="content-width"><p class="body-copy">${safeName()}</p><div class="settings-card"><div class="device-row">${icon('device')}<p>iPhone · Safari<small>当前设备 · 示例</small></p></div><div class="device-row">${icon('desktop')}<p>Mac · Safari<small>另一台已授权设备 · 示例</small></p></div></div><p class="field-hint">每人每个空间最多三台独立密钥设备。新增设备不能取得加入前历史。</p></div></div></section>`;
   }
   function createPage() {
-    return `<section class="page creation-page">${header('创建私密空间')}<div class="page-scroll"><form class="content-width creation-form" id="create-form"><div class="profile-editor"><button type="button" class="avatar-edit-button" data-action="choose-avatar" aria-label="设置空间头像">${avatarMarkup(creation, 'avatar-large')}<span class="avatar-edit-mark">${icon('edit')}</span></button><div class="profile-name"><label class="sr-only" for="new-space-name">空间名称</label><input id="new-space-name" name="name" value="${escape(creation.name)}" placeholder="空间名称" maxlength="160" autocomplete="off" enterkeyhint="next" required aria-describedby="space-private-hint create-error"></div></div><p class="field-hint" id="space-private-hint">头像和名称仅自己这一侧可见。</p><p class="field-error" id="avatar-error" role="alert" ${creation.photoError ? '' : 'hidden'}>${escape(creation.photoError)}</p><p class="field-error" id="create-error" role="alert" hidden></p></form></div><footer class="creation-footer"><div><button class="primary-button full-width" type="submit" form="create-form" ${creation.photoBusy ? 'disabled' : ''}>${creation.photoBusy ? '正在读取图片…' : '下一步'}</button></div></footer></section>`;
+    return `<section class="page creation-page">${header('创建私密空间')}<div class="page-scroll"><form class="content-width creation-form" id="create-form"><div class="profile-avatar-row"><button type="button" class="avatar-edit-button" data-action="choose-avatar" aria-label="更改头像" ${creation.photoBusy ? 'disabled' : ''}>${avatarMarkup(creation, 'avatar-large')}<span class="avatar-change-label">更改头像</span></button></div><div class="profile-name"><label for="new-space-name">空间名称</label><input id="new-space-name" name="name" value="${escape(creation.name)}" placeholder="输入空间名称" maxlength="160" autocomplete="off" enterkeyhint="next" required aria-describedby="space-private-hint create-error"></div><p class="field-hint" id="space-private-hint">头像和名称仅自己这一侧可见。</p><p class="field-error" id="avatar-error" role="alert" ${creation.photoError ? '' : 'hidden'}>${escape(creation.photoError)}</p><p class="field-error" id="create-error" role="alert" hidden></p></form></div><footer class="creation-footer"><div><button class="primary-button full-width" type="submit" form="create-form" ${creation.photoBusy ? 'disabled' : ''}>${creation.photoBusy ? '正在读取图片…' : '下一步'}</button></div></footer></section>`;
+  }
+  function avatarEditorHeader(title) {
+    return `<header class="page-header"><div class="header-leading">${button('取消头像编辑', 'close', 'back')}</div><h1>${title}</h1><div class="header-actions"></div></header>`;
+  }
+  function avatarEditorPage() {
+    if (!avatarEdit) return createPage();
+    return `<section class="page avatar-editor-page">${avatarEditorHeader('设置头像')}<div class="page-scroll"><div class="content-width avatar-editor-content"><div class="avatar-art-preview" id="avatar-art-preview">${avatarMarkup(avatarEdit, 'avatar-preview')}</div><h2 class="section-label">背景</h2><div class="avatar-backgrounds" role="group" aria-label="头像背景色">${avatarBackgrounds.map(([id, label]) => `<button class="avatar-background" type="button" data-background="${id}" aria-label="${label}背景" aria-pressed="${avatarEdit.avatarBg === id}"><span style="background:${backgroundStyle(id)}">${icon('check')}</span></button>`).join('')}</div><div class="avatar-section-heading"><h2 class="section-label">表情与图案</h2></div><div class="avatar-art-options" role="group" aria-label="头像表情和图案">${emojiOptions.map(([emoji, label]) => `<button type="button" class="avatar-art-choice" data-emoji="${emoji}" aria-label="${label}头像" aria-pressed="${avatarEdit.emoji === emoji}">${emojiMarkup(emoji)}</button>`).join('')}${avatarOptions.map(([id, label]) => `<button type="button" class="avatar-art-choice is-icon" data-art="${id}" aria-label="${label}图案头像" aria-pressed="${!avatarEdit.emoji && avatarEdit.avatar === id}">${icon(id)}</button>`).join('')}</div><p class="avatar-credit">动画：Google Noto Emoji · CC BY 4.0</p></div></div><footer class="creation-footer"><div><button class="primary-button full-width" data-action="apply-avatar">设置为头像</button></div></footer></section>`;
+  }
+  function photoCropPage() {
+    if (!avatarEdit?.photo) return createPage();
+    return `<section class="page avatar-editor-page">${avatarEditorHeader('裁剪图片')}<div class="page-scroll"><div class="content-width photo-crop-content"><div class="photo-crop-stage" id="photo-crop-stage" role="group" tabindex="0" aria-label="图片裁剪预览，可拖动或用方向键移动图片" aria-describedby="crop-hint"><img src="${escape(avatarEdit.photo)}" style="${photoStyle(avatarEdit)}" alt="待裁剪的头像图片" draggable="false"></div><p class="field-hint" id="crop-hint">拖动调整位置，缩放后截取圆形头像。</p><div class="crop-zoom-row"><label for="crop-zoom">缩放</label><input id="crop-zoom" type="range" min="1" max="3" step=".05" value="${avatarEdit.zoom}" aria-label="头像图片缩放"><output for="crop-zoom" id="crop-zoom-value">${Math.round(avatarEdit.zoom * 100)}%</output></div><button class="text-action" type="button" data-action="reset-crop">重置位置</button></div></div><footer class="creation-footer"><div><button class="primary-button full-width" data-action="apply-avatar">设置为头像</button></div></footer></section>`;
   }
   function createAccessPage() {
     const existing = $('#preview-credential').value === 'existing';
@@ -214,18 +290,17 @@
   function positionAvatarSheet() {
     const rect = ui.main.getBoundingClientRect(), width = Math.min(rect.width, 420);
     ui.dialog.classList.toggle('is-desktop-sheet', desktop);
-    Object.assign(ui.dialog.style, { width: `${width}px`, maxHeight: `${Math.min(rect.height * .74, 460)}px`, left: `${rect.left + (rect.width - width) / 2}px` });
-    const height = ui.dialog.getBoundingClientRect().height;
+    const height = Math.min(rect.height - 24, Math.max(300, Math.min(440, rect.height * .52)));
+    Object.assign(ui.dialog.style, { width: `${width}px`, height: `${height}px`, maxHeight: `${height}px`, left: `${rect.left + (rect.width - width) / 2}px` });
     ui.dialog.style.top = `${desktop ? rect.top + (rect.height - height) / 2 : rect.bottom - height}px`;
   }
   function avatarSheet() {
-    openDialog(`<button class="sheet-handle" type="button" data-dialog="cancel" aria-label="下拉或点按关闭头像面板"><span></span></button><div class="sheet-heading"><h2 id="dialog-title">空间头像</h2><button class="icon-button" type="button" data-dialog="cancel" aria-label="关闭头像面板">${icon('close')}</button></div><button type="button" class="photo-library-row" id="choose-photo">${icon('image')}<span>${creation.photo ? '更换图片' : '从相册选择'}</span>${icon('arrow')}</button><input type="file" id="avatar-file" class="sr-only" accept="image/jpeg,image/png,image/webp" tabindex="-1" aria-label="选择空间头像图片"><p class="sheet-section-label">也可以选一个图案</p><div class="avatar-options">${avatarOptions.map(([id, label]) => `<button type="button" class="avatar-choice" data-avatar="${id}" aria-label="${label}头像" aria-pressed="${!creation.photo && creation.avatar === id}"><span>${icon(id)}</span><small>${label}</small></button>`).join('')}</div>${creation.photo ? '<button type="button" class="photo-library-row is-danger" id="remove-photo">移除图片</button>' : ''}<p class="sheet-note">JPG、PNG 或 WebP，最多 5 MB，居中显示。</p>`);
+    openDialog(`<button class="sheet-handle" type="button" data-dialog="cancel" aria-label="下拉或点按关闭头像面板"><span></span></button><div class="sheet-heading"><h2 id="dialog-title">更改头像</h2><button class="icon-button" type="button" data-dialog="cancel" aria-label="关闭头像面板">${icon('close')}</button></div><div class="sheet-avatar-preview">${avatarMarkup(creation, 'avatar-large')}</div><div class="avatar-source-options"><button type="button" class="photo-library-row" id="choose-art">${icon('smile')}<span>使用头像<small>选择表情、图案和背景色</small></span>${icon('arrow')}</button><button type="button" class="photo-library-row" id="choose-photo">${icon('image')}<span>使用图片<small>从相册选取并裁剪</small></span>${icon('arrow')}</button></div><input type="file" id="avatar-file" class="sr-only" accept="image/jpeg,image/png,image/webp" tabindex="-1" aria-label="选择空间头像图片">`);
     ui.dialog.classList.remove('is-simple'); ui.dialog.classList.add('is-avatar-sheet'); positionAvatarSheet();
+    syncAnimatedEmoji();
+    $('#choose-art', ui.dialog).onclick = () => { closeDialog(false); avatarEdit = { avatar: creation.avatar, emoji: creation.avatarBg ? creation.emoji : '😊', avatarBg: creation.avatarBg || 'sky' }; navigate('avatar-editor', { source: $('[data-action="choose-avatar"]') }); };
     $('#choose-photo', ui.dialog).onclick = () => $('#avatar-file', ui.dialog).click();
     $('#avatar-file', ui.dialog).onchange = event => { if (event.target.files?.length) { closeDialog(false); choosePhoto(event); } };
-    const refresh = () => { closeDialog(false); renderMain(); $('[data-action="choose-avatar"]')?.focus({ preventScroll: true }); };
-    ui.dialog.querySelectorAll('[data-avatar]').forEach(control => { control.onclick = () => { discardPhoto(); creation.avatar = control.dataset.avatar; creation.photoError = ''; refresh(); }; });
-    $('#remove-photo', ui.dialog)?.addEventListener('click', () => { discardPhoto(); creation.photoError = ''; refresh(); });
     const handle = $('.sheet-handle', ui.dialog); let startY = null, distance = 0;
     handle.onpointerdown = event => { startY = event.clientY; distance = 0; handle.setPointerCapture(event.pointerId); };
     handle.onpointermove = event => { if (startY === null || desktop) return; distance = Math.max(0, event.clientY - startY); ui.dialog.style.transform = `translateY(${distance}px)`; };
@@ -233,7 +308,7 @@
     handle.onpointercancel = () => { startY = null; ui.dialog.style.transform = ''; };
   }
   function renderMain(pop = false) {
-    const pages = { spaces: () => listPage(), chat: chatPage, settings: settingsPage, appearance: appearancePage, presence: presencePage, autolock: autolockPage, devices: devicesPage, create: createPage, 'create-access': createAccessPage };
+    const pages = { spaces: () => listPage(), chat: chatPage, settings: settingsPage, appearance: appearancePage, presence: presencePage, autolock: autolockPage, devices: devicesPage, create: createPage, 'create-access': createAccessPage, 'avatar-editor': avatarEditorPage, 'photo-crop': photoCropPage };
     if (desktop && route === 'spaces') route = 'chat';
     const body = (pages[route] || pages.chat)();
     if (typeof body === 'string') ui.main.innerHTML = body; else ui.main.replaceChildren(body);
@@ -251,8 +326,10 @@
       $('#new-passkey-name')?.addEventListener('input', event => { creation.passkeyName = event.target.value; });
       $('#new-device-note')?.addEventListener('input', event => { creation.deviceNote = event.target.value; });
     }
-    ui.main.setAttribute('aria-label', { spaces: '私密空间', chat: '聊天', settings: '设置', appearance: '主题外观', presence: '在线状态样式', autolock: '自动锁定', devices: '设备管理', create: '创建私密空间', 'create-access': '设置通行密钥' }[route]);
+    if (route === 'photo-crop') bindCrop();
+    ui.main.setAttribute('aria-label', { spaces: '私密空间', chat: '聊天', settings: '设置', appearance: '主题外观', presence: '在线状态样式', autolock: '自动锁定', devices: '设备管理', create: '创建私密空间', 'create-access': '设置通行密钥', 'avatar-editor': '设置头像', 'photo-crop': '裁剪图片' }[route]);
     syncPageEdges();
+    syncAnimatedEmoji();
     const focus = pop ? $(focusPositions.get(`${current}:${route}`) || 'h1', ui.main) : $('h1', ui.main);
     if (focus) { if (focus.matches('h1')) focus.tabIndex = -1; focus.focus({ preventScroll: true }); }
     requestAnimationFrame(() => {
@@ -295,6 +372,7 @@
   function closeDialog(cancel = true) {
     const callback = dialogCancel; dialogCancel = null; operationToken++;
     if (ui.dialog.open) ui.dialog.close();
+    syncAnimatedEmoji();
     if (cancel) callback?.();
     if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
   }
@@ -330,28 +408,81 @@
   }
   function discardPhoto() {
     photoAttempt++; creation.photoBusy = false;
-    if (creation.photo) { URL.revokeObjectURL(creation.photo); photoUrls.delete(creation.photo); creation.photo = null; }
+    if (creation.photo) { URL.revokeObjectURL(creation.photo); photoUrls.delete(creation.photo); creation.photo = null; creation.photoCrop = null; }
+  }
+  function discardAvatarEdit() {
+    if (avatarEdit?.photo && avatarEdit.photo !== creation.photo) { URL.revokeObjectURL(avatarEdit.photo); photoUrls.delete(avatarEdit.photo); }
+    avatarEdit = null;
+  }
+  function applyAvatar() {
+    if (!avatarEdit) return;
+    if (avatarEdit.photo) {
+      discardPhoto(); creation.photo = avatarEdit.photo;
+      creation.photoCrop = { ratio: avatarEdit.ratio, zoom: avatarEdit.zoom, x: avatarEdit.x, y: avatarEdit.y };
+    } else {
+      discardPhoto(); creation.avatar = avatarEdit.avatar; creation.emoji = avatarEdit.emoji; creation.avatarBg = avatarEdit.avatarBg;
+    }
+    creation.photoError = ''; goBack();
+  }
+  function updateAvatarArt() {
+    $('#avatar-art-preview').innerHTML = avatarMarkup(avatarEdit, 'avatar-preview');
+    document.querySelectorAll('[data-background]').forEach(control => control.setAttribute('aria-pressed', String(control.dataset.background === avatarEdit.avatarBg)));
+    document.querySelectorAll('[data-emoji]').forEach(control => control.setAttribute('aria-pressed', String(control.dataset.emoji === avatarEdit.emoji)));
+    document.querySelectorAll('[data-art]').forEach(control => control.setAttribute('aria-pressed', String(!avatarEdit.emoji && control.dataset.art === avatarEdit.avatar)));
+    syncAnimatedEmoji();
+  }
+  function updateCrop() {
+    if (!avatarEdit?.photo) return;
+    const img = $('#photo-crop-stage img'); if (img) img.style.cssText = photoStyle(avatarEdit);
+    $('#crop-zoom').value = avatarEdit.zoom; $('#crop-zoom-value').textContent = `${Math.round(avatarEdit.zoom * 100)}%`;
+  }
+  function bindCrop() {
+    const stage = $('#photo-crop-stage'); let origin = null;
+    const clamp = value => Math.max(-1, Math.min(1, value));
+    stage.onpointerdown = event => {
+      if (event.button !== 0) return; stage.focus({ preventScroll: true }); stage.setPointerCapture(event.pointerId);
+      origin = { x: event.clientX, y: event.clientY, cropX: avatarEdit.x, cropY: avatarEdit.y };
+    };
+    stage.onpointermove = event => {
+      if (!origin || !avatarEdit) return;
+      const size = stage.clientWidth, overflowX = size * (Math.max(1, avatarEdit.ratio) * avatarEdit.zoom - 1) / 2, overflowY = size * (Math.max(1, 1 / avatarEdit.ratio) * avatarEdit.zoom - 1) / 2;
+      avatarEdit.x = overflowX > 0 ? clamp(origin.cropX + (event.clientX - origin.x) / overflowX) : 0;
+      avatarEdit.y = overflowY > 0 ? clamp(origin.cropY + (event.clientY - origin.y) / overflowY) : 0; updateCrop();
+    };
+    stage.onpointerup = stage.onpointercancel = () => { origin = null; };
+    stage.onkeydown = event => {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+      event.preventDefault();
+      if (event.key === 'ArrowLeft') avatarEdit.x = clamp(avatarEdit.x - .1);
+      if (event.key === 'ArrowRight') avatarEdit.x = clamp(avatarEdit.x + .1);
+      if (event.key === 'ArrowUp') avatarEdit.y = clamp(avatarEdit.y - .1);
+      if (event.key === 'ArrowDown') avatarEdit.y = clamp(avatarEdit.y + .1);
+      updateCrop();
+    };
+    $('#crop-zoom').oninput = event => { avatarEdit.zoom = Number(event.target.value); updateCrop(); };
   }
   async function choosePhoto(event) {
     const file = event.target.files?.[0]; if (!file) return;
     if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
       creation.photoError = '请选择不超过 5 MB 的 JPG、PNG 或 WebP 图片。'; renderMain(); return;
     }
-    const token = ++photoAttempt, owner = creation, url = URL.createObjectURL(file);
+    const token = ++photoAttempt, owner = creation, url = URL.createObjectURL(file); photoUrls.add(url);
     creation.photoBusy = true; creation.photoError = ''; renderMain();
     try {
       const image = new Image(); image.src = url; await image.decode();
-      if (token !== photoAttempt || creation !== owner) { URL.revokeObjectURL(url); return; }
-      if (creation.photo) { URL.revokeObjectURL(creation.photo); photoUrls.delete(creation.photo); }
-      creation.photo = url; photoUrls.add(url);
+      if (token !== photoAttempt || creation !== owner) { URL.revokeObjectURL(url); photoUrls.delete(url); return; }
+      avatarEdit = { photo: url, ratio: image.naturalWidth / image.naturalHeight, zoom: 1, x: 0, y: 0 };
     } catch {
-      URL.revokeObjectURL(url);
+      URL.revokeObjectURL(url); photoUrls.delete(url);
       if (token !== photoAttempt || creation !== owner) return;
       creation.photoError = '无法读取这张图片，请换一张重试。';
     }
     if (token !== photoAttempt || creation !== owner) return;
     creation.photoBusy = false;
-    if (route === 'create') { renderMain(); $('[data-action="choose-avatar"]')?.focus({ preventScroll: true }); }
+    if (route === 'create') {
+      if (avatarEdit?.photo === url) navigate('photo-crop', { source: $('[data-action="choose-avatar"]') });
+      else { renderMain(); $('[data-action="choose-avatar"]')?.focus({ preventScroll: true }); }
+    }
   }
   function confirmCreation(event) {
     event.preventDefault(); if (creation.busy || !validName(creation.name)) return;
@@ -368,7 +499,7 @@
         creation.message = outcome === 'cancel' ? '已取消，空间资料已保留。可以返回修改或重新尝试。' : '模拟验证未完成，空间资料已保留。请重试。';
         renderMain(); return;
       }
-      const space = { id: `demo-${nextId++}`, name: creation.name, avatar: creation.avatar, photo: creation.photo, waiting: true, deadline: Date.now() + 60 * 60 * 1000, unread: 0 };
+      const space = { id: `demo-${nextId++}`, name: creation.name, avatar: creation.avatar, emoji: creation.emoji, avatarBg: creation.avatarBg, photo: creation.photo, photoCrop: creation.photoCrop, waiting: true, deadline: Date.now() + 60 * 60 * 1000, unread: 0 };
       spaces.push(space); creation = blankCreation(); $('#preview-credential').value = 'existing';
       stack = []; route = desktop ? 'chat' : 'spaces'; renderSidebar(); renderMain(); invitationDialog(space);
     }, 500);
@@ -411,6 +542,11 @@
   document.addEventListener('click', event => {
     const target = event.target.closest('button'); if (!target) return;
     if (target.dataset.dialog === 'cancel') { closeDialog(); return; }
+    if (route === 'avatar-editor' && avatarEdit) {
+      if (target.dataset.background) { avatarEdit.avatarBg = target.dataset.background; updateAvatarArt(); return; }
+      if (target.dataset.emoji) { avatarEdit.emoji = target.dataset.emoji; updateAvatarArt(); return; }
+      if (target.dataset.art) { avatarEdit.avatar = target.dataset.art; avatarEdit.emoji = null; updateAvatarArt(); return; }
+    }
     const setting = target.dataset.setting;
     if (setting) {
       if (['appearance', 'presence', 'autolock', 'devices'].includes(setting)) navigate(setting, { source: target });
@@ -423,6 +559,8 @@
       case 'settings': navigate('settings', { source: target }); break;
       case 'create': navigate('create', { source: target }); break;
       case 'choose-avatar': avatarSheet(); break;
+      case 'apply-avatar': applyAvatar(); break;
+      case 'reset-crop': if (avatarEdit?.photo) { avatarEdit.zoom = 1; avatarEdit.x = 0; avatarEdit.y = 0; updateCrop(); } break;
       case 'preview-chat': navigate('chat', { source: target }); break;
       case 'safe-preview': toast('保险箱入口保留，本原型不展示私密内容'); break;
       case 'tools-preview': toast('聊天工具不在本次导航原型范围内'); break;
@@ -479,7 +617,7 @@
   syncVisibleViewport();
   function setScenario(value) {
     refreshSize();
-    creationAttempt++; photoAttempt++; photoUrls.forEach(url => URL.revokeObjectURL(url)); photoUrls.clear(); creation = blankCreation();
+    creationAttempt++; photoAttempt++; photoUrls.forEach(url => URL.revokeObjectURL(url)); photoUrls.clear(); creation = blankCreation(); avatarEdit = null;
     closeDialog(false); scenario = value; spaces = baseSpaces(); current = 'demo-1'; stack = []; chatPages.clear(); scrollPositions.clear(); focusPositions.clear();
     if (value === 'single') spaces = spaces.slice(0, 1);
     $('#preview-credential').value = value === 'empty' ? 'new' : 'existing';
