@@ -1,3 +1,4 @@
+import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import { createServer } from 'vite';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
@@ -21,7 +22,7 @@ try {
   await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
   const {QuietRoomApp}=await import('/src/app.ts');window.app=new QuietRoomApp(document.querySelector('#app'));await app.start();
  });
- await shot(page,'F15-wechat-welcome');await page.locator('#create-room').click(); await page.locator('.password-create').waitFor(); await shot(page,'F15-wechat-create-click');
+ await shot(page,'F15-wechat-welcome');await page.locator('#create-room').click(); await completeSpaceProfile(page); await page.locator('.password-create').waitFor(); await shot(page,'F15-wechat-create-click');
  assert.equal(await page.locator('.password-page').count(),1); await page.locator('[data-password-cancel]').click(); await page.locator('.password-sheet').waitFor({state:'detached'});
  await page.evaluate(()=>app.renderJointRecovery(null));await shot(page,'F01-recovery-entry'); assert.equal(await page.locator('.recovery-steps [aria-current=step]').textContent(),'1验证恢复码');await page.locator('#joint-open-code').click();await shot(page,'F01-recovery-code'); await page.locator('#joint-code-close').click(); await page.locator('.joint-code-sheet').waitFor({state:'detached'});
  await page.evaluate(async()=>{
@@ -38,7 +39,7 @@ try {
   await page.emulateMedia({colorScheme:theme});
   for(const width of [320,390,768,1440]) {
    await page.setViewportSize({width,height:844});
-   const screens=[['P1-welcome',()=>app.renderFirstRun(null)],['P1-access-key',()=>app.renderCreate()],['P1-appearance',()=>{app.session=session;app.renderAppearanceSettings();}],['P1-auto-lock',()=>{app.session=session;app.renderAutoLockSettings();}],['P1-backup-export',()=>{app.session=session;app.renderLocalHistoryBackup('export');}],['P1-backup-import',()=>{app.session=session;app.renderLocalHistoryBackup('import');}],['P1-release-history',()=>{app.session=session;app.renderReleaseHistory();}],['F01-recovery-entry',()=>app.renderJointRecovery(null)],['F07-recovery-guide',()=>{app.session=session;app.renderRecoveryCenter();}],['F13-backup-help',()=>{app.session=session;app.renderFeatureHelp(()=>app.renderLocalHistoryBackup());}],['F10-favorites-empty',()=>{app.session=session;app.galleryMode='favorites';app.renderGallery('images');}],['F09-chat-sample',()=>{app.session=session;app.renderChat();app.renderMessages({scroll:'bottom'});}]];
+   const screens=[['P1-welcome',()=>app.renderFirstRun(null)],['P1-access-key',()=>app.renderCreateProtection({ name: '合成空间', avatar: { v: 1, kind: 'emoji', emoji: '1f60a', background: 0 } })],['P1-appearance',()=>{app.session=session;app.renderAppearanceSettings();}],['P1-auto-lock',()=>{app.session=session;app.renderAutoLockSettings();}],['P1-backup-export',()=>{app.session=session;app.renderLocalHistoryBackup('export');}],['P1-backup-import',()=>{app.session=session;app.renderLocalHistoryBackup('import');}],['P1-release-history',()=>{app.session=session;app.renderReleaseHistory();}],['F01-recovery-entry',()=>app.renderJointRecovery(null)],['F07-recovery-guide',()=>{app.session=session;app.renderRecoveryCenter();}],['F13-backup-help',()=>{app.session=session;app.renderFeatureHelp(()=>app.renderLocalHistoryBackup());}],['F10-favorites-empty',()=>{app.session=session;app.galleryMode='favorites';app.renderGallery('images');}],['F09-chat-sample',()=>{app.session=session;app.renderChat();app.renderMessages({scroll:'bottom'});}]];
    for(const [name,render] of screens){
     await page.evaluate(render);if(name==='F10-favorites-empty')await page.locator('.favorites-empty').waitFor();await page.waitForTimeout(60);await shot(page,`${name}-${width}-${theme}`);
     const value=await page.evaluate(()=>({width:innerWidth,overflow:document.documentElement.scrollWidth>innerWidth+1,controls:[...document.querySelectorAll('button:not([hidden])')].filter(b=>b.getClientRects().length&&!b.closest('[hidden]')).map(b=>({label:b.getAttribute('aria-label')||b.textContent.trim(),width:b.getBoundingClientRect().width,height:b.getBoundingClientRect().height}))}));

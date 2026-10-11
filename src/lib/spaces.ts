@@ -7,9 +7,10 @@ import { newRecoveryCode, openJson, sealJson } from './backup-crypto';
 import { ApiError, responseRetryAfterMs } from './api';
 import type { SealedBackup } from './backup-types';
 import { localSpaceExists, readLocalSpaceDirectory, saveVault, vaultSpaceId, withVaultMutation, writeLocalSpaceDirectory, type VaultSession } from './vault';
+import { validSpaceAvatar, type SpaceAvatar } from './space-avatar';
 
 export type PrivateSpace = {
-  roomId: string; name: string; localId?: string; code?: string; waiting?: boolean;
+  roomId: string; name: string; avatar?: SpaceAvatar; localId?: string; code?: string; waiting?: boolean;
   /** Explicitly authorized history sources, inside the encrypted recovery directory only. */
   historyCodes?: string[];
   /** When this participant created the space. Used only for the one-hour waiting limit. */
@@ -50,7 +51,7 @@ export function spaceMessagePreview(payload: MessagePayload): string | undefined
 }
 /** Explicit allowlist: no endpoint IDs, previews or observer capabilities leave this browser. */
 export function recoveryDirectoryEntries(spaces: PrivateSpace[]): PrivateSpace[] {
-  return spaces.map(s => ({ roomId: s.roomId, name: s.name, ...(s.code ? { code: s.code } : {}), ...(s.historyCodes?.length ? { historyCodes: s.historyCodes } : {}) }));
+  return spaces.map(s => ({ roomId: s.roomId, name: s.name, ...(s.avatar ? { avatar: s.avatar } : {}), ...(s.code ? { code: s.code } : {}), ...(s.historyCodes?.length ? { historyCodes: s.historyCodes } : {}) }));
 }
 export async function refreshSpaceUnread(spaces: PrivateSpace[], signal: AbortSignal): Promise<void> {
   // Bound concurrency for large local collections; this endpoint only returns a number.
@@ -91,6 +92,7 @@ export async function spaceCapability(code: string, purpose: 'fetch' | 'write' |
 }
 function validate(value: unknown): Directory {
   const data = value as Directory;
+  if (Array.isArray(data?.spaces) && data.spaces.some(s => s.avatar !== undefined && !validSpaceAvatar(s.avatar))) throw new Error('空间头像不完整，已停止读取');
   if (Array.isArray(data?.spaces) && data.spaces.some(s => s.historyCodes !== undefined &&
     (!Array.isArray(s.historyCodes) || s.historyCodes.length > 32 || s.historyCodes.some(code => typeof code !== 'string' || !/^QR3-[A-Za-z0-9_-]{64}$/.test(code))))) throw new Error('备份目录不完整，请重试');
   if (data?.v !== 1 || !Array.isArray(data.spaces) || data.spaces.length > 256 || data.spaces.some(s => !uuid.test(s.roomId) || typeof s.name !== 'string' || !s.name.trim() || s.name.length > 40 || s.code !== undefined && !/^QR3-[A-Za-z0-9_-]{64}$/.test(s.code) || s.localId !== undefined && !/^[\w-]{1,80}$/.test(s.localId) || s.waiting !== undefined && typeof s.waiting !== 'boolean' || s.createdAt !== undefined && !Number.isFinite(Date.parse(s.createdAt))) || new Set(data.spaces.map(s => s.roomId)).size !== data.spaces.length) throw new Error('空间目录不完整，已停止读取');
@@ -112,7 +114,7 @@ async function read(code: string): Promise<PrivateSpace[]> {
   return sealed ? openSpaceDirectory(code, sealed as SealedBackup) : [];
 }
 /** Directory read/merge/write uses the vault's cross-tab lease; only ciphertext is durable. */
-export async function rememberLocalSpace(session: VaultSession, inheritedCode?: string, rename?: { roomId: string; name: string }, summary?: { preview: string; observer?: UnreadObserver; roomId?: string }): Promise<PrivateSpace[]> {
+export async function rememberLocalSpace(session: VaultSession, inheritedCode?: string, rename?: { roomId: string; name: string; avatar?: SpaceAvatar }, summary?: { preview: string; observer?: UnreadObserver; roomId?: string }): Promise<PrivateSpace[]> {
   return withVaultMutation(session, async mutation => {
     if (!session.vault.spaceRecoveryCode) {
       session.vault.spaceRecoveryCode = inheritedCode ?? newSpaceRecoveryCode();
@@ -137,6 +139,10 @@ export async function rememberLocalSpace(session: VaultSession, inheritedCode?: 
       const target = spaces.find(s => s.roomId === rename.roomId);
       if (!target || !rename.name.trim() || rename.name.trim().length > 40) throw new Error('空间名称需为 1–40 个字符');
       target.name = rename.name.trim();
+      if (rename.avatar !== undefined) {
+        if (!validSpaceAvatar(rename.avatar)) throw new Error('空间头像不完整');
+        target.avatar = rename.avatar;
+      }
     }
     await writeLocalSpaceDirectory(session, spaceCodeId(code), await sealSpaceDirectory(code, spaces), mutation);
     return spaces;
@@ -194,7 +200,7 @@ export async function syncSpaceDirectory(session: VaultSession, signal: AbortSig
     const spaces = previous.filter(s => s.roomId !== current.roomId);
     const historyCodes = [...new Set([...(previous.find(s => s.roomId === current.roomId)?.historyCodes ?? []), ...(current.historyCodes ?? [])])]
       .filter(value => value !== current.code).slice(-32);
-    spaces.push({ roomId: current.roomId, name: current.name, code: current.code, ...(historyCodes.length ? { historyCodes } : {}) });
+    spaces.push({ roomId: current.roomId, name: current.name, ...(current.avatar ? { avatar: current.avatar } : {}), code: current.code, ...(historyCodes.length ? { historyCodes } : {}) });
     if (JSON.stringify(previous.find(s => s.roomId === current.roomId)) === JSON.stringify(spaces.at(-1))) return;
     const result = await request(code, signal, session, { roomId: session.vault.roomId, revision: remote.revision + 1, fetchToken: await spaceCapability(code, 'fetch'), writeToken: await spaceCapability(code, 'write'), sealed: await sealSpaceDirectory(code, spaces) });
     if (result.ok) return;

@@ -1,3 +1,4 @@
+import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -84,10 +85,10 @@ try {
     await responseGate; await route.fulfill({ response });
   });
   await cancelled.goto(url); await boot(cancelled);
-  await cancelled.locator('#create-room').click(); await password(cancelled, 'cancelled password 123');
+  await cancelled.locator('#create-room').click(); await completeSpaceProfile(cancelled); await password(cancelled, 'cancelled password 123');
   await requestObserved;
-  assert.equal(await cancelled.locator('#create-room').isDisabled(), true, 'Pending creation can be duplicated');
-  await cancelled.locator('#restore-cloud').click();
+  assert.equal(await cancelled.locator('[data-device-verify]').isDisabled(), true, 'Pending creation can be duplicated');
+  await cancelled.locator('.gateway-back').click();
   const cleanup = cancelled.waitForResponse(response => response.request().method() === 'DELETE' && /\/api\/rooms\//.test(response.url()));
   releaseResponse(); assert.equal((await cleanup).ok(), true, 'Cancelled creation left an orphan room');
   assert.equal(await cancelled.evaluate(async () => { const { readStoredVault } = await import('/src/lib/vault.ts'); return Boolean(app.session || await readStoredVault()); }), false, 'Late creation installed a vault');
@@ -95,13 +96,13 @@ try {
   await a.goto(url); await boot(a);
   assert.equal(await a.locator('#continue-browser').textContent(), '使用设备密钥找回空间');
   assert.equal(await a.locator('#restore-cloud').textContent(), '使用恢复码找回空间');
-  await a.locator('#create-room').click();
+  await a.locator('#create-room').click(); await completeSpaceProfile(a);
   await capture(a, 'F15-password-create');
   await password(a, '🔐'.repeat(11)); assert.match(await a.locator('.password-form .form-error').textContent(), /12/);
   await password(a, '🔐'.repeat(12), 'different-password'); assert.match(await a.locator('.password-form .form-error').textContent(), /不一致/);
   await a.locator('[data-password-cancel]').click(); await a.locator('.password-sheet').waitFor({ state: 'detached' });
   assert.equal(await a.evaluate(async () => (await import('/src/lib/vault.ts')).hasStoredVault()), false, 'Cancelling new protection wrote a vault');
-  await a.locator('#create-room').click(); await password(a, '🔐'.repeat(12));
+  await a.locator('[data-device-verify]').click(); await password(a, '🔐'.repeat(12));
   await a.locator('#invite-url').waitFor(); const invite = await a.locator('#invite-url').inputValue();
   const stored = await a.evaluate(async () => (await import('/src/lib/vault.ts')).readStoredVault());
   assert.equal(stored.v, 3); assert.equal(stored.unlockMethod, 'password');

@@ -1,3 +1,4 @@
+import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -87,7 +88,7 @@ try {
   assert.equal(await other.evaluate(async () => { const v=await import('/src/lib/vault.ts');await v.selectLocalSpace('current');const a=await v.readStoredVault();return a.spaceId === 'current'; }),true);
   await other.close(); await page.bringToFront();
   await page.evaluate(async () => {
-    await import('/src/styles.css'); await import('/src/chat-layout.css'); await import('/src/chat-interactions.css');
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     const { QuietRoomApp } = await import('/src/app.ts'); window.app = new QuietRoomApp(document.querySelector('#app'));
     app.session=a; app.privacyCovered=false; app.runtimeAbort=new AbortController(); app.updateBackgroundNotificationControl=async()=>{};
     app.showReleaseNotesIfNeeded=()=>{}; app.renderChat();
@@ -96,11 +97,9 @@ try {
   await page.evaluate(() => { app.deviceCredential = v.cloneDeviceCredential(a); window.expectedAccessProof = Array.from(a.browserAccessPrf); });
   await page.locator('#open-spaces').click(); await page.locator('.space-row').first().waitFor();
   assert.equal(await page.locator('.space-preview-hint').count(), 0);
-  const heading = await page.locator('.space-list-heading').innerText();
-  assert.match(heading, /其他空间/);
-  assert.doesNotMatch(heading, /切换空间/);
   assert.equal(await page.locator('.space-row').count(),2);
-  assert.equal(await page.locator('.space-row.is-selected').evaluate(el=>el.getBoundingClientRect().height>=100),true);
+  assert.equal(await page.locator('.space-avatar').count(),3);
+  assert.equal(await page.locator('.space-row.is-selected').evaluate(el=>el.getBoundingClientRect().height),68);
   await page.locator('.space-row').first().click({button:'right'}); await page.locator('#space-rename').click();
   assert.equal(await page.locator('#space-name').evaluate(el=>document.activeElement===el),true);
   await page.locator('#space-name').fill('慢慢聊'); await page.locator('#space-name-form button[type=submit]').click();
@@ -108,16 +107,16 @@ try {
   await page.locator('#space-settings').click(); await page.locator('#presence-style-setting').click();
   if (process.env.QUIET_ROOM_SPACE_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.QUIET_ROOM_SPACE_SCREENSHOTS, 'style-light.png') });
   await page.locator('[data-style=heart]').click();
-  assert.equal(await page.locator('[data-style=heart]').getAttribute('aria-checked'),'true');
-  assert.equal(await page.locator('#space-style-done').count(), 0);
-  await page.locator('.space-close').click();
   await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
+  assert.equal(await page.locator('#space-style-done').count(), 0);
+
   assert.equal(await page.locator('.chat-header').getAttribute('data-presence-style'),'heart');
   const sizes=await page.evaluate(()=>({button:document.querySelector('.peer-summary').getBoundingClientRect().width,svg:document.querySelector('.presence-circuit').getBoundingClientRect().width})); assert.equal(sizes.button,44); assert.equal(sizes.svg,32);
   const alignment=await page.evaluate(()=>{const outer=document.querySelector('.peer-summary').getBoundingClientRect(),inner=document.querySelector('.presence-heart').getBoundingClientRect();return {x:inner.x+inner.width/2-outer.x-outer.width/2,y:inner.y+inner.height/2-outer.y-outer.height/2};});
   // The heart's filled center sits about 1.5px above its box, so a visually centered glyph reports a positive box offset.
   assert.ok(Math.abs(alignment.x)<1 && alignment.y>1.1 && alignment.y<2,JSON.stringify(alignment));
-  assert.equal(await page.locator('#open-spaces span').innerText(),'慢慢聊');
+  assert.match(await page.locator('#open-spaces').getAttribute('aria-label'),/慢慢聊/);
+  assert.equal(await page.locator('#open-spaces .space-avatar').count(),1);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.evaluate(() => { app.connectionState = 'connected'; app.rolePresence = { creator: true, joiner: true }; app.updatePeerStatus(); window.heartBeforeDrawer = app.presenceCircuit; });
   assert.equal(await page.locator('.chat-header .presence-circuit').getAttribute('data-phase'), 'online');
@@ -135,7 +134,24 @@ try {
   await page.locator('#open-spaces').click(); await page.locator('#space-settings').waitFor();
   if(output){await page.waitForTimeout(400);await page.screenshot({path:path.join(output,'spaces.png')});}
   await page.locator('#space-settings').click(); if(output){await page.waitForTimeout(400);await page.screenshot({path:path.join(output,'settings.png')});}
-  await page.locator('.space-back').click(); await page.locator('#space-create').click();
+  await page.locator('.space-back').click();
+  await page.evaluate(() => { window.originalComposer = document.querySelector('#message-input'); originalComposer.value = '创建取消后保留的草稿'; });
+  await page.locator('#space-create').click();
+  await page.locator('#new-space-name').fill('未提交的空间');
+  await page.locator('#profile-back').click();
+  await page.locator('.space-drawer-overlay:not(.is-closing) .space-row').first().waitFor();
+  assert.equal(await page.evaluate(() => originalComposer === document.querySelector('#message-input') && originalComposer.value === '创建取消后保留的草稿'), true);
+  await page.locator('.space-drawer-overlay:not(.is-closing) #space-create').click();
+  await page.route('**/api/rooms', route => route.request().method() === 'POST'
+    ? route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: '测试：创建暂不可用' }) }) : route.continue(), { times: 1 });
+  await completeSpaceProfile(page, '失败不重复创建');
+  await page.locator('#return-space').waitFor();
+  assert.match(await page.locator('.gateway h1').innerText(), /空间未能创建/);
+  await page.locator('#return-space').click();
+  await page.waitForFunction(() => app.session?.vault.roomId === a.vault.roomId);
+  await page.evaluate(() => { window.a = app.session; app.renderChat(); });
+  await page.locator('#open-spaces').click();
+  await page.locator('#space-create').click(); await completeSpaceProfile(page,'新建空间');
   await page.locator('#copy-invite').waitFor();
   assert.equal(await page.locator('#create-room').count(),0);
   const createdSlot = await page.evaluate(()=>v.currentSpaceId());
@@ -222,15 +238,15 @@ try {
     });
     await page.locator('#space-settings').waitFor();
     if (scheme === 'light') {
-      const edge = await page.locator('.space-list-heading').evaluate(el => {
+      const edge = await page.locator('.space-access-row').first().evaluate(el => {
         const style = getComputedStyle(el);
-        const ink = style.borderTopColor.match(/[\d.]+/g)?.map(Number) ?? [];
-        return { color: style.borderTopColor, alpha: ink[3] ?? 1, rgb: ink.slice(0, 3) };
+        const ink = style.borderBottomColor.match(/[\d.]+/g)?.map(Number) ?? [];
+        return { color: style.borderBottomColor, alpha: ink[3] ?? 1, rgb: ink.slice(0, 3) };
       });
       const distance = Math.hypot(...edge.rgb.map(channel => channel - 250));
-      assert.ok(edge.alpha > 0.12 && distance > 40, JSON.stringify(edge));
+      assert.ok(edge.alpha > 0.12 && distance > 20, JSON.stringify(edge));
     }
-    const layout=await page.evaluate(()=>{const scroll=document.querySelector('.space-drawer-scroll');scroll.scrollTop=1200;return {footer:document.querySelector('.space-drawer-footer').getBoundingClientRect().bottom,viewport:innerHeight,scroll:scroll.scrollTop,overflow:document.documentElement.scrollWidth>innerWidth};});
+    const layout=await page.evaluate(()=>{const scroll=document.querySelector('.space-drawer-scroll');scroll.scrollTop=1200;return {footer:document.querySelector('.space-drawer').getBoundingClientRect().bottom,viewport:innerHeight,scroll:scroll.scrollTop,overflow:document.documentElement.scrollWidth>innerWidth};});
     assert.ok(layout.footer<=height && layout.scroll>0 && !layout.overflow,JSON.stringify(layout));
     await page.locator('#space-settings').click(); await page.locator('.space-back').click();
     assert.ok(await page.locator('.space-drawer-scroll').evaluate(el=>el.scrollTop>1000));

@@ -87,8 +87,8 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
-#app .composer .composer-input-stack { min-height: 44px; border: 0; border-radius: 22px; background-color: var(--composer-surface-current); }
-#app .composer .composer-field { min-height: 44px; }
+#app .composer .composer-input-stack { min-height: 44px; border: 0; border-radius: 0; background-color: var(--composer-surface-current); box-shadow: none; }
+#app .composer .composer-field { min-height: 44px; border: 0; border-radius: 0; background: var(--composer-surface-current); box-shadow: none; }
 #app .composer textarea { min-height: 44px; max-height: 88px; padding-block: 0; border-block: 11px solid transparent; font-size: 16px; line-height: 22px; }
 #app .composer :is(.icon-button, .meme-toggle) { color: var(--ink); }
 #app .composer .icon-button { width: 44px; height: 44px; border: 0; background-color: var(--composer-surface-current); }
@@ -152,8 +152,8 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .space-drawer-header { min-height: 60px; }
 #app .space-drawer-header h2 { font-size: 1.0625rem; letter-spacing: 0; }
 #app .space-row { min-height: 68px; padding-block: 12px; }
-#app .space-row.is-selected { min-height: 92px; padding-block: 8px 20px; }
-#app .space-row.is-selected strong { font-size: 1.5rem; letter-spacing: -.02em; }
+#app .space-row.is-selected { min-height: 68px; padding-block: 12px; }
+#app .space-row.is-selected strong { font-size: .875rem; letter-spacing: 0; }
 #app .space-setting { min-height: 44px; padding-block: 8px; gap: 12px; }
 #app .space-setting-group { margin-bottom: 16px; }
 #app .space-setting-label small { margin-top: 2px; font-size: .75rem; line-height: 1.25; }
@@ -332,7 +332,7 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .gallery-header { min-height: var(--gallery-header-height); background: var(--paper); }
 #app .gallery-header::before { display: none; }
 #app .desktop-sidebar .space-drawer, #app .space-embedded .space-drawer { border-radius: 0; }
-#app .desktop-sidebar .space-row.is-selected strong { font-size: 1.1875rem; }
+#app .desktop-sidebar .space-row.is-selected strong { font-size: .875rem; }
 #app .chat-header:not([data-presence-style='heart']) .peer-summary > .presence-heading { height: 22px; }
 html[data-keyboard-open='true'] #app .chat-header:not([data-presence-style='heart']) .peer-summary > .presence-heading { width: auto; min-width: 108px; }
 html[data-keyboard-open='true'] #app .chat-header:not([data-presence-style='heart']) .peer-status { width: auto; max-width: 90px; }
@@ -343,12 +343,11 @@ html[data-keyboard-open='true'] #app .chat-header:not([data-presence-style='hear
 #app .chat-shell[data-scroll-owner="list"] .message-list::after { margin-top: -4px; }
 /* Document scrolling can extend beyond the shell's sampled viewport height. */
 html:has(#app > .chat-shell:not([data-scroll-owner="list"])) {
-  background-image: var(--chat-wallpaper);
-  background-color: var(--wall-d);
-  background-attachment: fixed;
+  background-image: none;
+  background-color: var(--composer-surface);
 }
 body:has(#app > .chat-shell:not([data-scroll-owner="list"])) { background: transparent; }
-#app > .chat-shell:not([data-scroll-owner="list"]) { background: transparent; }
+#app > .chat-shell:not([data-scroll-owner="list"]) { background-image: var(--chat-wallpaper); background-color: var(--wall-d); background-attachment: fixed; }
 #app > .chat-shell:not([data-scroll-owner="list"])::before { position: fixed; }
 
 #app .confirm-dialog { gap: 14px; }
@@ -419,6 +418,49 @@ body:has(#app > .chat-shell:not([data-scroll-owner="list"])) { background: trans
   #app .space-setting-icon { background: ButtonFace; color: ButtonText; border: 1px solid ButtonText; }
   #app .is-settings-page.space-drawer-overlay, #app .is-settings-page > .space-drawer { background: Canvas; color: CanvasText; }
   #app .chat-tools { background: Canvas; border-color: CanvasText; }
+}
+
+/* V1.3 implementation: compact full-page navigation and continuous chat chrome. */
+html:has(#app > .chat-shell) { background-color: var(--composer-surface); }
+html:has(#app > .chat-shell textarea:focus) { background-color: var(--composer-surface-focused); }
+html:has(#app :is(.space-profile-overlay,.space-drawer-overlay):not(.is-closing)),
+body:has(#app :is(.space-profile-overlay,.space-drawer-overlay):not(.is-closing)) { background: var(--paper); }
+html:has(#app :is(.space-invite-overlay,.avatar-source-overlay):not(.is-closing)) { background: var(--surface-raised); }
+#app .chat-header > .spaces-entry { width:44px; min-width:44px; height:44px; padding:0; border:0; border-radius:0; justify-content:center; background:transparent; box-shadow:none; }
+#app .spaces-entry .space-avatar { width:32px; height:32px; font-size:14px; }
+#app .chat-header .chat-settings-entry { grid-column:3; grid-row:1; justify-self:end; width:44px; height:44px; }
+#app .chat-header[data-presence-style='heart'] { grid-template-columns:minmax(0,1fr) 44px 44px; }
+#app .chat-header[data-presence-style='heart'] .peer-summary { grid-column:2; }
+#app .is-space-list-page.space-drawer-overlay { background:var(--paper); }
+#app .is-space-list-page.space-drawer-overlay > .space-drawer { inset:0; width:100%; height:100%; border:0; border-radius:0; padding:0; background:var(--paper); box-shadow:none; transform:translateX(-12px); }
+#app .is-space-list-page.space-drawer-overlay.is-visible > .space-drawer { transform:translateX(0); }
+#app .is-space-list-page .space-drawer-header { min-height:calc(48px + env(safe-area-inset-top)); padding:env(safe-area-inset-top) 8px 0; border-bottom:1px solid var(--line); background:var(--paper); gap:0; }
+#app .is-space-list-page .space-drawer-header h2 { color:var(--ink); font-size:17px; font-weight:600; }
+#app .space-header-actions { display:flex; }
+#app .space-header-spacer { width:44px; }
+#app .is-space-list-page .space-drawer-scroll { padding:8px 12px max(12px,env(safe-area-inset-bottom)); }
+#app .space-access-row { gap:4px; border-bottom:1px solid var(--line); }
+#app .space-access-row:last-child { border-bottom:0; }
+#app .space-row, #app .space-row.is-selected { min-height:68px; padding:10px 8px; align-items:center; border-radius:12px; gap:12px; }
+#app .space-row.is-selected { background:var(--accent-soft); }
+#app .space-row-copy { gap:4px; }
+#app .space-row-copy strong, #app .space-row.is-selected strong { font-size:14px; line-height:1.4; font-weight:550; white-space:nowrap; letter-spacing:0; }
+#app .space-message-preview, #app .space-message-preview.is-waiting { font-size:12px; line-height:1.4; }
+#app .space-selected-check { width:18px; height:18px; margin:0; }
+#app .space-selected-check svg { width:12px; height:12px; }
+#app .space-access-action { display:grid; place-items:center; height:44px; min-height:44px; min-width:52px; padding:6px 0; font-size:12px; background:transparent; }
+#app .space-access-action[hidden] { display:none; }
+#app .space-access-action span { display:grid; place-items:center; height:32px; padding:0 10px; border-radius:10px; background:var(--accent-soft); }
+#app .composer .composer-input-stack:focus-within, #app .composer .composer-field:has(textarea:focus) { outline:0; box-shadow:none; border:0; background:var(--composer-surface-current); border-radius:0; }
+#app .composer textarea:focus { outline:0; box-shadow:none; }
+#app .composer textarea:focus-visible { outline:0; box-shadow:inset 0 -1px var(--line-strong); border-radius:0; }
+#app .browser-access-shell .chat-header { grid-template-columns:minmax(0,1fr) 44px 44px; }
+#app .browser-access-shell #access-lock { grid-column:2; grid-row:1; }
+#app .browser-access-shell .access-composer { background:var(--composer-surface); }
+@media(min-width:1024px) {
+  #app .is-space-list-page.space-drawer-overlay .space-drawer-scroll { width:min(100%,600px); margin-inline:auto; }
+  #app .desktop-sidebar .is-space-list-page .space-drawer-header { min-height:48px; padding:0; }
+  #app .desktop-sidebar .is-space-list-page .space-drawer-scroll { padding:8px 0; }
 }
 
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {

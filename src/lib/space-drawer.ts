@@ -1,7 +1,9 @@
-import { dismissDraggedPanel, motion, retargetMotion, settleValue } from './motion';
+import { motion, retargetMotion } from './motion';
 import { mountDialog } from './dialog';
+import { bindHalfSheetHandle } from './half-sheet';
+import { spaceAvatarMarkup, bindSpaceAvatarPlayback } from './space-avatar';
 import type { PrivateSpace } from './spaces';
-import { createElement, Bell, Settings2, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2, PanelLeftClose, Palette, MonitorDown } from 'lucide';
+import { createElement, Bell, Settings2, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2, PanelLeftClose, Palette, MonitorDown, ArrowLeft } from 'lucide';
 import { formatPendingCountdown, pendingSpaceExpiry } from './spaces';
 export type PresenceStyle = 'capsule' | 'heart';
 export function readPresenceStyle(): PresenceStyle { try { return localStorage.getItem('quiet-room:presence-style') === 'heart' ? 'heart' : 'capsule'; } catch { return 'capsule'; } }
@@ -50,6 +52,8 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; settin
   if (embedded) { sheet.className = `space-embedded space-${options.presentation}`; sheet.removeAttribute('aria-modal'); sheet.setAttribute('role', 'region'); }
   (options.container ?? root).append(sheet);
   let busy = false, listScrollTop = options.listScrollTop ?? 0;
+  let pageLifetime = new AbortController();
+  signal.addEventListener('abort', () => pageLifetime.abort(), { once: true });
   const dialog = embedded ? { close: (_options?: { animate?: boolean; restoreFocus?: boolean }) => { /* Embedded navigation owns its page lifetime. */ } } : mountDialog(sheet, { signal: options.signal, isActive: () => !options.signal.aborted, beforeClose: () => !busy, onClose: () => {
     lifetime.abort(); options.closed();
   } });
@@ -57,13 +61,17 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; settin
   const close = () => { if (embedded) { if (!busy) options.closed(); } else dialog.close(); };
   sheet.addEventListener('click', e => { if (e.target === sheet && !busy) close(); });
   function page(title: string, body: string, footer = '', back?: () => void) {
+    pageLifetime.abort(); pageLifetime = new AbortController();
     if (sheet.querySelector('.space-list')) listScrollTop = sheet.querySelector('.space-drawer-scroll')!.scrollTop;
     const priorTitle = sheet.getAttribute('aria-label');
     const previousBody = sheet.querySelector<HTMLElement>('.space-drawer-scroll');
     const previousPaint = previousBody ? getComputedStyle(previousBody).translate : '0 0';
     sheet.setAttribute('aria-label', title);
     sheet.classList.toggle('is-settings-page', title === '设置' || title === '在线状态样式');
-    sheet.innerHTML = `<section class="space-drawer"><header class="space-drawer-header">${back ? `<button class="icon-button space-back" aria-label="返回">${arrow}</button>` : ''}<h2>${title}</h2><button class="icon-button space-close" aria-label="${options.presentation === 'sidebar' ? '收起空间侧栏' : '关闭'}">${options.presentation === 'sidebar' ? createElement(PanelLeftClose).outerHTML : closeIcon}</button></header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${footer ? `<footer class="space-drawer-footer">${footer}</footer>` : ''}</section>`;
+    sheet.classList.toggle('is-space-list-page', title === '私密空间');
+    const listing = title === '私密空间';
+    sheet.innerHTML = `<section class="space-drawer"><header class="space-drawer-header">${back ? `<button class="icon-button space-back" aria-label="返回">${arrow}</button>` : `<button class="icon-button space-close" aria-label="${options.presentation === 'sidebar' ? '收起空间侧栏' : '返回聊天'}">${options.presentation === 'sidebar' ? createElement(PanelLeftClose).outerHTML : createElement(ArrowLeft).outerHTML}</button>`}<h2>${title}</h2>${listing ? `<div class="space-header-actions"><button class="icon-button" id="space-create" aria-label="创建新空间">${createElement(Plus).outerHTML}</button><button class="icon-button" id="space-settings" aria-label="设置">${spaceIcons.settings}</button></div>` : back ? `<button class="icon-button space-close" aria-label="关闭">${closeIcon}</button>` : '<span class="space-header-spacer"></span>'}</header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${footer ? `<footer class="space-drawer-footer">${footer}</footer>` : ''}</section>`;
+    bindSpaceAvatarPlayback(sheet, AbortSignal.any([signal, pageLifetime.signal]));
     if (previousBody && priorTitle !== title) {
       const content = sheet.querySelector<HTMLElement>('.space-drawer-scroll')!;
       retargetMotion(content, null, { opacity: .8, translate: previousPaint === 'none' || previousPaint === '0px' ? `${back ? 16 : -16}px 0` : previousPaint },
@@ -136,10 +144,11 @@ popup.style.top = `${Math.max(top + 12, Math.min(rect.bottom - 6, bottom - (remo
       try { writePresenceStyle(button.dataset.style as PresenceStyle); options.styleChanged(readPresenceStyle()); }
       catch { sheet.querySelector('.form-error')!.textContent = '浏览器未能保存设置，请重试'; return; }
       sheet.querySelectorAll<HTMLButtonElement>('[data-style]').forEach(b => { b.setAttribute('aria-checked',String(b === button)); b.tabIndex = b === button ? 0 : -1; });
+      close();
     };
     sheet.querySelectorAll<HTMLButtonElement>('[data-style]').forEach(button => {
       button.addEventListener('click', () => choose(button));
-      button.addEventListener('keydown', e => { if (['ArrowDown','ArrowUp','ArrowLeft','ArrowRight','Home','End'].includes(e.key)) { e.preventDefault(); const buttons = [...sheet.querySelectorAll<HTMLButtonElement>('[data-style]')]; const next = e.key === 'Home' ? buttons[0]! : e.key === 'End' ? buttons.at(-1)! : buttons.find(b => b !== button)!; choose(next); next.focus(); } });
+      button.addEventListener('keydown', e => { if (['ArrowDown','ArrowUp','ArrowLeft','ArrowRight','Home','End'].includes(e.key)) { e.preventDefault(); const buttons = [...sheet.querySelectorAll<HTMLButtonElement>('[data-style]')]; const next = e.key === 'Home' ? buttons[0]! : e.key === 'End' ? buttons.at(-1)! : buttons.find(b => b !== button)!; choose(next); } });
     });
   }
   function settings() {
@@ -177,15 +186,15 @@ const expiry = pendingSpaceExpiry(s);
     const status = s.accessState === 'unprepared' ? '请先在原设备打开此空间' : s.accessState === 'restricted' ? '待对方授权' : s.waiting ? waitingCopy : s.preview || '打开空间查看消息';
     const statusLine = s.waiting && !s.accessState
       ? `<small class="space-message-preview is-waiting" ${expiry ? `data-expires="${expiry}" data-countdown="${i}"` : ''}>${escape(waitingCopy)}</small>`
-      : selected ? '' : `<small class="space-message-preview">${escape(status)}</small>`;
-    return `<div class="space-access-row"><button class="space-row ${selected ? 'is-selected' : ''}" data-space="${i}" aria-current="${selected ? 'true' : 'false'}"><span class="space-row-copy">${selected ? '<small class="space-current-label">当前空间</small>' : ''}<strong>${escape(s.name)}</strong>${statusLine}</span>${selected ? `<span class="space-selected-check" aria-hidden="true">${check}</span>` : `<span class="space-row-trailing"><span class="space-unread" data-unread="${i}" hidden></span><span class="space-row-arrow" aria-hidden="true">${arrow}</span></span>`}</button><button class="space-access-action" data-access="${i}" hidden>授权</button></div>`;
+      : `<small class="space-message-preview">${escape(status)}</small>`;
+    return `<div class="space-access-row"><button class="space-row ${selected ? 'is-selected' : ''}" data-space="${i}" aria-current="${selected ? 'true' : 'false'}">${spaceAvatarMarkup(s.avatar, s.name)}<span class="space-row-copy"><strong>${escape(s.name)}</strong>${statusLine}</span>${selected ? `<span class="space-selected-check" aria-hidden="true">${check}</span>` : `<span class="space-row-trailing"><span class="space-unread" data-unread="${i}" hidden></span><span class="space-row-arrow" aria-hidden="true">${arrow}</span></span>`}</button><button class="space-access-action" data-access="${i}" aria-label="授权 ${escape(s.name)} 的设备请求" hidden><span>授权</span></button></div>`;
   }
   function list() {
     const focused = sheet.contains(document.activeElement) && document.activeElement instanceof HTMLButtonElement ? document.activeElement : null;
     const focusedRoom = focused?.dataset.space ? options.spaces[Number(focused.dataset.space)]?.roomId : undefined;
     const focusedId = focused?.id;
     const current = options.spaces.find(s => s.roomId === options.currentRoom), others = options.spaces.filter(s => s !== current);
-    page('私密空间', `<div class="space-list">${current ? row(current) : ''}<div class="space-list-heading"><span>其他空间</span><span>${others.length}</span></div>${others.map(row).join('')}${!others.length ? '<p class="space-empty">想和另一个人聊聊？<br>从下方创建一个新空间。</p>' : ''}</div>`, `<button class="space-create" id="space-create">${createElement(Plus).outerHTML}创建新空间</button><button class="space-settings-entry" id="space-settings" aria-label="设置">${spaceIcons.settings}</button>`);
+    page('私密空间', `<div class="space-list">${current ? row(current) : ''}${others.map(row).join('')}${!options.spaces.length ? '<p class="space-empty">还没有私密空间<br>点击右上角创建。</p>' : ''}</div>`);
     sheet.querySelector('.space-drawer-scroll')!.scrollTop = listScrollTop; badges();authorizations();
     if (focusedRoom) sheet.querySelector<HTMLButtonElement>(`[data-space="${options.spaces.findIndex(s => s.roomId === focusedRoom)}"]`)?.focus({ preventScroll: true });
     else if (focusedId) sheet.querySelector<HTMLElement>(`#${CSS.escape(focusedId)}`)?.focus({ preventScroll: true });
@@ -275,52 +284,10 @@ const expiry = pendingSpaceExpiry(s);
 
 export function mountSpaceInvite(root: HTMLElement, options: { name: string; signal: AbortSignal; content: string; closed: () => void }) {
   const overlay = document.createElement('div'); overlay.className = 'space-invite-overlay'; overlay.setAttribute('role','dialog'); overlay.setAttribute('aria-modal','true'); overlay.setAttribute('aria-labelledby','space-invite-title');
-  overlay.innerHTML = `<section class="space-invite-sheet"><div class="space-invite-handle" aria-hidden="true"><span></span></div><header><span class="space-invite-name">${escape(options.name)}</span><button class="icon-button" id="invite-close" aria-label="关闭邀请">${closeIcon}</button></header>${options.content}</section>`;
+  overlay.innerHTML = `<section class="space-invite-sheet"><button class="half-sheet-handle space-invite-handle" id="invite-close" type="button" aria-label="关闭邀请"><span></span></button>${options.content}</section>`;
   root.append(overlay);
   const dialog = mountDialog(overlay, { signal: options.signal, isActive: () => !options.signal.aborted, onClose: () => { if (overlay.isConnected) options.closed(); } });
-  overlay.querySelector('#invite-close')!.addEventListener('click', () => dialog.close());
   overlay.addEventListener('click', e => { if (e.target === overlay) dialog.close(); });
-  const handle = overlay.querySelector<HTMLElement>('.space-invite-handle')!;
-  const panel = overlay.querySelector<HTMLElement>('.space-invite-sheet')!;
-  let drag: { id: number; y: number; offset: number; lastY: number; at: number; velocity: number } | null = null;
-  let offset = 0;
-  let cancelSettle: (() => void) | undefined;
-  const paint = (value: number) => {
-    offset = value; panel.style.setProperty('--invite-drag', `${value}px`);
-    overlay.style.setProperty('--invite-backdrop', String(.22 * Math.max(.2, 1 - value / Math.max(1, panel.clientHeight))));
-  };
-  const release = (e: PointerEvent, cancelled: boolean) => {
-    if (!drag || e.pointerId !== drag.id) return;
-    const velocity = performance.now() - drag.at < 100 ? drag.velocity : 0;
-    drag = null;
-    if (!cancelled && dismissDraggedPanel(offset, velocity, panel.clientHeight)) {
-      panel.classList.remove('is-dragging');
-      dialog.close();
-    } else {
-      cancelSettle = settleValue(offset, cancelled ? 0 : velocity, paint, () => panel.classList.remove('is-dragging'),
-        () => panel.isConnected && !options.signal.aborted && !overlay.classList.contains('is-closing'));
-    }
-  };
-  handle.addEventListener('pointerdown', e => {
-    if (e.button !== 0 || !e.isPrimary || overlay.classList.contains('is-closing')) return;
-    cancelSettle?.();
-    offset = new DOMMatrixReadOnly(getComputedStyle(panel).transform).m42;
-    drag = { id: e.pointerId, y: e.clientY, offset, lastY: e.clientY, at: performance.now(), velocity: 0 };
-    panel.classList.add('is-dragging'); paint(offset);
-    handle.setPointerCapture(e.pointerId);
-  });
-  handle.addEventListener('pointermove', e => {
-    if (!drag || e.pointerId !== drag.id) return;
-    const now = performance.now();
-    const elapsed = now - drag.at;
-    if (elapsed > 0) drag.velocity = Math.max(-2000, Math.min(2000, (e.clientY - drag.lastY) * 1000 / elapsed));
-    drag.lastY = e.clientY; drag.at = now;
-    const limit = Math.max(1, panel.clientHeight);
-    const distance = Math.max(0, drag.offset + e.clientY - drag.y);
-    paint(limit * Math.tanh(distance / limit));
-  });
-  handle.addEventListener('pointerup', e => release(e, false));
-  handle.addEventListener('pointercancel', e => release(e, true));
-  options.signal.addEventListener('abort', () => { cancelSettle?.(); drag = null; }, { once: true });
+  bindHalfSheetHandle(overlay.querySelector<HTMLButtonElement>('.space-invite-handle')!, overlay.firstElementChild as HTMLElement, options.signal, () => dialog.close());
   return overlay;
 }

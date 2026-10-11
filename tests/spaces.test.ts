@@ -40,6 +40,9 @@ describe('opaque server directory', () => {
       expect(() => store.save(id, 'device', { ...value, revision: 2, writeToken: value.fetchToken })).toThrow('UNAUTHORIZED');
       expect(() => store.save(id, 'device', { ...value, revision: 3 })).toThrow('BACKUP_CONFLICT');
       expect(store.save(id, 'device', { ...value, revision: 2 })).toEqual({ revision: 2 });
+      const bounded = { ...value, revision: 3, sealed: { ...value.sealed, ciphertext: 'a'.repeat(2 * 1024 * 1024) } };
+      expect(store.save(id, 'device', bounded)).toEqual({ revision: 3 });
+      expect(() => store.save(id, 'device', { ...bounded, revision:4, sealed:{...bounded.sealed,ciphertext:bounded.sealed.ciphertext+'a'} })).toThrow('INVALID_BACKUP');
       expect(db.prepare('SELECT sealed, fetch_hash, write_hash FROM space_directories').get().sealed).not.toContain(code);
     } finally { db.close(); }
   });

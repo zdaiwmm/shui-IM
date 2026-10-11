@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN" data-color-scheme="light" data-theme="blue">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="transparent">
+  <title>空间导航 V1.3 · Quiet Room 原型</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="../../../../src/design-tokens.css">
+  <link rel="stylesheet" href="../../../../src/appearance.css">
+  <link rel="stylesheet" href="../../../../src/motion.css">
+  <link rel="stylesheet" href="prototype.css">
+  <script src="prototype.js" type="module"></script>
+</head>
+<body>
+  <header class="preview-bar">
+    <div class="preview-title"><strong>空间导航</strong><span>V1.3 交互原型</span></div>
+    <div class="preview-controls" aria-label="原型演示控制">
+      <label>预览尺寸<select id="preview-size"><option value="phone">手机 · 390</option><option value="auto">自适应</option><option value="desktop">桌面</option></select></label>
+      <label>明暗<select id="preview-scheme"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+      <label>列表场景<select id="preview-scenario"><option value="normal">常规列表</option><option value="single">仅一个空间</option><option value="empty">空列表</option><option value="loading">加载中</option><option value="offline">离线缓存</option><option value="long">长名称 / 99+</option><option value="expired">授权已到期</option></select></label>
+      <label>模拟验证结果<select id="preview-result"><option value="success">成功</option><option value="cancel">取消</option><option value="error">失败，可重试</option></select></label>
+      <label>创建设备<select id="preview-credential"><option value="existing">已有通行密钥</option><option value="new">尚无通行密钥</option></select></label>
+      <button id="preview-reset" class="preview-reset">重置演示</button>
+      <a id="preview-fullscreen" class="preview-fullscreen" href="?fullscreen=1" target="_blank" rel="noopener">全屏体验</a>
+    </div>
+  </header>
+  <div class="preview-caption"><span id="preview-caption">手机 · 独立空间列表页</span><span>全部为示例内容 · 仅保存在本次演示内存</span></div>
+  <div class="preview-stage">
+    <div class="preview-viewport" id="preview-viewport" data-size="phone">
+      <div class="workspace" id="workspace">
+        <aside id="space-sidebar" class="space-sidebar" aria-label="私密空间侧栏"></aside>
+        <main id="main-pane" class="main-pane" tabindex="-1"></main>
+      </div>
+      <div id="toast" class="toast" role="status" hidden></div>
+    </div>
+  </div>
+  <p class="preview-help">点按空间切换，右上角进入设置。长按、右键或 F2 编辑空间名称。模拟验证不会调用系统认证。</p>
+  <dialog id="operation-dialog" class="operation-dialog" aria-labelledby="dialog-title"></dialog>
+</body>
+</html>

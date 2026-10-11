@@ -7,9 +7,10 @@ import { spaceCapability, spaceCodeId, localSpaces, newSpaceRecoveryCode, type P
 import { readLocalSpaceDirectory, writeLocalSpaceDirectory, withVaultMutation, readBrowserAccessRecord, writeBrowserAccessRecord, type VaultSession } from './vault';
 import type { PlatformCredentialRecord, PrivateIdentity, RoomMember, RoomState } from './types';
 import { deleteRoom } from './api';
+import { validSpaceAvatar, type SpaceAvatar } from './space-avatar';
 export type PendingManagement = { v:1; purpose:'quiet-room-pending-management'; roomId:string; sourceDeviceId:string; catalogId:string; rootKey:JsonWebKey; signature:string };
 type CatalogManagement = {key:AccessIdentity;catalogCode:string};
-export type AccessSpace = { pendingManagement?:PendingManagement; roomId:string; name:string; certificate?:AccessCertificate; members?:RoomMember[]; eventSeq?:number; creatorFingerprint?:string; role?:'creator'|'joiner'; localId?:string; waiting?:boolean; createdAt?:string; deviceCount?:number };
+export type AccessSpace = { pendingManagement?:PendingManagement; roomId:string; name:string; avatar?:SpaceAvatar; certificate?:AccessCertificate; members?:RoomMember[]; eventSeq?:number; creatorFingerprint?:string; role?:'creator'|'joiner'; localId?:string; waiting?:boolean; createdAt?:string; deviceCount?:number };
 export type AccessStatus = {status:'pending'|'approved'|'expired'|'canceled'|'rejected'|'revoked';expiresAt:string;serverTime:string;state?:RoomState;sealed?:SealedBackup};
 export type PendingSpaceAccess = {identity:PrivateIdentity;token:string;proof:AccessProof;expiresAt?:string;status?:AccessStatus['status']};
 export type AccessCatalog = {id:string;token:string;key:string};
@@ -19,10 +20,11 @@ export type BrowserProfileSession = {profile:BrowserProfile;record:PlatformCrede
 export type BrowserRequest = {requestId:string;browserId:string;browserKey:JsonWebKey;expiresAt:string};
 export type PeerAccessRequest = {proof:AccessProof;target:RoomMember;expiresAt:string};
 type Prepared = {v:1;root:AccessIdentity;management?:AccessIdentity;spaces:AccessSpace[];catalogCode:string;mailboxes?:AccessMailbox[];removed?:string[]};
-const catalogSpaceKeys = ['roomId','name','certificate','members','eventSeq','creatorFingerprint','role','waiting','createdAt','deviceCount','pendingManagement'];
+const catalogSpaceKeys = ['roomId','name','avatar','certificate','members','eventSeq','creatorFingerprint','role','waiting','createdAt','deviceCount','pendingManagement'];
 export function catalogSpaceAllowed(space: AccessSpace): boolean {
   return /^[a-f0-9-]{36}$/i.test(space.roomId) && typeof space.name === 'string' && Boolean(space.name.trim()) && space.name.length <= 40
     && Object.keys(space).every(key => catalogSpaceKeys.includes(key))
+    && (space.avatar === undefined || validSpaceAvatar(space.avatar))
     && (space.waiting === undefined || typeof space.waiting === 'boolean')
     && (space.createdAt === undefined || Number.isFinite(Date.parse(space.createdAt)))
     && (space.deviceCount === undefined || Number.isSafeInteger(space.deviceCount) && space.deviceCount >= 0 && space.deviceCount <= 16);
@@ -40,6 +42,7 @@ export function mergeCatalogSpaces(remote: AccessSpace[], local: AccessSpace[], 
       ...(space.pendingManagement ? {pendingManagement:space.pendingManagement} : {}),
       roomId: space.roomId,
       name: space.name,
+      ...(space.avatar ? { avatar: space.avatar } : previous?.avatar ? { avatar: previous.avatar } : {}),
       ...(space.waiting ? { waiting: true } : {}),
       ...(space.createdAt ? { createdAt: space.createdAt } : previous?.createdAt ? { createdAt: previous.createdAt } : {}),
       ...(space.deviceCount !== undefined ? { deviceCount: space.deviceCount } : previous?.deviceCount !== undefined ? { deviceCount: previous.deviceCount } : {}),
@@ -84,7 +87,8 @@ export async function prepareBrowserAccess(session:VaultSession,profile?:Browser
     if(profile?.management) { saved.management=profile.management.key;saved.catalogCode=profile.management.catalogCode; }
     saved.management??=await newAccessIdentity();
     const certificate=await signAccess(v.identity.signingPrivateKey,{v:1 as const,purpose:'quiet-room-browser-request-root' as const,roomId:v.roomId,sourceDeviceId:own.deviceId,rootKey:saved.root.publicKey});
-    const entry:AccessSpace={roomId:v.roomId,name:spaces.find(s=>s.roomId===v.roomId)?.name??'私密空间',certificate,members:cleanMembers(v.members),eventSeq:v.mls?.lastEventSeq??0,creatorFingerprint:v.creatorFingerprint,role:v.role};
+    const local = spaces.find(s=>s.roomId===v.roomId);
+    const entry:AccessSpace={roomId:v.roomId,name:local?.name??'私密空间',...(local?.avatar?{avatar:local.avatar}:{}),certificate,members:cleanMembers(v.members),eventSeq:v.mls?.lastEventSeq??0,creatorFingerprint:v.creatorFingerprint,role:v.role};
     saved.catalogCode??=newSpaceRecoveryCode();
     if(v.role==='creator' && v.mls?.phase==='awaiting-peer') {
       entry.waiting=true;entry.createdAt=v.createdAt;
@@ -108,6 +112,7 @@ export async function approveBrowser(session:VaultSession,mailbox:AccessMailbox,
   const approved=spaces.map(s=>{
     const p=prepared.spaces.find(p=>p.roomId===s.roomId);
     const entry:AccessSpace=p?{...p,name:s.name}:{roomId:s.roomId,name:s.name};
+    if(s.avatar)entry.avatar=s.avatar;
     if(s.waiting)entry.waiting=true;
     if(s.createdAt)entry.createdAt=s.createdAt;
     return entry;
@@ -167,7 +172,7 @@ export async function prepareSpaceAccess(profile:BrowserProfile,space:AccessSpac
 }
 export function accessPrivateSpaces(profile:BrowserProfile):PrivateSpace[] {
   return profile.spaces.map(s => ({
-    roomId: s.roomId, name: s.name,
+    roomId: s.roomId, name: s.name, ...(s.avatar ? { avatar: s.avatar } : {}),
     ...(s.createdAt ? { createdAt: s.createdAt } : {}),
     ...(s.waiting ? { waiting: true } : {}),
     ...(s.localId ? { localId: s.localId } : s.waiting ? {} : { accessState: s.certificate ? 'restricted' as const : 'unprepared' as const }),
@@ -220,6 +225,7 @@ export async function publishPreparedCatalog(session:VaultSession,signal:AbortSi
   const spaces=local.map(s=>{
     const preparedSpace=prepared.spaces.find(p=>p.roomId===s.roomId);
     const entry:AccessSpace=preparedSpace?{...preparedSpace,name:s.name}:{roomId:s.roomId,name:s.name};
+    if(s.avatar)entry.avatar=s.avatar;
     if(s.waiting) entry.waiting=true;
     if(s.createdAt) entry.createdAt=s.createdAt;
     if(s.roomId===session.vault.roomId) entry.deviceCount=deviceCount;
@@ -251,7 +257,7 @@ export async function refreshBrowserCatalog(profile:BrowserProfile,signal:AbortS
         !await verifyAccess(source.signingKey,s.certificate)) throw new Error('空间身份准备凭据不正确');
       if(!await verifyAccess(s.certificate.rootKey,profile.grant)) delete s.certificate;
     }
-    const merged: AccessSpace = {...previous,pendingManagement:s.pendingManagement,name:s.name,deviceCount:s.deviceCount??previous.deviceCount,certificate:s.certificate??previous.certificate,members:s.members??previous.members,eventSeq:s.eventSeq??previous.eventSeq,creatorFingerprint:s.creatorFingerprint??previous.creatorFingerprint,role:s.role??previous.role};
+    const merged: AccessSpace = {...previous,pendingManagement:s.pendingManagement,name:s.name,avatar:s.avatar??previous.avatar,deviceCount:s.deviceCount??previous.deviceCount,certificate:s.certificate??previous.certificate,members:s.members??previous.members,eventSeq:s.eventSeq??previous.eventSeq,creatorFingerprint:s.creatorFingerprint??previous.creatorFingerprint,role:s.role??previous.role};
     if(s.createdAt){merged.createdAt=s.createdAt;merged.waiting=s.waiting;}
     else if(s.waiting) merged.waiting=true;
     next.push(merged);
@@ -266,7 +272,7 @@ export async function refreshBrowserCatalog(profile:BrowserProfile,signal:AbortS
         !await verifyAccess(source.signingKey,certificate)) throw new Error('空间身份准备凭据不正确');
       if(!await verifyAccess(certificate.rootKey,profile.grant)) delete s.certificate;
     }
-    next.push({pendingManagement:s.pendingManagement,roomId:s.roomId,name:s.name,waiting:s.waiting,createdAt:s.createdAt,deviceCount:s.deviceCount,certificate:s.certificate,members:s.members,eventSeq:s.eventSeq,creatorFingerprint:s.creatorFingerprint,role:s.role});
+    next.push({pendingManagement:s.pendingManagement,roomId:s.roomId,name:s.name,avatar:s.avatar,waiting:s.waiting,createdAt:s.createdAt,deviceCount:s.deviceCount,certificate:s.certificate,members:s.members,eventSeq:s.eventSeq,creatorFingerprint:s.creatorFingerprint,role:s.role});
   }
   signal.throwIfAborted();
   profile.spaces=next;

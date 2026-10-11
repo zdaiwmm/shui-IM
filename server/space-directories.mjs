@@ -6,7 +6,8 @@ const fail = code => { throw new Error(code); };
 /** Opaque collection capability. It cannot authorize membership or read a room. */
 export function createSpaceDirectories(db, { authenticatedDevice }, browserCatalog = false) {
   const table = browserCatalog ? 'browser_access_catalogs' : 'space_directories';
-  const maxCiphertext = browserCatalog ? 4 * 1024 * 1024 : 131072;
+  // Bounded private thumbnails (2 KiB each, at most 256 spaces), still opaque.
+  const maxCiphertext = browserCatalog ? 4 * 1024 * 1024 : 2 * 1024 * 1024;
   db.exec(`CREATE TABLE IF NOT EXISTS ${table} (
     id TEXT PRIMARY KEY, owner_room TEXT NOT NULL, owner_device TEXT NOT NULL,
     revision INTEGER NOT NULL, fetch_hash BLOB NOT NULL, write_hash BLOB NOT NULL,

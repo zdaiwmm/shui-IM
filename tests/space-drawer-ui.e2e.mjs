@@ -10,7 +10,7 @@ try {
     const page = await browser.newPage({viewport:{width:393,height:680}}); page.setDefaultTimeout(8000);
     await page.goto(`http://localhost:${vite.httpServer.address().port}/__drawer`);
     await page.evaluate(async()=>{
-      await import('/src/styles.css'); await import('/src/chat-layout.css'); await import('/src/chat-interactions.css'); await import('/src/design-system.css'); await import('/src/spaces.css');
+      await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
       window.ui = await import('/src/lib/space-drawer.ts');
       window.mount = () => {
         window.abort = new AbortController(); window.renamed = ''; window.closed = 0;
@@ -22,7 +22,7 @@ try {
       }; mount();
     });
     await page.locator('.space-drawer-overlay.is-visible').waitFor();
-    assert.equal(await page.locator('.space-avatar').count(),0);
+    assert.equal(await page.locator('.space-avatar').count(),12);
     assert.equal(await page.locator('[data-space="1"] .space-unread').innerText(),'99+');
     assert.equal(await page.locator('[data-space="1"] .space-unread').getAttribute('aria-label'),'105 条未读消息');
     assert.equal(await page.locator('[data-space="3"] .space-unread').isVisible(),false);
@@ -44,20 +44,19 @@ try {
     await page.waitForFunction(()=>{const r=document.querySelector('.space-name-dialog').getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;});
     await page.locator('#space-name-cancel').click(); await page.locator('.space-name-dialog').waitFor({state:'detached'});
     await page.setViewportSize({width:393,height:680});
-    await page.locator('.space-drawer-scroll').evaluate(el=>el.scrollTop=400);
+    await page.locator('.space-drawer-scroll').evaluate(el=>{el.scrollTop=400;window.listPosition=el.scrollTop;});
     await page.locator('#space-settings').click();
     assert.equal(await page.locator('#feature-help').count(),0);
     assert.equal(await page.locator('.space-drawer-scroll').evaluate(el=>getComputedStyle(el).scrollbarWidth),'none');
     const icons=await page.locator('.space-setting-icon svg').evaluateAll(nodes=>nodes.map(el=>{const r=el.getBoundingClientRect(),tile=el.parentElement.getBoundingClientRect();return [r.width,r.height,tile.width,tile.height,getComputedStyle(el.parentElement).flexShrink];}));
     assert.ok(icons.every(([w,h,tileWidth,tileHeight,shrink])=>w===17&&h===17&&tileWidth===24&&tileHeight===24&&shrink==='0'),JSON.stringify(icons));
+    await page.locator('.space-back').click(); assert.ok(await page.locator('.space-drawer-scroll').evaluate(el=>Math.abs(el.scrollTop-window.listPosition)<1));
+    await page.locator('#space-settings').click();
     await page.locator('#presence-style-setting').click();
     await page.locator('[data-style=capsule]').focus(); await page.locator('[data-style=capsule]').press('ArrowRight');
-    assert.equal(await page.locator('[data-style=heart]').getAttribute('aria-checked'),'true');
+    await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
     assert.equal(await page.evaluate(()=>window.style),'heart', 'style applies before closing');
     assert.equal(await page.locator('#space-style-done').count(),0);
-    await page.locator('.space-back').click(); assert.ok((await page.locator('#presence-style-setting').innerText()).includes('心动按钮'));
-    await page.locator('.space-back').click(); assert.ok(await page.locator('.space-drawer-scroll').evaluate(el=>el.scrollTop>=390));
-    await page.locator('.space-close').click(); await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
     assert.equal(await page.evaluate(()=>window.style),'heart');
     await page.evaluate(()=>{
       window.removed='';

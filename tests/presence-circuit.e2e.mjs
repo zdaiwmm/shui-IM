@@ -204,7 +204,7 @@ try {
           const r = document.querySelector(selector).getBoundingClientRect();
           return { x: r.x, right: r.right, y: r.y, bottom: r.bottom, width: r.width, height: r.height };
         };
-        return { summary: box('.peer-summary'), heading: box('.presence-heading'), actions: box('.space-header-balance'),
+        return { summary: box('.peer-summary'), heading: box('.presence-heading'), actions: box('#chat-settings'),
           peer: box('#peer-presence'), self: box('#self-presence'), circuit: box('.presence-circuit'), heart: box('.presence-heart'),
           dot: box('#peer-presence i'), label: box('#peer-presence span'), selfDot: box('#self-presence i') };
       });

@@ -517,7 +517,7 @@ export async function startServer(options = {}) {
             const body = JSON.parse((await readBody(request, 4300000)).toString('utf8'));
             result = directoryStore.updateExisting(directory[1], token, body);
           } else if (request.method === 'PUT') {
-            const body = JSON.parse((await readBody(request, catalog ? 4300000 : 140000)).toString('utf8'));
+            const body = JSON.parse((await readBody(request, catalog ? 4300000 : 2200000)).toString('utf8'));
             requireActiveDevice(request, body.roomId);
             result = directoryStore.save(directory[1], token, body);
           } else result = directoryStore.fetch(directory[1], token);
