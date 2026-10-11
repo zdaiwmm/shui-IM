@@ -1408,6 +1408,7 @@ try {
       focusLine: textarea ? getComputedStyle(textarea).boxShadow : 'none',
       bottomEdge: getComputedStyle(document.documentElement).backgroundColor,
       composerFieldOutline: composerField ? getComputedStyle(composerField).outlineStyle : 'missing',
+      composerFieldRadius: composerField ? getComputedStyle(composerField).borderRadius : 'missing',
       headerOffset: header ? Math.abs(header.top - (visualViewport?.offsetTop ?? 0)) : Number.POSITIVE_INFINITY,
       composerOffset: composer ? Math.abs(composer.bottom - ((visualViewport?.offsetTop ?? 0) + (visualViewport?.height ?? innerHeight))) : Number.POSITIVE_INFINITY,
       documentOverflow: getComputedStyle(document.documentElement).overflowY,
@@ -1447,13 +1448,13 @@ try {
   invariant(accessibility.documentOverflow === 'auto', 'The document cannot scroll behind Safari chrome');
   invariant(accessibility.outline === 'none' && accessibility.focusLine.includes('inset'), 'Composer keyboard focus needs a quiet underline without an outer frame');
   invariant(accessibility.bottomEdge === accessibility.composerBackground, 'Bottom browser edge must match the composer surface');
-  invariant(accessibility.composerFieldOutline === 'none', 'Composer field retained the second focus outline');
+  invariant(accessibility.composerFieldOutline === 'none' && accessibility.composerFieldRadius === '0px', 'Composer field retained an outer focus frame or capsule');
   invariant(accessibility.headerOffset < 1 && accessibility.composerOffset < 1, 'Chat header or composer is not fixed to the visual viewport');
   invariant(accessibility.messageOverflow === 'visible', 'Messages are clipped in a nested scroll region');
   invariant(accessibility.headerOpaque && accessibility.headerBackdrop === 'none', `P1 header must be opaque with no glass blur: ${accessibility.headerBackground}`);
   invariant(accessibility.composerOpaque && accessibility.composerBackdrop === 'none'
-    && accessibility.composerInputBackground === 'rgba(0, 0, 0, 0)',
-  `P1 composer must be opaque and its frameless input must be transparent with no glass blur: ${JSON.stringify(accessibility)}`);
+    && accessibility.composerBackground === accessibility.composerInputBackground,
+  `P1 frameless composer must share one opaque surface with no glass blur: ${JSON.stringify(accessibility)}`);
   invariant(accessibility.headerSheenDisplay === 'none' && accessibility.composerSheenDisplay === 'none', `P1 chrome must not retain translucent gradient masks: ${JSON.stringify(accessibility)}`);
   invariant(accessibility.messageRegion && accessibility.shellRegion && Math.abs(accessibility.messageRegion.top - accessibility.shellRegion.top) <= 1 && Math.abs(accessibility.messageRegion.bottom - accessibility.shellRegion.bottom) <= 1, 'Messages do not scroll underneath the top and bottom bars');
   invariant(accessibility.viewport.includes('user-scalable=no') && accessibility.viewport.includes('maximum-scale=1'), 'Browser zoom is not disabled');

@@ -87,8 +87,8 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
-#app .composer .composer-input-stack { min-height: 44px; border: 0; border-radius: 0; background-color: transparent; box-shadow: none; }
-#app .composer .composer-field { min-height: 44px; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+#app .composer .composer-input-stack { min-height: 44px; border: 0; border-radius: 0; background-color: var(--composer-surface-current); box-shadow: none; }
+#app .composer .composer-field { min-height: 44px; border: 0; border-radius: 0; background: var(--composer-surface-current); box-shadow: none; }
 #app .composer textarea { min-height: 44px; max-height: 88px; padding-block: 0; border-block: 11px solid transparent; font-size: 16px; line-height: 22px; }
 #app .composer :is(.icon-button, .meme-toggle) { color: var(--ink); }
 #app .composer .icon-button { width: 44px; height: 44px; border: 0; background-color: var(--composer-surface-current); }
@@ -451,7 +451,7 @@ html:has(#app :is(.space-invite-overlay,.avatar-source-overlay):not(.is-closing)
 #app .space-access-action { display:grid; place-items:center; height:44px; min-height:44px; min-width:52px; padding:6px 0; font-size:12px; background:transparent; }
 #app .space-access-action[hidden] { display:none; }
 #app .space-access-action span { display:grid; place-items:center; height:32px; padding:0 10px; border-radius:10px; background:var(--accent-soft); }
-#app .composer .composer-input-stack:focus-within, #app .composer .composer-field:has(textarea:focus) { outline:0; box-shadow:none; border:0; background:transparent; border-radius:0; }
+#app .composer .composer-input-stack:focus-within, #app .composer .composer-field:has(textarea:focus) { outline:0; box-shadow:none; border:0; background:var(--composer-surface-current); border-radius:0; }
 #app .composer textarea:focus { outline:0; box-shadow:none; }
 #app .composer textarea:focus-visible { outline:0; box-shadow:inset 0 -1px var(--line-strong); border-radius:0; }
 #app .browser-access-shell .chat-header { grid-template-columns:minmax(0,1fr) 44px 44px; }

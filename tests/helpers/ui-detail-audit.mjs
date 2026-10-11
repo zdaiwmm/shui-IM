@@ -15,7 +15,7 @@ export async function auditUiDetails(page, out) {
     });
   } finally { await reference.close(); }
   const screens = {
-    welcome: '.gateway-intro', create: '.gateway', invite: '#paste-form',
+    welcome: '.gateway-intro', create: '.gateway', profile: '.space-profile-page', invite: '#paste-form',
     corrupt: '.corrupt-vault-panel', recoveryUnlock: '#recovery-code-form',
     migration: '.gateway', binding: '.gateway', appearance: '.appearance-page',
     autoLock: '.auto-lock-page', notificationCopy: '.notification-copy-page',
@@ -42,7 +42,8 @@ export async function auditUiDetails(page, out) {
         payload:{v:1,kind:'text',text:'合成验收消息 '+i,sentAt:'2026-10-10T02:00:00Z'},status:'delivered'}]));
       document.body.className='app-mode';app.renderChat();
       const root=app.root, signal=app.runtimeAbort.signal;
-      const simple={welcome:'renderFirstRun',create:'renderCreate',invite:'renderPasteInvite',corrupt:'renderCorruptVault',recoveryUnlock:'renderRecoveryUnlock',migration:'renderPlatformMigration',binding:'renderRecoveredVaultBinding',appearance:'renderAppearanceSettings',autoLock:'renderAutoLockSettings',notificationCopy:'renderNotificationCopy',recovery:'renderRecoveryCenter',joint:'renderJointRecovery',help:'renderFeatureHelp',history:'renderReleaseHistory',practice:'renderCoverPractice',entrance:'renderEntranceCard'};
+      if(name==='create') { app.renderCreateProtection({name:'合成空间',avatar:{v:1,kind:'emoji',emoji:'1f60a',background:0}}); return; }
+      const simple={welcome:'renderFirstRun',profile:'renderCreate',invite:'renderPasteInvite',corrupt:'renderCorruptVault',recoveryUnlock:'renderRecoveryUnlock',migration:'renderPlatformMigration',binding:'renderRecoveredVaultBinding',appearance:'renderAppearanceSettings',autoLock:'renderAutoLockSettings',notificationCopy:'renderNotificationCopy',recovery:'renderRecoveryCenter',joint:'renderJointRecovery',help:'renderFeatureHelp',history:'renderReleaseHistory',practice:'renderCoverPractice',entrance:'renderEntranceCard'};
       if(simple[name]) { app[simple[name]](); return; }
       if(name==='backupExport'||name==='backupImport'||name==='historyCode') {
         app.renderLocalHistoryBackup(name==='backupExport'?'export':'import');

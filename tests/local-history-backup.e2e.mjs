@@ -147,7 +147,7 @@ try {
       };
     };
 
-    app.renderCreate(); const create = read();
+    app.renderCreateProtection({ name: '合成空间', avatar: { v: 1, kind: 'emoji', emoji: '1f60a', background: 0 } }); const create = read();
     app.session = null; app.renderFirstRun(null); const welcome = read();
     app.session = session; app.runtimeAbort = new AbortController(); app.privacyCovered = false;
     app.renderRecoveryCenter();
