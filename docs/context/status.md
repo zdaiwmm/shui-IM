@@ -4,6 +4,7 @@
 
 - 本任务独占 `codex/space-list-navigation-prototype-20261011`，从实时 main `80499feddc6ed8234bd9fa24220cdbc6fffe239d` 接续；本机 main 规则来源仍为 `4356531cea264dd01bd9110da90b9ff62cfd7a59`，起始 origin/main 与 GitHub 一致。用户已确认 V1.1，并明确本轮批注直接实施、无需新原型或流程图；详细范围由[需求记录](../requirements/2026-10-11-space-list-navigation/README.md)和 D-058 拥有。
 - 正式代码已实现完整列表、本人私有动态头像／本机图片裁剪、精简创建与即时在线样式、头像顶部入口和无外框输入区。开发中定向单测及 Chromium／WebKit 交互已通过；冻结候选完整门禁、CI 和合并以本任务 PR／交付回执为准，不由代码存在推断。
+- 首次冻结 `395a9f8` 的本机 check:full 构建通过；单测中 10 项既有备份传输检查因 98% 磁盘占用触发 BACKUP_CAPACITY_LOW，完整命令仍为失败。另 4 项浏览器入口数量断言已按新增头像专项更新；不修改容量门禁，完整 CI 另核验。
 - 本次没有生产发布授权；下方生产记录属于之前发布。iPhone／iOS 27／Safari 顶底工具栏、原生相册及双指裁剪仍需真机确认，桌面 WebKit 不替代该证据。
 
 
