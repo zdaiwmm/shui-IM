@@ -20,7 +20,7 @@ const server = createServer(async (request, response) => {
     const bytes = await readFile(path.join(root, file));
     response.writeHead(200, {
       'Content-Type': `${types[path.extname(file)]}; charset=utf-8`, 'Cache-Control': 'no-store',
-      'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+      'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
       'X-Content-Type-Options': 'nosniff',
     });
     response.end(request.method === 'HEAD' ? undefined : bytes);

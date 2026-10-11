@@ -26,12 +26,17 @@
     offline: '<path d="m2 2 20 20M8.5 16.5a5 5 0 0 1 7 0M5 13a10 10 0 0 1 3-2M2 9a16 16 0 0 1 3-2M11 5a16 16 0 0 1 11 4M15 10a10 10 0 0 1 4 3M12 20h.01"/>',
     collapse: '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18m7-12-3 3 3 3"/>',
     edit: '<path d="m16 3 5 5M4 16 16.5 3.5a3.5 3.5 0 0 1 5 5L9 21H3v-6Z"/>',
+    book: '<path d="M12 7v14M3 3h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5v16h-5a4 4 0 0 0-4 2 4 4 0 0 0-4-2H3Z"/>',
+    home: '<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1ZM9 21V12h6v9"/>',
+    image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
   };
   const icon = name => `<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[name] || paths.spaces}</svg>`;
   const circuit = '<svg class="presence-circuit" viewBox="0 0 100 24" aria-hidden="true"><g class="presence-wire"><path d="M0 12H15L23 7 31 17 39 12H40M100 12H85L77 7 69 17 61 12H60"/></g><path class="presence-heart" transform="translate(50 11)" d="M0-5C-5-11-11-7-10-1-9 3-3 7 0 10 3 7 9 3 10-1 11-7 5-11 0-5Z"/></svg>';
   const ui = { main: $('#main-pane'), sidebar: $('#space-sidebar'), frame: $('#preview-viewport'), workspace: $('#workspace'), dialog: $('#operation-dialog') };
   const systemScheme = matchMedia('(prefers-color-scheme: dark)');
   const parameters = new URLSearchParams(location.search);
+  if (parameters.get('text') === '200') document.documentElement.style.fontSize = '32px';
+  $('#preview-credential').value = parameters.get('credential') === 'new' ? 'new' : 'existing';
   if (parameters.get('fullscreen') === '1' || parameters.get('controls') !== '1' && matchMedia('(max-width: 480px)').matches) document.documentElement.dataset.fullscreen = 'true';
   const baseSpaces = () => [
     { id: 'demo-1', name: '晚风', preview: '到家了，今天的晚霞很好看。', unread: 0 },
@@ -44,7 +49,14 @@
   const initialView = parameters.get('view');
   let spaces = baseSpaces(), current = 'demo-1', route = ['chat', 'settings', 'appearance', 'presence', 'autolock', 'devices', 'create'].includes(initialView) ? initialView : 'spaces';
   let stack = route === 'settings' ? ['chat'] : ['appearance', 'presence', 'autolock', 'devices'].includes(route) ? ['chat', 'settings'] : [], desktop = false, sidebarHidden = false, scenario = 'normal', presence = 'capsule', scheme = 'system', theme = 'blue', lockSeconds = 30;
+  if (['light', 'dark'].includes(parameters.get('scheme'))) scheme = parameters.get('scheme');
+  if (['blue', 'green', 'purple', 'apricot'].includes(parameters.get('theme'))) theme = parameters.get('theme');
   let nextId = 7, toastTimer, operationToken = 0, dialogCancel = null, returnFocus = null;
+  const blankCreation = () => ({ name: '', avatar: 'spaces', photo: null, passkeyName: 'Quiet Room · 本机', deviceNote: '', busy: false, message: '', failed: false, photoBusy: false, photoError: '' });
+  let creation = blankCreation(), creationAttempt = 0, photoAttempt = 0;
+  const photoUrls = new Set();
+  const avatarOptions = [['spaces', '默认'], ['heart', '爱心'], ['book', '书本'], ['home', '小屋']];
+  const avatarMarkup = (space, cls = '') => `<span class="space-avatar ${cls}" aria-hidden="true">${space.photo ? `<img src="${escape(space.photo)}" alt="">` : icon(space.avatar || 'spaces')}</span>`;
   const scrollPositions = new Map(), focusPositions = new Map(), drafts = new Map(), chatPages = new Map();
   const spaceById = id => spaces.find(space => space.id === id);
   const selectedSpace = () => spaceById(current);
@@ -64,11 +76,13 @@
   }
   function syncPageEdges() {
     const page = $('.page', ui.main); if (!page) return;
-    const top = $('.page-header', page), bottom = $('.composer, .access-footer', page) || page;
+    const top = $('.page-header', page), bottom = $('.composer, .access-footer, .creation-footer', page) || page;
     const root = document.documentElement;
     root.style.setProperty('--prototype-edge-top', getComputedStyle(top).backgroundColor);
     root.style.setProperty('--prototype-edge-bottom', getComputedStyle(bottom).backgroundColor);
-    $('#preview-fullscreen').href = `?fullscreen=1&view=${route}`;
+    const fullPage = new URLSearchParams({ fullscreen: '1', view: route === 'create-access' ? 'create' : route, scheme, theme, credential: $('#preview-credential').value });
+    if (parameters.get('text') === '200') fullPage.set('text', '200');
+    $('#preview-fullscreen').href = `?${fullPage}`;
   }
   function savePosition() {
     const scroll = $('.page-scroll', ui.main);
@@ -80,6 +94,7 @@
     }
   }
   function navigate(next, { replace = false, pop = false, source } = {}) {
+    if (route === 'create-access' && next !== route && creation.busy) { creationAttempt++; creation.busy = false; }
     savePosition();
     if (source && ui.main.contains(source)) {
       const entry = ['setting', 'space', 'action'].find(key => source.dataset[key]);
@@ -89,11 +104,13 @@
     route = next; renderMain(pop);
   }
   function goBack() {
+    if (route === 'create-access') { creationAttempt++; creation.busy = false; }
+    if (route === 'create') { photoAttempt++; creation.photoBusy = false; }
     const next = stack.pop() || (desktop ? 'chat' : route === 'spaces' ? 'chat' : 'spaces');
     navigate(next, { replace: true, pop: true });
   }
   function header(title, options = {}) {
-    return `<header class="page-header">${desktop ? button('显示或收起空间侧栏', 'spaces', 'spaces') : ''}${button('返回', 'back', 'back', 'back-control')}<h1>${escape(title)}</h1><div class="header-actions">${options.actions || ''}</div></header>`;
+    return `<header class="page-header"><div class="header-leading">${desktop ? button('显示或收起空间侧栏', 'spaces', 'spaces') : ''}${button('返回', 'back', 'back', 'back-control')}</div><h1>${escape(title)}</h1><div class="header-actions">${options.actions || ''}</div></header>`;
   }
   function countdown(deadline) {
     const seconds = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
@@ -104,7 +121,7 @@
       const isCurrent = space.id === current;
       const text = space.access === 'restricted' ? '待对方授权' : space.access === 'unprepared' ? '请先在原设备打开此空间' : space.waiting ? `等待对方加入 · 剩余 <span data-countdown="${space.id}">${countdown(space.deadline)}</span>` : `<span class="snapshot-prefix">上次访问 · </span>${escape(space.preview || '暂无本机消息预览')}`;
       const badge = space.unread > 0 ? `<span class="unread-badge" aria-label="${space.unread} 条未读">${space.unread > 99 ? '99+' : space.unread}</span>` : '';
-      return `<div class="space-item ${isCurrent ? 'is-selected' : ''}"><button class="space-main" data-space="${space.id}" aria-current="${isCurrent ? 'true' : 'false'}" aria-label="${escape(space.name)}${isCurrent ? '，当前空间' : ''}${space.access ? '，尚未授权' : ''}"><span class="space-copy"><strong class="space-name">${escape(space.name)}</strong><span class="space-preview ${space.waiting ? 'is-waiting' : ''}">${text}</span></span><span class="space-trailing">${isCurrent ? `<span class="current-mark">${icon('check')}<span>当前</span></span>` : badge || icon('arrow').replace('<svg ', '<svg class="space-chevron" ')}</span></button>${space.authorization ? `<button class="authorization-button" data-authorization="${space.id}" aria-label="查看${escape(space.name)}的浏览器授权请求">授权</button>` : ''}</div>`;
+      return `<div class="space-item ${isCurrent ? 'is-selected' : ''}"><button class="space-main" data-space="${space.id}" aria-current="${isCurrent ? 'true' : 'false'}" aria-label="${escape(space.name)}${isCurrent ? '，当前空间' : ''}${space.access ? '，尚未授权' : ''}">${avatarMarkup(space)}<span class="space-copy"><strong class="space-name">${escape(space.name)}</strong><span class="space-preview ${space.waiting ? 'is-waiting' : ''}">${text}</span></span><span class="space-trailing">${isCurrent ? `<span class="current-mark">${icon('check')}<span>当前</span></span>` : badge || icon('arrow').replace('<svg ', '<svg class="space-chevron" ')}</span></button>${space.authorization ? `<button class="authorization-button" data-authorization="${space.id}" aria-label="查看${escape(space.name)}的浏览器授权请求"><span>授权</span></button>` : ''}</div>`;
     }).join('');
   }
   function listBody() {
@@ -165,15 +182,15 @@
     return `<section class="page">${header(space.name, { actions: button('设置', 'settings', 'settings') })}<div class="access-body">${icon(waiting ? 'spaces' : 'lock')}<h2>${waiting ? '等待对方加入' : restricted ? '此空间尚未授权' : '请先在原设备打开此空间'}</h2><p>${waiting ? '把邀请发给对方后，即可开始聊天。' : restricted ? '获得对方授权后，即可在此浏览器聊天。' : '在原设备打开并解锁此空间，完成一次接入准备。'}</p>${waiting ? `<p>剩余 <span data-countdown="${space.id}">${countdown(space.deadline)}</span></p>` : '<p>加入前的历史记录不会同步。</p>'}</div><div class="access-footer">${waiting ? '<button class="primary-button" data-action="invitation">查看邀请</button>' : restricted ? `<button class="primary-button" data-action="request-authorization">${space.requested ? '等待对方授权' : '申请对方授权'}</button>${space.requested ? '<button class="secondary-button" data-action="cancel-request">取消申请</button>' : ''}` : '<button class="secondary-button" data-action="spaces">返回空间列表</button>'}</div></section>`;
   }
   const settingGroups = [
-    [['appearance', '主题外观', 'palette', '#8070b4'], ['presence', '在线状态样式', 'heart', '#c66078'], ['notifications', '通知管理', 'bell', '#d19a42'], ['app', '在应用中打开', 'desktop', '#588eb4']],
-    [['autolock', '自动锁定', 'lock', '#698b76'], ['devices', '设备管理', 'device', '#658ec3'], ['passkey', '通行密钥管理', 'key', '#7a82b2'], ['cover', '遮罩练习', 'cover', '#798593']],
-    [['backup', '备份与恢复', 'backup', '#66928d'], ['export', '导出聊天备份', 'backup', '#699488'], ['restore', '恢复历史记录', 'restore', '#7193a7'], ['recover', '恢复其他空间', 'history', '#9b83a8']],
-    [['releases', '版本记录', 'history', '#87909a']],
+    [['appearance', '主题外观', 'palette', '#617fca'], ['presence', '在线状态样式', 'heart', '#c45271'], ['notifications', '通知管理', 'bell', '#bf5b48'], ['app', '在应用中打开', 'desktop', '#617fca']],
+    [['autolock', '自动锁定', 'lock', '#527e70'], ['devices', '设备管理', 'device', '#527e70'], ['passkey', '通行密钥管理', 'key', '#527e70'], ['cover', '遮罩练习', 'cover', '#a06f33']],
+    [['backup', '备份与恢复', 'backup', '#8766af'], ['export', '导出聊天备份', 'backup', '#8766af'], ['restore', '恢复历史记录', 'restore', '#8766af'], ['recover', '恢复其他空间', 'history', '#8766af']],
+    [['releases', '版本记录', 'history', '#697b8b']],
   ];
   function settingsPage() {
     const value = id => id === 'presence' ? (presence === 'heart' ? '心动按钮' : '在线胶囊') : id === 'autolock' ? (lockSeconds === 0 ? '永不' : lockSeconds < 60 ? `${lockSeconds} 秒` : `${lockSeconds / 60} 分钟`) : '';
     const unavailable = !selectedSpace() || selectedSpace().access;
-    return `<section class="page">${header('设置')}<div class="page-scroll"><div class="content-width"><div class="settings-groups">${settingGroups.map(group => `<div class="settings-card">${group.map(([id, label, glyph, color]) => `<button class="setting-row" data-setting="${id}" ${unavailable && ['devices', 'backup', 'export', 'restore'].includes(id) ? 'disabled title="需先打开已授权空间"' : ''}><span class="setting-icon" style="--setting-color:${color}">${icon(glyph)}</span><span class="setting-label">${label}</span>${value(id) ? `<span class="setting-value">${value(id)}</span>` : ''}${icon('arrow')}</button>`).join('')}</div>`).join('')}</div><p class="settings-context">${!selectedSpace() ? '当前没有已选空间，相关空间操作暂不可用。' : selectedSpace().access ? '此空间尚未授权，相关空间操作暂不可用。' : `空间相关操作作用于「${safeName()}」。`}</p></div></div></section>`;
+    return `<section class="page settings-page">${header('设置')}<div class="page-scroll"><div class="content-width"><div class="settings-groups">${settingGroups.map(group => `<div class="settings-card">${group.map(([id, label, glyph, color]) => `<button class="setting-row" data-setting="${id}" ${unavailable && ['devices', 'backup', 'export', 'restore'].includes(id) ? 'disabled title="需先打开已授权空间"' : ''}><span class="setting-icon" style="--setting-color:${color}">${icon(glyph)}</span><span class="setting-label">${label}</span>${value(id) ? `<span class="setting-value">${value(id)}</span>` : ''}${icon('arrow')}</button>`).join('')}</div>`).join('')}</div><p class="settings-context">${!selectedSpace() ? '当前没有已选空间，相关空间操作暂不可用。' : selectedSpace().access ? '此空间尚未授权，相关空间操作暂不可用。' : `空间相关操作作用于「${safeName()}」。`}</p></div></div></section>`;
   }
   function appearancePage() {
     return `<section class="page">${header('主题外观')}<div class="page-scroll"><div class="content-width"><div class="appearance-sample"><header>聊天效果</header><div><span class="message">今天想换一种颜色。</span><span class="message is-outgoing">就用喜欢的这一种。</span></div></div><h2 class="section-label">明暗模式</h2><fieldset class="choices" aria-label="明暗模式">${[['system', '跟随系统'], ['light', '浅色'], ['dark', '深色']].map(([id, label]) => `<label class="choice"><span>${label}</span><input type="radio" name="scheme" value="${id}" ${scheme === id ? 'checked' : ''}></label>`).join('')}</fieldset><h2 class="section-label">配色</h2><fieldset class="choices" aria-label="配色">${[['blue', '经典', '#a7ca9e'], ['green', '松绿', '#73a895'], ['purple', '雾紫', '#b2a0c7'], ['apricot', '暖杏', '#cfb392']].map(([id, label, swatch]) => `<label class="choice"><i class="palette-dot" style="--swatch:${swatch}" aria-hidden="true"></i><span>${label}</span><input type="radio" name="theme" value="${id}" ${theme === id ? 'checked' : ''}></label>`).join('')}</fieldset><p class="field-hint">当前展示为示例聊天。原型中的选择只在本次演示内生效。</p></div></div></section>`;
@@ -188,10 +205,35 @@
     return `<section class="page">${header('设备管理')}<div class="page-scroll"><div class="content-width"><p class="body-copy">${safeName()}</p><div class="settings-card"><div class="device-row">${icon('device')}<p>iPhone · Safari<small>当前设备 · 示例</small></p></div><div class="device-row">${icon('desktop')}<p>Mac · Safari<small>另一台已授权设备 · 示例</small></p></div></div><p class="field-hint">每人每个空间最多三台独立密钥设备。新增设备不能取得加入前历史。</p></div></div></section>`;
   }
   function createPage() {
-    return `<section class="page">${header('创建私密空间')}<div class="page-scroll"><form class="content-width" id="create-form"><p class="body-copy">给这个空间起个名字，再把邀请发给对方。</p><label class="form-label" for="new-space-name">空间名称</label><input class="text-input" id="new-space-name" name="name" placeholder="例如：周末计划" maxlength="160" autocomplete="off" required><p class="field-hint">名称只对你可见，对方可以使用自己的名称。</p><p class="field-error" id="create-error" role="alert" hidden></p><div class="form-actions"><button class="primary-button" type="submit">创建空间</button></div></form></div></section>`;
+    return `<section class="page creation-page">${header('创建私密空间')}<div class="page-scroll"><form class="content-width creation-form" id="create-form"><div class="profile-editor"><button type="button" class="avatar-edit-button" data-action="choose-avatar" aria-label="设置空间头像">${avatarMarkup(creation, 'avatar-large')}<span class="avatar-edit-mark">${icon('edit')}</span></button><div class="profile-name"><label class="sr-only" for="new-space-name">空间名称</label><input id="new-space-name" name="name" value="${escape(creation.name)}" placeholder="空间名称" maxlength="160" autocomplete="off" enterkeyhint="next" required aria-describedby="space-private-hint create-error"></div></div><p class="field-hint" id="space-private-hint">头像和名称仅自己这一侧可见。</p><p class="field-error" id="avatar-error" role="alert" ${creation.photoError ? '' : 'hidden'}>${escape(creation.photoError)}</p><p class="field-error" id="create-error" role="alert" hidden></p></form></div><footer class="creation-footer"><div><button class="primary-button full-width" type="submit" form="create-form" ${creation.photoBusy ? 'disabled' : ''}>${creation.photoBusy ? '正在读取图片…' : '下一步'}</button></div></footer></section>`;
+  }
+  function createAccessPage() {
+    const existing = $('#preview-credential').value === 'existing';
+    return `<section class="page creation-page">${header('设置通行密钥')}<div class="page-scroll"><form class="content-width creation-form" id="create-access-form" aria-busy="${creation.busy}"><div class="creation-summary">${avatarMarkup(creation)}<div><strong>${escape(creation.name)}</strong><p>新空间</p></div></div>${existing ? `<div class="credential-summary">${icon('key')}<div><strong>使用这台设备已有的通行密钥</strong><p>Quiet Room · 本机</p></div>${icon('check')}</div><p class="field-hint">以后用这把密钥解锁，无需重复创建。</p>` : `<p class="body-copy">用通行密钥保护空间，以后由系统验证身份并解锁。</p><div class="grouped-fields"><div class="grouped-field"><label for="new-passkey-name">密钥名称</label><input id="new-passkey-name" value="${escape(creation.passkeyName)}" maxlength="64" autocomplete="off" required ${creation.busy ? 'disabled' : ''}></div><div class="grouped-field"><label for="new-device-note">设备备注</label><input id="new-device-note" value="${escape(creation.deviceNote)}" placeholder="选填" maxlength="24" autocomplete="off" ${creation.busy ? 'disabled' : ''}></div></div><p class="field-hint">密钥名称会显示在系统中，请勿填写聊天隐私。</p>`}<p class="${creation.failed ? 'field-error' : 'field-hint'}" id="creation-message" role="status" ${creation.message ? '' : 'hidden'}>${escape(creation.message)}</p></form></div><footer class="creation-footer"><div><button class="primary-button full-width" type="submit" form="create-access-form" ${creation.busy ? 'disabled' : ''}>${creation.busy ? '正在模拟创建…' : creation.failed ? '重试创建' : existing ? '确认创建' : '设置通行密钥并创建'}</button></div></footer></section>`;
+  }
+  function positionAvatarSheet() {
+    const rect = ui.main.getBoundingClientRect(), width = Math.min(rect.width, 420);
+    ui.dialog.classList.toggle('is-desktop-sheet', desktop);
+    Object.assign(ui.dialog.style, { width: `${width}px`, maxHeight: `${Math.min(rect.height * .74, 460)}px`, left: `${rect.left + (rect.width - width) / 2}px` });
+    const height = ui.dialog.getBoundingClientRect().height;
+    ui.dialog.style.top = `${desktop ? rect.top + (rect.height - height) / 2 : rect.bottom - height}px`;
+  }
+  function avatarSheet() {
+    openDialog(`<button class="sheet-handle" type="button" data-dialog="cancel" aria-label="下拉或点按关闭头像面板"><span></span></button><div class="sheet-heading"><h2 id="dialog-title">空间头像</h2><button class="icon-button" type="button" data-dialog="cancel" aria-label="关闭头像面板">${icon('close')}</button></div><button type="button" class="photo-library-row" id="choose-photo">${icon('image')}<span>${creation.photo ? '更换图片' : '从相册选择'}</span>${icon('arrow')}</button><input type="file" id="avatar-file" class="sr-only" accept="image/jpeg,image/png,image/webp" tabindex="-1" aria-label="选择空间头像图片"><p class="sheet-section-label">也可以选一个图案</p><div class="avatar-options">${avatarOptions.map(([id, label]) => `<button type="button" class="avatar-choice" data-avatar="${id}" aria-label="${label}头像" aria-pressed="${!creation.photo && creation.avatar === id}"><span>${icon(id)}</span><small>${label}</small></button>`).join('')}</div>${creation.photo ? '<button type="button" class="photo-library-row is-danger" id="remove-photo">移除图片</button>' : ''}<p class="sheet-note">JPG、PNG 或 WebP，最多 5 MB，居中显示。</p>`);
+    ui.dialog.classList.remove('is-simple'); ui.dialog.classList.add('is-avatar-sheet'); positionAvatarSheet();
+    $('#choose-photo', ui.dialog).onclick = () => $('#avatar-file', ui.dialog).click();
+    $('#avatar-file', ui.dialog).onchange = event => { if (event.target.files?.length) { closeDialog(false); choosePhoto(event); } };
+    const refresh = () => { closeDialog(false); renderMain(); $('[data-action="choose-avatar"]')?.focus({ preventScroll: true }); };
+    ui.dialog.querySelectorAll('[data-avatar]').forEach(control => { control.onclick = () => { discardPhoto(); creation.avatar = control.dataset.avatar; creation.photoError = ''; refresh(); }; });
+    $('#remove-photo', ui.dialog)?.addEventListener('click', () => { discardPhoto(); creation.photoError = ''; refresh(); });
+    const handle = $('.sheet-handle', ui.dialog); let startY = null, distance = 0;
+    handle.onpointerdown = event => { startY = event.clientY; distance = 0; handle.setPointerCapture(event.pointerId); };
+    handle.onpointermove = event => { if (startY === null || desktop) return; distance = Math.max(0, event.clientY - startY); ui.dialog.style.transform = `translateY(${distance}px)`; };
+    handle.onpointerup = () => { startY = null; if (distance > 60) closeDialog(); else ui.dialog.style.transform = ''; };
+    handle.onpointercancel = () => { startY = null; ui.dialog.style.transform = ''; };
   }
   function renderMain(pop = false) {
-    const pages = { spaces: () => listPage(), chat: chatPage, settings: settingsPage, appearance: appearancePage, presence: presencePage, autolock: autolockPage, devices: devicesPage, create: createPage };
+    const pages = { spaces: () => listPage(), chat: chatPage, settings: settingsPage, appearance: appearancePage, presence: presencePage, autolock: autolockPage, devices: devicesPage, create: createPage, 'create-access': createAccessPage };
     if (desktop && route === 'spaces') route = 'chat';
     const body = (pages[route] || pages.chat)();
     if (typeof body === 'string') ui.main.innerHTML = body; else ui.main.replaceChildren(body);
@@ -200,8 +242,16 @@
     const scroll = $('.page-scroll', ui.main);
     if (scroll) scroll.scrollTop = scrollPositions.get(`${current}:${route}`) ?? (route === 'chat' ? scroll.scrollHeight : 0);
     if (route === 'spaces') bindList(ui.main);
-    if (route === 'create') $('#create-form').addEventListener('submit', createSpace);
-    ui.main.setAttribute('aria-label', { spaces: '私密空间', chat: '聊天', settings: '设置', appearance: '主题外观', presence: '在线状态样式', autolock: '自动锁定', devices: '设备管理', create: '创建私密空间' }[route]);
+    if (route === 'create') {
+      $('#create-form').addEventListener('submit', createSpace);
+      $('#new-space-name').addEventListener('input', event => { creation.name = event.target.value; $('#create-error').hidden = true; event.target.removeAttribute('aria-invalid'); });
+    }
+    if (route === 'create-access') {
+      $('#create-access-form').addEventListener('submit', confirmCreation);
+      $('#new-passkey-name')?.addEventListener('input', event => { creation.passkeyName = event.target.value; });
+      $('#new-device-note')?.addEventListener('input', event => { creation.deviceNote = event.target.value; });
+    }
+    ui.main.setAttribute('aria-label', { spaces: '私密空间', chat: '聊天', settings: '设置', appearance: '主题外观', presence: '在线状态样式', autolock: '自动锁定', devices: '设备管理', create: '创建私密空间', 'create-access': '设置通行密钥' }[route]);
     syncPageEdges();
     const focus = pop ? $(focusPositions.get(`${current}:${route}`) || 'h1', ui.main) : $('h1', ui.main);
     if (focus) { if (focus.matches('h1')) focus.tabIndex = -1; focus.focus({ preventScroll: true }); }
@@ -239,6 +289,7 @@
     if (ui.dialog.open) closeDialog(false);
     returnFocus = document.activeElement; operationToken++; dialogCancel = onCancel;
     ui.dialog.className = 'operation-dialog'; ui.dialog.removeAttribute('style'); ui.dialog.innerHTML = content;
+    ui.dialog.classList.toggle('is-simple', !ui.dialog.querySelector('.text-input, .dialog-action-list'));
     ui.dialog.showModal(); return operationToken;
   }
   function closeDialog(cancel = true) {
@@ -272,16 +323,60 @@
   }
   function createSpace(event) {
     event.preventDefault(); const name = validName($('#new-space-name').value);
-    if (!name) { $('#create-error').hidden = false; $('#create-error').textContent = '请输入 1–40 个字符的名称，不含控制字符。'; return; }
-    verifyDialog({ name }, () => {
-      const space = { id: `demo-${nextId++}`, name, waiting: true, deadline: Date.now() + 60 * 60 * 1000, unread: 0 };
-      spaces.push(space); stack = []; route = desktop ? 'chat' : 'spaces'; renderSidebar(); renderMain(); invitationDialog(space);
-    }, '创建空间');
+    if (!name) { $('#create-error').hidden = false; $('#create-error').textContent = '请输入 1–40 个字符的名称，不含控制字符。'; $('#new-space-name').setAttribute('aria-invalid', 'true'); $('#new-space-name').focus(); return; }
+    if (creation.photoBusy) return;
+    creation.name = name; creation.message = ''; creation.failed = false;
+    navigate('create-access');
+  }
+  function discardPhoto() {
+    photoAttempt++; creation.photoBusy = false;
+    if (creation.photo) { URL.revokeObjectURL(creation.photo); photoUrls.delete(creation.photo); creation.photo = null; }
+  }
+  async function choosePhoto(event) {
+    const file = event.target.files?.[0]; if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      creation.photoError = '请选择不超过 5 MB 的 JPG、PNG 或 WebP 图片。'; renderMain(); return;
+    }
+    const token = ++photoAttempt, owner = creation, url = URL.createObjectURL(file);
+    creation.photoBusy = true; creation.photoError = ''; renderMain();
+    try {
+      const image = new Image(); image.src = url; await image.decode();
+      if (token !== photoAttempt || creation !== owner) { URL.revokeObjectURL(url); return; }
+      if (creation.photo) { URL.revokeObjectURL(creation.photo); photoUrls.delete(creation.photo); }
+      creation.photo = url; photoUrls.add(url);
+    } catch {
+      URL.revokeObjectURL(url);
+      if (token !== photoAttempt || creation !== owner) return;
+      creation.photoError = '无法读取这张图片，请换一张重试。';
+    }
+    if (token !== photoAttempt || creation !== owner) return;
+    creation.photoBusy = false;
+    if (route === 'create') { renderMain(); $('[data-action="choose-avatar"]')?.focus({ preventScroll: true }); }
+  }
+  function confirmCreation(event) {
+    event.preventDefault(); if (creation.busy || !validName(creation.name)) return;
+    if ($('#preview-credential').value === 'new' && !creation.passkeyName.trim()) {
+      creation.message = '请填写便于在系统中辨认的通行密钥名称。'; renderMain(); return;
+    }
+    const token = ++creationAttempt, outcome = creation.failed ? 'success' : $('#preview-result').value;
+    creation.busy = true; creation.message = ''; renderMain();
+    setTimeout(() => {
+      if (token !== creationAttempt || route !== 'create-access') return;
+      creation.busy = false;
+      if (outcome === 'cancel' || outcome === 'error') {
+        creation.failed = outcome === 'error';
+        creation.message = outcome === 'cancel' ? '已取消，空间资料已保留。可以返回修改或重新尝试。' : '模拟验证未完成，空间资料已保留。请重试。';
+        renderMain(); return;
+      }
+      const space = { id: `demo-${nextId++}`, name: creation.name, avatar: creation.avatar, photo: creation.photo, waiting: true, deadline: Date.now() + 60 * 60 * 1000, unread: 0 };
+      spaces.push(space); creation = blankCreation(); $('#preview-credential').value = 'existing';
+      stack = []; route = desktop ? 'chat' : 'spaces'; renderSidebar(); renderMain(); invitationDialog(space);
+    }, 500);
   }
   function invitationDialog(space = selectedSpace()) {
     if (!space) return;
     openDialog(`<h2 id="dialog-title">邀请对方加入</h2><p>${escape(space.name)}</p><div class="invitation-code">DEMO · ONLY</div><p>这是演示邀请，不能用于真实接入。关闭后，待加入空间会保留在列表中。</p><div class="dialog-actions"><button class="secondary-button" data-dialog="cancel">返回空间列表</button><button class="primary-button" id="copy-demo">复制演示邀请</button></div>`, () => { route = desktop ? 'chat' : 'spaces'; stack = []; renderSidebar(); renderMain(); });
-    ui.dialog.classList.add('is-invitation');
+    ui.dialog.classList.remove('is-simple'); ui.dialog.classList.add('is-invitation');
     positionInvitation();
     $('#copy-demo').onclick = async () => {
       try { await navigator.clipboard.writeText('Quiet Room 原型演示，不可用于接入：DEMO-ONLY'); toast('已复制演示文字'); }
@@ -327,6 +422,7 @@
       case 'spaces': if (desktop) { sidebarHidden = !sidebarHidden; ui.workspace.classList.toggle('is-sidebar-hidden', sidebarHidden); } else navigate('spaces', { source: target }); break;
       case 'settings': navigate('settings', { source: target }); break;
       case 'create': navigate('create', { source: target }); break;
+      case 'choose-avatar': avatarSheet(); break;
       case 'preview-chat': navigate('chat', { source: target }); break;
       case 'safe-preview': toast('保险箱入口保留，本原型不展示私密内容'); break;
       case 'tools-preview': toast('聊天工具不在本次导航原型范围内'); break;
@@ -347,6 +443,10 @@
     if (input.name === 'presence') { presence = input.value; }
     if (input.name === 'autolock') { lockSeconds = Number(input.value); }
   });
+  $('#preview-credential').addEventListener('change', () => {
+    creationAttempt++; creation.busy = false; creation.message = ''; creation.failed = false;
+    if (route === 'create-access') renderMain();
+  });
   $('#preview-scheme').addEventListener('change', event => { scheme = event.target.value; applyScheme(); if (route === 'appearance') { savePosition(); renderMain(); } });
   systemScheme.addEventListener('change', applyScheme);
   function refreshSize() {
@@ -354,6 +454,7 @@
     if (next !== desktop) { savePosition(); desktop = next; renderSidebar(); renderMain(); }
     $('#preview-caption').textContent = desktop ? '桌面 · 280px 可收起侧栏 + 独立设置内容区' : '手机 · 独立空间列表页';
     if (ui.dialog.open && ui.dialog.classList.contains('is-invitation')) positionInvitation();
+    if (ui.dialog.open && ui.dialog.classList.contains('is-avatar-sheet')) positionAvatarSheet();
   }
   function positionInvitation() {
     const rect = ui.frame.getBoundingClientRect(), width = Math.min(rect.width - 2, 520), height = Math.min(rect.height - 24, Math.max(300, rect.height * .52));
@@ -361,10 +462,27 @@
   }
   $('#preview-size').addEventListener('change', event => { ui.frame.dataset.size = event.target.value; refreshSize(); });
   new ResizeObserver(refreshSize).observe(ui.frame);
+  // Match the P1 prototype's visible viewport ownership for the mobile keyboard.
+  let viewportFrame = 0;
+  function syncVisibleViewport() {
+    cancelAnimationFrame(viewportFrame);
+    viewportFrame = requestAnimationFrame(() => {
+      const viewport = window.visualViewport;
+      document.documentElement.style.setProperty('--prototype-visible-height', `${viewport?.height || innerHeight}px`);
+      document.documentElement.style.setProperty('--prototype-visible-top', `${viewport?.offsetTop || 0}px`);
+      if (ui.dialog.open && ui.dialog.classList.contains('is-avatar-sheet')) positionAvatarSheet();
+    });
+  }
+  window.visualViewport?.addEventListener('resize', syncVisibleViewport, { passive: true });
+  window.visualViewport?.addEventListener('scroll', syncVisibleViewport, { passive: true });
+  window.addEventListener('resize', syncVisibleViewport, { passive: true });
+  syncVisibleViewport();
   function setScenario(value) {
     refreshSize();
+    creationAttempt++; photoAttempt++; photoUrls.forEach(url => URL.revokeObjectURL(url)); photoUrls.clear(); creation = blankCreation();
     closeDialog(false); scenario = value; spaces = baseSpaces(); current = 'demo-1'; stack = []; chatPages.clear(); scrollPositions.clear(); focusPositions.clear();
     if (value === 'single') spaces = spaces.slice(0, 1);
+    $('#preview-credential').value = value === 'empty' ? 'new' : 'existing';
     if (value === 'empty') { spaces = []; current = null; }
     if (value === 'long') { spaces[0].name = '一个用来测试长名称在窄屏上如何显示的私密空间'; spaces[1].name = '关于下一个假期的所有小小计划和临时想法'; spaces[1].unread = 136; }
     if (value === 'expired') spaces.forEach(space => { space.authorization = false; });
