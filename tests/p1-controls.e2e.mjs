@@ -60,6 +60,30 @@ try {
   await page.evaluate(() => window.fixture.app.showNotice('合成错误提示', 'error'));
   await page.clock.runFor(2601); assert.equal(await page.locator('#notice').isVisible(), true);
   await page.clock.runFor(2540); assert.equal(await page.locator('#notice').isVisible(), false);
+  await page.evaluate(() => window.fixture.app.showNotice('优先保留的错误','error'));
+  await page.clock.runFor(200);
+  await page.evaluate(() => window.fixture.app.showNotice('后续操作结果'));
+  assert.equal(await page.locator('#notice').textContent(),'优先保留的错误');
+  await page.clock.runFor(5100);
+  assert.equal(await page.locator('#notice').textContent(),'后续操作结果','ordinary action feedback is queued, never dropped');
+  await page.evaluate(() => {
+    window.fixture.app.showNotice('错误','error');
+  });
+  await page.clock.runFor(200);
+  await page.evaluate(() => {
+    window.fixture.app.showNotice('不得在遮蔽后出现'); window.fixture.app.obscurePrivacySurface();
+  });
+  assert.equal(await page.evaluate(()=>window.fixture.app.queuedNotice),null,'privacy clears queued content synchronously');
+  await page.evaluate(()=>window.fixture.app.revealPrivacySurface());
+  await page.evaluate(()=>{
+    const app=window.fixture.app; app.session=null; app.privacyCovered=true; app.renderFirstRun(null);
+    app.showNotice('公开页面错误','error');
+  });
+  await page.clock.runFor(200);
+  await page.evaluate(()=>window.fixture.app.showNotice('公开页面后续结果'));
+  await page.clock.runFor(5100);
+  assert.equal(await page.locator('.notice.is-visible').textContent(),'公开页面后续结果','public pages also retain queued feedback');
+  await page.evaluate(()=>window.fixture.fresh(0));
 
   await page.locator('#open-chat-tools').focus();
   await page.clock.runFor(399); assert.equal(await page.locator('[role="tooltip"]').count(), 0);

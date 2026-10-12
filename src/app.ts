@@ -631,6 +631,7 @@ export class QuietRoomApp {
   private composerSelection: { start: number; end: number } | null = null;
   private noticeTimer: number | null = null;
   private noticeRemovalTimer: number | null = null;
+  private queuedNotice: { message: string; notice: HTMLElement; surface: Element | null; epoch: number } | null = null;
   private cancelPageTransition: (() => void) | null = null;
   private preferenceSaveTimer: number | null = null;
   private preferenceSaveChain: Promise<void> = Promise.resolve();
@@ -1268,6 +1269,7 @@ export class QuietRoomApp {
   }
 
   private showPrivacyCurtain(): void {
+    this.queuedNotice = null;
     document.documentElement.classList.add('privacy-obscured');
     this.root.setAttribute('aria-hidden', 'true');
   }
@@ -13617,7 +13619,12 @@ export class QuietRoomApp {
       : this.root.querySelector<HTMLElement>('.image-viewer:not(.is-closing) [data-viewer-notice]')
       ?? this.root.querySelector<HTMLElement>('#notice')
       ?? this.ensureAppToast();
-    if (tone === 'info' && notice.dataset.tone === 'error' && notice.classList.contains('is-visible') && !notice.hidden) return;
+    if (tone === 'info' && notice.dataset.tone === 'error' && notice.classList.contains('is-visible') && !notice.hidden) {
+      if (!document.hidden && this.root.getAttribute('aria-hidden') !== 'true')
+        this.queuedNotice = { message, notice, surface: this.root.lastElementChild, epoch: this.runtimeEpoch };
+      return;
+    }
+    this.queuedNotice = null;
     if (this.noticeTimer !== null) window.clearTimeout(this.noticeTimer);
     if (this.noticeRemovalTimer !== null) window.clearTimeout(this.noticeRemovalTimer);
     notice.hidden = false;
@@ -13647,6 +13654,10 @@ export class QuietRoomApp {
         if (notice.textContent === message && !notice.classList.contains('is-visible')) notice.hidden = true;
         notice.classList.remove('is-leaving');
         this.noticeRemovalTimer = null;
+        const queued = this.queuedNotice; this.queuedNotice = null;
+        if (queued && queued.notice === notice && notice.isConnected && queued.epoch === this.runtimeEpoch
+          && queued.surface === this.root.lastElementChild && !document.hidden
+          && this.root.getAttribute('aria-hidden') !== 'true') this.showNotice(queued.message);
       }, motion.menuOut);
       this.noticeTimer = null;
     }, tone === 'error' ? 5000 : 2600);
@@ -13949,6 +13960,7 @@ export class QuietRoomApp {
     this.cancelPageTransition?.();
     this.noticeTimer = null;
     this.noticeRemovalTimer = null;
+    this.queuedNotice = null;
     this.cancelPageTransition = null;
     document.getElementById('app-toast')?.remove();
     if (this.viewerKeyHandler) document.removeEventListener('keydown', this.viewerKeyHandler);

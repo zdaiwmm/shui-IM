@@ -109,6 +109,10 @@ export async function auditUiDetails(page, out) {
         assert.equal(result.overflow,false,`${name}/${scheme}/${width}: horizontal overflow`);
         assert.ok(result.glass.every(value=>value==='none'),`${name}: decorative glass`);
         assert.ok(result.headings.every(value=>value<=26),`${name}: legacy heading size`);
+        const helpers=await page.locator('#app .field-hint,#app .privacy-note,#app .space-style-copy small,#app .space-presence-note,#app .chat-guide > small,#app .device-toolbar span,#app .notification-capability > span')
+          .evaluateAll(nodes=>nodes.filter(node=>node.getClientRects().length&&!node.closest('[inert],[hidden],.sr-only')&&getComputedStyle(node).visibility==='visible')
+            .map(node=>({role:node.className,size:parseFloat(getComputedStyle(node).fontSize)})));
+        assert.ok(helpers.every(value=>value.size>=12),`${name}: readable helper roles ${JSON.stringify(helpers)}`);
         if(name==='backupCode') {
           const input=await page.locator('#local-restore-code').evaluate(e=>({radius:getComputedStyle(e).borderRadius,background:getComputedStyle(e).backgroundColor,font:getComputedStyle(e).fontSize,height:e.clientHeight}));
           assert.equal(input.radius,'12px');assert.equal(input.font,'16px');assert.ok(input.height>=86);assert.notEqual(input.background,'rgb(255, 255, 255)');

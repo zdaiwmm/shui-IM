@@ -31,6 +31,7 @@
   --outgoing: #e0ffc6;
   --on-accent: #18231c;
   --message-time: #67726b;
+  --message-time-on-wall: var(--ink);
   --message-time-outgoing: #3c783b;
   --danger: oklch(50% .18 28);
   --danger-fill: #be3730;
