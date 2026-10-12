@@ -6,6 +6,12 @@
   --radius-control: 12px;
   --radius-surface: 16px;
   --radius-bubble: 16px;
+  --line-subtle: color-mix(in srgb, var(--line) 45%, transparent);
+  --space-field: 12px;
+  --space-group: 24px;
+  --sheet-inset: 20px;
+  --touch-target: 44px;
+  --media-status-height: 32px;
   --subpage-header-height: calc(52px + env(safe-area-inset-top));
   --paper: #f2f5f1;
   --paper-pure: #fff;
@@ -25,6 +31,7 @@
   --outgoing: #e0ffc6;
   --on-accent: #18231c;
   --message-time: #67726b;
+  --message-time-on-wall: var(--ink);
   --message-time-outgoing: #3c783b;
   --danger: oklch(50% .18 28);
   --danger-fill: #be3730;
@@ -89,3 +96,14 @@
     --wall-pattern-color: #9d6ca8;
     --shadow: 0 8px 28px #0006;
   }
+
+:root {
+  --success: #246b45; --success-soft: #e8f4eb;
+  --warning: #875a08; --warning-soft: #fff4d6;
+  --info: #245ea8; --info-soft: #edf4ff;
+}
+:root[data-color-scheme='dark'] {
+  --success: #86d5a0; --success-soft: #173b26;
+  --warning: #ffd27a; --warning-soft: #3d2d12;
+  --info: #9fc6ff; --info-soft: #192c45;
+}

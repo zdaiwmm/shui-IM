@@ -109,6 +109,10 @@ export async function auditUiDetails(page, out) {
         assert.equal(result.overflow,false,`${name}/${scheme}/${width}: horizontal overflow`);
         assert.ok(result.glass.every(value=>value==='none'),`${name}: decorative glass`);
         assert.ok(result.headings.every(value=>value<=26),`${name}: legacy heading size`);
+        const helpers=await page.locator('#app .field-hint,#app .privacy-note,#app .space-style-copy small,#app .space-presence-note,#app .chat-guide > small,#app .device-toolbar span,#app .notification-capability > span')
+          .evaluateAll(nodes=>nodes.filter(node=>node.getClientRects().length&&!node.closest('[inert],[hidden],.sr-only')&&getComputedStyle(node).visibility==='visible')
+            .map(node=>({role:node.className,size:parseFloat(getComputedStyle(node).fontSize)})));
+        assert.ok(helpers.every(value=>value.size>=12),`${name}: readable helper roles ${JSON.stringify(helpers)}`);
         if(name==='backupCode') {
           const input=await page.locator('#local-restore-code').evaluate(e=>({radius:getComputedStyle(e).borderRadius,background:getComputedStyle(e).backgroundColor,font:getComputedStyle(e).fontSize,height:e.clientHeight}));
           assert.equal(input.radius,'12px');assert.equal(input.font,'16px');assert.ok(input.height>=86);assert.notEqual(input.background,'rgb(255, 255, 255)');
@@ -138,6 +142,15 @@ export async function auditUiDetails(page, out) {
         if(name==='info') {
           assert.ok((await page.locator('.message-info-stages li').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height))).every(h=>h<=41));
           assert.ok((await page.locator('.message-info-panel').boundingBox()).height<490);
+        }
+        if (['passwordOperation','jointCode','historyCode','backupPrivacy','info'].includes(name)) {
+          const sheet = await page.locator('[data-sheet-panel]').evaluate(panel => ({
+            inset: getComputedStyle(panel).paddingLeft,
+            border: getComputedStyle(panel).borderTopWidth,
+            handle: panel.querySelector('.half-sheet-handle')?.getBoundingClientRect().height,
+            closeIcons: panel.querySelectorAll('button svg.lucide-x').length,
+          }));
+          assert.deepEqual(sheet,{inset:'20px',border:'0px',handle:44,closeIcons:0},`${name}: shared sheet frame`);
         }
         if(name==='passwordOperation') {
           const rect=await page.locator('.password-form').boundingBox();assert.ok(Math.abs(rect.y+rect.height-700)<1,'half sheet must meet the viewport bottom');
@@ -179,7 +192,33 @@ export async function auditUiDetails(page, out) {
   await page.emulateMedia({reducedMotion:'no-preference'});await setup('menu');
   await page.evaluate(()=>window.app.closeMessageActions());
   const exits=await page.locator('.message-actions.is-closing,.message-actions-backdrop.is-closing').evaluateAll(es=>es.map(e=>getComputedStyle(e).transitionDuration));
-  assert.ok(exits.length===2&&exits.every(value=>value.split(',').every(time=>parseFloat(time)===.14)),`menu exit: ${exits}`);
+  assert.ok(exits.length===2&&exits.every(value=>value.split(',').every(time=>parseFloat(time)===.24)),`V1.4 menu exit: ${exits}`);
+  await page.locator('.message-actions').waitFor({state:'detached'});
+  // Sample the real three-part overlay every frame, including a reversed
+  // close. Every visual part must inherit the same translation and velocity.
+  await setup('menu'); await page.evaluate(()=>window.app.closeMessageActions());
+  await page.locator('.message-actions').waitFor({state:'detached'});
+  const samples=await page.evaluate(async()=>{
+    const app=window.app, row=document.querySelector('.message:last-of-type');
+    const message=[...app.messages.values()].at(-1);
+    app.openMessageActions(row,message);
+    const result=[];
+    for(let i=0;i<30;i++) {
+      await new Promise(requestAnimationFrame);
+      const group=document.querySelector('.message-action-group'); if(!group)break;
+      const y=selector=>group.querySelector(selector)?.getBoundingClientRect().top;
+      result.push({preview:y('.message-action-preview'),picker:y('.message-reaction-picker'),menu:y('.message-action-list')});
+      if(i===7)app.closeMessageActions();
+    }
+    return result;
+  });
+  assert.ok(samples.length>10,'preview travels over multiple rendered frames');
+  for(const part of ['picker','menu']) {
+    const offsets=samples.map(sample=>sample[part]-sample.preview);
+    assert.ok(offsets.every(value=>Math.abs(value-offsets[0])<.1),`${part}: whole group moves together`);
+  }
+  assert.ok(samples.some((sample,i)=>i>0&&Math.abs(sample.preview-samples[i-1].preview)>.1),'bottom message must actually travel');
+  assert.ok(samples.every((sample,i)=>i===0||Math.abs(sample.preview-samples[i-1].preview)<100),'no teleport frame during reversal');
   await page.locator('.message-actions').waitFor({state:'detached'});
   await setup('tools');await page.locator('#message-input').fill('第一行\n第二行\n第三行');
   const transitions=await page.locator('.composer-input-stack,.composer-field').evaluateAll(es=>es.map(e=>({property:getComputedStyle(e).transitionProperty,duration:getComputedStyle(e).transitionDuration})));

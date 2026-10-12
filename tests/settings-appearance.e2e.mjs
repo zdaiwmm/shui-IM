@@ -132,7 +132,7 @@ try {
       app.openMessageActions(article, message);
     });
     await page.clock.runFor(300);
-    await page.waitForFunction(() => getComputedStyle(document.querySelector('.message-action-list')).transform === 'none');
+    await page.waitForFunction(() => document.querySelector('.message-action-group').getAnimations().every(animation=>animation.playState!=='running'));
     assert.deepEqual(await page.locator('.message-action-list > button').evaluateAll(nodes => nodes.map(node => node.dataset.messageAction)), ['reply', 'info', 'copy', 'delete', 'select']);
     const menu = await page.locator('.message-action-list').evaluate(node => ({ filter: getComputedStyle(node).backdropFilter,
       background: getComputedStyle(node).backgroundColor, targets: [...node.querySelectorAll('button')].map(button => button.getBoundingClientRect().height) }));
@@ -168,7 +168,7 @@ try {
       app.openMessageActions(document.querySelector('[data-client-msg-id="visual-18"]'), app.messages.get(18));
     });
     await page.clock.runFor(300);
-    await page.waitForFunction(() => getComputedStyle(document.querySelector('.message-action-list')).transform === 'none');
+    await page.waitForFunction(() => document.querySelector('.message-action-group').getAnimations().every(animation=>animation.playState!=='running'));
     const placements = await page.evaluate(() => ['.message-reaction-picker', '.message-action-preview', '.message-action-list'].map(selector => {
       const rect = document.querySelector(selector).getBoundingClientRect(); return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
     }));

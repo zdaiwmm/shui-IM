@@ -1163,8 +1163,8 @@ try {
       input.focus({ preventScroll: true });
       await waitForComposerReveal();
       const focused = assertSurfaceSet(`${scheme} focused`, 1);
-      if (focused.input.backgroundColor === idle.input.backgroundColor) {
-        throw Error(`${scheme} focused composer surface did not reach its focus token`);
+      if (focused.input.backgroundColor !== idle.input.backgroundColor) {
+        throw Error(`${scheme} focus repainted the shared composer surface`);
       }
       document.querySelector('#open-chat-tools').disabled = true;
       const disabled = assertSurfaceSet(`${scheme} disabled actions`, 1);

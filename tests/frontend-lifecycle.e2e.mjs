@@ -525,7 +525,9 @@ try {
     app.openMessageActions(document.querySelector('[data-client-msg-id="message-1"]'), source);
   });
   await page.locator('.message-actions.is-visible').waitFor();
-  await page.waitForTimeout(200);
+  await page.evaluate(async () => {
+    await Promise.allSettled(document.getAnimations().filter(animation=>animation.effect?.getTiming().iterations!==Infinity).map(animation=>animation.finished));
+  });
   results.longMessageActions = await page.evaluate(() => {
     const rect = selector => {
       const { left, right, top, bottom, width, height } = document.querySelector(selector).getBoundingClientRect();
@@ -534,7 +536,7 @@ try {
     const picker = rect('.message-reaction-picker');
     const actions = rect('.message-action-list');
     const source = document.querySelector('.message.is-action-source > .message-bubble');
-    const preview = document.querySelector('.message-actions-backdrop .message-action-preview > .message-bubble');
+    const preview = document.querySelector('.message-action-group .message-action-preview > .message-bubble');
     if (!preview || preview.textContent !== source.textContent) throw Error('Selected text must be copied above the blur layer');
     const originalRect = source.getBoundingClientRect();
     const previewRect = preview.getBoundingClientRect();
@@ -553,14 +555,14 @@ try {
     const source = document.querySelector('.message.is-action-source');
     const bubble = source.querySelector('.message-bubble');
     const backdrop = document.querySelector('.message-actions-backdrop');
-    const preview = backdrop.querySelector('.message-action-preview');
+    const preview = document.querySelector('.message-action-group .message-action-preview');
     window.regression.app.closeMessageActions();
     let frames = 0;
     const started = performance.now();
     while (performance.now() - started < 380) {
       await new Promise(resolve => requestAnimationFrame(resolve));
       const originalVisible = getComputedStyle(bubble).visibility === 'visible';
-      const previewVisible = preview.isConnected && getComputedStyle(preview).visibility === 'visible' && Number(getComputedStyle(backdrop).opacity) >= 0.99;
+      const previewVisible = preview.isConnected && getComputedStyle(preview).visibility === 'visible' && Number(getComputedStyle(preview).opacity) >= 0.99;
       if (!originalVisible && !previewVisible) throw Error('Selected bubble faded out before the original returned');
       frames++;
     }
@@ -1188,7 +1190,7 @@ try {
         app.messages.set(1, { ...outgoing, payload: structuredClone(outgoing.payload), status }); app.renderMessages();
         if (document.querySelector('[data-client-msg-id="message-1"]') !== row || row.querySelector('img') !== media) throw Error('Receipt replaced decoded media or its message row');
         if (getComputedStyle(row).opacity !== initialOpacity || !row.classList.contains(`is-${status}`)) throw Error('Receipt flashed full-message opacity or failed to update status');
-        if (row.querySelectorAll('.message-delivery path').length !== 1) throw Error('Preserved message lost delivery decoration');
+        if (row.querySelectorAll('.message-meta > .media-capsule-content .message-delivery path').length !== 1) throw Error('Preserved message lost delivery decoration');
       }
       row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
       if (document.querySelectorAll('.message-reaction-picker [data-reaction]').length !== 6) throw Error('Retained message actions used the unconfirmed pending sequence');
@@ -1786,7 +1788,7 @@ try {
           || Math.abs(header.getBoundingClientRect().top - 180) > 1) throw Error('Keyboard-open finger movement scrolled history, blurred the draft, or displaced the title');
       }
       for (let index = 0; index < 8; index++) await frame();
-      if (!composer.dataset.viewportMotion || !pointer.defaultPrevented || getComputedStyle(list).touchAction !== 'pan-y') throw Error('Keyboard gesture blocked native vertical scrolling');
+      if (!composer.dataset.viewportMotion || !pointer.defaultPrevented || getComputedStyle(list).touchAction !== 'pan-y pinch-zoom') throw Error('Keyboard gesture blocked native vertical scrolling');
       target.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'touch' }));
       if (document.activeElement !== input) throw Error('Pointer release blurred before the remaining touch ended');
       touch('touchend', []);

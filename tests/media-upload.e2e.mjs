@@ -14,7 +14,7 @@ try {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__media_upload`);
   await page.evaluate(async () => {
-    for (const css of ['styles', 'chat-layout', 'chat-interactions', 'cover', 'memes', 'gallery']) await import(`/src/${css}.css`);
+    await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     const { QuietRoomApp } = await import('/src/app.ts');
     const vault = await import('/src/lib/vault.ts');
     const app = new QuietRoomApp(document.querySelector('#app'));
@@ -124,6 +124,11 @@ try {
     });
     assert.ok(retryRect.layoutWidth >= 44 && retryRect.layoutHeight >= 44
       && retryRect.width >= 44 - 0.001 && retryRect.height >= 44 - 0.001, `${variant}: ${JSON.stringify(retryRect)}`);
+    const statusGeometry = await draft.locator('.media-upload-status').evaluate(status=>({height:status.getBoundingClientRect().height,
+      corners:status.querySelectorAll('.media-upload-cancel').length,
+      retiring:status.querySelectorAll('.media-capsule-retiring').length}));
+    assert.ok(Math.abs(statusGeometry.height-32)<.01,`${variant}: fixed 32px capsule`);
+    assert.equal(statusGeometry.corners,0,'failure has no corner X');
     assert.equal(await draft.getAttribute('data-concealed'), String(!variant.includes('expression') || variant === 'hidden-expression'));
     if (process.argv[2]) {
       await mkdir(process.argv[2], { recursive: true });
@@ -183,8 +188,8 @@ try {
       f.preview = document.querySelector(`[data-client-msg-id="${id}"] .image-preview`);
       f.app.pending.get(id).status = 'stored'; f.app.renderMessages();
       // Capture the animation in the same page task that creates it. Separate
-      // count/evaluate calls can cross its 320ms completion and sample nothing.
-      f.confirmationFade = [...document.querySelectorAll(`[data-client-msg-id="${id}"] .media-status-departing`)]
+      // count/evaluate calls can cross its 180ms completion and sample nothing.
+      f.confirmationFade = [...document.querySelectorAll(`[data-client-msg-id="${id}"] .media-capsule-retiring`)]
         .flatMap(node => node.getAnimations().map(animation => ({ duration: animation.effect.getTiming().duration,
           keyframes: animation.effect.getKeyframes().map(frame => frame.opacity) })));
       return manifests.length;
@@ -193,8 +198,8 @@ try {
     sameSize(uploadBox, await geometry(variant.includes('expression') ? message.locator('.image-preview') : message.locator('.message-bubble')), `${variant} server confirmation`);
     await page.waitForFunction(id => !document.querySelector(`[data-client-msg-id="${id}"] .media-upload-handoff`), id);
     const animation = await page.evaluate(() => window.mediaFixture.confirmationFade);
-    assert.ok(animation.some(item => item.duration === 320 && item.keyframes.join(',') === '1,0'), 'Status fades out instead of vanishing');
-    await page.waitForFunction(id => !document.querySelector(`[data-client-msg-id="${id}"] .media-status-departing`), id);
+    assert.ok(animation.some(item => item.duration === 180 && item.keyframes.join(',') === '1,0'), 'Status fades out instead of vanishing');
+    await page.waitForFunction(id => !document.querySelector(`[data-client-msg-id="${id}"] .media-capsule-retiring`), id);
     for (const revealed of [false, true]) {
       await message.locator('.image-preview').first().evaluate((node, revealed) => { node.dataset.revealed = String(revealed); }, revealed);
       const original = await geometry(message.locator('.message-bubble'));

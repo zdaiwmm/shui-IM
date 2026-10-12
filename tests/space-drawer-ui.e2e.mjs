@@ -12,10 +12,10 @@ try {
     await page.evaluate(async()=>{
       await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
       window.ui = await import('/src/lib/space-drawer.ts');
-      window.mount = () => {
-        window.abort = new AbortController(); window.renamed = ''; window.closed = 0;
+      window.mount = (count=12) => {
+        window.abort?.abort(); window.abort = new AbortController(); window.renamed = ''; window.closed = 0;
         document.body.className='app-mode'; document.querySelector('#app').innerHTML='<main class="chat-shell"><button id="background">聊天背景</button></main>';
-        const spaces = Array.from({length:12},(_,i)=>({roomId:String(i),name:i?'未选中空间 '+i:'两个人的空间',preview:['普通文字预览','[图片]','[视频]','[表情]'][i%4],unread:i===1?105:i===2?3:0}));
+        const spaces = Array.from({length:count},(_,i)=>({roomId:String(i),name:i?'未选中空间 '+i:'两个人的空间',preview:['普通文字预览','[图片]','[视频]','[表情]'][i%4],unread:i===1?105:i===2?3:0}));
         ui.mountSpaceDrawer(document.querySelector('#app'),{spaces,currentRoom:'0',signal:abort.signal,
           actions:Object.entries(ui.spaceIcons).map(([key,icon],i)=>({id:'setting-'+i,label:'设置入口 '+i,icon,group:i<3?'当前空间':i<6?'本机':'关于',run:()=>{}})),
           select:async()=>{},create:async()=>{},rename:async(space,name)=>{window.renamed=name;},styleChanged:style=>{window.style=style;},closed:()=>{window.closed++;}});
@@ -85,6 +85,17 @@ try {
       assert.equal(await page.locator('#background').evaluate(el=>el.closest('[inert]')!==null),false);
     }
     await page.setViewportSize({width:393,height:680});
+    for(const count of [0,3,40]) {
+      await page.evaluate(count=>mount(count),count);
+      await page.locator('.space-drawer-overlay.is-visible').waitFor();
+      const create=page.locator('#space-create'); assert.equal(await create.count(),1);
+      const placement=await create.evaluate(button=>({rect:button.getBoundingClientRect().toJSON(),
+        footer:Boolean(button.closest('.space-drawer-footer')),header:Boolean(button.closest('header')),
+        scrollBottom:document.querySelector('.space-drawer-scroll').getBoundingClientRect().bottom}));
+      assert.ok(placement.footer&&!placement.header&&placement.rect.height>=48&&placement.rect.bottom<=680
+        &&placement.scrollBottom<=placement.rect.top,`${count}: reachable persistent creation ${JSON.stringify(placement)}`);
+    }
+    await page.evaluate(()=>abort.abort());
     await page.evaluate(()=>{
       window.invitesClosed=0; window.inviteAbort=new AbortController();
       ui.mountSpaceInvite(document.querySelector('#app'),{name:'新空间',signal:inviteAbort.signal,content:'<div class="space-invite-body"><h1 id="space-invite-title">邀请对方加入</h1></div><footer class="space-invite-actions"><button>复制邀请链接</button></footer>',closed:()=>{invitesClosed++;}});

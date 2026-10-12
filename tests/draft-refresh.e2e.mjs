@@ -119,7 +119,7 @@ try {
     await a.evaluate(() => { window.draftStateProbe = true; });
     await probe;
     await a.goto(url); await a.locator('#create-room').click(); await completeSpaceProfile(a); await protect(a);
-    await a.locator('#invite-url').waitFor(); await b.goto(await a.locator('#invite-url').inputValue());
+    await a.locator('#copy-invite').waitFor(); await a.locator('#invite-url').waitFor({state:'attached'}); await b.goto(await a.locator('#invite-url').inputValue());
     await b.locator('[data-device-verify]').click(); await protect(b); await ready(a); await ready(b);
 
     // No wait for preferences, debounce, key derivation or IDB after input.
@@ -256,7 +256,7 @@ try {
     assert.ok(!JSON.stringify(opaque).includes('latest from second tab'));
     // Real peer enrollment wins over a delayed invitation-close return.
     await second.locator('#open-spaces').click(); await second.locator('#space-create').click(); await completeSpaceProfile(second,'第二空间'); await protect(second);
-    await second.locator('#invite-url').waitFor(); const nextInvite = await second.locator('#invite-url').inputValue();
+    await second.locator('#copy-invite').waitFor(); await second.locator('#invite-url').waitFor({state:'attached'}); const nextInvite = await second.locator('#invite-url').inputValue();
     await second.evaluate(() => {
       const original = app.openPrivateSpaces.bind(app);
       app.openPrivateSpaces = (guard, scroll) => new Promise(resolve => {

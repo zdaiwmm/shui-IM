@@ -1,5 +1,6 @@
 import { motion, retargetMotion } from './motion';
-import { createElement, X, Search, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize, ArrowDownUp, ArrowLeftRight, Send, List } from 'lucide';
+import { mountDialog } from './dialog';
+import { createElement, X, Search, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Maximize, ArrowDownUp, ArrowLeftRight, Send, List, Settings2 } from 'lucide';
 import type { PdfReader } from './pdf-reader';
 import type { EpubReader } from './epub-reader';
 import { attachDocumentPaging } from './document-paging';
@@ -40,6 +41,8 @@ export class DocumentReader {
   private status: HTMLElement;
   private pageInput: HTMLInputElement;
   private pageCount: HTMLElement;
+  private pageIndicator: HTMLButtonElement;
+  private readerOptions: HTMLElement;
   private query: HTMLInputElement;
   private toolbar: HTMLElement;
   private searchForm: HTMLFormElement;
@@ -153,7 +156,7 @@ export class DocumentReader {
       el.dataset.mode = this.mode;
       const label = this.mode === 'pages' ? '上下滚动' : '左右翻页';
       mode.title = label; mode.setAttribute('aria-label', label);
-      mode.replaceChildren(createElement(this.mode === 'pages' ? ArrowDownUp : ArrowLeftRight));
+      mode.replaceChildren(createElement(this.mode === 'pages' ? ArrowDownUp : ArrowLeftRight),document.createTextNode(label));
       this.screen = 0; this.stage.scrollTo(0, 0); void this.render();
     });
     this.directoryButton = button('章节目录', List, () => this.toggleDirectory());
@@ -161,7 +164,24 @@ export class DocumentReader {
     this.directoryButton.setAttribute('aria-expanded', 'false');
     this.directoryButton.setAttribute('aria-controls', this.directory.id);
     this.directoryButton.setAttribute('aria-haspopup', 'menu');
-    mode.classList.add('reader-mode'); this.toolbar.append(mode, this.directoryButton);
+    mode.classList.add('reader-mode');
+    mode.append(document.createTextNode('上下滚动'));
+    this.readerOptions = document.createElement('div'); this.readerOptions.className = 'reader-options-content'; this.readerOptions.hidden = true;
+    const optionGroup = (label: string, control: Element) => {
+      const group = document.createElement('div'); group.className = 'reader-option-group';
+      const heading = document.createElement('h3'); heading.textContent = label;
+      group.append(heading,control); return group;
+    };
+    this.readerOptions.append(optionGroup('页码',el.querySelector('.reader-paging')!),optionGroup('缩放',el.querySelector('.reader-zoom')!),optionGroup('阅读方式',mode));
+    this.pageIndicator = document.createElement('button'); this.pageIndicator.type = 'button';
+    this.pageIndicator.className = 'reader-page-entry'; this.pageIndicator.textContent = '第 1 页';
+    this.pageIndicator.setAttribute('aria-label','跳转页码'); this.pageIndicator.setAttribute('aria-haspopup','dialog');
+    const settings = button('阅读设置', Settings2, () => this.openOptions(settings));
+    settings.classList.add('reader-footer-link'); settings.append(document.createTextNode('阅读设置'));
+    this.directoryButton.classList.add('reader-footer-link'); this.directoryButton.append(document.createTextNode('目录'));
+    this.pageIndicator.addEventListener('click',()=>this.openOptions(this.pageIndicator,true),{signal:this.signal});
+    this.toolbar.replaceChildren(this.directoryButton,this.pageIndicator,settings);
+    el.append(this.readerOptions);
     el.append(this.directory);
     el.addEventListener('pointerdown', event => {
       if (!this.directory.hidden && !this.directory.contains(event.target as Node) && !this.directoryButton.contains(event.target as Node)) this.toggleDirectory(false, false);
@@ -359,7 +379,7 @@ export class DocumentReader {
     const pages = this.pdf?.pages ?? (this.epub ? this.chapterPages.reduce((sum, count) => sum + count, 0) : this.screens);
     const offset = this.epub ? this.chapterPages.slice(0, this.page - 1).reduce((sum, count) => sum + count, 0) : 0;
     this.pageInput.value = String(this.pdf ? this.page : offset + this.screen + 1);
-    this.pageInput.max = String(pages); this.pageCount.textContent = `/ ${pages}`;
+    this.pageInput.max = String(pages); this.pageCount.textContent = `/ ${pages}`; this.pageIndicator.textContent = `第 ${this.pageInput.value} / ${pages} 页`;
     this.directory.dataset.chapter = String(this.page);
     for (const item of this.directory.querySelectorAll<HTMLElement>('[data-chapter]')) item.setAttribute('aria-current', String(item.dataset.chapter === String(this.page)));
     this.previous.disabled = this.pdf ? this.page <= 1 : this.screen === 0 && (!this.epub || this.page === 1);
@@ -551,6 +571,29 @@ export class DocumentReader {
         if (this.mode === 'pages') { this.content.style.transform = ''; this.screen = Math.floor((mark.getBoundingClientRect().left - pre.getBoundingClientRect().left) / this.stride); this.position(); }
       }
     }
+  }
+
+  private openOptions(origin: HTMLElement, page = false): void {
+    if (this.signal.aborted || this.element.querySelector('.reader-options-sheet:not(.is-closing)')) return;
+    this.toggleDirectory(false,false);
+    const sheet = document.createElement('section'); sheet.className = 'confirm-overlay reader-options-sheet';
+    sheet.setAttribute('role','dialog'); sheet.setAttribute('aria-modal','true'); sheet.setAttribute('aria-label','阅读设置');
+    const panel = document.createElement('div'); panel.className = 'confirm-dialog reader-options-panel';
+    const title = document.createElement('h2'); title.textContent = page ? '跳转页码' : '阅读设置';
+    const done = document.createElement('button'); done.type = 'button'; done.className = 'primary-button'; done.textContent = '完成';
+    this.readerOptions.hidden = false;
+    panel.append(title,this.readerOptions,done); sheet.append(panel); this.element.append(sheet);
+    origin.setAttribute('aria-expanded','true');
+    const dialog = mountDialog(sheet,{presentation:'sheet',signal:this.signal,isActive:()=>!this.signal.aborted,returnFocus:origin,
+      initialFocus:page?this.pageInput:undefined,onClose:()=>{
+        origin.setAttribute('aria-expanded','false');
+        // Retire a noninteractive visual copy while the live controls return
+        // to their hidden owner. Values and renderer references stay mounted.
+        if (!this.signal.aborted) { const clone=this.readerOptions.cloneNode(true) as HTMLElement; clone.inert=true; clone.setAttribute('aria-hidden','true'); this.readerOptions.replaceWith(clone); }
+        this.readerOptions.hidden=true; this.element.append(this.readerOptions);
+      }});
+    done.addEventListener('click',()=>dialog.close(),{signal:this.signal});
+    sheet.addEventListener('click',event=>{if(event.target===sheet)dialog.close();},{signal:this.signal});
   }
 
   destroy(): void {

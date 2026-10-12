@@ -1,5 +1,6 @@
 import { motion, retargetMotion } from './motion';
-import { createElement, Image as ImageIcon, Video, RotateCcw, X } from 'lucide';
+import { transitionMediaCapsule, clearMediaCapsule } from './media-capsule';
+import { createElement, Image as ImageIcon, Video } from 'lucide';
 import { setChatMediaDimensions } from './chat-media-geometry';
 import { readMediaDimensions, type MediaDimensions } from './media-dimensions';
 import { createVideoPoster } from './video-poster';
@@ -21,7 +22,7 @@ export class MediaUploadView {
   private readonly status = document.createElement('div');
   private readonly tile = document.createElement('div');
   private readonly kind: string;
-  private statusMotion: Animation | null = null;
+  private readonly actions = document.createElement('div');
 
   constructor(id: string, files: File[], expression: boolean, autoHide: boolean,
     retry: () => void, remove: () => void, changed: () => void, gif = false) {
@@ -51,18 +52,33 @@ export class MediaUploadView {
     text.append(this.percent, this.label);
     this.retry.type = 'button';
     this.retry.className = 'media-upload-retry';
+    this.retry.setAttribute('aria-label','重试');
     const retryText = document.createElement('span');
-    retryText.textContent = '重试';
-    this.retry.append(createElement(RotateCcw), retryText);
+    retryText.textContent = '· 重试';
+    this.retry.append(retryText);
     this.retry.addEventListener('click', retry);
     this.cancel.type = 'button';
     this.cancel.className = 'media-upload-remove';
     this.cancel.setAttribute('aria-label', `移除未发送的${this.kind}`);
-    this.cancel.append(createElement(X));
+    this.cancel.textContent = '移除未发送媒体';
+    this.cancel.setAttribute('role','menuitem');
     this.cancel.addEventListener('click', remove);
     this.status.append(this.ring, text, this.retry);
-    this.tile.append(previews, this.status, this.cancel);
-    this.element.append(this.tile);
+    this.actions.className = 'media-upload-actions'; this.actions.hidden = true;
+    this.actions.setAttribute('role','menu'); this.actions.setAttribute('aria-label','未发送媒体操作');
+    const dismiss = document.createElement('button'); dismiss.type = 'button'; dismiss.textContent = '取消';
+    dismiss.addEventListener('click', () => { this.actions.hidden = true; });
+    this.actions.append(this.cancel, dismiss);
+    this.tile.append(previews, this.status);
+    this.element.append(this.tile, this.actions);
+    this.element.tabIndex = 0;
+    const showActions = () => { if (this.element.dataset.uploadState === 'failed') { this.actions.hidden = false; this.cancel.focus({preventScroll:true}); } };
+    this.element.addEventListener('contextmenu', event => { if (this.element.dataset.uploadState === 'failed') { event.preventDefault(); showActions(); } });
+    this.element.addEventListener('keydown', event => { if (event.key === 'ContextMenu' || event.key === 'F10' && event.shiftKey) { event.preventDefault(); showActions(); } if (event.key === 'Escape') this.actions.hidden = true; });
+    let hold: ReturnType<typeof setTimeout> | undefined;
+    this.tile.addEventListener('pointerdown', event => { if (!(event.target instanceof Element && event.target.closest('button')) && event.isPrimary && event.button === 0 && this.element.dataset.uploadState === 'failed') hold = setTimeout(showActions,500); },{signal:this.abort.signal});
+    for(const event of ['pointerup','pointercancel','pointermove'])this.tile.addEventListener(event,()=>clearTimeout(hold),{signal:this.abort.signal});
+    this.abort.signal.addEventListener('abort',()=>clearTimeout(hold),{once:true});
     this.update('preparing');
     // Measure before the first timeline insertion, independently of poster/blur
     // generation. Every later state uses these same original dimensions.
@@ -97,23 +113,26 @@ export class MediaUploadView {
 
   update(state: UploadState, ratio = 0): void {
     if (this.abort.signal.aborted) return;
+    const contentChanged = this.element.dataset.uploadState !== state;
+    if (state === 'failed' && this.element.dataset.uploadState !== 'failed') this.element.dataset.failureStage = this.element.dataset.uploadState === 'finishing' ? 'message' : 'upload';
+    if (state !== 'failed') this.actions.hidden = true;
+    transitionMediaCapsule(this.status, () => {
     this.element.dataset.uploadState = state;
     this.status.dataset.state = state;
     const value = Math.round(Math.max(0, Math.min(1, ratio)) * 100);
     this.percent.textContent = `${value}%`;
     this.percent.hidden = state !== 'uploading';
-    const previousLabel = this.label.textContent;
     this.label.textContent = state === 'preparing' ? '准备中' : state === 'finishing' ? '发送中'
-      : state === 'failed' ? '上传失败' : '上传中';
-    if (previousLabel !== this.label.textContent) this.statusMotion = retargetMotion(this.label, this.statusMotion,
-      { opacity: .6 }, { opacity: 1 }, motion.feedback);
+      : state === 'failed' ? this.element.dataset.failureStage === 'message' ? '发送失败' : '上传失败' : '上传中';
     this.ring.hidden = state === 'failed';
     this.ring.style.setProperty('--upload-progress', `${value}%`);
     if (state === 'uploading') this.ring.setAttribute('aria-valuenow', String(value));
     else this.ring.removeAttribute('aria-valuenow');
     this.retry.hidden = this.cancel.hidden = state !== 'failed';
     this.retry.disabled = state !== 'failed';
+    }, contentChanged, this.abort.signal);
     this.element.setAttribute('aria-busy', String(state !== 'failed'));
+    this.element.setAttribute('aria-label', state === 'failed' ? `${this.kind}${this.label.textContent}，可重试或打开操作菜单移除未发送媒体` : `正在发送${this.kind}`);
   }
 
   private url(blob: Blob): string {
@@ -201,7 +220,7 @@ export class MediaUploadView {
       observer.disconnect();
       previews.remove();
       const animation = this.status.animate([{ opacity: 1 }, { opacity: 0 }], {
-        duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 320,
+        duration: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : motion.local,
         easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards',
       });
       void animation.finished.then(cleanup, cleanup);
@@ -217,7 +236,7 @@ export class MediaUploadView {
 
   destroy(force = false): void {
     if (this.handedOff && !force) { this.element.remove(); return; }
-    this.statusMotion?.cancel(); this.statusMotion = null;
+    clearMediaCapsule(this.status);
     this.abort.abort();
     for (const image of this.element.querySelectorAll('img')) image.removeAttribute('src');
     for (const url of this.urls) URL.revokeObjectURL(url);

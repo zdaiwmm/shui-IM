@@ -745,7 +745,7 @@ try {
     const headerStyle = getComputedStyle(header);
     const imageBackdropStyle = getComputedStyle(layer, '::before');
     const themeBackgroundProbe = document.createElement('i');
-    themeBackgroundProbe.style.background = 'var(--paper)';
+    themeBackgroundProbe.style.background = '#141214';
     viewer.append(themeBackgroundProbe);
     const expectedBackground = getComputedStyle(themeBackgroundProbe).backgroundColor;
     themeBackgroundProbe.remove();
@@ -778,7 +778,7 @@ try {
   `Photo does not fill the unpadded full-screen viewer content box: ${JSON.stringify(viewerLayout)}`);
   invariant(viewerLayout.background === viewerLayout.expectedBackground
     && viewerLayout.imageBackdrop.content === 'none' && viewerLayout.imageBackdrop.filter === 'none',
-  `Photo viewer does not use the theme background without a blurred image fill: ${JSON.stringify(viewerLayout)}`);
+  `Photo viewer does not use the P1 #141214 canvas without a blurred image fill: ${JSON.stringify(viewerLayout)}`);
   invariant(viewerLayout.header.opacity === '1' && viewerLayout.header.visibility === 'visible',
     `Photo viewer header is not stably visible: ${JSON.stringify(viewerLayout.header)}`);
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'viewer-mobile.png') });
@@ -1446,7 +1446,7 @@ try {
   });
   invariant(!accessibility.overflow, 'Mobile layout has horizontal overflow');
   invariant(accessibility.documentOverflow === 'auto', 'The document cannot scroll behind Safari chrome');
-  invariant(accessibility.outline === 'none' && accessibility.focusLine.includes('inset'), 'Composer keyboard focus needs a quiet underline without an outer frame');
+  invariant(accessibility.outline === 'none' && accessibility.focusLine === 'none', 'P1 touch focus must have no underline, shadow or outer frame');
   invariant(accessibility.bottomEdge === accessibility.composerBackground, 'Bottom browser edge must match the composer surface');
   invariant(accessibility.composerFieldOutline === 'none' && accessibility.composerFieldRadius === '0px', 'Composer field retained an outer focus frame or capsule');
   invariant(accessibility.headerOffset < 1 && accessibility.composerOffset < 1, 'Chat header or composer is not fixed to the visual viewport');
@@ -1457,11 +1457,11 @@ try {
   `P1 frameless composer must share one opaque surface with no glass blur: ${JSON.stringify(accessibility)}`);
   invariant(accessibility.headerSheenDisplay === 'none' && accessibility.composerSheenDisplay === 'none', `P1 chrome must not retain translucent gradient masks: ${JSON.stringify(accessibility)}`);
   invariant(accessibility.messageRegion && accessibility.shellRegion && Math.abs(accessibility.messageRegion.top - accessibility.shellRegion.top) <= 1 && Math.abs(accessibility.messageRegion.bottom - accessibility.shellRegion.bottom) <= 1, 'Messages do not scroll underneath the top and bottom bars');
-  invariant(accessibility.viewport.includes('user-scalable=no') && accessibility.viewport.includes('maximum-scale=1'), 'Browser zoom is not disabled');
+  invariant(!accessibility.viewport.includes('user-scalable=no') && !accessibility.viewport.includes('maximum-scale=1'), 'P1 ordinary pages must permit accessible browser zoom');
   for (const client of [creator, joiner]) {
     const zoom = await client.evaluate(() => ({ finePointer: matchMedia('(any-pointer: fine)').matches,
       allowed: document.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, cancelable: true })) }));
-    invariant(zoom.allowed === zoom.finePointer, `Zoom must be native for fine pointers and suppressed for touch-only input: ${JSON.stringify(zoom)}`);
+    invariant(zoom.allowed === true, `Ordinary pages must retain native zoom for touch and fine pointers: ${JSON.stringify(zoom)}`);
   }
   invariant(accessibility.faintTextContrast >= 4.5, `Faint text contrast is ${accessibility.faintTextContrast}`);
   invariant(accessibility.strongLineContrast >= 3, `Control boundary contrast is ${accessibility.strongLineContrast}`);

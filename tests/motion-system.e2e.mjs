@@ -215,7 +215,7 @@ try {
       page: getComputedStyle(fixture.root.firstElementChild).backgroundColor };
   });
   assert.equal(reduced.outgoing, 0);
-  assert.equal(reduced.canvas, reduced.page);
+  assert.equal(reduced.canvas, 'rgba(0, 0, 0, 0)', 'body delegates the canvas to the canonical root owner');
   assert.equal(reduced.rootCanvas, reduced.page);
   assert.deepEqual(errors, []);
   console.log('Motion: navigation reversal, dialog completion/focus, swipe hysteresis/cancel, spring cancellation, interrupted zoom, reduced motion and dark canvas passed.');

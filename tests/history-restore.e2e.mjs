@@ -279,7 +279,8 @@ try {
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText: async () => { window.fixture.clipboardReads++; throw new Error('no clipboard access'); } } });
   });
   await page.locator('[data-restore]').click();
-  assert.equal(await page.locator('[data-paste], [data-clipboard-hint], .history-restore-form .field-hint').count(), 0);
+  assert.equal(await page.locator('[data-paste], [data-clipboard-hint]').count(), 0);
+  assert.equal(await page.locator('.history-restore-form .field-hint').textContent(),'只恢复你原本能阅读的内容。');
   assert.equal(await page.evaluate(() => window.fixture.clipboardReads), 0);
   assert.equal(await page.locator('.history-restore-sheet:not(.is-closing) textarea').evaluate(el => el === document.activeElement), true);
   assert.equal(await page.locator('[type=submit]').isDisabled(), true);
@@ -294,9 +295,13 @@ try {
       const ir = input.getBoundingClientRect(), wr = wrapper.getBoundingClientRect(), button = node.querySelector('[type=submit]').getBoundingClientRect();
       return { fits: r.x >= 0 && r.right <= innerWidth && r.y >= 0 && r.bottom <= innerHeight,
         scroll: node.scrollHeight - node.clientHeight, buttonVisible: button.top >= r.top && button.bottom <= r.bottom,
+        fieldsScroll: node.querySelector('.history-restore-fields').scrollHeight-node.querySelector('.history-restore-fields').clientHeight,
+        fieldsHeight: node.querySelector('.history-restore-fields').clientHeight,
+        fieldsOverflow: getComputedStyle(node.querySelector('.history-restore-fields')).overflowY,
         topGap: ir.top - wr.top, bottomGap: wr.bottom - ir.bottom, textFits: input.scrollHeight <= input.clientHeight + 1, inputHeight: input.clientHeight, contentHeight: input.scrollHeight, inputWidth: input.clientWidth, font: getComputedStyle(input).font, letterSpacing: getComputedStyle(input).letterSpacing };
     });
     assert(geometry.fits && geometry.buttonVisible && geometry.scroll <= 1, `${name}: entire form fits ${JSON.stringify(geometry)}`);
+    if(geometry.fieldsScroll>1) assert(geometry.fieldsOverflow==='auto'&&geometry.fieldsHeight>=44,`${name}: short content scrolls above the pinned action`);
     assert(Math.abs(geometry.topGap - geometry.bottomGap) <= 1 && geometry.topGap >= 12, `${name}: equal input inset`);
     if (height >= 320) assert(geometry.textFits, `${name}: complete single code fits without input scrolling ${JSON.stringify(geometry)}`);
     if (screenshots) await page.screenshot({ path: `${screenshots}/input-${name}.png` });

@@ -1,5 +1,6 @@
 import { mountAppearance } from './appearance';
-/** Let browser chrome sample the page without forcing an opaque toolbar tint. */
+/** Top and bottom can be different. The canonical canvas stylesheet owns
+ * those surfaces; a transparent hint lets Safari sample each native edge. */
 export function mountSystemChrome(): () => void {
   mountAppearance();
   const scheme = matchMedia('(prefers-color-scheme: dark)');

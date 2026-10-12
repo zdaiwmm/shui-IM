@@ -1,3 +1,4 @@
+import { transitionMediaCapsule, retireMediaCapsule } from './lib/media-capsule';
 import { requestPassword } from './lib/password-dialog';
 import { derivePasswordCredential, isPasswordCredential, type LocalCredentialResult } from './lib/password-protection';
 import { isPlatformVaultUnavailable, probePlatformVaultCapabilities } from './lib/platform-vault';
@@ -47,7 +48,7 @@ import { attachCloudBackupSwitch, paintCloudBackup, requestLocalBackupCode } fro
 import { exportLocalHistory, HISTORY_CATEGORY_LABELS, importLocalHistory, previewLocalHistoryBackup, summarizeLocalHistory, type LocalHistorySummary } from './lib/local-history-backup';
 import { createLocalBackupFile } from './lib/local-backup-file';
 import { validMediaDimensions } from './lib/media-dimensions';
-import { applyGifDisplayGeometry, setChatMediaDimensions } from './lib/chat-media-geometry';
+import { transitionChatMediaGeometry, applyGifDisplayGeometry, setChatMediaDimensions } from './lib/chat-media-geometry';
 import { attachHistoryRestore } from './lib/history-restore-ui';
 import { voiceRequest, confirmVoiceUpload, VOICE_FAILURE_TEXT } from './lib/voice-network';
 import QRCode from 'qrcode';
@@ -630,6 +631,7 @@ export class QuietRoomApp {
   private composerSelection: { start: number; end: number } | null = null;
   private noticeTimer: number | null = null;
   private noticeRemovalTimer: number | null = null;
+  private queuedNotice: { message: string; notice: HTMLElement; surface: Element | null; epoch: number } | null = null;
   private cancelPageTransition: (() => void) | null = null;
   private preferenceSaveTimer: number | null = null;
   private preferenceSaveChain: Promise<void> = Promise.resolve();
@@ -787,7 +789,12 @@ export class QuietRoomApp {
     });
     const isNativeVideo = (event: Event) => event.target instanceof HTMLVideoElement
       || document.fullscreenElement instanceof HTMLVideoElement;
-    const preventZoom = (event: Event) => { if (!matchMedia('(any-pointer: fine)').matches && !isNativeVideo(event)) event.preventDefault(); };
+    const preventZoom = (event: Event) => {
+      // Dedicated media gestures own zoom only inside their viewer. Ordinary
+      // pages retain browser magnification and external accessibility tools.
+      if (!matchMedia('(any-pointer: fine)').matches && !isNativeVideo(event)
+        && event.target instanceof Element && event.target.closest('.image-viewer')) event.preventDefault();
+    };
     let viewportFrame: number | null = null;
     let nativeViewportFrame: number | null = null;
     let trackingFrame: number | null = null;
@@ -832,8 +839,11 @@ export class QuietRoomApp {
       const layoutHeight = document.documentElement.clientHeight || window.innerHeight;
       // Toolbar collapse can expose more than clientHeight before WebKit
       // updates its layout viewport. Never clip that newly visible area.
-      const viewportHeight = Math.max(1, viewport?.height ?? window.innerHeight);
-      const viewportWidth = viewport?.width ?? window.innerWidth;
+      const viewportScale = viewport?.scale ?? 1;
+      // Pinch magnification changes CSS viewport size, not keyboard occupancy.
+      // Preserve the layout until actual unscaled keyboard geometry changes.
+      const viewportHeight = Math.max(1, viewport ? viewport.height * viewportScale : window.innerHeight);
+      const viewportWidth = viewport ? viewport.width * viewportScale : window.innerWidth;
       const keyboardSpace = Math.max(0, layoutHeight - viewportHeight);
       // Discard rubber-band and stale dismissal offsets once the full viewport
       // is visible. Panning never contributes to the document's keyboard space.
@@ -1259,6 +1269,7 @@ export class QuietRoomApp {
   }
 
   private showPrivacyCurtain(): void {
+    this.queuedNotice = null;
     document.documentElement.classList.add('privacy-obscured');
     this.root.setAttribute('aria-hidden', 'true');
   }
@@ -6759,9 +6770,9 @@ export class QuietRoomApp {
     const reverse = previousDirection && previousDirection !== direction;
     const width = incoming.getBoundingClientRect().width;
     const enteringX = reverse && backgroundFrom ? new DOMMatrixReadOnly(backgroundFrom.transform).m41
-      : direction === 'forward' ? width : -.28 * width;
+      : direction === 'forward' ? width : -.18 * width;
     const leavingX = foregroundFrom ? new DOMMatrixReadOnly(foregroundFrom.transform).m41 : 0;
-    const targetX = direction === 'forward' ? -.28 * width : width;
+    const targetX = direction === 'forward' ? -.18 * width : width;
     const remaining = Math.max(Math.abs(enteringX), Math.abs(targetX - leavingX));
     const duration = Math.round(Math.min(motion.page, Math.max(140, motion.page * Math.sqrt(remaining / Math.max(1, width)))));
     const entering = travelMotion(incoming, enteringX, 0, reverse ? backgroundVelocity : 0, duration,
@@ -6912,6 +6923,7 @@ export class QuietRoomApp {
 
   private commitChatScrollBookkeeping(list: HTMLElement, documentMoved: boolean): void {
     if (!list.isConnected || this.privacyCovered || this.activeSurface !== 'chat') return;
+    syncChatBubbleGradient(list);
     // The return control already owns this document movement and performs
     // one final alignment/read update. Avoid measuring rows, composer and
     // visibility on every animation frame while the keyboard compositor is
@@ -7078,7 +7090,7 @@ export class QuietRoomApp {
       setStyle(chat.header.style, 'translate', 'none');
       setStyle(chat.composer.style, 'bottom', '0px');
       setStyle(chat.notices.style, 'translate', 'none');
-      setStyle(chat.notice.style, 'translate', '0 calc(var(--app-top) + var(--chat-header-height) + 10px)');
+      setStyle(chat.notice.style, 'translate', '0 calc(var(--app-top) + var(--chat-header-height) + 8px)');
       return;
     }
     const fixedTop = this.visualClientCoordinates ? -chat.fixedOrigin.getBoundingClientRect().top : viewportTop;
@@ -7091,7 +7103,7 @@ export class QuietRoomApp {
       ? chat.fixedBottom.getBoundingClientRect().top : layoutHeight - fixedTop;
     setStyle(chat.composer.style, 'bottom', `${fixedBottom - viewportHeight}px`);
     setStyle(chat.notices.style, 'translate', `0 ${fixedTop}px`);
-    setStyle(chat.notice.style, 'translate', `0 calc(${fixedTop}px + var(--chat-header-height) + 10px)`);
+    setStyle(chat.notice.style, 'translate', `0 calc(${fixedTop}px + var(--chat-header-height) + 8px)`);
   }
 
   private beginListKeyboardLayout(direction: 'open' | 'closed'): void {
@@ -8935,6 +8947,10 @@ export class QuietRoomApp {
     if (message.payload.kind === 'text') addAction('select', '选择文字', '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5h8M12 5v14M9 19h6M4 3v18M20 3v18"/></svg>', () => this.openMessageTextSelection(message));
     if (list.childElementCount) actions.append(list);
     if (!actionButtons.length) { article.classList.remove('is-action-source'); return; }
+    const group = document.createElement('div');
+    group.className = 'message-action-group';
+    group.append(...actions.childNodes);
+    actions.append(group);
     this.root.append(backdrop, actions);
     const sourceBubble = article.querySelector<HTMLElement>('.message-bubble');
     if (sourceBubble) {
@@ -8962,7 +8978,7 @@ export class QuietRoomApp {
         });
       }
       preview.append(clone);
-      backdrop.append(preview);
+      group.append(preview);
     }
     this.positionMessageActions(actions, article);
     actions.addEventListener('keydown', event => {
@@ -9111,10 +9127,11 @@ export class QuietRoomApp {
     const placement = messageActionLayout({ left, top, width, height }, rect, pickerHeight, menuHeight);
     if (list) list.style.maxHeight = `${placement.listHeight}px`;
     const x = Math.max(left + 12, Math.min(rect.left, left + width - menuWidth - 12));
-    const y = placement.listTop;
+    const y = rect.top + placement.previewHeight + 8;
     const preview = this.root.querySelector<HTMLElement>('.message-action-preview');
+    const previousSourceTop = preview?.style.top ? parseFloat(preview.style.top) : rect.top;
     if (preview) {
-      preview.style.top = `${placement.previewTop}px`;
+      preview.style.top = `${rect.top}px`;
       preview.style.height = `${placement.previewHeight}px`;
     }
     actions.style.setProperty('--message-action-x', `${Math.round(x)}px`);
@@ -9126,7 +9143,16 @@ export class QuietRoomApp {
     if (picker) {
       const pickerX = Math.max(left + 8, Math.min(rect.left, left + width - picker.offsetWidth - 8));
       actions.style.setProperty('--message-reaction-x', `${Math.round(pickerX)}px`);
-      actions.style.setProperty('--message-reaction-y', `${Math.round(placement.pickerTop)}px`);
+      actions.style.setProperty('--message-reaction-y', `${Math.round(rect.top - pickerHeight - (pickerHeight ? 8 : 0))}px`);
+    }
+    const group = actions.querySelector<HTMLElement>('.message-action-group');
+    if (group) {
+      const target = placement.previewTop - rect.top;
+      const from = new DOMMatrixReadOnly(getComputedStyle(group).transform).m42 + previousSourceTop - rect.top;
+      const velocity = travelVelocity(group);
+      group.getAnimations().forEach(animation => animation.cancel());
+      group.style.transform = `translate3d(0,${target}px,0)`;
+      travelMotion(group, from, target, velocity, motion.panel, 1, 1, 'y');
     }
   }
 
@@ -9293,6 +9319,14 @@ export class QuietRoomApp {
     if (!actions) { finish(); return; }
     if (closeDialog(actions, { animate, restoreFocus })) { finish(); return; }
     const sourceId = actions.dataset.sourceId;
+    const group = actions.querySelector<HTMLElement>('.message-action-group');
+    if (group) {
+      const from = new DOMMatrixReadOnly(getComputedStyle(group).transform).m42;
+      const velocity = travelVelocity(group);
+      group.getAnimations().forEach(animation => animation.cancel());
+      group.style.transform = 'translate3d(0,0,0)';
+      if (animate && !this.privacyCovered) travelMotion(group, from, 0, velocity, motion.panel, 1, 1, 'y');
+    }
     actions.classList.remove('is-visible');
     actions.classList.add('is-closing');
     actions.inert = true;
@@ -9376,10 +9410,10 @@ export class QuietRoomApp {
     this.closeMessageActions(false, false);
     const sheet = document.createElement('section'); sheet.className = 'confirm-overlay message-info-sheet';
     sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', '消息信息');
-    sheet.innerHTML = `<div class="confirm-dialog message-info-panel"><div class="sheet-handle" aria-hidden="true"></div><header class="message-info-heading"><h2>消息信息</h2><button class="icon-button" data-info-close type="button" aria-label="关闭消息信息">${icons.close}</button></header><div class="message-info-preview"><p data-info-preview></p><time data-info-time></time></div><p class="sr-only" data-info-status role="status"></p><ol class="message-info-stages"><li data-info-stage="local"><span aria-hidden="true"></span>已保存在本机</li><li data-info-stage="server"><span aria-hidden="true"></span>服务已保存加密消息</li><li data-info-stage="delivered"><span aria-hidden="true"></span>已送达对方设备</li><li data-info-stage="read"><span aria-hidden="true"></span><b data-info-read-label></b></li></ol><p class="field-hint">在线状态不代表已读。</p><button class="primary-button" data-info-done type="button">知道了</button></div>`;
+    sheet.innerHTML = `<div class="confirm-dialog message-info-panel"><button class="half-sheet-handle" data-info-close type="button" aria-label="收起消息信息"><span></span></button><header class="message-info-heading"><h2>消息信息</h2></header><div class="message-info-preview"><p data-info-preview></p><time data-info-time></time></div><p class="sr-only" data-info-status role="status"></p><ol class="message-info-stages"><li data-info-stage="local"><span aria-hidden="true"></span>已保存在本机</li><li data-info-stage="server"><span aria-hidden="true"></span>服务已保存加密消息</li><li data-info-stage="delivered"><span aria-hidden="true"></span>已送达对方设备</li><li data-info-stage="read"><span aria-hidden="true"></span><b data-info-read-label></b></li></ol><p class="field-hint">在线状态不代表已读。</p><button class="primary-button" data-info-done type="button">知道了</button></div>`;
     this.root.append(sheet);
     let timer: number | undefined;
-    const dialog = mountDialog(sheet, { signal: this.runtimeAbort?.signal, isActive: () => !this.privacyCovered && sheet.isConnected, onClose: () => window.clearInterval(timer) });
+    const dialog = mountDialog(sheet, { signal: this.runtimeAbort?.signal, isActive: () => !this.privacyCovered && sheet.isConnected, onClose: () => window.clearInterval(timer), presentation: 'sheet' });
     const paint = () => {
       const message = [...this.messages.values()].find(item => item.clientMsgId === original.clientMsgId) ?? original;
       if (this.messageDeletions().has(original.clientMsgId)) { dialog.close(); return; }
@@ -9398,7 +9432,7 @@ export class QuietRoomApp {
         row.querySelector('span')!.replaceChildren(...(complete ? [createElement(Check)] : []));
       }
     };
-    timer = window.setInterval(paint, 250); paint(); sheet.querySelectorAll('[data-info-close], [data-info-done]').forEach(button => button.addEventListener('click', () => dialog.close()));
+    timer = window.setInterval(paint, 250); paint(); sheet.querySelectorAll('[data-info-done]').forEach(button => button.addEventListener('click', () => dialog.close()));
   }
 
   private createEntranceGuideCard(): HTMLElement | null {
@@ -9558,21 +9592,15 @@ export class QuietRoomApp {
           const meta = element.querySelector<HTMLElement>('.message-meta');
           const updated = this.createMessageMeta(message);
           if (meta) {
-            if (meta.classList.contains('media-send-meta') && !updated.classList.contains('media-send-meta')) {
-              const departing = meta.cloneNode(true) as HTMLElement;
-              departing.classList.remove('message-meta', 'media-send-meta');
-              departing.classList.add('media-status-departing');
-              departing.inert = true;
-              departing.setAttribute('aria-hidden', 'true');
-              meta.parentElement?.append(departing);
-              const animation = departing.animate([{ opacity: 1 }, { opacity: 0 }], {
-                duration: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 320,
-                easing: 'cubic-bezier(0.22, 1, 0.36, 1)', fill: 'forwards',
-              });
-              void animation.finished.then(() => departing.remove(), () => departing.remove());
+            if (meta.closest('.image-bubble')) {
+              transitionMediaCapsule(meta, () => {
+                meta.querySelector('.media-capsule-content')!.replaceChildren(...updated.childNodes);
+                meta.className = updated.className;
+              }, true, this.runtimeAbort?.signal);
+            } else {
+              meta.replaceChildren(...updated.childNodes);
+              meta.className = updated.className;
             }
-            meta.replaceChildren(...updated.childNodes);
-            meta.className = updated.className;
             for (const attribute of ['title', 'aria-label']) {
               const value = updated.getAttribute(attribute);
               if (value === null) meta.removeAttribute(attribute);
@@ -10734,11 +10762,8 @@ export class QuietRoomApp {
     sheet.setAttribute('aria-label', '输入恢复码');
     sheet.setAttribute('data-recovery-keyboard', '');
     sheet.innerHTML = `<form class="confirm-dialog recovery-code-panel" id="joint-code-form">
-      <div class="recovery-code-heading">
-        <span></span>
-        <h2>输入恢复码</h2>
-        <button class="icon-button" id="joint-code-close" type="button" aria-label="关闭">${icons.close}</button>
-      </div>
+      <button class="half-sheet-handle" id="joint-code-close" type="button" aria-label="收起恢复码面板"><span></span></button>
+      <div class="recovery-code-heading"><h2>输入恢复码</h2></div>
       <label class="recovery-flow-label">我的恢复码<textarea name="code" class="recovery-flow-input recovery-flow-textarea" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" required placeholder="粘贴保存的恢复码"></textarea></label>
       <p class="form-error" role="alert"></p>
       <button class="primary-button" type="submit">继续</button>
@@ -10758,6 +10783,7 @@ export class QuietRoomApp {
     const input = form.querySelector<HTMLTextAreaElement>('textarea[name="code"]')!;
     const unpinViewport = this.pinOverlayToVisualViewport(sheet);
     const dialog = mountDialog(sheet, {
+      presentation: 'sheet',
       isActive: () => !this.privacyCovered && sheet.isConnected,
       initialFocus: input,
       beforeClose: () => {
@@ -10787,7 +10813,6 @@ export class QuietRoomApp {
     reenter.addEventListener('click', reset);
     input.focus({ preventScroll: true });
     sheet.addEventListener('click', event => { if (event.target === sheet) dialog.close(); });
-    form.querySelector('#joint-code-close')?.addEventListener('click', () => dialog.close());
     form.addEventListener('submit', async event => {
       event.preventDefault();
       const button = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
@@ -11750,17 +11775,22 @@ export class QuietRoomApp {
     const anchor = ownerList() ? this.captureChatAnchor() : null;
     if (!button.dataset.mediaDimensions) {
       const dimensions = { width: image.naturalWidth, height: image.naturalHeight };
-      setChatMediaDimensions(button, dimensions);
       const bubble = button.parentElement;
-      if (bubble?.classList.contains('image-bubble')) setChatMediaDimensions(bubble, dimensions);
-      if (bubble?.classList.contains('gif-expression')) {
-        applyGifDisplayGeometry(button);
-        applyGifDisplayGeometry(bubble);
-      }
-      image.style.removeProperty('width');
+      const paint = () => {
+        setChatMediaDimensions(button, dimensions);
+        if (bubble?.classList.contains('image-bubble')) setChatMediaDimensions(bubble, dimensions);
+        if (bubble?.classList.contains('gif-expression')) {
+          applyGifDisplayGeometry(button); applyGifDisplayGeometry(bubble);
+        }
+        image.style.removeProperty('width');
+      };
+      if (bubble?.classList.contains('image-bubble')) transitionChatMediaGeometry(bubble, paint, this.runtimeAbort?.signal);
+      else paint();
     }
     this.setChatImagePreviewSource(button, cached.concealedUrl);
+    const retiringStatus = button.querySelector<HTMLElement>('.media-load-capsule');
     button.replaceChildren(image);
+    if (retiringStatus) { button.append(retiringStatus); retireMediaCapsule(retiringStatus, this.runtimeAbort?.signal); }
     if (video) button.append(this.videoPlayBadge());
     button.dataset.imageState = 'loaded';
     button.setAttribute('aria-busy', 'false');
@@ -11790,9 +11820,17 @@ export class QuietRoomApp {
       this.imageLoadStatus.delete(manifest.blobId);
       button.style.removeProperty('--chat-preview-source');
       const error = document.createElement('span');
-      error.textContent = cause instanceof Error ? `${cause.message}，点按重试` : '载入失败，点按重试';
-      button.replaceChildren(error);
-      button.setAttribute('aria-label', error.textContent);
+      const processing = ['decrypt', 'decode'].includes(button.dataset.loadStage ?? '');
+      error.className = 'media-load-status';
+      error.textContent = `${processing ? '处理失败' : '下载失败'} · 重试`;
+      const capsule = button.querySelector<HTMLElement>('.media-load-capsule') ?? document.createElement('span');
+      transitionMediaCapsule(capsule, () => {
+        capsule.className = 'media-load-capsule is-error';
+        capsule.querySelector('.media-capsule-content')!.replaceChildren(error);
+      }, true, this.runtimeAbort?.signal);
+      button.replaceChildren(capsule);
+      button.setAttribute('aria-label', cause instanceof Error ? `${cause.message}，点按重试` : error.textContent);
+      button.title = button.getAttribute('aria-label')!;
       const list = this.root.querySelector<HTMLElement>('#message-list');
       if (list) this.finishChatAnchorRestore(list);
     }
@@ -11950,28 +11988,29 @@ export class QuietRoomApp {
     status: { stage: 'queued' | 'download' | 'decrypt' | 'decode'; ratio?: number },
   ): void {
     if (button.dataset.imageState === 'loaded' || button.dataset.imageState === 'error') return;
-    const kind = video ? '视频' : '图片';
     const percent = status.ratio === undefined ? undefined : Math.round(Math.max(0, Math.min(1, status.ratio)) * 100);
-    const text = status.stage === 'queued' ? `等待加载${kind}`
-      : status.stage === 'download' ? `正在下载${kind} ${percent}%`
-        : status.stage === 'decrypt' ? `正在解密${kind} ${percent}%`
-          : video ? '正在生成视频预览' : '正在生成模糊预览';
-    button.dataset.loadStage = status.stage;
-    button.querySelector<HTMLElement>('.media-load-status')!.textContent = text;
-    const progress = button.querySelector<HTMLElement>('.media-load-progress')!;
-    if (percent === undefined || status.stage === 'decode') {
-      progress.removeAttribute('aria-valuenow');
-      progress.dataset.indeterminate = 'true';
-    } else {
-      progress.setAttribute('aria-valuenow', String(percent));
-      delete progress.dataset.indeterminate;
-      progress.style.setProperty('--media-load-progress', `${percent}%`);
-    }
+    const text = status.stage === 'queued' ? '等待加载'
+      : status.stage === 'download' ? `下载中${percent === undefined ? '' : ` · ${percent}%`}`
+        : status.stage === 'decrypt' ? `解密中${percent === undefined ? '' : ` · ${percent}%`}`
+          : video ? '生成预览中' : '生成遮罩中';
+    const previousStage = button.dataset.loadStage;
+    const capsule = button.querySelector<HTMLElement>('.media-load-capsule')!;
+    transitionMediaCapsule(capsule, () => {
+      button.dataset.loadStage = status.stage;
+      button.querySelector<HTMLElement>('.media-load-status')!.textContent = text;
+      const progress = button.querySelector<HTMLElement>('.media-load-progress')!;
+      if (percent === undefined || status.stage === 'decode') {
+        progress.removeAttribute('aria-valuenow'); progress.dataset.indeterminate = 'true';
+      } else {
+        progress.setAttribute('aria-valuenow', String(percent)); delete progress.dataset.indeterminate;
+        progress.style.setProperty('--media-load-progress', `${percent}%`);
+      }
+    }, previousStage !== status.stage, this.runtimeAbort?.signal);
     button.setAttribute('aria-label', `${text}，点按继续准备`);
   }
 
   private mountChatImageLoadingFeedback(button: HTMLButtonElement, video: boolean): void {
-    button.innerHTML = `${video ? icons.video : icons.image}<span class="media-load-status" role="status" aria-live="polite"></span><span class="media-load-progress" role="progressbar" aria-label="媒体准备进度" aria-valuemin="0" aria-valuemax="100"><i></i></span>`;
+    button.innerHTML = `${video ? icons.video : icons.image}<span class="media-load-capsule"><span class="media-load-progress" role="progressbar" aria-label="媒体准备进度" aria-valuemin="0" aria-valuemax="100"><i></i></span><span class="media-load-status" role="status" aria-live="polite"></span></span>`;
   }
 
   private updateChatImageLoadFeedback(
@@ -13574,17 +13613,34 @@ export class QuietRoomApp {
   }
 
   private showNotice(message: string, tone: 'error' | 'info' = 'info'): void {
-    const covered = this.root.querySelector('.passkey-manager, .space-invite-overlay, .space-modal-overlay, .space-drawer-overlay, .space-context-overlay, .browser-access-modal');
+    const covered = this.root.querySelector('.passkey-manager, .space-invite-overlay, .space-modal-overlay, .space-drawer-overlay, .space-context-overlay, .browser-access-modal, .password-sheet, .history-restore-sheet, .joint-code-sheet, .backup-privacy-sheet, .message-info-sheet, .document-reader');
     const notice = covered
       ? this.ensureAppToast()
       : this.root.querySelector<HTMLElement>('.image-viewer:not(.is-closing) [data-viewer-notice]')
       ?? this.root.querySelector<HTMLElement>('#notice')
       ?? this.ensureAppToast();
+    if (tone === 'info' && notice.dataset.tone === 'error' && notice.classList.contains('is-visible') && !notice.hidden) {
+      if (!document.hidden && this.root.getAttribute('aria-hidden') !== 'true')
+        this.queuedNotice = { message, notice, surface: this.root.lastElementChild, epoch: this.runtimeEpoch };
+      return;
+    }
+    this.queuedNotice = null;
     if (this.noticeTimer !== null) window.clearTimeout(this.noticeTimer);
     if (this.noticeRemovalTimer !== null) window.clearTimeout(this.noticeRemovalTimer);
     notice.hidden = false;
     notice.dataset.tone = tone;
     notice.textContent = message;
+    if (notice.classList.contains('app-toast')) {
+      const activePage = [...this.root.querySelectorAll<HTMLElement>('.space-drawer-overlay,.space-profile-overlay,.password-page,.document-reader,.image-viewer')]
+        .filter(element => !element.classList.contains('is-closing')).at(-1) ?? this.root;
+      const header = activePage.querySelector<HTMLElement>('.space-drawer-header,.space-profile-header,.reader-header,.viewer-header,.chat-header,.subpage-header,.recovery-flow-nav,.backup-header');
+      const viewportTop = window.visualViewport?.offsetTop ?? 0;
+      notice.style.top = `${Math.max(viewportTop,header?.getBoundingClientRect().bottom ?? viewportTop + 48) + 8}px`;
+    }
+    if (notice.id === 'notice' && !notice.closest('.chat-shell')) {
+      const header = this.root.querySelector<HTMLElement>('.gallery-header,.subpage-header,.recovery-flow-nav,.backup-header,.chat-header');
+      if (header) notice.style.top = `${header.getBoundingClientRect().bottom - (notice.offsetParent?.getBoundingClientRect().top ?? 0) + 8}px`;
+    }
     const alreadyVisible = notice.classList.contains('is-visible');
     notice.classList.remove('is-leaving');
     if (!alreadyVisible) requestAnimationFrame(() => {
@@ -13598,6 +13654,10 @@ export class QuietRoomApp {
         if (notice.textContent === message && !notice.classList.contains('is-visible')) notice.hidden = true;
         notice.classList.remove('is-leaving');
         this.noticeRemovalTimer = null;
+        const queued = this.queuedNotice; this.queuedNotice = null;
+        if (queued && queued.notice === notice && notice.isConnected && queued.epoch === this.runtimeEpoch
+          && queued.surface === this.root.lastElementChild && !document.hidden
+          && this.root.getAttribute('aria-hidden') !== 'true') this.showNotice(queued.message);
       }, motion.menuOut);
       this.noticeTimer = null;
     }, tone === 'error' ? 5000 : 2600);
@@ -13900,6 +13960,7 @@ export class QuietRoomApp {
     this.cancelPageTransition?.();
     this.noticeTimer = null;
     this.noticeRemovalTimer = null;
+    this.queuedNotice = null;
     this.cancelPageTransition = null;
     document.getElementById('app-toast')?.remove();
     if (this.viewerKeyHandler) document.removeEventListener('keydown', this.viewerKeyHandler);
