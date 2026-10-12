@@ -110,9 +110,12 @@ to publish a new application SHA or to repeat builder prune.
 
 Preparation exports all protected images, restores a retained cold backup and
 checks SQLite with the original image, and independently imports the images into
-a temporary memory-limited daemon. It verifies registry digests and creation of
+a temporary memory-limited Docker daemon with its own containerd, storage roots,
+state directories and short sockets under `/run`. It verifies registry digests and creation of
 the original runtime configuration without starting those trial containers.
-Data and image rehearsals are sequential. Disk budgets must pass before downtime.
+Data and image rehearsals are sequential. Image streaming and post-stream
+unpacking share one 600-second deadline; completion uses the remaining time.
+Disk budgets must pass before downtime.
 The private session directory is root-only; `runtime.json` contains credentials
 and must never be printed, downloaded into a source tree, or uploaded as evidence.
 Public plans and status contain only identifiers and fingerprints.
@@ -123,6 +126,12 @@ digest. Within 15 minutes, apply requires the identical reviewed plan bytes and
 checksum plus `--maintenance-window`. Durable systemd workers record each phase;
 disconnecting a client does not restart or cancel a transaction. Use `status` to
 inspect the existing session, not another apply.
+
+A blocked online preparation has no applicable plan. Inspect its recorded phase,
+private worker state and the original service before preparing again. A verified
+duplicate image export may be removed under the deployment lock only after all
+original protected references are confirmed intact and its identity/checksum are
+recorded. Retain the failed session audit and canonical business cold backups.
 
 During the window the traffic gate closes, every original container stops, and
 fresh cold archives are restored and checked against every source file before

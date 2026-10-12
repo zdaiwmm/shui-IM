@@ -322,7 +322,16 @@ def stream_process(args, archive, saving, timeout=600):
                         written = os.write(pipe.fileno(), pending)
                         pending = pending[written:]
             pipe.close()
-            require(process.wait(timeout=30) == 0, 'archive-stream-command')
+            # Docker can finish unpacking only after it has received the whole
+            # archive. Preserve the original total deadline for that work; a
+            # fixed 30-second tail fails on the CPU-limited production probe.
+            remaining = deadline - time.monotonic()
+            require(remaining > 0, 'archive-stream-timeout')
+            try:
+                code = process.wait(timeout=remaining)
+            except subprocess.TimeoutExpired:
+                raise StorageError('archive-stream-timeout')
+            require(code == 0, 'archive-stream-command')
         finally:
             selector.close()
             if process.poll() is None:
