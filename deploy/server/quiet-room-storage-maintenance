@@ -33,6 +33,7 @@ SESSIONS = STATE / 'storage-maintenance'
 ENGINE = Path('/var/lib/docker')
 SOCKET = '/var/run/docker.sock'
 LOCK = Path('/run/lock/quiet-room-deploy.lock')
+MACHINE_ID = Path('/etc/machine-id')
 GIB = 1024 ** 3
 NAMES = ('quiet-room-quiet-room-1', 'quiet-room-quiet-room-backup-1', 'quiet-room-quiet-room-turn-1')
 SESSION = re.compile(r'\d{8}T\d{6}Z-[0-9a-f]{12}')
@@ -173,16 +174,16 @@ def inventory():
             if mount['Type'] == 'bind':
                 require(not os.path.commonpath([str(ENGINE), os.path.realpath(mount['Source'])]) == str(ENGINE), 'bind-in-engine-root')
     listed = api('GET', '/images/json?all=false')
-    images = [api('GET', '/images/' + item['Id'] + '/json') for item in listed]
+    images = sorted([api('GET', '/images/' + item['Id'] + '/json') for item in listed], key=lambda item: item['Id'])
     refs = references(images)
     require(any(value == 'quiet-room-app:' + current + ' ' + inspected[0]['Image'] for value in refs), 'current-image-reference')
-    volumes = api('GET', '/volumes').get('Volumes') or []
+    volumes = sorted(api('GET', '/volumes').get('Volumes') or [], key=lambda item: item['Name'])
     for volume in volumes:
         require(SAFE_NAME.fullmatch(volume['Name']) and volume['Driver'] == 'local' and not volume.get('Options'), 'unsupported-volume')
         require(volume['Mountpoint'] == str(ENGINE / 'volumes' / volume['Name'] / '_data'), 'volume-path')
         require(str(Path(volume['Mountpoint']).resolve()) == volume['Mountpoint'], 'volume-path-symlink')
         require(identity(volume['Mountpoint'])[0] == identity(ENGINE)[0], 'volume-device')
-    networks = [api('GET', '/networks/' + item['Id']) for item in api('GET', '/networks')]
+    networks = sorted([api('GET', '/networks/' + item['Id']) for item in api('GET', '/networks')], key=lambda item: item['Name'])
     require(all(item['Scope'] == 'local' and item['Driver'] in ('bridge', 'host', 'null') for item in networks), 'unsupported-network')
     source = (ROOT / 'current').resolve()
     require(source.is_dir() and source.parent == ROOT / 'git-releases', 'release-path')
@@ -212,11 +213,14 @@ def inventory():
                'images': [{key: item[key] for key in ('Id', 'RepoTags', 'RepoDigests', 'Size')} for item in images],
                'volumes': volumes,
                'networks': [dict(stable_network(item), Id=item['Id']) for item in networks]}
+    for item in private['images']:
+        item['RepoTags'] = sorted(item['RepoTags'] or [])
+        item['RepoDigests'] = sorted(item['RepoDigests'] or [])
     # NetworkSettings outside Networks contains counters/health-related state
     # that must neither invalidate a plan nor enter a restoration request.
     for item in private['containers']:
         item['NetworkSettings'] = {'Networks': item['NetworkSettings']['Networks']}
-    public = {'version': 1, 'hostIdentity': hashlib.sha256(Path('/etc/machine-id').read_bytes()).hexdigest(),
+    public = {'version': 1, 'hostIdentity': hashlib.sha256(MACHINE_ID.read_bytes()).hexdigest(),
               'currentSha': current, 'release': str(source), 'publicHost': public_host, 'adminOrigin': admin_origin,
               'engineIdentity': identity(ENGINE), 'references': refs,
               'containers': [{'name': item['Name'].lstrip('/'), 'id': item['Id'], 'imageId': item['Image'],
@@ -374,7 +378,10 @@ def create_containers(snapshot, endpoint=None, validation=False):
         api('POST', '/containers/create?name=' + quote(item['Name'].lstrip('/'), safe=''),
             payload, endpoint)
         current = api('GET', '/containers/' + item['Name'].lstrip('/') + '/json', endpoint=endpoint)
-        require(current['Config'] == item['Config'] and current['HostConfig'] == payload['HostConfig'], 'recreated-runtime-config')
+        differences = []
+        for kind, expected in [('Config', item['Config']), ('HostConfig', payload['HostConfig'])]:
+            differences += [kind + '.' + key for key in sorted(set(current[kind]) | set(expected)) if current[kind].get(key) != expected.get(key)]
+        require(not differences, 'recreated-runtime-fields-' + ','.join(differences))
 
 
 def image_check(snapshot, expected, endpoint=None, pull=False):
@@ -560,6 +567,7 @@ def engine_control(start):
                 time.sleep(1)
         raise StorageError('engine-start-timeout')
     require(command(['systemctl', 'show', 'docker', '--property=ActiveState', '--value']) in ('inactive', 'failed'), 'engine-not-stopped')
+    require(not command(['ctr', '--namespace', 'moby', 'tasks', 'list', '--quiet']), 'containerd-tasks-still-running')
 
 
 def engine_unmounted(path):
@@ -767,7 +775,7 @@ def validate_readback(directory, receipt):
     plan = read_json(directory / 'plan.json')
     state = read_json(directory / 'state.json')
     resumable = state['phase'] == 'BLOCKED' and state.get('failedPhase') in ('RETIRING_VERIFIED_LEGACY_STORAGE', 'LEGACY_STORAGE_REMOVED')
-    require(state.get('openedAt') and (state['phase'] == 'READBACK_REQUIRED' or resumable), 'readback-stage')
+    require(state.get('openedAt') and (state['phase'] in ('READBACK_REQUIRED', 'RETIRING_VERIFIED_LEGACY_STORAGE', 'LEGACY_STORAGE_REMOVED') or resumable), 'readback-stage')
     require(receipt.get('status') == 'success' and receipt.get('mode') == 'read-only' and
             receipt.get('expectedSha') == plan['currentSha'], 'independent-readback-status')
     server = receipt.get('server', {})

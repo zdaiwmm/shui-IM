@@ -123,6 +123,74 @@ class Boundaries(unittest.TestCase):
             self.module['rollback_before_open'](self.directory, {}, {})
         self.assertFalse(calls)
 
+    def test_partial_retirement_can_require_a_new_readback_without_replacing_storage(self):
+        valid = self.successful_readback()
+        self.write('state.json', {'phase': 'RETIRING_VERIFIED_LEGACY_STORAGE', 'openedAt': int(time.time()) - 10, 'entriesRemoved': 1000})
+        self.module['validate_readback'](self.directory, valid)
+
+    def test_engine_stop_refuses_remaining_containerd_tasks(self):
+        def command(args, timeout=30):
+            if args[0] == 'ctr':
+                return 'unexpected-running-task'
+            return 'inactive' if '--property=ActiveState' in args else ''
+        self.g['command'] = command
+        with self.assertRaisesRegex(self.module['StorageError'], 'containerd-tasks-still-running'):
+            self.module['engine_control'](False)
+
+    def test_inventory_is_stable_when_docker_reorders_identical_objects(self):
+        root = self.g['ROOT']
+        for path in [root / 'shared', root / 'deploy-state', root / 'git-releases/release']:
+            path.mkdir(parents=True)
+        (root / 'current').symlink_to(root / 'git-releases/release')
+        (root / 'deploy-state/current-sha').write_text('a' * 40)
+        (root / 'deploy-state/deployed-at').write_text('fixture')
+        volumes = []
+        for name in ['data', 'turn']:
+            path = self.engine / 'volumes' / name / '_data'
+            path.mkdir(parents=True)
+            volumes.append({'Name': name, 'Driver': 'local', 'Options': None, 'Mountpoint': str(path), 'Labels': {}})
+        images = [{'Id': 'sha256:' + 'b' * 64, 'Size': 100, 'RepoTags': ['quiet-room-app:production', 'quiet-room-app:' + 'a' * 40], 'RepoDigests': []},
+                  {'Id': 'sha256:' + 'c' * 64, 'Size': 100, 'RepoTags': ['fixture:retained'], 'RepoDigests': []}]
+        networks = [{'Name': name, 'Id': str(index) * 64, 'Driver': 'bridge', 'Scope': 'local',
+                     'IPAM': {}, 'Options': {}, 'Labels': {}} for index, name in enumerate(['one', 'two'])]
+        containers = []
+        for index, name in enumerate(self.module['NAMES']):
+            containers.append({'Name': '/' + name, 'Id': str(index + 1) * 64, 'Image': images[0]['Id'],
+                               'Config': {'Env': ['ADMIN_ORIGIN=https://admin.independent.test']},
+                               'HostConfig': {'ReadonlyRootfs': True}, 'State': {'Running': True, 'Health': {'Status': 'healthy'}},
+                               'Mounts': [], 'NetworkSettings': {'Networks': {}}})
+        alternate = [False]
+        def api(method, path, body=None, endpoint=None):
+            if path == '/info':
+                alternate[0] = not alternate[0]
+                return {'DockerRootDir': str(self.engine), 'Driver': 'overlay2', 'Swarm': {'LocalNodeState': 'inactive'}}
+            if path == '/containers/json?all=true':
+                return [{'Names': [item['Name']]} for item in containers]
+            if path.startswith('/containers/'):
+                return copy.deepcopy(next(item for item in containers if item['Name'] + '/json' == path[len('/containers'):]))
+            if path == '/images/json?all=false':
+                return list(reversed(images)) if alternate[0] else images
+            if path.startswith('/images/'):
+                item = copy.deepcopy(next(item for item in images if '/images/' + item['Id'] + '/json' == path))
+                if alternate[0]:
+                    item['RepoTags'].reverse()
+                return item
+            if path == '/volumes':
+                return {'Volumes': list(reversed(volumes)) if alternate[0] else volumes}
+            if path == '/networks':
+                return list(reversed(networks)) if alternate[0] else networks
+            if path.startswith('/networks/'):
+                return copy.deepcopy(next(item for item in networks if '/networks/' + item['Id'] == path))
+            raise AssertionError(path)
+        self.g['api'] = api
+        machine = self.base / 'machine-id'
+        machine.write_text('fixture-machine')
+        self.g['MACHINE_ID'] = machine
+        first = self.module['inventory']()
+        second = self.module['inventory']()
+        self.assertEqual(first, second)
+        self.assertEqual(first[0]['adminOrigin'], 'https://admin.independent.test')
+
     def runtime(self):
         return {'Config': {'Env': ['PRIVATE_VALUE=fixture'], 'Image': 'app:exact'},
                 'HostConfig': {'NetworkMode': 'project', 'PortBindings': {'8080/tcp': [{'HostPort': '8080'}]},
