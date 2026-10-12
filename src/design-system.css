@@ -548,11 +548,14 @@ html[data-keyboard-open='true'] #app .chat-header:not([data-presence-style='hear
 #app .password-operation-sheet .password-fields { margin: 24px 0 0; padding: 0; gap: 16px; }
 #app .password-operation-sheet .password-fields .form-error { margin: -4px 0 0; }
 #app .password-operation-sheet .password-actions { margin: 24px 0 0; gap: 12px; }
-#app .history-restore-form { gap: 0; }
-#app .history-restore-form > label { margin: 0 0 8px; font-size: .75rem; color: var(--ink-muted); }
+#app .history-restore-panel:has(.history-restore-form) { display: flex; flex-direction: column; overflow: hidden; }
+#app .history-restore-panel:has(.history-restore-form) > .history-restore-heading { flex: none; }
+#app .history-restore-form { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; gap: 0; }
+#app .history-restore-fields { min-height: 0; overflow: auto; flex: 1 1 auto; scrollbar-width: none; }
+#app .history-restore-fields > label { display: block; margin: 0 0 8px; font-size: .75rem; color: var(--ink-muted); }
 #app .history-restore-input { padding: 12px; border: 0; background: var(--surface); border-radius: 12px; }
-#app .history-restore-form > button { margin-top: 24px; }
-#app .history-restore-form > .field-hint { margin-top: 12px; }
+#app .history-restore-form > button { flex: none; margin-top: 24px; }
+#app .history-restore-fields > .field-hint { margin-top: 12px; }
 #app .joint-code-sheet .recovery-flow-label { margin: 24px 0 0; gap: 8px; font-size: .75rem; color: var(--ink-muted); }
 #app .joint-code-sheet .form-error { margin: 12px 0 0; }
 #app .joint-code-sheet .recovery-code-panel > .primary-button { margin-top: 24px; }

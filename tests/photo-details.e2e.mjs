@@ -246,10 +246,16 @@ try {
       radius:getComputedStyle(panel).borderRadius, handleWidth:handle.width, handleHeight:handle.height };
   });
   assert.equal(expanded.expanded, true);
+  assert.equal(await page.locator('.photo-details').evaluate(panel=>{
+    const probe=document.createElement('i');probe.style.backgroundColor='var(--chrome-top-surface)';panel.append(probe);
+    const same=getComputedStyle(probe).backgroundColor===getComputedStyle(panel).backgroundColor;probe.remove();return same;
+  }),true,'expanded details own both browser-edge colors');
   assert.equal(expanded.radius,'0px','expanded details must not inherit sheet corners');
   assert.ok(expanded.handleWidth>=44&&expanded.handleHeight>=44,'detail handle must retain a full touch target');
   assert.ok(Math.abs(expanded.top) < 1 && Math.abs(expanded.height) < 1, JSON.stringify(expanded));
   await page.locator('.photo-details-content').focus(); await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('photo-details-footer')), true, 'content proceeds to the sole close action');
+  await page.keyboard.press('Tab');
   assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('photo-details-handle')), true, 'fullscreen focus must stay in the sheet');
   await capture('photo-details-fullscreen-dark');
   await page.locator('[data-photo-details-close]').click();
@@ -264,6 +270,11 @@ try {
   await page.mouse.move(handle.x + 80, handle.y + 20);
   await page.mouse.down(); await page.mouse.move(handle.x + 80, handle.y + 150, { steps: 12 }); await page.mouse.up();
   await page.waitForSelector('.photo-details', { state: 'detached' });
+  await page.locator('[data-viewer-details]').click(); await settle();
+  await page.locator('.photo-details-handle').click(); await settle();
+  assert.equal(await page.locator('.photo-details.is-expanded').count(),1,'pointer tap on the handle expands details');
+  await page.locator('[data-photo-details-close]').click();
+  await page.waitForSelector('.photo-details',{state:'detached'});
   await page.locator('[data-viewer-details]').click(); await settle();
   if (process.env.QUIET_ROOM_PHOTO_BROWSER !== 'webkit') {
     const touch = await page.context().newCDPSession(page);

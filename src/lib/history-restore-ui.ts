@@ -191,9 +191,9 @@ export function attachHistoryRestore(options: Options): () => void {
   };
   const openInput = () => {
     if (!active() || inputSheet?.isConnected) return;
-    const { sheet, dialog } = mount('验证恢复码', `<form class="history-restore-form"><label for="history-restore-code">恢复码（多个旧码请分行）</label>
+    const { sheet, dialog } = mount('验证恢复码', `<form class="history-restore-form"><div class="history-restore-fields"><label for="history-restore-code">恢复码（多个旧码请分行）</label>
       <div class="history-restore-input"><textarea id="history-restore-code" name="code" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="粘贴空间恢复码" required></textarea></div>
-      <p class="field-hint">只恢复你原本能阅读的内容。</p><button class="primary-button" type="submit" disabled>查找备份</button></form>`, 'textarea');
+      <p class="field-hint">只恢复你原本能阅读的内容。</p></div><button class="primary-button" type="submit" disabled>查找备份</button></form>`, 'textarea');
     inputSheet = sheet;
     const input = sheet.querySelector('textarea')!;
     const submit = sheet.querySelector<HTMLButtonElement>('[type="submit"]')!;

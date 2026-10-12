@@ -35,10 +35,11 @@ export function mountPhotoDetails(viewer: HTMLElement, options: {
       event.stopPropagation();
       const targets = [...panel.querySelectorAll<HTMLElement>('button, [tabindex="0"]')];
       const index = targets.indexOf(document.activeElement as HTMLElement);
-      if ((event.shiftKey && index <= 0) || (!event.shiftKey && index === targets.length - 1)) {
-        event.preventDefault();
-        targets[event.shiftKey ? targets.length - 1 : 0]?.focus({ preventScroll: true });
-      }
+      // Safari can skip buttons in its native Tab order. Keep every step in
+      // this fullscreen layer, including the sole close action.
+      event.preventDefault();
+      const next = event.shiftKey ? (index <= 0 ? targets.length - 1 : index - 1) : (index + 1) % targets.length;
+      targets[next]?.focus({ preventScroll: true });
     }
   });
   const content = panel.querySelector<HTMLElement>('.photo-details-content')!;
@@ -152,7 +153,7 @@ export function mountPhotoDetails(viewer: HTMLElement, options: {
   panel.addEventListener('pointerdown', event => {
     if (event.pointerType !== 'mouse' || event.button !== 0 || content.contains(event.target as Node)) return;
     beginDrag(event.clientX, event.clientY, event.target);
-    if (drag) panel.setPointerCapture(event.pointerId);
+    if (drag) (event.target === expandButton ? expandButton : panel).setPointerCapture(event.pointerId);
   });
   panel.addEventListener('pointermove', event => { if (event.pointerType === 'mouse') moveDrag(event.clientX, event.clientY, event); });
   panel.addEventListener('pointerup', event => { if (event.pointerType === 'mouse') endDrag(); });
