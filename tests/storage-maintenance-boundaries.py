@@ -79,6 +79,22 @@ class Boundaries(unittest.TestCase):
         with self.assertRaises(self.module['StorageError']):
             self.module['filesystem_manifest'](data)
 
+    def test_database_probe_can_only_mount_disposable_restored_copy(self):
+        restored = self.directory / 'restore-test'
+        restored.mkdir(mode=0o700)
+        calls = []
+        self.g['docker'] = lambda args, endpoint=None, timeout=30: calls.append(args)
+        self.module['database_check'](restored, 'fixture-image')
+        args = calls[0]
+        self.assertIn(str(restored) + ':/restore:rw', args)
+        self.assertEqual(args[args.index('--cap-add') + 1], 'DAC_OVERRIDE')
+        self.assertEqual(args[args.index('--cap-drop') + 1], 'ALL')
+        self.assertEqual(args[args.index('--network') + 1], 'none')
+        self.assertIn('--read-only', args)
+        with self.assertRaisesRegex(self.module['StorageError'], 'database-probe-copy-only'):
+            self.module['database_check'](self.engine, 'fixture-image')
+        self.assertEqual(len(calls), 1)
+
     def successful_readback(self):
         current = 'a' * 40
         image = 'sha256:' + 'b' * 64

@@ -38,6 +38,18 @@ g.update(ROOT=root, STATE=state, SESSIONS=sessions, ENGINE=engine, SOCKET=endpoi
 processes = {}
 
 
+def fixture_command(args, timeout=30):
+    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=timeout)
+    if result.returncode:
+        # CI-generated data only; production command diagnostics remain private.
+        print('STORAGE_CI_COMMAND_ERROR program=' + Path(args[0]).name + ' ' + result.stderr[-16000:])
+        raise module['StorageError']('command-failed-' + Path(args[0]).name)
+    return result.stdout.strip()
+
+
+g['command'] = fixture_command
+
+
 def daemon(label, data_root, socket_path, start):
     if start:
         config = base / (label + '-config.json')

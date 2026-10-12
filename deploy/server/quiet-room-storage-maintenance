@@ -432,10 +432,17 @@ def image_check(snapshot, expected, endpoint=None, pull=False):
 def database_check(directory, image, endpoint=None):
     # Check SQLite state from both the application and TURN, with the original
     # image's SQLite version. Never print file names or data from these volumes.
-    script = "const fs=require('node:fs'),path=require('node:path'),{DatabaseSync}=require('node:sqlite');function walk(p){for(const e of fs.readdirSync(p,{withFileTypes:true})){const f=path.join(p,e.name);if(e.isDirectory())walk(f);else{const fd=fs.openSync(f,'r'),b=Buffer.alloc(16);fs.readSync(fd,b,0,16,0);fs.closeSync(fd);if(b.toString()==='SQLite format 3\\0'){const d=new DatabaseSync(f,{readOnly:true});if(d.prepare('PRAGMA quick_check').all().some(r=>Object.values(r)[0]!=='ok'))process.exit(2);d.close()}}}}walk('/restore')"
+    directory = Path(directory)
+    require(directory.name == 'restore-test' and directory.parent.parent == SESSIONS and
+            directory.resolve() == directory, 'database-probe-copy-only')
+    # Numeric ownership/private permissions are preserved by tar. One DAC
+    # capability lets this isolated verifier inspect mixed-owner files. SQLite
+    # may recover WAL/SHM in the disposable copy, never in a live/source volume.
+    script = "const fs=require('node:fs'),path=require('node:path'),{DatabaseSync}=require('node:sqlite');function walk(p){for(const e of fs.readdirSync(p,{withFileTypes:true})){const f=path.join(p,e.name);if(e.isDirectory())walk(f);else{const fd=fs.openSync(f,'r'),b=Buffer.alloc(16);fs.readSync(fd,b,0,16,0);fs.closeSync(fd);if(b.toString()==='SQLite format 3\\0'){const d=new DatabaseSync(f);if(d.prepare('PRAGMA quick_check').all().some(r=>Object.values(r)[0]!=='ok'))process.exit(2);d.close()}}}}walk('/restore')"
     docker(['run', '--rm', '--network', 'none', '--read-only', '--memory', '256m', '--cap-drop', 'ALL',
+            '--cap-add', 'DAC_OVERRIDE',
             '--security-opt', 'no-new-privileges:true', '--user', '0', '--tmpfs', '/tmp:rw,noexec,nosuid,size=16m',
-            '--volume', str(directory) + ':/restore:ro', '--entrypoint', 'node', image, '-e', script], endpoint, timeout=60)
+            '--volume', str(directory) + ':/restore:rw', '--entrypoint', 'node', image, '-e', script], endpoint, timeout=60)
 
 
 def validation_daemon(directory, start):
