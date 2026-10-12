@@ -114,6 +114,13 @@ class Boundaries(unittest.TestCase):
         self.assertEqual(compare(current, {}, dict(expected, Memory=512), before_start=True, oom_supported=False), ['HostConfig.Memory'])
         current['State']['Running'] = True
         self.assertEqual(compare(current, {}, expected, before_start=True, oom_supported=False), ['HostConfig.OomKillDisable'])
+        reverse = {'Config': {}, 'HostConfig': {'OomKillDisable': False, 'Memory': 256}, 'State': {'Running': False}}
+        reverse_expected = dict(expected, OomKillDisable=None)
+        self.assertEqual(compare(reverse, {}, reverse_expected, before_start=True, oom_supported=False), [])
+        self.assertEqual(compare(reverse, {}, reverse_expected), ['HostConfig.OomKillDisable'])
+        self.assertEqual(compare(reverse, {}, reverse_expected, before_start=True, oom_supported=None), ['HostConfig.OomKillDisable'])
+        reverse['State']['Running'] = True
+        self.assertEqual(compare(reverse, {}, reverse_expected, before_start=True, oom_supported=False), ['HostConfig.OomKillDisable'])
 
     def successful_readback(self):
         current = 'a' * 40

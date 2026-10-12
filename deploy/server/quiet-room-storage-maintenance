@@ -414,13 +414,13 @@ def runtime_fields(current, config, host, before_start=False, oom_supported=True
             original = expected.get(key)
             if value == original:
                 continue
-            # On kernels without this control, Docker discards a false value
-            # at create and installs the same false default at start. Accept
-            # that documented pre-start representation only; running settings
-            # and a request to disable the OOM killer remain strict.
+            # On kernels without this control, Docker's create/start adapters
+            # represent the enabled OOM killer as null or false. Accept those
+            # two pre-start defaults only; running settings and a request to
+            # disable the OOM killer remain strict.
             if (kind == 'HostConfig' and key == 'OomKillDisable' and before_start and
-                    current['State']['Running'] is False and not oom_supported and
-                    value is None and original is False):
+                    current['State']['Running'] is False and oom_supported is False and
+                    ((value is None and original is False) or (value is False and original is None))):
                 continue
             differences.append(kind + '.' + key)
     return differences
