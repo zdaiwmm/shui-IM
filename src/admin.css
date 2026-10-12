@@ -75,7 +75,7 @@ button:disabled { opacity: .58; cursor: default; }
 button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible {
   outline: 2px solid var(--accent); outline-offset: 3px;
 }
-:root:not([data-input-modality='keyboard']) #admin :focus-visible { outline: 0; }
+:root[data-input-modality='pointer'] #admin :focus-visible { outline: 0; }
 button svg { width: 18px; height: 18px; flex-shrink: 0; }
 .primary { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--on-accent); }
 .primary:hover:not(:disabled) { background: var(--accent-fill); border-color: var(--accent-fill); filter: brightness(1.12); }

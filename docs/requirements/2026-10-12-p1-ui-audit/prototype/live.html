@@ -21,6 +21,6 @@ for(const [id,label] of pages){const o=document.createElement('option');o.value=
 select.value=new URLSearchParams(location.search).get('screen')||'chat';if(!select.value)select.value='chat';
 function render(){document.querySelector('#media-state').value='uploading';document.querySelector('#media-controls').hidden=select.value!=='mediaUpload';status.textContent='正在载入…';frame.src='./live-surface.html?screen='+encodeURIComponent(select.value);history.replaceState(null,'','?screen='+encodeURIComponent(select.value));}
 document.querySelector('#media-state').onchange=e=>frame.contentWindow.postMessage({type:'live-media-state',state:e.target.value},location.origin);
-select.onchange=render;window.addEventListener('message',e=>{if(e.source!==frame.contentWindow||e.origin!==location.origin)return;if(e.data.type==='live-ready')status.textContent=`页面视口 ${e.data.width} × ${e.data.height} · DPR ${e.data.dpr} · ${e.data.touch?'触控设备参数':'桌面设备参数'}`;if(e.data.type==='live-error')status.textContent='样例未完成载入：'+e.data.message;});render();
+select.onchange=render;window.addEventListener('message',e=>{if(e.source!==frame.contentWindow||e.origin!==location.origin)return;if(e.data.type==='live-ready')status.textContent=`页面视口 ${e.data.width} × ${e.data.height} · DPR ${e.data.dpr} · ${e.data.touch?'触控设备参数':'桌面设备参数'}`;if(e.data.type==='live-media-current')document.querySelector('#media-state').value=e.data.state;if(e.data.type==='live-error')status.textContent='样例未完成载入：'+e.data.message;});render();
 </script>
 </html>

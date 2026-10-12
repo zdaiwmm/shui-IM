@@ -538,7 +538,6 @@ html[data-keyboard-open='true'] #app .chat-header:not([data-presence-style='hear
 #app [data-sheet-panel] > :is(p,.message-info-preview,.message-info-stages,.history-restore-form,.privacy-list,.history-restore-counts,.history-restore-progress-copy) { margin-top: 24px; }
 #app [data-sheet-panel] > h2 + p { margin-top: 12px; }
 #app [data-sheet-panel] > :is(.primary-button,.history-restore-actions,.password-actions) { margin-top: 24px; }
-#app .password-operation-sheet .password-page-content { overflow: visible; }
 #app .password-operation-sheet :is(.password-description) { margin: 12px 0 0; }
 #app .password-operation-sheet .password-operation { margin: 24px 0 0; border: 0; padding: 12px; background: var(--surface); }
 #app .password-operation-sheet .password-fields { margin: 24px 0 0; padding: 0; gap: 16px; }
@@ -569,8 +568,8 @@ html[data-keyboard-open='true'] #app .chat-header:not([data-presence-style='hear
 #app .is-space-list-page .space-create { width: 100%; min-height: 48px; justify-content: center; }
 /* Touch/programmatic focus has no additional visual state. Tab navigation is
    explicit and remains visible with an external keyboard, including on iOS. */
-:root:not([data-input-modality='keyboard']) #app :is(button,input,textarea,select,summary,[tabindex]):focus-visible { outline: 0; box-shadow: none; }
-:root:not([data-input-modality='keyboard']) #app :is(.preference-choice,.scheme-choice):has(input:focus-visible) { outline: 0; }
+:root[data-input-modality='pointer'] #app :is(button,input,textarea,select,summary,[tabindex]):focus-visible { outline: 0; box-shadow: none; }
+:root[data-input-modality='pointer'] #app :is(.preference-choice,.scheme-choice):has(input:focus-visible) { outline: 0; }
 :root[data-input-modality='keyboard'] #app :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 @media (prefers-contrast: more) { :root { --line-subtle: var(--line-strong); } }
 @media (forced-colors: active) {
@@ -615,3 +614,5 @@ html[data-keyboard-open='true'] #app .chat-header:not([data-presence-style='hear
 /* Focusing a field does not repaint the composer. Keep the compatibility
    token for viewport owners while both keyboard states share one surface. */
 :root[data-theme][data-color-scheme] { --composer-surface-focused: var(--composer-surface); }
+
+#app .image-viewer:not([data-native-video]) { background: #141214; }

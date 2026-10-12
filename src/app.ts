@@ -9127,6 +9127,7 @@ export class QuietRoomApp {
     const x = Math.max(left + 12, Math.min(rect.left, left + width - menuWidth - 12));
     const y = rect.top + placement.previewHeight + 8;
     const preview = this.root.querySelector<HTMLElement>('.message-action-preview');
+    const previousSourceTop = preview?.style.top ? parseFloat(preview.style.top) : rect.top;
     if (preview) {
       preview.style.top = `${rect.top}px`;
       preview.style.height = `${placement.previewHeight}px`;
@@ -9145,7 +9146,7 @@ export class QuietRoomApp {
     const group = actions.querySelector<HTMLElement>('.message-action-group');
     if (group) {
       const target = placement.previewTop - rect.top;
-      const from = new DOMMatrixReadOnly(getComputedStyle(group).transform).m42;
+      const from = new DOMMatrixReadOnly(getComputedStyle(group).transform).m42 + previousSourceTop - rect.top;
       const velocity = travelVelocity(group);
       group.getAnimations().forEach(animation => animation.cancel());
       group.style.transform = `translate3d(0,${target}px,0)`;

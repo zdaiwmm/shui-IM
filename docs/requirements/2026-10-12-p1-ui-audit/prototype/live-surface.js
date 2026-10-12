@@ -48,7 +48,7 @@ if(screen==='mediaUpload'||screen==='photoDetails'){
   const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
   if(screen==='mediaUpload'){
     const {MediaUploadView}=await import('/src/lib/media-upload-view.ts');
-    const view=new MediaUploadView('synthetic-live-upload',[new File([blob],'合成样例.png',{type:'image/png'})],false,false,()=>view.update('uploading',.64),()=>view.destroy(),()=>{});
+    const view=new MediaUploadView('synthetic-live-upload',[new File([blob],'合成样例.png',{type:'image/png'})],false,false,()=>{view.update('uploading',.64);parent.postMessage({type:'live-media-current',state:'uploading'},location.origin);},()=>view.destroy(),()=>{});
     await view.ready;root.querySelector('#message-list').replaceChildren(view.element);view.update('uploading',.64);
     window.addEventListener('message',event=>{if(event.source!==parent||event.origin!==location.origin||event.data.type!=='live-media-state'||!['preparing','uploading','finishing','failed'].includes(event.data.state))return;view.update(event.data.state,.64);});
     window.addEventListener('pagehide',()=>view.destroy(),{once:true});

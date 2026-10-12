@@ -3,6 +3,7 @@ import { motion, retargetMotion } from './motion';
 /** Presentation only: never captures pointers, delays clicks or consumes editing keys. */
 export function bindControlFeedback(root: HTMLElement): () => void {
   root.dataset.controlFeedback = 'true';
+  document.documentElement.dataset.inputModality ??= 'pointer';
   const events = new AbortController();
   const signal = events.signal;
   // Text entry is not keyboard navigation. Touch and programmatic focus keep
@@ -11,7 +12,9 @@ export function bindControlFeedback(root: HTMLElement): () => void {
     document.documentElement.dataset.inputModality = 'pointer';
   }, { capture: true, signal });
   document.addEventListener('keydown', event => {
-    if (event.key === 'Tab' || event.key.startsWith('Arrow')) document.documentElement.dataset.inputModality = 'keyboard';
+    const activatesControl = ['Enter',' '].includes(event.key) && event.target instanceof Element
+      && Boolean(event.target.closest('button,summary,[role="button"],[role="switch"]'));
+    if (event.key === 'Tab' || event.key.startsWith('Arrow') || activatesControl) document.documentElement.dataset.inputModality = 'keyboard';
   }, { capture: true, signal });
   const activeEffects = new Set<Animation>();
   const track = (effect: Animation) => { activeEffects.add(effect); void effect.finished.then(() => activeEffects.delete(effect), () => activeEffects.delete(effect)); };

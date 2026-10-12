@@ -43,6 +43,16 @@ try {
     }
   }
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => {
+    const field=document.querySelector('#message-input');
+    field.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerType:'touch',pointerId:1})); field.focus();
+  });
+  assert.equal(await page.locator('#message-input').evaluate(e=>getComputedStyle(e).outlineStyle),'none');
+  assert.equal(await page.locator('#message-input').evaluate(e=>getComputedStyle(e).boxShadow),'none');
+  await page.keyboard.press('Tab');
+  assert.deepEqual(await page.evaluate(()=>({mode:document.documentElement.dataset.inputModality,
+    outline:getComputedStyle(document.activeElement).outlineStyle,width:getComputedStyle(document.activeElement).outlineWidth})),
+    {mode:'keyboard',outline:'solid',width:'2px'},'external keyboard retains a visible location');
   await page.evaluate(() => { window.fixture.fresh(0); window.fixture.app.showNotice('合成普通提示'); });
   await page.clock.runFor(2599); assert.equal(await page.locator('#notice').isVisible(), true);
   await page.clock.runFor(2); assert.equal(await page.locator('#notice').evaluate(e => e.classList.contains('is-leaving')), true);

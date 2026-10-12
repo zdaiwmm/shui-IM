@@ -1446,7 +1446,7 @@ try {
   });
   invariant(!accessibility.overflow, 'Mobile layout has horizontal overflow');
   invariant(accessibility.documentOverflow === 'auto', 'The document cannot scroll behind Safari chrome');
-  invariant(accessibility.outline === 'none' && accessibility.focusLine.includes('inset'), 'Composer keyboard focus needs a quiet underline without an outer frame');
+  invariant(accessibility.outline === 'none' && accessibility.focusLine === 'none', 'P1 touch focus must have no underline, shadow or outer frame');
   invariant(accessibility.bottomEdge === accessibility.composerBackground, 'Bottom browser edge must match the composer surface');
   invariant(accessibility.composerFieldOutline === 'none' && accessibility.composerFieldRadius === '0px', 'Composer field retained an outer focus frame or capsule');
   invariant(accessibility.headerOffset < 1 && accessibility.composerOffset < 1, 'Chat header or composer is not fixed to the visual viewport');

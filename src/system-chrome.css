@@ -30,7 +30,13 @@ html:has(.document-reader) { --chrome-top-surface: var(--paper); --chrome-bottom
 html:has(.call-view) { --chrome-top-surface: var(--paper); --chrome-bottom-surface: var(--paper); }
 html:has(.call-has-remote-video) { --chrome-top-surface: #141214; --chrome-bottom-surface: #141214; }
 html:has(#app .cover), html.privacy-obscured { --chrome-top-surface: var(--paper-pure); --chrome-bottom-surface: var(--paper-pure); }
-html:has(#app), body:has(#app) { background-color: var(--chrome-bottom-surface); background-image: none; }
+html:has(#app) {
+  background-color: var(--chrome-bottom-surface);
+  background-image: linear-gradient(var(--chrome-top-surface),var(--chrome-top-surface));
+  background-size: 100% max(1px,env(safe-area-inset-top));
+  background-position: top; background-repeat: no-repeat; background-attachment: fixed;
+}
+body:has(#app) { background: transparent; }
 /* The page owns safe-area paint; native toolbars remain browser-owned. */
 #app [data-sheet-panel], #app .space-invite-sheet, #app .avatar-source-sheet { padding-bottom: max(16px,env(safe-area-inset-bottom)); }
 @media (forced-colors: active) {
