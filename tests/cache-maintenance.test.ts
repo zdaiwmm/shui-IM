@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 describe('supervised cache maintenance boundaries', () => {
   it('blocks plan and apply before contacting Docker when an incident disables maintenance', () => {
     const result = spawnSync('python3', ['-c', `
-import runpy, sys, tempfile
+import hashlib, json, runpy, sys, tempfile, time
 from pathlib import Path
 m=runpy.run_path('deploy/server/quiet-room-cache-maintenance')
 g=m['apply'].__globals__
@@ -26,6 +26,13 @@ with tempfile.TemporaryDirectory() as d:
   assert not calls and not (p/'lock').exists() and not (p/'maintenance').exists()
   if kind=='directory': marker.rmdir()
   else: marker.unlink()
+ # The incident recorder uses this same lock. Reject a record installed
+ # between the initial check and acquiring that lock as well.
+ raw=json.dumps(dict(checkedAt=int(time.time()))).encode()
+ g['fcntl'].flock=lambda *args:marker.write_text('{}')
+ try: m['apply'](raw,hashlib.sha256(raw).hexdigest()); raise AssertionError('record installed before lock accepted')
+ except ValueError as error: assert 'disabled' in str(error)
+ assert marker.exists() and not calls and not (p/'maintenance').exists()
 `], { encoding: 'utf8' });
     expect(result.status, result.stderr).toBe(0);
   });

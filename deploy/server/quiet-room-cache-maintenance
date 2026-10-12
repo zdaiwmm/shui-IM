@@ -111,6 +111,7 @@ def apply(plan_bytes, expected_hash):
         raise ValueError('Maintenance plan expired')
     with LOCK.open('a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        require_enabled()
         gate = STATE / 'maintenance'
         if gate.exists() or gate.is_symlink():
             raise ValueError('An existing maintenance gate requires investigation')
