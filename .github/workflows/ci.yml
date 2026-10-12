@@ -160,7 +160,7 @@ jobs:
           node-version: 24
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
-      - name: Build, check runtime imports and export the exact image
+      - name: Build and check runtime imports
         env:
           IMAGE_PLATFORM: linux/${{ matrix.arch }}
         run: |
@@ -170,17 +170,43 @@ jobs:
             --label "org.opencontainers.image.revision=$GITHUB_SHA" --tag "$image" .
           docker run --rm --platform "$IMAGE_PLATFORM" "$image" node --input-type=module -e \
             'await import("./server/index.mjs"); await import("./server/backup.mjs"); const { DatabaseSync } = await import("node:sqlite"); const db = new DatabaseSync(":memory:"); db.close();'
+      - name: Export the exact main image
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        env:
+          IMAGE_PLATFORM: linux/${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          image="quiet-room-app:$GITHUB_SHA"
           mkdir ci-image
           docker image save "$image" | gzip -1 > ci-image/image.tar.gz
           export IMAGE_ID="$(docker image inspect "$image" --format '{{.Id}}')"
           node scripts/ci-image.mjs manifest ci-image
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         with:
           name: quiet-room-image-${{ github.sha }}-${{ github.run_attempt }}-${{ matrix.arch }}
           path: ci-image/
           if-no-files-found: error
           compression-level: 0
-          retention-days: 90
+          retention-days: 7
+
+  image_retention:
+    name: Retain recent CI image versions
+    needs: [scope, verify]
+    if: github.ref == 'refs/heads/main' && needs.scope.outputs.mode == 'full' && needs.verify.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: node scripts/ci-image-retention.mjs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
   verify:
     # Keep the existing branch-protection check name stable and make it the

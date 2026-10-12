@@ -20,7 +20,7 @@ deliberate fresh-origin cutover.
 
 CI builds and checks runtime images for `linux/amd64` and `linux/arm64`.
 The successful main run retains a compressed Docker archive and manifest bound
-to the exact commit, run, attempt, architecture and checksums for 90 days.
+to the exact commit, run, attempt, architecture and checksums for seven days; only the current and two previous main image versions are retained.
 The trusted publishing computer validates and streams that exact artifact over
 existing SSH. The server imports and verifies it before closing traffic, without
 building the application. No registry credential or CI production access is needed.
