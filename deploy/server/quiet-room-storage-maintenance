@@ -32,6 +32,7 @@ STATE = Path('/var/lib/quiet-room-deploy')
 SESSIONS = STATE / 'storage-maintenance'
 ENGINE = Path('/var/lib/docker')
 SOCKET = '/var/run/docker.sock'
+CONTAINERD_SOCKET = '/run/containerd/containerd.sock'
 LOCK = Path('/run/lock/quiet-room-deploy.lock')
 MACHINE_ID = Path('/etc/machine-id')
 GIB = 1024 ** 3
@@ -636,7 +637,24 @@ def engine_control(start):
                 time.sleep(1)
         raise StorageError('engine-start-timeout')
     require(command(['systemctl', 'show', 'docker', '--property=ActiveState', '--value']) in ('inactive', 'failed'), 'engine-not-stopped')
-    require(not command(['ctr', '--namespace', 'moby', 'tasks', 'list', '--quiet']), 'containerd-tasks-still-running')
+    require_no_tasks()
+
+
+def require_no_tasks():
+    require(not command(['ctr', '--address', CONTAINERD_SOCKET, '--namespace', 'moby', 'tasks', 'list', '--quiet']),
+            'containerd-tasks-still-running')
+
+
+def require_quiescent():
+    # Inspect the authoritative per-container state rather than infer it from
+    # a nonempty list response. Also require no runtime task before reading any
+    # live volume; unknown containers and paused/restarting processes fail closed.
+    listed = api('GET', '/containers/json?all=true')
+    require(sorted(name.lstrip('/') for item in listed for name in item['Names']) == sorted(NAMES), 'quiescent-container-drift')
+    for item in listed:
+        current = api('GET', '/containers/' + item['Id'] + '/json')
+        require(all(current['State'].get(key) is False for key in ('Running', 'Paused', 'Restarting')), 'containers-still-running')
+    require_no_tasks()
 
 
 def engine_unmounted(path):
@@ -673,7 +691,7 @@ def cold_backups(directory, plan, snapshot):
     backup_manifest = {}
     for volume in snapshot['volumes']:
         source = Path(volume['Mountpoint'])
-        require(not api('GET', '/containers/json?filters=' + quote(json.dumps({'volume': [volume['Name']]}), safe='')), 'volume-still-in-use')
+        require_quiescent()
         expected = filesystem_manifest(source)
         total = sum(item.get('size', 0) for item in expected)
         require(available() >= 2 * total + GIB, 'fresh-backup-headroom')
@@ -793,7 +811,7 @@ def apply_worker(directory):
         traffic_gate(plan)
         public_health(plan)
         docker(['stop'] + list(NAMES), timeout=120)
-        require(not api('GET', '/containers/json'), 'containers-still-running')
+        require_quiescent()
         require(memory_available() >= 1200 * 1024 ** 2, 'stopped-memory-headroom')
         cold_backups(directory, plan, snapshot)
         require(available() >= int(plan['expandedImageBytes'] * 1.25) + GIB, 'new-engine-headroom')

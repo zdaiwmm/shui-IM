@@ -180,6 +180,26 @@ class Boundaries(unittest.TestCase):
         with self.assertRaisesRegex(self.module['StorageError'], 'containerd-tasks-still-running'):
             self.module['engine_control'](False)
 
+    def test_cold_volume_reads_require_stopped_containers_and_no_runtime_task(self):
+        state = {'Running': False, 'Paused': False, 'Restarting': False}
+        listed = [{'Id': str(index), 'Names': ['/' + name]} for index, name in enumerate(self.module['NAMES'])]
+        self.g['api'] = lambda method, path, **kwargs: listed if path == '/containers/json?all=true' else {'State': state}
+        tasks = ['']
+        self.g['command'] = lambda args, timeout=30: tasks[0]
+        self.module['require_quiescent']()
+        for key in state:
+            state[key] = True
+            with self.assertRaisesRegex(self.module['StorageError'], 'containers-still-running'):
+                self.module['require_quiescent']()
+            state[key] = False
+        tasks[0] = 'remaining-task'
+        with self.assertRaisesRegex(self.module['StorageError'], 'containerd-tasks-still-running'):
+            self.module['require_quiescent']()
+        tasks[0] = ''
+        listed.append({'Id': 'unknown', 'Names': ['/unknown']})
+        with self.assertRaisesRegex(self.module['StorageError'], 'quiescent-container-drift'):
+            self.module['require_quiescent']()
+
     def test_inventory_is_stable_when_docker_reorders_identical_objects(self):
         root = self.g['ROOT']
         for path in [root / 'shared', root / 'deploy-state', root / 'git-releases/release']:

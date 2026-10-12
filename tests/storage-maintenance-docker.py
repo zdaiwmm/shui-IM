@@ -34,7 +34,8 @@ for directory in (root / 'deploy-state', root / 'shared', root / 'git-releases/r
 (root / 'deploy-state/deployed-at').write_text('fixture-original-batch')
 (root / 'deploy-state/admin-enabled').write_text('0')
 (root / 'shared/fixture.json').write_text('{}')
-g.update(ROOT=root, STATE=state, SESSIONS=sessions, ENGINE=engine, SOCKET=endpoint)
+g.update(ROOT=root, STATE=state, SESSIONS=sessions, ENGINE=engine, SOCKET=endpoint,
+         CONTAINERD_SOCKET=str(base / 'main-exec/containerd/containerd.sock'))
 processes = {}
 
 
