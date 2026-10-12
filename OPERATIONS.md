@@ -39,8 +39,9 @@ normal application deployment must not self-update privileged tools. See
 - Do not run automated `docker system df`, global prune, or builder prune on
   this 2 GiB host. A filtered builder prune caused management/public timeouts
   during this incident. Cache growth must hit the capacity gate rather than
-  trigger another unsupervised heavy cleanup; use a supervised maintenance
-  window or move builds off the serving host.
+  trigger another heavy cleanup. Builds now move to CI. On 2026-10-12, even
+  stopped-container, supervised builder pruning caused host unresponsiveness;
+  this method is disabled on the current production host.
 - Checked-in journal and nginx rotation settings cap journal at 300 MiB/7 days
   and rotate nginx daily or at 20 MiB with seven files. Container logs rotate at
   10 MiB with three files per container after controlled recreation. Never
@@ -52,7 +53,39 @@ The source files alone do not mean production policy is enabled. Current disk
 capacity must be measured after cleanup and a full readback must verify service
 recovery; 40 GiB cannot support unlimited business-data growth.
 
-## Supervised build cache maintenance
+<a id="supervised-build-cache-maintenance"></a>
+
+## Build cache maintenance disabled after incident
+
+The current production host must not run the previous supervised prune protocol
+again. The 2026-10-12 attempt stopped the original containers but never returned
+a completion receipt; SSH and public health became unresponsive. After explicit
+user authorization for rescue and necessary restart, a normal cloud restart
+resolved the old daemon execution. The original containers, images and
+`05e868086454192e7f06f52c63f812df1b5d84a3` were restored. Independent readback
+passed at `2026-10-12T09:55:40.229Z`. No new application version was published.
+
+The cache helper is retained with its reviewed digest but mode `0644`.
+The root-owned `/var/lib/quiet-room-deploy/cache-maintenance-disabled.json`
+records the incident. A helper upgrade must preserve that record and must not
+automatically re-enable this method. The helper rejects both plan and apply
+when that path exists, including malformed or dangling-link state. Do not
+clear it as routine cleanup. Daily retention and capacity/log timers remain
+separate and enabled.
+
+Historical cache reclamation remains incomplete: after recovery and two clean
+release removals, available space was `3906973696` bytes (90.22% used). This
+still fails deployment headroom. The previous kernel and Docker journals did
+not establish an OOM or disk-error cause; high disk reads in cloud monitoring
+are evidence of pressure, not proof of its cause. Do not promise that the
+sampled 20.6 GiB of old layers can simply be deleted.
+
+Any replacement strategy must first preserve and verify the live data volume,
+TURN state, current and rollback images, and source/configuration outside Docker.
+Reinitializing Docker storage or relocating business volumes requires a new
+reviewed plan and explicit maintenance authorization. Never delete individual
+Docker layer directories or use global/volume prune. See the
+[incident and remaining work](docs/requirements/2026-10-12-ci-image-environments/README.md#维护事故恢复与剩余事项).
 
 `deploy/server/quiet-room-cache-maintenance` is a separately reviewed root tool,
 never a timer or an application-release hook. Install it atomically from the
@@ -60,27 +93,8 @@ exact reviewed commit, verifying its digest, Python 3.6 syntax and root ownershi
 using the same staging procedure as the deployment helper. Never delete Docker
 layer directories directly or replace this with a global/volume prune.
 
-In an approved maintenance window, first run `quiet-room-cache-maintenance plan`
-and save its exact JSON bytes privately. Review the host fingerprint, current
-SHA, images and containers; compute SHA-256 of those bytes. Within 15 minutes:
-
-```bash
-sudo /usr/local/sbin/quiet-room-cache-maintenance --apply <reviewed-plan-sha256> --maintenance-window < reviewed-plan.json
-```
-
-The tool takes the deployment lock, rejects drift or an existing gate, closes
-business traffic, and stops only the recorded containers. It requires 1 GiB free
-disk and 400 MiB available memory before stopping, then 1200 MiB available memory.
-It asks Docker to reclaim unused build cache older than seven days with a 2 GB
-keep-storage target, preserving every existing image reference. This target does
-not promise a hard cache cap or a particular number of freed bytes. It restarts
-the same containers and opens traffic only after application health returns.
-Ordinary command failure attempts recovery of those same containers; daemon
-timeout or changed image references retain the gate for manual investigation.
 Killing a prune client does not prove the daemon stopped. Never blindly retry.
-
-Record actual disk change and run independent readback for the unchanged
-application SHA afterward, including backup health. Retained dirty release trees
+Retained dirty release trees
 are reported as `CLEANUP_PARTIAL`; other clean eligible trees are still processed.
 That partial result is visible locally and is not proof an external alert arrived.
 

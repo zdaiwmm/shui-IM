@@ -436,6 +436,12 @@ CI does not publish automatically.
 
 ## Installing capacity governance
 
+The current production cache-maintenance tool was disabled after the
+2026-10-12 outage. Preserve the root-owned incident record and its non-executable
+mode when upgrading tools; do not automatically re-enable it. Capacity retention,
+log rotation and CI image deployment are independent. Follow the
+[current incident restriction](OPERATIONS.md#build-cache-maintenance-disabled-after-incident).
+
 The deployment helper now requires `/usr/local/sbin/quiet-room-capacity` before
 it can build or stop production. Install this Python 3 tool first using the
 same reviewed-commit, SHA-256, root ownership and atomic replacement procedure
