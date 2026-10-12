@@ -103,6 +103,18 @@ class Boundaries(unittest.TestCase):
         with self.assertRaisesRegex(self.module['StorageError'], 'validation-session'):
             self.module['validation_runtime'](Path('/unrelated/session'))
 
+    def test_prestart_oom_default_does_not_weaken_running_resource_checks(self):
+        current = {'Config': {}, 'HostConfig': {'OomKillDisable': None, 'Memory': 256}, 'State': {'Running': False}}
+        expected = {'OomKillDisable': False, 'Memory': 256}
+        compare = self.module['runtime_fields']
+        self.assertEqual(compare(current, {}, expected, before_start=True, oom_supported=False), [])
+        self.assertEqual(compare(current, {}, expected), ['HostConfig.OomKillDisable'])
+        self.assertEqual(compare(current, {}, expected, before_start=True, oom_supported=True), ['HostConfig.OomKillDisable'])
+        self.assertEqual(compare(current, {}, dict(expected, OomKillDisable=True), before_start=True, oom_supported=False), ['HostConfig.OomKillDisable'])
+        self.assertEqual(compare(current, {}, dict(expected, Memory=512), before_start=True, oom_supported=False), ['HostConfig.Memory'])
+        current['State']['Running'] = True
+        self.assertEqual(compare(current, {}, expected, before_start=True, oom_supported=False), ['HostConfig.OomKillDisable'])
+
     def successful_readback(self):
         current = 'a' * 40
         image = 'sha256:' + 'b' * 64

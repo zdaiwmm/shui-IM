@@ -406,15 +406,34 @@ def create_volumes(snapshot, endpoint=None):
                                       'DriverOpts': volume.get('Options') or {}, 'Labels': volume.get('Labels') or {}}, endpoint)
 
 
+def runtime_fields(current, config, host, before_start=False, oom_supported=True):
+    differences = []
+    for kind, expected in [('Config', config), ('HostConfig', host)]:
+        for key in sorted(set(current[kind]) | set(expected)):
+            value = current[kind].get(key)
+            original = expected.get(key)
+            if value == original:
+                continue
+            # On kernels without this control, Docker discards a false value
+            # at create and installs the same false default at start. Accept
+            # that documented pre-start representation only; running settings
+            # and a request to disable the OOM killer remain strict.
+            if (kind == 'HostConfig' and key == 'OomKillDisable' and before_start and
+                    current['State']['Running'] is False and not oom_supported and
+                    value is None and original is False):
+                continue
+            differences.append(kind + '.' + key)
+    return differences
+
+
 def create_containers(snapshot, endpoint=None, validation=False):
+    oom_supported = api('GET', '/info', endpoint=endpoint).get('OomKillDisable', True)
     for item in snapshot['containers']:
         payload = create_payload(item, validation)
         api('POST', '/containers/create?name=' + quote(item['Name'].lstrip('/'), safe=''),
             payload, endpoint)
         current = api('GET', '/containers/' + item['Name'].lstrip('/') + '/json', endpoint=endpoint)
-        differences = []
-        for kind, expected in [('Config', item['Config']), ('HostConfig', payload['HostConfig'])]:
-            differences += [kind + '.' + key for key in sorted(set(current[kind]) | set(expected)) if current[kind].get(key) != expected.get(key)]
+        differences = runtime_fields(current, item['Config'], payload['HostConfig'], before_start=True, oom_supported=oom_supported)
         require(not differences, 'recreated-runtime-fields-' + ','.join(differences))
 
 
@@ -708,8 +727,9 @@ def restored_state(directory, plan, snapshot, health=True):
         require(identity(ENGINE / 'volumes' / volume['name'] / '_data') == volume['identity'], 'restored-volume-identity')
     for item in snapshot['containers']:
         current = api('GET', '/containers/' + item['Name'].lstrip('/') + '/json')
-        require(current['Image'] == item['Image'] and current['Config'] == item['Config'] and
-                current['HostConfig'] == item['HostConfig'], 'restored-runtime-drift')
+        differences = runtime_fields(current, item['Config'], item['HostConfig'], before_start=not health,
+                                     oom_supported=api('GET', '/info').get('OomKillDisable', True))
+        require(current['Image'] == item['Image'] and not differences, 'restored-runtime-drift')
         mounts = lambda container: sorted((mount['Type'], mount.get('Name', ''), mount['Source'], mount['Destination'], mount['RW']) for mount in container['Mounts'])
         require(mounts(current) == mounts(item), 'restored-mount-drift')
         if health:
