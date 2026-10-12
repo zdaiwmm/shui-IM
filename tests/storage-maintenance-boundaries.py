@@ -121,6 +121,79 @@ class Boundaries(unittest.TestCase):
         self.assertEqual(calls[0], 1)
         self.assertTrue(process.killed)
 
+    def reference_fixture(self):
+        image = 'sha256:' + 'a' * 64
+        tag = 'fixture:original'
+        digest = 'fixture@sha256:' + 'b' * 64
+        store = {'Repositories': {'fixture': {tag: image, digest: image}}}
+        return {'images': [{'Id': image, 'RepoTags': [tag], 'RepoDigests': [digest]}], 'imageReferenceStore': store}
+
+    def test_reference_seed_preserves_the_exact_verified_mapping_in_an_empty_root(self):
+        snapshot = self.reference_fixture()
+        self.g['engine_unmounted'] = lambda root: None
+        self.g['engine_files_closed'] = lambda root: None
+        before = self.module['identity'](self.engine)
+        self.module['seed_reference_store'](self.engine, snapshot)
+        index = self.engine / 'image/overlay2/repositories.json'
+        self.assertEqual(json.loads(index.read_text()), snapshot['imageReferenceStore'])
+        self.assertEqual(index.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.module['identity'](self.engine), before)
+
+    def test_reference_seed_never_overwrites_an_existing_engine_root(self):
+        sentinel = self.engine / 'existing-engine-data'
+        sentinel.write_bytes(b'original engine data')
+        with self.assertRaisesRegex(self.module['StorageError'], 'reference-seed-root-not-empty'):
+            self.module['seed_reference_store'](self.engine, self.reference_fixture())
+        self.assertEqual(sentinel.read_bytes(), b'original engine data')
+        self.assertFalse((self.engine / 'image').exists())
+
+    def test_reference_seed_rejects_unknown_schema_wrong_ids_and_wrong_owners(self):
+        for code in ('reference-store-schema', 'reference-store-api-mismatch', 'reference-store-owner'):
+            with self.subTest(code=code):
+                snapshot = self.reference_fixture()
+                store = snapshot['imageReferenceStore']
+                if code == 'reference-store-schema':
+                    store['unknown'] = True
+                elif code == 'reference-store-api-mismatch':
+                    store['Repositories']['fixture']['fixture:original'] = 'sha256:' + 'c' * 64
+                else:
+                    store['Repositories']['other'] = store['Repositories'].pop('fixture')
+                with self.assertRaisesRegex(self.module['StorageError'], code):
+                    self.module['seed_reference_store'](self.engine, snapshot)
+                self.assertEqual(list(self.engine.iterdir()), [])
+
+    def test_reference_seed_rejects_symlinks_mounts_and_open_engine_files(self):
+        link = self.base / 'linked-engine'
+        link.symlink_to(self.engine, target_is_directory=True)
+        with self.assertRaisesRegex(self.module['StorageError'], 'reference-seed-path'):
+            self.module['seed_reference_store'](link, self.reference_fixture())
+        for guard in ('engine_unmounted', 'engine_files_closed'):
+            with self.subTest(guard=guard):
+                self.g['engine_unmounted'] = lambda root: None
+                self.g['engine_files_closed'] = lambda root: None
+                def reject(root):
+                    raise self.module['StorageError']('fixture-in-use')
+                self.g[guard] = reject
+                with self.assertRaisesRegex(self.module['StorageError'], 'fixture-in-use'):
+                    self.module['seed_reference_store'](self.engine, self.reference_fixture())
+                self.assertEqual(list(self.engine.iterdir()), [])
+
+    def test_image_verification_is_offline_and_rejects_a_wrong_digest_mapping(self):
+        snapshot = self.reference_fixture()
+        image = snapshot['images'][0]
+        self.g['docker'] = lambda *args, **kwargs: self.fail('registry command during offline verification')
+        def api(method, path, endpoint=None):
+            return [{'Id': image['Id']}] if path == '/images/json?all=false' else image
+        self.g['api'] = api
+        self.module['image_check'](snapshot, self.module['references'](snapshot['images']))
+        def wrong_digest(method, path, endpoint=None):
+            if '%40sha256' in path:
+                return dict(image, Id='sha256:' + 'c' * 64)
+            return api(method, path, endpoint)
+        self.g['api'] = wrong_digest
+        with self.assertRaisesRegex(self.module['StorageError'], 'restored-registry-digest'):
+            self.module['image_check'](snapshot, self.module['references'](snapshot['images']))
+
     def test_database_probe_can_only_mount_disposable_restored_copy(self):
         restored = self.directory / 'restore-test'
         restored.mkdir(mode=0o700)
@@ -162,6 +235,9 @@ if(!rejected||opened!==1)process.exit(1);
             self.module['validation_runtime'](Path('/unrelated/session'))
 
     def test_validation_daemon_uses_its_own_containerd_process_and_socket(self):
+        self.write('runtime.json', self.reference_fixture())
+        self.g['engine_unmounted'] = lambda root: None
+        self.g['engine_files_closed'] = lambda root: None
         runtime = self.base / 'private-runtime'
         self.g['validation_runtime'] = lambda directory: runtime
         calls = []
@@ -287,6 +363,11 @@ if(!rejected||opened!==1)process.exit(1);
             volumes.append({'Name': name, 'Driver': 'local', 'Options': None, 'Mountpoint': str(path), 'Labels': {}})
         images = [{'Id': 'sha256:' + 'b' * 64, 'Size': 100, 'RepoTags': ['quiet-room-app:production', 'quiet-room-app:' + 'a' * 40], 'RepoDigests': []},
                   {'Id': 'sha256:' + 'c' * 64, 'Size': 100, 'RepoTags': ['fixture:retained'], 'RepoDigests': []}]
+        index = self.engine / 'image/overlay2/repositories.json'
+        index.parent.mkdir(parents=True)
+        self.module['atomic_json'](index, {'Repositories': {
+            'quiet-room-app': {name: images[0]['Id'] for name in images[0]['RepoTags']},
+            'fixture': {'fixture:retained': images[1]['Id']}}})
         networks = [{'Name': name, 'Id': str(index) * 64, 'Driver': 'bridge', 'Scope': 'local',
                      'IPAM': {}, 'Options': {}, 'Labels': {}} for index, name in enumerate(['one', 'two'])]
         containers = []

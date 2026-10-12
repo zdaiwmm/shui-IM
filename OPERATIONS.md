@@ -111,7 +111,7 @@ to publish a new application SHA or to repeat builder prune.
 Preparation exports all protected images, restores a retained cold backup and
 checks SQLite with the original image, and independently imports the images into
 a temporary memory-limited Docker daemon with its own containerd, storage roots,
-state directories and short sockets under `/run`. It verifies registry digests and creation of
+state directories and short sockets under `/run`. It verifies original digest associations and creation of
 the original runtime configuration without starting those trial containers.
 Data and image rehearsals are sequential. Image streaming and post-stream
 unpacking share one 600-second deadline; completion uses the remaining time.
@@ -119,6 +119,16 @@ Disk budgets must pass before downtime.
 The private session directory is root-only; `runtime.json` contains credentials
 and must never be printed, downloaded into a source tree, or uploaded as evidence.
 Public plans and status contain only identifiers and fingerprints.
+
+For the supported classic overlay2 store, preparation captures the native
+`image/overlay2/repositories.json` mapping only after every entry matches the
+original Docker API references and image IDs. The mapping and its hash are bound
+to the private snapshot and public plan. Each fresh, empty replacement root is
+seeded before its daemon starts; existing or active roots fail closed. After
+archive import, Docker must resolve every original tag and digest to its original
+image ID. Preparation and replacement use these captured references offline,
+avoiding a registry dependency during recovery. This is an image reference index;
+business volume directories still move only at the verified transaction boundary.
 
 The prepared plan binds the host, current release, image references, all volume
 directory identities, networks, runtime/configuration fingerprints and tool

@@ -152,6 +152,40 @@ def references(images):
     return sorted(set(refs))
 
 
+def checked_reference_store(store, expected):
+    # Classic overlay2's native reference index carries digest associations
+    # which docker save/load omits. Accept only the exact API-verified mapping.
+    require(isinstance(store, dict) and set(store) == {'Repositories'} and
+            isinstance(store['Repositories'], dict), 'reference-store-schema')
+    actual = []
+    for repository, names in store['Repositories'].items():
+        require(isinstance(repository, str) and isinstance(names, dict) and names, 'reference-store-repository')
+        for name, image in names.items():
+            require(isinstance(name, str) and isinstance(image, str) and IMAGE.fullmatch(image), 'reference-store-entry')
+            owner = name.split('@', 1)[0] if '@' in name else name.rsplit(':', 1)[0]
+            require(owner == repository, 'reference-store-owner')
+            actual.append(name + ' ' + image)
+    require(sorted(actual) == expected, 'reference-store-api-mismatch')
+    return copy.deepcopy(store)
+
+
+def seed_reference_store(root, snapshot):
+    # Write only to an unused replacement root BEFORE its daemon starts. The
+    # original root and any existing index are never edited. After image load,
+    # the API must resolve every original tag/digest to its exact original ID.
+    root = Path(root)
+    require(root.is_absolute() and root.resolve() == root and not root.is_symlink(), 'reference-seed-path')
+    store = checked_reference_store(snapshot['imageReferenceStore'], references(snapshot['images']))
+    if not root.exists():
+        root.mkdir(mode=0o710)
+    require(root.is_dir() and not any(root.iterdir()), 'reference-seed-root-not-empty')
+    engine_unmounted(root)
+    engine_files_closed(root)
+    index = root / 'image/overlay2/repositories.json'
+    index.parent.mkdir(mode=0o700, parents=True)
+    atomic_json(index, store)
+
+
 def stable_network(network):
     return {key: network.get(key) for key in ('Name', 'Driver', 'Scope', 'Internal', 'Attachable', 'EnableIPv6', 'IPAM', 'Options', 'Labels')}
 
@@ -218,6 +252,8 @@ def inventory():
     for item in private['images']:
         item['RepoTags'] = sorted(item['RepoTags'] or [])
         item['RepoDigests'] = sorted(item['RepoDigests'] or [])
+    private['imageReferenceStore'] = checked_reference_store(
+        read_json(ENGINE / 'image/overlay2/repositories.json'), refs)
     # NetworkSettings outside Networks contains counters/health-related state
     # that must neither invalidate a plan nor enter a restoration request.
     for item in private['containers']:
@@ -235,7 +271,8 @@ def inventory():
                                   'metadataHash': digest(item)} for item in volumes], key=lambda item: item['name']),
               'networks': sorted([{'name': item['Name'], 'id': item['Id'], 'metadataHash': digest(stable_network(item))} for item in networks], key=lambda item: item['name']),
               'configurationHash': digest({str(path): file_digest(path) for path in files}),
-              'helperSha256': file_digest(Path(__file__)), 'runtimeSnapshotHash': digest(private)}
+              'helperSha256': file_digest(Path(__file__)), 'runtimeSnapshotHash': digest(private),
+              'imageReferenceStoreHash': digest(private['imageReferenceStore'])}
     return public, private
 
 
@@ -454,15 +491,13 @@ def create_containers(snapshot, endpoint=None, validation=False):
         require(not differences, 'recreated-runtime-fields-' + ','.join(differences))
 
 
-def image_check(snapshot, expected, endpoint=None, pull=False):
+def image_check(snapshot, expected, endpoint=None):
     for image in snapshot['images']:
         loaded = api('GET', '/images/' + image['Id'] + '/json', endpoint=endpoint)
         require(loaded['Id'] == image['Id'], 'restored-image-id')
         for name in image.get('RepoTags') or []:
             require(api('GET', '/images/' + quote(name, safe='') + '/json', endpoint=endpoint)['Id'] == image['Id'], 'restored-tag')
         for name in image.get('RepoDigests') or []:
-            if pull:
-                docker(['pull', name], endpoint, timeout=180)
             require(api('GET', '/images/' + quote(name, safe='') + '/json', endpoint=endpoint)['Id'] == image['Id'], 'restored-registry-digest')
     images = [api('GET', '/images/' + item['Id'] + '/json', endpoint=endpoint)
               for item in api('GET', '/images/json?all=false', endpoint=endpoint)]
@@ -502,6 +537,7 @@ def validation_daemon(directory, start):
     if start:
         area.mkdir(mode=0o700)
         runtime.mkdir(mode=0o700)
+        seed_reference_store(area / 'docker', read_json(directory / 'runtime.json'))
         atomic_json(area / 'daemon.json', {})
         (area / 'containerd.toml').write_text('version = 2\n')
         # Docker auto-detects the host containerd socket unless explicitly set.
@@ -643,7 +679,7 @@ def prepare_worker(directory):
     try:
         endpoint = validation_daemon(directory, True)
         stream_process(['docker', '--host', 'unix://' + endpoint, 'image', 'load'], archive, False)
-        image_check(snapshot, plan['references'], endpoint, pull=True)
+        image_check(snapshot, plan['references'], endpoint)
         create_volumes(snapshot, endpoint)
         create_containers(snapshot, endpoint, validation=True)
     finally:
@@ -868,12 +904,13 @@ def apply_worker(directory):
         os.rename(str(ENGINE), str(old))
         checkpoint(directory, 'OLD_STORAGE_RETAINED', oldRoot=str(old))
         ENGINE.mkdir(mode=0o710)
+        seed_reference_store(ENGINE, snapshot)
         checkpoint(directory, 'STARTING_NEW_ENGINE', newEngineIdentity=identity(ENGINE))
         engine_control(True)
         require(not api('GET', '/containers/json?all=true') and not api('GET', '/images/json?all=false'), 'new-engine-not-empty')
         checkpoint(directory, 'RESTORING_IMAGES', newEngineIdentity=identity(ENGINE))
         stream_process(['docker', '--host', 'unix://' + SOCKET, 'image', 'load'], directory / 'images.tar.gz', False)
-        image_check(snapshot, plan['references'], pull=True)
+        image_check(snapshot, plan['references'])
         recreate_networks(snapshot)
         create_volumes(snapshot)
         move_volumes(directory, snapshot, True)
