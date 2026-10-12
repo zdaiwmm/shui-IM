@@ -4,6 +4,7 @@ import fcntl
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 import time
@@ -19,14 +20,34 @@ def run(args, timeout=30):
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout).stdout.strip()
 
 
+def image_references():
+    rows = run(['docker', 'image', 'ls', '--digests', '--no-trunc', '--format', '{{.Repository}} {{.Tag}} {{.Digest}} {{.ID}}']).splitlines()
+    images = set()
+    for row in rows:
+        fields = row.split()
+        if len(fields) != 4:
+            raise ValueError('Invalid image inventory')
+        repository, tag, digest, image = fields
+        if repository == '<none>' or not re.fullmatch(r'sha256:[0-9a-f]{64}', image):
+            raise ValueError('Unclassified images require investigation')
+        if digest != '<none>':
+            if not re.fullmatch(r'sha256:[0-9a-f]{64}', digest):
+                raise ValueError('Invalid registry image digest')
+            images.add(repository + '@' + digest + ' ' + image)
+        if tag != '<none>':
+            images.add(repository + ':' + tag + ' ' + image)
+        elif digest == '<none>':
+            raise ValueError('Unclassified images require investigation')
+    if not images:
+        raise ValueError('Unclassified images require investigation')
+    return sorted(images)
+
+
 def inventory():
     current = (ROOT / 'deploy-state/current-sha').read_text().strip()
-    if not __import__('re').fullmatch(r'[0-9a-f]{40}', current):
+    if not re.fullmatch(r'[0-9a-f]{40}', current):
         raise ValueError('Invalid current release')
-    rows = run(['docker', 'image', 'ls', '--no-trunc', '--format', '{{.Repository}}:{{.Tag}} {{.ID}}']).splitlines()
-    images = sorted(set(rows))
-    if not images or any('<none>' in row for row in images):
-        raise ValueError('Unclassified images require investigation')
+    images = image_references()
     containers = []
     names = run(['docker', 'ps', '-a', '--format', '{{.Names}}']).splitlines()
     allowed = {'quiet-room-quiet-room-1', 'quiet-room-quiet-room-backup-1', 'quiet-room-quiet-room-turn-1'}
@@ -105,7 +126,11 @@ def apply(plan_bytes, expected_hash):
             except subprocess.TimeoutExpired:
                 uncertain = True
                 raise ValueError('CACHE_STATE_UNRESOLVED: client timeout does not stop daemon work')
-            images = sorted(set(run(['docker', 'image', 'ls', '--no-trunc', '--format', '{{.Repository}}:{{.Tag}} {{.ID}}']).splitlines()))
+            try:
+                images = image_references()
+            except Exception:
+                uncertain = True
+                raise
             if images != plan['images']:
                 uncertain = True
                 raise ValueError('Protected image references changed')
