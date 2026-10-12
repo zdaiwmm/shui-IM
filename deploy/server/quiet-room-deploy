@@ -419,6 +419,7 @@ all_project_container_ids() {
 stop_project_containers() {
   local listing
   local remaining
+  local attempt
   local -a containers=()
 
   # Include exited/restarting containers so an unless-stopped restart policy
@@ -436,11 +437,16 @@ stop_project_containers() {
     fi
   fi
 
-  remaining="$(project_container_ids)" || return 1
-  if [[ -n "$remaining" ]]; then
-    printf 'Project containers are still running after stop: %s\n' "$remaining" >&2
-    return 1
-  fi
+  # The stop response can precede the daemon's container-list update. Keep
+  # traffic gated and require the same empty running list, with a bounded wait.
+  # A query error or containers that never stop still fails closed.
+  for attempt in {1..10}; do
+    remaining="$(project_container_ids)" || return 1
+    [[ -z "$remaining" ]] && return 0
+    if (( attempt < 10 )); then sleep 1; fi
+  done
+  printf 'Project containers are still running after stop: %s\n' "$remaining" >&2
+  return 1
 }
 
 ensure_data_volume_quiescent() {
