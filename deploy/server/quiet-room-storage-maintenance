@@ -169,6 +169,7 @@ def inventory():
     inspected = [api('GET', '/containers/' + quote(name, safe='') + '/json') for name in NAMES]
     for item in inspected:
         require(item['HostConfig'].get('ReadonlyRootfs') and item['State']['Running'], 'container-not-ready')
+        require(len(item['NetworkSettings']['Networks']) <= 1, 'multiple-container-networks-unsupported')
         require(item['State'].get('Health', {}).get('Status', 'none') in ('healthy', 'none'), 'container-health')
         for mount in item['Mounts']:
             require(mount['Type'] in ('bind', 'volume'), 'unsupported-mount')
@@ -375,8 +376,14 @@ def create_payload(item, validation=False):
     require(all(mount['Destination'] in declared for mount in item['Mounts']), 'implicit-volume-not-preserved')
     endpoints = {}
     for name, settings in item['NetworkSettings']['Networks'].items():
-        endpoints[name] = {key: settings[key] for key in ('IPAMConfig', 'Links', 'Aliases', 'MacAddress', 'DriverOpts')
+        endpoints[name] = {key: settings[key] for key in ('IPAMConfig', 'Links', 'Aliases', 'DriverOpts')
                            if settings.get(key) is not None}
+        # inspect.MacAddress is assigned even when no MAC was requested. Docker
+        # exposes the desired default-network MAC through legacy Config; replay
+        # only that declared setting, not a dynamically allocated address.
+        if config.get('MacAddress'):
+            endpoints[name]['MacAddress'] = config['MacAddress']
+    require(len(endpoints) <= 1, 'multiple-container-networks-unsupported')
     if validation:
         # Validation containers are never started and cannot affect the live
         # host network/ports. Their original runtime snapshots stay unchanged.

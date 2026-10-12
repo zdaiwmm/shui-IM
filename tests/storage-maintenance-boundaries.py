@@ -302,6 +302,20 @@ class Boundaries(unittest.TestCase):
         with self.assertRaisesRegex(self.module['StorageError'], 'implicit-volume-not-preserved'):
             self.module['create_payload'](original)
 
+    def test_runtime_copy_does_not_turn_an_automatic_mac_into_static_configuration(self):
+        original = self.runtime()
+        original['Config']['MacAddress'] = ''
+        payload = self.module['create_payload'](original)
+        self.assertNotIn('MacAddress', payload['NetworkingConfig']['EndpointsConfig']['project'])
+        desired = '02:42:00:00:00:03'
+        original['Config']['MacAddress'] = desired
+        payload = self.module['create_payload'](original)
+        self.assertEqual(payload['MacAddress'], desired)
+        self.assertEqual(payload['NetworkingConfig']['EndpointsConfig']['project']['MacAddress'], desired)
+        original['NetworkSettings']['Networks']['other'] = {}
+        with self.assertRaisesRegex(self.module['StorageError'], 'multiple-container-networks-unsupported'):
+            self.module['create_payload'](original)
+
     def test_retirement_keeps_unexpected_old_volume_data(self):
         old, source, target, original, snapshot = self.volume_fixture()
         self.module['move_volumes'](self.directory, snapshot, True)
