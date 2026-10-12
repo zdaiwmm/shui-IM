@@ -15,6 +15,14 @@ LOCK = Path('/run/lock/quiet-room-deploy.lock')
 GIB = 1024 ** 3
 
 
+def require_enabled():
+    # A recorded host outage takes precedence over reinstalling an executable
+    # helper. Do not read/interpret the record or clear it automatically.
+    marker = STATE / 'cache-maintenance-disabled.json'
+    if marker.exists() or marker.is_symlink():
+        raise ValueError('Cache maintenance disabled after incident; review required')
+
+
 def run(args, timeout=30):
     return subprocess.run(args, check=True, universal_newlines=True,
                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout).stdout.strip()
@@ -94,6 +102,7 @@ def restore_containers(plan):
 
 
 def apply(plan_bytes, expected_hash):
+    require_enabled()
     if len(plan_bytes) > 65536 or hashlib.sha256(plan_bytes).hexdigest() != expected_hash:
         raise ValueError('Reviewed plan checksum mismatch')
     approved = json.loads(plan_bytes.decode('utf-8'))
@@ -145,6 +154,7 @@ def apply(plan_bytes, expected_hash):
 
 
 def main():
+    require_enabled()
     if sys.argv[1:] == ['plan']:
         if (STATE / 'maintenance').exists():
             raise ValueError('Maintenance already active')

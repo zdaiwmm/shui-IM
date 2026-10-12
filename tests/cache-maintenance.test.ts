@@ -2,6 +2,33 @@ import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 
 describe('supervised cache maintenance boundaries', () => {
+  it('blocks plan and apply before contacting Docker when an incident disables maintenance', () => {
+    const result = spawnSync('python3', ['-c', `
+import runpy, sys, tempfile
+from pathlib import Path
+m=runpy.run_path('deploy/server/quiet-room-cache-maintenance')
+g=m['apply'].__globals__
+with tempfile.TemporaryDirectory() as d:
+ p=Path(d); g['STATE']=p; g['LOCK']=p/'lock'
+ calls=[]
+ def forbidden(*args,**kwargs):
+  calls.append(args); raise AssertionError('disabled maintenance touched Docker or recovery')
+ g.update(run=forbidden,inventory=forbidden,restore_containers=forbidden)
+ marker=p/'cache-maintenance-disabled.json'
+ for kind in ['record','directory','dangling-link']:
+  if kind=='record': marker.write_text('{}')
+  elif kind=='directory': marker.mkdir()
+  else: marker.symlink_to(p/'missing')
+  sys.argv=['quiet-room-cache-maintenance','plan']
+  for operation in [m['main'],lambda:m['apply'](b'{}','0'*64)]:
+   try: operation(); raise AssertionError('disabled maintenance accepted')
+   except ValueError as error: assert 'disabled' in str(error)
+  assert not calls and not (p/'lock').exists() and not (p/'maintenance').exists()
+  if kind=='directory': marker.rmdir()
+  else: marker.unlink()
+`], { encoding: 'utf8' });
+    expect(result.status, result.stderr).toBe(0);
+  });
   it('preserves digest-only registry images while rejecting anonymous or malformed image identities', () => {
     const result = spawnSync('python3', ['-c', `
 import runpy
