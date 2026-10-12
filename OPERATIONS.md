@@ -98,6 +98,62 @@ Retained dirty release trees
 are reported as `CLEANUP_PARTIAL`; other clean eligible trees are still processed.
 That partial result is visible locally and is not proof an external alert arrived.
 
+## Verified Docker storage replacement
+
+`deploy/server/quiet-room-storage-maintenance` is a separate privileged maintenance
+tool, activated only after explicit approval of this replacement strategy and
+the exact source's CI. It is never called by an application deployment or timer.
+The 2026-10-12 user approval covers recovery verification, a new maintenance
+window, restoration of the unchanged application, independent readback, and only
+then retirement of the verified obsolete Docker root. This is not authorization
+to publish a new application SHA or to repeat builder prune.
+
+Preparation exports all protected images, restores a retained cold backup and
+checks SQLite with the original image, and independently imports the images into
+a temporary memory-limited daemon. It verifies registry digests and creation of
+the original runtime configuration without starting those trial containers.
+Data and image rehearsals are sequential. Disk budgets must pass before downtime.
+The private session directory is root-only; `runtime.json` contains credentials
+and must never be printed, downloaded into a source tree, or uploaded as evidence.
+Public plans and status contain only identifiers and fingerprints.
+
+The prepared plan binds the host, current release, image references, all volume
+directory identities, networks, runtime/configuration fingerprints and tool
+digest. Within 15 minutes, apply requires the identical reviewed plan bytes and
+checksum plus `--maintenance-window`. Durable systemd workers record each phase;
+disconnecting a client does not restart or cancel a transaction. Use `status` to
+inspect the existing session, not another apply.
+
+During the window the traffic gate closes, every original container stops, and
+fresh cold archives are restored and checked against every source file before
+the old daemon is stopped. The old Docker root is retained under its recorded
+identity. A fresh root imports the exact images, recreates preserved networks
+and volume metadata, and atomically receives the original volume directories.
+Directory identity and complete contents are checked; no old database is
+substituted. Containers are recreated from the original private runtime
+configuration and mount names, including TURN's original state volume.
+
+Before public traffic opens, failures can move those same original directories
+back to the retained root and recover the original service. After the opening
+boundary is persisted, automatic data rollback is forbidden. `recover` is only
+for the pre-open case; `finish-opening` can complete a validated opening without
+restoring data. Failure retains evidence and requires inspection; never blindly
+repeat the replacement.
+
+Run the fixed independent production readback for the unchanged SHA. Only its
+fresh, complete success receipt can authorize legacy retirement. The helper
+then rechecks every protected image, original volume identity and runtime,
+requires no remaining data directory or mount in the retired root, and removes
+that whole verified obsolete root with memory/CPU limits and paced operations.
+It checks public health during removal and stops on uncertainty. A partial
+retirement resumes only after another fresh independent readback; it never
+repeats replacement or restores an older database. Current volume contents,
+continuous backups and canonical cold archives remain protected. Only the
+duplicate image export is removed after completion; private case records remain
+root-only. The resulting free space must be measured, not inferred from image
+sizes. The immutable source and regression boundaries live with
+[the confirmed requirement](docs/requirements/2026-10-12-ci-image-environments/README.md#重新确认的存储重建方案).
+
 ## Backup policy
 
 The included backup worker uses SQLite's online backup API against the live WAL database, removes incomplete attachment reservations from the snapshot, copies only completed immutable ciphertext chunks, verifies SQLite with `PRAGMA quick_check`, and writes SHA-256 checksums for the database and every chunk. It stages into a partial directory and publishes the backup by atomic rename only after verification.

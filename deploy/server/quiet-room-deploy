@@ -303,6 +303,17 @@ if (( calls_enabled )); then
   chmod 0644 "$turn_public_config"
 fi
 QUIET_ROOM_IMAGE="$new_image" docker compose "${new_compose_args[@]}" config --quiet
+admin_origin=''
+if (( admin_enabled )); then
+  # Resolve only the effective origin through Compose; never source admin.env
+  # or print the rest of the interpolated configuration (which has secrets).
+  admin_origin="$(QUIET_ROOM_IMAGE="$new_image" docker compose "${new_compose_args[@]}" config --format json | python3 -c '
+import json, re, sys
+origin=json.load(sys.stdin)["services"]["quiet-room"]["environment"].get("ADMIN_ORIGIN")
+if not isinstance(origin,str) or not re.fullmatch(r"https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?/?",origin): raise ValueError("Invalid administrator origin")
+print(origin.rstrip("/"))
+')"
+fi
 if [[ -f "$previous_compose" ]]; then
   QUIET_ROOM_IMAGE="${previous_image:-$new_image}" docker compose "${previous_compose_args[@]}" config --quiet
 fi
@@ -362,7 +373,7 @@ probe_public_maintenance() {
   done
   if (( admin_enabled || previous_admin_enabled )); then
     status="$(curl --silent --show-error --connect-timeout 3 --max-time 5 \
-      --output /dev/null --write-out '%{http_code}' https://admin.mijiu.cloud/admin-api/rooms)" || return 1
+      --output /dev/null --write-out '%{http_code}' "$admin_origin/admin-api/rooms")" || return 1
     if [[ "$status" != 503 ]]; then
       printf 'Admin traffic gate is ineffective: HTTP %s\n' "$status" >&2
       return 1

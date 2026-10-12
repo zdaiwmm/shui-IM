@@ -8,7 +8,7 @@ type Mode = 'disabled' | 'enabled' | 'first-enable' | 'missing-settings' | 'miss
 
 // Run the real Compose selection/preflight block against isolated files and
 // command stand-ins. Never invokes Docker, SSH, root helpers, or production.
-async function simulate(mode: Mode) {
+async function simulate(mode: Mode, adminOrigin = 'https://admin.mijiu.cloud') {
   const directory = await mkdtemp(path.join(tmpdir(), 'quiet-admin-deployment-'));
   try {
     const source = await readFile(new URL('../deploy/server/quiet-room-deploy', import.meta.url), 'utf8');
@@ -42,17 +42,25 @@ docker() {
   if [[ "$1" == ps ]]; then
     if [[ "$CALL_DEPLOY_TEST_MODE" == enabled || "$CALL_DEPLOY_TEST_MODE" == missing-settings ]]; then :; fi
   fi
+  if [[ "$*" == *'config --format json'* ]]; then
+    printf '%s\\n' "$CALL_DEPLOY_TEST_COMPOSE_JSON"
+  fi
   return 0
 }
 ${source.slice(start, end)}
+PUBLIC_ORIGIN=https://chat.independent.test
+curl() { printf '%s\\n' "\${@: -1}" >> probes; printf 503; }
+${source.slice(source.indexOf('probe_public_maintenance()'), source.indexOf('probe_local_websocket()'))}
+probe_public_maintenance
+printf '%s\\n' "$admin_origin" > admin-origin
 printf '%s\\n' "$admin_enabled" > enabled
 printf '%s\\n' "$previous_admin_enabled" > previous-enabled
 printf '%s\\n' "\${new_compose_args[@]}" > new-args
 printf '%s\\n' "\${previous_compose_args[@]}" > old-args
 `;
-    const result = spawnSync('bash', [], { input: harness, encoding: 'utf8', env: { ...process.env, CALL_DEPLOY_TEST_DIR: directory, CALL_DEPLOY_TEST_MODE: mode } });
+    const result = spawnSync('bash', [], { input: harness, encoding: 'utf8', env: { ...process.env, CALL_DEPLOY_TEST_DIR: directory, CALL_DEPLOY_TEST_MODE: mode, CALL_DEPLOY_TEST_COMPOSE_JSON: JSON.stringify({ services: { 'quiet-room': { environment: { ADMIN_ORIGIN: adminOrigin, TURN_SECRET: 'test-only-never-print-this-value' } } } }) } });
     const read = async (file: string) => readFile(path.join(directory, file), 'utf8').catch(() => '');
-    return { status: result.status, output: result.stdout + result.stderr, trace: await read('trace'), enabled: (await read('enabled')).trim(), previousEnabled: (await read('previous-enabled')).trim(), newArgs: await read('new-args'), oldArgs: await read('old-args') };
+    return { status: result.status, output: result.stdout + result.stderr, trace: await read('trace'), enabled: (await read('enabled')).trim(), previousEnabled: (await read('previous-enabled')).trim(), newArgs: await read('new-args'), oldArgs: await read('old-args'), adminOrigin: (await read('admin-origin')).trim(), probes: await read('probes') };
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
 
@@ -101,6 +109,26 @@ describe('persistent optional administrator deployment', () => {
     expect(result.previousEnabled).toBe('0');
     expect(result.oldArgs).not.toContain('admin.env');
     expect(result.oldArgs).not.toContain('--profile');
+  });
+
+  it('probes each independent administrator origin without exposing interpolated secrets', async () => {
+    for (const origin of ['https://admin.blue.example', 'https://admin.green.example/']) {
+      const result = await simulate('enabled', origin);
+      expect(result.status).toBe(0);
+      expect(result.adminOrigin).toBe(origin.replace(/\/$/, ''));
+      expect(result.probes).toContain(`${result.adminOrigin}/admin-api/rooms`);
+      expect(result.probes).not.toContain('admin.mijiu.cloud');
+      expect(result.output).not.toContain('test-only-never-print-this-value');
+      expect(result.trace).not.toContain('test-only-never-print-this-value');
+    }
+  });
+
+  it.each(['http://admin.example', 'https://user:pass@admin.example', 'https://admin.example/path'])('rejects unsafe resolved admin origin %s before maintenance', async (origin) => {
+    const result = await simulate('enabled', origin);
+    expect(result.status).not.toBe(0);
+    expect(result.probes).toBe('');
+    expect(result.trace).not.toContain(' up ');
+    expect(result.output).not.toContain('test-only-never-print-this-value');
   });
 
   it.each(['missing-settings', 'missing-overlay', 'missing-previous-overlay', 'unsafe-settings', 'unsafe-directory'] as const)('refuses %s before starting or removing any container', async (mode) => {
