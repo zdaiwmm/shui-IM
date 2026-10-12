@@ -13,12 +13,14 @@ import { mountPortraitOrientation } from './lib/portrait-orientation';
 import './motion.css';
 import './desktop.css';
 import './experience.css';
+import './system-chrome.css';
 
 // Keep zooming inside purpose-built media viewers instead of allowing a
 // double tap/click to scale the whole browser page. The viewport declaration
 // and touch-action CSS provide the mobile path; this covers emitted dblclicks.
 document.addEventListener('dblclick', (event) => {
-  if (!matchMedia('(any-pointer: fine)').matches && !(event.target instanceof Element && event.target.closest('.is-selecting-text, video'))) event.preventDefault();
+  if (!matchMedia('(any-pointer: fine)').matches && event.target instanceof Element
+    && event.target.closest('.image-viewer') && !event.target.closest('.is-selecting-text, video')) event.preventDefault();
 }, {
   capture: true,
   passive: false,

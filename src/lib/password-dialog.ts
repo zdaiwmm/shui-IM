@@ -25,9 +25,9 @@ export function requestPassword<T>(root: HTMLElement, options: {
       <div class="password-fields">
         <label>空间密码<input name="password" type="password" autocomplete="${options.create ? 'new-password' : 'current-password'}" autocapitalize="none" spellcheck="false" aria-describedby="password-error password-help" required></label>
         ${options.create ? '<label>再次输入<input name="confirmation" type="password" autocomplete="new-password" autocapitalize="none" spellcheck="false" aria-describedby="password-error" required></label>' : ''}
+        <p class="form-error" id="password-error" role="alert"></p>
         <label class="password-show"><input type="checkbox" name="show">显示密码</label>
         ${options.create ? '<p class="field-hint" id="password-help">使用 12–128 个字符。可使用密码管理器生成、填写或保存。</p><p class="field-hint">忘记密码时，需要双方参与找回。</p>' : '<span id="password-help" class="sr-only">输入此空间已有的密码</span>'}
-        <p class="form-error" id="password-error" role="alert"></p>
       </div></div>
       <div class="password-actions"><button class="primary-button" type="submit"></button>
         ${options.forgot ? '<button class="text-button" type="button" data-password-forgot>忘记密码？使用恢复码找回</button><p class="field-hint">需要双方参与，旧记录另行恢复。</p>' : ''}
@@ -50,7 +50,7 @@ export function requestPassword<T>(root: HTMLElement, options: {
     let settled = false, busy = false;
     const active = () => !signal.aborted && sheet.isConnected && options.isActive() && !document.hidden;
     const cancel = () => { if (!settled) { settled = true; reject(new DOMException('验证已取消或超时，请重试', 'AbortError')); } controller.abort(); };
-    const dialog = mountDialog(sheet, { signal, initialFocus: password, isActive: active, onClose: cancel });
+    const dialog = mountDialog(sheet, { signal, initialFocus: password, isActive: active, onClose: cancel, presentation: fullPage ? undefined : 'sheet' });
     signal.addEventListener('abort', () => { password.value = ''; if (confirmation) confirmation.value = ''; cancel(); }, { once: true });
     document.addEventListener('visibilitychange', () => { if (document.hidden) cancel(); }, { signal });
     form.querySelector('[data-password-cancel]')!.addEventListener('click', () => { dialog.close(); options.cancel?.(); });

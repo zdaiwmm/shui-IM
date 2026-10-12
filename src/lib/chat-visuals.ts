@@ -11,15 +11,21 @@ export function syncChatBubbleStyle(list: HTMLElement): void {
   }
 }
 
-/** One gradient field across outgoing bubbles, using layout coordinates rather
- * than painted transforms so an interrupted message animation cannot shift it. */
+/** One field over the currently visible conversation, independent of how much
+ * history is mounted. Layout offsets keep message-arrival transforms separate. */
 export function syncChatBubbleGradient(list: HTMLElement): void {
   const bubbles = [...list.querySelectorAll<HTMLElement>('.outgoing > .message-bubble:not(.expression-bubble)')];
   if (!bubbles.length) return;
   const top = (bubble: HTMLElement) => bubble.parentElement!.offsetTop + bubble.offsetTop;
-  const start = top(bubbles[0]!);
-  const end = Math.max(start + 1, ...bubbles.map(bubble => top(bubble) + bubble.offsetHeight));
-  const span = `${end - start}px`;
+  const shell = list.closest('.chat-shell');
+  const viewport = window.visualViewport;
+  const bounds = list.getBoundingClientRect();
+  const visibleTop = Math.max(bounds.top, viewport?.offsetTop ?? 0,
+    shell?.querySelector('.chat-header')?.getBoundingClientRect().bottom ?? 0);
+  const visibleBottom = Math.min(bounds.bottom, (viewport?.offsetTop ?? 0) + (viewport?.height ?? innerHeight),
+    shell?.querySelector('.composer')?.getBoundingClientRect().top ?? Infinity);
+  const start = visibleTop - bounds.top + list.scrollTop;
+  const span = `${Math.max(1, visibleBottom - visibleTop)}px`;
   for (const bubble of bubbles) {
     const offset = `${start - top(bubble)}px`;
     if (bubble.style.getPropertyValue('--bubble-gradient-span') !== span) bubble.style.setProperty('--bubble-gradient-span', span);

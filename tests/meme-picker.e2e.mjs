@@ -608,17 +608,24 @@ try {
   assert.equal(await page.locator('.message-list .image-preview').first().getAttribute('data-revealed'), 'false');
   assert.equal(await page.locator('.expression-bubble').count(), 1);
   assert.equal(await page.locator('.expression-bubble').evaluate(el => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)');
+  assert.equal(await page.locator('.expression-bubble > .message-meta').evaluate(el => getComputedStyle(el).backgroundColor), 'rgba(0, 0, 0, 0)', 'completed expressions keep transparent metadata');
   assert.equal(await page.locator('.expression-bubble').evaluate(el => getComputedStyle(el).borderWidth), '0px');
   assert.deepEqual(await chatAnimation.evaluate(image => { const style = getComputedStyle(image); return [style.borderTopLeftRadius, style.borderTopRightRadius, style.borderBottomLeftRadius, style.borderBottomRightRadius]; }), ['12px', '12px', '12px', '12px']);
   if (out) await page.screenshot({path:path.join(out,'expression-rounded.png')});
+  await page.waitForFunction(()=>document.querySelector('.expression-bubble').getAnimations().every(animation=>animation.playState!=='running'));
   const originalWidth = await chatAnimation.evaluate(image => image.naturalWidth);
   assert.ok(Math.abs((await chatAnimation.boundingBox()).width - originalWidth * 2 / 3) < 1, 'Small expression did not shrink to two thirds');
   await page.locator('.message-list .image-preview').first().dispatchEvent('contextmenu');
-  await page.locator('.message-action-preview img').waitFor();
+  await page.locator('.message-action-preview').waitFor();
+  await page.locator('.message-action-preview img').waitFor({state:'attached'});
   await page.waitForTimeout(350);
   assert.equal(await page.locator('[data-message-action="favorite-meme"]').innerText(), '收藏为表情');
   assert.equal(await page.locator('.message-action-preview img').evaluate(el => getComputedStyle(el).opacity), '0');
   assert.equal(await page.locator('.message-action-preview .image-preview').evaluate(el => getComputedStyle(el, '::before').opacity), '1');
+  assert.ok(await page.locator('.message-action-preview .image-preview').evaluate(el=>{
+    const box=el.getBoundingClientRect(), clip=el.closest('.message-action-preview').getBoundingClientRect();
+    return Math.min(box.right,clip.right)>Math.max(box.left,clip.left)&&Math.min(box.bottom,clip.bottom)>Math.max(box.top,clip.top);
+  }), 'Concealed derivative must remain inside the visible preview');
   if (out) await page.screenshot({path:path.join(out,'expression-menu.png')});
   await page.evaluate(() => window.fixture.app.closeMessageActions(false, false));
   await page.locator('.message-list .image-preview').first().click();

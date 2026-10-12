@@ -1,6 +1,6 @@
 /** Presentation-only motion. Business operations never await these helpers. */
 export const motion = {
-  feedback: 100, local: 180, message: 180, panel: 240, page: 180, media: 280, menuOut: 140,
+  feedback: 100, local: 180, message: 180, panel: 240, page: 280, media: 280, menuOut: 140,
   out: 'cubic-bezier(.22,1,.36,1)',
   settle: 'cubic-bezier(.2,.82,.22,1)',
   travel: 'cubic-bezier(.24,.72,.18,1)',
@@ -125,11 +125,11 @@ export function travelFrames(from: number, to: number, velocity: number, duratio
 }
 
 export function travelMotion(element: HTMLElement, from: number, to: number, velocity: number,
-  duration: number, opacityFrom = 1, opacityTo = 1): Animation | null {
+  duration: number, opacityFrom = 1, opacityTo = 1, axis: 'x' | 'y' = 'x'): Animation | null {
   if (reducedMotion() || document.hidden || !element.isConnected) return null;
   const positions = travelFrames(from, to, velocity, duration);
   const animation = element.animate(positions.map((x, index) => ({
-    transform: `translate3d(${x}px,0,0)`, opacity: opacityFrom + (opacityTo - opacityFrom) * index / 60,
+    transform: axis === 'x' ? `translate3d(${x}px,0,0)` : `translate3d(0,${x}px,0)`, opacity: opacityFrom + (opacityTo - opacityFrom) * index / 60,
   })), { duration, easing: 'linear', fill: 'backwards' });
   animation.currentTime = 0;
   travelEffects.set(element, { animation, positions, duration });

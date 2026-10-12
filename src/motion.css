@@ -6,7 +6,7 @@
   --motion-feedback: 100ms;
   --motion-local: 180ms;
   --motion-panel: 240ms;
-  --motion-page: 180ms;
+  --motion-page: 280ms;
   --motion-media: 280ms;
   --motion-menu-in: 180ms;
   --motion-menu-out: 140ms;
@@ -17,7 +17,6 @@
 :root[data-color-scheme] { --chrome-tint: var(--paper); }
 
 /* root/body are the browser's sampled canvas, including both safe areas. */
-html, body { background-color: var(--chrome-tint); }
 html:has(#app > :is(.backup-page, .cover)) { --chrome-tint: var(--paper-pure); }
 
 /* Bounded controls compress; large rows and media retain their geometry. */
@@ -86,3 +85,9 @@ button:disabled { cursor: default; }
 }
 
 .space-invite-overlay { background-color: oklch(20% .01 250 / var(--invite-backdrop, .22)); }
+
+@property --upload-progress { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
+@property --media-load-progress { syntax: '<percentage>'; inherits: false; initial-value: 0%; }
+.media-upload-ring { transition: --upload-progress 180ms linear; }
+.media-load-progress { transition: --media-load-progress 180ms linear; }
+@media (prefers-reduced-motion: reduce) { .media-upload-ring,.media-load-progress { transition: none; animation: none; } }

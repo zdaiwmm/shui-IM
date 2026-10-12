@@ -3,7 +3,6 @@
 /* P1, confirmed 2026-10-11. Opaque IM surfaces; legacy glass names are aliases
    so privacy/media components retain their own filter and lifecycle rules. */
 html, body, button, input, textarea, select { font-family: var(--font-ui); letter-spacing: 0; }
-body { background: var(--paper); }
 /* Opaque shared planes. Only the long-press backdrop and privacy media blur. */
 #app :is(.glass-surface, .glass-panel, .glass-control, .device-card, .device-security-note,
 .device-safety-code, .gateway-mark, .invite-status, .release-notes-panel, .device-link-panel,
@@ -136,7 +135,7 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
   background: var(--action-surface); color: var(--action-ink); box-shadow: none;
 }
 #app :is(.primary-button, .secondary-button) { min-height: 44px; border-radius: 12px; font-size: .875rem; font-weight: 600; }
-#app .primary-button:hover:not(:disabled) { background: color-mix(in srgb, var(--action-surface) 88%, #000); }
+@media (hover: hover) { #app .primary-button:hover:not(:disabled) { background: color-mix(in srgb, var(--action-surface) 88%, #000); } }
 #app .secondary-button { border-color: var(--line); background: var(--surface); color: var(--ink); box-shadow: none; }
 #app .chat-tools { margin-top: 6px; padding: 12px 8px 8px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-raised); box-shadow: var(--shadow); -webkit-backdrop-filter: none; backdrop-filter: none; }
 #app .chat-tools > button > span { width: 48px; height: 44px; border: 0; border-radius: 12px; background: var(--accent-soft); box-shadow: none; color: var(--accent); }
@@ -193,7 +192,7 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app .gateway-form { gap: 14px; margin-top: 28px; }
 #app :is(.gateway-heading > p:last-child, .welcome-copy, .welcome-privacy, .setup-follow-hint, .recovery-flow-lead, .credential-only-step > .field-hint) { font-size: .875rem; line-height: 1.6; }
 #app :is(.gateway-form input, .gateway-form textarea, .gateway-form select, .invite-link input, .password-form input:not([type='checkbox']), .backup-page input, .backup-code-page textarea, .recovery-flow-input, #space-name, #passkey-name) { min-height: 44px; padding: 10px 12px; border-radius: 12px; background: var(--surface); color: var(--ink); font-size: 16px; line-height: 1.4; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
-#app .backup-code-page textarea { min-height: 88px; border: 1px solid var(--line-strong); }
+#app .backup-code-page textarea { min-height: 88px; border: 1px solid transparent; }
 #app .backup-code-page :is(.gateway-intro-content > p, form > label) { font-size: .875rem; line-height: 1.6; }
 #app :is(.gateway-form > .primary-button, .credential-only-step > .primary-button, .welcome-actions .primary-button, .recovery-code-actions > button, .recovery-confirm, .recovery-code-view > button, .recovery-code-panel > .primary-button, .recovery-flow-footer button, .recovery-flow-wide, .joint-progress button, .backup-content > button) { min-height: 44px; padding-block: 10px; line-height: 1.4; }
 #app .gateway > .privacy-note { padding-top: 24px; }
@@ -229,7 +228,7 @@ html[data-keyboard-open='true'] #app .chat-header :is(.icon-button, .space-heart
 #app :is(.recovery-code-sheet, .device-link-sheet, .recovery-authorization-sheet) { background: #14101959; -webkit-backdrop-filter: none; backdrop-filter: none; }
 #app .recovery-code-panel.backup-privacy-panel { border-radius: 18px 18px 0 0; }
 #app .backup-privacy-panel h2 { font-size: 1.0625rem; }
-#app .joint-code-sheet .recovery-code-panel { padding: 16px; }
+#app .joint-code-sheet .recovery-code-panel { padding-inline: var(--sheet-inset); }
 #app .access-code, #app .joint-request-code { font-size: 1.5rem; }
 #app .browser-access-modal .access-close { min-width: 44px; min-height: 44px; padding: 0 8px; font-size: .875rem; }
 #app .space-drawer-header .icon-button { width: 44px; min-width: 44px; }
@@ -342,11 +341,6 @@ html[data-keyboard-open='true'] #app .chat-header:not([data-presence-style='hear
 /* The gap after the latest message is independent of the 4px group spacing. */
 #app .chat-shell[data-scroll-owner="list"] .message-list::after { margin-top: -4px; }
 /* Document scrolling can extend beyond the shell's sampled viewport height. */
-html:has(#app > .chat-shell:not([data-scroll-owner="list"])) {
-  background-image: none;
-  background-color: var(--composer-surface);
-}
-body:has(#app > .chat-shell:not([data-scroll-owner="list"])) { background: transparent; }
 #app > .chat-shell:not([data-scroll-owner="list"]) { background-image: var(--chat-wallpaper); background-color: var(--wall-d); background-attachment: fixed; }
 #app > .chat-shell:not([data-scroll-owner="list"])::before { position: fixed; }
 
@@ -390,7 +384,7 @@ body:has(#app > .chat-shell:not([data-scroll-owner="list"])) { background: trans
 #app .notification-row:last-child { border-bottom: 0; }
 #app .notification-copy-entry { padding-inline: 12px; margin-bottom: 20px; border-radius: 10px; background: var(--surface-raised); }
 #app .notification-row strong { font-size: .875rem; }
-#app .password-operation-sheet .password-form { display: flex; flex-direction: column; overflow: hidden; max-height: calc(100% - 12px); gap: 12px; }
+#app .password-operation-sheet .password-form { display: flex; flex-direction: column; overflow: hidden; max-height: calc(100% - 16px); gap: 0; }
 #app .password-operation-sheet .password-page-content { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
 #app .password-operation-sheet .password-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 0; }
 #app .password-operation-sheet .password-actions > :is([data-password-forgot], .field-hint) { grid-column: 1 / -1; }
@@ -398,8 +392,6 @@ body:has(#app > .chat-shell:not([data-scroll-owner="list"])) { background: trans
 #app .password-operation-sheet .password-actions > [type='submit'] { grid-column: 2; grid-row: 1; }
 /* Resolve the panel's percentage height against the viewport, not its intrinsic content row. */
 #app :is(.joint-code-sheet, .history-restore-sheet, .backup-privacy-sheet) { padding: 0; grid-template-rows: minmax(0, 1fr); place-items: end center; align-content: end; }
-#app :is(.joint-code-sheet, .history-restore-sheet, .backup-privacy-sheet) > .recovery-code-panel { width: min(100%, 440px); max-height: calc(100% - 12px); overflow-y: auto; border-radius: 18px 18px 0 0; padding: 16px 20px max(16px, env(safe-area-inset-bottom)); gap: 12px; }
-#app :is(.joint-code-sheet, .history-restore-sheet, .backup-privacy-sheet) > .recovery-code-panel::before { content: ''; display: block; width: 32px; height: 4px; margin: 0 auto 4px; border-radius: 4px; background: var(--line-strong); }
 #app .history-restore-form { margin-top: 4px; }
 #app .history-restore-input textarea { height: clamp(48px, calc(var(--restore-viewport-height, 100dvh) - 240px), 96px); }
 @media (max-width: 1023px) {
@@ -421,11 +413,6 @@ body:has(#app > .chat-shell:not([data-scroll-owner="list"])) { background: trans
 }
 
 /* V1.3 implementation: compact full-page navigation and continuous chat chrome. */
-html:has(#app > .chat-shell) { background-color: var(--composer-surface); }
-html:has(#app > .chat-shell textarea:focus) { background-color: var(--composer-surface-focused); }
-html:has(#app :is(.space-profile-overlay,.space-drawer-overlay):not(.is-closing)),
-body:has(#app :is(.space-profile-overlay,.space-drawer-overlay):not(.is-closing)) { background: var(--paper); }
-html:has(#app :is(.space-invite-overlay,.avatar-source-overlay):not(.is-closing)) { background: var(--surface-raised); }
 #app .chat-header > .spaces-entry { width:44px; min-width:44px; height:44px; padding:0; border:0; border-radius:0; justify-content:center; background:transparent; box-shadow:none; }
 #app .spaces-entry .space-avatar { width:32px; height:32px; font-size:14px; }
 #app .chat-header .chat-settings-entry { grid-column:3; grid-row:1; justify-self:end; width:44px; height:44px; }
@@ -439,7 +426,7 @@ html:has(#app :is(.space-invite-overlay,.avatar-source-overlay):not(.is-closing)
 #app .space-header-actions { display:flex; }
 #app .space-header-spacer { width:44px; }
 #app .is-space-list-page .space-drawer-scroll { padding:8px 12px max(12px,env(safe-area-inset-bottom)); }
-#app .space-access-row { gap:4px; border-bottom:1px solid var(--line); }
+#app .space-access-row { gap:4px; border-bottom:0; }
 #app .space-access-row:last-child { border-bottom:0; }
 #app .space-row, #app .space-row.is-selected { min-height:68px; padding:10px 8px; align-items:center; border-radius:12px; gap:12px; }
 #app .space-row.is-selected { background:var(--accent-soft); }
@@ -453,7 +440,7 @@ html:has(#app :is(.space-invite-overlay,.avatar-source-overlay):not(.is-closing)
 #app .space-access-action span { display:grid; place-items:center; height:32px; padding:0 10px; border-radius:10px; background:var(--accent-soft); }
 #app .composer .composer-input-stack:focus-within, #app .composer .composer-field:has(textarea:focus) { outline:0; box-shadow:none; border:0; background:var(--composer-surface-current); border-radius:0; }
 #app .composer textarea:focus { outline:0; box-shadow:none; }
-#app .composer textarea:focus-visible { outline:0; box-shadow:inset 0 -1px var(--line-strong); border-radius:0; }
+#app .composer textarea:focus-visible { outline:0; box-shadow:none; border-radius:0; }
 #app .browser-access-shell .chat-header { grid-template-columns:minmax(0,1fr) 44px 44px; }
 #app .browser-access-shell #access-lock { grid-column:2; grid-row:1; }
 #app .browser-access-shell .access-composer { background:var(--composer-surface); }
@@ -463,12 +450,192 @@ html:has(#app :is(.space-invite-overlay,.avatar-source-overlay):not(.is-closing)
   #app .desktop-sidebar .is-space-list-page .space-drawer-scroll { padding:8px 0; }
 }
 
-@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-  html:has(#app > .chat-shell:not([data-scroll-owner="list"])) { background: var(--paper); }
-}
 @media (forced-colors: active) {
-  html:has(#app > .chat-shell), body:has(#app > .chat-shell) { background: Canvas; }
   #app .outgoing .message-bubble:not(.expression-bubble) { background: Canvas; color: CanvasText; }
   #app .outgoing .message-bubble:not(.image-bubble):not(.video-bubble) .message-meta,
   #app .outgoing .message-bubble:not(.image-bubble):not(.video-bubble) .message-meta time { color: CanvasText; }
 }
+
+/* P1 V1.4: canonical mobile component roles. Keep values here, rather than
+   giving every recovery, backup and settings page its own visual vocabulary. */
+#app .message-actions { inset: 0; width: 100%; max-width: none; height: 100%; max-height: none; opacity: 1; pointer-events: none; transition: none; }
+#app .message-action-group { position: absolute; inset: 0; pointer-events: none; }
+#app .message-action-group .message-action-list { position: absolute; top: var(--message-action-y); left: var(--message-action-x); width: min(216px,calc(100vw - 24px)); pointer-events: auto; }
+#app .message-action-group .message-reaction-picker { position: absolute; pointer-events: auto; }
+#app .message-action-group :is(.message-action-list,.message-reaction-picker) { opacity: 0; transform: none; transition: opacity var(--motion-local) ease-out; }
+#app .message-actions.is-visible :is(.message-action-list,.message-reaction-picker) { opacity: 1; transform: none; }
+#app .message-action-group .message-action-preview { overflow: hidden; transform: none; }
+#app :is(.media-upload-status,.image-bubble > .message-meta,.image-bubble > .media-status-departing,.media-load-capsule) { box-sizing: border-box; height: 32px; min-height: 32px; border: 0; border-radius: 16px; margin: 0; right: 7px; bottom: 7px; }
+#app .image-bubble > .message-meta:not(.media-send-meta) { padding: 0 10px; align-items: center; background: #242124b3; color: #fff; font-size: .6875rem; line-height: 1.4; }
+#app .image-bubble > .message-meta:not(.media-send-meta) time { color: #fff; }
+#app .image-bubble > .message-meta { flex-wrap: nowrap; max-width: none; white-space: nowrap; }
+#app .image-bubble:not(.expression-bubble) > .media-send-meta > .media-capsule-content > time { display: none; }
+#app .expression-bubble > .message-meta:not(.media-send-meta) { background: transparent; padding: 0; color: var(--message-time-on-wall); }
+#app .expression-bubble > .message-meta:not(.media-send-meta) time { color: var(--message-time-on-wall); }
+#app .expression-bubble > .message-meta:not(.media-send-meta) > .media-capsule-content { padding: 0; }
+#app .image-bubble > .message-meta:has(> .media-capsule-content) { display: block; padding: 0; transform-origin: right center; }
+#app :is(.image-bubble > .media-send-meta,.image-bubble > .media-status-departing) { padding: 0 10px; background: var(--surface-raised); font-size: .75rem; align-items: center; }
+#app .media-upload-status { padding: 0; background: var(--surface-raised); }
+#app .media-upload-status[data-state='failed'] { background: var(--danger-soft); }
+#app .media-load-capsule { display: block; position: absolute; width: max-content; max-width: calc(100% - 14px); padding: 0; background: var(--surface-raised); color: var(--ink); }
+#app .media-load-status { font-size: .75rem; line-height: 1.4; color: inherit; font-weight: 400; white-space: nowrap; }
+#app .media-load-progress { width: 16px; height: 16px; flex: 0 0 16px; border-radius: 50%; background: conic-gradient(var(--accent) var(--media-load-progress,0%),var(--accent-soft) 0); mask: radial-gradient(farthest-side,transparent calc(100% - 2px),#fff 0); -webkit-mask: radial-gradient(farthest-side,transparent calc(100% - 2px),#fff 0); }
+#app .media-load-progress > i { display: none; }
+#app .media-load-progress[data-indeterminate='true'] { background: conic-gradient(var(--accent) 25%,var(--accent-soft) 0); animation: media-upload-spin 1000ms linear infinite; }
+#app .media-load-capsule.is-error { background: var(--danger-soft); color: var(--danger); }
+#app .image-preview:not(.album-cell) { overflow: visible; }
+#app .image-preview::before, #app .image-preview > img { border-radius: inherit; }
+#app .image-preview:not(.album-cell) .media-load-capsule { max-width: calc(100vw - 56px); }
+#app .incoming .image-preview:not(.album-cell) .media-load-capsule { right: auto; left: 7px; }
+#app .message-list, #app .message-list[data-keyboard-gesture='true'] { touch-action: pan-y pinch-zoom; }
+#app :is(.gateway-form input:not([type='checkbox']):not([type='radio']), .gateway-form textarea,
+  .password-form input:not([type='checkbox']), .recovery-flow-input, .backup-code-page textarea,
+  .backup-page input:not([type='checkbox']):not([type='radio']), #space-name, #passkey-name, #new-space-name) {
+  border: 0; outline: 0; box-shadow: none; background: var(--field-surface, var(--surface));
+  border-radius: var(--radius-control); font-size: 1rem; line-height: 1.375; min-height: 44px;
+}
+#app :where(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']):not([type='hidden']):not([type='number']),textarea:not(#message-input),select) {
+  border-color: transparent; outline: 0; box-shadow: none; background: var(--field-surface,var(--surface)); font-size: 1rem;
+}
+#app :is(input,textarea):focus { outline: 0; box-shadow: none; border-color: transparent; }
+#app :is(input,textarea)[aria-invalid='true'] { --field-surface: var(--danger-soft); border-color: transparent; }
+#app :is(.field-hint,.privacy-note,.preference-note,.space-invite-actions p,.password-actions .field-hint,.recovery-flow-footer > small) {
+  color: var(--ink-muted); font-size: .75rem; line-height: 1.6; font-weight: 400; text-align: left;
+}
+#app :is(.field-hint,.privacy-note,.preference-note):is(p) { margin-block: 12px 0; }
+#app :is(.primary-button,.secondary-button,.text-button):disabled { opacity: .58; }
+#app :is(input,textarea):disabled { opacity: .58; }
+#app :is(.field-error,.form-error) { color: var(--danger); font-size: .8125rem; line-height: 1.6; font-weight: 400; }
+#app :is(.field-error,.form-error):empty { display: none; }
+#app .history-summary-row { min-height: 40px; }
+#app :is(.space-setting-card .space-setting,.preference-choice,.history-restore-counts > div,.photo-details dl > div,.history-summary-row) { border-color: var(--line-subtle); }
+#app .space-setting-card .space-setting { position: relative; border: 0; }
+#app .space-setting-card .space-setting:not(:last-child)::after { content: ''; position: absolute; bottom: 0; left: 48px; right: 12px; height: 1px; background: var(--line-subtle); }
+#app :is(.photo-details-content > section + section,.simple-confirm-actions,.simple-confirm-actions button + button) { border-color: var(--line-subtle); }
+#app :is(.subpage-header,.space-profile-header,.space-drawer-header,.recovery-flow-nav) { border-color: var(--line-subtle); }
+/* One trailing check for single selection; soft rounded marks for multiple. */
+#app .preference-choice input[type='radio'] { appearance: none; position: relative; width: 22px; height: 22px; border: 0; background: transparent; box-shadow: none; }
+#app .preference-choice input[type='radio']:checked::after { content: ''; position: absolute; width: 6px; height: 12px; top: 2px; left: 8px; border: solid var(--accent); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+#app input[type='checkbox'] { appearance: none; position: relative; flex: none; width: 22px; height: 22px; min-height: 22px; padding: 0; border: 0; border-radius: 7px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-subtle); vertical-align: middle; }
+#app input[type='checkbox']:checked { background: var(--action-surface); box-shadow: none; }
+#app input[type='checkbox']:checked::after { content: ''; position: absolute; top: 4px; left: 8px; width: 5px; height: 10px; border: solid var(--action-ink); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+#app .recovery-scope-option { border-color: transparent; }
+#app .recovery-scope-option:has(input:checked) { border-color: transparent; background: var(--accent-soft); }
+#app .recovery-scope-option .scope-check { display: none; }
+#app .space-radio, #app [aria-checked='true'] .space-radio { border: 0; background: transparent; color: var(--accent); }
+#app .space-radio svg { width: 18px; height: 18px; }
+#app .space-style-choice[aria-checked='true'] { border-color: transparent; }
+/* Density changes paint height, not the non-overlapping 44px touch targets. */
+#app .gallery-tabs { height: 44px; min-height: 44px; padding-block: 6px; border: 0; background: transparent; isolation: isolate; }
+#app .gallery-tabs::after { content: ''; position: absolute; inset: 6px 0; background: var(--surface); border-radius: 16px; z-index: -2; }
+#app .gallery-tabs::before { top: 6px; bottom: 6px; height: auto; z-index: -1; }
+#app .gallery-tab { height: 44px; min-height: 44px; margin-block: -6px; }
+#app .meme-tabs [role='tab']::after { inset: 8px 0; border-radius: 14px; }
+/* Explicit bottom-sheet presentation. The handle owns its real close action. */
+#app [data-presentation='sheet'] { place-items: end center; align-content: end; padding: 0; }
+#app [data-sheet-panel] { box-sizing: border-box; width: min(100%,540px); max-height: calc(100% - 16px); overflow: auto; gap: 0; border: 0; border-radius: 18px 18px 0 0; padding: 0 20px max(16px,env(safe-area-inset-bottom)); background: var(--surface-raised); transform: translateY(100%); transition: transform var(--motion-panel) var(--motion-settle); }
+#app [data-presentation='sheet'].is-visible [data-sheet-panel] { transform: translateY(0); }
+#app [data-presentation='sheet'].is-closing [data-sheet-panel] { transform: translateY(100%); }
+#app [data-sheet-panel] > .half-sheet-handle { width: calc(100% + 40px); margin-inline: -20px; height: 44px; min-height: 44px; }
+#app .half-sheet-handle.is-close-handle { cursor: pointer; touch-action: manipulation; }
+#app [data-sheet-panel] :is(h2,.message-info-heading,.history-restore-heading,.recovery-code-heading) { margin: 0; min-height: 0; font-size: 1.0625rem; line-height: 1.4; }
+#app [data-sheet-panel] :is(.message-info-heading,.history-restore-heading,.recovery-code-heading) { display: block; }
+#app [data-sheet-panel] > :is(p,.message-info-preview,.message-info-stages,.history-restore-form,.privacy-list,.history-restore-counts,.history-restore-progress-copy) { margin-top: 24px; }
+#app [data-sheet-panel] > h2 + p { margin-top: 12px; }
+#app [data-sheet-panel] > :is(.primary-button,.history-restore-actions,.password-actions) { margin-top: 24px; }
+#app .password-operation-sheet :is(.password-description) { margin: 12px 0 0; }
+#app .password-operation-sheet .password-operation { margin: 24px 0 0; border: 0; padding: 12px; background: var(--surface); }
+#app .password-operation-sheet .password-fields { margin: 24px 0 0; padding: 0; gap: 16px; }
+#app .password-operation-sheet .password-fields .form-error { margin: -4px 0 0; }
+#app .password-operation-sheet .password-actions { margin: 24px 0 0; gap: 12px; }
+#app .history-restore-panel:has(.history-restore-form) { display: flex; flex-direction: column; overflow: hidden; }
+#app .history-restore-panel:has(.history-restore-form) > .history-restore-heading { flex: none; }
+#app .history-restore-form { display: flex; flex-direction: column; min-height: 0; flex: 1 1 auto; gap: 0; }
+#app .history-restore-fields { min-height: 0; overflow: auto; flex: 1 1 auto; scrollbar-width: none; }
+#app .history-restore-fields > label { display: block; margin: 0 0 8px; font-size: .75rem; color: var(--ink-muted); }
+#app .history-restore-input { padding: 12px; border: 0; background: var(--surface); border-radius: 12px; }
+#app .history-restore-form > button { flex: none; margin-top: 24px; }
+#app .history-restore-fields > .field-hint { margin-top: 12px; }
+#app .joint-code-sheet .recovery-flow-label { margin: 24px 0 0; gap: 8px; font-size: .75rem; color: var(--ink-muted); }
+#app .joint-code-sheet .form-error { margin: 12px 0 0; }
+#app .joint-code-sheet .recovery-code-panel > .primary-button { margin-top: 24px; }
+#app .space-invite-actions { padding-top: 24px; }
+#app .space-invite-actions button { min-height: 44px; }
+#app .space-invite-actions p { margin: 12px 0 0; }
+#app .photo-details { gap: 0; border: 0; padding-inline: 20px; }
+#app .photo-details-handle { margin: 0 auto; }
+#app .photo-details-handle::before { top: 20px; }
+#app .photo-details > header { flex: none; min-height: 24px; }
+#app .photo-details-content { margin-top: 24px; padding-right: 0; }
+#app .photo-details-content > section + section { border-color: var(--line-subtle); }
+#app .photo-details dl > div { min-height: 40px; }
+#app .photo-details-status { margin: 12px 0 0; font-size: .75rem; line-height: 1.6; }
+#app .photo-details-status:empty { display: none; }
+#app .photo-details-footer { flex: none; margin-top: 12px; width: 100%; min-height: 44px; border: 0; background: transparent; color: var(--accent); font-size: .875rem; }
+#app .is-space-list-page .space-drawer-footer { padding: 12px 20px max(16px,env(safe-area-inset-bottom)); background: var(--paper); }
+#app .is-space-list-page .space-create { width: 100%; min-height: 48px; justify-content: center; }
+/* Touch/programmatic focus has no additional visual state. Tab navigation is
+   explicit and remains visible with an external keyboard, including on iOS. */
+:root[data-input-modality='pointer'] #app :is(button,input,textarea,select,summary,[tabindex]):focus-visible { outline: 0; box-shadow: none; }
+:root[data-input-modality='pointer'] #app :is(.preference-choice,.scheme-choice):has(input:focus-visible) { outline: 0; }
+:root[data-input-modality='keyboard'] #app :focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+@media (prefers-contrast: more) { :root { --line-subtle: var(--line-strong); } }
+@media (forced-colors: active) {
+  #app :is(input,textarea,.preference-choice,.space-setting) { border: 1px solid CanvasText; }
+  #app input:checked { background: Highlight; color: HighlightText; }
+  #app input[type='checkbox']:checked::after { border-color: HighlightText; }
+  #app .preference-choice input[type='radio']:checked::after { border-color: Highlight; }
+}
+
+#app .space-invite-sheet { border: 0; }
+#app .space-invite-status { margin-top: 24px; font-size: .75rem; line-height: 1.6; }
+#app .avatar-source-preview { padding: 0 0 24px; }
+#app .avatar-source-options button + button { border-color: var(--line-subtle); }
+
+#app .appearance-preview-messages { font-size: 1rem; line-height: 1.375; }
+#app .appearance-preview-messages span { border-radius: 16px 16px 16px 6px; padding: 6px 11px; }
+#app .appearance-preview-messages span + span { border-radius: 16px 16px 6px 16px; }
+:root[data-color-scheme='dark'] #app .appearance-preview-messages span + span { background: linear-gradient(var(--outgoing-start),var(--outgoing-middle) 45%,var(--outgoing-end)); background-size: 100% 140px; background-position: 0 bottom; }
+#app .gallery-tab { font-size: .875rem; }
+#app :is(.favorites-empty,.gallery-empty) h2 { font-size: 1.0625rem; }
+#app :is(.favorites-empty,.gallery-empty) p { font-size: .875rem; }
+#app .reader-title strong { font-size: .875rem; }
+#app .reader-title > span { font-size: .75rem; }
+#app .reader-control:disabled { opacity: .58; }
+#app .call-control:disabled .call-control-disc { opacity: .58; }
+#app .call-control-label { font-size: .75rem; }
+
+#app .message-actions.is-closing, #app .message-actions-backdrop, #app .message-actions-backdrop.is-closing { transition-duration: var(--motion-panel); }
+#app .message-actions.is-closing :is(.message-action-list,.message-reaction-picker) { transition-duration: var(--motion-local); }
+#app .gallery-actions-sheet, #app .gallery-actions-sheet .gallery-actions-menu { transition-duration: var(--motion-panel); }
+#app .notice { transform: translateY(-8px); }
+#app .notice.is-visible { transform: translateY(0); }
+#app .notice.is-leaving { transform: translateY(-8px); }
+.notice.app-toast { transform: translateY(-8px); }
+.notice.app-toast.is-visible { transform: translateY(0); }
+.notice.app-toast.is-leaving { transform: translateY(-8px); }
+#app .space-invite-actions button { min-height: 48px; }
+#app .space-row strong { font-size: .875rem; }
+#app .recovery-flow-notice.success { color: var(--success); background: var(--success-soft); border-color: transparent; }
+#app .recovery-flow-notice.warn { color: var(--warning); background: var(--warning-soft); border-color: transparent; }
+
+/* Focusing a field does not repaint the composer. Keep the compatibility
+   token for viewport owners while both keyboard states share one surface. */
+:root[data-theme][data-color-scheme] { --composer-surface-focused: var(--composer-surface); }
+
+#app .image-viewer:not([data-native-video]):not([data-safe-viewer].video-viewer) { background: #141214; }
+
+#app .is-space-list-page .space-create { border-radius: 12px; font-size: .875rem; font-weight: 600; }
+
+/* Readable secondary copy; time, duration and count badges keep 11px roles. */
+#app :is(.space-style-copy small,.space-setting-group h3,.space-presence-note,
+  .space-message-preview.is-waiting,.space-preview-hint,.passkey-current,
+  .notification-scope,.notification-capability > span,.notification-section-heading > span,
+  .avatar-credit,.appearance-preview-header span,.chat-guide > small,
+  .recovery-reminder span,.pinned-notice span,.upload-reminder span,
+  .subpage-header p,.device-toolbar span,.device-section h2 span,.backup-heading p) {
+  font-size: .75rem; line-height: 1.6;
+}
+#app .space-empty { font-size: .875rem; }
+#app :is(.space-unread,.gallery-tab-count) { font-size: .6875rem; }
+#app .subpage-header { min-height: var(--subpage-header-height); padding-top: calc(env(safe-area-inset-top) + 4px); }

@@ -2,6 +2,12 @@
 
 The browser IM visual system follows P1, explicitly approved for implementation on 2026-10-11. The primary reference is the user's Telegram light/dark screenshots, interpreted for Quiet Room's existing two-person product. This replaces the former Liquid Glass direction. Confirmation, source samples and scope live in the [requirement record](docs/requirements/2026-10-10-ui-system-exploration/README.md).
 
+## Maintained mobile visual standard
+
+The [P1 mobile visual standard](docs/design/mobile-visual-standard.md) is the maintained parameter reference. Read its relevant sections before UI work. Approved project adjustments must update the standard, its affected examples and discrepancy/acceptance records in the same task. Word and illustrated HTML are versioned exports. Preserve product and security contracts; never turn an unimplemented proposal into an implementation claim. R1 and the V1.4 media capsule and continuity update were confirmed on 2026-10-12; implementation status is owned by the [audit requirement](docs/requirements/2026-10-12-p1-ui-audit/README.md).
+
+Debug mobile UI in the actual local project through the Codex browser, using verified device emulation before plain responsive resizing. Record mobile mode, touch/coarse-pointer support, UA, DPR and the effective viewport. Inspect live DOM/styles and interactions; retain screenshots only as evidence. Synthetic renderer samples, automated clicks and physical Safari touch/keyboard/chrome verification are distinct evidence. Developer access requires current-session authorization.
+
 ## Intent and palette
 
 Messages are the primary surface when two people read a private conversation on a phone in daylight or at night. The interface uses compact typography, opaque controls, quiet borders and limited elevation. Browser chrome and a tall native keyboard are part of the available-space constraint.
@@ -34,7 +40,7 @@ Wallpaper colors and message fills follow the confirmed samples. Action colors a
 
 The normal header is 48px plus the top safe area; the keyboard state is 40px plus that safe area. Existing presence, connection information, space navigation and optional heart remain available. The compact state arranges presence and status on one line instead of allocating a second tall row. It does not add a new title or duplicate the peer information.
 
-The composer starts at 52px plus any bottom safe-area contribution. It is a continuous opaque toolbar with 44px control targets and a frameless input sharing the toolbar surface. Keyboard focus uses a quiet underline rather than an outer rectangle. Multiline text grows to 88px and then scrolls internally, retaining native caret and composition behavior. Growth reads the CSS cap rather than maintaining a different JavaScript limit. Reply drafts, recording and expression tools keep their existing state owners.
+The composer starts at 52px plus any bottom safe-area contribution. It is a continuous opaque toolbar with 44px control targets and a frameless input sharing the toolbar surface. The current implementation uses a quiet input underline. The maintained mobile target removes touch-triggered focus decoration; external-keyboard location remains perceivable (standard 06 2–3 / D21). Multiline text grows to 88px and then scrolls internally, retaining native caret and composition behavior. Growth reads the CSS cap rather than maintaining a different JavaScript limit. Reply drafts, recording and expression tools keep their existing state owners.
 
 Desktop input uses the same compact vertical scale; its floating tools keep an 8px gap above the input row. The mobile expression panel retains its occupied height so it cannot cover the keyboard toggle. Held recording uses a 72px feedback disc inside the viewport; cancel feedback remains destructive red.
 
@@ -42,7 +48,7 @@ Mobile tools meet the composer as an 18px top-corner bottom sheet with a decorat
 
 The existing VisualViewport, keyboard gesture, list/document scrolling and bottom-following controllers remain authoritative. A header inset change must compensate a history reader's scroll in the same task before paint; latest-following retains its existing endpoint alignment. Group spacing must not alter the established latest-message/composer gap. Keyboard open/close, interrupted motion, Chinese composition and browser toolbar movement need regression coverage. A desktop short-viewport simulation is not evidence of real iPhone keyboard behavior, and native Safari toolbar transparency is not promised.
 
-Outgoing dark bubbles sample one gradient field across the rendered timeline, using layout coordinates so in-flight FLIP transforms do not move their colors. Media and expression bubbles preserve their intrinsic geometry, concealment state and contrasting metadata overlays; expressions retain their transparent exterior.
+The current outgoing dark gradient spans the rendered timeline. The maintained target samples the current visible chat viewport, so offscreen history does not stretch it; layout coordinates keep in-flight transforms from changing the field (standard 03 3 / D20). Media and expression bubbles preserve their intrinsic geometry, concealment state and contrasting metadata overlays; expressions retain their transparent exterior.
 
 ## Long press and other overlays
 
