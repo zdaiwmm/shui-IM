@@ -52,6 +52,38 @@ The source files alone do not mean production policy is enabled. Current disk
 capacity must be measured after cleanup and a full readback must verify service
 recovery; 40 GiB cannot support unlimited business-data growth.
 
+## Supervised build cache maintenance
+
+`deploy/server/quiet-room-cache-maintenance` is a separately reviewed root tool,
+never a timer or an application-release hook. Install it atomically from the
+exact reviewed commit, verifying its digest, Python 3.6 syntax and root ownership,
+using the same staging procedure as the deployment helper. Never delete Docker
+layer directories directly or replace this with a global/volume prune.
+
+In an approved maintenance window, first run `quiet-room-cache-maintenance plan`
+and save its exact JSON bytes privately. Review the host fingerprint, current
+SHA, images and containers; compute SHA-256 of those bytes. Within 15 minutes:
+
+```bash
+sudo /usr/local/sbin/quiet-room-cache-maintenance --apply <reviewed-plan-sha256> --maintenance-window < reviewed-plan.json
+```
+
+The tool takes the deployment lock, rejects drift or an existing gate, closes
+business traffic, and stops only the recorded containers. It requires 1 GiB free
+disk and 400 MiB available memory before stopping, then 1200 MiB available memory.
+It asks Docker to reclaim unused build cache older than seven days with a 2 GB
+keep-storage target, preserving every existing image reference. This target does
+not promise a hard cache cap or a particular number of freed bytes. It restarts
+the same containers and opens traffic only after application health returns.
+Ordinary command failure attempts recovery of those same containers; daemon
+timeout or changed image references retain the gate for manual investigation.
+Killing a prune client does not prove the daemon stopped. Never blindly retry.
+
+Record actual disk change and run independent readback for the unchanged
+application SHA afterward, including backup health. Retained dirty release trees
+are reported as `CLEANUP_PARTIAL`; other clean eligible trees are still processed.
+That partial result is visible locally and is not proof an external alert arrived.
+
 ## Backup policy
 
 The included backup worker uses SQLite's online backup API against the live WAL database, removes incomplete attachment reservations from the snapshot, copies only completed immutable ciphertext chunks, verifies SQLite with `PRAGMA quick_check`, and writes SHA-256 checksums for the database and every chunk. It stages into a partial directory and publishes the backup by atomic rename only after verification.

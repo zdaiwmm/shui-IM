@@ -6,7 +6,7 @@ import path from 'node:path';
 import { expect, it } from 'vitest';
 it('blocks legacy release code once a room has committed a window, using only readonly metadata', async () => {
   const source = await readFile(new URL('../deploy/server/quiet-room-deploy', import.meta.url), 'utf8');
-  const start = source.indexOf('if ! grep -Fxq'); const end = source.indexOf('deploy_phase_start build-image', start);
+  const start = source.indexOf('if ! grep -Fxq'); const end = source.indexOf('deploy_phase_start import-ci-image', start);
   expect(start).toBeGreaterThan(0); expect(end).toBeGreaterThan(start);
   const code = source.slice(start, end).match(/--input-type=module -e '([\s\S]*?)\n  '/)![1];
   const root = await mkdtemp(path.join(tmpdir(), 'qr-downgrade-'));

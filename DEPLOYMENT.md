@@ -16,6 +16,49 @@ deliberate fresh-origin cutover.
 
 ## Normal deployment
 
+### CI images and independent environments
+
+CI builds and checks runtime images for `linux/amd64` and `linux/arm64`.
+The successful main run retains a compressed Docker archive and manifest bound
+to the exact commit, run, attempt, architecture and checksums for seven days; only the current and two previous main image versions are retained.
+The trusted publishing computer validates and streams that exact artifact over
+existing SSH. The server imports and verifies it before closing traffic, without
+building the application. No registry credential or CI production access is needed.
+
+Configure independent targets on the trusted computer:
+
+```bash
+npm run deploy:setup -- --environment production --host <host-a> --user admin --server-key /absolute/key-a --origin https://ai.shui.click --platform linux/amd64
+npm run deploy:setup -- --environment secondary --host <host-b> --user admin --server-key /absolute/key-b --origin https://your-second-domain.example --platform linux/arm64
+node scripts/publish.mjs --environment production --sha <exact-approved-main-sha>
+npm run deploy:readback -- --environment production --sha <same-deployed-sha>
+```
+
+Use each server's actual CPU platform; the examples are not provisioned targets.
+Each named target is privately stored in
+`~/.config/quiet-room/environments/<name>.json`, or an explicit private
+`QUIET_ROOM_DEPLOY_CONFIG` whose `environment` must match. A same-name
+`.deploy.<name>.local.json` can override it in a worktree. Missing targets fail;
+named targets ignore legacy server-host/user/key environment overrides. Legacy
+flat deployment files remain supported when no environment is selected.
+Configurations and keys never enter Git.
+
+Each server is separately provisioned with its own DNS/TLS, Nginx host,
+repository, root helpers, environment files, data volume and backups. For a second
+application domain, install root-owned non-writable `/etc/quiet-room/deployment.json`
+containing `{"publicHost":"your-second-domain.example"}`. Without it the existing
+`ai.shui.click` identity is retained. The chosen profile must match the server's
+`--describe` identity. Set `ADMIN_ORIGIN` in that server's shared production
+environment if its optional admin host differs. Standard first-time provisioning
+is still required; profile support does not create servers, certificates or
+synchronize their data/passkeys.
+
+Install the reviewed updated root helper separately, using the existing atomic
+installation procedure, before the first CI-image deployment. It requires SHA,
+image ID and archive checksum; obsolete server-build callers are rejected.
+Exact-SHA approval, full CI, rollback protection and independent readback remain
+required for each environment. Building an image in CI never deploys it.
+
 For the fixed, non-GUI entry point that preserves an actively edited workspace,
 use `node scripts/publish.mjs --sha <full-main-SHA>` after reviewing and merging
 the release. It waits for matching CI and runs the checks below in an isolated
@@ -444,8 +487,8 @@ the normal `deploy:production` command must not become that installer.
 The local command connects directly as `admin` with the dedicated
 `id_ed25519_shui_im_server` key and invokes the root-owned deployment program.
 The server independently verifies that the requested 40-character commit is
-contained in `origin/main`, serializes deployments with a file lock, builds an
-image before downtime begins, takes a cold ciphertext-data backup, switches the
+contained in `origin/main`, serializes deployments with a file lock, imports and
+verifies the exact CI image before downtime, takes a cold ciphertext-data backup, switches the
 Compose project, checks local and public health, verifies the public WebSocket
 upgrade, and performs a data-aware rollback only while public business traffic
 remains gated. The marker is installed before old containers stop; stopping them

@@ -199,6 +199,8 @@ The browser-load-failure cover is visual concealment. A website cannot guarantee
 
 ## Deployment requirements
 
+- Application images are built and checked in CI. Publishing binds the exact latest successful main run/attempt, commit, platform, image ID and archive checksum; the server verifies the streamed image before cutover. CI has no production SSH credentials. Named environments have independent private configurations and exact origins; a missing/mismatched target fails rather than falling back. These checks preserve artifact identity and do not constitute independent security review.
+
 - Terminate only modern HTTPS and proxy WebSocket upgrades correctly. Never expose this service over plaintext Internet HTTP.
 - The canonical production origin is `https://ai.shui.click`. Keep WebAuthn bound to the exact `ai.shui.click` RP ID, keep API and WebSocket traffic same-origin, and retain control of both its DNS and certificate renewal. Do not broaden the RP ID to `shui.click` or add wildcard CORS for migration convenience.
 - The retired `chat.mijiu.cloud` origin must not serve application JavaScript. Keep its DNS and certificate under control and return only a no-script redirect or a static retirement response so an old WebAuthn/IndexedDB origin cannot become a dangling takeover target.
