@@ -478,19 +478,40 @@ def validation_runtime(directory):
 
 def validation_daemon(directory, start):
     unit = 'quiet-room-storage-validation-' + directory.name[-12:]
+    containerd_unit = 'quiet-room-storage-containerd-' + directory.name[-12:]
     area = directory / 'validation'
     runtime = validation_runtime(directory)
     endpoint = str(runtime / 'docker.sock')
+    containerd_endpoint = str(runtime / 'containerd.sock')
     if start:
         area.mkdir(mode=0o700)
         runtime.mkdir(mode=0o700)
         atomic_json(area / 'daemon.json', {})
-        command(['systemd-run', '--quiet', '--unit', unit, '--property=MemoryLimit=700M',
+        (area / 'containerd.toml').write_text('version = 2\n')
+        # Docker auto-detects the host containerd socket unless explicitly set.
+        # A private daemon therefore also needs its own containerd process,
+        # metadata root, state and socket; never reuse production's namespace.
+        command(['systemd-run', '--quiet', '--unit', containerd_unit, '--property=MemoryLimit=192M',
+                 '--property=CPUQuota=25%', '--property=Nice=10', '--property=IOSchedulingClass=idle',
+                 '--property=TimeoutStopSec=30s', '--property=KillMode=control-group',
+                 '/usr/bin/containerd', '--config', str(area / 'containerd.toml'),
+                 '--address', containerd_endpoint, '--root', str(area / 'containerd-root'),
+                 '--state', str(runtime / 'containerd-state')])
+        for _ in range(30):
+            try:
+                command(['ctr', '--address', containerd_endpoint, 'version'], timeout=3)
+                break
+            except (StorageError, subprocess.TimeoutExpired):
+                time.sleep(1)
+        else:
+            raise StorageError('validation-containerd-start')
+        command(['systemd-run', '--quiet', '--unit', unit, '--property=MemoryLimit=512M',
                  '--property=CPUQuota=50%', '--property=Nice=10', '--property=IOSchedulingClass=idle',
                  '--property=TimeoutStopSec=30s', '--property=KillMode=control-group',
                  '/usr/bin/dockerd', '--config-file', str(area / 'daemon.json'),
                  '--host', 'unix://' + endpoint, '--data-root', str(area / 'docker'),
                  '--exec-root', str(runtime / 'exec'), '--pidfile', str(runtime / 'docker.pid'),
+                 '--containerd', containerd_endpoint,
                  '--storage-driver', 'overlay2', '--iptables=false', '--ip-forward=false', '--ip-masq=false', '--bridge=none'])
         for _ in range(90):
             try:
@@ -500,8 +521,15 @@ def validation_daemon(directory, start):
             except (OSError, http.client.HTTPException):
                 time.sleep(1)
         raise StorageError('validation-daemon-start')
-    command(['systemctl', 'stop', unit], timeout=45)
-    require(command(['systemctl', 'show', unit, '--property=ActiveState', '--value']) in ('inactive', 'failed'), 'validation-daemon-stop')
+    for name in (unit, containerd_unit):
+        loaded = command(['systemctl', 'show', name, '--property=LoadState', '--value'])
+        if loaded == 'not-found':
+            continue
+        require(loaded == 'loaded', 'validation-unit-state')
+        command(['systemctl', 'stop', name], timeout=45)
+        require(command(['systemctl', 'show', name, '--property=ActiveState', '--value']) in ('inactive', 'failed'), 'validation-daemon-stop')
+    engine_unmounted(area)
+    engine_files_closed(area)
     return endpoint
 
 

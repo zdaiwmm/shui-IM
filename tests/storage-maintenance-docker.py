@@ -35,8 +35,9 @@ for directory in (root / 'deploy-state', root / 'shared', root / 'git-releases/r
 (root / 'deploy-state/admin-enabled').write_text('0')
 (root / 'shared/fixture.json').write_text('{}')
 g.update(ROOT=root, STATE=state, SESSIONS=sessions, ENGINE=engine, SOCKET=endpoint,
-         CONTAINERD_SOCKET=str(base / 'main-exec/containerd/containerd.sock'))
+         CONTAINERD_SOCKET=str(base / 'main.ctrd.sock'))
 processes = {}
+containerd_processes = {}
 
 
 def fixture_command(args, timeout=30):
@@ -67,12 +68,32 @@ g['runtime_fields'] = diagnose_runtime_fields
 
 
 def daemon(label, data_root, socket_path, start):
+    containerd_endpoint = str(base / (label + '.ctrd.sock'))
     if start:
+        if label not in containerd_processes:
+            containerd_config = base / (label + '-containerd.toml')
+            containerd_config.write_text('version = 2\n')
+            containerd_log = (base / (label + '-containerd.log')).open('ab')
+            containerd_process = subprocess.Popen(['/usr/bin/containerd', '--config', str(containerd_config),
+                '--address', containerd_endpoint, '--root', str(base / (label + '-containerd-root')),
+                '--state', str(base / (label + '-containerd-state'))], stdout=containerd_log, stderr=containerd_log)
+            containerd_log.close()
+            containerd_processes[label] = containerd_process
+            for _ in range(30):
+                try:
+                    module['command'](['ctr', '--address', containerd_endpoint, 'version'], timeout=3)
+                    break
+                except (module['StorageError'], subprocess.TimeoutExpired):
+                    assert containerd_process.poll() is None, 'private containerd exited'
+                    sleep(1)
+            else:
+                raise AssertionError('private containerd did not start')
         config = base / (label + '-config.json')
         config.write_text('{}')
         log = (base / (label + '.log')).open('ab')
         process = subprocess.Popen(['/usr/bin/dockerd', '--config-file', str(config), '--host', 'unix://' + socket_path,
                                     '--data-root', str(data_root), '--exec-root', str(base / (label + '-exec')),
+                                    '--containerd', containerd_endpoint,
                                     '--pidfile', str(base / (label + '.pid')), '--storage-driver', 'overlay2',
                                     '--iptables=false', '--ip-forward=false', '--ip-masq=false', '--bridge=none'],
                                    stdout=log, stderr=log)
@@ -91,6 +112,11 @@ def daemon(label, data_root, socket_path, start):
     if process:
         process.send_signal(signal.SIGTERM)
         process.wait(timeout=90)
+    if label != 'main':
+        containerd_process = containerd_processes.pop(label, None)
+        if containerd_process:
+            containerd_process.send_signal(signal.SIGTERM)
+            containerd_process.wait(timeout=30)
     return socket_path
 
 
@@ -233,6 +259,9 @@ except BaseException:
 finally:
     for label in list(processes):
         daemon(label, None, '', False)
+    for label, process in containerd_processes.items():
+        process.send_signal(signal.SIGTERM)
+        process.wait(timeout=30)
     # Fixture data and daemon diagnostics are disposable; preserve diagnostics
     # only on failure through the CI artifact step, never production snapshots.
     destination = repository / '.delivery-evidence/storage-ci'

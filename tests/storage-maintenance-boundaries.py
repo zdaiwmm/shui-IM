@@ -103,6 +103,21 @@ class Boundaries(unittest.TestCase):
         with self.assertRaisesRegex(self.module['StorageError'], 'validation-session'):
             self.module['validation_runtime'](Path('/unrelated/session'))
 
+    def test_validation_daemon_uses_its_own_containerd_process_and_socket(self):
+        runtime = self.base / 'private-runtime'
+        self.g['validation_runtime'] = lambda directory: runtime
+        calls = []
+        self.g['command'] = lambda args, timeout=30: calls.append(args) or ''
+        self.g['api'] = lambda method, path, **kwargs: {'DockerRootDir': str(self.directory / 'validation/docker')}
+        self.module['validation_daemon'](self.directory, True)
+        containerd = next(args for args in calls if '/usr/bin/containerd' in args)
+        dockerd = next(args for args in calls if '/usr/bin/dockerd' in args)
+        address = containerd[containerd.index('--address') + 1]
+        self.assertEqual(dockerd[dockerd.index('--containerd') + 1], address)
+        self.assertNotEqual(address, self.g['CONTAINERD_SOCKET'])
+        self.assertEqual(containerd[containerd.index('--root') + 1], str(self.directory / 'validation/containerd-root'))
+        self.assertEqual(containerd[containerd.index('--state') + 1], str(runtime / 'containerd-state'))
+
     def test_prestart_oom_default_does_not_weaken_running_resource_checks(self):
         current = {'Config': {}, 'HostConfig': {'OomKillDisable': None, 'Memory': 256}, 'State': {'Running': False}}
         expected = {'OomKillDisable': False, 'Memory': 256}
