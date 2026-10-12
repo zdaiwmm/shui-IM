@@ -174,7 +174,9 @@ class Boundaries(unittest.TestCase):
             containers.append({'Name': '/' + name, 'Id': str(index + 1) * 64, 'Image': images[0]['Id'],
                                'Config': {'Env': ['ADMIN_ORIGIN=https://admin.independent.test']},
                                'HostConfig': {'ReadonlyRootfs': True}, 'State': {'Running': True, 'Health': {'Status': 'healthy'}},
-                               'Mounts': [], 'NetworkSettings': {'Networks': {}}})
+                               'Mounts': [{'Type': 'volume', 'Name': volume['Name'], 'Source': volume['Mountpoint'],
+                                           'Destination': '/' + volume['Name'], 'RW': True} for volume in volumes],
+                               'NetworkSettings': {'Networks': {}}})
         alternate = [False]
         def api(method, path, body=None, endpoint=None):
             if path == '/info':
@@ -183,7 +185,10 @@ class Boundaries(unittest.TestCase):
             if path == '/containers/json?all=true':
                 return [{'Names': [item['Name']]} for item in containers]
             if path.startswith('/containers/'):
-                return copy.deepcopy(next(item for item in containers if item['Name'] + '/json' == path[len('/containers'):]))
+                item = copy.deepcopy(next(item for item in containers if item['Name'] + '/json' == path[len('/containers'):]))
+                if alternate[0]:
+                    item['Mounts'].reverse()
+                return item
             if path == '/images/json?all=false':
                 return list(reversed(images)) if alternate[0] else images
             if path.startswith('/images/'):
@@ -206,6 +211,9 @@ class Boundaries(unittest.TestCase):
         second = self.module['inventory']()
         self.assertEqual(first, second)
         self.assertEqual(first[0]['adminOrigin'], 'https://admin.independent.test')
+        containers[2]['Mounts'][0]['RW'] = False
+        changed = self.module['inventory']()
+        self.assertNotEqual(first[0]['runtimeSnapshotHash'], changed[0]['runtimeSnapshotHash'])
 
     def runtime(self):
         return {'Config': {'Env': ['PRIVATE_VALUE=fixture'], 'Image': 'app:exact'},

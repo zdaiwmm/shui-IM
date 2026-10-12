@@ -220,6 +220,10 @@ def inventory():
     # that must neither invalidate a plan nor enter a restoration request.
     for item in private['containers']:
         item['NetworkSettings'] = {'Networks': item['NetworkSettings']['Networks']}
+        # Docker builds inspect.Mounts from a map, so identical mount entries
+        # may arrive in a different order on consecutive reads. Bind every
+        # field while treating that presentation order as non-semantic.
+        item['Mounts'] = sorted(item['Mounts'], key=lambda mount: mount['Destination'])
     public = {'version': 1, 'hostIdentity': hashlib.sha256(MACHINE_ID.read_bytes()).hexdigest(),
               'currentSha': current, 'release': str(source), 'publicHost': public_host, 'adminOrigin': admin_origin,
               'engineIdentity': identity(ENGINE), 'references': refs,
