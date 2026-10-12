@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""Supervised, explicitly approved cache maintenance; never a daily timer."""
+import fcntl
+import hashlib
+import json
+from pathlib import Path
+import subprocess
+import sys
+import time
+
+ROOT = Path('/opt/quiet-room')
+STATE = Path('/var/lib/quiet-room-deploy')
+LOCK = Path('/run/lock/quiet-room-deploy.lock')
+GIB = 1024 ** 3
+
+
+def run(args, timeout=30):
+    return subprocess.run(args, check=True, universal_newlines=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout).stdout.strip()
+
+
+def inventory():
+    current = (ROOT / 'deploy-state/current-sha').read_text().strip()
+    if not __import__('re').fullmatch(r'[0-9a-f]{40}', current):
+        raise ValueError('Invalid current release')
+    rows = run(['docker', 'image', 'ls', '--no-trunc', '--format', '{{.Repository}}:{{.Tag}} {{.ID}}']).splitlines()
+    images = sorted(set(rows))
+    if not images or any('<none>' in row for row in images):
+        raise ValueError('Unclassified images require investigation')
+    containers = []
+    names = run(['docker', 'ps', '-a', '--format', '{{.Names}}']).splitlines()
+    allowed = {'quiet-room-quiet-room-1', 'quiet-room-quiet-room-backup-1', 'quiet-room-quiet-room-turn-1'}
+    if not set(names).issubset(allowed):
+        raise ValueError('Other containers require a separate maintenance plan')
+    for name in sorted(names):
+        fields = run(['docker', 'inspect', '--format', '{{.Image}} {{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}', name]).split()
+        if len(fields) != 3 or fields[1] != 'true' or fields[2] not in ('healthy', 'none'):
+            raise ValueError('Container health is not ready for maintenance')
+        containers.append({'name': name, 'imageId': fields[0]})
+    if not {'quiet-room-quiet-room-1', 'quiet-room-quiet-room-backup-1'}.issubset(names):
+        raise ValueError('Required containers missing')
+    return {'version': 1, 'currentSha': current, 'images': images, 'containers': containers,
+            'hostIdentity': hashlib.sha256(Path('/etc/machine-id').read_bytes()).hexdigest(),
+            'filter': 'until=168h', 'keepStorage': '2GB'}
+
+
+def memory_available():
+    for line in Path('/proc/meminfo').read_text().splitlines():
+        if line.startswith('MemAvailable:'):
+            return int(line.split()[1]) * 1024
+    raise ValueError('Memory metrics unavailable')
+
+
+def free_bytes():
+    import os
+    s = os.statvfs(str(ROOT))
+    return s.f_bavail * s.f_frsize
+
+
+def restore_containers(plan):
+    # Start only the same pre-existing containers, never recreate from changed
+    # source/configuration and never restore an old database.
+    for item in plan['containers']:
+        image = run(['docker', 'inspect', '--format', '{{.Image}}', item['name']])
+        if image != item['imageId']:
+            raise ValueError('Container image changed during maintenance')
+    run(['docker', 'start'] + [item['name'] for item in plan['containers']], timeout=90)
+    for _ in range(60):
+        if run(['docker', 'inspect', '--format', '{{if .State.Health}}{{.State.Health.Status}}{{end}}', 'quiet-room-quiet-room-1']) == 'healthy':
+            return
+        time.sleep(1)
+    raise ValueError('Application did not recover; maintenance gate retained')
+
+
+def apply(plan_bytes, expected_hash):
+    if len(plan_bytes) > 65536 or hashlib.sha256(plan_bytes).hexdigest() != expected_hash:
+        raise ValueError('Reviewed plan checksum mismatch')
+    approved = json.loads(plan_bytes.decode('utf-8'))
+    checked = approved.get('checkedAt', 0)
+    if not isinstance(checked, int) or not 0 <= time.time() - checked <= 900:
+        raise ValueError('Maintenance plan expired')
+    with LOCK.open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        gate = STATE / 'maintenance'
+        if gate.exists() or gate.is_symlink():
+            raise ValueError('An existing maintenance gate requires investigation')
+        plan = inventory()
+        if {k: v for k, v in approved.items() if k != 'checkedAt'} != plan:
+            raise ValueError('Maintenance target changed')
+        if free_bytes() < GIB or memory_available() < 400 * 1024 ** 2:
+            raise ValueError('Insufficient maintenance headroom')
+        before = free_bytes()
+        with gate.open('x') as marker:
+            marker.write('supervised-cache-maintenance\n')
+        gate_identity = (gate.stat().st_dev, gate.stat().st_ino)
+        uncertain = False
+        try:
+            run(['docker', 'stop'] + [item['name'] for item in plan['containers']], timeout=120)
+            if memory_available() < 1200 * 1024 ** 2:
+                raise ValueError('Insufficient available memory after stopping containers')
+            # This host previously failed during online pruning. Only this
+            # stopped-service, locked, supervised path may prune build cache.
+            try:
+                run(['docker', 'builder', 'prune', '--force', '--filter', plan['filter'], '--keep-storage', plan['keepStorage']], timeout=900)
+            except subprocess.TimeoutExpired:
+                uncertain = True
+                raise ValueError('CACHE_STATE_UNRESOLVED: client timeout does not stop daemon work')
+            images = sorted(set(run(['docker', 'image', 'ls', '--no-trunc', '--format', '{{.Repository}}:{{.Tag}} {{.ID}}']).splitlines()))
+            if images != plan['images']:
+                uncertain = True
+                raise ValueError('Protected image references changed')
+        finally:
+            if not uncertain:
+                restore_containers(plan)
+                if (gate.stat().st_dev, gate.stat().st_ino) != gate_identity:
+                    raise ValueError('Maintenance marker changed; retained')
+                gate.unlink()
+        print(json.dumps({'result': 'CACHE_MAINTENANCE_OK', 'currentSha': plan['currentSha'],
+                          'beforeAvailableBytes': before, 'afterAvailableBytes': free_bytes()}))
+
+
+def main():
+    if sys.argv[1:] == ['plan']:
+        if (STATE / 'maintenance').exists():
+            raise ValueError('Maintenance already active')
+        plan = inventory()
+        plan['checkedAt'] = int(time.time())
+        print(json.dumps(plan, sort_keys=True))
+    elif len(sys.argv) == 4 and sys.argv[1] == '--apply' and sys.argv[3] == '--maintenance-window':
+        apply(sys.stdin.buffer.read(65537), sys.argv[2])
+    else:
+        raise ValueError('Usage: quiet-room-cache-maintenance plan | --apply <plan-sha256> --maintenance-window < reviewed-plan.json')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as error:
+        # No command stderr, credentials, environment or source data in logs.
+        recovery = 'manual' if (STATE / 'maintenance').exists() else 'not-required'
+        print('CACHE_MAINTENANCE_BLOCKED class=' + type(error).__name__ + ' recovery=' + recovery, file=sys.stderr)
+        sys.exit(1)

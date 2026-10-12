@@ -519,6 +519,14 @@
 - 生产应用与备份容器运行且应用健康；备份容器无健康探针，记录为 `none`。后台开关 `1`，通话覆盖 `0`，TURN 容器不存在。实体 iPhone / iOS 27 / Safari 及生产管理员逐项操作仍未验收。
 ## 先更新用户可见版本说明
 
+CI 镜像与独立环境的发布参数见 [部署说明](DEPLOYMENT.md#ci-images-and-independent-environments)。
+命名环境使用 `node scripts/publish.mjs --environment <名称> --sha <完整获批SHA>`，
+独立回读也必须指定同一环境。旧单环境入口保留兼容。CI 保存 AMD64／ARM64 镜像，发布器
+只下载精确最新成功 main 完整 CI 的对应 run／attempt 产物；传输及服务器校验后才切换，
+生产不再构建。过期或缺失产物须重跑同一精确提交的 CI，不改发其他提交。
+根权限 helper 必须先按部署文档独立安装已审阅版本，普通发布不自更新 helper。
+缓存维护遵循 [监督维护步骤](OPERATIONS.md#supervised-build-cache-maintenance)，不由发布自动触发。
+
 每个包含用户可见变化的发布候选都必须先更新根目录 `release.json`：使用新的唯一 `id`，并以
 简洁语句逐条填写本次 `notes`。构建会校验该文件，把同一个版本 ID 同时注入应用和
 Service Worker；复用旧 ID 会让已经打开的客户端无法识别新版本。纯发布记录文档不需要修改

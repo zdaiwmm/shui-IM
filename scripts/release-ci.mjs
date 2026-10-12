@@ -33,7 +33,7 @@ export function readCIRuns(command, sha) {
   return JSON.parse(command('gh', ['api', `repos/${repository}/actions/workflows/ci.yml/runs?head_sha=${sha}&branch=main&per_page=100`, '--paginate', '--slurp']));
 }
 
-export function verifySuccessfulCI(command, sha) {
+export function verifySuccessfulCI(command, sha, { details = false } = {}) {
   const response = readCIRuns(command, sha);
   const run = selectRun(response, sha);
   if (run.status !== 'completed' || run.conclusion !== 'success') throw new Error('Latest CI run for the exact main commit has not passed.');
@@ -43,5 +43,6 @@ export function verifySuccessfulCI(command, sha) {
   const latest = readCIRuns(command, sha);
   const current = selectRun(latest, sha);
   if (current.id !== run.id || current.run_attempt !== run.run_attempt) throw new Error('Latest CI run changed during verification. Inspect it before publishing.');
-  return requireSuccessfulCI(latest, sha, jobs);
+  const url = requireSuccessfulCI(latest, sha, jobs);
+  return details ? { ...current, html_url: url } : url;
 }

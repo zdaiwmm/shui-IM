@@ -183,20 +183,36 @@ def cleanup():
         registered = {line[9:] for line in listing.splitlines() if line.startswith('worktree ')}
         current_path = (ROOT / 'current').resolve()
         successful_prefixes = {sha[:12] for _, sha in successes}
+        removed_releases = 0
+        retained_releases = []
         for p in (ROOT / 'git-releases').iterdir():
             match = re.fullmatch(r'\d{8}T\d{6}Z-([0-9a-f]{12})', p.name)
             if (not match or p.is_symlink() or not p.is_dir() or str(p) not in registered or
                     p.resolve() == current_path or match[1] in prefixes or
                     match[1] in {sha[:12] for sha in keep} or match[1] not in successful_prefixes):
                 continue
-            run(['runuser', '-u', 'deploy', '--', 'git', '--git-dir=' + str(ROOT / 'repository.git'),
-                 'worktree', 'remove', str(p)])
+            try:
+                git = ['runuser', '-u', 'deploy', '--', 'env', 'GIT_OPTIONAL_LOCKS=0', 'git', '-C', str(p)]
+                if run(git + ['status', '--porcelain', '--untracked-files=all']):
+                    retained_releases.append({'release': p.name, 'reason': 'modified-or-untracked'})
+                    continue
+                if run(git + ['ls-files', '--others', '--ignored', '--exclude-standard']):
+                    retained_releases.append({'release': p.name, 'reason': 'ignored-files'})
+                    continue
+                run(['runuser', '-u', 'deploy', '--', 'git', '--git-dir=' + str(ROOT / 'repository.git'),
+                     'worktree', 'remove', str(p)])
+                removed_releases += 1
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                # A changed/locked/unreadable tree is retained; unrelated clean
+                # candidates must still be processed. Never force or reset it.
+                retained_releases.append({'release': p.name, 'reason': 'inspection-or-remove-failed'})
         # Online builder pruning caused a production outage on this 2 GiB host.
         # Never run it from the daily timer; cache maintenance requires a
         # separate supervised window or a remote build host.
-        print(json.dumps({'result': 'CLEANUP_OK', 'imageTagsRemoved': removed_images,
-                          'archivesRemoved': removed_archives, 'metrics': metrics()}))
-    return 0
+        print(json.dumps({'result': 'CLEANUP_PARTIAL' if retained_releases else 'CLEANUP_OK', 'imageTagsRemoved': removed_images,
+                          'archivesRemoved': removed_archives, 'releaseWorktreesRemoved': removed_releases,
+                          'retainedReleaseWorktrees': retained_releases, 'metrics': metrics()}))
+    return 1 if retained_releases else 0
 
 
 def main():

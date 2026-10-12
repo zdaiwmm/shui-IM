@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createReleaseTimer, isMainModule } from './release-runtime.mjs';
 import { readCIRuns, selectRun, verifySuccessfulCI } from './release-ci.mjs';
-import { loadConfig } from './deploy-config.mjs';
+import { loadConfig, localConfigPath, targetArguments } from './deploy-config.mjs';
 
 export { selectRun } from './release-ci.mjs';
 
@@ -13,6 +13,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const repo = 'zdaiwmm/shui-IM';
 
 export function approvedCommit(args) {
+  args = targetArguments(args).args;
   if (args.length !== 2 || args[0] !== '--sha' || !/^[a-f0-9]{40}$/.test(args[1])) {
     throw new Error('Usage: node scripts/publish.mjs --sha <exact approved main SHA>');
   }
@@ -34,9 +35,11 @@ export function publish(args, run = command) {
 }
 
 function publishApproved(args, run, timed) {
+  const { environment } = targetArguments(args);
+  const targetArgs = environment ? ['--environment', environment] : [];
   const sha = approvedCommit(args);
   // Read-only preflight first. Never try browser login or edit network rules here.
-  timed('preflight', () => run(process.execPath, [path.join(root, 'scripts/release.mjs'), '--doctor'], { stdio: 'inherit', timeout: 120000 }));
+  timed('preflight', () => run(process.execPath, [path.join(root, 'scripts/release.mjs'), '--doctor', ...targetArgs], { stdio: 'inherit', timeout: 120000 }));
   timed('verify-main', () => {
     const remoteSHA = run('gh', ['api', `repos/${repo}/commits/main`, '--jq', '.sha']);
     if (!/^[a-f0-9]{40}$/.test(remoteSHA)) throw new Error('Invalid GitHub main identity.');
@@ -58,7 +61,7 @@ function publishApproved(args, run, timed) {
   console.log(`Isolated release directory: ${directory}`);
   // Reuse the configured GitHub CLI credential for HTTPS clones. A separate
   // deploy key remains supported when githubKey is explicitly configured.
-  const { config, sourcePath } = loadConfig(root);
+  const { config, sourcePath } = loadConfig(root, environment);
   const key = process.env.QUIET_ROOM_GITHUB_KEY || config.githubKey;
   const env = { ...process.env, GIT_TERMINAL_PROMPT: '0', GH_PROMPT_DISABLED: '1' };
   let cloneUrl = `https://github.com/${repo}.git`;
@@ -79,7 +82,7 @@ function publishApproved(args, run, timed) {
     if (run('git', ['rev-parse', 'HEAD'], { cwd: directory, env }) !== sha) throw new Error('Isolated release differs from approved SHA.');
   });
   if (sourcePath) {
-    const target = path.join(directory, '.deploy.local.json');
+    const target = localConfigPath(directory, environment);
     copyFileSync(sourcePath, target);
     chmodSync(target, 0o600);
   }
@@ -88,7 +91,7 @@ function publishApproved(args, run, timed) {
   timed('deploy-and-readback', () => {
     const receipt = path.join(directory, '.git/quiet-room-verified-sha');
     if (existsSync(receipt)) throw new Error('Unexpected pre-existing release receipt. Nothing deployed.');
-    run(process.execPath, [path.join(directory, 'scripts/release.mjs'), '--sha', sha], {
+    run(process.execPath, [path.join(directory, 'scripts/release.mjs'), '--sha', sha, ...targetArgs], {
       cwd: directory, env: { ...env, QUIET_ROOM_PUBLISH_RECEIPT: receipt }, stdio: 'inherit', timeout: 0,
     });
     if (!existsSync(receipt) || readFileSync(receipt, 'utf8') !== `${sha}\n`) {

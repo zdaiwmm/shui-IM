@@ -83,7 +83,7 @@ export function determineScope({ eventName, event, runGit = git }) {
 }
 
 const sharedJobs = ['scope', 'docs', 'secret_scan'];
-const applicationJobs = ['build', 'browser', 'calls', 'audit'];
+const applicationJobs = ['build', 'browser', 'calls', 'audit', 'image'];
 
 export function requireVerification(needs, gate = 'verify') {
   if (!needs || typeof needs !== 'object' || Array.isArray(needs) || !['verify', 'full'].includes(gate)) {

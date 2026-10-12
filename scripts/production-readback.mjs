@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import WebSocket from 'ws';
 import { isMainModule } from './release-runtime.mjs';
-import { assertKeyFiles, loadConfig as loadDeployConfig, validateConfig } from './deploy-config.mjs';
+import { assertKeyFiles, loadConfig as loadDeployConfig, publicOrigin, targetArguments, validateConfig } from './deploy-config.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const origin = 'https://ai.shui.click';
@@ -24,6 +24,7 @@ case "$expected_sha" in *[!0-9a-f]*|'') exit 64;; esac
 read_state() { if [ -f "$1" ]; then sed -n '1p' "$1"; else printf 'missing'; fi; }
 container_field() { docker inspect "$1" --format "$2"; }
 printf 'currentSha\t%s\n' "$(read_state "$STATE_DIR/current-sha")"
+printf 'publicOrigin\t%s\n' "$(python3 -c 'import json; from pathlib import Path; p=Path("/etc/quiet-room/deployment.json"); print("https://"+json.loads(p.read_text())["publicHost"] if p.exists() else "https://ai.shui.click")')"
 printf 'deployedAt\t%s\n' "$(read_state "$STATE_DIR/deployed-at")"
 printf 'release\t%s\n' "$(readlink -f "$APP_ROOT/current")"
 if [ -e "$MAINTENANCE_FILE" ]; then printf 'maintenance\tpresent\n'; else printf 'maintenance\tabsent\n'; fi
@@ -73,14 +74,15 @@ export class ReadbackError extends Error {
 }
 
 export function parseReadbackArgs(args) {
+  args = targetArguments(args).args;
   if (args.length !== 2 || args[0] !== '--sha' || !shaPattern.test(args[1])) {
     throw new ReadbackError('usage', 'arguments', 'Usage: node scripts/production-readback.mjs --sha <exact expected production SHA>');
   }
   return args[1];
 }
 
-function loadConfig() {
-  const { config } = loadDeployConfig(root);
+function loadConfig(environment) {
+  const { config } = loadDeployConfig(root, environment);
   validateConfig(config);
   assertKeyFiles(config);
   return config;
@@ -121,7 +123,8 @@ function parsePairs(output, expectedKeys, phase, classification) {
   return values;
 }
 
-export function validateServerState(state, expectedSha) {
+export function validateServerState(state, expectedSha, expectedOrigin) {
+  if (expectedOrigin && state.publicOrigin !== expectedOrigin) throw new ReadbackError('production-state', 'validate-state', 'Server public origin differs from the selected environment');
   const expectedRelease = `/opt/quiet-room/git-releases/${state.deployedAt}-${expectedSha.slice(0, 12)}`;
   if (state.currentSha !== expectedSha || !/^\d{8}T\d{6}Z$/.test(state.deployedAt) || state.release !== expectedRelease || state.maintenance !== 'absent') {
     throw new ReadbackError('production-state', 'validate-state', 'Production metadata does not match the expected completed deployment');
@@ -143,7 +146,7 @@ export function validateServerState(state, expectedSha) {
   return state;
 }
 
-async function fetchBytes(publicPath) {
+async function fetchBytes(publicPath, origin = 'https://ai.shui.click') {
   const response = await fetch(`${origin}${publicPath}`, { redirect: 'error', signal: AbortSignal.timeout(10000) });
   if (response.status !== 200 || response.url !== `${origin}${publicPath}`) throw new Error(`HTTP ${response.status}`);
   const bytes = new Uint8Array(await response.arrayBuffer());
@@ -163,10 +166,10 @@ export function discoverPublicArtifacts(indexBytes) {
   return paths;
 }
 
-async function probeWebSocket() {
+async function probeWebSocket(origin = 'https://ai.shui.click') {
   await new Promise((resolve, reject) => {
     let opened = false;
-    const socket = new WebSocket('wss://ai.shui.click/ws', { origin });
+    const socket = new WebSocket(`${origin.replace(/^https:/, 'wss:')}/ws`, { origin });
     const timer = setTimeout(() => { socket.terminate(); reject(new Error('timeout')); }, 10000);
     socket.once('open', () => { opened = true; socket.close(); });
     socket.once('close', () => { clearTimeout(timer); opened ? resolve() : reject(new Error('closed before opening')); });
@@ -175,23 +178,24 @@ async function probeWebSocket() {
 }
 
 function defaultOperations(config) {
+  const origin = publicOrigin(config);
   const common = sshArgs(config, ['sudo', '-n', '/bin/sh', '-s', '--']);
   return {
     inspectState(expectedSha) {
       const result = spawn('ssh', [...common, expectedSha], { input: stateProbe, timeout: 30000 });
-      const keys = ['currentSha', 'deployedAt', 'release', 'maintenance', 'adminEnabled', 'callsEnabled', 'targetImageId', 'appRunning', 'appHealth', 'appImageId', 'appImageRef', 'backupRunning', 'backupHealth', 'backupImageId', 'backupImageRef', 'turnRunning', 'turnHealth'];
+      const keys = ['currentSha', 'publicOrigin', 'deployedAt', 'release', 'maintenance', 'adminEnabled', 'callsEnabled', 'targetImageId', 'appRunning', 'appHealth', 'appImageId', 'appImageRef', 'backupRunning', 'backupHealth', 'backupImageId', 'backupImageRef', 'turnRunning', 'turnHealth'];
       return parsePairs(checked(result, 'server-inspection', 'server-state', 'Could not inspect production state'), keys, 'server-state', 'server-inspection');
     },
     async inspectHealth() {
-      const health = JSON.parse(new TextDecoder().decode(await fetchBytes('/api/health')));
+      const health = JSON.parse(new TextDecoder().decode(await fetchBytes('/api/health', origin)));
       if (health?.ok !== true || health?.database !== true || health?.storage !== true) throw new Error('Health fields are not all true');
       return { ok: true, database: true, storage: true };
     },
     async inspectPublicArtifacts() {
-      const indexBytes = await fetchBytes('/');
+      const indexBytes = await fetchBytes('/', origin);
       const paths = discoverPublicArtifacts(indexBytes);
       const hashes = { '/': digest(indexBytes) };
-      for (const publicPath of paths) hashes[publicPath] = digest(await fetchBytes(publicPath));
+      for (const publicPath of paths) hashes[publicPath] = digest(await fetchBytes(publicPath, origin));
       return hashes;
     },
     inspectContainerArtifacts(publicHashes) {
@@ -206,7 +210,7 @@ function defaultOperations(config) {
       }
       return { matched: true, hashes: publicHashes };
     },
-    probeWebSocket,
+    probeWebSocket: () => probeWebSocket(origin),
   };
 }
 
@@ -214,8 +218,8 @@ function serializeError(error, fallbackClass, phase) {
   return error instanceof ReadbackError ? error : new ReadbackError(fallbackClass, phase, 'Readback phase failed', error);
 }
 
-export async function runReadback(expectedSha, operations, emit = console.log, clock = () => process.hrtime.bigint()) {
-  const evidence = { schemaVersion: 1, mode: 'read-only', origin, expectedSha, startedAt: new Date().toISOString(), status: 'running', phases: [] };
+export async function runReadback(expectedSha, operations, emit = console.log, clock = () => process.hrtime.bigint(), target = {}) {
+  const evidence = { schemaVersion: 1, mode: 'read-only', origin: target.origin ?? origin, environment: target.environment ?? 'legacy', expectedSha, startedAt: new Date().toISOString(), status: 'running', phases: [] };
   const started = clock();
   const phase = async (name, failureClass, operation) => {
     const phaseStarted = clock();
@@ -235,7 +239,7 @@ export async function runReadback(expectedSha, operations, emit = console.log, c
   };
   try {
     evidence.server = await phase('server-state', 'server-inspection', () => operations.inspectState(expectedSha));
-    await phase('validate-state', 'production-state', () => validateServerState(evidence.server, expectedSha));
+    await phase('validate-state', 'production-state', () => validateServerState(evidence.server, expectedSha, target.origin));
     evidence.health = await phase('https-health', 'public-health', () => operations.inspectHealth());
     const publicHashes = await phase('public-artifacts', 'public-artifact', () => operations.inspectPublicArtifacts());
     evidence.artifacts = await phase('container-artifacts', 'public-artifact', () => operations.inspectContainerArtifacts(publicHashes));
@@ -273,10 +277,11 @@ export function saveEvidence(evidence, directory = evidenceDirectory()) {
 }
 
 async function main() {
-  const sha = parseReadbackArgs(process.argv.slice(2));
+  const target = targetArguments(process.argv.slice(2));
+  const sha = parseReadbackArgs(target.args);
   const preflightStarted = process.hrtime.bigint();
   let config;
-  try { config = loadConfig(); }
+  try { config = loadConfig(target.environment); }
   catch (cause) {
     const durationMs = Number((process.hrtime.bigint() - preflightStarted) / 1_000_000n);
     console.log(`READBACK_TIMING phase=preflight result=failure class=configuration duration_ms=${durationMs}`);
@@ -285,7 +290,7 @@ async function main() {
   console.log(`READBACK_TIMING phase=preflight result=success duration_ms=${Number((process.hrtime.bigint() - preflightStarted) / 1_000_000n)}`);
   let evidence;
   try {
-    evidence = await runReadback(sha, defaultOperations(config));
+    evidence = await runReadback(sha, defaultOperations(config), console.log, () => process.hrtime.bigint(), { environment: target.environment, origin: publicOrigin(config) });
   } catch (error) {
     evidence = error.evidence ?? { schemaVersion: 1, mode: 'read-only', origin, expectedSha: sha, status: 'failure', failure: { classification: error.classification, phase: error.phase } };
     let evidenceFile = 'unavailable';
