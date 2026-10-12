@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Quiet Room · 当前代码移动审阅</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;height:100%;font:13px -apple-system,BlinkMacSystemFont,sans-serif;background:#e8eee7;color:#18231c}.review-head{padding:10px 12px;display:grid;gap:8px}.review-head div{display:flex;align-items:center;justify-content:space-between;gap:8px}.review-head a{color:#2d7553}.review-head label{display:flex;align-items:center;gap:8px}.review-head select{flex:1;min-width:0;height:36px;border:0;border-radius:8px;padding:0 10px;background:#fff;color:inherit;font:inherit}.review-head p{margin:0;font-size:11px;line-height:1.5;color:#52635a}body{display:flex;flex-direction:column}iframe{display:block;flex:1;width:100%;min-height:0;border:0;background:#fff}#review-status{font-size:11px}
+</style>
+<header class="review-head">
+<div><b>当前代码 · 合成数据</b><a href="./index.html">规范目标 ↗</a><a href="/">真实项目 ↗</a></div>
+<label>页面<select id="page" aria-label="实际代码页面"></select></label>
+<p>复用项目运行代码及完整样式。此入口只审阅界面；不验证真实身份、发送消息或修改正式产品。</p>
+<span id="review-status" role="status">正在载入…</span>
+</header>
+<iframe id="live-surface" title="当前代码实际渲染页面" sandbox="allow-scripts allow-same-origin"></iframe>
+<script type="module">
+const pages=[['chat','聊天'],['settings','设置'],['spaces','空间列表'],['appearance','外观'],['autoLock','自动锁定'],['profile','创建空间'],['create','访问密钥'],['recovery','恢复中心'],['joint','共同恢复'],['jointCode','恢复码面板'],['historyCode','历史恢复面板'],['backupExport','导出备份'],['backupImport','导入备份'],['backupPrivacy','备份隐私'],['passwordOperation','操作密码面板'],['passwordReturn','全屏密码验证'],['info','消息信息'],['menu','长按菜单'],['tools','聊天工具'],['coverConfirm','遮蔽确认'],['history','更新记录'],['help','帮助'],['practice','遮蔽练习'],['entrance','保存入口']];
+const select=document.querySelector('#page'),frame=document.querySelector('#live-surface'),status=document.querySelector('#review-status');
+for(const [id,label] of pages){const o=document.createElement('option');o.value=id;o.textContent=label;select.append(o)}
+select.value=new URLSearchParams(location.search).get('screen')||'chat';if(!select.value)select.value='chat';
+function render(){status.textContent='正在载入…';frame.src='./live-surface.html?screen='+encodeURIComponent(select.value);history.replaceState(null,'','?screen='+encodeURIComponent(select.value));}
+select.onchange=render;window.addEventListener('message',e=>{if(e.source!==frame.contentWindow||e.origin!==location.origin)return;if(e.data.type==='live-ready')status.textContent=`页面视口 ${e.data.width} × ${e.data.height} · DPR ${e.data.dpr} · ${e.data.touch?'触控设备参数':'桌面设备参数'}`;if(e.data.type==='live-error')status.textContent='样例未完成载入：'+e.data.message;});render();
+</script>
+</html>

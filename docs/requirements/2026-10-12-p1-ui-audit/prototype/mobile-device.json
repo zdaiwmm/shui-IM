@@ -1,0 +1,25 @@
+{
+  "label": "iPhone 13 viewport / iOS 18.5 UA / Chromium engine",
+  "origin": "http://127.0.0.1:5182",
+  "metrics": {
+    "width": 390,
+    "height": 844,
+    "deviceScaleFactor": 3,
+    "mobile": true,
+    "screenWidth": 390,
+    "screenHeight": 844,
+    "screenOrientation": {"type": "portraitPrimary", "angle": 0}
+  },
+  "touch": {"enabled": true, "maxTouchPoints": 5},
+  "userAgent": {
+    "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1",
+    "platform": "iPhone"
+  },
+  "verified": {"coarsePointer": true, "hover": false, "visualViewportScale": 1},
+  "limitations": [
+    "Chromium device emulation does not replace Safari/WebKit or native keyboard and browser chrome testing.",
+    "Codex in-app browser rejected Input.dispatchTouchEvent. Automated checks use semantic clicks; touch gestures remain unverified.",
+    "Mouse-to-touch conversion was disabled because it suppressed clicks in this in-app browser session. Device touch parameters remain enabled.",
+    "Authorization is specific to the named local origin in the 2026-10-12 conversation; this file does not grant permission in later tasks."
+  ]
+}
