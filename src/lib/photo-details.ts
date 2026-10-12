@@ -1,5 +1,4 @@
 import { afterMotion, motion } from './motion';
-import { createElement, X } from 'lucide';
 import type { ImageManifest } from './types';
 import { photoDetailGroups, type PhotoTags } from './photo-detail-model';
 import { readPhotoMetadata } from './photo-metadata';
@@ -23,12 +22,11 @@ export function mountPhotoDetails(viewer: HTMLElement, options: {
   panel.addEventListener('animationend', event => { if (event.animationName === 'photo-details-enter') panel.classList.remove('is-opening'); });
   panel.setAttribute('aria-label', '图片详情');
   panel.innerHTML = `<button class="photo-details-handle" type="button" aria-label="展开全屏图片详情" aria-expanded="false"></button>
-    <header><h2>图片详情</h2><button class="viewer-control" type="button" data-photo-details-close aria-label="收起图片详情" title="收起图片详情"></button></header>
+    <header><h2>图片详情</h2></header>
     <p class="photo-details-status" role="status">正在读取图片属性</p>
-    <div class="photo-details-content" tabindex="0" aria-label="图片属性"></div>`;
+    <div class="photo-details-content" tabindex="0" aria-label="图片属性"></div><button class="photo-details-footer" type="button" data-photo-details-close aria-label="收起图片详情">收起详情</button>`;
   const close = panel.querySelector<HTMLButtonElement>('[data-photo-details-close]')!;
   const expandButton = panel.querySelector<HTMLButtonElement>('.photo-details-handle')!;
-  close.append(createElement(X));
   close.addEventListener('click', options.close);
   panel.addEventListener('keydown', event => {
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); options.close(); }

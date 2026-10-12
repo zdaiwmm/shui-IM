@@ -63,7 +63,7 @@ export function attachCloudBackupSwitch(options: { root: HTMLElement; session: V
       <p class="form-error" role="alert"></p><button class="primary-button" data-enable type="button">了解并开启</button><button class="text-button" data-cancel type="button">暂不开启</button>
     </div>`;
     root.append(overlay);
-    const dialog = mountDialog(overlay, { signal, isActive: active, returnFocus: toggle, beforeClose: () => !saving });
+    const dialog = mountDialog(overlay, { signal, isActive: active, returnFocus: toggle, beforeClose: () => !saving, presentation: 'sheet' });
     overlay.querySelector('[data-cancel]')!.addEventListener('click', () => dialog.close());
     overlay.addEventListener('click', event => { if (event.target === overlay) dialog.close(); });
     const enable = overlay.querySelector<HTMLButtonElement>('[data-enable]')!;

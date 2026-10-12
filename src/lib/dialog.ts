@@ -7,6 +7,7 @@ type DialogOptions = {
   initialFocus?: HTMLElement | null;
   beforeClose?: () => boolean;
   onClose?: () => void;
+  presentation?: 'sheet';
 };
 
 type CloseOptions = { animate?: boolean; restoreFocus?: boolean };
@@ -25,6 +26,24 @@ export function closeDialog(sheet: HTMLElement, options?: CloseOptions): boolean
 }
 
 export function mountDialog(sheet: HTMLElement, options: DialogOptions) {
+  const sheetEvents = new AbortController();
+  if (options.presentation === 'sheet' && sheet.firstElementChild instanceof HTMLElement) {
+    sheet.dataset.presentation = 'sheet';
+    const panel = sheet.firstElementChild;
+    panel.dataset.sheetPanel = '';
+    const existing = panel.querySelector<HTMLElement>(':scope > .sheet-handle, :scope > .half-sheet-handle');
+    const handle = existing instanceof HTMLButtonElement ? existing : document.createElement('button');
+    handle.type = 'button';
+    handle.className = 'half-sheet-handle is-close-handle';
+    handle.setAttribute('aria-label', `收起${sheet.getAttribute('aria-label') ?? panel.querySelector('h2')?.textContent ?? '面板'}`);
+    handle.removeAttribute('aria-hidden');
+    handle.innerHTML = '<span></span>';
+    if (existing && existing !== handle) existing.replaceWith(handle);
+    else if (!existing) panel.prepend(handle);
+    // Security forms keep their existing close semantics. The named handle is
+    // an accessible button; only already-draggable sheets own drag gestures.
+    handle.addEventListener('click', () => close(), { signal: sheetEvents.signal });
+  }
   // Reopening a retiring shared surface transfers only presentation values,
   // never old content, callbacks or focus ownership.
   const kind = sheet.classList[0];
@@ -69,6 +88,7 @@ export function mountDialog(sheet: HTMLElement, options: DialogOptions) {
   const finish = (restoreFocus: boolean) => {
     if (finished) return;
     finished = true;
+    sheetEvents.abort();
     arrival.forEach(animation => animation.cancel());
     detachObserver?.disconnect();
     detachObserver = null;

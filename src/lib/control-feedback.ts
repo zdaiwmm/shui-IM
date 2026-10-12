@@ -5,6 +5,14 @@ export function bindControlFeedback(root: HTMLElement): () => void {
   root.dataset.controlFeedback = 'true';
   const events = new AbortController();
   const signal = events.signal;
+  // Text entry is not keyboard navigation. Touch and programmatic focus keep
+  // the quiet field surface; an external keyboard can still locate focus.
+  document.addEventListener('pointerdown', () => {
+    document.documentElement.dataset.inputModality = 'pointer';
+  }, { capture: true, signal });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Tab' || event.key.startsWith('Arrow')) document.documentElement.dataset.inputModality = 'keyboard';
+  }, { capture: true, signal });
   const activeEffects = new Set<Animation>();
   const track = (effect: Animation) => { activeEffects.add(effect); void effect.finished.then(() => activeEffects.delete(effect), () => activeEffects.delete(effect)); };
   const selector = '.icon-button,.send-button,.viewer-control,.voice-control,.voice-toggle,.call-control';

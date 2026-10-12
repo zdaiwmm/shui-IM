@@ -40,7 +40,7 @@ export function attachHistoryRestore(options: Options): () => void {
     sheet.className = 'recovery-code-sheet history-restore-sheet';
     sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true');
     sheet.setAttribute('aria-labelledby', titleId);
-    sheet.innerHTML = `<div class="recovery-code-panel history-restore-panel" tabindex="-1"><div class="history-restore-heading"><h2 id="${titleId}"></h2><button class="icon-button" type="button" data-close aria-label="关闭弹窗">×</button></div>${content}</div>`;
+    sheet.innerHTML = `<div class="recovery-code-panel history-restore-panel" tabindex="-1"><button class="half-sheet-handle" type="button" data-close aria-label="收起恢复面板"><span></span></button><div class="history-restore-heading"><h2 id="${titleId}"></h2></div>${content}</div>`;
     sheet.querySelector('h2')!.textContent = title;
     root.append(sheet);
     const viewport = window.visualViewport;
@@ -51,7 +51,7 @@ export function attachHistoryRestore(options: Options): () => void {
     };
     position(); viewport?.addEventListener('resize', position); viewport?.addEventListener('scroll', position);
     const focus = sheet.querySelector<HTMLElement>(initial ?? '.history-restore-panel')!;
-    const dialog = mountDialog(sheet, { signal, isActive: active, returnFocus: entry, initialFocus: focus,
+    const dialog = mountDialog(sheet, { signal, isActive: active, returnFocus: entry, initialFocus: focus, presentation: 'sheet',
       beforeClose: () => {
         if (progressSheet === sheet && (view?.phase !== 'complete' || Boolean(error)) && active()) { cancelProgress?.(); return false; }
         return !cancelling;
@@ -64,7 +64,6 @@ export function attachHistoryRestore(options: Options): () => void {
       } });
     // Safari needs focus inside the original trusted click, before the animation frame.
     focus.focus({ preventScroll: true });
-    sheet.querySelector('[data-close]')!.addEventListener('click', () => dialog.close());
     sheet.addEventListener('click', event => { if (event.target === sheet) dialog.close(); });
     disposeDialog = dialog.dispose;
     return { sheet, dialog };
@@ -194,7 +193,7 @@ export function attachHistoryRestore(options: Options): () => void {
     if (!active() || inputSheet?.isConnected) return;
     const { sheet, dialog } = mount('验证恢复码', `<form class="history-restore-form"><label for="history-restore-code">恢复码（多个旧码请分行）</label>
       <div class="history-restore-input"><textarea id="history-restore-code" name="code" rows="3" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="粘贴空间恢复码" required></textarea></div>
-      <button class="primary-button" type="submit" disabled>查找备份</button></form>`, 'textarea');
+      <p class="field-hint">只恢复你原本能阅读的内容。</p><button class="primary-button" type="submit" disabled>查找备份</button></form>`, 'textarea');
     inputSheet = sheet;
     const input = sheet.querySelector('textarea')!;
     const submit = sheet.querySelector<HTMLButtonElement>('[type="submit"]')!;

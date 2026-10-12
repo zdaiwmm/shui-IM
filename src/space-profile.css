@@ -15,8 +15,8 @@
 .space-profile-identity .text-button { margin:0; padding-inline:12px; }
 .space-profile-label { display:block; margin:0 12px 8px; color:var(--ink-muted); font-size:.8125rem; line-height:1.4; }
 #app #new-space-name { width:100%; min-height:48px; box-sizing:border-box; padding:12px; border:1px solid transparent; border-radius:12px; background:var(--surface-raised); color:var(--ink); font:inherit; font-size:1rem; line-height:1.375; outline:0; box-shadow:none; caret-color:var(--accent); transition:border-color 120ms ease-out; }
-#app #new-space-name:focus { border-color:var(--line-strong); outline:0; box-shadow:none; }
-#app #new-space-name[aria-invalid='true'] { border-color:var(--danger); }
+#app #new-space-name:focus { border-color:transparent; outline:0; box-shadow:none; }
+#app #new-space-name[aria-invalid='true'] { border-color:transparent; }
 .space-profile-content .field-hint { margin:8px 12px; color:var(--ink-muted); font-size:.75rem; line-height:1.6; }
 .space-profile-footer { box-sizing:border-box; width:min(100%,480px); margin-inline:auto; flex:none; padding:8px 20px max(12px,env(safe-area-inset-bottom)); background:var(--paper); }
 #app .space-profile-footer .primary-button { width:100%; min-height:44px; padding:10px 16px; border-radius:12px; font-size:.875rem; color:var(--action-ink); background:var(--action-surface); }
