@@ -2,12 +2,15 @@ import copy
 import datetime
 import io
 import json
+import os
 from pathlib import Path
 import runpy
+import subprocess
 import tarfile
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 
 
 class Boundaries(unittest.TestCase):
@@ -79,6 +82,45 @@ class Boundaries(unittest.TestCase):
         with self.assertRaises(self.module['StorageError']):
             self.module['filesystem_manifest'](data)
 
+    def stream_fixture(self, times):
+        reader, writer = os.pipe()
+        os.write(writer, b'fixture archive payload')
+        os.close(writer)
+        calls = []
+        class Process:
+            stdout = os.fdopen(reader, 'rb', buffering=0)
+            killed = False
+            finished = False
+            def wait(self, timeout=None):
+                calls.append(timeout)
+                if timeout is not None and timeout < 100 and not self.killed:
+                    raise subprocess.TimeoutExpired('fixture', timeout)
+                self.finished = True
+                return 0
+            def poll(self):
+                return 0 if self.finished else None
+            def kill(self):
+                self.killed = True
+        process = Process()
+        self.addCleanup(process.stdout.close)
+        self.g['subprocess'] = SimpleNamespace(Popen=lambda *args, **kwargs: process, TimeoutExpired=subprocess.TimeoutExpired,
+                                              PIPE=subprocess.PIPE, DEVNULL=subprocess.DEVNULL)
+        self.g['time'] = SimpleNamespace(monotonic=lambda: next(times))
+        return process, calls
+
+    def test_stream_completion_can_use_the_remaining_total_deadline(self):
+        process, calls = self.stream_fixture(iter([0, 0, 0, 1]))
+        self.module['stream_process'](['fixture'], self.base / 'image.gz', True, timeout=600)
+        self.assertEqual(calls, [599])
+        self.assertFalse(process.killed)
+
+    def test_stream_completion_does_not_extend_the_total_deadline(self):
+        process, calls = self.stream_fixture(iter([0, 0, 0, 599]))
+        with self.assertRaisesRegex(self.module['StorageError'], 'archive-stream-timeout'):
+            self.module['stream_process'](['fixture'], self.base / 'image.gz', True, timeout=600)
+        self.assertEqual(calls[0], 1)
+        self.assertTrue(process.killed)
+
     def test_database_probe_can_only_mount_disposable_restored_copy(self):
         restored = self.directory / 'restore-test'
         restored.mkdir(mode=0o700)
@@ -91,6 +133,22 @@ class Boundaries(unittest.TestCase):
         self.assertEqual(args[args.index('--cap-drop') + 1], 'ALL')
         self.assertEqual(args[args.index('--network') + 1], 'none')
         self.assertIn('--read-only', args)
+        # Execute the actual embedded checker against a fake filesystem with a
+        # real SQLite header and a corrupt quick_check result. A quoting/header
+        # regression must not silently skip database validation.
+        probe = r'''
+const vm=require('node:vm');let opened=0;
+const fs={readdirSync:()=>[{name:'fixture.sqlite',isDirectory:()=>false}],openSync:()=>1,
+  readSync:(_fd,b)=>Buffer.from('SQLite format 3'+String.fromCharCode(0)).copy(b),closeSync:()=>{}};
+class DatabaseSync{constructor(){opened++}prepare(sql){if(sql!=='PRAGMA quick_check')throw new Error('wrong check');return{all:()=>[{quick_check:'fixture-corruption'}]}}close(){}}
+let rejected=false;
+try{vm.runInNewContext(process.argv[1],{Buffer,require:n=>n==='node:fs'?fs:n==='node:sqlite'?{DatabaseSync}:require(n),process:{exit:c=>{throw new Error('EXIT_'+c)}}})}
+catch(e){if(e.message!=='EXIT_2')throw e;rejected=true}
+if(!rejected||opened!==1)process.exit(1);
+'''
+        result = subprocess.run(['node', '-e', probe, args[-1]], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                universal_newlines=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
         with self.assertRaisesRegex(self.module['StorageError'], 'database-probe-copy-only'):
             self.module['database_check'](self.engine, 'fixture-image')
         self.assertEqual(len(calls), 1)
