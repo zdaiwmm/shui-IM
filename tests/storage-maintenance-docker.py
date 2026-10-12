@@ -49,6 +49,21 @@ def fixture_command(args, timeout=30):
 
 g['command'] = fixture_command
 
+original_runtime_fields = module['runtime_fields']
+
+
+def diagnose_runtime_fields(current, config, host, before_start=False, oom_supported=True):
+    fields = original_runtime_fields(current, config, host, before_start, oom_supported)
+    if 'HostConfig.OomKillDisable' in fields:
+        values = {'expected': host.get('OomKillDisable'), 'actual': current['HostConfig'].get('OomKillDisable'),
+                  'beforeStart': before_start, 'running': current['State']['Running'], 'oomSupported': oom_supported}
+        assert all(value is None or isinstance(value, bool) for value in values.values())
+        print('STORAGE_CI_OOM_DEFAULT ' + json.dumps(values, sort_keys=True))
+    return fields
+
+
+g['runtime_fields'] = diagnose_runtime_fields
+
 
 def daemon(label, data_root, socket_path, start):
     if start:
