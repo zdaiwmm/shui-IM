@@ -38,9 +38,12 @@ g.update(ROOT=root, STATE=state, SESSIONS=sessions, ENGINE=engine, SOCKET=endpoi
          CONTAINERD_SOCKET=str(base / 'main.ctrd.sock'))
 processes = {}
 containerd_processes = {}
+offline_recovery = False
 
 
 def fixture_command(args, timeout=30):
+    if offline_recovery and Path(args[0]).name == 'docker' and 'pull' in args:
+        raise AssertionError('registry pull attempted during offline recovery')
     result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, timeout=timeout)
     if result.returncode:
         # CI-generated data only; production command diagnostics remain private.
@@ -130,6 +133,7 @@ def validation_daemon(directory, start):
     label = 'validation-' + directory.name[-12:]
     if start:
         area.mkdir(mode=0o700)
+        module['seed_reference_store'](area / 'docker', module['read_json'](directory / 'runtime.json'))
     return daemon(label, area / 'docker', socket_path, start)
 
 
@@ -223,6 +227,10 @@ try:
     module['wait_application']({'publicHost': 'ai.shui.click'})
     sleep(2)
     before = module['identity'](engine)
+    # Existing BusyBox registry digests must survive both transactions without
+    # registry access. The initial fixture pull is complete; recovery pulls fail.
+    assert any(item.get('RepoDigests') for item in snapshot['images'])
+    offline_recovery = True
     first = new_session()
     original_create = g['create_containers']
     def fail_after_volume_moves(*args, **kwargs):
