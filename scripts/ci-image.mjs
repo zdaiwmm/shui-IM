@@ -48,7 +48,7 @@ export function downloadCIImage(command, sha, directory, platform = 'linux/amd64
   const artifacts = pages.flatMap(page => page.artifacts).filter(item => item.name === name);
   if (artifacts.length !== 1 || artifacts[0].expired !== false || artifacts[0].workflow_run?.id !== run.id || artifacts[0].workflow_run?.head_sha !== sha) throw new Error('Exact CI image is missing or expired; rerun this exact commit CI');
   mkdirSync(directory, { mode: 0o700 });
-  command('gh', ['run', 'download', String(run.id), '--repo', repository, '--name', name, '--dir', directory], { timeout: 300000 });
+  command('gh', ['run', 'download', String(run.id), '--repo', repository, '--name', name, '--dir', directory], { timeout: 15 * 60 * 1000 });
   const image = validateImage(directory, sha, run, platform);
   const latest = verifySuccessfulCI(command, sha, { details: true });
   if (latest.id !== run.id || latest.run_attempt !== run.run_attempt) throw new Error('CI changed while downloading the image');
