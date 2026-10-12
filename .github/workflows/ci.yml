@@ -170,6 +170,17 @@ jobs:
             --label "org.opencontainers.image.revision=$GITHUB_SHA" --tag "$image" .
           docker run --rm --platform "$IMAGE_PLATFORM" "$image" node --input-type=module -e \
             'await import("./server/index.mjs"); await import("./server/backup.mjs"); const { DatabaseSync } = await import("node:sqlite"); const db = new DatabaseSync(":memory:"); db.close();'
+      - name: Verify Docker storage replacement and failure recovery
+        if: matrix.arch == 'amd64'
+        run: sudo env GITHUB_ACTIONS=true QUIET_ROOM_STORAGE_FIXTURE_IMAGE="quiet-room-app:$GITHUB_SHA" python3 tests/storage-maintenance-docker.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: failure() && matrix.arch == 'amd64'
+        with:
+          name: storage-maintenance-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .delivery-evidence/storage-ci/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 1
       - name: Export the exact main image
         if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
         env:

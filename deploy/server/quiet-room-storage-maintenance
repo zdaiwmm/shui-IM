@@ -1,0 +1,944 @@
+#!/usr/bin/env python3
+"""Explicitly approved Docker storage replacement; never a release hook/timer.
+
+Private runtime snapshots contain credentials and never leave the root-owned
+session directory. Public plans contain fingerprints, not runtime configuration.
+The original volume directories move atomically; no old database is restored.
+Legacy storage cannot be retired until an independent unchanged-version readback.
+"""
+import copy
+import fcntl
+import gzip
+import hashlib
+import http.client
+import json
+import os
+from pathlib import Path
+import re
+import selectors
+import shutil
+import socket
+import stat
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+import uuid
+from urllib.parse import quote
+
+ROOT = Path('/opt/quiet-room')
+STATE = Path('/var/lib/quiet-room-deploy')
+SESSIONS = STATE / 'storage-maintenance'
+ENGINE = Path('/var/lib/docker')
+SOCKET = '/var/run/docker.sock'
+LOCK = Path('/run/lock/quiet-room-deploy.lock')
+GIB = 1024 ** 3
+NAMES = ('quiet-room-quiet-room-1', 'quiet-room-quiet-room-backup-1', 'quiet-room-quiet-room-turn-1')
+SESSION = re.compile(r'\d{8}T\d{6}Z-[0-9a-f]{12}')
+SHA = re.compile(r'[0-9a-f]{40}')
+IMAGE = re.compile(r'sha256:[0-9a-f]{64}')
+SAFE_NAME = re.compile(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,255}')
+
+
+class StorageError(Exception):
+    pass
+
+
+def require(condition, code):
+    if not condition:
+        raise StorageError(code)
+
+
+def digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+
+
+def file_digest(path):
+    h = hashlib.sha256()
+    with Path(path).open('rb') as source:
+        for block in iter(lambda: source.read(1024 * 1024), b''):
+            h.update(block)
+    return h.hexdigest()
+
+
+def identity(path):
+    s = Path(path).lstat()
+    require(stat.S_ISDIR(s.st_mode) and not Path(path).is_symlink(), 'directory-identity')
+    return [s.st_dev, s.st_ino]
+
+
+def atomic_json(path, data):
+    path = Path(path)
+    temporary = path.with_name('.' + path.name + '.' + uuid.uuid4().hex)
+    with os.fdopen(os.open(str(temporary), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600), 'w') as output:
+        json.dump(data, output, sort_keys=True)
+        output.write('\n')
+        output.flush()
+        os.fsync(output.fileno())
+    os.replace(str(temporary), str(path))
+    descriptor = os.open(str(path.parent), os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def read_json(path):
+    path = Path(path)
+    s = path.lstat()
+    require(stat.S_ISREG(s.st_mode) and s.st_size <= 4 * 1024 * 1024, 'private-record-type')
+    return json.loads(path.read_text())
+
+
+def command(args, timeout=30):
+    result = subprocess.run(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            universal_newlines=True, timeout=timeout)
+    require(result.returncode == 0, 'command-failed-' + Path(args[0]).name)
+    return result.stdout.strip()
+
+
+def docker(args, endpoint=None, timeout=30):
+    endpoint = SOCKET if endpoint is None else endpoint
+    return command(['docker', '--host', 'unix://' + endpoint] + args, timeout)
+
+
+class UnixHTTP(http.client.HTTPConnection):
+    def __init__(self, endpoint):
+        http.client.HTTPConnection.__init__(self, 'localhost', timeout=60)
+        self.endpoint = endpoint
+
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        self.sock.connect(self.endpoint)
+
+
+def api(method, path, body=None, endpoint=None):
+    endpoint = SOCKET if endpoint is None else endpoint
+    connection = UnixHTTP(endpoint)
+    raw = None if body is None else json.dumps(body).encode()
+    try:
+        connection.request(method, '/v1.45' + path, raw, {'Content-Type': 'application/json'})
+        response = connection.getresponse()
+        data = response.read(4 * 1024 * 1024 + 1)
+        require(response.status in (200, 201, 204, 304) and len(data) <= 4 * 1024 * 1024, 'docker-api-response')
+        return json.loads(data.decode()) if data else None
+    finally:
+        connection.close()
+
+
+def available():
+    s = os.statvfs(str(ENGINE.parent))
+    return s.f_bavail * s.f_frsize
+
+
+def memory_available():
+    for line in Path('/proc/meminfo').read_text().splitlines():
+        if line.startswith('MemAvailable:'):
+            return int(line.split()[1]) * 1024
+    raise StorageError('memory-metrics')
+
+
+def references(images):
+    refs = []
+    for image in images:
+        require(IMAGE.fullmatch(image['Id']), 'image-identity')
+        names = (image.get('RepoTags') or []) + (image.get('RepoDigests') or [])
+        require(names and all('<none>' not in value for value in names), 'unclassified-image')
+        refs += [value + ' ' + image['Id'] for value in names]
+    return sorted(set(refs))
+
+
+def stable_network(network):
+    return {key: network.get(key) for key in ('Name', 'Driver', 'Scope', 'Internal', 'Attachable', 'EnableIPv6', 'IPAM', 'Options', 'Labels')}
+
+
+def inventory():
+    info = api('GET', '/info')
+    require(info['DockerRootDir'] == str(ENGINE) and info['Driver'] == 'overlay2', 'unsupported-engine-root')
+    require(info.get('Swarm', {}).get('LocalNodeState') == 'inactive', 'swarm-state')
+    require(not info.get('LiveRestoreEnabled'), 'live-restore-enabled')
+    current = (ROOT / 'deploy-state/current-sha').read_text().strip()
+    require(SHA.fullmatch(current), 'current-sha')
+    containers = api('GET', '/containers/json?all=true')
+    names = sorted(name.lstrip('/') for item in containers for name in item['Names'])
+    require(names == sorted(NAMES), 'unclassified-containers')
+    inspected = [api('GET', '/containers/' + quote(name, safe='') + '/json') for name in NAMES]
+    for item in inspected:
+        require(item['HostConfig'].get('ReadonlyRootfs') and item['State']['Running'], 'container-not-ready')
+        require(item['State'].get('Health', {}).get('Status', 'none') in ('healthy', 'none'), 'container-health')
+        for mount in item['Mounts']:
+            require(mount['Type'] in ('bind', 'volume'), 'unsupported-mount')
+            if mount['Type'] == 'bind':
+                require(not os.path.commonpath([str(ENGINE), os.path.realpath(mount['Source'])]) == str(ENGINE), 'bind-in-engine-root')
+    listed = api('GET', '/images/json?all=false')
+    images = [api('GET', '/images/' + item['Id'] + '/json') for item in listed]
+    refs = references(images)
+    require(any(value == 'quiet-room-app:' + current + ' ' + inspected[0]['Image'] for value in refs), 'current-image-reference')
+    volumes = api('GET', '/volumes').get('Volumes') or []
+    for volume in volumes:
+        require(SAFE_NAME.fullmatch(volume['Name']) and volume['Driver'] == 'local' and not volume.get('Options'), 'unsupported-volume')
+        require(volume['Mountpoint'] == str(ENGINE / 'volumes' / volume['Name'] / '_data'), 'volume-path')
+        require(str(Path(volume['Mountpoint']).resolve()) == volume['Mountpoint'], 'volume-path-symlink')
+        require(identity(volume['Mountpoint'])[0] == identity(ENGINE)[0], 'volume-device')
+    networks = [api('GET', '/networks/' + item['Id']) for item in api('GET', '/networks')]
+    require(all(item['Scope'] == 'local' and item['Driver'] in ('bridge', 'host', 'null') for item in networks), 'unsupported-network')
+    source = (ROOT / 'current').resolve()
+    require(source.is_dir() and source.parent == ROOT / 'git-releases', 'release-path')
+    public_host = 'ai.shui.click'
+    target = Path('/etc/quiet-room/deployment.json')
+    if target.exists():
+        public_host = read_json(target)['publicHost']
+    require(re.fullmatch(r'[A-Za-z0-9.-]+', public_host), 'public-host')
+    environment = dict(value.split('=', 1) for value in inspected[0]['Config'].get('Env') or [] if '=' in value)
+    admin_origin = environment.get('ADMIN_ORIGIN')
+    if admin_origin:
+        require(re.fullmatch(r'https://[A-Za-z0-9.-]+(?::[0-9]{1,5})?/?', admin_origin), 'admin-origin')
+        admin_origin = admin_origin.rstrip('/')
+    files = [ROOT / 'deploy-state/current-sha', ROOT / 'deploy-state/deployed-at']
+    files += sorted(path for path in (ROOT / 'shared').iterdir() if path.is_file() and not path.is_symlink())
+    if Path('/etc/docker/daemon.json').is_file():
+        files.append(Path('/etc/docker/daemon.json'))
+    for item in inspected:
+        for mount in item['Mounts']:
+            if mount['Type'] == 'bind' and not mount['RW']:
+                source_file = Path(mount['Source'])
+                if source_file.is_file():
+                    files.append(source_file)
+                elif source_file.is_dir():
+                    files += sorted(path for path in source_file.iterdir() if path.is_file())
+    private = {'containers': [{key: item[key] for key in ('Name', 'Id', 'Image', 'Config', 'HostConfig', 'Mounts', 'NetworkSettings')} for item in inspected],
+               'images': [{key: item[key] for key in ('Id', 'RepoTags', 'RepoDigests', 'Size')} for item in images],
+               'volumes': volumes,
+               'networks': [dict(stable_network(item), Id=item['Id']) for item in networks]}
+    # NetworkSettings outside Networks contains counters/health-related state
+    # that must neither invalidate a plan nor enter a restoration request.
+    for item in private['containers']:
+        item['NetworkSettings'] = {'Networks': item['NetworkSettings']['Networks']}
+    public = {'version': 1, 'hostIdentity': hashlib.sha256(Path('/etc/machine-id').read_bytes()).hexdigest(),
+              'currentSha': current, 'release': str(source), 'publicHost': public_host, 'adminOrigin': admin_origin,
+              'engineIdentity': identity(ENGINE), 'references': refs,
+              'containers': [{'name': item['Name'].lstrip('/'), 'id': item['Id'], 'imageId': item['Image'],
+                              'runtimeHash': digest({'config': item['Config'], 'hostConfig': item['HostConfig'], 'networks': item['NetworkSettings']['Networks']})} for item in inspected],
+              'volumes': sorted([{'name': item['Name'], 'identity': identity(item['Mountpoint']),
+                                  'metadataHash': digest(item)} for item in volumes], key=lambda item: item['name']),
+              'networks': sorted([{'name': item['Name'], 'id': item['Id'], 'metadataHash': digest(stable_network(item))} for item in networks], key=lambda item: item['name']),
+              'configurationHash': digest({str(path): file_digest(path) for path in files}),
+              'helperSha256': file_digest(Path(__file__)), 'runtimeSnapshotHash': digest(private)}
+    return public, private
+
+
+def session_path(name):
+    require(isinstance(name, str) and SESSION.fullmatch(name), 'session-name')
+    path = SESSIONS / name
+    require(path.parent == SESSIONS and identity(path)[0] == identity(ENGINE.parent)[0], 'session-path')
+    return path
+
+
+def checkpoint(directory, phase, **values):
+    path = directory / 'state.json'
+    state = read_json(path) if path.exists() else {}
+    state.update(values)
+    state.update(phase=phase, updatedAt=int(time.time()), availableBytes=available())
+    atomic_json(path, state)
+    return state
+
+
+def locked():
+    lock = LOCK.open('a')
+    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    return lock
+
+
+def stream_process(args, archive, saving, timeout=600):
+    # Never buffer an image archive in memory, and never leave a blocked pipe
+    # write without a deadline. Command diagnostics stay in a private temporary.
+    with tempfile.TemporaryFile() as errors:
+        process = subprocess.Popen(args, stdout=subprocess.PIPE if saving else subprocess.DEVNULL,
+                                   stdin=subprocess.DEVNULL if saving else subprocess.PIPE, stderr=errors)
+        pipe = process.stdout if saving else process.stdin
+        os.set_blocking(pipe.fileno(), False)
+        selector = selectors.DefaultSelector()
+        selector.register(pipe, selectors.EVENT_READ if saving else selectors.EVENT_WRITE)
+        deadline = time.monotonic() + timeout
+        try:
+            with gzip.open(str(archive), 'wb' if saving else 'rb', compresslevel=1) as data:
+                pending = b''
+                while True:
+                    require(time.monotonic() < deadline, 'archive-stream-timeout')
+                    if not selector.select(1):
+                        continue
+                    if saving:
+                        block = os.read(pipe.fileno(), 65536)
+                        if not block:
+                            break
+                        data.write(block)
+                    else:
+                        if not pending:
+                            pending = data.read(65536)
+                            if not pending:
+                                break
+                        written = os.write(pipe.fileno(), pending)
+                        pending = pending[written:]
+            pipe.close()
+            require(process.wait(timeout=30) == 0, 'archive-stream-command')
+        finally:
+            selector.close()
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+
+
+def archive_members(archive):
+    size = 0
+    with tarfile.open(str(archive), 'r|gz') as source:
+        for member in source:
+            parts = Path(member.name).parts
+            require(not member.name.startswith('/') and '..' not in parts and
+                    (member.isfile() or member.isdir()), 'unsafe-archive-member')
+            size += member.size
+    return size
+
+
+def filesystem_manifest(directory):
+    directory = Path(directory)
+    result = []
+    for parent, dirs, files in os.walk(str(directory), followlinks=False):
+        for name in sorted(dirs + files):
+            path = Path(parent) / name
+            s = path.lstat()
+            require(stat.S_ISDIR(s.st_mode) or stat.S_ISREG(s.st_mode), 'unsupported-volume-entry')
+            require(s.st_dev == identity(directory)[0], 'volume-submount')
+            record = {'path': str(path.relative_to(directory)), 'mode': stat.S_IMODE(s.st_mode),
+                      'uid': s.st_uid, 'gid': s.st_gid, 'directory': stat.S_ISDIR(s.st_mode)}
+            if stat.S_ISREG(s.st_mode):
+                record.update(size=s.st_size, sha256=file_digest(path))
+            result.append(record)
+    return sorted(result, key=lambda item: item['path'])
+
+
+def volume_bytes(directory):
+    total = 0
+    for parent, dirs, files in os.walk(str(directory), followlinks=False):
+        for name in dirs + files:
+            s = (Path(parent) / name).lstat()
+            require(stat.S_ISDIR(s.st_mode) or stat.S_ISREG(s.st_mode), 'unsupported-volume-entry')
+            total += s.st_size if stat.S_ISREG(s.st_mode) else 0
+    return total
+
+
+def create_payload(item, validation=False):
+    config = copy.deepcopy(item['Config'])
+    host = copy.deepcopy(item['HostConfig'])
+    declared = set(mount['Target'] for mount in host.get('Mounts') or [])
+    declared.update(bind.split(':')[1] for bind in host.get('Binds') or [])
+    require(all(mount['Destination'] in declared for mount in item['Mounts']), 'implicit-volume-not-preserved')
+    endpoints = {}
+    for name, settings in item['NetworkSettings']['Networks'].items():
+        endpoints[name] = {key: settings[key] for key in ('IPAMConfig', 'Links', 'Aliases', 'MacAddress', 'DriverOpts')
+                           if settings.get(key) is not None}
+    if validation:
+        # Validation containers are never started and cannot affect the live
+        # host network/ports. Their original runtime snapshots stay unchanged.
+        host.update(NetworkMode='none', PortBindings={})
+        endpoints = {}
+    config.update(HostConfig=host, NetworkingConfig={'EndpointsConfig': endpoints})
+    return config
+
+
+def recreate_networks(snapshot, endpoint=None):
+    for network in snapshot['networks']:
+        if network['Name'] in ('bridge', 'host', 'none'):
+            continue
+        settings = stable_network(network)
+        settings.pop('Scope', None)
+        settings['CheckDuplicate'] = True
+        options = dict(settings.get('Options') or {})
+        # Reuse the same host bridge device if it survived daemon shutdown.
+        # This avoids creating a second host route for the same subnet.
+        options.setdefault('com.docker.network.bridge.name', 'br-' + network['Id'][:12])
+        settings['Options'] = options
+        api('POST', '/networks/create', settings, endpoint)
+
+
+def create_volumes(snapshot, endpoint=None):
+    for volume in snapshot['volumes']:
+        api('POST', '/volumes/create', {'Name': volume['Name'], 'Driver': volume['Driver'],
+                                      'DriverOpts': volume.get('Options') or {}, 'Labels': volume.get('Labels') or {}}, endpoint)
+
+
+def create_containers(snapshot, endpoint=None, validation=False):
+    for item in snapshot['containers']:
+        payload = create_payload(item, validation)
+        api('POST', '/containers/create?name=' + quote(item['Name'].lstrip('/'), safe=''),
+            payload, endpoint)
+        current = api('GET', '/containers/' + item['Name'].lstrip('/') + '/json', endpoint=endpoint)
+        require(current['Config'] == item['Config'] and current['HostConfig'] == payload['HostConfig'], 'recreated-runtime-config')
+
+
+def image_check(snapshot, expected, endpoint=None, pull=False):
+    for image in snapshot['images']:
+        loaded = api('GET', '/images/' + image['Id'] + '/json', endpoint=endpoint)
+        require(loaded['Id'] == image['Id'], 'restored-image-id')
+        for name in image.get('RepoTags') or []:
+            require(api('GET', '/images/' + quote(name, safe='') + '/json', endpoint=endpoint)['Id'] == image['Id'], 'restored-tag')
+        for name in image.get('RepoDigests') or []:
+            if pull:
+                docker(['pull', name], endpoint, timeout=180)
+            require(api('GET', '/images/' + quote(name, safe='') + '/json', endpoint=endpoint)['Id'] == image['Id'], 'restored-registry-digest')
+    images = [api('GET', '/images/' + item['Id'] + '/json', endpoint=endpoint)
+              for item in api('GET', '/images/json?all=false', endpoint=endpoint)]
+    require(references(images) == expected, 'protected-image-references')
+
+
+def database_check(directory, image, endpoint=None):
+    # Check SQLite state from both the application and TURN, with the original
+    # image's SQLite version. Never print file names or data from these volumes.
+    script = "const fs=require('node:fs'),path=require('node:path'),{DatabaseSync}=require('node:sqlite');function walk(p){for(const e of fs.readdirSync(p,{withFileTypes:true})){const f=path.join(p,e.name);if(e.isDirectory())walk(f);else{const fd=fs.openSync(f,'r'),b=Buffer.alloc(16);fs.readSync(fd,b,0,16,0);fs.closeSync(fd);if(b.toString()==='SQLite format 3\\0'){const d=new DatabaseSync(f,{readOnly:true});if(d.prepare('PRAGMA quick_check').all().some(r=>Object.values(r)[0]!=='ok'))process.exit(2);d.close()}}}}walk('/restore')"
+    docker(['run', '--rm', '--network', 'none', '--read-only', '--memory', '256m', '--cap-drop', 'ALL',
+            '--security-opt', 'no-new-privileges:true', '--user', '0', '--tmpfs', '/tmp:rw,noexec,nosuid,size=16m',
+            '--volume', str(directory) + ':/restore:ro', '--entrypoint', 'node', image, '-e', script], endpoint, timeout=60)
+
+
+def validation_daemon(directory, start):
+    unit = 'quiet-room-storage-validation-' + directory.name[-12:]
+    area = directory / 'validation'
+    endpoint = str(area / 'docker.sock')
+    if start:
+        area.mkdir(mode=0o700)
+        atomic_json(area / 'daemon.json', {})
+        command(['systemd-run', '--quiet', '--unit', unit, '--property=MemoryLimit=700M',
+                 '--property=CPUQuota=50%', '--property=Nice=10', '--property=IOSchedulingClass=idle',
+                 '--property=TimeoutStopSec=30s', '--property=KillMode=control-group',
+                 '/usr/bin/dockerd', '--config-file', str(area / 'daemon.json'),
+                 '--host', 'unix://' + endpoint, '--data-root', str(area / 'docker'),
+                 '--exec-root', str(area / 'exec'), '--pidfile', str(area / 'docker.pid'),
+                 '--storage-driver', 'overlay2', '--iptables=false', '--ip-forward=false', '--ip-masq=false', '--bridge=none'])
+        for _ in range(90):
+            try:
+                info = api('GET', '/info', endpoint=endpoint)
+                require(info['DockerRootDir'] == str(area / 'docker'), 'validation-root')
+                return endpoint
+            except (OSError, http.client.HTTPException):
+                time.sleep(1)
+        raise StorageError('validation-daemon-start')
+    command(['systemctl', 'stop', unit], timeout=45)
+    require(command(['systemctl', 'show', unit, '--property=ActiveState', '--value']) in ('inactive', 'failed'), 'validation-daemon-stop')
+    return endpoint
+
+
+def remove_disposable(path):
+    # Only our disposable validation/restore copies, never a source volume or
+    # Docker's active root. The session parent remains private and root-owned.
+    path = Path(path)
+    require(path.parent.parent == SESSIONS and path.name in ('validation', 'restore-test'), 'disposable-path')
+    device = identity(path)[0]
+    for parent, dirs, files in os.walk(str(path), topdown=False, followlinks=False):
+        for name in files + dirs:
+            item = Path(parent) / name
+            s = item.lstat()
+            require(s.st_dev == device, 'disposable-submount')
+            if stat.S_ISDIR(s.st_mode):
+                item.rmdir()
+            else:
+                item.unlink()
+            time.sleep(0.002)
+    path.rmdir()
+
+
+def public_health(plan):
+    raw = command(['curl', '--fail', '--silent', '--show-error', '--connect-timeout', '3', '--max-time', '8',
+                   'https://' + plan['publicHost'] + '/api/health'], timeout=10)
+    data = json.loads(raw)
+    require(all(data.get(key) is True for key in ('ok', 'database', 'storage')), 'public-health')
+
+
+def traffic_gate(plan):
+    routes = ['https://' + plan['publicHost'] + path for path in ('/api/rooms', '/api/rooms/__deployment_probe__', '/ws')]
+    if plan.get('adminOrigin'):
+        routes.append(plan['adminOrigin'] + '/admin-api/rooms')
+    for route in routes:
+        status = command(['curl', '--silent', '--show-error', '--connect-timeout', '3', '--max-time', '8',
+                          '--output', '/dev/null', '--write-out', '%{http_code}', route], timeout=10)
+        require(status == '503', 'traffic-gate')
+
+
+def wait_application(plan):
+    for _ in range(90):
+        item = api('GET', '/containers/' + NAMES[0] + '/json')
+        if item['State']['Running'] and item['State'].get('Health', {}).get('Status') == 'healthy':
+            public_health(plan)
+            return
+        time.sleep(1)
+    raise StorageError('application-health')
+
+
+def local_websocket(plan):
+    script = "const W=require('ws');let ok=false;const w=new W('ws://127.0.0.1:8080/ws',{headers:{Origin:'https://" + plan['publicHost'] + "',Host:'" + plan['publicHost'] + "'}});const t=setTimeout(()=>process.exit(2),5000);w.on('open',()=>{ok=true;w.close()});w.on('close',()=>{clearTimeout(t);process.exit(ok?0:3)});w.on('error',()=>process.exit(1))"
+    docker(['exec', NAMES[0], 'node', '-e', script], timeout=10)
+
+
+def verify_restore(archive, directory, image, endpoint, expected=None):
+    archive_members(archive)
+    require(not directory.exists(), 'restore-directory-exists')
+    directory.mkdir(mode=0o700)
+    command(['tar', '--extract', '--gzip', '--numeric-owner', '--same-permissions',
+             '--file', str(archive), '--directory', str(directory)], timeout=600)
+    if expected is not None:
+        require(filesystem_manifest(directory) == expected, 'restored-volume-content')
+    database_check(directory, image, endpoint)
+    remove_disposable(directory)
+
+
+def prepare_worker(directory):
+    plan = read_json(directory / 'target.json')
+    snapshot = read_json(directory / 'runtime.json')
+    require(read_json(directory / 'state.json')['phase'] == 'PREPARE_AUTHORIZED', 'prepare-stage')
+    require(digest(snapshot) == plan['runtimeSnapshotHash'], 'private-snapshot-drift')
+    require(inventory()[0] == plan, 'prepare-target-drift')
+    require(not (STATE / 'maintenance').exists() and available() >= 2 * GIB and memory_available() >= 900 * 1024 ** 2,
+            'prepare-headroom')
+    public_health(plan)
+    checkpoint(directory, 'EXPORTING_IMAGES')
+    archive = directory / 'images.tar.gz'
+    names = sorted(set(name for item in snapshot['images'] for name in item.get('RepoTags') or []) |
+                   set(item['Id'] for item in snapshot['images'] if not item.get('RepoTags')))
+    stream_process(['docker', '--host', 'unix://' + SOCKET, 'image', 'save'] + names, archive, True)
+    archive.chmod(0o600)
+    expanded = archive_members(archive)
+    archives = sorted((ROOT / 'backups/predeploy').glob('data-*-'+plan['currentSha'][:12]+'.tar.gz'))
+    require(archives, 'existing-cold-backup-missing')
+    cold = archives[-1]
+    restored_bytes = archive_members(cold)
+    live_bytes = sum(volume_bytes(item['Mountpoint']) for item in snapshot['volumes'])
+    require(available() >= max(int(expanded * 1.25), restored_bytes) + GIB, 'validation-disk-headroom')
+    require(available() >= int(expanded * 1.25) + live_bytes + GIB, 'offline-replacement-headroom')
+    checkpoint(directory, 'VALIDATING_RECOVERY')
+    # Restore data and images sequentially to keep temporary disk use bounded.
+    # This probe mounts only the disposable copy, never the running live volume.
+    verify_restore(cold, directory / 'restore-test', snapshot['containers'][0]['Image'], SOCKET)
+    endpoint = None
+    try:
+        endpoint = validation_daemon(directory, True)
+        stream_process(['docker', '--host', 'unix://' + endpoint, 'image', 'load'], archive, False)
+        image_check(snapshot, plan['references'], endpoint, pull=True)
+        create_volumes(snapshot, endpoint)
+        create_containers(snapshot, endpoint, validation=True)
+    finally:
+        if (directory / 'validation').exists():
+            validation_daemon(directory, False)
+            remove_disposable(directory / 'validation')
+    require(inventory()[0] == plan, 'prepared-target-drift')
+    public_health(plan)
+    plan = dict(plan, session=directory.name, checkedAt=int(time.time()), archiveSha256=file_digest(archive),
+                archiveBytes=archive.stat().st_size, expandedImageBytes=expanded,
+                recoveryVerified=True, existingColdBackupSha256=file_digest(cold))
+    atomic_json(directory / 'plan.json', plan)
+    checkpoint(directory, 'PREPARED', planSha256=file_digest(directory / 'plan.json'))
+
+
+def launch_worker(directory, operation):
+    require(operation in ('prepare', 'apply', 'retire'), 'worker-operation')
+    unit = 'quiet-room-storage-' + operation + '-' + directory.name[-12:] + '-' + uuid.uuid4().hex[:4]
+    command(['systemd-run', '--quiet', '--unit', unit,
+             '--property=MemoryLimit=' + ('128M' if operation == 'retire' else '256M'),
+             '--property=CPUQuota=' + ('10%' if operation == 'retire' else '50%'),
+             '--property=Nice=' + ('19' if operation == 'retire' else '10'), '--property=IOSchedulingClass=idle',
+             '--property=KillMode=control-group', str(Path(__file__).resolve()), 'worker', operation, directory.name])
+    return unit
+
+
+def engine_control(start):
+    command(['systemctl', 'start' if start else 'stop', 'docker.service', 'docker.socket'], timeout=90)
+    if start:
+        for _ in range(90):
+            try:
+                require(api('GET', '/info')['DockerRootDir'] == str(ENGINE), 'new-engine-root')
+                return
+            except (OSError, http.client.HTTPException):
+                time.sleep(1)
+        raise StorageError('engine-start-timeout')
+    require(command(['systemctl', 'show', 'docker', '--property=ActiveState', '--value']) in ('inactive', 'failed'), 'engine-not-stopped')
+
+
+def engine_unmounted(path):
+    prefix = str(path) + '/'
+    for line in Path('/proc/self/mountinfo').read_text().splitlines():
+        mounted = line.split()[4].replace('\\040', ' ').replace('\\134', '\\')
+        require(not (mounted == str(path) or mounted.startswith(prefix)), 'engine-submount-remains')
+
+
+def engine_files_closed(path):
+    prefix = str(path) + '/'
+    for process in Path('/proc').iterdir():
+        if not process.name.isdigit():
+            continue
+        try:
+            descriptors = list((process / 'fd').iterdir())
+        except OSError:
+            continue
+        for descriptor in descriptors:
+            try:
+                target = os.readlink(str(descriptor))
+            except OSError:
+                continue
+            require(not target.startswith(prefix), 'engine-file-still-open')
+
+
+def unchanged_configuration(plan):
+    require((ROOT / 'deploy-state/current-sha').read_text().strip() == plan['currentSha'] and
+            str((ROOT / 'current').resolve()) == plan['release'], 'application-version-drift')
+
+
+def cold_backups(directory, plan, snapshot):
+    checkpoint(directory, 'VERIFYING_FRESH_COLD_DATA')
+    backup_manifest = {}
+    for volume in snapshot['volumes']:
+        source = Path(volume['Mountpoint'])
+        require(not api('GET', '/containers/json?filters=' + quote(json.dumps({'volume': [volume['Name']]}), safe='')), 'volume-still-in-use')
+        expected = filesystem_manifest(source)
+        total = sum(item.get('size', 0) for item in expected)
+        require(available() >= 2 * total + GIB, 'fresh-backup-headroom')
+        if volume['Name'] == 'quiet-room_quiet-room-data':
+            archive = ROOT / 'backups/predeploy' / ('data-' + directory.name[:16] + '-' + plan['currentSha'][:12] + '.tar.gz')
+        else:
+            archive = directory / ('volume-' + volume['Name'] + '.tar.gz')
+        require(not archive.exists() and not archive.is_symlink(), 'cold-archive-exists')
+        pending = directory / ('cold-' + volume['Name'] + '.partial.tar.gz')
+        require(not pending.exists(), 'partial-archive-exists')
+        command(['tar', '--create', '--gzip', '--numeric-owner', '--file', str(pending), '--directory', str(source), '.'], timeout=600)
+        pending.chmod(0o600)
+        with pending.open('rb') as persisted:
+            os.fsync(persisted.fileno())
+        # Use the original engine/image while all source containers are stopped.
+        # These validation containers mount only our disposable restored copy.
+        verify_restore(pending, directory / 'restore-test', snapshot['containers'][0]['Image'], SOCKET, expected)
+        require(filesystem_manifest(source) == expected, 'source-changed-during-backup')
+        os.rename(str(pending), str(archive))
+        backup_manifest[volume['Name']] = {'archive': str(archive), 'sha256': file_digest(archive),
+                                         'directoryIdentity': identity(source), 'files': expected}
+    atomic_json(directory / 'cold-data.json', backup_manifest)
+    checkpoint(directory, 'FRESH_COLD_DATA_VERIFIED', coldBackupCount=len(backup_manifest))
+
+
+def move_volumes(directory, snapshot, forward):
+    old = ENGINE.with_name('docker-retired-' + directory.name)
+    for volume in snapshot['volumes']:
+        relative = Path('volumes') / volume['Name'] / '_data'
+        source, target = ((old / relative, ENGINE / relative) if forward else (ENGINE / relative, old / relative))
+        expected = next(item['identity'] for item in read_json(directory / 'target.json')['volumes'] if item['name'] == volume['Name'])
+        # Reconcile a process interruption by directory identity. There is
+        # exactly one original live directory, never a fallback database copy.
+        if target.exists() and identity(target) == expected:
+            require(not source.exists() or identity(source) != expected, 'duplicate-volume-identity')
+            continue
+        require(source.exists() and identity(source) == expected, 'original-volume-missing')
+        if target.exists():
+            require(identity(target)[0] == expected[0] and not any(target.iterdir()), 'nonempty-volume-target')
+            target.rmdir()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.rename(str(source), str(target))
+        require(identity(target) == expected, 'volume-move-identity')
+        checkpoint(directory, 'MOVING_VOLUMES' if forward else 'ROLLING_BACK_VOLUMES', lastMovedVolume=volume['Name'])
+
+
+def restored_state(directory, plan, snapshot, health=True):
+    unchanged_configuration(plan)
+    image_check(snapshot, plan['references'])
+    for volume in plan['volumes']:
+        require(identity(ENGINE / 'volumes' / volume['name'] / '_data') == volume['identity'], 'restored-volume-identity')
+    for item in snapshot['containers']:
+        current = api('GET', '/containers/' + item['Name'].lstrip('/') + '/json')
+        require(current['Image'] == item['Image'] and current['Config'] == item['Config'] and
+                current['HostConfig'] == item['HostConfig'], 'restored-runtime-drift')
+        mounts = lambda container: sorted((mount['Type'], mount.get('Name', ''), mount['Source'], mount['Destination'], mount['RW']) for mount in container['Mounts'])
+        require(mounts(current) == mounts(item), 'restored-mount-drift')
+        if health:
+            require(current['State']['Running'], 'restored-container-stopped')
+
+
+def rollback_before_open(directory, plan, snapshot):
+    state = read_json(directory / 'state.json')
+    require(not state.get('openedAt'), 'post-open-data-rollback-forbidden')
+    old = ENGINE.with_name('docker-retired-' + directory.name)
+    if old.exists():
+        # Terminate the replacement daemon before moving any directory back.
+        # Never infer that an API/client timeout ended daemon work.
+        engine_control(False)
+        engine_unmounted(ENGINE)
+        engine_files_closed(ENGINE)
+        move_volumes(directory, snapshot, False)
+        require(identity(old) == plan['engineIdentity'], 'rollback-root-identity')
+        failed = ENGINE.with_name('docker-failed-' + directory.name)
+        if ENGINE.exists():
+            require(not failed.exists(), 'failed-root-exists')
+            checkpoint(directory, 'ROLLING_BACK_ENGINE', failedEngineIdentity=identity(ENGINE))
+            os.rename(str(ENGINE), str(failed))
+        elif failed.exists():
+            state = read_json(directory / 'state.json')
+            require(identity(failed) == state.get('failedEngineIdentity', state.get('newEngineIdentity')), 'failed-root-identity')
+        os.rename(str(old), str(ENGINE))
+        engine_control(True)
+    else:
+        # The daemon may have stopped before the first root rename.
+        engine_control(True)
+    docker(['start'] + list(NAMES), timeout=90)
+    wait_application(plan)
+    local_websocket(plan)
+    require((STATE / 'maintenance').read_text() == 'storage-maintenance:' + directory.name + '\n', 'rollback-gate-drift')
+    (STATE / 'maintenance').unlink()
+    checkpoint(directory, 'ROLLED_BACK_ORIGINAL_STORAGE', recoveredOriginal=True, automaticRetry=False)
+
+
+def apply_worker(directory):
+    plan = read_json(directory / 'plan.json')
+    snapshot = read_json(directory / 'runtime.json')
+    target = read_json(directory / 'target.json')
+    state = read_json(directory / 'state.json')
+    require(state['phase'] == 'APPLY_AUTHORIZED' and state.get('authorizedPlanHash') == file_digest(directory / 'plan.json'), 'apply-not-authorized')
+    require(digest(snapshot) == target['runtimeSnapshotHash'], 'private-snapshot-drift')
+    require(0 <= time.time() - plan['checkedAt'] <= 900 and plan.get('recoveryVerified') is True, 'apply-plan-expired')
+    require(inventory()[0] == target, 'apply-target-drift')
+    require(file_digest(directory / 'images.tar.gz') == plan['archiveSha256'], 'prepared-image-checksum')
+    gate = STATE / 'maintenance'
+    require(not gate.exists() and not gate.is_symlink(), 'existing-maintenance-gate')
+    require(memory_available() >= 400 * 1024 ** 2, 'apply-memory-headroom')
+    public_health(plan)
+    with gate.open('x') as marker:
+        marker.write('storage-maintenance:' + directory.name + '\n')
+        marker.flush()
+        os.fsync(marker.fileno())
+    gate.chmod(0o644)
+    checkpoint(directory, 'TRAFFIC_GATED', gateIdentity=[gate.stat().st_dev, gate.stat().st_ino])
+    try:
+        traffic_gate(plan)
+        public_health(plan)
+        docker(['stop'] + list(NAMES), timeout=120)
+        require(not api('GET', '/containers/json'), 'containers-still-running')
+        require(memory_available() >= 1200 * 1024 ** 2, 'stopped-memory-headroom')
+        cold_backups(directory, plan, snapshot)
+        require(available() >= int(plan['expandedImageBytes'] * 1.25) + GIB, 'new-engine-headroom')
+        checkpoint(directory, 'STOPPING_ENGINE')
+        engine_control(False)
+        engine_unmounted(ENGINE)
+        engine_files_closed(ENGINE)
+        old = ENGINE.with_name('docker-retired-' + directory.name)
+        require(not old.exists() and identity(ENGINE) == plan['engineIdentity'], 'old-root-drift')
+        os.rename(str(ENGINE), str(old))
+        checkpoint(directory, 'OLD_STORAGE_RETAINED', oldRoot=str(old))
+        ENGINE.mkdir(mode=0o710)
+        checkpoint(directory, 'STARTING_NEW_ENGINE', newEngineIdentity=identity(ENGINE))
+        engine_control(True)
+        require(not api('GET', '/containers/json?all=true') and not api('GET', '/images/json?all=false'), 'new-engine-not-empty')
+        checkpoint(directory, 'RESTORING_IMAGES', newEngineIdentity=identity(ENGINE))
+        stream_process(['docker', '--host', 'unix://' + SOCKET, 'image', 'load'], directory / 'images.tar.gz', False)
+        image_check(snapshot, plan['references'], pull=True)
+        recreate_networks(snapshot)
+        create_volumes(snapshot)
+        move_volumes(directory, snapshot, True)
+        # Compare every byte of the relocated directories with the newly
+        # verified cold snapshot before any process can write to them again.
+        manifests = read_json(directory / 'cold-data.json')
+        for volume in snapshot['volumes']:
+            require(filesystem_manifest(volume['Mountpoint']) == manifests[volume['Name']]['files'], 'moved-volume-content')
+        create_containers(snapshot)
+        restored_state(directory, plan, snapshot, health=False)
+        checkpoint(directory, 'STARTING_ORIGINAL_VERSION')
+        docker(['start'] + list(NAMES), timeout=90)
+        wait_application(plan)
+        local_websocket(plan)
+        traffic_gate(plan)
+        restored_state(directory, plan, snapshot)
+        state = read_json(directory / 'state.json')
+        require([gate.stat().st_dev, gate.stat().st_ino] == state['gateIdentity'] and
+                gate.read_text() == 'storage-maintenance:' + directory.name + '\n', 'gate-drift')
+        # Persist the no-data-rollback boundary BEFORE opening public traffic.
+        checkpoint(directory, 'OPENING_TRAFFIC', openedAt=int(time.time()))
+        gate.unlink()
+        checkpoint(directory, 'READBACK_REQUIRED', originalVersion=plan['currentSha'])
+    except BaseException:
+        if not read_json(directory / 'state.json').get('openedAt'):
+            rollback_before_open(directory, plan, snapshot)
+        raise
+
+
+def validate_readback(directory, receipt):
+    plan = read_json(directory / 'plan.json')
+    state = read_json(directory / 'state.json')
+    resumable = state['phase'] == 'BLOCKED' and state.get('failedPhase') in ('RETIRING_VERIFIED_LEGACY_STORAGE', 'LEGACY_STORAGE_REMOVED')
+    require(state.get('openedAt') and (state['phase'] == 'READBACK_REQUIRED' or resumable), 'readback-stage')
+    require(receipt.get('status') == 'success' and receipt.get('mode') == 'read-only' and
+            receipt.get('expectedSha') == plan['currentSha'], 'independent-readback-status')
+    server = receipt.get('server', {})
+    require(server.get('currentSha') == plan['currentSha'] and server.get('release') == plan['release'] and
+            server.get('maintenance') == 'absent' and server.get('appHealth') == 'healthy' and
+            server.get('backupHealth') in ('healthy', 'none') and server.get('turnRunning') == 'true', 'independent-readback-state')
+    require(server.get('appImageId') == plan['containers'][0]['imageId'] and
+            server.get('backupImageId') == plan['containers'][1]['imageId'], 'independent-readback-images')
+    require(receipt.get('websocket', {}).get('connected') is True, 'independent-readback-websocket')
+    phases = receipt.get('phases', [])
+    required = {'server-state', 'validate-state', 'https-health', 'public-artifacts', 'container-artifacts', 'public-websocket'}
+    require({item.get('name') for item in phases if item.get('result') == 'success'} >= required and
+            all(item.get('result') == 'success' for item in phases), 'independent-readback-phases')
+    import datetime
+    checked = datetime.datetime.strptime(receipt['finishedAt'], '%Y-%m-%dT%H:%M:%S.%fZ').replace(tzinfo=datetime.timezone.utc).timestamp()
+    require(state['openedAt'] <= checked <= time.time() and time.time() - checked <= 900, 'independent-readback-time')
+    require(receipt.get('origin') == 'https://' + plan['publicHost'], 'independent-readback-target')
+
+
+def retirement_checks(directory, plan, snapshot):
+    state = read_json(directory / 'state.json')
+    old = ENGINE.with_name('docker-retired-' + directory.name)
+    require(identity(ENGINE) == state['newEngineIdentity'], 'retirement-active-root-identity')
+    if old.exists():
+        require(identity(old) == plan['engineIdentity'], 'retirement-root-identity')
+    else:
+        require(state.get('entriesRemoved', 0) > 0, 'legacy-root-missing-before-retirement')
+    require(digest(snapshot) == plan['runtimeSnapshotHash'] and file_digest(Path(__file__)) == plan['helperSha256'], 'retirement-source-drift')
+    require(not (STATE / 'maintenance').exists(), 'retirement-maintenance-gate')
+    restored_state(directory, plan, snapshot)
+    for item in plan['volumes']:
+        require(not (old / 'volumes' / item['name'] / '_data').exists(), 'legacy-root-still-has-data')
+    for item in api('GET', '/containers/json?all=true'):
+        container = api('GET', '/containers/' + item['Id'] + '/json')
+        require(not any(mount['Source'] == str(old) or mount['Source'].startswith(str(old) + '/') for mount in container['Mounts']), 'legacy-root-still-mounted')
+    if old.exists():
+        engine_unmounted(old)
+    public_health(plan)
+    return old
+
+
+def retire_worker(directory):
+    plan = read_json(directory / 'plan.json')
+    snapshot = read_json(directory / 'runtime.json')
+    state = read_json(directory / 'state.json')
+    require(state['phase'] == 'RETIRE_AUTHORIZED' and state.get('readbackSha256') == file_digest(directory / 'readback.json'), 'retirement-not-authorized')
+    old = ENGINE.with_name('docker-retired-' + directory.name)
+    if old.exists():
+        retirement_checks(directory, plan, snapshot)
+    else:
+        require(state.get('entriesRemoved', 0) > 0, 'legacy-root-missing-before-retirement')
+        restored_state(directory, plan, snapshot)
+    removed = state.get('entriesRemoved', 0)
+    checkpoint(directory, 'RETIRING_VERIFIED_LEGACY_STORAGE', entriesRemoved=removed)
+    pace = 500
+    for parent, dirs, files in os.walk(str(old), topdown=False, followlinks=False):
+        for name in files + dirs:
+            item = Path(parent) / name
+            s = item.lstat()
+            require(s.st_dev == plan['engineIdentity'][0], 'legacy-storage-submount')
+            if stat.S_ISDIR(s.st_mode):
+                item.rmdir()
+            else:
+                item.unlink()
+            removed += 1
+            time.sleep(1.0 / pace)
+            if removed % 1000 == 0:
+                require(identity(old) == plan['engineIdentity'], 'retirement-path-replaced')
+                unchanged_configuration(plan)
+                started = time.monotonic()
+                public_health(plan)
+                elapsed = time.monotonic() - started
+                if memory_available() < 600 * 1024 ** 2 or elapsed > 1:
+                    pace = 100
+                    time.sleep(2)
+                elif elapsed < 0.3 and memory_available() > 800 * 1024 ** 2:
+                    pace = min(2000, int(pace * 1.2))
+                checkpoint(directory, 'RETIRING_VERIFIED_LEGACY_STORAGE', entriesRemoved=removed, entriesPerSecondLimit=pace)
+    if old.exists():
+        old.rmdir()
+    restored_state(directory, plan, snapshot)
+    public_health(plan)
+    checkpoint(directory, 'LEGACY_STORAGE_REMOVED', entriesRemoved=removed)
+    # The relocated originals and protected runtime images are now independently
+    # verified. Remove only our duplicate image export. Keep the private root-only
+    # runtime snapshot for recovery/audit; never copy it into local/source logs.
+    if (directory / 'images.tar.gz').exists():
+        (directory / 'images.tar.gz').unlink()
+    checkpoint(directory, 'STORAGE_MAINTENANCE_OK', entriesRemoved=removed, originalVersion=plan['currentSha'])
+
+
+def main():
+    require(os.geteuid() == 0 and sys.platform.startswith('linux'), 'root-linux-required')
+    os.umask(0o077)
+    args = sys.argv[1:]
+    if args == ['prepare']:
+        with locked():
+            require(not (STATE / 'maintenance').exists(), 'existing-maintenance-gate')
+            require(command(['ctr', 'namespaces', 'list', '--quiet']).splitlines() == ['moby'], 'unclassified-containerd-namespace')
+            public, private = inventory()
+            SESSIONS.mkdir(mode=0o700, exist_ok=True)
+            directory = SESSIONS / (time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()) + '-' + uuid.uuid4().hex[:12])
+            directory.mkdir(mode=0o700)
+            atomic_json(directory / 'target.json', public)
+            atomic_json(directory / 'runtime.json', private)
+            checkpoint(directory, 'PREPARE_AUTHORIZED', initialAvailableBytes=available())
+        unit = launch_worker(directory, 'prepare')
+        print(json.dumps({'result': 'PREPARATION_STARTED', 'session': directory.name, 'unit': unit}))
+    elif len(args) == 2 and args[0] in ('status', 'plan'):
+        directory = session_path(args[1])
+        print(json.dumps(read_json(directory / ('state.json' if args[0] == 'status' else 'plan.json')), sort_keys=True))
+    elif len(args) == 4 and args[0] == 'apply' and args[3] == '--maintenance-window':
+        directory = session_path(args[1])
+        raw = sys.stdin.buffer.read(1024 * 1024 + 1)
+        with locked():
+            require(len(raw) <= 1024 * 1024 and hashlib.sha256(raw).hexdigest() == args[2] and
+                    raw == (directory / 'plan.json').read_bytes(), 'reviewed-plan-checksum')
+            require(read_json(directory / 'state.json')['phase'] == 'PREPARED', 'apply-stage')
+            checkpoint(directory, 'APPLY_AUTHORIZED', authorizedPlanHash=args[2])
+        print(json.dumps({'result': 'MAINTENANCE_STARTED', 'session': directory.name, 'unit': launch_worker(directory, 'apply')}))
+    elif len(args) == 3 and args[0] == 'confirm-readback':
+        directory = session_path(args[1])
+        raw = sys.stdin.buffer.read(1024 * 1024 + 1)
+        with locked():
+            require(len(raw) <= 1024 * 1024 and hashlib.sha256(raw).hexdigest() == args[2], 'readback-checksum')
+            receipt = json.loads(raw.decode())
+            validate_readback(directory, receipt)
+            snapshot = read_json(directory / 'runtime.json')
+            plan = read_json(directory / 'plan.json')
+            retirement_checks(directory, plan, snapshot)
+            atomic_json(directory / 'readback.json', receipt)
+            checkpoint(directory, 'RETIRE_AUTHORIZED', readbackSha256=file_digest(directory / 'readback.json'))
+        print(json.dumps({'result': 'VERIFIED_RETIREMENT_STARTED', 'session': directory.name, 'unit': launch_worker(directory, 'retire')}))
+    elif len(args) == 2 and args[0] == 'recover':
+        directory = session_path(args[1])
+        with locked():
+            rollback_before_open(directory, read_json(directory / 'plan.json'), read_json(directory / 'runtime.json'))
+        print(json.dumps(read_json(directory / 'state.json')))
+    elif len(args) == 2 and args[0] == 'finish-opening':
+        directory = session_path(args[1])
+        with locked():
+            state = read_json(directory / 'state.json')
+            require(state.get('openedAt'), 'opening-boundary-not-recorded')
+            plan = read_json(directory / 'plan.json')
+            restored_state(directory, plan, read_json(directory / 'runtime.json'))
+            wait_application(plan)
+            local_websocket(plan)
+            gate = STATE / 'maintenance'
+            if gate.exists():
+                require([gate.stat().st_dev, gate.stat().st_ino] == state['gateIdentity'] and
+                        gate.read_text() == 'storage-maintenance:' + directory.name + '\n', 'opening-gate-drift')
+                gate.unlink()
+            checkpoint(directory, 'READBACK_REQUIRED')
+        print(json.dumps(read_json(directory / 'state.json')))
+    elif len(args) == 3 and args[0] == 'worker' and args[1] in ('prepare', 'apply', 'retire'):
+        directory = session_path(args[2])
+        with locked():
+            try:
+                {'prepare': prepare_worker, 'apply': apply_worker, 'retire': retire_worker}[args[1]](directory)
+            except BaseException as error:
+                state = read_json(directory / 'state.json')
+                checkpoint(directory, 'BLOCKED', failedPhase=state['phase'], errorClass=type(error).__name__,
+                           errorCode=str(error) if isinstance(error, StorageError) else 'operation-failed', automaticRetry=False)
+                raise
+    else:
+        raise StorageError('usage-prepare-status-plan-apply-confirm-readback-recover')
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except BaseException as error:
+        print('STORAGE_MAINTENANCE_BLOCKED class=' + type(error).__name__, file=sys.stderr)
+        sys.exit(1)
