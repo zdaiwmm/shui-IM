@@ -468,6 +468,11 @@ html[data-keyboard-open='true'] #app .chat-header:not([data-presence-style='hear
 #app :is(.media-upload-status,.image-bubble > .message-meta,.image-bubble > .media-status-departing,.media-load-capsule) { box-sizing: border-box; height: 32px; min-height: 32px; border: 0; border-radius: 16px; margin: 0; right: 7px; bottom: 7px; }
 #app .image-bubble > .message-meta:not(.media-send-meta) { padding: 0 10px; align-items: center; background: #242124b3; color: #fff; font-size: .6875rem; line-height: 1.4; }
 #app .image-bubble > .message-meta:not(.media-send-meta) time { color: #fff; }
+#app .image-bubble > .message-meta { flex-wrap: nowrap; max-width: none; white-space: nowrap; }
+#app .image-bubble:not(.expression-bubble) > .media-send-meta > .media-capsule-content > time { display: none; }
+#app .expression-bubble > .message-meta:not(.media-send-meta) { background: transparent; padding: 0; color: var(--message-time); }
+#app .expression-bubble > .message-meta:not(.media-send-meta) time { color: var(--message-time); }
+#app .expression-bubble > .message-meta:not(.media-send-meta) > .media-capsule-content { padding: 0; }
 #app .image-bubble > .message-meta:has(> .media-capsule-content) { display: block; padding: 0; transform-origin: right center; }
 #app :is(.image-bubble > .media-send-meta,.image-bubble > .media-status-departing) { padding: 0 10px; background: var(--surface-raised); font-size: .75rem; align-items: center; }
 #app .media-upload-status { padding: 0; background: var(--surface-raised); }
@@ -615,4 +620,6 @@ html[data-keyboard-open='true'] #app .chat-header:not([data-presence-style='hear
    token for viewport owners while both keyboard states share one surface. */
 :root[data-theme][data-color-scheme] { --composer-surface-focused: var(--composer-surface); }
 
-#app .image-viewer:not([data-native-video]) { background: #141214; }
+#app .image-viewer:not([data-native-video]):not([data-safe-viewer].video-viewer) { background: #141214; }
+
+#app .is-space-list-page .space-create { border-radius: 12px; font-size: .875rem; font-weight: 600; }

@@ -381,13 +381,13 @@ try {
   const pendingBox = await delayed.boundingBox();
   await assertVisibility(5, 1, 'New pending thumbnail');
   await delayed.evaluate(element => {
-    window.chatPrivacy.loadingFeedback = [element.querySelector('.media-load-status')?.textContent];
-    new MutationObserver(() => window.chatPrivacy.loadingFeedback.push(element.querySelector('.media-load-status')?.textContent))
+    window.chatPrivacy.loadingFeedback = [element.querySelector('.media-load-capsule > .media-capsule-content > .media-load-status')?.textContent];
+    new MutationObserver(() => window.chatPrivacy.loadingFeedback.push(element.querySelector('.media-load-capsule > .media-capsule-content > .media-load-status')?.textContent))
       .observe(element, { attributes: true, childList: true, subtree: true });
   });
   await delayed.click();
   await assertVisibility(5, 1, 'Tap while downloading does not reveal unverified media');
-  assert.match(await delayed.locator('.media-load-status').textContent(), /^正在下载图片 \d+%$/, 'Pending thumbnail did not explain its download state');
+  assert.match(await delayed.locator('.media-load-capsule > .media-capsule-content > .media-load-status').textContent(), /^下载中 · \d+%$/, 'Pending thumbnail did not explain its download state');
   assert.equal(await delayed.getAttribute('aria-busy'), 'true', 'Pending thumbnail was not exposed as busy');
   if (visualQaDirectory) {
     await mkdir(visualQaDirectory, { recursive: true });
@@ -401,9 +401,9 @@ try {
     `Known media dimensions shifted the placeholder: ${JSON.stringify({ pendingBox, loadedBox })}`);
   await assertVisibility(5, 0, 'Pull before delayed decryption resolves');
   const loadingFeedback = await page.evaluate(() => window.chatPrivacy.loadingFeedback.filter(Boolean));
-  assert(loadingFeedback.some(value => value.startsWith('正在下载图片')), 'Loading feedback omitted the download stage');
-  assert(loadingFeedback.some(value => value.startsWith('正在解密图片')), 'Loading feedback omitted the decrypt stage');
-  assert(loadingFeedback.includes('正在生成模糊预览'), 'Loading feedback omitted the verified preview stage');
+  assert(loadingFeedback.some(value => value.startsWith('下载中')), 'Loading feedback omitted the download stage');
+  assert(loadingFeedback.some(value => value.startsWith('解密中')), 'Loading feedback omitted the decrypt stage');
+  assert(loadingFeedback.includes('生成遮罩中'), 'Loading feedback omitted the verified preview stage');
   await waitForClicks();
   await delayed.click();
   await delayed.click();

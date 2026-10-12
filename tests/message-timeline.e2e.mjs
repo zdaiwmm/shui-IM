@@ -270,7 +270,7 @@ try {
     app.attemptSend = retry.original;
     const articles = [...document.querySelectorAll('#message-list > article.message')];
     if (retry.attempts.length !== 1 || retry.attempts[0] !== 'timeline-8' || articles.length !== 1 || articles[0].dataset.clientMsgId !== 'timeline-8' || !articles[0].classList.contains('is-pending') || app.messages.get(8)?.status !== 'pending') throw Error(`Retry did not reuse the existing message identity: ${JSON.stringify({ attempts: retry.attempts, rows: articles.map(article => article.dataset.clientMsgId), status: app.messages.get(8)?.status })}`);
-    if (document.querySelector('.message-retry') || document.querySelector('.message-delivery')) throw Error('Retry retained a failed action or prematurely displayed a delivery check');
+    if ([...document.querySelectorAll('.message-retry,.message-delivery')].some(node=>!node.closest('.media-capsule-retiring'))) throw Error('Retry retained a failed action or prematurely displayed a delivery check');
     return { clientMsgId: retry.attempts[0], attemptCount: 1, status: 'pending', rows: 1 };
   });
 
@@ -370,7 +370,7 @@ try {
           if (article.classList.contains('incoming') && content && getComputedStyle(content).color !== bodyColor) issues.push(`${id}: incoming text color did not settle with the current theme`);
           if (b.left < -1 || b.right > innerWidth + 1 || (!bubble.classList.contains('image-bubble') && (m.left < b.left - 1 || m.right > b.right + 1 || m.top < b.top - 1 || m.bottom > b.bottom + 1))) issues.push(`${id}: bubble or metadata overflow`);
           const style = getComputedStyle(meta);
-          if (Math.abs(parseFloat(style.fontSize) - font * 11 / 16) > .1) issues.push(`${id}: metadata font is not 11px at default size or its accessible scaled equivalent`);
+          if (Math.abs(parseFloat(style.fontSize) - font * (meta.classList.contains('media-send-meta') ? 12 : 11) / 16) > .1) issues.push(`${id}: metadata font does not match receipt 11px / processing 12px or its scaled equivalent`);
           if (style.justifyContent !== 'flex-end' || style.textAlign !== 'right') issues.push(`${id}: metadata not right aligned`);
           const icon = meta.querySelector('.message-delivery svg');
           if (icon && Math.abs(icon.getBoundingClientRect().width - font * 11 / 16 * 1.45) > .5) issues.push(`${id}: delivery glyph is not approximately 16px at default size or its accessible scaled equivalent`);
@@ -422,7 +422,7 @@ try {
           const retry = meta.querySelector('.message-retry');
           if (retry) {
             const r = retry.getBoundingClientRect();
-            if (r.width < 44 || r.height < 44 || r.left < b.left - 1 || r.right > b.right + 1 || r.bottom > b.bottom + 1 || style.pointerEvents === 'none') issues.push(`${id}: retry target is clipped, too small, or disabled`);
+            if (r.width < 44 || r.height < 44 || r.left < b.left - 1 || r.right > b.right + 1 || r.bottom > b.bottom + 1 || style.pointerEvents === 'none') issues.push(`${id}: retry target is clipped, too small, or disabled ${JSON.stringify({rect:r.toJSON(),pointer:style.pointerEvents})}`);
           }
           let timeContrast = null;
           if (content) {

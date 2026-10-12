@@ -5,7 +5,8 @@ const geometryEffects = new WeakMap<HTMLElement, Animation[]>();
 
 /** Legacy media can learn its trusted dimensions after decode. Commit layout
  * once, then interpolate only the visual shell. Capsules stay 32px throughout. */
-export function transitionChatMediaGeometry(element: HTMLElement, paint: () => void): void {
+export function transitionChatMediaGeometry(element: HTMLElement, paint: () => void, signal?: AbortSignal): void {
+  if (signal?.aborted) return;
   const before = element.getBoundingClientRect();
   geometryEffects.get(element)?.forEach(animation => animation.cancel());
   paint();
@@ -24,8 +25,11 @@ export function transitionChatMediaGeometry(element: HTMLElement, paint: () => v
   geometryEffects.set(element,effects);
   const preference=matchMedia('(prefers-reduced-motion: reduce)');
   const finish=()=>{if(preference.matches||document.hidden)effects.forEach(effect=>{try{effect.finish();}catch{effect.cancel();}});};
+  const cancel=()=>{effects.forEach(effect=>effect.cancel());element.style.transformOrigin=origin;};
+  signal?.addEventListener('abort',cancel,{once:true});
   preference.addEventListener('change',finish);document.addEventListener('visibilitychange',finish);
   void Promise.allSettled(effects.map(effect=>effect.finished)).then(()=>{
+    signal?.removeEventListener('abort',cancel);
     preference.removeEventListener('change',finish);document.removeEventListener('visibilitychange',finish);
     if(geometryEffects.get(element)===effects){element.style.transformOrigin=origin;geometryEffects.delete(element);}
   });

@@ -25,8 +25,13 @@ html:has(#app :is(.space-invite-overlay,.avatar-source-overlay,.gallery-actions-
   --chrome-bottom-surface: var(--surface-raised);
 }
 html:has(.image-viewer) { --chrome-top-surface: #141214; --chrome-bottom-surface: #141214; }
+html:has(.image-viewer[data-safe-viewer].video-viewer) { --chrome-top-surface: #000; --chrome-bottom-surface: #000; }
 html:has(.image-viewer .photo-details) { --chrome-bottom-surface: var(--surface-raised); }
 html:has(.document-reader) { --chrome-top-surface: var(--paper); --chrome-bottom-surface: var(--paper); }
+html:has(.document-reader [data-presentation='sheet']) {
+  --chrome-top-surface: color-mix(in srgb,var(--paper) 65%,#141019);
+  --chrome-bottom-surface: var(--surface-raised);
+}
 html:has(.call-view) { --chrome-top-surface: var(--paper); --chrome-bottom-surface: var(--paper); }
 html:has(.call-has-remote-video) { --chrome-top-surface: #141214; --chrome-bottom-surface: #141214; }
 html:has(#app .cover), html.privacy-obscured { --chrome-top-surface: var(--paper-pure); --chrome-bottom-surface: var(--paper-pure); }

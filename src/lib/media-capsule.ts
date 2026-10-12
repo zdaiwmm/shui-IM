@@ -11,7 +11,8 @@ export function clearMediaCapsule(host: HTMLElement): void {
 
 /** A persistent 32px shell. Only its width transforms; text and icons receive
  * the inverse scale. State changes can interrupt without an empty frame. */
-export function transitionMediaCapsule(host: HTMLElement, paint: () => void, contentChanged = true): void {
+export function transitionMediaCapsule(host: HTMLElement, paint: () => void, contentChanged = true, signal?: AbortSignal): void {
+  if (signal?.aborted) return;
   const oldWidth = host.getBoundingClientRect().width;
   const oldBackground = getComputedStyle(host).backgroundColor;
   let content = host.querySelector<HTMLElement>(':scope > .media-capsule-content');
@@ -55,8 +56,11 @@ export function transitionMediaCapsule(host: HTMLElement, paint: () => void, con
   const effect = { animations, widths, duration: motion.panel }; effects.set(host,effect);
   const preference = matchMedia('(prefers-reduced-motion: reduce)');
   const finish = () => { if (preference.matches || document.hidden) animations.forEach(animation => { try { animation.finish(); } catch { animation.cancel(); } }); };
+  const cancel = () => clearMediaCapsule(host);
+  signal?.addEventListener('abort',cancel,{once:true});
   preference.addEventListener('change',finish); document.addEventListener('visibilitychange',finish);
   void Promise.allSettled(animations.map(animation=>animation.finished)).then(()=>{
+    signal?.removeEventListener('abort',cancel);
     preference.removeEventListener('change',finish); document.removeEventListener('visibilitychange',finish);
     retiring.remove(); if(effects.get(host)===effect)effects.delete(host);
   });

@@ -130,7 +130,7 @@ export class MediaUploadView {
     else this.ring.removeAttribute('aria-valuenow');
     this.retry.hidden = this.cancel.hidden = state !== 'failed';
     this.retry.disabled = state !== 'failed';
-    }, contentChanged);
+    }, contentChanged, this.abort.signal);
     this.element.setAttribute('aria-busy', String(state !== 'failed'));
     this.element.setAttribute('aria-label', state === 'failed' ? `${this.kind}${this.label.textContent}，可重试或打开操作菜单移除未发送媒体` : `正在发送${this.kind}`);
   }

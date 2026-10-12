@@ -1612,7 +1612,7 @@ button:disabled {
   transform: translateY(0) scale(1);
 }
 
-.message-actions button {
+.message-action-list > button {
   min-width: 96px;
   min-height: 44px;
   padding: 0 14px;
@@ -1625,10 +1625,10 @@ button:disabled {
   cursor: pointer;
 }
 
-.message-actions button:hover {
+@media (hover: hover) { .message-action-list > button:hover {
   background: var(--accent-soft);
   color: var(--accent);
-}
+} }
 
 .message-meta {
   margin: 3px 0 0;

@@ -9594,7 +9594,7 @@ export class QuietRoomApp {
               transitionMediaCapsule(meta, () => {
                 meta.querySelector('.media-capsule-content')!.replaceChildren(...updated.childNodes);
                 meta.className = updated.className;
-              });
+              }, true, this.runtimeAbort?.signal);
             } else {
               meta.replaceChildren(...updated.childNodes);
               meta.className = updated.className;
@@ -11782,7 +11782,7 @@ export class QuietRoomApp {
         }
         image.style.removeProperty('width');
       };
-      if (bubble?.classList.contains('image-bubble')) transitionChatMediaGeometry(bubble, paint);
+      if (bubble?.classList.contains('image-bubble')) transitionChatMediaGeometry(bubble, paint, this.runtimeAbort?.signal);
       else paint();
     }
     this.setChatImagePreviewSource(button, cached.concealedUrl);
@@ -11825,7 +11825,7 @@ export class QuietRoomApp {
       transitionMediaCapsule(capsule, () => {
         capsule.className = 'media-load-capsule is-error';
         capsule.querySelector('.media-capsule-content')!.replaceChildren(error);
-      });
+      }, true, this.runtimeAbort?.signal);
       button.replaceChildren(capsule);
       button.setAttribute('aria-label', cause instanceof Error ? `${cause.message}，点按重试` : error.textContent);
       button.title = button.getAttribute('aria-label')!;
@@ -12003,7 +12003,7 @@ export class QuietRoomApp {
         progress.setAttribute('aria-valuenow', String(percent)); delete progress.dataset.indeterminate;
         progress.style.setProperty('--media-load-progress', `${percent}%`);
       }
-    }, previousStage !== status.stage);
+    }, previousStage !== status.stage, this.runtimeAbort?.signal);
     button.setAttribute('aria-label', `${text}，点按继续准备`);
   }
 
