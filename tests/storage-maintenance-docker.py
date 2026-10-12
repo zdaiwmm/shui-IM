@@ -156,6 +156,14 @@ def new_session():
     return directory
 
 
+def primary_engine_state():
+    info = module['api']('GET', '/info', endpoint='/var/run/docker.sock')
+    items = module['api']('GET', '/containers/json?all=true', endpoint='/var/run/docker.sock')
+    return {'root': info['DockerRootDir'], 'id': info['ID'],
+            'containers': sorted((item['Id'], item['State'], item['ImageID']) for item in items)}
+
+
+primary_before = primary_engine_state()
 try:
     engine_control(True)
     source_archive = base / 'fixture-image.tar.gz'
@@ -271,3 +279,4 @@ finally:
     for directory in sessions.iterdir():
         if (directory / 'state.json').is_file():
             shutil.copyfile(str(directory / 'state.json'), str(destination / (directory.name + '-status.json')))
+    assert primary_engine_state() == primary_before, 'runner primary Docker engine or containers changed'
