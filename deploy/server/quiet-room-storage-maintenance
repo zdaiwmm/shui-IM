@@ -449,19 +449,28 @@ def database_check(directory, image, endpoint=None):
             '--volume', str(directory) + ':/restore:rw', '--entrypoint', 'node', image, '-e', script], endpoint, timeout=60)
 
 
+def validation_runtime(directory):
+    require(SESSION.fullmatch(directory.name), 'validation-session')
+    # Linux AF_UNIX addresses have only 108 bytes. Session data paths are too
+    # long for Docker's API and nested containerd sockets; /run is root-owned.
+    return Path('/run') / ('quiet-room-storage-' + directory.name[-12:])
+
+
 def validation_daemon(directory, start):
     unit = 'quiet-room-storage-validation-' + directory.name[-12:]
     area = directory / 'validation'
-    endpoint = str(area / 'docker.sock')
+    runtime = validation_runtime(directory)
+    endpoint = str(runtime / 'docker.sock')
     if start:
         area.mkdir(mode=0o700)
+        runtime.mkdir(mode=0o700)
         atomic_json(area / 'daemon.json', {})
         command(['systemd-run', '--quiet', '--unit', unit, '--property=MemoryLimit=700M',
                  '--property=CPUQuota=50%', '--property=Nice=10', '--property=IOSchedulingClass=idle',
                  '--property=TimeoutStopSec=30s', '--property=KillMode=control-group',
                  '/usr/bin/dockerd', '--config-file', str(area / 'daemon.json'),
                  '--host', 'unix://' + endpoint, '--data-root', str(area / 'docker'),
-                 '--exec-root', str(area / 'exec'), '--pidfile', str(area / 'docker.pid'),
+                 '--exec-root', str(runtime / 'exec'), '--pidfile', str(runtime / 'docker.pid'),
                  '--storage-driver', 'overlay2', '--iptables=false', '--ip-forward=false', '--ip-masq=false', '--bridge=none'])
         for _ in range(90):
             try:

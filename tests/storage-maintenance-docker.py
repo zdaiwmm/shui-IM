@@ -84,7 +84,7 @@ def engine_control(start):
 
 def validation_daemon(directory, start):
     area = directory / 'validation'
-    socket_path = str(area / 'docker.sock')
+    socket_path = str(base / ('v-' + directory.name[-12:] + '.sock'))
     label = 'validation-' + directory.name[-12:]
     if start:
         area.mkdir(mode=0o700)

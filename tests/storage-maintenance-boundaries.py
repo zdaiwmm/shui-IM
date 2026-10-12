@@ -95,6 +95,14 @@ class Boundaries(unittest.TestCase):
             self.module['database_check'](self.engine, 'fixture-image')
         self.assertEqual(len(calls), 1)
 
+    def test_validation_sockets_fit_linux_unix_address_limit(self):
+        runtime = self.module['validation_runtime'](Path('/var/lib/quiet-room-deploy/storage-maintenance') / self.directory.name)
+        for suffix in ('docker.sock', 'exec/containerd/containerd.sock', 'exec/containerd/containerd.sock.ttrpc'):
+            self.assertLess(len(str(runtime / suffix).encode()) + 1, 108)
+        self.assertEqual(runtime.parent, Path('/run'))
+        with self.assertRaisesRegex(self.module['StorageError'], 'validation-session'):
+            self.module['validation_runtime'](Path('/unrelated/session'))
+
     def successful_readback(self):
         current = 'a' * 40
         image = 'sha256:' + 'b' * 64
