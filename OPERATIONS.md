@@ -53,6 +53,8 @@ The source files alone do not mean production policy is enabled. Current disk
 capacity must be measured after cleanup and a full readback must verify service
 recovery; 40 GiB cannot support unlimited business-data growth.
 
+<a id="supervised-build-cache-maintenance"></a>
+
 ## Build cache maintenance disabled after incident
 
 The current production host must not run the previous supervised prune protocol
