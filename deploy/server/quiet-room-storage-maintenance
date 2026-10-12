@@ -249,6 +249,36 @@ def checkpoint(directory, phase, **values):
     return state
 
 
+def difference_fields(before, after, prefix='', limit=40):
+    # Field paths only: never values, environment entries or credentials.
+    if before == after:
+        return []
+    if isinstance(before, dict) and isinstance(after, dict):
+        result = []
+        for key in sorted(set(before) | set(after)):
+            result += difference_fields(before.get(key), after.get(key), prefix + '.' + key, limit)
+            if len(result) >= limit:
+                break
+        return result[:limit]
+    if isinstance(before, list) and isinstance(after, list) and len(before) == len(after):
+        result = []
+        for index, (left, right) in enumerate(zip(before, after)):
+            result += difference_fields(left, right, prefix + '.' + str(index), limit)
+            if len(result) >= limit:
+                break
+        return result[:limit]
+    return [prefix]
+
+
+def checked_target(directory, plan, snapshot, code):
+    current, current_private = inventory()
+    if current != plan:
+        fields = difference_fields(plan, current, 'plan')
+        fields += difference_fields(snapshot, current_private, 'runtime')
+        checkpoint(directory, 'TARGET_DRIFT', driftFields=fields[:40])
+        raise StorageError(code)
+
+
 def locked():
     lock = LOCK.open('a')
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -503,7 +533,7 @@ def prepare_worker(directory):
     snapshot = read_json(directory / 'runtime.json')
     require(read_json(directory / 'state.json')['phase'] == 'PREPARE_AUTHORIZED', 'prepare-stage')
     require(digest(snapshot) == plan['runtimeSnapshotHash'], 'private-snapshot-drift')
-    require(inventory()[0] == plan, 'prepare-target-drift')
+    checked_target(directory, plan, snapshot, 'prepare-target-drift')
     require(not (STATE / 'maintenance').exists() and available() >= 2 * GIB and memory_available() >= 900 * 1024 ** 2,
             'prepare-headroom')
     public_health(plan)

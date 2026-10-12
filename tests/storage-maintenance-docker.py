@@ -195,6 +195,13 @@ try:
     assert not engine.with_name('docker-retired-' + second.name).exists()
     assert (data / 'accepted-after-recovery.bin').is_file()
     print('STORAGE_DOCKER_REGRESSION_OK rollback-and-success preserve original volume identities and latest data')
+except BaseException:
+    for directory in sessions.iterdir():
+        if (directory / 'state.json').is_file():
+            # Case status contains only phases, identities and field paths.
+            # Raw runtime/configuration snapshots are never uploaded.
+            print('STORAGE_CI_CASE_STATUS ' + json.dumps(module['read_json'](directory / 'state.json'), sort_keys=True))
+    raise
 finally:
     for label in list(processes):
         daemon(label, None, '', False)
@@ -204,3 +211,6 @@ finally:
     destination.mkdir(parents=True, exist_ok=True)
     for path in base.glob('*.log'):
         shutil.copyfile(str(path), str(destination / path.name))
+    for directory in sessions.iterdir():
+        if (directory / 'state.json').is_file():
+            shutil.copyfile(str(directory / 'state.json'), str(destination / (directory.name + '-status.json')))
