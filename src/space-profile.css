@@ -65,3 +65,9 @@
 @media (max-width:359px) { .avatar-emoji-grid { grid-template-columns:repeat(5,minmax(0,1fr)); } }
 @media (prefers-reduced-motion:reduce) { .avatar-source-overlay,.avatar-source-sheet,#app #new-space-name { transition:none; } }
 @media (forced-colors:active) { .space-avatar { border:1px solid CanvasText; } .avatar-emoji-grid button[aria-pressed='true'] { outline:2px solid Highlight; } #app #new-space-name { border-color:CanvasText; } }
+
+/* Confirmed recovery-card entry: quiet controls and shared field alignment. */
+#app .space-profile-identity .text-button{color:var(--accent)}
+.space-profile-content .form-error{margin:8px 12px;font-size:.75rem;line-height:1.6}
+.avatar-backgrounds{scrollbar-width:none}.avatar-backgrounds::-webkit-scrollbar{display:none}
+.avatar-emoji-grid button[aria-pressed='true']{border-color:transparent;background:var(--accent-soft);box-shadow:none}

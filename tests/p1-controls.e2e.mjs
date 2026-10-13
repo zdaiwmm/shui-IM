@@ -25,7 +25,7 @@ try {
     assert.ok(geometry.actions.every(e => e.y >= 0 && e.y + e.height <= height + 1 && e.height >= 44), `short password actions: ${JSON.stringify(geometry)}`);
     assert.equal(geometry.scrollable, true); assert.equal(geometry.font, 16);
     await page.locator('[data-password-cancel]').click(); await page.clock.runFor(300);
-    assert.equal(await page.locator('.password-sheet').count(), 0);
+    await page.locator('.password-sheet').waitFor({state:'detached'}); // CSS exit completes after semantic cancellation.
   }
   await page.setViewportSize({ width: 390, height: 844 });
   for (const width of [320, 390, 768, 1024, 1440]) {

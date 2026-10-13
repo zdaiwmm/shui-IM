@@ -27,7 +27,7 @@ export async function auditUiDetails(page, out) {
     menu: '.message-action-list', coverConfirm: '.cover-disable-panel',
     passwordCreate: '.password-create', passwordReturn: '.password-return', passwordOperation: '.password-operation-sheet',
     settings: '.space-drawer', presenceStyle: '.space-style-options', access: '.browser-access-modal',
-    backupPrivacy: '.backup-privacy-panel', spaceInvite: '.space-invite-sheet',
+    backupPrivacy: '.backup-privacy-panel', spaceInvite: '.entry-chat-guidance',
     notice: '#notice', errorToast: '#app-toast', textSelection: '.message-text-selection',
   };
   const setup = async name => {
@@ -67,9 +67,10 @@ export async function auditUiDetails(page, out) {
         paintCloudBackup(root,session);root.querySelector('[data-cloud-switch]').click();
       }
       if(name==='spaceInvite') {
-        const previous = Object.fromEntries(['roomId','accessToken','pairingSecret','creatorFingerprint','createdAt'].map(key=>[key,session.vault[key]]));
-        Object.assign(session.vault, {roomId:'00000000-0000-4000-8000-000000000001',accessToken:'A'.repeat(43),pairingSecret:'B'.repeat(43),creatorFingerprint:'C'.repeat(43),createdAt:new Date().toISOString()});
-        try { app.renderInviteWait(); } finally { Object.assign(session.vault,previous); }
+        const previous = Object.fromEntries(['roomId','accessToken','pairingSecret','creatorFingerprint','createdAt','members','role'].map(key=>[key,session.vault[key]]));
+        Object.assign(session.vault, {roomId:'00000000-0000-4000-8000-000000000001',accessToken:'A'.repeat(43),pairingSecret:'B'.repeat(43),creatorFingerprint:'C'.repeat(43),createdAt:new Date().toISOString(),role:'creator',members:session.vault.members.filter(member=>member.role==='creator')});
+        app.messages.clear();
+        try { app.renderChat(); } finally { Object.assign(session.vault,previous); }
       }
       if(name==='coverConfirm')app.confirmDisableCover();
       if(name.startsWith('password')) {
@@ -129,10 +130,12 @@ export async function auditUiDetails(page, out) {
           const rect=await page.locator('.space-drawer').boundingBox();assert.ok(rect.x===0&&Math.abs(rect.width-width)<1,'mobile settings presentation fills the page');
         }
         if(name==='create') {
+          if(await page.locator('#new-passkey-name').count()) await page.locator('.recovery-explanation summary').click();
           const fields=await page.locator('#new-passkey-name,#new-device-alias').evaluateAll(es=>es.map(e=>({width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height,font:parseFloat(getComputedStyle(e).fontSize)})));
-          assert.equal(fields.length,2);assert.ok(Math.abs(fields[0].width-fields[1].width)<1&&fields.every(e=>e.height>=44&&e.font>=16),'both device fields share the full width and readable size');
+          if(fields.length) { assert.equal(fields.length,2);assert.ok(Math.abs(fields[0].width-fields[1].width)<1&&fields.every(e=>e.height>=44&&e.font>=16),'both device fields share the full width and readable size'); }
+          else assert.match(await page.locator('.entry-protection').textContent(),/不支持通行密钥/);
         }
-        if(name==='spaceInvite') { assert.equal(await page.locator('#space-invite-title').textContent(),'邀请对方加入');assert.ok((await page.locator('#invite-url').inputValue()).includes('#'));assert.equal(await page.locator('#copy-invite').count(),1); }
+        if(name==='spaceInvite') { assert.equal(await page.locator('.space-invite-sheet').count(),0);assert.ok((await page.locator('#invite-url').inputValue()).includes('#'));assert.equal(await page.locator('#copy-invite').count(),1); }
         if(name==='coverConfirm') {
           const box=await page.locator('.simple-confirm').boundingBox();assert.ok(box.width<=281);
           const actions=await page.locator('.simple-confirm-actions button').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().toJSON()));assert.ok(Math.abs(actions[0].y-actions[1].y)<1,'simple confirmation actions share a row');
@@ -143,7 +146,7 @@ export async function auditUiDetails(page, out) {
           assert.ok((await page.locator('.message-info-stages li').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().height))).every(h=>h<=41));
           assert.ok((await page.locator('.message-info-panel').boundingBox()).height<490);
         }
-        if (['passwordOperation','jointCode','historyCode','backupPrivacy','info'].includes(name)) {
+        if (['passwordOperation','historyCode','backupPrivacy','info'].includes(name)) {
           const sheet = await page.locator('[data-sheet-panel]').evaluate(panel => ({
             inset: getComputedStyle(panel).paddingLeft,
             border: getComputedStyle(panel).borderTopWidth,
@@ -152,10 +155,16 @@ export async function auditUiDetails(page, out) {
           }));
           assert.deepEqual(sheet,{inset:'20px',border:'0px',handle:44,closeIcons:0},`${name}: shared sheet frame`);
         }
+        if(name==='jointCode') {
+          const frame=await page.locator('.recovery-code-panel').boundingBox();
+          assert.ok(Math.abs(frame.height-700)<2&&frame.width<=480,'recovery card uses the full-height page');
+          const title=await page.locator('.recovery-code-heading h2').boundingBox();
+          assert.ok(title.width>250&&title.height<80,'recovery heading stays horizontal at narrow widths');
+        }
         if(name==='passwordOperation') {
           const rect=await page.locator('.password-form').boundingBox();assert.ok(Math.abs(rect.y+rect.height-700)<1,'half sheet must meet the viewport bottom');
         }
-        if(['jointCode','historyCode','backupPrivacy'].includes(name)) {
+        if(['historyCode','backupPrivacy'].includes(name)) {
           const panel=await page.locator(`${screens[name]} .recovery-code-panel, ${screens[name]}.recovery-code-panel`).first().boundingBox();
           if(width<1024)assert.ok(Math.abs(panel.y+panel.height-700)<1,`${name}: secondary recovery sheet meets the viewport bottom`);
           assert.equal(await page.locator(`${screens[name]} h2`).first().evaluate(e=>parseFloat(getComputedStyle(e).fontSize)),17,'secondary recovery heading shares the compact scale');

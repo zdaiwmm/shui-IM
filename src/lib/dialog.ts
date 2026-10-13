@@ -57,6 +57,7 @@ export function mountDialog(sheet: HTMLElement, options: DialogOptions) {
   const arrival: Animation[] = [];
   const focusAtMount = document.activeElement;
   let closed = false;
+  let notifyingClose = false;
   let finished = false;
   let cancelFinish: (() => void) | undefined;
   let detachObserver: MutationObserver | null = null;
@@ -122,14 +123,16 @@ export function mountDialog(sheet: HTMLElement, options: DialogOptions) {
     sheet.classList.remove('is-visible');
     sheet.classList.add('is-closing');
     for (const item of painted) item.target.style.removeProperty(item.property);
-    options.onClose?.();
-    if (!animate || !options.isActive() || !sheet.isConnected || matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const wasActive = options.isActive();
+    notifyingClose = true;
+    try { options.onClose?.(); } finally { notifyingClose = false; }
+    if (!animate || !wasActive || !sheet.isConnected || matchMedia('(prefers-reduced-motion: reduce)').matches) {
       finish(restoreFocus);
     } else {
       cancelFinish = afterMotion(sheet, () => finish(restoreFocus));
     }
   };
-  const onAbort = () => close({ animate: false, restoreFocus: false });
+  const onAbort = () => { if (!notifyingClose) close({ animate: false, restoreFocus: false }); };
   const onKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Escape') {
       event.preventDefault();

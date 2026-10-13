@@ -249,7 +249,7 @@ try {
   await holdCover(creator);
   await capture('welcome', ['mobile', 'small', 'landscape', 'large']);
   await creator.locator('#create-room').click(); await completeSpaceProfile(creator);
-  await creator.locator('.space-invite-sheet').waitFor({ timeout: 15000 });
+  await creator.locator('.chat-shell').waitFor({ timeout: 15000 });
   await capture('pairing', ['mobile', 'landscape']);
   const invite = await creator.locator('#invite-url').inputValue();
   await joiner.goto(invite);

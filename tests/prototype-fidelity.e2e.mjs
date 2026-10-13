@@ -1,3 +1,4 @@
+import {openRecoveryCard} from './fixtures/open-recovery.mjs';
 import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import { createServer } from 'vite';
 import assert from 'node:assert/strict';
@@ -24,7 +25,7 @@ try {
  });
  await shot(page,'F15-wechat-welcome');await page.locator('#create-room').click(); await completeSpaceProfile(page); await page.locator('.password-create').waitFor(); await shot(page,'F15-wechat-create-click');
  assert.equal(await page.locator('.password-page').count(),1); await page.locator('[data-password-cancel]').click(); await page.locator('.password-sheet').waitFor({state:'detached'});
- await page.evaluate(()=>app.renderJointRecovery(null));await shot(page,'F01-recovery-entry'); assert.equal(await page.locator('.recovery-steps [aria-current=step]').textContent(),'1验证恢复码');await page.locator('#joint-open-code').click();await shot(page,'F01-recovery-code'); await page.locator('#joint-code-close').click(); await page.locator('.joint-code-sheet').waitFor({state:'detached'});
+ await page.evaluate(()=>app.renderJointRecovery(null));await shot(page,'F01-recovery-entry'); assert.equal(await page.locator('.recovery-steps').count(),0);await openRecoveryCard(page);await shot(page,'F01-recovery-code'); await page.locator('#joint-code-close').click(); await page.locator('.joint-code-sheet').waitFor({state:'detached'});
  await page.evaluate(async()=>{
   app.root.replaceChildren();const {createVault}=await import('/src/lib/vault.ts');const {generateIdentity}=await import('/src/lib/crypto.ts');
   const identity=await generateIdentity(),other=await generateIdentity();

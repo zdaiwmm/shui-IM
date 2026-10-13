@@ -66,11 +66,13 @@ try {
     };
     app.renderFirstRun(null);
   },expectedPrf);
+  // Retain protocol coverage for an existing legacy discovery request. It is no longer a homepage entry.
+  await fresh.page.evaluate(()=>{const button=document.createElement('button');button.id='legacy-discovery-test';button.textContent='Legacy discovery test';document.querySelector('#app').append(button);button.onclick=()=>app.beginBrowserAccess(button);});
   let freshRequests=0;fresh.page.on('request',r=>{if(r.method()==='POST'&&/browser-access/.test(r.url()))freshRequests++;});
-  await fresh.page.evaluate(()=>{window.cancelNext=true;});await fresh.page.locator('#continue-browser').click();
-  await fresh.page.locator('#continue-browser').waitFor();
+  await fresh.page.evaluate(()=>{window.cancelNext=true;});await fresh.page.locator('#legacy-discovery-test').click();
+  await fresh.page.locator('#legacy-discovery-test').waitFor();
   assert.equal(await fresh.page.getByText('验证已取消，未发送请求。').count(),0);assert.equal(freshRequests,0);
-  await fresh.page.locator('#continue-browser').click();await fresh.page.getByRole('heading',{name:'等待原浏览器批准'}).waitFor();
+  await fresh.page.locator('#legacy-discovery-test').click();await fresh.page.getByRole('heading',{name:'等待原浏览器批准'}).waitFor();
   let canceledRequests=0;fresh.page.on('request',r=>{if(r.method()==='DELETE'&&/browser-access/.test(r.url()))canceledRequests++;});
   await fresh.page.evaluate(()=>{window.cancelNext=true;});
   await fresh.page.locator('#browser-access-reselect').click();
@@ -156,7 +158,7 @@ try {
   await old.page.evaluate(() => app.createPrivateSpace());await old.page.locator('#copy-invite').waitFor();
   const currentWaiting = await old.page.evaluate(() => app.session.vault.roomId);
   await old.page.evaluate(async () => { await access.prepareBrowserAccess(app.session);await access.publishPreparedCatalog(app.session,app.runtimeAbort.signal); });
-  await old.page.locator('#invite-close').click();await old.page.locator('.space-invite-sheet').waitFor({state:'detached'});
+  await old.page.locator('#open-spaces').click();
   // PRODUCT.md requires invite closing to return to this list. The old extra
   // navigation click relied on the bug and targets an inert background now.
   await old.page.locator('.space-drawer-overlay .space-row.is-selected').waitFor();
@@ -239,15 +241,15 @@ try {
     for(const file of ['/src/backup.css','/src/recovery-experience.css','/src/auth-recovery.css','/src/spaces.css','/src/design-system.css'])await import(file);
   });
   await old.page.locator('#open-spaces').click();await old.page.locator('#space-settings').click();
-  for(const [entry,back] of [['local-history-backup','#local-backup-back'],['local-history-restore','#local-backup-back'],['backup-settings','#recovery-center-back'],['release-history','#release-history-back'],['manage-devices','#device-back'],['recover-other-space','#joint-back'],['cover-practice-menu','#practice-back']]) {
+  for(const [entry,back] of [['local-history-backup','#local-backup-back'],['local-history-restore','#local-backup-back'],['backup-settings','#recovery-center-back'],['release-history','#release-history-back'],['manage-devices','#device-back'],['recover-other-space','#joint-code-close'],['cover-practice-menu','#practice-back']]) {
     await old.page.locator(`#${entry}`).click();
     await old.page.locator(back).waitFor();
     if(entry==='backup-settings') {
       assert.equal(await old.page.locator('.gateway-mark').isVisible(),false);
-      assert.equal(await old.page.locator('.recovery-center-page .recovery-flow-nav strong').textContent(),'我的恢复码');
-      assert.equal(await old.page.locator('.recovery-explanation:not([open])').count(),2);
+      assert.equal(await old.page.locator('.recovery-center-page .recovery-flow-nav strong').textContent(),'恢复卡');
+      assert.equal(await old.page.locator('.recovery-explanation:not([open])').count(),1);
       await old.page.locator('.recovery-flow-content').evaluate(el=>el.scrollTop=el.scrollHeight);
-      assert.ok(await old.page.locator('.recovery-flow-note').evaluate(el=>el.getBoundingClientRect().bottom<=document.querySelector('.recovery-flow-footer').getBoundingClientRect().top),'shared-code notice scrolls fully above actions');
+      assert.ok(await old.page.locator('.recovery-explanation').evaluate(el=>el.getBoundingClientRect().bottom<=document.querySelector('.recovery-flow-footer').getBoundingClientRect().top),'shared-code notice scrolls fully above actions');
     }
     if(entry==='local-history-backup') {
       await old.page.locator('[data-cloud-switch]').waitFor();

@@ -115,6 +115,20 @@ export async function probePlatformVaultCapabilities(): Promise<void> {
   } catch { /* Unknown: attempt the normal ceremony from the next click. */ }
 }
 
+/** Only positively unsupported setup environments choose password; unknown still tries WebAuthn. */
+export function platformVaultSetupState(): 'unsupported' | 'available' | 'unknown' | 'insecure' {
+  if (!window.isSecureContext) return 'insecure';
+  if (!window.PublicKeyCredential || typeof navigator.credentials?.create !== 'function' || typeof navigator.credentials?.get !== 'function') return 'unsupported';
+  // WebAuthn RP IDs cannot be IP addresses, even on trustworthy loopback origins.
+  const hostname = window.location?.hostname ?? '';
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname) || hostname.includes(':')) return 'unsupported';
+  if (clientCapability?.credential === window.PublicKeyCredential && clientCapability.probe === window.PublicKeyCredential.getClientCapabilities) {
+    if (clientCapability.prf === false) return 'unsupported';
+    if (clientCapability.prf === true) return 'available';
+  }
+  return 'unknown';
+}
+
 function requireWebAuthn(operation: 'create' | 'get' = 'get'): void {
   if (!window.isSecureContext) {
     throw new Error('当前连接不是浏览器信任的 HTTPS 安全环境。局域网测试请先信任开发证书，再重新打开此页面');
@@ -123,8 +137,7 @@ function requireWebAuthn(operation: 'create' | 'get' = 'get'): void {
       (operation === 'create' && typeof navigator.credentials?.create !== 'function')) {
     throw new PlatformVaultUnavailableError();
   }
-  if (operation === 'create' && clientCapability?.credential === window.PublicKeyCredential
-    && clientCapability.probe === window.PublicKeyCredential.getClientCapabilities && clientCapability.prf === false) {
+  if (operation === 'create' && platformVaultSetupState() === 'unsupported') {
     throw new PlatformVaultUnavailableError();
   }
 }

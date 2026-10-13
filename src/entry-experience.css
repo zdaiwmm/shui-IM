@@ -1,0 +1,78 @@
+/* Entry and recovery use the shared P1 palette and opaque surfaces. */
+#app input::placeholder, #app textarea::placeholder { color: color-mix(in srgb, var(--ink-muted) 72%, var(--paper)); opacity: 1; }
+.entry-art { position: relative; width: 208px; height: 160px; flex: none; margin: 12px 0 28px; color: var(--accent); isolation: isolate; }
+.entry-orbit { position:absolute; inset: 22px 5px 20px; border:1px solid color-mix(in srgb,var(--accent) 30%,var(--paper)); border-radius:50%; transform:rotate(-22deg); }
+.entry-ground { position:absolute; bottom:8px; left:38px; right:38px; height:1px; background:var(--line); }
+.entry-fold { position:absolute; width:88px; height:105px; display:grid; place-items:center; border-radius:50% 50% 18% 50%; animation:entry-float 7s ease-in-out infinite; }
+.entry-fold-one { left:17px; top:19px; background:var(--accent-soft); transform:rotate(-12deg); }
+.entry-fold-two { right:17px; top:40px; background:color-mix(in srgb,var(--accent) 77%,var(--paper)); transform:rotate(12deg); animation-delay:-3s; }
+.entry-message { display:grid; align-content:center; gap:6px; width:43px; height:34px; padding:10px; border-radius:11px 11px 11px 3px; background:var(--paper); }
+.entry-message i { height:2px; background:color-mix(in srgb,var(--accent) 34%,var(--paper)); }
+.entry-message i:last-child { width:65%; }
+.entry-spark { position:absolute; width:6px; height:6px; border-radius:50%; background:var(--accent); top:24px; left:46px; box-shadow:0 0 0 3px var(--paper); }
+.entry-art-lock .entry-fold-two .entry-message { position:relative; width:33px; height:32px; border-radius:7px; }
+.entry-art-lock .entry-fold-two .entry-message::before { content:''; position:absolute; left:7px; top:-12px; width:15px; height:15px; border:2px solid var(--paper); border-radius:10px 10px 0 0; }
+.entry-art-lock .entry-fold-two .entry-message i:first-child { width:4px; height:9px; margin:auto; border-radius:4px; }
+.entry-art-lock .entry-fold-two .entry-message i:last-child { display:none; }
+.entry-art-card .entry-fold { border-radius:16px; height:96px; width:72px; }
+.entry-art-card .entry-message { height:54px; border-radius:8px; }
+#app .gateway-welcome .entry-art { margin:0 auto 30px; transform:scale(1.12); }
+#app .gateway-welcome .welcome-copy { text-align:center; display:grid; gap:10px; }
+#app .gateway-welcome .welcome-copy p { margin:0; }
+.entry-protection { padding:20px; background:var(--surface); border-radius:var(--radius-surface); margin:20px 0; }
+.entry-protection strong { font-size:16px; }
+.entry-protection p { font-size:14px; line-height:1.7; color:var(--ink-muted); margin:8px 0 0; }
+.entry-support { display:flex; align-items:flex-start; gap:10px; font-size:12px; line-height:1.7; color:var(--ink-muted); margin:20px 2px; }
+.entry-support svg { width:18px; height:18px; flex:none; margin-top:2px; color:var(--accent); }
+#app .entry-chat-guidance { display:grid; gap:12px; margin:24px auto 0; width:min(100%,300px); }
+.entry-chat-guidance small { font-size:12px; line-height:1.6; color:var(--ink-muted); }
+.recovery-card-preview { padding:24px; border-radius:20px; background:var(--accent-soft); color:var(--ink); margin:20px 0; }
+.recovery-card-preview > span { font-size:10px; letter-spacing:.16em; color:var(--accent); }
+.recovery-card-preview > strong { display:block; font-size:22px; margin:24px 0 12px; }
+.recovery-card-preview p { font-size:12px; line-height:1.7; }
+.entry-card-check { padding:20px; border-radius:16px; background:var(--surface-raised); display:grid; gap:12px; }
+.entry-card-check h2 { font-size:18px; margin:0; }
+.entry-card-check p { font-size:12px; line-height:1.7; margin:0; }
+.entry-card-check textarea { display:block; width:100%; margin-top:8px; }
+#app .recovery-card-entry.joint-code-sheet { padding:0; background:var(--paper); align-items:stretch; }
+#app .recovery-card-entry.joint-code-sheet .recovery-code-panel { display:flex; flex-direction:column; width:100%; max-width:480px; height:100%; max-height:100%; border-radius:0; padding:0; box-shadow:none; background:var(--paper); overflow:auto; overscroll-behavior:contain; }
+.recovery-card-entry .recovery-flow-nav { position:sticky; top:0; flex:none; background:var(--paper); z-index:1; }
+.recovery-entry-body, .entry-recovery-protection { padding:20px; flex:1; }
+#app .recovery-card-entry .recovery-code-heading { display:block; min-width:0; }
+#app .recovery-card-entry .recovery-code-heading h2 { font-size:26px; line-height:1.3; margin:8px 0 12px; text-align:left; }
+.recovery-card-entry .recovery-code-heading p, .entry-recovery-protection > p { font-size:14px; line-height:1.7; color:var(--ink-muted); }
+.entry-file-well { display:flex; align-items:center; flex-direction:column; width:100%; gap:12px; padding:28px 20px; margin:24px 0; border:1px dashed var(--line-strong); border-radius:16px; background:var(--surface-raised); color:var(--ink); }
+.entry-file-well svg { width:48px; height:48px; color:var(--accent); margin-bottom:6px; }
+.entry-file-well span { font-size:12px; color:var(--ink-muted); }
+#app .entry-recovery-spaces { border:0; padding:0; margin:24px 0; min-width:0; }
+.entry-recovery-spaces legend { font-size:12px; color:var(--ink-muted); margin-bottom:12px; }
+.entry-recovery-space { display:flex; gap:12px; align-items:center; padding:16px; margin:8px 0; border-radius:14px; background:var(--surface-raised); cursor:pointer; }
+.entry-recovery-space:has(input:checked) { background:var(--accent-soft); }
+.entry-recovery-space .space-avatar { width:44px; height:44px; flex:none; }
+#app .entry-recovery-space input { width:16px; height:16px; accent-color:var(--accent); flex:none; padding:0; }
+.entry-recovery-space > span:last-child { overflow-wrap:anywhere; font-size:14px; }
+.entry-recovery-protection .primary-button,.entry-recovery-protection .text-button { width:100%; margin-top:16px; }
+#app .recovery-card-entry [hidden] { display:none!important; }
+@keyframes entry-float { 0%,100%{translate:0 0} 50%{translate:0 -5px} }
+@media(prefers-reduced-motion:reduce) { .entry-fold { animation:none; } }
+
+#app .gateway-welcome .gateway-heading { text-align:center; }
+#app .recovery-card-entry .recovery-flow-footer { position:sticky; bottom:0; background:var(--paper); padding:16px 20px calc(16px + env(safe-area-inset-bottom)); }
+
+/* Acceptance refinement: quiet explanations and invitation state in the conversation. */
+.entry-support svg { fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.entry-invite-status { display:flex; flex-wrap:wrap; justify-content:center; gap:4px 12px; margin:0 0 4px; color:var(--ink-muted); font-size:12px; line-height:1.5; }
+.entry-invite-status #invite-countdown { font-variant-numeric:tabular-nums; }
+#app .gallery-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:32px 24px; text-align:center; }
+#app .gallery-empty h2 { margin:0; font-size:17px; font-weight:600; color:var(--ink); }
+#app .gallery-empty > p { margin:0; max-width:30ch; font-size:13px; line-height:1.7; color:var(--ink-muted); }
+.entry-art-gallery { width:180px; height:144px; margin:0 auto 12px; }
+.entry-art-gallery .entry-fold { border-radius:10px; width:88px; height:100px; border:5px solid var(--surface-raised); box-shadow:0 1px 0 var(--line); animation:none; }
+.entry-art-gallery .entry-fold-one { transform:rotate(-12deg); left:20px; top:12px; }
+.entry-art-gallery .entry-fold-two { transform:rotate(9deg); left:74px; top:28px; background:var(--accent-soft); }
+.entry-art-gallery .entry-message { inset:12px 7px 24px; width:auto; height:auto; border-radius:4px; overflow:hidden; background:var(--surface); transform:none; }
+.entry-art-gallery .entry-message::before { content:''; position:absolute; width:16px; height:16px; top:8px; right:9px; border-radius:50%; background:var(--accent); opacity:.4; }
+.entry-art-gallery .entry-message::after { content:''; position:absolute; width:65px; height:65px; top:31px; left:2px; border-radius:8px; transform:rotate(45deg); background:var(--accent); opacity:.25; }
+.entry-art-gallery .entry-message i { display:none; }
+.entry-art-gallery .entry-orbit { display:none; }
+.entry-art-gallery .entry-spark { animation:none; }

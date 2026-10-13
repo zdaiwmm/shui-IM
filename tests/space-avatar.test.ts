@@ -8,14 +8,14 @@ import { newSpaceRecoveryCode, openSpaceDirectory, recoveryDirectoryEntries, sea
 
 describe('private space avatars', () => {
   it('bundles verified looping animations and first-frame alternatives without external display URLs', () => {
-    expect(avatarEmoji.length).toBeGreaterThanOrEqual(64);
+    expect(avatarEmoji.length).toBe(64);
     expect(new Set(avatarEmoji.map(item => item.id)).size).toBe(avatarEmoji.length);
     for (const item of avatarEmoji) for (const still of [false, true]) {
       const bytes = readFileSync(new URL(`../public/space-avatars/${item.id}${still ? '-still' : ''}.webp`, import.meta.url));
       expect(bytes.length).toBe(still ? item.stillSize : item.size);
       expect(createHash('sha256').update(bytes).digest('hex')).toBe(still ? item.stillDigest : item.digest);
       expect(bytes.includes(Buffer.from('ANIM'))).toBe(!still);
-      expect(item.license).toBe('CC-BY-4.0');
+      expect(item.license).toBe('MIT');
     }
     expect(validSpaceAvatar(defaultSpaceAvatar())).toBe(true);
   });

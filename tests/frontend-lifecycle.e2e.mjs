@@ -1214,8 +1214,7 @@ try {
     const header = document.querySelector('.chat-header'); const composer = document.querySelector('#composer');
     const headerTop = header.getBoundingClientRect().top; const composerTop = composer.getBoundingClientRect().top;
     const previous = document.querySelector('[data-client-msg-id="message-40"]');
-    const guide = document.querySelector('.chat-guide');
-    if (!guide || guide !== document.querySelector('#message-list').lastElementChild) throw Error('Entrance guide left the approved timeline tail');
+    if (document.querySelector('#entrance-card-banner')) throw Error('Removed entrance guide reappeared');
     const previousBubble = previous.querySelector('.message-bubble');
     const previousTop = previousBubble.getBoundingClientRect().top;
     const outgoing = { ...message(41), senderId: session.vault.identity.publicBundle.deviceId, status: 'pending' };
@@ -1231,7 +1230,7 @@ try {
     const newest = document.querySelector('[data-client-msg-id="message-41"]');
     app.messages.set(41, { ...outgoing, status: 'delivered' }); app.renderMessages();
     if (document.querySelector('[data-client-msg-id="message-41"]') !== newest || !animated.some(animation => animation.playState === 'running')) throw Error('Receipt interrupted an active send animation');
-    if (guide !== document.querySelector('#message-list').lastElementChild || guide.getAnimations({ subtree: true }).length) throw Error('Send moved or animated the entrance guide');
+    if (document.querySelector('#entrance-card-banner')) throw Error('Send recreated the removed entrance guide');
     await Promise.all(animated.map(animation => animation.finished));
     const topAtEnd = previousBubble.getBoundingClientRect().top;
     if (!(topAtStart > topDuring && topDuring > topAtEnd)) throw Error(`Send did not translate smoothly upward: ${topAtStart}, ${topDuring}, ${topAtEnd}`);

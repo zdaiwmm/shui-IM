@@ -1,3 +1,4 @@
+import {openRecoveryCard} from './fixtures/open-recovery.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -49,7 +50,7 @@ try {
   for (let i = 0; i < 10; i++) {
     await r.evaluate(() => { location.hash = `recover=${encodeURIComponent(JSON.stringify(recoveryLink))}`; });
     await r.locator('#joint-start').waitFor(); assert.equal(await r.evaluate(() => location.hash), '');
-    await r.locator('#joint-back').click(); await r.locator('#joint-start').waitFor({ state: 'detached' });
+    await r.locator('#joint-code-close').click(); await r.locator('#joint-start').waitFor({ state: 'detached' });
   }
   results.sameTabRecoveryAndReturn = true;
   const first = await r.evaluate(() => {
@@ -60,7 +61,7 @@ try {
   });
   await r.locator('#joint-start').waitFor();
   assert.equal(await r.locator('.joint-request-code').textContent(), await r.evaluate(async link => (await import('/src/lib/joint-recovery.ts')).jointRecoveryCode(link), first));
-  await r.locator('#joint-back').click();
+  await r.locator('#joint-code-close').click();
   results.firstIntentSurvivesRejectedConcurrentLink = true;
   for (const kind of ['repair', 'device', 'participant']) {
     const url = await r.evaluate(kind => {
@@ -77,10 +78,10 @@ try {
     }
   }
   results.allInvitationKindsReopen = true;
-  await r.evaluate(() => { app.renderJointRecovery(null); }); await r.locator('#joint-open-code').click();
+  await r.evaluate(() => { app.renderJointRecovery(null); }); await openRecoveryCard(r);
   const field = r.locator('#joint-code-form textarea');
   await field.fill('QR4-incomplete'); await r.locator('#joint-code-form button[type=submit]').click();
-  assert.equal(await field.inputValue(), 'QR4-incomplete'); assert.match(await r.locator('#joint-code-form .form-error').textContent(), /QR4.*QR3/);
+  assert.equal(await field.inputValue(), 'QR4-incomplete'); assert.match(await r.locator('#joint-code-form .form-error').textContent(), /恢复|QR4/);
   const directory = await r.evaluate(async () => {
     window.testCode = sp.newSpaceRecoveryCode();
     const oldCode = (await import('/src/lib/backup-crypto.ts')).newRecoveryCode().code;
@@ -95,15 +96,15 @@ try {
   await r.getByRole('button', { name: '重试', exact: true }).waitFor(); assert.equal(await field.inputValue(), '');
   await shot(r, 'recovery-retry-390');
   await r.getByRole('button', { name: '重试', exact: true }).click();
-  await r.locator('[data-recovery-spaces] select').waitFor(); assert.equal(requests, 2);
-  assert.equal(await r.locator('[data-recovery-spaces] option').textContent(), '合成测试空间');
+  await r.locator('[data-recovery-spaces] input').first().waitFor(); assert.equal(requests, 2);
+  assert.equal(await r.locator('[data-recovery-spaces] label > span:last-child').textContent(), '合成测试空间');
   await r.locator('#joint-code-close').click(); await r.locator('#joint-code-form').waitFor({ state: 'detached' });
   await r.unroute('**/api/space-directories/*');
   results.localFormatAndDirectoryRetry = true;
   let release, requested;
   const requestSeen = new Promise(resolve => { requested = resolve; });
   await r.route('**/api/space-directories/*', async route => { requested(); await new Promise(resolve => { release = resolve; }); await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ sealed: directory.sealed }) }).catch(() => {}); });
-  await r.locator('#joint-open-code').click(); await field.fill(directory.code); await r.locator('#joint-code-form button[type=submit]').click(); await requestSeen;
+  await openRecoveryCard(r); await field.fill(directory.code); await r.locator('#joint-code-form button[type=submit]').click(); await requestSeen;
   await r.locator('#joint-code-close').click(); release(); await r.locator('#joint-code-form').waitFor({ state: 'detached' });
   await r.waitForTimeout(150); assert.equal(await r.locator('[data-recovery-spaces]').count(), 0);
   results.cancelRejectsLateRecovery = true;
@@ -113,17 +114,17 @@ try {
     cooldownRequests += 1;
     return route.fulfill({ status: cooldownRequests === 1 ? 429 : 200, headers: { 'Retry-After': '1' }, contentType: 'application/json', body: JSON.stringify(cooldownRequests === 1 ? {} : { sealed: directory.sealed }) });
   });
-  await r.locator('#joint-open-code').click(); await field.fill(directory.code); await r.locator('#joint-code-form button[type=submit]').click();
+  await openRecoveryCard(r); await field.fill(directory.code); await r.locator('#joint-code-form button[type=submit]').click();
   await r.waitForFunction(() => document.querySelector('#joint-code-form .form-error')?.textContent.includes('过于频繁'));
   assert.equal(await r.locator('#joint-code-form button[type=submit]').isDisabled(), true);
   await r.locator('#joint-code-form').evaluate(form => { form.dispatchEvent(new Event('submit', { cancelable: true })); });
   assert.equal(cooldownRequests, 1);
-  await r.getByRole('button', { name: '重试', exact: true }).click(); await r.locator('[data-recovery-spaces] select').waitFor();
+  await r.getByRole('button', { name: '重试', exact: true }).click(); await r.locator('[data-recovery-spaces] input').first().waitFor();
   assert.equal(cooldownRequests, 2);
   await r.locator('#joint-code-close').click(); await r.locator('#joint-code-form').waitFor({ state: 'detached' });
   await r.unroute('**/api/space-directories/*');
   await r.route('**/api/space-directories/*', route => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }));
-  await r.locator('#joint-open-code').click(); await field.fill(directory.code); await r.locator('#joint-code-form button[type=submit]').click();
+  await openRecoveryCard(r); await field.fill(directory.code); await r.locator('#joint-code-form button[type=submit]').click();
   await r.waitForFunction(() => document.querySelector('#joint-code-form .form-error')?.textContent.includes('找不到'));
   assert.equal(await field.inputValue(), ''); assert.equal(await field.isVisible(), true);
   await r.evaluate(() => { Object.defineProperty(document, 'hidden', { configurable: true, get: () => true }); document.dispatchEvent(new Event('visibilitychange')); });
@@ -159,11 +160,12 @@ try {
   await a.route('**/api/recovery-backups/*', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ revision: 1, sealed: unavailable.sealed }) }));
   await a.locator('#message-input').fill('原空间的合成草稿');
   await a.evaluate(() => { app.uiPreferences.composerDraft = document.querySelector('#message-input').value; app.flushUiPreferencesSave(); app.renderJointRecovery(null); });
-  await a.locator('#joint-open-code').click(); await a.locator('#joint-code-form textarea').fill(unavailable.code);
+  await openRecoveryCard(a); await a.locator('#joint-code-form textarea').fill(unavailable.code);
   await a.locator('#joint-code-form button[type=submit]').click();
+  await a.locator('[data-recovery-protect]').click();
   await a.waitForFunction(() => document.querySelector('#joint-code-form .form-error')?.textContent.length > 0);
   await a.locator('#joint-code-close').click(); await a.locator('#joint-code-form').waitFor({ state: 'detached' });
-  await a.locator('#joint-back').click(); await a.locator('#message-input').waitFor();
+  await a.locator('#message-input').waitFor();
   assert.equal(await a.evaluate(() => app.session.vault.roomId), setup.roomId);
   assert.equal(await a.locator('#message-input').inputValue(), '原空间的合成草稿');
   assert.equal(await a.evaluate(() => app.session.vault.pendingJointRecovery), undefined);
@@ -213,7 +215,7 @@ try {
   await f.locator('#message-input').fill('继续编写的合成草稿');
   await f.locator('#message-input').focus();
   await f.evaluate(() => { document.querySelector('#message-input').setSelectionRange(2, 5); location.hash = `recover=${encodeURIComponent(JSON.stringify({ roomId: app.session.vault.roomId, requestId: crypto.randomUUID(), capability: 'a'.repeat(43) }))}`; });
-  await f.locator('#joint-start').waitFor(); await f.locator('#joint-back').click(); await f.locator('#message-input').waitFor();
+  await f.locator('#joint-start').waitFor(); await f.locator('#joint-code-close').click(); await f.locator('#message-input').waitFor();
   await f.waitForFunction(() => document.activeElement?.id === 'message-input');
   assert.deepEqual(await f.locator('#message-input').evaluate(input => ({ value: input.value, start: input.selectionStart, end: input.selectionEnd })), { value: '继续编写的合成草稿', start: 2, end: 5 });
   results.recoveryReturnPreservesDraftAndFocus = true;

@@ -110,6 +110,7 @@ try {
     assert.equal(await deleteAction.count(), 1, `${direction}: file delete action is missing`);
     assert.equal(await deleteAction.getAttribute('data-danger'), 'true', `${direction}: delete action lost its danger treatment`);
     await page.waitForFunction(() => document.activeElement?.closest('.message-actions'));
+    await page.waitForFunction(() => [...document.querySelectorAll('.message-action-group')].every(group => group.getAnimations({subtree:true}).every(animation => animation.playState === 'finished' || animation.playState === 'idle')));
     const menuBounds = await page.evaluate(() => ({
       viewport: { width: innerWidth, height: innerHeight },
       actions: [...document.querySelectorAll('.message-action-list, .message-reaction-picker')].map(element => {

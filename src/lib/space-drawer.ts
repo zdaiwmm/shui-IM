@@ -1,15 +1,15 @@
-import { motion, retargetMotion } from './motion';
+import { animatePageReplacement } from './motion';
 import { mountDialog } from './dialog';
 import { bindHalfSheetHandle } from './half-sheet';
 import { spaceAvatarMarkup, bindSpaceAvatarPlayback } from './space-avatar';
 import type { PrivateSpace } from './spaces';
-import { createElement, Bell, Settings2, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2, PanelLeftClose, Palette, MonitorDown, ArrowLeft } from 'lucide';
+import { Image, createElement, Bell, Settings, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2, PanelLeftClose, Palette, MonitorDown, ArrowLeft } from 'lucide';
 import { formatPendingCountdown, pendingSpaceExpiry } from './spaces';
 export type PresenceStyle = 'capsule' | 'heart';
 export function readPresenceStyle(): PresenceStyle { try { return localStorage.getItem('quiet-room:presence-style') === 'heart' ? 'heart' : 'capsule'; } catch { return 'capsule'; } }
 export function writePresenceStyle(style: PresenceStyle): void { localStorage.setItem('quiet-room:presence-style', style); }
 export const spaceIcons = {
-  bell: createElement(Bell).outerHTML, settings: createElement(Settings2).outerHTML, spaces: createElement(PanelsTopLeft).outerHTML,
+  bell: createElement(Bell).outerHTML, settings: createElement(Settings).outerHTML, spaces: createElement(PanelsTopLeft).outerHTML,
   device: createElement(Smartphone).outerHTML, key: createElement(KeyRound).outerHTML,
   upload: createElement(Upload).outerHTML, download: createElement(Download).outerHTML,
   cover: createElement(EyeOff).outerHTML, history: createElement(History).outerHTML,
@@ -38,6 +38,7 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
   spaces: PrivateSpace[]; currentRoom: string; signal: AbortSignal; actions: Action[]; icons?: { close: string; plus: string; settings: string };
   select: (space: PrivateSpace) => Promise<void>; create: () => Promise<void>; rename: (space: PrivateSpace, name: string) => Promise<void>;
 removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; settingsScrollTop?: number; onSettingsLeave?: (scrollTop: number) => void;
+  editAvatar?: (space: PrivateSpace) => Promise<import('./space-avatar').SpaceAvatar | null>;
   remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace) => void;
   listScrollTop?: number;
   refreshUnread?: (signal: AbortSignal) => Promise<void>;
@@ -64,19 +65,14 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; settin
     pageLifetime.abort(); pageLifetime = new AbortController();
     if (sheet.querySelector('.space-list')) listScrollTop = sheet.querySelector('.space-drawer-scroll')!.scrollTop;
     const priorTitle = sheet.getAttribute('aria-label');
-    const previousBody = sheet.querySelector<HTMLElement>('.space-drawer-scroll');
-    const previousPaint = previousBody ? getComputedStyle(previousBody).translate : '0 0';
+    const previousPage = sheet.querySelector<HTMLElement>(':scope > .space-drawer');
     sheet.setAttribute('aria-label', title);
     sheet.classList.toggle('is-settings-page', title === '设置' || title === '在线状态样式');
     sheet.classList.toggle('is-space-list-page', title === '私密空间');
     const listing = title === '私密空间';
-    sheet.innerHTML = `<section class="space-drawer"><header class="space-drawer-header">${back ? `<button class="icon-button space-back" aria-label="返回">${arrow}</button>` : `<button class="icon-button space-close" aria-label="${options.presentation === 'sidebar' ? '收起空间侧栏' : '返回聊天'}">${options.presentation === 'sidebar' ? createElement(PanelLeftClose).outerHTML : createElement(ArrowLeft).outerHTML}</button>`}<h2>${title}</h2>${listing ? `<div class="space-header-actions"><button class="icon-button" id="space-settings" aria-label="设置">${spaceIcons.settings}</button></div>` : back ? `<button class="icon-button space-close" aria-label="关闭">${closeIcon}</button>` : '<span class="space-header-spacer"></span>'}</header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${footer ? `<footer class="space-drawer-footer">${footer}</footer>` : ''}</section>`;
+    sheet.innerHTML = `<section class="space-drawer"><header class="space-drawer-header">${back ? `<button class="icon-button space-back" aria-label="返回">${createElement(ArrowLeft).outerHTML}</button>` : `<button class="icon-button space-close" aria-label="${options.presentation === 'sidebar' ? '收起空间侧栏' : '返回聊天'}">${options.presentation === 'sidebar' ? createElement(PanelLeftClose).outerHTML : createElement(ArrowLeft).outerHTML}</button>`}<h2>${title}</h2>${listing ? `<div class="space-header-actions"><button class="icon-button" id="space-settings" aria-label="设置">${spaceIcons.settings}</button></div>` : back ? `<button class="icon-button space-close" aria-label="关闭">${closeIcon}</button>` : '<span class="space-header-spacer"></span>'}</header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${footer ? `<footer class="space-drawer-footer">${footer}</footer>` : ''}</section>`;
     bindSpaceAvatarPlayback(sheet, AbortSignal.any([signal, pageLifetime.signal]));
-    if (previousBody && priorTitle !== title) {
-      const content = sheet.querySelector<HTMLElement>('.space-drawer-scroll')!;
-      retargetMotion(content, null, { opacity: .8, translate: previousPaint === 'none' || previousPaint === '0px' ? `${back ? 16 : -16}px 0` : previousPaint },
-        { opacity: 1, translate: '0 0' }, motion.local);
-    }
+    if (previousPage && priorTitle !== title) animatePageReplacement(sheet, previousPage, sheet.querySelector<HTMLElement>(':scope > .space-drawer')!, title === '私密空间' || (title === '设置' && priorTitle === '在线状态样式'), signal);
     sheet.querySelector('.space-close')?.addEventListener('click', close);
     sheet.querySelector('.space-back')?.addEventListener('click', () => { back!(); sheet.querySelector<HTMLButtonElement>('.space-back,.space-close')?.focus(); });
   }
@@ -117,15 +113,19 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; settin
     if (busy || signal.aborted || space.accessState || root.querySelector('.space-context-overlay')) return;
     const overlay = document.createElement('div'); overlay.className = 'space-context-overlay'; overlay.setAttribute('role','dialog'); overlay.setAttribute('aria-modal','true'); overlay.setAttribute('aria-label',space.name);
 const removable = Boolean(options.remove && space.waiting && !space.accessState);
-    overlay.innerHTML = `<div class="space-context-menu"><button id="space-rename">${createElement(Pencil).outerHTML}<span>编辑空间名称</span></button>${removable ? `<button id="space-delete" class="is-danger">${createElement(Trash2).outerHTML}<span>${escape(options.removeLabel?.(space) ?? '删除空间')}</span></button>` : ''}</div>`;
+    overlay.innerHTML = `<div class="space-context-menu"><button id="space-rename">${createElement(Pencil).outerHTML}<span>编辑空间名称</span></button>${options.editAvatar ? `<button id="space-avatar-edit">${createElement(Image).outerHTML}<span>修改空间头像</span></button>` : ''}${removable ? `<button id="space-delete" class="is-danger">${createElement(Trash2).outerHTML}<span>${escape(options.removeLabel?.(space) ?? '删除空间')}</span></button>` : ''}</div>`;
     root.append(overlay);
     const dialog = mountDialog(overlay, { signal, isActive: () => !signal.aborted, returnFocus: origin });
     const rect = origin.getBoundingClientRect(), popup = overlay.firstElementChild as HTMLElement;
     const viewport = visualViewport, top = viewport?.offsetTop ?? 0, bottom = top + (viewport?.height ?? innerHeight);
     popup.style.left = `${Math.max(12, Math.min(rect.left, innerWidth - 212))}px`;
-popup.style.top = `${Math.max(top + 12, Math.min(rect.bottom - 6, bottom - (removable ? 124 : 70)))}px`;
+    popup.style.top = `${Math.max(top + 12, Math.min(rect.bottom - 6, bottom - ((removable ? 124 : 70) + (options.editAvatar ? 44 : 0))))}px`;
     overlay.addEventListener('click', e => { if (e.target === overlay) dialog.close({ animate: false }); });
     overlay.querySelector('#space-rename')!.addEventListener('click', () => { dialog.close({ animate: false, restoreFocus: false }); rename(space, origin); });
+    overlay.querySelector('#space-avatar-edit')?.addEventListener('click', () => {
+      dialog.close({ animate: false, restoreFocus: false });
+      void run(async () => { const avatar = await options.editAvatar!(space); if (signal.aborted) return; if (avatar) space.avatar = avatar; list(); });
+    });
     overlay.querySelector('#space-delete')?.addEventListener('click', () => {
       dialog.close({ animate: false, restoreFocus: false });
       void run(async () => {

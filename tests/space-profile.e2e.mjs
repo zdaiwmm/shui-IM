@@ -20,11 +20,11 @@ try {
       const create=URL.createObjectURL.bind(URL),revoke=URL.revokeObjectURL.bind(URL);
       URL.createObjectURL=blob=>{const url=create(blob);outstanding.add(url);return url;};
       URL.revokeObjectURL=url=>{outstanding.delete(url);revoke(url);};
-      window.mount=()=>{
+      window.mount=(options={})=>{
         window.abort?.abort();window.abort=new AbortController();window.result=undefined;
         document.querySelector('#app').innerHTML='<main class="chat-shell"><textarea id="original-draft">未发送的草稿</textarea><button id="origin">创建空间</button></main>';
         window.original=document.querySelector('#original-draft');document.querySelector('#origin').focus();
-        void ui.createSpaceProfile(document.querySelector('#app'),{signal:abort.signal,active:()=>!abort.signal.aborted,hasCredential:true,picker:operation=>operation()}).then(value=>window.result=value);
+        void ui.createSpaceProfile(document.querySelector('#app'),{signal:abort.signal,active:()=>!abort.signal.aborted,hasCredential:true,picker:operation=>operation(),...options}).then(value=>window.result=value);
       }; mount();
     });
     await page.locator('#profile-done').click();assert.match(await page.locator('.space-profile-content .form-error').innerText(),/1–40/);
@@ -38,7 +38,7 @@ try {
     assert.equal(await page.locator('#new-space-name').inputValue(),'海边小屋');
     await page.locator('#change-space-avatar').click();await page.locator('#choose-art').click();
     assert.equal(await page.locator('#profile-back').evaluate(button => document.activeElement === button),true,'Changing pages keeps keyboard focus inside the modal');
-    assert.ok(await page.locator('[data-avatar-choice]').count()>=64);
+    assert.equal(await page.locator('[data-avatar-choice]').count(),64);
     await page.waitForFunction(()=>document.querySelectorAll('.avatar-emoji-grid img[data-playing="true"]').length>=12);
     assert.ok(await page.locator('.avatar-emoji-grid button[aria-pressed=false] img[data-playing=true]').count()>0,'Unselected visible emoji also animate');
     assert.equal(await page.locator('.avatar-emoji-grid svg').count(),0,'No static icon avatar options');
@@ -99,7 +99,17 @@ try {
     await page.evaluate(()=>mount());await page.locator('#change-space-avatar').click();await page.evaluate(()=>abort.abort());
     assert.equal(await page.locator('.space-profile-overlay,.avatar-source-overlay').count(),0);
     assert.equal(await page.evaluate(()=>outstanding.size),0);assert.deepEqual(errors,[]);
-    console.log(`PASS space profile ${engine.name()}: separate fields, 72 animated choices, reduced motion, photo pan/pinch, thumbnail bound, cancel and privacy cleanup, responsive P1`);
+    // A failed durable avatar save must leave a usable crop for retry.
+    await page.evaluate(()=>{window.avatarAttempts=0;mount({avatarOnly:true,saveAvatar:async()=>{if(++avatarAttempts===1)throw Error('合成保存失败');}});});
+    const retryPicker=page.waitForEvent('filechooser');await page.locator('#choose-photo').click();
+    await(await retryPicker).setFiles({name:'retry-avatar.png',mimeType:'image/png',buffer:Buffer.from(image,'base64')});
+    await page.locator('#photo-crop-stage').waitFor();await page.locator('#profile-done').click();
+    await page.getByText('合成保存失败',{exact:true}).waitFor();
+    assert.equal(await page.locator('#photo-crop-stage img').evaluate(image=>image.naturalWidth>0),true);
+    await page.locator('#profile-done').click();await page.locator('.space-profile-overlay').waitFor({state:'detached'});
+    assert.equal(await page.evaluate(()=>window.result.avatar.kind),'image');
+    assert.equal(await page.evaluate(()=>outstanding.size),0);assert.deepEqual(errors,[]);
+    console.log(`PASS space profile ${engine.name()}: separate fields, 64 animated choices, reduced motion, photo pan/pinch, thumbnail bound, cancel and privacy cleanup, responsive P1`);
     await browser.close();browser=null;
   }
 }finally{await browser?.close();await vite.close();}
