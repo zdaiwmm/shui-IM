@@ -66,7 +66,19 @@ try {
     await page.locator('#photo-crop-stage').focus();await page.keyboard.press('+');await page.keyboard.press('ArrowRight');
     assert.equal(await page.locator('#crop-zoom').innerText(),'110%');
     const before=await page.locator('#photo-crop-stage img').getAttribute('style');
+    // Coordinate gestures do not get Playwright's locator stability checks.
+    // Let the real page transition finish before capturing the drag/pinch origin.
+    await page.locator('#photo-crop-stage').evaluate(async stage => {
+      const page = stage.closest('.space-profile-page');
+      const effects = page.getAnimations().filter(animation =>
+        Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)));
+      await Promise.all(effects.map(animation => animation.finished));
+    });
     const rect=await page.locator('#photo-crop-stage').boundingBox();
+    assert.ok(await page.locator('#photo-crop-stage').evaluate(stage => {
+      const box=stage.getBoundingClientRect();
+      return stage.contains(document.elementFromPoint(box.x+box.width/2,box.y+box.height/2));
+    }), 'The settled crop center must receive the pointer gesture');
     await page.mouse.move(rect.x+rect.width/2,rect.y+rect.height/2);await page.mouse.down();await page.mouse.move(rect.x+rect.width/2+30,rect.y+rect.height/2+10,{steps:4});await page.mouse.up();
     assert.notEqual(await page.locator('#photo-crop-stage img').getAttribute('style'),before);
     await page.locator('#crop-reset').click();assert.equal(await page.locator('#crop-zoom').innerText(),'100%');
