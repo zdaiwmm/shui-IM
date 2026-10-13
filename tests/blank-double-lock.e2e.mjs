@@ -5,11 +5,16 @@ const fixture = await privacyFixture({ hasTouch: true });
 const { page, errors } = fixture;
 const locked = () => page.evaluate(() => window.fixture.app.privacyCovered);
 const fresh = () => page.evaluate(() => window.fixture.fresh());
-const chatPoint = async () => {
-  const box = await page.locator('#message-list').boundingBox();
-  // Entry guidance now occupies the center; exercise actual list padding.
-  return { x: box.x + 8, y: box.y + box.height - 20 };
-};
+const chatPoint = async () => page.evaluate(() => {
+  // The document-scroll list spans behind fixed chrome. Its bottom is not
+  // necessarily visible message space; inspect the painted hit target.
+  const header = document.querySelector('.chat-header').getBoundingClientRect();
+  const list = document.querySelector('#message-list').getBoundingClientRect();
+  const point = { x: list.left + 8, y: header.bottom + 12 };
+  const target = document.elementFromPoint(point.x, point.y);
+  if (!target?.closest('#message-list') || target.closest('button,input,textarea')) throw Error('Fixture point is not blank conversation space');
+  return point;
+});
 const tap = async point => { await page.mouse.click(point.x, point.y); };
 const double = async point => { await tap(point); await page.clock.runFor(80); await tap(point); };
 try {

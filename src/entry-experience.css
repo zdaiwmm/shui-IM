@@ -58,3 +58,21 @@
 
 #app .gateway-welcome .gateway-heading { text-align:center; }
 #app .recovery-card-entry .recovery-flow-footer { position:sticky; bottom:0; background:var(--paper); padding:16px 20px calc(16px + env(safe-area-inset-bottom)); }
+
+/* Acceptance refinement: quiet explanations and invitation state in the conversation. */
+.entry-support svg { fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.entry-invite-status { display:flex; flex-wrap:wrap; justify-content:center; gap:4px 12px; margin:0 0 4px; color:var(--ink-muted); font-size:12px; line-height:1.5; }
+.entry-invite-status #invite-countdown { font-variant-numeric:tabular-nums; }
+#app .gallery-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:32px 24px; text-align:center; }
+#app .gallery-empty h2 { margin:0; font-size:17px; font-weight:600; color:var(--ink); }
+#app .gallery-empty > p { margin:0; max-width:30ch; font-size:13px; line-height:1.7; color:var(--ink-muted); }
+.entry-art-gallery { width:180px; height:144px; margin:0 auto 12px; }
+.entry-art-gallery .entry-fold { border-radius:10px; width:88px; height:100px; border:5px solid var(--surface-raised); box-shadow:0 1px 0 var(--line); animation:none; }
+.entry-art-gallery .entry-fold-one { transform:rotate(-12deg); left:20px; top:12px; }
+.entry-art-gallery .entry-fold-two { transform:rotate(9deg); left:74px; top:28px; background:var(--accent-soft); }
+.entry-art-gallery .entry-message { inset:12px 7px 24px; width:auto; height:auto; border-radius:4px; overflow:hidden; background:var(--surface); transform:none; }
+.entry-art-gallery .entry-message::before { content:''; position:absolute; width:16px; height:16px; top:8px; right:9px; border-radius:50%; background:var(--accent); opacity:.4; }
+.entry-art-gallery .entry-message::after { content:''; position:absolute; width:65px; height:65px; top:31px; left:2px; border-radius:8px; transform:rotate(45deg); background:var(--accent); opacity:.25; }
+.entry-art-gallery .entry-message i { display:none; }
+.entry-art-gallery .entry-orbit { display:none; }
+.entry-art-gallery .entry-spark { animation:none; }

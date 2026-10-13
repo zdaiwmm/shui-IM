@@ -254,18 +254,13 @@ try {
     await second.locator('#message-input').fill(`forward ${engine}`); await second.locator('#send-text').click(); await receive(b, `forward ${engine}`);
     const opaque = await second.evaluate(() => Object.entries(localStorage).filter(([id]) => id.startsWith('quiet-room:composer-draft:')));
     assert.ok(!JSON.stringify(opaque).includes('latest from second tab'));
-    // Real peer enrollment wins over a delayed invitation-close return.
+    // Returning from the space list keeps invitation state inline during peer enrollment.
     await second.locator('#open-spaces').click(); await second.locator('#space-create').click(); await completeSpaceProfile(second,'第二空间'); await protect(second);
-    await second.locator('#copy-invite').waitFor(); await second.locator('#invite-url').waitFor({state:'attached'}); const nextInvite = await second.locator('#invite-url').inputValue();
-    await second.locator('#open-spaces').click(); await second.locator('.space-row.is-selected').click(); await second.locator('#invite-close').waitFor();
-    await second.evaluate(() => {
-      const original = app.openPrivateSpaces.bind(app);
-      app.openPrivateSpaces = (guard, scroll) => new Promise(resolve => {
-        window.inviteReturnRequested = true;
-        window.releaseInviteReturn = async () => { app.openPrivateSpaces = original; await original(guard, scroll); resolve(); };
-      });
-    });
-    await second.locator('#invite-close').click(); await waitForState(second, 'invitation-return', () => window.inviteReturnRequested);
+    await second.locator('#copy-invite').waitFor(); const nextInvite = await second.locator('#invite-url').inputValue();
+    await second.locator('#open-spaces').click(); await second.locator('.space-row.is-selected').click();
+    await second.locator('.space-drawer-overlay').waitFor({state:'detached'});
+    assert.equal(await second.locator('.space-invite-overlay').count(),0);
+    assert.match(await second.locator('#invite-countdown').textContent(),/剩余/);
     // A fresh peer browser follows initial invite enrollment. Reusing B's
     // already-protected browser would require its existing-vault unlock route.
     const joiningContext = await browser.newContext(options);
@@ -273,11 +268,10 @@ try {
     const joiningPeer = await joiningContext.newPage(); joiningPeer.setDefaultTimeout(15000);
     await joiningPeer.goto(nextInvite); await joiningPeer.locator('[data-device-verify]').click();
     await protect(joiningPeer); await ready(joiningPeer); await ready(second);
-    await second.evaluate(() => window.releaseInviteReturn());
-    assert.equal(await second.locator('.space-drawer-overlay').count(), 0, 'Late return must not cover the completed peer join');
+    assert.equal(await second.locator('.space-drawer-overlay').count(), 0, 'Invitation navigation must not cover the completed peer join');
     await second.locator('#message-input').fill(`after invitation race ${engine}`); await second.locator('#send-text').click(); await receive(joiningPeer, `after invitation race ${engine}`);
     await joiningContext.close();
-    console.log(`PASS draft-refresh ${engine}: actual refresh/close, IME, IDB abort, post-commit unload, new input/ABA, clear fence, stale concurrent opening refused, hidden same-browser tab handoff, bidirectional MLS, peer-join before delayed invite return`);
+    console.log(`PASS draft-refresh ${engine}: actual refresh/close, IME, IDB abort, post-commit unload, new input/ABA, clear fence, stale concurrent opening refused, hidden same-browser tab handoff, bidirectional MLS, peer-join after inline invitation navigation`);
     await ac.close(); await bc.close(); await browser.close(); browser = undefined;
   }
 } finally { database?.close(); await browser?.close(); await vite?.close(); await service?.close(); await rm(dataDir, { recursive: true, force: true }); }

@@ -1,8 +1,8 @@
 import { mountDialog } from './dialog';
 import { passwordValidation } from './password-protection';
-import { createElement, LockKeyhole, ChevronLeft } from 'lucide';
+import { createElement, LockKeyhole, ArrowLeft } from 'lucide';
 
-/** One fresh operation-bound proof. Cancelling, hiding or timing out rejects late results. */
+/** One fresh operation-bound proof. Cancelling or hiding rejects late results; reading and typing have no deadline. */
 export function requestPassword<T>(root: HTMLElement, options: {
   create?: boolean; title: string; context: string; signal?: AbortSignal; isActive: () => boolean;
   verify: (password: string) => Promise<T>; forgot?: () => void; cancel?: () => void;
@@ -10,7 +10,7 @@ export function requestPassword<T>(root: HTMLElement, options: {
 }): Promise<T> {
   return new Promise((resolve, reject) => {
     const controller = new AbortController();
-    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(60_000), ...(options.signal ? [options.signal] : [])]);
+    const signal = AbortSignal.any([controller.signal, ...(options.signal ? [options.signal] : [])]);
     const fullPage = options.create || options.presentation === 'page';
     const submitLabel = options.submitLabel ?? (options.create ? '设置密码并继续' : options.operation === '查看我的恢复码' ? '验证并查看恢复码' : options.operation === '导出聊天备份' ? '验证并下载备份' : options.operation === '导入聊天备份' ? '验证并恢复记录' : '验证并继续');
     const sheet = document.createElement('section'); sheet.className = `confirm-overlay password-sheet ${fullPage ? `password-page ${options.create ? 'password-create' : 'password-return'}` : 'password-operation-sheet'}`;
@@ -39,17 +39,21 @@ export function requestPassword<T>(root: HTMLElement, options: {
     sheet.querySelector('[data-password-space]')?.append(document.createTextNode(options.spaceName ?? '私密空间'));
     sheet.querySelector('[data-password-operation]')?.append(document.createTextNode(options.operation ?? '继续此操作'));
     const mark = sheet.querySelector('.password-mark'); if (mark) mark.append(createElement(LockKeyhole));
-    sheet.querySelector('.password-page-back')?.append(createElement(ChevronLeft));
+    sheet.querySelector('.password-page-back')?.append(createElement(ArrowLeft));
     root.append(sheet);
     const viewport = window.visualViewport;
-    const fitViewport = () => { if (!viewport) return; sheet.style.top = `${viewport.offsetTop}px`; sheet.style.bottom = 'auto'; sheet.style.height = `${viewport.height}px`; };
+    const fitViewport = () => {
+      const height = viewport?.height ?? window.innerHeight;
+      sheet.style.setProperty('--password-viewport-height', `${height}px`);
+      sheet.style.top = `${viewport?.offsetTop ?? 0}px`; sheet.style.bottom = 'auto'; sheet.style.height = `${height}px`;
+    };
     fitViewport(); viewport?.addEventListener('resize', fitViewport, { signal }); viewport?.addEventListener('scroll', fitViewport, { signal });
     const form = sheet.querySelector<HTMLFormElement>('form')!, password = form.elements.namedItem('password') as HTMLInputElement;
     const confirmation = form.elements.namedItem('confirmation') as HTMLInputElement | null;
     const error = form.querySelector<HTMLElement>('.form-error')!, button = form.querySelector<HTMLButtonElement>('[type=submit]')!;
     let settled = false, busy = false;
     const active = () => !signal.aborted && sheet.isConnected && options.isActive() && !document.hidden;
-    const cancel = () => { if (!settled) { settled = true; reject(new DOMException('验证已取消或超时，请重试', 'AbortError')); } controller.abort(); };
+    const cancel = () => { if (!settled) { settled = true; reject(new DOMException('验证已取消', 'AbortError')); } controller.abort(); };
     const dialog = mountDialog(sheet, { signal, initialFocus: password, isActive: active, onClose: cancel, presentation: fullPage ? undefined : 'sheet' });
     signal.addEventListener('abort', () => { password.value = ''; if (confirmation) confirmation.value = ''; cancel(); }, { once: true });
     document.addEventListener('visibilitychange', () => { if (document.hidden) cancel(); }, { signal });

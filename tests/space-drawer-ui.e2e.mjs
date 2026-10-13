@@ -44,13 +44,13 @@ try {
     await page.waitForFunction(()=>{const r=document.querySelector('.space-name-dialog').getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;});
     await page.locator('#space-name-cancel').click(); await page.locator('.space-name-dialog').waitFor({state:'detached'});
     await page.setViewportSize({width:393,height:680});
-    await page.locator('.space-drawer-scroll').evaluate(el=>{el.scrollTop=400;window.listPosition=el.scrollTop;});
+    await page.locator('.space-drawer:not(.local-page-outgoing) > .space-drawer-scroll').evaluate(el=>{el.scrollTop=400;window.listPosition=el.scrollTop;});
     await page.locator('#space-settings').click();
     assert.equal(await page.locator('#feature-help').count(),0);
-    assert.equal(await page.locator('.space-drawer-scroll').evaluate(el=>getComputedStyle(el).scrollbarWidth),'none');
+    assert.equal(await page.locator('.space-drawer:not(.local-page-outgoing) > .space-drawer-scroll').evaluate(el=>getComputedStyle(el).scrollbarWidth),'none');
     const icons=await page.locator('.space-setting-icon svg').evaluateAll(nodes=>nodes.map(el=>{const r=el.getBoundingClientRect(),tile=el.parentElement.getBoundingClientRect();return [r.width,r.height,tile.width,tile.height,getComputedStyle(el.parentElement).flexShrink];}));
     assert.ok(icons.every(([w,h,tileWidth,tileHeight,shrink])=>w===17&&h===17&&tileWidth===24&&tileHeight===24&&shrink==='0'),JSON.stringify(icons));
-    await page.locator('.space-back').click(); assert.ok(await page.locator('.space-drawer-scroll').evaluate(el=>Math.abs(el.scrollTop-window.listPosition)<1));
+    await page.locator('.space-back').click(); assert.ok(await page.locator('.space-drawer:not(.local-page-outgoing) > .space-drawer-scroll').evaluate(el=>Math.abs(el.scrollTop-window.listPosition)<1));
     await page.locator('#space-settings').click();
     await page.locator('#presence-style-setting').click();
     await page.locator('[data-style=capsule]').focus(); await page.locator('[data-style=capsule]').press('ArrowRight');

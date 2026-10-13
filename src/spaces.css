@@ -6,7 +6,7 @@
 .space-drawer-header h2 { font-size:18px; flex:1; margin:0; font-weight:550; letter-spacing:-.035em; color:var(--ink-muted); }
 .space-drawer-header .icon-button { width:36px; height:44px; min-width:36px; padding:0; background:transparent; box-shadow:none; border:0; color:var(--ink-muted); }
 .space-drawer-header svg { width:18px; height:18px; flex:none; }
-.space-back svg { transform:rotate(180deg); }
+.space-back svg { transform:none; }
 .space-drawer-scroll { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-width:none; }
 .space-drawer-scroll::-webkit-scrollbar,.space-invite-body::-webkit-scrollbar { display:none; width:0; height:0; }
 .space-list { display:flex; flex-direction:column; }

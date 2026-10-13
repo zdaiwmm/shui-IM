@@ -153,7 +153,7 @@ try {
       return { header: header.height, visibleChat: composer.top - header.bottom,
         max: parseFloat(style.maxHeight), font: parseFloat(style.fontSize) };
     });
-    assert.ok(compact.header <= 41);
+    assert.equal(compact.header, 48, 'Keyboard does not compress the title bar');
     assert.equal(compact.max, 88); assert.ok(compact.font >= 16);
     assert.ok(compact.visibleChat >= 170, `short browser viewport must retain >=170px of conversation, got ${compact.visibleChat}`);
     await screenshot(`p1-keyboard-${scheme}`);

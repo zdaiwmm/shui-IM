@@ -36,7 +36,7 @@ import { accessEscape, accessDeadline, formatAccessRemaining, mountAccessApprova
 import { browserAccessKeys, createOriginBrowserProfile, deleteCatalogPendingSpace, removeCatalogSpace, loadBrowserProfile, saveBrowserProfile, refreshBrowserCatalog, discoveredCredentialRecord, prepareBrowserAccess, publishPreparedCatalog, preparedMailboxes, approveBrowser, acceptBrowserApproval, prepareSpaceAccess, accessPrivateSpaces, accessApi, mailboxPath, spaceAccessPath, rememberCatalogRemoval,
   type BrowserProfileSession, type AccessSpace, type PendingSpaceAccess, type AccessStatus, type BrowserRequest, type PeerAccessRequest } from './lib/browser-access';
 import './spaces.css';
-import { mountSpaceDrawer, mountSpaceInvite, readPresenceStyle, spaceIcons } from './lib/space-drawer';
+import { mountSpaceDrawer, readPresenceStyle, spaceIcons } from './lib/space-drawer';
 import { createSpaceProfile } from './lib/space-profile-ui';
 import { spaceAvatarMarkup, bindSpaceAvatarPlayback, defaultSpaceAvatar, type SpaceAvatar, type SpaceProfile } from './lib/space-avatar';
 import './space-profile.css';
@@ -518,8 +518,8 @@ export class QuietRoomApp {
   // User navigation invalidates older asynchronous send positioning. Content
   // may still commit, but only the newest explicit action owns the viewport.
   private chatScrollRevision = 0;
-  private entranceGuideCard: HTMLElement | null = null;
   private chatViewportTop = 0;
+  private chatViewportFollowOffset = 0;
   private chatViewportHeight = 0;
   private chatBottomFollowPending = false;
   private chatViewportFollowUntil = 0;
@@ -945,6 +945,7 @@ export class QuietRoomApp {
         keyboardGeometry,
         composerResize: composerResizeOwnsGeometry,
       }) ?? false;
+      this.syncTransientChatFollow(Boolean(motion?.moving));
       if (!resized && !widthChanged && previousViewportTop === viewportTop && previousChatGeneration === chatGeneration) {
         // A WebKit viewport event can arrive without geometry changes while
         // the initial chat motion is still settling. Keep the bounded sampler
@@ -1036,6 +1037,7 @@ export class QuietRoomApp {
       if (trackingFrame === null) trackingFrame = requestAnimationFrame(sampleViewport);
     };
     this.cancelViewportWork = () => {
+      this.syncTransientChatFollow(false);
       this.galleryViewportHeader = null;
       this.listKeyboardLayout.reset();
       this.cancelListKeyboardSurfaceMotion();
@@ -1947,7 +1949,7 @@ export class QuietRoomApp {
           await onConfirmed(preparedPlatformCredential, active);
         } catch (cause) {
           if (!active()) return;
-          if (isPlatformVaultCancellation(cause)) {
+          if (isPlatformVaultCancellation(cause) || (cause instanceof DOMException && cause.name === 'AbortError')) {
             verifyButton.dataset.label = '重新验证';
             error.textContent = '';
           }
@@ -2845,14 +2847,14 @@ export class QuietRoomApp {
     const unsupported = platformVaultSetupState() === 'unsupported';
     this.gatewayTemplate('每次打开，先确认是你', '日常解锁保护这台浏览器里的聊天，暂时离开后，先验证再查看。', `
       <div class="entry-protection"><strong>${unsupported ? '设置解锁密码' : '使用通行密钥'}</strong><p>${unsupported ? '当前浏览器不支持通行密钥。设置一个仅用于日常解锁的密码。' : '使用设备提供的验证方式，不用额外记住一个新密码。'}</p></div>
-      <p class="entry-support">${icons.lock}<span>日常解锁负责打开聊天；恢复卡负责换设备或数据丢失后的找回。</span></p>
+      <p class="entry-support">${createElement(Info).outerHTML}<span>日常解锁负责打开聊天；恢复卡负责换设备或数据丢失后的找回。</span></p>
       ${unsupported ? '' : `<details class="recovery-explanation"><summary>通行密钥名称与设备备注</summary><label class="passkey-name-field">通行密钥名称<input id="new-passkey-name" value="${accessEscape(defaultPasskeyName())}" autocomplete="off"></label><label class="passkey-name-field">设备备注（选填）<input id="new-device-alias" placeholder="例如：工作电脑" autocomplete="off"></label></details>`}
       <div class="welcome-actions"><button class="primary-button" data-device-verify type="button">${unsupported ? '设置密码并进入空间' : '启用并进入空间'}</button><button class="text-button gateway-back" type="button">返回</button><p class="form-error" role="alert"></p></div>
     `, false, 'plain');
     const mark = this.root.querySelector('.gateway-mark'); if (mark) mark.outerHTML = entryArt('lock');
     if (this.session) {
       this.root.querySelector('[data-device-verify]')?.addEventListener('click', () => {
-        this.transitionPage('forward', () => this.renderInviteWait());
+        this.transitionPage('forward', () => this.renderChat());
       });
     } else {
       this.mountPasskeySetup(
@@ -4602,7 +4604,18 @@ export class QuietRoomApp {
     return { label: '等待对方打开邀请', badge: '待打开' };
   }
 
+  private invitationStage?: string;
+  private inlineInviteTimer: number | null = null;
+
+  private paintInlineInviteCountdown(): void {
+    const label = this.root.querySelector<HTMLElement>('#invite-countdown');
+    if (!label || !this.session) return;
+    const expiry = pendingSpaceExpiry({ waiting: true, createdAt: this.session.vault.createdAt });
+    label.textContent = expiry ? `剩余 ${formatPendingCountdown(expiry - Date.now())}` : '';
+  }
+
   private paintInviteProgress(stage?: string): void {
+    this.invitationStage = stage;
     const peer = this.invitePeerCopy(stage);
     const progress = this.root.querySelector<HTMLElement>('#invitation-progress');
     const badge = this.root.querySelector<HTMLElement>('#invite-peer-badge');
@@ -4617,63 +4630,6 @@ export class QuietRoomApp {
       color: { dark: '#2f4037', light: '#f5f3ee' },
       errorCorrectionLevel: 'M',
     });
-  }
-
-  private renderInviteWait(): void {
-    if (!this.session) return;
-    if (!this.setActiveSurface('away')) return;
-    document.body.className = 'app-mode';
-    const invite: Invite = {
-      v: 1,
-      roomId: this.session.vault.roomId,
-      accessToken: this.session.vault.inviteToken ?? this.session.vault.accessToken,
-      pairingSecret: this.session.vault.pairingSecret,
-      creatorFingerprint: this.session.vault.creatorFingerprint,
-    };
-    const inviteUrl = makeParticipantInviteUrl(invite);
-    this.renderChat();
-    this.root.querySelector('.entry-chat-guidance')?.remove();
-    this.setActiveSurface('away');
-    const signal = this.runtimeAbort?.signal;
-    if (!signal) return;
-    const session = this.session, epoch = this.runtimeEpoch;
-    const returnToSpaces = this.inviteReturnToSpaces;
-    mountSpaceInvite(this.root, {
-      name: this.currentSpaceName, signal,
-      content: `<div class="space-invite-body"><h1 id="space-invite-title">邀请对方加入</h1><p>把邀请链接发给对方，<br>开启只属于你们的对话。</p><div class="space-invite-status"><i aria-hidden="true"></i><span id="invitation-progress">等待对方打开邀请</span></div><p class="space-invite-countdown" id="invite-countdown"></p><label class="invite-link sr-only">邀请链接<input id="invite-url" readonly /></label></div><footer class="space-invite-actions"><button class="primary-button" id="copy-invite" type="button">复制邀请链接</button><p>关闭后，你可以在空间列表中继续邀请。</p></footer>`,
-      closed: () => {
-        if (!this.isRuntimeActive(epoch, session) || this.peerHasJoined(session)) return;
-        this.setActiveSurface('chat');
-        if (returnToSpaces) {
-          if (matchMedia(desktopWidth).matches) this.desktopWorkspace.expand();
-          else void this.openPrivateSpaces(() => this.isRuntimeActive(epoch, session) && !this.peerHasJoined(session), this.inviteListScrollTop).then(() => {
-            if (this.isRuntimeActive(epoch, session) && !this.peerHasJoined(session)) this.root.querySelector<HTMLElement>('.space-drawer-overlay .space-row.is-selected')?.focus({ preventScroll: true });
-          });
-        }
-      },
-    });
-    const input = this.root.querySelector<HTMLInputElement>('#invite-url')!;
-    input.value = inviteUrl;
-    const expiry = pendingSpaceExpiry({ waiting: true, createdAt: this.session.vault.createdAt });
-    let inviteExpired = false;
-    const paintInviteCountdown = () => {
-      const label = this.root.querySelector('#invite-countdown');
-      if (!label) return;
-      if (!expiry) { label.textContent = ''; return; }
-      const remaining = expiry - Date.now();
-      label.textContent = remaining <= 0 ? '邀请已到期' : `剩余 ${formatPendingCountdown(remaining)}`;
-      if (remaining <= 0 && !inviteExpired && this.session) {
-        inviteExpired = true;
-        void this.destroyUnjoinedSpace(this.session).catch(cause => {
-          if (!signal.aborted) this.showNotice(cause instanceof Error ? cause.message : '空间未能销毁，请重试', 'error');
-        });
-      }
-    };
-    paintInviteCountdown();
-    const inviteCountdown = window.setInterval(paintInviteCountdown, 1000);
-    signal.addEventListener('abort', () => window.clearInterval(inviteCountdown), { once: true });
-    this.root.querySelector('#copy-invite')?.addEventListener('click', () => { void this.shareInviteLink(inviteUrl); });
-    this.updateConnectionStatus();
   }
 
   private closeMemePicker(keyboard = false, animate = false): void {
@@ -5219,7 +5175,7 @@ export class QuietRoomApp {
         { id: 'cover-practice-menu', group: '本机', label: session.vault.recoveryExperience?.coverEnabled ? '关闭自动遮蔽' : '体验或开启遮蔽', icon: spaceIcons.cover, run: () => session.vault.recoveryExperience?.coverEnabled ? this.confirmDisableCover() : this.renderCoverPractice() },
         { id: 'release-history', group: '关于', label: '更新记录', icon: spaceIcons.history, run: forward(() => this.renderReleaseHistory()) },
       ],
-      select: space => { if (presentation === 'sidebar' && space.roomId === session.vault.roomId && !space.waiting) { if (!this.root.querySelector(':scope > .chat-shell')) { this.settingsReturn = null; this.renderChat(); } return Promise.resolve(); } if (space.roomId === session.vault.roomId && space.waiting) { this.inviteReturnToSpaces = true; this.inviteListScrollTop = (container ?? this.root).querySelector('.space-drawer-scroll')?.scrollTop ?? 0; this.renderInviteWait(); return Promise.resolve(); } return this.switchPrivateSpace(space); },
+      select: space => { if (presentation === 'sidebar' && space.roomId === session.vault.roomId && !space.waiting) { if (!this.root.querySelector(':scope > .chat-shell')) { this.settingsReturn = null; this.renderChat(); } return Promise.resolve(); } if (space.roomId === session.vault.roomId && space.waiting) { this.inviteListScrollTop = (container ?? this.root).querySelector('.space-drawer-scroll')?.scrollTop ?? 0; this.renderChat(); return Promise.resolve(); } return this.switchPrivateSpace(space); },
       create: async () => { if (spaces.length >= 256) throw new Error('本机空间数量已达上限'); this.renderCreate(); },
       editAvatar: async space => {
         const epoch = this.runtimeEpoch;
@@ -5321,6 +5277,8 @@ export class QuietRoomApp {
     this.setActiveSurface('chat');
     const cryptoReady = this.session.vault.protocol !== 'mls-rfc9420' || this.session.vault.mls?.phase === 'active';
     this.scheduleWaitingSpaceExpiry(this.session);
+    if (this.inlineInviteTimer !== null) window.clearInterval(this.inlineInviteTimer);
+    this.inlineInviteTimer = window.setInterval(() => this.paintInlineInviteCountdown(), 1000);
     this.shieldHintCleanup?.();
     this.shieldHintCleanup = null;
     this.galleryObserver?.disconnect();
@@ -6058,6 +6016,26 @@ export class QuietRoomApp {
     this.root.querySelector('#release-history-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderChat()));
   }
 
+  /** Keep bottom-following content visible while document insets await a stable viewport. */
+  private syncTransientChatFollow(moving: boolean): void {
+    const chat = this.chatLayoutElements;
+    if (!chat) return;
+    if (!moving || this.usesListScrolling || this.visualClientCoordinates || !this.chatPinnedToBottom
+      || this.chatScrollIntent === 'up' || this.privacyCovered || this.activeSurface !== 'chat') {
+      if (this.chatViewportFollowOffset) chat.list.style.removeProperty('translate');
+      this.chatViewportFollowOffset = 0;
+      return;
+    }
+    const latest = this.chatLatestTimelineRow();
+    if (!latest?.isConnected) return;
+    const bottom = latest.getBoundingClientRect().bottom + (parseFloat(getComputedStyle(latest).marginBottom) || 0);
+    const offset = this.chatViewportFollowOffset + this.chatComposerLayoutTop(chat.composer) - CHAT_LATEST_GAP - bottom;
+    if (Math.abs(offset - this.chatViewportFollowOffset) > .1) {
+      this.chatViewportFollowOffset = offset;
+      chat.list.style.translate = `0 ${offset}px`;
+    }
+  }
+
   private commitChatViewportGeometry(): void {
     if (this.usesListScrolling) { this.pendingChatViewportGeometry = null; return; }
     if (this.nativeKeyboardDismiss) return;
@@ -6118,6 +6096,7 @@ export class QuietRoomApp {
         const documentMoved = this.chatScrollDocumentMovedPending;
         this.chatScrollBookkeepingPending = false;
         this.chatScrollDocumentMovedPending = false;
+        this.syncTransientChatFollow(false);
         this.commitChatViewportGeometry();
         // ResizeObserver may have noticed the keyboard-mode composer height,
         // but it deliberately does no document work while motion is active.
@@ -6829,17 +6808,25 @@ export class QuietRoomApp {
     const bottom = composer ? this.chatComposerLayoutTop(composer) : list.getBoundingClientRect().bottom;
     // Rows are in document order. Jump over newer, below-screen history before
     // testing intersection; reading an old page must not measure every row.
+    // Reuse row geometry within this synchronous visibility pass. The binary
+    // search and visible-row scan otherwise measure their boundary twice.
+    const measured = new Map<HTMLElement, DOMRect>();
+    const bounds = (row: HTMLElement) => {
+      let rect = measured.get(row);
+      if (!rect) { rect = row.getBoundingClientRect(); measured.set(row, rect); }
+      return rect;
+    };
     let low = 0;
     let high = this.renderedMessageOrder.length;
     while (low < high) {
       const middle = Math.floor((low + high) / 2);
-      if (this.renderedMessageOrder[middle]!.getBoundingClientRect().top < bottom) low = middle + 1;
+      if (bounds(this.renderedMessageOrder[middle]!).top < bottom) low = middle + 1;
       else high = middle;
     }
     let seq = 0;
     for (let index = low - 1; index >= 0; index--) {
       const article = this.renderedMessageOrder[index]!;
-      const rect = article.getBoundingClientRect();
+      const rect = bounds(article);
       if (rect.bottom < top) break;
       if (rect.top < bottom && rect.bottom > top) {
         const candidate = this.renderedMessageSeq.get(article.dataset.clientMsgId ?? '') ?? 0;
@@ -9464,32 +9451,6 @@ export class QuietRoomApp {
     timer = window.setInterval(paint, 250); paint(); sheet.querySelectorAll('[data-info-done]').forEach(button => button.addEventListener('click', () => dialog.close()));
   }
 
-  private createEntranceGuideCard(): HTMLElement | null {
-    if (this.uiPreferences.entranceCardDismissed || this.accessFailure) {
-      this.entranceGuideCard?.remove();
-      this.entranceGuideCard = null;
-      return null;
-    }
-    if (this.entranceGuideCard) return this.entranceGuideCard;
-    const card = document.createElement('aside');
-    card.className = 'chat-guide';
-    card.id = 'entrance-card-banner';
-    card.dataset.localSystemCard = 'entry';
-    card.setAttribute('aria-label', '私密空间小助手，仅你可见');
-    card.innerHTML = `<span class="chat-guide-icon" aria-hidden="true">${createElement(Link).outerHTML}</span><button id="save-entrance-card" class="chat-guide-open" type="button"><span>下次方便回来：保存入口</span><b aria-hidden="true">›</b></button><button class="icon-button" id="dismiss-entrance-card" type="button" aria-label="关闭入口提示">${icons.close}</button>`;
-    card.querySelector('#save-entrance-card')!.addEventListener('click', () => this.transitionPage('forward', () => this.renderEntranceCard()));
-    card.querySelector('#dismiss-entrance-card')!.addEventListener('click', () => {
-      this.uiPreferences.entranceCardDismissed = true;
-      this.flushUiPreferencesSave();
-      this.entranceGuideCard = null;
-      card.remove();
-      this.syncChatLayout();
-      this.updateChatBottomControl();
-    });
-    this.entranceGuideCard = card;
-    return card;
-  }
-
   private renderMessages({ scroll = 'preserve' }: { scroll?: 'preserve' | 'position' | 'bottom' | 'send' | 'restore' } = {}): void {
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!list || !this.session) return;
@@ -9558,7 +9519,7 @@ export class QuietRoomApp {
     this.readMessageIds = readMessageIds([...this.messageEventHistory.values(), ...this.messages.values()], new Map(this.session.vault.members.map(member => [member.deviceId, member.role])));
     const deletedForEveryone = this.messageDeletions();
     const messages = this.orderedMessages(deletedForEveryone);
-    const entranceCard = this.createEntranceGuideCard();
+
     const visibleMessageIds = new Set(messages.map(message => message.clientMsgId));
     const openActions = this.root.querySelector<HTMLElement>('.message-actions');
     if (openActions?.dataset.sourceId && !visibleMessageIds.has(openActions.dataset.sourceId)) {
@@ -9581,16 +9542,18 @@ export class QuietRoomApp {
       detail.textContent = '文字、语音和原图都会在这台设备上加密后再发送。';
       empty.append(title, detail);
       const guidance = document.createElement('div'); guidance.className = 'entry-chat-guidance';
-      if (this.session.vault.role === 'creator' && this.session.vault.pairingSecret && !this.peerHasJoined(this.session) && !this.root.querySelector('.space-invite-overlay')) {
+      if (this.session.vault.role === 'creator' && this.session.vault.pairingSecret && !this.peerHasJoined(this.session)) {
         const inviteUrl = makeParticipantInviteUrl({ v: 1, roomId: this.session.vault.roomId, accessToken: this.session.vault.inviteToken ?? this.session.vault.accessToken, pairingSecret: this.session.vault.pairingSecret, creatorFingerprint: this.session.vault.creatorFingerprint });
         const invite = document.createElement('button'); invite.className = 'primary-button'; invite.type = 'button'; invite.id = 'copy-invite'; invite.textContent = '复制邀请，等对方加入';
         invite.addEventListener('click', () => void this.shareInviteLink(inviteUrl));
         const link = document.createElement('input'); link.id = 'invite-url'; link.className = 'sr-only'; link.readOnly = true; link.tabIndex = -1; link.setAttribute('aria-label', '邀请链接'); link.value = inviteUrl;
-        guidance.append(invite, link);
+        const status = document.createElement('p'); status.className = 'entry-invite-status';
+        status.innerHTML = '<span id="invitation-progress"></span><span id="invite-countdown" role="timer" aria-live="off"></span>';
+        guidance.append(invite, link, status);
       }
       if (this.session.vault.recoveryExperience?.codeSaved !== this.session.vault.backup?.id || !this.session.vault.backup) {
         const save = document.createElement('button'); save.className = 'secondary-button'; save.type = 'button'; save.textContent = '保存恢复卡';
-        save.addEventListener('click', () => this.renderRecoveryCenter()); guidance.append(save);
+        save.addEventListener('click', () => this.transitionPage('forward', () => this.renderRecoveryCenter())); guidance.append(save);
         const hint = document.createElement('small'); hint.textContent = '换设备或数据丢失时，用恢复卡找回。'; guidance.append(hint);
       }
       empty.append(guidance);
@@ -9598,7 +9561,9 @@ export class QuietRoomApp {
       this.renderedMessageOrder = [];
       this.renderedMessageDates.clear();
       this.renderedMessageSeq.clear();
-      list.replaceChildren(empty, ...(entranceCard ? [entranceCard] : []));
+      list.replaceChildren(empty);
+      this.paintInviteProgress(this.invitationStage);
+      this.paintInlineInviteCountdown();
     } else {
       const currentKeys = new Set<string>();
       const elements: HTMLElement[] = [];
@@ -9701,7 +9666,7 @@ export class QuietRoomApp {
         if (!dateKeys.has(key)) this.renderedMessageDates.delete(key);
       }
       for (const [, draft] of uploadDrafts) timeline.push(draft.view.element);
-      if (entranceCard) timeline.push(entranceCard);
+
       // Keep unchanged nodes in place so focus, image decode state, selection
       // and compositing survive incoming messages and delivery receipts.
       let next = list.firstElementChild;
@@ -11194,9 +11159,9 @@ export class QuietRoomApp {
       <header class="recovery-flow-nav"><button class="icon-button" id="recovery-center-back" type="button" aria-label="返回聊天">${icons.back}</button><strong>恢复卡</strong><span></span></header>
       <section class="recovery-flow-content">${entryArt('card')}<h1>给未来的自己，留一张卡</h1><p class="recovery-flow-lead">换设备、换浏览器或数据丢失时，用恢复卡找回空间。</p>
         <div class="entry-protection"><strong>保存一次，妥善保管</strong><p>这张卡关联你的已备份空间。日常仍用通行密钥或密码打开，无需记住恢复内容。</p></div>
-        <p class="entry-support">${icons.lock}<span>恢复时双方各自确认，不要交换恢复卡。找回方的历史聊天记录需要另外导入备份。</span></p>
+        <p class="entry-support">${createElement(Info).outerHTML}<span>恢复时双方各自确认，不要交换恢复卡。找回方的历史聊天记录需要另外导入备份。</span></p>
         <details class="recovery-explanation"><summary>建议保存在哪里？</summary><p>密码管理器，或你信任的文件存储位置。避免只放在即将清除数据的浏览器里。</p></details>
-      </section><footer class="recovery-flow-footer"><button class="primary-button" id="save-my-code" type="button">保存恢复卡</button><small>查看前需要再次验证</small><p class="form-error" role="alert"></p></footer></main>`;
+      </section><footer class="recovery-flow-footer"><button class="primary-button" id="save-my-code" type="button">保存恢复卡</button><p class="form-error" role="alert"></p></footer></main>`;
     this.root.querySelector('#recovery-center-back')!.addEventListener('click', () => {
       if (this.socket) this.transitionPage('backward', () => this.renderChat());
       else void this.openSession();
@@ -11264,7 +11229,10 @@ export class QuietRoomApp {
 
   private galleryEmptyState(favorites: boolean, category: string): HTMLElement {
     const empty = document.createElement('section'); empty.className = 'gallery-empty';
-    if (!favorites) { empty.textContent = `还没有${category}`; return empty; }
+    if (!favorites) {
+      empty.innerHTML = `${entryArt('gallery')}<h2>还没有${category}</h2><p>${category.includes('文件') ? '从保险箱上传的文件，会安静地收在这里。' : '聊天里分享的照片、视频，<br>以及从保险箱上传的影像，都会收在这里。'}</p>`;
+      return empty;
+    }
     empty.classList.add('favorites-empty');
     empty.innerHTML = `<div class="favorites-empty-content"><div class="favorites-empty-mark">${createElement(Star).outerHTML}</div><h2>还没有收藏</h2><p>长按聊天中的图片、视频或文件，<br>选择“收藏”。</p><button class="primary-button" type="button">返回聊天</button><small>仅保存在这台设备，取消收藏不删除原消息。</small></div><details class="recovery-explanation"><summary>收藏与收藏为表情有什么区别？</summary><p>收藏保存聊天中的图片、视频和文件；收藏为表情收进表情面板，方便再次发送。两者各自管理。</p></details>`;
     empty.querySelector('button')!.addEventListener('click', () => (this.root.querySelector('#gallery-back') as HTMLButtonElement)?.click());
@@ -13387,7 +13355,7 @@ export class QuietRoomApp {
         knownCount.complete ||= !hasMore;
         updateCounts();
         status.textContent = hasMore ? '上拉继续加载' : assets.length + fileCount ? `已加载本机保存的全部${category}`
-          : favorites ? '' : filesTab ? '从保险箱上传的文档、压缩包等文件会显示在这里。' : '聊天中的照片、视频和从保险箱上传的照片、视频会显示在这里。';
+          : '';
         if (assets.length || fileCount) grid.querySelector('.gallery-empty')?.remove();
         if (!hasMore && !assets.length && !fileCount && !grid.querySelector('.gallery-empty')) {
           const empty = this.galleryEmptyState(favorites, category);
@@ -13623,7 +13591,6 @@ export class QuietRoomApp {
     if (!host) return;
     if (!this.accessFailure) { host.querySelector('#access-failure')?.remove(); return; }
     this.root.querySelector('.hidden-album-hint')?.remove();
-    this.entranceGuideCard?.remove(); this.entranceGuideCard = null;
     const input = this.root.querySelector<HTMLTextAreaElement>('#message-input');
     if (input) { input.readOnly = true; input.placeholder = '接入暂停；已有草稿可选择复制'; }
     this.syncComposerMode();
@@ -13946,6 +13913,8 @@ export class QuietRoomApp {
     this.chatScrollRevision += 1;
     if (!preserveIdle) this.idleLease.clear();
     this.idlePrompt?.hide(); this.exposureAnchor = null; this.idleLease.clearExposureLimit();
+    if (this.inlineInviteTimer !== null) window.clearInterval(this.inlineInviteTimer);
+    this.inlineInviteTimer = null; this.invitationStage = undefined;
     if (this.waitingSpaceTimer !== null) window.clearTimeout(this.waitingSpaceTimer);
     this.waitingSpaceTimer = null;
     this.browserAccessHold = false;

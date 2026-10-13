@@ -130,7 +130,7 @@ try {
     await page.evaluate(() => { window.fixtureApp.renderRecoveryCenter(); });
     assert.equal(await page.locator('.recovery-flow-nav strong').textContent(),'恢复卡');
     assert.equal(await page.locator('#save-my-code').textContent(),'保存恢复卡');
-    assert.equal(await page.locator('.recovery-flow-footer small').textContent(),'查看前需要再次验证');
+    assert.equal(await page.locator('.recovery-flow-footer small').count(),0);
     await page.locator('.recovery-explanation summary').click();
     const layout=await page.evaluate(()=>{
       const content=document.querySelector('.recovery-flow-content');content.scrollTop=content.scrollHeight;

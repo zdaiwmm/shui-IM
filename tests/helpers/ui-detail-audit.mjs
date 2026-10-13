@@ -27,7 +27,7 @@ export async function auditUiDetails(page, out) {
     menu: '.message-action-list', coverConfirm: '.cover-disable-panel',
     passwordCreate: '.password-create', passwordReturn: '.password-return', passwordOperation: '.password-operation-sheet',
     settings: '.space-drawer', presenceStyle: '.space-style-options', access: '.browser-access-modal',
-    backupPrivacy: '.backup-privacy-panel', spaceInvite: '.space-invite-sheet',
+    backupPrivacy: '.backup-privacy-panel', spaceInvite: '.entry-chat-guidance',
     notice: '#notice', errorToast: '#app-toast', textSelection: '.message-text-selection',
   };
   const setup = async name => {
@@ -67,9 +67,10 @@ export async function auditUiDetails(page, out) {
         paintCloudBackup(root,session);root.querySelector('[data-cloud-switch]').click();
       }
       if(name==='spaceInvite') {
-        const previous = Object.fromEntries(['roomId','accessToken','pairingSecret','creatorFingerprint','createdAt'].map(key=>[key,session.vault[key]]));
-        Object.assign(session.vault, {roomId:'00000000-0000-4000-8000-000000000001',accessToken:'A'.repeat(43),pairingSecret:'B'.repeat(43),creatorFingerprint:'C'.repeat(43),createdAt:new Date().toISOString()});
-        try { app.renderInviteWait(); } finally { Object.assign(session.vault,previous); }
+        const previous = Object.fromEntries(['roomId','accessToken','pairingSecret','creatorFingerprint','createdAt','members','role'].map(key=>[key,session.vault[key]]));
+        Object.assign(session.vault, {roomId:'00000000-0000-4000-8000-000000000001',accessToken:'A'.repeat(43),pairingSecret:'B'.repeat(43),creatorFingerprint:'C'.repeat(43),createdAt:new Date().toISOString(),role:'creator',members:session.vault.members.filter(member=>member.role==='creator')});
+        app.messages.clear();
+        try { app.renderChat(); } finally { Object.assign(session.vault,previous); }
       }
       if(name==='coverConfirm')app.confirmDisableCover();
       if(name.startsWith('password')) {
@@ -134,7 +135,7 @@ export async function auditUiDetails(page, out) {
           if(fields.length) { assert.equal(fields.length,2);assert.ok(Math.abs(fields[0].width-fields[1].width)<1&&fields.every(e=>e.height>=44&&e.font>=16),'both device fields share the full width and readable size'); }
           else assert.match(await page.locator('.entry-protection').textContent(),/不支持通行密钥/);
         }
-        if(name==='spaceInvite') { assert.equal(await page.locator('#space-invite-title').textContent(),'邀请对方加入');assert.ok((await page.locator('#invite-url').inputValue()).includes('#'));assert.equal(await page.locator('#copy-invite').count(),1); }
+        if(name==='spaceInvite') { assert.equal(await page.locator('.space-invite-sheet').count(),0);assert.ok((await page.locator('#invite-url').inputValue()).includes('#'));assert.equal(await page.locator('#copy-invite').count(),1); }
         if(name==='coverConfirm') {
           const box=await page.locator('.simple-confirm').boundingBox();assert.ok(box.width<=281);
           const actions=await page.locator('.simple-confirm-actions button').evaluateAll(es=>es.map(e=>e.getBoundingClientRect().toJSON()));assert.ok(Math.abs(actions[0].y-actions[1].y)<1,'simple confirmation actions share a row');

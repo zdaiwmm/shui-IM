@@ -336,7 +336,7 @@ try {
     assert.equal(await page.locator('.viewer-media-layer img').getAttribute('src'), originalUrl);
     if (index === 1) await capture('motion-playing-dark');
     await page.evaluate(() => window.photoFixture.app.closeImageViewer(true));
-    await page.waitForFunction(() => document.querySelector('#system-chrome-color').content === 'transparent');
+    await page.waitForFunction(() => { const probe=document.createElement('span');probe.style.color='var(--chrome-top-surface)';document.body.append(probe);const color=getComputedStyle(probe).color;probe.remove();return document.querySelector('#system-chrome-color').content===color; });
     assert.equal(await page.evaluate(url => window.photoFixture.revoked.has(url), stillUrl), true, 'closing revokes the exact still frame URL through the native API');
   }
 

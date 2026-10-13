@@ -38,7 +38,7 @@ Wallpaper colors and message fills follow the confirmed samples. Action colors a
 
 ## Chat and keyboard space
 
-The normal header is 48px plus the top safe area; the keyboard state is 40px plus that safe area. Existing presence, connection information, space navigation and optional heart remain available. The compact state arranges presence and status on one line instead of allocating a second tall row. It does not add a new title or duplicate the peer information.
+The header remains 48px plus the top safe area, including while the keyboard is open. Existing presence, connection information, space navigation and optional heart remain available. Keyboard opening preserves the same presence and status arrangement. It does not add a new title or duplicate the peer information.
 
 The composer starts at 52px plus any bottom safe-area contribution. It is a continuous opaque toolbar with 44px control targets and a frameless input sharing the toolbar surface. The current implementation uses a quiet input underline. The maintained mobile target removes touch-triggered focus decoration; external-keyboard location remains perceivable (standard 06 2–3 / D21). Multiline text grows to 88px and then scrolls internally, retaining native caret and composition behavior. Growth reads the CSS cap rather than maintaining a different JavaScript limit. Reply drafts, recording and expression tools keep their existing state owners.
 
@@ -91,3 +91,9 @@ The confirmed space navigation uses P1’s existing opaque surfaces and tokens. 
 Creation separates an 80px avatar and change action from the externally labeled, 48px name input. Use a 1px quiet focus boundary, 12px corners and existing theme colors. Avatar source selection is a half sheet with the 32×4px handle in a named 44px button, without redundant heading/X controls. The invitation follows the same handle convention. Emoji editing uses a 96px preview, 44px background targets and six columns (five on narrow screens) of animated emoji. Animate every visible option, pause offscreen/background/inert surfaces, and honor reduced motion with stills. Crop uses a circular preview, drag/pinch gestures and compact accessible zoom/reset alternatives; do not render a native range slider.
 
 Opaque top surfaces extend through the top safe area. The document’s bottom sampling background follows the composer, or the current full-page surface when navigating; source/invitation sheets use their own bottom surface. Native Safari chrome remains browser-controlled and requires real-device verification.
+
+## Entry acceptance refinement (2026-10-13)
+
+Settings uses the same 22px outlined gear in chat and space navigation, with a 44px clickable target. Page return controls share an outlined left arrow. Waiting invitations live in the conversation, including their current progress and remaining lifetime; opening a waiting space never opens a second invitation sheet. Avatar source selection opens directly over the space list. Explanatory copy uses a light outlined information symbol. Gallery empty states use local theme-aware photo artwork.
+
+Full-page overlays and local hierarchy changes share 280ms horizontal navigation; source sheets use 240ms vertical travel. Semantic cancellation clears sensitive state immediately while inert presentation finishes leaving; privacy and runtime aborts still remove content immediately. Reduced motion skips travel. The browser top theme-color hint follows the current top surface, while CSS paints the separate bottom safe area. Actual native browser chrome still requires device validation. Password entry has no fixed reading/typing timeout; cancellation and page lifecycle continue to invalidate verification.

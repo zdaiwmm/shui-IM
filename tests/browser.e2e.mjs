@@ -403,7 +403,7 @@ try {
     && Math.abs(presenceLayout.selfGroupCenter - presenceLayout.rightColCenter) <= 6, `Presence groups are not centered in each half: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.shieldRight <= presenceLayout.summaryLeft + 1, `Recovery shield is not on the left of the status capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.shieldLeft >= presenceLayout.headerLeft - 1, `Recovery shield is not at the left of the header: ${JSON.stringify(presenceLayout)}`);
-  invariant(await creator.locator('#message-list > #entrance-card-banner[data-local-system-card="entry"]').count() === 1, 'Save-entry guidance is not a local timeline system card');
+  invariant(await creator.locator('#message-list > #entrance-card-banner[data-local-system-card="entry"]').count() === 0, 'Removed entry banner must not appear');
   await creator.locator('#open-spaces').click({ timeout: 8_000 }); await creator.locator('#space-settings').click(); await creator.locator('#backup-settings').click();
   await creator.locator('#save-my-code').waitFor();
   invariant(await creator.locator('#recovery-center-back').count() === 1, 'Save recovery-code page is missing a back button');
@@ -415,7 +415,6 @@ try {
   await creator.locator('.space-drawer-overlay').waitFor({state:'detached'});
   await creator.locator('#app:not([data-page-transition]) > .chat-shell').waitFor();
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-shield-entry-card-mobile.png') });
-  await creator.locator('#dismiss-entrance-card').click();
   await creator.locator('#entrance-card-banner').waitFor({ state: 'detached' });
   await creator.waitForTimeout(280);
   const composerLayout = await creator.evaluate(() => {
@@ -525,6 +524,7 @@ try {
   const incomingActions = await joiner.locator('.message-action-list [data-message-action] span').allTextContents();
   invariant(JSON.stringify(incomingActions) === JSON.stringify(['回复', '拷贝', '删除', '选择文字']),
     `Incoming text action menu is missing copy, select, reply, or delete: ${JSON.stringify(incomingActions)}`);
+  await joiner.waitForFunction(() => [...document.querySelectorAll('.message-action-group')].every(group => group.getAnimations({subtree:true}).every(animation => animation.playState === 'finished' || animation.playState === 'idle')));
   const actionGeometry = await joiner.locator('.message-action-list, .message-reaction-picker').evaluateAll(elements => elements.map(element => {
     const rect = element.getBoundingClientRect();
     return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height, viewportWidth: innerWidth, viewportHeight: innerHeight };
