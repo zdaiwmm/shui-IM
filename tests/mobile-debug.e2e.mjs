@@ -46,6 +46,14 @@ try {
   assert.equal(await frame.locator('#form-input-draft').inputValue(),'测试空间');
   await frame.locator('[data-form-input-done]').click();await page.waitForFunction(()=>document.getElementById('keyboard').hidden);
   assert.equal(await frame.locator('#new-space-name').inputValue(),'测试空间');
+  await frame.locator('#new-space-name').click();await frame.locator('#form-input-draft').fill('中文合成');
+  await frame.locator('#form-input-draft').dispatchEvent('compositionstart');
+  await frame.locator('#form-input-draft').press('Enter');
+  await frame.locator('.form-input-panel').dispatchEvent('submit');
+  assert.equal(await frame.locator('#form-input-draft').count(),1,'IME and implicit submit cannot finish editing');
+  assert.equal(await frame.locator('#new-space-name').inputValue(),'测试空间');
+  await frame.locator('#form-input-draft').dispatchEvent('compositionend');
+  await frame.locator('[data-form-input-cancel]').click();
   await frame.locator('#new-space-name').click();await frame.locator('#form-input-draft').fill('不应保存');await frame.locator('[data-form-input-cancel]').click();
   assert.equal(await frame.locator('#new-space-name').inputValue(),'测试空间');
   await frame.evaluate(()=>{const label=document.createElement('label');label.textContent='备注';const note=document.createElement('textarea');note.id='note';label.append(note);document.querySelector('#create-space-profile').append(label);});
@@ -84,8 +92,15 @@ try {
   await page.goto(running.url);await page.frameLocator('iframe').locator('#create-room').waitFor();
   const fresh=page.frames().find(f=>f!==page.mainFrame()&&new URL(f.url()).pathname==='/');
   await fresh.locator('#create-room').click();await fresh.locator('#new-space-name').click();await fresh.locator('#form-input-draft').fill('仅草稿');
-  await fresh.evaluate(()=>document.querySelector('#new-space-name').closest('.space-profile-overlay').remove());
+  await fresh.evaluate(()=>{window.retiredDraft=document.querySelector('#form-input-draft');document.querySelector('#new-space-name').closest('.space-profile-overlay').remove();});
   await fresh.locator('.form-input-overlay').waitFor({state:'detached'});
+  assert.equal(await fresh.evaluate(()=>retiredDraft.value),'','Source invalidation wipes the detached editor');
+  await page.reload();await page.frameLocator('iframe').locator('#create-room').waitFor();
+  const privateFrame=page.frames().find(f=>f!==page.mainFrame()&&new URL(f.url()).pathname==='/');
+  await privateFrame.locator('#create-room').click();await privateFrame.locator('#new-space-name').click();await privateFrame.locator('#form-input-draft').fill('不应保留的草稿');
+  await privateFrame.evaluate(()=>{window.retiredDraft=document.querySelector('#form-input-draft');Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'));});
+  await privateFrame.locator('.form-input-overlay').waitFor({state:'detached'});
+  assert.equal(await privateFrame.evaluate(()=>retiredDraft.value),'','Background privacy teardown wipes the draft synchronously');
   assert.deepEqual(errors,[]);
   console.log('MOBILE_DEBUG_OK: real loopback API, alternate ports, isolated data, mobile UA/touch/DPR, synthetic viewport, fixed background, commit/cancel, keyboard, reload, ordinary-dev isolation.');
 } finally {

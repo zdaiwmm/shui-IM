@@ -1,3 +1,4 @@
+import assert from 'node:assert/strict';
 /** Exercise the real mobile draft editor; desktop fixtures retain their native fields. */
 export async function fillFormInput(page, field, value) {
   if (await page.locator('#form-input-draft').count() && await field.getAttribute('data-form-input-active') !== 'true') {
@@ -11,4 +12,6 @@ export async function fillFormInput(page, field, value) {
     await draft.fill(value);
     await page.locator('[data-form-input-done]').click();
   } else await field.fill(value);
+  assert.equal(await field.inputValue(),value,'Committing a form editor must update its original field');
 }
+

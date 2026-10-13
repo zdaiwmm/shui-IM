@@ -121,7 +121,7 @@ export async function probePlatformVaultCapabilities(): Promise<void> {
 
 /** Presentation only: an absent built-in verifier does not exclude external PRF security keys. */
 export function platformVaultUsesExternalAuthenticator(): boolean {
-  return clientCapability?.credential === window.PublicKeyCredential
+  return clientCapability !== null && Boolean(window.PublicKeyCredential) && clientCapability.credential === window.PublicKeyCredential
     && clientCapability.probe === window.PublicKeyCredential?.getClientCapabilities && clientCapability.platform === false;
 }
 

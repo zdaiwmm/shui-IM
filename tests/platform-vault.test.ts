@@ -107,6 +107,16 @@ describe('platform vault WebAuthn cancellation', () => {
     delete (FakePublicKeyCredential as typeof FakePublicKeyCredential & { getClientCapabilities?: unknown }).getClientCapabilities;
   });
 
+  it('keeps a fresh browser without WebAuthn on the unsupported setup path without throwing', async () => {
+    vi.stubGlobal('window', { isSecureContext: true });
+    vi.stubGlobal('navigator', {});
+    vi.resetModules();
+    const fresh = await import('../src/lib/platform-vault');
+    await fresh.probePlatformVaultCapabilities();
+    expect(fresh.platformVaultSetupState()).toBe('unsupported');
+    expect(fresh.platformVaultUsesExternalAuthenticator()).toBe(false);
+  });
+
   it('reports the current browser verifier independently from mobile identity without excluding external keys', async () => {
     installCredentials({ create: vi.fn() });
     Object.defineProperty(FakePublicKeyCredential, 'getClientCapabilities', { configurable: true, value: vi.fn().mockResolvedValue({ 'extension:prf': true, userVerifyingPlatformAuthenticator: false }) });
