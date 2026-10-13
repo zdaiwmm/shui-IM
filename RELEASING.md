@@ -1,5 +1,14 @@
 # Quiet Room 固定发布流程
 
+## 移动调试与统一表单输入待发布（2026-10-14）
+
+- 用户在本会话明确确认精确应用提交 `53988c528fe8700b80841b41b4ff208df7c20227`，版本 `2026.10.13.2`，要求完成发布；无独立消息 permalink。本批只发布该提交，后续文档提交不进入本批。范围与实施例外见[工具记录](docs/requirements/2026-10-14-mobile-debug-tool/README.md)及[7条批注记录](docs/requirements/2026-10-14-mobile-debug-feedback/README.md)。
+- [PR #288](https://github.com/zdaiwmm/shui-IM/pull/288) 已合并；最终源 `1e9afac7f2dc18671c7534b6441b63852ad3aa67` 与应用合并提交同树。精确 [PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38442086251) attempt 2 成功；精确 [main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38444686664) attempt 2 全部15项成功，含完整应用汇总及双架构镜像。首轮 WebKit 草稿恢复及主线桌面会话超时各保留，原样有界重跑后通过。
+- 本地63个浏览器入口按分段执行全部取得通过，370个展示组合通过；不记为单次完整本地门禁成功。早期 `check:full` 因本机94%磁盘触发10项 `BACKUP_CAPACITY_LOW`，原命令仍为失败，未放宽门槛。真实 iPhone／iOS27 Safari、原生IME／密码管理器／认证器及另一台电脑实际运行仍未验证。
+- **发布阻塞于连接，尚未执行生产切换**：确认后的固定 `deploy:doctor` 中 GitHub代码／CI访问通过；生产两项SSH检查均在认证前连接关闭。一次只读握手诊断确认 TCP 已建立，但远端未返回 SSH 协议版本即关闭。未调用发布 helper，未取得 `DEPLOY_VERIFIED` 或独立 `READBACK_OK`；恢复原受信任SSH连接后继续同一精确提交，无需重复需求或SHA确认。未改防火墙、主机校验、root helper或发布门禁。
+- `2026-10-13T18:38:34.791Z` 只读 HTTPS `/api/health` 返回200，`ok/database/storage=true`；仅证明当时公开健康，不证明应用SHA、镜像或新版发布。当前生产身份未能实时SSH核验，下方既有发布记录仍为历史证据。
+- 本次独立文档树从应用SHA建立，不含部署配置，只保存确认与实际交付阶段；当前移动调试工作树和5185服务因仍在使用保留，不清理其他任务资源。
+
 ## 恢复卡入口与交互优化已发布（2026-10-13 20:24）
 
 - 用户明确确认版本 `2026.10.13.1`、完整提交 `76d8d6d62cb88a8a87685de6867fbc003e31bf94` 发布到 `https://ai.shui.click`。PR [#285](https://github.com/zdaiwmm/shui-IM/pull/285) 与测试补修 [#286](https://github.com/zdaiwmm/shui-IM/pull/286) 已合并；首页双入口、恢复卡保存／找回、创建后头像编辑、64 个独立动画及 16 条验收修订纳入。需求与失败历史由[需求记录](docs/requirements/2026-10-13-recovery-card-entry/README.md)拥有。
