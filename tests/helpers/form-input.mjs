@@ -14,4 +14,3 @@ export async function fillFormInput(page, field, value) {
   } else await field.fill(value);
   assert.equal(await field.inputValue(),value,'Committing a form editor must update its original field');
 }
-
