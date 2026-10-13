@@ -1,3 +1,4 @@
+import { layoutViewport } from './form-input';
 import { mountDialog } from './dialog';
 import { passwordValidation } from './password-protection';
 import { createElement, LockKeyhole, ArrowLeft } from 'lucide';
@@ -41,7 +42,7 @@ export function requestPassword<T>(root: HTMLElement, options: {
     const mark = sheet.querySelector('.password-mark'); if (mark) mark.append(createElement(LockKeyhole));
     sheet.querySelector('.password-page-back')?.append(createElement(ArrowLeft));
     root.append(sheet);
-    const viewport = window.visualViewport;
+    const viewport = layoutViewport();
     const fitViewport = () => {
       const height = viewport?.height ?? window.innerHeight;
       sheet.style.setProperty('--password-viewport-height', `${height}px`);

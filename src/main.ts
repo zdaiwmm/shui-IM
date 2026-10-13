@@ -14,6 +14,9 @@ import './motion.css';
 import './desktop.css';
 import './experience.css';
 import './system-chrome.css';
+import './form-input.css';
+import { mountFormInputs } from './lib/form-input';
+import { mountGatewayIntros } from './lib/gateway-intro';
 
 // Keep zooming inside purpose-built media viewers instead of allowing a
 // double tap/click to scale the whole browser page. The viewport declaration
@@ -30,6 +33,8 @@ const root = document.querySelector<HTMLElement>('#app');
 if (!root) throw new Error('Application root is missing');
 mountSystemChrome();
 mountPortraitOrientation(root);
+mountFormInputs(root);
+mountGatewayIntros(root);
 
 const app = new QuietRoomApp(root);
 void app.start();

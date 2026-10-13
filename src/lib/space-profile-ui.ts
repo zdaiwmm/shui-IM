@@ -83,19 +83,28 @@ export function createSpaceProfile(root: HTMLElement, options: {
       const sheetLifetime = new AbortController(), sheetSignal = AbortSignal.any([signal, sheetLifetime.signal]);
       const sheet = document.createElement('div'); sheet.className = 'avatar-source-overlay';
       sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', '更改头像');
-      sheet.innerHTML = `<section class="avatar-source-sheet"><button class="half-sheet-handle" type="button" aria-label="关闭头像选项"><span></span></button><div class="avatar-source-preview">${spaceAvatarMarkup(avatar)}</div><div class="avatar-source-options"><button id="choose-art" type="button">${icon(Smile)}<span>使用表情<small>选择动态表情和背景色</small></span>${icon(ChevronRight)}</button><button id="choose-photo" type="button">${icon(Image)}<span>使用图片<small>从相册选取并裁剪</small></span>${icon(ChevronRight)}</button></div><p class="form-error" role="alert">${escape(error)}</p></section>`;
+      sheet.innerHTML = `<section class="avatar-source-sheet"><button class="half-sheet-handle" type="button" aria-label="关闭头像选项"><span></span></button><div class="avatar-source-options"><button id="choose-art" type="button">${icon(Smile)}<span>使用表情<small>选择动态表情和背景色</small></span>${icon(ChevronRight)}</button><button id="choose-photo" type="button">${icon(Image)}<span>使用图片<small>从相册选取并裁剪</small></span>${icon(ChevronRight)}</button></div><p class="form-error" role="alert">${escape(error)}</p></section>`;
       root.append(sheet);
       const chooser = mountDialog(sheet, { signal: sheetSignal, isActive: active, onClose: () => { sheetLifetime.abort(); if (options.avatarOnly && !sourceChosen && active()) close(); } });
       bindHalfSheetHandle(sheet.querySelector<HTMLButtonElement>('.half-sheet-handle')!, sheet.firstElementChild as HTMLElement, sheetSignal, () => chooser.close());
-      bindSpaceAvatarPlayback(sheet, sheetSignal);
       sheet.addEventListener('click', event => { if (event.target === sheet) chooser.close(); }, { signal: sheetSignal });
       sheet.querySelector('#choose-art')!.addEventListener('click', () => { sourceChosen = true; chooser.close({ animate: false, restoreFocus: false }); art(); }, { signal: sheetSignal });
-      sheet.querySelector('#choose-photo')!.addEventListener('click', () => {
-        sourceChosen = true; chooser.close({ animate: false });
+      const photoButton = sheet.querySelector<HTMLButtonElement>('#choose-photo')!;
+      let picking = false;
+      photoButton.addEventListener('click', () => {
+        if (picking) return;
+        picking = true; photoButton.disabled = true;
         // The picker must be invoked in this trusted source-button click stack.
-        void options.picker(pickImage).then(file => file && active() ? photo(file) : options.avatarOnly && active() ? sources() : undefined).catch(cause => {
-          if (active()) sources(cause instanceof Error ? cause.message : '图片未能打开，请重试');
-        });
+        void options.picker(pickImage).then(async file => {
+          if (!file || !active() || sheetSignal.aborted) return;
+          // Decode/validate before retiring the source: cancel and errors keep this same sheet.
+          await photo(file, () => {
+            if (sheetSignal.aborted || !active()) return false;
+            sourceChosen = true; chooser.close({ animate: false, restoreFocus: false }); return true;
+          });
+        }).catch(cause => {
+          if (active() && !sheetSignal.aborted) sheet.querySelector('.form-error')!.textContent = cause instanceof Error ? cause.message : '图片未能打开，请重试';
+        }).finally(() => { picking = false; if (!sheetSignal.aborted) photoButton.disabled = false; });
       }, { signal: sheetSignal });
     };
     const art = () => {
@@ -126,7 +135,7 @@ export function createSpaceProfile(root: HTMLElement, options: {
       input.addEventListener('change', () => done(input.files?.[0] ?? null), { once: true });
       input.click();
     });
-    const photo = async (file: File) => {
+    const photo = async (file: File, ready: () => boolean) => {
       if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024 || !file.size) throw new Error('请选择 5 MB 以内的 JPG、PNG 或 WebP 图片');
       const url = URL.createObjectURL(file); urls.add(url);
       const image = new window.Image(); image.src = url;
@@ -134,6 +143,7 @@ export function createSpaceProfile(root: HTMLElement, options: {
       if (!active()) { URL.revokeObjectURL(url); urls.delete(url); image.removeAttribute('src'); return; }
       if (!image.naturalWidth || !image.naturalHeight || image.naturalWidth * image.naturalHeight > 40_000_000) { URL.revokeObjectURL(url); urls.delete(url); throw new Error('图片尺寸过大，请选择 4000 万像素以内的图片'); }
       const ratio = image.naturalWidth / image.naturalHeight;
+      if (!ready()) { URL.revokeObjectURL(url); urls.delete(url); image.removeAttribute('src'); return; }
       const view = page('裁剪图片', `<div class="avatar-crop-stage" id="photo-crop-stage" tabindex="0" role="group" aria-label="头像裁剪区域，拖动移动，双指缩放，方向键移动，加减号缩放"><img src="${url}" alt="" draggable="false" style="width:${Math.max(1, ratio) * 100}%;height:${Math.max(1, 1 / ratio) * 100}%"></div><p class="avatar-crop-hint">单指拖动调整位置，双指缩放。</p><div class="avatar-crop-controls"><button class="icon-button" id="crop-minus" type="button" aria-label="缩小图片">${icon(Minus)}</button><output id="crop-zoom" aria-live="off">100%</output><button class="icon-button" id="crop-plus" type="button" aria-label="放大图片">${icon(Plus)}</button><button class="text-button" id="crop-reset" type="button">重置</button></div>`, '设置为头像', () => { URL.revokeObjectURL(url); urls.delete(url); if (options.avatarOnly) dialog!.close(); else details(); }, true);
       const stage = overlay.querySelector<HTMLElement>('#photo-crop-stage')!, target = stage.querySelector<HTMLImageElement>('img')!;
       view.signal.addEventListener('abort', () => { URL.revokeObjectURL(url); urls.delete(url); image.removeAttribute('src'); }, { once: true });

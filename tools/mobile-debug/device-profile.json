@@ -1,0 +1,26 @@
+{
+  "name": "iPhone portrait / Safari-style shell / Chromium",
+  "metrics": {
+    "width": 393,
+    "height": 852,
+    "deviceScaleFactor": 3,
+    "mobile": true,
+    "screenWidth": 393,
+    "screenHeight": 852,
+    "scale": 1,
+    "screenOrientation": { "type": "portraitPrimary", "angle": 0 }
+  },
+  "userAgent": {
+    "userAgent": "Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1",
+    "platform": "iPhone",
+    "acceptLanguage": "zh-CN,zh;q=0.9"
+  },
+  "touch": { "enabled": true, "maxTouchPoints": 5 },
+  "shell": { "statusHeight": 59, "toolbarHeight": 110, "collapsedToolbarHeight": 30, "keyboardHeight": 320 },
+  "limitations": [
+    "The iOS 27 UA is a chosen simulation string, not evidence of Safari or an actual iOS release.",
+    "Keyboard and browser chrome are drawn locally; VisualViewport values/events in the framed page are synthetic.",
+    "CDP authorization is per computer/session/origin and is never granted by this file.",
+    "Raw touch injection may be unavailable in Codex. Mouse-to-touch conversion is disabled to preserve clicks."
+  ]
+}

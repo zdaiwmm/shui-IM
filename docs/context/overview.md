@@ -2,6 +2,8 @@
 
 # Quiet Room 项目地图
 
+Codex 本地移动调试：`scripts/dev-mobile.mjs`、`tools/mobile-debug/`、`.agents/skills/quiet-room-mobile-debug/`；统一入口 `npm run dev:mobile`，专项 `tests/mobile-debug.e2e.mjs` 已接入完整浏览器门禁。跨电脑与权限边界见 [工作流](../workflows/mobile-debug.md)，7条产品批注与待确认输入浮层见 [需求记录](../requirements/2026-10-14-mobile-debug-feedback/README.md)。
+
 CI 镜像与双独立环境：`scripts/ci-image.mjs`、`scripts/deploy-config.mjs`、`scripts/publish.mjs`／`release.mjs` 与 `.github/workflows/ci.yml`；按精确 main CI run／attempt 校验并传输对应架构镜像。配置、发布与独立回读均选择同一命名环境。缓存维护为独立 root 工具 `deploy/server/quiet-room-cache-maintenance`，不进入每日定时器。契约与验证见[本次需求](../requirements/2026-10-12-ci-image-environments/README.md)、DEPLOYMENT 与 OPERATIONS；源代码存在不代表生产已安装或清理。
 
 备份与恢复双入口：`src/lib/backup-settings-ui.ts`、`src/lib/history-restore-ui.ts`；跨设备授权在 `cloud-backup.ts` / `local-history-backup.ts`，角色级开关在 `server/cloud-backups.mjs`。验证含 `tests/backup-access.e2e.mjs`；边界见 [恢复契约](../../RECOVERY_BACKUPS.md) 与 [需求记录](../requirements/2026-09-28-backup-recovery/README.md)。
@@ -138,3 +140,5 @@ CI 镜像与双独立环境：`scripts/ci-image.mjs`、`scripts/deploy-config.mj
 `tests/audit-interactions.e2e.mjs` 使用本地合成服务、独立浏览器密钥和虚拟认证器，覆盖同标签邀请取消重开、恢复读取重试／关闭／限流／隐藏、添加设备批准自动安装、锁定续接、返回草稿与设备撤销发送守卫；已纳入 `npm run test:browser` 第二组。可附目录参数保存脱敏截图；不代表 iPhone 真机或跨平台通行密钥同步验证。
 
 即时设置／四套整体配色／桌面应用入口：`src/lib/appearance.ts`、`src/appearance.css`、`src/lib/app-access.ts`、`public/manifest.webmanifest`；入口由 `src/app.ts` 与扁平 `space-drawer.ts` 承载。回归 `tests/settings-appearance.e2e.mjs`、`appearance.test.ts`、`desktop-access.test.ts`、`desktop-session-flow.e2e.mjs` 和 `draft-refresh.e2e.mjs`；真实系统安装、原生通行密钥及iPhone证据单列。[确认范围](../requirements/2026-10-10-settings-appearance-desktop/README.md)取代旧默认60秒和桌面每次锁后验证的描述。
+
+移动表单统一输入：`src/lib/form-input.ts`／`src/form-input.css`；背景几何消费者通过 `layoutViewport()` 保持稳定，前景编辑器读取原始VisualViewport。`src/lib/gateway-intro.ts`维护入口图形三态。产品与安全边界见本次[需求记录](../requirements/2026-10-14-mobile-debug-feedback/README.md)。

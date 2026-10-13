@@ -1,3 +1,4 @@
+import { layoutViewport } from './form-input';
 import { motion, retargetMotion } from './motion';
 import { emojiGroups, searchEmoji } from './emoji-catalog';
 import { mountDialog, closeDialog } from './dialog';
@@ -485,13 +486,13 @@ export class MemePicker {
     options.host.classList.add('has-meme-panel'); options.host.append(this.panel);
     this.animateSheet(this.panel.getBoundingClientRect().height, 0, 'translate');
     const sync = () => {
-      const view = window.visualViewport;
+      const view = layoutViewport();
       this.panel.style.setProperty('--meme-height', `${view?.height ?? innerHeight}px`);
       this.overlay?.style.setProperty('--meme-top', `${view?.offsetTop ?? 0}px`);
       this.overlay?.style.setProperty('--meme-height', `${view?.height ?? innerHeight}px`);
     };
-    window.visualViewport?.addEventListener('resize', sync, { signal: this.signal });
-    window.visualViewport?.addEventListener('scroll', sync, { signal: this.signal });
+    layoutViewport()?.addEventListener('resize', sync, { signal: this.signal });
+    layoutViewport()?.addEventListener('scroll', sync, { signal: this.signal });
     window.addEventListener('resize', sync, { signal: this.signal }); sync();
     document.addEventListener('pointerdown', event => {
       if (!this.overlay && !this.preview && !options.host.contains(event.target as Node)) options.close(false);
@@ -527,7 +528,7 @@ export class MemePicker {
     const bounds = this.panel.getBoundingClientRect();
     const translate = new DOMMatrixReadOnly(getComputedStyle(this.panel).transform).m42;
     this.panel.style.height = `${bounds.height}px`;
-    this.animateSheet(translate, translate + (visualViewport?.height ?? innerHeight) + (visualViewport?.offsetTop ?? 0) - bounds.top, 'translate', finish);
+    this.animateSheet(translate, translate + (layoutViewport()?.height ?? innerHeight) + (layoutViewport()?.offsetTop ?? 0) - bounds.top, 'translate', finish);
   }
   private hasPack(id: string) { return this.packs.some(pack => pack.id === id); }
   private say(value: string) { if (this.active()) this.status.textContent = value; }
@@ -763,7 +764,7 @@ export class MemePicker {
     this.halfHeight = height;
     const overlay = document.createElement('div'); overlay.className = 'meme-search-dialog'; overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', this.kind === 'emoji' ? '搜索 Emoji' : this.kind === 'gifs' ? '搜索 GIFs' : '搜索贴纸合集');
     this.overlay = overlay; this.options.root.append(overlay); overlay.append(this.panel);
-    const view = visualViewport; overlay.style.setProperty('--meme-height', `${view?.height ?? innerHeight}px`); overlay.style.setProperty('--meme-top', `${view?.offsetTop ?? 0}px`);
+    const view = layoutViewport(); overlay.style.setProperty('--meme-height', `${view?.height ?? innerHeight}px`); overlay.style.setProperty('--meme-top', `${view?.offsetTop ?? 0}px`);
     this.panel.dataset.view = 'search'; (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = false;
     mountDialog(overlay, { signal: this.signal, isActive: () => this.active(), initialFocus: this.panel.querySelector<HTMLElement>('.meme-back'), returnFocus: this.options.host.querySelector<HTMLElement>('#open-memes'),
       beforeClose: () => { this.back(); return false; } });

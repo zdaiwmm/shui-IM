@@ -1,3 +1,4 @@
+import { layoutViewport } from './form-input';
 import { animatePageReplacement } from './motion';
 import { mountDialog } from './dialog';
 import { bindHalfSheetHandle } from './half-sheet';
@@ -23,13 +24,13 @@ type Action = { id: string; label: string; icon: string; group?: '当前空间' 
 /** Follow the visual viewport when the native keyboard opens, without resizing the chat. */
 export function fitViewport(element: HTMLElement, signal: AbortSignal) {
   const fit = () => {
-    const viewport = window.visualViewport;
+    const viewport = layoutViewport();
     element.style.top = `${viewport?.offsetTop ?? 0}px`;
     element.style.height = `${viewport?.height ?? innerHeight}px`;
   };
   fit();
-  window.visualViewport?.addEventListener('resize', fit, { signal });
-  window.visualViewport?.addEventListener('scroll', fit, { signal });
+  layoutViewport()?.addEventListener('resize', fit, { signal });
+  layoutViewport()?.addEventListener('scroll', fit, { signal });
   window.addEventListener('resize', fit, { signal });
 }
 
@@ -117,7 +118,7 @@ const removable = Boolean(options.remove && space.waiting && !space.accessState)
     root.append(overlay);
     const dialog = mountDialog(overlay, { signal, isActive: () => !signal.aborted, returnFocus: origin });
     const rect = origin.getBoundingClientRect(), popup = overlay.firstElementChild as HTMLElement;
-    const viewport = visualViewport, top = viewport?.offsetTop ?? 0, bottom = top + (viewport?.height ?? innerHeight);
+    const viewport = layoutViewport(), top = viewport?.offsetTop ?? 0, bottom = top + (viewport?.height ?? innerHeight);
     popup.style.left = `${Math.max(12, Math.min(rect.left, innerWidth - 212))}px`;
     popup.style.top = `${Math.max(top + 12, Math.min(rect.bottom - 6, bottom - ((removable ? 124 : 70) + (options.editAvatar ? 44 : 0))))}px`;
     overlay.addEventListener('click', e => { if (e.target === overlay) dialog.close({ animate: false }); });

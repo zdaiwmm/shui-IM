@@ -51,6 +51,10 @@ R 模式不创建 worktree、不修改文件、不提交、不推送，也不等
 - `documents` 与 `pdf`：只有布局、字体、表格、图像或分页变化时才逐轮渲染；纯文本修改保留一次最终渲染检查。
 - 托管插件缓存（`/Users/achilles/.codex/plugins/cache`）不直接修改；需要改变其默认行为时，用本文件覆盖或更新 Skill 源包。
 
+## 本地移动调试入口
+
+需要在 Codex 浏览器调试移动端时，先读 [移动调试工作流](docs/workflows/mobile-debug.md)；项目 Skill 位于 `.agents/skills/quiet-room-mobile-debug/`。使用 `npm run dev:mobile`，回读实际移动 UA、触控、DPR 与合成视口。仓库文件不携带跨电脑 CDP 授权，调试外壳不代表 Safari 真机或原生认证能力。
+
 ## 项目不变量
 
 - 无账号、两名参与者，每人最多三台独立密钥设备；正式来源 `https://ai.shui.click` 绑定 WebAuthn 与本机历史，不能随意迁移。

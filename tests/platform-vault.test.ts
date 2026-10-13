@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createPlatformCredential,
   probePlatformVaultCapabilities,
+  platformVaultSetupState,
+  platformVaultUsesExternalAuthenticator,
   browserAccessCredential,
   isPlatformVaultCancellation,
   isPlatformVaultUnavailable,
@@ -103,6 +105,18 @@ describe('platform vault WebAuthn cancellation', () => {
     await probePlatformVaultCapabilities();
     expect(isPlatformVaultCancellation(await createPlatformCredential().catch(cause => cause))).toBe(true);
     delete (FakePublicKeyCredential as typeof FakePublicKeyCredential & { getClientCapabilities?: unknown }).getClientCapabilities;
+  });
+
+  it('reports the current browser verifier independently from mobile identity without excluding external keys', async () => {
+    installCredentials({ create: vi.fn() });
+    Object.defineProperty(FakePublicKeyCredential, 'getClientCapabilities', { configurable: true, value: vi.fn().mockResolvedValue({ 'extension:prf': true, userVerifyingPlatformAuthenticator: false }) });
+    try {
+      await probePlatformVaultCapabilities();
+      expect(platformVaultSetupState()).toBe('available');
+      expect(platformVaultUsesExternalAuthenticator()).toBe(true);
+      vi.stubGlobal('navigator', { userAgent: 'iPhone Safari', credentials: { create: undefined, get: vi.fn() } });
+      expect(platformVaultSetupState()).toBe('unsupported');
+    } finally { delete (FakePublicKeyCredential as typeof FakePublicKeyCredential & { getClientCapabilities?: unknown }).getClientCapabilities; }
   });
 
   it('permits explicit unsupported PRF only during new setup, preserving old-wrapper failure', async () => {

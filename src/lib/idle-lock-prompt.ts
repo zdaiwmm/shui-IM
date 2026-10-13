@@ -1,3 +1,4 @@
+import { layoutViewport } from './form-input';
 import { IDLE_WARNING_MS } from './idle-lock';
 import '../idle-lock.css';
 
@@ -36,7 +37,7 @@ export class IdleLockPrompt {
     this.position(modal);
   }
   private position(modal?: HTMLElement): void {
-    const viewport = window.visualViewport;
+    const viewport = layoutViewport();
     const top = viewport?.offsetTop ?? 0, left = viewport?.offsetLeft ?? 0;
     const width = viewport?.width ?? innerWidth, height = viewport?.height ?? innerHeight;
     const composer = modal ? null : this.root.querySelector<HTMLElement>('#composer');
