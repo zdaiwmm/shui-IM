@@ -3,7 +3,7 @@ import { mountDialog } from './dialog';
 import { bindHalfSheetHandle } from './half-sheet';
 import { spaceAvatarMarkup, bindSpaceAvatarPlayback } from './space-avatar';
 import type { PrivateSpace } from './spaces';
-import { createElement, Bell, Settings2, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2, PanelLeftClose, Palette, MonitorDown, ArrowLeft } from 'lucide';
+import { Image, createElement, Bell, Settings2, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2, PanelLeftClose, Palette, MonitorDown, ArrowLeft } from 'lucide';
 import { formatPendingCountdown, pendingSpaceExpiry } from './spaces';
 export type PresenceStyle = 'capsule' | 'heart';
 export function readPresenceStyle(): PresenceStyle { try { return localStorage.getItem('quiet-room:presence-style') === 'heart' ? 'heart' : 'capsule'; } catch { return 'capsule'; } }
@@ -38,6 +38,7 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
   spaces: PrivateSpace[]; currentRoom: string; signal: AbortSignal; actions: Action[]; icons?: { close: string; plus: string; settings: string };
   select: (space: PrivateSpace) => Promise<void>; create: () => Promise<void>; rename: (space: PrivateSpace, name: string) => Promise<void>;
 removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; settingsScrollTop?: number; onSettingsLeave?: (scrollTop: number) => void;
+  editAvatar?: (space: PrivateSpace) => Promise<import('./space-avatar').SpaceAvatar | null>;
   remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace) => void;
   listScrollTop?: number;
   refreshUnread?: (signal: AbortSignal) => Promise<void>;
@@ -117,15 +118,19 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; settin
     if (busy || signal.aborted || space.accessState || root.querySelector('.space-context-overlay')) return;
     const overlay = document.createElement('div'); overlay.className = 'space-context-overlay'; overlay.setAttribute('role','dialog'); overlay.setAttribute('aria-modal','true'); overlay.setAttribute('aria-label',space.name);
 const removable = Boolean(options.remove && space.waiting && !space.accessState);
-    overlay.innerHTML = `<div class="space-context-menu"><button id="space-rename">${createElement(Pencil).outerHTML}<span>编辑空间名称</span></button>${removable ? `<button id="space-delete" class="is-danger">${createElement(Trash2).outerHTML}<span>${escape(options.removeLabel?.(space) ?? '删除空间')}</span></button>` : ''}</div>`;
+    overlay.innerHTML = `<div class="space-context-menu"><button id="space-rename">${createElement(Pencil).outerHTML}<span>编辑空间名称</span></button>${options.editAvatar ? `<button id="space-avatar-edit">${createElement(Image).outerHTML}<span>修改空间头像</span></button>` : ''}${removable ? `<button id="space-delete" class="is-danger">${createElement(Trash2).outerHTML}<span>${escape(options.removeLabel?.(space) ?? '删除空间')}</span></button>` : ''}</div>`;
     root.append(overlay);
     const dialog = mountDialog(overlay, { signal, isActive: () => !signal.aborted, returnFocus: origin });
     const rect = origin.getBoundingClientRect(), popup = overlay.firstElementChild as HTMLElement;
     const viewport = visualViewport, top = viewport?.offsetTop ?? 0, bottom = top + (viewport?.height ?? innerHeight);
     popup.style.left = `${Math.max(12, Math.min(rect.left, innerWidth - 212))}px`;
-popup.style.top = `${Math.max(top + 12, Math.min(rect.bottom - 6, bottom - (removable ? 124 : 70)))}px`;
+    popup.style.top = `${Math.max(top + 12, Math.min(rect.bottom - 6, bottom - ((removable ? 124 : 70) + (options.editAvatar ? 44 : 0))))}px`;
     overlay.addEventListener('click', e => { if (e.target === overlay) dialog.close({ animate: false }); });
     overlay.querySelector('#space-rename')!.addEventListener('click', () => { dialog.close({ animate: false, restoreFocus: false }); rename(space, origin); });
+    overlay.querySelector('#space-avatar-edit')?.addEventListener('click', () => {
+      dialog.close({ animate: false, restoreFocus: false });
+      void run(async () => { const avatar = await options.editAvatar!(space); if (signal.aborted) return; if (avatar) space.avatar = avatar; list(); });
+    });
     overlay.querySelector('#space-delete')?.addEventListener('click', () => {
       dialog.close({ animate: false, restoreFocus: false });
       void run(async () => {

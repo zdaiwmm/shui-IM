@@ -257,6 +257,7 @@ try {
     // Real peer enrollment wins over a delayed invitation-close return.
     await second.locator('#open-spaces').click(); await second.locator('#space-create').click(); await completeSpaceProfile(second,'第二空间'); await protect(second);
     await second.locator('#copy-invite').waitFor(); await second.locator('#invite-url').waitFor({state:'attached'}); const nextInvite = await second.locator('#invite-url').inputValue();
+    await second.locator('#open-spaces').click(); await second.locator('.space-row.is-selected').click(); await second.locator('#invite-close').waitFor();
     await second.evaluate(() => {
       const original = app.openPrivateSpaces.bind(app);
       app.openPrivateSpaces = (guard, scroll) => new Promise(resolve => {

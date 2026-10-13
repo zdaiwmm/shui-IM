@@ -109,7 +109,7 @@ try {
   await a.getByRole('button', { name: '确认并找回空间', exact: true }).waitFor();
   if (process.argv[2]) { await mkdir(process.argv[2], { recursive: true }); await a.screenshot({ path: path.join(process.argv[2], 'F01-auto-recovery-390.png'), animations: 'disabled' }); }
   assert.equal(await a.locator('#joint-qr').isVisible(), false, 'Invitation is secondary to the verified result');
-  assert.equal(await a.locator('.recovery-steps [aria-current=step]').textContent(), '2共同确认');
+  assert.equal(await a.locator('.recovery-steps').count(), 0);
   await auditP1Surface(a,'joint-recovery-confirm','.joint-waiting-page');
   await a.locator('.joint-invite-details summary').click();
   const waitingLayout = await a.evaluate(() => {
@@ -157,8 +157,8 @@ try {
   if (process.argv[2]) await a.screenshot({ path: path.join(process.argv[2], 'F07-recovery-center-390.png'), animations: 'disabled' });
   assert.equal(await a.locator('#open-local-history, #import-history-from-hub').count(), 0);
   assert.equal(await a.locator('#save-my-code').count(), 1);
-  assert.equal(await a.locator('.recovery-flow-list li').count(), 4);
-  assert.equal(await a.locator('#save-my-code').textContent(), '查看我的恢复码');
+  assert.equal(await a.locator('.entry-protection').count(), 1);
+  assert.equal(await a.locator('#save-my-code').textContent(), '保存恢复卡');
   assert.equal(await a.locator('.recovery-status-badge').count(), 0);
   await a.locator('#recovery-center-back').click();
   await a.evaluate(() => app.lockNow()); assert.equal(await a.locator('#recovery-center-back').count(), 0);

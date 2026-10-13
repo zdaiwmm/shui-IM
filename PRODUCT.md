@@ -234,7 +234,7 @@ Authenticated settings pages with bottom Back actions, including recovery-code e
 ## Recovery Setup
 
 - Unlocked, online MLS devices still automatically back up recovery checkpoints and local history as ciphertext. Ordinary users now use “恢复私密空间”, recovery codes, joint recovery and local chat files. The previous “备份与恢复” automatic-sync page and single-code device recovery remain available only through hidden compatibility hashes `#legacy-backup` and `#legacy-recovery`; they are not advertised in the new primary flow.
-- Settings → 我的恢复码 opens the recovery center. Saving the shared QR4 collection code requires fresh passkey verification and closes the active conversation first; the code screen locks after one minute or privacy teardown. The former pinned recovery reminder is not part of the primary chat chrome. The local Space Guide card that suggests saving an entry can be dismissed through an encrypted local preference.
+- Settings → 恢复卡 opens the recovery center. Exporting or copying the shared QR4 collection code requires fresh verification with the existing local unlock method and closes the active conversation first; the card screen locks after one minute or privacy teardown. A downloaded file or copy does not mark the card saved: a local reimport/paste comparison must succeed first. The card is a versioned local envelope around the existing QR4 code, with legacy QR3/plain text import retained; it creates no new credential or server plaintext. The former pinned recovery reminder is not part of the primary chat chrome. The local Space Guide card that suggests saving an entry can be dismissed through an encrypted local preference.
 - A QR3 code locates the corresponding server backup and decrypts it locally. The server and administrator never receive the code or decryption keys. Forgotten code plus lost devices has no administrator bypass.
 - MLS recovery proves the original identity but creates a fresh device, token and leaf. Another trusted active device must be online; all active devices need protocol support. Pending recovery fences the original for at most 15 minutes; success permanently revokes it.
 - After replacement, rotate the code immediately. Persist the exact new encrypted wrapper and all retained archive keys locally before upload. Atomically retire the old online entry only when the new wrapper and archive transfer are stored. Failed or ambiguous uploads retry the same request; expose the new code as active only after confirmation.
@@ -274,7 +274,7 @@ Target WCAG 2.2 AA for the unlocked experience. Support keyboard navigation, vis
 
 ## 多浏览器便捷接入
 
-欢迎页提供“在此浏览器继续使用”，点击直接唤起通行密钥验证。验证后提示到其他已授权在线设备解锁并认可浏览器，不枚举浏览器或唤起宿主 App。旧端认可仅提供必要加密目录和默认选中空间，不授予任何空间消息权限。
+以下是保留的既有目录接入兼容协议；欢迎页不再提供此入口。日常通行密钥／密码仅负责本机解锁，新增设备从设置“设备与新增设备”发起，换设备或丢失本机数据从首页“找回空间”读取恢复卡。旧目录接入在兼容流程中直接唤起通行密钥验证。验证后提示到其他已授权在线设备解锁并认可浏览器，不枚举浏览器或唤起宿主 App。旧端认可仅提供必要加密目录和默认选中空间，不授予任何空间消息权限。
 
 新浏览器进入聊天外壳，默认选择批准旧端当前空间。未授权时没有消息、历史预览、在线状态或输入框；底部“申请对方授权”再次直接验证，成功后向该空间对方发起请求。对方进入并解锁空间自动弹窗；关闭后从空间列表同一行右侧“授权”重开。十分钟到期后，对方弹窗、按钮与提示全部移除；申请方可重新验证发起新请求。对方批准且 MLS 安全加入完成后才开放聊天。
 
@@ -285,8 +285,8 @@ Target WCAG 2.2 AA for the unlocked experience. Support keyboard navigation, vis
 
 ### 通行密钥名称与管理
 
-- 欢迎页首位蓝色主按钮为“创建私密空间”，第二项为“接入本设备现存私密空间”。后者仍通过所选通行密钥与原浏览器批准接入目录，不枚举整台物理设备的数据。等待期间可取消并重新选择，迟到结果不进入新请求。
-- 首次创建、旧保险库绑定和恢复后重绑使用同一可读名称输入。名称为 1–40 个用户感知字符，去除首尾空白，不接受控制字符；系统 user.name/displayName 使用同一名称。首次密钥设置成功自动创建空间并打开邀请，已解锁空间继续创建复用原密钥。
+- 欢迎页只提供主题色主按钮“创建私密空间”和次按钮“找回空间”。后者读取恢复卡并展示该卡的空间列表，逐空间发起既有双方确认。新浏览器先设置日常解锁，再把等待确认任务加密存到本机，支持锁定／刷新后继续；密码本身不承担跨浏览器找回。
+- 首次创建、旧保险库绑定和恢复后重绑使用同一可读名称输入。名称为 1–40 个用户感知字符，去除首尾空白，不接受控制字符；系统 user.name/displayName 使用同一名称。首次日常解锁设置成功自动创建空间并直接进入聊天，空聊天区提供复制邀请和保存恢复卡入口；已解锁空间继续创建复用原通行密钥，密码保险库验证原密码后沿用该密码。明确不支持通行密钥的环境在进入保护页前选择密码流程，取消或未知状态不自动降级。
 - 设置“本机”组的“通行密钥管理”直接唤起指定凭据验证，取消留在设置；验证后显示应用记录名称，旧记录显示“尚未设置名称”。修改名称在当前管理页弹窗输入并同步聚焦，保存再次独立验证。
 - 应用不能回读密码管理器名称。已知不支持的浏览器提前禁用改名；未获得 user.id/userHandle 不猜测标识。系统接受更新后再保存应用标签，本地失败提示“结果待确认”并保留同名重试。完成只提示已保存及已通知系统，不承诺提供方或跨浏览器同步回读。
 - 标签按本地 credentialId 共享，不更换通行密钥、空间身份或加密材料。系统标签是公开辨认信息，名称输入提示不填写聊天隐私。
@@ -341,3 +341,7 @@ Settings → 在应用中打开 offers the browser’s native install action whe
 The approved [V1 correction](docs/requirements/2026-10-11-p1-fidelity/README.md) follows the confirmed P1 without a new prototype or business flow. Mobile settings is a complete page; desktop settings occupies its existing content pane. Functional cards retain the current entries and do not reintroduce the removed local/space category split. Notifications keep one heading and all permission, privacy and capability guidance.
 
 Palette and brightness are independent immediate preferences. The four existing palette IDs remain compatible; brightness defaults to system and also offers explicit light/dark. Old or invalid values use system. Manual mode overrides app colors until system is selected again. Persistence is limited to the current browser/PWA data space; same-origin tabs sync, other devices do not. A failed save keeps the previous appearance and checked choice. The preview contains only synthetic conversation text. These presentation changes preserve existing encryption, access, recovery, notification permissions, privacy and gesture owners; precise-commit production authorization remains separate.
+
+## 私有空间头像编辑
+
+创建时与创建后空间菜单“修改空间头像”共用选择器，支持 64 个 Microsoft Fluent 独立动画表情及本机图片裁剪。修改只在本人一侧可见；保存成功才更新空间列表和当前头像，取消保留原值。旧头像 ID 仍可读取；可视区域外及减少动态效果模式使用静帧，选中态只使用主题浅底。

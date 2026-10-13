@@ -1,6 +1,8 @@
-import catalog from './space-avatar-catalog.json';
+import legacyCatalog from './space-avatar-catalog.json';
+import fluentCatalog from './fluent-avatar-catalog.json';
+const catalog = [...legacyCatalog, ...fluentCatalog];
 
-export const avatarEmoji = catalog;
+export const avatarEmoji = fluentCatalog;
 export const avatarBackgrounds = [
   ['海蓝', '#59c6c4', '#538fd3'], ['青绿', '#62d4af', '#43a5b8'], ['草绿', '#bacb53', '#4eb76b'],
   ['紫罗兰', '#cc75be', '#8d63d6'], ['玫瑰', '#f39b6f', '#df5e9d'], ['落日', '#efa555', '#e87366'],
@@ -23,7 +25,7 @@ export function validSpaceAvatar(value: unknown): value is SpaceAvatar {
     && (avatar.data.length - 23) * 3 / 4 - (avatar.data.match(/=+$/)?.[0].length ?? 0) <= MAX_AVATAR_IMAGE_BYTES
     && /^data:image\/jpeg;base64,\/9j\/[A-Za-z0-9+/]+={0,2}$/.test(avatar.data);
 }
-export const defaultSpaceAvatar = (): SpaceAvatar => ({ v: 1, kind: 'emoji', emoji: '1f60a', background: 0 });
+export const defaultSpaceAvatar = (): SpaceAvatar => ({ v: 1, kind: 'emoji', emoji: 'fluent-slightly_smiling_face', background: 0 });
 const escape = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 export function spaceAvatarMarkup(avatar?: SpaceAvatar, name = '空间'): string {
   if (avatar?.kind === 'image' && validSpaceAvatar(avatar)) return `<span class="space-avatar is-image" aria-hidden="true"><img src="${avatar.data}" alt="" draggable="false"></span>`;

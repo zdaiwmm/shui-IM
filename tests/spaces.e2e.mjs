@@ -1,3 +1,4 @@
+import {openRecoveryCard} from './fixtures/open-recovery.mjs';
 import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
@@ -158,8 +159,8 @@ try {
   assert.equal(await page.evaluate(() => v.readStoredVault().then(stored => stored.platform.credentialId)), await page.evaluate(() => a.stored.platform.credentialId));
   assert.notEqual(createdSlot,'current');
   assert.equal(await page.evaluate(() => app.session.browserAccessPrf?.some(byte => byte !== 0) && JSON.stringify(Array.from(app.session.browserAccessPrf)) === JSON.stringify(expectedAccessProof)), true, 'Creating with the unlocked credential must preserve the separate browser-request proof');
-  await page.locator('#invite-close').click();
-  await page.locator('.space-invite-sheet').waitFor({ state: 'detached' });
+  assert.equal(await page.locator('.space-invite-sheet').count(), 0, 'Creating enters chat directly');
+  await page.locator('#open-spaces').click();
   // PRODUCT.md and the confirmed S6 flow require the invitation to return to
   // the list, preserving the pending room; the previous chat assertion was wrong.
   await page.locator('.space-drawer-overlay').waitFor();
@@ -213,11 +214,11 @@ try {
   });assert.equal(routed.selected,routed.target);assert.equal(routed.chat,false);
   const invalid=await page.evaluate(async()=>{history.replaceState(null,'','#invite=broken');app.privacyCovered=false;await app.renderGateway({trustedCoverActivation:true,autoUnlock:false});return document.querySelector('h1').textContent;});assert.equal(invalid,'邀请链接不完整');
   await page.evaluate(() => { history.replaceState(null, '', location.pathname); app.session=a; app.privacyCovered=false; app.runtimeAbort=new AbortController(); app.renderJointRecovery(null); });
-  await page.locator('#joint-open-code').click();
+  await openRecoveryCard(page);
   await page.locator('#joint-code-form textarea').fill(await page.evaluate(()=>a.vault.spaceRecoveryCode));
   await page.locator('#joint-code-form button[type=submit]').click();
-  await page.locator('[data-recovery-spaces] select').waitFor();
-  assert.ok(await page.locator('[data-recovery-spaces] option').count()>=2);
+  await page.locator('[data-recovery-spaces] input').first().waitFor();
+  assert.ok(await page.locator('[data-recovery-spaces] label > span:last-child').count()>=2);
   assert.equal(await page.locator('#joint-code-form textarea').inputValue(),'');
   await page.locator('#joint-code-close').click(); await page.locator('#joint-code-form').waitFor({state:'detached'});
   const deleted = await page.evaluate(async () => {

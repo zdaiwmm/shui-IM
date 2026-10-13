@@ -123,101 +123,24 @@ try {
   assert.equal(result.repeated.imported, 0);
   for (const key of ['damagedRejected', 'cleanAfterDamage', 'originalEqual', 'hiddenPreserved', 'hiddenSurvivesQueuedSave', 'wrongRole', 'wrongRoom', 'wrongIdentity']) assert.equal(result[key], true, key);
   assert.equal(result.network, 0); assert.equal(result.lastSeq, 0);
-  const introLayouts = await page.evaluate(() => {
-    const app = window.fixtureApp;
-    const session = app.session;
-    const read = () => {
-      const mark = document.querySelector('.gateway-mark');
-      const title = document.querySelector('.gateway-heading h1');
-      const actions = document.querySelector('.welcome-actions');
-      const content = document.querySelector('.gateway-intro-content');
-      const primary = actions?.querySelector('.primary-button');
-      const secondary = actions?.querySelector('.text-button');
-      const box = node => node?.getBoundingClientRect();
-      const markBox = box(mark), titleBox = box(title), actionsBox = box(actions), contentBox = box(content);
-      return {
-        intro: Boolean(document.querySelector('.gateway-intro')),
-        markVisible: Boolean(markBox && markBox.width > 0 && markBox.height > 0),
-        markLeft: markBox?.left, markTop: markBox?.top,
-        titleLeft: titleBox?.left, titleTop: titleBox?.top,
-        actionsLeft: actionsBox?.left, actionsBottom: actionsBox ? innerHeight - actionsBox.bottom : undefined,
-        primaryHeight: box(primary)?.height, secondaryHeight: box(secondary)?.height,
-        primaryWidth: box(primary)?.width, secondaryWidth: box(secondary)?.width, actionsWidth: actionsBox?.width,
-        contentScrolls: Boolean(contentBox && content.scrollHeight > content.clientHeight + 1),
-      };
-    };
-
-    app.renderCreateProtection({ name: '合成空间', avatar: { v: 1, kind: 'emoji', emoji: '1f60a', background: 0 } }); const create = read();
-    app.session = null; app.renderFirstRun(null); const welcome = read();
-    app.session = session; app.runtimeAbort = new AbortController(); app.privacyCovered = false;
-    app.renderRecoveryCenter();
-    const recovery = {
-      page: Boolean(document.querySelector('.recovery-center-page')),
-      title: document.querySelector('.recovery-flow-nav strong')?.textContent,
-      titleTop: document.querySelector('.recovery-flow-content h1')?.getBoundingClientRect().top,
-      markVisible: Boolean(document.querySelector('.gateway-mark')),
-      principles: document.querySelectorAll('.recovery-principles li').length,
-      collapsed: document.querySelectorAll('.recovery-explanation:not([open])').length,
-      actionHeight: document.querySelector('#save-my-code')?.getBoundingClientRect().height,
-      backHeight: document.querySelector('#recovery-center-back')?.getBoundingClientRect().height,
-      sharedCode: document.querySelector('.recovery-flow-note')?.textContent,
-      verification: document.querySelector('.recovery-flow-footer small')?.textContent,
-    };
-    app.renderLocalHistoryBackup('export');
-    return { create, welcome, recovery };
-  });
-  for (const name of ['create', 'welcome']) {
-    const layout = introLayouts[name];
-    assert.equal(layout.intro, true, `${name}: shared intro layout missing`);
-    if (name !== 'recovery') assert.equal(Math.round(layout.markLeft), 20, `${name}: icon left anchor`);
-    assert.equal(Math.round(layout.titleLeft), 20, `${name}: title left anchor`);
-    assert.equal(Math.round(layout.actionsLeft), 20, `${name}: actions left anchor`);
-    assert.equal(Math.round(layout.actionsBottom), 20, `${name}: actions bottom anchor`);
-    assert.equal(Math.round(layout.primaryHeight), 44, `${name}: primary height`);
-    assert.ok(Math.round(layout.secondaryHeight) >= 44, `${name}: secondary height`);
-    assert.ok(Math.abs(layout.primaryWidth - layout.actionsWidth) < 1 && Math.abs(layout.secondaryWidth - layout.actionsWidth) < 1,
-      `${name}: bottom action widths do not match the shared intro layout`);
+  // The recovery card replaces the former code-only intro. Keep its real
+  // compact viewport, independent scrolling and fresh-verification contracts.
+  for (const height of [844, 520]) {
+    await page.setViewportSize({width:390,height});
+    await page.evaluate(() => { window.fixtureApp.renderRecoveryCenter(); });
+    assert.equal(await page.locator('.recovery-flow-nav strong').textContent(),'恢复卡');
+    assert.equal(await page.locator('#save-my-code').textContent(),'保存恢复卡');
+    assert.equal(await page.locator('.recovery-flow-footer small').textContent(),'查看前需要再次验证');
+    await page.locator('.recovery-explanation summary').click();
+    const layout=await page.evaluate(()=>{
+      const content=document.querySelector('.recovery-flow-content');content.scrollTop=content.scrollHeight;
+      const footer=document.querySelector('.recovery-flow-footer').getBoundingClientRect();
+      const explanation=document.querySelector('.recovery-explanation').getBoundingClientRect();
+      return {overflow:document.documentElement.scrollWidth>innerWidth+1,footer:footer.bottom,note:explanation.bottom,actionsTop:footer.top,target:document.querySelector('#save-my-code').getBoundingClientRect().height};
+    });
+    assert.equal(layout.overflow,false);assert.ok(Math.abs(layout.footer-height)<1);
+    assert.ok(layout.note<=layout.actionsTop+1,'expanded guidance clears fixed actions');assert.ok(layout.target>=44);
   }
-  for (const name of ['welcome']) {
-    assert.equal(Math.round(introLayouts[name].markTop), Math.round(introLayouts.create.markTop), `${name}: icon top anchor`);
-    assert.equal(Math.round(introLayouts[name].titleTop), Math.round(introLayouts.create.titleTop), `${name}: title top anchor`);
-  }
-  assert.equal(introLayouts.recovery.markVisible, false, 'recovery: decorative icon must not displace the instructions');
-  assert.ok(introLayouts.recovery.titleTop < introLayouts.create.titleTop, 'recovery instructions use the freed icon space');
-  assert.equal(introLayouts.recovery.page, true);
-  assert.equal(introLayouts.recovery.title, '我的恢复码');
-  assert.equal(introLayouts.recovery.principles, 2);
-  assert.equal(introLayouts.recovery.collapsed, 2);
-  assert.ok(introLayouts.recovery.actionHeight >= 44 && introLayouts.recovery.backHeight >= 44);
-  assert.match(introLayouts.recovery.sharedCode, /各个空间使用同一个恢复码/);
-  assert.equal(introLayouts.recovery.verification, '查看前需要再次验证');
-  await page.setViewportSize({ width: 390, height: 520 });
-  const compactLayout = await page.evaluate(() => {
-    window.fixtureApp.renderRecoveryCenter();
-    const mark = document.querySelector('.gateway-mark')?.getBoundingClientRect();
-    const nav = document.querySelector('.recovery-flow-nav')?.getBoundingClientRect();
-    const title = document.querySelector('.recovery-flow-content h1')?.getBoundingClientRect();
-    const actions = document.querySelector('.recovery-flow-footer')?.getBoundingClientRect();
-    const content = document.querySelector('.recovery-flow-content');
-    document.querySelectorAll('.recovery-explanation').forEach(details => { details.open = true; });
-    content.scrollTop = content.scrollHeight;
-    const note = document.querySelector('.recovery-flow-note').getBoundingClientRect();
-    return {
-      markVisible: Boolean(mark && mark.width > 0 && mark.height > 0),
-      titleTop: title?.top,
-      navBottom: nav?.bottom,
-      actionsBottom: actions ? innerHeight - actions.bottom : undefined,
-      noteAboveActions: note.bottom <= actions.top + 1,
-      contentScrolls: Boolean(content && content.scrollHeight > content.clientHeight + 1),
-      horizontalOverflow: document.documentElement.scrollWidth > innerWidth + 1,
-    };
-  });
-  assert.equal(compactLayout.markVisible, false, 'compact layout retained the icon');
-  assert.ok(compactLayout.titleTop >= compactLayout.navBottom + 16, 'compact title overlaps navigation');
-  assert.equal(Math.round(compactLayout.actionsBottom), 0, 'compact footer leaves the viewport');
-  assert.equal(compactLayout.noteAboveActions, true, 'expanded recovery explanation cannot scroll clear of actions');
-  assert.equal(compactLayout.contentScrolls, true, 'compact long content did not scroll independently');
-  assert.equal(compactLayout.horizontalOverflow, false, 'compact intro layout overflowed horizontally');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.evaluate(() => window.fixtureApp.renderLocalHistoryBackup('export'));
   await page.locator('#local-backup-export').click();

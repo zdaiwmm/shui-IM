@@ -94,8 +94,8 @@ try {
   assert.equal(await cancelled.evaluate(async () => { const { readStoredVault } = await import('/src/lib/vault.ts'); return Boolean(app.session || await readStoredVault()); }), false, 'Late creation installed a vault');
   await cancelledContext.close();
   await a.goto(url); await boot(a);
-  assert.equal(await a.locator('#continue-browser').textContent(), '使用设备密钥找回空间');
-  assert.equal(await a.locator('#restore-cloud').textContent(), '使用恢复码找回空间');
+  assert.equal(await a.locator('#continue-browser').count(), 0);
+  assert.equal(await a.locator('#restore-cloud').textContent(), '找回空间');
   await a.locator('#create-room').click(); await completeSpaceProfile(a);
   await capture(a, 'F15-password-create');
   await password(a, '🔐'.repeat(11)); assert.match(await a.locator('.password-form .form-error').textContent(), /12/);
@@ -111,7 +111,7 @@ try {
   await b.goto(invite); await boot(b); await b.locator('#new-device-alias').fill('测试 B'); await capture(b, 'F15-join-protection'); await b.locator('[data-device-verify]').click();
   await password(b, 'joiner password 🔑');
   for (const page of [a, b]) {
-    await page.locator('#welcome-chat').waitFor(); await page.locator('#welcome-chat').click();
+    assert.equal(await page.locator('#welcome-chat').count(), 0);
     await page.locator('.confirm-overlay').waitFor({ state: 'detached' });
     await page.waitForFunction(() => app.session?.vault.mls?.phase === 'active' && !document.querySelector('#message-input')?.disabled);
     if (await page.locator('.release-notes-sheet').count()) await page.locator('.release-notes-sheet button').last().click();
@@ -162,7 +162,7 @@ try {
   await a.locator('.password-form').waitFor({ state: 'detached' });
   assert.equal(await a.locator('.local-recovery-code').count(), 0, 'Cancellation displayed a recovery code');
   assert.equal(await a.locator('.app-toast.error').count(), 0, 'Ordinary cancellation displayed an error');
-  await a.locator('#save-my-code').click(); await password(a, '🔐'.repeat(12)); await a.locator('.local-recovery-code').waitFor();
+  await a.locator('#save-my-code').click(); await password(a, '🔐'.repeat(12)); await a.locator('.local-recovery-code').waitFor({state:'attached'});await a.getByText('查看恢复内容',{exact:true}).click();
   assert.ok((await a.locator('.local-recovery-code').textContent()).startsWith('QR4-')); await a.locator('#hide-local-recovery').click();
   if (await a.locator('#recovery-center-back').count()) await a.locator('#recovery-center-back').click();
   await a.evaluate(() => app.renderCoverPractice()); await capture(a, 'F08-cover-practice'); await a.locator('#practice-back').click();

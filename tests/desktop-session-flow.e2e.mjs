@@ -168,7 +168,7 @@ try {
   await creator.evaluate(() => import('/src/main.ts'));
   await holdF(creator);
   await creator.locator('#create-room').click(); await completeSpaceProfile(creator);
-  await creator.locator('.space-invite-sheet').waitFor({ timeout: 15_000 });
+  await creator.locator('.chat-shell').waitFor({ timeout: 15_000 });
   const invite = await creator.locator('#invite-url').inputValue();
   await joiner.goto(invite, { waitUntil: 'domcontentloaded' });
   await joiner.evaluate(() => import('/src/main.ts'));

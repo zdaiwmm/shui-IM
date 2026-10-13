@@ -1,3 +1,4 @@
+import {openRecoveryCard} from './fixtures/open-recovery.mjs';
 import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -225,10 +226,10 @@ try {
   invariant(await creator.locator('input[name="scope"]').count() === 0, 'Recovery still asks users to predict which side needs rebuilding');
   invariant(await creator.locator('#joint-start input[name="code"], #joint-start textarea[name="code"]').count() === 0, 'Recovery-code field is still on the page');
   invariant(await creator.locator('#joint-cancel-entry').count() === 0, 'Home return button is still on the recovery page');
-  await creator.locator('#joint-open-code').click();
+  await openRecoveryCard(creator);
   const recoveryCodeInput = creator.locator('#joint-code-form textarea[name="code"]');
   await recoveryCodeInput.waitFor();
-  invariant(await recoveryCodeInput.evaluate((input) => document.activeElement === input), 'Recovery code input did not take focus');
+  invariant(await creator.locator('#joint-code-close').evaluate(button => document.activeElement === button), 'Recovery entry must not open the keyboard before a choice');
   invariant(await creator.locator('#joint-code-close').count() === 1, 'Recovery code dialog is missing a close button');
   invariant(await creator.locator('#joint-code-back').count() === 0, 'Recovery code dialog still has a back button');
   const codeSheetLayout = await creator.evaluate(() => {
@@ -256,7 +257,7 @@ try {
     return layout;
   });
   invariant(codeSheetLayout.dialogAboveKeyboard, `Recovery code dialog is not above the keyboard: ${JSON.stringify(codeSheetLayout)}`);
-  invariant(codeSheetLayout.inputToButton >= 0 && codeSheetLayout.inputToButton <= 24, `Recovery code input is too far from submit: ${JSON.stringify(codeSheetLayout)}`);
+  invariant(await creator.locator('[data-import-card]').count() === 1, 'Recovery entry is missing local-file import');
   await recoveryCodeInput.evaluate((input) => {
     input.blur();
     window.dispatchEvent(new Event('blur'));
@@ -267,10 +268,10 @@ try {
   invariant(await creator.locator('#joint-start').count() === 1, 'Returning window focus left the recovery-code page');
   await creator.locator('#joint-code-close').click();
   await creator.locator('#joint-code-form').waitFor({ state: 'detached' });
-  await creator.locator('#joint-back').click();
+  await creator.locator('#create-room').waitFor();
   const welcomeLayout = await creator.evaluate(() => {
     const primary = document.querySelector('#create-room');
-    const secondary = document.querySelector('#continue-browser');
+    const secondary = document.querySelector('#restore-cloud');
     return {
       font: getComputedStyle(primary).fontSize,
       gap: secondary.getBoundingClientRect().top - primary.getBoundingClientRect().bottom,
@@ -299,7 +300,7 @@ try {
   invariant(await creator.locator('#new-passkey-name').count() === 1, 'First-device protection must remain configurable');
   invariant(await creator.locator('.cover-trigger').count() === 0, 'Passkey prompt blur unexpectedly activated the privacy curtain');
   await creator.locator('[data-device-verify]').click();
-  await creator.locator('.space-invite-sheet').waitFor({ timeout: 15_000 }).catch(async (error) => {
+  await creator.locator('.chat-shell').waitFor({ timeout: 15_000 }).catch(async (error) => {
     const visibleError = await creator.locator('.form-error').textContent().catch(() => '');
     throw new Error(`Creator setup did not finish: ${visibleError || await creator.locator('body').innerText()}`, { cause: error });
   });
@@ -313,12 +314,12 @@ try {
   });
   await creator.locator('#copy-invite').click();
   await creator.waitForFunction(() => window.__inviteShareCalls === 1);
-  invariant(await creator.locator('.space-invite-sheet').count() === 1, 'Copying the invite link left the invitation page');
+  invariant(await creator.locator('.chat-shell').count() === 1 && await creator.locator('.space-invite-sheet').count() === 0, 'Creation and sharing must stay in chat');
   invariant(await creator.locator('#app-toast, .notice').filter({ hasText: '链接已复制' }).count() === 0, 'System share still showed a copy toast');
   const inviteFont = await creator.locator('#copy-invite').evaluate((button) => getComputedStyle(button).fontSize);
   invariant(Number.parseFloat(inviteFont) >= 14, `Invite copy-link font ${inviteFont} does not match welcome primary ${welcomeLayout.font}`);
   invariant(await creator.locator('#pairing-lock').count() === 0, 'Invite page still has a lock control');
-  invariant(await creator.locator('#invite-close').count() === 1, 'Invite page is missing a back button');
+  invariant(await creator.locator('#open-spaces').count() === 1, 'Created chat must expose the space list');
   await assertStablePage(creator, 'Pairing page');
 
   await joiner.goto(invite);
@@ -406,7 +407,7 @@ try {
   await creator.locator('#open-spaces').click({ timeout: 8_000 }); await creator.locator('#space-settings').click(); await creator.locator('#backup-settings').click();
   await creator.locator('#save-my-code').waitFor();
   invariant(await creator.locator('#recovery-center-back').count() === 1, 'Save recovery-code page is missing a back button');
-  invariant(await creator.locator('.recovery-flow-list li').count() === 4, 'Recovery-code page list is incomplete');
+  invariant((await creator.locator('.recovery-flow-lead').textContent()).includes('恢复卡') && await creator.locator('.entry-protection').count() === 1, 'Recovery card purpose and storage guidance are missing');
   invariant(await creator.locator('.recovery-status-badge').count() === 0, 'Recovery-code status rows are still shown');
   await creator.locator('#recovery-center-back').click();
   await creator.locator('.space-drawer-overlay[aria-label="设置"].is-restored').waitFor();
@@ -1144,12 +1145,13 @@ try {
   await creator.locator('#save-my-code').waitFor();
   invariant(await creator.locator('#export-recovery').count() === 0, 'Manual recovery export remains exposed');
   await creator.locator('#save-my-code').click();
-  await creator.locator('.local-recovery-code').waitFor({ timeout: 15_000 });
+  await creator.locator('.local-recovery-code').waitFor({ state: 'attached', timeout: 15_000 });
+  await creator.getByText('查看恢复内容', { exact: true }).click();
   const collectionCode = await creator.locator('.local-recovery-code').textContent();
   invariant(collectionCode?.startsWith('QR4-'), 'Local recovery code was not displayed after verification');
   const recoveryCode = await creator.evaluate(async code => (await (await import('/src/lib/spaces.ts')).recoverableSpaces(code, new AbortController().signal))[0].code, collectionCode);
   invariant(await creator.locator('#confirm-code-saved').count() === 0, 'Saved confirmation button is still shown');
-  invariant(await creator.locator('#copy-local-recovery').evaluate((button) => button.classList.contains('primary-button')), 'Copy recovery-code control is not the primary button');
+  invariant(await creator.locator('#download-recovery-card').evaluate((button) => button.classList.contains('primary-button')), 'Saving the card file must be the primary action');
   invariant(await creator.locator('input[name="digits"]').count() === 0, 'Last-four confirmation field is still shown');
   const codeIsEncrypted = await creator.evaluate(async code => {
     const { readStoredVault } = await import('/src/lib/vault.ts');
@@ -1157,7 +1159,7 @@ try {
   }, recoveryCode);
   invariant(codeIsEncrypted, 'Local durable vault leaked the recovery code');
   if (visualQaDirectory) await creator.screenshot({ path: path.join(visualQaDirectory, 'recovery-code-mobile.png') });
-  invariant(await creator.locator('#hide-local-recovery').textContent() === '我已保存，返回设置', 'Recovery-code action has the wrong label');
+  invariant(await creator.locator('#hide-local-recovery').textContent() === '稍后再保存', 'Recovery-code action has the wrong label');
   await creator.locator('#hide-local-recovery').click();
   await creator.locator('.space-drawer-overlay[aria-label="设置"].is-restored').waitFor();
   await creator.locator('.space-close').click();
@@ -1340,10 +1342,10 @@ try {
     } });
   });
   await setPasskey(legacy);
-  await legacy.locator('.space-invite-sheet').waitFor({ timeout: 15_000 });
+  await legacy.locator('.chat-shell').waitFor({ timeout: 15_000 });
   await hideOutsidePage(legacy);
   await unlock(legacy);
-  await legacy.locator('.space-invite-sheet').waitFor({ timeout: 15_000 });
+  await legacy.locator('.chat-shell').waitFor({ timeout: 15_000 });
   const migratedLocalData = await legacy.evaluate(async () => {
     const vaultModule = await import('/src/lib/vault.ts');
     const stored = await vaultModule.readStoredVault();

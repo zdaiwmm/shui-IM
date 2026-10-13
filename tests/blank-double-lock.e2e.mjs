@@ -7,7 +7,8 @@ const locked = () => page.evaluate(() => window.fixture.app.privacyCovered);
 const fresh = () => page.evaluate(() => window.fixture.fresh());
 const chatPoint = async () => {
   const box = await page.locator('#message-list').boundingBox();
-  return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+  // Entry guidance now occupies the center; exercise actual list padding.
+  return { x: box.x + 8, y: box.y + box.height - 20 };
 };
 const tap = async point => { await page.mouse.click(point.x, point.y); };
 const double = async point => { await tap(point); await page.clock.runFor(80); await tap(point); };
