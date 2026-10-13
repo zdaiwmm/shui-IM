@@ -203,7 +203,7 @@ try {
   assert.equal(await page.locator('.local-recovery-code').count(), 0);
   await page.evaluate(() => Object.defineProperty(navigator.credentials, 'get', { configurable: true, value: window.originalCredentialGet }));
   await page.locator('#verify-recovery-passkey').click();
-  await page.locator('.local-recovery-code').waitFor();
+  await page.locator('.local-recovery-code').waitFor({state:'attached'}); await page.getByText('查看恢复内容',{exact:true}).click();
   await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
   assert.equal(await page.locator('.local-recovery-code').count(), 0);
   assert.equal(await page.evaluate(() => window.fixtureApp.session === null), true);

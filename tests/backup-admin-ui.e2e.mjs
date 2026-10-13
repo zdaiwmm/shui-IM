@@ -153,7 +153,7 @@ try {
   await page.locator('[data-close]').click();
   await page.locator('#view-local-recovery').click();
   await page.locator('#verify-recovery-passkey').click();
-  await page.locator('.local-recovery-code').waitFor();
+  await page.locator('.local-recovery-code').waitFor({state:'attached'}); await page.getByText('查看恢复内容',{exact:true}).click();
   // Never retain even synthetic code pixels in published visual evidence.
   await page.locator('.local-recovery-code').evaluate(element => { element.textContent = 'QR3-示意恢复码，请在自己的设备上验证后查看'; });
   await snapshot(page, 'local-code-mobile');
