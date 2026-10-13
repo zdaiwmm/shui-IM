@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+## 恢复卡入口与交互优化已发布（2026-10-13 20:24）
+
+- 用户明确确认版本 `2026.10.13.1`、完整提交 `76d8d6d62cb88a8a87685de6867fbc003e31bf94` 发布到 `https://ai.shui.click`。PR [#285](https://github.com/zdaiwmm/shui-IM/pull/285) 与测试补修 [#286](https://github.com/zdaiwmm/shui-IM/pull/286) 已合并；首页双入口、恢复卡保存／找回、创建后头像编辑、64 个独立动画及 16 条验收修订纳入。需求与失败历史由[需求记录](docs/requirements/2026-10-13-recovery-card-entry/README.md)拥有。
+- 最终 [main CI 38393917146](https://github.com/zdaiwmm/shui-IM/actions/runs/38393917146) attempt 1 全部 15 项成功，含 910 项单元／集成、62 个浏览器入口、通话及两种架构镜像。此前 `90e1fab` 的裁剪测试坐标早于页面动画结束，main CI 失败；补修仅等待真实页面稳定并验证命中目标，Chromium／WebKit 和最终完整 CI 通过，未降低手势断言。
+- 固定入口 `node scripts/publish.mjs --environment production --sha 76d8d6d62cb88a8a87685de6867fbc003e31bf94` 执行一次；精确外层回执 `DEPLOY_VERIFIED` 已取得。生产从 `63fffe98bada891292d12c799ba0e227dd383e9c` 切换，部署标记 `20261013T121457Z`；发布前冷归档完成校验。镜像来自上述精确 main CI 的 AMD64 产物，镜像 ID `sha256:d2028df0079c3310a4c7a46b83a3ee80e35bbd2b7bf91341de1d37ef6507f458`，未在生产构建或更新 root helper。
+- 独立回读于 `2026-10-13T12:24:04Z` 成功：SHA／镜像匹配，应用与备份 healthy，TURN 运行，维护门不存在；HTTPS、数据库／存储、公开与容器产物、WebSocket 均通过。前两次仅因备份容器处于五分钟启动宽限期而阻塞，只续跑只读回读，没有再次切换。
+- 固定发布入口耗时 702,213ms，其中镜像下载及校验 427,974ms，服务器发布 197,824ms（含冷备份 66 秒、容器启动 31 秒）；分项存在嵌套，不重复累加。最终独立回读 3,418ms。
+- 脱敏回执、独立回读 JSON 和验证摘要保存在本机 `recovery-card-entry-evidence-20261013` 持久目录。对账在独立文档工作树完成，后续文档合并不再次发布。源码验收服务与当前收尾目录仍被使用，保留其工作树及分支。
+- 真实 iPhone／Safari 键盘、安全区、系统通行密钥与相册交互仍未完成真机验收；本次不作独立安全审计或高安全声明。下方章节为历史发布快照，不表示当前生产版本。
+
 ## CI 容量治理与同版本存储维护（2026-10-12）
 
 - 本节记录维护，不是新应用发布。用户确认构建移至 CI、两套完全独立环境支持及历史缓存／自动清理治理；第二套服务器未准备。[PR #275](https://github.com/zdaiwmm/shui-IM/pull/275) 至 [#278](https://github.com/zdaiwmm/shui-IM/pull/278) 已合并，精确源 `ce22cd7a6c0627762a13d4e4c1874a5d24fb5706` 的[完整 PR CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38255937914) 及主线 `2ac6133025666ebdf827d5a4b4cac4a0516f4c80` 的[完整 main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38256828540) 通过。含898项单元／集成、17项根边界及真实 Docker 成功与卷移动后故障恢复演练；验证 Docker 和 containerd 使用各自独立根目录、状态和短 socket，另断言 runner 主服务身份、容器及镜像未变。
