@@ -1,4 +1,4 @@
-import { fillFormInput } from './helpers/form-input.mjs';
+import { fillFormInput, cancelPasswordForm } from './helpers/form-input.mjs';
 import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -101,7 +101,7 @@ try {
   await capture(a, 'F15-password-create');
   await password(a, '🔐'.repeat(11)); assert.match(await a.locator('.password-form .form-error').textContent(), /12/);
   await password(a, '🔐'.repeat(12), 'different-password'); assert.match(await a.locator('.password-form .form-error').textContent(), /不一致/);
-  if(await a.locator('[data-form-input-cancel]').count())await a.locator('[data-form-input-cancel]').click();await a.locator('[data-password-cancel]').click(); await a.locator('.password-sheet').waitFor({ state: 'detached' });
+  await cancelPasswordForm(a); await a.locator('.password-sheet').waitFor({ state: 'detached' });
   assert.equal(await a.evaluate(async () => (await import('/src/lib/vault.ts')).hasStoredVault()), false, 'Cancelling new protection wrote a vault');
   await a.locator('[data-device-verify]').click(); await password(a, '🔐'.repeat(12));
   await a.locator('#invite-url').waitFor(); const invite = await a.locator('#invite-url').inputValue();
@@ -145,7 +145,7 @@ try {
   await a.evaluate(() => { window.proofResult = null; app.confirmDeviceCredential('合成验收操作').then(() => { window.proofResult = 'verified'; }, () => { window.proofResult = 'cancelled'; }); });
   await password(a, 'joiner password 🔑'); await a.waitForFunction(() => document.querySelector('.password-form .form-error')?.textContent.includes('密码不正确')); assert.match(await a.locator('.password-form .form-error').textContent(), /密码不正确/);
   assert.equal(await a.evaluate(() => proofResult), null);
-  await capture(a, 'F15-password-reauth'); if(await a.locator('[data-form-input-cancel]').count())await a.locator('[data-form-input-cancel]').click();await a.locator('[data-password-cancel]').click();
+  await capture(a, 'F15-password-reauth'); await cancelPasswordForm(a);
   await a.waitForFunction(() => proofResult === 'cancelled');
   await a.evaluate(() => { window.proofResult = null; app.confirmDeviceCredential('合成验收操作').then(() => { window.proofResult = 'verified'; }, () => { window.proofResult = 'cancelled'; }); });
   await password(a, '🔐'.repeat(12)); await a.waitForFunction(() => proofResult === 'verified');
@@ -155,11 +155,11 @@ try {
   await a.locator('#history-download').waitFor(); assert.equal(await a.locator('#history-download').textContent(), '导出备份');
   await capture(a, 'F04-backup-summary'); await a.locator('#history-download').click();
   await capture(a, 'F15-backup-reauth'); assert.equal(await a.locator('.password-operation-sheet [type=submit]').textContent(), '验证并下载备份');
-  if(await a.locator('[data-form-input-cancel]').count())await a.locator('[data-form-input-cancel]').click();await a.locator('[data-password-cancel]').click(); await a.locator('.password-sheet').waitFor({ state: 'detached' }); await a.locator('[data-history-summary-close]').click();
+  await cancelPasswordForm(a); await a.locator('.password-sheet').waitFor({ state: 'detached' }); await a.locator('[data-history-summary-close]').click();
   await a.locator('#backup-help').click(); await capture(a, 'F13-backup-help'); await a.locator('#help-back').click();
   await a.locator('[data-local-backup-view=export]').waitFor();
   await a.evaluate(() => app.renderRecoveryCenter()); await capture(a, 'F07-recovery-code-guide');
-  await a.locator('#save-my-code').click(); await a.locator('.password-form').waitFor(); if(await a.locator('[data-form-input-cancel]').count())await a.locator('[data-form-input-cancel]').click();await a.locator('[data-password-cancel]').click();
+  await a.locator('#save-my-code').click(); await a.locator('.password-form').waitFor(); await cancelPasswordForm(a);
   await a.locator('.password-form').waitFor({ state: 'detached' });
   assert.equal(await a.locator('.local-recovery-code').count(), 0, 'Cancellation displayed a recovery code');
   assert.equal(await a.locator('.app-toast.error').count(), 0, 'Ordinary cancellation displayed an error');

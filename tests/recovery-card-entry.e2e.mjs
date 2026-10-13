@@ -1,4 +1,4 @@
-import { fillFormInput } from './helpers/form-input.mjs';
+import { fillFormInput, cancelPasswordForm } from './helpers/form-input.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -21,7 +21,7 @@ try {
  assert.match(await a.locator('[data-device-verify]').textContent(),/密码/);await a.locator('[data-device-verify]').click();
  await a.locator('.password-form').waitFor();await a.clock.install();await a.clock.fastForward(65_000);
  assert.equal(await a.locator('.password-form').count(),1,'Reading a password form has no automatic timeout');
- await a.clock.resume();if(await a.locator('[data-form-input-cancel]').count())await a.locator('[data-form-input-cancel]').click();await a.locator('[data-password-cancel]').click();await a.locator('.password-form').waitFor({state:'detached'});
+ await a.clock.resume();await cancelPasswordForm(a);await a.locator('.password-form').waitFor({state:'detached'});
  assert.equal(await a.locator('.welcome-actions .form-error').textContent(),'','Cancellation returns quietly');
  await a.locator('[data-device-verify]').click();await password(a);
  await a.locator('.chat-shell').waitFor();assert.equal(await a.locator('.space-invite-overlay').count(),0);await a.locator('#copy-invite').waitFor();

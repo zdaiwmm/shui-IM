@@ -1,4 +1,4 @@
-import { fillFormInput } from './helpers/form-input.mjs';
+import { fillFormInput, cancelPasswordForm } from './helpers/form-input.mjs';
 import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -50,7 +50,7 @@ try {
       await page.locator('[name=show]').check(); assert.equal(await page.locator('[name=password]').getAttribute('type'), 'text');
       await page.locator('[name=show]').uncheck(); assert.equal(await page.locator('[name=password]').inputValue(), 'synthetic password 123');
       if (evidence) { await fillFormInput(page, page.locator('[name=password]'), ''); await page.screenshot({ path: path.join(evidence, `F15-webview-${name}.png`) }); }
-      if(await page.locator('[data-form-input-cancel]').count())await page.locator('[data-form-input-cancel]').click();await page.locator('[data-password-cancel]').click(); await page.locator('.password-sheet').waitFor({ state: 'detached' });
+      await cancelPasswordForm(page); await page.locator('.password-sheet').waitFor({ state: 'detached' });
     } else {
       await page.waitForFunction(() => !document.querySelector('[data-device-verify]')?.disabled);
       assert.equal(await page.locator('.password-sheet').count(), 0, `${name} incorrectly offered a new password`);
