@@ -1,3 +1,4 @@
+import { layoutViewport } from './form-input';
 import { motion, retargetMotion } from './motion';
 import { mountDialog } from './dialog';
 import { restoreUnifiedHistory, type HistoryRestoreProgress } from './cloud-backup';
@@ -43,7 +44,7 @@ export function attachHistoryRestore(options: Options): () => void {
     sheet.innerHTML = `<div class="recovery-code-panel history-restore-panel" tabindex="-1"><button class="half-sheet-handle" type="button" data-close aria-label="收起恢复面板"><span></span></button><div class="history-restore-heading"><h2 id="${titleId}"></h2></div>${content}</div>`;
     sheet.querySelector('h2')!.textContent = title;
     root.append(sheet);
-    const viewport = window.visualViewport;
+    const viewport = layoutViewport();
     const position = () => {
       sheet.style.top = `${viewport?.offsetTop ?? 0}px`;
       sheet.style.height = `${viewport?.height ?? window.innerHeight}px`;

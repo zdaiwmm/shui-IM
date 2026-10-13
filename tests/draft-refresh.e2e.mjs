@@ -1,3 +1,4 @@
+import { fillFormInput } from './helpers/form-input.mjs';
 import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -35,8 +36,8 @@ async function waitForState(page, stage, predicate) {
 }
 async function protect(page) {
   const form = page.locator('.password-form'); await form.waitFor();
-  await form.locator('[name=password]').fill(password);
-  if (await form.locator('[name=confirmation]').count()) await form.locator('[name=confirmation]').fill(password);
+  await fillFormInput(page, form.locator('[name=password]'), password);
+  if (await form.locator('[name=confirmation]').count()) await fillFormInput(page, form.locator('[name=confirmation]'), password);
   await form.locator('[type=submit]').click();
 }
 async function ready(page) {

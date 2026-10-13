@@ -1,3 +1,4 @@
+import { layoutViewport } from './form-input';
 import { bindControlFeedback } from './control-feedback';
 import { motion, retargetMotion } from './motion';
 import type { CallState, CallViewActions } from './call-types';
@@ -147,8 +148,8 @@ export class CallView {
     this.dismiss.addEventListener('click', () => this.actions.dismiss());
     this.playback.addEventListener('click', () => { void this.playRemote(); });
     document.addEventListener('keydown', this.onKeyDown, true);
-    window.visualViewport?.addEventListener('resize', this.updateViewport);
-    window.visualViewport?.addEventListener('scroll', this.updateViewport);
+    layoutViewport()?.addEventListener('resize', this.updateViewport);
+    layoutViewport()?.addEventListener('scroll', this.updateViewport);
     window.addEventListener('resize', this.updateViewport);
     this.tick = setInterval(() => this.updateTimer(), 1000);
     this.updateViewport();
@@ -244,8 +245,8 @@ export class CallView {
     clearInterval(this.tick);
     if (this.focusFrame !== null) cancelAnimationFrame(this.focusFrame);
     document.removeEventListener('keydown', this.onKeyDown, true);
-    window.visualViewport?.removeEventListener('resize', this.updateViewport);
-    window.visualViewport?.removeEventListener('scroll', this.updateViewport);
+    layoutViewport()?.removeEventListener('resize', this.updateViewport);
+    layoutViewport()?.removeEventListener('scroll', this.updateViewport);
     window.removeEventListener('resize', this.updateViewport);
     for (const video of [this.remoteVideo, this.localVideo, this.backgroundVideo]) {
       video.pause();
@@ -295,7 +296,7 @@ export class CallView {
   }
 
   private readonly updateViewport = (): void => {
-    const viewport = window.visualViewport;
+    const viewport = layoutViewport();
     this.element.style.setProperty('--call-viewport-height', `${viewport?.height ?? window.innerHeight}px`);
     this.element.style.setProperty('--call-viewport-top', `${viewport?.offsetTop ?? 0}px`);
   };

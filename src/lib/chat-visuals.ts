@@ -1,3 +1,4 @@
+import { layoutViewport } from './form-input';
 /** Presentation only: adjacency never changes message identity or delivery state. */
 export function syncChatBubbleStyle(list: HTMLElement): void {
   for (const row of list.children) {
@@ -18,7 +19,7 @@ export function syncChatBubbleGradient(list: HTMLElement): void {
   if (!bubbles.length) return;
   const top = (bubble: HTMLElement) => bubble.parentElement!.offsetTop + bubble.offsetTop;
   const shell = list.closest('.chat-shell');
-  const viewport = window.visualViewport;
+  const viewport = layoutViewport();
   const bounds = list.getBoundingClientRect();
   const visibleTop = Math.max(bounds.top, viewport?.offsetTop ?? 0,
     shell?.querySelector('.chat-header')?.getBoundingClientRect().bottom ?? 0);

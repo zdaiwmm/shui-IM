@@ -57,6 +57,13 @@
 @media(prefers-reduced-motion:reduce) { .entry-fold { animation:none; } }
 
 #app .gateway-welcome .gateway-heading { text-align:center; }
+#app .gateway-intro .gateway-heading { text-align:center; }
+#app .gateway-intro .gateway-heading > p:last-child { margin-inline:auto; }
+#app .gateway-entry-hero { display:grid; place-items:start center; height:188px; overflow:visible; }
+#app .gateway-entry-hero :is(.entry-art,.gateway-mark) { margin:0; transform:none; transform-origin:top center; }
+#app .gateway-intro[data-hero='small'] .gateway-entry-hero { height:116px; }
+#app .gateway-intro[data-hero='small'] .gateway-entry-hero > * { transform:scale(.65); }
+#app .gateway-intro[data-hero='none'] .gateway-entry-hero { display:none; }
 #app .recovery-card-entry .recovery-flow-footer { position:sticky; bottom:0; background:var(--paper); padding:16px 20px calc(16px + env(safe-area-inset-bottom)); }
 
 /* Acceptance refinement: quiet explanations and invitation state in the conversation. */

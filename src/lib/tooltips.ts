@@ -1,3 +1,4 @@
+import { layoutViewport } from './form-input';
 import '../tooltips.css';
 
 /** Delegated presentation only. Touch keeps the control's accessible name. */
@@ -28,7 +29,7 @@ export function bindTooltips(root: HTMLElement): () => void {
       root.append(tip);
       control.setAttribute('aria-describedby', [control.getAttribute('aria-describedby'), id].filter(Boolean).join(' '));
       const box = control.getBoundingClientRect(), bounds = tip.getBoundingClientRect();
-      const viewport = window.visualViewport, left = viewport?.offsetLeft ?? 0, top = viewport?.offsetTop ?? 0;
+      const viewport = layoutViewport(), left = viewport?.offsetLeft ?? 0, top = viewport?.offsetTop ?? 0;
       const width = viewport?.width ?? innerWidth, height = viewport?.height ?? innerHeight;
       tip.style.left = `${Math.max(left + 8, Math.min(box.left + (box.width - bounds.width) / 2, left + width - bounds.width - 8))}px`;
       const above = box.top - bounds.height - 8;

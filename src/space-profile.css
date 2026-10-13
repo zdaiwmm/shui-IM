@@ -3,7 +3,7 @@
 .space-avatar img { display:block; width:80%; height:80%; object-fit:contain; pointer-events:none; }
 .space-avatar.is-image img { width:100%; height:100%; object-fit:cover; }
 .space-profile-overlay { position:fixed; inset:0; z-index:223; background:var(--paper); color:var(--ink); }
-.space-profile-page { display:flex; flex-direction:column; width:100%; height:100%; }
+.space-profile-page { position:relative; z-index:2; display:flex; flex-direction:column; width:100%; height:100%; background:var(--paper); }
 .space-profile-header { display:grid; grid-template-columns:44px minmax(0,1fr) 44px; align-items:center; flex:none; min-height:calc(48px + env(safe-area-inset-top)); padding:env(safe-area-inset-top) 8px 0; border-bottom:1px solid var(--line); background:var(--paper); }
 .space-profile-header h2 { margin:0; text-align:center; font-size:1.0625rem; line-height:1.3; font-weight:600; }
 #app .space-profile-header .icon-button { width:44px; height:44px; padding:0; border:0; border-radius:12px; background:transparent; color:var(--ink); box-shadow:none; }
@@ -26,8 +26,6 @@
 .is-visible .avatar-source-sheet { transform:translateY(var(--sheet-drag,0)); }
 #app .half-sheet-handle { display:grid; place-items:center; width:100%; height:44px; min-height:44px; margin:0; padding:0; flex:none; border:0; border-radius:0; background:transparent; box-shadow:none; touch-action:none; cursor:grab; }
 #app .half-sheet-handle span { display:block; width:32px; height:4px; border-radius:4px; background:var(--line-strong); }
-.avatar-source-preview { display:grid; place-items:center; padding:4px 0 20px; }
-.avatar-source-preview .space-avatar { width:64px; height:64px; font-size:1.5rem; }
 .avatar-source-options { width:min(100%,440px); margin-inline:auto; overflow:hidden; border-radius:12px; background:var(--surface); }
 .avatar-source-options button { display:flex; align-items:center; width:100%; gap:12px; padding:10px 12px; min-height:56px; border:0; border-radius:0; background:transparent; color:var(--ink); font-size:.875rem; text-align:left; box-shadow:none; }
 .avatar-source-options button + button { border-top:1px solid var(--line); }

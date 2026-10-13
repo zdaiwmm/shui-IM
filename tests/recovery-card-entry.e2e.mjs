@@ -1,3 +1,4 @@
+import { fillFormInput, cancelPasswordForm } from './helpers/form-input.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -10,17 +11,17 @@ const backend=await startServer({port:0,host:'127.0.0.1',dataDir,quiet:true});
 const vite=await createServer({configFile:false,root:process.cwd(),logLevel:'error',plugins:[{name:'entry-test-observer',enforce:'pre',transform(code,id){if(id===path.join(process.cwd(),'src/main.ts'))return code.replace('void app.start();','window.app=app;void app.start();');}}],server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${backend.port}`,'/ws':{target:`ws://127.0.0.1:${backend.port}`,ws:true}}}});
 let browser;
 const secret='synthetic-card-test-2026';
-async function password(page){await page.locator('.password-form [name=password]').fill(secret);if(await page.locator('.password-form [name=confirmation]').count())await page.locator('.password-form [name=confirmation]').fill(secret);await page.locator('.password-form [type=submit]').click();}
+async function password(page){await fillFormInput(page, page.locator('.password-form [name=password]'), secret);if(await page.locator('.password-form [name=confirmation]').count())await fillFormInput(page, page.locator('.password-form [name=confirmation]'), secret);await page.locator('.password-form [type=submit]').click();}
 try {
  await vite.listen();browser=await chromium.launch(process.env.CI?{}:process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{channel:'chrome'});
  const pages=[];for(let i=0;i<3;i++){const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,acceptDownloads:true});const page=await context.newPage();page.setDefaultTimeout(20000);pages.push(page);}
  const [a,b,c]=pages;const url=`http://127.0.0.1:${vite.httpServer.address().port}/`;
  await a.goto(url);assert.equal(await a.locator('#continue-browser').count(),0);assert.equal(await a.locator('#restore-cloud').textContent(),'找回空间');
- await a.locator('#create-room').click();await a.locator('#new-space-name').fill('验收空间');await a.locator('#profile-done').click();
+ await a.locator('#create-room').click();await fillFormInput(a, a.locator('#new-space-name'), '验收空间');await a.locator('#profile-done').click();
  assert.match(await a.locator('[data-device-verify]').textContent(),/密码/);await a.locator('[data-device-verify]').click();
  await a.locator('.password-form').waitFor();await a.clock.install();await a.clock.fastForward(65_000);
  assert.equal(await a.locator('.password-form').count(),1,'Reading a password form has no automatic timeout');
- await a.clock.resume();await a.locator('[data-password-cancel]').click();await a.locator('.password-form').waitFor({state:'detached'});
+ await a.clock.resume();await cancelPasswordForm(a);await a.locator('.password-form').waitFor({state:'detached'});
  assert.equal(await a.locator('.welcome-actions .form-error').textContent(),'','Cancellation returns quietly');
  await a.locator('[data-device-verify]').click();await password(a);
  await a.locator('.chat-shell').waitFor();assert.equal(await a.locator('.space-invite-overlay').count(),0);await a.locator('#copy-invite').waitFor();
@@ -45,7 +46,7 @@ try {
  assert.equal(await a.evaluate(()=>Boolean(app.session.vault.recoveryExperience?.codeSaved)),false);
  const download=a.waitForEvent('download');await a.locator('#download-recovery-card').click();const file=await (await download).path();
  assert.equal(await a.evaluate(()=>Boolean(app.session.vault.recoveryExperience?.codeSaved)),false,'Download must not mark a card verified');
- await a.locator('#verify-recovery-card').click();await a.locator('#check-saved-card textarea').fill('not a card');await a.locator('[data-card-check]').click();assert.ok((await a.locator('#check-saved-card .form-error').textContent()).length);
+ await a.locator('#verify-recovery-card').click();await fillFormInput(a, a.locator('#check-saved-card textarea'), 'not a card');await a.locator('[data-card-check]').click();assert.ok((await a.locator('#check-saved-card .form-error').textContent()).length);
  const chooser=a.waitForEvent('filechooser');await a.locator('[data-card-file]').click();await(await chooser).setFiles(file);await a.getByText('已核对，恢复卡可以使用。',{exact:true}).waitFor();
  assert.equal(await a.evaluate(()=>app.session.vault.recoveryExperience.codeSaved===app.session.vault.backup.id),true);
  await a.locator('#hide-local-recovery').click();await a.locator('.local-recovery-code').waitFor({state:'detached'});

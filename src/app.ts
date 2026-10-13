@@ -1,10 +1,11 @@
+import { layoutViewport, cancelFormInput } from './lib/form-input';
 import { entryArt } from './lib/entry-art';
 import { readRecoveryCard, writeRecoveryCard, pickRecoveryCard } from './lib/recovery-card';
 import './entry-experience.css';
 import { transitionMediaCapsule, retireMediaCapsule } from './lib/media-capsule';
 import { requestPassword } from './lib/password-dialog';
 import { derivePasswordCredential, isPasswordCredential, type LocalCredentialResult } from './lib/password-protection';
-import { isPlatformVaultUnavailable, probePlatformVaultCapabilities, platformVaultSetupState } from './lib/platform-vault';
+import { isPlatformVaultUnavailable, probePlatformVaultCapabilities, platformVaultSetupState, platformVaultUsesExternalAuthenticator } from './lib/platform-vault';
 import { reauthenticateVault, assertPasswordProtectionEnvironment } from './lib/vault';
 import { DesktopWorkspace, desktopWidth } from './lib/desktop-workspace';
 import './desktop.css';
@@ -836,7 +837,7 @@ export class QuietRoomApp {
       if (style.getPropertyValue(property) !== value) style.setProperty(property, value);
     };
     const syncVisualViewport = () => {
-      const viewport = window.visualViewport;
+      const viewport = layoutViewport();
       // Fixed controls and document scrolling use the layout viewport. Safari
       // can report a keyboard-sized innerHeight while that viewport stays tall.
       const layoutHeight = document.documentElement.clientHeight || window.innerHeight;
@@ -1069,9 +1070,9 @@ export class QuietRoomApp {
       this.pendingChatViewportGeometry = null;
     };
     syncVisualViewport();
-    window.visualViewport?.addEventListener('resize', scheduleVisualViewportSync, { passive: true });
-    window.visualViewport?.addEventListener('scroll', scheduleVisualViewportSync, { passive: true });
-    window.visualViewport?.addEventListener('scrollend', scheduleVisualViewportSync, { passive: true });
+    layoutViewport()?.addEventListener('resize', scheduleVisualViewportSync, { passive: true });
+    layoutViewport()?.addEventListener('scroll', scheduleVisualViewportSync, { passive: true });
+    layoutViewport()?.addEventListener('scrollend', scheduleVisualViewportSync, { passive: true });
     window.addEventListener('scrollend', scheduleVisualViewportSync, { passive: true });
     window.addEventListener('resize', scheduleVisualViewportSync, { passive: true });
     window.addEventListener('scroll', () => {
@@ -1274,6 +1275,7 @@ export class QuietRoomApp {
   }
 
   private showPrivacyCurtain(): void {
+    cancelFormInput();
     this.queuedNotice = null;
     document.documentElement.classList.add('privacy-obscured');
     this.root.setAttribute('aria-hidden', 'true');
@@ -2034,7 +2036,7 @@ export class QuietRoomApp {
   }
 
   private pinOverlayToVisualViewport(sheet: HTMLElement): () => void {
-    const viewport = window.visualViewport;
+    const viewport = layoutViewport();
     const sync = () => {
       sheet.style.top = `${viewport?.offsetTop ?? 0}px`;
       sheet.style.left = `${viewport?.offsetLeft ?? 0}px`;
@@ -2845,8 +2847,9 @@ export class QuietRoomApp {
 
   private renderCreateProtection(profile: SpaceProfile, prepare?: () => Promise<void>): void {
     const unsupported = platformVaultSetupState() === 'unsupported';
+    const external = platformVaultUsesExternalAuthenticator();
     this.gatewayTemplate('每次打开，先确认是你', '日常解锁保护这台浏览器里的聊天，暂时离开后，先验证再查看。', `
-      <div class="entry-protection"><strong>${unsupported ? '设置解锁密码' : '使用通行密钥'}</strong><p>${unsupported ? '当前浏览器不支持通行密钥。设置一个仅用于日常解锁的密码。' : '使用设备提供的验证方式，不用额外记住一个新密码。'}</p></div>
+      <div class="entry-protection"><strong>${unsupported ? '设置解锁密码' : external ? '使用外部通行密钥' : '使用通行密钥'}</strong><p>${unsupported ? '当前浏览器不支持通行密钥。设置一个仅用于日常解锁的密码。' : external ? '当前浏览器的内置验证器不可用。可尝试兼容的安全密钥或其他设备；若浏览器明确不支持，将进入密码设置。' : '由当前浏览器调用可用的验证方式，不用额外记住一个新密码。'}</p></div>
       <p class="entry-support">${createElement(Info).outerHTML}<span>日常解锁负责打开聊天；恢复卡负责换设备或数据丢失后的找回。</span></p>
       ${unsupported ? '' : `<details class="recovery-explanation"><summary>通行密钥名称与设备备注</summary><label class="passkey-name-field">通行密钥名称<input id="new-passkey-name" value="${accessEscape(defaultPasskeyName())}" autocomplete="off"></label><label class="passkey-name-field">设备备注（选填）<input id="new-device-alias" placeholder="例如：工作电脑" autocomplete="off"></label></details>`}
       <div class="welcome-actions"><button class="primary-button" data-device-verify type="button">${unsupported ? '设置密码并进入空间' : '启用并进入空间'}</button><button class="text-button gateway-back" type="button">返回</button><p class="form-error" role="alert"></p></div>
@@ -6714,6 +6717,7 @@ export class QuietRoomApp {
   }
 
   private transitionPage(direction: 'forward' | 'backward', render: () => void): void {
+    cancelFormInput();
     if (this.privacyCovered) return;
     this.closeImageViewer(true);
     this.clearMessageTextSelection();
@@ -7077,7 +7081,7 @@ export class QuietRoomApp {
     if (this.usesListScrolling) {
       setStyle(chat.shell.style, 'top', `${window.scrollY}px`);
       const height = this.listKeyboardLayout.sample({ height: viewportHeight, layoutHeight,
-        width: window.visualViewport?.width ?? window.innerWidth }, performance.now(),
+        width: layoutViewport()?.width ?? window.innerWidth }, performance.now(),
         matchMedia('(prefers-reduced-motion: reduce)').matches);
       const transition = this.listKeyboardLayout.transition;
       if (transition && transition.to !== null && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
@@ -7125,7 +7129,7 @@ export class QuietRoomApp {
   private beginListKeyboardLayout(direction: 'open' | 'closed'): void {
     const chat = this.chatLayoutElements;
     if (!this.usesListScrolling || !this.visualClientCoordinates || !chat?.shell.isConnected || this.privacyCovered || this.activeSurface !== 'chat') return;
-    const viewport = window.visualViewport;
+    const viewport = layoutViewport();
     if (direction === 'closed' && this.chatResumeBottomOnFocus) {
       this.chatPinnedToBottom = true;
       this.chatScrollIntent = null;
@@ -7144,7 +7148,7 @@ export class QuietRoomApp {
 
   private refreshNativeChatChrome(): void {
     if (!this.visualClientCoordinates) return;
-    const viewport = window.visualViewport;
+    const viewport = layoutViewport();
     this.positionChatChrome(viewport?.offsetTop ?? 0, viewport?.height ?? window.innerHeight,
       document.documentElement.clientHeight || window.innerHeight);
   }
@@ -7338,7 +7342,7 @@ export class QuietRoomApp {
 
   private alignNativeChatContents(): boolean {
     const chat = this.chatLayoutElements;
-    const viewport = window.visualViewport;
+    const viewport = layoutViewport();
     if (this.usesListScrolling || !this.visualClientCoordinates || !chat?.list.isConnected
       || document.activeElement !== chat.composer.querySelector('#message-input')
       || !viewport || document.documentElement.clientHeight - viewport.height <= 120) return false;
@@ -8835,7 +8839,7 @@ export class QuietRoomApp {
       exclude: target => target instanceof Element && Boolean(target.closest(
         'input, textarea, audio, video, .message-reactions, .message-reply-quote, button:not(.image-preview):not(.album-cell):not(.file-attachment)',
       )),
-      maxOffset: () => replySwipeMaxOffset(window.visualViewport?.width ?? window.innerWidth),
+      maxOffset: () => replySwipeMaxOffset(layoutViewport()?.width ?? window.innerWidth),
       currentOffset: () => swipeOffset,
       gestureStart: () => {
         cancelSettle?.();
@@ -8865,7 +8869,7 @@ export class QuietRoomApp {
         swipeVelocity = elapsed >= 4 ? Math.max(-2000, Math.min(2000, (offset - swipeOffset) / elapsed * 1000)) : 0;
         swipeAt = now; swipeOffset = offset;
         article.style.setProperty('--reply-swipe-offset', `${offset}px`);
-        const activationOffset = replySwipeOffset(REPLY_SWIPE_THRESHOLD_PX, replySwipeMaxOffset(window.visualViewport?.width ?? window.innerWidth));
+        const activationOffset = replySwipeOffset(REPLY_SWIPE_THRESHOLD_PX, replySwipeMaxOffset(layoutViewport()?.width ?? window.innerWidth));
         article.style.setProperty('--reply-swipe-progress', String(armed ? 1 : Math.min(.99, offset / Math.max(1, activationOffset))));
         article.classList.toggle('is-reply-armed', armed);
         if (armed && !swipeWasArmed) navigator.vibrate?.(12);
@@ -9129,7 +9133,7 @@ export class QuietRoomApp {
   private positionMessageActions(actions: HTMLElement, article: HTMLElement): void {
     actions.style.setProperty('--app-height', `${this.chatViewportHeight}px`);
     const rect = article.querySelector('.message-bubble')?.getBoundingClientRect() ?? article.getBoundingClientRect();
-    const viewport = window.visualViewport;
+    const viewport = layoutViewport();
     const left = viewport?.offsetLeft ?? 0;
     const top = viewport?.offsetTop ?? 0;
     const width = viewport?.width ?? window.innerWidth;
@@ -12898,7 +12902,7 @@ export class QuietRoomApp {
       if (!sheet.isConnected || !source.isConnected) return;
       const menu = sheet.querySelector<HTMLElement>('.gallery-actions-menu')!;
       const rect = source.getBoundingClientRect();
-      const viewport = window.visualViewport;
+      const viewport = layoutViewport();
       const left = viewport?.offsetLeft ?? 0;
       const top = viewport?.offsetTop ?? 0;
       const width = viewport?.width ?? window.innerWidth;
@@ -13713,7 +13717,7 @@ export class QuietRoomApp {
       const activePage = [...this.root.querySelectorAll<HTMLElement>('.space-drawer-overlay,.space-profile-overlay,.password-page,.document-reader,.image-viewer')]
         .filter(element => !element.classList.contains('is-closing')).at(-1) ?? this.root;
       const header = activePage.querySelector<HTMLElement>('.space-drawer-header,.space-profile-header,.reader-header,.viewer-header,.chat-header,.subpage-header,.recovery-flow-nav,.backup-header');
-      const viewportTop = window.visualViewport?.offsetTop ?? 0;
+      const viewportTop = layoutViewport()?.offsetTop ?? 0;
       notice.style.top = `${Math.max(viewportTop,header?.getBoundingClientRect().bottom ?? viewportTop + 48) + 8}px`;
     }
     if (notice.id === 'notice' && !notice.closest('.chat-shell')) {

@@ -1,3 +1,4 @@
+import { fillFormInput, cancelPasswordForm } from './helpers/form-input.mjs';
 import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -45,11 +46,11 @@ try {
       await page.locator('.password-create .password-form').waitFor();
       assert.equal(await page.locator('[name=password]').getAttribute('autocomplete'), 'new-password');
       assert.match(await page.locator('.password-description').textContent(), /不是手机锁屏密码/);
-      await page.locator('[name=password]').fill('synthetic password 123');
+      await fillFormInput(page, page.locator('[name=password]'), 'synthetic password 123');
       await page.locator('[name=show]').check(); assert.equal(await page.locator('[name=password]').getAttribute('type'), 'text');
       await page.locator('[name=show]').uncheck(); assert.equal(await page.locator('[name=password]').inputValue(), 'synthetic password 123');
-      if (evidence) { await page.locator('[name=password]').fill(''); await page.screenshot({ path: path.join(evidence, `F15-webview-${name}.png`) }); }
-      await page.locator('[data-password-cancel]').click(); await page.locator('.password-sheet').waitFor({ state: 'detached' });
+      if (evidence) { await fillFormInput(page, page.locator('[name=password]'), ''); await page.screenshot({ path: path.join(evidence, `F15-webview-${name}.png`) }); }
+      await cancelPasswordForm(page); await page.locator('.password-sheet').waitFor({ state: 'detached' });
     } else {
       await page.waitForFunction(() => !document.querySelector('[data-device-verify]')?.disabled);
       assert.equal(await page.locator('.password-sheet').count(), 0, `${name} incorrectly offered a new password`);

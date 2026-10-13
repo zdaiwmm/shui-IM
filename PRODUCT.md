@@ -345,3 +345,7 @@ Palette and brightness are independent immediate preferences. The four existing 
 ## 私有空间头像编辑
 
 创建时与创建后空间菜单“修改空间头像”共用选择器，支持 64 个 Microsoft Fluent 独立动画表情及本机图片裁剪。修改只在本人一侧可见；保存成功才更新空间列表和当前头像，取消保留原值。旧头像 ID 仍可读取；可视区域外及减少动态效果模式使用静帧，选中态只使用主题浅底。
+
+## Mobile form editing
+
+On touch phones, editable form text, search, password, numeric and multiline data fields open a titled draft editor over a translucent mask. The underlying page and actions keep their layout while only the editor follows the visible keyboard area. Done commits to the original field without submitting the business operation; Cancel, Escape and the mask preserve the original value. Single-line Enter and keyboard Done finish editing; multiline Enter remains a newline and composition must not submit early. Drafts have no extra persistence and are cleared on hidden/pagehide, locking, navigation or source invalidation. Existing field validation and exact password Unicode remain authoritative. Chat message input and message selection retain their existing interaction; desktop, read-only values and native file/date/choice controls keep their normal behavior. See the [confirmed requirement](docs/requirements/2026-10-14-mobile-debug-feedback/README.md).

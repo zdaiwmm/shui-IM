@@ -99,20 +99,30 @@ function randomBytes(length: number): Uint8Array<ArrayBuffer> {
   return crypto.getRandomValues(new Uint8Array(length));
 }
 
-let clientCapability: { credential: typeof PublicKeyCredential; probe: typeof PublicKeyCredential.getClientCapabilities; prf?: boolean } | null = null;
+let clientCapability: { credential: typeof PublicKeyCredential; probe: typeof PublicKeyCredential.getClientCapabilities; prf?: boolean; platform?: boolean } | null = null;
 
 /** Warm the optional probe without postponing a trusted-click ceremony. */
 export async function probePlatformVaultCapabilities(): Promise<void> {
   const credential = window.PublicKeyCredential;
-  if (!window.isSecureContext || !credential || typeof credential.getClientCapabilities !== 'function') return;
-  const result = { credential, probe: credential.getClientCapabilities, prf: undefined as boolean | undefined };
+  if (!window.isSecureContext || !credential) return;
+  const result = { credential, probe: credential.getClientCapabilities, prf: undefined as boolean | undefined, platform: undefined as boolean | undefined };
   clientCapability = result;
   try {
-    const capabilities = await credential.getClientCapabilities();
+    const capabilities = typeof credential.getClientCapabilities === 'function' ? await credential.getClientCapabilities() : {};
     // Missing keys and rejected probes remain unknown. A platform-only probe
     // cannot rule out a resident PRF-capable hardware security key.
     if (typeof capabilities['extension:prf'] === 'boolean') result.prf = capabilities['extension:prf'];
+    if (typeof capabilities.userVerifyingPlatformAuthenticator === 'boolean') result.platform = capabilities.userVerifyingPlatformAuthenticator;
   } catch { /* Unknown: attempt the normal ceremony from the next click. */ }
+  if (result.platform === undefined && typeof credential.isUserVerifyingPlatformAuthenticatorAvailable === 'function') {
+    try { result.platform = await credential.isUserVerifyingPlatformAuthenticatorAvailable(); } catch { /* Unknown remains unknown. */ }
+  }
+}
+
+/** Presentation only: an absent built-in verifier does not exclude external PRF security keys. */
+export function platformVaultUsesExternalAuthenticator(): boolean {
+  return clientCapability !== null && Boolean(window.PublicKeyCredential) && clientCapability.credential === window.PublicKeyCredential
+    && clientCapability.probe === window.PublicKeyCredential?.getClientCapabilities && clientCapability.platform === false;
 }
 
 /** Only positively unsupported setup environments choose password; unknown still tries WebAuthn. */

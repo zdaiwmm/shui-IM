@@ -1,3 +1,4 @@
+import { layoutViewport } from './form-input';
 export const CHAT_LATEST_GAP = 64;
 
 type BottomControlOptions = {
@@ -56,7 +57,7 @@ export function mountChatBottomControl(options: BottomControlOptions) {
       cancel(); setVisible(false); observer.disconnect(); mutations.disconnect(); lastMessage = undefined; lastGeometry = ''; return;
     }
     const hasNewer = options.hasNewer();
-    const geometry = `${scrollTop()}:${window.visualViewport?.height ?? innerHeight}:${window.visualViewport?.offsetTop ?? 0}:${hasNewer}`;
+    const geometry = `${scrollTop()}:${layoutViewport()?.height ?? innerHeight}:${layoutViewport()?.offsetTop ?? 0}:${hasNewer}`;
     if (!force && geometry === lastGeometry && latest === lastMessage) return;
     if (latest !== lastMessage) {
       observer.disconnect();

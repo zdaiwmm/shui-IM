@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
+import { fillFormInput } from './helpers/form-input.mjs';
 const evidence=process.argv[2];
 const vite=await createServer({configFile:false,root:process.cwd(),logLevel:'error',server:{host:'127.0.0.1',port:0,hmr:false},plugins:[{name:'profile-fixture',configureServer(server){server.middlewares.use('/__profile',(_req,res)=>{res.setHeader('Content-Type','text/html');res.end('<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><div id="app"></div>');});}}]});
 let browser;
@@ -16,6 +17,7 @@ try {
     await page.evaluate(async()=>{
       await(await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
       window.ui=await import('/src/lib/space-profile-ui.ts');
+      (await import('/src/lib/form-input.ts')).mountFormInputs(document.querySelector('#app'));
       window.outstanding=new Set();
       const create=URL.createObjectURL.bind(URL),revoke=URL.revokeObjectURL.bind(URL);
       URL.createObjectURL=blob=>{const url=create(blob);outstanding.add(url);return url;};
@@ -28,15 +30,17 @@ try {
       }; mount();
     });
     await page.locator('#profile-done').click();assert.match(await page.locator('.space-profile-content .form-error').innerText(),/1–40/);
-    await page.locator('#new-space-name').fill('海边小屋');
+    await fillFormInput(page,page.locator('#new-space-name'),'海边小屋');
     assert.ok(await page.locator('#new-space-name').evaluate(input=>document.querySelector('.space-profile-label').getBoundingClientRect().bottom<input.getBoundingClientRect().top));
     assert.equal(await page.locator('#new-space-name').evaluate(input=>getComputedStyle(input).outlineStyle),'none');
     await page.locator('#change-space-avatar').click();await page.locator('.avatar-source-overlay.is-visible').waitFor();
     assert.equal(await page.locator('.avatar-source-sheet h2,.avatar-source-sheet .icon-button').count(),0);
+    assert.equal(await page.locator('.avatar-source-sheet .space-avatar').count(),0,'The source sheet has no duplicated avatar');
     assert.match(await page.locator('#choose-art').innerText(),/使用表情/);
     await page.keyboard.press('Escape');await page.locator('.avatar-source-overlay').waitFor({state:'detached'});
     assert.equal(await page.locator('#new-space-name').inputValue(),'海边小屋');
     await page.locator('#change-space-avatar').click();await page.locator('#choose-art').click();
+    assert.equal(await page.locator('.space-profile-page:not(.local-page-outgoing)').evaluate(el=>getComputedStyle(el).backgroundColor),await page.locator('.space-profile-overlay').evaluate(el=>getComputedStyle(el).backgroundColor),'The entering editor owns an opaque page canvas');
     assert.equal(await page.locator('#profile-back').evaluate(button => document.activeElement === button),true,'Changing pages keeps keyboard focus inside the modal');
     assert.equal(await page.locator('[data-avatar-choice]').count(),64);
     await page.waitForFunction(()=>document.querySelectorAll('.avatar-emoji-grid img[data-playing="true"]').length>=12);
@@ -57,6 +61,11 @@ try {
     await page.setViewportSize({width:390,height:844});
     assert.equal(await page.locator('#space-profile-avatar img').getAttribute('data-avatar-emoji'),chosen);
     await page.locator('#change-space-avatar').click();
+    const cancelPicker=page.waitForEvent('filechooser');await page.locator('#choose-photo').click();
+    assert.equal(await page.locator('.avatar-source-overlay').count(),1,'Source remains mounted while picking');
+    await(await cancelPicker).setFiles([]);
+    await page.locator('#choose-photo').waitFor({state:'visible'});
+    assert.equal(await page.locator('.avatar-source-overlay').count(),1,'Cancelled selection preserves the source sheet');
     const image=await page.evaluate(()=>{const canvas=document.createElement('canvas');canvas.width=640;canvas.height=480;const c=canvas.getContext('2d');c.fillStyle='#e3bb79';c.fillRect(0,0,640,480);c.fillStyle='#508fac';c.fillRect(320,0,320,480);return canvas.toDataURL('image/png').split(',')[1];});
     const picker=page.waitForEvent('filechooser');await page.locator('#choose-photo').click();
     await(await picker).setFiles({name:'synthetic-avatar.png',mimeType:'image/png',buffer:Buffer.from(image,'base64')});

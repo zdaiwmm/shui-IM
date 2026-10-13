@@ -1,0 +1,14 @@
+/* Shared mobile form editor. Only this foreground surface follows the keyboard. */
+#app .form-input-overlay { position:fixed; inset:0 auto auto 0; z-index:2000; display:flex; align-items:flex-end; justify-content:center; box-sizing:border-box; padding:16px 12px max(12px,env(safe-area-inset-bottom)); background:rgb(10 8 14 / 48%); overflow:hidden; }
+#app .form-input-panel { display:flex; flex-direction:column; width:min(100%,480px); max-height:100%; box-sizing:border-box; margin:0; padding:20px; gap:12px; background:var(--surface-raised); border-radius:16px; color:var(--ink); overflow:auto; overscroll-behavior:contain; }
+#app .form-input-panel h2 { margin:0; font-size:1.0625rem; line-height:1.4; font-weight:600; overflow-wrap:anywhere; }
+#app .form-input-field { min-height:0; }
+#app #form-input-draft { display:block; box-sizing:border-box; width:100%; min-height:48px; margin:0; padding:12px; font:inherit; font-size:1rem; line-height:1.375; color:var(--ink); background:var(--surface); border:1px solid transparent; border-radius:12px; box-shadow:none; caret-color:var(--accent); }
+#app textarea#form-input-draft { height:144px; max-height:38dvh; resize:none; }
+#app .form-input-panel footer { display:flex; justify-content:flex-end; gap:8px; flex:none; }
+#app .form-input-panel button { min-width:64px; min-height:44px; padding:10px 16px; border:0; border-radius:12px; font:inherit; font-size:.875rem; color:var(--accent); background:transparent; box-shadow:none; }
+#app .form-input-panel [data-form-input-done] { color:var(--action-ink); background:var(--action-surface); }
+#app .form-input-panel :focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+@media(forced-colors:active) { #app .form-input-panel { border:1px solid CanvasText; } }
+
+@media(forced-colors:active) { #app #form-input-draft { border-color:CanvasText; } }
