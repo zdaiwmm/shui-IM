@@ -42,13 +42,11 @@ try {
   assert.equal(await page.locator('.chat-header .call-actions,.gallery-button').count(),0);
   assert.equal(await page.locator('#open-memes').count(),1);
   await page.locator('#message-input').fill('保留草稿');
-  await page.waitForFunction(() => getComputedStyle(document.querySelector('.composer')).backgroundColor
-    === getComputedStyle(document.querySelector('.composer-input-stack')).backgroundColor);
   const continuousSurface = await page.evaluate(async () => {
     const input = document.querySelector('#message-input'), composer = document.querySelector('.composer');
     const samples = [];
     const sample = () => samples.push({background:getComputedStyle(composer).backgroundColor,
-      surfaces:[...composer.querySelectorAll('.composer-input-stack, .icon-button')].map(el=>getComputedStyle(el).backgroundColor)});
+      surfaces:[...composer.querySelectorAll('.icon-button')].map(el=>getComputedStyle(el).backgroundColor)});
     for (const focused of [false,true]) {
       if (focused) input.focus(); else input.blur();
       sample();
@@ -72,10 +70,10 @@ try {
       inputBackground: getComputedStyle(el.querySelector('.composer-input-stack')).backgroundColor };
   });
   assert.ok(composerSurface.opaque && composerSurface.backdrop === 'none'
-    && composerSurface.background === composerSurface.inputBackground,
-  `P1 V1 composer and input must share an opaque surface with no glass blur: ${JSON.stringify(composerSurface)}`);
+    && composerSurface.background !== composerSurface.inputBackground,
+  `V1.5 input must have a subtle separate fill within the opaque composer: ${JSON.stringify(composerSurface)}`);
   assert.equal(await page.locator('#chat-tools').evaluate(el => getComputedStyle(el).backgroundColor), await page.evaluate(() => {
-    const probe=document.createElement('div'); probe.style.background='var(--surface-raised)';document.body.append(probe);
+    const probe=document.createElement('div'); probe.style.background='var(--composer-panel-surface)';document.body.append(probe);
     const color=getComputedStyle(probe).backgroundColor;probe.remove();return color;
   }));
   await page.evaluate(() => window.fixture.app.showNotice('已收藏'));
