@@ -5,7 +5,7 @@
 - 基线：`2da4065beb1f8a742eac4ccc8d98903e54fafd2f`，已只读核实 GitHub main 与 origin/main 一致；本机 main 为 `820c4b19ac93f7499270e0b7d7024f55d6c88cfd`，规则由其 AGENTS／固定交付流程及最新差异取得。
 - 分支：`codex/mobile-safari-feedback-20261014`；本任务独占工作树，接续须重新核对实际目录、HEAD 和状态。
 - 2026-10-14 用户明确确认本会话七项方案，免除本次原型和流程图，直接实施并验证；按持续授权交付 PR／CI／合并，生产发布前另行确认精确 SHA。无独立消息 permalink。
-- 当前阶段：`2026.10.14.2`七项修复已合并，设置测试等待实际动画端点的修订待复验；生产未授权、未发布。截图及两段 iPhone 录屏仅在本机诊断，不提交真实聊天、媒体或配置。
+- 当前阶段：`2026.10.14.2`七项修复及回归时序修订已合并，最终精确main完整CI通过；生产未授权、未发布。截图及两段 iPhone 录屏仅在本机诊断，不提交真实聊天、媒体或配置。
 
 ## 范围与验收
 
@@ -26,7 +26,7 @@
 - 完整验证：干净候选`8d9a3424a9e5794d9865e3ceaa3dad3b22429118`、树`a6f936e08ae116b320816e5082723530392fae00`的`check:full`通过，119文件956项、64／64浏览器入口，883415毫秒；回执位于本任务Git元数据的delivery-evidence。后续CI精度修订只改测试及记录，产品源码与此候选一致，不重复本地全量。
 - 首次冻结`fb14d22`完整门禁构建通过、953项通过，3项浏览器调度器测试仍保留旧入口清单／分片／未运行数量，浏览器套件未启动。补齐第64个入口的精确清单和统计断言后在新提交原样重跑，不改变产品源码或停止失败的语义。
 - 真机：用户录屏证明原问题；修复后 iPhone／Safari 原生键盘、中文 IME、顶部与底部工具栏尚未验证。合成移动参数及桌面 WebKit 结果分别记录。
-- [PR #299](https://github.com/zdaiwmm/shui-IM/pull/299)已创建；首轮[CI 38558261606](https://github.com/zdaiwmm/shui-IM/actions/runs/38558261606)两项失败：新增断言将32.0000305px与32px精确比较，按既有媒体测试改为0.01px浮点容差；未修改的通话连接超时，结束态候选列表为空，原因未确认。第二轮[CI 38560068161](https://github.com/zdaiwmm/shui-IM/actions/runs/38560068161)原通话测试及其他门禁通过，仅新增WebKit退场测试在固定410ms等待内未采到动画推进帧，面板和输入行均停在起点。改为等待入场结束、将两条动画置于同一0／100／360ms进度采样，继续断言首帧连续、中途共同移动、时长一致、最终退场及草稿保留；定向Chromium／WebKit通过。仅修订测试时钟，不改产品源码、不放宽移动量断言。两轮失败均保留，当前待新候选精确CI复验与合并。生产：未授权本批精确 SHA，未发布。
+- [PR #299](https://github.com/zdaiwmm/shui-IM/pull/299)已创建；首轮[CI 38558261606](https://github.com/zdaiwmm/shui-IM/actions/runs/38558261606)两项失败：新增断言将32.0000305px与32px精确比较，按既有媒体测试改为0.01px浮点容差；未修改的通话连接超时，结束态候选列表为空，原因未确认。第二轮[CI 38560068161](https://github.com/zdaiwmm/shui-IM/actions/runs/38560068161)原通话测试及其他门禁通过，仅新增WebKit退场测试在固定410ms等待内未采到动画推进帧，面板和输入行均停在起点。改为等待入场结束、将两条动画置于同一0／100／360ms进度采样，继续断言首帧连续、中途共同移动、时长一致、最终退场及草稿保留；定向Chromium／WebKit通过。仅修订测试时钟，不改产品源码、不放宽移动量断言。两轮失败均保留，后续精确CI与合并结果见下文。生产：未授权本批精确 SHA，未发布。
 - 本地来源`http://localhost:5202`的浏览器开发访问获用户单独授权；按项目配置设置iPhone UA、5点触控和DPR3。预览系统栏及VisualViewport仍为模拟，不能计为原生Safari证据。
 - 提交前检查新增体积、二进制、Base64、依赖与产物，仅收必要源码和记录。
 
@@ -34,7 +34,17 @@
 
 ## 合并与精度复验
 
-- 最终源`1ee70eaf94950879f1aace2e12d6c8d67b5b6e65`的[CI 38562647345](https://github.com/zdaiwmm/shui-IM/actions/runs/38562647345) attempt 2成功。本次专项双引擎通过；attempt 1仅既有draft-refresh的WebKit邀请加入等待聊天页超时，原因未确认；原样重跑失败分片及依赖汇总一次后成功，不改加入源码、断言或超时。
+- 首批源`1ee70eaf94950879f1aace2e12d6c8d67b5b6e65`的[CI 38562647345](https://github.com/zdaiwmm/shui-IM/actions/runs/38562647345) attempt 2成功。本次专项双引擎通过；attempt 1仅既有draft-refresh的WebKit邀请加入等待聊天页超时，原因未确认；原样重跑失败分片及依赖汇总一次后成功，不改加入源码、断言或超时。
 - [PR #299](https://github.com/zdaiwmm/shui-IM/pull/299)已合并为`1c9077ea77ef7df64c6333df32a6614ad804492f`。精确[main CI 38564329724](https://github.com/zdaiwmm/shui-IM/actions/runs/38564329724)在WebKit设置顶部实测0.000159px与严格0比较时失败；此候选不能称main CI成功。设置顶部／底部断言统一为既有0.01px几何容差，保留全屏入场、无柄、末项可达与背景一致检查；仅补测试精度，产品源码未变。后续候选须重新核对完整CI。
 - [PR #300](https://github.com/zdaiwmm/shui-IM/pull/300)源`aa8ff98`的[完整CI 38564985832](https://github.com/zdaiwmm/shui-IM/actions/runs/38564985832) attempt 1成功，合并为`502ac765e483597fb776a1ff38dd70411eb40126`。其[main CI 38565983671](https://github.com/zdaiwmm/shui-IM/actions/runs/38565983671)设置测试再次采到0.025853px位移，否定单纯浮点舍入的判断：固定300ms等待仍可能早于WebKit动画结束。改为等待实际入场动画finished、退场DOM移除后再进入下一组合，保留0.01px位置界限和全部产品断言。另有既有邀请按钮字号读取空值失败，原因未确认；不改该测试或产品字体。前两候选main CI失败均保留，不称成功。
 - 首次finished等待探针早于下一帧is-visible启动，枚举为空、实测仍位于568px，定向命令失败；补齐实际启动条件后再等待finished，Chromium／WebKit定向原样通过。未增大几何容差，未改产品源码或动效。
+
+## 最终远端交付
+
+- 回归时序修订[PR #301](https://github.com/zdaiwmm/shui-IM/pull/301)源`3ac1df36133486bdde9b46a26983b5485581d62d`的[完整CI 38567089468](https://github.com/zdaiwmm/shui-IM/actions/runs/38567089468) attempt 2成功。本次双引擎专项及所在16个浏览器入口、其他分片、通话、构建及双架构镜像在attempt 1均通过；仅既有draft-refresh在WebKit等待初始邀请按钮超时，先前输入回填断言已通过，原因未确认。仅原样复验失败分片与依赖汇总一次后成功，未改其源码、断言或超时，失败保留。
+- PR #301已合并为`966c827dfcfc9d44e1ddde2d3101c25dff994347`，本机干净main通过固定入口同步。该SHA冻结为本批应用候选，精确[main CI 38568778529](https://github.com/zdaiwmm/shui-IM/actions/runs/38568778529) attempt 2完整成功，已回查head与最新结果；后续纯文档不改变发布目标。其产品源码与已通过本地完整门禁的`8d9a342`一致。
+- main attempt 1中本次双引擎专项及所在16个浏览器入口、其他检查与镜像通过；既有draft-refresh在concurrent-opening等待15秒超时，mobile-debug在重载后等待草稿浮层10秒超时，原因未确认。仅原样复验两个失败分片与依赖汇总一次后全部成功，不修改其源码、断言或时限；首次失败保留，不据复验成功推断原失败根因已解决。
+- Codex预览实际回读iPhone UA／platform、5点触控、DPR3、粗指针且无hover；布局393×683、合成可见高度683／473，桥接synthetic／installed均为true。真实创建表单点击完成后原字段精确回填，浮层和模拟键盘收起；没有创建保险库或安装认证器。截图仅本机保存。
+- 未验证：修复后的iPhone／Safari原生键盘、中文IME、系统状态栏与底部工具栏。原用户录屏只证明旧问题，不能充作修复证据。生产发布须另行确认以上精确应用SHA；未调用生产入口。
+- 收尾在独立文档树进行，按纯文档例外执行docs环境、链接和格式检查，不安装产品依赖；该树repo:doctor的开发工具检查因缺少tsc／vite／vitest未通过，不计为应用环境证据，应用源树doctor已通过。
+- 资源保留：源工作树、任务分支、移动预览及本机测试数据因尚未发布而保留；独立文档树仅补交付事实，不携带部署配置，不改产品源码，也不触发生产发布。
