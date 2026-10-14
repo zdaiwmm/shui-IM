@@ -274,7 +274,12 @@ try {
   await depart(creator,'hidden');
   await creator.clock.install(); await creator.clock.fastForward(30 * 60 * 1000);
   assert.equal((await state(creator)).retained,false);
-  await returnToPage(creator); await holdF(creator); await expectChat(creator);
+  await returnToPage(creator);
+  // Foreground routing is asynchronous. Wait for the fresh-authentication
+  // gateway rather than interacting with the cover that is being replaced.
+  await creator.locator('#passkey-unlock').waitFor({ state: 'visible' });
+  await creator.locator('#passkey-unlock').click();
+  await expectChat(creator);
   expectedVerifications++;
   assert.equal(await verificationCount(creator),expectedVerifications);
   trace('Checking security lock and reload require new device verification');
