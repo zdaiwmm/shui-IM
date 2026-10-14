@@ -32,6 +32,7 @@ async function waitForState(page, stage, predicate) {
       session: Boolean(app.session), mls: app.session?.vault.mls?.phase,
       connection: app.connectionState, accessFailure: Boolean(app.accessFailure),
       idleExpired: app.idleLease.expired,
+      stalePassword: /其它窗口|重新解锁/.test(document.querySelector('.password-sheet .form-error')?.textContent ?? ''),
       inputPresent: Boolean(document.querySelector('#message-input')),
       inputDisabled: document.querySelector('#message-input')?.disabled,
       sending: app.sendingTextDrafts.size, fault: Boolean(window.draftFault?.injected),
@@ -218,6 +219,13 @@ try {
     // Headless pages can both stay visible/focused. Reproduce the unsupported
     // concurrent identity writer explicitly before modelling a real tab switch.
     await reopened.locator('#message-input').fill('before another tab');
+    // Settle the unrelated debounced draft write before the new tab takes its
+    // unlock snapshot. The deliberate conflicting write below belongs after
+    // openSession is paused, so rejection must be tested at that boundary.
+    await reopened.evaluate(async () => {
+      await app.saveUiPreferencesNow();
+      await Promise.all([app.preferenceSaveChain, app.membershipChain, app.sendChain]);
+    });
     const second = await ac.newPage(); second.setDefaultTimeout(15000); await second.goto(url);
     await second.evaluate(() => {
       const original = app.openSession.bind(app);
