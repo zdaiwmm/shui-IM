@@ -148,7 +148,13 @@ try {
         }
         await new Promise(resolve=>setTimeout(resolve,20));
       }
-      await new Promise(resolve=>setTimeout(resolve,500));
+      const picker=app.memePicker;
+      if(picker&&!picker.isClosing)throw Error('The touch handoff did not start closing the expression panel');
+      const panel=document.querySelector('.meme-panel');
+      const animations=[...document.querySelector('.composer-row').getAnimations(),...(panel?.getAnimations()??[])];
+      await Promise.all(animations.map(animation=>animation.ready));
+      for(const animation of animations)animation.finish();
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
       return {focuses,blurs,same:input===document.querySelector('#message-input'),draft:input.value,panel:!!app.memePicker,opacity:getComputedStyle(document.querySelector('.composer-row')).opacity};
     });
     assert.deepEqual(handoff,{focuses:1,blurs:0,same:true,draft:'保留输入草稿',panel:false,opacity:'1'});
@@ -158,7 +164,8 @@ try {
         surface:getComputedStyle(document.querySelector('#composer')).backgroundColor,draft:input.value};
     });
     assert.ok(accessory.height>=370,JSON.stringify(accessory));assert.equal(accessory.paint,accessory.surface);
-    await page.evaluate(()=>setViewport(844));await page.waitForTimeout(1000);
+    const openingAfterDismiss=await page.evaluate(()=>{setViewport(844);return fixture.app.nativeKeyboardOpening;});
+    assert.equal(openingAfterDismiss,false,'Closed native viewport geometry must clear the stale opening arm before a new touch');
     const rearmed=await page.evaluate(()=>{
       const input=document.querySelector('#message-input');let focuses=0,blurs=0;
       input.addEventListener('focus',()=>focuses++);input.addEventListener('blur',()=>blurs++);

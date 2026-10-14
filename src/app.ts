@@ -873,6 +873,7 @@ export class QuietRoomApp {
           ? 'open'
           : 'intermediate';
       const previousKeyboardOpen = Math.max(0, previousLayoutHeight - previousViewportHeight) > 120;
+      if (chat && previousKeyboardOpen && !keyboardOpen) this.nativeKeyboardOpening = false;
       if (chat && this.visualClientCoordinates && previousKeyboardOpen && viewportHeight > previousViewportHeight + 72) {
         this.beginNativeKeyboardDismiss(previousViewportHeight);
       }
