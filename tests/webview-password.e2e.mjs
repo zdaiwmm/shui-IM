@@ -29,6 +29,11 @@ try {
       if (name === 'missing-create') Object.defineProperty(navigator.credentials, 'create', { configurable: true, value: undefined });
       if (name === 'missing-get') Object.defineProperty(navigator.credentials, 'get', { configurable: true, value: undefined });
       if (window.PublicKeyCredential) Object.defineProperty(PublicKeyCredential, 'getClientCapabilities', { configurable: true, value: async () => name === 'negative-prf-capability' ? { 'extension:prf': false } : name === 'negative-builtin-capability' ? { 'extension:prf':true,userVerifyingPlatformAuthenticator:false } : {} });
+      // Control both probes: a real Linux false result would correctly select
+      // password before the simulated unknown/cancelled ceremony is reached.
+      if (window.PublicKeyCredential) Object.defineProperty(PublicKeyCredential,'isUserVerifyingPlatformAuthenticatorAvailable',{
+        configurable:true,value:async()=>{throw Error('Synthetic unknown built-in capability');},
+      });
       if (name === 'negative-builtin-capability') Object.defineProperty(navigator.credentials,'create',{configurable:true,value:async()=>{throw Error('Unavailable built-in verifier must choose password before requesting an external key');}});
       if (name === 'not-supported' || name.startsWith('unknown-')) Object.defineProperty(navigator.credentials, 'create', { configurable: true, value: async () => { throw new DOMException('synthetic capability outcome', { 'not-supported': 'NotSupportedError', 'unknown-cancel': 'NotAllowedError', 'unknown-abort': 'AbortError', 'unknown-security': 'SecurityError', 'unknown-transient': 'UnknownError' }[name]); } });
     }, name);
