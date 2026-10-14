@@ -19,7 +19,7 @@ export const spaceIcons = {
 const arrow = createElement(ChevronRight).outerHTML, check = createElement(Check).outerHTML, heart = createElement(Heart).outerHTML;
 const closeIcon = createElement(X).outerHTML;
 const escape = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
-type Action = { id: string; label: string; icon: string; group?: '当前空间' | '本机' | '关于'; keepOpen?: boolean; run: () => void | Promise<void> };
+type Action = { id: string; label: string; icon: string; group?: '当前空间' | '本机' | '关于'; keepOpen?: boolean | (() => boolean); run: () => void | Promise<void> };
 
 /** Follow the visual viewport when the native keyboard opens, without resizing the chat. */
 export function fitViewport(element: HTMLElement, signal: AbortSignal) {
@@ -45,7 +45,7 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
   refreshUnread?: (signal: AbortSignal) => Promise<void>;
   refreshSpaces?: (signal: AbortSignal) => Promise<PrivateSpace[]>;
   authorization?: (space: PrivateSpace) => {deadline:number;open:()=>Promise<void>} | undefined;
-  styleChanged: (style: PresenceStyle) => void; closed: () => void;
+  styleChanged: (style: PresenceStyle) => void; closed: (sheet: HTMLElement) => void;
 }): void {
   const lifetime = new AbortController();
   const signal = AbortSignal.any([options.signal, lifetime.signal]);
@@ -58,10 +58,10 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
   let pageLifetime = new AbortController();
   signal.addEventListener('abort', () => pageLifetime.abort(), { once: true });
   const dialog = embedded ? { close: (_options?: { animate?: boolean; restoreFocus?: boolean }) => { /* Embedded navigation owns its page lifetime. */ } } : mountDialog(sheet, { signal: options.signal, isActive: () => !options.signal.aborted, beforeClose: () => !busy, onClose: () => {
-    lifetime.abort(); if (!handingOff) options.closed();
+    lifetime.abort(); if (!handingOff) options.closed(sheet);
   } });
   if (embedded) signal.addEventListener('abort', () => sheet.remove(), { once: true });
-  const close = () => { if (embedded) { if (!busy) options.closed(); } else dialog.close(); };
+  const close = () => { if (embedded) { if (!busy) options.closed(sheet); } else dialog.close(); };
   sheet.addEventListener('click', e => { if (e.target === sheet && !busy) close(); });
   function page(title: string, body: string, footer = '', back?: () => void) {
     pageLifetime.abort(); pageLifetime = new AbortController();
@@ -178,7 +178,7 @@ const removable = Boolean(options.remove && space.waiting && !space.accessState)
     if (other) cards.push(other);
     page('设置', `<div class="space-settings-list">${cards.map(card => `<div class="space-setting-card">${card}</div>`).join('')}</div>`, '', options.presentation === 'settings' ? close : list);
     sheet.querySelector('#presence-style-setting')!.addEventListener('click', () => { styles(); sheet.querySelector<HTMLButtonElement>('[aria-checked=true]')?.focus(); });
-    for (const action of options.actions) sheet.querySelector(`#${action.id}`)!.addEventListener('click', () => { if (action.keepOpen) void run(async () => { await action.run(); }); else { options.onSettingsLeave?.(sheet.querySelector('.space-drawer-scroll')!.scrollTop); handingOff = true; void action.run(); } });
+    for (const action of options.actions) sheet.querySelector(`#${action.id}`)!.addEventListener('click', () => { if (typeof action.keepOpen === 'function' ? action.keepOpen() : action.keepOpen) void run(async () => { await action.run(); }); else { options.onSettingsLeave?.(sheet.querySelector('.space-drawer-scroll')!.scrollTop); handingOff = true; void action.run(); } });
   }
   function authorizations() {
     sheet.querySelectorAll<HTMLButtonElement>('[data-access]').forEach(button=>{const space=options.spaces[Number(button.dataset.access)];const action=space&&options.authorization?.(space);button.hidden=!action||action.deadline<=performance.now();});

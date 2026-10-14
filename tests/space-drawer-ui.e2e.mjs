@@ -49,6 +49,7 @@ try {
     const settingsStart=await page.evaluate(()=>{mount(12,true);return document.querySelector('.space-drawer').getBoundingClientRect().top;});
     assert.ok(settingsStart>=679,'First settings entry must begin below the viewport');
     await page.locator('.space-drawer-overlay.is-visible').waitFor();
+    await page.locator('.space-drawer').evaluate(async panel=>{await Promise.all(panel.getAnimations().map(animation=>animation.finished));});
     assert.equal(await page.locator('#feature-help').count(),0);
     assert.equal(await page.locator('.space-drawer:not(.local-page-outgoing) > .space-drawer-scroll').evaluate(el=>getComputedStyle(el).scrollbarWidth),'none');
     const icons=await page.locator('.space-setting-icon svg').evaluateAll(nodes=>nodes.map(el=>{const r=el.getBoundingClientRect(),tile=el.parentElement.getBoundingClientRect();return [r.width,r.height,tile.width,tile.height,getComputedStyle(el.parentElement).flexShrink];}));
