@@ -168,7 +168,9 @@ try {
         if(i===1)setViewport(560);if(i===3)setViewport(473);
         await new Promise(resolve=>setTimeout(resolve,20));
       }
-      await new Promise(resolve=>setTimeout(resolve,500));
+      // Linux WebKit may deliver the animation finish after a fixed wall-time
+      // delay. Await the actual owners without weakening the focus counts.
+      await Promise.allSettled([...document.querySelectorAll('.meme-panel,.composer-row')].flatMap(el=>el.getAnimations()).map(animation=>animation.finished));
       return {focuses,blurs,same:input===document.querySelector('#message-input'),draft:input.value,panel:!!app.memePicker,opacity:getComputedStyle(document.querySelector('.composer-row')).opacity};
     });
     assert.deepEqual(handoff,{focuses:1,blurs:0,same:true,draft:'保留输入草稿',panel:false,opacity:'1'});
