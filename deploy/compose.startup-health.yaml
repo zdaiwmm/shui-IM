@@ -1,0 +1,9 @@
+# Separately reviewed and installed as /etc/quiet-room/startup-health.compose.yaml.
+# Same probes and failure grace; only startup scheduling changes. Requires Engine >=25.
+services:
+  quiet-room:
+    healthcheck:
+      start_interval: 1s
+  quiet-room-backup:
+    healthcheck:
+      start_interval: 5s

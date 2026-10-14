@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 发布效率 V2 实施与生产边界（2026-10-14）
+
+- 用户确认V2实施、验证、PR、CI与合并，保留全部验证与线上数据保护；生产helper／配置先审阅再单独确认。当前任务基于实时main `2da4065beb1f8a742eac4ccc8d98903e54fafd2f` 的独占工作树，不改产品PR #299及原发布任务。
+- 完整CI浏览器分片均衡、严格同tree／环境／run／attempt证据复用、镜像完整校验前移、候选stage／精确activate及限定backup-starting只读等待已落地。长期规则由[效率规程](../workflows/publish-efficiency.md)拥有；本地／CI结果及失败分类由[V2需求](../requirements/2026-10-14-publish-efficiency-v2/README.md)拥有。
+- 合并本需求不会安装生产helper／配置、导入镜像或部署应用。具体文件摘要及安装边界见[生产变更审阅](../requirements/2026-10-14-publish-efficiency-v2/production-change-review.md)。真实生产速度及Engine／Compose兼容性尚未验证，下面的生产记录仍由原发布任务拥有。
+
 ## 移动交互连续性与云端发布已完成（2026-10-14）
 
 - 当前生产应用为用户精确批准的 `99979e9eef2dc6781e56cb52551c72a096eeac22`，版本 `2026.10.14.1`；[PR #291](https://github.com/zdaiwmm/shui-IM/pull/291)及精确main CI38519073837 attempt 1通过。V1免原型／流程图、追加四项、实施及早期失败由[需求记录](../requirements/2026-10-14-mobile-interaction-polish/README.md)拥有；本地920项、63浏览器入口和370展示组合通过，真机未验证。

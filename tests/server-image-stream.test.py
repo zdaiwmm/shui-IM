@@ -38,6 +38,12 @@ for method in (0, 8):
         archive.writestr('image.tar.gz', data)
     zipped = buffer.getvalue()
     remote = module.RemoteZip('https://example.blob.core.windows.net/a?signature=private', len(zipped), Opener(zipped))
+    factory = module.RemoteZip
+    module.RemoteZip = lambda url, size: factory(url, size, Opener(zipped))
+    try:
+        assert module.read_manifest({'url': remote.url, 'size': len(zipped)}) == manifest
+    finally:
+        module.RemoteZip = factory
     entry, start = module.inspect_archive(remote, manifest)
     output = io.BytesIO()
     with remote.range(start, entry.compress_size) as response:
@@ -50,6 +56,14 @@ for method in (0, 8):
     rejected(lambda: module.stream_image(io.BytesIO(payload), entry, {**manifest, 'archiveBytes': 1}, io.BytesIO()))
     bad = module.RemoteZip(remote.url, len(zipped), Opener(zipped, 200))
     rejected(lambda: module.inspect_archive(bad, manifest))
+    # A corrupted small manifest cannot supply a sealed transfer identity.
+    damaged = bytearray(zipped)
+    damaged[zipped.index(b'PK\x01\x02') + 16] ^= 1  # Stored central-directory CRC.
+    module.RemoteZip = lambda url, size: factory(url, size, Opener(bytes(damaged)))
+    try:
+        rejected(lambda: module.read_manifest({'url': remote.url, 'size': len(zipped)}))
+    finally:
+        module.RemoteZip = factory
 for url in ('http://example.blob.core.windows.net/a', 'https://evil.example/a', 'https://a.blob.core.windows.net@evil.example/a', 'https://a.blob.core.windows.net:8443/a'):
     rejected(lambda: module.validate_url(url))
 print('SERVER_STREAM_TESTS_OK')

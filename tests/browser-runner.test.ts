@@ -17,7 +17,13 @@ describe('browser regression groups', () => {
     const shards = Array.from({ length: 4 }, (_, i) => selectBrowserScripts('2', `${i + 1}/4`));
     expect(shards.flat().sort()).toEqual(selectBrowserScripts('2').sort());
     expect(new Set(shards.flat()).size).toBe(62);
-    expect(shards.map(shard => shard.length)).toEqual([16, 16, 15, 15]);
+    const weights = JSON.parse(await readFile(path.join(root, 'scripts/browser-durations.json'), 'utf8')).seconds;
+    const cost = (items: string[]) => items.reduce((sum, item) => sum + (weights[item] ?? 60), 0);
+    const old = Array.from({ length: 4 }, (_, i) => selectBrowserScripts('2').filter((_item: string, index: number) => index % 4 === i));
+    expect(Math.max(...shards.map(cost))).toBeLessThan(Math.max(...old.map(cost)));
+    const six = Array.from({ length: 6 }, (_, i) => selectBrowserScripts('2', `${i + 1}/6`));
+    expect(six.flat().sort()).toEqual(selectBrowserScripts('2').sort());
+    expect(Math.max(...six.map(cost))).toBeLessThan(170);
     for (const shard of ['0/4', '5/4', '1/0', '1/99', 'x', '1/2/3']) {
       expect(() => parseBrowserArguments(['--group', '2', '--shard', shard])).toThrow();
     }

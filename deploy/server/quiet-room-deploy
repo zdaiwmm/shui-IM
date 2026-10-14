@@ -46,6 +46,8 @@ readonly ADMIN_ENV="$APP_ROOT/shared/admin.env"
 readonly ADMIN_STATE="$STATE_DIR/admin-enabled"
 readonly MAINTENANCE_DIR=/var/lib/quiet-room-deploy
 readonly MAINTENANCE_FILE="$MAINTENANCE_DIR/maintenance"
+readonly STARTUP_HEALTH_OVERLAY=/etc/quiet-room/startup-health.compose.yaml
+readonly STARTUP_HEALTH_DIGEST=8f112e610cede4eea34471f1d7f214ddee84e34046b5916b94f62f90742c45e2
 readonly PROJECT=quiet-room
 readonly DATA_VOLUME=quiet-room_quiet-room-data
 readonly LOCAL_HEALTH_URL=http://127.0.0.1:8080/api/health
@@ -71,10 +73,12 @@ readonly RELEASE_RETENTION_COUNT="${QUIET_ROOM_RELEASE_RETENTION_COUNT:-3}"
 readonly PREDEPLOY_BACKUP_RETENTION_COUNT="${QUIET_ROOM_PREDEPLOY_BACKUP_RETENTION_COUNT:-3}"
 
 if [[ $# -eq 1 && "$1" == --describe ]]; then
-  printf '{"imageProtocol":1,"expectedPreviousProtocol":1,"publicOrigin":"%s"}\n' "$PUBLIC_ORIGIN"
+  printf '{"imageProtocol":1,"expectedPreviousProtocol":1,"stagedImageProtocol":1,"startupHealthProtocol":1,"publicOrigin":"%s"}\n' "$PUBLIC_ORIGIN"
   exit 0
 fi
 
+mode=deploy
+if [[ "${1:-}" == --stage || "${1:-}" == --activate ]]; then mode="${1#--}"; shift; fi
 readonly REQUESTED_SHA="${1:-}"
 readonly REQUESTED_IMAGE_ID="${2:-}"
 readonly REQUESTED_ARCHIVE_SHA="${3:-}"
@@ -85,6 +89,11 @@ if [[ ! "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
 fi
 if [[ ( $# -ne 3 && $# -ne 4 ) || ! "$REQUESTED_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ || ! "$REQUESTED_ARCHIVE_SHA" =~ ^[0-9a-f]{64}$ || ( $# -eq 4 && ! "$EXPECTED_PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ) ]]; then
   printf 'An exact CI image ID and archive checksum are required; server builds are disabled.\n' >&2
+  exit 64
+fi
+
+if [[ "$mode" != deploy && ( $# -ne 4 || -z "$EXPECTED_PREVIOUS_SHA" ) ]]; then
+  printf 'Staging and activation require the exact previous production SHA.\n' >&2
   exit 64
 fi
 
@@ -160,9 +169,45 @@ if [[ -n "$EXPECTED_PREVIOUS_SHA" ]] && ! runuser -u deploy -- git --git-dir="$R
   exit 65
 fi
 
+# Staged state is root-owned and never sourced as shell input.
+readonly STAGED_DIR="$STATE_DIR/staged"
+install -d -o root -g root -m 0700 "$STAGED_DIR"
+prepared_dir=''
+if [[ "$mode" == activate ]]; then
+  prepared_dir="$(python3 - "$STAGED_DIR/$REQUESTED_SHA.json" "$REQUESTED_SHA" "$REQUESTED_IMAGE_ID" "$REQUESTED_ARCHIVE_SHA" "$EXPECTED_PREVIOUS_SHA" "$RELEASES" <<'PY_STAGE_READ'
+import json,os,stat,sys,time
+p,sha,image,archive,previous,root=sys.argv[1:]
+st=os.lstat(p)
+if st.st_uid!=0 or st.st_mode&0o022 or not stat.S_ISREG(st.st_mode): raise ValueError('Unsafe staged receipt')
+r=json.load(open(p))
+if r.get('version')!=1 or [r.get(k) for k in ('sha','imageId','archiveSha256','previousSha')]!=[sha,image,archive,previous]: raise ValueError('Staged identity mismatch')
+if type(r.get('preparedAt')) is not int or type(r.get('expiresAt')) is not int or not r['preparedAt']<=time.time()<r['expiresAt'] or r['expiresAt']-r['preparedAt']!=7200: raise ValueError('Staged candidate expired')
+d=r.get('releaseDirectory','')
+if not d.startswith(root+'/staged-') or os.path.dirname(d)!=root or os.path.realpath(d)!=d or not os.path.isdir(d): raise ValueError('Unsafe staged checkout')
+print(d)
+PY_STAGE_READ
+)"
+  if [[ "$(runuser -u deploy -- git -C "$prepared_dir" rev-parse HEAD)" != "$REQUESTED_SHA" || -n "$(runuser -u deploy -- git -C "$prepared_dir" status --porcelain --untracked-files=all)" ]]; then
+    printf 'Staged checkout changed; refusing activation.\n' >&2; exit 65
+  fi
+elif [[ "$mode" == stage ]]; then
+  live_identity="$(docker inspect quiet-room-quiet-room-1 --format '{{.Id}} {{.Image}} {{.State.StartedAt}} {{.State.Running}} {{.State.Health.Status}}')"
+  [[ "$live_identity" == *' true healthy' ]] || { printf 'Live application must be healthy before online staging.\n' >&2; exit 75; }
+  curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL" >/dev/null
+  [[ ! -e "$STAGED_DIR/$REQUESTED_SHA.json" ]] || { printf 'Candidate already staged; inspect before repeating.\n' >&2; exit 75; }
+  python3 - "$STAGED_DIR" <<'PY_STAGE_BUDGET'
+import glob,os,sys
+if len(glob.glob(sys.argv[1]+'/'+'?'*40+'.json'))>=2: raise ValueError('Two staged candidates retained; inspect before preparing another')
+if os.getloadavg()[0]>max(1,os.cpu_count() or 1): raise ValueError('Host load too high for online staging')
+mem=dict((k,int(v.split()[0])) for k,v in (line.split(':',1) for line in open('/proc/meminfo')))
+if mem.get('MemAvailable',0)<512*1024: raise ValueError('Insufficient online staging memory headroom')
+PY_STAGE_BUDGET
+fi
+
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 short_sha="${REQUESTED_SHA:0:12}"
 release_dir="$RELEASES/$stamp-$short_sha"
+if [[ "$mode" == stage ]]; then release_dir="$RELEASES/staged-$stamp-$short_sha"; fi
 new_image="quiet-room-app:$REQUESTED_SHA"
 
 if [[ -e "$release_dir" ]]; then
@@ -171,7 +216,13 @@ if [[ -e "$release_dir" ]]; then
 fi
 
 deploy_phase_start prepare-release
-runuser -u deploy -- git --git-dir="$REPOSITORY" worktree add --detach "$release_dir" "$REQUESTED_SHA"
+if [[ "$mode" == activate ]]; then
+  # Consume once before entering the cutover path; unknown outcomes are not replayed.
+  mv "$STAGED_DIR/$REQUESTED_SHA.json" "$STAGED_DIR/$REQUESTED_SHA.activating-$stamp.json"
+  runuser -u deploy -- git --git-dir="$REPOSITORY" worktree move "$prepared_dir" "$release_dir"
+else
+  runuser -u deploy -- git --git-dir="$REPOSITORY" worktree add --detach "$release_dir" "$REQUESTED_SHA"
+fi
 
 # Once ciphertext has been evicted, an older client/server cannot consume the
 # signed gaps. Reject a downgrade before build, downtime, or data restoration.
@@ -191,6 +242,7 @@ if ! grep -Fxq '{"mlsWindow":1}' "$release_dir/server/storage-capabilities.json"
 fi
 
 deploy_phase_start import-ci-image
+if [[ "${mode:-deploy}" != activate ]]; then
 # The publisher verifies the exact successful CI run/attempt and archive before
 # streaming it. No full image archive or build cache is stored on the host.
 python3 -c '
@@ -210,6 +262,7 @@ try:
 except BaseException:
  p.kill(); p.wait(); raise
 ' "$REQUESTED_ARCHIVE_SHA"
+fi
 actual_image_id="$(docker image inspect "$new_image" --format '{{.Id}}')"
 actual_revision="$(docker image inspect "$new_image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
 actual_platform="$(docker image inspect "$new_image" --format '{{.Os}}/{{.Architecture}}')"
@@ -221,6 +274,23 @@ esac
 if [[ "$actual_image_id" != "$REQUESTED_IMAGE_ID" || "$actual_revision" != "$REQUESTED_SHA" || "$actual_platform" != "$expected_platform" ]]; then
   printf 'Imported CI image does not match the approved commit, image ID or host architecture.\n' >&2
   exit 65
+fi
+
+if [[ "${mode:-deploy}" == stage ]]; then
+  /usr/local/sbin/quiet-room-capacity preflight
+  curl --fail --silent --show-error --max-time 10 "$PUBLIC_HEALTH_URL" >/dev/null
+  [[ "$(docker inspect quiet-room-quiet-room-1 --format '{{.Id}} {{.Image}} {{.State.StartedAt}} {{.State.Running}} {{.State.Health.Status}}')" == "$live_identity" ]] || { printf 'Live application changed during online staging.\n' >&2; exit 75; }
+  [[ "$(<"$STATE_DIR/current-sha")" == "$EXPECTED_PREVIOUS_SHA" ]] || { printf 'Production changed during stage.\n' >&2; exit 75; }
+  python3 - "$STAGED_DIR/$REQUESTED_SHA.json" "$REQUESTED_SHA" "$REQUESTED_IMAGE_ID" "$REQUESTED_ARCHIVE_SHA" "$EXPECTED_PREVIOUS_SHA" "$release_dir" <<'PY_STAGE_WRITE'
+import json,os,sys,time
+p,sha,image,archive,previous,d=sys.argv[1:]
+now=int(time.time())
+fd=os.open(p,os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+with os.fdopen(fd,'w') as f:
+ json.dump(dict(version=1,sha=sha,imageId=image,archiveSha256=archive,previousSha=previous,releaseDirectory=d,preparedAt=now,expiresAt=now+7200),f); f.write('\n'); f.flush(); os.fsync(f.fileno())
+print('STAGE_OK sha='+sha+' image='+image)
+PY_STAGE_WRITE
+  exit 0
 fi
 
 deploy_phase_start compose-preflight
@@ -236,6 +306,20 @@ fi
 # transient local --profile flag. Never source a credentials file as shell code.
 new_compose_args=(--project-name "$PROJECT" --env-file "$SHARED_ENV" --file "$release_dir/compose.yaml")
 previous_compose_args=(--project-name "$PROJECT" --env-file "$SHARED_ENV" --file "$previous_compose")
+if [[ -e "$STARTUP_HEALTH_OVERLAY" || -L "$STARTUP_HEALTH_OVERLAY" ]]; then
+  python3 - "$STARTUP_HEALTH_OVERLAY" "$STARTUP_HEALTH_DIGEST" <<'PY_HEALTH_CONFIG'
+import hashlib,os,stat,sys
+p,digest=sys.argv[1:]; s=os.lstat(p)
+if s.st_uid!=0 or s.st_mode&0o022 or not stat.S_ISREG(s.st_mode) or hashlib.sha256(open(p,'rb').read()).hexdigest()!=digest: raise ValueError('Unsafe startup health overlay')
+PY_HEALTH_CONFIG
+  python3 - "$(docker version --format '{{.Server.Version}}')" "$(docker compose version --short)" <<'PY_HEALTH_VERSION'
+import re,sys
+v=lambda s: tuple(map(int,re.findall(r'\d+',s)[:3]))
+if v(sys.argv[1])<(25,0,0) or v(sys.argv[2])<(2,20,2): raise ValueError('Startup health overlay requires Engine >=25 and Compose >=2.20.2')
+PY_HEALTH_VERSION
+  new_compose_args+=(--file "$STARTUP_HEALTH_OVERLAY")
+  previous_compose_args+=(--file "$STARTUP_HEALTH_OVERLAY")
+fi
 calls_enabled=0
 previous_calls_enabled=0
 existing_turn="$(docker ps --all --quiet --filter "label=com.docker.compose.project=$PROJECT" --filter 'label=com.docker.compose.service=quiet-room-turn')"

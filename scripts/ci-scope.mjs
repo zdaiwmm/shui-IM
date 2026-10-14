@@ -31,6 +31,7 @@ export const deliveryTests = Object.freeze([
   'tests/deploy-script.test.ts', 'tests/deploy-gate.test.ts', 'tests/deploy-stop.test.ts',
   'tests/deploy-admin.test.ts', 'tests/deploy-calls.test.ts', 'tests/production-readback.test.ts',
   'tests/ci-scope.test.ts', 'tests/ci-docs.test.ts', 'tests/delivery-tools.test.ts',
+  'tests/publish-v2.test.ts', 'tests/staged-image.test.ts', 'tests/cloud-v2.test.ts',
 ]);
 const docPaths = new Set(lightweightDocs);
 export function isOperationalDocument(file) {

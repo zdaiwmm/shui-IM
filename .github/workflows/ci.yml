@@ -14,6 +14,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  actions: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -106,15 +107,19 @@ jobs:
     container:
       image: mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
       options: --init --ipc=host
+    env:
+      BROWSER_CONTAINER_IMAGE: mcr.microsoft.com/playwright:v1.62.1-noble@sha256:dcc5531e97840b9b5e794f2814476b21571c5124a3fca2267d73041f56e7580e
     strategy:
       fail-fast: false
       matrix:
         include:
           - { group: 1, shard: '1/1' }
-          - { group: 2, shard: '1/4' }
-          - { group: 2, shard: '2/4' }
-          - { group: 2, shard: '3/4' }
-          - { group: 2, shard: '4/4' }
+          - { group: 2, shard: '1/6' }
+          - { group: 2, shard: '2/6' }
+          - { group: 2, shard: '3/6' }
+          - { group: 2, shard: '4/6' }
+          - { group: 2, shard: '5/6' }
+          - { group: 2, shard: '6/6' }
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -126,7 +131,31 @@ jobs:
         run: node -e "if (require('playwright/package.json').version !== '1.62.1') throw new Error('Playwright image must match package-lock.json')"
       # The backup/admin browser fixture serves dist/admin.html.
       - run: npm run build
-      - run: npm run test:browser -- --group ${{ matrix.group }} --shard ${{ matrix.shard }}
+      - name: Check exact-tree browser verification evidence
+        id: browser-proof
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BROWSER_GROUP: ${{ matrix.group }}
+          BROWSER_SHARD: ${{ matrix.shard }}
+          BROWSER_INDEX: ${{ strategy.job-index }}
+        run: node scripts/ci-browser-proof.mjs reuse
+      - name: Execute the complete browser shard when fresh evidence is required
+        if: steps.browser-proof.outputs.reused != 'true'
+        run: npm run test:browser -- --group ${{ matrix.group }} --shard ${{ matrix.shard }}
+      - name: Record freshly executed complete shard evidence
+        if: steps.browser-proof.outputs.reused != 'true'
+        env:
+          BROWSER_GROUP: ${{ matrix.group }}
+          BROWSER_SHARD: ${{ matrix.shard }}
+          BROWSER_INDEX: ${{ strategy.job-index }}
+        run: node scripts/ci-browser-proof.mjs record
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: steps.browser-proof.outputs.reused != 'true'
+        with:
+          name: quiet-room-browser-proof-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.group }}-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/quiet-room-browser-proof.json
+          if-no-files-found: error
+          retention-days: 1
 
   calls:
     name: Native call media and call views
@@ -174,21 +203,33 @@ jobs:
         arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 24
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
-      - name: Build and check runtime imports
+      - name: Build the exact image with bounded architecture-specific cache
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: quiet-room-app:${{ github.sha }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=quiet-room-${{ matrix.arch }}
+          cache-to: type=gha,scope=quiet-room-${{ matrix.arch }},mode=max,ignore-error=true,timeout=120s
+      - name: Check runtime imports for the exact image
         env:
           IMAGE_PLATFORM: linux/${{ matrix.arch }}
         run: |
           set -euo pipefail
-          image="quiet-room-app:$GITHUB_SHA"
-          docker buildx build --platform "$IMAGE_PLATFORM" --load \
-            --label "org.opencontainers.image.revision=$GITHUB_SHA" --tag "$image" .
-          docker run --rm --platform "$IMAGE_PLATFORM" "$image" node --input-type=module -e \
+          docker run --rm --platform "$IMAGE_PLATFORM" "quiet-room-app:$GITHUB_SHA" node --input-type=module -e \
             'await import("./server/index.mjs"); await import("./server/backup.mjs"); const { DatabaseSync } = await import("node:sqlite"); const db = new DatabaseSync(":memory:"); db.close();'
+      - name: Verify staged import leaves live container and synthetic data unchanged
+        if: matrix.arch == 'amd64'
+        run: sudo env GITHUB_ACTIONS=true GITHUB_SHA="$GITHUB_SHA" python3 tests/staged-image-docker.py
       - name: Verify Docker storage replacement and failure recovery
         if: matrix.arch == 'amd64'
         run: sudo env GITHUB_ACTIONS=true QUIET_ROOM_STORAGE_FIXTURE_IMAGE="quiet-room-app:$GITHUB_SHA" python3 tests/storage-maintenance-docker.py

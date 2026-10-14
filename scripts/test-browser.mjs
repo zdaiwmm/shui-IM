@@ -1,8 +1,9 @@
 import { spawn } from 'node:child_process';
-import { realpathSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 
+const timings = JSON.parse(readFileSync(new URL('./browser-durations.json', import.meta.url), 'utf8'));
 const root = fileURLToPath(new URL('../', import.meta.url));
 
 // Each CI group has its own runner. Keep scripts within a group sequential:
@@ -83,7 +84,14 @@ export function selectBrowserScripts(group, shard) {
   if (!/^[1-9]\d*\/[1-9]\d*$/.test(shard)) throw new Error('Shard must be index/total.');
   const [index, total] = shard.split('/').map(Number);
   if (index > total || total > scripts.length) throw new Error('Shard exceeds selected script count.');
-  return scripts.filter((_, offset) => offset % total === index - 1);
+  const bins = Array.from({ length: total }, () => ({ seconds: 0, scripts: new Set() }));
+  const weight = script => Number.isFinite(timings.seconds?.[script]) && timings.seconds[script] > 0 ? timings.seconds[script] : 60;
+  for (const script of [...scripts].sort((a, b) => weight(b) - weight(a) || a.localeCompare(b))) {
+    const bin = bins.reduce((smallest, candidate) => candidate.seconds < smallest.seconds ? candidate : smallest);
+    bin.scripts.add(script); bin.seconds += weight(script);
+  }
+  // Preserve each checkout's serial execution order and cover every script once.
+  return scripts.filter(script => bins[index - 1].scripts.has(script));
 }
 
 export function parseBrowserArguments(args) {

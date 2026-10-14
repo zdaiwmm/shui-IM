@@ -603,7 +603,9 @@ Before enabling the message window, install the reviewed helper from the exact r
 ### Protected cloud image transport
 
 The manual `publish.yml` workflow uses the existing production environment and OIDC role.
-It runs the existing full CI image validator on its ephemeral runner, then sends a short-lived
+New V2 manifests are sealed only after the existing full image validator passes in exact main CI;
+the publisher verifies that successful run/attempt, manifest and source tree. Historical manifests
+retain full validation on the ephemeral publisher runner. It sends a short-lived
 artifact ticket to the fixed SAS instance as `admin`. A bounded ZIP range reader streams the
 image directly into the installed helper; it writes no ZIP or gzip staging copy on the host.
 Docker image storage/import overhead and cold backups still require capacity. Existing disk
@@ -615,3 +617,23 @@ helper separately using the atomic procedure above; `--describe` reports
 `expectedPreviousProtocol:1`. Ordinary three-argument publishers remain compatible.
 The production workflow never installs its own privileged helper or changes RAM policies.
 Its doctor mode verifies the actual RunCommand/DescribeInvocationResult permission before deployment.
+
+### V2 staged image and startup health support
+
+The reviewed helper adds `--stage` and `--activate` with exact target/image/archive/previous
+identities, retaining the legacy deploy path. Stage imports only after live-health and resource
+gates and preserves the running application identity; it never enters Compose, traffic gating,
+volume access or data restore. A root-only receipt expires after two hours. Activation validates
+the clean staged checkout and immutable image, consumes the receipt once, then follows the
+unchanged cold-backup/cutover/rollback path. A stale previous SHA, expired/dirty candidate or
+changed image fails closed. At most two candidate receipts are retained; inspect candidates
+separately before cleanup or retry.
+
+The optional fixed `/etc/quiet-room/startup-health.compose.yaml` only changes startup probe
+frequency, retaining health predicates, grace periods and retries. It requires Engine >=25 and
+Compose >=2.20.2, root ownership, no group/world write and the helper's pinned content hash.
+Missing configuration retains old behavior; invalid installed configuration blocks before gating.
+Install both privileged files separately from the exact reviewed commit under the deployment lock,
+with existing same-filesystem atomic replacement, backups and independent hash/ownership readback.
+Ordinary publishing cannot install them. See the [concrete change review](docs/requirements/2026-10-14-publish-efficiency-v2/production-change-review.md)
+and [workflow](docs/workflows/publish-efficiency.md). This implementation has not installed production files.

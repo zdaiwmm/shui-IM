@@ -1613,3 +1613,5 @@ CI runner 复用完整镜像校验后，服务器直接流式下载、校验与�
 `--cloud --resume <RunID>` 跟踪原任务、`--readback-only` 单独续跑回读，均携带相同环境与完整SHA。
 旧入口保留兼容；未知生产状态不重新派发，READBACK_OK之后再独立完成文档对账。
 prepare检查云通路与镜像元数据，不预载镜像，真实速度需后续独立测量。本次优化不影响原发布任务。
+
+V2已获实施与交付授权，新增完整CI分片均衡／严格同tree验证证据复用、CI归档封存、小manifest控制校验以及明确的stage／activate入口，详见[效率规程](docs/workflows/publish-efficiency.md#v2完整验证前移提前导入精确激活)。生产helper／启动探针覆盖文件须先审阅[具体变更和验证结果](docs/requirements/2026-10-14-publish-efficiency-v2/production-change-review.md)，再单独确认安装；本次合并不更新生产。stage仅在准备授权后导入，activate仅在确认该次完整SHA后切换，所有冷备份、数据保护、精确镜像及独立回读标准保留。
