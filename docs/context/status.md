@@ -1,10 +1,11 @@
 # Quiet Room 当前状态
 
-## 输入栏与表情／工具面板 V1.5（2026-10-15）
+## 输入栏与表情／工具面板 V1.5 已合并，发布阻塞（2026-10-15）
 
-- 用户已确认[原型V1.5](../requirements/2026-10-14-composer-panels/README.md)，授权正式实施、验证后PR／CI与合并main，生产仍需精确提交确认；本次流程图按用户要求豁免。
-- 实施分支`codex/composer-panels-implementation-20261015`基于原型`7e7b3ab`／主线`15559f3`，因iCloud占位读取迁到本机临时独占工作树。淡填充输入框、60px基础栏、主题面板底色、贴纸加号、平直无柄工具面板及可反向动效已在工作树实现，规范同步V1.7。
-- 编译、工具、Chromium／WebKit反向／交接与桌面专项通过；本机完整单元受98%磁盘触发10项BACKUP_CAPACITY_LOW阻断，CI完整956项已取得通过。早期采样／旧样式断言失败由需求记录保留。最终head、完整CI及main合并事实读取[PR #306](https://github.com/zdaiwmm/shui-IM/pull/306)回执；生产未授权／未发布，真机iPhone／Safari未验证。下方为既有生产事实。
+- 用户确认[原型V1.5](../requirements/2026-10-14-composer-panels/README.md)并授权实施、验证及合并main；随后在列明完整应用SHA后要求完成则发布生产。本次流程图按用户要求豁免，生产目标固定 `075a0642c284c70c320991988d2183f41e82a640`／`2026.10.14.3`。
+- [PR #306](https://github.com/zdaiwmm/shui-IM/pull/306)已合并，源 `59de604`与应用075a0642同树。淡填充输入框、60px基础栏、主题面板底色、贴纸加号、平直无柄工具面板及可反向动效已纳入main，规范同步V1.7。PR完整CI通过；本机完整单元受98%磁盘触发10项BACKUP_CAPACITY_LOW的历史失败保留。
+- 精确[main CI 38613436503](https://github.com/zdaiwmm/shui-IM/actions/runs/38613436503) attempt 2通过但缺同轮镜像，补跑attempt 3及一次有界复验attempt 4。最新attempt 4的956项、通话、双架构镜像、审计及三个浏览器分片通过，但主浏览器pagehide图片数量和WebKit草稿邀请竞态等待失败，verify失败；本机对应专项通过不替代完整CI，根因未知。早期失败、定向取证及授权由需求记录拥有，按有界规则停止重跑与发布。
+- 固定只读SSH doctor核验当时线上为966c827d；云prepare38616273561在等待环境审核期间主动取消，没有执行生产切换、DEPLOY_VERIFIED或本次独立READBACK_OK。活动原型／实现及证据保留，真机iPhone／Safari未验证。下方为既有生产历史，文档提交不发布。
 
 ## iPhone 七项交互修复已发布（2026-10-14 22:01）
 
