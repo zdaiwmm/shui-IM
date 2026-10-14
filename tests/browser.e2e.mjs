@@ -212,9 +212,10 @@ try {
 
   const creatorContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
   const joinerContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 }, hasTouch: true });
-  // Transfer/lifecycle checks drive one participant while the other waits. Use
-  // the supported 5-minute preference; pagehide/hidden/manual locks still apply.
-  for (const context of [creatorContext, joinerContext]) await context.addInitScript(() => {
+  // The receiver waits while the creator drives transfer/lifecycle checks. Keep
+  // its supported 5-minute preference, while the creator retains the default
+  // 30s lease exercised by verifyCallFlow. All explicit privacy locks still apply.
+  await joinerContext.addInitScript(() => {
     localStorage.setItem('quiet-room:auto-lock-seconds', '300');
   });
   const creator = await creatorContext.newPage();
