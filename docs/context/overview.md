@@ -2,6 +2,8 @@
 
 # Quiet Room 项目地图
 
+发布效率／验证分级：`scripts/check-delivery.mjs`、`scripts/ci-scope.mjs` 与[规程](../workflows/publish-efficiency.md)；工具改动使用delivery专项，应用发布仍要求精确完整CI。准备／续跑／独立回读入口沿用 `scripts/publish.mjs`。
+
 Codex 本地移动调试：`scripts/dev-mobile.mjs`、`tools/mobile-debug/`、`.agents/skills/quiet-room-mobile-debug/`；统一入口 `npm run dev:mobile`，专项 `tests/mobile-debug.e2e.mjs` 已接入完整浏览器门禁。跨电脑与权限边界见 [工作流](../workflows/mobile-debug.md)，7条产品批注与待确认输入浮层见 [需求记录](../requirements/2026-10-14-mobile-debug-feedback/README.md)。
 
 移动交互连续性V1：设置半屏／全屏与空间横向导航、满宽表单、键盘重开、末行定位及合并Emoji／贴纸入口，长期契约见DESIGN／PRODUCT／MEMES与[确认及验证记录](../requirements/2026-10-14-mobile-interaction-polish/README.md)；相关入口为`half-sheet.ts`、`space-drawer.ts`、`form-input.ts`、`meme-picker.ts`与`app.ts`。

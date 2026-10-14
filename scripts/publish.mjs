@@ -37,13 +37,35 @@ export function publish(args, run = command) {
 
 function publishApproved(args, run, timed) {
   const cloud = args.includes('--cloud');
-  if (cloud) args = args.filter(value => value !== '--cloud');
+  const prepare = args.includes('--prepare');
+  const readbackOnly = args.includes('--readback-only');
+  const withReadback = args.includes('--with-readback');
+  const resumeIndex = args.indexOf('--resume');
+  const resume = resumeIndex < 0 ? undefined : args[resumeIndex + 1];
+  if (resumeIndex >= 0) {
+    if (!/^[1-9][0-9]*$/.test(resume ?? '')) throw new Error('Exact workflow run ID required');
+    args = args.filter((_value, index) => index !== resumeIndex && index !== resumeIndex + 1);
+  }
+  args = args.filter(value => !['--cloud', '--prepare', '--readback-only', '--with-readback'].includes(value));
   const { environment } = targetArguments(args);
   const targetArgs = environment ? ['--environment', environment] : [];
   const sha = approvedCommit(args);
+  if (prepare && (!cloud || readbackOnly || withReadback) || readbackOnly && (cloud || resume || withReadback) || resume && !cloud || withReadback && !cloud) {
+    throw new Error('Prepare/resume/with-readback require cloud; readback-only is standalone');
+  }
+  const readback = () => timed('independent-readback', () => {
+    try {
+      run(process.execPath, [path.join(root, 'scripts/production-readback.mjs'), ...targetArgs, '--sha', sha], { stdio: 'inherit', timeout: 120000 });
+    } catch {
+      throw new Error(`READBACK_REQUIRED sha=${sha}; retry --readback-only with the same environment and SHA; do not redeploy`);
+    }
+  });
+  if (readbackOnly) return readback();
   if (cloud) {
     if (environment && environment !== 'production') throw new Error('Cloud publishing currently supports production only');
-    return timed('cloud-publish', () => dispatchCloud(sha, run));
+    const receipt = timed(prepare ? 'cloud-prepare' : 'cloud-publish', () => dispatchCloud(sha, run, { mode: prepare ? 'doctor' : 'deploy', resume }));
+    if (withReadback) readback();
+    return receipt;
   }
   // Read-only preflight first. Never try browser login or edit network rules here.
   timed('preflight', () => run(process.execPath, [path.join(root, 'scripts/release.mjs'), '--doctor', ...targetArgs], { stdio: 'inherit', timeout: 120000 }));

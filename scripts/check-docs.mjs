@@ -38,7 +38,7 @@ export function checkDocumentation({ cwd = root, files } = {}) {
   const listing = spawnSync('git', ['ls-files', '-z'], { cwd, encoding: 'utf8', timeout: 10_000, maxBuffer: 4 * 1024 * 1024 });
   if (listing.error || listing.signal || listing.status !== 0) throw new Error('Tracked documentation paths are unavailable.');
   const tracked = new Set(listing.stdout.split('\0').filter(Boolean));
-  const selected = files ?? ['AGENTS.md', ...lightweightDocs].filter(file => tracked.has(file));
+  const selected = files ?? [...new Set(['AGENTS.md', ...lightweightDocs])].filter(file => tracked.has(file));
   if (!selected.length) throw new Error('No documentation was available to check.');
   const issues = [];
   const contentCache = new Map();

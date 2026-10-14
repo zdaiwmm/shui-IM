@@ -22,6 +22,15 @@ describe('release entry point', () => {
     }
     expect(() => requireSuccessfulCI({}, sha)).toThrow();
   });
+  it('never authorizes an application release from scoped delivery/documentation CI', () => {
+    const delivery = { ...fullJob, name: 'Delivery tool verification', conclusion: 'success' };
+    const marker = { name: 'Full application verification', status: 'completed', conclusion: 'success' };
+    const successful = { ...fullJob, steps: [marker] };
+    expect(requireSuccessfulCI({ workflow_runs: [run] }, sha, { jobs: [delivery, successful] })).toBe(run.html_url);
+    for (const steps of [undefined, [], [{ ...marker, conclusion: 'skipped' }], [{ ...marker, conclusion: 'failure' }], [marker, marker]]) {
+      expect(() => requireSuccessfulCI({ workflow_runs: [run] }, sha, { jobs: [delivery, { ...fullJob, steps }] })).toThrow('Scoped CI');
+    }
+  });
   it('does not accept an old green run when a newer run is pending or failed', () => {
     for (const change of [{ status: 'queued' }, { conclusion: 'failure' }]) {
       expect(() => requireSuccessfulCI({ workflow_runs: [run, { ...run, id: 2, event: 'workflow_dispatch', ...change }] }, sha, jobs)).toThrow();

@@ -1596,3 +1596,11 @@ CI runner 复用完整镜像校验后，服务器直接流式下载、校验与�
 `npm run deploy:readback -- --environment production --sha <同一SHA>`，再在第二工作树对账。
 若云任务结果未知，凭 InvokeId 查原任务并独立回读，禁止再触发部署。
 详见[本次确认和证据](docs/requirements/2026-10-14-ci-server-publish/README.md)。
+
+## 发布效率分级与提前准备
+
+2026-10-14用户确认[效率优先规程](docs/workflows/publish-efficiency.md)。发布工具小修改走明确白名单专项CI；应用仍使用获批SHA的最新完整应用CI。工具合并不部署、不改获批应用目标。
+固定入口增加 `--cloud --prepare` 提前只读预检、`--cloud --with-readback` 自动接续独立回读、
+`--cloud --resume <RunID>` 跟踪原任务、`--readback-only` 单独续跑回读，均携带相同环境与完整SHA。
+旧入口保留兼容；未知生产状态不重新派发，READBACK_OK之后再独立完成文档对账。
+prepare检查云通路与镜像元数据，不预载镜像，真实速度需后续独立测量。本次优化不影响原发布任务。

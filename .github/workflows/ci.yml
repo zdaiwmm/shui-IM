@@ -61,6 +61,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  delivery:
+    name: Delivery tool verification
+    needs: scope
+    if: needs.scope.outputs.mode == 'delivery'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --no-audit
+      - run: node scripts/check-delivery.mjs
+
   build:
     name: Build and unit/integration tests
     needs: scope
@@ -223,7 +238,7 @@ jobs:
     # Keep the existing branch-protection check name stable and make it the
     # single aggregate runner so account runner limits cannot block a green run.
     name: verify
-    needs: [scope, docs, secret_scan, build, browser, calls, audit, image]
+    needs: [scope, docs, secret_scan, delivery, build, browser, calls, audit, image]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 3
@@ -236,3 +251,8 @@ jobs:
         env:
           CI_NEEDS: ${{ toJSON(needs) }}
         run: node scripts/ci-scope.mjs verify verify
+      - name: Full application verification
+        if: needs.scope.outputs.mode == 'full'
+        env:
+          CI_NEEDS: ${{ toJSON(needs) }}
+        run: node scripts/ci-scope.mjs verify full

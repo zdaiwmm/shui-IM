@@ -1,7 +1,7 @@
 import { isMainModule } from './release-runtime.mjs';
 import { repository } from './release-ci.mjs';
 
-export function imageRetentionPlan(artifacts, runs, currentRunId, currentSha, now = Date.now()) {
+export function imageRetentionPlan(artifacts, runs, currentRunId, currentSha, now = Date.now(), protectedShas = []) {
   const candidates = [];
   for (const artifact of artifacts) {
     const match = /^quiet-room-image-([a-f0-9]{40})-([1-9][0-9]*)-(amd64|arm64)$/.exec(artifact.name ?? '');
@@ -16,13 +16,28 @@ export function imageRetentionPlan(artifacts, runs, currentRunId, currentSha, no
   for (const item of successful) { if (keepShas.size >= 3) break; keepShas.add(item.sha); }
   const latestAttempts = new Map();
   for (const item of successful) latestAttempts.set(item.sha, Math.max(latestAttempts.get(item.sha) ?? 0, item.attempt));
+  const protectedSet = new Set(protectedShas);
   return candidates.filter(item => {
+    if (protectedSet.has(item.sha)) return false;
     if (item.run.id === currentRunId || item.run.status !== 'completed') return false;
     if (item.run.conclusion === 'success') return !keepShas.has(item.sha) || item.attempt !== latestAttempts.get(item.sha);
     // Failed attempts remain inspectable for a day; unknown timestamps fail closed.
     const created = Date.parse(item.artifact.created_at);
     return Number.isFinite(created) && now - created > 86400000;
   }).map(item => item.artifact.id);
+}
+
+export function protectedPublishShas(runs) {
+  if (!Array.isArray(runs)) throw new Error('Publish candidate listing unavailable; no artifacts deleted');
+  const active = new Set(), recent = new Set();
+  for (const run of [...runs].sort((a, b) => b.id - a.id)) {
+    if (run.path !== '.github/workflows/publish.yml' || run.event !== 'workflow_dispatch' || run.head_branch !== 'main') continue;
+    const sha = /^Publish ([a-f0-9]{40}) \(/.exec(run.display_title ?? '')?.[1];
+    if (!sha) throw new Error('Unknown publish candidate identity; no artifacts deleted');
+    if (run.status !== 'completed') active.add(sha);
+    else if (run.conclusion === 'success' && recent.size < 3) recent.add(sha);
+  }
+  return [...new Set([...active, ...recent])];
 }
 
 async function api(resource, method = 'GET') {
@@ -48,7 +63,18 @@ if (isMainModule(import.meta.url)) {
     const id = artifact.workflow_run?.id;
     if (Number.isSafeInteger(id) && !runs[id]) runs[id] = await api(`actions/runs/${id}`);
   }
-  const ids = imageRetentionPlan(artifacts, runs, Number(process.env.GITHUB_RUN_ID), process.env.GITHUB_SHA);
+  // Protect queued/active batches and recent successful doctor/deploy candidates
+  // even while unrelated main builds advance. GitHub's seven-day expiry remains.
+  const publishRuns = [];
+  for (let page = 1; ; page++) {
+    if (page > 100) throw new Error('Publish listing exceeded bound; no artifacts deleted');
+    const batch = await api(`actions/workflows/publish.yml/runs?event=workflow_dispatch&per_page=100&page=${page}`);
+    if (!Array.isArray(batch.workflow_runs)) throw new Error('Publish listing unavailable; no artifacts deleted');
+    publishRuns.push(...batch.workflow_runs);
+    if (batch.workflow_runs.length < 100) break;
+  }
+  const ids = imageRetentionPlan(artifacts, runs, Number(process.env.GITHUB_RUN_ID), process.env.GITHUB_SHA,
+    Date.now(), protectedPublishShas(publishRuns));
   for (const id of ids) await api(`actions/artifacts/${id}`, 'DELETE');
   console.log(`CI image retention: removed=${ids.length}; keep=current-and-two-previous; expiry=7-days`);
 }
