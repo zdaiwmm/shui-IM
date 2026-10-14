@@ -44,6 +44,32 @@ describe('isolated non-GUI publishing', () => {
     expect(() => publish(['--sha', sha], () => { calls++; throw new Error('SSH unavailable'); })).toThrow('SSH unavailable');
     expect(calls).toBe(1);
   });
+  it('bounds a slow clone to ten minutes and stops before deployment if it expires', () => {
+    const calls: { args: string[]; options: Record<string, any> }[] = [];
+    let directory = '';
+    try {
+      expect(() => publish(['--sha', sha], (_program: string, args: string[], options: Record<string, any> = {}) => {
+        calls.push({ args, options });
+        if (args.includes('--jq')) return sha;
+        if (args[1]?.includes('/compare/')) return JSON.stringify({ status: 'identical', merge_base_commit: { sha } });
+        if (args[1]?.includes('runs?')) return JSON.stringify([{ workflow_runs: [good] }]);
+        if (args[1]?.includes('/jobs?')) return JSON.stringify([jobs]);
+        if (args[0] === 'clone') {
+          directory = args.at(-1)!;
+          throw new Error('git: spawnSync git ETIMEDOUT');
+        }
+        return '';
+      })).toThrow('git: spawnSync git ETIMEDOUT');
+      const clones = calls.filter(call => call.args[0] === 'clone');
+      expect(clones).toHaveLength(1);
+      expect(clones[0].options.timeout).toBe(600000);
+      expect(calls[0].options.timeout).toBe(120000);
+      expect(calls.some(call => call.args.at(-2) === '--sha')).toBe(false);
+      expect(calls.some(call => call.args[0] === 'checkout')).toBe(false);
+    } finally {
+      if (directory) rmSync(directory, { recursive: true, force: true });
+    }
+  });
   it.each([true, false])('waits for CI and requires an isolated release receipt (receipt=%s)', (hasReceipt) => {
     const calls: { program: string; args: string[]; options: Record<string, any> }[] = [];
     let directory = '';
