@@ -14,6 +14,12 @@ import { startServer } from '../server/index.mjs';
 const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-draft-refresh-'));
 const root = process.cwd(); let service, vite, browser, database;
 const password = 'synthetic draft regression password';
+function prepareParticipant() {
+  delete window.PublicKeyCredential;
+  // This long multi-participant scenario exercises drafts and explicit privacy
+  // events. An inactive peer must not hit the unrelated default 30s idle lease.
+  localStorage.setItem('quiet-room:auto-lock-seconds', '300');
+}
 async function waitForState(page, stage, predicate) {
   // Storage/network completion must not depend on WebKit scheduling a paint
   // for another participant's page. Keep the page's existing 15s deadline.
@@ -25,6 +31,7 @@ async function waitForState(page, stage, predicate) {
       covered: app.privacyCovered, surface: app.activeSurface,
       session: Boolean(app.session), mls: app.session?.vault.mls?.phase,
       connection: app.connectionState, accessFailure: Boolean(app.accessFailure),
+      idleExpired: app.idleLease.expired,
       inputPresent: Boolean(document.querySelector('#message-input')),
       inputDisabled: document.querySelector('#message-input')?.disabled,
       sending: app.sendingTextDrafts.size, fault: Boolean(window.draftFault?.injected),
@@ -103,7 +110,7 @@ try {
     browser = engine === 'webkit' ? await webkit.launch() : await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
     const options = { viewport: { width: 390, height: 844 }, hasTouch: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0.65' };
     const [ac, bc] = await Promise.all([browser.newContext(options), browser.newContext(options)]);
-    await ac.addInitScript(() => { delete window.PublicKeyCredential; }); await bc.addInitScript(() => { delete window.PublicKeyCredential; });
+    await ac.addInitScript(prepareParticipant); await bc.addInitScript(prepareParticipant);
     const [a, b] = await Promise.all([ac.newPage(), bc.newPage()]); a.setDefaultTimeout(15000); b.setDefaultTimeout(15000);
     // A durable state change can finish while animation frames are paused.
     // Navigation below restores the real frame scheduler before app startup.
@@ -251,6 +258,7 @@ try {
     await second.locator('#message-input').fill('latest from second tab');
     await reload(second); assert.equal(await second.locator('#message-input').inputValue(), 'latest from second tab');
 
+    await ready(b);
     await b.locator('#message-input').fill(`reverse ${engine}`); await b.locator('#send-text').click(); await receive(second, `reverse ${engine}`);
     await second.locator('#message-input').fill(`forward ${engine}`); await second.locator('#send-text').click(); await receive(b, `forward ${engine}`);
     const opaque = await second.evaluate(() => Object.entries(localStorage).filter(([id]) => id.startsWith('quiet-room:composer-draft:')));
@@ -265,7 +273,7 @@ try {
     // A fresh peer browser follows initial invite enrollment. Reusing B's
     // already-protected browser would require its existing-vault unlock route.
     const joiningContext = await browser.newContext(options);
-    await joiningContext.addInitScript(() => { delete window.PublicKeyCredential; });
+    await joiningContext.addInitScript(prepareParticipant);
     const joiningPeer = await joiningContext.newPage(); joiningPeer.setDefaultTimeout(15000);
     await joiningPeer.goto(nextInvite); await joiningPeer.locator('[data-device-verify]').click();
     await protect(joiningPeer); await ready(joiningPeer); await ready(second);
