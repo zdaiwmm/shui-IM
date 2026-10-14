@@ -9,11 +9,16 @@ const repository = 'zdaiwmm/shui-IM';
 const shaPattern = /^[a-f0-9]{40}$/;
 const run = (program, args) => execFileSync(program, args, { encoding: 'utf8', timeout: 30000, stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+// Container checkout ownership differs from the test user. Trust only this
+// checkout for this read, without changing global configuration or using '*'.
+export function checkoutTree(command = run) {
+  return command('git', ['-c', `safe.directory=${process.cwd()}`, 'rev-parse', 'HEAD^{tree}']);
+}
 export function environmentFingerprint() {
   const dockerfile = readFileSync('Dockerfile', 'utf8');
   const declaredContainer = /image: (mcr\.microsoft\.com\/playwright:[^\s]+@sha256:[a-f0-9]{64})/.exec(readFileSync('.github/workflows/ci.yml', 'utf8'))?.[1];
   const containerImage = process.env.BROWSER_CONTAINER_IMAGE === declaredContainer ? declaredContainer : '';
-  const bases = [...dockerfile.matchAll(/^FROM (\S+)/gm)].map(match => match[1]);
+  const bases = [...dockerfile.matchAll(/^FROM (?:--platform=\S+ )?(\S+)/gm)].map(match => match[1]);
   return {
     node: process.version, nodeHash: hash(readFileSync(process.execPath)), npm: run('npm', ['--version']),
     git: run('git', ['--version']), kernel: os.release(), platform: process.platform, arch: process.arch,
@@ -45,7 +50,7 @@ function role() {
 export function recordBrowserProof(command = run) {
   const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'));
   const headSha = process.env.GITHUB_EVENT_NAME === 'pull_request' ? event.pull_request?.head?.sha : process.env.GITHUB_SHA;
-  const tree = command('git', ['rev-parse', 'HEAD^{tree}']);
+  const tree = checkoutTree(command);
   if (!shaPattern.test(headSha ?? '') || !shaPattern.test(tree)) throw new Error('Invalid proof source');
   const proof = { version: 1, repository, sourceRun: Number(process.env.GITHUB_RUN_ID), attempt: Number(process.env.GITHUB_RUN_ATTEMPT),
     headSha, tree, ...role(), executed: true, executedAt: new Date().toISOString(), environment: environmentFingerprint() };
@@ -81,7 +86,7 @@ with zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())) as z:
 export async function tryReuseBrowserProof(command = run, { api = githubAPI, download = downloadProof, fingerprint = environmentFingerprint } = {}) {
   if (process.env.GITHUB_REPOSITORY !== repository || process.env.GITHUB_EVENT_NAME !== 'push' || process.env.GITHUB_REF !== 'refs/heads/main') return false;
   const head = process.env.GITHUB_SHA;
-  const tree = command('git', ['rev-parse', 'HEAD^{tree}']);
+  const tree = checkoutTree(command);
   const environment = fingerprint();
   if (!reusableEnvironment(environment)) return false;
   const prs = await api(`commits/${head}/pulls?per_page=100`);

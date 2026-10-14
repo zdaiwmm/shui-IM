@@ -158,6 +158,13 @@ try {
           app.mountPrivateSpaceDrawer(fixture.session,[{roomId:fixture.session.vault.roomId,name:'合成空间'}],app.runtimeAbort.signal,'chat',0);
           const sheet=document.querySelector('.is-settings-sheet'),panel=sheet.querySelector('.space-drawer');const start=panel.getBoundingClientRect().top;
           await new Promise(resolve=>setTimeout(resolve,300));
+          // Sample the final compositor frame, rather than a timer firing just
+          // before WebKit commits the end of the unchanged 240ms transition.
+          await Promise.race([
+            Promise.all(panel.getAnimations().map(animation=>animation.finished)),
+            new Promise((_,reject)=>setTimeout(()=>reject(new Error('Settings transition did not finish')),1000)),
+          ]);
+          await new Promise(requestAnimationFrame);
           const scroll=sheet.querySelector('.space-drawer-scroll');scroll.scrollTop=scroll.scrollHeight;
           const last=scroll.querySelector('.space-settings-list').lastElementChild.querySelector('button');
           const bounds=last.getBoundingClientRect(),viewport=scroll.getBoundingClientRect();

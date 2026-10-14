@@ -1,12 +1,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { spawnSync } from 'node:child_process';
 // @ts-expect-error Operational Node entry.
-import { canReuseBrowserProof, reusableEnvironment, tryReuseBrowserProof } from '../scripts/ci-browser-proof.mjs';
+import { canReuseBrowserProof, environmentFingerprint, reusableEnvironment, tryReuseBrowserProof } from '../scripts/ci-browser-proof.mjs';
 afterEach(() => vi.unstubAllEnvs());
 const environment = { node: 'v24.14.1', nodeHash: 'a'.repeat(64), npm: '11', git: 'git version 2', kernel: 'synthetic', platform: 'linux', arch: 'x64', hostImage: 'test-image', hostOS: 'ubuntu', playwright: '1.62.1', lock: 'b'.repeat(64), bases: ['node:24-alpine@sha256:' + 'c'.repeat(64)] };
 const expected = { runId: 42, attempt: 1, headSha: 'a'.repeat(40), tree: 'b'.repeat(40), role: '2-1', shard: '1/6', environment };
 const now = Date.parse('2026-10-14T12:00:00Z');
 const proof = { version: 1, repository: 'zdaiwmm/shui-IM', sourceRun: 42, attempt: 1, headSha: expected.headSha, tree: expected.tree, role: expected.role, shard: expected.shard, executed: true, executedAt: '2026-10-14T11:59:00Z', environment };
 describe('full browser evidence equivalence', () => {
+  it('binds both immutable base images even when the static frontend uses the native build platform', () => {
+    const actual = environmentFingerprint();
+    expect(actual.bases).toHaveLength(2);
+    expect(actual.bases.every((base: string) => /^node:24-alpine@sha256:[a-f0-9]{64}$/.test(base))).toBe(true);
+  });
+  it('reads the container checkout with different ownership without a global trust exception', () => {
+    const env = { ...process.env, GIT_TEST_ASSUME_DIFFERENT_OWNER: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_COUNT: '0' };
+    const denied = spawnSync('git', ['rev-parse', 'HEAD^{tree}'], { encoding: 'utf8', env });
+    expect(denied.status).not.toBe(0);
+    const allowed = spawnSync(process.execPath, ['--input-type=module', '-e', 'import {checkoutTree} from "./scripts/ci-browser-proof.mjs"; console.log(checkoutTree())'], { encoding: 'utf8', env });
+    expect(allowed.status, allowed.stderr).toBe(0);
+    expect(allowed.stdout.trim()).toMatch(/^[a-f0-9]{40}$/);
+  });
   it('reuses only freshly executed exact-tree, exact-role evidence under the same immutable environment', () => {
     expect(canReuseBrowserProof(proof, expected, now)).toBe(true);
     for (const change of [{ version: 2 }, { repository: 'other' }, { sourceRun: 41 }, { attempt: 2 }, { headSha: 'c'.repeat(40) }, { tree: 'd'.repeat(40) }, { role: '2-2' }, { shard: '2/6' }, { executed: false }, { executedAt: '2026-10-14T10:59:59Z' }, { executedAt: '2026-10-14T12:00:01Z' }, { environment: { ...environment, node: 'different' } }, { environment: { ...environment, bases: ['node:24-alpine'] } }]) {
