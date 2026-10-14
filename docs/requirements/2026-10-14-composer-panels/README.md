@@ -2,7 +2,7 @@
 
 ## 身份与当前阶段
 
-- 需求编号：2026-10-14-composer-panels；当前版本 V1.5，I／D 正式实施与交付，V1.5已确认。
+- 需求编号：2026-10-14-composer-panels；当前版本 V1.5，I／D 已合并，P 发布门禁阻塞，V1.5已确认。
 - 本机入口规则来源 `4356531cea264dd01bd9110da90b9ff62cfd7a59`；只读核对远端规则与设计后，任务基线为 GitHub main `15559f36452ea71dd72ae57aeb7f54a0c586e11b`。同步后 origin/main 与基线相同，本机 main 保留旧快照。
 - 独占分支：`codex/composer-panels-prototype-20261014`。本机任务目录为项目内 `.worktrees/composer-panels-prototype-20261014`；跨电脑接续须重新核验路径、HEAD 与未提交状态。
 - 2026-10-15用户确认V1.5并授权正式实施、验证后按流程合并main，生产发布前再次确认。流程图仍按用户明确例外省略。
@@ -48,6 +48,7 @@ node docs/requirements/2026-10-14-composer-panels/prototype/serve.mjs
 | 面板底色反馈 | V1.4 浅色主题表面 | 本会话后续反馈：“浅色模式下，表情面板和工具面板用白色不太好看”；无独立消息时间戳 | 调整当前原型 |
 | 面板入口／动效反馈 | V1.5 图标、平直工具面板及动效 | 2026-10-15 本会话明确输入栏加号不变，表情入口用简约贴纸与加号结合，工具面板去顶角与横杠，进退动效符合规范；无独立消息 permalink | 调整并验证当前原型 |
 | 设计确认与实施 | V1.5 最终视觉与交互 | 2026-10-15本会话：“确认 V1.5 原型，按这个版本正式实施，完成验证后按流程合并 main，生产发布前再确认”；无独立消息permalink | 正式实施、验证、提交／推送／PR／CI／合并main；生产未授权 |
+| 本次生产授权 | 已列明应用 `075a0642c284c70c320991988d2183f41e82a640`／`2026.10.14.3` | 2026-10-15，在上一答复列明完整应用SHA后，用户要求“判断是否完成，若未完成则继续，否则发布生产”；无独立消息permalink | 继续完成验证；仅在门禁通过后发布该精确应用提交，不改发后续文档SHA |
 
 ## 验证与边界
 
@@ -68,7 +69,7 @@ node docs/requirements/2026-10-14-composer-panels/prototype/serve.mjs
 - 实施基于已确认原型提交`7e7b3ab2917dbfca018d95435e4ebe6ce2b1dc6a`，主线基线`15559f3`。原工作树因iCloud dataless文件读取停滞，保留原型预览，改用本机`/private/tmp/quiet-room-composer-panels-20261015`独占分支`codex/composer-panels-implementation-20261015`；重新核验HEAD／空工作树，doctor通过，依赖按锁文件安装，未共享可变node_modules。
 - 正式范围为输入框、表情／工具面板样式与可中断呈现；沿用原视口、输入、录音、合集、发送与隐私状态所有者。新增composer-panels.css及composer-panel-motion.ts；长期规范同步到V1.7。接口、协议、密文持久化、权限与生产配置未改。
 - 定向早期失败保留：工具反向检查两次报约109px偏移。首次占位同步假设未消除失败；新取证显示调用前后首帧坐标完全相同，外层键盘360ms时钟仍运行，测试只暂停子层造成采样坐标失真。测试在独立工具轨迹检查前等待外层终态，保留原键盘交接与生命周期断言，不取消正式视口动效或降低位移容差。
-- 最终head、完整CI与main合并回执由[PR #306](https://github.com/zdaiwmm/shui-IM/pull/306)拥有，接续时读取其精确状态，不用旧分片代替最终检查。生产未发布，真实iPhone／iOS27／Safari仍未验证。
+- 最终head、完整CI与main合并回执由[PR #306](https://github.com/zdaiwmm/shui-IM/pull/306)拥有，接续时读取其精确状态，不用旧分片代替最终检查。下方记录本次生产授权后的新门禁复核；生产未发布，真实iPhone／iOS27／Safari仍未验证。
 
 - 已完成编译与chat-tools专项；Chromium／WebKit输入／交接回归在交叉切换补充前通过。交叉切换补充的首次检查误将独立视口动效计作面板残留，改为核验本组件拥有的行／面板动效。冻结候选后完整门禁覆盖最后补充，旧失败保留。
 
@@ -80,3 +81,13 @@ node docs/requirements/2026-10-14-composer-panels/prototype/serve.mjs
 - 最终审查补齐半屏／全屏途中反向：在重新归属和最终高度提交前捕获已绘制top，继承速度后只做transform。新增中途反向首帧偏差<0.5px、原节点及还原归属断言；Chromium／WebKit通过。键盘打开工具的焦点使用preventScroll，原入口与顺序保留。最后补充未改变用户确认的行为或生产边界。
 - 最终本地分段浏览器结果、最终精确CI及merge SHA在同一PR验证说明中对账；本地容量失败和上述早期失败仍保留。本机临时实现树与原型预览保留至发布后清理门禁，不将Git同步写成真机或生产通过。
 - 试运行记录：UI实现；GPT-6系列，实际细分型号／强度、主动／外部等待耗时及token口径未知；全量首轮失败后按具体契约／环境分类定向续跑，真实设备未验证。
+
+## 生产授权后的门禁复核（2026-10-15）
+
+- 实施已由PR #306合并为 `075a0642c284c70c320991988d2183f41e82a640`，与源 `59de604ee9f7a134b6158832eba1d33917667568` 同树。只读核对时GitHub main与origin/main均为075a0642，本机main仍为旧规则快照4356531。授权范围见上表，不继承其他应用的发布授权。
+- [精确main CI 38613436503](https://github.com/zdaiwmm/shui-IM/actions/runs/38613436503) attempt 2虽为success，镜像仅有attempt 1。按RELEASING要求重跑同一SHA以补齐同轮镜像，没有采用PR镜像或旧轮次绕过门禁。
+- attempt 3构建、956项单元／集成、依赖、通话及双架构镜像通过，但浏览器三处分片失败：space-drawer-ui第55行严格尺寸断言中17／24px出现约0.00006px差异；draft-refresh的WebKit outbox-abort故障尚未注入（sending=0、fault=false）；spaces第222行恢复卡提交按钮超时。同版本机space-drawer-ui与draft-refresh的Chromium／WebKit、spaces专项均通过，未改产品或断言。
+- 对上述失败做一次有界完整复验并同步生成同轮镜像。attempt 4的956项、通话、依赖、双架构镜像及三个浏览器分片通过；主浏览器在第1027行pagehide后对端图片数量断言失败，draft-refresh的WebKit在第273行邀请竞态后的消息等待超时，verify为failure。草稿故障注入点本轮已通过，但同一草稿专项仍有异步失败；两处最新失败根因未知，不据此宣称仅为夹具或产品无问题。同版本机主浏览器专项（含录音、通话及pagehide）通过，不能替代最新完整CI。
+- 按工作流有界失败规则停止继续重跑与发布，保留attempt 1—4历史；下一步先定位CI草稿／隐私相关异步差异，必要修复另按范围及精确候选重新验证。没有修改备份、隐私、协议、门禁或其他任务代码。
+- 固定只读SSH doctor通过，读取生产为 `966c827dfcfc9d44e1ddde2d3101c25dff994347`，helper及正式来源一致。命名production回读配置仅在本任务私有临时文件复用已有主机／密钥路径，不复制密钥或写入文档树。固定云prepare [38616273561](https://github.com/zdaiwmm/shui-IM/actions/runs/38616273561)一直等待既有环境审核，因最新CI失败而主动取消；没有执行job、云InvokeId、镜像传输或生产切换，也没有取得PREFLIGHT_OK、DEPLOY_VERIFIED或本次READBACK_OK。
+- 失败记录在独立无部署配置的文档树对账，基线为获批应用075a0642。本次仅保存门禁与授权事实，不发布文档提交。实现树、原型预览及验证证据保留，尚不满足发布后清理前提；原生iPhone／Safari仍未验证。
