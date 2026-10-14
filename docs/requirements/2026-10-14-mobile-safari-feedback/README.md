@@ -5,7 +5,7 @@
 - 基线：`2da4065beb1f8a742eac4ccc8d98903e54fafd2f`，已只读核实 GitHub main 与 origin/main 一致；本机 main 为 `820c4b19ac93f7499270e0b7d7024f55d6c88cfd`，规则由其 AGENTS／固定交付流程及最新差异取得。
 - 分支：`codex/mobile-safari-feedback-20261014`；本任务独占工作树，接续须重新核对实际目录、HEAD 和状态。
 - 2026-10-14 用户明确确认本会话七项方案，免除本次原型和流程图，直接实施并验证；按持续授权交付 PR／CI／合并，生产发布前另行确认精确 SHA。无独立消息 permalink。
-- 当前阶段：`2026.10.14.2`七项修复已由PR #299合并，main CI的设置几何浮点断言待修订复验；生产未授权、未发布。截图及两段 iPhone 录屏仅在本机诊断，不提交真实聊天、媒体或配置。
+- 当前阶段：`2026.10.14.2`七项修复已合并，设置测试等待实际动画端点的修订待复验；生产未授权、未发布。截图及两段 iPhone 录屏仅在本机诊断，不提交真实聊天、媒体或配置。
 
 ## 范围与验收
 
@@ -36,3 +36,5 @@
 
 - 最终源`1ee70eaf94950879f1aace2e12d6c8d67b5b6e65`的[CI 38562647345](https://github.com/zdaiwmm/shui-IM/actions/runs/38562647345) attempt 2成功。本次专项双引擎通过；attempt 1仅既有draft-refresh的WebKit邀请加入等待聊天页超时，原因未确认；原样重跑失败分片及依赖汇总一次后成功，不改加入源码、断言或超时。
 - [PR #299](https://github.com/zdaiwmm/shui-IM/pull/299)已合并为`1c9077ea77ef7df64c6333df32a6614ad804492f`。精确[main CI 38564329724](https://github.com/zdaiwmm/shui-IM/actions/runs/38564329724)在WebKit设置顶部实测0.000159px与严格0比较时失败；此候选不能称main CI成功。设置顶部／底部断言统一为既有0.01px几何容差，保留全屏入场、无柄、末项可达与背景一致检查；仅补测试精度，产品源码未变。后续候选须重新核对完整CI。
+- [PR #300](https://github.com/zdaiwmm/shui-IM/pull/300)源`aa8ff98`的[完整CI 38564985832](https://github.com/zdaiwmm/shui-IM/actions/runs/38564985832) attempt 1成功，合并为`502ac765e483597fb776a1ff38dd70411eb40126`。其[main CI 38565983671](https://github.com/zdaiwmm/shui-IM/actions/runs/38565983671)设置测试再次采到0.025853px位移，否定单纯浮点舍入的判断：固定300ms等待仍可能早于WebKit动画结束。改为等待实际入场动画finished、退场DOM移除后再进入下一组合，保留0.01px位置界限和全部产品断言。另有既有邀请按钮字号读取空值失败，原因未确认；不改该测试或产品字体。前两候选main CI失败均保留，不称成功。
+- 首次finished等待探针早于下一帧is-visible启动，枚举为空、实测仍位于568px，定向命令失败；补齐实际启动条件后再等待finished，Chromium／WebKit定向原样通过。未增大几何容差，未改产品源码或动效。
