@@ -34,11 +34,21 @@ describe('protected cloud delivery boundaries', () => {
     expect(() => requireAncestor({ status: 'ahead', merge_base_commit: { sha: 'b'.repeat(40) } }, sha)).toThrow();
   });
   it('binds cloud completion to invocation, machine, user, exit and complete output', () => {
-    const result = { InvokeId: 't-one', InstanceId: production.instance, InvokeUser: 'admin', InvocationStatus: 'Success', ExitCode: 0, Output: 'ok' };
+    const result = { InvokeId: 't-one', InstanceId: production.instance, InvokeUser: 'admin', InvocationStatus: 'Success', ExitCode: 0, Output: Buffer.from('ok').toString('base64') };
     expect(invocationResult({ InvocationResult: result }, 't-one')).toBe('ok');
     expect(invocationResult({ InvocationResult: { ...result, InvocationStatus: 'Running' } }, 't-one')).toBeNull();
     for (const change of [{ InvokeId: 't-other' }, { InstanceId: 'other' }, { InvokeUser: 'root' }, { ExitCode: 1 }, { InvocationStatus: 'Timeout' }, { Output: 'x'.repeat(24000) }]) {
       expect(() => invocationResult({ InvocationResult: { ...result, ...change } }, 't-one')).toThrow();
+    }
+  });
+  it('decodes API Base64 before parsing preflight and exact deployment markers', () => {
+    const output = JSON.stringify({ imageProtocol: 1, expectedPreviousProtocol: 1, publicOrigin: production.origin }) + '\nLIVE_SHA=' + sha + '\n';
+    const result = { InvokeId: 't-one', InstanceId: production.instance, InvokeUser: 'admin', InvocationStatus: 'Success', ExitCode: 0, Output: Buffer.from(output).toString('base64') };
+    expect(parsePreflight(invocationResult({ InvocationResult: result }, 't-one'))).toBe(sha);
+    const receipt = `DEPLOY_OK sha=${sha} result=success\nSTREAM_VERIFIED sha=${sha} image=sha256:synthetic\n`;
+    expect(invocationResult({ InvocationResult: { ...result, Output: Buffer.from(receipt).toString('base64') } }, 't-one')).toBe(receipt);
+    for (const Output of ['ok', 'b2s', 'b2s=\n', 'b2s=!', 'b2t=', '/w==', Buffer.alloc(18000).toString('base64')]) {
+      expect(() => invocationResult({ InvocationResult: { ...result, Output } }, 't-one')).toThrow();
     }
   });
   it('requires origin and installed compare-and-set protocol before upload', () => {

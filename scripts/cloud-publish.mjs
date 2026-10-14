@@ -31,7 +31,16 @@ export function invocationResult(payload, invokeId, instance = production.instan
   if (['Pending', 'Running'].includes(result.InvocationStatus)) return null;
   if (result.InvocationStatus !== 'Success' || result.ExitCode !== 0) throw new Error(`PRODUCTION_STATE_UNRESOLVED status=${result.InvocationStatus}; inspect before retrying`);
   if (typeof result.Output !== 'string' || Buffer.byteLength(result.Output) >= 24000) throw new Error('Missing or possibly truncated cloud output');
-  return result.Output;
+  // SWAS returns command output as Base64, including successful preflight and
+  // deployment receipts. Buffer's decoder is permissive; require canonical
+  // encoding and valid UTF-8 before interpreting any production markers.
+  const decoded = Buffer.from(result.Output, 'base64');
+  if (decoded.toString('base64') !== result.Output) throw new Error('Invalid cloud output encoding');
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(decoded);
+  } catch {
+    throw new Error('Invalid cloud output text');
+  }
 }
 export function cloudAPI(action, parameters, run = command) {
   const args = Object.entries({ RegionId: production.region, ...parameters }).flatMap(([key, value]) => [`--${key}`, String(value)]);
