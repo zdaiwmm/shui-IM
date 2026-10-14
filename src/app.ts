@@ -5862,7 +5862,7 @@ export class QuietRoomApp {
     const imageInput = this.root.querySelector<HTMLInputElement>('#image-input');
     this.voiceGesture?.destroy();
     this.voiceGesture = bindVoiceRecordGesture(this.root.querySelector<HTMLButtonElement>('#record-voice')!, mode => this.beginVoiceRecording(mode));
-    this.root.querySelector('#open-chat-tools')?.addEventListener('click', event => { this.toggleChatTools(); if ((event as MouseEvent).detail === 0) this.root.querySelector<HTMLButtonElement>('#chat-tools:not([hidden]) button:not(:disabled)')?.focus(); });
+    this.root.querySelector('#open-chat-tools')?.addEventListener('click', event => { this.toggleChatTools(); if ((event as MouseEvent).detail === 0) this.root.querySelector<HTMLButtonElement>('#chat-tools:not([hidden]) button:not(:disabled)')?.focus({ preventScroll: true }); });
     textarea.addEventListener('focus', () => this.closeChatTools(true));
     this.root.querySelector('#message-list')?.addEventListener('click', event => {
       if (event.target === event.currentTarget) this.closeChatTools(true);

@@ -129,9 +129,10 @@ export class MemePicker {
     this.panel.querySelector('.meme-expand')!.addEventListener('click', () => {
       if (this.overlay) { this.back(); return; }
       const height = this.panel.getBoundingClientRect().height;
+      const top = this.panel.getBoundingClientRect().top;
       this.expand();
       this.panel.style.top = 'auto';
-      this.animateSheet(height, this.overlay!.getBoundingClientRect().height, 'height', () => this.panel.style.removeProperty('top'));
+      this.animateSheet(height, this.overlay!.getBoundingClientRect().height, 'height', () => this.panel.style.removeProperty('top'), top);
     });
     this.panel.querySelector('.meme-back')!.addEventListener('click', () => this.back());
     this.panel.querySelector('.meme-favorites')!.addEventListener('click', () => { this.favoriteView = !this.favoriteView; if (this.favoriteView) { this.clear(); this.renderLocalItems(); } else void this.submit(); });
@@ -513,12 +514,13 @@ export class MemePicker {
   }
   private active() { return !this.disposed && !this.signal.aborted && this.options.isActive() && this.panel.isConnected; }
   get isClosing() { return this.closing; }
-  private animateSheet(from: number, to: number, property: 'height' | 'translate', finish = () => {}) {
+  private animateSheet(from: number, to: number, property: 'height' | 'translate', finish = () => {}, previousTop?: number) {
+    const top = previousTop ?? this.panel.getBoundingClientRect().top;
     const velocity = panelVelocity(this.panel);
     this.sheetAnimation?.cancel(); this.sheetAnimation = undefined;
     if (property === 'height') {
       this.panel.style.height = `${to}px`;
-      from = to - from; to = 0;
+      from = top - this.panel.getBoundingClientRect().top; to = 0;
     }
     const animation = moveComposerPanel(this.panel, from, to, this.signal, () => {
       this.sheetAnimation = undefined;
@@ -786,6 +788,7 @@ export class MemePicker {
     }
     if (!this.active() || this.overlay) return;
     const height = this.panel.getBoundingClientRect().height;
+    const top = this.panel.getBoundingClientRect().top;
     this.halfHeight = height;
     const overlay = document.createElement('div'); overlay.className = 'meme-search-dialog'; overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-label', '添加贴纸');
     this.overlay = overlay; this.options.root.append(overlay); overlay.append(this.panel);
@@ -795,7 +798,7 @@ export class MemePicker {
       beforeClose: () => { this.back(); return false; } });
     if (animate) {
       this.panel.style.top = 'auto';
-      this.animateSheet(height, overlay.getBoundingClientRect().height, 'height', () => this.panel.style.removeProperty('top'));
+      this.animateSheet(height, overlay.getBoundingClientRect().height, 'height', () => this.panel.style.removeProperty('top'), top);
     }
     if (load) { this.shortcuts(); void this.submit(); }
   }

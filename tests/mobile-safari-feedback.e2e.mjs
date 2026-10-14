@@ -152,6 +152,18 @@ try {
     });
     assert.ok(reverse.jumps.every(jump=>jump<.5),JSON.stringify(reverse));
     assert.equal(reverse.same,true);assert.equal(reverse.interactive,true);assert.equal(reverse.left,0);
+    const sizeReverse=await page.evaluate(async()=>{
+      const panel=document.querySelector('.meme-panel'),expand=panel.querySelector('.meme-expand');
+      const paint=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      expand.click();for(const animation of panel.getAnimations()){animation.pause();animation.currentTime=120;}
+      await paint();const before=panel.getBoundingClientRect().top;expand.click();
+      const animations=panel.getAnimations();for(const animation of animations){animation.pause();animation.currentTime=0;}
+      await Promise.all(animations.map(animation=>animation.ready));await paint();
+      const jump=Math.abs(before-panel.getBoundingClientRect().top);
+      for(const animation of animations)animation.finish();await paint();
+      return {jump,local:panel.parentElement.id==='composer',same:panel===document.querySelector('.meme-panel')};
+    });
+    assert.ok(sizeReverse.jump<.5,JSON.stringify(sizeReverse));assert.equal(sizeReverse.local,true);assert.equal(sizeReverse.same,true);
     await page.locator('.meme-expand').click();
     await page.locator('.meme-panel').evaluate(async panel=>{await Promise.all(panel.getAnimations().map(animation=>animation.finished));});
     assert.equal(await page.locator('.meme-expand').getAttribute('aria-label'),'还原表情');
