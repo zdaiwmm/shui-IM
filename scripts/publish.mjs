@@ -75,7 +75,8 @@ function publishApproved(args, run, timed) {
     env.GIT_CONFIG_VALUE_0 = '!gh auth git-credential';
   }
   timed('clone', () => {
-    run('git', ['clone', '--filter=blob:none', '--single-branch', '--branch', 'main', cloneUrl, directory], { env, timeout: 120000 });
+    // A filtered clone still fetches the current tree's blobs during checkout.
+    run('git', ['clone', '--filter=blob:none', '--single-branch', '--branch', 'main', cloneUrl, directory], { env, timeout: 10 * 60 * 1000 });
     run('git', ['merge-base', '--is-ancestor', sha, 'origin/main'], { cwd: directory, env });
     // Only this newly created isolated clone is moved to the approved batch.
     run('git', ['checkout', '-B', 'main', sha], { cwd: directory, env });
