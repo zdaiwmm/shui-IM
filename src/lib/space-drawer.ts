@@ -45,7 +45,7 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
   refreshUnread?: (signal: AbortSignal) => Promise<void>;
   refreshSpaces?: (signal: AbortSignal) => Promise<PrivateSpace[]>;
   authorization?: (space: PrivateSpace) => {deadline:number;open:()=>Promise<void>} | undefined;
-  styleChanged: (style: PresenceStyle) => void; closed: () => void;
+  styleChanged: (style: PresenceStyle) => void; closed: (sheet: HTMLElement) => void;
 }): void {
   const lifetime = new AbortController();
   const signal = AbortSignal.any([options.signal, lifetime.signal]);
@@ -58,10 +58,10 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
   let pageLifetime = new AbortController();
   signal.addEventListener('abort', () => pageLifetime.abort(), { once: true });
   const dialog = embedded ? { close: (_options?: { animate?: boolean; restoreFocus?: boolean }) => { /* Embedded navigation owns its page lifetime. */ } } : mountDialog(sheet, { signal: options.signal, isActive: () => !options.signal.aborted, beforeClose: () => !busy, onClose: () => {
-    lifetime.abort(); if (!handingOff) options.closed();
+    lifetime.abort(); if (!handingOff) options.closed(sheet);
   } });
   if (embedded) signal.addEventListener('abort', () => sheet.remove(), { once: true });
-  const close = () => { if (embedded) { if (!busy) options.closed(); } else dialog.close(); };
+  const close = () => { if (embedded) { if (!busy) options.closed(sheet); } else dialog.close(); };
   sheet.addEventListener('click', e => { if (e.target === sheet && !busy) close(); });
   function page(title: string, body: string, footer = '', back?: () => void) {
     pageLifetime.abort(); pageLifetime = new AbortController();

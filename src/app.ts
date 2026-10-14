@@ -5260,7 +5260,21 @@ export class QuietRoomApp {
         return fresh;
       },
       styleChanged: () => this.applyPresenceStyle(),
-      closed: () => { if (presentation === 'sidebar') { this.desktopWorkspace.collapse(); return; } if (presentation === 'settings') { this.settingsReturn = null; this.renderChat(); return; } this.spaceDrawerOpen = false; if (!signal.aborted && !this.privacyCovered && this.session === session && !this.root.querySelector('.space-invite-overlay:not(.is-closing),.space-profile-overlay')) { if (previousSurface === 'chat' && !this.root.querySelector('.chat-shell')) this.renderChat(this.root.querySelector<HTMLElement>(':scope > .space-drawer-overlay.is-closing') ?? undefined); else { this.setActiveSurface(this.root.querySelector('.chat-shell') ? 'chat' : previousSurface); this.updatePeerStatus(); } } },
+      closed: sheet => {
+        if (presentation === 'sidebar') { this.desktopWorkspace.collapse(); return; }
+        if (presentation === 'settings') { this.settingsReturn = null; this.renderChat(); return; }
+        if (!sheet.isConnected) {
+          // A route replacement still releases the old dialog's resources,
+          // but its detached owner must not navigate over the new page.
+          if (!this.root.querySelector(':scope > .space-drawer-overlay:not(.is-closing)')) this.spaceDrawerOpen = false;
+          return;
+        }
+        this.spaceDrawerOpen = false;
+        if (!signal.aborted && !this.privacyCovered && this.session === session && !this.root.querySelector('.space-invite-overlay:not(.is-closing),.space-profile-overlay')) {
+          if (previousSurface === 'chat' && !this.root.querySelector('.chat-shell')) this.renderChat(sheet);
+          else { this.setActiveSurface(this.root.querySelector('.chat-shell') ? 'chat' : previousSurface); this.updatePeerStatus(); }
+        }
+      },
     });
   }
 

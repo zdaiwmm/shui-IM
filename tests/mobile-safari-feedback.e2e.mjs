@@ -249,6 +249,16 @@ try {
     assert.ok(closingSettings.jump<2,JSON.stringify(closingSettings));assert.equal(closingSettings.chatInert,true);
     await page.locator('.is-settings-sheet').waitFor({state:'detached'});
     assert.equal(await page.locator('.chat-shell').evaluate(chat=>chat.inert),false);
+    const detachedSettings=await page.evaluate(async()=>{
+      const {app,session}=fixture;
+      app.mountPrivateSpaceDrawer(session,[{roomId:session.vault.roomId,name:'合成空间'}],app.runtimeAbort.signal,'chat',0);
+      app.renderRecoveryCenter();
+      const recovery=document.querySelector('.recovery-center-page');
+      await new Promise(resolve=>requestAnimationFrame(resolve));
+      return {same:recovery.isConnected,save:!!document.querySelector('#save-my-code'),surface:app.activeSurface,drawer:app.spaceDrawerOpen};
+    });
+    assert.deepEqual(detachedSettings,{same:true,save:true,surface:'away',drawer:false},'A detached settings owner must not replace a later recovery route with chat');
+    await page.evaluate(()=>fixture.app.renderChat());
     for(const width of [320,390,430]) {
       await page.setViewportSize({width,height:568});await page.evaluate(()=>setViewport(568));
       for(const theme of ['blue','green','purple','apricot'])for(const scheme of ['light','dark']) {
