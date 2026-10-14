@@ -1,19 +1,19 @@
 # Quiet Room 当前状态
 
+## V1.5 与 Safari 组合候选已验证，待发布确认（2026-10-15）
+
+- 用户已确认[原型V1.5](../requirements/2026-10-14-composer-panels/README.md)并免除本次流程图。[PR #306](https://github.com/zdaiwmm/shui-IM/pull/306)的输入／面板与[PR #305](https://github.com/zdaiwmm/shui-IM/pull/305)的Safari输入交接／设置返回均已纳入组合，版本`2026.10.14.4`；本任务[PR #308](https://github.com/zdaiwmm/shui-IM/pull/308)仅修正两份长流程夹具及必要记录，保留产品默认30秒、通话租期和全部隐私断言。
+- 最终应用 `05b0e8be44cf1b3308af13c62d94eb84903d9a4e` 与源 `e56f2bd` 同树。组合[PR CI 38624705588](https://github.com/zdaiwmm/shui-IM/actions/runs/38624705588) attempt 1、精确[main CI 38625873857](https://github.com/zdaiwmm/shui-IM/actions/runs/38625873857) attempt 2完整成功，含956项、64浏览器入口、通话、审计与同轮双架构镜像。本机组合输入交接／草稿双引擎、主浏览器及18项空闲契约通过；本机完整套件历史容量失败、旧075a0642及初候选失败保留于需求记录，不写成全部历史验证通过。
+- main首轮邀请字体采样为空；受控浏览器实验复现节点移除后14px变为空值，原CI没有连接状态，故只记可能原因。未改字体或断言，同一SHA做一次有界完整复验后通过。固定只读[云预检38628176706](https://github.com/zdaiwmm/shui-IM/actions/runs/38628176706)取得`PREFLIGHT_OK`，绑定最新main run／attempt 2及未过期镜像元数据；既有环境审核机制保留，执行模式为doctor。
+- 预检读取旧生产仍为 `966c827dfcfc9d44e1ddde2d3101c25dff994347`，本任务没有提交deploy或生产切换，没有本次`DEPLOY_VERIFIED`／`READBACK_OK`。旧075a0642生产授权及其他任务的准备不自动覆盖新组合；下一步确认上述完整05b0e8be后按固定入口发布并独立回读。
+- 原生iPhone／Safari验收仍未完成，另一任务手机通道及待办保留。只读准备证据已保存到工作树外公共Git元数据；本记录在无部署配置的独立文档树对账，文档SHA不发布。实现、原型预览及证据继续保留，未进入发布后清理。
+
 ## Safari 输入交接与设置返回已合并，真机待验收（2026-10-15）
 
 - 用户确认 V1／V2 并免除本次原型、流程图，授权修复及真机验证；范围、初始基线 `15559f3`、历史失败和确认由[需求记录](../requirements/2026-10-14-safari-keyboard-handoff/README.md)拥有。组合保留已确认的 V1.5 面板，版本 `2026.10.14.4`。
 - [PR #305](https://github.com/zdaiwmm/shui-IM/pull/305) 已合并为 `6297d5c7ce4a45f48b7ab52ec134a9e27902e65f`；与最终 PR head `df7f869` 同树，产品／测试／依赖／发布工具与源 `7268fa9` 一致。[最终 PR CI 38620700597](https://github.com/zdaiwmm/shui-IM/actions/runs/38620700597)及[精确 main CI 38621729676](https://github.com/zdaiwmm/shui-IM/actions/runs/38621729676) attempt 1 均完整成功，含双架构镜像；历史失败未删除或改写。
 - 固定只读[云预检 38621911641](https://github.com/zdaiwmm/shui-IM/actions/runs/38621911641) 取得 `PREFLIGHT_OK`，前版为 `966c827d`；既有单环境配置的独立回读于 `2026-10-14T19:07:32Z` 起执行并取得 `READBACK_OK`。该回读属于旧生产，不是本候选上线证据；本批未执行生产切换，无 `DEPLOY_VERIFIED`。用户原发布指令及最终 SHA 待确认状态见需求记录，文档 SHA 不进入本批应用。
 - 用户最新要求「判断是否完成，若未完成则继续，否则发布生产」。五项原生重复验收及设置 V2 真机仍未完成；新核验 USB 枚举为空，系统仅无线连接 iPhone 15 Pro／iOS 27.2，原生 RSD 拒绝连接，未送达新触控。保留用户「暂不重启」选择及工作树，不用截图可用或模拟测试推断平顺性、原生工具栏或真机通过。等待实际 USB 连接恢复后由 agent 操作验收。
-
-## 输入栏与表情／工具面板 V1.5 已合并，发布阻塞（2026-10-15）
-
-- 用户确认[原型V1.5](../requirements/2026-10-14-composer-panels/README.md)并授权实施、验证及合并main；随后在列明完整应用SHA后要求完成则发布生产。本次流程图按用户要求豁免，生产目标固定 `075a0642c284c70c320991988d2183f41e82a640`／`2026.10.14.3`。
-- [PR #306](https://github.com/zdaiwmm/shui-IM/pull/306)已合并，源 `59de604`与应用075a0642同树。淡填充输入框、60px基础栏、主题面板底色、贴纸加号、平直无柄工具面板及可反向动效已纳入main，规范同步V1.7。PR完整CI通过；本机完整单元受98%磁盘触发10项BACKUP_CAPACITY_LOW的历史失败保留。
-- 精确[main CI 38613436503](https://github.com/zdaiwmm/shui-IM/actions/runs/38613436503) attempt 2通过但缺同轮镜像，补跑attempt 3及一次有界复验attempt 4。最新attempt 4的956项、通话、双架构镜像、审计及三个浏览器分片通过，但主浏览器pagehide图片数量和WebKit草稿邀请竞态等待失败，verify失败；本机对应专项通过不替代完整CI，根因未知。早期失败、定向取证及授权由需求记录拥有，按有界规则停止重跑与发布。
-- 固定只读SSH doctor核验当时线上为966c827d；云prepare38616273561在等待环境审核期间主动取消，没有执行生产切换、DEPLOY_VERIFIED或本次独立READBACK_OK。活动原型／实现及证据保留，真机iPhone／Safari未验证。下方为既有生产历史，文档提交不发布。
-- 用户随后再次确认发布并允许追加排查验证。原应用attempt 5仍在WebKit草稿第二参与者输入框等待失败；主浏览器及pagehide、其他分片和双架构镜像通过。受控双端实验复现默认30秒空闲过期导致会话／输入框消失，现有300秒偏好下31秒仍保持会话而pagehide仍立即清理。仅两份长流程测试显式选择300秒，产品30秒默认和全部隐私断言保留；新候选完整验证及精确生产SHA确认待完成。细节由需求记录拥有，不继续原样盲重跑。
 
 ## iPhone 七项交互修复已发布（2026-10-14 22:01）
 
