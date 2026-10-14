@@ -6,9 +6,19 @@ import path from 'node:path';
 // @ts-expect-error Operational script.
 import { verifyCloudReceipt } from '../scripts/cloud-dispatch.mjs';
 // @ts-expect-error Operational script.
-import { invocationResult, parsePreflight, production, requireAncestor } from '../scripts/cloud-publish.mjs';
+import { cloudAPI, invocationResult, parsePreflight, production, requireAncestor } from '../scripts/cloud-publish.mjs';
 const sha = 'a'.repeat(40);
 describe('protected cloud delivery boundaries', () => {
+  it('disables cloud SDK retries and never repeats a failed submission', () => {
+    let calls = 0;
+    expect(() => cloudAPI('RunCommand', { CommandContent: 'synthetic' }, (_program: string, args: string[]) => {
+      calls++;
+      expect(args[args.indexOf('--retry-count') + 1]).toBe('0');
+      expect(args).toContain('--secure');
+      throw new Error('connection lost after submit');
+    })).toThrow('connection lost');
+    expect(calls).toBe(1);
+  });
   it('accepts only a verified forward ancestor', () => {
     expect(() => requireAncestor({ status: 'ahead', merge_base_commit: { sha } }, sha)).not.toThrow();
     for (const status of ['behind', 'diverged', 'unknown']) expect(() => requireAncestor({ status, merge_base_commit: { sha } }, sha)).toThrow();

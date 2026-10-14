@@ -11,7 +11,10 @@ export function command(program, args, options = {}) {
   const result = spawnSync(program, args, { encoding: 'utf8', timeout: 60000, maxBuffer: 4 * 1024 ** 2, ...options });
   // Cloud errors may echo command payloads or a signed URL. Never print raw
   // subprocess output in an exception or persist the private request.
-  if (result.error || result.status !== 0) throw new Error(`CLOUD_COMMAND_FAILED program=${program} code=${result.status ?? 'unavailable'}`);
+  if (result.error || result.status !== 0) {
+    const code = result.stderr?.match(/(?:ErrorCode|Code)[:=]\s*([A-Za-z][A-Za-z0-9_.-]{0,79})/)?.[1] ?? 'unavailable';
+    throw new Error(`CLOUD_COMMAND_FAILED program=${program} code=${result.status ?? 'unavailable'} serviceCode=${code}; inspect original invocation before retrying`);
+  }
   return result.stdout.trim();
 }
 export function requireAncestor(comparison, ancestor) {
@@ -25,9 +28,9 @@ export function invocationResult(payload, invokeId, instance = production.instan
   if (typeof result.Output !== 'string' || Buffer.byteLength(result.Output) >= 24000) throw new Error('Missing or possibly truncated cloud output');
   return result.Output;
 }
-function cloudAPI(action, parameters, run = command) {
+export function cloudAPI(action, parameters, run = command) {
   const args = Object.entries({ RegionId: production.region, ...parameters }).flatMap(([key, value]) => [`--${key}`, String(value)]);
-  return JSON.parse(run('aliyun', ['swas-open', action, '--api-version', '2020-06-01', '--endpoint', `swas.${production.region}.aliyuncs.com`, '--method', 'POST', '--force', ...args]));
+  return JSON.parse(run('aliyun', ['swas-open', action, '--api-version', '2020-06-01', '--endpoint', `swas.${production.region}.aliyuncs.com`, '--method', 'POST', '--secure', '--retry-count', '0', '--connect-timeout', '10', '--read-timeout', '30', '--force', ...args]));
 }
 async function invoke(script, label, receipt, run = command) {
   receipt.status = `submitting-${label}`;
@@ -109,6 +112,7 @@ export async function cloudPublish(sha, { doctor = false } = {}) {
   const data = Buffer.from(JSON.stringify(payload)).toString('base64');
   console.log(`::add-mask::${data}`);
   const script = `set -eu\npython3 -c 'import base64,io,sys; sys.stdin=io.StringIO(base64.b64decode("${data}").decode()); exec(compile(base64.b64decode("${source}"),"server-image-stream.py","exec"))'`;
+  if (Buffer.byteLength(script) > 16 * 1024) throw new Error('Cloud command exceeds bounded payload');
   const output = await invoke(script, `deploy-${sha.slice(0, 12)}`, receipt);
   if (!output.split('\n').some(line => line.startsWith(`DEPLOY_OK sha=${sha} `)) || !output.split('\n').includes(`STREAM_VERIFIED sha=${sha} image=${image.imageId}`)) throw new Error('PRODUCTION_STATE_UNRESOLVED missing exact helper receipt');
   const live = parsePreflight(await invoke(preflight, 'postflight', receipt));
