@@ -90,19 +90,33 @@ try {
       }
     }
     await page.locator('#message-input').fill('保留输入草稿');await page.locator('#open-memes').click();
-    await page.locator('.fluent-emoji-tile img').first().waitFor();await page.waitForTimeout(450);
+    await page.locator('.fluent-emoji-tile img').first().waitFor();
+    await page.locator('.meme-panel').evaluate(async panel=>{await Promise.all(panel.getAnimations().map(animation=>animation.finished));});
     const density=await page.locator('.fluent-emoji-tile img').first().evaluate(img=>({natural:img.naturalWidth,painted:img.getBoundingClientRect().width*devicePixelRatio}));
     assert.ok(density.natural>=density.painted,JSON.stringify(density));
     const collapse=await page.evaluate(async()=>{
       const app=fixture.app,row=document.querySelector('.composer-row'),input=document.querySelector('#message-input');
       const top=row.getBoundingClientRect().top;app.closeMemePicker(false,true);
-      const initial=row.getBoundingClientRect().top;await new Promise(resolve=>setTimeout(resolve,100));
-      const moving=row.getBoundingClientRect().top,panelPresent=!!document.querySelector('.meme-panel');
-      await new Promise(resolve=>setTimeout(resolve,310));
-      const final=row.getBoundingClientRect().top;return {top,initial,moving,final,panelPresent,draft:input.value};
+      const panel=document.querySelector('.meme-panel'),animations=[...row.getAnimations(),...panel.getAnimations()];
+      // Sample the shared animation clock, rather than assuming Linux WebKit
+      // paints an intermediate frame within a fixed amount of wall time.
+      if(animations.length!==2)throw Error(`Expected row and panel animations, got ${animations.length}`);
+      for(const animation of animations){animation.pause();animation.currentTime=0;}
+      await Promise.all(animations.map(animation=>animation.ready));
+      const paint=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      await paint();const initial=row.getBoundingClientRect().top,panelTop=panel.getBoundingClientRect().top;
+      const durations=animations.map(animation=>animation.effect.getTiming().duration);
+      for(const animation of animations)animation.currentTime=100;
+      await paint();
+      const moving=row.getBoundingClientRect().top,panelMoving=panel.getBoundingClientRect().top,panelPresent=panel.isConnected;
+      for(const animation of animations)animation.finish();
+      await paint();
+      const final=row.getBoundingClientRect().top;return {top,initial,moving,final,panelTop,panelMoving,panelPresent,durations,draft:input.value};
     });
     assert.ok(Math.abs(collapse.top-collapse.initial)<2,JSON.stringify(collapse));
     assert.ok(collapse.moving>collapse.top+8&&collapse.moving<collapse.final,JSON.stringify(collapse));assert.equal(collapse.panelPresent,true);assert.equal(collapse.draft,'保留输入草稿');
+    assert.deepEqual(collapse.durations,[360,360]);
+    assert.ok(collapse.panelMoving>collapse.panelTop+8,JSON.stringify(collapse));
     await page.locator('#open-memes').click();await page.waitForTimeout(450);
     const handoff=await page.evaluate(async()=>{
       const input=document.querySelector('#message-input'),app=fixture.app;let focuses=0,blurs=0;
