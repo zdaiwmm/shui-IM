@@ -385,10 +385,16 @@ try {
           });
           await Promise.all(panel.getAnimations().map(animation=>animation.finished));
           const scroll=sheet.querySelector('.space-drawer-scroll');scroll.scrollTop=scroll.scrollHeight;
+          await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
           const last=scroll.querySelector('.space-settings-list').lastElementChild.querySelector('button');
           const bounds=last.getBoundingClientRect(),viewport=scroll.getBoundingClientRect();
+          const hit=document.elementFromPoint(bounds.x+bounds.width/2,bounds.y+bounds.height/2)?.closest('button');
           const result={start,top:panel.getBoundingClientRect().top,bottom:panel.getBoundingClientRect().bottom,handle:!!sheet.querySelector('.half-sheet-handle'),
-            reachable:bounds.bottom<=viewport.bottom+1&&document.elementFromPoint(bounds.x+bounds.width/2,bounds.y+bounds.height/2)?.closest('button')===last,
+            reachable:bounds.bottom<=viewport.bottom+1&&hit===last,
+            width:innerWidth,font:parseFloat(getComputedStyle(document.documentElement).fontSize),
+            rowTop:bounds.top,rowBottom:bounds.bottom,viewportTop:viewport.top,viewportBottom:viewport.bottom,
+            scrollTop:scroll.scrollTop,scrollMax:scroll.scrollHeight-scroll.clientHeight,hitSame:hit===last,
+            sheetInert:sheet.inert,rowInert:!!last.closest('[inert]'),
             background:getComputedStyle(panel).backgroundColor,canvas:getComputedStyle(document.documentElement).backgroundColor,hint:document.querySelector('#system-chrome-color').content};
           sheet.querySelector('.space-close').click();
           await new Promise(resolve=>{
