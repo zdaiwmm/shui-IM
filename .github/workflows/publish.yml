@@ -1,0 +1,69 @@
+name: Publish approved production commit
+run-name: Publish ${{ inputs.sha }} (${{ inputs.request_id }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact 40-character application SHA explicitly approved for production
+        required: true
+        type: string
+      request_id:
+        description: Unique publisher request identity
+        required: true
+        type: string
+      mode:
+        description: Doctor checks access only; deploy performs one approved cutover
+        required: true
+        type: choice
+        default: doctor
+        options: [doctor, deploy]
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: quiet-room-production-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    environment: production
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Exchange protected GitHub OIDC identity
+        uses: aliyun/configure-aliyun-credentials-action@1e5248c8d5d93a8781ac344a68e19a43341e79e6
+        with:
+          oidc-provider-arn: ${{ vars.ALIBABA_OIDC_PROVIDER_ARN }}
+          role-to-assume: ${{ vars.ALIBABA_DEPLOY_ROLE_ARN }}
+          role-session-name: quiet-room-production-publish
+          role-session-expiration: 3600
+          audience: sts.aliyuncs.com
+      - name: Install fixed Alibaba Cloud CLI
+        uses: aliyun/setup-aliyun-cli-action@09a5f86915bb556e27bf050e9a5e339aeb073df5
+        with:
+          version: 3.4.11
+      - name: Validate exact CI and stream the approved image on the server
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APPROVED_SHA: ${{ inputs.sha }}
+          PUBLISH_MODE: ${{ inputs.mode }}
+          SAS_REGION_ID: ${{ vars.SAS_REGION_ID }}
+          SAS_INSTANCE_ID: ${{ vars.SAS_INSTANCE_ID }}
+        run: node scripts/cloud-publish.mjs
+      - name: Preserve small receipt even when cloud outcome is unresolved
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: quiet-room-cloud-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/quiet-room-cloud-receipt.json
+          if-no-files-found: error
+          retention-days: 30

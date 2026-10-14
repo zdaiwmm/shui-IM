@@ -131,7 +131,7 @@
 | PR | 当前任务获推送授权后用 `npm run repo:push` 推送已提交任务并创建 PR；必需检查通过且获得合并授权后合并 | 核对 PR 精确 head、CI 与可合并状态；合并时匹配已审阅 head，不用管理员绕过保护 |
 | main 核验 | 回取合并提交，在本机集成授权范围内快进干净 main；准备发布时等精确 main 最新完整 CI | PR CI 不替代精确 main CI；仅同步 Git 不声称本机服务或真机已验收 |
 | 发布确认 | 准备完整 40 位 SHA、版本 ID、变更范围、CI、预检和未验证项，请用户确认本次发布提交 | 本批目标改变才重新确认；main 后续非必要提交进入下一批，旧发布记录和本流程都不是确认 |
-| 发布与回读 | 确认后只用 `node scripts/publish.mjs --sha <SHA>`，核对精确成功回执后独立 `npm run deploy:readback -- --sha <SHA>` | 分别取得 `DEPLOY_VERIFIED` 与独立 `READBACK_OK`；不从本地脏目录传代码到生产 |
+| 发布与回读 | 确认后只用 `node scripts/publish.mjs [--cloud] --sha <SHA>`（云端模式见 RELEASING），核对精确成功回执后独立 `npm run deploy:readback -- --sha <SHA>` | 分别取得 `DEPLOY_VERIFIED` 与独立 `READBACK_OK`；不从本地脏目录传代码到生产 |
 | 对账与收尾 | 第二个不含部署配置的工作树更新发布记录和状态，文档检查、PR、CI，在相应授权范围内合并；再按已有清理规则核验资源 | 线上应用 SHA 保持本次已发布值；文档提交不触发再次部署；清理或保留均报告原因 |
 
 ### 固定批次发布（2026-09-10）

@@ -71,18 +71,19 @@ readonly RELEASE_RETENTION_COUNT="${QUIET_ROOM_RELEASE_RETENTION_COUNT:-3}"
 readonly PREDEPLOY_BACKUP_RETENTION_COUNT="${QUIET_ROOM_PREDEPLOY_BACKUP_RETENTION_COUNT:-3}"
 
 if [[ $# -eq 1 && "$1" == --describe ]]; then
-  printf '{"imageProtocol":1,"publicOrigin":"%s"}\n' "$PUBLIC_ORIGIN"
+  printf '{"imageProtocol":1,"expectedPreviousProtocol":1,"publicOrigin":"%s"}\n' "$PUBLIC_ORIGIN"
   exit 0
 fi
 
 readonly REQUESTED_SHA="${1:-}"
 readonly REQUESTED_IMAGE_ID="${2:-}"
 readonly REQUESTED_ARCHIVE_SHA="${3:-}"
+readonly EXPECTED_PREVIOUS_SHA="${4:-}"
 if [[ ! "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
   printf 'A lowercase 40-character Git commit is required.\n' >&2
   exit 64
 fi
-if [[ $# -ne 3 || ! "$REQUESTED_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ || ! "$REQUESTED_ARCHIVE_SHA" =~ ^[0-9a-f]{64}$ ]]; then
+if [[ ( $# -ne 3 && $# -ne 4 ) || ! "$REQUESTED_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ || ! "$REQUESTED_ARCHIVE_SHA" =~ ^[0-9a-f]{64}$ || ( $# -eq 4 && ! "$EXPECTED_PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ) ]]; then
   printf 'An exact CI image ID and archive checksum are required; server builds are disabled.\n' >&2
   exit 64
 fi
@@ -96,6 +97,16 @@ exec 9>/run/lock/quiet-room-deploy.lock
 if ! flock -n 9; then
   printf 'Another Quiet Room deployment is already running.\n' >&2
   exit 75
+fi
+
+# Cloud delivery binds its read-only preflight to the state under the same
+# deployment lock. A concurrent release cannot turn an approved update into a
+# downgrade. Legacy three-argument callers retain their existing protocol.
+if [[ -n "$EXPECTED_PREVIOUS_SHA" ]]; then
+  if [[ ! -f "$STATE_DIR/current-sha" || "$(<"$STATE_DIR/current-sha")" != "$EXPECTED_PREVIOUS_SHA" || "$EXPECTED_PREVIOUS_SHA" == "$REQUESTED_SHA" ]]; then
+    printf 'PRODUCTION_STATE_CHANGED: inspect production; do not repeat deployment.\n' >&2
+    exit 75
+  fi
 fi
 
 for required in docker git runuser curl tar flock stat python3; do
@@ -142,6 +153,10 @@ fi
 
 if ! runuser -u deploy -- git --git-dir="$REPOSITORY" merge-base --is-ancestor "$REQUESTED_SHA" refs/heads/main; then
   printf 'Refusing to deploy a commit that is not on origin/main.\n' >&2
+  exit 65
+fi
+if [[ -n "$EXPECTED_PREVIOUS_SHA" ]] && ! runuser -u deploy -- git --git-dir="$REPOSITORY" merge-base --is-ancestor "$EXPECTED_PREVIOUS_SHA" "$REQUESTED_SHA"; then
+  printf 'Refusing a production downgrade or divergent release.\n' >&2
   exit 65
 fi
 

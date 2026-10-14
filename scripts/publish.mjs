@@ -1,3 +1,4 @@
+import { dispatchCloud } from './cloud-dispatch.mjs';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, existsSync, copyFileSync, chmodSync, readFileSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -35,9 +36,15 @@ export function publish(args, run = command) {
 }
 
 function publishApproved(args, run, timed) {
+  const cloud = args.includes('--cloud');
+  if (cloud) args = args.filter(value => value !== '--cloud');
   const { environment } = targetArguments(args);
   const targetArgs = environment ? ['--environment', environment] : [];
   const sha = approvedCommit(args);
+  if (cloud) {
+    if (environment && environment !== 'production') throw new Error('Cloud publishing currently supports production only');
+    return timed('cloud-publish', () => dispatchCloud(sha, run));
+  }
   // Read-only preflight first. Never try browser login or edit network rules here.
   timed('preflight', () => run(process.execPath, [path.join(root, 'scripts/release.mjs'), '--doctor', ...targetArgs], { stdio: 'inherit', timeout: 120000 }));
   timed('verify-main', () => {
