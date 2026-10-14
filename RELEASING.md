@@ -1,5 +1,14 @@
 # Quiet Room 固定发布流程
 
+## iPhone 七项交互修复已发布（2026-10-14 22:01）
+
+- 用户在本会话获知精确应用提交 `966c827dfcfc9d44e1ddde2d3101c25dff994347`、版本 `2026.10.14.2` 后明确「确认，发布生产」；无独立消息 permalink。七项范围、免原型／流程图授权及验证由[需求记录](docs/requirements/2026-10-14-mobile-safari-feedback/README.md)拥有。后续对账文档提交不进入本批应用。
+- 应用 PR #299—301 已合并；精确 [main CI38568778529](https://github.com/zdaiwmm/shui-IM/actions/runs/38568778529) attempt 4完整成功，含同轮双架构镜像。首个只读云预检38571786920因最新attempt 2缺少对应镜像而阻断，未切换；同一SHA完整重跑attempt 3遇到既有drawer文字高度严格浮点比较失败，原样完整复验一次的attempt 4成功，未改源码、断言或时限。AMD64产物11899001750绑定attempt 4。
+- 固定云预检 [38574889330](https://github.com/zdaiwmm/shui-IM/actions/runs/38574889330)取得 `PREFLIGHT_OK`。随后固定入口 `publish.mjs --cloud --with-readback --environment production --sha 966c827dfcfc9d44e1ddde2d3101c25dff994347` 取得精确 `DEPLOY_VERIFIED`，[工作流38575261055](https://github.com/zdaiwmm/shui-IM/actions/runs/38575261055)于 `2026-10-14T13:54:52.683Z` 成功。生产从 `99979e9eef2dc6781e56cb52551c72a096eeac22` 切换一次，批次 `20261014T135222Z`；固定云发布耗时261768毫秒。镜像ID为 `sha256:710e19f46dd2b018267fdbee5e55989b52361e4f61413bde3fbf8edd136426eb`，归档摘要 `632d0409421bce7e2066e17e1bfa45b323482610e89bbed40bfe49b503078fb2`，208353604字节。正常生产环境审核保留。
+- 独立 `READBACK_OK` 于 `2026-10-14T14:01:11.804Z`（北京时间22:01）完成，2997毫秒：应用与备份均运行且healthy，TURN运行且探针none，维护门不存在；精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物及WebSocket均一致。首次仅备份starting；核对实际启动时间和既有5分钟探针后只续跑回读。续跑在公开资源下载阶段失败，未得出资源不一致结论；逐项只读诊断全部200后，原样复验一次通过，原失败保留，具体网络原因未确认。没有再次部署或调整探针／回读门禁。
+- 脱敏发布及三次回读证据保存于公共Git元数据的 `quiet-room-deliveries/evidence/mobile-safari-feedback-20261014/production.json`，在任务工作树及其专属Git目录之外。第二个无部署配置的独立文档树基于已核实main `44585eeb0d213e64c6d2a80d5d4f085a9f95bd1e` 对账；文档SHA不发布。源树、分支和5202移动预览因仍在使用保留，对账源领先应用SHA亦按清理祖先门禁保留，其他任务不清理。
+- 修复后的物理iPhone／Safari原生键盘、中文IME及系统工具栏仍待真机验证；桌面移动模拟、WebKit回归和生产回读分别记录。下方发布段落为历史快照。
+
 ## 移动交互连续性与云端发布已完成（2026-10-14）
 
 - 用户明确确认应用 `99979e9eef2dc6781e56cb52551c72a096eeac22`（`2026.10.14.1`）发布到 `https://ai.shui.click`，并确认云端V1.1及必要权限修复。设置两段式弹层、空间横向导航、精简表情入口与Fluent、满宽输入条、键盘恢复及末行定位等由[需求记录](docs/requirements/2026-10-14-mobile-interaction-polish/README.md)拥有；本批不发布后续工具或文档SHA。

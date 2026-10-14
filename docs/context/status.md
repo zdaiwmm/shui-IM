@@ -1,11 +1,12 @@
 # Quiet Room 当前状态
 
-## iPhone 七项交互修复已合并（2026-10-14，未发布）
+## iPhone 七项交互修复已发布（2026-10-14 22:01）
 
-- 用户确认七项方案并免除本次原型／流程图，授权实施与验证；生产精确提交另行确认。范围、确认及失败记录见[需求记录](../requirements/2026-10-14-mobile-safari-feedback/README.md)。
+- 用户确认七项方案并免除本次原型／流程图，授权实施与验证；列明精确应用提交后另行明确「确认，发布生产」。范围、确认及失败记录见[需求记录](../requirements/2026-10-14-mobile-safari-feedback/README.md)。
 - 版本`2026.10.14.2`修复表单完成／中文组合与辅助区衬底、设置直接全屏及底部占位、聊天上下同色、表情／键盘交接、发送状态副本及高DPR显示尺寸。干净`8d9a342`本地完整门禁通过：956项、64浏览器入口，883415毫秒。
-- [PR #299](https://github.com/zdaiwmm/shui-IM/pull/299)及回归精度／时序补充[PR #300](https://github.com/zdaiwmm/shui-IM/pull/300)、[PR #301](https://github.com/zdaiwmm/shui-IM/pull/301)已合并；最终源`3ac1df3`的[完整CI 38567089468](https://github.com/zdaiwmm/shui-IM/actions/runs/38567089468) attempt 2成功。冻结应用候选`966c827dfcfc9d44e1ddde2d3101c25dff994347`的精确[main CI 38568778529](https://github.com/zdaiwmm/shui-IM/actions/runs/38568778529) attempt 2完整成功。早期精度、时序与既有通话／邀请／草稿回归的失败、有界复验及未确认原因均由需求记录拥有，未削弱门禁。
-- 本机main已快进，Codex预览回读iPhone UA／触控／DPR3，真实表单完成回填通过；原生iPhone／Safari键盘、IME及系统栏待真机。生产未授权本批精确SHA、未发布；源树、分支和移动预览保留。下方已发布快照不因本候选改变。
+- [PR #299](https://github.com/zdaiwmm/shui-IM/pull/299)及回归精度／时序补充[PR #300](https://github.com/zdaiwmm/shui-IM/pull/300)、[PR #301](https://github.com/zdaiwmm/shui-IM/pull/301)已合并；最终源`3ac1df3`的[完整CI 38567089468](https://github.com/zdaiwmm/shui-IM/actions/runs/38567089468) attempt 2成功。当前生产应用`966c827dfcfc9d44e1ddde2d3101c25dff994347`的精确[main CI 38568778529](https://github.com/zdaiwmm/shui-IM/actions/runs/38568778529) attempt 4完整成功并生成同轮镜像。早期精度、时序、邀请／草稿与镜像轮次缺失失败、有界复验及未确认原因均由需求记录拥有，未削弱门禁。
+- 固定云发布38575261055取得精确 `DEPLOY_VERIFIED`，从99979e9到966c827仅切换一次。独立 `READBACK_OK` 于 `2026-10-14T14:01:11.804Z` 完成：应用／备份healthy，TURN运行，SHA／镜像、HTTPS／数据库／存储、公开／容器产物及WebSocket一致；维护门不存在。备份启动等待及一次公开资源下载失败只续跑回读，未重新部署。完整事实由[发布记录](../../RELEASING.md#iphone-七项交互修复已发布2026-10-14-2201)拥有。
+- Codex预览回读iPhone UA／触控／DPR3，真实表单完成回填通过；原生iPhone／Safari键盘、IME及系统栏待真机。独立纯文档树只对账、不发布；活动源树、分支与5202预览保留，对账源领先应用SHA按清理门禁保留。下方均为历史生产快照。
 
 ## 移动交互连续性与云端发布已完成（2026-10-14）
 
