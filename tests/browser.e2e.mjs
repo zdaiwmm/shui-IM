@@ -1251,7 +1251,8 @@ try {
   await recovery.locator('#composer').evaluate((form) => form.requestSubmit());
   await joiner.getByText('browser-e2e-fresh-identity-send', { exact: true }).waitFor({ timeout: 5000 });
 
-  await recovery.locator('#chat-settings').click();
+  // This retained diagnostic hash owns the page itself; do not race a
+  // concurrently loading settings drawer against that explicit navigation.
   await recovery.evaluate(() => { location.hash = 'legacy-backup'; });
   await recovery.locator('[data-restore="all"]').click();
   await recovery.locator('#history-restore-code').fill(newRecoveryCode);

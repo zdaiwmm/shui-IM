@@ -239,14 +239,14 @@ try {
     localStorage.setItem('quiet-room:cover-enabled', '1');
     app.renderChat();
   });
-  await page.locator('#chat-settings').click();
+  if (!await page.locator('.space-drawer-overlay[aria-label="设置"]').count()) await page.locator('#chat-settings').click();
   await page.locator('#cover-practice-menu').click();
   await page.locator('#disable-cover-anyway').waitFor();
   assert.equal(await page.locator('#keep-cover-enabled').textContent(), '保持开启');
   assert.equal(await page.locator('#disable-cover-anyway').textContent(), '关闭自动遮蔽');
   await page.locator('#keep-cover-enabled').click();
   await page.locator('#disable-cover-dialog').waitFor({ state: 'detached' });
-  await page.locator('#chat-settings').click();
+  if (!await page.locator('.space-drawer-overlay[aria-label="设置"]').count()) await page.locator('#chat-settings').click();
   await page.locator('#cover-practice-menu').click();
   await page.locator('#disable-cover-anyway').click();
   await page.getByText('关闭成功').waitFor();
