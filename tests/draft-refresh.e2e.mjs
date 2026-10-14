@@ -273,7 +273,19 @@ try {
     assert.ok(!JSON.stringify(opaque).includes('latest from second tab'));
     // Returning from the space list keeps invitation state inline during peer enrollment.
     await second.locator('#open-spaces').click(); await second.locator('#space-create').click(); await completeSpaceProfile(second,'第二空间'); await protect(second);
-    await second.locator('#copy-invite').waitFor(); const nextInvite = await second.locator('#invite-url').inputValue();
+    try { await second.locator('#copy-invite').waitFor(); }
+    catch (error) {
+      console.error('DRAFT_SECOND_SPACE_STATE',await second.evaluate(()=>({
+        visibility:document.visibilityState,focused:document.hasFocus(),covered:app.privacyCovered,
+        session:Boolean(app.session),surface:app.activeSurface,creating:Boolean(app.spaceCreationAbort),
+        creationAborted:app.spaceCreationAbort?.signal.aborted,drawer:app.spaceDrawerOpen,
+        copyPresent:Boolean(document.querySelector('#copy-invite')),chat:Boolean(document.querySelector('.chat-shell')),
+        passwordForm:Boolean(document.querySelector('.password-form')),formError:Boolean(document.querySelector('.form-error')?.textContent),
+        overlays:document.querySelectorAll('.confirm-overlay').length,
+      })).catch(()=>({unavailable:true})));
+      throw error;
+    }
+    const nextInvite = await second.locator('#invite-url').inputValue();
     await second.locator('#open-spaces').click(); await second.locator('.space-row.is-selected').click();
     await second.locator('.space-drawer-overlay').waitFor({state:'detached'});
     assert.equal(await second.locator('.space-invite-overlay').count(),0);

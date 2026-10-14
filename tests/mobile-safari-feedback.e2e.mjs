@@ -96,6 +96,22 @@ try {
         assert.equal(colors.input,colors.expected,`${theme}/${scheme}/${focused}: subtle input fill`);
       }
     }
+    const dismissal=await page.evaluate(async()=>{
+      const input=document.querySelector('#message-input'),list=document.querySelector('#message-list');
+      input.focus();setViewport(473);
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      const button=document.createElement('button');button.textContent='合成内容操作';list.append(button);
+      let activated=0;button.addEventListener('click',()=>activated++);
+      const tap=()=>{
+        button.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,isPrimary:true,button:0,pointerType:'touch'}));
+        button.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,cancelable:true,isPrimary:true,button:0,pointerType:'touch'}));
+        button.dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true,detail:1}));
+      };
+      tap();const first={dismissed:document.activeElement!==input,activated};
+      setViewport(844);await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      tap();button.remove();return {first,second:activated};
+    });
+    assert.deepEqual(dismissal,{first:{dismissed:true,activated:0},second:1},'The dismissal tap owns its compatibility click; the next tap performs the content action');
     await page.locator('#message-input').fill('保留输入草稿');await page.locator('#open-memes').click();
     await page.locator('.fluent-emoji-tile img').first().waitFor();
     await page.locator('.meme-panel').evaluate(async panel=>{await Promise.all(panel.getAnimations().map(animation=>animation.finished));});
@@ -178,14 +194,40 @@ try {
       for(let i=0;i<6;i++) {
         input.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,isPrimary:true,button:0,pointerType:'touch'}));
         if(i===1)setViewport(560);if(i===3)setViewport(473);
+        if(i===0&&!app.memePicker)throw Error('Touch-down prematurely released the expression panel');
+        for(const type of ['touchstart','touchend']) {
+          const event=new Event(type,{bubbles:true,cancelable:true});
+          Object.defineProperty(event,'touches',{value:type==='touchstart'?[{clientX:120,clientY:400}]:[]});
+          input.dispatchEvent(event);
+        }
         await new Promise(resolve=>setTimeout(resolve,20));
       }
+      const picker=app.memePicker;
+      if(picker&&!picker.isClosing)throw Error('The touch handoff did not start closing the expression panel');
       // Linux WebKit may deliver the animation finish after a fixed wall-time
       // delay. Await the actual owners without weakening the focus counts.
       await Promise.allSettled([...document.querySelectorAll('.meme-panel,.composer-row')].flatMap(el=>el.getAnimations()).map(animation=>animation.finished));
       return {focuses,blurs,same:input===document.querySelector('#message-input'),draft:input.value,panel:!!app.memePicker,opacity:getComputedStyle(document.querySelector('.composer-row')).opacity};
     });
     assert.deepEqual(handoff,{focuses:1,blurs:0,same:true,draft:'保留输入草稿',panel:false,opacity:'1'});
+    const accessory=await page.evaluate(()=>{
+      const shell=document.querySelector('.chat-shell'),input=document.querySelector('#message-input');
+      return {height:parseFloat(getComputedStyle(shell,'::after').height),paint:getComputedStyle(shell,'::after').backgroundColor,
+        surface:getComputedStyle(document.querySelector('#composer')).backgroundColor,draft:input.value};
+    });
+    assert.ok(accessory.height>=370,JSON.stringify(accessory));assert.equal(accessory.paint,accessory.surface);
+    const openingAfterDismiss=await page.evaluate(()=>{setViewport(844);return fixture.app.nativeKeyboardOpening;});
+    assert.equal(openingAfterDismiss,false,'Closed native viewport geometry must clear the stale opening arm before a new touch');
+    const rearmed=await page.evaluate(()=>{
+      const input=document.querySelector('#message-input');let focuses=0,blurs=0;
+      input.addEventListener('focus',()=>focuses++);input.addEventListener('blur',()=>blurs++);
+      input.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,isPrimary:true,button:0,pointerType:'touch'}));
+      for(const type of ['touchstart','touchend']) {
+        const event=new Event(type,{bubbles:true,cancelable:true});Object.defineProperty(event,'touches',{value:type==='touchstart'?[{clientX:120,clientY:700}]:[]});input.dispatchEvent(event);
+      }
+      return {focuses,blurs,focused:document.activeElement===input,draft:input.value};
+    });
+    assert.deepEqual(rearmed,{focuses:1,blurs:1,focused:true,draft:'保留输入草稿'},'An accessory dismissal that retained DOM focus must rearm focus inside touch release');
     await page.evaluate(()=>{document.querySelector('#message-input').blur();setViewport(844);});
     // The preceding synthetic keyboard resize has its own 360ms composer
     // clock. Let that endpoint settle before sampling the tool's 240ms path.
@@ -257,6 +299,77 @@ try {
     });
     assert.deepEqual({retained:capsules.retained,nested:capsules.nested,layers:capsules.layers},{retained:true,nested:0,layers:1});
     assert.ok(Math.abs(capsules.height-32)<.01,JSON.stringify(capsules));
+    await page.evaluate(()=>{
+      const {app,session}=fixture;session.vault.recoveryExperience={...session.vault.recoveryExperience,coverEnabled:true};
+      app.mountPrivateSpaceDrawer(session,[{roomId:session.vault.roomId,name:'合成设置空间'}],app.runtimeAbort.signal,'chat',0);
+    });
+    await page.locator('#cover-practice-menu').click();
+    const confirmationHit=await page.locator('#keep-cover-enabled').evaluate(button=>{
+      const r=button.getBoundingClientRect(),dialog=button.closest('#disable-cover-dialog'),settings=document.querySelector('.is-settings-sheet');
+      return {hit:Boolean(document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest('#disable-cover-dialog')),
+        above:Number(getComputedStyle(dialog).zIndex)>Number(getComputedStyle(settings).zIndex)};
+    });
+    assert.deepEqual(confirmationHit,{hit:true,above:true},'The disable-cover confirmation must paint and own its hit target above Settings');
+    await page.locator('#keep-cover-enabled').click();
+    await page.locator('#disable-cover-dialog').waitFor({state:'detached'});
+    assert.equal(await page.evaluate(()=>fixture.session.vault.recoveryExperience.coverEnabled),true);
+    await page.locator('#cover-practice-menu').click();
+    await page.evaluate(()=>{
+      const original=IDBDatabase.prototype.transaction;window.restoreTransactions=()=>{IDBDatabase.prototype.transaction=original;};
+      IDBDatabase.prototype.transaction=function(names,mode,...rest){
+        if(mode==='readwrite'&&(names==='vault'||Array.isArray(names)&&names.includes('vault')))throw new DOMException('Synthetic write failure','QuotaExceededError');
+        return original.call(this,names,mode,...rest);
+      };
+    });
+    await page.locator('#disable-cover-anyway').click();
+    await page.locator('#disable-cover-dialog .form-error:not([hidden])').waitFor();
+    assert.equal(await page.evaluate(()=>fixture.session.vault.recoveryExperience.coverEnabled),true,'Failed persistence retains the previous preference');
+    await page.evaluate(()=>restoreTransactions());
+    const settingIdentity=await page.evaluate(()=>{
+      window.originalSettings=document.querySelector('.is-settings-sheet');
+      const scroll=originalSettings.querySelector('.space-drawer-scroll');scroll.scrollTop=120;return scroll.scrollTop;
+    });
+    await page.locator('#disable-cover-anyway').click();
+    await page.locator('#disable-cover-dialog').waitFor({state:'detached'});
+    assert.deepEqual(await page.evaluate(()=>({enabled:fixture.session.vault.recoveryExperience.coverEnabled,
+      same:originalSettings===document.querySelector('.is-settings-sheet'),scroll:originalSettings.querySelector('.space-drawer-scroll').scrollTop,
+      label:document.querySelector('#cover-practice-menu .space-setting-label').textContent})),
+      {enabled:false,same:true,scroll:settingIdentity,label:'体验或开启遮蔽'});
+    for(const [entry,back] of [['appearance-settings','appearance-back'],['auto-lock-settings','auto-lock-back'],['release-history','release-history-back'],['recover-other-space','joint-code-close']]) {
+      await page.locator(`#${entry}`).click();
+      await page.locator(`#${back}`).waitFor();
+      await page.evaluate(async()=>{await Promise.all(document.querySelector('#app').getAnimations({subtree:true}).map(animation=>animation.finished.catch(()=>{})));});
+      await page.evaluate(()=>{
+        window.returnSamples=[];window.sampleReturn=true;
+        const sample=()=>{if(!sampleReturn)return;returnSamples.push([.05,.5,.95].some(x=>
+          [80,innerHeight/2,innerHeight-30].some(y=>document.elementFromPoint(innerWidth*x,y)?.closest('.chat-shell'))));requestAnimationFrame(sample);};requestAnimationFrame(sample);
+      });
+      await page.locator(`#${back}`).click();
+      await page.locator('.is-settings-sheet.is-restored').waitFor();
+      await page.evaluate(async()=>{await Promise.all(document.querySelector('#app').getAnimations({subtree:true}).map(animation=>animation.finished.catch(()=>{})));await new Promise(resolve=>requestAnimationFrame(resolve));sampleReturn=false;});
+      assert.equal(await page.evaluate(()=>returnSamples.some(Boolean)),false,`${entry}: returning to Settings exposed chat`);
+      assert.equal(await page.locator('.is-settings-sheet .space-drawer-scroll').evaluate(scroll=>scroll.scrollTop),settingIdentity);
+    }
+    const closingSettings=await page.evaluate(()=>{
+      const settings=document.querySelector('.is-settings-sheet'),panel=settings.querySelector('.space-drawer');
+      const before=panel.getBoundingClientRect().top;settings.querySelector('.space-close').click();
+      return {connected:settings.isConnected,same:settings===document.querySelector('.is-settings-sheet'),
+        jump:Math.abs(panel.getBoundingClientRect().top-before),chatInert:document.querySelector('.chat-shell').inert};
+    });
+    assert.equal(closingSettings.connected,true);assert.equal(closingSettings.same,true);
+    assert.ok(closingSettings.jump<2,JSON.stringify(closingSettings));assert.equal(closingSettings.chatInert,true);
+    await page.locator('.is-settings-sheet').waitFor({state:'detached'});
+    assert.equal(await page.locator('.chat-shell').evaluate(chat=>chat.inert),false);
+    const detachedSettings=await page.evaluate(async()=>{
+      const {app,session}=fixture;
+      app.mountPrivateSpaceDrawer(session,[{roomId:session.vault.roomId,name:'合成空间'}],app.runtimeAbort.signal,'chat',0);
+      app.renderRecoveryCenter();
+      const recovery=document.querySelector('.recovery-center-page');
+      await new Promise(resolve=>requestAnimationFrame(resolve));
+      return {same:recovery.isConnected,save:!!document.querySelector('#save-my-code'),surface:app.activeSurface,drawer:app.spaceDrawerOpen};
+    });
+    assert.deepEqual(detachedSettings,{same:true,save:true,surface:'away',drawer:false},'A detached settings owner must not replace a later recovery route with chat');
+    await page.evaluate(()=>fixture.app.renderChat());
     for(const width of [320,390,430]) {
       await page.setViewportSize({width,height:568});await page.evaluate(()=>setViewport(568));
       for(const theme of ['blue','green','purple','apricot'])for(const scheme of ['light','dark']) {
@@ -272,10 +385,16 @@ try {
           });
           await Promise.all(panel.getAnimations().map(animation=>animation.finished));
           const scroll=sheet.querySelector('.space-drawer-scroll');scroll.scrollTop=scroll.scrollHeight;
+          await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
           const last=scroll.querySelector('.space-settings-list').lastElementChild.querySelector('button');
           const bounds=last.getBoundingClientRect(),viewport=scroll.getBoundingClientRect();
+          const hit=document.elementFromPoint(bounds.x+bounds.width/2,bounds.y+bounds.height/2)?.closest('button');
           const result={start,top:panel.getBoundingClientRect().top,bottom:panel.getBoundingClientRect().bottom,handle:!!sheet.querySelector('.half-sheet-handle'),
-            reachable:bounds.bottom<=viewport.bottom+1&&document.elementFromPoint(bounds.x+bounds.width/2,bounds.y+bounds.height/2)?.closest('button')===last,
+            reachable:bounds.bottom<=viewport.bottom+1&&hit===last,
+            width:innerWidth,font:parseFloat(getComputedStyle(document.documentElement).fontSize),
+            rowTop:bounds.top,rowBottom:bounds.bottom,viewportTop:viewport.top,viewportBottom:viewport.bottom,
+            scrollTop:scroll.scrollTop,scrollMax:scroll.scrollHeight-scroll.clientHeight,hitSame:hit===last,
+            sheetInert:sheet.inert,rowInert:!!last.closest('[inert]'),
             background:getComputedStyle(panel).backgroundColor,canvas:getComputedStyle(document.documentElement).backgroundColor,hint:document.querySelector('#system-chrome-color').content};
           sheet.querySelector('.space-close').click();
           await new Promise(resolve=>{
