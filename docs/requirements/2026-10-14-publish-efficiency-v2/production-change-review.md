@@ -4,8 +4,8 @@
 
 | 仓库文件 | 拟安装固定路径 | 所有权／权限 | SHA-256 |
 | --- | --- | --- | --- |
-| [quiet-room-deploy](../../../../deploy/server/quiet-room-deploy) | `/usr/local/sbin/quiet-room-deploy` | root:root／0755 | `1233f93b41d847c6b7edfbac40cbd55f5aa2d4807c934410213b1ba538066f8a` |
-| [compose.startup-health.yaml](../../../../deploy/compose.startup-health.yaml) | `/etc/quiet-room/startup-health.compose.yaml` | root:root／0644 | `8f112e610cede4eea34471f1d7f214ddee84e34046b5916b94f62f90742c45e2` |
+| [quiet-room-deploy](../../../deploy/server/quiet-room-deploy) | `/usr/local/sbin/quiet-room-deploy` | root:root／0755 | `1233f93b41d847c6b7edfbac40cbd55f5aa2d4807c934410213b1ba538066f8a` |
+| [compose.startup-health.yaml](../../../deploy/compose.startup-health.yaml) | `/etc/quiet-room/startup-health.compose.yaml` | root:root／0644 | `8f112e610cede4eea34471f1d7f214ddee84e34046b5916b94f62f90742c45e2` |
 
 具体审阅源由本需求PR的最终精确提交确定，安装前必须重新确认完整SHA及上表摘要，不能只用可移动的分支名。这里的文件存在及CI成功均不代表已安装。生产部署配置JSON、凭据、RAM角色、Nginx、应用版本和业务卷没有变更。
 

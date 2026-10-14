@@ -10,6 +10,7 @@ export const lightweightDocs = Object.freeze([
   'docs/context/workflow.md',
   'docs/workflows/publish-efficiency.md',
   'docs/requirements/2026-10-14-publish-efficiency/README.md',
+  'docs/requirements/2026-10-14-publish-efficiency-v2/production-change-review.md',
   'docs/context/status.md',
   'docs/context/overview.md',
   'docs/context/decisions.md',
