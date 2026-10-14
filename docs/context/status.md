@@ -1,10 +1,11 @@
 # Quiet Room 当前状态
 
-## iPhone 七项交互修复已合并（2026-10-14，精度复验中）
+## iPhone 七项交互修复已合并（2026-10-14，未发布）
 
 - 用户确认七项方案并免除本次原型／流程图，授权实施与验证；生产精确提交另行确认。范围、确认及失败记录见[需求记录](../requirements/2026-10-14-mobile-safari-feedback/README.md)。
 - 版本`2026.10.14.2`修复表单完成／中文组合与辅助区衬底、设置直接全屏及底部占位、聊天上下同色、表情／键盘交接、发送状态副本及高DPR显示尺寸。干净`8d9a342`本地完整门禁通过：956项、64浏览器入口，883415毫秒。
-- [PR #299](https://github.com/zdaiwmm/shui-IM/pull/299)及精度补充[PR #300](https://github.com/zdaiwmm/shui-IM/pull/300)源CI通过并已合并，但两个main候选分别在严格0及0.01px设置位置断言失败，后者否定纯舍入判断。仅将设置采样从固定300ms改为等待实际动画finished及退场DOM移除，保留0.01px界限和全部产品检查，产品源码未变，待新候选完整CI。另有既有邀请按钮字号读取空值，原因未确认，未改其测试或字体。早期失败与有界复验均由需求记录拥有，不把前两次main CI失败写成成功。生产未授权精确SHA、未发布；原生iPhone／Safari键盘、IME及系统栏待真机。下方已发布快照不因本候选改变。
+- [PR #299](https://github.com/zdaiwmm/shui-IM/pull/299)及回归精度／时序补充[PR #300](https://github.com/zdaiwmm/shui-IM/pull/300)、[PR #301](https://github.com/zdaiwmm/shui-IM/pull/301)已合并；最终源`3ac1df3`的[完整CI 38567089468](https://github.com/zdaiwmm/shui-IM/actions/runs/38567089468) attempt 2成功。冻结应用候选`966c827dfcfc9d44e1ddde2d3101c25dff994347`的精确[main CI 38568778529](https://github.com/zdaiwmm/shui-IM/actions/runs/38568778529) attempt 2完整成功。早期精度、时序与既有通话／邀请／草稿回归的失败、有界复验及未确认原因均由需求记录拥有，未削弱门禁。
+- 本机main已快进，Codex预览回读iPhone UA／触控／DPR3，真实表单完成回填通过；原生iPhone／Safari键盘、IME及系统栏待真机。生产未授权本批精确SHA、未发布；源树、分支和移动预览保留。下方已发布快照不因本候选改变。
 
 ## 移动交互连续性与云端发布已完成（2026-10-14）
 
