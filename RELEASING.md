@@ -1,5 +1,14 @@
 # Quiet Room 固定发布流程
 
+## 移动交互连续性与云端发布已完成（2026-10-14）
+
+- 用户明确确认应用 `99979e9eef2dc6781e56cb52551c72a096eeac22`（`2026.10.14.1`）发布到 `https://ai.shui.click`，并确认云端V1.1及必要权限修复。设置两段式弹层、空间横向导航、精简表情入口与Fluent、满宽输入条、键盘恢复及末行定位等由[需求记录](docs/requirements/2026-10-14-mobile-interaction-polish/README.md)拥有；本批不发布后续工具或文档SHA。
+- 应用 [PR #291](https://github.com/zdaiwmm/shui-IM/pull/291) 及精确 [main CI38519073837](https://github.com/zdaiwmm/shui-IM/actions/runs/38519073837) attempt 1成功；本地920项、63浏览器入口及370展示组合证据保留。发布工具PR #292—295均经独立CI合并，最终工具main `b483e5bd0f6b4dcbc51537f6f9d481f4f3008d3f` 的 [CI38547673041](https://github.com/zdaiwmm/shui-IM/actions/runs/38547673041) attempt 1完整成功。工具最终本地932项；早期失败和有界重跑由[云端记录](docs/requirements/2026-10-14-ci-server-publish/README.md)拥有。
+- 首次云端发布前，root helper从已审阅db18bfa独立原子升级，摘要 `09ecb2dee1f98825814a6e07b02a7035ef16f5c3089c2fee83e1905bfe0d792f`、root:root／0755及前版比较协议独立回读通过。用户另行确认RAM范围；未绕过生产环境审核。真实doctor38547741229取得PREFLIGHT_OK。
+- 固定入口 `publish.mjs --cloud --environment production --sha 99979e9eef2dc6781e56cb52551c72a096eeac22` 取得精确 `DEPLOY_VERIFIED`，[工作流38548495792](https://github.com/zdaiwmm/shui-IM/actions/runs/38548495792)于2026-10-14T10:21:04.035Z成功。唯一切换从53988c5到99979e9，批次20261014T101833Z；入口246182毫秒。镜像来自批准应用CI，ID `sha256:fb26d73d6e1363a7722c154d3e6b7374cb4dc193e29e453e3bc2ff44f5163de3`。本机仅下载小回执，服务器无ZIP／gzip暂存副本，原容量、冷备份与保留规则不变。
+- 独立 `READBACK_OK` 于 `2026-10-14T10:26:45.839Z` 完成，耗时3621毫秒；应用与备份均运行且healthy，TURN运行且探针none，维护门不存在，精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物及WebSocket均一致。前两次仅因备份starting未通过；核对实际启动时间及5分钟宽限期、确认healthy后只续跑回读，未再次部署。
+- 第二个无部署配置的独立文档工作树基于b483e5b对账，不发布文档SHA。真实iPhone／iOS27／Safari键盘、手势、系统认证和相册仍无新增真机证据；自动测试与上线回读不替代这些验收。下方发布段落均为历史快照。
+
 ## 移动调试与统一表单输入已发布（2026-10-14）
 
 - 用户在本会话明确确认精确应用提交 `53988c528fe8700b80841b41b4ff208df7c20227`，版本 `2026.10.13.2`，要求完成发布；无独立消息 permalink。本批只发布该提交，后续文档提交不进入本批。范围与实施例外见[工具记录](docs/requirements/2026-10-14-mobile-debug-tool/README.md)及[7条批注记录](docs/requirements/2026-10-14-mobile-debug-feedback/README.md)。
