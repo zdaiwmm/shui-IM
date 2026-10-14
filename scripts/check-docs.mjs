@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { lightweightDocs } from './ci-scope.mjs';
+import { lightweightDocs, isOperationalDocument } from './ci-scope.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 
@@ -38,7 +38,9 @@ export function checkDocumentation({ cwd = root, files } = {}) {
   const listing = spawnSync('git', ['ls-files', '-z'], { cwd, encoding: 'utf8', timeout: 10_000, maxBuffer: 4 * 1024 * 1024 });
   if (listing.error || listing.signal || listing.status !== 0) throw new Error('Tracked documentation paths are unavailable.');
   const tracked = new Set(listing.stdout.split('\0').filter(Boolean));
-  const selected = files ?? [...new Set(['AGENTS.md', ...lightweightDocs])].filter(file => tracked.has(file));
+  const requested = JSON.parse(process.env.CI_DOCUMENTS || '[]');
+  if (!Array.isArray(requested) || requested.some(file => typeof file !== 'string' || !isOperationalDocument(file))) throw new Error('Invalid changed-document list.');
+  const selected = files ?? [...new Set(['AGENTS.md', ...lightweightDocs, ...requested])].filter(file => tracked.has(file));
   if (!selected.length) throw new Error('No documentation was available to check.');
   const issues = [];
   const contentCache = new Map();

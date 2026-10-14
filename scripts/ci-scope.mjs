@@ -33,6 +33,9 @@ export const deliveryTests = Object.freeze([
   'tests/ci-scope.test.ts', 'tests/ci-docs.test.ts', 'tests/delivery-tools.test.ts',
 ]);
 const docPaths = new Set(lightweightDocs);
+export function isOperationalDocument(file) {
+  return docPaths.has(file) || /^docs\/requirements\/\d{4}-\d{2}-\d{2}-[a-z0-9][a-z0-9-]*\/README\.md$/.test(file);
+}
 const deliveryPaths = new Set([...deliveryScripts, ...deliveryTests,
   'tests/server-image-stream.test.py', '.github/workflows/ci.yml', '.github/workflows/publish.yml']);
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -90,18 +93,19 @@ export function determineScope({ eventName, event, runGit = git }) {
       range = `${base}..${head}`;
     }
     const changes = parseChangedPaths(runGit(['diff', '--no-ext-diff', '--name-status', '-z', '--find-renames', range, '--']));
-    if (changes.length === 0 || !changes.every(changedPath => docPaths.has(changedPath) || deliveryPaths.has(changedPath))) {
-      return complete('Changes include application, configuration, or unlisted paths.');
+    const documents = changes.filter(isOperationalDocument);
+    if (changes.length === 0 || !changes.every(changedPath => isOperationalDocument(changedPath) || deliveryPaths.has(changedPath))) {
+      return { ...complete('Changes include application, configuration, or unlisted paths.'), documents };
     }
     // A renamed/deleted source is included above; only surviving regular files
     // may be read by the lightweight checker. Symlinks and type changes fail full.
     const tree = runGit(['ls-tree', '-z', head, '--', ...changes]);
     if (tree.split('\0').filter(Boolean).some(entry => !/^100(?:644|755) blob [a-f0-9]{40}\t/.test(entry))) {
-      return complete('Documentation contains a non-regular file.');
+      return { ...complete('Documentation contains a non-regular file.'), documents };
     }
     return changes.some(changedPath => deliveryPaths.has(changedPath))
-      ? { mode: 'delivery', reason: `Only allowlisted delivery tools/tests and operational documents changed (${changes.length} paths).` }
-      : { mode: 'docs', reason: `Only ${changes.length} allowlisted documentation paths changed.` };
+      ? { mode: 'delivery', documents, reason: `Only allowlisted delivery tools/tests and operational documents changed (${changes.length} paths).` }
+      : { mode: 'docs', documents, reason: `Only ${changes.length} allowlisted documentation paths changed.` };
   } catch {
     return complete('Diff or history could not be verified; the complete suite is required.');
   }
@@ -142,7 +146,10 @@ if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToP
       let event;
       try { event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')); } catch { event = null; }
       const scope = determineScope({ eventName: process.env.GITHUB_EVENT_NAME, event });
-      if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `mode=${scope.mode}\n`);
+      if (process.env.GITHUB_OUTPUT) {
+      appendFileSync(process.env.GITHUB_OUTPUT, `mode=${scope.mode}\n`);
+      if (scope.documents) appendFileSync(process.env.GITHUB_OUTPUT, `documents=${JSON.stringify(scope.documents)}\n`);
+    }
       console.log(`CI scope: ${scope.mode}. ${scope.reason}`);
     } else if (args.length === 2 && args[0] === 'verify' && ['verify', 'full'].includes(args[1])) {
       const mode = requireVerification(JSON.parse(process.env.CI_NEEDS ?? ''), args[1]);

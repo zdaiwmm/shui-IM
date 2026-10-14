@@ -26,6 +26,7 @@ jobs:
     timeout-minutes: 3
     outputs:
       mode: ${{ steps.scope.outputs.mode }}
+      documents: ${{ steps.scope.outputs.documents }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -39,6 +40,7 @@ jobs:
 
   docs:
     name: Check documentation
+    needs: scope
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -47,6 +49,8 @@ jobs:
         with:
           node-version: 24
       - run: node scripts/check-docs.mjs
+        env:
+          CI_DOCUMENTS: ${{ needs.scope.outputs.documents }}
 
   secret_scan:
     name: Check for committed secrets
