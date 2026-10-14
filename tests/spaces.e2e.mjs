@@ -200,6 +200,7 @@ try {
   assert.equal(await page.evaluate(()=>app.activeSurface),'chat','Waiting spaces open the conversation');
   assert.equal(await page.locator('.space-invite-overlay').count(),0);
   assert.match(await page.locator('#invite-countdown').textContent(),/剩余/);
+  await page.locator('.space-navigation-cover').waitFor({state:'detached'});
   await page.setViewportSize({ width: 1280, height: 844 });
   await page.locator('.desktop-sidebar .space-row.is-selected').waitFor();
   assert.equal(await page.locator('.space-drawer-overlay').count(), 0, 'Desktop returns to the existing sidebar');

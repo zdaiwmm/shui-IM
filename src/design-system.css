@@ -680,6 +680,7 @@ html[data-keyboard-open='true'] #app .chat-header:not([data-presence-style='hear
 @media(prefers-reduced-motion:reduce) { #app :is(.password-page,.recovery-card-entry).dialog-surface { transition:none; } }
 
 /* Mobile navigation owns direction; settings owns its vertical detents. */
+#app .is-space-list-page.space-drawer-overlay { background:transparent; }
 #app .is-space-list-page.space-drawer-overlay > .space-drawer { transform:translateX(-100%); }
 #app .is-space-list-page.space-drawer-overlay.is-visible > .space-drawer { transform:translateX(0); }
 #app .is-space-list-page.space-drawer-overlay.is-closing > .space-drawer { transform:translateX(-100%); }
@@ -691,6 +692,6 @@ html[data-keyboard-open='true'] #app .chat-header:not([data-presence-style='hear
 #app .is-settings-sheet .space-drawer-scroll { flex:0 1 auto; max-height:calc(100% - 92px - var(--settings-detent,50%)); }
 #app .is-settings-sheet .space-drawer.is-dragging { transition:none; }
 #app .is-settings-sheet .space-drawer[data-detent=full] { border-radius:0; }
-#app .space-navigation-cover { position:fixed; inset:0; z-index:300; pointer-events:none; background:var(--paper); }
+#app .space-navigation-cover { position:fixed; inset:0; z-index:300; pointer-events:none; }
 #app .space-navigation-cover > .space-drawer { transform:translateX(0); }
 #app .space-navigation-cover.is-closing > .space-drawer { transform:translateX(-100%); }

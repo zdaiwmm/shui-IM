@@ -133,7 +133,7 @@ export async function auditUiDetails(page, out) {
           if(await page.locator('#new-passkey-name').count()) await page.locator('.recovery-explanation summary').click();
           const fields=await page.locator('#new-passkey-name,#new-device-alias').evaluateAll(es=>es.map(e=>({width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height,font:parseFloat(getComputedStyle(e).fontSize)})));
           if(fields.length) { assert.equal(fields.length,2);assert.ok(Math.abs(fields[0].width-fields[1].width)<1&&fields.every(e=>e.height>=44&&e.font>=16),'both device fields share the full width and readable size'); }
-          else assert.match(await page.locator('.entry-protection').textContent(),/不支持通行密钥/);
+          else assert.match(await page.locator('.entry-protection').textContent(),/设置解锁密码.*日常解锁的密码/);
         }
         if(name==='spaceInvite') { assert.equal(await page.locator('.space-invite-sheet').count(),0);assert.ok((await page.locator('#invite-url').inputValue()).includes('#'));assert.equal(await page.locator('#copy-invite').count(),1); }
         if(name==='coverConfirm') {

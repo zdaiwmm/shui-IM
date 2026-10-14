@@ -98,6 +98,43 @@ try {
     return {deferredSourcePreserved:true,outgoingSettings:true,returnDetent:'full',scrollTop};
   });
 
+  results.spaceNavigationContinuity = await page.evaluate(async () => {
+    const {app,fresh,session,root}=window.regression;
+    const frame=()=>new Promise(requestAnimationFrame);
+    const settle=()=>Promise.allSettled(document.getAnimations().filter(animation=>Number.isFinite(Number(animation.effect?.getComputedTiming().endTime))).map(animation=>animation.finished));
+    const original=app.performPrivateSpaceSwitch;
+    try {
+      for(const lockDuringPreparation of [false,true]) {
+        fresh(); app.spaceDrawerOpen=true;
+        app.mountPrivateSpaceDrawer(session,[{roomId:session.vault.roomId,name:'合成空间'}],app.runtimeAbort.signal,'chat');
+        await frame(); await settle();
+        let release; const ready=new Promise(resolve=>{release=resolve;});
+        app.performPrivateSpaceSwitch=async()=>{await ready;if(!app.privacyCovered)app.renderChat();};
+        const pending=app.switchPrivateSpace({roomId:'synthetic-target',name:'目标空间'});
+        await frame();
+        if(!root.querySelector('.space-navigation-cover .space-list'))throw Error('Preparing target chat removed the space list picture');
+        if(lockDuringPreparation) {
+          app.lockNow();
+          if(root.querySelector('.space-navigation-cover'))throw Error('Lock retained the copied space list');
+        }
+        release();await pending;
+        if(lockDuringPreparation) {
+          if(root.querySelector('.space-navigation-cover'))throw Error('Late navigation restored private space content after lock');
+          continue;
+        }
+        const cover=root.querySelector('.space-navigation-cover'),panel=cover?.querySelector('.space-drawer');
+        const exits=panel?.getAnimations().flatMap(animation=>animation.effect?.getKeyframes()??[])??[];
+        const exitsLeft=exits.some(key=>key.transform&&new DOMMatrixReadOnly(String(key.transform)
+          .replace(/(-?[\d.]+)%/g,(_,value)=>`${Number(value)*panel.clientWidth/100}px`)).m41<=-panel.clientWidth+1);
+        if(!root.querySelector(':scope > .chat-shell #message-list')||getComputedStyle(cover).backgroundColor!=='rgba(0, 0, 0, 0)'
+          ||!exitsLeft)throw Error('Space exit did not slide left over the prepared chat');
+        await settle();await frame();
+        if(root.querySelector('.space-navigation-cover'))throw Error('Completed space navigation retained its cover');
+      }
+    } finally {app.performPrivateSpaceSwitch=original;app.lockNow();}
+    return {preparationPreserved:true,leftExitOverChat:true,synchronousPrivacyCleanup:true};
+  });
+
   // A disposable context owns only synthetic localhost IndexedDB data. It has
   // no persistent profile and cannot access the user's production-origin vault.
   const receiptContext = await browser.newContext({ viewport: { width: 390, height: 844 } });

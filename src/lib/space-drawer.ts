@@ -38,7 +38,7 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
   presentation?: 'sidebar' | 'settings'; container?: HTMLElement; openSettings?: () => void;
   spaces: PrivateSpace[]; currentRoom: string; signal: AbortSignal; actions: Action[]; icons?: { close: string; plus: string; settings: string };
   select: (space: PrivateSpace) => Promise<void>; create: () => Promise<void>; rename: (space: PrivateSpace, name: string) => Promise<void>;
-removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; settingsScrollTop?: number; onSettingsLeave?: (scrollTop: number, expanded: boolean) => void; initialExpanded?: boolean;
+removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restoreSettings?: boolean; settingsScrollTop?: number; onSettingsLeave?: (scrollTop: number, expanded: boolean) => void; initialExpanded?: boolean;
   editAvatar?: (space: PrivateSpace) => Promise<import('./space-avatar').SpaceAvatar | null>;
   remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace) => void;
   listScrollTop?: number;
@@ -49,7 +49,7 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; settin
 }): void {
   const lifetime = new AbortController();
   const signal = AbortSignal.any([options.signal, lifetime.signal]);
-  const sheet = document.createElement('div'); sheet.className = 'space-drawer-overlay' + (options.initialSettings ? ' is-visible is-restored' : ''); sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', '私密空间');
+  const sheet = document.createElement('div'); sheet.className = 'space-drawer-overlay' + (options.initialSettings && options.restoreSettings ? ' is-visible is-restored' : ''); sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', '私密空间');
   const embedded = Boolean(options.presentation);
   if (embedded) { sheet.className = `space-embedded space-${options.presentation}`; sheet.removeAttribute('aria-modal'); sheet.setAttribute('role', 'region'); }
   (options.container ?? root).append(sheet);
@@ -248,6 +248,8 @@ const expiry = pendingSpaceExpiry(s);
     signal.addEventListener('abort', () => observer.disconnect(), { once: true });
   }
   if (options.initialSettings) { settings(); sheet.querySelector('.space-drawer-scroll')!.scrollTop = options.settingsScrollTop ?? 0; } else list();
+  // Resolve the initial offscreen position before the dialog's next-frame reveal.
+  void sheet.offsetHeight;
   if (options.refreshSpaces) {
     let refreshTimer: number | undefined;
     const refresh = async () => {

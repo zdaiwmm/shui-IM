@@ -21,6 +21,7 @@ try {
   await server.listen(); if (evidence) await mkdir(evidence, { recursive: true });
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   for (const [name, fallback] of cases) {
+    console.log(`WEBVIEW_CASE ${name}`);
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0.65' });
     await context.addInitScript(name => {
       if (['missing-constructor', 'insecure-context', 'missing-crypto', 'missing-storage', 'storage-quota'].includes(name)) delete window.PublicKeyCredential;
@@ -53,7 +54,11 @@ try {
       if (evidence) { await fillFormInput(page, page.locator('[name=password]'), ''); await page.screenshot({ path: path.join(evidence, `F15-webview-${name}.png`) }); }
       await cancelPasswordForm(page); await page.locator('.password-sheet').waitFor({ state: 'detached' });
     } else {
-      await page.waitForFunction(() => !document.querySelector('[data-device-verify]')?.disabled);
+      await page.waitForFunction(() => !document.querySelector('[data-device-verify]')?.disabled).catch(async error=>{
+        console.error('WEBVIEW_CASE_STATE',name,await page.evaluate(()=>({hidden:document.hidden,focused:document.hasFocus(),covered:window.app?.privacyCovered,
+          pending:window.app?.deviceVerificationActive,buttonDisabled:document.querySelector('[data-device-verify]')?.disabled,
+          passwordSheet:!!document.querySelector('.password-sheet'),error:document.querySelector('.form-error')?.textContent})));throw error;
+      });
       assert.equal(await page.locator('.password-sheet').count(), 0, `${name} incorrectly offered a new password`);
       const environmentErrors = {
         'insecure-context': /浏览器信任的 HTTPS 安全环境.*信任开发证书/,

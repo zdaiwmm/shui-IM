@@ -4859,11 +4859,14 @@ export class QuietRoomApp {
       observer = new MutationObserver(() => { if (this.privacyCovered) clear(); else if (!cover.isConnected) this.root.append(cover); });
       observer.observe(this.root, {childList:true});
     }
-    try { await this.performPrivateSpaceSwitch(space); }
+    try {
+      if (this.session?.vault.roomId === space.roomId) this.renderChat();
+      else await this.performPrivateSpaceSwitch(space);
+    }
     finally {
       observer?.disconnect();
       if (cover && !this.privacyCovered && this.cancelSpaceNavigation === clear) {
-        this.root.append(cover); cover.classList.add('is-closing');
+        this.root.append(cover); void cover.offsetHeight; cover.classList.add('is-closing');
         afterMotion(cover, clear);
       } else clear();
     }
@@ -5181,6 +5184,7 @@ export class QuietRoomApp {
       spaces, currentRoom: session.vault.roomId, signal, presentation, container, listScrollTop,
       openSettings: presentation === 'sidebar' ? () => this.renderDesktopSettings(spaces) : undefined,
       initialSettings: settingsScrollTop !== undefined, settingsScrollTop,
+      restoreSettings: this.settingsReturn?.session === session,
       onSettingsLeave: (scrollTop, expanded) => { this.settingsReturn = { session, spaces, scrollTop, expanded }; },
       initialExpanded: this.settingsReturn?.expanded,
       removeLabel: space => this.catalogRemovalLabel(space),
@@ -5202,7 +5206,7 @@ export class QuietRoomApp {
         { id: 'cover-practice-menu', group: '本机', label: session.vault.recoveryExperience?.coverEnabled ? '关闭自动遮蔽' : '体验或开启遮蔽', icon: spaceIcons.cover, run: () => session.vault.recoveryExperience?.coverEnabled ? this.confirmDisableCover() : this.renderCoverPractice() },
         { id: 'release-history', group: '关于', label: '更新记录', icon: spaceIcons.history, run: forward(() => this.renderReleaseHistory()) },
       ],
-      select: space => { if (presentation === 'sidebar' && space.roomId === session.vault.roomId && !space.waiting) { if (!this.root.querySelector(':scope > .chat-shell')) { this.settingsReturn = null; this.renderChat(); } return Promise.resolve(); } if (space.roomId === session.vault.roomId && space.waiting) { this.inviteListScrollTop = (container ?? this.root).querySelector('.space-drawer-scroll')?.scrollTop ?? 0; this.renderChat(); return Promise.resolve(); } return this.switchPrivateSpace(space); },
+      select: space => { if (presentation === 'sidebar' && space.roomId === session.vault.roomId && !space.waiting) { if (!this.root.querySelector(':scope > .chat-shell')) { this.settingsReturn = null; this.renderChat(); } return Promise.resolve(); } if (space.roomId === session.vault.roomId && space.waiting) this.inviteListScrollTop = (container ?? this.root).querySelector('.space-drawer-scroll')?.scrollTop ?? 0; return this.switchPrivateSpace(space); },
       create: async () => { if (spaces.length >= 256) throw new Error('本机空间数量已达上限'); this.renderCreate(); },
       editAvatar: async space => {
         const epoch = this.runtimeEpoch;
