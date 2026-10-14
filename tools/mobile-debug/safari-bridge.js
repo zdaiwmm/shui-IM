@@ -19,10 +19,13 @@
     || el instanceof HTMLElement && el.isContentEditable;
   const notify = () => harness.focus(editable(document.activeElement));
   document.addEventListener('focusin', notify, true);
+  // An accessory click can dismiss the keyboard while the field remains active.
+  document.addEventListener('pointerdown', event => { if (editable(event.target)) harness.focus(true); }, true);
   document.addEventListener('focusout', () => queueMicrotask(notify), true);
   window.__localSafariBridge = {
     synthetic: true, installed,
     get focused() { return editable(document.activeElement); },
+    accessorySurface(color) { document.documentElement.style.setProperty('--input-accessory-surface', color); },
     update(height, offsetTop) {
       const changed = geometry.height !== height || geometry.offsetTop !== offsetTop;
       geometry = { height, offsetTop };

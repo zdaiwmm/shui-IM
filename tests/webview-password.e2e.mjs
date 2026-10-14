@@ -12,7 +12,7 @@ const server = await createServer({ configFile: false, appType: 'custom', root: 
 server.middlewares.use('/__webview', (_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div></body></html>'); });
 const cases = [
   ['missing-constructor', true], ['missing-container', true], ['missing-create', true], ['missing-get', true],
-  ['negative-prf-capability', true], ['not-supported', true],
+  ['negative-prf-capability', true], ['negative-builtin-capability', true], ['not-supported', true],
   ['unknown-cancel', false], ['unknown-abort', false], ['unknown-security', false], ['unknown-transient', false],
   ['insecure-context', false], ['missing-crypto', false], ['missing-storage', false], ['storage-quota', false],
 ];
@@ -21,13 +21,20 @@ try {
   await server.listen(); if (evidence) await mkdir(evidence, { recursive: true });
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   for (const [name, fallback] of cases) {
+    console.log(`WEBVIEW_CASE ${name}`);
     const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0.65' });
     await context.addInitScript(name => {
       if (['missing-constructor', 'insecure-context', 'missing-crypto', 'missing-storage', 'storage-quota'].includes(name)) delete window.PublicKeyCredential;
       if (name === 'missing-container') Object.defineProperty(navigator, 'credentials', { configurable: true, value: undefined });
       if (name === 'missing-create') Object.defineProperty(navigator.credentials, 'create', { configurable: true, value: undefined });
       if (name === 'missing-get') Object.defineProperty(navigator.credentials, 'get', { configurable: true, value: undefined });
-      if (window.PublicKeyCredential) Object.defineProperty(PublicKeyCredential, 'getClientCapabilities', { configurable: true, value: async () => name === 'negative-prf-capability' ? { 'extension:prf': false } : {} });
+      if (window.PublicKeyCredential) Object.defineProperty(PublicKeyCredential, 'getClientCapabilities', { configurable: true, value: async () => name === 'negative-prf-capability' ? { 'extension:prf': false } : name === 'negative-builtin-capability' ? { 'extension:prf':true,userVerifyingPlatformAuthenticator:false } : {} });
+      // Control both probes: a real Linux false result would correctly select
+      // password before the simulated unknown/cancelled ceremony is reached.
+      if (window.PublicKeyCredential) Object.defineProperty(PublicKeyCredential,'isUserVerifyingPlatformAuthenticatorAvailable',{
+        configurable:true,value:async()=>{throw Error('Synthetic unknown built-in capability');},
+      });
+      if (name === 'negative-builtin-capability') Object.defineProperty(navigator.credentials,'create',{configurable:true,value:async()=>{throw Error('Unavailable built-in verifier must choose password before requesting an external key');}});
       if (name === 'not-supported' || name.startsWith('unknown-')) Object.defineProperty(navigator.credentials, 'create', { configurable: true, value: async () => { throw new DOMException('synthetic capability outcome', { 'not-supported': 'NotSupportedError', 'unknown-cancel': 'NotAllowedError', 'unknown-abort': 'AbortError', 'unknown-security': 'SecurityError', 'unknown-transient': 'UnknownError' }[name]); } });
     }, name);
     const page = await context.newPage(); const errors = []; let roomWrites = 0;
@@ -52,7 +59,11 @@ try {
       if (evidence) { await fillFormInput(page, page.locator('[name=password]'), ''); await page.screenshot({ path: path.join(evidence, `F15-webview-${name}.png`) }); }
       await cancelPasswordForm(page); await page.locator('.password-sheet').waitFor({ state: 'detached' });
     } else {
-      await page.waitForFunction(() => !document.querySelector('[data-device-verify]')?.disabled);
+      await page.waitForFunction(() => !document.querySelector('[data-device-verify]')?.disabled).catch(async error=>{
+        console.error('WEBVIEW_CASE_STATE',name,await page.evaluate(()=>({hidden:document.hidden,focused:document.hasFocus(),covered:window.app?.privacyCovered,
+          pending:window.app?.deviceVerificationActive,buttonDisabled:document.querySelector('[data-device-verify]')?.disabled,
+          passwordSheet:!!document.querySelector('.password-sheet'),error:document.querySelector('.form-error')?.textContent})));throw error;
+      });
       assert.equal(await page.locator('.password-sheet').count(), 0, `${name} incorrectly offered a new password`);
       const environmentErrors = {
         'insecure-context': /浏览器信任的 HTTPS 安全环境.*信任开发证书/,

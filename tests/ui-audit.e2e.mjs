@@ -241,8 +241,7 @@ try {
     await variant('mobile');
   }
   async function menu() {
-    await creator.locator('#open-spaces').click();
-    await creator.locator('#space-settings').click();
+    await creator.locator('#chat-settings').click();
     await creator.waitForTimeout(300);
   }
   await creator.goto(baseUrl);

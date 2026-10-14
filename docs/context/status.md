@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 移动交互连续性候选（2026-10-14，未发布）
+
+- 用户已确认V1并明确免原型／流程图，授权实施、验证、PR、CI与合并；范围、追加四项和失败记录由[需求记录](../requirements/2026-10-14-mobile-interaction-polish/README.md)拥有。生产仍等待本次精确SHA确认。
+- 基于`76629bb593a49b5b0cb00d941d0889282628ea99`的独立分支`codex/mobile-interaction-polish-20261014`实施设置两段弹层、空间横向导航、表情入口合并与Fluent、满宽输入条、键盘重开及末行定位，修复预览干扰空间选择。候选版本`2026.10.14.1`；干净产品候选`350b8187e0c16a15d2259ca09266f3350e5ee35e`完整本地门禁通过：构建、920项、63/63浏览器入口，370展示组合另通过；后续只补Linux能力测试夹具。[PR #291](https://github.com/zdaiwmm/shui-IM/pull/291)最终CI及合并待完成，原失败见需求记录。
+- 本机Codex真实项目来源已回读移动UA／触控／DPR与合成视口；不是Safari真机。下方已发布记录仍是生产事实，本候选尚未切换生产。
+
 ## 移动调试与7条交互修订已发布（2026-10-14）
 
 - 可跨电脑随GitHub同步的 `npm run dev:mobile`、项目Skill及[移动调试规程](../workflows/mobile-debug.md)已合并；真实移动UA／触控参数与Safari风格状态栏、工具栏、模拟键盘均已在Codex回读。模拟内核仍为Chromium。

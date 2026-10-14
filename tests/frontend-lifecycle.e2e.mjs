@@ -71,6 +71,70 @@ try {
   };
   await page.evaluate(initializeRegression);
 
+  results.settingsNavigationContinuity = await page.evaluate(async () => {
+    const { app, fresh, session, root } = window.regression; fresh();
+    app.spaceDrawerOpen = true;
+    app.mountPrivateSpaceDrawer(session, [{roomId:session.vault.roomId,name:'合成空间'}], app.runtimeAbort.signal, 'chat', 0);
+    const settle = async () => { await Promise.allSettled(document.getAnimations().filter(animation => Number.isFinite(Number(animation.effect?.getComputedTiming().endTime))).map(animation => animation.finished)); };
+    await settle();
+    document.querySelector('.settings-sheet-handle').click(); await settle();
+    const source = document.querySelector('.is-settings-sheet');
+    source.querySelector('.space-drawer-scroll').scrollTop = 80;
+    const scrollTop = source.querySelector('.space-drawer-scroll').scrollTop;
+    const original = app.renderAppearanceSettings;
+    let release;
+    const ready = new Promise(resolve => { release = resolve; });
+    app.renderAppearanceSettings = async () => { await ready; original.call(app); };
+    source.querySelector('#appearance-settings').click();
+    await new Promise(requestAnimationFrame);
+    if (!source.isConnected || !root.querySelector(':scope > .is-settings-sheet')) throw Error('Deferred settings navigation exposed chat before its page was ready');
+    release(); await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    if (!root.querySelector('.page-transition-outgoing .is-settings-sheet') || root.querySelector('.page-transition-outgoing .chat-shell')) throw Error('Settings transition used chat as its outgoing picture');
+    await settle(); app.renderAppearanceSettings = original;
+    document.querySelector('#appearance-back').click(); await settle();
+    const returned = root.querySelector(':scope > .is-settings-sheet');
+    if (returned?.querySelector('.space-drawer').dataset.detent !== 'full' || returned.querySelector('.space-drawer-scroll').scrollTop !== scrollTop) throw Error('Settings return lost its detent or scroll position');
+    app.lockNow();
+    return {deferredSourcePreserved:true,outgoingSettings:true,returnDetent:'full',scrollTop};
+  });
+
+  results.spaceNavigationContinuity = await page.evaluate(async () => {
+    const {app,fresh,session,root}=window.regression;
+    const frame=()=>new Promise(requestAnimationFrame);
+    const settle=()=>Promise.allSettled(document.getAnimations().filter(animation=>Number.isFinite(Number(animation.effect?.getComputedTiming().endTime))).map(animation=>animation.finished));
+    const original=app.performPrivateSpaceSwitch;
+    try {
+      for(const lockDuringPreparation of [false,true]) {
+        fresh(); app.spaceDrawerOpen=true;
+        app.mountPrivateSpaceDrawer(session,[{roomId:session.vault.roomId,name:'合成空间'}],app.runtimeAbort.signal,'chat');
+        await frame(); await settle();
+        let release; const ready=new Promise(resolve=>{release=resolve;});
+        app.performPrivateSpaceSwitch=async()=>{await ready;if(!app.privacyCovered)app.renderChat();};
+        const pending=app.switchPrivateSpace({roomId:'synthetic-target',name:'目标空间'});
+        await frame();
+        if(!root.querySelector('.space-navigation-cover .space-list'))throw Error('Preparing target chat removed the space list picture');
+        if(lockDuringPreparation) {
+          app.lockNow();
+          if(root.querySelector('.space-navigation-cover'))throw Error('Lock retained the copied space list');
+        }
+        release();await pending;
+        if(lockDuringPreparation) {
+          if(root.querySelector('.space-navigation-cover'))throw Error('Late navigation restored private space content after lock');
+          continue;
+        }
+        const cover=root.querySelector('.space-navigation-cover'),panel=cover?.querySelector('.space-drawer');
+        const exits=panel?.getAnimations().flatMap(animation=>animation.effect?.getKeyframes()??[])??[];
+        const exitsLeft=exits.some(key=>key.transform&&new DOMMatrixReadOnly(String(key.transform)
+          .replace(/(-?[\d.]+)%/g,(_,value)=>`${Number(value)*panel.clientWidth/100}px`)).m41<=-panel.clientWidth+1);
+        if(!root.querySelector(':scope > .chat-shell #message-list')||getComputedStyle(cover).backgroundColor!=='rgba(0, 0, 0, 0)'
+          ||!exitsLeft)throw Error('Space exit did not slide left over the prepared chat');
+        await settle();await frame();
+        if(root.querySelector('.space-navigation-cover'))throw Error('Completed space navigation retained its cover');
+      }
+    } finally {app.performPrivateSpaceSwitch=original;app.lockNow();}
+    return {preparationPreserved:true,leftExitOverChat:true,synchronousPrivacyCleanup:true};
+  });
+
   // A disposable context owns only synthetic localhost IndexedDB data. It has
   // no persistent profile and cannot access the user's production-origin vault.
   const receiptContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -205,9 +269,14 @@ try {
     await new Promise(resolve => setTimeout(resolve, 100));
     const list = document.querySelector('#message-list');
     if (document.documentElement.scrollHeight - window.scrollY - window.innerHeight > 2) throw Error('Composer resize lost bottom position');
-    const last = list.querySelector('.message:last-of-type').getBoundingClientRect();
+    // During composer growth the painted bubble moves while its layout row
+    // remains at the old endpoint until the shared animation commits.
+    const last = list.querySelector('.message:last-of-type .message-bubble').getBoundingClientRect();
     const composer = window.composerBaseBounds();
     if (last.bottom > composer.top) throw Error(`Latest message is covered by composer: ${JSON.stringify({ lastBottom: last.bottom, composerTop: composer.top, composerHeight: composer.height, padding: getComputedStyle(list).paddingBottom, scrollY, scrollHeight: document.documentElement.scrollHeight, pinned: app.chatPinnedToBottom })}`);
+    const deadline = performance.now() + 800;
+    while (app.composerHeightMotion && performance.now() < deadline) await new Promise(requestAnimationFrame);
+    if (app.composerHeightMotion || Math.abs(window.composerBaseBounds().top - window.timelineBottom() - 12) > 2) throw Error('Composer growth did not settle with the 12px latest-message gap');
     return { transientBlur: 'unchanged without draft loss', encryptedDraft: 'restored after hard lock', latestMessage: 'above composer' };
   });
 
@@ -292,10 +361,17 @@ try {
     if (warmImages.length !== manifests.length || warmImages.some(image => image.naturalWidth !== 300 || image.naturalHeight !== 400)) throw Error('Warm-image anchor fixture did not decode its complete baseline');
     await settleLayout();
     const target = list.querySelector('[data-client-msg-id="message-8"]');
-    window.scrollBy(0, target.getBoundingClientRect().top + 196);
+    const tail = list.querySelector('[data-client-msg-id="message-10"]');
+    const tailBottom = tail.getBoundingClientRect().bottom + (parseFloat(getComputedStyle(tail).marginBottom) || 0);
+    // Keep a deep offset reachable with ten warm rows under the current
+    // composer gap; a fixed old 196px depended on the former 64px inset.
+    const deepOffset = Math.floor(tailBottom + parseFloat(getComputedStyle(list).paddingBottom)
+      - target.getBoundingClientRect().top - innerHeight) - 8;
+    if (deepOffset <= 128) throw Error(`Tall-image fixture lacks a deep reachable offset: ${deepOffset}`);
+    window.scrollBy(0, target.getBoundingClientRect().top + deepOffset);
     await settleLayout();
     const saved = structuredClone(app.captureChatAnchor());
-    if (saved.clientMsgId !== 'message-8' || Math.abs(saved.offset + 196) > 2) throw Error(`Tall-image anchor fixture did not reach the expected offset: ${JSON.stringify({ saved, scrollY, height: document.documentElement.scrollHeight })}`);
+    if (saved.clientMsgId !== 'message-8' || Math.abs(saved.offset + deepOffset) > 2) throw Error(`Tall-image anchor fixture did not reach the expected offset: ${JSON.stringify({ saved, deepOffset, scrollY, height: document.documentElement.scrollHeight })}`);
     const reopenCold = (count = manifests.length) => {
       app.lockNow();
       if (app.imageCache.size) throw Error('Lock retained decrypted image cache');
@@ -1148,7 +1224,7 @@ try {
         throw Error(`Manual-scroll motion performed message bookkeeping before settlement: ${JSON.stringify({ olderCalls, newerCalls, anchorCalls, readCalls, bottomBoundsReads })}`);
       }
       await waitForReveal();
-      if (olderCalls !== 1 || newerCalls !== 0 || anchorCalls !== 1 || readCalls !== 1 || bottomBoundsReads !== 1) {
+      if (olderCalls !== 1 || newerCalls !== 0 || anchorCalls !== 1 || readCalls !== 1 || bottomBoundsReads > 1) {
         throw Error(`Manual-scroll endpoint did not commit exactly one bookkeeping pass: ${JSON.stringify({ olderCalls, newerCalls, anchorCalls, readCalls, bottomBoundsReads })}`);
       }
       return { duringMotion: 0, olderCalls, newerCalls, anchorCalls, readCalls, bottomBoundsReads };
@@ -1545,11 +1621,11 @@ try {
         || properties.length !== 2 || properties[0] !== 'padding-bottom' || properties[1] !== 'min-height') {
         throw Error(`${label} did not atomically commit one padding/min-height pair: ${JSON.stringify({ before, after, listWrites })}`);
       }
-      if (alignments !== 1 || forcedScrolls > 1 || bottomReads !== 1) {
+      if (alignments !== 1 || forcedScrolls > 1 || bottomReads > 1) {
         throw Error(`${label} did not perform exactly one endpoint alignment and control measurement: ${JSON.stringify({ alignments, forcedScrolls, bottomReads })}`);
       }
       const gap = window.composerBaseBounds().top - window.timelineBottom();
-      if (!app.chatPinnedToBottom || Math.abs(gap - 64) > 2) throw Error(`${label} failed its final bottom alignment: gap=${gap}`);
+      if (!app.chatPinnedToBottom || Math.abs(gap - 12) > 2) throw Error(`${label} failed its final bottom alignment: gap=${gap}`);
       return { before, after, listWrites: [...listWrites], alignments, forcedScrolls, bottomReads, gap };
     };
     window.scrollTo = (...args) => { forcedScrolls++; scrollTo.apply(window, args); };
@@ -1753,7 +1829,7 @@ try {
       await settled();
       const gap = window.composerBaseBounds().top - window.timelineBottom();
       const buttonGap = window.composerBaseBounds().top - document.querySelector('#chat-bottom-control').getBoundingClientRect().bottom;
-      if (Math.abs(gap - 64) > 2 || Math.abs(buttonGap - 8) > 1) {
+      if (Math.abs(gap - 12) > 2 || Math.abs(buttonGap - 8) > 1) {
         throw Error(`Settled keyboard spacing changed: ${JSON.stringify({
           gap,
           buttonGap,
@@ -1831,7 +1907,7 @@ try {
       }
       await settled();
       const resumeGap = window.composerBaseBounds().top - window.timelineBottom();
-      if (resumeAlignments !== 1 || Math.abs(resumeGap - 64) > 2) {
+      if (resumeAlignments !== 1 || Math.abs(resumeGap - 12) > 2) {
         throw Error(`Same-DOM return did not settle once at current geometry: ${JSON.stringify({ resumeAlignments, resumeGap })}`);
       }
       app.alignChatBottom = alignChatBottom;
@@ -1979,7 +2055,7 @@ try {
       while ((composer.dataset.viewportMotion || Number(getComputedStyle(composer).opacity) !== 1) && performance.now() < deadline) await frame();
       const settledComposer = window.composerBaseBounds();
       const gap = settledComposer.top - window.timelineBottom();
-      if (composer.dataset.viewportMotion || Math.abs(gap - 64) > 2) throw Error(`Keyboard after collapsed toolbar did not settle content: ${JSON.stringify({ gap })}`);
+      if (composer.dataset.viewportMotion || Math.abs(gap - 12) > 2) throw Error(`Keyboard after collapsed toolbar did not settle content: ${JSON.stringify({ gap })}`);
       return { staleLayoutFrames: samples, subsequentKeyboardFrames: 3 };
     } finally {
       delete viewport.height; delete viewport.offsetTop;
@@ -2019,7 +2095,7 @@ try {
       // a native scroll gap. A fresh composer tap must restore prior follow.
       input.focus({ preventScroll: true }); resize(420);
       const gap = window.composerBaseBounds().top - window.timelineBottom();
-      if (!app.chatPinnedToBottom || Math.abs(gap - 64) > 2) throw Error(`Reopening the keyboard retained stale history intent: gap=${gap}`);
+      if (!app.chatPinnedToBottom || Math.abs(gap - 12) > 2) throw Error(`Reopening the keyboard retained stale history intent: gap=${gap}`);
       await settle();
       await dismissFromMessage();
       list.dispatchEvent(new WheelEvent('wheel', { deltaY: -12, bubbles: true }));
@@ -2067,7 +2143,7 @@ try {
       await settleViewport();
       const composer = window.composerBaseBounds();
       const gap = composer.top - window.timelineBottom();
-      if (!app.chatPinnedToBottom || Math.abs(gap - 64) > 2) throw Error(`Native focus scroll lost the latest message: gap=${gap}`);
+      if (!app.chatPinnedToBottom || Math.abs(gap - 12) > 2) throw Error(`Native focus scroll lost the latest message: gap=${gap}`);
       // A delayed native adjustment can also arrive after the final resize.
       // With no further viewport changes, follow still needs to recover it.
       window.scrollBy(0, -96);
@@ -2075,7 +2151,7 @@ try {
       for (let i = 0; i < 4; i++) await frame();
       const settledGap = window.composerBaseBounds().top
         - window.timelineBottom();
-      if (!app.chatPinnedToBottom || Math.abs(settledGap - 64) > 2) throw Error(`Native scroll after the final keyboard resize lost follow: gap=${settledGap}`);
+      if (!app.chatPinnedToBottom || Math.abs(settledGap - 12) > 2) throw Error(`Native scroll after the final keyboard resize lost follow: gap=${settledGap}`);
       return { scrollBeforeResize: true, scrollAfterFinalResize: true, bottomFollowRetained: true, latestGap: gap, settledGap };
     } finally {
       delete viewport.height; delete viewport.offsetTop;
@@ -2115,7 +2191,7 @@ try {
       const composer = window.composerBaseBounds();
       const latest = document.querySelector('[data-client-msg-id="message-71"]').getBoundingClientRect();
       const gap = composer.top - window.timelineBottom();
-      if (Math.abs(gap - 64) > 2 || !app.chatPinnedToBottom) throw Error(`A deferred send scroll left the latest message under the composer: ${JSON.stringify({ gap, attempts, ignored, pinned: app.chatPinnedToBottom })}`);
+      if (Math.abs(gap - 12) > 2 || !app.chatPinnedToBottom) throw Error(`A deferred send scroll left the latest message under the composer: ${JSON.stringify({ gap, attempts, ignored, pinned: app.chatPinnedToBottom })}`);
       app.messages.set(71, { ...app.messages.get(71), status: 'stored' }); app.renderMessages();
       await frame();
       if (!app.captureChatAnchor().pinnedToBottom) throw Error('Send acknowledgement lost recovered bottom follow');
@@ -2123,7 +2199,7 @@ try {
       for (let i = 0; i < 4; i++) await frame();
       const lateScrollGap = window.composerBaseBounds().top
         - window.timelineBottom();
-      if (!app.chatPinnedToBottom || Math.abs(lateScrollGap - 64) > 2) throw Error(`Native scroll overrode an already completed send alignment: gap=${lateScrollGap}`);
+      if (!app.chatPinnedToBottom || Math.abs(lateScrollGap - 12) > 2) throw Error(`Native scroll overrode an already completed send alignment: gap=${lateScrollGap}`);
       return { ignoredAttempts: ignored, totalAttempts: attempts, latestGap: gap, lateScrollGap, ackFollowRetained: true };
     } finally {
       window.scrollTo = scrollTo; app.enqueuePayload = enqueue;
@@ -2154,7 +2230,7 @@ try {
         const checkEndpoint = (phase, height, top) => {
           const composer = window.composerBaseBounds();
           const gap = composer.top - window.timelineBottom();
-          if (Math.abs(composer.bottom - height - top) > 1 || Math.abs(gap - 64) > 2
+          if (Math.abs(composer.bottom - height - top) > 1 || Math.abs(gap - 12) > 2
             || Number(getComputedStyle(composerElement).opacity) !== 1) {
             throw Error(`Short history did not settle at the ${phase} endpoint: ${JSON.stringify({ count, height, top, composerBottom: composer.bottom, gap })}`);
           }

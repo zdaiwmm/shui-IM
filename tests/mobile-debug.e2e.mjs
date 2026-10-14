@@ -36,16 +36,30 @@ try {
   await frame.locator('#create-room').click();
   await frame.locator('.space-profile-overlay').evaluate(async el=>{await Promise.all(el.getAnimations().filter(a=>Number.isFinite(Number(a.effect?.getComputedTiming().endTime))).map(a=>a.finished));});
   const footerBefore=await frame.locator('.space-profile-footer').boundingBox();
+  const assertStableFooter=async()=>{
+    const after=await frame.locator('.space-profile-footer').boundingBox();
+    assert.ok(footerBefore&&after&&Object.keys(footerBefore).every(key=>Math.abs(after[key]-footerBefore[key])<=1),JSON.stringify({before:footerBefore,after}));
+  };
   await frame.locator('#new-space-name').click();await frame.locator('#form-input-draft').fill('测试空间',{timeout:5000});
   await frame.waitForFunction(()=>visualViewport.height===473);
   assert.equal(await frame.evaluate(()=>document.documentElement.clientHeight),683);
-  assert.deepEqual(await frame.locator('.space-profile-footer').boundingBox(),footerBefore);
+  await assertStableFooter();
   assert.equal(await frame.locator('.space-profile-overlay').evaluate(el=>el.inert),true);
   assert.ok(await frame.locator('.form-input-panel').evaluate(el=>el.getBoundingClientRect().bottom<=visualViewport.height));
   await page.locator('#keyboard [data-key="q"]').click();await page.locator('#keyboard [data-key="Backspace"]').click();
   assert.equal(await frame.locator('#form-input-draft').inputValue(),'测试空间');
   await frame.locator('[data-form-input-done]').click();await page.waitForFunction(()=>document.getElementById('keyboard').hidden);
   assert.equal(await frame.locator('#new-space-name').inputValue(),'测试空间');
+  assert.equal(await frame.locator('[data-form-input-cancel]').count(),0);
+  await frame.locator('#new-space-name').click();
+  const editorBar = await frame.locator('.form-input-panel').evaluate(el=>({left:el.getBoundingClientRect().left,right:el.getBoundingClientRect().right,color:getComputedStyle(el).backgroundColor}));
+  assert.equal(editorBar.left,0); assert.equal(editorBar.right,393);
+  assert.equal(editorBar.color,await page.locator('.accessory').evaluate(el=>getComputedStyle(el).backgroundColor));
+  // Dismissing without a blur leaves the editor active: a fresh pointer must reopen.
+  await page.locator('#keyboard-toggle').click(); await frame.waitForFunction(()=>visualViewport.height===683);
+  await frame.locator('#form-input-draft').click(); await frame.waitForFunction(()=>visualViewport.height===473);
+  await frame.locator('[data-form-input-done]').click(); await page.waitForFunction(()=>document.getElementById('keyboard').hidden);
+
   await frame.locator('#new-space-name').click();await frame.locator('#form-input-draft').fill('中文合成');
   await frame.locator('#form-input-draft').dispatchEvent('compositionstart');
   await frame.locator('#form-input-draft').press('Enter');
@@ -53,8 +67,8 @@ try {
   assert.equal(await frame.locator('#form-input-draft').count(),1,'IME and implicit submit cannot finish editing');
   assert.equal(await frame.locator('#new-space-name').inputValue(),'测试空间');
   await frame.locator('#form-input-draft').dispatchEvent('compositionend');
-  await frame.locator('[data-form-input-cancel]').click();
-  await frame.locator('#new-space-name').click();await frame.locator('#form-input-draft').fill('不应保存');await frame.locator('[data-form-input-cancel]').click();
+  await frame.locator('#form-input-draft').press('Escape');
+  await frame.locator('#new-space-name').click();await frame.locator('#form-input-draft').fill('不应保存');await frame.locator('#form-input-draft').press('Escape');
   assert.equal(await frame.locator('#new-space-name').inputValue(),'测试空间');
   await frame.evaluate(()=>{const label=document.createElement('label');label.textContent='备注';const note=document.createElement('textarea');note.id='note';label.append(note);document.querySelector('#create-space-profile').append(label);});
   await frame.locator('#note').click();await frame.locator('#form-input-draft').fill('第一行\n第二行');
@@ -62,7 +76,7 @@ try {
   assert.equal(await frame.locator('#form-input-draft').inputValue(),'第一行\n第二行\n');
   await page.locator('#done').click();await page.waitForFunction(()=>document.getElementById('keyboard').hidden);
   assert.equal(await frame.locator('#note').inputValue(),'第一行\n第二行\n');
-  assert.deepEqual(await frame.locator('.space-profile-footer').boundingBox(),footerBefore);
+  await assertStableFooter();
   await frame.locator('#new-space-name').click();await page.locator('#keyboard-height').selectOption('400');
   await frame.waitForFunction(()=>visualViewport.height===393);
   await page.locator('#done').click();await page.locator('#toolbar-toggle').click();
@@ -78,7 +92,9 @@ try {
   await reloaded.locator('#create-room').click();await reloaded.locator('#new-space-name').click();await reloaded.locator('#form-input-draft').fill('能力与布局验收');await reloaded.locator('[data-form-input-done]').click();await page.waitForFunction(()=>document.getElementById('keyboard').hidden);await reloaded.waitForFunction(()=>visualViewport.height===763);await reloaded.locator('#profile-done').click();
   await reloaded.locator('.entry-protection').waitFor();
   const sizes=[];
-  for(const height of [1100,800,740,683,500]) {
+  // Font metrics and password-vs-passkey copy shift the small-art interval.
+  // Sample that interval densely instead of pinning it to one desktop font.
+  for(const height of [1100,...Array.from({length:21},(_,index)=>900-index*24),683]) {
     sizes.push(await reloaded.evaluate(async height=>{document.querySelector('#app').style.height=`${height}px`;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const g=document.querySelector('.gateway-intro'),content=g.querySelector('.gateway-intro-content');return {height,hero:g.dataset.hero,overflow:content.scrollHeight-content.clientHeight,content:content.clientHeight,items:[...content.children].map(n=>({tag:n.className,h:n.getBoundingClientRect().height,margin:getComputedStyle(n).margin}))};},height));
   }
   assert.deepEqual(new Set(sizes.map(s=>s.hero)),new Set(['large','small','none']));

@@ -439,7 +439,8 @@ export class QuietRoomApp {
   private inviteListScrollTop = 0;
   private spaceDrawerOpen = false;
   private desktopWorkspace: DesktopWorkspace;
-  private settingsReturn: { session: VaultSession; spaces: PrivateSpace[]; scrollTop: number } | null = null;
+  private cancelSpaceNavigation: (() => void) | null = null;
+  private settingsReturn: { session: VaultSession; spaces: PrivateSpace[]; scrollTop: number; expanded?: boolean } | null = null;
   private waitingSpaceTimer: number | null = null;
   private destroyingWaitingSpace = false;
   private currentSpaceName = '私密空间';
@@ -1589,7 +1590,7 @@ export class QuietRoomApp {
         this.unlocking = true;
         try {
           const unlocked = await requestPassword(this.root, { presentation: 'page', title: '打开私密空间', context: '输入此空间已有的密码。', spaceName: this.currentSpaceName, submitLabel: '打开私密空间', signal: passwordAbort.signal, isActive: current, cancel: () => this.lockNow(),
-            verify: password => unlockVault(password), forgot: () => { this.jointUnavailableSlot = vaultSpaceId(stored); this.renderJointRecovery(); } });
+            verify: password => unlockVault(password, undefined, stored), forgot: () => { this.jointUnavailableSlot = vaultSpaceId(stored); this.renderJointRecovery(); } });
           if (!current()) return;
           this.session = unlocked; await this.openSession();
         } catch (cause) { if (current() && !(cause instanceof DOMException && cause.name === 'AbortError')) this.showFormError(cause); }
@@ -1622,7 +1623,7 @@ export class QuietRoomApp {
         setBusy(button, true, '正在解锁…');
         this.unlocking = true;
         try {
-          const unlocked = await unlockVault(secret);
+          const unlocked = await unlockVault(secret, undefined, stored);
           secret = '';
           if (!current()) return;
           this.session = unlocked;
@@ -1668,7 +1669,7 @@ export class QuietRoomApp {
             // Attach a rejection observer immediately: vault lifecycle work
             // can delay the eventual await while the native sheet is open.
             void platformProof?.catch(() => undefined);
-            const unlocked = await unlockVault(secret, platformProof);
+            const unlocked = await unlockVault(secret, platformProof, stored);
             secret = '';
             if (!current()) return;
             this.rememberDeviceCredential(unlocked);
@@ -1758,7 +1759,7 @@ export class QuietRoomApp {
             // as well as rejecting its late result.
             const platformProof = this.withDeviceVerification(() => unlockPlatformCredential(stored.platform, abort.signal));
             void platformProof.catch(() => undefined);
-            const unlocked = await unlockVault('', platformProof);
+            const unlocked = await unlockVault('', platformProof, stored);
             if (!current()) return;
             await this.adoptHeldDeviceCredential(unlocked);
             this.rememberDeviceCredential(unlocked);
@@ -2849,7 +2850,7 @@ export class QuietRoomApp {
     const unsupported = platformVaultSetupState() === 'unsupported';
     const external = platformVaultUsesExternalAuthenticator();
     this.gatewayTemplate('每次打开，先确认是你', '日常解锁保护这台浏览器里的聊天，暂时离开后，先验证再查看。', `
-      <div class="entry-protection"><strong>${unsupported ? '设置解锁密码' : external ? '使用外部通行密钥' : '使用通行密钥'}</strong><p>${unsupported ? '当前浏览器不支持通行密钥。设置一个仅用于日常解锁的密码。' : external ? '当前浏览器的内置验证器不可用。可尝试兼容的安全密钥或其他设备；若浏览器明确不支持，将进入密码设置。' : '由当前浏览器调用可用的验证方式，不用额外记住一个新密码。'}</p></div>
+      <div class="entry-protection"><strong>${unsupported ? '设置解锁密码' : external ? '使用外部通行密钥' : '使用通行密钥'}</strong><p>${unsupported ? '设置一个仅用于这台浏览器日常解锁的密码。' : external ? '当前浏览器的内置验证器不可用。可尝试兼容的安全密钥或其他设备；若浏览器明确不支持，将进入密码设置。' : '由当前浏览器调用可用的验证方式，不用额外记住一个新密码。'}</p></div>
       <p class="entry-support">${createElement(Info).outerHTML}<span>日常解锁负责打开聊天；恢复卡负责换设备或数据丢失后的找回。</span></p>
       ${unsupported ? '' : `<details class="recovery-explanation"><summary>通行密钥名称与设备备注</summary><label class="passkey-name-field">通行密钥名称<input id="new-passkey-name" value="${accessEscape(defaultPasskeyName())}" autocomplete="off"></label><label class="passkey-name-field">设备备注（选填）<input id="new-device-alias" placeholder="例如：工作电脑" autocomplete="off"></label></details>`}
       <div class="welcome-actions"><button class="primary-button" data-device-verify type="button">${unsupported ? '设置密码并进入空间' : '启用并进入空间'}</button><button class="text-button gateway-back" type="button">返回</button><p class="form-error" role="alert"></p></div>
@@ -4638,7 +4639,11 @@ export class QuietRoomApp {
   private closeMemePicker(keyboard = false, animate = false): void {
     const picker = this.memePicker;
     if (animate && picker && !this.privacyCovered) {
-      if (keyboard) this.root.querySelector<HTMLTextAreaElement>('#message-input')?.focus({ preventScroll: true });
+      if (keyboard) {
+        const composer = this.root.querySelector<HTMLElement>('#composer');
+        if (composer) composer.dataset.expressionHandoff = 'true';
+        this.root.querySelector<HTMLTextAreaElement>('#message-input')?.focus({ preventScroll: true });
+      }
       picker.close(() => { if (this.memePicker === picker) this.closeMemePicker(keyboard); });
       return;
     }
@@ -4840,6 +4845,34 @@ export class QuietRoomApp {
   }
 
   private async switchPrivateSpace(space: PrivateSpace): Promise<void> {
+    this.cancelSpaceNavigation?.();
+    const source = this.root.querySelector<HTMLElement>('.is-space-list-page.space-drawer-overlay:not(.is-closing)');
+    const cover = source?.cloneNode(true) as HTMLElement | undefined;
+    let observer: MutationObserver | undefined;
+    const clear = () => { observer?.disconnect(); cover?.remove(); if (this.cancelSpaceNavigation === clear) this.cancelSpaceNavigation = null; };
+    if (cover) {
+      cover.classList.add('space-navigation-cover'); cover.classList.remove('dialog-surface'); cover.inert = true; cover.setAttribute('aria-hidden','true');
+      cover.removeAttribute('id'); cover.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+      const originalScroll = source!.querySelector('.space-drawer-scroll')!;
+      this.root.append(cover); cover.querySelector('.space-drawer-scroll')!.scrollTop = originalScroll.scrollTop;
+      this.cancelSpaceNavigation = clear;
+      observer = new MutationObserver(() => { if (this.privacyCovered) clear(); else if (!cover.isConnected) this.root.append(cover); });
+      observer.observe(this.root, {childList:true});
+    }
+    try {
+      if (this.session?.vault.roomId === space.roomId) this.renderChat();
+      else await this.performPrivateSpaceSwitch(space);
+    }
+    finally {
+      observer?.disconnect();
+      if (cover && !this.privacyCovered && this.cancelSpaceNavigation === clear) {
+        this.root.append(cover); void cover.offsetHeight; cover.classList.add('is-closing');
+        afterMotion(cover, clear);
+      } else clear();
+    }
+  }
+
+  private async performPrivateSpaceSwitch(space: PrivateSpace): Promise<void> {
     if (!space.localId && this.browserProfile?.profile.spaces.some(s=>s.roomId===space.roomId)) {const profile=this.browserProfile,prf=(this.browserBindingProof??this.session?.browserAccessPrf)?.slice();if(!await this.leaveSpace()){prf?.fill(0);return;}this.browserProfile=profile;this.browserBindingProof=prf??null;this.browserAccessAbort=new AbortController();profile.profile.currentRoom=space.roomId;this.scheduleIdleLock();this.renderBrowserShell();this.pollBrowserSpaceAccess(this.browserAccessAbort.signal);return;}
     if (!space.localId) throw new Error('此空间需要先恢复');
     if (!await this.leaveSpace()) return;
@@ -4849,7 +4882,7 @@ export class QuietRoomApp {
     if (!stored) { this.gatewayTemplate('空间暂不可用', '本地数据不可用，请使用恢复码恢复。', '<button class="primary-button" id="space-recover">恢复私密空间</button>'); this.root.querySelector('#space-recover')?.addEventListener('click', () => this.renderJointRecovery(null)); return; }
     const held = this.deviceCredential;
     if (held && stored.unlockMethod === 'platform' && stored.v === 3 && stored.platform.credentialId === held.record.credentialId) {
-      const unlocked = await unlockVault('', Promise.resolve(held.prfOutput.slice()));
+      const unlocked = await unlockVault('', Promise.resolve(held.prfOutput.slice()), stored);
       if (this.privacyCovered) { releaseDeviceCredential(unlocked); return; }
       unlocked.browserAccessPrf = held.browserAccessPrf?.slice();
       this.rememberDeviceCredential(unlocked);
@@ -4927,28 +4960,21 @@ export class QuietRoomApp {
   private async refreshOtherSpacePreviews(session: VaultSession, spaces: PrivateSpace[], signal: AbortSignal): Promise<void> {
     const held = this.deviceCredential;
     if (!held) return;
-    const selected = currentSpaceId();
-    try {
-      for (const space of spaces) {
-        if (signal.aborted || this.session !== session || this.privacyCovered || space.roomId === session.vault.roomId || !space.localId) continue;
-        await selectLocalSpace(space.localId);
-        const stored = await readStoredVault();
-        if (!stored || stored.unlockMethod !== 'platform' || stored.v !== 3 || stored.platform.credentialId !== held.record.credentialId) continue;
-        let opened: VaultSession | null = null;
-        try {
-          opened = await unlockVault('', Promise.resolve(held.prfOutput.slice()));
-          const preview = await this.latestSpacePreview(opened, signal);
-          if (signal.aborted || this.session !== session) return;
-          space.preview = preview;
-          await rememberLocalSpace(session, undefined, undefined, { preview, roomId: space.roomId });
-        } catch {
-          continue;
-        } finally {
-          if (opened) releaseDeviceCredential(opened);
-        }
+    for (const space of spaces) {
+      if (signal.aborted || this.session !== session || this.privacyCovered || space.roomId === session.vault.roomId || !space.localId) continue;
+      let opened: VaultSession | null = null;
+      try {
+        opened = await unlockLocalSpaceForManagement(space.localId, held,
+          () => Promise.reject(new Error('消息预览只使用已解锁的本机访问')));
+        const preview = await this.latestSpacePreview(opened, signal);
+        if (signal.aborted || this.session !== session) return;
+        space.preview = preview;
+        await rememberLocalSpace(session, undefined, undefined, { preview, roomId: space.roomId });
+      } catch {
+        continue;
+      } finally {
+        if (opened) releaseDeviceCredential(opened);
       }
-    } finally {
-      if (currentSpaceId() !== selected) await selectLocalSpace(selected);
     }
   }
 
@@ -5153,23 +5179,25 @@ export class QuietRoomApp {
       (document.activeElement as HTMLElement | null)?.blur();
       this.setActiveSurface('away', true);
     }
-    const forward = (render: () => void) => () => this.transitionPage('forward', render);
+    const forward = (render: () => void | Promise<void>) => () => this.transitionPage('forward', render);
     mountSpaceDrawer(this.root, {
       spaces, currentRoom: session.vault.roomId, signal, presentation, container, listScrollTop,
       openSettings: presentation === 'sidebar' ? () => this.renderDesktopSettings(spaces) : undefined,
       initialSettings: settingsScrollTop !== undefined, settingsScrollTop,
-      onSettingsLeave: scrollTop => { this.settingsReturn = { session, spaces, scrollTop }; },
+      restoreSettings: this.settingsReturn?.session === session,
+      onSettingsLeave: (scrollTop, expanded) => { this.settingsReturn = { session, spaces, scrollTop, expanded }; },
+      initialExpanded: this.settingsReturn?.expanded,
       removeLabel: space => this.catalogRemovalLabel(space),
       actions: [
         { id: 'appearance-settings', label: '主题外观', icon: spaceIcons.appearance, run: forward(() => this.renderAppearanceSettings()) },
         ...(this.desktopBrowser ? [{ id: 'app-access-settings', label: '在应用中打开', icon: spaceIcons.app, run: forward(() => this.renderAppAccess()) }] : []),
-        { id: 'manage-devices', label: '设备与新增设备', icon: spaceIcons.device, run: forward(() => void this.renderDeviceManager()) },
+        { id: 'manage-devices', label: '设备与新增设备', icon: spaceIcons.device, run: forward(() => this.renderDeviceManager()) },
         { id: 'backup-settings', label: '恢复卡', icon: spaceIcons.key, run: forward(() => this.renderRecoveryCenter()) },
-        { id: 'local-history-backup', label: '备份数据', icon: spaceIcons.upload, run: forward(() => void this.renderLocalHistoryBackup('export')) },
-        { id: 'local-history-restore', label: '恢复数据', icon: spaceIcons.download, run: forward(() => void this.renderLocalHistoryBackup('import')) },
+        { id: 'local-history-backup', label: '备份数据', icon: spaceIcons.upload, run: forward(() => this.renderLocalHistoryBackup('export')) },
+        { id: 'local-history-restore', label: '恢复数据', icon: spaceIcons.download, run: forward(() => this.renderLocalHistoryBackup('import')) },
         { id: 'recover-other-space', label: '恢复其他空间', icon: spaceIcons.spaces, run: forward(() => this.renderJointRecovery(null)) },
         { id: 'auto-lock-settings', group: '本机', label: '自动锁定', icon: spaceIcons.cover, run: forward(() => this.renderAutoLockSettings()) },
-        { id: 'notification-settings', group: '本机', label: '通知管理', icon: spaceIcons.bell, run: forward(() => void this.renderNotificationSettings()) },
+        { id: 'notification-settings', group: '本机', label: '通知管理', icon: spaceIcons.bell, run: forward(() => this.renderNotificationSettings()) },
         { id: 'passkey-management', group: '本机', label: '通行密钥管理', icon: spaceIcons.key, keepOpen: true, run: () => {
           const credential = this.deviceCredential;
           if (!credential) return Promise.reject(new Error('请先完成通行密钥绑定'));
@@ -5178,7 +5206,7 @@ export class QuietRoomApp {
         { id: 'cover-practice-menu', group: '本机', label: session.vault.recoveryExperience?.coverEnabled ? '关闭自动遮蔽' : '体验或开启遮蔽', icon: spaceIcons.cover, run: () => session.vault.recoveryExperience?.coverEnabled ? this.confirmDisableCover() : this.renderCoverPractice() },
         { id: 'release-history', group: '关于', label: '更新记录', icon: spaceIcons.history, run: forward(() => this.renderReleaseHistory()) },
       ],
-      select: space => { if (presentation === 'sidebar' && space.roomId === session.vault.roomId && !space.waiting) { if (!this.root.querySelector(':scope > .chat-shell')) { this.settingsReturn = null; this.renderChat(); } return Promise.resolve(); } if (space.roomId === session.vault.roomId && space.waiting) { this.inviteListScrollTop = (container ?? this.root).querySelector('.space-drawer-scroll')?.scrollTop ?? 0; this.renderChat(); return Promise.resolve(); } return this.switchPrivateSpace(space); },
+      select: space => { if (presentation === 'sidebar' && space.roomId === session.vault.roomId && !space.waiting) { if (!this.root.querySelector(':scope > .chat-shell')) { this.settingsReturn = null; this.renderChat(); } return Promise.resolve(); } if (space.roomId === session.vault.roomId && space.waiting) this.inviteListScrollTop = (container ?? this.root).querySelector('.space-drawer-scroll')?.scrollTop ?? 0; return this.switchPrivateSpace(space); },
       create: async () => { if (spaces.length >= 256) throw new Error('本机空间数量已达上限'); this.renderCreate(); },
       editAvatar: async space => {
         const epoch = this.runtimeEpoch;
@@ -5489,7 +5517,14 @@ export class QuietRoomApp {
     textarea.addEventListener('pointerdown', event => {
       if (!ownsActiveChat()) return;
       if (this.memePicker) this.closeMemePicker(true, true);
-      if (this.prepareKeyboardOpening(textarea, event)) this.chatViewportMotion?.anticipateKeyboard('open');
+      if (this.prepareKeyboardOpening(textarea, event)) {
+        this.cancelNativeKeyboardDismiss();
+        delete composer.dataset.keyboardDismissReveal;
+        if (document.activeElement === textarea && document.documentElement.dataset.keyboardOpen !== 'true') {
+          textarea.blur(); textarea.focus({ preventScroll: true });
+        }
+        this.chatViewportMotion?.anticipateKeyboard('open');
+      }
       prepareKeyboardTarget();
     }, { passive: true });
     let focusTap: { x: number; y: number } | null = null;
@@ -5887,12 +5922,12 @@ export class QuietRoomApp {
     this.updateCallControls();
 
     const returning = this.settingsReturn;
-    this.settingsReturn = null;
     if (returning && returning.session === this.session && this.runtimeAbort && !this.privacyCovered) {
       if (matchMedia(desktopWidth).matches) this.renderDesktopSettings(returning.spaces, returning.scrollTop);
       else { this.spaceDrawerOpen = true;
       this.mountPrivateSpaceDrawer(this.session, returning.spaces, this.runtimeAbort.signal, 'chat', returning.scrollTop); }
     } else this.showReleaseNotesIfNeeded();
+    this.settingsReturn = null;
 
   }
 
@@ -6090,7 +6125,7 @@ export class QuietRoomApp {
         if (!this.nativeKeyboardDismiss && !this.chatKeyboardGesture?.held
           && document.documentElement.dataset.keyboardOpen !== 'true') this.commitNativeChatFollow();
       },
-      reveal: () => { if (!this.nativeKeyboardDismiss) delete composer.dataset.viewportMotion; },
+      reveal: () => { if (!this.nativeKeyboardDismiss) { delete composer.dataset.viewportMotion; delete composer.dataset.expressionHandoff; } },
       settled: () => {
         if (this.privacyCovered || this.activeSurface !== 'chat' || !shell.isConnected) return;
         this.nativeKeyboardOpening = false;
@@ -6152,7 +6187,7 @@ export class QuietRoomApp {
       visibilityTop: () => {
         const composerBounds = composer.getBoundingClientRect();
         const revealOffset = composerBounds.top - this.chatComposerLayoutTop(composer);
-        return bottomControlButton.getBoundingClientRect().top - revealOffset;
+        return composerBounds.top - revealOffset - 4;
       },
       targetScrollTop: () => this.chatBottomScrollTop(),
       scrollTop: () => this.chatScrollTop,
@@ -6716,7 +6751,7 @@ export class QuietRoomApp {
     }
   }
 
-  private transitionPage(direction: 'forward' | 'backward', render: () => void): void {
+  private transitionPage(direction: 'forward' | 'backward', render: () => void | Promise<void>): void {
     cancelFormInput();
     if (this.privacyCovered) return;
     this.closeImageViewer(true);
@@ -6744,62 +6779,79 @@ export class QuietRoomApp {
     this.root.querySelector(':scope > .page-transition-incoming')?.classList.remove('page-transition-incoming');
     const epoch = this.runtimeEpoch;
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const outgoing = !reducedMotion && this.root.firstElementChild instanceof HTMLElement
-      ? this.root.firstElementChild : null;
+    let outgoing = !reducedMotion && this.root.firstElementChild instanceof HTMLElement
+      ? this.root.querySelector<HTMLElement>(':scope > .space-drawer-overlay:not(.is-closing)') ?? this.root.firstElementChild : null;
+    const sourceForeground = outgoing;
+    if (outgoing?.classList.contains('space-drawer-overlay')) {
+      const clone = outgoing.cloneNode(true) as HTMLElement;
+      clone.removeAttribute('id'); clone.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+      clone.querySelector('.space-drawer-scroll')!.scrollTop = outgoing.querySelector('.space-drawer-scroll')!.scrollTop;
+      outgoing = clone;
+    }
     const outgoingScrollY = this.usesListScrolling && outgoing?.classList.contains('chat-shell') ? 0 : window.scrollY;
     const privateGateway = (node: HTMLElement | null) => Boolean(node?.classList.contains('gateway') && !node.matches('.save-entry-page, [data-authenticated-page]'));
     const replaceGateway = privateGateway(outgoing);
-    outgoing?.remove();
     this.root.dataset.pageTransition = direction;
-    render();
-    if (this.privacyCovered || this.runtimeEpoch !== epoch) return;
-    const incoming = this.root.firstElementChild instanceof HTMLElement ? this.root.firstElementChild : null;
-    if (!outgoing || !incoming) {
-      delete this.root.dataset.pageTransition;
-      return;
-    }
-    // Authentication and first-run choices replace one another as private
-    // screens. Retaining the previous gateway beside them makes its copy look
-    // like leaked or overlapping content on a phone.
-    if (replaceGateway || privateGateway(incoming)) {
-      delete this.root.dataset.pageTransition;
-      return;
-    }
-    const outgoingFrame = document.createElement('div');
-    outgoingFrame.className = 'page-transition-outgoing';
-    if (incoming.classList.contains('gallery-shell') && outgoing.classList.contains('chat-shell')) {
-      outgoingFrame.dataset.safeDeparture = '';
-    }
-    outgoingFrame.append(outgoing);
-    outgoing.setAttribute('aria-hidden', 'true');
-    outgoing.inert = true;
-    const oldList = outgoing.querySelector<HTMLElement>('.message-list');
-    if (oldList && outgoingScrollY > 0) oldList.style.setProperty('--page-scroll-offset', `${-outgoingScrollY}px`);
-    // Keep content reveal suppressed after the directional animation ends.
-    incoming.dataset.pageNavigation = '';
-    incoming.classList.add('page-transition-incoming');
-    this.root.append(outgoingFrame);
-    const reverse = previousDirection && previousDirection !== direction;
-    const width = incoming.getBoundingClientRect().width;
-    const enteringX = reverse && backgroundFrom ? new DOMMatrixReadOnly(backgroundFrom.transform).m41
-      : direction === 'forward' ? width : -.18 * width;
-    const leavingX = foregroundFrom ? new DOMMatrixReadOnly(foregroundFrom.transform).m41 : 0;
-    const targetX = direction === 'forward' ? -.18 * width : width;
-    const remaining = Math.max(Math.abs(enteringX), Math.abs(targetX - leavingX));
-    const duration = Math.round(Math.min(motion.page, Math.max(140, motion.page * Math.sqrt(remaining / Math.max(1, width)))));
-    const entering = travelMotion(incoming, enteringX, 0, reverse ? backgroundVelocity : 0, duration,
-      reverse && backgroundFrom ? Number(backgroundFrom.opacity) : direction === 'forward' ? 1 : .92);
-    const leaving = travelMotion(outgoingFrame, leavingX, targetX, foregroundVelocity, duration,
-      foregroundFrom ? Number(foregroundFrom.opacity) : 1, direction === 'forward' ? .92 : 1);
-    const cleanup = () => {
-      entering?.cancel(); leaving?.cancel();
-      outgoingFrame.remove();
-      incoming.classList.remove('page-transition-incoming');
-      delete this.root.dataset.pageTransition;
-      this.cancelPageTransition = null;
+    const currentForeground = () => this.root.querySelector<HTMLElement>(':scope > .space-drawer-overlay:not(.is-closing)')
+      ?? (this.root.firstElementChild instanceof HTMLElement ? this.root.firstElementChild : null);
+    const complete = () => {
+      if (this.privacyCovered || this.runtimeEpoch !== epoch) return;
+      const incoming = currentForeground();
+      if (incoming === sourceForeground) { delete this.root.dataset.pageTransition; return; }
+      outgoing?.remove();
+      if (!outgoing || !incoming) {
+        delete this.root.dataset.pageTransition;
+        return;
+      }
+      // Authentication and first-run choices replace one another as private
+      // screens. Retaining the previous gateway beside them makes its copy look
+      // like leaked or overlapping content on a phone.
+      if (replaceGateway || privateGateway(incoming)) {
+        delete this.root.dataset.pageTransition;
+        return;
+      }
+      const outgoingFrame = document.createElement('div');
+      outgoingFrame.className = 'page-transition-outgoing';
+      if (incoming.classList.contains('gallery-shell') && outgoing.classList.contains('chat-shell')) {
+        outgoingFrame.dataset.safeDeparture = '';
+      }
+      outgoingFrame.append(outgoing);
+      outgoing.setAttribute('aria-hidden', 'true');
+      outgoing.inert = true;
+      const oldList = outgoing.querySelector<HTMLElement>('.message-list');
+      if (oldList && outgoingScrollY > 0) oldList.style.setProperty('--page-scroll-offset', `${-outgoingScrollY}px`);
+      // Keep content reveal suppressed after the directional animation ends.
+      incoming.dataset.pageNavigation = '';
+      incoming.classList.add('page-transition-incoming');
+      this.root.append(outgoingFrame);
+      const reverse = previousDirection && previousDirection !== direction;
+      const width = incoming.getBoundingClientRect().width;
+      const enteringX = reverse && backgroundFrom ? new DOMMatrixReadOnly(backgroundFrom.transform).m41
+        : direction === 'forward' ? width : -.18 * width;
+      const leavingX = foregroundFrom ? new DOMMatrixReadOnly(foregroundFrom.transform).m41 : 0;
+      const targetX = direction === 'forward' ? -.18 * width : width;
+      const remaining = Math.max(Math.abs(enteringX), Math.abs(targetX - leavingX));
+      const duration = Math.round(Math.min(motion.page, Math.max(140, motion.page * Math.sqrt(remaining / Math.max(1, width)))));
+      const entering = travelMotion(incoming, enteringX, 0, reverse ? backgroundVelocity : 0, duration,
+        reverse && backgroundFrom ? Number(backgroundFrom.opacity) : direction === 'forward' ? 1 : .92);
+      const leaving = travelMotion(outgoingFrame, leavingX, targetX, foregroundVelocity, duration,
+        foregroundFrom ? Number(foregroundFrom.opacity) : 1, direction === 'forward' ? .92 : 1);
+      const cleanup = () => {
+        entering?.cancel(); leaving?.cancel();
+        outgoingFrame.remove();
+        incoming.classList.remove('page-transition-incoming');
+        delete this.root.dataset.pageTransition;
+        this.cancelPageTransition = null;
+      };
+      const cancelFinish = afterMotion(incoming, cleanup);
+      this.cancelPageTransition = () => { cancelFinish(); cleanup(); };
     };
-    const cancelFinish = afterMotion(incoming, cleanup);
-    this.cancelPageTransition = () => { cancelFinish(); cleanup(); };
+    const pending = render();
+    // Some pages paint their loading shell before awaiting data. Start that
+    // transition now; deferred renderers keep the current settings picture.
+    if (pending instanceof Promise && currentForeground() !== sourceForeground) { complete(); void pending.catch(() => undefined); }
+    else if (pending instanceof Promise) void pending.then(complete, () => { delete this.root.dataset.pageTransition; });
+    else complete();
   }
 
   private markVisibleMessagesRead(): void {
@@ -6884,6 +6936,7 @@ export class QuietRoomApp {
   }
 
   private setActiveSurface(surface: 'away' | 'chat', preservePresence = false): boolean {
+    if (surface === 'away' && this.activeSurface === 'chat') this.captureChatAnchor(true);
     if (surface !== this.activeSurface) this.chatScrollRevision += 1;
     if (surface === 'away') { this.closeMemePicker(); this.memeCache.view = undefined; }
     this.stopViewerMedia();
@@ -6972,7 +7025,7 @@ export class QuietRoomApp {
 
   private captureChatAnchor(persist = false, preservePosition = false): ChatScrollAnchor | null {
     const list = this.root.querySelector<HTMLElement>('#message-list');
-    if (!list) return this.uiPreferences.chatAnchor ?? null;
+    if (!list || this.activeSurface !== 'chat') return this.uiPreferences.chatAnchor ?? null;
     // A tall photo can temporarily become a short placeholder after unlock.
     // Keep its saved position until it decodes, instead of switching to the next row.
     if (this.chatRestoreAnchor) return this.chatRestoreAnchor;
@@ -13821,6 +13874,7 @@ export class QuietRoomApp {
 
   private lockNow({ preserveFilePicker = false, desktopContinuation = false }: { preserveFilePicker?: boolean; desktopContinuation?: boolean } = {}): void {
     if (this.locking) return;
+    this.cancelSpaceNavigation?.();
     // Repeated hidden/idle signals cannot renew or discard an existing return lease.
     if (desktopContinuation && this.privacyCovered) { this.desktopAccess.peek(); return; }
     const original = this.session;
@@ -13914,6 +13968,7 @@ export class QuietRoomApp {
   }
 
   private cleanupRuntime(preserveFilePicker = false, preserveIdle = false): void {
+    const finalAnchor = this.captureChatAnchor(false);
     this.chatScrollRevision += 1;
     if (!preserveIdle) this.idleLease.clear();
     this.idlePrompt?.hide(); this.exposureAnchor = null; this.idleLease.clearExposureLimit();
@@ -13972,7 +14027,7 @@ export class QuietRoomApp {
     this.voiceGesture?.destroy();
     this.voiceGesture = null;
     this.voicePlayback.stop();
-    this.captureChatAnchor(false);
+    if (finalAnchor) this.uiPreferences.chatAnchor = finalAnchor;
     const composer = this.root.querySelector<HTMLTextAreaElement>('#message-input');
     if (composer && this.uiPreferencesHydrated) {
       this.uiPreferences.composerDraft = composer.value;

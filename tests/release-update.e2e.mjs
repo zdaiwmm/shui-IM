@@ -96,7 +96,7 @@ try {
     };
   });
   if (seen.stored !== seen.current || seen.repeated) throw new Error(`Release notes did not remain one-time: ${JSON.stringify(seen)}`);
-  await page.locator('#open-spaces').click(); await page.locator('#space-settings').click();
+  await page.locator('#chat-settings').click();
   await page.locator('#release-history').click();
   await page.locator('.release-history-content h2').first().waitFor();
   const versions = await page.locator('.release-history-content h2').allTextContents();
@@ -115,8 +115,9 @@ try {
   const layout = await banner.evaluate(element => ({
     text: element.textContent.replace(/\s+/g, ' ').trim(),
     buttonHeight: element.querySelector('button').getBoundingClientRect().height,
+    buttonWidth: element.querySelector('button').getBoundingClientRect().width,
   }));
-  if (layout.text !== '有新版本 更新' || layout.buttonHeight < 44 - 0.01) throw new Error(`Update banner is incomplete: ${JSON.stringify(layout)}`);
+  if (layout.text !== '有新版本 更新' || Math.abs(layout.buttonHeight - 44) > .01 || layout.buttonWidth < 44 || layout.buttonWidth > 64) throw new Error(`Update banner is incomplete: ${JSON.stringify(layout)}`);
   if (errors.length) throw new Error(`Browser errors: ${errors.join('; ')}`);
   await page.evaluate(async () => {
     const { mountPortraitOrientation } = await import('/src/lib/portrait-orientation.ts');

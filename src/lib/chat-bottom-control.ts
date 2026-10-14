@@ -1,5 +1,5 @@
 import { layoutViewport } from './form-input';
-export const CHAT_LATEST_GAP = 64;
+export const CHAT_LATEST_GAP = 12;
 
 type BottomControlOptions = {
   button: HTMLButtonElement;

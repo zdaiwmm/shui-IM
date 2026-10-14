@@ -216,3 +216,9 @@ body:has(.confirm-overlay, .call-overlay, .call-sheet, .message-actions) .hidden
 .favorites-page-label { position: absolute; top: var(--gallery-header-height); inset-inline: 20px; text-align: center; font-size: .875rem; margin: 0; z-index: 3; pointer-events: none; }
 .gallery-shell:has(.favorites-empty) .gallery-visibility-button { display: none; }
 .recovery-explanation .recovery-flow-list { padding-left: 20px; margin: 0 0 16px; color: var(--ink-muted); font-size: .875rem; }
+
+/* Update is a compact text action inside its 44px target, not a filled CTA. */
+#app .release-update-reminder button[data-release-update] { width:auto; min-width:44px; min-height:44px; height:44px; flex:0 0 auto; margin:0 0 0 auto; padding:0 8px; border:0; border-radius:10px; background:transparent; color:var(--accent); font-size:.8125rem; line-height:1; box-shadow:none; }
+
+/* Keep the editing row painted while an expression sheet hands space to the keyboard. */
+#app .composer[data-expression-handoff] .composer-row { opacity:1; visibility:visible; }

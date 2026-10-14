@@ -117,12 +117,12 @@ describe('platform vault WebAuthn cancellation', () => {
     expect(fresh.platformVaultUsesExternalAuthenticator()).toBe(false);
   });
 
-  it('reports the current browser verifier independently from mobile identity without excluding external keys', async () => {
+  it('selects new-password setup on an explicit negative built-in probe, independently of mobile identity', async () => {
     installCredentials({ create: vi.fn() });
     Object.defineProperty(FakePublicKeyCredential, 'getClientCapabilities', { configurable: true, value: vi.fn().mockResolvedValue({ 'extension:prf': true, userVerifyingPlatformAuthenticator: false }) });
     try {
       await probePlatformVaultCapabilities();
-      expect(platformVaultSetupState()).toBe('available');
+      expect(platformVaultSetupState()).toBe('unsupported');
       expect(platformVaultUsesExternalAuthenticator()).toBe(true);
       vi.stubGlobal('navigator', { userAgent: 'iPhone Safari', credentials: { create: undefined, get: vi.fn() } });
       expect(platformVaultSetupState()).toBe('unsupported');

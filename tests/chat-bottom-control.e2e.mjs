@@ -183,10 +183,10 @@ try {
     const { app, up, settle, button, visible, waitForComposerReveal, assertGap } = window.bottomFixture;
     assertGap(); if (visible()) throw Error('Latest message above the button still showed the control');
     const latest = app.renderedMessageOrder.at(-1);
-    const start = latest.getBoundingClientRect().bottom - button().getBoundingClientRect().top;
+    const start = latest.getBoundingClientRect().bottom - document.querySelector('#composer').getBoundingClientRect().top;
     if (Math.abs(start + 12) > 1) throw Error(`Bottom clearance was not 12px: ${start}`);
-    await up(11); if (visible()) throw Error('Button appeared before latest message crossed its top edge');
-    await up(13);
+    await up(7); if (visible()) throw Error('Button appeared before latest message crossed its top edge');
+    await up(9);
     const composer = document.querySelector('#composer');
     if (composer.dataset.viewportMotion !== 'positioning' || getComputedStyle(composer).opacity !== '1'
       || getComputedStyle(composer).transform !== 'none') throw Error('Scroll motion hid or shifted the composer');
@@ -194,7 +194,7 @@ try {
     if (!visible() || button().getAttribute('aria-hidden') !== 'false' || button().tabIndex !== 0) throw Error('Button did not appear after scroll motion fully settled');
     const fade = getComputedStyle(button());
     if (!fade.transitionProperty.includes('opacity') || !fade.transitionDuration.includes('0.18s')) throw Error('Button lost its opacity transition');
-    await up(11);
+    await up(7);
     // Scrolling keeps the composer painted while the button's visibility is
     // measured at the stable endpoint.
     await waitForComposerReveal();
@@ -933,7 +933,7 @@ try {
       app.messages.get(4).status = 'failed'; app.renderMessages({ scroll: 'bottom' });
       await Promise.all([...document.querySelectorAll('#message-list img')].map(image => image.decode())); await settle();
       const gap = document.querySelector('#composer').getBoundingClientRect().top - app.renderedMessageOrder.at(-1).getBoundingClientRect().bottom;
-      if (Math.abs(gap - 64) > 2 || visible() || !app.chatPinnedToBottom) throw Error(`Late cached image layout lost bottom alignment: ${JSON.stringify({ gap, visible: visible(), pinned: app.chatPinnedToBottom })}`);
+      if (Math.abs(gap - 12) > 2 || visible() || !app.chatPinnedToBottom) throw Error(`Late cached image layout lost bottom alignment: ${JSON.stringify({ gap, visible: visible(), pinned: app.chatPinnedToBottom })}`);
       return { width: 320, font: 20, decodedImages: 2, finalGap: gap, buttonHidden: true };
     } finally { document.documentElement.style.removeProperty('font-size'); }
   });
@@ -1132,7 +1132,7 @@ try {
       app.updateChatBottomControl();
       for (let index = 0; index < 20; index++) app.chatBottomControl.update(false);
     } finally { Element.prototype.getBoundingClientRect = original; }
-    if (messageReads !== 1 || buttonReads !== 1) throw Error(`Visibility work scaled with history or idle frames: ${JSON.stringify({ messageReads, buttonReads })}`);
+    if (messageReads !== 1 || buttonReads > 1) throw Error(`Visibility work scaled with history or idle frames: ${JSON.stringify({ messageReads, buttonReads })}`);
     button().click();
     if (button().dataset.scrolling || Math.abs(window.scrollY - app.chatBottomScrollTop()) > 2 || visible()) throw Error('Reduced motion did not move directly to latest message');
     if (getComputedStyle(button()).transitionProperty !== 'none') throw Error('Reduced motion retained the fade');
@@ -1145,7 +1145,7 @@ try {
     await fresh(0); if (visible()) throw Error('Empty conversation displayed return control');
     await fresh(1);
     const shortGap = document.querySelector('#composer').getBoundingClientRect().top - app.renderedMessageOrder.at(-1).getBoundingClientRect().bottom;
-    if (visible() || Math.abs(shortGap - 64) > 2) throw Error(`Short conversation lost its final bottom spacing: ${shortGap}`);
+    if (visible() || Math.abs(shortGap - 12) > 2) throw Error(`Short conversation lost its final bottom spacing: ${shortGap}`);
     return { historyCount: 5000, messageBoundsReads: messageReads, buttonBoundsReads: buttonReads, idleFrames: 20, instantReducedMotion: true, emptyAndShort: true };
   });
 

@@ -1,7 +1,7 @@
 import { layoutViewport } from './form-input';
 import { animatePageReplacement } from './motion';
 import { mountDialog } from './dialog';
-import { bindHalfSheetHandle } from './half-sheet';
+import { bindHalfSheetHandle, bindSettingsSheet } from './half-sheet';
 import { spaceAvatarMarkup, bindSpaceAvatarPlayback } from './space-avatar';
 import type { PrivateSpace } from './spaces';
 import { Image, createElement, Bell, Settings, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2, PanelLeftClose, Palette, MonitorDown, ArrowLeft } from 'lucide';
@@ -38,7 +38,7 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
   presentation?: 'sidebar' | 'settings'; container?: HTMLElement; openSettings?: () => void;
   spaces: PrivateSpace[]; currentRoom: string; signal: AbortSignal; actions: Action[]; icons?: { close: string; plus: string; settings: string };
   select: (space: PrivateSpace) => Promise<void>; create: () => Promise<void>; rename: (space: PrivateSpace, name: string) => Promise<void>;
-removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; settingsScrollTop?: number; onSettingsLeave?: (scrollTop: number) => void;
+removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restoreSettings?: boolean; settingsScrollTop?: number; onSettingsLeave?: (scrollTop: number, expanded: boolean) => void; initialExpanded?: boolean;
   editAvatar?: (space: PrivateSpace) => Promise<import('./space-avatar').SpaceAvatar | null>;
   remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace) => void;
   listScrollTop?: number;
@@ -49,15 +49,17 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; settin
 }): void {
   const lifetime = new AbortController();
   const signal = AbortSignal.any([options.signal, lifetime.signal]);
-  const sheet = document.createElement('div'); sheet.className = 'space-drawer-overlay' + (options.initialSettings ? ' is-visible is-restored' : ''); sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', '私密空间');
+  const sheet = document.createElement('div'); sheet.className = 'space-drawer-overlay' + (options.initialSettings && options.restoreSettings ? ' is-visible is-restored' : ''); sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', '私密空间');
   const embedded = Boolean(options.presentation);
   if (embedded) { sheet.className = `space-embedded space-${options.presentation}`; sheet.removeAttribute('aria-modal'); sheet.setAttribute('role', 'region'); }
   (options.container ?? root).append(sheet);
+  let handingOff = false;
+  let settingsExpanded = options.initialExpanded ?? false;
   let busy = false, listScrollTop = options.listScrollTop ?? 0;
   let pageLifetime = new AbortController();
   signal.addEventListener('abort', () => pageLifetime.abort(), { once: true });
   const dialog = embedded ? { close: (_options?: { animate?: boolean; restoreFocus?: boolean }) => { /* Embedded navigation owns its page lifetime. */ } } : mountDialog(sheet, { signal: options.signal, isActive: () => !options.signal.aborted, beforeClose: () => !busy, onClose: () => {
-    lifetime.abort(); options.closed();
+    lifetime.abort(); if (!handingOff) options.closed();
   } });
   if (embedded) signal.addEventListener('abort', () => sheet.remove(), { once: true });
   const close = () => { if (embedded) { if (!busy) options.closed(); } else dialog.close(); };
@@ -71,9 +73,19 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; settin
     sheet.classList.toggle('is-settings-page', title === '设置' || title === '在线状态样式');
     sheet.classList.toggle('is-space-list-page', title === '私密空间');
     const listing = title === '私密空间';
-    sheet.innerHTML = `<section class="space-drawer"><header class="space-drawer-header">${back ? `<button class="icon-button space-back" aria-label="返回">${createElement(ArrowLeft).outerHTML}</button>` : `<button class="icon-button space-close" aria-label="${options.presentation === 'sidebar' ? '收起空间侧栏' : '返回聊天'}">${options.presentation === 'sidebar' ? createElement(PanelLeftClose).outerHTML : createElement(ArrowLeft).outerHTML}</button>`}<h2>${title}</h2>${listing ? `<div class="space-header-actions"><button class="icon-button" id="space-settings" aria-label="设置">${spaceIcons.settings}</button></div>` : back ? `<button class="icon-button space-close" aria-label="关闭">${closeIcon}</button>` : '<span class="space-header-spacer"></span>'}</header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${footer ? `<footer class="space-drawer-footer">${footer}</footer>` : ''}</section>`;
+    const settingsSheet = !embedded && !listing;
+    sheet.classList.toggle('is-settings-sheet', settingsSheet);
+    const leading = !embedded && (listing || title === '设置') ? '<span class="space-header-spacer"></span>'
+      : back ? `<button class="icon-button space-back" aria-label="返回">${createElement(ArrowLeft).outerHTML}</button>`
+      : `<button class="icon-button space-close" aria-label="${options.presentation === 'sidebar' ? '收起空间侧栏' : '返回聊天'}">${options.presentation === 'sidebar' ? createElement(PanelLeftClose).outerHTML : createElement(ArrowLeft).outerHTML}</button>`;
+    const trailing = listing && embedded ? `<div class="space-header-actions"><button class="icon-button" id="space-settings" aria-label="设置">${spaceIcons.settings}</button></div>`
+      : `<button class="icon-button space-close" aria-label="关闭">${closeIcon}</button>`;
+    sheet.innerHTML = `<section class="space-drawer">${settingsSheet ? '<button type="button" class="settings-sheet-handle half-sheet-handle"><span></span></button>' : ''}<header class="space-drawer-header">${leading}<h2>${title}</h2>${trailing}</header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${footer ? `<footer class="space-drawer-footer">${footer}</footer>` : ''}</section>`;
+    if (settingsSheet) bindSettingsSheet(sheet.querySelector('.settings-sheet-handle')!, sheet.querySelector('.space-drawer')!,
+      AbortSignal.any([signal, pageLifetime.signal]), close, settingsExpanded, value => { settingsExpanded = value; });
+
     bindSpaceAvatarPlayback(sheet, AbortSignal.any([signal, pageLifetime.signal]));
-    if (previousPage && priorTitle !== title) animatePageReplacement(sheet, previousPage, sheet.querySelector<HTMLElement>(':scope > .space-drawer')!, title === '私密空间' || (title === '设置' && priorTitle === '在线状态样式'), signal);
+    if (previousPage && priorTitle !== title && !settingsSheet) animatePageReplacement(sheet, previousPage, sheet.querySelector<HTMLElement>(':scope > .space-drawer')!, title === '私密空间' || (title === '设置' && priorTitle === '在线状态样式'), signal);
     sheet.querySelector('.space-close')?.addEventListener('click', close);
     sheet.querySelector('.space-back')?.addEventListener('click', () => { back!(); sheet.querySelector<HTMLButtonElement>('.space-back,.space-close')?.focus(); });
   }
@@ -169,7 +181,7 @@ const removable = Boolean(options.remove && space.waiting && !space.accessState)
     if (other) cards.push(other);
     page('设置', `<div class="space-settings-list">${cards.map(card => `<div class="space-setting-card">${card}</div>`).join('')}</div>`, '', options.presentation === 'settings' ? close : list);
     sheet.querySelector('#presence-style-setting')!.addEventListener('click', () => { styles(); sheet.querySelector<HTMLButtonElement>('[aria-checked=true]')?.focus(); });
-    for (const action of options.actions) sheet.querySelector(`#${action.id}`)!.addEventListener('click', () => { if (action.keepOpen) void run(async () => { await action.run(); }); else { options.onSettingsLeave?.(sheet.querySelector('.space-drawer-scroll')!.scrollTop); dialog.close({ animate: false }); void action.run(); } });
+    for (const action of options.actions) sheet.querySelector(`#${action.id}`)!.addEventListener('click', () => { if (action.keepOpen) void run(async () => { await action.run(); }); else { options.onSettingsLeave?.(sheet.querySelector('.space-drawer-scroll')!.scrollTop, settingsExpanded); handingOff = true; void action.run(); } });
   }
   function authorizations() {
     sheet.querySelectorAll<HTMLButtonElement>('[data-access]').forEach(button=>{const space=options.spaces[Number(button.dataset.access)];const action=space&&options.authorization?.(space);button.hidden=!action||action.deadline<=performance.now();});
@@ -200,7 +212,7 @@ const expiry = pendingSpaceExpiry(s);
     if (focusedRoom) sheet.querySelector<HTMLButtonElement>(`[data-space="${options.spaces.findIndex(s => s.roomId === focusedRoom)}"]`)?.focus({ preventScroll: true });
     else if (focusedId) sheet.querySelector<HTMLElement>(`#${CSS.escape(focusedId)}`)?.focus({ preventScroll: true });
     sheet.querySelectorAll<HTMLButtonElement>('[data-access]').forEach(button=>button.addEventListener('click',()=>{const space=options.spaces[Number(button.dataset.access)]!;const action=options.authorization?.(space);if(action&&action.deadline>performance.now()){dialog.close({animate:false});void action.open();}}));
-    sheet.querySelector('#space-settings')!.addEventListener('click', () => { if (options.openSettings) options.openSettings(); else { settings(); sheet.querySelector<HTMLButtonElement>('.space-back')?.focus(); } });
+    sheet.querySelector('#space-settings')?.addEventListener('click', () => { if (options.openSettings) options.openSettings(); else { settings(); sheet.querySelector<HTMLButtonElement>('.space-back')?.focus(); } });
     sheet.querySelector('#space-create')!.addEventListener('click', () => void run(async () => { await options.create(); dialog.close({ animate: false }); }));
     sheet.querySelectorAll<HTMLButtonElement>('[data-space]').forEach(button => {
       const space = options.spaces[Number(button.dataset.space)]!;
@@ -236,6 +248,8 @@ const expiry = pendingSpaceExpiry(s);
     signal.addEventListener('abort', () => observer.disconnect(), { once: true });
   }
   if (options.initialSettings) { settings(); sheet.querySelector('.space-drawer-scroll')!.scrollTop = options.settingsScrollTop ?? 0; } else list();
+  // Resolve the initial offscreen position before the dialog's next-frame reveal.
+  void sheet.offsetHeight;
   if (options.refreshSpaces) {
     let refreshTimer: number | undefined;
     const refresh = async () => {

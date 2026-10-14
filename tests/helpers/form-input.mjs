@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 /** Exercise the real mobile draft editor; desktop fixtures retain their native fields. */
 export async function fillFormInput(page, field, value) {
   if (await page.locator('#form-input-draft').count() && await field.getAttribute('data-form-input-active') !== 'true') {
-    await page.locator('[data-form-input-cancel]').click();
+    await page.locator('#form-input-draft').press('Escape');
   }
   // Native focus is synchronous, including a dialog's deferred initial focus.
   // Pointer activation is independently exercised by mobile-debug.e2e.mjs.
@@ -25,8 +25,8 @@ export async function cancelPasswordForm(page) {
       Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)));
     await Promise.allSettled(effects.map(animation => animation.finished));
   });
-  if (await page.locator('[data-form-input-cancel]').count()) {
-    await page.locator('[data-form-input-cancel]').click();
+  if (await page.locator('#form-input-draft').count()) {
+    await page.locator('#form-input-draft').press('Escape');
     await page.locator('.form-input-overlay').waitFor({ state: 'detached' });
   }
   await sheet.locator('[data-password-cancel]').click();

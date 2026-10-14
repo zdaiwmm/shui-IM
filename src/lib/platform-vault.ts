@@ -109,8 +109,8 @@ export async function probePlatformVaultCapabilities(): Promise<void> {
   clientCapability = result;
   try {
     const capabilities = typeof credential.getClientCapabilities === 'function' ? await credential.getClientCapabilities() : {};
-    // Missing keys and rejected probes remain unknown. A platform-only probe
-    // cannot rule out a resident PRF-capable hardware security key.
+    // Missing keys and rejected probes remain unknown. These probes
+    // do not authenticate; a negative built-in probe selects new password setup by product policy.
     if (typeof capabilities['extension:prf'] === 'boolean') result.prf = capabilities['extension:prf'];
     if (typeof capabilities.userVerifyingPlatformAuthenticator === 'boolean') result.platform = capabilities.userVerifyingPlatformAuthenticator;
   } catch { /* Unknown: attempt the normal ceremony from the next click. */ }
@@ -125,7 +125,7 @@ export function platformVaultUsesExternalAuthenticator(): boolean {
     && clientCapability.probe === window.PublicKeyCredential?.getClientCapabilities && clientCapability.platform === false;
 }
 
-/** Only positively unsupported setup environments choose password; unknown still tries WebAuthn. */
+/** New protection prefers a local password when the built-in verifier is explicitly unavailable; unknown still tries WebAuthn. */
 export function platformVaultSetupState(): 'unsupported' | 'available' | 'unknown' | 'insecure' {
   if (!window.isSecureContext) return 'insecure';
   if (!window.PublicKeyCredential || typeof navigator.credentials?.create !== 'function' || typeof navigator.credentials?.get !== 'function') return 'unsupported';
@@ -133,7 +133,7 @@ export function platformVaultSetupState(): 'unsupported' | 'available' | 'unknow
   const hostname = window.location?.hostname ?? '';
   if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname) || hostname.includes(':')) return 'unsupported';
   if (clientCapability?.credential === window.PublicKeyCredential && clientCapability.probe === window.PublicKeyCredential.getClientCapabilities) {
-    if (clientCapability.prf === false) return 'unsupported';
+    if (clientCapability.prf === false || clientCapability.platform === false) return 'unsupported';
     if (clientCapability.prf === true) return 'available';
   }
   return 'unknown';

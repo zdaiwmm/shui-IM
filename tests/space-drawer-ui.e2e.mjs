@@ -12,16 +12,17 @@ try {
     await page.evaluate(async()=>{
       await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
       window.ui = await import('/src/lib/space-drawer.ts');
-      window.mount = (count=12) => {
+      window.mount = (count=12,initialSettings=false) => {
         window.abort?.abort(); window.abort = new AbortController(); window.renamed = ''; window.closed = 0;
         document.body.className='app-mode'; document.querySelector('#app').innerHTML='<main class="chat-shell"><button id="background">聊天背景</button></main>';
         const spaces = Array.from({length:count},(_,i)=>({roomId:String(i),name:i?'未选中空间 '+i:'两个人的空间',preview:['普通文字预览','[图片]','[视频]','[表情]'][i%4],unread:i===1?105:i===2?3:0}));
-        ui.mountSpaceDrawer(document.querySelector('#app'),{spaces,currentRoom:'0',signal:abort.signal,
+        ui.mountSpaceDrawer(document.querySelector('#app'),{spaces,currentRoom:'0',signal:abort.signal,initialSettings,
           actions:Object.entries(ui.spaceIcons).map(([key,icon],i)=>({id:'setting-'+i,label:'设置入口 '+i,icon,group:i<3?'当前空间':i<6?'本机':'关于',run:()=>{}})),
           select:async()=>{},create:async()=>{},rename:async(space,name)=>{window.renamed=name;},styleChanged:style=>{window.style=style;},closed:()=>{window.closed++;}});
-      }; mount();
+      }; mount(); window.listStart=document.querySelector('.space-drawer').getBoundingClientRect().left;
     });
     await page.locator('.space-drawer-overlay.is-visible').waitFor();
+    assert.ok(await page.evaluate(()=>window.listStart<=-392),'Space list must enter from the left');
     assert.equal(await page.locator('.space-avatar').count(),12);
     assert.equal(await page.locator('[data-space="1"] .space-unread').innerText(),'99+');
     assert.equal(await page.locator('[data-space="1"] .space-unread').getAttribute('aria-label'),'105 条未读消息');
@@ -45,13 +46,18 @@ try {
     await page.locator('#space-name-cancel').click(); await page.locator('.space-name-dialog').waitFor({state:'detached'});
     await page.setViewportSize({width:393,height:680});
     await page.locator('.space-drawer:not(.local-page-outgoing) > .space-drawer-scroll').evaluate(el=>{el.scrollTop=400;window.listPosition=el.scrollTop;});
-    await page.locator('#space-settings').click();
+    const settingsStart=await page.evaluate(()=>{mount(12,true);return document.querySelector('.space-drawer').getBoundingClientRect().top;});
+    assert.ok(settingsStart>=679,'First settings entry must begin below the viewport');
+    await page.locator('.space-drawer-overlay.is-visible').waitFor();
     assert.equal(await page.locator('#feature-help').count(),0);
     assert.equal(await page.locator('.space-drawer:not(.local-page-outgoing) > .space-drawer-scroll').evaluate(el=>getComputedStyle(el).scrollbarWidth),'none');
     const icons=await page.locator('.space-setting-icon svg').evaluateAll(nodes=>nodes.map(el=>{const r=el.getBoundingClientRect(),tile=el.parentElement.getBoundingClientRect();return [r.width,r.height,tile.width,tile.height,getComputedStyle(el.parentElement).flexShrink];}));
     assert.ok(icons.every(([w,h,tileWidth,tileHeight,shrink])=>w===17&&h===17&&tileWidth===24&&tileHeight===24&&shrink==='0'),JSON.stringify(icons));
-    await page.locator('.space-back').click(); assert.ok(await page.locator('.space-drawer:not(.local-page-outgoing) > .space-drawer-scroll').evaluate(el=>Math.abs(el.scrollTop-window.listPosition)<1));
-    await page.locator('#space-settings').click();
+    assert.equal(await page.locator('.space-back').count(),0);
+    await page.locator('.settings-sheet-handle').click();
+    await page.waitForFunction(()=>document.querySelector('.space-drawer').dataset.detent==='full');
+    await page.locator('.space-close').click(); await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
+    await page.evaluate(()=>mount(12,true));
     await page.locator('#presence-style-setting').click();
     await page.locator('[data-style=capsule]').focus(); await page.locator('[data-style=capsule]').press('ArrowRight');
     await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
