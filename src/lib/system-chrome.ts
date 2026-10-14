@@ -19,6 +19,8 @@ export function mountSystemChrome(): () => void {
   const app = document.querySelector('#app');
   if (app) observer.observe(app, { childList:true });
   window.addEventListener('appearancechange', sync);
+  document.addEventListener('focusin', sync);
+  document.addEventListener('focusout', sync);
   sync();
-  return () => { observer.disconnect(); window.removeEventListener('appearancechange', sync); probe.remove(); };
+  return () => { observer.disconnect(); window.removeEventListener('appearancechange', sync); document.removeEventListener('focusin', sync); document.removeEventListener('focusout', sync); probe.remove(); };
 }

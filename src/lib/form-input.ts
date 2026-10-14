@@ -74,7 +74,7 @@ export function mountFormInputs(root: HTMLElement): () => void {
     try { selection = [original.selectionStart, original.selectionEnd]; } catch { /* Numeric fields have no selection API. */ }
     overlay.querySelector('.form-input-field')!.prepend(editor);
     root.append(overlay);
-    let finished = false, composing = false, pointerAction = false;
+    let finished = false, composing = false, pointerAction = false, commitRequested = false;
     const release = () => {
       releasePending = null; held = null;
       root.style.setProperty('height', previousHeight, priority);
@@ -118,20 +118,36 @@ export function mountFormInputs(root: HTMLElement): () => void {
       overlay.style.height = `${view?.height ?? innerHeight}px`;
       overlay.style.left = `${view?.offsetLeft ?? 0}px`;
       overlay.style.width = `${view?.width ?? innerWidth}px`;
+      // Safari's translucent input accessory samples below the visible page.
+      // Paint that occluded layout area with the editor's opaque surface too.
+      overlay.style.setProperty('--form-input-underlay-height', `${Math.max(0,
+        Math.max(rootHeight, innerHeight, document.documentElement.clientHeight) - (view?.offsetTop ?? 0) - (view?.height ?? innerHeight))}px`);
     };
     fit(); view?.addEventListener('resize', fit, { signal: events.signal }); view?.addEventListener('scroll', fit, { signal: events.signal });
     window.addEventListener('resize', fit, { signal: events.signal });
     // IME confirmation can emit an implicit form submit with isComposing=false.
     // Only the explicit Done action or a non-composing editor key completes.
     overlay.querySelector('form')!.addEventListener('submit', event => { event.preventDefault(); }, { signal: events.signal });
-    overlay.querySelector('[data-form-input-done]')!.addEventListener('click', () => { if (!composing) finish(true); }, { signal: events.signal });
+    overlay.querySelector('[data-form-input-done]')!.addEventListener('click', () => {
+      // The trusted Done action must finalize the IME before reading its value.
+      // Safari can deliver compositionend/input after the button's activation.
+      commitRequested = true;
+      editor.blur();
+      if (!composing) finish(true);
+    }, { signal: events.signal });
     overlay.addEventListener('pointerdown', event => {
       if (event.target === editor) return;
-      pointerAction = true; setTimeout(() => { pointerAction = false; }, 0);
+      // Keep ownership through delayed touch focus/blur and the eventual click.
+      pointerAction = true;
     }, { capture: true, signal: events.signal });
-    overlay.addEventListener('click', event => { if (event.target === overlay) finish(false); }, { signal: events.signal });
+    overlay.addEventListener('click', event => { if (event.target === overlay) finish(false); pointerAction = false; }, { signal: events.signal });
+    overlay.addEventListener('pointercancel', () => { pointerAction = false; }, { signal: events.signal });
+    editor.addEventListener('focus', () => { pointerAction = false; }, { signal: events.signal });
     editor.addEventListener('compositionstart', () => { composing = true; }, { signal: events.signal });
-    editor.addEventListener('compositionend', () => { composing = false; }, { signal: events.signal });
+    editor.addEventListener('compositionend', () => {
+      composing = false;
+      if (commitRequested) queueMicrotask(() => finish(true));
+    }, { signal: events.signal });
     editor.addEventListener('keydown', event => {
       const key = event as KeyboardEvent;
       if (key.key === 'Enter' && original instanceof HTMLInputElement && !key.isComposing && key.keyCode !== 229 && !composing) { event.preventDefault(); finish(true); }
@@ -140,7 +156,10 @@ export function mountFormInputs(root: HTMLElement): () => void {
     window.addEventListener('pagehide', cancelFormInput, { capture: true, signal: events.signal });
     // Losing focus to the keyboard's native Done commits without refocusing the source.
     editor.addEventListener('blur', event => queueMicrotask(() => {
-      if (!finished && !pointerAction && !overlay.contains(document.activeElement)) finish(!(event as FocusEvent).relatedTarget && document.hasFocus() && active());
+      if (finished || commitRequested || pointerAction || overlay.contains(document.activeElement)) return;
+      const commit = !(event as FocusEvent).relatedTarget && document.hasFocus() && active();
+      if (commit && composing) commitRequested = true;
+      else finish(commit);
     }), { signal: events.signal });
     editor.focus({ preventScroll: true });
     try { if (selection[0] !== null) editor.setSelectionRange(selection[0], selection[1]); } catch { /* Native numeric editor. */ }

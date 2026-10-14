@@ -16,7 +16,7 @@ describe('browser regression groups', () => {
   it('partitions group 2 into disjoint concurrent runner shards without omissions', async () => {
     const shards = Array.from({ length: 4 }, (_, i) => selectBrowserScripts('2', `${i + 1}/4`));
     expect(shards.flat().sort()).toEqual(selectBrowserScripts('2').sort());
-    expect(new Set(shards.flat()).size).toBe(62);
+    expect(new Set(shards.flat()).size).toBe(63);
     const weights = JSON.parse(await readFile(path.join(root, 'scripts/browser-durations.json'), 'utf8')).seconds;
     const cost = (items: string[]) => items.reduce((sum, item) => sum + (weights[item] ?? 60), 0);
     const old = Array.from({ length: 4 }, (_, i) => selectBrowserScripts('2').filter((_item: string, index: number) => index % 4 === i));
@@ -35,7 +35,7 @@ describe('browser regression groups', () => {
   });
   it('partitions every existing browser entry exactly once and preserves full-suite order', async () => {
     const expected = [
-      'browser', 'mobile-debug', 'frontend-lifecycle', 'draft-refresh', 'motion-system', 'motion-completion', 'release-update', 'settings-appearance', 'p1-controls', 'chat-bottom-control', 'chat-list-viewport', 'chat-continuity', 'chat-scroll-stability', 'message-timeline', 'message-read', 'desktop-layout', 'desktop-privacy', 'desktop-session-flow',
+      'browser', 'mobile-debug', 'mobile-safari-feedback', 'frontend-lifecycle', 'draft-refresh', 'motion-system', 'motion-completion', 'release-update', 'settings-appearance', 'p1-controls', 'chat-bottom-control', 'chat-list-viewport', 'chat-continuity', 'chat-scroll-stability', 'message-timeline', 'message-read', 'desktop-layout', 'desktop-privacy', 'desktop-session-flow',
       'vault-resume', 'system-surfaces', 'privacy-surface', 'blank-double-lock', 'file-flow', 'file-outbox', 'file-interactions', 'document-reader', 'meme-picker',
       'unread-counter', 'reaction-history', 'message-deletion', 'vault-lifecycle', 'media-cache', 'message-window', 'spaces', 'passkey-management', 'browser-access', 'space-drawer-ui', 'space-profile', 'notifications', 'voice-lifecycle', 'voice-submission',
       'cloud-backup-lifecycle', 'local-history-backup', 'backup-access', 'joint-recovery', 'audit-interactions', 'password-fallback', 'recovery-card-entry', 'entry-feedback', 'webview-password', 'prototype-fidelity', 'history-restore', 'backup-admin-ui', 'admin-collection-ui',
@@ -44,7 +44,7 @@ describe('browser regression groups', () => {
     const all = selectBrowserScripts();
     expect(all).toEqual(expected);
     expect([...selectBrowserScripts('1'), ...selectBrowserScripts('2')]).toEqual(all);
-    expect(new Set(all).size).toBe(63);
+    expect(new Set(all).size).toBe(64);
     expect(Object.keys(browserGroups)).toEqual(['1', '2']);
     expect(selectBrowserScripts('1')).toEqual(['tests/browser.e2e.mjs']);
     const main = await readFile(path.join(root, 'tests/browser.e2e.mjs'), 'utf8');
@@ -86,8 +86,8 @@ describe('browser regression groups', () => {
       active--;
     } });
     expect(seen).toEqual(selectBrowserScripts());
-    expect(log.mock.calls.filter(([line]) => line.startsWith('[browser] PASS'))).toHaveLength(63);
-    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 6.30s; 63 passed, 0 failed, 0 not run.');
+    expect(log.mock.calls.filter(([line]) => line.startsWith('[browser] PASS'))).toHaveLength(64);
+    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 6.40s; 64 passed, 0 failed, 0 not run.');
   });
 
   it('stops a failing group, preserves its failure and explicitly reports scripts that did not run', async () => {
@@ -96,7 +96,7 @@ describe('browser regression groups', () => {
     const log = vi.fn();
     await expect(runBrowserTests({ group: '2', run, log, now: () => 0 })).rejects.toBe(failure);
     expect(run.mock.calls.map(([script]) => script)).toEqual(selectBrowserScripts('2').slice(0, 2));
-    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 0.00s; 1 passed, 1 failed, 60 not run.');
+    expect(log).toHaveBeenLastCalledWith('[browser] TOTAL 0.00s; 1 passed, 1 failed, 61 not run.');
   });
 
   it('does not start another script after cancellation', async () => {

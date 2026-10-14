@@ -5,12 +5,13 @@
   --chrome-page-bottom: var(--paper);
   --chrome-top-surface: var(--chrome-page-top);
   --chrome-bottom-surface: var(--chrome-page-bottom);
+  --input-accessory-surface: light-dark(#eef0f3,#303037);
 }
 html:has(#app > .chat-shell) {
   --chrome-page-top: var(--header-surface);
   --chrome-page-bottom: var(--composer-surface);
 }
-html:has(#app > .chat-shell textarea:focus) { --chrome-page-bottom: var(--composer-surface-focused); }
+html:has(#app > .chat-shell textarea:focus) { --chrome-page-top: var(--composer-surface-focused); --chrome-page-bottom: var(--composer-surface-focused); }
 html:has(#app > :is(.gateway,.device-shell,.backup-page,.recovery-flow-page,.gallery-shell,.cover,.browser-access-shell)),
 html:has(#app :is(.space-profile-overlay,.space-drawer-overlay,.password-page)) {
   --chrome-page-top: var(--paper); --chrome-page-bottom: var(--paper);
@@ -31,6 +32,7 @@ html:has(.image-viewer .photo-details.is-expanded:not(.is-closing):not(.is-dragg
   --chrome-top-surface: var(--surface-raised); --chrome-bottom-surface: var(--surface-raised);
 }
 html:has(.document-reader) { --chrome-top-surface: var(--paper); --chrome-bottom-surface: var(--paper); }
+html:has(#app > .form-input-overlay) { --chrome-bottom-surface: var(--input-accessory-surface); }
 html:has(.document-reader [data-presentation='sheet']) {
   --chrome-top-surface: color-mix(in srgb,var(--paper) 65%,#141019);
   --chrome-bottom-surface: var(--surface-raised);

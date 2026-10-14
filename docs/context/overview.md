@@ -6,7 +6,7 @@
 
 Codex 本地移动调试：`scripts/dev-mobile.mjs`、`tools/mobile-debug/`、`.agents/skills/quiet-room-mobile-debug/`；统一入口 `npm run dev:mobile`，专项 `tests/mobile-debug.e2e.mjs` 已接入完整浏览器门禁。跨电脑与权限边界见 [工作流](../workflows/mobile-debug.md)，7条产品批注与待确认输入浮层见 [需求记录](../requirements/2026-10-14-mobile-debug-feedback/README.md)。
 
-移动交互连续性V1：设置半屏／全屏与空间横向导航、满宽表单、键盘重开、末行定位及合并Emoji／贴纸入口，长期契约见DESIGN／PRODUCT／MEMES与[确认及验证记录](../requirements/2026-10-14-mobile-interaction-polish/README.md)；相关入口为`half-sheet.ts`、`space-drawer.ts`、`form-input.ts`、`meme-picker.ts`与`app.ts`。
+移动交互连续性V1及iPhone验收修订：设置直接全屏与空间横向导航、满宽表单、键盘重开、末行定位及合并Emoji／贴纸入口，长期契约见DESIGN／PRODUCT／MEMES与[确认及验证记录](../requirements/2026-10-14-mobile-interaction-polish/README.md)；相关入口为`half-sheet.ts`、`space-drawer.ts`、`form-input.ts`、`meme-picker.ts`与`app.ts`；本次七项修正和专项入口见[验收修订](../requirements/2026-10-14-mobile-safari-feedback/README.md)。
 
 CI 镜像与双独立环境：`scripts/ci-image.mjs`、`scripts/deploy-config.mjs`、`scripts/publish.mjs`／`release.mjs` 与 `.github/workflows/ci.yml`；按精确 main CI run／attempt 校验并传输对应架构镜像。配置、发布与独立回读均选择同一命名环境。缓存维护为独立 root 工具 `deploy/server/quiet-room-cache-maintenance`，不进入每日定时器。契约与验证见[本次需求](../requirements/2026-10-12-ci-image-environments/README.md)、DEPLOYMENT 与 OPERATIONS；源代码存在不代表生产已安装或清理。
 

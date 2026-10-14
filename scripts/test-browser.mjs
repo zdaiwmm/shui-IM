@@ -13,6 +13,7 @@ export const browserGroups = Object.freeze({
   '1': Object.freeze(['tests/browser.e2e.mjs']),
   '2': Object.freeze([
     'tests/mobile-debug.e2e.mjs',
+    'tests/mobile-safari-feedback.e2e.mjs',
     'tests/frontend-lifecycle.e2e.mjs',
     'tests/draft-refresh.e2e.mjs',
     'tests/motion-system.e2e.mjs',

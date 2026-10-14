@@ -6,6 +6,12 @@
 - 完整CI浏览器分片均衡、严格同tree／环境／run／attempt证据复用、镜像完整校验前移、候选stage／精确activate及限定backup-starting只读等待已落地。长期规则由[效率规程](../workflows/publish-efficiency.md)拥有；本地／CI结果及失败分类由[V2需求](../requirements/2026-10-14-publish-efficiency-v2/README.md)拥有。
 - 合并本需求不会安装生产helper／配置、导入镜像或部署应用。具体文件摘要及安装边界见[生产变更审阅](../requirements/2026-10-14-publish-efficiency-v2/production-change-review.md)。真实生产速度及Engine／Compose兼容性尚未验证，下面的生产记录仍由原发布任务拥有。
 
+## iPhone 七项交互修复已合并（2026-10-14，精度复验中）
+
+- 用户确认七项方案并免除本次原型／流程图，授权实施与验证；生产精确提交另行确认。范围、确认及失败记录见[需求记录](../requirements/2026-10-14-mobile-safari-feedback/README.md)。
+- 版本`2026.10.14.2`修复表单完成／中文组合与辅助区衬底、设置直接全屏及底部占位、聊天上下同色、表情／键盘交接、发送状态副本及高DPR显示尺寸。干净`8d9a342`本地完整门禁通过：956项、64浏览器入口，883415毫秒。
+- [PR #299](https://github.com/zdaiwmm/shui-IM/pull/299)源`1ee70ea`完整CI38562647345 attempt 2成功，已合并为`1c9077ea77ef7df64c6333df32a6614ad804492f`。main CI38564329724在WebKit设置顶部0.000159px与严格0比较时失败，不能称main CI通过；仅将该顶部／底部断言统一为既有0.01px几何容差，产品源码不变，待新候选完整CI。早期精度、时钟采样及既有通话／邀请加入超时的失败与复验均保留在需求记录中。生产未授权精确SHA、未发布；修复后原生iPhone／Safari键盘、IME及系统栏待真机。下方已发布快照不因本候选改变。
+
 ## 移动交互连续性与云端发布已完成（2026-10-14）
 
 - 当前生产应用为用户精确批准的 `99979e9eef2dc6781e56cb52551c72a096eeac22`，版本 `2026.10.14.1`；[PR #291](https://github.com/zdaiwmm/shui-IM/pull/291)及精确main CI38519073837 attempt 1通过。V1免原型／流程图、追加四项、实施及早期失败由[需求记录](../requirements/2026-10-14-mobile-interaction-polish/README.md)拥有；本地920项、63浏览器入口和370展示组合通过，真机未验证。

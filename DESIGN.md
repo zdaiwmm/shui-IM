@@ -19,7 +19,7 @@ Messages are the primary surface when two people read a private conversation on 
 | Wallpaper anchors | `#CAD381`, `#66AB84`, `#89BE87`, `#D0D7B2` | `#000000` |
 | Incoming message | `#FFFFFF` | `#342234` |
 | Outgoing message | `#E0FFC6` | Continuous `#944CD5` → `#9349F4` → `#3768FF` |
-| Header | `#C6E6B7` | `#252525` |
+| Header | `#BCE8CF` | `#242424` |
 | Composer | `#BCE8CF` | `#242424` |
 | Primary action | `#34784A`, white text | `#7950BD`, white text |
 | Secondary message time | `#67726B` incoming / `#3C783B` outgoing | `#C3B4C5` incoming / near-white outgoing |
@@ -100,8 +100,12 @@ Full-page overlays and local hierarchy changes share 280ms horizontal navigation
 
 ## 2026-10-14 移动交互修订
 
-用户确认本轮免原型／流程图直接实施。移动设置使用半屏／全屏双停靠底部面板，44px具名柄、18px顶角，240ms纵向进退；一级无返回，右上关闭。二级页保留设置画面承接280ms横向转场，返回恢复停靠与滚动。空间列表左侧进入、向左退出，右上关闭，移除列表设置入口。头像来源改内容高度，保留两项44px操作与安全区。
+用户确认本轮免原型／流程图直接实施。移动设置按本次 iPhone 反馈直接进入全屏，无半屏停靠或顶部柄，240ms纵向进退；一级无返回，右上关闭。二级页保留设置画面承接280ms横向转场，返回恢复全屏与滚动。空间列表左侧进入、向左退出，右上关闭，移除列表设置入口。头像来源改内容高度，保留两项44px操作与安全区。
 
 表单编辑满宽贴可见区下沿，标题14px、字段16px，完成按钮内嵌右侧44px热区；无取消按钮，遮罩／Escape仍放弃草稿。底色采用中性输入辅助栏表面；本地调试同步辅助栏颜色，原生Safari颜色另作真机验证。表情首行是“+”、Emoji和已添加合集，不再使用搜索或底部Tab。现有Fluent动画在Emoji最前，普通Unicode分类在同一滚动内容中。
 
 聊天末行到输入栏目标12px；最新按钮按实际末行是否进入输入栏遮挡区判断，不按悬浮按钮自身位置判断。更新提示使用44px目标内的紧凑文字操作。键盘交接保持原输入节点和草稿，隐私清理立即执行。
+
+## iPhone feedback revision (2026-10-14)
+
+The [seven-item correction](docs/requirements/2026-10-14-mobile-safari-feedback/README.md) supersedes the earlier Settings detents. Settings fills the visible viewport and its scrolling body receives all remaining height, without a reserved bottom block. Chat header and composer share the effective surface, including the existing focused variant, across four palettes and both schemes. The form editor paints an opaque accessory underlay beyond the visible keyboard boundary and uses a stronger field fill; explicit Done and native keyboard Done finalize composition before commit, while cancellation and invalidation remain authoritative. Expression dismissal releases occupancy once and moves the editing row with the panel using synchronized transforms. Rapid handoff taps preserve focus. Fluent originals remain byte-identical; preview size is bounded to 36 CSS px and its physical pixel density. Progress updates with unchanged geometry retain their current motion, and retiring status snapshots never recursively clone earlier snapshots. Native iPhone keyboard, input accessory and browser material still require separate evidence.

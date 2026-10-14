@@ -62,6 +62,7 @@ export type MemePickerOptions = {
   media: (id: string, signal: AbortSignal) => Promise<Blob>;
   cache?: MemePickerCache;
   close: (keyboard: boolean) => void;
+  layoutChanged?: () => void;
   onSearchPointer: (input: HTMLInputElement, event: PointerEvent) => void;
   onKeyboardPointer: (event: PointerEvent) => void;
 };
@@ -101,6 +102,7 @@ export class MemePicker {
   private autoPage: IntersectionObserver;
   private sentinel = document.createElement('div');
   private sheetAnimation?: Animation;
+  private rowAnimation?: Animation;
   private halfHeight = 0;
   private suppressShortcutClickUntil = 0;
   private closing = false;
@@ -494,6 +496,7 @@ export class MemePicker {
     void this.switchKind(view?.kind === 'stickers' ? 'stickers' : 'emoji', view?.favorite ?? false);
   }
   private active() { return !this.disposed && !this.signal.aborted && this.options.isActive() && this.panel.isConnected; }
+  get isClosing() { return this.closing; }
   private animateSheet(from: number, to: number, property: 'height' | 'translate', finish = () => {}) {
     this.sheetAnimation?.cancel(); this.sheetAnimation = undefined;
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) { finish(); return; }
@@ -516,7 +519,19 @@ export class MemePicker {
     this.closing = true; this.panel.inert = true;
     const bounds = this.panel.getBoundingClientRect();
     const translate = new DOMMatrixReadOnly(getComputedStyle(this.panel).transform).m42;
+    const row = this.options.host.querySelector<HTMLElement>('.composer-row');
+    const rowTop = row?.getBoundingClientRect().top;
     this.panel.style.height = `${bounds.height}px`;
+    // Commit final occupancy once. The row and panel then travel together
+    // with transforms, instead of moving the row only after panel disposal.
+    this.options.host.classList.remove('has-meme-panel');
+    this.options.layoutChanged?.();
+    if (row && rowTop !== undefined && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      const delta = rowTop - row.getBoundingClientRect().top;
+      const frames = Array.from({ length: 25 }, (_, index) => ({ offset: index / 24,
+        transform: `translateY(${delta * (1 - chatKeyboardLayoutProgress(index / 24 * CHAT_KEYBOARD_LAYOUT_MS))}px)` }));
+      this.rowAnimation = row.animate(frames, { duration: CHAT_KEYBOARD_LAYOUT_MS, fill: 'both' });
+    }
     this.animateSheet(translate, translate + (layoutViewport()?.height ?? innerHeight) + (layoutViewport()?.offsetTop ?? 0) - bounds.top, 'translate', finish);
   }
   private hasPack(id: string) { return this.packs.some(pack => pack.id === id); }
@@ -831,6 +846,8 @@ export class MemePicker {
         const tile = document.createElement('button'); tile.type = 'button'; tile.className = 'emoji-tile fluent-emoji-tile';
         tile.setAttribute('aria-label', `发送 ${item.label}`);
         const img = document.createElement('img'); img.alt = ''; img.draggable = false; img.dataset.avatarEmoji = item.id;
+        // 128px originals must not be stretched beyond physical pixel density.
+        img.style.maxWidth = `${128 / Math.max(1, devicePixelRatio)}px`;
         img.src = `/space-avatars/${item.id}-still.webp`; tile.append(img); fluent.append(tile);
         tile.addEventListener('pointerdown', event => event.preventDefault());
         tile.addEventListener('click', () => void this.perform({ id:item.id, title:item.label, localAsset:`/space-avatars/${item.id}.webp` }, 'send'));
@@ -1031,8 +1048,10 @@ export class MemePicker {
     this.rememberView();
     this.disposed = true; this.emojiPlayback?.abort(); this.controller.abort();
     this.sheetAnimation?.cancel();
+    this.rowAnimation?.cancel();
     if (this.preview) closeDialog(this.preview, { animate: false, restoreFocus: false }); if (this.overlay) closeDialog(this.overlay, { animate: false, restoreFocus: false });
     this.observer.disconnect(); this.autoPage.disconnect(); this.request?.abort(); for (const tile of this.tiles.keys()) this.unload(tile);
     this.tiles.clear(); this.favorites = []; this.packs = []; this.panel.remove(); this.options.host.classList.remove('has-meme-panel');
+    delete this.options.host.dataset.expressionHandoff;
   }
 }
