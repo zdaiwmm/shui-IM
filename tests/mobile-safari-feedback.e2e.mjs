@@ -157,14 +157,24 @@ try {
           document.documentElement.style.fontSize=innerWidth===320?'200%':'';
           app.mountPrivateSpaceDrawer(fixture.session,[{roomId:fixture.session.vault.roomId,name:'合成空间'}],app.runtimeAbort.signal,'chat',0);
           const sheet=document.querySelector('.is-settings-sheet'),panel=sheet.querySelector('.space-drawer');const start=panel.getBoundingClientRect().top;
-          await new Promise(resolve=>setTimeout(resolve,300));
+          await new Promise(resolve=>{
+            if(sheet.classList.contains('is-visible'))return resolve();
+            const observer=new MutationObserver(()=>{if(sheet.classList.contains('is-visible')){observer.disconnect();resolve();}});
+            observer.observe(sheet,{attributes:true,attributeFilter:['class']});
+          });
+          await Promise.all(panel.getAnimations().map(animation=>animation.finished));
           const scroll=sheet.querySelector('.space-drawer-scroll');scroll.scrollTop=scroll.scrollHeight;
           const last=scroll.querySelector('.space-settings-list').lastElementChild.querySelector('button');
           const bounds=last.getBoundingClientRect(),viewport=scroll.getBoundingClientRect();
           const result={start,top:panel.getBoundingClientRect().top,bottom:panel.getBoundingClientRect().bottom,handle:!!sheet.querySelector('.half-sheet-handle'),
             reachable:bounds.bottom<=viewport.bottom+1&&document.elementFromPoint(bounds.x+bounds.width/2,bounds.y+bounds.height/2)?.closest('button')===last,
             background:getComputedStyle(panel).backgroundColor,canvas:getComputedStyle(document.documentElement).backgroundColor,hint:document.querySelector('#system-chrome-color').content};
-          sheet.querySelector('.space-close').click();await new Promise(resolve=>setTimeout(resolve,280));return result;
+          sheet.querySelector('.space-close').click();
+          await new Promise(resolve=>{
+            if(!sheet.isConnected)return resolve();
+            const observer=new MutationObserver(()=>{if(!sheet.isConnected){observer.disconnect();resolve();}});
+            observer.observe(document.querySelector('#app'),{childList:true,subtree:true});
+          });return result;
         },{theme,scheme});
         assert.ok(result.start>=567,JSON.stringify(result));assert.ok(Math.abs(result.top)<.01,JSON.stringify(result));assert.ok(Math.abs(result.bottom-568)<.01,JSON.stringify(result));assert.equal(result.handle,false);assert.equal(result.reachable,true,JSON.stringify(result));assert.equal(result.background,result.canvas);assert.equal(result.background,result.hint);
       }
