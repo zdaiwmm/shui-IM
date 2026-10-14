@@ -104,11 +104,13 @@ describe('Mac pull backup', () => {
  });
  it('requires a Mac receipt for Mac mode and reports expired snapshots unhealthy', async () => {
   const f = await fixture();
-  const state = { lastVerifiedAt: new Date().toISOString(), snapshotCreatedAt: new Date().toISOString(), lastAttemptSucceeded: true };
+  const timestamp = new Date().toISOString();
+  const state = { lastVerifiedAt: timestamp, snapshotCreatedAt: timestamp, lastAttemptSucceeded: true };
   const check = () => spawnSync(process.execPath, ['scripts/backup-health.mjs'], { env: { ...process.env, BACKUP_DIR: f.destination, BACKUP_MODE: 'mac-pull' } }).status;
   try {
    await writeFile(path.join(f.destination, '.backup-state.json'), JSON.stringify(state)); expect(check()).toBe(1);
    await writeFile(path.join(f.destination, '.backup-state.json'), JSON.stringify({ ...state, destination: 'mac-pull' })); expect(check()).toBe(0);
+   await writeFile(path.join(f.destination, '.backup-state.json'), JSON.stringify({ ...state, destination: 'mac-pull', lastVerifiedAt: new Date(Date.parse(timestamp)-1).toISOString() })); expect(check()).toBe(1);
    await writeFile(path.join(f.destination, '.backup-state.json'), JSON.stringify({ ...state, destination: 'mac-pull', snapshotCreatedAt: '2020-01-01T00:00:00Z' })); expect(check()).toBe(1);
   } finally { f.store.close(); }
  });

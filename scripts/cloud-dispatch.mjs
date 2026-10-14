@@ -4,17 +4,17 @@ import path from 'node:path';
 import { repository } from './release-ci.mjs';
 
 export function verifyCloudReceipt(receipt, sha, run, mode = 'deploy') {
-  const statuses = mode === 'doctor' ? ['PREFLIGHT_OK'] : ['DEPLOY_VERIFIED', 'ALREADY_DEPLOYED_READBACK_REQUIRED'];
+  const statuses = mode === 'doctor' ? ['PREFLIGHT_OK'] : mode === 'stage' ? ['STAGE_VERIFIED'] : ['DEPLOY_VERIFIED', 'ALREADY_DEPLOYED_READBACK_REQUIRED'];
   if (receipt.version !== 1 || receipt.sha !== sha || !statuses.includes(receipt.status)
       || receipt.workflowRun !== String(run.databaseId) || receipt.workflowSha !== run.headSha
-      || (receipt.status === 'DEPLOY_VERIFIED' && receipt.manifest?.sha !== sha)
+      || (['DEPLOY_VERIFIED', 'STAGE_VERIFIED'].includes(receipt.status) && receipt.manifest?.sha !== sha)
       || (receipt.status === 'ALREADY_DEPLOYED_READBACK_REQUIRED' && receipt.previousSha !== sha)) {
     throw new Error('Cloud receipt does not match this exact deployment');
   }
   return receipt.status;
 }
 export function dispatchCloud(sha, run, { mode = 'deploy', resume } = {}) {
-  if (!['doctor', 'deploy'].includes(mode) || resume && !/^[1-9][0-9]*$/.test(resume)) throw new Error('Invalid cloud operation');
+  if (!['doctor', 'deploy', 'stage', 'activate'].includes(mode) || resume && !/^[1-9][0-9]*$/.test(resume)) throw new Error('Invalid cloud operation');
   const git = run('git', ['rev-parse', '--absolute-git-dir']);
   const base = path.join(git, 'quiet-room-cloud-publish');
   mkdirSync(base, { recursive: true, mode: 0o700 });

@@ -19,6 +19,24 @@ export function artifactName(sha, attempt, platform) {
   return `quiet-room-image-${sha}-${attempt}-${platform.split('/')[1]}`;
 }
 
+export function validateImageManifest(manifest, sha, run, platform = 'linux/amd64') {
+  if (manifest?.version !== 1 || manifest.sha !== sha || manifest.runId !== run.id || manifest.attempt !== run.run_attempt || manifest.platform !== platform ||
+      !/^sha256:[a-f0-9]{64}$/.test(manifest.imageId) || !/^[a-f0-9]{64}$/.test(manifest.archiveSha256) ||
+      !Number.isSafeInteger(manifest.archiveBytes) || manifest.archiveBytes < 1 || manifest.archiveBytes > 2 * 1024 ** 3) throw new Error('CI image manifest identity mismatch');
+  if (manifest.validationVersion !== 2 || !/^[a-f0-9]{40}$/.test(manifest.sourceTree)) throw new Error('CI image has no full build-time validation proof');
+  return manifest;
+}
+
+export function sealImage(directory, manifest, sourceTree) {
+  writeFileSync(path.join(directory, 'image.json'), JSON.stringify(manifest) + '\n');
+  // Never stamp the proof until the entire archive/hash/unique tag/config check passed.
+  validateImage(directory, manifest.sha, { id: manifest.runId, run_attempt: manifest.attempt }, manifest.platform);
+  const sealed = { ...manifest, validationVersion: 2, sourceTree };
+  validateImageManifest(sealed, manifest.sha, { id: manifest.runId, run_attempt: manifest.attempt }, manifest.platform);
+  writeFileSync(path.join(directory, 'image.json'), JSON.stringify(sealed) + '\n');
+  return sealed;
+}
+
 export function validateImage(directory, sha, run, platform) {
   if (readdirSync(directory).sort().join(',') !== 'image.json,image.tar.gz') throw new Error('Unexpected CI image files');
   for (const name of ['image.json', 'image.tar.gz']) {
@@ -71,6 +89,8 @@ if (isMainModule(import.meta.url)) {
   const imageId = process.env.IMAGE_ID;
   if (!/^sha256:[a-f0-9]{64}$/.test(imageId ?? '')) throw new Error('Invalid built image ID');
   const archive = path.join(directory, 'image.tar.gz');
-  writeFileSync(path.join(directory, 'image.json'), JSON.stringify({ version: 1, sha, runId: Number(process.env.GITHUB_RUN_ID), attempt, platform, imageId,
-    archiveSha256: hashFile(archive), archiveBytes: lstatSync(archive).size }) + '\n', { flag: 'wx' });
+  const tree = spawnSync('git', ['rev-parse', `${sha}^{tree}`], { encoding: 'utf8' });
+  if (tree.status !== 0) throw new Error('CI source tree unavailable');
+  sealImage(directory, { version: 1, sha, runId: Number(process.env.GITHUB_RUN_ID), attempt, platform, imageId,
+    archiveSha256: hashFile(archive), archiveBytes: lstatSync(archive).size }, tree.stdout.trim());
 }

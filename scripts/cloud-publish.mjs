@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { downloadCIImage, artifactName, findCIImageArtifact } from './ci-image.mjs';
+import { downloadCIImage, artifactName, findCIImageArtifact, validateImageManifest } from './ci-image.mjs';
 import { repository, verifySuccessfulCI } from './release-ci.mjs';
 import { isMainModule } from './release-runtime.mjs';
 
@@ -76,12 +76,12 @@ sudo -n /usr/local/sbin/quiet-room-deploy --describe
 printf 'LIVE_SHA='
 sudo -n /bin/cat /opt/quiet-room/deploy-state/current-sha
 `;
-export function parsePreflight(output) {
+export function parsePreflight(output, details = false) {
   const lines = output.trim().split('\n');
   const descriptor = lines.map(line => { try { return JSON.parse(line); } catch { return null; } }).find(value => value?.imageProtocol);
   const live = lines.find(line => line.startsWith('LIVE_SHA='))?.slice(9);
   if (descriptor?.imageProtocol !== 1 || descriptor?.expectedPreviousProtocol !== 1 || descriptor?.publicOrigin !== production.origin || !shaPattern.test(live ?? '')) throw new Error('Production helper/origin/state preflight mismatch');
-  return live;
+  return details ? { live, descriptor } : live;
 }
 async function signedLocation(artifactId) {
   const response = await fetch(`https://api.github.com/repos/${repository}/actions/artifacts/${artifactId}/zip`, { redirect: 'manual', headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }, signal: AbortSignal.timeout(30000) });
@@ -92,10 +92,11 @@ async function signedLocation(artifactId) {
   console.log(`::add-mask::${location}`);
   return location;
 }
-export async function cloudPublish(sha, { doctor = false, run = command, invokeCommand = invoke } = {}) {
+export async function cloudPublish(sha, { doctor = false, stage = false, activate = false, run = command, invokeCommand = invoke, ticket = signedLocation } = {}) {
   if (!shaPattern.test(sha ?? '') || process.env.GITHUB_ACTIONS !== 'true' || process.env.GITHUB_REPOSITORY !== repository || process.env.GITHUB_REF !== 'refs/heads/main' || process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || process.env.GITHUB_RUN_ATTEMPT !== '1') throw new Error('Protected main manual workflow required');
   if (process.env.SAS_REGION_ID !== production.region || process.env.SAS_INSTANCE_ID !== production.instance) throw new Error('Production target mismatch');
-  if (!['doctor', 'deploy'].includes(process.env.PUBLISH_MODE)) throw new Error('Explicit publish mode required');
+  if (!['doctor', 'deploy', 'stage', 'activate'].includes(process.env.PUBLISH_MODE) || [doctor, stage, activate].filter(Boolean).length > 1) throw new Error('Explicit publish mode required');
+  if (process.env.PUBLISH_MODE !== (doctor ? 'doctor' : stage ? 'stage' : activate ? 'activate' : 'deploy')) throw new Error('Publish mode mismatch');
   const receipt = { version: 1, sha, workflowSha: process.env.GITHUB_SHA, workflowRun: process.env.GITHUB_RUN_ID, startedAt: new Date().toISOString(), status: 'preflight', invocations: [] };
   saveReceipt(receipt);
   const api = suffix => JSON.parse(run('gh', ['api', `repos/${repository}/${suffix}`]));
@@ -104,7 +105,9 @@ export async function cloudPublish(sha, { doctor = false, run = command, invokeC
   // is not ready. Deploy retains the existing exact-CI-before-command ordering.
   const earlyState = doctor ? parsePreflight(await invokeCommand(preflight, 'preflight', receipt, run)) : undefined;
   const ci = verifySuccessfulCI(run, sha, { details: true });
-  const previousSha = earlyState ?? parsePreflight(await invokeCommand(preflight, 'preflight', receipt, run));
+  const state = earlyState ? { live: earlyState } : parsePreflight(await invokeCommand(preflight, 'preflight', receipt, run), true);
+  const previousSha = state.live;
+  if ((stage || activate) && state.descriptor?.stagedImageProtocol !== 1) throw new Error('Reviewed staged-image helper installation required; nothing switched');
   receipt.previousSha = previousSha;
   if (doctor && previousSha !== sha) {
     requireAncestor(api(`compare/${previousSha}...${sha}`), previousSha);
@@ -118,28 +121,47 @@ export async function cloudPublish(sha, { doctor = false, run = command, invokeC
     return;
   }
   requireAncestor(api(`compare/${previousSha}...${sha}`), previousSha);
-  const directory = path.join(process.env.RUNNER_TEMP, `quiet-room-verified-image-${process.env.GITHUB_RUN_ID}`);
-  // The ephemeral CI runner performs the existing full archive/hash/tag
-  // verification. The operator's computer never downloads this payload.
-  const image = downloadCIImage(run, sha, directory);
-  const { archive: _archive, ...manifest } = image;
   const listing = api(`actions/runs/${ci.id}/artifacts?per_page=100`);
-  const artifacts = listing.artifacts.filter(item => item.name === artifactName(sha, ci.run_attempt, 'linux/amd64'));
-  if (artifacts.length !== 1 || artifacts[0].expired !== false || artifacts[0].workflow_run?.id !== ci.id || artifacts[0].workflow_run?.head_sha !== sha || !Number.isSafeInteger(artifacts[0].size_in_bytes) || artifacts[0].size_in_bytes > 2 * 1024 ** 3) throw new Error('CI artifact binding changed');
+  const artifact = findCIImageArtifact(listing, sha, ci);
+  if (!Number.isSafeInteger(artifact.id) || !Number.isSafeInteger(artifact.size_in_bytes) || artifact.size_in_bytes > 2 * 1024 ** 3) throw new Error('CI artifact binding changed');
+  const manifestInput = { url: await ticket(artifact.id), size: artifact.size_in_bytes };
+  const metadata = JSON.parse(run('python3', [new URL('./server-image-stream.py', import.meta.url).pathname, '--manifest'], { input: JSON.stringify(manifestInput) }));
+  let manifest;
+  if (metadata.validationVersion === 2) {
+    manifest = validateImageManifest(metadata, sha, ci);
+    if (api(`commits/${sha}`).commit?.tree?.sha !== manifest.sourceTree) throw new Error('Validated image source tree mismatch');
+  } else {
+    // Historical images retain the original full publisher validation path.
+    const directory = path.join(process.env.RUNNER_TEMP, `quiet-room-verified-image-${process.env.GITHUB_RUN_ID}`);
+    const { archive: _archive, ...legacy } = downloadCIImage(run, sha, directory);
+    manifest = legacy;
+  }
   const latest = verifySuccessfulCI(run, sha, { details: true });
   if (latest.id !== ci.id || latest.run_attempt !== ci.run_attempt || manifest.runId !== ci.id || manifest.attempt !== ci.run_attempt) throw new Error('CI changed before dispatch');
+  if (activate) {
+    receipt.manifest = manifest;
+    const script = `set -eu\nsudo -n /usr/local/sbin/quiet-room-deploy --activate ${sha} ${manifest.imageId} ${manifest.archiveSha256} ${previousSha}`;
+    const output = await invokeCommand(script, `activate-${sha.slice(0, 12)}`, receipt, run);
+    if (!output.split('\n').some(line => line.startsWith(`DEPLOY_OK sha=${sha} `))) throw new Error('PRODUCTION_STATE_UNRESOLVED missing exact activation receipt');
+    if (parsePreflight(await invokeCommand(preflight, 'postflight', receipt, run)) !== sha) throw new Error('PRODUCTION_STATE_UNRESOLVED live SHA mismatch');
+    receipt.status = 'DEPLOY_VERIFIED'; receipt.finishedAt = new Date().toISOString(); saveReceipt(receipt); return;
+  }
   receipt.manifest = manifest;
   receipt.status = 'dispatching';
   saveReceipt(receipt);
   // Fresh ticket is obtained only after all slow CI validation is complete.
-  const payload = { manifest, previousSha, size: artifacts[0].size_in_bytes, url: await signedLocation(artifacts[0].id) };
+  const payload = { manifest, previousSha, mode: stage ? 'stage' : 'deploy', size: artifact.size_in_bytes, url: await ticket(artifact.id) };
   const source = readFileSync(new URL('./server-image-stream.py', import.meta.url)).toString('base64');
   const data = Buffer.from(JSON.stringify(payload)).toString('base64');
   console.log(`::add-mask::${data}`);
   const script = `set -eu\npython3 -c 'import base64,io,sys; sys.stdin=io.StringIO(base64.b64decode("${data}").decode()); exec(compile(base64.b64decode("${source}"),"server-image-stream.py","exec"))'`;
   if (Buffer.byteLength(script) > 16 * 1024) throw new Error('Cloud command exceeds bounded payload');
-  const output = await invokeCommand(script, `deploy-${sha.slice(0, 12)}`, receipt, run);
-  if (!output.split('\n').some(line => line.startsWith(`DEPLOY_OK sha=${sha} `)) || !output.split('\n').includes(`STREAM_VERIFIED sha=${sha} image=${image.imageId}`)) throw new Error('PRODUCTION_STATE_UNRESOLVED missing exact helper receipt');
+  const output = await invokeCommand(script, `${stage ? 'stage' : 'deploy'}-${sha.slice(0, 12)}`, receipt, run);
+  if (!output.split('\n').some(line => line.startsWith(`${stage ? 'STAGE_OK' : 'DEPLOY_OK'} sha=${sha} `)) || !output.split('\n').includes(`STREAM_VERIFIED sha=${sha} image=${manifest.imageId}`)) throw new Error('PRODUCTION_STATE_UNRESOLVED missing exact helper receipt');
+  if (stage) {
+    if (parsePreflight(await invokeCommand(preflight, 'postflight', receipt, run)) !== previousSha) throw new Error('PRODUCTION_STATE_UNRESOLVED production changed during staging');
+    receipt.status = 'STAGE_VERIFIED'; receipt.finishedAt = new Date().toISOString(); saveReceipt(receipt); return;
+  }
   const live = parsePreflight(await invokeCommand(preflight, 'postflight', receipt, run));
   if (live !== sha) throw new Error('PRODUCTION_STATE_UNRESOLVED live SHA mismatch');
   receipt.status = 'DEPLOY_VERIFIED';
@@ -148,5 +170,5 @@ export async function cloudPublish(sha, { doctor = false, run = command, invokeC
   console.log(`DEPLOY_VERIFIED sha=${sha}; independent production readback required`);
 }
 if (isMainModule(import.meta.url)) {
-  cloudPublish(process.env.APPROVED_SHA, { doctor: process.env.PUBLISH_MODE === 'doctor' }).catch(error => { console.error(error.message); process.exitCode = 1; });
+  cloudPublish(process.env.APPROVED_SHA, { doctor: process.env.PUBLISH_MODE === 'doctor', stage: process.env.PUBLISH_MODE === 'stage', activate: process.env.PUBLISH_MODE === 'activate' }).catch(error => { console.error(error.message); process.exitCode = 1; });
 }

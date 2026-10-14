@@ -13,11 +13,11 @@ on:
         required: true
         type: string
       mode:
-        description: Doctor checks access only; deploy performs one approved cutover
+        description: Doctor is read-only; stage imports without cutover; activate/deploy require exact-SHA approval
         required: true
         type: choice
         default: doctor
-        options: [doctor, deploy]
+        options: [doctor, stage, deploy, activate]
 
 permissions:
   contents: read

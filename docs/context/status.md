@@ -7,6 +7,12 @@
 - [PR #299](https://github.com/zdaiwmm/shui-IM/pull/299)及回归精度／时序补充[PR #300](https://github.com/zdaiwmm/shui-IM/pull/300)、[PR #301](https://github.com/zdaiwmm/shui-IM/pull/301)已合并；最终源`3ac1df3`的[完整CI 38567089468](https://github.com/zdaiwmm/shui-IM/actions/runs/38567089468) attempt 2成功。冻结应用候选`966c827dfcfc9d44e1ddde2d3101c25dff994347`的精确[main CI 38568778529](https://github.com/zdaiwmm/shui-IM/actions/runs/38568778529) attempt 2完整成功。早期精度、时序与既有通话／邀请／草稿回归的失败、有界复验及未确认原因均由需求记录拥有，未削弱门禁。
 - 本机main已快进，Codex预览回读iPhone UA／触控／DPR3，真实表单完成回填通过；原生iPhone／Safari键盘、IME及系统栏待真机。生产未授权本批精确SHA、未发布；源树、分支和移动预览保留。下方已发布快照不因本候选改变。
 
+## 发布效率 V2 实施与生产边界（2026-10-14）
+
+- 用户确认V2实施、验证、PR、CI与合并，保留全部验证与线上数据保护；生产helper／配置先审阅再单独确认。当前任务基于实时main `2da4065beb1f8a742eac4ccc8d98903e54fafd2f` 的独占工作树，不改产品PR #299及原发布任务。
+- 完整CI浏览器分片均衡、严格同tree／环境／run／attempt证据复用、镜像完整校验前移、候选stage／精确activate及限定backup-starting只读等待已落地。长期规则由[效率规程](../workflows/publish-efficiency.md)拥有；本地／CI结果及失败分类由[V2需求](../requirements/2026-10-14-publish-efficiency-v2/README.md)拥有。
+- 合并本需求不会安装生产helper／配置、导入镜像或部署应用。具体文件摘要及安装边界见[生产变更审阅](../requirements/2026-10-14-publish-efficiency-v2/production-change-review.md)。真实生产速度及Engine／Compose兼容性尚未验证，下面的生产记录仍由原发布任务拥有。
+
 ## 移动交互连续性与云端发布已完成（2026-10-14）
 
 - 当前生产应用为用户精确批准的 `99979e9eef2dc6781e56cb52551c72a096eeac22`，版本 `2026.10.14.1`；[PR #291](https://github.com/zdaiwmm/shui-IM/pull/291)及精确main CI38519073837 attempt 1通过。V1免原型／流程图、追加四项、实施及早期失败由[需求记录](../requirements/2026-10-14-mobile-interaction-polish/README.md)拥有；本地920项、63浏览器入口和370展示组合通过，真机未验证。

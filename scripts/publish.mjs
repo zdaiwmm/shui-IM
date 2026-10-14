@@ -26,7 +26,10 @@ function command(program, args, options = {}) {
     cwd: root, encoding: 'utf8', timeout: 30000,
     env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GH_PROMPT_DISABLED: '1' }, ...options,
   });
-  if (result.error || result.status !== 0) throw new Error(`${program}: ${result.error?.message || result.stderr?.trim() || `exit ${result.status}`}`);
+  if (result.error || result.status !== 0) {
+    const error = new Error(`${program}: ${result.error?.message || result.stderr?.trim() || `exit ${result.status}`}`);
+    error.exitCode = result.status; throw error;
+  }
   return result.stdout?.trim() ?? '';
 }
 
@@ -38,6 +41,8 @@ export function publish(args, run = command) {
 function publishApproved(args, run, timed) {
   const cloud = args.includes('--cloud');
   const prepare = args.includes('--prepare');
+  const stage = args.includes('--stage');
+  const activate = args.includes('--activate');
   const readbackOnly = args.includes('--readback-only');
   const withReadback = args.includes('--with-readback');
   const resumeIndex = args.indexOf('--resume');
@@ -46,24 +51,31 @@ function publishApproved(args, run, timed) {
     if (!/^[1-9][0-9]*$/.test(resume ?? '')) throw new Error('Exact workflow run ID required');
     args = args.filter((_value, index) => index !== resumeIndex && index !== resumeIndex + 1);
   }
-  args = args.filter(value => !['--cloud', '--prepare', '--readback-only', '--with-readback'].includes(value));
+  args = args.filter(value => !['--cloud', '--prepare', '--stage', '--activate', '--readback-only', '--with-readback'].includes(value));
   const { environment } = targetArguments(args);
   const targetArgs = environment ? ['--environment', environment] : [];
   const sha = approvedCommit(args);
-  if (prepare && (!cloud || readbackOnly || withReadback) || readbackOnly && (cloud || resume || withReadback) || resume && !cloud || withReadback && !cloud) {
+  if ((stage || activate) && !cloud || [prepare, stage, activate, readbackOnly].filter(Boolean).length > 1 || stage && withReadback || prepare && (!cloud || readbackOnly || withReadback) || readbackOnly && (cloud || resume || withReadback) || resume && !cloud || withReadback && !cloud) {
     throw new Error('Prepare/resume/with-readback require cloud; readback-only is standalone');
   }
   const readback = () => timed('independent-readback', () => {
-    try {
-      run(process.execPath, [path.join(root, 'scripts/production-readback.mjs'), ...targetArgs, '--sha', sha], { stdio: 'inherit', timeout: 120000 });
-    } catch {
-      throw new Error(`READBACK_REQUIRED sha=${sha}; retry --readback-only with the same environment and SHA; do not redeploy`);
+    const deadline = Date.now() + 360000;
+    for (let attempt = 0; attempt <= 36; attempt++) {
+      try {
+        run(process.execPath, [path.join(root, 'scripts/production-readback.mjs'), ...targetArgs, '--sha', sha], { stdio: 'inherit', timeout: 120000 });
+        return;
+      } catch (error) {
+        if (error.exitCode !== 75 || attempt === 36 || Date.now() >= deadline) throw new Error(`READBACK_REQUIRED sha=${sha}; retry --readback-only with the same environment and SHA; do not redeploy`);
+        // Only the explicit same-SHA backup-starting classification may wait.
+        try { run(process.execPath, ['-e', 'setTimeout(() => {}, 10000)'], { timeout: 15000 }); }
+        catch { throw new Error(`READBACK_REQUIRED sha=${sha}; readback wait interrupted; do not redeploy`); }
+      }
     }
   });
   if (readbackOnly) return readback();
   if (cloud) {
     if (environment && environment !== 'production') throw new Error('Cloud publishing currently supports production only');
-    const receipt = timed(prepare ? 'cloud-prepare' : 'cloud-publish', () => dispatchCloud(sha, run, { mode: prepare ? 'doctor' : 'deploy', resume }));
+    const receipt = timed(prepare ? 'cloud-prepare' : 'cloud-publish', () => dispatchCloud(sha, run, { mode: prepare ? 'doctor' : stage ? 'stage' : activate ? 'activate' : 'deploy', resume }));
     if (withReadback) readback();
     return receipt;
   }

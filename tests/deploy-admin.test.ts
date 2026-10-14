@@ -25,6 +25,7 @@ async function simulate(mode: Mode, adminOrigin = 'https://admin.mijiu.cloud') {
     const harness = `set -Eeuo pipefail
 cd "$CALL_DEPLOY_TEST_DIR"
 APP_ROOT="$CALL_DEPLOY_TEST_DIR"; PROJECT=quiet-room
+STARTUP_HEALTH_OVERLAY="$APP_ROOT/absent-startup-health.yaml"
 SHARED_ENV="$APP_ROOT/shared/production.env"; CALLS_ENV="$APP_ROOT/shared/calls.env"; CALLS_STATE="$APP_ROOT/state/calls-enabled"
 ADMIN_ENV="$APP_ROOT/shared/admin.env"; ADMIN_STATE="$APP_ROOT/state/admin-enabled"
 release_dir="$APP_ROOT/new"; previous_compose="$APP_ROOT/old/compose.yaml"

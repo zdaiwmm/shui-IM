@@ -35,7 +35,7 @@ node scripts/publish.mjs --cloud --resume <原工作流RunID> --with-readback --
 node scripts/publish.mjs --readback-only --environment production --sha <同一应用SHA>
 ```
 
-- `--prepare` 只触发已有受保护工作流的doctor模式，验证真实云权限、CLI、helper、容量、来源、前版状态、正向祖先、完整应用CI和未过期镜像元数据；不下载大镜像、不切换、不安装helper、不修改RAM或业务数据。它不授予发布权，也不表示完整镜像已预载；发布时仍重验并下载校验。
+- `--prepare` 只触发已有受保护工作流的doctor模式，验证真实云权限、CLI、helper、容量、来源、前版状态、正向祖先、完整应用CI和未过期镜像元数据；不下载大镜像、不切换、不安装helper、不修改RAM或业务数据。它不授予发布权，也不表示完整镜像已预载；发布时仍重验候选来源和镜像身份。
 - doctor先验证真实云命令通路，再检查应用CI，避免CI等待掩盖基础接入故障。已有生产环境审核照常保留。预检的容量和线上状态只是当时快照，不能取消切换前检查。
 - `--with-readback` 在精确云回执核对后自动启动原有独立只读回读；回读仍使用本机SSH及命名环境，产物哈希／HTTPS／WebSocket与容器证据单独保存。失败只报告 `READBACK_REQUIRED`，只续跑 `--readback-only`，不再次切换。
 - 同版本云回执以 `ALREADY_DEPLOYED_READBACK_REQUIRED` 进入回读，不伪造 `DEPLOY_VERIFIED`。
@@ -45,6 +45,41 @@ node scripts/publish.mjs --readback-only --environment production --sha <同一�
 CI镜像清理额外保护活动发布工作流与最近三个成功doctor／deploy的应用候选，避免main前进立即淘汰已准备批次。
 仍受GitHub七天自然到期限制；预检和发布都检查是否过期。候选列表不可核实时停止清理，不自动重跑应用CI或改发新SHA。
 准备阶段是提前发现阻塞，不承诺镜像永久保留或零下载等待。
+
+## V2：完整验证前移、提前导入、精确激活
+
+2026-10-14用户确认V2实施、验证、PR、CI和合并；生产helper与配置只提供审阅材料，待单独确认后安装。具体边界及验收由[V2需求记录](../requirements/2026-10-14-publish-efficiency-v2/README.md)拥有。
+
+完整应用CI仍包含构建、全部单元／集成测试、全部64个浏览器入口（含同步main新增项）、通话／TURN、生产依赖审计、凭据扫描及amd64／arm64镜像。浏览器group 2改为六个按实际耗时均衡的分片，入口及断言不变；新增入口以保守默认耗时分配。镜像按架构复用BuildKit缓存；静态前端构建使用原生BUILDPLATFORM，runtime依赖及最终镜像仍按目标架构构建并实际运行验证。失败缓存写入不影响验证结果，真实Docker存储夹具继续运行。
+
+main浏览器作业仅在以下条件全部成立时复用PR的实际执行证据：已合并的同仓库PR、精确合并提交与相同Git tree、最新成功完整CI的同run／attempt、同分片、实际执行且一小时内、相同Node二进制／依赖锁／Playwright容器摘要／固定基础镜像／系统及CPU指纹。复用证据不能再作为新证据。身份不明、环境变化、超时、重跑或证据缺失时执行完整分片；main的构建／单元／通话／审计／镜像仍重新运行。`Full application verification`聚合要求全部作业成功。
+
+新镜像在CI导出时先执行原完整归档、哈希、唯一标签及配置ID校验，通过后写入`validationVersion:2`和`sourceTree`。发布runner核验小manifest及成功CI／tree；服务器依旧完整核对ZIP、CRC、归档字节数／SHA-256、导入Image ID／revision／架构。旧manifest仍走原runner全量下载校验。此调整消除控制runner的一次重复大文件下载，不省略服务器的完整镜像校验。
+
+helper经独立批准安装且`stagedImageProtocol:1`后，新增入口：
+
+```sh
+node scripts/publish.mjs --cloud --stage --environment production --sha <完整候选SHA>
+node scripts/publish.mjs --cloud --activate --with-readback --environment production --sha <本次获批完整SHA>
+```
+
+- 确认发布前可单独授权`stage`：在发布锁内核验精确成功CI、前版SHA及正向祖先，健康与容量、CPU负载、至少512MiB可用内存通过后流式导入。只准备Git checkout和镜像，不启动候选应用、不关闭流量、不停止容器、不挂载／写入／恢复业务卷。前后线上容器ID、镜像、启动时间、运行和healthy状态、公开健康及前版SHA必须一致。至多保留两份候选回执。
+- `stage`成功保存root专属、两小时有效的SHA／Image ID／归档摘要／前版SHA／checkout回执。过期、脏目录、前版变化、镜像变化或CI新attempt均拒绝使用；不自动重载、不自动改发新版本。未安装新helper时在大文件导入前拒绝stage／activate。
+- 用户确认本次精确SHA后执行`activate`：重新核验CI、manifest、容量、前版及镜像，消费一次候选回执，省去重复传输与导入。随后仍执行原Compose预检、维护门、停写、冷备份与校验、切换、HTTPS／WebSocket验证及安全回滚。开放流量后绝不恢复旧数据。
+- 可选启动探针覆盖文件单独安装；只将启动探测间隔改为应用1秒、备份5秒，保留健康断言、超时、重试和宽限期。要求Engine>=25、Compose>=2.20.2，root所有权及固定文件摘要。不存在时沿用原配置。
+- 独立回读只对精确版本／镜像已一致且应用healthy、备份running但探针`starting`的状态等待；最多37次探测、10秒间隔、6分钟等待预算。其他异常立即失败。等待只重跑只读回读，仍保留所有产物哈希／HTTPS／WebSocket及前后身份检查，不重发应用。
+
+阶段安排及耗时均为待生产实测的目标，审核等待、缓存冷启动、排队、网络和大数据备份另计：
+
+| 阶段 | 时点 | 目标耗时 |
+| --- | --- | --- |
+| 风险匹配本地验证、PR与完整CI | 功能完成后立即开始；与审阅并行 | 完整CI约3—5分钟；本地与审阅按变更计 |
+| 精确main CI | 合并后，用户确认发布前 | 证据可复用且缓存命中时约2—4分钟，否则完整分片 |
+| doctor及stage | 精确main CI后，确认发布前单独授权准备 | 约1—3分钟，传输依赖网络 |
+| activate、冷备份、切换及独立回读 | 用户确认本次精确SHA后 | 已预载候选约1.5—3分钟；大备份与异常等待另计 |
+| 文档对账 | 回读成功后 | 不阻塞上线成功结论，不再部署 |
+
+禁止把预计时长写成实测结果。未执行stage时仍可使用原deploy路径；未安装helper／覆盖配置时不承诺上述生产耗时。
 
 ## 完成与计时
 

@@ -82,6 +82,17 @@ class RemoteZip(io.RawIOBase):
         return data
 
 
+def read_manifest(payload):
+    remote = RemoteZip(payload['url'], payload['size'])
+    with zipfile.ZipFile(remote) as archive:
+        if sorted(archive.namelist()) != ['image.json', 'image.tar.gz']:
+            raise ValueError('Unexpected artifact members')
+        item = archive.getinfo('image.json')
+        if not 0 < item.file_size <= 8192 or not 0 < item.compress_size <= 8192:
+            raise ValueError('Manifest size limit')
+        return json.loads(archive.read(item))
+
+
 def inspect_archive(remote, expected):
     with zipfile.ZipFile(remote) as archive:
         entries = archive.infolist()
@@ -165,8 +176,13 @@ def main(payload):
     # Establish the one large HTTP response before starting the helper; no
     # subsequent range request depends on an expired short-lived URL.
     with remote.range(start, entry.compress_size) as response:
-        process = subprocess.Popen(['sudo', '-n', '/usr/local/sbin/quiet-room-deploy', expected['sha'], expected['imageId'],
-                                    expected['archiveSha256'], payload['previousSha']], stdin=subprocess.PIPE)
+        mode = payload.get('mode', 'deploy')
+        if mode not in ('deploy', 'stage'):
+            raise ValueError('Invalid image operation')
+        args = ['sudo', '-n', '/usr/local/sbin/quiet-room-deploy']
+        if mode == 'stage':
+            args.append('--stage')
+        process = subprocess.Popen(args + [expected['sha'], expected['imageId'], expected['archiveSha256'], payload['previousSha']], stdin=subprocess.PIPE)
         try:
             stream_image(response, entry, expected, process.stdin)
         finally:
@@ -182,7 +198,11 @@ def main(payload):
 
 if __name__ == '__main__':
     try:
-        main(json.loads(sys.stdin.read(16385)))
+        payload = json.loads(sys.stdin.read(16385))
+        if sys.argv[1:] == ['--manifest']:
+            print(json.dumps(read_manifest(payload)), flush=True)
+        else:
+            main(payload)
     except BaseException as error:
         print('SERVER_STREAM_BLOCKED type=' + type(error).__name__, file=sys.stderr)
         sys.exit(1)

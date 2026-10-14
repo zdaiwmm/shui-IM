@@ -132,9 +132,6 @@ export function validateServerState(state, expectedSha, expectedOrigin) {
   if (![state.adminEnabled, state.callsEnabled].every(value => value === '0' || value === '1')) {
     throw new ReadbackError('production-state', 'validate-state', 'Production feature-state metadata is invalid');
   }
-  if (state.appRunning !== 'true' || state.backupRunning !== 'true' || state.appHealth !== 'healthy' || !['healthy', 'none'].includes(state.backupHealth)) {
-    throw new ReadbackError('container-state', 'validate-state', 'Required production containers are not running with their declared health guarantees');
-  }
   const turnMatchesState = state.callsEnabled === '1'
     ? state.turnRunning === 'true' && ['healthy', 'none'].includes(state.turnHealth)
     : state.turnRunning === 'absent' && state.turnHealth === 'absent';
@@ -142,6 +139,14 @@ export function validateServerState(state, expectedSha, expectedOrigin) {
   const expectedRef = `quiet-room-app:${expectedSha}`;
   if (!digestPattern.test(state.targetImageId) || state.appImageId !== state.targetImageId || state.backupImageId !== state.targetImageId || state.appImageRef !== expectedRef || state.backupImageRef !== expectedRef) {
     throw new ReadbackError('image-mismatch', 'validate-state', 'Running container images do not match the expected immutable image');
+  }
+  if (state.appRunning === 'true' && state.appHealth === 'healthy' && state.backupRunning === 'true' && state.backupHealth === 'starting'
+      && state.appImageId === state.targetImageId && state.backupImageId === state.targetImageId
+      && state.appImageRef === `quiet-room-app:${expectedSha}` && state.backupImageRef === state.appImageRef) {
+    throw new ReadbackError('backup-starting', 'validate-state', 'Backup health probe is still starting; readback-only polling permitted');
+  }
+  if (state.appRunning !== 'true' || state.backupRunning !== 'true' || state.appHealth !== 'healthy' || !['healthy', 'none'].includes(state.backupHealth)) {
+    throw new ReadbackError('container-state', 'validate-state', 'Required production containers are not running with their declared health guarantees');
   }
   return state;
 }
@@ -309,7 +314,7 @@ async function main() {
 
 if (isMainModule(import.meta.url)) {
   main().catch(error => {
-    if (!(error instanceof ReadbackError) || !['usage', 'configuration'].includes(error.classification)) process.exitCode = 1;
+    if (!(error instanceof ReadbackError) || !['usage', 'configuration'].includes(error.classification)) process.exitCode = error.classification === 'backup-starting' ? 75 : 1;
     else {
       const sha = shaPattern.test(process.argv[3] ?? '') ? ` sha=${process.argv[3]}` : '';
       console.error(`READBACK_BLOCKED class=${error.classification} phase=${error.phase}${sha} retry=fix-preflight`);
