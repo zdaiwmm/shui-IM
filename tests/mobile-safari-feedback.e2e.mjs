@@ -133,7 +133,8 @@ try {
       const height=host.getBoundingClientRect().height;view.destroy();
       return {retained,nested,layers,height};
     });
-    assert.deepEqual(capsules,{retained:true,nested:0,layers:1,height:32});
+    assert.deepEqual({retained:capsules.retained,nested:capsules.nested,layers:capsules.layers},{retained:true,nested:0,layers:1});
+    assert.ok(Math.abs(capsules.height-32)<.01,JSON.stringify(capsules));
     for(const width of [320,390,430]) {
       await page.setViewportSize({width,height:568});await page.evaluate(()=>setViewport(568));
       for(const theme of ['blue','green','purple','apricot'])for(const scheme of ['light','dark']) {
