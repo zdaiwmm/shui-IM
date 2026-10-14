@@ -62,7 +62,7 @@ describe('protected cloud delivery boundaries', () => {
     const workflow = { databaseId: 42, headSha: 'b'.repeat(40) };
     const receipt = { version: 1, sha, status: 'DEPLOY_VERIFIED', workflowRun: '42', workflowSha: workflow.headSha, manifest: { sha } };
     expect(() => verifyCloudReceipt(receipt, sha, workflow)).not.toThrow();
-    for (const change of [{ sha: 'c'.repeat(40) }, { workflowRun: '41' }, { status: 'ALREADY_DEPLOYED_READBACK_REQUIRED' }, { manifest: {} }]) expect(() => verifyCloudReceipt({ ...receipt, ...change }, sha, workflow)).toThrow();
+    for (const change of [{ sha: 'c'.repeat(40) }, { workflowRun: '41' }, { status: 'ALREADY_DEPLOYED_READBACK_REQUIRED', previousSha: 'b'.repeat(40) }, { manifest: {} }]) expect(() => verifyCloudReceipt({ ...receipt, ...change }, sha, workflow)).toThrow();
   });
   it.each(['same', 'changed', 'missing'])('runs the installed helper state guard before import (%s)', mode => {
     const directory = mkdtempSync(path.join(tmpdir(), 'quiet-cloud-cas-'));

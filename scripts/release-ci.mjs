@@ -20,10 +20,19 @@ export function selectRun(response, sha) {
 export function requireSuccessfulCI(response, sha, jobsResponse) {
   const run = selectRun(response, sha);
   if (run.status !== 'completed' || run.conclusion !== 'success') throw new Error('Latest CI run for the exact main commit has not passed.');
-  const jobs = pageItems(jobsResponse, 'jobs').filter(job => job.name === fullVerificationJob);
+  const allJobs = pageItems(jobsResponse, 'jobs');
+  const jobs = allJobs.filter(job => job.name === fullVerificationJob);
   if (jobs.length !== 1 || jobs[0].run_id !== run.id || jobs[0].head_sha !== sha ||
       jobs[0].status !== 'completed' || jobs[0].conclusion !== 'success') {
     throw new Error('The aggregate verify job has not passed for the latest exact main CI run. Documentation-only CI cannot authorize release. Run gh workflow run ci.yml --repo zdaiwmm/shui-IM --ref main, verify its exact SHA, then retry.');
+  }
+  // New scoped pipelines expose a release-only step. Historical application CI
+  // predates delivery scope and keeps its original exact-SHA aggregate contract.
+  if (allJobs.some(job => job.name === 'Delivery tool verification')) {
+    const proof = jobs[0].steps?.filter(step => step.name === 'Full application verification');
+    if (proof?.length !== 1 || proof[0].status !== 'completed' || proof[0].conclusion !== 'success') {
+      throw new Error('Scoped CI cannot authorize an application release; full application verification required.');
+    }
   }
   return run.html_url;
 }

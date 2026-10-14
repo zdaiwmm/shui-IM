@@ -2,16 +2,39 @@ import { spawnSync } from 'node:child_process';
 import { appendFileSync, readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-// Only operational notes and the four existing context pages may take the fast
-// path. New paths and product/security contracts require application coverage.
+// Explicit operational paths only. Unknown, runtime and security-contract changes stay full.
 export const lightweightDocs = Object.freeze([
   'RELEASING.md',
+  'AGENTS.md',
+  'DEPLOYMENT.md',
+  'docs/context/workflow.md',
+  'docs/workflows/publish-efficiency.md',
+  'docs/requirements/2026-10-14-publish-efficiency/README.md',
   'docs/context/status.md',
   'docs/context/overview.md',
   'docs/context/decisions.md',
   'docs/context/maintenance.md',
 ]);
+export const deliveryScripts = Object.freeze([
+  'scripts/publish.mjs', 'scripts/cloud-dispatch.mjs', 'scripts/cloud-publish.mjs',
+  'scripts/server-image-stream.py', 'scripts/release.mjs', 'scripts/release-ci.mjs',
+  'scripts/release-runtime.mjs', 'scripts/ci-image.mjs', 'scripts/ci-image-retention.mjs',
+  'scripts/deploy-config.mjs', 'scripts/deploy-setup.mjs', 'scripts/deploy-production.sh',
+  'scripts/production-readback.mjs', 'scripts/prepare-release.mjs',
+  'scripts/ci-scope.mjs', 'scripts/check-docs.mjs', 'scripts/check-delivery.mjs',
+]);
+export const deliveryTests = Object.freeze([
+  'tests/publish.test.ts', 'tests/cloud-publish.test.ts', 'tests/publish-efficiency.test.ts',
+  'tests/release.test.ts', 'tests/release-entry.test.ts', 'tests/release-timing.test.ts',
+  'tests/ci-image.test.ts', 'tests/ci-image-import.test.ts', 'tests/ci-image-retention.test.ts',
+  'tests/deploy-config.test.ts', 'tests/deploy-setup.test.ts', 'tests/deploy-environments.test.ts',
+  'tests/deploy-script.test.ts', 'tests/deploy-gate.test.ts', 'tests/deploy-stop.test.ts',
+  'tests/deploy-admin.test.ts', 'tests/deploy-calls.test.ts', 'tests/production-readback.test.ts',
+  'tests/ci-scope.test.ts', 'tests/ci-docs.test.ts', 'tests/delivery-tools.test.ts',
+]);
 const docPaths = new Set(lightweightDocs);
+const deliveryPaths = new Set([...deliveryScripts, ...deliveryTests,
+  'tests/server-image-stream.test.py', '.github/workflows/ci.yml', '.github/workflows/publish.yml']);
 const root = fileURLToPath(new URL('../', import.meta.url));
 const validSha = value => typeof value === 'string' && /^[a-f0-9]{40}$/.test(value) && !/^0+$/.test(value);
 const complete = reason => ({ mode: 'full', reason });
@@ -67,16 +90,18 @@ export function determineScope({ eventName, event, runGit = git }) {
       range = `${base}..${head}`;
     }
     const changes = parseChangedPaths(runGit(['diff', '--no-ext-diff', '--name-status', '-z', '--find-renames', range, '--']));
-    if (changes.length === 0 || !changes.every(changedPath => docPaths.has(changedPath))) {
+    if (changes.length === 0 || !changes.every(changedPath => docPaths.has(changedPath) || deliveryPaths.has(changedPath))) {
       return complete('Changes include application, configuration, or unlisted paths.');
     }
     // A renamed/deleted source is included above; only surviving regular files
     // may be read by the lightweight checker. Symlinks and type changes fail full.
     const tree = runGit(['ls-tree', '-z', head, '--', ...changes]);
-    if (tree.split('\0').filter(Boolean).some(entry => !/^100644 blob [a-f0-9]{40}\t/.test(entry))) {
+    if (tree.split('\0').filter(Boolean).some(entry => !/^100(?:644|755) blob [a-f0-9]{40}\t/.test(entry))) {
       return complete('Documentation contains a non-regular file.');
     }
-    return { mode: 'docs', reason: `Only ${changes.length} allowlisted documentation paths changed.` };
+    return changes.some(changedPath => deliveryPaths.has(changedPath))
+      ? { mode: 'delivery', reason: `Only allowlisted delivery tools/tests and operational documents changed (${changes.length} paths).` }
+      : { mode: 'docs', reason: `Only ${changes.length} allowlisted documentation paths changed.` };
   } catch {
     return complete('Diff or history could not be verified; the complete suite is required.');
   }
@@ -90,20 +115,22 @@ export function requireVerification(needs, gate = 'verify') {
     throw new Error('Invalid verification summary.');
   }
   const mode = needs.scope?.outputs?.mode;
-  if (!['full', 'docs'].includes(mode)) throw new Error('CI scope is missing or invalid.');
+  if (!['full', 'docs', 'delivery'].includes(mode)) throw new Error('CI scope is missing or invalid.');
   const required = [...sharedJobs];
   const skipped = [];
+  if (mode === 'delivery') required.push('delivery');
+  else if (needs.delivery) skipped.push('delivery');
   if (mode === 'full') {
     required.push(...applicationJobs);
   } else {
-    if (gate === 'full') throw new Error('Documentation-only CI is not full application verification.');
+    if (gate === 'full') throw new Error('Scoped CI is not full application verification.');
     skipped.push(...applicationJobs);
   }
   for (const name of required) {
     if (needs[name]?.result !== 'success') throw new Error(`Required job ${name} did not succeed.`);
   }
   for (const name of skipped) {
-    if (needs[name]?.result !== 'skipped') throw new Error(`Documentation-only job ${name} was not skipped as expected.`);
+    if (needs[name]?.result !== 'skipped') throw new Error(`Scoped job ${name} was not skipped as expected.`);
   }
   return mode;
 }

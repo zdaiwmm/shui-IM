@@ -49,7 +49,7 @@ describe('CI documentation scope', () => {
 
   it('never treats product/security documents, new context paths or configuration as light changes', () => {
     const repo = repository();
-    for (const file of ['SECURITY.md', 'PRODUCT.md', 'README.md', 'docs/context/new.md', '.github/workflows/ci.yml', 'scripts/example.mjs']) {
+    for (const file of ['SECURITY.md', 'PRODUCT.md', 'README.md', 'docs/context/new.md', '.github/workflows/unknown.yml', 'scripts/example.mjs']) {
       repo.write(file, '# Fixture\n');
       expect(repo.scope(repo.commit()).mode).toBe('full');
     }
@@ -65,6 +65,28 @@ describe('CI documentation scope', () => {
     const changes = renamed.git(['diff', '--name-status', '-z', '--find-renames', `${renamed.before}..${after}`]);
     expect(parseChangedPaths(changes)).toContain('src/example.ts');
     expect(renamed.scope(after).mode).toBe('full');
+  });
+
+  it('selects delivery only for its complete allowlist and preserves full verification for mixed changes', () => {
+    const repo = repository();
+    repo.write('scripts/cloud-publish.mjs', 'export const example = 1;\n');
+    repo.write('tests/cloud-publish.test.ts', '// fixture\n');
+    expect(repo.scope(repo.commit()).mode).toBe('delivery');
+    repo.write('src/example.ts', 'export const example = 2;\n');
+    expect(repo.scope(repo.commit()).mode).toBe('full');
+    for (const file of ['package.json', 'package-lock.json', 'deploy/server/quiet-room-deploy', 'server/index.mjs', 'public/sw.js']) {
+      const isolated = repository();
+      isolated.write('scripts/cloud-publish.mjs', '// fixture\n');
+      isolated.write(file, '// fixture\n');
+      expect(isolated.scope(isolated.commit()).mode).toBe('full');
+    }
+  });
+
+  it('does not hide removed runtime source behind a delivery rename', () => {
+    const repo = repository();
+    mkdirSync(path.join(repo.cwd, 'scripts'));
+    renameSync(path.join(repo.cwd, 'src/example.ts'), path.join(repo.cwd, 'scripts/cloud-publish.mjs'));
+    expect(repo.scope(repo.commit()).mode).toBe('full');
   });
 
   it('recognizes allowlisted deletions while leaving broken inbound links to documentation checks', () => {
@@ -133,6 +155,9 @@ describe('CI verification summaries', () => {
     expect(requireVerification(results(), 'full')).toBe('full');
     expect(requireVerification(results('docs'))).toBe('docs');
     expect(() => requireVerification(results('docs'), 'full')).toThrow();
+    const scoped = { ...results('delivery'), delivery: { result: 'success' } };
+    expect(requireVerification(scoped)).toBe('delivery');
+    expect(() => requireVerification(scoped, 'full')).toThrow();
   });
 
   it('rejects every missing, failed, cancelled or unexpectedly skipped required job', () => {
@@ -164,6 +189,16 @@ describe('CI verification summaries', () => {
       const needs = results('docs'); delete needs[name];
       expect(() => requireVerification(needs)).toThrow();
     }
+  });
+
+  it('fails closed for absent/failed delivery tests or unexpected application job results', () => {
+    const base = { ...results('delivery'), delivery: { result: 'success' } };
+    for (const result of ['failure', 'cancelled', 'skipped']) {
+      expect(() => requireVerification({ ...base, delivery: { result } })).toThrow();
+    }
+    const missing = { ...base }; delete missing.delivery;
+    expect(() => requireVerification(missing)).toThrow();
+    expect(() => requireVerification({ ...base, browser: { result: 'success' } })).toThrow();
   });
 
   it('rejects missing or unknown scope and invalid summary formats', () => {

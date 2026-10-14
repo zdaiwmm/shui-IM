@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { downloadCIImage, artifactName } from './ci-image.mjs';
+import { downloadCIImage, artifactName, findCIImageArtifact } from './ci-image.mjs';
 import { repository, verifySuccessfulCI } from './release-ci.mjs';
 import { isMainModule } from './release-runtime.mjs';
 
@@ -92,17 +92,25 @@ async function signedLocation(artifactId) {
   console.log(`::add-mask::${location}`);
   return location;
 }
-export async function cloudPublish(sha, { doctor = false } = {}) {
+export async function cloudPublish(sha, { doctor = false, run = command, invokeCommand = invoke } = {}) {
   if (!shaPattern.test(sha ?? '') || process.env.GITHUB_ACTIONS !== 'true' || process.env.GITHUB_REPOSITORY !== repository || process.env.GITHUB_REF !== 'refs/heads/main' || process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || process.env.GITHUB_RUN_ATTEMPT !== '1') throw new Error('Protected main manual workflow required');
   if (process.env.SAS_REGION_ID !== production.region || process.env.SAS_INSTANCE_ID !== production.instance) throw new Error('Production target mismatch');
   if (!['doctor', 'deploy'].includes(process.env.PUBLISH_MODE)) throw new Error('Explicit publish mode required');
   const receipt = { version: 1, sha, workflowSha: process.env.GITHUB_SHA, workflowRun: process.env.GITHUB_RUN_ID, startedAt: new Date().toISOString(), status: 'preflight', invocations: [] };
   saveReceipt(receipt);
-  const api = suffix => JSON.parse(command('gh', ['api', `repos/${repository}/${suffix}`]));
+  const api = suffix => JSON.parse(run('gh', ['api', `repos/${repository}/${suffix}`]));
   requireAncestor(api(`compare/${sha}...main`), sha);
-  const ci = verifySuccessfulCI(command, sha, { details: true });
-  const previousSha = parsePreflight(await invoke(preflight, 'preflight', receipt));
+  // Doctor tests the actual cloud/CLI/helper path early, even if application CI
+  // is not ready. Deploy retains the existing exact-CI-before-command ordering.
+  const earlyState = doctor ? parsePreflight(await invokeCommand(preflight, 'preflight', receipt, run)) : undefined;
+  const ci = verifySuccessfulCI(run, sha, { details: true });
+  const previousSha = earlyState ?? parsePreflight(await invokeCommand(preflight, 'preflight', receipt, run));
   receipt.previousSha = previousSha;
+  if (doctor && previousSha !== sha) {
+    requireAncestor(api(`compare/${previousSha}...${sha}`), previousSha);
+    const artifact = findCIImageArtifact(api(`actions/runs/${ci.id}/artifacts?per_page=100`), sha, ci);
+    receipt.artifact = { id: artifact.id, runId: ci.id, attempt: ci.run_attempt, expiresAt: artifact.expires_at };
+  }
   if (doctor || previousSha === sha) {
     receipt.status = doctor ? 'PREFLIGHT_OK' : 'ALREADY_DEPLOYED_READBACK_REQUIRED';
     saveReceipt(receipt);
@@ -113,12 +121,12 @@ export async function cloudPublish(sha, { doctor = false } = {}) {
   const directory = path.join(process.env.RUNNER_TEMP, `quiet-room-verified-image-${process.env.GITHUB_RUN_ID}`);
   // The ephemeral CI runner performs the existing full archive/hash/tag
   // verification. The operator's computer never downloads this payload.
-  const image = downloadCIImage(command, sha, directory);
+  const image = downloadCIImage(run, sha, directory);
   const { archive: _archive, ...manifest } = image;
   const listing = api(`actions/runs/${ci.id}/artifacts?per_page=100`);
   const artifacts = listing.artifacts.filter(item => item.name === artifactName(sha, ci.run_attempt, 'linux/amd64'));
   if (artifacts.length !== 1 || artifacts[0].expired !== false || artifacts[0].workflow_run?.id !== ci.id || artifacts[0].workflow_run?.head_sha !== sha || !Number.isSafeInteger(artifacts[0].size_in_bytes) || artifacts[0].size_in_bytes > 2 * 1024 ** 3) throw new Error('CI artifact binding changed');
-  const latest = verifySuccessfulCI(command, sha, { details: true });
+  const latest = verifySuccessfulCI(run, sha, { details: true });
   if (latest.id !== ci.id || latest.run_attempt !== ci.run_attempt || manifest.runId !== ci.id || manifest.attempt !== ci.run_attempt) throw new Error('CI changed before dispatch');
   receipt.manifest = manifest;
   receipt.status = 'dispatching';
@@ -130,9 +138,9 @@ export async function cloudPublish(sha, { doctor = false } = {}) {
   console.log(`::add-mask::${data}`);
   const script = `set -eu\npython3 -c 'import base64,io,sys; sys.stdin=io.StringIO(base64.b64decode("${data}").decode()); exec(compile(base64.b64decode("${source}"),"server-image-stream.py","exec"))'`;
   if (Buffer.byteLength(script) > 16 * 1024) throw new Error('Cloud command exceeds bounded payload');
-  const output = await invoke(script, `deploy-${sha.slice(0, 12)}`, receipt);
+  const output = await invokeCommand(script, `deploy-${sha.slice(0, 12)}`, receipt, run);
   if (!output.split('\n').some(line => line.startsWith(`DEPLOY_OK sha=${sha} `)) || !output.split('\n').includes(`STREAM_VERIFIED sha=${sha} image=${image.imageId}`)) throw new Error('PRODUCTION_STATE_UNRESOLVED missing exact helper receipt');
-  const live = parsePreflight(await invoke(preflight, 'postflight', receipt));
+  const live = parsePreflight(await invokeCommand(preflight, 'postflight', receipt, run));
   if (live !== sha) throw new Error('PRODUCTION_STATE_UNRESOLVED live SHA mismatch');
   receipt.status = 'DEPLOY_VERIFIED';
   receipt.finishedAt = new Date().toISOString();

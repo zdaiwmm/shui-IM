@@ -39,14 +39,20 @@ export function validateImage(directory, sha, run, platform) {
   return { ...manifest, archive };
 }
 
-export function downloadCIImage(command, sha, directory, platform = 'linux/amd64') {
-  const run = verifySuccessfulCI(command, sha, { details: true });
+export function findCIImageArtifact(response, sha, run, platform = 'linux/amd64') {
   const name = artifactName(sha, run.run_attempt, platform);
-  const response = JSON.parse(command('gh', ['api', `repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100`, '--paginate', '--slurp']));
   const pages = Array.isArray(response) ? response : [response];
   if (pages.some(page => !Array.isArray(page.artifacts))) throw new Error('Invalid CI image artifact listing');
   const artifacts = pages.flatMap(page => page.artifacts).filter(item => item.name === name);
   if (artifacts.length !== 1 || artifacts[0].expired !== false || artifacts[0].workflow_run?.id !== run.id || artifacts[0].workflow_run?.head_sha !== sha) throw new Error('Exact CI image is missing or expired; rerun this exact commit CI');
+  return artifacts[0];
+}
+
+export function downloadCIImage(command, sha, directory, platform = 'linux/amd64') {
+  const run = verifySuccessfulCI(command, sha, { details: true });
+  const name = artifactName(sha, run.run_attempt, platform);
+  const response = JSON.parse(command('gh', ['api', `repos/${repository}/actions/runs/${run.id}/artifacts?per_page=100`, '--paginate', '--slurp']));
+  findCIImageArtifact(response, sha, run, platform);
   mkdirSync(directory, { mode: 0o700 });
   command('gh', ['run', 'download', String(run.id), '--repo', repository, '--name', name, '--dir', directory], { timeout: 15 * 60 * 1000 });
   const image = validateImage(directory, sha, run, platform);
