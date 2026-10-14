@@ -7,12 +7,17 @@ import { isMainModule } from './release-runtime.mjs';
 
 export const production = Object.freeze({ region: 'cn-wuhan-lr', instance: 'f2bf8acfb4754bf08e5f6d8534c3ce83', origin: 'https://ai.shui.click' });
 const shaPattern = /^[a-f0-9]{40}$/;
+export function cloudErrorCode(stderr = '') {
+  if (/region can't be empty/.test(stderr)) return 'CLI_REGION_MISSING';
+  if (/unchecked version \d{4}-\d{2}-\d{2}/.test(stderr)) return 'CLI_API_VERSION_UNAVAILABLE';
+  return stderr.match(/(?:ErrorCode|Code)["']?[:=]\s*["']?([A-Za-z][A-Za-z0-9_.-]{0,79})/)?.[1] ?? 'unavailable';
+}
 export function command(program, args, options = {}) {
   const result = spawnSync(program, args, { encoding: 'utf8', timeout: 60000, maxBuffer: 4 * 1024 ** 2, ...options });
   // Cloud errors may echo command payloads or a signed URL. Never print raw
   // subprocess output in an exception or persist the private request.
   if (result.error || result.status !== 0) {
-    const code = result.stderr?.match(/(?:ErrorCode|Code)[:=]\s*([A-Za-z][A-Za-z0-9_.-]{0,79})/)?.[1] ?? 'unavailable';
+    const code = cloudErrorCode(result.stderr);
     throw new Error(`CLOUD_COMMAND_FAILED program=${program} code=${result.status ?? 'unavailable'} serviceCode=${code}; inspect original invocation before retrying`);
   }
   return result.stdout.trim();
@@ -30,7 +35,10 @@ export function invocationResult(payload, invokeId, instance = production.instan
 }
 export function cloudAPI(action, parameters, run = command) {
   const args = Object.entries({ RegionId: production.region, ...parameters }).flatMap(([key, value]) => [`--${key}`, String(value)]);
-  return JSON.parse(run('aliyun', ['swas-open', action, '--api-version', '2020-06-01', '--endpoint', `swas.${production.region}.aliyuncs.com`, '--method', 'POST', '--secure', '--retry-count', '0', '--connect-timeout', '10', '--read-timeout', '30', '--force', ...args]));
+  // CLI 3.4.11 embeds SWAS-OPEN 2020-06-01. Its explicit --version lookup
+  // rejects this built-in version; --api-version would become an API parameter.
+  // Pass the CLI region explicitly: RegionId alone does not initialize credentials.
+  return JSON.parse(run('aliyun', ['swas-open', action, '--region', production.region, '--endpoint', `swas.${production.region}.aliyuncs.com`, '--method', 'POST', '--secure', '--retry-count', '0', '--connect-timeout', '10', '--read-timeout', '30', '--force', ...args]));
 }
 async function invoke(script, label, receipt, run = command) {
   receipt.status = `submitting-${label}`;

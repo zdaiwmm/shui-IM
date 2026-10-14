@@ -6,7 +6,7 @@ import path from 'node:path';
 // @ts-expect-error Operational script.
 import { verifyCloudReceipt } from '../scripts/cloud-dispatch.mjs';
 // @ts-expect-error Operational script.
-import { cloudAPI, invocationResult, parsePreflight, production, requireAncestor } from '../scripts/cloud-publish.mjs';
+import { cloudAPI, cloudErrorCode, invocationResult, parsePreflight, production, requireAncestor } from '../scripts/cloud-publish.mjs';
 const sha = 'a'.repeat(40);
 describe('protected cloud delivery boundaries', () => {
   it('disables cloud SDK retries and never repeats a failed submission', () => {
@@ -15,9 +15,18 @@ describe('protected cloud delivery boundaries', () => {
       calls++;
       expect(args[args.indexOf('--retry-count') + 1]).toBe('0');
       expect(args).toContain('--secure');
+      expect(args[args.indexOf('--region') + 1]).toBe(production.region);
+      expect(args).not.toContain('--api-version');
+      expect(args).not.toContain('--version');
       throw new Error('connection lost after submit');
     })).toThrow('connection lost');
     expect(calls).toBe(1);
+  });
+  it('reports only allowlisted CLI diagnostics or bounded service codes', () => {
+    expect(cloudErrorCode("ERROR: region can't be empty")).toBe('CLI_REGION_MISSING');
+    expect(cloudErrorCode('ERROR: unchecked version 2020-06-01')).toBe('CLI_API_VERSION_UNAVAILABLE');
+    expect(cloudErrorCode('{"Code": "Forbidden.RAM", "Message": "private command"}')).toBe('Forbidden.RAM');
+    expect(cloudErrorCode('private signed URL and command payload')).toBe('unavailable');
   });
   it('accepts only a verified forward ancestor', () => {
     expect(() => requireAncestor({ status: 'ahead', merge_base_commit: { sha } }, sha)).not.toThrow();
