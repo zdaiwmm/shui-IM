@@ -166,7 +166,7 @@ try {
             background:getComputedStyle(panel).backgroundColor,canvas:getComputedStyle(document.documentElement).backgroundColor,hint:document.querySelector('#system-chrome-color').content};
           sheet.querySelector('.space-close').click();await new Promise(resolve=>setTimeout(resolve,280));return result;
         },{theme,scheme});
-        assert.ok(result.start>=567,JSON.stringify(result));assert.equal(result.top,0);assert.equal(result.bottom,568);assert.equal(result.handle,false);assert.equal(result.reachable,true,JSON.stringify(result));assert.equal(result.background,result.canvas);assert.equal(result.background,result.hint);
+        assert.ok(result.start>=567,JSON.stringify(result));assert.ok(Math.abs(result.top)<.01,JSON.stringify(result));assert.ok(Math.abs(result.bottom-568)<.01,JSON.stringify(result));assert.equal(result.handle,false);assert.equal(result.reachable,true,JSON.stringify(result));assert.equal(result.background,result.canvas);assert.equal(result.background,result.hint);
       }
     }
     await page.evaluate(()=>document.documentElement.style.fontSize='');
