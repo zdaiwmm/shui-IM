@@ -1,10 +1,12 @@
 # Quiet Room 当前状态
 
-## 移动交互连续性已合并（2026-10-14，发布阻塞）
+## 移动交互连续性与云端发布已完成（2026-10-14）
 
-- 用户已确认V1并明确免原型／流程图，授权实施、验证、PR、CI与合并；范围、追加四项和失败记录由[需求记录](../requirements/2026-10-14-mobile-interaction-polish/README.md)拥有。用户已明确确认本次精确生产SHA`99979e9eef2dc6781e56cb52551c72a096eeac22`，版本`2026.10.14.1`。
-- 基于`76629bb593a49b5b0cb00d941d0889282628ea99`的独立分支`codex/mobile-interaction-polish-20261014`实施设置两段弹层、空间横向导航、表情入口合并与Fluent、满宽输入条、键盘重开及末行定位，修复预览干扰空间选择。干净产品候选`350b8187e0c16a15d2259ca09266f3350e5ee35e`完整本地门禁通过：构建、920项、63/63浏览器入口，370展示组合另通过；后续只补Linux能力测试夹具。[PR #291](https://github.com/zdaiwmm/shui-IM/pull/291)最终源`42d98ddb446b356c1d82d6486f5d880629ab4c33`的[完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38518383470)及合并提交的[main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38519073837) attempt 1成功，原失败见需求记录。
-- 本机Codex真实项目来源已回读移动UA／触控／DPR与合成视口；不是Safari真机。两次固定发布均在隔离克隆120秒上限失败，尚未进入生产切换，按有界规则停止后用户追加授权延长上限；工具修正[PR #292](https://github.com/zdaiwmm/shui-IM/pull/292)已通过本机921项并合并为`6d7f23d`，main完整CI`38522484140` attempt 2成功。第三次发布克隆通过，随后镜像下载15分钟超时，仍未进入切换。用户已确认[云端发布V1.1](../requirements/2026-10-14-ci-server-publish/README.md)实施并继续发布同一应用SHA。`2026-10-14T06:13:17.657Z`原线上`53988c528fe8700b80841b41b4ff208df7c20227`独立`READBACK_OK`，服务健康；该旧版回读不证明本批上线。
+- 当前生产应用为用户精确批准的 `99979e9eef2dc6781e56cb52551c72a096eeac22`，版本 `2026.10.14.1`；[PR #291](https://github.com/zdaiwmm/shui-IM/pull/291)及精确main CI38519073837 attempt 1通过。V1免原型／流程图、追加四项、实施及早期失败由[需求记录](../requirements/2026-10-14-mobile-interaction-polish/README.md)拥有；本地920项、63浏览器入口和370展示组合通过，真机未验证。
+- 用户批准云端V1.1及必要权限修复；工具PR #292—295已合并，最终工具main `b483e5bd0f6b4dcbc51537f6f9d481f4f3008d3f` 的完整CI38547673041 attempt 1成功，最终本地932项通过。真实只读预检38547741229成功。下载、CLI、权限和编码失败均保留在[云端记录](../requirements/2026-10-14-ci-server-publish/README.md)，不把旧阻塞视为当前状态。
+- 固定云端入口的工作流38548495792取得精确 `DEPLOY_VERIFIED`，一次切换从53988c5到99979e9，总246182毫秒。本机只下载小回执，服务器流式下载校验，不保留ZIP／gzip暂存副本；Docker运行层和冷备份仍占用空间，原容量门禁及保留策略有效。
+- 独立 `READBACK_OK` 于 `2026-10-14T10:26:45.839Z` 完成，耗时3621毫秒；应用与备份均运行且healthy，TURN运行且探针none，维护门不存在，精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物及WebSocket均一致。前两次仅因备份starting未通过；核对实际启动时间及5分钟宽限期、确认healthy后只续跑回读，未再次部署。 完整事实由[发布记录](../../RELEASING.md#移动交互连续性与云端发布已完成2026-10-14)拥有。
+- 第二个不含部署配置的独立文档树对账，文档SHA不再发布。活动移动预览和数据目录保留；其他本批资源按固定门禁核验。下面均为历史快照，不代表当前生产。
 
 ## 移动调试与7条交互修订已发布（2026-10-14）
 
