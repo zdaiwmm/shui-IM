@@ -46,6 +46,16 @@ try {
   assert.equal(await frame.locator('#form-input-draft').inputValue(),'测试空间');
   await frame.locator('[data-form-input-done]').click();await page.waitForFunction(()=>document.getElementById('keyboard').hidden);
   assert.equal(await frame.locator('#new-space-name').inputValue(),'测试空间');
+  assert.equal(await frame.locator('[data-form-input-cancel]').count(),0);
+  await frame.locator('#new-space-name').click();
+  const editorBar = await frame.locator('.form-input-panel').evaluate(el=>({left:el.getBoundingClientRect().left,right:el.getBoundingClientRect().right,color:getComputedStyle(el).backgroundColor}));
+  assert.equal(editorBar.left,0); assert.equal(editorBar.right,393);
+  assert.equal(editorBar.color,await page.locator('.accessory').evaluate(el=>getComputedStyle(el).backgroundColor));
+  // Dismissing without a blur leaves the editor active: a fresh pointer must reopen.
+  await page.locator('#keyboard-toggle').click(); await frame.waitForFunction(()=>visualViewport.height===683);
+  await frame.locator('#form-input-draft').click(); await frame.waitForFunction(()=>visualViewport.height===473);
+  await frame.locator('[data-form-input-done]').click(); await page.waitForFunction(()=>document.getElementById('keyboard').hidden);
+
   await frame.locator('#new-space-name').click();await frame.locator('#form-input-draft').fill('中文合成');
   await frame.locator('#form-input-draft').dispatchEvent('compositionstart');
   await frame.locator('#form-input-draft').press('Enter');
@@ -53,8 +63,8 @@ try {
   assert.equal(await frame.locator('#form-input-draft').count(),1,'IME and implicit submit cannot finish editing');
   assert.equal(await frame.locator('#new-space-name').inputValue(),'测试空间');
   await frame.locator('#form-input-draft').dispatchEvent('compositionend');
-  await frame.locator('[data-form-input-cancel]').click();
-  await frame.locator('#new-space-name').click();await frame.locator('#form-input-draft').fill('不应保存');await frame.locator('[data-form-input-cancel]').click();
+  await frame.locator('#form-input-draft').press('Escape');
+  await frame.locator('#new-space-name').click();await frame.locator('#form-input-draft').fill('不应保存');await frame.locator('#form-input-draft').press('Escape');
   assert.equal(await frame.locator('#new-space-name').inputValue(),'测试空间');
   await frame.evaluate(()=>{const label=document.createElement('label');label.textContent='备注';const note=document.createElement('textarea');note.id='note';label.append(note);document.querySelector('#create-space-profile').append(label);});
   await frame.locator('#note').click();await frame.locator('#form-input-draft').fill('第一行\n第二行');

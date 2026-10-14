@@ -404,7 +404,7 @@ try {
   invariant(presenceLayout.shieldRight <= presenceLayout.summaryLeft + 1, `Recovery shield is not on the left of the status capsule: ${JSON.stringify(presenceLayout)}`);
   invariant(presenceLayout.shieldLeft >= presenceLayout.headerLeft - 1, `Recovery shield is not at the left of the header: ${JSON.stringify(presenceLayout)}`);
   invariant(await creator.locator('#message-list > #entrance-card-banner[data-local-system-card="entry"]').count() === 0, 'Removed entry banner must not appear');
-  await creator.locator('#open-spaces').click({ timeout: 8_000 }); await creator.locator('#space-settings').click(); await creator.locator('#backup-settings').click();
+  await creator.locator('#chat-settings').click({ timeout: 8_000 }); await creator.locator('#backup-settings').click();
   await creator.locator('#save-my-code').waitFor();
   invariant(await creator.locator('#recovery-center-back').count() === 1, 'Save recovery-code page is missing a back button');
   invariant((await creator.locator('.recovery-flow-lead').textContent()).includes('恢复卡') && await creator.locator('.entry-protection').count() === 1, 'Recovery card purpose and storage guidance are missing');
@@ -997,7 +997,7 @@ try {
   }, null, { timeout: 5000 });
   await creator.waitForTimeout(250);
   invariant(await creator.locator('#message-list').evaluate((list) => document.documentElement.scrollHeight - window.scrollY - window.innerHeight <= 2), 'An ACK or late image render pulled the sender away from the latest message');
-  await creator.locator('#open-spaces').click(); await creator.locator('#space-settings').click();
+  await creator.locator('#chat-settings').click();
   await creator.locator('#manage-devices').click();
   await creator.locator('.device-shell').waitFor();
   await assertStablePage(creator, 'Device management');
@@ -1126,7 +1126,7 @@ try {
   invariant(await creator.locator('#app > .chat-shell #message-list .message').filter({ hasText: '仅相册保存.pdf' }).count() === 0, 'Creator chat exposes the private gallery filename');
   invariant(await joiner.locator('#app > .chat-shell #message-list .message').filter({ hasText: '仅相册保存.pdf' }).count() === 0, 'Peer chat exposes the private gallery filename');
 
-  await creator.locator('#open-spaces').click(); await creator.locator('#space-settings').click();
+  await creator.locator('#chat-settings').click();
   invariant(await creator.locator('#local-history-backup .space-setting-label').textContent() === '备份数据', 'Local backup menu label was not renamed');
   invariant(await creator.locator('#local-history-restore .space-setting-label').textContent() === '恢复数据', 'Local restore menu entry is missing');
   await creator.locator('#local-history-backup').click();
@@ -1251,7 +1251,7 @@ try {
   await recovery.locator('#composer').evaluate((form) => form.requestSubmit());
   await joiner.getByText('browser-e2e-fresh-identity-send', { exact: true }).waitFor({ timeout: 5000 });
 
-  await recovery.locator('#open-spaces').click(); await recovery.locator('#space-settings').click();
+  await recovery.locator('#chat-settings').click();
   await recovery.evaluate(() => { location.hash = 'legacy-backup'; });
   await recovery.locator('[data-restore="all"]').click();
   await recovery.locator('#history-restore-code').fill(newRecoveryCode);
@@ -1476,7 +1476,7 @@ try {
   const linkedContexts = [];
   const addCreatorDevice = async (route) => {
     if (await recovery.locator('.chat-shell').count()) {
-      await recovery.locator('#open-spaces').click(); await recovery.locator('#space-settings').click();
+      await recovery.locator('#chat-settings').click();
       await recovery.locator('#manage-devices').click().catch(async error => {
         console.error('Device menu state', await recovery.evaluate(() => ({
           root: document.querySelector('#app')?.className, cover: !!document.querySelector('.cover-trigger'),

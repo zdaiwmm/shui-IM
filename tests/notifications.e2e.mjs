@@ -45,7 +45,7 @@ try {
         app.session = a; app.deviceCredential = v.cloneDeviceCredential(a); app.runtimeAbort = new AbortController(); app.privacyCovered = false;
         app.rememberSpacePreview = async () => {}; app.refreshOtherSpacePreviews = async () => {}; app.updatePeerStatus = () => {};
         document.querySelector('#app').innerHTML = '<section class="chat-shell"><button id="open-spaces">空间</button></section>';
-        await app.openPrivateSpaces();
+        await app.openPrivateSpaces(() => true,0,true);
       } else {
         const { DeviceNotifications } = await import('/src/lib/device-notifications.ts'); const { mountNotificationSettings } = await import('/src/lib/notification-settings.ts');
         window.abort = new AbortController(); const spaces = [{ roomId: aVault.roomId, name: '林间' }, { roomId: bVault.roomId, name: '海边' }];
@@ -53,7 +53,7 @@ try {
         mountNotificationSettings(document.querySelector('main'), new DeviceNotifications(spaces, async (id, _verify, action) => action(id === aVault.roomId ? aVault : bVault), abort.signal), { systemSurface: operation => operation() });
       }
     }, engine.name());
-    if (engine === chromium) { await page.locator('#space-settings').click(); await page.locator('#notification-settings').click(); }
+    if (engine === chromium) {  await page.locator('#notification-settings').click(); }
     const master = page.locator('#notification-master');
     await page.waitForFunction(() => document.querySelector('#notification-status')?.textContent === '本机支持通知');
     assert.equal(await page.evaluate(() => prompts), 0);

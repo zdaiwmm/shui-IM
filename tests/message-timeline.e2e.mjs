@@ -345,7 +345,7 @@ try {
         const latestGap = composerBox.top - latest.getBoundingClientRect().bottom;
         const scrollState = { pinned: app.chatPinnedToBottom, gap: latestGap, remainingScroll: app.chatBottomGap(), scrollY, scrollHeight: document.documentElement.scrollHeight, intent: app.chatScrollIntent, followPending: app.chatBottomFollowPending, restoringAnchor: Boolean(app.chatRestoreAnchor) };
         if (app.chatPinnedToBottom) {
-          if (Math.abs(latestGap - 64) > 2) issues.push(`pinned latest message lost its 64px composer gap: ${JSON.stringify(scrollState)}`);
+          if (Math.abs(latestGap - 12) > 2) issues.push(`pinned latest message lost its 12px composer gap: ${JSON.stringify(scrollState)}`);
         } else issues.push(`show(bottom) lost bottom following without user scrolling: ${JSON.stringify(scrollState)}`);
         const bodyColor = getComputedStyle(document.body).color;
         const canvas = document.createElement('canvas');

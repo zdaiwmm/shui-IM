@@ -97,3 +97,11 @@ Opaque top surfaces extend through the top safe area. The document’s bottom sa
 Settings uses the same 22px outlined gear in chat and space navigation, with a 44px clickable target. Page return controls share an outlined left arrow. Waiting invitations live in the conversation, including their current progress and remaining lifetime; opening a waiting space never opens a second invitation sheet. Avatar source selection opens directly over the space list. Explanatory copy uses a light outlined information symbol. Gallery empty states use local theme-aware photo artwork.
 
 Full-page overlays and local hierarchy changes share 280ms horizontal navigation; source sheets use 240ms vertical travel. Semantic cancellation clears sensitive state immediately while inert presentation finishes leaving; privacy and runtime aborts still remove content immediately. Reduced motion skips travel. The browser top theme-color hint follows the current top surface, while CSS paints the separate bottom safe area. Actual native browser chrome still requires device validation. Password entry has no fixed reading/typing timeout; cancellation and page lifecycle continue to invalidate verification.
+
+## 2026-10-14 移动交互修订
+
+用户确认本轮免原型／流程图直接实施。移动设置使用半屏／全屏双停靠底部面板，44px具名柄、18px顶角，240ms纵向进退；一级无返回，右上关闭。二级页保留设置画面承接280ms横向转场，返回恢复停靠与滚动。空间列表左侧进入、向左退出，右上关闭，移除列表设置入口。头像来源改内容高度，保留两项44px操作与安全区。
+
+表单编辑满宽贴可见区下沿，标题14px、字段16px，完成按钮内嵌右侧44px热区；无取消按钮，遮罩／Escape仍放弃草稿。底色采用中性输入辅助栏表面；本地调试同步辅助栏颜色，原生Safari颜色另作真机验证。表情首行是“+”、Emoji和已添加合集，不再使用搜索或底部Tab。现有Fluent动画在Emoji最前，普通Unicode分类在同一滚动内容中。
+
+聊天末行到输入栏目标12px；最新按钮按实际末行是否进入输入栏遮挡区判断，不按悬浮按钮自身位置判断。更新提示使用44px目标内的紧凑文字操作。键盘交接保持原输入节点和草稿，隐私清理立即执行。

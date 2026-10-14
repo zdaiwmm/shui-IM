@@ -61,7 +61,6 @@
 .meme-tabs [role="tab"] { position: relative; min-width: 80px; height: 32px; border: 0; border-radius: 24px; padding: 4px 18px; background: transparent; color: var(--ink-muted); }
 .meme-tabs [aria-selected="true"] { color: var(--ink); background: var(--glass-control); box-shadow: inset 0 1px 0 var(--glass-border); font-weight: 600; }
 .meme-collapse { position: absolute; right: 0; width: 44px; height: 44px; padding: 10px; pointer-events: auto; }
-.composer > .meme-panel .meme-collapse { display: none; }
 .meme-pack-list, .meme-pack-results { display: flex; flex-direction: column; gap: 12px; }
 .meme-pack-list section > header, .meme-pack-detail-header { display: flex; align-items: center; justify-content: space-between; min-height: 38px; gap: 8px; flex-wrap: wrap; }
 .meme-panel h3 { margin: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
@@ -192,3 +191,19 @@
   --media-upload-max-height: min(16.8svh, 128px);
   max-width: 60%;
 }
+
+/* One collection rail replaces the search row and category tabs. */
+#app .meme-panel { grid-template-rows:auto minmax(0,1fr); }
+#app .meme-toolbar { display:flex; align-items:center; min-width:0; height:52px; gap:4px; }
+#app .meme-toolbar .meme-pack-shortcuts { flex:1; }
+#app .meme-toolbar .meme-collapse { flex:none; position:static; width:44px; height:44px; }
+#app .meme-panel .meme-scroll { padding-bottom:max(12px,env(safe-area-inset-bottom)); }
+#app .meme-search-dialog .meme-panel:not(.is-expanded) { grid-template-rows:52px 48px minmax(0,1fr); }
+#app .meme-search-header[hidden] { display:none; }
+#app .meme-search-header { padding:0; height:48px; gap:8px; }
+#app .meme-search-header h2 { margin:0; flex:1; font-size:1.0625rem; }
+#app .emoji-tile img { width:100%; height:100%; object-fit:contain; }
+#app .meme-pack-shortcuts button[aria-pressed=true] { background:var(--accent-soft); color:var(--accent); }
+
+#app .meme-search-dialog:not(.meme-expanded-dialog) .meme-toolbar { display:none; }
+#app .meme-search-dialog:not(.meme-expanded-dialog) .meme-panel { grid-template-rows:48px minmax(0,1fr); }

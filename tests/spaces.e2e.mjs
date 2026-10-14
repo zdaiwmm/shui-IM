@@ -59,6 +59,25 @@ try {
     return { count:(await sp.localSpaces(a)).length, sameCode:a.vault.spaceRecoveryCode === b.vault.spaceRecoveryCode, legacyCode:a.vault.backup.code === legacyCode, oldHistory:(await v.loadHistory(a)).map(x=>x.payload.text), bHistory, rawEncrypted:!JSON.stringify(raw).includes('旧空间'), remoteRooms:remote.map(s=>s.roomId).sort(), rooms:[a.vault.roomId,b.vault.roomId].sort(), slot:v.vaultSpaceId(a.stored), bUnchanged };
   });
   assert.equal(result.count,2); assert.equal(result.sameCode,true); assert.equal(result.legacyCode,true); assert.deepEqual(result.oldHistory,['A 的历史']); assert.equal(result.bHistory,0); assert.equal(result.rawEncrypted,true); assert.deepEqual(result.remoteRooms,result.rooms); assert.equal(result.slot,'current'); assert.equal(result.bUnchanged,true);
+  const boundUnlock = await page.evaluate(async () => {
+    const target = await v.readStoredVault();
+    const held = v.cloneDeviceCredential(a);
+    let resolve; const proof = new Promise(done => { resolve = done; });
+    const pending = v.unlockVault('', proof, target);
+    await v.selectLocalSpace(v.vaultSpaceId(b.stored));
+    resolve(held.prfOutput.slice()); const opened = await pending;
+    return {room:opened.vault.roomId,expected:a.vault.roomId,selected:v.currentSpaceId(),saved:localStorage.getItem('quiet-room:space')};
+  });
+  assert.equal(boundUnlock.room,boundUnlock.expected); assert.equal(boundUnlock.selected,'current'); assert.equal(boundUnlock.saved,'current');
+  const staleUnlock = await page.evaluate(async () => {
+    const target = await v.readStoredVault(), held = v.cloneDeviceCredential(a);
+    let resolve; const proof = new Promise(done => { resolve = done; });
+    const pending = v.unlockVault('',proof,target); void pending.catch(()=>{});
+    a.vault.lastSeq++; await v.saveVault(a); resolve(held.prfOutput);
+    let stale = false; try { await pending; } catch(error) { stale = /重新|变化|失效/.test(error.message); }
+    return {stale,wiped:held.prfOutput.every(byte=>byte===0),selected:v.currentSpaceId()};
+  });
+  assert.deepEqual(staleUnlock,{stale:true,wiped:true,selected:'current'},'Changed target must reject and wipe the pending proof');
   // A different local passkey is verifiable on this device; deleting its
   // space must not select that slot or reuse A's proof against B's wrapper.
   const removal = await page.evaluate(async () => {
@@ -105,7 +124,7 @@ try {
   assert.equal(await page.locator('#space-name').evaluate(el=>document.activeElement===el),true);
   await page.locator('#space-name').fill('慢慢聊'); await page.locator('#space-name-form button[type=submit]').click();
   await page.locator('.space-row.is-selected strong').waitFor();
-  await page.locator('#space-settings').click(); await page.locator('#presence-style-setting').click();
+  await page.locator('.space-close').click(); await page.locator('#chat-settings').click(); await page.locator('#presence-style-setting').click();
   if (process.env.QUIET_ROOM_SPACE_SCREENSHOTS) await page.screenshot({ path: path.join(process.env.QUIET_ROOM_SPACE_SCREENSHOTS, 'style-light.png') });
   await page.locator('[data-style=heart]').click();
   await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
@@ -132,10 +151,10 @@ try {
   await page.evaluate(() => { app.applyPresenceStyle(); app.connectionState = 'disconnected'; });
   const output=process.env.QUIET_ROOM_SPACE_SCREENSHOTS;
   if(output){await mkdir(output,{recursive:true});await page.screenshot({path:path.join(output,'chat-heart.png')});}
-  await page.locator('#open-spaces').click(); await page.locator('#space-settings').waitFor();
+  await page.locator('#open-spaces').click(); await page.locator('.space-row').first().waitFor();
   if(output){await page.waitForTimeout(400);await page.screenshot({path:path.join(output,'spaces.png')});}
-  await page.locator('#space-settings').click(); if(output){await page.waitForTimeout(400);await page.screenshot({path:path.join(output,'settings.png')});}
-  await page.locator('.space-back').click();
+  await page.locator('.space-close').click(); await page.locator('#chat-settings').click(); if(output){await page.waitForTimeout(400);await page.screenshot({path:path.join(output,'settings.png')});}
+  await page.locator('.space-close').click(); await page.locator('#open-spaces').click();
   await page.evaluate(() => { window.originalComposer = document.querySelector('#message-input'); originalComposer.value = '创建取消后保留的草稿'; });
   await page.locator('#space-create').click();
   await page.locator('#new-space-name').fill('未提交的空间');
@@ -158,6 +177,14 @@ try {
   const createdSlot = await page.evaluate(()=>v.currentSpaceId());
   assert.equal(await page.evaluate(() => v.readStoredVault().then(stored => stored.platform.credentialId)), await page.evaluate(() => a.stored.platform.credentialId));
   assert.notEqual(createdSlot,'current');
+  const previewSelection = await page.evaluate(async () => {
+    const session = app.session, selected = v.currentSpaceId();
+    const saved = localStorage.getItem('quiet-room:space');
+    const spaces = [{roomId:a.vault.roomId,localId:'current',name:'旧空间'}];
+    await app.refreshOtherSpacePreviews(session,spaces,new AbortController().signal);
+    return {selected:v.currentSpaceId()===selected,saved:localStorage.getItem('quiet-room:space')===saved,preview:spaces[0].preview};
+  });
+  assert.deepEqual(previewSelection,{selected:true,saved:true,preview:'A 的历史'},'Background previews must not select or remember another space');
   assert.equal(await page.evaluate(() => app.session.browserAccessPrf?.some(byte => byte !== 0) && JSON.stringify(Array.from(app.session.browserAccessPrf)) === JSON.stringify(expectedAccessProof)), true, 'Creating with the unlocked credential must preserve the separate browser-request proof');
   assert.equal(await page.locator('.space-invite-sheet').count(), 0, 'Creating enters chat directly');
   await page.locator('#open-spaces').click();
@@ -207,12 +234,13 @@ try {
   assert.deepEqual(deleted, { selected: true, exists: false, listed: false });
   for (const [width,height,scheme] of [[320,568,'light'],[390,844,'dark'],[1280,800,'light']]) {
     await page.setViewportSize({width,height}); await page.emulateMedia({colorScheme:scheme,reducedMotion:'reduce'});
+    await page.waitForFunction(scheme=>document.documentElement.dataset.colorScheme===scheme,scheme);
     await page.evaluate(async()=>{
       const {mountSpaceDrawer}=await import('/src/lib/space-drawer.ts');
       document.querySelector('#app').innerHTML='<main>背景</main>';
       mountSpaceDrawer(document.querySelector('#app'),{spaces:Array.from({length:40},(_,i)=>({roomId:String(i),name:'私密空间 '+(i+1)})),currentRoom:'0',signal:new AbortController().signal,actions:[],icons:{close:'×',plus:'+',settings:'⚙'},select:async()=>{},create:async()=>{},rename:async()=>{},styleChanged:()=>{},closed:()=>{}});
     });
-    await page.locator('#space-settings').waitFor();
+    await page.locator('.space-row').first().waitFor();
     if (scheme === 'light') {
       const edge = await page.locator('.space-access-row').first().evaluate(el => {
         const style = getComputedStyle(el);
@@ -224,7 +252,7 @@ try {
     }
     const layout=await page.evaluate(()=>{const scroll=document.querySelector('.space-drawer-scroll');scroll.scrollTop=1200;return {footer:document.querySelector('.space-drawer').getBoundingClientRect().bottom,viewport:innerHeight,scroll:scroll.scrollTop,overflow:document.documentElement.scrollWidth>innerWidth};});
     assert.ok(layout.footer<=height && layout.scroll>0 && !layout.overflow,JSON.stringify(layout));
-    await page.locator('#space-settings').click(); await page.locator('.space-back').click();
+    assert.equal(await page.locator('#space-settings,.space-back').count(),0);
     assert.ok(await page.locator('.space-drawer-scroll').evaluate(el=>el.scrollTop>1000));
     if(output)await page.screenshot({path:path.join(output,`list-${width}-${scheme}.png`)});
   }

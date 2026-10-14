@@ -60,7 +60,8 @@ export async function selectLocalSpace(id: string): Promise<void> {
   await withVaultLifecycle(async () => { selectedSpace = id; });
 }
 function rememberSpace(id: string): void {
-  try { sessionStorage.setItem(SPACE_SELECTION, id); localStorage.setItem(SPACE_SELECTION, id); } catch { /* IDB remains authoritative. */ }
+  try { sessionStorage.setItem(SPACE_SELECTION, id); } catch { /* Try the durable selection independently. */ }
+  try { localStorage.setItem(SPACE_SELECTION, id); } catch { /* This tab retains its own selection. */ }
 }
 export async function localSpaceExists(id: string): Promise<boolean> {
   return (await transaction('vault', 'readonly', store => store.get(id))) !== undefined;
@@ -1041,12 +1042,17 @@ async function enforceUnlockThrottle(): Promise<void> {
   if (waitMs > 0) throw new Error(`尝试次数过多，请 ${Math.ceil(waitMs / 1000)} 秒后重试`);
 }
 
-export async function unlockVault(secret = '', preparedPlatformProof?: Promise<Uint8Array<ArrayBuffer>>): Promise<VaultSession> {
+export async function unlockVault(secret = '', preparedPlatformProof?: Promise<Uint8Array<ArrayBuffer>>, expectedStored?: StoredVault): Promise<VaultSession> {
   // A UI-provided WebAuthn request starts in the trusted gesture stack, but it
   // must settle before taking the cross-tab lifecycle lock. Otherwise a
   // cancelled/abandoned system sheet can block a fresh verification attempt.
   const platformProof = preparedPlatformProof ? await preparedPlatformProof : undefined;
-  return withVaultLifecycle(() => unlockVaultLocked(secret, platformProof));
+  return withVaultLifecycle(async () => {
+    if (expectedStored && !sameStoredVault(await readStoredVaultUnlocked(vaultSpaceId(expectedStored)), expectedStored)) throw staleVaultError();
+    const session = await unlockVaultLocked(secret, platformProof, expectedStored);
+    if (expectedStored) { selectedSpace = vaultSpaceId(session.stored); rememberSpace(selectedSpace); }
+    return session;
+  }).finally(() => { if (platformProof) { platformProof.fill(0); takeBrowserAccessPrf(platformProof)?.fill(0); } });
 }
 
 /** Prepare management of already-owned pending slots without changing selection. */

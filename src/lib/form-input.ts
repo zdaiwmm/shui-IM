@@ -59,7 +59,7 @@ export function mountFormInputs(root: HTMLElement): () => void {
     root.style.setProperty('height', `${rootHeight}px`, 'important');
     const overlay = document.createElement('div'); overlay.className = 'form-input-overlay';
     overlay.setAttribute('role', 'dialog'); overlay.setAttribute('aria-modal', 'true'); overlay.setAttribute('aria-labelledby', 'form-input-title');
-    overlay.innerHTML = '<form class="form-input-panel" novalidate><h2 id="form-input-title"></h2><div class="form-input-field"></div><footer><button type="button" data-form-input-cancel>取消</button><button type="button" data-form-input-done>完成</button></footer></form>';
+    overlay.innerHTML = '<form class="form-input-panel" novalidate><h2 id="form-input-title"></h2><div class="form-input-field"><button type="button" data-form-input-done>完成</button></div></form>';
     overlay.querySelector('h2')!.textContent = titleFor(original);
     const editor = document.createElement(original instanceof HTMLTextAreaElement ? 'textarea' : 'input') as Field;
     for (const attribute of ['type', 'inputmode', 'autocomplete', 'autocapitalize', 'autocorrect', 'spellcheck', 'maxlength', 'minlength', 'min', 'max', 'step', 'pattern', 'placeholder', 'dir']) {
@@ -72,7 +72,7 @@ export function mountFormInputs(root: HTMLElement): () => void {
     editor.value = initialValue;
     let selection: [number | null, number | null] = [null, null];
     try { selection = [original.selectionStart, original.selectionEnd]; } catch { /* Numeric fields have no selection API. */ }
-    overlay.querySelector('.form-input-field')!.append(editor);
+    overlay.querySelector('.form-input-field')!.prepend(editor);
     root.append(overlay);
     let finished = false, composing = false, pointerAction = false;
     const release = () => {
@@ -125,7 +125,6 @@ export function mountFormInputs(root: HTMLElement): () => void {
     // Only the explicit Done action or a non-composing editor key completes.
     overlay.querySelector('form')!.addEventListener('submit', event => { event.preventDefault(); }, { signal: events.signal });
     overlay.querySelector('[data-form-input-done]')!.addEventListener('click', () => { if (!composing) finish(true); }, { signal: events.signal });
-    overlay.querySelector('[data-form-input-cancel]')!.addEventListener('click', () => finish(false), { signal: events.signal });
     overlay.addEventListener('pointerdown', event => {
       if (event.target === editor) return;
       pointerAction = true; setTimeout(() => { pointerAction = false; }, 0);

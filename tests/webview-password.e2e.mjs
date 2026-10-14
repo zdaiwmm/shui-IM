@@ -12,7 +12,7 @@ const server = await createServer({ configFile: false, appType: 'custom', root: 
 server.middlewares.use('/__webview', (_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div></body></html>'); });
 const cases = [
   ['missing-constructor', true], ['missing-container', true], ['missing-create', true], ['missing-get', true],
-  ['negative-prf-capability', true], ['not-supported', true],
+  ['negative-prf-capability', true], ['negative-builtin-capability', true], ['not-supported', true],
   ['unknown-cancel', false], ['unknown-abort', false], ['unknown-security', false], ['unknown-transient', false],
   ['insecure-context', false], ['missing-crypto', false], ['missing-storage', false], ['storage-quota', false],
 ];
@@ -27,7 +27,8 @@ try {
       if (name === 'missing-container') Object.defineProperty(navigator, 'credentials', { configurable: true, value: undefined });
       if (name === 'missing-create') Object.defineProperty(navigator.credentials, 'create', { configurable: true, value: undefined });
       if (name === 'missing-get') Object.defineProperty(navigator.credentials, 'get', { configurable: true, value: undefined });
-      if (window.PublicKeyCredential) Object.defineProperty(PublicKeyCredential, 'getClientCapabilities', { configurable: true, value: async () => name === 'negative-prf-capability' ? { 'extension:prf': false } : {} });
+      if (window.PublicKeyCredential) Object.defineProperty(PublicKeyCredential, 'getClientCapabilities', { configurable: true, value: async () => name === 'negative-prf-capability' ? { 'extension:prf': false } : name === 'negative-builtin-capability' ? { 'extension:prf':true,userVerifyingPlatformAuthenticator:false } : {} });
+      if (name === 'negative-builtin-capability') Object.defineProperty(navigator.credentials,'create',{configurable:true,value:async()=>{throw Error('Unavailable built-in verifier must choose password before requesting an external key');}});
       if (name === 'not-supported' || name.startsWith('unknown-')) Object.defineProperty(navigator.credentials, 'create', { configurable: true, value: async () => { throw new DOMException('synthetic capability outcome', { 'not-supported': 'NotSupportedError', 'unknown-cancel': 'NotAllowedError', 'unknown-abort': 'AbortError', 'unknown-security': 'SecurityError', 'unknown-transient': 'UnknownError' }[name]); } });
     }, name);
     const page = await context.newPage(); const errors = []; let roomWrites = 0;

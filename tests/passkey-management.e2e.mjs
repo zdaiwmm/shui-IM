@@ -34,9 +34,9 @@ try {
     window.signalCalls = [];
     window.realSignal = PublicKeyCredential.signalCurrentUserDetails;
     PublicKeyCredential.signalCurrentUserDetails = async details => { signalCalls.push(details); if (window.rejectSignal) throw new Error('提供方暂时不可用'); if (window.failStorage) { window.originalStored = session.stored; session.stored = { ...session.stored, payload: { ...session.stored.payload, iv: 'changed' } }; } };
-    await app.openPrivateSpaces();
+    await app.openPrivateSpaces(() => true,0,true);
   });
-  await page.locator('#space-settings').click();
+
   const before = (await cdp.send('WebAuthn.getCredentials', { authenticatorId })).credentials;
   assert.equal(before.length, 1);
   await page.evaluate(() => { cancelNext = true; });
@@ -104,8 +104,8 @@ try {
     window.oldUser = await pk.verifyPasskeyDetails(legacy, new AbortController().signal);
   });
   assert.equal(await page.evaluate(() => oldUser), await page.evaluate(() => signalCalls[0].userId));
-  await page.evaluate(async () => { PublicKeyCredential.signalCurrentUserDetails = undefined; app.runtimeAbort = new AbortController(); await app.openPrivateSpaces(); });
-  await page.locator('#space-settings').click(); await page.locator('#passkey-management').click();
+  await page.evaluate(async () => { PublicKeyCredential.signalCurrentUserDetails = undefined; app.runtimeAbort = new AbortController(); await app.openPrivateSpaces(() => true,0,true); });
+   await page.locator('#passkey-management').click();
   await page.locator('#passkey-rename').waitFor();
   assert.equal(await page.locator('#passkey-rename').isDisabled(), true);
   assert.equal(await page.locator('.passkey-name-overlay').count(), 0);

@@ -240,7 +240,7 @@ try {
   await old.page.evaluate(async()=>{
     for(const file of ['/src/backup.css','/src/recovery-experience.css','/src/auth-recovery.css','/src/spaces.css','/src/design-system.css'])await import(file);
   });
-  await old.page.locator('#open-spaces').click();await old.page.locator('#space-settings').click();
+  await old.page.locator('#chat-settings').click();
   for(const [entry,back] of [['local-history-backup','#local-backup-back'],['local-history-restore','#local-backup-back'],['backup-settings','#recovery-center-back'],['release-history','#release-history-back'],['manage-devices','#device-back'],['recover-other-space','#joint-code-close'],['cover-practice-menu','#practice-back']]) {
     await old.page.locator(`#${entry}`).click();
     await old.page.locator(back).waitFor();
