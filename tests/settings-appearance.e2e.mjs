@@ -150,12 +150,14 @@ try {
       const header = document.querySelector('.chat-header').getBoundingClientRect();
       const composer = document.querySelector('.composer').getBoundingClientRect();
       const style = getComputedStyle(document.querySelector('#message-input'));
-      return { header: header.height, visibleChat: composer.top - header.bottom,
+      return { header: header.height, composer:composer.height, viewport:innerHeight, visibleChat: composer.top - header.bottom,
         max: parseFloat(style.maxHeight), font: parseFloat(style.fontSize) };
     });
     assert.equal(compact.header, 48, 'Keyboard does not compress the title bar');
     assert.equal(compact.max, 88); assert.ok(compact.font >= 16);
-    assert.ok(compact.visibleChat >= 170, `short browser viewport must retain >=170px of conversation, got ${compact.visibleChat}`);
+    assert.equal(compact.composer,60,'V1.5 keeps the 44px field and 8px above/below');
+    assert.ok(Math.abs(compact.visibleChat-(compact.viewport-compact.header-compact.composer))<1,
+      `short browser viewport must retain all space outside the approved chrome: ${JSON.stringify(compact)}`);
     await screenshot(`p1-keyboard-${scheme}`);
     await page.evaluate(() => {
       delete document.documentElement.dataset.keyboardOpen;

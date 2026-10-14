@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="blue" data-color-scheme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Quiet Room · 面板与输入框 V1.5</title>
+  <link rel="stylesheet" href="../../../../src/design-tokens.css">
+  <link rel="stylesheet" href="../../../../src/appearance.css">
+  <link rel="stylesheet" href="prototype.css">
+</head>
+<body>
+  <main class="preview">
+    <header class="preview-heading">
+      <div><p class="eyebrow">QUIET ROOM / P1</p><h1>面板与输入框 <small>V1.5</small></h1></div>
+      <span class="preview-label">交互原型 · 模拟内容</span>
+    </header>
+    <div class="preview-controls" aria-label="原型预览设置">
+      <label>配色<select id="palette"><option value="blue">经典</option><option value="green">松绿</option><option value="purple">雾紫</option><option value="apricot">暖杏</option></select></label>
+      <label>明暗<select id="brightness"><option value="light">浅色</option><option value="dark">深色</option><option value="system">跟随系统</option></select></label>
+      <label>画幅<select id="viewport"><option value="390">手机 · 390</option><option value="320">窄屏 · 320</option><option value="430">手机 · 430</option><option value="desktop">桌面</option><option value="short">短屏 · 390×568</option></select></label>
+      <label>内容状态<select id="scenario"><option value="normal">正常</option><option value="loading">加载中</option><option value="empty">无合集</option><option value="error">加载失败</option><option value="restricted">通话不可用</option></select></label>
+      <label>动态效果<select id="motion-mode"><option value="system">跟随系统</option><option value="reduce">减少动态</option></select></label>
+      <button id="show-emoji" class="preview-action" type="button">表情</button><button id="show-tools" class="preview-action" type="button">聊天工具</button>
+    </div>
+    <div class="stage">
+      <section class="screen" aria-label="Quiet Room 交互原型" data-mode="mobile">
+        <header class="chat-header">
+          <button type="button" class="icon-button avatar-button" aria-label="当前空间：周末散步" data-demo="当前空间：周末散步"><img src="../../../../public/space-avatars/fluent-slightly_smiling_face-still.webp" alt=""><span hidden>🌱</span></button>
+          <div class="presence"><span class="presence-dot"></span><span>双方在线</span></div>
+          <button type="button" class="icon-button" aria-label="设置" data-icon="Settings" data-demo="此原型聚焦输入与面板，设置沿用现有页面"></button>
+        </header>
+        <section class="timeline" aria-label="模拟聊天消息" tabindex="0">
+          <p class="date">今天</p>
+          <div class="message incoming"><div class="bubble">周末去河边走走？<span class="message-meta">17:42</span></div></div>
+          <div class="message outgoing"><div class="bubble">好呀，等太阳快下山的时候。<span class="message-meta">17:43 <span aria-label="已读">✓✓</span></span></div></div>
+          <div class="message incoming"><div class="bubble">那就五点见 🌿<span class="message-meta">17:44</span></div></div>
+        </section>
+        <form class="composer" autocomplete="off">
+          <button type="button" id="tools-toggle" class="icon-button" aria-label="更多功能" aria-expanded="false" aria-controls="tools-panel" data-icon="Plus"></button>
+          <div class="draft-field">
+            <label for="draft" class="sr-only">输入消息</label><textarea id="draft" rows="1" maxlength="4000" placeholder="输入消息" enterkeyhint="send"></textarea>
+            <button id="send" type="submit" class="send-button" aria-label="发送消息" data-icon="Send" hidden></button>
+            <button type="button" id="emoji-toggle" class="icon-button" aria-label="切换到键盘" aria-expanded="true" aria-controls="expression-panel" data-icon="Keyboard"></button>
+          </div>
+          <button type="button" class="icon-button" aria-label="录制语音" data-icon="Mic" data-demo="录音沿用现有长按与取消手势，此处仅展示入口"></button>
+        </form>
+        <section id="tools-panel" class="tools-panel" aria-label="聊天工具" hidden>
+          <div class="tools-grid">
+            <button type="button" data-tool="图片"><span data-icon="Image"></span><span>图片</span></button>
+            <button type="button" data-tool="拍摄"><span data-icon="Camera"></span><span>拍摄</span></button>
+            <button type="button" data-tool="视频通话"><span data-icon="Video"></span><span>视频通话</span></button>
+            <button type="button" data-tool="实时语音"><span data-icon="Phone"></span><span>实时语音</span></button>
+            <button type="button" data-tool="文件"><span data-icon="File"></span><span>文件</span></button>
+            <button type="button" data-tool="收藏"><span data-icon="Star"></span><span>收藏</span></button>
+          </div>
+          <p id="call-note" class="call-note" hidden>当前连接暂不支持通话</p>
+        </section>
+        <section id="expression-panel" class="expression-panel" aria-label="表情">
+          <div class="expression-toolbar">
+            <div class="collection-rail" aria-label="表情入口">
+              <button type="button" class="icon-button" data-action="catalog" aria-label="添加贴纸" data-icon="StickerPlus"></button>
+              <button type="button" class="icon-button" data-action="emoji" aria-label="Emoji" aria-pressed="true" data-icon="Smile"></button>
+              <span class="rail-divider" aria-hidden="true"></span>
+              <div id="pack-shortcuts" class="pack-shortcuts"></div>
+            </div>
+            <button type="button" id="expand" class="icon-button" aria-label="展开表情" data-icon="Maximize2"></button>
+            <button type="button" id="collapse" class="icon-button" aria-label="收起表情" data-icon="ChevronDown"></button>
+          </div>
+          <div id="expression-content" class="expression-content"></div>
+        </section>
+        <section id="catalog-page" class="catalog-page" role="dialog" aria-modal="true" aria-label="添加贴纸" hidden>
+          <header class="page-header"><button id="catalog-back" class="icon-button" type="button" aria-label="返回表情面板" data-icon="ArrowLeft"></button><h2>添加贴纸</h2><button id="expression-favorites" class="icon-button" type="button" aria-label="表情收藏" data-icon="Star"></button><button id="catalog-close" class="icon-button" type="button" aria-label="关闭添加贴纸" data-icon="X"></button></header>
+          <div id="catalog-content" class="catalog-content"></div>
+        </section>
+        <dialog id="tool-dialog" class="demo-dialog"><h2 id="tool-title"></h2><p id="tool-description"></p><div class="dialog-actions"><button id="tool-cancel" type="button">取消</button><button id="tool-confirm" type="button">模拟完成</button></div></dialog>
+        <div id="toast" class="toast" role="status" hidden></div>
+      </section>
+    </div>
+    <p class="preview-caption">可输入文字、选择表情、展开面板和添加合集。全部操作仅存在于本次原型内存中。</p>
+  </main>
+  <script type="module" src="prototype.js"></script>
+</body>
+</html>

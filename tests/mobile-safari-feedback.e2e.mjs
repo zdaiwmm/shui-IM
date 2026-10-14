@@ -84,9 +84,16 @@ try {
       await page.evaluate(({theme,scheme})=>{document.documentElement.dataset.theme=theme;document.documentElement.dataset.colorScheme=scheme;},{theme,scheme});
       for(const focused of [false,true]) {
         await page.evaluate(focused=>{const input=document.querySelector('#message-input');if(focused)input.focus();else input.blur();},focused);
-        const colors=await page.evaluate(()=>({header:getComputedStyle(document.querySelector('.chat-header')).backgroundColor,
-          composer:getComputedStyle(document.querySelector('#composer')).backgroundColor,hint:document.querySelector('#system-chrome-color').content}));
+        const colors=await page.evaluate(()=>{
+          const composer=document.querySelector('#composer'),probe=document.createElement('div');
+          probe.style.cssText='position:absolute;background:color-mix(in srgb,var(--composer-surface-current) 76%,var(--surface-raised))';composer.append(probe);
+          const expected=getComputedStyle(probe).backgroundColor;probe.remove();
+          return {header:getComputedStyle(document.querySelector('.chat-header')).backgroundColor,
+            composer:getComputedStyle(composer).backgroundColor,input:getComputedStyle(document.querySelector('.composer-input-stack')).backgroundColor,
+            expected,hint:document.querySelector('#system-chrome-color').content};
+        });
         assert.equal(colors.header,colors.composer,`${theme}/${scheme}/${focused}: chat surfaces`);assert.equal(colors.hint,colors.header);
+        assert.equal(colors.input,colors.expected,`${theme}/${scheme}/${focused}: subtle input fill`);
       }
     }
     await page.locator('#message-input').fill('保留输入草稿');await page.locator('#open-memes').click();
@@ -94,6 +101,16 @@ try {
     await page.locator('.meme-panel').evaluate(async panel=>{await Promise.all(panel.getAnimations().map(animation=>animation.finished));});
     const density=await page.locator('.fluent-emoji-tile img').first().evaluate(img=>({natural:img.naturalWidth,painted:img.getBoundingClientRect().width*devicePixelRatio}));
     assert.ok(density.natural>=density.painted,JSON.stringify(density));
+    const panels = await page.evaluate(() => {
+      const input = document.querySelector('.composer-input-stack'), style = getComputedStyle(input);
+      const panel = document.querySelector('.meme-panel'), row = document.querySelector('.composer-row');
+      return {radius:style.borderRadius, border:style.borderWidth, outline:style.outlineWidth,
+        padding:parseFloat(getComputedStyle(document.querySelector('#composer')).paddingTop),
+        paths:panel.querySelector('[data-shortcut="add"] svg').querySelectorAll('path').length,
+        targets:[...panel.querySelectorAll('.emoji-tile')].every(el=>el.getBoundingClientRect().width>=43.99),
+        gap:panel.getBoundingClientRect().top-row.getBoundingClientRect().bottom};
+    });
+    assert.deepEqual(panels,{radius:'12px',border:'0px',outline:'0px',padding:8,paths:4,targets:true,gap:8});
     const collapse=await page.evaluate(async()=>{
       const app=fixture.app,row=document.querySelector('.composer-row'),input=document.querySelector('#message-input');
       const top=row.getBoundingClientRect().top;app.closeMemePicker(false,true);
@@ -118,6 +135,43 @@ try {
     assert.deepEqual(collapse.durations,[360,360]);
     assert.ok(collapse.panelMoving>collapse.panelTop+8,JSON.stringify(collapse));
     await page.locator('#open-memes').click();await page.waitForTimeout(450);
+    const reverse = await page.evaluate(async () => {
+      const app=fixture.app, panel=document.querySelector('.meme-panel'), row=document.querySelector('.composer-row');
+      const paint=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      app.closeMemePicker(false,true);
+      for(const animation of [...row.getAnimations(),...panel.getAnimations()]){animation.pause();animation.currentTime=120;}
+      await paint();const before=[panel,row].map(el=>el.getBoundingClientRect().top);
+      app.openMemePicker();
+      const animations=[...row.getAnimations(),...panel.getAnimations()];
+      for(const animation of animations){animation.pause();animation.currentTime=0;}
+      await Promise.all(animations.map(animation=>animation.ready));await paint();
+      const after=[panel,row].map(el=>el.getBoundingClientRect().top);
+      for(const animation of animations)animation.finish();await paint();
+      return {jumps:after.map((value,i)=>Math.abs(value-before[i])),same:panel===document.querySelector('.meme-panel'),
+        interactive:!panel.inert&&!panel.hasAttribute('aria-hidden'),left:row.getAnimations().length+panel.getAnimations().length};
+    });
+    assert.ok(reverse.jumps.every(jump=>jump<.5),JSON.stringify(reverse));
+    assert.equal(reverse.same,true);assert.equal(reverse.interactive,true);assert.equal(reverse.left,0);
+    const sizeReverse=await page.evaluate(async()=>{
+      const panel=document.querySelector('.meme-panel'),expand=panel.querySelector('.meme-expand');
+      const paint=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      expand.click();for(const animation of panel.getAnimations()){animation.pause();animation.currentTime=120;}
+      await paint();const before=panel.getBoundingClientRect().top;expand.click();
+      const animations=panel.getAnimations();for(const animation of animations){animation.pause();animation.currentTime=0;}
+      await Promise.all(animations.map(animation=>animation.ready));await paint();
+      const jump=Math.abs(before-panel.getBoundingClientRect().top);
+      for(const animation of animations)animation.finish();await paint();
+      return {jump,local:panel.parentElement.id==='composer',same:panel===document.querySelector('.meme-panel')};
+    });
+    assert.ok(sizeReverse.jump<.5,JSON.stringify(sizeReverse));assert.equal(sizeReverse.local,true);assert.equal(sizeReverse.same,true);
+    await page.locator('.meme-expand').click();
+    await page.locator('.meme-panel').evaluate(async panel=>{await Promise.all(panel.getAnimations().map(animation=>animation.finished));});
+    assert.equal(await page.locator('.meme-expand').getAttribute('aria-label'),'还原表情');
+    assert.equal(await page.locator('.meme-panel').evaluate(panel=>Math.abs(panel.getBoundingClientRect().height-visualViewport.height)<1),true);
+    assert.equal(await page.locator('.meme-panel').evaluate(panel=>panel.querySelector('.meme-scroll').getBoundingClientRect().height>panel.getBoundingClientRect().height-80),true,'Expanded content must fill the space below its single rail');
+    await page.locator('.meme-expand').click();
+    await page.locator('.meme-search-dialog').waitFor({state:'detached'});
+    assert.equal(await page.locator('#composer > .meme-panel').count(),1);
     const handoff=await page.evaluate(async()=>{
       const input=document.querySelector('#message-input'),app=fixture.app;let focuses=0,blurs=0;
       input.addEventListener('focus',()=>focuses++);input.addEventListener('blur',()=>blurs++);
@@ -126,11 +180,65 @@ try {
         if(i===1)setViewport(560);if(i===3)setViewport(473);
         await new Promise(resolve=>setTimeout(resolve,20));
       }
-      await new Promise(resolve=>setTimeout(resolve,500));
+      // Linux WebKit may deliver the animation finish after a fixed wall-time
+      // delay. Await the actual owners without weakening the focus counts.
+      await Promise.allSettled([...document.querySelectorAll('.meme-panel,.composer-row')].flatMap(el=>el.getAnimations()).map(animation=>animation.finished));
       return {focuses,blurs,same:input===document.querySelector('#message-input'),draft:input.value,panel:!!app.memePicker,opacity:getComputedStyle(document.querySelector('.composer-row')).opacity};
     });
     assert.deepEqual(handoff,{focuses:1,blurs:0,same:true,draft:'保留输入草稿',panel:false,opacity:'1'});
     await page.evaluate(()=>{document.querySelector('#message-input').blur();setViewport(844);});
+    // The preceding synthetic keyboard resize has its own 360ms composer
+    // clock. Let that endpoint settle before sampling the tool's 240ms path.
+    await page.waitForFunction(()=>document.querySelector('#composer').getAnimations().every(animation=>animation.playState==='finished'));
+    const tools = await page.evaluate(async () => {
+      const app=fixture.app,panel=document.querySelector('#chat-tools'),row=document.querySelector('.composer-row');
+      const paint=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      app.toggleChatTools();
+      for(const animation of [...row.getAnimations(),...panel.getAnimations()]){animation.pause();animation.currentTime=90;}
+      await paint();const before=[panel,row].map(el=>el.getBoundingClientRect().top),left=panel.getBoundingClientRect().left;
+      app.toggleChatTools();
+      const closingInert=panel.inert&&panel.getAttribute('aria-hidden')==='true'&&!panel.hidden;
+      let animations=[...row.getAnimations(),...panel.getAnimations()];
+      for(const animation of animations){animation.pause();animation.currentTime=0;}
+      await Promise.all(animations.map(animation=>animation.ready));await paint();
+      const jumps=[panel,row].map((el,i)=>Math.abs(el.getBoundingClientRect().top-before[i]));
+      const xJump=Math.abs(panel.getBoundingClientRect().left-left);
+      for(const animation of animations)animation.currentTime=100;await paint();
+      const returning=[panel,row].map(el=>el.getBoundingClientRect().top);app.toggleChatTools();
+      animations=[...row.getAnimations(),...panel.getAnimations()];
+      for(const animation of animations){animation.pause();animation.currentTime=0;}
+      await Promise.all(animations.map(animation=>animation.ready));await paint();
+      jumps.push(...[panel,row].map((el,i)=>Math.abs(el.getBoundingClientRect().top-returning[i])));
+      const duration=animations.map(animation=>animation.effect.getTiming().duration);
+      const transformsOnly=animations.every(animation=>animation.effect.getKeyframes().every(frame=>!('height' in frame)&&!('padding' in frame)));
+      for(const animation of animations)animation.finish();await paint();
+      const style=getComputedStyle(panel),handle=getComputedStyle(panel,'::before');
+      const result={jumps,xJump,closingInert,duration,transformsOnly,radius:style.borderTopLeftRadius,
+        noHandle:handle.display==='none',interactive:!panel.inert&&!panel.hidden,draft:document.querySelector('#message-input').value};
+      app.closeChatTools();return result;
+    });
+    assert.ok(tools.jumps.every(jump=>jump<.5)&&tools.xJump<.5,JSON.stringify(tools));
+    assert.equal(tools.closingInert,true);assert.deepEqual(tools.duration,[240,240]);assert.equal(tools.transformsOnly,true);
+    assert.equal(tools.radius,'0px');assert.equal(tools.noHandle,true);assert.equal(tools.interactive,true);assert.equal(tools.draft,'保留输入草稿');
+    await page.locator('#message-input').click();
+    assert.equal(await page.locator('.composer-input-stack').evaluate(el=>getComputedStyle(el).outlineWidth),'0px');
+    await page.locator('#open-chat-tools').focus();await page.keyboard.press('Tab');
+    assert.equal(await page.locator('#message-input').evaluate(el=>el===document.activeElement),true);
+    assert.equal(await page.locator('.composer-input-stack').evaluate(el=>getComputedStyle(el).outlineWidth),'2px');
+    const swaps=await page.evaluate(async()=>{
+      const app=fixture.app;app.openMemePicker();const outgoing=document.querySelector('.meme-panel');
+      app.toggleChatTools();const retained=outgoing.isConnected&&outgoing.inert;
+      app.openMemePicker();app.toggleChatTools();
+      const animations=[...document.querySelector('#composer').getAnimations({subtree:true})];
+      for(const animation of animations)animation.finish();
+      await Promise.allSettled(animations.map(animation=>animation.finished));
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      return {retained,expressions:document.querySelectorAll('.meme-panel').length,tools:!document.querySelector('#chat-tools').hidden,
+        inert:document.querySelector('#chat-tools').inert,animations:[...document.querySelectorAll('.composer-row,.meme-panel,#chat-tools')].reduce((sum,el)=>sum+el.getAnimations().length,0),
+        draft:document.querySelector('#message-input').value};
+    });
+    assert.deepEqual(swaps,{retained:true,expressions:0,tools:true,inert:false,animations:0,draft:'保留输入草稿'});
+    await page.evaluate(()=>fixture.app.closeChatTools());
     const capsules=await page.evaluate(async()=>{
       const {MediaUploadView}=await import('/src/lib/media-upload-view.ts');
       const canvas=document.createElement('canvas');canvas.width=canvas.height=128;const blob=await new Promise(resolve=>canvas.toBlob(resolve));
@@ -183,7 +291,9 @@ try {
     await page.emulateMedia({reducedMotion:'reduce'});
     const reduced=await page.evaluate(()=>{
       const app=fixture.app;app.openMemePicker();app.closeMemePicker(false,true);
-      return !app.memePicker&&!document.querySelector('.meme-panel')&&!document.querySelector('#composer').classList.contains('has-meme-panel');
+      const expression=!app.memePicker&&!document.querySelector('.meme-panel')&&!document.querySelector('#composer').classList.contains('has-meme-panel');
+      app.toggleChatTools();app.closeChatTools(true);
+      return expression&&document.querySelector('#chat-tools').hidden;
     });
     assert.equal(reduced,true);
     await page.emulateMedia({reducedMotion:'no-preference'});

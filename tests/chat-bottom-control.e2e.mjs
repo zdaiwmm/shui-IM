@@ -95,7 +95,7 @@ try {
         })}`);
       }
     };
-    const assertSurfaceSet = (label, expectedAlpha, fallback = false) => {
+    const assertSurfaceSet = (label, expectedAlpha, fallback = false, forcedColors = false) => {
       assertComposerVisible(label);
       const viewportTop = window.visualViewport?.offsetTop ?? 0;
       const viewportBottom = viewportTop + (window.visualViewport?.height ?? innerHeight);
@@ -118,10 +118,13 @@ try {
           webkitBackdropFilter: style.getPropertyValue('-webkit-backdrop-filter'),
         }];
       }));
+      const composer=document.querySelector('#composer'),probe=document.createElement('div');
+      probe.style.cssText=`position:absolute;background:${forcedColors?'Canvas':'color-mix(in srgb,var(--composer-surface-current) 76%,var(--surface-raised))'}`;
+      composer.append(probe);const expectedInput=getComputedStyle(probe).backgroundColor;probe.remove();
       for (const name of Object.keys(surfaceSelectors)) {
-        if (snapshot[name].backgroundColor !== snapshot.input.backgroundColor
-          || snapshot[name].backgroundImage !== snapshot.input.backgroundImage) {
-          throw Error(`${label} composer surfaces diverged: ${JSON.stringify(snapshot)}`);
+        const expected=name==='input'?expectedInput:getComputedStyle(composer).backgroundColor;
+        if (snapshot[name].backgroundColor !== expected || snapshot[name].backgroundImage !== 'none') {
+          throw Error(`${label} V1.5 surface disagreed with its role: ${JSON.stringify({snapshot,expected,name})}`);
         }
         if (Math.abs(snapshot[name].alpha - expectedAlpha) > 0.002) {
           throw Error(`${label} ${name} background alpha was ${snapshot[name].alpha}, expected ${expectedAlpha}: ${snapshot[name].backgroundColor}`);
@@ -1163,8 +1166,8 @@ try {
       input.focus({ preventScroll: true });
       await waitForComposerReveal();
       const focused = assertSurfaceSet(`${scheme} focused`, 1);
-      if (focused.input.backgroundColor !== idle.input.backgroundColor) {
-        throw Error(`${scheme} focus repainted the shared composer surface`);
+      if (getComputedStyle(input.closest('.composer-input-stack')).outlineWidth !== '0px') {
+        throw Error(`${scheme} pointer focus added an input frame`);
       }
       document.querySelector('#open-chat-tools').disabled = true;
       const disabled = assertSurfaceSet(`${scheme} disabled actions`, 1);
@@ -1203,11 +1206,11 @@ try {
         await fresh();
         await up(24);
         await waitForComposerReveal();
-        const idle = assertSurfaceSet(`${label} idle`, 1, true);
+        const idle = assertSurfaceSet(`${label} idle`, 1, true, kind==='forced-colors');
         const input = document.querySelector('#message-input');
         input.focus({ preventScroll: true });
         await waitForComposerReveal();
-        const focused = assertSurfaceSet(`${label} focused`, 1, true);
+        const focused = assertSurfaceSet(`${label} focused`, 1, true, kind==='forced-colors');
         if (requireInk) {
           const probe = document.createElement('span');
           probe.style.color = 'var(--ink)';

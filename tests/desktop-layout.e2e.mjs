@@ -48,8 +48,9 @@ try {
     });
     const assertComposerSurface = async () => {
       const surface = await page.locator('#composer').evaluate(el => ({ background:getComputedStyle(el).backgroundColor,
-        controls:[...el.querySelectorAll('.composer-input-stack,.icon-button')].map(control=>getComputedStyle(control).backgroundColor) }));
-      assert.ok(surface.controls.every(color=>color===surface.background), `P1 continuous composer surface: ${JSON.stringify(surface)}`);
+        input:getComputedStyle(el.querySelector('.composer-input-stack')).backgroundColor,
+        controls:[...el.querySelectorAll('.composer-row .icon-button')].map(control=>getComputedStyle(control).backgroundColor) }));
+      assert.ok(surface.controls.every(color=>color===surface.background)&&surface.input!==surface.background, `V1.5 continuous toolbar and subtly filled input: ${JSON.stringify(surface)}`);
     };
     let geometry = await dimensions();
     await assertComposerSurface();
@@ -72,11 +73,12 @@ try {
     const after = await page.evaluate(() => window.fixture.app.captureChatAnchor());
     assert.equal(after.clientMsgId, anchor.clientMsgId); assert.ok(Math.abs(after.offset - anchor.offset) <= 2, JSON.stringify({ anchor, after }));
     await page.locator('#open-chat-tools').press('Enter');
+    await page.locator('#chat-tools').evaluate(async panel=>{await Promise.allSettled(panel.getAnimations().map(animation=>animation.finished));});
     await assertComposerSurface();
     assert.equal(await page.locator('#chat-tools button:not(:disabled)').first().evaluate(el => el === document.activeElement), true);
     const toolGeometry = await page.evaluate(() => {
-      const tools = document.querySelector('#chat-tools').getBoundingClientRect(), row = document.querySelector('.composer-row').getBoundingClientRect(), plus = document.querySelector('#open-chat-tools').getBoundingClientRect();
-      return { left:tools.left - plus.left, gap:row.top - tools.bottom, right:tools.right, top:tools.top };
+      const tools = document.querySelector('#chat-tools').getBoundingClientRect(), composer = document.querySelector('#composer').getBoundingClientRect(), plus = document.querySelector('#open-chat-tools').getBoundingClientRect();
+      return { left:tools.left - plus.left, gap:composer.top - tools.bottom, right:tools.right, top:tools.top };
     });
     assert.ok(Math.abs(toolGeometry.left) <= 1 && Math.abs(toolGeometry.gap - 8) <= 1 && toolGeometry.top >= 0 && toolGeometry.right <= 1440, JSON.stringify(toolGeometry));
     await page.keyboard.press('Escape'); assert.equal(await page.locator('#open-chat-tools').getAttribute('aria-expanded'), 'false');
@@ -135,6 +137,7 @@ try {
     await page.locator('.space-drawer-overlay').waitFor({ state:'detached' });
     await page.setViewportSize({width:1366,height:420}); await settle();
     await page.locator('#open-chat-tools').click();
+    await page.locator('#chat-tools').evaluate(async panel=>{await Promise.allSettled(panel.getAnimations().map(animation=>animation.finished));});
     const panel = await page.locator('#chat-tools').boundingBox(); assert.ok(panel.y >= 80 && panel.y + panel.height <= 420, JSON.stringify(panel));
     await page.screenshot({path:`${screenshots}/${engine.name()}-short.png`});
     await page.evaluate(() => window.fixture.app.closeChatTools());

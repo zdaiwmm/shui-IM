@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 输入栏与表情／工具面板 V1.5（2026-10-15）
+
+- 用户已确认[原型V1.5](../requirements/2026-10-14-composer-panels/README.md)，授权正式实施、验证后PR／CI与合并main，生产仍需精确提交确认；本次流程图按用户要求豁免。
+- 实施分支`codex/composer-panels-implementation-20261015`基于原型`7e7b3ab`／主线`15559f3`，因iCloud占位读取迁到本机临时独占工作树。淡填充输入框、60px基础栏、主题面板底色、贴纸加号、平直无柄工具面板及可反向动效已在工作树实现，规范同步V1.7。
+- 编译、工具、Chromium／WebKit反向／交接与桌面专项通过；本机完整单元受98%磁盘触发10项BACKUP_CAPACITY_LOW阻断，CI完整956项已取得通过。早期采样／旧样式断言失败由需求记录保留。最终head、完整CI及main合并事实读取[PR #306](https://github.com/zdaiwmm/shui-IM/pull/306)回执；生产未授权／未发布，真机iPhone／Safari未验证。下方为既有生产事实。
+
 ## iPhone 七项交互修复已发布（2026-10-14 22:01）
 
 - 用户确认七项方案并免除本次原型／流程图，授权实施与验证；列明精确应用提交后另行明确「确认，发布生产」。范围、确认及失败记录见[需求记录](../requirements/2026-10-14-mobile-safari-feedback/README.md)。
