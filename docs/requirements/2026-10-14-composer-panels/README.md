@@ -2,7 +2,7 @@
 
 ## 身份与当前阶段
 
-- 需求编号：2026-10-14-composer-panels；当前版本 V1.5，I／D 已合并，P 发布门禁阻塞，V1.5已确认。
+- 需求编号：2026-10-14-composer-panels；设计V1.5已确认，I／D已完成。组合应用 `05b0e8be44cf1b3308af13c62d94eb84903d9a4e`／`2026.10.14.4`完整CI与只读预检通过，P待该新精确SHA确认。
 - 本机入口规则来源 `4356531cea264dd01bd9110da90b9ff62cfd7a59`；只读核对远端规则与设计后，任务基线为 GitHub main `15559f36452ea71dd72ae57aeb7f54a0c586e11b`。同步后 origin/main 与基线相同，本机 main 保留旧快照。
 - 独占分支：`codex/composer-panels-prototype-20261014`。本机任务目录为项目内 `.worktrees/composer-panels-prototype-20261014`；跨电脑接续须重新核验路径、HEAD 与未提交状态。
 - 2026-10-15用户确认V1.5并授权正式实施、验证后按流程合并main，生产发布前再次确认。流程图仍按用户明确例外省略。
@@ -105,3 +105,12 @@ node docs/requirements/2026-10-14-composer-panels/prototype/serve.mjs
 - 源 `dba6f4dd8a27217d47ddfe594c765de417d4ed45` 的[完整CI38622800116](https://github.com/zdaiwmm/shui-IM/actions/runs/38622800116) attempt 1全部通过，含64浏览器入口、956项、通话、双架构镜像及verify；本机最终草稿双引擎与主浏览器通过。合并前实时main已前进至 `6297d5c7ce4a45f48b7ab52ec134a9e27902e65f`，纳入[PR #305](https://github.com/zdaiwmm/shui-IM/pull/305)的Safari输入交接／设置返回修复、同一草稿测试诊断及版本 `2026.10.14.4`。
 - 按主线集成规则在同一独占分支合入6297，保留上游运行代码、诊断、规范和双方记录；本PR相对新基线仍仅两个夹具与两份记录。新组合重新运行输入交接、草稿及主浏览器专项和完整CI，不能外推上述旧基线绿色结果。最终应用候选将包含V1.5、上游Safari修复及本测试修正，生产确认仍绑定新的精确SHA，不继承075a0642或其他任务的生产授权。最终head、完整CI与合并由[PR #308](https://github.com/zdaiwmm/shui-IM/pull/308)回执拥有。
 - 冻结期间main再次前进为 `67f17da9e0177fba95b5d6092bd2c9348c762178`（PR #309），相对6297仅对账Safari交付／真机未完成记录。保留该文档更新，运行代码与6297一致；本次不操作另一任务的手机控制通道，不把其条件发布请求或准备回执当作本组合的生产授权。
+
+## 最终组合交付与待发布候选（2026-10-15）
+
+- [PR #308](https://github.com/zdaiwmm/shui-IM/pull/308)按精确head正常合并为 `05b0e8be44cf1b3308af13c62d94eb84903d9a4e`，与最终源 `e56f2bd216a5abbf2eeb77ec1e9ff693460bb185` 同树 `577747ee9632275f8a2a6ec9984bc37788a63180`。范围为已确认V1.5、主线已合入的Safari输入／设置修复及本夹具修正，沿用上游版本 `2026.10.14.4`，未制造测试空版本。
+- 组合本地mobile-safari-feedback、draft-refresh的Chromium／WebKit及主浏览器全流程通过，含录音、通话、默认30秒租期、pagehide与旧快照拒绝。18项空闲契约、JS语法及文档检查通过；未重跑已分类的本机完整套件容量失败，也未把真机未完成写成通过。
+- [组合PR CI 38624705588](https://github.com/zdaiwmm/shui-IM/actions/runs/38624705588) attempt 1全部成功。精确[main CI 38625873857](https://github.com/zdaiwmm/shui-IM/actions/runs/38625873857)首轮仅主浏览器第326行邀请按钮字体空值失败；其他分片、956项、通话、审计及镜像通过。浏览器受控实验中，连接的14px按钮返回14px，移除后返回空字符串，与症状一致；原失败未记录isConnected，不能确认实际原因。保留字体断言和首轮日志，同一SHA做一次有界完整复验，attempt 2全部成功并生成同轮双架构镜像；不采用旧轮次或PR镜像作为发布依据。
+- 固定 `publish.mjs --cloud --prepare --environment production --sha 05b0e8be44cf1b3308af13c62d94eb84903d9a4e` 的唯一只读[工作流38628176706](https://github.com/zdaiwmm/shui-IM/actions/runs/38628176706)取得并由外层核对`PREFLIGHT_OK`，96856ms。通过既有环境审核机制，仅批准doctor；生产容量、helper、正式来源、前版祖先及最新完整CI／镜像元数据匹配。AMD64元数据产物11925155177绑定run38625873857／attempt 2，未过期；prepare没有下载大镜像、传输或执行切换。
+- 预检读取生产仍为 `966c827dfcfc9d44e1ddde2d3101c25dff994347`。新组合完整05b0e8be已与原获批075a0642不同，待用户确认本次新精确SHA后才调用deploy；本任务未提交生产切换，没有本次DEPLOY_VERIFIED或READBACK_OK。未来成功切换后仍须独立回读、知识库对账和固定清理，不能发布后续文档SHA。
+- 脱敏准备证据已保存到公共Git元数据 `quiet-room-deliveries/evidence/composer-panels-ready-20261015/ready.json`，保留精确CI、准备回执身份及未发布／待确认边界；不包含配置、密钥或原始云命令。独立文档树基线05b0e8be，仅对账需求与状态；活动实现、原型预览及证据保留。真实iPhone／Safari及另一任务原生重复验收仍未完成。
