@@ -1,5 +1,14 @@
 # Quiet Room 固定发布流程
 
+## V1.5 输入与面板、Safari 组合已发布（2026-10-15）
+
+- 用户在本会话获知完整应用 `05b0e8be44cf1b3308af13c62d94eb84903d9a4e`、版本 `2026.10.14.4`、完整CI／预检及真机缺口后，要求「判断是否完成，若未完成则继续，否则发布生产」；无独立消息permalink。本次授权绑定上述精确应用，不发布后续文档SHA。V1.5确认、免业务流程图及历史失败由[需求记录](docs/requirements/2026-10-14-composer-panels/README.md)拥有。
+- PR #306的输入／表情／工具面板、PR #305的Safari输入交接／设置返回及PR #308的长流程夹具修正已组合。精确[main CI38625873857](https://github.com/zdaiwmm/shui-IM/actions/runs/38625873857) attempt 2完整成功，含956项、64浏览器入口、通话、审计及双架构镜像；首轮邀请字体空值及节点已移除的可能原因仍保留，未放宽断言。AMD64产物11925155177绑定同run／attempt 2。
+- 固定[云发布38630580123](https://github.com/zdaiwmm/shui-IM/actions/runs/38630580123)取得精确 `DEPLOY_VERIFIED`，从 `966c827dfcfc9d44e1ddde2d3101c25dff994347` 到 `05b0e8be44cf1b3308af13c62d94eb84903d9a4e` 仅切换一次，批次 `20261014T201729Z`；入口云发布266384毫秒，正常production环境审核保留。 回执成功时间 `2026-10-14T20:20:03.020Z`。镜像 `sha256:61586da890f8103ee1e2e520f84b1884c67ef0af8559e1f95842464b99797c72`，归档摘要 `9ba51ad7d876061dc9f8baba292ec58b8cbd22aecc415cdf401d85025c5b28eb`，208373634字节。固定只读云预检38628176706及本轮SSH doctor通过；未修改helper、生产配置或保护门禁。
+- 独立 `READBACK_OK` 于 `2026-10-14T20:25:24.478Z` 完成，3297毫秒：应用与备份均运行且healthy，TURN运行且探针none，维护门不存在；精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物及新WebSocket一致，管理员与通话启用。首次备份starting，核对实际启动时间及既有5分钟探针后仅续跑只读回读，没有再次部署。
+- 脱敏成功回执及全部回读证据保存到公共Git元数据 `quiet-room-deliveries/evidence/composer-panels-production-20261015/production.json`，位于任务树及其专属Git目录之外。第二个无部署配置的文档树从实时main `158ee727d21264b5d2fb0fc698b193bf289818bd` 对账；文档SHA不发布。活动原型5314、含忽略文件／回执的源树及当前对账树按清理门禁保留，不清理其他任务或生产备份。
+- 原生iPhone／iOS27／Safari及另一任务五项重复、设置V2真机验收仍未完成；上线健康不替代这些验收。 本机完整套件历史容量失败、旧候选CI失败均保留，当前精确CI与生产回读分别记证据。下方发布段落均为历史快照。
+
 ## iPhone 七项交互修复已发布（2026-10-14 22:01）
 
 - 用户在本会话获知精确应用提交 `966c827dfcfc9d44e1ddde2d3101c25dff994347`、版本 `2026.10.14.2` 后明确「确认，发布生产」；无独立消息 permalink。七项范围、免原型／流程图授权及验证由[需求记录](docs/requirements/2026-10-14-mobile-safari-feedback/README.md)拥有。后续对账文档提交不进入本批应用。

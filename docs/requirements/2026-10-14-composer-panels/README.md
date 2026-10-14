@@ -2,7 +2,7 @@
 
 ## 身份与当前阶段
 
-- 需求编号：2026-10-14-composer-panels；设计V1.5已确认，I／D已完成。组合应用 `05b0e8be44cf1b3308af13c62d94eb84903d9a4e`／`2026.10.14.4`完整CI与只读预检通过，P待该新精确SHA确认。
+- 需求编号：2026-10-14-composer-panels；设计V1.5已确认，I／D已完成。组合应用 `05b0e8be44cf1b3308af13c62d94eb84903d9a4e`／`2026.10.14.4`完整CI、固定生产发布及独立回读通过，P已完成；原生真机仍待验收。
 - 本机入口规则来源 `4356531cea264dd01bd9110da90b9ff62cfd7a59`；只读核对远端规则与设计后，任务基线为 GitHub main `15559f36452ea71dd72ae57aeb7f54a0c586e11b`。同步后 origin/main 与基线相同，本机 main 保留旧快照。
 - 独占分支：`codex/composer-panels-prototype-20261014`。本机任务目录为项目内 `.worktrees/composer-panels-prototype-20261014`；跨电脑接续须重新核验路径、HEAD 与未提交状态。
 - 2026-10-15用户确认V1.5并授权正式实施、验证后按流程合并main，生产发布前再次确认。流程图仍按用户明确例外省略。
@@ -50,6 +50,7 @@ node docs/requirements/2026-10-14-composer-panels/prototype/serve.mjs
 | 设计确认与实施 | V1.5 最终视觉与交互 | 2026-10-15本会话：“确认 V1.5 原型，按这个版本正式实施，完成验证后按流程合并 main，生产发布前再确认”；无独立消息permalink | 正式实施、验证、提交／推送／PR／CI／合并main；生产未授权 |
 | 本次生产授权 | 已列明应用 `075a0642c284c70c320991988d2183f41e82a640`／`2026.10.14.3` | 2026-10-15，在上一答复列明完整应用SHA后，用户要求“判断是否完成，若未完成则继续，否则发布生产”；无独立消息permalink | 继续完成验证；仅在门禁通过后发布该精确应用提交，不改发后续文档SHA |
 | 追加排查与验证 | 上轮草稿／pagehide失败及上述应用 | 2026-10-15，在说明有界重跑上限并询问继续排查、追加验证后，用户再次“确认，发布生产”；无独立消息permalink | 继续排查及必要修正、追加验证；修正形成新的精确生产候选时另行列明确认 |
+| 最终组合生产授权 | 已列明应用 `05b0e8be44cf1b3308af13c62d94eb84903d9a4e`／`2026.10.14.4` | 2026-10-15，在列明完整SHA、完整CI／预检与真机缺口后，用户要求“判断是否完成，若未完成则继续，否则发布生产”；无独立消息permalink | 本次精确SHA固定发布、独立回读、对账及资源清理；不继承旧候选授权 |
 
 ## 验证与边界
 
@@ -70,7 +71,7 @@ node docs/requirements/2026-10-14-composer-panels/prototype/serve.mjs
 - 实施基于已确认原型提交`7e7b3ab2917dbfca018d95435e4ebe6ce2b1dc6a`，主线基线`15559f3`。原工作树因iCloud dataless文件读取停滞，保留原型预览，改用本机`/private/tmp/quiet-room-composer-panels-20261015`独占分支`codex/composer-panels-implementation-20261015`；重新核验HEAD／空工作树，doctor通过，依赖按锁文件安装，未共享可变node_modules。
 - 正式范围为输入框、表情／工具面板样式与可中断呈现；沿用原视口、输入、录音、合集、发送与隐私状态所有者。新增composer-panels.css及composer-panel-motion.ts；长期规范同步到V1.7。接口、协议、密文持久化、权限与生产配置未改。
 - 定向早期失败保留：工具反向检查两次报约109px偏移。首次占位同步假设未消除失败；新取证显示调用前后首帧坐标完全相同，外层键盘360ms时钟仍运行，测试只暂停子层造成采样坐标失真。测试在独立工具轨迹检查前等待外层终态，保留原键盘交接与生命周期断言，不取消正式视口动效或降低位移容差。
-- 最终head、完整CI与main合并回执由[PR #306](https://github.com/zdaiwmm/shui-IM/pull/306)拥有，接续时读取其精确状态，不用旧分片代替最终检查。下方记录本次生产授权后的新门禁复核；生产未发布，真实iPhone／iOS27／Safari仍未验证。
+- 最终head、完整CI与main合并回执由[PR #306](https://github.com/zdaiwmm/shui-IM/pull/306)拥有，接续时读取其精确状态，不用旧分片代替最终检查。下方依次保留当时的门禁复核与最终发布事实；真实iPhone／iOS27／Safari仍未验证。
 
 - 已完成编译与chat-tools专项；Chromium／WebKit输入／交接回归在交叉切换补充前通过。交叉切换补充的首次检查误将独立视口动效计作面板残留，改为核验本组件拥有的行／面板动效。冻结候选后完整门禁覆盖最后补充，旧失败保留。
 
@@ -106,11 +107,12 @@ node docs/requirements/2026-10-14-composer-panels/prototype/serve.mjs
 - 按主线集成规则在同一独占分支合入6297，保留上游运行代码、诊断、规范和双方记录；本PR相对新基线仍仅两个夹具与两份记录。新组合重新运行输入交接、草稿及主浏览器专项和完整CI，不能外推上述旧基线绿色结果。最终应用候选将包含V1.5、上游Safari修复及本测试修正，生产确认仍绑定新的精确SHA，不继承075a0642或其他任务的生产授权。最终head、完整CI与合并由[PR #308](https://github.com/zdaiwmm/shui-IM/pull/308)回执拥有。
 - 冻结期间main再次前进为 `67f17da9e0177fba95b5d6092bd2c9348c762178`（PR #309），相对6297仅对账Safari交付／真机未完成记录。保留该文档更新，运行代码与6297一致；本次不操作另一任务的手机控制通道，不把其条件发布请求或准备回执当作本组合的生产授权。
 
-## 最终组合交付与待发布候选（2026-10-15）
+## 最终组合交付与生产发布（2026-10-15）
 
 - [PR #308](https://github.com/zdaiwmm/shui-IM/pull/308)按精确head正常合并为 `05b0e8be44cf1b3308af13c62d94eb84903d9a4e`，与最终源 `e56f2bd216a5abbf2eeb77ec1e9ff693460bb185` 同树 `577747ee9632275f8a2a6ec9984bc37788a63180`。范围为已确认V1.5、主线已合入的Safari输入／设置修复及本夹具修正，沿用上游版本 `2026.10.14.4`，未制造测试空版本。
 - 组合本地mobile-safari-feedback、draft-refresh的Chromium／WebKit及主浏览器全流程通过，含录音、通话、默认30秒租期、pagehide与旧快照拒绝。18项空闲契约、JS语法及文档检查通过；未重跑已分类的本机完整套件容量失败，也未把真机未完成写成通过。
 - [组合PR CI 38624705588](https://github.com/zdaiwmm/shui-IM/actions/runs/38624705588) attempt 1全部成功。精确[main CI 38625873857](https://github.com/zdaiwmm/shui-IM/actions/runs/38625873857)首轮仅主浏览器第326行邀请按钮字体空值失败；其他分片、956项、通话、审计及镜像通过。浏览器受控实验中，连接的14px按钮返回14px，移除后返回空字符串，与症状一致；原失败未记录isConnected，不能确认实际原因。保留字体断言和首轮日志，同一SHA做一次有界完整复验，attempt 2全部成功并生成同轮双架构镜像；不采用旧轮次或PR镜像作为发布依据。
 - 固定 `publish.mjs --cloud --prepare --environment production --sha 05b0e8be44cf1b3308af13c62d94eb84903d9a4e` 的唯一只读[工作流38628176706](https://github.com/zdaiwmm/shui-IM/actions/runs/38628176706)取得并由外层核对`PREFLIGHT_OK`，96856ms。通过既有环境审核机制，仅批准doctor；生产容量、helper、正式来源、前版祖先及最新完整CI／镜像元数据匹配。AMD64元数据产物11925155177绑定run38625873857／attempt 2，未过期；prepare没有下载大镜像、传输或执行切换。
-- 预检读取生产仍为 `966c827dfcfc9d44e1ddde2d3101c25dff994347`。新组合完整05b0e8be已与原获批075a0642不同，待用户确认本次新精确SHA后才调用deploy；本任务未提交生产切换，没有本次DEPLOY_VERIFIED或READBACK_OK。未来成功切换后仍须独立回读、知识库对账和固定清理，不能发布后续文档SHA。
-- 脱敏准备证据已保存到公共Git元数据 `quiet-room-deliveries/evidence/composer-panels-ready-20261015/ready.json`，保留精确CI、准备回执身份及未发布／待确认边界；不包含配置、密钥或原始云命令。独立文档树基线05b0e8be，仅对账需求与状态；活动实现、原型预览及证据保留。真实iPhone／Safari及另一任务原生重复验收仍未完成。
+- 用户随后确认上述完整05b0e8be的本次条件发布授权；固定[云发布38630580123](https://github.com/zdaiwmm/shui-IM/actions/runs/38630580123)取得精确 `DEPLOY_VERIFIED`，从 `966c827dfcfc9d44e1ddde2d3101c25dff994347` 到 `05b0e8be44cf1b3308af13c62d94eb84903d9a4e` 仅切换一次，批次 `20261014T201729Z`；入口云发布266384毫秒，正常production环境审核保留。 镜像 `sha256:61586da890f8103ee1e2e520f84b1884c67ef0af8559e1f95842464b99797c72` 绑定精确main CI attempt 2，未改发文档SHA。
+- 独立 `READBACK_OK` 于 `2026-10-14T20:25:24.478Z` 完成，3297毫秒：应用与备份均运行且healthy，TURN运行且探针none，维护门不存在；精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物及新WebSocket一致，管理员与通话启用。首次备份starting，核对实际启动时间及既有5分钟探针后仅续跑只读回读，没有再次部署。
+- 历史ready.json保留当时未发布快照；本次脱敏成功回执及全部回读证据另存公共Git元数据 `quiet-room-deliveries/evidence/composer-panels-production-20261015/production.json`。独立无部署配置的对账树基线158ee727；活动原型5314、含忽略文件／回执的源树与当前对账树按固定清理门禁保留。原生iPhone／iOS27／Safari及另一任务五项重复、设置V2真机验收仍未完成；上线健康不替代这些验收。
