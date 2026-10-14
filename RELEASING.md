@@ -9,6 +9,8 @@
 - 脱敏成功回执及全部回读证据保存到公共Git元数据 `quiet-room-deliveries/evidence/composer-panels-production-20261015/production.json`，位于任务树及其专属Git目录之外。第二个无部署配置的文档树从实时main `158ee727d21264b5d2fb0fc698b193bf289818bd` 对账；文档SHA不发布。活动原型5314、含忽略文件／回执的源树及当前对账树按清理门禁保留，不清理其他任务或生产备份。
 - 原生iPhone／iOS27／Safari及另一任务五项重复、设置V2真机验收仍未完成；上线健康不替代这些验收。 本机完整套件历史容量失败、旧候选CI失败均保留，当前精确CI与生产回读分别记证据。下方发布段落均为历史快照。
 
+- 后续 Safari 任务收到用户针对源 `6297d5c7ce4a45f48b7ab52ec134a9e27902e65f`／同版本的精确发布确认及保留真机缺口指令。核验该源已是生产05b0e8be的祖先、运行文件一致，未执行倒退或重复发布；固定只读[doctor38652592945](https://github.com/zdaiwmm/shui-IM/actions/runs/38652592945)确认实际线上05b0e8be。初次SSH连接关闭后，用户更新IP白名单，仅续跑独立回读，于`2026-10-14T23:13:31.766Z`取得新`READBACK_OK`（3599ms），SHA／镜像、容器、维护门、HTTPS／数据库／存储、公开与容器产物及WebSocket通过，部署批次不变。证据另存公共Git元数据的`safari-keyboard-handoff-20261015/production-confirmation.json`；本次文档对账不切换生产，五项原生／设置V2未验收和用户暂不连接选择保留。
+
 ## iPhone 七项交互修复已发布（2026-10-14 22:01）
 
 - 用户在本会话获知精确应用提交 `966c827dfcfc9d44e1ddde2d3101c25dff994347`、版本 `2026.10.14.2` 后明确「确认，发布生产」；无独立消息 permalink。七项范围、免原型／流程图授权及验证由[需求记录](docs/requirements/2026-10-14-mobile-safari-feedback/README.md)拥有。后续对账文档提交不进入本批应用。
