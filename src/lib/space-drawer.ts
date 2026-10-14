@@ -1,7 +1,7 @@
 import { layoutViewport } from './form-input';
 import { animatePageReplacement } from './motion';
 import { mountDialog } from './dialog';
-import { bindHalfSheetHandle, bindSettingsSheet } from './half-sheet';
+import { bindHalfSheetHandle } from './half-sheet';
 import { spaceAvatarMarkup, bindSpaceAvatarPlayback } from './space-avatar';
 import type { PrivateSpace } from './spaces';
 import { Image, createElement, Bell, Settings, PanelsTopLeft, Smartphone, KeyRound, Upload, Download, EyeOff, History, Heart, Pencil, Check, X, Plus, ChevronRight, Trash2, PanelLeftClose, Palette, MonitorDown, ArrowLeft } from 'lucide';
@@ -38,7 +38,7 @@ export function mountSpaceDrawer(root: HTMLElement, options: {
   presentation?: 'sidebar' | 'settings'; container?: HTMLElement; openSettings?: () => void;
   spaces: PrivateSpace[]; currentRoom: string; signal: AbortSignal; actions: Action[]; icons?: { close: string; plus: string; settings: string };
   select: (space: PrivateSpace) => Promise<void>; create: () => Promise<void>; rename: (space: PrivateSpace, name: string) => Promise<void>;
-removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restoreSettings?: boolean; settingsScrollTop?: number; onSettingsLeave?: (scrollTop: number, expanded: boolean) => void; initialExpanded?: boolean;
+removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restoreSettings?: boolean; settingsScrollTop?: number; onSettingsLeave?: (scrollTop: number) => void;
   editAvatar?: (space: PrivateSpace) => Promise<import('./space-avatar').SpaceAvatar | null>;
   remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace) => void;
   listScrollTop?: number;
@@ -54,7 +54,6 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
   if (embedded) { sheet.className = `space-embedded space-${options.presentation}`; sheet.removeAttribute('aria-modal'); sheet.setAttribute('role', 'region'); }
   (options.container ?? root).append(sheet);
   let handingOff = false;
-  let settingsExpanded = options.initialExpanded ?? false;
   let busy = false, listScrollTop = options.listScrollTop ?? 0;
   let pageLifetime = new AbortController();
   signal.addEventListener('abort', () => pageLifetime.abort(), { once: true });
@@ -80,9 +79,7 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
       : `<button class="icon-button space-close" aria-label="${options.presentation === 'sidebar' ? '收起空间侧栏' : '返回聊天'}">${options.presentation === 'sidebar' ? createElement(PanelLeftClose).outerHTML : createElement(ArrowLeft).outerHTML}</button>`;
     const trailing = listing && embedded ? `<div class="space-header-actions"><button class="icon-button" id="space-settings" aria-label="设置">${spaceIcons.settings}</button></div>`
       : `<button class="icon-button space-close" aria-label="关闭">${closeIcon}</button>`;
-    sheet.innerHTML = `<section class="space-drawer">${settingsSheet ? '<button type="button" class="settings-sheet-handle half-sheet-handle"><span></span></button>' : ''}<header class="space-drawer-header">${leading}<h2>${title}</h2>${trailing}</header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${footer ? `<footer class="space-drawer-footer">${footer}</footer>` : ''}</section>`;
-    if (settingsSheet) bindSettingsSheet(sheet.querySelector('.settings-sheet-handle')!, sheet.querySelector('.space-drawer')!,
-      AbortSignal.any([signal, pageLifetime.signal]), close, settingsExpanded, value => { settingsExpanded = value; });
+    sheet.innerHTML = `<section class="space-drawer"><header class="space-drawer-header">${leading}<h2>${title}</h2>${trailing}</header><div class="space-drawer-scroll">${body}<p class="form-error" role="alert"></p></div>${footer ? `<footer class="space-drawer-footer">${footer}</footer>` : ''}</section>`;
 
     bindSpaceAvatarPlayback(sheet, AbortSignal.any([signal, pageLifetime.signal]));
     if (previousPage && priorTitle !== title && !settingsSheet) animatePageReplacement(sheet, previousPage, sheet.querySelector<HTMLElement>(':scope > .space-drawer')!, title === '私密空间' || (title === '设置' && priorTitle === '在线状态样式'), signal);
@@ -181,7 +178,7 @@ const removable = Boolean(options.remove && space.waiting && !space.accessState)
     if (other) cards.push(other);
     page('设置', `<div class="space-settings-list">${cards.map(card => `<div class="space-setting-card">${card}</div>`).join('')}</div>`, '', options.presentation === 'settings' ? close : list);
     sheet.querySelector('#presence-style-setting')!.addEventListener('click', () => { styles(); sheet.querySelector<HTMLButtonElement>('[aria-checked=true]')?.focus(); });
-    for (const action of options.actions) sheet.querySelector(`#${action.id}`)!.addEventListener('click', () => { if (action.keepOpen) void run(async () => { await action.run(); }); else { options.onSettingsLeave?.(sheet.querySelector('.space-drawer-scroll')!.scrollTop, settingsExpanded); handingOff = true; void action.run(); } });
+    for (const action of options.actions) sheet.querySelector(`#${action.id}`)!.addEventListener('click', () => { if (action.keepOpen) void run(async () => { await action.run(); }); else { options.onSettingsLeave?.(sheet.querySelector('.space-drawer-scroll')!.scrollTop); handingOff = true; void action.run(); } });
   }
   function authorizations() {
     sheet.querySelectorAll<HTMLButtonElement>('[data-access]').forEach(button=>{const space=options.spaces[Number(button.dataset.access)];const action=space&&options.authorization?.(space);button.hidden=!action||action.deadline<=performance.now();});

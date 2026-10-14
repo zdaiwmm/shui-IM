@@ -202,7 +202,8 @@
 #app .meme-search-header[hidden] { display:none; }
 #app .meme-search-header { padding:0; height:48px; gap:8px; }
 #app .meme-search-header h2 { margin:0; flex:1; font-size:1.0625rem; }
-#app .emoji-tile img { width:100%; height:100%; object-fit:contain; }
+#app .fluent-emoji-tile { display:grid; place-items:center; }
+#app .emoji-tile img { display:block; width:min(36px,100%); height:auto; aspect-ratio:1; object-fit:contain; }
 #app .meme-pack-shortcuts button[aria-pressed=true] { background:var(--accent-soft); color:var(--accent); }
 
 #app .meme-search-dialog:not(.meme-expanded-dialog) .meme-toolbar { display:none; }

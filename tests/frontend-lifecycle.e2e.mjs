@@ -77,7 +77,7 @@ try {
     app.mountPrivateSpaceDrawer(session, [{roomId:session.vault.roomId,name:'合成空间'}], app.runtimeAbort.signal, 'chat', 0);
     const settle = async () => { await Promise.allSettled(document.getAnimations().filter(animation => Number.isFinite(Number(animation.effect?.getComputedTiming().endTime))).map(animation => animation.finished)); };
     await settle();
-    document.querySelector('.settings-sheet-handle').click(); await settle();
+    if (document.querySelector('.settings-sheet-handle')) throw Error('Settings must open full-height without a handle');
     const source = document.querySelector('.is-settings-sheet');
     source.querySelector('.space-drawer-scroll').scrollTop = 80;
     const scrollTop = source.querySelector('.space-drawer-scroll').scrollTop;
@@ -93,7 +93,7 @@ try {
     await settle(); app.renderAppearanceSettings = original;
     document.querySelector('#appearance-back').click(); await settle();
     const returned = root.querySelector(':scope > .is-settings-sheet');
-    if (returned?.querySelector('.space-drawer').dataset.detent !== 'full' || returned.querySelector('.space-drawer-scroll').scrollTop !== scrollTop) throw Error('Settings return lost its detent or scroll position');
+    if (!returned || Math.abs(returned.querySelector('.space-drawer').getBoundingClientRect().top - returned.getBoundingClientRect().top) > 1 || returned.querySelector('.space-drawer-scroll').scrollTop !== scrollTop) throw Error('Settings return lost its full-height layout or scroll position');
     app.lockNow();
     return {deferredSourcePreserved:true,outgoingSettings:true,returnDetent:'full',scrollTop};
   });

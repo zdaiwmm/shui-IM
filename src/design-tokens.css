@@ -37,7 +37,7 @@
   --danger-fill: #be3730;
   --danger-soft: oklch(96% .025 28);
   --focus: var(--accent);
-  --header-surface: #c6e6b7;
+  --header-surface: var(--composer-surface);
   --composer-surface: #bce8cf;
   --composer-surface-focused: #c8edda;
   --chat-wallpaper: radial-gradient(ellipse at 0 0, var(--wall-a), transparent 68%), radial-gradient(ellipse at 100% 0, var(--wall-c), transparent 65%), radial-gradient(ellipse at 0 100%, var(--wall-b), transparent 65%), linear-gradient(110deg, var(--wall-a), var(--wall-d));
@@ -85,7 +85,7 @@
     --danger: oklch(76% .14 28);
     --danger-fill: #923c38;
     --danger-soft: oklch(29% .055 28);
-    --header-surface: #252525;
+    --header-surface: var(--composer-surface);
     --composer-surface: #242424;
     --composer-surface-focused: #2c292e;
     --wall-a: #000;
