@@ -11,6 +11,8 @@
 | 明确列出的发布工具／专项测试／发布CI配置 | `node scripts/check-delivery.mjs`、文档检查；真实连接能力按下节提前预检 | delivery、docs、凭据扫描、verify |
 | 产品、server运行代码、依赖／锁文件、Docker／Compose、root helper、安全契约、其他未知路径或混合变更 | 风险匹配的应用验证 | 完整应用CI、双架构镜像及verify |
 
+符合 `docs/requirements/日期-编号/README.md` 命名的需求记录按文档处理，scope将实际变动的记录传给文档作业检查；新原型、脚本、JSON和专项契约不由此进入轻量范围。
+
 白名单及专项测试由 `scripts/ci-scope.mjs` 单点定义；删除／重命名同时检查两侧路径，未知差异和非普通文件退回完整验证。
 手动完整CI与Merge Queue保留完整验证。发布专项涵盖CLI协议、精确CI、镜像摘要／架构、流传输、
 切换前失败、维护门、回滚、开放流量后保留数据、独立回读和中断续跑；使用隔离夹具，不连接生产。

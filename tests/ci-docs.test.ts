@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { checkDocumentation } from '../scripts/check-docs.mjs';
 
 const directories: string[] = [];
-afterEach(() => { for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
+afterEach(() => { vi.unstubAllEnvs(); for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }); });
 function fixture(source: string, target = '# Target\n\n## 中文标题\n\n## Repeat\n\n## Repeat\n') {
   const cwd = mkdtempSync(path.join(tmpdir(), 'quiet-room-ci-docs-'));
   directories.push(cwd);
@@ -24,6 +24,20 @@ describe('lightweight documentation checks', () => {
   it('checks relative files, Chinese and duplicate heading anchors without fetching remote pages', () => {
     const options = fixture('# Release\n\n[Target](docs/target.md#中文标题) [Duplicate](docs/target.md#repeat-1)\n[External](https://example.invalid/unreachable)\n\n[ref]: docs/target.md#target\n');
     expect(checkDocumentation(options)).toEqual({ checked: 1, issues: [] });
+  });
+
+  it('checks newly changed requirement records from the verified scope output', () => {
+    const options = fixture('# Release\n');
+    const file = 'docs/requirements/2026-10-15-publish-fix/README.md';
+    mkdirSync(path.join(options.cwd, path.dirname(file)), { recursive: true });
+    writeFileSync(path.join(options.cwd, file), '# Record\n\n[Broken](missing.md)\n');
+    execFileSync('git', ['add', file], { cwd: options.cwd });
+    vi.stubEnv('CI_DOCUMENTS', JSON.stringify([file]));
+    expect(checkDocumentation({ cwd: options.cwd }).issues[0]).toContain('missing.md');
+    for (const value of ['{}', '["../outside.md"]', '["src/app.ts"]']) {
+      vi.stubEnv('CI_DOCUMENTS', value);
+      expect(() => checkDocumentation({ cwd: options.cwd })).toThrow('Invalid changed-document');
+    }
   });
 
   it('reports broken links and heading anchors', () => {

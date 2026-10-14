@@ -82,6 +82,19 @@ describe('CI documentation scope', () => {
     }
   });
 
+  it('keeps new requirement READMEs lightweight while checking their changed paths and preserving contract/code coverage', () => {
+    const file = 'docs/requirements/2026-10-15-publish-fix/README.md';
+    const repo = repository();
+    repo.write(file, '# Requirement record\n');
+    const docs = repo.scope(repo.commit());
+    expect(docs.mode).toBe('docs');
+    expect(docs.documents).toContain(file);
+    repo.write('scripts/cloud-publish.mjs', '// tool fix\n');
+    expect(repo.scope(repo.commit()).mode).toBe('delivery');
+    repo.write('docs/requirements/2026-10-15-publish-fix/storage-contract.md', '# Security contract\n');
+    expect(repo.scope(repo.commit()).mode).toBe('full');
+  });
+
   it('does not hide removed runtime source behind a delivery rename', () => {
     const repo = repository();
     mkdirSync(path.join(repo.cwd, 'scripts'));
