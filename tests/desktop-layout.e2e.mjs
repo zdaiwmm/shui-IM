@@ -48,8 +48,9 @@ try {
     });
     const assertComposerSurface = async () => {
       const surface = await page.locator('#composer').evaluate(el => ({ background:getComputedStyle(el).backgroundColor,
-        controls:[...el.querySelectorAll('.composer-input-stack,.icon-button')].map(control=>getComputedStyle(control).backgroundColor) }));
-      assert.ok(surface.controls.every(color=>color===surface.background), `P1 continuous composer surface: ${JSON.stringify(surface)}`);
+        input:getComputedStyle(el.querySelector('.composer-input-stack')).backgroundColor,
+        controls:[...el.querySelectorAll('.composer-row .icon-button')].map(control=>getComputedStyle(control).backgroundColor) }));
+      assert.ok(surface.controls.every(color=>color===surface.background)&&surface.input!==surface.background, `V1.5 continuous toolbar and subtly filled input: ${JSON.stringify(surface)}`);
     };
     let geometry = await dimensions();
     await assertComposerSurface();

@@ -39,6 +39,7 @@
   --focus: var(--accent);
   --header-surface: var(--composer-surface);
   --composer-surface: #bce8cf;
+  --composer-panel-surface: color-mix(in srgb, var(--surface) 70%, var(--composer-surface));
   --composer-surface-focused: #c8edda;
   --chat-wallpaper: radial-gradient(ellipse at 0 0, var(--wall-a), transparent 68%), radial-gradient(ellipse at 100% 0, var(--wall-c), transparent 65%), radial-gradient(ellipse at 0 100%, var(--wall-b), transparent 65%), linear-gradient(110deg, var(--wall-a), var(--wall-d));
   --wall-a: #cad381;
@@ -87,6 +88,7 @@
     --danger-soft: oklch(29% .055 28);
     --header-surface: var(--composer-surface);
     --composer-surface: #242424;
+    --composer-panel-surface: var(--surface-raised);
     --composer-surface-focused: #2c292e;
     --wall-a: #000;
     --wall-b: #000;

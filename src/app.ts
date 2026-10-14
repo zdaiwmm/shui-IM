@@ -66,6 +66,8 @@ import './memes.css';
 import './chat-tools.css';
 import './voice-messages.css';
 import './design-system.css';
+import './composer-panels.css';
+import { chatToolsClosing, showChatTools } from './lib/composer-panel-motion';
 import { normalizeAttachmentFavorites, sortFavoriteAssets } from './lib/attachment-favorites';
 import { validateMemeFile, MEME_TYPES } from './lib/meme-media';
 import { loadMemeFavorites, loadMemeFavoriteFile, saveMemeFavorite, removeMemeFavorite } from './lib/vault';
@@ -698,6 +700,8 @@ export class QuietRoomApp {
 
   constructor(private readonly root: HTMLElement) {
     mountAppearance();
+    root.addEventListener('pointerdown', () => { root.dataset.inputModality = 'pointer'; }, { capture: true });
+    root.addEventListener('keydown', event => { if (event.key === 'Tab') root.dataset.inputModality = 'keyboard'; }, { capture: true });
     this.appAccess = new AppAccess();
     this.resetBlankLockGesture = bindBlankDoubleLock(root, {
       active: () => !this.privacyCovered && !document.hidden && Boolean(this.idleDeadline) && !this.expireIdleSession(),
@@ -1126,7 +1130,7 @@ export class QuietRoomApp {
       const menu = this.root.querySelector<HTMLDetailsElement>('.more-menu[open]');
       if (menu && event.target instanceof Node && !menu.contains(event.target)) this.closeMoreMenu(menu);
       const tools = this.root.querySelector<HTMLElement>('#chat-tools');
-      if (tools && !tools.hidden && event.target instanceof Element && !event.target.closest('#chat-tools,#open-chat-tools')) this.closeChatTools();
+      if (tools && !tools.hidden && event.target instanceof Element && !event.target.closest('#chat-tools,#open-chat-tools,#open-memes')) this.closeChatTools(true);
       const composer = this.root.querySelector<HTMLElement>('#composer');
       const textarea = this.root.querySelector<HTMLTextAreaElement>('#message-input');
       const keyboardGesture = event.pointerType === 'touch' && event.target instanceof Element
@@ -4658,15 +4662,25 @@ export class QuietRoomApp {
       const input = this.root.querySelector<HTMLTextAreaElement>('#message-input');
       if (document.activeElement !== input) input?.focus({ preventScroll: true });
     }
-    else if (picker && !this.privacyCovered) button?.focus({ preventScroll: true });
+    else if (picker && !this.privacyCovered && !this.root.querySelector('#chat-tools:not([hidden]):not([inert])')) button?.focus({ preventScroll: true });
   }
 
   private openMemePicker(): void {
-    this.closeChatTools();
+    const previousRowTop = this.root.querySelector('.composer-row')?.getBoundingClientRect().top;
+    this.closeChatTools(true, true);
     const session = this.session;
     const epoch = this.runtimeEpoch;
     const host = this.root.querySelector<HTMLElement>('#composer');
     if (!session || !host || this.privacyCovered || !this.runtimeAbort || this.activeSurface !== 'chat') return;
+    if (this.memePicker && !this.memePicker.isClosing) return;
+    if (this.memePicker?.isClosing) {
+      this.memePicker.reopen();
+      this.root.querySelector<HTMLTextAreaElement>('#message-input')?.blur();
+      const toggle = this.root.querySelector<HTMLButtonElement>('#open-memes');
+      toggle?.setAttribute('aria-expanded', 'true');
+      if (toggle) { toggle.innerHTML = memeIcons.keyboard; toggle.setAttribute('aria-label', '切回键盘'); }
+      return;
+    }
     this.closeMemePicker();
     this.closeMessageActions(false, false);
     this.root.querySelector<HTMLTextAreaElement>('#message-input')?.blur();
@@ -4687,7 +4701,7 @@ export class QuietRoomApp {
       return response;
     };
     this.memePicker = new MemePicker({
-      host, root: this.root, signal: this.runtimeAbort.signal, isActive,
+      host, root: this.root, signal: this.runtimeAbort.signal, isActive, previousRowTop,
       cache: this.memeCache,
       list: () => loadMemeFavorites(session),
       file: (item, signal) => loadMemeFavoriteFile(session, item, signal),
@@ -5399,7 +5413,7 @@ export class QuietRoomApp {
     this.mountChatLayout();
     requestAnimationFrame(() => this.showHiddenAlbumHint());
     this.root.querySelector('#open-memes')?.addEventListener('click', () => {
-      if (this.memePicker) this.closeMemePicker(true, true); else this.openMemePicker();
+      if (this.memePicker && !this.memePicker.isClosing) this.closeMemePicker(true, true); else this.openMemePicker();
     });
     this.root.querySelector('#composer')?.addEventListener('submit', (event) => {
       if (this.root.querySelector('#message-input')?.getAttribute('data-composing') === 'true') { event.preventDefault(); return; }
@@ -5849,12 +5863,12 @@ export class QuietRoomApp {
     this.voiceGesture?.destroy();
     this.voiceGesture = bindVoiceRecordGesture(this.root.querySelector<HTMLButtonElement>('#record-voice')!, mode => this.beginVoiceRecording(mode));
     this.root.querySelector('#open-chat-tools')?.addEventListener('click', event => { this.toggleChatTools(); if ((event as MouseEvent).detail === 0) this.root.querySelector<HTMLButtonElement>('#chat-tools:not([hidden]) button:not(:disabled)')?.focus(); });
-    textarea.addEventListener('focus', () => this.closeChatTools());
+    textarea.addEventListener('focus', () => this.closeChatTools(true));
     this.root.querySelector('#message-list')?.addEventListener('click', event => {
-      if (event.target === event.currentTarget) this.closeChatTools();
+      if (event.target === event.currentTarget) this.closeChatTools(true);
     });
     this.root.querySelector('#chat-tools')?.addEventListener('keydown', event => {
-      if ((event as KeyboardEvent).key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.closeChatTools(); this.root.querySelector<HTMLButtonElement>('#open-chat-tools')?.focus(); }
+      if ((event as KeyboardEvent).key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.closeChatTools(true); this.root.querySelector<HTMLButtonElement>('#open-chat-tools')?.focus(); }
     });
     this.root.querySelector('#start-video-call')?.addEventListener('click', () => { this.closeChatTools(); void this.startCall('video'); });
     this.root.querySelector('#start-audio-call')?.addEventListener('click', () => { this.closeChatTools(); void this.startCall('audio'); });
@@ -7966,9 +7980,9 @@ export class QuietRoomApp {
     voice.setAttribute('aria-hidden', String(hasText));
   }
 
-  private closeChatTools(): void {
+  private closeChatTools(animate = false, keyboard = false): void {
     const panel = this.root.querySelector<HTMLElement>('#chat-tools');
-    if (panel) panel.hidden = true;
+    if (panel) showChatTools(panel, false, this.runtimeAbort?.signal ?? AbortSignal.abort(), animate && !this.privacyCovered, undefined, () => this.syncChatLayout(), keyboard);
     const button = this.root.querySelector<HTMLButtonElement>('#open-chat-tools');
     button?.setAttribute('aria-expanded', 'false');
     button?.setAttribute('aria-label', '更多功能');
@@ -7978,10 +7992,12 @@ export class QuietRoomApp {
   private toggleChatTools(): void {
     const panel = this.root.querySelector<HTMLElement>('#chat-tools');
     if (!panel || this.privacyCovered || this.voiceRecorder) return;
-    if (!panel.hidden) { this.closeChatTools(); return; }
-    this.closeMemePicker(); this.closeMessageActions(false, false);
+    if (!panel.hidden && !chatToolsClosing(panel)) { this.closeChatTools(true); return; }
+    const previousRowTop = this.root.querySelector('.composer-row')?.getBoundingClientRect().top;
+    const expression = Boolean(this.memePicker);
+    this.closeMemePicker(false, true); this.closeMessageActions(false, false);
     this.root.querySelector<HTMLTextAreaElement>('#message-input')?.blur();
-    panel.hidden = false;
+    showChatTools(panel, true, this.runtimeAbort?.signal ?? AbortSignal.abort(), true, previousRowTop, () => this.syncChatLayout(), expression);
     const button = this.root.querySelector<HTMLButtonElement>('#open-chat-tools')!;
     button.setAttribute('aria-expanded', 'true'); button.setAttribute('aria-label', '收起功能');
     button.innerHTML = icons.close;
