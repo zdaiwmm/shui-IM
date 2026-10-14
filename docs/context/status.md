@@ -1,10 +1,10 @@
 # Quiet Room 当前状态
 
-## 移动交互连续性候选（2026-10-14，未发布）
+## 移动交互连续性已合并（2026-10-14，发布阻塞）
 
-- 用户已确认V1并明确免原型／流程图，授权实施、验证、PR、CI与合并；范围、追加四项和失败记录由[需求记录](../requirements/2026-10-14-mobile-interaction-polish/README.md)拥有。生产仍等待本次精确SHA确认。
-- 基于`76629bb593a49b5b0cb00d941d0889282628ea99`的独立分支`codex/mobile-interaction-polish-20261014`实施设置两段弹层、空间横向导航、表情入口合并与Fluent、满宽输入条、键盘重开及末行定位，修复预览干扰空间选择。候选版本`2026.10.14.1`；干净产品候选`350b8187e0c16a15d2259ca09266f3350e5ee35e`完整本地门禁通过：构建、920项、63/63浏览器入口，370展示组合另通过；后续只补Linux能力测试夹具。[PR #291](https://github.com/zdaiwmm/shui-IM/pull/291)最终CI及合并待完成，原失败见需求记录。
-- 本机Codex真实项目来源已回读移动UA／触控／DPR与合成视口；不是Safari真机。下方已发布记录仍是生产事实，本候选尚未切换生产。
+- 用户已确认V1并明确免原型／流程图，授权实施、验证、PR、CI与合并；范围、追加四项和失败记录由[需求记录](../requirements/2026-10-14-mobile-interaction-polish/README.md)拥有。用户已明确确认本次精确生产SHA`99979e9eef2dc6781e56cb52551c72a096eeac22`，版本`2026.10.14.1`。
+- 基于`76629bb593a49b5b0cb00d941d0889282628ea99`的独立分支`codex/mobile-interaction-polish-20261014`实施设置两段弹层、空间横向导航、表情入口合并与Fluent、满宽输入条、键盘重开及末行定位，修复预览干扰空间选择。干净产品候选`350b8187e0c16a15d2259ca09266f3350e5ee35e`完整本地门禁通过：构建、920项、63/63浏览器入口，370展示组合另通过；后续只补Linux能力测试夹具。[PR #291](https://github.com/zdaiwmm/shui-IM/pull/291)最终源`42d98ddb446b356c1d82d6486f5d880629ab4c33`的[完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38518383470)及合并提交的[main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38519073837) attempt 1成功，原失败见需求记录。
+- 本机Codex真实项目来源已回读移动UA／触控／DPR与合成视口；不是Safari真机。两次固定发布均在隔离克隆120秒上限失败，尚未进入生产切换，按有界规则停止后用户追加授权延长上限；工具修正[PR #292](https://github.com/zdaiwmm/shui-IM/pull/292)已通过本机921项并合并为`6d7f23d`，main完整CI`38522484140` attempt 2成功。第三次发布克隆通过，随后镜像下载15分钟超时，仍未进入切换。用户已确认[云端发布V1.1](../requirements/2026-10-14-ci-server-publish/README.md)实施并继续发布同一应用SHA。`2026-10-14T06:13:17.657Z`原线上`53988c528fe8700b80841b41b4ff208df7c20227`独立`READBACK_OK`，服务健康；该旧版回读不证明本批上线。
 
 ## 移动调试与7条交互修订已发布（2026-10-14）
 

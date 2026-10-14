@@ -1577,3 +1577,22 @@ Mac 必须保持开机、联网、应用在线且未睡眠。按官方说明，�
 - 已验证冷备份：`/opt/quiet-room/backups/predeploy/data-20260904T095922Z-caf8abeb8e10.tar.gz`。
 - 范围：文件附件、聊天交互修复、桌面隐私恢复、实时音视频通话应用代码及生产依赖审计有限重试已上线。`calls.env` 未配置、TURN 未启用；公网跨网络可靠性、强制中继和真机验收仍待完成，不能由此次部署或浏览器模拟测试推断通过。
 - 证书自动续期和异地备份的既有待办仍见 `OPERATIONS.md`，本次没有宣称已修复。
+
+## 受保护的云端发布 V1.1
+
+本机固定入口支持 `node scripts/publish.mjs --cloud --environment production --sha <获批完整SHA>`。
+它只提交唯一手动工作流并等待生产环境既有审核；不绕过审核，不在本机克隆或下载镜像。
+云端执行代码来自 main，应用仍固定为输入的获批 SHA，需其最新完整 main CI 成功。
+CI runner 复用完整镜像校验后，服务器直接流式下载、校验与导入，不保存镜像压缩包。
+运行镜像层与 Docker 导入临时空间仍存在，容量门禁及已有清理策略不变。
+
+首次使用前，独立原子安装经过审阅与 CI 的 root helper，回读 `expectedPreviousProtocol:1`。
+`publish.yml` 的 doctor 模式仅检查云命令权限、容量、来源及 helper，不发布。
+受保护环境须配置已有 OIDC 和固定 SAS 实例，命令身份为现有 `admin`；不复制本机私钥。
+云权限失败不能改用 root、放宽环境审核或自动重发；具体权限须按云 API 实测最小化。
+
+外层下载的仅是 `quiet-room-cloud-receipt.json`，核对本次 workflow／应用 SHA 与成功状态。
+取得精确 `DEPLOY_VERIFIED` 后，仍须独立运行
+`npm run deploy:readback -- --environment production --sha <同一SHA>`，再在第二工作树对账。
+若云任务结果未知，凭 InvokeId 查原任务并独立回读，禁止再触发部署。
+详见[本次确认和证据](docs/requirements/2026-10-14-ci-server-publish/README.md)。

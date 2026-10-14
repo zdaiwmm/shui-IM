@@ -599,3 +599,19 @@ data deletion.
 ## Message-window deployment compatibility
 
 Before enabling the message window, install the reviewed helper from the exact release candidate using the existing root-owned-helper procedure. Its read-only prebuild guard rejects releases without `server/storage-capabilities.json` once any room has enabled the window. This protects existing signed gap/epoch semantics; do not bypass it by removing the marker or restoring a database after traffic opened. The initial guarded cutover retains the existing cold-backup rollback boundary. Set the persistent backup retention override to three and verify a new restore point; a Compose default does not override an existing production environment value. Full rollout and capacity conditions are in the [storage contract](docs/requirements/2026-09-24-storage-calls/storage-contract.md).
+
+### Protected cloud image transport
+
+The manual `publish.yml` workflow uses the existing production environment and OIDC role.
+It runs the existing full CI image validator on its ephemeral runner, then sends a short-lived
+artifact ticket to the fixed SAS instance as `admin`. A bounded ZIP range reader streams the
+image directly into the installed helper; it writes no ZIP or gzip staging copy on the host.
+Docker image storage/import overhead and cold backups still require capacity. Existing disk
+preflight, retention and the disabled builder-prune policy remain unchanged.
+
+The helper's optional fourth argument is the exact previous production SHA. It is checked
+under the existing deployment lock, followed by a forward ancestry check. Install this reviewed
+helper separately using the atomic procedure above; `--describe` reports
+`expectedPreviousProtocol:1`. Ordinary three-argument publishers remain compatible.
+The production workflow never installs its own privileged helper or changes RAM policies.
+Its doctor mode verifies the actual RunCommand/DescribeInvocationResult permission before deployment.
