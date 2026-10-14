@@ -54,8 +54,8 @@ try {
     const icons=await page.locator('.space-setting-icon svg').evaluateAll(nodes=>nodes.map(el=>{const r=el.getBoundingClientRect(),tile=el.parentElement.getBoundingClientRect();return [r.width,r.height,tile.width,tile.height,getComputedStyle(el.parentElement).flexShrink];}));
     assert.ok(icons.every(([w,h,tileWidth,tileHeight,shrink])=>w===17&&h===17&&tileWidth===24&&tileHeight===24&&shrink==='0'),JSON.stringify(icons));
     assert.equal(await page.locator('.space-back').count(),0);
-    await page.locator('.settings-sheet-handle').click();
-    await page.waitForFunction(()=>document.querySelector('.space-drawer').dataset.detent==='full');
+    assert.equal(await page.locator('.settings-sheet-handle').count(),0);
+    await page.waitForFunction(()=>Math.abs(document.querySelector('.space-drawer').getBoundingClientRect().top)<1);
     await page.locator('.space-close').click(); await page.locator('.space-drawer-overlay').waitFor({state:'detached'});
     await page.evaluate(()=>mount(12,true));
     await page.locator('#presence-style-setting').click();

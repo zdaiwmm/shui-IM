@@ -440,7 +440,7 @@ export class QuietRoomApp {
   private spaceDrawerOpen = false;
   private desktopWorkspace: DesktopWorkspace;
   private cancelSpaceNavigation: (() => void) | null = null;
-  private settingsReturn: { session: VaultSession; spaces: PrivateSpace[]; scrollTop: number; expanded?: boolean } | null = null;
+  private settingsReturn: { session: VaultSession; spaces: PrivateSpace[]; scrollTop: number } | null = null;
   private waitingSpaceTimer: number | null = null;
   private destroyingWaitingSpace = false;
   private currentSpaceName = '私密空间';
@@ -4639,12 +4639,14 @@ export class QuietRoomApp {
   private closeMemePicker(keyboard = false, animate = false): void {
     const picker = this.memePicker;
     if (animate && picker && !this.privacyCovered) {
+      const composer = this.root.querySelector<HTMLElement>('#composer');
+      const input = this.root.querySelector<HTMLTextAreaElement>('#message-input');
+      if (composer) composer.dataset.expressionHandoff = 'true';
       if (keyboard) {
-        const composer = this.root.querySelector<HTMLElement>('#composer');
-        if (composer) composer.dataset.expressionHandoff = 'true';
-        this.root.querySelector<HTMLTextAreaElement>('#message-input')?.focus({ preventScroll: true });
+        if (document.activeElement !== input) input?.focus({ preventScroll: true });
       }
-      picker.close(() => { if (this.memePicker === picker) this.closeMemePicker(keyboard); });
+      if (picker.isClosing) return;
+      picker.close(() => { if (this.memePicker === picker) this.closeMemePicker(keyboard || document.activeElement === input); });
       return;
     }
     this.memePicker = null;
@@ -4652,7 +4654,10 @@ export class QuietRoomApp {
     const button = this.root.querySelector<HTMLButtonElement>('#open-memes');
     button?.setAttribute('aria-expanded', 'false');
     if (button) { button.innerHTML = memeIcons.smile; button.setAttribute('aria-label', '打开表情'); }
-    if (keyboard && !this.privacyCovered) this.root.querySelector<HTMLTextAreaElement>('#message-input')?.focus({ preventScroll: true });
+    if (keyboard && !this.privacyCovered) {
+      const input = this.root.querySelector<HTMLTextAreaElement>('#message-input');
+      if (document.activeElement !== input) input?.focus({ preventScroll: true });
+    }
     else if (picker && !this.privacyCovered) button?.focus({ preventScroll: true });
   }
 
@@ -4747,6 +4752,7 @@ export class QuietRoomApp {
         return new Blob(chunks, { type: response.headers.get('Content-Type') ?? '' });
       },
       close: keyboard => this.closeMemePicker(keyboard, true),
+      layoutChanged: () => this.syncChatLayout(),
       onSearchPointer: (input, event) => { this.prepareKeyboardOpening(input, event); },
       onKeyboardPointer: event => {
         const input = host.querySelector<HTMLTextAreaElement>('#message-input');
@@ -5185,8 +5191,7 @@ export class QuietRoomApp {
       openSettings: presentation === 'sidebar' ? () => this.renderDesktopSettings(spaces) : undefined,
       initialSettings: settingsScrollTop !== undefined, settingsScrollTop,
       restoreSettings: this.settingsReturn?.session === session,
-      onSettingsLeave: (scrollTop, expanded) => { this.settingsReturn = { session, spaces, scrollTop, expanded }; },
-      initialExpanded: this.settingsReturn?.expanded,
+      onSettingsLeave: scrollTop => { this.settingsReturn = { session, spaces, scrollTop }; },
       removeLabel: space => this.catalogRemovalLabel(space),
       actions: [
         { id: 'appearance-settings', label: '主题外观', icon: spaceIcons.appearance, run: forward(() => this.renderAppearanceSettings()) },
@@ -5516,11 +5521,12 @@ export class QuietRoomApp {
     // then cancels the very tap that was meant to open the keyboard.
     textarea.addEventListener('pointerdown', event => {
       if (!ownsActiveChat()) return;
-      if (this.memePicker) this.closeMemePicker(true, true);
+      const expressionHandoff = Boolean(this.memePicker);
+      if (expressionHandoff) this.closeMemePicker(true, true);
       if (this.prepareKeyboardOpening(textarea, event)) {
         this.cancelNativeKeyboardDismiss();
         delete composer.dataset.keyboardDismissReveal;
-        if (document.activeElement === textarea && document.documentElement.dataset.keyboardOpen !== 'true') {
+        if (!expressionHandoff && document.activeElement === textarea && document.documentElement.dataset.keyboardOpen !== 'true') {
           textarea.blur(); textarea.focus({ preventScroll: true });
         }
         this.chatViewportMotion?.anticipateKeyboard('open');
@@ -6125,7 +6131,7 @@ export class QuietRoomApp {
         if (!this.nativeKeyboardDismiss && !this.chatKeyboardGesture?.held
           && document.documentElement.dataset.keyboardOpen !== 'true') this.commitNativeChatFollow();
       },
-      reveal: () => { if (!this.nativeKeyboardDismiss) { delete composer.dataset.viewportMotion; delete composer.dataset.expressionHandoff; } },
+      reveal: () => { if (!this.nativeKeyboardDismiss) { delete composer.dataset.viewportMotion; if (!this.memePicker?.isClosing) delete composer.dataset.expressionHandoff; } },
       settled: () => {
         if (this.privacyCovered || this.activeSurface !== 'chat' || !shell.isConnected) return;
         this.nativeKeyboardOpening = false;
@@ -9657,12 +9663,13 @@ export class QuietRoomApp {
           const meta = element.querySelector<HTMLElement>('.message-meta');
           const updated = this.createMessageMeta(message);
           if (meta) {
-            if (meta.closest('.image-bubble')) {
+            const liveContent = meta.querySelector(':scope > .media-capsule-content') ?? meta;
+            if (meta.closest('.image-bubble') && (meta.className !== updated.className || liveContent.innerHTML !== updated.innerHTML)) {
               transitionMediaCapsule(meta, () => {
                 meta.querySelector('.media-capsule-content')!.replaceChildren(...updated.childNodes);
                 meta.className = updated.className;
               }, true, this.runtimeAbort?.signal);
-            } else {
+            } else if (!meta.closest('.image-bubble')) {
               meta.replaceChildren(...updated.childNodes);
               meta.className = updated.className;
             }

@@ -20,6 +20,12 @@ export function transitionMediaCapsule(host: HTMLElement, paint: () => void, con
     content = document.createElement('div'); content.className = 'media-capsule-content';
     content.append(...host.childNodes); host.append(content);
   }
+  if (!contentChanged) {
+    // Progress often arrives several times per frame. Preserve a running
+    // transition when its destination geometry has not changed.
+    paint();
+    if (Math.abs(content.offsetWidth - host.offsetWidth) < 1) return;
+  }
   const previous = effects.get(host);
   const time = Number(previous?.animations[0]?.currentTime ?? 0);
   const index = previous ? Math.min(59, Math.max(0, Math.floor(time / previous.duration * 60))) : 0;
@@ -27,10 +33,12 @@ export function transitionMediaCapsule(host: HTMLElement, paint: () => void, con
     ? (previous.widths[index + 1]! - previous.widths[index]!) * 60 * 1000 / previous.duration : 0;
   const retiring = document.createElement('div'); retiring.className = 'media-capsule-retiring';
   retiring.inert = true; retiring.setAttribute('aria-hidden', 'true');
-  if (contentChanged && host.isConnected) for (const layer of [...host.children]) {
+  if (contentChanged && host.isConnected) for (const layer of [content]) {
     const clone = layer.cloneNode(true) as HTMLElement;
     const style = getComputedStyle(layer);
-    clone.style.opacity = style.opacity; clone.style.color = style.color; clone.style.font = style.font;
+    // A rapid stage change can interrupt the incoming label near opacity 0.
+    // Keep a fully painted outgoing label while its replacement fades in.
+    clone.style.opacity = '1'; clone.style.color = style.color; clone.style.font = style.font;
     clone.style.transform = 'none'; clone.style.scale = 'none';
     clone.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
     retiring.append(clone);
