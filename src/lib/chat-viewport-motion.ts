@@ -188,6 +188,7 @@ export function createChatViewportMotion(options: MotionOptions) {
 }
 
 type KeyboardGestureOptions = {
+  surface?: HTMLElement;
   list: HTMLElement;
   input: HTMLTextAreaElement;
   active: () => boolean;
@@ -204,9 +205,9 @@ export function bindChatKeyboardGesture(options: KeyboardGestureOptions) {
   let touchCount = 0;
   let origin: { x: number; y: number; at: number } | null = null;
   let moved = false;
-  let interactive = false;
+  let suppressClickUntil = 0;
   const start = (event: Event) => {
-    if (event.target instanceof Element && event.target.closest('.is-selecting-text')) return false;
+    if (event.target instanceof Element && event.target.closest('#composer, .is-selecting-text, input, textarea, [contenteditable="true"]')) return false;
     if (!options.active() || document.documentElement.dataset.keyboardOpen !== 'true') return false;
     if (event.type === 'touchstart') touchCount = (event as TouchEvent).touches.length;
     if (!held) {
@@ -214,35 +215,51 @@ export function bindChatKeyboardGesture(options: KeyboardGestureOptions) {
       const point = event.type === 'touchstart' ? (event as TouchEvent).touches[0] : event as PointerEvent;
       origin = point ? { x: point.clientX, y: point.clientY, at: performance.now() } : null;
       moved = false;
-      interactive = event.target instanceof Element && Boolean(event.target.closest('button, a, input, video, audio'));
       options.list.dataset.keyboardGesture = 'true';
       options.begin();
     }
+    if (touchCount > 1) moved = true;
     // Cancel focus transfer only. touch-action: pan-y continues to own scroll.
-    if (event.type === 'pointerdown' && event.cancelable && !interactive) event.preventDefault();
+    if (event.type === 'pointerdown' && event.cancelable) event.preventDefault();
     return true;
   };
   const move = (x: number, y: number) => {
     if (origin && Math.hypot(x - origin.x, y - origin.y) > 8) moved = true;
   };
   const reset = () => { held = false; touchCount = 0; origin = null; moved = false; delete options.list.dataset.keyboardGesture; };
-  const release = (cancelled = false) => {
+  const release = (cancelled = false, event?: Event) => {
     if (!held) return;
-    const dismiss = !cancelled && !moved && !interactive && origin !== null && performance.now() - origin.at < 400;
+    const dismiss = !cancelled && !moved && origin !== null && performance.now() - origin.at < 400;
     reset();
     if (!options.active()) return;
+    if (dismiss) {
+      if (event?.cancelable) event.preventDefault();
+      // Safari may retarget the compatibility click after the keyboard moves.
+      // Consume that gesture once, even if its original content moved away.
+      suppressClickUntil = performance.now() + 800;
+    }
     options.release(dismiss);
     if (dismiss && document.activeElement === options.input) options.input.blur();
   };
-  options.list.addEventListener('touchstart', start, { passive: true, signal: events.signal });
+  document.addEventListener('pointerdown', () => { suppressClickUntil = 0; }, { capture: true, signal: events.signal });
+  document.addEventListener('click', event => {
+    if (event.detail === 0 || !suppressClickUntil) return;
+    const consume = performance.now() <= suppressClickUntil && options.active();
+    suppressClickUntil = 0;
+    if (consume) { event.preventDefault(); event.stopImmediatePropagation(); }
+  }, { capture: true, signal: events.signal });
+  (options.surface ?? options.list).addEventListener('touchstart', event => {
+    if (!held) suppressClickUntil = 0;
+    start(event);
+  }, { passive: true, signal: events.signal });
   options.list.addEventListener('touchmove', event => {
     const point = event.touches[0]; if (held && point) move(point.clientX, point.clientY);
   }, { passive: true, signal: events.signal });
   document.addEventListener('pointermove', event => { if (held) move(event.clientX, event.clientY); }, { passive: true, signal: events.signal });
-  document.addEventListener('pointerup', () => { if (!touchCount) release(); }, { capture: true, signal: events.signal });
+  document.addEventListener('pointerup', event => { if (!touchCount) release(false, event); }, { capture: true, signal: events.signal });
   document.addEventListener('pointercancel', () => { if (!touchCount) release(true); }, { capture: true, signal: events.signal });
-  const touchRelease = (event: TouchEvent) => { touchCount = event.touches.length; if (!touchCount) release(event.type === 'touchcancel'); };
-  document.addEventListener('touchend', touchRelease, { capture: true, signal: events.signal });
+  const touchRelease = (event: TouchEvent) => { touchCount = event.touches.length; if (!touchCount) release(event.type === 'touchcancel', event); };
+  document.addEventListener('touchend', touchRelease, { capture: true, passive: false, signal: events.signal });
   document.addEventListener('touchcancel', touchRelease, { capture: true, signal: events.signal });
-  return { start, get held() { return held; }, reset, destroy() { reset(); events.abort(); } };
+  return { start, get held() { return held; }, reset() { reset(); suppressClickUntil = 0; }, destroy() { reset(); suppressClickUntil = 0; events.abort(); } };
 }

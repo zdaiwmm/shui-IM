@@ -1130,7 +1130,7 @@ export class QuietRoomApp {
       const composer = this.root.querySelector<HTMLElement>('#composer');
       const textarea = this.root.querySelector<HTMLTextAreaElement>('#message-input');
       const keyboardGesture = event.pointerType === 'touch' && event.target instanceof Element
-        && this.root.contains(event.target) && !!event.target.closest('#message-list')
+        && this.root.contains(event.target) && !!event.target.closest('.chat-shell') && !event.target.closest('#composer')
         && this.chatKeyboardGesture?.start(event);
       if (
         textarea && document.activeElement === textarea && composer &&
@@ -5208,7 +5208,7 @@ export class QuietRoomApp {
           if (!credential) return Promise.reject(new Error('请先完成通行密钥绑定'));
           return openPasskeyManagement(this.root, { session, credential, signal, prepareKeyboard: (input, event) => { this.prepareKeyboardOpening(input, event); }, verify: verificationSignal => this.withDeviceVerification(() => verifyPasskeyDetails(credential, verificationSignal), true), onRenamed: () => this.showNotice('修改成功') });
         } },
-        { id: 'cover-practice-menu', group: '本机', label: session.vault.recoveryExperience?.coverEnabled ? '关闭自动遮蔽' : '体验或开启遮蔽', icon: spaceIcons.cover, run: () => session.vault.recoveryExperience?.coverEnabled ? this.confirmDisableCover() : this.renderCoverPractice() },
+        { id: 'cover-practice-menu', group: '本机', label: session.vault.recoveryExperience?.coverEnabled ? '关闭自动遮蔽' : '体验或开启遮蔽', icon: spaceIcons.cover, keepOpen: () => Boolean(session.vault.recoveryExperience?.coverEnabled), run: () => session.vault.recoveryExperience?.coverEnabled ? this.confirmDisableCover() : this.renderCoverPractice() },
         { id: 'release-history', group: '关于', label: '更新记录', icon: spaceIcons.history, run: forward(() => this.renderReleaseHistory()) },
       ],
       select: space => { if (presentation === 'sidebar' && space.roomId === session.vault.roomId && !space.waiting) { if (!this.root.querySelector(':scope > .chat-shell')) { this.settingsReturn = null; this.renderChat(); } return Promise.resolve(); } if (space.roomId === session.vault.roomId && space.waiting) this.inviteListScrollTop = (container ?? this.root).querySelector('.space-drawer-scroll')?.scrollTop ?? 0; return this.switchPrivateSpace(space); },
@@ -5260,7 +5260,7 @@ export class QuietRoomApp {
         return fresh;
       },
       styleChanged: () => this.applyPresenceStyle(),
-      closed: () => { if (presentation === 'sidebar') { this.desktopWorkspace.collapse(); return; } if (presentation === 'settings') { this.settingsReturn = null; this.renderChat(); return; } this.spaceDrawerOpen = false; if (!signal.aborted && !this.privacyCovered && this.session === session && !this.root.querySelector('.space-invite-overlay:not(.is-closing),.space-profile-overlay')) { this.setActiveSurface(this.root.querySelector('.chat-shell') ? 'chat' : previousSurface); this.updatePeerStatus(); } },
+      closed: () => { if (presentation === 'sidebar') { this.desktopWorkspace.collapse(); return; } if (presentation === 'settings') { this.settingsReturn = null; this.renderChat(); return; } this.spaceDrawerOpen = false; if (!signal.aborted && !this.privacyCovered && this.session === session && !this.root.querySelector('.space-invite-overlay:not(.is-closing),.space-profile-overlay')) { if (previousSurface === 'chat' && !this.root.querySelector('.chat-shell')) this.renderChat(this.root.querySelector<HTMLElement>(':scope > .space-drawer-overlay.is-closing') ?? undefined); else { this.setActiveSurface(this.root.querySelector('.chat-shell') ? 'chat' : previousSurface); this.updatePeerStatus(); } } },
     });
   }
 
@@ -5295,8 +5295,19 @@ export class QuietRoomApp {
     }
   }
 
-  private renderChat(): void {
+  private renderChat(retiringSettings?: HTMLElement): void {
     if (!this.session) return;
+    const settings = this.settingsReturn;
+    if (settings?.session === this.session && this.runtimeAbort && !this.privacyCovered && !matchMedia(desktopWidth).matches) {
+      // A settings child returns directly to its parent. Rebuilding chat first
+      // exposes its wallpaper beneath the incoming horizontal transition.
+      this.cancelViewportWork();
+      this.root.replaceChildren();
+      this.spaceDrawerOpen = true;
+      this.mountPrivateSpaceDrawer(this.session, settings.spaces, this.runtimeAbort.signal, 'chat', settings.scrollTop);
+      this.settingsReturn = null;
+      return;
+    }
     this.chatScrollRevision += 1;
     // Replacing the textarea destroys the owner of a consumed native-keyboard
     // blur. Treat that as a departure; an unused pre-focus arm is just cleared.
@@ -5328,7 +5339,7 @@ export class QuietRoomApp {
     this.renderedMessageDates.clear();
     this.renderedMessageSeq.clear();
     document.body.className = 'app-mode';
-    this.root.innerHTML = `
+    const chatMarkup = `
       <section class="chat-shell">
         <header class="chat-header" data-presence-style="${readPresenceStyle()}">
           <button class="icon-button spaces-entry" id="open-spaces" type="button" aria-label="私密空间列表">${spaceAvatarMarkup(this.currentSpaceAvatar, this.currentSpaceName)}</button>
@@ -5395,11 +5406,48 @@ export class QuietRoomApp {
         </form>
       </section>
     `;
+    if (retiringSettings?.parentElement === this.root) {
+      // Keep the settings sheet connected so its existing downward exit keeps
+      // running while the chat is prepared beneath it.
+      const content = document.createElement('template');
+      content.innerHTML = chatMarkup;
+      for (const child of [...this.root.children]) if (child !== retiringSettings) child.remove();
+      this.root.prepend(content.content);
+      const chat = this.root.querySelector<HTMLElement>('.chat-shell')!;
+      chat.inert = true;
+      afterMotion(retiringSettings, () => { chat.inert = false; });
+    } else this.root.innerHTML = chatMarkup;
     this.applyPresenceStyle();
     this.mountChatLayout();
     requestAnimationFrame(() => this.showHiddenAlbumHint());
-    this.root.querySelector('#open-memes')?.addEventListener('click', () => {
+    const memeButton = this.root.querySelector<HTMLButtonElement>('#open-memes')!;
+    const toggleExpressions = () => {
       if (this.memePicker) this.closeMemePicker(true, true); else this.openMemePicker();
+    };
+    let memeTap: { x: number; y: number } | null = null;
+    let memeTouchActivated = false;
+    memeButton.addEventListener('pointerdown', event => {
+      memeTouchActivated = false;
+      if (event.isPrimary && event.button === 0) event.preventDefault();
+    });
+    memeButton.addEventListener('touchstart', event => {
+      const point = event.touches.length === 1 ? event.touches[0] : undefined;
+      memeTap = point ? { x: point.clientX, y: point.clientY } : null;
+    }, { passive: true });
+    memeButton.addEventListener('touchmove', event => {
+      const point = event.touches[0];
+      if (memeTap && (!point || event.touches.length !== 1 || Math.hypot(point.clientX - memeTap.x, point.clientY - memeTap.y) > 10)) memeTap = null;
+    }, { passive: true });
+    memeButton.addEventListener('touchcancel', () => { memeTap = null; }, { passive: true });
+    memeButton.addEventListener('touchend', event => {
+      const tap = memeTap; memeTap = null;
+      if (!tap || event.touches.length || !event.cancelable) return;
+      event.preventDefault(); memeTouchActivated = true;
+      toggleExpressions();
+    }, { passive: false });
+    memeButton.addEventListener('click', event => {
+      if (memeTouchActivated && event.detail !== 0) { memeTouchActivated = false; event.preventDefault(); return; }
+      memeTouchActivated = false; toggleExpressions();
     });
     this.root.querySelector('#composer')?.addEventListener('submit', (event) => {
       if (this.root.querySelector('#message-input')?.getAttribute('data-composing') === 'true') { event.preventDefault(); return; }
@@ -5421,6 +5469,8 @@ export class QuietRoomApp {
       // These navigation controls sit above the input bar and already own
       // explicit scrolling through viewport motion.
       if (event.target.closest('#chat-bottom-control')) return;
+      // Input mode can reverse while native keyboard geometry is in flight.
+      if (event.target.closest('#message-input, #open-memes')) return;
       const moving = composer.hasAttribute('data-viewport-motion');
       if (moving) {
         event.preventDefault();
@@ -5522,11 +5572,11 @@ export class QuietRoomApp {
     textarea.addEventListener('pointerdown', event => {
       if (!ownsActiveChat()) return;
       const expressionHandoff = Boolean(this.memePicker);
-      if (expressionHandoff) this.closeMemePicker(true, true);
+      if (expressionHandoff && event.pointerType !== 'touch') this.closeMemePicker(true, true);
       if (this.prepareKeyboardOpening(textarea, event)) {
         this.cancelNativeKeyboardDismiss();
         delete composer.dataset.keyboardDismissReveal;
-        if (!expressionHandoff && document.activeElement === textarea && document.documentElement.dataset.keyboardOpen !== 'true') {
+        if (event.pointerType !== 'touch' && !expressionHandoff && document.activeElement === textarea && document.documentElement.dataset.keyboardOpen !== 'true') {
           textarea.blur(); textarea.focus({ preventScroll: true });
         }
         this.chatViewportMotion?.anticipateKeyboard('open');
@@ -5546,12 +5596,22 @@ export class QuietRoomApp {
     textarea.addEventListener('touchend', event => {
       const tap = focusTap;
       focusTap = null;
-      if (!this.usesListScrolling || !ownsActiveChat() || event.touches.length
-        || !tap || document.activeElement === textarea || !event.cancelable) return;
+      if (!ownsActiveChat() || event.touches.length || !tap || !event.cancelable) return;
+      const expressionHandoff = Boolean(this.memePicker);
+      const viewport = layoutViewport();
+      const keyboardClosed = (document.documentElement.clientHeight || innerHeight) - (viewport?.height ?? innerHeight) <= 120;
+      const rearm = document.activeElement === textarea && keyboardClosed && !this.nativeKeyboardOpening && textarea.dataset.composing !== 'true';
+      if (!expressionHandoff && (!this.usesListScrolling || document.activeElement === textarea && !rearm)) return;
       // Native tap focus pans Safari's root even when the list owns scrolling.
       // Keep focus in the trusted touch gesture and suppress only that root pan.
       event.preventDefault();
-      textarea.focus({ preventScroll: true });
+      if (expressionHandoff) this.closeMemePicker(true, true);
+      else {
+        if (rearm) textarea.blur();
+        this.cancelNativeKeyboardDismiss();
+        delete composer.dataset.keyboardDismissReveal;
+        textarea.focus({ preventScroll: true });
+      }
     }, { passive: false });
     textarea.addEventListener('focus', () => {
       if (!ownsActiveChat()) return;
@@ -6158,6 +6218,7 @@ export class QuietRoomApp {
       },
     });
     this.chatKeyboardGesture = bindChatKeyboardGesture({
+      surface: shell,
       list,
       input: composer.querySelector<HTMLTextAreaElement>('#message-input')!,
       active: () => !this.privacyCovered && this.activeSurface === 'chat' && shell.isConnected,
@@ -6757,7 +6818,7 @@ export class QuietRoomApp {
     }
   }
 
-  private transitionPage(direction: 'forward' | 'backward', render: () => void | Promise<void>): void {
+  private transitionPage(direction: 'forward' | 'backward', render: () => void | Promise<void>, source?: HTMLElement): void {
     cancelFormInput();
     if (this.privacyCovered) return;
     this.closeImageViewer(true);
@@ -6786,12 +6847,17 @@ export class QuietRoomApp {
     const epoch = this.runtimeEpoch;
     const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
     let outgoing = !reducedMotion && this.root.firstElementChild instanceof HTMLElement
-      ? this.root.querySelector<HTMLElement>(':scope > .space-drawer-overlay:not(.is-closing)') ?? this.root.firstElementChild : null;
+      ? source ?? this.root.querySelector<HTMLElement>(':scope > .space-drawer-overlay:not(.is-closing)') ?? this.root.firstElementChild : null;
     const sourceForeground = outgoing;
-    if (outgoing?.classList.contains('space-drawer-overlay')) {
+    if (outgoing && (source || outgoing.classList.contains('space-drawer-overlay'))) {
       const clone = outgoing.cloneNode(true) as HTMLElement;
       clone.removeAttribute('id'); clone.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
-      clone.querySelector('.space-drawer-scroll')!.scrollTop = outgoing.querySelector('.space-drawer-scroll')!.scrollTop;
+      const scroll = clone.querySelector('.space-drawer-scroll');
+      if (scroll) scroll.scrollTop = outgoing.querySelector('.space-drawer-scroll')?.scrollTop ?? 0;
+      // The closing recovery form has already cleared its input. Its inert
+      // snapshot must not inherit the dialog's retiring vertical motion.
+      clone.classList.remove('is-closing');
+      clone.classList.add('is-visible');
       outgoing = clone;
     }
     const outgoingScrollY = this.usesListScrolling && outgoing?.classList.contains('chat-shell') ? 0 : window.scrollY;
@@ -6829,6 +6895,8 @@ export class QuietRoomApp {
       // Keep content reveal suppressed after the directional animation ends.
       incoming.dataset.pageNavigation = '';
       incoming.classList.add('page-transition-incoming');
+      const incomingLayer = incoming.style.zIndex;
+      if (direction === 'backward') incoming.style.zIndex = '70';
       this.root.append(outgoingFrame);
       const reverse = previousDirection && previousDirection !== direction;
       const width = incoming.getBoundingClientRect().width;
@@ -6846,6 +6914,7 @@ export class QuietRoomApp {
         entering?.cancel(); leaving?.cancel();
         outgoingFrame.remove();
         incoming.classList.remove('page-transition-incoming');
+        incoming.style.zIndex = incomingLayer;
         delete this.root.dataset.pageTransition;
         this.cancelPageTransition = null;
       };
@@ -7127,6 +7196,9 @@ export class QuietRoomApp {
     };
     const nativeChrome = String(this.visualClientCoordinates);
     if (chat.shell.dataset.nativeChrome !== nativeChrome) chat.shell.dataset.nativeChrome = nativeChrome;
+    const underlayHeight = this.visualClientCoordinates && layoutHeight - viewportHeight > 120 ? layoutHeight - viewportHeight : 0;
+    setStyle(chat.shell.style, '--chat-keyboard-underlay-height', `${underlayHeight}px`);
+    setStyle(chat.shell.style, '--chat-keyboard-underlay-top', `${underlayHeight ? viewportHeight - chat.fixedOrigin.getBoundingClientRect().top : 0}px`);
     if (this.usesListScrolling && !this.visualClientCoordinates) {
       // Desktop resizing and zoom have no native-keyboard animation owner.
       setStyle(chat.shell.style, 'top', '0px');
@@ -10783,23 +10855,41 @@ export class QuietRoomApp {
       <h2>关闭自动遮蔽？</h2><p>关闭后，将不再使用伪装遮蔽层。离开页面或锁定后的验证规则保持不变。</p>
       <div class="cover-disable-path">${createElement(Settings).outerHTML}<span>空间 → 设置 → 自动遮蔽</span></div>
       <div class="simple-confirm-actions"><button class="primary-button" id="keep-cover-enabled" type="button">保持开启</button>
-      <button class="secondary-button" id="disable-cover-anyway" type="button">关闭自动遮蔽</button></div></div>`;
+      <button class="secondary-button" id="disable-cover-anyway" type="button">关闭自动遮蔽</button></div><p class="form-error" role="alert" hidden></p></div>`;
     this.root.append(dialog);
-    mountDialog(dialog, { isActive: () => !this.privacyCovered && this.session === session, signal: this.runtimeAbort?.signal });
+    let saving = false;
+    const origin = this.root.querySelector<HTMLButtonElement>('#cover-practice-menu');
+    mountDialog(dialog, { isActive: () => !this.privacyCovered && this.session === session, signal: this.runtimeAbort?.signal,
+      returnFocus: origin, beforeClose: () => !saving });
     dialog.querySelector('#keep-cover-enabled')!.addEventListener('click', () => closeDialog(dialog));
     dialog.querySelector('.cover-disable-close')!.addEventListener('click', () => closeDialog(dialog));
     dialog.querySelector('#disable-cover-anyway')!.addEventListener('click', () => {
-      closeDialog(dialog);
+      if (saving || this.privacyCovered || this.session !== session) return;
+      saving = true;
+      const error = dialog.querySelector<HTMLElement>('.form-error')!;
+      error.hidden = true; error.textContent = '';
+      dialog.querySelectorAll<HTMLButtonElement>('button').forEach(button => { button.disabled = true; });
       void withVaultMutation(session, async mutation => {
-        session.vault.recoveryExperience = { ...session.vault.recoveryExperience, coverEnabled: false };
-        await saveVault(session, mutation);
+        const previous = session.vault.recoveryExperience;
+        const next = { ...previous, coverEnabled: false };
+        session.vault.recoveryExperience = next;
+        try { await saveVault(session, mutation); }
+        catch (cause) { if (session.vault.recoveryExperience === next) session.vault.recoveryExperience = previous; throw cause; }
       }).then(() => {
-        localStorage.setItem('quiet-room:cover-enabled', '0');
-        if (!this.privacyCovered && this.session === session) {
-          this.renderChat();
-          this.showNotice('关闭成功');
-        }
-      }).catch(() => this.showNotice('设置未保存，请重试', 'error'));
+        if (this.privacyCovered || this.session !== session || !dialog.isConnected) return;
+        try { localStorage.setItem('quiet-room:cover-enabled', '0'); } catch { /* The saved vault remains authoritative. */ }
+        const label = origin?.querySelector('.space-setting-label');
+        if (label) label.textContent = '体验或开启遮蔽';
+        saving = false;
+        closeDialog(dialog);
+        this.showNotice('关闭成功');
+      }).catch(() => {
+        if (this.privacyCovered || this.session !== session || !dialog.isConnected) return;
+        error.hidden = false; error.textContent = '设置未保存，请重试';
+      }).finally(() => {
+        saving = false;
+        dialog.querySelectorAll<HTMLButtonElement>('button').forEach(button => { button.disabled = false; });
+      });
     });
   }
 
@@ -10832,6 +10922,11 @@ export class QuietRoomApp {
       this.routingInvitation = true;
       try {
         if (this.session?.vault.pendingJointRecovery) { this.renderJointProgress(); return; }
+        if (helper && this.session === helper && this.settingsReturn?.session === helper) {
+          this.transitionPage('backward', () => this.renderChat(), this.root.querySelector<HTMLElement>('.joint-code-sheet') ?? undefined);
+          this.invitationReturnFocus = null;
+          return;
+        }
         if (!helper) { this.renderFirstRun(null); return; }
         if (this.session !== helper) {
           const origin = { roomId: helper.vault.roomId, name: '', localId: vaultSpaceId(helper.stored) };
