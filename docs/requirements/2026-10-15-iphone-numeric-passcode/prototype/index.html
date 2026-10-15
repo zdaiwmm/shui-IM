@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; frame-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+  <title>iPhone 数字密码 · V1 审阅</title>
+  <link rel="stylesheet" href="review.css"><script src="review.js" defer></script>
+</head>
+<body>
+  <aside class="review">
+    <p class="eyebrow">QUIET ROOM / PROTOTYPE V1</p>
+    <h1>数字密码</h1><p class="intro">设置与解锁，使用同一套 iPhone 数字密码布局。</p>
+    <nav aria-label="演示场景">
+      <button type="button" data-mode="create" aria-pressed="true">设置密码</button>
+      <button type="button" data-mode="unlock" aria-pressed="false">日常解锁</button>
+      <button type="button" data-mode="legacy" aria-pressed="false">旧密码兼容</button>
+      <button type="button" data-mode="passkey" aria-pressed="false">通行密钥兼容</button>
+    </nav>
+    <label>预览尺寸<select id="device"><option value="390,844">390 × 844 · iPhone</option><option value="320,568">320 × 568 · 小屏</option><option value="430,932">430 × 932 · 大屏</option><option value="1024,768">1024 × 768 · 桌面</option></select></label>
+    <label>明暗外观<select id="theme"><option value="dark">深色</option><option value="light">浅色</option><option value="system">跟随系统</option></select></label>
+    <label class="check"><input type="checkbox" id="large-text">200% 文字</label>
+    <label class="check"><input type="checkbox" id="reduced-motion">减少动态效果</label>
+    <details><summary>异常与清理演示</summary><div class="utilities">
+      <button type="button" data-action="failure">下次验证模拟失败</button>
+      <button type="button" data-action="wait">演示失败等待</button>
+      <button type="button" data-action="privacy">模拟进入后台</button>
+      <button type="button" data-action="reset">重置全部演示</button>
+    </div></details>
+    <p class="demo-note">默认解锁演示密码：<strong>246810</strong>。设置成功后可用刚才的密码解锁；刷新或离开后重置。请只用虚构数字。</p>
+    <p class="state" id="state" role="status">设置密码 · 等待输入</p>
+    <div class="links"><a href="../flow.html" target="_blank">查看业务流程图 ↗</a><a href="screen.html" id="pure" target="_blank">打开纯屏预览 ↗</a></div>
+    <p class="limit">仅模拟交互，不连接真实空间或系统认证。浏览器状态栏、安全区与真机触控需独立验收。</p>
+  </aside>
+  <main class="canvas" aria-label="原型预览"><div class="device"><iframe id="preview" src="screen.html" title="可交互数字密码原型"></iframe></div></main>
+</body>
+</html>

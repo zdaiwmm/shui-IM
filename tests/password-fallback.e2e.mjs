@@ -1,3 +1,4 @@
+import { submitPassword as password } from './helpers/password.mjs';
 import { fillFormInput, cancelPasswordForm } from './helpers/form-input.mjs';
 import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import assert from 'node:assert/strict';
@@ -32,12 +33,6 @@ async function boot(page) {
     const { mountSystemChrome } = await import('/src/lib/system-chrome.ts'); mountSystemChrome();
     const { QuietRoomApp } = await import('/src/app.ts'); window.app = new QuietRoomApp(document.querySelector('#app')); await app.start();
   }, css);
-}
-async function password(page, secret, confirmation = secret) {
-  const form = page.locator('.password-form'); await form.waitFor();
-  await fillFormInput(page, form.locator('[name=password]'), secret);
-  if (await form.locator('[name=confirmation]').count()) await fillFormInput(page, form.locator('[name=confirmation]'), confirmation);
-  await form.locator('[type=submit]').click();
 }
 async function capture(page, name) {
   if (!screenshots) return;
@@ -86,7 +81,7 @@ try {
     await responseGate; await route.fulfill({ response });
   });
   await cancelled.goto(url); await boot(cancelled);
-  await cancelled.locator('#create-room').click(); await completeSpaceProfile(cancelled); await password(cancelled, 'cancelled password 123');
+  await cancelled.locator('#create-room').click(); await completeSpaceProfile(cancelled); await password(cancelled, '246810');
   await requestObserved;
   assert.equal(await cancelled.locator('[data-device-verify]').isDisabled(), true, 'Pending creation can be duplicated');
   await cancelled.locator('.gateway-back').click();
@@ -99,18 +94,24 @@ try {
   assert.equal(await a.locator('#restore-cloud').textContent(), '找回空间');
   await a.locator('#create-room').click(); await completeSpaceProfile(a);
   await capture(a, 'F15-password-create');
-  await password(a, '🔐'.repeat(11)); assert.match(await a.locator('.password-form .form-error').textContent(), /12/);
-  await password(a, '🔐'.repeat(12), 'different-password'); assert.match(await a.locator('.password-form .form-error').textContent(), /不一致/);
+  assert.equal(await a.locator('.password-form input').count(), 0, 'Numeric setup must not create input fields');
+  for (const digit of '01234') await a.locator(`[data-digit="${digit}"]`).click();
+  assert.equal(await a.locator('.numeric-password-dots .filled').count(), 5);
+  assert.equal(await a.evaluate(async () => (await import('/src/lib/vault.ts')).hasStoredVault()), false, 'Five digits cannot create protection');
+  await cancelPasswordForm(a); await a.locator('.password-sheet').waitFor({ state: 'detached' });
+  await a.locator('[data-device-verify]').click();
+  await password(a, '012345', '012346'); assert.match(await a.locator('.password-form .form-error').textContent(), /不一致/);
   await cancelPasswordForm(a); await a.locator('.password-sheet').waitFor({ state: 'detached' });
   assert.equal(await a.evaluate(async () => (await import('/src/lib/vault.ts')).hasStoredVault()), false, 'Cancelling new protection wrote a vault');
-  await a.locator('[data-device-verify]').click(); await password(a, '🔐'.repeat(12));
+  await a.locator('[data-device-verify]').click(); await password(a, '012345');
   await a.locator('#invite-url').waitFor(); const invite = await a.locator('#invite-url').inputValue();
   const stored = await a.evaluate(async () => (await import('/src/lib/vault.ts')).readStoredVault());
   assert.equal(stored.v, 3); assert.equal(stored.unlockMethod, 'password');
   assert.ok(stored.wrappedKey && stored.payload && !stored.platform && !stored.ciphertext, 'New password space used a legacy format');
-  assert.equal(JSON.stringify(stored).includes('🔐'), false, 'Password persisted in clear');
+  assert.equal(stored.passwordFormat, 'numeric-6');
+  assert.equal(Object.hasOwn(stored, 'password'), false, 'Password persisted in clear');
   await b.goto(invite); await boot(b); await b.locator('.password-create .password-form').waitFor(); assert.equal(await b.locator('#new-device-alias').count(),0); await capture(b, 'F15-join-protection');
-  await password(b, 'joiner password 🔑');
+  await password(b, '654321');
   for (const page of [a, b]) {
     assert.equal(await page.locator('#welcome-chat').count(), 0);
     await page.locator('.confirm-overlay').waitFor({ state: 'detached' });
@@ -143,12 +144,12 @@ try {
   if(screenshots)await writeFile(path.join(screenshots,'F14-real-send.json'),JSON.stringify({engine:'desktop Chromium',protocol:'MLS',...rapidSend},null,2));
   // Every sensitive proof is fresh and bound to this original slot and operation.
   await a.evaluate(() => { window.proofResult = null; app.confirmDeviceCredential('合成验收操作').then(() => { window.proofResult = 'verified'; }, () => { window.proofResult = 'cancelled'; }); });
-  await password(a, 'joiner password 🔑'); await a.waitForFunction(() => document.querySelector('.password-form .form-error')?.textContent.includes('密码不正确')); assert.match(await a.locator('.password-form .form-error').textContent(), /密码不正确/);
+  await password(a, '654321'); await a.waitForFunction(() => document.querySelector('.password-form .form-error')?.textContent.includes('密码不正确')); assert.match(await a.locator('.password-form .form-error').textContent(), /密码不正确/);
   assert.equal(await a.evaluate(() => proofResult), null);
   await capture(a, 'F15-password-reauth'); await cancelPasswordForm(a);
   await a.waitForFunction(() => proofResult === 'cancelled');
   await a.evaluate(() => { window.proofResult = null; app.confirmDeviceCredential('合成验收操作').then(() => { window.proofResult = 'verified'; }, () => { window.proofResult = 'cancelled'; }); });
-  await password(a, '🔐'.repeat(12)); await a.waitForFunction(() => proofResult === 'verified');
+  await password(a, '012345'); await a.waitForFunction(() => proofResult === 'verified');
   assert.equal(await b.evaluate(() => app.session.vault.members.find(member => member.role === 'joiner').deviceName), 'iPhone · 微信');
   await a.evaluate(() => app.renderDeviceManager()); await a.locator('#device-back').waitFor(); await capture(a, 'F11-device-labels'); await a.locator('#device-back').click();
   await a.evaluate(() => app.renderLocalHistoryBackup()); await a.locator('#local-backup-export').click();
@@ -163,7 +164,7 @@ try {
   await a.locator('.password-form').waitFor({ state: 'detached' });
   assert.equal(await a.locator('.local-recovery-code').count(), 0, 'Cancellation displayed a recovery code');
   assert.equal(await a.locator('.app-toast.error').count(), 0, 'Ordinary cancellation displayed an error');
-  await a.locator('#save-my-code').click(); await password(a, '🔐'.repeat(12)); await a.locator('.local-recovery-code').waitFor({state:'attached'});await a.getByText('查看恢复内容',{exact:true}).click();
+  await a.locator('#save-my-code').click(); await password(a, '012345'); await a.locator('.local-recovery-code').waitFor({state:'attached'});await a.getByText('查看恢复内容',{exact:true}).click();
   assert.ok((await a.locator('.local-recovery-code').textContent()).startsWith('QR4-')); await a.locator('#hide-local-recovery').click();
   if (await a.locator('#recovery-center-back').count()) await a.locator('#recovery-center-back').click();
   await a.evaluate(() => app.renderCoverPractice()); await capture(a, 'F08-cover-practice'); await a.locator('#practice-back').click();
@@ -193,9 +194,9 @@ try {
   await a.evaluate(() => app.lockNow());
   await a.bringToFront(); await a.evaluate(() => app.renderGateway({ trustedCoverActivation: true, autoUnlock: false }));
   await a.locator('.password-return .password-form').waitFor();
-  await fillFormInput(a, a.locator('.password-return [name=password]'), 'retired page input must be cleared');
+  for (const digit of '012') await a.locator(`[data-digit="${digit}"]`).click();
   await a.evaluate(() => app.renderGateway({trustedCoverActivation:true,autoUnlock:false}));
-  await a.locator('.password-return .password-form').waitFor();assert.equal(await a.locator('.password-sheet').count(),1);assert.equal(await a.locator('.password-return [name=password]').inputValue(),'');
+  await a.locator('.password-return .password-form').waitFor();assert.equal(await a.locator('.password-sheet').count(),1);assert.equal(await a.locator('.password-return .numeric-password-dots .filled').count(),0);
   // Hold an actual successful decrypt, replace its page, then release the old
   // proof. A successor must open immediately and remain locked after it arrives.
   await a.evaluate(async () => {
@@ -211,18 +212,18 @@ try {
       return result;
     };
   });
-  await password(a, '🔐'.repeat(12)); await a.waitForFunction(() => retiredDecryptReady);
+  await password(a, '012345'); await a.waitForFunction(() => retiredDecryptReady);
   await a.evaluate(() => app.renderUnlock(retiredPageStored,true,false));
   await a.locator('.password-return .password-form').waitFor();
   await a.evaluate(() => releaseRetiredDecrypt()); await a.waitForTimeout(150);
-  assert.equal(await a.locator('.password-sheet').count(),1);assert.equal(await a.locator('.password-return [name=password]').inputValue(),'');
+  assert.equal(await a.locator('.password-sheet').count(),1);assert.equal(await a.locator('.password-return .numeric-password-dots .filled').count(),0);
   assert.equal(await a.evaluate(() => Boolean(app.session)),false,'Retired password page installed a late proof');
   assert.equal(await a.locator('#message-input').count(),0,'Retired proof exposed private UI');
   await a.setViewportSize({width:390,height:844});
   await capture(a, 'F15-password-unlock');
-  await password(a, '🔐'.repeat(12)); await a.locator('#message-input').waitFor();
+  await password(a, '012345'); await a.locator('#message-input').waitFor();
   await a.evaluate(() => { const v = app.session; window.proofResult = null; app.confirmDeviceCredential('取消后不得继续').then(() => { window.proofResult = 'verified'; }, () => { window.proofResult = 'cancelled'; }); });
-  await fillFormInput(a, a.locator('.password-form [name=password]'), '🔐'.repeat(12));
+  await fillFormInput(a, a.locator('.password-form [name=password]'), '012345');
   await a.evaluate(() => app.lockNow());
   await a.waitForFunction(() => proofResult === 'cancelled'); assert.equal(await a.locator('#message-input').count(), 0);
   const partialContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -256,7 +257,7 @@ try {
   // The remaining creation entrances use the same actual password wrapper,
   // with the existing source device approving the real membership event.
   await a.bringToFront(); await a.evaluate(() => app.renderGateway({ trustedCoverActivation: true, autoUnlock: false }));
-  await a.locator('.password-return .password-form').waitFor(); await password(a, '🔐'.repeat(12)); await a.locator('#message-input').waitFor();
+  await a.locator('.password-return .password-form').waitFor(); await password(a, '012345'); await a.locator('#message-input').waitFor();
   await a.evaluate(() => app.renderDeviceManager());
   for (const repair of [false, true]) {
     if (repair) await a.locator('.peer-device-section').getByRole('button', { name: '修复此设备', exact: true }).first().click();
@@ -265,7 +266,7 @@ try {
     const extraContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     await extraContext.addInitScript(() => { delete window.PublicKeyCredential; });
     const extra = await extraContext.newPage(); await extra.goto(link); await boot(extra);
-    await extra.locator('[data-device-verify]').click(); await password(extra, repair ? 'repair password 123' : 'device password 123');
+    await extra.locator('[data-device-verify]').click(); await password(extra, repair ? '345678' : '234567');
     const retry = extra.locator(repair ? '#retry-repair' : '#retry-device-link'); await retry.waitFor();
     const code = (await extra.locator('.device-safety-code').textContent()).trim();
     await a.locator('.device-link-sheet [data-close]').click(); await a.locator('.device-link-sheet').waitFor({ state: 'detached' });

@@ -59,6 +59,7 @@ export const browserGroups = Object.freeze({
     'tests/joint-recovery.e2e.mjs',
     'tests/audit-interactions.e2e.mjs',
     'tests/password-fallback.e2e.mjs',
+    'tests/numeric-password.e2e.mjs',
     'tests/recovery-card-entry.e2e.mjs',
     'tests/entry-feedback.e2e.mjs',
     'tests/webview-password.e2e.mjs',
