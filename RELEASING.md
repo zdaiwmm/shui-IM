@@ -1,5 +1,14 @@
 # Quiet Room 固定发布流程
 
+## 移动端十项修复已发布（2026-10-15 16:21）
+
+- 用户在本会话获知完整应用`b428e038139507c3bdba3eff4353d17cf5ff1d46`、版本`2026.10.15.1`及真机缺口后回复「确认」，授权本次精确生产发布；无独立消息permalink。十项范围、免原型／流程图、实施和验证历史由[需求记录](docs/requirements/2026-10-15-mobile-ten-fixes/README.md)拥有；后续文档SHA不进入本批应用。
+- [PR #313](https://github.com/zdaiwmm/shui-IM/pull/313)已正常合并，精确[main CI 38701106219](https://github.com/zdaiwmm/shui-IM/actions/runs/38701106219) attempt 1完整成功，含956项、64浏览器入口、通话、审计及同轮双架构镜像。AMD64产物11956004041绑定该run／attempt，未以文档CI替代完整应用CI。
+- 本机只读doctor及固定[云预检38703590076](https://github.com/zdaiwmm/shui-IM/actions/runs/38703590076)通过。固定入口`publish.mjs --cloud --with-readback --environment production --sha b428e038139507c3bdba3eff4353d17cf5ff1d46`取得精确`DEPLOY_VERIFIED`，[云发布38703938466](https://github.com/zdaiwmm/shui-IM/actions/runs/38703938466)回执成功时间`2026-10-15T08:15:53.796Z`；从`05b0e8be44cf1b3308af13c62d94eb84903d9a4e`仅切换一次，批次`20261015T081326Z`，云发布263872毫秒。现有production审核保留，未修改helper、配置或门禁。
+- 镜像`sha256:647a7e2fe1d7b27017af794a2436c517aa60648a02f076a2c12073243817e2a5`，归档摘要`8cacc020a7abc8d934e8235d2f20bd2b94010bf72f3b049c81f3155d4554ea23`，209238036字节。首次独立回读在`2026-10-15T08:16:10.202Z`因备份starting未通过；应用healthy，TURN运行且探针none，维护门不存在，精确SHA／镜像已一致。只读核对备份实际启动时间`2026-10-15T08:15:43.938456843Z`与现有5分钟周期／启动期后，仅续跑同SHA回读，不重新发布。
+- 独立`READBACK_OK`于`2026-10-15T08:21:21.823Z`（北京时间16:21）完成，3428毫秒：应用与备份运行且healthy，TURN运行且探针none，维护门不存在；精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物及新WebSocket一致，管理员与通话启用。发布及独立回读分别取得成功，首次备份启动期失败保留，没有再次部署或调整健康门禁。
+- 脱敏授权、预检、发布回执和全部回读证据保存于公共Git元数据`quiet-room-deliveries/evidence/mobile-ten-fixes-20261015/production.json`，位于任务树及其专属Git目录之外。对账在基于实时main`c57a188929d19939a65d2be51d282ac588476afb`的第二个无部署配置工作树执行；文档SHA不发布。真机iPhone／iOS27／Safari未新增验证；下方生产记录均为此前批次事实。本批资源按固定清理门禁核验，保留项及最终回执存于同一公共证据目录，不清理其他任务资源。
+
 ## V1.5 输入与面板、Safari 组合已发布（2026-10-15）
 
 - 用户在本会话获知完整应用 `05b0e8be44cf1b3308af13c62d94eb84903d9a4e`、版本 `2026.10.14.4`、完整CI／预检及真机缺口后，要求「判断是否完成，若未完成则继续，否则发布生产」；无独立消息permalink。本次授权绑定上述精确应用，不发布后续文档SHA。V1.5确认、免业务流程图及历史失败由[需求记录](docs/requirements/2026-10-14-composer-panels/README.md)拥有。
