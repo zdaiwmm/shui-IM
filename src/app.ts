@@ -4,7 +4,8 @@ import { readRecoveryCard, writeRecoveryCard, pickRecoveryCard } from './lib/rec
 import './entry-experience.css';
 import { transitionMediaCapsule, retireMediaCapsule } from './lib/media-capsule';
 import { requestPassword } from './lib/password-dialog';
-import { derivePasswordCredential, isPasswordCredential, type LocalCredentialResult } from './lib/password-protection';
+import { derivePasswordCredential, deriveNumericPasswordCredential, isPasswordCredential, type LocalCredentialResult } from './lib/password-protection';
+import { passwordUnlockWaitMs } from './lib/vault';
 import { embeddedPasswordSetup, isPlatformVaultUnavailable, probePlatformVaultCapabilities, platformVaultSetupState } from './lib/platform-vault';
 import { reauthenticateVault, assertPasswordProtectionEnvironment } from './lib/vault';
 import { DesktopWorkspace, desktopWidth } from './lib/desktop-workspace';
@@ -1598,7 +1599,7 @@ export class QuietRoomApp {
         passwordBusy = true;
         this.unlocking = true;
         try {
-          const unlocked = await requestPassword(this.root, { presentation: 'page', title: '打开私密空间', context: '输入此空间已有的密码。', spaceName: this.currentSpaceName, submitLabel: '打开私密空间', signal: passwordAbort.signal, isActive: current, cancel: () => this.lockNow(),
+          const unlocked = await requestPassword(this.root, { presentation: 'page', passwordFormat: stored.passwordFormat, retryAfterMs: passwordUnlockWaitMs, title: '打开私密空间', context: '输入此空间已有的密码。', spaceName: this.currentSpaceName, submitLabel: '打开私密空间', signal: passwordAbort.signal, isActive: current, cancel: () => this.lockNow(),
             verify: password => unlockVault(password, undefined, stored), forgot: () => { this.jointUnavailableSlot = vaultSpaceId(stored); this.renderJointRecovery(); } });
           if (!current()) return;
           this.session = unlocked; await this.openSession();
@@ -5059,7 +5060,7 @@ export class QuietRoomApp {
     let credential: LocalCredentialResult | null = held ? { record: held.record, prfOutput: held.prfOutput.slice(), browserAccessPrf: held.browserAccessPrf?.slice() } : null;
     const origin = this.session;
     if (!credential && origin?.stored.unlockMethod === 'password') {
-      credential = await requestPassword(this.root, { title: '使用已有密码创建', context: '新空间沿用你的日常解锁密码，无需再设置一个。', signal: this.runtimeAbort?.signal, isActive: () => this.session === origin && !this.privacyCovered, verify: async password => { await reauthenticateVault(origin, password, this.runtimeAbort?.signal); return derivePasswordCredential(password); } });
+      credential = await requestPassword(this.root, { title: '使用已有密码创建', context: '新空间沿用你的日常解锁密码，无需再设置一个。', signal: this.runtimeAbort?.signal, isActive: () => this.session === origin && !this.privacyCovered, verify: async password => { await reauthenticateVault(origin, password, this.runtimeAbort?.signal); return derivePasswordCredential(password, undefined, origin.stored.unlockMethod === 'password' && origin.stored.v === 3 ? origin.stored.passwordFormat : undefined); } });
     }
     if (!await this.leaveSpace()) { if (credential && !isPasswordCredential(credential)) { credential.prfOutput.fill(0); credential.browserAccessPrf?.fill(0); } return; }
     this.inviteReturnToSpaces = true;
@@ -6084,7 +6085,7 @@ export class QuietRoomApp {
     if (!active()) throw new DOMException('设置已结束', 'AbortError');
     return requestPassword(this.root, { create: true, title: '设置空间密码',
       context: '密码用于这台浏览器的日常解锁。换设备或数据丢失后，请使用恢复卡找回。',
-      isActive: active, signal: this.runtimeAbort?.signal, verify: derivePasswordCredential });
+      isActive: active, signal: this.runtimeAbort?.signal, verify: deriveNumericPasswordCredential });
   }
 
   private async confirmDeviceCredential(operation = '继续此操作'): Promise<VaultSession> {

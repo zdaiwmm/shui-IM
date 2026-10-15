@@ -234,6 +234,8 @@ export type StoredPasswordVault = {
   spaceId?: string;
   v: 3;
   unlockMethod: 'password';
+  /** Absent on existing Unicode passwords; authenticated by the key wrapper. */
+  passwordFormat?: 'numeric-6';
   kdf: VaultKdf;
   wrappedKey: { iv: string; ciphertext: string };
   payload: StoredPlatformVault['payload'];

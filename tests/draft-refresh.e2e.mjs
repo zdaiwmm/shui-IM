@@ -1,3 +1,4 @@
+import { submitPassword } from './helpers/password.mjs';
 import { fillFormInput } from './helpers/form-input.mjs';
 import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import assert from 'node:assert/strict';
@@ -13,7 +14,7 @@ import { startServer } from '../server/index.mjs';
 // independent participant contexts; only the deliberate stale-tab case shares one.
 const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-draft-refresh-'));
 const root = process.cwd(); let service, vite, browser, database;
-const password = 'synthetic draft regression password';
+const password = '135790';
 function prepareParticipant() {
   delete window.PublicKeyCredential;
   // This long multi-participant scenario exercises drafts and explicit privacy
@@ -42,12 +43,8 @@ async function waitForState(page, stage, predicate) {
     throw error;
   }
 }
-async function protect(page) {
-  const form = page.locator('.password-form'); await form.waitFor();
-  await fillFormInput(page, form.locator('[name=password]'), password);
-  if (await form.locator('[name=confirmation]').count()) await fillFormInput(page, form.locator('[name=confirmation]'), password);
-  await form.locator('[type=submit]').click();
-}
+async function protect(page) { await submitPassword(page, password); }
+
 async function ready(page) {
   try { await page.locator('.chat-shell').waitFor(); }
   catch (error) {

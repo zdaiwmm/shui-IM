@@ -51,12 +51,11 @@ try {
     await page.locator('#create-room').click(); await completeSpaceProfile(page);
     if (fallback) {
       await page.locator('.password-create .password-form').waitFor();
-      assert.equal(await page.locator('[name=password]').getAttribute('autocomplete'), 'new-password');
-      assert.match(await page.locator('.password-description').textContent(), /不是手机锁屏密码/);
-      await fillFormInput(page, page.locator('[name=password]'), 'synthetic password 123');
-      await page.locator('[name=show]').check(); assert.equal(await page.locator('[name=password]').getAttribute('type'), 'text');
-      await page.locator('[name=show]').uncheck(); assert.equal(await page.locator('[name=password]').inputValue(), 'synthetic password 123');
-      if (evidence) { await fillFormInput(page, page.locator('[name=password]'), ''); await page.screenshot({ path: path.join(evidence, `F15-webview-${name}.png`) }); }
+      assert.equal(await page.locator('.password-form input').count(), 0, 'New numeric setup has no input or show-password control');
+      assert.equal(await page.locator('[data-digit]').count(), 10);
+      for (const digit of '012') await page.locator(`[data-digit="${digit}"]`).click();
+      assert.equal(await page.locator('.numeric-password-dots .filled').count(), 3);
+      if (evidence) await page.screenshot({ path: path.join(evidence, `F15-webview-${name}.png`) });
       await cancelPasswordForm(page); await page.locator('.password-sheet').waitFor({ state: 'detached' });
     } else {
       await page.waitForFunction(() => !document.querySelector('[data-device-verify]')?.disabled).catch(async error=>{

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+  <title>数字密码 · V1 原型</title>
+  <link rel="stylesheet" href="screen.css">
+  <script src="screen.js" defer></script>
+</head>
+<body>
+  <main class="passcode" id="passcode" aria-labelledby="title">
+    <svg class="lock" viewBox="0 0 24 30" aria-hidden="true"><rect x="4" y="12" width="16" height="15" rx="3" fill="currentColor"/><path d="M7 12V8a5 5 0 0 1 10 0v4" fill="none" stroke="currentColor" stroke-width="2.4"/></svg>
+    <header class="prompt">
+      <h1 id="title">设置密码</h1>
+      <p id="subtitle">用于此空间的日常解锁</p>
+    </header>
+    <div class="dots" id="dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
+    <p class="sr-only" id="progress" role="status" aria-live="polite" aria-atomic="true">已输入 0 位，共 6 位</p>
+    <p class="sr-only" id="error" role="alert" aria-atomic="true"></p>
+    <div class="keypad" id="keypad" role="group" aria-label="数字密码键盘">
+      <button type="button" class="key key-one" data-digit="1" aria-label="数字 1"><span>1</span><small aria-hidden="true">&nbsp;</small></button>
+      <button type="button" class="key" data-digit="2" aria-label="数字 2"><span>2</span><small aria-hidden="true">ABC</small></button>
+      <button type="button" class="key" data-digit="3" aria-label="数字 3"><span>3</span><small aria-hidden="true">DEF</small></button>
+      <button type="button" class="key" data-digit="4" aria-label="数字 4"><span>4</span><small aria-hidden="true">GHI</small></button>
+      <button type="button" class="key" data-digit="5" aria-label="数字 5"><span>5</span><small aria-hidden="true">JKL</small></button>
+      <button type="button" class="key" data-digit="6" aria-label="数字 6"><span>6</span><small aria-hidden="true">MNO</small></button>
+      <button type="button" class="key" data-digit="7" aria-label="数字 7"><span>7</span><small aria-hidden="true">PQRS</small></button>
+      <button type="button" class="key" data-digit="8" aria-label="数字 8"><span>8</span><small aria-hidden="true">TUV</small></button>
+      <button type="button" class="key" data-digit="9" aria-label="数字 9"><span>9</span><small aria-hidden="true">WXYZ</small></button>
+      <button type="button" class="key key-zero" data-digit="0" aria-label="数字 0"><span>0</span></button>
+    </div>
+    <footer class="actions" id="actions">
+      <button type="button" id="left-action">取消</button>
+      <button type="button" id="right-action" hidden>删除</button>
+    </footer>
+    <section class="outcome" id="outcome" aria-labelledby="outcome-title" hidden>
+      <h1 id="outcome-title"></h1><p id="outcome-copy"></p>
+      <div id="outcome-content"></div>
+      <button type="button" id="outcome-primary"></button>
+      <button type="button" id="outcome-back">返回数字密码</button>
+    </section>
+  </main>
+</body>
+</html>

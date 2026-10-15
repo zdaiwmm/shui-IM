@@ -3,7 +3,7 @@ import { fromBase64Url, toBase64Url } from './base64';
 import type { VaultKdf, StoredPasswordVault } from './types';
 import type { PlatformCredentialResult } from './platform-vault';
 
-export type PasswordCredentialResult = { method: 'password'; kdf: VaultKdf; kek: CryptoKey };
+export type PasswordCredentialResult = { method: 'password'; kdf: VaultKdf; kek: CryptoKey; passwordFormat?: 'numeric-6' };
 export type LocalCredentialResult = PlatformCredentialResult | PasswordCredentialResult;
 export const isPasswordCredential = (value: LocalCredentialResult): value is PasswordCredentialResult => 'method' in value && value.method === 'password';
 const encoder = new TextEncoder();
@@ -17,13 +17,19 @@ export function passwordValidation(password: string, confirmation?: string): str
   return '';
 }
 
+export function numericPasswordValidation(password: string, confirmation?: string): string {
+  if (!/^[0-9]{6}$/.test(password)) return '请输入 6 位数字密码';
+  return confirmation !== undefined && password !== confirmation ? '两次输入的密码不一致' : '';
+}
+
 export function validPasswordKdf(kdf: VaultKdf): boolean {
   return kdf?.name === 'argon2id' && kdf.memorySize === 65_536 && kdf.iterations === 3 && kdf.parallelism === 1 &&
     typeof kdf.salt === 'string' && /^[A-Za-z0-9_-]{22}$/.test(kdf.salt) && fromBase64Url(kdf.salt).length === 16;
 }
 
-export async function derivePasswordCredential(password: string, existing?: VaultKdf): Promise<PasswordCredentialResult> {
-  if (!existing && passwordValidation(password)) throw new Error(passwordValidation(password));
+export async function derivePasswordCredential(password: string, existing?: VaultKdf, passwordFormat?: 'numeric-6'): Promise<PasswordCredentialResult> {
+  const invalid = passwordFormat === 'numeric-6' ? numericPasswordValidation(password) : passwordValidation(password);
+  if (!existing && invalid) throw new Error(invalid);
   const kdf: VaultKdf = existing ?? { name: 'argon2id', memorySize: 65_536, iterations: 3, parallelism: 1,
     salt: toBase64Url(crypto.getRandomValues(new Uint8Array(16))) };
   if (!validPasswordKdf(kdf)) throw new Error('本机密码保护参数不受支持');
@@ -31,18 +37,25 @@ export async function derivePasswordCredential(password: string, existing?: Vaul
     iterations: kdf.iterations, parallelism: kdf.parallelism, hashLength: 32, outputType: 'binary' });
   const bytes = Uint8Array.from(output as Uint8Array);
   try {
-    return { method: 'password', kdf, kek: await crypto.subtle.importKey('raw', bytes, 'AES-GCM', false, ['encrypt', 'decrypt']) };
+    return { method: 'password', kdf, ...(passwordFormat ? { passwordFormat } : {}), kek: await crypto.subtle.importKey('raw', bytes, 'AES-GCM', false, ['encrypt', 'decrypt']) };
   } finally { bytes.fill(0); (output as Uint8Array).fill(0); }
 }
 
-function aad(stored: Pick<StoredPasswordVault, 'kdf' | 'spaceId'>): Uint8Array<ArrayBuffer> {
+export const deriveNumericPasswordCredential = (password: string): Promise<PasswordCredentialResult> =>
+  derivePasswordCredential(password, undefined, 'numeric-6');
+
+function aad(stored: Pick<StoredPasswordVault, 'kdf' | 'spaceId' | 'passwordFormat'>): Uint8Array<ArrayBuffer> {
   const { name, memorySize, iterations, parallelism, salt } = stored.kdf;
+  if (stored.passwordFormat !== undefined) {
+    if (stored.passwordFormat !== 'numeric-6') throw new Error('本机密码格式不受支持');
+    return encoder.encode(JSON.stringify(['quiet-room-password-master-v3', stored.spaceId ?? 'current', name, memorySize, iterations, parallelism, salt, stored.passwordFormat]));
+  }
   return encoder.encode(JSON.stringify(['quiet-room-password-master-v3', stored.spaceId ?? 'current', name, memorySize, iterations, parallelism, salt]));
 }
 
 export async function wrapPasswordMaster(master: Uint8Array<ArrayBuffer>, credential: PasswordCredentialResult, spaceId: string): Promise<StoredPasswordVault['wrappedKey']> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad({ kdf: credential.kdf, spaceId }), tagLength: 128 }, credential.kek, master);
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: aad({ kdf: credential.kdf, spaceId, passwordFormat: credential.passwordFormat }), tagLength: 128 }, credential.kek, master);
   return { iv: toBase64Url(iv), ciphertext: toBase64Url(encrypted) };
 }
 
