@@ -1,11 +1,12 @@
 # Quiet Room 当前状态
 
-## 移动端十项修复已合并，生产待确认（2026-10-15）
+## 移动端十项修复已发布，真机待验收（2026-10-15）
 
-- 用户已确认[十项V1](../requirements/2026-10-15-mobile-ten-fixes/README.md)，免原型／流程图，授权直接修复、验证、PR／CI和合并main；生产须确认本次精确提交。
+- 用户已确认[十项V1](../requirements/2026-10-15-mobile-ten-fixes/README.md)，免原型／流程图，授权直接修复、验证、PR／CI和合并main；列明完整应用SHA、版本及真机缺口后再次回复「确认」，授权本次精确生产发布。
 - 独占`codex/mobile-ten-fixes-20261015`基于实时main`8d1fc42`。十项修改、DESIGN及视觉规范V1.8已完成。119文件／956项及全部64浏览器入口已取得通过；本机完整命令的mobile-debug超时及分段续跑事实、夹具修订和CI通话等待失败均保留在需求记录，不弱化门禁。
-- [PR #313](https://github.com/zdaiwmm/shui-IM/pull/313)源`1f1bd30`的精确[完整CI 38699467164](https://github.com/zdaiwmm/shui-IM/actions/runs/38699467164) attempt 2成功，合并为`b428e038139507c3bdba3eff4353d17cf5ff1d46`，版本`2026.10.15.1`；合并前后同树。精确[main CI 38701106219](https://github.com/zdaiwmm/shui-IM/actions/runs/38701106219) attempt 1完整成功，含同轮双架构镜像；生产待用户确认该应用提交。
-- 真机iPhone／iOS27／Safari尚未新增验证；没有发布本批。下方生产记录为此前批次事实。
+- [PR #313](https://github.com/zdaiwmm/shui-IM/pull/313)源`1f1bd30`的精确[完整CI 38699467164](https://github.com/zdaiwmm/shui-IM/actions/runs/38699467164) attempt 2成功，合并为当前生产应用`b428e038139507c3bdba3eff4353d17cf5ff1d46`，版本`2026.10.15.1`；合并前后同树。精确[main CI 38701106219](https://github.com/zdaiwmm/shui-IM/actions/runs/38701106219) attempt 1完整成功，含同轮双架构镜像。合并记录[PR #314](https://github.com/zdaiwmm/shui-IM/pull/314)及本次生产对账均只改文档，不改变已确认应用目标。
+- 固定[云预检38703590076](https://github.com/zdaiwmm/shui-IM/actions/runs/38703590076)通过，[云发布38703938466](https://github.com/zdaiwmm/shui-IM/actions/runs/38703938466)取得精确DEPLOY_VERIFIED；从05b0e8be到b428e038只切换一次，批次`20261015T081326Z`。独立READBACK_OK于`2026-10-15T08:21:21.823Z`完成：应用／备份healthy、TURN运行且探针none，维护门不存在，SHA／镜像、HTTPS／数据库／存储、公开与容器产物及新WebSocket一致。首次备份starting仅等待原有5分钟探针并续跑只读回读，未再次部署。完整事实由[发布记录](../../RELEASING.md#移动端十项修复已发布2026-10-15-1621)拥有。
+- 脱敏证据保存在公共Git元数据的mobile-ten-fixes-20261015/production.json；第二个无部署配置工作树对账，本批资源按固定清理门禁处理，最终结果保存到同目录。真机iPhone／iOS27／Safari尚未新增验证；下方生产记录为此前批次事实。
 
 ## V1.5 与 Safari 组合已发布，真机待验收（2026-10-15）
 

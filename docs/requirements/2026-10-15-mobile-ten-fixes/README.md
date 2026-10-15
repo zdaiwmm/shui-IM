@@ -5,7 +5,8 @@
 - 规则来源：本机 main `15559f36452ea71dd72ae57aeb7f54a0c586e11b`；实时 main `8d1fc42c2604ae966b91861251d401de114572a2` 的 AGENTS／workflow 无差异。开工 origin/main 已同步该基线，本机 main 保留旧快照。
 - 独占分支 `codex/mobile-ten-fixes-20261015`，本机目录 `/Users/zhouding/ss-worktrees/mobile-ten-fixes-20261015`；开工 HEAD 同基线，工作树干净。
 - 2026-10-15 本会话用户确认：免原型与流程图，直接修复十项并验证，按流程合并 main，生产发布前再确认。无独立消息 permalink。原型／流程图明确不适用，不将前批生产授权用于本次。
-- 当前阶段：十项修改已验证并合并，版本`2026.10.15.1`；精确main完整CI通过，生产待确认。
+- 用户随后在列明完整应用`b428e038139507c3bdba3eff4353d17cf5ff1d46`、版本`2026.10.15.1`及真机缺口的生产确认请求后回复「确认」，授权本次固定入口发布；无独立消息permalink。后续文档提交不进入本批应用。
+- 当前阶段：十项修改已验证、合并并发布为`2026.10.15.1`；本次精确生产取得DEPLOY_VERIFIED及独立READBACK_OK，真机未新增验证。
 
 ## 范围与验收
 
@@ -35,4 +36,9 @@
 - 最终源`1f1bd309dd570ddd170b609c5e65bac03615b099`的[完整CI 38699467164](https://github.com/zdaiwmm/shui-IM/actions/runs/38699467164) attempt 2成功。attempt 1只有主浏览器通话连接等待超时及依赖汇总失败，结束态候选列表为空，原因未确认；其他分片、单元、独立通话、审计和双架构镜像通过。仅失败作业及汇总做唯一一次原样重跑后成功，未改产品、断言或超时。
 - [PR #313](https://github.com/zdaiwmm/shui-IM/pull/313)以精确head正常合并为`b428e038139507c3bdba3eff4353d17cf5ff1d46`。合并前后树均为`8005bc37edb8c7c57a8d4c394632a40fc667dc43`；最终源与e412d6c的src树均为`fda884de0adda208e6f9c2e21407aea8456ff6e6`，后续只改桌面测试及记录。
 - 精确[main CI 38701106219](https://github.com/zdaiwmm/shui-IM/actions/runs/38701106219) attempt 1完整成功：构建／956项、全部浏览器分片、通话、审计及同轮双架构镜像通过。纯文档对账树基于b428e03，不包含部署配置，不发布文档提交。
-- 脱敏本地回执与原失败／成功日志保存于公共Git元数据`quiet-room-deliveries/evidence/mobile-ten-fixes-20261015/local-validation.json`及同目录日志，不依赖工作树存续。真机iPhone／iOS27／Safari未新增验证；本批生产未授权、未发布，源树及必要证据保留待精确发布确认。
+- 脱敏本地回执与原失败／成功日志保存于公共Git元数据`quiet-room-deliveries/evidence/mobile-ten-fixes-20261015/local-validation.json`及同目录日志，不依赖工作树存续。该文件及remote-verification.json是生产确认前的阶段快照；后续精确授权与发布由同目录production.json拥有。真机iPhone／iOS27／Safari未新增验证。
+
+## 本次生产
+
+- 本机只读doctor及[云预检38703590076](https://github.com/zdaiwmm/shui-IM/actions/runs/38703590076)通过；固定[云发布38703938466](https://github.com/zdaiwmm/shui-IM/actions/runs/38703938466)取得精确DEPLOY_VERIFIED，只切换一次。首次独立回读仅备份starting，核对实际启动时间及既有5分钟探针后只续跑同SHA只读回读，于`2026-10-15T08:21:21.823Z`取得READBACK_OK（3428毫秒），SHA／镜像、容器健康、产物及新WebSocket全部通过；未重新部署。完整发布事实由[发布记录](../../../RELEASING.md#移动端十项修复已发布2026-10-15-1621)拥有。
+- 发布对账使用基于c57a188的独立工作树，不包含部署配置、不发布文档SHA；本批资源按回读成功、知识库对账及固定清理门禁收尾。
