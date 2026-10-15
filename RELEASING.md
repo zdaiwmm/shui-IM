@@ -1,5 +1,13 @@
 # Quiet Room 固定发布流程
 
+## 空间与录音十四项修复已发布（2026-10-15 19:42）
+
+- 用户在本会话获知完整应用`3aa09305c6af696acb171a4d4af7b71e077248e3`、版本`2026.10.15.2`、完整CI及真机缺口后回复「确认。若完成则合并并发布生产」，授权本次精确生产发布；无独立消息permalink。十四项范围、免原型／流程图及实施验证历史由[需求记录](docs/requirements/2026-10-15-mobile-space-voice/README.md)拥有，后续文档SHA不进入本批应用。
+- [PR #316](https://github.com/zdaiwmm/shui-IM/pull/316)已合并；精确[main CI 38725686867](https://github.com/zdaiwmm/shui-IM/actions/runs/38725686867) attempt 1完整成功，含958项、65个浏览器入口、通话、审计及同轮双架构镜像。固定[云预检38727336761](https://github.com/zdaiwmm/shui-IM/actions/runs/38727336761)取得PREFLIGHT_OK，前版与预期一致。
+- 固定入口`publish.mjs --cloud --with-readback --environment production --sha 3aa09305c6af696acb171a4d4af7b71e077248e3`取得精确`DEPLOY_VERIFIED`，[云发布38727825356](https://github.com/zdaiwmm/shui-IM/actions/runs/38727825356)回执成功时间`2026-10-15T11:36:48.653Z`。从`b428e038139507c3bdba3eff4353d17cf5ff1d46`仅切换一次，批次`20261015T113219Z`，云发布403326毫秒。正常production环境审核保留，未修改helper、配置、保护或健康门禁。镜像`sha256:4672746402d9324148e14fc035f0a7030a2ad311ad73e5309e2c0485797ae549`，归档摘要`f364751e1e6e353a358fbec474efa2f92fb281ef88404e858257617190a50e69`，209245603字节，绑定精确main CI／attempt 1。
+- 首次独立回读于`2026-10-15T11:37:13.170Z`仅因备份starting未通过，应用healthy，SHA／镜像已匹配，TURN运行且探针none，维护门不存在。只读核对备份实际启动时间`2026-10-15T11:36:36.07978644Z`及原有5分钟周期／启动期后，只续跑同SHA回读，没有再次部署。最终`READBACK_OK`于`2026-10-15T11:42:03.141Z`（北京时间19:42）完成，4017毫秒：应用／备份运行且healthy，TURN运行且探针none，维护门不存在；精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物、新WebSocket一致，管理员与通话启用。
+- 脱敏授权、预检、发布及全部独立回读证据保存于公共Git元数据`quiet-room-deliveries/evidence/mobile-space-voice-20261015/production.json`，位于任务树及其专属Git目录之外。第二个无部署配置的对账树基于实时main`df9c65e09af3716d96be7abac3744eb2adf8a1a5`，仅修改发布／状态／同一需求记录；文档SHA不发布。原生iPhone／Chrome／Safari键盘、系统工具栏、麦克风与实际输入性能仍待真机验收。活动源树及5215预览保留，其他本批资源按固定清理门禁核验；不清理其他任务。下方均为历史生产快照。
+
 ## 移动端十项修复已发布（2026-10-15 16:21）
 
 - 用户在本会话获知完整应用`b428e038139507c3bdba3eff4353d17cf5ff1d46`、版本`2026.10.15.1`及真机缺口后回复「确认」，授权本次精确生产发布；无独立消息permalink。十项范围、免原型／流程图、实施和验证历史由[需求记录](docs/requirements/2026-10-15-mobile-ten-fixes/README.md)拥有；后续文档SHA不进入本批应用。

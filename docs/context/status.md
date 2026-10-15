@@ -1,12 +1,13 @@
 # Quiet Room 当前状态
 
-## 空间与录音十四项修复已合并，待发布（2026-10-15）
+## 空间与录音十四项修复已发布，真机待验收（2026-10-15）
 
-- 用户明确本次免原型／流程图，直接修复验证；已确认范围与失败历史由[十四项V1需求记录](../requirements/2026-10-15-mobile-space-voice/README.md)拥有。生产仍须另行确认精确提交。
+- 用户明确本次免原型／流程图，直接修复验证；已确认范围与失败历史由[十四项V1需求记录](../requirements/2026-10-15-mobile-space-voice/README.md)拥有。用户在获知完整应用SHA、版本及真机缺口后明确确认本次精确生产发布。
 - [PR #316](https://github.com/zdaiwmm/shui-IM/pull/316)最终源`cca7b8036d7f58b4b2090cb8fb1d804bdd3f6785`已合并为`3aa09305c6af696acb171a4d4af7b71e077248e3`，版本`2026.10.15.2`；回取比较完整文件树一致。包含反向创建加入的Welcome顺序／密文队列、已加入倒计时清理、录音手势／选区裁剪、创建导航／转场、表单色彩、iOS Chrome视口／测量复用、精简密钥页面及已识别WebView新保护直达密码；独立网页应用仍走能力检查，已有passkey保险库不降级。
 - 本地干净1777af7完整门禁为957项及65／65浏览器入口通过；最终源仅收紧独立网页应用识别，干净构建／958项及受影响创建、WebView、安装专项通过。最终[PR CI 38724141948](https://github.com/zdaiwmm/shui-IM/actions/runs/38724141948) attempt 2成功；首次WebKit创建等待邀请超时根因未知，同SHA本地复验后仅重试失败分片一次，原失败保留。录音已知PCM字节、实际指针／触摸及选区试听通过。
-- 精确[main CI 38725686867](https://github.com/zdaiwmm/shui-IM/actions/runs/38725686867) attempt 1完整成功，含958项、65个浏览器入口、通话、审计、文档及同轮双架构镜像。原生iPhone／Chrome／Safari键盘、系统栏、麦克风与输入性能仍未真机验收。本批未发布生产；下节是上次发布快照。
-- 独立记录树仅同步需求与状态；活动源树及5215本地移动预览保留，未清理其他任务资源。
+- 精确[main CI 38725686867](https://github.com/zdaiwmm/shui-IM/actions/runs/38725686867) attempt 1完整成功，含958项、65个浏览器入口、通话、审计、文档及同轮双架构镜像。原生iPhone／Chrome／Safari键盘、系统栏、麦克风与输入性能仍未真机验收。本批已发布并独立回读通过；下节为历史快照。
+- 固定[云预检38727336761](https://github.com/zdaiwmm/shui-IM/actions/runs/38727336761)通过，[云发布38727825356](https://github.com/zdaiwmm/shui-IM/actions/runs/38727825356)取得精确DEPLOY_VERIFIED，从b428e038到3aa09305仅切换一次，批次`20261015T113219Z`。独立READBACK_OK于`2026-10-15T11:42:03.141Z`完成：应用／备份healthy、TURN运行且探针none，维护门不存在，SHA／镜像、HTTPS／数据库／存储、公开与容器产物、新WebSocket一致。首次备份starting只等待原有探针并续跑回读，未重复部署；完整事实由[发布记录](../../RELEASING.md#空间与录音十四项修复已发布2026-10-15-1942)拥有。
+- 脱敏证据保存于公共Git元数据的mobile-space-voice-20261015/production.json；第二个无部署配置的记录树仅对账，文档SHA不发布。活动源树及5215本地移动预览保留，收尾按固定清理门禁核验，不清理其他任务资源。
 
 ## 移动端十项修复已发布，真机待验收（2026-10-15）
 
