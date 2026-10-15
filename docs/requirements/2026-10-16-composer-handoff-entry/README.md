@@ -3,7 +3,7 @@
 ## 身份与当前阶段
 
 - 需求编号：2026-10-16-composer-handoff-entry。
-- 阶段：I，按已展示V1完成正式修复、验证与交付；生产精确SHA待验证后确认。
+- 阶段：D已合并，精确main CI与只读预检成功；生产候选85ffdfee934f10dc6b423367b25eb7da9bd6d231／2026.10.15.5，待SHA确认后进入P。
 - 规则来源：本机main `4356531cea264dd01bd9110da90b9ff62cfd7a59`；同时核对实时main中的AGENTS及workflow增补。
 - 起始基线：GitHub实时main与origin/main均为`5be6f6f3d7cd04ba4cfb0c538aab6f18d9456f13`；本机main落后。
 - 独占分支：`codex/composer-handoff-entry-v1-20261016`，本会话新建；本机目录`.worktrees/composer-handoff-entry-v1-20261016`，接续时重新核验。
@@ -70,6 +70,9 @@
 - 候选版本2026.10.15.5由release:prepare生成并审阅应用。Codex浏览器真实创建页已查看并本地保存截图；当前宿主能力按原分支进入密码保护，未唤起真实认证。未授权原始CDP，外壳画幅仅记视觉核验；自动测试使用mobile/touch/DPR3设备上下文，仍非真机。
 - 首轮冻结完整门禁：构建及951/961项通过，10项备份转移测试被本机磁盘使用率96%触发BACKUP_CAPACITY_LOW；不改容量保护。GitHub同候选961项全过。首轮PR浏览器CI检出繁忙同步任务内反向跳动约5.5px，修正为几何回调只重采样、动画时钟仅随新帧推进，并加入40ms繁忙任务回归；候选变化后重新执行相关专项和完整浏览器CI。本机旧候选浏览器门禁在失败定位后停止，不挪用为新候选通过证据。
 - 第二轮PR的三种轨迹、历史与繁忙反向在两引擎均通过；Linux WebKit入口夹具误要求密码回退页具备密钥名称字段。按既有platformVaultSetupState校验回退／密钥分支各自字段与动作文案，保留所有几何断言；产品代码不变，完整CI重验。
-- PR／CI／合并／生产：待完成；生产精确提交待展示确认。未进行原生IME、iPhone／Safari／微信WebView真机验收。
+- [PR #324](https://github.com/zdaiwmm/shui-IM/pull/324)源1cca3ffe72de0a8b33e107b526b57566d1089b74合并为85ffdfee934f10dc6b423367b25eb7da9bd6d231，完整文件树一致；[最终PR完整CI 38819800156](https://github.com/zdaiwmm/shui-IM/actions/runs/38819800156)及[精确main CI 38820734457](https://github.com/zdaiwmm/shui-IM/actions/runs/38820734457) attempt 1全部成功，119文件／961项、66浏览器入口、通话／TURN、审计、文档、凭据扫描及双架构镜像。
+- 本机产品候选02eb88dc8ea45de29ec8f5246b00ca8f32bfda28构建干净通过，完整66／66浏览器入口通过，969546毫秒。运行中提交了仅入口能力夹具与需求记录变化，自动记录clean=false，不充当最终精确SHA证据；产品代码相同，最终文件树由上述CI验证。早期容量失败保留，未改备份保护。
+- 固定[云预检38821504469](https://github.com/zdaiwmm/shui-IM/actions/runs/38821504469)取得PREFLIGHT_OK，前版bb5dc8b2cb63cb2f3a8ddf0ff48df75a669ab491与预期一致，镜像绑定上述main CI／attempt 1。doctor模式的production环境审核按已授权只读范围正常批准，未切换生产；正式生产仍待本会话已展示的精确SHA确认。
+- 脱敏交付与预检证据保存于公共Git元数据quiet-room-deliveries/evidence/composer-handoff-entry-20261016/production.json，在任务工作树之外。未进行原生IME、iPhone／Safari／微信WebView真机验收。
 
 需求材料8个源码文件共56011字节，无二进制、Base64、依赖、产物或用户截图入库。正式变更另检查最终差异与体积。原型通过不等于正式实现或生产通过。
