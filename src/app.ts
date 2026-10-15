@@ -568,6 +568,7 @@ export class QuietRoomApp {
     header: HTMLElement;
     fixedOrigin: HTMLElement;
     fixedBottom: HTMLElement;
+    underlay: HTMLElement;
     composer: HTMLElement;
     notices: HTMLElement;
     notice: HTMLElement;
@@ -5499,7 +5500,7 @@ export class QuietRoomApp {
       // explicit scrolling through viewport motion.
       if (event.target.closest('#chat-bottom-control')) return;
       // Input mode can reverse while native keyboard geometry is in flight.
-      if (event.target.closest('#message-input, #open-memes')) return;
+      if (event.target.closest('#message-input, #open-memes, #open-chat-tools')) return;
       const moving = composer.hasAttribute('data-viewport-motion');
       if (moving) {
         event.preventDefault();
@@ -6206,9 +6207,12 @@ export class QuietRoomApp {
     fixedOrigin.setAttribute('aria-hidden', 'true');
     const fixedBottom = fixedOrigin.cloneNode() as HTMLElement;
     fixedBottom.classList.add('chat-fixed-bottom');
-    shell.append(fixedOrigin, fixedBottom);
+    const underlay = document.createElement('div');
+    underlay.className = 'chat-keyboard-underlay';
+    underlay.setAttribute('aria-hidden', 'true');
+    shell.append(fixedOrigin, fixedBottom, underlay);
     this.nativeChatFollow = null;
-    this.chatLayoutElements = { shell, list, header, fixedOrigin, fixedBottom, composer, notices, notice };
+    this.chatLayoutElements = { shell, list, header, fixedOrigin, fixedBottom, underlay, composer, notices, notice };
     shell.dataset.scrollOwner = this.usesListScrolling ? 'list' : 'document';
     this.chatViewportMotion = createChatViewportMotion({
       // The native closed snapshot already arrives at the terminal position.
@@ -6936,9 +6940,9 @@ export class QuietRoomApp {
       const remaining = Math.max(Math.abs(enteringX), Math.abs(targetX - leavingX));
       const duration = Math.round(Math.min(motion.page, Math.max(140, motion.page * Math.sqrt(remaining / Math.max(1, width)))));
       const entering = travelMotion(incoming, enteringX, 0, reverse ? backgroundVelocity : 0, duration,
-        reverse && backgroundFrom ? Number(backgroundFrom.opacity) : direction === 'forward' ? 1 : .92);
+        1);
       const leaving = travelMotion(outgoingFrame, leavingX, targetX, foregroundVelocity, duration,
-        foregroundFrom ? Number(foregroundFrom.opacity) : 1, direction === 'forward' ? .92 : 1);
+        1, 1);
       const cleanup = () => {
         entering?.cancel(); leaving?.cancel();
         outgoingFrame.remove();
@@ -7225,9 +7229,12 @@ export class QuietRoomApp {
     };
     const nativeChrome = String(this.visualClientCoordinates);
     if (chat.shell.dataset.nativeChrome !== nativeChrome) chat.shell.dataset.nativeChrome = nativeChrome;
-    const underlayHeight = this.visualClientCoordinates && layoutHeight - viewportHeight > 120 ? layoutHeight - viewportHeight : 0;
-    setStyle(chat.shell.style, '--chat-keyboard-underlay-height', `${underlayHeight}px`);
-    setStyle(chat.shell.style, '--chat-keyboard-underlay-top', `${underlayHeight ? viewportHeight - chat.fixedOrigin.getBoundingClientRect().top : 0}px`);
+    const paintUnderlay = (edge: number, lowestEdge = edge) => {
+      const height = this.visualClientCoordinates ? Math.max(0, layoutHeight - lowestEdge) : 0;
+      setStyle(chat.underlay.style, 'height', `${height}px`);
+      setStyle(chat.underlay.style, 'top', `${edge - chat.fixedOrigin.getBoundingClientRect().top}px`);
+    };
+    paintUnderlay(viewportHeight);
     if (this.usesListScrolling && !this.visualClientCoordinates) {
       // Desktop resizing and zoom have no native-keyboard animation owner.
       setStyle(chat.shell.style, 'top', '0px');
@@ -7247,6 +7254,10 @@ export class QuietRoomApp {
       if (transition && transition.to !== null && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
         const target = transition.to;
         const baseHeight = Math.max(transition.from, target);
+        // The same transform owns the visible input edge and its accessory
+        // underlay. Clip the excess below the page, rather than painting the
+        // raw VisualViewport endpoint ahead of the native closing animation.
+        paintUnderlay(baseHeight, Math.min(transition.from, target));
         setStyle(chat.shell.style, 'height', `${baseHeight}px`);
         if (this.chatKeyboardSurfaceMotion?.started !== transition.started || this.chatKeyboardSurfaceMotion.target !== transition.to) {
           this.cancelListKeyboardSurfaceMotion();
@@ -7255,7 +7266,8 @@ export class QuietRoomApp {
             const current = transition.from + (target - transition.from) * chatKeyboardLayoutProgress(offset * CHAT_KEYBOARD_LAYOUT_MS);
             return { offset, transform: `translate3d(0, ${current - baseHeight}px, 0)` };
           });
-          const elements = this.chatPinnedToBottom && this.chatScrollIntent !== 'up' ? [chat.composer, chat.list] : [chat.composer];
+          const elements = this.chatPinnedToBottom && this.chatScrollIntent !== 'up'
+            ? [chat.composer, chat.list, chat.underlay] : [chat.composer, chat.underlay];
           const animations = elements.map(element => element.animate(frames, { duration: CHAT_KEYBOARD_LAYOUT_MS, fill: 'both' }));
           // DocumentTimeline shares performance's time origin. Its sampled
           // currentTime can lag during native focus; do not subtract that lag twice.
@@ -9175,14 +9187,20 @@ export class QuietRoomApp {
         : index < 0 ? (step < 0 ? navigable.length - 1 : 0) : (index + step + navigable.length) % navigable.length;
       navigable[target]?.focus({ preventScroll: true });
     });
-    requestAnimationFrame(() => {
-      if (!actions.isConnected || this.privacyCovered) return;
+    // A newly cloned image can need another decode/compositor pass in WebKit.
+    // Keep the existing concealed pixels until the inert preview is ready;
+    // source hiding and preview reveal are committed together.
+    const preview = group.querySelector<HTMLElement>('.message-action-preview');
+    if (preview) preview.style.visibility = 'hidden';
+    void Promise.allSettled([...group.querySelectorAll<HTMLImageElement>('img')].map(image => image.decode())).then(() => requestAnimationFrame(() => {
+      if (!actions.isConnected || actions.classList.contains('is-closing') || this.privacyCovered) return;
+      if (preview) { preview.style.visibility = 'visible'; article.classList.add('is-action-preview-ready'); }
       actions.classList.add('is-visible');
       backdrop.classList.add('is-visible');
       // Focus the menu itself after a long press. Keyboard navigation moves to
       // a button and retains its visible ring, without selecting the first emoji.
       actions.focus({ preventScroll: true });
-    });
+    }));
   }
 
   private openMessageDeleteChoices(actions: HTMLElement, article: HTMLElement, message: DecryptedMessage): void {
@@ -9493,7 +9511,7 @@ export class QuietRoomApp {
     const finish = () => {
       for (const source of sources) {
         const current = this.root.querySelector<HTMLElement>('.message-actions:not(.is-closing)');
-        if (current === actions || current?.dataset.sourceId !== (source as HTMLElement).dataset.clientMsgId) source.classList.remove('is-action-source');
+        if (current === actions || current?.dataset.sourceId !== (source as HTMLElement).dataset.clientMsgId) source.classList.remove('is-action-source', 'is-action-preview-ready');
       }
       backdrops.forEach(element => element.remove());
       actions?.remove();

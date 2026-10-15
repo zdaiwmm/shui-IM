@@ -2,6 +2,8 @@
 
 # Quiet Room 项目地图
 
+移动端十项连续性修复：`src/lib/composer-panel-motion.ts`、`meme-picker.ts`及`app.ts`管理面板／键盘交接，`chat-keyboard-underlay`与输入行分别拥有其绘制平面；定向例在`tests/fixtures/mobile-ten-fixes.mjs`，由既有`mobile-safari-feedback.e2e.mjs`执行。确认与证据见[十项需求](../requirements/2026-10-15-mobile-ten-fixes/README.md)，长期参数见移动视觉规范V1.8。
+
 发布效率／验证分级：`scripts/check-delivery.mjs`、`scripts/ci-scope.mjs` 与[规程](../workflows/publish-efficiency.md)；工具改动使用delivery专项，应用发布仍要求精确完整CI。准备／续跑／独立回读入口沿用 `scripts/publish.mjs`。
 
 Codex 本地移动调试：`scripts/dev-mobile.mjs`、`tools/mobile-debug/`、`.agents/skills/quiet-room-mobile-debug/`；统一入口 `npm run dev:mobile`，专项 `tests/mobile-debug.e2e.mjs` 已接入完整浏览器门禁。跨电脑与权限边界见 [工作流](../workflows/mobile-debug.md)，7条产品批注与待确认输入浮层见 [需求记录](../requirements/2026-10-14-mobile-debug-feedback/README.md)。

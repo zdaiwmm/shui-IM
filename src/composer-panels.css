@@ -2,7 +2,15 @@
 #app .composer { min-height:60px; padding-block:8px max(8px,env(safe-area-inset-bottom)); }
 #app .composer.has-meme-panel { padding-bottom:calc(var(--meme-sheet-height) + 8px); }
 #app .composer .composer-input-stack,
-#app .composer .composer-input-stack:focus-within { border:0; border-radius:12px; background:color-mix(in srgb,var(--composer-surface-current) 76%,var(--surface-raised)); box-shadow:none; outline:0; transition:none; }
+#app .composer .composer-input-stack:focus-within { border:0; border-radius:12px; background:var(--composer-field-surface); box-shadow:none; outline:0; transition:none; }
+/* Layout occupancy changes immediately; only the moving row paints the input
+   plane. Painting the full expanded form would expose a stationary block. */
+#app .composer:has(.meme-panel, #chat-tools:not([hidden])),
+#app .composer[data-expression-handoff] { background:transparent; }
+#app .composer-row { position:relative; isolation:isolate; }
+#app .composer-row::before { content:''; position:absolute; inset:-8px -8px calc(-1 * max(8px,env(safe-area-inset-bottom))); background:var(--composer-surface-current); z-index:-1; pointer-events:none; }
+#app .composer:has(#chat-tools:not([hidden])) .composer-row::before { bottom:calc(-1 * max(16px,env(safe-area-inset-bottom))); }
+#app .chat-tools > button > span { background:var(--composer-tool-surface); }
 #app .composer .composer-field,
 #app .composer .composer-field:has(textarea:focus) { border:0; border-radius:12px; background:transparent; box-shadow:none; outline:0; }
 #app[data-input-modality='keyboard'] .composer-input-stack:has(textarea:focus) { outline:2px solid var(--focus); outline-offset:1px; }

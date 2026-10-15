@@ -535,7 +535,8 @@ export class MemePicker {
     const rowTop = row?.getBoundingClientRect().top, rowSpeed = row ? panelVelocity(row) : 0;
     this.sheetAnimation?.cancel(); this.rowAnimation?.cancel();
     this.closing = false; this.panel.inert = false; this.panel.removeAttribute('aria-hidden');
-    this.panel.style.removeProperty('height');
+    for (const property of ['position', 'inset', 'left', 'top', 'width', 'height', 'z-index']) this.panel.style.removeProperty(property);
+    this.options.host.append(this.panel);
     delete this.options.host.dataset.expressionHandoff;
     this.options.host.classList.add('has-meme-panel'); this.options.layoutChanged?.();
     this.sheetAnimation = moveComposerPanel(this.panel, top - this.panel.getBoundingClientRect().top, 0, this.signal,
@@ -548,9 +549,23 @@ export class MemePicker {
     this.closing = true; this.panel.inert = true; this.panel.setAttribute('aria-hidden', 'true');
     const bounds = this.panel.getBoundingClientRect();
     const translate = new DOMMatrixReadOnly(getComputedStyle(this.panel).transform).m42;
+    const speed = panelVelocity(this.panel);
     const row = this.options.host.querySelector<HTMLElement>('.composer-row');
     const rowTop = row?.getBoundingClientRect().top;
     this.panel.style.height = `${bounds.height}px`;
+    // Retiring pixels must not inherit the composer's keyboard transform.
+    // Preserve their screen position in the chat plane until they leave.
+    const shell = this.options.host.closest<HTMLElement>('.chat-shell');
+    if (shell && this.panel.parentElement === this.options.host) {
+      this.sheetAnimation?.cancel();
+      const origin = shell.getBoundingClientRect();
+      shell.append(this.panel);
+      this.panel.style.position = 'absolute'; this.panel.style.inset = 'auto';
+      this.panel.style.zIndex = '5';
+      this.panel.style.left = `${bounds.left - origin.left}px`;
+      this.panel.style.top = `${bounds.top - origin.top}px`;
+      this.panel.style.width = `${bounds.width}px`;
+    }
     // Commit final occupancy once. The row and panel then travel together
     // with transforms, instead of moving the row only after panel disposal.
     this.options.host.classList.remove('has-meme-panel');
@@ -559,7 +574,12 @@ export class MemePicker {
       const delta = rowTop - row.getBoundingClientRect().top;
       this.rowAnimation = moveComposerPanel(row, delta, 0, this.signal);
     }
-    this.animateSheet(translate, translate + (layoutViewport()?.height ?? innerHeight) + (layoutViewport()?.offsetTop ?? 0) - bounds.top, 'translate', finish);
+    const bottom = Math.max(document.documentElement.clientHeight, layoutViewport()?.height ?? innerHeight);
+    if (shell && this.panel.parentElement === shell) {
+      this.sheetAnimation = moveComposerPanel(this.panel, 0, Math.max(0, bottom - bounds.top), this.signal, () => {
+        this.sheetAnimation = undefined; if (this.active()) finish();
+      }, true, speed);
+    } else this.animateSheet(translate, translate + bottom - bounds.top, 'translate', finish);
   }
   private hasPack(id: string) { return this.packs.some(pack => pack.id === id); }
   private say(value: string) { if (this.active()) this.status.textContent = value; }

@@ -119,7 +119,7 @@ try {
         }];
       }));
       const composer=document.querySelector('#composer'),probe=document.createElement('div');
-      probe.style.cssText=`position:absolute;background:${forcedColors?'Canvas':'color-mix(in srgb,var(--composer-surface-current) 76%,var(--surface-raised))'}`;
+      probe.style.cssText=`position:absolute;background:${forcedColors?'Canvas':'var(--composer-field-surface)'}`;
       composer.append(probe);const expectedInput=getComputedStyle(probe).backgroundColor;probe.remove();
       for (const name of Object.keys(surfaceSelectors)) {
         const expected=name==='input'?expectedInput:getComputedStyle(composer).backgroundColor;

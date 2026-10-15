@@ -164,7 +164,7 @@
 .message-action-preview .image-preview::before { opacity: 0 !important; }
 .message-action-preview .image-preview[data-revealed="false"] img { opacity: 0; }
 .message-action-preview .image-preview[data-revealed="false"]::before { opacity: 1 !important; }
-.message.is-action-source > .message-bubble { visibility: hidden; }
+.message.is-action-source.is-action-preview-ready > .message-bubble { visibility: hidden; }
 
 /* The two surfaces have their own placement around the selected bubble. */
 .message-actions {

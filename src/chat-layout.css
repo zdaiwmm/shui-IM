@@ -52,16 +52,15 @@ body:has(:where(#app) > .chat-shell) {
 /* Paint the page below the visible keyboard edge with the input surface.
    Safari still owns its native accessory material; it must not sample chat
    wallpaper through a webpage gap while the visible viewport contracts. */
-.chat-shell::after {
-  content: '';
+.chat-keyboard-underlay {
   position: fixed;
-  top: var(--chat-keyboard-underlay-top, 100vh);
+  top: 100vh;
   left: 0;
   width: 100%;
-  height: var(--chat-keyboard-underlay-height, 0px);
+  height: 0;
   background: var(--chrome-bottom-surface, var(--composer-surface));
   pointer-events: none;
-  z-index: 5;
+  z-index: 6;
 }
 /* Keep the title outside document-flow/sticky bounds, including Safari's
    bottom overscroll. positionChatChrome corrects its fixed viewport origin. */
@@ -333,7 +332,7 @@ body:has(:where(#app) > .chat-shell) {
 /* Motion defers interaction and document bookkeeping, never painting. Keep
    focus, selection and the draft mounted throughout keyboard/toolbar motion. */
 .chat-shell .composer[data-viewport-motion] * { pointer-events: none; }
-.chat-shell .composer[data-viewport-motion] :is(#message-input, #open-memes, #open-memes *) { pointer-events: auto; }
+.chat-shell .composer[data-viewport-motion] :is(#message-input, #open-memes, #open-memes *, #open-chat-tools, #open-chat-tools *) { pointer-events: auto; }
 /* Voice styles enable these controls later in the cascade. Keep their hit
    testing deferred during motion so clicks wait for the stable toolbar. */
 .chat-shell .composer[data-viewport-motion] :is(#send-text, #record-voice) { pointer-events: none; }

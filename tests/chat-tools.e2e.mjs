@@ -61,17 +61,17 @@ try {
   assert.equal(await page.locator('#call-availability-note').innerText(), '连接恢复后可发起通话');
   assert.equal(await page.locator('#start-video-call').getAttribute('aria-describedby'), 'call-availability-note');
   const composerSurface = await page.locator('.composer').evaluate(el => {
-    const style = getComputedStyle(el), canvas = document.createElement('canvas');
+    const style = getComputedStyle(el), plane = getComputedStyle(el.querySelector('.composer-row'),'::before'), canvas = document.createElement('canvas');
     canvas.width = canvas.height = 1;
     const context = canvas.getContext('2d');
-    context.fillStyle = style.backgroundColor; context.fillRect(0, 0, 1, 1);
+    context.fillStyle = plane.backgroundColor; context.fillRect(0, 0, 1, 1);
     return { opaque: context.getImageData(0, 0, 1, 1).data[3] === 255,
-      backdrop: style.backdropFilter, background: style.backgroundColor,
+      backdrop: style.backdropFilter, background: plane.backgroundColor,
       inputBackground: getComputedStyle(el.querySelector('.composer-input-stack')).backgroundColor };
   });
   assert.ok(composerSurface.opaque && composerSurface.backdrop === 'none'
     && composerSurface.background !== composerSurface.inputBackground,
-  `V1.5 input must have a subtle separate fill within the opaque composer: ${JSON.stringify(composerSurface)}`);
+  `Input must have a separate fill within its opaque moving row plane: ${JSON.stringify(composerSurface)}`);
   assert.equal(await page.locator('#chat-tools').evaluate(el => getComputedStyle(el).backgroundColor), await page.evaluate(() => {
     const probe=document.createElement('div'); probe.style.background='var(--composer-panel-surface)';document.body.append(probe);
     const color=getComputedStyle(probe).backgroundColor;probe.remove();return color;

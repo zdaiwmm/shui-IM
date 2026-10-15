@@ -1,5 +1,9 @@
 # Quiet Room Design System
 
+## Mobile continuity correction, 2026-10-15
+
+The [ten-item correction](docs/requirements/2026-10-15-mobile-ten-fixes/README.md) keeps V1.5 geometry. Light inputs retain their 76% composer / 24% raised fill; dark inputs use 88% composer / 12% ink for visible separation. Light tool icon surfaces use 88% panel / 12% ink; dark tools retain accent-soft. These fills have no ordinary border. The input-row plane travels with the row instead of painting the expanded form's final footprint; its join to the tools stays opaque. The keyboard accessory underlay shares the existing keyboard transform, and retiring expressions move in the chat plane without inheriting the moving composer. Keyboard open/close preserves the presence layout. Settings push/pop planes remain opaque. Media long-press retains its concealed source until the inert preview is decoded and revealed in the same frame; privacy cleanup remains immediate. Quick reactions explicitly reset native button borders and backgrounds, with selected state and keyboard focus retained. Synthetic regression examples live in tests/fixtures/mobile-ten-fixes.mjs and the existing mobile-safari-feedback entry; native Safari remains a separate acceptance.
+
 The browser IM visual system follows P1, explicitly approved for implementation on 2026-10-11. The primary reference is the user's Telegram light/dark screenshots, interpreted for Quiet Room's existing two-person product. This replaces the former Liquid Glass direction. Confirmation, source samples and scope live in the [requirement record](docs/requirements/2026-10-10-ui-system-exploration/README.md).
 
 ## Maintained mobile visual standard
