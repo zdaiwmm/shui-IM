@@ -50,3 +50,9 @@
 - 组合后浏览器入口总数为66；未因主线新增而把早期65项分段通过写成最终66项完整通过，最终组合完整门禁继续由精确PR CI验证。本地磁盘容量阻塞仍保留。
 - 推送`.4`候选时主线又合入数字密码交付文档`be01d1f86774b58ccb8e7da6a3a59579b395eab5`（PR #321），仅两份Markdown变化；保留状态页双方段落并合入，无产品／版本变化，文档检查通过后续跑同一PR。文档记载数字密码任务也出现同一通知WebKit初始化错误，原样有界重试成功；不据此宣称本任务CI通过。
 - 组合head`8fa7887becf41008912243ccb059e4ab8175f2ae`的[CI 38765263017](https://github.com/zdaiwmm/shui-IM/actions/runs/38765263017)中119文件／961单元、主浏览器和通话通过；移动分片WebKit关闭采样得到`before:473,top:0,detached:true`而失败。原夹具在关闭后等待四个rAF，耗时无上界，可能跨过360ms正常移除终点；产品关闭实现未变。一次定向修订改为暂停实际WAAPI并采样180ms，保留向下方向断言且新增360ms时长、中途连接、结束移除断言。双引擎在`CI=1`通过，中点top均为821.33，结束均已移除；证据`composer-voice-refine-motion-clock.log`，最终完整CI仍须对应修订head。
+
+## 远端交付回执（2026-10-16）
+
+- 最终源`acacec933edadc816fa3ccbcab1ab1f4225e440b`的[PR CI 38766143482](https://github.com/zdaiwmm/shui-IM/actions/runs/38766143482) attempt 1完整成功，含119文件／961单元、全部66浏览器入口、通话、依赖审计、文档、凭据扫描及双架构镜像。`verify`保护检查通过后，[PR #319](https://github.com/zdaiwmm/shui-IM/pull/319)于`2026-10-15T16:16:02Z`合并为`bb5dc8b2cb63cb2f3a8ddf0ff48df75a669ab491`；回取main比较完整文件树一致。
+- 前一轮CI 38765263017在移动分片失败后，被新候选自动取消未完成任务；通知所在分片已通过。失败和取消均保留，不计作完整成功。仓库拒绝squash合并请求且未生效，随后使用普通merge按精确head成功；未绕过保护。
+- 精确[main CI 38767540877](https://github.com/zdaiwmm/shui-IM/actions/runs/38767540877) attempt 1完整成功，含同一119文件／961项、66浏览器入口、通话、安全与双架构镜像。按维护规则，在同一本任务独占工作树基于上述已合并main准备`codex/composer-voice-evidence-20261016`轻量记录分支；只修改本需求及状态两份Markdown，不改产品、版本或发布流程。源分支及工作树保留，本次未发布生产，原生真机仍待验收；记录提交不授权发布文档SHA。
