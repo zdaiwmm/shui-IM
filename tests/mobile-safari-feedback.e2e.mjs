@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
+import { verifyMobileTenFixes } from './fixtures/mobile-ten-fixes.mjs';
 
 const server = await createServer({ configFile:false, appType:'custom', root:process.cwd(), logLevel:'error',
   server:{host:'127.0.0.1',port:0,hmr:false}, plugins:[{name:'mobile-feedback-fixture',configureServer(vite) {
@@ -80,13 +81,14 @@ try {
       app.messages=new Map(Array.from({length:30},(_,i)=>[i+1,{seq:i+1,clientMsgId:`feedback-${i}`,senderId:'feedback-peer',payload:{v:1,kind:'text',text:`合成消息 ${i}`,sentAt:'2026-10-14T00:00:00Z'},acceptedAt:'2026-10-14T00:00:00Z',status:'delivered'}]));
       app.renderChat();window.fixture={app,session};
     });
+    await verifyMobileTenFixes(page);
     for(const theme of ['blue','green','purple','apricot'])for(const scheme of ['light','dark']) {
       await page.evaluate(({theme,scheme})=>{document.documentElement.dataset.theme=theme;document.documentElement.dataset.colorScheme=scheme;},{theme,scheme});
       for(const focused of [false,true]) {
         await page.evaluate(focused=>{const input=document.querySelector('#message-input');if(focused)input.focus();else input.blur();},focused);
         const colors=await page.evaluate(()=>{
           const composer=document.querySelector('#composer'),probe=document.createElement('div');
-          probe.style.cssText='position:absolute;background:color-mix(in srgb,var(--composer-surface-current) 76%,var(--surface-raised))';composer.append(probe);
+          probe.style.cssText='position:absolute;background:var(--composer-field-surface)';composer.append(probe);
           const expected=getComputedStyle(probe).backgroundColor;probe.remove();
           return {header:getComputedStyle(document.querySelector('.chat-header')).backgroundColor,
             composer:getComputedStyle(composer).backgroundColor,input:getComputedStyle(document.querySelector('.composer-input-stack')).backgroundColor,
@@ -211,8 +213,8 @@ try {
     });
     assert.deepEqual(handoff,{focuses:1,blurs:0,same:true,draft:'保留输入草稿',panel:false,opacity:'1'});
     const accessory=await page.evaluate(()=>{
-      const shell=document.querySelector('.chat-shell'),input=document.querySelector('#message-input');
-      return {height:parseFloat(getComputedStyle(shell,'::after').height),paint:getComputedStyle(shell,'::after').backgroundColor,
+      const underlay=document.querySelector('.chat-keyboard-underlay'),input=document.querySelector('#message-input');
+      return {height:parseFloat(getComputedStyle(underlay).height),paint:getComputedStyle(underlay).backgroundColor,
         surface:getComputedStyle(document.querySelector('#composer')).backgroundColor,draft:input.value};
     });
     assert.ok(accessory.height>=370,JSON.stringify(accessory));assert.equal(accessory.paint,accessory.surface);
@@ -271,7 +273,7 @@ try {
       const app=fixture.app;app.openMemePicker();const outgoing=document.querySelector('.meme-panel');
       app.toggleChatTools();const retained=outgoing.isConnected&&outgoing.inert;
       app.openMemePicker();app.toggleChatTools();
-      const animations=[...document.querySelector('#composer').getAnimations({subtree:true})];
+      const animations=[...document.querySelectorAll('#composer,.chat-shell > .meme-panel')].flatMap(element=>element.getAnimations({subtree:true}));
       for(const animation of animations)animation.finish();
       await Promise.allSettled(animations.map(animation=>animation.finished));
       await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
@@ -340,14 +342,16 @@ try {
       await page.locator(`#${back}`).waitFor();
       await page.evaluate(async()=>{await Promise.all(document.querySelector('#app').getAnimations({subtree:true}).map(animation=>animation.finished.catch(()=>{})));});
       await page.evaluate(()=>{
-        window.returnSamples=[];window.sampleReturn=true;
+        window.returnSamples=[];window.returnOpacity=[];window.sampleReturn=true;
         const sample=()=>{if(!sampleReturn)return;returnSamples.push([.05,.5,.95].some(x=>
-          [80,innerHeight/2,innerHeight-30].some(y=>document.elementFromPoint(innerWidth*x,y)?.closest('.chat-shell'))));requestAnimationFrame(sample);};requestAnimationFrame(sample);
+          [80,innerHeight/2,innerHeight-30].some(y=>document.elementFromPoint(innerWidth*x,y)?.closest('.chat-shell'))));
+          returnOpacity.push(...[...document.querySelectorAll('.page-transition-incoming,.page-transition-outgoing')].map(el=>Number(getComputedStyle(el).opacity)));requestAnimationFrame(sample);};requestAnimationFrame(sample);
       });
       await page.locator(`#${back}`).click();
       await page.locator('.is-settings-sheet.is-restored').waitFor();
       await page.evaluate(async()=>{await Promise.all(document.querySelector('#app').getAnimations({subtree:true}).map(animation=>animation.finished.catch(()=>{})));await new Promise(resolve=>requestAnimationFrame(resolve));sampleReturn=false;});
       assert.equal(await page.evaluate(()=>returnSamples.some(Boolean)),false,`${entry}: returning to Settings exposed chat`);
+      assert.equal(await page.evaluate(()=>returnOpacity.length>0&&returnOpacity.every(value=>value===1)),true,`${entry}: Settings return must keep both painted planes opaque`);
       assert.equal(await page.locator('.is-settings-sheet .space-drawer-scroll').evaluate(scroll=>scroll.scrollTop),settingIdentity);
     }
     const closingSettings=await page.evaluate(()=>{

@@ -121,7 +121,7 @@ try {
     visualViewport.dispatchEvent(new Event('resize'));
     const app = window.listFixture.app;
     const motions = app.chatKeyboardSurfaceMotion.animations;
-    if (motions.length !== 2) throw Error('Bottom messages must share the composer animation');
+    if (motions.length !== 3) throw Error('Bottom messages and underlay must share the composer animation');
     for (const motion of motions) { motion.pause(); motion.currentTime = 80; }
     const bottom = app.chatLayoutElements.composer.getBoundingClientRect().bottom;
     if (!(bottom > 319 && bottom < 695) || app.chatBottomGap() > 2) throw Error('Opening lost shared message/composer geometry');
@@ -219,7 +219,7 @@ try {
   await page.evaluate(() => {
     const app = window.listFixture.app;
     const motions = app.chatKeyboardSurfaceMotion.animations;
-    if (motions.length !== 2) throw Error(`Dismissal lost the bottom reader: ${JSON.stringify({
+    if (motions.length !== 3) throw Error(`Dismissal lost the bottom reader or underlay: ${JSON.stringify({
       pinned: app.chatPinnedToBottom, intent: app.chatScrollIntent, resume: app.chatResumeBottomOnFocus,
       gap: app.chatBottomGap(), focused: document.activeElement?.id,
     })}`);

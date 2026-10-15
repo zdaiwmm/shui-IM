@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## 移动端十项修复待交付（2026-10-15）
+
+- 用户已确认[十项V1](../requirements/2026-10-15-mobile-ten-fixes/README.md)，免原型／流程图，授权直接修复、验证、PR／CI和合并main；生产须确认本次精确提交。
+- 独占`codex/mobile-ten-fixes-20261015`基于实时main`8d1fc42`。键盘衬底、面板绘制／退场、加号点击、两类填充、顶栏布局、媒体首帧、设置不透明返回及原生表情边框已修改；Chromium／WebKit输入、面板和设置专项通过。完整门禁、CI和合并待完成。
+- 真机iPhone／iOS27／Safari尚未新增验证；没有发布本批。下方生产记录为此前批次事实。
+
 ## V1.5 与 Safari 组合已发布，真机待验收（2026-10-15）
 
 - 用户已确认[原型V1.5](../requirements/2026-10-14-composer-panels/README.md)并免除本次流程图。[PR #306](https://github.com/zdaiwmm/shui-IM/pull/306)的输入／面板与[PR #305](https://github.com/zdaiwmm/shui-IM/pull/305)的Safari输入交接／设置返回均已纳入组合，版本`2026.10.14.4`；本任务[PR #308](https://github.com/zdaiwmm/shui-IM/pull/308)仅修正两份长流程夹具及必要记录，保留产品默认30秒、通话租期和全部隐私断言。

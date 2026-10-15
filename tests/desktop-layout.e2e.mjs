@@ -47,10 +47,10 @@ try {
       return { shell:rect('.chat-shell'), input:rect('#composer'), row:rect('.composer-row'), list:rect('#message-list'), incoming:rect('.message.incoming'), outgoing:rect('.message.outgoing'), rootScroll:scrollY, overflow:document.documentElement.scrollWidth > innerWidth };
     });
     const assertComposerSurface = async () => {
-      const surface = await page.locator('#composer').evaluate(el => ({ background:getComputedStyle(el).backgroundColor,
+      const surface = await page.locator('#composer').evaluate(el => ({ background:getComputedStyle(el.querySelector('.composer-row'),'::before').backgroundColor,
         input:getComputedStyle(el.querySelector('.composer-input-stack')).backgroundColor,
         controls:[...el.querySelectorAll('.composer-row .icon-button')].map(control=>getComputedStyle(control).backgroundColor) }));
-      assert.ok(surface.controls.every(color=>color===surface.background)&&surface.input!==surface.background, `V1.5 continuous toolbar and subtly filled input: ${JSON.stringify(surface)}`);
+      assert.ok(surface.controls.every(color=>color===surface.background)&&surface.input!==surface.background, `Continuous moving row plane and separately filled input: ${JSON.stringify(surface)}`);
     };
     let geometry = await dimensions();
     await assertComposerSurface();
