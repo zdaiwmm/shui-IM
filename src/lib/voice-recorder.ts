@@ -70,7 +70,7 @@ export class VoiceRecorder {
     useChanged?: () => void;
     permission: (active: boolean) => boolean | void | Promise<boolean | void>;
     cancel: () => void;
-    permissionGranted?: boolean;
+    permissionPrepared?: () => boolean;
     authorized?: () => void;
     ready?: () => void;
     fail: (message: string) => void;
@@ -263,11 +263,14 @@ export class VoiceRecorder {
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
         throw new Error('当前环境不能录音，请使用 HTTPS 和支持麦克风的新版浏览器');
       }
-      let granted = this.callbacks.permissionGranted ?? false;
+      let granted = this.callbacks.permissionPrepared?.() ?? false;
       try {
         // Query is optional (older WebKit); never infer permission from timing.
         const status = await navigator.permissions?.query({ name: 'microphone' as PermissionName });
-        if (status) granted = status.state === 'granted';
+        if (status?.state === 'granted') granted = true;
+        else if (status?.state === 'denied') granted = false;
+        // Some browsers keep reporting prompt after successful preparation.
+        // Reuse only that runtime's preparation; capture still awaits getUserMedia.
       } catch { /* A successful preparation is only a session-local fallback. */ }
       if (this.signal.aborted) return;
       // Let the OS select the complete input route. Hard channel/processing

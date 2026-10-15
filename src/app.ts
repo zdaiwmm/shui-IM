@@ -536,7 +536,7 @@ export class QuietRoomApp {
   private nativeClosedComposer: { minHeight: number; paddingBottom: number } | null = null;
   private nativeKeyboardOpening = false;
   private nativeKeyboardOpeningAt = 0;
-  private voicePermissionGranted = false;
+  private voicePermissionPrepared = false;
   private listKeyboardLayout = createChatKeyboardLayout();
   private chatKeyboardSurfaceMotion: { started: number; target: number; animations: Animation[] } | null = null;
   private chatResumeBottomOnFocus = false;
@@ -8195,15 +8195,15 @@ export class QuietRoomApp {
     let plan: ImageUploadPlan | undefined;
     let uploaded: ImageManifest | undefined;
     const recorder = new VoiceRecorder(host, {
-      permissionGranted: this.voicePermissionGranted,
+      permissionPrepared: () => this.voicePermissionPrepared,
       authorized: () => {
         if (!this.isRuntimeActive(epoch, session) || this.voiceRecorder !== recorder) return;
-        this.voicePermissionGranted = true;
+        this.voicePermissionPrepared = true;
         this.closeVoiceRecorder();
       },
       ready: () => {
         if (!this.isRuntimeActive(epoch, session) || this.voiceRecorder !== recorder) { recorder.destroy(); return; }
-        this.voicePermissionGranted = true;
+        this.voicePermissionPrepared = true;
         this.root.querySelector<HTMLTextAreaElement>('#message-input')?.blur();
         this.root.querySelector('#composer')?.classList.add('has-voice-draft');
         this.root.querySelector('.chat-shell')?.classList.add('is-voice-recording');
@@ -8236,7 +8236,7 @@ export class QuietRoomApp {
       },
       fail: message => {
         if (!this.isRuntimeActive(epoch, session) || this.voiceRecorder !== recorder) return;
-        this.voicePermissionGranted = false;
+        this.voicePermissionPrepared = false;
         this.closeVoiceRecorder(true); this.showNotice(message, 'error');
       },
       send: async (draft, draftSignal) => {
@@ -14239,6 +14239,7 @@ export class QuietRoomApp {
     this.root.inert = this.root.classList.contains('portrait-blocked');
     document.body.classList.remove('call-active');
     this.closeVoiceRecorder();
+    this.voicePermissionPrepared = false;
     this.voiceGesture?.destroy();
     this.voiceGesture = null;
     this.voicePlayback.stop();

@@ -4,6 +4,9 @@ import path from 'node:path';
 const LOCK_SURFACE = '.cover-trigger, #passkey-unlock, .cover.cover-off';
 
 export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirectory }) {
+  // Fake-device/UI flags do not grant Permissions API state in bundled Chromium.
+  // This flow covers already-authorized capture; voice-gestures covers preparation.
+  await creator.context().grantPermissions(['microphone']);
   const errors = [];
   const onError = error => errors.push(error.message);
   creator.on('pageerror', onError); joiner.on('pageerror', onError);

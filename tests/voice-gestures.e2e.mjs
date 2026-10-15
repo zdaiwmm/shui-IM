@@ -156,8 +156,13 @@ try {
   assert.equal(await page.locator('.voice-send').evaluate(e=>getComputedStyle(e).width),'44px','paused send must retain the input-row scale');
   await page.getByRole('button',{name:'试听录音',exact:true}).click();
   await page.getByRole('button',{name:'暂停试听',exact:true}).waitFor();
+  await page.evaluate(()=>{
+    fixture.resumeQuery=navigator.permissions.query.bind(navigator.permissions);
+    navigator.permissions.query=async options=>options.name==='microphone'?{state:'prompt'}:fixture.resumeQuery(options);
+  });
   await page.getByRole('button',{name:'继续录音',exact:true}).click();
   await page.locator('.voice-recorder[data-state="recording"]').waitFor();
+  await page.evaluate(()=>{navigator.permissions.query=fixture.resumeQuery;});
   await page.locator('.voice-cancel').click(); await closed(); await stopped();
   assert.equal(await count(),2);
   // Known PCM samples make selection/export correctness inspectable, independently
@@ -232,9 +237,10 @@ try {
   assert.equal(await page.locator('#composer').evaluate(e=>e.classList.contains('has-voice-draft')),false);
   await page.evaluate(async()=>{const stream=await fixture.capture({audio:true});fixture.tracks.push(...stream.getTracks());fixture.firstGrant(stream);navigator.mediaDevices.getUserMedia=fixture.wrapped;});
   await closed();await stopped();await touch('touchEnd');assert.equal(await count(),2,'Authorization never records or sends');
-  await page.evaluate(()=>{fixture.permissionState='granted';});
+  // A successful preparation must work even when the optional query still says prompt.
+  assert.equal(await page.evaluate(()=>fixture.app.voicePermissionPrepared),true);
   await hold();await page.waitForTimeout(650);await touch('touchEnd');await closed();await stopped();assert.equal(await count(),3,'A new hold records after authorization');
-  await page.evaluate(()=>{navigator.permissions.query=fixture.query;});
+  await page.evaluate(()=>{fixture.app.lockNow();if(fixture.app.voicePermissionPrepared)throw Error('Permission preparation crossed runtime teardown');navigator.permissions.query=fixture.query;});
 
   if(process.argv[2]) await mkdir(process.argv[2],{recursive:true});
   for(const [width,height,colorScheme] of [[320,844,'light'],[390,844,'light'],[390,844,'dark'],[844,390,'light'],[768,844,'light'],[1280,844,'light']]) {
