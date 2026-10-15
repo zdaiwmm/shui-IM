@@ -158,3 +158,6 @@
 
 /* Returning from a settings page restores an already-open drawer. */
 .space-drawer-overlay.is-restored:not(.is-closing), .space-drawer-overlay.is-restored:not(.is-closing) > .space-drawer { animation: none; transition: none; }
+
+#invite-countdown { font-size: .75rem; line-height: 1.6; font-weight: 400; }
+#invite-countdown strong { color: var(--danger); font-weight: 650; font-variant-numeric: tabular-nums; }

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  embeddedPasswordSetup,
   createPlatformCredential,
   probePlatformVaultCapabilities,
   platformVaultSetupState,
@@ -421,5 +422,16 @@ describe('passkey names and identity-bound management', () => {
     const signal = vi.fn(); (FakePublicKeyCredential as any).signalCurrentUserDetails = signal;
     const abort = new AbortController(); abort.abort();
     await expect(signalPasskeyName(record, 'CAk', '新名称', abort.signal)).rejects.toThrow(); expect(signal).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('new protection in embedded browsers', () => {
+  it('selects password for known WebViews while retaining system-browser ceremonies', () => {
+    for (const ua of ['MicroMessenger/8.0', 'Telegram/11.0', 'Mozilla/5.0 (Linux; Android 15; wv)',
+      'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Mobile/15E148']) expect(embeddedPasswordSetup(ua)).toBe(true);
+    for (const ua of ['Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Version/27.0 Mobile/15E148 Safari/604.1',
+      'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 CriOS/141 Mobile/15E148 Safari/604.1',
+      'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/141.0 Mobile Safari/537.36']) expect(embeddedPasswordSetup(ua)).toBe(false);
   });
 });

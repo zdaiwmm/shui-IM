@@ -69,3 +69,5 @@
 .space-profile-content .form-error{margin:8px 12px;font-size:.75rem;line-height:1.6}
 .avatar-backgrounds{scrollbar-width:none}.avatar-backgrounds::-webkit-scrollbar{display:none}
 .avatar-emoji-grid button[aria-pressed='true']{border-color:transparent;background:var(--accent-soft);box-shadow:none}
+
+.space-creation-presentation { pointer-events:none; z-index:224; }

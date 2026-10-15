@@ -216,11 +216,11 @@
 .voice-recorder:not([data-fullscreen="true"]) .voice-recording-info { gap: 8px; }
 .voice-recorder:not([data-fullscreen="true"]) .voice-slide-hint { right: 92px; width: auto; font-size: 12px; opacity: calc(1 - var(--voice-cancel-progress)); transform: translateX(calc(var(--voice-drag-x) * .45)); }
 .voice-recorder:not([data-fullscreen="true"]) :is(.voice-hold-orb,.voice-cancel-orb,.voice-send) { width: 88px; height: 88px; right: -12px; bottom: -8px; background: var(--accent); }
-.voice-recorder:not([data-fullscreen="true"]) .voice-hold-orb { transform: translate3d(var(--voice-drag-x), var(--voice-drag-y), 0) scale(calc(1 - var(--voice-cancel-progress) * .5)); }
+.voice-recorder:not([data-fullscreen="true"]) .voice-hold-orb { transform: translate3d(var(--voice-drag-x), var(--voice-drag-y), 0) scale(calc(1 + var(--voice-cancel-progress) * .25)); }
 .voice-recorder:not([data-fullscreen="true"]) .voice-hold-orb::before { display: none; }
 .voice-recorder:not([data-fullscreen="true"]) .voice-hold-orb svg { width: 29px; height: 29px; }
 .voice-recorder:not([data-fullscreen="true"]) .voice-toggle { right: 10px; bottom: 88px; width: 44px; height: 44px; }
-.voice-lock-guide { position: absolute; right: 12px; bottom: 90px; width: 40px; height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border-radius: 24px; background: var(--glass-panel); border: 1px solid var(--glass-border); backdrop-filter: var(--glass-filter); transform: translateY(calc(var(--voice-lock-progress) * 12px)); animation: voice-guide-in 220ms var(--motion-out); pointer-events: none; }
+.voice-lock-guide { position: absolute; right: 12px; bottom: 162px; width: 40px; height: 64px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border-radius: 24px; background: var(--glass-panel); border: 1px solid var(--glass-border); backdrop-filter: var(--glass-filter); transform: translateY(calc(var(--voice-lock-progress) * 12px)); animation: voice-guide-in 220ms var(--motion-out); pointer-events: none; }
 .voice-lock-guide svg { width: 20px; height: 20px; }
 .voice-lock-guide svg:last-child { width: 16px; height: 16px; opacity: calc(1 - var(--voice-lock-progress)); }
 .voice-recorder:not([data-fullscreen="true"]):is([data-state="paused"], [data-state="processing"], [data-state="sending"]) .voice-recording-bar { left: 52px; padding: 1px 46px 1px 1px; }
@@ -234,3 +234,17 @@
 @media (prefers-reduced-motion: reduce) {
   .composer :is(#record-voice, .meme-toggle, .composer-send, .composer-input-stack, .composer-field) { transition: none; }
 }
+
+/* Two independently draggable, keyboard-accessible trim boundaries. */
+.voice-draft-timeline { overflow:visible; background:var(--accent-soft); color:var(--accent); }
+.voice-trim-selection { position:absolute; top:7px; bottom:7px; left:calc(12px + (100% - 24px) * var(--trim-start,0)); right:calc(12px + (100% - 24px) * (1 - var(--trim-end,1))); border-radius:6px; background:color-mix(in srgb,var(--accent) 12%,transparent); pointer-events:none; }
+.voice-recorder .voice-trim-handle { position:absolute; top:0; width:44px; height:44px; padding:0; margin:0; border:0; background:transparent; color:var(--accent); z-index:3; touch-action:none; transform:translateX(-50%); }
+.voice-trim-handle::after { content:''; display:block; width:4px; height:28px; margin:auto; border-radius:2px; background:currentColor; }
+.voice-trim-handle[data-trim='start'] { left:calc(12px + (100% - 24px) * var(--trim-start,0)); }
+.voice-trim-handle[data-trim='end'] { left:calc(12px + (100% - 24px) * var(--trim-end,1)); }
+.voice-trim-handle:focus-visible { outline:2px solid var(--focus); outline-offset:-4px; border-radius:8px; }
+.voice-trim-handle:disabled { opacity:.4; }
+.voice-recording-wave i.is-trimmed { opacity:.14; }
+.voice-recorder .voice-preview { inset:0 auto 0 50%; width:76px; transform:translateX(-50%); color:var(--action-ink); }
+.voice-preview::before { background:var(--action-surface); }
+.voice-discard svg { stroke-width:1.8; }

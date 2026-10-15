@@ -44,7 +44,8 @@ export const voiceIcons = {
   play: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9 5 11 7-11 7Z" fill="currentColor" stroke="none"/></svg>',
   pause: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M9 5v14M16 5v14" stroke-width="3.5"/></svg>',
   stop: '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/></svg>',
-  remove: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 6h16M9 6V3h6v3M7 6l1 15h8l1-15M10 10v7m4-7v7"/></svg>',
+  // Lucide Trash2 (ISC), serialized so audio utilities remain DOM-independent.
+  remove: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6m4-6v6"/></svg>',
   send: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6" stroke-width="2.4"/></svg>',
   paperPlane: '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m21 3-6.5 18-4-7.5L3 9.5 21 3Zm-10.5 10.5L21 3" stroke-width="1.8"/></svg>',
   lock: '<svg aria-hidden="true" viewBox="0 0 24 24"><rect x="6" y="10" width="12" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',

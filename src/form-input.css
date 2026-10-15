@@ -19,5 +19,5 @@
 #app .form-input-panel { width:100%; max-width:none; border-radius:0; padding:12px 16px; gap:8px; background:var(--input-accessory-surface,light-dark(#eef0f3,#303037)); }
 #app .form-input-panel h2 { font-size:.875rem; }
 #app .form-input-field { position:relative; }
-#app #form-input-draft { padding-right:76px; background:color-mix(in srgb,var(--surface) 85%,var(--ink) 15%); }
+#app #form-input-draft { padding-right:76px; background:var(--surface); }
 #app .form-input-panel [data-form-input-done] { position:absolute; right:4px; bottom:2px; min-width:64px; padding:8px; background:transparent; color:var(--accent); }

@@ -5,7 +5,7 @@ import './entry-experience.css';
 import { transitionMediaCapsule, retireMediaCapsule } from './lib/media-capsule';
 import { requestPassword } from './lib/password-dialog';
 import { derivePasswordCredential, isPasswordCredential, type LocalCredentialResult } from './lib/password-protection';
-import { isPlatformVaultUnavailable, probePlatformVaultCapabilities, platformVaultSetupState, platformVaultUsesExternalAuthenticator } from './lib/platform-vault';
+import { isPlatformVaultUnavailable, probePlatformVaultCapabilities, platformVaultSetupState } from './lib/platform-vault';
 import { reauthenticateVault, assertPasswordProtectionEnvironment } from './lib/vault';
 import { DesktopWorkspace, desktopWidth } from './lib/desktop-workspace';
 import './desktop.css';
@@ -457,8 +457,9 @@ export class QuietRoomApp {
   });
   private desktopReturning = false;
   private appAccess: AppAccess;
-  private readonly appleWebKit = navigator.vendor.includes('Apple')
-    && CSS.supports('-webkit-touch-callout', 'none');
+  private readonly appleWebKit = CSS.supports('-webkit-touch-callout', 'none')
+    && (navigator.vendor.includes('Apple') || /iPhone|iPad|iPod/.test(navigator.userAgent)
+      || /Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
   // iOS reports client rectangles against its moving visual viewport. A desktop
   // WebKit window (including a mobile UA without touch) keeps layout coordinates.
   private readonly visualClientCoordinates = this.appleWebKit && !this.desktopBrowser && navigator.maxTouchPoints > 0;
@@ -1896,11 +1897,12 @@ export class QuietRoomApp {
     instruction = '跟随设备提示完成即可，不用再记一个新密码。',
     buttonLabel = '设置访问密钥',
     backLabel?: string,
+    minimal = false,
   ): string {
     const supportError = window.isSecureContext ? '' : '当前连接不是浏览器信任的 HTTPS 安全环境。局域网测试请先信任开发证书。';
     return `
       <label class="passkey-name-field">通行密钥名称<input id="new-passkey-name" value="${accessEscape(defaultPasskeyName())}" autocomplete="off" spellcheck="false"></label>
-      <p class="field-hint">用于在系统中辨认这把密钥，请勿填写聊天隐私。</p><label class="passkey-name-field">设备备注（选填）<input id="new-device-alias" autocomplete="off" placeholder="例如：工作电脑" /></label>
+      ${minimal ? '' : '<p class="field-hint">用于在系统中辨认这把密钥，请勿填写聊天隐私。</p><label class="passkey-name-field">设备备注（选填）<input id="new-device-alias" autocomplete="off" placeholder="例如：工作电脑" /></label>'}
       <p class="setup-follow-hint">${instruction}</p>
       <div class="welcome-actions">
         <button class="primary-button" type="button" data-device-verify>${buttonLabel}</button>
@@ -1938,6 +1940,8 @@ export class QuietRoomApp {
       // follows only after navigator.credentials has received that activation.
       const platformProof = preparedPlatformCredential
         ? Promise.resolve(preparedPlatformCredential)
+        : allowPassword && platformVaultSetupState() === 'unsupported'
+          ? this.preparePasswordProtection(active)
         : createdPlatformRecord
           ? this.withDeviceVerification(async () => ({
               record: createdPlatformRecord!,
@@ -1972,6 +1976,7 @@ export class QuietRoomApp {
         }
       })();
     });
+    if (allowPassword && platformVaultSetupState() === 'unsupported') verifyButton.click();
   }
 
   private armSystemSurfaceHandoff(): void {
@@ -2822,10 +2827,17 @@ export class QuietRoomApp {
     const epoch = this.runtimeEpoch, session = this.session, previousSurface = this.activeSurface;
     const returnToList = this.spaceDrawerOpen;
     const listScrollTop = this.root.querySelector('.space-drawer-scroll')?.scrollTop ?? 0;
+    let presentation: HTMLElement | null = null;
     const active = () => !lifetime.signal.aborted && !this.privacyCovered && this.runtimeEpoch === epoch && this.session === session;
     this.closeChatTools(); this.setActiveSurface('away', true);
     void createSpaceProfile(this.root, {
       signal: lifetime.signal, active, initialProfile, hasCredential: Boolean(this.session || this.deviceCredential),
+      submitted: source => {
+        presentation = source.cloneNode(true) as HTMLElement;
+        presentation.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+        presentation.removeAttribute('id'); presentation.inert = true; presentation.setAttribute('aria-hidden','true');
+        presentation.classList.remove('dialog-surface','is-closing'); presentation.classList.add('is-visible','space-creation-presentation');
+      },
       picker: async operation => {
         if (!active()) throw new DOMException('选图已结束', 'AbortError');
         if (!session) return operation();
@@ -2840,13 +2852,27 @@ export class QuietRoomApp {
       if (!active()) return;
       this.spaceCreationAbort = null;
       if (!profile) {
-        if (session && returnToList) await this.openPrivateSpaces(() => true, listScrollTop);
+        if (session && returnToList) {
+          if (!this.root.querySelector('.is-space-list-page.space-drawer-overlay:not(.is-closing)')) await this.openPrivateSpaces(() => true, listScrollTop);
+          else this.setActiveSurface('away', true);
+        }
         else { this.setActiveSurface(this.root.querySelector('.chat-shell') ? 'chat' : previousSurface); this.updatePeerStatus(); }
         return;
       }
       this.newDeviceAlias = '';
-      if (session || this.browserProfile) await this.createPrivateSpace(profile);
-      else this.renderCreateProtection(profile);
+      const cover = presentation;
+      const clear = () => { observer.disconnect(); cover?.remove(); };
+      const observer = new MutationObserver(() => {
+        if (this.privacyCovered) clear();
+        else if (cover && !cover.isConnected) this.root.append(cover);
+      });
+      if (cover) { this.root.append(cover); observer.observe(this.root, { childList:true }); }
+      try {
+        if (session || this.browserProfile) await this.createPrivateSpace(profile);
+        else this.renderCreateProtection(profile);
+        observer.disconnect(); cover?.remove();
+        if (cover && !this.privacyCovered && this.root.querySelector(':scope > .chat-shell')) this.transitionPage('forward', () => {}, cover);
+      } finally { clear(); }
     }).catch(cause => {
       if (active()) this.showNotice(cause instanceof Error ? cause.message : '空间未能创建，请重试', 'error');
     }).finally(() => { if (this.spaceCreationAbort === lifetime) this.spaceCreationAbort = null; lifetime.abort(); });
@@ -2854,12 +2880,11 @@ export class QuietRoomApp {
 
   private renderCreateProtection(profile: SpaceProfile, prepare?: () => Promise<void>): void {
     const unsupported = platformVaultSetupState() === 'unsupported';
-    const external = platformVaultUsesExternalAuthenticator();
-    this.gatewayTemplate('每次打开，先确认是你', '日常解锁保护这台浏览器里的聊天，暂时离开后，先验证再查看。', `
-      <div class="entry-protection"><strong>${unsupported ? '设置解锁密码' : external ? '使用外部通行密钥' : '使用通行密钥'}</strong><p>${unsupported ? '设置一个仅用于这台浏览器日常解锁的密码。' : external ? '当前浏览器的内置验证器不可用。可尝试兼容的安全密钥或其他设备；若浏览器明确不支持，将进入密码设置。' : '由当前浏览器调用可用的验证方式，不用额外记住一个新密码。'}</p></div>
-      <p class="entry-support">${createElement(Info).outerHTML}<span>日常解锁负责打开聊天；恢复卡负责换设备或数据丢失后的找回。</span></p>
-      ${unsupported ? '' : `<details class="recovery-explanation"><summary>通行密钥名称与设备备注</summary><label class="passkey-name-field">通行密钥名称<input id="new-passkey-name" value="${accessEscape(defaultPasskeyName())}" autocomplete="off"></label><label class="passkey-name-field">设备备注（选填）<input id="new-device-alias" placeholder="例如：工作电脑" autocomplete="off"></label></details>`}
-      <div class="welcome-actions"><button class="primary-button" data-device-verify type="button">${unsupported ? '设置密码并进入空间' : '启用并进入空间'}</button><button class="text-button gateway-back" type="button">返回</button><p class="form-error" role="alert"></p></div>
+    this.gatewayTemplate('每次打开，先确认是你', unsupported
+      ? '使用密码保护您的空间隐私，暂时离开后会自动锁定空间，再次进入空间须验证密码。'
+      : '使用通行密钥保护您的空间隐私，暂时离开后会自动锁定空间，再次进入空间须验证通行密钥。', `
+      ${unsupported ? '' : `<label class="passkey-name-field">设置通行密钥名称<input id="new-passkey-name" value="${accessEscape(defaultPasskeyName())}" autocomplete="off" spellcheck="false"></label>`}
+      <div class="welcome-actions"><button class="primary-button" data-device-verify type="button">${unsupported ? '设置密码并创建空间' : '设置密钥并创建空间'}</button><button class="text-button gateway-back" type="button">返回</button><p class="form-error" role="alert"></p></div>
     `, false, 'plain');
     const mark = this.root.querySelector('.gateway-mark'); if (mark) mark.outerHTML = entryArt('lock');
     if (this.session) {
@@ -2945,7 +2970,10 @@ export class QuietRoomApp {
       if (!active()) return;
       this.rememberDeviceCredential(createdSession);
       this.session = createdSession;
+      const source = this.root.querySelector<HTMLElement>(':scope > .gateway');
+      if (source) source.dataset.authenticatedPage = '';
       await this.openSession();
+      if (source && this.isRuntimeActive(epoch, createdSession)) this.transitionPage('forward', () => {}, source);
     } catch (cause) {
       // Once the vault is durable, preserve the room so a transient local/network
       // failure can be retried instead of deleting a valid session on the server.
@@ -2992,8 +3020,8 @@ export class QuietRoomApp {
     history.replaceState(null, '', location.pathname + location.search);
     const report = (stage: string) => fetch(`/api/rooms/${invite.roomId}/invitation-progress`, { method: 'POST', headers: { Authorization: `Bearer ${invite.accessToken}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ stage }) }).catch(() => undefined);
     void report('opened');
-    this.gatewayTemplate('加入私密空间', '加入后，这个私密空间只属于你们两个人。先设置访问密钥，以后用它解锁聊天。', `
-      ${this.passkeySetupMarkup('跟随设备提示完成即可，不用再记一个新密码。', '设置访问密钥并加入', '暂不加入')}
+    this.gatewayTemplate('加入私密空间', '加入后，这个私密空间只属于你们两个人。<br>先设置访问密钥，以后用它解锁聊天。', `
+      ${this.passkeySetupMarkup('跟随设备提示完成即可，不用再记一个新密码。', '设置访问密钥并加入', '暂不加入', true)}
     `, false, 'plain');
     this.mountPasskeySetup(
       (platformResult, flowActive) => this.handleJoin(invite, platformResult, flowActive),
@@ -3917,6 +3945,16 @@ export class QuietRoomApp {
       session.vault.mls.lastEventSeq = ownAdd ? ownAdd.eventSeq - 1 : (state.nextMlsEventSeq ?? 0);
     }
     if (localProtocol === 'mls-rfc9420' && session.vault.mls) {
+      // A returning browser can receive Welcome and later commits in one snapshot.
+      // Authenticate the original invitation first, then install its Welcome before
+      // advancing epochs. Added devices must still use their own Add welcome.
+      if (!session.vault.mls.groupState && session.vault.role === 'joiner'
+        && !ownRemote.addedBy && originalJoiner?.deviceId === ownStored.deviceId && state.mlsWelcome) {
+        session.vault.mls = await joinMlsGroup(session.vault, state.mlsWelcome);
+        if (!this.isRuntimeActive(epoch, session)) return;
+        session.vault.identity.mlsPrivatePackage = undefined;
+        await saveVault(session, mutation);
+      }
       const trustedDeviceIds = new Set(previousMembers
         .filter((member) => member.status === undefined || member.status === 'active')
         .map((member) => member.deviceId));
@@ -4236,7 +4274,7 @@ export class QuietRoomApp {
       const mlsBecameReady = !mlsWasReady && session.vault.mls?.phase === 'active';
       const activeRoleCount = new Set(state.members.filter((member) => member.status === undefined || member.status === 'active').map((member) => member.role)).size;
       if ((before < 2 && activeRoleCount === 2) || mlsBecameReady) {
-        void publishPreparedCatalog(session, this.runtimeAbort?.signal ?? AbortSignal.timeout(8000)).catch(() => undefined);
+        void rememberLocalSpace(session).then(() => publishPreparedCatalog(session, this.runtimeAbort?.signal ?? AbortSignal.timeout(8000))).catch(() => undefined);
         this.renderChat();
         this.showPairingWelcome();
         this.socket?.requestSync(session.vault.lastSeq);
@@ -4388,6 +4426,10 @@ export class QuietRoomApp {
   private async drainServerQueueLocked(requestMore: boolean, mutation: VaultMutation, throughSeq = Number.MAX_SAFE_INTEGER): Promise<void> {
     const session = this.session;
     if (this.draining || !session || this.privacyCovered) return;
+    // Transport can deliver a sync response before the original Welcome arrives.
+    // Keep ciphertext queued until authenticated MLS bootstrap finishes.
+    if (session.vault.protocol === 'mls-rfc9420'
+      && ['awaiting-peer','awaiting-welcome'].includes(session.vault.mls?.phase ?? '')) return;
     const epoch = this.runtimeEpoch;
     let projectionChanged = false;
     this.draining = true;
@@ -4621,7 +4663,7 @@ export class QuietRoomApp {
     const label = this.root.querySelector<HTMLElement>('#invite-countdown');
     if (!label || !this.session) return;
     const expiry = pendingSpaceExpiry({ waiting: true, createdAt: this.session.vault.createdAt });
-    label.textContent = expiry ? `剩余 ${formatPendingCountdown(expiry - Date.now())}` : '';
+    label.innerHTML = expiry ? `剩余 <strong>${formatPendingCountdown(expiry - Date.now())}</strong>，超时未加入则此空间自动销毁。` : '';
   }
 
   private paintInviteProgress(stage?: string): void {
@@ -5162,7 +5204,11 @@ export class QuietRoomApp {
 
   private applyCatalogToSpaces(spaces: PrivateSpace[]): void {
     const profile = this.browserProfile?.profile;
-    if (!profile) return;
+    if (!profile) {
+      const current = spaces.find(space => space.roomId === this.session?.vault.roomId);
+      if (current && this.session && this.peerHasJoined(this.session)) current.waiting = false;
+      return;
+    }
     const removed = new Set(profile.removed ?? []);
     for (let index = spaces.length - 1; index >= 0; index--) if (removed.has(spaces[index]!.roomId)) spaces.splice(index, 1);
     for (const space of spaces) {
@@ -5175,6 +5221,8 @@ export class QuietRoomApp {
         space.waiting = Boolean(remote.waiting);
       } else if (remote.waiting) space.waiting = true;
     }
+    const current = spaces.find(space => space.roomId === this.session?.vault.roomId);
+    if (current && this.session && this.peerHasJoined(this.session)) current.waiting = false;
   }
 
   private async refreshSpaceCatalog(signal: AbortSignal): Promise<void> {
@@ -5355,7 +5403,7 @@ export class QuietRoomApp {
     const cryptoReady = this.session.vault.protocol !== 'mls-rfc9420' || this.session.vault.mls?.phase === 'active';
     this.scheduleWaitingSpaceExpiry(this.session);
     if (this.inlineInviteTimer !== null) window.clearInterval(this.inlineInviteTimer);
-    this.inlineInviteTimer = window.setInterval(() => this.paintInlineInviteCountdown(), 1000);
+    this.inlineInviteTimer = !this.peerHasJoined(this.session) ? window.setInterval(() => this.paintInlineInviteCountdown(), 1000) : null;
     this.shieldHintCleanup?.();
     this.shieldHintCleanup = null;
     this.galleryObserver?.disconnect();
@@ -5686,31 +5734,25 @@ export class QuietRoomApp {
       this.syncComposerMode();
       resizeTextarea();
     };
+    const measure = textarea.cloneNode() as HTMLTextAreaElement;
+    measure.removeAttribute('id'); measure.setAttribute('aria-hidden', 'true'); measure.tabIndex = -1; measure.inert = true;
+    measure.style.cssText = 'position:fixed;inset:auto auto 0 0;visibility:hidden;pointer-events:none;transition:none;height:0;min-height:0;max-height:none';
+    textarea.parentElement!.append(measure);
+    let measurementStyle = '';
     const resizeTextarea = (animate = true, deferNativeShrink = true, composing = false) => {
       if (nativeShrinkFrame !== null) cancelAnimationFrame(nativeShrinkFrame);
       nativeShrinkFrame = null;
-      const measure = textarea.cloneNode() as HTMLTextAreaElement;
-      measure.removeAttribute('id');
-      // ID-scoped rules reserve room for the expression button. A clone without
-      // those insets wraps later than the editor and can hide its last line.
       const editorStyle = getComputedStyle(textarea);
-      for (const property of ['font', 'line-height', 'letter-spacing', 'word-spacing', 'text-indent',
-        'padding', 'border-width', 'border-style', 'box-sizing', 'white-space', 'word-break', 'overflow-wrap']) {
-        measure.style.setProperty(property, editorStyle.getPropertyValue(property));
+      const properties = ['font', 'line-height', 'letter-spacing', 'word-spacing', 'text-indent',
+        'padding', 'border-width', 'border-style', 'box-sizing', 'white-space', 'word-break', 'overflow-wrap'];
+      const width = textarea.getBoundingClientRect().width;
+      const signature = `${width}|${properties.map(property => editorStyle.getPropertyValue(property)).join('|')}`;
+      if (measurementStyle !== signature) {
+        for (const property of properties) measure.style.setProperty(property, editorStyle.getPropertyValue(property));
+        measure.style.width = `${width}px`; measurementStyle = signature;
       }
-      measure.setAttribute('aria-hidden', 'true');
-      measure.tabIndex = -1;
       measure.value = textarea.value;
-      measure.style.position = 'fixed';
-      measure.style.inset = 'auto auto 0 0';
-      measure.style.visibility = 'hidden';
-      measure.style.pointerEvents = 'none';
-      measure.style.transition = 'none';
-      measure.style.width = `${textarea.getBoundingClientRect().width}px`;
-      measure.style.height = '0px';
-      textarea.parentElement!.append(measure);
-      const measureStyle = getComputedStyle(measure);
-      const borderHeight = parseFloat(measureStyle.borderTopWidth) + parseFloat(measureStyle.borderBottomWidth);
+      const borderHeight = parseFloat(editorStyle.borderTopWidth) + parseFloat(editorStyle.borderBottomWidth);
       let contentHeight = measure.scrollHeight + borderHeight;
       // WebKit's marked text can wrap before an unmarked measurement clone.
       // Native overflow is authoritative for growth; the clone still measures
@@ -5721,7 +5763,6 @@ export class QuietRoomApp {
       }
       const maximumHeight = parseFloat(editorStyle.maxHeight);
       const targetHeight = Math.min(contentHeight, Number.isFinite(maximumHeight) ? maximumHeight : 88);
-      measure.remove();
       if (this.composerHeightMotion?.targetHeight === targetHeight) return;
 
       const currentHeight = textarea.getBoundingClientRect().height;
@@ -9732,7 +9773,7 @@ export class QuietRoomApp {
         invite.addEventListener('click', () => void this.shareInviteLink(inviteUrl));
         const link = document.createElement('input'); link.id = 'invite-url'; link.className = 'sr-only'; link.readOnly = true; link.tabIndex = -1; link.setAttribute('aria-label', '邀请链接'); link.value = inviteUrl;
         const status = document.createElement('p'); status.className = 'entry-invite-status';
-        status.innerHTML = '<span id="invitation-progress"></span><span id="invite-countdown" role="timer" aria-live="off"></span>';
+        status.innerHTML = '<span id="invite-countdown" role="timer" aria-live="off"></span>';
         guidance.append(invite, link, status);
       }
       if (this.session.vault.recoveryExperience?.codeSaved !== this.session.vault.backup?.id || !this.session.vault.backup) {

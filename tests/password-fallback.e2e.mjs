@@ -109,7 +109,7 @@ try {
   assert.equal(stored.v, 3); assert.equal(stored.unlockMethod, 'password');
   assert.ok(stored.wrappedKey && stored.payload && !stored.platform && !stored.ciphertext, 'New password space used a legacy format');
   assert.equal(JSON.stringify(stored).includes('🔐'), false, 'Password persisted in clear');
-  await b.goto(invite); await boot(b); await fillFormInput(b, b.locator('#new-device-alias'), '测试 B'); await capture(b, 'F15-join-protection'); await b.locator('[data-device-verify]').click();
+  await b.goto(invite); await boot(b); await b.locator('.password-create .password-form').waitFor(); assert.equal(await b.locator('#new-device-alias').count(),0); await capture(b, 'F15-join-protection');
   await password(b, 'joiner password 🔑');
   for (const page of [a, b]) {
     assert.equal(await page.locator('#welcome-chat').count(), 0);

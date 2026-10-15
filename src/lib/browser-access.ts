@@ -226,7 +226,7 @@ export async function publishPreparedCatalog(session:VaultSession,signal:AbortSi
     const preparedSpace=prepared.spaces.find(p=>p.roomId===s.roomId);
     const entry:AccessSpace=preparedSpace?{...preparedSpace,name:s.name}:{roomId:s.roomId,name:s.name};
     if(s.avatar)entry.avatar=s.avatar;
-    if(s.waiting) entry.waiting=true;
+    entry.waiting=Boolean(s.waiting);
     if(s.createdAt) entry.createdAt=s.createdAt;
     if(s.roomId===session.vault.roomId) entry.deviceCount=deviceCount;
     delete entry.localId;
