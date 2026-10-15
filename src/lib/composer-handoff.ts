@@ -44,7 +44,9 @@ export function coordinateComposerHandoff(options: Options) {
     if (complete) options.complete();
   };
   const abort = () => cancel();
-  const update = (now = performance.now()) => {
+  // Synchronous focus/layout callbacks may do substantial work in one paint.
+  // Recompute geometry there, but advance animation time only on a new frame.
+  const update = (now = sampled) => {
     if (!live) return;
     now = sampled = Math.max(sampled, now);
     if (signal.aborted || !row.isConnected || !options.active()) { cancel(); return; }

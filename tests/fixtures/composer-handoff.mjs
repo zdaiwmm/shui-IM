@@ -65,7 +65,9 @@ export async function verifyComposerHandoff(page) {
     const app=fixture.app;app.openMemePicker();await new Promise(resolve=>setTimeout(resolve,80));
     app.closeMemePicker(true,true);await new Promise(resolve=>setTimeout(resolve,80));
     const panel=document.querySelector('.meme-panel'),row=document.querySelector('.composer-row'),picker=app.memePicker;
-    const before=[panel,row].map(el=>el.getBoundingClientRect().top);app.openMemePicker();
+    const reopen=picker.reopen.bind(picker);
+    picker.reopen=()=>{reopen();const start=performance.now();while(performance.now()-start<40){/* Busy native-focus task: geometry may change, paint time must not. */}};
+    const before=[panel,row].map(el=>el.getBoundingClientRect().top);app.openMemePicker();picker.reopen=reopen;
     const after=[panel,row].map(el=>el.getBoundingClientRect().top);setViewport(844);
     await new Promise(resolve=>setTimeout(resolve,1100));
     return {before,after,same:app.memePicker===picker,inert:panel.inert,gap:panel.getBoundingClientRect().top-row.getBoundingClientRect().bottom};
