@@ -7,7 +7,7 @@ import { cancelComposerPanel, moveComposerPanel, panelVelocity } from './compose
 import { validateMemeFile, type MemeFavorite } from './meme-media';
 import { detectImageAnimation } from './image-animation';
 import { MAX_PACK_BYTES, type MediaKind, type MediaItem, type MediaSearchResult, type RemotePack, type RemotePackDetail, type StickerPack } from './sticker-library';
-import { createElement, Smile, Star, Search, Keyboard, ChevronDown, Image, X, ArrowLeft, Maximize2, Minimize2, Trash2, Send } from 'lucide';
+import { createElement, Smile, Star, Search, Keyboard, ChevronDown, Image, X, ArrowLeft, Trash2, Send } from 'lucide';
 
 export const memeIcons = {
   smile: createElement(Smile).outerHTML, star: createElement(Star).outerHTML,
@@ -65,6 +65,7 @@ export type MemePickerOptions = {
   close: (keyboard: boolean) => void;
   layoutChanged?: () => void;
   previousRowTop?: number;
+  occupiedHeight?: () => number | undefined;
   onSearchPointer: (input: HTMLInputElement, event: PointerEvent) => void;
   onKeyboardPointer: (event: PointerEvent) => void;
 };
@@ -100,7 +101,6 @@ export class MemePicker {
   private searching = false;
   private packDetail = false;
   private operation: AbortController | null = null;
-  private expanded = false;
   private autoPage: IntersectionObserver;
   private sentinel = document.createElement('div');
   private sheetAnimation?: Animation;
@@ -121,22 +121,12 @@ export class MemePicker {
     this.panel.className = 'meme-panel'; this.panel.id = 'meme-panel';
     this.panel.setAttribute('role', 'region'); this.panel.setAttribute('aria-label', '表情');
     this.panel.innerHTML = `
-      <div class="meme-toolbar"><div class="meme-pack-shortcuts" aria-label="表情入口"></div><button type="button" class="meme-expand icon-button" aria-label="展开表情">${createElement(Maximize2).outerHTML}</button><button type="button" class="meme-collapse icon-button" aria-label="收起表情">${memeIcons.down}</button></div>
-      <header class="meme-search-header" hidden><button type="button" class="meme-back icon-button" aria-label="返回表情面板">${createElement(ArrowLeft).outerHTML}</button><h2>添加贴纸</h2><button type="button" class="meme-favorites icon-button" aria-label="收藏">${memeIcons.star}</button><button type="button" class="meme-close icon-button" aria-label="关闭表情">${createElement(X).outerHTML}</button></header>
+      <div class="meme-toolbar"><div class="meme-pack-shortcuts" aria-label="表情入口"></div></div>
+      <header class="meme-search-header" hidden><button type="button" class="meme-back icon-button" aria-label="返回表情面板">${createElement(ArrowLeft).outerHTML}</button><h2>添加贴纸</h2></header>
       <div class="meme-scroll"><div class="meme-grid"></div><p class="meme-status" role="status"></p><button type="button" class="meme-more" hidden>加载更多</button><p class="meme-source"></p></div>`;
     this.grid = this.panel.querySelector('.meme-grid')!; this.status = this.panel.querySelector('.meme-status')!;
     this.more = this.panel.querySelector('.meme-more')!;
-    this.panel.querySelector('.meme-expand')!.addEventListener('click', () => {
-      if (this.overlay) { this.back(); return; }
-      const height = this.panel.getBoundingClientRect().height;
-      const top = this.panel.getBoundingClientRect().top;
-      this.expand();
-      this.panel.style.top = 'auto';
-      this.animateSheet(height, this.overlay!.getBoundingClientRect().height, 'height', () => this.panel.style.removeProperty('top'), top);
-    });
     this.panel.querySelector('.meme-back')!.addEventListener('click', () => this.back());
-    this.panel.querySelector('.meme-favorites')!.addEventListener('click', () => { this.favoriteView = !this.favoriteView; if (this.favoriteView) { this.clear(); this.renderLocalItems(); } else void this.submit(); });
-    for (const selector of ['.meme-close', '.meme-collapse']) this.panel.querySelector(selector)!.addEventListener('click', () => options.close(false));
     this.panel.addEventListener('keydown', event => { if (event.key === 'Escape' && !this.overlay) { event.preventDefault(); options.close(false); } });
     this.more.addEventListener('click', () => void this.search());
     this.sentinel.className = 'meme-page-sentinel';
@@ -409,19 +399,9 @@ export class MemePicker {
         scheduleShortcutScroll(drag);
         return;
       }
-      if (!drag.moving) {
-        if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy)) { drag = undefined; return; }
-        if (Math.abs(dy) < 8 || Math.abs(dy) <= Math.abs(dx) * 1.5) return;
-        cancelHold();
-        drag.moving = true;
-        this.expand();
-        try { shortcuts.setPointerCapture(event.pointerId); } catch { /* Synthetic pointers do not own capture. */ }
-        this.panel.style.animation = 'none';
-        this.panel.style.top = 'auto';
+      if (Math.abs(dy) >= 8 && Math.abs(dy) > Math.abs(dx) * 1.5) {
+        cancelHold(); drag = undefined;
       }
-      event.preventDefault();
-      const height = this.overlay!.getBoundingClientRect().height;
-      this.panel.style.height = `${Math.max(this.halfHeight, Math.min(height, drag.height - dy))}px`;
     }, { signal: this.signal, passive: false });
     const finishDrag = (event: PointerEvent) => {
       if (finishReorder(event)) { cancelHold(); drag = undefined; return; }
@@ -434,20 +414,6 @@ export class MemePicker {
         releaseShortcut(start.velocity, start.overshoot, start.maxScrollLeft);
         return;
       }
-      if (!start.moving) return;
-      this.suppressShortcutClickUntil = performance.now() + 500;
-      const height = this.panel.getBoundingClientRect().height;
-      const fullHeight = this.overlay!.getBoundingClientRect().height;
-      const full = event.type === 'pointercancel' ? start.full
-        : start.full ? event.clientY - start.y < 50 : start.y - event.clientY > 50;
-      const finish = () => {
-        this.sheetAnimation = undefined;
-        if (!this.active()) return;
-        this.panel.style.removeProperty('height'); this.panel.style.removeProperty('top');
-        if (!full) this.back(true);
-      };
-      if (reducedMotion()) finish();
-      else this.animateSheet(height, full ? fullHeight : this.halfHeight, 'height', finish);
     };
     window.addEventListener('pointerup', finishDrag, { signal: this.signal });
     window.addEventListener('pointercancel', finishDrag, { signal: this.signal });
@@ -484,6 +450,11 @@ export class MemePicker {
       for (const entry of entries) { const tile = this.tiles.get(entry.target as HTMLElement); if (tile) { tile.visible = entry.isIntersecting; if (!tile.visible) this.unload(entry.target as HTMLElement); } }
       this.hydrate();
     }, { root: this.panel.querySelector('.meme-scroll'), rootMargin: '80px' });
+    const syncHeight = () => {
+      const height = options.occupiedHeight?.();
+      if (height && Number.isFinite(height)) options.host.style.setProperty('--meme-sheet-height', `${height}px`);
+    };
+    syncHeight();
     const row = options.host.querySelector<HTMLElement>('.composer-row');
     const rowTop = options.previousRowTop ?? row?.getBoundingClientRect().top;
     const rowSpeed = row ? panelVelocity(row) : 0;
@@ -494,6 +465,7 @@ export class MemePicker {
     this.animateSheet(row && rowTop !== undefined ? rowTop + row.getBoundingClientRect().height + 8 - panelTop : this.panel.getBoundingClientRect().height, 0, 'translate');
     if (row && rowTop !== undefined) this.rowAnimation = moveComposerPanel(row, rowTop - row.getBoundingClientRect().top, 0, this.signal, () => {}, true, rowSpeed);
     const sync = () => {
+      syncHeight();
       const view = layoutViewport();
       this.panel.style.setProperty('--meme-height', `${view?.height ?? innerHeight}px`);
       this.overlay?.style.setProperty('--meme-top', `${view?.offsetTop ?? 0}px`);
@@ -727,7 +699,8 @@ export class MemePicker {
       button.addEventListener('click', action); bar.append(button); return button;
     };
     control('add', '添加贴纸', memeIcons.add, () => { void this.switchKind('stickers').then(() => this.openSearch()); });
-    control('emoji', 'Emoji', memeIcons.smile, () => { void this.switchKind('emoji'); }).setAttribute('aria-pressed', String(this.kind === 'emoji'));
+    control('emoji', 'Emoji', memeIcons.smile, () => { void this.switchKind('emoji'); }).setAttribute('aria-pressed', String(this.kind === 'emoji' && !this.favoriteView));
+    control('favorites', '收藏表情', memeIcons.star, () => { void this.switchKind('stickers', true); }).setAttribute('aria-pressed', String(this.favoriteView));
     for (const node of bar.querySelectorAll<HTMLElement>('[data-shortcut^="pack:"]')) {
       if (!this.hasPack(node.dataset.shortcut!.slice(5))) { this.unload(node); this.tiles.delete(node); node.remove(); }
     }
@@ -756,7 +729,7 @@ export class MemePicker {
       const [favorites, packs] = await Promise.all([this.options.list(), this.options.packs()]);
       if (!this.active() || generation !== this.generation) return;
       this.favorites = favorites; this.packs = packs; this.clear(); this.shortcuts();
-      if (this.kind === 'emoji') { this.query = ''; this.emojiOffset = 0; this.renderEmoji(); await this.restoreView(); return; }
+      if (this.kind === 'emoji' && !this.favoriteView) { this.query = ''; this.emojiOffset = 0; this.renderEmoji(); await this.restoreView(); return; }
       this.renderLocalItems();
       const localGeneration = this.generation;
       if (!this.favoriteView && this.kind === 'gifs') {
@@ -791,21 +764,7 @@ export class MemePicker {
       }
     }
   }
-  private expand() {
-    if (this.overlay) return;
-    this.halfHeight = this.panel.getBoundingClientRect().height;
-    this.expanded = true; this.openSearch(false, false);
-    const expand = this.panel.querySelector<HTMLButtonElement>('.meme-expand')!;
-    expand.innerHTML = createElement(Minimize2).outerHTML; expand.setAttribute('aria-label', '还原表情');
-    this.panel.parentElement?.classList.add('meme-expanded-dialog');
-    (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = true;
-  }
   private openSearch(load = true, animate = true) {
-    if (this.expanded && this.overlay && load) {
-      this.overlay.classList.remove('meme-expanded-dialog');
-      (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = false;
-      void this.submit(); return;
-    }
     if (!this.active() || this.overlay) return;
     const height = this.panel.getBoundingClientRect().height;
     const top = this.panel.getBoundingClientRect().top;
@@ -824,12 +783,7 @@ export class MemePicker {
   }
   private back(preserve = false, animate = true) {
     if (!this.overlay || this.closing) return;
-    if (this.packDetail || this.favoriteView) { this.favoriteView = false; void this.submit(); return; }
-    if (this.expanded && !this.overlay.classList.contains('meme-expanded-dialog')) {
-      this.overlay.classList.add('meme-expanded-dialog');
-      (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = true;
-      void this.local(); return;
-    }
+    if (this.packDetail) { void this.submit(); return; }
     if (animate && !preserve && !this.closing) {
       this.panel.style.top = 'auto';
       const overlay = this.overlay; const generation = this.generation;
@@ -844,9 +798,6 @@ export class MemePicker {
     }
     this.sheetAnimation?.cancel(); this.sheetAnimation = undefined;
     this.panel.style.removeProperty('top'); this.panel.style.removeProperty('height');
-    this.expanded = false;
-    const expand = this.panel.querySelector<HTMLButtonElement>('.meme-expand')!;
-    expand.innerHTML = createElement(Maximize2).outerHTML; expand.setAttribute('aria-label', '展开表情');
     const overlay = this.overlay; this.overlay = null;
     this.options.host.append(this.panel); this.panel.dataset.view = 'local';
     (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = true;
@@ -1104,6 +1055,7 @@ export class MemePicker {
     if (this.preview) closeDialog(this.preview, { animate: false, restoreFocus: false }); if (this.overlay) closeDialog(this.overlay, { animate: false, restoreFocus: false });
     this.observer.disconnect(); this.autoPage.disconnect(); this.request?.abort(); for (const tile of this.tiles.keys()) this.unload(tile);
     this.tiles.clear(); this.favorites = []; this.packs = []; this.panel.remove(); this.options.host.classList.remove('has-meme-panel');
+    this.options.host.style.removeProperty('--meme-sheet-height');
     delete this.options.host.dataset.expressionHandoff;
   }
 }

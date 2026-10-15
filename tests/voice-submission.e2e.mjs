@@ -65,7 +65,8 @@ try {
       }), close() { this.state = 'closed'; return Promise.resolve(); } };
       recorder.chunks = [new Blob(['synthetic recording'])];
       recorder.startedAt = performance.now() - fixture.duration;
-      recorder.state = 'recording'; recorder.update();
+      // This fixture replaces start(), including its successful-capture reveal.
+      recorder.state = 'recording'; host.hidden = false; recorder.update();
       return recorder;
     };
     const binding = bindVoiceRecordGesture(button, begin);
@@ -144,6 +145,23 @@ try {
   await page.evaluate(() => window.voiceSubmission.decode());
   await page.waitForFunction(() => window.voiceSubmission.active?.state === 'paused');
   assert.equal(await page.locator('.voice-preview').isEnabled(), true);
+  await page.evaluate(()=>{const r=voiceSubmission.active;r.samples=new Float32Array(72000);r.trimStart=12000;r.trimEnd=48000;r.draft=null;r.update();});
+  for(const width of [320,390]) for(const colorScheme of ['light','dark']) {
+    await page.setViewportSize({width,height:844});await page.emulateMedia({colorScheme});
+    const geometry=await page.evaluate(()=>{
+      const box=selector=>document.querySelector(selector).getBoundingClientRect();
+      const selection=box('.voice-trim-selection'),start=box('[data-trim=start]'),end=box('[data-trim=end]'),preview=box('.voice-preview'),timeline=box('.voice-draft-timeline');
+      return {start:Math.abs(start.right-selection.left),end:Math.abs(end.left-selection.right),separate:start.right<=end.left,
+        inside:preview.left>=timeline.left&&preview.right<=start.left&&preview.top>=timeline.top&&preview.bottom<=timeline.bottom};
+    });
+    assert.ok(geometry.start<.6&&geometry.end<.6&&geometry.separate&&geometry.inside,JSON.stringify({width,colorScheme,geometry}));
+  }
+  await page.setViewportSize({width:390,height:844});await page.emulateMedia({colorScheme:'light'});
+  const drag=await page.evaluate(()=>({start:voiceSubmission.active.trimStart,width:document.querySelector('.voice-trim-track').getBoundingClientRect().width}));
+  const handle=await page.getByRole('slider',{name:'裁剪起点'}).boundingBox();
+  await page.mouse.move(handle.x+handle.width-1,handle.y+22);await page.mouse.down();await page.mouse.move(handle.x+handle.width+9,handle.y+22);await page.mouse.up();
+  assert.equal(await page.evaluate(()=>voiceSubmission.active.trimStart),Math.round(drag.start+10/drag.width*72000));
+  await screenshot('trim-inline');
   await page.locator('.voice-discard').click();
 
   await page.evaluate(() => { window.voiceSubmission.duration = 10; });

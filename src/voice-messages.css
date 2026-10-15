@@ -237,18 +237,20 @@
 
 /* Two independently draggable, keyboard-accessible trim boundaries. */
 .voice-draft-timeline { overflow:visible; background:var(--accent-soft); color:var(--accent); }
-.voice-trim-selection { position:absolute; top:7px; bottom:7px; left:calc(44px + (100% - 88px) * var(--trim-start,0)); right:calc(44px + (100% - 88px) * (1 - var(--trim-end,1))); border-radius:6px; background:color-mix(in srgb,var(--accent) 12%,transparent); pointer-events:none; }
+.voice-trim-selection { position:absolute; top:7px; bottom:7px; left:calc(100% * var(--trim-start,0)); right:calc(100% * (1 - var(--trim-end,1))); border-radius:6px; background:color-mix(in srgb,var(--accent) 12%,transparent); pointer-events:none; }
 .voice-recorder .voice-trim-handle { position:absolute; top:0; width:44px; height:44px; padding:0; margin:0; border:0; background:transparent; color:var(--accent); z-index:3; touch-action:none; transform:translateX(-50%); }
 .voice-trim-handle::after { content:''; display:block; width:4px; height:28px; margin:auto; border-radius:2px; background:currentColor; }
-.voice-trim-handle[data-trim='start'] { left:calc(44px + (100% - 88px) * var(--trim-start,0)); transform:translateX(-100%); }
-.voice-trim-handle[data-trim='end'] { left:calc(44px + (100% - 88px) * var(--trim-end,1)); transform:none; }
+.voice-trim-handle[data-trim='start'] { left:calc(100% * var(--trim-start,0)); transform:translateX(-100%); }
+.voice-trim-handle[data-trim='end'] { left:calc(100% * var(--trim-end,1)); transform:none; }
 .voice-trim-handle:focus-visible { outline:2px solid var(--focus); outline-offset:-4px; border-radius:8px; }
 .voice-trim-handle:disabled { opacity:.4; }
 .voice-recording-wave i.is-trimmed { opacity:.14; }
-.voice-recorder .voice-preview { inset:auto auto 60px 50%; width:76px; transform:translateX(-50%); color:var(--action-ink); }
+.voice-recorder .voice-preview { inset:0 auto 0 0; width:64px; transform:none; color:var(--accent); }
+.voice-recorder .voice-preview::before { display:none; }
+.voice-trim-track { position:absolute; inset:0 44px 0 108px; }
 .voice-preview::before { background:var(--action-surface); }
 .voice-discard svg { stroke-width:1.8; }
 
-.voice-draft-timeline .voice-recording-wave { left:44px; right:44px; }
-.voice-trim-handle::after { position:absolute; top:8px; right:0; margin:0; }
-.voice-trim-handle[data-trim='end']::after { right:auto; left:0; }
+.voice-draft-timeline .voice-recording-wave { left:0; right:0; }
+.voice-trim-handle::after { position:absolute; top:8px; right:-2px; margin:0; }
+.voice-trim-handle[data-trim='end']::after { right:auto; left:-2px; }

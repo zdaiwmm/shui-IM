@@ -82,10 +82,19 @@ export async function verifyMobileTenFixes(page) {
     const openingPaint={form:getComputedStyle(composer).backgroundColor,row:getComputedStyle(document.querySelector('.composer-row'),'::before').backgroundColor};
     app.closeMemePicker(true,true);
     const detached=expression.parentElement!==composer;
-    await paint();setViewport(473);await paint();
+    // Sample the native effect clock, not four rAFs of wall time. On a busy
+    // WebKit runner those frames can exceed the whole 360ms departure, after
+    // which getBoundingClientRect() correctly returns zero for the removed node.
+    const departure=expression.getAnimations();
+    for(const animation of departure) { animation.pause();animation.currentTime=0; }
+    await paint();setViewport(473);
+    for(const animation of departure) animation.currentTime=180;
+    await paint();
     const departing=expression.getBoundingClientRect();
-    const expressionMotion={before,detached,top:departing.top,inert:expression.inert};
-    await finish();input.blur();setViewport(844);await paint();await finish();
+    const expressionMotion={before,detached,top:departing.top,inert:expression.inert,connected:expression.isConnected,
+      duration:departure.map(animation=>animation.effect.getTiming().duration)};
+    await finish();expressionMotion.endConnected=expression.isConnected;
+    input.blur();setViewport(844);await paint();await finish();
     return {fills,headerJump,media,video,reactionBorder,plus:{hit,prevented:event.defaultPrevented,toolsOpened},expressionMotion,underlaySamples,openingPaint};
   });
   if (process.env.MOBILE_TEN_PROBE) console.log('MOBILE_TEN_PROBE',JSON.stringify(result));
@@ -100,7 +109,10 @@ export async function verifyMobileTenFixes(page) {
   assert.deepEqual(result.plus,{hit:true,prevented:false,toolsOpened:true});
   assert.equal(result.expressionMotion.detached,true,JSON.stringify(result.expressionMotion));
   assert.equal(result.expressionMotion.inert,true);
+  assert.equal(result.expressionMotion.connected,true,JSON.stringify(result.expressionMotion));
+  assert.deepEqual(result.expressionMotion.duration,[360],JSON.stringify(result.expressionMotion));
   assert.ok(result.expressionMotion.top>=result.expressionMotion.before-.5,JSON.stringify(result.expressionMotion));
+  assert.equal(result.expressionMotion.endConnected,false,JSON.stringify(result.expressionMotion));
   assert.equal(result.openingPaint.form,'rgba(0, 0, 0, 0)');assert.notEqual(result.openingPaint.row,'rgba(0, 0, 0, 0)');
   assert.ok(result.underlaySamples.every(s=>s.gap<.5),JSON.stringify(result.underlaySamples));
   assert.ok(result.underlaySamples[0].visible>result.underlaySamples[2].visible,JSON.stringify(result.underlaySamples));

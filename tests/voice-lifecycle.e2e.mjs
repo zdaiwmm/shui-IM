@@ -32,6 +32,7 @@ try {
       app.renderChat();
     };
     const check = (value, message) => { if (!value) throw Error(message); };
+    const until = async (predicate, message) => { const deadline = performance.now() + 5000; while (!predicate()) { check(performance.now() < deadline, message); await new Promise(resolve => setTimeout(resolve, 0)); } };
     fresh([]);
     let requests = 0;
     navigator.mediaDevices.getUserMedia = () => { requests++; return new Promise(() => {}); };
@@ -56,9 +57,10 @@ try {
     const grants = [];
     navigator.mediaDevices.getUserMedia = () => new Promise(resolve => grants.push(resolve));
     app.beginVoiceRecording(); const oldRecorder = app.voiceRecorder;
-    while (grants.length < 1) await Promise.resolve();
+    await until(() => grants.length >= 1, 'First permission request did not start');
+    check(document.querySelector('.voice-recorder').hidden && !document.querySelector('#composer').classList.contains('has-voice-draft'), 'Permission request exposed recording controls');
     app.closeVoiceRecorder(); app.beginVoiceRecording(); const currentRecorder = app.voiceRecorder;
-    while (grants.length < 2) await Promise.resolve();
+    await until(() => grants.length >= 2, 'Second permission request did not start');
     let stops = 0; grants[0]({ getTracks: () => [{ stop: () => stops++ }] });
     await Promise.resolve(); await Promise.resolve();
     check(stops === 1 && oldRecorder.signal.aborted && app.voiceRecorder === currentRecorder && app.microphonePromptActive, 'Late grant crossed recorder ownership');

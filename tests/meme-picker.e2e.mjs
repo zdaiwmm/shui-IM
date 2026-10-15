@@ -121,7 +121,7 @@ try {
   assert.equal(await page.locator('.fluent-emoji-tile').count(),64);
   assert.equal(await page.locator('.meme-tabs,input[type=search],.meme-open-search').count(),0);
   assert.equal(await page.locator('[data-shortcut=emoji]').count(),1);
-  assert.deepEqual(await page.locator('.meme-pack-shortcuts > button').evaluateAll(buttons=>buttons.map(b=>b.dataset.shortcut)),['add','emoji']);
+  assert.deepEqual(await page.locator('.meme-pack-shortcuts > button').evaluateAll(buttons=>buttons.map(b=>b.dataset.shortcut)),['add','emoji','favorites']);
   assert.equal(await page.evaluate(()=>window.fixture.requests.length),0,'Opening Emoji must not query the catalog');
   const draft=await page.locator('#message-input').inputValue();
   await page.locator('.emoji-grid:not(.fluent-emoji-grid) .emoji-tile').first().click();
@@ -222,53 +222,18 @@ try {
   await page.locator('.meme-pack-shortcuts button[aria-label="测试合集，长按拖动排序"]').click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);
   assert.equal(await page.locator('button[data-kind]').count(), 0);
-  await page.locator('.meme-pack-shortcuts').evaluate(bar => {
-    window.retainedShortcut = bar.querySelector('img');
-    bar.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, clientX: 100, clientY: 500 }));
-    bar.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 1, clientX: 100, clientY: 400 }));
-    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 1, clientX: 100, clientY: 400 }));
+  const fixedPanel=await page.locator('.meme-panel').boundingBox();
+  await page.locator('.meme-pack-shortcuts').evaluate(bar=>{
+    window.retainedShortcut=bar.querySelector('img');
+    bar.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,pointerId:1,clientX:100,clientY:500}));
+    window.dispatchEvent(new PointerEvent('pointermove',{pointerId:1,clientX:100,clientY:400}));
+    window.dispatchEvent(new PointerEvent('pointerup',{pointerId:1,clientX:100,clientY:400}));
   });
-  await page.locator('.meme-expanded-dialog').waitFor();
-  await page.waitForFunction(() => !document.querySelector('.meme-panel').getAnimations().some(animation => animation.playState === 'running'));
-  assert.equal(await page.locator('.meme-tabs').count(), 0);
-  assert.equal(await page.locator('.meme-collapse').isVisible(), true);
-  await page.locator('.meme-pack-shortcuts').evaluate(bar => {
-    bar.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 2, clientX: 100, clientY: 60 }));
-    bar.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 2, clientX: 100, clientY: 180 }));
-    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 2, clientX: 100, clientY: 180 }));
-  });
-  await page.locator('.meme-expanded-dialog').waitFor({ state: 'detached' });
-  assert.equal(await page.evaluate(() => window.retainedShortcut === document.querySelector('.meme-pack-shortcuts img')), true, 'Dragging should retain decoded shortcuts');
-  assert.equal(await page.locator('.meme-collapse').isVisible(), true);
-  if (process.env.MEME_WEBKIT !== '1') {
-    const cdp = await page.context().newCDPSession(page);
-    const pull = async distance => {
-      const bar = await page.locator('.meme-pack-shortcuts').boundingBox();
-      const before = await page.locator('.meme-panel').boundingBox();
-      const x = bar.x + bar.width - 20, y = bar.y + bar.height / 2;
-      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
-      for (let step = 1; step <= 5; step++) {
-        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + distance * step / 5 }] });
-      }
-      await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-      const during = await page.locator('.meme-panel').boundingBox();
-      assert.ok(Math.abs(during.height - (before.height - distance)) < 3, `Sheet did not follow native touch: ${JSON.stringify({ before, during, distance })}`);
-      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-      await page.waitForFunction(() => !document.querySelector('.meme-panel').getAnimations().some(animation => animation.playState === 'running'));
-    };
-    await pull(-120);
-    assert.equal(await page.locator('.meme-expanded-dialog').count(), 1);
-    await pull(120);
-    assert.equal(await page.locator('.meme-expanded-dialog').count(), 0);
-    await cdp.detach();
-  }
-  await page.locator('.meme-pack-shortcuts').evaluate(bar => {
-    bar.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 3, clientX: 100, clientY: 500 }));
-    bar.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, pointerId: 3, clientX: 100, clientY: 400 }));
-    window.dispatchEvent(new PointerEvent('pointerup', { pointerId: 3, clientX: 100, clientY: 400 }));
-  });
-  await page.waitForTimeout(260);
-  await page.locator('.meme-collapse').click();
+  assert.equal(await page.locator('.meme-expand,.meme-collapse,.meme-expanded-dialog').count(),0);
+  assert.equal((await page.locator('.meme-panel').boundingBox()).height,fixedPanel.height,'Vertical rail pulls retain the keyboard-sized panel');
+  assert.equal(await page.evaluate(()=>retainedShortcut===document.querySelector('.meme-pack-shortcuts img')),true);
+  await page.locator('#open-memes').click();
+  await page.locator('.meme-panel').waitFor({state:'detached'});
   await page.locator('#open-memes').click();
   await page.locator('[data-shortcut^="pack:"]').first().click();
   await page.waitForFunction(()=>document.querySelectorAll('.meme-pack-list section').length===1);

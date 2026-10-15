@@ -19,7 +19,7 @@
 #app .chat-tools { margin:8px -8px -8px; padding:12px 8px max(12px,env(safe-area-inset-bottom)); border:0; border-top:1px solid var(--line-subtle); border-radius:0; background:var(--composer-panel-surface); box-shadow:none; gap:16px 8px; }
 #app .chat-tools::before { display:none; }
 #app .chat-tools > button:focus-visible { outline:2px solid var(--focus); outline-offset:0; border-radius:12px; }
-#app .meme-panel { border:0; border-top:1px solid var(--line-subtle); border-radius:18px 18px 0 0; background:var(--composer-panel-surface); box-shadow:none; backdrop-filter:none; -webkit-backdrop-filter:none; padding-inline:8px; }
+#app .meme-panel { border:0; border-top:1px solid var(--line-subtle); border-radius:0; background:var(--composer-panel-surface); box-shadow:none; backdrop-filter:none; -webkit-backdrop-filter:none; padding-inline:8px; }
 #app .meme-toolbar { height:52px; border-bottom:1px solid var(--line-subtle); }
 #app .meme-toolbar :is(.meme-collapse,.meme-expand),
 #app .composer .meme-toolbar :is(.meme-collapse,.meme-expand) { flex:none; position:static; width:44px; height:44px; padding:10px; border:0; background:transparent; box-shadow:none; color:var(--ink-muted); backdrop-filter:none; -webkit-backdrop-filter:none; }
@@ -33,3 +33,15 @@
 #app .meme-search-dialog:not(.meme-expanded-dialog) .meme-panel { background:var(--paper); }
 @media(prefers-contrast:more) { #app .composer .composer-input-stack,#app .composer .composer-input-stack:focus-within { box-shadow:inset 0 0 0 1px var(--line-strong); } }
 @media(forced-colors:active) { #app :is(.meme-panel,.chat-tools),#app .composer .composer-input-stack,#app .composer .composer-input-stack:focus-within { background:Canvas; color:CanvasText; border:1px solid CanvasText; } }
+
+/* Shared P1 navigation and actions, including the nested collection browser. */
+#app .meme-back svg { width:22px; height:22px; stroke-width:1.8; }
+#app .meme-back { display:grid; place-items:center; padding:0; }
+#app .meme-pack-add { min-height:44px; border:0; border-radius:12px; padding:8px 12px; font-size:14px; font-weight:600; background:var(--action-surface); color:var(--action-ink) !important; box-shadow:none; }
+#app .meme-pack-add[data-danger='true'] { background:transparent; color:var(--danger) !important; }
+#app .meme-pack-add:disabled { background:var(--surface); color:var(--ink-muted) !important; }
+#app .composer-send svg,
+#app .voice-recorder:is([data-state='paused'],[data-state='processing'],[data-state='sending']) .voice-send svg { display:block; width:23px; height:23px; flex:none; }
+#app .voice-recorder:is([data-state='paused'],[data-state='processing'],[data-state='sending']) .voice-send { padding:0; }
+
+#app .voice-recorder .voice-preview { color:var(--accent); }
