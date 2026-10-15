@@ -626,6 +626,7 @@ function validateRecoveryStoredVault(value: unknown): value is StoredRecoveryVau
 function validateStoredVault(value: unknown): value is StoredVault {
   const stored = value as StoredPasswordVault | null;
   const password = stored?.v === 3 && stored.unlockMethod === 'password' && validPasswordKdf(stored.kdf) &&
+    (stored.passwordFormat === undefined || stored.passwordFormat === 'numeric-6') &&
     isBoundedBase64(stored.wrappedKey?.iv, 16, 16) && isBoundedBase64(stored.wrappedKey?.ciphertext, 64, 64) &&
     isBoundedBase64(stored.payload?.iv, 16, 16) && isBoundedBase64(stored.payload?.ciphertext);
   return Boolean(password) || validateLegacyStoredVault(value) || validatePlatformStoredVault(value) || validateRecoveryStoredVault(value);
@@ -958,6 +959,7 @@ async function createVaultLocked(
     try {
       const key = await importMasterKey(master);
       const stored: StoredPasswordVault = { v: 3, unlockMethod: 'password', spaceId: selectedSpace, kdf: credential.kdf,
+        ...(credential.passwordFormat ? { passwordFormat: credential.passwordFormat } : {}),
         wrappedKey: await wrapPasswordMaster(master, credential, selectedSpace), payload: await encryptPayload(vault, key) };
       if (!isActive()) throw new DOMException('保险库创建流程已经结束', 'AbortError');
       await installStoredVault(stored, expected);
@@ -1037,9 +1039,13 @@ async function clearUnlockThrottle(): Promise<void> {
 }
 
 async function enforceUnlockThrottle(): Promise<void> {
-  const throttle = await readUnlockThrottle();
-  const waitMs = throttle.nextAllowedAt - Date.now();
+  const waitMs = await passwordUnlockWaitMs();
   if (waitMs > 0) throw new Error(`尝试次数过多，请 ${Math.ceil(waitMs / 1000)} 秒后重试`);
+}
+
+/** Read-only presentation of the existing guessing delay; never clears or extends it. */
+export async function passwordUnlockWaitMs(): Promise<number> {
+  return Math.max(0, (await readUnlockThrottle()).nextAllowedAt - Date.now());
 }
 
 export async function unlockVault(secret = '', preparedPlatformProof?: Promise<Uint8Array<ArrayBuffer>>, expectedStored?: StoredVault): Promise<VaultSession> {

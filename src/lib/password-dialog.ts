@@ -2,13 +2,18 @@ import { layoutViewport } from './form-input';
 import { mountDialog } from './dialog';
 import { passwordValidation } from './password-protection';
 import { createElement, LockKeyhole, ArrowLeft } from 'lucide';
+import { requestNumericPassword } from './password-keypad';
 
-/** One fresh operation-bound proof. Cancelling or hiding rejects late results; reading and typing have no deadline. */
-export function requestPassword<T>(root: HTMLElement, options: {
+export type PasswordRequestOptions<T> = {
   create?: boolean; title: string; context: string; signal?: AbortSignal; isActive: () => boolean;
   verify: (password: string) => Promise<T>; forgot?: () => void; cancel?: () => void;
   presentation?: 'page' | 'sheet'; spaceName?: string; operation?: string; submitLabel?: string;
-}): Promise<T> {
+  passwordFormat?: 'numeric-6'; retryAfterMs?: () => Promise<number>;
+};
+
+/** One fresh operation-bound proof. Cancelling or hiding rejects late results; reading and typing have no deadline. */
+export function requestPassword<T>(root: HTMLElement, options: PasswordRequestOptions<T>): Promise<T> {
+  if (options.create || (options.presentation === 'page' && options.passwordFormat === 'numeric-6')) return requestNumericPassword(root, options);
   return new Promise((resolve, reject) => {
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, ...(options.signal ? [options.signal] : [])]);

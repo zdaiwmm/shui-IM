@@ -1,3 +1,4 @@
+import { submitPassword } from './helpers/password.mjs';
 import { fillFormInput, cancelPasswordForm } from './helpers/form-input.mjs';
 import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
@@ -10,8 +11,8 @@ const dataDir=await mkdtemp(path.join(tmpdir(),'quiet-card-e2e-'));
 const backend=await startServer({port:0,host:'127.0.0.1',dataDir,quiet:true});
 const vite=await createServer({configFile:false,root:process.cwd(),logLevel:'error',plugins:[{name:'entry-test-observer',enforce:'pre',transform(code,id){if(id===path.join(process.cwd(),'src/main.ts'))return code.replace('void app.start();','window.app=app;void app.start();');}}],server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${backend.port}`,'/ws':{target:`ws://127.0.0.1:${backend.port}`,ws:true}}}});
 let browser;
-const secret='synthetic-card-test-2026';
-async function password(page){await fillFormInput(page, page.locator('.password-form [name=password]'), secret);if(await page.locator('.password-form [name=confirmation]').count())await fillFormInput(page, page.locator('.password-form [name=confirmation]'), secret);await page.locator('.password-form [type=submit]').click();}
+const secret='246810';
+async function password(page){await submitPassword(page, secret);}
 try {
  await vite.listen();browser=await chromium.launch(process.env.CI?{}:process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{channel:'chrome'});
  const pages=[];for(let i=0;i<3;i++){const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,acceptDownloads:true});const page=await context.newPage();page.setDefaultTimeout(20000);pages.push(page);}
