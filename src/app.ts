@@ -122,6 +122,7 @@ import { isChatMedia } from './lib/media-read';
 import { bindChatImageConcealGesture } from './lib/chat-image-conceal-gesture';
 import { CHAT_LATEST_GAP, mountChatBottomControl } from './lib/chat-bottom-control';
 import { CHAT_KEYBOARD_LAYOUT_MS, chatKeyboardLayoutProgress, createChatKeyboardLayout } from './lib/chat-keyboard-layout';
+import { coordinateComposerHandoff } from './lib/composer-handoff';
 import { bindChatKeyboardGesture, CHAT_VIEWPORT_SETTLE_MS, createChatViewportMotion } from './lib/chat-viewport-motion';
 import { bindReplySwipe, replySwipeMaxOffset, replySwipeOffset, REPLY_SWIPE_THRESHOLD_PX } from './lib/reply-swipe';
 import {
@@ -539,6 +540,7 @@ export class QuietRoomApp {
   private nativeKeyboardOpeningAt = 0;
   private voicePermissionPrepared = false;
   private listKeyboardLayout = createChatKeyboardLayout();
+  private composerHandoff: ReturnType<typeof coordinateComposerHandoff> | null = null;
   private chatKeyboardSurfaceMotion: { started: number; target: number; animations: Animation[] } | null = null;
   private chatResumeBottomOnFocus = false;
   private chatScrollFrame: number | null = null;
@@ -936,7 +938,7 @@ export class QuietRoomApp {
         const priorShellHeight = chat.shell.style.height;
         this.positionChatChrome(viewportTop, viewportHeight, layoutHeight);
         if (this.usesListScrolling && (resized || priorShellHeight !== chat.shell.style.height)
-          && this.chatPinnedToBottom && this.chatScrollIntent !== 'up'
+          && !this.composerHandoff && this.chatPinnedToBottom && this.chatScrollIntent !== 'up'
           && !this.chatBottomControl?.scrolling) this.setChatScrollTop(this.chatBottomScrollTop());
         const openMenu = chat.header.querySelector<HTMLDetailsElement>('.more-menu[open]');
         if (openMenu) setStyle(openMenu.style, '--app-height', `${viewportHeight}px`);
@@ -958,6 +960,7 @@ export class QuietRoomApp {
         composerResize: composerResizeOwnsGeometry,
       }) ?? false;
       this.syncTransientChatFollow(Boolean(motion?.moving));
+      this.composerHandoff?.update();
       if (!resized && !widthChanged && previousViewportTop === viewportTop && previousChatGeneration === chatGeneration) {
         // A WebKit viewport event can arrive without geometry changes while
         // the initial chat motion is still settling. Keep the bounded sampler
@@ -1049,6 +1052,7 @@ export class QuietRoomApp {
       if (trackingFrame === null) trackingFrame = requestAnimationFrame(sampleViewport);
     };
     this.cancelViewportWork = () => {
+      this.composerHandoff?.cancel(); this.composerHandoff = null;
       this.syncTransientChatFollow(false);
       this.galleryViewportHeader = null;
       this.listKeyboardLayout.reset();
@@ -1136,7 +1140,7 @@ export class QuietRoomApp {
       const menu = this.root.querySelector<HTMLDetailsElement>('.more-menu[open]');
       if (menu && event.target instanceof Node && !menu.contains(event.target)) this.closeMoreMenu(menu);
       const tools = this.root.querySelector<HTMLElement>('#chat-tools');
-      if (tools && !tools.hidden && event.target instanceof Element && !event.target.closest('#chat-tools,#open-chat-tools,#open-memes')) this.closeChatTools(true);
+      if (tools && !tools.hidden && event.target instanceof Element && !event.target.closest('#chat-tools,#open-chat-tools,#open-memes')) this.closeChatTools(true, Boolean(event.target.closest('#message-input')));
       const composer = this.root.querySelector<HTMLElement>('#composer');
       const textarea = this.root.querySelector<HTMLTextAreaElement>('#message-input');
       const keyboardGesture = event.pointerType === 'touch' && event.target instanceof Element
@@ -1530,11 +1534,11 @@ export class QuietRoomApp {
     }
   }
 
-  private gatewayTemplate(title: string, subtitle: string, content: string, compact = false, chrome: 'full' | 'plain' = 'full'): void {
+  private gatewayTemplate(title: string, subtitle: string, content: string, compact = false, chrome: 'full' | 'plain' = 'full', artwork?: 'lock'): void {
     const showChrome = !compact && chrome === 'full';
     this.root.innerHTML = `
-      <section class="gateway${compact ? ' gateway-gesture' : ''}${chrome === 'plain' ? ' gateway-plain' : ''}">
-        ${showChrome ? `<div class="gateway-mark" aria-hidden="true">${icons.lock}</div>` : compact ? '' : `<div class="gateway-mark" aria-hidden="true">${icons.people}</div>`}
+      <section class="gateway${compact ? ' gateway-gesture' : ''}${chrome === 'plain' ? ' gateway-plain' : ''}${artwork ? ' gateway-key-setup' : ''}">
+        ${artwork ? entryArt(artwork) : showChrome ? `<div class="gateway-mark" aria-hidden="true">${icons.lock}</div>` : compact ? '' : `<div class="gateway-mark" aria-hidden="true">${icons.people}</div>`}
         <div class="gateway-heading">
           ${showChrome ? '<p class="eyebrow">Quiet Room</p>' : ''}
           <h1>${title}</h1>
@@ -1904,9 +1908,9 @@ export class QuietRoomApp {
   ): string {
     const supportError = window.isSecureContext ? '' : '当前连接不是浏览器信任的 HTTPS 安全环境。局域网测试请先信任开发证书。';
     return `
-      <label class="passkey-name-field">通行密钥名称<input id="new-passkey-name" value="${accessEscape(defaultPasskeyName())}" autocomplete="off" spellcheck="false"></label>
+      <label class="passkey-name-field">${minimal ? '设置' : ''}通行密钥名称<input id="new-passkey-name" value="${accessEscape(defaultPasskeyName())}" autocomplete="off" spellcheck="false"></label>
       ${minimal ? '' : '<p class="field-hint">用于在系统中辨认这把密钥，请勿填写聊天隐私。</p><label class="passkey-name-field">设备备注（选填）<input id="new-device-alias" autocomplete="off" placeholder="例如：工作电脑" /></label>'}
-      <p class="setup-follow-hint">${instruction}</p>
+      ${minimal ? '' : `<p class="setup-follow-hint">${instruction}</p>`}
       <div class="welcome-actions">
         <button class="primary-button" type="button" data-device-verify>${buttonLabel}</button>
         ${backLabel ? `<button class="text-button gateway-back" type="button">${backLabel}</button>` : ''}
@@ -2888,8 +2892,7 @@ export class QuietRoomApp {
       : '使用通行密钥保护您的空间隐私，暂时离开后会自动锁定空间，再次进入空间须验证通行密钥。', `
       ${unsupported ? '' : `<label class="passkey-name-field">设置通行密钥名称<input id="new-passkey-name" value="${accessEscape(defaultPasskeyName())}" autocomplete="off" spellcheck="false"></label>`}
       <div class="welcome-actions"><button class="primary-button" data-device-verify type="button">${unsupported ? '设置密码并创建空间' : '设置密钥并创建空间'}</button><button class="text-button gateway-back" type="button">返回</button><p class="form-error" role="alert"></p></div>
-    `, false, 'plain');
-    const mark = this.root.querySelector('.gateway-mark'); if (mark) mark.outerHTML = entryArt('lock');
+    `, false, 'plain', 'lock');
     if (this.session) {
       this.root.querySelector('[data-device-verify]')?.addEventListener('click', () => {
         this.transitionPage('forward', () => this.renderChat());
@@ -3025,7 +3028,7 @@ export class QuietRoomApp {
     void report('opened');
     this.gatewayTemplate('加入私密空间', '加入后，这个私密空间只属于你们两个人。<br>先设置访问密钥，以后用它解锁聊天。', `
       ${this.passkeySetupMarkup('跟随设备提示完成即可，不用再记一个新密码。', '设置访问密钥并加入', '暂不加入', true)}
-    `, false, 'plain');
+    `, false, 'plain', 'lock');
     this.mountPasskeySetup(
       (platformResult, flowActive) => this.handleJoin(invite, platformResult, flowActive),
       '正在加入…',
@@ -4692,12 +4695,14 @@ export class QuietRoomApp {
     if (animate && picker && !this.privacyCovered) {
       const composer = this.root.querySelector<HTMLElement>('#composer');
       const input = this.root.querySelector<HTMLTextAreaElement>('#message-input');
+      const handoff = keyboard && !picker.isClosing && this.beginComposerHandoff('keyboard');
       if (composer) composer.dataset.expressionHandoff = 'true';
       if (keyboard) {
         if (document.activeElement !== input) input?.focus({ preventScroll: true });
       }
       if (picker.isClosing) return;
-      picker.close(() => { if (this.memePicker === picker) this.closeMemePicker(keyboard || document.activeElement === input); });
+      picker.close(() => { if (this.memePicker === picker) this.closeMemePicker(keyboard || document.activeElement === input); }, Boolean(handoff));
+      this.composerHandoff?.update();
       return;
     }
     this.memePicker = null;
@@ -4720,6 +4725,7 @@ export class QuietRoomApp {
     const host = this.root.querySelector<HTMLElement>('#composer');
     if (!session || !host || this.privacyCovered || !this.runtimeAbort || this.activeSurface !== 'chat') return;
     if (this.memePicker && !this.memePicker.isClosing) return;
+    if (document.documentElement.dataset.keyboardOpen === 'true' || this.composerHandoff) this.beginComposerHandoff('expression');
     if (this.memePicker?.isClosing) {
       this.memePicker.reopen();
       this.root.querySelector<HTMLTextAreaElement>('#message-input')?.blur();
@@ -4757,6 +4763,7 @@ export class QuietRoomApp {
         const available = Math.max(52, height - 108);
         return Math.min(available, this.listKeyboardLayout.occupiedHeight || Math.max(220, Math.min(420, height * .4)));
       },
+      presentationOwned: () => Boolean(this.composerHandoff),
       list: () => loadMemeFavorites(session),
       file: (item, signal) => loadMemeFavoriteFile(session, item, signal),
       save: (file, signal) => saveMemeFavorite(session, file, signal),
@@ -4820,7 +4827,7 @@ export class QuietRoomApp {
         return new Blob(chunks, { type: response.headers.get('Content-Type') ?? '' });
       },
       close: keyboard => this.closeMemePicker(keyboard, true),
-      layoutChanged: () => this.syncChatLayout(),
+      layoutChanged: () => { this.syncChatLayout(); this.composerHandoff?.update(); },
       onSearchPointer: (input, event) => { this.prepareKeyboardOpening(input, event); },
       onKeyboardPointer: event => {
         const input = host.querySelector<HTMLTextAreaElement>('#message-input');
@@ -5991,7 +5998,7 @@ export class QuietRoomApp {
     this.voiceGesture?.destroy();
     this.voiceGesture = bindVoiceRecordGesture(this.root.querySelector<HTMLButtonElement>('#record-voice')!, mode => this.beginVoiceRecording(mode));
     this.root.querySelector('#open-chat-tools')?.addEventListener('click', event => { this.toggleChatTools(); if ((event as MouseEvent).detail === 0) this.root.querySelector<HTMLButtonElement>('#chat-tools:not([hidden]) button:not(:disabled)')?.focus({ preventScroll: true }); });
-    textarea.addEventListener('focus', () => this.closeChatTools(true));
+    textarea.addEventListener('focus', () => this.closeChatTools(true, true));
     this.root.querySelector('#message-list')?.addEventListener('click', event => {
       if (event.target === event.currentTarget) this.closeChatTools(true);
     });
@@ -6204,6 +6211,7 @@ export class QuietRoomApp {
 
   /** Keep bottom-following content visible while document insets await a stable viewport. */
   private syncTransientChatFollow(moving: boolean): void {
+    if (this.composerHandoff) return;
     const chat = this.chatLayoutElements;
     if (!chat) return;
     if (!moving || this.usesListScrolling || this.visualClientCoordinates || !this.chatPinnedToBottom
@@ -6345,7 +6353,7 @@ export class QuietRoomApp {
       scrollTop: () => this.chatScrollTop,
       scrollTo: top => this.setChatScrollTop(top),
       active: () => !this.privacyCovered && this.activeSurface === 'chat' && shell.isConnected,
-      measure: () => !this.chatViewportMotion?.moving && !this.composerHeightMotion,
+      measure: () => !this.composerHandoff && !this.chatViewportMotion?.moving && !this.composerHeightMotion,
       begin: () => {
         this.replyJumpVersion += 1;
         this.chatScrollRevision += 1;
@@ -6378,7 +6386,7 @@ export class QuietRoomApp {
     this.chatLayoutGeneration += 1;
     let previousMeasurements = '';
     const sync = (position = true) => {
-      if (!shell.isConnected || this.chatViewportMotion?.moving || this.composerHeightMotion || this.nativeKeyboardDismiss) return;
+      if (!shell.isConnected || this.composerHandoff || this.chatViewportMotion?.moving || this.composerHeightMotion || this.nativeKeyboardDismiss) return;
       const headerHeight = header.offsetHeight;
       const noticesHeight = notices.offsetHeight;
       const composerHeight = composer.offsetHeight;
@@ -7018,7 +7026,7 @@ export class QuietRoomApp {
     const session = this.session;
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!session || this.privacyCovered || document.hidden || !document.hasFocus() || document.documentElement.classList.contains('privacy-obscured')
-      || this.root.classList.contains('portrait-blocked') || this.activeSurface !== 'chat' || this.callView || this.memePicker || !list || list.closest('[inert]') || this.chatRestoreAnchor) return;
+      || this.root.classList.contains('portrait-blocked') || this.activeSurface !== 'chat' || this.callView || this.memePicker || this.composerHandoff || !list || list.closest('[inert]') || this.chatRestoreAnchor) return;
     const top = this.root.querySelector('.chat-header')?.getBoundingClientRect().bottom ?? list.getBoundingClientRect().top;
     const composer = this.root.querySelector<HTMLElement>('#composer');
     const bottom = composer ? this.chatComposerLayoutTop(composer) : list.getBoundingClientRect().bottom;
@@ -7303,7 +7311,9 @@ export class QuietRoomApp {
         width: layoutViewport()?.width ?? window.innerWidth }, performance.now(),
         matchMedia('(prefers-reduced-motion: reduce)').matches);
       const transition = this.listKeyboardLayout.transition;
-      if (transition && transition.to !== null && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      // Handoff compensation samples this exact layout frame. An independent
+      // compositor timeline can advance between WebKit's two geometry reads.
+      if (transition && transition.to !== null && !this.composerHandoff && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
         const target = transition.to;
         const baseHeight = Math.max(transition.from, target);
         // The same transform owns the visible input edge and its accessory
@@ -7378,6 +7388,10 @@ export class QuietRoomApp {
   }
 
   private chatComposerLayoutTop(composer: HTMLElement): number {
+    if (this.composerHandoff) {
+      const row = composer.querySelector<HTMLElement>('.composer-row');
+      if (row) return row.getBoundingClientRect().top - row.offsetTop;
+    }
     const top = composer.getBoundingClientRect().top;
     if (this.usesListScrolling) return top;
     const transform = getComputedStyle(composer).transform;
@@ -7594,7 +7608,7 @@ export class QuietRoomApp {
   }
 
   private alignChatBottom(): void {
-    if (this.composerHeightMotion || this.nativeKeyboardDismiss) {
+    if (this.composerHandoff || this.composerHeightMotion || this.nativeKeyboardDismiss) {
       this.chatBottomFollowPending = true;
       return;
     }
@@ -8131,9 +8145,56 @@ export class QuietRoomApp {
     voice.setAttribute('aria-hidden', String(hasText));
   }
 
+  private beginComposerHandoff(target: 'keyboard' | 'expression'): boolean {
+    const chat = this.chatLayoutElements, signal = this.runtimeAbort?.signal;
+    const row = chat?.composer.querySelector<HTMLElement>('.composer-row');
+    if (!this.visualClientCoordinates || !this.usesListScrolling || !chat?.shell.isConnected || !row || !signal
+      || signal.aborted || this.privacyCovered || matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
+    const from = row.getBoundingClientRect().top;
+    const follow = this.chatPinnedToBottom && this.chatScrollIntent !== 'up';
+    let anchor = follow ? null : this.captureChatAnchor();
+    const scrollRevision = this.chatScrollRevision;
+    const reference = follow ? this.chatLatestTimelineRow() ?? null
+      : anchor ? chat.list.querySelector<HTMLElement>(`.message[data-client-msg-id="${CSS.escape(anchor.clientMsgId)}"]`) : null;
+    const referenceTop = reference?.getBoundingClientRect().top;
+    const panelFrom = target === 'expression' && this.memePicker?.isClosing
+      ? chat.shell.querySelector<HTMLElement>('.meme-panel')?.getBoundingClientRect().top : undefined;
+    this.composerHandoff?.cancel(false, true);
+    const closedHeight = this.listKeyboardLayout.closedHeight ?? document.documentElement.clientHeight;
+    let owner: ReturnType<typeof coordinateComposerHandoff> | null = null;
+    owner = coordinateComposerHandoff({
+      row, shell:chat.shell, list:chat.list, signal, from, closedHeight, panelFrom, reference, referenceTop, follow,
+      gap:row.offsetTop + CHAT_LATEST_GAP,
+      holdReference:() => this.chatScrollRevision === scrollRevision,
+      beforeComplete:() => { if (this.chatScrollRevision !== scrollRevision) anchor = this.captureChatAnchor(false, true); },
+      release:() => { if (this.composerHandoff === owner) this.composerHandoff = null; },
+      active:() => !this.privacyCovered && this.activeSurface === 'chat' && this.chatLayoutElements === chat,
+      panel:() => target === 'expression' ? chat.composer.querySelector<HTMLElement>('.meme-panel') : null,
+      target:(baseTop, elapsed) => {
+        const edge = chat.composer.getBoundingClientRect().bottom;
+        if (target === 'expression') return chat.composer.querySelector('.meme-panel') ? baseTop + closedHeight - edge : null;
+        const height = layoutViewport()?.height ?? innerHeight;
+        return document.documentElement.clientHeight - height > 120 ? baseTop + height - edge : elapsed >= 900 ? baseTop : null;
+      },
+      settled:() => !this.listKeyboardLayout.moving && !this.chatViewportMotion?.moving,
+      complete:() => {
+        this.composerHandoff = null;
+        this.syncChatLayout(false);
+        if (follow && this.chatScrollRevision === scrollRevision) this.alignChatBottom(); else if (anchor) this.restoreChatAnchor(chat.list, anchor);
+        this.updateChatBottomControl();
+      },
+    });
+    this.composerHandoff = owner;
+    this.trackChatViewport();
+    return true;
+  }
+
   private closeChatTools(animate = false, keyboard = false): void {
     const panel = this.root.querySelector<HTMLElement>('#chat-tools');
-    if (panel) showChatTools(panel, false, this.runtimeAbort?.signal ?? AbortSignal.abort(), animate && !this.privacyCovered, undefined, () => this.syncChatLayout(), keyboard);
+    const handoff = Boolean(panel && !panel.hidden && !chatToolsClosing(panel) && animate && keyboard && this.beginComposerHandoff('keyboard'));
+    if (panel) showChatTools(panel, false, this.runtimeAbort?.signal ?? AbortSignal.abort(), animate && !this.privacyCovered, undefined,
+      () => { this.syncChatLayout(); this.composerHandoff?.update(); }, keyboard, handoff);
+    this.composerHandoff?.update();
     const button = this.root.querySelector<HTMLButtonElement>('#open-chat-tools');
     button?.setAttribute('aria-expanded', 'false');
     button?.setAttribute('aria-label', '更多功能');

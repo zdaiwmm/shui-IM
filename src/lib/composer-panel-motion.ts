@@ -45,13 +45,13 @@ export function moveComposerPanel(element: HTMLElement, from: number, to: number
 
 type ToolEffect = { row?: Animation; panel?: Animation; closing: boolean; cleanup?: () => void };
 const tools = new WeakMap<HTMLElement, ToolEffect>();
-const pinnedProperties = ['position', 'inset', 'width', 'height', 'margin'];
+const pinnedProperties = ['position', 'inset', 'width', 'height', 'margin', 'left', 'top', 'z-index'];
 const unpin = (panel: HTMLElement) => pinnedProperties.forEach(property => panel.style.removeProperty(property));
 
 export function chatToolsClosing(panel: HTMLElement) { return tools.get(panel)?.closing ?? false; }
 
 export function showChatTools(panel: HTMLElement, open: boolean, signal: AbortSignal,
-  animate = true, previousRowTop?: number, layoutChanged: () => void = () => {}, keyboard = false): void {
+  animate = true, previousRowTop?: number, layoutChanged: () => void = () => {}, keyboard = false, fade = false): void {
   const previous = tools.get(panel), row = panel.parentElement?.querySelector<HTMLElement>('.composer-row');
   if (!open && panel.hidden) return;
   if (!open && previous?.closing && animate) return;
@@ -67,7 +67,13 @@ export function showChatTools(panel: HTMLElement, open: boolean, signal: AbortSi
   if (open) panel.removeAttribute('aria-hidden'); else panel.setAttribute('aria-hidden', 'true');
   if (!animate || signal.aborted) { panel.hidden = signal.aborted || !open; tools.delete(panel); layoutChanged(); return; }
   panel.hidden = false;
-  if (!open && getComputedStyle(panel).position !== 'absolute') {
+  const host = panel.parentElement, shell = host?.closest<HTMLElement>('.chat-shell');
+  if (!open && fade && shell && host !== shell) {
+    const box = panel.getBoundingClientRect(), origin = shell.getBoundingClientRect();
+    shell.append(panel);
+    Object.assign(panel.style, {position:'absolute',inset:'auto',left:`${box.left-origin.left}px`,top:`${box.top-origin.top}px`,
+      width:`${box.width}px`,height:`${box.height}px`,margin:'0',zIndex:'5'});
+  } else if (!open && getComputedStyle(panel).position !== 'absolute') {
     const box = panel.getBoundingClientRect();
     panel.style.width = `${box.width}px`; panel.style.height = `${box.height}px`;
     panel.style.position = 'absolute'; panel.style.inset = 'auto 0 0'; panel.style.margin = '0';
@@ -77,23 +83,31 @@ export function showChatTools(panel: HTMLElement, open: boolean, signal: AbortSi
   const abort = () => {
     if (tools.get(panel) !== effect) return;
     effect.row?.cancel(); effect.panel?.cancel(); panel.hidden = true; panel.inert = true;
-    panel.setAttribute('aria-hidden', 'true'); unpin(panel); tools.delete(panel);
+    panel.setAttribute('aria-hidden', 'true'); effect.cleanup?.(); tools.delete(panel);
   };
   signal.addEventListener('abort', abort, { once: true });
-  effect.cleanup = () => signal.removeEventListener('abort', abort);
+  effect.cleanup = () => {
+    signal.removeEventListener('abort', abort);
+    if (host?.isConnected && panel.parentElement !== host) host.append(panel);
+    unpin(panel);
+  };
   const finish = () => {
     if (tools.get(panel) !== effect) return;
     panel.hidden = !open;
     effect.cleanup?.(); unpin(panel);
     tools.delete(panel);
   };
-  if (row && rowTop !== undefined) effect.row = moveComposerPanel(row,
+  if (!fade && row && rowTop !== undefined) effect.row = moveComposerPanel(row,
     rowTop - row.getBoundingClientRect().top, 0, signal, () => {}, keyboard, rowSpeed);
   const box = panel.getBoundingClientRect();
   const from = panelTop !== undefined ? panelTop - box.top : rowTop !== undefined && row
     ? rowTop + row.getBoundingClientRect().height + 8 - box.top : box.height;
   const viewport = panel.ownerDocument.defaultView;
   const to = open ? 0 : Math.max(box.height, (viewport?.innerHeight ?? box.bottom) - box.top);
-  effect.panel = moveComposerPanel(panel, from, to, signal, finish, keyboard, panelSpeed);
+  if (fade) {
+    effect.panel = panel.animate([{opacity:getComputedStyle(panel).opacity},{opacity:0}], {duration:CHAT_KEYBOARD_LAYOUT_MS,fill:'both'});
+    void effect.panel.finished.then(() => { finish(); effect.panel?.cancel(); }, () => {});
+    if (reducedMotion() || document.hidden) effect.panel.finish();
+  } else effect.panel = moveComposerPanel(panel, from, to, signal, finish, keyboard, panelSpeed);
   if (!effect.panel) finish();
 }

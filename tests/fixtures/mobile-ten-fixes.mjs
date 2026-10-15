@@ -5,7 +5,15 @@ export async function verifyMobileTenFixes(page) {
   const result = await page.evaluate(async () => {
     const app = fixture.app, input = document.querySelector('#message-input');
     const paint = () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-    const finish = async () => { await Promise.allSettled(document.querySelector('#app').getAnimations({subtree:true}).map(a => { a.finish(); return a.finished; })); await paint(); };
+    const finish = async () => {
+      await Promise.allSettled(document.querySelector('#app').getAnimations({subtree:true}).map(a => { a.finish(); return a.finished; })); await paint();
+      // A native handoff also owns rAF compensation. Finishing WAAPI alone
+      // no longer means the combined viewport/panel presentation has settled.
+      if(app.composerHandoff)await new Promise((resolve,reject)=>{
+        const deadline=performance.now()+2100;
+        const tick=()=>{if(!app.composerHandoff)resolve();else if(performance.now()>deadline)reject(Error('Composer handoff did not settle'));else requestAnimationFrame(tick);};tick();
+      });
+    };
     const luma = color => {
       const canvas = document.createElement('canvas'), context = canvas.getContext('2d');
       context.fillStyle = color; context.fillRect(0,0,1,1);

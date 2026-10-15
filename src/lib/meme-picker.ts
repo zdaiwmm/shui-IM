@@ -66,6 +66,7 @@ export type MemePickerOptions = {
   layoutChanged?: () => void;
   previousRowTop?: number;
   occupiedHeight?: () => number | undefined;
+  presentationOwned?: () => boolean;
   onSearchPointer: (input: HTMLInputElement, event: PointerEvent) => void;
   onKeyboardPointer: (event: PointerEvent) => void;
 };
@@ -462,8 +463,10 @@ export class MemePicker {
     options.host.classList.add('has-meme-panel'); options.host.append(this.panel);
     options.layoutChanged?.();
     const panelTop = this.panel.getBoundingClientRect().top;
-    this.animateSheet(row && rowTop !== undefined ? rowTop + row.getBoundingClientRect().height + 8 - panelTop : this.panel.getBoundingClientRect().height, 0, 'translate');
-    if (row && rowTop !== undefined) this.rowAnimation = moveComposerPanel(row, rowTop - row.getBoundingClientRect().top, 0, this.signal, () => {}, true, rowSpeed);
+    if (!options.presentationOwned?.()) {
+      this.animateSheet(row && rowTop !== undefined ? rowTop + row.getBoundingClientRect().height + 8 - panelTop : this.panel.getBoundingClientRect().height, 0, 'translate');
+      if (row && rowTop !== undefined) this.rowAnimation = moveComposerPanel(row, rowTop - row.getBoundingClientRect().top, 0, this.signal, () => {}, true, rowSpeed);
+    }
     const sync = () => {
       syncHeight();
       const view = layoutViewport();
@@ -502,20 +505,25 @@ export class MemePicker {
   }
   reopen() {
     if (!this.closing || !this.active()) return;
+    const opacity = getComputedStyle(this.panel).opacity;
     const top = this.panel.getBoundingClientRect().top, speed = panelVelocity(this.panel);
     const row = this.options.host.querySelector<HTMLElement>('.composer-row');
     const rowTop = row?.getBoundingClientRect().top, rowSpeed = row ? panelVelocity(row) : 0;
     this.sheetAnimation?.cancel(); this.rowAnimation?.cancel();
     this.closing = false; this.panel.inert = false; this.panel.removeAttribute('aria-hidden');
-    for (const property of ['position', 'inset', 'left', 'top', 'width', 'height', 'z-index']) this.panel.style.removeProperty(property);
+    for (const property of ['position', 'inset', 'left', 'top', 'width', 'height', 'z-index', 'translate']) this.panel.style.removeProperty(property);
     this.options.host.append(this.panel);
     delete this.options.host.dataset.expressionHandoff;
     this.options.host.classList.add('has-meme-panel'); this.options.layoutChanged?.();
-    this.sheetAnimation = moveComposerPanel(this.panel, top - this.panel.getBoundingClientRect().top, 0, this.signal,
-      () => { this.sheetAnimation = undefined; }, true, speed);
-    if (row && rowTop !== undefined) this.rowAnimation = moveComposerPanel(row, rowTop - row.getBoundingClientRect().top, 0, this.signal, () => {}, true, rowSpeed);
+    if (!this.options.presentationOwned?.()) {
+      this.sheetAnimation = moveComposerPanel(this.panel, top - this.panel.getBoundingClientRect().top, 0, this.signal,
+        () => { this.sheetAnimation = undefined; }, true, speed);
+      if (row && rowTop !== undefined) this.rowAnimation = moveComposerPanel(row, rowTop - row.getBoundingClientRect().top, 0, this.signal, () => {}, true, rowSpeed);
+    } else if (Number(opacity) < 1) {
+      this.sheetAnimation = this.panel.animate([{ opacity }, { opacity: 1 }], { duration: 240, fill: 'backwards' });
+    }
   }
-  close(finish: () => void) {
+  close(finish: () => void, fade = false) {
     if (this.closing) return;
     this.rememberView();
     this.closing = true; this.panel.inert = true; this.panel.setAttribute('aria-hidden', 'true');
@@ -537,17 +545,26 @@ export class MemePicker {
       this.panel.style.left = `${bounds.left - origin.left}px`;
       this.panel.style.top = `${bounds.top - origin.top}px`;
       this.panel.style.width = `${bounds.width}px`;
+      this.panel.style.removeProperty('translate');
     }
     // Commit final occupancy once. The row and panel then travel together
     // with transforms, instead of moving the row only after panel disposal.
     this.options.host.classList.remove('has-meme-panel');
     this.options.layoutChanged?.();
-    if (row && rowTop !== undefined) {
+    if (!fade && row && rowTop !== undefined) {
       const delta = rowTop - row.getBoundingClientRect().top;
       this.rowAnimation = moveComposerPanel(row, delta, 0, this.signal);
     }
     const bottom = Math.max(document.documentElement.clientHeight, layoutViewport()?.height ?? innerHeight);
-    if (shell && this.panel.parentElement === shell) {
+    if (fade) {
+      const opacity = getComputedStyle(this.panel).opacity;
+      this.sheetAnimation?.cancel();
+      const animation = this.panel.animate([{ opacity }, { opacity: 0 }], { duration: 360, fill: 'both' });
+      this.sheetAnimation = animation;
+      this.signal.addEventListener('abort', () => animation.cancel(), { once: true });
+      void animation.finished.then(() => { this.sheetAnimation = undefined; if (this.active()) finish(); }, () => {});
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches || document.hidden) animation.finish();
+    } else if (shell && this.panel.parentElement === shell) {
       this.sheetAnimation = moveComposerPanel(this.panel, 0, Math.max(0, bottom - bounds.top), this.signal, () => {
         this.sheetAnimation = undefined; if (this.active()) finish();
       }, true, speed);
