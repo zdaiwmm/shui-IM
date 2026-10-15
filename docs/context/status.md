@@ -1,12 +1,12 @@
 # Quiet Room 当前状态
 
-## 输入区交接与首次密钥页已合并，生产待确认（2026-10-16）
+## 输入区交接与首次密钥页已发布，真机待验收（2026-10-16）
 
-- 用户已确认[输入区交接与首次密钥页V1](../requirements/2026-10-16-composer-handoff-entry/README.md)的方案及已展示原型／流程，授权正式实施、验证、合并及发布意图；生产仍待本次精确SHA确认。
+- 用户已确认[输入区交接与首次密钥页V1](../requirements/2026-10-16-composer-handoff-entry/README.md)的方案及已展示原型／流程，授权正式实施、验证、合并；展示精确应用SHA、版本及完整CI／预检后，用户明确确认本次生产发布。
 - [PR #324](https://github.com/zdaiwmm/shui-IM/pull/324)源`1cca3ffe72de0a8b33e107b526b57566d1089b74`合并为`85ffdfee934f10dc6b423367b25eb7da9bd6d231`，完整文件树一致，版本`2026.10.15.5`。三种面板／键盘交接统一同帧屏幕坐标，旧面板原位渐隐，保留历史锚点及繁忙任务快速反向；工具底部补齐面板色，首次创建／受邀加入共用锁插图及P1版式。
 - [最终PR CI 38819800156](https://github.com/zdaiwmm/shui-IM/actions/runs/38819800156)及[精确main CI 38820734457](https://github.com/zdaiwmm/shui-IM/actions/runs/38820734457) attempt 1完整成功：119文件／961项、66浏览器入口、通话／TURN、审计、文档、凭据扫描及双架构镜像。本机同产品代码的完整66／66浏览器通过，自动证据因运行中仅夹具／记录提交而clean=false，不作为最终SHA验证；10项备份转移受本机96%磁盘容量门禁阻断，保留失败且未修改保护。
-- 固定[只读云预检38821504469](https://github.com/zdaiwmm/shui-IM/actions/runs/38821504469)取得PREFLIGHT_OK，前版`bb5dc8b2cb63cb2f3a8ddf0ff48df75a669ab491`与预期一致，镜像绑定上述精确main CI／attempt 1；正常审批doctor模式环境审核，未切换生产。精确SHA已展示，待用户确认；下方`bb5dc8b`／`2026.10.15.4`为最近已验证生产快照。
-- 脱敏交付及预检证据保存于公共Git元数据composer-handoff-entry-20261016/production.json，在任务工作树之外。原生iPhone／iOS27／Safari／微信WebView仍待真机验收；自动模拟不代替真机。
+- 固定[云预检38821504469](https://github.com/zdaiwmm/shui-IM/actions/runs/38821504469)及[云发布38822314554](https://github.com/zdaiwmm/shui-IM/actions/runs/38822314554)成功，精确DEPLOY_VERIFIED后独立READBACK_OK于`2026-10-15T23:23:05.151Z`完成。应用／备份healthy，TURN运行且探针none，维护门不存在；精确SHA／镜像、HTTPS／数据库／存储、产物及新WebSocket一致。首次备份starting仅等待既有5分钟启动期并续跑回读，切换仅一次；完整事实由[发布记录](../../RELEASING.md#输入区交接与首次密钥页已发布2026-10-16-0723)拥有。
+- 脱敏授权、交付、预检、发布及全部回读证据保存于公共Git元数据composer-handoff-entry-20261016/production.json，在任务工作树之外；第二个无部署配置的文档树仅对账，文档SHA不发布。本批资源按固定清理门禁核验；原生iPhone／iOS27／Safari／微信WebView仍待真机验收，下方均为历史生产快照。
 
 ## 输入、表情与录音八项修订已发布，真机待验收（2026-10-16）
 

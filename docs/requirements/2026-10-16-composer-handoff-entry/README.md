@@ -3,7 +3,7 @@
 ## 身份与当前阶段
 
 - 需求编号：2026-10-16-composer-handoff-entry。
-- 阶段：D已合并，精确main CI与只读预检成功；生产候选85ffdfee934f10dc6b423367b25eb7da9bd6d231／2026.10.15.5，待SHA确认后进入P。
+- 阶段：P已发布并独立回读通过；应用85ffdfee934f10dc6b423367b25eb7da9bd6d231／2026.10.15.5，文档SHA不发布。
 - 规则来源：本机main `4356531cea264dd01bd9110da90b9ff62cfd7a59`；同时核对实时main中的AGENTS及workflow增补。
 - 起始基线：GitHub实时main与origin/main均为`5be6f6f3d7cd04ba4cfb0c538aab6f18d9456f13`；本机main落后。
 - 独占分支：`codex/composer-handoff-entry-v1-20261016`，本会话新建；本机目录`.worktrees/composer-handoff-entry-v1-20261016`，接续时重新核验。
@@ -40,7 +40,8 @@
 | --- | --- | --- | --- |
 | 第一次需求方案 | 上述V1五项 | 2026-10-16，本会话用户「按照方案执行，完成后合并并发布生产」；未提供独立消息ID | 已授权本需求设计及后续实施交付意图；页面仍需当前原型／流程第二次确认 |
 | 第二次原型／流程 | 已展示V1，设计提交916f3b27e96aeb5f4b2d5971bd7e0aae80c06d87 | 2026-10-16，展示原型与流程并请求进入实施后，用户「判断是否完成，若未完成，则完成后发布生产」；本会话消息，无独立ID | 按当前V1完成正式实施；不重复要求固定确认口令 |
-| 合并与生产 | 本任务 | 同一用户消息明确要求完成后合并并发布 | 正式实施须先满足上行；验证后合并授权保留；生产仍待展示并确认精确SHA |
+| 合并与生产 | 本任务 | 同一用户消息明确要求完成后合并并发布 | 验证后合并授权保留；当时精确生产SHA待确认，现见下行 |
+| 精确生产发布 | 85ffdfee934f10dc6b423367b25eb7da9bd6d231／2026.10.15.5 | 2026-10-16，展示完整SHA、CI／预检和真机缺口后，用户「确认，发布生产」，并对同一精确问题回复「确认发布此提交」；无独立permalink | 授权本次固定入口发布、独立回读及事实对账；已执行 |
 
 无本次原型豁免，不推断原生验证已通过。
 
@@ -72,7 +73,8 @@
 - 第二轮PR的三种轨迹、历史与繁忙反向在两引擎均通过；Linux WebKit入口夹具误要求密码回退页具备密钥名称字段。按既有platformVaultSetupState校验回退／密钥分支各自字段与动作文案，保留所有几何断言；产品代码不变，完整CI重验。
 - [PR #324](https://github.com/zdaiwmm/shui-IM/pull/324)源1cca3ffe72de0a8b33e107b526b57566d1089b74合并为85ffdfee934f10dc6b423367b25eb7da9bd6d231，完整文件树一致；[最终PR完整CI 38819800156](https://github.com/zdaiwmm/shui-IM/actions/runs/38819800156)及[精确main CI 38820734457](https://github.com/zdaiwmm/shui-IM/actions/runs/38820734457) attempt 1全部成功，119文件／961项、66浏览器入口、通话／TURN、审计、文档、凭据扫描及双架构镜像。
 - 本机产品候选02eb88dc8ea45de29ec8f5246b00ca8f32bfda28构建干净通过，完整66／66浏览器入口通过，969546毫秒。运行中提交了仅入口能力夹具与需求记录变化，自动记录clean=false，不充当最终精确SHA证据；产品代码相同，最终文件树由上述CI验证。早期容量失败保留，未改备份保护。
-- 固定[云预检38821504469](https://github.com/zdaiwmm/shui-IM/actions/runs/38821504469)取得PREFLIGHT_OK，前版bb5dc8b2cb63cb2f3a8ddf0ff48df75a669ab491与预期一致，镜像绑定上述main CI／attempt 1。doctor模式的production环境审核按已授权只读范围正常批准，未切换生产；正式生产仍待本会话已展示的精确SHA确认。
-- 脱敏交付与预检证据保存于公共Git元数据quiet-room-deliveries/evidence/composer-handoff-entry-20261016/production.json，在任务工作树之外。未进行原生IME、iPhone／Safari／微信WebView真机验收。
+- 固定[云预检38821504469](https://github.com/zdaiwmm/shui-IM/actions/runs/38821504469)取得PREFLIGHT_OK，前版bb5dc8b2cb63cb2f3a8ddf0ff48df75a669ab491与预期一致，镜像绑定上述main CI／attempt 1。用户确认精确SHA后，[云发布38822314554](https://github.com/zdaiwmm/shui-IM/actions/runs/38822314554)取得DEPLOY_VERIFIED，仅切换一次；正常production环境审核保留。
+- 首次独立回读因备份starting未通过；核对既有5分钟启动期后只续跑readback-only。最终READBACK_OK于2026-10-15T23:23:05.151Z完成：应用／备份healthy、TURN运行、维护门不存在，SHA／镜像、HTTPS／数据库／存储、公开与容器产物及新WebSocket一致；详见[本次发布记录](../../../RELEASING.md#输入区交接与首次密钥页已发布2026-10-16-0723)。
+- 脱敏授权、交付、预检、发布及全部回读证据保存于公共Git元数据quiet-room-deliveries/evidence/composer-handoff-entry-20261016/production.json，在任务工作树之外；文档SHA不发布。未进行原生IME、iPhone／Safari／微信WebView真机验收。
 
 需求材料8个源码文件共56011字节，无二进制、Base64、依赖、产物或用户截图入库。正式变更另检查最终差异与体积。原型通过不等于正式实现或生产通过。

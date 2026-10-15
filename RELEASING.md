@@ -1,5 +1,13 @@
 # Quiet Room 固定发布流程
 
+## 输入区交接与首次密钥页已发布（2026-10-16 07:23）
+
+- 用户在获知完整应用`85ffdfee934f10dc6b423367b25eb7da9bd6d231`、版本`2026.10.15.5`、完整main CI／预检及真机缺口后回复「确认，发布生产」，随后对同一精确问题回复「确认发布此提交」，授权本次生产发布；无独立消息permalink。五项V1及原型／流程确认由[需求记录](docs/requirements/2026-10-16-composer-handoff-entry/README.md)拥有；后续文档SHA不进入生产。
+- [PR #324](https://github.com/zdaiwmm/shui-IM/pull/324)已合并，完整文件树与源一致；[精确main CI 38820734457](https://github.com/zdaiwmm/shui-IM/actions/runs/38820734457) attempt 1完整成功，含119文件／961项、66浏览器入口、通话／TURN、审计、文档、凭据扫描及双架构镜像。固定[云预检38821504469](https://github.com/zdaiwmm/shui-IM/actions/runs/38821504469)取得PREFLIGHT_OK，前版`bb5dc8b2cb63cb2f3a8ddf0ff48df75a669ab491`与预期一致。临时命名回读配置仅复用已有连接及密钥路径，不复制密钥。
+- 固定入口`publish.mjs --cloud --with-readback --environment production --sha 85ffdfee934f10dc6b423367b25eb7da9bd6d231`核对精确DEPLOY_VERIFIED，[云发布38822314554](https://github.com/zdaiwmm/shui-IM/actions/runs/38822314554)回执成功时间`2026-10-15T23:17:58.966Z`，云发布260116毫秒。从上述前版仅切换一次，批次`20261015T231532Z`；工作流代码固定于`1f77119c9b93a4c5810848c8275ad6e94bae9ca5`，应用仍为获批SHA，正常production环境审核保留。镜像`sha256:5da2637fc5434ba557cfb0c04fe89e365c7e2c5c3549dd3e4da2f3e679be4f49`，归档摘要`b5caf649811249e640f7ecaf207434ef210b5e875e34fcaa6d79172a591ac2fa`，209256863字节，linux/amd64，绑定上述main CI／attempt 1；未修改helper、云权限、容量或健康门禁。
+- 首次独立回读于`2026-10-15T23:18:14.634Z`仅因备份starting未通过；应用healthy、SHA／镜像匹配、维护门不存在。只读核对备份实际启动`2026-10-15T23:17:49.879485226Z`及既有5分钟周期／启动期后，仅用同SHA的readback-only续跑，没有再次部署。最终READBACK_OK于`2026-10-15T23:23:05.151Z`（北京时间07:23）完成，3120毫秒：应用／备份运行且healthy，TURN运行且探针none；精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物摘要、新WebSocket一致，维护门不存在，管理员与通话启用。
+- 脱敏授权、交付、预检、发布及全部独立回读证据保存于公共Git元数据`quiet-room-deliveries/evidence/composer-handoff-entry-20261016/production.json`，位于任务树及其专属Git目录之外。第二个无部署配置的对账树基于实时main`1f77119c9b93a4c5810848c8275ad6e94bae9ca5`，仅更新发布／状态／同一需求记录；文档SHA不发布。iPhone／iOS27／Safari／微信WebView原生键盘与触控仍待真机验收。本批资源按固定清理门禁核验，不处理其他任务资源；下方均为历史生产快照。
+
 ## 输入、表情与录音八项修订已发布（2026-10-16 00:46）
 
 - 用户在获知应用`bb5dc8b2cb63cb2f3a8ddf0ff48df75a669ab491`、版本`2026.10.15.4`、完整CI及真机缺口后回复「确认，发布生产」，授权本次精确应用；无独立消息permalink。八项V1及免原型／流程图由[需求记录](docs/requirements/2026-10-15-composer-voice-refine/README.md)拥有，本批包含此前已合入的数字密码功能，后续文档SHA不进入生产。
