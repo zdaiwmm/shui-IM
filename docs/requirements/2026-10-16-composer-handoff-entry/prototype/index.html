@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="blue" data-color-scheme="light">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Quiet Room · 输入区交接与密钥页 V1</title>
+  <link rel="stylesheet" href="../../../../src/design-tokens.css">
+  <link rel="stylesheet" href="../../../../src/appearance.css">
+  <link rel="stylesheet" href="../../../../src/entry-experience.css">
+  <link rel="stylesheet" href="preview.css">
+</head>
+<body>
+<main class="review">
+  <header class="review-header"><p>QUIET ROOM · P1 · V1</p><h1>输入区交接与首次密钥页</h1><span>交互原型，所有内容与系统行为均为模拟</span></header>
+  <div class="review-layout">
+    <aside class="review-sidebar">
+      <nav class="page-tabs" aria-label="审阅页面"><button data-page="chat" aria-pressed="true">聊天切换</button><button data-page="create" aria-pressed="false">首次创建</button><button data-page="join" aria-pressed="false">受邀加入</button><a href="../flow.html">业务流程图 ↗</a></nav>
+      <div class="settings">
+        <label>配色<select id="palette"><option value="blue">经典</option><option value="green">松绿</option><option value="purple">雾紫</option><option value="apricot">暖杏</option></select></label>
+        <label>明暗<select id="scheme"><option value="light">浅色</option><option value="dark">深色</option></select></label>
+        <label>画幅<select id="size"><option value="390,740">手机 · 390×740</option><option value="320,568">窄短屏 · 320×568</option><option value="390,568">短屏 · 390×568</option><option value="393,683">手机 · 393×683</option><option value="430,844">手机 · 430×844</option><option value="768,740">平板宽度 · 768</option><option value="1024,740">桌面宽度 · 1024</option></select></label>
+        <label>宿主<select id="host"><option value="wechat">微信 WebView（模拟）</option><option value="safari">Safari（模拟）</option></select></label>
+        <label>阅读状态<select id="reading"><option value="latest">正在底部</option><option value="history">阅读历史</option></select></label>
+        <label>文字<select id="text-size"><option value="100">100%</option><option value="200">200%</option></select></label>
+        <label class="check"><input id="reduce" type="checkbox">减少动态效果</label>
+      </div>
+      <div class="chat-controls"><p>点击输入框、表情或加号切换。也可逐项演示：</p><button data-sequence="expression,keyboard">表情 → 键盘</button><button data-sequence="keyboard,expression">键盘 → 表情</button><button data-sequence="tools,keyboard">工具 → 键盘</button><button id="reverse">连续反向切换</button><button id="reset-height">重置首次键盘测量</button></div>
+      <button id="privacy" class="privacy-control">模拟隐私清理</button>
+      <p class="review-note">键盘由原型绘制；画幅不代表设备模拟。正式版本仍需 iPhone / Safari / 微信真机验收。</p>
+      <details class="diagnostics"><summary>查看切换轨迹</summary><output id="motion-report">等待一次切换完成。</output></details>
+    </aside>
+    <div class="preview-stage"><div class="host-caption">微信 WebView · 网页可绘制区域</div><section id="app" class="screen" aria-label="V1交互预览"></section><p id="status" class="preview-status" role="status" aria-live="polite">表情已展开，点击输入框试试。</p></div>
+  </div>
+</main>
+<script type="module" src="preview.js"></script>
+</body></html>

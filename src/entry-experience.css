@@ -83,3 +83,15 @@
 .entry-art-gallery .entry-message i { display:none; }
 .entry-art-gallery .entry-orbit { display:none; }
 .entry-art-gallery .entry-spark { animation:none; }
+
+/* Confirmed entry V1: both first-time protection pages share one hierarchy. */
+#app .gateway.gateway-intro.gateway-key-setup { padding: max(32px,calc(env(safe-area-inset-top) + 24px)) 24px max(24px,env(safe-area-inset-bottom)); gap:0; }
+#app .gateway-key-setup .gateway-intro-content { padding-bottom:24px; }
+#app .gateway-key-setup .gateway-heading { text-align:center; }
+#app .gateway-key-setup .gateway-heading h1 { margin:0; font-size:1.625rem; line-height:1.25; font-weight:600; }
+#app .gateway-key-setup .gateway-heading>p:last-child { max-width:31ch; margin:16px auto 0; font-size:.875rem; line-height:1.6; }
+#app .gateway-key-setup .passkey-name-field { width:min(100%,400px); margin:32px auto 0; gap:8px; color:var(--ink); font-size:.875rem; line-height:1.5; }
+#app .gateway-key-setup .passkey-name-field input { min-height:48px; padding:12px; border:0; border-radius:12px; background:var(--surface); font-size:1rem; }
+#app .gateway-key-setup .welcome-actions { width:min(100%,400px); justify-self:center; gap:8px; }
+#app .gateway-key-setup .welcome-actions :is(.primary-button,.text-button) { min-height:44px; padding:10px 12px; font-size:.875rem; line-height:1.5; }
+#app .gateway-key-setup .welcome-actions .form-error:empty { display:none; }

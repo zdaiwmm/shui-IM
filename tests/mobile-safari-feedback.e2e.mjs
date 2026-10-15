@@ -3,6 +3,7 @@ import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
 import { verifyComposerRefine } from './fixtures/composer-voice-refine.mjs';
 import { verifyMobileTenFixes } from './fixtures/mobile-ten-fixes.mjs';
+import { verifyComposerHandoff, verifyHandoffEntryPages } from './fixtures/composer-handoff.mjs';
 
 const server = await createServer({ configFile:false, appType:'custom', root:process.cwd(), logLevel:'error',
   server:{host:'127.0.0.1',port:0,hmr:false}, plugins:[{name:'mobile-feedback-fixture',configureServer(vite) {
@@ -82,6 +83,11 @@ try {
       app.messages=new Map(Array.from({length:30},(_,i)=>[i+1,{seq:i+1,clientMsgId:`feedback-${i}`,senderId:'feedback-peer',payload:{v:1,kind:'text',text:`合成消息 ${i}`,sentAt:'2026-10-14T00:00:00Z'},acceptedAt:'2026-10-14T00:00:00Z',status:'delivered'}]));
       app.renderChat();window.fixture={app,session};
     });
+    if(process.env.COMPOSER_HANDOFF_ONLY) {
+      await verifyComposerHandoff(page);
+      await verifyHandoffEntryPages(page);
+      await browser.close();browser=null;continue;
+    }
     await verifyMobileTenFixes(page);
     for(const theme of ['blue','green','purple','apricot'])for(const scheme of ['light','dark']) {
       await page.evaluate(({theme,scheme})=>{document.documentElement.dataset.theme=theme;document.documentElement.dataset.colorScheme=scheme;},{theme,scheme});
@@ -118,6 +124,7 @@ try {
     await page.locator('#message-input').fill('保留输入草稿');await page.locator('#open-memes').click();
     await page.locator('.fluent-emoji-tile img').first().waitFor();
     await page.locator('.meme-panel').evaluate(async panel=>{await Promise.all(panel.getAnimations().map(animation=>animation.finished));});
+    await page.waitForFunction(()=>!fixture.app.composerHandoff);
     const density=await page.locator('.fluent-emoji-tile img').first().evaluate(img=>({natural:img.naturalWidth,painted:img.getBoundingClientRect().width*devicePixelRatio}));
     assert.ok(density.natural>=density.painted,JSON.stringify(density));
     const panels = await page.evaluate(() => {
@@ -414,10 +421,12 @@ try {
     assert.equal(reduced,true);
     await page.emulateMedia({reducedMotion:'no-preference'});
     await verifyComposerRefine(page);
+    await verifyComposerHandoff(page);
+    await verifyHandoffEntryPages(page);
     const privacy=await page.evaluate(()=>{
-      const app=fixture.app;app.openMemePicker();app.closeMemePicker(false,true);
+      const app=fixture.app;app.openMemePicker();app.closeMemePicker(true,true);
       const row=document.querySelector('.composer-row');app.lockNow();
-      return !document.querySelector('.meme-panel')&&row.getAnimations().length===0;
+      return !document.querySelector('.meme-panel,.chat-panel-underlay')&&!app.composerHandoff&&row.getAnimations().length===0;
     });
     assert.equal(privacy,true);
     assert.deepEqual(errors,[]);await page.evaluate(()=>{fixture.app.lockNow();stopChrome();});

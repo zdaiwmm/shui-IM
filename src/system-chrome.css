@@ -12,6 +12,7 @@ html:has(#app > .chat-shell) {
   --chrome-page-bottom: var(--composer-surface);
 }
 html:has(#app > .chat-shell textarea:focus) { --chrome-page-top: var(--composer-surface-focused); --chrome-page-bottom: var(--composer-surface-focused); }
+html:has(#app > :where(.chat-shell :is(.meme-panel,.chat-tools:not([hidden]),.chat-panel-underlay))):not(:where(:has(#app > .chat-shell #message-input:focus))) { --chrome-bottom-surface:var(--composer-panel-surface); }
 html:has(#app > :is(.gateway,.device-shell,.backup-page,.recovery-flow-page,.gallery-shell,.cover,.browser-access-shell)),
 html:has(#app :is(.space-profile-overlay,.space-drawer-overlay,.password-page)) {
   --chrome-page-top: var(--paper); --chrome-page-bottom: var(--paper);

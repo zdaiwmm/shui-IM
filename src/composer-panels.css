@@ -10,6 +10,8 @@
 #app .composer-row { position:relative; isolation:isolate; }
 #app .composer-row::before { content:''; position:absolute; inset:-8px -8px calc(-1 * max(8px,env(safe-area-inset-bottom))); background:var(--composer-surface-current); z-index:-1; pointer-events:none; }
 #app .composer:has(#chat-tools:not([hidden])) .composer-row::before { bottom:calc(-1 * max(16px,env(safe-area-inset-bottom))); }
+#app .composer:has(#chat-tools:not([hidden]))::after { content:''; position:absolute; inset:auto 0 0; height:max(8px,env(safe-area-inset-bottom)); background:var(--composer-panel-surface); z-index:-1; pointer-events:none; }
+.chat-panel-underlay { position:absolute; inset:0 0 auto; background:var(--composer-panel-surface); pointer-events:none; z-index:5; }
 #app .chat-tools > button > span { background:var(--composer-tool-surface); }
 #app .composer .composer-field,
 #app .composer .composer-field:has(textarea:focus) { border:0; border-radius:12px; background:transparent; box-shadow:none; outline:0; }
