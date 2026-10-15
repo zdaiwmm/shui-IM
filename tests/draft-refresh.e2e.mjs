@@ -129,7 +129,7 @@ try {
     await probe;
     await a.goto(url); await a.locator('#create-room').click(); await completeSpaceProfile(a); await protect(a);
     await a.locator('#copy-invite').waitFor(); await a.locator('#invite-url').waitFor({state:'attached'}); await b.goto(await a.locator('#invite-url').inputValue());
-    await b.locator('[data-device-verify]').click(); await protect(b); await ready(a); await ready(b);
+    await b.locator('.password-create .password-form').waitFor(); await protect(b); await ready(a); await ready(b);
 
     // No wait for preferences, debounce, key derivation or IDB after input.
     for (const text of ['first immediate draft', 'replacement\n第二行', '', '输入法当前文字']) {
@@ -295,7 +295,7 @@ try {
     const joiningContext = await browser.newContext(options);
     await joiningContext.addInitScript(prepareParticipant);
     const joiningPeer = await joiningContext.newPage(); joiningPeer.setDefaultTimeout(15000);
-    await joiningPeer.goto(nextInvite); await joiningPeer.locator('[data-device-verify]').click();
+    await joiningPeer.goto(nextInvite); await joiningPeer.locator('.password-create .password-form').waitFor();
     await protect(joiningPeer); await ready(joiningPeer); await ready(second);
     assert.equal(await second.locator('.space-drawer-overlay').count(), 0, 'Invitation navigation must not cover the completed peer join');
     await second.locator('#message-input').fill(`after invitation race ${engine}`); await second.locator('#send-text').click(); await receive(joiningPeer, `after invitation race ${engine}`);

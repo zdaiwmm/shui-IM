@@ -5,7 +5,7 @@ import './entry-experience.css';
 import { transitionMediaCapsule, retireMediaCapsule } from './lib/media-capsule';
 import { requestPassword } from './lib/password-dialog';
 import { derivePasswordCredential, isPasswordCredential, type LocalCredentialResult } from './lib/password-protection';
-import { isPlatformVaultUnavailable, probePlatformVaultCapabilities, platformVaultSetupState } from './lib/platform-vault';
+import { embeddedPasswordSetup, isPlatformVaultUnavailable, probePlatformVaultCapabilities, platformVaultSetupState } from './lib/platform-vault';
 import { reauthenticateVault, assertPasswordProtectionEnvironment } from './lib/vault';
 import { DesktopWorkspace, desktopWidth } from './lib/desktop-workspace';
 import './desktop.css';
@@ -1976,7 +1976,7 @@ export class QuietRoomApp {
         }
       })();
     });
-    if (allowPassword && platformVaultSetupState() === 'unsupported') verifyButton.click();
+    if (allowPassword && embeddedPasswordSetup() && platformVaultSetupState() === 'unsupported') verifyButton.click();
   }
 
   private armSystemSurfaceHandoff(): void {

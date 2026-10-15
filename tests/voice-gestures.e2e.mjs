@@ -174,6 +174,11 @@ try {
     return {duration:draft.durationMs,size:draft.file.size,start:bytes.getInt16(44,true),end:bytes.getInt16(draft.file.size-2,true),selected:r.selectedDurationMs};
   });
   assert.deepEqual(trimmed,{duration:1500,size:72044,start:5461,end:21844,selected:1500});
+  const trimTargets=await page.evaluate(()=>{
+    const r=fixture.app.voiceRecorder,end=r.trimEnd;r.trimEnd=r.trimStart+12000;r.update();
+    const start=document.querySelector('[data-trim=start]').getBoundingClientRect(),finish=document.querySelector('[data-trim=end]').getBoundingClientRect(),play=document.querySelector('.voice-preview').getBoundingClientRect(),track=document.querySelector('.voice-draft-timeline').getBoundingClientRect();
+    r.trimEnd=end;r.update();return {separate:start.right<=finish.left,preview:play.bottom<=track.top,start:start.width,end:finish.width};
+  });assert.deepEqual(trimTargets,{separate:true,preview:true,start:44,end:44},'Even the minimum selection keeps independent 44px trim targets and a reachable preview');
   await page.getByRole('button',{name:'试听录音',exact:true}).click();
   await page.waitForFunction(()=>fixture.app.voiceRecorder.preview.duration===1.5);
   await page.getByRole('slider',{name:'裁剪起点'}).press('ArrowRight');

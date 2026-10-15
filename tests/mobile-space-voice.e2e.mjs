@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { chromium, webkit } from 'playwright';
@@ -14,7 +14,6 @@ const vite=await createServer({configFile:false,root:process.cwd(),logLevel:'err
 let browser;
 try {
   await vite.listen(); const url=`http://localhost:${vite.httpServer.address().port}/`;
-  if (!process.env.QR_ONLY_SURFACE) {
   browser=await chromium.launch(process.env.CI?{}:{channel:'chrome'});
   const pages=[];
   for(let i=0;i<2;i++) {
@@ -61,7 +60,10 @@ try {
   assert.equal(await b.locator('.is-space-list-page').count(),1);
   const returned=await b.evaluate(async()=>{
     const samples=[];const end=performance.now()+400;document.querySelector('#profile-back').click();
-    do{const profile=document.querySelector('.space-profile-overlay');const list=document.querySelector('.is-space-list-page');samples.push(Boolean(document.elementFromPoint(innerWidth/2,innerHeight/2)?.closest('.space-profile-overlay,.is-space-list-page')));await new Promise(r=>requestAnimationFrame(r));}while(performance.now()<end);
+    do{const profile=document.querySelector('.space-profile-overlay');const list=document.querySelector('.is-space-list-page > .space-drawer');
+      const covered=[profile,list].some(node=>{if(!node)return false;const r=node.getBoundingClientRect(),style=getComputedStyle(node);return r.left<=innerWidth/2&&r.right>=innerWidth/2&&r.top<=innerHeight/2&&r.bottom>=innerHeight/2&&Number(style.opacity)>=.99&&style.backgroundColor!=='rgba(0, 0, 0, 0)';});
+      samples.push(covered);if(!covered)console.log('RETURN_UNCOVERED_FRAME',JSON.stringify({profile:profile?.getBoundingClientRect().toJSON(),list:list?.getBoundingClientRect().toJSON()}));
+      await new Promise(r=>requestAnimationFrame(r));}while(performance.now()<end);
     return {covered:samples.every(Boolean),lists:document.querySelectorAll('.is-space-list-page').length};
   });assert.deepEqual(returned,{covered:true,lists:1});await b.locator('.space-close').click();
   // Recreate the exact delayed original-participant snapshot: a welcome plus
@@ -89,8 +91,7 @@ try {
   console.log('PASS real two-browser reciprocal creation/join/send, joined countdown cleanup, direct list return and Welcome-before-update ordering');
   await browser.close();browser=null;
 
-  }
-  // Actual WebKit with Chrome-on-iOS branding: vendor is not the engine contract.
+  // Desktop WebKit with explicit synthetic Chrome-on-iOS device evidence: vendor is not the engine contract.
   browser=await webkit.launch();
   const page=await browser.newPage({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:3,
     userAgent:'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/141.0 Mobile/15E148 Safari/604.1'});

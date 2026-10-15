@@ -444,7 +444,7 @@ export class VoiceRecorder {
         const gesture = new AbortController();
         const signal = AbortSignal.any([gesture.signal, this.signal]);
         handle.addEventListener('pointermove', next => {
-          if (next.pointerId === event.pointerId) change(edge, sample + (next.clientX - origin) / Math.max(1, bounds.width - 24) * this.samples.length);
+          if (next.pointerId === event.pointerId) change(edge, sample + (next.clientX - origin) / Math.max(1, bounds.width - 88) * this.samples.length);
         }, { signal });
         const end = (next: PointerEvent) => { if (next.pointerId === event.pointerId) gesture.abort(); };
         handle.addEventListener('pointerup', end, { signal });
