@@ -130,10 +130,10 @@ export async function auditUiDetails(page, out) {
           const rect=await page.locator('.space-drawer').boundingBox();assert.ok(rect.x===0&&Math.abs(rect.width-width)<1,'mobile settings presentation fills the page');
         }
         if(name==='create') {
-          if(await page.locator('#new-passkey-name').count()) await page.locator('.recovery-explanation summary').click();
-          const fields=await page.locator('#new-passkey-name,#new-device-alias').evaluateAll(es=>es.map(e=>({width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height,font:parseFloat(getComputedStyle(e).fontSize)})));
-          if(fields.length) { assert.equal(fields.length,2);assert.ok(Math.abs(fields[0].width-fields[1].width)<1&&fields.every(e=>e.height>=44&&e.font>=16),'both device fields share the full width and readable size'); }
-          else assert.match(await page.locator('.entry-protection').textContent(),/设置解锁密码.*日常解锁的密码/);
+          assert.equal(await page.locator('.entry-protection,.entry-support,.recovery-explanation,#new-device-alias').count(),0,'creation uses the confirmed compact protection layout');
+          const fields=await page.locator('#new-passkey-name').evaluateAll(es=>es.map(e=>({height:e.getBoundingClientRect().height,font:parseFloat(getComputedStyle(e).fontSize)})));
+          if(fields.length) { assert.equal(fields.length,1);assert.ok(fields.every(e=>e.height>=44&&e.font>=16),'passkey name retains readable size and touch target');assert.equal(await page.locator('[data-device-verify]').textContent(),'设置密钥并创建空间'); }
+          else { assert.equal(await page.locator('[data-device-verify]').textContent(),'设置密码并创建空间');assert.match(await page.locator('.gateway-heading').textContent(),/使用密码保护您的空间隐私/); }
         }
         if(name==='spaceInvite') { assert.equal(await page.locator('.space-invite-sheet').count(),0);assert.ok((await page.locator('#invite-url').inputValue()).includes('#'));assert.equal(await page.locator('#copy-invite').count(),1); }
         if(name==='coverConfirm') {
