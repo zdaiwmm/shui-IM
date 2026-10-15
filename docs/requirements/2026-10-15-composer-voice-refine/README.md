@@ -49,3 +49,4 @@
 - 组合后构建及相关65项单测通过（键盘、语音、密码保护、保险库、浏览器执行器）；bundled Chromium主流程及通话、数字密码专项、Chromium／桌面WebKit移动输入反馈均取得成功标记。接续未取得录音两项的退出回执，单独完成剩余手势／生命周期并取得退出0，未重跑已成功条目。证据为本地`composer-voice-refine-combined.log`及`composer-voice-refine-combined-voice.log`。
 - 组合后浏览器入口总数为66；未因主线新增而把早期65项分段通过写成最终66项完整通过，最终组合完整门禁继续由精确PR CI验证。本地磁盘容量阻塞仍保留。
 - 推送`.4`候选时主线又合入数字密码交付文档`be01d1f86774b58ccb8e7da6a3a59579b395eab5`（PR #321），仅两份Markdown变化；保留状态页双方段落并合入，无产品／版本变化，文档检查通过后续跑同一PR。文档记载数字密码任务也出现同一通知WebKit初始化错误，原样有界重试成功；不据此宣称本任务CI通过。
+- 组合head`8fa7887becf41008912243ccb059e4ab8175f2ae`的[CI 38765263017](https://github.com/zdaiwmm/shui-IM/actions/runs/38765263017)中119文件／961单元、主浏览器和通话通过；移动分片WebKit关闭采样得到`before:473,top:0,detached:true`而失败。原夹具在关闭后等待四个rAF，耗时无上界，可能跨过360ms正常移除终点；产品关闭实现未变。一次定向修订改为暂停实际WAAPI并采样180ms，保留向下方向断言且新增360ms时长、中途连接、结束移除断言。双引擎在`CI=1`通过，中点top均为821.33，结束均已移除；证据`composer-voice-refine-motion-clock.log`，最终完整CI仍须对应修订head。
