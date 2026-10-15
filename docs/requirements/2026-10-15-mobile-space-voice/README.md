@@ -6,7 +6,7 @@
 - 独占工作树 `/Users/zhouding/ss-worktrees/mobile-space-voice-20261015`，分支 `codex/mobile-space-voice-20261015`，初始干净。
 - 用户于2026-10-15在14项V1方案后明确回复「本次免原型和流程图，直接修复验证」。来源为本会话，无独立消息链接。
 - 原型、流程图本次免除；正式实施及持续提交／PR／CI／合并沿现有流程。生产须另行确认精确提交。
-- 当前阶段：修订候选已完成受影响项定向验证，待最终冻结源完整门禁与CI；无生产授权。
+- 当前阶段：正式实施、PR完整CI、main合并及精确main完整CI均完成。无生产授权，真机未验收。
 
 ## 范围与验收
 
@@ -53,4 +53,12 @@
 - `1777af797f9c536b1b3b3e19b24f3ebe87cdd981`的干净冻结check:full完整通过：119文件／957项及65／65浏览器入口，927825毫秒；精确PR CI [38722004863](https://github.com/zdaiwmm/shui-IM/actions/runs/38722004863) attempt 1完整成功。该证据只属于此精确候选，不能直接改写为后续源通过。
 - 最后范围复核收紧WebView识别：无Safari标记的iOS壳还需排除安装到主屏幕的独立网页应用，保持其原能力检查；显式微信／Telegram标记仍走新密码，既有保险库无变化。独立模式依据[Apple的navigator.standalone说明](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/ConfiguringWebApplications/ConfiguringWebApplications.html)及display-mode即时信号，不以UA作认证。仅修改该识别函数并补双信号回归；后续候选按受影响范围复验构建／全部单元、WebView、真实双浏览器创建及设置安装边界，并取得新的完整CI，不重复不受影响的本地65入口。
 
-- 收紧后的构建、119文件／958项及WebView16项、真实双浏览器交换创建加入、设置与安装专项均通过。额外对真实录音组件进行Chromium指针＋触摸、WebKit指针拖动：已知3秒PCM裁剪至0.5–2秒，导出1500ms／72044字节，实际试听仅1.5秒；不代表物理设备。最终精确候选仍须新的完整CI后合并。
+- 收紧后的构建、119文件／958项及WebView16项、真实双浏览器交换创建加入、设置与安装专项均通过。额外对真实录音组件进行指针／触摸拖动：Chromium已知3秒PCM准确裁剪至0.5–2秒，导出1500ms／72044字节；WebKit指针坐标取整得到约0.4865–1.9946秒、1508ms／72432字节，试听与各自实际选区一致（允许像素取整误差30ms），不代表物理设备。最终精确候选仍须新的完整CI后合并。
+- 最终源`cca7b8036d7f58b4b2090cb8fb1d804bdd3f6785`的干净冻结check通过119文件／958项（20486毫秒）；仅比1777af7增加独立网页应用识别边界，受影响的浏览器专项通过。精确CI [38724141948](https://github.com/zdaiwmm/shui-IM/actions/runs/38724141948) attempt 1除group2 shard1外均通过；该分片WebKit初次创建等待copy-invite 15秒超时，原日志没有当时页面状态，根因未确认。同一SHA本地WebKit完整草稿定向通过后，仅对失败分片做一次有界重试，代码／断言／超时均未修改；原失败保留。
+
+
+## 交付结果（2026-10-15）
+
+- [PR #316](https://github.com/zdaiwmm/shui-IM/pull/316)最终源`cca7b8036d7f58b4b2090cb8fb1d804bdd3f6785`的精确CI 38724141948 attempt 2成功，唯一失败分片有界重试通过；首轮超时根因仍未确认，未改产品／断言／15秒期限。
+- PR于`2026-10-15T11:12:26Z`合并为`3aa09305c6af696acb171a4d4af7b71e077248e3`，版本`2026.10.15.2`；独立fetch及完整文件树比较与源候选一致。合并提交的[main CI 38725686867](https://github.com/zdaiwmm/shui-IM/actions/runs/38725686867) attempt 1完整成功，含958项、65个浏览器入口、通话、审计、文档及同轮双架构镜像；这是独立main结果，未以PR结果代替。
+- 本批未执行生产发布，原生iPhone／Chrome／Safari键盘、系统工具栏、麦克风与实际输入性能仍待真机验收。源工作树及5215本地移动预览为活动资源，保留；独立记录树仅更新本记录及状态，不含部署配置，也不触发生产切换。
