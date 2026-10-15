@@ -6,12 +6,12 @@ import path from 'node:path';
 import { chromium } from 'playwright';
 import { createServer } from 'vite';
 
-// Explicitly a desktop engine with a WeChat UA and controlled capability evidence.
+// Synthetic WebView policy plus ordinary-browser ambiguous-error safeguards. No real WeChat claim.
 const evidence = process.argv[2];
 const server = await createServer({ configFile: false, appType: 'custom', root: process.cwd(), logLevel: 'error', server: { host: '127.0.0.1', port: 0, hmr: false } });
 server.middlewares.use('/__webview', (_request, response) => { response.setHeader('Content-Type', 'text/html'); response.end('<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="app"></div></body></html>'); });
 const cases = [
-  ['missing-constructor', true], ['missing-container', true], ['missing-create', true], ['missing-get', true],
+  ['known-embedded-with-api', true], ['missing-constructor', true], ['missing-container', true], ['missing-create', true], ['missing-get', true],
   ['negative-prf-capability', true], ['negative-builtin-capability', true], ['not-supported', true],
   ['unknown-cancel', false], ['unknown-abort', false], ['unknown-security', false], ['unknown-transient', false],
   ['insecure-context', false], ['missing-crypto', false], ['missing-storage', false], ['storage-quota', false],
@@ -22,7 +22,7 @@ try {
   browser = await chromium.launch(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' });
   for (const [name, fallback] of cases) {
     console.log(`WEBVIEW_CASE ${name}`);
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0.65' });
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, userAgent: name.startsWith('unknown-') ? 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Version/27.0 Mobile/15E148 Safari/604.1' : 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0.65' });
     await context.addInitScript(name => {
       if (['missing-constructor', 'insecure-context', 'missing-crypto', 'missing-storage', 'storage-quota'].includes(name)) delete window.PublicKeyCredential;
       if (name === 'missing-container') Object.defineProperty(navigator, 'credentials', { configurable: true, value: undefined });

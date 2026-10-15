@@ -109,7 +109,7 @@ try {
   assert.equal(stored.v, 3); assert.equal(stored.unlockMethod, 'password');
   assert.ok(stored.wrappedKey && stored.payload && !stored.platform && !stored.ciphertext, 'New password space used a legacy format');
   assert.equal(JSON.stringify(stored).includes('🔐'), false, 'Password persisted in clear');
-  await b.goto(invite); await boot(b); await fillFormInput(b, b.locator('#new-device-alias'), '测试 B'); await capture(b, 'F15-join-protection'); await b.locator('[data-device-verify]').click();
+  await b.goto(invite); await boot(b); await b.locator('.password-create .password-form').waitFor(); assert.equal(await b.locator('#new-device-alias').count(),0); await capture(b, 'F15-join-protection');
   await password(b, 'joiner password 🔑');
   for (const page of [a, b]) {
     assert.equal(await page.locator('#welcome-chat').count(), 0);
@@ -149,7 +149,7 @@ try {
   await a.waitForFunction(() => proofResult === 'cancelled');
   await a.evaluate(() => { window.proofResult = null; app.confirmDeviceCredential('合成验收操作').then(() => { window.proofResult = 'verified'; }, () => { window.proofResult = 'cancelled'; }); });
   await password(a, '🔐'.repeat(12)); await a.waitForFunction(() => proofResult === 'verified');
-  assert.equal(await b.evaluate(() => app.session.vault.members.find(member => member.role === 'joiner').deviceName), 'iPhone · 微信 · 测试 B');
+  assert.equal(await b.evaluate(() => app.session.vault.members.find(member => member.role === 'joiner').deviceName), 'iPhone · 微信');
   await a.evaluate(() => app.renderDeviceManager()); await a.locator('#device-back').waitFor(); await capture(a, 'F11-device-labels'); await a.locator('#device-back').click();
   await a.evaluate(() => app.renderLocalHistoryBackup()); await a.locator('#local-backup-export').click();
   await a.locator('#history-download').waitFor(); assert.equal(await a.locator('#history-download').textContent(), '导出备份');

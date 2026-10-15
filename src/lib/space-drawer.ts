@@ -210,7 +210,7 @@ const expiry = pendingSpaceExpiry(s);
     else if (focusedId) sheet.querySelector<HTMLElement>(`#${CSS.escape(focusedId)}`)?.focus({ preventScroll: true });
     sheet.querySelectorAll<HTMLButtonElement>('[data-access]').forEach(button=>button.addEventListener('click',()=>{const space=options.spaces[Number(button.dataset.access)]!;const action=options.authorization?.(space);if(action&&action.deadline>performance.now()){dialog.close({animate:false});void action.open();}}));
     sheet.querySelector('#space-settings')?.addEventListener('click', () => { if (options.openSettings) options.openSettings(); else { settings(); sheet.querySelector<HTMLButtonElement>('.space-back')?.focus(); } });
-    sheet.querySelector('#space-create')!.addEventListener('click', () => void run(async () => { await options.create(); dialog.close({ animate: false }); }));
+    sheet.querySelector('#space-create')!.addEventListener('click', () => void run(async () => { await options.create(); }));
     sheet.querySelectorAll<HTMLButtonElement>('[data-space]').forEach(button => {
       const space = options.spaces[Number(button.dataset.space)]!;
       let timer: number | undefined, pressed = false, x = 0, y = 0;

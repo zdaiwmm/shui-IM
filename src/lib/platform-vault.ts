@@ -125,9 +125,20 @@ export function platformVaultUsesExternalAuthenticator(): boolean {
     && clientCapability.probe === window.PublicKeyCredential?.getClientCapabilities && clientCapability.platform === false;
 }
 
+/** Known in-app browsers cannot reliably present the required PRF ceremony.
+ * This only selects NEW protection; existing passkey wrappers never downgrade. */
+export function embeddedPasswordSetup(userAgent = navigator.userAgent): boolean {
+  const standalone = Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
+    || typeof matchMedia === 'function' && matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches;
+  return /MicroMessenger|Telegram|FBAN|FBAV|Instagram|Line\/|; wv\)/i.test(userAgent)
+    || !standalone && /(?:iPhone|iPad|iPod).*AppleWebKit.*Mobile/i.test(userAgent)
+      && !/Safari\/|CriOS\/|FxiOS\/|EdgiOS\/|OPiOS\//i.test(userAgent);
+}
+
 /** New protection prefers a local password when the built-in verifier is explicitly unavailable; unknown still tries WebAuthn. */
 export function platformVaultSetupState(): 'unsupported' | 'available' | 'unknown' | 'insecure' {
   if (!window.isSecureContext) return 'insecure';
+  if (embeddedPasswordSetup()) return 'unsupported';
   if (!window.PublicKeyCredential || typeof navigator.credentials?.create !== 'function' || typeof navigator.credentials?.get !== 'function') return 'unsupported';
   // WebAuthn RP IDs cannot be IP addresses, even on trustworthy loopback origins.
   const hostname = window.location?.hostname ?? '';

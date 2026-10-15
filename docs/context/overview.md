@@ -2,6 +2,8 @@
 
 # Quiet Room 项目地图
 
+空间／语音十四项：`app.ts` 原参与者MLS启动／密文队列与导航，`browser-access.ts`目录等待状态、`platform-vault.ts`新保护WebView策略及`voice-recorder.ts`选区文件／冻结重试；实组件回归`tests/mobile-space-voice.e2e.mjs`／`voice-gestures.e2e.mjs`，范围与授权见[需求记录](../requirements/2026-10-15-mobile-space-voice/README.md)。
+
 移动端十项连续性修复：`src/lib/composer-panel-motion.ts`、`meme-picker.ts`及`app.ts`管理面板／键盘交接，`chat-keyboard-underlay`与输入行分别拥有其绘制平面；定向例在`tests/fixtures/mobile-ten-fixes.mjs`，由既有`mobile-safari-feedback.e2e.mjs`执行。确认与证据见[十项需求](../requirements/2026-10-15-mobile-ten-fixes/README.md)，长期参数见移动视觉规范V1.8。
 
 发布效率／验证分级：`scripts/check-delivery.mjs`、`scripts/ci-scope.mjs` 与[规程](../workflows/publish-efficiency.md)；工具改动使用delivery专项，应用发布仍要求精确完整CI。准备／续跑／独立回读入口沿用 `scripts/publish.mjs`。

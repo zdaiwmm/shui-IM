@@ -90,11 +90,12 @@ try {
   const heading=await reloaded.locator('.gateway-heading').evaluate(el=>{const box=el.getBoundingClientRect(),p=el.querySelector('p').getBoundingClientRect();return {center:box.x+box.width/2,paragraph:p.x+p.width/2};});
   assert.ok(Math.abs(heading.center-heading.paragraph)<1,'Welcome description centers within the same heading');
   await reloaded.locator('#create-room').click();await reloaded.locator('#new-space-name').click();await reloaded.locator('#form-input-draft').fill('能力与布局验收');await reloaded.locator('[data-form-input-done]').click();await page.waitForFunction(()=>document.getElementById('keyboard').hidden);await reloaded.waitForFunction(()=>visualViewport.height===763);await reloaded.locator('#profile-done').click();
-  await reloaded.locator('.entry-protection').waitFor();
+  await reloaded.locator('.gateway-intro .gateway-heading').waitFor();
+  assert.equal(await reloaded.locator('.entry-protection,.recovery-explanation').count(),0,'Creation protection uses the confirmed compact name-only layout');
   const sizes=[];
   // Font metrics and password-vs-passkey copy shift the small-art interval.
   // Sample that interval densely instead of pinning it to one desktop font.
-  for(const height of [1100,...Array.from({length:21},(_,index)=>900-index*24),683]) {
+  for(const height of [1100,...Array.from({length:21},(_,index)=>900-index*24),360,320,280,240,683]) {
     sizes.push(await reloaded.evaluate(async height=>{document.querySelector('#app').style.height=`${height}px`;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const g=document.querySelector('.gateway-intro'),content=g.querySelector('.gateway-intro-content');return {height,hero:g.dataset.hero,overflow:content.scrollHeight-content.clientHeight,content:content.clientHeight,items:[...content.children].map(n=>({tag:n.className,h:n.getBoundingClientRect().height,margin:getComputedStyle(n).margin}))};},height));
   }
   assert.deepEqual(new Set(sizes.map(s=>s.hero)),new Set(['large','small','none']));

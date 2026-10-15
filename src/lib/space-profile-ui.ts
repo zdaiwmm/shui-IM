@@ -11,7 +11,7 @@ const escape = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '
 /** All editing is ephemeral until the caller successfully creates a space. */
 export function createSpaceProfile(root: HTMLElement, options: {
   initialProfile?: SpaceProfile; avatarOnly?: boolean; saveAvatar?: (avatar: SpaceAvatar) => Promise<void>;
-  signal: AbortSignal; active: () => boolean; hasCredential: boolean;
+  signal: AbortSignal; active: () => boolean; hasCredential: boolean; submitted?: (source: HTMLElement) => void;
   picker: <T>(operation: () => Promise<T>) => Promise<T>;
 }): Promise<SpaceProfile | null> {
   return new Promise(resolve => {
@@ -73,7 +73,7 @@ export function createSpaceProfile(root: HTMLElement, options: {
         if (!active()) return;
         name = input.value.trim();
         if (!name || name.length > 40 || /[\u0000-\u001f\u007f]/.test(name)) { overlay.querySelector('.form-error')!.textContent = '请输入 1–40 个字符的空间名称'; input.setAttribute('aria-invalid', 'true'); input.focus(); return; }
-        result = { name, avatar }; dialog!.close({ animate: false, restoreFocus: false });
+        result = { name, avatar }; options.submitted?.(overlay); dialog!.close({ animate: false, restoreFocus: false });
       };
       overlay.querySelector('#profile-done')!.addEventListener('click', submit, { signal: view.signal });
       overlay.querySelector('form')!.addEventListener('submit', event => { event.preventDefault(); submit(); }, { signal: view.signal });

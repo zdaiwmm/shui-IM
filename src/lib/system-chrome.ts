@@ -13,14 +13,16 @@ export function mountSystemChrome(): () => void {
     const color = document.querySelector('.image-viewer,.video-viewer') ? 'transparent' : getComputedStyle(probe).color;
     if (theme && theme.content !== color) theme.content = color;
   };
-  const observer = new MutationObserver(sync);
+  let frame = 0;
+  const schedule = () => { if (!frame) frame = requestAnimationFrame(() => { frame = 0; sync(); }); };
+  const observer = new MutationObserver(schedule);
   observer.observe(document.documentElement, { attributes:true, attributeFilter:['class','data-theme','data-color-scheme'] });
   observer.observe(document.body, { childList:true, attributes:true, attributeFilter:['class'] });
   const app = document.querySelector('#app');
-  if (app) observer.observe(app, { childList:true });
+  if (app) observer.observe(app, { childList:true, subtree:true, attributes:true, attributeFilter:['class','data-presentation','data-safe-viewer'] });
   window.addEventListener('appearancechange', sync);
   document.addEventListener('focusin', sync);
   document.addEventListener('focusout', sync);
   sync();
-  return () => { observer.disconnect(); window.removeEventListener('appearancechange', sync); document.removeEventListener('focusin', sync); document.removeEventListener('focusout', sync); probe.remove(); };
+  return () => { cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener('appearancechange', sync); document.removeEventListener('focusin', sync); document.removeEventListener('focusout', sync); probe.remove(); };
 }

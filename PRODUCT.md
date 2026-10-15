@@ -1,5 +1,15 @@
 # Product
 
+## Confirmed 2026-10-15 Space and Voice Refinement
+
+The [fourteen-item V1](docs/requirements/2026-10-15-mobile-space-voice/README.md) is confirmed for direct implementation without a prototype/flowchart. Original-participant Welcome is authenticated and installed before later MLS commits or application decryption. Ciphertext arriving while bootstrap is pending remains queued; invalid signatures and roster/sequence failures still fail closed. A joined room clears its waiting flag locally and in its encrypted catalog.
+
+The hold-to-record circle grows up to 1.25× while sliding left; upward lock travel is 144px. Paused recordings offer two trim boundaries with pointer and keyboard control. Preview and sending use only the selected PCM range, with a 0.5-second minimum. A failed send freezes the exact trimmed file and message ID for retry; original unsent samples and preview URLs remain memory-only and clear on privacy teardown.
+
+Creation retains its source list under the editor, so cancellation returns directly to the same list position. Successful creation uses the existing bounded page transition. Waiting invitations show “剩余 xx:xx，超时未加入则此空间自动销毁。” with an emphasized time. Create/join protection removes optional device-note inputs and extra enrollment explanations. Creation shows the requested passkey-name field and “设置密钥并创建空间”; the join explanation explicitly starts its second sentence on a new line.
+
+Known embedded WebViews (including WeChat, Telegram and identifiable iOS/Android embedded shells) choose the existing local password setup for NEW protection even when they expose partial WebAuthn APIs. This explicit policy does not downgrade an existing passkey vault, insecure origin or an ordinary browser's unknown/cancelled ceremony. Unidentifiable WebViews and installed standalone web apps retain capability-based behavior. Form draft fields use the existing surface token and restore source-page chrome hints on exit. iOS viewport ownership depends on platform/engine evidence rather than browser vendor branding; native Chrome/Safari keyboard, performance and system bars require separate physical-device validation.
+
 ## Confirmed 2026-10-14 Mobile Interaction Refinement
 
 Mobile Settings slides directly up to full height without a half-height detent or handle (confirmed by the 2026-10-14 iPhone feedback revision). Dismissal moves down. There is no root Back control. Child pages retain the outgoing settings presentation until the successor exists; returning restores full height and scroll. The space list slides in from the left and exits left, with only a top-right Close. A finite inert list presentation covers normal switching until the target chat/authentication surface is ready, and is removed synchronously on privacy lock.
@@ -166,7 +176,7 @@ Do not resemble a neon cyber-security dashboard, hacker terminal, crypto trading
 ## Voice Messages
 
 - The composer has Plus on the left and a microphone on the right. Typing a nonempty message expands the field to the right while the microphone retreats and a send button appears inside its right edge; clearing text reverses the motion. The same textarea, selection and left text origin are retained. Placeholder and entered text share font, line height and balanced vertical padding. Enter-to-send, Shift+Enter, composition protection and encrypted draft retention remain available.
-- Holding the microphone for 350 ms starts an inline recording row: a blinking red dot, elapsed time, slide-left cancellation hint, expanding microphone circle and upward lock guide. Sliding left shrinks/translates the circle; releasing past the cancellation threshold discards and shows dot-to-trash feedback. Sliding upward locks recording, settles the circle into a send action and reveals pause; release after locking does not send. Pause releases the microphone and reveals a waveform with preview, discard, resume and send controls. Resume records a new local segment. The existing Alt+R shortcut and keyboard microphone activation start hands-free recording. Reduced motion preserves all actions with immediate geometry.
+- Holding the microphone for 350 ms starts an inline recording row: a blinking red dot, elapsed time, slide-left cancellation hint, expanding microphone circle and upward lock guide. Sliding left grows/translates the circle; releasing past the cancellation threshold discards and shows dot-to-trash feedback. Sliding upward locks recording, settles the circle into a send action and reveals pause; release after locking does not send. Pause releases the microphone and reveals a waveform with trim boundaries, selected-range preview, discard, resume and send controls. Resume records a new local segment. The existing Alt+R shortcut and keyboard microphone activation start hands-free recording. Reduced motion preserves all actions with immediate geometry.
 - Release sends a valid held recording; a short input tap or text selection never requests the microphone. Pointer interruption, foreground loss or release while permission is pending cancels a hold; late permission results cannot restart it. A recording shorter than 0.5 seconds is discarded with feedback. Processing and upload show progress; a send error restores a retryable memory-only draft. Reaching the limit or losing the microphone requires review and never sends automatically. No transcription or view-once message semantics are added.
 - Voice is limited to 0.5 seconds–5 minutes and 16 MiB. Browser recording segments are converted only on-device into portable 24 kHz mono PCM WAV. Reaching the limit pauses for review and never sends automatically. Real audio amplitudes produce the waveform.
 - Audio bytes, metadata, duration, waveform, and reply references use the existing encrypted attachment and message pipeline. Playback begins only after authenticated decryption and full length/digest verification. Voice never enters the creator's image gallery.
@@ -303,7 +313,7 @@ Target WCAG 2.2 AA for the unlocked experience. Support keyboard navigation, vis
 - 首次创建、旧保险库绑定和恢复后重绑使用同一可读名称输入。名称为 1–40 个用户感知字符，去除首尾空白，不接受控制字符；系统 user.name/displayName 使用同一名称。首次日常解锁设置成功自动创建空间并直接进入聊天，空聊天区提供复制邀请和保存恢复卡入口；已解锁空间继续创建复用原通行密钥，密码保险库验证原密码后沿用该密码。明确不支持通行密钥的环境在进入保护页前选择密码流程，取消或未知状态不自动降级。
 - 设置“本机”组的“通行密钥管理”直接唤起指定凭据验证，取消留在设置；验证后显示应用记录名称，旧记录显示“尚未设置名称”。修改名称在当前管理页弹窗输入并同步聚焦，保存再次独立验证。
 - 应用不能回读密码管理器名称。已知不支持的浏览器提前禁用改名；未获得 user.id/userHandle 不猜测标识。系统接受更新后再保存应用标签，本地失败提示“结果待确认”并保留同名重试。完成只提示已保存及已通知系统，不承诺提供方或跨浏览器同步回读。
-- 标签按本地 credentialId 共享，不更换通行密钥、空间身份或加密材料。系统标签是公开辨认信息，名称输入提示不填写聊天隐私。
+- 标签按本地 credentialId 共享，不更换通行密钥、空间身份或加密材料。系统标签是公开辨认信息；首次创建与加入按精简界面仅保留名称字段，其他绑定页面仍提示不填写聊天隐私。
 
 ## Bounded message window and device media reuse
 

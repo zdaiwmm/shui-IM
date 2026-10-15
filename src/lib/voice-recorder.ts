@@ -7,11 +7,11 @@ export type VoiceDraft = { file: File; durationMs: number; waveform: number[]; c
 type State = 'requesting' | 'recording' | 'processing' | 'paused' | 'sending';
 type Mode = 'hold' | 'locked';
 const CANCEL_DISTANCE = 96;
-const LOCK_DISTANCE = 72;
+const LOCK_DISTANCE = 144;
 const CANCEL_RESET_DISTANCE = 76;
 /** Visual travel is much longer than the arming point so the pull keeps resisting. */
 const CANCEL_TRAVEL = 280;
-const LOCK_TRAVEL = 220;
+const LOCK_TRAVEL = 440;
 
 /** 1:1 at the start, then a long resistive approach that never quite reaches the limit. */
 export function dampedDrag(distance: number, travel: number): number {
@@ -47,6 +47,8 @@ export class VoiceRecorder {
   private preview = new Audio();
   private previewUrl: string | null = null;
   private draft: VoiceDraft | null = null;
+  private trimStart = 0;
+  private trimEnd = 0;
   private readonly clientMsgId = crypto.randomUUID();
   private message = '';
   private sendAttempted = false;
@@ -85,6 +87,7 @@ export class VoiceRecorder {
         <span class="voice-submit-label" aria-hidden="true"></span>
         <button type="button" class="voice-cancel" aria-label="取消录音">取消</button>
         <div class="voice-draft-timeline">
+          <div class="voice-trim-selection" aria-hidden="true"></div><button class="voice-trim-handle" data-trim="start" type="button" role="slider" aria-label="裁剪起点"></button><button class="voice-trim-handle" data-trim="end" type="button" role="slider" aria-label="裁剪终点"></button>
           <div class="voice-recording-wave voice-waveform" aria-hidden="true">${waveformMarkup(Array(48).fill(0))}</div>
           <button type="button" class="voice-preview" aria-label="试听录音"><span class="voice-preview-icon">${voiceIcons.play}</span><span class="voice-preview-time">0:00</span></button>
         </div>
@@ -98,6 +101,7 @@ export class VoiceRecorder {
       <p class="voice-recording-hint" role="status" aria-live="polite"></p>`;
     this.waveBars = Array.from(host.querySelectorAll<HTMLElement>('.voice-recording-wave i'));
     this.resetDrag();
+    this.bindTrim();
     host.querySelector('.voice-discard')!.addEventListener('click', () => this.cancel());
     host.querySelector('.voice-cancel')!.addEventListener('click', () => this.cancel(true));
     host.querySelector('.voice-toggle')!.addEventListener('click', () => {
@@ -396,6 +400,7 @@ export class VoiceRecorder {
       const combined = new Float32Array(this.samples.length + length);
       combined.set(this.samples); combined.set(rendered.getChannelData(0), this.samples.length);
       this.samples = combined;
+      this.trimStart = 0; this.trimEnd = combined.length;
       this.draft = null;
       this.waveform = null;
       this.state = 'paused';
@@ -416,10 +421,52 @@ export class VoiceRecorder {
     else this.update();
   }
 
+  private get selectedDurationMs(): number { return Math.round((this.trimEnd - this.trimStart) / VOICE_SAMPLE_RATE * 1000); }
+
+  private bindTrim(): void {
+    const timeline = this.host.querySelector<HTMLElement>('.voice-draft-timeline')!;
+    const minimum = Math.ceil(MIN_AUDIO_DURATION_MS * VOICE_SAMPLE_RATE / 1000);
+    const change = (edge: string, sample: number) => {
+      if (this.state !== 'paused' || this.sendAttempted || this.signal.aborted) return;
+      const value = Math.round(sample);
+      if (edge === 'start') this.trimStart = Math.max(0, Math.min(value, this.trimEnd - minimum));
+      else this.trimEnd = Math.min(this.samples.length, Math.max(value, this.trimStart + minimum));
+      this.clearPreview(); this.draft = null; this.update();
+    };
+    this.host.querySelectorAll<HTMLButtonElement>('[data-trim]').forEach(handle => {
+      const edge = handle.dataset.trim!;
+      handle.addEventListener('pointerdown', event => {
+        if (event.button !== 0 || this.state !== 'paused' || this.sendAttempted) return;
+        event.preventDefault(); event.stopPropagation();
+        const bounds = timeline.getBoundingClientRect(), origin = event.clientX;
+        const sample = edge === 'start' ? this.trimStart : this.trimEnd;
+        handle.setPointerCapture(event.pointerId);
+        const gesture = new AbortController();
+        const signal = AbortSignal.any([gesture.signal, this.signal]);
+        handle.addEventListener('pointermove', next => {
+          if (next.pointerId === event.pointerId) change(edge, sample + (next.clientX - origin) / Math.max(1, bounds.width - 88) * this.samples.length);
+        }, { signal });
+        const end = (next: PointerEvent) => { if (next.pointerId === event.pointerId) gesture.abort(); };
+        handle.addEventListener('pointerup', end, { signal });
+        handle.addEventListener('pointercancel', end, { signal });
+        handle.addEventListener('lostpointercapture', end, { signal });
+      }, { signal: this.signal });
+      handle.addEventListener('keydown', event => {
+        const current = edge === 'start' ? this.trimStart : this.trimEnd;
+        const step = VOICE_SAMPLE_RATE * (event.shiftKey ? 1 : .1);
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? this.samples.length
+          : ['ArrowLeft','ArrowDown'].includes(event.key) ? current - step
+            : ['ArrowRight','ArrowUp'].includes(event.key) ? current + step : null;
+        if (next !== null) { event.preventDefault(); change(edge, next); }
+      }, { signal: this.signal });
+    });
+  }
+
   private getDraft(): VoiceDraft {
+    const selected = this.samples.subarray(this.trimStart, this.trimEnd);
     this.draft ??= {
-      file: new File([encodeVoiceWav(this.samples)], '语音消息.wav', { type: 'audio/wav' }),
-      durationMs: this.durationMs, waveform: this.getWaveform(), clientMsgId: this.clientMsgId,
+      file: new File([encodeVoiceWav(selected)], '语音消息.wav', { type: 'audio/wav' }),
+      durationMs: this.selectedDurationMs, waveform: voiceWaveform(selected), clientMsgId: this.clientMsgId,
     };
     return this.draft;
   }
@@ -442,7 +489,7 @@ export class VoiceRecorder {
   private async send(): Promise<void> {
     if (this.signal.aborted) return;
     if (this.state === 'recording') { this.pause(true); return; }
-    if (this.state !== 'paused' || this.durationMs < MIN_AUDIO_DURATION_MS) return;
+    if (this.state !== 'paused' || this.selectedDurationMs < MIN_AUDIO_DURATION_MS) return;
     const restoreSendFocus = this.host.contains(document.activeElement);
     this.preview.pause();
     this.sendMotion?.cancel(); this.sendMotion = null;
@@ -485,7 +532,20 @@ export class VoiceRecorder {
         bar.style.setProperty('--level', `${Math.max(8, Math.min(100, levels[index] ?? 0))}%`);
       });
     }
-    const progress = this.durationMs ? this.preview.currentTime * 1000 / this.durationMs : 0;
+    const progress = this.samples.length ? (this.trimStart + this.preview.currentTime * VOICE_SAMPLE_RATE) / this.samples.length : 0;
+    const start = this.samples.length ? this.trimStart / this.samples.length : 0;
+    const end = this.samples.length ? this.trimEnd / this.samples.length : 1;
+    const timeline = this.host.querySelector<HTMLElement>('.voice-draft-timeline')!;
+    timeline.style.setProperty('--trim-start', String(start)); timeline.style.setProperty('--trim-end', String(end));
+    this.host.querySelectorAll<HTMLButtonElement>('[data-trim]').forEach(handle => {
+      const isStart = handle.dataset.trim === 'start';
+      handle.disabled = this.state !== 'paused' || this.sendAttempted || this.durationMs < MIN_AUDIO_DURATION_MS;
+      handle.setAttribute('aria-valuemin', String(isStart ? 0 : this.trimStart / VOICE_SAMPLE_RATE));
+      handle.setAttribute('aria-valuemax', String((isStart ? this.trimEnd : this.samples.length) / VOICE_SAMPLE_RATE));
+      handle.setAttribute('aria-valuenow', String((isStart ? this.trimStart : this.trimEnd) / VOICE_SAMPLE_RATE));
+      handle.setAttribute('aria-valuetext', `${((isStart ? this.trimStart : this.trimEnd) / VOICE_SAMPLE_RATE).toFixed(1)}秒，选中${(this.selectedDurationMs / 1000).toFixed(1)}秒`);
+    });
+    this.waveBars.forEach((bar, index) => bar.classList.toggle('is-trimmed', (index + .5) / 48 < start || (index + .5) / 48 > end));
     this.waveBars.forEach((bar, index) => bar.classList.toggle('is-played', index / 48 < progress));
     const holding = this.mode === 'hold' && ['requesting', 'recording'].includes(this.state);
     if (holding) this.updateHoldFeedback();
@@ -513,11 +573,12 @@ export class VoiceRecorder {
       this.host.querySelector('.voice-preview-icon')!.innerHTML = previewIcon;
       this.renderedPreviewIcon = previewIcon;
     }
-    this.host.querySelector('.voice-preview-time')!.textContent = voiceTime(!this.preview.paused ? this.preview.currentTime * 1000 : this.durationMs);
+    this.host.querySelector('.voice-preview-time')!.textContent = voiceTime(!this.preview.paused ? this.preview.currentTime * 1000 : this.selectedDurationMs);
     play.setAttribute('aria-label', this.preview.paused ? '试听录音' : '暂停试听');
+    play.setAttribute('aria-description', `仅试听选定的${(this.selectedDurationMs / 1000).toFixed(1)}秒区间`);
     const send = this.host.querySelector<HTMLButtonElement>('.voice-send')!;
     send.hidden = holding || this.state === 'requesting' || submitting;
-    send.disabled = this.state === 'recording' ? elapsed < MIN_AUDIO_DURATION_MS : this.state !== 'paused' || this.durationMs < MIN_AUDIO_DURATION_MS;
+    send.disabled = this.state === 'recording' ? elapsed < MIN_AUDIO_DURATION_MS : this.state !== 'paused' || this.selectedDurationMs < MIN_AUDIO_DURATION_MS;
     const sendIcon = drafting ? voiceIcons.paperPlane : voiceIcons.send;
     if (this.renderedSendIcon !== sendIcon) { send.innerHTML = sendIcon; this.renderedSendIcon = sendIcon; }
     const discard = this.host.querySelector<HTMLButtonElement>('.voice-discard')!;
@@ -569,7 +630,7 @@ export class VoiceRecorder {
     this.stream?.getTracks().forEach(track => track.stop());
     if (this.context?.state !== 'closed') void this.context?.close().catch(() => {});
     this.clearPreview();
-    this.samples = new Float32Array(0); this.chunks = []; this.liveLevels = []; this.draft = null; this.waveform = null;
+    this.samples = new Float32Array(0); this.trimStart = 0; this.trimEnd = 0; this.chunks = []; this.liveLevels = []; this.draft = null; this.waveform = null;
     this.sendAfterProcessing = false;
     this.recorder = null; this.stream = null; this.context = null; this.analyser = null;
   }

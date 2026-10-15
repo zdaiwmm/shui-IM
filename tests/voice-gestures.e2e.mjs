@@ -119,7 +119,9 @@ try {
   await page.emulateMedia({reducedMotion:'no-preference'});
   await touch('touchEnd'); await closed(); await stopped(); assert.equal(await count(),1);
   await reset(); await hold(); await page.waitForTimeout(650);
+  const originalOrbWidth = await page.locator('.voice-hold-orb').evaluate(e=>e.getBoundingClientRect().width);
   await touch('touchMove',await cancelPoint());
+  assert.ok(await page.locator('.voice-hold-orb').evaluate(e=>e.getBoundingClientRect().width)>originalOrbWidth,'Sliding left grows the recording circle');
   assert.equal(await page.locator('.voice-recorder').getAttribute('data-hold-action'),'cancel');
   assert.equal(await page.locator('.voice-hold-orb').evaluate(async el => {
     await Promise.allSettled(el.getAnimations().map(animation => animation.finished));
@@ -139,6 +141,8 @@ try {
   // resume remain deliberate actions, using the real synthetic microphone.
   await reset(); await hold(); await page.waitForTimeout(650);
   await touch('touchMove',{x:origin.x,y:origin.y-85});
+  assert.equal(await page.locator('.voice-recorder').getAttribute('data-mode'),'hold','Old 72px travel must not lock early');
+  await touch('touchMove',{x:origin.x,y:origin.y-155});
   assert.equal(await page.locator('.voice-recorder').getAttribute('data-mode'),'locked');
   assert.equal(await page.locator('.voice-send').evaluate(e=>e.getBoundingClientRect().width),72,'locked send disc keeps the compact recording scale');
   await touch('touchEnd');
@@ -155,6 +159,38 @@ try {
   await page.locator('.voice-recorder[data-state="recording"]').waitFor();
   await page.locator('.voice-cancel').click(); await closed(); await stopped();
   assert.equal(await count(),2);
+  // Known PCM samples make selection/export correctness inspectable, independently
+  // of fake microphone silence and the browser's container encoder.
+  await reset(); await hold(); await page.waitForTimeout(650);
+  await touch('touchMove',{x:origin.x,y:origin.y-155});await touch('touchEnd');
+  await page.getByRole('button',{name:'暂停录音',exact:true}).click();await page.locator('.voice-recorder[data-state="paused"]').waitFor();
+  await page.evaluate(()=>{
+    const r=fixture.app.voiceRecorder;r.clearPreview();r.samples=Float32Array.from({length:72000},(_,i)=>i/72000);r.trimStart=0;r.trimEnd=72000;r.draft=null;r.waveform=null;r.update();
+  });
+  for(let i=0;i<5;i++)await page.getByRole('slider',{name:'裁剪起点'}).press('ArrowRight');
+  for(let i=0;i<10;i++)await page.getByRole('slider',{name:'裁剪终点'}).press('ArrowLeft');
+  const trimmed=await page.evaluate(async()=>{
+    const r=fixture.app.voiceRecorder,draft=r.getDraft(),bytes=new DataView(await draft.file.arrayBuffer());
+    return {duration:draft.durationMs,size:draft.file.size,start:bytes.getInt16(44,true),end:bytes.getInt16(draft.file.size-2,true),selected:r.selectedDurationMs};
+  });
+  assert.deepEqual(trimmed,{duration:1500,size:72044,start:5461,end:21844,selected:1500});
+  const trimTargets=await page.evaluate(()=>{
+    const r=fixture.app.voiceRecorder,end=r.trimEnd;r.trimEnd=r.trimStart+12000;r.update();
+    const start=document.querySelector('[data-trim=start]').getBoundingClientRect(),finish=document.querySelector('[data-trim=end]').getBoundingClientRect(),play=document.querySelector('.voice-preview').getBoundingClientRect(),track=document.querySelector('.voice-draft-timeline').getBoundingClientRect();
+    r.trimEnd=end;r.update();return {separate:start.right<=finish.left,preview:play.bottom<=track.top,start:start.width,end:finish.width};
+  });assert.deepEqual(trimTargets,{separate:true,preview:true,start:44,end:44},'Even the minimum selection keeps independent 44px trim targets and a reachable preview');
+  await page.getByRole('button',{name:'试听录音',exact:true}).click();
+  await page.waitForFunction(()=>fixture.app.voiceRecorder.preview.duration===1.5);
+  await page.getByRole('slider',{name:'裁剪起点'}).press('ArrowRight');
+  assert.equal(await page.evaluate(()=>fixture.app.voiceRecorder.preview.paused),true,'Changing selection stops old playback immediately');
+  await page.evaluate(()=>{window.trimAttempts=[];const r=fixture.app.voiceRecorder;r.callbacks.send=async draft=>{trimAttempts.push(draft);if(trimAttempts.length===1)throw Error('Synthetic upload failure');};});
+  await page.locator('.voice-send').click();await page.locator('.voice-recorder[data-state="paused"]').waitFor();
+  assert.equal(await page.getByRole('slider',{name:'裁剪起点'}).isDisabled(),true);
+  await page.locator('.voice-send').click();
+  const frozen=await page.evaluate(()=>({same:trimAttempts[0]===trimAttempts[1],duration:trimAttempts[1].durationMs,id:trimAttempts[0].clientMsgId===trimAttempts[1].clientMsgId}));
+  assert.deepEqual(frozen,{same:true,duration:1400,id:true});
+  await page.evaluate(()=>fixture.app.lockNow());await stopped();
+
   await reset(); await hold(); await touch('touchCancel'); await closed(); await stopped();
 
   // A release before permission settles cannot start capture after a late grant.

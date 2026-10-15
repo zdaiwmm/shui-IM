@@ -116,7 +116,7 @@ try {
     const host = document.createElement('section'); root.append(host);
     let sent = 0, settle;
     const recorder = new VoiceRecorder(host, { permission: () => {}, cancel: () => {}, fail: () => {}, send: () => { sent++; return new Promise(resolve => { settle = resolve; }); } });
-    recorder.samples = new Float32Array(MAX_VOICE_SAMPLES); recorder.state = 'paused'; recorder.update();
+    recorder.samples = new Float32Array(MAX_VOICE_SAMPLES); recorder.trimStart = 0; recorder.trimEnd = MAX_VOICE_SAMPLES; recorder.state = 'paused'; recorder.update();
     check(host.querySelector('.voice-toggle').disabled && !host.querySelector('.voice-send').disabled && sent === 0, 'Duration limit auto-sent or allowed more recording');
     const sending = recorder.send(); recorder.destroy(); settle(); await sending;
     check(host.childElementCount === 0 && recorder.signal.aborted && recorder.samples.length === 0, 'Late send revived a destroyed draft');
