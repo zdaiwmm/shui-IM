@@ -2,7 +2,7 @@
 
 ## 身份与当前阶段
 
-- 需求编号：`2026-10-15-iphone-numeric-passcode`；页面需求，当前为 I/D 正式实施与远端交付，V1设计和实施授权已确认。
+- 需求编号：`2026-10-15-iphone-numeric-passcode`；页面需求，V1正式实施已通过PR合并及精确main完整CI；本次仅补交付记录，生产未授权。
 - 规则来源：本机 `main@4356531cea264dd01bd9110da90b9ff62cfd7a59` 的 AGENTS 与固定工作流；额外核对实时主线入口、相关产品／安全／设计契约。
 - 起始基线：GitHub 实时 main `2296a5654cd19b5ab0623e74425b9b169c7c6bc2`；获取后 origin/main 同值，本机 main 仍为上述旧快照。未把旧本机版本用作设计基线。
 - 本任务新建独占分支 `codex/iphone-pin-prototype-20261015`；本机目录 `/Users/achilles/Documents/Codex/shui-IM/.worktrees/iphone-pin-prototype-20261015`。接续时重新核验 HEAD／目录／归属，跨电脑不照抄路径。
@@ -21,7 +21,7 @@
 
 ## 设计依据与材料
 
-- 基线的 [DESIGN](../../../DESIGN.md)、[移动视觉规范](../../design/mobile-visual-standard.md)、[PRODUCT](../../../PRODUCT.md)、[SECURITY](../../../SECURITY.md) 及 D-049／D-060。源码依据为 `src/lib/password-dialog.ts`、`src/lib/password-protection.ts`、`src/experience.css`、`src/design-tokens.css`；`src/main.ts` 加载 experience 覆盖链，产品当前设置要求 12–128 个 Unicode 字符。六位规则仅是本需求待实施目标。
+- S阶段基线的 [DESIGN](../../../DESIGN.md)、[移动视觉规范](../../design/mobile-visual-standard.md)、[PRODUCT](../../../PRODUCT.md)、[SECURITY](../../../SECURITY.md) 及 D-049／D-060。源码依据为 `src/lib/password-dialog.ts`、`src/lib/password-protection.ts`、`src/experience.css`、`src/design-tokens.css`；`src/main.ts` 加载 experience 覆盖链，当时设置要求12–128个Unicode字符。现已按确认V1实现六位规则，长期取舍见D-061。
 - iPhone 结构参考 [Apple 密码指南](https://support.apple.com/guide/iphone/set-a-passcode-iph14a867ae/ios)；安全差异参考 [Apple Passcodes and passwords](https://support.apple.com/guide/security/passcodes-and-passwords-sec20230a10d/web)。不复制远程素材／字体，不引入图片生成或新的视觉探索。
 - 原型 V1：[审阅入口](prototype/index.html)、[纯屏入口](prototype/screen.html)。零构建、零第三方运行依赖；所有 HTML/CSS/JS 在本目录，无真实应用初始化、存储、服务工作线程或写接口。
 - 流程 V1：[Mermaid 源码](flow.md)、[离线 HTML 渲染](flow.html)。渲染按源码相同的节点／分支制作，无在线 Mermaid 依赖。
@@ -52,7 +52,7 @@
 - `node --check` 两份JavaScript及现有文档检查器（本需求两份Markdown，0问题）通过；流程HTML已实际渲染检查，浏览器无error／warn。减少动态工具回读按键transition为0s。
 - 提交材料检查：仅本目录10份文本，约45KiB，无二进制、Base64、依赖、截图或构建产物；Git差异检查通过。V1由本任务设计提交定位，未创建实施PR或合并main。
 - 上述原型自查是S阶段历史证据；本轮正式实施须另跑风险匹配产品门禁及浏览器验收，等待PR CI后合并。生产不在本轮授权内。
-- 下一步：完成正式实施的风险匹配验证、PR／CI及main合并；真机缺口独立披露。
+- S阶段的下一步授权已执行；正式交付及真机缺口见下节，不将原型验证冒充产品认证证据。
 
 ## 正式实施与验证记录
 
@@ -61,4 +61,11 @@
 - 构建通过；密码包装／通行密钥定向42项通过，真实双人密码创建、MLS加密消息、敏感操作验证／取消、页面替换迟到证明、设备加入及修复专项通过。数字专项Chromium和桌面WebKit通过，覆盖首位0、两次确认、错误、等待、忙碌取消、隐私清理、四尺寸／明暗、大字及减少动态；390×844十键与已确认V1原型几何差异小于2px。桌面WebKit不代表iPhone真机。
 - 数字专项历史：首轮测试时钟300ms小于现有450ms退场兜底，改为覆盖既有边界；随后修正自定义Vite夹具的原型HTML获取及跨页可见性采样。对照发现正式页被全局P1选择器覆盖，数字键整体下偏约70px，已用局部作用域修正；复验通过，未调整原型或放宽2px断言。一次执行审批超时后重试成功，不记为产品失败。
 - 本机完整 `npm run delivery:evidence -- run check:full` 保留为failed：构建通过，948项通过／12项失败，其中10项为备份传输因磁盘98%触发现有 `BACKUP_CAPACITY_LOW`，另两项为新增浏览器入口后数量断言遗漏。已修正数量断言，另补重试状态读取失败时Backspace不能清除错误的回归；最终构建与 `npm test -- --exclude tests/backup-transfer.test.ts` 为118文件／947项通过。原备份容量失败未重试、未删除用户数据、未放宽门禁，完整单元验证由独立CI续跑。
-- 最终正式源码正在顺序运行66个浏览器入口；PR与完整CI待回执。后续若仅补充文档证据，不将原命令失败改写为一次性全绿。真机、VoiceOver、原生安全区及系统工具栏仍未验证；无生产发布。
+- 最终正式源码66／66完整浏览器通过（961.23秒）；最后一次重试状态读取失败修订后的数字专项桌面WebKit亦通过。完整浏览器启动于设计HEAD加未提交实现，期间提交实现并补文档，自动delivery证据标记dirty，不能作为精确干净SHA证据；精确候选验证由下述CI拥有，原本机完整命令失败不改写为一次性全绿。
+
+## 远端交付回执
+
+- [PR #320](https://github.com/zdaiwmm/shui-IM/pull/320)源 `a976b8215d061284e2f5d7718b3cc98a2d4c46d8` 已于 `2026-10-15T15:46:48Z` 合并为 `8384f73176d59b0dcb5739a3a7064610ffcd19c3`；回取确认两者完整文件树均为 `9f30a13b6a9ba23228218cf27db38c0ea32db4f8`。初次squash被规则拒绝后，读取main规则集仅允许merge，已按允许方式完成；没有修改或绕过保护。
+- 精确[PR完整CI 38761192611](https://github.com/zdaiwmm/shui-IM/actions/runs/38761192611) attempt 2成功，含119文件／960项单元、66个浏览器入口／全部五个分片、通话、审计、文档、凭据扫描及同轮双架构镜像。attempt 1通知测试的WebKit初始化 `page.evaluate` 抛 `NotSupportedError`，未证明具体原因；本机同源码双引擎通过，仅原样重跑失败分片及汇总一次，未改产品、夹具或断言。保留原失败，不把重试成功写成根因已确定。
+- 精确[main完整CI 38763332090](https://github.com/zdaiwmm/shui-IM/actions/runs/38763332090) attempt 1完整成功，119文件／960项、66个浏览器入口、通话、审计、文档、凭据扫描及同轮双架构镜像均通过。本记录分支基于该已合并SHA，复用本任务独占目录，仅补需求及状态，无产品源码变化。
+- 真机iPhone／iOS27／Safari、VoiceOver、原生安全区及工具栏未验证；本轮没有生产发布授权或发布动作。原型服务器5226及本任务目录保留供审阅，其他任务资源未处理。
