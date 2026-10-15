@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; base-uri 'none'">
+<title>数字密码 V1 · 业务流程图</title><link rel="stylesheet" href="flow.css">
+</head>
+<body>
+<header><p>QUIET ROOM / V1 / S 原型阶段</p><h1>数字密码业务流程</h1><a href="prototype/index.html">返回可交互原型</a><a href="flow.md">查看 Mermaid 源码</a></header>
+<main>
+<section aria-labelledby="create-title"><h2 id="create-title">设置密码</h2><p class="caption">仅当本次需要设置新的本机密码保护</p>
+<div class="node">从原入口创建空间</div><div class="arrow">↓</div>
+<div class="decision">当前保护路径？</div>
+<div class="branch"><div><div class="edge">通行密钥 / 已有保护复用</div><div class="node muted">沿用现有保护流程</div></div><div><div class="edge">需要设置新密码 ↓</div><div class="node">iPhone 样式数字密码页</div></div></div>
+<div class="arrow">↓ 密码路径</div><div class="node">点击 6 位数字<br><small>允许首位为 0</small></div><div class="arrow">↓ 自动进入</div><div class="node">再次输入 6 位</div><div class="arrow">↓</div>
+<div class="decision">两次输入一致？</div><div class="branch"><div><div class="edge">否 ↓</div><div class="node muted">圆点轻摇并清空<br><small>返回首次设置</small></div></div><div><div class="edge">是 ↓</div><div class="node">设置本机保护<br><small>禁止重复提交</small></div></div></div>
+<div class="arrow">↓ 设置结果</div><div class="branch"><div><div class="edge">失败 ↓</div><div class="node muted">显示错误并清空<br><small>重新设置</small></div></div><div><div class="edge">成功 ↓</div><div class="node success">进入原创建后流程</div></div></div>
+</section>
+<section aria-labelledby="unlock-title"><h2 id="unlock-title">日常解锁</h2><p class="caption">验证指定空间原有的保护方式</p>
+<div class="node">进入指定空间解锁入口</div><div class="arrow">↓</div><div class="decision">原保护类型？</div>
+<div class="branch three"><div><div class="edge">旧长密码 ↓</div><div class="node muted">原输入框</div></div><div><div class="edge">6 位数字 ↓</div><div class="node">数字密码页</div></div><div><div class="edge">通行密钥 ↓</div><div class="node muted">原系统验证</div></div></div>
+<div class="arrow">↓ 数字路径</div><div class="node">点击数字 · 圆点依次填充<br><small>删除只移除最后一位</small></div><div class="arrow">↓ 输入第 6 位</div><div class="node">自动验证<br><small>禁止重复提交</small></div><div class="arrow">↓</div><div class="decision">原目标空间验证结果？</div>
+<div class="branch three"><div><div class="edge">正确 ↓</div><div class="node success">进入聊天</div></div><div><div class="edge">密码错误 ↓</div><div class="node muted">轻摇并清空</div></div><div><div class="edge">其他失败 ↓</div><div class="node muted">错误提示<br><small>清空后重试</small></div></div></div>
+<div class="arrow">↓ 密码错误路径</div><div class="decision">现有策略要求等待？</div><div class="branch"><div><div class="edge">否 ↓</div><div class="node">重新输入</div></div><div><div class="edge">是 ↓</div><div class="node">倒计时 · 数字键禁用<br><small>到期后重新输入</small></div></div></div>
+<div class="arrow">另一路径</div><div class="node">忘记密码 → 恢复卡与双方确认</div>
+</section>
+<section class="boundary"><h2>取消、离开与兼容边界</h2><p>任一步骤取消、页面隐藏、pagehide、导航或目标失效 → 清除本次输入与确认草稿，取消待处理任务，返回原入口。迟到结果不能解锁其他空间。</p><p>旧长密码和通行密钥按原保护验证，不自动转换。恢复材料与双方授权保持原流程。</p><p>原型等待为 3 秒演示，正式产品保留现有策略。所有成功、恢复和系统认证均为模拟。数字密码页不提供 iPhone 的硬件防猜保护。</p></section>
+</main>
+</body></html>
