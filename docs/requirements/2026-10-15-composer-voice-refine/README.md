@@ -3,7 +3,7 @@
 ## 身份与授权
 
 - 方案 V1，2026-10-15 用户明确回复「确认 V1，本次免原型和流程图，直接修复验证。」来源为本会话，无独立消息链接。
-- 本次免除原型和流程图，授权正式实施及既有持续 PR／CI／合并流程；无本次生产发布授权。
+- 本次免除原型和流程图，授权正式实施及既有持续 PR／CI／合并流程；实施确认时尚无生产发布授权，随后精确发布确认见末节。
 - 规则先读取本机 main `4356531cea264dd01bd9110da90b9ff62cfd7a59`，再核对任务基线的 AGENTS／workflow 与本次授权。基线为实时 main／origin/main `2296a5654cd19b5ab0623e74425b9b169c7c6bc2`；本机 main 为旧快照。
 - 独占分支 `codex/composer-voice-refine-20261015`，目录 `/Users/achilles/Documents/Codex/shui-IM/.worktrees/composer-voice-refine-20261015`，初始干净。本节记录本地冻结时点：实施及浏览器验收完成，进入PR／CI交付；后续远端状态以本需求分支对应PR及精确CI为准。
 
@@ -33,7 +33,7 @@
 - 专项首轮曾因旧双入口断言及异步收藏状态采样过早失败，分别更新V1三入口及等待实际提交后通过；未放宽产品断言。接续时工具目录缓存失效触发一条共享目录测试命令，已立即停止并核对共享文件内容未变，后续所有命令使用绝对任务路径。
 - 环境：独立锁文件安装；沙箱Git元数据探测EPERM后受控执行通过，Chromium／WebKit可用。截图为本地合成数据，保存在临时目录，不纳入Git。首次版本工具调用因不支持的参数在生成前拒绝，随后按固定参数完成。
 - 本地记录：`/private/tmp/composer-voice-refine-check-full.log`、`composer-voice-refine-browser.log`、`composer-voice-refine-browser-resume.json`及任务Git元数据的脱敏delivery-evidence；临时证据不自动跨电脑同步。远端验证／合并以本分支PR及精确CI为准，不能以本机专项代替。
-- 原生iPhone／iOS27／Safari键盘、工具栏、系统麦克风与触摸性能未验收；原生工具栏事件无法由网页禁用。本次无生产授权，未执行生产发布。提交前材料检查未纳入二进制、Base64、依赖、产物、真实消息或凭据。
+- 原生iPhone／iOS27／Safari键盘、工具栏、系统麦克风与触摸性能未验收；原生工具栏事件无法由网页禁用。上述候选验收时尚无生产授权，未执行生产发布。提交前材料检查未纳入二进制、Base64、依赖、产物、真实消息或凭据。
 
 ## PR首轮失败与权限兼容补充
 
@@ -56,3 +56,9 @@
 - 最终源`acacec933edadc816fa3ccbcab1ab1f4225e440b`的[PR CI 38766143482](https://github.com/zdaiwmm/shui-IM/actions/runs/38766143482) attempt 1完整成功，含119文件／961单元、全部66浏览器入口、通话、依赖审计、文档、凭据扫描及双架构镜像。`verify`保护检查通过后，[PR #319](https://github.com/zdaiwmm/shui-IM/pull/319)于`2026-10-15T16:16:02Z`合并为`bb5dc8b2cb63cb2f3a8ddf0ff48df75a669ab491`；回取main比较完整文件树一致。
 - 前一轮CI 38765263017在移动分片失败后，被新候选自动取消未完成任务；通知所在分片已通过。失败和取消均保留，不计作完整成功。仓库拒绝squash合并请求且未生效，随后使用普通merge按精确head成功；未绕过保护。
 - 精确[main CI 38767540877](https://github.com/zdaiwmm/shui-IM/actions/runs/38767540877) attempt 1完整成功，含同一119文件／961项、66浏览器入口、通话、安全与双架构镜像。按维护规则，在同一本任务独占工作树基于上述已合并main准备`codex/composer-voice-evidence-20261016`轻量记录分支；只修改本需求及状态两份Markdown，不改产品、版本或发布流程。源分支及工作树保留，本次未发布生产，原生真机仍待验收；记录提交不授权发布文档SHA。
+
+## 精确生产发布（2026-10-16）
+
+- 用户在上一阶段交付后明确回复「确认，发布生产」，本会话唯一目标解析为已验证应用`bb5dc8b2cb63cb2f3a8ddf0ff48df75a669ab491`／`2026.10.15.4`；无独立permalink。本机main规则源仍为`4356531cea264dd01bd9110da90b9ff62cfd7a59`，远端规则已补核对；origin/main与GitHub实时main均为`661087048e5229aa20188723b835352fff1ae85c`，不改发文档SHA。
+- 只读doctor及云预检通过，固定云入口取得精确`DEPLOY_VERIFIED`，独立回读最终取得`READBACK_OK`；首次备份启动期失败保留，只续跑回读，生产切换一次。详细云RunID、前版、镜像、时间、健康及回读证据由[发布记录](../../../RELEASING.md#输入表情与录音八项修订已发布2026-10-16-0046)拥有，脱敏JSON保存在公共Git元数据的`quiet-room-deliveries/evidence/composer-voice-refine-20261015/production.json`。
+- 发布后对账使用第二个无部署配置树`/Users/achilles/Documents/Codex/shui-IM/.worktrees/composer-voice-production-record-20261016`、分支`codex/composer-voice-production-record-20261016`，基线为上述实时main。本机doctor初缺锁定开发工具，独立安装后通过；仅同步三份文档，不改产品或发布入口。真机验收仍待完成，清理按固定门禁保留活动／忽略文件／未知状态资源，不处理其他任务。

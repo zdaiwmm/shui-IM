@@ -1,5 +1,13 @@
 # Quiet Room 固定发布流程
 
+## 输入、表情与录音八项修订已发布（2026-10-16 00:46）
+
+- 用户在获知应用`bb5dc8b2cb63cb2f3a8ddf0ff48df75a669ab491`、版本`2026.10.15.4`、完整CI及真机缺口后回复「确认，发布生产」，授权本次精确应用；无独立消息permalink。八项V1及免原型／流程图由[需求记录](docs/requirements/2026-10-15-composer-voice-refine/README.md)拥有，本批包含此前已合入的数字密码功能，后续文档SHA不进入生产。
+- [PR #319](https://github.com/zdaiwmm/shui-IM/pull/319)已合并；精确[main CI 38767540877](https://github.com/zdaiwmm/shui-IM/actions/runs/38767540877) attempt 1完整成功，含119文件／961项、66个浏览器入口、通话、审计、凭据扫描及同轮双架构镜像。本机命名配置初缺，复用既有站点及密钥路径准备临时production配置后只读doctor通过，未复制密钥；固定[云预检38769620508](https://github.com/zdaiwmm/shui-IM/actions/runs/38769620508)取得`PREFLIGHT_OK`，前版`3aa09305c6af696acb171a4d4af7b71e077248e3`与预期一致。
+- 固定入口`publish.mjs --cloud --with-readback --environment production --sha bb5dc8b2cb63cb2f3a8ddf0ff48df75a669ab491`核对精确`DEPLOY_VERIFIED`，[云发布38770166368](https://github.com/zdaiwmm/shui-IM/actions/runs/38770166368)回执成功时间`2026-10-15T16:39:26.887Z`。从上述前版仅切换一次，批次`20261015T163654Z`，云发布299609毫秒；云工作流固定于`661087048e5229aa20188723b835352fff1ae85c`，应用仍固定获批SHA。现有production审核保留，未修改helper、云权限、网络、容量或健康门禁。镜像`sha256:92cb18a66a8d6219905ead6398dc6705c141e1c9c58e5c673d240f7d618e58bc`，归档摘要`2dd84b80b17b5a8c07970599eb4331994a3e5a97c04da2337c65a7944b08fce3`，209254050字节，绑定精确main CI／attempt 1。
+- 首次独立回读于`2026-10-15T16:39:37.124Z`仅因备份starting未通过；应用healthy，SHA／镜像匹配，维护门不存在。只读核对备份实际启动`2026-10-15T16:39:16.956446976Z`及既有5分钟周期／启动期后，仅续跑同SHA回读，没有重新发布。最终`READBACK_OK`于`2026-10-15T16:46:02.301Z`（北京时间00:46）完成，3221毫秒：应用／备份运行且healthy，TURN运行且探针none，维护门不存在；精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物及新WebSocket一致，管理员与通话启用。
+- 脱敏授权、预检、发布及全部独立回读证据保存于公共Git元数据`quiet-room-deliveries/evidence/composer-voice-refine-20261015/production.json`，位于任务工作树及其专属Git目录之外。第二个无部署配置的对账树基于实时main`661087048e5229aa20188723b835352fff1ae85c`，仅同步发布／状态／同一需求记录；文档SHA不发布。原生iPhone／iOS27／Safari键盘、工具栏、系统麦克风及触摸性能仍待真机验收。本批资源按固定清理门禁核验，不处理其他任务资源；下方均为历史生产快照。
+
 ## 空间与录音十四项修复已发布（2026-10-15 19:42）
 
 - 用户在本会话获知完整应用`3aa09305c6af696acb171a4d4af7b71e077248e3`、版本`2026.10.15.2`、完整CI及真机缺口后回复「确认。若完成则合并并发布生产」，授权本次精确生产发布；无独立消息permalink。十四项范围、免原型／流程图及实施验证历史由[需求记录](docs/requirements/2026-10-15-mobile-space-voice/README.md)拥有，后续文档SHA不进入本批应用。

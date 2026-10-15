@@ -1,19 +1,20 @@
 # Quiet Room 当前状态
 
-## 输入、表情与录音八项修订已合并并通过完整 CI（2026-10-16）
+## 输入、表情与录音八项修订已发布，真机待验收（2026-10-16）
 
-- 用户确认V1并明确免原型／流程图直接修复验证；范围、授权及失败历史由[本次需求记录](../requirements/2026-10-15-composer-voice-refine/README.md)拥有。版本`2026.10.15.4`保留数字密码`.3`历史，本次未发布，原生iPhone／iOS27／Safari仍待验收。
+- 用户确认V1并明确免原型／流程图直接修复验证；范围、授权及失败历史由[本次需求记录](../requirements/2026-10-15-composer-voice-refine/README.md)拥有。用户随后确认本次精确生产发布；版本`2026.10.15.4`保留数字密码`.3`历史，原生iPhone／iOS27／Safari仍待验收。
 - 表情使用实测键盘／辅助栏占位并改直角，移除展开／收起，收藏移至Emoji右侧；添加页简化返回及规范动作。裁剪、标记和指针共用轨道，试听在录音条内；权限准备不显示录音UI，首次授权后再次手势才录音。发送图形居中，键盘重开及视口跟随已调整，浏览器原生工具栏仍由浏览器控制。
 - [PR #319](https://github.com/zdaiwmm/shui-IM/pull/319)源`acacec933edadc816fa3ccbcab1ab1f4225e440b`合并为`bb5dc8b2cb63cb2f3a8ddf0ff48df75a669ab491`，回取完整文件树一致。精确[PR CI 38766143482](https://github.com/zdaiwmm/shui-IM/actions/runs/38766143482)与精确[main CI 38767540877](https://github.com/zdaiwmm/shui-IM/actions/runs/38767540877) attempt 1均完整通过，含119文件／961项、全部66浏览器入口、通话、审计、文档、凭据扫描及双架构镜像。
 - 本机构建、早期65浏览器入口分段及370展示组合通过；组合后相关65单测、主流程／通话、数字密码、双引擎移动输入及录音专项通过。本机完整check:full的10项备份传输受98%磁盘容量门禁阻塞，原失败保留，未修改备份保护。权限前提、持续prompt兼容、通知WebKit初始化及动画采样的有界处置由需求记录拥有，不将本机专项冒充完整门禁。
-- 当前源工作树和任务分支保留；无本次生产授权，不执行生产切换或发布后清理。生产仍须针对精确应用提交单独确认。
+- 固定[云预检38769620508](https://github.com/zdaiwmm/shui-IM/actions/runs/38769620508)及[云发布38770166368](https://github.com/zdaiwmm/shui-IM/actions/runs/38770166368)通过，精确`DEPLOY_VERIFIED`后独立`READBACK_OK`于`2026-10-15T16:46:02.301Z`完成：应用／备份healthy、TURN运行且探针none，维护门不存在，SHA／镜像、HTTPS／数据库／存储、产物及新WebSocket一致。首次备份starting只等待原探针并续跑回读，切换仅一次；完整事实由[发布记录](../../RELEASING.md#输入表情与录音八项修订已发布2026-10-16-0046)拥有。
+- 脱敏证据保存于公共Git元数据的composer-voice-refine-20261015/production.json；第二个无部署配置的工作树仅对账，文档SHA不发布。收尾按固定清理门禁核验本批资源，不清理其他任务。
 
 ## 数字密码 V1 已合并并通过完整 CI（2026-10-15）
 
 - 用户已确认[数字密码V1原型及流程](../requirements/2026-10-15-iphone-numeric-passcode/README.md)，授权实施、验证及合并main。独占 `codex/iphone-pin-prototype-20261015` 基于实时main `2296a5654cd19b5ab0623e74425b9b169c7c6bc2`，版本 `2026.10.15.3`。新设置／数字解锁采用iPhone圆键与六圆点，旧长密码及通行密钥兼容，敏感操作沿用原授权；长期取舍见D-061。
 - [PR #320](https://github.com/zdaiwmm/shui-IM/pull/320)源 `a976b8215d061284e2f5d7718b3cc98a2d4c46d8` 合并为 `8384f73176d59b0dcb5739a3a7064610ffcd19c3`，完整文件树一致。精确[PR完整CI 38761192611](https://github.com/zdaiwmm/shui-IM/actions/runs/38761192611) attempt 2和精确[main CI 38763332090](https://github.com/zdaiwmm/shui-IM/actions/runs/38763332090) attempt 1均完整成功，含119文件／960项、全部66浏览器入口、通话、审计、文档、凭据扫描及同轮双架构镜像。
 - 本机构建与118文件／947项单元通过（明确排除容量受阻的备份传输文件），66／66完整浏览器通过（961.23秒）；数字页最终源码桌面WebKit专项通过，390×844十键与V1原型差异小于2px。本机完整浏览器启动于未提交实现的脏树，自动证据不充当精确干净SHA验证；最终候选由上述精确CI拥有。
-- 早期本机 `check:full` 为失败：10项备份传输因磁盘98%触发 `BACKUP_CAPACITY_LOW`，另两项新增浏览器入口数量断言遗漏已修正，原失败保留；没有放宽容量门禁。iPhone／iOS27／Safari与VoiceOver未真机验证，本轮未发布生产。
+- 早期本机 `check:full` 为失败：10项备份传输因磁盘98%触发 `BACKUP_CAPACITY_LOW`，另两项新增浏览器入口数量断言遗漏已修正，原失败保留；没有放宽容量门禁。iPhone／iOS27／Safari与VoiceOver未真机验证，数字密码实施阶段未单独发布，现已随上述`bb5dc8b`／`2026.10.15.4`批次上线。
 - PR CI首次通知WebKit初始化出现 `NotSupportedError`，具体原因未确认；本机同源码双引擎通过，仅原样重跑失败分片及汇总一次后成功，未改产品、夹具或断言。需求记录保存失败历史；本任务原型服务器及独占目录保留供后续审阅，未清理其他任务资源。
 
 ## 空间与录音十四项修复已发布，真机待验收（2026-10-15）
