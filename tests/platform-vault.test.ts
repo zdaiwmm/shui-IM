@@ -427,11 +427,23 @@ describe('passkey names and identity-bound management', () => {
 
 
 describe('new protection in embedded browsers', () => {
+  afterEach(() => vi.unstubAllGlobals());
   it('selects password for known WebViews while retaining system-browser ceremonies', () => {
     for (const ua of ['MicroMessenger/8.0', 'Telegram/11.0', 'Mozilla/5.0 (Linux; Android 15; wv)',
       'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Mobile/15E148']) expect(embeddedPasswordSetup(ua)).toBe(true);
     for (const ua of ['Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Version/27.0 Mobile/15E148 Safari/604.1',
       'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 CriOS/141 Mobile/15E148 Safari/604.1',
       'Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/141.0 Mobile Safari/537.36']) expect(embeddedPasswordSetup(ua)).toBe(false);
+  });
+  it('keeps installed web apps on capability checks even without a Safari UA token', () => {
+    const userAgent = 'Mozilla/5.0 (iPhone) AppleWebKit/605.1.15 Mobile/15E148';
+    vi.stubGlobal('navigator', { userAgent, standalone: true });
+    expect(embeddedPasswordSetup()).toBe(false);
+    vi.stubGlobal('navigator', { userAgent });
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }));
+    expect(embeddedPasswordSetup()).toBe(false);
+    expect(embeddedPasswordSetup('MicroMessenger/8.0')).toBe(true);
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: false }));
+    expect(embeddedPasswordSetup()).toBe(true);
   });
 });
