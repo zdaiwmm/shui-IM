@@ -88,6 +88,8 @@ export async function verifyHandoffEntryPages(page) {
     for(const theme of ['blue','green','purple','apricot'])for(const scheme of ['light','dark'])for(const text of [16,32])for(const kind of ['create','join']) {
       const result=await page.evaluate(async({theme,scheme,text,kind})=>{
         const app=fixture.app;document.documentElement.dataset.theme=theme;document.documentElement.dataset.colorScheme=scheme;document.documentElement.style.fontSize=`${text}px`;
+        const {platformVaultSetupState}=await import('/src/lib/platform-vault.ts');
+        const password=kind==='create'&&platformVaultSetupState()==='unsupported';
         if(kind==='create'){const {defaultSpaceAvatar}=await import('/src/lib/space-avatar.ts');app.renderCreateProtection({name:'合成空间',avatar:defaultSpaceAvatar()});}
         else app.renderJoin({roomId:'entry-visual-probe',accessToken:'synthetic-visual-only'});
         await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
@@ -95,12 +97,13 @@ export async function verifyHandoffEntryPages(page) {
         return {hero:gateway.dataset.hero,art:gateway.querySelectorAll('.gateway-entry-hero>.entry-art-lock').length,
           actionsVisible:actions.bottom<=innerHeight+1&&actions.top>=0,buttonHeight:button.height,
           horizontal:content.scrollWidth<=content.clientWidth+1,title:getComputedStyle(gateway.querySelector('h1')).textAlign,
-          field:!!gateway.querySelector('#new-passkey-name'),height:bounds.height};
+          field:!!gateway.querySelector('#new-passkey-name'),expectedField:!password,
+          actionLabel:button.width>0&&gateway.querySelector('[data-device-verify]').textContent.includes(password?'设置密码':kind==='create'?'设置密钥':'设置访问密钥'),height:bounds.height};
       },{theme,scheme,text,kind});
       rows.push({size,theme,scheme,text,kind,...result});
     }
   }
-  const failures=rows.filter(r=>r.art!==1||!r.actionsVisible||r.buttonHeight<44||!r.horizontal||r.title!=='center'||!r.field);
+  const failures=rows.filter(r=>r.art!==1||!r.actionsVisible||r.buttonHeight<44||!r.horizontal||r.title!=='center'||r.field!==r.expectedField||!r.actionLabel);
   assert.deepEqual(failures,[]);
   await page.evaluate(()=>{stopEntryFit();document.documentElement.style.fontSize='';document.documentElement.dataset.theme='blue';document.documentElement.dataset.colorScheme='light';fixture.app.renderChat();setViewport(844);});
   await page.setViewportSize({width:390,height:844});
