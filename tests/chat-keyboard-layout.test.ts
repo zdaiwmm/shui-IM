@@ -14,6 +14,23 @@ function openedLayout() {
 }
 
 describe('list keyboard layout', () => {
+  it('holds a cached opening until native movement and follows intermediate samples once', () => {
+    const layout = openedLayout();
+    layout.begin('closed', 319, opened, 600);
+    layout.sample({ ...opened, height: 550 }, 750);
+    layout.sample(closed, 1000);
+    expect(layout.occupiedHeight).toBe(376);
+    layout.begin('open', 695, closed, 1100);
+    expect(layout.sample(closed, 1150)).toBe(695);
+    expect(layout.transition).toBe(null);
+    expect(layout.sample({ ...opened, height: 550 }, 1180)).toBe(550);
+    expect(layout.transition).toBe(null);
+    expect(layout.sample({ ...opened, height: 420 }, 1250)).toBe(420);
+    expect(layout.sample(opened, 1460)).toBe(319);
+    expect(layout.occupiedHeight).toBe(376);
+    layout.sample({ height: 390, layoutHeight: 390, width: 844 }, 1500);
+    expect(layout.occupiedHeight).toBe(0);
+  });
   it('waits for a measured first opening and joins its existing timeline', () => {
     const layout = createChatKeyboardLayout();
     layout.begin('open', 695, closed, 0);
@@ -46,7 +63,7 @@ describe('list keyboard layout', () => {
     layout.begin('closed', 319, opened, 1100);
     layout.sample(closed, 1460);
     layout.begin('open', 695, closed, 1500);
-    expect(layout.sample(closed, 1550)).toBeLessThan(695);
+    expect(layout.sample(closed, 1550)).toBe(695);
     const rotated = { height: 390, layoutHeight: 390, width: 844 };
     expect(layout.sample(rotated, 1560)).toBe(390);
     expect(layout.moving).toBe(false);
@@ -57,7 +74,7 @@ describe('list keyboard layout', () => {
     layout.begin('closed', 319, opened, 600);
     layout.sample(closed, 1000);
     layout.begin('open', 695, closed, 1100);
-    expect(layout.sample(closed, 1200)).toBeLessThan(695);
+    expect(layout.sample(closed, 1200)).toBe(695);
     expect(layout.sample(closed, 2000)).toBe(695);
     expect(layout.moving).toBe(false);
   });

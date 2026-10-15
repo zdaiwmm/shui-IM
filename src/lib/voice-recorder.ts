@@ -64,15 +64,20 @@ export class VoiceRecorder {
   private renderedSendIcon = '';
   private sendMotion: Animation | null = null;
   private holdEntryMotion: Animation | null = null;
+  private holdOrigin: DOMRect | null = null;
 
   constructor(private readonly host: HTMLElement, private readonly callbacks: {
     useChanged?: () => void;
     permission: (active: boolean) => boolean | void | Promise<boolean | void>;
     cancel: () => void;
+    permissionGranted?: boolean;
+    authorized?: () => void;
+    ready?: () => void;
     fail: (message: string) => void;
     send: (draft: VoiceDraft, signal: AbortSignal) => Promise<void>;
   }, private mode: Mode = 'locked', private readonly fullscreen = false) {
     this.signal = this.abort.signal;
+    host.hidden = true;
     host.dataset.fullscreen = String(fullscreen);
     host.innerHTML = `
       ${fullscreen ? `<div class="voice-hold-screen">
@@ -87,9 +92,11 @@ export class VoiceRecorder {
         <span class="voice-submit-label" aria-hidden="true"></span>
         <button type="button" class="voice-cancel" aria-label="取消录音">取消</button>
         <div class="voice-draft-timeline">
-          <div class="voice-trim-selection" aria-hidden="true"></div><button class="voice-trim-handle" data-trim="start" type="button" role="slider" aria-label="裁剪起点"></button><button class="voice-trim-handle" data-trim="end" type="button" role="slider" aria-label="裁剪终点"></button>
-          <div class="voice-recording-wave voice-waveform" aria-hidden="true">${waveformMarkup(Array(48).fill(0))}</div>
           <button type="button" class="voice-preview" aria-label="试听录音"><span class="voice-preview-icon">${voiceIcons.play}</span><span class="voice-preview-time">0:00</span></button>
+          <div class="voice-trim-track">
+            <div class="voice-trim-selection" aria-hidden="true"></div><button class="voice-trim-handle" data-trim="start" type="button" role="slider" aria-label="裁剪起点"></button><button class="voice-trim-handle" data-trim="end" type="button" role="slider" aria-label="裁剪终点"></button>
+            <div class="voice-recording-wave voice-waveform" aria-hidden="true">${waveformMarkup(Array(48).fill(0))}</div>
+          </div>
         </div>
       </div>
       <span class="voice-recording-state" role="status" aria-live="polite"></span>
@@ -117,6 +124,7 @@ export class VoiceRecorder {
   }
 
   animateHoldFrom(origin: DOMRect): void {
+    if (this.host.hidden) { this.holdOrigin = origin; return; }
     if (this.signal.aborted || this.mode !== 'hold' || this.reducedMotion) return;
     const orb = this.host.querySelector<HTMLElement>('.voice-hold-orb');
     if (!orb || typeof orb.animate !== 'function') return;
@@ -255,6 +263,13 @@ export class VoiceRecorder {
       if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
         throw new Error('当前环境不能录音，请使用 HTTPS 和支持麦克风的新版浏览器');
       }
+      let granted = this.callbacks.permissionGranted ?? false;
+      try {
+        // Query is optional (older WebKit); never infer permission from timing.
+        const status = await navigator.permissions?.query({ name: 'microphone' as PermissionName });
+        if (status) granted = status.state === 'granted';
+      } catch { /* A successful preparation is only a session-local fallback. */ }
+      if (this.signal.aborted) return;
       // Let the OS select the complete input route. Hard channel/processing
       // constraints can reject or retain a stale built-in route when a
       // Bluetooth headset connects between recordings.
@@ -265,6 +280,15 @@ export class VoiceRecorder {
       if (permissionInvalidated || this.signal.aborted) {
         stream.getTracks().forEach(track => track.stop());
         if (this.stream === stream) this.stream = null;
+        return;
+      }
+      if (!granted) {
+        // This gesture only prepares permission. No recorder, PCM or draft is
+        // created; a fresh deliberate gesture is required after authorization.
+        stream.getTracks().forEach(track => track.stop());
+        this.stream = null;
+        if (this.callbacks.authorized) this.callbacks.authorized();
+        else this.cancel();
         return;
       }
       this.context = new AudioContext();
@@ -308,6 +332,10 @@ export class VoiceRecorder {
       // main-thread pressure on mobile browsers; transport chunks are created
       // later from the finished local WAV.
       recorder.start();
+      this.host.hidden = false;
+      this.callbacks.ready?.();
+      if (this.signal.aborted) return;
+      if (this.holdOrigin) { const origin = this.holdOrigin; this.holdOrigin = null; this.animateHoldFrom(origin); }
       this.timer = window.setInterval(() => {
         if (this.state !== 'recording') return;
         const values = new Uint8Array(256);
@@ -438,13 +466,13 @@ export class VoiceRecorder {
       handle.addEventListener('pointerdown', event => {
         if (event.button !== 0 || this.state !== 'paused' || this.sendAttempted) return;
         event.preventDefault(); event.stopPropagation();
-        const bounds = timeline.getBoundingClientRect(), origin = event.clientX;
+        const bounds = timeline.querySelector<HTMLElement>('.voice-trim-track')!.getBoundingClientRect(), origin = event.clientX;
         const sample = edge === 'start' ? this.trimStart : this.trimEnd;
         handle.setPointerCapture(event.pointerId);
         const gesture = new AbortController();
         const signal = AbortSignal.any([gesture.signal, this.signal]);
         handle.addEventListener('pointermove', next => {
-          if (next.pointerId === event.pointerId) change(edge, sample + (next.clientX - origin) / Math.max(1, bounds.width - 88) * this.samples.length);
+          if (next.pointerId === event.pointerId) change(edge, sample + (next.clientX - origin) / Math.max(1, bounds.width) * this.samples.length);
         }, { signal });
         const end = (next: PointerEvent) => { if (next.pointerId === event.pointerId) gesture.abort(); };
         handle.addEventListener('pointerup', end, { signal });

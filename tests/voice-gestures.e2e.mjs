@@ -15,6 +15,7 @@ try {
   await server.listen();
   browser = await chromium.launch({ ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : process.env.CI ? {} : { channel: 'chrome' }), args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
   const page = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  await page.context().grantPermissions(['microphone']);
   page.setDefaultTimeout(10000);
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(`http://localhost:${server.httpServer.address().port}/__voice_gestures`);
@@ -55,7 +56,7 @@ try {
   const hold = async (waitForMedia = true) => {
     const box = await page.locator('#record-voice').boundingBox(); origin = { x: box.x + box.width/2, y: box.y + box.height / 2 };
     await touch('touchStart');
-    await page.locator('.voice-recorder:not([hidden])').waitFor();
+    await page.waitForFunction(() => Boolean(window.fixture.app.voiceRecorder));
     if (waitForMedia) await page.waitForFunction(() => document.querySelector('.voice-recorder').dataset.state === 'recording');
   };
   const count = () => page.evaluate(() => window.fixture.sends.length);
@@ -177,8 +178,23 @@ try {
   const trimTargets=await page.evaluate(()=>{
     const r=fixture.app.voiceRecorder,end=r.trimEnd;r.trimEnd=r.trimStart+12000;r.update();
     const start=document.querySelector('[data-trim=start]').getBoundingClientRect(),finish=document.querySelector('[data-trim=end]').getBoundingClientRect(),play=document.querySelector('.voice-preview').getBoundingClientRect(),track=document.querySelector('.voice-draft-timeline').getBoundingClientRect();
-    r.trimEnd=end;r.update();return {separate:start.right<=finish.left,preview:play.bottom<=track.top,start:start.width,end:finish.width};
+    r.trimEnd=end;r.update();return {separate:start.right<=finish.left,preview:play.top>=track.top&&play.bottom<=track.bottom&&play.left>=track.left&&play.right<=start.left,start:start.width,end:finish.width};
   });assert.deepEqual(trimTargets,{separate:true,preview:true,start:44,end:44},'Even the minimum selection keeps independent 44px trim targets and a reachable preview');
+  const trimGeometry=await page.evaluate(()=>{
+    const selected=document.querySelector('.voice-trim-selection').getBoundingClientRect();
+    const marker=edge=>{const node=document.querySelector(`[data-trim=${edge}]`),r=node.getBoundingClientRect(),style=getComputedStyle(node,'::after');return r.left+parseFloat(style.left)+parseFloat(style.width)/2;};
+    const button=document.querySelector('.voice-send').getBoundingClientRect(),svg=document.querySelector('.voice-send svg'),box=svg.getBBox(),r=svg.getBoundingClientRect();
+    return {start:Math.abs(marker('start')-selected.left),end:Math.abs(marker('end')-selected.right),dx:Math.abs(r.left+(box.x+box.width/2)*r.width/24-(button.left+button.width/2)),dy:Math.abs(r.top+(box.y+box.height/2)*r.height/24-(button.top+button.height/2))};
+  });
+  assert.ok(Object.values(trimGeometry).every(delta=>delta<.6),JSON.stringify(trimGeometry));
+  const beforeDrag=await page.evaluate(()=>({start:fixture.app.voiceRecorder.trimStart,end:fixture.app.voiceRecorder.trimEnd,width:document.querySelector('.voice-trim-track').getBoundingClientRect().width}));
+  const boundary=await page.getByRole('slider',{name:'裁剪起点'}).boundingBox();
+  await page.mouse.move(boundary.x+boundary.width-1,boundary.y+22);await page.mouse.down();
+  await page.mouse.move(boundary.x+boundary.width+11,boundary.y+22);await page.mouse.up();
+  assert.equal(await page.evaluate(()=>fixture.app.voiceRecorder.trimStart),Math.round(beforeDrag.start+12/beforeDrag.width*72000),'Actual pointer travel and painted selection use the same track');
+  await page.evaluate(({start,end})=>{const r=fixture.app.voiceRecorder;r.trimStart=start;r.trimEnd=end;r.draft=null;r.update();},beforeDrag);
+  if(process.argv[2]) {await mkdir(process.argv[2],{recursive:true});await page.screenshot({path:path.join(process.argv[2],'voice-trim-inline.png')});}
+
   await page.getByRole('button',{name:'试听录音',exact:true}).click();
   await page.waitForFunction(()=>fixture.app.voiceRecorder.preview.duration===1.5);
   await page.getByRole('slider',{name:'裁剪起点'}).press('ArrowRight');
@@ -196,11 +212,29 @@ try {
   // A release before permission settles cannot start capture after a late grant.
   await reset();
   await page.evaluate(()=>{ window.fixture.wrapped=navigator.mediaDevices.getUserMedia; navigator.mediaDevices.getUserMedia=()=>new Promise(resolve=>window.fixture.grant=resolve); });
-  await hold(false); await touch('touchEnd'); await closed();
+  await hold(false); await page.waitForFunction(()=>Boolean(fixture.grant));
+  assert.equal(await page.locator('.voice-recorder').isVisible(),false,'Pending permission must retain the ordinary input row');
+  await touch('touchEnd'); await closed();
   await page.evaluate(async()=>{const stream=await window.fixture.capture({audio:true});window.fixture.tracks.push(...stream.getTracks());window.fixture.grant(stream);navigator.mediaDevices.getUserMedia=window.fixture.wrapped;});
   await stopped(); assert.equal(await count(),2);
   await reset(); await hold(); await page.evaluate(()=>window.fixture.app.lockNow()); await touch('touchEnd'); await stopped();
   assert.equal(await count(),2);
+
+  await reset();
+  await page.evaluate(()=>{
+    fixture.query=navigator.permissions.query.bind(navigator.permissions);
+    navigator.permissions.query=async options=>options.name==='microphone'?{state:fixture.permissionState??'prompt'}:fixture.query(options);
+    fixture.wrapped=navigator.mediaDevices.getUserMedia;
+    navigator.mediaDevices.getUserMedia=()=>new Promise(resolve=>fixture.firstGrant=resolve);
+  });
+  await hold(false);await page.waitForFunction(()=>Boolean(fixture.firstGrant));
+  assert.equal(await page.locator('.voice-recorder').isVisible(),false);
+  assert.equal(await page.locator('#composer').evaluate(e=>e.classList.contains('has-voice-draft')),false);
+  await page.evaluate(async()=>{const stream=await fixture.capture({audio:true});fixture.tracks.push(...stream.getTracks());fixture.firstGrant(stream);navigator.mediaDevices.getUserMedia=fixture.wrapped;});
+  await closed();await stopped();await touch('touchEnd');assert.equal(await count(),2,'Authorization never records or sends');
+  await page.evaluate(()=>{fixture.permissionState='granted';});
+  await hold();await page.waitForTimeout(650);await touch('touchEnd');await closed();await stopped();assert.equal(await count(),3,'A new hold records after authorization');
+  await page.evaluate(()=>{navigator.permissions.query=fixture.query;});
 
   if(process.argv[2]) await mkdir(process.argv[2],{recursive:true});
   for(const [width,height,colorScheme] of [[320,844,'light'],[390,844,'light'],[390,844,'dark'],[844,390,'light'],[768,844,'light'],[1280,844,'light']]) {

@@ -196,9 +196,11 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
     navigator.mediaDevices.getUserMedia = () => new Promise(resolve => { window.__resolveVoicePermission = resolve; });
   });
   await creator.locator('#message-input').press('Alt+r');
-  await creator.locator('.voice-recorder[data-state="requesting"]').waitFor();
+  await creator.locator('.voice-recorder[data-state="requesting"]').waitFor({state:'attached'});
+  assert.equal(await creator.locator('.voice-recorder').isVisible(),false,'Permission request has no recording presentation');
+  await creator.waitForFunction(()=>typeof window.__resolveVoicePermission==='function');
   await creator.evaluate(() => window.dispatchEvent(new Event('blur')));
-  assert.equal(await creator.locator('.cover-trigger').count(), 0, 'The first visible native permission blur must retain its requesting UI');
+  assert.equal(await creator.locator('.cover-trigger').count(), 0, 'The first visible native permission blur must retain its ordinary composer');
   await creator.evaluate(() => { window.dispatchEvent(new Event('focus')); window.dispatchEvent(new Event('blur')); });
   assert.equal(await creator.evaluate(() => document.documentElement.classList.contains('privacy-obscured')), false, 'Repeated permission blur obscured the foreground recorder');
   await creator.evaluate(() => window.dispatchEvent(new Event('pagehide')));

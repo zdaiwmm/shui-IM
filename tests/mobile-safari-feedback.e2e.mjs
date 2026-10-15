@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { chromium, webkit } from 'playwright';
 import { createServer } from 'vite';
+import { verifyComposerRefine } from './fixtures/composer-voice-refine.mjs';
 import { verifyMobileTenFixes } from './fixtures/mobile-ten-fixes.mjs';
 
 const server = await createServer({ configFile:false, appType:'custom', root:process.cwd(), logLevel:'error',
@@ -170,26 +171,18 @@ try {
     });
     assert.ok(reverse.jumps.every(jump=>jump<.5),JSON.stringify(reverse));
     assert.equal(reverse.same,true);assert.equal(reverse.interactive,true);assert.equal(reverse.left,0);
-    const sizeReverse=await page.evaluate(async()=>{
-      const panel=document.querySelector('.meme-panel'),expand=panel.querySelector('.meme-expand');
-      const paint=()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
-      expand.click();for(const animation of panel.getAnimations()){animation.pause();animation.currentTime=120;}
-      await paint();const before=panel.getBoundingClientRect().top;expand.click();
-      const animations=panel.getAnimations();for(const animation of animations){animation.pause();animation.currentTime=0;}
-      await Promise.all(animations.map(animation=>animation.ready));await paint();
-      const jump=Math.abs(before-panel.getBoundingClientRect().top);
-      for(const animation of animations)animation.finish();await paint();
-      return {jump,local:panel.parentElement.id==='composer',same:panel===document.querySelector('.meme-panel')};
-    });
-    assert.ok(sizeReverse.jump<.5,JSON.stringify(sizeReverse));assert.equal(sizeReverse.local,true);assert.equal(sizeReverse.same,true);
-    await page.locator('.meme-expand').click();
-    await page.locator('.meme-panel').evaluate(async panel=>{await Promise.all(panel.getAnimations().map(animation=>animation.finished));});
-    assert.equal(await page.locator('.meme-expand').getAttribute('aria-label'),'还原表情');
-    assert.equal(await page.locator('.meme-panel').evaluate(panel=>Math.abs(panel.getBoundingClientRect().height-visualViewport.height)<1),true);
-    assert.equal(await page.locator('.meme-panel').evaluate(panel=>panel.querySelector('.meme-scroll').getBoundingClientRect().height>panel.getBoundingClientRect().height-80),true,'Expanded content must fill the space below its single rail');
-    await page.locator('.meme-expand').click();
+    assert.equal(await page.locator('.meme-expand,.meme-collapse,.meme-close,.meme-search-header .meme-favorites').count(),0);
+    assert.equal(await page.locator('.meme-panel').evaluate(panel=>getComputedStyle(panel).borderTopLeftRadius),'0px');
+    assert.deepEqual(await page.locator('.meme-pack-shortcuts button').evaluateAll(nodes=>nodes.slice(0,3).map(n=>n.dataset.shortcut)),['add','emoji','favorites']);
+    await page.locator('[data-shortcut=favorites]').click();
+    await page.waitForFunction(()=>document.querySelector('[data-shortcut=favorites]').getAttribute('aria-pressed')==='true');
+    assert.equal(await page.locator('[data-shortcut=favorites]').getAttribute('aria-pressed'),'true');
+    await page.locator('[data-shortcut=emoji]').click();
+    await page.locator('[data-shortcut=add]').click();
+    await page.locator('.meme-search-dialog').waitFor();
+    assert.equal(await page.locator('.meme-search-header button').count(),1);
+    await page.locator('.meme-back').click();
     await page.locator('.meme-search-dialog').waitFor({state:'detached'});
-    assert.equal(await page.locator('#composer > .meme-panel').count(),1);
     const handoff=await page.evaluate(async()=>{
       const input=document.querySelector('#message-input'),app=fixture.app;let focuses=0,blurs=0;
       input.addEventListener('focus',()=>focuses++);input.addEventListener('blur',()=>blurs++);
@@ -420,6 +413,7 @@ try {
     });
     assert.equal(reduced,true);
     await page.emulateMedia({reducedMotion:'no-preference'});
+    await verifyComposerRefine(page);
     const privacy=await page.evaluate(()=>{
       const app=fixture.app;app.openMemePicker();app.closeMemePicker(false,true);
       const row=document.querySelector('.composer-row');app.lockNow();

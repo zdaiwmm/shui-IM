@@ -535,6 +535,8 @@ export class QuietRoomApp {
   private nativeClosedViewportHeight = 0;
   private nativeClosedComposer: { minHeight: number; paddingBottom: number } | null = null;
   private nativeKeyboardOpening = false;
+  private nativeKeyboardOpeningAt = 0;
+  private voicePermissionGranted = false;
   private listKeyboardLayout = createChatKeyboardLayout();
   private chatKeyboardSurfaceMotion: { started: number; target: number; animations: Animation[] } | null = null;
   private chatResumeBottomOnFocus = false;
@@ -4747,6 +4749,13 @@ export class QuietRoomApp {
     this.memePicker = new MemePicker({
       host, root: this.root, signal: this.runtimeAbort.signal, isActive, previousRowTop,
       cache: this.memeCache,
+      occupiedHeight: () => {
+        if (this.desktopBrowser) return undefined;
+        const viewport = layoutViewport();
+        const height = this.listKeyboardLayout.closedHeight ?? viewport?.height ?? innerHeight;
+        const available = Math.max(52, height - 108);
+        return Math.min(available, this.listKeyboardLayout.occupiedHeight || Math.max(220, Math.min(420, height * .4)));
+      },
       list: () => loadMemeFavorites(session),
       file: (item, signal) => loadMemeFavoriteFile(session, item, signal),
       save: (file, signal) => saveMemeFavorite(session, file, signal),
@@ -5678,7 +5687,8 @@ export class QuietRoomApp {
       const expressionHandoff = Boolean(this.memePicker);
       const viewport = layoutViewport();
       const keyboardClosed = (document.documentElement.clientHeight || innerHeight) - (viewport?.height ?? innerHeight) <= 120;
-      const rearm = document.activeElement === textarea && keyboardClosed && !this.nativeKeyboardOpening && textarea.dataset.composing !== 'true';
+      const rearm = document.activeElement === textarea && keyboardClosed
+        && (!this.nativeKeyboardOpening || performance.now() - this.nativeKeyboardOpeningAt >= 900) && textarea.dataset.composing !== 'true';
       if (!expressionHandoff && (!this.usesListScrolling || document.activeElement === textarea && !rearm)) return;
       // Native tap focus pans Safari's root even when the list owns scrolling.
       // Keep focus in the trusted touch gesture and suppress only that root pan.
@@ -5696,7 +5706,7 @@ export class QuietRoomApp {
       this.presenceCircuit?.suspend();
       this.cancelNativeKeyboardDismiss();
       delete this.chatLayoutElements?.composer.dataset.keyboardDismissReveal;
-      if (this.visualClientCoordinates) this.nativeKeyboardOpening = true;
+      if (this.visualClientCoordinates) { this.nativeKeyboardOpening = true; this.nativeKeyboardOpeningAt = performance.now(); }
       // Focus belongs to the current reader. Opening the keyboard must not
       // discard a history anchor or fetch unrelated newer history pages.
       if (!this.chatPinnedToBottom) this.captureChatAnchor(true);
@@ -8177,15 +8187,27 @@ export class QuietRoomApp {
     this.closeChatTools();
     this.closeMemePicker();
     this.closeMessageActions();
-    this.root.querySelector<HTMLTextAreaElement>('#message-input')?.blur();
-    this.root.querySelector('#composer')?.classList.add('has-voice-draft');
-    host.hidden = false;
-    this.root.querySelector('.chat-shell')?.classList.add('is-voice-recording');
+    // Keep the ordinary row while permission is pending. Reveal only after
+    // getUserMedia has succeeded for an already-authorized recording gesture.
+    host.hidden = true;
     let replyTarget: DecryptedMessage | null | undefined;
     let payload: MessagePayload | undefined;
     let plan: ImageUploadPlan | undefined;
     let uploaded: ImageManifest | undefined;
     const recorder = new VoiceRecorder(host, {
+      permissionGranted: this.voicePermissionGranted,
+      authorized: () => {
+        if (!this.isRuntimeActive(epoch, session) || this.voiceRecorder !== recorder) return;
+        this.voicePermissionGranted = true;
+        this.closeVoiceRecorder();
+      },
+      ready: () => {
+        if (!this.isRuntimeActive(epoch, session) || this.voiceRecorder !== recorder) { recorder.destroy(); return; }
+        this.voicePermissionGranted = true;
+        this.root.querySelector<HTMLTextAreaElement>('#message-input')?.blur();
+        this.root.querySelector('#composer')?.classList.add('has-voice-draft');
+        this.root.querySelector('.chat-shell')?.classList.add('is-voice-recording');
+      },
       useChanged: () => this.scheduleIdleLock(),
       permission: active => {
         if (this.voiceRecorder === recorder) return this.setMediaPermission('microphone', active);
@@ -8214,6 +8236,7 @@ export class QuietRoomApp {
       },
       fail: message => {
         if (!this.isRuntimeActive(epoch, session) || this.voiceRecorder !== recorder) return;
+        this.voicePermissionGranted = false;
         this.closeVoiceRecorder(true); this.showNotice(message, 'error');
       },
       send: async (draft, draftSignal) => {
