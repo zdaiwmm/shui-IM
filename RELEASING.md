@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+<a id="release-chamber-20261017"></a>
+## Chamber 与本机备份已发布（2026-10-17 11:43）
+
+- 用户在获知版本`2026.10.17.1`及完整应用SHA `89ca7c83b742f1ac3935dfe8e15b2959b4535512`后明确「确认，发布生产」。四格验证码等已确认交互由[Chamber需求](docs/requirements/2026-10-16-personal-mnemonic-friends/README.md)拥有，长期身份／历史契约见[CHAMBER_IDENTITY.md](CHAMBER_IDENTITY.md)；无独立消息permalink。后续备份工具及对账提交不改发为应用。
+- [PR #327](https://github.com/zdaiwmm/shui-IM/pull/327)已合并，源`4208d10168ca6eac0a58c89c9917f295a380ede9`与应用完整文件树一致。[PR完整CI38990518040](https://github.com/zdaiwmm/shui-IM/actions/runs/38990518040)与[精确main CI38991200105](https://github.com/zdaiwmm/shui-IM/actions/runs/38991200105)最新attempt 2完整成功，126文件／995项、69浏览器入口、通话／TURN、审计、凭据扫描、文档及双架构镜像。历史本机容量及CI失败保留，PR CI未替代发布门禁；只读[云预检38992276469](https://github.com/zdaiwmm/shui-IM/actions/runs/38992276469)取得PREFLIGHT_OK。
+- 原备份Mac关机且回执过期。用户撤回临时服务器本地方案，明确确认当前Mac显式reserve策略：逐文件／传输中／发布前保留8GiB，其他校验不变，服务器仍mac-pull。[PR #331](https://github.com/zdaiwmm/shui-IM/pull/331)源`fa1236592ac1dfa5663e993c02a3dcd4e1626a67`合并为`97e1d34bd5a72d69bd0d0c8c7e9eea9b7dccec31`；[PR CI38998105737](https://github.com/zdaiwmm/shui-IM/actions/runs/38998105737)126文件／1006项与[main CI38998661457](https://github.com/zdaiwmm/shui-IM/actions/runs/38998661457) attempt 1完整成功。本机七份固定运行文件、私有权限、策略及来源摘要核验后安装LaunchAgent，每5分钟检查、成功快照12小时内跳过。首份真实备份1157255004字节，创建`2026-10-17T03:26:20.548Z`，Mac独立复验／服务器回执分别`03:27:08.649Z`／`03:27:08.617Z`，首次任务退出0、健康BACKUP_FRESH。原predeploy归档保留，未清理个人文件。确认和故障测试由[备份需求](docs/requirements/2026-10-17-mac-backup-reserve/README.md)拥有。
+- 首次[云运行38993854705](https://github.com/zdaiwmm/shui-IM/actions/runs/38993854705)因临时DNS失败止于gate-traffic，原命令已结束、未停止容器且维护门解除；DNS恢复、Mac备份及健康探针真实通过后，固定入口对同一SHA续跑[云运行38999091108](https://github.com/zdaiwmm/shui-IM/actions/runs/38999091108)。正常production审核保留，从`85ffdfee934f10dc6b423367b25eb7da9bd6d231`实际切换一次；批次`20261017T033326Z`，回执`DEPLOY_VERIFIED`成功时间`2026-10-17T03:37:49.566Z`，服务器helper258000毫秒。本地watch停留旧状态，独立核对原run成功后仅停止本地观察并用固定resume收取同一运行回执，没有重复派发。镜像`sha256:075a3999bc40b51962f2af6c7b45e6207b93222932d5609ec5ff4dd277ae03c4`、归档摘要`0fd3cde750174c6a363e1ff2c2c05815f8478b96ce7503d5f85c3ca7b5b93e86`、209919303字节、linux/amd64，绑定应用精确main CI／attempt 2；工作流来源97e1d34，应用仍为获批89ca7c8。未修改服务器helper、Nginx、云权限、备份模式或生产门禁。
+- 首次独立回读仅因新备份容器starting未通过；核对实际启动`2026-10-17T03:37:39.269210186Z`及既有5分钟探针后，只续跑同SHA readback-only。最终`READBACK_OK`于`2026-10-17T03:43:07.758Z`（北京时间11:43）完成，3283毫秒：应用／备份running且healthy、TURN运行且探针none；SHA／镜像、HTTPS／数据库／存储、公开及容器产物摘要、新WebSocket一致，维护门absent，管理员及通话启用。
+- 脱敏授权、备份恢复、两次云运行及全部独立回读证据保存于公共Git元数据`chamber-personal-mnemonic-friends-20261017/production.json`，位于任务树及其专属Git目录之外。第二个无部署配置对账树从实时main97e1d34接续，仅更新发布／状态／两份需求记录，不发布文档SHA。对账后按固定清理门禁逐项核验本批资源，仅清理符合条件项；活动、忽略缓存及晚于应用候选的工具／文档资源按规则保留，不处理其他任务或生产备份。iPhone／iOS27／Safari／微信／Telegram真机与独立密码学审阅仍未完成；当前Mac睡眠或关机仍会中断备份，不构成常在线或不可变异地保障。下方均为历史生产快照。
+
 ## 输入区交接与首次密钥页已发布（2026-10-16 07:23）
 
 - 用户在获知完整应用`85ffdfee934f10dc6b423367b25eb7da9bd6d231`、版本`2026.10.15.5`、完整main CI／预检及真机缺口后回复「确认，发布生产」，随后对同一精确问题回复「确认发布此提交」，授权本次生产发布；无独立消息permalink。五项V1及原型／流程确认由[需求记录](docs/requirements/2026-10-16-composer-handoff-entry/README.md)拥有；后续文档SHA不进入生产。
