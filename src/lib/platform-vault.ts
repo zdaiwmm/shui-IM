@@ -280,7 +280,7 @@ export async function createPlatformCredential(
     const credential = await runWebAuthnCeremony(() => navigator.credentials.create({
       publicKey: {
         challenge: randomBytes(32),
-        rp: { id: location.hostname, name: 'Quiet Room' },
+        rp: { id: location.hostname, name: 'Chamber' },
         user: {
           id: userId,
           name: userName,
@@ -426,7 +426,7 @@ export function defaultPasskeyName(): string {
   const date = new Date();
   // A readable local hint, never a device fingerprint or a uniqueness claim.
   const suffix = String(passkeySequence()).padStart(2, '0');
-  return `Quiet Room · ${String(date.getMonth() + 1).padStart(2, '0')}月${String(date.getDate()).padStart(2, '0')}日 · ${suffix}`;
+  return `Chamber · ${String(date.getMonth() + 1).padStart(2, '0')}月${String(date.getDate()).padStart(2, '0')}日 · ${suffix}`;
 }
 type UserDetailsApi = typeof PublicKeyCredential & {
   signalCurrentUserDetails?: (details: { rpId: string; userId: string; name: string; displayName: string }) => Promise<void>;

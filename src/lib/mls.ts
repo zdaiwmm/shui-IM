@@ -1,4 +1,7 @@
 import { retentionBoundary, validRetentionBoundary, isWindowMessage, MLS_WINDOW_MESSAGES } from './message-window';
+import { verifyPersonalDeviceRequest, type PersonalDeviceAuthorization } from './personal-device-request';
+import { verifyPersonalDeviceBinding } from './personal-device-binding';
+import { sha256 } from '@noble/hashes/sha2.js';
 import {
   createApplicationMessage,
   createCommit,
@@ -214,7 +217,7 @@ export async function verifyMembershipEnvelope(vault: Vault, envelope: MlsMember
     envelope.previousEventSeq < 0 ||
     !['add', 'remove', 'replace', 'update'].includes(envelope.action) ||
     (envelope.retention !== undefined && !validRetentionBoundary(envelope.retention)) ||
-    (envelope.action === 'update' && (!envelope.retention || envelope.senderId !== envelope.targetId || envelope.target || envelope.welcome || envelope.browserAccess || envelope.recoveryRequest || envelope.repairRequest || envelope.replacedDeviceId))
+    (envelope.action === 'update' && (!envelope.retention || envelope.senderId !== envelope.targetId || envelope.target || envelope.welcome || envelope.browserAccess || envelope.personalAccess || envelope.recoveryRequest || envelope.repairRequest || envelope.replacedDeviceId))
   ) throw new Error('MLS 设备变更格式不正确');
   const sender = vault.members.find((member) => member.deviceId === envelope.senderId);
   // `vault.members` may already reflect the latest server snapshot while an
@@ -233,6 +236,20 @@ export async function verifyMembershipEnvelope(vault: Vault, envelope: MlsMember
       envelope.target.role !== source.role || envelope.target.addedBy !== source.deviceId ||
       canonicalStringify(memberBundleForMls(envelope.target)) !== canonicalStringify(proof.request.target) ||
       !await verifyAccessProof(proof, vault.roomId, source)) throw new Error('空间接入身份授权不正确');
+  }
+  if (envelope.personalAccess) {
+    const a = envelope.personalAccess, request = a.request;
+    const identityForRole = (role: 'creator' | 'joiner') => vault.personalPeers?.find(binding => vault.members.some(member =>
+      member.role === role && toBase64Url(sha256(encoder.encode(canonicalStringify(memberBundleForMls(member))))) === binding.bundleHash))?.identity;
+    const owner = identityForRole(request.payload.role), approver = identityForRole(sender.role);
+    const approvedAt = Date.parse(a.approvedAt);
+    if (envelope.action !== 'add' || envelope.browserAccess || !envelope.target || !owner || !approver || request.proof.version!==(vault.chamberLifecycle?.generation??1) ||
+      sender.role === request.payload.role || envelope.target.role !== request.payload.role ||
+      canonicalStringify(memberBundleForMls(envelope.target)) !== canonicalStringify(request.payload.bundle) ||
+      !Number.isFinite(approvedAt) || new Date(approvedAt).toISOString() !== a.approvedAt ||
+      !await verifyPersonalDeviceRequest(request, owner, approvedAt) ||
+      canonicalStringify(a.approverBinding.identity) !== canonicalStringify(approver) ||
+      !await verifyPersonalDeviceBinding(a.approverBinding, memberBundleForMls(sender))) throw new Error('个人助记词的新设备授权无法验证');
   }
   return sender;
 }
@@ -633,6 +650,7 @@ export async function prepareMlsMembership(
   action: 'add' | 'remove',
   target: RoomMember,
   browserAccess?: AccessProof,
+  personalAccess?: PersonalDeviceAuthorization,
 ): Promise<{ event: MlsMembershipEnvelope; nextGroupState: string }> {
   if (vault.protocol !== 'mls-rfc9420' || vault.mls?.phase !== 'active' || !vault.mls.groupState) {
     throw new Error('MLS 会话尚未安全建立');
@@ -671,6 +689,7 @@ export async function prepareMlsMembership(
       targetId: target.deviceId,
       ...(action === 'add' ? { target } : {}),
       ...(browserAccess ? { browserAccess } : {}),
+      ...(personalAccess ? { personalAccess } : {}),
       commit: toBase64Url(encodeMlsMessage(result.commit)),
       ...(result.welcome ? {
         welcome: toBase64Url(encodeMlsMessage({

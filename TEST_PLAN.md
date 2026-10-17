@@ -1,5 +1,18 @@
 # Quiet Room P0/P1 修复与验收计划
 
+## Chamber 身份与双人恢复验收（2026-10-17）
+
+长期边界由[CHAMBER_IDENTITY.md](CHAMBER_IDENTITY.md)拥有；本轮证据由[需求记录](docs/requirements/2026-10-16-personal-mnemonic-friends/README.md)拥有。验收分为根保管、邀请／设备、历史双根、关闭／迁移四个相依风险域；冻结后完整构建、单元、浏览器、通话、生产依赖审计、CI及镜像门禁保持。
+
+| 范围 | 定向验证 |
+| --- | --- |
+| 前置锁、根独立加密及用途隔离、BIP39/BIP44公开向量、挑战替换拒绝 | `personal-identity.test.ts`、`chamber-passkey.e2e.mjs` |
+| 唯一占位、固定30分钟／五次失败、自动出码、重发、回执丢失幂等、独立新设备当前generation与加入边界 | `chamber-invitations.test.ts`、`personal-directory.test.ts`、`personal-devices.test.ts`、`chamber-flow.e2e.mjs` |
+| 双根缺一不可、目标绑定、范围／旧授权不可扩张、新数据白名单、原件／隐藏标记／中断接续 | `joint-history-keys.test.ts`、`chamber-history-record.test.ts`、`chamber-flow.e2e.mjs` |
+| 签名关闭撤销所有设备、双根新generation、到期／取消、旧空间未切换仍可用、双方历史验证后才退役旧能力 | `chamber-lifecycle.test.ts`、`chamber-flow.e2e.mjs`、`chamber-migration.e2e.mjs` |
+
+旧浏览器主流程、移动多空间、草稿、密码兜底、桌面续接、恢复卡及空间管理使用显式`tests/fixtures/legacy-create.mjs`保留旧QR3/QR4验收；新创建及个人根由独立Chamber真实后端专项覆盖，夹具不进入正式构建。新增三入口后共69个浏览器入口，group2四分片各17个。虚拟PRF、合成WebView UA与桌面WebKit不是物理设备证据；iPhone／iOS27／Safari／微信／Telegram、同步／非同步凭据、VoiceOver及独立密码学审阅仍需单独验收。
+
 ## 表情最近发布、合集排序与相册补位（2026-09-10）
 
 - `tests/meme-picker.e2e.mjs` 覆盖默认 GIFs 的“最近发布”标题、精确 10 项、后续结果不重复及五列布局；覆盖三个已添加合集的 500ms 长按浮起、插入末位、原位松手回归、加密顺序持久化和 Alt+左右方向键排序。

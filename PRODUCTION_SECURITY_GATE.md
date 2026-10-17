@@ -4,6 +4,8 @@ The repository now contains the requested architecture, but it must not yet be r
 
 ## Blocking gates
 
+The Chamber personal-root protocol adds review scope, not an audit exemption: BIP39 entropy and wallet interoperability, root/daily PRF separation, PIN offline guessing, root-device cross-signatures, challenge substitution, nested HPKE history keys, target-bound releases, immutable restore scope, directory rollback, close/reopen generation changes and staged legacy retirement all require independent review. Browser automation or public test vectors do not establish MetaMask-equivalent security. The trusted-client distribution and physical-device gates below remain open; database-only compromise resistance cannot protect secrets from malicious origin JavaScript.
+
 All of the following are required before public high-security launch:
 
 1. Commission an independent cryptographic review of the MLS integration, identity-to-key-package binding, state serialization, welcome-message authentication, replay behavior, and atomic ratchet persistence. The selected `ts-mls` package implements RFC 9420 but explicitly states that it has not undergone a formal security audit.

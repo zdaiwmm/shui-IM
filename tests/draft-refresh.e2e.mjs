@@ -1,3 +1,4 @@
+import { legacyCreationPlugin } from './fixtures/legacy-create.mjs';
 import { submitPassword } from './helpers/password.mjs';
 import { fillFormInput } from './helpers/form-input.mjs';
 import { completeSpaceProfile } from './fixtures/create-space.mjs';
@@ -95,7 +96,7 @@ async function barrier(page) {
 }
 try {
   service = await startServer({ host: '127.0.0.1', port: 0, dataDir, quiet: true });
-  vite = await createServer({ configFile: false, root, logLevel: 'error', plugins: [{
+  vite = await createServer({ configFile: false, root, logLevel: 'error', plugins: [legacyCreationPlugin, {
     name: 'draft-regression-observation', enforce: 'pre', transform(code, id) {
       if (id === path.join(root, 'src/main.ts')) return code.replace('void app.start();', 'window.app = app; void app.start();');
     },

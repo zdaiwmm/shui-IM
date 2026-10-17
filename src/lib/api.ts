@@ -68,7 +68,7 @@ export async function responseError(response: Response): Promise<ApiError> {
   }
 }
 
-async function authorizedFetch(path: string, accessToken: string, init: RequestInit = {}): Promise<Response> {
+export async function authorizedFetch(path: string, accessToken: string, init: RequestInit = {}): Promise<Response> {
   const response = await fetch(path, {
     ...init,
     headers: {
@@ -91,11 +91,15 @@ export async function createRoom(
   inviteToken = accessToken,
   deviceName = '此设备',
   capabilities: string[] = [],
+  personalBinding?: import('./personal-device-binding').PersonalDeviceBinding,
+  roomId?: string,
+  signal?: AbortSignal,
 ): Promise<{ roomId: string; createdAt: string; protocol: 'legacy-v1' | 'mls-rfc9420' }> {
   const response = await fetch('/api/rooms', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ creatorBundle, accessToken, inviteToken, deviceName, capabilities }),
+    body: JSON.stringify({ creatorBundle, accessToken, inviteToken, deviceName, capabilities, personalBinding, roomId }),
+    signal: boundedSignal(signal, 15_000),
   });
   if (!response.ok) throw await responseError(response);
   return response.json();
@@ -174,11 +178,12 @@ export async function joinRoom(
   deviceAccessToken?: string,
   deviceName = '此设备',
   capabilities: string[] = [],
+  chamber?: { secret: string; code: string; binding: import('./personal-device-binding').PersonalDeviceBinding },
 ): Promise<RoomState> {
   const response = await authorizedFetch(`/api/rooms/${roomId}/join`, accessToken, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ bundle, proof, deviceAccessToken, deviceName, capabilities }),
+    body: JSON.stringify({ bundle, proof, deviceAccessToken, deviceName, capabilities, chamber }),
   });
   return response.json();
 }
@@ -373,6 +378,7 @@ function isRoomPresence(value: unknown): value is RoomPresence {
 }
 
 type SocketHandlers = {
+  chamberClosed?: (lifecycle: import('./chamber-lifecycle').ChamberLifecycle) => AsyncSocketHandler;
   accessFailure?: (reason: 'denied' | 'upgrade' | 'space-unavailable') => void;
   call?: (envelope: CallEnvelope) => AsyncSocketHandler;
   callTransport?: (code: string) => void;
@@ -497,6 +503,9 @@ export class RoomSocket {
         this.flushChatPresence();
         this.callSignals.flush(true);
         this.queueMembershipUpdate(() => this.handlers.ready(frame.state as RoomState), frameBytes);
+      } else if (frame.type === 'chamberClosed') {
+        this.close();
+        void Promise.resolve(this.handlers.chamberClosed?.(frame.lifecycle as import('./chamber-lifecycle').ChamberLifecycle)).catch(() => undefined);
       } else if (frame.type === 'membership') {
         this.queueMembershipUpdate(() => this.handlers.membership(frame.state as RoomState), frameBytes);
       } else if (frame.type === 'presence') {

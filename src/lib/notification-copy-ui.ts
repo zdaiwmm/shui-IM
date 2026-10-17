@@ -42,7 +42,7 @@ export function mountNotificationCopy(root: HTMLElement, options: { signal: Abor
       shell.querySelector(`[data-count-${key}]`)!.textContent = `${notificationCopyLength(fields[key].value)}/${NOTIFICATION_COPY_LIMITS[key]}`;
       shell.querySelector(`[data-copy-${key}]`)!.textContent = fields[key].value.trim() || DEFAULT_NOTIFICATION_COPY[key];
     }
-    const original = reference || (title.value.trim() || DEFAULT_NOTIFICATION_COPY.title) === DEFAULT_NOTIFICATION_COPY.title && (body.value.trim() || DEFAULT_NOTIFICATION_COPY.body) === DEFAULT_NOTIFICATION_COPY.body;
+    const original = reference;
     shell.querySelector<HTMLElement>('.notification-copy-text')!.hidden = original;
     shell.querySelector('img')!.setAttribute('aria-hidden', String(!original));
     shell.querySelector('[data-copy-preview]')!.setAttribute('aria-pressed', String(!reference));

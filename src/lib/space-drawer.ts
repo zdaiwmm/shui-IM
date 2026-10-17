@@ -37,7 +37,7 @@ export function fitViewport(element: HTMLElement, signal: AbortSignal) {
 export function mountSpaceDrawer(root: HTMLElement, options: {
   presentation?: 'sidebar' | 'settings'; container?: HTMLElement; openSettings?: () => void;
   spaces: PrivateSpace[]; currentRoom: string; signal: AbortSignal; actions: Action[]; icons?: { close: string; plus: string; settings: string };
-  select: (space: PrivateSpace) => Promise<void>; create: () => Promise<void>; rename: (space: PrivateSpace, name: string) => Promise<void>;
+  select: (space: PrivateSpace) => Promise<void>; create: () => Promise<void>; allowCreate?:boolean; rename: (space: PrivateSpace, name: string) => Promise<void>;
 removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restoreSettings?: boolean; settingsScrollTop?: number; onSettingsLeave?: (scrollTop: number) => void;
   editAvatar?: (space: PrivateSpace) => Promise<import('./space-avatar').SpaceAvatar | null>;
   remove?: (space: PrivateSpace) => Promise<void>; expired?: (space: PrivateSpace) => void;
@@ -204,13 +204,13 @@ const expiry = pendingSpaceExpiry(s);
     const focusedRoom = focused?.dataset.space ? options.spaces[Number(focused.dataset.space)]?.roomId : undefined;
     const focusedId = focused?.id;
     const current = options.spaces.find(s => s.roomId === options.currentRoom), others = options.spaces.filter(s => s !== current);
-    page('私密空间', `<div class="space-list">${current ? row(current) : ''}${others.map(row).join('')}${!options.spaces.length ? '<p class="space-empty">还没有私密空间<br>点击下方新建空间。</p>' : ''}</div>`, `<button class="space-create" id="space-create" aria-label="创建新空间">${createElement(Plus).outerHTML}<span>新建空间</span></button>`);
+    page('私密空间', `<div class="space-list">${current ? row(current) : ''}${others.map(row).join('')}${!options.spaces.length ? `<p class="space-empty">当前没有可进入的空间${options.allowCreate===false?'':'<br>点击下方新建空间。'}</p>` : ''}</div>`, options.allowCreate===false?'':`<button class="space-create" id="space-create" aria-label="创建新空间">${createElement(Plus).outerHTML}<span>新建空间</span></button>`);
     sheet.querySelector('.space-drawer-scroll')!.scrollTop = listScrollTop; badges();authorizations();
     if (focusedRoom) sheet.querySelector<HTMLButtonElement>(`[data-space="${options.spaces.findIndex(s => s.roomId === focusedRoom)}"]`)?.focus({ preventScroll: true });
     else if (focusedId) sheet.querySelector<HTMLElement>(`#${CSS.escape(focusedId)}`)?.focus({ preventScroll: true });
     sheet.querySelectorAll<HTMLButtonElement>('[data-access]').forEach(button=>button.addEventListener('click',()=>{const space=options.spaces[Number(button.dataset.access)]!;const action=options.authorization?.(space);if(action&&action.deadline>performance.now()){dialog.close({animate:false});void action.open();}}));
     sheet.querySelector('#space-settings')?.addEventListener('click', () => { if (options.openSettings) options.openSettings(); else { settings(); sheet.querySelector<HTMLButtonElement>('.space-back')?.focus(); } });
-    sheet.querySelector('#space-create')!.addEventListener('click', () => void run(async () => { await options.create(); }));
+    sheet.querySelector('#space-create')?.addEventListener('click', () => void run(async () => { await options.create(); }));
     sheet.querySelectorAll<HTMLButtonElement>('[data-space]').forEach(button => {
       const space = options.spaces[Number(button.dataset.space)]!;
       let timer: number | undefined, pressed = false, x = 0, y = 0;

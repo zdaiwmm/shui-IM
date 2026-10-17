@@ -1,4 +1,6 @@
-# Quiet Room
+# Chamber
+
+Chamber is the product name; repository, storage and deployment identifiers retain `quiet-room` compatibility. The [personal identity contract](CHAMBER_IDENTITY.md) defines app-lock-before-mnemonic setup, exclusive invitations, independent devices, default data-only backup, cryptographic two-person history recovery and staged old-space migration. Legacy recovery details below apply until a room completes that migration. Current evidence and release status are in the [requirement record](docs/requirements/2026-10-16-personal-mnemonic-friends/README.md).
 
 项目接手、当前状态和决策导航见 [`AGENTS.md`](./AGENTS.md) 与
 [`docs/context/`](./docs/context/)。新会话先读轻量入口，再按任务读取本页及专门文档。

@@ -76,7 +76,9 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     const member = authenticatedDevice(roomId, deviceToken);
     if (!member) fail('UNAUTHORIZED');
     const current = db.prepare('SELECT enabled,revision FROM history_backup_preferences WHERE room_id=? AND role=?').get(roomId, member.role);
-    const state = current ? { enabled: Boolean(current.enabled), revision: current.revision } : { enabled: false, revision: 0 };
+    const chamberTable = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='chamber_rooms'").get();
+    const chamberDefault = chamberTable && db.prepare('SELECT room_id FROM chamber_rooms WHERE room_id=?').get(roomId);
+    const state = current ? { enabled: Boolean(current.enabled), revision: current.revision } : { enabled: Boolean(chamberDefault), revision: 0 };
     if (change === undefined) return state;
     if (!change || typeof change.enabled !== 'boolean' || !Number.isSafeInteger(change.revision) ||
         Object.keys(change).sort().join(',') !== 'enabled,revision') fail('INVALID_BACKUP');

@@ -8,6 +8,13 @@ import path from 'node:path';
 import { canonicalStringify, isCanonicalUtcTimestamp, validRetentionBoundary, validMessageRetention } from './protocol.mjs';
 import { createCloudBackups } from './cloud-backups.mjs';
 import { createJointRecovery } from './joint-recovery.mjs';
+import { createChamberInvitations } from './chamber-invitations.mjs';
+import { createChamberHistory } from './chamber-history.mjs';
+import { createChamberHistoryRecovery } from './chamber-history-recovery.mjs';
+import { createChamberLifecycle } from './chamber-lifecycle.mjs';
+import { createChamberMigrations } from './chamber-migrations.mjs';
+import { createPersonalDirectory } from './personal-directory.mjs';
+import { createPersonalDevices } from './personal-devices.mjs';
 import { verifyPendingDeletion } from '../src/lib/pending-space-proof.mjs';
 
 function nowIso() {
@@ -335,10 +342,20 @@ export async function createStore({
   }
   db.exec('CREATE INDEX IF NOT EXISTS window_message_eviction ON messages(room_id, window_message, server_seq)');
   const jointRecovery = createJointRecovery(db, { roomState, getMember, messagesAfter });
+  const chamberInvitations = createChamberInvitations(db);
+  const personalDirectory = createPersonalDirectory(db, { getMember, chamberInvitations });
+  const personalDevices = createPersonalDevices(db, { getMember, roomState, chamberInvitations, personalDirectory });
+  const chamberHistory = createChamberHistory(db, { getMember, chamberInvitations });
+  const chamberHistoryRecovery = createChamberHistoryRecovery(db, { getMember, chamberInvitations, personalDirectory });
+  const chamberLifecycle = createChamberLifecycle(db, { getMember, roomState, chamberInvitations, personalDirectory });
+  const chamberMigrations = createChamberMigrations(db, { getMember, roomState, chamberInvitations, personalDirectory });
   const cloudBackups = createCloudBackups(db, { authenticatedDevice });
   const spaceDirectories = createSpaceDirectories(db, { authenticatedDevice });
   const browserCatalogs = createSpaceDirectories(db, { authenticatedDevice }, true);
-  const browserAccess = createBrowserAccess({ db, getMember, assertDeviceActive, roomState });
+  const browserAccess = createBrowserAccess({ db, getMember, assertDeviceActive: (roomId,deviceId) => {
+    assertDeviceActive(roomId,deviceId);
+    if(chamberInvitations.exists(roomId))throw new Error('PERSONAL_IDENTITY_REQUIRED');
+  }, roomState });
   const statements = {
     insertRoom: db.prepare('INSERT INTO rooms(room_id, access_hash, created_at, protocol) VALUES (?, ?, ?, ?)'),
     insertMember: db.prepare(`INSERT INTO members(
@@ -541,12 +558,25 @@ export async function createStore({
     return hashToken(token);
   }
 
-  function createRoom(creatorBundle, accessToken, inviteToken = accessToken, deviceName = '此设备', capabilities = []) {
-    const roomId = randomUUID();
+  function createRoom(creatorBundle, accessToken, inviteToken = accessToken, deviceName = '此设备', capabilities = [], personalBinding, requestedRoomId) {
+    if (requestedRoomId !== undefined && (!personalBinding || typeof requestedRoomId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedRoomId))) throw new Error('INVALID_JSON');
+    const roomId = requestedRoomId ?? randomUUID();
     const createdAt = nowIso();
     const protocol = creatorBundle.mlsKeyPackage ? 'mls-rfc9420' : 'legacy-v1';
     db.exec('BEGIN IMMEDIATE');
     try {
+      const existing = statements.room.get(roomId);
+      if (existing) {
+        const own = getMember(roomId, creatorBundle.deviceId);
+        // A retry can recover the original response only with the exact public
+        // identity, both capabilities and root certificate saved before POST.
+        if (!personalBinding || !own || own.role !== 'creator' || own.status !== 'active' || own.addedBy ||
+          canonicalStringify({deviceId:own.deviceId,encryptionKey:own.encryptionKey,signingKey:own.signingKey,mlsKeyPackage:own.mlsKeyPackage}) !== canonicalStringify(creatorBundle) ||
+          !authenticatedDevice(roomId, accessToken, creatorBundle.deviceId) || !Buffer.from(existing.access_hash).equals(hashToken(inviteToken)) ||
+          canonicalStringify(chamberInvitations.state(roomId)?.creatorBinding) !== canonicalStringify(personalBinding)) throw new Error('ROOM_CREATE_CONFLICT');
+        db.exec('COMMIT');
+        return {roomId, createdAt:existing.created_at, protocol:existing.protocol};
+      }
       statements.insertRoom.run(roomId, hashToken(inviteToken), createdAt, protocol);
       statements.insertMember.run(
         roomId,
@@ -565,6 +595,7 @@ export async function createStore({
         JSON.stringify(capabilities),
         createdAt,
       );
+      if (personalBinding) { chamberInvitations.register(roomId, personalBinding); personalDirectory.register(personalBinding.identity); }
       db.exec('COMMIT');
       return { roomId, createdAt, protocol };
     } catch (error) {
@@ -610,7 +641,7 @@ export async function createStore({
     }
   }
 
-  function joinRoom(roomId, bundle, proof, accessToken, deviceName = '此设备', capabilities = []) {
+  function joinRoom(roomId, bundle, proof, accessToken, deviceName = '此设备', capabilities = [], chamber) {
     const createdAt = nowIso();
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -630,6 +661,10 @@ export async function createStore({
       }
       const { count } = statements.memberCount.get(roomId);
       if (count >= 2 || room.sealed_at) throw new Error('ROOM_SEALED');
+      if (chamberInvitations.exists(roomId)) {
+        chamberInvitations.consume(roomId, chamber?.secret, chamber?.code, { bundle, proof, binding: chamber?.binding });
+        personalDirectory.register(chamber.binding.identity);
+      }
       statements.insertMember.run(
         roomId,
         bundle.deviceId,
@@ -661,6 +696,8 @@ export async function createStore({
     if (!room) return null;
     return {
       roomId,
+      chamber: chamberInvitations.state(roomId),
+      chamberLifecycle: chamberInvitations.exists(roomId) ? chamberLifecycle.state(roomId) : null,
       recoveryPreparation: db.prepare('SELECT device_id AS deviceId, saved FROM recovery_preparation WHERE room_id=?').all(roomId),
       invitationProgress: db.prepare('SELECT stage, updated_at AS updatedAt FROM invitation_progress WHERE room_id=?').get(roomId) ?? null,
       nextSeq: room.next_seq,
@@ -719,6 +756,7 @@ export async function createStore({
   }
 
   function createDeviceLink(roomId, authorizerId, linkId, secret, expiresAt) {
+    if (chamberInvitations.exists(roomId)) throw new Error('PERSONAL_IDENTITY_REQUIRED');
     cleanupExpiredRecoveryRequests();
     cleanupExpiredDeviceLinks(nowIso());
     const room = statements.room.get(roomId);
@@ -740,6 +778,7 @@ export async function createStore({
     db.exec('BEGIN IMMEDIATE');
     try {
       const link = statements.deviceLink.get(linkId);
+      if (link && chamberInvitations.exists(link.room_id)) throw new Error('PERSONAL_IDENTITY_REQUIRED');
       if (!verifyDeviceLinkSecret(link, secret) || link.used_at || Date.parse(link.expires_at) <= Date.now()) {
         throw new Error('INVALID_DEVICE_LINK');
       }
@@ -790,6 +829,7 @@ export async function createStore({
 
   function deviceLinkStatus(linkId, secret) {
     const link = statements.deviceLink.get(linkId);
+    if (link && chamberInvitations.exists(link.room_id)) throw new Error('PERSONAL_IDENTITY_REQUIRED');
     if (!verifyDeviceLinkSecret(link, secret)) throw new Error('INVALID_DEVICE_LINK');
     if (!link.used_at) assertDeviceActive(link.room_id, link.authorizer_id);
     return { link: publicDeviceLink(link), state: roomState(link.room_id) };
@@ -808,6 +848,7 @@ export async function createStore({
   }
 
   function createRepairLink(roomId, initiatorId, sourceDeviceId, linkId, secret, expiresAt) {
+    if (chamberInvitations.exists(roomId)) throw new Error('PERSONAL_IDENTITY_REQUIRED');
     cleanupExpiredRepairLinks(nowIso());
     const room = statements.room.get(roomId);
     const initiator = getMember(roomId, initiatorId);
@@ -828,6 +869,7 @@ export async function createStore({
     db.exec('BEGIN IMMEDIATE');
     try {
       const link = repairLinkRow(linkId);
+      if (link && chamberInvitations.exists(link.room_id)) throw new Error('PERSONAL_IDENTITY_REQUIRED');
       if (!link || !validToken(secret) || !timingSafeEqual(Buffer.from(link.secret_hash), hashToken(secret)) || link.used_at || Date.parse(link.expires_at) <= Date.now()) throw new Error('INVALID_REPAIR_LINK');
       assertDeviceActive(link.room_id, link.initiator_id);
       const source = getMember(link.room_id, link.source_device_id);
@@ -850,6 +892,7 @@ export async function createStore({
 
   function repairLinkStatus(linkId, secret) {
     const link = repairLinkRow(linkId);
+    if (link && chamberInvitations.exists(link.room_id)) throw new Error('PERSONAL_IDENTITY_REQUIRED');
     if (!link || !validToken(secret) || !timingSafeEqual(Buffer.from(link.secret_hash), hashToken(secret))) throw new Error('INVALID_REPAIR_LINK');
     if (!link.used_at) assertDeviceActive(link.room_id, link.initiator_id);
     return { link: publicRepairLink(link), state: roomState(link.room_id) };
@@ -924,7 +967,9 @@ export async function createStore({
           throw new Error('INVALID_MLS_EVENT');
         }
         const browserRequest = db.prepare('SELECT 1 FROM space_access_requests WHERE room_id=? AND target_id=?').get(roomId, target.deviceId);
-        if (browserRequest || envelope.browserAccess) browserAccess.assertCommit(roomId, envelope, sender, target);
+        const personalRequest = db.prepare('SELECT 1 FROM chamber_device_requests WHERE room_id=? AND target_id=?').get(roomId, target.deviceId);
+        if (personalRequest || envelope.personalAccess) personalDevices.assertCommit(roomId, envelope, sender, target);
+        else if (browserRequest || envelope.browserAccess) browserAccess.assertCommit(roomId, envelope, sender, target);
         else if (target.addedBy !== sender.deviceId || target.role !== sender.role) throw new Error('INVALID_MLS_EVENT');
         const expected = canonicalStringify({
           deviceId: target.deviceId,
@@ -1070,6 +1115,7 @@ export async function createStore({
   // Called only after the HTTP boundary verifies the old identity's signature.
   // The signed request binds the fresh identity, token hash, expiry, and room.
   function createRecoveryRequest(roomId, request, accessToken, deviceName, capabilities) {
+    if(chamberInvitations.exists(roomId))throw new Error('PERSONAL_IDENTITY_REQUIRED');
     cleanupExpiredRecoveryRequests();
     if (!validToken(accessToken) || hashToken(accessToken).toString('base64url') !== request.tokenHash) throw new Error('INVALID_RECOVERY_REQUEST');
     const serialized = canonicalStringify(request);
@@ -1527,6 +1573,7 @@ export async function createStore({
     db.exec('BEGIN IMMEDIATE');
     try {
       for (const room of rooms) {
+        if (chamberInvitations.exists(room.room_id)) continue;
         removed += db.prepare('DELETE FROM rooms WHERE room_id = ? AND sealed_at IS NULL AND NOT EXISTS (SELECT 1 FROM recovery_backups WHERE room_id = rooms.room_id)').run(room.room_id).changes;
       }
       db.exec('COMMIT');
@@ -1556,6 +1603,29 @@ export async function createStore({
   }
 
   return {
+    chamberInvitations,
+    chamberHistory,
+    chamberHistoryRecovery,
+    chamberLifecycle,
+    chamberMigrations,
+    consumedChamberInvite(roomId,token) {
+      const room=statements.room.get(roomId);
+      if(!room?.sealed_at||!validToken(token)||!chamberInvitations.exists(roomId))return false;
+      const expected=Buffer.from(room.access_hash),actual=hashToken(token);
+      return expected.length===actual.length&&timingSafeEqual(expected,actual);
+    },
+    personalDirectory,
+    personalDevices,
+    rotateChamberInvitation(roomId, token) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        if (!validToken(token)) throw new Error('INVALID_DEVICE_TOKEN');
+        if (authenticateInvite(roomId, token)) { db.exec('COMMIT'); return chamberInvitations.state(roomId, true); }
+        const result = chamberInvitations.rotate(roomId);
+        db.prepare('UPDATE rooms SET access_hash=? WHERE room_id=? AND sealed_at IS NULL').run(hashToken(token), roomId);
+        db.exec('COMMIT'); return result;
+      } catch (cause) { db.exec('ROLLBACK'); throw cause; }
+    },
     browserAccess,
     browserCatalogs,
     cloudBackups,

@@ -134,6 +134,7 @@ async function update<T>(session: VaultSession, signal: AbortSignal, change: (st
 }
 
 function checkpoint(vault: Vault): Vault {
+  if (vault.personalBinding && vault.personalMigration?.state !== 'staged') throw new Error('个人助记词空间不能使用旧身份备份格式');
   const value = structuredClone(vault);
   delete value.backup;
   delete value.spaceRecoveryCode;
@@ -146,6 +147,7 @@ function checkpoint(vault: Vault): Vault {
   delete value.pendingDeviceLinks;
   delete value.inviteToken;
   delete value.identity.mlsPrivatePackage;
+  for(const field of ['personalBinding','personalPeers','personalMigration','personalDirectoryRevision','personalHistoryHeads','personalGuide','chamberBackup','chamberLifecycle','pendingChamberClose','pendingChamberReopen','pendingChamberHistoryRecovery'] as const)delete value[field];
   // Recovery proves the old identity, but never restores its sending ratchet.
   value.mls = { protocol: 'mls-rfc9420', phase: 'awaiting-welcome', lastEventSeq: vault.mls?.lastEventSeq ?? 0 };
   return value;
@@ -290,6 +292,11 @@ async function backfillArchiveInventory(session: VaultSession, signal: AbortSign
 }
 
 export async function syncCloudBackup(session: VaultSession, signal: AbortSignal, { force = true }: CloudBackupSyncOptions = {}): Promise<void> {
+  if (session.vault.personalBinding) {
+    const policy = await cloudBackupPreference(session, signal);
+    if (policy.enabled) await (await import('./chamber-history')).syncChamberHistory(session, signal, force);
+    if(session.vault.personalMigration?.state !== 'staged')return;
+  }
   if (session.vault.protocol !== 'mls-rfc9420' || (session.stored.unlockMethod !== 'platform' && !(session.stored.v === 3 && session.stored.unlockMethod === 'password')) || session.vault.pairingState === 'recovering') return;
   signal.throwIfAborted();
   const policy = await cloudBackupPreference(session, signal);

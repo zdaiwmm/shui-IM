@@ -168,8 +168,8 @@ try {
     }
     await page.locator('#notification-copy-reset').click();
     await saveCopy.click(); await page.waitForFunction(() => document.querySelector('.notification-copy-feedback').textContent === '已保存');
-    assert.equal(await titleInput.inputValue(), 'Quiet Room');
-    assert.equal(await page.locator('.notification-copy-text').isVisible(), false, 'default uses the unchanged cropped source pixels');
+    assert.equal(await titleInput.inputValue(), 'Chamber');
+    assert.equal(await page.locator('.notification-copy-text').isVisible(), true, 'default preview must display the current Chamber brand');
     await page.setViewportSize({ width: 393, height: 852 }); await page.emulateMedia({ colorScheme: 'light' });
     if (await page.locator('details').evaluate(el => el.open)) await page.locator('summary').click();
     await titleInput.scrollIntoViewIfNeeded();

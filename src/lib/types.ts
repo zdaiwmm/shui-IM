@@ -45,6 +45,7 @@ export type MlsWelcomeEnvelope = {
 export type MlsRetentionBoundary = { v: 1; fromSeq: number; afterSeq: number; controls: number[] };
 
 export type MlsMembershipEnvelope = {
+  personalAccess?: import('./personal-device-request').PersonalDeviceAuthorization;
   browserAccess?: import('./browser-access-proof.mjs').AccessProof;
   v: 1;
   protocol: 'mls-rfc9420';
@@ -117,6 +118,27 @@ export type PendingDeviceLink = {
 };
 
 export type Vault = {
+  /** Local record namespace for independently recovered endpoints; never a server room ID. */
+  localDataScope?: string;
+  /** Public binding only. The encrypted personal root lives outside all room checkpoints. */
+  personalBinding?: import('./personal-device-binding').PersonalDeviceBinding;
+  personalMigration?: { state: 'staged'; binding: import('./personal-device-binding').PersonalDeviceBinding };
+  personalPeers?: import('./personal-device-binding').PersonalDeviceBinding[];
+  /** Durable creator intent. No room services start before server readback. */
+  pendingChamberCreate?: true;
+  pendingChamberInvitation?: { secret: string; requestId: string; version: number; expiresAt: string };
+  pendingChamberHistoryRecovery?: string;
+  chamberHistoryRestoreProgress?: {requestId:string;scopeHash:string;doneHeads:string[];count:number;imported:number;
+    current?:{headId:string;next:{id:string;digest:string}|null;upper:number}};
+  pendingChamberClose?: { payload: import('./chamber-lifecycle').ChamberClosePayload; proof: import('./personal-identity').PersonalProof; signature: string };
+  chamberLifecycle?: import('./chamber-lifecycle').ChamberLifecycle;
+  pendingChamberReopen?: import('./chamber-lifecycle').PendingChamberReopen;
+  pendingInvitationRotation?: { inviteToken: string; pairingSecret: string };
+  personalGuide?: { mnemonicChecked?: boolean; coverRead?: boolean; autoLockRead?: boolean };
+  chamberBackup?: import('./chamber-history').ChamberBackupState;
+  personalDirectoryRevision?: number;
+  personalHistoryHeads?: import('./chamber-history-record').ChamberHistoryHeadReference[];
+  pendingPersonalDevice?: import('./personal-device-request').PersonalDeviceRequest;
   /** Local collection capability. Never exported in a room recovery checkpoint. */
   spaceRecoveryCode?: string;
   /** Last server-confirmed participant-wide history policy; identity checkpoints are independent. */
@@ -484,6 +506,8 @@ export type ImageUploadPlanV2 = Omit<LegacyImageUploadPlan, 'v'> & {
 export type ImageUploadPlan = LegacyImageUploadPlan | ImageUploadPlanV2;
 
 export type RoomState = {
+  chamberLifecycle?: import('./chamber-lifecycle').ChamberLifecycle | null;
+  chamber?: import('./chamber-invitations').ChamberInvitation | null;
   roomId: string;
   nextSeq: number;
   nextReceiptSeq?: number;

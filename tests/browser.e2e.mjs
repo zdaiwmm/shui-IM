@@ -1,5 +1,6 @@
 import {openRecoveryCard} from './fixtures/open-recovery.mjs';
 import { completeSpaceProfile } from './fixtures/create-space.mjs';
+import {legacyCreationPlugin,installLegacyCreationFixture} from './fixtures/legacy-create.mjs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -185,6 +186,7 @@ const vite = await createViteServer({
   configFile: false,
   root: path.resolve(import.meta.dirname, '..'),
   logLevel: 'error',
+  plugins:[legacyCreationPlugin],
   server: {
     host: '127.0.0.1',
     port: 0,
@@ -227,6 +229,7 @@ try {
   await assertStablePage(creator, 'Welcome page');
   invariant(await creator.locator('#join-room').count() === 0, 'Welcome page still offers a paste-invite entry');
   await creator.locator('#restore-cloud').click();
+  await creator.locator('#restore-legacy-card').click();
   await creator.locator('#joint-start').waitFor();
   invariant(await creator.locator('#app > .page-transition-outgoing').count() === 0, 'Welcome copy remained mounted during recovery navigation');
   invariant(await creator.locator('input[name="scope"]').count() === 0, 'Recovery still asks users to predict which side needs rebuilding');
@@ -300,6 +303,7 @@ try {
       },
     });
   });
+  await installLegacyCreationFixture(creator);
   await creator.locator('#create-room').click(); await completeSpaceProfile(creator);
   await creator.locator('[data-device-verify]:not(:disabled)').waitFor();
   invariant((await creator.locator('.form-error').textContent()) === '', 'Closing the passkey dialog left a cancellation message');

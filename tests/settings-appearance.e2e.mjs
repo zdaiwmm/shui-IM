@@ -191,7 +191,7 @@ try {
   assert.equal(await page.locator('a[href="web+quietroom:open"]').count(), 1);
   await screenshot('app-access-installed');
   await page.evaluate(() => { const native=window.matchMedia; window.matchMedia=query=>query.includes('display-mode: standalone') ? {matches:true,addEventListener(){},removeEventListener(){}} : native(query); window.fixture.app.renderAppAccess(); });
-  await page.getByText('你已在 Quiet Room 应用中。',{exact:true}).waitFor();
+  await page.getByText('你已在 Chamber 应用中。',{exact:true}).waitFor();
   assert.equal(await page.locator('#install-app,a[href="web+quietroom:open"]').count(), 0);
   assert.deepEqual(errors, []);
   console.log('Settings/appearance E2E passed: 30s default, ten immediate choices, never + sensitive cap, four readable light/dark palettes, responsive geometry, failed-write rollback, persisted/cross-tab theme, install/cancel/installed/standalone states. OS install/launch remain device checks.');

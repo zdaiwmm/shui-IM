@@ -3,7 +3,9 @@ import { fromBase64Url, toBase64Url } from './base64';
 import type { VaultKdf, StoredPasswordVault } from './types';
 import type { PlatformCredentialResult } from './platform-vault';
 
-export type PasswordCredentialResult = { method: 'password'; kdf: VaultKdf; kek: CryptoKey; passwordFormat?: 'numeric-6' };
+export type PasswordCredentialResult = { method: 'password'; kdf: VaultKdf; kek: CryptoKey; passwordFormat?: 'numeric-6';
+  /** Operation-local personal-root KEK. Never retain this on a daily chat session. */
+  rootKek?: CryptoKey };
 export type LocalCredentialResult = PlatformCredentialResult | PasswordCredentialResult;
 export const isPasswordCredential = (value: LocalCredentialResult): value is PasswordCredentialResult => 'method' in value && value.method === 'password';
 const encoder = new TextEncoder();
@@ -37,7 +39,11 @@ export async function derivePasswordCredential(password: string, existing?: Vaul
     iterations: kdf.iterations, parallelism: kdf.parallelism, hashLength: 32, outputType: 'binary' });
   const bytes = Uint8Array.from(output as Uint8Array);
   try {
-    return { method: 'password', kdf, ...(passwordFormat ? { passwordFormat } : {}), kek: await crypto.subtle.importKey('raw', bytes, 'AES-GCM', false, ['encrypt', 'decrypt']) };
+    const material = await crypto.subtle.importKey('raw', bytes, 'HKDF', false, ['deriveKey']);
+    const rootKek = await crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: fromBase64Url(kdf.salt),
+      info: encoder.encode('chamber-personal-password-root-kek-v1') }, material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+    return { method: 'password', kdf, ...(passwordFormat ? { passwordFormat } : {}), rootKek,
+      kek: await crypto.subtle.importKey('raw', bytes, 'AES-GCM', false, ['encrypt', 'decrypt']) };
   } finally { bytes.fill(0); (output as Uint8Array).fill(0); }
 }
 

@@ -336,12 +336,116 @@ async function transaction<T>(
   });
 }
 
+/** Personal roots are deliberately outside room vaults and all cloud checkpoint serializers. */
+export async function readPersonalIdentity(id?: string): Promise<import('./personal-identity-vault').StoredPersonalIdentity | null> {
+  const { validStoredPersonalIdentity } = await import('./personal-identity-vault');
+  const selected = id ?? await transaction<string | undefined>('security', 'readonly', store => store.get('chamber:personal-current'));
+  if (!selected) return null;
+  const stored = await transaction('security', 'readonly', store => store.get(`chamber:personal:${selected}`));
+  if (!validStoredPersonalIdentity(stored) || stored.identity.id !== selected) throw new Error('本机身份保管数据损坏，请保留数据并使用自己的助记词恢复');
+  return stored;
+}
+
+/** Insert only: never overwrite another tab's identity or replace its encryption wrapper. */
+export async function saveNewPersonalIdentity(stored: import('./personal-identity-vault').StoredPersonalIdentity): Promise<void> {
+  const { validStoredPersonalIdentity } = await import('./personal-identity-vault');
+  if (!validStoredPersonalIdentity(stored)) throw new Error('身份保管数据不正确');
+  const database = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = database.transaction('security', 'readwrite'), store = tx.objectStore('security');
+    let conflict = false;
+    tx.oncomplete = () => { database.close(); resolve(); };
+    tx.onabort = () => { database.close(); reject(conflict ? new Error('另一页面已经创建身份，请重新打开并使用已有身份') : tx.error ?? new Error('身份未能保存')); };
+    const current = store.get('chamber:personal-current');
+    current.onsuccess = () => {
+      if (current.result) { conflict = true; tx.abort(); return; }
+      store.add(stored, `chamber:personal:${stored.identity.id}`);
+      store.add(stored.identity.id, 'chamber:personal-current');
+    };
+  });
+  const readback = await readPersonalIdentity(stored.identity.id);
+  if (JSON.stringify(readback) !== JSON.stringify(stored)) throw new Error('身份保存回读不一致');
+}
+
+/** Explicit full-mnemonic recovery may replace only this identity's protection.
+ * It never rewrites or deletes any room vault, history or other identity. */
+export async function replacePersonalIdentityProtection(expected:import('./personal-identity-vault').StoredPersonalIdentity,next:import('./personal-identity-vault').StoredPersonalIdentity):Promise<void> {
+  const {validStoredPersonalIdentity}=await import('./personal-identity-vault');
+  if(!validStoredPersonalIdentity(expected)||!validStoredPersonalIdentity(next)||canonicalStringify(expected.identity)!==canonicalStringify(next.identity))throw new Error('不能替换其他身份的应用锁');
+  const database=await openDatabase();
+  await new Promise<void>((resolve,reject)=>{
+    const tx=database.transaction('security','readwrite'),store=tx.objectStore('security'),id=`chamber:personal:${expected.identity.id}`;let stale=false;
+    const current=store.get(id);current.onsuccess=()=>{if(canonicalStringify(current.result)!==canonicalStringify(expected)){stale=true;tx.abort();return;}store.put(next,id);};
+    tx.oncomplete=()=>{database.close();resolve();};tx.onabort=()=>{database.close();reject(stale?new Error('身份应用锁已被另一页面更新，请重新开始'):tx.error??new Error('身份应用锁未能保存'));};
+  });
+  if(canonicalStringify(await readPersonalIdentity(next.identity.id))!==canonicalStringify(next))throw new Error('身份应用锁保存回读不一致');
+}
+
+/** Legacy records retain their room namespace. Independent root-recovered
+ * devices never overwrite ciphertext encrypted under another local master. */
+function localDataScope(vault: Pick<Vault, 'roomId' | 'localDataScope'>): string {
+  if (!vault.localDataScope) return vault.roomId;
+  if (!/^[0-9a-f-]{36}$/i.test(vault.localDataScope)) throw new Error('本机数据范围不正确');
+  return vault.localDataScope;
+}
+
 function mediaBlobKey(roomId: string, blobId: string): string {
   return `${roomId}\u0000${blobId}`;
 }
 
+/** Large recovery manifests stay outside the frequently rewritten room payload.
+ * Ciphertext is durable before the small pending reference or network mutation. */
+export async function saveChamberRecoveryManifest(session: VaultSession, requestId: string, value: unknown, signal: AbortSignal): Promise<void> {
+  if (!/^[0-9a-f-]{36}$/i.test(requestId)) throw new Error('恢复请求编号不正确');
+  const id = `chamber:history-job:${vaultSpaceId(session.stored)}:${requestId}`;
+  const raw = encoder.encode(canonicalStringify(value)), iv = crypto.getRandomValues(new Uint8Array(12));
+  try {
+    if (raw.length > 8 * 1024 ** 2) throw new Error('恢复范围超过安全处理上限');
+    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: encoder.encode(id) },session.key,raw);
+    await withVaultMutation(session, async () => {
+      signal.throwIfAborted();
+      const database = await openDatabase();
+      await new Promise<void>((resolve,reject) => {
+        const tx = database.transaction(['security','vault'],'readwrite');
+        const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
+        current.onsuccess = () => { if (!sameStoredVault(current.result,session.stored) || signal.aborted) tx.abort(); };
+        tx.objectStore('security').put({ iv, ciphertext },id);
+        tx.oncomplete = () => { database.close(); resolve(); };
+        tx.onabort = () => { database.close(); reject(tx.error ?? staleVaultError()); };
+      });
+    });
+  } finally { raw.fill(0); }
+}
+export async function readChamberRecoveryManifest<T>(session: VaultSession,requestId: string): Promise<T> {
+  const id = `chamber:history-job:${vaultSpaceId(session.stored)}:${requestId}`;
+  const record = await transaction<{iv:Uint8Array<ArrayBuffer>;ciphertext:ArrayBuffer}>('security','readonly',store => store.get(id));
+  if (!record) throw new Error('本机恢复请求缺失，请重新发起');
+  const raw = new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:record.iv,additionalData:encoder.encode(id)},session.key,record.ciphertext));
+  try { return JSON.parse(decoder.decode(raw)) as T; } finally { raw.fill(0); }
+}
+
 function mediaChunkId(roomId: string, blobId: string, index: number): string {
   return `${mediaBlobKey(roomId, blobId)}\u0000${index}`;
+}
+
+/** Disposable, locally encrypted copies of already verified cloud ciphertext.
+ * These contain no released data keys or root material. They allow a bounded
+ * root operation to resume slow downloads without retaining root authority. */
+export async function cacheChamberHistoryCipher(session:VaultSession,record:import('./chamber-history-record').ChamberHistoryRecord,signal:AbortSignal):Promise<void> {
+  const blobId=`chamber-unit:${record.id}`,scope=localDataScope(session.vault),iv=crypto.getRandomValues(new Uint8Array(12)),raw=encoder.encode(canonicalStringify(record));
+  try {
+    if(raw.length>4_300_000)throw new Error('历史密文分块过大');
+    const bytes=await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:encoder.encode(`chamber-unit-cache-v1:${scope}:${record.id}`)},session.key,raw);
+    await writeMediaCacheRecord(session,{id:mediaChunkId(scope,blobId,0),roomId:scope,blobKey:mediaBlobKey(scope,blobId),blobId,index:0,bytes,iv,cachedAt:Date.now()},signal);
+  }finally{raw.fill(0);}
+}
+export async function loadChamberHistoryCipher(session:VaultSession,id:string):Promise<import('./chamber-history-record').ChamberHistoryRecord|null> {
+  const scope=localDataScope(session.vault),record=await transaction<StoredMediaChunk|undefined>('mediaChunks','readonly',store=>store.get(mediaChunkId(scope,`chamber-unit:${id}`,0)),()=>session.stored);
+  if(!record?.iv)return null;
+  try {
+    const raw=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:record.iv,additionalData:encoder.encode(`chamber-unit-cache-v1:${scope}:${id}`)},session.key,record.bytes));
+    try {const value=JSON.parse(decoder.decode(raw)) as import('./chamber-history-record').ChamberHistoryRecord;return value.id===id?value:null;}finally{raw.fill(0);}
+  }catch{return null;}
 }
 
 /**
@@ -355,8 +459,8 @@ export async function loadCachedMediaChunk(
   expectedBytes: number,
 ): Promise<ArrayBuffer | null> {
   const record = await transaction<StoredMediaChunk | undefined>('mediaChunks', 'readonly', store =>
-    store.get(mediaChunkId(session.vault.roomId, blobId, index)), () => session.stored);
-  if (!record || record.roomId !== session.vault.roomId || record.blobId !== blobId || record.index !== index ||
+    store.get(mediaChunkId(localDataScope(session.vault), blobId, index)), () => session.stored);
+  if (!record || record.roomId !== localDataScope(session.vault) || record.blobId !== blobId || record.index !== index ||
       !(record.bytes instanceof ArrayBuffer) || record.bytes.byteLength !== expectedBytes) return null;
   await touchMediaCache(session, record.blobKey).catch(() => undefined);
   return record.bytes.slice(0);
@@ -369,7 +473,7 @@ export async function saveCachedMediaChunk(
   bytes: ArrayBuffer,
   signal?: AbortSignal,
 ): Promise<void> {
-  const roomId = session.vault.roomId;
+  const roomId = localDataScope(session.vault);
   const record: StoredMediaChunk = {
     id: mediaChunkId(roomId, blobId, index),
     roomId,
@@ -464,7 +568,7 @@ async function mediaPreviewKey(session: VaultSession): Promise<CryptoKey> {
   try {
     const material = await crypto.subtle.importKey('raw', raw, 'HKDF', false, ['deriveKey']);
     return await crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256',
-      salt: encoder.encode(session.vault.roomId), info: encoder.encode('quiet-room-media-preview-v1') },
+      salt: encoder.encode(localDataScope(session.vault)), info: encoder.encode('quiet-room-media-preview-v1') },
       material, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
   } finally { raw.fill(0); }
 }
@@ -473,17 +577,17 @@ async function mediaPreviewKey(session: VaultSession): Promise<CryptoKey> {
 export async function saveMediaPreview(session: VaultSession, manifest: import('./types').ImageManifest, blob: Blob, signal?: AbortSignal): Promise<void> {
   if (blob.size > 16 * 1024 ** 2 || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(blob.type)) return;
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-preview-v1', roomId: session.vault.roomId, manifest, mimeType: blob.type }));
+  const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-preview-v1', roomId: localDataScope(session.vault), manifest, mimeType: blob.type }));
   const bytes = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData }, await mediaPreviewKey(session), await blob.arrayBuffer());
   signal?.throwIfAborted();
-  await writeMediaCacheRecord(session, { id: mediaChunkId(session.vault.roomId, manifest.blobId, -1), roomId: session.vault.roomId, blobKey: mediaBlobKey(session.vault.roomId, manifest.blobId), blobId: manifest.blobId, index: -1, bytes, iv, mimeType: blob.type, cachedAt: Date.now() }, signal);
+  await writeMediaCacheRecord(session, { id: mediaChunkId(localDataScope(session.vault), manifest.blobId, -1), roomId: localDataScope(session.vault), blobKey: mediaBlobKey(localDataScope(session.vault), manifest.blobId), blobId: manifest.blobId, index: -1, bytes, iv, mimeType: blob.type, cachedAt: Date.now() }, signal);
 }
 
 export async function loadMediaPreview(session: VaultSession, manifest: import('./types').ImageManifest, signal?: AbortSignal): Promise<Blob | null> {
-  const record = await transaction<StoredMediaChunk | undefined>('mediaChunks', 'readonly', store => store.get(mediaChunkId(session.vault.roomId, manifest.blobId, -1)), () => session.stored);
+  const record = await transaction<StoredMediaChunk | undefined>('mediaChunks', 'readonly', store => store.get(mediaChunkId(localDataScope(session.vault), manifest.blobId, -1)), () => session.stored);
   if (!record?.iv || !record.mimeType || !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(record.mimeType)) return null;
   try {
-    const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-preview-v1', roomId: session.vault.roomId, manifest, mimeType: record.mimeType }));
+    const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-preview-v1', roomId: localDataScope(session.vault), manifest, mimeType: record.mimeType }));
     const bytes = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: record.iv, additionalData }, await mediaPreviewKey(session), record.bytes);
     signal?.throwIfAborted();
     await touchMediaCache(session, record.blobKey).catch(() => undefined);
@@ -501,17 +605,17 @@ const playbackMimes = ['video/mp4', 'video/webm'];
 export async function saveMediaPlayback(session: VaultSession, manifest: import('./types').ImageManifest, blob: Blob, signal?: AbortSignal): Promise<void> {
   if (blob.size > 48 * 1024 ** 2 || !playbackMimes.includes(blob.type)) return;
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-playback-v1', roomId: session.vault.roomId, manifest, mimeType: blob.type }));
+  const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-playback-v1', roomId: localDataScope(session.vault), manifest, mimeType: blob.type }));
   const bytes = await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData }, await mediaPreviewKey(session), await blob.arrayBuffer());
   signal?.throwIfAborted();
-  await writeMediaCacheRecord(session, { id: mediaChunkId(session.vault.roomId, manifest.blobId, -2), roomId: session.vault.roomId, blobKey: mediaBlobKey(session.vault.roomId, manifest.blobId), blobId: manifest.blobId, index: -2, bytes, iv, mimeType: blob.type, cachedAt: Date.now() }, signal);
+  await writeMediaCacheRecord(session, { id: mediaChunkId(localDataScope(session.vault), manifest.blobId, -2), roomId: localDataScope(session.vault), blobKey: mediaBlobKey(localDataScope(session.vault), manifest.blobId), blobId: manifest.blobId, index: -2, bytes, iv, mimeType: blob.type, cachedAt: Date.now() }, signal);
 }
 
 export async function loadMediaPlayback(session: VaultSession, manifest: import('./types').ImageManifest, signal?: AbortSignal): Promise<Blob | null> {
-  const record = await transaction<StoredMediaChunk | undefined>('mediaChunks', 'readonly', store => store.get(mediaChunkId(session.vault.roomId, manifest.blobId, -2)), () => session.stored);
+  const record = await transaction<StoredMediaChunk | undefined>('mediaChunks', 'readonly', store => store.get(mediaChunkId(localDataScope(session.vault), manifest.blobId, -2)), () => session.stored);
   if (!record?.iv || !record.mimeType || !playbackMimes.includes(record.mimeType)) return null;
   try {
-    const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-playback-v1', roomId: session.vault.roomId, manifest, mimeType: record.mimeType }));
+    const additionalData = encoder.encode(canonicalStringify({ purpose: 'quiet-room-media-playback-v1', roomId: localDataScope(session.vault), manifest, mimeType: record.mimeType }));
     const bytes = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: record.iv, additionalData }, await mediaPreviewKey(session), record.bytes);
     signal?.throwIfAborted();
     await touchMediaCache(session, record.blobKey).catch(() => undefined);
@@ -533,9 +637,9 @@ export async function deleteCachedMediaBlob(session: VaultSession, blobId: strin
         tx.abort();
         return;
       }
-      tx.objectStore('mediaCacheEntries').delete(mediaBlobKey(session.vault.roomId, blobId));
+      tx.objectStore('mediaCacheEntries').delete(mediaBlobKey(localDataScope(session.vault), blobId));
       const request = tx.objectStore('mediaChunks').index('blobKey')
-        .openKeyCursor(IDBKeyRange.only(mediaBlobKey(session.vault.roomId, blobId)));
+        .openKeyCursor(IDBKeyRange.only(mediaBlobKey(localDataScope(session.vault), blobId)));
       request.onsuccess = () => {
         const cursor = request.result;
         if (!cursor) return;
@@ -833,7 +937,7 @@ export async function clearLocalBrowserData(session: VaultSession): Promise<void
         if (!sameStoredVault(current.result, session.stored)) tx.abort();
       };
       for (const name of stores) {
-        const request = tx.objectStore(name).index('roomId').openKeyCursor(IDBKeyRange.only(session.vault.roomId));
+        const request = tx.objectStore(name).index('roomId').openKeyCursor(IDBKeyRange.only(localDataScope(session.vault)));
         request.onsuccess = () => {
           const cursor = request.result;
           if (!cursor) return;
@@ -926,7 +1030,7 @@ export async function finishJointRecovery(session: VaultSession, nextVault: Vaul
       for (const name of stores.slice(1)) {
         if (pending.preserveHistory && ['history', 'galleryHistory', 'restoredGallery', 'mediaCacheEntries', 'mediaChunks'].includes(name)) continue;
         const store = tx.objectStore(name);
-        const request = store.index('roomId').openCursor(IDBKeyRange.only(nextVault.roomId));
+        const request = store.index('roomId').openCursor(IDBKeyRange.only(localDataScope(nextVault)));
         request.onsuccess = () => {
           const cursor = request.result;
           if (cursor) { cursor.delete(); cursor.continue(); }
@@ -1020,22 +1124,22 @@ export async function adoptDeviceCredential(
   });
 }
 
-async function readUnlockThrottle(): Promise<UnlockThrottle> {
-  const value = await transaction<UnlockThrottle | undefined>('security', 'readonly', (store) => store.get('unlock-throttle'));
+async function readUnlockThrottle(scope = 'unlock-throttle'): Promise<UnlockThrottle> {
+  const value = await transaction<UnlockThrottle | undefined>('security', 'readonly', (store) => store.get(scope));
   return value && Number.isInteger(value.failures) && Number.isFinite(value.nextAllowedAt)
     ? value
     : { failures: 0, nextAllowedAt: 0 };
 }
 
-async function recordUnlockFailure(): Promise<void> {
-  const current = await readUnlockThrottle();
+async function recordUnlockFailure(scope = 'unlock-throttle'): Promise<void> {
+  const current = await readUnlockThrottle(scope);
   const failures = current.failures + 1;
   const delay = failures <= 3 ? 0 : Math.min(30_000, 1000 * 2 ** (failures - 4));
-  await transaction('security', 'readwrite', (store) => store.put({ failures, nextAllowedAt: Date.now() + delay }, 'unlock-throttle'));
+  await transaction('security', 'readwrite', (store) => store.put({ failures, nextAllowedAt: Date.now() + delay }, scope));
 }
 
-async function clearUnlockThrottle(): Promise<void> {
-  await transaction('security', 'readwrite', (store) => store.delete('unlock-throttle'));
+async function clearUnlockThrottle(scope = 'unlock-throttle'): Promise<void> {
+  await transaction('security', 'readwrite', (store) => store.delete(scope));
 }
 
 async function enforceUnlockThrottle(): Promise<void> {
@@ -1046,6 +1150,23 @@ async function enforceUnlockThrottle(): Promise<void> {
 /** Read-only presentation of the existing guessing delay; never clears or extends it. */
 export async function passwordUnlockWaitMs(): Promise<number> {
   return Math.max(0, (await readUnlockThrottle()).nextAllowedAt - Date.now());
+}
+
+/** A separate local guessing delay for root verification; it cannot strengthen an offline six-digit password. */
+export async function unlockPersonalIdentityPassword(stored: import('./personal-identity-vault').StoredPersonalIdentity, password: string): Promise<import('./password-protection').PasswordCredentialResult> {
+  if (stored.protection.method !== 'password') throw new Error('请使用原通行密钥验证');
+  const protection = stored.protection, scope = `chamber:identity-throttle:${stored.identity.id}`;
+  return withVaultLifecycle(async () => {
+    const waitMs = Math.max(0, (await readUnlockThrottle(scope)).nextAllowedAt - Date.now());
+    if (waitMs > 0) throw new Error(`尝试次数过多，请 ${Math.ceil(waitMs / 1000)} 秒后重试`);
+    try {
+      const credential = await derivePasswordCredential(password, protection.kdf, protection.passwordFormat);
+      await (await import('./personal-identity-vault')).usePersonalIdentity(stored, credential, () => undefined);
+      await clearUnlockThrottle(scope); return credential;
+    } catch {
+      await recordUnlockFailure(scope); throw new Error('应用锁不正确，或本机身份保管数据损坏');
+    }
+  });
 }
 
 export async function unlockVault(secret = '', preparedPlatformProof?: Promise<Uint8Array<ArrayBuffer>>, expectedStored?: StoredVault): Promise<VaultSession> {
@@ -1360,6 +1481,7 @@ export async function prepareRecoveryPackage(session: VaultSession): Promise<Pre
 }
 
 async function prepareRecoveryPackageLocked(session: VaultSession, mutation: VaultMutation): Promise<PreparedRecoveryExport> {
+  if(session.vault.personalBinding&&session.vault.personalMigration?.state!=='staged')throw new Error('此空间使用助记词身份恢复，不能导出旧设备私钥恢复包');
   if ((session.stored.v !== 2 && session.stored.v !== 3) || (session.stored.unlockMethod !== 'platform' && session.stored.unlockMethod !== 'password')) {
     throw new Error('请先完成设备保险库升级');
   }
@@ -1416,7 +1538,7 @@ async function importRecoveryPackageLocked(file: File): Promise<void> {
   const parsed: unknown = JSON.parse(await file.text());
   if (!parsed || typeof parsed !== 'object') throw new Error('恢复包格式不正确');
   const record = parsed as Record<string, unknown>;
-  if (record.format !== 'quiet-room-recovery') throw new Error('这不是有效的 Quiet Room 恢复包');
+  if (record.format !== 'quiet-room-recovery') throw new Error('这不是有效的 Chamber 恢复包');
   if (record.version === 2 || record.version === 3) {
     const stored: StoredRecoveryVault = {
       v: record.version,
@@ -1429,7 +1551,7 @@ async function importRecoveryPackageLocked(file: File): Promise<void> {
     await transaction('vault', 'readwrite', (store) => store.put({ ...stored, spaceId: selectedSpace }, selectedSpace));
     return;
   }
-  if (!validateLegacyStoredVault(record.vault)) throw new Error('这不是有效的 Quiet Room 恢复包');
+  if (!validateLegacyStoredVault(record.vault)) throw new Error('这不是有效的 Chamber 恢复包');
   await transaction('vault', 'readwrite', (store) => store.put({ ...(record.vault as LegacyStoredVault), spaceId: selectedSpace }, selectedSpace));
 }
 
@@ -1493,7 +1615,7 @@ export async function findMissingArchivedMessages(
     const maps: [Map<number, StoredHistory>, Map<number, StoredHistory>, Map<number, StoredHistory>] = [new Map(), new Map(), new Map()];
     const tx = existingDatabase.transaction(['history', 'galleryHistory', 'restoredGallery'], 'readonly');
     for (const [index, name] of (['history', 'galleryHistory', 'restoredGallery'] as const).entries()) for (const message of messages) {
-      const request = tx.objectStore(name).get(`${session.vault.roomId}:${message.seq}`);
+      const request = tx.objectStore(name).get(`${localDataScope(session.vault)}:${message.seq}`);
       request.onsuccess = () => { if (request.result) maps[index]!.set(message.seq, request.result); };
     }
     tx.oncomplete = () => { existingDatabase.close(); resolve(maps); };
@@ -1655,15 +1777,15 @@ async function bindRecoveredVaultToPlatformLocked(
 
 async function encryptHistoryRecord(session: VaultSession, message: DecryptedMessage): Promise<StoredHistory> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const additionalData = encoder.encode(`quiet-room-history-v1:${session.vault.roomId}:${message.seq}`);
+  const additionalData = encoder.encode(`quiet-room-history-v1:${localDataScope(session.vault)}:${message.seq}`);
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv, additionalData, tagLength: 128 },
     session.key,
     encoder.encode(JSON.stringify(message)),
   );
   return {
-    id: `${session.vault.roomId}:${message.seq}`,
-    roomId: session.vault.roomId,
+    id: `${localDataScope(session.vault)}:${message.seq}`,
+    roomId: localDataScope(session.vault),
     seq: message.seq,
     iv: toBase64Url(iv),
     ciphertext: toBase64Url(ciphertext),
@@ -1684,7 +1806,7 @@ async function assertCompatibleHistoryRecord(
   storeName: 'history' | 'galleryHistory' | 'restoredGallery',
 ): Promise<StoredHistory | undefined> {
   const existing = await transaction<StoredHistory | undefined>(storeName, 'readonly', store =>
-    store.get(`${session.vault.roomId}:${message.seq}`));
+    store.get(`${localDataScope(session.vault)}:${message.seq}`));
   if (!existing) return undefined;
   const decrypted = (await decryptHistoryRecords(session, [existing], undefined, { strict: true }))[0];
   if (!decrypted || !sameHistoryMessage(decrypted, message)) throw new Error('历史记录与本机数据冲突');
@@ -1725,7 +1847,7 @@ export async function saveHistoryMessage(session: VaultSession, message: Decrypt
 
 export async function loadHistory(session: VaultSession): Promise<DecryptedMessage[]> {
   const records = await transaction<StoredHistory[]>('history', 'readonly', (store) =>
-    store.index('roomId').getAll(IDBKeyRange.only(session.vault.roomId)),
+    store.index('roomId').getAll(IDBKeyRange.only(localDataScope(session.vault))),
   );
   return decryptHistoryRecords(session, records.sort((left, right) => left.seq - right.seq));
 }
@@ -1744,7 +1866,7 @@ export async function loadHistoryPage(
       ? beforeSeq - 1
       : Number.MAX_SAFE_INTEGER;
     const request = index.openCursor(
-      IDBKeyRange.bound([session.vault.roomId, 0], [session.vault.roomId, upper]),
+      IDBKeyRange.bound([localDataScope(session.vault), 0], [localDataScope(session.vault), upper]),
       'prev',
     );
     const collected: StoredHistory[] = [];
@@ -1771,6 +1893,18 @@ export async function loadHistoryPageAfter(
   return decryptHistoryRecords(session, await loadHistoryRecordsAfter(session, { limit, afterSeq, signal }), signal, { strict });
 }
 
+/** New backups include retained Safe rows and deletion projections, even when
+ * the ordinary chat cache has already discarded the corresponding row. */
+export async function loadChamberHistoryPageAfter(session:VaultSession,afterSeq:number,signal:AbortSignal):Promise<DecryptedMessage[]> {
+  const rows=await Promise.all((['history','galleryHistory','restoredGallery'] as const).map(async store=>decryptHistoryRecords(session,
+    await loadHistoryRecordsAfter(session,{limit:20,afterSeq,signal},store),signal,{strict:true})));
+  const merged=new Map<number,DecryptedMessage>();
+  for(const row of rows.flat()) {
+    const existing=merged.get(row.seq);if(existing&&!sameHistoryMessage(existing,row))throw new Error('历史备份存在相互冲突的本机记录');merged.set(row.seq,row);
+  }
+  return [...merged.values()].sort((a,b)=>a.seq-b.seq).slice(0,20);
+}
+
 async function loadHistoryRecordsAfter(
   session: VaultSession,
   { limit, afterSeq, signal }: { limit: number; afterSeq: number; signal?: AbortSignal },
@@ -1788,8 +1922,8 @@ async function loadHistoryRecordsAfter(
     const index = tx.objectStore(storeName).index('roomSeq');
     const request = index.openCursor(
       IDBKeyRange.bound(
-        [session.vault.roomId, lower],
-        [session.vault.roomId, Number.MAX_SAFE_INTEGER],
+        [localDataScope(session.vault), lower],
+        [localDataScope(session.vault), Number.MAX_SAFE_INTEGER],
       ),
       'next',
     );
@@ -1895,10 +2029,10 @@ export async function loadHistoryMessage(session: VaultSession, seq: number, sig
   if (!Number.isSafeInteger(seq) || seq < 1) return null;
   signal?.throwIfAborted();
   const record = await transaction<StoredHistory | undefined>('history', 'readonly', (store) =>
-    store.get(`${session.vault.roomId}:${seq}`),
+    store.get(`${localDataScope(session.vault)}:${seq}`),
   );
   signal?.throwIfAborted();
-  if (!record || record.roomId !== session.vault.roomId || record.seq !== seq) return null;
+  if (!record || record.roomId !== localDataScope(session.vault) || record.seq !== seq) return null;
   return (await decryptHistoryRecords(session, [record], signal))[0] ?? null;
 }
 
@@ -1926,7 +2060,7 @@ export async function loadMediaHistoryPage(
     if (signal?.aborted) abort();
     for (const name of ['galleryHistory', 'restoredGallery', 'history'] as const) {
       const request = tx.objectStore(name).index('roomSeq').openCursor(
-        IDBKeyRange.bound([session.vault.roomId, 1], [session.vault.roomId, upper]), 'prev');
+        IDBKeyRange.bound([localDataScope(session.vault), 1], [localDataScope(session.vault), upper]), 'prev');
       let count = 0;
       request.onsuccess = () => {
         const cursor = request.result;
@@ -2019,7 +2153,7 @@ async function encryptLocalRecord(
   value: unknown,
 ): Promise<StoredLocalRecord> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
-  const recordId = `${session.vault.roomId}:${id}`;
+  const recordId = `${localDataScope(session.vault)}:${id}`;
   const additionalData = encoder.encode(`quiet-room-${storeName}-v1:${recordId}`);
   const ciphertext = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv, additionalData, tagLength: 128 },
@@ -2028,7 +2162,7 @@ async function encryptLocalRecord(
   );
   return {
     id: recordId,
-    roomId: session.vault.roomId,
+    roomId: localDataScope(session.vault),
     iv: toBase64Url(iv),
     ciphertext: toBase64Url(ciphertext),
   };
@@ -2067,7 +2201,7 @@ async function putLocalRecord(
 
 async function loadLocalRecords<T>(session: VaultSession, storeName: LocalStore): Promise<T[]> {
   const records = await transaction<StoredLocalRecord[]>(storeName, 'readonly', (store) =>
-    store.index('roomId').getAll(IDBKeyRange.only(session.vault.roomId)),
+    store.index('roomId').getAll(IDBKeyRange.only(localDataScope(session.vault))),
   );
   const values: T[] = [];
   for (const record of records) {
@@ -2082,16 +2216,16 @@ async function loadLocalRecords<T>(session: VaultSession, storeName: LocalStore)
 
 async function deleteLocalRecord(session: VaultSession, storeName: LocalStore, id: string, mutation?: VaultMutation): Promise<void> {
   if (!ownsVaultMutation(session, mutation)) return withVaultMutation(session, (lease) => deleteLocalRecord(session, storeName, id, lease));
-  await transaction(storeName, 'readwrite', (store) => store.delete(`${session.vault.roomId}:${id}`), session.stored);
+  await transaction(storeName, 'readwrite', (store) => store.delete(`${localDataScope(session.vault)}:${id}`), session.stored);
 }
 
 export async function loadMemeFavorites(session: VaultSession): Promise<MemeFavorite[]> {
-  const record = await transaction<StoredLocalRecord | undefined>('memeFavorites', 'readonly', store => store.get(`${session.vault.roomId}:index`));
+  const record = await transaction<StoredLocalRecord | undefined>('memeFavorites', 'readonly', store => store.get(`${localDataScope(session.vault)}:index`));
   return record ? normalizeMemeIndex(await decryptLocalRecord(session, 'memeFavorites', record)) : [];
 }
 
 export async function loadStickerPacks(session: VaultSession): Promise<StickerPack[]> {
-  const record = await transaction<StoredLocalRecord | undefined>('memeFavorites', 'readonly', store => store.get(`${session.vault.roomId}:packs`));
+  const record = await transaction<StoredLocalRecord | undefined>('memeFavorites', 'readonly', store => store.get(`${localDataScope(session.vault)}:packs`));
   if (!record) return [];
   const packs = await decryptLocalRecord<StickerPack[]>(session, 'memeFavorites', record);
   if (!Array.isArray(packs) || packs.length > MAX_STICKER_PACKS) throw new Error('贴纸合集索引已损坏');
@@ -2174,7 +2308,7 @@ async function commitStickerRecords(session: VaultSession, records: StoredLocalR
     current.onsuccess = () => { if (!sameStoredVault(current.result, session.stored)) tx.abort(); };
     const store = tx.objectStore('memeFavorites');
     for (const record of records) store.put(record);
-    for (const id of deleted) store.delete(`${session.vault.roomId}:${id}`);
+    for (const id of deleted) store.delete(`${localDataScope(session.vault)}:${id}`);
     const cleanup = () => { signal.removeEventListener('abort', abort); database.close(); };
     tx.oncomplete = () => { cleanup(); resolve(); };
     tx.onabort = () => { cleanup(); reject(tx.error ?? staleVaultError()); };
@@ -2183,7 +2317,7 @@ async function commitStickerRecords(session: VaultSession, records: StoredLocalR
 
 export async function loadMemeFavoriteFile(session: VaultSession, item: MemeFavorite, signal: AbortSignal): Promise<File> {
   signal.throwIfAborted();
-  const record = await transaction<StoredLocalRecord | undefined>('memeFavorites', 'readonly', store => store.get(`${session.vault.roomId}:${item.id}`));
+  const record = await transaction<StoredLocalRecord | undefined>('memeFavorites', 'readonly', store => store.get(`${localDataScope(session.vault)}:${item.id}`));
   if (!record) throw new Error('收藏图片已不存在');
   const data = await decryptLocalRecord<unknown>(session, 'memeFavorites', record);
   signal.throwIfAborted();
@@ -2242,7 +2376,7 @@ export async function removeMemeFavorite(session: VaultSession, id: string, sign
       signal.addEventListener('abort', abort, { once: true });
       const current = tx.objectStore('vault').get(vaultSpaceId(session.stored));
       current.onsuccess = () => { if (!sameStoredVault(current.result, session.stored)) tx.abort(); };
-      tx.objectStore('memeFavorites').delete(`${session.vault.roomId}:${id}`);
+      tx.objectStore('memeFavorites').delete(`${localDataScope(session.vault)}:${id}`);
       tx.objectStore('memeFavorites').put(index);
       const cleanup = () => { signal.removeEventListener('abort', abort); database.close(); };
       tx.oncomplete = () => { cleanup(); resolve(); };
@@ -2326,7 +2460,7 @@ export async function prepareComposerDraft(session: VaultSession, fallback: stri
   return withVaultLifecycle(async () => {
     if (!sameStoredVault(await readStoredVaultUnlocked(vaultSpaceId(session.stored)), session.stored)) throw staleVaultError();
     const record = await transaction<StoredLocalRecord | undefined>('preferences', 'readonly', store =>
-      store.get(`${session.vault.roomId}:${draftCommitId(session)}`));
+      store.get(`${localDataScope(session.vault)}:${draftCommitId(session)}`));
     const committed = record ? await decryptLocalRecord<DraftSubmission>(session, 'preferences', record) : undefined;
     if (record && (!committed || typeof committed.revision !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(committed.revision))) throw new Error('本机草稿提交记录已损坏');
     return openDraftCheckpoint(session.key, composerDraftScope(session), fallback, committed, localStorage, false, isActive);
@@ -2336,7 +2470,7 @@ export async function prepareComposerDraft(session: VaultSession, fallback: stri
 export async function loadUiPreferences(session: VaultSession): Promise<UiPreferences> {
   const id = uiPreferenceId(session);
   const record = await transaction<StoredLocalRecord | undefined>('preferences', 'readonly', (store) =>
-    store.get(`${session.vault.roomId}:${id}`),
+    store.get(`${localDataScope(session.vault)}:${id}`),
   );
   if (!record) return {};
   try {
@@ -2356,6 +2490,7 @@ export async function restoreGalleryHidden(session: VaultSession, records: Galle
     const preferences = await loadUiPreferences(session);
     const merged = new Map((preferences.galleryCuration ?? []).map(record => [galleryCurationKey(record), record]));
     for (const record of incoming) merged.set(galleryCurationKey(record), record);
+    if(merged.size>20_000)throw new Error('保险箱删除记录超过上限，已保留本机已有记录');
     const galleryCuration = normalizeGalleryCurationRecords([...merged.values()]);
     if (JSON.stringify(galleryCuration) === JSON.stringify(preferences.galleryCuration ?? [])) return false;
     signal.throwIfAborted();
@@ -2497,7 +2632,7 @@ export async function finishVaultRecovery(session: VaultSession, nextVault: Vaul
     putCurrentVault(tx, nextStored, session.stored);
     for (const name of stores.slice(1)) {
       const store = tx.objectStore(name);
-      const request = store.index('roomId').openKeyCursor(IDBKeyRange.only(nextVault.roomId));
+      const request = store.index('roomId').openKeyCursor(IDBKeyRange.only(localDataScope(nextVault)));
       request.onsuccess = () => {
         const cursor = request.result;
         if (!cursor) return;

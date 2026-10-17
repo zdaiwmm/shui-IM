@@ -75,6 +75,7 @@ function cleanMembers(members:RoomMember[]):RoomMember[] {
 }
 /** Established rooms require normal unlock; owned pending slots may use the held matching passkey. */
 export async function prepareBrowserAccess(session:VaultSession,profile?:BrowserProfile):Promise<void> {
+  if (session.vault.personalBinding && session.vault.personalMigration?.state !== 'staged') return;
   const v=session.vault,code=v.spaceRecoveryCode;
   if(!code || v.protocol!=='mls-rfc9420' || !['active','awaiting-peer'].includes(v.mls?.phase??'') || v.pairingState && v.pairingState!=='ready') return;
   const own=v.members.find(m=>m.deviceId===v.identity.publicBundle.deviceId);
@@ -214,6 +215,7 @@ async function syncBrowserCatalog(session:VaultSession,prepared:Prepared,local:A
   throw new Error('接入目录正在更新，请稍后重试');
 }
 export async function publishPreparedCatalog(session:VaultSession,signal:AbortSignal,excludeRoomId?:string,deletion?:VaultSession):Promise<void> {
+  if (session.vault.personalBinding && session.vault.personalMigration?.state !== 'staged') return;
   const code=session.vault.spaceRecoveryCode;
   if(!code) { if(deletion)await deleteRoom(deletion.vault.roomId,deletion.vault.accessToken);return; }
   const id=rootId(code),sealed=await readLocalSpaceDirectory(id);

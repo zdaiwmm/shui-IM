@@ -2,7 +2,7 @@ import { NOTIFICATION_POLICY_CACHE, readNotificationPolicy, withNotificationLock
 
 /** Explicitly user-authored, device-wide fixed copy. Never uploaded or read from the chat vault. */
 export const NOTIFICATION_COPY_URL = '/__quiet-room-notification-copy';
-export const DEFAULT_NOTIFICATION_COPY = { v: 1 as const, title: 'Quiet Room', body: '有一条新消息，解锁后查看。' };
+export const DEFAULT_NOTIFICATION_COPY = { v: 1 as const, title: 'Chamber', body: '有一条新消息，解锁后查看。' };
 export type NotificationCopy = typeof DEFAULT_NOTIFICATION_COPY;
 export const NOTIFICATION_COPY_LIMITS = { title: 24, body: 80 };
 export function notificationCopyLength(value: string): number {
