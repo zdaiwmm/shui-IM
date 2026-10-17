@@ -23,6 +23,9 @@ try {
   assert.equal((await (await fetch(`http://localhost:${port}/api/health`)).json()).ok,true);
   browser=await chromium.launch(process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:process.env.CI?{}:{channel:'chrome'});
   const context=await browser.newContext({viewport:{width:1000,height:1100},deviceScaleFactor:3,isMobile:true,hasTouch:true,userAgent:deviceProfile.userAgent.userAgent});
+  // This suite exercises the passkey-name editor, including in the iframe.
+  // Pin capability discovery so headless Linux takes the same layout as macOS.
+  await context.addInitScript(()=>Object.defineProperty(PublicKeyCredential,'getClientCapabilities',{configurable:true,value:async()=>({'extension:prf':true,userVerifyingPlatformAuthenticator:true})}));
   const page=await context.newPage();page.setDefaultTimeout(10000);const errors=[];page.on('pageerror',e=>errors.push(e.message));
   const cdp=await context.newCDPSession(page);
   await cdp.send('Emulation.setUserAgentOverride',deviceProfile.userAgent);
