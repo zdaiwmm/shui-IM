@@ -4325,13 +4325,34 @@ export class QuietRoomApp {
       <main><form class="chamber-code-card"><span class="chamber-eyebrow">最后一步 · 确认彼此</span><h1>填写邀请方的验证码</h1>
         <p>请通过你们原来的联系方式，核对请求编号并获取四位验证码。</p><small>请求编号 <strong data-request></strong></small>
         <div class="chamber-countdown"><span>本次邀请剩余</span><strong role="timer" aria-live="off"></strong></div>
-        <label for="chamber-join-code">四位验证码<input id="chamber-join-code" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" required></label>
+        <fieldset class="chamber-code-fields" data-native-input><legend>四位验证码</legend><div class="chamber-code-digits">
+          ${Array.from({ length: 4 }, (_, index) => `<input ${index === 0 ? 'id="chamber-join-code"' : ''} data-code-digit="${index}" aria-label="验证码第 ${index + 1} 位" type="text" inputmode="numeric" pattern="[0-9]" maxlength="4" autocomplete="${index === 0 ? 'one-time-code' : 'off'}" autocapitalize="off" spellcheck="false" required>`).join('')}
+        </div></fieldset>
         <button class="primary-button" type="submit">验证并进入密室</button><p class="form-error" role="alert"></p>
       </form><p class="chamber-pending-note">确认完成后，才能发送消息、通话和恢复历史。</p></main>
       <footer>消息输入将在确认完成后开启</footer></section>`;
     const shell = this.root.querySelector('.chamber-join-shell')!, form = shell.querySelector('form')!;
     shell.querySelector('[data-request]')!.textContent = pending.requestId.slice(0, 8);
     const error = form.querySelector<HTMLElement>('.form-error')!, button = form.querySelector<HTMLButtonElement>('[type=submit]')!;
+    const digits = [...form.querySelectorAll<HTMLInputElement>('[data-code-digit]')];
+    const focusDigit = (index: number) => { digits[index]!.focus(); digits[index]!.select(); };
+    const distribute = (index: number, value: string) => {
+      const numbers = value.replace(/\D/g, '').slice(0, 4);
+      if (!numbers) { digits[index]!.value = ''; return; }
+      const start = numbers.length === 4 ? 0 : index;
+      for (let offset = 0; offset < numbers.length && start + offset < digits.length; offset++) digits[start + offset]!.value = numbers[offset]!;
+      focusDigit(Math.min(start + numbers.length, digits.length - 1));
+    };
+    digits.forEach((input, index) => {
+      input.addEventListener('focus', () => input.select());
+      input.addEventListener('input', () => distribute(index, input.value));
+      input.addEventListener('paste', event => { event.preventDefault(); distribute(index, event.clipboardData?.getData('text') ?? ''); });
+      input.addEventListener('keydown', event => {
+        if (event.key === 'Backspace' && !input.value && index > 0) { event.preventDefault(); digits[index - 1]!.value = ''; focusDigit(index - 1); }
+        else if (event.key === 'ArrowLeft' && index > 0) { event.preventDefault(); focusDigit(index - 1); }
+        else if (event.key === 'ArrowRight' && index < digits.length - 1) { event.preventDefault(); focusDigit(index + 1); }
+      });
+    });
     error.textContent = cause instanceof Error ? cause.message : '';
     const active = () => shell.isConnected && this.isRuntimeActive(epoch, session);
     let ready=false,preparing=false,terminal=false;
@@ -4355,22 +4376,25 @@ export class QuietRoomApp {
       const remaining = Date.parse(pending.expiresAt) - Date.now();
       shell.querySelector('[role=timer]')!.textContent = formatPendingCountdown(remaining);
       if (remaining <= 0) {
-        button.disabled = true; form.querySelector<HTMLInputElement>('input')!.disabled = true;
+        button.disabled = true; digits.forEach(input => { input.disabled = true; });
         error.textContent = '本次邀请已结束，请让邀请方重新发起邀请。你的本机身份已加密保存。';
       } else {void prepare();window.setTimeout(tick, ready||terminal?1000:3000);}
     }; tick();
     shell.querySelector('#chamber-join-lock')!.addEventListener('click', () => this.lockNow());
     form.addEventListener('submit', event => {
       event.preventDefault(); if (!active() || button.disabled) return;
-      const input = form.querySelector<HTMLInputElement>('input')!, code = input.value; input.value = '';
+      const code = digits.map(input => input.value).join('');
       if (!/^\d{4}$/.test(code)) { error.textContent = '请输入四位数字验证码'; return; }
+      digits.forEach(input => { input.value = ''; input.disabled = true; });
       setBusy(button, true, '正在确认…'); error.textContent = '';
       void this.completePendingJoin(code).then(async () => {
         if (active()) await this.openSession();
       }).catch(cause => {
         if (!active()) return;
         error.textContent = cause instanceof Error ? cause.message : '验证未完成，请重试'; setBusy(button, false);
-        if (cause instanceof ApiError && ['INVITATION_ENDED', 'INVITATION_CLAIMED', 'UNAUTHORIZED'].includes(cause.code)) button.disabled = true;
+        if (cause instanceof ApiError && ['INVITATION_ENDED', 'INVITATION_CLAIMED', 'UNAUTHORIZED'].includes(cause.code) || Date.parse(pending.expiresAt) <= Date.now()) button.disabled = true;
+        digits.forEach(input => { input.disabled = button.disabled; });
+        if (!button.disabled) focusDigit(0);
       });
     });
   }
@@ -5296,8 +5320,13 @@ export class QuietRoomApp {
       if (host) {
         host.replaceChildren();
         const title = document.createElement('strong');
-        title.textContent = state.stage === 'code' ? `验证码 ${state.code}` : state.stage === 'preparing' ? '对方正在保管身份' : state.stage === 'expired' ? '邀请已结束' : '等待对方进入';
+        title.textContent = state.stage === 'code' ? '本次验证码' : state.stage === 'preparing' ? '对方正在保管身份' : state.stage === 'expired' ? '邀请已结束' : '等待对方进入';
         host.append(title);
+        if (state.stage === 'code' && state.code) {
+          const code = document.createElement('div'); code.className = 'chamber-code-display'; code.setAttribute('role', 'group'); code.setAttribute('aria-label', `本次四位验证码 ${state.code.split('').join(' ')}`);
+          for (const digit of state.code) { const cell = document.createElement('span'); cell.textContent = digit; cell.setAttribute('aria-hidden', 'true'); code.append(cell); }
+          host.append(code);
+        }
         if (state.requestId) { const request = document.createElement('small'); request.textContent = `请求编号 ${state.requestId.slice(0, 8)} · 请通过原联系方式核对后告知验证码`; host.append(request); }
       }
     } catch (cause) {
@@ -6102,8 +6131,12 @@ export class QuietRoomApp {
     this.renderedMessageSeq.clear();
     document.body.className = 'app-mode';
     const chatMarkup = `
-      <section class="chat-shell">
-        <header class="chat-header" data-presence-style="${readPresenceStyle()}">
+      <section class="chat-shell ${this.session.vault.personalBinding && !cryptoReady ? 'chamber-waiting' : ''}">
+        <header class="chat-header ${this.session.vault.personalBinding ? 'chamber-chat-header' : ''}" data-presence-style="${readPresenceStyle()}">
+          ${this.session.vault.personalBinding ? `<div class="peer-summary chamber-presence-capsule" ${this.session.vault.role === 'creator' && cryptoReady && this.peerHasJoined(this.session) ? 'id="open-gallery" role="button" tabindex="0"' : 'role="status"'} aria-live="polite">
+            <span class="presence-row" id="peer-presence"><i class="presence-dot" aria-hidden="true"></i></span><strong class="peer-status">等待加入</strong>
+            <span id="self-presence" class="sr-only"><strong>同步中</strong></span>
+          </div>` : `
           <button class="icon-button spaces-entry" id="open-spaces" type="button" aria-label="私密空间列表">${spaceAvatarMarkup(this.currentSpaceAvatar, this.currentSpaceName)}</button>
           <div class="peer-summary" ${this.session.vault.role === 'creator' ? 'id="open-gallery" role="button" tabindex="0"' : 'role="status"'} aria-live="polite">
             <div class="presence-heading">
@@ -6112,7 +6145,7 @@ export class QuietRoomApp {
               <span class="presence-row" id="self-presence"><i class="presence-dot" aria-hidden="true"></i><span>我</span><strong class="sr-only">同步中</strong></span>
             </div>
             <strong class="peer-status">同步中</strong>
-          </div>
+          </div>`}
           <button class="icon-button chat-settings-entry" id="chat-settings" type="button" aria-label="设置">${spaceIcons.settings}</button>
         </header>
         <div class="system-notices" aria-label="本机安全提醒">
@@ -6139,6 +6172,7 @@ export class QuietRoomApp {
         <div class="notice" id="notice" role="status" hidden></div>
         <section class="message-list" id="message-list" aria-label="聊天消息"></section>
         <form class="composer" id="composer" autocomplete="off">
+          ${this.session.vault.personalBinding && !cryptoReady ? '<p class="chamber-waiting-footer">对方完成验证码确认后，即可开始聊天。</p>' : ''}
           <button class="chat-bottom-control" id="chat-bottom-control" type="button" aria-label="回到最新消息" aria-hidden="true" tabindex="-1"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></button>
           <input id="image-input" type="file" accept="image/*,video/*" multiple ${cryptoReady ? '' : 'disabled'} hidden />
           <input id="camera-input" type="file" accept="image/*,video/*" capture="environment" ${cryptoReady ? '' : 'disabled'} hidden />
@@ -8117,6 +8151,10 @@ export class QuietRoomApp {
   private scrollChatToBottom(): void {
     this.chatBottomControl?.cancel();
     this.chatScrollIntent = null;
+    if (this.session?.vault.personalBinding && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero')) {
+      this.chatPinnedToBottom = false; this.chatBottomFollowPending = false;
+      this.setChatScrollTop(0); this.updateChatBottomControl(); return;
+    }
     this.chatPinnedToBottom = true;
     this.chatNewMessageIds.clear();
     this.alignChatBottom();
@@ -8299,6 +8337,11 @@ export class QuietRoomApp {
   }
 
   private alignChatBottom(): void {
+    // A pending invitation is a top-first task, not a message timeline.
+    // Queued resize/follow callbacks must not push its heading under chrome.
+    if (this.session?.vault.personalBinding && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero')) {
+      this.chatBottomFollowPending = false; return;
+    }
     if (this.composerHandoff || this.composerHeightMotion || this.nativeKeyboardDismiss) {
       this.chatBottomFollowPending = true;
       return;
@@ -10456,6 +10499,8 @@ export class QuietRoomApp {
   private renderMessages({ scroll = 'preserve' }: { scroll?: 'preserve' | 'position' | 'bottom' | 'send' | 'restore' } = {}): void {
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!list || !this.session) return;
+    const guide = this.root.querySelector<HTMLElement>('.chamber-privacy-guide');
+    if (guide && list.contains(guide) && this.peerHasJoined(this.session)) this.root.querySelector('.system-notices')?.prepend(guide);
     const continuingMotion = this.chatMessageAnimations.size > 0;
     const previousMessageIds = new Set(this.renderedMessages.keys());
     const reflowOrigins = new Map<HTMLElement, number>();
@@ -10542,11 +10587,17 @@ export class QuietRoomApp {
       title.textContent = '私密空间已经准备好';
       const detail = document.createElement('span');
       detail.textContent = '文字、语音和原图都会在这台设备上加密后再发送。';
+      if (this.session.vault.personalBinding && !this.peerHasJoined(this.session)) {
+        empty.classList.add('chamber-invite-hero');
+        const eyebrow = document.createElement('span'); eyebrow.className = 'chamber-eyebrow'; eyebrow.textContent = '你的密室已就绪'; empty.append(eyebrow);
+        title.textContent = '把邀请发给你想见的人'; detail.textContent = '对方进入后，本次验证码会自动出现在这里。';
+      }
       empty.append(title, detail);
       const guidance = document.createElement('div'); guidance.className = 'entry-chat-guidance';
       if (this.session.vault.role === 'creator' && this.session.vault.pairingSecret && !this.peerHasJoined(this.session)) {
         const inviteUrl = makeParticipantInviteUrl({ v: 1, roomId: this.session.vault.roomId, accessToken: this.session.vault.inviteToken ?? this.session.vault.accessToken, pairingSecret: this.session.vault.pairingSecret, creatorFingerprint: this.session.vault.creatorFingerprint });
         const invite = document.createElement('button'); invite.className = 'primary-button'; invite.type = 'button'; invite.id = 'copy-invite'; invite.textContent = '复制邀请，等对方加入';
+        if (this.session.vault.personalBinding) invite.textContent = '复制邀请链接';
         invite.addEventListener('click', () => void this.shareInviteLink(inviteUrl));
         const link = document.createElement('input'); link.id = 'invite-url'; link.className = 'sr-only'; link.readOnly = true; link.tabIndex = -1; link.setAttribute('aria-label', '邀请链接'); link.value = inviteUrl;
         const status = document.createElement('p'); status.className = 'entry-invite-status';
@@ -10568,6 +10619,7 @@ export class QuietRoomApp {
         const hint = document.createElement('small'); hint.textContent = '换设备或数据丢失时，用恢复卡找回。'; guidance.append(hint);
       }
       empty.append(guidance);
+      if (this.session.vault.personalBinding && !this.peerHasJoined(this.session) && guide) empty.append(guide);
       this.renderedMessages.clear();
       this.renderedMessageOrder = [];
       this.renderedMessageDates.clear();
@@ -14977,7 +15029,7 @@ export class QuietRoomApp {
       row.dataset.state = state;
       const label = row === peerRow ? summary.querySelector<HTMLElement>('.peer-status') : row.querySelector<HTMLElement>('strong');
       if (label) {
-        const text = value === null ? this.connectionState === 'disconnected' ? '连接已断开' : '连接中' : value ? '在线' : row === peerRow ? lastSeenText(this.roleLastSeen[peerRole]) : '离线';
+        const text = row === peerRow && this.session?.vault.personalBinding && !paired ? '等待加入' : value === null ? this.connectionState === 'disconnected' ? '连接已断开' : '连接中' : value ? '在线' : row === peerRow ? lastSeenText(this.roleLastSeen[peerRole]) : '离线';
         if (label.textContent !== text) {
           label.textContent = text;
           // Facts change synchronously; only the new label receives feedback.

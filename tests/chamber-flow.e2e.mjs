@@ -79,8 +79,39 @@ try {
   await a.waitForFunction(() => app.chamberInviteState?.stage === 'code');
   const code = await a.evaluate(() => app.chamberInviteState.code);
   assert.match(code, /^\d{4}$/);
+  assert.deepEqual(await a.locator('.chamber-code-display > span').allTextContents(), code.split(''));
+  assert.equal(await a.locator('.chat-header .spaces-entry, .chat-header .presence-circuit').count(), 0);
+  assert.equal(await a.locator('.chamber-presence-capsule .peer-status').textContent(), '等待加入');
+  assert.equal(await a.locator('#open-gallery').count(), 0, 'Pending invitation has no Safe action');
+  assert.equal(await a.locator('#message-input').isVisible(), false, 'Pending invitation has a footer hint instead of chat controls');
+  assert.equal(await a.locator('#chat-bottom-control').isVisible(), false);
+  const invitationGeometry = await a.evaluate(() => ({
+    eyebrowTop: document.querySelector('.chamber-invite-hero > .chamber-eyebrow').getBoundingClientRect().top,
+    headerBottom: document.querySelector('.chat-header').getBoundingClientRect().bottom,
+    scroll: scrollY, listScroll: document.querySelector('#message-list').scrollTop,
+    padding: getComputedStyle(document.querySelector('#message-list')).paddingTop,
+    pinned: app.chatPinnedToBottom, pending: app.chatBottomFollowPending, paired: app.peerHasJoined(app.session),
+  }));
+  assert.ok(invitationGeometry.eyebrowTop >= invitationGeometry.headerBottom, `Invitation starts below the header: ${JSON.stringify(invitationGeometry)}`);
+  const copyBox = await a.locator('#copy-invite').boundingBox(), guideBox = await a.locator('.chamber-privacy-guide').boundingBox();
+  assert.ok(copyBox && guideBox && guideBox.y > copyBox.y + copyBox.height, 'Invitation action comes before privacy guidance');
+  await auditP1Surface(a, 'chamber-inviter', '.chat-shell');
   assert.equal(await b.locator('[data-request]').textContent(), before.requestId.slice(0, 8));
-  await fillFormInput(b, b.locator('#chamber-join-code'), code); await b.locator('.chamber-code-card [type=submit]').click();
+  const digits = b.locator('[data-code-digit]');
+  assert.equal(await digits.count(), 4);
+  await digits.nth(0).pressSequentially('1234');
+  assert.deepEqual(await digits.evaluateAll(inputs => inputs.map(input => input.value)), ['1', '2', '3', '4']);
+  await digits.nth(3).press('Backspace'); await digits.nth(3).press('Backspace');
+  assert.equal(await digits.nth(2).evaluate(input => input === document.activeElement), true);
+  assert.equal(await digits.nth(2).inputValue(), '');
+  await digits.nth(2).press('ArrowLeft');
+  assert.equal(await digits.nth(1).evaluate(input => input === document.activeElement), true);
+  await digits.nth(1).evaluate((input, value) => {
+    const clipboardData = new DataTransfer(); clipboardData.setData('text/plain', value);
+    input.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
+  }, code);
+  assert.deepEqual(await digits.evaluateAll(inputs => inputs.map(input => input.value)), code.split(''));
+  await b.locator('.chamber-code-card [type=submit]').click();
   for (const [index, page] of [a, b].entries()) {
     try { await page.waitForFunction(() => app.session?.vault.mls?.phase === 'active' && !document.querySelector('#message-input')?.disabled); }
     catch (cause) {
@@ -92,6 +123,9 @@ try {
       })), errors); throw cause;
     }
   }
+  assert.equal(await a.locator('#open-gallery.chamber-presence-capsule').count(), 1);
+  assert.equal(await b.locator('#open-gallery').count(), 0);
+  assert.equal(await a.locator('.system-notices .chamber-privacy-guide').count(), 1, 'Activated chat retains the three-step guide');
   await a.locator('#message-input').fill('Synthetic Chamber encrypted message'); await a.locator('#composer').evaluate(form => form.requestSubmit());
   await b.getByText('Synthetic Chamber encrypted message', { exact: true }).waitFor();
   await a.evaluate(()=>app.runAutomaticBackup(true));
