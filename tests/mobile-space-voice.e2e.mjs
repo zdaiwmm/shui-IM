@@ -59,6 +59,7 @@ try {
   // Old source list remains mounted behind creation and is visible throughout pop.
   await b.locator('#open-spaces').click();await b.locator('#space-create').click();
   assert.equal(await b.locator('.is-space-list-page').count(),1);
+  await b.locator('#profile-back').waitFor();
   const returned=await b.evaluate(async()=>{
     const samples=[];const end=performance.now()+400;document.querySelector('#profile-back').click();
     do{const profile=document.querySelector('.space-profile-overlay');const list=document.querySelector('.is-space-list-page > .space-drawer');

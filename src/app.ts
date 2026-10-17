@@ -1324,8 +1324,10 @@ export class QuietRoomApp {
     let retain = false;
     try { retain = !readHiddenLock(localStorage); } catch { return false; }
     return retain && !!session && !this.deviceVerificationActive && !this.nativeSurfaceActive()
-      && !this.exposureAnchor && !this.accessFailure && !this.root.querySelector('.password-sheet, .document-reader')
+      && !this.exposureAnchor && !this.accessFailure
+      && !this.root.querySelector('.password-sheet, .document-reader, .dialog-surface:not(.space-drawer-overlay), [data-authenticated-page]:not(.auto-lock-page)')
       && !session.vault.pendingJointRecovery && !session.vault.pendingRecovery && !session.vault.pendingRepair
+      && !session.vault.pendingChamberCreate && !session.vault.pendingChamberInvitation && !session.vault.pendingPersonalDevice && !session.vault.pendingChamberReopen
       && (!session.vault.pairingState || session.vault.pairingState === 'ready');
   }
 

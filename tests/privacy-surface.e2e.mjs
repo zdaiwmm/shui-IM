@@ -67,6 +67,10 @@ try {
     app.exposureAnchor=anchor;app.idleLease.limitExposure(60_000);visibility(true);
   });
   assert.equal((await state()).locked,true,'Sensitive exposure always requires a new verification after hiding');
+  await page.evaluate(() => {
+    window.fixture.fresh(0);const marker=document.createElement('section');marker.setAttribute('data-authenticated-page','');document.querySelector('#app').append(marker);window.fixture.visibility(true);
+  });
+  assert.equal((await state()).locked,true,'Sensitive recovery/enrollment pages never retain roots under the ordinary-session opt-out');
   await page.evaluate(() => {window.fixture.fresh(0);window.dispatchEvent(new Event('pagehide'));});
   assert.equal((await state()).locked,true,'Page destruction overrides the opt-out');
   await page.evaluate(() => {localStorage.removeItem('quiet-room:lock-on-hidden');window.fixture.fresh();});
