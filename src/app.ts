@@ -5418,24 +5418,24 @@ export class QuietRoomApp {
   private paintChamberInvitation(): void {
     const session = this.session, state = this.chamberInviteState, epoch = this.runtimeEpoch;
     if (!session || !state) return;
-    const ended = this.chamberInvitationEnded();
+    const ended = this.chamberInvitationEnded(), pending = Boolean(session.vault.pendingInvitationRotation);
     const invite = this.root.querySelector<HTMLButtonElement>('#copy-invite');
     if (invite) {
-      const text = ended ? '邀请已超时，重新发起邀请' : '复制邀请链接';
+      const text = pending ? '重新发起邀请' : ended ? '邀请已超时，重新发起邀请' : '复制邀请链接';
       if (invite.textContent !== text) invite.textContent = text;
       invite.disabled = this.chamberInviteRotating;
     }
     const restart = this.root.querySelector<HTMLButtonElement>('#chamber-invite-restart');
-    if (restart) { restart.hidden = ended || !state.requestId; restart.disabled = this.chamberInviteRotating; }
+    if (restart) { restart.hidden = ended || pending || !state.requestId; restart.disabled = this.chamberInviteRotating; }
     const label = this.root.querySelector<HTMLElement>('#invite-countdown');
     if (label) {
-      label.parentElement!.hidden = ended || !state.expiresAt;
+      label.parentElement!.hidden = ended || pending || !state.expiresAt;
       const text = !ended && state.expiresAt ? `验证码有效期 ${formatPendingCountdown(Date.parse(state.expiresAt) - Date.now())}` : '';
       if (label.textContent !== text) label.textContent = text;
     }
     const host = this.root.querySelector<HTMLElement>('#chamber-invite-status');
     if (!host) return;
-    host.hidden = ended || !state.code;
+    host.hidden = ended || pending || !state.code;
     if (host.hidden) { if (host.hasChildNodes()) host.replaceChildren(); delete host.dataset.view; return; }
     const view = `${state.version}:${state.code}`;
     if (host.dataset.view === view) return;
@@ -5476,9 +5476,15 @@ export class QuietRoomApp {
         const state = await chamberInvitation(session.vault.roomId, session.vault.accessToken,
           { action: 'rotate', inviteToken: next.inviteToken }, AbortSignal.any([this.runtimeAbort?.signal ?? new AbortController().signal, AbortSignal.timeout(15_000)]));
         if (!this.isRuntimeActive(epoch, session)) return;
+        const previous = { inviteToken: session.vault.inviteToken, pairingSecret: session.vault.pairingSecret };
         session.vault.inviteToken = next.inviteToken; session.vault.pairingSecret = next.pairingSecret;
         session.vault.pendingInvitationRotation = undefined;
-        await saveVault(session, mutation); this.chamberInviteState = state;
+        try { await saveVault(session, mutation); }
+        catch (cause) {
+          session.vault.inviteToken = previous.inviteToken; session.vault.pairingSecret = previous.pairingSecret;
+          session.vault.pendingInvitationRotation = next; throw cause;
+        }
+        if (this.isRuntimeActive(epoch, session)) this.chamberInviteState = state;
       });
       if (!this.isRuntimeActive(epoch, session)) return;
       const url = this.participantInviteUrl(session);
@@ -10774,7 +10780,7 @@ export class QuietRoomApp {
         if (this.session.vault.personalBinding) invite.textContent = '复制邀请链接';
         invite.addEventListener('click', () => {
           if (this.chamberInviteRotating) return;
-          if (this.session?.vault.personalBinding && this.chamberInvitationEnded()) {
+          if (this.session?.vault.personalBinding && (this.session.vault.pendingInvitationRotation || this.chamberInvitationEnded())) {
             void this.rotateChamberInvitation().catch(cause => this.showNotice(cause instanceof Error ? cause.message : '邀请未能重新发起', 'error'));
           } else if (this.session) void this.shareInviteLink(this.participantInviteUrl(this.session), '邀请链接已复制', Boolean(this.session.vault.personalBinding));
         });

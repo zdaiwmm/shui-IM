@@ -226,7 +226,7 @@ try {
   await capture(a, 'F15-password-unlock');
   await password(a, '012345'); await a.locator('#message-input').waitFor();
   await a.evaluate(() => { const v = app.session; window.proofResult = null; app.confirmDeviceCredential('取消后不得继续').then(() => { window.proofResult = 'verified'; }, () => { window.proofResult = 'cancelled'; }); });
-  await fillFormInput(a, a.locator('.password-form [name=password]'), '012345');
+  for (const digit of '012') await a.locator(`[data-digit="${digit}"]`).click();
   await a.evaluate(() => app.lockNow());
   await a.waitForFunction(() => proofResult === 'cancelled'); assert.equal(await a.locator('#message-input').count(), 0);
   const partialContext = await browser.newContext({ viewport: { width: 390, height: 844 } });

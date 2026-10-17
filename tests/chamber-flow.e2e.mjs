@@ -145,14 +145,29 @@ try {
   assert.deepEqual(await a.locator('.chamber-code-display > span').allTextContents(),earlyCode.split(''));
   await a.clock.setSystemTime(new Date());
   const expiringVersion=await a.evaluate(()=>app.chamberInviteState.version);
-  const expiredReply=async route=>{if(route.request().method()!=='GET'){await route.continue();return;}const response=await route.fetch(),state=await response.json();if(state.version===expiringVersion){state.stage='expired';state.expiresAt=new Date(Date.now()-1000).toISOString();delete state.code;}await route.fulfill({response,json:state});};
+  const rotationReplies=[];
+  await a.evaluate(()=>{const put=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(...args){const request=put.apply(this,args);if(this.name==='vault'&&window.failNextRotationCommit){window.failNextRotationCommit=false;IDBObjectStore.prototype.put=put;this.transaction.abort();}return request;};});
+  const expiredReply=async route=>{
+    if(route.request().method()!=='GET'&&route.request().postDataJSON().action!=='rotate'){await route.continue();return;}
+    const response=await route.fetch(),state=await response.json();
+    if(route.request().method()==='POST'){
+      rotationReplies.push({version:state.version,requestId:state.requestId,expiresAt:state.expiresAt});
+      if(rotationReplies.length===1)await a.evaluate(()=>{window.failNextRotationCommit=true;});
+    }else if(state.version===expiringVersion){state.stage='expired';state.expiresAt=new Date(Date.now()-1000).toISOString();delete state.code;}
+    await route.fulfill({response,json:state});
+  };
   await a.route('**/chamber-invitation',expiredReply);
   await a.evaluate(async()=>{app.chamberInvitePolledAt=0;await app.pollChamberInvitation();});
   await a.getByRole('button',{name:'邀请已超时，重新发起邀请',exact:true}).waitFor();
   assert.equal(await a.locator('#chamber-invite-restart').isVisible(),false);
   assert.equal(await a.getByText('本次邀请已结束',{exact:true}).count(),0);
   await a.locator('#copy-invite').click();
+  await a.waitForFunction(()=>app.session.vault.pendingInvitationRotation&&!app.chamberInviteRotating);
+  assert.equal(await a.locator('#invite-url').inputValue(),invite,'Failed local commit exposed an uncommitted link');
+  assert.equal(await a.locator('#chamber-invite-status').isVisible(),false);
+  await a.getByRole('button',{name:'重新发起邀请',exact:true}).click();
   await a.waitForFunction(old=>document.querySelector('#invite-url').value!==old,invite);
+  assert.equal(rotationReplies.length,2);assert.deepEqual(rotationReplies[1],rotationReplies[0],'Retry must reuse the server rotation without extending its deadline');
   const nextInvite=await a.locator('#invite-url').inputValue();assert.notEqual(nextInvite,invite);
   await a.waitForFunction(async url=>(await navigator.clipboard.readText())===url,nextInvite);
   assert.match(await a.locator('#invite-countdown').textContent(),/验证码有效期/);
@@ -276,7 +291,11 @@ try {
   await c.waitForFunction(() => app.session?.vault.mls?.phase === 'active' && !document.querySelector('#message-input')?.disabled);
   assert.equal(await c.getByText('Synthetic Chamber encrypted message', { exact: true }).count(), 0);
   await b.locator('#message-input').fill('Synthetic after independent device approval'); await b.locator('#composer').evaluate(form => form.requestSubmit());
-  await c.getByText('Synthetic after independent device approval', { exact: true }).waitFor();
+  try { await c.getByText('Synthetic after independent device approval', { exact: true }).waitFor(); }
+  catch(cause) {
+    for(const [name,page] of [['sender',b],['new-device',c]])console.log('CHAMBER_POST_APPROVAL_STATE',name,await page.evaluate(()=>({covered:app.privacyCovered,activeSurface:app.activeSurface,pairing:app.session?.vault.pairingState,phase:app.session?.vault.mls?.phase,epoch:app.session?.vault.mls?.epoch,failedAccess:Boolean(app.accessFailure),socket:app.socket?.connected,matchedMessage:[...app.messages.values()].some(m=>m.payload.text==='Synthetic after independent device approval'),pending:app.pending.size,outbox:app.outbox.size,inputLength:document.querySelector('#message-input')?.value.length,inert:Boolean(document.querySelector('#message-input')?.closest('[inert]')),dialogs:document.querySelectorAll('.dialog-surface').length,errors:[...document.querySelectorAll('.form-error,.app-toast.error')].map(n=>n.textContent)})));
+    throw cause;
+  }
   await c.evaluate(()=>app.renderBackupSettings());await auditP1Surface(c,'chamber-backup','.backup-page');await c.locator('#chamber-history-scope').selectOption('all'); await c.locator('#chamber-history-start').click(); await submitPassword(c,'112233');
   await c.getByText(/请联系对方，核对请求编号/).waitFor();
   await b.evaluate(()=>app.renderBackupSettings()); await b.getByRole('button',{name:'核对申请并共同解密'}).click(); await submitPassword(b,'135790');
