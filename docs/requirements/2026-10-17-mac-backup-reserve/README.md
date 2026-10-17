@@ -2,9 +2,9 @@
 
 ## 身份与确认
 
-- 2026-10-17确认实施，当前验证中；无页面，原型／流程不适用。规则来源`5ee196369f7de1b2bfbd3a89e388b5220a4564e8`，实时main基线`cfb027a2dd286920769f9609a0600769ea84a440`，分支`codex/chamber-local-backup-recovery-20261017`，本会话独占树`/private/tmp/shui-IM-chamber-record-20261017`。旧本机main不作实施基线。
+- 2026-10-17确认实施，已合并、安装并取得真实备份／原应用发布回读证据；无页面，原型／流程不适用。规则来源`5ee196369f7de1b2bfbd3a89e388b5220a4564e8`，实时main基线`cfb027a2dd286920769f9609a0600769ea84a440`，分支`codex/chamber-local-backup-recovery-20261017`，本会话独占树`/private/tmp/shui-IM-chamber-record-20261017`。旧本机main不作实施基线。
 - 用户确认原备份Mac为另一台且关机，随后要求使用当前Mac，并指出不必固定低于80%。对「当前Mac取消磁盘80%限制，写入后保留8GiB、传输中复核，其他校验不变，安装自动备份后继续89ca7c8」明确选择「确认并实施」。未提供独立消息ID。
-- 先前临时服务器本地备份方案已被用户撤回，尚未修改任何服务器配置。服务器仍mac-pull；本机FileVault开启，未安装原自动备份代理，现有predeploy归档保留。最后复核本机可用约24.4GiB、占用约94.7%，生产数据总量约1.1GiB；不以较早12.6GiB快照代替当前容量。
+- 先前临时服务器本地备份方案已被用户撤回，尚未修改任何服务器配置。服务器仍mac-pull；本机FileVault开启，未安装原自动备份代理，现有predeploy归档保留。实施前复核本机可用约24.4GiB、占用约94.7%，生产数据总量约1.1GiB；不以较早12.6GiB快照代替当前容量。
 - 本次授权为可选Mac接收策略、既有安装器／runner、风险匹配验证、默认PR／CI／合并、当前Mac本机配置和真实备份。应用发布仍沿用已批准版本2026.10.17.1／精确SHA `89ca7c83b742f1ac3935dfe8e15b2959b4535512`，不发布备份工具SHA。
 
 ## 方案与边界
@@ -19,10 +19,16 @@
 
 | 验收项 | 实现与证据 | 待完成／限制 |
 | --- | --- | --- |
-| 默认严格、reserve保留8GiB，未知配置及inode失败 | 容量／资源边界22项通过，另补安装器无效策略拒绝 | 不改变其他目标默认策略 |
+| 默认严格、reserve保留8GiB，未知配置及inode失败 | 容量／资源边界及安装器无效策略共23项通过 | 不改变其他目标默认策略 |
 | 显式reserve真实合成备份可恢复；中途不足无回执、不删旧点；服务端不能改策略 | 4项真实流式／故障测试通过；6项reserve筛选包含2项容量测试通过 | 全部为合成数据 |
-| 构建与完整回归 | 本机构建通过；一次完整单元126文件／1005项，995通过、10项旧strict传输因实际磁盘高占用返回BACKUP_CAPACITY_LOW，未改原断言或盲重试；随后补1项安装器策略入口验证 | GitHub完整CI待取证，本机容量失败保留 |
-| 本机安装及真实备份 | 既有安装器增加显式策略，安装与bootstrap分开 | 等待合并／CI后安装及真实校验 |
-| 原应用发布、独立回读与对账 | 精确授权保留，原DNS失败命令及旧版健康状态证据由Chamber需求拥有 | 新备份健康恢复后，沿用固定入口继续89ca7c8；未发布 |
+| 构建与完整回归 | 本机构建通过；一次完整单元126文件／1005项，995通过、10项旧strict传输因实际磁盘高占用返回BACKUP_CAPACITY_LOW，未改原断言或盲重试；随后补1项安装器策略入口验证 | PR CI38998105737／精确main CI38998661457 attempt 1完整通过；PR为126文件／1006项，69浏览器入口及双架构镜像；本机容量失败保留 |
+| 本机安装及真实备份 | 固定安装源码fa1236592ac1dfa5663e993c02a3dcd4e1626a67与已合并main运行文件一致；私有权限／七份源码摘要／reserve策略核验，LaunchAgent首次退出0 | 首份1157255004字节，创建2026-10-17T03:26:20.548Z，Mac／服务器绑定回执03:27:08.649Z／03:27:08.617Z；Docker探针healthy |
+| 原应用发布、独立回读与对账 | 获批89ca7c8固定发布及独立READBACK_OK已完成，2026-10-17T03:43:07.758Z | 发布事实由RELEASING拥有；工具SHA未作为应用发布目标 |
 
 无新增依赖、二进制或产物；只保存必要源码、测试和文本。长期契约由[OPERATIONS.md](../../../OPERATIONS.md#mac-主动拉取模式)拥有，原发布记录见[Chamber需求](../2026-10-16-personal-mnemonic-friends/README.md)。
+
+## 交付及本机接续
+
+[PR #331](https://github.com/zdaiwmm/shui-IM/pull/331)源fa12365合并为`97e1d34bd5a72d69bd0d0c8c7e9eea9b7dccec31`；[PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38998105737)及[main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38998661457) attempt 1均成功。实际机器运行文件安装在用户Library的固定源码目录，策略写入LaunchAgent；备份位于`~/quiet-room-backups/production/continuous`，FileVault开启、目录0700／文件0600，现有predeploy目录保留。首次真实校验后服务器状态BACKUP_FRESH、周期探针healthy；任务每5分钟检查、快照未满12小时跳过，原36小时过期规则保持。未在生产执行恢复或解密真实消息。
+
+脱敏安装／来源／备份时间、字节、成功回执及原应用发布／全部独立回读证据保存于公共Git元数据chamber-personal-mnemonic-friends-20261017/production.json，不随任务树清理删除。本次发布对账在第二树完成，不复制部署配置、密钥或备份内容；[发布记录](../../../RELEASING.md#release-chamber-20261017)拥有生产事实。代码／工具／文档SHA与线上应用SHA分别记录。
