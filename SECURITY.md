@@ -1,5 +1,11 @@
 # Security model
 
+## Invitation verification correction, 2026-10-18
+
+The [confirmed V1](docs/requirements/2026-10-18-chamber-invite-lock-fixes/README.md) starts a rotated invitation's 30-minute deadline/code at successful rotation, before its later claim. The first claim never extends or replaces an already-issued deadline/code; an unclaimed rotated invite also expires. Code exposure is still creator-authenticated only, candidate readiness and exact claim/code/binding are still required for activation, and five failures still terminate the invite.
+
+A fresh join operation can verify root and daily protection in one user interaction: password-derived keys retain their distinct purposes; matching passkey root/daily salts are evaluated as separate first/second PRF inputs in one user-verified assertion. The second output in that operation is daily-vault material, never browser-directory rendezvous material. Both records must match credential, origin, RP and backup attributes; equal salts or a missing output fail closed. The existing root envelope is authenticated before signing. Root material is operation-local and is released on completion/cancellation; it is not added to the ordinary chat cache. Existing local wrappers are read/validated before reuse, old provisional slots remain, and a new candidate uses a new slot. Numeric verification presentation does not weaken wrapper authentication or convert old passwords. Hidden/pagehide/freeze cancels pending code input and its page work; late callbacks cannot reopen it. Automated assertions are not physical-device or independent security review evidence.
+
 ## Chamber entry and optional background lock, 2026-10-17
 
 The auto-lock page also has an independent device-local blank-area double-tap switch, enabled by default to preserve existing behavior. Disabling this gesture does not disable other lock authorities; failed writes retain the prior selection and preference changes reset any partial gesture.

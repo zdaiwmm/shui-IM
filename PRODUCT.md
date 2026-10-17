@@ -1,5 +1,13 @@
 # Product
 
+## Confirmed invitation and app-lock correction, 2026-10-18
+
+The [confirmed V1](docs/requirements/2026-10-18-chamber-invite-lock-fixes/README.md) omits prototypes/flowcharts by the user's explicit exception. Expired inviter cards hide ended/occupied copy and replace their primary action with “邀请已超时，重新发起邀请”. Rotation immediately issues a creator-only code and a fixed 30-minute deadline; claiming that replacement preserves both. The first invitation still starts at its unique claim. Rotation invalidates the previous capability/claim/code; retries of the same durable rotation do not extend it. New links are copied automatically with success/failure feedback; clipboard failure does not rotate again.
+
+Existing local protection is verified once within a fresh invitation operation. It is reused rather than set up again; provisional slots and personal identities survive retries. All numeric-6 verification, including mnemonic and management operations, uses the numeric page without letter labels. Old text-password wrappers and passkeys retain their original protection. Root verification remains operation-bound, separate from daily cached authority, and is cancelled by hidden/hard lifecycle changes.
+
+Invitation timers update existing text/code nodes without rebuilding unchanged cards. Pending code input clears and cancels its page timer/requests when hidden, pagehidden or frozen; returning requires normal local verification and resumes the durable request. The privacy-practice page is the browser-error canvas without title/back bands; completing its long press offers a left gray defer action and right enable action. Auto-lock uses compact groups and a timing disclosure with the same choices and immediate local-save semantics. Floating chat controls are visually smaller, retain 44px targets and add top clearance; ordinary dark cards use surface contrast instead of strong outlines. The Chamber logo loops, except with reduced motion. This supersedes earlier finite-logo, keypad-letter, expired-card and cover-practice presentation rules only. Physical iPhone/Safari acceptance remains separate.
+
 ## Confirmed Chamber entry and privacy refinement, 2026-10-17
 
 The auto-lock page also has an independent device-local blank-area double-tap switch, enabled by default to preserve existing behavior. Disabling this gesture does not disable other lock authorities; failed writes retain the prior selection and preference changes reset any partial gesture.

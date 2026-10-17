@@ -10,6 +10,8 @@ import {
   isPlatformVaultUnavailable,
   PlatformVaultCancellationError,
   unlockPlatformCredential,
+  unlockPlatformCredentialPair,
+  takeBrowserAccessPrf,
 } from '../src/lib/platform-vault';
 import type { PlatformCredentialRecord } from '../src/lib/types';
 
@@ -79,6 +81,24 @@ describe('platform vault WebAuthn cancellation', () => {
     vi.stubGlobal('navigator', { credentials: { get: vi.fn().mockResolvedValue(new FakePublicKeyCredential(new FakeAssertionResponse(), { prf: { enabled: false } } as AuthenticationExtensionsClientOutputs)), ...credentials } });
     vi.stubGlobal('window', { isSecureContext: true, PublicKeyCredential: FakePublicKeyCredential });
   }
+
+  it('authenticates distinct root/daily inputs in one ceremony without retaining a rendezvous proof', async () => {
+    const get = vi.fn().mockResolvedValue(new FakePublicKeyCredential(new FakeAssertionResponse(), { prf: { results: { first: new Uint8Array(32).fill(1).buffer, second: new Uint8Array(32).fill(2).buffer } } } as AuthenticationExtensionsClientOutputs));
+    installCredentials({ get });
+    const daily = { ...record, prfSalt: 'B'.repeat(43) };
+    const pair = await unlockPlatformCredentialPair(record, daily);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(pair.root.prfOutput).toEqual(new Uint8Array(32).fill(1));
+    expect(pair.daily.prfOutput).toEqual(new Uint8Array(32).fill(2));
+    expect(takeBrowserAccessPrf(pair.root.prfOutput)).toBeUndefined();
+    const request = get.mock.calls[0]![0].publicKey;
+    expect(request.userVerification).toBe('required');
+    expect(request.extensions.prf.eval.first).not.toEqual(request.extensions.prf.eval.second);
+    for (const invalid of [{ ...daily, credentialId: 'other' }, record, { ...daily, origin: 'https://other.invalid' }]) await expect(unlockPlatformCredentialPair(record, invalid)).rejects.toThrow('绑定不一致');
+    expect(get).toHaveBeenCalledTimes(1);
+    get.mockResolvedValue(new FakePublicKeyCredential(new FakeAssertionResponse(), { prf: { results: { first: new Uint8Array(32).buffer } } } as AuthenticationExtensionsClientOutputs));
+    await expect(unlockPlatformCredentialPair(record, daily)).rejects.toThrow('独立保护数据');
+  });
 
   it('treats missing credential methods as unavailable in secure WebViews', async () => {
     for (const credentials of [{ create: undefined }, { get: undefined }]) {

@@ -14,7 +14,7 @@ export type PasswordRequestOptions<T> = {
 
 /** One fresh operation-bound proof. Cancelling or hiding rejects late results; reading and typing have no deadline. */
 export function requestPassword<T>(root: HTMLElement, options: PasswordRequestOptions<T>): Promise<T> {
-  if (options.create || (options.presentation === 'page' && options.passwordFormat === 'numeric-6')) return requestNumericPassword(root, options);
+  if (options.create || options.passwordFormat === 'numeric-6') return requestNumericPassword(root, options);
   return new Promise((resolve, reject) => {
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, ...(options.signal ? [options.signal] : [])]);

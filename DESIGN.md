@@ -1,5 +1,13 @@
 # Quiet Room Design System
 
+## Chamber invitation and privacy correction, 2026-10-18
+
+The [confirmed V1](docs/requirements/2026-10-18-chamber-invite-lock-fixes/README.md) retains P1 palettes, system type and 44px minimum hit targets. Numeric keys contain only centered digits; setup, daily and sensitive-operation numeric verification share one opaque page with 280ms horizontal entry/exit. Privacy removal remains synchronous and reduced motion bypasses travel.
+
+Floating controls start 12px below the top safe inset, inside a header measuring its actual height. The settings disc paints 34px inside its 44px target; the capsule paints a 34px minimum fill inside its at-least-44px target and grows for wrapping. Inviter code digits are 32px display text without per-digit borders or input fills. Invitation/guide/code cards use ordinary opaque surfaces and no default rim. Unchanged network/timer states preserve their DOM and do not replay animation.
+
+Auto-lock has a 26px title, 14px introduction, 12px-corner groups, 14px labels, 12px support and existing switch geometry. Its 44px timing row reveals a scrollable set of existing choices only on request. Cover practice fills the error-page canvas without header/footer bands; an anchored downward arrow points to the 80px hot zone, whose outward rings are more visible. The result dialog puts gray “暂不开启” left and the primary action right. The existing 3.1-second logo sequence repeats, with a static reduced-motion state. The maintained mobile standard contains these parameters; older sections describe previous versions.
+
 ## Chamber refinement, 2026-10-17
 
 The auto-lock page also has an independent device-local blank-area double-tap switch, enabled by default to preserve existing behavior. Disabling this gesture does not disable other lock authorities; failed writes retain the prior selection and preference changes reset any partial gesture.

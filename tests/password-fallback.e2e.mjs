@@ -1,3 +1,4 @@
+import { deferCoverPractice } from './helpers/cover-practice.mjs';
 import { legacyCreationPlugin } from './fixtures/legacy-create.mjs';
 import { submitPassword as password } from './helpers/password.mjs';
 import { fillFormInput, cancelPasswordForm } from './helpers/form-input.mjs';
@@ -157,7 +158,7 @@ try {
   await a.evaluate(() => app.renderLocalHistoryBackup()); await a.locator('#local-backup-export').click();
   await a.locator('#history-download').waitFor(); assert.equal(await a.locator('#history-download').textContent(), '导出备份');
   await capture(a, 'F04-backup-summary'); await a.locator('#history-download').click();
-  await capture(a, 'F15-backup-reauth'); assert.equal(await a.locator('.password-operation-sheet [type=submit]').textContent(), '验证并下载备份');
+  await capture(a, 'F15-backup-reauth'); assert.equal(await a.locator('.numeric-password-page').count(),1);await a.getByText('输入 6 位数字，继续导出聊天备份',{exact:true}).waitFor();
   await cancelPasswordForm(a); await a.locator('.password-sheet').waitFor({ state: 'detached' }); await a.locator('[data-history-summary-close]').click();
   await a.locator('#backup-help').click(); await capture(a, 'F13-backup-help'); await a.locator('#help-back').click();
   await a.locator('[data-local-backup-view=export]').waitFor();
@@ -169,7 +170,7 @@ try {
   await a.locator('#save-my-code').click(); await password(a, '012345'); await a.locator('.local-recovery-code').waitFor({state:'attached'});await a.getByText('查看恢复内容',{exact:true}).click();
   assert.ok((await a.locator('.local-recovery-code').textContent()).startsWith('QR4-')); await a.locator('#hide-local-recovery').click();
   if (await a.locator('#recovery-center-back').count()) await a.locator('#recovery-center-back').click();
-  await a.evaluate(() => app.renderCoverPractice()); await capture(a, 'F08-cover-practice'); await a.locator('#practice-back').click();
+  await a.evaluate(() => app.renderCoverPractice()); await capture(a, 'F08-cover-practice'); await deferCoverPractice(a);
   await a.evaluate(() => { app.galleryMode = 'favorites'; app.renderGallery('images'); }); await capture(a, 'F10-favorites'); await a.locator('#gallery-back').click();
   for (const width of [320, 390, 768, 1440]) {
     await a.setViewportSize({ width, height: width >= 768 ? 1000 : 844 });
@@ -225,7 +226,7 @@ try {
   await capture(a, 'F15-password-unlock');
   await password(a, '012345'); await a.locator('#message-input').waitFor();
   await a.evaluate(() => { const v = app.session; window.proofResult = null; app.confirmDeviceCredential('取消后不得继续').then(() => { window.proofResult = 'verified'; }, () => { window.proofResult = 'cancelled'; }); });
-  await fillFormInput(a, a.locator('.password-form [name=password]'), '012345');
+  for (const digit of '012') await a.locator(`[data-digit="${digit}"]`).click();
   await a.evaluate(() => app.lockNow());
   await a.waitForFunction(() => proofResult === 'cancelled'); assert.equal(await a.locator('#message-input').count(), 0);
   const partialContext = await browser.newContext({ viewport: { width: 390, height: 844 } });

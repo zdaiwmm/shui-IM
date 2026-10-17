@@ -33,7 +33,7 @@ export function createChamberInvitations(db) {
     return { v: 1, creatorBinding: JSON.parse(r.creator_binding), joinerBinding: r.joiner_binding ? JSON.parse(r.joiner_binding) : null,
       version: r.version, requestId: r.request_id, expiresAt: r.expires_at,
       stage: r.consumed ? 'joined' : r.expires_at && (Date.parse(r.expires_at) <= Date.now() || r.attempts >= 5) ? 'expired' : r.ready ? 'code' : r.claim_hash ? 'preparing' : 'available',
-      ...(creator && r.claim_hash && !r.consumed && Date.parse(r.expires_at) > Date.now() && r.attempts < 5
+      ...(creator && !r.consumed && Date.parse(r.expires_at) > Date.now() && r.attempts < 5
         ? { ...(r.code ? { code: r.code } : {}), ...(r.ready ? { candidate: JSON.parse(r.ready) } : {}) } : {}) };
   }
   return {
@@ -42,8 +42,8 @@ export function createChamberInvitations(db) {
     claim(roomId, secret) {
       if (!secretValid(secret)) throw new Error('INVALID_JSON');
       // This synchronous UPDATE is the single winner across processes and tabs.
-      db.prepare(`UPDATE chamber_rooms SET claim_hash=?,request_id=?,expires_at=?,code=? WHERE room_id=? AND claim_hash IS NULL AND consumed=0`)
-        .run(digest(secret), randomUUID(), new Date(Date.now() + 30 * 60_000).toISOString(), String(randomInt(10_000)).padStart(4, '0'), roomId);
+      db.prepare(`UPDATE chamber_rooms SET claim_hash=?,request_id=COALESCE(request_id,?),expires_at=COALESCE(expires_at,?),code=COALESCE(code,?) WHERE room_id=? AND claim_hash IS NULL AND consumed=0 AND (expires_at IS NULL OR expires_at>?) AND attempts<5`)
+        .run(digest(secret), randomUUID(), new Date(Date.now() + 30 * 60_000).toISOString(), String(randomInt(10_000)).padStart(4, '0'), roomId, new Date().toISOString());
       const r = row(roomId); ownClaim(r, secret); return state(roomId);
     },
     ready(roomId, secret, candidate) {
@@ -70,7 +70,8 @@ export function createChamberInvitations(db) {
     /** Rotation and rooms.access_hash update are performed in the caller's transaction. */
     rotate(roomId) {
       const r = row(roomId); if (!r || r.consumed) throw new Error('ROOM_SEALED');
-      db.prepare('UPDATE chamber_rooms SET version=version+1,claim_hash=NULL,request_id=NULL,expires_at=NULL,ready=NULL,code=NULL,attempts=0 WHERE room_id=?').run(roomId);
+      db.prepare('UPDATE chamber_rooms SET version=version+1,claim_hash=NULL,request_id=?,expires_at=?,ready=NULL,code=?,attempts=0 WHERE room_id=?')
+        .run(randomUUID(), new Date(Date.now() + 30 * 60_000).toISOString(), String(randomInt(10_000)).padStart(4, '0'), roomId);
       return state(roomId, true);
     },
   };

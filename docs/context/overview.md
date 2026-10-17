@@ -1,3 +1,5 @@
+Chamber邀请／应用锁修订：重发立即出码与截止、原位卡片、统一数字验证及单次邀请验证在`src/app.ts`／`password-dialog.ts`，双PRF操作在`platform-vault.ts`，过期及占位在`server/chamber-invitations.mjs`。范围、豁免及验证由[本次V1](../requirements/2026-10-18-chamber-invite-lock-fixes/README.md)拥有，视觉参数为移动规范V1.13；不表示已部署或真机通过。
+
 Chamber入口与隐私修订：创建直达保护、启动失败兜底和邀请状态在`src/app.ts`；占位即生成验证码在`server/chamber-invitations.mjs`，本机倒计时默认关及离开开关在`src/lib/idle-lock.ts`。界面与品牌使用`entry-experience.css`、`entry-art.ts`、`numeric-password.css`；边界见D-064及[本轮记录](../requirements/2026-10-17-chamber-refine/README.md)，专项为Chamber／数字密码／隐私／设置浏览器及邀请／idle-lock单测。
 
 运维Mac主动拉取备份：`scripts/mac-backup.mjs`、`server/backup-transfer.mjs`；安装入口 `scripts/install-mac-backup.mjs`、`scripts/configure-mac-backup-server.mjs`。独立回执与健康、资源上限及离线限制见 [OPERATIONS.md](../../OPERATIONS.md#mac-主动拉取模式)，专项 `tests/backup-transfer.test.ts`。

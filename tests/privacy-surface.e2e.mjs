@@ -38,6 +38,7 @@ try {
   // Immediate persistence, navigation and failed-write rollback.
   await page.evaluate(() => window.fixture.app.renderAutoLockSettings());
   assert.equal(await page.locator('button[type="submit"]').count(), 0);
+  await page.locator('.auto-lock-duration').click();
   await page.locator('[value="120"]').check();
   assert.equal(await page.evaluate(() => localStorage.getItem('quiet-room:auto-lock-seconds')), '120');
   assert.equal((await state()).remaining,120_000);
@@ -46,6 +47,7 @@ try {
     window.fixture.app.renderAutoLockSettings(); window.originalSetItem = Storage.prototype.setItem;
     Storage.prototype.setItem = function(key, value) { if (key === 'quiet-room:auto-lock-seconds') throw Error('denied'); return window.originalSetItem.call(this,key,value); };
   });
+  await page.locator('.auto-lock-duration').click();
   await page.locator('[value="300"]').click();
   assert.equal(await page.locator('.form-error').textContent(), '未能保存，已保留原设置，请重试');
   assert.equal(await page.locator('[value="120"]').isChecked(), true);

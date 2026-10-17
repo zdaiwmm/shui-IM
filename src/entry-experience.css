@@ -4,10 +4,10 @@
 .chamber-brand { display:flex; flex-direction:column; align-items:center; justify-content:center; width:208px; height:188px; gap:10px; margin-inline:auto; }
 .chamber-brand svg { display:block; width:138px; height:138px; overflow:visible; }
 .chamber-brand > span { font-size:28px; line-height:1.2; font-weight:600; letter-spacing:.015em; color:var(--ink); }
-.chamber-room { fill:none; stroke:currentColor; stroke-width:3.2; stroke-linecap:square; stroke-dasharray:300; animation:chamber-arrive 3.1s cubic-bezier(.22,1,.36,1) both; }
+.chamber-room { fill:none; stroke:currentColor; stroke-width:3.2; stroke-linecap:square; stroke-dasharray:300; animation:chamber-arrive 3.1s cubic-bezier(.22,1,.36,1) infinite both; }
 .chamber-threshold { fill:none; stroke:currentColor; stroke-width:1; opacity:.32; }
-.chamber-door { fill:var(--accent-soft); stroke:currentColor; stroke-width:1.3; transform-box:fill-box; transform-origin:left center; animation:chamber-door-arrive 3.1s cubic-bezier(.22,1,.36,1) both; }
-.chamber-person { fill:currentColor; transform-box:fill-box; transform-origin:center; animation:chamber-person-arrive 3.1s cubic-bezier(.22,1,.36,1) both; }
+.chamber-door { fill:var(--accent-soft); stroke:currentColor; stroke-width:1.3; transform-box:fill-box; transform-origin:left center; animation:chamber-door-arrive 3.1s cubic-bezier(.22,1,.36,1) infinite both; }
+.chamber-person { fill:currentColor; transform-box:fill-box; transform-origin:center; animation:chamber-person-arrive 3.1s cubic-bezier(.22,1,.36,1) infinite both; }
 .chamber-person-two { opacity:.62; }
 @keyframes chamber-arrive { 0% { stroke-dashoffset:300; opacity:0; } 40%,100% { stroke-dashoffset:0; opacity:1; } }
 @keyframes chamber-door-arrive { 0%,18% { opacity:0; transform:scaleX(1); } 42%,64% { opacity:.5; transform:scaleX(.14); } 100% { opacity:1; transform:scaleX(1); } }
@@ -203,3 +203,52 @@
 @media (prefers-reduced-motion:reduce) { .chamber-room,.chamber-person,.chamber-door { animation:none !important; } }
 
 #app .cover-practice-page .practice-hotspot { position:absolute; bottom:12px; right:12px; }
+
+/* V1, 2026-10-18: compact floating controls, quiet cards and native-scale privacy rows. */
+#app > .chat-shell > .chat-header.chamber-chat-header {
+  height:auto; min-height:calc(64px + env(safe-area-inset-top));
+  padding:calc(12px + env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) 8px max(12px,env(safe-area-inset-left));
+  align-items:center;
+}
+#app .chat-header.chamber-chat-header > .chat-settings-entry { position:relative; border:0; background:transparent; box-shadow:none; isolation:isolate; }
+#app .chat-header.chamber-chat-header > .chat-settings-entry::before { content:''; position:absolute; inset:5px; border-radius:50%; background:var(--paper); z-index:-1; }
+#app .chat-header.chamber-chat-header > .chat-settings-entry svg { width:20px; height:20px; }
+#app .chat-shell > .chat-header.chamber-chat-header > .peer-summary.chamber-presence-capsule {
+  position:relative; isolation:isolate; padding:4px 10px; border:0; border-radius:0; background:transparent; box-shadow:none;
+}
+#app .chamber-presence-capsule::before { content:''; position:absolute; inset:5px 0; border-radius:20px; background:var(--paper); z-index:-1; }
+#app .chamber-invite-hero, #app .chamber-privacy-guide, #app .chamber-code-card { border:0; box-shadow:none; }
+#app .chamber-invite-status { border:0; padding-top:12px; }
+#app .chamber-code-display { gap:8px; padding:8px 0; }
+#app .chamber-code-display > span { border:0; border-radius:0; background:transparent; min-height:44px; padding:0; font-size:2rem; font-weight:500; }
+#app .chamber-privacy-guide li + li { border-color:color-mix(in srgb,var(--ink) 6%,transparent); }
+#app .privacy-settings-page .preference-content { width:min(100%,520px); margin-inline:auto; padding: max(32px,calc(env(safe-area-inset-top) + 20px)) 20px 20px; }
+#app .privacy-settings-page h1 { margin:0 0 8px; font-size:1.625rem; }
+#app .privacy-settings-page .preference-intro { margin:0 0 32px; font-size:.875rem; color:var(--ink-muted); }
+#app .privacy-settings-page .privacy-setting { margin:12px 0 0; padding:16px; border:0; border-radius:12px; background:var(--surface); }
+#app .privacy-settings-page .privacy-control-row { gap:16px; }
+#app .privacy-settings-page .privacy-control-row h2 { font-size:.875rem; font-weight:500; }
+#app .privacy-settings-page .privacy-control-row p { font-size:.75rem; margin:4px 0 0; line-height:1.5; }
+#app .privacy-settings-page .preference-note { margin:20px 4px 0; font-size:.75rem; line-height:1.6; }
+#app .auto-lock-duration { display:flex; align-items:center; gap:12px; width:100%; min-height:44px; padding:12px 0 0; margin-top:12px; border:0; border-top:1px solid var(--line-subtle); border-radius:0; background:transparent; color:var(--ink); font-size:.8125rem; text-align:left; }
+#app .auto-lock-duration strong { margin-left:auto; font-weight:500; color:var(--accent); }
+#app .privacy-settings-page .auto-lock-options { margin-top:12px; padding:4px 0; border:0; border-radius:8px; max-height:240px; overflow:auto; background:var(--surface-raised); }
+#app .privacy-settings-page .auto-lock-options .preference-choice { min-height:44px; margin:0; padding:8px 12px; border:0; border-radius:0; background:transparent; }
+#app .privacy-settings-page .privacy-page-footer { width:min(100%,520px); margin-inline:auto; }
+#app .cover-practice-page { background:var(--paper-pure); }
+#app .cover-practice-page > .cover { position:relative; flex:1; height:100%; background:var(--paper-pure); }
+#app .cover-practice-page .cover-error { padding-top:0; }
+#app .cover-practice-page .practice-hotspot { position:absolute; right:max(16px,env(safe-area-inset-right)); bottom:max(20px,env(safe-area-inset-bottom)); animation:none; }
+#app .cover-practice-page .practice-hotspot::before,
+#app .cover-practice-page .practice-hotspot::after { content:''; position:absolute; inset:0; border:2px solid color-mix(in srgb,var(--accent) 65%,transparent); border-radius:inherit; pointer-events:none; animation:practice-heartbeat-out 1.8s ease-out infinite; }
+#app .cover-practice-page .practice-hotspot::after { animation-delay:.9s; }
+#app .cover-practice-page .practice-hotspot.is-holding::before,
+#app .cover-practice-page .practice-hotspot.is-holding::after { animation-duration:720ms; }
+#app .cover-practice-page .hold-guide { right:max(16px,env(safe-area-inset-right)); bottom:calc(max(20px,env(safe-area-inset-bottom)) + 106px); width:min(270px,calc(100% - 32px)); }
+#app .cover-practice-page .hold-guide span { width:80px; margin:10px 0 0 auto; text-align:center; font-size:2rem; }
+#app .cover-practice-confirm #skip-cover { color:var(--ink-muted); background:var(--surface); }
+@media(prefers-reduced-motion:reduce) { #app .cover-practice-page .practice-hotspot::before, #app .cover-practice-page .practice-hotspot::after { animation:none; } }
+@media(forced-colors:active) { #app .chamber-invite-hero, #app .chamber-privacy-guide { border:1px solid CanvasText; } }
+
+#app .cover-practice-confirm .simple-confirm-actions { display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:stretch; }
+#app .cover-practice-confirm .simple-confirm-actions button { min-height:44px; margin:0; width:100%; font-size:.875rem; }

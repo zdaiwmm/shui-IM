@@ -1205,7 +1205,7 @@ export async function unlockOwnedPendingSpace(id: string, credential: PlatformCr
 /** Verify only the requested local slot for explicit management, without changing selection. */
 export async function unlockLocalSpaceForManagement(id: string, credential: PlatformCredentialResult | null,
   verify: (record: PlatformCredentialRecord) => Promise<Uint8Array<ArrayBuffer>>,
-  passwordVerification?: (verify: (password: string) => Promise<VaultSession>) => Promise<VaultSession>): Promise<VaultSession> {
+  passwordVerification?: (verify: (password: string) => Promise<VaultSession>, passwordFormat?: 'numeric-6') => Promise<VaultSession>): Promise<VaultSession> {
   const stored = await withVaultLifecycle(() => readStoredVaultUnlocked(id));
   if (stored?.v === 3 && stored.unlockMethod === 'password' && passwordVerification) {
     return passwordVerification(password => withVaultLifecycle(async () => {
@@ -1213,7 +1213,7 @@ export async function unlockLocalSpaceForManagement(id: string, credential: Plat
       const session = await unlockVaultLocked(password, undefined, stored);
       if (!sameStoredVault(await readStoredVaultUnlocked(id), stored)) throw staleVaultError();
       return session;
-    }));
+    }), stored.passwordFormat);
   }
   if (!stored || stored.v !== 3 || stored.unlockMethod !== 'platform') {
     throw new Error('请先打开此空间完成访问密钥升级');

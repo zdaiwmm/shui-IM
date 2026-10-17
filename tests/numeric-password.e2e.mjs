@@ -12,7 +12,7 @@ async function open(options = {}) {
     window.numericProof = null; window.numericCalls = 0;
     window.numericAbort = new AbortController();
     void requestPassword(document.querySelector('#app'), {
-      create: options.create, showBrowserHint: options.showBrowserHint, presentation: 'page', passwordFormat: 'numeric-6',
+      create: options.create, showBrowserHint: options.showBrowserHint, presentation: options.operation ? 'sheet' : 'page', passwordFormat: 'numeric-6',
       title: '空间密码', context: '合成数字密码验收', spaceName: '合成空间',
       signal: window.numericAbort.signal, isActive: () => true, forgot: () => { window.numericForgot = true; },
       retryAfterMs: options.waitFailure ? async () => { throw Error('Synthetic retry state unavailable'); }
@@ -32,6 +32,8 @@ try {
   await open({ create: true });
   assert.equal(await page.locator('.numeric-password-page input').count(), 0);
   assert.equal(await page.locator('[data-digit]').count(), 10);
+  assert.equal(await page.locator('[data-digit] small').count(), 0);
+  assert.deepEqual(await page.locator('[data-digit]').allTextContents(), ['1','2','3','4','5','6','7','8','9','0']);
   await digit('01234'); assert.equal(await page.locator('.numeric-password-dots .filled').count(), 5);
   assert.equal(await page.evaluate(() => numericCalls), 0);
   await digit('5'); assert.equal(await page.locator('h2').last().textContent(), '确认应用锁');
@@ -41,7 +43,10 @@ try {
   await submitPassword(page, '012345'); await page.waitForFunction(() => numericProof === 'verified');
   await page.clock.runFor(500); assert.equal(await page.locator('.numeric-password-page').count(), 0);
 
-  await open(); await page.locator('.numeric-password-page').press('a');
+  await open({ operation: true });
+  assert.equal(await page.locator('.password-operation-sheet').count(), 0);
+  assert.equal(await page.locator('.numeric-password-page').evaluate(node => getComputedStyle(node).transitionDuration), '0.28s');
+  await page.locator('.numeric-password-page').press('a');
   await page.locator('.numeric-password-page').press('0'); await digit('1');
   await page.getByRole('button', { name: '删除', exact: true }).click();
   assert.equal(await page.locator('.numeric-password-dots .filled').count(), 1);
@@ -122,5 +127,26 @@ try {
   await page.getByRole('button', { name: '忘记密码？', exact: true }).click();
   assert.equal(await page.evaluate(() => numericProof), 'cancelled');
   assert.deepEqual(errors, []);
+  // Component-only lifecycle regression, also run with the WebKit engine.
+  // The real password/root/claim bindings are covered by the Chamber backend flow.
+  await page.evaluate(()=>{document.documentElement.style.fontSize='16px';});
+  await page.setViewportSize({width:390,height:844});
+  await page.route('**/api/rooms/privacy-fixture',route=>route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({code:'UNAUTHORIZED',error:'Synthetic unaccepted candidate'})}));
+  await page.route('**/api/rooms/privacy-fixture/chamber-invitation',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({requestId:'synthetic-invite',version:1})}));
+  for(let round=0;round<3;round++) {
+    await page.evaluate(()=>{
+      const {session,app}=fixture;session.vault.role='joiner';session.vault.pairingState='joining';
+      session.vault.personalBinding={identity:{id:'synthetic-root'}};
+      session.vault.inviteToken='synthetic-invite-token';session.vault.members[0].joinProof='synthetic-proof';
+      session.vault.pendingChamberInvitation={requestId:'synthetic-invite',secret:'synthetic-secret',version:1,expiresAt:new Date(Date.now()+30*60_000).toISOString()};
+      fixture.fresh(0);app.renderPendingChamberJoin();
+    });
+    await page.clock.runFor(500);await page.locator('.chamber-code-card [type=submit]').waitFor();
+    await page.locator('[data-code-digit="0"]').fill('1');
+    await page.evaluate(()=>fixture.visibility(true));
+    assert.equal(await page.locator('.chamber-join-shell').count(),0);
+    await page.clock.fastForward(10_000);await page.evaluate(()=>fixture.visibility(false));
+    assert.equal(await page.locator('[data-code-digit]').count(),0,'An old page or timer reopened code input after hiding');
+  }
   console.log('PASS numeric setup/confirmation, single-screen setup with bottom hint, keyboard, retry, cancellation, stale proof, privacy and responsive accessibility');
 } finally { await fixture.close(); }
