@@ -1,11 +1,11 @@
 # Quiet Room 当前状态
 
-## Chamber 个人身份与双人恢复实施候选（2026-10-17）
+## Chamber 已合并，生产回读通路阻塞（2026-10-17）
 
 - 用户明确免除继续原型，授权按[本次确认](../requirements/2026-10-16-personal-mnemonic-friends/README.md)正式实施、验证、PR／合并；生产仍另行绑定精确SHA确认。新长期契约由[CHAMBER_IDENTITY.md](../../CHAMBER_IDENTITY.md)拥有，不能将旧QR3/QR4 checkpoint继续可用的暂存迁移空间称作已满足私钥不上云。
 - 同一任务分支从实时main `ea4a0284809f08e72408ba16924c34f800ae2fcc`和设计HEAD `b2996fd`实施；检查点`079c710`保存后，因File Provider逐出源码接续到`/private/tmp/shui-IM-personal-mnemonic-friends-20261017`独占树。旧本机main `4356531`落后，未用于实施；当前源码和本机快照已恢复，不修改其他任务资源。
 - 应用锁前置、根独立加密、BIP39/BIP44向量、唯一30分钟邀请、独立新设备、实际双根历史交付、关闭／新generation、旧空间完整迁移均已接入并取得定向自动证据；真机iPhone／微信／Telegram及独立安全审阅尚未完成。
-- 版本`2026.10.17.1`已创建[PR #327](https://github.com/zdaiwmm/shui-IM/pull/327)。本机完整命令的10项transfer受97%磁盘容量保护阻断，未降低门禁；`d0787fc`首轮CI的126文件／995项、主流程、通话、审计和双架构镜像通过，仅第2组第1分片的移动表单展开失败，定向等待入场完成后本机复验通过。用户指出四格验证码遗漏后补齐原型对照、原生输入及邀请／聊天顶部交互，最终修订仍须完整CI。详细分层证据由需求记录拥有，main合并／精确发布确认／生产均未完成；下方是已有生产的历史快照，不能把本候选写作上线。
+- 版本`2026.10.17.1`经[PR #327](https://github.com/zdaiwmm/shui-IM/pull/327)合并，应用SHA固定为`89ca7c83b742f1ac3935dfe8e15b2959b4535512`，与最终head `4208d10168ca6eac0a58c89c9917f295a380ede9`文件树一致。[最终PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38990518040)通过126文件／995项单元、69浏览器入口、通话／TURN、审计、凭据扫描、文档及双架构镜像；用户指出的四格验证码、邀请首屏和顶部交互已补齐。精确[main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38991200105)最新attempt 2全部通过，原首轮旧空间超时与定向复验保留；[云端只读预检](https://github.com/zdaiwmm/shui-IM/actions/runs/38992276469)返回PREFLIGHT_OK；本机production命名配置已从既有用户级元数据注册，不复制密钥。现有SSH入口被服务器关闭，本机固定doctor的连接／helper核验失败，独立生产回读通路受阻；未改SSH／防火墙或发布工具，未继续盲重试。生产精确SHA尚未由用户确认，未执行切换。历史本机容量与CI失败保留于需求记录，不能把合并或绿色PR写作上线。后续交付记录提交不改变应用目标SHA。
 
 ## 输入区交接与首次密钥页已发布，真机待验收（2026-10-16）
 
