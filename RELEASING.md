@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+<a id="release-chamber-refine-20261017"></a>
+## Chamber 入口、邀请与锁定设置已发布（2026-10-17 23:46）
+
+- 用户在获知版本`2026.10.17.2`、完整应用SHA `d14812b17ec9601f55c25cde3fdfed6ab362ef46`、精确main完整CI／只读云预检及真机缺口后，回复「确认，发布生产」。十项调整、免原型直接实施及追加双击锁屏开关由[需求V1.1](docs/requirements/2026-10-17-chamber-refine/README.md)拥有；无独立消息permalink。
+- [PR #333](https://github.com/zdaiwmm/shui-IM/pull/333)源`15081c0a1640d7bb1da29229453f454935f3481c`合并为上述应用，完整文件树一致。[PR CI39043817027](https://github.com/zdaiwmm/shui-IM/actions/runs/39043817027)最新attempt 2及[精确main CI39044872005](https://github.com/zdaiwmm/shui-IM/actions/runs/39044872005) attempt 1完整通过：127文件／1010项、69浏览器入口、通话／TURN、依赖审计、文档／凭据扫描和双架构镜像。PR主流程首次恢复授权等待超时，仅原样重跑失败作业一次后通过；本机容量门禁及旧夹具失败保留在需求／PR，未放宽产品断言或备份策略。
+- 本机只读doctor通过，固定[云预检39045106347](https://github.com/zdaiwmm/shui-IM/actions/runs/39045106347)取得PREFLIGHT_OK，前版`89ca7c83b742f1ac3935dfe8e15b2959b4535512`符合预期。固定入口`publish.mjs --cloud --with-readback --environment production --sha d14812b17ec9601f55c25cde3fdfed6ab362ef46`核对精确DEPLOY_VERIFIED，[云发布39045682278](https://github.com/zdaiwmm/shui-IM/actions/runs/39045682278)成功回执时间`2026-10-17T15:41:26.687Z`；批次`20261017T153728Z`，从上述前版实际切换一次。正常production审核保留，工作流代码固定`d14812b17ec9601f55c25cde3fdfed6ab362ef46`，应用保持用户确认SHA。
+- 镜像`sha256:334fd1fc6e319ad8316547aa529d3c850d1fa4b30f2434d38c0bf0522724089e`、归档摘要`0954436d04afdf94eb7fe13e8fd42ca161b8966871375e6a45873332e703b792`、209923110字节、linux/amd64，绑定精确main CI／attempt 1。发布后首次独立回读在`2026-10-17T15:41:45.662Z`仅因备份starting未通过；应用healthy、目标SHA／镜像匹配、维护门absent。只读核对备份实际启动`2026-10-17T15:41:12.466001123Z`及既有5分钟探针／启动期后，仅续跑同SHA readback-only，没有再次切换。
+- 最终独立READBACK_OK于`2026-10-17T15:46:43.792Z`（北京时间2026-10-17 23:46）完成，3380毫秒：应用／备份running且healthy，TURN运行且探针none；SHA／镜像、HTTPS／数据库／存储、公开及容器产物摘要、新WebSocket一致，维护门absent，管理员及通话启用。
+- 脱敏授权、交付、预检、发布及全部独立回读证据保存于公共Git元数据`quiet-room-deliveries/evidence/chamber-refine-20261017/production.json`，位于任务树及其专属Git目录之外。第二个无部署配置的文档树基于精确实时main `d14812b17ec9601f55c25cde3fdfed6ab362ef46`对账；文档提交不发布。本批工作树按固定清理入口逐项核验，结果另存同一证据载体，不处理其他任务资源。iPhone／iOS27／Safari／微信／Telegram真机及原白屏场景未新增验证，独立安全审阅仍未完成；高安全公开声明继续受[安全门槛](PRODUCTION_SECURITY_GATE.md)约束。下方均为历史生产快照。
+
 <a id="release-chamber-20261017"></a>
 ## Chamber 与本机备份已发布（2026-10-17 11:43）
 
