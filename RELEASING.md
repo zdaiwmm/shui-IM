@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+<a id="release-chamber-invite-lock-fixes-20261018"></a>
+## Chamber 邀请与应用锁修复已发布（2026-10-18 01:40）
+
+- 用户在获知版本`2026.10.17.3`、完整应用SHA `4e50ef59dc490cfd5fc6a79c2d6184deacc83596`、完整CI／只读预检和真机缺口后回复「确认，发布生产」。十项修复、Logo循环及本次免原型／流程图由[需求V1](docs/requirements/2026-10-18-chamber-invite-lock-fixes/README.md)拥有；无独立消息permalink。
+- [PR #335](https://github.com/zdaiwmm/shui-IM/pull/335)源`95c6ab1ba00e8aa4351276df12378765ee278fac`与上述合并应用完整文件树一致。最终[PR CI39052019190](https://github.com/zdaiwmm/shui-IM/actions/runs/39052019190)及[精确main CI39052728153](https://github.com/zdaiwmm/shui-IM/actions/runs/39052728153) attempt 1完整通过127文件／1012项、全部69浏览器入口、通话／TURN、文档／凭据扫描、依赖审计和双架构镜像。首轮夹具／单次消息超时及本机备份容量失败继续保留在需求／PR，未放宽产品断言或容量策略。
+- 固定只读[云预检39053314963](https://github.com/zdaiwmm/shui-IM/actions/runs/39053314963)核对PREFLIGHT_OK。获批后固定入口`publish.mjs --cloud --with-readback --environment production --sha 4e50ef59dc490cfd5fc6a79c2d6184deacc83596`核对精确DEPLOY_VERIFIED，[云发布39054151428](https://github.com/zdaiwmm/shui-IM/actions/runs/39054151428)回执成功时间`2026-10-17T17:35:43.167Z`，云发布入口271064毫秒；从`d14812b17ec9601f55c25cde3fdfed6ab362ef46`实际切换一次，批次`20261017T173313Z`。正常production审核保留，工作流来源`096285b5b0dc3c8e44f9f0526601f551a9a1b8c2`，应用仍为获批SHA。
+- 镜像`sha256:87546116cfe3893ace44e43de418b619743186afc936b3095fb68dfc6e430541`、归档摘要`614f06d8ff62e314315f941b67f4d0ec73c97ec4a5e4ce2c55e96a68b9cd7ad6`、209939127字节、linux/amd64，绑定精确main CI／attempt 1。首次独立回读于`2026-10-17T17:36:11.542Z`仅因备份starting未通过；应用healthy、SHA／镜像一致、维护门absent。核对备份实际启动`2026-10-17T17:35:28.344460437Z`及既有5分钟探针／启动期后，仅续跑同SHA readback-only。
+- 最终独立READBACK_OK于`2026-10-17T17:40:53.792Z`（北京时间2026-10-18 01:40）完成，3317毫秒：应用／备份running且healthy，TURN运行且探针none；精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物摘要、新WebSocket一致，维护门absent，管理员与通话启用。
+- 脱敏授权、交付、预检、发布及两次独立回读证据保存在公共Git元数据`quiet-room-deliveries/evidence/chamber-invite-lock-fixes-20261018/production.json`。第二个无部署配置的独立文档树基于实时main `096285b5b0dc3c8e44f9f0526601f551a9a1b8c2`对账，文档提交不作为应用目标。本批资源按固定入口逐项核验，结果保存在同一证据目录；活动、含忽略缓存及晚于应用候选的资源依规则保留，不处理其他任务资源。iPhone／iOS27／Safari崩溃、原生剪贴板及系统栏未独立真机复核；独立安全审阅仍未完成，高安全公开声明继续受[安全门槛](PRODUCTION_SECURITY_GATE.md)约束。下方均为历史生产快照。
+
 <a id="release-chamber-refine-20261017"></a>
 ## Chamber 入口、邀请与锁定设置已发布（2026-10-17 23:46）
 

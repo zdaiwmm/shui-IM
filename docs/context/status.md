@@ -1,11 +1,10 @@
 # Quiet Room 当前状态
 
-## Chamber 邀请与应用锁已合并，待发布（2026-10-18）
+## Chamber 邀请与应用锁修复已发布，真机待验收（2026-10-18 01:40）
 
-- 用户确认[十一项V1及本次免原型／流程图](../requirements/2026-10-18-chamber-invite-lock-fixes/README.md)，授权验证、合并并请求生产。应用版本`2026.10.17.3`；[PR #335](https://github.com/zdaiwmm/shui-IM/pull/335)源`95c6ab1ba00e8aa4351276df12378765ee278fac`合并为`4e50ef59dc490cfd5fc6a79c2d6184deacc83596`，回取完整文件树一致。邀请重发／存储中断续跑、统一数字验证、单次邀请验证与本次界面修订由需求记录拥有，长期边界见D-065。
-- 最终[PR完整CI39052019190](https://github.com/zdaiwmm/shui-IM/actions/runs/39052019190)通过127文件／1012单测、69浏览器入口、通话／TURN、文档／扫描／审计和双架构镜像；首轮失败及本机备份容量阻塞保留在需求／PR。精确[main CI39052728153](https://github.com/zdaiwmm/shui-IM/actions/runs/39052728153)亦完整通过，Full application verification成功。
-- 固定入口只读[prepare 39053314963](https://github.com/zdaiwmm/shui-IM/actions/runs/39053314963)已核对精确`PREFLIGHT_OK`，未切换生产。
-- 本条仅表示已合并；当前没有本次生产成功回执。生产仍待上述应用精确SHA确认、固定入口及独立回读，后续文档提交不作为应用目标。原生iPhone／iOS27／Safari崩溃及原生剪贴板／系统栏未独立验收；合成后台回归不等于真机通过。线上仍以下方最后一份生产回执为准。
+- 用户明确确认完整应用`4e50ef59dc490cfd5fc6a79c2d6184deacc83596`发布，版本`2026.10.17.3`。十项修复、Logo循环和本次免原型／流程图由[需求V1](../requirements/2026-10-18-chamber-invite-lock-fixes/README.md)拥有，长期边界见D-065。[PR #335](https://github.com/zdaiwmm/shui-IM/pull/335)源95c6ab1与应用完整文件树一致；最终[PR完整CI39052019190](https://github.com/zdaiwmm/shui-IM/actions/runs/39052019190)及[精确main CI39052728153](https://github.com/zdaiwmm/shui-IM/actions/runs/39052728153)通过127文件／1012项、69浏览器入口、通话／TURN、审计和双架构镜像；首轮及本机失败由需求／PR保留。
+- 固定[云预检39053314963](https://github.com/zdaiwmm/shui-IM/actions/runs/39053314963)和[云发布39054151428](https://github.com/zdaiwmm/shui-IM/actions/runs/39054151428)通过，从d14812b实际切换一次。核对精确DEPLOY_VERIFIED后，首次独立回读仅因新备份starting失败；核对启动及既有探针后只续跑readback-only，最终READBACK_OK于`2026-10-17T17:40:53.792Z`。应用／备份healthy、TURN运行且探针none；精确SHA／镜像、HTTPS／数据库／存储、产物及新WebSocket一致，维护门absent。完整事实由[本轮发布记录](../../RELEASING.md#release-chamber-invite-lock-fixes-20261018)拥有。
+- 脱敏证据保存于公共Git元数据`quiet-room-deliveries/evidence/chamber-invite-lock-fixes-20261018/production.json`；第二个无部署配置文档树对账，后续文档SHA不替代线上应用。本批资源按固定清理入口核验，活动、忽略缓存及晚于应用候选的资源依规则保留，不处理其他任务。原生iPhone／iOS27／Safari崩溃、剪贴板及系统栏仍未独立验收；合成后台回归不等于真机通过，独立安全审阅仍未完成。下方均为历史状态。
 
 ## Chamber 入口与隐私设置已发布，真机待验收（2026-10-17 23:46）
 
