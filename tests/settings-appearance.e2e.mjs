@@ -13,11 +13,16 @@ const evidence = process.env.QUIET_ROOM_UI_EVIDENCE;
 const screenshot = async name => { if (evidence) { await mkdir(evidence, { recursive: true }); await page.screenshot({ path: path.join(evidence, `${name}.png`) }); } };
 try {
   await page.evaluate(() => { const { app } = window.fixture; localStorage.removeItem('quiet-room:auto-lock-seconds'); app.idleLease.clear(); app.resetIdleLock(); });
-  assert.equal(await page.evaluate(() => window.fixture.app.idleLease.remaining), 30_000);
+  assert.equal(await page.evaluate(() => window.fixture.app.idleLease.remaining), Infinity);
   await page.evaluate(() => window.fixture.app.renderAutoLockSettings());
-  assert.deepEqual(await page.locator('.preference-choice span').allTextContents(), ['20 秒','30 秒','40 秒','50 秒','1 分钟','2 分钟','3 分钟','4 分钟','5 分钟','永不']);
+  assert.deepEqual(await page.locator('.preference-choice span').allTextContents(), ['20 秒','30 秒','40 秒','50 秒','1 分钟','2 分钟','3 分钟','4 分钟','5 分钟']);
   assert.equal(await page.locator('button[type="submit"]').count(), 0);
-  await page.locator('[value="0"]').check();
+  assert.equal(await page.locator('[data-idle-toggle]').getAttribute('aria-checked'), 'false');
+  assert.equal(await page.locator('[data-hidden-lock]').getAttribute('aria-checked'), 'true');
+  assert.equal(await page.locator('[data-blank-lock]').getAttribute('aria-checked'), 'true');
+  await page.locator('[data-idle-toggle]').click();
+  await page.locator('[value="120"]').check();
+  await page.locator('[data-idle-toggle]').click();
   await page.clock.fastForward(3_600_000);
   assert.equal(await page.evaluate(() => window.fixture.app.privacyCovered), false);
   assert.equal(await page.locator('.idle-lock-prompt').count(), 0);
@@ -194,5 +199,5 @@ try {
   await page.getByText('你已在 Chamber 应用中。',{exact:true}).waitFor();
   assert.equal(await page.locator('#install-app,a[href="web+quietroom:open"]').count(), 0);
   assert.deepEqual(errors, []);
-  console.log('Settings/appearance E2E passed: 30s default, ten immediate choices, never + sensitive cap, four readable light/dark palettes, responsive geometry, failed-write rollback, persisted/cross-tab theme, install/cancel/installed/standalone states. OS install/launch remain device checks.');
+  console.log('Settings/appearance E2E passed: idle off by default, independent background switch, nine durations + sensitive cap, four readable light/dark palettes, responsive geometry, failed-write rollback, persisted/cross-tab theme, install/cancel/installed/standalone states. OS install/launch remain device checks.');
 } finally { await fixture.close(); }

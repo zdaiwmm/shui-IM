@@ -1,15 +1,17 @@
 /* Entry and recovery use the shared P1 palette and opaque surfaces. */
 #app input::placeholder, #app textarea::placeholder { color: color-mix(in srgb, var(--ink-muted) 72%, var(--paper)); opacity: 1; }
 .entry-art { position: relative; width: 208px; height: 160px; flex: none; margin: 12px 0 28px; color: var(--accent); isolation: isolate; }
-.chamber-brand { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; }
-.chamber-brand svg { width:112px; height:112px; overflow:visible; }
-.chamber-brand > span { font-size:27px; font-weight:650; letter-spacing:-.035em; color:var(--ink); }
-.chamber-room { fill:none; stroke:currentColor; stroke-width:3; stroke-linejoin:round; stroke-dasharray:340; animation:chamber-arrive 1.2s ease-out both; }
-.chamber-threshold { stroke:currentColor; stroke-width:3; opacity:.4; }
-.chamber-person { fill:currentColor; transform-origin:61px 67px; animation:chamber-person-arrive .7s .3s ease-out both; }
-.chamber-person-two { opacity:.55; transform-origin:84px 67px; animation-delay:.5s; }
-@keyframes chamber-arrive { from { stroke-dashoffset:340; opacity:.3; } to { stroke-dashoffset:0; opacity:1; } }
-@keyframes chamber-person-arrive { from { opacity:0; scale:.6; } to { scale:1; } }
+.chamber-brand { display:flex; flex-direction:column; align-items:center; justify-content:center; width:208px; height:188px; gap:10px; margin-inline:auto; }
+.chamber-brand svg { display:block; width:138px; height:138px; overflow:visible; }
+.chamber-brand > span { font-size:28px; line-height:1.2; font-weight:600; letter-spacing:.015em; color:var(--ink); }
+.chamber-room { fill:none; stroke:currentColor; stroke-width:3.2; stroke-linecap:square; stroke-dasharray:300; animation:chamber-arrive 3.1s cubic-bezier(.22,1,.36,1) both; }
+.chamber-threshold { fill:none; stroke:currentColor; stroke-width:1; opacity:.32; }
+.chamber-door { fill:var(--accent-soft); stroke:currentColor; stroke-width:1.3; transform-box:fill-box; transform-origin:left center; animation:chamber-door-arrive 3.1s cubic-bezier(.22,1,.36,1) both; }
+.chamber-person { fill:currentColor; transform-box:fill-box; transform-origin:center; animation:chamber-person-arrive 3.1s cubic-bezier(.22,1,.36,1) both; }
+.chamber-person-two { opacity:.62; }
+@keyframes chamber-arrive { 0% { stroke-dashoffset:300; opacity:0; } 40%,100% { stroke-dashoffset:0; opacity:1; } }
+@keyframes chamber-door-arrive { 0%,18% { opacity:0; transform:scaleX(1); } 42%,64% { opacity:.5; transform:scaleX(.14); } 100% { opacity:1; transform:scaleX(1); } }
+@keyframes chamber-person-arrive { 0%,32% { opacity:0; transform:translateY(5px); } 62%,100% { transform:translateY(0); } }
 .chamber-join-shell { width:min(100%,600px); height:100%; margin:auto; display:flex; flex-direction:column; background:var(--paper); color:var(--ink); }
 .chamber-join-shell > header { display:flex; align-items:center; justify-content:space-between; padding:calc(16px + env(safe-area-inset-top,0px)) 20px 16px; border-bottom:1px solid var(--line); }
 .chamber-join-shell > main { flex:1; overflow:auto; padding:24px 20px; }
@@ -32,24 +34,23 @@
 #app .chamber-invite-hero > p { margin:14px 0; font-size:1.75rem; line-height:1.35; font-weight:600; }
 #app .chamber-invite-hero .entry-chat-guidance { width:100%; }
 #app .chamber-invite-hero #copy-invite { min-height:56px; }
-#app .chamber-invite-hero .chamber-privacy-guide { margin:24px 0 0; }
 #app .chamber-waiting .composer > :not(.chamber-waiting-footer) { display:none; }
 #app .chamber-waiting-footer { margin:0; min-height:48px; padding:14px 10px; color:var(--ink-muted); font-size:.8125rem; line-height:1.55; text-align:center; }
-.chamber-countdown { display:flex; align-items:center; justify-content:space-between; background:var(--accent-soft); color:var(--accent); border-radius:12px; padding:16px; }
+.chamber-countdown { display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--accent-soft); color:var(--accent); border-radius:12px; padding:16px; }
 .chamber-countdown strong { font-size:30px; font-variant-numeric:tabular-nums; }
-.chamber-eyebrow { font-size:12px; font-weight:650; color:var(--accent); }
+.chamber-eyebrow { font-size:12px; font-weight:600; color:var(--accent); }
 .chamber-pending-note { font-size:12px; line-height:1.7; color:var(--ink-muted); text-align:center; }
-.chamber-invite-status { background:var(--accent-soft); border:1px solid var(--line); border-radius:12px; display:grid; gap:10px; padding:16px; text-align:left; }
-.chamber-invite-status > strong { font-size:24px; font-variant-numeric:tabular-nums; color:var(--accent); }
-.chamber-privacy-guide { margin:8px 12px; border:1px solid var(--line); border-radius:12px; background:var(--surface-raised); color:var(--ink); }
-.chamber-privacy-guide > summary { padding:12px 16px; min-height:44px; font-size:.875rem; font-weight:650; cursor:pointer; }
-.chamber-privacy-guide ol { list-style:none; padding:0 12px 8px; margin:0; display:flex; gap:8px; }
-.chamber-privacy-guide li { flex:1; min-width:0; }
-.chamber-privacy-guide button { padding:12px; border:0; background:var(--accent-soft); border-radius:10px; display:grid; grid-template-columns:minmax(0,1fr) auto; align-content:start; gap:10px; width:100%; height:100%; min-height:108px; color:var(--ink); text-align:left; }
-.chamber-privacy-guide b { font-size:1.125rem; line-height:1; color:var(--accent); }
-.chamber-privacy-guide button > span:first-of-type { display:grid; gap:6px; grid-column:1/-1; min-width:0; overflow-wrap:anywhere; }
-.chamber-privacy-guide button > span:last-of-type { grid-column:2; grid-row:1; }
-.chamber-privacy-guide strong { font-size:.875rem; }
+.chamber-invite-status { display:grid; gap:10px; text-align:left; }
+.chamber-privacy-guide { width:min(calc(100% - 24px),420px); margin:16px auto 24px; border:1px solid var(--line); border-radius:16px; background:var(--paper); color:var(--ink); }
+.chamber-privacy-guide > summary { padding:20px; min-height:44px; font-size:1rem; line-height:1.4; font-weight:600; cursor:pointer; }
+.chamber-privacy-guide ol { list-style:none; padding:0 20px 8px; margin:0; display:flex; flex-direction:column; }
+.chamber-privacy-guide li { min-width:0; }
+.chamber-privacy-guide li + li { border-top:1px solid var(--line); }
+.chamber-privacy-guide button { padding:16px 0; border:0; background:transparent; display:grid; grid-template-columns:36px minmax(0,1fr) 16px; align-items:center; gap:12px; width:100%; min-height:78px; color:var(--ink); text-align:left; }
+.chamber-privacy-guide b { display:grid; place-items:center; width:36px; height:36px; border-radius:50%; background:var(--accent-soft); font-size:.75rem; line-height:1; color:var(--accent); font-variant-numeric:tabular-nums; }
+.chamber-privacy-guide button > span:first-of-type { display:grid; gap:5px; min-width:0; }
+.chamber-privacy-guide button > span:last-of-type { color:var(--ink-muted); font-size:20px; }
+.chamber-privacy-guide strong { font-size:.875rem; font-weight:600; }
 .chamber-privacy-guide small { font-size:.75rem; line-height:1.45; color:var(--ink-muted); }
 .chamber-mnemonic-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; list-style:none; counter-reset:words; padding:0; margin:24px 0; }
 .chamber-mnemonic-grid li { counter-increment:words; background:var(--surface-raised); border:1px solid var(--line); border-radius:10px; padding:14px 8px; font-size:14px; font-weight:650; user-select:none; }
@@ -65,7 +66,6 @@
 .chamber-restore-space { display:grid; gap:8px; text-align:left; min-height:76px; padding:18px; background:var(--surface-raised); color:var(--ink); border:1px solid var(--line); border-radius:12px; }
 .chamber-restore-space small { font-size:12px; color:var(--ink-muted); }
 .chamber-root-request-countdown { font-size:24px; color:var(--accent); font-variant-numeric:tabular-nums; }
-@media(max-width:400px) { .chamber-privacy-guide ol { gap:5px; } .chamber-privacy-guide button { padding:10px; } .chamber-privacy-guide button > span:last-of-type { display:none; } }
 @media(prefers-reduced-motion:reduce) { .chamber-room,.chamber-person { animation:none; } }
 .entry-orbit { position:absolute; inset: 22px 5px 20px; border:1px solid color-mix(in srgb,var(--accent) 30%,var(--paper)); border-radius:50%; transform:rotate(-22deg); }
 .entry-ground { position:absolute; bottom:8px; left:38px; right:38px; height:1px; background:var(--line); }
@@ -162,3 +162,44 @@
 #app .gateway-key-setup .welcome-actions { width:min(100%,400px); justify-self:center; gap:8px; }
 #app .gateway-key-setup .welcome-actions :is(.primary-button,.text-button) { min-height:44px; padding:10px 12px; font-size:.875rem; line-height:1.5; }
 #app .gateway-key-setup .welcome-actions .form-error:empty { display:none; }
+
+/* Chamber has floating controls over the existing wallpaper, with no full-width painted bar. */
+#app > .chat-shell > .chat-header.chamber-chat-header { background:transparent; border:0; box-shadow:none; gap:8px; pointer-events:none; }
+#app > .chat-shell > .chat-header.chamber-chat-header::before { display:none; }
+#app .chat-header.chamber-chat-header > .chamber-presence-capsule,
+#app .chat-header.chamber-chat-header > .chat-settings-entry { pointer-events:auto; box-shadow:0 2px 8px color-mix(in srgb,var(--ink) 8%,transparent); }
+#app .chat-header.chamber-chat-header > .chat-settings-entry { grid-column:2; width:44px; height:44px; border:1px solid var(--line); border-radius:50%; background:var(--paper); }
+#app .chamber-invite-hero { width:min(calc(100% - 24px),420px); margin:24px auto 0; padding:24px; border:1px solid var(--line); }
+#app .chamber-invite-hero > p { font-size:1.5rem; line-height:1.45; margin:14px 0 0; text-wrap:balance; }
+#app .chamber-invite-hero .entry-chat-guidance { margin-top:24px; }
+#app .chamber-invite-hero #copy-invite { min-height:48px; }
+#app .chamber-invite-status { padding:16px 0 0; border:0; border-top:1px solid var(--line); background:transparent; border-radius:0; }
+#app .chamber-invite-status > strong { font-size:.8125rem; font-weight:500; color:var(--ink-muted); }
+#app .chamber-invite-status #copy-chamber-code { justify-self:center; min-height:44px; margin:0; }
+#app .chamber-invite-hero #chamber-invite-restart { min-height:44px; background:transparent; border:0; color:var(--ink-muted); font-size:.8125rem; }
+#app .chamber-invite-hero [hidden] { display:none !important; }
+#app .chamber-mnemonic-page { grid-template-rows:minmax(0,1fr) auto; }
+#app .chamber-mnemonic-page .recovery-flow-content { width:min(100%,520px); margin-inline:auto; padding-top:max(24px,env(safe-area-inset-top)); }
+#app .chamber-mnemonic-page .chamber-brand { margin:0 auto 28px; }
+#app .chamber-mnemonic-page .recovery-flow-content > h1,
+#app .chamber-mnemonic-page .recovery-flow-lead { text-align:center; }
+#app .chamber-mnemonic-page .recovery-flow-footer { width:min(100%,520px); margin-inline:auto; }
+#app .privacy-settings-page { display:flex; flex-direction:column; background:var(--paper); }
+#app .privacy-settings-page .preference-content { flex:1; min-height:0; overflow:auto; padding-top:max(32px,env(safe-area-inset-top)); padding-bottom:16px; }
+#app .privacy-settings-page h1 { font-size:1.625rem; line-height:1.25; font-weight:600; margin:12px 0; }
+#app .privacy-settings-page .privacy-setting { margin-top:24px; padding:20px 0; border-top:1px solid var(--line); }
+.privacy-control-row { display:flex; align-items:center; justify-content:space-between; gap:20px; }
+.privacy-control-row h2 { margin:0; font-size:.9375rem; line-height:1.4; font-weight:600; }
+.privacy-control-row p { margin:6px 0 0; font-size:.8125rem; line-height:1.6; color:var(--ink-muted); }
+#app .privacy-settings-page .auto-lock-options { margin-top:16px; }
+#app .privacy-settings-page [hidden] { display:none !important; }
+#app .privacy-page-footer { flex:none; padding:8px 20px max(16px,env(safe-area-inset-bottom)); background:var(--paper); }
+#app .privacy-page-footer button { width:100%; min-height:44px; }
+#app .cover-practice-page { display:flex; flex-direction:column; height:100dvh; min-height:0; background:var(--paper); }
+#app .cover-practice-title { flex:none; width:min(100%,560px); margin:0 auto; padding:max(28px,env(safe-area-inset-top)) 24px 12px; color:var(--ink); font-size:1.625rem; font-weight:600; }
+#app .cover-practice-page > .cover { position:relative; flex:1; min-height:0; height:auto; overflow:auto; }
+#app .cover-practice-page .cover-error { padding-top:32px; }
+#app .cover-practice-page .cover-practice-notice { font-size:.75rem; }
+@media (prefers-reduced-motion:reduce) { .chamber-room,.chamber-person,.chamber-door { animation:none !important; } }
+
+#app .cover-practice-page .practice-hotspot { position:absolute; bottom:12px; right:12px; }

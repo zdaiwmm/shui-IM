@@ -2,7 +2,6 @@ import { mountDialog } from './dialog';
 import { layoutViewport } from './form-input';
 import type { PasswordRequestOptions } from './password-dialog';
 import '../numeric-password.css';
-import { embeddedPasswordSetup } from './platform-vault';
 
 /** V1 numeric entry only. Existing wrappers and operation sheets keep their original verifier. */
 export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRequestOptions<T>): Promise<T> {
@@ -16,13 +15,13 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
     sheet.innerHTML = `<form class="confirm-dialog password-form numeric-password-form" novalidate>
       <div class="numeric-password-lock" aria-hidden="true"><svg viewBox="0 0 24 30"><rect x="4" y="12" width="16" height="15" rx="3" fill="currentColor"/><path d="M7 12V8a5 5 0 0 1 10 0v4" fill="none" stroke="currentColor" stroke-width="2.4"/></svg></div>
       <header class="numeric-password-prompt"><h2 id="${id}"></h2><p class="numeric-password-description"></p></header>
-      ${options.create && embeddedPasswordSetup() ? '<p class="numeric-browser-hint">当前浏览器无法调用设备通行密钥。如需使用面容／指纹解锁，可选择系统浏览器。</p>' : ''}
       <div class="numeric-password-dots" aria-hidden="true">${'<i></i>'.repeat(6)}</div>
       <p class="sr-only" data-numeric-progress role="status" aria-live="polite" aria-atomic="true"></p>
       <p class="sr-only form-error" role="alert" aria-atomic="true"></p>
       <p class="sr-only" data-numeric-context></p>
       <div class="numeric-password-keypad" role="group" aria-label="数字密码键盘">${['', '', 'ABC', 'DEF', 'GHI', 'JKL', 'MNO', 'PQRS', 'TUV', 'WXYZ'].slice(1).map((letters, i) => `<button class="numeric-password-key" type="button" data-digit="${i + 1}" aria-label="数字 ${i + 1}"><span>${i + 1}</span><small aria-hidden="true">${letters || '&nbsp;'}</small></button>`).join('')}<button class="numeric-password-key numeric-password-zero" type="button" data-digit="0" aria-label="数字 0"><span>0</span></button></div>
       <footer class="numeric-password-actions"><button type="button" data-numeric-left></button><button type="button" data-numeric-right></button></footer>
+      ${options.create && options.showBrowserHint ? '<p class="numeric-browser-hint">当前浏览器无法调用设备通行密钥。如需使用面容／指纹解锁，可选择系统浏览器。</p>' : ''}
     </form>`;
     const form = sheet.querySelector<HTMLFormElement>('form')!;
     const heading = sheet.querySelector('h2')!, description = sheet.querySelector<HTMLElement>('.numeric-password-description')!;
@@ -37,9 +36,9 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
     let shake: Animation | undefined;
     const active = () => !signal.aborted && sheet.isConnected && options.isActive() && !document.hidden;
     const paint = () => {
-      heading.textContent = confirmation ? '再次输入密码' : options.create ? '设置密码' : '输入密码';
+      heading.textContent = confirmation ? '确认应用锁' : options.create ? '设置应用锁' : '输入应用锁';
       const seconds = Math.max(0, Math.ceil((waitUntil - Date.now()) / 1000));
-      description.textContent = seconds ? `请 ${seconds} 秒后再试` : busy ? options.create ? '正在设置密码…' : '正在验证…' : error.textContent || (confirmation ? '再次输入以确认你的密码' : options.create ? '用于此空间的日常解锁' : '输入私密空间的 6 位数字密码');
+      description.textContent = seconds ? `请 ${seconds} 秒后再试` : busy ? options.create ? '正在设置应用锁…' : '正在验证…' : error.textContent || (confirmation ? '再次输入你的 6 位数字' : options.create ? '设置 6 位数字，用于本机日常解锁' : '输入你的 6 位数字应用锁');
       dots.forEach((dot, index) => dot.classList.toggle('filled', index < (verifying ? 6 : digits.length)));
       progress.textContent = seconds ? `请 ${seconds} 秒后重试` : busy ? '正在验证' : `已输入 ${digits.length} 位，共 6 位`;
       form.setAttribute('aria-busy', String(busy));

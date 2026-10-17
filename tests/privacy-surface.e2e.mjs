@@ -51,6 +51,25 @@ try {
   assert.equal(await page.locator('[value="120"]').isChecked(), true);
   assert.equal(await page.evaluate(() => localStorage.getItem('quiet-room:auto-lock-seconds')), '120');
   await page.evaluate(() => { Storage.prototype.setItem = window.originalSetItem; window.fixture.fresh(); });
+  // Opting out of background locking preserves an ordinary in-memory session,
+  // but never its visible surface, sensitive exposure or hard lifecycle.
+  await page.evaluate(() => {window.fixture.fresh(0);window.fixture.app.renderAutoLockSettings();});
+  assert.equal(await page.locator('.auto-lock-page header').count(),0);
+  assert.equal(await page.locator('[data-hidden-lock]').getAttribute('aria-checked'),'true');
+  await page.locator('[data-hidden-lock]').click();
+  assert.equal(await page.locator('[data-hidden-lock]').getAttribute('aria-checked'),'false');
+  await page.evaluate(() => window.fixture.visibility(true));
+  assert.equal((await state()).locked,false);assert.equal((await state()).obscured,true);
+  await page.evaluate(() => window.fixture.visibility(false));
+  assert.equal((await state()).locked,false);assert.equal((await state()).obscured,false);
+  await page.evaluate(() => {
+    const {app,visibility}=window.fixture;const anchor=document.createElement('div');app.root.append(anchor);
+    app.exposureAnchor=anchor;app.idleLease.limitExposure(60_000);visibility(true);
+  });
+  assert.equal((await state()).locked,true,'Sensitive exposure always requires a new verification after hiding');
+  await page.evaluate(() => {window.fixture.fresh(0);window.dispatchEvent(new Event('pagehide'));});
+  assert.equal((await state()).locked,true,'Page destruction overrides the opt-out');
+  await page.evaluate(() => {localStorage.removeItem('quiet-room:lock-on-hidden');window.fixture.fresh();});
   // An authenticated navigation still owns secrets between room runtimes.
   await page.evaluate(async () => { const {app}=window.fixture; await app.leaveSpace(); app.newSpaceCollectionCode='synthetic-code'; app.root.innerHTML='<section class="gateway" data-authenticated-page>创建空间</section>'; });
   await page.clock.runFor(51_000);

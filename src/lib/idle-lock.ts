@@ -2,13 +2,21 @@
 export const IDLE_DURATIONS = [20, 30, 40, 50, 60, 120, 180, 240, 300, 0] as const;
 export const IDLE_WARNING_MS = 10_000;
 export const IDLE_PREFERENCE_KEY = 'quiet-room:auto-lock-seconds';
+export const HIDDEN_LOCK_PREFERENCE_KEY = 'quiet-room:lock-on-hidden';
 export type IdleSeconds = typeof IDLE_DURATIONS[number];
 export type LeaseClock = { wall: number; monotonic: number };
 export function idleSeconds(value: unknown): IdleSeconds {
-  return value !== null && value !== undefined && value !== '' && IDLE_DURATIONS.includes(Number(value) as IdleSeconds) ? Number(value) as IdleSeconds : 30;
+  return value !== null && value !== undefined && value !== '' && IDLE_DURATIONS.includes(Number(value) as IdleSeconds) ? Number(value) as IdleSeconds : 0;
 }
 export function readIdleSeconds(storage: Pick<Storage, 'getItem'>): IdleSeconds {
-  try { return idleSeconds(storage.getItem(IDLE_PREFERENCE_KEY)); } catch { return 30; }
+  try { return idleSeconds(storage.getItem(IDLE_PREFERENCE_KEY)); } catch { return 0; }
+}
+/** An absent, malformed or unreadable preference keeps background locking enabled. */
+export function readHiddenLock(storage: Pick<Storage, 'getItem'>): boolean {
+  try { return storage.getItem(HIDDEN_LOCK_PREFERENCE_KEY) !== '0'; } catch { return true; }
+}
+export function saveHiddenLock(storage: Pick<Storage, 'setItem'>, enabled: boolean): void {
+  storage.setItem(HIDDEN_LOCK_PREFERENCE_KEY, enabled ? '1' : '0');
 }
 export function saveIdleSeconds(storage: Pick<Storage, 'setItem'>, seconds: IdleSeconds): void {
   if (!IDLE_DURATIONS.includes(seconds)) throw new Error('请选择有效的自动锁定时间');

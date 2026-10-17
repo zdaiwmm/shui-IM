@@ -23,7 +23,7 @@ try {
   let persisted=false,errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(`http://localhost:${vite.httpServer.address().port}/`);
   await page.route('**/api/rooms',async route=>{if(route.request().method()==='POST')persisted=await page.evaluate(async()=>Boolean((await(await import('/src/lib/vault.ts')).readPersonalIdentity())?.payload.ciphertext));await route.continue();});
-  await page.locator('#create-room').click();await fillFormInput(page,page.locator('#new-space-name'),'Synthetic passkey');await page.locator('#profile-done').click();
+  await page.locator('#create-room').click();assert.equal(await page.locator('.space-profile-overlay').count(),0);
   await page.locator('[data-device-verify]').click();await page.locator('.chat-shell').waitFor();assert.equal(persisted,true);
   const metadata=await page.evaluate(async()=>{
     const v=await import('/src/lib/vault.ts'),p=await import('/src/lib/personal-identity-vault.ts'),stored=await v.readPersonalIdentity(),daily=v.cloneDeviceCredential(app.session);

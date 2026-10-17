@@ -109,8 +109,8 @@ export async function deleteRoom(roomId: string, accessToken: string): Promise<v
   await authorizedFetch(`/api/rooms/${roomId}`, accessToken, { method: 'DELETE' });
 }
 
-export async function getRoomState(roomId: string, accessToken: string): Promise<RoomState> {
-  const response = await authorizedFetch(`/api/rooms/${roomId}`, accessToken);
+export async function getRoomState(roomId: string, accessToken: string, signal?: AbortSignal): Promise<RoomState> {
+  const response = await authorizedFetch(`/api/rooms/${roomId}`, accessToken, { signal });
   return response.json();
 }
 

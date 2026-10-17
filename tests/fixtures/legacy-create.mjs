@@ -7,6 +7,26 @@ export const legacyCreationPlugin = {
 };
 export function installLegacyApp(app) {
     if(!app)throw new Error('Legacy fixture requires its explicit test observer');
+    // Frozen pre-Chamber enrollment fixture. These suites exercise retained QR3/QR4
+    // protocol journeys and the still-used profile editor; new production creation
+    // (without a profile step) is covered by both Chamber browser suites.
+    app.renderCreate=(initialProfile)=>{
+      if(app.spaceCreationAbort||app.privacyCovered)return;
+      const lifetime=new AbortController();app.spaceCreationAbort=lifetime;
+      const epoch=app.runtimeEpoch,session=app.session,previous=app.activeSurface,fromList=app.spaceDrawerOpen;
+      const scroll=app.root.querySelector('.space-drawer-scroll')?.scrollTop??0;
+      const active=()=>!lifetime.signal.aborted&&!app.privacyCovered&&app.runtimeEpoch===epoch&&app.session===session;
+      app.closeChatTools();app.setActiveSurface('away',true);
+      void import('/src/lib/space-profile-ui.ts').then(({createSpaceProfile})=>createSpaceProfile(app.root,{
+        signal:lifetime.signal,active,initialProfile,hasCredential:Boolean(session||app.deviceCredential),
+        picker:operation=>operation(),
+      })).then(async profile=>{
+        if(!active())return;app.spaceCreationAbort=null;
+        if(!profile){if(session&&fromList){if(!app.root.querySelector('.is-space-list-page.space-drawer-overlay:not(.is-closing)'))await app.openPrivateSpaces(()=>true,scroll);else app.setActiveSurface('away',true);}
+          else{app.setActiveSurface(app.root.querySelector('.chat-shell')?'chat':previous);app.updatePeerStatus();}return;}
+        app.newDeviceAlias='';if(session||app.browserProfile)await app.createPrivateSpace(profile);else app.renderCreateProtection(profile);
+      }).catch(cause=>{if(active())app.showNotice(cause.message,'error');}).finally(()=>{if(app.spaceCreationAbort===lifetime)app.spaceCreationAbort=null;lifetime.abort();});
+    };
     app.handleCreate=async(credential,active,profile)=>{
       const c=await import('/src/lib/crypto.ts'),api=await import('/src/lib/api.ts'),v=await import('/src/lib/vault.ts'),m=await import('/src/lib/mls.ts'),s=await import('/src/lib/spaces.ts'),b=await import('/src/lib/base64.ts');
       const identity=await c.generateIdentity(),accessToken=b.randomBase64Url(32),inviteToken=b.randomBase64Url(32);

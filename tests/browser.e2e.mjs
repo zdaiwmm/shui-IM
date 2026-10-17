@@ -215,8 +215,9 @@ try {
   const creatorContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 } });
   const joinerContext = await browser.newContext({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1', viewport: { width: 390, height: 844 }, hasTouch: true });
   // The receiver waits while the creator drives transfer/lifecycle checks. Keep
-  // its supported 5-minute preference, while the creator retains the default
-  // 30s lease exercised by verifyCallFlow. All explicit privacy locks still apply.
+  // its supported 5-minute preference, while the creator explicitly chooses
+  // the 30s lease exercised by verifyCallFlow. Unconfigured idle is tested separately.
+  await creatorContext.addInitScript(() => localStorage.setItem('quiet-room:auto-lock-seconds', '30'));
   await joinerContext.addInitScript(() => {
     localStorage.setItem('quiet-room:auto-lock-seconds', '300');
   });

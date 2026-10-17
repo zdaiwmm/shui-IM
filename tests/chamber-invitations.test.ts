@@ -55,7 +55,12 @@ describe('Chamber invitation ownership and lifetime', () => {
       expect(Date.parse(first.expiresAt) - Date.now()).toBeGreaterThan(30 * 60_000 - 1000);
       expect(() => f.store.chamberInvitations.claim(f.roomId, randomBase64Url(32))).toThrow('INVITATION_CLAIMED');
       expect(f.store.chamberInvitations.claim(f.roomId, f.secret).expiresAt).toBe(first.expiresAt);
+      const earlyCode = f.store.chamberInvitations.state(f.roomId, true).code;
+      expect(earlyCode).toMatch(/^\d{4}$/);
+      expect(first.code).toBeUndefined();
+      expect(() => f.store.joinRoom(f.roomId, f.candidate.bundle, f.candidate.proof, randomBase64Url(32), 'Joiner', [], { secret: f.secret, code: earlyCode, binding: f.candidate.binding })).toThrow('INVITATION_CLAIMED');
       f.store.chamberInvitations.ready(f.roomId, f.secret, f.candidate);
+      expect(f.store.chamberInvitations.state(f.roomId, true).code).toBe(earlyCode);
       expect(f.store.chamberInvitations.state(f.roomId).code).toBeUndefined();
       const code = f.store.chamberInvitations.state(f.roomId, true).code;
       expect(code).toMatch(/^\d{4}$/);

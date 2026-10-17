@@ -100,7 +100,7 @@ export async function verifyHandoffEntryPages(page) {
           actionsVisible:actions.bottom<=innerHeight+1&&actions.top>=0,buttonHeight:button.height,
           horizontal:content.scrollWidth<=content.clientWidth+1,title:getComputedStyle(gateway.querySelector('h1')).textAlign,
           field:!!gateway.querySelector('#new-passkey-name'),expectedField:!password,
-          actionLabel:button.width>0&&gateway.querySelector('[data-device-verify]').textContent.includes(password?'设置密码':kind==='create'?'设置密钥':'设置访问密钥'),height:bounds.height};
+          actionLabel:button.width>0&&gateway.querySelector('[data-device-verify]').textContent.includes(kind==='create'?'设置应用锁':'设置访问密钥'),height:bounds.height};
       },{theme,scheme,text,kind});
       rows.push({size,theme,scheme,text,kind,...result});
     }

@@ -33,7 +33,8 @@ export function createChamberInvitations(db) {
     return { v: 1, creatorBinding: JSON.parse(r.creator_binding), joinerBinding: r.joiner_binding ? JSON.parse(r.joiner_binding) : null,
       version: r.version, requestId: r.request_id, expiresAt: r.expires_at,
       stage: r.consumed ? 'joined' : r.expires_at && (Date.parse(r.expires_at) <= Date.now() || r.attempts >= 5) ? 'expired' : r.ready ? 'code' : r.claim_hash ? 'preparing' : 'available',
-      ...(creator && r.ready && !r.consumed && Date.parse(r.expires_at) > Date.now() && r.attempts < 5 ? { code: r.code, candidate: JSON.parse(r.ready) } : {}) };
+      ...(creator && r.claim_hash && !r.consumed && Date.parse(r.expires_at) > Date.now() && r.attempts < 5
+        ? { ...(r.code ? { code: r.code } : {}), ...(r.ready ? { candidate: JSON.parse(r.ready) } : {}) } : {}) };
   }
   return {
     exists: roomId => !!row(roomId), state,
@@ -41,15 +42,15 @@ export function createChamberInvitations(db) {
     claim(roomId, secret) {
       if (!secretValid(secret)) throw new Error('INVALID_JSON');
       // This synchronous UPDATE is the single winner across processes and tabs.
-      db.prepare(`UPDATE chamber_rooms SET claim_hash=?,request_id=?,expires_at=? WHERE room_id=? AND claim_hash IS NULL AND consumed=0`)
-        .run(digest(secret), randomUUID(), new Date(Date.now() + 30 * 60_000).toISOString(), roomId);
+      db.prepare(`UPDATE chamber_rooms SET claim_hash=?,request_id=?,expires_at=?,code=? WHERE room_id=? AND claim_hash IS NULL AND consumed=0`)
+        .run(digest(secret), randomUUID(), new Date(Date.now() + 30 * 60_000).toISOString(), String(randomInt(10_000)).padStart(4, '0'), roomId);
       const r = row(roomId); ownClaim(r, secret); return state(roomId);
     },
     ready(roomId, secret, candidate) {
       const r = row(roomId); ownClaim(r, secret);
       if (candidate.binding?.identity?.id === JSON.parse(r.creator_binding).identity.id) throw new Error('INVITATION_CLAIMED');
       if (r.ready && !same(JSON.parse(r.ready), candidate)) throw new Error('INVITATION_CLAIMED');
-      if (!r.ready) db.prepare('UPDATE chamber_rooms SET ready=?,code=? WHERE room_id=? AND version=? AND claim_hash=? AND ready IS NULL')
+      if (!r.ready) db.prepare('UPDATE chamber_rooms SET ready=?,code=COALESCE(code,?) WHERE room_id=? AND version=? AND claim_hash=? AND ready IS NULL')
         .run(JSON.stringify(candidate), String(randomInt(10_000)).padStart(4, '0'), roomId, r.version, r.claim_hash);
       return state(roomId);
     },

@@ -10,7 +10,7 @@ export async function submitPassword(page, secret, confirmation = secret) {
     const create = await form.evaluate(element => Boolean(element.closest('.password-create')));
     for (const digit of secret) await form.locator(`[data-digit="${digit}"]`).click();
     if (create) {
-      await form.getByRole('heading', { name: '再次输入密码', exact: true }).waitFor();
+      await form.getByRole('heading', { name: '确认应用锁', exact: true }).waitFor();
       assert.match(confirmation, /^[0-9]{6}$/);
       for (const digit of confirmation) await form.locator(`[data-digit="${digit}"]`).click();
     }

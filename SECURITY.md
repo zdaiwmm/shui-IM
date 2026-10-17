@@ -1,5 +1,16 @@
 # Security model
 
+## Chamber entry and optional background lock, 2026-10-17
+
+The auto-lock page also has an independent device-local blank-area double-tap switch, enabled by default to preserve existing behavior. Disabling this gesture does not disable other lock authorities; failed writes retain the prior selection and preference changes reset any partial gesture.
+
+The [confirmed refinement](docs/requirements/2026-10-17-chamber-refine/README.md) changes unconfigured idle expiry to off and preserves explicit saved durations. Hidden-document locking remains on unless this device explicitly stores its opt-out. Screen-off and switching the browser to the background are the same observable hidden-document class. With opt-out, an ordinary unlocked session and its keys may remain in page memory; synchronous concealment still hides the app, stops preview/recording/playback and suppresses chat presence. This is an explicit convenience tradeoff, not equivalent to a locked runtime. It does not survive reload.
+
+Pending recovery/enrollment, active native/system verification, revealed sensitive material and document readers do not qualify for opt-out. Hidden sensitive pages still clear their own material. Hard pagehide/freeze, security invalidation, explicit lock and any enabled idle deadline still tear down the runtime; all original operation/session/generation and late-result checks remain. A mnemonic remains separately authenticated, foreground-only and bounded to 60 seconds. These scoped rules supersede earlier assertions that every hidden document unconditionally destroys an ordinary runtime; they do not weaken the hard-lifecycle or sensitive-operation rules.
+
+Invitation claims generate a code before candidate identity setup, but expose it only through creator-authenticated state. The invite capability never returns it. The server still refuses activation until an immutable validated candidate is ready, and consumes the exact claim/code/candidate in the existing membership transaction. Retry does not change deadline/code; rotation invalidates old claims/codes and five failed attempts terminate the invitation. UI request numbers are omitted without removing internal binding checks.
+
+
 ## Chamber personal-root protocol, 2026-10-17
 
 [CHAMBER_IDENTITY.md](CHAMBER_IDENTITY.md) defines the new protocol and its exact legacy exception. App-lock protection is prepared before root entropy; an independent local AES-GCM root envelope uses a distinct passkey PRF input or a purpose-separated Argon2id-derived root KEK. Daily cached credentials cannot open that envelope. New cloud records contain only public certificates and data ciphertext; every history unit has a fresh DEK with nested owner/peer HPKE protection. A scoped, signed, 30-minute peer release is further encrypted to the approved target device. The owner root alone, peer root alone, or a compromised database approving twice cannot decrypt the complete unit. Client challenge responses must match every locally requested action/target/version/hash before signing.

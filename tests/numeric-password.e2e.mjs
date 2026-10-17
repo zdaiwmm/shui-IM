@@ -12,7 +12,7 @@ async function open(options = {}) {
     window.numericProof = null; window.numericCalls = 0;
     window.numericAbort = new AbortController();
     void requestPassword(document.querySelector('#app'), {
-      create: options.create, presentation: 'page', passwordFormat: 'numeric-6',
+      create: options.create, showBrowserHint: options.showBrowserHint, presentation: 'page', passwordFormat: 'numeric-6',
       title: '空间密码', context: '合成数字密码验收', spaceName: '合成空间',
       signal: window.numericAbort.signal, isActive: () => true, forgot: () => { window.numericForgot = true; },
       retryAfterMs: options.waitFailure ? async () => { throw Error('Synthetic retry state unavailable'); }
@@ -34,7 +34,7 @@ try {
   assert.equal(await page.locator('[data-digit]').count(), 10);
   await digit('01234'); assert.equal(await page.locator('.numeric-password-dots .filled').count(), 5);
   assert.equal(await page.evaluate(() => numericCalls), 0);
-  await digit('5'); assert.equal(await page.locator('h2').last().textContent(), '再次输入密码');
+  await digit('5'); assert.equal(await page.locator('h2').last().textContent(), '确认应用锁');
   await digit('012346'); assert.match(await page.locator('.numeric-password-page .form-error').textContent(), /不一致/);
   assert.equal(await page.locator('.numeric-password-dots .filled').count(), 0);
   assert.equal(await page.evaluate(() => numericCalls), 0);
@@ -103,18 +103,18 @@ try {
     }
   }
   await page.setViewportSize({ width: 390, height: 844 }); await open();
-  // Capture before opening another page: ordinary visibility cleanup remains enabled.
-  const actual = await page.locator('.numeric-password-key').evaluateAll(keys => keys.map(key => key.getBoundingClientRect().toJSON()));
-  const reference = await browser.newPage({ viewport: { width: 390, height: 844 } });
-  const prototype = await readFile(new URL('../docs/requirements/2026-10-15-iphone-numeric-passcode/prototype/screen.html', import.meta.url), 'utf8');
-  // privacyFixture uses Vite custom appType, so supply only the reference HTML;
-  // its real saved stylesheet/script still come from the same Vite origin.
-  await reference.route('**/prototype/screen.html?mode=unlock', route => route.fulfill({ contentType: 'text/html', body: prototype }));
-  await reference.goto(new URL('/docs/requirements/2026-10-15-iphone-numeric-passcode/prototype/screen.html?mode=unlock', page.url()).href);
-  await reference.locator('.key').first().waitFor();
-  const expected = await reference.locator('.key').evaluateAll(keys => keys.map(key => key.getBoundingClientRect().toJSON()));
-  for (let i=0;i<10;i++) for (const property of ['x','y','width','height']) assert.ok(Math.abs(actual[i][property]-expected[i][property])<2, `V1 key ${i} ${property}: ${actual[i][property]} vs ${expected[i][property]}`);
-  await reference.close();
+  await page.locator('.numeric-password-page').press('Escape'); await page.clock.runFor(500);
+  for (const viewport of [{width:320,height:568},{width:390,height:664},{width:390,height:844}]) {
+    await page.setViewportSize(viewport);
+    await open({create:true,showBrowserHint:true});
+    const fit=await page.locator('.numeric-password-page').evaluate(page=>({
+      scroll:page.scrollHeight,visible:page.clientHeight,
+      hint:page.querySelector('.numeric-browser-hint').getBoundingClientRect().bottom,
+      actions:page.querySelector('.numeric-password-actions').getBoundingClientRect().bottom,
+    }));
+    assert.ok(fit.scroll<=fit.visible+1 && fit.hint<=viewport.height+1 && fit.hint>=fit.actions,JSON.stringify({viewport,fit}));
+    await page.locator('.numeric-password-page').press('Escape'); await page.clock.runFor(500);
+  }
   await page.setViewportSize({ width: 320, height: 568 });
   await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
   await page.emulateMedia({ reducedMotion: 'reduce' }); await open();
@@ -122,5 +122,5 @@ try {
   await page.getByRole('button', { name: '忘记密码？', exact: true }).click();
   assert.equal(await page.evaluate(() => numericProof), 'cancelled');
   assert.deepEqual(errors, []);
-  console.log('PASS numeric setup/confirmation, exact V1 key geometry, keyboard, retry, cancellation, stale proof, privacy and responsive accessibility');
+  console.log('PASS numeric setup/confirmation, single-screen setup with bottom hint, keyboard, retry, cancellation, stale proof, privacy and responsive accessibility');
 } finally { await fixture.close(); }
