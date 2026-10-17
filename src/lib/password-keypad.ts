@@ -29,7 +29,7 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
     const dots = [...sheet.querySelectorAll('.numeric-password-dots i')];
     const keys = [...sheet.querySelectorAll<HTMLButtonElement>('[data-digit]')];
     const left = sheet.querySelector<HTMLButtonElement>('[data-numeric-left]')!, right = sheet.querySelector<HTMLButtonElement>('[data-numeric-right]')!;
-    sheet.querySelector('[data-numeric-context]')!.textContent = `${options.spaceName ?? '私密空间'}。${options.context}${options.create ? '。这是空间密码，不是手机锁屏密码。' : ''}`;
+    sheet.querySelector('[data-numeric-context]')!.textContent = `${options.spaceName ?? '私密空间'}。${options.context}${options.create ? '。这是本机应用锁，与手机锁屏密码不同。' : ''}`;
     sheet.setAttribute('aria-describedby', sheet.querySelector('[data-numeric-context]')!.id = `${id}-context`);
     let digits = '', first = '', confirmation = false, busy = false, verifying = false, waitUnavailable = false, settled = false, waitUntil = 0;
     let waitTimer: ReturnType<typeof setInterval> | undefined;

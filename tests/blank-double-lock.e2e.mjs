@@ -41,7 +41,7 @@ try {
 
   // The independent local switch takes effect immediately, persists across
   // rendering, and rolls back its UI if storage refuses the change.
-  await fresh();await page.evaluate(()=>window.fixture.app.renderAutoLockSettings());
+  await fresh();await page.clock.runFor(501);await page.evaluate(()=>window.fixture.app.renderAutoLockSettings());
   assert.equal(await page.locator('[data-blank-lock]').getAttribute('aria-checked'),'true');
   await page.locator('[data-blank-lock]').click();
   assert.equal(await page.locator('[data-blank-lock]').getAttribute('aria-checked'),'false');
