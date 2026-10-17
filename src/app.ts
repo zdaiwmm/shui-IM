@@ -2834,7 +2834,7 @@ export class QuietRoomApp {
             <h1>有些话，<br>只留给彼此。</h1>
             <p>一个只属于两个人的私密空间。</p>
           </div>
-          <div class="welcome-copy"><p>无需手机号或邮箱</p><p>聊天内容端到端加密<br>平台及其他人无法解密读取</p></div>
+          <div class="welcome-copy"><p>无需手机号或邮箱</p><p>聊天内容端到端加密<br>服务器保存聊天密文</p></div>
         </div>
         <div class="welcome-actions">
           <button class="primary-button" id="create-room" type="button">创建私密空间</button>
@@ -6121,6 +6121,7 @@ export class QuietRoomApp {
             <li><button type="button" data-personal-guide="cover"><b>02</b><span><strong>入口遮蔽</strong><small>${this.session.vault.recoveryExperience?.coverEnabled ? '已开启' : '了解伪装入口，按需开启'}</small></span><span aria-hidden="true">›</span></button></li>
             <li><button type="button" data-personal-guide="auto-lock"><b>03</b><span><strong>自动锁定</strong><small>了解暂时离开后的保护</small></span><span aria-hidden="true">›</span></button></li>
           </ol></details>` : ''}
+          ${this.session.vault.personalBinding?'<aside class="pinned-notice" id="chamber-backup-notice" hidden><button type="button" class="pinned-recovery-content" id="chamber-backup-details"><strong>历史备份已暂停</strong><span></span></button></aside>':''}
           ${this.releaseUpdateBannerMarkup()}
           ${this.session.vault.recoveryExperience?.completed === 'recovered' && !this.uiPreferences.historyImportDismissed ? `
             <aside class="pinned-notice" id="history-import-banner">
@@ -6185,6 +6186,7 @@ export class QuietRoomApp {
       afterMotion(retiringSettings, () => { chat.inert = false; });
     } else this.root.innerHTML = chatMarkup;
     this.applyPresenceStyle();
+    this.root.querySelector('#chamber-backup-details')?.addEventListener('click',()=>this.renderBackupSettings());
     this.root.querySelectorAll<HTMLButtonElement>('[data-personal-guide]').forEach(button => button.addEventListener('click', () => {
       const session = this.session; if (!session || this.privacyCovered) return;
       const step = button.dataset.personalGuide;
@@ -6196,6 +6198,7 @@ export class QuietRoomApp {
       }
     }));
     this.mountChatLayout();
+    this.updateBackupStatus();
     requestAnimationFrame(() => this.showHiddenAlbumHint());
     const memeButton = this.root.querySelector<HTMLButtonElement>('#open-memes')!;
     const toggleExpressions = () => {
@@ -11055,7 +11058,7 @@ export class QuietRoomApp {
   }
 
   private async loadVerifiedFile(session: VaultSession, manifest: FileManifest, signal?: AbortSignal, progress?: (ratio: number) => void, audio = false): Promise<Blob> {
-    const eligible = manifest.originalSize <= MEDIA_CACHE_FILE_BYTES;
+    const eligible = manifest.originalSize <= MEDIA_CACHE_FILE_BYTES || Boolean(session.vault.personalBinding)&&manifest.originalSize<=MAX_IMAGE_BYTES;
     let usedCache = false;
     const attempt = (allowCache: boolean) => (audio ? decryptAudioFile : decryptFileAttachment)(manifest, async (blobId, index) => {
       signal?.throwIfAborted();
@@ -11269,6 +11272,8 @@ export class QuietRoomApp {
 
   private updateBackupStatus(): void {
     if (this.session) paintCloudBackup(this.root, this.session, this.backupError, Boolean(this.backupRun));
+    const chamberNotice=this.root.querySelector<HTMLElement>('#chamber-backup-notice'),paused=this.session?.vault.chamberBackup?.paused;
+    if(chamberNotice){chamberNotice.hidden=!paused||this.session?.vault.cloudBackupPreference?.enabled===false;chamberNotice.querySelector('span')!.textContent=paused??'';}
     const status = this.root.querySelector<HTMLElement>('#backup-status');
     if (!status || !this.session) return;
     const backup = this.session.vault.backup;

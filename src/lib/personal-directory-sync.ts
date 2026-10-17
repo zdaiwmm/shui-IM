@@ -18,6 +18,8 @@ export async function syncPersonalDirectory(session: VaultSession, signal: Abort
   signal = AbortSignal.any([signal, AbortSignal.timeout(30_000)]);
   const vault = session.vault, own = vault.personalBinding;
   if (!own || vault.pairingState !== 'ready') return;
+  const versionKey=`${own.identity.id}:${vault.roomId}`;
+  readVersions.set(versionKey,Math.max(readVersions.get(versionKey)??0,vault.personalDirectoryRevision??0));
   const space = (await localSpaces(session)).find(item => item.roomId === vault.roomId);
   if (!space) throw new Error('本机空间目录尚未保存');
   const participants: PersonalDirectoryEntry['participants'] = [];
@@ -63,6 +65,7 @@ export async function syncPersonalDirectory(session: VaultSession, signal: Abort
   await authorizedFetch(url, vault.accessToken, { method: 'PUT', signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(record) });
   await withVaultMutation(session, async mutation => { signal.throwIfAborted(); vault.personalDirectoryRevision = record.revision; vault.personalHistoryHeads=heads; await saveVault(session, mutation); });
   observed.set(session, { fingerprint, at: Date.now() });
+  readVersions.set(versionKey,record.revision);
 }
 
 export async function personalChallenge(identityId: string, input: Pick<PersonalProof, 'action' | 'roomId' | 'deviceId' | 'version' | 'payloadHash'>, signal: AbortSignal): Promise<PersonalProof> {
@@ -93,7 +96,8 @@ export async function readOwnPersonalDirectory(stored: StoredPersonalIdentity, c
   for (const record of records) {
     signal.throwIfAborted();
     if (seen.has(record.roomId)) throw new Error('身份目录包含重复空间'); seen.add(record.roomId);
-    entries.push(await usePersonalIdentity(stored, credential, entropy => openPersonalDirectory(record, stored.identity, entropy, minimumRevisions.get(record.roomId) ?? 0)));
+    const minimum=Math.max(minimumRevisions.get(record.roomId)??0,readVersions.get(`${stored.identity.id}:${record.roomId}`)??0);
+    entries.push(await usePersonalIdentity(stored, credential, entropy => openPersonalDirectory(record, stored.identity, entropy, minimum)));
     readVersions.set(`${stored.identity.id}:${record.roomId}`,record.revision);
   }
   return entries;

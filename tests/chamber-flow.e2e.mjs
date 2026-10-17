@@ -106,7 +106,16 @@ try {
     const row=[...app.messages.values()].find(m=>m.payload.kind==='gallery-file'&&m.payload.file.originalName==='synthetic-safe.txt');
     app.uiPreferences.galleryCuration=[{v:1,category:'files',clientMsgId:row.clientMsgId,assetIndex:0,hidden:true,pinnedAt:null}];await app.saveUiPreferencesNow();
   });
+  await a.route('**/blobs/*/chunks/*',route=>route.request().method()==='GET'?route.fulfill({status:404,contentType:'application/json',body:JSON.stringify({code:'INVALID_BLOB',error:'Synthetic missing original'})}):route.continue());
+  await a.evaluate(()=>app.runAutomaticBackup(true));
+  assert.match(await a.evaluate(()=>app.session.vault.chamberBackup?.paused??''),/原文件/);
+  await a.locator('#chamber-backup-notice').waitFor();
+  await a.unroute('**/blobs/*/chunks/*');
   await a.evaluate(() => app.runAutomaticBackup(true));
+  const sourceBackup=await a.evaluate(async()=>({cursor:app.session.vault.chamberBackup?.cursor,lastSeq:app.session.vault.lastSeq,paused:app.session.vault.chamberBackup?.paused,error:app.backupError,
+    batch:app.session.vault.chamberBackup?.batch?{after:app.session.vault.chamberBackup.batch.afterSeq,upper:app.session.vault.chamberBackup.batch.upperSeq,chunks:app.session.vault.chamberBackup.batch.chunks.length,references:app.session.vault.chamberBackup.batch.references.length}:null,
+    rows:(await(await import('/src/lib/vault.ts')).loadHistory(app.session)).map(row=>({seq:row.seq,kind:row.payload.kind})),hidden:(await(await import('/src/lib/vault.ts')).loadUiPreferences(app.session)).hiddenChatMessageIds?.length??0}));
+  assert.equal(sourceBackup.cursor,sourceBackup.lastSeq,JSON.stringify(sourceBackup));
   assert.equal(await a.evaluate(() => Boolean(app.session.vault.chamberBackup?.syncedAt && !app.session.vault.backup)), true);
   assert.equal(legacyUploads, 0);
   await a.screenshot({ path: '/private/tmp/chamber-chat-390.png' });
@@ -166,7 +175,7 @@ try {
   assert.equal([...restoredRequests.values()].filter(count=>count===1).length>0,true,'Verified ciphertext must survive interruption without redownloading every unit');
   await c.getByText('Synthetic Chamber encrypted message',{exact:true}).waitFor();
   assert.equal(await c.getByText('Synthetic locally hidden history',{exact:true}).count(),0);
-  assert.equal(await c.evaluate(async()=>{const v=await import('/src/lib/vault.ts'),rows=await v.loadHistory(app.session),prefs=await v.loadUiPreferences(app.session);const row=rows.find(m=>m.payload.text==='Synthetic locally hidden history');return Boolean(row&&prefs.hiddenChatMessageIds.includes(row.clientMsgId));}),true);
+  assert.deepEqual(await c.evaluate(async()=>{const v=await import('/src/lib/vault.ts'),rows=await v.loadHistory(app.session),prefs=await v.loadUiPreferences(app.session);const row=rows.find(m=>m.payload.text==='Synthetic locally hidden history');return {recordPresent:Boolean(row),hiddenMarked:Boolean(row&&prefs.hiddenChatMessageIds?.includes(row.clientMsgId))};}),{recordPresent:true,hiddenMarked:true});
   assert.deepEqual(await c.evaluate(async()=>{
     const v=await import('/src/lib/vault.ts'),f=await import('/src/lib/file-crypto.ts'),rows=await v.loadHistory(app.session),prefs=await v.loadUiPreferences(app.session);
     const chat=rows.find(m=>m.payload.kind==='file'&&m.payload.file.originalName==='synthetic-exact.bin'),safe=rows.find(m=>m.payload.kind==='gallery-file'&&m.payload.file.originalName==='synthetic-safe.txt');

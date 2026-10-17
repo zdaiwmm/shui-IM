@@ -9,9 +9,12 @@ import { bindPersonalDevice } from '../src/lib/personal-device-binding';
 import { openPersonalDirectory, sealPersonalDirectory, type PersonalDirectoryEntry } from '../src/lib/personal-directory';
 import { signPersonalProof } from '../src/lib/personal-identity';
 import { randomBase64Url } from '../src/lib/base64';
+import {readOwnPersonalDirectory} from '../src/lib/personal-directory-sync';
+import {preparePersonalIdentity} from '../src/lib/personal-identity-vault';
+import {deriveNumericPasswordCredential} from '../src/lib/password-protection';
 
 const directories: string[] = [], a = new Uint8Array(16).fill(1), b = new Uint8Array(16).fill(2);
-afterEach(async () => { vi.useRealTimers(); for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
+afterEach(async () => { vi.useRealTimers();vi.unstubAllGlobals(); for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
 async function fixture() {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'chamber-directory-')); directories.push(dataDir);
   const store = await createStore({ dataDir }), device = await generateIdentity(), binding = await bindPersonalDevice(a, device);
@@ -28,6 +31,16 @@ async function fixture() {
 }
 
 describe('personal encrypted directory and scoped proof', () => {
+  it('retains an already observed revision when a later recovery does not supply an explicit minimum',async()=>{
+    const f=await fixture();try{
+      const credential=await deriveNumericPasswordCredential('135790'),stored=await preparePersonalIdentity(credential,a);
+      let record=await sealPersonalDirectory(f.entry,2,f.device,f.binding);
+      vi.stubGlobal('fetch',vi.fn(async(url,init)=>String(url).endsWith('/challenge')?Response.json(f.store.personalDirectory.challenge(f.binding.identity.id,JSON.parse(init.body))):Response.json([record])));
+      expect(await readOwnPersonalDirectory(stored,credential,new AbortController().signal)).toEqual([f.entry]);
+      record=await sealPersonalDirectory(f.entry,1,f.device,f.binding);
+      await expect(readOwnPersonalDirectory(stored,credential,new AbortController().signal)).rejects.toThrow('签名或版本');
+    }finally{f.store.close();}
+  });
   it('encrypts only public membership and names, and requires the matching directory root', async () => {
     const f = await fixture();
     try {

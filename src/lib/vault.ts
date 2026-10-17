@@ -11,7 +11,7 @@ import { MAX_PACK_BYTES, MAX_PACK_ITEMS, MAX_PACK_LIBRARY_BYTES, MAX_STICKER_PAC
 import { downloadBlob } from './download';
 import { generateIdentity } from './crypto';
 import { createRecoveryRequest } from './mls';
-import { isMessagePayload } from './message-payload';
+import { isMessagePayload, MAX_IMAGE_BYTES } from './message-payload';
 import { isGalleryMediaPayload } from './video-media';
 import { galleryCurationKey, normalizeGalleryCurationRecords, type GalleryCurationRecord } from './gallery-curation';
 import { normalizeAttachmentFavorites, type AttachmentFavorite } from './attachment-favorites';
@@ -486,6 +486,13 @@ export async function saveCachedMediaChunk(
   await writeMediaCacheRecord(session, record, signal);
 }
 
+/** Explicit verified history restoration supports the existing 256 MiB
+ * attachment limit. The shared total/reserve/quota budget remains unchanged. */
+export async function saveChamberRecoveredMediaChunk(session:VaultSession,blobId:string,index:number,bytes:ArrayBuffer,signal:AbortSignal):Promise<void> {
+  const roomId=localDataScope(session.vault);
+  await writeMediaCacheRecord(session,{id:mediaChunkId(roomId,blobId,index),roomId,blobKey:mediaBlobKey(roomId,blobId),blobId,index,bytes:bytes.slice(0),cachedAt:Date.now()},signal,MAX_IMAGE_BYTES+1024**2);
+}
+
 async function touchMediaCache(session: VaultSession, id: string): Promise<void> {
   const database = await openDatabase();
   await new Promise<void>((resolve, reject) => {
@@ -518,7 +525,7 @@ async function releaseMediaCachePressure(session: VaultSession): Promise<void> {
   });
 }
 
-async function writeMediaCacheRecord(session: VaultSession, record: StoredMediaChunk, signal?: AbortSignal): Promise<void> {
+async function writeMediaCacheRecord(session: VaultSession, record: StoredMediaChunk, signal?: AbortSignal,maxBlobBytes=MEDIA_CACHE_FILE_BYTES+1024**2): Promise<void> {
   signal?.throwIfAborted();
   if (mediaCacheQuotaBlocked.has(session)) return;
   const estimate = await navigator.storage?.estimate?.().catch(() => undefined);
@@ -542,7 +549,7 @@ async function writeMediaCacheRecord(session: VaultSession, record: StoredMediaC
           const request = chunks.index('blobKey').openKeyCursor(IDBKeyRange.only(id));
           request.onsuccess = () => { const cursor = request.result; if (cursor) { chunks.delete(cursor.primaryKey); cursor.continue(); } };
         };
-        if (next.bytes > MEDIA_CACHE_FILE_BYTES + 1024 ** 2 || next.bytes > budget) { remove(next.id); return; }
+        if (next.bytes > maxBlobBytes || next.bytes > budget) { remove(next.id); return; }
         for (const id of mediaCacheEvictions(rows, { ...next, bytes: delta }, budget)) remove(id);
         if (record.index === -1) {
           const request = chunks.index('blobKey').openCursor(IDBKeyRange.only(record.blobKey));

@@ -1,7 +1,7 @@
 import { sha256 } from '@noble/hashes/sha2.js';
 import {canonicalStringify} from './canonical';
 import {galleryCurationKey,normalizeGalleryCurationRecords,type GalleryCurationRecord} from './gallery-curation';
-import { authorizedFetch } from './api';
+import { authorizedFetch, fetchBlobChunk, ApiError } from './api';
 import { randomBase64Url, toBase64Url } from './base64';
 import { attachmentVerifier } from './local-history-backup';
 import { loadCachedMediaChunk, loadChamberHistoryPageAfter, loadUiPreferences, saveVault, withVaultMutation, type VaultSession } from './vault';
@@ -22,6 +22,21 @@ const manifests = (message: DecryptedMessage): ImageManifest[] => {
   return 'images' in payload ? payload.images : 'image' in payload ? [payload.image] :
     'file' in payload ? [payload.file] : 'audio' in payload ? [payload.audio] : [];
 };
+async function sourceChunk(session:VaultSession,blobId:string,index:number,size:number,signal:AbortSignal):Promise<ArrayBuffer> {
+  signal.throwIfAborted();
+  const cached=await loadCachedMediaChunk(session,blobId,index,size);
+  if(cached)return cached;
+  try {
+    // Originals uploaded by this authorized device need not already be in the
+    // optional display cache. Stream one ciphertext chunk, never a full file.
+    const raw=await fetchBlobChunk(session.vault.roomId,session.vault.accessToken,blobId,index,AbortSignal.any([signal,AbortSignal.timeout(30_000)]));
+    if(raw.byteLength!==size)throw new Error('历史备份暂停：原文件分块长度不正确');
+    return raw;
+  }catch(cause){
+    if(cause instanceof ApiError&&[403,404,410].includes(cause.status))throw new Error('历史备份暂停：部分原文件缺失或不可读取，请先补齐原文件');
+    throw cause;
+  }
+}
 async function update(session: VaultSession, signal: AbortSignal, operation: (state: ChamberBackupState) => void): Promise<void> {
   await withVaultMutation(session, async mutation => {
     signal.throwIfAborted();
@@ -56,8 +71,7 @@ async function snapshot(session: VaultSession, signal: AbortSignal): Promise<Cha
     for (let index = 0; index < manifest.chunkCount; index++) {
       signal.throwIfAborted();
       const size = Math.min(manifest.chunkSize, manifest.originalSize - index * manifest.chunkSize) + 16;
-      const chunk = await loadCachedMediaChunk(session, manifest.blobId, index, size);
-      if (!chunk) throw new Error('历史备份暂停：部分原文件缺失，请先在聊天中下载补齐');
+      const chunk = await sourceChunk(session, manifest.blobId, index, size, signal);
       try { await verifier.chunk(index, chunk); }
       catch { throw new Error('历史备份暂停：原文件完整性校验失败'); }
       chunks.push({ blobId: manifest.blobId, index, size, digest: toBase64Url(sha256(new Uint8Array(chunk))) });
@@ -90,8 +104,8 @@ export async function syncChamberHistory(session: VaultSession, signal: AbortSig
         const index=batch.metadata.units.length,preference=!chunk&&index<Math.ceil(Math.max(batch.metadata.hiddenChatMessageIds.length,batch.metadata.galleryHidden.length)/1000);
         let payload: Parameters<typeof sealChamberHistoryRecord>[0];
         if (chunk) {
-          const raw = await loadCachedMediaChunk(session, chunk.blobId, chunk.index, chunk.size);
-          if (!raw || toBase64Url(sha256(new Uint8Array(raw))) !== chunk.digest) throw new Error('历史备份暂停：原文件缺失或完整性校验失败');
+          const raw = await sourceChunk(session, chunk.blobId, chunk.index, chunk.size, signal);
+          if (toBase64Url(sha256(new Uint8Array(raw))) !== chunk.digest) throw new Error('历史备份暂停：原文件缺失或完整性校验失败');
           payload = { v: 1, kind: 'attachment', roomId: session.vault.roomId, ownerId: binding.identity.id,
             blobId: chunk.blobId, index: chunk.index, bytes: toBase64Url(raw) };
         } else if(preference)payload={v:1,kind:'preferences',roomId:session.vault.roomId,ownerId:binding.identity.id,

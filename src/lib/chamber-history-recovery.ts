@@ -8,7 +8,7 @@ import { personalChallenge, readOwnPersonalDirectory, syncPersonalDirectory } fr
 import { jointHistoryEnvelopeHash, jointHistoryScopeHash, prepareJointHistoryScope, releaseJointHistoryLayer,
   type JointHistoryKeyEnvelope, type JointHistoryRelease, type JointHistoryScope } from './joint-history-keys';
 import { chamberHistoryRecordHash, openChamberHistoryRecord, type ChamberHistoryRecord, type ChamberHistoryPayload } from './chamber-history-record';
-import { importArchivedMessages, saveCachedMediaChunk, loadCachedMediaChunk, cacheChamberHistoryCipher, loadChamberHistoryCipher, loadUiPreferences, saveUiPreferences, restoreGalleryHidden, saveVault, withVaultMutation, saveChamberRecoveryManifest, readChamberRecoveryManifest, type VaultSession } from './vault';
+import { importArchivedMessages, saveChamberRecoveredMediaChunk, loadCachedMediaChunk, cacheChamberHistoryCipher, loadChamberHistoryCipher, loadUiPreferences, saveUiPreferences, restoreGalleryHidden, saveVault, withVaultMutation, saveChamberRecoveryManifest, readChamberRecoveryManifest, type VaultSession } from './vault';
 import { attachmentVerifier } from './local-history-backup';
 import type { DecryptedMessage, ImageManifest } from './types';
 import {verifyMigratedHistory} from './chamber-migrations';
@@ -165,7 +165,7 @@ export async function completeChamberHistoryRecovery(session:VaultSession,reques
           const raw=fromBase64Url(part.bytes);
           if(pass===0) { await verifier.chunk(index,raw.buffer); if(index===manifest.chunkCount-1) verifier.finish(); }
           else {
-            await saveCachedMediaChunk(session,manifest.blobId,index,raw.buffer,signal);
+            await saveChamberRecoveredMediaChunk(session,manifest.blobId,index,raw.buffer,signal);
             const readback=await loadCachedMediaChunk(session,manifest.blobId,index,raw.length);
             if(!readback||new Uint8Array(readback).some((byte,i)=>byte!==raw[i]))throw new Error('本机容量不足，原文件未能完整回读。已保留经过验证的旧记录，请腾出空间后继续恢复');
           }
