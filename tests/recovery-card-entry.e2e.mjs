@@ -1,3 +1,4 @@
+import { legacyCreationPlugin } from './fixtures/legacy-create.mjs';
 import { submitPassword } from './helpers/password.mjs';
 import { fillFormInput, cancelPasswordForm } from './helpers/form-input.mjs';
 import assert from 'node:assert/strict';
@@ -9,7 +10,7 @@ import {createServer} from 'vite';
 import {startServer} from '../server/index.mjs';
 const dataDir=await mkdtemp(path.join(tmpdir(),'quiet-card-e2e-'));
 const backend=await startServer({port:0,host:'127.0.0.1',dataDir,quiet:true});
-const vite=await createServer({configFile:false,root:process.cwd(),logLevel:'error',plugins:[{name:'entry-test-observer',enforce:'pre',transform(code,id){if(id===path.join(process.cwd(),'src/main.ts'))return code.replace('void app.start();','window.app=app;void app.start();');}}],server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${backend.port}`,'/ws':{target:`ws://127.0.0.1:${backend.port}`,ws:true}}}});
+const vite=await createServer({configFile:false,root:process.cwd(),logLevel:'error',plugins:[legacyCreationPlugin,{name:'entry-test-observer',enforce:'pre',transform(code,id){if(id===path.join(process.cwd(),'src/main.ts'))return code.replace('void app.start();','window.app=app;void app.start();');}}],server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${backend.port}`,'/ws':{target:`ws://127.0.0.1:${backend.port}`,ws:true}}}});
 let browser;
 const secret='246810';
 async function password(page){await submitPassword(page, secret);}
@@ -52,7 +53,7 @@ try {
  assert.equal(await a.evaluate(()=>app.session.vault.recoveryExperience.codeSaved===app.session.vault.backup.id),true);
  await a.locator('#hide-local-recovery').click();await a.locator('.local-recovery-code').waitFor({state:'detached'});
  // A new browser reads the exported file, sets daily unlock, and persists a pending recovery.
- await c.goto(url);await c.locator('#restore-cloud').click();const importCard=c.waitForEvent('filechooser');await c.locator('[data-import-card]').click();await(await importCard).setFiles(file);
+ await c.goto(url);await c.locator('#restore-cloud').click();await c.locator('#restore-legacy-card').click();const importCard=c.waitForEvent('filechooser');await c.locator('[data-import-card]').click();await(await importCard).setFiles(file);
  await c.locator('[data-recovery-spaces] input').waitFor();assert.equal(await c.locator('[name=code]').inputValue(),'');await c.locator('#joint-code-form [type=submit]').click();await c.locator('[data-recovery-protect]').click();await password(c);
  await c.waitForFunction(()=>Boolean(app.session?.vault.pendingJointRecovery));
  const task=await c.evaluate(()=>app.session.vault.pendingJointRecovery.link.requestId);

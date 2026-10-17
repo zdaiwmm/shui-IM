@@ -1,3 +1,4 @@
+import { legacyCreationPlugin } from './fixtures/legacy-create.mjs';
 import { completeSpaceProfile } from './fixtures/create-space.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -13,7 +14,7 @@ const vite = await createServer({
   configFile: false,
   root: path.resolve(import.meta.dirname, '..'),
   logLevel: 'error',
-  plugins: [{
+  plugins: [legacyCreationPlugin, {
     name: 'desktop-session-test-observer',
     configureServer(server) {
       server.middlewares.use('/__desktop_session', (_request, response) => {

@@ -1,3 +1,4 @@
+import { legacyCreationPlugin } from './fixtures/legacy-create.mjs';
 import { submitPassword as password } from './helpers/password.mjs';
 import { fillFormInput, cancelPasswordForm } from './helpers/form-input.mjs';
 import { completeSpaceProfile } from './fixtures/create-space.mjs';
@@ -12,7 +13,7 @@ import { startServer } from '../server/index.mjs';
 const screenshots = process.argv[2];
 const dataDir = await mkdtemp(path.join(tmpdir(), 'quiet-password-acceptance-'));
 const backend = await startServer({ port: 0, host: '127.0.0.1', dataDir, quiet: true });
-const vite = await createServer({ configFile: false, root: process.cwd(), logLevel: 'error', plugins: [{
+const vite = await createServer({ configFile: false, root: process.cwd(), logLevel: 'error', plugins: [legacyCreationPlugin, {
   name: 'observe-password-product-bootstrap', enforce: 'pre', transform(code, id) {
     if (id === path.join(process.cwd(), 'src/main.ts')) return code.replace('void app.start();', 'window.app = app; window.productStartup = app.start();');
   },
@@ -32,6 +33,7 @@ async function boot(page) {
     await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     const { mountSystemChrome } = await import('/src/lib/system-chrome.ts'); mountSystemChrome();
     const { QuietRoomApp } = await import('/src/app.ts'); window.app = new QuietRoomApp(document.querySelector('#app')); await app.start();
+    (await import('/tests/fixtures/legacy-create.mjs')).installLegacyApp(app);
   }, css);
 }
 async function capture(page, name) {

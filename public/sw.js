@@ -73,7 +73,7 @@ self.addEventListener('push', (event) => {
   event.waitUntil((async () => {
     const policy = await (await caches.open(NOTIFICATION_POLICY_CACHE)).match(NOTIFICATION_POLICY_URL);
     if (policy && await policy.text() !== 'on') return;
-    let copy = { title: 'Quiet Room', body: '有一条新消息，解锁后查看。' };
+    let copy = { title: 'Chamber', body: '有一条新消息，解锁后查看。' };
     try {
       const response = await (await caches.open(NOTIFICATION_POLICY_CACHE)).match(NOTIFICATION_COPY_URL);
       const value = response ? await response.json() : null;

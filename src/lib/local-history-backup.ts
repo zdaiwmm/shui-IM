@@ -204,7 +204,7 @@ export async function inspectLocalHistoryBackup(session: VaultSession, file: Blo
   }
 }
 
-async function attachmentVerifier(manifest: ImageManifest) {
+export async function attachmentVerifier(manifest: ImageManifest) {
   const key = await crypto.subtle.importKey('raw', fromBase64Url(manifest.key), 'AES-GCM', false, ['decrypt']);
   const hash = await createSHA256(); hash.init();
   return {

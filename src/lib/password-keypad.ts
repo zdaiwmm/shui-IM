@@ -2,6 +2,7 @@ import { mountDialog } from './dialog';
 import { layoutViewport } from './form-input';
 import type { PasswordRequestOptions } from './password-dialog';
 import '../numeric-password.css';
+import { embeddedPasswordSetup } from './platform-vault';
 
 /** V1 numeric entry only. Existing wrappers and operation sheets keep their original verifier. */
 export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRequestOptions<T>): Promise<T> {
@@ -15,6 +16,7 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
     sheet.innerHTML = `<form class="confirm-dialog password-form numeric-password-form" novalidate>
       <div class="numeric-password-lock" aria-hidden="true"><svg viewBox="0 0 24 30"><rect x="4" y="12" width="16" height="15" rx="3" fill="currentColor"/><path d="M7 12V8a5 5 0 0 1 10 0v4" fill="none" stroke="currentColor" stroke-width="2.4"/></svg></div>
       <header class="numeric-password-prompt"><h2 id="${id}"></h2><p class="numeric-password-description"></p></header>
+      ${options.create && embeddedPasswordSetup() ? '<p class="numeric-browser-hint">当前浏览器无法调用设备通行密钥。如需使用面容／指纹解锁，可选择系统浏览器。</p>' : ''}
       <div class="numeric-password-dots" aria-hidden="true">${'<i></i>'.repeat(6)}</div>
       <p class="sr-only" data-numeric-progress role="status" aria-live="polite" aria-atomic="true"></p>
       <p class="sr-only form-error" role="alert" aria-atomic="true"></p>

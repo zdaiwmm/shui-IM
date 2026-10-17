@@ -178,7 +178,7 @@ body:has(:where(#app) > .chat-shell) {
   display: grid;
   gap: 6px;
 }
-.system-notices:not(:has(aside)) { display: none; }
+.system-notices:not(:has(aside, .chamber-privacy-guide)) { display: none; }
 .release-update-reminder {
   min-height: 54px;
   padding: 5px 6px 5px 18px;

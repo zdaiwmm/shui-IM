@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { createStore } from './storage.mjs';
+import { verifyPersonalDeviceBinding } from './personal-protocol.mjs';
 import { createAdminConsole } from './admin.mjs';
 import { createExpressionCatalog } from './expression-catalog.mjs';
 import { callIceConfiguration, createCallService } from './calls.mjs';
@@ -139,6 +140,20 @@ function normalizeError(error) {
     ['LAST_ROLE_DEVICE', [409, '不能移除该参与者的最后一台设备']],
     ['INVALID_RECOVERY_REQUEST', [400, '恢复请求无效，或原设备已被替换']],
     ['UNAUTHORIZED', [401, '设备凭证无效或已停用']],
+    ['INVITATION_ENDED', [410, '邀请已结束，请让邀请方重新发起邀请']],
+    ['INVITATION_CLAIMED', [409, '该密室已被其他人进入，请联系邀请方']],
+    ['ROOM_CREATE_CONFLICT', [409, '本次密室创建凭据不一致，请保留本机身份后重试']],
+    ['INVITATION_CODE_INVALID', [400, '验证码不正确，请核对本次请求编号后重试']],
+    ['BACKUP_QUOTA', [413, '备份容量不足，已保留先前的有效备份']],
+    ['BACKUP_NOT_FOUND', [404, '部分备份内容缺失，请保留已验证的记录']],
+    ['INVALID_BACKUP', [400, '备份格式或身份范围不正确']],
+    ['BACKUP_CONFLICT', [409, '备份版本发生冲突，请重新验证后重试']],
+    ['PERSONAL_IDENTITY_NOT_FOUND', [404, '未找到此身份的空间，请核对助记词及备份状态']],
+    ['PERSONAL_PROOF_EXPIRED', [410, '身份验证已使用或过期，请重新验证']],
+    ['INVALID_PERSONAL_DEVICE', [400, '新设备的身份或授权范围不正确']],
+    ['PEER_NOT_READY', [409, '请让另一位参与者先解锁已有设备']],
+    ['PERSONAL_IDENTITY_REQUIRED', [409, '请在新设备使用自己的助记词找回身份，再申请对方批准']],
+    ['ROOM_CLOSED', [410, '密室已关闭。双方分别验证自己的助记词后，可共同恢复']],
     ['RECOVERY_ALREADY_PENDING', [409, '该设备已有恢复请求，请完成或等待过期后重试']],
     ['RECOVERY_REQUIRES_UPGRADE', [409, '请先让其它已授权设备打开最新版，再重试恢复']],
     ['RECOVERY_EXPIRED', [410, '恢复请求已过期，请重新输入恢复码获取备份']],
@@ -160,6 +175,8 @@ function publicState(state) {
     mlsEpochOffset: state.mlsEpochOffset ?? 0,
     recoveryPreparation: state.recoveryPreparation ?? [],
     invitationProgress: state.invitationProgress ?? null,
+    chamber: state.chamber ?? null,
+    chamberLifecycle: state.chamberLifecycle ?? null,
     mlsEvents: state.mlsEvents,
     messageWindow: state.messageWindow,
     recoveryRequests: state.recoveryRequests,
@@ -409,6 +426,8 @@ export async function startServer(options = {}) {
     try {
       const url = new URL(request.url ?? '/', 'http://localhost');
       const pathname = decodeURIComponent(url.pathname);
+      const scopedRoom = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})(?:/|$)`));
+      if (scopedRoom && store.chamberLifecycle.closed(scopedRoom[1]) && !pathname.endsWith('/chamber-lifecycle')) throw new Error('ROOM_CLOSED');
       if (await admin(request, response, pathname)) return;
 
       const memeMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/memes/(search|media|pack)$`));
@@ -562,6 +581,7 @@ export async function startServer(options = {}) {
           if (backupWrite || archiveWrite) {
             const roomId = (backupWrite ?? archiveWrite)[1];
             requireActiveDevice(request, roomId);
+            if (store.chamberInvitations.exists(roomId)) throw new Error('INVALID_BACKUP');
             const body = JSON.parse((await readBody(request, 2 * 1024 * 1024)).toString('utf8'));
             result = backupWrite ? store.cloudBackups.save(roomId, token, body)
               : store.cloudBackups.putPart(roomId, token, archiveWrite[2], archiveWrite[3], body);
@@ -602,6 +622,7 @@ export async function startServer(options = {}) {
           typeof body.accessToken !== 'string' ||
           body.accessToken.length < 32 ||
           body.accessToken.length > 512 ||
+          (body.roomId !== undefined && (!body.personalBinding || typeof body.roomId !== 'string' || !new RegExp(`^${ID_PATTERN}$`).test(body.roomId))) ||
           (body.inviteToken !== undefined && (typeof body.inviteToken !== 'string' || body.inviteToken.length < 32 || body.inviteToken.length > 512)) ||
           ((body.deviceName !== undefined || body.capabilities !== undefined) &&
             !validDeviceMetadata(body.deviceName ?? '此设备', body.capabilities ?? []))
@@ -609,12 +630,15 @@ export async function startServer(options = {}) {
           json(request, response, 400, { error: 'INVALID_ROOM_REQUEST' });
           return;
         }
+        if (body.personalBinding !== undefined && !await verifyPersonalDeviceBinding(body.personalBinding, body.creatorBundle)) throw new Error('INVALID_JSON');
         const room = store.createRoom(
           body.creatorBundle,
           body.accessToken,
           body.inviteToken ?? body.accessToken,
           body.deviceName ?? '此设备',
           body.capabilities ?? [],
+          body.personalBinding,
+          body.roomId,
         );
         json(request, response, 201, room);
         return;
@@ -665,6 +689,7 @@ export async function startServer(options = {}) {
       }
       if (request.method === 'GET' && roomMatch) {
         const roomId = roomMatch[1];
+        if(store.consumedChamberInvite(roomId,bearerToken(request)))throw new Error('INVITATION_CLAIMED');
         const token = bearerToken(request);
         const state = isUuid(roomId) ? store.roomState(roomId) : null;
         const authorized = state && (
@@ -677,6 +702,153 @@ export async function startServer(options = {}) {
         }
         json(request, response, 200, publicState(state));
         return;
+      }
+
+      const personalIdentityMatch = pathname.match(/^\/api\/chamber\/identities\/([A-Za-z0-9_-]{43})\/(challenge|directory)$/);
+      if (personalIdentityMatch && request.method === 'POST') {
+        if (!allowRequest(request, 'personal-identity', 30)) { json(request, response, 429, { error: '请稍后重试', code: 'RATE_LIMITED' }); return; }
+        const [, identityId, action] = personalIdentityMatch, body = await readJson(request);
+        if (action === 'challenge') json(request, response, 200, store.personalDirectory.challenge(identityId, body));
+        else {
+          if (body?.proof?.identityId !== identityId) throw new Error('UNAUTHORIZED');
+          json(request, response, 200, store.personalDirectory.read(body.proof, body.signature));
+        }
+        return;
+      }
+      const personalDevicesMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/personal-devices(?:/(${ID_PATTERN}))?$`));
+      if (personalDevicesMatch) {
+        const [, roomId, requestId] = personalDevicesMatch;
+        if (!allowRequest(request, `personal-devices:${roomId}`, 60)) { json(request, response, 429, { error: '请稍后重试', code: 'RATE_LIMITED' }); return; }
+        if (request.method === 'GET' && requestId) json(request, response, 200, store.personalDevices.status(roomId, requestId, bearerToken(request)));
+        else if (request.method === 'GET') {
+          const member = requireActiveDevice(request, roomId);
+          json(request, response, 200, store.personalDevices.list(roomId, member.deviceId));
+        } else if (request.method === 'POST' && !requestId) {
+          const body = await readJson(request);
+          json(request, response, 200, await store.personalDevices.create(roomId, body.request, body.token));
+        } else throw new Error('INVALID_JSON');
+        return;
+      }
+
+      const migrationMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/chamber-migration$`));
+      if(migrationMatch) {
+        const roomId=migrationMatch[1],member=requireActiveDevice(request,roomId);
+        if(!allowRequest(request,`chamber-migration:${roomId}`,60)){json(request,response,429,{code:'RATE_LIMITED',error:'请稍后重试'});return;}
+        if(request.method==='GET')json(request,response,200,store.chamberMigrations.status(roomId));
+        else if(request.method==='POST') {const body=await readJson(request);json(request,response,200,body.action==='bind'?await store.chamberMigrations.bind(roomId,member.deviceId,body.binding):body.action==='verify'?store.chamberMigrations.verify(roomId,member.deviceId,body.input):(()=>{throw new Error('INVALID_JSON');})());}
+        else throw new Error('INVALID_JSON');return;
+      }
+
+      const lifecycleMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/chamber-lifecycle$`));
+      if (lifecycleMatch) {
+        const roomId=lifecycleMatch[1],token=bearerToken(request);
+        if(!allowRequest(request,`chamber-lifecycle:${roomId}`,60)){json(request,response,429,{code:'RATE_LIMITED',error:'请稍后重试'});return;}
+        let result;
+        if(request.method==='GET') {store.chamberLifecycle.deviceForToken(roomId,token);result=store.chamberLifecycle.state(roomId);}
+        else if(request.method==='POST') {
+          const body=await readJson(request);
+          if(body.action==='inspect')result=store.chamberLifecycle.inspect(roomId,body.input);
+          else if(body.action==='close') {
+            const deviceId=store.chamberLifecycle.deviceForToken(roomId,token);
+            result=store.chamberLifecycle.close(roomId,deviceId,body.input);
+            for(const socket of clientsByRoom.get(roomId)??[]) {send(socket,{type:'chamberClosed',lifecycle:result});socket.close(4403,'Room closed');}
+            callService.sweep();broadcastPresence(roomId);
+          } else if(body.action==='offer')result=await store.chamberLifecycle.offer(roomId,body.input);
+          else if(body.action==='status')result=store.chamberLifecycle.status(roomId,token);
+          else if(body.action==='propose')result=await store.chamberLifecycle.propose(roomId,token,body.input);
+          else if(body.action==='cancel')result=store.chamberLifecycle.cancel(roomId,token,body.input);
+          else if(body.action==='approve') {
+            result=store.chamberLifecycle.approve(roomId,token,body.input);
+            if(result.result) {
+              const active=new Set(store.roomState(roomId).members.filter(m=>m.status==='active').map(m=>m.deviceId));
+              for(const socket of clientsByRoom.get(roomId)??[])if(!active.has(socketSessions.get(socket)?.deviceId))socket.terminate();
+              callService.sweep();broadcastPresence(roomId);
+            }
+          }
+          else throw new Error('INVALID_JSON');
+        } else throw new Error('INVALID_JSON');
+        json(request,response,200,result);return;
+      }
+
+      const personalDirectoryMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/personal-directory$`));
+      if (personalDirectoryMatch) {
+        const roomId = personalDirectoryMatch[1], member = requireActiveDevice(request, roomId);
+        if (!allowRequest(request, `personal-directory:${roomId}`, 60)) { json(request, response, 429, { error: '请稍后重试', code: 'RATE_LIMITED' }); return; }
+        if (request.method === 'GET') json(request, response, 200, { revision: store.personalDirectory.revision(roomId, member.deviceId) });
+        else if (request.method === 'PUT') json(request, response, 200, await store.personalDirectory.save(roomId, member.deviceId, JSON.parse((await readBody(request, 3_000_000)).toString('utf8'))));
+        else throw new Error('INVALID_JSON');
+        return;
+      }
+
+      const chamberRestoreMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/chamber-history-recovery(?:/(${ID_PATTERN}))?$`));
+      if (chamberRestoreMatch) {
+        const [,roomId,requestId] = chamberRestoreMatch, member = requireActiveDevice(request,roomId);
+        if (!allowRequest(request, `chamber-history-recovery:${roomId}`, 120)) { json(request,response,429,{code:'RATE_LIMITED',error:'请稍后重试'}); return; }
+        if (request.method === 'GET') json(request,response,200,requestId ? url.searchParams.get('manifest') === '1' ? store.chamberHistoryRecovery.manifest(roomId,requestId,member.deviceId) : store.chamberHistoryRecovery.page(roomId,requestId,member.deviceId,Number(url.searchParams.get('after') ?? 0)) : store.chamberHistoryRecovery.list(roomId,member.deviceId));
+        else if (request.method === 'POST') {
+          const body = JSON.parse((await readBody(request,requestId ? 8192 : 8 * 1024 ** 2)).toString('utf8'));
+          json(request,response,200,requestId ? store.chamberHistoryRecovery.release(roomId,requestId,member.deviceId,body) : store.chamberHistoryRecovery.create(roomId,member.deviceId,body));
+        } else throw new Error('INVALID_JSON');
+        return;
+      }
+
+      const chamberHeadsMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/chamber-history-heads$`));
+      if (chamberHeadsMatch) {
+        const roomId = chamberHeadsMatch[1], member = requireActiveDevice(request, roomId);
+        if (!allowRequest(request, `chamber-heads:${roomId}`, 120)) { json(request, response, 429, { error: '请稍后重试', code: 'RATE_LIMITED' }); return; }
+        if (request.method === 'PUT') json(request, response, 200, await store.chamberHistory.saveHead(roomId, member.deviceId, await readJson(request)));
+        else if (request.method === 'GET') {
+          const state = store.chamberInvitations.state(roomId), owner = member.role === 'creator' ? state?.creatorBinding.identity : state?.joinerBinding?.identity;
+          if (!owner) throw new Error('UNAUTHORIZED');
+          json(request, response, 200, store.chamberHistory.heads(roomId, owner.id, Number(url.searchParams.get('after') ?? 0)));
+        } else throw new Error('INVALID_JSON');
+        return;
+      }
+
+      const chamberHistoryMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/chamber-history(?:/([A-Za-z0-9_-]{1,128}))?$`));
+      if (chamberHistoryMatch) {
+        const roomId = chamberHistoryMatch[1], unitId = chamberHistoryMatch[2];
+        const member = requireActiveDevice(request, roomId);
+        if (!allowRequest(request, `chamber-history:${roomId}`, 120)) { json(request, response, 429, { error: '请稍后重试', code: 'RATE_LIMITED' }); return; }
+        if (request.method === 'PUT' && unitId) {
+          const body = JSON.parse((await readBody(request, 4_300_000)).toString('utf8'));
+          if (body?.id !== unitId) throw new Error('INVALID_BACKUP');
+          json(request, response, 200, await store.chamberHistory.save(roomId, member.deviceId, body)); return;
+        }
+        if (request.method === 'GET') {
+          if (unitId) json(request, response, 200, store.chamberHistory.read(roomId, unitId));
+          else {
+            const state = store.chamberInvitations.state(roomId), owner = member.role === 'creator' ? state?.creatorBinding.identity : state?.joinerBinding?.identity;
+            if (!owner) throw new Error('UNAUTHORIZED');
+            json(request, response, 200, store.chamberHistory.list(roomId, owner.id, Number(url.searchParams.get('after') ?? 0)));
+          }
+          return;
+        }
+        throw new Error('INVALID_BACKUP');
+      }
+
+      const chamberInviteMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/chamber-invitation$`));
+      if (chamberInviteMatch) {
+        const roomId = chamberInviteMatch[1], token = bearerToken(request);
+        if (!allowRequest(request, `chamber-invite:${roomId}`, 90)) { json(request, response, 429, { error: '请稍后重试', code: 'RATE_LIMITED' }); return; }
+        const device = store.authenticatedDevice(roomId, token);
+        if (request.method === 'GET' && device?.role === 'creator') {
+          json(request, response, 200, store.chamberInvitations.state(roomId, true)); return;
+        }
+        if (request.method !== 'POST') throw new Error('UNAUTHORIZED');
+        const body = await readJson(request);
+        if (body.action === 'rotate' && device?.role === 'creator') {
+          json(request, response, 200, store.rotateChamberInvitation(roomId, body.inviteToken)); return;
+        }
+        if (!store.authenticateInvite(roomId, token) || !store.chamberInvitations.exists(roomId)) throw new Error('UNAUTHORIZED');
+        if (body.action === 'claim') {
+          json(request, response, 200, store.chamberInvitations.claim(roomId, body.secret)); return;
+        }
+        if (body.action === 'ready' && validatePublicBundle(body.bundle) && typeof body.proof === 'string' && body.proof.length <= 512 &&
+          await verifyPersonalDeviceBinding(body.binding, body.bundle)) {
+          json(request, response, 200, store.chamberInvitations.ready(roomId, body.secret, { bundle: body.bundle, proof: body.proof, binding: body.binding })); return;
+        }
+        throw new Error('INVALID_JSON');
       }
 
       const joinMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/join$`));
@@ -703,14 +875,20 @@ export async function startServer(options = {}) {
           json(request, response, 400, { error: 'INVALID_JOIN_REQUEST' });
           return;
         }
-        const state = store.joinRoom(
+        if (store.chamberInvitations.exists(roomId) && !await verifyPersonalDeviceBinding(body.chamber?.binding, body.bundle)) throw new Error('INVALID_JSON');
+        let state;
+        try { state = store.joinRoom(
           roomId,
           body.bundle,
           body.proof,
           body.deviceAccessToken,
           body.deviceName ?? '此设备',
           body.capabilities ?? [],
-        );
+          body.chamber,
+        ); } catch (cause) {
+          if (cause instanceof Error && cause.message === 'INVITATION_CODE_INVALID') store.chamberInvitations.recordWrongCode(roomId, body.chamber?.secret);
+          throw cause;
+        }
         broadcast(roomId, { type: 'membership', state: publicState(state) });
         broadcastPresence(roomId);
         json(request, response, 201, publicState(state));
@@ -887,6 +1065,7 @@ export async function startServer(options = {}) {
 
       const jointMatch = pathname.match(new RegExp(`^/api/rooms/(${ID_PATTERN})/joint-recovery(?:/(${ID_PATTERN}))?$`));
       if (jointMatch) {
+        if(store.chamberInvitations.exists(jointMatch[1]))throw new Error('PERSONAL_IDENTITY_REQUIRED');
         if (!allowRequest(request, 'joint-recovery', 120)) {
           json(request, response, 429, { error: '恢复请求过于频繁', code: 'RATE_LIMITED' }); return;
         }
@@ -983,6 +1162,7 @@ export async function startServer(options = {}) {
           return;
         }
         requireActiveDevice(request, roomId, device.deviceId);
+        if (envelope.personalAccess) await store.personalDevices.verifyAuthorization(roomId, envelope);
         const storedEvent = store.saveMlsEvent(roomId, envelope);
         const state = publicState(store.roomState(roomId));
         if (!storedEvent.duplicate) {

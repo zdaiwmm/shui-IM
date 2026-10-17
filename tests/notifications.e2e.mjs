@@ -32,7 +32,15 @@ try {
       Object.defineProperty(window, 'PushManager', { configurable: true, value: class {} });
       Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { ready: Promise.resolve({ pushManager: { getSubscription: async () => endpoint ? subscription() : null, subscribe: async () => { subscribeCount++; endpoint = 'https://push.example.test/' + crypto.randomUUID(); return subscription(); } }, getNotifications: async () => [] }) } });
       const { generateIdentity } = await import('/src/lib/crypto.ts'); const { createRoom } = await import('/src/lib/api.ts'); const { randomBase64Url } = await import('/src/lib/base64.ts');
-      const make = async () => { const identity = await generateIdentity(), accessToken = randomBase64Url(32); const room = await createRoom(identity.publicBundle, accessToken, randomBase64Url(32), '本机', []); return { v: 3, roomId: room.roomId, accessToken, role: 'creator', pairingSecret: '', creatorFingerprint: 'f'.repeat(43), identity, members: [{ ...identity.publicBundle, role: 'creator', status: 'active' }], lastSeq: 0, createdAt: room.createdAt, protocol: 'legacy-v1', pairingState: 'ready', recoveryExperience: { completed: 'created', coverEnabled: false } }; };
+      const make = async () => {
+        let step = 'generate independent device keys';
+        try {
+          const identity = await generateIdentity(), accessToken = randomBase64Url(32);
+          step = 'create synthetic room';
+          const room = await createRoom(identity.publicBundle, accessToken, randomBase64Url(32), '本机', []);
+          return { v: 3, roomId: room.roomId, accessToken, role: 'creator', pairingSecret: '', creatorFingerprint: 'f'.repeat(43), identity, members: [{ ...identity.publicBundle, role: 'creator', status: 'active' }], lastSeq: 0, createdAt: room.createdAt, protocol: 'legacy-v1', pairingState: 'ready', recoveryExperience: { completed: 'created', coverEnabled: false } };
+        } catch (cause) { throw new Error(`Synthetic ${mode} notification setup failed at ${step}: ${cause.name}: ${cause.message}`, { cause }); }
+      };
       window.aVault = await make(); window.bVault = await make();
       window.np = await import('/src/lib/notification-policy.ts');
       if (mode === 'chromium') {
@@ -168,8 +176,8 @@ try {
     }
     await page.locator('#notification-copy-reset').click();
     await saveCopy.click(); await page.waitForFunction(() => document.querySelector('.notification-copy-feedback').textContent === '已保存');
-    assert.equal(await titleInput.inputValue(), 'Quiet Room');
-    assert.equal(await page.locator('.notification-copy-text').isVisible(), false, 'default uses the unchanged cropped source pixels');
+    assert.equal(await titleInput.inputValue(), 'Chamber');
+    assert.equal(await page.locator('.notification-copy-text').isVisible(), true, 'default preview must display the current Chamber brand');
     await page.setViewportSize({ width: 393, height: 852 }); await page.emulateMedia({ colorScheme: 'light' });
     if (await page.locator('details').evaluate(el => el.open)) await page.locator('summary').click();
     await titleInput.scrollIntoViewIfNeeded();

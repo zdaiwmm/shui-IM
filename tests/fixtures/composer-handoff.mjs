@@ -91,7 +91,9 @@ export async function verifyHandoffEntryPages(page) {
         const {platformVaultSetupState}=await import('/src/lib/platform-vault.ts');
         const password=kind==='create'&&platformVaultSetupState()==='unsupported';
         if(kind==='create'){const {defaultSpaceAvatar}=await import('/src/lib/space-avatar.ts');app.renderCreateProtection({name:'合成空间',avatar:defaultSpaceAvatar()});}
-        else app.renderJoin({roomId:'entry-visual-probe',accessToken:'synthetic-visual-only'});
+        // This fixture measures the protection form only. Invitation preflight
+        // and exclusive claims are exercised against a real backend elsewhere.
+        else app.renderJoinProtection({roomId:'entry-visual-probe',accessToken:'synthetic-visual-only'});
         await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
         const gateway=document.querySelector('.gateway'),bounds=gateway.getBoundingClientRect(),content=gateway.querySelector('.gateway-intro-content'),actions=gateway.querySelector('.welcome-actions').getBoundingClientRect(),button=gateway.querySelector('[data-device-verify]').getBoundingClientRect();
         return {hero:gateway.dataset.hero,art:gateway.querySelectorAll('.gateway-entry-hero>.entry-art-lock').length,

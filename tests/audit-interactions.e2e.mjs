@@ -64,9 +64,14 @@ try {
   await r.locator('#joint-code-close').click();
   results.firstIntentSurvivesRejectedConcurrentLink = true;
   for (const kind of ['repair', 'device', 'participant']) {
-    const url = await r.evaluate(kind => {
+    const url = await r.evaluate(async kind => {
       const base = { v: 1, roomId: crypto.randomUUID(), creatorFingerprint: 'a'.repeat(43) };
-      if (kind === 'participant') return links.makeParticipantInviteUrl({ ...base, accessToken: 'b'.repeat(43), pairingSecret: 'c'.repeat(43) });
+      if (kind === 'participant') {
+        // Participant routing now preflights the real invitation before any
+        // protection UI. Keep this navigation test on an actual old room.
+        const identity=await c.generateIdentity(),room=await api.createRoom(identity.publicBundle,'a'.repeat(43),'b'.repeat(43));
+        return links.makeParticipantInviteUrl({v:1,roomId:room.roomId,creatorFingerprint:await c.bundleFingerprint(identity.publicBundle),accessToken:'b'.repeat(43),pairingSecret:'c'.repeat(43)});
+      }
       if (kind === 'device') return links.makeDeviceInviteUrl({ ...base, kind: 'device-link', linkId: crypto.randomUUID(), secret: 'b'.repeat(43), role: 'creator', authorizerId: crypto.randomUUID(), authorizerFingerprint: 'a'.repeat(43), expiresAt: new Date(Date.now() + 600000).toISOString() });
       return links.makeRepairInviteUrl({ ...base, kind: 'repair-link', linkId: crypto.randomUUID(), secret: 'b'.repeat(43), sourceDeviceId: crypto.randomUUID(), initiatorId: crypto.randomUUID(), initiatorFingerprint: 'a'.repeat(43), sourceFingerprint: 'a'.repeat(43), expiresAt: new Date(Date.now() + 600000).toISOString() });
     }, kind);

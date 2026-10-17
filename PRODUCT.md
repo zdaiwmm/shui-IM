@@ -1,5 +1,11 @@
 # Product
 
+## Confirmed Chamber personal identity, 2026-10-17
+
+The [Chamber contract](CHAMBER_IDENTITY.md) governs newly created personal-root rooms and each explicitly completed legacy migration. Actual application-lock setup precedes mnemonic generation; WebAuthn PRF is preferred and confirmed unsupported/recognized embedded environments use the accepted six-digit fallback. BIP39 English 12-word identity, independent random chat-device keys, automatic data-only history backup, and cryptographic participation by both original roots replace the legacy recovery-checkpoint model for these rooms. Neither root nor device private keys are uploaded, including encrypted copies; staged old rooms retain their explicitly documented old capabilities until verified cutover.
+
+An invitation has one atomic claimant before identity creation and a fixed 30-minute deadline from that claim. A receives the code automatically when B is ready; B directly sees code entry and a countdown. Chat guidance has exactly three steps: 助记词 → 入口遮蔽 → 自动锁定. Extra creation is hidden for these rooms; existing space switching and creator Safe ownership remain. Closing requires the complete own phrase and stops all communication, retaining completed backups. Both original roots can confirm the same 30-minute request to start a fresh MLS generation; historical decryption remains a separate two-person operation. Old spaces keep their current behavior until both independently verify recovery and history and jointly approve migration. Later sections describing QR3/QR4, default-off history or same-participant device links continue to define retained legacy behavior. Evidence and release state are separate in the [requirement record](docs/requirements/2026-10-16-personal-mnemonic-friends/README.md).
+
 ## Confirmed 2026-10-15 Space and Voice Refinement
 
 The [fourteen-item V1](docs/requirements/2026-10-15-mobile-space-voice/README.md) is confirmed for direct implementation without a prototype/flowchart. Original-participant Welcome is authenticated and installed before later MLS commits or application decryption. Ciphertext arriving while bootstrap is pending remains queued; invalid signatures and roster/sequence failures still fail closed. A joined room clears its waiting flag locally and in its encrypted catalog.

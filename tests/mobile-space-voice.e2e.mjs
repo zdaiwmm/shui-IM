@@ -1,3 +1,4 @@
+import { legacyCreationPlugin } from './fixtures/legacy-create.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -8,7 +9,7 @@ import { startServer } from '../server/index.mjs';
 import { fillFormInput } from './helpers/form-input.mjs';
 const dataDir=await mkdtemp(path.join(tmpdir(),'qr-space-voice-'));
 const backend=await startServer({dataDir,port:0,host:'127.0.0.1',quiet:true});
-const vite=await createServer({configFile:false,root:process.cwd(),logLevel:'error',plugins:[{
+const vite=await createServer({configFile:false,root:process.cwd(),logLevel:'error',plugins:[legacyCreationPlugin,{
   name:'observe-app',enforce:'pre',transform(code,id){if(id===path.join(process.cwd(),'src/main.ts'))return code.replace('void app.start();','window.app = app; window.started = app.start();');}
 }],server:{host:'127.0.0.1',port:0,hmr:false,proxy:{'/api':`http://127.0.0.1:${backend.port}`,'/ws':{target:`ws://127.0.0.1:${backend.port}`,ws:true}}}});
 let browser;

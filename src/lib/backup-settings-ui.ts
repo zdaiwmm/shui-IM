@@ -10,8 +10,8 @@ export function paintCloudBackup(root: HTMLElement, session: VaultSession, error
   const policy = session.vault.cloudBackupPreference;
   toggle.setAttribute('aria-checked', String(Boolean(policy?.enabled)));
   toggle.disabled = !policy || toggle.dataset.saving === 'true';
-  const time = session.vault.backup?.historySyncedAt;
-  status.textContent = error || (!policy ? '正在读取设置…' : !policy.enabled ? '已关闭，已有云端备份仍可恢复。'
+  const time = session.vault.personalBinding ? session.vault.chamberBackup?.syncedAt : session.vault.backup?.historySyncedAt;
+  status.textContent = error || (session.vault.personalBinding?session.vault.chamberBackup?.paused:'') || (!policy ? '正在读取设置…' : !policy.enabled ? '已关闭，已有云端备份仍可恢复。'
     : !navigator.onLine ? '等待联网后自动备份。' : running ? '已开启，正在自动备份。'
     : time ? `上次备份：${new Date(time).toLocaleString()}` : '已开启，打开并解锁页面时自动备份。');
   const retry = root.querySelector<HTMLButtonElement>('[data-cloud-retry]');
@@ -57,9 +57,9 @@ export function attachCloudBackupSwitch(options: { root: HTMLElement; session: V
     overlay.innerHTML = `<div class="recovery-code-panel backup-privacy-panel" tabindex="-1">
       <h2 id="backup-privacy-title">开启前，请了解这些</h2>
       <ul><li><strong>聊天先在设备上加密。</strong>平台保存的是加密后的内容，无法直接查看，也不保管你的恢复码。</li>
-      <li><strong>请保管好恢复码。</strong>别人拿到它可能读取备份；丢失后，平台无法替你找回。</li>
+      <li>${session.vault.personalBinding ? '<strong>历史解密需要双方。</strong>双方各自在自己的设备上验证助记词并同意本次恢复，参与时间为 30 分钟。' : '<strong>请保管好恢复码。</strong>别人拿到它可能读取备份；丢失后，平台无法替你找回。'}</li>
       </ul>
-      <details><summary>还需要了解什么？</summary><p class="field-hint">平台仍会记录备份时间、大小、所属空间和设备等必要信息。照片和文件能否找回，还取决于原文件是否保留。</p><p class="field-hint">适用于这个空间中你的设备，不改变对方的设置。页面打开、解锁且联网时自动备份。关闭后保留已有备份；空间身份恢复所需的加密材料会继续保存。</p></details>
+      <details><summary>还需要了解什么？</summary><p class="field-hint">平台仍会记录备份时间、大小、所属空间和设备等必要信息。照片和文件能否找回，还取决于原文件是否保留。</p><p class="field-hint">适用于这个空间中你的设备，不改变对方的设置。页面打开、解锁且联网时自动备份。关闭后保留已有备份${session.vault.personalBinding?'和加密空间目录；助记词与设备私钥始终只保存在本机。':'；空间身份恢复所需的加密材料会继续保存。'}</p></details>
       <p class="form-error" role="alert"></p><button class="primary-button" data-enable type="button">了解并开启</button><button class="text-button" data-cancel type="button">暂不开启</button>
     </div>`;
     root.append(overlay);

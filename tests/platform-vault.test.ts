@@ -225,7 +225,7 @@ describe('platform vault WebAuthn cancellation', () => {
 
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       publicKey: expect.objectContaining({
-        rp: { id: 'ai.shui.click', name: 'Quiet Room' },
+        rp: { id: 'ai.shui.click', name: 'Chamber' },
         authenticatorSelection: expect.objectContaining({
           residentKey: 'required',
           userVerification: 'required',

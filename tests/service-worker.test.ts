@@ -91,7 +91,7 @@ describe('generic notifications and durable device opt-out', () => {
     await app.push(); expect(app.notifications).toEqual([]);
     app.stored.set('/__quiet-room-notification-policy', new Response('on'));
     await app.push();
-    expect(app.notifications).toEqual([{ title: 'Quiet Room', options: { body: '有一条新消息，解锁后查看。', icon: '/icon.svg', badge: '/icon.svg', tag: 'quiet-room-wake', renotify: false, silent: false, data: { url: '/' } } }]);
+    expect(app.notifications).toEqual([{ title: 'Chamber', options: { body: '有一条新消息，解锁后查看。', icon: '/icon.svg', badge: '/icon.svg', tag: 'quiet-room-wake', renotify: false, silent: false, data: { url: '/' } } }]);
   });
   it('retains generic wakes for existing subscribers until settings are migrated', async () => {
     const app = await worker(async () => shell()); await app.push(); expect(app.notifications).toHaveLength(1);
@@ -108,7 +108,7 @@ describe('generic notifications and durable device opt-out', () => {
   it('falls back on corrupt copy and applies the same grapheme limits as the editor', async () => {
     for (const raw of ['{', '{"v":2}', JSON.stringify({ v: 1, title: 'x'.repeat(25), body: 'x' }), JSON.stringify({ v: 1, title: 'x', body: '\u0000' })]) {
       const app = await worker(async () => shell()); app.stored.set('/__quiet-room-notification-copy', new Response(raw));
-      await app.push(); expect(app.notifications[0]).toMatchObject({ title: 'Quiet Room', options: { body: '有一条新消息，解锁后查看。' } });
+      await app.push(); expect(app.notifications[0]).toMatchObject({ title: 'Chamber', options: { body: '有一条新消息，解锁后查看。' } });
     }
     const app = await worker(async () => shell());
     app.stored.set('/__quiet-room-notification-copy', new Response(JSON.stringify({ v: 1, title: '👨‍👩‍👧‍👦'.repeat(24), body: '  ' })));

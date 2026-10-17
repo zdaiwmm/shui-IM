@@ -11,6 +11,8 @@ import { validSpaceAvatar, type SpaceAvatar } from './space-avatar';
 
 export type PrivateSpace = {
   roomId: string; name: string; avatar?: SpaceAvatar; localId?: string; code?: string; waiting?: boolean;
+  chamber?: boolean;
+  closed?: boolean;
   /** Explicitly authorized history sources, inside the encrypted recovery directory only. */
   historyCodes?: string[];
   /** When this participant created the space. Used only for the one-hour waiting limit. */
@@ -25,7 +27,8 @@ export type PrivateSpace = {
 export const PENDING_SPACE_TTL_MS = 60 * 60 * 1000;
 
 /** Waiting spaces expire one hour after creation. Joined spaces have no deadline. */
-export function pendingSpaceExpiry(space: Pick<PrivateSpace, 'waiting' | 'createdAt'>): number | null {
+export function pendingSpaceExpiry(space: Pick<PrivateSpace, 'waiting' | 'createdAt' | 'chamber'>): number | null {
+  if (space.chamber) return null;
   if (!space.waiting || !space.createdAt) return null;
   const created = Date.parse(space.createdAt);
   if (!Number.isFinite(created)) return null;
@@ -134,6 +137,8 @@ export async function rememberLocalSpace(session: VaultSession, inheritedCode?: 
     } else if (summary) { entry.preview = summary.preview; entry.previewDeviceId = vault.identity.publicBundle.deviceId; entry.observer = summary.observer; }
 
     entry.waiting = !vault.members.some(m => m.role !== vault.role && (m.status === undefined || m.status === 'active'));
+    entry.chamber = Boolean(vault.personalBinding);
+    entry.closed = Boolean(vault.chamberLifecycle?.closed);
     if (vault.backup?.syncedAt && !vault.backup.replaces && !vault.recoverySource) entry.code = vault.backup.code;
     if (rename) {
       const target = spaces.find(s => s.roomId === rename.roomId);
@@ -160,7 +165,7 @@ export async function forgetLocalSpace(session: VaultSession, roomId: string): P
 export async function localSpaces(session: VaultSession): Promise<PrivateSpace[]> {
   const spaces = await rememberLocalSpace(session);
   const present = await Promise.all(spaces.map(s => s.localId ? localSpaceExists(s.localId) : false));
-  return spaces.filter((_, i) => present[i]).map(s => ({ ...s, unread: s.observer?.count }));
+  return spaces.filter((space, i) => present[i] && !space.closed).map(s => ({ ...s, unread: s.observer?.count }));
 }
 async function request(code: string, signal: AbortSignal, session?: VaultSession, value?: unknown): Promise<Response> {
   const response = await fetch(`/api/space-directories/${spaceCodeId(code)}`, { method: session ? 'PUT' : 'GET', cache: 'no-store', credentials: 'omit', signal: AbortSignal.any([signal, AbortSignal.timeout(20_000)]), headers: {
@@ -187,6 +192,7 @@ export async function rememberHistorySources(session: VaultSession, codes: strin
   });
 }
 export async function syncSpaceDirectory(session: VaultSession, signal: AbortSignal): Promise<void> {
+  if (session.vault.personalBinding) { await (await import('./personal-directory-sync')).syncPersonalDirectory(session, signal); if(session.vault.personalMigration?.state !== 'staged')return; }
   await rememberLocalSpace(session);
   const code = session.vault.spaceRecoveryCode!;
   if (!session.vault.backup?.syncedAt || session.vault.backup.replaces || session.vault.recoverySource) return;

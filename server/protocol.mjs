@@ -124,9 +124,9 @@ export function validateMlsMembershipShape(envelope, expectedRoomId) {
     envelope.signature.length > 512
   ) return false;
   if (envelope.action === 'update') return envelope.senderId === envelope.targetId && validRetentionBoundary(envelope.retention) &&
-    ['target', 'welcome', 'replacedDeviceId', 'recoveryRequest', 'repairRequest', 'browserAccess'].every(key => envelope[key] === undefined);
+    ['target', 'welcome', 'replacedDeviceId', 'recoveryRequest', 'repairRequest', 'browserAccess', 'personalAccess'].every(key => envelope[key] === undefined);
   if (envelope.action === 'replace') {
-    if (envelope.browserAccess !== undefined) return false;
+    if (envelope.browserAccess !== undefined || envelope.personalAccess !== undefined) return false;
     const recovery = envelope.recoveryRequest;
     const repair = envelope.repairRequest;
     const validRequest = (validateRecoveryRequestShape(recovery, expectedRoomId) && !repair) || (validateRepairRequestShape(repair, expectedRoomId) && !recovery);
@@ -147,11 +147,20 @@ export function validateMlsMembershipShape(envelope, expectedRoomId) {
   }
   if (envelope.replacedDeviceId !== undefined || envelope.recoveryRequest !== undefined || envelope.repairRequest !== undefined) return false;
   if (envelope.action === 'add') {
+    if (envelope.personalAccess && envelope.browserAccess) return false;
+    if (envelope.personalAccess) {
+      const a = envelope.personalAccess, request = a.request, p = request?.payload;
+      if (Object.keys(a).sort().join(',') !== 'approvedAt,approverBinding,request' || !p || p.roomId !== expectedRoomId ||
+        request.proof?.action !== 'bind-device' || request.proof?.roomId !== expectedRoomId || request.proof?.deviceId !== envelope.targetId ||
+        !validatePublicBundle(p.bundle) || p.role !== envelope.target?.role || typeof a.approvedAt !== 'string' ||
+        !isCanonicalUtcTimestamp(a.approvedAt) || !a.approverBinding ||
+        canonicalStringify(p.bundle) !== canonicalStringify({ deviceId: envelope.target.deviceId, encryptionKey: envelope.target.encryptionKey, signingKey: envelope.target.signingKey, mlsKeyPackage: envelope.target.mlsKeyPackage })) return false;
+    }
     return validatePublicBundle(envelope.target) &&
       envelope.target.deviceId === envelope.targetId &&
       ['creator', 'joiner'].includes(envelope.target.role) &&
       envelope.target.status === 'pending' &&
-      (envelope.browserAccess === undefined ? envelope.target.addedBy === envelope.senderId :
+      (envelope.personalAccess ? isUuid(envelope.target.addedBy) : envelope.browserAccess === undefined ? envelope.target.addedBy === envelope.senderId :
         validAccessProof(envelope.browserAccess, expectedRoomId) &&
         envelope.target.addedBy === envelope.browserAccess.certificate.sourceDeviceId &&
         canonical(envelope.browserAccess.request.target) === canonical({deviceId:envelope.target.deviceId,encryptionKey:envelope.target.encryptionKey,signingKey:envelope.target.signingKey,mlsKeyPackage:envelope.target.mlsKeyPackage})) &&
@@ -160,7 +169,7 @@ export function validateMlsMembershipShape(envelope, expectedRoomId) {
       envelope.welcome.length <= 256 * 1024 &&
       /^[A-Za-z0-9_-]+$/.test(envelope.welcome);
   }
-  return envelope.target === undefined && envelope.welcome === undefined && envelope.browserAccess === undefined;
+  return envelope.target === undefined && envelope.welcome === undefined && envelope.browserAccess === undefined && envelope.personalAccess === undefined;
 }
 
 export function validateRecoveryRequestShape(request, expectedRoomId) {

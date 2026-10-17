@@ -10,7 +10,7 @@ export function readRecoveryCard(text: string): string {
   if (code.startsWith('{')) {
     let card: RecoveryCard;
     try { card = JSON.parse(code); } catch { throw new Error('恢复卡文件不完整，请重新选择'); }
-    if (card?.format !== 'quiet-room-recovery-card' || card.version !== 1 || typeof card.recoveryCode !== 'string') throw new Error('无法识别这张恢复卡，请选择 Quiet Room 恢复卡');
+    if (card?.format !== 'quiet-room-recovery-card' || card.version !== 1 || typeof card.recoveryCode !== 'string') throw new Error('无法识别这张恢复卡，请选择 Chamber 恢复卡');
     code = card.recoveryCode;
   }
   if (code.startsWith('QR4-')) spaceCodeId(code);

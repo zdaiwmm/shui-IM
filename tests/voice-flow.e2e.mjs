@@ -223,7 +223,14 @@ export async function verifyVoiceFlow({ creator, joiner, unlock, visualQaDirecto
     navigator.mediaDevices.getUserMedia = async () => { throw new DOMException('Denied', 'NotAllowedError'); };
   });
   await creator.locator('#message-input').press('Alt+r');
-  await creator.locator('#notice').filter({ hasText: '麦克风权限' }).waitFor();
+  await creator.locator('#notice').filter({ hasText: '麦克风权限' }).waitFor().catch(async cause=>{
+    console.error('Synthetic microphone permission diagnostic',await creator.evaluate(()=>({
+      hidden:document.hidden,focused:document.hasFocus(),notice:document.querySelector('#notice')?.textContent,
+      recorder:document.querySelector('.voice-recorder')?.getAttribute('data-state'),inputDisabled:document.querySelector('#message-input')?.disabled,
+      session:Boolean(window.__legacyApp?.session),surface:window.__legacyApp?.activeSurface,connection:window.__legacyApp?.connectionState,
+      accessFailure:window.__legacyApp?.accessFailure,locked:window.__legacyApp?.privacyCovered,
+    })));throw cause;
+  });
   assert.equal(await creator.locator('.voice-recorder').isVisible(), false);
   await creator.evaluate(() => { navigator.mediaDevices.getUserMedia = window.__voiceWrappedGetUserMedia; });
   creator.off('pageerror', onError); joiner.off('pageerror', onError);

@@ -1,6 +1,6 @@
 {
-  "name": "Quiet Room",
-  "short_name": "Quiet Room",
+  "name": "Chamber",
+  "short_name": "Chamber",
   "description": "A private two-person encrypted room.",
   "start_url": "/",
   "id": "/",

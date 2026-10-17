@@ -4,9 +4,9 @@ import { spaceNotificationEnabled } from './notification-policy';
 import { type NotificationCapability } from './push';
 const copy: Record<NotificationCapability, [string, string]> = {
   available: ['本机支持通知', '开启后，系统会在有新消息时提醒你。'],
-  'home-screen': ['添加到主屏幕后可用', '在 Safari 的分享菜单中选择“添加到主屏幕”，再从主屏幕打开 Quiet Room 并开启通知。'],
-  unsupported: ['当前环境不支持通知', '请使用支持 Web Push 的浏览器，并通过安全连接打开 Quiet Room。'],
-  blocked: ['系统已阻止通知', '请在浏览器或系统设置中允许 Quiet Room 使用通知，再回来开启。'],
+  'home-screen': ['添加到主屏幕后可用', '在 Safari 的分享菜单中选择“添加到主屏幕”，再从主屏幕打开 Chamber 并开启通知。'],
+  unsupported: ['当前环境不支持通知', '请使用支持 Web Push 的浏览器，并通过安全连接打开 Chamber。'],
+  blocked: ['系统已阻止通知', '请在浏览器或系统设置中允许 Chamber 使用通知，再回来开启。'],
   unavailable: ['通知服务暂不可用', '本机可以使用通知，服务暂时无法提供通知。请稍后重试。'],
   unknown: ['暂时无法确认', '请检查网络后重试。当前状态无法确认是否可以接收通知。'],
 };

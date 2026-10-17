@@ -110,6 +110,8 @@ try {
   await page.evaluate(async () => {
     await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
     const { QuietRoomApp } = await import('/src/app.ts'); window.app = new QuietRoomApp(document.querySelector('#app'));
+    // This journey verifies retained old multi-space creation and checkpoints.
+    (await import('/tests/fixtures/legacy-create.mjs')).installLegacyApp(app);
     app.session=a; app.privacyCovered=false; app.runtimeAbort=new AbortController(); app.updateBackgroundNotificationControl=async()=>{};
     app.showReleaseNotesIfNeeded=()=>{}; app.renderChat();
   });

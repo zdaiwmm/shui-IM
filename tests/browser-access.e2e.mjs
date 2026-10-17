@@ -21,6 +21,7 @@ try {
     await page.evaluate(async()=>{
       await (await import('/tests/fixtures/product-styles.ts')).loadProductStyles();
       const {QuietRoomApp}=await import('/src/app.ts');window.app=new QuietRoomApp(document.querySelector('#app'));app.privacyCovered=false;
+      (await import('/tests/fixtures/legacy-create.mjs')).installLegacyApp(app);
       // Isolate authorization from unrelated backup prompts and release notes.
       app.startAutomaticBackup=()=>{};app.showPairingWelcome=()=>{};app.showReleaseNotesIfNeeded=()=>{};app.updateBackgroundNotificationControl=async()=>{};
       window.v=await import('/src/lib/vault.ts');window.api=await import('/src/lib/api.ts');window.access=await import('/src/lib/browser-access.ts');
