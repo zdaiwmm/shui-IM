@@ -28,7 +28,7 @@ try {
   async function create(page,name,first=false) {
     if(first)await page.locator('#create-room').click();else {await page.locator('#open-spaces').click();await page.locator('#space-create').click();}
     await fillFormInput(page,page.locator('#new-space-name'),name);await page.locator('#profile-done').click();
-    if(first){await page.locator('[data-device-verify]').waitFor();assert.equal(await page.locator('#new-device-alias,.entry-support,.recovery-explanation').count(),0);assert.equal(await page.locator('[data-device-verify]').innerText(),'设置密钥并创建空间');await page.locator('[data-device-verify]').click();}
+    if(first){await page.locator('[data-device-verify]').waitFor();assert.equal(await page.locator('#new-device-alias,.entry-support,.recovery-explanation').count(),0);assert.equal(await page.locator('[data-device-verify]').innerText(),'设置应用锁并创建密室');await page.locator('[data-device-verify]').click();}
     await page.locator('#invite-url').waitFor();assert.match(await page.locator('#invite-countdown').innerText(),/剩余 \d\d:\d\d，超时未加入则此空间自动销毁。/);
     return page.locator('#invite-url').inputValue();
   }
@@ -59,6 +59,7 @@ try {
   // Old source list remains mounted behind creation and is visible throughout pop.
   await b.locator('#open-spaces').click();await b.locator('#space-create').click();
   assert.equal(await b.locator('.is-space-list-page').count(),1);
+  await b.locator('#profile-back').waitFor();
   const returned=await b.evaluate(async()=>{
     const samples=[];const end=performance.now()+400;document.querySelector('#profile-back').click();
     do{const profile=document.querySelector('.space-profile-overlay');const list=document.querySelector('.is-space-list-page > .space-drawer');

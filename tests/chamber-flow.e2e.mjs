@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { chromium } from 'playwright';
@@ -25,6 +25,13 @@ try {
     const page = await context.newPage(); page.setDefaultTimeout(20_000); page.on('pageerror', error => errors.push(error.message)); pages.push(page);
   }
   const [a, b, c] = pages, url = `http://127.0.0.1:${vite.httpServer.address().port}/`;
+  const blocked = await browser.newPage({viewport:{width:390,height:844}});
+  await blocked.addInitScript(() => { indexedDB.open = () => { throw new DOMException('Synthetic blocked storage', 'SecurityError'); }; });
+  await blocked.goto(`${url}#invite=synthetic-startup`);
+  await blocked.locator('#startup-retry').waitFor();
+  assert.equal(await blocked.evaluate(() => location.hash), '#invite=synthetic-startup');
+  assert.match(await blocked.locator('#app h1').textContent(), /无法打开/);
+  await blocked.close();
   await a.goto(url); await a.locator('.chamber-brand').waitFor();
   await a.locator('.chamber-room').evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)));
   await a.screenshot({ path: '/private/tmp/chamber-home-390.png' });
@@ -46,22 +53,67 @@ try {
     }
     await route.continue();
   });
-  await a.locator('#create-room').click(); await fillFormInput(a, a.locator('#new-space-name'), '合成 Chamber 验收'); await a.locator('#profile-done').click();
+  await a.locator('#create-room').click(); assert.equal(await a.locator('.space-profile-overlay').count(), 0);
   await a.locator('.numeric-password-page').waitFor();
   assert.match(await a.locator('.numeric-browser-hint').textContent(), /系统浏览器/);
   await submitPassword(a, '246810'); await a.locator('.chat-shell').waitFor();
   assert.equal(protectedBeforeRoom, true);
   assert.equal(deviceBeforeRoom, true); assert.equal(lostCreateResponse, true); assert.equal(creationIds.size, 1);
-  assert.match(await a.locator('#invite-countdown').textContent(), /首次进入后.*30/);
+  assert.equal(await a.locator('.entry-invite-status').isVisible(), false);
+  assert.equal(await a.locator('#chamber-invite-restart').isVisible(), false);
   assert.deepEqual(await a.locator('[data-personal-guide] strong').allTextContents(), ['助记词', '入口遮蔽', '自动锁定']);
   assert.equal(await a.getByText('稍后再设', { exact: true }).count(), 0);
+  const evidence=process.env.QUIET_ROOM_UI_EVIDENCE;
+  if(evidence)await mkdir(evidence,{recursive:true});
+  const capture=async name=>{if(evidence)await a.screenshot({path:path.join(evidence,`${name}.png`),animations:'disabled'});};
+  await capture('inviter-before-claim');
+  const floating=await a.locator('.chamber-chat-header').evaluate(header=>({background:getComputedStyle(header).backgroundColor,
+    capsule:header.querySelector('.chamber-presence-capsule').getBoundingClientRect().height,settings:header.querySelector('#chat-settings').getBoundingClientRect().height}));
+  assert.equal(floating.background,'rgba(0, 0, 0, 0)');assert.ok(floating.capsule>=44&&floating.settings>=44);
+  for(const scheme of ['light','dark']) {
+    await a.emulateMedia({colorScheme:scheme});
+    await a.waitForFunction(scheme=>document.documentElement.dataset.colorScheme===scheme,scheme);
+    await a.locator('[data-personal-guide="mnemonic"]').click();
+    await a.locator('.chamber-mnemonic-page').waitFor();
+    await a.waitForFunction(()=>!document.querySelector('#app > .page-transition-incoming, #app > .page-transition-outgoing'));
+    assert.equal(await a.locator('.chamber-mnemonic-page header').count(),0);
+    await a.locator('.chamber-mnemonic-page .chamber-brand').evaluate(async mark=>{await Promise.all(mark.getAnimations({subtree:true}).filter(animation=>Number.isFinite(Number(animation.effect?.getComputedTiming().endTime))).map(animation=>animation.finished));});
+    assert.ok(await a.locator('.chamber-mnemonic-page .chamber-person-one').evaluate(person=>Number(getComputedStyle(person).opacity)>.9));
+    const brand=await a.locator('.chamber-mnemonic-page .chamber-brand').boundingBox();assert.ok(Math.abs(brand.x+brand.width/2-195)<1,JSON.stringify(brand));
+    const back=await a.locator('[data-personal-back]').boundingBox();assert.ok(back.y+back.height<=844);
+    await capture(`mnemonic-${scheme}`);await a.locator('[data-personal-back]').click();
+    await a.locator('[data-personal-guide="auto-lock"]').click();await a.locator('.auto-lock-page').waitFor();
+    assert.equal(await a.locator('[data-idle-toggle]').getAttribute('aria-checked'),'false');
+    assert.equal(await a.locator('[data-hidden-lock]').getAttribute('aria-checked'),'true');
+    assert.equal(await a.locator('[data-blank-lock]').getAttribute('aria-checked'),'true');
+    await capture(`auto-lock-${scheme}`);await a.locator('#auto-lock-back').click();
+    await a.locator('[data-personal-guide="cover"]').click();await a.locator('.cover-practice-page').waitFor();
+    assert.equal(await a.locator('.cover-practice-page header').count(),0);
+    const footer=await a.locator('#practice-back').boundingBox();assert.ok(footer.y+footer.height<=844);
+    await capture(`cover-${scheme}`);await a.locator('#practice-back').click();
+  }
+  await a.emulateMedia({colorScheme:'light'});
   const invite = await a.locator('#invite-url').inputValue();
-  await b.goto(invite); await b.locator('.numeric-password-page').waitFor();
+  await b.route('**/api/rooms/*', route => route.fulfill({status:503,contentType:'application/json',body:JSON.stringify({error:'Synthetic temporary invitation failure'})}), {times:1});
+  await b.goto(invite); await b.locator('#join-unavailable-retry').waitFor();
+  await b.locator('#join-unavailable-retry').click(); await b.locator('.numeric-password-page').waitFor();
   // A competing visitor is rejected before a root, device key or password ceremony is created.
   await c.goto(invite); await c.getByText(/该密室已被其他人进入/).waitFor();
   assert.equal(await c.locator('.numeric-password-page').count(), 0);
   assert.equal(await c.evaluate(async () => (await (await import('/src/lib/vault.ts')).readPersonalIdentity()) === null), true);
+  await a.locator('#copy-chamber-code').waitFor();
+  const earlyCode = await a.evaluate(() => app.chamberInviteState.code);
+  assert.match(earlyCode, /^\d{4}$/);
+  await a.context().grantPermissions(['clipboard-read','clipboard-write']);
+  await a.locator('#copy-chamber-code').click();
+  assert.equal(await a.evaluate(()=>navigator.clipboard.readText()),earlyCode);
+  assert.equal(await a.locator('.entry-invite-status').isVisible(),true);
+  assert.match(await a.locator('#invite-countdown').textContent(),/验证码有效期 \d+:\d{2}/);
+  await capture('inviter-after-claim');
+  assert.equal(await a.locator('#chamber-invite-restart').isVisible(), true);
+  assert.equal(await b.locator('.numeric-browser-hint').count(), 0);
   await submitPassword(b, '135790'); await b.locator('.chamber-code-card').waitFor();
+  assert.equal(await a.evaluate(() => app.chamberInviteState.code), earlyCode);
   let before = await b.evaluate(() => ({ root: app.session.vault.personalBinding.identity.id, ...app.session.vault.pendingChamberInvitation }));
   await b.screenshot({ path: '/private/tmp/chamber-invite-390.png' });
   await auditP1Surface(b,'chamber-invite','.chamber-join-shell');
@@ -96,7 +148,8 @@ try {
   const copyBox = await a.locator('#copy-invite').boundingBox(), guideBox = await a.locator('.chamber-privacy-guide').boundingBox();
   assert.ok(copyBox && guideBox && guideBox.y > copyBox.y + copyBox.height, 'Invitation action comes before privacy guidance');
   await auditP1Surface(a, 'chamber-inviter', '.chat-shell');
-  assert.equal(await b.locator('[data-request]').textContent(), before.requestId.slice(0, 8));
+  assert.equal(await b.locator('[data-request]').count(), 0);
+  assert.equal(await a.locator('.chamber-invite-hero .chamber-privacy-guide').count(), 0);
   const digits = b.locator('[data-code-digit]');
   assert.equal(await digits.count(), 4);
   await digits.nth(0).pressSequentially('1234');

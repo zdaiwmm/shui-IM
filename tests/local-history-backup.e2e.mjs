@@ -193,26 +193,31 @@ try {
     const notice = document.querySelector('.cover-practice-notice');
     const back = document.querySelector('#practice-back')?.getBoundingClientRect();
     const noticeBox = notice?.getBoundingClientRect();
-    if (!hotspot || !guide || !noticeBox || !back) return null;
+    const cover = document.querySelector('.cover-practice-page > .cover')?.getBoundingClientRect();
+    if (!hotspot || !guide || !noticeBox || !back || !cover) return null;
     return {
       width: Math.round(hotspot.width),
       height: Math.round(hotspot.height),
-      right: innerWidth - hotspot.right,
-      bottom: innerHeight - hotspot.bottom,
+      right: cover.right - hotspot.right,
+      bottom: cover.bottom - hotspot.bottom,
       guideAbove: guide.bottom <= hotspot.top + 8,
       notice: notice?.textContent ?? '',
-      noticeBelowBack: noticeBox.top >= back.bottom - 1,
+      footerBelowCover: back.top >= cover.bottom - 1,
+      noticeAboveBack: noticeBox.bottom <= back.top,
+      headerCount: document.querySelectorAll('.cover-practice-page > header').length,
       noticeLeft: noticeBox.left,
       noticeRight: innerWidth - noticeBox.right,
     };
   });
   assert.equal(coverGeometry?.width, 80);
   assert.equal(coverGeometry?.height, 80);
-  assert.ok((coverGeometry?.right ?? 99) <= 8, 'practice hotspot is not at the live cover right edge');
-  assert.ok((coverGeometry?.bottom ?? 99) <= 8, 'practice hotspot is not at the live cover bottom edge');
+  assert.equal(Math.round(coverGeometry?.right ?? 0), 12, 'practice hotspot keeps its inset inside the example cover');
+  assert.equal(Math.round(coverGeometry?.bottom ?? 0), 12, 'practice hotspot stays above the separate bottom navigation');
   assert.equal(coverGeometry?.guideAbove, true);
-  assert.match(coverGeometry?.notice ?? '', /离开私密空间后.*自动进入遮蔽层/);
-  assert.equal(coverGeometry?.noticeBelowBack, true, 'cover practice notice overlaps the back button');
+  assert.match(coverGeometry?.notice ?? '', /锁定时显示普通网页外观.*遮蔽不是身份验证/);
+  assert.equal(coverGeometry?.footerBelowCover, true, 'back navigation stays below the practice cover');
+  assert.equal(coverGeometry?.noticeAboveBack, true, 'cover practice notice overlaps the back button');
+  assert.equal(coverGeometry?.headerCount, 0, 'cover practice has no top navigation bar');
   assert.ok((coverGeometry?.noticeLeft ?? 0) >= 12, 'cover practice notice does not keep left inset');
   assert.ok((coverGeometry?.noticeRight ?? 0) >= 12, 'cover practice notice does not keep right inset');
   const resumedPractice = await page.evaluate(() => {

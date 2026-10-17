@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { IdleLease, IDLE_DURATIONS, IDLE_WARNING_MS, idleSeconds, readIdleSeconds, saveIdleSeconds } from '../src/lib/idle-lock';
+import { IdleLease, IDLE_DURATIONS, IDLE_WARNING_MS, idleSeconds, readIdleSeconds, saveIdleSeconds, readHiddenLock, saveHiddenLock } from '../src/lib/idle-lock';
 function fixture() {
   const now = { wall: 100_000, monotonic: 1000 };
   const lease = new IdleLease(() => ({ ...now }));
@@ -45,14 +45,24 @@ describe('global idle authority', () => {
     expect(lease.renew(60)).toBe(false); expect(lease.setPersistentUse(true, 60)).toBe(false);
     lease.start(120); expect(lease.remaining).toBe(120_000); expect(lease.paused).toBe(false);
   });
-  it('invalid / unavailable preference falls back to 30; explicit existing choices survive', () => {
-    for (const value of [null, '', 'never', 10, 31, 600, NaN]) expect(idleSeconds(value)).toBe(30);
-    expect(readIdleSeconds({ getItem() { throw Error('denied'); } })).toBe(30);
+  it('invalid / unavailable preference falls back to disabled; explicit existing choices survive', () => {
+    for (const value of [null, '', 'never', 10, 31, 600, NaN]) expect(idleSeconds(value)).toBe(0);
+    expect(readIdleSeconds({ getItem() { throw Error('denied'); } })).toBe(0);
     for (const value of IDLE_DURATIONS) expect(idleSeconds(String(value))).toBe(value);
     const values = new Map<string, string>(); const storage = { getItem: (k: string) => values.get(k) ?? null, setItem: (k: string, v: string) => { values.set(k,v); } };
     saveIdleSeconds(storage, 120); expect(readIdleSeconds(storage)).toBe(120);
     expect(() => saveIdleSeconds({ setItem() { throw Error('quota'); } }, 300)).toThrow('quota');
     expect(readIdleSeconds(storage)).toBe(120);
+  });
+  it('keeps lifecycle locking enabled unless explicitly saved off, and retains the old value on failure', () => {
+    const values = new Map<string,string>();
+    const storage = { getItem: (key:string) => values.get(key) ?? null, setItem: (key:string,value:string) => { values.set(key,value); } };
+    expect(readHiddenLock(storage)).toBe(true);
+    saveHiddenLock(storage,false); expect(readHiddenLock(storage)).toBe(false);
+    expect(() => saveHiddenLock({setItem(){throw Error('quota');}},true)).toThrow('quota');
+    expect(readHiddenLock(storage)).toBe(false);
+    expect(readHiddenLock({getItem(){throw Error('denied');}})).toBe(true);
+    expect(readHiddenLock({getItem(){return 'invalid';}})).toBe(true);
   });
   it('never disables idle expiry while retaining fixed sensitive exposure caps', () => {
     const { lease, advance } = fixture(); lease.start(0); advance(86_400_000);

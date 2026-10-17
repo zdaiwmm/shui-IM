@@ -1,5 +1,14 @@
 # Quiet Room Design System
 
+## Chamber refinement, 2026-10-17
+
+The auto-lock page also has an independent device-local blank-area double-tap switch, enabled by default to preserve existing behavior. Disabling this gesture does not disable other lock authorities; failed writes retain the prior selection and preference changes reset any partial gesture.
+
+The [confirmed V1](docs/requirements/2026-10-17-chamber-refine/README.md) keeps P1 palettes and opaque control surfaces. The original local mark uses an architectural doorway and two people, centered together with the Chamber wordmark. Its finite 3.1-second frame/door/people sequence does not block actions; reduced motion displays the final mark immediately. Numeric protection adapts keys and decorative space to the actual visible viewport, keeps 44px minimum targets and puts the first-create-only browser hint last.
+
+Chamber removes the full-width header fill; the right-side status capsule and 44px circular Settings control keep separate opaque surfaces and quiet elevation. The invitation card and vertical three-step guide are sibling cards, without nested cards. Code, copy, deadline and restart appear after the unique claim; no visible request number. Mnemonic, cover practice and auto-lock use body titles, independently scrolling content and bottom-safe Back actions, superseding their previous top bars. Existing keyboard/layout ownership, accessible text enlargement and privacy teardown remain authoritative. Actual parameters are maintained in the mobile standard.
+
+
 ## Chamber identity and invitation, 2026-10-17
 
 The [confirmed Chamber scope](docs/requirements/2026-10-16-personal-mnemonic-friends/README.md) retains P1 tokens and uses an original local C/paired-point mark with a finite introductory animation. Reduced motion settles immediately. Create/join artwork keeps a stable horizontal position. App lock comes before identity creation; the chat guide has three ordered, visually explicit steps: 助记词, 入口遮蔽, 自动锁定, without a defer action. Mnemonic confirmation, read guidance and enabled privacy controls are distinct states.

@@ -1,4 +1,13 @@
 // Pointer events work for touch and mouse without depending on Safari emitting dblclick.
+export const BLANK_DOUBLE_LOCK_PREFERENCE_KEY = 'quiet-room:blank-double-lock';
+/** Existing installations retain the gesture unless this browser explicitly opts out. */
+export function readBlankDoubleLock(storage?: Pick<Storage, 'getItem'>): boolean {
+  try { return (storage ?? localStorage).getItem(BLANK_DOUBLE_LOCK_PREFERENCE_KEY) !== '0'; } catch { return true; }
+}
+export function saveBlankDoubleLock(storage: Pick<Storage, 'setItem'>, enabled: boolean): void {
+  storage.setItem(BLANK_DOUBLE_LOCK_PREFERENCE_KEY, enabled ? '1' : '0');
+}
+
 const controls = 'button,a,input,textarea,select,label,summary,[contenteditable]:not([contenteditable="false"]),'
   + '[role="button"],[role="link"],[role="checkbox"],[role="radio"],[role="slider"],[role="option"],[role="tab"],'
   + '[tabindex]:not([tabindex="-1"]):not(.message),img,video,audio,canvas,svg,iframe,object,embed,'

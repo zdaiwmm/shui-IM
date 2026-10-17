@@ -1,5 +1,18 @@
 # Product
 
+## Confirmed Chamber entry and privacy refinement, 2026-10-17
+
+The auto-lock page also has an independent device-local blank-area double-tap switch, enabled by default to preserve existing behavior. Disabling this gesture does not disable other lock authorities; failed writes retain the prior selection and preference changes reset any partial gesture.
+
+The [V1 refinement](docs/requirements/2026-10-17-chamber-refine/README.md) removes profile editing from creation. “创建聊天密室” starts local protection using a default private name/avatar, still editable afterwards; “找回密室” remains separate. The entry copy describes a discreet doorway for two people. Numeric setup is “设置应用锁” / “确认应用锁”; the unsupported-browser hint appears only on first creation, below the actions. Normal iPhone visible viewports fit one screen, while enlarged text retains scroll access.
+
+An atomic invitation claim fixes the existing 30-minute deadline and generates the creator-only four-digit code immediately. Candidate preparation does not rotate that code or deadline; activation still requires the same validated candidate, claim and code. Before a claim the invitation card contains no waiting, countdown or restart copy. After a claim it offers code copy, remaining validity and restart. Visible request numbers are removed; protocol request/version/binding checks remain. The privacy guide is a separate vertical card after invitation actions. Chamber header controls float independently over the wallpaper.
+
+Unconfigured idle expiry is now disabled; explicitly saved durations survive. A separate device-local switch enables screen-off/background locking by default. Browsers cannot reliably distinguish screen-off from a hidden tab, so they share that switch. Opting out permits an ordinary session to remain in page memory behind synchronous concealment; sensitive exposure, verification, pending recovery/enrollment, hard pagehide/freeze and explicit/security/idle locks retain their cleanup and verification requirements. Reload never restores this in-memory authority. Sensitive recovery words remain foreground-only and bounded to 60 seconds. Mnemonic, entrance-cover and auto-lock pages have body headings and bottom Back actions.
+
+Local startup/storage failure and invitation-network failure render actionable retry surfaces, retain encrypted records and never silently create another identity. Their synthetic regression evidence does not establish the root cause of every reported native WebView white screen. This section supersedes conflicting older entry/idle/header/back-navigation presentation rules only.
+
+
 ## Confirmed Chamber personal identity, 2026-10-17
 
 The [Chamber contract](CHAMBER_IDENTITY.md) governs newly created personal-root rooms and each explicitly completed legacy migration. Actual application-lock setup precedes mnemonic generation; WebAuthn PRF is preferred and confirmed unsupported/recognized embedded environments use the accepted six-digit fallback. BIP39 English 12-word identity, independent random chat-device keys, automatic data-only history backup, and cryptographic participation by both original roots replace the legacy recovery-checkpoint model for these rooms. Neither root nor device private keys are uploaded, including encrypted copies; staged old rooms retain their explicitly documented old capabilities until verified cutover.

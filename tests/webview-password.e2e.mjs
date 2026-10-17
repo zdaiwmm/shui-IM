@@ -1,5 +1,4 @@
-import { fillFormInput, cancelPasswordForm } from './helpers/form-input.mjs';
-import { completeSpaceProfile } from './fixtures/create-space.mjs';
+import { cancelPasswordForm } from './helpers/form-input.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -48,7 +47,11 @@ try {
       if (name === 'missing-storage') Object.defineProperty(window, 'indexedDB', { configurable: true, value: undefined });
       if (name === 'storage-quota') { const put = IDBObjectStore.prototype.put; IDBObjectStore.prototype.put = function(value, key) { if (String(key).startsWith('quiet-room:storage-probe:')) throw new DOMException('synthetic quota', 'QuotaExceededError'); return put.call(this, value, key); }; }
     }, name);
-    await page.locator('#create-room').click(); await completeSpaceProfile(page);
+    await page.locator('#create-room').click();
+    await page.locator('[data-device-verify]').waitFor();
+    assert.equal(await page.locator('#new-space-name, #profile-done').count(), 0, 'Creation skips profile setup');
+    await page.waitForFunction(() => document.querySelector('.password-sheet') || document.querySelector('[data-device-verify]')?.disabled === false);
+    if (!await page.locator('.password-sheet').count()) await page.locator('[data-device-verify]').click();
     if (fallback) {
       await page.locator('.password-create .password-form').waitFor();
       assert.equal(await page.locator('.password-form input').count(), 0, 'New numeric setup has no input or show-password control');

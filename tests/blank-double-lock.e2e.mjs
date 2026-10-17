@@ -39,6 +39,22 @@ try {
   await double({ x: 380, y: 750 });
   assert.equal(await locked(), true, 'Settings blank space must also lock');
 
+  // The independent local switch takes effect immediately, persists across
+  // rendering, and rolls back its UI if storage refuses the change.
+  await fresh();await page.clock.runFor(501);await page.evaluate(()=>window.fixture.app.renderAutoLockSettings());
+  assert.equal(await page.locator('[data-blank-lock]').getAttribute('aria-checked'),'true');
+  await page.locator('[data-blank-lock]').click();
+  assert.equal(await page.locator('[data-blank-lock]').getAttribute('aria-checked'),'false');
+  await fresh();await double(await chatPoint());assert.equal(await locked(),false,'Disabled blank gesture must leave chat open');
+  await page.evaluate(()=>{window.fixture.app.renderAutoLockSettings();window.originalBlankSetItem=Storage.prototype.setItem;
+    Storage.prototype.setItem=function(key,value){if(key==='quiet-room:blank-double-lock')throw Error('denied');return window.originalBlankSetItem.call(this,key,value);};});
+  await page.locator('[data-blank-lock]').click();
+  assert.equal(await page.locator('[data-blank-lock]').getAttribute('aria-checked'),'false');
+  assert.match(await page.locator('.form-error').textContent(),/保留原设置/);
+  await page.evaluate(()=>{Storage.prototype.setItem=window.originalBlankSetItem;});
+  await page.locator('[data-blank-lock]').click();assert.equal(await page.locator('[data-blank-lock]').getAttribute('aria-checked'),'true');
+  await fresh();await double(await chatPoint());assert.equal(await locked(),true,'Re-enabled gesture must use the normal full lock');
+
   // Keep explicit content/controls outside the blank-space gesture.
   await fresh();
   await page.evaluate(() => {

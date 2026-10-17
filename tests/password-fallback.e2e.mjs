@@ -93,7 +93,7 @@ try {
   await cancelledContext.close();
   await a.goto(url); await boot(a);
   assert.equal(await a.locator('#continue-browser').count(), 0);
-  assert.equal(await a.locator('#restore-cloud').textContent(), '找回空间');
+  assert.equal(await a.locator('#restore-cloud').textContent(), '找回密室');
   await a.locator('#create-room').click(); await completeSpaceProfile(a);
   await capture(a, 'F15-password-create');
   assert.equal(await a.locator('.password-form input').count(), 0, 'Numeric setup must not create input fields');

@@ -18,9 +18,9 @@ try {
  await vite.listen();browser=await chromium.launch(process.env.CI?{}:process.env.CHROME_PATH?{executablePath:process.env.CHROME_PATH}:{channel:'chrome'});
  const pages=[];for(let i=0;i<3;i++){const context=await browser.newContext({viewport:{width:390,height:844},hasTouch:true,acceptDownloads:true});const page=await context.newPage();page.setDefaultTimeout(20000);pages.push(page);}
  const [a,b,c]=pages;const url=`http://127.0.0.1:${vite.httpServer.address().port}/`;
- await a.goto(url);assert.equal(await a.locator('#continue-browser').count(),0);assert.equal(await a.locator('#restore-cloud').textContent(),'找回空间');
+ await a.goto(url);assert.equal(await a.locator('#continue-browser').count(),0);assert.equal(await a.locator('#restore-cloud').textContent(),'找回密室');
  await a.locator('#create-room').click();await fillFormInput(a, a.locator('#new-space-name'), '验收空间');await a.locator('#profile-done').click();
- assert.match(await a.locator('[data-device-verify]').textContent(),/密码/);await a.locator('[data-device-verify]').click();
+ assert.match(await a.locator('[data-device-verify]').textContent(),/应用锁/);await a.locator('[data-device-verify]').click();
  await a.locator('.password-form').waitFor();await a.clock.install();await a.clock.fastForward(65_000);
  assert.equal(await a.locator('.password-form').count(),1,'Reading a password form has no automatic timeout');
  await a.clock.resume();await cancelPasswordForm(a);await a.locator('.password-form').waitFor({state:'detached'});
