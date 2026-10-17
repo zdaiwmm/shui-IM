@@ -104,7 +104,8 @@ describe('Mac pull backup', () => {
  });
  it('requires a Mac receipt for Mac mode and reports expired snapshots unhealthy', async () => {
   const f = await fixture();
-  const state = { lastVerifiedAt: new Date().toISOString(), snapshotCreatedAt: new Date().toISOString(), lastAttemptSucceeded: true };
+  const snapshotAt = new Date().toISOString();
+  const state = { lastVerifiedAt: snapshotAt, snapshotCreatedAt: snapshotAt, lastAttemptSucceeded: true };
   const check = () => spawnSync(process.execPath, ['scripts/backup-health.mjs'], { env: { ...process.env, BACKUP_DIR: f.destination, BACKUP_MODE: 'mac-pull' } }).status;
   try {
    await writeFile(path.join(f.destination, '.backup-state.json'), JSON.stringify(state)); expect(check()).toBe(1);
