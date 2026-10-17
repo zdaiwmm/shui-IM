@@ -3,7 +3,7 @@ import { createReadStream } from 'node:fs';
 import { mkdir, open, rename, rm, lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { exportConsistentBackup, verifyBackup } from './backup.mjs';
-import { checkBackupCapacity } from '../scripts/backup-capacity.mjs';
+import { backupCapacityPolicy, checkBackupCapacity } from '../scripts/backup-capacity.mjs';
 
 const MAX_FILE = 256 * 1024 ** 2;
 const MAX_TOTAL = 12 * 1024 ** 3;
@@ -74,12 +74,14 @@ export async function sendBackup({ dataDir, temporaryRoot, output, input }) {
     lastAttemptAt: new Date().toISOString(), lastAttemptSucceeded: true, destination: 'mac-pull' };
 }
 
-export async function receiveBackup({ root, input, output, maxTotal = MAX_TOTAL, maxFiles = MAX_FILES }) {
+export async function receiveBackup({ root, input, output, maxTotal = MAX_TOTAL, maxFiles = MAX_FILES, capacityPolicy = 'strict' }) {
   if (!Number.isSafeInteger(maxTotal) || maxTotal < 1 || maxTotal > MAX_TOTAL || !Number.isSafeInteger(maxFiles) || maxFiles < 1 || maxFiles > MAX_FILES) throw Error('BACKUP_LIMIT_CONFIGURATION_INVALID');
+  backupCapacityPolicy(capacityPolicy); // Local caller selects admission; wire headers cannot change it.
   const absolute = path.resolve(root);
   await mkdir(absolute, { recursive: true, mode: 0o700 });
   if (await realpath(absolute) !== absolute || (await lstat(absolute)).mode & 0o077) throw Error('BACKUP_DESTINATION_NOT_PRIVATE');
-  await checkBackupCapacity(absolute);
+  const checkCapacity = pendingBytes => checkBackupCapacity(absolute, { policy: capacityPolicy, pendingBytes });
+  await checkCapacity(0);
   const reader = binaryReader(input);
   const start = await reader.header();
   if (start.type !== 'start' || start.version !== 1 || !/^[0-9a-f-]{36}$/.test(start.session)) throw Error('BACKUP_PROTOCOL_INVALID');
@@ -96,7 +98,7 @@ export async function receiveBackup({ root, input, output, maxTotal = MAX_TOTAL,
         if (!Number.isFinite(created) || created > Date.now() || Date.now() - created > 60 * 60 * 1000) throw Error('BACKUP_TIMESTAMP_INVALID');
         const verified = await verifyBackup(staging); // Independent disk reread, SQLite and every referenced chunk.
         if (verified.createdAt !== header.createdAt) throw Error('BACKUP_TIMESTAMP_INVALID');
-        await checkBackupCapacity(absolute);
+        await checkCapacity(0);
         const final = path.join(absolute, `quiet-room-${header.createdAt.replace(/[:.]/g, '-')}`);
         if (await lstat(final).catch(() => null)) throw Error('BACKUP_ALREADY_EXISTS');
         await rename(staging, final); published = true;
@@ -110,13 +112,18 @@ export async function receiveBackup({ root, input, output, maxTotal = MAX_TOTAL,
       if (header.type !== 'file' || !SAFE_PATH.test(header.name) || names.has(header.name) || manifestDigest || names.size >= maxFiles ||
           !Number.isSafeInteger(header.bytes) || header.bytes < 0 || header.bytes > MAX_FILE ||
           (header.name === 'manifest.json' && header.bytes > 8 * 1024 ** 2) || total + header.bytes > maxTotal) throw Error('BACKUP_FILE_LIMIT_OR_PATH');
+      await checkCapacity(header.bytes);
       names.add(header.name); total += header.bytes;
       const target = path.join(staging, header.name);
       await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
       const file = await open(target, 'wx', 0o600);
-      const hash = createHash('sha256'); let left = header.bytes;
+      const hash = createHash('sha256'); let left = header.bytes, sinceCapacityCheck = 0;
       try {
-        while (left) { const bytes = await reader.take(left); hash.update(bytes); await file.writeFile(bytes); left -= bytes.length; }
+        while (left) {
+          if (sinceCapacityCheck >= 16 * 1024 ** 2) { await checkCapacity(left); sinceCapacityCheck = 0; }
+          const bytes = await reader.take(Math.min(left, 64 * 1024));
+          hash.update(bytes); await file.writeFile(bytes); left -= bytes.length; sinceCapacityCheck += bytes.length;
+        }
         await file.sync();
       } finally { await file.close(); }
       const expected = await reader.header();

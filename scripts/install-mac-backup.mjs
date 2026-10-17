@@ -3,6 +3,11 @@ import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
+import { backupCapacityPolicy } from './backup-capacity.mjs';
+
+const { values } = parseArgs({ options: { apply: { type: 'boolean', default: false }, 'capacity-policy': { type: 'string' } } });
+const capacityPolicy = backupCapacityPolicy(values['capacity-policy']);
 
 // Generates an inspectable plan first. No host credentials are printed or copied.
 const source = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -22,7 +27,7 @@ const contents = `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
 <key>Label</key><string>${label}</string>
 <key>ProgramArguments</key><array><string>/usr/bin/caffeinate</string><string>-i</string><string>${escape(process.execPath)}</string><string>${escape(path.join(runner, 'scripts/mac-backup.mjs'))}</string><string>--scheduled</string></array>
-<key>EnvironmentVariables</key><dict><key>QUIET_ROOM_DEPLOY_CONFIG</key><string>${escape(config)}</string><key>QUIET_ROOM_MAC_BACKUP_DIR</key><string>${escape(path.join(destination, 'continuous'))}</string></dict>
+<key>EnvironmentVariables</key><dict><key>QUIET_ROOM_DEPLOY_CONFIG</key><string>${escape(config)}</string><key>QUIET_ROOM_MAC_BACKUP_DIR</key><string>${escape(path.join(destination, 'continuous'))}</string><key>QUIET_ROOM_MAC_BACKUP_CAPACITY_POLICY</key><string>${capacityPolicy}</string></dict>
 <key>RunAtLoad</key><true/><key>StartInterval</key><integer>300</integer>
 <key>WorkingDirectory</key><string>${escape(runner)}</string>
 <key>StandardOutPath</key><string>${escape(path.join(logs, 'backup.log'))}</string>
@@ -31,8 +36,8 @@ const contents = `<?xml version="1.0" encoding="UTF-8"?>
 `;
 const files = ['server/backup-transfer.mjs', 'server/backup.mjs', 'server/backup-lock.mjs', 'server/backup-retention.mjs',
  'scripts/mac-backup.mjs', 'scripts/backup-capacity.mjs', 'scripts/deploy-config.mjs'];
-console.log(JSON.stringify({ sourceSha, runner, plist, destination, intervalSeconds: 300, snapshotIntervalHours: 12, files, apply: process.argv.includes('--apply') }));
-if (process.argv.includes('--apply')) {
+console.log(JSON.stringify({ sourceSha, runner, plist, destination, capacityPolicy, intervalSeconds: 300, snapshotIntervalHours: 12, files, apply: values.apply }));
+if (values.apply) {
  if (await lstat(plist).catch(() => null)) throw Error('EXISTING_AGENT_REQUIRES_REVIEW');
  for (const directory of [destination, path.join(destination, 'continuous'), logs, runner]) {
   await mkdir(directory, { recursive: true, mode: 0o700 });
