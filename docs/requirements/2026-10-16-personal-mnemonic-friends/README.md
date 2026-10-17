@@ -17,7 +17,11 @@
 
 ### 本轮验收与证据
 
-只读生产准备：固定入口`publish.mjs --cloud --prepare --environment production --sha 89ca7c83b742f1ac3935dfe8e15b2959b4535512`的[唯一doctor运行](https://github.com/zdaiwmm/shui-IM/actions/runs/38992276469)经既有production审核返回PREFLIGHT_OK。审核明确仅限doctor，不作为用户对实际生产SHA的确认。本机已有用户级与共享目录连接元数据逐字段一致，私钥路径存在；缺失的production命名配置用固定setup从相同元数据登记，未复制／读取私钥内容。固定本机只读doctor在SSH连接和helper来源检查均收到服务器关闭连接，未取得独立回读能力；按有界规则停止该类尝试，不改防火墙、SSH或发布流程。用户随后已确认上述版本及精确SHA。接续固定doctor仍在SSH阶段受阻；只读诊断发现本机现有虚拟网络连接在认证前被关闭，绑定物理网络的直连测试也未完成握手，不能据此确定具体服务端原因。用户表示「ip白名单我调整」；发布授权保留，待受信SSH恢复并复核生产状态后执行同一SHA的固定切换及独立回读。本轮未修改SSH、网络路由、防火墙或发布工具，未触发生产部署。
+只读生产准备：固定入口`publish.mjs --cloud --prepare --environment production --sha 89ca7c83b742f1ac3935dfe8e15b2959b4535512`的[唯一doctor运行](https://github.com/zdaiwmm/shui-IM/actions/runs/38992276469)经既有production审核返回PREFLIGHT_OK。审核明确仅限doctor，不作为用户对实际生产SHA的确认。本机已有用户级与共享目录连接元数据逐字段一致，私钥路径存在；缺失的production命名配置用固定setup从相同元数据登记，未复制／读取私钥内容。固定本机只读doctor在SSH连接和helper来源检查均收到服务器关闭连接，未取得独立回读能力；按有界规则停止该类尝试，不改防火墙、SSH或发布流程。用户随后已确认上述版本及精确SHA；用户调整IP白名单后，现有SSH恢复且固定doctor全部通过。
+
+本次唯一[云发布运行38993854705](https://github.com/zdaiwmm/shui-IM/actions/runs/38993854705)绑定请求431bb171-d51b-449f-a3dc-82ed76703581，工作流来源main `775cf143356f079acf2206215b707296cfc7c330`，应用目标不变。预检命令t-wh0709qec97nny8成功；原部署命令t-wh0709qfil1pr0g已结束、退出1。镜像导入通过，随后gate-traffic阶段因curl无法解析ai.shui.click失败；helper总计194000毫秒，外层339008毫秒。失败在停止容器前，原门已解除；只读生产检查确认仍为`85ffdfee934f10dc6b423367b25eb7da9bd6d231`、应用running／healthy、维护门absent，无DEPLOY_VERIFIED或READBACK_OK，没有重发切换。DNS随后三次解析及公开健康通过，未修改Nginx或DNS配置。
+
+新增已核实阻塞为既有mac-pull备份过期：最后快照`2026-10-15T06:53:18.767Z`、验证`2026-10-15T07:22:03.283Z`，健康BACKUP_STALE。当前Mac无原备份代理且磁盘使用97%，不符合原低于80%／至少8GiB容量门槛；不能换目录或放宽保护来制造有效备份。已请求恢复原受信备份Mac，等待一次真实备份及健康探针通过后，再对同一已批准SHA续跑固定发布与独立回读。原运行回执、授权与只读检查脱敏摘要保存到工作树外公共Git元数据chamber-personal-mnemonic-friends-20261017/production-pending.json；不是生产上线回执，未清理活动资源。
 
 完整长期契约为[CHAMBER_IDENTITY.md](../../../CHAMBER_IDENTITY.md)，新协议、旧checkpoint兼容例外、PIN离线风险、可信客户端分发和版本回滚限制由该文档拥有。所有测试使用临时合成数据，不读取生产消息、真实恢复材料或资产。
 
@@ -29,7 +33,7 @@
 | 关闭、双方设备丢失、共同恢复及迁移 | 生命周期5项含到期／取消／双根新generation通过；真实后端关闭所有设备、双方助记词新generation及再次新增设备通过。旧空间完整迁移专项通过：单方验证保留旧卡，双方独立设备与历史验证后共同切换才停用旧能力 |
 | 三步、Chamber、WebView及视觉 | 三步顺序、数字密码提示、助记词查看／核对／即时隐藏通过；原四格遗漏已据用户反馈修订，原生输入明确不走通用单字段草稿层。320／390／768／1024／1440、明暗与200%文字以真实渲染检查；iPhone／iOS27／Safari／微信／Telegram尚未真机验证 |
 | 完整本机门禁与CI | 新独占树一次`npm run check:full`构建通过，126文件／994项中984通过，10项backup-transfer因97%磁盘使用触发BACKUP_CAPACITY_LOW，未放宽保护。69个浏览器入口分段均取得通过，早期失败由旧夹具、新附件源缓存及File Provider中断导致，修订及有界复验保留；三项通话浏览器（含20个弱网场景）通过。其余981项单元在显式排除整个13项backup-transfer文件后通过，后续目录回滚新增1项通过。`d0787fc`的[首轮CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38988160248)126文件／995项全部通过，主流程／通话／生产审计／双架构镜像及另三分片通过；第2组第1分片停在mobile-debug最后一次重新进入的字段展开，后续16入口未运行，不能称完整绿色。定向修订等待资料页自身入场完成，保持真实指针激活及草稿销毁断言，本机复验通过；修订后重新跑完整CI |
-| 合并、精确发布授权、发布与独立回读 | PR #327已合并；精确main CI最新attempt 2全部通过，云端doctor返回PREFLIGHT_OK；本机SSH被服务器关闭，固定独立回读通路阻塞。用户已确认上述精确SHA，并表示自行调整IP白名单；生产切换和独立回读尚未完成，连接恢复后沿用本次授权 |
+| 合并、精确发布授权、发布与独立回读 | PR #327已合并；精确main CI最新attempt 2全部通过，云端doctor返回PREFLIGHT_OK；用户已确认精确SHA，SSH恢复。唯一云运行在停止容器前因DNS失败，原命令已结束且生产仍旧版；DNS已恢复，现等待过期的既有Mac备份恢复有效。生产切换和独立回读尚未完成，沿用本次授权 |
 
 最终[PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38990518040)对应`4208d10168ca6eac0a58c89c9917f295a380ede9`，126文件／995项单元、69个浏览器入口、原生通话／TURN、双架构镜像、生产审计、凭据扫描、文档及Full application verification全部通过。合并应用SHA的[完整main CI](https://github.com/zdaiwmm/shui-IM/actions/runs/38991200105)最新attempt 2全部通过，包含Full application verification及本次重新生成的双架构镜像；PR CI未替代发布门禁。以下失败保留为历史，不代表最终PR仍失败；模拟视口的一次失败未据此修改产品或放宽断言。 合并后main首轮995项及其余作业通过，仅第2组第3分片旧spaces恢复卡提交入口超时，后续8入口未运行；同一文件树本机spaces定向复验通过，保留失败后对同一SHA完整重跑一次（包括双架构镜像），未修改产品或测试断言。若该类失败重复，按有界规则停止发布。
 
