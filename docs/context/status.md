@@ -1,11 +1,11 @@
 # Quiet Room 当前状态
 
-## Chamber 入口与隐私设置实施记录（2026-10-17）
+## Chamber 入口与隐私设置已发布，真机待验收（2026-10-17 23:46）
 
-- 用户确认十项V1后明确免原型直接实施，并追加双击空白区域锁屏独立开关；范围及确认由[需求V1.1](../requirements/2026-10-17-chamber-refine/README.md)拥有，最终候选／CI／合并事实由[PR #333](https://github.com/zdaiwmm/shui-IM/pull/333)持有。本记录不宣称生产切换，当前生产仍以上下文原Chamber发布回执为准。
-- 创建直达应用锁、默认资料可事后编辑；首页文案和本地门廊品牌更新，聊天控件浮动，邀请与三步引导独立，三项隐私页改底部返回。唯一占位即生成仅邀请方可读的四位码，原30分钟截止、候选绑定及轮换保留；存储／网络失败提供重试。未配置倒计时默认关，息屏／后台及双击默认开；普通会话离开例外与敏感／硬生命周期强制清理见D-064。
-- 定向26项单测、双端Chamber、虚拟PRF、数字一屏、隐私、外观及移动调试已通过；首轮全量单元997通过／10项备份容量失败（本机数据卷91%，strict保护），未修改备份策略。最终完整浏览器／CI结果见同一PR，不能将开发阶段结果当作精确合并或真机证据。
-- 原生iPhone／iOS27／Safari／微信／Telegram仍未验收，用户原白屏未真机复现；自动验证只证明明确覆盖的失败分支。未授权本轮生产发布。
+- 用户明确确认完整应用`d14812b17ec9601f55c25cde3fdfed6ab362ef46`发布，版本`2026.10.17.2`。十项V1、免原型实施和双击空白区域锁屏独立开关由[需求V1.1](../requirements/2026-10-17-chamber-refine/README.md)拥有；长期隐私边界见D-064。创建直达应用锁、首页／品牌／浮动控件／底部返回及邀请四位码、复制、固定有效期和异常重试已进入本批。
+- [PR #333](https://github.com/zdaiwmm/shui-IM/pull/333)源15081c0与应用完整文件树一致；[PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39043817027)最新attempt 2、[精确main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39044872005) attempt 1通过127文件／1010项、69浏览器入口、通话／TURN、审计及双架构镜像。开发阶段备份容量和夹具失败、PR主流程一次有界重跑由需求／PR保留，不等同真机验收。
+- 固定[云预检39045106347](https://github.com/zdaiwmm/shui-IM/actions/runs/39045106347)及[云发布39045682278](https://github.com/zdaiwmm/shui-IM/actions/runs/39045682278)通过；从89ca7c8实际切换一次，核对精确DEPLOY_VERIFIED后完成独立READBACK_OK于`2026-10-17T15:46:43.792Z`。首次回读只因新备份starting失败，核对原探针时序后仅续跑只读回读。最终应用／备份healthy，TURN运行且探针none，维护门absent；SHA／镜像、HTTPS／数据库／存储、产物及新WebSocket一致。完整事实由[本轮发布记录](../../RELEASING.md#release-chamber-refine-20261017)拥有。
+- 脱敏证据保存在公共Git元数据`quiet-room-deliveries/evidence/chamber-refine-20261017/production.json`；第二个无部署配置文档树对账，文档SHA不替代线上应用。本批资源按固定入口核验，当前活动资源及含忽略缓存的树依规则保留，不清理其他任务。原生iPhone／iOS27／Safari／微信／Telegram及用户原白屏未真机复核，独立安全审阅仍未完成。下方均为历史状态。
 
 ## Chamber 已发布，当前Mac备份恢复（2026-10-17 11:43）
 
