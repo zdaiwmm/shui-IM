@@ -2,10 +2,10 @@
 
 ## 身份与授权
 
-- 阶段：已合并，完整main CI通过，待精确生产确认。规则来源为本机 main `4356531cea264dd01bd9110da90b9ff62cfd7a59`；起始基线为 GitHub 实时 main 与 origin/main 一致的 `140bc30d5a1708ccc79daa395044e6634b59882b`。
+- 阶段：已发布，独立生产回读通过，真机待验收。规则来源为本机 main `4356531cea264dd01bd9110da90b9ff62cfd7a59`；起始基线为 GitHub 实时 main 与 origin/main 一致的 `140bc30d5a1708ccc79daa395044e6634b59882b`。
 - 分支：`codex/chamber-invite-lock-fixes-20261018`；本机独占目录为项目 `.worktrees/chamber-invite-lock-fixes-20261018`，跨电脑重新核验路径与 HEAD。
 - 2026-10-18，本会话用户明确确认上一轮十项 V1：「不用再做原型和流程图，直接实施修复，完成验证后合并」，另要求 Logo 动画循环及完成后发布生产。未提供额外消息定位；不继承旧任务发布 SHA。
-- 本次明确免原型／流程图；正式实施、风险匹配验证、PR／CI／合并已授权。生产仍待候选确定后的精确 SHA 确认。
+- 本次明确免原型／流程图；正式实施、风险匹配验证、PR／CI／合并已授权。用户获知完整候选SHA、版本、完整CI／只读预检及真机缺口后明确回复「确认，发布生产」，授权精确应用`4e50ef59dc490cfd5fc6a79c2d6184deacc83596`。
 
 ## 方案与边界
 
@@ -49,11 +49,12 @@
 - 同轮Chamber新增设备后接收消息一次超时，使用CI同款Chromium本机原样通过，尚不能确认根因。保留严格消息断言和脱敏运行状态诊断，随新候选有界验证，不以本机结果抹掉CI失败。
 - 审查补齐轮换本机最终落盘失败的回滚：保留同一待轮换token／pairingSecret供幂等续跑；过时运行期不回填全局邀请状态。此前正常轮换／五次错误／原始字节保护均不放宽。
 
-- 针对性复测：CI同款Chromium的privacy-surface、完整password-fallback及Chamber整链通过；Chamber另注入服务端轮换成功后的IndexedDB事务中断，验证本机不暴露未提交链接、重试仍为同请求／版本／截止并复制成功。真实设备仍未验证。最终候选继续等待完整CI。
+- 针对性复测：CI同款Chromium的privacy-surface、完整password-fallback及Chamber整链通过；Chamber另注入服务端轮换成功后的IndexedDB事务中断，验证本机不暴露未提交链接、重试仍为同请求／版本／截止并复制成功。真实设备仍未验证。该次复测后进入最终完整CI，结果见下方。
 
-## 合并与发布候选
+## 合并与生产交付
 
 - [PR #335](https://github.com/zdaiwmm/shui-IM/pull/335)已合并，源`95c6ab1ba00e8aa4351276df12378765ee278fac`与合并应用`4e50ef59dc490cfd5fc6a79c2d6184deacc83596`完整文件树一致，版本`2026.10.17.3`。本次产品范围未新增其他功能。
 - 最终[PR CI39052019190](https://github.com/zdaiwmm/shui-IM/actions/runs/39052019190)完整成功，127文件／1012单测、全部69浏览器入口、通话／TURN、文档／凭据扫描、依赖审计及双架构镜像。原新增设备消息严格断言在该轮通过，首轮单次超时仍保留且未确认为产品根因。
-- 精确[main CI39052728153](https://github.com/zdaiwmm/shui-IM/actions/runs/39052728153)完整成功且Full application verification通过；固定入口只读[prepare 39053314963](https://github.com/zdaiwmm/shui-IM/actions/runs/39053314963)取得并核对精确`PREFLIGHT_OK`，共408,280ms（含正常production环境审核等待），未切换生产；待用户确认上述精确应用SHA。文档记录独立保存，不改发布目标。真实iPhone证据仍未取得。
+- 精确[main CI39052728153](https://github.com/zdaiwmm/shui-IM/actions/runs/39052728153)完整成功且Full application verification通过；固定入口只读[prepare 39053314963](https://github.com/zdaiwmm/shui-IM/actions/runs/39053314963)取得并核对精确`PREFLIGHT_OK`，共408,280ms（含正常production环境审核等待），该阶段未切换生产；随后获得上述精确应用SHA发布确认。文档记录独立保存，不改发布目标。真实iPhone证据仍未取得。
 - 成本记录：跨页面／生命周期修复；实际模型／强度、主动处理耗时及token口径未知；CI等待以关联Run时间为准。额外完整CI用于首轮夹具适配及保留的消息超时复验，不重跑本机已确认容量失败，不放宽产品断言。
+- 生产：固定[云发布39054151428](https://github.com/zdaiwmm/shui-IM/actions/runs/39054151428)核对精确DEPLOY_VERIFIED，从d14812b实际切换一次；首次独立回读仅因备份starting未通过，核对17:35:28Z启动及既有5分钟探针后，仅续跑readback-only。最终READBACK_OK于`2026-10-17T17:40:53.792Z`，应用／备份healthy、SHA／镜像和公开服务检查通过。完整回执事实由[发布记录](../../../RELEASING.md#release-chamber-invite-lock-fixes-20261018)拥有；脱敏证据位于公共Git元数据`quiet-room-deliveries/evidence/chamber-invite-lock-fixes-20261018/production.json`。生产成功不替代真实iPhone或独立安全审阅。
