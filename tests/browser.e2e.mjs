@@ -326,7 +326,12 @@ try {
   await creator.waitForFunction(() => window.__inviteShareCalls === 1);
   invariant(await creator.locator('.chat-shell').count() === 1 && await creator.locator('.space-invite-sheet').count() === 0, 'Creation and sharing must stay in chat');
   invariant(await creator.locator('#app-toast, .notice').filter({ hasText: '链接已复制' }).count() === 0, 'System share still showed a copy toast');
-  const inviteFont = await creator.locator('#copy-invite').evaluate((button) => getComputedStyle(button).fontSize);
+  const inviteFont = await creator.waitForFunction(() => {
+    // Invitation status can replace the empty-state node between locator
+    // resolution and evaluation. Measure the current connected button.
+    const button = document.querySelector('#copy-invite');
+    return button?.isConnected ? getComputedStyle(button).fontSize || false : false;
+  }).then(handle => handle.jsonValue());
   invariant(Number.parseFloat(inviteFont) >= 14, `Invite copy-link font ${inviteFont} does not match welcome primary ${welcomeLayout.font}`);
   invariant(await creator.locator('#pairing-lock').count() === 0, 'Invite page still has a lock control');
   invariant(await creator.locator('#open-spaces').count() === 1, 'Created chat must expose the space list');
