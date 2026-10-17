@@ -1,8 +1,11 @@
 # Quiet Room 当前状态
 
-## Chamber 邀请与应用锁修订候选（2026-10-18）
+## Chamber 邀请与应用锁已合并，待发布（2026-10-18）
 
-用户已确认[本次V1](../requirements/2026-10-18-chamber-invite-lock-fixes/README.md)，明确免原型／流程图实施并合并，追加Logo循环和生产请求。任务由核实基线140bc30独立实施；已完成定向单测及邀请／数字／通行密钥／设置阶段浏览器验证，正在准备最终完整门禁与交付。此条仅表示候选存在，不表示CI、合并、发布或iPhone真机通过；线上仍以下方最后一份生产回执为准。长期边界见D-065。
+- 用户确认[十一项V1及本次免原型／流程图](../requirements/2026-10-18-chamber-invite-lock-fixes/README.md)，授权验证、合并并请求生产。应用版本`2026.10.17.3`；[PR #335](https://github.com/zdaiwmm/shui-IM/pull/335)源`95c6ab1ba00e8aa4351276df12378765ee278fac`合并为`4e50ef59dc490cfd5fc6a79c2d6184deacc83596`，回取完整文件树一致。邀请重发／存储中断续跑、统一数字验证、单次邀请验证与本次界面修订由需求记录拥有，长期边界见D-065。
+- 最终[PR完整CI39052019190](https://github.com/zdaiwmm/shui-IM/actions/runs/39052019190)通过127文件／1012单测、69浏览器入口、通话／TURN、文档／扫描／审计和双架构镜像；首轮失败及本机备份容量阻塞保留在需求／PR。精确[main CI39052728153](https://github.com/zdaiwmm/shui-IM/actions/runs/39052728153)亦完整通过，Full application verification成功。
+- 固定入口只读[prepare 39053314963](https://github.com/zdaiwmm/shui-IM/actions/runs/39053314963)已核对精确`PREFLIGHT_OK`，未切换生产。
+- 本条仅表示已合并；当前没有本次生产成功回执。生产仍待上述应用精确SHA确认、固定入口及独立回读，后续文档提交不作为应用目标。原生iPhone／iOS27／Safari崩溃及原生剪贴板／系统栏未独立验收；合成后台回归不等于真机通过。线上仍以下方最后一份生产回执为准。
 
 ## Chamber 入口与隐私设置已发布，真机待验收（2026-10-17 23:46）
 
