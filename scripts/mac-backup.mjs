@@ -6,11 +6,13 @@ import { pruneDailyBackups } from '../server/backup-retention.mjs';
 import { verifyBackup } from '../server/backup.mjs';
 import { mkdir, readFile, writeFile, rename, realpath, lstat } from 'node:fs/promises';
 import { loadConfig, validateConfig, assertKeyFiles } from './deploy-config.mjs';
+import { backupCapacityPolicy } from './backup-capacity.mjs';
 
 const root = process.env.QUIET_ROOM_MAC_BACKUP_DIR;
 let child;
 try {
   if (!root || !path.isAbsolute(root)) throw Error('MAC_BACKUP_ROOT_REQUIRED');
+  const capacityPolicy = backupCapacityPolicy(process.env.QUIET_ROOM_MAC_BACKUP_CAPACITY_POLICY);
   await mkdir(root, { recursive: true, mode: 0o700 });
   if (await realpath(root) !== root || (await lstat(root)).mode & 0o077) throw Error('BACKUP_DESTINATION_NOT_PRIVATE');
   const config = assertKeyFiles(validateConfig(loadConfig(process.cwd()).config));
@@ -30,7 +32,7 @@ try {
     exit.catch(() => {});
     const timer = setTimeout(() => child.kill('SIGTERM'), 60 * 60 * 1000);
     try {
-      const result = await receiveBackup({ root, input: child.stdout, output: child.stdin });
+      const result = await receiveBackup({ root, input: child.stdout, output: child.stdin, capacityPolicy });
       child.stdin.end();
       if (await exit !== 0) throw Error('MAC_BACKUP_REMOTE_RECEIPT_FAILED');
       const temporary = `${marker}.${process.pid}.tmp`;

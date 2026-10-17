@@ -1,14 +1,15 @@
-import { mkdtemp, rm, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, mkdir, readFile, realpath, writeFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PassThrough } from 'node:stream';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as capacity from '../scripts/backup-capacity.mjs';
 import { sendBackup, receiveBackup, writeHeader } from '../server/backup-transfer.mjs';
 import { createStore } from '../server/storage.mjs';
 import { spawnSync } from 'node:child_process';
 import { restoreBackup, exportConsistentBackup } from '../server/backup.mjs';
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { vi.restoreAllMocks(); await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 async function fixture() {
  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'mac-backup-test-'))); roots.push(root);
  const dataDir = path.join(root, 'data'); const temporaryRoot = path.join(root, 'tmp'); const destination = path.join(root, 'mac');
@@ -118,6 +119,60 @@ describe('Mac pull backup', () => {
   try {
    await writeHeader(ack, { type: 'verified', session: crypto.randomUUID(), manifestDigest: '0'.repeat(64) });
    await expect(sendBackup({ dataDir: f.dataDir, temporaryRoot: f.temporaryRoot, output: data, input: ack })).rejects.toThrow('BACKUP_RECEIPT_INVALID');
+  } finally { f.store.close(); data.destroy(); ack.destroy(); }
+ });
+});
+
+describe('Mac reserve capacity policy', () => {
+ it('receives and independently restores a live backup with the explicit reserve policy', async () => {
+  const f = await fixture(); const data = new PassThrough(); const ack = new PassThrough();
+  try {
+   const [state, received] = await Promise.all([
+    sendBackup({ dataDir: f.dataDir, temporaryRoot: f.temporaryRoot, output: data, input: ack }),
+    receiveBackup({ root: f.destination, input: data, output: ack, capacityPolicy: 'reserve' }),
+   ]);
+   expect(state.destination).toBe('mac-pull'); expect(received.verified).toBe(true);
+   const target = path.join(f.root, 'restored-reserve');
+   await restoreBackup({ backupDir: received.backupDir, targetDataDir: target });
+   const restored = await createStore({ dataDir: target });
+   try { expect(new Uint8Array(await restored.getBlobChunk(f.roomId, f.blobId, 0))).toEqual(f.bytes); }
+   finally { restored.close(); }
+  } finally { f.store.close(); data.destroy(); ack.destroy(); }
+ });
+ it.each(['before-file', 'during-file'])('aborts %s without a success receipt or removing old recovery points', async phase => {
+  const f = await fixture(); const data = new PassThrough(); const ack = new PassThrough();
+  const GiB = 1024 ** 3; let checks = 0;
+  const previous = path.join(f.destination, 'existing-recovery-point');
+  await writeFile(previous, 'preserve', { mode: 0o600 });
+  vi.spyOn(capacity, 'checkBackupCapacity').mockImplementation(async (_root, options) => {
+   checks++;
+   const available = checks >= (phase === 'before-file' ? 2 : 3) ? 8 * GiB + 512 * 1024 : 24 * GiB;
+   capacity.assertBackupCapacity({ bsize: 1, blocks: 512 * GiB, bfree: available, bavail: available, files: 1000, ffree: 900 }, options);
+  });
+  try {
+   await writeHeader(data, { type: 'start', version: 1, session: crypto.randomUUID() });
+   await writeHeader(data, { type: 'file', name: 'quiet-room.sqlite', bytes: (phase === 'before-file' ? 2 : 17) * 1024 ** 2 });
+   if (phase === 'during-file') data.write(Buffer.alloc(16 * 1024 ** 2));
+   data.end();
+   await expect(receiveBackup({ root: f.destination, input: data, output: ack, capacityPolicy: 'reserve' })).rejects.toThrow('BACKUP_CAPACITY_LOW');
+   expect(checks).toBe(phase === 'before-file' ? 2 : 3);
+   expect(ack.readableLength).toBe(0);
+   expect(await readFile(previous, 'utf8')).toBe('preserve');
+   expect(await readdir(f.destination)).toEqual(['existing-recovery-point']);
+  } finally { f.store.close(); data.destroy(); ack.destroy(); }
+ });
+ it('rejects a server-supplied reserve hint and an invalid local policy', async () => {
+  const f = await fixture(); const data = new PassThrough(); const ack = new PassThrough();
+  const GiB = 1024 ** 3;
+  vi.spyOn(capacity, 'checkBackupCapacity').mockImplementation(async (_root, options) => {
+   capacity.assertBackupCapacity({ bsize: 1, blocks: 512 * GiB, bfree: 24 * GiB, bavail: 24 * GiB, files: 1000, ffree: 900 }, options);
+  });
+  try {
+   await writeHeader(data, { type: 'start', version: 1, session: crypto.randomUUID(), capacityPolicy: 'reserve' }); data.end();
+   await expect(receiveBackup({ root: f.destination, input: data, output: ack })).rejects.toThrow('BACKUP_CAPACITY_LOW');
+   await expect(receiveBackup({ root: f.destination, input: data, output: ack, capacityPolicy: 'disabled' })).rejects.toThrow('BACKUP_CAPACITY_POLICY_INVALID');
+   expect(ack.readableLength).toBe(0);
+   expect(await readdir(f.destination)).toEqual([]);
   } finally { f.store.close(); data.destroy(); ack.destroy(); }
  });
 });
