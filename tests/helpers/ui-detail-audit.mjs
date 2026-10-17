@@ -22,7 +22,7 @@ export async function auditUiDetails(page, out) {
     backupExport: '[data-local-backup-view="export"]', backupImport: '[data-local-backup-view="import"]',
     backupCode: '.backup-code-page', recovery: '.recovery-flow-page',
     joint: '#joint-open-code', jointCode: '.joint-code-sheet', historyCode: '.history-restore-panel',
-    help: '.backup-help-page', history: '.release-history-content', practice: '.cover-practice-header',
+    help: '.backup-help-page', history: '.release-history-content', practice: '.cover-practice-page',
     entrance: '.recovery-flow-page', tools: '.chat-tools', info: '.message-info-panel',
     menu: '.message-action-list', coverConfirm: '.cover-disable-panel',
     passwordCreate: '.password-create', passwordReturn: '.password-return', passwordOperation: '.password-operation-sheet',
@@ -43,7 +43,16 @@ export async function auditUiDetails(page, out) {
       document.body.className='app-mode';app.renderChat();
       const root=app.root, signal=app.runtimeAbort.signal;
       if(name==='create') { app.renderCreateProtection({name:'合成空间',avatar:{v:1,kind:'emoji',emoji:'1f60a',background:0}}); return; }
-      const simple={welcome:'renderFirstRun',profile:'renderCreate',invite:'renderPasteInvite',corrupt:'renderCorruptVault',recoveryUnlock:'renderRecoveryUnlock',migration:'renderPlatformMigration',binding:'renderRecoveredVaultBinding',appearance:'renderAppearanceSettings',autoLock:'renderAutoLockSettings',notificationCopy:'renderNotificationCopy',recovery:'renderRecoveryCenter',joint:'renderJointRecovery',help:'renderFeatureHelp',history:'renderReleaseHistory',practice:'renderCoverPractice',entrance:'renderEntranceCard'};
+      if(name==='profile') {
+        // Avatar editing remains available after creation; enrollment no longer
+        // mounts this editor or creates a room as part of a presentation audit.
+        const {createSpaceProfile}=await import('/src/lib/space-profile-ui.ts');
+        void createSpaceProfile(root,{signal,active:()=>!signal.aborted,hasCredential:true,avatarOnly:true,
+          initialProfile:{name:'合成空间',avatar:{v:1,kind:'emoji',emoji:'1f60a',background:0}},
+          saveAvatar:async()=>{},picker:operation=>operation()});
+        root.querySelector('#choose-art').click();return;
+      }
+      const simple={welcome:'renderFirstRun',invite:'renderPasteInvite',corrupt:'renderCorruptVault',recoveryUnlock:'renderRecoveryUnlock',migration:'renderPlatformMigration',binding:'renderRecoveredVaultBinding',appearance:'renderAppearanceSettings',autoLock:'renderAutoLockSettings',notificationCopy:'renderNotificationCopy',recovery:'renderRecoveryCenter',joint:'renderJointRecovery',help:'renderFeatureHelp',history:'renderReleaseHistory',practice:'renderCoverPractice',entrance:'renderEntranceCard'};
       if(simple[name]) { app[simple[name]](); return; }
       if(name==='backupExport'||name==='backupImport'||name==='historyCode') {
         app.renderLocalHistoryBackup(name==='backupExport'?'export':'import');
@@ -105,7 +114,7 @@ export async function auditUiDetails(page, out) {
         const result=await page.evaluate(()=>({
           overflow:document.documentElement.scrollWidth>innerWidth+1,
           glass:[...document.querySelectorAll('.confirm-dialog,.recovery-code-panel,.space-name-dialog,.chat-tools,.message-action-list,.message-reaction-picker')].filter(e=>e.getClientRects().length).map(e=>getComputedStyle(e).backdropFilter),
-          headings:[...document.querySelectorAll('.gateway-intro-content>h1,.cover-practice-header>h1,.backup-header>h1')].filter(e=>e.getClientRects().length).map(e=>parseFloat(getComputedStyle(e).fontSize)),
+          headings:[...document.querySelectorAll('.gateway-intro-content>h1,.cover-practice-title,.backup-header>h1')].filter(e=>e.getClientRects().length).map(e=>parseFloat(getComputedStyle(e).fontSize)),
         }));
         assert.equal(result.overflow,false,`${name}/${scheme}/${width}: horizontal overflow`);
         assert.ok(result.glass.every(value=>value==='none'),`${name}: decorative glass`);
