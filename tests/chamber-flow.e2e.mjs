@@ -20,7 +20,7 @@ try {
   browser = await chromium.launch(process.env.CI ? {} : process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: 'chrome' });
   const errors = [], pages = [];
   for (let i = 0; i < 3; i++) {
-    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true,
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, deviceScaleFactor: 3, hasTouch: true,
       userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 27_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 MicroMessenger/8.0' });
     const page = await context.newPage(); page.setDefaultTimeout(20_000); page.on('pageerror', error => errors.push(error.message)); pages.push(page);
   }
@@ -33,7 +33,8 @@ try {
   assert.match(await blocked.locator('#app h1').textContent(), /无法打开/);
   await blocked.close();
   await a.goto(url); await a.locator('.chamber-brand').waitFor();
-  await a.locator('.chamber-room').evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)));
+  await a.locator('.chamber-room').evaluate(element => { const animation = element.getAnimations()[0]; if(animation) animation.currentTime = 3000; });
+  assert.equal(await a.locator('.chamber-room').evaluate(element => getComputedStyle(element).animationIterationCount), 'infinite');
   await a.screenshot({ path: '/private/tmp/chamber-home-390.png' });
   await auditP1Surface(a,'chamber-home','.gateway');
   let protectedBeforeRoom = false, deviceBeforeRoom = false, legacyUploads = 0;
@@ -77,11 +78,15 @@ try {
     await a.locator('.chamber-mnemonic-page').waitFor();
     await a.waitForFunction(()=>!document.querySelector('#app > .page-transition-incoming, #app > .page-transition-outgoing'));
     assert.equal(await a.locator('.chamber-mnemonic-page header').count(),0);
-    await a.locator('.chamber-mnemonic-page .chamber-brand').evaluate(async mark=>{await Promise.all(mark.getAnimations({subtree:true}).filter(animation=>Number.isFinite(Number(animation.effect?.getComputedTiming().endTime))).map(animation=>animation.finished));});
+    await a.locator('.chamber-mnemonic-page .chamber-brand').evaluate(mark=>{ for(const animation of mark.getAnimations({subtree:true})) { animation.pause(); animation.currentTime=3000; } });
     assert.ok(await a.locator('.chamber-mnemonic-page .chamber-person-one').evaluate(person=>Number(getComputedStyle(person).opacity)>.9));
     const brand=await a.locator('.chamber-mnemonic-page .chamber-brand').boundingBox();assert.ok(Math.abs(brand.x+brand.width/2-195)<1,JSON.stringify(brand));
     const back=await a.locator('[data-personal-back]').boundingBox();assert.ok(back.y+back.height<=844);
-    await capture(`mnemonic-${scheme}`);await a.locator('[data-personal-back]').click();
+    await capture(`mnemonic-${scheme}`);
+    await a.locator('[data-personal-show]').click(); await a.locator('.numeric-password-page').waitFor();
+    assert.equal(await a.locator('.password-operation-sheet').count(),0);
+    await a.locator('[data-numeric-left]').click(); await a.locator('.numeric-password-page').waitFor({state:'detached'});
+    await a.locator('[data-personal-back]').click();
     await a.locator('[data-personal-guide="auto-lock"]').click();await a.locator('.auto-lock-page').waitFor();
     assert.equal(await a.locator('[data-idle-toggle]').getAttribute('aria-checked'),'false');
     assert.equal(await a.locator('[data-hidden-lock]').getAttribute('aria-checked'),'true');
@@ -89,8 +94,11 @@ try {
     await capture(`auto-lock-${scheme}`);await a.locator('#auto-lock-back').click();
     await a.locator('[data-personal-guide="cover"]').click();await a.locator('.cover-practice-page').waitFor();
     assert.equal(await a.locator('.cover-practice-page header').count(),0);
-    const footer=await a.locator('#practice-back').boundingBox();assert.ok(footer.y+footer.height<=844);
-    await capture(`cover-${scheme}`);await a.locator('#practice-back').click();
+    assert.equal(await a.locator('#practice-back,.cover-practice-title').count(),0);
+    await capture(`cover-${scheme}`);
+    await a.locator('.practice-hotspot').focus(); await a.keyboard.down('Enter'); await a.locator('#skip-cover').waitFor(); await a.keyboard.up('Enter');
+    const skip=await a.locator('#skip-cover').boundingBox(),enable=await a.locator('#enable-cover').boundingBox();assert.ok(skip.x<enable.x);
+    await a.locator('#skip-cover').click();
   }
   await a.emulateMedia({colorScheme:'light'});
   const invite = await a.locator('#invite-url').inputValue();
@@ -117,13 +125,41 @@ try {
   let before = await b.evaluate(() => ({ root: app.session.vault.personalBinding.identity.id, ...app.session.vault.pendingChamberInvitation }));
   await b.screenshot({ path: '/private/tmp/chamber-invite-390.png' });
   await auditP1Surface(b,'chamber-invite','.chamber-join-shell');
+  for(let round=0;round<3;round++) {
+    await b.locator('[data-code-digit="0"]').fill('1');
+    await b.evaluate(()=>{ window.syntheticHidden=true;Object.defineProperty(document,'hidden',{configurable:true,get:()=>window.syntheticHidden});document.dispatchEvent(new Event('visibilitychange')); });
+    assert.equal(await b.locator('.chamber-join-shell').count(),0);
+    await b.evaluate(async()=>{window.syntheticHidden=false;document.dispatchEvent(new Event('visibilitychange'));window.dispatchEvent(new Event('focus'));await app.renderGateway({trustedCoverActivation:true,autoUnlock:false});});
+    await submitPassword(b,'135790');await b.locator('.chamber-code-card').waitFor();
+    assert.deepEqual(await b.locator('[data-code-digit]').evaluateAll(nodes=>nodes.map(n=>n.value)),['','','','']);
+    assert.deepEqual(await b.evaluate(() => ({ root: app.session.vault.personalBinding.identity.id, ...app.session.vault.pendingChamberInvitation })), before);
+  }
   await b.reload(); await submitPassword(b, '135790'); await b.locator('.chamber-code-card').waitFor();
   assert.deepEqual(await b.evaluate(() => ({ root: app.session.vault.personalBinding.identity.id, ...app.session.vault.pendingChamberInvitation })), before);
   await b.goto(invite);await b.locator('.chamber-code-card').waitFor();
   assert.deepEqual(await b.evaluate(() => ({ root: app.session.vault.personalBinding.identity.id, ...app.session.vault.pendingChamberInvitation })), before);
   const oldSlot=await b.evaluate(()=>app.session.stored.spaceId??'current'),rootRecord=await b.evaluate(async()=>JSON.stringify(await(await import('/src/lib/vault.ts')).readPersonalIdentity()));
-  await a.evaluate(()=>app.rotateChamberInvitation());const nextInvite=await a.locator('#invite-url').inputValue();assert.notEqual(nextInvite,invite);
-  await b.goto('about:blank');await b.goto(nextInvite);await submitPassword(b,'135790');await b.locator('#chamber-existing-join').click();await submitPassword(b,'135790');await b.locator('.chamber-code-card').waitFor();
+  await a.evaluate(()=>{ window.stableInvite=document.querySelector('.chamber-invite-hero');window.stableCode=document.querySelector('.chamber-code-display');for(let i=0;i<12;i++){app.renderMessages();app.paintInlineInviteCountdown();} });
+  assert.equal(await a.evaluate(()=>window.stableInvite===document.querySelector('.chamber-invite-hero')&&window.stableCode===document.querySelector('.chamber-code-display')),true);
+  await a.clock.install(); await a.clock.fastForward(5*60_000);
+  assert.deepEqual(await a.locator('.chamber-code-display > span').allTextContents(),earlyCode.split(''));
+  await a.clock.setSystemTime(new Date());
+  const expiringVersion=await a.evaluate(()=>app.chamberInviteState.version);
+  const expiredReply=async route=>{if(route.request().method()!=='GET'){await route.continue();return;}const response=await route.fetch(),state=await response.json();if(state.version===expiringVersion){state.stage='expired';state.expiresAt=new Date(Date.now()-1000).toISOString();delete state.code;}await route.fulfill({response,json:state});};
+  await a.route('**/chamber-invitation',expiredReply);
+  await a.evaluate(async()=>{app.chamberInvitePolledAt=0;await app.pollChamberInvitation();});
+  await a.getByRole('button',{name:'邀请已超时，重新发起邀请',exact:true}).waitFor();
+  assert.equal(await a.locator('#chamber-invite-restart').isVisible(),false);
+  assert.equal(await a.getByText('本次邀请已结束',{exact:true}).count(),0);
+  await a.locator('#copy-invite').click();
+  await a.waitForFunction(old=>document.querySelector('#invite-url').value!==old,invite);
+  const nextInvite=await a.locator('#invite-url').inputValue();assert.notEqual(nextInvite,invite);
+  await a.waitForFunction(async url=>(await navigator.clipboard.readText())===url,nextInvite);
+  assert.match(await a.locator('#invite-countdown').textContent(),/验证码有效期/);
+  assert.equal(await a.locator('.chamber-code-display > span').count(),4);
+  await a.unroute('**/chamber-invitation',expiredReply);
+  await a.clock.setSystemTime(new Date());
+  await b.goto('about:blank');await b.goto(nextInvite);await b.locator('#chamber-existing-join').click();await submitPassword(b,'135790');await b.locator('.chamber-code-card').waitFor();
   const next=await b.evaluate(() => ({ root: app.session.vault.personalBinding.identity.id, ...app.session.vault.pendingChamberInvitation }));
   assert.equal(next.root,before.root);assert.notEqual(next.requestId,before.requestId);before=next;
   assert.equal(await b.evaluate(async()=>JSON.stringify(await(await import('/src/lib/vault.ts')).readPersonalIdentity())),rootRecord);

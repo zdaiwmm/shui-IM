@@ -71,6 +71,27 @@ describe('Chamber invitation ownership and lifetime', () => {
     } finally { f.store.close(); }
   });
 
+  it('starts rotated invitations immediately, preserves their code/deadline on claim and never revives expiry', async () => {
+    const f = await fixture();
+    try {
+      const token = randomBase64Url(32), first = f.store.rotateChamberInvitation(f.roomId, token);
+      expect(first.requestId).toBeTruthy(); expect(first.code).toMatch(/^\d{4}$/);
+      expect(Date.parse(first.expiresAt) - Date.now()).toBeGreaterThan(30 * 60_000 - 1000);
+      expect(f.store.chamberInvitations.state(f.roomId).code).toBeUndefined();
+      vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(Date.parse(first.expiresAt) - 60_000);
+      const claimed = f.store.chamberInvitations.claim(f.roomId, f.secret);
+      expect(claimed.requestId).toBe(first.requestId); expect(claimed.expiresAt).toBe(first.expiresAt);
+      expect(f.store.chamberInvitations.state(f.roomId, true).code).toBe(first.code);
+      f.store.chamberInvitations.ready(f.roomId, f.secret, f.candidate);
+      expect(f.store.chamberInvitations.state(f.roomId, true).code).toBe(first.code);
+      expect(f.store.rotateChamberInvitation(f.roomId, token).expiresAt).toBe(first.expiresAt);
+      const unused = f.store.rotateChamberInvitation(f.roomId, randomBase64Url(32));
+      vi.setSystemTime(Date.parse(unused.expiresAt));
+      expect(() => f.store.chamberInvitations.claim(f.roomId, randomBase64Url(32))).toThrow('INVITATION_ENDED');
+      expect(f.store.chamberInvitations.state(f.roomId, true).code).toBeUndefined();
+    } finally { f.store.close(); }
+  });
+
   it('ends the entire invite at expiry or five failures and invalidates previous claims on rotation', async () => {
     const f = await fixture();
     try {

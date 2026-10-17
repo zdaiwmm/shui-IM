@@ -21,6 +21,7 @@ try {
   assert.equal(await page.locator('[data-hidden-lock]').getAttribute('aria-checked'), 'true');
   assert.equal(await page.locator('[data-blank-lock]').getAttribute('aria-checked'), 'true');
   await page.locator('[data-idle-toggle]').click();
+  await page.locator('.auto-lock-duration').click();
   await page.locator('[value="120"]').check();
   await page.locator('[data-idle-toggle]').click();
   await page.clock.fastForward(3_600_000);

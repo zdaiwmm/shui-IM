@@ -3,7 +3,7 @@ import { layoutViewport } from './form-input';
 import type { PasswordRequestOptions } from './password-dialog';
 import '../numeric-password.css';
 
-/** V1 numeric entry only. Existing wrappers and operation sheets keep their original verifier. */
+/** Numeric protection uses one page for setup, daily unlock and fresh operation verification. */
 export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRequestOptions<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     const controller = new AbortController();
@@ -19,7 +19,7 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
       <p class="sr-only" data-numeric-progress role="status" aria-live="polite" aria-atomic="true"></p>
       <p class="sr-only form-error" role="alert" aria-atomic="true"></p>
       <p class="sr-only" data-numeric-context></p>
-      <div class="numeric-password-keypad" role="group" aria-label="数字密码键盘">${['', '', 'ABC', 'DEF', 'GHI', 'JKL', 'MNO', 'PQRS', 'TUV', 'WXYZ'].slice(1).map((letters, i) => `<button class="numeric-password-key" type="button" data-digit="${i + 1}" aria-label="数字 ${i + 1}"><span>${i + 1}</span><small aria-hidden="true">${letters || '&nbsp;'}</small></button>`).join('')}<button class="numeric-password-key numeric-password-zero" type="button" data-digit="0" aria-label="数字 0"><span>0</span></button></div>
+      <div class="numeric-password-keypad" role="group" aria-label="数字密码键盘">${Array.from({ length: 9 }, (_, i) => `<button class="numeric-password-key" type="button" data-digit="${i + 1}" aria-label="数字 ${i + 1}"><span>${i + 1}</span></button>`).join('')}<button class="numeric-password-key numeric-password-zero" type="button" data-digit="0" aria-label="数字 0"><span>0</span></button></div>
       <footer class="numeric-password-actions"><button type="button" data-numeric-left></button><button type="button" data-numeric-right></button></footer>
       ${options.create && options.showBrowserHint ? '<p class="numeric-browser-hint">当前浏览器无法调用设备通行密钥。如需使用面容／指纹解锁，可选择系统浏览器。</p>' : ''}
     </form>`;
@@ -29,7 +29,7 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
     const dots = [...sheet.querySelectorAll('.numeric-password-dots i')];
     const keys = [...sheet.querySelectorAll<HTMLButtonElement>('[data-digit]')];
     const left = sheet.querySelector<HTMLButtonElement>('[data-numeric-left]')!, right = sheet.querySelector<HTMLButtonElement>('[data-numeric-right]')!;
-    sheet.querySelector('[data-numeric-context]')!.textContent = `${options.spaceName ?? '私密空间'}。${options.context}${options.create ? '。这是本机应用锁，与手机锁屏密码不同。' : ''}`;
+    sheet.querySelector('[data-numeric-context]')!.textContent = `${options.spaceName ?? '私密空间'}。${options.operation ? `${options.operation}。` : ''}${options.context}${options.create ? '。这是本机应用锁，与手机锁屏密码不同。' : ''}`;
     sheet.setAttribute('aria-describedby', sheet.querySelector('[data-numeric-context]')!.id = `${id}-context`);
     let digits = '', first = '', confirmation = false, busy = false, verifying = false, waitUnavailable = false, settled = false, waitUntil = 0;
     let waitTimer: ReturnType<typeof setInterval> | undefined;
@@ -38,7 +38,7 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
     const paint = () => {
       heading.textContent = confirmation ? '确认应用锁' : options.create ? '设置应用锁' : '输入应用锁';
       const seconds = Math.max(0, Math.ceil((waitUntil - Date.now()) / 1000));
-      description.textContent = seconds ? `请 ${seconds} 秒后再试` : busy ? options.create ? '正在设置应用锁…' : '正在验证…' : error.textContent || (confirmation ? '再次输入你的 6 位数字' : options.create ? '设置 6 位数字，用于本机日常解锁' : '输入你的 6 位数字应用锁');
+      description.textContent = seconds ? `请 ${seconds} 秒后再试` : busy ? options.create ? '正在设置应用锁…' : '正在验证…' : error.textContent || (confirmation ? '再次输入你的 6 位数字' : options.create ? '设置 6 位数字，用于本机日常解锁' : options.operation ? `输入 6 位数字，继续${options.operation}` : '输入你的 6 位数字应用锁');
       dots.forEach((dot, index) => dot.classList.toggle('filled', index < (verifying ? 6 : digits.length)));
       progress.textContent = seconds ? `请 ${seconds} 秒后重试` : busy ? '正在验证' : `已输入 ${digits.length} 位，共 6 位`;
       form.setAttribute('aria-busy', String(busy));
@@ -46,9 +46,9 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
       left.textContent = options.create || !options.forgot ? '取消' : '忘记密码？';
       left.toggleAttribute('data-password-cancel', Boolean(options.create || !options.forgot));
       right.textContent = digits.length ? '删除' : '取消';
-      right.hidden = Boolean(options.create && !digits.length);
+      right.hidden = Boolean(!digits.length && (options.create || !options.forgot));
       right.disabled = busy && Boolean(digits.length);
-      right.toggleAttribute('data-password-cancel', !digits.length && !options.create);
+      right.toggleAttribute('data-password-cancel', !digits.length && !options.create && Boolean(options.forgot));
     };
     const clear = () => { digits = ''; first = ''; waitUntil = 0; busy = false; verifying = false; clearInterval(waitTimer); shake?.cancel(); progress.textContent = ''; error.textContent = ''; form.setAttribute('aria-busy', 'false'); };
     const cancel = () => { clear(); if (!settled) { settled = true; reject(new DOMException('验证已取消', 'AbortError')); } controller.abort(); };

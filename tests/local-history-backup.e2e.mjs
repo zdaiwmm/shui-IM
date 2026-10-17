@@ -191,10 +191,10 @@ try {
     const hotspot = document.querySelector('.cover-practice-page .practice-hotspot')?.getBoundingClientRect();
     const guide = document.querySelector('.cover-practice-page .hold-guide')?.getBoundingClientRect();
     const notice = document.querySelector('.cover-practice-notice');
-    const back = document.querySelector('#practice-back')?.getBoundingClientRect();
+    const back = document.querySelector('#practice-back');
     const noticeBox = notice?.getBoundingClientRect();
     const cover = document.querySelector('.cover-practice-page > .cover')?.getBoundingClientRect();
-    if (!hotspot || !guide || !noticeBox || !back || !cover) return null;
+    if (!hotspot || !guide || !noticeBox || !cover) return null;
     return {
       width: Math.round(hotspot.width),
       height: Math.round(hotspot.height),
@@ -202,8 +202,8 @@ try {
       bottom: cover.bottom - hotspot.bottom,
       guideAbove: guide.bottom <= hotspot.top + 8,
       notice: notice?.textContent ?? '',
-      footerBelowCover: back.top >= cover.bottom - 1,
-      noticeAboveBack: noticeBox.bottom <= back.top,
+      backCount: back ? 1 : 0,
+      noticeWithinCover: noticeBox.bottom <= cover.bottom,
       headerCount: document.querySelectorAll('.cover-practice-page > header').length,
       noticeLeft: noticeBox.left,
       noticeRight: innerWidth - noticeBox.right,
@@ -211,12 +211,12 @@ try {
   });
   assert.equal(coverGeometry?.width, 80);
   assert.equal(coverGeometry?.height, 80);
-  assert.equal(Math.round(coverGeometry?.right ?? 0), 12, 'practice hotspot keeps its inset inside the example cover');
-  assert.equal(Math.round(coverGeometry?.bottom ?? 0), 12, 'practice hotspot stays above the separate bottom navigation');
+  assert.equal(Math.round(coverGeometry?.right ?? 0), 16, 'practice hotspot keeps its inset inside the error-page canvas');
+  assert.equal(Math.round(coverGeometry?.bottom ?? 0), 20, 'practice hotspot keeps bottom clearance without a footer');
   assert.equal(coverGeometry?.guideAbove, true);
   assert.match(coverGeometry?.notice ?? '', /锁定时显示普通网页外观.*遮蔽不是身份验证/);
-  assert.equal(coverGeometry?.footerBelowCover, true, 'back navigation stays below the practice cover');
-  assert.equal(coverGeometry?.noticeAboveBack, true, 'cover practice notice overlaps the back button');
+  assert.equal(coverGeometry?.backCount, 0, 'practice cover has no bottom navigation band');
+  assert.equal(coverGeometry?.noticeWithinCover, true, 'cover practice notice remains in the error-page canvas');
   assert.equal(coverGeometry?.headerCount, 0, 'cover practice has no top navigation bar');
   assert.ok((coverGeometry?.noticeLeft ?? 0) >= 12, 'cover practice notice does not keep left inset');
   assert.ok((coverGeometry?.noticeRight ?? 0) >= 12, 'cover practice notice does not keep right inset');

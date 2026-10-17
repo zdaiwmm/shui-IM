@@ -199,7 +199,7 @@ function requireUserVerification(flags: number): void {
   }
 }
 
-async function evaluatePrf(record: PlatformCredentialRecord, signal?: AbortSignal, newProtection = false): Promise<Uint8Array<ArrayBuffer>> {
+async function evaluatePrf(record: PlatformCredentialRecord, signal?: AbortSignal, newProtection = false, secondSalt = browserAccessPrfSalt()): Promise<Uint8Array<ArrayBuffer>> {
   const started = performance.now();
   const rpId = record.rpId ?? location.hostname;
   if (rpId !== location.hostname) throw unlockStage('S1', `此保险库绑定到 ${rpId}，当前域名无法使用原设备凭据`, started);
@@ -217,7 +217,7 @@ async function evaluatePrf(record: PlatformCredentialRecord, signal?: AbortSigna
         }],
         userVerification: 'required',
         timeout: 60_000,
-        extensions: { prf: { eval: { first: fromBase64Url(record.prfSalt), second: browserAccessPrfSalt() } } },
+        extensions: { prf: { eval: { first: fromBase64Url(record.prfSalt), second: secondSalt } } },
       },
     } as PrfCredentialRequestOptions));
   } catch (error) {
@@ -341,6 +341,16 @@ export async function createPlatformCredential(
 export async function unlockPlatformCredential(record: PlatformCredentialRecord, signal?: AbortSignal): Promise<Uint8Array<ArrayBuffer>> {
   requireWebAuthn();
   return evaluatePrf(record, signal);
+}
+
+/** One fresh ceremony, two distinct operation-local outputs. Neither output is a rendezvous proof. */
+export async function unlockPlatformCredentialPair(root: PlatformCredentialRecord, daily: PlatformCredentialRecord, signal?: AbortSignal): Promise<{ root: PlatformCredentialResult; daily: PlatformCredentialResult }> {
+  requireWebAuthn();
+  if (root.origin && root.origin !== location.origin || root.credentialId !== daily.credentialId || root.rpId !== daily.rpId || root.origin !== daily.origin || root.backupEligible !== daily.backupEligible || root.prfSalt === daily.prfSalt) throw new Error('身份与应用锁的凭据绑定不一致');
+  const first = await evaluatePrf(root, signal, false, fromBase64Url(daily.prfSalt));
+  const second = takeBrowserAccessPrf(first);
+  if (!second) { first.fill(0); throw new Error('通行密钥未返回本次邀请所需的独立保护数据，请重试'); }
+  return { root: { record: root, prfOutput: first }, daily: { record: daily, prfOutput: second } };
 }
 
 /**
