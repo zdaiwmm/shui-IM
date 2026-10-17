@@ -5,4 +5,5 @@ export async function deferCoverPractice(page) {
   await page.locator('#skip-cover').waitFor();
   await page.keyboard.up('Enter');
   await page.locator('#skip-cover').click();
+  await page.locator('.cover-practice-page').waitFor({state:'detached'});
 }
