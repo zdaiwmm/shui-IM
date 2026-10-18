@@ -39,7 +39,7 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
     const paint = () => {
       heading.textContent = confirmation ? '确认应用锁' : options.create ? '设置应用锁' : '输入密码';
       const seconds = Math.max(0, Math.ceil((waitUntil - Date.now()) / 1000));
-      description.textContent = seconds ? `请 ${seconds} 秒后再试` : busy ? options.create ? '正在设置应用锁…' : '正在验证…' : error.textContent || (confirmation ? '再次输入你的 6 位数字' : options.create ? '设置 6 位数字，用于本机日常解锁' : '');
+      description.textContent = seconds ? `请 ${seconds} 秒后再试` : busy ? options.create ? '正在设置应用锁…' : '正在验证…' : error.textContent || (confirmation ? '再次输入你的 6 位数字' : options.create ? '设置 6 位数字，用于本机日常解锁' : options.operation ? `继续${options.operation}` : '');
       dots.forEach((dot, index) => dot.classList.toggle('filled', index < (verifying ? 6 : digits.length)));
       progress.textContent = seconds ? `请 ${seconds} 秒后重试` : busy ? '正在验证' : `已输入 ${digits.length} 位，共 6 位`;
       form.setAttribute('aria-busy', String(busy));
