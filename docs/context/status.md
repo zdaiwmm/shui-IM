@@ -1,9 +1,10 @@
 # Quiet Room 当前状态
 
-## Chamber 验证码续接与身份找回实施中（2026-10-18）
+## Chamber 验证码续接与身份找回已发布，真机待验收（2026-10-18 11:03）
 
-- 用户确认五项V1，明确免原型／流程图、授权实施及合并并请求生产；精确生产SHA仍待最终另行确认。范围、验收与阶段由[需求记录](../requirements/2026-10-18-chamber-invite-recovery/README.md)拥有，长期边界为D-067。任务分支`codex/chamber-invite-recovery-20261018`基于已实时核实的`830f0d8`，没有从落后的本机main实施。
-- 工作树已存在；构建／类型边界、4文件59项定向单测、真实Chamber整链、双内核数字／桌面及聊天／设置专项通过，版本`2026.10.18.2`。冻结后完整验证与PR／精确main CI待完成，原生真机未验收，不表示已合并或上线；下方为既有发布记录。
+- 用户确认五项V1并免原型／流程图，随后明确确认完整应用`0e781e37f9222c0615ee8a1d9b336af8b6cf6053`发布，版本`2026.10.18.2`。[PR #340](https://github.com/zdaiwmm/shui-IM/pull/340)源83f39c3与应用完整文件树一致；范围、验收与历史失败由[需求记录](../requirements/2026-10-18-chamber-invite-recovery/README.md)拥有，长期边界为D-067。精确PR／main完整CI均通过127文件／1013项、70浏览器入口、通话／TURN、审计及双架构镜像。本机冻结源70浏览器入口通过，完整本机命令的备份容量失败保留。
+- 固定云预检取得PREFLIGHT_OK，唯一云发布核对精确DEPLOY_VERIFIED，从0527151实际切换一次。首次独立回读仅因备份starting失败；核对原启动时间与既有5分钟探针后只续跑readback-only，最终READBACK_OK于`2026-10-18T03:03:36.551Z`完成。应用／备份healthy，TURN运行且探针none；SHA／镜像、HTTPS／数据库／存储、公开及容器产物与新WebSocket一致，维护门absent。完整事实见[本轮发布记录](../../RELEASING.md#release-chamber-invite-recovery-20261018)。
+- 脱敏证据保存于公共Git元数据`quiet-room-deliveries/evidence/chamber-invite-recovery-20261018/delivery.json`；第二个无部署配置文档树对账，文档SHA不替代线上应用。本批资源按固定入口核验，活动、缓存及专属Git回执依规则保留，不处理其他任务。原生iPhone／iOS27／Safari及独立安全审阅未完成；下方均为历史状态。
 
 ## Chamber 聊天接续与隐私交互修复已发布，真机待验收（2026-10-18 09:21）
 
