@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+<a id="release-audit-storage-legacy-20261019"></a>
+## 附件回收与旧协议重试修复已发布（2026-10-19 01:06）
+
+- 用户在获知两项修复、完整应用`618aa5c2e3e59b4bb669949c021d4d0f47dcb635`、版本`2026.10.18.4`、完整CI、云预检和验证缺口后回复「确认，发布生产」，授权本次精确提交，无独立消息permalink。[需求V1](docs/requirements/2026-10-18-audit-storage-legacy-fixes/README.md)拥有审计复现、范围和失败历史；历史无索引孤立文件另行盘点，不自动删除。
+- [PR #344](https://github.com/zdaiwmm/shui-IM/pull/344)源`cf077d54fd3a64c3312403f5e945fc71e71ef26b`与上述应用完整文件树一致。普通、目录签名、TTL和管理员删除持久登记文件清理，成功清理后才释放全局额度；legacy-v1发送前持久化信封，普通重试和重开复用同字节。[PR完整CI39143316572](https://github.com/zdaiwmm/shui-IM/actions/runs/39143316572) attempt 1和[精确main完整CI39145033773](https://github.com/zdaiwmm/shui-IM/actions/runs/39145033773) attempt 2均通过128文件／1019项、全部70浏览器入口、通话／TURN、文档／凭据扫描、依赖审计、双架构镜像及完整应用verify。首轮main WebKit第二空间超时原因未完全定位；同树本地双引擎和完整原样重验通过，失败保留。本机70入口为分段覆盖，10项既有备份传输受磁盘容量门禁阻断，未削弱检查。
+- 固定[云预检39146297235](https://github.com/zdaiwmm/shui-IM/actions/runs/39146297235)取得PREFLIGHT_OK。固定唯一[云发布39147348248](https://github.com/zdaiwmm/shui-IM/actions/runs/39147348248)核对精确DEPLOY_VERIFIED，回执完成于`2026-10-18T17:01:22.452Z`；工作流来源与应用均为获批SHA，从`a0136ba5574d5489b7f565ceff56cef9a6114f18`实际切换一次，批次`20261018T165851Z`。正常production审核保留；两次本机监听延迟均停止唯一旧watcher后按原RunID固定resume核对回执，没有重新派发云命令或改动helper／环境规则。
+- 镜像`sha256:fdfd83b54a80e20503be0e066ccacef46f034dc053d5f774b8497baae8fb0905`、归档摘要`7e6fb0c03dfd12b8b62e69afa23b13620066e528f68f395342df2ce580406fac`、209951304字节、linux/amd64，绑定精确main CI／attempt 2。首次独立回读于`2026-10-18T17:02:29.737Z`仅因备份starting未通过；应用healthy、SHA／镜像一致、维护门absent。只读核对备份启动`2026-10-18T17:01:13.454643719Z`和既有5分钟探针／启动期后，只续跑同SHA readback-only。
+- 最终独立READBACK_OK于`2026-10-18T17:06:35.263Z`（北京时间01:06）完成，3661毫秒：应用／备份running且healthy，TURN运行且探针none；SHA／镜像、HTTPS／数据库／存储、公开及容器产物、新WebSocket一致，维护门absent，管理员与通话启用。
+- 脱敏授权、CI、预检、发布及两次回读证据保存于公共Git元数据`quiet-room-deliveries/evidence/audit-storage-legacy-fixes-20261018/delivery.json`，位于任务树及其专属Git目录之外。第二个无部署配置文档树仅对账，文档SHA不发布；本批资源按固定门禁收尾，不处理其他任务。原生iPhone／iOS27／Safari和独立安全审阅未完成，公开高安全声明继续受[安全门槛](PRODUCTION_SECURITY_GATE.md)约束。
+
 <a id="release-chamber-mobile-refinements-20261018"></a>
 ## Chamber 九项移动交互修订已发布（2026-10-18 23:03）
 
