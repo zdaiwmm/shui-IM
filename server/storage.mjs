@@ -662,6 +662,10 @@ export async function createStore({
           existing.mls_key_package === (bundle.mlsKeyPackage ?? null) &&
           existing.join_proof === proof;
         if (!sameJoin) throw new Error('ROOM_SEALED');
+        // A public join tuple is not a device credential. Lost-response retries
+        // must retain the original token and obey revocation/recovery fencing.
+        assertDeviceActive(roomId, bundle.deviceId);
+        if (!statements.memberByIdAndToken.get(roomId, bundle.deviceId, deviceTokenHash(accessToken, room.access_hash))) throw new Error('UNAUTHORIZED');
         db.exec('COMMIT');
         return roomState(roomId);
       }
