@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+<a id="release-chamber-invite-recovery-20261018"></a>
+## Chamber 验证码续接与身份找回已发布（2026-10-18 11:03）
+
+- 用户确认五项V1并明确免原型／流程图；展示完整应用`0e781e37f9222c0615ee8a1d9b336af8b6cf6053`、版本`2026.10.18.2`、完整CI及真机缺口后，回复「确认，发布生产」，授权原只读预检及该精确提交。需求与边界由[需求V1](docs/requirements/2026-10-18-chamber-invite-recovery/README.md)拥有，无独立消息permalink。
+- [PR #340](https://github.com/zdaiwmm/shui-IM/pull/340)源`83f39c3772636a0800249964583598c072a68bb9`与上述应用完整文件树一致。[PR完整CI39089391951](https://github.com/zdaiwmm/shui-IM/actions/runs/39089391951)及[精确main完整CI39090862458](https://github.com/zdaiwmm/shui-IM/actions/runs/39090862458) attempt 1均通过127文件／1013项、70浏览器入口、通话／TURN、依赖审计、文档／凭据扫描及双架构镜像。本机冻结源的全部70浏览器入口通过；完整本机命令的10项备份传输仍受92%磁盘容量门禁阻断，原失败保留，未放宽策略。
+- 固定只读[云预检39091328176](https://github.com/zdaiwmm/shui-IM/actions/runs/39091328176)取得PREFLIGHT_OK。固定入口`publish.mjs --cloud --with-readback --environment production --sha 0e781e37f9222c0615ee8a1d9b336af8b6cf6053`核对精确DEPLOY_VERIFIED，[云发布39091750776](https://github.com/zdaiwmm/shui-IM/actions/runs/39091750776)回执成功时间`2026-10-18T02:58:32.917Z`，云发布入口253947毫秒；从`05271513e506fb96148e73d8408d2a67b03f224a`实际切换一次，批次`20261018T025606Z`。正常production审核保留，工作流来源与应用均为获批SHA。
+- 镜像`sha256:f2fc074f4696892f840e3bd6c0b491c9d128884f5ab3233a30cad239611891de`、归档摘要`7d6bf65f92d3290424b9a1c4881ceac2bcc76eb38c4839161638640cde83bd01`、209945383字节、linux/amd64，绑定精确main CI／attempt 1。首次独立回读于`2026-10-18T02:58:57.788Z`仅因备份starting失败；应用healthy、SHA／镜像匹配、维护门absent。只读核对备份实际启动`2026-10-18T02:58:22.139940394Z`及既有5分钟探针／启动期后，仅续跑同SHA readback-only，没有再次部署。
+- 最终独立READBACK_OK于`2026-10-18T03:03:36.551Z`（北京时间11:03）完成，3555毫秒：应用／备份running且healthy，TURN运行且探针none；精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物摘要、新WebSocket一致，维护门absent，管理员及通话启用。
+- 脱敏授权、交付、预检、发布及两次独立回读证据保存于公共Git元数据`quiet-room-deliveries/evidence/chamber-invite-recovery-20261018/delivery.json`，位于任务树及其专属Git目录之外。第二个无部署配置文档树基于实时main `0e781e37f9222c0615ee8a1d9b336af8b6cf6053`对账，文档SHA不发布；本批资源按固定入口核验，不处理其他任务。原生iPhone／iOS27／Safari及独立安全审阅仍未完成，高安全公开声明继续受[安全门槛](PRODUCTION_SECURITY_GATE.md)约束。下方均为历史生产快照。
+
 <a id="release-chamber-chat-continuity-20261018"></a>
 ## Chamber 聊天接续与隐私交互修复已发布（2026-10-18 09:21）
 
