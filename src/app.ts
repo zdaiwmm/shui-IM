@@ -14,6 +14,7 @@ import type { PersonalDirectoryEntry } from './lib/personal-directory';
 import { preparePersonalDevice, personalDeviceSafetyCode, verifyPersonalDeviceRequest, type PersonalDeviceRequest } from './lib/personal-device-request';
 import { authorizedFetch } from './lib/api';
 import { readPersonalIdentity, saveNewPersonalIdentity, unlockPersonalIdentityPassword } from './lib/vault';
+import { mountPageBacks } from './lib/page-back';
 import { chamberInvitation, type ChamberInvitation } from './lib/chamber-invitations';
 import { readRecoveryCard, writeRecoveryCard, pickRecoveryCard } from './lib/recovery-card';
 import './entry-experience.css';
@@ -723,6 +724,7 @@ export class QuietRoomApp {
 
   constructor(private readonly root: HTMLElement) {
     mountAppearance();
+    mountPageBacks(root);
     root.addEventListener('pointerdown', () => { root.dataset.inputModality = 'pointer'; }, { capture: true });
     root.addEventListener('keydown', event => { if (event.key === 'Tab') root.dataset.inputModality = 'keyboard'; }, { capture: true });
     this.appAccess = new AppAccess();
@@ -1662,11 +1664,11 @@ export class QuietRoomApp {
         passwordBusy = true;
         this.unlocking = true;
         try {
-          const unlocked = await requestPassword(this.root, { presentation: 'page', mandatory: true, passwordFormat: stored.passwordFormat, retryAfterMs: passwordUnlockWaitMs, title: '打开私密空间', context: '输入此空间已有的密码。', spaceName: this.currentSpaceName, submitLabel: '打开私密空间', signal: passwordAbort.signal, isActive: current, cancel: () => this.lockNow(),
+          const unlocked = await requestPassword(this.root, { presentation: 'page', mandatory: true, retainUntilReplaced: true, passwordFormat: stored.passwordFormat, retryAfterMs: passwordUnlockWaitMs, title: '打开私密空间', context: '输入此空间已有的密码。', spaceName: this.currentSpaceName, submitLabel: '打开私密空间', signal: passwordAbort.signal, isActive: current, cancel: () => this.lockNow(),
             verify: password => unlockVault(password, undefined, stored), forgot: () => { void this.recoverWithoutAppLock(stored); } });
           if (!current()) return;
           this.session = unlocked; await this.openSession();
-        } catch (cause) { if (current() && !(cause instanceof DOMException && cause.name === 'AbortError')) this.showFormError(cause); }
+        } catch (cause) { if (current() && !(cause instanceof DOMException && cause.name === 'AbortError')) { passwordAbort.abort(); await this.renderUnlock(stored, true, false); this.showFormError(cause); } }
         finally { passwordBusy = false; if (current()) this.unlocking = false; }
       };
       this.root.querySelector('#password-unlock')?.addEventListener('click', () => void openPassword());
@@ -2963,7 +2965,7 @@ export class QuietRoomApp {
     let credential: LocalCredentialResult | undefined = prepared;
     let dailyCredential: LocalCredentialResult | undefined = preparedDaily;
     this.gatewayTemplate('找回你的身份', intent.resetLock?'输入本人完整12词后，重设此浏览器的身份应用锁。旧设备与旧聊天密文继续保留，聊天历史需双方另行恢复。':'按顺序输入自己的12个英文助记词。也可在第一格粘贴完整12词。', `
-      <form id="personal-import-form"><div class="chamber-import-grid">${Array.from({ length: 12 }, (_, index) => `<label>${index + 1}<input type="password" name="word${index}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="第${index + 1}个助记词" required></label>`).join('')}</div>
+      <form id="personal-import-form"><div class="chamber-import-grid">${Array.from({ length: 12 }, (_, index) => `<label>${index + 1}<input type="password" name="word${index}" data-form-input-sequence="mnemonic" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="第${index + 1}个助记词" required></label>`).join('')}</div>
         <label class="chamber-import-show"><input type="checkbox" data-show-import>显示单词</label><p class="form-error" role="alert"></p>
         <div class="chamber-import-actions"><button class="primary-button" type="submit">验证我的身份</button><button class="secondary-button" id="personal-import-back" type="button">返回</button></div></form>`, false, 'plain');
     const page = this.root.querySelector('.gateway')!, form = page.querySelector<HTMLFormElement>('form')!;
@@ -4456,7 +4458,7 @@ export class QuietRoomApp {
       <main><form class="chamber-code-card"><span class="chamber-eyebrow">最后一步 · 确认彼此</span><div data-code-active><h1>填写邀请方的验证码</h1>
         <p>请通过你们原来的联系方式，向邀请方获取四位验证码。</p>
         <div class="chamber-countdown"><span>验证码有效期</span><strong role="timer" aria-live="off"></strong></div>
-        <fieldset class="chamber-code-fields" data-native-input><legend>四位验证码</legend><div class="chamber-code-digits">
+        <fieldset class="chamber-code-fields" data-form-input-code><legend>四位验证码</legend><div class="chamber-code-digits">
           ${Array.from({ length: 4 }, (_, index) => `<input ${index === 0 ? 'id="chamber-join-code"' : ''} data-code-digit="${index}" aria-label="验证码第 ${index + 1} 位" type="text" inputmode="numeric" pattern="[0-9]" maxlength="4" autocomplete="${index === 0 ? 'one-time-code' : 'off'}" autocapitalize="off" spellcheck="false" required>`).join('')}
         </div></fieldset>
         <button class="primary-button" type="submit">验证并进入密室</button></div>
@@ -4476,7 +4478,7 @@ export class QuietRoomApp {
     document.addEventListener('visibilitychange', () => { if (document.hidden) suspend(); }, { signal });
     window.addEventListener('pagehide', suspend, { signal }); document.addEventListener('freeze', suspend, { signal });
     const focusDigit = (index: number) => {
-      if (signal.aborted || document.hidden) return;
+      if (signal.aborted || document.hidden || form.querySelector('[data-form-input-commit]')) return;
       const input = digits[index]!; if (document.activeElement !== input) input.focus({ preventScroll: true });
       input.setSelectionRange(0, input.value.length);
     };
@@ -5580,8 +5582,8 @@ export class QuietRoomApp {
     const codeExpired = state.stage === 'code-expired' || Boolean(state.expiresAt && Date.parse(state.expiresAt) <= Date.now());
     const label = this.root.querySelector<HTMLElement>('#invite-countdown');
     if (label) {
-      label.parentElement!.hidden = ended || pending || codeExpired || !state.expiresAt;
-      const text = !ended && !codeExpired && state.expiresAt ? `验证码有效期 ${formatPendingCountdown(Date.parse(state.expiresAt) - Date.now())}` : '';
+      label.hidden = ended || pending || codeExpired || !state.expiresAt;
+      const text = !ended && !codeExpired && state.expiresAt ? formatPendingCountdown(Date.parse(state.expiresAt) - Date.now()) : '';
       if (label.textContent !== text) label.textContent = text;
     }
     const host = this.root.querySelector<HTMLElement>('#chamber-invite-status');
@@ -5600,14 +5602,35 @@ export class QuietRoomApp {
     const code = document.createElement('div'); code.className = 'chamber-code-display';
     code.setAttribute('role', 'group'); code.setAttribute('aria-label', `本次四位验证码 ${state.code!.split('').join(' ')}`);
     for (const digit of state.code!) { const cell = document.createElement('span'); cell.textContent = digit; cell.setAttribute('aria-hidden', 'true'); code.append(cell); }
-    const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'text-button'; copy.id = 'copy-chamber-code'; copy.textContent = '复制验证码';
+    const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'text-button'; copy.id = 'copy-chamber-code'; copy.textContent = '复制';
     copy.addEventListener('click', () => {
       if (!this.isRuntimeActive(epoch, session) || this.chamberInviteState?.code !== state.code || this.chamberInvitationEnded() || Date.parse(state.expiresAt!) <= Date.now()) return;
       void this.withSystemSurface(() => navigator.clipboard.writeText(state.code!)).then(() => {
         if (this.isRuntimeActive(epoch, session) && this.chamberInviteState?.code === state.code && !this.chamberInvitationEnded() && Date.parse(state.expiresAt!) > Date.now()) this.showNotice('验证码已复制');
       }).catch(() => { if (this.isRuntimeActive(epoch, session)) this.showNotice('未能复制，请手动记下四位验证码', 'error'); });
     });
-    host.replaceChildren(title, code, copy);
+    const heading = document.createElement('div'); heading.className = 'chamber-code-heading';
+    const countdown = document.createElement('span'); countdown.id = 'invite-countdown'; countdown.setAttribute('role', 'timer'); countdown.setAttribute('aria-live', 'off');
+    countdown.textContent = formatPendingCountdown(Date.parse(state.expiresAt!) - Date.now());
+    heading.append(title, countdown); host.replaceChildren(heading, code, copy);
+  }
+
+  private confirmChamberInvitationRestart(): void {
+    const session = this.session, epoch = this.runtimeEpoch;
+    if (!session || this.chamberInviteRotating || this.root.querySelector('.chamber-restart-confirm')) return;
+    const sheet = document.createElement('section'); sheet.className = 'confirm-overlay chamber-restart-confirm';
+    sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-labelledby', 'restart-invite-title');
+    sheet.innerHTML = '<div class="confirm-dialog simple-confirm"><h2 id="restart-invite-title">重新发起邀请？</h2><p>重新发起后，之前的邀请链接将失效。请将新链接发送给对方。</p><div class="simple-confirm-actions"><button class="text-button" data-restart-cancel type="button">取消</button><button class="primary-button" data-restart-confirm type="button">重新发起</button></div></div>';
+    this.root.append(sheet);
+    const active = () => this.isRuntimeActive(epoch, session) && !document.hidden;
+    const dialog = mountDialog(sheet, { signal: this.runtimeAbort?.signal, isActive: active });
+    sheet.querySelector('[data-restart-cancel]')!.addEventListener('click', () => dialog.close());
+    sheet.addEventListener('click', event => { if (event.target === sheet) dialog.close(); });
+    sheet.querySelector('[data-restart-confirm]')!.addEventListener('click', () => {
+      if (!active() || sheet.inert) return;
+      dialog.close({ animate: false, restoreFocus: false });
+      void this.rotateChamberInvitation().catch(cause => { if (active()) this.showNotice(cause instanceof Error ? cause.message : '邀请未能重新发起', 'error'); });
+    });
   }
 
   private async rotateChamberInvitation(): Promise<void> {
@@ -6476,8 +6499,8 @@ export class QuietRoomApp {
           ` : ''}
         </div>
         <div class="notice" id="notice" role="status" hidden></div>
-        <section class="message-list" id="message-list" aria-label="聊天消息">${this.session.vault.personalBinding ? `<details class="chamber-privacy-guide" ${this.session.vault.personalGuide?.mnemonicChecked && this.session.vault.personalGuide.coverRead && this.session.vault.personalGuide.autoLockRead ? '' : 'open'}><summary>三步，熟悉你的隐私保护</summary><ol>
-            <li><button type="button" data-personal-guide="mnemonic"><b>01</b><span><strong>助记词</strong><small>${this.session.vault.personalGuide?.mnemonicChecked ? '已核对助记词' : '换设备时，用它证明是你'}</small></span><span aria-hidden="true">›</span></button></li>
+        <section class="message-list" id="message-list" aria-label="聊天消息">${this.session.vault.personalBinding ? `<details class="chamber-privacy-guide" ${(this.session.vault.personalGuide?.mnemonicViewed || this.session.vault.personalGuide?.mnemonicChecked) && this.session.vault.personalGuide.coverRead && this.session.vault.personalGuide.autoLockRead ? '' : 'open'}><summary>三步，熟悉你的隐私保护</summary><ol>
+            <li><button type="button" data-personal-guide="mnemonic"><b>01</b><span><strong>助记词</strong><small>${this.session.vault.personalGuide?.mnemonicViewed ? '已查看，请妥善保存' : this.session.vault.personalGuide?.mnemonicChecked ? '已核对助记词' : '换设备时，用它证明是你'}</small></span><span aria-hidden="true">›</span></button></li>
             <li><button type="button" data-personal-guide="cover"><b>02</b><span><strong>入口遮蔽</strong><small>${this.session.vault.recoveryExperience?.coverEnabled ? '已开启' : '了解伪装入口，按需开启'}</small></span><span aria-hidden="true">›</span></button></li>
             <li><button type="button" data-personal-guide="auto-lock"><b>03</b><span><strong>自动锁定</strong><small>了解暂时离开后的保护</small></span><span aria-hidden="true">›</span></button></li>
           </ol></details>` : ''}</section>
@@ -7421,7 +7444,10 @@ export class QuietRoomApp {
       const noticesHeight = notices.offsetHeight;
       const composerHeight = composer.offsetHeight;
       syncChatBubbleGradient(list);
-      const measurements = `${headerHeight}:${noticesHeight}:${composerHeight}`;
+      const settings = header.querySelector<HTMLElement>('#chat-settings');
+      const topGap = settings ? Math.max(0, settings.offsetTop) : 14;
+      const topSpace = this.session?.vault.personalBinding && settings ? settings.offsetTop + settings.offsetHeight + topGap + noticesHeight : headerHeight + noticesHeight + 14;
+      const measurements = `${headerHeight}:${noticesHeight}:${composerHeight}:${topSpace}`;
       if (measurements === previousMeasurements) return;
       previousMeasurements = measurements;
       const pinned = this.chatPinnedToBottom;
@@ -7429,9 +7455,9 @@ export class QuietRoomApp {
       const priorTopSpace = parseFloat(getComputedStyle(list).paddingTop);
       const priorScroll = this.chatScrollTop;
       shell.style.setProperty('--chat-header-height', `${headerHeight}px`);
-      shell.style.setProperty('--chat-top-space', `${headerHeight + noticesHeight + 14}px`);
+      shell.style.setProperty('--chat-top-space', `${topSpace}px`);
       shell.style.setProperty('--chat-bottom-space', `${composerHeight + CHAT_LATEST_GAP}px`);
-      document.documentElement.style.setProperty('--chat-top-space', `${headerHeight + noticesHeight + 14}px`);
+      document.documentElement.style.setProperty('--chat-top-space', `${topSpace}px`);
       document.documentElement.style.setProperty('--chat-bottom-space', `${composerHeight + CHAT_LATEST_GAP}px`);
       // Padding changes can clamp native document scrolling even for a reader
       // who has not requested bottom following. Correct chrome in this task.
@@ -8447,10 +8473,20 @@ export class QuietRoomApp {
     return last instanceof HTMLElement ? last : this.renderedMessageOrder.at(-1);
   }
 
+  private shortChatTimeline(): boolean {
+    const chat = this.chatLayoutElements;
+    if (!chat?.shell.isConnected) return false;
+    const first = chat.list.firstElementChild, last = chat.list.lastElementChild;
+    if (!(first instanceof HTMLElement) || !(last instanceof HTMLElement)) return true;
+    const contentHeight = last.offsetTop + last.offsetHeight - first.offsetTop;
+    const available = this.chatComposerLayoutTop(chat.composer) - this.chatViewportTop - parseFloat(getComputedStyle(chat.list).paddingTop) - CHAT_LATEST_GAP;
+    return contentHeight <= available + 1;
+  }
+
   private chatBottomScrollTop(): number {
     const chat = this.chatLayoutElements;
     const latest = this.chatLatestTimelineRow();
-    if (!chat?.shell.isConnected || !latest?.isConnected) return 0;
+    if (!chat?.shell.isConnected || !latest?.isConnected || this.shortChatTimeline() || this.session?.vault.personalBinding && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero')) return 0;
     const marginBottom = Number.parseFloat(getComputedStyle(latest).marginBottom) || 0;
     // Use the newest timeline row and composer edges, not document extent: the
     // latter can include a short-history minimum height or a stale Safari layout
@@ -8462,7 +8498,7 @@ export class QuietRoomApp {
   private scrollChatToBottom(): void {
     this.chatBottomControl?.cancel();
     this.chatScrollIntent = null;
-    if (this.session?.vault.personalBinding && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero')) {
+    if (this.shortChatTimeline() || this.session?.vault.personalBinding && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero')) {
       this.chatPinnedToBottom = false; this.chatBottomFollowPending = false;
       this.setChatScrollTop(0); this.updateChatBottomControl(); return;
     }
@@ -8650,8 +8686,10 @@ export class QuietRoomApp {
   private alignChatBottom(): void {
     // A pending invitation is a top-first task, not a message timeline.
     // Queued resize/follow callbacks must not push its heading under chrome.
-    if (this.session?.vault.personalBinding && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero')) {
-      this.chatBottomFollowPending = false; return;
+    if (this.shortChatTimeline() || this.session?.vault.personalBinding && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero')) {
+      this.chatBottomFollowPending = false;
+      if (this.chatScrollIntent !== 'up') this.setChatScrollTop(0);
+      return;
     }
     if (this.composerHandoff || this.composerHeightMotion || this.nativeKeyboardDismiss) {
       this.chatBottomFollowPending = true;
@@ -10814,7 +10852,7 @@ export class QuietRoomApp {
 
   private showHiddenAlbumHint(): void {
     const session = this.session;
-    if (session?.vault.personalBinding && (!session.vault.personalGuide?.mnemonicChecked || !session.vault.personalGuide.coverRead || !session.vault.personalGuide.autoLockRead)) return;
+    if (session?.vault.personalBinding && (!(session.vault.personalGuide?.mnemonicViewed || session.vault.personalGuide?.mnemonicChecked) || !session.vault.personalGuide.coverRead || !session.vault.personalGuide.autoLockRead)) return;
     if (!session || this.privacyCovered || this.activeSurface !== 'chat' || session.vault.role !== 'creator' ||
         session.vault.mls?.phase !== 'active' || this.accessFailure || this.uiPreferences.hiddenAlbumHintDismissed || this.root.querySelector('.hidden-album-hint, [role="dialog"]')) return;
     const entry = this.root.querySelector('#open-gallery'); if (!entry) return;
@@ -10912,6 +10950,7 @@ export class QuietRoomApp {
       }
       this.cancelChatMessageMotion();
     }
+    const priorScrollTop = this.chatScrollTop;
     const anchor = scroll === 'restore'
       ? this.uiPreferences.chatAnchor
       : this.captureChatAnchor(false, scroll === 'position');
@@ -10959,20 +10998,20 @@ export class QuietRoomApp {
         invite.addEventListener('click', () => {
           if (this.chamberInviteRotating) return;
           if (this.session?.vault.personalBinding && (this.session.vault.pendingInvitationRotation || this.chamberInvitationEnded())) {
-            void this.rotateChamberInvitation().catch(cause => this.showNotice(cause instanceof Error ? cause.message : '邀请未能重新发起', 'error'));
+            this.confirmChamberInvitationRestart();
           } else if (this.session) void this.shareInviteLink(this.participantInviteUrl(this.session), '邀请链接已复制', Boolean(this.session.vault.personalBinding));
         });
         const link = document.createElement('input'); link.id = 'invite-url'; link.className = 'sr-only'; link.readOnly = true; link.tabIndex = -1; link.setAttribute('aria-label', '邀请链接'); link.value = inviteUrl;
         const status = document.createElement('p'); status.className = 'entry-invite-status';
         status.innerHTML = '<span id="invite-countdown" role="timer" aria-live="off"></span>';
-        guidance.append(invite, link, status);
+        guidance.append(invite, link);
+        if (!this.session.vault.personalBinding) guidance.append(status);
         if (this.session.vault.personalBinding) {
           const state = document.createElement('div'); state.id = 'chamber-invite-status'; state.className = 'chamber-invite-status'; state.setAttribute('role', 'status');
-          const restart = document.createElement('button'); restart.type = 'button'; restart.className = 'text-button'; restart.textContent = '重新发起邀请';
+          const restart = document.createElement('button'); restart.type = 'button'; restart.className = 'text-button'; restart.textContent = '邀请链接被其他人占用？重新发起';
           restart.id = 'chamber-invite-restart'; restart.hidden = true; state.hidden = true; status.hidden = true;
           restart.addEventListener('click', () => {
-            if (restart.disabled) return; restart.disabled = true;
-            void this.rotateChamberInvitation().catch(cause => this.showNotice(cause instanceof Error ? cause.message : '邀请未能重新发起', 'error')).finally(() => { restart.disabled = false; });
+            if (!restart.disabled) this.confirmChamberInvitationRestart();
           });
           guidance.append(state, restart);
         }
@@ -11119,7 +11158,9 @@ export class QuietRoomApp {
     syncChatBubbleGradient(list);
     this.mountChatImageObserver(list);
     this.voicePlayback.prune();
-    if (scroll === 'bottom' || followSend || !anchor) {
+    if (!anchor && scroll === 'preserve') {
+      this.setChatScrollTop(priorScrollTop);
+    } else if (scroll === 'bottom' || followSend || !anchor) {
       this.chatPinnedToBottom = true;
       this.scrollChatToBottom();
       this.captureChatAnchor(true);
@@ -12849,55 +12890,52 @@ export class QuietRoomApp {
     this.root.innerHTML = `<main class="recovery-flow-page chamber-mnemonic-page" data-authenticated-page>
       <section class="recovery-flow-content">${entryArt()}<h1>身份，由你保管</h1><p class="recovery-flow-lead">12 个英文单词可以找回你的身份，也可导入 MetaMask 等兼容钱包。不要发送给任何人，包括另一位参与者。</p>
       <div class="entry-protection"><strong>先验证应用锁，再查看</strong><p>助记词已加密保存在这台浏览器中。查看后将在一分钟内隐藏，离开或锁定也会立即隐藏。</p></div>
-      <p class="field-hint">请在可信、私密的环境下抄写，按编号保存顺序。共同恢复时，双方各自在自己的设备上验证。</p><div data-personal-words></div><p class="form-error" role="alert"></p></section>
+      <p class="field-hint">请在可信、私密的环境下抄写，按编号保存顺序。共同恢复时，双方各自在自己的设备上验证。</p><p class="form-error" role="alert"></p></section>
       <footer class="recovery-flow-footer"><button class="primary-button" data-personal-show type="button">验证并查看助记词</button>${session.vault.personalMigration?.state==='staged'?'<button class="text-button" data-personal-legacy type="button">迁移尚未完成，查看旧恢复卡</button>':''}<button class="text-button" data-personal-back type="button">返回</button></footer></main>`;
-    const page = this.root.querySelector('.chamber-mnemonic-page')!, host = page.querySelector<HTMLElement>('[data-personal-words]')!;
+    const page = this.root.querySelector('.chamber-mnemonic-page')!;
     const active = () => page.isConnected && this.isRuntimeActive(epoch, session) && !document.hidden;
-    let timer: number | undefined, words: string[] = [];
-    const clear = () => { window.clearTimeout(timer); words.fill(''); words = []; host.replaceChildren(); this.exposureAnchor = null; this.idleLease.clearExposureLimit(); };
-    this.runtimeAbort?.signal.addEventListener('abort', clear, { once: true });
-    const visibility = () => { if (document.hidden) clear(); };
-    document.addEventListener('visibilitychange', visibility, { signal: this.runtimeAbort?.signal });
-    page.querySelector('[data-personal-back]')!.addEventListener('click', () => { clear(); document.removeEventListener('visibilitychange', visibility); this.transitionPage('backward', () => {if(session.vault.pendingChamberCreate)this.renderPendingChamberCreate();else this.renderChat();}); });
-    page.querySelector('[data-personal-legacy]')?.addEventListener('click',()=>{clear();this.verifyLocalRecoveryCode();});
+    page.querySelector('[data-personal-back]')!.addEventListener('click', () => this.transitionPage('backward', () => {if(session.vault.pendingChamberCreate)this.renderPendingChamberCreate();else this.renderChat();}));
+    page.querySelector('[data-personal-legacy]')?.addEventListener('click',()=>this.verifyLocalRecoveryCode());
     const button = page.querySelector<HTMLButtonElement>('[data-personal-show]')!;
     button.addEventListener('click', async () => {
       if (button.disabled || !active()) return; button.disabled = true;
       const error = page.querySelector<HTMLElement>('.form-error')!; error.textContent = '';
-      let credential: LocalCredentialResult | undefined;
+      let credential: LocalCredentialResult | undefined, words: string[] = [];
       try {
         const stored = await readPersonalIdentity(session.vault.personalBinding!.identity.id);
         if (!stored || !active()) throw new Error('此浏览器没有保管对应的助记词，请在原设备查看');
         credential = await this.personalCredential(stored, active);
         if (!active()) return;
         words = await usePersonalIdentity(stored, credential, entropy => personalMnemonicFromEntropy(entropy).split(' '));
-        if (!active()) { clear(); return; }
-        const list = document.createElement('ol'); list.className = 'chamber-mnemonic-grid';
-        words.forEach(word => { const item = document.createElement('li'); item.textContent = word; list.append(item); });
-        host.append(list);
-        this.exposureAnchor = host; this.idleLease.limitExposure(60_000); this.scheduleIdleLock();
-        timer = window.setTimeout(() => { clear(); if (active()) this.lockNow(); }, 60_000);
-        const form = document.createElement('form'); form.className = 'chamber-mnemonic-check';
-        const indices = new Set<number>(); while (indices.size < 3) indices.add(crypto.getRandomValues(new Uint8Array(1))[0]! % 12);
-        const title = document.createElement('strong'); title.textContent = '抄写完成后，核对三处'; form.append(title);
-        for (const index of indices) {
-          const label = document.createElement('label'); label.textContent = `第 ${index + 1} 个单词`;
-          const input = document.createElement('input'); input.name = String(index); input.autocomplete = 'off'; input.autocapitalize = 'none'; input.spellcheck = false; input.required = true;
-          label.append(input); form.append(label);
-        }
-        const submit = document.createElement('button'); submit.type = 'submit'; submit.className = 'primary-button'; submit.textContent = '核对并完成'; form.append(submit); host.append(form);
-        form.addEventListener('submit', event => {
-          event.preventDefault(); if (!active() || !words.length) return;
-          if ([...indices].some(index => (form.elements.namedItem(String(index)) as HTMLInputElement).value.trim().toLowerCase() !== words[index])) { error.textContent = '单词或顺序不一致，请按编号核对'; return; }
-          submit.disabled = true;
-          void withVaultMutation(session, async mutation => {
-            session.vault.personalGuide = { ...session.vault.personalGuide, mnemonicChecked: true }; await saveVault(session, mutation);
-          }).then(() => { clear(); if (active()) this.transitionPage('backward', () => {if(session.vault.pendingChamberCreate)this.renderPendingChamberCreate();else this.renderChat();}); }).catch(cause => { if (active()) { error.textContent = cause instanceof Error ? cause.message : '保存未完成'; submit.disabled = false; } });
-        });
-        button.hidden = true;
+        if (!active()) return;
+        this.renderPersonalMnemonicWords(words); words = [];
       } catch (cause) { if (active() && !(cause instanceof DOMException && cause.name === 'AbortError')) error.textContent = cause instanceof Error ? cause.message : '验证未完成'; }
-      finally { if (credential) this.releasePersonalCredential(credential); if (active()) button.disabled = false; }
+      finally { words.fill(''); if (credential) this.releasePersonalCredential(credential); if (active()) button.disabled = false; }
     });
+  }
+
+  private renderPersonalMnemonicWords(words: string[]): void {
+    const session = this.session, epoch = this.runtimeEpoch;
+    if (!session || !this.isRuntimeActive(epoch, session) || document.hidden) { words.fill(''); return; }
+    this.root.innerHTML = `<main class="recovery-flow-page chamber-mnemonic-words-page" data-authenticated-page>
+      <section class="recovery-flow-content"><h1>保存你的助记词</h1><p class="recovery-flow-lead">请按编号顺序抄写并妥善保存这 12 个单词。不要发送给任何人。</p><ol class="chamber-mnemonic-grid"></ol><p class="field-hint">一分钟内自动隐藏。离开此页面或锁定后立即隐藏，再次查看需要验证应用锁。</p><p class="form-error" role="alert"></p></section>
+      <footer class="recovery-flow-footer"><button class="text-button" data-personal-words-back type="button">返回</button></footer></main>`;
+    const page = this.root.querySelector('.chamber-mnemonic-words-page')!, host = page.querySelector<HTMLElement>('ol')!;
+    const lifetime = new AbortController(), active = () => page.isConnected && this.isRuntimeActive(epoch, session) && !document.hidden;
+    let timer: number | undefined;
+    const clear = () => { window.clearTimeout(timer); words.fill(''); words = []; host.replaceChildren(); if (this.exposureAnchor === host) { this.exposureAnchor = null; this.idleLease.clearExposureLimit(); } lifetime.abort(); observer.disconnect(); };
+    const observer = new MutationObserver(() => { if (!page.isConnected) clear(); }); observer.observe(this.root, {childList:true});
+    this.runtimeAbort?.signal.addEventListener('abort', clear, { once:true, signal:lifetime.signal });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) clear(); }, {signal:lifetime.signal});
+    window.addEventListener('pagehide', clear, {signal:lifetime.signal}); document.addEventListener('freeze', clear, {signal:lifetime.signal});
+    words.forEach(word => { const item = document.createElement('li'); item.textContent = word; host.append(item); });
+    words.fill(''); words = [];
+    this.exposureAnchor = host; this.idleLease.limitExposure(60_000); this.scheduleIdleLock();
+    timer = window.setTimeout(() => { const current = active(); clear(); if (current) this.lockNow(); }, 60_000);
+    page.querySelector('[data-personal-words-back]')!.addEventListener('click', () => { clear(); this.transitionPage('backward', () => this.renderPersonalRecoveryCenter()); });
+    void withVaultMutation(session, async mutation => {
+      session.vault.personalGuide = { ...session.vault.personalGuide, mnemonicViewed:true }; await saveVault(session, mutation);
+    }).catch(() => { if (active()) page.querySelector('.form-error')!.textContent = '查看状态未能保存，可返回后重试。'; });
   }
 
   private renderRecoveryCenter(): void {

@@ -208,3 +208,5 @@
 
 #app .meme-search-dialog:not(.meme-expanded-dialog) .meme-toolbar { display:none; }
 #app .meme-search-dialog:not(.meme-expanded-dialog) .meme-panel { grid-template-rows:48px minmax(0,1fr); }
+
+#app .meme-search-dialog .meme-scroll { padding-bottom:calc(76px + env(safe-area-inset-bottom)); }

@@ -71,24 +71,29 @@ describe('Chamber invitation ownership and lifetime', () => {
     } finally { f.store.close(); }
   });
 
-  it('starts rotated codes immediately, preserves their deadline on claim and keeps expired invitations claimable', async () => {
+  it('waits for a unique claimant after rotation before generating a code and fixed deadline', async () => {
     const f = await fixture();
     try {
+      f.store.chamberInvitations.claim(f.roomId, f.secret);
       const token = randomBase64Url(32), first = f.store.rotateChamberInvitation(f.roomId, token);
-      expect(first.requestId).toBeTruthy(); expect(first.code).toMatch(/^\d{4}$/);
-      expect(Date.parse(first.expiresAt) - Date.now()).toBeGreaterThan(30 * 60_000 - 1000);
-      expect(f.store.chamberInvitations.state(f.roomId).code).toBeUndefined();
-      vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(Date.parse(first.expiresAt) - 60_000);
-      const claimed = f.store.chamberInvitations.claim(f.roomId, f.secret);
-      expect(claimed.requestId).toBe(first.requestId); expect(claimed.expiresAt).toBe(first.expiresAt);
-      expect(f.store.chamberInvitations.state(f.roomId, true).code).toBe(first.code);
-      f.store.chamberInvitations.ready(f.roomId, f.secret, f.candidate);
-      expect(f.store.chamberInvitations.state(f.roomId, true).code).toBe(first.code);
-      expect(f.store.rotateChamberInvitation(f.roomId, token).expiresAt).toBe(first.expiresAt);
-      const unused = f.store.rotateChamberInvitation(f.roomId, randomBase64Url(32));
-      vi.setSystemTime(Date.parse(unused.expiresAt));
-      expect(f.store.chamberInvitations.claim(f.roomId, randomBase64Url(32)).stage).toBe('code-expired');
-      expect(f.store.chamberInvitations.state(f.roomId, true).code).toBeUndefined();
+      expect(first.stage).toBe('available'); expect(first.requestId).toBeNull();
+      expect(first.code).toBeUndefined(); expect(first.expiresAt).toBeNull();
+      expect(f.store.authenticateInvite(f.roomId, f.inviteToken)).toBe(false);
+      vi.useFakeTimers({toFake:['Date']}); vi.setSystemTime(Date.now() + 2 * 60 * 60_000);
+      expect(f.store.rotateChamberInvitation(f.roomId, token)).toEqual(first);
+      const claimant = randomBase64Url(32), claimed = f.store.chamberInvitations.claim(f.roomId, claimant);
+      expect(claimed.requestId).toBeTruthy(); expect(claimed.expiresAt).toBe(new Date(Date.now()+30*60_000).toISOString());
+      expect(claimed.code).toBeUndefined();
+      const code = f.store.chamberInvitations.state(f.roomId, true).code; expect(code).toMatch(/^\d{4}$/);
+      expect(() => f.store.chamberInvitations.claim(f.roomId,f.secret)).toThrow('INVITATION_CLAIMED');
+      vi.setSystemTime(Date.now()+60_000);
+      expect(f.store.chamberInvitations.claim(f.roomId,claimant).expiresAt).toBe(claimed.expiresAt);
+      f.store.chamberInvitations.ready(f.roomId,claimant,f.candidate);
+      expect(f.store.chamberInvitations.state(f.roomId,true).code).toBe(code);
+      expect(f.store.rotateChamberInvitation(f.roomId,token).expiresAt).toBe(claimed.expiresAt);
+      vi.setSystemTime(Date.parse(claimed.expiresAt));
+      expect(f.store.chamberInvitations.claim(f.roomId,claimant).stage).toBe('code-expired');
+      expect(f.store.chamberInvitations.state(f.roomId,true).code).toBeUndefined();
     } finally { f.store.close(); }
   });
 

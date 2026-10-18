@@ -60,7 +60,7 @@ try {
   await submitPassword(a, '246810'); await a.locator('.chat-shell').waitFor();
   assert.equal(protectedBeforeRoom, true);
   assert.equal(deviceBeforeRoom, true); assert.equal(lostCreateResponse, true); assert.equal(creationIds.size, 1);
-  assert.equal(await a.locator('.entry-invite-status').isVisible(), false);
+  assert.equal(await a.locator('.entry-invite-status').count(), 0);
   assert.equal(await a.locator('#chamber-invite-restart').isVisible(), false);
   assert.deepEqual(await a.locator('[data-personal-guide] strong').allTextContents(), ['助记词', '入口遮蔽', '自动锁定']);
   assert.equal(await a.getByText('稍后再设', { exact: true }).count(), 0);
@@ -115,10 +115,14 @@ try {
   await a.context().grantPermissions(['clipboard-read','clipboard-write']);
   await a.locator('#copy-chamber-code').click();
   assert.equal(await a.evaluate(()=>navigator.clipboard.readText()),earlyCode);
-  assert.equal(await a.locator('.entry-invite-status').isVisible(),true);
-  assert.match(await a.locator('#invite-countdown').textContent(),/验证码有效期 \d+:\d{2}/);
+  assert.equal(await a.locator('#copy-chamber-code').textContent(),'复制');
+  assert.match(await a.locator('#invite-countdown').textContent(),/^\d+:\d{2}$/);
   await capture('inviter-after-claim');
   assert.equal(await a.locator('#chamber-invite-restart').isVisible(), true);
+  await a.locator('#chamber-invite-restart').click();
+  await a.locator('[data-restart-cancel]').click();
+  await a.locator('.chamber-restart-confirm').waitFor({state:'detached'});
+  assert.equal(await a.evaluate(()=>app.chamberInviteState.code),earlyCode);
   assert.equal(await b.locator('.numeric-browser-hint').count(), 0);
   await submitPassword(b, '135790'); await b.locator('.chamber-code-card').waitFor();
   assert.equal(await a.evaluate(() => app.chamberInviteState.code), earlyCode);
@@ -126,7 +130,7 @@ try {
   await b.screenshot({ path: '/private/tmp/chamber-invite-390.png' });
   await auditP1Surface(b,'chamber-invite','.chamber-join-shell');
   for(let round=0;round<3;round++) {
-    await b.locator('[data-code-digit="0"]').fill('1');
+    await b.locator('[data-code-digit="0"]').click(); await b.locator('#form-input-draft').fill('1');
     await b.evaluate(()=>{ window.syntheticHidden=true;Object.defineProperty(document,'hidden',{configurable:true,get:()=>window.syntheticHidden});document.dispatchEvent(new Event('visibilitychange')); });
     assert.equal(await b.locator('.chamber-join-shell').count(),0);
     await b.evaluate(async()=>{window.syntheticHidden=false;document.dispatchEvent(new Event('visibilitychange'));window.dispatchEvent(new Event('focus'));await app.renderGateway({trustedCoverActivation:true,autoUnlock:false});});
@@ -202,17 +206,18 @@ try {
   await a.getByRole('button',{name:'重新发起邀请',exact:true}).first().waitFor();
   assert.equal(await a.locator('#chamber-invite-restart').isVisible(),false);
   assert.equal(await a.getByText('本次邀请已结束',{exact:true}).count(),0);
-  await a.locator('#copy-invite').click();
+  await a.locator('#copy-invite').click(); await a.locator('[data-restart-confirm]').click();
   await a.waitForFunction(()=>app.session.vault.pendingInvitationRotation&&!app.chamberInviteRotating);
   assert.equal(await a.locator('#invite-url').inputValue(),invite,'Failed local commit exposed an uncommitted link');
   assert.equal(await a.locator('#chamber-invite-status').isVisible(),false);
-  await a.getByRole('button',{name:'重新发起邀请',exact:true}).click();
+  await a.getByRole('button',{name:'重新发起邀请',exact:true}).click(); await a.locator('[data-restart-confirm]').click();
   await a.waitForFunction(old=>document.querySelector('#invite-url').value!==old,invite);
   assert.equal(rotationReplies.length,2);assert.deepEqual(rotationReplies[1],rotationReplies[0],'Retry must reuse the server rotation without extending its deadline');
   const nextInvite=await a.locator('#invite-url').inputValue();assert.notEqual(nextInvite,invite);
   await a.waitForFunction(async url=>(await navigator.clipboard.readText())===url,nextInvite);
-  assert.match(await a.locator('#invite-countdown').textContent(),/验证码有效期/);
-  assert.equal(await a.locator('.chamber-code-display > span').count(),4);
+  assert.equal(await a.locator('#invite-countdown').count(),0);
+  assert.equal(await a.locator('.chamber-code-display > span').count(),0);
+  assert.equal(await a.evaluate(()=>app.chamberInviteState.expiresAt),null);
   await a.unroute('**/chamber-invitation',expiredReply);
   await a.clock.setSystemTime(new Date());
   await b.goto('about:blank');await b.goto(nextInvite);await b.locator('#chamber-existing-join').click();await submitPassword(b,'135790');await b.locator('.chamber-code-card').waitFor();
@@ -244,18 +249,16 @@ try {
   assert.equal(await a.locator('.chamber-invite-hero .chamber-privacy-guide').count(), 0);
   const digits = b.locator('[data-code-digit]');
   assert.equal(await digits.count(), 4);
-  await digits.nth(0).pressSequentially('1234');
-  assert.deepEqual(await digits.evaluateAll(inputs => inputs.map(input => input.value)), ['1', '2', '3', '4']);
-  await digits.nth(3).press('Backspace'); await digits.nth(3).press('Backspace');
-  assert.equal(await digits.nth(2).evaluate(input => input === document.activeElement), true);
-  assert.equal(await digits.nth(2).inputValue(), '');
-  await digits.nth(2).press('ArrowLeft');
-  assert.equal(await digits.nth(1).evaluate(input => input === document.activeElement), true);
-  await digits.nth(1).evaluate((input, value) => {
-    const clipboardData = new DataTransfer(); clipboardData.setData('text/plain', value);
-    input.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
-  }, code);
-  assert.deepEqual(await digits.evaluateAll(inputs => inputs.map(input => input.value)), code.split(''));
+  const codeBackground=await b.locator('.chamber-join-shell').boundingBox();
+  await digits.nth(0).click();await b.locator('#form-input-draft').fill('1234');
+  assert.equal(await b.locator('.form-input-code-cells > span').count(),4);
+  assert.deepEqual(await b.locator('.form-input-code-cells > span').allTextContents(),['1','2','3','4']);
+  await b.locator('#form-input-draft').press('Backspace');await b.locator('#form-input-draft').press('Backspace');
+  assert.equal(await b.locator('#form-input-draft').inputValue(),'12');
+  await b.locator('#form-input-draft').fill(code);await b.locator('[data-form-input-done]').click();
+  await b.locator('.form-input-overlay').waitFor({state:'detached'});
+  assert.deepEqual(await digits.evaluateAll(inputs=>inputs.map(input=>input.value)),code.split(''));
+  assert.deepEqual(await b.locator('.chamber-join-shell').boundingBox(),codeBackground);
   // Lost transport while the inviter is on a settings child must be repaired
   // by the unlocked session, without navigating back to chat to drive it.
   await a.locator('#chat-settings').click();
@@ -344,13 +347,15 @@ try {
     return (await import('/src/lib/personal-identity.ts')).personalEntropyFromMnemonic(phrase).length === 16;
   }), true);
   const words = await a.locator('.chamber-mnemonic-grid li').allTextContents();
-  for (const input of await a.locator('.chamber-mnemonic-check input').all()) {
-    try { await fillFormInput(a, input, words[Number(await input.getAttribute('name'))]); }
-    catch { throw new Error('Synthetic mnemonic confirmation field did not commit; secret values omitted'); }
-  }
-  await a.locator('.chamber-mnemonic-check [type=submit]').click(); await a.locator('.chat-shell').waitFor();
-  assert.equal(await a.locator('.chamber-mnemonic-grid').count(), 0);
-  assert.equal(await a.evaluate(() => app.session.vault.personalGuide.mnemonicChecked), true);
+  assert.equal(await a.locator('.chamber-mnemonic-check').count(),0);
+  assert.equal(await a.locator('.chamber-mnemonic-words-page').count(),1);
+  assert.equal(await a.locator('[data-personal-show]').count(),0);
+  await a.locator('[data-personal-words-back]').click(); await a.locator('[data-personal-show]').waitFor();
+  assert.equal(await a.locator('.chamber-mnemonic-grid li').count(),0,'Words clear synchronously before the empty outgoing page finishes');
+  await a.locator('.chamber-mnemonic-words-page').waitFor({state:'detached'});
+  await a.locator('[data-personal-back]').click(); await a.locator('.chat-shell').waitFor();
+  assert.equal(await a.evaluate(() => app.session.vault.personalGuide.mnemonicViewed),true);
+  assert.equal(await a.evaluate(() => Boolean(app.session.vault.personalGuide.mnemonicChecked)),false);
   await a.evaluate(() => app.runAutomaticBackup(true));
   await c.goto(url); await c.locator('#restore-cloud').click(); await c.locator('.numeric-password-page').waitFor();
   await submitPassword(c, '112233'); await c.locator('.chamber-import-grid').waitFor(); await c.locator('.password-sheet').waitFor({ state: 'detached' });
@@ -362,7 +367,11 @@ try {
   const pendingDevice = await c.evaluate(() => app.session.vault.pendingPersonalDevice.proof.requestId);
   await c.reload(); await submitPassword(c, '112233'); await c.locator('#personal-device-check').waitFor();
   assert.equal(await c.evaluate(() => app.session.vault.pendingPersonalDevice.proof.requestId), pendingDevice);
-  await b.locator('[data-personal-approve]').waitFor();
+  try { await b.locator('[data-personal-approve]').waitFor(); }
+  catch {
+    const diagnostic=await b.evaluate(()=>({protected:app.privacyCovered,surface:app.activeSurface,hidden:document.hidden,dialogs:document.querySelectorAll('[role=dialog],.space-drawer-overlay').length,phase:app.session?.vault.mls?.phase,root:document.querySelector('#app')?.firstElementChild?.className,connected:app.socket?.connected}));
+    throw new Error(`Synthetic device approval did not appear: ${JSON.stringify(diagnostic)}`);
+  }
   assert.equal(await b.locator('[data-personal-approve]').evaluate(button => button.parentElement.querySelector('.device-safety-code').textContent),
     await c.locator('.device-safety-code').textContent());
   await b.locator('[data-personal-approve]').click(); await submitPassword(b, '135790');
@@ -462,6 +471,7 @@ try {
   await c.setViewportSize({width:390,height:844});
   if(evidence)await c.screenshot({path:path.join(evidence,'forgot-identity-empty.png')});
   await fillFormInput(c,c.locator('.chamber-import-grid input').first(),words[0]);
+  await c.locator('#form-input-draft').press('Escape');
   await c.locator('#personal-import-back').click();await c.locator('.numeric-password-mandatory').waitFor();
   assert.equal(await c.evaluate(async()=>JSON.stringify(await(await import('/src/lib/vault.ts')).readPersonalIdentity())),originalIdentity);
   await c.getByRole('button',{name:'忘记密码？',exact:true}).click();await c.locator('#personal-import-form').waitFor();

@@ -1,5 +1,13 @@
 # Product
 
+## Confirmed Chamber mobile corrections, 2026-10-18
+
+The [nine-item V1](docs/requirements/2026-10-18-chamber-mobile-refinements/README.md) keeps successful numeric daily verification opaque until the target page replaces it. Verification headings say “输入密码” without repeating the six-digit instruction. Short timelines align at the top; card-only refreshes preserve the actual reading offset. The first card has the same clearance below Settings as Settings has above it within the visible page.
+
+Mnemonic import keeps its background canvas fixed and reuses one focused mobile editor: Done/Enter advances words 1–11 without dismissing the keyboard; word 12 completes editing, followed by explicit identity submission. Verification code editing uses a dedicated four-cell keyboard bar, full-code paste/autofill and clear dark surfaces. Form movement follows native viewport samples with the existing bounded endpoint fallback. Application page Back controls share the Auto-lock bottom footer; their original handlers and authorization remain.
+
+Freshly authenticated mnemonic viewing opens a separate page with saving guidance and Back, without a quiz or confirmation step. New guide progress records “viewed”, never a verified offline backup; existing checked records remain compatible. Foreground-only exposure, the 60-second limit and immediate navigation/lock cleanup remain. Invitation restart requires confirmation that the previous link will become invalid, then returns to an unclaimed state with no code/deadline. Only the unique new claimant generates the creator-only code and starts its fixed 30 minutes. This supersedes earlier immediate-code-on-rotation and mnemonic-quiz presentation; renewal, cumulative failures and transactional membership checks remain unchanged.
+
 ## Confirmed code renewal and forgotten-lock recovery, 2026-10-18
 
 The [five-item V1](docs/requirements/2026-10-18-chamber-invite-recovery/README.md) separates the lasting Chamber invitation from its fixed 30-minute verification code. Expiry replaces the claimant's old heading/countdown/input/submit with an explicit expired-code state and “重新获取验证码”. The same claimant can renew the code without recreating an identity, device or invitation; the authenticated inviter updates automatically and hides expired digits/copy. Refresh retries are revision-bound and idempotent; five wrong attempts remain blocking across renewals. Explicit rotation, consumed invitations and closed rooms remain invalid. Existing time-expired requests can resume. This supersedes earlier invitation-wide timeout rules for Chamber only.
