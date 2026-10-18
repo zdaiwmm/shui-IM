@@ -335,11 +335,11 @@ it('upgrades payload-only legacy retries once and never sends when their ciphert
       await app.attemptSend(item.clientMsgId);
       await app.attemptSend(item.clientMsgId);
       const missing = await prepareLegacyOutboxItem(session, crypto.randomUUID());
-      return { injected, before, deferredBeforeSync, syncRequests, sent: sent.length, oneEnvelope: JSON.stringify(upgraded[0].envelope) === JSON.stringify(upgraded[1].envelope)
+      return { injected, before, deferredBeforeSync, syncRequests, samePendingItem: app.outbox.get(item.clientMsgId) === item, sent: sent.length, oneEnvelope: JSON.stringify(upgraded[0].envelope) === JSON.stringify(upgraded[1].envelope)
         && sent.every(envelope => envelope === JSON.stringify(upgraded[0].envelope)), missingDoesNotRecreate: missing === undefined };
     } finally { Object.defineProperty(crypto.subtle, 'encrypt', { configurable: true, value: encrypt }); app.lockNow(); root.remove(); }
   });
-  expect(result).toEqual({ injected: true, before: { sent: 0, hasEnvelope: false }, deferredBeforeSync: true, syncRequests: 1, sent: 2, oneEnvelope: true, missingDoesNotRecreate: true });
+  expect(result).toEqual({ injected: true, before: { sent: 0, hasEnvelope: false }, deferredBeforeSync: true, syncRequests: 1, samePendingItem: true, sent: 2, oneEnvelope: true, missingDoesNotRecreate: true });
 });
 
 try {

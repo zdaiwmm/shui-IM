@@ -9170,7 +9170,9 @@ export class QuietRoomApp {
       if (!prepared?.envelope) return;
       const envelope = prepared.envelope;
       if (!this.isRuntimeActive(epoch, session)) return;
-      this.outbox.set(clientMsgId, prepared);
+      // Projections and ACK reconciliation may retain this pending item's
+      // identity. Attach the durable upgrade without replacing that object.
+      this.outbox.set(clientMsgId, Object.assign(item, prepared));
       if (this.accessFailure) return;
       if (this.deferUnsupportedPayload(item)) return;
       this.socket?.sendEnvelope(envelope, item.payload.kind !== 'gallery-image' && item.payload.kind !== 'gallery-file'
