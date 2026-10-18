@@ -1,5 +1,12 @@
 # Quiet Room 当前状态
 
+## 附件回收与旧协议重试修复已发布（2026-10-19 01:06）
+
+- 用户确认完整应用`618aa5c2e3e59b4bb669949c021d4d0f47dcb635`发布，版本`2026.10.18.4`。[PR #344](https://github.com/zdaiwmm/shui-IM/pull/344)源cf077d5与应用完整文件树一致；两项审计复现、持久清理／额度和legacy-v1同字节重试边界由[需求V1](../requirements/2026-10-18-audit-storage-legacy-fixes/README.md)拥有。历史无索引孤立文件需另行受控盘点。
+- [精确PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39143316572) attempt 1及[精确main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39145033773) attempt 2成功，含128文件／1019项、70浏览器入口、通话／TURN、审计及双架构镜像。首轮main WebKit超时、本机容量失败、分段浏览器覆盖及早期候选修正由需求／PR保留，不能混作最终干净SHA或真机证据。
+- 固定云预检取得PREFLIGHT_OK，唯一云发布核对精确DEPLOY_VERIFIED，从a0136ba实际切换一次；本机监听延迟均固定resume原RunID，无重复云命令。首次回读仅因备份starting失败，核对原5分钟探针后只续跑readback-only，于`2026-10-18T17:06:35.263Z`取得READBACK_OK。应用／备份healthy、TURN运行且探针none；SHA／镜像、HTTPS／数据库／存储、产物及新WebSocket一致，维护门absent。完整事实见[本轮发布记录](../../RELEASING.md#release-audit-storage-legacy-20261019)。
+- 脱敏证据在公共Git元数据`quiet-room-deliveries/evidence/audit-storage-legacy-fixes-20261018/delivery.json`；第二个无部署配置文档树对账，文档SHA不替代线上应用。本批资源依固定门禁核验，不处理其他任务。原生iPhone／iOS27／Safari与独立安全审阅仍未完成；下方为历史状态。
+
 ## Chamber 九项移动交互修订已发布，真机待验收（2026-10-18 23:03）
 
 - 用户明确免原型／流程图并确认[九项V1](../requirements/2026-10-18-chamber-mobile-refinements/README.md)，随后另行确认完整应用`a0136ba5574d5489b7f565ceff56cef9a6114f18`发布，版本`2026.10.18.3`。[PR #342](https://github.com/zdaiwmm/shui-IM/pull/342)源a95f360与应用完整文件树一致，长期边界D-068及视觉V1.16。
