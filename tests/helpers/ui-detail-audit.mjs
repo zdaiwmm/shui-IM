@@ -217,7 +217,12 @@ export async function auditUiDetails(page, out) {
   await setup('menu'); await page.evaluate(()=>window.app.closeMessageActions());
   await page.locator('.message-actions').waitFor({state:'detached'});
   const samples=await page.evaluate(async()=>{
-    const app=window.app, row=document.querySelector('.message:last-of-type');
+    const app=window.app, template=[...app.messages.values()].at(-1);
+    // Exercise a genuinely bottom-positioned bubble. Short conversations now
+    // start at the top and need no upward menu relocation.
+    for(let seq=5;seq<=40;seq++)app.messages.set(seq,{...template,seq,clientMsgId:`detail-motion-${seq}`});
+    app.renderMessages({scroll:'bottom'});await new Promise(requestAnimationFrame);await new Promise(requestAnimationFrame);
+    const row=document.querySelector('.message:last-of-type');
     const message=[...app.messages.values()].at(-1);
     app.openMessageActions(row,message);
     const result=[];

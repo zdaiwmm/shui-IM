@@ -2,7 +2,7 @@
 
 ## Chamber mobile correction, 2026-10-18
 
-The [confirmed nine-item V1](docs/requirements/2026-10-18-chamber-mobile-refinements/README.md) retains P1 tokens. Page Back uses the Auto-lock footer: full available width within 520px, 20px sides, 44px minimum target, R12, neutral surface/ink and bottom max(16px, safe area). Existing page actions are moved with their business handlers intact. Numeric verification says “输入密码”; loading/errors retain a stable prompt region.
+The [confirmed nine-item V1](docs/requirements/2026-10-18-chamber-mobile-refinements/README.md) retains P1 tokens. Page Back uses the Auto-lock footer: full available width within 520px, 20px sides, 44px minimum target, R12, neutral surface/ink and bottom max(16px, safe area). Existing page actions are moved with their business handlers and accessible destination intact. The measured footer height reserves page content and floating-gallery controls, including enlarged text. Numeric verification says “输入密码”; loading/errors retain a stable prompt region.
 
 Short timelines begin at their top inset with equal clearance above and below the Settings target; polling does not reset card reading position. The inviter row places “本次验证码” at left and accent-colored tabular countdown at right; the adjacent action says “复制”. Restart uses the exact “邀请链接被其他人占用？重新发起” label and an explicit confirmation. No code or countdown appears before the replacement invitation is claimed.
 

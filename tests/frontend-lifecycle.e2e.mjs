@@ -52,6 +52,7 @@ try {
       app.renderChat();
     };
     window.regression = { app, root, session, vault, message, fresh };
+    window.verifyTimelinePlacement=(await import('/tests/helpers/timeline-placement.mjs')).verifyTimelinePlacement;
     // Measure the anchoring edge independently of any test-injected transform.
     window.composerBaseBounds = () => {
       const element = document.querySelector('#composer');
@@ -2230,7 +2231,8 @@ try {
         const checkEndpoint = (phase, height, top) => {
           const composer = window.composerBaseBounds();
           const gap = composer.top - window.timelineBottom();
-          if (Math.abs(composer.bottom - height - top) > 1 || Math.abs(gap - 12) > 2
+          window.verifyTimelinePlacement({visibleTop:app.chatViewportTop,composerTop:composer.top,gap,label:`${count}-message ${phase}`});
+          if (Math.abs(composer.bottom - height - top) > 1
             || Number(getComputedStyle(composerElement).opacity) !== 1) {
             throw Error(`Short history did not settle at the ${phase} endpoint: ${JSON.stringify({ count, height, top, composerBottom: composer.bottom, gap })}`);
           }
@@ -2250,7 +2252,7 @@ try {
             || header.getAnimations().some(animation => animation.playState === 'running')) throw Error(`${count}-message ${phase} moved, faded or animated the title`);
           if (composerElement.dataset.viewportMotion !== 'positioning' || getComputedStyle(composerElement).opacity !== '1'
             || Math.abs(composer.bottom - expectedTop - height) > 1) throw Error(`${count}-message ${phase} hid or displaced intermediate composer geometry`);
-          if (!visible || visibleBottom <= visibleTop) throw Error(`${count}-message ${phase} exposed a blank viewport`);
+          if (!visible || visibleBottom <= visibleTop) throw Error(`${count}-message ${phase} exposed a blank viewport: ${JSON.stringify({visibleTop,visibleBottom,appTop:app.chatViewportTop,rawTop:viewport.offsetTop,pinned:app.chatPinnedToBottom,intent:app.chatScrollIntent,native:app.visualClientCoordinates,first:list.firstElementChild.getBoundingClientRect().toJSON(),listTop:list.style.top,translate:getComputedStyle(list).translate,scroll:scrollY})}`);
           if (current.paddingBottom !== before.paddingBottom || current.minHeight !== before.minHeight) {
             throw Error(`${count}-message ${phase} committed list geometry before its endpoint`);
           }

@@ -14,6 +14,9 @@ try {
     session.vault.personalBinding={identity:{id:'synthetic-ui-root'}};
     session.vault.members.push({deviceId:'synthetic-peer',role:'joiner',status:'active'});
     fixture.fresh(0);
+    // Keep this keyboard case truly shorter than the open viewport. The
+    // unrelated empty-chat illustration otherwise makes the timeline long.
+    document.querySelector('#message-list .empty-conversation')?.remove();app.scrollChatToBottom();
     window.stableShell=document.querySelector('.chat-shell');window.stableGuide=document.querySelector('.chamber-privacy-guide');
     window.originalViewportHeight=visualViewport.height;
   });
@@ -27,7 +30,9 @@ try {
   });
   await page.clock.runFor(800);
   const after=await page.locator('.chamber-privacy-guide').boundingBox();
-  assert.ok(Math.abs(after.y-before.y)<=1,`Short timeline remains top-aligned: ${JSON.stringify({before,after})}`);
+  const keyboardGeometry=await page.evaluate(()=>({short:fixture.app.shortChatTimeline(),height:fixture.app.chatViewportHeight,composer:document.querySelector('#composer').offsetHeight,rows:[...document.querySelector('#message-list').children].map(n=>({kind:n.className,top:n.offsetTop,height:n.offsetHeight})),scroll:scrollY,list:fixture.app.usesListScrolling,pinned:fixture.app.chatPinnedToBottom}));
+  assert.equal(keyboardGeometry.short,true,'The short-timeline case must fit the open viewport');
+  assert.ok(Math.abs(after.y-before.y)<=1,`Short timeline remains top-aligned: ${JSON.stringify({before,after,keyboardGeometry})}`);
   const gap = await page.evaluate(()=>{const settings=document.querySelector('#chat-settings').getBoundingClientRect(),card=document.querySelector('.chamber-privacy-guide').getBoundingClientRect();return{above:settings.top,below:card.top-settings.bottom};});
   assert.ok(Math.abs(gap.above-gap.below)<=1,JSON.stringify(gap));
   assert.equal(await page.locator('.chamber-chat-header').evaluate(node=>getComputedStyle(node).backgroundColor),'rgba(0, 0, 0, 0)');
@@ -118,7 +123,7 @@ try {
   await page.evaluate(()=>{delete visualViewport.height;visualViewport.dispatchEvent(new Event('resize'));});await page.clock.runFor(700);
   assert.equal(await page.locator('#personal-import-back').evaluate(node=>node.classList.contains('page-back-button')),true);
   await page.route('**/api/rooms/privacy-fixture',route=>route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({code:'UNAUTHORIZED',error:'Synthetic pending candidate'})}));
-  await page.route('**/api/rooms/privacy-fixture/chamber-invitation',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({requestId:'synthetic-request',version:1,expiresAt:new Date('2026-10-10T03:00:00Z').toISOString()})}));
+  await page.route('**/api/rooms/privacy-fixture/chamber-invitation',async route=>route.fulfill({contentType:'application/json',body:JSON.stringify({requestId:'synthetic-request',version:1,expiresAt:await page.evaluate(()=>fixture.session.vault.pendingChamberInvitation.expiresAt)})}));
   await page.evaluate(()=>{
     const {session,app}=fixture;session.vault.role='joiner';session.vault.pairingState='joining';session.vault.inviteToken='synthetic-token';session.vault.members[0].joinProof='synthetic-proof';
     session.vault.pendingChamberInvitation={requestId:'synthetic-request',secret:'synthetic-claim',version:1,expiresAt:new Date(Date.now()+30*60_000).toISOString()};

@@ -7267,16 +7267,23 @@ export class QuietRoomApp {
     if (this.composerHandoff) return;
     const chat = this.chatLayoutElements;
     if (!chat) return;
-    if (!moving || this.usesListScrolling || this.visualClientCoordinates || !this.chatPinnedToBottom
+    if (this.usesListScrolling || this.visualClientCoordinates || !this.chatPinnedToBottom
       || this.chatScrollIntent === 'up' || this.privacyCovered || this.activeSurface !== 'chat') {
       if (this.chatViewportFollowOffset) chat.list.style.removeProperty('translate');
       this.chatViewportFollowOffset = 0;
       return;
     }
-    const latest = this.chatLatestTimelineRow();
-    if (!latest?.isConnected) return;
+    const short = this.shortChatTimeline();
+    if (!moving && !short) {
+      if (this.chatViewportFollowOffset) chat.list.style.removeProperty('translate');
+      this.chatViewportFollowOffset = 0; return;
+    }
+    const latest = this.chatLatestTimelineRow(), first = chat.list.firstElementChild;
+    if (!latest?.isConnected || !(first instanceof HTMLElement)) return;
     const bottom = latest.getBoundingClientRect().bottom + (parseFloat(getComputedStyle(latest).marginBottom) || 0);
-    const offset = this.chatViewportFollowOffset + this.chatComposerLayoutTop(chat.composer) - CHAT_LATEST_GAP - bottom;
+    const offset = this.chatViewportFollowOffset + (short
+      ? this.chatViewportTop + parseFloat(getComputedStyle(chat.list).paddingTop) + (parseFloat(getComputedStyle(first).marginTop) || 0) - first.getBoundingClientRect().top
+      : this.chatComposerLayoutTop(chat.composer) - CHAT_LATEST_GAP - bottom);
     if (Math.abs(offset - this.chatViewportFollowOffset) > .1) {
       this.chatViewportFollowOffset = offset;
       chat.list.style.translate = `0 ${offset}px`;
@@ -8390,7 +8397,7 @@ export class QuietRoomApp {
             const current = transition.from + (target - transition.from) * chatKeyboardLayoutProgress(offset * CHAT_KEYBOARD_LAYOUT_MS);
             return { offset, transform: `translate3d(0, ${current - baseHeight}px, 0)` };
           });
-          const elements = this.chatPinnedToBottom && this.chatScrollIntent !== 'up'
+          const elements = this.chatPinnedToBottom && this.chatScrollIntent !== 'up' && !this.shortChatTimeline()
             ? [chat.composer, chat.list, chat.underlay] : [chat.composer, chat.underlay];
           const animations = elements.map(element => element.animate(frames, { duration: CHAT_KEYBOARD_LAYOUT_MS, fill: 'both' }));
           // DocumentTimeline shares performance's time origin. Its sampled
@@ -8479,7 +8486,7 @@ export class QuietRoomApp {
     const first = chat.list.firstElementChild, last = chat.list.lastElementChild;
     if (!(first instanceof HTMLElement) || !(last instanceof HTMLElement)) return true;
     const contentHeight = last.offsetTop + last.offsetHeight - first.offsetTop;
-    const available = this.chatComposerLayoutTop(chat.composer) - this.chatViewportTop - parseFloat(getComputedStyle(chat.list).paddingTop) - CHAT_LATEST_GAP;
+    const available = this.chatViewportHeight - chat.composer.offsetHeight - parseFloat(getComputedStyle(chat.list).paddingTop) - CHAT_LATEST_GAP;
     return contentHeight <= available + 1;
   }
 
@@ -8498,8 +8505,9 @@ export class QuietRoomApp {
   private scrollChatToBottom(): void {
     this.chatBottomControl?.cancel();
     this.chatScrollIntent = null;
-    if (this.shortChatTimeline() || this.session?.vault.personalBinding && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero')) {
-      this.chatPinnedToBottom = false; this.chatBottomFollowPending = false;
+    const invitation = Boolean(this.session?.vault.personalBinding && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero'));
+    if (this.shortChatTimeline() || invitation) {
+      this.chatPinnedToBottom = !invitation; this.chatBottomFollowPending = false;
       this.setChatScrollTop(0); this.updateChatBottomControl(); return;
     }
     this.chatPinnedToBottom = true;
@@ -8686,10 +8694,8 @@ export class QuietRoomApp {
   private alignChatBottom(): void {
     // A pending invitation is a top-first task, not a message timeline.
     // Queued resize/follow callbacks must not push its heading under chrome.
-    if (this.shortChatTimeline() || this.session?.vault.personalBinding && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero')) {
-      this.chatBottomFollowPending = false;
-      if (this.chatScrollIntent !== 'up') this.setChatScrollTop(0);
-      return;
+    if (this.session?.vault.personalBinding && !this.peerHasJoined(this.session) && this.root.querySelector('.chamber-invite-hero')) {
+      this.chatBottomFollowPending = false; return;
     }
     if (this.composerHandoff || this.composerHeightMotion || this.nativeKeyboardDismiss) {
       this.chatBottomFollowPending = true;
@@ -8697,6 +8703,12 @@ export class QuietRoomApp {
     }
     if (this.chatViewportMotion?.moving) {
       this.chatBottomFollowPending = true;
+      return;
+    }
+    if (this.shortChatTimeline()) {
+      this.commitNativeChatFollow();
+      this.chatBottomFollowPending = false;
+      if (this.chatScrollIntent !== 'up') this.setChatScrollTop(0);
       return;
     }
     // Shrinking document padding can synchronously clamp scrollY and move

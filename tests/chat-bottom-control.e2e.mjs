@@ -27,6 +27,7 @@ try {
     await import('/src/styles.css'); await import('/src/chat-layout.css'); await import('/src/gallery.css');
     await import('/src/chat-interactions.css'); await import('/src/cover.css'); await import('/src/voice-messages.css'); await import('/src/call.css');
     const { QuietRoomApp } = await import('/src/app.ts');
+    window.verifyTimelinePlacement=(await import('/tests/helpers/timeline-placement.mjs')).verifyTimelinePlacement;
     const { createVault, saveHistoryMessage } = await import('/src/lib/vault.ts');
     const member = { deviceId: 'bottom-own', role: 'creator', status: 'active' };
     const session = await createVault({ v: 1, roomId: 'bottom-regression', accessToken: 'test', role: 'creator', protocol: 'legacy-v1', lastSeq: 200,
@@ -936,7 +937,8 @@ try {
       app.messages.get(4).status = 'failed'; app.renderMessages({ scroll: 'bottom' });
       await Promise.all([...document.querySelectorAll('#message-list img')].map(image => image.decode())); await settle();
       const gap = document.querySelector('#composer').getBoundingClientRect().top - app.renderedMessageOrder.at(-1).getBoundingClientRect().bottom;
-      if (Math.abs(gap - 12) > 2 || visible() || !app.chatPinnedToBottom) throw Error(`Late cached image layout lost bottom alignment: ${JSON.stringify({ gap, visible: visible(), pinned: app.chatPinnedToBottom })}`);
+      window.verifyTimelinePlacement({visibleTop:app.chatViewportTop,composerTop:document.querySelector('#composer').getBoundingClientRect().top,gap,label:'Late cached image layout'});
+      if (visible() || !app.chatPinnedToBottom) throw Error('Late cached image layout lost latest-follow state');
       return { width: 320, font: 20, decodedImages: 2, finalGap: gap, buttonHidden: true };
     } finally { document.documentElement.style.removeProperty('font-size'); }
   });
@@ -1148,7 +1150,8 @@ try {
     await fresh(0); if (visible()) throw Error('Empty conversation displayed return control');
     await fresh(1);
     const shortGap = document.querySelector('#composer').getBoundingClientRect().top - app.renderedMessageOrder.at(-1).getBoundingClientRect().bottom;
-    if (visible() || Math.abs(shortGap - 12) > 2) throw Error(`Short conversation lost its final bottom spacing: ${shortGap}`);
+    window.verifyTimelinePlacement({visibleTop:app.chatViewportTop,composerTop:document.querySelector('#composer').getBoundingClientRect().top,gap:shortGap,label:'Short conversation'});
+    if (visible()) throw Error('Short conversation displayed an unnecessary return control');
     return { historyCount: 5000, messageBoundsReads: messageReads, buttonBoundsReads: buttonReads, idleFrames: 20, instantReducedMotion: true, emptyAndShort: true };
   });
 
