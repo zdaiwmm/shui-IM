@@ -1,5 +1,11 @@
 # Security model
 
+## Chamber mobile corrections, 2026-10-18
+
+The [confirmed nine-item scope](docs/requirements/2026-10-18-chamber-mobile-refinements/README.md) changes invitation rotation to clear request, claimant, candidate, code and deadline atomically with its existing capability rotation. A unique later claim starts the fixed code lifetime; unused replacement links have no pre-issued code. Old capabilities/claims cannot activate; retry idempotency, creator-only code disclosure, immutable candidate binding, five cumulative errors and transaction-bound membership consumption remain.
+
+Mnemonic disclosure remains freshly authenticated, foreground-only and capped at 60 seconds. Navigation, lock, visibility and hard lifecycle clear displayed words before page departure. Removing the quiz records only viewed progress, never proof of offline backup. Continuous word editing keeps one transient editor and validates the complete phrase on explicit submission; navigation and hidden-source invalidation cancel drafts and late commits. Retaining a successful daily-verification canvas does not retain a password or bypass target-session checks.
+
 ## Code renewal and forgotten-lock sequencing, 2026-10-18
 
 The [confirmed V1](docs/requirements/2026-10-18-chamber-invite-recovery/README.md) replaces Chamber's invitation-wide time expiry with a fixed 30-minute code expiry. Claim ownership, immutable candidate binding, creator-only code disclosure and transactional membership consumption remain. Renewal authenticates the original invite capability and claim secret, request/link version and code revision; one atomic compare-and-update issues the winning code/deadline. Delayed/replayed refreshes cannot extend a newer revision, and the immediately preceding code differs. Consumption checks the deadline and any supplied revision. Five cumulative errors still block both readiness and renewal; only explicit inviter rotation can reset that invitation. Closed/consumed/replaced capabilities cannot be revived. Persisted old time-expired claims remain eligible without changing keys or candidate identity.

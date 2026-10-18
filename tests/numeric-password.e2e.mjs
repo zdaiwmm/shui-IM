@@ -12,7 +12,7 @@ async function open(options = {}) {
     window.numericProof = null; window.numericCalls = 0;
     window.numericAbort = new AbortController();
     void requestPassword(document.querySelector('#app'), {
-      create: options.create, mandatory: options.mandatory, showBrowserHint: options.showBrowserHint, presentation: options.operation ? 'sheet' : 'page', passwordFormat: 'numeric-6',
+      create: options.create, mandatory: options.mandatory, retainUntilReplaced: options.retainUntilReplaced, showBrowserHint: options.showBrowserHint, presentation: options.operation ? 'sheet' : 'page', passwordFormat: 'numeric-6',
       title: '空间密码', context: '合成数字密码验收', spaceName: '合成空间',
       signal: window.numericAbort.signal, isActive: () => true, forgot: () => { window.numericForgot = true; },
       retryAfterMs: options.waitFailure ? async () => { throw Error('Synthetic retry state unavailable'); }
@@ -43,6 +43,15 @@ try {
   await page.getByRole('button',{name:'忘记密码？',exact:true}).click();await page.clock.runFor(500);
   assert.equal(await page.evaluate(()=>numericForgot),true);
   assert.equal(await page.evaluate(()=>numericProof),'cancelled');
+  await open({mandatory:true,retainUntilReplaced:true});
+  assert.equal(await page.locator('.numeric-password-prompt h2').textContent(),'输入密码');
+  assert.equal(await page.locator('.numeric-password-description').textContent(),'');
+  await digit('012345'); await page.clock.runFor(500);
+  assert.equal(await page.evaluate(()=>numericProof),'verified');
+  assert.equal(await page.locator('.numeric-password-page').count(),1,'A verified proof keeps its opaque surface while opening the target');
+  assert.equal(await page.locator('.numeric-password-form').getAttribute('aria-busy'),'true');
+  await page.evaluate(()=>{fixture.app.renderChat();}); await page.clock.runFor(32);
+  assert.equal(await page.locator('.numeric-password-page').count(),0);
   await open({motionSample:true});
   const start = await page.evaluate(() => numericEntryStart);
   assert.ok(start.x >= start.width - 1, JSON.stringify(start));

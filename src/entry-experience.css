@@ -303,6 +303,14 @@
 #app .chamber-invite-status .chamber-code-display > span { width:auto; min-width:22px; font-variant-numeric:tabular-nums; }
 #app .chamber-invite-status #copy-chamber-code { justify-self:end; padding-inline:12px; }
 #app .chamber-invite-hero #chamber-invite-restart { order:3; font-size:.8125rem; }
+
+#app .chamber-code-heading { grid-column:1/-1; display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+#app .chamber-code-heading strong { color:var(--ink-muted); font-size:.8125rem; font-weight:500; }
+#app .chamber-code-heading [role=timer] { color:var(--accent); font-size:.875rem; font-variant-numeric:tabular-nums; white-space:nowrap; }
+#app .chamber-code-digits input { background:color-mix(in oklch,var(--surface) 85%,var(--ink) 15%); }
+#app .chamber-restart-confirm .simple-confirm-actions { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+#app .message-list:has(> .chamber-invite-hero) > .chamber-invite-hero,
+#app .message-list > .chamber-privacy-guide:first-child { margin-top:0; }
 #app .chamber-code-card [data-code-active], #app .chamber-code-card [data-code-expired] { display:grid; gap:18px; }
 #app .chamber-code-card [hidden] { display:none !important; }
 #app .chamber-code-card .form-error:empty { display:none; }
@@ -320,3 +328,5 @@
 #app #personal-import-form .form-error:empty { display:none; }
 #app .chamber-import-actions { display:grid; gap:8px; margin-top:auto; padding-top:8px; }
 #app .chamber-import-actions > button { width:100%; min-height:44px; margin:0; border-radius:12px; font-size:14px; }
+
+:root[data-color-scheme="dark"] #app .chamber-code-digits input { background:color-mix(in oklch,var(--surface) 76%,var(--ink) 24%); border-color:color-mix(in oklch,var(--surface) 52%,var(--ink) 48%); }

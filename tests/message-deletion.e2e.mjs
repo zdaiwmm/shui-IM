@@ -268,6 +268,9 @@ try {
   let pointerId = 20;
   const messageSelector = clientMsgId => `.message[data-client-msg-id="${clientMsgId}"]`;
   const longPress = async clientMsgId => {
+    // Menu clicks use a mouse; park it outside the timeline before synthetic
+    // touch so reflow cannot emit a mouse leave that cancels the touch hold.
+    await page.mouse.move(0, 0);
     const row = page.locator(messageSelector(clientMsgId));
     await row.waitFor({ state: 'visible' });
     await row.scrollIntoViewIfNeeded();

@@ -14,6 +14,9 @@ try {
     session.vault.personalBinding={identity:{id:'synthetic-ui-root'}};
     session.vault.members.push({deviceId:'synthetic-peer',role:'joiner',status:'active'});
     fixture.fresh(0);
+    // Keep this keyboard case truly shorter than the open viewport. The
+    // unrelated empty-chat illustration otherwise makes the timeline long.
+    document.querySelector('#message-list .empty-conversation')?.remove();app.scrollChatToBottom();
     window.stableShell=document.querySelector('.chat-shell');window.stableGuide=document.querySelector('.chamber-privacy-guide');
     window.originalViewportHeight=visualViewport.height;
   });
@@ -27,7 +30,11 @@ try {
   });
   await page.clock.runFor(800);
   const after=await page.locator('.chamber-privacy-guide').boundingBox();
-  assert.ok(after.y < before.y-100,`Guidance must follow keyboard/list: ${JSON.stringify({before,after})}`);
+  const keyboardGeometry=await page.evaluate(()=>({short:fixture.app.shortChatTimeline(),height:fixture.app.chatViewportHeight,composer:document.querySelector('#composer').offsetHeight,rows:[...document.querySelector('#message-list').children].map(n=>({kind:n.className,top:n.offsetTop,height:n.offsetHeight})),scroll:scrollY,list:fixture.app.usesListScrolling,pinned:fixture.app.chatPinnedToBottom}));
+  assert.equal(keyboardGeometry.short,true,'The short-timeline case must fit the open viewport');
+  assert.ok(Math.abs(after.y-before.y)<=1,`Short timeline remains top-aligned: ${JSON.stringify({before,after,keyboardGeometry})}`);
+  const gap = await page.evaluate(()=>{const settings=document.querySelector('#chat-settings').getBoundingClientRect(),card=document.querySelector('.chamber-privacy-guide').getBoundingClientRect();return{above:settings.top,below:card.top-settings.bottom};});
+  assert.ok(Math.abs(gap.above-gap.below)<=1,JSON.stringify(gap));
   assert.equal(await page.locator('.chamber-chat-header').evaluate(node=>getComputedStyle(node).backgroundColor),'rgba(0, 0, 0, 0)');
   assert.equal(await page.evaluate(()=>stableShell===document.querySelector('.chat-shell')&&stableGuide===document.querySelector('.chamber-privacy-guide')),true);
   await capture('joined-keyboard');
@@ -88,6 +95,65 @@ try {
   // encrypted space directory. The real settings/list path is in chamber-flow.
   await page.evaluate(()=>fixture.app.mountPrivateSpaceDrawer(fixture.session,[],fixture.app.runtimeAbort.signal,'chat',0,'settings'));
   assert.equal(await page.locator('#chamber-switch-space').isVisible(),true);
+  await page.setViewportSize({width:390,height:844});
+  await page.evaluate(async()=>{
+    fixture.fresh(0); fixture.app.renderPersonalMnemonicImport(undefined,undefined);
+    (await import('/src/lib/form-input.ts')).mountFormInputs(document.querySelector('#app'));
+  });
+  const background = await page.locator('.chamber-identity-import').boundingBox();
+  await page.locator('[name=word0]').click(); await page.clock.runFor(32);
+  await page.evaluate(()=>{window.stableEditor=document.querySelector('#form-input-draft');window.editorBlurs=0;stableEditor.addEventListener('blur',()=>editorBlurs++);});
+  for (const height of [640,540,480]) {
+    await page.evaluate(height=>{Object.defineProperty(visualViewport,'height',{configurable:true,get:()=>height});visualViewport.dispatchEvent(new Event('resize'));},height);
+    await page.clock.runFor(32);
+  }
+  assert.ok(Math.abs((await page.locator('.form-input-panel').boundingBox()).y+(await page.locator('.form-input-panel').boundingBox()).height-480)<1);
+  assert.deepEqual(await page.locator('.chamber-identity-import').boundingBox(),background);
+  for(let index=0;index<12;index++) {
+    assert.equal(await page.locator('#form-input-title').textContent(),`第${index+1}个助记词`);
+    await page.locator('#form-input-draft').fill(`synthetic${index}`);
+    if(index%2)await page.locator('#form-input-draft').press('Enter');else await page.locator('[data-form-input-done]').click();
+    assert.equal(await page.locator(`[name=word${index}]`).inputValue(),`synthetic${index}`);
+    if(index<11) {
+      assert.equal(await page.evaluate(()=>document.activeElement===stableEditor&&document.querySelector('#form-input-draft')===stableEditor&&editorBlurs===0),true);
+      assert.equal(await page.locator('.form-input-overlay').count(),1);
+    }
+  }
+  assert.equal(await page.locator('.form-input-overlay').count(),0);
+  await page.evaluate(()=>{delete visualViewport.height;visualViewport.dispatchEvent(new Event('resize'));});await page.clock.runFor(700);
+  assert.equal(await page.locator('#personal-import-back').evaluate(node=>node.classList.contains('page-back-button')),true);
+  await page.route('**/api/rooms/privacy-fixture',route=>route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({code:'UNAUTHORIZED',error:'Synthetic pending candidate'})}));
+  await page.route('**/api/rooms/privacy-fixture/chamber-invitation',async route=>route.fulfill({contentType:'application/json',body:JSON.stringify({requestId:'synthetic-request',version:1,expiresAt:await page.evaluate(()=>fixture.session.vault.pendingChamberInvitation.expiresAt)})}));
+  await page.evaluate(()=>{
+    const {session,app}=fixture;session.vault.role='joiner';session.vault.pairingState='joining';session.vault.inviteToken='synthetic-token';session.vault.members[0].joinProof='synthetic-proof';
+    session.vault.pendingChamberInvitation={requestId:'synthetic-request',secret:'synthetic-claim',version:1,expiresAt:new Date(Date.now()+30*60_000).toISOString()};
+    fixture.fresh(0);app.renderPendingChamberJoin();
+  });await page.clock.runFor(100);
+  const codePage=await page.locator('.chamber-join-shell').boundingBox();
+  await page.locator('[data-code-digit="0"]').click();await page.clock.runFor(32);
+  await page.evaluate(()=>{Object.defineProperty(visualViewport,'height',{configurable:true,get:()=>480});visualViewport.dispatchEvent(new Event('resize'));});await page.clock.runFor(500);
+  await page.locator('#form-input-draft').fill('1234');
+  assert.deepEqual(await page.locator('.form-input-code-cells > span').allTextContents(),['1','2','3','4']);
+  for(const theme of ['blue','green','purple','apricot'])for(const mode of ['light','dark']) {
+    await page.evaluate(async({theme,mode})=>{const a=await import('/src/lib/appearance.ts');a.saveTheme(localStorage,theme);a.saveColorScheme(localStorage,mode);a.applyAppearance();},{theme,mode});
+    const colors=await page.evaluate(()=>({cell:getComputedStyle(document.querySelector('.form-input-code-cells > span')).backgroundColor,panel:getComputedStyle(document.querySelector('.form-input-panel')).backgroundColor}));
+    assert.notEqual(colors.cell,colors.panel,JSON.stringify({theme,mode,colors}));
+    await capture(`code-keyboard-${mode}-${theme}`);
+  }
+  assert.deepEqual(await page.locator('.chamber-join-shell').boundingBox(),codePage);
+  await page.locator('[data-form-input-done]').click();
+  assert.deepEqual(await page.locator('[data-code-digit]').evaluateAll(nodes=>nodes.map(node=>node.value)),['1','2','3','4']);
+  assert.equal(await page.locator('.form-input-overlay').count(),0);
+  await page.evaluate(()=>{delete visualViewport.height;visualViewport.dispatchEvent(new Event('resize'));});await page.clock.runFor(700);
+  // No-message cards must keep their actual scroll offset during timer/state
+  // renders, even though they have no message-id anchor.
+  await page.evaluate(()=>{
+    fixture.session.vault.pairingState='ready';delete fixture.session.vault.pendingChamberInvitation;fixture.session.vault.role='creator';fixture.fresh(0); const guide=document.querySelector('.chamber-privacy-guide');guide.style.minHeight='1100px';
+    window.scrollTo(0,120);fixture.app.chatScrollIntent='up';fixture.app.chatPinnedToBottom=false;
+  });await page.clock.runFor(100);
+  const readTop=await page.evaluate(()=>window.scrollY);
+  await page.evaluate(()=>fixture.app.renderMessages('preserve'));await page.clock.runFor(100);
+  assert.equal(await page.evaluate(()=>window.scrollY),readTop);
   assert.deepEqual(errors,[]);
   console.log('Chamber chat UI: keyboard-following guidance, theme separation, readiness guard, half sheet and cover alignment passed (synthetic component evidence).');
 } finally { await fixture.close(); }

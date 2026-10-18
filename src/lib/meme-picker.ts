@@ -7,7 +7,7 @@ import { cancelComposerPanel, moveComposerPanel, panelVelocity } from './compose
 import { validateMemeFile, type MemeFavorite } from './meme-media';
 import { detectImageAnimation } from './image-animation';
 import { MAX_PACK_BYTES, type MediaKind, type MediaItem, type MediaSearchResult, type RemotePack, type RemotePackDetail, type StickerPack } from './sticker-library';
-import { createElement, Smile, Star, Search, Keyboard, ChevronDown, Image, X, ArrowLeft, Trash2, Send } from 'lucide';
+import { createElement, Smile, Star, Search, Keyboard, ChevronDown, Image, X, Trash2, Send } from 'lucide';
 
 export const memeIcons = {
   smile: createElement(Smile).outerHTML, star: createElement(Star).outerHTML,
@@ -123,8 +123,8 @@ export class MemePicker {
     this.panel.setAttribute('role', 'region'); this.panel.setAttribute('aria-label', '表情');
     this.panel.innerHTML = `
       <div class="meme-toolbar"><div class="meme-pack-shortcuts" aria-label="表情入口"></div></div>
-      <header class="meme-search-header" hidden><button type="button" class="meme-back icon-button" aria-label="返回表情面板">${createElement(ArrowLeft).outerHTML}</button><h2>添加贴纸</h2></header>
-      <div class="meme-scroll"><div class="meme-grid"></div><p class="meme-status" role="status"></p><button type="button" class="meme-more" hidden>加载更多</button><p class="meme-source"></p></div>`;
+      <header class="meme-search-header" hidden><h2>添加贴纸</h2></header>
+      <div class="meme-scroll"><div class="meme-grid"></div><p class="meme-status" role="status"></p><button type="button" class="meme-more" hidden>加载更多</button><p class="meme-source"></p></div><footer class="page-back-footer meme-page-back" hidden><button type="button" class="meme-back page-back-button" aria-label="返回表情面板">返回</button></footer>`;
     this.grid = this.panel.querySelector('.meme-grid')!; this.status = this.panel.querySelector('.meme-status')!;
     this.more = this.panel.querySelector('.meme-more')!;
     this.panel.querySelector('.meme-back')!.addEventListener('click', () => this.back());
@@ -790,6 +790,7 @@ export class MemePicker {
     this.overlay = overlay; this.options.root.append(overlay); overlay.append(this.panel);
     const view = layoutViewport(); overlay.style.setProperty('--meme-height', `${view?.height ?? innerHeight}px`); overlay.style.setProperty('--meme-top', `${view?.offsetTop ?? 0}px`);
     this.panel.dataset.view = 'search'; (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = false;
+    (this.panel.querySelector('.meme-page-back') as HTMLElement).hidden = false;
     mountDialog(overlay, { signal: this.signal, isActive: () => this.active(), initialFocus: this.panel.querySelector<HTMLElement>('.meme-back'), returnFocus: this.options.host.querySelector<HTMLElement>('#open-memes'),
       beforeClose: () => { this.back(); return false; } });
     if (animate) {
@@ -818,6 +819,7 @@ export class MemePicker {
     const overlay = this.overlay; this.overlay = null;
     this.options.host.append(this.panel); this.panel.dataset.view = 'local';
     (this.panel.querySelector('.meme-search-header') as HTMLElement).hidden = true;
+    (this.panel.querySelector('.meme-page-back') as HTMLElement).hidden = true;
     closeDialog(overlay, { animate: false, restoreFocus: false });
     if (!preserve) void this.local();
     this.panel.querySelector<HTMLButtonElement>('[data-shortcut="add"]')?.focus({ preventScroll: true });

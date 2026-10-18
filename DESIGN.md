@@ -1,5 +1,13 @@
 # Quiet Room Design System
 
+## Chamber mobile correction, 2026-10-18
+
+The [confirmed nine-item V1](docs/requirements/2026-10-18-chamber-mobile-refinements/README.md) retains P1 tokens. Page Back uses the Auto-lock footer: full available width within 520px, 20px sides, 44px minimum target, R12, neutral surface/ink and bottom max(16px, safe area). Existing page actions are moved with their business handlers and accessible destination intact. The measured footer height reserves page content and floating-gallery controls, including enlarged text. Numeric verification says “输入密码”; loading/errors retain a stable prompt region.
+
+Short timelines begin at their top inset with equal clearance above and below the Settings target; polling does not reset card reading position. The inviter row places “本次验证码” at left and accent-colored tabular countdown at right; the adjacent action says “复制”. Restart uses the exact “邀请链接被其他人占用？重新发起” label and an explicit confirmation. No code or countdown appears before the replacement invitation is claimed.
+
+Mnemonic words occupy an independent page with ordered saving guidance and no quiz. Import and code editing preserve the background canvas; the focused bar follows keyboard geometry. Mnemonic completion reuses one input through word 11. The code bar displays four R12 cells with surface85%/ink15% fill (dark: surface76%/ink24% with a clearer field edge), 28px tabular digits and an accent current-cell indicator. Real keyboard timing is separately verified; samples and endpoint fallback are not a claim of native UIKit access. Parameters and component evidence live in mobile visual standard V1.16.
+
 ## Chamber code renewal and identity recovery, 2026-10-18
 
 The [confirmed five-item V1](docs/requirements/2026-10-18-chamber-invite-recovery/README.md) keeps P1 tokens and replaces invitation-card hierarchy with a 20px title, 14px explanation, a readable 32px four-digit display and an adjacent 44px Copy action. The validity text is subordinate; link copy and explicit invitation restart have distinct priority. Expired claimant state replaces the old form, while inviter expiry replaces digits/copy with a clear status and next step. Chamber header controls use one right-aligned flex row without wrapping. Desktop keeps its wide chat layout and removes only its persistent sidebar/toggle for personal-root rooms.

@@ -11,6 +11,7 @@ export type PasswordRequestOptions<T> = {
   passwordFormat?: 'numeric-6'; retryAfterMs?: () => Promise<number>;
   showBrowserHint?: boolean;
   mandatory?: boolean;
+  retainUntilReplaced?: boolean;
 };
 
 /** One fresh operation-bound proof. Cancelling or hiding rejects late results; reading and typing have no deadline. */

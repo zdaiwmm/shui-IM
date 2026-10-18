@@ -134,7 +134,7 @@ export type Vault = {
   chamberLifecycle?: import('./chamber-lifecycle').ChamberLifecycle;
   pendingChamberReopen?: import('./chamber-lifecycle').PendingChamberReopen;
   pendingInvitationRotation?: { inviteToken: string; pairingSecret: string };
-  personalGuide?: { mnemonicChecked?: boolean; coverRead?: boolean; autoLockRead?: boolean };
+  personalGuide?: { mnemonicChecked?: boolean; mnemonicViewed?: boolean; coverRead?: boolean; autoLockRead?: boolean };
   chamberBackup?: import('./chamber-history').ChamberBackupState;
   personalDirectoryRevision?: number;
   personalHistoryHeads?: import('./chamber-history-record').ChamberHistoryHeadReference[];

@@ -1,3 +1,4 @@
+import '../page-back.css';
 import { layoutViewport } from './form-input';
 import { bindControlFeedback } from './control-feedback';
 import { motion, retargetMotion } from './motion';
@@ -111,7 +112,7 @@ export class CallView {
           <button class="call-control call-decline" type="button" aria-label="拒绝来电"><span class="call-control-disc">${svg('hangup')}</span><span class="call-control-label">拒绝</span></button>
           <button class="call-control call-answer" type="button" aria-label="接听来电"><span class="call-control-disc">${svg('answer')}</span><span class="call-control-label">接听</span></button>
         </div>
-        <div class="call-ended" hidden><button class="call-dismiss" type="button">返回聊天</button></div>
+        <div class="call-ended page-back-footer" hidden><button class="call-dismiss page-back-button" type="button" aria-label="返回聊天">返回</button></div>
       </div>`;
 
     const find = <T extends HTMLElement>(selector: string) => this.element.querySelector<T>(selector)!;

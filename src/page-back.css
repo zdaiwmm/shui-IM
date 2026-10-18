@@ -1,0 +1,9 @@
+/* All application page Back actions share the Auto-lock footer vocabulary. */
+:is(#app,.call-view) .page-back-page { padding-bottom:calc(var(--page-back-height,68px) + 8px) !important; box-sizing:border-box; }
+:is(#app,.call-view) .page-back-footer { position:fixed; z-index:12; left:50%; bottom:0; translate:-50% 0; width:min(100%,520px); box-sizing:border-box; padding:8px 20px max(16px,env(safe-area-inset-bottom)); margin:0; background:var(--paper); }
+:is(#app,.call-view) .page-back-footer > .page-back-button { position:static; display:block; width:100%; min-width:0; height:auto; min-height:44px; max-height:none; margin:0; padding:10px 16px; border:0; border-radius:12px; box-shadow:none; transform:none; color:var(--ink); background:var(--surface); font:inherit; font-size:.875rem; line-height:1.5; font-weight:500; text-align:center; }
+:is(#app,.call-view) .page-back-duplicate { display:none !important; }
+:is(#app,.call-view) .page-back-footer > .page-back-button:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+@media(forced-colors:active) { :is(#app,.call-view) .page-back-footer > .page-back-button { border:1px solid ButtonText; } }
+
+#app .gallery-shell.page-back-page .gallery-visibility-button { top:calc(var(--app-top,0px) + var(--app-height,100dvh) - var(--page-back-height,68px) - 60px); bottom:auto; }

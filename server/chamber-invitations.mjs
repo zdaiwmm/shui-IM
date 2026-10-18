@@ -95,8 +95,8 @@ export function createChamberInvitations(db) {
     /** Rotation and rooms.access_hash update are performed in the caller's transaction. */
     rotate(roomId) {
       const r = row(roomId); if (!r || r.consumed) throw new Error('ROOM_SEALED');
-      db.prepare('UPDATE chamber_rooms SET version=version+1,claim_hash=NULL,request_id=?,expires_at=?,ready=NULL,code=?,attempts=0,code_revision=1,refresh_id=NULL WHERE room_id=?')
-        .run(randomUUID(), new Date(Date.now() + 30 * 60_000).toISOString(), freshCode(r.code), roomId);
+      db.prepare('UPDATE chamber_rooms SET version=version+1,claim_hash=NULL,request_id=NULL,expires_at=NULL,ready=NULL,code=NULL,attempts=0,code_revision=1,refresh_id=NULL WHERE room_id=?')
+        .run(roomId);
       return state(roomId, true);
     },
   };

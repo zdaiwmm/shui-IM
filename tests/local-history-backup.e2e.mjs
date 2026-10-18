@@ -135,10 +135,12 @@ try {
     const layout=await page.evaluate(()=>{
       const content=document.querySelector('.recovery-flow-content');content.scrollTop=content.scrollHeight;
       const footer=document.querySelector('.recovery-flow-footer').getBoundingClientRect();
+      const back=document.querySelector('.page-back-footer').getBoundingClientRect();
       const explanation=document.querySelector('.recovery-explanation').getBoundingClientRect();
-      return {overflow:document.documentElement.scrollWidth>innerWidth+1,footer:footer.bottom,note:explanation.bottom,actionsTop:footer.top,target:document.querySelector('#save-my-code').getBoundingClientRect().height};
+      return {overflow:document.documentElement.scrollWidth>innerWidth+1,footer:footer.bottom,backTop:back.top,backBottom:back.bottom,backTarget:document.querySelector('.page-back-button').getBoundingClientRect().height,note:explanation.bottom,actionsTop:footer.top,target:document.querySelector('#save-my-code').getBoundingClientRect().height};
     });
-    assert.equal(layout.overflow,false);assert.ok(Math.abs(layout.footer-height)<1);
+    assert.equal(layout.overflow,false);assert.ok(Math.abs(layout.backBottom-height)<1);
+    assert.ok(layout.footer<=layout.backTop,'save action clears the shared Back footer');assert.ok(layout.backTarget>=44);
     assert.ok(layout.note<=layout.actionsTop+1,'expanded guidance clears fixed actions');assert.ok(layout.target>=44);
   }
   await page.setViewportSize({ width: 390, height: 844 });

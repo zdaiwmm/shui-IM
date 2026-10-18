@@ -145,10 +145,12 @@ try {
   const galleryLayout = await page.evaluate(() => {
     const tabs=document.querySelector('.gallery-tabs').getBoundingClientRect();
     const toggle=document.querySelector('#gallery-toggle-visibility').getBoundingClientRect();
-    return {center:(tabs.left+tabs.right)/2, right:toggle.right, bottom:toggle.bottom, width:innerWidth, height:innerHeight};
+    const back=document.querySelector('.page-back-footer').getBoundingClientRect();
+    return {center:(tabs.left+tabs.right)/2, right:toggle.right, bottom:toggle.bottom, backTop:back.top, backBottom:back.bottom, target:toggle.height, width:innerWidth, height:innerHeight};
   });
   assert.ok(Math.abs(galleryLayout.center-galleryLayout.width/2)<1, JSON.stringify(galleryLayout));
-  assert.ok(galleryLayout.width-galleryLayout.right<=20 && galleryLayout.height-galleryLayout.bottom<=20, JSON.stringify(galleryLayout));
+  assert.ok(galleryLayout.width-galleryLayout.right<=20 && Math.abs(galleryLayout.backTop-galleryLayout.bottom-16)<1, JSON.stringify(galleryLayout));
+  assert.ok(Math.abs(galleryLayout.backBottom-galleryLayout.height)<1 && galleryLayout.target>=44, JSON.stringify(galleryLayout));
   assert.equal(await page.locator('#open-gallery-image-picker').count(),0);
   await page.locator('.gallery-tile').click();await page.locator('.gallery-tile').click();
   await page.locator('.image-viewer').waitFor();assert.equal(await page.locator('[data-viewer-download],[data-viewer-details]').count(),0);

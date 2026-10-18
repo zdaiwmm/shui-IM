@@ -158,7 +158,7 @@ try {
   await a.evaluate(() => app.renderLocalHistoryBackup()); await a.locator('#local-backup-export').click();
   await a.locator('#history-download').waitFor(); assert.equal(await a.locator('#history-download').textContent(), '导出备份');
   await capture(a, 'F04-backup-summary'); await a.locator('#history-download').click();
-  await capture(a, 'F15-backup-reauth'); assert.equal(await a.locator('.numeric-password-page').count(),1);await a.getByText('输入 6 位数字，继续导出聊天备份',{exact:true}).waitFor();
+  await capture(a, 'F15-backup-reauth'); assert.equal(await a.locator('.numeric-password-page').count(),1);await a.getByRole('heading',{name:'输入密码',exact:true}).waitFor();await a.getByText('继续导出聊天备份',{exact:true}).waitFor();
   await cancelPasswordForm(a); await a.locator('.password-sheet').waitFor({ state: 'detached' }); await a.locator('[data-history-summary-close]').click();
   await a.locator('#backup-help').click(); await capture(a, 'F13-backup-help'); await a.locator('#help-back').click();
   await a.locator('[data-local-backup-view=export]').waitFor();
