@@ -285,3 +285,38 @@
 @media(forced-colors:active) {
   #app .privacy-page-footer > .text-button:only-child { border:1px solid ButtonText; }
 }
+
+/* Confirmed invitation/code separation and compact identity recovery. */
+#app > .chat-shell > .chat-header.chamber-chat-header { display:flex; justify-content:flex-end; flex-wrap:nowrap; }
+#app .chamber-chat-header > .chamber-presence-capsule { min-width:0; flex:0 1 auto; }
+#app .chamber-chat-header > .chat-settings-entry { flex:0 0 44px; }
+#app .chamber-invite-hero { width:min(calc(100% - 24px),400px); padding:24px; text-align:left; }
+#app .chamber-invite-hero > p { font-size:1.25rem; line-height:1.4; margin:8px 0; font-weight:600; }
+#app .chamber-invite-hero > span:not(.chamber-eyebrow) { display:block; font-size:.875rem; line-height:1.6; color:var(--ink-muted); }
+#app .chamber-invite-hero .entry-chat-guidance { display:flex; flex-direction:column; align-items:stretch; gap:12px; margin-top:20px; }
+#app .chamber-invite-hero :is(#copy-invite,#chamber-invite-restart) { width:100%; margin:0; min-height:44px; }
+#app .chamber-invite-hero .entry-invite-status { order:2; text-align:center; margin:0; font-size:.75rem; }
+#app .chamber-invite-status { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px 12px; padding:16px 0 0; border-top:1px solid var(--line-subtle); }
+#app .chamber-invite-status > strong { grid-column:1/-1; font-size:.8125rem; color:var(--ink-muted); font-weight:500; }
+#app .chamber-invite-status > p { grid-column:1/-1; margin:0; font-size:.875rem; line-height:1.6; color:var(--ink-muted); }
+#app .chamber-invite-status .chamber-code-display { display:flex; gap:8px; padding:0; align-items:center; }
+#app .chamber-invite-status .chamber-code-display > span { width:auto; min-width:22px; font-variant-numeric:tabular-nums; }
+#app .chamber-invite-status #copy-chamber-code { justify-self:end; padding-inline:12px; }
+#app .chamber-invite-hero #chamber-invite-restart { order:3; font-size:.8125rem; }
+#app .chamber-code-card [data-code-active], #app .chamber-code-card [data-code-expired] { display:grid; gap:18px; }
+#app .chamber-code-card [hidden] { display:none !important; }
+#app .chamber-code-card .form-error:empty { display:none; }
+#app > .gateway.chamber-identity-import { width:min(calc(100% - 40px),440px); height:100dvh; min-height:0; padding:max(20px,env(safe-area-inset-top)) 0 max(16px,env(safe-area-inset-bottom)); gap:16px; overflow-y:auto; }
+#app .chamber-identity-import .gateway-mark { display:none; }
+#app .chamber-identity-import .gateway-heading { margin:0; }
+#app .chamber-identity-import .gateway-heading h1 { font-size:26px; line-height:1.25; margin:0 0 10px; }
+#app .chamber-identity-import .gateway-heading p { font-size:14px; line-height:1.6; margin:0; }
+#app #personal-import-form { display:flex; flex:1; flex-direction:column; min-height:min-content; gap:8px; }
+#app .chamber-import-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:0; }
+#app .chamber-import-grid label { display:flex; align-items:center; gap:5px; min-width:0; }
+#app .chamber-import-grid input { min-width:0; min-height:44px; border-radius:12px; padding:10px 7px; }
+#app .chamber-import-show { margin:0; min-height:44px; }
+#app #personal-import-form .form-error { margin:0; font-size:12px; line-height:1.6; }
+#app #personal-import-form .form-error:empty { display:none; }
+#app .chamber-import-actions { display:grid; gap:8px; margin-top:auto; padding-top:8px; }
+#app .chamber-import-actions > button { width:100%; min-height:44px; margin:0; border-radius:12px; font-size:14px; }

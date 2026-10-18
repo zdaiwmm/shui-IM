@@ -662,7 +662,7 @@ export async function createStore({
       const { count } = statements.memberCount.get(roomId);
       if (count >= 2 || room.sealed_at) throw new Error('ROOM_SEALED');
       if (chamberInvitations.exists(roomId)) {
-        chamberInvitations.consume(roomId, chamber?.secret, chamber?.code, { bundle, proof, binding: chamber?.binding });
+        chamberInvitations.consume(roomId, chamber?.secret, chamber?.code, { bundle, proof, binding: chamber?.binding }, chamber?.codeRevision);
         personalDirectory.register(chamber.binding.identity);
       }
       statements.insertMember.run(

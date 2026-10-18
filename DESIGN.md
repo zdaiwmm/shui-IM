@@ -1,5 +1,11 @@
 # Quiet Room Design System
 
+## Chamber code renewal and identity recovery, 2026-10-18
+
+The [confirmed five-item V1](docs/requirements/2026-10-18-chamber-invite-recovery/README.md) keeps P1 tokens and replaces invitation-card hierarchy with a 20px title, 14px explanation, a readable 32px four-digit display and an adjacent 44px Copy action. The validity text is subordinate; link copy and explicit invitation restart have distinct priority. Expired claimant state replaces the old form, while inviter expiry replaces digits/copy with a clear status and next step. Chamber header controls use one right-aligned flex row without wrapping. Desktop keeps its wide chat layout and removes only its persistent sidebar/toggle for personal-root rooms.
+
+Required daily numeric unlock is immediately present, without Cancel or entrance travel; Delete and optional Forgot remain available. Optional verification retains the established motion and cancellation. Identity import has a 26px heading, 14px lead, three columns of twelve indexed 44px/16px inputs and standard full-width primary/secondary actions. Compact spacing fits 320×568, 390×664 and 390×844 with keyboard closed, without scaling text or targets; enlarged text/keyboard may scroll. The maintained mobile standard records these scoped overrides; privacy teardown remains immediate.
+
 ## Chamber chat continuity correction, 2026-10-18
 
 The [confirmed V1](docs/requirements/2026-10-18-chamber-chat-continuity/README.md) retains P1 foundations and 44px targets. Privacy guidance belongs to the timeline throughout invitation and active chat, preserving one keyboard/scroll owner. Focused Chamber headers remain transparent; dark invitation, code and guide cards mix 88% paper / 12% ink in OKLCH without an ordinary rim. Activation preserves the mounted chat shell, composer and reading position.

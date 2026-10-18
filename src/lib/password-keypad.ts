@@ -10,6 +10,7 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
     const signal = AbortSignal.any([controller.signal, ...(options.signal ? [options.signal] : [])]);
     const sheet = document.createElement('section');
     sheet.className = `confirm-overlay password-sheet password-page numeric-password-page dialog-surface ${options.create ? 'password-create' : 'password-return'}`;
+    sheet.classList.toggle('numeric-password-mandatory', Boolean(options.mandatory));
     const id = `numeric-password-${crypto.randomUUID()}`;
     sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-labelledby', id);
     sheet.innerHTML = `<form class="confirm-dialog password-form numeric-password-form" novalidate>
@@ -44,9 +45,10 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
       form.setAttribute('aria-busy', String(busy));
       keys.forEach(key => { key.disabled = busy || seconds > 0 || waitUnavailable; });
       left.textContent = options.create || !options.forgot ? '取消' : '忘记密码？';
+      left.hidden = Boolean(options.mandatory && !options.forgot);
       left.toggleAttribute('data-password-cancel', Boolean(options.create || !options.forgot));
       right.textContent = digits.length ? '删除' : '取消';
-      right.hidden = Boolean(!digits.length && (options.create || !options.forgot));
+      right.hidden = Boolean(!digits.length && (options.mandatory || options.create || !options.forgot));
       right.disabled = busy && Boolean(digits.length);
       right.toggleAttribute('data-password-cancel', !digits.length && !options.create && Boolean(options.forgot));
     };
@@ -60,11 +62,11 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
     // Otherwise first mount and is-visible can share a style update and skip travel.
     void getComputedStyle(sheet).transform;
     viewport?.addEventListener('resize', fit, { signal }); viewport?.addEventListener('scroll', fit, { signal });
-    const dialog = mountDialog(sheet, { signal, isActive: active, initialFocus: sheet, onClose: cancel });
+    const dialog = mountDialog(sheet, { signal, isActive: active, initialFocus: sheet, onClose: cancel, beforeClose: () => !options.mandatory });
     signal.addEventListener('abort', cancel, { once: true });
     document.addEventListener('visibilitychange', () => { if (document.hidden) cancel(); }, { signal });
     window.addEventListener('pagehide', cancel, { signal }); document.addEventListener('freeze', cancel, { signal });
-    const leave = (forgot = false) => { dialog.close(); if (forgot) options.forgot?.(); else options.cancel?.(); };
+    const leave = (forgot = false) => { dialog.close({ animate: !options.mandatory }); if (forgot) options.forgot?.(); else options.cancel?.(); };
     left.addEventListener('click', () => leave(!options.create && Boolean(options.forgot)), { signal });
     right.addEventListener('click', () => { if (!digits.length) leave(); else if (!busy) { digits = digits.slice(0, -1); error.textContent = ''; paint(); } }, { signal });
     const failure = (text: string) => {
@@ -89,7 +91,7 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
       try {
         const proof = await options.verify(secret); secret = '';
         if (!active()) { cancel(); return; }
-        settled = true; clear(); resolve(proof); dialog.close(); controller.abort();
+        settled = true; clear(); resolve(proof); dialog.close({ animate: !options.mandatory }); controller.abort();
       } catch (cause) {
         if (!active()) { cancel(); return; }
         if (options.create) confirmation = false;

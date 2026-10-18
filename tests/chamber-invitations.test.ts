@@ -71,7 +71,7 @@ describe('Chamber invitation ownership and lifetime', () => {
     } finally { f.store.close(); }
   });
 
-  it('starts rotated invitations immediately, preserves their code/deadline on claim and never revives expiry', async () => {
+  it('starts rotated codes immediately, preserves their deadline on claim and keeps expired invitations claimable', async () => {
     const f = await fixture();
     try {
       const token = randomBase64Url(32), first = f.store.rotateChamberInvitation(f.roomId, token);
@@ -87,17 +87,17 @@ describe('Chamber invitation ownership and lifetime', () => {
       expect(f.store.rotateChamberInvitation(f.roomId, token).expiresAt).toBe(first.expiresAt);
       const unused = f.store.rotateChamberInvitation(f.roomId, randomBase64Url(32));
       vi.setSystemTime(Date.parse(unused.expiresAt));
-      expect(() => f.store.chamberInvitations.claim(f.roomId, randomBase64Url(32))).toThrow('INVITATION_ENDED');
+      expect(f.store.chamberInvitations.claim(f.roomId, randomBase64Url(32)).stage).toBe('code-expired');
       expect(f.store.chamberInvitations.state(f.roomId, true).code).toBeUndefined();
     } finally { f.store.close(); }
   });
 
-  it('ends the entire invite at expiry or five failures and invalidates previous claims on rotation', async () => {
+  it('keeps expired claims but blocks five failures and invalidates previous claims on rotation', async () => {
     const f = await fixture();
     try {
       const first = f.store.chamberInvitations.claim(f.roomId, f.secret);
       vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(Date.parse(first.expiresAt));
-      expect(() => f.store.chamberInvitations.claim(f.roomId, f.secret)).toThrow('INVITATION_ENDED');
+      expect(f.store.chamberInvitations.claim(f.roomId, f.secret).stage).toBe('code-expired');
       vi.useRealTimers();
       const nextToken = randomBase64Url(32);
       const rotated = f.store.rotateChamberInvitation(f.roomId, nextToken);
@@ -108,8 +108,44 @@ describe('Chamber invitation ownership and lifetime', () => {
       expect(() => f.store.chamberInvitations.ready(f.roomId, f.secret, f.candidate)).toThrow('INVITATION_CLAIMED');
       for (let i = 0; i < 5; i++) f.store.chamberInvitations.recordWrongCode(f.roomId, secondSecret);
       expect(() => f.store.chamberInvitations.ready(f.roomId, secondSecret, f.candidate)).toThrow('INVITATION_ENDED');
-      expect(f.store.chamberInvitations.state(f.roomId).stage).toBe('expired');
+      expect(f.store.chamberInvitations.state(f.roomId).stage).toBe('blocked');
       expect(f.store.cleanupOrphanRooms(new Date(Date.now() + 2 * 60 * 60_000).toISOString())).toBe(0);
     } finally { f.store.close(); }
+  });
+
+  it('refreshes only the expired claimant code once, preserving the request, candidate, attempts and link', async () => {
+    const f = await fixture();
+    try {
+      const first = f.store.chamberInvitations.claim(f.roomId, f.secret);
+      f.store.chamberInvitations.ready(f.roomId, f.secret, f.candidate);
+      const oldCode = f.store.chamberInvitations.state(f.roomId, true).code;
+      f.store.chamberInvitations.recordWrongCode(f.roomId, f.secret);
+      vi.useFakeTimers({toFake:['Date']}); vi.setSystemTime(Date.parse(first.expiresAt));
+      expect(f.store.chamberInvitations.state(f.roomId, true).code).toBeUndefined();
+      expect(() => f.store.chamberInvitations.consume(f.roomId, f.secret, oldCode, f.candidate)).toThrow('INVITATION_CODE_EXPIRED');
+      expect(() => f.store.chamberInvitations.recordWrongCode(f.roomId, f.secret)).toThrow('INVITATION_CODE_EXPIRED');
+      const request = {requestId:first.requestId,version:first.version,codeRevision:1,refreshId:randomBase64Url(24)};
+      expect(() => f.store.chamberInvitations.refreshCode(f.roomId, randomBase64Url(32), request)).toThrow('INVITATION_CLAIMED');
+      expect(() => f.store.chamberInvitations.refreshCode(f.roomId, f.secret, {...request,requestId:'other'})).toThrow('INVITATION_CLAIMED');
+      const refreshed = f.store.chamberInvitations.refreshCode(f.roomId, f.secret, request);
+      const creator = f.store.chamberInvitations.state(f.roomId, true);
+      expect(refreshed.code).toBeUndefined(); expect(refreshed.codeRevision).toBe(2);
+      expect(refreshed.requestId).toBe(first.requestId); expect(refreshed.version).toBe(first.version);
+      expect(creator.candidate).toEqual(f.candidate); expect(creator.code).not.toBe(oldCode);
+      expect(Date.parse(refreshed.expiresAt)-Date.now()).toBe(30*60_000);
+      expect(f.store.authenticateInvite(f.roomId,f.inviteToken)).toBe(true);
+      expect(f.store.chamberInvitations.refreshCode(f.roomId,f.secret,request)).toEqual(refreshed);
+      expect(f.store.chamberInvitations.refreshCode(f.roomId,f.secret,{...request,refreshId:randomBase64Url(24)})).toEqual(refreshed);
+      expect(() => f.store.chamberInvitations.consume(f.roomId,f.secret,oldCode,f.candidate)).toThrow('INVITATION_CODE_INVALID');
+      expect(() => f.store.chamberInvitations.consume(f.roomId,f.secret,creator.code,f.candidate,1)).toThrow('INVITATION_CODE_EXPIRED');
+      vi.setSystemTime(Date.parse(refreshed.expiresAt));
+      expect(f.store.chamberInvitations.refreshCode(f.roomId,f.secret,request).expiresAt).toBe(refreshed.expiresAt);
+      expect(f.store.chamberInvitations.refreshCode(f.roomId,f.secret,{...request,refreshId:randomBase64Url(24)}).codeRevision).toBe(2);
+      const next = f.store.chamberInvitations.refreshCode(f.roomId,f.secret,{...request,codeRevision:2,refreshId:randomBase64Url(24)});
+      expect(next.codeRevision).toBe(3);
+      for(let i=0;i<4;i++)f.store.chamberInvitations.recordWrongCode(f.roomId,f.secret);
+      expect(f.store.chamberInvitations.state(f.roomId).stage).toBe('blocked');
+      expect(() => f.store.chamberInvitations.refreshCode(f.roomId,f.secret,{...request,codeRevision:3})).toThrow('INVITATION_ENDED');
+    } finally {f.store.close();}
   });
 });

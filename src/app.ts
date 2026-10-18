@@ -732,7 +732,7 @@ export class QuietRoomApp {
       lock: () => this.manualLock(),
     });
     this.desktopWorkspace = new DesktopWorkspace(root, {
-      context: () => this.privacyCovered ? null : this.session && this.runtimeAbort ? { owner: this.session, signal: this.runtimeAbort.signal }
+      context: () => this.privacyCovered ? null : this.session && this.runtimeAbort ? { owner: this.session, signal: this.runtimeAbort.signal, sidebar: !this.session.vault.personalBinding }
         : this.browserProfile && this.browserAccessAbort ? { owner: this.browserProfile, signal: this.browserAccessAbort.signal } : null,
       mount: async (host, signal) => {
         const session = this.session;
@@ -1662,7 +1662,7 @@ export class QuietRoomApp {
         passwordBusy = true;
         this.unlocking = true;
         try {
-          const unlocked = await requestPassword(this.root, { presentation: 'page', passwordFormat: stored.passwordFormat, retryAfterMs: passwordUnlockWaitMs, title: '打开私密空间', context: '输入此空间已有的密码。', spaceName: this.currentSpaceName, submitLabel: '打开私密空间', signal: passwordAbort.signal, isActive: current, cancel: () => this.lockNow(),
+          const unlocked = await requestPassword(this.root, { presentation: 'page', mandatory: true, passwordFormat: stored.passwordFormat, retryAfterMs: passwordUnlockWaitMs, title: '打开私密空间', context: '输入此空间已有的密码。', spaceName: this.currentSpaceName, submitLabel: '打开私密空间', signal: passwordAbort.signal, isActive: current, cancel: () => this.lockNow(),
             verify: password => unlockVault(password, undefined, stored), forgot: () => { void this.recoverWithoutAppLock(stored); } });
           if (!current()) return;
           this.session = unlocked; await this.openSession();
@@ -2892,10 +2892,58 @@ export class QuietRoomApp {
   }
 
   private async recoverWithoutAppLock(stored:StoredVault):Promise<void> {
-    const root=await readPersonalIdentity().catch(()=>null);this.jointUnavailableSlot=vaultSpaceId(stored);
+    const epoch = this.runtimeEpoch, gatewayEpoch = this.gatewayRenderEpoch;
+    const root=await readPersonalIdentity().catch(()=>null);
+    if (this.runtimeEpoch !== epoch || this.gatewayRenderEpoch !== gatewayEpoch || this.privacyCovered || document.hidden) return;
+    this.jointUnavailableSlot=vaultSpaceId(stored);
     if(!root){this.renderJointRecovery();return;}
     if(this.session&&!await this.leaveSpace())return;
-    this.returnSpaceId=vaultSpaceId(stored);await selectLocalSpace(crypto.randomUUID());this.renderPersonalRestoreProtection({resetLock:true});
+    this.returnSpaceId=vaultSpaceId(stored);this.renderPersonalMnemonicImport(undefined, undefined, {resetLock:true}, stored);
+  }
+
+  /** Forgotten-lock recovery accepts a phrase before preparing new protection.
+   * The verified entropy is memory-only, foreground-bound and held for at most 60s. */
+  private renderVerifiedPersonalProtection(entropy: Uint8Array, target: StoredVault): void {
+    this.gatewayTemplate('设置新的应用锁', '身份已验证。设置新的本机保护后，继续找回密室；旧聊天记录会保留。',
+      this.passkeySetupMarkup('新应用锁只保护此浏览器，不会自动解锁旧聊天。', '设置应用锁并继续', '返回', true), false, 'plain', 'lock');
+    const page = this.root.querySelector('.gateway')!, epoch = this.runtimeEpoch, lifetime = new AbortController();
+    const active = () => !lifetime.signal.aborted && page.isConnected && this.runtimeEpoch === epoch && !this.privacyCovered && !document.hidden;
+    const observer = new MutationObserver(() => { if (!page.isConnected) lifetime.abort(); });
+    observer.observe(this.root, { childList: true });
+    const timer = window.setTimeout(() => {
+      if (!active()) return;
+      lifetime.abort(); this.renderPersonalMnemonicImport(undefined, undefined, {resetLock:true}, target);
+      this.root.querySelector('.form-error')!.textContent = '身份验证已超时，请重新输入助记词。';
+    }, 60_000);
+    lifetime.signal.addEventListener('abort', () => { entropy.fill(0); observer.disconnect(); window.clearTimeout(timer); }, {once:true});
+    const suspend = () => { lifetime.abort(); if (page.isConnected) { page.querySelector<HTMLButtonElement>('[data-device-verify]')!.disabled = true; page.querySelector('.form-error')!.textContent = '验证已失效，请返回重新验证身份。'; } };
+    document.addEventListener('visibilitychange', () => { if(document.hidden)suspend(); }, {signal:lifetime.signal});
+    window.addEventListener('pagehide', suspend, {signal:lifetime.signal}); document.addEventListener('freeze', suspend, {signal:lifetime.signal});
+    page.querySelector('.gateway-back')!.addEventListener('click', () => { lifetime.abort(); this.renderPersonalMnemonicImport(undefined, undefined, {resetLock:true}, target); });
+    this.mountPasskeySetup(async (daily, setupActive) => {
+      let root: LocalCredentialResult | undefined, transferred = false;
+      try {
+        if (!active() || !setupActive()) return;
+        root = await this.separateRootProtection(daily, () => active() && setupActive());
+        if (!active() || !setupActive()) return;
+        const candidate = await preparePersonalIdentity(root, entropy, !isPasswordCredential(daily) ? daily.record : undefined);
+        const existing = await readPersonalIdentity();
+        if (!active() || !setupActive()) return;
+        if (!existing || existing.identity.id !== candidate.identity.id) throw new Error('身份记录已改变，请返回重新核对本人身份');
+        const entries = await readOwnPersonalDirectory(candidate, root, lifetime.signal);
+        if (!active() || !setupActive()) return;
+        await replacePersonalIdentityProtection(existing, candidate, lifetime.signal);
+        if (!active() || !setupActive()) return;
+        await selectLocalSpace(crypto.randomUUID());
+        if (!active() || !setupActive()) return;
+        const heldDaily = !isPasswordCredential(daily) ? daily : undefined;
+        transferred = Boolean(heldDaily); lifetime.abort();
+        this.renderPersonalRestoreSpaces(entries, candidate, heldDaily, {resetLock:true});
+      } finally {
+        if(root && root !== daily)this.releasePersonalCredential(root);
+        if(!transferred)this.releasePersonalCredential(daily);
+      }
+    }, '正在恢复身份…');
   }
 
   private renderPersonalRestoreProtection(intent:{joint?:boolean;resetLock?:boolean}={}): void {
@@ -2910,22 +2958,26 @@ export class QuietRoomApp {
     this.root.querySelector('#restore-legacy-card')?.addEventListener('click', () => this.renderJointRecovery(null));
   }
 
-  private renderPersonalMnemonicImport(prepared: LocalCredentialResult, preparedDaily: LocalCredentialResult,intent:{joint?:boolean;resetLock?:boolean}={}): void {
+  private renderPersonalMnemonicImport(prepared: LocalCredentialResult | undefined, preparedDaily: LocalCredentialResult | undefined,intent:{joint?:boolean;resetLock?:boolean}={}, recoveryTarget?: StoredVault): void {
     const lifetime = new AbortController(), epoch = this.runtimeEpoch;
     let credential: LocalCredentialResult | undefined = prepared;
     let dailyCredential: LocalCredentialResult | undefined = preparedDaily;
     this.gatewayTemplate('找回你的身份', intent.resetLock?'输入本人完整12词后，重设此浏览器的身份应用锁。旧设备与旧聊天密文继续保留，聊天历史需双方另行恢复。':'按顺序输入自己的12个英文助记词。也可在第一格粘贴完整12词。', `
       <form id="personal-import-form"><div class="chamber-import-grid">${Array.from({ length: 12 }, (_, index) => `<label>${index + 1}<input type="password" name="word${index}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="第${index + 1}个助记词" required></label>`).join('')}</div>
         <label class="chamber-import-show"><input type="checkbox" data-show-import>显示单词</label><p class="form-error" role="alert"></p>
-        <button class="primary-button" type="submit">验证我的身份</button></form><button class="text-button" id="personal-import-back" type="button">返回</button>`, false, 'plain');
+        <div class="chamber-import-actions"><button class="primary-button" type="submit">验证我的身份</button><button class="secondary-button" id="personal-import-back" type="button">返回</button></div></form>`, false, 'plain');
     const page = this.root.querySelector('.gateway')!, form = page.querySelector<HTMLFormElement>('form')!;
+    page.classList.add('chamber-identity-import');
     const inputs = [...form.querySelectorAll<HTMLInputElement>('input[type=password]')], button = form.querySelector<HTMLButtonElement>('[type=submit]')!, error = form.querySelector<HTMLElement>('.form-error')!;
     const active = () => page.isConnected && !lifetime.signal.aborted && this.runtimeEpoch === epoch && !this.privacyCovered && !document.hidden;
     const clear = () => { inputs.forEach(input => { input.value = ''; }); if (credential) this.releasePersonalCredential(credential);
       if (dailyCredential && dailyCredential !== credential) this.releasePersonalCredential(dailyCredential); credential = undefined; dailyCredential = undefined; };
     lifetime.signal.addEventListener('abort', clear, { once: true });
     document.addEventListener('visibilitychange', () => { if (document.hidden) { lifetime.abort(); button.disabled = true; error.textContent = '输入已隐藏，请返回重新验证应用锁后继续。'; } }, { signal: lifetime.signal });
-    page.querySelector('#personal-import-back')!.addEventListener('click', () => { lifetime.abort(); this.renderPersonalRestoreProtection(intent); });
+    const observer = new MutationObserver(() => { if(!page.isConnected)lifetime.abort(); }); observer.observe(this.root,{childList:true});
+    lifetime.signal.addEventListener('abort', () => observer.disconnect(), {once:true});
+    window.addEventListener('pagehide', () => lifetime.abort(), {signal:lifetime.signal}); document.addEventListener('freeze', () => lifetime.abort(), {signal:lifetime.signal});
+    page.querySelector('#personal-import-back')!.addEventListener('click', () => { lifetime.abort(); if(recoveryTarget)void this.renderUnlock(recoveryTarget,true,false);else this.renderPersonalRestoreProtection(intent); });
     form.querySelector('[data-show-import]')!.addEventListener('change', event => inputs.forEach(input => { input.type = (event.target as HTMLInputElement).checked ? 'text' : 'password'; }));
     inputs[0]!.addEventListener('paste', event => {
       const words = (event.clipboardData?.getData('text') ?? '').normalize('NFKD').trim().split(/\s+/u);
@@ -2936,12 +2988,21 @@ export class QuietRoomApp {
       if (words.length === 12) { words.forEach((word, index) => { inputs[index]!.value = word; }); words.fill(''); }
     });
     form.addEventListener('submit', event => {
-      event.preventDefault(); if (!active() || !credential || button.disabled) return;
+      event.preventDefault(); if (!active() || (!credential && !recoveryTarget) || button.disabled) return;
       const localCredential = credential; let entropy: Uint8Array | undefined;
       try { entropy = personalEntropyFromMnemonic(inputs.map(input => input.value).join(' ')); } catch (cause) { error.textContent = cause instanceof Error ? cause.message : '助记词不正确'; return; }
       inputs.forEach(input => { input.value = ''; }); button.disabled = true; error.textContent = '';
       void (async () => {
         try {
+          if (recoveryTarget) {
+            const existing = await readPersonalIdentity();
+            const identity = await withPersonalKeys(entropy!, keys => keys.publicIdentity);
+            if (!active()) return;
+            if (!existing || existing.identity.id !== identity.id) throw new Error('这些助记词不属于此浏览器保管的身份，请核对后重试');
+            const verified = entropy!; entropy = undefined; lifetime.abort();
+            this.renderVerifiedPersonalProtection(verified, recoveryTarget); return;
+          }
+          if (!localCredential) return;
           const candidate = await preparePersonalIdentity(localCredential, entropy!, dailyCredential && !isPasswordCredential(dailyCredential) ? dailyCredential.record : undefined); entropy!.fill(0);
           const existing = await readPersonalIdentity();
           if (existing && existing.identity.id !== candidate.identity.id) throw new Error('此浏览器已保管另一身份，请在其他浏览器恢复，避免覆盖原身份');
@@ -3316,7 +3377,7 @@ export class QuietRoomApp {
       const claim = await chamberInvitation(invite.roomId, invite.accessToken, { action: 'claim', secret }, AbortSignal.timeout(15_000));
       if (!active()) return;
       if (!claim.requestId || !claim.expiresAt) throw new Error('邀请状态不完整，请联系邀请方重新发起');
-      this.renderJoinProtection(invite, { secret, requestId: claim.requestId, version: claim.version, expiresAt: claim.expiresAt });
+      this.renderJoinProtection(invite, { secret, requestId: claim.requestId, version: claim.version, expiresAt: claim.expiresAt, codeRevision: claim.codeRevision });
     })().catch(cause => {
       if (!active()) return;
       this.gatewayTemplate('此邀请暂时无法加入', '请联系邀请方重新发起邀请', '<button class="primary-button" id="join-unavailable-retry" type="button">重新检查邀请</button><button class="text-button" id="join-unavailable-back" type="button">返回</button>', false, 'plain');
@@ -3449,7 +3510,6 @@ export class QuietRoomApp {
       if (initialState.protocol === 'mls-rfc9420' && !creator.mlsKeyPackage) {
         throw new SecurityViolation('MLS 会话的创建者密钥包缺失');
       }
-      if (claim && Date.parse(claim.expiresAt) <= Date.now()) throw new Error('邀请已结束，请让邀请方重新发起邀请');
       let personal: Awaited<ReturnType<QuietRoomApp['preparePersonalRoot']>> | undefined;
       if (claim) {
         personal = preparedRoot??await this.preparePersonalRoot(platformResult, active);
@@ -4393,13 +4453,15 @@ export class QuietRoomApp {
     this.setActiveSurface('away');
     this.root.innerHTML = `<section class="chamber-join-shell" data-authenticated-page>
       <header><strong>Chamber</strong><button class="icon-button" id="chamber-join-lock" type="button" aria-label="锁定">${icons.lock}</button></header>
-      <main><form class="chamber-code-card"><span class="chamber-eyebrow">最后一步 · 确认彼此</span><h1>填写邀请方的验证码</h1>
+      <main><form class="chamber-code-card"><span class="chamber-eyebrow">最后一步 · 确认彼此</span><div data-code-active><h1>填写邀请方的验证码</h1>
         <p>请通过你们原来的联系方式，向邀请方获取四位验证码。</p>
-        <div class="chamber-countdown"><span>本次邀请剩余</span><strong role="timer" aria-live="off"></strong></div>
+        <div class="chamber-countdown"><span>验证码有效期</span><strong role="timer" aria-live="off"></strong></div>
         <fieldset class="chamber-code-fields" data-native-input><legend>四位验证码</legend><div class="chamber-code-digits">
           ${Array.from({ length: 4 }, (_, index) => `<input ${index === 0 ? 'id="chamber-join-code"' : ''} data-code-digit="${index}" aria-label="验证码第 ${index + 1} 位" type="text" inputmode="numeric" pattern="[0-9]" maxlength="4" autocomplete="${index === 0 ? 'one-time-code' : 'off'}" autocapitalize="off" spellcheck="false" required>`).join('')}
         </div></fieldset>
-        <button class="primary-button" type="submit">验证并进入密室</button><p class="form-error" role="alert"></p>
+        <button class="primary-button" type="submit">验证并进入密室</button></div>
+        <div data-code-expired hidden><h1>验证码已超时</h1><p>本次验证码已超时，请重新获取验证码。邀请仍然有效，无需重新加入。</p><button class="primary-button" type="button" id="chamber-refresh-code">重新获取验证码</button></div>
+        <p class="form-error" role="alert"></p>
       </form><p class="chamber-pending-note">确认完成后，才能发送消息、通话和恢复历史。</p></main>
       <footer>消息输入将在确认完成后开启</footer></section>`;
     const shell = this.root.querySelector('.chamber-join-shell')!, form = shell.querySelector('form')!;
@@ -4436,10 +4498,34 @@ export class QuietRoomApp {
     });
     error.textContent = cause instanceof Error ? cause.message : '';
     const active = () => !signal.aborted && !document.hidden && shell.isConnected && this.isRuntimeActive(epoch, session);
-    let ready=false,preparing=false,terminal=false;
+    const refresh = form.querySelector<HTMLButtonElement>('#chamber-refresh-code')!;
+    let ready=false,preparing=false,terminal=false,refreshing=false,confirming=false;
+    const acceptState = async (state: ChamberInvitation) => {
+      if (state.requestId !== pending.requestId || state.version !== pending.version || !state.expiresAt || !Number.isFinite(Date.parse(state.expiresAt))) throw new SecurityViolation('邀请申请已被替换');
+      if ((state.codeRevision ?? 1) < (pending.codeRevision ?? 1)) return;
+      if (state.stage === 'blocked') { terminal = true; throw new Error('验证码错误次数已达上限，请联系邀请方重新发起邀请'); }
+      if (pending.expiresAt !== state.expiresAt || pending.codeRevision !== state.codeRevision || pending.refreshId) {
+        await withVaultMutation(session, async mutation => {
+          if (!active()) return;
+          pending.expiresAt = state.expiresAt!; pending.codeRevision = state.codeRevision; pending.refreshId = undefined;
+          await saveVault(session, mutation);
+        });
+      }
+    };
+    const paint = () => {
+      const expired = Date.parse(pending.expiresAt) <= Date.now();
+      form.querySelector<HTMLElement>('[data-code-active]')!.hidden = expired;
+      form.querySelector<HTMLElement>('[data-code-expired]')!.hidden = !expired;
+      shell.querySelector('[role=timer]')!.textContent = formatPendingCountdown(Date.parse(pending.expiresAt) - Date.now());
+      if (expired) digits.forEach(input => { input.value = ''; input.disabled = true; });
+      else digits.forEach(input => { input.disabled = !ready || terminal || refreshing || confirming; });
+      button.disabled = expired || !ready || terminal || refreshing || confirming;
+      refresh.disabled = terminal || refreshing || preparing || confirming;
+      refresh.textContent = refreshing ? '正在获取…' : '重新获取验证码';
+    };
     button.disabled=true;
     const prepare=async()=>{
-      if(ready||preparing||terminal||!active()||Date.parse(pending.expiresAt)<=Date.now())return;preparing=true;
+      if(ready||preparing||terminal||!active()||refreshing)return;preparing=true;
       try {
         if(await this.resumeAcceptedChamberJoin(signal)){if(active())await this.openSession();return;}
         const own=session.vault.members.find(m=>m.deviceId===session.vault.identity.publicBundle.deviceId),binding=session.vault.personalBinding;
@@ -4447,33 +4533,53 @@ export class QuietRoomApp {
         // All private candidate material is already durable. Lost responses
         // retry the same public bundle and proof, never another device key.
         const state=await chamberInvitation(session.vault.roomId,session.vault.inviteToken,{action:'ready',secret:pending.secret,bundle:session.vault.identity.publicBundle,proof:own.joinProof,binding},AbortSignal.any([signal, AbortSignal.timeout(15_000)]));
-        if(!active())return;if(state.requestId!==pending.requestId||state.version!==pending.version)throw new SecurityViolation('邀请申请已被替换');
-        ready=true;button.disabled=false;error.textContent='';
-      }catch(cause){if(active()){error.textContent=cause instanceof Error?cause.message:'网络未连接，正在自动重试';terminal=cause instanceof ApiError&&['INVITATION_ENDED','INVITATION_CLAIMED','UNAUTHORIZED','ROOM_CLOSED'].includes(cause.code);}}
-      finally{preparing=false;}
+        if(!active())return;await acceptState(state);if(!active())return;
+        ready=true;error.textContent='';paint();
+      }catch(cause){if(active()){error.textContent=cause instanceof Error?cause.message:'网络未连接，正在自动重试';terminal ||= cause instanceof SecurityViolation || cause instanceof ApiError&&['INVITATION_ENDED','INVITATION_CLAIMED','UNAUTHORIZED','ROOM_CLOSED'].includes(cause.code);}}
+      finally{preparing=false;if(active())paint();}
     };
     const tick = () => {
       if (!active()) return;
-      const remaining = Date.parse(pending.expiresAt) - Date.now();
-      shell.querySelector('[role=timer]')!.textContent = formatPendingCountdown(remaining);
-      if (remaining <= 0) {
-        button.disabled = true; digits.forEach(input => { input.disabled = true; });
-        error.textContent = '本次邀请已结束，请让邀请方重新发起邀请。你的本机身份已加密保存。';
-      } else { void prepare(); tickTimer = window.setTimeout(tick, ready || terminal ? 1000 : 3000); }
+      paint(); void prepare(); tickTimer = window.setTimeout(tick, ready || terminal ? 1000 : 3000);
     }; tick();
+    refresh.addEventListener('click', () => {
+      if (!active() || refresh.disabled || Date.parse(pending.expiresAt) > Date.now()) return;
+      refreshing = true; error.textContent = ''; paint();
+      void (async () => {
+        await withVaultMutation(session, async mutation => {
+          if (!active()) return;
+          pending.refreshId ??= randomBase64Url(24); await saveVault(session, mutation);
+        });
+        if (!active()) return;
+        const state = await chamberInvitation(session.vault.roomId, session.vault.inviteToken!, {
+          action: 'refresh-code', secret: pending.secret, requestId: pending.requestId, version: pending.version,
+          codeRevision: pending.codeRevision ?? 1, refreshId: pending.refreshId,
+        }, AbortSignal.any([signal, AbortSignal.timeout(15_000)]));
+        if (!active()) return; await acceptState(state);
+        if (!active()) return; digits.forEach(input => { input.value = ''; });
+      })().catch(cause => {
+        if (!active()) return;
+        terminal ||= cause instanceof SecurityViolation || cause instanceof ApiError && ['INVITATION_ENDED','INVITATION_CLAIMED','UNAUTHORIZED','ROOM_CLOSED'].includes(cause.code);
+        error.textContent = cause instanceof Error ? cause.message : '未能获取验证码，请重试';
+      }).finally(() => { refreshing = false; if (active()) { paint(); if (!button.disabled) focusDigit(0); } });
+    });
     shell.querySelector('#chamber-join-lock')!.addEventListener('click', () => this.lockNow());
     form.addEventListener('submit', event => {
       event.preventDefault(); if (!active() || button.disabled) return;
       const code = digits.map(input => input.value).join('');
       if (!/^\d{4}$/.test(code)) { error.textContent = '请输入四位数字验证码'; return; }
+      confirming = true;
       digits.forEach(input => { input.value = ''; input.disabled = true; });
       setBusy(button, true, '正在确认…'); error.textContent = '';
       void this.completePendingJoin(code).then(async () => {
         if (active()) await this.openSession();
       }).catch(cause => {
         if (!active()) return;
+        confirming = false;
         error.textContent = cause instanceof Error ? cause.message : '验证未完成，请重试'; setBusy(button, false);
-        if (cause instanceof ApiError && ['INVITATION_ENDED', 'INVITATION_CLAIMED', 'UNAUTHORIZED'].includes(cause.code) || Date.parse(pending.expiresAt) <= Date.now()) button.disabled = true;
+        if (cause instanceof ApiError && cause.code === 'INVITATION_CODE_EXPIRED') pending.expiresAt = new Date(0).toISOString();
+        if (cause instanceof ApiError && ['INVITATION_ENDED', 'INVITATION_CLAIMED', 'UNAUTHORIZED'].includes(cause.code)) terminal = true;
+        paint();
         digits.forEach(input => { input.disabled = button.disabled; });
         if (!button.disabled) focusDigit(0);
       });
@@ -4516,7 +4622,7 @@ export class QuietRoomApp {
       session.vault.accessToken,
       ownMember.deviceName ?? defaultDeviceName(),
       CLIENT_CAPABILITIES,
-      pending ? { secret: pending.secret, code: code!, binding: session.vault.personalBinding! } : undefined,
+      pending ? { secret: pending.secret, code: code!, codeRevision: pending.codeRevision, binding: session.vault.personalBinding! } : undefined,
     );}catch(cause){if(pending&&await this.resumeAcceptedChamberJoin())return;throw cause;}
     if (!this.isRuntimeActive(epoch, session)) return;
     await withVaultMutation(session, async (mutation) => {
@@ -5426,6 +5532,7 @@ export class QuietRoomApp {
           !await verifyJoinProof(session.vault.pairingSecret, state.candidate.bundle, state.candidate.proof))) throw new SecurityViolation('受邀方未通过邀请身份验证');
         if (!this.isRuntimeActive(epoch, session)) return;
         if (this.chamberInviteState && state.version < this.chamberInviteState.version) return;
+        if (this.chamberInviteState && state.version === this.chamberInviteState.version && (state.codeRevision ?? 1) < (this.chamberInviteState.codeRevision ?? 1)) return;
         this.chamberInviteState = state;
         this.paintChamberInvitation();
         if (state.stage !== 'joined') return;
@@ -5454,7 +5561,7 @@ export class QuietRoomApp {
 
   private chamberInvitationEnded(): boolean {
     const state = this.chamberInviteState;
-    return state?.stage === 'expired' || Boolean(state?.expiresAt && Date.parse(state.expiresAt) <= Date.now());
+    return state?.stage === 'blocked' || state?.stage === 'expired';
   }
 
   /** Timer and network updates preserve the mounted card, focus and code cells. */
@@ -5464,34 +5571,40 @@ export class QuietRoomApp {
     const ended = this.chamberInvitationEnded(), pending = Boolean(session.vault.pendingInvitationRotation);
     const invite = this.root.querySelector<HTMLButtonElement>('#copy-invite');
     if (invite) {
-      const text = pending ? '重新发起邀请' : ended ? '邀请已超时，重新发起邀请' : '复制邀请链接';
+      const text = pending ? '重新发起邀请' : ended ? '重新发起邀请' : '复制邀请链接';
       if (invite.textContent !== text) invite.textContent = text;
       invite.disabled = this.chamberInviteRotating;
     }
     const restart = this.root.querySelector<HTMLButtonElement>('#chamber-invite-restart');
     if (restart) { restart.hidden = ended || pending || !state.requestId; restart.disabled = this.chamberInviteRotating; }
+    const codeExpired = state.stage === 'code-expired' || Boolean(state.expiresAt && Date.parse(state.expiresAt) <= Date.now());
     const label = this.root.querySelector<HTMLElement>('#invite-countdown');
     if (label) {
-      label.parentElement!.hidden = ended || pending || !state.expiresAt;
-      const text = !ended && state.expiresAt ? `验证码有效期 ${formatPendingCountdown(Date.parse(state.expiresAt) - Date.now())}` : '';
+      label.parentElement!.hidden = ended || pending || codeExpired || !state.expiresAt;
+      const text = !ended && !codeExpired && state.expiresAt ? `验证码有效期 ${formatPendingCountdown(Date.parse(state.expiresAt) - Date.now())}` : '';
       if (label.textContent !== text) label.textContent = text;
     }
     const host = this.root.querySelector<HTMLElement>('#chamber-invite-status');
     if (!host) return;
-    host.hidden = ended || pending || !state.code;
+    host.hidden = pending || (!ended && !codeExpired && !state.code);
     if (host.hidden) { if (host.hasChildNodes()) host.replaceChildren(); delete host.dataset.view; return; }
-    const view = `${state.version}:${state.code}`;
+    const view = `${state.version}:${state.codeRevision}:${ended ? 'blocked' : codeExpired ? 'expired' : state.code}`;
     if (host.dataset.view === view) return;
     host.dataset.view = view;
+    if (ended || codeExpired) {
+      const title = document.createElement('strong'); title.textContent = ended ? '验证码核验已暂停' : '验证码已失效';
+      const hint = document.createElement('p'); hint.textContent = ended ? '错误次数已达上限，请重新发起邀请。' : '请让对方点击“重新获取验证码”。邀请链接仍然有效。';
+      host.replaceChildren(title, hint); return;
+    }
     const title = document.createElement('strong'); title.textContent = '本次验证码';
     const code = document.createElement('div'); code.className = 'chamber-code-display';
     code.setAttribute('role', 'group'); code.setAttribute('aria-label', `本次四位验证码 ${state.code!.split('').join(' ')}`);
     for (const digit of state.code!) { const cell = document.createElement('span'); cell.textContent = digit; cell.setAttribute('aria-hidden', 'true'); code.append(cell); }
     const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'text-button'; copy.id = 'copy-chamber-code'; copy.textContent = '复制验证码';
     copy.addEventListener('click', () => {
-      if (!this.isRuntimeActive(epoch, session) || this.chamberInviteState?.code !== state.code || this.chamberInvitationEnded()) return;
+      if (!this.isRuntimeActive(epoch, session) || this.chamberInviteState?.code !== state.code || this.chamberInvitationEnded() || Date.parse(state.expiresAt!) <= Date.now()) return;
       void this.withSystemSurface(() => navigator.clipboard.writeText(state.code!)).then(() => {
-        if (this.isRuntimeActive(epoch, session) && this.chamberInviteState?.code === state.code && !this.chamberInvitationEnded()) this.showNotice('验证码已复制');
+        if (this.isRuntimeActive(epoch, session) && this.chamberInviteState?.code === state.code && !this.chamberInvitationEnded() && Date.parse(state.expiresAt!) > Date.now()) this.showNotice('验证码已复制');
       }).catch(() => { if (this.isRuntimeActive(epoch, session)) this.showNotice('未能复制，请手动记下四位验证码', 'error'); });
     });
     host.replaceChildren(title, code, copy);
@@ -6161,6 +6274,7 @@ export class QuietRoomApp {
       onSettingsLeave: scrollTop => { this.settingsReturn = { session, spaces, scrollTop }; },
       removeLabel: space => this.catalogRemovalLabel(space),
       actions: [
+        ...(session.vault.personalBinding ? [{ id: 'chamber-switch-space', label: '切换空间', icon: spaceIcons.spaces, keepOpen: true, run: (showSpaceList: () => void) => { this.settingsReturn = null; showSpaceList(); } }] : []),
         { id: 'appearance-settings', label: '主题外观', icon: spaceIcons.appearance, run: forward(() => this.renderAppearanceSettings()) },
         ...(this.desktopBrowser ? [{ id: 'app-access-settings', label: '在应用中打开', icon: spaceIcons.app, run: forward(() => this.renderAppAccess()) }] : []),
         { id: 'manage-devices', label: '设备与新增设备', icon: spaceIcons.device, run: forward(() => this.renderDeviceManager()) },
@@ -10834,7 +10948,7 @@ export class QuietRoomApp {
       if (this.session.vault.personalBinding && !this.peerHasJoined(this.session)) {
         empty.classList.add('chamber-invite-hero');
         const eyebrow = document.createElement('span'); eyebrow.className = 'chamber-eyebrow'; eyebrow.textContent = '你的密室已就绪'; empty.append(eyebrow);
-        title.textContent = '把邀请发给你想说悄悄话的人'; detail.hidden = true;
+        title.textContent = '邀请一位朋友'; detail.textContent = '发送邀请链接，再通过你们原来的联系方式告知四位验证码。'; detail.hidden = false;
       }
       empty.append(title, detail);
       const guidance = document.createElement('div'); guidance.className = 'entry-chat-guidance';
@@ -10854,7 +10968,7 @@ export class QuietRoomApp {
         guidance.append(invite, link, status);
         if (this.session.vault.personalBinding) {
           const state = document.createElement('div'); state.id = 'chamber-invite-status'; state.className = 'chamber-invite-status'; state.setAttribute('role', 'status');
-          const restart = document.createElement('button'); restart.type = 'button'; restart.className = 'secondary-button'; restart.textContent = '邀请被占用？重新发起邀请';
+          const restart = document.createElement('button'); restart.type = 'button'; restart.className = 'text-button'; restart.textContent = '重新发起邀请';
           restart.id = 'chamber-invite-restart'; restart.hidden = true; state.hidden = true; status.hidden = true;
           restart.addEventListener('click', () => {
             if (restart.disabled) return; restart.disabled = true;
