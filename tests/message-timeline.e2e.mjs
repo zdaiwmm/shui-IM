@@ -32,6 +32,7 @@ async function initializeTimeline() {
   await import('/src/voice-messages.css');
   await import('/src/call.css');
   const { QuietRoomApp } = await import('/src/app.ts');
+  window.verifyTimelinePlacement=(await import('/tests/helpers/timeline-placement.mjs')).verifyTimelinePlacement;
   const { createVault } = await import('/src/lib/vault.ts');
   const member = { deviceId: 'timeline-own', role: 'creator', status: 'active', capabilities: ['image-album-v1', 'voice-message-v1', 'file-message-v1', 'message-reactions-v1'] };
   const peer = { ...member, deviceId: 'timeline-peer', role: 'joiner' };
@@ -345,7 +346,8 @@ try {
         const latestGap = composerBox.top - latest.getBoundingClientRect().bottom;
         const scrollState = { pinned: app.chatPinnedToBottom, gap: latestGap, remainingScroll: app.chatBottomGap(), scrollY, scrollHeight: document.documentElement.scrollHeight, intent: app.chatScrollIntent, followPending: app.chatBottomFollowPending, restoringAnchor: Boolean(app.chatRestoreAnchor) };
         if (app.chatPinnedToBottom) {
-          if (Math.abs(latestGap - 12) > 2) issues.push(`pinned latest message lost its 12px composer gap: ${JSON.stringify(scrollState)}`);
+          try { window.verifyTimelinePlacement({visibleTop:app.chatViewportTop,composerTop:composerBox.top,gap:latestGap,label:'Pinned timeline placement'}); }
+          catch(cause) { issues.push(`${cause.message}: ${JSON.stringify(scrollState)}`); }
         } else issues.push(`show(bottom) lost bottom following without user scrolling: ${JSON.stringify(scrollState)}`);
         const bodyColor = getComputedStyle(document.body).color;
         const canvas = document.createElement('canvas');
