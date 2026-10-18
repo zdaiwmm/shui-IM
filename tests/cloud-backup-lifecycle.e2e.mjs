@@ -239,8 +239,18 @@ try {
   assert.equal(await page.locator('progress').count(), 0, 'automatic backup has no progress page');
   for (const size of [{ width: 390, height: 844 }, { width: 320, height: 568 }]) {
     await page.setViewportSize(size);
-    const fits = await page.locator('.backup-hub-content').evaluate(node => node.scrollHeight <= node.clientHeight + 1 && document.documentElement.scrollWidth <= innerWidth + 1);
-    assert(fits, `backup entry fits ${size.width}x${size.height}`);
+    // Let the viewport and measured Back-footer reservation settle first.
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+    const layout = await page.locator('.backup-hub-content').evaluate(node => ({scroll:node.scrollHeight,client:node.clientHeight,width:document.documentElement.scrollWidth,viewport:innerWidth,
+      children:[...node.children].map(child=>({tag:child.tagName,height:child.getBoundingClientRect().height,font:getComputedStyle(child).font,padding:getComputedStyle(child).padding})),
+      header:document.querySelector('.backup-header').getBoundingClientRect().height,back:document.querySelector('.page-back-footer').getBoundingClientRect().height}));
+    assert(layout.scroll <= layout.client + 1 && layout.width <= layout.viewport + 1, `backup entry fits ${size.width}x${size.height}: ${JSON.stringify(layout)}`);
+    const actions = await page.locator('.backup-hub').evaluate(node => {
+      const back=node.querySelector('.page-back-footer').getBoundingClientRect(), body=node.querySelector('.backup-hub-content').getBoundingClientRect();
+      return {contentBottom:body.bottom,backTop:back.top,backBottom:back.bottom,height:innerHeight,targets:[...node.querySelectorAll('button:not([hidden])')].filter(button=>button.getClientRects().length).map(button=>button.getBoundingClientRect().height)};
+    });
+    assert(actions.contentBottom<=actions.backTop && Math.abs(actions.backBottom-actions.height)<1, `backup actions stay clear: ${JSON.stringify(actions)}`);
+    assert(actions.targets.every(height=>height>=44), `backup touch targets remain usable: ${JSON.stringify(actions)}`);
   }
   await page.evaluate(() => {
     window.passkeyCalls = 0;

@@ -309,6 +309,9 @@
   .backup-hub-content { gap: 12px; padding-top: 0; }
   .backup-option { padding: 16px; }
   .backup-option p { margin-bottom: 12px; }
+  /* Reserve the shared Back footer without shrinking copy or touch targets. */
+  #app .backup-hub.page-back-page .backup-hub-content { gap: 8px; padding-bottom: 12px; }
+  #app .backup-hub.page-back-page .backup-option { padding: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { .backup-toggle::before { content: ""; position: absolute; inset: 7px 0; border-radius: 20px; background: var(--ink-faint); }
 .backup-toggle span { position: relative; transition: none; } }
