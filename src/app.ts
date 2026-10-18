@@ -260,6 +260,7 @@ import {
   loadUploadPlans,
   loadUiPreferences,
   prepareComposerDraft,
+  prepareLegacyOutboxItem,
   loadCachedMediaChunk,
   migrateVaultToPlatform,
   readStoredVault,
@@ -520,6 +521,7 @@ export class QuietRoomApp {
   private activeImageLoads = 0;
   private imageLoadWaiters: Array<() => void> = [];
   private imageCacheBytes = 0;
+  private legacyRetrySyncTarget = 0;
   private connectionState: 'connecting' | 'connected' | 'disconnected' = 'disconnected';
   private accessFailure: 'denied' | 'upgrade' | 'space-unavailable' | null = null;
   private routingInvitation = false;
@@ -4932,7 +4934,10 @@ export class QuietRoomApp {
           this.updatePeerStatus();
         },
         ready: (state) => {
-          if (this.isRuntimeActive(epoch, session) && this.socket === roomSocket) return this.handleMembership(state);
+          if (this.isRuntimeActive(epoch, session) && this.socket === roomSocket) {
+            this.legacyRetrySyncTarget = state.nextSeq;
+            return this.handleMembership(state);
+          }
         },
         membership: (state) => {
           if (this.isRuntimeActive(epoch, session) && this.socket === roomSocket) return this.handleMembership(state);
@@ -9099,7 +9104,7 @@ export class QuietRoomApp {
     if (existingClientMsgId) {
       if ([...this.messages.values()].some(message => message.clientMsgId === clientMsgId)) return;
       const existing = this.outbox.get(clientMsgId) ?? (await loadOutbox(session)).find(item => item.clientMsgId === clientMsgId);
-      if (existing) { this.outbox.set(clientMsgId, existing); await this.attemptSend(clientMsgId); return; }
+      if (existing) { this.outbox.set(clientMsgId, existing); await this.attemptSend(clientMsgId, mutation); return; }
     }
     const outboxItem: OutboxItem = {
       clientMsgId,
@@ -9113,6 +9118,7 @@ export class QuietRoomApp {
         outboxItem.envelope = encrypted.envelope;
         await commitMlsSend(session, outboxItem, encrypted.nextGroupState, mutation, draft);
       } else {
+        outboxItem.envelope = await encryptMessage(session.vault, payload, clientMsgId);
         if (this.accessFailure) throw new Error('此设备接入已中止，内容没有写入待发箱。');
         await saveOutboxItem(session, outboxItem, mutation, draft);
       }
@@ -9140,10 +9146,10 @@ export class QuietRoomApp {
     }
     this.renderMessages({ scroll: followSend ? 'send' : 'preserve' });
     if (followSend) this.trackChatViewport(!this.desktopBrowser);
-    await this.attemptSend(clientMsgId);
+    await this.attemptSend(clientMsgId, mutation);
   }
 
-  private async attemptSend(clientMsgId: string): Promise<void> {
+  private async attemptSend(clientMsgId: string, mutation?: VaultMutation): Promise<void> {
     const session = this.session;
     if (!session || this.privacyCovered || this.accessFailure || this.sending.has(clientMsgId)) return;
     const epoch = this.runtimeEpoch;
@@ -9151,12 +9157,23 @@ export class QuietRoomApp {
     if (!item) return;
     if (this.connectionState !== 'connected') return;
     if (this.deferUnsupportedPayload(item)) return;
+    // Older clients may have committed this payload without saving its first
+    // envelope. Consume the authenticated reconnect history before preparing it.
+    if (!item.envelope && session.vault.protocol !== 'mls-rfc9420' && session.vault.lastSeq < this.legacyRetrySyncTarget) {
+      this.socket?.requestSync(session.vault.lastSeq);
+      this.scheduleRetry(clientMsgId);
+      return;
+    }
     this.sending.add(clientMsgId);
     const pendingMessage = this.pending.get(clientMsgId);
     if (pendingMessage?.status === 'failed') pendingMessage.status = 'pending';
     try {
-      const envelope = item.envelope ?? await encryptMessage(session.vault, item.payload, clientMsgId);
+      const prepared = item.envelope ? item : await prepareLegacyOutboxItem(session, clientMsgId, mutation);
+      if (!prepared?.envelope) return;
+      const envelope = prepared.envelope;
       if (!this.isRuntimeActive(epoch, session)) return;
+      this.outbox.set(clientMsgId, prepared);
+      if (this.accessFailure) return;
       if (this.deferUnsupportedPayload(item)) return;
       this.socket?.sendEnvelope(envelope, item.payload.kind !== 'gallery-image' && item.payload.kind !== 'gallery-file'
         && item.payload.kind !== 'reaction' && item.payload.kind !== 'message-delete' && item.payload.kind !== 'media-read' && item.payload.kind !== 'message-read');

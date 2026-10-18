@@ -256,6 +256,92 @@ describe('actual IndexedDB vault lifecycle and MLS mutations', () => {
   }, 30_000);
 });
 
+it('persists the first legacy envelope before sending and reuses it after retry and vault reopen', async () => {
+  const result = await page.evaluate(async () => {
+    const importBrowser = new Function('path', 'return import(path)');
+    const { generateIdentity } = await importBrowser('/src/lib/crypto.ts');
+    const { createVault, withVaultMutation, loadOutbox, unlockVault } = await importBrowser('/src/lib/vault.ts');
+    const { QuietRoomApp } = await importBrowser('/src/app.ts');
+    const [identity, peer] = await Promise.all([generateIdentity(), generateIdentity()]);
+    const members = [{ ...identity.publicBundle, role: 'creator', joinProof: null }, { ...peer.publicBundle, role: 'joiner', joinProof: 'proof' }];
+    const session = await createVault({ v: 3, roomId: crypto.randomUUID(), accessToken: 'a'.repeat(43), pairingSecret: 'p'.repeat(43),
+      creatorFingerprint: 'fingerprint', members, lastSeq: 0, createdAt: new Date().toISOString(), protocol: 'legacy-v1', identity, role: 'creator' });
+    const root = document.createElement('div'); document.body.append(root);
+    const app = new QuietRoomApp(root), sent = [], durableReads = [];
+    app.session = session; app.privacyCovered = false; app.connectionState = 'connected'; app.runtimeAbort = new AbortController();
+    app.renderMessages = () => {}; app.trackChatViewport = () => {}; app.scheduleRetry = () => {};
+    app.socket = { close() {}, setChatPresence() {}, sendEnvelope(envelope) {
+      sent.push(JSON.stringify(envelope));
+      durableReads.push(loadOutbox(app.session).then(rows => JSON.stringify(rows.find(row => row.clientMsgId === envelope.clientMsgId)?.envelope) === JSON.stringify(envelope)));
+    } };
+    try {
+      const payload = { v: 1, kind: 'text', text: 'synthetic legacy retry', sentAt: new Date().toISOString() };
+      await withVaultMutation(session, lease => app.sendPayloadLocked(payload, undefined, lease));
+      const [item] = await loadOutbox(session);
+      // Neither an ACK nor an own echo is applied: retry must keep the stored bytes.
+      await app.attemptSend(item.clientMsgId);
+      const reopened = await unlockVault();
+      app.session = reopened; app.outbox = new Map((await loadOutbox(reopened)).map(row => [row.clientMsgId, row]));
+      await app.attemptSend(item.clientMsgId);
+      return { sent: sent.length, identical: sent.every(envelope => envelope === sent[0]), durableBeforeSend: (await Promise.all(durableReads)).every(Boolean) };
+    } finally { app.lockNow(); root.remove(); }
+  });
+  expect(result).toEqual({ sent: 3, identical: true, durableBeforeSend: true });
+});
+
+it('upgrades payload-only legacy retries once and never sends when their ciphertext cannot persist', async () => {
+  // Each independent vault fixture owns its target and virtual authenticator.
+  await page.close();
+  page = await browser.newPage();
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('WebAuthn.enable');
+  await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal', hasResidentKey: true, hasUserVerification: true, hasPrf: true, automaticPresenceSimulation: true, isUserVerified: true } });
+  await page.goto(`http://localhost:${server.httpServer.address().port}/__vault_regression`);
+  const result = await page.evaluate(async () => {
+    const importBrowser = new Function('path', 'return import(path)');
+    const { generateIdentity } = await importBrowser('/src/lib/crypto.ts');
+    const { createVault, saveOutboxItem, loadOutbox, prepareLegacyOutboxItem } = await importBrowser('/src/lib/vault.ts');
+    const { QuietRoomApp } = await importBrowser('/src/app.ts');
+    const [identity, peer] = await Promise.all([generateIdentity(), generateIdentity()]);
+    const session = await createVault({ v: 3, roomId: crypto.randomUUID(), accessToken: 'a'.repeat(43), pairingSecret: 'p'.repeat(43),
+      creatorFingerprint: 'fingerprint', members: [{ ...identity.publicBundle, role: 'creator', joinProof: null }, { ...peer.publicBundle, role: 'joiner', joinProof: 'proof' }],
+      lastSeq: 0, createdAt: new Date().toISOString(), protocol: 'legacy-v1', identity, role: 'creator' });
+    const payload = { v: 1, kind: 'text', text: 'older payload-only retry', sentAt: new Date().toISOString() };
+    const item = { clientMsgId: crypto.randomUUID(), payload, createdAt: payload.sentAt };
+    await saveOutboxItem(session, item);
+    const root = document.createElement('div'); document.body.append(root);
+    const app = new QuietRoomApp(root), sent = [];
+    app.session = session; app.privacyCovered = false; app.connectionState = 'connected'; app.runtimeAbort = new AbortController();
+    app.outbox = new Map([[item.clientMsgId, item]]);
+    app.renderMessages = () => {}; app.showNotice = () => {}; app.scheduleRetry = () => {};
+    let syncRequests = 0;
+    app.socket = { close() {}, setChatPresence() {}, requestSync() { syncRequests++; }, sendEnvelope(envelope) { sent.push(JSON.stringify(envelope)); } };
+    app.legacyRetrySyncTarget = 1;
+    await app.attemptSend(item.clientMsgId);
+    const deferredBeforeSync = sent.length === 0 && !(await loadOutbox(session))[0].envelope;
+    app.legacyRetrySyncTarget = 0;
+    const encrypt = crypto.subtle.encrypt.bind(crypto.subtle); let injected = false;
+    Object.defineProperty(crypto.subtle, 'encrypt', { configurable: true, value: async (...args) => {
+      if (new TextDecoder().decode(args[0].additionalData).startsWith('quiet-room-outbox-v1:')) {
+        injected = true; throw new DOMException('Synthetic outbox persistence failure', 'OperationError');
+      }
+      return encrypt(...args);
+    } });
+    try {
+      await app.attemptSend(item.clientMsgId);
+      const before = { sent: sent.length, hasEnvelope: Boolean((await loadOutbox(session))[0].envelope) };
+      Object.defineProperty(crypto.subtle, 'encrypt', { configurable: true, value: encrypt });
+      const upgraded = await Promise.all([prepareLegacyOutboxItem(session, item.clientMsgId), prepareLegacyOutboxItem(session, item.clientMsgId)]);
+      await app.attemptSend(item.clientMsgId);
+      await app.attemptSend(item.clientMsgId);
+      const missing = await prepareLegacyOutboxItem(session, crypto.randomUUID());
+      return { injected, before, deferredBeforeSync, syncRequests, sent: sent.length, oneEnvelope: JSON.stringify(upgraded[0].envelope) === JSON.stringify(upgraded[1].envelope)
+        && sent.every(envelope => envelope === JSON.stringify(upgraded[0].envelope)), missingDoesNotRecreate: missing === undefined };
+    } finally { Object.defineProperty(crypto.subtle, 'encrypt', { configurable: true, value: encrypt }); app.lockNow(); root.remove(); }
+  });
+  expect(result).toEqual({ injected: true, before: { sent: 0, hasEnvelope: false }, deferredBeforeSync: true, syncRequests: 1, sent: 2, oneEnvelope: true, missingDoesNotRecreate: true });
+});
+
 try {
   await setup();
   for (const test of cases) { await test.run(); console.log(`PASS ${test.name}`); }

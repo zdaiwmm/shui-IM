@@ -70,7 +70,15 @@ it('allows a catalog management key to delete only its certified unjoined room, 
     await expect(store.deletePendingRoom(room.roomId,conflictProof,conflict)).rejects.toThrow('BACKUP_CONFLICT');
     expect(store.roomState(room.roomId)).not.toBeNull();
     expect(store.browserCatalogs.fetch(id,value.fetchToken).revision).toBe(1);
+    const blobId=crypto.randomUUID();
+    store.createBlob(room.roomId,blobId,1,64,creator.publicBundle.deviceId);
+    await store.putBlobChunk(room.roomId,blobId,0,Buffer.alloc(64),creator.publicBundle.deviceId);
     await expect(store.deletePendingRoom(room.roomId,proof,catalog)).resolves.toEqual({deleted:true});
+    expect(store.cloudBackups.pendingCleanup()).toEqual([room.roomId]);
+    await store.cleanupDeletedRooms();
+    expect(store.cloudBackups.pendingCleanup()).toEqual([]);
+    const {stat}=await import('node:fs/promises');
+    await expect(stat(path.join(dataDir,'blobs',room.roomId))).rejects.toMatchObject({code:'ENOENT'});
     expect(store.roomState(room.roomId)).toBeNull();
     expect(store.browserCatalogs.fetch(id,value.fetchToken).revision).toBe(2);
     const joined=store.createRoom(creator.publicBundle,token);

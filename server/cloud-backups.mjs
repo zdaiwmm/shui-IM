@@ -58,9 +58,12 @@ export function createCloudBackups(db, { authenticatedDevice }) {
       room_id TEXT,
       created_at TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS pending_room_cleanup (room_id TEXT PRIMARY KEY);
+    CREATE TABLE IF NOT EXISTS pending_room_cleanup (room_id TEXT PRIMARY KEY, blob_bytes INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS admin_totp_counters (config_id TEXT PRIMARY KEY, counter INTEGER NOT NULL);
   `);
+  if (!db.prepare('PRAGMA table_info(pending_room_cleanup)').all().some(column => column.name === 'blob_bytes')) {
+    db.exec('ALTER TABLE pending_room_cleanup ADD COLUMN blob_bytes INTEGER NOT NULL DEFAULT 0');
+  }
   // Migration only: participants with an existing backup keep their actual setting.
   // New checkpoints must never implicitly turn history uploads on.
   db.exec(`INSERT OR IGNORE INTO history_backup_preferences(room_id,role,enabled,revision)
@@ -240,10 +243,17 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     return { roomId, devices, backups };
   }
 
+  // Call inside the room-deletion transaction, before cascading blob metadata.
+  function enqueueRoomCleanup(roomId) {
+    db.prepare(`INSERT INTO pending_room_cleanup(room_id,blob_bytes)
+      SELECT ?,COALESCE(SUM(expected_bytes),0) FROM blobs WHERE room_id=?
+      ON CONFLICT(room_id) DO UPDATE SET blob_bytes=MAX(blob_bytes,excluded.blob_bytes)`).run(roomId, roomId);
+  }
+
   function deleteRoom(roomId) {
     db.exec('BEGIN IMMEDIATE');
     try {
-      db.prepare('INSERT OR IGNORE INTO pending_room_cleanup VALUES(?)').run(roomId);
+      enqueueRoomCleanup(roomId);
       const result = db.prepare('DELETE FROM rooms WHERE room_id=?').run(roomId);
       db.prepare('INSERT INTO admin_events(action,room_id,created_at) VALUES(?,?,?)').run('delete-room', roomId, new Date().toISOString());
       db.exec('COMMIT'); return { deleted: Boolean(result.changes) };
@@ -254,6 +264,8 @@ export function createCloudBackups(db, { authenticatedDevice }) {
     adminCounter: id => db.prepare('SELECT counter FROM admin_totp_counters WHERE config_id=?').get(id)?.counter ?? -1,
     consumeAdminCounter: (id, counter) => Boolean(db.prepare(`INSERT INTO admin_totp_counters VALUES(?,?)
       ON CONFLICT(config_id) DO UPDATE SET counter=excluded.counter WHERE excluded.counter > admin_totp_counters.counter`).run(id, counter).changes),
+    enqueueRoomCleanup,
+    cleanupPending: id => Boolean(db.prepare('SELECT 1 FROM pending_room_cleanup WHERE room_id=?').get(id)),
     pendingCleanup: () => db.prepare('SELECT room_id FROM pending_room_cleanup').all().map(r => r.room_id),
     finishCleanup: id => db.prepare('DELETE FROM pending_room_cleanup WHERE room_id=?').run(id) };
 }
