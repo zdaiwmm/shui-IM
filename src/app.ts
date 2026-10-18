@@ -121,7 +121,6 @@ import {
   createDeliveryReceipt,
   createJoinProof,
   decryptMessage,
-  encryptMessage,
   generateIdentity,
   verifyDeliveryReceipt,
   verifyJoinProof,
@@ -9118,7 +9117,6 @@ export class QuietRoomApp {
         outboxItem.envelope = encrypted.envelope;
         await commitMlsSend(session, outboxItem, encrypted.nextGroupState, mutation, draft);
       } else {
-        outboxItem.envelope = await encryptMessage(session.vault, payload, clientMsgId);
         if (this.accessFailure) throw new Error('此设备接入已中止，内容没有写入待发箱。');
         await saveOutboxItem(session, outboxItem, mutation, draft);
       }
