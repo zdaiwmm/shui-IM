@@ -45,6 +45,7 @@ removeLabel?: (space: PrivateSpace) => string; initialSettings?: boolean; restor
   refreshUnread?: (signal: AbortSignal) => Promise<void>;
   refreshSpaces?: (signal: AbortSignal) => Promise<PrivateSpace[]>;
   authorization?: (space: PrivateSpace) => {deadline:number;open:()=>Promise<void>} | undefined;
+  canStylePresence?: () => boolean;
   styleChanged: (style: PresenceStyle) => void; closed: (sheet: HTMLElement) => void;
 }): void {
   const lifetime = new AbortController();
@@ -148,9 +149,12 @@ const removable = Boolean(options.remove && space.waiting && !space.accessState)
     });
   }
   function styles() {
+    if (signal.aborted || options.canStylePresence?.() === false) return;
     const value = readPresenceStyle();
     page('在线状态样式', `<p class="space-description">选择聊天页顶部的显示方式。</p><div class="space-style-options" role="radiogroup" aria-label="在线状态样式">${(['capsule','heart'] as const).map(s => `<button class="space-style-choice" role="radio" tabindex="${s === value ? 0 : -1}" aria-checked="${s === value}" data-style="${s}"><span class="space-style-preview ${s}" aria-hidden="true">${s === 'capsule' ? `<span>TA</span>${heart}<span>我</span>` : heart}</span><span class="space-style-copy"><strong>${s === 'capsule' ? '在线胶囊' : '心动按钮'}</strong><small>${s === 'capsule' ? '居中显示双方状态 · 默认样式' : '红色爱心，显示在聊天页右上角'}</small></span><i class="space-radio" aria-hidden="true">${check}</i></button>`).join('')}</div><div class="space-presence-note"><p>左半颗代表对方，右半颗代表你。</p><p>在线状态不代表消息已读。</p></div>`, '', settings);
     const choose = (button: HTMLButtonElement) => {
+      if (signal.aborted) return;
+      if (options.canStylePresence?.() === false) { sheet.querySelector('.form-error')!.textContent = '加入密室后可设置'; return; }
       try { writePresenceStyle(button.dataset.style as PresenceStyle); options.styleChanged(readPresenceStyle()); }
       catch { sheet.querySelector('.form-error')!.textContent = '浏览器未能保存设置，请重试'; return; }
       sheet.querySelectorAll<HTMLButtonElement>('[data-style]').forEach(b => { b.setAttribute('aria-checked',String(b === button)); b.tabIndex = b === button ? 0 : -1; });
@@ -171,7 +175,7 @@ const removable = Boolean(options.remove && space.waiting && !space.accessState)
       ['backup-settings', 'local-history-backup', 'local-history-restore', 'recover-other-space'],
       ['release-history'],
     ];
-    const presence = `<button class="space-setting" id="presence-style-setting"><span class="space-setting-icon" data-setting="presence-style-setting" aria-hidden="true">${heart}</span><span class="space-setting-label">在线状态样式</span><small class="space-setting-value">${readPresenceStyle() === 'heart' ? '心动按钮' : '在线胶囊'}</small>${arrow}</button>`;
+    const presence = `<button class="space-setting" id="presence-style-setting" ${options.canStylePresence?.() === false ? 'disabled' : ''}><span class="space-setting-icon" data-setting="presence-style-setting" aria-hidden="true">${heart}</span><span class="space-setting-label">在线状态样式</span><small class="space-setting-value">${options.canStylePresence?.() === false ? '加入密室后可设置' : readPresenceStyle() === 'heart' ? '心动按钮' : '在线胶囊'}</small>${arrow}</button>`;
     const known = new Set(groups.flat());
     const cards = groups.map(ids => ids.map(id => id === 'presence-style-setting' ? presence : actions.filter(a => a.id === id).map(setting).join('')).join('')).filter(Boolean);
     const other = actions.filter(a => !known.has(a.id)).map(setting).join('');
@@ -268,6 +272,11 @@ const expiry = pendingSpaceExpiry(s);
   }
   const expiredRooms = new Set<string>();
   const paintCountdowns = () => {
+    const presence = sheet.querySelector<HTMLButtonElement>('#presence-style-setting');
+    if (presence) {
+      presence.disabled = options.canStylePresence?.() === false;
+      presence.querySelector('.space-setting-value')!.textContent = presence.disabled ? '加入密室后可设置' : readPresenceStyle() === 'heart' ? '心动按钮' : '在线胶囊';
+    }
     const now = Date.now();
     sheet.querySelectorAll<HTMLElement>('[data-expires]').forEach(node => {
       const expiry = Number(node.dataset.expires);

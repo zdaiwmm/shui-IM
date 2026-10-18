@@ -1,5 +1,13 @@
 # Product
 
+## Confirmed Chamber chat continuity, 2026-10-18
+
+The [confirmed V1](docs/requirements/2026-10-18-chamber-chat-continuity/README.md) keeps privacy guidance in the scrolling timeline before and after joining, including while the keyboard is open. Floating Chamber headers remain transparent during composer focus; dark invitation and guide cards use a clearer opaque surface. Initial encrypted-session activation updates the mounted chat instead of replacing its composer and scroll owner.
+
+Correct code verification accepts the same invitation/device; sending still waits for authenticated MLS readiness. While the session is visible and unlocked, bounded polling can repair a missed membership broadcast independently of the current chat/settings page. Activation never forces navigation away from settings. Offline or locked inviters are described as waiting rather than complete; existing lifecycle cleanup and device/history boundaries remain authoritative.
+
+An invited participant cannot edit presence appearance until joining and MLS setup finish; the disabled entry says “加入密室后可设置”, and saving rechecks readiness. An unapproved browser shell likewise cannot change it. Auto-lock durations open in a half sheet, select/save/close immediately, keep the old choice on failure and have no Save action or persistent “已生效” copy. Isolated bottom Back actions have a clear neutral surface. Cover-practice copy aligns with the hot-zone center outside its outward rings; the left defer action has transparent fill. Numeric entry commits its offscreen starting state before its existing 280ms reveal, with uniform 1px dots and immediate privacy removal. These local corrections supersede the preceding conflicting presentation details; native Safari evidence remains separate.
+
 ## Confirmed invitation and app-lock correction, 2026-10-18
 
 The [confirmed V1](docs/requirements/2026-10-18-chamber-invite-lock-fixes/README.md) omits prototypes/flowcharts by the user's explicit exception. Expired inviter cards hide ended/occupied copy and replace their primary action with “邀请已超时，重新发起邀请”. Rotation immediately issues a creator-only code and a fixed 30-minute deadline; claiming that replacement preserves both. The first invitation still starts at its unique claim. Rotation invalidates the previous capability/claim/code; retries of the same durable rotation do not extend it. New links are copied automatically with success/failure feedback; clipboard failure does not rotate again.

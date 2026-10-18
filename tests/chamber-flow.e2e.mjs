@@ -215,6 +215,19 @@ try {
     input.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true, cancelable: true }));
   }, code);
   assert.deepEqual(await digits.evaluateAll(inputs => inputs.map(input => input.value)), code.split(''));
+  // Lost transport while the inviter is on a settings child must be repaired
+  // by the unlocked session, without navigating back to chat to drive it.
+  await a.locator('#chat-settings').click();
+  await a.locator('#auto-lock-settings').click();
+  await a.locator('.auto-lock-page').waitFor();
+  await a.evaluate(() => app.socket.close());
+  await b.evaluate(() => {
+    window.activationObserver = new MutationObserver(() => {
+      const shell = document.querySelector('.chat-shell');
+      if (shell && !window.initialJoinedChat) window.initialJoinedChat = {shell,input:shell.querySelector('#message-input'),guide:shell.querySelector('.chamber-privacy-guide')};
+    });
+    activationObserver.observe(document.querySelector('#app'),{childList:true});
+  });
   await b.locator('.chamber-code-card [type=submit]').click();
   for (const [index, page] of [a, b].entries()) {
     try { await page.waitForFunction(() => app.session?.vault.mls?.phase === 'active' && !document.querySelector('#message-input')?.disabled); }
@@ -227,11 +240,32 @@ try {
       })), errors); throw cause;
     }
   }
+  assert.equal(await b.evaluate(() => {
+    activationObserver.disconnect();
+    return initialJoinedChat.shell === document.querySelector('.chat-shell') && initialJoinedChat.input === document.querySelector('#message-input') && initialJoinedChat.guide === document.querySelector('.chamber-privacy-guide');
+  }),true,'Initial activation must retain the chat, composer and guide nodes');
+  assert.equal(await a.locator('.auto-lock-page').count(), 1, 'Activation must retain the settings page');
+  await a.locator('#auto-lock-back').click();
+  await a.locator('.space-settings-list').waitFor();
+  await a.locator('.space-close').click();
+  await a.locator('.space-drawer-overlay').waitFor({state:'detached'});
+  await a.waitForFunction(()=>document.querySelector('.chat-shell') && !document.querySelector('.chat-shell').inert);
   assert.equal(await a.locator('#open-gallery.chamber-presence-capsule').count(), 1);
   assert.equal(await b.locator('#open-gallery').count(), 0);
-  assert.equal(await a.locator('.system-notices .chamber-privacy-guide').count(), 1, 'Activated chat retains the three-step guide');
+  assert.equal(await a.locator('#message-list > .chamber-privacy-guide').count(), 1, 'Activated chat keeps guidance inside the keyboard-following timeline');
   await a.locator('#message-input').fill('Synthetic Chamber encrypted message'); await a.locator('#composer').evaluate(form => form.requestSubmit());
-  await b.getByText('Synthetic Chamber encrypted message', { exact: true }).waitFor();
+  try { await b.getByText('Synthetic Chamber encrypted message', { exact: true }).waitFor(); }
+  catch(cause) {
+    for(const [side,p] of [['inviter',a],['joiner',b]]) console.error('Synthetic first-message diagnostic',side,await p.evaluate(()=>({
+      connection:app.connectionState,transport:app.socket?.connected,covered:app.privacyCovered,surface:app.activeSurface,
+      pairing:app.session?.vault.pairingState,phase:app.session?.vault.mls?.phase,lastSeq:app.session?.vault.lastSeq,
+      outbox:app.outbox.size,pending:app.pending.size,queued:app.serverQueue.size,messages:app.messages.size,
+      input:document.querySelector('#message-input')?.value,notice:document.querySelector('#notice')?.textContent,
+      fatal:document.querySelector('#fatal-message')?.textContent,fail:app.accessFailure,
+      syntheticMessagePresent:document.body.textContent.includes('Synthetic Chamber encrypted message'),
+    })));
+    throw cause;
+  }
   await a.evaluate(()=>app.runAutomaticBackup(true));
   await a.locator('#message-input').fill('Synthetic locally hidden history');await a.locator('#composer').evaluate(form=>form.requestSubmit());await b.getByText('Synthetic locally hidden history',{exact:true}).waitFor();
   await a.waitForFunction(()=>[...app.messages.values()].some(m=>m.payload.text==='Synthetic locally hidden history'));

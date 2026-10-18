@@ -2709,7 +2709,7 @@ export class QuietRoomApp {
         await this.refreshSpaceCatalog(refreshSignal);
         return accessPrivateSpaces(current.profile);
       },
-      styleChanged:()=>undefined,closed:()=>{if(container)this.desktopWorkspace.collapse();}});
+      canStylePresence:()=>false,styleChanged:()=>undefined,closed:()=>{if(container)this.desktopWorkspace.collapse();}});
   }
 
   private async requestBrowserSpace(space:AccessSpace,button:HTMLButtonElement):Promise<void> {
@@ -4996,7 +4996,8 @@ export class QuietRoomApp {
       const activeRoleCount = new Set(state.members.filter((member) => member.status === undefined || member.status === 'active').map((member) => member.role)).size;
       if ((before < 2 && activeRoleCount === 2) || mlsBecameReady) {
         void rememberLocalSpace(session).then(() => publishPreparedCatalog(session, this.runtimeAbort?.signal ?? AbortSignal.timeout(8000))).catch(() => undefined);
-        this.renderChat();
+        if (session.vault.personalBinding) this.refreshChamberChatActivation();
+        else this.renderChat();
         this.showPairingWelcome();
         this.socket?.requestSync(session.vault.lastSeq);
       }
@@ -5010,6 +5011,25 @@ export class QuietRoomApp {
       if (cause instanceof SecurityViolation) this.fatalSecurityError(cause);
       else this.operationalError(cause);
     }
+  }
+
+  /** Keep the same page, composer and scroll owner through initial activation. */
+  private refreshChamberChatActivation(): void {
+    const session = this.session;
+    if (!session || this.privacyCovered || this.accessFailure || session.vault.mls?.phase !== 'active' || !this.peerHasJoined(session)) return;
+    const shell = this.root.querySelector<HTMLElement>(':scope > .chat-shell');
+    if (!shell) return;
+    shell.classList.remove('chamber-waiting');
+    shell.querySelector('.chamber-waiting-footer')?.remove();
+    for (const control of shell.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLTextAreaElement>(
+      '#message-input, #image-input, #camera-input, #file-input, #open-memes, #record-voice, #open-image-picker, #open-camera-picker, #open-file-picker')) control.disabled = false;
+    const input = shell.querySelector<HTMLTextAreaElement>('#message-input');
+    if (input) input.placeholder = '输入消息';
+    if (session.vault.role === 'creator') {
+      const capsule = shell.querySelector<HTMLElement>('.chamber-presence-capsule');
+      if (capsule) { capsule.id = 'open-gallery'; capsule.setAttribute('role', 'button'); capsule.tabIndex = 0; }
+    }
+    this.renderMessages(); this.syncChatLayout(); this.syncComposerMode(); this.updateConnectionStatus();
   }
 
   private async ensureMlsReady(state: RoomState): Promise<void> {
@@ -5386,20 +5406,39 @@ export class QuietRoomApp {
 
   private async pollChamberInvitation(): Promise<void> {
     const session = this.session, epoch = this.runtimeEpoch;
-    if (!session?.vault.personalBinding || session.vault.role !== 'creator' || this.peerHasJoined(session) ||
-      this.chamberInvitePolling || Date.now() - this.chamberInvitePolledAt < 3000) return;
+    if (!session?.vault.personalBinding || session.vault.pendingChamberInvitation || document.hidden || this.accessFailure ||
+      !this.isRuntimeActive(epoch, session) || this.chamberInvitePolling || Date.now() - this.chamberInvitePolledAt < 3000) return;
+    const ready = () => this.peerHasJoined(session) && session.vault.mls?.phase === 'active';
+    if (ready()) return;
     this.chamberInvitePolling = true; this.chamberInvitePolledAt = Date.now();
     try {
-      const state = await chamberInvitation(session.vault.roomId, session.vault.accessToken, undefined, this.runtimeAbort?.signal);
+      const signal = this.runtimeAbort
+        ? AbortSignal.any([this.runtimeAbort.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
+      if (session.vault.role === 'creator' && !this.peerHasJoined(session)) {
+        const state = await chamberInvitation(session.vault.roomId, session.vault.accessToken, undefined, signal);
+        if (!this.isRuntimeActive(epoch, session)) return;
+        if (canonicalStringify(state.creatorBinding) !== canonicalStringify(session.vault.personalBinding)) throw new SecurityViolation('邀请中的身份绑定已改变');
+        if (state.candidate && (!await verifyPersonalDeviceBinding(state.candidate.binding, state.candidate.bundle) ||
+          !await verifyJoinProof(session.vault.pairingSecret, state.candidate.bundle, state.candidate.proof))) throw new SecurityViolation('受邀方未通过邀请身份验证');
+        if (!this.isRuntimeActive(epoch, session)) return;
+        if (this.chamberInviteState && state.version < this.chamberInviteState.version) return;
+        this.chamberInviteState = state;
+        this.paintChamberInvitation();
+        if (state.stage !== 'joined') return;
+      }
+      // Membership broadcasts may be lost while a connection is replaced.
+      // Progress belongs to the unlocked runtime, independent of visible cards.
+      const state = await getRoomState(session.vault.roomId, session.vault.accessToken, signal);
       if (!this.isRuntimeActive(epoch, session)) return;
-      if (canonicalStringify(state.creatorBinding) !== canonicalStringify(session.vault.personalBinding)) throw new SecurityViolation('邀请中的身份绑定已改变');
-      if (state.candidate && (!await verifyPersonalDeviceBinding(state.candidate.binding, state.candidate.bundle) ||
-        !await verifyJoinProof(session.vault.pairingSecret, state.candidate.bundle, state.candidate.proof))) throw new SecurityViolation('受邀方未通过邀请身份验证');
-      if (this.chamberInviteState && state.version < this.chamberInviteState.version) return;
-      this.chamberInviteState = state;
-      this.paintChamberInvitation();
+      await this.handleMembership(state);
+      if (!this.isRuntimeActive(epoch, session)) return;
+      if (ready()) {
+        if (this.inlineInviteTimer !== null) window.clearInterval(this.inlineInviteTimer);
+        this.inlineInviteTimer = null;
+        if (!this.socket?.connected) await this.connectSocket();
+      }
     } catch (cause) {
-      if (cause instanceof SecurityViolation && this.isRuntimeActive(epoch, session)) this.operationalError(cause);
+      if (cause instanceof SecurityViolation && this.isRuntimeActive(epoch, session)) this.fatalSecurityError(cause);
     } finally { if (this.runtimeEpoch === epoch) this.chamberInvitePolling = false; }
   }
 
@@ -5502,13 +5541,14 @@ export class QuietRoomApp {
   }
 
   private paintInlineInviteCountdown(): void {
-    const label = this.root.querySelector<HTMLElement>('#invite-countdown');
-    if (!label || !this.session) return;
+    if (!this.session) return;
     if (this.session.vault.personalBinding) {
       this.paintChamberInvitation();
       void this.pollChamberInvitation();
       return;
     }
+    const label = this.root.querySelector<HTMLElement>('#invite-countdown');
+    if (!label) return;
     const expiry = pendingSpaceExpiry({ waiting: true, createdAt: this.session.vault.createdAt });
     label.innerHTML = expiry ? `剩余 <strong>${formatPendingCountdown(expiry - Date.now())}</strong>，超时未加入则此空间自动销毁。` : '';
   }
@@ -6186,6 +6226,8 @@ export class QuietRoomApp {
         }
         return fresh;
       },
+      canStylePresence: () => session.vault.role !== 'joiner' || !session.vault.personalBinding ||
+        this.peerHasJoined(session) && session.vault.mls?.phase === 'active',
       styleChanged: () => this.applyPresenceStyle(),
       closed: sheet => {
         if (presentation === 'sidebar') { this.desktopWorkspace.collapse(); return; }
@@ -6266,7 +6308,8 @@ export class QuietRoomApp {
     const cryptoReady = this.session.vault.protocol !== 'mls-rfc9420' || this.session.vault.mls?.phase === 'active';
     this.scheduleWaitingSpaceExpiry(this.session);
     if (this.inlineInviteTimer !== null) window.clearInterval(this.inlineInviteTimer);
-    this.inlineInviteTimer = !this.peerHasJoined(this.session) ? window.setInterval(() => this.paintInlineInviteCountdown(), 1000) : null;
+    this.inlineInviteTimer = !this.peerHasJoined(this.session) || this.session.vault.personalBinding && !cryptoReady
+      ? window.setInterval(() => this.paintInlineInviteCountdown(), 1000) : null;
     this.shieldHintCleanup?.();
     this.shieldHintCleanup = null;
     this.galleryObserver?.disconnect();
@@ -6299,11 +6342,6 @@ export class QuietRoomApp {
           <button class="icon-button chat-settings-entry" id="chat-settings" type="button" aria-label="设置">${spaceIcons.settings}</button>
         </header>
         <div class="system-notices" aria-label="本机安全提醒">
-          ${this.session.vault.personalBinding ? `<details class="chamber-privacy-guide" ${this.session.vault.personalGuide?.mnemonicChecked && this.session.vault.personalGuide.coverRead && this.session.vault.personalGuide.autoLockRead ? '' : 'open'}><summary>三步，熟悉你的隐私保护</summary><ol>
-            <li><button type="button" data-personal-guide="mnemonic"><b>01</b><span><strong>助记词</strong><small>${this.session.vault.personalGuide?.mnemonicChecked ? '已核对助记词' : '换设备时，用它证明是你'}</small></span><span aria-hidden="true">›</span></button></li>
-            <li><button type="button" data-personal-guide="cover"><b>02</b><span><strong>入口遮蔽</strong><small>${this.session.vault.recoveryExperience?.coverEnabled ? '已开启' : '了解伪装入口，按需开启'}</small></span><span aria-hidden="true">›</span></button></li>
-            <li><button type="button" data-personal-guide="auto-lock"><b>03</b><span><strong>自动锁定</strong><small>了解暂时离开后的保护</small></span><span aria-hidden="true">›</span></button></li>
-          </ol></details>` : ''}
           ${this.session.vault.personalBinding?'<aside class="pinned-notice" id="chamber-backup-notice" hidden><button type="button" class="pinned-recovery-content" id="chamber-backup-details"><strong>历史备份已暂停</strong><span></span></button></aside>':''}
           ${this.releaseUpdateBannerMarkup()}
           ${this.session.vault.recoveryExperience?.completed === 'recovered' && !this.uiPreferences.historyImportDismissed ? `
@@ -6320,9 +6358,13 @@ export class QuietRoomApp {
           ` : ''}
         </div>
         <div class="notice" id="notice" role="status" hidden></div>
-        <section class="message-list" id="message-list" aria-label="聊天消息"></section>
+        <section class="message-list" id="message-list" aria-label="聊天消息">${this.session.vault.personalBinding ? `<details class="chamber-privacy-guide" ${this.session.vault.personalGuide?.mnemonicChecked && this.session.vault.personalGuide.coverRead && this.session.vault.personalGuide.autoLockRead ? '' : 'open'}><summary>三步，熟悉你的隐私保护</summary><ol>
+            <li><button type="button" data-personal-guide="mnemonic"><b>01</b><span><strong>助记词</strong><small>${this.session.vault.personalGuide?.mnemonicChecked ? '已核对助记词' : '换设备时，用它证明是你'}</small></span><span aria-hidden="true">›</span></button></li>
+            <li><button type="button" data-personal-guide="cover"><b>02</b><span><strong>入口遮蔽</strong><small>${this.session.vault.recoveryExperience?.coverEnabled ? '已开启' : '了解伪装入口，按需开启'}</small></span><span aria-hidden="true">›</span></button></li>
+            <li><button type="button" data-personal-guide="auto-lock"><b>03</b><span><strong>自动锁定</strong><small>了解暂时离开后的保护</small></span><span aria-hidden="true">›</span></button></li>
+          </ol></details>` : ''}</section>
         <form class="composer" id="composer" autocomplete="off">
-          ${this.session.vault.personalBinding && !cryptoReady ? '<p class="chamber-waiting-footer">对方完成验证码确认后，即可开始聊天。</p>' : ''}
+          ${this.session.vault.personalBinding && !cryptoReady ? `<p class="chamber-waiting-footer" role="status">${this.session.vault.role === 'creator' ? '对方完成验证码确认后，即可开始聊天。' : '验证码已通过，正在建立加密连接。若邀请方已离线或锁定，请等待对方上线并解锁。'}</p>` : ''}
           <button class="chat-bottom-control" id="chat-bottom-control" type="button" aria-label="回到最新消息" aria-hidden="true" tabindex="-1"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14m-6-6 6 6 6-6"/></svg></button>
           <input id="image-input" type="file" accept="image/*,video/*" multiple ${cryptoReady ? '' : 'disabled'} hidden />
           <input id="camera-input" type="file" accept="image/*,video/*" capture="environment" ${cryptoReady ? '' : 'disabled'} hidden />
@@ -6336,7 +6378,7 @@ export class QuietRoomApp {
             </div>
             <div class="composer-field">
               <label class="sr-only" for="message-input">输入消息</label>
-              <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '输入消息' : '对方进入聊天页面即可完成私密空间创建'}" autocomplete="off" enterkeyhint="enter" ${cryptoReady ? '' : 'disabled'}></textarea>
+              <textarea id="message-input" rows="1" maxlength="4000" placeholder="${cryptoReady ? '输入消息' : '正在建立加密连接，完成后即可发送消息'}" autocomplete="off" enterkeyhint="enter" ${cryptoReady ? '' : 'disabled'}></textarea>
               <button class="send-button composer-send" id="send-text" type="submit" aria-label="发送消息" disabled tabindex="-1">${voiceIcons.paperPlane}</button>
               <button class="meme-toggle" id="open-memes" type="button" aria-label="打开表情" title="表情" aria-expanded="false" aria-controls="meme-panel" ${cryptoReady ? '' : 'disabled'}>${memeIcons.smile}</button>
             </div>
@@ -6884,13 +6926,14 @@ export class QuietRoomApp {
     this.mountImagePicker(this.root.querySelector<HTMLInputElement>('#camera-input'), 'chat', this.root.querySelector<HTMLButtonElement>('#open-camera-picker'));
     this.mountImagePicker(this.root.querySelector<HTMLInputElement>('#file-input'), 'chat', this.root.querySelector<HTMLButtonElement>('#open-file-picker'));
     const openSafe = () => {
-      if (this.session?.vault.role !== 'creator' || this.privacyCovered) return;
+      if (this.session?.vault.role !== 'creator' || this.privacyCovered || this.session.vault.protocol === 'mls-rfc9420' && this.session.vault.mls?.phase !== 'active') return;
       this.closeChatTools(); this.galleryMode = 'safe';
       this.transitionPage('forward', () => this.renderGallery());
     };
-    this.root.querySelector('#open-gallery')?.addEventListener('click', openSafe);
-    this.root.querySelector('#open-gallery')?.addEventListener('keydown', event => {
-      if (['Enter', ' '].includes((event as KeyboardEvent).key)) { event.preventDefault(); openSafe(); }
+    const safeEntry = this.root.querySelector('.chamber-presence-capsule, #open-gallery');
+    safeEntry?.addEventListener('click', () => { if (safeEntry.id === 'open-gallery') openSafe(); });
+    safeEntry?.addEventListener('keydown', event => {
+      if (safeEntry?.id === 'open-gallery' && ['Enter', ' '].includes((event as KeyboardEvent).key)) { event.preventDefault(); openSafe(); }
     });
     this.root.querySelector('#open-favorites')?.addEventListener('click', () => {
       this.closeChatTools(); this.galleryMode = 'favorites'; this.galleryKnownCounts = {}; this.galleryScrollTop = { images: 0, files: 0 };
@@ -8591,7 +8634,7 @@ export class QuietRoomApp {
     this.setActiveSurface('away');
     let selected = readIdleSeconds(localStorage), hiddenLock = readHiddenLock(localStorage), blankLock = readBlankDoubleLock();
     const durationChoices = IDLE_DURATIONS.filter(value => value !== 0);
-    let durationExpanded = false;
+    let durationSheet: HTMLElement | null = null;
     const durationLabel = () => selected < 60 ? `${selected} 秒` : `${selected / 60} 分钟`;
     this.root.innerHTML = `<section class="device-shell auto-lock-page privacy-settings-page" data-authenticated-page>
       <main class="device-content preference-content"><h1>自动锁定</h1><p class="preference-intro">选择适合你的锁定方式。</p>
@@ -8599,30 +8642,49 @@ export class QuietRoomApp {
       <section class="privacy-setting"><div class="privacy-control-row"><div><h2>双击空白区域锁屏</h2><p>连续点按空白处两次，立即锁定</p></div><button type="button" class="backup-toggle" data-blank-lock role="switch" aria-label="双击空白区域锁屏" aria-checked="${blankLock}"><span></span></button></div></section>
       <section class="privacy-setting"><div class="privacy-control-row"><div><h2>闲置时锁定</h2><p>开启后，按所选时间自动锁定</p></div><button type="button" class="backup-toggle" data-idle-toggle role="switch" aria-label="无操作倒计时" aria-checked="${selected !== 0}"><span></span></button></div>
       <button class="auto-lock-duration" type="button" aria-expanded="false" aria-controls="auto-lock-options" ${selected === 0 ? 'hidden' : ''}><span>等待时间</span><strong data-duration-value>${durationLabel()}</strong><span aria-hidden="true">›</span></button>
-      <fieldset id="auto-lock-options" class="preference-options auto-lock-options" hidden><legend class="sr-only">自动锁定时间</legend>
-      ${durationChoices.map(value => `<label class="preference-choice"><span>${value < 60 ? `${value} 秒` : `${value / 60} 分钟`}</span><input type="radio" name="idle-seconds" value="${value}" ${value === selected ? 'checked' : ''}></label>`).join('')}</fieldset></section>
+      </section>
       <p class="preference-note">设置仅适用于本机。关闭或刷新页面仍需验证。助记词等敏感内容离开即隐藏。</p>
-      <p class="preference-status" role="status" aria-live="polite"></p><p class="form-error" role="alert"></p></main>
+      <p class="form-error" role="alert"></p></main>
       <footer class="privacy-page-footer"><button class="text-button" id="auto-lock-back" type="button">返回</button></footer></section>`;
     const page = this.root.querySelector<HTMLElement>('.auto-lock-page')!;
-    const report = (error = '') => { page.querySelector('.form-error')!.textContent = error; page.querySelector('.preference-status')!.textContent = error ? '' : '已生效'; };
+    const report = (error = '') => { page.querySelector('.form-error')!.textContent = error; if (durationSheet) durationSheet.querySelector('[data-duration-error]')!.textContent = error; };
     const paint = () => {
       page.querySelector('[data-idle-toggle]')!.setAttribute('aria-checked', String(selected !== 0));
       page.querySelector('[data-hidden-lock]')!.setAttribute('aria-checked', String(hiddenLock));
       page.querySelector('[data-blank-lock]')!.setAttribute('aria-checked', String(blankLock));
       const duration = page.querySelector<HTMLButtonElement>('.auto-lock-duration')!;
-      duration.hidden = selected === 0; duration.setAttribute('aria-expanded', String(durationExpanded));
+      duration.hidden = selected === 0; duration.setAttribute('aria-expanded', String(Boolean(durationSheet)));
       page.querySelector('[data-duration-value]')!.textContent = durationLabel();
-      page.querySelector<HTMLFieldSetElement>('.auto-lock-options')!.hidden = selected === 0 || !durationExpanded;
-      page.querySelectorAll<HTMLInputElement>('[name="idle-seconds"]').forEach(input => { input.checked = Number(input.value) === selected; });
+      durationSheet?.querySelectorAll<HTMLInputElement>('[name="idle-seconds"]').forEach(input => { input.checked = Number(input.value) === selected; });
     };
     const saveDuration = (seconds: typeof selected) => {
-      if (!page.isConnected || this.privacyCovered || this.expireIdleSession()) return;
-      try { saveIdleSeconds(localStorage, seconds); selected = seconds; durationExpanded = false; this.resetIdleLock(); report(); }
-      catch { report('未能保存，已保留原设置，请重试'); }
-      paint();
+      if (!page.isConnected || this.privacyCovered || this.expireIdleSession()) return false;
+      try { saveIdleSeconds(localStorage, seconds); selected = seconds; this.resetIdleLock(); report(); }
+      catch { report('未能保存，已保留原设置，请重试'); paint(); return false; }
+      paint(); return true;
     };
-    page.querySelector('.auto-lock-duration')!.addEventListener('click', () => { durationExpanded = !durationExpanded; paint(); });
+    page.querySelector('.auto-lock-duration')!.addEventListener('click', () => {
+      if (durationSheet || selected === 0 || !page.isConnected || this.privacyCovered || this.expireIdleSession()) return;
+      const sheet = document.createElement('section'); durationSheet = sheet;
+      sheet.className = 'confirm-overlay auto-lock-duration-sheet';
+      sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-label', '等待时间');
+      sheet.innerHTML = `<div class="confirm-dialog auto-lock-duration-panel"><h2>等待时间</h2>
+        <fieldset id="auto-lock-options" class="preference-options auto-lock-options"><legend class="sr-only">自动锁定时间</legend>
+        ${durationChoices.map(value => `<label class="preference-choice"><span>${value < 60 ? `${value} 秒` : `${value / 60} 分钟`}</span><input type="radio" name="idle-seconds" value="${value}" ${value === selected ? 'checked' : ''}></label>`).join('')}</fieldset>
+        <p class="duration-error" data-duration-error role="alert"></p></div>`;
+      this.root.append(sheet);
+      const dialog = mountDialog(sheet, { presentation: 'sheet', signal: this.runtimeAbort?.signal,
+        returnFocus: page.querySelector<HTMLButtonElement>('.auto-lock-duration'),
+        isActive: () => page.isConnected && !this.privacyCovered && !this.expireIdleSession(),
+        onClose: () => { durationSheet = null; paint(); } });
+      sheet.addEventListener('click', event => { if (event.target === sheet) dialog.close(); });
+      sheet.querySelectorAll<HTMLInputElement>('[name="idle-seconds"]').forEach(input => {
+        const choose = () => { if (!sheet.inert && saveDuration(Number(input.value) as typeof selected)) dialog.close(); };
+        input.addEventListener('click', () => { if (Number(input.value) === selected) choose(); });
+        input.addEventListener('change', choose);
+      });
+      paint();
+    });
     page.querySelector('[data-idle-toggle]')!.addEventListener('click', () => saveDuration(selected === 0 ? 30 : 0));
     page.querySelector('[data-hidden-lock]')!.addEventListener('click', () => {
       if (!page.isConnected || this.privacyCovered || this.expireIdleSession()) return;
@@ -8636,7 +8698,6 @@ export class QuietRoomApp {
       catch { report('未能保存，已保留原设置，请重试'); }
       paint();
     });
-    page.querySelectorAll<HTMLInputElement>('[name="idle-seconds"]').forEach(input => input.addEventListener('change', () => saveDuration(Number(input.value) as typeof selected)));
     page.querySelector('#auto-lock-back')!.addEventListener('click', () => this.transitionPage('backward', () => {
       if (this.session) this.renderChat(); else { this.renderBrowserShell(); this.openBrowserSpaceList(undefined, undefined, true); }
     }));
@@ -10680,7 +10741,6 @@ export class QuietRoomApp {
     const list = this.root.querySelector<HTMLElement>('#message-list');
     if (!list || !this.session) return;
     const guide = this.root.querySelector<HTMLElement>('.chamber-privacy-guide');
-    if (guide && list.contains(guide) && this.peerHasJoined(this.session)) this.root.querySelector('.system-notices')?.prepend(guide);
     const continuingMotion = this.chatMessageAnimations.size > 0;
     const previousMessageIds = new Set(this.renderedMessages.keys());
     const reflowOrigins = new Map<HTMLElement, number>();
@@ -10807,18 +10867,18 @@ export class QuietRoomApp {
       empty.append(guidance);
       const mountedInvite = list.querySelector<HTMLElement>(':scope > .chamber-invite-hero');
       const preserveInvite = Boolean(mountedInvite && this.session.vault.personalBinding && !this.peerHasJoined(this.session));
-      if (this.session.vault.personalBinding && !this.peerHasJoined(this.session) && guide && !preserveInvite) list.replaceChildren(empty, guide);
+      if (guide && !preserveInvite) list.replaceChildren(...(this.peerHasJoined(this.session) ? [guide, empty] : [empty, guide]));
       this.renderedMessages.clear();
       this.renderedMessageOrder = [];
       this.renderedMessageDates.clear();
       this.renderedMessageSeq.clear();
-      if (!preserveInvite && (!this.session.vault.personalBinding || this.peerHasJoined(this.session) || !guide)) list.replaceChildren(empty);
+      if (!preserveInvite && !guide) list.replaceChildren(empty);
       this.paintInviteProgress(this.invitationStage);
       this.paintInlineInviteCountdown();
     } else {
       const currentKeys = new Set<string>();
       const elements: HTMLElement[] = [];
-      const timeline: HTMLElement[] = [];
+      const timeline: HTMLElement[] = guide ? [guide] : [];
       const dateKeys = new Set<string>();
       const currentYear = new Date().getFullYear();
       const sequences = new Map<string, number>();

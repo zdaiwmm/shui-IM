@@ -24,11 +24,20 @@ async function open(options = {}) {
         return true;
       },
     }).then(() => { window.numericProof = 'verified'; }, () => { window.numericProof = 'cancelled'; });
+    const sheet = document.querySelector('.numeric-password-page');
+    window.numericEntryStart = { x: new DOMMatrixReadOnly(getComputedStyle(sheet).transform).m41, width: sheet.clientWidth };
   }, options);
-  await page.clock.runFor(500); await page.locator('.numeric-password-page').waitFor();
+  await page.clock.runFor(options.motionSample ? 32 : 500); await page.locator('.numeric-password-page').waitFor();
+  if (!options.motionSample) await page.locator('.numeric-password-page').evaluate(node => Promise.allSettled(node.getAnimations().map(animation => animation.finished)));
 }
 const digit = async value => { for (const number of value) await page.locator(`[data-digit="${number}"]`).click(); };
 try {
+  await open({motionSample:true});
+  const start = await page.evaluate(() => numericEntryStart);
+  assert.ok(start.x >= start.width - 1, JSON.stringify(start));
+  assert.equal(await page.locator('.numeric-password-page').evaluate(node => node.getAnimations().some(animation => animation instanceof CSSTransition && animation.transitionProperty === 'transform')), true, 'Normal entry must actually travel, not just declare a duration');
+  await page.clock.runFor(500);
+  await page.locator('.numeric-password-page').press('Escape'); await page.clock.runFor(500);
   await open({ create: true });
   assert.equal(await page.locator('.numeric-password-page input').count(), 0);
   assert.equal(await page.locator('[data-digit]').count(), 10);

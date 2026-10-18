@@ -44,7 +44,7 @@ html, body, button, input, textarea, select { font-family: var(--font-ui); lette
   box-shadow: none;
 }
 #app .chat-header::before, #app .composer::before { display: none; }
-#app .chat-shell:has(#message-input:focus) .chat-header { background:var(--composer-surface-focused); }
+#app .chat-shell:has(#message-input:focus) .chat-header:not(.chamber-chat-header) { background:var(--composer-surface-focused); }
 #app .chat-header :is(.icon-button, .more-menu summary, .peer-summary) {
   background: transparent;
   border-color: transparent;

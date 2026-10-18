@@ -246,9 +246,42 @@
 #app .cover-practice-page .practice-hotspot.is-holding::after { animation-duration:720ms; }
 #app .cover-practice-page .hold-guide { right:max(16px,env(safe-area-inset-right)); bottom:calc(max(20px,env(safe-area-inset-bottom)) + 106px); width:min(270px,calc(100% - 32px)); }
 #app .cover-practice-page .hold-guide span { width:80px; margin:10px 0 0 auto; text-align:center; font-size:2rem; }
-#app .cover-practice-confirm #skip-cover { color:var(--ink-muted); background:var(--surface); }
+#app .cover-practice-confirm #skip-cover { color:var(--ink-muted); background:transparent; }
 @media(prefers-reduced-motion:reduce) { #app .cover-practice-page .practice-hotspot::before, #app .cover-practice-page .practice-hotspot::after { animation:none; } }
 @media(forced-colors:active) { #app .chamber-invite-hero, #app .chamber-privacy-guide { border:1px solid CanvasText; } }
 
 #app .cover-practice-confirm .simple-confirm-actions { display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:stretch; }
 #app .cover-practice-confirm .simple-confirm-actions button { min-height:44px; margin:0; width:100%; font-size:.875rem; }
+
+/* Local privacy guidance shares the timeline's scroll and keyboard owner. */
+#app .message-list > .chamber-privacy-guide { flex:none; align-self:center; }
+:root[data-color-scheme="dark"] #app :is(.chamber-invite-hero,.chamber-privacy-guide,.chamber-code-card) {
+  background:color-mix(in oklch,var(--paper) 88%,var(--ink) 12%);
+}
+#app .cover-practice-page .cover-practice-notice {
+  right:max(144px,calc(env(safe-area-inset-right) + 128px));
+  bottom:calc(max(20px,env(safe-area-inset-bottom)) + 40px);
+  transform:translateY(50%);
+}
+#app .privacy-page-footer > .text-button:only-child {
+  min-height:44px; width:100%; border:0; border-radius:12px;
+  color:var(--ink); background:var(--surface); font-weight:500;
+}
+#app .auto-lock-duration-sheet { align-items:flex-end; padding:0; }
+#app .auto-lock-duration-panel {
+  width:min(100%,520px); height:min(54dvh,540px); max-height:calc(100dvh - 24px);
+  min-height:min(300px,calc(100dvh - 24px)); margin:0 auto;
+  padding:0 20px max(16px,env(safe-area-inset-bottom)); border-radius:20px 20px 0 0;
+  display:flex; flex-direction:column; gap:12px; background:var(--surface-raised);
+}
+#app .auto-lock-duration-panel h2 { flex:none; margin:0; text-align:center; font-size:1.125rem; }
+#app .auto-lock-duration-panel .auto-lock-options {
+  flex:1; min-height:0; overflow:auto; margin:0; padding:0; border:0; border-radius:0; background:transparent;
+}
+#app .auto-lock-duration-panel .preference-choice { min-height:44px; margin:0; padding:10px 4px; border:0; border-radius:0; background:transparent; }
+#app .auto-lock-duration-panel .duration-error { flex:none; margin:0; color:var(--danger); font-size:.8125rem; }
+#app .auto-lock-duration-panel .duration-error:empty { display:none; }
+#app .space-setting:disabled { opacity:1; color:var(--ink-muted); cursor:default; }
+@media(forced-colors:active) {
+  #app .privacy-page-footer > .text-button:only-child { border:1px solid ButtonText; }
+}
