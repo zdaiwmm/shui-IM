@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { canonicalStringify } from './protocol.mjs';
 import { validPersonalIdentity, verifyPersonalDirectoryRecord, verifyPersonalProof } from './personal-protocol.mjs';
 
@@ -9,7 +9,16 @@ export function createPersonalDirectory(db, { getMember, chamberInvitations }) {
       room_id TEXT NOT NULL REFERENCES rooms(room_id) ON DELETE CASCADE, revision INTEGER NOT NULL, record TEXT NOT NULL,
       PRIMARY KEY(identity_id,room_id));
     CREATE TABLE IF NOT EXISTS chamber_challenges (request_id TEXT PRIMARY KEY,identity_id TEXT NOT NULL,
-      proof TEXT NOT NULL,expires_at TEXT NOT NULL,consumed INTEGER NOT NULL DEFAULT 0);`);
+      proof TEXT NOT NULL,expires_at TEXT NOT NULL,consumed INTEGER NOT NULL DEFAULT 0);
+    CREATE INDEX IF NOT EXISTS chamber_challenges_expiry ON chamber_challenges(expires_at);
+    CREATE TABLE IF NOT EXISTS chamber_challenge_key (id INTEGER PRIMARY KEY CHECK(id=1),
+      key BLOB NOT NULL CHECK(length(key)=32));`);
+  // Only authenticates server issuance, never a user's root or history keys.
+  // Persist across restarts so an in-flight challenge survives deployment.
+  db.prepare('INSERT OR IGNORE INTO chamber_challenge_key VALUES(1,?)').run(randomBytes(32));
+  const challengeKey = db.prepare('SELECT key FROM chamber_challenge_key WHERE id=1').get().key;
+  const challengeMac = body => createHmac('sha256', challengeKey).update('chamber-personal-challenge-v1\0')
+    .update(canonicalStringify(body)).digest();
   const identity = id => {
     const row = db.prepare('SELECT identity FROM chamber_identities WHERE identity_id=?').get(id);
     return row ? JSON.parse(row.identity) : null;
@@ -30,12 +39,11 @@ export function createPersonalDirectory(db, { getMember, chamberInvitations }) {
       !Number.isSafeInteger(input.version) || input.version < 1 || !/^[A-Za-z0-9_-]{43}$/.test(input.payloadHash)) throw new Error('INVALID_JSON');
     const now = new Date().toISOString();
     db.prepare('DELETE FROM chamber_challenges WHERE expires_at<=?').run(now);
-    if (db.prepare('SELECT COUNT(*) AS n FROM chamber_challenges').get().n >= 10_000 ||
-      db.prepare('SELECT COUNT(*) AS n FROM chamber_challenges WHERE identity_id=? AND consumed=0').get(identityId).n >= 20) throw new Error('RATE_LIMITED');
-    const proof = { v: 1, purpose: 'chamber-personal-proof-v1', ...input, identityId, requestId: randomUUID(),
-      challenge: randomBytes(32).toString('base64url'), expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() };
-    db.prepare('INSERT INTO chamber_challenges(request_id,identity_id,proof,expires_at) VALUES(?,?,?,?)').run(proof.requestId, identityId, canonicalStringify(proof), proof.expiresAt);
-    return proof;
+    const body = { v: 1, purpose: 'chamber-personal-proof-v1', ...input, identityId, requestId: randomUUID(),
+      expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() };
+    // Anonymous issuance must not reserve another identity's durable quota.
+    // The existing HTTP IP limiter still applies; only signed consumption is stored.
+    return { ...body, challenge: challengeMac(body).toString('base64url') };
   }
   /** operation must be synchronous SQL inside this transaction, with an explicit expected action. */
   function authorize(proof, signature, action, operation) {
@@ -43,11 +51,21 @@ export function createPersonalDirectory(db, { getMember, chamberInvitations }) {
     if (proof?.action !== action || !verifyPersonalProof(root, proof, signature)) throw new Error('UNAUTHORIZED');
     db.exec('BEGIN IMMEDIATE');
     try {
+      if (Date.parse(proof.expiresAt) <= Date.now()) throw new Error('PERSONAL_PROOF_EXPIRED');
+      db.prepare('DELETE FROM chamber_challenges WHERE expires_at<=?').run(new Date().toISOString());
       const row = db.prepare('SELECT * FROM chamber_challenges WHERE request_id=?').get(proof.requestId);
-      if (!row || row.consumed || row.identity_id !== root.id || row.proof !== canonicalStringify(proof) || Date.parse(row.expires_at) <= Date.now()) throw new Error('PERSONAL_PROOF_EXPIRED');
+      if (row) {
+        // Accept exact, unconsumed challenges issued before the upgrade until expiry.
+        if (row.consumed || row.identity_id !== root.id || row.proof !== canonicalStringify(proof) || Date.parse(row.expires_at) <= Date.now()) throw new Error('PERSONAL_PROOF_EXPIRED');
+      } else {
+        const { challenge, ...body } = proof;
+        const actual = Buffer.from(challenge, 'base64url'), expected = challengeMac(body);
+        if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new Error('PERSONAL_PROOF_EXPIRED');
+      }
       const result = operation(root);
       if (result && typeof result.then === 'function') throw new Error('INVALID_JSON');
-      db.prepare('UPDATE chamber_challenges SET consumed=1 WHERE request_id=? AND consumed=0').run(proof.requestId);
+      db.prepare('INSERT INTO chamber_challenges VALUES(?,?,?,?,1) ON CONFLICT(request_id) DO UPDATE SET consumed=1')
+        .run(proof.requestId, root.id, canonicalStringify(proof), proof.expiresAt);
       db.exec('COMMIT'); return result;
     } catch (cause) { db.exec('ROLLBACK'); throw cause; }
   }
