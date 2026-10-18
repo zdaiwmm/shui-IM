@@ -18,6 +18,7 @@ export function mountPageBacks(root: HTMLElement): void {
     footer = document.createElement('footer'); footer.className = 'page-back-footer';
     const previousParent = button.parentElement;
     button.classList.add('page-back-button'); button.type = 'button';
+    if (!button.hasAttribute('aria-label')) button.setAttribute('aria-label', label);
     button.textContent = '返回';
     footer.append(button); page.append(footer);
     if (previousParent?.tagName === 'FOOTER' && !previousParent.children.length && !previousParent.textContent?.trim()) previousParent.remove();

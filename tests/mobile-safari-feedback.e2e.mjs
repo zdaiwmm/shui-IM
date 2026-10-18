@@ -187,7 +187,10 @@ try {
     await page.locator('[data-shortcut=emoji]').click();
     await page.locator('[data-shortcut=add]').click();
     await page.locator('.meme-search-dialog').waitFor();
-    assert.equal(await page.locator('.meme-search-header button').count(),1);
+    assert.equal(await page.locator('.meme-search-header button').count(),0);
+    assert.equal(await page.locator('.meme-page-back .page-back-button').count(),1);
+    assert.equal(await page.locator('.meme-page-back .page-back-button').textContent(),'返回');
+    assert.ok(await page.locator('.meme-page-back .page-back-button').evaluate(button=>button.getBoundingClientRect().height>=44));
     await page.locator('.meme-back').click();
     await page.locator('.meme-search-dialog').waitFor({state:'detached'});
     const handoff=await page.evaluate(async()=>{
