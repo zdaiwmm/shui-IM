@@ -1,5 +1,15 @@
 # Quiet Room 固定发布流程
 
+<a id="release-chamber-chat-continuity-20261018"></a>
+## Chamber 聊天接续与隐私交互修复已发布（2026-10-18 09:21）
+
+- 用户确认八项V1并明确免除原型／流程图；展示完整应用`05271513e506fb96148e73d8408d2a67b03f224a`、版本`2026.10.18.1`、完整CI／只读预检及真机缺口后，另回复「确认，发布生产」。需求、产品边界及本机历史失败由[需求V1](docs/requirements/2026-10-18-chamber-chat-continuity/README.md)拥有，无独立消息permalink。
+- [PR #338](https://github.com/zdaiwmm/shui-IM/pull/338)源`d16c90ba88fd29dc7738820b62c79cc5d9ba6661`与上述应用完整文件树一致。[PR完整CI39083976981](https://github.com/zdaiwmm/shui-IM/actions/runs/39083976981)及[精确main完整CI39084861952](https://github.com/zdaiwmm/shui-IM/actions/runs/39084861952) attempt 1均通过127文件／1012项、70浏览器入口、通话／TURN、依赖审计、文档／凭据扫描及双架构镜像。最终本机64项顺序续跑与前6项通过证据分开记录，不把早期失败的完整命令改记为通过；备份容量环境失败未通过放宽策略处理。
+- 固定只读[云预检39085360953](https://github.com/zdaiwmm/shui-IM/actions/runs/39085360953)取得PREFLIGHT_OK。获批后固定入口`publish.mjs --cloud --with-readback --environment production --sha 05271513e506fb96148e73d8408d2a67b03f224a`核对精确DEPLOY_VERIFIED，[云发布39085661354](https://github.com/zdaiwmm/shui-IM/actions/runs/39085661354)回执成功时间`2026-10-18T01:16:50.338Z`，云发布入口248440毫秒；从`4e50ef59dc490cfd5fc6a79c2d6184deacc83596`实际切换一次，批次`20261018T011415Z`。正常production审核保留，工作流来源与应用均为获批SHA，未修改helper、云权限或访问控制。
+- 镜像`sha256:9b287e75ce707b383419fab8a86d4ab4268c5a2a36c02ffdb6ec2a229afac684`、归档摘要`aa9736b9c548b453f5ba9af6d5e324a27673eb8e0c66cb0257383bd588998ba3`、209942332字节、linux/amd64，绑定精确main CI／attempt 1。前两次独立回读分别于`2026-10-18T01:17:02.445Z`和`2026-10-18T01:19:34.398Z`开始，仅因本机SSH在密钥交换前被关闭而失败；公开健康200且数据库／存储正常。用户回复「已恢复SSH通路」后只续跑readback-only，没有再次部署。
+- 最终独立READBACK_OK于`2026-10-18T01:21:44.970Z`（北京时间09:21）完成，3156毫秒：应用／备份running且healthy，TURN运行且探针none；精确SHA／镜像、HTTPS／数据库／存储、公开与容器产物摘要及新WebSocket一致，维护门absent，管理员及通话启用。
+- 脱敏授权、验证、预检、发布及全部独立回读证据保存于公共Git元数据`quiet-room-deliveries/evidence/chamber-chat-continuity-20261018/production.json`及同目录关联文件。第二个无部署配置文档树基于实时main `05271513e506fb96148e73d8408d2a67b03f224a`对账，文档SHA不发布；本批资源按固定入口核验并保留检查回执，不处理其他任务。原生iPhone／iOS27／Safari、中文输入法与真实触控仍未独立验收；独立安全审阅未完成，高安全公开声明仍受[安全门槛](PRODUCTION_SECURITY_GATE.md)约束。下方均为历史生产快照。
+
 <a id="release-chamber-invite-lock-fixes-20261018"></a>
 ## Chamber 邀请与应用锁修复已发布（2026-10-18 01:40）
 

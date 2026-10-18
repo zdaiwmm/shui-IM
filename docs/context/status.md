@@ -1,5 +1,11 @@
 # Quiet Room 当前状态
 
+## Chamber 聊天接续与隐私交互修复已发布，真机待验收（2026-10-18 09:21）
+
+- 用户另行确认精确应用`05271513e506fb96148e73d8408d2a67b03f224a`发布，版本`2026.10.18.1`。[PR #338](https://github.com/zdaiwmm/shui-IM/pull/338)源d16c90b与应用完整文件树一致；八项V1、免原型／流程图及加入前样式门禁由[需求记录](../requirements/2026-10-18-chamber-chat-continuity/README.md)拥有，长期边界见D-066。精确PR／main完整CI均通过127文件／1012项、70浏览器入口、通话／TURN、审计及双架构镜像；本机容量和旧候选失败由需求／PR保留。
+- 固定云预检及唯一云发布取得PREFLIGHT_OK／DEPLOY_VERIFIED，从4e50ef5实际切换一次。前两次独立回读仅因本机SSH握手前关闭失败；用户恢复既有通路后只续跑同SHA readback-only，最终READBACK_OK于`2026-10-18T01:21:44.970Z`完成。应用／备份healthy，TURN运行且探针none；SHA／镜像、HTTPS／数据库／存储、产物及新WebSocket一致，维护门absent。精确回执和发布事实见[本轮发布记录](../../RELEASING.md#release-chamber-chat-continuity-20261018)。
+- 脱敏证据保存于公共Git元数据`quiet-room-deliveries/evidence/chamber-chat-continuity-20261018/production.json`；第二个无部署配置文档树对账，文档SHA不替代线上应用。本批资源按固定入口核验，活动、缓存及专属Git回执依规则保留，不处理其他任务。原生iPhone／iOS27／Safari、中文输入法及真实触控仍未独立验收，独立安全审阅未完成。下方均为历史状态。
+
 ## Chamber 邀请与应用锁修复已发布，真机待验收（2026-10-18 01:40）
 
 - 用户明确确认完整应用`4e50ef59dc490cfd5fc6a79c2d6184deacc83596`发布，版本`2026.10.17.3`。十项修复、Logo循环和本次免原型／流程图由[需求V1](../requirements/2026-10-18-chamber-invite-lock-fixes/README.md)拥有，长期边界见D-065。[PR #335](https://github.com/zdaiwmm/shui-IM/pull/335)源95c6ab1与应用完整文件树一致；最终[PR完整CI39052019190](https://github.com/zdaiwmm/shui-IM/actions/runs/39052019190)及[精确main CI39052728153](https://github.com/zdaiwmm/shui-IM/actions/runs/39052728153)通过127文件／1012项、69浏览器入口、通话／TURN、审计和双架构镜像；首轮及本机失败由需求／PR保留。
