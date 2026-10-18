@@ -289,6 +289,8 @@ Management verification retains its bounded foreground-only native ceremony and 
 
 ## Waiting-space deletion consistency
 
+All room-deletion paths durably queue attachment cleanup in the deletion transaction. Pending blob reservations continue to count against the global quota until pre-delete writers have drained and physical removal succeeds; failed cleanup remains retryable across restart. Deleted room IDs cannot be recreated while their directory cleanup is pending. Cleanup does not discover or erase pre-existing unindexed directories from older versions; those require separately reviewed maintenance.
+
 Deleting an unjoined room may include an opaque browser-catalog update in the same database transaction. The server authenticates the target room device and catalog write capability, checks the catalog revision, and rejects sealed rooms before either mutation. Directory contents remain encrypted; a lost success response can be reconciled from the authenticated catalog tombstone. Browser approval alone does not grant room deletion. Online unlocked catalog views poll for updates; offline views retain confirmed state until reconnection. Deletion markers suppress stale local rows and republishing; this is not remote erasure of historical exports.
 
 ## Bounded online message history and media cache

@@ -9,7 +9,7 @@ import { clearDraftCheckpoints, openDraftCheckpoint, type DraftSubmission } from
 import { normalizeMemeIndex, MAX_MEME_FAVORITES, MAX_MEME_LIBRARY_BYTES, MAX_MEME_BYTES, MEME_TYPES, type MemeFavorite } from './meme-media';
 import { MAX_PACK_BYTES, MAX_PACK_ITEMS, MAX_PACK_LIBRARY_BYTES, MAX_STICKER_PACKS, type StickerPack } from './sticker-library';
 import { downloadBlob } from './download';
-import { generateIdentity } from './crypto';
+import { encryptMessage, generateIdentity } from './crypto';
 import { createRecoveryRequest } from './mls';
 import { isMessagePayload, MAX_IMAGE_BYTES } from './message-payload';
 import { isGalleryMediaPayload } from './video-media';
@@ -2542,6 +2542,17 @@ export async function saveOutboxItem(session: VaultSession, item: OutboxItem, mu
     tx.onabort = () => { database.close(); reject(tx.error ?? staleVaultError()); };
     tx.onerror = () => reject(tx.error);
   });
+}
+
+/** Upgrade an older payload-only retry under the same cross-tab vault lease. */
+export async function prepareLegacyOutboxItem(session: VaultSession, clientMsgId: string, mutation?: VaultMutation): Promise<OutboxItem | undefined> {
+  if (!ownsVaultMutation(session, mutation)) return withVaultMutation(session, lease => prepareLegacyOutboxItem(session, clientMsgId, lease));
+  const item = (await loadOutbox(session)).find(candidate => candidate.clientMsgId === clientMsgId);
+  if (!item || item.envelope) return item;
+  if (session.vault.protocol === 'mls-rfc9420') throw new Error('MLS 待发密文缺失，已停止发送');
+  const prepared = { ...item, envelope: await encryptMessage(session.vault, item.payload, clientMsgId) };
+  await saveOutboxItem(session, prepared, mutation);
+  return prepared;
 }
 
 async function commitMlsVaultAndRecords(

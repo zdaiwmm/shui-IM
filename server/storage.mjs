@@ -406,7 +406,9 @@ export async function createStore({
     blob: db.prepare(`SELECT room_id, blob_id, chunk_count, expected_bytes, received_bytes, completed, created_at, updated_at
       FROM blobs WHERE room_id = ? AND blob_id = ?`),
     roomBlobBytes: db.prepare('SELECT COALESCE(SUM(expected_bytes), 0) AS bytes FROM blobs WHERE room_id = ?'),
-    totalBlobBytes: db.prepare('SELECT COALESCE(SUM(expected_bytes), 0) AS bytes FROM blobs'),
+    totalBlobBytes: db.prepare(`SELECT
+      (SELECT COALESCE(SUM(expected_bytes),0) FROM blobs) +
+      (SELECT COALESCE(SUM(blob_bytes),0) FROM pending_room_cleanup) AS bytes`),
     incompleteBlobCount: db.prepare('SELECT COUNT(*) AS count FROM blobs WHERE room_id = ? AND completed = 0'),
     blobChunk: db.prepare(`SELECT byte_length FROM blob_chunks
       WHERE room_id = ? AND blob_id = ? AND chunk_index = ?`),
@@ -423,6 +425,7 @@ export async function createStore({
     expiredBlobs: db.prepare('SELECT room_id, blob_id FROM blobs WHERE completed = 0 AND updated_at < ?'),
     orphanRooms: db.prepare(`SELECT rooms.room_id FROM rooms
       WHERE rooms.sealed_at IS NULL AND rooms.created_at < ?
+      AND NOT EXISTS (SELECT 1 FROM recovery_backups WHERE room_id = rooms.room_id)
       AND (SELECT COUNT(*) FROM members WHERE members.room_id = rooms.room_id) = 1`),
     deleteBlob: db.prepare('DELETE FROM blobs WHERE room_id = ? AND blob_id = ?'),
     upsertPushSubscription: db.prepare(`INSERT INTO push_subscriptions(
@@ -566,6 +569,7 @@ export async function createStore({
     db.exec('BEGIN IMMEDIATE');
     try {
       const existing = statements.room.get(roomId);
+      if (!existing && cloudBackups.cleanupPending(roomId)) throw new Error('STORAGE_QUOTA');
       if (existing) {
         const own = getMember(roomId, creatorBundle.deviceId);
         // A retry can recover the original response only with the exact public
@@ -613,6 +617,7 @@ export async function createStore({
       if (!room || !current || current.status !== 'active' || canonicalStringify(current.signingKey) !== canonicalStringify(source.signingKey)) throw new Error('UNAUTHORIZED');
       if (room.sealed_at || statements.memberCount.get(roomId).count > 1) throw new Error('ROOM_SEALED');
       browserCatalogs.saveForMember(catalog.id, current, catalog.value);
+      cloudBackups.enqueueRoomCleanup(roomId);
       db.prepare('DELETE FROM rooms WHERE room_id = ?').run(roomId);
       db.exec('COMMIT');
       return { deleted: true };
@@ -632,6 +637,7 @@ export async function createStore({
         if (!catalog || Object.keys(catalog).sort().join(',') !== 'id,value' || catalog.value?.roomId !== roomId) throw new Error('INVALID_BACKUP');
         browserCatalogs.save(catalog.id, accessToken, catalog.value);
       }
+      cloudBackups.enqueueRoomCleanup(roomId);
       const deleted = db.prepare('DELETE FROM rooms WHERE room_id = ?').run(roomId).changes > 0;
       db.exec('COMMIT');
       return { deleted };
@@ -1557,14 +1563,23 @@ export async function createStore({
     return removed;
   }
 
-  async function cleanupDeletedRooms() {
-    for (const roomId of cloudBackups.pendingCleanup()) {
-      // The room row is already gone, fencing new writers. Drain writes that
-      // had passed authentication before the delete, then remove originals.
-      await Promise.allSettled([...blobLocks.entries()].filter(([key]) => key.startsWith(`${roomId}:`)).map(([, promise]) => promise));
-      await rm(path.join(blobDir, roomId), { recursive: true, force: true });
-      cloudBackups.finishCleanup(roomId);
-    }
+  let roomCleanupTask = null;
+  function cleanupDeletedRooms() {
+    if (roomCleanupTask) return roomCleanupTask;
+    roomCleanupTask = (async () => {
+      let pending;
+      while ((pending = cloudBackups.pendingCleanup()).length) {
+        for (const roomId of pending) {
+          if (statements.room.get(roomId)) throw new Error('ROOM_CLEANUP_CONFLICT');
+          // Keep both the durable task and its quota reservation until all
+          // pre-delete writers have drained and filesystem removal succeeds.
+          await Promise.allSettled([...blobLocks.entries()].filter(([key]) => key.startsWith(`${roomId}:`)).map(([, promise]) => promise));
+          await rm(path.join(blobDir, roomId), { recursive: true, force: true });
+          cloudBackups.finishCleanup(roomId);
+        }
+      }
+    })().finally(() => { roomCleanupTask = null; });
+    return roomCleanupTask;
   }
 
   function cleanupOrphanRooms(cutoffIso) {
@@ -1574,6 +1589,7 @@ export async function createStore({
     try {
       for (const room of rooms) {
         if (chamberInvitations.exists(room.room_id)) continue;
+        cloudBackups.enqueueRoomCleanup(room.room_id);
         removed += db.prepare('DELETE FROM rooms WHERE room_id = ? AND sealed_at IS NULL AND NOT EXISTS (SELECT 1 FROM recovery_backups WHERE room_id = rooms.room_id)').run(room.room_id).changes;
       }
       db.exec('COMMIT');

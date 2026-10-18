@@ -654,7 +654,9 @@ export async function startServer(options = {}) {
           try { store.browserCatalogs.fetch(catalogId, bearerToken(request)); } catch { throw new Error('UNAUTHORIZED'); }
           const body = JSON.parse((await readBody(request, 4300000)).toString('utf8'));
           if (!body || body.catalog?.id !== catalogId || Object.keys(body).sort().join(',') !== 'catalog,proof') throw new Error('INVALID_JSON');
-          json(request, response, 200, await store.deletePendingRoom(pendingDeletion[1], body.proof, body.catalog));
+          const result = await store.deletePendingRoom(pendingDeletion[1], body.proof, body.catalog);
+          await store.cleanupDeletedRooms().catch(() => console.error('Deleted room file cleanup pending'));
+          json(request, response, 200, result);
         } catch (cause) {
           const code = cause instanceof Error ? cause.message : '';
           json(request, response, code === 'UNAUTHORIZED' ? 401 : ['ROOM_SEALED', 'BACKUP_CONFLICT'].includes(code) ? 409 : 400,
@@ -680,7 +682,9 @@ export async function startServer(options = {}) {
         catch { throw new Error('INVALID_JSON'); }
         if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(key => key !== 'catalog')) throw new Error('INVALID_JSON');
         try {
-          json(request, response, 200, store.deleteRoom(roomId, bearerToken(request), body.catalog));
+          const result = store.deleteRoom(roomId, bearerToken(request), body.catalog);
+          await store.cleanupDeletedRooms().catch(() => console.error('Deleted room file cleanup pending'));
+          json(request, response, 200, result);
         } catch (cause) {
           if (cause instanceof Error && cause.message === 'BACKUP_CONFLICT') {
             json(request, response, 409, { error: '空间目录正在更新，请重试', code: 'BACKUP_CONFLICT' });
@@ -1728,13 +1732,17 @@ export async function startServer(options = {}) {
     try {
       store.cleanupOrphanRooms(unjoinedCutoff);
       store.cleanupOrphanRooms(orphanCutoff);
+      void store.cleanupDeletedRooms().catch(() => console.error('Deleted room file cleanup pending'));
     } catch (error) {
       console.error('Orphan room cleanup failed:', error instanceof Error ? error.message : 'unknown');
     }
   }, Math.min(incompleteBlobTtlMs, 60 * 60 * 1000));
   cleanupTimer.unref?.();
   const orphanTimer = setInterval(() => {
-    try { store.cleanupOrphanRooms(new Date(Date.now() - orphanRoomTtlMs).toISOString()); }
+    try {
+      store.cleanupOrphanRooms(new Date(Date.now() - orphanRoomTtlMs).toISOString());
+      void store.cleanupDeletedRooms().catch(() => console.error('Deleted room file cleanup pending'));
+    }
     catch (error) { console.error('Orphan room cleanup failed:', error instanceof Error ? error.message : 'unknown'); }
   }, 60_000);
   orphanTimer.unref?.();

@@ -10,6 +10,8 @@ Chamber入口与隐私修订：创建直达保护、启动失败兜底和邀请�
 
 # Quiet Room 项目地图
 
+删除附件回收与旧协议重试：`server/storage.mjs`／`server/cloud-backups.mjs`的持久清理队列保留待清文件配额，`src/lib/vault.ts`／`src/app.ts`在发送前准备legacy待发密文。回归为`tests/room-cleanup.test.ts`、`tests/waiting-space-delete.test.ts`及`tests/vault-lifecycle.e2e.mjs`；范围与证据见[审计修复V1](../requirements/2026-10-18-audit-storage-legacy-fixes/README.md)。
+
 空间／语音十四项：`app.ts` 原参与者MLS启动／密文队列与导航，`browser-access.ts`目录等待状态、`platform-vault.ts`新保护WebView策略及`voice-recorder.ts`选区文件／冻结重试；实组件回归`tests/mobile-space-voice.e2e.mjs`／`voice-gestures.e2e.mjs`，范围与授权见[需求记录](../requirements/2026-10-15-mobile-space-voice/README.md)。
 
 移动端十项连续性修复：`src/lib/composer-panel-motion.ts`、`meme-picker.ts`及`app.ts`管理面板／键盘交接，`chat-keyboard-underlay`与输入行分别拥有其绘制平面；定向例在`tests/fixtures/mobile-ten-fixes.mjs`，由既有`mobile-safari-feedback.e2e.mjs`执行。确认与证据见[十项需求](../requirements/2026-10-15-mobile-ten-fixes/README.md)，长期参数见移动视觉规范V1.8。

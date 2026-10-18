@@ -33,13 +33,23 @@ it('authenticates before reading a deletion catalog and rejects malformed JSON w
   const dataDir=await mkdtemp(path.join(tmpdir(),'qr-delete-http-'));
   const server=await startServer({host:'127.0.0.1',port:0,dataDir,quiet:true});
   try {
-    const token='a'.repeat(43),room=server.store.createRoom(bundle(),token);
+    const token='a'.repeat(43),creator=await (await import('../src/lib/crypto')).generateIdentity();
+    const created=await fetch(`http://127.0.0.1:${server.port}/api/rooms`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({creatorBundle:creator.publicBundle,accessToken:token,inviteToken:'b'.repeat(43)})});
+    expect(created.status).toBe(201);
+    const room=await created.json();
     const url=`http://127.0.0.1:${server.port}/api/rooms/${room.roomId}`;
+    const blobId=crypto.randomUUID(),headers={Authorization:`Bearer ${token}`};
+    expect((await fetch(`${url}/blobs`,{method:'POST',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({blobId,chunkCount:1,encryptedSize:64})})).status).toBe(201);
+    expect((await fetch(`${url}/blobs/${blobId}/chunks/0`,{method:'PUT',headers,body:Buffer.alloc(64)})).status).toBe(200);
+    expect((await fetch(`${url}/blobs/${blobId}/complete`,{method:'POST',headers})).status).toBe(200);
     expect((await fetch(url,{method:'DELETE',headers:{Authorization:'Bearer '+'z'.repeat(43)},body:'{broken'})).status).toBe(401);
     expect((await fetch(url,{method:'DELETE',headers:{Authorization:`Bearer ${token}`},body:'{broken'})).status).toBe(400);
     expect(server.store.roomState(room.roomId)).not.toBeNull();
     expect((await fetch(url,{method:'DELETE',headers:{Authorization:`Bearer ${token}`}})).status).toBe(200);
     expect(server.store.roomState(room.roomId)).toBeNull();
+    expect(server.store.cloudBackups.pendingCleanup()).toEqual([]);
+    const {stat}=await import('node:fs/promises');
+    await expect(stat(path.join(dataDir,'blobs',room.roomId))).rejects.toMatchObject({code:'ENOENT'});
   } finally {await server.close();await rm(dataDir,{recursive:true,force:true});}
 });
 
@@ -70,7 +80,15 @@ it('allows a catalog management key to delete only its certified unjoined room, 
     await expect(store.deletePendingRoom(room.roomId,conflictProof,conflict)).rejects.toThrow('BACKUP_CONFLICT');
     expect(store.roomState(room.roomId)).not.toBeNull();
     expect(store.browserCatalogs.fetch(id,value.fetchToken).revision).toBe(1);
+    const blobId=crypto.randomUUID();
+    store.createBlob(room.roomId,blobId,1,64,creator.publicBundle.deviceId);
+    await store.putBlobChunk(room.roomId,blobId,0,Buffer.alloc(64),creator.publicBundle.deviceId);
     await expect(store.deletePendingRoom(room.roomId,proof,catalog)).resolves.toEqual({deleted:true});
+    expect(store.cloudBackups.pendingCleanup()).toEqual([room.roomId]);
+    await store.cleanupDeletedRooms();
+    expect(store.cloudBackups.pendingCleanup()).toEqual([]);
+    const {stat}=await import('node:fs/promises');
+    await expect(stat(path.join(dataDir,'blobs',room.roomId))).rejects.toMatchObject({code:'ENOENT'});
     expect(store.roomState(room.roomId)).toBeNull();
     expect(store.browserCatalogs.fetch(id,value.fetchToken).revision).toBe(2);
     const joined=store.createRoom(creator.publicBundle,token);
