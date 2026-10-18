@@ -1,5 +1,11 @@
 # Security model
 
+## Code renewal and forgotten-lock sequencing, 2026-10-18
+
+The [confirmed V1](docs/requirements/2026-10-18-chamber-invite-recovery/README.md) replaces Chamber's invitation-wide time expiry with a fixed 30-minute code expiry. Claim ownership, immutable candidate binding, creator-only code disclosure and transactional membership consumption remain. Renewal authenticates the original invite capability and claim secret, request/link version and code revision; one atomic compare-and-update issues the winning code/deadline. Delayed/replayed refreshes cannot extend a newer revision, and the immediately preceding code differs. Consumption checks the deadline and any supplied revision. Five cumulative errors still block both readiness and renewal; only explicit inviter rotation can reset that invitation. Closed/consumed/replaced capabilities cannot be revived. Persisted old time-expired claims remain eligible without changing keys or candidate identity.
+
+Forgotten-lock recovery may verify an imported full mnemonic before preparing new protection. It must match the existing local public root; the verified entropy is never persisted before encryption and is held only in the foreground for at most 60 seconds. Navigation, cancellation, hidden/pagehide/freeze and timeout clear it and reject late effects. Root replacement retains compare-and-swap and accepts an abort signal through the IndexedDB write; a wrong identity or cancelled transaction cannot overwrite protection. Existing room vaults/history are never rewritten by this reset. First-time root generation still requires prepared local protection, and new-device approval/history authorization remain independent. Removing Cancel/entrance motion from required numeric unlock does not bypass authentication or privacy teardown.
+
 ## Invitation verification correction, 2026-10-18
 
 The [confirmed V1](docs/requirements/2026-10-18-chamber-invite-lock-fixes/README.md) starts a rotated invitation's 30-minute deadline/code at successful rotation, before its later claim. The first claim never extends or replaces an already-issued deadline/code; an unclaimed rotated invite also expires. Code exposure is still creator-authenticated only, candidate readiness and exact claim/code/binding are still required for activation, and five failures still terminate the invite.

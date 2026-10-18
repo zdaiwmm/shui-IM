@@ -178,7 +178,7 @@ export async function joinRoom(
   deviceAccessToken?: string,
   deviceName = '此设备',
   capabilities: string[] = [],
-  chamber?: { secret: string; code: string; binding: import('./personal-device-binding').PersonalDeviceBinding },
+  chamber?: { secret: string; code: string; codeRevision?: number; binding: import('./personal-device-binding').PersonalDeviceBinding },
 ): Promise<RoomState> {
   const response = await authorizedFetch(`/api/rooms/${roomId}/join`, accessToken, {
     method: 'POST',

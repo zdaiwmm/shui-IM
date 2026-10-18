@@ -144,6 +144,47 @@ try {
   await a.clock.install(); await a.clock.fastForward(5*60_000);
   assert.deepEqual(await a.locator('.chamber-code-display > span').allTextContents(),earlyCode.split(''));
   await a.clock.setSystemTime(new Date());
+  // Expiry is real server-side state, not only a mocked countdown. Keep timers
+  // real in Node while advancing its wall clock and both browser clocks.
+  const RealDate = globalThis.Date, shiftedNow = RealDate.now()+31*60_000;
+  globalThis.Date = class extends RealDate {
+    constructor(...args) { super(...(args.length ? args : [RealDate.now()+31*60_000])); }
+    static now() { return RealDate.now()+31*60_000; }
+  };
+  try {
+    await b.clock.install({time:new RealDate(shiftedNow)}); await a.clock.setSystemTime(new RealDate(shiftedNow));
+    await b.evaluate(()=>app.renderPendingChamberJoin());
+    await b.locator('#chamber-refresh-code').waitFor();
+    assert.equal(await b.locator('[data-code-active]').isVisible(),false);
+    assert.equal(await b.getByText('本次邀请剩余',{exact:true}).count(),0);
+    await a.evaluate(async()=>{app.chamberInvitePolledAt=0;await app.pollChamberInvitation();});
+    assert.match(await a.locator('#chamber-invite-status').textContent(),/验证码已失效/);
+    assert.equal(await a.locator('.chamber-code-display').count(),0);
+    assert.equal(await a.locator('#copy-invite').textContent(),'复制邀请链接');
+    const refreshes=[];
+    const loseRefresh=async route=>{
+      if(route.request().method()!=='POST'||route.request().postDataJSON().action!=='refresh-code'){await route.continue();return;}
+      refreshes.push(route.request().postDataJSON().refreshId);
+      const response=await route.fetch();assert.equal(response.status(),200);
+      if(refreshes.length===1)await route.abort('connectionreset');else await route.fulfill({response});
+    };
+    await b.route('**/chamber-invitation',loseRefresh);
+    await b.locator('#chamber-refresh-code').click();
+    await b.waitForFunction(()=>document.querySelector('.chamber-code-card .form-error')?.textContent);
+    await b.locator('#chamber-refresh-code').click();
+    await b.locator('[data-code-active]').waitFor();
+    assert.equal(refreshes.length,2);assert.equal(refreshes[0],refreshes[1]);
+    const afterRefresh=await b.evaluate(()=>({root:app.session.vault.personalBinding.identity.id,...app.session.vault.pendingChamberInvitation}));
+    assert.equal(afterRefresh.root,before.root);assert.equal(afterRefresh.requestId,before.requestId);assert.equal(afterRefresh.version,before.version);
+    assert.equal(afterRefresh.codeRevision,2);
+    assert.equal(await b.evaluate(()=>app.session.stored.spaceId??'current'),oldSlot);
+    assert.equal(await a.locator('#invite-url').inputValue(),invite);
+    await a.evaluate(async()=>{app.chamberInvitePolledAt=0;await app.pollChamberInvitation();});
+    assert.notEqual(await a.evaluate(()=>app.chamberInviteState.code),earlyCode);
+    assert.equal(await a.locator('.chamber-code-display > span').count(),4);
+    await b.unroute('**/chamber-invitation',loseRefresh);
+    before=afterRefresh;
+  } finally { globalThis.Date=RealDate;await a.clock.setSystemTime(new RealDate());await b.clock.setSystemTime(new RealDate()); }
   const expiringVersion=await a.evaluate(()=>app.chamberInviteState.version);
   const rotationReplies=[];
   await a.evaluate(()=>{const put=IDBObjectStore.prototype.put;IDBObjectStore.prototype.put=function(...args){const request=put.apply(this,args);if(this.name==='vault'&&window.failNextRotationCommit){window.failNextRotationCommit=false;IDBObjectStore.prototype.put=put;this.transaction.abort();}return request;};});
@@ -153,12 +194,12 @@ try {
     if(route.request().method()==='POST'){
       rotationReplies.push({version:state.version,requestId:state.requestId,expiresAt:state.expiresAt});
       if(rotationReplies.length===1)await a.evaluate(()=>{window.failNextRotationCommit=true;});
-    }else if(state.version===expiringVersion){state.stage='expired';state.expiresAt=new Date(Date.now()-1000).toISOString();delete state.code;}
+    }else if(state.version===expiringVersion){state.stage='blocked';delete state.code;}
     await route.fulfill({response,json:state});
   };
   await a.route('**/chamber-invitation',expiredReply);
   await a.evaluate(async()=>{app.chamberInvitePolledAt=0;await app.pollChamberInvitation();});
-  await a.getByRole('button',{name:'邀请已超时，重新发起邀请',exact:true}).waitFor();
+  await a.getByRole('button',{name:'重新发起邀请',exact:true}).first().waitFor();
   assert.equal(await a.locator('#chamber-invite-restart').isVisible(),false);
   assert.equal(await a.getByText('本次邀请已结束',{exact:true}).count(),0);
   await a.locator('#copy-invite').click();
@@ -292,6 +333,9 @@ try {
   assert.equal(legacyUploads, 0);
   await a.screenshot({ path: '/private/tmp/chamber-chat-390.png' });
   await auditP1Surface(a,'chamber-chat','.chat-shell');
+  await a.locator('#chat-settings').click();await a.locator('#chamber-switch-space').click();
+  await a.locator('.is-space-list-page').waitFor();await a.getByRole('dialog',{name:'私密空间',exact:true}).getByRole('button',{name:'关闭',exact:true}).click();
+  await a.locator('.space-drawer-overlay').waitFor({state:'detached'});
   await a.locator('[data-personal-guide="mnemonic"]').click(); await a.locator('[data-personal-show]').click(); await submitPassword(a, '246810');
   await a.locator('.chamber-mnemonic-grid li').first().waitFor();
   await a.locator('.password-sheet').waitFor({ state: 'detached' });
@@ -403,6 +447,52 @@ try {
   await b.locator('[data-personal-approve]').click();await submitPassword(b,'135790');await c.locator('#message-input').waitFor();
   assert.equal(await c.getByText('Synthetic fresh generation',{exact:true}).count(),0);
   await b.locator('#message-input').fill('Synthetic after generation-two device approval');await b.locator('#composer').evaluate(form=>form.requestSubmit());await c.getByText('Synthetic after generation-two device approval',{exact:true}).waitFor();
+  // Forgotten daily lock opens identity verification before any new-lock setup.
+  const originalIdentity=await c.evaluate(async()=>JSON.stringify(await(await import('/src/lib/vault.ts')).readPersonalIdentity()));
+  const originalSlot=await c.evaluate(()=>app.session.stored.spaceId??'current');
+  await c.reload();await c.locator('.numeric-password-mandatory').waitFor();
+  assert.equal(await c.getByRole('button',{name:'取消',exact:true}).count(),0);
+  await c.getByRole('button',{name:'忘记密码？',exact:true}).click();await c.locator('#personal-import-form').waitFor();
+  assert.equal(await c.locator('.numeric-password-page').count(),0);
+  for(const viewport of [{width:320,height:568},{width:390,height:664},{width:390,height:844}]) {
+    await c.setViewportSize(viewport);
+    const geometry=await c.locator('.chamber-identity-import').evaluate(page=>({scroll:page.scrollHeight,height:page.clientHeight,actions:page.querySelector('.chamber-import-actions').getBoundingClientRect().bottom,overflow:document.documentElement.scrollWidth>innerWidth}));
+    assert.ok(geometry.scroll<=geometry.height+1&&geometry.actions<=viewport.height+1&&!geometry.overflow,JSON.stringify({viewport,geometry}));
+  }
+  await c.setViewportSize({width:390,height:844});
+  if(evidence)await c.screenshot({path:path.join(evidence,'forgot-identity-empty.png')});
+  await fillFormInput(c,c.locator('.chamber-import-grid input').first(),words[0]);
+  await c.locator('#personal-import-back').click();await c.locator('.numeric-password-mandatory').waitFor();
+  assert.equal(await c.evaluate(async()=>JSON.stringify(await(await import('/src/lib/vault.ts')).readPersonalIdentity())),originalIdentity);
+  await c.getByRole('button',{name:'忘记密码？',exact:true}).click();await c.locator('#personal-import-form').waitFor();
+  assert.equal(await c.locator('.chamber-import-grid input').evaluateAll(nodes=>nodes.every(node=>!node.value)),true);
+  // Another valid identity must not reset this browser's root wrapper.
+  const otherWords=await c.evaluate(async()=>{const p=await import('/src/lib/personal-identity.ts');return p.personalMnemonicFromEntropy(new Uint8Array(16).fill(71)).split(' ');});
+  for(const [index,input] of (await c.locator('.chamber-import-grid input').all()).entries())try{await fillFormInput(c,input,otherWords[index]);}catch{throw new Error('Synthetic non-owner phrase input failed; values omitted');}
+  otherWords.fill('');await c.locator('#personal-import-form [type=submit]').click();
+  await c.getByText(/不属于此浏览器保管的身份/).waitFor();
+  assert.equal(await c.locator('.numeric-password-page').count(),0);
+  assert.equal(await c.evaluate(async()=>JSON.stringify(await(await import('/src/lib/vault.ts')).readPersonalIdentity())),originalIdentity);
+  for(const [index,input] of (await c.locator('.chamber-import-grid input').all()).entries())try{await fillFormInput(c,input,words[index]);}catch{throw new Error('Synthetic forgotten-lock phrase input failed; values omitted');}
+  await c.locator('#personal-import-form [type=submit]').click();await c.locator('.numeric-password-page').waitFor();
+  assert.equal(await c.locator('h2').last().textContent(),'设置应用锁');
+  await submitPassword(c,'223344');await c.locator('.chamber-restore-space').waitFor();
+  const reset=await c.evaluate(async()=>{const v=await import('/src/lib/vault.ts');const stored=await v.readPersonalIdentity();return{identity:stored.identity.id,record:JSON.stringify(stored)};});
+  assert.notEqual(reset.record,originalIdentity);
+  assert.equal(reset.identity,JSON.parse(originalIdentity).identity.id);
+  assert.equal(await c.evaluate(async id=>(await import('/src/lib/vault.ts')).localSpaceExists(id),originalSlot),true);
+  const abortedReset=await c.evaluate(async words=>{
+    const v=await import('/src/lib/vault.ts'),p=await import('/src/lib/personal-identity.ts'),envelope=await import('/src/lib/personal-identity-vault.ts'),protection=await import('/src/lib/password-protection.ts');
+    const expected=await v.readPersonalIdentity(),entropy=p.personalEntropyFromMnemonic(words.join(' ')),credential=await protection.deriveNumericPasswordCredential('334455');
+    const candidate=await envelope.preparePersonalIdentity(credential,entropy);entropy.fill(0);
+    const controller=new AbortController(),put=IDBObjectStore.prototype.put;let aborted=false;
+    IDBObjectStore.prototype.put=function(...args){const request=put.apply(this,args);if(this.name==='security'&&args[1]===`chamber:personal:${expected.identity.id}`)controller.abort();return request;};
+    try {await v.replacePersonalIdentityProtection(expected,candidate,controller.signal);}
+    catch(cause){aborted=cause?.name==='AbortError';}
+    finally{IDBObjectStore.prototype.put=put;app.releasePersonalCredential(credential);}
+    return{aborted,unchanged:JSON.stringify(await v.readPersonalIdentity())===JSON.stringify(expected)};
+  },words);
+  assert.deepEqual(abortedReset,{aborted:true,unchanged:true},'Cancellation during root-wrapper write must roll back');
   bWords.fill('');
   words.fill('');
   assert.deepEqual(errors, []);

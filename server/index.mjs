@@ -141,6 +141,7 @@ function normalizeError(error) {
     ['INVALID_RECOVERY_REQUEST', [400, '恢复请求无效，或原设备已被替换']],
     ['UNAUTHORIZED', [401, '设备凭证无效或已停用']],
     ['INVITATION_ENDED', [410, '邀请已结束，请让邀请方重新发起邀请']],
+    ['INVITATION_CODE_EXPIRED', [410, '验证码已超时，请重新获取验证码']],
     ['INVITATION_CLAIMED', [409, '该密室已被其他人进入，请联系邀请方']],
     ['ROOM_CREATE_CONFLICT', [409, '本次密室创建凭据不一致，请保留本机身份后重试']],
     ['INVITATION_CODE_INVALID', [400, '验证码不正确，请核对本次请求编号后重试']],
@@ -843,6 +844,9 @@ export async function startServer(options = {}) {
         if (!store.authenticateInvite(roomId, token) || !store.chamberInvitations.exists(roomId)) throw new Error('UNAUTHORIZED');
         if (body.action === 'claim') {
           json(request, response, 200, store.chamberInvitations.claim(roomId, body.secret)); return;
+        }
+        if (body.action === 'refresh-code') {
+          json(request, response, 200, store.chamberInvitations.refreshCode(roomId, body.secret, body)); return;
         }
         if (body.action === 'ready' && validatePublicBundle(body.bundle) && typeof body.proof === 'string' && body.proof.length <= 512 &&
           await verifyPersonalDeviceBinding(body.binding, body.bundle)) {

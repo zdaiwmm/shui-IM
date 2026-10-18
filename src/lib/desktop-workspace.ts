@@ -13,7 +13,7 @@ export class DesktopWorkspace {
   private focusSelected = false;
   private page: HTMLElement | null = null;
   constructor(private root: HTMLElement, private options: {
-    context: () => { owner: object; signal: AbortSignal } | null;
+    context: () => { owner: object; signal: AbortSignal; sidebar?: boolean } | null;
     mount: (host: HTMLElement, signal: AbortSignal) => Promise<void>;
     beforeLayout: () => (() => void);
   }) {
@@ -46,16 +46,17 @@ export class DesktopWorkspace {
     const page = [...this.root.children].find((node): node is HTMLElement => node instanceof HTMLElement && node.matches(pages) && !node.classList.contains('page-transition-outgoing'));
     if (!context || context.signal.aborted || !page) { this.clear(); return; }
     const wide = this.media.matches;
-    const changed = this.active !== wide || this.root.dataset.sidebarCollapsed !== String(this.collapsed) || this.page !== page;
+    const sidebar = context.sidebar !== false, collapsed = !sidebar || this.collapsed;
+    const changed = this.active !== wide || this.root.dataset.sidebarCollapsed !== String(collapsed) || this.page !== page;
     const restore = changed ? this.options.beforeLayout() : () => {};
     this.page = page;
     this.root.dataset.desktopWorkspace = String(wide);
-    this.root.dataset.sidebarCollapsed = String(this.collapsed);
+    this.root.dataset.sidebarCollapsed = String(collapsed);
     if (this.host && (!this.host.isConnected || this.owner !== context.owner)) {
       this.lifetime?.abort(); this.host.remove(); this.host = null;
     }
-    if (!wide && this.host) { this.lifetime?.abort(); this.host.remove(); this.host = null; }
-    if (wide && !this.host) {
+    if ((!wide || !sidebar) && this.host) { this.lifetime?.abort(); this.host.remove(); this.host = null; }
+    if (wide && sidebar && !this.host) {
       const host = document.createElement('aside'); host.className = 'desktop-sidebar'; host.setAttribute('aria-label', '私密空间导航');
       this.host = host; this.owner = context.owner; this.lifetime = new AbortController();
       const signal = AbortSignal.any([context.signal, this.lifetime.signal]);
@@ -69,7 +70,7 @@ export class DesktopWorkspace {
     }
     if (this.host) { this.host.hidden = !wide || this.collapsed; this.host.inert = Boolean(this.root.querySelector(':scope > [aria-modal="true"]:not(.is-closing)')); }
     const header = page.querySelector<HTMLElement>('.chat-header,.subpage-header,.gallery-header,.space-drawer-header,header');
-    if (wide && header && !header.querySelector('#open-spaces,#access-spaces,.desktop-sidebar-toggle')) {
+    if (wide && sidebar && header && !header.querySelector('#open-spaces,#access-spaces,.desktop-sidebar-toggle')) {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'icon-button desktop-sidebar-toggle';
       button.innerHTML = createElement(PanelLeftOpen).outerHTML; header.prepend(button);
     }

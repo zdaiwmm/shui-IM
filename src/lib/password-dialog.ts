@@ -10,6 +10,7 @@ export type PasswordRequestOptions<T> = {
   presentation?: 'page' | 'sheet'; spaceName?: string; operation?: string; submitLabel?: string;
   passwordFormat?: 'numeric-6'; retryAfterMs?: () => Promise<number>;
   showBrowserHint?: boolean;
+  mandatory?: boolean;
 };
 
 /** One fresh operation-bound proof. Cancelling or hiding rejects late results; reading and typing have no deadline. */

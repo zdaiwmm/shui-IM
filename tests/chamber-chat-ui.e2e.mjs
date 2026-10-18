@@ -61,6 +61,7 @@ try {
   assert.ok(sheet.height>=844*.45&&sheet.height<=844*.65,JSON.stringify(sheet));
   await capture('wait-duration-half-sheet');
   await page.locator('.auto-lock-duration-sheet').press('Escape');await page.clock.runFor(300);
+  await page.locator('.auto-lock-duration-sheet').waitFor({state:'detached'});
   assert.equal(await page.locator('.auto-lock-duration-sheet').count(),0);
   assert.equal(await page.evaluate(()=>document.activeElement.classList.contains('auto-lock-duration')),true);
   await page.evaluate(()=>{fixture.fresh(0);fixture.app.renderCoverPractice();});await page.clock.runFor(300);
@@ -73,6 +74,20 @@ try {
   await page.locator('.practice-hotspot').focus();await page.keyboard.down('Enter');await page.clock.runFor(1100);await page.keyboard.up('Enter');await page.clock.runFor(300);
   assert.equal(await page.locator('#skip-cover').evaluate(node=>getComputedStyle(node).backgroundColor),'rgba(0, 0, 0, 0)');
   await capture('cover-choice');
+  for(const width of [390,1024,1440]) {
+    await page.setViewportSize({width,height:844});
+    await page.evaluate(()=>{fixture.session.vault.role='creator';fixture.fresh(0);});await page.clock.runFor(500);
+    const header=await page.locator('.chamber-chat-header').evaluate(node=>{
+      const capsule=node.querySelector('.chamber-presence-capsule').getBoundingClientRect(),settings=node.querySelector('#chat-settings').getBoundingClientRect();
+      return{sameRow:Math.abs(capsule.y+capsule.height/2-settings.y-settings.height/2)<1,separated:capsule.right<=settings.left,settingsTarget:settings.width,sidebars:document.querySelectorAll('.desktop-sidebar,.desktop-sidebar-toggle').length};
+    });
+    assert.ok(header.sameRow&&header.separated&&header.settingsTarget>=44&&header.sidebars===0,JSON.stringify({width,header}));
+    await capture(`chamber-header-${width}`);
+  }
+  // This component fixture has a deliberately non-UUID room and no valid
+  // encrypted space directory. The real settings/list path is in chamber-flow.
+  await page.evaluate(()=>fixture.app.mountPrivateSpaceDrawer(fixture.session,[],fixture.app.runtimeAbort.signal,'chat',0,'settings'));
+  assert.equal(await page.locator('#chamber-switch-space').isVisible(),true);
   assert.deepEqual(errors,[]);
   console.log('Chamber chat UI: keyboard-following guidance, theme separation, readiness guard, half sheet and cover alignment passed (synthetic component evidence).');
 } finally { await fixture.close(); }

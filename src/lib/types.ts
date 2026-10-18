@@ -126,7 +126,7 @@ export type Vault = {
   personalPeers?: import('./personal-device-binding').PersonalDeviceBinding[];
   /** Durable creator intent. No room services start before server readback. */
   pendingChamberCreate?: true;
-  pendingChamberInvitation?: { secret: string; requestId: string; version: number; expiresAt: string };
+  pendingChamberInvitation?: { secret: string; requestId: string; version: number; expiresAt: string; codeRevision?: number; refreshId?: string };
   pendingChamberHistoryRecovery?: string;
   chamberHistoryRestoreProgress?: {requestId:string;scopeHash:string;doneHeads:string[];count:number;imported:number;
     current?:{headId:string;next:{id:string;digest:string}|null;upper:number}};

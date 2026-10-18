@@ -4,8 +4,8 @@ import type { PublicBundle } from './types';
 export type ChamberInvitation = {
   v: 1; creatorBinding: PersonalDeviceBinding; joinerBinding: PersonalDeviceBinding | null;
   migration?: 'preparing';
-  version: number; requestId: string | null; expiresAt: string | null;
-  stage: 'available' | 'preparing' | 'code' | 'expired' | 'joined'; code?: string;
+  version: number; requestId: string | null; expiresAt: string | null; codeRevision?: number;
+  stage: 'available' | 'preparing' | 'code' | 'code-expired' | 'blocked' | 'expired' | 'joined'; code?: string;
   candidate?: { bundle: PublicBundle; proof: string; binding: PersonalDeviceBinding };
 };
 export async function chamberInvitation(roomId: string, token: string, body?: unknown, signal?: AbortSignal): Promise<ChamberInvitation> {

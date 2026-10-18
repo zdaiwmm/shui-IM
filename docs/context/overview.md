@@ -1,3 +1,5 @@
+Chamber验证码续接与忘记应用锁：`server/chamber-invitations.mjs`区分长期邀请／30分钟码，`src/app.ts`管理双端过期与重取、先核对身份再设新锁；根包装取消写入在`src/lib/vault.ts`，桌面无侧栏由`desktop-workspace.ts`控制。范围与授权见[本轮V1](../requirements/2026-10-18-chamber-invite-recovery/README.md)，长期边界D-067、视觉V1.15；专项为邀请单测及Chamber／数字／桌面浏览器。
+
 Chamber邀请／应用锁修订：重发立即出码与截止、原位卡片、统一数字验证及单次邀请验证在`src/app.ts`／`password-dialog.ts`，双PRF操作在`platform-vault.ts`，过期及占位在`server/chamber-invitations.mjs`。范围、豁免及验证由[本次V1](../requirements/2026-10-18-chamber-invite-lock-fixes/README.md)拥有，视觉参数为移动规范V1.13；不表示已部署或真机通过。
 
 Chamber入口与隐私修订：创建直达保护、启动失败兜底和邀请状态在`src/app.ts`；占位即生成验证码在`server/chamber-invitations.mjs`，本机倒计时默认关及离开开关在`src/lib/idle-lock.ts`。界面与品牌使用`entry-experience.css`、`entry-art.ts`、`numeric-password.css`；边界见D-064及[本轮记录](../requirements/2026-10-17-chamber-refine/README.md)，专项为Chamber／数字密码／隐私／设置浏览器及邀请／idle-lock单测。

@@ -369,14 +369,19 @@ export async function saveNewPersonalIdentity(stored: import('./personal-identit
 
 /** Explicit full-mnemonic recovery may replace only this identity's protection.
  * It never rewrites or deletes any room vault, history or other identity. */
-export async function replacePersonalIdentityProtection(expected:import('./personal-identity-vault').StoredPersonalIdentity,next:import('./personal-identity-vault').StoredPersonalIdentity):Promise<void> {
+export async function replacePersonalIdentityProtection(expected:import('./personal-identity-vault').StoredPersonalIdentity,next:import('./personal-identity-vault').StoredPersonalIdentity,signal?:AbortSignal):Promise<void> {
+  signal?.throwIfAborted();
   const {validStoredPersonalIdentity}=await import('./personal-identity-vault');
   if(!validStoredPersonalIdentity(expected)||!validStoredPersonalIdentity(next)||canonicalStringify(expected.identity)!==canonicalStringify(next.identity))throw new Error('不能替换其他身份的应用锁');
   const database=await openDatabase();
+  if(signal?.aborted){database.close();signal.throwIfAborted();}
   await new Promise<void>((resolve,reject)=>{
     const tx=database.transaction('security','readwrite'),store=tx.objectStore('security'),id=`chamber:personal:${expected.identity.id}`;let stale=false;
-    const current=store.get(id);current.onsuccess=()=>{if(canonicalStringify(current.result)!==canonicalStringify(expected)){stale=true;tx.abort();return;}store.put(next,id);};
-    tx.oncomplete=()=>{database.close();resolve();};tx.onabort=()=>{database.close();reject(stale?new Error('身份应用锁已被另一页面更新，请重新开始'):tx.error??new Error('身份应用锁未能保存'));};
+    const abort=()=>{try{tx.abort();}catch{/* Already committed or aborted. */}};
+    signal?.addEventListener('abort',abort,{once:true});
+    const finish=()=>{signal?.removeEventListener('abort',abort);database.close();};
+    const current=store.get(id);current.onsuccess=()=>{if(signal?.aborted||canonicalStringify(current.result)!==canonicalStringify(expected)){stale=!signal?.aborted;tx.abort();return;}store.put(next,id);};
+    tx.oncomplete=()=>{finish();resolve();};tx.onabort=()=>{finish();reject(signal?.aborted?signal.reason:stale?new Error('身份应用锁已被另一页面更新，请重新开始'):tx.error??new Error('身份应用锁未能保存'));};
   });
   if(canonicalStringify(await readPersonalIdentity(next.identity.id))!==canonicalStringify(next))throw new Error('身份应用锁保存回读不一致');
 }

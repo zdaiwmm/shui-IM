@@ -12,7 +12,7 @@ async function open(options = {}) {
     window.numericProof = null; window.numericCalls = 0;
     window.numericAbort = new AbortController();
     void requestPassword(document.querySelector('#app'), {
-      create: options.create, showBrowserHint: options.showBrowserHint, presentation: options.operation ? 'sheet' : 'page', passwordFormat: 'numeric-6',
+      create: options.create, mandatory: options.mandatory, showBrowserHint: options.showBrowserHint, presentation: options.operation ? 'sheet' : 'page', passwordFormat: 'numeric-6',
       title: '空间密码', context: '合成数字密码验收', spaceName: '合成空间',
       signal: window.numericAbort.signal, isActive: () => true, forgot: () => { window.numericForgot = true; },
       retryAfterMs: options.waitFailure ? async () => { throw Error('Synthetic retry state unavailable'); }
@@ -32,6 +32,17 @@ async function open(options = {}) {
 }
 const digit = async value => { for (const number of value) await page.locator(`[data-digit="${number}"]`).click(); };
 try {
+  await open({mandatory:true,motionSample:true});
+  assert.equal(await page.locator('.numeric-password-page').evaluate(node=>getComputedStyle(node).transform),'none');
+  assert.equal(await page.locator('.numeric-password-page').evaluate(node=>node.getAnimations().some(a=>a instanceof CSSTransition)),false);
+  assert.equal(await page.getByRole('button',{name:'取消',exact:true}).count(),0);
+  await page.locator('.numeric-password-page').press('Escape');await page.clock.runFor(500);
+  assert.equal(await page.locator('.numeric-password-page').count(),1,'Required unlock cannot be dismissed with Escape');
+  await digit('01');await page.getByRole('button',{name:'删除',exact:true}).click();
+  assert.equal(await page.locator('.numeric-password-dots .filled').count(),1);
+  await page.getByRole('button',{name:'忘记密码？',exact:true}).click();await page.clock.runFor(500);
+  assert.equal(await page.evaluate(()=>numericForgot),true);
+  assert.equal(await page.evaluate(()=>numericProof),'cancelled');
   await open({motionSample:true});
   const start = await page.evaluate(() => numericEntryStart);
   assert.ok(start.x >= start.width - 1, JSON.stringify(start));
@@ -141,7 +152,7 @@ try {
   await page.evaluate(()=>{document.documentElement.style.fontSize='16px';});
   await page.setViewportSize({width:390,height:844});
   await page.route('**/api/rooms/privacy-fixture',route=>route.fulfill({status:401,contentType:'application/json',body:JSON.stringify({code:'UNAUTHORIZED',error:'Synthetic unaccepted candidate'})}));
-  await page.route('**/api/rooms/privacy-fixture/chamber-invitation',route=>route.fulfill({contentType:'application/json',body:JSON.stringify({requestId:'synthetic-invite',version:1})}));
+  await page.route('**/api/rooms/privacy-fixture/chamber-invitation',async route=>route.fulfill({contentType:'application/json',body:JSON.stringify({requestId:'synthetic-invite',version:1,expiresAt:await page.evaluate(()=>fixture.session.vault.pendingChamberInvitation.expiresAt)})}));
   for(let round=0;round<3;round++) {
     await page.evaluate(()=>{
       const {session,app}=fixture;session.vault.role='joiner';session.vault.pairingState='joining';
