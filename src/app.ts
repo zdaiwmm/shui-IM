@@ -4084,6 +4084,8 @@ export class QuietRoomApp {
     const epoch = this.runtimeEpoch;
     this.runtimeAbort?.abort();
     this.runtimeAbort = new AbortController();
+    if (this.inlineInviteTimer !== null) window.clearInterval(this.inlineInviteTimer);
+    this.inlineInviteTimer = null;
     this.scheduleIdleLock();
     if (session.vault.pendingChamberCreate) { this.renderPendingChamberCreate(); return; }
     if (session.vault.pendingChamberReopen) { this.renderChamberReopen(); return; }
@@ -5406,7 +5408,9 @@ export class QuietRoomApp {
 
   private async pollChamberInvitation(): Promise<void> {
     const session = this.session, epoch = this.runtimeEpoch;
-    if (!session?.vault.personalBinding || session.vault.pendingChamberInvitation || document.hidden || this.accessFailure ||
+    if (!session?.vault.personalBinding || session.vault.pendingChamberCreate || session.vault.pendingChamberReopen ||
+      session.vault.pendingChamberInvitation || session.vault.pendingPersonalDevice ||
+      session.vault.pairingState && session.vault.pairingState !== 'ready' || document.hidden || this.accessFailure ||
       !this.isRuntimeActive(epoch, session) || this.chamberInvitePolling || Date.now() - this.chamberInvitePolledAt < 3000) return;
     const ready = () => this.peerHasJoined(session) && session.vault.mls?.phase === 'active';
     if (ready()) return;
@@ -5414,7 +5418,7 @@ export class QuietRoomApp {
     try {
       const signal = this.runtimeAbort
         ? AbortSignal.any([this.runtimeAbort.signal, AbortSignal.timeout(15_000)]) : AbortSignal.timeout(15_000);
-      if (session.vault.role === 'creator' && !this.peerHasJoined(session)) {
+      if (session.vault.role === 'creator' && !this.peerHasJoined(session) && (session.vault.chamberLifecycle?.version ?? 1) === 1) {
         const state = await chamberInvitation(session.vault.roomId, session.vault.accessToken, undefined, signal);
         if (!this.isRuntimeActive(epoch, session)) return;
         if (canonicalStringify(state.creatorBinding) !== canonicalStringify(session.vault.personalBinding)) throw new SecurityViolation('邀请中的身份绑定已改变');
