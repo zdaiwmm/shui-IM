@@ -725,6 +725,10 @@ export class RoomSocket {
     this.heartbeatTimer = null;
   }
 
+  get connected(): boolean {
+    return !this.closed && this.authenticated && this.socket?.readyState === WebSocket.OPEN;
+  }
+
   close(): void {
     this.desiredPresenceView = 'away';
     this.flushChatPresence();

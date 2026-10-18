@@ -1,5 +1,11 @@
 # Quiet Room Design System
 
+## Chamber chat continuity correction, 2026-10-18
+
+The [confirmed V1](docs/requirements/2026-10-18-chamber-chat-continuity/README.md) retains P1 foundations and 44px targets. Privacy guidance belongs to the timeline throughout invitation and active chat, preserving one keyboard/scroll owner. Focused Chamber headers remain transparent; dark invitation, code and guide cards mix 88% paper / 12% ink in OKLCH without an ordinary rim. Activation preserves the mounted chat shell, composer and reading position.
+
+Auto-lock duration uses the shared 240ms half-sheet lifecycle at 54dvh (540px maximum), scrolling its existing choices. Selection saves and closes; cancellation changes nothing and failures retain the old choice. Its page has no persistent saved label. A sole bottom Back action uses the neutral surface and R12. The cover notice aligns its vertical center with the 80px hot zone and leaves at least 40px for outward rings; the defer button is transparent. Numeric pages commit the offscreen 100% transform before reveal, then use the existing 280ms horizontal transition; six 12px dots use uniform 1px borders. Reduced motion and synchronous privacy teardown remain authoritative. Current parameters and regression examples are recorded in the maintained mobile standard.
+
 ## Chamber invitation and privacy correction, 2026-10-18
 
 The [confirmed V1](docs/requirements/2026-10-18-chamber-invite-lock-fixes/README.md) retains P1 palettes, system type and 44px minimum hit targets. Numeric keys contain only centered digits; setup, daily and sensitive-operation numeric verification share one opaque page with 280ms horizontal entry/exit. Privacy removal remains synchronous and reduced motion bypasses travel.

@@ -9,7 +9,7 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, ...(options.signal ? [options.signal] : [])]);
     const sheet = document.createElement('section');
-    sheet.className = `confirm-overlay password-sheet password-page numeric-password-page ${options.create ? 'password-create' : 'password-return'}`;
+    sheet.className = `confirm-overlay password-sheet password-page numeric-password-page dialog-surface ${options.create ? 'password-create' : 'password-return'}`;
     const id = `numeric-password-${crypto.randomUUID()}`;
     sheet.setAttribute('role', 'dialog'); sheet.setAttribute('aria-modal', 'true'); sheet.setAttribute('aria-labelledby', id);
     sheet.innerHTML = `<form class="confirm-dialog password-form numeric-password-form" novalidate>
@@ -55,7 +55,11 @@ export function requestNumericPassword<T>(root: HTMLElement, options: PasswordRe
     root.append(sheet);
     const viewport = layoutViewport();
     const fit = () => { const height = viewport?.height ?? window.innerHeight; sheet.style.setProperty('--password-viewport-height', `${height}px`); sheet.style.top = `${viewport?.offsetTop ?? 0}px`; sheet.style.bottom = 'auto'; sheet.style.height = `${height}px`; };
-    fit(); viewport?.addEventListener('resize', fit, { signal }); viewport?.addEventListener('scroll', fit, { signal });
+    fit();
+    // Commit the offscreen starting canvas before the dialog's next-frame reveal.
+    // Otherwise first mount and is-visible can share a style update and skip travel.
+    void getComputedStyle(sheet).transform;
+    viewport?.addEventListener('resize', fit, { signal }); viewport?.addEventListener('scroll', fit, { signal });
     const dialog = mountDialog(sheet, { signal, isActive: active, initialFocus: sheet, onClose: cancel });
     signal.addEventListener('abort', cancel, { once: true });
     document.addEventListener('visibilitychange', () => { if (document.hidden) cancel(); }, { signal });

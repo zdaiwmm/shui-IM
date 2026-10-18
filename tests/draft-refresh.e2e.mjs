@@ -221,6 +221,12 @@ try {
     // unlock snapshot. The deliberate conflicting write below belongs after
     // openSession is paused, so rejection must be tested at that boundary.
     await reopened.evaluate(async () => {
+      // Keep only the deliberate writer below. Initial unlock now has real
+      // page travel; ordinary backup/transport/viewport writes must not race
+      // its stored snapshot before this test's controlled openSession barrier.
+      app.socket?.close();
+      clearInterval(app.backupTimer); app.backupTimer = null;
+      app.cancelViewportWork();
       await app.saveUiPreferencesNow();
       await Promise.all([app.preferenceSaveChain, app.membershipChain, app.sendChain]);
     });

@@ -153,6 +153,8 @@ CI 镜像与双独立环境：`scripts/ci-image.mjs`、`scripts/deploy-config.mj
 
 ### 邀请、恢复及接入状态定向回归
 
+Chamber聊天卡片随键盘滚动、透明浮动顶栏、加入前样式门禁、时长半屏及遮蔽演练对齐由`tests/chamber-chat-ui.e2e.mjs`覆盖真实组件；`tests/chamber-flow.e2e.mjs`另覆盖邀请方停留设置、丢失连接后的加密接续及首次聊天节点保留。确认和证据见[聊天接续V1](../requirements/2026-10-18-chamber-chat-continuity/README.md)，合成视口不代表iPhone真机。
+
 `tests/audit-interactions.e2e.mjs` 使用本地合成服务、独立浏览器密钥和虚拟认证器，覆盖同标签邀请取消重开、恢复读取重试／关闭／限流／隐藏、添加设备批准自动安装、锁定续接、返回草稿与设备撤销发送守卫；已纳入 `npm run test:browser` 第二组。可附目录参数保存脱敏截图；不代表 iPhone 真机或跨平台通行密钥同步验证。
 
 即时设置／四套整体配色／桌面应用入口：`src/lib/appearance.ts`、`src/appearance.css`、`src/lib/app-access.ts`、`public/manifest.webmanifest`；入口由 `src/app.ts` 与扁平 `space-drawer.ts` 承载。回归 `tests/settings-appearance.e2e.mjs`、`appearance.test.ts`、`desktop-access.test.ts`、`desktop-session-flow.e2e.mjs` 和 `draft-refresh.e2e.mjs`；真实系统安装、原生通行密钥及iPhone证据单列。[确认范围](../requirements/2026-10-10-settings-appearance-desktop/README.md)取代旧默认60秒和桌面每次锁后验证的描述。
