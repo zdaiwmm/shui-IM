@@ -1,5 +1,16 @@
 # Quiet Room 固定发布流程
 
+<a id="release-chamber-mobile-refinements-20261018"></a>
+## Chamber 九项移动交互修订已发布（2026-10-18 23:03）
+
+- 用户确认九项V1并明确免原型／流程图；展示完整应用`a0136ba5574d5489b7f565ceff56cef9a6114f18`、版本`2026.10.18.3`、完整CI、预检和真机缺口后，回复「确认，发布生产」。本次授权仅绑定该精确应用，无独立消息permalink；需求与失败历史由[需求V1](docs/requirements/2026-10-18-chamber-mobile-refinements/README.md)拥有，长期边界D-068及视觉V1.16。
+- [PR #342](https://github.com/zdaiwmm/shui-IM/pull/342)源`a95f3603b5cda55ab74a7c173125500dde795862`与上述应用完整文件树一致。[精确PR完整CI39135415938](https://github.com/zdaiwmm/shui-IM/actions/runs/39135415938) attempt 2及[精确main完整CI39136579275](https://github.com/zdaiwmm/shui-IM/actions/runs/39136579275) attempt 1成功，含1013项单测、全部70浏览器入口、通话／TURN、文档、凭据扫描、依赖审计、双架构镜像和完整verify。PR首次WebKit合成通知密钥初始化NotSupportedError保留，原样重跑失败分片一次通过，未改产品绕过；本机70入口为31＋39分段覆盖，最终小屏备份专项通过，不充当最终干净SHA证明；10项本机备份传输受容量门禁阻断的失败保留。
+- 固定[云预检39137393603](https://github.com/zdaiwmm/shui-IM/actions/runs/39137393603)核对该SHA的PREFLIGHT_OK。首次workflow查询GET因TLS超时失败，按唯一请求ID核实未创建远端任务后才重新通过固定入口预检。正常production审核保留；预检审核仅作用于已核验的doctor请求。
+- 用户确认后，固定入口`publish.mjs --cloud --with-readback --environment production --sha a0136ba5574d5489b7f565ceff56cef9a6114f18`核对精确DEPLOY_VERIFIED，[云发布39138037282](https://github.com/zdaiwmm/shui-IM/actions/runs/39138037282)成功回执时间`2026-10-18T14:58:08.849Z`，入口云发布291711毫秒；工作流来源与应用均为获批SHA，从`0e781e37f9222c0615ee8a1d9b336af8b6cf6053`实际切换一次，批次`20261018T145522Z`。未修改helper、云权限或环境规则。
+- 镜像`sha256:a29a13f63bd3d51ceb71f9f223e10038bbae052dad6826d543f93fa364b3e724`、归档摘要`dd8599af2d7acf45dfdb90da36930af6f81a2f8e1f89ad771b5b57dc8aaab540`、209956130字节、linux/amd64，绑定精确main CI／attempt 1。首次独立回读于`2026-10-18T14:58:37.517Z`仅因备份starting失败；应用healthy、精确SHA／镜像匹配、维护门absent。只读核对备份启动`2026-10-18T14:57:54.694607077Z`及既有5分钟interval／startPeriod后，仅续跑同SHA readback-only，未再次部署。
+- 最终独立READBACK_OK于`2026-10-18T15:03:38.721Z`（北京时间23:03）完成，3299毫秒：应用／备份running且healthy，TURN运行且探针none；精确SHA／镜像、HTTPS／数据库／存储、公开及容器产物、新WebSocket均通过，维护门absent，管理员与通话启用。
+- 脱敏授权、预检、发布和两次回读证据保存于公共Git元数据`quiet-room-deliveries/evidence/chamber-mobile-refinements-20261018/delivery.json`，位于任务树及专属Git目录之外。第二个无部署配置文档树基于上述应用对账，文档SHA不发布；本批资源依固定清理门禁处理，缓存／专属回执／活动或归属不明资源保留，不处理其他任务。原生iPhone／iOS27／Safari与独立安全审阅仍未完成，高安全公开声明继续受[安全门槛](PRODUCTION_SECURITY_GATE.md)约束。下方为历史生产快照。
+
 <a id="release-chamber-invite-recovery-20261018"></a>
 ## Chamber 验证码续接与身份找回已发布（2026-10-18 11:03）
 
