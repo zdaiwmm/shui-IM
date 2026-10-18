@@ -1,9 +1,11 @@
 # Quiet Room 当前状态
 
-## Chamber 九项移动交互候选验证中（2026-10-18）
+## Chamber 九项移动交互修订已发布，真机待验收（2026-10-18 23:03）
 
-- 用户确认[九项V1](../requirements/2026-10-18-chamber-mobile-refinements/README.md)，明确免原型／流程图直接实施、合并并请求生产；精确生产SHA仍须最终单独确认。独占`codex/chamber-mobile-refinements-20261018`基于实时核实的`a4b920f`，版本`2026.10.18.3`，长期边界D-068及视觉V1.16。
-- 构建、20项定向单测、数字密码、连续12词／八套明暗四格、双内核布局和370展示通过；70个浏览器入口已按31＋39分段覆盖，含完整Chamber双端／恢复／媒体／隐私。该结果不充当最终干净SHA证明。[PR #342](https://github.com/zdaiwmm/shui-IM/pull/342)候选CI的1013项单测、双架构镜像与通话／TURN通过，浏览器旧短列表／底栏定位断言和混合鼠标触控夹具已按事件证据收尾，失败历史保存在需求记录。最终精确PR／main完整CI待完成，未合并、未发布，原生iPhone真机未验收。下方为已有生产快照。
+- 用户明确免原型／流程图并确认[九项V1](../requirements/2026-10-18-chamber-mobile-refinements/README.md)，随后另行确认完整应用`a0136ba5574d5489b7f565ceff56cef9a6114f18`发布，版本`2026.10.18.3`。[PR #342](https://github.com/zdaiwmm/shui-IM/pull/342)源a95f360与应用完整文件树一致，长期边界D-068及视觉V1.16。
+- [精确PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39135415938) attempt 2、[精确main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39136579275) attempt 1均成功，含1013项单测、70浏览器入口、通话／TURN、审计、文档／凭据扫描及双架构镜像。通知WebKit初始化一次原样复验、本机31＋39分段及容量失败、小屏20px溢出修复等证据由需求记录拥有；原失败保留，不混作最终干净SHA验证。
+- 固定云预检取得PREFLIGHT_OK，唯一云发布核对精确DEPLOY_VERIFIED。首次独立回读仅因备份starting失败；核对实际启动及既有5分钟探针后，只续跑readback-only，于`2026-10-18T15:03:38.721Z`取得READBACK_OK。应用／备份healthy、TURN运行且探针none；SHA／镜像、HTTPS／数据库／存储、产物及新WebSocket一致，维护门absent。完整发布事实由[本轮记录](../../RELEASING.md#release-chamber-mobile-refinements-20261018)拥有。
+- 脱敏证据保存于公共Git元数据`quiet-room-deliveries/evidence/chamber-mobile-refinements-20261018/delivery.json`；第二个无部署配置文档树仅对账，文档SHA不替代线上应用。资源依固定清理门禁处理，不处理其他任务。原生iPhone／iOS27／Safari及独立安全审阅未完成；下方为历史状态。
 
 ## Chamber 验证码续接与身份找回已发布，真机待验收（2026-10-18 11:03）
 
