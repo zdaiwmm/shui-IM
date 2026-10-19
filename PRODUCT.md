@@ -1,5 +1,9 @@
 # Product
 
+## Participant invitation reentry, 2026-10-19
+
+The [confirmed V1](docs/requirements/2026-10-19-chamber-invite-reentry/README.md) routes an existing browser through its normal local unlock before consuming a participant invitation. The encrypted local directory selects an existing room; an unfinished Chamber join resumes its encrypted original claim rather than claiming again. A matched room must retain its original creator fingerprint. Once the participant entry is handed off, the current history entry becomes the same-origin root `/`, with no query or fragment, document reload, extra history entry or redirect notice; existing history state is preserved. An already-used invitation alone cannot enroll a new browser; identity recovery and existing device approval remain separate. Device, repair and recovery links retain their own routing.
+
 ## Legacy room migration retired, 2026-10-19
 
 The [confirmed retirement](docs/requirements/2026-10-19-remove-legacy-migration/README.md) removes old-room migration entry points, binding, verification receipts, staging and joint cutover from the client and service. Stored incomplete bindings do not activate Chamber services. Existing encrypted records, rooms and attachments are retained without automatic restore or deletion. Legacy rooms keep their ordinary recovery-card and backup flows; new and already converted Chamber rooms keep mnemonic recovery and joint history integrity checks. Compatibility backup links still return normally.

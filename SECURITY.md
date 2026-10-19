@@ -1,5 +1,9 @@
 # Security model
 
+## Participant invitation reentry, 2026-10-19
+
+An old participant URL is a navigation target, never evidence of current membership. Existing encrypted local vaults and the encrypted room directory remain behind normal application-lock verification; matching the room also checks the original creator fingerprint. Reentry uses the existing device credential and normal lifecycle/membership checks, without reactivating the consumed invite or generating a replacement endpoint. An unfinished local join uses its encrypted pending claim; losing sessionStorage cannot justify a new claimant. Canonical URL replacement preserves no invitation capability in a new plaintext routing index. New browsers still require identity recovery and the existing opposite-participant approval. The [confirmed scope](docs/requirements/2026-10-19-chamber-invite-reentry/README.md) grants no device, history or recovery capability through URL cleanup.
+
 ## Chamber mobile corrections, 2026-10-18
 
 The [confirmed nine-item scope](docs/requirements/2026-10-18-chamber-mobile-refinements/README.md) changes invitation rotation to clear request, claimant, candidate, code and deadline atomically with its existing capability rotation. A unique later claim starts the fixed code lifetime; unused replacement links have no pre-issued code. Old capabilities/claims cannot activate; retry idempotency, creator-only code disclosure, immutable candidate binding, five cumulative errors and transaction-bound membership consumption remain.

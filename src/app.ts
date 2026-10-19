@@ -1495,8 +1495,10 @@ export class QuietRoomApp {
       (invitation.kind === 'device' || invitation.kind === 'repair');
     const replaceChamberInvite = vault?.pairingState === 'joining' && !!vault.pendingChamberInvitation &&
       invitation.kind === 'participant' && invitation.invite.roomId === vault.roomId && invitation.invite.accessToken !== (vault.inviteToken??vault.accessToken);
+    const resumeChamberInvite = vault?.pairingState === 'joining' && !!vault.pendingChamberInvitation &&
+      invitation.kind === 'participant' && invitation.invite.roomId === vault.roomId && invitation.invite.accessToken === (vault.inviteToken??vault.accessToken);
     if (this.routingInvitation || this.nativeSurfaceActive() || vault?.pendingJointRecovery || vault?.pendingRepair ||
-        vault?.pendingRecovery || (!replaceEndedDeviceTask && !replaceChamberInvite && vault?.pairingState && vault.pairingState !== 'ready')) {
+        vault?.pendingRecovery || (!replaceEndedDeviceTask && !replaceChamberInvite && !resumeChamberInvite && vault?.pairingState && vault.pairingState !== 'ready')) {
       history.replaceState(null, '', location.pathname + location.search);
       if (!this.privacyCovered) this.showNotice('当前任务尚未完成。新邀请未打开，请完成当前任务后重新打开新邀请。', 'error');
       return;
@@ -1566,10 +1568,6 @@ export class QuietRoomApp {
     document.body.className = 'app-mode';
     const preparedStored = trustedCoverActivation ? this.coverStoredVault : null;
     this.coverStoredVault = null;
-    if (inviteLink.kind === 'participant') {
-      if (!canRender()) return;
-      this.renderJoin(inviteLink.invite); return;
-    }
     if (preparedStored?.v === 3 && preparedStored.unlockMethod === 'platform') {
       // renderUnlock has no await when supplied a record. It mounts the retry
       // UI and starts navigator.credentials.get in this activation stack;
@@ -1583,14 +1581,15 @@ export class QuietRoomApp {
     if (hasVault) {
       // A second hash event can be rejected while the first storage read is in
       // flight. Keep the first validated target through original-vault unlock.
-      if (jointEntry || inviteLink.kind !== 'invalid') history.replaceState(null, '', location.pathname + location.search + entryHash);
+      if (jointEntry || inviteLink.kind !== 'invalid') history.replaceState(inviteLink.kind === 'participant' ? history.state : null, '', location.pathname + location.search + entryHash);
       const stored = await readStoredVault();
       if (!canRender()) return;
       if (!stored) this.renderCorruptVault();
       else void this.renderUnlock(stored, trustedCoverActivation, autoUnlock);
     }
     else {
-      if (inviteLink.kind === 'device') this.renderJoinDevice(inviteLink.invite);
+      if (inviteLink.kind === 'participant') this.renderJoin(inviteLink.invite);
+      else if (inviteLink.kind === 'device') this.renderJoinDevice(inviteLink.invite);
       else if (inviteLink.kind === 'repair') this.renderJoinRepair(inviteLink.invite);
       else {const profile=await readBrowserAccessRecord() as {record?:PlatformCredentialRecord}|undefined;if(!canRender())return;if(profile?.record)this.renderBrowserAccessUnlock(profile.record);else this.renderFirstRun(null);}
     }
@@ -3354,9 +3353,9 @@ export class QuietRoomApp {
     this.root.querySelector('.gateway-back')?.addEventListener('click', () => this.transitionPage('backward', () => this.renderFirstRun(null)));
   }
 
-  private renderJoin(invite: Invite): void {
+  private renderJoin(invite: Invite, existingProtection?: StoredVault): void {
     const epoch = this.runtimeEpoch;
-    history.replaceState(null, '', location.pathname + location.search);
+    history.replaceState(history.state, '', '/');
     this.gatewayTemplate('正在检查邀请', '确认此邀请仍可加入后，再准备你的身份。', '<p role="status">正在确认邀请状态…</p>', false, 'plain');
     const page = this.root.querySelector('.gateway');
     const active = () => this.runtimeEpoch === epoch && !this.privacyCovered && !!page?.isConnected;
@@ -3384,21 +3383,27 @@ export class QuietRoomApp {
       const claim = await chamberInvitation(invite.roomId, invite.accessToken, { action: 'claim', secret }, AbortSignal.timeout(15_000));
       if (!active()) return;
       if (!claim.requestId || !claim.expiresAt) throw new Error('邀请状态不完整，请联系邀请方重新发起');
-      this.renderJoinProtection(invite, { secret, requestId: claim.requestId, version: claim.version, expiresAt: claim.expiresAt, codeRevision: claim.codeRevision });
+      this.renderJoinProtection(invite, { secret, requestId: claim.requestId, version: claim.version, expiresAt: claim.expiresAt, codeRevision: claim.codeRevision }, false, existingProtection);
     })().catch(cause => {
       if (!active()) return;
+      if (cause instanceof ApiError && cause.code === 'INVITATION_CLAIMED') {
+        this.gatewayTemplate('此邀请已使用', '如果你已加入，请使用原浏览器进入；换了浏览器或清除了数据，可通过本人助记词找回身份。', '<button class="primary-button" id="join-identity-restore" type="button">找回我的身份</button><button class="text-button" id="join-unavailable-back" type="button">返回</button>', false, 'plain');
+        this.root.querySelector('#join-identity-restore')!.addEventListener('click', () => this.renderPersonalRestoreProtection());
+        this.root.querySelector('#join-unavailable-back')!.addEventListener('click', () => this.renderFirstRun(null));
+        return;
+      }
       this.gatewayTemplate('此邀请暂时无法加入', '请联系邀请方重新发起邀请', '<button class="primary-button" id="join-unavailable-retry" type="button">重新检查邀请</button><button class="text-button" id="join-unavailable-back" type="button">返回</button>', false, 'plain');
       if (cause instanceof Error) this.root.querySelector('.gateway-heading p')!.textContent = cause.message;
-      this.root.querySelector('#join-unavailable-retry')?.addEventListener('click', () => this.renderJoin(invite));
+      this.root.querySelector('#join-unavailable-retry')?.addEventListener('click', () => this.renderJoin(invite, existingProtection));
       this.root.querySelector('#join-unavailable-back')?.addEventListener('click', () => this.renderFirstRun(null));
     });
   }
 
-  private renderJoinProtection(invite: Invite, claim?: NonNullable<Vault['pendingChamberInvitation']>,checkedIdentity=false): void {
+  private renderJoinProtection(invite: Invite, claim?: NonNullable<Vault['pendingChamberInvitation']>,checkedIdentity=false, existingProtection?: StoredVault): void {
     if(claim&&!checkedIdentity) {
       this.gatewayTemplate('正在读取本机身份','已有身份会继续使用。','',false,'plain');const page=this.root.querySelector('.gateway'),epoch=this.runtimeEpoch;
       void readPersonalIdentity().then(stored=>{if(!page?.isConnected||this.runtimeEpoch!==epoch||this.privacyCovered)return;
-        if(!stored){void readStoredVault().then(local => {
+        if(!stored){void (existingProtection ? Promise.resolve(existingProtection) : readStoredVault()).then(local => {
           if (!page?.isConnected || this.runtimeEpoch !== epoch || this.privacyCovered) return;
           if (local?.v === 3 && local.unlockMethod !== 'recovery') this.renderExistingVaultChamberJoin(invite, claim, local);
           else this.renderJoinProtection(invite,claim,true);
@@ -4108,7 +4113,7 @@ export class QuietRoomApp {
     if (!this.idleDeadline) this.resetIdleLock();
     let invitation = classifyInviteHash(location.hash);
     let jointEntry = parseJointRecoveryLink(location.href);
-    const hasIncomingIntent = invitation.kind !== 'invalid' || Boolean(jointEntry) || /^#(?:invite|device|repair|recover)(?:=|&|$)/.test(location.hash);
+    let hasIncomingIntent = invitation.kind !== 'invalid' || Boolean(jointEntry) || /^#(?:invite|device|repair|recover)(?:=|&|$)/.test(location.hash);
     const openingEpoch = this.runtimeEpoch;
     const spaces = await rememberLocalSpace(session, this.newSpaceCollectionCode);
     if (!this.isRuntimeActive(openingEpoch, session)) return;
@@ -4116,16 +4121,29 @@ export class QuietRoomApp {
     this.currentSpaceName = spaces.find(space => space.roomId === session.vault.roomId)?.name ?? '私密空间';
     this.currentSpaceAvatar = spaces.find(space => space.roomId === session.vault.roomId)?.avatar;
     this.inviteReturnToSpaces ||= spaces.length > 1;
+    if (invitation.kind === 'participant' && invitation.invite.roomId === session.vault.roomId &&
+        invitation.invite.creatorFingerprint !== session.vault.creatorFingerprint) {
+      throw new SecurityViolation('邀请与本机密室的创建者身份不一致');
+    }
     // Preserve the encrypted provisional slot while a rotated invitation is
     // checked. The personal root is separate and reused after local verification.
     if (invitation.kind === 'participant' && session.vault.pairingState === 'joining' && session.vault.pendingChamberInvitation &&
       invitation.invite.roomId === session.vault.roomId && invitation.invite.accessToken !== (session.vault.inviteToken??session.vault.accessToken)) {
       await this.beginNewSpace(invitation); return;
     }
+    // Resume the durable encrypted claim, even if this tab has lost its cache.
+    if (invitation.kind === 'participant' && session.vault.pairingState === 'joining' && session.vault.pendingChamberInvitation &&
+        !session.vault.pendingJointRecovery && !session.vault.pendingRepair && !session.vault.pendingRecovery &&
+        invitation.invite.roomId === session.vault.roomId &&
+        invitation.invite.accessToken === (session.vault.inviteToken ?? session.vault.accessToken)) {
+      history.replaceState(history.state, '', '/');
+      invitation = { kind: 'invalid' }; hasIncomingIntent = false;
+    }
     if (hasIncomingIntent &&
         (session.vault.pendingJointRecovery || session.vault.pendingRepair || session.vault.pendingRecovery ||
         (session.vault.pairingState && session.vault.pairingState !== 'ready'))) {
-      history.replaceState(null, '', location.pathname + location.search);
+      if (invitation.kind === 'participant') history.replaceState(history.state, '', '/');
+      else history.replaceState(null, '', location.pathname + location.search);
       invitation = { kind: 'invalid' }; jointEntry = null;
       this.showNotice('当前任务尚未完成。新邀请未打开，请完成当前任务后重新打开新邀请。', 'error');
     }
@@ -4136,7 +4154,8 @@ export class QuietRoomApp {
         await this.beginNewSpace(invitation);
         return;
       }
-      history.replaceState(null, '', location.pathname + location.search);
+      if (invitation.kind === 'participant') history.replaceState(history.state, '', '/');
+      else history.replaceState(null, '', location.pathname + location.search);
     }
     this.returnSpaceId = null;
     // Re-opening after an archive restore first commits any already hydrated
@@ -6015,6 +6034,7 @@ export class QuietRoomApp {
 
   private async beginNewSpace(invitation?: Exclude<ReturnType<typeof classifyInviteHash>, { kind: 'invalid' }>): Promise<void> {
     if (this.session && (await localSpaces(this.session)).length >= 256) throw new Error('本机空间数量已达上限');
+    const existingProtection = this.session?.stored;
     const code = this.session?.vault.spaceRecoveryCode;
     const previous = this.session ? vaultSpaceId(this.session.stored) : currentSpaceId();
     if (!await this.leaveSpace()) return;
@@ -6025,7 +6045,8 @@ export class QuietRoomApp {
     this.scheduleIdleLock();
     if (invitation?.kind === 'device') this.renderJoinDevice(invitation.invite);
     else if (invitation?.kind === 'repair') this.renderJoinRepair(invitation.invite);
-    else this.renderFirstRun(invitation?.kind === 'participant' ? invitation.invite : null);
+    else if (invitation?.kind === 'participant') this.renderJoin(invitation.invite, existingProtection);
+    else this.renderFirstRun(null);
   }
 
   private async rememberSpacePreview(session: VaultSession, signal: AbortSignal): Promise<void> {
