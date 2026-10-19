@@ -1,5 +1,12 @@
 # Quiet Room 当前状态
 
+## 个人根挑战与旧加入重放修复已发布（2026-10-19 08:10）
+
+- 用户确认完整应用`b7a90f4708ffaa3c5599f9e98db4851fd28485c2`发布，版本`2026.10.18.5`。[PR #346](https://github.com/zdaiwmm/shui-IM/pull/346)源253c313与应用完整文件树一致；IM-SHUI-003/004的真实复现、匿名签发不占身份额度、根签名原子消费兼容及已撤销join重试拒绝由[需求V1](../requirements/2026-10-19-audit-challenge-join-fixes/README.md)拥有。未证明明文泄露或旧设备恢复权限。
+- [精确PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39176736736)及[精确main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39178072775)均attempt 1成功，含130文件/1028项、70浏览器入口、通话/TURN、审计及双架构镜像。本机41项定向通过；容量10项失败、69/70分段浏览器和未定位的本机合成动画两次失败由需求/PR保留，不能记为本机全量或真机通过。
+- 固定云预检取得PREFLIGHT_OK，唯一云发布核对DEPLOY_VERIFIED，从618aa5c实际切换一次。首次独立回读仅backup starting失败，核对实际5分钟探针/启动期后只续跑同SHA readback-only；`2026-10-19T00:10:18.475Z`取得READBACK_OK。应用/备份healthy，TURN运行且探针none；SHA/镜像、HTTPS/数据库/存储、公开/容器产物及新WebSocket一致，维护门absent。完整事实见[本轮发布记录](../../RELEASING.md#release-audit-challenge-join-20261019)。
+- 脱敏证据在公共Git元数据`quiet-room-deliveries/evidence/audit-challenge-join-fixes-20261019/delivery.json`；第二独立文档树对账，文档SHA不替代线上应用。本批资源依固定门禁核验，其他任务保留。原生iPhone/iOS27/Safari与独立安全审阅仍未完成；下方为历史状态。
+
 ## 附件回收与旧协议重试修复已发布（2026-10-19 01:06）
 
 - 用户确认完整应用`618aa5c2e3e59b4bb669949c021d4d0f47dcb635`发布，版本`2026.10.18.4`。[PR #344](https://github.com/zdaiwmm/shui-IM/pull/344)源cf077d5与应用完整文件树一致；两项审计复现、持久清理／额度和legacy-v1同字节重试边界由[需求V1](../requirements/2026-10-18-audit-storage-legacy-fixes/README.md)拥有。历史无索引孤立文件需另行受控盘点。
