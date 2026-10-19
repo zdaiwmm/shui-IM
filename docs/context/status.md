@@ -1,9 +1,11 @@
 # Quiet Room 当前状态
 
-## 旧空间迁移入口与返回补修实施中（2026-10-19）
+## 旧空间迁移入口与返回补修已发布（2026-10-19 16:32）
 
-- 用户明确[直接补齐V1](../requirements/2026-10-19-chamber-migration-entry/README.md)、合并并要求发布；基线和规则来源为`f8742a8d6d5b1326fbb97a2a360e2484c8a47647`。本轮只补正常设置入口及兼容路由消费，原设备历史保留、双根授权和完整性校验保留。
-- 实际设置点击、冷／热兼容入口、身份绑定后返回和迁移成功收起入口正在本机验证；不把私有渲染调用或源文件存在当作用户入口已验收。尚未发布本轮，线上事实见下方既有发布记录。
+- 用户确认完整应用`073fe5f25b6fa1af684d9b9deb1a377bfa897b2b`发布，版本`2026.10.19.2`。[PR #350](https://github.com/zdaiwmm/shui-IM/pull/350)源265db00与应用完整文件树一致；[需求V1](../requirements/2026-10-19-chamber-migration-entry/README.md)拥有直接补齐正常设置入口、兼容返回及桌面设置重开修复。入口为「聊天 → 设置 → 旧空间迁移」，保留原设备历史、双人确认和完整性校验，无额外设备验证。
+- [精确PR完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39215161679)与[精确main完整CI](https://github.com/zdaiwmm/shui-IM/actions/runs/39217296436)均attempt 1成功，含132文件／1049项、70浏览器入口、通话、依赖审计及双架构镜像。本机实际手机参数／桌面设置、冷／热／绑定后兼容返回、完整迁移及新密室入口收起均通过；check:full首轮spaces夹具失败、一次复验与34项续跑保留，不混作本机单次完整成功。
+- 固定只读云预检取得PREFLIGHT_OK，唯一云发布核对精确DEPLOY_VERIFIED，从5acd37b实际切换一次。首次独立回读仅备份starting失败，核对实际启动与既有5分钟探针后，仅续跑同SHA readback-only，于`2026-10-19T08:32:24.039Z`取得READBACK_OK。应用／备份healthy，TURN运行且探针none；SHA／镜像、HTTPS／数据库／存储、产物及新WebSocket一致，维护门absent。完整事实见[本轮发布记录](../../RELEASING.md#release-chamber-migration-entry-20261019)。
+- 脱敏证据在公共Git元数据`quiet-room-deliveries/evidence/chamber-migration-entry-return-20261019/`；第二独立文档树仅对账，文档SHA不替代线上应用。本批资源依固定门禁核验，其他任务保留。原生iPhone／iOS27／Safari及独立安全审阅未完成；下方为历史状态。
 
 ## 原设备完整迁移与十二项界面修订已发布（2026-10-19 13:37）
 
